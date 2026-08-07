@@ -105,27 +105,31 @@ describe("OpportunityProcessCenter tek ilerletme düğmesi", () => {
 });
 
 describe("OpportunityProcessCenter alan görev listesiyle ilişkisi", () => {
-  it("alan görevlerini kendi kutusunda barındıracak yuvayı yayımlar", () => {
-    // Görevler kutunun İÇİNDE görünür; ama panel'i kutu mount etmez, yalnız
-    // içeriğinin taşınacağı DOM yuvasını yayımlar.
-    expect(source).toContain("export function subscribeChecklistSlot");
-    expect(source).toContain("export function getChecklistSlot");
-    expect(source).toContain("ref={checklistSlotRef}");
-    expect(source).toContain("publishChecklistSlot(salesCase.id, node)");
-    // Yuva fırsat kimliğine göre: sayfa ve dialog aynı anda açıkken paneller
-    // birbirinin kutusuna düşmemeli.
-    expect(source).toContain("const checklistSlots = new Map<string, HTMLElement>()");
-    // Panel boşken yuva ne çerçeve ne boşluk bırakmalı.
+  it("alan görevlerini kendi gövdesinde render eder", () => {
+    // Görevler kutunun İÇERİĞİ: prop olarak gelir, doğrudan burada render
+    // edilir. Portal ve modül düzeyinde yuva kaydı kaldırıldı — geri gelmesi
+    // eski kırılgan tasarıma dönüş demektir.
+    expect(source).toContain("checklist?: (context: { reload: () => Promise<void> }) => ReactNode");
+    // Render prop: kutu kendi tazelemesini panele veriyor, böylece görev
+    // kaydedilince kutunun engelleri de güncelleniyor.
+    expect(source).toContain("{checklist?.({ reload: load })}");
+    expect(source).not.toContain("checklistSlots");
+    expect(source).not.toContain("publishChecklistSlot");
+    expect(source).not.toContain("checklistSlotRef");
+    // Görev listesi boşken kapsayıcı ne çerçeve ne boşluk bırakmalı.
     expect(source).toContain("empty:hidden");
+    // "Görevlere git" kaydırmasının indiği çapa görev kapsayıcısında.
+    expect(source).toContain('id="opportunity-process-actions"');
   });
 
   it("paneli kendisi mount etmez; üst bileşenin prop bağını korur", () => {
-    // Kutu paneli kendi render etseydi `requestedAction`/`onActionHandled`
-    // bağı kopar, engel düğmeleri yine sessizce hiçbir şey yapmazdı.
+    // Kutu paneli kendi import edip mount etseydi `requestedAction`/
+    // `onActionHandled` bağı kopar, engel düğmeleri sessizce hiçbir şey
+    // yapmazdı. Element üst bileşende yaratılır, burada yalnız render edilir.
     expect(source).not.toContain('from "./ProcessChecklistPanel"');
     expect(source).not.toContain("<ProcessChecklistPanel");
-    expect(workspaceSource).toContain("processChecklist?: ReactNode");
-    expect(workspaceSource).toContain('<div id="opportunity-process-actions"');
+    // Görevler kutunun dışında ikinci bir sarmalayıcıda durmamalı.
+    expect(workspaceSource).not.toContain("processChecklist");
   });
 
   it("süreç merkezinin render edildiği her yolda görev listesini de mount eder", () => {

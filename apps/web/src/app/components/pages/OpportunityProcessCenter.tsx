@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { ArrowRight, Check, CircleAlert, Loader2, LockKeyhole, Pencil, XCircle } from "lucide-react";
 import {
   type OpportunityProcessActionKey,
@@ -45,45 +45,6 @@ export type OpportunityProcessDetail = {
 };
 
 /**
- * Alan görevleri panelinin (`ProcessChecklistPanel`) yuvası.
- *
- * Görevler artık satış alanı kutusunun İÇİNDE. Ama paneli mount eden üst
- * bileşenler (SalesCaseDetail / OpportunityWorkspace) engel düğmelerinin
- * isteğini (`requestedAction`) ve dialog açan aksiyonları kendi state'lerine
- * bağlamış durumda; paneli buradan yeniden mount etmek o bağı koparır ve engel
- * düğmeleri yine sessizce hiçbir şey yapmazdı. Bu yüzden panel üst bileşende
- * kalır, yalnız içeriğini `createPortal` ile bu yuvaya taşır.
- *
- * Yuva fırsat kimliğine göre yayımlanır: sayfa ve dialog aynı anda açıksa her
- * panel kendi kartının yuvasını bulur.
- */
-const checklistSlots = new Map<string, HTMLElement>();
-const checklistSlotListeners = new Set<() => void>();
-
-function publishChecklistSlot(caseId: string, node: HTMLElement | null) {
-  if (node) {
-    if (checklistSlots.get(caseId) === node) return;
-    checklistSlots.set(caseId, node);
-  } else if (!checklistSlots.delete(caseId)) {
-    return;
-  }
-  checklistSlotListeners.forEach((listener) => listener());
-}
-
-/** `useSyncExternalStore` aboneliği: yuva mount/unmount olunca panel yeniden render olur. */
-export function subscribeChecklistSlot(listener: () => void) {
-  checklistSlotListeners.add(listener);
-  return () => {
-    checklistSlotListeners.delete(listener);
-  };
-}
-
-/** Yuva düğümü; kutu mount değilse ya da hazırlık verisi yoksa null. */
-export function getChecklistSlot(caseId: string): HTMLElement | null {
-  return checklistSlots.get(caseId) ?? null;
-}
-
-/**
  * Fırsatın satış alanı kutusu.
  *
  * Kutu kartın şu anki satış alanını (C / B / A / A+ / WIN) gösterir, alanın
@@ -102,6 +63,7 @@ export function OpportunityProcessCenter({
   detail: controlledDetail,
   loading: controlledLoading,
   onReload,
+  checklist,
 }: {
   salesCase: SalesCase;
   canUpdate: boolean;
@@ -111,6 +73,16 @@ export function OpportunityProcessCenter({
   detail?: OpportunityProcessDetail | null;
   loading?: boolean;
   onReload?: () => Promise<void>;
+  /**
+   * Mevcut alanın görev listesi (`ProcessChecklistPanel`). Üst bileşende
+   * yaratılır ki engel düğmelerinin `requestedAction` bağı korunsun, ama
+   * kutunun içinde render edilir.
+   *
+   * Render prop olmasının nedeni `reload`: görev kaydedildiğinde kutunun kendi
+   * `processReadiness` verisi de tazelenmeli, yoksa görev tikli görünürken kutu
+   * eski engeli göstermeye devam eder.
+   */
+  checklist?: (context: { reload: () => Promise<void> }) => ReactNode;
 }) {
   const controlled = controlledDetail !== undefined;
   const [localDetail, setLocalDetail] = useState<OpportunityProcessDetail | null>(null);
@@ -157,13 +129,6 @@ export function OpportunityProcessCenter({
   const currentStage = readiness?.currentQualificationStage;
   const closed = Boolean(readiness?.closed);
   const isLost = currentStage === "lost";
-
-  const checklistSlotRef = useCallback(
-    (node: HTMLDivElement | null) => {
-      publishChecklistSlot(salesCase.id, node);
-    },
-    [salesCase.id],
-  );
 
   const advance = async () => {
     if (!canUpdate || advancing || !nextTarget || closed || blockers.length > 0) return;
@@ -319,16 +284,19 @@ export function OpportunityProcessCenter({
         )}
 
         {/*
-          Alan görevleri kutunun içinde: panel üst bileşende mount kalır,
-          içeriğini bu yuvaya portal'lar. Panel yoksa yuva boş kalır ve
-          `empty:hidden` sayesinde ne çerçeve ne boşluk bırakır. Tam genişlik
-          (-mx) tasarımı görevleri kutunun kendi bölümü gibi gösterir.
+          Alan görevleri kutunun kendi içeriği. Element üst bileşende yaratılıp
+          prop olarak geçiyor: engel düğmelerinin `requestedAction` bağı orada
+          kurulduğu için korunuyor, ama render burada — portal, modül düzeyinde
+          yuva kaydı ve gizlenen sarmalayıcı gerekmiyor. Çapa da doğrudan bu
+          kapsayıcıda: "görevlere git" kaydırması buraya iner. Tam genişlik
+          (-mx) görevleri kutunun bir bölümü gibi gösterir.
         */}
         <div
-          ref={checklistSlotRef}
-          data-process-checklist-slot=""
+          id="opportunity-process-actions"
           className="-mx-4 scroll-mt-24 border-t border-border/60 bg-muted/20 empty:hidden sm:-mx-5"
-        />
+        >
+          {checklist?.({ reload: load })}
+        </div>
 
         {nextTarget && !isLost && (
           <div className="flex flex-col-reverse gap-2 border-t border-border/60 pt-3 sm:flex-row sm:items-center sm:justify-between">

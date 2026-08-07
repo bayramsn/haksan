@@ -53,8 +53,21 @@ describe("lead ve fırsat çalışma alanı sorumlu değişikliği", () => {
     // Sistem olaylarını (aşama geçişi, onay, teklif, dosya) yalnız sade fırsat
     // görünümü topluyor. Lead akışı Trello kart yorumları gibi yalnız
     // kullanıcının girdiği kayıtları gösterir.
-    expect(workspaceSource).toContain('if (!simpleOpportunity) return items.sort');
+    // Aktivite akışı yalnız kullanıcının girdiği kayıtlar; sistem olayları
+    // (aşama, nitelik, onay, teklif, ödeme, dosya) ayrı bir listede toplanır.
+    // Tek akışta karıştıklarında temaslar sistem gürültüsünde kayboluyordu.
+    expect(workspaceSource).toContain("const processTimeline = useMemo<TimelineItem[]>");
+    expect(workspaceSource).toContain("if (!simpleOpportunity) return items;");
+    // Aktivite memo'su sistem olaylarını toplamamalı.
     expect(workspaceSource).not.toContain('if (!isLead && !simpleOpportunity) return items.sort');
+  });
+
+  it("süreç bildirimlerini akışın altında ayrı bir alanda gösterir", () => {
+    // Kullanıcı süreç geçmişini görmek isteyebilir ama akışın içinde değil:
+    // kendi küçük alanında, kapalı başlayarak.
+    expect(workspaceSource).toContain("Süreçler · {processTimeline.length}");
+    expect(workspaceSource).toContain("{processTimeline.length > 0 && (");
+    expect(workspaceSource).toContain("items={processTimeline.map(");
   });
 
   it("aktivite akışını Trello benzeri hızlı girişle yan panele verir", () => {

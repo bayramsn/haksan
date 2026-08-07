@@ -1,13 +1,10 @@
 import {
   useEffect,
-  useLayoutEffect,
   useMemo,
   useState,
-  useSyncExternalStore,
   type ReactNode,
 } from "react";
-import { createPortal } from "react-dom";
-import { CheckCircle2, Circle, ListChecks, Loader2, Pencil } from "lucide-react";
+import { CheckCircle2, Circle, Loader2, Pencil } from "lucide-react";
 import { toast } from "sonner";
 import { type OpportunityProcessActionKey } from "@haksan/shared";
 import { activityService } from "../../../lib/services";
@@ -15,15 +12,11 @@ import { useAuth } from "../../../lib/auth";
 import { useStore } from "../../lib/store";
 import {
   OPPORTUNITY_PAYMENT_METHOD_LABELS,
-  QUALIFICATION_STAGE_DESCRIPTIONS,
-  QUALIFICATION_STAGE_LABELS,
   salesStageLabel,
   type OpportunityPaymentMethod,
   type QualificationStage,
   type SalesCase,
 } from "../../lib/mock";
-import { getChecklistSlot, subscribeChecklistSlot } from "./OpportunityProcessCenter";
-import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { Checkbox } from "../ui/checkbox";
 import { Combobox } from "../ui/combobox";
@@ -35,12 +28,6 @@ import { QuoteDialog } from "../dialogs/QuoteDialog";
 import { RequestedMachineCombobox } from "../shared/RequestedMachineCombobox";
 import { OPPORTUNITY_OPERATION_GROUP_STEPS } from "./opportunityProcessGroups";
 import { focusWorkspaceTarget } from "../../lib/workspaceFocus";
-
-/**
- * Üst bileşenlerin "görevlere git" kaydırmasında aradığı çapa
- * (`OpportunityWorkspace` ve `SalesCaseDetail` bu id'yi getElementById ile arar).
- */
-const PROCESS_ACTIONS_ANCHOR_ID = "opportunity-process-actions";
 
 /**
  * Kartın bulunduğu satış derecesini geçmek için tamamlanması gereken alanları
@@ -60,10 +47,20 @@ export function ProcessChecklistPanel({
   sc,
   requestedAction,
   onActionHandled,
+  onSaved,
 }: {
   sc: SalesCase;
   requestedAction?: OpportunityProcessActionKey | null;
   onActionHandled?: () => void;
+  /**
+   * Kaydetmeden sonra satış alanı kutusunun hazırlık verisini tazeler.
+   *
+   * Panel `sc.qualificationReadiness`'i (store) okur, kutu ise kendi detay
+   * çağrısındaki `processReadiness`'i okur. Yalnız store tazelenirse görev
+   * tikli görünür ama kutu eski engeli göstermeye devam eder — kullanıcıya
+   * "yapılan görev kabul edilmedi" gibi görünen şey budur.
+   */
+  onSaved?: () => Promise<void> | void;
 }) {
   const { customers, contacts, users, products, updateCase, updateCustomer, decideCaseApproval, refresh } =
     useStore();
@@ -74,34 +71,6 @@ export function ProcessChecklistPanel({
   const canCreateQuote = hasPermission("quotes.create");
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [editingKeys, setEditingKeys] = useState<Set<string>>(new Set());
-  // Satış alanı kutusunun yuvası. Kutu mount değilse (yükleniyor, hazırlık verisi
-  // yok ya da harita kapalı) null döner; panel o zaman bulunduğu yerde kalır.
-  const slot = useSyncExternalStore(
-    subscribeChecklistSlot,
-    () => getChecklistSlot(sc.id),
-    () => null,
-  );
-  const [hostAnchor, setHostAnchor] = useState<HTMLElement | null>(null);
-
-  useLayoutEffect(() => {
-    if (!slot || !hostAnchor) return;
-    // Görevler kutuya taşındığında panelin eski sarmalayıcısı boş bir çerçeve
-    // olarak kalırdı. Sarmalayıcı bu görevde dokunulmayan dosyalarda olduğu için
-    // burada gizliyoruz — ve "görevlere git" çapasını da birlikte taşıyoruz,
-    // yoksa kaydırma gizli bir kutuya gidip sessizce hiçbir şey yapmazdı.
-    const host = hostAnchor.closest<HTMLElement>(`#${PROCESS_ACTIONS_ANCHOR_ID}`);
-    if (!host) return;
-    const previousDisplay = host.style.display;
-    host.style.display = "none";
-    host.removeAttribute("id");
-    slot.id = PROCESS_ACTIONS_ANCHOR_ID;
-    return () => {
-      if (slot.id === PROCESS_ACTIONS_ANCHOR_ID) slot.removeAttribute("id");
-      host.id = PROCESS_ACTIONS_ANCHOR_ID;
-      host.style.display = previousDisplay;
-    };
-  }, [hostAnchor, slot]);
-
   const readiness = sc.qualificationReadiness;
   const company = customers.find((item) => item.id === sc.customerId);
   const grade = (sc.qualificationStage ?? "lead") as QualificationStage;
@@ -171,6 +140,12 @@ export function ProcessChecklistPanel({
     setBusyKey(key);
     try {
       await action();
+      // Tazeleme burada, tek yerde: tek tek düzenleyicilere bırakıldığında
+      // bazıları tazeliyor bazıları tazelemiyordu ve görev "bazen kabul
+      // edilmemiş" gibi görünüyordu. İki kaynak da güncellenmeli — panel
+      // store'dan, kutu kendi detay çağrısından okuyor.
+      await refresh();
+      await onSaved?.();
       toast.success(successMessage);
       if (requestedAction) onActionHandled?.();
     } catch (error: any) {
@@ -182,24 +157,11 @@ export function ProcessChecklistPanel({
 
   const body = (
     <section aria-label="Mevcut satış alanının görevleri" className="space-y-4 p-4 sm:p-5">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div className="flex items-center gap-2">
-            <ListChecks className="size-4 text-primary" />
-            <span className="text-sm font-semibold">Alan görevleri</span>
-            {/* Kutunun içindeyken alan kimliğini kutunun başlığı söylüyor; aynı
-                rozeti burada tekrarlamak tek kutuyu iki kez etiketlerdi. Kutu
-                yoksa panel yalnız kaldığı için kimliği kendisi göstermeli. */}
-            {!slot && (
-              <>
-                <Badge variant="outline" className="font-data text-[10px]">
-                  {QUALIFICATION_STAGE_LABELS[grade]} alanı
-                </Badge>
-                <span className="text-[11px] text-muted-foreground">
-                  {QUALIFICATION_STAGE_DESCRIPTIONS[grade]}
-                </span>
-              </>
-            )}
-          </div>
+        {/* Görevler satış alanı kutusunun kendi içeriği. Ayrı bir "Alan
+            görevleri" başlığı ve alan rozeti kutuyu ikinci kez etiketlerdi —
+            alan kimliğini kutunun başlığı zaten söylüyor. Geriye yalnız
+            ilerleme sayacı kalıyor. */}
+        <div className="flex justify-end">
           <span className="text-[11px] text-muted-foreground">
             {readiness.checks.filter((c) => c.complete).length}/{readiness.checks.length} tamamlandı
           </span>
@@ -304,30 +266,12 @@ export function ProcessChecklistPanel({
           </ul>
         )}
 
-        {/* Kutunun içindeyken eksik özeti + ilerletme kutunun altındadır; burada
-            tekrar etmek aynı bilgiyi iki kez, ilerletmeyi iki düğmede gösterirdi.
-            Kutu görünmüyorsa (sade modda süreç haritası kapalı başlar) tek
-            ilerletme düğmesinin nerede olduğunu söylemek zorundayız. */}
-        {!slot && (
-          <div className="border-t border-border/60 pt-3 text-[11px] text-muted-foreground">
-            {readiness.ready
-              ? "Tüm alanlar tamam. İlerletme satış alanı kutusundaki düğmeden yapılır."
-              : `Eksik: ${readiness.blockers.join(", ")}`}
-          </div>
-        )}
     </section>
   );
 
-  // Kutu mount değilse panel bulunduğu yerde kalır: görevlerin hiç görünmemesi,
-  // yanlış yerde görünmesinden kötüdür.
-  if (!slot) return body;
-  return (
-    <>
-      {/* Eski konumdaki sarmalayıcıyı bulup gizleyebilmek için bırakılan çapa. */}
-      <span ref={setHostAnchor} className="hidden" aria-hidden="true" />
-      {createPortal(body, slot)}
-    </>
-  );
+  // Eksik özeti ve ilerletme düğmesi kutunun altında; burada tekrar etmek aynı
+  // bilgiyi iki kez, ilerletmeyi iki düğmede gösterirdi.
+  return body;
 }
 
 type EditorProps = {

@@ -230,7 +230,6 @@ export function OpportunityWorkspace({
   salesCase: sc,
   processCenter,
   renderProcessCenter,
-  processChecklist,
   companyLinkingPanel,
   onCommercialAction,
   canPerformCommercialAction,
@@ -245,7 +244,6 @@ export function OpportunityWorkspace({
   processCenter: ReactNode;
   renderProcessCenter?: (context: { detail: OpportunityDetail | null; loading: boolean; reload: () => Promise<void> }) => ReactNode;
   /** Aktif satış alanının görev listesi; süreç haritasından bağımsız gösterilir. */
-  processChecklist?: ReactNode;
   companyLinkingPanel?: ReactNode;
   onCommercialAction?: (actionKey: OpportunityProcessActionKey) => void;
   canPerformCommercialAction?: (actionKey: OpportunityProcessActionKey) => boolean;
@@ -373,32 +371,38 @@ export function OpportunityWorkspace({
   const opportunityInstallations = useMemo(() => installations.filter((item) => item.salesCaseId === sc.id), [installations, sc.id]);
   const resolvedContact = useMemo(() => resolveSalesContact({ salesCase: sc, customer, contacts }), [sc, customer, contacts]);
 
+  // Aktivite akışı yalnız kullanıcının girdiği kayıtları gösterir: temaslar ve
+  // yorumlar. Sistem olayları (aşama geçişi, nitelik, onay, teklif, ödeme,
+  // dosya) aşağıdaki ayrı "Süreçler" alanında — tek akışta karıştıklarında
+  // temaslar sistem gürültüsünün arasında kayboluyordu.
   const timeline = useMemo<TimelineItem[]>(() => {
-    const items: TimelineItem[] = [];
     const visibleActivities = isLead
       ? opportunityActivities
       : opportunityActivities.filter(isOpportunityTimelineActivity);
-    visibleActivities.forEach((activity) => {
-      const isComment = isManualTimelineComment(activity);
-      items.push({
-        id: `activity-${activity.id}`,
-        sourceActivityId: activity.id,
-        date: activity.date,
-        category: "activity",
-        categoryLabel: isLead ? undefined : isComment ? "Yorum" : activity.type || "Aktivite",
-        title: activity.title,
-        detail: [activity.note, activity.result].filter(Boolean).join(" · "),
-        actor: activity.createdByName || users.find((item) => item.id === activity.byUserId)?.name,
-      });
-    });
-    // Lead akışı Trello kart yorumları gibi çalışmalı: yalnız kullanıcının
-    // girdiği kayıtlar. Aşama geçişi, nitelik değişimi, onay, teklif, ödeme ve
-    // dosya olayları ("Süreç · Operasyon aşaması: …") buraya karışmamalı —
-    // bunlar sistem olayları ve akışı okunmaz hale getiriyordu.
-    // Sistem olaylarını yalnız sade fırsat görünümü topluyor; orada bu kasıtlı:
-    // müşteri temaslarının yanında salt okunur süreç, ticari belge ve onay
-    // olayları da tek akışta okunuyor.
-    if (!simpleOpportunity) return items.sort((a, b) => timelineTime(b.date) - timelineTime(a.date));
+    return visibleActivities
+      .map((activity) => {
+        const isComment = isManualTimelineComment(activity);
+        return {
+          id: `activity-${activity.id}`,
+          sourceActivityId: activity.id,
+          date: activity.date,
+          category: "activity" as const,
+          categoryLabel: isLead ? undefined : isComment ? "Yorum" : activity.type || "Aktivite",
+          title: activity.title,
+          detail: [activity.note, activity.result].filter(Boolean).join(" · "),
+          actor: activity.createdByName || users.find((item) => item.id === activity.byUserId)?.name,
+        };
+      })
+      .sort((a, b) => timelineTime(b.date) - timelineTime(a.date));
+  }, [isLead, opportunityActivities, users]);
+
+  /**
+   * Salt okunur sistem olayları. Aktivite akışının altında kendi küçük
+   * alanında gösterilir; kullanıcı bunları yazmaz, yalnız okur.
+   */
+  const processTimeline = useMemo<TimelineItem[]>(() => {
+    const items: TimelineItem[] = [];
+    if (!simpleOpportunity) return items;
     (detail?.history ?? []).forEach((history) => items.push({
       id: `stage-${history.id}`,
       date: history.createdAt,
@@ -443,7 +447,7 @@ export function OpportunityWorkspace({
       detail: document.type,
     }));
     return items.sort((a, b) => timelineTime(b.date) - timelineTime(a.date));
-  }, [detail, isLead, opportunityActivities, opportunityDocuments, opportunityOffers, opportunityPayments, simpleOpportunity, users]);
+  }, [detail, opportunityDocuments, opportunityOffers, opportunityPayments, simpleOpportunity]);
 
   useEffect(() => {
     if (!focusedActivityId) return;
@@ -577,6 +581,28 @@ export function OpportunityWorkspace({
           />
         )}
       </div>
+
+      {/* Süreç bildirimleri akışın içinde değil, altında kendi küçük alanında:
+          salt okunur sistem olayları temasların arasına karışınca akış
+          okunmaz hale geliyordu. Kapalı başlar — geçmişe bakmak isteyen açar. */}
+      {processTimeline.length > 0 && (
+        <details className="border-t border-border">
+          <summary className="cursor-pointer list-none px-4 py-2.5 text-xs font-semibold text-muted-foreground marker:content-none hover:text-foreground">
+            Süreçler · {processTimeline.length}
+          </summary>
+          <div className="max-h-72 overflow-y-auto px-4 pb-4">
+            <UnifiedTimeline
+              items={processTimeline.map((item) => ({
+                ...item,
+                categoryLabel: item.categoryLabel ?? categoryLabel[item.category],
+              }))}
+              focusedId={null}
+              formatDate={formatDate}
+              emptyLabel="Süreç kaydı yok."
+            />
+          </div>
+        </details>
+      )}
     </section>
   );
 
@@ -654,17 +680,10 @@ export function OpportunityWorkspace({
           ) : (
             <div className="space-y-4">
               <div><h3 className="font-display text-lg font-semibold text-[#0b1739]">Birleşik süreç merkezi</h3><p className="text-xs text-muted-foreground">Önce mevcut aşama, sıradaki aşama ve karar engelleri; ayrıntılı raylar isteğe bağlıdır.</p></div>
-              {/* Alan görevleri süreç haritasının içindeydi: hem `operationsExpanded`
-                  hem de doğru akordeon grubunun açık olmasına bağlıydı. Bu yüzden
-                  engel düğmelerine basmak çoğu durumda sessizce hiçbir şey
-                  yapmıyordu — istek `requestedProcessAction`'a yazılıyor ama onu
-                  tüketen panel mount olmadığı için kayboluyordu. İsteğe bağlı olması
-                  gereken harita; görevler değil. */}
-              {processChecklist && (
-                <div id="opportunity-process-actions" className="scroll-mt-24 overflow-hidden rounded-xl border border-slate-200 bg-white">
-                  {processChecklist}
-                </div>
-              )}
+              {/* Alan görevleri artık satış alanı kutusunun kendi içeriği
+                  (`OpportunityProcessCenter`'ın `checklist` prop'u). Burada ayrı
+                  bir sarmalayıcı tutmak görevleri kutunun dışında, ikinci bir
+                  kutuda gösterirdi. */}
               <Card className="overflow-hidden border-[#0b2453]/15">
                 <div className="h-1 bg-[linear-gradient(90deg,#0b2453_0%,#2457D6_72%,#CF060C_72%)]" />
                 <CardContent className="space-y-4 p-4 sm:p-5">

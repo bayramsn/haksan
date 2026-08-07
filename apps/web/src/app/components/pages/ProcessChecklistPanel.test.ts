@@ -21,57 +21,56 @@ describe("ProcessChecklistPanel teklif adımı", () => {
   });
 });
 
-describe("ProcessChecklistPanel satış alanı kutusuna taşınması", () => {
-  it("içeriğini kutunun yuvasına portal'lar, panel'i üst bileşende bırakır", () => {
-    // Panel'i kutu mount etseydi `requestedAction` bağı kopardı; yalnız içerik
-    // taşınıyor, bileşen üst ağaçtaki yerinde kalıyor.
-    expect(source).toContain('import { createPortal } from "react-dom"');
-    expect(source).toContain('import { getChecklistSlot, subscribeChecklistSlot } from "./OpportunityProcessCenter"');
-    expect(source).toContain("useSyncExternalStore(");
-    expect(source).toContain("() => getChecklistSlot(sc.id)");
-    expect(source).toContain("createPortal(body, slot)");
+describe("ProcessChecklistPanel satış alanı kutusunun içeriği", () => {
+  it("kutuya prop olarak geçer; portal ve yuva kaydı kullanmaz", () => {
+    // Element üst bileşende yaratılıp kutuya prop olarak veriliyor: engel
+    // düğmelerinin `requestedAction` bağı orada kurulduğu için korunuyor, ama
+    // render kutuda. Portal'a, modül düzeyinde yuva Map'ine ve gizlenen
+    // sarmalayıcıya gerek yok — bunların geri gelmesi eski kırılgan tasarımdır.
+    expect(source).not.toContain("createPortal");
+    expect(source).not.toContain("useSyncExternalStore");
+    expect(source).not.toContain("getChecklistSlot");
+    expect(centerSource).not.toContain("checklistSlots");
+    expect(centerSource).not.toContain("publishChecklistSlot");
+    // Kutu görevleri kendi gövdesinde render eder.
+    expect(centerSource).toContain("checklist?: (context: { reload: () => Promise<void> }) => ReactNode");
+    expect(centerSource).toContain("{checklist?.({ reload: load })}");
+    // Bağ üst bileşende kurulmalı, yoksa engel düğmeleri sessizce çalışmaz olur.
+    expect(detailSource).toContain("checklist={");
+    expect(detailSource).toContain("requestedAction={requestedProcessAction}");
   });
 
-  it("kutu yokken görevleri kendi yerinde göstermeye devam eder", () => {
-    // Yükleme, hazırlık verisi olmaması veya kutunun mount edilmemesi görevleri
-    // yok etmemeli; taşınamayan panel eski yerinde görünür.
-    expect(source).toContain("if (!slot) return body;");
+  it("kaydetmeden sonra hem store'u hem kutunun hazırlık verisini tazeler", () => {
+    // Panel `sc.qualificationReadiness`'i (store), kutu kendi detay
+    // çağrısındaki `processReadiness`'i okuyor. Tazeleme tek tek
+    // düzenleyicilere bırakılınca bazıları tazeliyor bazıları tazelemiyordu ve
+    // görev tikli görünürken kutu eski engeli göstermeye devam ediyordu —
+    // kullanıcıya "yapılan görev kabul edilmedi" diye görünen hata buydu.
+    // Tazeleme ortak `run()` sarmalayıcısında, tek yerde olmalı.
+    expect(source).toContain("await refresh();");
+    expect(source).toContain("await onSaved?.();");
+    // Kutunun kendi tazelemesi panele bağlanmalı, yoksa yalnız store güncellenir.
+    expect(detailSource).toContain("onSaved={reloadReadiness}");
   });
 
-  it("ilerletme düğmesinin yerini söyler ama olmayan bir düğmeye yönlendirmez", () => {
-    // Kutu artık kapının dışında ve her zaman mount; "tam süreç haritasını aç"
-    // diye bir düğme kalmadı. Metin kullanıcıyı var olmayan bir kontrole
-    // gönderirse ölü yönlendirme olur.
-    expect(source).toContain("İlerletme satış alanı kutusundaki düğmeden yapılır");
-    expect(source).not.toContain("tam süreç haritasını açın");
-    expect(workspaceSource).not.toContain("Tam süreç haritasını aç");
-  });
-
-  it("taşınınca boş kalan sarmalayıcıyı gizler ve kaydırma çapasını birlikte taşır", () => {
-    // Sarmalayıcı bu görevde dokunulmayan dosyalarda; boş bırakılırsa ekranda
-    // 2px'lik boş çerçeve kalır. Çapa taşınmazsa "görevlere git" kaydırması
-    // gizli kutuya gidip sessizce hiçbir şey yapmaz.
-    expect(source).toContain('const PROCESS_ACTIONS_ANCHOR_ID = "opportunity-process-actions"');
-    expect(source).toContain('host.style.display = "none"');
-    expect(source).toContain("host.removeAttribute(\"id\")");
-    expect(source).toContain("slot.id = PROCESS_ACTIONS_ANCHOR_ID");
-    // Geri alma: panel taşınmayı bırakırsa sarmalayıcı eski hâline dönmeli.
-    expect(source).toContain("host.id = PROCESS_ACTIONS_ANCHOR_ID;");
-    expect(source).toContain("host.style.display = previousDisplay;");
-    // Çapayı arayan üst bileşenler değişmedi.
-    expect(workspaceSource).toContain('getElementById("opportunity-process-actions")');
-    expect(detailSource).toContain('getElementById("opportunity-process-actions")');
-  });
-});
-
-describe("ProcessChecklistPanel alan kimliği", () => {
-  it("kutunun dışında kaldığında alanı kısa kod ve açıklamasıyla gösterir", () => {
-    // Kutunun içindeyken kimliği kutu söyler; yalnız kaldığında panel söylemeli.
-    expect(source).toContain("QUALIFICATION_STAGE_LABELS[grade]} alanı");
-    expect(source).toContain("QUALIFICATION_STAGE_DESCRIPTIONS[grade]");
-    expect(source).toContain("{!slot && (");
+  it("görevleri ayrı bir bölüm gibi ikinci kez etiketlemez", () => {
+    // Görevler kutunun kendi içeriği; ayrı bir "Alan görevleri" başlığı ve alan
+    // rozeti tek kutuyu iki kez etiketlerdi. Kimliği kutunun başlığı söyler.
+    expect(source).not.toContain("Alan görevleri");
+    expect(source).not.toContain("QUALIFICATION_STAGE_LABELS[grade]} alanı");
     expect(centerSource).toContain("stageLabel(currentStage)");
     expect(centerSource).toContain("stageDescription(currentStage)");
+    // İlerleme sayacı kalıyor: kaç görevin bittiği kutunun içinde görünmeli.
+    expect(source).toContain("tamamlandı");
+  });
+
+  it("kaydırma çapası kutunun görev kapsayıcısında durur", () => {
+    // "Görevlere git" bu id'yi arıyor. Çapa kutuya taşındı; panelde kalsaydı
+    // kaydırma görevlerin dışına inerdi.
+    expect(centerSource).toContain('id="opportunity-process-actions"');
+    expect(source).not.toContain("PROCESS_ACTIONS_ANCHOR_ID");
+    expect(workspaceSource).toContain('getElementById("opportunity-process-actions")');
+    expect(detailSource).toContain('getElementById("opportunity-process-actions")');
   });
 });
 
