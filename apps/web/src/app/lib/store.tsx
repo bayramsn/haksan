@@ -666,7 +666,7 @@ function StoreInner({ children }: { children: ReactNode }) {
     };
     try {
       const empty = { data: [] as any[], meta: { total: 0, page: 1, pageSize: 0, totalPages: 0 } };
-      const [companies, contactsR, opps, prods, inv, qts, svcTickets, acts, usersR, devicesR, receivablesR, paymentsR, proformasR, contractsR, invoicesR, noteTemplatesR, shipmentsR, deliveriesR, installationsR, fileLinksR] = await Promise.all([
+      const [companies, contactsR, opps, prods, inv, qts, svcTickets, acts, usersR, devicesR, receivablesR, paymentsR, proformasR, contractsR, invoicesR, noteTemplatesR, shipmentsR, deliveriesR, installationsR, fileLinksR, closedOpps] = await Promise.all([
         load('Firmalar', () => loadAllPaginated((page, pageSize) => companyService.list({ page, pageSize })), empty, 'companies.read'),
         load('Kontaklar', () => loadAllPaginated((page, pageSize) => contactService.list({ page, pageSize })), empty, 'contacts.read'),
         load('Satış kartları', () => loadAllPaginated((page, pageSize) => opportunityService.list({ page, pageSize })), empty, 'opportunities.read'),
@@ -687,14 +687,16 @@ function StoreInner({ children }: { children: ReactNode }) {
         load('Teslimatlar', () => loadAllPaginated((page, pageSize) => serviceService.deliveries({ page, pageSize })), empty, 'shipments.read'),
         load('Kurulumlar', () => loadAllPaginated((page, pageSize) => serviceService.installations({ page, pageSize })), empty, 'installations.read'),
         load('Dosya bağlantıları', () => loadAllPaginated((page, pageSize) => fileService.links({ page, pageSize })), empty, 'files.read'),
+        // Kapatılan (arşiv/geçmiş) kartlar ayrı çekilir; aktif liste varsayılan
+        // view=active döner. Diğerlerinden SONRA sırayla bekleniyordu — hiçbir
+        // şeye bağlı olmadığı için açılışa bir tam gidiş-dönüş ekliyordu.
+        load(
+          'Geçmiş kartlar',
+          () => loadAllPaginated((page, pageSize) => opportunityService.list({ page, pageSize, view: 'closed' })),
+          empty,
+          'opportunities.read'
+        ),
       ]);
-      // Kapatılan (arşiv/geçmiş) kartlar ayrı çekilir; aktif liste varsayılan view=active döner.
-      const closedOpps = await load(
-        'Geçmiş kartlar',
-        () => loadAllPaginated((page, pageSize) => opportunityService.list({ page, pageSize, view: 'closed' })),
-        empty,
-        'opportunities.read'
-      );
       setLoadErrors(errors);
       setLoadTruncated(truncated);
 
