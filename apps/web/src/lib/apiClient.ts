@@ -100,7 +100,20 @@ let refreshing: Promise<string | null> | null = null;
 let onSessionExpired: (() => void) | null = null;
 let sessionGeneration = 0;
 
-const API_MAX_CONCURRENT_REQUESTS = 4;
+/**
+ * İstemci tarafı eşzamanlılık tavanı.
+ *
+ * Açılışta mağaza ~31 istek atıyor (20 tablo, firma/kontak sayfalı). Tavan 4
+ * iken bunlar sekiz dalgaya bölünüyordu; 8 ile dalga sayısı yarıya iniyor.
+ *
+ * TOPLAM istek sayısı değişmiyor, yalnız aynı anda kaçının uçtuğu değişiyor —
+ * bu yüzden sunucudaki `RATE_LIMIT_GLOBAL` (dakikada 100) üzerinde hiçbir
+ * etkisi yok. Bu kuyruk bir güvenlik kontrolü DEĞİL, yalnız tarayıcının kendi
+ * bağlantı havuzunu ve sunucuyu ani yığından korumak için var; gerçek koruma
+ * sunucuda. 8'in üstüne çıkmak HTTP/1.1 origin başına bağlantı sınırına
+ * (tarayıcılarda 6) takılacağı için kazanç getirmez.
+ */
+const API_MAX_CONCURRENT_REQUESTS = 8;
 const API_RATE_LIMIT_RETRIES = 2;
 
 let activeScheduledRequests = 0;

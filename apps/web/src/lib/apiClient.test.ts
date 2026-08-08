@@ -137,6 +137,10 @@ describe('istek kuyruğu', () => {
       ),
     );
     // Tavan sunucuyu ani yığından koruyan tek istemci kısıtı; kalkmamalı.
-    expect(peak).toBeLessThanOrEqual(4);
+    // 4 → 8 yükseltildi: açılıştaki ~31 istek sekiz dalga yerine dört dalgada
+    // iniyor. Asıl güvence 12 isteğin 12'sinin birden uçmaması, yani kuyruğun
+    // gerçekten çalışması.
+    expect(peak).toBeLessThanOrEqual(8);
+    expect(peak).toBeLessThan(12);
   });
 });

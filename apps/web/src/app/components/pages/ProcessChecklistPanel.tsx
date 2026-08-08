@@ -30,6 +30,21 @@ import { OPPORTUNITY_OPERATION_GROUP_STEPS } from "./opportunityProcessGroups";
 import { focusWorkspaceTarget } from "../../lib/workspaceFocus";
 
 /**
+ * Ödeme planının ipucu metni seçilen ödeme şekline göre değişir: kullanıcı boş
+ * kutuya ne yazacağını tahmin etmek zorunda kalmasın.
+ */
+const PAYMENT_TERMS_PLACEHOLDER: Partial<Record<OpportunityPaymentMethod, string>> = {
+  cash: "Peşin: ödeme tarihi ve varsa peşin iskontosu",
+  wire_transfer: "Havale: hesap, tutar ve transfer tarihi",
+  promissory_note: "Senet: adet, vade tarihleri ve tutarlar",
+  term: "Vadeli: vade gün sayısı ve son ödeme tarihi",
+  installment: "Taksitli: taksit adedi, tutarı ve ilk taksit tarihi",
+  leasing: "Leasing: finans kuruluşu, süre ve peşinat oranı",
+  letter_of_credit: "Akreditif: banka, vade ve açılış koşulları",
+  cheque: "Çek: adet, vade tarihleri ve keşideci",
+};
+
+/**
  * Kartın bulunduğu satış derecesini geçmek için tamamlanması gereken alanları
  * satır satır listeler ve her birini kartın içinden doldurulabilir hâle getirir.
  * Kontrol listesi backend'in `qualificationReadiness.checks` çıktısıdır; burada
@@ -141,6 +156,17 @@ export function ProcessChecklistPanel({
     [contacts, sc.customerId]
   );
 
+  /** Bir görev satırını açar ve görünüre kaydırır. */
+  const openCheck = (key: string) => {
+    setEditingKeys((current) => new Set(current).add(key));
+    window.setTimeout(() => {
+      const row = document.getElementById(`process-check-${key}`);
+      if (!row) return;
+      focusWorkspaceTarget(row, { focus: false, block: "center" });
+      row.querySelector<HTMLElement>("input, textarea, select, [role='combobox'], button")?.focus({ preventScroll: true });
+    }, 60);
+  };
+
   if (!readiness) return null;
 
   // Ray'dan seçilen alanın görevleri; seçim yoksa mevcut alanınki.
@@ -198,6 +224,7 @@ export function ProcessChecklistPanel({
             <div className="mb-2 text-xs font-semibold">Seçilen hızlı işlem</div>
             <CheckEditor
               checkKey={requestedCheckKey}
+              openCheck={openCheck}
               sc={sc}
               company={company}
               companyContacts={companyContacts}
@@ -261,6 +288,7 @@ export function ProcessChecklistPanel({
                   {!readOnly && (!check.complete || editingKeys.has(check.key) || isActivityCheck) && (
                     <CheckEditor
                       checkKey={check.key}
+                      openCheck={openCheck}
                       sc={sc}
                       company={company}
                       companyContacts={companyContacts}
@@ -316,11 +344,13 @@ type EditorProps = {
   updateCustomer: ReturnType<typeof useStore>["updateCustomer"];
   decideCaseApproval: ReturnType<typeof useStore>["decideCaseApproval"];
   refresh: ReturnType<typeof useStore>["refresh"];
+  /** Başka bir görev satırını açıp oraya kaydırır (ödeme planı → ödeme şekli). */
+  openCheck: (key: string) => void;
 };
 
 /** Tek bir kontrol satırının düzenleyicisi; `checkKey` backend'in ürettiği anahtardır. */
 function CheckEditor(props: EditorProps) {
-  const { checkKey, sc, company, companyContacts, users, products, isSuperAdmin, disabled, run } = props;
+  const { checkKey, sc, company, companyContacts, users, products, isSuperAdmin, disabled, run, openCheck } = props;
   const [draft, setDraft] = useState("");
   const [draft2, setDraft2] = useState("");
 
@@ -626,12 +656,35 @@ function CheckEditor(props: EditorProps) {
         (value) => void saveCase({ contractTerms: value }, "Sözleşme şartları kaydedildi"),
         true
       );
-    case "payment_terms":
+    case "payment_terms": {
+      // Ödeme planı, ödeme şeklinden türer: peşinde vade yazılmaz, leasingde
+      // taksit tablosu firmanın değil finans kuruluşunun işidir. Şekil
+      // seçilmeden boş bir metin kutusu açmak kullanıcıyı neyi yazacağını
+      // bilmeden bırakıyordu — önce şekil, sonra ona göre plan.
+      const method = sc.paymentMethod;
+      if (!method || method === "undecided") {
+        return wrap(
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-[11px] text-muted-foreground">Önce ödeme şeklini seçin; plan ona göre açılır.</span>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="h-8 text-xs"
+              disabled={disabled}
+              onClick={() => openCheck("payment_method")}
+            >
+              Ödeme şeklini seç
+            </Button>
+          </div>
+        );
+      }
       return textRow(
-        "Ödeme koşulları (peşinat, vade, taksit…)",
+        PAYMENT_TERMS_PLACEHOLDER[method] ?? "Ödeme koşulları (peşinat, vade, taksit…)",
         (value) => void saveCase({ paymentTerms: value }, "Ödeme koşulları kaydedildi"),
         true
       );
+    }
 
     // A+ alanı: beş onay. Onay yetkisi backend'de rol bazlı kontrol edilir.
     case "payment":
