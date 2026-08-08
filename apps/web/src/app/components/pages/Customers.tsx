@@ -15,7 +15,12 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "../ui/alert-dialog";
-import { Customer, FirmType } from "../../lib/mock";
+import { Customer, FirmType,
+  LEAD_TEMPERATURE_HINTS,
+  LEAD_TEMPERATURE_LABELS,
+  LEAD_TEMPERATURE_STYLES,
+} from "../../lib/mock";
+import { companyTemperature } from "../../lib/companyTemperature";
 import { useStore } from "../../lib/store";
 import { useDetailDialogs } from "../dialogs/DetailDialogs";
 import { FilterPopover, usePaged, Pager, ViewToggle, type ListView } from "../ui/list-controls";
@@ -61,7 +66,7 @@ const companyInitials = (name: string) => name.split(/\s+/).filter(Boolean).slic
 const supplierCategoryLabel = (code?: Customer["supplierCategoryCode"]) => code === "transportation" ? "Nakliye" : code === "logistics" ? "Lojistik" : "";
 
 export function CustomersPage(_props: { onSelect?: (c: Customer) => void } = {}) {
-  const { customers, deleteCustomer, refresh } = useStore();
+  const { customers, cases, deleteCustomer, refresh } = useStore();
   const { openCompany, dialogs } = useDetailDialogs();
   // Rol bazlı görünürlük (backend ile aynı kural): yalnızca sales/service rolleri
   // kısıtlıdır. Kısıtlı kullanıcılar tedarikçi sekmesini hiç görmez; servis-only
@@ -468,7 +473,25 @@ export function CustomersPage(_props: { onSelect?: (c: Customer) => void } = {})
                     <div className="flex items-center gap-3 min-w-0">
                       <div className={`grid size-10 shrink-0 place-items-center rounded-xl border font-display text-xs font-semibold shadow-xs ${c.type === "company" ? "border-primary/10 bg-brand-blue-soft text-primary" : "border-info/10 bg-info-soft text-info"}`}>{companyInitials(c.name)}</div>
                       <div className="min-w-0">
-                        <div className="text-sm leading-tight truncate group-hover:text-primary transition-colors">{c.name}</div>
+                        <div className="flex min-w-0 items-center gap-1.5">
+                          <div className="truncate text-sm leading-tight transition-colors group-hover:text-primary">{c.name}</div>
+                          {/* Alım niyeti satış kartında tutuluyor; firmanın açık
+                              kartlarının EN SICAK olanı gösterilir (bkz.
+                              lib/companyTemperature.ts). */}
+                          {(() => {
+                            const temperature = companyTemperature(c.id, cases);
+                            if (!temperature) return null;
+                            return (
+                              <span
+                                className={`inline-flex shrink-0 items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-medium ${LEAD_TEMPERATURE_STYLES[temperature].badge}`}
+                                title={LEAD_TEMPERATURE_HINTS[temperature]}
+                              >
+                                <span className={`size-1.5 rounded-full ${LEAD_TEMPERATURE_STYLES[temperature].dot}`} aria-hidden="true" />
+                                {LEAD_TEMPERATURE_LABELS[temperature]}
+                              </span>
+                            );
+                          })()}
+                        </div>
                         <div className="text-xs text-muted-foreground mt-0.5 truncate">
                           {[c.city, c.district].filter(Boolean).join(" / ") || "Konum yok"}
                         </div>

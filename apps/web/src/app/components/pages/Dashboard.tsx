@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "../ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../ui/card";
 import { Progress } from "../ui/progress";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
@@ -15,7 +15,15 @@ import {
   BarChart, Bar, PieChart, Pie, Cell, Legend, LineChart, Line, RadarChart,
   Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis,
 } from "recharts";
-import { SALES_STAGES, SALES_STAGE_LABELS, salesStageLabel } from "../../lib/mock";
+import {
+  LEAD_TEMPERATURE_LABELS,
+  LEAD_TEMPERATURE_ORDER,
+  LEAD_TEMPERATURE_STYLES,
+  SALES_STAGES,
+  SALES_STAGE_LABELS,
+  salesStageLabel,
+} from "../../lib/mock";
+import { companyTemperatureCounts } from "../../lib/companyTemperature";
 import { StatusBadge } from "../Layout";
 import { useStore } from "../../lib/store";
 import { useAuth } from "../../../lib/auth";
@@ -133,6 +141,7 @@ export function DashboardPage({ onAction }: { onAction?: (action: OperationActio
     () => buildSalesMonthly(offers, salesCases, 12, (amount, currency) => convert(amount, currency as FxCurrency, "USD")),
     [offers, salesCases, convert],
   );
+  const temperatureCounts = useMemo(() => companyTemperatureCounts(salesCases), [salesCases]);
   const monthlyView = monthly.slice(-monthCount);
   const storeFunnel = useMemo(() => buildFunnelFromCases(salesCases, SALES_STAGE_LABELS), [salesCases]);
   const funnelData = useMemo(() => {
@@ -324,6 +333,31 @@ export function DashboardPage({ onAction }: { onAction?: (action: OperationActio
             openService={openService}
             overdue={overdueCount}
           />
+
+          {/* Alım niyeti dağılımı. Kart değil FİRMA sayılır: aynı firmanın üç
+              sıcak kartı olması onu üç kat sıcak yapmaz (bkz.
+              lib/companyTemperature.ts). */}
+          <Card className="border-border/60 shadow-sm">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base tracking-tight">Firma alım niyeti</CardTitle>
+              <CardDescription>Açık kartı olan firmalar, en sıcak kartlarına göre.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                {LEAD_TEMPERATURE_ORDER.map((level) => (
+                  <div key={level} className="rounded-lg border border-border/60 p-3">
+                    <div className="flex items-center gap-1.5">
+                      <span className={`size-2 rounded-full ${LEAD_TEMPERATURE_STYLES[level].dot}`} aria-hidden="true" />
+                      <span className="text-xs text-muted-foreground">{LEAD_TEMPERATURE_LABELS[level]}</span>
+                    </div>
+                    <div className="mt-1 font-data text-2xl font-semibold tabular-nums text-foreground">
+                      {temperatureCounts[level]}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
 
           {/* Kim ne yaptı — süper adminde tüm ekip, diğerlerinde yalnız kendi verisi. */}
           <TeamActivityPanel />
