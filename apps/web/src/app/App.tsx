@@ -4,12 +4,18 @@ import { Button } from "./components/ui/button";
 import { Plus } from "lucide-react";
 import { LoginPage } from "./components/pages/Login";
 import { markOnboardingSeen, OnboardingPage, shouldShowOnboarding } from "./components/pages/Onboarding";
-import { DashboardPage } from "./components/pages/Dashboard";
-import { CustomersPage } from "./components/pages/Customers";
-import { ContactsPage } from "./components/pages/Contacts";
-import { CustomerDetailPage } from "./components/pages/CustomerDetail";
-import { SalesCasesPage } from "./components/pages/SalesCases";
-import { LeadsPage } from "./components/pages/LeadsPage";
+// Sayfaların TAMAMI lazy sınırının arkasında. Bunlar bir süre eager kaldı ve
+// ana paket 1,6 MB'a çıktı: en pahalısı Dashboard'du, çünkü recharts'ı (ayrı
+// chunk, ~574 kB) statik import ediyor ve `index.html` onu ilk boyamada
+// indiriyordu — grafiği hiç görmeyecek kullanıcı bile bedelini ödüyordu.
+// Hepsi `content` değişkenine atanıp tek bir <Suspense> içinde render edildiği
+// için ek sınır gerekmiyor.
+const DashboardPage = lazy(() => import("./components/pages/Dashboard").then((m) => ({ default: m.DashboardPage })));
+const CustomersPage = lazy(() => import("./components/pages/Customers").then((m) => ({ default: m.CustomersPage })));
+const ContactsPage = lazy(() => import("./components/pages/Contacts").then((m) => ({ default: m.ContactsPage })));
+const CustomerDetailPage = lazy(() => import("./components/pages/CustomerDetail").then((m) => ({ default: m.CustomerDetailPage })));
+const SalesCasesPage = lazy(() => import("./components/pages/SalesCases").then((m) => ({ default: m.SalesCasesPage })));
+const LeadsPage = lazy(() => import("./components/pages/LeadsPage").then((m) => ({ default: m.LeadsPage })));
 // Fırsat kartı yalnız kullanıcı bir kayıt açtığında render ediliyor; eager
 // import edildiğinde alt ağacı (teklif/proforma/sözleşme dialogları dahil)
 // ana pakete giriyordu.
@@ -45,10 +51,15 @@ import { toast } from "sonner";
 import { applyOpportunityUrlState } from "./lib/opportunityUrlState";
 import { VoiceCallProvider } from "../lib/voiceCall";
 import { CreateCustomerDialog, CreateCaseDialog, CreateContactDialog, CreateServiceRequestDialog } from "./components/dialogs/CreateDialogs";
-import { ProductsPage } from "./components/pages/Operations";
-import { SalesPriceListPage, ServicePriceListPage } from "./components/pages/PriceLists";
-import { ReferencesPage } from "./components/pages/ReferencesPage";
-import { PublicServiceComplaintPage } from "./components/pages/PublicServiceComplaint";
+const ProductsPage = lazy(() => import("./components/pages/Operations").then((m) => ({ default: m.ProductsPage })));
+const SalesPriceListPage = lazy(() => import("./components/pages/PriceLists").then((m) => ({ default: m.SalesPriceListPage })));
+const ServicePriceListPage = lazy(() => import("./components/pages/PriceLists").then((m) => ({ default: m.ServicePriceListPage })));
+// Genel (auth'suz) şikâyet sayfası: CRM kullanıcısının hiç uğramadığı bir yol.
+// Kendi <Suspense> sınırı var, çünkü ana Suspense'in dışında erken dönülüyor.
+const PublicServiceComplaintPage = lazy(() =>
+  import("./components/pages/PublicServiceComplaint").then((m) => ({ default: m.PublicServiceComplaintPage })),
+);
+const ReferencesPage = lazy(() => import("./components/pages/ReferencesPage").then((m) => ({ default: m.ReferencesPage })));
 import { AuthProvider, useAuth } from "../lib/auth";
 import { FxProvider } from "./lib/fx";
 import { ErrorBoundary } from "./components/ErrorBoundary";
@@ -523,7 +534,9 @@ export default function App() {
   if (publicMatch) {
     return (
       <>
-        <PublicServiceComplaintPage slug={decodeURIComponent(publicMatch[1])} token={decodeURIComponent(publicMatch[2])} />
+        <Suspense fallback={<PageLoadingSkeleton />}>
+          <PublicServiceComplaintPage slug={decodeURIComponent(publicMatch[1])} token={decodeURIComponent(publicMatch[2])} />
+        </Suspense>
         <Toaster richColors position="top-right" />
       </>
     );
