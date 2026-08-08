@@ -339,6 +339,7 @@ export const FILE_DOCUMENT_TYPES = [
   'product_image',
   'company_logo',
   'brand_logo',
+  'signature',
   'quote_pdf',
   'external_quote',
   'proforma_pdf',

@@ -48,12 +48,14 @@ import {
 import { useAuth } from "../../../../lib/auth";
 import { isServiceQuoteComplete, serviceQuoteMissingFields } from "../../../lib/serviceQuote";
 import { toast } from "sonner";
-import { fileService, inventoryService, serviceService } from "../../../../lib/services";
+import { fileService, inventoryService, serviceService, signatureService } from "../../../../lib/services";
+import { resolveMediaUrl } from "../../../../lib/apiClient";
 import { exportService } from "../../../../lib/downloadExport";
 import { ExportExcelButton } from "../../ui/ExportExcelButton";
 import { KanbanDetailDialogShell } from "../../shared/KanbanDetailDialogShell";
 import { EntityVisual, InsightStat, RecordIdentity } from "../../shared/PremiumPrimitives";
 import type { OperationFocus } from "../../../lib/operations";
+import type { SignatureView } from "@haksan/shared";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
 } from "../../ui/dropdown-menu";
@@ -113,6 +115,14 @@ const printServiceQuoteForm = (quote: ServiceQuoteForm) =>
       teklifiYazan: quote.writerName,
       teklifiYazanUnvan: quote.writerTitle,
       teklifiYazanEmail: quote.writerEmail,
+      // Seçilmemişse satır teklifi yazana düşer; görsel yalnız imzayla çıkar.
+      imza: quote.signature
+        ? {
+            ad: quote.signature.name,
+            unvan: quote.signature.title || undefined,
+            gorselUrl: quote.signature.imageUrl ? resolveMediaUrl(quote.signature.imageUrl) : undefined,
+          }
+        : undefined,
       konu: quote.subject,
       items: quote.items
         .filter((item) => item.description.trim())
@@ -2242,6 +2252,9 @@ function ServiceQuoteEditor({
 
   const [draft, setDraft] = useState<ServiceQuoteForm>(buildDraft);
   const [saving, setSaving] = useState(false);
+  // Ayarlar → Belge İmzaları'ndan gelen aktif imzalar. Liste boşsa seçici hiç
+  // gösterilmez: seçenek üretmeyen bir kutu kullanıcıya yalan söyler.
+  const [signatureOptions, setSignatureOptions] = useState<SignatureView[]>([]);
   const [noteTemplateMode, setNoteTemplateMode] = useState<"create" | "update" | "delete" | null>(null);
   const [noteTemplateTitle, setNoteTemplateTitle] = useState("");
   const [noteTemplateSaving, setNoteTemplateSaving] = useState(false);
@@ -2252,6 +2265,17 @@ function ServiceQuoteEditor({
   useEffect(() => {
     setDraft(buildDraft());
   }, [serviceRequest.id, serviceRequest.serviceQuote]);
+
+  useEffect(() => {
+    let cancelled = false;
+    // İmza listesi teklifin zorunlu parçası değil; yüklenemezse seçici gizli
+    // kalır ve çıktı eski davranışıyla teklifi yazanın adına düşer.
+    signatureService
+      .list({ activeOnly: true })
+      .then((rows) => { if (!cancelled) setSignatureOptions(rows); })
+      .catch(() => { if (!cancelled) setSignatureOptions([]); });
+    return () => { cancelled = true; };
+  }, []);
 
   const updateItem = (id: string, patch: Partial<ServiceQuoteItem>) => {
     setDraft((current) => ({
@@ -2408,6 +2432,33 @@ function ServiceQuoteEditor({
           <div><Label>Teklifi Yazan *</Label><Input className="mt-1" value={draft.writerName} onChange={(e) => setDraft({ ...draft, writerName: e.target.value })} /></div>
           <div><Label>Unvan</Label><Input className="mt-1" value={draft.writerTitle ?? ""} onChange={(e) => setDraft({ ...draft, writerTitle: e.target.value })} /></div>
           <div><Label>E-Posta</Label><Input className="mt-1" type="email" value={draft.writerEmail ?? ""} onChange={(e) => setDraft({ ...draft, writerEmail: e.target.value })} /></div>
+          {signatureOptions.length > 0 && (
+            <div className="md:col-span-3">
+              <Label>Çıktıya basılacak imza</Label>
+              <Select
+                value={draft.signature?.id ?? NONE}
+                onValueChange={(value) => {
+                  const picked = signatureOptions.find((option) => option.id === value);
+                  setDraft({
+                    ...draft,
+                    // Canlı kayda referans değil kopyası saklanır: imza sonradan
+                    // düzenlenirse bu teklif kendi bastığı imzayı korur.
+                    signature: picked
+                      ? { id: picked.id, name: picked.name, title: picked.title, imageUrl: picked.imageUrl }
+                      : undefined,
+                  });
+                }}
+              >
+                <SelectTrigger className="mt-1"><SelectValue placeholder="İmzasız" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={NONE}>İmzasız — teklifi yazanın adı basılır</SelectItem>
+                  {signatureOptions.map((option) => (
+                    <SelectItem key={option.id} value={option.id}>{option.name} · {option.title}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
         </CardContent>
       </Card>
 

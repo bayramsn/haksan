@@ -219,6 +219,7 @@ export const lookupRows = {
   file_document_types: [
     { code: 'product_image', name: 'Ürün Görseli', sortOrder: 10 },
     { code: 'company_logo', name: 'Firma Logosu', sortOrder: 15 },
+    { code: 'signature', name: 'İmza Görseli', sortOrder: 18 },
     { code: 'quote_pdf', name: 'Teklif PDF', sortOrder: 20 },
     { code: 'external_quote', name: 'Dış Teklif', sortOrder: 25 },
     { code: 'proforma_pdf', name: 'Proforma PDF', sortOrder: 30 },

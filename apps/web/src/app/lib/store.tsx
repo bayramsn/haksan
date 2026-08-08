@@ -415,6 +415,8 @@ export type CreateQuotePayload = {
   deliveryTermsText?: string;
   warrantyTermsText?: string;
   importCostsExcluded?: boolean;
+  /** Çıktının altına basılacak imza (Ayarlar → Belge İmzaları). Boş = imzasız. */
+  signatureId?: string;
   items: QuoteLineInput[];
   caseTitle?: string;
   /** view_all kullanıcının seçtiği bölüm (CNC/Üniversal/Sac). */
@@ -1897,6 +1899,7 @@ function StoreInner({ children }: { children: ReactNode }) {
       deliveryTerms: p.deliveryTermsText || undefined,
       warrantyTerms: p.warrantyTermsText || undefined,
       divisionId: p.divisionId || undefined,
+      signatureId: p.signatureId || undefined,
     });
 
     for (let i = 0; i < p.items.length; i++) {

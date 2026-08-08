@@ -68,6 +68,7 @@ services:
       mc mb -p local/erp-product-images || true;
       mc mb -p local/erp-company-logos || true;
       mc mb -p local/erp-brand-logos || true;
+      mc mb -p local/erp-signatures || true;
       mc mb -p local/erp-quote-documents || true;
       mc mb -p local/erp-proforma-documents || true;
       mc mb -p local/erp-contract-documents || true;
@@ -79,6 +80,7 @@ services:
       mc anonymous set none local/erp-product-images || true;
       mc anonymous set none local/erp-company-logos || true;
       mc anonymous set none local/erp-brand-logos || true;
+      mc anonymous set none local/erp-signatures || true;
       mc anonymous set none local/$${S3_BACKUP_BUCKET} || true;
       exit 0;
       "

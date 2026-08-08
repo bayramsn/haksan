@@ -8,6 +8,7 @@ import { productModels } from './products';
 import { inventoryItems } from './inventory';
 import { quoteStatuses, currencies, units, proformaStatuses, contractStatuses, invoiceStatuses } from './lookup';
 import { files } from './files';
+import { signatures } from './signatures';
 
 export const quotes = pgTable(
   'quotes',
@@ -60,6 +61,8 @@ export const quotes = pgTable(
     statusNote: text('status_note'),
     statusChangedAt: timestamp('status_changed_at', { withTimezone: true }),
     statusChangedBy: uuid('status_changed_by').references(() => users.id, { onDelete: 'set null' }),
+    /** Çıktının altına basılacak imza. Basılan ad/ünvan/görsel ayrıca snapshot'a gömülür. */
+    signatureId: uuid('signature_id').references(() => signatures.id, { onDelete: 'set null' }),
     documentSnapshot: jsonb('document_snapshot'),
     finalizedAt: timestamp('finalized_at', { withTimezone: true }),
     ...auditColumns,
@@ -169,6 +172,8 @@ export const proformas = pgTable(
     issueDate: timestamp('issue_date', { withTimezone: true }).notNull(),
     statusId: uuid('status_id').references(() => proformaStatuses.id),
     fileId: uuid('file_id').references(() => files.id),
+    /** Çıktının altına basılacak imza. Basılan ad/ünvan/görsel ayrıca snapshot'a gömülür. */
+    signatureId: uuid('signature_id').references(() => signatures.id, { onDelete: 'set null' }),
     documentSnapshot: jsonb('document_snapshot'),
     finalizedAt: timestamp('finalized_at', { withTimezone: true }),
     createdBy: uuid('created_by').references(() => users.id),
@@ -205,6 +210,8 @@ export const contracts = pgTable(
     paymentTermDays: integer('payment_term_days'),
     statusId: uuid('status_id').references(() => contractStatuses.id),
     fileId: uuid('file_id').references(() => files.id),
+    /** Çıktının altına basılacak imza. Basılan ad/ünvan/görsel ayrıca snapshot'a gömülür. */
+    signatureId: uuid('signature_id').references(() => signatures.id, { onDelete: 'set null' }),
     documentSnapshot: jsonb('document_snapshot'),
     finalizedAt: timestamp('finalized_at', { withTimezone: true }),
     createdBy: uuid('created_by').references(() => users.id),

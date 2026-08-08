@@ -30,6 +30,7 @@ import { adminService } from "../../../../lib/services";
 import { ProductSpecTemplatesCard } from "./ProductSpecTemplatesCard";
 import { LookupManagerTab } from "./LookupManagerTab";
 import { DepartmentSettingsCard } from "./DepartmentSettingsCard";
+import { SignatureSettingsCard } from "./SignatureSettingsCard";
 import { InfoCallout, SettingsField, SettingsSection, SettingsToggle } from "./settings-controls";
 import { MailAccountSettings } from "./MailAccountSettings";
 import { LeadAssignmentRulesCard } from "./LeadAssignmentRulesCard";
@@ -354,6 +355,10 @@ export function SettingsPage() {
               </div>
             </SettingsSection>
           )}
+
+          {/* Belge imzaları şirket kimliğinin bir parçası: teklif/proforma/
+              sözleşme çıktısının altına basılan ad, ünvan ve ıslak imza. */}
+          {canReadTenant && <SignatureSettingsCard />}
         </TabsContent>
 
         {/* Bildirimler */}

@@ -830,3 +830,118 @@ describe("print templates", () => {
     expect(headingRule).toContain("page-break-after: avoid");
   });
 });
+
+describe("belge imzası", () => {
+  const signature = { ad: "Ayşe Yılmaz", unvan: "Satış Müdürü", gorselUrl: "/signatures/media/sig-1" };
+  const quoteBase = {
+    firma: "İmza Testi",
+    tarih: "01.08.2026",
+    specs: [],
+    standartDonanim: [],
+    opsiyonelDonanim: [],
+    items: [{ urun: "TEST", birim: "Adet", fiyat: 100, tutar: 100 }],
+    iskonto: 0,
+    kdvOran: 20,
+    kdvTutar: 20,
+    currency: "TRY" as const,
+    notes: { key: "entered", label: "Girilen şartlar", odeme: [], teslimat: [], garanti: [] },
+  };
+
+  it("seçilen imzayı teklifte görsel ve adla basar", () => {
+    const document = quoteDoc({ ...quoteBase, belgeNo: "CNC-2026/900", imza: signature }, assetBase);
+    expect(document.body).toContain('src="/signatures/media/sig-1"');
+    expect(document.body).toContain("Ayşe Yılmaz");
+    expect(document.body).toContain("Satış Müdürü");
+  });
+
+  it("koda gömülü tek kişilik imza kontrolünü geri getirmez", () => {
+    // Eskiden imza yalnız `projeIlgilisi` normalize edilip "raifşentürk"
+    // içeriyorsa basılıyordu: başka hiç kimse için çalışmıyor, yeni imza
+    // eklemek kod değişikliği + deploy gerektiriyordu.
+    const document = quoteDoc(
+      { ...quoteBase, belgeNo: "CNC-2026/901", projeIlgilisi: "Raif Şentürk" },
+      assetBase,
+    );
+    expect(document.body).not.toContain("raif-signature.jpg");
+    // İmza seçilmemişse satır proje ilgilisine düşer, görsel çıkmaz.
+    expect(document.body).toContain("Raif Şentürk");
+  });
+
+  it("proformada da aynı imzayı görselle basar", () => {
+    const proforma = proformaDoc(
+      {
+        firma: "İmza Testi",
+        tarih: "01.08.2026",
+        belgeNo: "PRF-900",
+        items: [{ aciklama: "TEST", birim: "1 Adet", birimFiyati: 100, tutar: 100 }],
+        kdvOran: 20,
+        kdvTutar: 20,
+        currency: "USD" as const,
+        notlar: [],
+        imza: signature,
+      },
+      assetBase,
+    );
+    expect(proforma.body).toContain('class="pf-signature"');
+    expect(proforma.body).toContain("Ayşe Yılmaz");
+    expect(proforma.css).toContain(".pf-signature");
+  });
+
+  const serviceQuoteBase = {
+    firma: "İmza Testi",
+    tarih: "01.08.2026",
+    belgeNo: "SRV-2026/900",
+    gecerlilik: "5 İş Günü",
+    teklifiYazan: "Raif Şentürk",
+    teklifiYazanUnvan: "Koordinatör",
+    teklifiYazanEmail: "servis@haksancnc.com.tr",
+    konu: "ATC arızası",
+    items: [{ urun: "ATC Tool Gripper", miktar: 1, birim: "Ad.", fiyat: 150, tutar: 150 }],
+    kdvOran: 20,
+    kdvTutar: 30,
+    currency: "USD" as const,
+    notlar: [],
+  };
+
+  it("servis teklifinde seçilen imzayı basar", () => {
+    const document = serviceQuoteDoc({ ...serviceQuoteBase, imza: signature }, assetBase);
+    expect(document.body).toContain('src="/signatures/media/sig-1"');
+    expect(document.body).toContain("Ayşe Yılmaz");
+    expect(document.body).toContain("Satış Müdürü");
+  });
+
+  it("servis teklifinde koda gömülü imza kontrolüne geri dönmez", () => {
+    // Bu şablon en son geçirilendi: `teklifiYazan === "raif şentürk"` kontrolü
+    // ve sabit raif-signature.jpg burada duruyordu.
+    const document = serviceQuoteDoc(serviceQuoteBase, assetBase);
+    expect(document.body).not.toContain("raif-signature.jpg");
+    expect(document.body).toContain("Raif Şentürk");
+    expect(document.body).toContain("Koordinatör");
+  });
+
+  it("sözleşmede imza satırını hazırlayan yerine imzaya çevirir", () => {
+    const withSignature = contractDoc(
+      {
+        alici: { unvan: "İmza Testi A.Ş." },
+        sozlesmeNo: "UNI-SOZ-2026/900",
+        sozlesmeTarihi: "2026-08-01",
+        model: "MODEL-X",
+        adet: 1,
+        ozellikler: [],
+        aksesuarlar: [],
+        fiyat: 100_000,
+        currency: "EUR" as const,
+        kdvOran: 20,
+        odemePlani: [],
+        hazirlayan: "Hazırlayan Kişi",
+        imza: signature,
+      },
+      assetBase,
+    );
+    expect(withSignature.body).toContain('class="ct-signature"');
+    expect(withSignature.body).toContain("Ayşe Yılmaz");
+    // İmza seçildiğinde satır "Hazırlayan" değil "İmza" olarak etiketlenir.
+    expect(withSignature.body).toContain("İmza:");
+    expect(withSignature.body).not.toContain("Hazırlayan Kişi");
+  });
+});

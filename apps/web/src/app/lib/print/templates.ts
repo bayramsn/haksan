@@ -82,6 +82,20 @@ export interface ProformaItem {
   tutar: number;
 }
 
+/**
+ * Belgeye kaydedilen imza. Ad ve ünvan belge anlık görüntüsünden gelir, bu
+ * yüzden imza kaydı sonradan değişse veya silinse bile geçmiş belge kendi
+ * imzasıyla basılmaya devam eder.
+ *
+ * `gorselUrl` auth GEREKTİRMEYEN bir uçtan servis edilmeli: yazdırma penceresi
+ * oturum çerezi taşımıyor, korumalı bir URL sessizce boş görsel olarak çıkar.
+ */
+export type PrintSignature = {
+  ad: string;
+  unvan?: string;
+  gorselUrl?: string;
+};
+
 export interface ProformaPrintData {
   firma: string;
   ilgili?: string;
@@ -102,6 +116,8 @@ export interface ProformaPrintData {
   /** Belgeyi hazırlayan CRM kullanıcısı ve ünvanı (imza satırı). */
   hazirlayan?: string;
   hazirlayanUnvan?: string;
+  /** Belgeye kaydedilen imza; verilmezse satır hazırlayana düşer, görsel çıkmaz. */
+  imza?: PrintSignature;
 }
 
 const PROFORMA_CSS = `
@@ -147,6 +163,9 @@ table.pf-tot tr.sp td { border: 0; height: 1.6mm; padding: 0; }
 /* Hazırlayan imza satırı — notların altında, sağa yaslı. */
 .pf-prepared { margin-top: 6mm; text-align: right; font-size: 10.5pt; line-height: 1.3; }
 .pf-prepared .nm { font-weight: bold; }
+/* İmza görseli adın üstünde; yükseklik sabit ki farklı boyuttaki taramalar
+   satır yüksekliğini bozmasın, oran korunur. */
+.pf-signature { display: inline-block; height: 14mm; max-width: 45mm; object-fit: contain; object-position: right bottom; margin-bottom: -1.5mm; }
 .pf-notes li { margin-bottom: .75mm; text-align: justify; padding-left: 1mm; font-weight: normal; }
 .pf-notes li::marker { font-weight: bold; }
 .pf-footer { margin-top: auto; padding-top: 2mm; }
@@ -295,10 +314,11 @@ export function proformaDoc(
         <div class="nt">NOTLAR:</div>
         <ol>${d.notlar.map((note) => `<li>${esc(note)}</li>`).join("")}</ol>
       </div>` : ""}
-      ${d.hazirlayan ? `
+      ${d.imza || d.hazirlayan ? `
       <div class="pf-prepared">
-        <div class="nm">${esc(d.hazirlayan)}</div>
-        ${d.hazirlayanUnvan ? `<div>${esc(d.hazirlayanUnvan)}</div>` : ""}
+        ${d.imza?.gorselUrl ? `<img class="pf-signature" src="${esc(d.imza.gorselUrl)}" alt="">` : ""}
+        <div class="nm">${esc(d.imza?.ad ?? d.hazirlayan ?? "")}</div>
+        ${(d.imza?.unvan ?? d.hazirlayanUnvan) ? `<div>${esc(d.imza?.unvan ?? d.hazirlayanUnvan ?? "")}</div>` : ""}
       </div>` : ""}
     </div>
   </div>
@@ -360,6 +380,8 @@ export interface QuotePrintData {
   projeIlgilisiUnvan?: string;
   projeIlgilisiTelefon?: string;
   projeIlgilisiEmail?: string;
+  /** Belgeye kaydedilen imza; verilmezse imza satırı proje ilgilisine düşer. */
+  imza?: PrintSignature;
   marka?: string;
   brandLogoUrl?: string;
   model?: string;
@@ -691,14 +713,15 @@ export function quoteDoc(d: QuotePrintData, assetBase: string): PrintDocument {
   const kdvTutar = Number.isFinite(d.kdvTutar) ? d.kdvTutar : toplam * (d.kdvOran / 100);
   const genel = toplam + kdvTutar;
 
-  const showRaifSignature = (d.projeIlgilisi ?? "")
-    .toLocaleLowerCase("tr-TR")
-    .replace(/[^a-zçğıöşü]/g, "")
-    .includes("raifşentürk");
+  // İmza artık belgeye kaydedilen seçimden gelir. Eskiden burada tek bir kişinin
+  // adı koda gömülüydü (`projeIlgilisi` normalize edilip "raifşentürk" içeriyor
+  // mu): başka hiç kimse için çalışmıyordu ve yeni imza eklemek kod değişikliği
+  // + deploy gerektiriyordu. İmza seçilmemiş belgelerde eski davranış korunur —
+  // satır proje ilgilisinin adına düşer, yalnız görsel çıkmaz.
   const signatureHtml = () => `<div class="q-sign">
-    ${showRaifSignature ? `<img class="q-signature" src="${assetBase}/raif-signature.jpg" alt="">` : ""}
-    <div class="nm">${blank(d.projeIlgilisi)}</div>
-    <div>${blank(d.projeIlgilisiUnvan)}</div>
+    ${d.imza?.gorselUrl ? `<img class="q-signature" src="${esc(d.imza.gorselUrl)}" alt="">` : ""}
+    <div class="nm">${blank(d.imza?.ad ?? d.projeIlgilisi)}</div>
+    <div>${blank(d.imza?.unvan ?? d.projeIlgilisiUnvan)}</div>
     ${d.projeIlgilisiTelefon ? `<div>${esc(d.projeIlgilisiTelefon)}</div>` : ""}
     <div><span class="link">${blank(d.projeIlgilisiEmail)}</span></div>
   </div>`;
@@ -812,6 +835,8 @@ export interface ServiceQuotePrintData {
   teklifiYazan: string;
   teklifiYazanUnvan?: string;
   teklifiYazanEmail?: string;
+  /** Belgeye kaydedilen imza; verilmezse satır teklifi yazana düşer, görsel çıkmaz. */
+  imza?: PrintSignature;
   konu: string;
   items: Array<QuoteItem & { miktar: number }>;
   kdvOran: number;
@@ -903,13 +928,15 @@ export function serviceQuoteDoc(d: ServiceQuotePrintData, assetBase: string): Pr
       <div class="sq-label">Geçerlilik Süresi</div><div class="sq-value">${blank(d.gecerlilik)}</div>
     </div>
   </div>`;
+  // İmza belgeye kaydedilen seçimden gelir (bkz. quoteDoc'taki gerekçe). Seçim
+  // yoksa eski davranış korunur: satır teklifi yazanın adına düşer, görsel çıkmaz.
   const signatures = `
   <div class="sq-signatures">
     <div class="sq-writer">
       <div class="sq-sign-title">İLGİLİ KİŞİ</div>
-      <div>${blank(d.teklifiYazan)}</div>
-      <div>${blank(d.teklifiYazanUnvan)}</div>
-      ${d.teklifiYazan.toLocaleLowerCase("tr-TR") === "raif şentürk" ? `<img class="sq-signature-img" src="${assetBase}/raif-signature.jpg" alt="">` : ""}
+      <div>${blank(d.imza?.ad ?? d.teklifiYazan)}</div>
+      <div>${blank(d.imza?.unvan ?? d.teklifiYazanUnvan)}</div>
+      ${d.imza?.gorselUrl ? `<img class="sq-signature-img" src="${esc(d.imza.gorselUrl)}" alt="">` : ""}
       <div>${blank(d.teklifiYazanEmail)}</div>
     </div>
     <div class="sq-approval"><div class="sq-sign-title">MÜŞTERİ ONAYI</div><div class="stamp">KAŞE + İMZA</div></div>
@@ -1047,11 +1074,15 @@ export interface ContractPrintData {
   /** Sözleşmeyi hazırlayan CRM kullanıcısı ve ünvanı (TARAFLAR sayfası altı). */
   hazirlayan?: string;
   hazirlayanUnvan?: string;
+  /** Belgeye kaydedilen imza; verilmezse satır hazırlayana düşer, görsel çıkmaz. */
+  imza?: PrintSignature;
 }
 
 const CONTRACT_CSS = `
 /* Hazırlayan bilgisi — taraf imzalarından ayrı, küçük ve gri. */
 .ct-prepared { margin-top: 8mm; font-size: 9pt; color: #444; }
+/* İmza görseli metnin solunda; taraf imza kutularıyla karışmasın diye küçük. */
+.ct-signature { display: block; height: 12mm; max-width: 40mm; object-fit: contain; object-position: left bottom; margin-bottom: 1mm; }
 .ct.page { padding-top: 5mm; }
 .ct { font-family: Cambria, "Times New Roman", Georgia, serif; font-size: 11pt; line-height: 1.11; }
 .ct-body { padding: 0 0 0 4mm; }
@@ -1429,10 +1460,11 @@ export function contractDoc(d: ContractPrintData, assetBase: string): PrintDocum
           <td>${kv("Vergi Dairesi", d.alici.vergiDairesi)}${kv("Vergi Numarası", d.alici.vergiNo)}${kv("Tel.", d.alici.tel)}${kv("Faks", d.alici.faks)}</td>
         </tr>
       </table>
-      ${d.hazirlayan ? `
+      ${d.imza || d.hazirlayan ? `
       <div class="ct-prepared">
-        <span>Hazırlayan:</span>
-        <b>${esc(d.hazirlayan)}</b>${d.hazirlayanUnvan ? ` · ${esc(d.hazirlayanUnvan)}` : ""}
+        ${d.imza?.gorselUrl ? `<img class="ct-signature" src="${esc(d.imza.gorselUrl)}" alt="">` : ""}
+        <span>${d.imza ? "İmza:" : "Hazırlayan:"}</span>
+        <b>${esc(d.imza?.ad ?? d.hazirlayan ?? "")}</b>${(d.imza?.unvan ?? d.hazirlayanUnvan) ? ` · ${esc(d.imza?.unvan ?? d.hazirlayanUnvan ?? "")}` : ""}
       </div>` : ""}
     </div>
     ${pn(partiesPageNumber)}

@@ -4,6 +4,7 @@ import { quoteService } from "../../../lib/services";
 import { specsForProductTypeStrict } from "../productSpecTemplates";
 import { publicProductLabel, trShortDate } from "./core";
 import { allocateCustomsTotal } from "./quotePrint";
+import { printSignatureFromDocumentSnapshot } from "./signature";
 import type { ContractMachinePrintData, ContractPrintData } from "./templates";
 
 // Tezgahın tam teknik özellik listesi (birim değere gömülür) — sözleşme eksik
@@ -367,11 +368,14 @@ async function buildContractPrintData(input: ContractBuildInput): Promise<Contra
  */
 export async function loadContractPrintData(input: ContractBuildInput): Promise<ContractPrintData> {
   const data = await buildContractPrintData(input);
+  // Belgeye imza seçilmişse satır "Hazırlayan" yerine imzaya döner; seçilmemiş
+  // belgelerde eski davranış (satış sorumlusu) korunur.
+  const imza = printSignatureFromDocumentSnapshot(input.documentSnapshot);
   const owner = (input.users ?? []).find((u) => u.id === input.salesCase?.assignedUserId);
-  if (!owner) return data;
+  if (!imza && !owner) return data;
   return {
     ...data,
-    hazirlayan: owner.name,
-    hazirlayanUnvan: owner.title || owner.department || undefined,
+    ...(imza ? { imza } : {}),
+    ...(owner ? { hazirlayan: owner.name, hazirlayanUnvan: owner.title || owner.department || undefined } : {}),
   };
 }

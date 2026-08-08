@@ -5,6 +5,7 @@ export * from './users';
 export * from './companies';
 export * from './crm';
 export * from './files';
+export * from './signatures';
 export * from './products';
 export * from './inventory';
 export * from './quotes';

@@ -4,6 +4,7 @@ import { quoteService } from "../../../lib/services";
 import { specsForProductTypeStrict } from "../productSpecTemplates";
 import { publicProductLabel, trShortDate } from "./core";
 import { applyVatRateToNotes } from "./notes";
+import { printSignatureFromDocumentSnapshot } from "./signature";
 import type { QuoteHeaderLogoMode, QuotePrintData } from "./templates";
 
 // Seçilen tezgahın TAM teknik özellik listesi (tip şablonu + üründe girilen
@@ -258,6 +259,9 @@ export function buildQuotePrintData(input: QuoteBuildInput, quote: QuoteDetail):
     tarih: trShortDate(quote.quoteDate || offer.date),
     belgeNo: quote.documentNo || offer.quoteNo,
     gecerlilik: quote.validityDays ? `${quote.validityDays} İş Günü` : "",
+    // İmza seçilmişse imza satırı ondan basılır; seçilmemiş tekliflerde eski
+    // davranış korunur ve satır proje ilgilisine düşer (yalnız görsel çıkmaz).
+    imza: printSignatureFromDocumentSnapshot((quote as any).documentSnapshot),
     projeIlgilisi: owner?.name,
     // Ünvan atanmışsa o yazar; atanmamışsa eski davranışla departman adına düşer.
     projeIlgilisiUnvan: owner?.title || owner?.department,

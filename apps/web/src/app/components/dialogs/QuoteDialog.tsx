@@ -13,7 +13,8 @@ import { MultiSelect } from "../ui/multi-select";
 import { useStore } from "../../lib/store";
 import { useFx, FxRateBadge } from "../../lib/fx";
 import { useAuth } from "../../../lib/auth";
-import { lookupService, quoteService, productService } from "../../../lib/services";
+import { lookupService, quoteService, productService, signatureService } from "../../../lib/services";
+import type { SignatureView } from "@haksan/shared";
 import { toast } from "sonner";
 import { AlertTriangle, Plus, Trash2, Save, BookmarkPlus, Bold, MapPin } from "lucide-react";
 import type { CompanyAddress, Customer, Product, ProductSpec } from "../../lib/mock";
@@ -43,6 +44,8 @@ import {
 // o şablonu önseç (proforma otomatik tespitiyle aynı yardımcıyı kullanır).
 const matchNoteVariant = matchQuoteNoteVariantKey;
 const TERMS_TEMPLATE_SCOPE = "quote_terms";
+/** Radix Select boş string değeri kabul etmez; "imzasız" için ayrı bir işaret gerekiyor. */
+const NO_SIGNATURE = "__no_signature__";
 
 type Currency = "USD" | "EUR" | "TRY";
 
@@ -256,6 +259,11 @@ export function QuoteDialog({
   const [validityDays, setValidityDays] = useState("");
   const [documentNo, setDocumentNo] = useState("");
   const [senderId, setSenderId] = useState("");
+  /** Çıktının altına basılacak imza (Ayarlar → Belge İmzaları). Boş = imzasız. */
+  const [signatureId, setSignatureId] = useState("");
+  // Tanımlı imza yoksa seçici hiç gösterilmez: seçenek üretmeyen bir kutu
+  // kullanıcıya olmayan bir özellik varmış gibi görünür.
+  const [signatureOptions, setSignatureOptions] = useState<SignatureView[]>([]);
   const [currency, setCurrency] = useState<Currency>("USD");
   const [vatEnabled, setVatEnabled] = useState(false);
   const [deliveryCode, setDeliveryCode] = useState<string>("");
@@ -291,6 +299,20 @@ export function QuoteDialog({
         : products,
     [products, quoteDivisionGroupCode]
   );
+  // İmza listesi teklifin zorunlu parçası değil: yüklenemezse seçici gizli
+  // kalır ve çıktı eski davranışıyla proje ilgilisinin adına düşer.
+  useEffect(() => {
+    if (!open) return;
+    let alive = true;
+    signatureService
+      .list({ activeOnly: true })
+      .then((rows) => alive && setSignatureOptions(rows))
+      .catch(() => alive && setSignatureOptions([]));
+    return () => {
+      alive = false;
+    };
+  }, [open]);
+
   const [productLookupRows, setProductLookupRows] = useState<Record<ProductLookupName, LookupRow[]>>(FALLBACK_PRODUCT_LOOKUPS);
   useEffect(() => {
     if (!open) return;
@@ -332,6 +354,7 @@ export function QuoteDialog({
     setValidityDays("");
     setDocumentNo("");
     setSenderId(users.find((u) => u.id === user?.id)?.id ?? users[0]?.id ?? "");
+    setSignatureId("");
     setVatEnabled(false);
     setDeliveryCode("");
     setNoteVariantKey("");
@@ -374,6 +397,7 @@ export function QuoteDialog({
       setValidityDays(data.validityDays ? String(data.validityDays) : "");
       setDocumentNo(data.documentNo ?? "");
       setSenderId(data.projectOwnerUserId ?? "");
+      setSignatureId(data.signatureId ?? "");
       const offer = offers.find((o) => o.id === id);
       const currencyCode = (offer?.currency ?? "USD") as Currency;
       setCurrency(currencyCode);
@@ -876,6 +900,9 @@ export function QuoteDialog({
           headerDiscountAmount,
           headerDiscountPercent,
           projectOwnerUserId: senderId || undefined,
+          // Boş seçim `null` gider: mevcut imzayı kaldırmanın tek yolu bu
+          // (`undefined` "alan gönderilmedi" demek, seçim korunurdu).
+          signatureId: signatureId || null,
           notes: note.trim() || undefined,
           paymentTerms: paymentTerms.trim() || undefined,
           deliveryTerms: deliveryTerms.trim() || undefined,
@@ -911,6 +938,7 @@ export function QuoteDialog({
           headerDiscountAmount,
           headerDiscountPercent,
           projectOwnerUserId: senderId || undefined,
+          signatureId: signatureId || undefined,
           notes: note.trim() || undefined,
           paymentTermsText: paymentTerms.trim() || undefined,
           deliveryTermsText: deliveryTerms.trim() || undefined,
@@ -1143,6 +1171,20 @@ export function QuoteDialog({
                 </SelectContent>
               </Select>
             </div>
+            {signatureOptions.length > 0 && (
+              <div>
+                <Label className="text-xs">Çıktıya Basılacak İmza</Label>
+                <Select value={signatureId || NO_SIGNATURE} onValueChange={(value) => setSignatureId(value === NO_SIGNATURE ? "" : value)}>
+                  <SelectTrigger className="mt-1.5"><SelectValue placeholder="İmzasız" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={NO_SIGNATURE}>İmzasız — gönderenin adı basılır</SelectItem>
+                    {signatureOptions.map((option) => (
+                      <SelectItem key={option.id} value={option.id}>{option.name} · {option.title}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
             {canPickDivision && (
               <div>
                 <Label className="text-xs">Bölüm *</Label>

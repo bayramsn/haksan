@@ -942,6 +942,14 @@ export type ServiceQuoteForm = {
   writerName: string;
   writerTitle?: string;
   writerEmail?: string;
+  /**
+   * Çıktının altına basılacak imza (Ayarlar → Belge İmzaları).
+   *
+   * Canlı imza kaydına referans değil, seçildiği andaki kopyası saklanır: imza
+   * sonradan düzenlense veya kaldırılsa bile bu teklif kendi imzasıyla basılır.
+   * Eski kayıtlarda alan yok — okurken her zaman opsiyonel varsayılmalı.
+   */
+  signature?: { id: string; name: string; title: string; imageUrl: string | null };
   company: string;
   contact?: string;
   mobile?: string;

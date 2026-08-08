@@ -22,6 +22,7 @@ import { ExportsModule } from './modules/exports/exports.module';
 import { LookupsModule } from './modules/lookups/lookups.module';
 import { AdminModule } from './modules/admin/admin.module';
 import { NoteTemplatesModule } from './modules/note-templates/note-templates.module';
+import { SignaturesModule } from './modules/signatures/signatures.module';
 import { FxModule } from './modules/fx/fx.module';
 import { ChatModule } from './modules/chat/chat.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
@@ -68,6 +69,7 @@ const env = loadEnv();
     ExportsModule,
     AdminModule,
     NoteTemplatesModule,
+    SignaturesModule,
     FxModule,
     ChatModule,
     NotificationsModule,

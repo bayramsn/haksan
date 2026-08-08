@@ -8,6 +8,7 @@ import { splitVat } from "../pageHelpers";
 import { publicProductLabel, trLongDate } from "./core";
 import { applyVatRateToNotes, matchQuoteNoteVariantKey, resolveProformaNotes, QUOTE_VARIANT_PREFIX } from "./notes";
 import { allocateCustomsTotal } from "./quotePrint";
+import { printSignatureFromSnapshot } from "./signature";
 import type { ProformaItem, ProformaPrintData } from "./templates";
 
 export type ProformaBuildInput = {
@@ -116,6 +117,8 @@ const proformaFromSnapshot = (
   });
   return {
     firma: companyName,
+    // İmza belgenin kendi anlık görüntüsünden; seçilmemişse satır hazırlayana düşer.
+    imza: printSignatureFromSnapshot(snapshot.signature),
     ilgili: snapshotValue(contact, "fullName", "full_name"),
     mobil: snapshotValue(contact, "mobilePhone", "mobile_phone"),
     adres: fullAddress,

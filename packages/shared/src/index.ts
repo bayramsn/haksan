@@ -17,6 +17,7 @@ export * from './schemas/note';
 export * from './schemas/order';
 export * from './schemas/shipment';
 export * from './schemas/file';
+export * from './schemas/signature';
 export * from './schemas/finance';
 export * from './schemas/admin';
 export * from './schemas/service';

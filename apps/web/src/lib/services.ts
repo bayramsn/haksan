@@ -111,6 +111,9 @@ import type {
   ShipmentCreateInput,
   ShipmentStartInput,
   ShipmentStatusUpdateInput,
+  SignatureCreateInput,
+  SignatureUpdateInput,
+  SignatureView,
   SignedUploadUrlInput,
   TargetUpsertInput,
   TenantUpdateInput,
@@ -921,6 +924,38 @@ export const fileService = {
   link: (body: FileLinkInput) => api.post('/files/link', body),
   links: (params?: Record<string, string | number | undefined>) => api.get<Paginated<any>>(`/files/links${qs(params)}`),
   remove: (id: string) => api.delete(`/files/${id}`),
+};
+
+// ───── Belge imzaları ─────
+export const signatureService = {
+  /** Belge ekranları `activeOnly` ister; ayar ekranı pasifleri de görmek için boş bırakır. */
+  list: (params?: { activeOnly?: boolean }) =>
+    api.get<SignatureView[]>(`/signatures${qs({ activeOnly: params?.activeOnly ? 'true' : undefined })}`),
+  create: (body: SignatureCreateInput) => api.post<SignatureView>('/signatures', body),
+  update: (id: string, body: SignatureUpdateInput) => api.patch<SignatureView>(`/signatures/${id}`, body),
+  remove: (id: string) => api.delete(`/signatures/${id}`),
+  /**
+   * Görseli yükler ve dosya kimliğini döndürür. Bağlama işini API üstlenir:
+   * dönen `fileId` create/update gövdesine konur, ayrıca /files/link çağrılmaz.
+   * Yeni (henüz kaydedilmemiş) imza için `signatureId` yerine 'new' geçilir.
+   */
+  uploadImage: async (
+    signatureId: string,
+    file: Blob,
+    meta: { filename: string; mimeType: string; extension: string },
+  ): Promise<string> => {
+    const upload = await fileService.signedUpload({
+      bucket: 'erp-signatures',
+      entityType: 'signature',
+      entityId: signatureId,
+      filename: meta.filename,
+      mimeType: meta.mimeType,
+      extension: meta.extension,
+      sizeBytes: file.size,
+    } as SignedUploadUrlInput);
+    await fileService.uploadBinary(upload, file, meta.mimeType);
+    return upload.fileId;
+  },
 };
 
 // ───── Reports ─────

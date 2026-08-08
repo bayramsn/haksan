@@ -30,6 +30,7 @@ const BUCKETS = [
   'erp-product-images',
   'erp-company-logos',
   'erp-brand-logos',
+  'erp-signatures',
   'erp-product-documents',
   'erp-quote-documents',
   'erp-proforma-documents',

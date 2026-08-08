@@ -322,7 +322,9 @@ export class FilesService {
         storageProviderId: provider?.id ?? null,
         // Pazarlama görselleri auth'suz, yalnızca alanlarına özel doğrulamalı
         // media uçlarından sunulur; teklif/sözleşme gibi belgeler private kalır.
-        visibility: ['erp-product-images', 'erp-company-logos', 'erp-brand-logos'].includes(input.bucket) ? 'public' : 'private',
+        // İmza görseli de buradadır: yazdırma penceresi auth çerezi taşımaz, bu
+        // yüzden imza `/signatures/media/:fileId` ucundan auth'suz sunulur.
+        visibility: ['erp-product-images', 'erp-company-logos', 'erp-brand-logos', 'erp-signatures'].includes(input.bucket) ? 'public' : 'private',
         uploadedBy: actor.userId,
       })
       .returning();

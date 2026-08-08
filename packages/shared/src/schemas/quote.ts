@@ -18,6 +18,8 @@ export const quoteCreateSchema = z.object({
   deliveryTerms: z.string().max(2000).optional(),
   warrantyTerms: z.string().max(2000).optional(),
   notes: z.string().max(4000).optional(),
+  /** Çıktının altına basılacak imza (Ayarlar → İmzalar). `null` → imzasız. */
+  signatureId: z.string().uuid().nullish(),
 });
 type QuoteCreateParsed = z.infer<typeof quoteCreateSchema>;
 export type QuoteCreateInput = Omit<QuoteCreateParsed, 'headerDiscountAmount' | 'headerDiscountPercent'> & {
@@ -143,6 +145,8 @@ export const proformaCreateSchema = z.object({
   issueDate: z.coerce.date(),
   statusCode: z.string().max(64).default('draft'),
   fileId: z.string().optional(),
+  /** Çıktının altına basılacak imza (Ayarlar → İmzalar). `null` → imzasız. */
+  signatureId: z.string().uuid().nullish(),
   // Proforma teklifi değiştirmeden kendi net fiyatlarını saklar. Bilerek
   // İskonto bu payload ile değiştirilemez; bağlı teklif satırından korunur.
   // `unitPrice` brüt birim fiyatıdır, net toplam mevcut iskonto düşülerek hesaplanır.
@@ -213,6 +217,8 @@ const standaloneOwnerFields = {
   contactName: z.string().trim().max(255).optional(),
   contactPhone: z.string().trim().max(64).optional(),
   divisionId: z.string().uuid().optional(),
+  /** Çıktının altına basılacak imza (Ayarlar → İmzalar). `null` → imzasız. */
+  signatureId: z.string().uuid().nullish(),
   statusCode: z.string().max(64).default('draft'),
   currencyCode: z.string().trim().max(8).default('USD'),
   paymentTerms: z.string().max(4000).optional(),
@@ -314,6 +320,8 @@ export const contractCreateSchema = z.object({
   paymentTermDays: z.coerce.number().int().min(0).max(3650).optional(),
   statusCode: z.string().max(64).default('draft'),
   fileId: z.string().optional(),
+  /** Çıktının altına basılacak imza (Ayarlar → İmzalar). `null` → imzasız. */
+  signatureId: z.string().uuid().nullish(),
 });
 export type ContractCreateInput = z.infer<typeof contractCreateSchema>;
 

@@ -29,6 +29,7 @@ import type {
   CommercialInvoiceCreateInput,
   CommercialInvoiceUpdateInput,
   ContractCreateInput,
+  DocumentSignatureSnapshot,
   ContractUpdateInput,
   Pagination,
   ProformaCreateInput,
@@ -57,6 +58,7 @@ import {
   requiresReferencePriceApproval,
 } from '@haksan/shared';
 import { FxService } from '../fx/fx.service';
+import { SignaturesService } from '../signatures/signatures.service';
 import { buildPaginated, pageOffset } from '../../shared/utils/pagination';
 import { lookupIdByCode } from '../../shared/utils/lookup.helper';
 import { AuditService } from '../../shared/database/audit.service';
@@ -135,8 +137,44 @@ export class QuotesService {
   constructor(
     @Inject(DB) private readonly db: DbClient,
     private readonly audit: AuditService,
-    private readonly fx: FxService
+    private readonly fx: FxService,
+    private readonly signatures: SignaturesService
   ) {}
+
+  /**
+   * Belge gövdesinden gelen imza seçimini tabloya yazılacak kolona çevirir.
+   *
+   * `undefined` → alan gönderilmedi, mevcut seçim korunur (patch'e girmez).
+   * `null`      → imza kaldırılır.
+   * Dolu değer  → kiracı, bölüm ve aktiflik doğrulanır (SignaturesService).
+   *
+   * Belgeye gömülen ad/ünvan/görsel kopyası burada değil, `document_snapshot`
+   * üretilirken alınır: snapshot belgenin dondurulduğu andaki imzayı taşımalı,
+   * seçimin yapıldığı andakini değil.
+   */
+  private async resolveSignatureId(
+    signatureId: string | null | undefined,
+    actor: AuthContext
+  ): Promise<string | null | undefined> {
+    if (signatureId === undefined) return undefined;
+    if (signatureId === null) return null;
+    return (await this.signatures.resolveForDocument(signatureId, actor)).signatureId;
+  }
+
+  /** Belgenin `signature_id`'sinden `document_snapshot`'a gömülecek kopyayı üretir. */
+  private async captureSignatureSnapshot(
+    signatureId: string | null | undefined,
+    actor: AuthContext
+  ): Promise<DocumentSignatureSnapshot | null> {
+    if (!signatureId) return null;
+    // Seçim yapıldıktan sonra imza pasife alınmış/silinmiş olabilir; belgeyi
+    // dondurmak bu yüzden patlamamalı, imza sessizce boş kalır.
+    try {
+      return (await this.signatures.resolveForDocument(signatureId, actor)).snapshot;
+    } catch {
+      return null;
+    }
+  }
 
   private async invalidateInvoiceApprovals(quoteIds: string[], actor: AuthContext, reason: string) {
     const ids = [...new Set(quoteIds.filter(Boolean))];
@@ -762,6 +800,9 @@ export class QuotesService {
       schemaVersion: 2,
       capturedAt: new Date().toISOString(),
       quote: quoteHeader,
+      // Yazdırma katmanı canlı imzaya değil bu bloğa bakar: imza sonradan
+      // değişse veya silinse bile belge kendi bastığı imzayı korur.
+      signature: await this.captureSignatureSnapshot(quote.signatureId, actor),
       company: company ?? null,
       companyAddresses: orderedAddresses,
       companyPhones: phones,
@@ -774,13 +815,32 @@ export class QuotesService {
     };
   }
 
+  /**
+   * Teklife bağlı ticari belgenin (proforma / sözleşme / fatura) imzası:
+   * belgenin kendi seçimi varsa o, yoksa bağlı teklifin imzası. Böylece
+   * teklifte imzayı seçen kullanıcı aynı seçimi her belgede tekrarlamaz.
+   */
+  private async resolveCommercialSignature(
+    document: Record<string, unknown>,
+    inherited: DocumentSignatureSnapshot | null,
+    actor: AuthContext
+  ): Promise<DocumentSignatureSnapshot | null> {
+    const own = document.signatureId;
+    if (typeof own !== 'string' || !own) return inherited;
+    return this.captureSignatureSnapshot(own, actor);
+  }
+
   private async buildCommercialDocumentSnapshot(
     document: Record<string, unknown>,
     quoteId: string,
     actor: AuthContext
   ) {
     const snapshot = await this.buildDocumentSnapshot(quoteId, actor);
-    return { ...snapshot, document };
+    return {
+      ...snapshot,
+      signature: await this.resolveCommercialSignature(document, snapshot.signature, actor),
+      document,
+    };
   }
 
   private async buildProformaDocumentSnapshot(
@@ -850,6 +910,7 @@ export class QuotesService {
     return {
       ...snapshot,
       schemaVersion: 4,
+      signature: await this.resolveCommercialSignature(document, snapshot.signature, actor),
       quote: {
         ...snapshot.quote,
         subtotal,
@@ -1301,6 +1362,7 @@ export class QuotesService {
         deliveryTerms: input.deliveryTerms ?? null,
         warrantyTerms: input.warrantyTerms ?? null,
         notes: input.notes ?? null,
+        signatureId: (await this.resolveSignatureId(input.signatureId, actor)) ?? null,
         statusId: draft?.id ?? null,
         createdBy: actor.userId,
       })
@@ -1415,6 +1477,9 @@ export class QuotesService {
     for (const k of ['headerDiscountAmount', 'headerDiscountPercent'] as const) {
       if ((input as any)[k] !== undefined) patch[k] = ((input as any)[k] as number | undefined)?.toString() ?? '0';
     }
+    // Yukarıdaki döngüde değil: imza seçimi doğrulanmadan tabloya yazılamaz.
+    const signatureId = await this.resolveSignatureId(input.signatureId, actor);
+    if (signatureId !== undefined) patch.signatureId = signatureId;
     await this.db.update(quotes).set(patch).where(eq(quotes.id, id));
     if (input.headerDiscountAmount !== undefined || input.headerDiscountPercent !== undefined) {
       await this.recalcQuoteTotals(id);
@@ -1832,6 +1897,7 @@ export class QuotesService {
     const statusId = await lookupIdByCode(this.db, proformaStatuses, input.statusCode);
     if (!statusId) throw new ValidationError('Geçersiz proforma durumu', { field: 'statusCode' });
     const finalizedAt = input.statusCode !== 'draft' ? new Date() : null;
+    const signatureId = (await this.resolveSignatureId(input.signatureId, actor)) ?? null;
     const documentSnapshot = await this.buildProformaDocumentSnapshot(
       {
         businessLine,
@@ -1840,6 +1906,7 @@ export class QuotesService {
         issueDate: input.issueDate,
         statusId,
         fileId: input.fileId ?? null,
+        signatureId,
         finalizedAt,
         createdBy: actor.userId,
       },
@@ -1858,6 +1925,7 @@ export class QuotesService {
         issueDate: input.issueDate,
         statusId,
         fileId: input.fileId ?? null,
+        signatureId,
         documentSnapshot,
         finalizedAt,
         createdBy: actor.userId,
@@ -1897,12 +1965,15 @@ export class QuotesService {
     for (const k of ['issueDate', 'fileId'] as const) {
       if ((input as any)[k] !== undefined) patch[k] = (input as any)[k] ?? null;
     }
+    const signatureId = await this.resolveSignatureId(input.signatureId, actor);
+    if (signatureId !== undefined) patch.signatureId = signatureId;
     if (input.documentNo !== undefined) patch.documentNo = normalizeSeriesDocumentNo(input.documentNo, businessLine);
     else if (input.quoteId !== undefined && businessLine !== existing.businessLine) {
       patch.documentNo = await nextSeriesDocumentNo(this.db, actor.tenantId, businessLine, 'proforma', input.issueDate ?? existing.issueDate);
     }
     const snapshotDocument = { ...existing, ...patch };
-    if (input.items !== undefined || input.quoteId !== undefined || !existing.documentSnapshot) {
+    // İmza değişikliği de snapshot'ı tazeler; aksi halde belge eski imzayla basılırdı.
+    if (signatureId !== undefined || input.items !== undefined || input.quoteId !== undefined || !existing.documentSnapshot) {
       patch.documentSnapshot = await this.buildProformaDocumentSnapshot(
         snapshotDocument,
         String(patch.quoteId ?? existing.quoteId),
@@ -2096,7 +2167,8 @@ export class QuotesService {
   private buildStandaloneProformaSnapshot(
     document: Record<string, unknown>,
     input: StandaloneProformaCreateInput,
-    context: Awaited<ReturnType<QuotesService['resolveStandaloneDocumentContext']>>
+    context: Awaited<ReturnType<QuotesService['resolveStandaloneDocumentContext']>>,
+    signature: DocumentSignatureSnapshot | null = null
   ) {
     const roundMoney = (value: number) => Number(value.toFixed(4));
     const { items, discountTotal, subtotal, vatAmount } = this.priceStandaloneItems(input.items);
@@ -2106,6 +2178,8 @@ export class QuotesService {
       capturedAt: new Date().toISOString(),
       /** Teklife bağlı snapshot'lardan ayırmak için işaret. */
       standalone: true,
+      // Bu kurucu senkron; imza kopyası çağrı yerinde çözülüp buraya verilir.
+      signature,
       document,
       quote: {
         documentNo: document.documentNo ?? null,
@@ -2143,6 +2217,7 @@ export class QuotesService {
     const statusId = await lookupIdByCode(this.db, proformaStatuses, input.statusCode);
     if (!statusId) throw new ValidationError('Geçersiz proforma durumu', { field: 'statusCode' });
     const finalizedAt = input.statusCode !== 'draft' ? new Date() : null;
+    const signatureId = (await this.resolveSignatureId(input.signatureId, actor)) ?? null;
     const documentSnapshot = this.buildStandaloneProformaSnapshot(
       {
         businessLine,
@@ -2150,11 +2225,13 @@ export class QuotesService {
         documentNo,
         issueDate: input.issueDate,
         statusId,
+        signatureId,
         finalizedAt,
         createdBy: actor.userId,
       },
       input,
-      context
+      context,
+      await this.captureSignatureSnapshot(signatureId, actor)
     );
     const [row] = await this.db
       .insert(proformas)
@@ -2169,6 +2246,7 @@ export class QuotesService {
         documentNo,
         issueDate: input.issueDate,
         statusId,
+        signatureId,
         documentSnapshot,
         finalizedAt,
         createdBy: actor.userId,
@@ -2225,6 +2303,10 @@ export class QuotesService {
         : existing.statusId;
     if (!statusId) throw new ValidationError('Geçersiz proforma durumu', { field: 'statusCode' });
     const finalizedAt = input.statusCode !== undefined && input.statusCode !== 'draft' ? new Date() : existing.finalizedAt;
+    // Gönderilmeyen imza mevcut seçimi korur (diğer alanlarla aynı birleştirme
+    // kuralı); açıkça `null` gönderilmişse imza kaldırılır.
+    const requestedSignatureId = await this.resolveSignatureId(input.signatureId, actor);
+    const signatureId = requestedSignatureId === undefined ? existing.signatureId ?? null : requestedSignatureId;
     const patch = {
       companyId: context.company?.id ?? null,
       currencyId: context.currency?.id ?? null,
@@ -2232,11 +2314,13 @@ export class QuotesService {
       documentNo,
       issueDate: merged.issueDate,
       statusId,
+      signatureId,
       finalizedAt,
       documentSnapshot: this.buildStandaloneProformaSnapshot(
-        { businessLine, quoteId: null, documentNo, issueDate: merged.issueDate, statusId, finalizedAt, createdBy: existing.createdBy },
+        { businessLine, quoteId: null, documentNo, issueDate: merged.issueDate, statusId, signatureId, finalizedAt, createdBy: existing.createdBy },
         merged,
-        context
+        context,
+        await this.captureSignatureSnapshot(signatureId, actor)
       ),
     };
     await this.db.update(proformas).set(patch).where(eq(proformas.id, id));
@@ -2266,7 +2350,8 @@ export class QuotesService {
   private buildStandaloneContractSnapshot(
     document: Record<string, unknown>,
     input: StandaloneContractCreateInput,
-    context: Awaited<ReturnType<QuotesService['resolveStandaloneDocumentContext']>>
+    context: Awaited<ReturnType<QuotesService['resolveStandaloneDocumentContext']>>,
+    signature: DocumentSignatureSnapshot | null = null
   ) {
     const roundMoney = (value: number) => Number(value.toFixed(4));
     const { items, discountTotal, subtotal, vatAmount } = this.priceStandaloneItems(input.items);
@@ -2276,6 +2361,8 @@ export class QuotesService {
       capturedAt: new Date().toISOString(),
       /** Teklife bağlı snapshot'lardan ayırmak için işaret. */
       standalone: true,
+      // Bu kurucu senkron; imza kopyası çağrı yerinde çözülüp buraya verilir.
+      signature,
       document,
       quote: {
         documentNo: document.contractNo ?? null,
@@ -2324,6 +2411,7 @@ export class QuotesService {
     const statusId = await lookupIdByCode(this.db, contractStatuses, input.statusCode);
     if (!statusId) throw new ValidationError('Geçersiz sözleşme durumu', { field: 'statusCode' });
     const finalizedAt = input.statusCode !== 'draft' ? new Date() : null;
+    const signatureId = (await this.resolveSignatureId(input.signatureId, actor)) ?? null;
     const documentSnapshot = this.buildStandaloneContractSnapshot(
       {
         businessLine,
@@ -2332,11 +2420,13 @@ export class QuotesService {
         signedDate: input.signedDate,
         paymentTermDays: input.paymentTermDays ?? null,
         statusId,
+        signatureId,
         finalizedAt,
         createdBy: actor.userId,
       },
       input,
-      context
+      context,
+      await this.captureSignatureSnapshot(signatureId, actor)
     );
     const [row] = await this.db
       .insert(contracts)
@@ -2352,6 +2442,7 @@ export class QuotesService {
         signedDate: input.signedDate,
         paymentTermDays: input.paymentTermDays ?? null,
         statusId,
+        signatureId,
         documentSnapshot,
         finalizedAt,
         createdBy: actor.userId,
@@ -2422,6 +2513,9 @@ export class QuotesService {
         : existing.statusId;
     if (!statusId) throw new ValidationError('Geçersiz sözleşme durumu', { field: 'statusCode' });
     const finalizedAt = input.statusCode !== undefined && input.statusCode !== 'draft' ? new Date() : existing.finalizedAt;
+    // Gönderilmeyen imza mevcut seçimi korur; açıkça `null` gönderilmişse kaldırılır.
+    const requestedSignatureId = await this.resolveSignatureId(input.signatureId, actor);
+    const signatureId = requestedSignatureId === undefined ? existing.signatureId ?? null : requestedSignatureId;
     const patch = {
       companyId: context.company?.id ?? null,
       currencyId: context.currency?.id ?? null,
@@ -2430,6 +2524,7 @@ export class QuotesService {
       signedDate: merged.signedDate,
       paymentTermDays: merged.paymentTermDays ?? null,
       statusId,
+      signatureId,
       finalizedAt,
       documentSnapshot: this.buildStandaloneContractSnapshot(
         {
@@ -2439,11 +2534,13 @@ export class QuotesService {
           signedDate: merged.signedDate,
           paymentTermDays: merged.paymentTermDays ?? null,
           statusId,
+          signatureId,
           finalizedAt,
           createdBy: existing.createdBy,
         },
         merged,
-        context
+        context,
+        await this.captureSignatureSnapshot(signatureId, actor)
       ),
     };
     await this.db.update(contracts).set(patch).where(eq(contracts.id, id));
@@ -2513,6 +2610,7 @@ export class QuotesService {
         paymentTermDays: input.paymentTermDays ?? null,
         statusId,
         fileId: input.fileId ?? null,
+        signatureId: (await this.resolveSignatureId(input.signatureId, actor)) ?? null,
         createdBy: actor.userId,
       })
       .returning();
@@ -2559,6 +2657,8 @@ export class QuotesService {
     for (const k of ['signedDate', 'paymentTermDays', 'fileId'] as const) {
       if ((input as any)[k] !== undefined) patch[k] = (input as any)[k] ?? null;
     }
+    const signatureId = await this.resolveSignatureId(input.signatureId, actor);
+    if (signatureId !== undefined) patch.signatureId = signatureId;
     if (input.contractNo !== undefined) patch.contractNo = normalizeSeriesDocumentNo(input.contractNo, businessLine);
     else if (input.quoteId !== undefined && businessLine !== existing.businessLine) {
       patch.contractNo = await nextSeriesDocumentNo(this.db, actor.tenantId, businessLine, 'contract', input.signedDate ?? existing.signedDate ?? new Date());
