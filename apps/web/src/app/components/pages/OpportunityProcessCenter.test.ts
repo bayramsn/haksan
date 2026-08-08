@@ -13,9 +13,10 @@ describe("OpportunityProcessCenter tek kutu sözleşmesi", () => {
     expect(source).toContain('target.axis === "qualification" && target.direction === "forward"');
   });
 
-  it("satış alanı rayını, operasyon akordeonunu ve hedef seçim panelini içermez", () => {
-    // Ray + akordeon + sekmeli hedef paneli katmanları kaldırıldı; kutudan
-    // alan değiştirme (hedef seçme, ileri/geri atlama) artık mümkün değil.
+  it("operasyon akordeonunu ve sekmeli hedef seçim panelini içermez", () => {
+    // Kutuda alan rayı VAR ama yalnız gezinme için (bkz. gezinme testi).
+    // Kaldırılan şey sekmeli hedef seçim paneli + operasyon akordeonuydu:
+    // onlar kutudan doğrudan alan DEĞİŞTİRMEYE (atlamalı geçişe) izin veriyordu.
     expect(source).not.toContain("renderSelectedTargetPanel");
     expect(source).not.toContain("data-selected-target-panel");
     expect(source).not.toContain("renderOperationGroups");
@@ -33,11 +34,23 @@ describe("OpportunityProcessCenter tek kutu sözleşmesi", () => {
     expect(source).not.toContain("salesStageLabel");
   });
 
-  it("geri geçiş yolunu tamamen kapatır", () => {
+  it("alanlar arasında GEZİNMEYE izin verir ama geri GEÇİŞ yolunu açmaz", () => {
+    // Ray'dan geçmiş bir alana bakmak ve görevlerini düzeltmek serbest;
+    // kartı o alana geri TAŞIMAK değil. `direction === "backward"` yalnız
+    // "bu alan tamamlandı" işaretinde kullanılır — geçiş çağrısında değil.
+    expect(source).toContain("setSelectedStage");
     expect(source).not.toContain("requiresReason");
     expect(source).not.toContain("invalidatedApprovals");
-    expect(source).not.toContain('direction === "backward"');
     expect(source).not.toContain("opportunityService.changeStage");
+    // İlerletme hâlâ tek adım ileri ve yalnız engeller temizken.
+    expect(source).toContain('target.direction === "forward"');
+    expect(source).toContain("!canUpdate || advancing || !nextTarget || closed || blockers.length > 0");
+  });
+
+  it("ileri alanları yalnız önizleme olarak gösterir", () => {
+    // Sırası gelmemiş bir alanın görevini doldurmak sırayı atlamak olurdu.
+    expect(source).toContain('viewedDirection === "forward"');
+    expect(source).toContain("readOnly: viewedIsFuture");
   });
 });
 
@@ -109,10 +122,11 @@ describe("OpportunityProcessCenter alan görev listesiyle ilişkisi", () => {
     // Görevler kutunun İÇERİĞİ: prop olarak gelir, doğrudan burada render
     // edilir. Portal ve modül düzeyinde yuva kaydı kaldırıldı — geri gelmesi
     // eski kırılgan tasarıma dönüş demektir.
-    expect(source).toContain("checklist?: (context: { reload: () => Promise<void> }) => ReactNode");
+    expect(source).toContain("checklist?: (context: {");
+    expect(source).toContain("checks?: ProcessCheck[];");
     // Render prop: kutu kendi tazelemesini panele veriyor, böylece görev
     // kaydedilince kutunun engelleri de güncelleniyor.
-    expect(source).toContain("{checklist?.({ reload: load })}");
+    expect(source).toContain("{checklist?.({");
     expect(source).not.toContain("checklistSlots");
     expect(source).not.toContain("publishChecklistSlot");
     expect(source).not.toContain("checklistSlotRef");

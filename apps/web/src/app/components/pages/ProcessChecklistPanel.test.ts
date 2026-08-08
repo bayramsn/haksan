@@ -33,8 +33,8 @@ describe("ProcessChecklistPanel satış alanı kutusunun içeriği", () => {
     expect(centerSource).not.toContain("checklistSlots");
     expect(centerSource).not.toContain("publishChecklistSlot");
     // Kutu görevleri kendi gövdesinde render eder.
-    expect(centerSource).toContain("checklist?: (context: { reload: () => Promise<void> }) => ReactNode");
-    expect(centerSource).toContain("{checklist?.({ reload: load })}");
+    expect(centerSource).toContain("checklist?: (context: {");
+    expect(centerSource).toContain("{checklist?.({");
     // Bağ üst bileşende kurulmalı, yoksa engel düğmeleri sessizce çalışmaz olur.
     expect(detailSource).toContain("checklist={");
     expect(detailSource).toContain("requestedAction={requestedProcessAction}");

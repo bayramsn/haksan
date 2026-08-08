@@ -36,9 +36,13 @@ import { focusWorkspaceTarget } from "../../lib/workspaceFocus";
  * yalnız her `key` için doğru düzenleyici eşlenir. Böylece UI, backend'in
  * gerçekten aradığı koşulun dışına çıkıp olmayan bir kural vaat etmez.
  *
- * Panel'i üst bileşen mount eder (aksiyon isteği ve dialog'lar oranın state'ine
- * bağlı) ama görüntülendiği yer satış alanı kutusudur: kutu bir yuva yayımlar,
- * panel de içeriğini oraya portal'lar. Kutu yoksa panel eski yerinde kalır.
+ * Panel elementini üst bileşen yaratır (aksiyon isteği ve dialog'lar oranın
+ * state'ine bağlı) ama render edildiği yer satış alanı kutusunun içidir: kutuya
+ * prop olarak geçer. Böylece `requestedAction` bağı korunur, portal gerekmez.
+ *
+ * Gösterilen görevler ray'dan seçilen alana göre değişir (`checks` prop'u).
+ * İleri alanlar `readOnly`: sırası gelmemiş görevi doldurmak sırayı atlamaktır.
+ *
  * İlerletme düğmesi burada YOK — tek düğme kutunun altındadır; burada ikinci bir
  * ilerletme yolu olması hem kapalı kart hem sunucu engelleri kontrolünü atlayan
  * ikinci bir kapı açardı.
@@ -48,10 +52,20 @@ export function ProcessChecklistPanel({
   requestedAction,
   onActionHandled,
   onSaved,
+  checks: checksOverride,
+  readOnly = false,
 }: {
   sc: SalesCase;
   requestedAction?: OpportunityProcessActionKey | null;
   onActionHandled?: () => void;
+  /**
+   * Gösterilecek görev listesi. Verilmezse mevcut alanınki kullanılır.
+   * Ray'dan başka bir alan seçildiğinde o alanın görevleri geçilir — kontroller
+   * `processReadiness.checks` içinde `qualificationStage` ile etiketli geliyor.
+   */
+  checks?: Array<{ key: string; label: string; complete: boolean }>;
+  /** İleri alanların görevleri yalnız önizlemedir; düzenleme kapalıdır. */
+  readOnly?: boolean;
   /**
    * Kaydetmeden sonra satış alanı kutusunun hazırlık verisini tazeler.
    *
@@ -129,6 +143,9 @@ export function ProcessChecklistPanel({
 
   if (!readiness) return null;
 
+  // Ray'dan seçilen alanın görevleri; seçim yoksa mevcut alanınki.
+  const checks = checksOverride ?? readiness.checks;
+
   /** Bir düzenleyicinin kaydetme sarmalayıcısı: kilit, hata ve tazeleme tek yerde. */
   const run = async (
     key: string,
@@ -163,7 +180,7 @@ export function ProcessChecklistPanel({
             ilerleme sayacı kalıyor. */}
         <div className="flex justify-end">
           <span className="text-[11px] text-muted-foreground">
-            {readiness.checks.filter((c) => c.complete).length}/{readiness.checks.length} tamamlandı
+            {checks.filter((c) => c.complete).length}/{checks.length} tamamlandı
           </span>
         </div>
 
@@ -176,7 +193,7 @@ export function ProcessChecklistPanel({
           </p>
         )}
 
-        {requestedCheckKey && !readiness.checks.some((item) => item.key === requestedCheckKey) && (
+        {requestedCheckKey && !readOnly && !checks.some((item) => item.key === requestedCheckKey) && (
           <div className="rounded-lg border border-primary/20 bg-primary/5 p-3">
             <div className="mb-2 text-xs font-semibold">Seçilen hızlı işlem</div>
             <CheckEditor
@@ -201,11 +218,11 @@ export function ProcessChecklistPanel({
           </div>
         )}
 
-        {readiness.checks.length === 0 ? (
+        {checks.length === 0 ? (
           <p className="text-xs text-muted-foreground">Bu aşamada tamamlanacak alan yok.</p>
         ) : (
           <ul className="divide-y divide-border/60 rounded-lg border border-border/60">
-            {readiness.checks.map((check) => {
+            {checks.map((check) => {
               const isActivityCheck = check.key === "call" || check.key === "visit";
               return (
                 <li key={check.key} id={`process-check-${check.key}`} className="flex flex-col gap-2 scroll-mt-24 px-3 py-2.5">
@@ -219,7 +236,7 @@ export function ProcessChecklistPanel({
                       {check.label}
                     </span>
                     {busyKey === check.key && <Loader2 className="size-3.5 animate-spin text-muted-foreground" />}
-                    {check.complete && !isActivityCheck && (
+                    {check.complete && !isActivityCheck && !readOnly && (
                       <Button
                         type="button"
                         size="sm"
@@ -239,7 +256,9 @@ export function ProcessChecklistPanel({
                       </Button>
                     )}
                   </div>
-                  {(!check.complete || editingKeys.has(check.key) || isActivityCheck) && (
+                  {/* İleri alanlar yalnız önizleme: henüz sırası gelmemiş bir
+                      alanın görevini doldurmak sırayı atlamak olurdu. */}
+                  {!readOnly && (!check.complete || editingKeys.has(check.key) || isActivityCheck) && (
                     <CheckEditor
                       checkKey={check.key}
                       sc={sc}
