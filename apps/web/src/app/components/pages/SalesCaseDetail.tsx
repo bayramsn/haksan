@@ -1775,22 +1775,63 @@ export function SalesCaseDetailPage({
 const PAYMENT_PLAN_TERMS_SCOPE = "payment_plan_terms";
 
 /**
- * Ödeme yönteminin plan şekli.
+ * Ödeme yöntemi ailesi — kullanıcının gördüğü üst seçim.
  *
- * Çok vadeli yöntemlerde (taksit, çek, senet) birden fazla vade satırı yazılır;
- * tek ödemeli yöntemlerde (peşin, havale, vadeli, leasing, akreditif) tek satır
- * vardır ve taksit sayısı sormak anlamsızdır — leasingde taksitleri finans
- * kuruluşu takip eder, akreditifte ödeme vade sonunda tek seferde yapılır.
+ * `OpportunityPaymentMethod` sekiz düz değer taşıyor ama satışçının kafasındaki
+ * ayrım daha kaba: peşin mi, vadeli mi, leasing mi. Senet ve çek ayrı yöntem
+ * değil, VADENİN TÜRÜ. Bu yüzden üst seçim aile üzerinden yapılır, alt tür
+ * yalnız "vadeli" seçilince sorulur ve saklanan değere eşlenir — böylece
+ * mevcut enum ve backend kuralları değişmeden kalır (migration gerekmez).
  */
-const PAYMENT_METHOD_PLAN_SHAPE: Record<OpportunityPaymentMethod, "schedule" | "single" | "none"> = {
-  undecided: "none",
+type PaymentFamily = "cash" | "wire_transfer" | "term" | "installment" | "leasing" | "letter_of_credit";
+
+const PAYMENT_FAMILY_LABELS: Record<PaymentFamily, string> = {
+  cash: "Peşin",
+  wire_transfer: "Havale",
+  term: "Vadeli",
+  installment: "Taksitli",
+  leasing: "Leasing",
+  letter_of_credit: "Akreditif",
+};
+
+/** Vade türü → saklanan ödeme yöntemi. "Elden" ayrı bir enum değeri gerektirmiyor. */
+const TERM_KIND_TO_METHOD = {
+  elden: "term",
+  senet: "promissory_note",
+  cek: "cheque",
+} as const satisfies Record<string, OpportunityPaymentMethod>;
+
+type TermKind = keyof typeof TERM_KIND_TO_METHOD;
+
+const TERM_KIND_LABELS: Record<TermKind, string> = {
+  elden: "Elden",
+  senet: "Senet",
+  cek: "Çek",
+};
+
+/** Saklanan yöntemden aileyi ve vade türünü geri okur (düzenleme modu için). */
+const familyOfMethod = (method: OpportunityPaymentMethod): PaymentFamily | null => {
+  if (method === "promissory_note" || method === "cheque" || method === "term") return "term";
+  if (method === "undecided") return null;
+  return method as PaymentFamily;
+};
+
+const termKindOfMethod = (method: OpportunityPaymentMethod): TermKind =>
+  method === "promissory_note" ? "senet" : method === "cheque" ? "cek" : "elden";
+
+/**
+ * Ailenin plan şekli.
+ *
+ * Peşin ve leasingde ödeme planı ADIMI TAMAMEN ATLANIR: peşinde tahsilat tek
+ * seferde ve anında, leasingde taksitleri finans kuruluşu takip eder — CRM'de
+ * vade satırı üretmek gerçeğe karşılık gelmeyen alacak kayıtları doğuruyordu.
+ */
+const PAYMENT_FAMILY_PLAN_SHAPE: Record<PaymentFamily, "schedule" | "single" | "none"> = {
+  cash: "none",
+  leasing: "none",
+  term: "schedule",
   installment: "schedule",
-  cheque: "schedule",
-  promissory_note: "schedule",
-  cash: "single",
   wire_transfer: "single",
-  term: "single",
-  leasing: "single",
   letter_of_credit: "single",
 };
 
@@ -1831,7 +1872,8 @@ export function CreatePaymentPlanDialog({
   const [amount, setAmount] = useState<number>(0);
   const [currency, setCurrency] = useState<string>("USD");
   // Ödeme planı yöntemden türer; yöntem seçilmeden plan anlamsız.
-  const [paymentMethod, setPaymentMethod] = useState<OpportunityPaymentMethod>("undecided");
+  const [paymentFamily, setPaymentFamily] = useState<PaymentFamily | null>(null);
+  const [termKind, setTermKind] = useState<TermKind>("elden");
   const [installmentCount, setInstallmentCount] = useState<number>(3);
   const [paymentTermDays, setPaymentTermDays] = useState<number>(30);
   const [installments, setInstallments] = useState<Array<{ amount: number; dueDate: string }>>([]);
@@ -1858,12 +1900,20 @@ export function CreatePaymentPlanDialog({
     }
     setPaymentTermDays(30);
     // Kartta yöntem zaten seçiliyse onunla aç; kullanıcı aynı şeyi iki kez seçmesin.
-    setPaymentMethod(sc.paymentMethod ?? "undecided");
+    const storedMethod = sc.paymentMethod ?? "undecided";
+    setPaymentFamily(familyOfMethod(storedMethod));
+    setTermKind(termKindOfMethod(storedMethod));
     setTerms({ paymentTerms: sc.paymentTerms ?? "", deliveryTerms: "", warrantyTerms: "" });
     setTermsTemplateKeyValue("");
   }, [open, offs, sc]);
 
-  const planShape = PAYMENT_METHOD_PLAN_SHAPE[paymentMethod];
+  // Saklanacak yöntem aileden (ve vadeliyse alt türden) türer.
+  const paymentMethod: OpportunityPaymentMethod = paymentFamily === "term"
+    ? TERM_KIND_TO_METHOD[termKind]
+    : (paymentFamily ?? "undecided");
+  const planShape = paymentFamily ? PAYMENT_FAMILY_PLAN_SHAPE[paymentFamily] : "none";
+  // Peşin ve leasingde plan adımı atlanır; kaydetme yalnız yöntemi yazar.
+  const planSkipped = paymentFamily === "cash" || paymentFamily === "leasing";
   // Tek ödemeli yöntemde taksit sayısı kavramı yok; kullanıcı 3 taksitli bir
   // plandan geçiş yapınca eski sayı takılı kalmasın.
   useEffect(() => {
@@ -1923,9 +1973,12 @@ export function CreatePaymentPlanDialog({
     e.preventDefault();
     // Yöntem seçilmeden plan yazmak, hangi tahsilat biçimini temsil ettiği
     // belirsiz alacak satırları üretiyordu.
-    if (planShape === "none") return toast.error("Önce ödeme yöntemini seçin.");
-    if (!isMatch) return toast.error("Taksitlerin toplamı, plan toplam tutarı ile eşleşmelidir");
-    if (amount <= 0 || installments.length === 0) return toast.error("Plan tutarı ve en az bir vade girin.");
+    if (!paymentFamily) return toast.error("Önce ödeme yöntemini seçin.");
+    // Peşin/leasingde vade satırı doğrulaması yapılmaz — plan zaten üretilmiyor.
+    if (!planSkipped) {
+      if (!isMatch) return toast.error("Taksitlerin toplamı, plan toplam tutarı ile eşleşmelidir");
+      if (amount <= 0 || installments.length === 0) return toast.error("Plan tutarı ve en az bir vade girin.");
+    }
     setSaving(true);
     try {
       // Kartta yöntem yoksa ya da değiştiyse plana yazılanla eşitle; süreç
@@ -1938,7 +1991,7 @@ export function CreatePaymentPlanDialog({
         casePatch.paymentTerms = terms.paymentTerms.trim();
       }
       if (Object.keys(casePatch).length > 0) await updateCase(sc.id, casePatch);
-      for (let i = 0; i < installments.length; i++) {
+      for (let i = 0; planSkipped ? false : i < installments.length; i++) {
         const inst = installments[i];
         await financeService.createReceivable({
           companyId: sc.customerId,
@@ -1952,7 +2005,9 @@ export function CreatePaymentPlanDialog({
             : `${OPPORTUNITY_PAYMENT_METHOD_LABELS[paymentMethod]} - ${sc.requestedProduct}`,
         });
       }
-      toast.success("Ödeme planı başarıyla oluşturuldu.");
+      toast.success(planSkipped
+        ? "Ödeme yöntemi kaydedildi; bu yöntemde plan gerekmiyor."
+        : "Ödeme planı başarıyla oluşturuldu.");
       setOpen(false);
       onCreated?.();
     } catch (err: any) {
@@ -1999,21 +2054,39 @@ export function CreatePaymentPlanDialog({
 
               <div className="space-y-1.5">
                 <Label htmlFor="plan-payment-method">Ödeme Yöntemi *</Label>
-                <Select value={paymentMethod} onValueChange={(v) => setPaymentMethod(v as OpportunityPaymentMethod)}>
+                <Select value={paymentFamily ?? ""} onValueChange={(v) => setPaymentFamily(v as PaymentFamily)}>
                   <SelectTrigger id="plan-payment-method" className="w-full">
                     <SelectValue placeholder="Ödeme yöntemi seçin" />
                   </SelectTrigger>
                   <SelectContent>
-                    {(Object.keys(OPPORTUNITY_PAYMENT_METHOD_LABELS) as OpportunityPaymentMethod[])
-                      .filter((code) => code !== "undecided")
-                      .map((code) => (
-                        <SelectItem key={code} value={code}>
-                          {OPPORTUNITY_PAYMENT_METHOD_LABELS[code]}
-                        </SelectItem>
-                      ))}
+                    {(Object.keys(PAYMENT_FAMILY_LABELS) as PaymentFamily[]).map((code) => (
+                      <SelectItem key={code} value={code}>
+                        {PAYMENT_FAMILY_LABELS[code]}
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>
+
+              {/* Senet ve çek ayrı yöntem değil, vadenin türü. Yalnız vadeli
+                  seçilince sorulur ve saklanan enum değerine eşlenir. */}
+              {paymentFamily === "term" && (
+                <div className="space-y-1.5">
+                  <Label htmlFor="plan-term-kind">Vade Türü *</Label>
+                  <Select value={termKind} onValueChange={(v) => setTermKind(v as TermKind)}>
+                    <SelectTrigger id="plan-term-kind" className="w-full">
+                      <SelectValue placeholder="Vade türü seçin" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {(Object.keys(TERM_KIND_LABELS) as TermKind[]).map((kind) => (
+                        <SelectItem key={kind} value={kind}>
+                          {TERM_KIND_LABELS[kind]}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
 
               {planShape === "schedule" && <div className="space-y-1.5">
                 <Label htmlFor="inst-count">Taksit Sayısı</Label>
@@ -2031,7 +2104,7 @@ export function CreatePaymentPlanDialog({
                 </Select>
               </div>}
 
-              <div className="space-y-1.5">
+              {!planSkipped && <div className="space-y-1.5">
                 <Label htmlFor="payment-term-days">
                   {planShape === "schedule" ? "İlk Vade Günü" : PAYMENT_DUE_LABEL[paymentMethod] ?? "Vade (gün)"}
                 </Label>
@@ -2044,9 +2117,9 @@ export function CreatePaymentPlanDialog({
                   onChange={(e) => setPaymentTermDays(Math.max(0, Math.trunc(Number(e.target.value) || 0)))}
                   placeholder="Örn. 30"
                 />
-              </div>
+              </div>}
 
-              <div className="space-y-1.5">
+              {!planSkipped && <div className="space-y-1.5">
                 <Label htmlFor="total-amount">Toplam Plan Tutarı</Label>
                 <Input
                   id="total-amount"
@@ -2056,9 +2129,9 @@ export function CreatePaymentPlanDialog({
                   onChange={(e) => setAmount(Number(e.target.value))}
                   placeholder="Toplam Tutar"
                 />
-              </div>
+              </div>}
 
-              <div className="space-y-1.5">
+              {!planSkipped && <div className="space-y-1.5">
                 <Label htmlFor="currency-select">Para Birimi</Label>
                 <Select value={currency} onValueChange={setCurrency}>
                   <SelectTrigger id="currency-select" className="w-full">
@@ -2070,10 +2143,24 @@ export function CreatePaymentPlanDialog({
                     <SelectItem value="TRY">TRY (₺)</SelectItem>
                   </SelectContent>
                 </Select>
-              </div>
+              </div>}
             </div>
 
-            <div className="border-t pt-4">
+            {/* Peşin ve leasingde plan adımı tamamen atlanır: peşinde tahsilat
+                tek seferde ve anında, leasingde taksitleri finans kuruluşu
+                takip eder. Vade satırı üretmek gerçeğe karşılık gelmeyen alacak
+                kayıtları doğuruyordu. */}
+            {planSkipped && (
+              <div className="rounded-lg border border-info/30 bg-info-soft p-3 text-xs text-info">
+                <b>{PAYMENT_FAMILY_LABELS[paymentFamily!]}</b> yönteminde ödeme planı gerekmiyor; bu adım atlanır.
+                {paymentFamily === "leasing"
+                  ? " Taksitleri finans kuruluşu takip eder."
+                  : " Tahsilat tek seferde yapılır."}
+                {" "}Kaydettiğinizde yalnız ödeme yöntemi ve şartlar satış kartına yazılır.
+              </div>
+            )}
+
+            {!planSkipped && <div className="border-t pt-4">
               <div className="flex items-center justify-between mb-3">
                 <h4 className="text-sm font-medium">Taksit Detayları</h4>
                 <div className="flex items-center gap-2">
@@ -2123,7 +2210,7 @@ export function CreatePaymentPlanDialog({
                   </div>
                 ))}
               </div>
-            </div>
+            </div>}
 
             {/* Şartlar teklif, proforma ve sözleşme ile aynı şablon mekanizması
                 üzerinden yönetilir: kullanıcı kayıtlı şablonu seçer, gerekirse
@@ -2148,8 +2235,8 @@ export function CreatePaymentPlanDialog({
               <Button type="button" variant="ghost" onClick={() => setOpen(false)}>
                 Vazgeç
               </Button>
-              <Button type="submit" disabled={saving || !isMatch || amount <= 0 || installments.length === 0}>
-                {saving ? "Kaydediliyor..." : "Planı Onayla ve Kaydet"}
+              <Button type="submit" disabled={saving || !paymentFamily || (!planSkipped && (!isMatch || amount <= 0 || installments.length === 0))}>
+                {saving ? "Kaydediliyor..." : planSkipped ? "Yöntemi Kaydet ve Geç" : "Planı Onayla ve Kaydet"}
               </Button>
             </div>
           </form>
