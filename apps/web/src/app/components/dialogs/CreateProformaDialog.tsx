@@ -382,6 +382,7 @@ export function CreateProformaDialog({
           />
 
           <DocumentTermsTemplateEditor
+            continuousNumbering
             title="Proforma Şartları"
             description="Şablon seçin veya metni düzenleyin. Kaydedilen değişiklik bağlı teklif şartlarına yazılır ve proforma çıktısında kullanılır."
             templateScope={PROFORMA_TERMS_TEMPLATE_SCOPE}

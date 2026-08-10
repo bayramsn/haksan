@@ -212,6 +212,25 @@ const buildContractMachines = (
   return reconcileMachinePrices(machines, contractNetPrice(quote));
 };
 
+/**
+ * Kartın canlı beklenen tahsilatları, sözleşmenin ödeme planı tablosuna çevrilir.
+ *
+ * Süreç sırasında `contract`(6) aşaması `payment_plan`(7)'den ÖNCE gelir: fiyatı
+ * pazarlık edilerek kaydedilen taslak sözleşmenin anlık görüntüsü, vade satırı
+ * henüz doğmadığı için BOŞ bir planla donuyor. Plan sonradan oluşturulduğunda
+ * çıktı "bedelin tamamı şu şekilde tahsil edilecektir;" deyip altına hiçbir satır
+ * basmasın diye, dondurulmuş plan boşsa canlı tahsilatlara düşülür.
+ */
+const expectedPaymentRows = (payments: Payment[], salesCase: SalesCase | null) =>
+  payments
+    .filter((payment) => payment.paymentType === "expected" && salesCase && payment.salesCaseId === salesCase.id)
+    .sort((left, right) => left.dueDate.localeCompare(right.dueDate))
+    .map((payment) => ({
+      label: payment.note?.trim() || `Vade ${trShortDate(payment.dueDate)}`,
+      tutar: payment.amount,
+      senet: /senet/i.test(payment.note ?? ""),
+    }));
+
 async function buildContractPrintData(input: ContractBuildInput): Promise<ContractPrintData> {
   const { customer, salesCase, offer, products, payments, contractDate, contractNo, documentSnapshot } = input;
   if (documentSnapshot) {
@@ -272,11 +291,13 @@ async function buildContractPrintData(input: ContractBuildInput): Promise<Contra
         const mainItem = items.find((item: any) => !String(value(item, "description") ?? "").trimStart().startsWith("↳ Opsiyon:"));
         return asNumber(value(mainItem, "vatRate", "vat_rate"));
       })(),
-      odemePlani: receivables.map((receivable: any) => ({
-        label: String(value(receivable, "notes") ?? `Vade ${trShortDate(value(receivable, "dueDate", "due_date"))}`),
-        tutar: asNumber(value(receivable, "amount")),
-        senet: /senet/i.test(String(value(receivable, "notes") ?? "")),
-      })),
+      odemePlani: receivables.length
+        ? receivables.map((receivable: any) => ({
+            label: String(value(receivable, "notes") ?? `Vade ${trShortDate(value(receivable, "dueDate", "due_date"))}`),
+            tutar: asNumber(value(receivable, "amount")),
+            senet: /senet/i.test(String(value(receivable, "notes") ?? "")),
+          }))
+        : expectedPaymentRows(payments, salesCase),
       kontrolUnitesiMarka: [...new Set(machines.map((machine) => machine.kontrolUnitesiMarka).filter(Boolean))].join(" / ")
         || inferControlUnitBrand(mappedSpecs, warrantyTerms),
       machines,
@@ -305,9 +326,6 @@ async function buildContractPrintData(input: ContractBuildInput): Promise<Contra
     : salesCase?.quantity || 1;
   const subtotal = asNumber(quote?.subtotal ?? offer?.subtotal ?? salesCase?.estimatedAmount);
   const vatRate = asNumber(mainItem?.vatRate);
-  const expectedPayments = payments
-    .filter((payment) => payment.paymentType === "expected" && salesCase && payment.salesCaseId === salesCase.id)
-    .sort((left, right) => left.dueDate.localeCompare(right.dueDate));
   const terms = quote?.terms ?? {};
   const deliveryTerms = terms.deliveryTermsText ?? quote?.deliveryTerms ?? undefined;
   const warrantyTerms = terms.warrantyTermsText ?? quote?.warrantyTerms ?? undefined;
@@ -347,11 +365,7 @@ async function buildContractPrintData(input: ContractBuildInput): Promise<Contra
     ithalatMasraflariDahil: terms.importCostsExcluded === undefined ? undefined : !Boolean(terms.importCostsExcluded),
     notlar: quote?.notes ?? offer?.note ?? undefined,
     kdvOran: vatRate,
-    odemePlani: expectedPayments.map((payment) => ({
-      label: payment.note?.trim() || `Vade ${trShortDate(payment.dueDate)}`,
-      tutar: payment.amount,
-      senet: /senet/i.test(payment.note ?? ""),
-    })),
+    odemePlani: expectedPaymentRows(payments, salesCase),
     kontrolUnitesiMarka: [...new Set(machines.map((machine) => machine.kontrolUnitesiMarka).filter(Boolean))].join(" / ")
       || inferControlUnitBrand(specs, warrantyTerms),
     machines,

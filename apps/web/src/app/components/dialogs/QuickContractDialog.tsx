@@ -463,6 +463,7 @@ export function QuickContractDialog({
               </section>
 
               <DocumentTermsTemplateEditor
+                markerStyle="none"
                 title="Sözleşme Şartları"
                 description="Şablon seçin veya metni yazın. Bu belge bir teklife bağlı olmadığı için şartlar yalnızca sözleşmeye kaydedilir."
                 templateScope={CONTRACT_TERMS_TEMPLATE_SCOPE}

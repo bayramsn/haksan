@@ -334,6 +334,7 @@ export function QuickProformaDialog({
               </div>
 
               <DocumentTermsTemplateEditor
+                continuousNumbering
                 title="Proforma Şartları"
                 description="Şablon seçin veya metni yazın. Bu belge bir teklife bağlı olmadığı için şartlar yalnızca proformaya kaydedilir."
                 templateScope={PROFORMA_TERMS_TEMPLATE_SCOPE}

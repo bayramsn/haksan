@@ -346,6 +346,7 @@ export function CreateContractDialog({
           />
 
           <DocumentTermsTemplateEditor
+            markerStyle="none"
             title="Sözleşme Şartları"
             description="Şablon seçin veya metni düzenleyin. Kaydedilen değişiklik bağlı teklif şartlarına yazılır ve sözleşme çıktısında kullanılır."
             templateScope={CONTRACT_TERMS_TEMPLATE_SCOPE}

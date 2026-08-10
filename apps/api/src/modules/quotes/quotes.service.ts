@@ -115,6 +115,17 @@ const PDF_BOLD_FONT_CANDIDATES = [
 
 const firstExistingPath = (paths: string[]) => paths.find((p) => existsSync(p));
 const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+/**
+ * Anlık görüntüye gömülecek belge başlığı — kendi `documentSnapshot` sütunu
+ * ATILIR. Fiyat her yeniden pazarlık edildiğinde görüntü yeniden kuruluyor ve
+ * `{ ...existing }` bir önceki görüntüyü de taşıdığı için, temizlenmezse JSONB
+ * her düzenlemede bir kat daha katlanıyordu (belge listesi bu sütunu tam olarak
+ * döndürdüğü için yük doğrudan açılış süresine biniyor).
+ */
+const documentHeaderOnly = (document: Record<string, unknown>) => {
+  const { documentSnapshot: _nested, ...header } = document;
+  return header;
+};
 const publicProductLabel = (
   catalogName: string | null | undefined,
   description: string | null | undefined,
@@ -839,7 +850,7 @@ export class QuotesService {
     return {
       ...snapshot,
       signature: await this.resolveCommercialSignature(document, snapshot.signature, actor),
-      document,
+      document: documentHeaderOnly(document),
     };
   }
 
@@ -927,7 +938,7 @@ export class QuotesService {
         grandTotal: roundMoney(subtotal + vatAmount + customsTotal),
       },
       items,
-      document,
+      document: documentHeaderOnly(document),
     };
   }
 
@@ -1991,7 +2002,7 @@ export class QuotesService {
       if (!patch.documentSnapshot) {
         const currentSnapshot = existing.documentSnapshot as Record<string, unknown> | null;
         patch.documentSnapshot = currentSnapshot
-          ? { ...currentSnapshot, document: { ...snapshotDocument, finalizedAt: patch.finalizedAt } }
+          ? { ...currentSnapshot, document: documentHeaderOnly({ ...snapshotDocument, finalizedAt: patch.finalizedAt }) }
           : await this.buildPricedDocumentSnapshot(
               { ...snapshotDocument, finalizedAt: patch.finalizedAt },
               String(patch.quoteId ?? existing.quoteId),
@@ -2696,7 +2707,7 @@ export class QuotesService {
       if (!patch.documentSnapshot) {
         const currentSnapshot = existing.documentSnapshot as Record<string, unknown> | null;
         patch.documentSnapshot = currentSnapshot
-          ? { ...currentSnapshot, document: { ...snapshotDocument, finalizedAt: patch.finalizedAt } }
+          ? { ...currentSnapshot, document: documentHeaderOnly({ ...snapshotDocument, finalizedAt: patch.finalizedAt }) }
           : await this.buildCommercialDocumentSnapshot(
               { ...snapshotDocument, finalizedAt: patch.finalizedAt },
               String(patch.quoteId ?? existing.quoteId),

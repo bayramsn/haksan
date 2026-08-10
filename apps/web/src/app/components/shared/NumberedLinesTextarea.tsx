@@ -3,11 +3,19 @@ import { Textarea } from "../ui/textarea";
 import { cn } from "../ui/utils";
 
 /**
- * Madde işareti üretici. Basılan belgede ödeme/teslimat/garanti maddeleri
- * `a) b) c)`, düz not listeleri ise `1. 2. 3.` ile numaralanır; ekrandaki
- * işaret hangi belgeye yazılıyorsa onunla aynı olmalıdır.
+ * Madde işareti üretici. Ekrandaki işaret, metnin basılacağı belgedekiyle
+ * BİREBİR aynı olmalıdır — yoksa "3. maddeyi çıkaralım" diyen satışçı PDF'de
+ * başka bir maddeyi gösterir:
+ *
+ * - `alpha` → teklif çıktısı (`print/templates.ts` `ol.alpha`, CSS
+ *   `lower-alpha` sayacının standart eki noktadır: `a.` `b.` `c.`)
+ * - `decimal` → proforma çıktısı; maddeler tek kesintisiz `<ol>` içinde
+ *   basıldığı için kutular arasında sayaç DEVAM ETMELİ (bkz. `startIndex`)
+ * - `none` → sözleşme çıktısı; şart metinleri madde madde numaralanmaz,
+ *   tümü tek bir sözleşme maddesinin (`2.1.`, `2.4.`, `3.4.`) gövdesine
+ *   satır satır girer. Numara göstermek burada uydurma olurdu.
  */
-export type LineMarkerStyle = "decimal" | "alpha";
+export type LineMarkerStyle = "decimal" | "alpha" | "none";
 
 /** CSS `lower-alpha` davranışı: a…z, sonra aa, ab… */
 const alphaMarker = (index: number): string => {
@@ -17,7 +25,7 @@ const alphaMarker = (index: number): string => {
     out = String.fromCharCode(97 + (value % 26)) + out;
     value = Math.floor(value / 26) - 1;
   } while (value >= 0);
-  return `${out})`;
+  return `${out}.`;
 };
 
 export const lineMarker = (style: LineMarkerStyle, index: number): string =>
@@ -30,6 +38,12 @@ export const markedLineCount = (value: string): number =>
 type Props = Omit<ComponentProps<typeof Textarea>, "value"> & {
   value: string;
   markerStyle?: LineMarkerStyle;
+  /**
+   * Bu kutunun ilk maddesinin belgedeki sırası. Proforma çıktısı ödeme,
+   * teslimat ve garanti kutularını tek listede birleştirdiği için ikinci kutu
+   * 1'den değil, birincinin bittiği yerden devam eder.
+   */
+  startIndex?: number;
 };
 
 /**
@@ -50,6 +64,7 @@ type Props = Omit<ComponentProps<typeof Textarea>, "value"> & {
 export function NumberedLinesTextarea({
   value,
   markerStyle = "decimal",
+  startIndex = 0,
   className,
   onScroll,
   ...rest
@@ -68,6 +83,10 @@ export function NumberedLinesTextarea({
     const area = textareaOf(rootRef.current);
     const mirror = mirrorRef.current;
     if (!area || !mirror) return;
+    if (markerStyle === "none") {
+      setMarkers([]);
+      return;
+    }
     const style = window.getComputedStyle(area);
     mirror.style.fontFamily = style.fontFamily;
     mirror.style.fontSize = style.fontSize;
@@ -86,11 +105,11 @@ export function NumberedLinesTextarea({
     let printed = 0;
     Array.from(mirror.children).forEach((child, index) => {
       if (!sourceLines[index]?.trim()) return;
-      next.push({ top: offset + (child as HTMLElement).offsetTop, label: lineMarker(markerStyle, printed) });
+      next.push({ top: offset + (child as HTMLElement).offsetTop, label: lineMarker(markerStyle, startIndex + printed) });
       printed += 1;
     });
     setMarkers(next);
-  }, [markerStyle]);
+  }, [markerStyle, startIndex]);
 
   useLayoutEffect(() => {
     measure();
@@ -108,24 +127,26 @@ export function NumberedLinesTextarea({
 
   return (
     <div className="relative" ref={rootRef}>
-      <div
-        aria-hidden
-        className="pointer-events-none absolute inset-y-px left-px w-8 overflow-hidden rounded-l-md border-r border-border/60 bg-muted/40"
-      >
-        <div className="relative h-full" style={{ transform: `translateY(${-scrollTop}px)` }}>
-          {markers.map((marker) => (
-            <span
-              key={`${marker.label}-${marker.top}`}
-              className="absolute right-1.5 text-[11px] text-muted-foreground tabular-nums"
-              style={{ top: marker.top }}
-            >
-              {marker.label}
-            </span>
-          ))}
+      {markerStyle !== "none" && (
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-y-px left-px w-8 overflow-hidden rounded-l-md border-r border-border/60 bg-muted/40"
+        >
+          <div className="relative h-full" style={{ transform: `translateY(${-scrollTop}px)` }}>
+            {markers.map((marker) => (
+              <span
+                key={`${marker.label}-${marker.top}`}
+                className="absolute right-1.5 text-[11px] text-muted-foreground tabular-nums"
+                style={{ top: marker.top }}
+              >
+                {marker.label}
+              </span>
+            ))}
+          </div>
         </div>
-      </div>
+      )}
 
-      <Textarea {...rest} value={value} className={cn("pl-10", className)} onScroll={(event) => {
+      <Textarea {...rest} value={value} className={cn(markerStyle !== "none" && "pl-10", className)} onScroll={(event) => {
         setScrollTop(event.currentTarget.scrollTop);
         onScroll?.(event);
       }} />

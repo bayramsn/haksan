@@ -7,7 +7,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "../ui/select";
 import { Input } from "../ui/input";
-import { NumberedLinesTextarea, type LineMarkerStyle } from "../shared/NumberedLinesTextarea";
+import { NumberedLinesTextarea, markedLineCount, type LineMarkerStyle } from "../shared/NumberedLinesTextarea";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "../ui/dialog";
 import type { NoteTemplate } from "../../lib/store";
 import { QUOTE_NOTE_VARIANTS } from "../../lib/print";
@@ -85,11 +85,17 @@ type Props = {
   includeBuiltInVariants?: boolean;
   onBuiltInTemplateSelected?: (key: string) => void;
   /**
-   * Madde işaretinin biçimi. Teklif çıktısı maddeleri `a) b) c)` ile
-   * numaralar (bkz. print/templates.ts `ol.alpha`); proforma ve sözleşme
-   * çıktısı düz sayı kullanır. Ekrandaki işaret basılanla aynı olmalı.
+   * Madde işaretinin biçimi — metnin basılacağı belgeye göre seçilir:
+   * teklif `alpha` (`a. b. c.`), proforma `decimal`, sözleşme `none`
+   * (şart metni orada madde madde numaralanmaz). Bkz. `LineMarkerStyle`.
    */
   markerStyle?: LineMarkerStyle;
+  /**
+   * Proforma çıktısı ödeme + teslimat + garanti maddelerini tek kesintisiz
+   * listede basar; bu kipte ikinci ve üçüncü kutunun sayacı 1'den başlamaz,
+   * bir öncekinin bittiği yerden devam eder.
+   */
+  continuousNumbering?: boolean;
 };
 
 export function useTermsTemplates(noteTemplates: NoteTemplate[], templateScope: string) {
@@ -117,6 +123,7 @@ export function DocumentTermsTemplateEditor({
   includeBuiltInVariants = true,
   onBuiltInTemplateSelected,
   markerStyle = "decimal",
+  continuousNumbering = false,
 }: Props) {
   const fieldId = useId();
   const [templateDialogMode, setTemplateDialogMode] = useState<"create" | "update" | "delete" | null>(null);
@@ -124,6 +131,11 @@ export function DocumentTermsTemplateEditor({
   const [templateBusy, setTemplateBusy] = useState(false);
   const savedTemplates = useTermsTemplates(noteTemplates, templateScope);
   const selectedSavedTemplate = savedTemplates.find((template) => template.selectKey === selectedTemplateKey);
+
+  // Baskıda maddeler tek listede birleşiyorsa kutuların sayacı zincirlenir.
+  const paymentStart = 0;
+  const deliveryStart = continuousNumbering ? markedLineCount(value.paymentTerms) : 0;
+  const warrantyStart = continuousNumbering ? deliveryStart + markedLineCount(value.deliveryTerms) : 0;
 
   const updateValue = (patch: Partial<TermsValue>) => onChange({ ...value, ...patch });
   const currentBody = () => encodeTermsTemplateBody(value);
@@ -245,6 +257,7 @@ export function DocumentTermsTemplateEditor({
             id={`${fieldId}-payment`}
             className="mt-1.5 min-h-28"
             markerStyle={markerStyle}
+            startIndex={paymentStart}
             value={value.paymentTerms}
             onChange={(event) => updateValue({ paymentTerms: event.target.value })}
             placeholder="Her satıra bir madde yazın..."
@@ -256,6 +269,7 @@ export function DocumentTermsTemplateEditor({
             id={`${fieldId}-delivery`}
             className="mt-1.5 min-h-28"
             markerStyle={markerStyle}
+            startIndex={deliveryStart}
             value={value.deliveryTerms}
             onChange={(event) => updateValue({ deliveryTerms: event.target.value })}
             placeholder="Her satıra bir madde yazın..."
@@ -267,6 +281,7 @@ export function DocumentTermsTemplateEditor({
             id={`${fieldId}-warranty`}
             className="mt-1.5 min-h-28"
             markerStyle={markerStyle}
+            startIndex={warrantyStart}
             value={value.warrantyTerms}
             onChange={(event) => updateValue({ warrantyTerms: event.target.value })}
             placeholder="Her satıra bir madde yazın..."
