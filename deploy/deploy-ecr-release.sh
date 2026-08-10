@@ -185,8 +185,8 @@ fi
 
 cd "$APP_ROOT"
 docker compose --env-file .env config --quiet
-docker compose --env-file .env run --rm --no-deps api npm --workspace @haksan/api run db:migrate:prod
-docker compose --env-file .env run --rm --no-deps api npm --workspace @haksan/api run db:data-migrate:prod
+docker compose --env-file .env run --rm --no-deps api node apps/api/dist/db/migrate.js
+docker compose --env-file .env run --rm --no-deps api node apps/api/dist/db/data-migrate.js
 
 SWITCH_STARTED=true
 docker compose --env-file .env up -d --no-deps --no-build --force-recreate api
