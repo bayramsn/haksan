@@ -50,6 +50,7 @@ const opportunityInputSchema = z.object({
   leadCompanyTitle: z.string().trim().max(255).nullish(),
   leadContactValue: z.string().trim().max(320).nullish(),
   leadCity: z.string().trim().max(120).nullish(),
+  leadDistrict: z.string().trim().max(120).nullish(),
   leadPhone: z.string().trim().max(64).nullish(),
   leadEmail: z.string().trim().max(254).nullish(),
   leadTemperature: leadTemperatureEnum.nullish(),

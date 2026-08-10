@@ -2038,6 +2038,7 @@ export class OpportunitiesService {
         leadCompanyTitle: input.leadCompanyTitle?.trim() || null,
         leadContactValue: input.leadContactValue?.trim() || null,
         leadCity: input.leadCity?.trim() || null,
+        leadDistrict: input.leadDistrict?.trim() || null,
         leadPhone: input.leadPhone?.trim() || null,
         leadEmail: input.leadEmail?.trim() || null,
         leadTemperature: input.leadTemperature ?? 'unknown',
@@ -2880,6 +2881,7 @@ export class OpportunitiesService {
       'leadCompanyTitle',
       'leadContactValue',
       'leadCity',
+      'leadDistrict',
       'leadPhone',
       'leadEmail',
       'leadTemperature',
@@ -3021,7 +3023,9 @@ export class OpportunitiesService {
             contactValue && contactValue !== phone && contactValue !== email
               ? `İrtibat bilgisi${source?.name ? ` (${source.name})` : ''}: ${contactValue}`
               : null,
-            existing.leadCity?.trim() ? `Şehir: ${existing.leadCity.trim()}` : null,
+            existing.leadCity?.trim()
+              ? `Şehir: ${[existing.leadCity.trim(), existing.leadDistrict?.trim()].filter(Boolean).join(' / ')}`
+              : null,
           ]
             .filter(Boolean)
             .join('\n'),

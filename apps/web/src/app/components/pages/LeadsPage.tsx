@@ -183,6 +183,7 @@ export function LeadsPage({ onSelect, focus }: { onSelect: (lead: SalesCase) => 
             item.leadPhone,
             item.leadEmail,
             item.leadCity,
+            item.leadDistrict,
             item.requestedProduct,
             item.externalMetadata?.boardName,
           ].some((value) => (value ?? "").toLocaleLowerCase("tr-TR").includes(needle));
@@ -531,7 +532,9 @@ export function LeadsPage({ onSelect, focus }: { onSelect: (lead: SalesCase) => 
                       </span>
                       <span className="flex min-w-0 items-center gap-1.5">
                         <MapPin className="size-3.5 shrink-0" />
-                        <span className="truncate">{lead.leadCity || "Konum yok"}</span>
+                        <span className="truncate">
+                          {[lead.leadCity, lead.leadDistrict].filter(Boolean).join(" / ") || "Konum yok"}
+                        </span>
                       </span>
                       <span className="flex min-w-0 items-center gap-1.5">
                         <Avatar className="size-4">

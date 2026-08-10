@@ -568,7 +568,9 @@ export function KanbanPage({
         const stopCardClick = (event: MouseEvent) => event.stopPropagation();
         const temperature: LeadTemperature = s.leadTemperature ?? "unknown";
         const temperatureStyle = LEAD_TEMPERATURE_STYLES[temperature];
-        const locationText = [c?.district, c?.city].filter(Boolean).join(" / ") || s.leadCity || "";
+        const locationText =
+          [c?.district, c?.city].filter(Boolean).join(" / ") ||
+          [s.leadCity, s.leadDistrict].filter(Boolean).join(" / ");
         const contactLine = [s.leadContactMethodName, s.leadPhone, s.leadEmail]
           .filter(Boolean)
           .join(" · ") || [s.leadContactMethodName, s.leadContactValue].filter(Boolean).join(" · ");

@@ -116,6 +116,7 @@ export const opportunities = pgTable(
     leadCompanyTitle: varchar('lead_company_title', { length: 255 }),
     leadContactValue: varchar('lead_contact_value', { length: 320 }),
     leadCity: varchar('lead_city', { length: 120 }),
+    leadDistrict: varchar('lead_district', { length: 120 }),
     leadPhone: varchar('lead_phone', { length: 64 }),
     leadEmail: varchar('lead_email', { length: 254 }),
     // Firmanın alım niyeti: hot (sıcak) | waiting (beklemede) | cold (soğuk).

@@ -963,7 +963,9 @@ export function SalesCaseDetailPage({
                   {sc.leadCity && (
                     <div>
                       <div className="text-muted-foreground">Şehir</div>
-                      <div className="font-medium text-foreground">{sc.leadCity}</div>
+                      <div className="font-medium text-foreground">
+                        {[sc.leadCity, sc.leadDistrict].filter(Boolean).join(" / ")}
+                      </div>
                     </div>
                   )}
                 </div>

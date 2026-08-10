@@ -812,6 +812,7 @@ function StoreInner({ children }: { children: ReactNode }) {
           leadContactMethodCode: o.source?.code ?? undefined,
           leadContactMethodName: o.source?.name ?? undefined,
           leadCity: o.leadCity ?? undefined,
+          leadDistrict: o.leadDistrict ?? undefined,
           leadPhone: o.leadPhone ?? undefined,
           leadEmail: o.leadEmail ?? undefined,
           leadTemperature: o.leadTemperature ?? 'unknown',

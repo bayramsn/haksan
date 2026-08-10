@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { useStore } from "../../lib/store";
 import { useAuth } from "../../../lib/auth";
 import { lookupService, opportunityService } from "../../../lib/services";
+import { districtsForCountry, provincesForCountry } from "../../lib/geoByCountry";
 import {
   LEAD_TEMPERATURE_HINTS,
   LEAD_TEMPERATURE_LABELS,
@@ -41,6 +42,7 @@ export function LeadCaptureDialog({ trigger }: { trigger?: React.ReactNode }) {
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
   const [city, setCity] = useState("");
+  const [district, setDistrict] = useState("");
   const [companyTitle, setCompanyTitle] = useState("");
   const [product, setProduct] = useState("");
   const [quantity, setQuantity] = useState("1");
@@ -125,6 +127,17 @@ export function LeadCaptureDialog({ trigger }: { trigger?: React.ReactNode }) {
       .sort((a, b) => a.name.localeCompare(b.name, "tr-TR"));
   }, [divisionId, ownerCandidates, user?.id, user?.roles]);
 
+  // Hızlı lead yurt içi taleple açılır; il/ilçe önerileri Türkiye listesinden
+  // gelir. Listede olmayan bir yer yine serbest metin olarak yazılabilir.
+  const provinceOptions = useMemo(
+    () => provincesForCountry("Türkiye").map((name) => ({ value: name, label: name })),
+    [],
+  );
+  const districtOptions = useMemo(
+    () => districtsForCountry("Türkiye", city).map((name) => ({ value: name, label: name })),
+    [city],
+  );
+
   /** Kayıtlı firma seçildiğinde boş alanları firma kaydından doldurur. */
   const pickCompany = (id: string) => {
     const customer = customers.find((item) => item.id === id);
@@ -133,6 +146,7 @@ export function LeadCaptureDialog({ trigger }: { trigger?: React.ReactNode }) {
     setCompanyTitle(customer.name);
     setContactId("");
     if (!city.trim() && customer.city) setCity(customer.city);
+    if (!district.trim() && customer.district) setDistrict(customer.district);
     if (!phone.trim() && customer.phone) setPhone(customer.phone);
     if (!email.trim() && customer.email) setEmail(customer.email);
     if (!contactName.trim() && customer.contactPerson) setContactName(customer.contactPerson);
@@ -156,6 +170,7 @@ export function LeadCaptureDialog({ trigger }: { trigger?: React.ReactNode }) {
     setPhone("");
     setEmail("");
     setCity("");
+    setDistrict("");
     setCompanyTitle("");
     setProduct("");
     setQuantity("1");
@@ -200,7 +215,7 @@ export function LeadCaptureDialog({ trigger }: { trigger?: React.ReactNode }) {
               ? "Geçerli bir e-posta adresi girin."
               : !partyIdentified
                 ? "Kayıtlı bir firma seçin ya da kontak ismini yazın."
-                : "Şehir ve istenen ürün zorunludur.",
+                : "İl ve istenen ürün zorunludur.",
       });
       return;
     }
@@ -219,6 +234,7 @@ export function LeadCaptureDialog({ trigger }: { trigger?: React.ReactNode }) {
         leadPhone: phone.trim() || undefined,
         leadEmail: email.trim() || undefined,
         leadCity: city.trim(),
+        leadDistrict: district.trim() || undefined,
         leadTemperature: temperature,
         leadFollowUpStatus: "new",
         nextAction: nextAction.trim() || undefined,
@@ -228,7 +244,7 @@ export function LeadCaptureDialog({ trigger }: { trigger?: React.ReactNode }) {
         description: [
           `İstenen ürün: ${product.trim()}`,
           qtyNum > 0 ? `Adet: ${qtyNum}` : null,
-          `Şehir: ${city.trim()}`,
+          `Şehir: ${[city.trim(), district.trim()].filter(Boolean).join(" / ")}`,
           "Kaynak: Hızlı lead",
         ].filter(Boolean).join("\n"),
         divisionId: divisionArg,
@@ -364,29 +380,55 @@ export function LeadCaptureDialog({ trigger }: { trigger?: React.ReactNode }) {
           </p>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <Label htmlFor="lead-city">Şehir *</Label>
-              <Input
-                id="lead-city"
+              <Label>İl *</Label>
+              <Combobox
+                className="mt-1.5"
+                options={provinceOptions}
                 value={city}
-                onChange={(e) => setCity(e.target.value)}
-                placeholder="İstanbul"
+                onChange={(value) => {
+                  setCity(value);
+                  // İl değişince eski ilçe geçersiz kalır.
+                  setDistrict("");
+                }}
+                placeholder="İl seçin veya yazın"
+                searchPlaceholder="İl ara…"
+                emptyText="İl bulunamadı"
+                onCreate={(label) => {
+                  setCity(label);
+                  setDistrict("");
+                }}
+                createLabel={(query) => `"${query}" ilini kullan`}
               />
             </div>
             <div>
-              <Label>İrtibat şekli <span className="font-normal text-muted-foreground">(opsiyonel)</span></Label>
-              <Select
-                value={contactMethod || "__none__"}
-                onValueChange={(value) => setContactMethod(value === "__none__" ? "" : value)}
-              >
-                <SelectTrigger><SelectValue placeholder="Seçim zorunlu değil" /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__none__">Seçilmedi</SelectItem>
-                  {contactMethods.map((method) => (
-                    <SelectItem key={method.code} value={method.code}>{method.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <Label>İlçe <span className="font-normal text-muted-foreground">(opsiyonel)</span></Label>
+              <Combobox
+                className="mt-1.5"
+                options={districtOptions}
+                value={district}
+                onChange={setDistrict}
+                placeholder={city ? "İlçe seçin veya yazın" : "Önce il seçin"}
+                searchPlaceholder="İlçe ara…"
+                emptyText="İlçe bulunamadı"
+                onCreate={setDistrict}
+                createLabel={(query) => `"${query}" ilçesini kullan`}
+              />
             </div>
+          </div>
+          <div>
+            <Label>İrtibat şekli <span className="font-normal text-muted-foreground">(opsiyonel)</span></Label>
+            <Select
+              value={contactMethod || "__none__"}
+              onValueChange={(value) => setContactMethod(value === "__none__" ? "" : value)}
+            >
+              <SelectTrigger className="mt-1.5"><SelectValue placeholder="Seçim zorunlu değil" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__none__">Seçilmedi</SelectItem>
+                {contactMethods.map((method) => (
+                  <SelectItem key={method.code} value={method.code}>{method.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
           <div>
             <Label>Alım niyeti</Label>

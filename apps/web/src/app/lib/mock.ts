@@ -359,6 +359,7 @@ export type SalesCase = {
   leadContactMethodCode?: string;
   leadContactMethodName?: string;
   leadCity?: string;
+  leadDistrict?: string;
   leadPhone?: string;
   leadEmail?: string;
   /** Firmanın alım niyeti — sıcak / beklemede / soğuk. */

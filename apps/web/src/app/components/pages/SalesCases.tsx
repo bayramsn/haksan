@@ -156,6 +156,7 @@ export function SalesCasesPage({
       s.leadPhone,
       s.leadEmail,
       s.leadCity,
+      s.leadDistrict,
       s.externalMetadata?.candidate?.companyTitle,
       s.requestedProduct,
       s.lostProductName,
@@ -342,7 +343,11 @@ export function SalesCasesPage({
                             <div className="mt-0.5 truncate text-[10px] text-muted-foreground">{contactLine}</div>
                           )}
                           {(s.leadCity || c?.city) && (
-                            <div className="mt-0.5 truncate text-[10px] text-muted-foreground">{c?.city ?? s.leadCity}</div>
+                            <div className="mt-0.5 truncate text-[10px] text-muted-foreground">
+                              {c?.city
+                                ? [c.city, c.district].filter(Boolean).join(" / ")
+                                : [s.leadCity, s.leadDistrict].filter(Boolean).join(" / ")}
+                            </div>
                           )}
                           <div className="font-data text-[9px] uppercase tracking-wide text-muted-foreground/80">#{s.id.toUpperCase()}</div>
                         </div>
