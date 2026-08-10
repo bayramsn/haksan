@@ -2,7 +2,7 @@ import { ChevronDown, Plus, Trash2 } from "lucide-react";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { Label } from "../ui/label";
-import { Combobox } from "../ui/combobox";
+import { RemoteCompanyCombobox } from "./RemoteCompanyCombobox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
 import { Switch } from "../ui/switch";
 import { formatMoneyInput, parseMoneyInput, type ProformaPriceRow } from "../../lib/proformaPricing";
@@ -182,8 +182,6 @@ export const quickPartyValidationError = (party: QuickPartyState): string | null
   return null;
 };
 
-export type QuickCompanyOption = { value: string; label: string; hint?: string };
-
 /**
  * Alıcı bloğu. `allowManualCompany` kapalıyken yalnızca kayıtlı cari seçilebilir —
  * teklif; cari, alacak ve sipariş akışlarını beslediği için firmasız kesilemez.
@@ -192,19 +190,16 @@ export function QuickPartySection({
   idPrefix,
   value,
   onChange,
-  companyOptions,
   allowManualCompany = true,
   manualNote,
 }: {
   idPrefix: string;
   value: QuickPartyState;
   onChange: (next: QuickPartyState) => void;
-  companyOptions: QuickCompanyOption[];
   allowManualCompany?: boolean;
   manualNote?: string;
 }) {
   const patch = (next: Partial<QuickPartyState>) => onChange({ ...value, ...next });
-  const selectedLabel = companyOptions.find((option) => option.value === value.companyId)?.label ?? "";
 
   return (
     <section className="rounded-xl border border-border/70 bg-card p-3">
@@ -264,15 +259,13 @@ export function QuickPartySection({
         </div>
       ) : (
         <div className="mt-3">
-          <Combobox
-            options={companyOptions}
+          <RemoteCompanyCombobox
             value={value.companyId}
-            onChange={(next) => patch({ companyId: next })}
-            placeholder="Firma arayın..."
+            onValueChange={(next) => patch({ companyId: next })}
+            placeholder="Firma seçin…"
             searchPlaceholder="Firma adı ara..."
-            emptyText="Eşleşen firma yok."
           />
-          {selectedLabel && (
+          {value.companyId && (
             <p className="mt-1.5 text-[10px] text-muted-foreground">
               Adres, telefon ve vergi bilgileri firma kaydından belgeye yazılır.
             </p>

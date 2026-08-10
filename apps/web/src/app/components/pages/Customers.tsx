@@ -1,4 +1,5 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Card } from "../ui/card";
 import { Tabs, TabsList, TabsTrigger } from "../ui/tabs";
 import { Input } from "../ui/input";
@@ -7,7 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from ".
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../ui/table";
 import {
   Search, MoreHorizontal, Eye, Pencil, Phone, Mail, MapPin, Building2, User as UserIcon, ArrowUpDown, Trash2,
-  Handshake, Factory, TrendingUp,
+  Handshake, Factory, TrendingUp, Loader2,
 } from "lucide-react";
 import { toast } from "sonner";
 import { CreateCaseDialog, EditCustomerDialog } from "../dialogs/CreateDialogs";
@@ -23,7 +24,7 @@ import { Customer, FirmType,
 import { companyTemperature } from "../../lib/companyTemperature";
 import { useStore } from "../../lib/store";
 import { useDetailDialogs } from "../dialogs/DetailDialogs";
-import { FilterPopover, usePaged, Pager, ViewToggle, type ListView } from "../ui/list-controls";
+import { FilterPopover, Pager, ViewToggle, type ListView } from "../ui/list-controls";
 import { ExportExcelButton } from "../ui/ExportExcelButton";
 import { useAuth } from "../../../lib/auth";
 import { usePersistentState } from "../../lib/persist";
@@ -34,9 +35,20 @@ import {
 } from "../ui/dropdown-menu";
 import { ComposeMailDialog, type MailRecipient } from "../mail/ComposeMailDialog";
 import { CompanyContactImportDialog } from "../dialogs/CompanyContactImportDialog";
-
-const uniqueSorted = (values: (string | undefined)[]) =>
-  Array.from(new Set(values.map((v) => (v ?? "").trim()).filter(Boolean))).sort((a, b) => a.localeCompare(b, "tr"));
+import {
+  companyQueryKeys,
+  EMPTY_COMPANY_SUMMARY,
+  fetchFreshCompany,
+  useCompanyDirectory,
+  useCompanySummary,
+  type CompanySortMode,
+} from "../../lib/companyServerData";
+import {
+  clampServerPage,
+  normalizeTotalPages,
+  serverScopeKey,
+  useDebouncedValue,
+} from "../../lib/serverPagination";
 
 const FIRM_TYPE_LABEL: Record<FirmType, string> = {
   customer: "Müşteri",
@@ -66,12 +78,13 @@ const companyInitials = (name: string) => name.split(/\s+/).filter(Boolean).slic
 const supplierCategoryLabel = (code?: Customer["supplierCategoryCode"]) => code === "transportation" ? "Nakliye" : code === "logistics" ? "Lojistik" : "";
 
 export function CustomersPage(_props: { onSelect?: (c: Customer) => void } = {}) {
-  const { customers, cases, deleteCustomer, refresh } = useStore();
+  const { cases, deleteCustomer, refresh } = useStore();
   const { openCompany, dialogs } = useDetailDialogs();
+  const queryClient = useQueryClient();
   // Rol bazlı görünürlük (backend ile aynı kural): yalnızca sales/service rolleri
   // kısıtlıdır. Kısıtlı kullanıcılar tedarikçi sekmesini hiç görmez; servis-only
   // kullanıcılar ayrıca potansiyel müşteri sekmesini görmez (sales görür).
-  const { user, activeDivision, setActiveDivision, hasRole } = useAuth();
+  const { user, activeDivision, activeDepartment, setActiveDivision, hasRole } = useAuth();
   const roles = user?.roles ?? [];
   const restricted = roles.length > 0 && roles.every((r) => r === "sales" || r === "service");
   const canSeeSuppliers = !restricted;
@@ -81,6 +94,8 @@ export function CustomersPage(_props: { onSelect?: (c: Customer) => void } = {})
   const [deleting, setDeleting] = useState<Customer | null>(null);
   const [mailRecipient, setMailRecipient] = useState<MailRecipient | null>(null);
   const [q, setQ] = useState("");
+  const debouncedQ = useDebouncedValue(q, 275);
+  const [page, setPage] = useState(1);
   const [tab, setTab] = useState<"all" | FirmType>("all");
   const [salesTab, setSalesTab] = useState<"all" | "potential" | "active_customer">("all");
   // Bölüm filtresi: hangi bölümden girildiyse o seçili başlar; "Tümü" hepsini gösterir.
@@ -90,50 +105,35 @@ export function CustomersPage(_props: { onSelect?: (c: Customer) => void } = {})
   );
   useEffect(() => {
     setDivisionTab(activeDivision && activeDivision !== "all" ? activeDivision : "all");
+    setPage(1);
   }, [activeDivision]);
   const [city, setCity] = useState("all");
   const [sector, setSector] = useState("all");
   const [supplierCategory, setSupplierCategory] = useState<"all" | "transportation" | "logistics">("all");
-  const [sortMode, setSortMode] = useState<"default" | "name_asc" | "name_desc" | "created_desc" | "created_asc">("default");
+  const [sortMode, setSortMode] = useState<CompanySortMode>("default");
   const [view, setView] = usePersistentState<ListView>("customersView", "table");
 
-  const filtered = customers.filter((c) => {
-    if (tab !== "all" && c.firmType !== tab) return false;
-    // Statü filtresi tedarikçiler dahil tüm firma türlerine uygulanır.
-    if (salesTab !== "all" && c.salesStatus !== salesTab) return false;
-    if (divisionTab !== "all" && !(c.divisions ?? []).some((d) => d.id === divisionTab)) return false;
-    if (city !== "all" && c.city !== city) return false;
-    if (sector !== "all" && (c.sector ?? "") !== sector) return false;
-    if (supplierCategory !== "all" && c.supplierCategoryCode !== supplierCategory) return false;
-    const t = q.toLowerCase();
-    return (
-      c.name.toLowerCase().includes(t) ||
-      (c.companyNo ?? "").toLowerCase().includes(t) ||
-      c.city.toLowerCase().includes(t) ||
-      (c.district ?? "").toLowerCase().includes(t) ||
-      c.email.toLowerCase().includes(t) ||
-      (c.email2 ?? "").toLowerCase().includes(t) ||
-      c.phone.toLowerCase().includes(t) ||
-      (c.phone2 ?? "").toLowerCase().includes(t) ||
-      (c.taxNumber ?? "").toLowerCase().includes(t) ||
-      (c.sector ?? "").toLowerCase().includes(t) ||
-      supplierCategoryLabel(c.supplierCategoryCode).toLocaleLowerCase("tr-TR").includes(t)
-    );
+  const companyPageQuery = useCompanyDirectory({
+    page,
+    search: debouncedQ,
+    relationType: tab,
+    salesStatus: salesTab,
+    divisionId: divisionTab,
+    city,
+    sector,
+    supplierCategoryCode: supplierCategory,
+    sortMode,
   });
+  const companySummaryQuery = useCompanySummary(divisionTab);
+  const pageItems = companyPageQuery.data?.data ?? [];
+  const totalPages = normalizeTotalPages(companyPageQuery.data?.meta.totalPages);
+  const filteredTotal = companyPageQuery.data?.meta.total ?? 0;
+  const summary = companySummaryQuery.data ?? EMPTY_COMPANY_SUMMARY;
 
-  const sorted = useMemo(() => {
-    if (sortMode === "default") return filtered;
-    return [...filtered].sort((a, b) => {
-      if (sortMode === "name_asc" || sortMode === "name_desc") {
-        const cmp = a.name.localeCompare(b.name, "tr", { sensitivity: "base" });
-        return sortMode === "name_asc" ? cmp : -cmp;
-      }
-      const cmp = String(a.createdAt ?? "").localeCompare(String(b.createdAt ?? ""));
-      return sortMode === "created_asc" ? cmp : -cmp;
-    });
-  }, [filtered, sortMode]);
-
-  const { page, setPage, totalPages, pageItems } = usePaged(sorted, 12);
+  useEffect(() => {
+    const clamped = clampServerPage(page, totalPages);
+    if (clamped !== page) setPage(clamped);
+  }, [page, totalPages]);
 
   const exportParams = {
     ...(q ? { search: q } : {}),
@@ -141,9 +141,20 @@ export function CustomersPage(_props: { onSelect?: (c: Customer) => void } = {})
     ...(salesTab === "active_customer" ? { customerStatusCode: "active" } : {}),
     ...(salesTab === "potential" ? { customerStatusCode: "potential" } : {}),
     ...(divisionTab !== "all" ? { divisionId: divisionTab } : {}),
+    ...(city !== "all" ? { city } : {}),
+    ...(sector !== "all" ? { sector } : {}),
+    ...(supplierCategory !== "all" ? { supplierCategoryCode: supplierCategory } : {}),
   };
 
-  const countBy = (ft: FirmType) => customers.filter((c) => c.firmType === ft).length;
+  const countBy = (ft: FirmType) => summary.byRelation[ft] ?? 0;
+  const resetPage = () => setPage(1);
+  const invalidateCompanies = () => queryClient.invalidateQueries({ queryKey: companyQueryKeys.all });
+  const openFreshCompany = (company: Customer) => {
+    const scope = serverScopeKey(activeDivision, activeDepartment, user?.tenantId, user?.id);
+    void fetchFreshCompany(queryClient, scope, company)
+      .then(openCompany)
+      .catch(() => openCompany(company));
+  };
 
   const emptyState = (
     <EmptyState
@@ -152,16 +163,29 @@ export function CustomersPage(_props: { onSelect?: (c: Customer) => void } = {})
       description="Arama terimini veya filtreleri değiştirerek tekrar deneyin."
     />
   );
+  const listFeedback = companyPageQuery.isError ? (
+    <EmptyState
+      scene="search"
+      title="Firma listesi alınamadı"
+      description="Sunucuya ulaşılamadı. Bağlantıyı kontrol edip yeniden deneyin."
+      action={<Button variant="outline" onClick={() => void companyPageQuery.refetch()}>Yeniden dene</Button>}
+    />
+  ) : companyPageQuery.isPending ? (
+    <div className="flex min-h-40 items-center justify-center gap-2 text-sm text-muted-foreground" aria-live="polite">
+      <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+      Firmalar yükleniyor…
+    </div>
+  ) : emptyState;
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4" aria-busy={companyPageQuery.isFetching || companySummaryQuery.isFetching}>
       <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
         <MiniKpi
           icon={<Building2 className="size-4" />}
           label="Toplam Firma"
-          value={customers.length}
+          value={summary.total}
           tone="violet"
-          onClick={() => setTab("all")}
+          onClick={() => { setTab("all"); resetPage(); }}
           active={tab === "all"}
         />
         <MiniKpi
@@ -170,7 +194,7 @@ export function CustomersPage(_props: { onSelect?: (c: Customer) => void } = {})
           value={countBy("customer")}
           sub={`+ ${countBy("supplier_customer")} ted.+müşteri`}
           tone="blue"
-          onClick={() => setTab("customer")}
+          onClick={() => { setTab("customer"); resetPage(); }}
           active={tab === "customer"}
         />
         {canSeeSuppliers && (
@@ -180,7 +204,7 @@ export function CustomersPage(_props: { onSelect?: (c: Customer) => void } = {})
             value={countBy("supplier")}
             sub={`+ ${countBy("supplier_customer")} ted.+müşteri`}
             tone="amber"
-            onClick={() => setTab("supplier")}
+            onClick={() => { setTab("supplier"); resetPage(); }}
             active={tab === "supplier"}
           />
         )}
@@ -189,12 +213,12 @@ export function CustomersPage(_props: { onSelect?: (c: Customer) => void } = {})
       <div className="premium-blueprint precision-corners space-y-3 rounded-xl border border-primary/10 bg-white p-3 shadow-sm">
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <span className="font-data text-[9px] font-semibold uppercase tracking-[0.14em] text-operation-blue">Kayıtlı görünüm</span>
-        <Tabs value={tab} onValueChange={(v) => setTab(v as any)}>
+        <Tabs value={tab} onValueChange={(value) => { setTab(value as "all" | FirmType); resetPage(); }}>
           <TabsList className="h-9 bg-muted/60">
             <TabsTrigger value="all" className="gap-1.5">
               Tümü
               <span className="ml-0.5 inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 text-[10px] rounded-full bg-muted text-muted-foreground">
-                {customers.length}
+                {summary.total}
               </span>
             </TabsTrigger>
             <TabsTrigger value="customer" className="gap-1.5">
@@ -235,17 +259,17 @@ export function CustomersPage(_props: { onSelect?: (c: Customer) => void } = {})
               placeholder="Firma, şehir, e-posta ara..."
               className="pl-9 h-9 bg-white"
               value={q}
-              onChange={(e) => setQ(e.target.value)}
+              onChange={(event) => { setQ(event.target.value); resetPage(); }}
             />
           </div>
           <FilterPopover
             filters={[
-              { label: "Şehir", value: city, onChange: setCity, options: uniqueSorted(customers.map((c) => c.city)).map((v) => ({ value: v, label: v })) },
-              { label: "Sektör", value: sector, onChange: setSector, options: uniqueSorted(customers.map((c) => c.sector)).map((v) => ({ value: v, label: v })) },
-              { label: "Tedarikçi Türü", value: supplierCategory, onChange: (value) => setSupplierCategory(value as typeof supplierCategory), options: [{ value: "transportation", label: "Nakliye" }, { value: "logistics", label: "Lojistik" }] },
+              { label: "Şehir", value: city, onChange: (value) => { setCity(value); resetPage(); }, options: summary.cities.map((value) => ({ value, label: value })) },
+              { label: "Sektör", value: sector, onChange: (value) => { setSector(value); resetPage(); }, options: summary.sectors.map((value) => ({ value, label: value })) },
+              { label: "Tedarikçi Türü", value: supplierCategory, onChange: (value) => { setSupplierCategory(value as typeof supplierCategory); resetPage(); }, options: [{ value: "transportation", label: "Nakliye" }, { value: "logistics", label: "Lojistik" }] },
             ]}
           />
-          <Select value={sortMode} onValueChange={(value) => setSortMode(value as typeof sortMode)}>
+          <Select value={sortMode} onValueChange={(value) => { setSortMode(value as CompanySortMode); resetPage(); }}>
             <SelectTrigger className="h-9 w-full bg-white sm:w-52" aria-label="Firmaları sırala">
               <SelectValue placeholder="Sıralama" />
             </SelectTrigger>
@@ -260,7 +284,10 @@ export function CustomersPage(_props: { onSelect?: (c: Customer) => void } = {})
           {hasRole("super_admin") && (
             <CompanyContactImportDialog
               divisionId={divisionTab !== "all" ? divisionTab : activeDivision}
-              onImported={refresh}
+              onImported={async () => {
+                await refresh();
+                await invalidateCompanies();
+              }}
             />
           )}
           <ExportExcelButton path="/exports/companies" filename="firmalar.xlsx" params={exportParams} className="h-9" />
@@ -277,6 +304,7 @@ export function CustomersPage(_props: { onSelect?: (c: Customer) => void } = {})
               onClick={() => {
                 setDivisionTab(d.id);
                 setActiveDivision(d.id);
+                resetPage();
               }}
               className={`text-xs px-2.5 py-1 rounded-full border transition-colors ${
                 divisionTab === d.id
@@ -299,7 +327,7 @@ export function CustomersPage(_props: { onSelect?: (c: Customer) => void } = {})
         ]) as { k: "all" | "potential" | "active_customer"; l: string }[]).map((s) => (
           <button
             key={s.k}
-            onClick={() => setSalesTab(s.k)}
+            onClick={() => { setSalesTab(s.k); resetPage(); }}
             className={`text-xs px-2.5 py-1 rounded-full border transition-colors ${
               salesTab === s.k
                 ? "bg-primary text-primary-foreground border-primary shadow-xs"
@@ -314,15 +342,15 @@ export function CustomersPage(_props: { onSelect?: (c: Customer) => void } = {})
 
       {view === "cards" ? (
         <>
-          {filtered.length === 0 ? (
-            <Card className="border-border/60 shadow-sm">{emptyState}</Card>
+          {pageItems.length === 0 ? (
+            <Card className="border-border/60 shadow-sm">{listFeedback}</Card>
           ) : (
             <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-3">
               {pageItems.map((c) => (
                 <Card
                   key={c.id}
                   className="group relative overflow-hidden border-border/60 shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all cursor-pointer p-0"
-                  onClick={() => openCompany(c)}
+                  onClick={() => openFreshCompany(c)}
                 >
                   <div className={`absolute inset-x-0 top-0 h-0.5 ${FIRM_TYPE_ACCENT[c.firmType]}`} />
                   <div className="p-4 space-y-3">
@@ -389,7 +417,7 @@ export function CustomersPage(_props: { onSelect?: (c: Customer) => void } = {})
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
-                          <DropdownMenuItem onClick={() => openCompany(c)}><Eye className="size-4 mr-2" /> Görüntüle</DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => openFreshCompany(c)}><Eye className="size-4 mr-2" /> Görüntüle</DropdownMenuItem>
                           <DropdownMenuItem onClick={() => setEditing(c)}><Pencil className="size-4 mr-2" /> Düzenle</DropdownMenuItem>
                           <DropdownMenuItem disabled={!c.email} onClick={() => c.email && setMailRecipient({ email: c.email, name: c.contactPerson || c.name, companyId: c.id })}>
                             <Mail className="size-4 mr-2" /> E-posta gönder
@@ -429,7 +457,7 @@ export function CustomersPage(_props: { onSelect?: (c: Customer) => void } = {})
           )}
           <div className="flex items-center justify-between gap-3 px-1">
             <div className="text-xs text-muted-foreground">
-              Toplam <b className="text-foreground">{filtered.length}</b> firma gösteriliyor
+              Toplam <b className="text-foreground">{filteredTotal}</b> firma gösteriliyor
             </div>
             <Pager page={page} totalPages={totalPages} setPage={setPage} />
           </div>
@@ -444,7 +472,10 @@ export function CustomersPage(_props: { onSelect?: (c: Customer) => void } = {})
                   <button
                     type="button"
                     className="inline-flex items-center gap-1 uppercase tracking-wider hover:text-foreground"
-                    onClick={() => setSortMode((current) => current === "name_asc" ? "name_desc" : "name_asc")}
+                    onClick={() => {
+                      setSortMode((current) => current === "name_asc" ? "name_desc" : "name_asc");
+                      resetPage();
+                    }}
                     aria-label="Firmaya göre sırala"
                   >
                     Firma <ArrowUpDown className="size-3" />
@@ -457,7 +488,10 @@ export function CustomersPage(_props: { onSelect?: (c: Customer) => void } = {})
                   <button
                     type="button"
                     className="inline-flex items-center gap-1 uppercase tracking-wider hover:text-foreground"
-                    onClick={() => setSortMode((current) => current === "created_desc" ? "created_asc" : "created_desc")}
+                    onClick={() => {
+                      setSortMode((current) => current === "created_desc" ? "created_asc" : "created_desc");
+                      resetPage();
+                    }}
                     aria-label="Oluşturulma tarihine göre sırala"
                   >
                     Oluşturma <ArrowUpDown className="size-3" />
@@ -468,7 +502,7 @@ export function CustomersPage(_props: { onSelect?: (c: Customer) => void } = {})
             </TableHeader>
             <TableBody>
               {pageItems.map((c) => (
-                <TableRow key={c.id} className="cursor-pointer group hover:bg-primary/[0.025]" onClick={() => openCompany(c)}>
+                <TableRow key={c.id} className="cursor-pointer group hover:bg-primary/[0.025]" onClick={() => openFreshCompany(c)}>
                   <TableCell className="sticky left-0 z-10 border-r border-border/60 bg-white group-hover:bg-[#f8f9fc]">
                     <div className="flex items-center gap-3 min-w-0">
                       <div className={`grid size-10 shrink-0 place-items-center rounded-xl border font-display text-xs font-semibold shadow-xs ${c.type === "company" ? "border-primary/10 bg-brand-blue-soft text-primary" : "border-info/10 bg-info-soft text-info"}`}>{companyInitials(c.name)}</div>
@@ -569,7 +603,7 @@ export function CustomersPage(_props: { onSelect?: (c: Customer) => void } = {})
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
-                        <DropdownMenuItem onClick={() => openCompany(c)}><Eye className="size-4 mr-2" /> Görüntüle</DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => openFreshCompany(c)}><Eye className="size-4 mr-2" /> Görüntüle</DropdownMenuItem>
                         <DropdownMenuItem onClick={() => setEditing(c)}><Pencil className="size-4 mr-2" /> Düzenle</DropdownMenuItem>
                         <DropdownMenuItem disabled={!c.email} onClick={() => c.email && setMailRecipient({ email: c.email, name: c.contactPerson || c.name, companyId: c.id })}>
                           <Mail className="size-4 mr-2" /> E-posta gönder
@@ -583,10 +617,10 @@ export function CustomersPage(_props: { onSelect?: (c: Customer) => void } = {})
                   </TableCell>
                 </TableRow>
               ))}
-              {filtered.length === 0 && (
+              {pageItems.length === 0 && (
                 <TableRow>
                   <TableCell colSpan={6} className="py-4">
-                    {emptyState}
+                    {listFeedback}
                   </TableCell>
                 </TableRow>
               )}
@@ -596,7 +630,7 @@ export function CustomersPage(_props: { onSelect?: (c: Customer) => void } = {})
 
         <div className="flex items-center justify-between gap-3 px-4 py-3 border-t border-border/60 bg-muted/20">
           <div className="text-xs text-muted-foreground">
-            Toplam <b className="text-foreground">{filtered.length}</b> firma gösteriliyor
+            Toplam <b className="text-foreground">{filteredTotal}</b> firma gösteriliyor
           </div>
           <Pager page={page} totalPages={totalPages} setPage={setPage} />
         </div>
@@ -607,7 +641,13 @@ export function CustomersPage(_props: { onSelect?: (c: Customer) => void } = {})
 
       <ComposeMailDialog recipient={mailRecipient} onOpenChange={(open) => !open && setMailRecipient(null)} />
 
-      <EditCustomerDialog customer={editing} onClose={() => setEditing(null)} />
+      <EditCustomerDialog
+        customer={editing}
+        onClose={() => {
+          setEditing(null);
+          void invalidateCompanies();
+        }}
+      />
 
       <AlertDialog open={!!deleting} onOpenChange={(o) => !o && setDeleting(null)}>
         <AlertDialogContent className="max-w-lg">
@@ -626,6 +666,7 @@ export function CustomersPage(_props: { onSelect?: (c: Customer) => void } = {})
                 if (!deleting) return;
                 try {
                   await deleteCustomer(deleting.id);
+                  await invalidateCompanies();
                   toast.success("Firma silindi");
                 } catch (err: any) {
                   toast.error("Firma silinemedi", { description: err?.message ?? "Bağlı kayıtlar olabilir." });

@@ -1792,6 +1792,7 @@ export class OpportunitiesService {
       .select({
         opp: opportunities,
         company: { id: companies.id, legalTitle: companies.legalTitle, shortName: companies.shortName },
+        primaryContact: { id: contacts.id, fullName: contacts.fullName },
         stage: { id: pipelineStages.id, code: pipelineStages.code, name: pipelineStages.name },
         currency: { id: currencies.id, code: currencies.code },
         source: { id: contactSources.id, code: contactSources.code, name: contactSources.name },
@@ -1799,7 +1800,22 @@ export class OpportunitiesService {
         lostCompetitor: { id: competitors.id, name: competitors.name },
       })
       .from(opportunities)
-      .leftJoin(companies, eq(opportunities.companyId, companies.id))
+      .leftJoin(
+        companies,
+        and(
+          eq(opportunities.companyId, companies.id),
+          eq(companies.tenantId, actor.tenantId),
+          isNull(companies.deletedAt),
+        ),
+      )
+      .leftJoin(
+        contacts,
+        and(
+          eq(opportunities.primaryContactId, contacts.id),
+          eq(contacts.tenantId, actor.tenantId),
+          isNull(contacts.deletedAt),
+        ),
+      )
       .leftJoin(pipelineStages, eq(opportunities.currentStageId, pipelineStages.id))
       .leftJoin(currencies, eq(opportunities.currencyId, currencies.id))
       .leftJoin(contactSources, eq(opportunities.sourceId, contactSources.id))
@@ -1818,6 +1834,7 @@ export class OpportunitiesService {
       rows.map((r) => ({
         ...r.opp,
         company: r.company?.id ? r.company : null,
+        primaryContact: r.primaryContact?.id ? r.primaryContact : null,
         stage: r.stage,
         currency: r.currency,
         source: r.source?.id ? r.source : null,
@@ -1837,6 +1854,7 @@ export class OpportunitiesService {
       .select({
         opp: opportunities,
         company: { id: companies.id, legalTitle: companies.legalTitle, shortName: companies.shortName },
+        primaryContact: { id: contacts.id, fullName: contacts.fullName },
         stage: { id: pipelineStages.id, code: pipelineStages.code, name: pipelineStages.name },
         currency: { id: currencies.id, code: currencies.code },
         source: { id: contactSources.id, code: contactSources.code, name: contactSources.name },
@@ -1844,7 +1862,22 @@ export class OpportunitiesService {
         lostCompetitor: { id: competitors.id, name: competitors.name },
       })
       .from(opportunities)
-      .leftJoin(companies, eq(opportunities.companyId, companies.id))
+      .leftJoin(
+        companies,
+        and(
+          eq(opportunities.companyId, companies.id),
+          eq(companies.tenantId, actor.tenantId),
+          isNull(companies.deletedAt),
+        ),
+      )
+      .leftJoin(
+        contacts,
+        and(
+          eq(opportunities.primaryContactId, contacts.id),
+          eq(contacts.tenantId, actor.tenantId),
+          isNull(contacts.deletedAt),
+        ),
+      )
       .leftJoin(pipelineStages, eq(opportunities.currentStageId, pipelineStages.id))
       .leftJoin(currencies, eq(opportunities.currencyId, currencies.id))
       .leftJoin(contactSources, eq(opportunities.sourceId, contactSources.id))
@@ -1960,6 +1993,7 @@ export class OpportunitiesService {
     return {
       ...r.opp,
       company: r.company?.id ? r.company : null,
+      primaryContact: r.primaryContact?.id ? r.primaryContact : null,
       stage: r.stage,
       currency: r.currency,
       source: r.source?.id ? r.source : null,
@@ -3875,10 +3909,10 @@ export class OpportunitiesService {
    *  - cancelled → cancellation_reason zorunlu
    *  - quote → mevcut quote olmalı
    *  - contract → quote'a contract dosyası yüklenmeli
-   *  - commercial_invoice → ticari fatura dosyası yüklenmeli
+   *  - commercial_invoice → ödeme yöntemi gerektiriyorsa ödeme planı tamamlanmalı
    *  - customs_approved → öncesinde commercial_invoice tamamlanmış olmalı
    *  - stock_picking → customs_approved'tan sonra; inventory_item seçilmeli (reserved'a alınır)
-   *  - delivered → customer_device kaydı oluşturulur
+   *  - delivered → ticari fatura + kurulum kanıtları doğrulanır, customer_device kaydı oluşturulur
    */
   /**
    * Derece ilerlediğinde kartı o derecenin giriş aşamasına taşır (ters yön

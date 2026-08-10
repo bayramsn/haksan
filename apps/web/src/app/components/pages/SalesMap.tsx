@@ -10,7 +10,7 @@ import {
 } from "../ui/select";
 import { Search, LocateFixed, Navigation, Phone, Building2, MapPin, AlertCircle, Crosshair, X, RotateCcw, Route as RouteIcon, Plus, Check } from "lucide-react";
 import { Customer, FirmType } from "../../lib/mock";
-import { useStore } from "../../lib/store";
+import { useExplicitFullCompanyDirectory } from "../../lib/companyServerData";
 import { coordsForCity, haversineKm, openDirections, centroidForProvince, PROVINCE_NAMES, TURKEY_CENTER, type LatLng } from "../../lib/geo";
 import { usePersistentState } from "../../lib/persist";
 import { companyService } from "../../../lib/services";
@@ -194,7 +194,8 @@ const GEO_MESSAGES: Partial<Record<GeoStatus, string>> = {
 };
 
 export function SalesMapPage({ initialQuery }: { initialQuery?: string }) {
-  const { customers, refresh } = useStore();
+  const companyDirectoryQuery = useExplicitFullCompanyDirectory("sales-map");
+  const customers = companyDirectoryQuery.data ?? [];
   const [q, setQ] = usePersistentState("salesmap.q", "");
   const [firmType, setFirmType] = usePersistentState<"all" | FirmType>("salesmap.firmType", "all");
   const [radius, setRadius] = usePersistentState<"all" | "50" | "100" | "250" | "500">("salesmap.radius", "all");
@@ -271,7 +272,7 @@ export function SalesMapPage({ initialQuery }: { initialQuery?: string }) {
       .setLocation(customerId, { latitude: pos.lat, longitude: pos.lng, source: "manual" })
       .then(() => {
         toast.success("Firma konumu kaydedildi");
-        void refresh();
+        void companyDirectoryQuery.refetch();
       })
       .catch((err: any) => {
         toast.error("Konum kaydedilemedi", { description: err?.message ?? "Pin yalnızca bu tarayıcıda kaldı." });
@@ -290,7 +291,7 @@ export function SalesMapPage({ initialQuery }: { initialQuery?: string }) {
       .setLocation(customerId, { latitude: null, longitude: null })
       .then(() => {
         toast.success("Firma konumu yaklaşık merkeze döndü");
-        void refresh();
+        void companyDirectoryQuery.refetch();
       })
       .catch((err: any) => {
         toast.error("Konum sıfırlanamadı", { description: err?.message });
@@ -315,7 +316,7 @@ export function SalesMapPage({ initialQuery }: { initialQuery?: string }) {
         { description: result.matchQuality === "exact" ? customer.name : `${customer.name} · Tam pin için haritadan firma girişini seçin.` }
       );
       setOsmSearchFirmId(null);
-      await refresh();
+      await companyDirectoryQuery.refetch();
     } catch (err: any) {
       toast.error("Konum kaydedilemedi", { description: err?.message ?? "Lütfen tekrar deneyin." });
     }
@@ -395,7 +396,7 @@ export function SalesMapPage({ initialQuery }: { initialQuery?: string }) {
         return companyService.setLocation(c.id, { latitude: pin.lat, longitude: pin.lng, source: "manual" });
       })
     ).then((results) => {
-      if (results.some((r) => r.status === "fulfilled")) void refresh();
+      if (results.some((r) => r.status === "fulfilled")) void companyDirectoryQuery.refetch();
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [customers]);

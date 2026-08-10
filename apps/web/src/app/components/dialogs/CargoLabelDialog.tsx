@@ -1,16 +1,16 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger,
 } from "../ui/dialog";
 import { Button } from "../ui/button";
-import { Combobox } from "../ui/combobox";
 import { Input } from "../ui/input";
 import { Label } from "../ui/label";
-import { useStore } from "../../lib/store";
 import type { Customer } from "../../lib/mock";
 import { Printer } from "lucide-react";
 import { printOrWarn } from "../../lib/pageHelpers";
 import { cargoLabelDoc, printAssetBase } from "../../lib/print";
+import { RemoteCompanyCombobox } from "../shared/RemoteCompanyCombobox";
+import { useCompanyDetail } from "../../lib/companyServerData";
 
 type CargoLabelCustomer = Pick<Customer, "name" | "address" | "district" | "city" | "phone"> & {
   legalTitle?: string | null;
@@ -36,17 +36,22 @@ export function printCargoLabelForCustomer(customer: CargoLabelCustomer, phoneOv
 }
 
 export function PrintCargoLabelDialog() {
-  const { customers } = useStore();
   const [open, setOpen] = useState(false);
   const [selectedCustomerId, setSelectedCustomerId] = useState("");
   const [phone, setPhone] = useState("");
+  const selectedCompanyQuery = useCompanyDetail(selectedCustomerId);
+  const selectedCompany = selectedCompanyQuery.data;
+
+  useEffect(() => {
+    if (selectedCompany?.id !== selectedCustomerId) return;
+    setPhone(selectedCompany.phone ?? "");
+  }, [selectedCompany?.id, selectedCompany?.phone, selectedCustomerId]);
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
-    const cust = customers.find(c => c.id === selectedCustomerId);
-    if (!cust) return;
+    if (!selectedCompany) return;
 
-    printCargoLabelForCustomer(cust, phone);
+    printCargoLabelForCustomer(selectedCompany, phone);
     setOpen(false);
     setSelectedCustomerId("");
     setPhone("");
@@ -71,17 +76,18 @@ export function PrintCargoLabelDialog() {
           <div>
             <Label className="text-xs">Firma</Label>
             <div className="mt-1.5">
-              <Combobox
-                options={customers.map((c) => ({ value: c.id, label: c.name, hint: c.city }))}
+              <RemoteCompanyCombobox
                 value={selectedCustomerId}
-                onChange={(value) => {
-                  setSelectedCustomerId(value);
-                  setPhone(customers.find((customer) => customer.id === value)?.phone ?? "");
+                onValueChange={(companyId) => {
+                  setSelectedCustomerId(companyId);
+                  setPhone("");
                 }}
                 placeholder="Firma seçin veya arayın..."
-                searchPlaceholder="Firma adı / şehir ara..."
-                emptyText="Firma bulunamadı."
+                searchPlaceholder="Firma adı, no veya vergi no ara..."
               />
+              {selectedCompanyQuery.isError && (
+                <p className="mt-1 text-[11px] text-destructive">Firma bilgileri alınamadı. Tekrar seçim yapın.</p>
+              )}
             </div>
           </div>
 
@@ -100,7 +106,7 @@ export function PrintCargoLabelDialog() {
 
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => setOpen(false)}>Vazgeç</Button>
-            <Button type="submit" disabled={!selectedCustomerId}>Yazdır</Button>
+            <Button type="submit" disabled={!selectedCustomerId || !selectedCompany}>Yazdır</Button>
           </DialogFooter>
         </form>
       </DialogContent>

@@ -20,6 +20,7 @@ import {
 import {
   computeProformaTotals, proformaRowError, quoteToProformaPriceRows, type ProformaPriceRow,
 } from "../../lib/proformaPricing";
+import { useCompanyDetail } from "../../lib/companyServerData";
 
 const CONTRACT_TERMS_TEMPLATE_SCOPE = "contract_terms";
 
@@ -160,7 +161,8 @@ export function CreateContractDialog({
         .sort((a, b) => b.quoteNo.localeCompare(a.quoteNo, "tr", { numeric: true }))
         .map((o) => {
           const sc = cases.find((c) => c.id === o.salesCaseId);
-          const cust = sc ? customerName(sc.customerId) : customerName(o.companyId ?? "");
+          const cust = (sc ? customerName(sc.customerId) : customerName(o.companyId ?? ""))
+            || sc?.leadCompanyTitle;
           return {
             value: o.id,
             label: `${o.quoteNo} · ${cust || "—"}`,
@@ -172,9 +174,12 @@ export function CreateContractDialog({
 
   const selectedOffer = offers.find((o) => o.id === quoteId) ?? null;
   const selectedCase = selectedOffer ? cases.find((c) => c.id === selectedOffer.salesCaseId) : null;
-  const selectedCustomer = selectedOffer
-    ? customers.find((c) => c.id === (selectedOffer.companyId || selectedCase?.customerId))
+  const selectedCustomerId = selectedOffer?.companyId || selectedCase?.customerId || "";
+  const storedSelectedCustomer = selectedCustomerId
+    ? customers.find((c) => c.id === selectedCustomerId)
     : null;
+  const selectedCustomerQuery = useCompanyDetail(selectedCustomerId, storedSelectedCustomer ?? undefined);
+  const selectedCustomer = selectedCustomerQuery.data ?? storedSelectedCustomer;
   const currency = selectedOffer?.currency ?? "USD";
   const totals = useMemo(
     () => computeProformaTotals(priceRows, {

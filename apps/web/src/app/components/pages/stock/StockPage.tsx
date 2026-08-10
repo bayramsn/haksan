@@ -19,7 +19,6 @@ import type { StockItem } from "../../../lib/mock";
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from "../../ui/dialog";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../ui/select";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger,
 } from "../../ui/dropdown-menu";
@@ -32,6 +31,7 @@ import {
 import {
   Plus, Search, Package, Clock, CheckCircle2, AlertTriangle, MoreHorizontal, Wrench, Bookmark, ChevronDown,
 } from "lucide-react";
+import { RemoteCompanyCombobox } from "../../shared/RemoteCompanyCombobox";
 
 const CATEGORY_ICONS: Record<StockCategoryCode, typeof Package> = {
   TEZGAH: Package,
@@ -94,7 +94,7 @@ const stockLocationLabel = (item: StockItem) => {
 };
 
 export function StockPage({ focus, initialQuery }: { focus?: OperationFocus; initialQuery?: string }) {
-  const { stock, customers, products, updateStockStatus, reserveStock } = useStore();
+  const { stock, products, updateStockStatus, reserveStock } = useStore();
   const [q, setQ] = useState("");
   const [tab, setTab] = useState<"all" | "Available" | "Reserved" | "InTransit" | "Sold" | "Inactive">("all");
   const [categoryTab, setCategoryTab] = useState<"all" | StockCategoryCode>("all");
@@ -570,12 +570,12 @@ export function StockPage({ focus, initialQuery }: { focus?: OperationFocus; ini
           <div className="space-y-3">
             <div>
               <Label className="text-xs">Firma *</Label>
-              <Select value={reserveCompanyId} onValueChange={setReserveCompanyId}>
-                <SelectTrigger className="mt-1 h-9"><SelectValue placeholder="Firma seçin" /></SelectTrigger>
-                <SelectContent>
-                  {customers.map((c) => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
-                </SelectContent>
-              </Select>
+              <RemoteCompanyCombobox
+                value={reserveCompanyId}
+                onValueChange={setReserveCompanyId}
+                className="mt-1 h-9"
+                placeholder="Firma seçin"
+              />
             </div>
           </div>
           <DialogFooter>

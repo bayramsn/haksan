@@ -14,7 +14,7 @@ import { toast } from "sonner";
 import { useAuth } from "../../../../lib/auth";
 import { adminService, fileService } from "../../../../lib/services";
 import { resolveMediaUrl } from "../../../../lib/apiClient";
-import { useStore } from "../../../lib/store";
+import { useExplicitFullCompanyDirectory } from "../../../lib/companyServerData";
 import { DIVISION_MACHINE_TYPES, MACHINE_SPEC_TEMPLATES, PRODUCT_SPEC_GROUPS } from "../../../lib/productSpecTemplates";
 import { ALL_DIVISIONS, divisionCatalogGroupCode, isCncDivision, usePersistedSettingsDivision } from "./settings-division";
 import { SettingsField, SettingsSection, SettingsSelect } from "./settings-controls";
@@ -302,7 +302,8 @@ function BrandEditorFields({
 
 export function LookupManagerTab() {
   const { user, hasRole } = useAuth();
-  const { customers } = useStore();
+  const companyDirectoryQuery = useExplicitFullCompanyDirectory("lookup-manager");
+  const customers = companyDirectoryQuery.data ?? [];
   const canManageLookups = hasRole("super_admin");
 
   const [lookupNames, setLookupNames] = useState<string[]>([]);

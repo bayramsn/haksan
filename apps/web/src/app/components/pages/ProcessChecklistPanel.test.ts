@@ -7,17 +7,32 @@ const detailSource = readFileSync(new URL("./SalesCaseDetail.tsx", import.meta.u
 const workspaceSource = readFileSync(new URL("./OpportunityWorkspace.tsx", import.meta.url), "utf8");
 
 describe("ProcessChecklistPanel teklif adımı", () => {
-  it("B sürecindeki teklif kontrolünü teklif penceresine bağlar", () => {
-    expect(source).toContain('case "quote":');
-    expect(source).toContain("<QuoteDialog");
-    expect(source).toContain("defaultCaseId={sc.id}");
-    expect(source).toContain("Teklif oluştur");
+  it("B sürecindeki teklif kontrolünü doğrudan mevcut teklif penceresine bağlar", () => {
+    expect(source).toContain('quote: "Teklif oluştur"');
+    expect(source).toContain("onAction?.(check.actionKey)");
+    expect(source).not.toContain('case "quote":');
+    expect(detailSource).toContain("<QuoteDialog");
+    expect(detailSource).toContain('open={requestedProcessAction === "create_quote"}');
   });
 
   it("firma ve teklif oluşturma yetkisini doğrular", () => {
-    expect(source).toContain('hasPermission("quotes.create")');
-    expect(source).toContain("Tekliften önce firma bağlanmalı.");
-    expect(source).toContain("Teklif oluşturma yetkiniz bulunmuyor.");
+    expect(detailSource).toContain('actionKey === "create_quote"');
+    expect(detailSource).toContain('hasPermission("quotes.create")');
+    expect(source).toContain("canPerformAction?.(check.actionKey)");
+  });
+});
+
+describe("ProcessChecklistPanel firma ve kontak çözümleme", () => {
+  it("firma detayını eski kimlik için on-demand yükler", () => {
+    expect(source).toContain("useCompanyDetail(sc.customerId)");
+    expect(source).not.toContain("customers.find");
+  });
+
+  it("kontak seçimini store anlık görüntüsü yerine remote aramayla yapar", () => {
+    expect(source).toContain("<RemoteContactCombobox");
+    expect(source).toContain("companyId={sc.customerId}");
+    expect(source).toContain("value={sc.primaryContactId ?? \"\"}");
+    expect(source).not.toContain("contacts.filter");
   });
 });
 
@@ -38,6 +53,36 @@ describe("ProcessChecklistPanel satış alanı kutusunun içeriği", () => {
     // Bağ üst bileşende kurulmalı, yoksa engel düğmeleri sessizce çalışmaz olur.
     expect(detailSource).toContain("checklist={");
     expect(detailSource).toContain("requestedAction={requestedProcessAction}");
+  });
+
+  it("formları sayfada sürekli açık tutmak yerine operasyon düğmesinden dialog içinde açar", () => {
+    expect(source).toContain("aria-haspopup={hasInlineEditor || (check.actionKey && DIALOG_ACTION_KEYS.has(check.actionKey))");
+    expect(source).toContain("onClick={() => handleCheckOpen(check)}");
+    expect(source).toContain("setActiveCheckKey(key)");
+    expect(source).toContain('<DialogContent className="max-w-xl">');
+    expect(source).toContain("<CheckEditor");
+    expect(source).not.toContain("editingKeys");
+    expect(source).not.toContain('id={`process-check-${check.key}`}');
+  });
+
+  it("teklif gibi kendi penceresi olan ticari adımları ikinci bir dialog içine sarmaz", () => {
+    expect(source).toContain("INLINE_EDITOR_CHECK_KEYS.has(check.key)");
+    expect(source).toContain("onAction?.(check.actionKey)");
+    expect(source).toContain("check.actionKey ?? CHECK_ACTION_BY_KEY[check.key]");
+    const inlineEditors = source.slice(
+      source.indexOf("const INLINE_EDITOR_CHECK_KEYS"),
+      source.indexOf("const CHECK_ACTION_LABELS"),
+    );
+    expect(inlineEditors).not.toContain('"quote"');
+    expect(inlineEditors).not.toContain('"installation"');
+  });
+
+  it("üstteki hızlı işlem isteğini ilgili operasyon penceresine yönlendirir", () => {
+    expect(source).toContain("OPPORTUNITY_CHECK_BY_ACTION[requestedAction]");
+    expect(source).toContain("setActiveCheckKey(key)");
+    expect(source).toContain("onActionHandled?.()");
+    // Modal açılırken sayfa görev listesine atlamamalı.
+    expect(detailSource).not.toContain('getElementById("opportunity-process-actions")');
   });
 
   it("kaydetmeden sonra hem store'u hem kutunun hazırlık verisini tazeler", () => {
@@ -65,12 +110,12 @@ describe("ProcessChecklistPanel satış alanı kutusunun içeriği", () => {
   });
 
   it("kaydırma çapası kutunun görev kapsayıcısında durur", () => {
-    // "Görevlere git" bu id'yi arıyor. Çapa kutuya taşındı; panelde kalsaydı
-    // kaydırma görevlerin dışına inerdi.
+    // Workspace içindeki "Görevlere git" kısayolları bu id'yi arıyor. Detay
+    // ekranındaki doğrudan adım eylemleri ise modal açtığı için kaydırmamalı.
     expect(centerSource).toContain('id="opportunity-process-actions"');
     expect(source).not.toContain("PROCESS_ACTIONS_ANCHOR_ID");
     expect(workspaceSource).toContain('getElementById("opportunity-process-actions")');
-    expect(detailSource).toContain('getElementById("opportunity-process-actions")');
+    expect(detailSource).not.toContain('getElementById("opportunity-process-actions")');
   });
 });
 
@@ -92,7 +137,7 @@ describe("ProcessChecklistPanel ilerletme güvenliği", () => {
   it("güncelleme yetkisi olmayan kullanıcı için kayıt işlemlerini kapatır", () => {
     expect(source).toContain('hasPermission("opportunities.update")');
     expect(source).toContain("if (!authorized || busyKey) return;");
-    expect(source).toContain("disabled={!canUpdate || busyKey !== null}");
+    expect(source).toContain("disabled={readOnly || !canUpdate || busyKey !== null}");
   });
 });
 

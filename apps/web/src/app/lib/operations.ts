@@ -1372,24 +1372,34 @@ export function answerOperationQuery(input: string, data: OperationStoreSnapshot
   }
 
   if (includesAny(text, ["firma", "musteri", "müşteri", "tedarikci", "tedarikçi", "gecmis", "geçmiş"])) {
-    const results = byType(index, "Firma", query, ["firma", "musteri", "müşteri", "tedarikci", "tedarikçi", "gecmis", "geçmiş"], 6);
+    const ignoredWords = ["firma", "musteri", "müşteri", "tedarikci", "tedarikçi", "gecmis", "geçmiş"];
+    const searchTerm = stripCommandWords(query, ignoredWords);
+    const results = byType(index, "Firma", query, ignoredWords, 6);
     return {
       text: results.length
-        ? `${results.length} firma sonucu buldum. Firma kartına girince birleşik geçmiş sekmesinden satış, teklif, ödeme, servis, makine ve dokümanları görebilirsiniz.`
-        : `${data.customers.length} firma var; ${data.customers.filter((c) => c.status === "active").length} tanesi aktif.`,
+        ? `${results.length} hızlı firma eşleşmesi gösteriliyor. Tüm yetkili kayıtlar için firma sayfasındaki sunucu aramasını kullanabilirsiniz.`
+        : searchTerm
+          ? `"${searchTerm}" için tüm yetkili firmalarda sunucu araması açılabilir.`
+          : "Toplam ve aktif firma sayıları firma sayfasında sunucudan güncel olarak hesaplanır.",
       actions: [
-        { label: "Firmalar", action: { kind: "navigate", nav: "customers" } },
-        { label: "Firma Haritası", action: { kind: "navigate", nav: "sales-map" } },
+        { label: "Firmalar", action: { kind: "navigate", nav: "customers", query: searchTerm } },
+        { label: "Firma Haritası", action: { kind: "navigate", nav: "sales-map", query: searchTerm } },
       ],
       results,
     };
   }
 
   if (includesAny(text, ["kontak", "kisi", "kişi", "ilgili", "yetkili"])) {
-    const results = byType(index, "Kontak", query, ["kontak", "kisi", "kişi", "ilgili", "yetkili"], 6);
+    const ignoredWords = ["kontak", "kisi", "kişi", "ilgili", "yetkili"];
+    const searchTerm = stripCommandWords(query, ignoredWords);
+    const results = byType(index, "Kontak", query, ignoredWords, 6);
     return {
-      text: results.length ? `${results.length} kontak sonucu buldum.` : `${data.contacts.length} kontak kaydı var.`,
-      actions: [{ label: "Kontaklar", action: { kind: "navigate", nav: "contacts" } }],
+      text: results.length
+        ? `${results.length} hızlı kontak eşleşmesi gösteriliyor. Tüm yetkili kayıtlar için kontak sayfasındaki sunucu aramasını kullanabilirsiniz.`
+        : searchTerm
+          ? `"${searchTerm}" için tüm yetkili kontaklarda sunucu araması açılabilir.`
+          : "Toplam kontak sayısı kontak sayfasında sunucudan güncel olarak hesaplanır.",
+      actions: [{ label: "Kontaklar", action: { kind: "navigate", nav: "contacts", query: searchTerm } }],
       results,
     };
   }

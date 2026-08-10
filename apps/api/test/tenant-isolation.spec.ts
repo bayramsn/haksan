@@ -139,6 +139,40 @@ describe('Tenant isolation', () => {
     }
   });
 
+  it('opportunity ve quote embedded referanslarını tenant içinde ve minimum alanlarla döndürür', async () => {
+    const [opportunityList, opportunityDetail, quoteList, tenantAOpportunities, tenantAQuotes] = await Promise.all([
+      supertest(app.getHttpServer())
+        .get('/api/v1/opportunities?view=all&pageSize=200')
+        .set('Authorization', `Bearer ${tenantB.accessToken}`),
+      supertest(app.getHttpServer())
+        .get(`/api/v1/opportunities/${tenantB.opportunityId}`)
+        .set('Authorization', `Bearer ${tenantB.accessToken}`),
+      supertest(app.getHttpServer())
+        .get('/api/v1/quotes?pageSize=200')
+        .set('Authorization', `Bearer ${tenantB.accessToken}`),
+      supertest(app.getHttpServer())
+        .get('/api/v1/opportunities?view=all&pageSize=200')
+        .set('Authorization', `Bearer ${tenantA.accessToken}`),
+      supertest(app.getHttpServer())
+        .get('/api/v1/quotes?pageSize=200')
+        .set('Authorization', `Bearer ${tenantA.accessToken}`),
+    ]);
+    for (const response of [opportunityList, opportunityDetail, quoteList, tenantAOpportunities, tenantAQuotes]) {
+      expect(response.status).toBe(200);
+    }
+
+    const listedOpportunity = opportunityList.body.data.find((row: { id: string }) => row.id === tenantB.opportunityId);
+    const listedQuote = quoteList.body.data.find((row: { id: string }) => row.id === tenantB.quoteId);
+    expect(listedOpportunity?.primaryContact).toEqual({ id: tenantB.contactId, fullName: 'Tenant B Contact' });
+    expect(opportunityDetail.body.primaryContact).toEqual({ id: tenantB.contactId, fullName: 'Tenant B Contact' });
+    expect(listedQuote?.contact).toEqual({ id: tenantB.contactId, fullName: 'Tenant B Contact' });
+    expect(Object.keys(listedOpportunity.primaryContact).sort()).toEqual(['fullName', 'id']);
+    expect(Object.keys(opportunityDetail.body.primaryContact).sort()).toEqual(['fullName', 'id']);
+    expect(Object.keys(listedQuote.contact).sort()).toEqual(['fullName', 'id']);
+    expect(tenantAOpportunities.body.data.some((row: { id: string }) => row.id === tenantB.opportunityId)).toBe(false);
+    expect(tenantAQuotes.body.data.some((row: { id: string }) => row.id === tenantB.quoteId)).toBe(false);
+  });
+
   it('Tenant A cannot create a quote against Tenant B company/contact/opportunity', async () => {
     const companyRef = await supertest(app.getHttpServer())
       .post('/api/v1/quotes')
@@ -231,6 +265,67 @@ describe('Tenant isolation', () => {
       .send({ status: 'completed' });
     expect(status.status).toBe(200);
     expect(status.body.ok).toBe(true);
+
+    const [tenantBList, tenantAList] = await Promise.all([
+      supertest(app.getHttpServer())
+        .get('/api/v1/deliveries?pageSize=200')
+        .set('Authorization', `Bearer ${tenantB.accessToken}`),
+      supertest(app.getHttpServer())
+        .get('/api/v1/deliveries?pageSize=200')
+        .set('Authorization', `Bearer ${tenantA.accessToken}`),
+    ]);
+    expect(tenantBList.status).toBe(200);
+    expect(tenantAList.status).toBe(200);
+    const listed = tenantBList.body.data.find((row: { id: string }) => row.id === delivery.body.id);
+    expect(listed?.company).toEqual({ id: tenantB.companyId, legalTitle: 'Tenant B Company', shortName: null });
+    expect(Object.keys(listed.company).sort()).toEqual(['id', 'legalTitle', 'shortName']);
+    expect(tenantAList.body.data.some((row: { id: string }) => row.id === delivery.body.id)).toBe(false);
+  });
+
+  it('service ticket ve customer-device embedded referanslarını tenant içinde minimum alanlarla döndürür', async () => {
+    const [ticket, device] = await Promise.all([
+      supertest(app.getHttpServer())
+        .post('/api/v1/service-tickets')
+        .set('Authorization', `Bearer ${tenantB.accessToken}`)
+        .send({
+          companyId: tenantB.companyId,
+          contactId: tenantB.contactId,
+          subject: `Tenant B embedded ref ${Date.now()}`,
+        }),
+      supertest(app.getHttpServer())
+        .post('/api/v1/customer-devices')
+        .set('Authorization', `Bearer ${tenantB.accessToken}`)
+        .send({ companyId: tenantB.companyId, notes: `Tenant B embedded device ${Date.now()}` }),
+    ]);
+    expect(ticket.status, JSON.stringify(ticket.body)).toBe(201);
+    expect(device.status, JSON.stringify(device.body)).toBe(201);
+
+    const [ticketList, deviceList, tenantATickets, tenantADevices] = await Promise.all([
+      supertest(app.getHttpServer())
+        .get('/api/v1/service-tickets?pageSize=200')
+        .set('Authorization', `Bearer ${tenantB.accessToken}`),
+      supertest(app.getHttpServer())
+        .get('/api/v1/customer-devices?pageSize=200')
+        .set('Authorization', `Bearer ${tenantB.accessToken}`),
+      supertest(app.getHttpServer())
+        .get('/api/v1/service-tickets?pageSize=200')
+        .set('Authorization', `Bearer ${tenantA.accessToken}`),
+      supertest(app.getHttpServer())
+        .get('/api/v1/customer-devices?pageSize=200')
+        .set('Authorization', `Bearer ${tenantA.accessToken}`),
+    ]);
+    for (const response of [ticketList, deviceList, tenantATickets, tenantADevices]) expect(response.status).toBe(200);
+
+    const listedTicket = ticketList.body.data.find((row: { id: string }) => row.id === ticket.body.id);
+    const listedDevice = deviceList.body.data.find((row: { id: string }) => row.id === device.body.id);
+    expect(listedTicket?.company).toEqual({ id: tenantB.companyId, legalTitle: 'Tenant B Company', shortName: null });
+    expect(listedTicket?.contact).toEqual({ id: tenantB.contactId, fullName: 'Tenant B Contact' });
+    expect(listedDevice?.company).toEqual({ id: tenantB.companyId, legalTitle: 'Tenant B Company', shortName: null });
+    expect(Object.keys(listedTicket.company).sort()).toEqual(['id', 'legalTitle', 'shortName']);
+    expect(Object.keys(listedTicket.contact).sort()).toEqual(['fullName', 'id']);
+    expect(Object.keys(listedDevice.company).sort()).toEqual(['id', 'legalTitle', 'shortName']);
+    expect(tenantATickets.body.data.some((row: { id: string }) => row.id === ticket.body.id)).toBe(false);
+    expect(tenantADevices.body.data.some((row: { id: string }) => row.id === device.body.id)).toBe(false);
   });
 
   it('Tenant A cannot create service records against Tenant B references', async () => {

@@ -26,6 +26,10 @@ import {
 } from "../../lib/print";
 import { printOrWarn } from "../../lib/pageHelpers";
 import type { DocumentItem } from "../../lib/mock";
+import { useCompanyDetail } from "../../lib/companyServerData";
+import { contactQueryKeys, loadAllCompanyContacts, type ContactQueryScope } from "../../lib/contactServerData";
+import { useAuth } from "../../../lib/auth";
+import { useQueryClient } from "@tanstack/react-query";
 
 const PROFORMA_TERMS_TEMPLATE_SCOPE = "proforma_terms";
 const AUTO_VARIANT_KEY = "auto";
@@ -68,6 +72,14 @@ export function CreateProformaDialog({
     offers, customers, cases, products, contacts, users,
     noteTemplates, addNoteTemplate, updateNoteTemplate, deleteNoteTemplate, refresh,
   } = useStore();
+  const { user, tenant, activeDivision, activeDepartment } = useAuth();
+  const queryClient = useQueryClient();
+  const contactScope = useMemo<ContactQueryScope>(() => ({
+    tenantId: tenant?.id ?? user?.tenantId ?? "anonymous",
+    userId: user?.id ?? "anonymous",
+    activeDivision,
+    activeDepartment,
+  }), [activeDepartment, activeDivision, tenant?.id, user?.id, user?.tenantId]);
   const [internalOpen, setInternalOpen] = useState(false);
   const open = controlledOpen ?? internalOpen;
   const setOpen = (next: boolean) => {
@@ -161,7 +173,8 @@ export function CreateProformaDialog({
         .sort((a, b) => b.quoteNo.localeCompare(a.quoteNo, "tr", { numeric: true }))
         .map((o) => {
           const sc = cases.find((c) => c.id === o.salesCaseId);
-          const cust = sc ? customerName(sc.customerId) : customerName(o.companyId ?? "");
+          const cust = (sc ? customerName(sc.customerId) : customerName(o.companyId ?? ""))
+            || sc?.leadCompanyTitle;
           return {
             value: o.id,
             label: `${o.quoteNo} · ${cust || "—"}`,
@@ -173,9 +186,12 @@ export function CreateProformaDialog({
 
   const selectedOffer = offers.find((o) => o.id === quoteId) ?? null;
   const selectedCase = selectedOffer ? cases.find((c) => c.id === selectedOffer.salesCaseId) : null;
-  const selectedCustomer = selectedOffer
-    ? customers.find((c) => c.id === (selectedOffer.companyId || selectedCase?.customerId))
+  const selectedCustomerId = selectedOffer?.companyId || selectedCase?.customerId || "";
+  const storedSelectedCustomer = selectedCustomerId
+    ? customers.find((c) => c.id === selectedCustomerId)
     : null;
+  const selectedCustomerQuery = useCompanyDetail(selectedCustomerId, storedSelectedCustomer ?? undefined);
+  const selectedCustomer = selectedCustomerQuery.data ?? storedSelectedCustomer;
   const currency = selectedOffer?.currency ?? "USD";
   const totals = useMemo(
     () => computeProformaTotals(priceRows, {
@@ -212,13 +228,34 @@ export function CreateProformaDialog({
   // kayıt oluşmuş sayılır ve kullanıcı listeden yeniden yazdırabilir.
   const printCreated = async (created: any) => {
     try {
+      const doc = createdProformaToDocument(created);
+      let printCustomers = customers;
+      let printContacts = contacts;
+
+      // Yeni API kayıtları normalde immutable belge snapshot'ı döndürür. Eski
+      // sunucu sürümü snapshot döndürmezse yalnız seçili firmayı ve kontaklarını
+      // yükleyerek eksik adres/telefon/vergi alanlarını tamamlarız.
+      if (!doc.documentSnapshot && selectedCustomerId) {
+        const freshCustomer = (await selectedCustomerQuery.refetch()).data ?? selectedCustomer;
+        if (freshCustomer) {
+          printCustomers = [freshCustomer, ...customers.filter((customer) => customer.id !== freshCustomer.id)];
+        }
+        const companyContacts = await queryClient.fetchQuery({
+          queryKey: contactQueryKeys.companyContacts(contactScope, selectedCustomerId),
+          queryFn: ({ signal }) => loadAllCompanyContacts(selectedCustomerId, signal),
+          staleTime: 60_000,
+        });
+        const remoteIds = new Set(companyContacts.data.map((contact) => contact.id));
+        printContacts = [...companyContacts.data, ...contacts.filter((contact) => !remoteIds.has(contact.id))];
+      }
+
       const data = await loadProformaPrintData({
-        doc: createdProformaToDocument(created),
-        customers,
+        doc,
+        customers: printCustomers,
         cases,
         offers,
         products,
-        contacts,
+        contacts: printContacts,
         users,
         variantKey: printVariantKey === AUTO_VARIANT_KEY ? "" : printVariantKey,
       });

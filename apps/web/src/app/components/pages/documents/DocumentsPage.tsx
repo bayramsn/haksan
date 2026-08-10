@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Card, CardHeader, CardTitle } from "../../ui/card";
 import { Button } from "../../ui/button";
 import { Input } from "../../ui/input";
@@ -17,7 +18,8 @@ import { LinkCommercialDocumentDialog } from "../../dialogs/LinkCommercialDocume
 import { useStore } from "../../../lib/store";
 import { DocumentItem } from "../../../lib/mock";
 import { toast } from "sonner";
-import { documentService, fileService, serviceService } from "../../../../lib/services";
+import { companyService, documentService, fileService, serviceService } from "../../../../lib/services";
+import { useAuth } from "../../../../lib/auth";
 import { exportToCsv } from "../../../../lib/exportCsv";
 import { formatDuration } from "@haksan/shared";
 import { ExportExcelButton } from "../../ui/ExportExcelButton";
@@ -40,6 +42,10 @@ import {
   contractFilename, proformaFilename,
 } from "../../../lib/print";
 import { printOrWarn, downloadPrintOrWarn } from "../../../lib/pageHelpers";
+import { companyQueryKeys } from "../../../lib/companyServerData";
+import { normalizeCompany } from "../../../lib/companyNormalizer";
+import { contactQueryKeys, loadAllCompanyContacts, type ContactQueryScope } from "../../../lib/contactServerData";
+import { serverScopeKey } from "../../../lib/serverPagination";
 
 const DOC_TYPE_LABELS: Record<DocumentItem["type"], string> = {
   Proforma: "Proforma",
@@ -138,6 +144,15 @@ export function DocumentsPage({
   onOpenAccountingInvoices?: (query?: string) => void;
 }) {
   const { documents, cases, customers, contacts, users, offers, payments, products, deliveries, machines, refresh } = useStore();
+  const { user, tenant, activeDivision, activeDepartment } = useAuth();
+  const queryClient = useQueryClient();
+  const companyScope = serverScopeKey(activeDivision, activeDepartment, tenant?.id ?? user?.tenantId, user?.id);
+  const contactScope: ContactQueryScope = {
+    tenantId: tenant?.id ?? user?.tenantId ?? "anonymous",
+    userId: user?.id ?? "anonymous",
+    activeDivision,
+    activeDepartment,
+  };
   const customerName = (id: string) => customers.find((c) => c.id === id)?.name ?? "—";
   const userName = (id: string) => users.find((u) => u.id === id)?.name ?? "—";
 
@@ -167,16 +182,59 @@ export function DocumentsPage({
     };
   };
 
-  const proformaInput = (d: (typeof documents)[number], variantKey: string) => ({
-    doc: d,
-    customers,
-    cases,
-    offers,
-    products,
-    contacts,
-    users,
-    variantKey,
-  });
+  const loadCompany = async (companyId: string, fallback: (typeof customers)[number] | null) => {
+    if (!companyId) return fallback;
+    const dto = await queryClient.fetchQuery({
+      queryKey: companyQueryKeys.detail(companyScope, companyId),
+      queryFn: ({ signal }) => companyService.get(companyId, { signal }),
+      staleTime: 60_000,
+    });
+    return normalizeCompany(dto, fallback ?? undefined);
+  };
+
+  const hydratePrintReferences = async (d: (typeof documents)[number], includeContacts: boolean) => {
+    const ctx = resolveDocContext(d);
+    if (d.documentSnapshot) {
+      return { ctx, customer: ctx.cust, customers, contacts };
+    }
+
+    const companyId = d.companyId || ctx.offer?.companyId || ctx.sc?.customerId || "";
+    const [customer, companyContacts] = await Promise.all([
+      loadCompany(companyId, ctx.cust),
+      includeContacts && companyId
+        ? queryClient.fetchQuery({
+            queryKey: contactQueryKeys.companyContacts(contactScope, companyId),
+            queryFn: ({ signal }) => loadAllCompanyContacts(companyId, signal),
+            staleTime: 60_000,
+          })
+        : Promise.resolve(null),
+    ]);
+    const hydratedCustomers = customer
+      ? [customer, ...customers.filter((item) => item.id !== customer.id)]
+      : customers;
+    const remoteContacts = companyContacts?.data ?? [];
+    const remoteContactIds = new Set(remoteContacts.map((contact) => contact.id));
+    return {
+      ctx,
+      customer,
+      customers: hydratedCustomers,
+      contacts: [...remoteContacts, ...contacts.filter((contact) => !remoteContactIds.has(contact.id))],
+    };
+  };
+
+  const proformaInput = async (d: (typeof documents)[number], variantKey: string) => {
+    const hydrated = await hydratePrintReferences(d, true);
+    return {
+      doc: d,
+      customers: hydrated.customers,
+      cases,
+      offers,
+      products,
+      contacts: hydrated.contacts,
+      users,
+      variantKey,
+    };
+  };
 
   const runProforma = async (
     d: (typeof documents)[number],
@@ -185,7 +243,7 @@ export function DocumentsPage({
   ) => {
     const loading = toast.loading("Proforma hazırlanıyor…");
     try {
-      const data = await loadProformaPrintData(proformaInput(d, variantKey));
+      const data = await loadProformaPrintData(await proformaInput(d, variantKey));
       const rendered = proformaDoc(data, printAssetBase());
       if (mode === "print") printOrWarn(rendered);
       // Dosya adı: Proforma_<bölüm-belge no>_<firma>_<makine>. Kayıtlı firması
@@ -217,8 +275,9 @@ export function DocumentsPage({
     }
     const loading = toast.loading("Sözleşme hazırlanıyor…");
     try {
+      const hydrated = await hydratePrintReferences(d, false);
       const data = await loadContractPrintData({
-        customer: ctx.cust,
+        customer: hydrated.customer,
         salesCase: ctx.sc,
         offer: ctx.offer,
         products,
@@ -270,14 +329,22 @@ export function DocumentsPage({
     }
   };
 
-  const printDeliveryForm = (d: (typeof documents)[number]) => {
+  const printDeliveryForm = async (d: (typeof documents)[number]) => {
     const delivery = deliveries.find((item) => item.id === d.deliveryId);
     if (!delivery) {
       toast.error("Teslim formu yazdırılamadı", { description: "Canlı teslimat kaydı bulunamadı." });
       return;
     }
-    const cust = customers.find((c) => c.id === delivery.customerId);
     const fd = delivery.formData;
+    let cust = customers.find((c) => c.id === delivery.customerId) ?? null;
+    try {
+      cust = await loadCompany(delivery.customerId, cust);
+    } catch (error: unknown) {
+      toast.error("Teslim formu yazdırılamadı", {
+        description: error instanceof Error ? error.message : "Firma ayrıntıları yüklenemedi.",
+      });
+      return;
+    }
     printOrWarn(
       installationFormDoc(
         {
@@ -316,7 +383,15 @@ export function DocumentsPage({
       toast.error("Kurulum formu yazdırılamadı", { description: "Canlı kurulum kaydı bulunamadı." });
       return;
     }
-    const cust = customers.find((c) => c.id === installation.companyId);
+    let cust = customers.find((c) => c.id === installation.companyId) ?? null;
+    try {
+      cust = await loadCompany(installation.companyId ?? "", cust);
+    } catch (error: unknown) {
+      toast.error("Kurulum formu yazdırılamadı", {
+        description: error instanceof Error ? error.message : "Firma ayrıntıları yüklenemedi.",
+      });
+      return;
+    }
     const specs = Array.isArray(installation.customerDevice?.technicalSpecs)
       ? installation.customerDevice.technicalSpecs.map((spec: any) => ({
           key: String(spec.key ?? ""),
@@ -391,7 +466,7 @@ export function DocumentsPage({
 
   const printDocument = async (d: (typeof documents)[number]) => {
     if (d.type === "DeliveryForm" && d.deliveryId) {
-      printDeliveryForm(d);
+      await printDeliveryForm(d);
       return;
     }
     if (d.type === "InstallationForm" && d.installationId) {
@@ -495,6 +570,7 @@ export function DocumentsPage({
         DOC_TYPE_LABELS[d.type],
         customerName(companyId),
         d.companyNameText,
+        sc?.leadCompanyTitle,
         inferredOffer?.quoteNo,
         inferredOffer ? `R${inferredOffer.revision}` : "",
         sc?.requestedProduct,
@@ -510,7 +586,8 @@ export function DocumentsPage({
 
   const downloadDocument = async (d: (typeof documents)[number]) => {
     const sc = cases.find((s) => s.id === d.salesCaseId);
-    const fallbackCustomer = customerName(sc?.customerId || d.companyId || "");
+    const storedName = customerName(sc?.customerId || d.companyId || "");
+    const fallbackCustomer = storedName !== "—" ? storedName : d.companyNameText || sc?.leadCompanyTitle || "—";
     if (!d.fileId) {
       exportToCsv(d.fileName || "dokuman", ["Dosya", "Tip", "Müşteri", "Boyut", "Tarih"], [[d.fileName, d.type, fallbackCustomer, d.size, d.uploadedAt]]);
       return;
@@ -531,7 +608,7 @@ export function DocumentsPage({
   const runCommercialInvoice = async (d: (typeof documents)[number], mode: "print" | "download") => {
     const loading = toast.loading("Ticari fatura hazırlanıyor…");
     try {
-      const data = await loadProformaPrintData(proformaInput(d, ""));
+      const data = await loadProformaPrintData(await proformaInput(d, ""));
       const rendered = commercialInvoiceDoc(data, printAssetBase());
       if (mode === "print") printOrWarn(rendered);
       else downloadPrintOrWarn(rendered, `Ticari-Fatura-${d.fileName}`, "Ticari fatura");
@@ -752,6 +829,10 @@ export function DocumentsPage({
               {filtered.map((d) => {
                 const sc = cases.find((s) => s.id === d.salesCaseId);
                 const companyId = sc?.customerId || d.companyId || "";
+                const storedCompanyName = customerName(companyId);
+                const displayCompanyName = storedCompanyName !== "—"
+                  ? storedCompanyName
+                  : d.companyNameText || sc?.leadCompanyTitle || (companyId ? "Firma dokümanı" : sc ? `#${sc.id.toUpperCase()}` : "—");
                 const openable = CONTENT_TYPES.includes(d.type) && !d.paymentId;
                 const exactOffer = d.quoteId ? offers.find((offer) => offer.id === d.quoteId) : undefined;
                 // salesCaseId boşken eşleştirme yapılmamalı: aksi halde satış kartı olmayan
@@ -792,13 +873,13 @@ export function DocumentsPage({
                         <div className="min-w-0">
                           <div className="font-data text-[9px] font-semibold uppercase tracking-[0.12em] text-operation-blue">{DOC_TYPE_LABELS[d.type]}</div>
                           <div className="mt-1 truncate text-sm font-medium leading-tight">{d.fileName}</div>
-                          {companyId && customerName(companyId) !== "—" && onOpenCustomer ? (
+                          {companyId && onOpenCustomer ? (
                             <button type="button" className="mt-0.5 block max-w-full truncate text-left text-[11px] text-primary hover:underline" onClick={(event) => { event.stopPropagation(); onOpenCustomer(companyId); }}>
-                              {customerName(companyId)}
+                              {displayCompanyName}
                             </button>
                           ) : (
                             <div className="text-[11px] text-muted-foreground mt-0.5 truncate">
-                              {customerName(companyId) !== "—" ? customerName(companyId) : d.companyNameText ? d.companyNameText : sc ? `#${sc.id.toUpperCase()}` : d.companyId ? "Firma dokümanı" : "—"}
+                              {displayCompanyName}
                             </div>
                           )}
                           <div className="mt-1.5 flex flex-wrap gap-1.5"><span className="chip chip-neutral">{d.fileId ? "Dosya mevcut" : d.deliveryId || d.installationId ? "Canlı saha formu" : "Canlı kayıt"}</span>{d.documentSnapshot && <span className="chip chip-info">Snapshot korumalı</span>}</div>

@@ -1,7 +1,7 @@
 import { FormEvent, ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import { ArchiveRestore, ChevronLeft, ChevronRight, Clock3, Download, MapPin, Plus, RefreshCw, Smartphone, Trash2, Upload, Users } from 'lucide-react';
 import { toast } from 'sonner';
-import { calendarService, companyService, type CalendarEventDTO, type CalendarEventInput, type CalendarEventType, type CalendarImportEvent, type CalendarImportEventType, type CalendarImportPreview, type CompanyDTO } from '../../../lib/services';
+import { calendarService, type CalendarEventDTO, type CalendarEventInput, type CalendarEventType, type CalendarImportEvent, type CalendarImportEventType, type CalendarImportPreview } from '../../../lib/services';
 import { useAuth } from '../../../lib/auth';
 import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
@@ -12,6 +12,7 @@ import { Input } from '../ui/input';
 import { Label } from '../ui/label';
 import { Switch } from '../ui/switch';
 import { Textarea } from '../ui/textarea';
+import { RemoteCompanyCombobox } from '../shared/RemoteCompanyCombobox';
 
 type CalendarView = 'month' | 'week' | 'day' | 'list';
 const VIEW_LABELS: Record<CalendarView, string> = { month: 'Ay', week: 'Hafta', day: 'Gün', list: 'Liste' };
@@ -61,7 +62,6 @@ export function CalendarPage() {
   const [events, setEvents] = useState<CalendarEventDTO[]>([]);
   const [owners, setOwners] = useState<Array<{ id: string; fullName: string; email: string }>>([]);
   const [ownerUserId, setOwnerUserId] = useState('all');
-  const [companies, setCompanies] = useState<CompanyDTO[]>([]);
   const [includeArchived, setIncludeArchived] = useState(false);
   const [loading, setLoading] = useState(false);
   const [editorOpen, setEditorOpen] = useState(false);
@@ -99,7 +99,6 @@ export function CalendarPage() {
 
   useEffect(() => { void load(); }, [range.from.getTime(), range.to.getTime(), ownerUserId, includeArchived]);
   useEffect(() => {
-    companyService.list({ pageSize: 200 }).then((result) => setCompanies(result.data)).catch(() => setCompanies([]));
     if (isSuperAdmin) calendarService.owners().then(setOwners).catch(() => setOwners([]));
   }, [isSuperAdmin]);
 
@@ -228,7 +227,7 @@ export function CalendarPage() {
     </div>
     <Dialog open={editorOpen} onOpenChange={setEditorOpen}><DialogContent className="max-w-2xl"><form onSubmit={save} className="space-y-4"><DialogHeader><DialogTitle>{editing ? 'Etkinliği düzenle' : 'Yeni etkinlik'}</DialogTitle><DialogDescription>{editing?.source === 'device' ? 'Değişiklik bir sonraki senkronda telefona yazılır.' : 'Kişisel takvimine yeni bir kayıt ekle.'}</DialogDescription></DialogHeader>
       <div className="grid gap-4 sm:grid-cols-2"><Field label="Etkinlik türü"><select className="h-9 w-full rounded-md border bg-background px-3 text-sm" value={draft.eventType} onChange={(event) => setDraft((value) => ({ ...value, eventType: event.target.value as CalendarEventType, companyId: event.target.value === 'customer_visit' ? value.companyId : null }))}>{Object.entries(TYPE_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></Field>
-      {draft.eventType === 'customer_visit' && <Field label="Firma"><select required className="h-9 w-full rounded-md border bg-background px-3 text-sm" value={draft.companyId ?? ''} onChange={(event) => setDraft((value) => ({ ...value, companyId: event.target.value || null }))}><option value="">Firma seçin</option>{companies.map((company) => <option key={company.id} value={company.id}>{company.shortName || company.legalTitle}</option>)}</select></Field>}
+      {draft.eventType === 'customer_visit' && <Field label="Firma"><RemoteCompanyCombobox value={draft.companyId} onValueChange={(companyId) => setDraft((value) => ({ ...value, companyId }))} placeholder="Firma seçin…" /></Field>}
       <Field label="Başlık" className="sm:col-span-2"><Input required maxLength={255} value={draft.title} onChange={(event) => setDraft((value) => ({ ...value, title: event.target.value }))} placeholder="Örn. Haksan CNC fabrika ziyareti" /></Field><Field label="Başlangıç"><Input required type="datetime-local" value={draft.startsAt} onChange={(event) => setDraft((value) => ({ ...value, startsAt: event.target.value }))} /></Field><Field label="Bitiş"><Input required type="datetime-local" value={draft.endsAt} onChange={(event) => setDraft((value) => ({ ...value, endsAt: event.target.value }))} /></Field><Field label="Konum" className="sm:col-span-2"><Input value={draft.location ?? ''} onChange={(event) => setDraft((value) => ({ ...value, location: event.target.value }))} /></Field><Field label="Not" className="sm:col-span-2"><Textarea value={draft.description ?? ''} onChange={(event) => setDraft((value) => ({ ...value, description: event.target.value }))} /></Field><label className="flex items-center gap-2 text-sm"><Switch aria-label="Tüm gün" checked={draft.allDay} onCheckedChange={(checked) => setDraft((value) => ({ ...value, allDay: checked }))} /> Tüm gün</label></div>
       <DialogFooter className="items-center sm:justify-between"><div className="flex gap-2">{editing && !editing.deletedAt && <Button type="button" variant="destructive" size="sm" onClick={remove}><Trash2 className="size-4" /> Arşive al</Button>}{editing?.deletedAt && <Button type="button" variant="outline" size="sm" onClick={restore}><ArchiveRestore className="size-4" /> Geri al</Button>}</div><div className="flex gap-2"><Button type="button" variant="outline" onClick={() => setEditorOpen(false)}>Vazgeç</Button><Button disabled={saving || !!editing?.deletedAt}>{saving ? 'Kaydediliyor…' : 'Kaydet'}</Button></div></DialogFooter>
     </form></DialogContent></Dialog>

@@ -697,12 +697,28 @@ export class QuotesService {
       .select({
         quote: quotes,
         company: { id: companies.id, legalTitle: companies.legalTitle, shortName: companies.shortName },
+        contact: { id: contacts.id, fullName: contacts.fullName },
         status: { id: quoteStatuses.id, code: quoteStatuses.code, name: quoteStatuses.name },
         currency: { id: currencies.id, code: currencies.code },
         division: { id: divisions.id, code: divisions.code, name: divisions.name },
       })
       .from(quotes)
-      .leftJoin(companies, eq(quotes.companyId, companies.id))
+      .leftJoin(
+        companies,
+        and(
+          eq(quotes.companyId, companies.id),
+          eq(companies.tenantId, actor.tenantId),
+          isNull(companies.deletedAt),
+        ),
+      )
+      .leftJoin(
+        contacts,
+        and(
+          eq(quotes.contactId, contacts.id),
+          eq(contacts.tenantId, actor.tenantId),
+          isNull(contacts.deletedAt),
+        ),
+      )
       .leftJoin(quoteStatuses, eq(quotes.statusId, quoteStatuses.id))
       .leftJoin(currencies, eq(quotes.currencyId, currencies.id))
       .leftJoin(divisions, eq(quotes.divisionId, divisions.id))
@@ -742,6 +758,7 @@ export class QuotesService {
       rows.map((r) => ({
         ...r.quote,
         company: r.company,
+        contact: r.contact?.id ? r.contact : null,
         status: r.status,
         currency: r.currency,
         division: r.division,

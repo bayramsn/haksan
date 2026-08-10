@@ -36,6 +36,7 @@ import { computeProformaTotals, formatMoneyInput, parseMoneyInput } from "../../
 import { contractDoc, loadContractPrintData, printAssetBase } from "../../lib/print";
 import { printOrWarn } from "../../lib/pageHelpers";
 import type { DocumentItem } from "../../lib/mock";
+import { useCompanyDetail } from "../../lib/companyServerData";
 
 const CONTRACT_TERMS_TEMPLATE_SCOPE = "contract_terms";
 
@@ -86,7 +87,7 @@ export function QuickContractDialog({
   onCreated?: (id: string) => void;
 }) {
   const {
-    customers, products, payments, users,
+    products, payments, users,
     noteTemplates, addNoteTemplate, updateNoteTemplate, deleteNoteTemplate, refresh,
   } = useStore();
   const { user, activeDivision } = useAuth();
@@ -174,19 +175,8 @@ export function QuickContractDialog({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, editDocument]);
 
-  const companyOptions = useMemo(
-    () =>
-      [...customers]
-        .sort((a, b) => a.name.localeCompare(b.name, "tr"))
-        .map((c) => ({
-          value: c.id,
-          label: c.name,
-          hint: [c.district, c.city].filter(Boolean).join(" / ") || undefined,
-        })),
-    [customers]
-  );
-
-  const selectedCompany = customers.find((c) => c.id === party.companyId) ?? null;
+  const selectedCompanyQuery = useCompanyDetail(party.manualCompany ? null : party.companyId);
+  const selectedCompany = selectedCompanyQuery.data ?? null;
   const priceRows = useMemo(() => quickFreeItemsToRows(items), [items]);
   const totals = useMemo(() => computeProformaTotals(priceRows), [priceRows]);
   const installmentTotal = installments.reduce((sum, row) => sum + parseMoneyInput(row.amount), 0);
@@ -339,7 +329,6 @@ export function QuickContractDialog({
                 idPrefix="quick-contract"
                 value={party}
                 onChange={setParty}
-                companyOptions={companyOptions}
                 manualNote="Elle girilen firma hiçbir cariye bağlanmaz; bu sözleşme raporlarda firmasız görünür."
               />
 

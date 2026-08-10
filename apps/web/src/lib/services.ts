@@ -263,6 +263,39 @@ export interface AuditUserDTO {
   email?: string | null;
 }
 
+export interface CompanyLookupDTO {
+  id?: string;
+  code: string;
+  name: string;
+}
+
+export interface CompanyAddressDTO {
+  id?: string;
+  addressType?: string | null;
+  country?: string | null;
+  province?: string | null;
+  district?: string | null;
+  fullAddress?: string | null;
+  latitude?: string | number | null;
+  longitude?: string | number | null;
+  locationSource?: string | null;
+  isDefault?: boolean | null;
+  isShipping?: boolean | null;
+  isBilling?: boolean | null;
+}
+
+export interface CompanyPhoneDTO {
+  phone: string;
+  phoneType?: string | null;
+  isDefault?: boolean | null;
+}
+
+export interface CompanyEmailDTO {
+  email: string;
+  emailType?: string | null;
+  isDefault?: boolean | null;
+}
+
 export interface CompanyDTO {
   id: string;
   logoFileId?: string | null;
@@ -270,23 +303,52 @@ export interface CompanyDTO {
   externalCompanyNo?: string | null;
   legalTitle: string;
   shortName?: string | null;
+  companyType?: 'person' | 'company' | string | null;
   sector?: string | null;
   supplierCategoryCode?: 'transportation' | 'logistics' | null;
   taxNumber?: string | null;
   taxOffice?: string | null;
   website?: string | null;
   notes?: string | null;
+  contactSourceText?: string | null;
   relationTypeId?: string | null;
+  relationType?: Omit<CompanyLookupDTO, 'id'> | null;
   customerStatusId?: string | null;
+  customerStatus?: Omit<CompanyLookupDTO, 'id'> | null;
+  companyGroup?: Omit<CompanyLookupDTO, 'id'> | null;
+  companyGroups?: CompanyLookupDTO[] | null;
+  contactSource?: Omit<CompanyLookupDTO, 'id'> | null;
+  divisions?: CompanyLookupDTO[] | null;
+  primaryAddress?: CompanyAddressDTO | null;
+  addresses?: CompanyAddressDTO[] | null;
+  primaryPhone?: string | null;
+  secondaryPhone?: string | null;
+  fax?: string | null;
+  phones?: CompanyPhoneDTO[] | null;
+  primaryEmail?: string | null;
+  secondaryEmail?: string | null;
+  emails?: CompanyEmailDTO[] | null;
   createdBy?: string | null;
   createdByUser?: AuditUserDTO | null;
   createdAt: string;
 }
 
+export interface CompanySummaryDTO {
+  total: number;
+  byRelation: Record<string, number>;
+  byStatus: Record<string, number>;
+  cities: string[];
+  sectors: string[];
+}
+
+type QueryRequestOptions = { signal?: AbortSignal };
+
 export const companyService = {
-  list: (params?: Record<string, string | number | undefined>) =>
-    api.get<Paginated<CompanyDTO>>(`/companies${qs(params)}`),
-  get: (id: string) => api.get<CompanyDTO & { addresses: any[]; phones: any[]; emails: any[] }>(`/companies/${id}`),
+  list: (params?: Record<string, string | number | undefined>, opts?: QueryRequestOptions) =>
+    api.get<Paginated<CompanyDTO>>(`/companies${qs(params)}`, opts),
+  summary: (params?: Record<string, string | number | undefined>, opts?: QueryRequestOptions) =>
+    api.get<CompanySummaryDTO>(`/companies/summary${qs(params)}`, opts),
+  get: (id: string, opts?: QueryRequestOptions) => api.get<CompanyDTO>(`/companies/${id}`, opts),
   create: (body: CompanyCreateInput) => api.post<CompanyDTO>('/companies', body),
   update: (id: string, body: CompanyUpdateInput) => api.patch<CompanyDTO>(`/companies/${id}`, body),
   previewCompanyContactImport: (body: CompanyContactImportPreviewInput) =>
@@ -375,9 +437,20 @@ export const mailService = {
 };
 
 // ───── Contacts ─────
+export interface ContactSummaryDTO {
+  total: number;
+  primary: number;
+  blacklisted: number;
+  firmCount: number;
+  departments: string[];
+}
+
 export const contactService = {
-  list: (params?: Record<string, string | number | undefined>) => api.get<Paginated<any>>(`/contacts${qs(params)}`),
-  get: (id: string) => api.get<any>(`/contacts/${id}`),
+  list: (params?: Record<string, string | number | undefined>, opts?: QueryRequestOptions) =>
+    api.get<Paginated<any>>(`/contacts${qs(params)}`, opts),
+  summary: (params?: Record<string, string | number | undefined>, opts?: QueryRequestOptions) =>
+    api.get<ContactSummaryDTO>(`/contacts/summary${qs(params)}`, opts),
+  get: (id: string, opts?: QueryRequestOptions) => api.get<any>(`/contacts/${id}`, opts),
   /** Kontağın bağlı olduğu firmalar (çoklu firma — aynı kişi birden çok firmada). */
   companies: (id: string) =>
     api.get<{ id: string; legalTitle: string; shortName: string | null; externalCompanyNo: string | null; isPrimary: boolean }[]>(`/contacts/${id}/companies`),

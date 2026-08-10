@@ -6,7 +6,6 @@ import {
   paginationSchema,
   type ContactCreateInput,
   type ContactUpdateInput,
-  type Pagination,
 } from '@haksan/shared';
 import { ZodValidationPipe } from '../../shared/utils/zod-pipe';
 import { AuthGuard } from '../../shared/security/auth.guard';
@@ -15,11 +14,30 @@ import { CurrentUser } from '../../shared/security/current-user.decorator';
 import type { AuthContext } from '../../shared/security/auth.types';
 import { ContactsService } from './contacts.service';
 
-const listQuerySchema = z.object({
-  search: z.string().max(128).optional(),
-  companyId: z.string().optional(),
+export const contactListQuerySchema = z.object({
+  search: z.string().trim().max(128).optional(),
+  companyId: z.string().uuid().optional(),
+  divisionId: z.string().uuid().optional(),
+  department: z.string().trim().min(1).max(128).optional(),
+  isPrimary: z.preprocess(
+    (value) => value === 'true' ? true : value === 'false' ? false : value,
+    z.boolean().optional(),
+  ),
+  isBlacklisted: z.preprocess(
+    (value) => value === 'true' ? true : value === 'false' ? false : value,
+    z.boolean().optional(),
+  ),
+});
+
+export const contactListRequestQuerySchema = contactListQuerySchema.merge(
+  paginationSchema.extend({ sortBy: z.enum(['name', 'createdAt']).optional() }),
+);
+
+export const contactSummaryQuerySchema = z.object({
   divisionId: z.string().uuid().optional(),
 });
+
+type ContactListRequestQuery = z.infer<typeof contactListRequestQuerySchema>;
 
 @UseGuards(AuthGuard, PermissionsGuard)
 @Controller('contacts')
@@ -29,12 +47,21 @@ export class ContactsController {
   @RequirePermissions('contacts.read')
   @Get()
   list(
-    @Query(new ZodValidationPipe(listQuerySchema.merge(paginationSchema)))
-    qp: z.infer<typeof listQuerySchema> & Pagination,
+    @Query(new ZodValidationPipe(contactListRequestQuerySchema))
+    qp: ContactListRequestQuery,
     @CurrentUser() user: AuthContext
   ) {
     const { page, pageSize, sortBy, sortDir, ...query } = qp;
     return this.svc.list(user, query, { page, pageSize, sortBy, sortDir });
+  }
+
+  @RequirePermissions('contacts.read')
+  @Get('summary')
+  summary(
+    @Query(new ZodValidationPipe(contactSummaryQuerySchema)) query: z.infer<typeof contactSummaryQuerySchema>,
+    @CurrentUser() user: AuthContext,
+  ) {
+    return this.svc.summary(user, query);
   }
 
   @RequirePermissions('contacts.read')

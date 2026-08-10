@@ -33,6 +33,8 @@ import { useAuth } from "../../../lib/auth";
 import { useStore } from "../../lib/store";
 import { salesStageLabel } from "../../lib/mock";
 import { EditCustomerDialog } from "./CreateDialogs";
+import { RemoteCompanyCombobox } from "../shared/RemoteCompanyCombobox";
+import { useCompanyDetail } from "../../lib/companyServerData";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { Checkbox } from "../ui/checkbox";
@@ -60,6 +62,137 @@ const NO_LIST = "__trello_no_list__";
 
 type PendingResolution = { action: "pending" };
 type RowResolution = PendingResolution | TrelloCompanyResolution;
+
+function ExistingCompanyResolutionControl({
+  row,
+  candidate,
+  resolution,
+  canUpdateCompany,
+  canCreateContact,
+  onResolutionChange,
+  onEditCompany,
+}: {
+  row: TrelloImportPreviewRow;
+  candidate: TrelloCompanyCandidate;
+  resolution: RowResolution;
+  canUpdateCompany: boolean;
+  canCreateContact: boolean;
+  onResolutionChange: (resolution: RowResolution) => void;
+  onEditCompany: (companyId: string) => void;
+}) {
+  const selectedCompanyId = resolution.action === "existing" ? resolution.companyId : "";
+  const selectedMatch = row.matches.find((match) => match.id === selectedCompanyId);
+  const selectedCompanyQuery = useCompanyDetail(selectedMatch ? null : selectedCompanyId);
+  const selectedCompany = selectedCompanyQuery.data;
+  const selectedCompanyName = selectedMatch?.legalTitle ?? selectedCompany?.name;
+  const existingPhone = selectedMatch?.primaryPhone ?? selectedCompany?.phone;
+  const existingEmail = selectedMatch?.primaryEmail ?? selectedCompany?.email;
+
+  return (
+    <>
+      <div>
+        <Label className="text-[11px]">CRM’de manuel firma seç</Label>
+        <RemoteCompanyCombobox
+          value={selectedCompanyId}
+          onValueChange={(companyId) => onResolutionChange({
+            action: "existing",
+            companyId,
+            createContact: false,
+            addSecondaryPhone: false,
+            addSecondaryEmail: false,
+          })}
+          className="mt-1 h-8 bg-white text-xs"
+          placeholder="Firma ara / seç"
+        />
+        {selectedCompanyId && (
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            className="mt-1 h-7 px-2 text-[11px] text-muted-foreground"
+            onClick={() => onResolutionChange({ action: "pending" })}
+          >
+            Seçimi kaldır
+          </Button>
+        )}
+      </div>
+
+      {resolution.action === "existing" && (
+        <div className="space-y-3 rounded-lg border border-operation-blue/20 bg-white p-3">
+          <div className="flex items-center gap-2 text-xs font-semibold">
+            <CheckCircle2 className="size-4 text-success" />
+            {selectedCompanyName ?? (selectedCompanyQuery.isPending ? "Firma bilgisi yükleniyor…" : "Seçilen CRM firması")}
+            {canUpdateCompany && (
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                className="ml-auto h-7 px-2 text-[11px]"
+                onClick={() => onEditCompany(selectedCompanyId)}
+              >
+                Firma kartını düzenle
+              </Button>
+            )}
+          </div>
+          <div className="grid min-w-0 grid-cols-2 gap-2 text-[11px]">
+            <div className="min-w-0 rounded-md bg-muted/35 p-2">
+              <div className="font-medium text-muted-foreground">CRM korunacak</div>
+              <div className="mt-1 break-all">{existingPhone || "Telefon yok"}</div>
+              <div className="break-all">{existingEmail || "E-posta yok"}</div>
+            </div>
+            <div className="min-w-0 rounded-md bg-operation-blue/[0.05] p-2">
+              <div className="font-medium text-operation-blue">Trello’dan gelen</div>
+              <div className="mt-1 break-all">{candidate.phone || "Telefon yok"}</div>
+              <div className="break-all">{candidate.email || "E-posta yok"}</div>
+            </div>
+          </div>
+
+          {canUpdateCompany && candidate.phone && candidate.phone !== existingPhone && (
+            <label className="flex cursor-pointer items-start gap-2 text-xs">
+              <Checkbox
+                checked={resolution.addSecondaryPhone}
+                onCheckedChange={(checked) =>
+                  onResolutionChange({ ...resolution, addSecondaryPhone: checked === true })
+                }
+              />
+              <span>
+                {existingPhone
+                  ? "Trello telefonunu ikincil telefon olarak ekle"
+                  : "CRM’deki boş telefon alanını Trello değeriyle doldur"}
+              </span>
+            </label>
+          )}
+          {canUpdateCompany && candidate.email && candidate.email !== existingEmail && (
+            <label className="flex cursor-pointer items-start gap-2 text-xs">
+              <Checkbox
+                checked={resolution.addSecondaryEmail}
+                onCheckedChange={(checked) =>
+                  onResolutionChange({ ...resolution, addSecondaryEmail: checked === true })
+                }
+              />
+              <span>
+                {existingEmail
+                  ? "Trello e-postasını ikincil e-posta olarak ekle"
+                  : "CRM’deki boş e-posta alanını Trello değeriyle doldur"}
+              </span>
+            </label>
+          )}
+          {canCreateContact && candidate.contactName && !resolution.primaryContactId && (
+            <label className="flex cursor-pointer items-start gap-2 text-xs">
+              <Checkbox
+                checked={resolution.createContact}
+                onCheckedChange={(checked) =>
+                  onResolutionChange({ ...resolution, createContact: checked === true })
+                }
+              />
+              <span>{candidate.contactName} için yeni kontak oluştur</span>
+            </label>
+          )}
+        </div>
+      )}
+    </>
+  );
+}
 
 function fileToBase64(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -144,7 +277,7 @@ function CandidateField({
 
 export function TrelloCsvImportDialog() {
   const { activeDivision, hasPermission, hasRole, user } = useAuth();
-  const { refresh, customers } = useStore();
+  const { refresh } = useStore();
   const canImport = hasPermission("opportunities.create") || hasRole("super_admin");
   const fileRef = useRef<HTMLInputElement | null>(null);
   const [open, setOpen] = useState(false);
@@ -158,6 +291,7 @@ export function TrelloCsvImportDialog() {
   const [loading, setLoading] = useState(false);
   const [committing, setCommitting] = useState(false);
   const [editingCompanyId, setEditingCompanyId] = useState<string | null>(null);
+  const editingCompanyQuery = useCompanyDetail(editingCompanyId);
 
   const divisions = user?.divisions ?? [];
   const importRows = useMemo(
@@ -482,12 +616,6 @@ export function TrelloCsvImportDialog() {
                   const key = rowKey(row);
                   const candidate = candidates[key] ?? row.candidate;
                   const resolution = resolutions[key] ?? { action: "pending" as const };
-                  const selectedCompanyId = resolution.action === "existing" ? resolution.companyId : "";
-                  const selectedMatch = row.matches.find((match) => match.id === selectedCompanyId);
-                  const selectedCustomer = customers.find((customer) => customer.id === selectedCompanyId);
-                  const selectedCompanyName = selectedMatch?.legalTitle ?? selectedCustomer?.name;
-                  const existingPhone = selectedMatch?.primaryPhone ?? selectedCustomer?.phone;
-                  const existingEmail = selectedMatch?.primaryEmail ?? selectedCustomer?.email;
 
                   if (row.status !== "create") {
                     return (
@@ -683,107 +811,15 @@ export function TrelloCsvImportDialog() {
                             </div>
                           )}
 
-                          <div>
-                            <Label className="text-[11px]">CRM’de manuel firma seç</Label>
-                            <Select
-                              value={selectedCompanyId || "__none__"}
-                              onValueChange={(companyId) => {
-                                if (companyId === "__none__") {
-                                  setResolution(row, { action: "pending" });
-                                  return;
-                                }
-                                setResolution(row, {
-                                  action: "existing",
-                                  companyId,
-                                  createContact: false,
-                                  addSecondaryPhone: false,
-                                  addSecondaryEmail: false,
-                                });
-                              }}
-                            >
-                              <SelectTrigger className="mt-1 h-8 bg-white text-xs"><SelectValue placeholder="Firma ara / seç" /></SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="__none__">Seçimi kaldır</SelectItem>
-                                {customers.map((company) => (
-                                  <SelectItem key={company.id} value={company.id}>{company.name}</SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                          </div>
-
-                          {resolution.action === "existing" && (
-                            <div className="space-y-3 rounded-lg border border-operation-blue/20 bg-white p-3">
-                              <div className="flex items-center gap-2 text-xs font-semibold">
-                                <CheckCircle2 className="size-4 text-success" />
-                                {selectedCompanyName ?? "Seçilen CRM firması"}
-                                {preview.capabilities.canUpdateCompany && selectedCustomer && (
-                                  <Button
-                                    type="button"
-                                    size="sm"
-                                    variant="ghost"
-                                    className="ml-auto h-7 px-2 text-[11px]"
-                                    onClick={() => setEditingCompanyId(selectedCustomer.id)}
-                                  >
-                                    Firma kartını düzenle
-                                  </Button>
-                                )}
-                              </div>
-                              <div className="grid min-w-0 grid-cols-2 gap-2 text-[11px]">
-                                <div className="min-w-0 rounded-md bg-muted/35 p-2">
-                                  <div className="font-medium text-muted-foreground">CRM korunacak</div>
-                                  <div className="mt-1 break-all">{existingPhone || "Telefon yok"}</div>
-                                  <div className="break-all">{existingEmail || "E-posta yok"}</div>
-                                </div>
-                                <div className="min-w-0 rounded-md bg-operation-blue/[0.05] p-2">
-                                  <div className="font-medium text-operation-blue">Trello’dan gelen</div>
-                                  <div className="mt-1 break-all">{candidate.phone || "Telefon yok"}</div>
-                                  <div className="break-all">{candidate.email || "E-posta yok"}</div>
-                                </div>
-                              </div>
-
-                              {preview.capabilities.canUpdateCompany && candidate.phone && candidate.phone !== existingPhone && (
-                                <label className="flex cursor-pointer items-start gap-2 text-xs">
-                                  <Checkbox
-                                    checked={resolution.addSecondaryPhone}
-                                    onCheckedChange={(checked) =>
-                                      setResolution(row, { ...resolution, addSecondaryPhone: checked === true })
-                                    }
-                                  />
-                                  <span>
-                                    {existingPhone
-                                      ? "Trello telefonunu ikincil telefon olarak ekle"
-                                      : "CRM’deki boş telefon alanını Trello değeriyle doldur"}
-                                  </span>
-                                </label>
-                              )}
-                              {preview.capabilities.canUpdateCompany && candidate.email && candidate.email !== existingEmail && (
-                                <label className="flex cursor-pointer items-start gap-2 text-xs">
-                                  <Checkbox
-                                    checked={resolution.addSecondaryEmail}
-                                    onCheckedChange={(checked) =>
-                                      setResolution(row, { ...resolution, addSecondaryEmail: checked === true })
-                                    }
-                                  />
-                                  <span>
-                                    {existingEmail
-                                      ? "Trello e-postasını ikincil e-posta olarak ekle"
-                                      : "CRM’deki boş e-posta alanını Trello değeriyle doldur"}
-                                  </span>
-                                </label>
-                              )}
-                              {preview.capabilities.canCreateContact && candidate.contactName && !resolution.primaryContactId && (
-                                <label className="flex cursor-pointer items-start gap-2 text-xs">
-                                  <Checkbox
-                                    checked={resolution.createContact}
-                                    onCheckedChange={(checked) =>
-                                      setResolution(row, { ...resolution, createContact: checked === true })
-                                    }
-                                  />
-                                  <span>{candidate.contactName} için yeni kontak oluştur</span>
-                                </label>
-                              )}
-                            </div>
-                          )}
+                          <ExistingCompanyResolutionControl
+                            row={row}
+                            candidate={candidate}
+                            resolution={resolution}
+                            canUpdateCompany={preview.capabilities.canUpdateCompany}
+                            canCreateContact={preview.capabilities.canCreateContact}
+                            onResolutionChange={(nextResolution) => setResolution(row, nextResolution)}
+                            onEditCompany={setEditingCompanyId}
+                          />
 
                           {resolution.action === "create" && (
                             <div className="rounded-lg border border-success/25 bg-success-soft/50 p-3 text-xs">
@@ -843,7 +879,7 @@ export function TrelloCsvImportDialog() {
           </Button>
         </DialogFooter>
         <EditCustomerDialog
-          customer={customers.find((company) => company.id === editingCompanyId) ?? null}
+          customer={editingCompanyQuery.data ?? null}
           onClose={() => setEditingCompanyId(null)}
         />
       </DialogContent>

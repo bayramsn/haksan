@@ -14,6 +14,9 @@ import {
 } from "../../lib/mock";
 import { Button } from "../ui/button";
 import { Combobox } from "../ui/combobox";
+import { RemoteCompanyCombobox } from "../shared/RemoteCompanyCombobox";
+import { RemoteContactCombobox, useRemoteContactDetail } from "../shared/RemoteContactCombobox";
+import { useCompanyDetail } from "../../lib/companyServerData";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "../ui/dialog";
 import { Input } from "../ui/input";
 import { Label } from "../ui/label";
@@ -25,7 +28,7 @@ import { Textarea } from "../ui/textarea";
  * doğrudan lead aşamasında bir satış kartına dönüştürür.
  */
 export function LeadCaptureDialog({ trigger }: { trigger?: React.ReactNode }) {
-  const { refresh, customers, contacts } = useStore();
+  const { refresh } = useStore();
   const { user, activeDivision } = useAuth();
   const divisions = user?.divisions ?? [];
   const defaultDivision = activeDivision && activeDivision !== "all"
@@ -60,6 +63,8 @@ export function LeadCaptureDialog({ trigger }: { trigger?: React.ReactNode }) {
     { code: "digital_market", name: "Dijital Pazar" },
     { code: "fair", name: "Fuar" },
   ]);
+  const selectedCompanyQuery = useCompanyDetail(companyId);
+  const selectedContactQuery = useRemoteContactDetail(contactId);
 
   useEffect(() => {
     let active = true;
@@ -93,32 +98,6 @@ export function LeadCaptureDialog({ trigger }: { trigger?: React.ReactNode }) {
     };
   }, []);
 
-  const companyOptions = useMemo(
-    () =>
-      customers
-        .filter((customer) => customer.status !== "passive")
-        .map((customer) => ({
-          value: customer.id,
-          label: customer.name,
-          hint: [customer.city, customer.sector].filter(Boolean).join(" · "),
-        }))
-        .sort((a, b) => a.label.localeCompare(b.label, "tr-TR")),
-    [customers]
-  );
-
-  // Kontak listesi yalnız seçili firmaya daralır; firma seçilmediyse elle giriş kalır.
-  const contactOptions = useMemo(() => {
-    if (!companyId) return [];
-    return contacts
-      .filter((contact) => contact.customerId === companyId || contact.companyIds?.includes(companyId))
-      .map((contact) => ({
-        value: contact.id,
-        label: contact.name,
-        hint: [contact.title, contact.department].filter(Boolean).join(" · "),
-      }))
-      .sort((a, b) => a.label.localeCompare(b.label, "tr-TR"));
-  }, [contacts, companyId]);
-
   const assignableUsers = useMemo(() => {
     const canAssignOthers = user?.roles?.some((role) => role === "super_admin" || role === "sales") ?? false;
     return ownerCandidates
@@ -138,29 +117,30 @@ export function LeadCaptureDialog({ trigger }: { trigger?: React.ReactNode }) {
     [city],
   );
 
-  /** Kayıtlı firma seçildiğinde boş alanları firma kaydından doldurur. */
+  /** Kayıtlı firma seçildiğinde kimliği ayarla; alanlar tam detay yanıtından dolar. */
   const pickCompany = (id: string) => {
-    const customer = customers.find((item) => item.id === id);
-    if (!customer) return;
     setCompanyId(id);
-    setCompanyTitle(customer.name);
+    setCompanyTitle("");
     setContactId("");
-    if (!city.trim() && customer.city) setCity(customer.city);
-    if (!district.trim() && customer.district) setDistrict(customer.district);
-    if (!phone.trim() && customer.phone) setPhone(customer.phone);
-    if (!email.trim() && customer.email) setEmail(customer.email);
-    if (!contactName.trim() && customer.contactPerson) setContactName(customer.contactPerson);
   };
 
-  /** Kayıtlı kontak seçildiğinde iletişim alanlarını kontaktan doldurur. */
-  const pickContact = (id: string) => {
-    const contact = contacts.find((item) => item.id === id);
-    if (!contact) return;
-    setContactId(id);
+  useEffect(() => {
+    const company = selectedCompanyQuery.data;
+    if (!companyId || !company || company.id !== companyId) return;
+    setCompanyTitle(company.name);
+    setCity((current) => current.trim() ? current : company.city || "");
+    setDistrict((current) => current.trim() ? current : company.district || "");
+    setPhone((current) => current.trim() ? current : company.phone || "");
+    setEmail((current) => current.trim() ? current : company.email || "");
+  }, [companyId, selectedCompanyQuery.data]);
+
+  useEffect(() => {
+    const contact = selectedContactQuery.data;
+    if (!contactId || !contact || contact.id !== contactId) return;
     setContactName(contact.name);
-    if (contact.mobilePhone || contact.phone) setPhone(contact.mobilePhone || contact.phone);
-    if (contact.email) setEmail(contact.email);
-  };
+    setPhone(contact.mobilePhone || contact.phone || contact.otherPhone || "");
+    setEmail(contact.email || contact.personalEmail || contact.otherEmail || "");
+  }, [contactId, selectedContactQuery.data]);
 
   const reset = () => {
     setCompanyId("");
@@ -292,14 +272,12 @@ export function LeadCaptureDialog({ trigger }: { trigger?: React.ReactNode }) {
               <Building2 className="size-3.5" /> Firma{" "}
               <span className="font-normal text-muted-foreground">(kayıtlıysa seçin, değilse yazın)</span>
             </Label>
-            <Combobox
+            <RemoteCompanyCombobox
               className="mt-1.5"
-              options={companyOptions}
               value={companyId}
-              onChange={pickCompany}
+              onValueChange={pickCompany}
               placeholder={companyTitle || "Kayıtlı firmadan seçin veya yazın"}
               searchPlaceholder="Firma ara…"
-              emptyText="Kayıtlı firma bulunamadı"
               onCreate={(label) => {
                 // Kayıt yoksa firma ana kaydı açılmaz; ünvan lead alanında kalır.
                 setCompanyId("");
@@ -322,30 +300,28 @@ export function LeadCaptureDialog({ trigger }: { trigger?: React.ReactNode }) {
             <Label htmlFor="lead-contact">
               Kontak ismi {companyId ? <span className="font-normal text-muted-foreground">(opsiyonel)</span> : "*"}
             </Label>
-            {contactOptions.length > 0 ? (
-              <Combobox
+            {companyId && (
+              <RemoteContactCombobox
                 className="mt-1.5"
-                options={contactOptions}
+                companyId={companyId}
                 value={contactId}
-                onChange={pickContact}
-                placeholder={contactName || "Firmanın kontağını seçin veya yazın"}
+                onValueChange={setContactId}
+                placeholder="Firmanın kontağını seçin"
                 searchPlaceholder="Kontak ara…"
-                emptyText="Bu firmada kayıtlı kontak yok"
-                onCreate={(label) => {
-                  setContactId("");
-                  setContactName(label);
-                }}
-                createLabel={(query) => `"${query}" kişisini lead olarak yaz`}
-              />
-            ) : (
-              <Input
-                id="lead-contact"
-                value={contactName}
-                onChange={(e) => setContactName(e.target.value)}
-                placeholder="Ahmet Yılmaz"
-                autoFocus
+                noneLabel="Elle girilen ismi kullan"
               />
             )}
+            <Input
+              id="lead-contact"
+              className={companyId ? "mt-2" : "mt-1.5"}
+              value={contactName}
+              onChange={(event) => {
+                setContactName(event.target.value);
+                if (contactId) setContactId("");
+              }}
+              placeholder={companyId ? "Veya kontak ismini elle yazın" : "Ahmet Yılmaz"}
+              autoFocus={!companyId}
+            />
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>

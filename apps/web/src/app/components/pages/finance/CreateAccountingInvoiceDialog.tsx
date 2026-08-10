@@ -12,6 +12,7 @@ import {
 import { Textarea } from "../../ui/textarea";
 import { Badge } from "../../ui/badge";
 import { useStore } from "../../../lib/store";
+import { RemoteCompanyCombobox } from "../../shared/RemoteCompanyCombobox";
 import { financeService } from "../../../../lib/services";
 import { toast } from "sonner";
 import { Boxes, Package, Plus, Receipt, ShoppingCart, Trash2 } from "lucide-react";
@@ -186,7 +187,7 @@ export function CreateAccountingInvoiceDialog({
   prefill?: AccountingInvoicePrefill;
   invoiceId?: string;
 }) {
-  const { customers, stock, products, refresh } = useStore();
+  const { stock, products, refresh } = useStore();
   const isEditing = Boolean(invoiceId);
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -620,12 +621,12 @@ export function CreateAccountingInvoiceDialog({
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
             <div>
               <Label className="text-xs">Firma *</Label>
-              <Select value={form.companyId} onValueChange={(v) => setForm({ ...form, companyId: v })}>
-                <SelectTrigger className="mt-1 h-9"><SelectValue placeholder="Firma" /></SelectTrigger>
-                <SelectContent>
-                  {customers.map((c) => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
-                </SelectContent>
-              </Select>
+              <RemoteCompanyCombobox
+                value={form.companyId}
+                onValueChange={(companyId) => setForm((current) => ({ ...current, companyId }))}
+                className="mt-1 h-9"
+                placeholder="Firma"
+              />
             </div>
             <div>
               <Label className="text-xs">Ödeme Tipi</Label>

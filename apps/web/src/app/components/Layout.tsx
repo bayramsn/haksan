@@ -29,6 +29,7 @@ import { ApprovalsDialog } from "./ApprovalsDialog";
 import { CommandPalette } from "./operations/CommandPalette";
 import { buildAlerts, type OperationAction, type OperationNav } from "../lib/operations";
 import { isNavigationAreaEnabled, NAVIGATION_GROUPS, type NavigationVisibilityKey } from "@haksan/shared";
+import { normalizeCompany } from "../lib/companyNormalizer";
 
 export type NavKey =
   | NavigationVisibilityKey | "kanban"
@@ -367,7 +368,11 @@ export function Layout({ current, onNavigate, onLogout, pageTitle, pageSubtitle,
     if (action.kind === "navigate") onNavigate(action.nav as NavKey);
     if (action.kind === "customer") {
       const customer = customers.find((c) => c.id === action.customerId);
-      if (customer) onSelectFirm?.(customer);
+      onSelectFirm?.(customer ?? normalizeCompany({
+        id: action.customerId,
+        legalTitle: "Firma yükleniyor…",
+        createdAt: "",
+      }));
     }
     if (action.kind === "salesCase") {
       onNavigate("sales-cases");

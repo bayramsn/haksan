@@ -34,6 +34,9 @@ import {
 } from "../../lib/quoteDiscount";
 import { fillNotePlaceholders, matchQuoteNoteVariantKey, QUOTE_NOTE_VARIANTS } from "../../lib/print";
 import { DialogSplitLayout, DialogSidebarSection } from "../shared/DialogSplitLayout";
+import { RemoteCompanyCombobox } from "../shared/RemoteCompanyCombobox";
+import { RemoteContactCombobox } from "../shared/RemoteContactCombobox";
+import { useCompanyDetail } from "../../lib/companyServerData";
 import {
   DocumentTermsTemplateEditor,
   matchSavedTermsTemplate,
@@ -46,6 +49,54 @@ const matchNoteVariant = matchQuoteNoteVariantKey;
 const TERMS_TEMPLATE_SCOPE = "quote_terms";
 /** Radix Select boş string değeri kabul etmez; "imzasız" için ayrı bir işaret gerekiyor. */
 const NO_SIGNATURE = "__no_signature__";
+
+function RemoteSupplierMultiSelect({
+  selected,
+  onChange,
+}: {
+  selected: string[];
+  onChange: (supplierIds: string[]) => void;
+}) {
+  const replaceSupplier = (index: number, supplierId: string) => {
+    const next = selected.map((current, currentIndex) => currentIndex === index ? supplierId : current);
+    onChange(Array.from(new Set(next.filter(Boolean))));
+  };
+
+  return (
+    <div className="space-y-1.5">
+      {selected.map((supplierId, index) => (
+        <div key={supplierId} className="flex items-center gap-1.5">
+          <RemoteCompanyCombobox
+            value={supplierId}
+            relationTypeCodes={["supplier", "supplier_customer"]}
+            onValueChange={(nextSupplierId) => replaceSupplier(index, nextSupplierId)}
+            placeholder="Tedarikçi seçin"
+            searchPlaceholder="Tedarikçi firma ara..."
+          />
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="size-9 shrink-0 text-muted-foreground hover:text-destructive"
+            aria-label="Tedarikçiyi kaldır"
+            onClick={() => onChange(selected.filter((_, currentIndex) => currentIndex !== index))}
+          >
+            <Trash2 className="size-4" />
+          </Button>
+        </div>
+      ))}
+      <RemoteCompanyCombobox
+        value=""
+        relationTypeCodes={["supplier", "supplier_customer"]}
+        onValueChange={(supplierId) => {
+          if (supplierId && !selected.includes(supplierId)) onChange([...selected, supplierId]);
+        }}
+        placeholder={selected.length > 0 ? "Başka tedarikçi ekle..." : "Tedarikçi seçin..."}
+        searchPlaceholder="Tedarikçi firma ara..."
+      />
+    </div>
+  );
+}
 
 type Currency = "USD" | "EUR" | "TRY";
 
@@ -231,7 +282,7 @@ export function QuoteDialog({
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
 }) {
-  const { customers, contacts, products, users, cases, offers, noteTemplates, createQuoteFull, addNoteTemplate, updateNoteTemplate, deleteNoteTemplate, refresh } = useStore();
+  const { customers, products, users, cases, offers, noteTemplates, createQuoteFull, addNoteTemplate, updateNoteTemplate, deleteNoteTemplate, refresh } = useStore();
   const editing = Boolean(offerId);
   const { convert } = useFx();
   const { user, activeDivision, canUseAllDivisionsForResource, scopesForResource } = useAuth();
@@ -535,12 +586,13 @@ export function QuoteDialog({
       .catch(() => setSpecTemplatesByType({}));
   }, [open]);
 
-  const companyContacts = contacts.filter((c) => c.customerId === companyId);
   const companyCases = cases.filter((c) => c.customerId === companyId);
-  const selectedCompany = useMemo(
+  const storeSelectedCompany = useMemo(
     () => customers.find((customer) => customer.id === companyId),
     [companyId, customers],
   );
+  const selectedCompanyQuery = useCompanyDetail(companyId, storeSelectedCompany);
+  const selectedCompany = selectedCompanyQuery.data ?? storeSelectedCompany;
   const companyAddresses = useMemo(
     () => (selectedCompany?.addresses ?? []).filter((address) => Boolean(address.id)),
     [selectedCompany],
@@ -762,10 +814,6 @@ export function QuoteDialog({
   const brandOptions = useMemo(
     () => Array.from(new Set(scopedProducts.map((p) => p.brand).filter(Boolean))).sort().map((b) => ({ value: b, label: b })),
     [scopedProducts]
-  );
-  const supplierOptions = useMemo(
-    () => customers.filter((c) => c.firmType === "supplier" || c.firmType === "supplier_customer").map((c) => ({ value: c.id, label: c.name })),
-    [customers]
   );
   const controlUnitOptions = useMemo(() => CONTROL_UNITS.map((c) => ({ value: c, label: c })), []);
 
@@ -1088,22 +1136,27 @@ export function QuoteDialog({
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
             <div className="md:col-span-1">
               <Label className="text-xs">Firma *</Label>
-              <Select value={companyId} onValueChange={(v) => { setCompanyId(v); setCompanyAddressId(preferredPdfAddressId(customers.find((customer) => customer.id === v))); setContactId(""); setCaseId(""); }}>
-                <SelectTrigger className="mt-1.5"><SelectValue placeholder="Firma seçin..." /></SelectTrigger>
-                <SelectContent>
-                  {customers.map((c) => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
-                </SelectContent>
-              </Select>
+              <RemoteCompanyCombobox
+                className="mt-1.5"
+                value={companyId}
+                onValueChange={(value) => {
+                  setCompanyId(value);
+                  setCompanyAddressId("");
+                  setContactId("");
+                  setCaseId("");
+                }}
+                placeholder="Firma seçin..."
+              />
             </div>
             <div>
               <Label className="text-xs">Kontak</Label>
-              <Select value={contactId || "none"} onValueChange={(v) => setContactId(v === "none" ? "" : v)} disabled={!companyId}>
-                <SelectTrigger className="mt-1.5"><SelectValue placeholder="Kontak seçin" /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">Belirtilmedi</SelectItem>
-                  {companyContacts.map((c) => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
-                </SelectContent>
-              </Select>
+              <RemoteContactCombobox
+                className="mt-1.5"
+                companyId={companyId}
+                value={contactId}
+                onValueChange={setContactId}
+                placeholder="Kontak seçin"
+              />
             </div>
             <div>
               <Label className="text-xs">Satış Kartı</Label>
@@ -1545,7 +1598,10 @@ export function QuoteDialog({
                         </div>
                         <div>
                           <Label className="text-[10px] uppercase text-muted-foreground">Tedarikçiler</Label>
-                          <MultiSelect options={supplierOptions} selected={l.compatibility.supplierIds} onChange={(v) => setCompat(i, { supplierIds: v })} placeholder="Tedarikçi seçin" emptyText="Tedarikçi firma yok" />
+                          <RemoteSupplierMultiSelect
+                            selected={l.compatibility.supplierIds}
+                            onChange={(supplierIds) => setCompat(i, { supplierIds })}
+                          />
                         </div>
                       </div>
                     </div>

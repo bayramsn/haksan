@@ -35,6 +35,7 @@ import { computeProformaTotals } from "../../lib/proformaPricing";
 import { loadProformaPrintData, printAssetBase, proformaDoc, PROFORMA_NOTE_OPTIONS } from "../../lib/print";
 import { printOrWarn } from "../../lib/pageHelpers";
 import type { DocumentItem } from "../../lib/mock";
+import { useCompanyDetail } from "../../lib/companyServerData";
 
 const PROFORMA_TERMS_TEMPLATE_SCOPE = "proforma_terms";
 const AUTO_VARIANT_KEY = "auto";
@@ -137,19 +138,8 @@ export function QuickProformaDialog({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, editDocument]);
 
-  const companyOptions = useMemo(
-    () =>
-      [...customers]
-        .sort((a, b) => a.name.localeCompare(b.name, "tr"))
-        .map((c) => ({
-          value: c.id,
-          label: c.name,
-          hint: [c.district, c.city].filter(Boolean).join(" / ") || undefined,
-        })),
-    [customers]
-  );
-
-  const selectedCompany = customers.find((c) => c.id === party.companyId) ?? null;
+  const selectedCompanyQuery = useCompanyDetail(party.manualCompany ? null : party.companyId);
+  const selectedCompany = selectedCompanyQuery.data ?? null;
   const priceRows = useMemo(() => quickFreeItemsToRows(items), [items]);
   const totals = useMemo(() => computeProformaTotals(priceRows), [priceRows]);
 
@@ -164,7 +154,9 @@ export function QuickProformaDialog({
     try {
       const data = await loadProformaPrintData({
         doc: createdProformaToDocument(created),
-        customers,
+        customers: selectedCompany
+          ? [selectedCompany, ...customers.filter((company) => company.id !== selectedCompany.id)]
+          : customers,
         cases,
         offers,
         products,
@@ -270,7 +262,6 @@ export function QuickProformaDialog({
                 idPrefix="quick-proforma"
                 value={party}
                 onChange={setParty}
-                companyOptions={companyOptions}
                 manualNote="Elle girilen firma hiçbir cariye bağlanmaz; bu proforma raporlarda firmasız görünür."
               />
 

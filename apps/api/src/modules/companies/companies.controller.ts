@@ -11,7 +11,8 @@ import {
   companyOsmSearchQuerySchema,
   companyWebsiteLookupSchema,
   companyUpdateSchema,
-  companyListQuerySchema,
+  companyListRequestQuerySchema,
+  companySummaryQuerySchema,
   paginationSchema,
   type AccessRequestListQuery,
   type CompanyAccessRequestDecisionInput,
@@ -23,7 +24,8 @@ import {
   type CompanyOsmSearchQuery,
   type CompanyWebsiteLookupInput,
   type CompanyUpdateInput,
-  type CompanyListQuery,
+  type CompanyListRequestQuery,
+  type CompanySummaryQuery,
   type Pagination,
 } from '@haksan/shared';
 import { ZodValidationPipe } from '../../shared/utils/zod-pipe';
@@ -45,12 +47,21 @@ export class CompaniesController {
   @RequirePermissions('companies.read')
   @Get()
   list(
-    @Query(new ZodValidationPipe(companyListQuerySchema.merge(paginationSchema)))
-    qp: CompanyListQuery & Pagination,
+    @Query(new ZodValidationPipe(companyListRequestQuerySchema))
+    qp: CompanyListRequestQuery,
     @CurrentUser() user: AuthContext
   ) {
     const { page, pageSize, sortBy, sortDir, ...query } = qp;
     return this.svc.list(user, query, { page, pageSize, sortBy, sortDir });
+  }
+
+  @RequirePermissions('companies.read')
+  @Get('summary')
+  summary(
+    @Query(new ZodValidationPipe(companySummaryQuerySchema)) query: CompanySummaryQuery,
+    @CurrentUser() user: AuthContext,
+  ) {
+    return this.svc.summary(user, query);
   }
 
   @RequirePermissions('companies.read')

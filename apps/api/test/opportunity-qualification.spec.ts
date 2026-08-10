@@ -487,6 +487,41 @@ describe('Opportunity qualification pipeline', () => {
     );
   });
 
+  it('does not require a commercial invoice to enter A+ but requires it at WIN', async () => {
+    const contractStage = await db.query.pipelineStages.findFirst({ where: eq(pipelineStages.code, 'contract') });
+    expect(contractStage).toBeTruthy();
+    await db
+      .update(opportunities)
+      .set({ qualificationStage: 'a', currentStageId: contractStage!.id })
+      .where(eq(opportunities.id, opportunityId));
+
+    const detail = await supertest(app.getHttpServer())
+      .get(`/api/v1/opportunities/${opportunityId}`)
+      .set('Authorization', `Bearer ${token}`);
+    expect(detail.status, JSON.stringify(detail.body)).toBe(200);
+
+    const aPlusTarget = detail.body.processReadiness.targets.find(
+      (target: { axis: string; code: string }) => target.axis === 'qualification' && target.code === 'a_plus',
+    );
+    const winTarget = detail.body.processReadiness.targets.find(
+      (target: { axis: string; code: string }) => target.axis === 'qualification' && target.code === 'win',
+    );
+    expect(aPlusTarget).toBeTruthy();
+    expect(winTarget).toBeTruthy();
+    expect(aPlusTarget.blockers).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ key: 'commercial_invoice' }),
+        expect.objectContaining({ key: 'commercial_invoice_file' }),
+      ]),
+    );
+    expect(winTarget.blockers).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ key: 'commercial_invoice' }),
+        expect.objectContaining({ key: 'commercial_invoice_file' }),
+      ]),
+    );
+  });
+
   it('protects operational approvals with opportunities.approve', async () => {
     const server = app.getHttpServer();
     const forbidden = await supertest(server)

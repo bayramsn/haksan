@@ -55,10 +55,11 @@ describe("OpportunityProcessCenter tek kutu sözleşmesi", () => {
 });
 
 describe("OpportunityProcessCenter davranış eşdeğerliği", () => {
-  it("eksik gereklilikleri alan görev listesine yönlendiren düğmelerle sunar", () => {
-    expect(source).toContain("canPerformAction?.(blocker.actionKey) === false");
-    expect(source).toContain("onAction(blocker.actionKey)");
-    expect(source).toContain("Bu işlem için gerekli yetkiniz bulunmuyor.");
+  it("eksik gereklilikleri ikinci kez kartlaştırmaz; tek kompakt görev listesine bırakır", () => {
+    expect(source).toContain("blockers.length === 0");
+    expect(source).not.toContain("onAction(blocker.actionKey)");
+    expect(source).not.toContain("process-blocker-");
+    expect(checklistSource).toContain("aria-haspopup={hasInlineEditor || (check.actionKey && DIALOG_ACTION_KEYS.has(check.actionKey))");
   });
 
   it("ilerletmeyi yalnız bütün gereklilikler tamamken ve ileri yönde açar", () => {
@@ -138,8 +139,8 @@ describe("OpportunityProcessCenter alan görev listesiyle ilişkisi", () => {
 
   it("paneli kendisi mount etmez; üst bileşenin prop bağını korur", () => {
     // Kutu paneli kendi import edip mount etseydi `requestedAction`/
-    // `onActionHandled` bağı kopar, engel düğmeleri sessizce hiçbir şey
-    // yapmazdı. Element üst bileşende yaratılır, burada yalnız render edilir.
+    // `onActionHandled` bağı kopar, dışarıdaki operasyon kısayolları sessizce
+    // hiçbir şey yapmazdı. Element üst bileşende yaratılır, burada render edilir.
     expect(source).not.toContain('from "./ProcessChecklistPanel"');
     expect(source).not.toContain("<ProcessChecklistPanel");
     // Görevler kutunun dışında ikinci bir sarmalayıcıda durmamalı.
@@ -147,9 +148,8 @@ describe("OpportunityProcessCenter alan görev listesiyle ilişkisi", () => {
   });
 
   it("süreç merkezinin render edildiği her yolda görev listesini de mount eder", () => {
-    // Kutunun engel düğmeleri isteği `requestedProcessAction`'a yazar; onu
-    // tüketen liste mount değilse istek sessizce kaybolur. Sayı değil,
-    // "merkez varsa liste de var" değişmezi bağlayıcıdır.
+    // Dışarıdaki operasyon kısayolları `requestedProcessAction`'a yazar; onu
+    // tüketen liste mount değilse istek sessizce kaybolur.
     const checklistMounts = detailSource.match(/<ProcessChecklistPanel/g)?.length ?? 0;
     const centerMounts = detailSource.match(/<OpportunityProcessCenter/g)?.length ?? 0;
     expect(checklistMounts).toBeGreaterThanOrEqual(1);
@@ -158,9 +158,7 @@ describe("OpportunityProcessCenter alan görev listesiyle ilişkisi", () => {
   });
 
   it("SalesCaseDetail'in beklediği prop sözleşmesini korur", () => {
-    expect(source).toContain("canPerformAction?: (actionKey: OpportunityProcessActionKey) => boolean");
     expect(source).toContain("onRefresh: () => Promise<unknown>");
-    expect(source).toContain("onAction: (actionKey: OpportunityProcessActionKey) => void");
     expect(source).toContain("detail?: OpportunityProcessDetail | null");
     expect(source).toContain("onReload?: () => Promise<void>");
   });

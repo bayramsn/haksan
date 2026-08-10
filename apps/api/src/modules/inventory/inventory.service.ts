@@ -21,6 +21,7 @@ import {
   resourceDivisionFilter,
   resolveAssignedResourceDivision,
 } from '../../shared/utils/division-scope';
+import { companyVisibilityExistsFilter } from '../../shared/utils/company-visibility';
 
 function addWarrantyYears(date: Date, years: number): Date {
   const next = new Date(date);
@@ -798,6 +799,8 @@ export class InventoryService {
     if (query.companyId) filters.push(eq(customerDevices.companyId, query.companyId));
     const deviceScoped = resourceDivisionFilter(actor, 'customer_devices', customerDevices.divisionId);
     if (deviceScoped) filters.push(deviceScoped);
+    const visibility = await companyVisibilityExistsFilter(this.db, actor, customerDevices.companyId);
+    if (visibility) filters.push(visibility);
     const where = and(...filters);
     const [{ count }] = await this.db.select({ count: sql<number>`count(*)::int` }).from(customerDevices).where(where);
     // Envanter + ürün join'i: kurulum tutanağı / servis formu çıktıları
@@ -805,6 +808,7 @@ export class InventoryService {
     const rows = await this.db
       .select({
         device: customerDevices,
+        company: { id: companies.id, legalTitle: companies.legalTitle, shortName: companies.shortName },
         productModelId: inventoryItems.productModelId,
         serialNumber: inventoryItems.serialNumber,
         controlUnit: inventoryItems.controlUnit,
@@ -817,6 +821,14 @@ export class InventoryService {
         productTypeName: productTypes.name,
       })
       .from(customerDevices)
+      .leftJoin(
+        companies,
+        and(
+          eq(customerDevices.companyId, companies.id),
+          eq(companies.tenantId, actor.tenantId),
+          isNull(companies.deletedAt),
+        ),
+      )
       .leftJoin(inventoryItems, eq(customerDevices.inventoryItemId, inventoryItems.id))
       .leftJoin(productModels, eq(inventoryItems.productModelId, productModels.id))
       .leftJoin(currencies, eq(productModels.currencyId, currencies.id))
@@ -858,6 +870,7 @@ export class InventoryService {
         const manual = parseManualDeviceNotes(r.device.notes);
         return {
           ...r.device,
+          company: r.company?.id ? r.company : null,
           productModelId: r.productModelId,
           serialNumber: r.serialNumber ?? manual.serialNumber,
           controlUnit: r.controlUnit,

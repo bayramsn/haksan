@@ -1,4 +1,4 @@
-import { createContext, ReactNode, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import { createContext, ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { meResponseSchema, type NavigationVisibilityKey } from '@haksan/shared';
 import {
   api,
@@ -13,6 +13,7 @@ import {
   setSessionExpiredHandler,
 } from './apiClient';
 import { disconnectChatSocket } from './chatRealtime';
+import { queryClient } from './queryClient';
 
 export interface MeDivision {
   id: string;
@@ -103,6 +104,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [user, setUser] = useState<MeUser | null>(null);
   const [tenant, setTenant] = useState<MeTenant | null>(null);
+  const authenticatedIdentityRef = useRef<string | null>(null);
   const [activeDivision, setActiveDivisionState] = useState<ActiveDivision>(() => getActiveDivision() ?? 'all');
   const [activeDepartment, setActiveDepartmentState] = useState<string | null>(() => getActiveDepartment());
 
@@ -119,7 +121,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const fetchMe = useCallback(async () => {
     try {
       const res = await api.get('/auth/me', { schema: meResponseSchema });
-      setUser(res.user as MeUser);
+      const nextUser = res.user as MeUser;
+      const nextIdentity = `${nextUser.tenantId}:${nextUser.id}`;
+      if (authenticatedIdentityRef.current && authenticatedIdentityRef.current !== nextIdentity) {
+        queryClient.clear();
+      }
+      authenticatedIdentityRef.current = nextIdentity;
+      setUser(nextUser);
       setTenant({
         ...res.tenant,
         hiddenNavigationKeys: res.tenant.hiddenNavigationKeys ?? [],
@@ -127,6 +135,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       applyActiveDivision(pickActiveDivision(res.user as MeUser, getActiveDivision()));
       applyActiveDepartment(pickActiveDepartment(res.user as MeUser, getActiveDepartment()));
     } catch (err) {
+      authenticatedIdentityRef.current = null;
+      queryClient.clear();
       setUser(null);
       setTenant(null);
       if (!(err instanceof ApiError && err.status === 401)) throw err;
@@ -170,6 +180,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // ignore
     }
     disconnectChatSocket();
+    authenticatedIdentityRef.current = null;
+    queryClient.clear();
     setAccessToken(null);
     setUser(null);
     setTenant(null);
@@ -181,6 +193,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const clearSession = useCallback(() => {
     disconnectChatSocket();
+    authenticatedIdentityRef.current = null;
+    queryClient.clear();
     setAccessToken(null);
     setUser(null);
     setTenant(null);

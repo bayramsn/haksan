@@ -1336,6 +1336,8 @@ export class ServiceController {
     const rows = await this.db
       .select({
         ticket: serviceTickets,
+        company: { id: companies.id, legalTitle: companies.legalTitle, shortName: companies.shortName },
+        contact: { id: contacts.id, fullName: contacts.fullName },
         status: { id: serviceTicketStatuses.id, code: serviceTicketStatuses.code, name: serviceTicketStatuses.name },
         warrantyClaim: {
           id: serviceWarrantyClaims.id,
@@ -1356,6 +1358,22 @@ export class ServiceController {
         },
       })
       .from(serviceTickets)
+      .leftJoin(
+        companies,
+        and(
+          eq(serviceTickets.companyId, companies.id),
+          eq(companies.tenantId, user.tenantId),
+          isNull(companies.deletedAt),
+        ),
+      )
+      .leftJoin(
+        contacts,
+        and(
+          eq(serviceTickets.contactId, contacts.id),
+          eq(contacts.tenantId, user.tenantId),
+          isNull(contacts.deletedAt),
+        ),
+      )
       .leftJoin(serviceTicketStatuses, eq(serviceTickets.statusId, serviceTicketStatuses.id))
       .leftJoin(serviceWarrantyClaims, and(eq(serviceWarrantyClaims.serviceTicketId, serviceTickets.id), isNull(serviceWarrantyClaims.deletedAt)))
       .leftJoin(serviceComplaintIntakes, and(eq(serviceComplaintIntakes.serviceTicketId, serviceTickets.id), isNull(serviceComplaintIntakes.deletedAt)))
@@ -1366,6 +1384,8 @@ export class ServiceController {
     return buildPaginated(
       rows.map((r) => ({
         ...r.ticket,
+        company: r.company?.id ? r.company : null,
+        contact: r.contact?.id ? r.contact : null,
         status: r.status,
         warrantyClaim: r.warrantyClaim?.id ? r.warrantyClaim : null,
         sourceComplaint: r.sourceComplaint?.id ? r.sourceComplaint : null,
@@ -2244,20 +2264,40 @@ export class ServiceController {
   @Get('deliveries')
   async listDeliveries(@Query(new ZodValidationPipe(paginationSchema)) p: Pagination, @CurrentUser() user: AuthContext) {
     const { limit, offset } = pageOffset(p);
+    const visibility = await companyVisibilityExistsFilter(this.db, user, deliveries.companyId);
     const where = and(
       eq(deliveries.tenantId, user.tenantId),
       isNull(deliveries.deletedAt),
-      resourceDivisionFilter(user, 'shipments', deliveries.divisionId) ?? sql`true`
+      resourceDivisionFilter(user, 'shipments', deliveries.divisionId) ?? sql`true`,
+      visibility ?? sql`true`,
     );
     const [{ count }] = await this.db.select({ count: sql<number>`count(*)::int` }).from(deliveries).where(where);
     const rows = await this.db
-      .select()
+      .select({
+        delivery: deliveries,
+        company: { id: companies.id, legalTitle: companies.legalTitle, shortName: companies.shortName },
+      })
       .from(deliveries)
+      .leftJoin(
+        companies,
+        and(
+          eq(deliveries.companyId, companies.id),
+          eq(companies.tenantId, user.tenantId),
+          isNull(companies.deletedAt),
+        ),
+      )
       .where(where)
       .orderBy(desc(deliveries.createdAt))
       .limit(limit)
       .offset(offset);
-    return buildPaginated(rows, count, p);
+    return buildPaginated(
+      rows.map((row) => ({
+        ...row.delivery,
+        company: row.company?.id ? row.company : null,
+      })),
+      count,
+      p,
+    );
   }
 
   @RequirePermissions('shipments.create')

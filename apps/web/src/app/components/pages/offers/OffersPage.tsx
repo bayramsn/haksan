@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "../../ui/card";
 import { Button } from "../../ui/button";
 import { Input } from "../../ui/input";
@@ -50,6 +51,8 @@ import type { QuoteHeaderLogoMode } from "../../../lib/print";
 import { downloadPrintOrWarn, previewPrintOrWarn, printOrWarn, splitVat, formatDate, formatCurrency } from "../../../lib/pageHelpers";
 import type { QuoteWorkflowStatus } from "@haksan/shared";
 import { ComposeMailDialog, type MailRecipient } from "../../mail/ComposeMailDialog";
+import { useCompanyDetail } from "../../../lib/companyServerData";
+import { contactQueryKeys, loadAllCompanyContacts, type ContactQueryScope } from "../../../lib/contactServerData";
 
 const FOLLOW_UP_OFFER_STATUSES: Offer["status"][] = ["Price Waiting", "Budget Waiting", "On Hold", "Postponed"];
 
@@ -118,7 +121,7 @@ export function OffersPage({
   const { hasRole, hasPermission, user, activeDivision, setActiveDivision } = useAuth();
   const { convert } = useFx();
   const isSuperAdmin = hasRole("super_admin");
-  const customerName = (id: string) => customers.find((c) => c.id === id)?.name ?? "—";
+  const customerName = (id: string, fallback?: string) => customers.find((c) => c.id === id)?.name ?? fallback ?? "—";
   const backToSales = async (caseId: string) => {
     try {
       await moveCase(caseId, "sales");
@@ -178,7 +181,7 @@ export function OffersPage({
     const company = customers.find((item) => item.id === (documentItem.companyId || salesCase?.customerId));
     return [
       documentItem.fileName,
-      company?.name,
+      company?.name ?? documentItem.companyNameText ?? salesCase?.leadCompanyTitle,
       salesCase?.requestedProduct,
       salesCase?.requestedModel,
     ].some((value) => (value ?? "").toLocaleLowerCase("tr-TR").includes(q.toLocaleLowerCase("tr-TR")));
@@ -227,7 +230,7 @@ export function OffersPage({
       if (tab !== "all" && tab !== "follow-up" && tab !== "closed" && o.status !== tab) return false;
       if (q) {
         const sc = cases.find((s) => s.id === o.salesCaseId);
-        const cName = sc ? customerName(sc.customerId) : "";
+        const cName = sc ? customerName(sc.customerId, sc.leadCompanyTitle) : "";
         const productName = o.productName || [sc?.requestedProduct, sc?.requestedModel].filter(Boolean).join(" ");
         return [o.quoteNo, cName, productName, o.businessLine, o.divisionName]
           .some((value) => (value ?? "").toLowerCase().includes(q.toLowerCase()));
@@ -482,7 +485,7 @@ export function OffersPage({
                     <TableCell className="max-w-[260px] text-sm">
                       <div className="truncate">{o.productName || [sc?.requestedProduct, sc?.requestedModel].filter(Boolean).join(" · ") || "—"}</div>
                     </TableCell>
-                    <TableCell className="text-sm">{sc ? customerName(sc.customerId) : "—"}</TableCell>
+                    <TableCell className="text-sm">{sc ? customerName(sc.customerId, sc.leadCompanyTitle) : customerName(o.companyId ?? "")}</TableCell>
                     <TableCell><span className="inline-flex px-1.5 py-0.5 rounded text-[11px] bg-muted text-foreground/70">R{o.revision}</span></TableCell>
                     <TableCell className="text-sm tabular-nums text-muted-foreground">{o.date}</TableCell>
                     <TableCell className="text-right tabular-nums">
@@ -679,7 +682,7 @@ export function OffersPage({
                         </span>
                       </button>
                     </TableCell>
-                    <TableCell className="text-sm">{company?.name ?? "Firma bağlantısı yok"}</TableCell>
+                    <TableCell className="text-sm">{company?.name ?? documentItem.companyNameText ?? salesCase?.leadCompanyTitle ?? "Firma bağlantısı yok"}</TableCell>
                     <TableCell className="max-w-[260px] text-sm">
                       <div className="truncate">
                         {salesCase
@@ -862,11 +865,22 @@ export function OfferDetailDialog({
   canApprovePrice?: boolean;
 }) {
   const { products, users, contacts, documents } = useStore();
+  const { user, tenant, activeDivision, activeDepartment } = useAuth();
+  const queryClient = useQueryClient();
   const [creatingOrder, setCreatingOrder] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [mailRecipient, setMailRecipient] = useState<MailRecipient | null>(null);
   const [documentAction, setDocumentAction] = useState<"print" | "preview" | "download" | null>(null);
   const [headerLogoMode, setHeaderLogoMode] = useState<QuoteHeaderLogoMode>("haksan");
+  const customerId = offer?.companyId || salesCase?.customerId || customer?.id || "";
+  const customerQuery = useCompanyDetail(customerId, customer ?? undefined);
+  const resolvedCustomer = customerQuery.data ?? customer;
+  const contactScope = useMemo<ContactQueryScope>(() => ({
+    tenantId: tenant?.id ?? user?.tenantId ?? "anonymous",
+    userId: user?.id ?? "anonymous",
+    activeDivision,
+    activeDepartment,
+  }), [activeDepartment, activeDivision, tenant?.id, user?.id, user?.tenantId]);
   useEffect(() => {
     setDocumentAction(null);
     setHeaderLogoMode("haksan");
@@ -887,12 +901,27 @@ export function OfferDetailDialog({
   // Teklif yazdırma: ürün kataloğundan model eşleşirse teknik bilgiler ve
   // donanım sayfaları da basılır; alt notlar seçilen teslim şekline göre gelir.
   const loadQuoteDocument = async () => {
+    let printCustomer = resolvedCustomer;
+    if (customerId && !customerQuery.data) {
+      const freshCustomer = await customerQuery.refetch();
+      if (freshCustomer.error) throw freshCustomer.error;
+      printCustomer = freshCustomer.data ?? printCustomer;
+    }
+    const companyContacts = customerId
+      ? await queryClient.fetchQuery({
+          queryKey: contactQueryKeys.companyContacts(contactScope, customerId),
+          queryFn: ({ signal }) => loadAllCompanyContacts(customerId, signal),
+          staleTime: 60_000,
+        })
+      : null;
+    const remoteContacts = companyContacts?.data ?? [];
+    const remoteContactIds = new Set(remoteContacts.map((contact) => contact.id));
     const data = await loadQuotePrintData({
       offer,
-      customer,
+      customer: printCustomer,
       salesCase,
       users,
-      contacts,
+      contacts: [...remoteContacts, ...contacts.filter((contact) => !remoteContactIds.has(contact.id))],
       products,
       headerLogoMode,
     });
@@ -909,7 +938,7 @@ export function OfferDetailDialog({
       // Dosya adı: Teklif_<bölüm-belge no>_<firma>_<makine>
       else downloadPrintOrWarn(doc, quoteFilename(data, {
         division: offer.businessLine ?? offer.divisionCode ?? offer.divisionName,
-        company: customer?.name,
+        company: data.firma || resolvedCustomer?.name,
       }), "Teklif");
     } catch (error: unknown) {
       toast.error("Teklif dosyası hazırlanamadı", {
@@ -964,9 +993,9 @@ export function OfferDetailDialog({
                 <Building2 className="size-4" />
               </div>
               <div className="min-w-0">
-                <div className="text-sm font-medium truncate">{customer?.name ?? "Müşteri bulunamadı"}</div>
-                <div className="text-xs text-muted-foreground mt-1">{customer?.city ?? "—"} {customer?.district ? `· ${customer.district}` : ""}</div>
-                <div className="text-xs text-muted-foreground mt-1">{customer?.email ?? "E-posta yok"}</div>
+                <div className="text-sm font-medium truncate">{resolvedCustomer?.name ?? salesCase?.leadCompanyTitle ?? "Müşteri bulunamadı"}</div>
+                <div className="text-xs text-muted-foreground mt-1">{resolvedCustomer?.city ?? "—"} {resolvedCustomer?.district ? `· ${resolvedCustomer.district}` : ""}</div>
+                <div className="text-xs text-muted-foreground mt-1">{resolvedCustomer?.email ?? "E-posta yok"}</div>
               </div>
             </div>
           </div>
@@ -1112,14 +1141,14 @@ export function OfferDetailDialog({
             variant="outline"
             size="sm"
             className="h-9 gap-1"
-            disabled={!customer?.email}
-            title={customer?.email ? `${customer.email} adresine gönder` : "Firma kartında e-posta adresi bulunmuyor"}
-            onClick={() => customer?.email && setMailRecipient({
-              email: customer.email,
-              name: customer.contactPerson || customer.name,
-              companyId: customer.id,
+            disabled={!resolvedCustomer?.email}
+            title={resolvedCustomer?.email ? `${resolvedCustomer.email} adresine gönder` : "Firma kartında e-posta adresi bulunmuyor"}
+            onClick={() => resolvedCustomer?.email && setMailRecipient({
+              email: resolvedCustomer.email,
+              name: resolvedCustomer.contactPerson || resolvedCustomer.name,
+              companyId: resolvedCustomer.id,
               subject: `${offer.quoteNo} Fiyat Teklifi`,
-              body: `Merhaba ${customer.contactPerson || customer.name},\n\n${offer.quoteNo} numaralı ${productText} fiyat teklifimizi bilgilerinize sunarız.\n\nSaygılarımızla,`,
+              body: `Merhaba ${resolvedCustomer.contactPerson || resolvedCustomer.name},\n\n${offer.quoteNo} numaralı ${productText} fiyat teklifimizi bilgilerinize sunarız.\n\nSaygılarımızla,`,
             })}
           >
             <Mail className="size-4" /> Firmaya E-posta Gönder
@@ -1141,7 +1170,7 @@ export function OfferDetailDialog({
           )}
           {offer.status === "Approved" && (
             <CreateAccountingInvoiceDialog
-              prefill={invoicePrefillFromOffer(offer, customer, order)}
+              prefill={invoicePrefillFromOffer(offer, resolvedCustomer, order)}
               onCreated={onOrderCreated}
               trigger={
                 <Button variant="outline" size="sm" className="h-9 gap-1">
@@ -1228,9 +1257,9 @@ export function OfferDetailDialog({
 
             <Label
               htmlFor="quote-logo-company"
-              aria-disabled={!customer?.logoUrl}
+              aria-disabled={!resolvedCustomer?.logoUrl}
               className={`group flex min-h-36 flex-col rounded-xl border p-3.5 transition-colors ${
-                !customer?.logoUrl
+                !resolvedCustomer?.logoUrl
                   ? "cursor-not-allowed border-border/50 bg-muted/30 opacity-60"
                   : headerLogoMode === "company"
                     ? "cursor-pointer border-primary bg-primary/5 ring-2 ring-primary/15"
@@ -1239,17 +1268,17 @@ export function OfferDetailDialog({
             >
               <span className="mb-3 flex items-center justify-between gap-2">
                 <span className="text-sm font-semibold">Firma logosu</span>
-                <RadioGroupItem id="quote-logo-company" value="company" disabled={!customer?.logoUrl} />
+                <RadioGroupItem id="quote-logo-company" value="company" disabled={!resolvedCustomer?.logoUrl} />
               </span>
               <span className="flex min-h-16 flex-1 items-center justify-center rounded-lg border border-border/60 bg-white p-2">
-                {customer?.logoUrl ? (
-                  <img src={customer.logoUrl} alt={`${customer.name} logosu`} className="max-h-14 max-w-full object-contain" />
+                {resolvedCustomer?.logoUrl ? (
+                  <img src={resolvedCustomer.logoUrl} alt={`${resolvedCustomer.name} logosu`} className="max-h-14 max-w-full object-contain" />
                 ) : (
                   <ImageOff className="size-7 text-muted-foreground/55" />
                 )}
               </span>
               <span className="mt-2 text-[11px] leading-4 text-muted-foreground">
-                {customer?.logoUrl ? customer.name : "Firma kartına önce logo yükleyin"}
+                {resolvedCustomer?.logoUrl ? resolvedCustomer.name : "Firma kartına önce logo yükleyin"}
               </span>
             </Label>
 

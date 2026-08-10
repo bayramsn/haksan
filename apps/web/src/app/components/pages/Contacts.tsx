@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
+import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Card } from "../ui/card";
 import { Input } from "../ui/input";
 import { Button } from "../ui/button";
 import { Avatar, AvatarFallback } from "../ui/avatar";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../ui/table";
-import { Search, Phone, Mail, Building2, Star, Pencil, Trash2, Users, ShieldAlert } from "lucide-react";
+import { Search, Phone, Mail, Building2, Star, Pencil, Trash2, Users, ShieldAlert, Loader2, X } from "lucide-react";
 import { Tabs, TabsList, TabsTrigger } from "../ui/tabs";
 import { toast } from "sonner";
 import { type Contact } from "../../lib/mock";
@@ -15,23 +16,34 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "../ui/alert-dialog";
-import { FilterPopover, usePaged, Pager, ViewToggle, type ListView } from "../ui/list-controls";
+import { FilterPopover, Pager, ViewToggle, type ListView } from "../ui/list-controls";
 import { ExportExcelButton } from "../ui/ExportExcelButton";
 import { usePersistentState } from "../../lib/persist";
 import { MiniKpi } from "../shared/MiniKpi";
 import { EmptyState } from "../shared/EmptyState";
 import { useAuth } from "../../../lib/auth";
 import { ComposeMailDialog, type MailRecipient } from "../mail/ComposeMailDialog";
+import { contactService } from "../../../lib/services";
+import { RemoteCompanyCombobox } from "../shared/RemoteCompanyCombobox";
+import {
+  buildContactListParams,
+  contactQueryKeys,
+  invalidateContactQueries,
+  normalizeServerContact,
+  type ContactQueryScope,
+  type ContactSort,
+  type ServerContact,
+} from "../../lib/contactServerData";
+import { useDebouncedValue } from "../../lib/serverPagination";
 
 const initials = (n: string) => n.split(" ").slice(0, 2).map((p) => p[0]).join("").toUpperCase();
-const uniqueSorted = (values: (string | undefined)[]) =>
-  Array.from(new Set(values.map((v) => (v ?? "").trim()).filter(Boolean))).sort((a, b) => a.localeCompare(b, "tr"));
 const createdByLabel = (item: Pick<Contact, "createdByName" | "createdByEmail">) =>
   item.createdByName || item.createdByEmail || "—";
 
 export function ContactsPage() {
-  const { contacts, customers, deleteContact } = useStore();
-  const { user, activeDivision, setActiveDivision } = useAuth();
+  const { deleteContact } = useStore();
+  const { user, activeDivision, activeDepartment, setActiveDivision } = useAuth();
+  const queryClient = useQueryClient();
   const { openContact, dialogs } = useDetailDialogs();
   const [editing, setEditing] = useState<Contact | null>(null);
   const [deleting, setDeleting] = useState<Contact | null>(null);
@@ -44,49 +56,72 @@ export function ContactsPage() {
   const [divisionTab, setDivisionTab] = useState(activeDivision !== "all" ? activeDivision : "all");
   useEffect(() => setDivisionTab(activeDivision !== "all" ? activeDivision : "all"), [activeDivision]);
   const [view, setView] = usePersistentState<ListView>("contactsView", "table");
-
-  const enriched = contacts.map((k) => ({
-    ...k,
-    firm: customers.find((c) => c.id === k.customerId)!,
-  }));
-
-  const filtered = enriched.filter((k) => {
-    if (tab === "primary" && !k.isPrimary) return false;
-    if (dept !== "all" && (k.department ?? "") !== dept) return false;
-    if (firmId !== "all" && k.customerId !== firmId) return false;
-    if (divisionTab !== "all" && !k.firm?.divisions?.some((division) => division.id === divisionTab)) return false;
-    const t = q.toLowerCase();
-    return (
-      k.name.toLowerCase().includes(t) ||
-      (k.contactNo ?? "").toLowerCase().includes(t) ||
-      (k.companyNo ?? k.firm?.companyNo ?? "").toLowerCase().includes(t) ||
-      k.email.toLowerCase().includes(t) ||
-      (k.personalEmail ?? "").toLowerCase().includes(t) ||
-      (k.otherEmail ?? "").toLowerCase().includes(t) ||
-      k.phone.toLowerCase().includes(t) ||
-      (k.mobilePhone ?? "").toLowerCase().includes(t) ||
-      (k.otherPhone ?? "").toLowerCase().includes(t) ||
-      k.firm?.name.toLowerCase().includes(t) ||
-      k.title.toLowerCase().includes(t)
-    );
+  const [page, setPage] = useState(1);
+  const [sortValue, setSortValue] = useState("all");
+  const [sortBy, sortDir] = (sortValue === "all" ? "createdAt-desc" : sortValue).split("-") as [ContactSort["sortBy"], ContactSort["sortDir"]];
+  const debouncedQ = useDebouncedValue(q, 275);
+  const scope = useMemo<ContactQueryScope>(() => ({
+    tenantId: user?.tenantId ?? "anonymous",
+    userId: user?.id ?? "anonymous",
+    activeDivision,
+    activeDepartment,
+  }), [activeDepartment, activeDivision, user?.id, user?.tenantId]);
+  const listParams = useMemo(() => buildContactListParams({
+    page,
+    search: debouncedQ,
+    companyId: firmId,
+    department: dept,
+    primaryOnly: tab === "primary",
+    divisionId: divisionTab,
+    sortBy,
+    sortDir,
+  }), [debouncedQ, dept, divisionTab, firmId, page, sortBy, sortDir, tab]);
+  const contactsQuery = useQuery({
+    queryKey: contactQueryKeys.list(scope, listParams),
+    queryFn: ({ signal }) => contactService.list(listParams, { signal }),
+    placeholderData: keepPreviousData,
   });
+  const summaryQuery = useQuery({
+    queryKey: contactQueryKeys.summary(scope, divisionTab),
+    queryFn: ({ signal }) => contactService.summary(
+      { divisionId: divisionTab !== "all" ? divisionTab : undefined },
+      { signal }
+    ),
+  });
+  const pageItems = useMemo<ServerContact[]>(
+    () => (contactsQuery.data?.data ?? []).map(normalizeServerContact),
+    [contactsQuery.data]
+  );
+  const total = Number(contactsQuery.data?.meta?.total ?? 0);
+  const totalPages = Math.max(1, Number(contactsQuery.data?.meta?.totalPages ?? 1));
+  const summary = summaryQuery.data;
+  const primaryCount = Number(summary?.primary ?? 0);
+  const blacklistedCount = Number(summary?.blacklisted ?? 0);
+  const firmCount = Number(summary?.firmCount ?? 0);
 
-  const { page, setPage, totalPages, pageItems } = usePaged(filtered, 12);
+  useEffect(() => {
+    setPage(1);
+  }, [activeDepartment, debouncedQ, dept, divisionTab, firmId, sortBy, sortDir, tab]);
+  useEffect(() => {
+    if (page > totalPages) setPage(totalPages);
+  }, [page, totalPages]);
 
   const exportParams = {
-    ...(q ? { search: q } : {}),
+    ...(debouncedQ ? { search: debouncedQ } : {}),
     ...(firmId !== "all" ? { companyId: firmId } : {}),
+    ...(dept !== "all" ? { department: dept } : {}),
+    ...(tab === "primary" ? { isPrimary: "true" } : {}),
+    ...(divisionTab !== "all" ? { divisionId: divisionTab } : {}),
+    sortBy,
+    sortDir,
   };
-
-  const firmCount = useMemo(() => new Set(contacts.map((k) => k.customerId)).size, [contacts]);
-  const primaryCount = contacts.filter((k) => k.isPrimary).length;
-  const blacklistedCount = contacts.filter((k) => k.isBlacklisted).length;
 
   const emptyState = (
     <EmptyState
-      scene="search"
-      title="Bu filtreye uyan kontak bulunamadı"
-      description="Arama terimini veya filtreleri değiştirerek tekrar deneyin."
+      scene={contactsQuery.isError ? "error" : "search"}
+      title={contactsQuery.isError ? "Kontaklar yüklenemedi" : "Bu filtreye uyan kontak bulunamadı"}
+      description={contactsQuery.isError ? "Bağlantıyı kontrol edip yeniden deneyin." : "Arama terimini veya filtreleri değiştirerek tekrar deneyin."}
+      action={contactsQuery.isError ? <Button size="sm" onClick={() => void contactsQuery.refetch()}>Yeniden Dene</Button> : undefined}
     />
   );
 
@@ -99,7 +134,7 @@ export function ContactsPage() {
     </span>
   );
 
-  const quickActions = (k: (typeof enriched)[number], visible = false) => (
+  const quickActions = (k: ServerContact, visible = false) => (
     <div
       className={`flex items-center gap-1 ${visible ? "" : "justify-end opacity-100 sm:opacity-0 sm:group-hover:opacity-100"}`}
       onClick={(e) => e.stopPropagation()}
@@ -127,7 +162,7 @@ export function ContactsPage() {
         <MiniKpi
           icon={<Users className="size-4" />}
           label="Toplam Kontak"
-          value={contacts.length}
+          value={summaryQuery.isPending ? "—" : Number(summary?.total ?? 0)}
           tone="violet"
           onClick={() => setTab("all")}
           active={tab === "all"}
@@ -135,7 +170,7 @@ export function ContactsPage() {
         <MiniKpi
           icon={<Star className="size-4" />}
           label="Birincil"
-          value={primaryCount}
+          value={summaryQuery.isPending ? "—" : primaryCount}
           sub="birincil kontak"
           tone="amber"
           onClick={() => setTab("primary")}
@@ -144,14 +179,14 @@ export function ContactsPage() {
         <MiniKpi
           icon={<Building2 className="size-4" />}
           label="Firma Sayısı"
-          value={firmCount}
+          value={summaryQuery.isPending ? "—" : firmCount}
           sub="kontaklı firma"
           tone="blue"
         />
         <MiniKpi
           icon={<ShieldAlert className="size-4" />}
           label="Kara Liste"
-          value={blacklistedCount}
+          value={summaryQuery.isPending ? "—" : blacklistedCount}
           sub={blacklistedCount > 0 ? "kara listede" : "temiz"}
           tone="red"
         />
@@ -182,7 +217,7 @@ export function ContactsPage() {
             <TabsTrigger value="all" className="gap-1.5">
               Tümü
               <span className="ml-0.5 inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 text-[10px] rounded-full bg-muted text-muted-foreground">
-                {contacts.length}
+                {summaryQuery.isPending ? "…" : Number(summary?.total ?? 0)}
               </span>
             </TabsTrigger>
             <TabsTrigger value="primary" className="gap-1.5">
@@ -203,13 +238,37 @@ export function ContactsPage() {
               value={q}
               onChange={(e) => setQ(e.target.value)}
             />
+            {contactsQuery.isFetching && <Loader2 className="absolute right-3 top-1/2 size-3.5 -translate-y-1/2 animate-spin text-muted-foreground" />}
           </div>
           <FilterPopover
             filters={[
-              { label: "Departman", value: dept, onChange: setDept, options: uniqueSorted(contacts.map((k) => k.department)).map((v) => ({ value: v, label: v })) },
-              { label: "Firma", value: firmId, onChange: setFirmId, options: customers.map((c) => ({ value: c.id, label: c.name })) },
+              { label: "Departman", value: dept, onChange: setDept, options: (summary?.departments ?? []).map((department) => ({ value: department, label: department })) },
+              {
+                label: "Sıralama",
+                value: sortValue,
+                onChange: setSortValue,
+                allLabel: "En yeni kayıt",
+                options: [
+                  { value: "name-asc", label: "Ad (A-Z)" },
+                  { value: "name-desc", label: "Ad (Z-A)" },
+                  { value: "createdAt-asc", label: "En eski kayıt" },
+                ],
+              },
             ]}
           />
+          <div className="flex items-center gap-1">
+            <RemoteCompanyCombobox
+              value={firmId === "all" ? null : firmId}
+              onValueChange={setFirmId}
+              placeholder="Firma"
+              className="h-9 w-52"
+            />
+            {firmId !== "all" && (
+              <Button type="button" variant="ghost" size="icon" className="size-8" title="Firma filtresini temizle" onClick={() => setFirmId("all")}>
+                <X className="size-3.5" />
+              </Button>
+            )}
+          </div>
           <ExportExcelButton path="/exports/contacts" filename="kontaklar.xlsx" params={exportParams} className="h-9" />
           <ViewToggle view={view} onChange={setView} />
         </div>
@@ -217,7 +276,11 @@ export function ContactsPage() {
 
       {view === "cards" ? (
         <>
-          {filtered.length === 0 ? (
+          {contactsQuery.isPending ? (
+            <Card className="flex min-h-48 items-center justify-center gap-2 border-border/60 text-sm text-muted-foreground shadow-sm">
+              <Loader2 className="size-4 animate-spin" /> Kontaklar yükleniyor...
+            </Card>
+          ) : pageItems.length === 0 ? (
             <Card className="border-border/60 shadow-sm">{emptyState}</Card>
           ) : (
             <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-3">
@@ -281,7 +344,7 @@ export function ContactsPage() {
           )}
           <div className="flex items-center justify-between gap-3 px-1">
             <div className="text-xs text-muted-foreground">
-              Toplam <b className="text-foreground">{filtered.length}</b> kontak
+              Toplam <b className="text-foreground">{total}</b> kontak
             </div>
             <Pager page={page} totalPages={totalPages} setPage={setPage} />
           </div>
@@ -301,6 +364,13 @@ export function ContactsPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
+              {contactsQuery.isPending && (
+                <TableRow>
+                  <TableCell colSpan={6} className="py-12 text-center text-sm text-muted-foreground">
+                    <span className="inline-flex items-center gap-2"><Loader2 className="size-4 animate-spin" /> Kontaklar yükleniyor...</span>
+                  </TableCell>
+                </TableRow>
+              )}
               {pageItems.map((k) => (
                 <TableRow key={k.id} className="group cursor-pointer hover:bg-primary/[0.025]" onClick={() => openContact(k)}>
                   <TableCell>
@@ -351,7 +421,7 @@ export function ContactsPage() {
                   </TableCell>
                 </TableRow>
               ))}
-              {filtered.length === 0 && (
+              {!contactsQuery.isPending && pageItems.length === 0 && (
                 <TableRow>
                   <TableCell colSpan={6} className="py-4">
                     {emptyState}
@@ -364,7 +434,7 @@ export function ContactsPage() {
 
         <div className="flex items-center justify-between gap-3 px-4 py-3 border-t border-border/60 bg-muted/20">
           <div className="text-xs text-muted-foreground">
-            Toplam <b className="text-foreground">{filtered.length}</b> kontak
+            Toplam <b className="text-foreground">{total}</b> kontak
           </div>
           <Pager page={page} totalPages={totalPages} setPage={setPage} />
         </div>
@@ -375,7 +445,13 @@ export function ContactsPage() {
 
       <ComposeMailDialog recipient={mailRecipient} onOpenChange={(open) => !open && setMailRecipient(null)} />
 
-      <EditContactDialog contact={editing} onClose={() => setEditing(null)} />
+      <EditContactDialog
+        contact={editing}
+        onClose={() => {
+          setEditing(null);
+          void invalidateContactQueries(queryClient);
+        }}
+      />
 
       <AlertDialog open={!!deleting} onOpenChange={(o) => !o && setDeleting(null)}>
         <AlertDialogContent className="max-w-lg">
@@ -383,7 +459,7 @@ export function ContactsPage() {
             <AlertDialogTitle>Kontağı sil?</AlertDialogTitle>
             <AlertDialogDescription>
               <span className="block font-medium text-foreground">{deleting?.name}</span>
-              {deleting ? customers.find((customer) => customer.id === deleting.customerId)?.name || "Firma bağlantısı yok" : ""} kişisi kalıcı olarak silinir. Aktivite, teklif veya servis ilişkisi varsa sistem işlemi güvenli biçimde engelleyebilir.
+              {deleting ? (deleting as ServerContact).firm?.name || "Firma bağlantısı yok" : ""} kişisi kalıcı olarak silinir. Aktivite, teklif veya servis ilişkisi varsa sistem işlemi güvenli biçimde engelleyebilir.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -394,6 +470,7 @@ export function ContactsPage() {
                 if (!deleting) return;
                 try {
                   await deleteContact(deleting.id);
+                  await invalidateContactQueries(queryClient);
                   toast.success("Kontak silindi");
                 } catch (err: any) {
                   toast.error("Kontak silinemedi", { description: err?.message ?? "API isteği başarısız oldu." });

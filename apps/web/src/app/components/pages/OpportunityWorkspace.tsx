@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useQuery } from "@tanstack/react-query";
 import {
   PIPELINE_STAGE_FLOW,
   type OpportunityProcessActionKey,
@@ -39,6 +40,13 @@ import {
   type WorkspaceDecisionModel,
 } from "../shared/RecordWorkspace";
 import { isManualTimelineComment, isOpportunityTimelineActivity } from "../../lib/opportunityTimeline";
+import { useCompanyDetail } from "../../lib/companyServerData";
+import {
+  contactQueryKeys,
+  loadAllCompanyContacts,
+  type ContactQueryScope,
+} from "../../lib/contactServerData";
+import { useRemoteContactDetail } from "../shared/RemoteContactCombobox";
 
 /**
  * Fırsat / lead çalışma alanı.
@@ -202,8 +210,6 @@ export function OpportunityWorkspace({
   simpleMode?: boolean;
 }) {
   const {
-    customers,
-    contacts,
     users,
     activities,
     offers,
@@ -214,7 +220,7 @@ export function OpportunityWorkspace({
     installations,
     updateCase,
   } = useStore();
-  const { hasPermission, hasRole } = useAuth();
+  const { user, activeDivision, activeDepartment, hasPermission, hasRole } = useAuth();
   const canUpdate = hasPermission("opportunities.update");
   const canAssignOwner = canUpdate && (hasRole("sales") || hasRole("super_admin"));
   const isLead = sc.qualificationStage === "lead";
@@ -232,6 +238,19 @@ export function OpportunityWorkspace({
   const detail = detailResource.caseId === sc.id ? detailResource.data : null;
   const detailLoading = detailResource.caseId !== sc.id || detailResource.status === "idle" || detailResource.status === "loading";
   const detailError = detailResource.caseId === sc.id ? detailResource.error : null;
+  const contactScope = useMemo<ContactQueryScope>(() => ({
+    tenantId: user?.tenantId ?? "anonymous",
+    userId: user?.id ?? "anonymous",
+    activeDivision,
+    activeDepartment,
+  }), [activeDepartment, activeDivision, user?.id, user?.tenantId]);
+  const companyQuery = useCompanyDetail(sc.customerId);
+  const companyContactsQuery = useQuery({
+    queryKey: contactQueryKeys.companyContacts(contactScope, sc.customerId || "none"),
+    queryFn: ({ signal }) => loadAllCompanyContacts(sc.customerId as string, signal),
+    enabled: Boolean(sc.customerId),
+  });
+  const selectedContactQuery = useRemoteContactDetail(sc.primaryContactId);
 
   useEffect(() => {
     if (!focusDecisionOnMount) return;
@@ -288,7 +307,7 @@ export function OpportunityWorkspace({
     }
   }, [sc.id]);
 
-  const customer = customers.find((item) => item.id === sc.customerId);
+  const customer = companyQuery.data;
   const owner = users.find((item) => item.id === sc.assignedUserId);
   // Bu türetmeler her render'da yeni dizi referansı üretiyordu ve doğrudan
   // `timeline` memo'sunun bağımlılık listesinde oldukları için o memo da hiç
@@ -316,7 +335,17 @@ export function OpportunityWorkspace({
   const opportunityShipments = useMemo(() => shipments.filter((item) => item.salesCaseId === sc.id), [shipments, sc.id]);
   const opportunityDeliveries = useMemo(() => deliveries.filter((item) => item.salesCaseId === sc.id), [deliveries, sc.id]);
   const opportunityInstallations = useMemo(() => installations.filter((item) => item.salesCaseId === sc.id), [installations, sc.id]);
-  const resolvedContact = useMemo(() => resolveSalesContact({ salesCase: sc, customer, contacts }), [sc, customer, contacts]);
+  const resolvedContacts = useMemo(() => {
+    const contactsById = new Map(
+      (companyContactsQuery.data?.data ?? []).map((contact) => [contact.id, contact]),
+    );
+    if (selectedContactQuery.data) contactsById.set(selectedContactQuery.data.id, selectedContactQuery.data);
+    return Array.from(contactsById.values());
+  }, [companyContactsQuery.data?.data, selectedContactQuery.data]);
+  const resolvedContact = useMemo(
+    () => resolveSalesContact({ salesCase: sc, customer, contacts: resolvedContacts }),
+    [sc, customer, resolvedContacts],
+  );
 
   // Aktivite akışı yalnız kullanıcının girdiği kayıtları gösterir: temaslar ve
   // yorumlar. Sistem olayları (aşama geçişi, nitelik, onay, teklif, ödeme,
@@ -428,12 +457,12 @@ export function OpportunityWorkspace({
     () => buildWorkspaceDecisionModel({
       salesCase: sc,
       ownerName: owner?.name,
-      customerMissing: !customer,
+      customerMissing: !sc.customerId || (companyQuery.isError && !customer),
       overduePaymentCount,
       nextOperationTarget,
       processReadinessKnown: !simpleOpportunity || Boolean(operationReadiness),
     }),
-    [sc, owner?.name, customer, overduePaymentCount, nextOperationTarget, simpleOpportunity, operationReadiness],
+    [sc, owner?.name, companyQuery.isError, customer, overduePaymentCount, nextOperationTarget, simpleOpportunity, operationReadiness],
   );
   const terminal = Boolean(decisionModel.terminalLabel);
   const leadBlockers = sc.qualificationReadiness?.blockers ?? [];

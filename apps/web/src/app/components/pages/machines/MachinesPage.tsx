@@ -5,7 +5,6 @@ import { Input } from "../../ui/input";
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from "../../ui/dialog";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../../ui/table";
 import { Badge } from "../../ui/badge";
 import { StatusBadge } from "../../Layout";
@@ -26,6 +25,8 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "../../ui/alert-dialog";
+import { RemoteCompanyCombobox } from "../../shared/RemoteCompanyCombobox";
+import { useCompanyDetail } from "../../../lib/companyServerData";
 
 const WARRANTY_TONE: Record<WarrantyState, string> = {
   active: "border-emerald-200 bg-emerald-50 text-emerald-700",
@@ -90,9 +91,15 @@ function MachineDetailDialog({
   deleting?: boolean;
 }) {
   const { customers, service, products } = useStore();
+  const userCompanyId = machine?.userCompanyId ?? machine?.customerId;
+  const initialCustomerId = machine?.initialCustomerId ?? machine?.customerId;
+  const storedUserCompany = customers.find((c) => c.id === userCompanyId);
+  const storedInitialCustomer = customers.find((c) => c.id === initialCustomerId);
+  const userCompanyQuery = useCompanyDetail(userCompanyId, storedUserCompany);
+  const initialCustomerQuery = useCompanyDetail(initialCustomerId, storedInitialCustomer);
   if (!machine) return null;
-  const userCompany = customers.find((c) => c.id === (machine.userCompanyId ?? machine.customerId));
-  const initialCustomer = customers.find((c) => c.id === (machine.initialCustomerId ?? machine.customerId));
+  const userCompany = userCompanyQuery.data ?? storedUserCompany;
+  const initialCustomer = initialCustomerQuery.data ?? storedInitialCustomer;
   const tickets = service.filter((s) => s.machineId === machine.id);
   const product = products.find((item) => item.id === machine.productModelId)
     ?? products.find((item) => item.model.toLocaleLowerCase("tr-TR") === machine.model.toLocaleLowerCase("tr-TR"));
@@ -197,6 +204,12 @@ export function MachinesPage() {
   const [qrMachine, setQrMachine] = useState<Machine | null>(null);
   const [query, setQuery] = useState("");
   const [view, setView] = usePersistentState<ListView>("machines.view", "cards");
+  const editingInitialCompanyId = editingCustomerMachine?.initialCustomerId ?? editingCustomerMachine?.customerId;
+  const storedEditingInitialCompany = customers.find((customer) => customer.id === editingInitialCompanyId);
+  const editingInitialCompanyQuery = useCompanyDetail(editingInitialCompanyId, storedEditingInitialCompany);
+  const qrCompanyId = qrMachine?.userCompanyId ?? qrMachine?.customerId;
+  const storedQrCompany = customers.find((customer) => customer.id === qrCompanyId);
+  const qrCompanyQuery = useCompanyDetail(qrCompanyId, storedQrCompany);
   const customerName = (id: string) => customers.find((c) => c.id === id)?.name ?? "—";
   const openCustomerEdit = (machine: Machine, event?: MouseEvent) => {
     event?.stopPropagation();
@@ -458,7 +471,7 @@ export function MachinesPage() {
       />
       <MachineQrDialog
         machine={qrMachine}
-        customerName={qrMachine ? customerName(qrMachine.userCompanyId ?? qrMachine.customerId) : ""}
+        customerName={qrMachine ? (qrCompanyQuery.data ?? storedQrCompany)?.name ?? "—" : ""}
         onClose={() => setQrMachine(null)}
       />
       <AlertDialog open={!!pendingDelete} onOpenChange={(open) => !open && !deletingId && setPendingDelete(null)}>
@@ -498,16 +511,13 @@ export function MachinesPage() {
           <div className="space-y-3">
             <div className="rounded-md border border-border/60 bg-muted/20 px-3 py-2 text-sm">
               <span className="text-muted-foreground">İlk müşteri:</span>{" "}
-              {editingCustomerMachine ? customerName(editingCustomerMachine.initialCustomerId ?? editingCustomerMachine.customerId) : "—"}
+              {editingCustomerMachine ? (editingInitialCompanyQuery.data ?? storedEditingInitialCompany)?.name ?? "—" : "—"}
             </div>
-            <Select value={editCustomerId} onValueChange={setEditCustomerId}>
-              <SelectTrigger><SelectValue placeholder="Kullanıcı firma seçin" /></SelectTrigger>
-              <SelectContent>
-                {customers.map((c) => (
-                  <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <RemoteCompanyCombobox
+              value={editCustomerId}
+              onValueChange={setEditCustomerId}
+              placeholder="Kullanıcı firma seçin"
+            />
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setEditingCustomerMachine(null)} disabled={updatingCustomer}>Vazgeç</Button>

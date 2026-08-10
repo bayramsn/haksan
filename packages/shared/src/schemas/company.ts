@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { emailSchema, phoneSchema, urlSchema } from './common';
+import { emailSchema, paginationSchema, phoneSchema, urlSchema } from './common';
 
 export const companyTypeEnum = z.enum(['person', 'company']);
 export const supplierCategoryCodeSchema = z.enum(['transportation', 'logistics']);
@@ -133,12 +133,27 @@ export const companyUpdateSchema = companyCreateBaseSchema.partial().extend({
 export type CompanyUpdateInput = z.infer<typeof companyUpdateSchema>;
 
 export const companyListQuerySchema = z.object({
-  search: z.string().max(128).optional(),
+  search: z.string().trim().max(128).optional(),
   relationTypeCode: z.enum(['customer', 'supplier', 'supplier_customer', 'competitor']).optional(),
   customerStatusCode: z.enum(['potential', 'active', 'passive', 'blacklist']).optional(),
   divisionId: z.string().uuid().optional(),
+  city: z.string().trim().min(1).max(64).optional(),
+  sector: z.string().trim().min(1).max(128).optional(),
+  supplierCategoryCode: supplierCategoryCodeSchema.optional(),
 });
 export type CompanyListQuery = z.infer<typeof companyListQuerySchema>;
+
+export const companyListRequestQuerySchema = companyListQuerySchema.merge(
+  paginationSchema.extend({
+    sortBy: z.enum(['name', 'createdAt']).optional(),
+  }),
+);
+export type CompanyListRequestQuery = z.infer<typeof companyListRequestQuerySchema>;
+
+export const companySummaryQuerySchema = z.object({
+  divisionId: z.string().uuid().optional(),
+});
+export type CompanySummaryQuery = z.infer<typeof companySummaryQuerySchema>;
 
 export const companyOsmSearchQuerySchema = z.object({
   q: z.string().trim().min(2).max(160),

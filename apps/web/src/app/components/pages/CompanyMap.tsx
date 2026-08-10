@@ -3,8 +3,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "../ui/card";
 import { Input } from "../ui/input";
 import { Button } from "../ui/button";
 import { Search, MapPin, Navigation, Building2, LocateFixed } from "lucide-react";
-import { useStore } from "../../lib/store";
 import type { Customer } from "../../lib/mock";
+import { useExplicitFullCompanyDirectory } from "../../lib/companyServerData";
 
 /**
  * Türkiye il merkez koordinatları (yaklaşık). Firma `city` alanına göre haritaya
@@ -92,7 +92,8 @@ function useLeaflet() {
 type Placed = { customer: Customer; coord: [number, number]; distance?: number };
 
 export function CompanyMapPage() {
-  const { customers } = useStore();
+  const companyDirectoryQuery = useExplicitFullCompanyDirectory("company-map");
+  const customers = companyDirectoryQuery.data ?? [];
   const leafletReady = useLeaflet();
   const mapElRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<any>(null);
@@ -167,11 +168,19 @@ export function CompanyMapPage() {
       const marker = L.marker(p.coord).addTo(layerRef.current);
       const addr = [p.customer.address, p.customer.district, p.customer.city].filter(Boolean).join(" ");
       const mapsUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(addr || p.customer.name)}`;
-      marker.bindPopup(
-        `<div style="min-width:160px"><b>${p.customer.name}</b><br/>${p.customer.city ?? ""}` +
-          (p.distance != null ? ` · ${p.distance.toFixed(0)} km` : "") +
-          `<br/><a href="${mapsUrl}" target="_blank" rel="noopener">Yol tarifi</a></div>`
-      );
+      const popup = document.createElement("div");
+      popup.style.minWidth = "160px";
+      const title = document.createElement("b");
+      title.textContent = p.customer.name;
+      const location = document.createElement("div");
+      location.textContent = `${p.customer.city ?? ""}${p.distance != null ? ` · ${p.distance.toFixed(0)} km` : ""}`;
+      const directions = document.createElement("a");
+      directions.href = mapsUrl;
+      directions.target = "_blank";
+      directions.rel = "noopener noreferrer";
+      directions.textContent = "Yol tarifi";
+      popup.append(title, location, directions);
+      marker.bindPopup(popup);
     });
     if (userPos) {
       const L2 = (window as any).L;

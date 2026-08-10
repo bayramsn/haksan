@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "../ui/dialog";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription,
@@ -26,6 +27,13 @@ import { CreateProformaDialog } from "./CreateProformaDialog";
 import { QuoteDialog } from "./QuoteDialog";
 import { useAuth } from "../../../lib/auth";
 import { toast } from "sonner";
+import {
+  contactQueryKeys,
+  invalidateContactQueries,
+  loadAllCompanyContacts,
+  type ContactQueryScope,
+} from "../../lib/contactServerData";
+import { useCompanyDetail } from "../../lib/companyServerData";
 
 // ───────────────────────── helpers ─────────────────────────
 
@@ -231,13 +239,28 @@ export function CompanyDetailDialog({
   onClose: () => void;
   onOpenContact?: (c: Contact) => void;
 }) {
-  const { contacts, cases, offers, documents, payments, machines, service, deleteContact } = useStore();
+  const { cases, offers, documents, payments, machines, service, deleteContact } = useStore();
+  const { user, activeDivision, activeDepartment } = useAuth();
+  const queryClient = useQueryClient();
   const [editingContact, setEditingContact] = useState<Contact | null>(null);
   const [pendingContactDelete, setPendingContactDelete] = useState<Contact | null>(null);
   const [breakdown, setBreakdown] = useState<BreakdownKey | null>(null);
+  const contactScope: ContactQueryScope = {
+    tenantId: user?.tenantId ?? "anonymous",
+    userId: user?.id ?? "anonymous",
+    activeDivision,
+    activeDepartment,
+  };
+  const companyId = customer?.id ?? "";
+  const firmContactsQuery = useQuery({
+    queryKey: contactQueryKeys.companyContacts(contactScope, companyId),
+    queryFn: ({ signal }) => loadAllCompanyContacts(companyId, signal),
+    enabled: Boolean(customer),
+  });
   if (!customer) return null;
 
-  const firmContacts = contacts.filter((k) => k.customerId === customer.id);
+  const firmContacts = firmContactsQuery.data?.data ?? [];
+  const firmContactCount = firmContactsQuery.data?.total ?? 0;
   const firmCases = cases.filter((c) => c.customerId === customer.id);
   const caseIds = new Set(firmCases.map((c) => c.id));
   // Quotes/documents tie to a firm directly via companyId; fall back to the
@@ -284,6 +307,7 @@ export function CompanyDetailDialog({
     if (!pendingContactDelete) return;
     try {
       await deleteContact(pendingContactDelete.id);
+      await invalidateContactQueries(queryClient);
       toast.success("Kontak silindi");
       setPendingContactDelete(null);
     } catch (err: any) {
@@ -405,7 +429,7 @@ export function CompanyDetailDialog({
 
         {/* KPI tiles — her biri tıklanınca ilgili kayıtlar pop-up olarak açılır */}
         <div className="grid grid-cols-3 gap-2.5 px-4 py-4 sm:px-6">
-          <Stat icon={<UserIcon className="size-3.5" />} label="Kontak" value={firmContacts.length} accent="text-indigo-600" onClick={() => setBreakdown("contacts")} />
+          <Stat icon={<UserIcon className="size-3.5" />} label="Kontak" value={firmContactsQuery.isPending ? "…" : firmContactCount} accent="text-indigo-600" onClick={() => setBreakdown("contacts")} />
           <Stat icon={<Briefcase className="size-3.5" />} label="Satış Kartı" value={firmCases.length} accent="text-sky-600" onClick={() => setBreakdown("cases")} />
           <Stat icon={<FileText className="size-3.5" />} label="Teklif" value={firmOffers.length} accent="text-blue-600" onClick={() => setBreakdown("offers")} />
           <Stat icon={<FileSignature className="size-3.5" />} label="Proforma" value={firmProformas.length} accent="text-brand-blue" onClick={() => setBreakdown("proformas")} />
@@ -429,7 +453,7 @@ export function CompanyDetailDialog({
         <div className="px-4 pb-6 sm:px-6">
           <Tabs defaultValue="kontaklar">
             <TabsList className="h-auto flex-wrap justify-start bg-muted/60">
-              <TabsTrigger value="kontaklar">Kontaklar ({firmContacts.length})</TabsTrigger>
+              <TabsTrigger value="kontaklar">Kontaklar ({firmContactsQuery.isPending ? "…" : firmContactCount})</TabsTrigger>
               <TabsTrigger value="satis">Satış ({firmCases.length})</TabsTrigger>
               <TabsTrigger value="teklif">Teklifler ({firmOffers.length})</TabsTrigger>
               <TabsTrigger value="dokuman">Dökümanlar ({firmDocs.length})</TabsTrigger>
@@ -442,6 +466,7 @@ export function CompanyDetailDialog({
               <div className="mb-2 flex justify-end">
                 <CreateContactDialog
                   defaultCustomerId={customer.id}
+                  onCreated={() => void invalidateContactQueries(queryClient)}
                   trigger={
                     <Button type="button" size="sm" className="gap-1">
                       <Plus className="size-4" /> Kontak Ekle
@@ -460,6 +485,8 @@ export function CompanyDetailDialog({
                     </TableRow>
                   </TableHeader>
                   <TableBody>
+                    {firmContactsQuery.isPending && <EmptyRow cols={4} text="Kontaklar yükleniyor..." />}
+                    {firmContactsQuery.isError && <EmptyRow cols={4} text="Kontaklar yüklenemedi." />}
                     {firmContacts.map((k) => (
                       <TableRow
                         key={k.id}
@@ -520,7 +547,7 @@ export function CompanyDetailDialog({
                         </TableCell>
                       </TableRow>
                     ))}
-                    {firmContacts.length === 0 && <EmptyRow cols={4} text="Bu firmaya bağlı kontak yok." />}
+                    {!firmContactsQuery.isPending && !firmContactsQuery.isError && firmContacts.length === 0 && <EmptyRow cols={4} text="Bu firmaya bağlı kontak yok." />}
                   </TableBody>
                 </Table>
               </div>
@@ -672,7 +699,13 @@ export function CompanyDetailDialog({
           </Tabs>
         </div>
       </DialogContent>
-      <EditContactDialog contact={editingContact} onClose={() => setEditingContact(null)} />
+      <EditContactDialog
+        contact={editingContact}
+        onClose={() => {
+          setEditingContact(null);
+          void invalidateContactQueries(queryClient);
+        }}
+      />
       <CompanyBreakdownDialog
         breakdown={breakdown}
         onClose={() => setBreakdown(null)}
@@ -960,11 +993,24 @@ export function ContactDetailDialog({
   onOpenCompany?: (c: Customer) => void;
   onSwitchContact?: (c: Contact) => void;
 }) {
-  const { customers, contacts } = useStore();
+  const { user, activeDivision, activeDepartment } = useAuth();
+  const contactScope: ContactQueryScope = {
+    tenantId: user?.tenantId ?? "anonymous",
+    userId: user?.id ?? "anonymous",
+    activeDivision,
+    activeDepartment,
+  };
+  const companyId = contact?.customerId ?? "";
+  const firmQuery = useCompanyDetail(companyId);
+  const siblingsQuery = useQuery({
+    queryKey: contactQueryKeys.companyContacts(contactScope, companyId),
+    queryFn: ({ signal }) => loadAllCompanyContacts(companyId, signal),
+    enabled: Boolean(contact && companyId),
+  });
   if (!contact) return null;
 
-  const firm = customers.find((c) => c.id === contact.customerId) ?? null;
-  const siblings = contacts.filter((k) => k.customerId === contact.customerId && k.id !== contact.id);
+  const firm = firmQuery.data ?? null;
+  const siblings = (siblingsQuery.data?.data ?? []).filter((item) => item.id !== contact.id);
 
   const personalFields: Array<[string, string | undefined]> = [
     ["Memleket", contact.hometown],
@@ -1032,7 +1078,11 @@ export function ContactDetailDialog({
         {/* linked company */}
         <div className="px-6 pb-4">
           <div className="text-[11px] uppercase tracking-wide text-muted-foreground mb-2">Bağlı Firma</div>
-          {firm ? (
+          {companyId && firmQuery.isPending ? (
+            <div className="text-sm text-muted-foreground rounded-lg border border-dashed border-border/60 px-3 py-3">Bağlı firma yükleniyor...</div>
+          ) : companyId && firmQuery.isError ? (
+            <div className="text-sm text-destructive rounded-lg border border-dashed border-destructive/40 px-3 py-3">Bağlı firma yüklenemedi.</div>
+          ) : firm ? (
             <button
               type="button"
               onClick={() => onOpenCompany?.(firm)}
@@ -1058,6 +1108,12 @@ export function ContactDetailDialog({
         </div>
 
         {/* sibling contacts at the same firm */}
+        {siblingsQuery.isPending && (
+          <div className="px-6 pb-6 text-xs text-muted-foreground">Aynı firmadaki kontaklar yükleniyor...</div>
+        )}
+        {siblingsQuery.isError && (
+          <div className="px-6 pb-6 text-xs text-destructive">Aynı firmadaki kontaklar yüklenemedi.</div>
+        )}
         {siblings.length > 0 && (
           <div className="px-6 pb-6">
             <div className="text-[11px] uppercase tracking-wide text-muted-foreground mb-2">

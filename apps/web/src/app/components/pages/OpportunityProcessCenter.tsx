@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
-import { ArrowRight, Check, CircleAlert, Loader2, LockKeyhole, Pencil, XCircle } from "lucide-react";
+import { ArrowRight, Check, Loader2, LockKeyhole, XCircle } from "lucide-react";
 import {
-  type OpportunityProcessActionKey,
   type OpportunityProcessReadiness,
   type ProcessCheck,
   type ProcessTarget,
@@ -58,9 +57,7 @@ export type OpportunityProcessDetail = {
 export function OpportunityProcessCenter({
   salesCase,
   canUpdate,
-  canPerformAction,
   onRefresh,
-  onAction,
   detail: controlledDetail,
   loading: controlledLoading,
   onReload,
@@ -69,9 +66,7 @@ export function OpportunityProcessCenter({
 }: {
   salesCase: SalesCase;
   canUpdate: boolean;
-  canPerformAction?: (actionKey: OpportunityProcessActionKey) => boolean;
   onRefresh: () => Promise<unknown>;
-  onAction: (actionKey: OpportunityProcessActionKey) => void;
   detail?: OpportunityProcessDetail | null;
   loading?: boolean;
   onReload?: () => Promise<void>;
@@ -79,7 +74,7 @@ export function OpportunityProcessCenter({
   onMarkLost?: () => void;
   /**
    * Mevcut alanın görev listesi (`ProcessChecklistPanel`). Üst bileşende
-   * yaratılır ki engel düğmelerinin `requestedAction` bağı korunsun, ama
+   * yaratılır ki dış operasyon kısayollarının `requestedAction` bağı korunsun, ama
    * kutunun içinde render edilir.
    *
    * Render prop olmasının nedeni `reload`: görev kaydedildiğinde kutunun kendi
@@ -335,54 +330,17 @@ export function OpportunityProcessCenter({
           <div className="flex items-center gap-2 rounded-lg border border-success/25 bg-success-soft px-3 py-3 text-xs font-medium text-success">
             <Check className="size-4" /> Fırsat son satış alanında; ilerletilecek alan kalmadı.
           </div>
-        ) : blockers.length > 0 ? (
-          <div className="space-y-2">
-            <div className="text-xs font-semibold">
-              {stageLabel(nextTarget.code)} alanına geçmek için eksik gereklilikler
-            </div>
-            <ul className="grid gap-2 lg:grid-cols-2">
-              {blockers.map((blocker) => {
-                const actionDisabled = !canUpdate || canPerformAction?.(blocker.actionKey) === false;
-                return (
-                  <li
-                    key={blocker.key}
-                    className="flex min-w-0 flex-col gap-2 rounded-lg border border-warning/30 bg-warning-soft px-3 py-2.5 sm:flex-row sm:items-center"
-                  >
-                    <span className="flex min-w-0 flex-1 items-center gap-2">
-                      <CircleAlert className="size-4 shrink-0 text-warning" />
-                      <span className="min-w-0 text-xs font-medium">{blocker.label}</span>
-                    </span>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      className="min-h-11 shrink-0 gap-1 bg-card px-3 text-xs sm:min-h-8"
-                      disabled={actionDisabled}
-                      aria-describedby={actionDisabled ? `process-blocker-${blocker.key}-disabled` : undefined}
-                      onClick={() => onAction(blocker.actionKey)}
-                    >
-                      <Pencil className="size-3" />
-                      {blocker.actionKey === "create_quote" ? "Teklif oluştur" : "Yap"}
-                    </Button>
-                    {actionDisabled && (
-                      <span id={`process-blocker-${blocker.key}-disabled`} className="sr-only">
-                        Bu işlem için gerekli yetkiniz bulunmuyor.
-                      </span>
-                    )}
-                  </li>
-                );
-              })}
-            </ul>
-          </div>
-        ) : (
+        ) : blockers.length === 0 ? (
           <div className="flex items-center gap-2 rounded-lg border border-success/25 bg-success-soft px-3 py-3 text-xs font-medium text-success">
             <Check className="size-4" /> Bu alanın bütün gereklilikleri tamamlandı.
           </div>
-        )}
+        ) : null}
 
         {/*
-          Alan görevleri kutunun kendi içeriği. Element üst bileşende yaratılıp
-          prop olarak geçiyor: engel düğmelerinin `requestedAction` bağı orada
+          Operasyon adımları kutunun kendi içeriği. Eksik gereklilik kartlarıyla
+          aynı bilgiyi ikinci kez göstermemek için tek kompakt düğme listesi
+          burada render edilir. Element üst bileşende yaratılıp
+          prop olarak geçiyor: dış kısayolların `requestedAction` bağı orada
           kurulduğu için korunuyor, ama render burada — portal, modül düzeyinde
           yuva kaydı ve gizlenen sarmalayıcı gerekmiyor. Çapa da doğrudan bu
           kapsayıcıda: "görevlere git" kaydırması buraya iner. Tam genişlik

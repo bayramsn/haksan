@@ -24,6 +24,7 @@ import {
   salesStageLabel,
 } from "../../lib/mock";
 import { companyTemperatureCounts } from "../../lib/companyTemperature";
+import { useCompanySummary } from "../../lib/companyServerData";
 import { StatusBadge } from "../Layout";
 import { useStore } from "../../lib/store";
 import { useAuth } from "../../../lib/auth";
@@ -127,7 +128,10 @@ type DashboardSection = "ozet" | "operasyon" | "grafikler" | "hedefler";
 export function DashboardPage({ onAction }: { onAction?: (action: OperationAction) => void }) {
   const store = useStore();
   const { customers, cases: salesCases, service: serviceRequests, machines, users, offers } = store;
-  const { user } = useAuth();
+  const { user, activeDivision } = useAuth();
+  const companySummaryQuery = useCompanySummary(activeDivision);
+  const companySummary = companySummaryQuery.data;
+  const totalCompanyCount = companySummary?.total ?? customers.length;
   const { convert } = useFx();
   const [targetPeriod, setTargetPeriod] = useState(currentPeriod());
   const [myTarget, setMyTarget] = useState<AssignedTarget | null>(null);
@@ -167,7 +171,7 @@ export function DashboardPage({ onAction }: { onAction?: (action: OperationActio
     return storeStageData;
   }, [pipelineRows, storeStageData]);
   const radarData = useMemo(() => {
-    const total = Math.max(customers.length, 1);
+    const total = Math.max(totalCompanyCount, 1);
     const openSvc = serviceRequests.filter((s) => s.stage !== "Closed").length;
     const approved = offers.filter((o) => o.status === "Approved").length;
     const overdue = store.payments.filter((p) => p.status === "Overdue").length;
@@ -180,8 +184,12 @@ export function DashboardPage({ onAction }: { onAction?: (action: OperationActio
       { konu: "Stok", deger: Math.min(100, store.stock.filter((s) => s.status === "Available").length * 8) },
       { konu: "Onay", deger: Math.min(100, approved * 10) },
     ];
-  }, [customers.length, salesCases, offers, serviceRequests, store.stock, store.payments]);
-  const activeCustomers = customers.filter((c) => c.status === "active").length;
+  }, [totalCompanyCount, salesCases, offers, serviceRequests, store.stock, store.payments]);
+  const activeCustomers: number | string = companySummary
+    ? companySummary.byStatus.active
+    : companySummaryQuery.isPending
+      ? "…"
+      : "—";
   const openService = serviceRequests.filter((s) => s.stage !== "Closed").length;
   const installedMachines = machines.filter((m) => m.status === "Active").length;
   const workItems = useMemo(() => buildWorkItems(store), [store]);

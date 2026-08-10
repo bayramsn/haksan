@@ -68,6 +68,7 @@ import { PageShell } from "./components/shared/PageShell";
 import { PageLoadingSkeleton } from "./components/shared/PageLoadingSkeleton";
 import type { OperationAction, OperationFocus } from "./lib/operations";
 import { isNavigationAreaEnabled, NAVIGATION_VISIBILITY_KEYS } from "@haksan/shared";
+import { useCompanyDetail } from "./lib/companyServerData";
 
 const TITLES: Partial<Record<NavKey, { title: string; subtitle?: string }>> = {
   dashboard: { title: "Gösterge Paneli", subtitle: "Genel performans ve KPI özeti" },
@@ -119,6 +120,13 @@ function AppShell() {
   const [nav, setNav] = usePersistentState<NavKey>("nav", "dashboard");
   const [selectedCustomerId, setSelectedCustomerId] = usePersistentState<string | null>("selectedCustomerId", null);
   const [selectedCaseId, setSelectedCaseId] = usePersistentState<string | null>("selectedCaseId", null);
+  const selectedCustomerFallback = selectedCustomerId
+    ? customers.find((customer) => customer.id === selectedCustomerId)
+    : undefined;
+  const selectedCustomerQuery = useCompanyDetail(
+    authed ? selectedCustomerId : null,
+    selectedCustomerFallback,
+  );
   const [deepLinkReady, setDeepLinkReady] = useState(false);
   const [focus, setFocus] = useState<{ nav: NavKey; focus?: OperationFocus; query?: string } | null>(null);
   const requestedNavValue = isNavKey(nav) ? nav : DEFAULT_NAV;
@@ -265,7 +273,7 @@ function AppShell() {
   }
 
   // Seçili kayıtlar id ile saklanıp store yüklendiğinde yeniden çözülür.
-  const selectedCustomer: Customer | null = selectedCustomerId ? customers.find((c) => c.id === selectedCustomerId) ?? null : null;
+  const selectedCustomer: Customer | null = selectedCustomerQuery.data ?? selectedCustomerFallback ?? null;
   const selectedCase: SalesCase | null = selectedCaseId
     ? cases.find((s) => s.id === selectedCaseId) ?? closedCases.find((s) => s.id === selectedCaseId) ?? null
     : null;

@@ -12,9 +12,10 @@ import { Tabs, TabsList, TabsTrigger } from "../../ui/tabs";
 import { StatusBadge } from "../../Layout";
 import { MiniKpi } from "../../shared/MiniKpi";
 import { EmptyState } from "../../shared/EmptyState";
+import { RemoteCompanyCombobox } from "../../shared/RemoteCompanyCombobox";
 import { FormField, SummaryLine } from "../shared/formFields";
 import { CreateAccountingInvoiceDialog, type AccountingInvoicePrefill } from "../finance/CreateAccountingInvoiceDialog";
-import { purchaseOrderService, companyService, productService } from "../../../../lib/services";
+import { purchaseOrderService, productService } from "../../../../lib/services";
 import { useAuth } from "../../../../lib/auth";
 import { ExportExcelButton } from "../../ui/ExportExcelButton";
 import { formatCurrency, formatDate } from "../../../lib/pageHelpers";
@@ -585,7 +586,6 @@ const lineTotals = (line: PurchaseLineForm) => {
 
 function CreatePurchaseOrderDialog({ onCreated }: { onCreated: () => void }) {
   const [open, setOpen] = useState(false);
-  const [companies, setCompanies] = useState<any[]>([]);
   const [products, setProducts] = useState<any[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [form, setForm] = useState({
@@ -609,17 +609,9 @@ function CreatePurchaseOrderDialog({ onCreated }: { onCreated: () => void }) {
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
-    Promise.all([
-      companyService.list({ pageSize: 200 }).catch(() => ({ data: [] })),
-      productService.list({ pageSize: 200 }).catch(() => ({ data: [] })),
-    ]).then(([companyRes, productRes]) => {
+    productService.list({ pageSize: 200 }).catch(() => ({ data: [] })).then((productRes) => {
       if (cancelled) return;
-      setCompanies(companyRes.data ?? []);
       setProducts(productRes.data ?? []);
-      setForm((current) => ({
-        ...current,
-        supplierCompanyId: current.supplierCompanyId || companyRes.data?.[0]?.id || "",
-      }));
     });
     return () => {
       cancelled = true;
@@ -788,18 +780,16 @@ function CreatePurchaseOrderDialog({ onCreated }: { onCreated: () => void }) {
             </div>
             <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
               <FormField label={form.purchaseType === "administrative" ? "Firma / Müşteri (opsiyonel)" : "Firma / Müşteri Listesi"}>
-                <Select
-                  value={form.supplierCompanyId || "__none"}
-                  onValueChange={(v) => setForm({ ...form, supplierCompanyId: v === "__none" ? "" : v })}
-                >
-                  <SelectTrigger className="h-9" aria-label="Firma veya müşteri seçin"><SelectValue placeholder="Firma seçin" /></SelectTrigger>
-                  <SelectContent>
-                    {form.purchaseType === "administrative" && <SelectItem value="__none">Firma seçmeden</SelectItem>}
-                    {companies.map((company) => (
-                      <SelectItem key={company.id} value={company.id}>{company.shortName || company.legalTitle}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <RemoteCompanyCombobox
+                  value={form.supplierCompanyId}
+                  onValueChange={(supplierCompanyId) => setForm({ ...form, supplierCompanyId })}
+                  placeholder={form.purchaseType === "administrative" ? "Firma seçin (opsiyonel)…" : "Firma seçin…"}
+                />
+                {form.purchaseType === "administrative" && form.supplierCompanyId && (
+                  <Button type="button" variant="ghost" size="sm" className="mt-1 h-7 px-1.5 text-xs" onClick={() => setForm({ ...form, supplierCompanyId: "" })}>
+                    Firma seçimini kaldır
+                  </Button>
+                )}
               </FormField>
               <FormField label="Ödeme Tipi">
                 <Select

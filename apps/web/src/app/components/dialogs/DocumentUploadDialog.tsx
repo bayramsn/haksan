@@ -13,6 +13,8 @@ import { Textarea } from "../ui/textarea";
 import { useStore } from "../../lib/store";
 import type { DocumentItem } from "../../lib/mock";
 import { documentService, fileService } from "../../../lib/services";
+import { RemoteCompanyCombobox } from "../shared/RemoteCompanyCombobox";
+import { useCompanyDetail } from "../../lib/companyServerData";
 
 type DocumentTypeValue = DocumentItem["type"];
 
@@ -136,7 +138,9 @@ export function DocumentUploadDialog({
   const companyId = commercialRecordMode
     ? selectedOffer?.companyId || effectiveCase?.customerId || defaultCompanyId
     : scope === "case" ? selectedCase?.customerId ?? defaultCompanyId : selectedCompanyId;
-  const selectedCompany = customers.find((c) => c.id === companyId);
+  const storedSelectedCompany = customers.find((c) => c.id === companyId);
+  const selectedCompanyQuery = useCompanyDetail(companyId, storedSelectedCompany);
+  const selectedCompany = selectedCompanyQuery.data ?? storedSelectedCompany;
   const meta = DOCUMENT_TYPE_OPTIONS.find((item) => item.value === type) ?? DOCUMENT_TYPE_OPTIONS[DOCUMENT_TYPE_OPTIONS.length - 1];
   const lockedRelation = Boolean(defaultSalesCaseId || defaultCompanyId);
   const lockedType = defaultType === "ExternalQuote";
@@ -309,23 +313,20 @@ export function DocumentUploadDialog({
                         const customer = customers.find((c) => c.id === item.customerId);
                         return (
                           <SelectItem key={item.id} value={item.id}>
-                            {(customer?.name ?? "Firma") + " · " + item.requestedModel}
+                            {(customer?.name ?? item.leadCompanyTitle ?? "Firma") + " · " + item.requestedModel}
                           </SelectItem>
                         );
                       })}
                     </SelectContent>
                   </Select>
                 ) : (
-                  <Select value={selectedCompanyId || undefined} onValueChange={setSelectedCompanyId} disabled={Boolean(defaultCompanyId)}>
-                    <SelectTrigger className="mt-1 bg-white">
-                      <SelectValue placeholder="Firma seçin" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {customers.map((item) => (
-                        <SelectItem key={item.id} value={item.id}>{item.name}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <RemoteCompanyCombobox
+                    value={selectedCompanyId}
+                    onValueChange={setSelectedCompanyId}
+                    disabled={Boolean(defaultCompanyId)}
+                    className="mt-1 bg-white"
+                    placeholder="Firma seçin"
+                  />
                 )}
               </div>
             </div>

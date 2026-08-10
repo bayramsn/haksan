@@ -77,6 +77,8 @@ import {
   PAYMENT_FAMILY_PLAN_SHAPE,
   familyOfMethod,
 } from "../../lib/paymentMethod";
+import { RemoteCompanyCombobox } from "../shared/RemoteCompanyCombobox";
+import { useCompanyDetail } from "../../lib/companyServerData";
 
 export function SalesCaseDetailDialog({
   sc,
@@ -185,8 +187,10 @@ export function SalesCaseDetailPage({
   const canMarkLost = canUpdate && !sc.isLost && sc.stage !== "cancelled" && sc.stage !== "delivered";
   const isLeadCard = (sc.qualificationStage ?? "lead") === "lead";
   const cardTypeLabel = isLeadCard ? "Lead" : "Fırsat";
-  const c = customers.find((x) => x.id === sc.customerId);
-  const hasCompany = Boolean(sc.customerId && c);
+  const storedCompany = customers.find((x) => x.id === sc.customerId);
+  const companyQuery = useCompanyDetail(sc.customerId, storedCompany);
+  const c = companyQuery.data ?? storedCompany;
+  const hasCompany = Boolean(sc.customerId);
   const trelloCandidate = sc.externalMetadata?.candidate;
   const partyName =
     c?.name ??
@@ -227,7 +231,7 @@ export function SalesCaseDetailPage({
       await opportunityService.linkCompany(sc.id, { companyId, createContact: true });
       await refresh();
       toast.success("Firma satış kartına bağlandı", {
-        description: customers.find((customer) => customer.id === companyId)?.name ?? sc.leadCompanyTitle,
+        description: sc.leadCompanyTitle,
       });
     } catch (err: any) {
       toast.error("Firma satış kartına bağlanamadı", {
@@ -391,9 +395,9 @@ export function SalesCaseDetailPage({
       return;
     }
     setRequestedProcessAction(actionKey);
-    requestAnimationFrame(() => {
-      focusWorkspaceTarget(document.getElementById("opportunity-process-actions"), { focus: false });
-    });
+    // Alan düzenleyicileri artık kompakt görev düğmesinden modal olarak açılır;
+    // sayfayı görev paneline kaydırmak pencere açılırken gereksiz bir sıçrama
+    // yaratır. Radix Dialog odağı doğrudan açılan pencereye taşır.
   };
 
   const canPerformProcessAction = (actionKey: OpportunityProcessActionKey) => {
@@ -540,16 +544,13 @@ export function SalesCaseDetailPage({
             </div>
           </div>
           <div className="grid w-full min-w-0 gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
-            <Select disabled={companyLinking} onValueChange={(companyId) => void linkCompany(companyId)}>
-              <SelectTrigger className="w-full min-w-0 bg-white">
-                <SelectValue placeholder={companyLinking ? "Firma bağlanıyor…" : "Mevcut firma bağla"} />
-              </SelectTrigger>
-              <SelectContent>
-                {customers.map((customer) => (
-                  <SelectItem key={customer.id} value={customer.id}>{customer.name}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <RemoteCompanyCombobox
+              value={null}
+              disabled={companyLinking}
+              onValueChange={(companyId) => void linkCompany(companyId)}
+              className="w-full min-w-0 bg-white"
+              placeholder={companyLinking ? "Firma bağlanıyor…" : "Mevcut firma bağla"}
+            />
             <CreateCustomerDialog
               draftKey={`draft.customer.sales-case.${sc.id}`}
               initialValues={{
@@ -1097,9 +1098,7 @@ export function SalesCaseDetailPage({
             <OpportunityProcessCenter
               salesCase={sc}
               canUpdate={canUpdate}
-              canPerformAction={canPerformProcessAction}
               onRefresh={refresh}
-              onAction={(actionKey) => void handleProcessAction(actionKey)}
               detail={detail}
               loading={loading}
               onReload={reload}
@@ -1112,6 +1111,8 @@ export function SalesCaseDetailPage({
                   sc={sc}
                   requestedAction={requestedProcessAction}
                   onActionHandled={() => setRequestedProcessAction(null)}
+                  onAction={(actionKey) => void handleProcessAction(actionKey)}
+                  canPerformAction={canPerformProcessAction}
                   onSaved={reloadReadiness}
                   checks={stageChecks}
                   readOnly={stageReadOnly}
@@ -1130,14 +1131,14 @@ export function SalesCaseDetailPage({
       <OpportunityProcessCenter
         salesCase={sc}
         canUpdate={canUpdate}
-        canPerformAction={canPerformProcessAction}
         onRefresh={refresh}
-        onAction={(actionKey) => void handleProcessAction(actionKey)}
         checklist={({ reload: reloadReadiness, checks: stageChecks, readOnly: stageReadOnly }) => (
           <ProcessChecklistPanel
             sc={sc}
             requestedAction={requestedProcessAction}
             onActionHandled={() => setRequestedProcessAction(null)}
+            onAction={(actionKey) => void handleProcessAction(actionKey)}
+            canPerformAction={canPerformProcessAction}
             onSaved={reloadReadiness}
             checks={stageChecks}
             readOnly={stageReadOnly}
@@ -1161,16 +1162,13 @@ export function SalesCaseDetailPage({
                 </div>
               </div>
               <div className="grid w-full min-w-0 gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
-                <Select disabled={companyLinking} onValueChange={(companyId) => void linkCompany(companyId)}>
-                  <SelectTrigger className="w-full min-w-0 bg-white">
-                    <SelectValue placeholder={companyLinking ? "Firma bağlanıyor…" : "Mevcut firma bağla"} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {customers.map((customer) => (
-                      <SelectItem key={customer.id} value={customer.id}>{customer.name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <RemoteCompanyCombobox
+                  value={null}
+                  disabled={companyLinking}
+                  onValueChange={(companyId) => void linkCompany(companyId)}
+                  className="w-full min-w-0 bg-white"
+                  placeholder={companyLinking ? "Firma bağlanıyor…" : "Mevcut firma bağla"}
+                />
                 <CreateCustomerDialog
                   draftKey={`draft.customer.sales-case.${sc.id}`}
                   initialValues={{

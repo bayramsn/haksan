@@ -2,8 +2,8 @@
  * StoreProvider — backwards-compatible interface used by all existing pages,
  * but it now talks to the NestJS backend instead of holding mock data.
  *
- * - Initial mount fetches companies / contacts / opportunities / quotes /
- *   inventory / products / service tickets via REST.
+ * - Initial mount fetches operational resources via REST. Company and contact
+ *   directories stay server-paginated and are never bulk-loaded at startup.
  * - DTOs are normalized into the legacy mock types (Customer, SalesCase, etc.)
  *   so pages don't need to change.
  * - Mutations call backend endpoints, then trigger a refetch.
@@ -50,8 +50,6 @@ import {
   ServiceWarrantyClaim,
   ServiceWarrantyPart,
   Activity,
-  FirmType,
-  CustomerSalesStatus,
   DocumentItem,
   Machine,
   Payment,
@@ -63,13 +61,7 @@ import {
 } from './mock';
 import { productSpecGroupForTypeKey, specsForProductTypeStrict } from './productSpecTemplates';
 import { isServiceQuoteComplete, serviceQuoteMissingFields } from './serviceQuote';
-
-const VISIBLE_COMPANY_GROUP_CODES = new Set([
-  'a_group',
-  'b_group',
-  'dealer_second_hand',
-  'potential_cnc_customer',
-]);
+import { normalizeCompany } from './companyNormalizer';
 
 const SERVICE_STAGES: ServiceStage[] = [
   'Request Opened',
@@ -649,12 +641,18 @@ function StoreInner({ children }: { children: ReactNode }) {
     const userPerms = new Set(user?.permissions ?? []);
     const can = (permission?: string) => !permission || userPerms.has(permission);
     const canAny = (...permissions: string[]) => permissions.some((permission) => userPerms.has(permission));
-    const load = async <T,>(label: string, fn: () => Promise<T>, fallback: T, permission?: string): Promise<T> => {
+    const load = async <T,>(
+      label: string,
+      fn: () => Promise<T>,
+      fallback: T,
+      permission?: string,
+      trackTruncation = true,
+    ): Promise<T> => {
       if (!can(permission)) return fallback;
       try {
         const result = await fn();
         const meta = (result as { meta?: { total?: number; pageSize?: number } })?.meta;
-        if (meta && typeof meta.total === 'number' && typeof meta.pageSize === 'number' && meta.total > meta.pageSize) {
+        if (trackTruncation && meta && typeof meta.total === 'number' && typeof meta.pageSize === 'number' && meta.total > meta.pageSize) {
           truncated.push(`${label} (${meta.total})`);
         }
         return result;
@@ -666,9 +664,7 @@ function StoreInner({ children }: { children: ReactNode }) {
     };
     try {
       const empty = { data: [] as any[], meta: { total: 0, page: 1, pageSize: 0, totalPages: 0 } };
-      const [companies, contactsR, opps, prods, inv, qts, svcTickets, acts, usersR, devicesR, receivablesR, paymentsR, proformasR, contractsR, invoicesR, noteTemplatesR, shipmentsR, deliveriesR, installationsR, fileLinksR, closedOpps] = await Promise.all([
-        load('Firmalar', () => loadAllPaginated((page, pageSize) => companyService.list({ page, pageSize })), empty, 'companies.read'),
-        load('Kontaklar', () => loadAllPaginated((page, pageSize) => contactService.list({ page, pageSize })), empty, 'contacts.read'),
+      const [opps, prods, inv, qts, svcTickets, acts, usersR, devicesR, receivablesR, paymentsR, proformasR, contractsR, invoicesR, noteTemplatesR, shipmentsR, deliveriesR, installationsR, fileLinksR, closedOpps] = await Promise.all([
         load('Satış kartları', () => loadAllPaginated((page, pageSize) => opportunityService.list({ page, pageSize })), empty, 'opportunities.read'),
         load('Ürünler', () => loadAllPaginated((page, pageSize) => productService.list({ page, pageSize })), empty, 'products.read'),
         load('Stok', () => loadAllPaginated((page, pageSize) => inventoryService.list({ page, pageSize })), empty, 'inventory.read'),
@@ -730,75 +726,70 @@ function StoreInner({ children }: { children: ReactNode }) {
         }))
       );
 
-      setCustomers(
-        companies.data.map((c: any) => {
-          const companyGroups = (c.companyGroups ?? (c.companyGroup ? [c.companyGroup] : []))
-            .filter((group: any) => VISIBLE_COMPANY_GROUP_CODES.has(group.code));
-          return {
-          id: c.id,
-          logoFileId: c.logoFileId ?? null,
-          logoUrl: resolveMediaUrl(c.logoUrl) || undefined,
-          companyNo: c.externalCompanyNo ?? '',
-          type: (c.companyType === 'person' ? 'person' : 'company') as 'person' | 'company',
-          firmType: ((c.relationType?.code as FirmType) ?? 'customer') as FirmType,
-          salesStatus: ((c.customerStatus?.code === 'active' ? 'active_customer' : 'potential') as CustomerSalesStatus),
-          divisions: Array.isArray(c.divisions)
-            ? c.divisions.map((d: any) => ({ id: d.id, code: d.code ?? null, name: d.name ?? '' }))
-            : [],
-          companyGroupCode: companyGroups[0]?.code ?? '',
-          companyGroupName: companyGroups[0]?.name ?? '',
-          companyGroupCodes: companyGroups.map((group: any) => group.code).filter(Boolean),
-          companyGroupNames: companyGroups.map((group: any) => group.name).filter(Boolean),
-          contactSourceCode: c.contactSource?.code ?? '',
-          contactSourceText: c.contactSourceText ?? '',
-          sector: c.sector ?? '',
-          supplierCategoryCode: c.supplierCategoryCode ?? undefined,
-          name: c.legalTitle ?? c.shortName ?? '—',
-          contactPerson: '',
-          phone: c.primaryPhone ?? '',
-          phone2: c.secondaryPhone ?? '',
-          fax: c.fax ?? '',
-          email: c.primaryEmail ?? '',
-          email2: c.secondaryEmail ?? '',
-          city: c.primaryAddress?.province ?? '',
-          district: c.primaryAddress?.district ?? '',
-          country: c.primaryAddress?.country ?? '',
-          address: c.primaryAddress?.fullAddress ?? '',
-          addresses: (c.addresses ?? (c.primaryAddress ? [c.primaryAddress] : [])).map((a: any) => ({
-            id: a.id,
-            addressType: a.addressType ?? 'office',
-            country: a.country ?? 'Türkiye',
-            city: a.province ?? '',
-            district: a.district ?? '',
-            address: a.fullAddress ?? '',
-            latitude: a.latitude == null ? undefined : Number(a.latitude),
-            longitude: a.longitude == null ? undefined : Number(a.longitude),
-            locationSource: a.locationSource ?? undefined,
-            isDefault: Boolean(a.isDefault),
-            isShipping: Boolean(a.isShipping),
-            isBilling: Boolean(a.isBilling),
-          })),
-          latitude: c.primaryAddress?.latitude != null ? Number(c.primaryAddress.latitude) : undefined,
-          longitude: c.primaryAddress?.longitude != null ? Number(c.primaryAddress.longitude) : undefined,
-          locationSource: c.primaryAddress?.locationSource ?? undefined,
-          taxOffice: c.taxOffice ?? '',
-          taxNumber: c.taxNumber ?? '',
-          website: c.website ?? '',
-          wantedProduct: '',
-          initialNote: c.notes ?? '',
-          source: c.contactSource?.name ?? c.contactSourceText ?? '',
-          status: 'active',
-          createdAt: (c.createdAt as string)?.slice(0, 10) ?? '',
-          createdByUserId: c.createdByUser?.id ?? c.createdBy ?? null,
-          createdByName: c.createdByUser?.fullName ?? c.createdByUser?.name ?? null,
-          createdByEmail: c.createdByUser?.email ?? null,
-          };
-        })
-      );
+      // Only references already embedded in resources the user is allowed to
+      // view are kept in the compatibility store. Full company/contact rows
+      // (phone, e-mail, tax and address data) are fetched on demand by detail
+      // views and remote selectors, never as a global startup directory.
+      const companyReferences = new Map<string, Customer>();
+      const addCompanyReference = (candidate: any, fallbackId?: unknown, fallbackName?: unknown) => {
+        const id = cleanString(candidate?.id ?? candidate?.companyId ?? fallbackId);
+        const legalTitle = cleanString(
+          candidate?.legalTitle
+          ?? candidate?.shortName
+          ?? candidate?.companyName
+          ?? candidate?.name
+          ?? fallbackName,
+        );
+        if (!id || !legalTitle) return;
+        const previous = companyReferences.get(id);
+        companyReferences.set(id, normalizeCompany({
+          id,
+          legalTitle,
+          shortName: cleanString(candidate?.shortName) ?? null,
+          createdAt: cleanString(candidate?.createdAt) ?? '',
+        }, previous));
+      };
+      for (const opportunity of [...(opps.data ?? []), ...(closedOpps.data ?? [])]) {
+        addCompanyReference(opportunity.company, opportunity.companyId, opportunity.leadCompanyTitle);
+      }
+      for (const quote of qts.data ?? []) addCompanyReference(quote.company, quote.companyId);
+      for (const item of inv.data ?? []) addCompanyReference(item.reservedCompany, item.reservedCompanyId);
+      for (const ticket of svcTickets.data ?? []) addCompanyReference(ticket.company, ticket.companyId);
+      for (const device of devicesR.data ?? []) addCompanyReference(device.company, device.companyId);
+      for (const row of receivablesR.data ?? []) addCompanyReference(row.company, row.companyId, row.companyName);
+      for (const row of paymentsR.data ?? []) addCompanyReference(row.company, row.companyId, row.companyName);
+      for (const document of [...(proformasR.data ?? []), ...(contractsR.data ?? []), ...(invoicesR.data ?? [])]) {
+        addCompanyReference(document.company, document.companyId ?? document.quote?.companyId, document.companyNameText);
+      }
+      for (const shipment of shipmentsR.data ?? []) {
+        addCompanyReference(shipment.company, shipment.companyId);
+        addCompanyReference(shipment.senderCompany, shipment.senderCompanyId);
+        addCompanyReference(shipment.carrierCompany, shipment.carrierCompanyId);
+      }
+      for (const delivery of deliveriesR.data ?? []) addCompanyReference(delivery.company, delivery.companyId);
+      for (const installation of installationsR.data ?? []) addCompanyReference(installation.company, installation.companyId);
+      setCustomers(Array.from(companyReferences.values()));
 
-      setContacts(
-        contactsR.data.map(normalizeContact)
-      );
+      const contactReferences = new Map<string, Contact>();
+      const addContactReference = (candidate: any, fallbackId?: unknown, companyId?: unknown) => {
+        const id = cleanString(candidate?.id ?? candidate?.contactId ?? fallbackId);
+        const fullName = cleanString(candidate?.fullName ?? candidate?.name);
+        if (!id || !fullName) return;
+        contactReferences.set(id, normalizeContact({
+          id,
+          fullName,
+          companyId: cleanString(candidate?.companyId ?? companyId),
+        }));
+      };
+      for (const opportunity of [...(opps.data ?? []), ...(closedOpps.data ?? [])]) {
+        addContactReference(opportunity.primaryContact, opportunity.primaryContactId, opportunity.companyId);
+      }
+      for (const quote of qts.data ?? []) addContactReference(quote.contact, quote.contactId, quote.companyId);
+      for (const ticket of svcTickets.data ?? []) addContactReference(ticket.contact, ticket.contactId, ticket.companyId);
+      for (const installation of installationsR.data ?? []) {
+        addContactReference(installation.contact, installation.contactId, installation.companyId);
+      }
+      setContacts(Array.from(contactReferences.values()));
 
       const mapCase = (o: any): SalesCase =>
         ({
@@ -807,7 +798,14 @@ function StoreInner({ children }: { children: ReactNode }) {
           divisionId: o.divisionId ?? undefined,
           primaryContactId: o.primaryContactId ?? undefined,
           leadContactName: o.leadContactName ?? undefined,
-          leadCompanyTitle: o.leadCompanyTitle ?? undefined,
+          // Firma listesi artık başlangıçta tarayıcıya topluca indirilmediği için
+          // bağlı firmanın güvenli gömülü adını kart üzerinde de taşı. Eski
+          // ekranlar `leadCompanyTitle` fallback'ini zaten kullanıyor.
+          leadCompanyTitle:
+            o.leadCompanyTitle
+            ?? o.company?.shortName
+            ?? o.company?.legalTitle
+            ?? undefined,
           leadContactValue: o.leadContactValue ?? undefined,
           leadContactMethodCode: o.source?.code ?? undefined,
           leadContactMethodName: o.source?.name ?? undefined,
@@ -1496,6 +1494,7 @@ function StoreInner({ children }: { children: ReactNode }) {
       contactSourceText,
     });
     await fetchAll();
+    await queryClient.invalidateQueries({ queryKey: ['companies'] });
     return {
       id: created.id,
       logoFileId: created.logoFileId ?? null,
@@ -1591,11 +1590,13 @@ function StoreInner({ children }: { children: ReactNode }) {
     }
     await companyService.update(id, body);
     await fetchAll();
+    await queryClient.invalidateQueries({ queryKey: ['companies'] });
   };
 
   const deleteCustomer: Store['deleteCustomer'] = async (id) => {
     await companyService.remove(id);
     setCustomers((prev) => prev.filter((c) => c.id !== id));
+    await queryClient.invalidateQueries({ queryKey: ['companies'] });
   };
 
   const addContact: Store['addContact'] = async (k) => {
@@ -1624,6 +1625,7 @@ function StoreInner({ children }: { children: ReactNode }) {
       blacklistReason: k.blacklistReason,
     });
     await fetchAll();
+    await queryClient.invalidateQueries({ queryKey: ['contacts-server'] });
     return normalizeContact(created);
   };
 
@@ -1653,11 +1655,13 @@ function StoreInner({ children }: { children: ReactNode }) {
       blacklistReason: patch.blacklistReason,
     });
     await fetchAll();
+    await queryClient.invalidateQueries({ queryKey: ['contacts-server'] });
   };
 
   const deleteContact: Store['deleteContact'] = async (id) => {
     await contactService.remove(id);
     await fetchAll();
+    await queryClient.invalidateQueries({ queryKey: ['contacts-server'] });
   };
 
   const addActivity: Store['addActivity'] = async (a) => {
@@ -2668,9 +2672,12 @@ function StoreInner({ children }: { children: ReactNode }) {
 }
 
 export function StoreProvider({ children }: { children: ReactNode }) {
+  const { user } = useAuth();
+  const authenticatedIdentity = user ? `${user.tenantId}:${user.id}` : 'anonymous';
+
   return (
     <QueryClientProvider client={queryClient}>
-      <StoreInner>{children}</StoreInner>
+      <StoreInner key={authenticatedIdentity}>{children}</StoreInner>
     </QueryClientProvider>
   );
 }

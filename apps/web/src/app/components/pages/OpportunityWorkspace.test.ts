@@ -62,6 +62,17 @@ describe("lead ve fırsat çalışma alanı sorumlu değişikliği", () => {
     expect(workspaceSource).not.toContain('if (!isLead && !simpleOpportunity) return items.sort');
   });
 
+  it("firma ve primary kontağı store kataloglarından bağımsız hydrate eder", () => {
+    expect(workspaceSource).toContain("useCompanyDetail(sc.customerId)");
+    expect(workspaceSource).toContain("loadAllCompanyContacts(sc.customerId as string, signal)");
+    expect(workspaceSource).toContain("useRemoteContactDetail(sc.primaryContactId)");
+    expect(workspaceSource).toContain("contactQueryKeys.companyContacts(contactScope");
+    expect(workspaceSource).toContain('tenantId: user?.tenantId ?? "anonymous"');
+    expect(workspaceSource).toContain('userId: user?.id ?? "anonymous"');
+    expect(workspaceSource).not.toContain("customers.find");
+    expect(workspaceSource).not.toContain("contacts.filter");
+  });
+
   it("süreç bildirimlerini akışın altında ayrı bir alanda gösterir", () => {
     // Kullanıcı süreç geçmişini görmek isteyebilir ama akışın içinde değil:
     // kendi küçük alanında, kapalı başlayarak.

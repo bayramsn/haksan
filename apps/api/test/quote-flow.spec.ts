@@ -12,6 +12,7 @@ let opportunityId: string;
 let quoteId: string;
 let quoteBusinessLine: string;
 let proformaId: string;
+let contractId: string;
 let quoteItemId: string;
 let productModelId: string;
 let productFullName: string;
@@ -159,9 +160,38 @@ describe('ERP flow', () => {
       grandTotal: 102_000,
     });
     expect(contract.status).toBe(201);
+    contractId = contract.body.id;
     expect(contract.body.contractNo).toMatch(new RegExp(`^${quoteBusinessLine}-SOZ-\\d{4}/\\d{3}$`));
     expect(invoice.status).toBe(201);
     expect(invoice.body.invoiceNo).toMatch(new RegExp(`^${quoteBusinessLine}-FAT-\\d{4}/\\d{3}$`));
+  });
+
+  it('reprices a draft contract without nesting the previous snapshot', async () => {
+    const first = await supertest(app.getHttpServer())
+      .patch(`/api/v1/contracts/${contractId}`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ items: [{ quoteItemId, unitPrice: 89_000 }] });
+    expect(first.status, JSON.stringify(first.body)).toBe(200);
+    expect(first.body.documentSnapshot?.items[0]).toMatchObject({
+      id: quoteItemId,
+      unitPrice: 89_000,
+      discountAmount: 5_000,
+      lineTotal: 84_000,
+    });
+    expect(first.body.documentSnapshot).not.toHaveProperty('documentSnapshot');
+
+    const second = await supertest(app.getHttpServer())
+      .patch(`/api/v1/contracts/${contractId}`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ items: [{ quoteItemId, unitPrice: 88_000 }] });
+    expect(second.status, JSON.stringify(second.body)).toBe(200);
+    expect(second.body.documentSnapshot?.items[0]).toMatchObject({
+      id: quoteItemId,
+      unitPrice: 88_000,
+      discountAmount: 5_000,
+      lineTotal: 83_000,
+    });
+    expect(second.body.documentSnapshot).not.toHaveProperty('documentSnapshot');
   });
 
   it('keeps contract terms on the contract and leaves the quote terms untouched', async () => {

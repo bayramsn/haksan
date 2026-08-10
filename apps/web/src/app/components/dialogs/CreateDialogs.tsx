@@ -60,13 +60,6 @@ function useSubmissionLock() {
   };
 }
 
-const preferredServiceContact = (items: Contact[], customerId: string) => {
-  const matches = items.filter((contact) => contactBelongsToCustomer(contact, customerId));
-  return matches.find((contact) => contact.isPrimary && contact.customerId === customerId) ??
-    matches.find((contact) => contact.customerId === customerId) ??
-    matches.find((contact) => contact.isPrimary) ??
-    matches[0];
-};
 import { toast } from "sonner";
 import {
   Building2, User as UserIcon, Wallet, Truck, ClipboardCheck, ChevronDown, Receipt, Upload,
@@ -103,9 +96,12 @@ import {
 import { QuoteDialog } from "./QuoteDialog";
 import { ProductSpecGroupManagerDialog } from "./ProductSpecGroupManagerDialog";
 import { ProductSpecsTable } from "../shared/ProductSpecsTable";
+import { RemoteCompanyCombobox } from "../shared/RemoteCompanyCombobox";
+import { RemoteContactCombobox, useRemoteContactDetail } from "../shared/RemoteContactCombobox";
 import { OsmCompanySearch } from "../company/OsmCompanySearch";
 import { CompanyWebsiteLookup } from "../company/CompanyWebsiteLookup";
 import { relatedDeliveryFormNo, resolveServiceFormNo } from "../../lib/serviceFormNo";
+import { useCompanyDetail } from "../../lib/companyServerData";
 
 /* ---------- Customer ---------- */
 const COMPANY_GROUP_OPTIONS = [
@@ -1042,7 +1038,7 @@ export function CreateContactDialog({
   draftKey?: string;
   onCreated?: (id: string) => void;
 }) {
-  const { customers, addContact, addCustomer } = useStore();
+  const { addContact, addCustomer } = useStore();
   const [open, setOpen] = useState(false);
   const submission = useSubmissionLock();
   const initialForm = () => ({ ...emptyContactForm(defaultCustomerId), ...initialValues });
@@ -1111,13 +1107,11 @@ export function CreateContactDialog({
             <div className="col-span-2">
               <Label className="text-xs">Firma *</Label>
               <div className="mt-1.5">
-                <Combobox
-                  options={customers.map((c) => ({ value: c.id, label: c.name, hint: c.city }))}
+                <RemoteCompanyCombobox
                   value={form.customerId}
-                  onChange={(v) => setForm({ ...form, customerId: v })}
+                  onValueChange={(value) => setForm({ ...form, customerId: value })}
                   placeholder="Firma seçin veya adını yazın..."
                   searchPlaceholder="Firma adı / şehir ara..."
-                  emptyText="Firma bulunamadı."
                   onCreate={async (label) => {
                     try {
                       const created = await addCustomer({
@@ -1548,7 +1542,7 @@ export function EditCustomerDialog({ customer, onClose }: { customer: Customer |
 
 /* ---------- Kontak düzenleme (controlled) ---------- */
 export function EditContactDialog({ contact, onClose }: { contact: Contact | null; onClose: () => void }) {
-  const { customers, updateContact, addCustomer } = useStore();
+  const { updateContact, addCustomer } = useStore();
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState(emptyContactForm());
   const [linkedCompanies, setLinkedCompanies] = useState<{ id: string; legalTitle: string; shortName: string | null; externalCompanyNo: string | null; isPrimary: boolean }[]>([]);
@@ -1683,13 +1677,11 @@ export function EditContactDialog({ contact, onClose }: { contact: Contact | nul
             <div className="col-span-2">
               <Label className="text-xs">Firma *</Label>
               <div className="mt-1.5">
-                <Combobox
-                  options={customers.map((customer) => ({ value: customer.id, label: customer.name, hint: customer.city }))}
+                <RemoteCompanyCombobox
                   value={form.customerId}
-                  onChange={(value) => setForm({ ...form, customerId: value })}
+                  onValueChange={(value) => setForm({ ...form, customerId: value })}
                   placeholder="Firma seçin veya adını yazın..."
                   searchPlaceholder="Firma adı / şehir ara..."
-                  emptyText="Firma bulunamadı."
                   onCreate={async (label) => {
                     try {
                       const created = await addCustomer({
@@ -1853,7 +1845,7 @@ export function CreateCaseDialog({
   defaultCustomerId?: string;
   createAsOpportunity?: boolean;
 }) {
-  const { customers, addCase, convertCase, addCustomer, users, products } = useStore();
+  const { addCase, convertCase, addCustomer, users, products } = useStore();
   const { user, activeDivision, canUseAllDivisionsForResource, hasRole, scopesForResource } = useAuth();
   const isSuperAdmin = hasRole("super_admin");
   const divisions = user?.divisions ?? [];
@@ -1948,13 +1940,11 @@ export function CreateCaseDialog({
             <div className="col-span-2">
               <Label className="text-xs">Müşteri *</Label>
               <div className="mt-1.5">
-                <Combobox
-                  options={customers.map((c) => ({ value: c.id, label: c.name, hint: c.city }))}
+                <RemoteCompanyCombobox
                   value={form.customerId}
-                  onChange={(v) => setForm({ ...form, customerId: v })}
+                  onValueChange={(value) => setForm({ ...form, customerId: value })}
                   placeholder="Firma seçin veya adını yazın..."
                   searchPlaceholder="Firma adı / şehir ara..."
-                  emptyText="Firma bulunamadı."
                   onCreate={async (label) => {
                     try {
                       const created = await addCustomer({
@@ -3136,7 +3126,7 @@ export function ProductDialog({
   open?: boolean;
   onOpenChange?: (o: boolean) => void;
 }) {
-  const { addProduct, updateProduct, products, customers } = useStore();
+  const { addProduct, updateProduct, products } = useStore();
   const { activeDivision, user } = useAuth();
   const activeProductGroupCode = useMemo(() => {
     if (!activeDivision || activeDivision === "all") return "";
@@ -3389,7 +3379,6 @@ export function ProductDialog({
   const isMachineProduct = form.categoryCode === "TEZGAH";
   const isOptionalEquipmentProduct = form.categoryCode === OPTIONAL_EQUIPMENT_CATEGORY_CODE;
   const isLaborProduct = form.categoryCode === "ISCILIK" || form.productTypeCode === "ISCILIK";
-  const supplierOptions = customers.filter((c) => c.firmType === "supplier" || c.firmType === "supplier_customer");
   const compatibilityGroupOptions = productGroupOptions.map((o) => ({ value: o.code, label: o.label }));
   const compatibilityCategoryOptions = productCategoryOptions
     .filter((o) => o.code !== OPTIONAL_EQUIPMENT_CATEGORY_CODE)
@@ -3760,18 +3749,21 @@ export function ProductDialog({
 
             {!isLaborProduct && (
               <ProductSheetRow label="Ürün Tedarikçisi">
-                <Select
-                  value={form.supplierCompanyId || "__none"}
-                  onValueChange={(v) => setForm({ ...form, supplierCompanyId: v === "__none" ? "" : v })}
-                >
-                  <SelectTrigger className="h-8 max-w-md"><SelectValue placeholder="Tedarikçi seçin" /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="__none">Belirtilmedi</SelectItem>
-                    {supplierOptions.map((supplier) => (
-                      <SelectItem key={supplier.id} value={supplier.id}>{supplier.name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <div className="flex max-w-md items-center gap-1">
+                  <RemoteCompanyCombobox
+                    value={form.supplierCompanyId || null}
+                    relationTypeCodes={["supplier", "supplier_customer"]}
+                    onValueChange={(supplierCompanyId) => setForm({ ...form, supplierCompanyId })}
+                    placeholder="Tedarikçi seçin"
+                    searchPlaceholder="Tedarikçi firma ara..."
+                    className="h-8"
+                  />
+                  {form.supplierCompanyId && (
+                    <Button type="button" variant="ghost" size="icon" className="size-8" title="Tedarikçiyi temizle" onClick={() => setForm({ ...form, supplierCompanyId: "" })}>
+                      <X className="size-3.5" />
+                    </Button>
+                  )}
+                </div>
               </ProductSheetRow>
             )}
 
@@ -5264,14 +5256,13 @@ export function deliveryToFormState(d: {
 export function DeliveryFormFields({
   form,
   setForm,
-  customers,
   casesForCustomer,
   machinesForCustomer,
   relatedDeliveries = [],
 }: {
   form: DeliveryFormState;
   setForm: React.Dispatch<React.SetStateAction<DeliveryFormState>>;
-  customers: Customer[];
+  customers?: Customer[];
   casesForCustomer: { id: string; requestedProduct: string }[];
   machinesForCustomer: {
     id: string;
@@ -5301,26 +5292,22 @@ export function DeliveryFormFields({
     <div className="space-y-4 max-h-[min(62dvh,560px)] overflow-y-auto pr-1">
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <div className="sm:col-span-2">
-          <Label className="text-xs" htmlFor="del-customer">Müşteri *</Label>
-          <Select
+          <Label className="text-xs">Müşteri *</Label>
+          <RemoteCompanyCombobox
+            className="mt-1.5"
             value={form.customerId}
-            onValueChange={(v) => {
-              const cust = customers.find((c) => c.id === v);
+            onValueChange={(value) => {
               setForm({
                 ...form,
-                customerId: v,
+                customerId: value,
                 salesCaseId: "",
                 machineId: "",
-                ilgili: cust?.contactPerson ?? "",
+                ilgili: "",
                 technicalSpecs: [],
               });
             }}
-          >
-            <SelectTrigger id="del-customer" className="mt-1.5"><SelectValue placeholder="Müşteri seçin..." /></SelectTrigger>
-            <SelectContent>
-              {customers.map((c) => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
-            </SelectContent>
-          </Select>
+            placeholder="Müşteri seçin..."
+          />
         </div>
         <div>
           <Label className="text-xs">Satış Kartı</Label>
@@ -5424,11 +5411,10 @@ export function DeliveryFormFields({
 
 export function CreateDeliveryDialog({ trigger, onCreated }: { trigger: React.ReactNode; onCreated?: () => void }) {
   const { addDelivery, cases, customers, machines, deliveries } = useStore();
-  const customerName = (id: string) => customers.find((c) => c.id === id)?.name ?? "—";
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const emptyForm = (): DeliveryFormState => ({
-    customerId: customers[0]?.id ?? "",
+    customerId: "",
     salesCaseId: "",
     machineId: "",
     date: new Date().toISOString().slice(0, 10),
@@ -5436,7 +5422,7 @@ export function CreateDeliveryDialog({ trigger, onCreated }: { trigger: React.Re
     formNo: "",
     signedBy: "",
     kurulumuYapan: "",
-    ilgili: customers[0]?.contactPerson ?? "",
+    ilgili: "",
     status: "Bekliyor",
     tezgahMarka: "",
     tezgahTip: "",
@@ -5449,6 +5435,9 @@ export function CreateDeliveryDialog({ trigger, onCreated }: { trigger: React.Re
     technicalSpecs: [],
   });
   const [form, setForm] = useState(emptyForm);
+  const storeSelectedCustomer = customers.find((customer) => customer.id === form.customerId);
+  const selectedCustomerQuery = useCompanyDetail(form.customerId, storeSelectedCustomer);
+  const selectedCustomer = selectedCustomerQuery.data ?? storeSelectedCustomer;
   const reset = () => setForm(emptyForm());
   const casesForCustomer = cases.filter((c) => c.customerId === form.customerId);
   const machinesForCustomer = machines.filter((m) => m.customerId === form.customerId);
@@ -5466,7 +5455,7 @@ export function CreateDeliveryDialog({ trigger, onCreated }: { trigger: React.Re
         status: form.status,
         formData: deliveryFormToPayload(form),
       });
-      toast.success("Teslimat kaydı oluşturuldu", { description: `${customerName(form.customerId)} · ${form.date}` });
+      toast.success("Teslimat kaydı oluşturuldu", { description: `${selectedCustomer?.name ?? "Firma"} · ${form.date}` });
       setOpen(false);
       reset();
       onCreated?.();
@@ -5550,12 +5539,12 @@ export function CreatePaymentDialog({
   onCreated?: () => void;
   defaultDirection?: "in" | "out";
 }) {
-  const { customers, addDocument } = useStore();
+  const { addDocument } = useStore();
   const inputRef = useRef<HTMLInputElement>(null);
   const [open, setOpen] = useState(false);
   const emptyForm = () => ({
     direction: defaultDirection as "in" | "out",
-    companyId: customers[0]?.id ?? "",
+    companyId: "",
     amount: "",
     currencyCode: "USD" as (typeof PAYMENT_CURRENCIES)[number],
     paymentDate: new Date().toISOString().slice(0, 10),
@@ -5717,14 +5706,7 @@ export function CreatePaymentDialog({
 
           <div>
             <Label className="text-xs">Firma *</Label>
-            <Select value={form.companyId} onValueChange={(v) => setForm({ ...form, companyId: v })}>
-              <SelectTrigger className="mt-1.5"><SelectValue placeholder="Firma seçin..." /></SelectTrigger>
-              <SelectContent>
-                {customers.map((c) => (
-                  <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <RemoteCompanyCombobox className="mt-1.5" value={form.companyId} onValueChange={(companyId) => setForm({ ...form, companyId })} placeholder="Firma seçin..." />
           </div>
 
           <div className="grid grid-cols-2 gap-3">
@@ -5830,10 +5812,9 @@ export function CreateReceivableDialog({
   quoteOptions?: { id: string; quoteNo: string; revision: number }[];
   defaultQuoteId?: string;
 }) {
-  const { customers } = useStore();
   const [open, setOpen] = useState(false);
   const emptyForm = () => ({
-    companyId: defaultCompanyId ?? customers[0]?.id ?? "",
+    companyId: defaultCompanyId ?? "",
     quoteId: defaultQuoteId ?? quoteOptions[0]?.id ?? "",
     amount: "",
     currencyCode: "USD" as (typeof PAYMENT_CURRENCIES)[number],
@@ -5888,14 +5869,7 @@ export function CreateReceivableDialog({
         <form onSubmit={submit} className="space-y-4">
           <div>
             <Label className="text-xs">Firma *</Label>
-            <Select value={form.companyId} onValueChange={(v) => setForm({ ...form, companyId: v })}>
-              <SelectTrigger className="mt-1.5"><SelectValue placeholder="Firma seçin..." /></SelectTrigger>
-              <SelectContent>
-                {customers.map((c) => (
-                  <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <RemoteCompanyCombobox className="mt-1.5" value={form.companyId} onValueChange={(companyId) => setForm({ ...form, companyId })} placeholder="Firma seçin..." />
           </div>
 
           {quoteOptions.length > 0 && (
@@ -5949,7 +5923,7 @@ export function CreateReceivableDialog({
 }
 
 export function CreateServiceRequestDialog({ trigger, defaultMachineId }: { trigger: React.ReactNode; defaultMachineId?: string }) {
-  const { customers, contacts, addService, machines: machinesAll, users } = useStore();
+  const { customers, addService, machines: machinesAll, users } = useStore();
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const serviceUsers = useMemo(() => users.filter((u) => u.role === "Service" || u.department === "Servis"), [users]);
@@ -5977,10 +5951,9 @@ export function CreateServiceRequestDialog({ trigger, defaultMachineId }: { trig
     if (!open) return;
     const defaultMachine = machinesAll.find((machine) => machine.id === defaultMachineId);
     const customerId = machineCustomerId(defaultMachine);
-    const preferredContact = preferredServiceContact(contacts, customerId);
     setForm({
       customerId,
-      contactId: preferredContact?.id ?? "",
+      contactId: "",
       machineId: defaultMachine?.id ?? "",
       assignedUserId: (serviceUsers[0] ?? users[0])?.id ?? "",
       ticketType: "complaint",
@@ -5988,23 +5961,18 @@ export function CreateServiceRequestDialog({ trigger, defaultMachineId }: { trig
       quoteRequired: false,
       serviceNote: "",
     });
-  }, [open, defaultMachineId, contacts, machinesAll, serviceUsers, users]);
+  }, [open, defaultMachineId, machinesAll, serviceUsers, users]);
 
-  const customerOptions = useMemo(
-    () => customers.map((customer) => ({ value: customer.id, label: customer.name })),
-    [customers],
-  );
-  const selectedCustomer = customers.find((customer) => customer.id === form.customerId);
+  const storeSelectedCustomer = customers.find((customer) => customer.id === form.customerId);
+  const selectedCustomerQuery = useCompanyDetail(form.customerId, storeSelectedCustomer);
+  const selectedCustomer = selectedCustomerQuery.data ?? storeSelectedCustomer;
   const companyMachines = useMemo(
     () => machinesAll.filter((machine) => machineCustomerId(machine) === form.customerId),
     [machinesAll, form.customerId],
   );
-  const companyContacts = useMemo(
-    () => contacts.filter((contact) => contactBelongsToCustomer(contact, form.customerId)),
-    [contacts, form.customerId],
-  );
   const selectedMachine = machinesAll.find((m) => m.id === form.machineId);
-  const selectedContact = contacts.find((contact) => contact.id === form.contactId);
+  const selectedContactQuery = useRemoteContactDetail(form.contactId);
+  const selectedContact = selectedContactQuery.data;
   const contactPhone = selectedContact?.mobilePhone || selectedContact?.phone || selectedContact?.otherPhone || selectedCustomer?.phone || selectedCustomer?.phone2 || "";
   const contactEmail = selectedContact?.email || selectedContact?.personalEmail || selectedContact?.otherEmail || selectedCustomer?.email || selectedCustomer?.email2 || "";
   const assignedUser = (serviceUsers.length > 0 ? serviceUsers : users).find((u) => u.id === form.assignedUserId);
@@ -6032,14 +6000,13 @@ export function CreateServiceRequestDialog({ trigger, defaultMachineId }: { trig
   }, [companyMachines, machinesAll, customers, form.customerId]);
 
   const selectCustomer = (customerId: string) => {
-    const preferredContact = preferredServiceContact(contacts, customerId);
     const currentMachine = machinesAll.find((machine) => machine.id === form.machineId);
     const currentMachineBelongsToCustomer = machineCustomerId(currentMachine) === customerId;
     const nextMachines = machinesAll.filter((machine) => machineCustomerId(machine) === customerId);
     setForm((current) => ({
       ...current,
       customerId,
-      contactId: preferredContact?.id ?? "",
+      contactId: "",
       machineId: currentMachineBelongsToCustomer ? current.machineId : nextMachines.length === 1 ? nextMachines[0].id : "",
     }));
   };
@@ -6051,13 +6018,12 @@ export function CreateServiceRequestDialog({ trigger, defaultMachineId }: { trig
     }
     const machine = machinesAll.find((item) => item.id === machineId);
     const customerId = machineCustomerId(machine) || form.customerId;
-    const preferredContact = selectedContact && contactBelongsToCustomer(selectedContact, customerId)
-      ? selectedContact
-      : preferredServiceContact(contacts, customerId);
     setForm((current) => ({
       ...current,
       customerId,
-      contactId: preferredContact?.id ?? "",
+      contactId: selectedContact && contactBelongsToCustomer(selectedContact, customerId)
+        ? selectedContact.id
+        : "",
       machineId: machine ? machineId : "",
     }));
   };
@@ -6118,13 +6084,11 @@ export function CreateServiceRequestDialog({ trigger, defaultMachineId }: { trig
                 <div className="min-w-0">
                   <Label className="text-xs">Firma *</Label>
                   <div className="mt-1.5">
-                    <Combobox
-                      options={customerOptions}
+                    <RemoteCompanyCombobox
                       value={form.customerId}
-                      onChange={selectCustomer}
+                      onValueChange={selectCustomer}
                       placeholder="Firma seçin"
                       searchPlaceholder="Firma ara..."
-                      emptyText="Firma bulunamadı."
                     />
                   </div>
                 </div>
@@ -6146,19 +6110,14 @@ export function CreateServiceRequestDialog({ trigger, defaultMachineId }: { trig
 
                 <div className="min-w-0">
                   <Label className="text-xs">İlgili Kişi</Label>
-                  <Select value={form.contactId || "none"} onValueChange={(v) => setForm({ ...form, contactId: v === "none" ? "" : v })}>
-                    <SelectTrigger className="mt-1.5 min-w-0 [&_[data-slot=select-value]]:min-w-0 [&_[data-slot=select-value]]:truncate">
-                      <SelectValue placeholder="İlgili kişi seçin" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="none">Firma genel iletişimi</SelectItem>
-                      {companyContacts.map((contact) => (
-                        <SelectItem key={contact.id} value={contact.id}>
-                          {contact.name}{contact.title ? ` · ${contact.title}` : ""}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <RemoteContactCombobox
+                    className="mt-1.5"
+                    companyId={form.customerId}
+                    value={form.contactId}
+                    onValueChange={(contactId) => setForm((current) => ({ ...current, contactId }))}
+                    placeholder="İlgili kişi seçin"
+                    noneLabel="Firma genel iletişimi"
+                  />
                   <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
                     <Input value={contactPhone} readOnly placeholder="Telefon bulunamadı" aria-label="İlgili kişi telefonu" />
                     <Input value={contactEmail} readOnly placeholder="E-posta bulunamadı" aria-label="İlgili kişi e-postası" />
@@ -6289,23 +6248,21 @@ export function CreateInstallationDialog({
   trigger: React.ReactNode;
   onCreated?: () => void;
 }) {
-  const { customers, contacts, users, machines, deliveries } = useStore();
+  const { users, machines, deliveries } = useStore();
   const [open, setOpen] = useState(false);
   const submission = useSubmissionLock();
   const emptyForm = () => {
-    const companyId = customers[0]?.id ?? "";
-    const initialMachineId = machines.find((m) => m.customerId === companyId || m.userCompanyId === companyId)?.id;
     return {
-    companyId,
-    contactId: contacts.find((c) => c.customerId === companyId)?.id ?? "",
-    customerDeviceIds: initialMachineId ? [initialMachineId] : [] as string[],
-    scheduledDate: new Date().toISOString().slice(0, 10),
-    assignedToUserId: users.find((u) => u.role === "Service" || u.department === "Servis")?.id ?? users[0]?.id ?? "",
-    location: "",
-    locationType: "istanbul_ici" as InstallationLocationType,
-    durationHours: "1",
-    durationMinutes: "0",
-    notes: "",
+      companyId: "",
+      contactId: "",
+      customerDeviceIds: [] as string[],
+      scheduledDate: new Date().toISOString().slice(0, 10),
+      assignedToUserId: users.find((u) => u.role === "Service" || u.department === "Servis")?.id ?? users[0]?.id ?? "",
+      location: "",
+      locationType: "istanbul_ici" as InstallationLocationType,
+      durationHours: "1",
+      durationMinutes: "0",
+      notes: "",
     };
   };
   const [form, setForm] = useState(emptyForm);
@@ -6315,15 +6272,13 @@ export function CreateInstallationDialog({
   // Süre (saat + dk) → toplam dakika.
   const totalMinutes = (parseInt(form.durationHours || "0", 10) || 0) * 60 + (parseInt(form.durationMinutes || "0", 10) || 0);
 
-  const selectedContacts = contacts.filter((c) => c.customerId === form.companyId);
   // Seçilen her makine için ayrı kurulum işi ve eksiksiz kurulum tutanağı oluşturulur.
   const companyMachines = machines.filter((m) => m.customerId === form.companyId || m.userCompanyId === form.companyId);
   const selectedMachines = companyMachines.filter((m) => form.customerDeviceIds.includes(m.id));
   const serviceUsers = users.filter((u) => u.role === "Service" || u.department === "Servis");
   const onCompanyChange = (companyId: string) => {
-    const contactId = contacts.find((c) => c.customerId === companyId)?.id ?? "";
     const customerDeviceId = machines.find((m) => m.customerId === companyId || m.userCompanyId === companyId)?.id;
-    setForm({ ...form, companyId, contactId, customerDeviceIds: customerDeviceId ? [customerDeviceId] : [] });
+    setForm({ ...form, companyId, contactId: "", customerDeviceIds: customerDeviceId ? [customerDeviceId] : [] });
   };
 
   const submit = async (e: React.FormEvent) => {
@@ -6374,32 +6329,21 @@ export function CreateInstallationDialog({
           <div className="grid grid-cols-2 gap-3">
             <div className="col-span-2">
               <Label className="text-xs">Firma *</Label>
-              <Select
+              <RemoteCompanyCombobox
+                className="mt-1.5"
                 value={form.companyId}
                 onValueChange={onCompanyChange}
-              >
-                <SelectTrigger className="mt-1.5"><SelectValue placeholder="Firma seçin..." /></SelectTrigger>
-                <SelectContent>
-                  {customers.map((c) => (
-                    <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+                placeholder="Firma seçin..."
+              />
             </div>
             <div>
               <Label className="text-xs">Kontak</Label>
-              <Select
-                value={form.contactId || "none"}
-                onValueChange={(v) => setForm({ ...form, contactId: v === "none" ? "" : v })}
-              >
-                <SelectTrigger className="mt-1.5"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">Belirtilmedi</SelectItem>
-                  {selectedContacts.map((c) => (
-                    <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <RemoteContactCombobox
+                className="mt-1.5"
+                companyId={form.companyId}
+                value={form.contactId}
+                onValueChange={(contactId) => setForm((current) => ({ ...current, contactId }))}
+              />
             </div>
             <div>
               <Label className="text-xs">Makineler</Label>
@@ -6488,7 +6432,7 @@ export function CreateInstallationDialog({
 export function CreateMachineDialog({ children }: { children: React.ReactNode }) {
   const [open, setOpen] = useState(false);
   const submission = useSubmissionLock();
-  const { customers, stock, machines, products, addMachine } = useStore();
+  const { stock, machines, products, addMachine } = useStore();
   const [form, setForm] = useState({
     customerId: "",
     stockItemId: "",
@@ -6617,15 +6561,12 @@ export function CreateMachineDialog({ children }: { children: React.ReactNode })
           <div className="grid grid-cols-2 gap-4">
             <div className="col-span-2">
               <Label className="text-xs">Firma Seçimi <span className="text-destructive">*</span></Label>
-              <Select value={form.customerId || "none"} onValueChange={selectCustomer}>
-                <SelectTrigger className="mt-1.5"><SelectValue placeholder="Firma Seçin" /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">Seçilmedi</SelectItem>
-                  {customers.map((c) => (
-                    <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <RemoteCompanyCombobox
+                className="mt-1.5"
+                value={form.customerId}
+                onValueChange={selectCustomer}
+                placeholder="Firma seçin"
+              />
             </div>
             {form.customerId && companyStockCandidates.length > 0 && (
               <div className="col-span-2">
@@ -6720,7 +6661,7 @@ export function LogActivityDialog({
   defaultKind?: (typeof ACTIVITY_TYPE_OPTIONS)[number]["code"];
   onLogged?: () => void;
 }) {
-  const { contacts, refresh } = useStore();
+  const { refresh } = useStore();
   const [open, setOpen] = useState(false);
   const [kind, setKind] = useState<(typeof ACTIVITY_TYPE_OPTIONS)[number]["code"]>(defaultKind);
   const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
@@ -6730,8 +6671,6 @@ export function LogActivityDialog({
   const [nextAction, setNextAction] = useState("");
   const [contactId, setContactId] = useState("");
   const [saving, setSaving] = useState(false);
-
-  const customerContacts = contacts.filter((c) => c.customerId === customerId);
 
   const reset = () => {
     setKind(defaultKind);
@@ -6807,20 +6746,17 @@ export function LogActivityDialog({
             </Select>
           </div>
           <Field label="Tarih *" type="date" value={date} onChange={setDate} />
-          {customerContacts.length > 0 && (
-            <div>
-              <Label className="text-xs">Kontak</Label>
-              <Select value={contactId || "none"} onValueChange={(v) => setContactId(v === "none" ? "" : v)}>
-                <SelectTrigger className="mt-1.5"><SelectValue placeholder="Opsiyonel" /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">Seçilmedi</SelectItem>
-                  {customerContacts.map((c) => (
-                    <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          )}
+          <div>
+            <Label className="text-xs">Kontak</Label>
+            <RemoteContactCombobox
+              className="mt-1.5"
+              companyId={customerId}
+              value={contactId}
+              onValueChange={setContactId}
+              placeholder="Opsiyonel"
+              noneLabel="Seçilmedi"
+            />
+          </div>
           {kind === "customer_visit" && (
             <>
               <Field label="Konum" value={location} onChange={setLocation} />
