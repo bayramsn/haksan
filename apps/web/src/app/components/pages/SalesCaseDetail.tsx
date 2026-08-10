@@ -67,6 +67,7 @@ import { fileService, opportunityService, quoteService, salesOrderService, finan
 import { toast } from "sonner";
 import { OpportunityWorkspace } from "./OpportunityWorkspace";
 import { focusWorkspaceTarget } from "../../lib/workspaceFocus";
+import { DocumentTermsTemplateEditor, type TermsValue } from "../dialogs/DocumentTermsTemplateEditor";
 import { shouldUseSimpleOpportunityExperience } from "../../lib/opportunityExperience";
 
 export function SalesCaseDetailDialog({
@@ -1770,6 +1771,9 @@ export function SalesCaseDetailPage({
   );
 }
 
+/** Ödeme planı şartları için not şablonu kapsamı (teklif/proforma/sözleşme ile aynı desen). */
+const PAYMENT_PLAN_TERMS_SCOPE = "payment_plan_terms";
+
 /**
  * Ödeme yönteminin plan şekli.
  *
@@ -1816,7 +1820,7 @@ export function CreatePaymentPlanDialog({
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
 }) {
-  const { updateCase } = useStore();
+  const { updateCase, noteTemplates, addNoteTemplate, updateNoteTemplate, deleteNoteTemplate } = useStore();
   const [internalOpen, setInternalOpen] = useState(false);
   const open = controlledOpen ?? internalOpen;
   const setOpen = (next: boolean) => {
@@ -1831,6 +1835,9 @@ export function CreatePaymentPlanDialog({
   const [installmentCount, setInstallmentCount] = useState<number>(3);
   const [paymentTermDays, setPaymentTermDays] = useState<number>(30);
   const [installments, setInstallments] = useState<Array<{ amount: number; dueDate: string }>>([]);
+  // Şartlar teklif/proforma/sözleşme ile aynı şablon mekanizmasından gelir.
+  const [terms, setTerms] = useState<TermsValue>({ paymentTerms: "", deliveryTerms: "", warrantyTerms: "" });
+  const [termsTemplateKeyValue, setTermsTemplateKeyValue] = useState("");
   const [saving, setSaving] = useState(false);
 
   // Initialize values based on approved quote or latest quote
@@ -1852,6 +1859,8 @@ export function CreatePaymentPlanDialog({
     setPaymentTermDays(30);
     // Kartta yöntem zaten seçiliyse onunla aç; kullanıcı aynı şeyi iki kez seçmesin.
     setPaymentMethod(sc.paymentMethod ?? "undecided");
+    setTerms({ paymentTerms: sc.paymentTerms ?? "", deliveryTerms: "", warrantyTerms: "" });
+    setTermsTemplateKeyValue("");
   }, [open, offs, sc]);
 
   const planShape = PAYMENT_METHOD_PLAN_SHAPE[paymentMethod];
@@ -1921,9 +1930,14 @@ export function CreatePaymentPlanDialog({
     try {
       // Kartta yöntem yoksa ya da değiştiyse plana yazılanla eşitle; süreç
       // görevlerindeki "ödeme şekli" kontrolü de böylece tamamlanmış olur.
-      if (sc.paymentMethod !== paymentMethod) {
-        await updateCase(sc.id, { paymentMethod });
+      const casePatch: Record<string, unknown> = {};
+      if (sc.paymentMethod !== paymentMethod) casePatch.paymentMethod = paymentMethod;
+      // Şartlar belgeye değil karta yazılır; süreç görevlerindeki
+      // "ödeme koşulları" kontrolü de bu alanı okuyor.
+      if (terms.paymentTerms.trim() && terms.paymentTerms !== sc.paymentTerms) {
+        casePatch.paymentTerms = terms.paymentTerms.trim();
       }
+      if (Object.keys(casePatch).length > 0) await updateCase(sc.id, casePatch);
       for (let i = 0; i < installments.length; i++) {
         const inst = installments[i];
         await financeService.createReceivable({
@@ -2110,6 +2124,25 @@ export function CreatePaymentPlanDialog({
                 ))}
               </div>
             </div>
+
+            {/* Şartlar teklif, proforma ve sözleşme ile aynı şablon mekanizması
+                üzerinden yönetilir: kullanıcı kayıtlı şablonu seçer, gerekirse
+                düzenler, isterse yeni şablon olarak kaydeder. Ayrı bir serbest
+                metin kutusu, aynı şartların her belgede yeniden yazılmasına ve
+                belgeler arası tutarsızlığa yol açıyordu. */}
+            <DocumentTermsTemplateEditor
+              title="Ödeme ve Teslim Şartları"
+              description="Şablon seçin, gerekirse düzenleyin; ödeme şartı satış kartına da yazılır."
+              templateScope={PAYMENT_PLAN_TERMS_SCOPE}
+              noteTemplates={noteTemplates}
+              selectedTemplateKey={termsTemplateKeyValue}
+              onSelectedTemplateKeyChange={setTermsTemplateKeyValue}
+              value={terms}
+              onChange={setTerms}
+              addNoteTemplate={addNoteTemplate}
+              updateNoteTemplate={updateNoteTemplate}
+              deleteNoteTemplate={deleteNoteTemplate}
+            />
 
             <div className="flex justify-end gap-2 border-t pt-4">
               <Button type="button" variant="ghost" onClick={() => setOpen(false)}>
