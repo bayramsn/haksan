@@ -106,36 +106,46 @@ jobs:
           api_digest="$(aws ecr describe-images --repository-name "$API_REPOSITORY" --image-ids "imageTag=${RELEASE_ID}" --query 'imageDetails[0].imageDigest' --output text)"
           web_digest="$(aws ecr describe-images --repository-name "$WEB_REPOSITORY" --image-ids "imageTag=${RELEASE_ID}" --query 'imageDetails[0].imageDigest' --output text)"
           [[ "$api_digest" == sha256:* && "$web_digest" == sha256:* ]]
+          echo "api_tag=${api_tag}" >> "$GITHUB_OUTPUT"
+          echo "web_tag=${web_tag}" >> "$GITHUB_OUTPUT"
           echo "api_uri=${registry}/${API_REPOSITORY}@${api_digest}" >> "$GITHUB_OUTPUT"
           echo "web_uri=${registry}/${WEB_REPOSITORY}@${web_digest}" >> "$GITHUB_OUTPUT"
+
+      - name: Install pinned Trivy scanner
+        shell: bash
+        env:
+          TRIVY_VERSION: "0.73.0"
+          TRIVY_SHA256: "2edd39da482bb4e9831962487b68f68e3928ec3137794757f54d00383d79547b"
+        run: |
+          set -euo pipefail
+          archive="trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz"
+          archive_path="${RUNNER_TEMP}/${archive}"
+          install_dir="${RUNNER_TEMP}/trivy-bin"
+          curl --fail --location --silent --show-error \
+            "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/${archive}" \
+            --output "$archive_path"
+          echo "${TRIVY_SHA256}  ${archive_path}" | sha256sum --check -
+          mkdir -p "$install_dir"
+          tar -xzf "$archive_path" -C "$install_dir" trivy
+          "$install_dir/trivy" --version
 
       - name: Block vulnerable release images
         shell: bash
         env:
-          RELEASE_ID: ${{ steps.revision.outputs.release_id }}
+          API_IMAGE_TAG: ${{ steps.images.outputs.api_tag }}
+          WEB_IMAGE_TAG: ${{ steps.images.outputs.web_tag }}
         run: |
           set -euo pipefail
-          for repository in "$API_REPOSITORY" "$WEB_REPOSITORY"; do
-            if ! aws ecr wait image-scan-complete \
-              --repository-name "$repository" \
-              --image-id "imageTag=${RELEASE_ID}"; then
-              echo "$repository scan record missing; starting an explicit ECR image scan"
-              aws ecr start-image-scan \
-                --repository-name "$repository" \
-                --image-id "imageTag=${RELEASE_ID}" \
-                --no-cli-pager >/dev/null
-              aws ecr wait image-scan-complete \
-                --repository-name "$repository" \
-                --image-id "imageTag=${RELEASE_ID}"
-            fi
-            findings="$(aws ecr describe-image-scan-findings \
-              --repository-name "$repository" \
-              --image-id "imageTag=${RELEASE_ID}" \
-              --output json)"
-            critical="$(jq -r '.imageScanFindings.findingSeverityCounts.CRITICAL // 0' <<<"$findings")"
-            high="$(jq -r '.imageScanFindings.findingSeverityCounts.HIGH // 0' <<<"$findings")"
-            echo "$repository scan: CRITICAL=$critical HIGH=$high"
-            [[ "$critical" == "0" && "$high" == "0" ]]
+          for image in "$API_IMAGE_TAG" "$WEB_IMAGE_TAG"; do
+            echo "Scanning ${image} for HIGH/CRITICAL OS and library vulnerabilities"
+            "${RUNNER_TEMP}/trivy-bin/trivy" image \
+              --scanners vuln \
+              --pkg-types os,library \
+              --severity HIGH,CRITICAL \
+              --exit-code 1 \
+              --no-progress \
+              --timeout 10m \
+              "$image"
           done
 
       - name: Publish verified deploy runner
