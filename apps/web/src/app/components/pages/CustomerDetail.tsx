@@ -5,7 +5,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "../ui/tabs";
 import { ArrowLeft, Phone, Mail, MapPin, Building2, Plus, ArrowUpRight, Clock, AlertTriangle, NotebookText } from "lucide-react";
 import { Customer } from "../../lib/mock";
 import { useStore } from "../../lib/store";
-import { StatusBadge } from "../Layout";
+import { StatusBadge } from "../shared/StatusBadge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../ui/table";
 import { CreateCaseDialog, LogActivityDialog } from "../dialogs/CreateDialogs";
 import { buildCustomerTimeline, type OperationAction } from "../../lib/operations";

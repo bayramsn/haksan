@@ -20,7 +20,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from ".
 import { Avatar, AvatarFallback, AvatarImage } from "../../ui/avatar";
 import { Badge } from "../../ui/badge";
 import { FilterPopover } from "../../ui/list-controls";
-import { StatusBadge } from "../../Layout";
+import { StatusBadge } from "../../shared/StatusBadge";
 import { CreateServiceRequestDialog } from "../../dialogs/CreateDialogs";
 import { KanbanBoard, type KanbanColumn } from "../../KanbanBoard";
 import { ServiceCardAttachments } from "../../KanbanCardAttachments";

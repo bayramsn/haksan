@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "../ui/card";
 import { Progress } from "../ui/progress";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
@@ -8,7 +8,7 @@ import {
   Users, Briefcase, FileText, AlertTriangle, TrendingUp, TrendingDown,
   Package, Wrench, Target, ArrowUpRight, Calendar,
   CheckCircle2, Clock, Wallet, Truck, BarChart3, LayoutDashboard, ListTodo, LineChart as LineChartIcon,
-  Cpu, Factory,
+  Cpu,
 } from "lucide-react";
 import {
   ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid,
@@ -16,22 +16,26 @@ import {
   Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis,
 } from "recharts";
 import {
-  LEAD_TEMPERATURE_LABELS,
-  LEAD_TEMPERATURE_ORDER,
-  LEAD_TEMPERATURE_STYLES,
   SALES_STAGES,
   SALES_STAGE_LABELS,
   salesStageLabel,
 } from "../../lib/mock";
-import { companyTemperatureCounts } from "../../lib/companyTemperature";
 import { useCompanySummary } from "../../lib/companyServerData";
-import { StatusBadge } from "../Layout";
+import { StatusBadge } from "../shared/StatusBadge";
 import { useStore } from "../../lib/store";
 import { useAuth } from "../../../lib/auth";
 import { useFx, type FxCurrency } from "../../lib/fx";
-import { buildSalesMonthly, buildFunnelFromCases, buildPipelineFunnel, buildPipelineStagePie } from "../../lib/chartAggregates";
+import {
+  buildQualificationStageSummary,
+  buildSalesMonthly,
+  buildFunnelFromCases,
+  buildPipelineFunnel,
+  buildPipelineStagePie,
+} from "../../lib/chartAggregates";
 import { reportService } from "../../../lib/services";
 import { TeamActivityPanel } from "./TeamActivityPanel";
+import { DashboardBriefing } from "./dashboard/DashboardBriefing";
+import { SalesQualificationPanel } from "./dashboard/SalesQualificationPanel";
 import {
   buildManagementInsights,
   buildWorkItems,
@@ -145,7 +149,7 @@ export function DashboardPage({ onAction }: { onAction?: (action: OperationActio
     () => buildSalesMonthly(offers, salesCases, 12, (amount, currency) => convert(amount, currency as FxCurrency, "USD")),
     [offers, salesCases, convert],
   );
-  const temperatureCounts = useMemo(() => companyTemperatureCounts(salesCases), [salesCases]);
+  const qualificationSummary = useMemo(() => buildQualificationStageSummary(salesCases), [salesCases]);
   const monthlyView = monthly.slice(-monthCount);
   const storeFunnel = useMemo(() => buildFunnelFromCases(salesCases, SALES_STAGE_LABELS), [salesCases]);
   const funnelData = useMemo(() => {
@@ -261,42 +265,14 @@ export function DashboardPage({ onAction }: { onAction?: (action: OperationActio
 
   return (
     <div className="space-y-5">
-      {/* Welcome strip */}
-      <div className="relative isolate overflow-hidden rounded-xl border-t-2 border-brand-red bg-gradient-to-br from-brand-dark via-brand-blue to-[#0a1440] p-4 text-white shadow-sm sm:p-5">
-        <div className="pointer-events-none absolute inset-0 -z-10 opacity-[0.06] [background-image:linear-gradient(to_right,#fff_1px,transparent_1px),linear-gradient(to_bottom,#fff_1px,transparent_1px)] [background-size:28px_28px]" />
-        <div className="flex flex-col justify-between gap-4 md:flex-row md:items-center">
-        <div className="flex items-center gap-4 min-w-0">
-          <div className="grid size-12 shrink-0 place-items-center rounded-xl border border-white/15 bg-white/10 text-white shadow-inner backdrop-blur">
-            <Factory className="size-5" />
-          </div>
-          <div className="min-w-0">
-            <div className="font-data text-[9px] font-semibold uppercase tracking-[0.16em] text-blue-200">Günlük operasyon brifingi</div>
-            <div className="mt-1 font-display text-xl font-semibold leading-none tracking-tight">Hoş geldin {user?.fullName?.split(" ")[0] ?? "ekip"}</div>
-            <div className="mt-1.5 text-[12px] text-white/72">
-              Bugün <b className="text-white">{workItems.length}</b> takip işi var; <b className="text-white">{criticalWork}</b> kritik, <b className="text-white">{warningWork}</b> yakın takip.
-            </div>
-          </div>
-        </div>
-        <div className="flex items-center gap-2 shrink-0">
-          <Button
-            variant="secondary"
-            size="sm"
-            className="bg-white/15 hover:bg-white/25 text-white border-0 backdrop-blur"
-            onClick={() => setSection("operasyon")}
-          >
-            <Calendar className="size-4" /> Bugün
-          </Button>
-          <Button
-            size="sm"
-            className="bg-white text-primary hover:bg-white/90"
-            onClick={() => onAction?.({ kind: "navigate", nav: "payments", focus: "overdue" })}
-          >
-            Gecikenler
-            <ArrowUpRight className="size-4" />
-          </Button>
-        </div>
-        </div>
-      </div>
+      <DashboardBriefing
+        firstName={user?.fullName?.split(" ")[0] ?? "ekip"}
+        workItemCount={workItems.length}
+        criticalCount={criticalWork}
+        warningCount={warningWork}
+        onOpenToday={() => setSection("operasyon")}
+        onOpenOverdue={() => onAction?.({ kind: "navigate", nav: "payments", focus: "overdue" })}
+      />
 
       <Tabs value={section} onValueChange={(v) => setSection(v as DashboardSection)} className="gap-4">
         <TabsList className="grid h-auto w-full grid-cols-2 gap-1 bg-muted/60 p-1 sm:inline-flex sm:h-10 sm:w-auto">
@@ -342,30 +318,10 @@ export function DashboardPage({ onAction }: { onAction?: (action: OperationActio
             overdue={overdueCount}
           />
 
-          {/* Alım niyeti dağılımı. Kart değil FİRMA sayılır: aynı firmanın üç
-              sıcak kartı olması onu üç kat sıcak yapmaz (bkz.
-              lib/companyTemperature.ts). */}
-          <Card className="border-border/60 shadow-sm">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-base tracking-tight">Firma alım niyeti</CardTitle>
-              <CardDescription>Açık kartı olan firmalar, en sıcak kartlarına göre.</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-                {LEAD_TEMPERATURE_ORDER.map((level) => (
-                  <div key={level} className="rounded-lg border border-border/60 p-3">
-                    <div className="flex items-center gap-1.5">
-                      <span className={`size-2 rounded-full ${LEAD_TEMPERATURE_STYLES[level].dot}`} aria-hidden="true" />
-                      <span className="text-xs text-muted-foreground">{LEAD_TEMPERATURE_LABELS[level]}</span>
-                    </div>
-                    <div className="mt-1 font-data text-2xl font-semibold tabular-nums text-foreground">
-                      {temperatureCounts[level]}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
+          <SalesQualificationPanel
+            summary={qualificationSummary}
+            onSelect={(stage) => onAction?.({ kind: "navigate", nav: "sales-cases", query: `qualification:${stage}` })}
+          />
 
           {/* Kim ne yaptı — süper adminde tüm ekip, diğerlerinde yalnız kendi verisi. */}
           <TeamActivityPanel />

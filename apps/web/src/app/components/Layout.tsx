@@ -1,12 +1,12 @@
 import { ReactNode, useMemo, useState, useEffect, useRef } from "react";
 import { useStore } from "../lib/store";
-import { SALES_STAGE_LABELS, type Customer } from "../lib/mock";
+import { type Customer } from "../lib/mock";
 import {
   LayoutDashboard, Users, Briefcase, KanbanSquare, FileText, FolderOpen,
   CreditCard, Boxes, Truck, Wrench, Cpu,
   LifeBuoy, BarChart3, ShieldCheck, Building2, Contact as ContactIcon, Settings as SettingsIcon,
   Search, Bell, ChevronDown, LogOut, Plus, HelpCircle, Menu, PanelLeftClose, PanelLeftOpen,
-  CheckCircle2, Clock, AlertTriangle, XCircle, ChevronRight, Tag, Receipt, Map as MapIcon, Wallet, Calendar, MessageCircle, MessageSquare,
+  CheckCircle2, Clock, AlertTriangle, Tag, Receipt, Map as MapIcon, Wallet, Calendar, MessageCircle, MessageSquare,
   ListChecks,
   Star, Rows3,
 } from "lucide-react";
@@ -30,6 +30,9 @@ import { CommandPalette } from "./operations/CommandPalette";
 import { buildAlerts, type OperationAction, type OperationNav } from "../lib/operations";
 import { isNavigationAreaEnabled, NAVIGATION_GROUPS, type NavigationVisibilityKey } from "@haksan/shared";
 import { normalizeCompany } from "../lib/companyNormalizer";
+import { Kbd } from "./ui/kbd";
+import { Sheet, SheetContent, SheetDescription, SheetTitle } from "./ui/sheet";
+import { PageHeader } from "./shared/PageHeader";
 
 export type NavKey =
   | NavigationVisibilityKey | "kanban"
@@ -634,29 +637,27 @@ export function Layout({ current, onNavigate, onLogout, pageTitle, pageSubtitle,
   return (
     <TooltipProvider delayDuration={150}>
       <div data-density={density} className="flex h-full min-h-0 w-full overflow-hidden bg-canvas text-foreground">
-        {mobileNavOpen && (
-          <div className="fixed inset-0 z-50 lg:hidden">
-            <button
-              type="button"
-              aria-label="Menüyü kapat"
-              className="absolute inset-0 bg-black/40"
-              onClick={() => setMobileNavOpen(false)}
-            />
-            <aside className="relative z-10 flex h-full min-h-0 w-[min(300px,calc(100vw-2rem))] flex-col overflow-hidden border-r border-border/60 bg-white shadow-xl">
-              {renderSidebarContent(() => setMobileNavOpen(false))}
-            </aside>
-          </div>
-        )}
+        <a href="#main-content" className="fixed left-3 top-3 z-[100] -translate-y-20 rounded-md bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground shadow-lg transition-transform focus:translate-y-0">
+          Ana içeriğe geç
+        </a>
+
+        <Sheet open={mobileNavOpen} onOpenChange={setMobileNavOpen}>
+          <SheetContent side="left" className="w-[min(300px,calc(100vw-2rem))] gap-0 overflow-hidden p-0 lg:hidden">
+            <SheetTitle className="sr-only">Ana menü</SheetTitle>
+            <SheetDescription className="sr-only">Haksan modülleri ve çalışma alanı seçimi</SheetDescription>
+            {renderSidebarContent(() => setMobileNavOpen(false))}
+          </SheetContent>
+        </Sheet>
 
         {/* SIDEBAR */}
-        <aside className={`relative hidden lg:flex h-full min-h-0 shrink-0 flex-col overflow-visible border-r border-border/70 bg-sidebar transition-[width] duration-200 ${sidebarCollapsed ? "w-[76px]" : "w-[244px]"}`}>
+        <aside className={`relative hidden h-full min-h-0 shrink-0 flex-col overflow-visible border-r border-sidebar-border bg-sidebar transition-[width] duration-150 motion-reduce:transition-none lg:flex ${sidebarCollapsed ? "w-[76px]" : "w-[252px]"}`}>
           {renderSidebarContent(undefined, sidebarCollapsed, () => setSidebarCollapsed((value) => !value))}
         </aside>
 
         {/* MAIN */}
         <div className="flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden">
           {/* Topbar */}
-          <header className="h-[60px] shrink-0 flex items-center gap-1.5 overflow-hidden border-b border-border/70 bg-white/95 px-3 backdrop-blur sm:gap-2.5 md:px-5">
+          <header className="flex h-16 shrink-0 items-center gap-1.5 overflow-hidden border-b border-border/70 bg-card/95 px-3 shadow-[0_1px_0_rgba(13,20,68,0.02)] backdrop-blur sm:gap-2.5 md:px-5">
             <Button variant="ghost" size="icon" className="lg:hidden size-9" aria-label="Menüyü aç" onClick={() => setMobileNavOpen(true)}>
               <Menu className="size-[18px]" />
             </Button>
@@ -668,71 +669,61 @@ export function Layout({ current, onNavigate, onLogout, pageTitle, pageSubtitle,
             <Button variant="ghost" size="icon" className="md:hidden size-9" aria-label="Global arama" onClick={() => setCommandOpen(true)}>
               <Search className="size-[18px] text-muted-foreground" />
             </Button>
-            <div className="relative hidden md:block w-[390px] max-w-[38%]">
+            <div className="relative hidden w-[420px] max-w-[40%] md:block">
               <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
               <button
                 type="button"
-                className="h-9 w-full rounded-lg border border-border/70 bg-canvas/70 pl-9 pr-16 text-left text-sm text-muted-foreground shadow-xs transition-colors hover:border-primary/20 hover:bg-white focus-visible:border-ring focus-visible:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20"
+                className="h-10 w-full rounded-lg border border-border/70 bg-canvas/70 pl-9 pr-16 text-left text-sm text-muted-foreground shadow-xs transition-colors hover:border-primary/25 hover:bg-card focus-visible:border-ring focus-visible:bg-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20"
                 onClick={() => setCommandOpen(true)}
               >
-                Firma, teklif, stok, servis ara...
+                {pageTitle} içinde veya tüm kayıtlarda ara...
               </button>
-              <kbd className="absolute right-2.5 top-1/2 -translate-y-1/2 hidden md:flex items-center gap-1 px-1.5 h-5 rounded text-[10px] text-muted-foreground bg-white border">
-                ⌘K
-              </kbd>
+              <Kbd className="absolute right-2.5 top-1/2 -translate-y-1/2">⌘K</Kbd>
             </div>
 
             <div className="flex-1" />
 
-            {canPickDepartment && (
+            {(canPickDepartment || (canPickDivision && visibleDivisions.length > 0)) && (
               <div className="hidden lg:block">
                 <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <Button variant="outline" size="sm" className="gap-1.5 h-9 px-2 sm:px-3" aria-label="Departman seç">
-                    <Briefcase className="size-4 text-muted-foreground" />
-                    <span className="hidden max-w-[110px] truncate 2xl:inline">{activeDepartmentLabel}</span>
+                  <Button variant="outline" size="sm" className="h-9 gap-2 bg-card px-2.5" aria-label="Çalışma alanını değiştir">
+                    <Building2 className="size-4 text-primary" />
+                    <span className="hidden max-w-[150px] truncate xl:inline">{activeDivisionLabel}</span>
+                    {canPickDepartment ? <span className="hidden text-muted-foreground 2xl:inline">· {activeDepartmentLabel}</span> : null}
                     <ChevronDown className="size-3.5 text-muted-foreground" />
                   </Button>
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-48">
-                  <DropdownMenuLabel>Departman</DropdownMenuLabel>
-                  <DropdownMenuSeparator />
-                  {visibleDepartments.map((department) => (
-                    <DropdownMenuItem key={department.id} className="justify-between" onClick={() => setActiveDepartment(department.id)}>
-                      {department.name}
-                      {activeDepartment === department.id && <CheckCircle2 className="size-4 text-primary" />}
-                    </DropdownMenuItem>
-                  ))}
-                </DropdownMenuContent>
-                </DropdownMenu>
-              </div>
-            )}
-
-            {canPickDivision && visibleDivisions.length > 0 && (
-              <div className="hidden lg:block">
-                <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="outline" size="sm" className="gap-1.5 h-9 px-2 sm:px-3" aria-label="Bölüm seç">
-                    <Building2 className="size-4 text-muted-foreground" />
-                    <span className="hidden max-w-[110px] truncate 2xl:inline">{activeDivisionLabel}</span>
-                    <ChevronDown className="size-3.5 text-muted-foreground" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-48">
-                  <DropdownMenuLabel>Bölüm</DropdownMenuLabel>
-                  <DropdownMenuSeparator />
-                  {canPickAllForResource && (
-                    <DropdownMenuItem className="justify-between" onClick={() => setActiveDivision("all")}>
-                      Tümü
-                      {activeDivision === "all" && <CheckCircle2 className="size-4 text-primary" />}
-                    </DropdownMenuItem>
-                  )}
-                  {visibleDivisions.map((d) => (
-                    <DropdownMenuItem key={d.id} className="justify-between" onClick={() => setActiveDivision(d.id)}>
-                      {d.name}
-                      {activeDivision === d.id && <CheckCircle2 className="size-4 text-primary" />}
-                    </DropdownMenuItem>
-                  ))}
+                <DropdownMenuContent align="end" className="w-64">
+                  {canPickDivision && visibleDivisions.length > 0 ? (
+                    <>
+                      <DropdownMenuLabel>Bölüm</DropdownMenuLabel>
+                      {canPickAllForResource ? (
+                        <DropdownMenuItem className="justify-between" onClick={() => setActiveDivision("all")}>
+                          Tümü
+                          {activeDivision === "all" && <CheckCircle2 className="size-4 text-primary" />}
+                        </DropdownMenuItem>
+                      ) : null}
+                      {visibleDivisions.map((division) => (
+                        <DropdownMenuItem key={division.id} className="justify-between" onClick={() => setActiveDivision(division.id)}>
+                          {division.name}
+                          {activeDivision === division.id && <CheckCircle2 className="size-4 text-primary" />}
+                        </DropdownMenuItem>
+                      ))}
+                    </>
+                  ) : null}
+                  {canPickDepartment ? (
+                    <>
+                      {canPickDivision && visibleDivisions.length > 0 ? <DropdownMenuSeparator /> : null}
+                      <DropdownMenuLabel>Departman</DropdownMenuLabel>
+                      {visibleDepartments.map((department) => (
+                        <DropdownMenuItem key={department.id} className="justify-between" onClick={() => setActiveDepartment(department.id)}>
+                          {department.name}
+                          {activeDepartment === department.id && <CheckCircle2 className="size-4 text-primary" />}
+                        </DropdownMenuItem>
+                      ))}
+                    </>
+                  ) : null}
                 </DropdownMenuContent>
                 </DropdownMenu>
               </div>
@@ -881,27 +872,10 @@ export function Layout({ current, onNavigate, onLogout, pageTitle, pageSubtitle,
             </DropdownMenu>
           </header>
 
-          {/* Page header */}
-          <div className="relative flex min-h-[86px] shrink-0 flex-col items-start justify-center gap-3 overflow-hidden border-b border-border/70 bg-white px-4 py-3.5 sm:flex-row sm:items-center sm:justify-between md:px-6">
-            <div className="datum-rail absolute inset-x-0 top-0 h-[5px]" aria-hidden />
-            <div className="min-w-0 pt-1">
-              <nav className="flex items-center gap-1 text-[9px] font-semibold uppercase tracking-[0.15em] text-muted-foreground">
-                <span>Haksan</span>
-                <ChevronRight className="size-3" />
-                <span>{activeDivisionLabel}</span>
-                <ChevronRight className="hidden size-3 sm:block" />
-                <span className="hidden text-foreground/70 sm:block">{pageTitle}</span>
-              </nav>
-              <h1 className="font-display mt-1 text-[28px] font-bold leading-none tracking-[-0.01em] truncate">{pageTitle}</h1>
-              {pageSubtitle && (
-                <p className="mt-1 text-[13px] leading-tight text-muted-foreground truncate">{pageSubtitle}</p>
-              )}
-            </div>
-            {actions && <div className="flex max-w-full shrink-0 items-center gap-2 overflow-x-auto pb-0.5 sm:pb-0">{actions}</div>}
-          </div>
+          <PageHeader title={pageTitle} subtitle={pageSubtitle} scopeLabel={activeDivisionLabel} actions={actions} />
 
           {/* Content */}
-          <main ref={mainScrollRef} className="app-main flex-1 min-h-0 overflow-y-auto overflow-x-hidden overscroll-contain p-3 sm:p-4 lg:p-5 xl:p-6 min-w-0 bg-canvas">{children}</main>
+          <main id="main-content" tabIndex={-1} ref={mainScrollRef} className="app-main min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain bg-canvas p-3 outline-none sm:p-4 lg:p-5 xl:p-6">{children}</main>
         </div>
         <CommandPalette
           open={commandOpen}
@@ -924,121 +898,5 @@ function NotifItem({ icon, title, desc, time, onClick }: { icon: ReactNode; titl
       </div>
       <div className="text-[10px] text-muted-foreground shrink-0">{time}</div>
     </button>
-  );
-}
-
-const STATUS_META: Record<string, { cls: string; icon?: ReactNode }> = {
-  lead: { cls: "bg-zinc-100 text-zinc-700 border-zinc-200" },
-  sales: { cls: "bg-zinc-100 text-zinc-700 border-zinc-200" },
-  call: { cls: "bg-blue-50 text-blue-700 border-blue-200" },
-  visit: { cls: "bg-blue-50 text-blue-700 border-blue-200" },
-  cancelled: { cls: "bg-red-50 text-red-700 border-red-200", icon: <XCircle className="size-3" /> },
-  quote: { cls: "bg-indigo-50 text-indigo-700 border-indigo-200" },
-  proforma: { cls: "bg-emerald-50 text-emerald-700 border-emerald-200" },
-  contract: { cls: "bg-emerald-50 text-emerald-700 border-emerald-200", icon: <CheckCircle2 className="size-3" /> },
-  payment_plan: { cls: "bg-emerald-50 text-emerald-700 border-emerald-200", icon: <CheckCircle2 className="size-3" /> },
-  commercial_invoice: { cls: "bg-amber-50 text-amber-700 border-amber-200" },
-  customs_approved: { cls: "bg-amber-50 text-amber-700 border-amber-200", icon: <CheckCircle2 className="size-3" /> },
-  stock_picking: { cls: "bg-sky-50 text-sky-700 border-sky-200" },
-  shipping: { cls: "bg-blue-50 text-blue-700 border-blue-200" },
-  installation: { cls: "bg-brand-blue-soft text-brand-blue border-blue-200" },
-  delivered: { cls: "bg-emerald-50 text-emerald-700 border-emerald-200", icon: <CheckCircle2 className="size-3" /> },
-  Lead: { cls: "bg-zinc-100 text-zinc-700 border-zinc-200" },
-  "Initial Contact": { cls: "bg-zinc-100 text-zinc-700 border-zinc-200" },
-  "Requirement Analysis": { cls: "bg-blue-50 text-blue-700 border-blue-200" },
-  "Offer Preparing": { cls: "bg-indigo-50 text-indigo-700 border-indigo-200" },
-  "Offer Sent": { cls: "bg-indigo-50 text-indigo-700 border-indigo-200" },
-  "Follow-up": { cls: "bg-indigo-50 text-indigo-700 border-indigo-200" },
-  "Offer Approved": { cls: "bg-emerald-50 text-emerald-700 border-emerald-200" },
-  "Proforma / Contract": { cls: "bg-emerald-50 text-emerald-700 border-emerald-200" },
-  Customs: { cls: "bg-amber-50 text-amber-700 border-amber-200" },
-  Shipment: { cls: "bg-blue-50 text-blue-700 border-blue-200" },
-  Installation: { cls: "bg-brand-blue-soft text-brand-blue border-blue-200" },
-  Completed: { cls: "bg-emerald-50 text-emerald-700 border-emerald-200", icon: <CheckCircle2 className="size-3" /> },
-  Lost: { cls: "bg-red-50 text-red-700 border-red-200", icon: <XCircle className="size-3" /> },
-  active: { cls: "bg-emerald-50 text-emerald-700 border-emerald-200", icon: <CheckCircle2 className="size-3" /> },
-  passive: { cls: "bg-zinc-100 text-zinc-600 border-zinc-200" },
-  Available: { cls: "bg-emerald-50 text-emerald-700 border-emerald-200", icon: <CheckCircle2 className="size-3" /> },
-  Reserved: { cls: "bg-amber-50 text-amber-700 border-amber-200", icon: <Clock className="size-3" /> },
-  InTransit: { cls: "bg-sky-50 text-sky-700 border-sky-200", icon: <Clock className="size-3" /> },
-  Sold: { cls: "bg-blue-50 text-blue-700 border-blue-200" },
-  Inactive: { cls: "bg-zinc-100 text-zinc-600 border-zinc-200" },
-  Pending: { cls: "bg-amber-50 text-amber-700 border-amber-200", icon: <Clock className="size-3" /> },
-  "Request Opened": { cls: "bg-zinc-100 text-zinc-700 border-zinc-200" },
-  Diagnosis: { cls: "bg-blue-50 text-blue-700 border-blue-200" },
-  "Quote Needed": { cls: "bg-indigo-50 text-indigo-700 border-indigo-200" },
-  "Quote Sent": { cls: "bg-indigo-50 text-indigo-700 border-indigo-200" },
-  Approval: { cls: "bg-amber-50 text-amber-700 border-amber-200", icon: <Clock className="size-3" /> },
-  Scheduled: { cls: "bg-amber-50 text-amber-700 border-amber-200" },
-  "Service In Progress": { cls: "bg-sky-50 text-sky-700 border-sky-200", icon: <Clock className="size-3" /> },
-  "Service Completed": { cls: "bg-emerald-50 text-emerald-700 border-emerald-200", icon: <CheckCircle2 className="size-3" /> },
-  "Signed Form": { cls: "bg-emerald-50 text-emerald-700 border-emerald-200", icon: <CheckCircle2 className="size-3" /> },
-  Closed: { cls: "bg-zinc-100 text-zinc-600 border-zinc-200", icon: <CheckCircle2 className="size-3" /> },
-  Paid: { cls: "bg-emerald-50 text-emerald-700 border-emerald-200", icon: <CheckCircle2 className="size-3" /> },
-  Overdue: { cls: "bg-red-50 text-red-700 border-red-200", icon: <AlertTriangle className="size-3" /> },
-  Cancelled: { cls: "bg-zinc-100 text-zinc-600 border-zinc-200", icon: <XCircle className="size-3" /> },
-  Approved: { cls: "bg-emerald-50 text-emerald-700 border-emerald-200", icon: <CheckCircle2 className="size-3" /> },
-  Sent: { cls: "bg-blue-50 text-blue-700 border-blue-200" },
-  Draft: { cls: "bg-zinc-100 text-zinc-600 border-zinc-200" },
-  Rejected: { cls: "bg-red-50 text-red-700 border-red-200", icon: <XCircle className="size-3" /> },
-  "Price Waiting": { cls: "bg-amber-50 text-amber-800 border-amber-200", icon: <Clock className="size-3" /> },
-  "Budget Waiting": { cls: "bg-amber-50 text-amber-800 border-amber-200", icon: <Clock className="size-3" /> },
-  "On Hold": { cls: "bg-zinc-100 text-zinc-700 border-zinc-200", icon: <Clock className="size-3" /> },
-  Postponed: { cls: "bg-blue-50 text-blue-700 border-blue-200", icon: <Clock className="size-3" /> },
-  Active: { cls: "bg-emerald-50 text-emerald-700 border-emerald-200", icon: <CheckCircle2 className="size-3" /> },
-  "Out of Warranty": { cls: "bg-amber-50 text-amber-700 border-amber-200" },
-  Decommissioned: { cls: "bg-zinc-100 text-zinc-600 border-zinc-200" },
-};
-
-const STATUS_LABELS: Record<string, string> = {
-  ...SALES_STAGE_LABELS,
-  active: "Aktif",
-  passive: "Pasif",
-  Available: "Hazır",
-  Reserved: "Rezerve",
-  InTransit: "Yolda",
-  Sold: "Satıldı",
-  Inactive: "Pasif",
-  Pending: "Bekliyor",
-  "Request Opened": "Servis Talep",
-  Diagnosis: "Müşteri İletişim",
-  "Quote Needed": "Teklif Gerekli",
-  "Quote Sent": "Servis Teklifi",
-  Approval: "Onay Bekliyor",
-  Scheduled: "Planlandı",
-  "Service In Progress": "Servis Devam Ediyor",
-  "Service Completed": "Servis Tamamlandı",
-  "Signed Form": "Tamamlandı Formu",
-  Closed: "Kapandı",
-  Paid: "Ödendi",
-  Overdue: "Gecikmiş",
-  Cancelled: "İptal",
-  Approved: "Onaylı",
-  Sent: "Gönderildi",
-  Draft: "Taslak",
-  Rejected: "Reddedildi",
-  "Price Waiting": "Fiyat Bekleniyor",
-  "Budget Waiting": "Bütçe Bekleniyor",
-  "On Hold": "Askıya Alındı",
-  Postponed: "Ertelendi",
-  Active: "Aktif",
-  "Out of Warranty": "Garanti Dışı",
-  Decommissioned: "Devre Dışı",
-  Proforma: "Proforma",
-  Contract: "Sözleşme",
-  CommercialInvoice: "Ticari Fatura",
-  AccountingInvoice: "Muhasebe Faturası",
-  DeliveryForm: "Teslim Formu",
-  InstallationForm: "Kurulum Formu",
-  Other: "Diğer",
-};
-
-export function StatusBadge({ status }: { status: string }) {
-  const meta = STATUS_META[status] ?? { cls: "bg-brand-blue-soft text-brand-blue border-blue-200" };
-  return (
-    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-[11px] whitespace-nowrap ${meta.cls}`}>
-      {meta.icon}
-      {STATUS_LABELS[status] ?? status}
-    </span>
   );
 }

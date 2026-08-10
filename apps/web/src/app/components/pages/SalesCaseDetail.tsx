@@ -3,20 +3,17 @@ import { Card, CardContent, CardHeader, CardTitle } from "../ui/card";
 import { Button } from "../ui/button";
 import { Badge } from "../ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../ui/tabs";
-import { AlarmClock, ArrowLeft, CalendarClock, ChevronLeft, ChevronRight, Plus, Upload, X, XCircle, Eye, FileText, CreditCard, CheckCircle2, Trash2, Wrench, Pencil, Building2, UserRound, Download } from "lucide-react";
+import { AlarmClock, ArrowLeft, CalendarClock, ChevronLeft, ChevronRight, Plus, Upload, X, XCircle, Eye, FileText, CreditCard, CheckCircle2, Trash2, Wrench, Pencil, Building2, UserRound, Download, Mail, MapPin, Phone } from "lucide-react";
 import {
   SalesCase,
-  LEAD_TEMPERATURE_HINTS,
-  LEAD_TEMPERATURE_LABELS,
-  LEAD_TEMPERATURE_ORDER,
-  LEAD_TEMPERATURE_STYLES,
   LEAD_FOLLOW_UP_STATUS_LABELS,
   LEAD_FOLLOW_UP_STATUS_ORDER,
   LEAD_FOLLOW_UP_STATUS_STYLES,
   type Activity,
+  type Contact,
+  type Customer,
   type DocumentItem,
   type LeadFollowUpStatus,
-  type LeadTemperature,
   type Offer,
   OPPORTUNITY_PAYMENT_METHOD_LABELS,
   type OpportunityPaymentMethod,
@@ -28,7 +25,7 @@ import {
 } from "@haksan/shared";
 import { ProcessChecklistPanel } from "./ProcessChecklistPanel";
 import { OpportunityProcessCenter } from "./OpportunityProcessCenter";
-import { StatusBadge } from "../Layout";
+import { StatusBadge } from "../shared/StatusBadge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../ui/table";
 import { useStore } from "../../lib/store";
 import { useAuth } from "../../../lib/auth";
@@ -147,6 +144,136 @@ export function SalesCaseDetailDialog({
   );
 }
 
+function OpportunityPartyDialog({
+  open,
+  onOpenChange,
+  company,
+  partyName,
+  contact,
+  contactName,
+  contactPhone,
+  contactEmail,
+  address,
+  opportunityId,
+  activities,
+  users,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  company?: Customer;
+  partyName: string;
+  contact?: Contact;
+  contactName: string;
+  contactPhone: string;
+  contactEmail: string;
+  address: string;
+  opportunityId: string;
+  activities: Activity[];
+  users: Array<{ id: string; name: string }>;
+}) {
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-h-[88dvh] overflow-y-auto sm:max-w-3xl">
+        <DialogHeader>
+          <DialogTitle className="pr-8 font-display text-xl">{partyName}</DialogTitle>
+          <DialogDescription>Firma, ilgili kişi ve bu taraflarla yapılan aktiviteler</DialogDescription>
+        </DialogHeader>
+
+        <div className="grid gap-3 md:grid-cols-2">
+          <section className="rounded-lg border border-border/70 bg-muted/20 p-4" aria-labelledby="opportunity-company-info">
+            <div id="opportunity-company-info" className="flex items-center gap-2 text-sm font-semibold">
+              <Building2 className="size-4 text-primary" aria-hidden="true" /> Firma bilgileri
+            </div>
+            <dl className="mt-3 space-y-2.5 text-sm">
+              <div>
+                <dt className="text-xs text-muted-foreground">Firma</dt>
+                <dd className="font-medium text-foreground">{partyName}</dd>
+              </div>
+              <div>
+                <dt className="flex items-center gap-1 text-xs text-muted-foreground"><MapPin className="size-3" aria-hidden="true" /> Adres</dt>
+                <dd className="mt-0.5 whitespace-pre-wrap leading-relaxed text-foreground">{address || "Adres bilgisi yok"}</dd>
+              </div>
+              {(company?.phone || company?.email) && (
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <div>
+                    <dt className="flex items-center gap-1 text-xs text-muted-foreground"><Phone className="size-3" aria-hidden="true" /> Telefon</dt>
+                    <dd className="break-all text-foreground">{company.phone || "—"}</dd>
+                  </div>
+                  <div>
+                    <dt className="flex items-center gap-1 text-xs text-muted-foreground"><Mail className="size-3" aria-hidden="true" /> E-posta</dt>
+                    <dd className="break-all text-foreground">{company.email || "—"}</dd>
+                  </div>
+                </div>
+              )}
+            </dl>
+          </section>
+
+          <section className="rounded-lg border border-border/70 bg-muted/20 p-4" aria-labelledby="opportunity-contact-info">
+            <div id="opportunity-contact-info" className="flex items-center gap-2 text-sm font-semibold">
+              <UserRound className="size-4 text-primary" aria-hidden="true" /> Firma ilgilisi
+            </div>
+            <dl className="mt-3 space-y-2.5 text-sm">
+              <div>
+                <dt className="text-xs text-muted-foreground">Ad soyad</dt>
+                <dd className="font-medium text-foreground">{contactName}</dd>
+                {(contact?.title || contact?.department) && (
+                  <dd className="mt-0.5 text-xs text-muted-foreground">{[contact.title, contact.department].filter(Boolean).join(" · ")}</dd>
+                )}
+              </div>
+              <div className="grid gap-2 sm:grid-cols-2">
+                <div>
+                  <dt className="flex items-center gap-1 text-xs text-muted-foreground"><Phone className="size-3" aria-hidden="true" /> Telefon</dt>
+                  <dd className="break-all text-foreground">{contactPhone || "—"}</dd>
+                </div>
+                <div>
+                  <dt className="flex items-center gap-1 text-xs text-muted-foreground"><Mail className="size-3" aria-hidden="true" /> E-posta</dt>
+                  <dd className="break-all text-foreground">{contactEmail || "—"}</dd>
+                </div>
+              </div>
+            </dl>
+          </section>
+        </div>
+
+        <section className="overflow-hidden rounded-lg border border-border/70" aria-labelledby="opportunity-party-activities">
+          <div className="flex items-center justify-between gap-3 border-b border-border/60 bg-muted/30 px-4 py-3">
+            <div id="opportunity-party-activities" className="text-sm font-semibold">Firma ve ilgili kişi aktiviteleri</div>
+            <Badge variant="outline" className="bg-background tabular-nums">{activities.length}</Badge>
+          </div>
+          {activities.length === 0 ? (
+            <div className="px-4 py-8 text-center text-sm text-muted-foreground">Bu firma veya ilgili kişiyle bağlantılı aktivite yok.</div>
+          ) : (
+            <ol className="max-h-72 divide-y divide-border/60 overflow-y-auto">
+              {activities.map((activity) => {
+                const scope = contact?.id && activity.contactId === contact.id
+                  ? "İlgili kişi"
+                  : activity.salesCaseId === opportunityId
+                    ? "Bu fırsat"
+                    : "Firma";
+                const owner = activity.createdByName || users.find((user) => user.id === activity.byUserId)?.name || "Haksan";
+                return (
+                  <li key={activity.id} className="px-4 py-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex min-w-0 flex-wrap items-center gap-2">
+                        <span className="font-medium text-foreground">{activity.title || activity.type || "Aktivite"}</span>
+                        <Badge variant="secondary" className="rounded-md text-[10px]">{scope}</Badge>
+                      </div>
+                      <time className="shrink-0 text-xs tabular-nums text-muted-foreground">{activity.date || "Tarih yok"}</time>
+                    </div>
+                    {(activity.note || activity.result) && (
+                      <p className="mt-1.5 whitespace-pre-wrap text-sm leading-relaxed text-muted-foreground">{activity.note || activity.result}</p>
+                    )}
+                    <div className="mt-1.5 text-[11px] text-muted-foreground">{[activity.type, owner].filter(Boolean).join(" · ")}</div>
+                  </li>
+                );
+              })}
+            </ol>
+          )}
+        </section>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export function SalesCaseDetailPage({
   sc,
   onBack,
@@ -166,7 +293,7 @@ export function SalesCaseDetailPage({
   onClose?: () => void;
   simpleMode?: boolean;
 }) {
-  const { offers, activities, customers, users, documents, payments, installations, refresh, deleteCase, updateCase, closeCase, updateActivity, deleteActivity } = useStore();
+  const { offers, activities, customers, contacts, users, documents, payments, installations, refresh, deleteCase, updateCase, closeCase, updateActivity, deleteActivity } = useStore();
   const { hasRole, hasPermission } = useAuth();
   const isSuperAdmin = hasRole("super_admin");
   const canAssignOwner = isSuperAdmin || hasRole("sales");
@@ -188,6 +315,7 @@ export function SalesCaseDetailPage({
   const [activityForm, setActivityForm] = useState({ type: "", title: "", note: "", result: "", date: "" });
   const [salesOrders, setSalesOrders] = useState<any[]>([]);
   const [companyLinking, setCompanyLinking] = useState(false);
+  const [partyDialogOpen, setPartyDialogOpen] = useState(false);
   const [requestedProcessAction, setRequestedProcessAction] = useState<OpportunityProcessActionKey | null>(null);
   const canMarkLost = canUpdate && !sc.isLost && sc.stage !== "cancelled" && sc.stage !== "delivered";
   const isLeadCard = (sc.qualificationStage ?? "lead") === "lead";
@@ -208,6 +336,32 @@ export function SalesCaseDetailPage({
   // eklenince fırsat adı makine koduna dönüşüp okunmaz oluyordu.
   const compactSubtitle = sc.requestedProduct ?? "";
   const u = users.find((x) => x.id === sc.assignedUserId);
+  const companyContacts = contacts.filter(
+    (contact) => contact.customerId === sc.customerId || contact.companyIds?.includes(sc.customerId),
+  );
+  const primaryContact =
+    companyContacts.find((contact) => contact.id === sc.primaryContactId) ??
+    companyContacts.find((contact) => contact.isPrimary) ??
+    companyContacts[0];
+  const partyContactName = primaryContact?.name || sc.leadContactName || c?.contactPerson || "İlgili kişi belirlenmedi";
+  const partyContactPhone =
+    primaryContact?.mobilePhone || primaryContact?.phone || primaryContact?.otherPhone || sc.leadPhone || c?.phone || "";
+  const partyContactEmail =
+    primaryContact?.email || primaryContact?.personalEmail || primaryContact?.otherEmail || sc.leadEmail || c?.email || "";
+  const companyAddress = c?.addresses?.find((address) => address.isDefault) ?? c?.addresses?.[0];
+  const partyAddress = companyAddress
+    ? [companyAddress.address, companyAddress.district, companyAddress.city, companyAddress.country].filter(Boolean).join(", ")
+    : c
+      ? [c.address, c.district, c.city, c.country].filter(Boolean).join(", ")
+      : [sc.leadDistrict, sc.leadCity].filter(Boolean).join(", ");
+  const partyActivities = activities
+    .filter((activity) =>
+      activity.salesCaseId === sc.id ||
+      (Boolean(sc.customerId) && activity.customerId === sc.customerId) ||
+      (Boolean(primaryContact?.id) && activity.contactId === primaryContact?.id),
+    )
+    .slice()
+    .sort((left, right) => right.date.localeCompare(left.date));
   const acts = activities.filter((a) => a.salesCaseId === sc.id);
   const offs = offers.filter((o) => o.salesCaseId === sc.id);
   const latestOffer = offs.slice().sort((a, b) => b.revision - a.revision)[0];
@@ -475,6 +629,7 @@ export function SalesCaseDetailPage({
         <AddActivityDialog
           salesCaseId={sc.id}
           customerId={sc.customerId}
+          contactId={primaryContact?.id}
           trigger={
             <Button variant="outline" className="h-10 w-full justify-start rounded-lg bg-white text-left text-sm text-muted-foreground">
               <Plus className="size-4" /> Yorum / aktivite ekle...
@@ -620,13 +775,6 @@ export function SalesCaseDetailPage({
           }}
         />
       </div>}
-      <div>
-        <Label className="text-xs">Alım niyeti</Label>
-        <Select value={sc.leadTemperature ?? "unknown"} disabled={!canUpdate} onValueChange={(value) => void updateCase(sc.id, { leadTemperature: value as LeadTemperature })}>
-          <SelectTrigger className="mt-1.5 h-10" aria-label="Fırsat alım niyeti"><SelectValue /></SelectTrigger>
-          <SelectContent>{LEAD_TEMPERATURE_ORDER.map((code) => <SelectItem key={code} value={code}>{LEAD_TEMPERATURE_LABELS[code]} · {LEAD_TEMPERATURE_HINTS[code]}</SelectItem>)}</SelectContent>
-        </Select>
-      </div>
       {isLeadCard && (
         <div>
           <Label className="text-xs">Lead durumu</Label>
@@ -844,31 +992,6 @@ export function SalesCaseDetailPage({
                 <span>gün</span>
               </div>
               <div className="mt-2"><StatusBadge status={sc.stage} /></div>
-              <div className="mt-2">
-                <div className="mb-1 text-[10px] uppercase tracking-wide text-muted-foreground">Alım niyeti</div>
-                <Select
-                  value={sc.leadTemperature ?? "unknown"}
-                  disabled={!canUpdate}
-                  onValueChange={async (value) => {
-                    await updateCase(sc.id, { leadTemperature: value as LeadTemperature });
-                  }}
-                >
-                  <SelectTrigger className="h-7 w-full text-xs">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {LEAD_TEMPERATURE_ORDER.map((code) => (
-                      <SelectItem key={code} value={code}>
-                        <span className="flex items-center gap-1.5">
-                          <span className={`size-1.5 rounded-full ${LEAD_TEMPERATURE_STYLES[code].dot}`} />
-                          {LEAD_TEMPERATURE_LABELS[code]}
-                          <span className="text-muted-foreground">· {LEAD_TEMPERATURE_HINTS[code]}</span>
-                        </span>
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
               {canAssignOwner ? (
                 <Select
                   value={sc.assignedUserId ?? '__none__'}
@@ -1361,6 +1484,7 @@ export function SalesCaseDetailPage({
               <AddActivityDialog
                 salesCaseId={sc.id}
                 customerId={sc.customerId}
+                contactId={primaryContact?.id}
                 trigger={<Button size="sm" className="gap-1"><Plus className="size-4" /> Aktivite Ekle</Button>}
               />
             </CardHeader>
@@ -1763,37 +1887,63 @@ export function SalesCaseDetailPage({
 
   if (mode === "dialog") {
     return (
-      <KanbanDetailDialogShell
-        accentClassName={STAGE_DOT[sc.stage] ?? "bg-primary"}
-        title={partyName}
-        subtitle={compactSubtitle}
-        className="h-dvh max-h-dvh sm:h-auto sm:max-h-[92dvh]"
-        bodyClassName="lg:grid-cols-1"
-        activityClassName="hidden"
-        meta={
-          <>
-            <Badge variant="outline" className="border-[#0b2453]/20 bg-blue-50 text-[#0b2453]">
-              {isLeadCard ? "LEAD" : "FIRSAT"} · {sc.id.slice(0, 8).toUpperCase()}
-            </Badge>
-            <StatusBadge status={sc.stage} />
-          </>
-        }
-        actions={
-          <>
-            {onNavigate && (
-              <div className="flex items-center rounded-md border border-slate-200 bg-white">
-                <Button type="button" variant="ghost" size="icon" className="size-11 rounded-r-none sm:size-9" disabled={!previous} onClick={() => previous && onNavigate(previous.id)} aria-label={`Önceki ${cardTypeLabel.toLocaleLowerCase("tr-TR")}`} title={`Önceki ${cardTypeLabel.toLocaleLowerCase("tr-TR")}`}><ChevronLeft className="size-4" /></Button>
-                <Button type="button" variant="ghost" size="icon" className="size-11 rounded-l-none border-l border-slate-200 sm:size-9" disabled={!next} onClick={() => next && onNavigate(next.id)} aria-label={`Sonraki ${cardTypeLabel.toLocaleLowerCase("tr-TR")}`} title={`Sonraki ${cardTypeLabel.toLocaleLowerCase("tr-TR")}`}><ChevronRight className="size-4" /></Button>
-              </div>
-            )}
-            {onClose && <Button type="button" variant="ghost" size="icon" className="size-11 sm:size-9" onClick={onClose} aria-label="Çalışma alanını kapat"><X className="size-4" /></Button>}
-          </>
-        }
-        right={activityPanel}
-        mobileFooter={<div id={`workspace-mobile-actions-${sc.id}`} />}
-      >
-        {content}
-      </KanbanDetailDialogShell>
+      <>
+        <KanbanDetailDialogShell
+          accentClassName={STAGE_DOT[sc.stage] ?? "bg-primary"}
+          title={
+            <button
+              type="button"
+              className="group inline-flex max-w-full items-center gap-2 rounded-sm text-left outline-none transition-colors hover:text-primary focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+              onClick={() => setPartyDialogOpen(true)}
+              title="Firma, ilgili kişi ve aktiviteleri göster"
+            >
+              <span className="truncate">{partyName}</span>
+              <Building2 className="size-4 shrink-0 text-muted-foreground transition-colors group-hover:text-primary" aria-hidden="true" />
+            </button>
+          }
+          subtitle={compactSubtitle}
+          className="h-dvh max-h-dvh sm:h-auto sm:max-h-[92dvh]"
+          bodyClassName="lg:grid-cols-1"
+          activityClassName="hidden"
+          meta={
+            <>
+              <Badge variant="outline" className="border-[#0b2453]/20 bg-blue-50 text-[#0b2453]">
+                {isLeadCard ? "LEAD" : "FIRSAT"} · {sc.id.slice(0, 8).toUpperCase()}
+              </Badge>
+              <StatusBadge status={sc.stage} />
+            </>
+          }
+          actions={
+            <>
+              {onNavigate && (
+                <div className="flex items-center rounded-md border border-slate-200 bg-white">
+                  <Button type="button" variant="ghost" size="icon" className="size-11 rounded-r-none sm:size-9" disabled={!previous} onClick={() => previous && onNavigate(previous.id)} aria-label={`Önceki ${cardTypeLabel.toLocaleLowerCase("tr-TR")}`} title={`Önceki ${cardTypeLabel.toLocaleLowerCase("tr-TR")}`}><ChevronLeft className="size-4" /></Button>
+                  <Button type="button" variant="ghost" size="icon" className="size-11 rounded-l-none border-l border-slate-200 sm:size-9" disabled={!next} onClick={() => next && onNavigate(next.id)} aria-label={`Sonraki ${cardTypeLabel.toLocaleLowerCase("tr-TR")}`} title={`Sonraki ${cardTypeLabel.toLocaleLowerCase("tr-TR")}`}><ChevronRight className="size-4" /></Button>
+                </div>
+              )}
+              {onClose && <Button type="button" variant="ghost" size="icon" className="size-11 sm:size-9" onClick={onClose} aria-label="Çalışma alanını kapat"><X className="size-4" /></Button>}
+            </>
+          }
+          right={activityPanel}
+          mobileFooter={<div id={`workspace-mobile-actions-${sc.id}`} />}
+        >
+          {content}
+        </KanbanDetailDialogShell>
+        <OpportunityPartyDialog
+          open={partyDialogOpen}
+          onOpenChange={setPartyDialogOpen}
+          company={c}
+          partyName={partyName}
+          contact={primaryContact}
+          contactName={partyContactName}
+          contactPhone={partyContactPhone}
+          contactEmail={partyContactEmail}
+          address={partyAddress}
+          opportunityId={sc.id}
+          activities={partyActivities}
+          users={users}
+        />
+      </>
     );
   }
 

@@ -3,7 +3,6 @@ import { Avatar, AvatarFallback } from "../ui/avatar";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../ui/table";
 import { Button } from "../ui/button";
 import { Badge } from "../ui/badge";
-import { Input } from "../ui/input";
 import { Search, ArrowUpDown, Building2, MoreHorizontal, CheckCircle2, RotateCcw, AlertTriangle, CalendarClock, Cpu, Trash2 } from "lucide-react";
 import {
   QUALIFICATION_STAGE_LABELS,
@@ -22,14 +21,9 @@ import { QualificationKanban } from "./QualificationKanban";
 import { FilterPopover, usePaged, Pager } from "../ui/list-controls";
 import { ExportExcelButton } from "../ui/ExportExcelButton";
 import { type OperationAction, type OperationFocus } from "../../lib/operations";
-import {
-  LEAD_TEMPERATURE_HINTS,
-  LEAD_TEMPERATURE_LABELS,
-  LEAD_TEMPERATURE_ORDER,
-  LEAD_TEMPERATURE_STYLES,
-} from "../../lib/mock";
 import { EntityVisual } from "../shared/PremiumPrimitives";
 import { EmptyState } from "../shared/EmptyState";
+import { InputGroup, InputGroupAddon, InputGroupInput } from "../ui/input-group";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription,
   AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
@@ -63,10 +57,12 @@ export function SalesCasesPage({
   onSelect,
   initialView = "list",
   focus,
+  initialQuery,
 }: {
   onSelect: (s: SalesCase) => void;
   initialView?: "list" | "kanban";
   focus?: OperationFocus;
+  initialQuery?: string;
   onAction?: (action: OperationAction) => void;
 }) {
   const { cases: salesCases, closedCases, customers, users, activities, products, closeCase, deleteCase, reopenCase, updateCase } = useStore();
@@ -128,7 +124,6 @@ export function SalesCasesPage({
   const [stage, setStage] = useState("all");
   const [currency, setCurrency] = useState("all");
   const [companyResolution, setCompanyResolution] = useState("all");
-  const [temperature, setTemperature] = useState("all");
   const [nameSort, setNameSort] = useState<"asc" | "desc" | null>(null);
 
   const focusOpen = focus === "open" || focus === "today";
@@ -145,7 +140,6 @@ export function SalesCasesPage({
     if (currency !== "all" && s.currency !== currency) return false;
     if (companyResolution === "pending" && s.customerId) return false;
     if (companyResolution === "resolved" && !s.customerId) return false;
-    if (temperature !== "all" && (s.leadTemperature ?? "unknown") !== temperature) return false;
     const c = customers.find((x) => x.id === s.customerId);
     const query = q.toLocaleLowerCase("tr-TR");
     return [
@@ -166,7 +160,6 @@ export function SalesCasesPage({
       s.lostUnmetConditions,
     ].some((value) => (value ?? "").toLocaleLowerCase("tr-TR").includes(query));
   });
-
   const sorted = useMemo(() => {
     if (!nameSort) return filtered;
     return [...filtered].sort((a, b) => {
@@ -185,7 +178,6 @@ export function SalesCasesPage({
     label: QUALIFICATION_STAGE_LABELS[value],
   }));
   const currencyOptions = Array.from(new Set(salesCases.map((s) => s.currency))).map((v) => ({ value: v, label: v }));
-
   useEffect(() => {
     setView(initialView);
   }, [initialView]);
@@ -193,6 +185,15 @@ export function SalesCasesPage({
   useEffect(() => {
     if (focusOpen || focusWon || focusLost) setStage("all");
   }, [focusLost, focusOpen, focusWon]);
+
+  useEffect(() => {
+    if (initialQuery?.startsWith("qualification:")) {
+      const next = initialQuery.slice("qualification:".length) as QualificationStage;
+      if (QUALIFICATION_STAGES.includes(next)) {
+        setStage(next);
+      }
+    }
+  }, [initialQuery]);
 
   const exportParams = {
     ...(q ? { search: q } : {}),
@@ -219,15 +220,15 @@ export function SalesCasesPage({
       </TabsList>
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
-          <div className="relative w-full sm:w-72">
-            <Search className="size-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-            <Input
+          <InputGroup className="w-full bg-card sm:w-72">
+            <InputGroupAddon><Search className="size-4" aria-hidden="true" /></InputGroupAddon>
+            <InputGroupInput
               placeholder="Firma / kontak / ürün ara..."
-              className="pl-9 h-9 bg-white"
+              aria-label="Fırsatlarda ara"
               value={q}
               onChange={(e) => setQ(e.target.value)}
             />
-          </div>
+          </InputGroup>
           <FilterPopover
             filters={[
               { label: "Aşama", value: stage, onChange: setStage, options: stageOptions },
@@ -240,15 +241,6 @@ export function SalesCasesPage({
                   { value: "pending", label: "Firma kararı bekliyor" },
                   { value: "resolved", label: "Firma bağlı" },
                 ],
-              },
-              {
-                label: "Alım Niyeti",
-                value: temperature,
-                onChange: setTemperature,
-                options: LEAD_TEMPERATURE_ORDER.map((code) => ({
-                  value: code,
-                  label: `${LEAD_TEMPERATURE_LABELS[code]} · ${LEAD_TEMPERATURE_HINTS[code]}`,
-                })),
               },
             ]}
           />
@@ -314,7 +306,6 @@ export function SalesCasesPage({
                 const nextActivity = nextActivityFor(s.id);
                 const risk = riskFor(s);
                 const partyName = salesCasePartyName(s, c);
-                const temp = s.leadTemperature ?? "unknown";
                 const contactLine =
                   [s.leadContactMethodName, s.leadPhone, s.leadEmail].filter(Boolean).join(" · ") ||
                   [s.leadContactMethodName, s.leadContactValue].filter(Boolean).join(" · ");
@@ -327,13 +318,6 @@ export function SalesCasesPage({
                           <div className="flex min-w-0 items-center gap-1.5">
                             <div className="truncate text-sm font-semibold leading-tight transition-colors group-hover:text-primary">{partyName}</div>
                             {!c && <span className="shrink-0 rounded bg-warning-soft px-1.5 py-0.5 text-[9px] text-warning">Lead</span>}
-                            <span
-                              className={`inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-[9px] font-medium ${LEAD_TEMPERATURE_STYLES[temp].badge}`}
-                              title={`Alım niyeti: ${LEAD_TEMPERATURE_HINTS[temp]}`}
-                            >
-                              <span className={`size-1.5 rounded-full ${LEAD_TEMPERATURE_STYLES[temp].dot}`} />
-                              {LEAD_TEMPERATURE_LABELS[temp]}
-                            </span>
                           </div>
                           <div className="mt-0.5 truncate text-[11px] text-muted-foreground">
                             {s.leadContactName && s.leadContactName !== partyName ? `${s.leadContactName} · ` : ""}

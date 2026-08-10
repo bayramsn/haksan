@@ -19,7 +19,7 @@ import {
   salesStageLabel,
 } from "../../lib/mock";
 import { useStore } from "../../lib/store";
-import { StatusBadge } from "../Layout";
+import { StatusBadge } from "../shared/StatusBadge";
 import { CompanyFinancePanel } from "../shared/CompanyFinancePanel";
 import { CreateCaseDialog, CreateContactDialog, EditContactDialog } from "./CreateDialogs";
 import { CreateContractDialog } from "./CreateContractDialog";

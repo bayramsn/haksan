@@ -8,7 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from ".
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "../../ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../../ui/table";
 import { Tabs, TabsList, TabsTrigger } from "../../ui/tabs";
-import { StatusBadge } from "../../Layout";
+import { StatusBadge } from "../../shared/StatusBadge";
 import { CreateInstallationDialog } from "../../dialogs/CreateDialogs";
 import { DeliveryDetailDialog } from "./DeliveriesPage";
 import { MiniKpi } from "../../shared/MiniKpi";

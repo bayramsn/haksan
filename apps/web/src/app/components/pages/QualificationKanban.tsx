@@ -2,6 +2,7 @@ import { useState, type KeyboardEvent, type MouseEvent } from "react";
 import {
   Building2,
   Check,
+  MapPin,
   MoreHorizontal,
   Trash2,
   UserRound,
@@ -10,9 +11,6 @@ import { toast } from "sonner";
 import { useAuth } from "../../../lib/auth";
 import { useStore } from "../../lib/store";
 import {
-  LEAD_TEMPERATURE_HINTS,
-  LEAD_TEMPERATURE_LABELS,
-  LEAD_TEMPERATURE_STYLES,
   QUALIFICATION_STAGE_DESCRIPTIONS,
   QUALIFICATION_STAGE_LABELS,
   QUALIFICATION_STAGES,
@@ -91,7 +89,7 @@ export function QualificationKanban({
   onSelect: (salesCase: SalesCase) => void;
   onRequestDelete?: (salesCase: SalesCase) => void;
 }) {
-  const { customers, moveQualification, closeCase } = useStore();
+  const { customers, contacts, moveQualification, closeCase } = useStore();
   const { hasPermission } = useAuth();
   const canUpdate = hasPermission("opportunities.update");
   const [lostId, setLostId] = useState<string | null>(null);
@@ -245,6 +243,19 @@ export function QualificationKanban({
         onMove={move}
         renderCard={(salesCase) => {
           const company = customers.find((item) => item.id === salesCase.customerId);
+          const primaryContact =
+            contacts.find((item) => item.id === salesCase.primaryContactId) ??
+            contacts.find((item) =>
+              (item.customerId === salesCase.customerId || item.companyIds?.includes(salesCase.customerId)) && item.isPrimary,
+            ) ??
+            contacts.find((item) => item.customerId === salesCase.customerId || item.companyIds?.includes(salesCase.customerId));
+          const contactName = primaryContact?.name || salesCase.leadContactName || company?.contactPerson || "İlgili kişi belirlenmedi";
+          const defaultAddress = company?.addresses?.find((item) => item.isDefault) ?? company?.addresses?.[0];
+          const address = defaultAddress
+            ? [defaultAddress.address, defaultAddress.district, defaultAddress.city].filter(Boolean).join(", ")
+            : company
+              ? [company.address, company.district, company.city].filter(Boolean).join(", ")
+              : [salesCase.leadDistrict, salesCase.leadCity].filter(Boolean).join(", ");
           const stage = (salesCase.qualificationStage ?? "c") as Exclude<QualificationStage, "lead">;
           const meta = STAGE_META[stage];
           const stopCardClick = (event: MouseEvent) => event.stopPropagation();
@@ -256,8 +267,6 @@ export function QualificationKanban({
           const machine = salesCase.requestedMachine?.trim() || salesCase.requestedModel?.trim() || "Belirtilmedi";
           const action = salesCase.nextAction?.trim() || "Planlanmadı";
           const actionOverdue = isActionOverdue(salesCase.nextActionAt);
-          const temperature = salesCase.leadTemperature ?? "unknown";
-          const temperatureStyle = LEAD_TEMPERATURE_STYLES[temperature];
           const openDetailsFromKeyboard = (event: KeyboardEvent<HTMLDivElement>) => {
             if (event.target !== event.currentTarget || (event.key !== "Enter" && event.key !== " ")) return;
             event.preventDefault();
@@ -286,14 +295,6 @@ export function QualificationKanban({
                     <div className="mt-0.5 line-clamp-2 whitespace-normal break-words [overflow-wrap:anywhere] font-display text-[15px] font-semibold leading-[1.25] text-[#0b1739]">
                       {partyName}
                     </div>
-                    <span
-                      className={`mt-1 inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] font-medium ${temperatureStyle.badge}`}
-                      aria-label={`Alım niyeti: ${LEAD_TEMPERATURE_LABELS[temperature]}`}
-                      title={LEAD_TEMPERATURE_HINTS[temperature]}
-                    >
-                      <span className={`size-1.5 rounded-full ${temperatureStyle.dot}`} aria-hidden="true" />
-                      {LEAD_TEMPERATURE_LABELS[temperature]}
-                    </span>
                   </div>
                   <div className="flex shrink-0 items-center gap-0.5">
                     <DropdownMenu>
@@ -365,11 +366,21 @@ export function QualificationKanban({
                   Kart detayları
                   </div>
                   <dl className="mt-1 divide-y divide-slate-200/70">
-                    <div className="grid grid-cols-[52px_minmax(0,1fr)] gap-2 py-1.5">
-                      <dt className="font-data text-[9px] font-medium uppercase tracking-[0.08em] text-muted-foreground">Konu</dt>
-                      <dd className="min-w-0 line-clamp-2 break-words text-[11px] font-medium leading-4 text-[#0b1739]">{subject}</dd>
-                    </div>
-                    <div className="grid grid-cols-[52px_minmax(0,1fr)] gap-2 py-1.5">
+                     <div className="grid grid-cols-[52px_minmax(0,1fr)] gap-2 py-1.5">
+                       <dt className="font-data text-[9px] font-medium uppercase tracking-[0.08em] text-muted-foreground">Konu</dt>
+                       <dd className="min-w-0 line-clamp-2 break-words text-[11px] font-medium leading-4 text-[#0b1739]">{subject}</dd>
+                     </div>
+                     <div className="grid grid-cols-[52px_minmax(0,1fr)] gap-2 py-1.5">
+                       <dt className="font-data text-[9px] font-medium uppercase tracking-[0.08em] text-muted-foreground">İlgili</dt>
+                       <dd className="min-w-0 line-clamp-1 break-words text-[11px] font-medium leading-4 text-[#0b1739]">{contactName}</dd>
+                     </div>
+                     <div className="grid grid-cols-[52px_minmax(0,1fr)] gap-2 py-1.5">
+                       <dt className="flex items-center gap-1 font-data text-[9px] font-medium uppercase tracking-[0.08em] text-muted-foreground">
+                         <MapPin className="size-3" aria-hidden="true" /> Adres
+                       </dt>
+                       <dd className="min-w-0 line-clamp-2 break-words text-[11px] leading-4 text-[#0b1739]">{address || "Adres bilgisi yok"}</dd>
+                     </div>
+                     <div className="grid grid-cols-[52px_minmax(0,1fr)] gap-2 py-1.5">
                       <dt className="font-data text-[9px] font-medium uppercase tracking-[0.08em] text-muted-foreground">Makina</dt>
                       <dd className="min-w-0 line-clamp-2 break-words text-[11px] font-medium leading-4 text-[#0b1739]">{machine}</dd>
                     </div>

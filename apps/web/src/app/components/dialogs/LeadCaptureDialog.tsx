@@ -5,13 +5,6 @@ import { useStore } from "../../lib/store";
 import { useAuth } from "../../../lib/auth";
 import { lookupService, opportunityService } from "../../../lib/services";
 import { districtsForCountry, provincesForCountry } from "../../lib/geoByCountry";
-import {
-  LEAD_TEMPERATURE_HINTS,
-  LEAD_TEMPERATURE_LABELS,
-  LEAD_TEMPERATURE_ORDER,
-  LEAD_TEMPERATURE_STYLES,
-  type LeadTemperature,
-} from "../../lib/mock";
 import { Button } from "../ui/button";
 import { Combobox } from "../ui/combobox";
 import { RemoteCompanyCombobox } from "../shared/RemoteCompanyCombobox";
@@ -49,7 +42,6 @@ export function LeadCaptureDialog({ trigger }: { trigger?: React.ReactNode }) {
   const [companyTitle, setCompanyTitle] = useState("");
   const [product, setProduct] = useState("");
   const [quantity, setQuantity] = useState("1");
-  const [temperature, setTemperature] = useState<LeadTemperature>("unknown");
   const [nextAction, setNextAction] = useState("");
   const [nextActionAt, setNextActionAt] = useState("");
   const [divisionId, setDivisionId] = useState(defaultDivision);
@@ -154,7 +146,6 @@ export function LeadCaptureDialog({ trigger }: { trigger?: React.ReactNode }) {
     setCompanyTitle("");
     setProduct("");
     setQuantity("1");
-    setTemperature("unknown");
     setNextAction("");
     setNextActionAt("");
     setDivisionId(defaultDivision);
@@ -215,7 +206,6 @@ export function LeadCaptureDialog({ trigger }: { trigger?: React.ReactNode }) {
         leadEmail: email.trim() || undefined,
         leadCity: city.trim(),
         leadDistrict: district.trim() || undefined,
-        leadTemperature: temperature,
         leadFollowUpStatus: "new",
         nextAction: nextAction.trim() || undefined,
         nextActionAt: nextActionAt ? new Date(nextActionAt) : undefined,
@@ -405,30 +395,6 @@ export function LeadCaptureDialog({ trigger }: { trigger?: React.ReactNode }) {
                 ))}
               </SelectContent>
             </Select>
-          </div>
-          <div>
-            <Label>Alım niyeti</Label>
-            <div className="mt-1 grid grid-cols-4 gap-1.5">
-              {LEAD_TEMPERATURE_ORDER.map((code) => {
-                const active = temperature === code;
-                const style = LEAD_TEMPERATURE_STYLES[code];
-                return (
-                  <button
-                    key={code}
-                    type="button"
-                    aria-pressed={active}
-                    title={LEAD_TEMPERATURE_HINTS[code]}
-                    className={`flex h-9 items-center justify-center gap-1.5 rounded-md border text-xs font-medium transition-colors ${
-                      active ? `${style.badge} border-transparent` : "border-border bg-background text-muted-foreground hover:bg-muted"
-                    }`}
-                    onClick={() => setTemperature(code)}
-                  >
-                    <span className={`size-1.5 rounded-full ${active ? style.dot : "bg-muted-foreground/40"}`} />
-                    {LEAD_TEMPERATURE_LABELS[code]}
-                  </button>
-                );
-              })}
-            </div>
           </div>
           <div className="grid grid-cols-[1fr_96px] gap-3">
             <div>

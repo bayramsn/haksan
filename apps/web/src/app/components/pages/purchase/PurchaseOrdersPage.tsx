@@ -9,7 +9,7 @@ import { Textarea } from "../../ui/textarea";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../../ui/table";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "../../ui/dialog";
 import { Tabs, TabsList, TabsTrigger } from "../../ui/tabs";
-import { StatusBadge } from "../../Layout";
+import { StatusBadge } from "../../shared/StatusBadge";
 import { MiniKpi } from "../../shared/MiniKpi";
 import { EmptyState } from "../../shared/EmptyState";
 import { RemoteCompanyCombobox } from "../../shared/RemoteCompanyCombobox";

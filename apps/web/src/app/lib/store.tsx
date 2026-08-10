@@ -1091,6 +1091,7 @@ function StoreInner({ children }: { children: ReactNode }) {
           id: a.id,
           salesCaseId: a.opportunityId ?? '',
           customerId: a.companyId ?? '',
+          contactId: a.contactId ?? undefined,
           type: a.type?.name ?? '',
           typeCode: a.type?.code ?? '',
           origin: a.origin === 'system' ? 'system' : 'manual',
@@ -1669,6 +1670,7 @@ function StoreInner({ children }: { children: ReactNode }) {
     const created = await activityService.create({
       opportunityId: a.salesCaseId || undefined,
       companyId: a.customerId || undefined,
+      contactId: a.contactId || undefined,
       activityTypeCode,
       subject: a.title,
       description: a.note,
@@ -1684,6 +1686,7 @@ function StoreInner({ children }: { children: ReactNode }) {
     await activityService.update(id, {
       opportunityId: patch.salesCaseId || undefined,
       companyId: patch.customerId || undefined,
+      contactId: patch.contactId || undefined,
       activityTypeCode,
       subject: patch.title,
       description: patch.note,

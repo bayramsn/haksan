@@ -465,6 +465,7 @@ export function OpportunityWorkspace({
     [sc, owner?.name, companyQuery.isError, customer, overduePaymentCount, nextOperationTarget, simpleOpportunity, operationReadiness],
   );
   const terminal = Boolean(decisionModel.terminalLabel);
+
   const leadBlockers = sc.qualificationReadiness?.blockers ?? [];
   const processBlocked = Boolean(nextOperationTarget?.blockers.length);
   const useLeadConversionAsPrimary = !terminal
@@ -528,6 +529,7 @@ export function OpportunityWorkspace({
           <AddActivityDialog
             salesCaseId={sc.id}
             customerId={sc.customerId}
+            contactId={resolvedContact.primaryContact?.id}
             commentOnly={!isLead}
             trigger={
               <Button type="button" variant="outline" className="h-11 w-full justify-start gap-2 text-muted-foreground">

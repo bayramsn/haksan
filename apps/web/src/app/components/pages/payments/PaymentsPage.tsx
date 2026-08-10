@@ -14,7 +14,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from ".
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../../ui/table";
 import { Label } from "../../ui/label";
 import { Textarea } from "../../ui/textarea";
-import { StatusBadge } from "../../Layout";
+import { StatusBadge } from "../../shared/StatusBadge";
 import { CreatePaymentDialog } from "../../dialogs/CreateDialogs";
 import { PayKpi } from "../../shared/MiniKpi";
 import { useStore } from "../../../lib/store";

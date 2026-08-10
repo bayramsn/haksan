@@ -2461,11 +2461,12 @@ export function CreateStockDialog({ trigger }: { trigger: React.ReactNode }) {
 /* ---------- Activity ---------- */
 
 export function AddActivityDialog({
-  trigger, salesCaseId, customerId, open: controlledOpen, onOpenChange, commentOnly = false, defaultTypeCode,
+  trigger, salesCaseId, customerId, contactId, open: controlledOpen, onOpenChange, commentOnly = false, defaultTypeCode,
 }: {
   trigger?: React.ReactNode;
   salesCaseId: string;
   customerId: string;
+  contactId?: string;
   open?: boolean;
   onOpenChange?: (o: boolean) => void;
   commentOnly?: boolean;
@@ -2566,6 +2567,7 @@ export function AddActivityDialog({
       const created = await addActivity({
         salesCaseId,
         customerId,
+        contactId,
         type: commentOnly ? defaultType : form.type,
         title: form.title.trim(),
         note: form.note.trim(),

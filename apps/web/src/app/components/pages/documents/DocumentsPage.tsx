@@ -4,7 +4,7 @@ import { Card, CardHeader, CardTitle } from "../../ui/card";
 import { Button } from "../../ui/button";
 import { Input } from "../../ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../../ui/table";
-import { StatusBadge } from "../../Layout";
+import { StatusBadge } from "../../shared/StatusBadge";
 import { DocumentUploadDialog } from "../../dialogs/DocumentUploadDialog";
 import { DocumentPreviewDialog } from "../../dialogs/DocumentPreviewDialog";
 import { DocumentDetailDialog } from "../../dialogs/DocumentDetailDialog";

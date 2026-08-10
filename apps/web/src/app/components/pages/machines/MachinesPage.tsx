@@ -7,7 +7,7 @@ import {
 } from "../../ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../../ui/table";
 import { Badge } from "../../ui/badge";
-import { StatusBadge } from "../../Layout";
+import { StatusBadge } from "../../shared/StatusBadge";
 import { CreateMachineDialog, CreateServiceRequestDialog } from "../../dialogs/CreateDialogs";
 import { useStore } from "../../../lib/store";
 import { inventoryService } from "../../../../lib/services";

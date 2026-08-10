@@ -6,7 +6,7 @@ import { Input } from "../../ui/input";
 import { Label } from "../../ui/label";
 import { Tabs, TabsList, TabsTrigger } from "../../ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../../ui/table";
-import { StatusBadge } from "../../Layout";
+import { StatusBadge } from "../../shared/StatusBadge";
 import { CreateStockDialog } from "../../dialogs/CreateDialogs";
 import { MiniKpi } from "../../shared/MiniKpi";
 import { EmptyState } from "../../shared/EmptyState";

@@ -8,11 +8,6 @@ import {
   salesStageLabel,
   DocumentItem,
   OPPORTUNITY_PAYMENT_METHOD_LABELS,
-  LEAD_TEMPERATURE_HINTS,
-  LEAD_TEMPERATURE_LABELS,
-  LEAD_TEMPERATURE_ORDER,
-  LEAD_TEMPERATURE_STYLES,
-  type LeadTemperature,
   type Machine,
   type OpportunityPaymentMethod,
 } from "../../lib/mock";
@@ -85,9 +80,6 @@ export const STAGE_DOT: Record<string, string> = {
 
 const initials = (n: string) => (n || "—").split(" ").slice(0, 2).map((p) => p[0]).join("").toUpperCase();
 
-// Alım niyeti satışın erken adımlarında takip edilir; teklif sonrası kartın
-// durumu zaten aşamadan okunur.
-const TEMPERATURE_STAGES: SalesStage[] = ["lead", "call", "visit"];
 const COMMERCIAL_DOCUMENT_TYPES = new Set<DocumentItem["type"]>(["Proforma", "Contract", "CommercialInvoice"]);
 
 /**
@@ -121,7 +113,6 @@ export function KanbanPage({
   const [closingCaseId, setClosingCaseId] = useState<string | null>(null);
   const [pendingCloseCase, setPendingCloseCase] = useState<SalesCase | null>(null);
   const [paymentMethodSavingId, setPaymentMethodSavingId] = useState<string | null>(null);
-  const [temperatureSavingId, setTemperatureSavingId] = useState<string | null>(null);
   const [serviceQuoteCaseId, setServiceQuoteCaseId] = useState<string | null>(null);
   const lostCase = lostId ? cases.find((s) => s.id === lostId) : undefined;
   const lostCustomer = lostCase
@@ -388,21 +379,6 @@ export function KanbanPage({
     }
   };
 
-  const setLeadTemperature = async (salesCase: SalesCase, leadTemperature: LeadTemperature) => {
-    if (temperatureSavingId) return;
-    setTemperatureSavingId(salesCase.id);
-    try {
-      await updateCase(salesCase.id, { leadTemperature });
-      toast.success("Lead sıcaklığı güncellendi", {
-        description: `${LEAD_TEMPERATURE_LABELS[leadTemperature]} · ${LEAD_TEMPERATURE_HINTS[leadTemperature]}`,
-      });
-    } catch (err: any) {
-      toast.error("Lead sıcaklığı kaydedilemedi", { description: err?.message ?? "API isteği başarısız oldu." });
-    } finally {
-      setTemperatureSavingId(null);
-    }
-  };
-
   const columns: KanbanColumn<SalesCase>[] = SALES_STAGES.map((stage) => {
     const items = cases.filter((s) => s.stage === stage);
     const total = items.reduce((a, s) => a + s.estimatedAmount, 0);
@@ -566,8 +542,6 @@ export function KanbanPage({
         const supportingDocs = caseDocs.filter((document) => !COMMERCIAL_DOCUMENT_TYPES.has(document.type));
         const latestOffer = latestOfferForCase(s);
         const stopCardClick = (event: MouseEvent) => event.stopPropagation();
-        const temperature: LeadTemperature = s.leadTemperature ?? "unknown";
-        const temperatureStyle = LEAD_TEMPERATURE_STYLES[temperature];
         const locationText =
           [c?.district, c?.city].filter(Boolean).join(" / ") ||
           [s.leadCity, s.leadDistrict].filter(Boolean).join(" / ");
@@ -645,65 +619,29 @@ export function KanbanPage({
               {s.isOfferPrepared && (
                 <span className="inline-flex px-1.5 py-0.5 rounded text-[10px] bg-success-soft text-success">Teklif</span>
               )}
-              <span
-                className={`inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] font-medium ${temperatureStyle.badge}`}
-                title={`Alım niyeti: ${LEAD_TEMPERATURE_HINTS[temperature]}`}
-              >
-                <span className={`size-1.5 rounded-full ${temperatureStyle.dot}`} />
-                {LEAD_TEMPERATURE_LABELS[temperature]}
-              </span>
             </div>
 
-            {TEMPERATURE_STAGES.includes(s.stage) && (
+            {s.stage === "lead" && (
               <div
-                className="mt-2.5 space-y-2 rounded-md border border-border/60 bg-muted/30 p-2"
+                className="mt-2.5 rounded-md border border-border/60 bg-muted/30 p-2"
                 onClick={stopCardClick}
                 onMouseDown={stopCardClick}
               >
                 <div>
                   <Label className="mb-1.5 block text-[10px] uppercase tracking-wide text-muted-foreground">
-                    Alım niyeti
+                    Ödeme şekli
                   </Label>
-                  <div className="grid grid-cols-3 gap-1">
-                    {LEAD_TEMPERATURE_ORDER.filter((code) => code !== "unknown").map((code) => {
-                      const active = temperature === code;
-                      const style = LEAD_TEMPERATURE_STYLES[code];
-                      return (
-                        <button
-                          key={code}
-                          type="button"
-                          disabled={temperatureSavingId === s.id}
-                          title={LEAD_TEMPERATURE_HINTS[code]}
-                          aria-pressed={active}
-                          className={`flex h-7 items-center justify-center gap-1 rounded-md border text-[10px] font-medium transition-colors disabled:opacity-60 ${
-                            active ? `${style.badge} border-transparent` : "border-border/60 bg-white text-muted-foreground hover:bg-muted"
-                          }`}
-                          onClick={() => void setLeadTemperature(s, active ? "unknown" : code)}
-                        >
-                          <span className={`size-1.5 rounded-full ${active ? style.dot : "bg-muted-foreground/40"}`} />
-                          {LEAD_TEMPERATURE_LABELS[code]}
-                        </button>
-                      );
-                    })}
-                  </div>
+                  {/* Süreç paneli ve ödeme planı diyaloğuyla aynı iki kademeli
+                      seçim: Peşin / Leasing / Vadeli, vadeliyse vade türü. */}
+                  <PaymentMethodSelect
+                    value={s.paymentMethod}
+                    disabled={paymentMethodSavingId === s.id}
+                    size="sm"
+                    labels={false}
+                    idPrefix={`kanban-payment-${s.id}`}
+                    onChange={(method) => void setPaymentMethod(s, method)}
+                  />
                 </div>
-                {s.stage === "lead" && (
-                  <div>
-                    <Label className="mb-1.5 block text-[10px] uppercase tracking-wide text-muted-foreground">
-                      Ödeme şekli
-                    </Label>
-                    {/* Süreç paneli ve ödeme planı diyaloğuyla aynı iki kademeli
-                        seçim: Peşin / Leasing / Vadeli, vadeliyse vade türü. */}
-                    <PaymentMethodSelect
-                      value={s.paymentMethod}
-                      disabled={paymentMethodSavingId === s.id}
-                      size="sm"
-                      labels={false}
-                      idPrefix={`kanban-payment-${s.id}`}
-                      onChange={(method) => void setPaymentMethod(s, method)}
-                    />
-                  </div>
-                )}
               </div>
             )}
 

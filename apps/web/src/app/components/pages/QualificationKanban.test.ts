@@ -4,6 +4,7 @@ import { PIPELINE_STAGE_FLOW } from "@haksan/shared";
 import { SALES_STAGES, opportunityTransitionErrorMessage } from "../../lib/mock";
 
 const source = readFileSync(new URL("./QualificationKanban.tsx", import.meta.url), "utf8");
+const workspaceSource = readFileSync(new URL("./OpportunityWorkspace.tsx", import.meta.url), "utf8");
 const detailSource = readFileSync(new URL("./SalesCaseDetail.tsx", import.meta.url), "utf8");
 
 describe("QualificationKanban LOST yeniden açma akışı", () => {
@@ -46,17 +47,28 @@ describe("QualificationKanban firma ve kart detayı", () => {
     expect(source).toContain("actionDateLabel(salesCase.nextActionAt)");
   });
 
-  it("alım niyetini Kanban kartında Sıcak/Beklemede/Soğuk etiketi olarak gösterir", () => {
-    expect(source).toContain('const temperature = salesCase.leadTemperature ?? "unknown"');
-    expect(source).toContain('aria-label={`Alım niyeti: ${LEAD_TEMPERATURE_LABELS[temperature]}`}');
-    expect(source).toContain("LEAD_TEMPERATURE_STYLES[temperature]");
+  it("firma ilgilisini ve adresi fırsat kartında görünür tutar", () => {
+    expect(source).toContain("salesCase.primaryContactId");
+    expect(source).toContain("İlgili kişi belirlenmedi");
+    expect(source).toContain("Adres bilgisi yok");
+    expect(source).toContain(">İlgili<");
+    expect(source).toContain("<MapPin");
   });
 
-  it("alım niyeti seçimini yalnız leadlere değil bütün fırsat detaylarına açar", () => {
-    const selectorIndex = detailSource.indexOf('aria-label="Fırsat alım niyeti"');
-    const leadOnlyIndex = detailSource.indexOf("{isLeadCard && (", selectorIndex);
-    expect(selectorIndex).toBeGreaterThan(-1);
-    expect(leadOnlyIndex).toBeGreaterThan(selectorIndex);
+  it("firma adına tıklanınca firma, ilgili kişi ve ortak aktivite geçmişini açar", () => {
+    expect(detailSource).toContain("setPartyDialogOpen(true)");
+    expect(detailSource).toContain("Firma, ilgili kişi ve bu taraflarla yapılan aktiviteler");
+    expect(detailSource).toContain("Firma ve ilgili kişi aktiviteleri");
+    expect(detailSource).toContain("activity.customerId === sc.customerId");
+    expect(detailSource).toContain("activity.contactId === primaryContact?.id");
+    expect(detailSource).toContain("contactId={primaryContact?.id}");
+  });
+
+  it("eski alım niyeti sıcaklık alanlarını karttan ve fırsat detayından kaldırır", () => {
+    expect(source).not.toContain("LeadTemperatureBadge");
+    expect(source).not.toContain("salesCase.leadTemperature");
+    expect(workspaceSource).not.toContain('aria-label="Fırsat alım niyeti"');
+    expect(workspaceSource).not.toContain("LeadTemperatureSelector");
   });
 });
 

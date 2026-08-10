@@ -257,11 +257,11 @@ export const QUALIFICATION_STAGE_LABELS: Record<QualificationStage, string> = {
  */
 export const QUALIFICATION_STAGE_DESCRIPTIONS: Record<QualificationStage, string> = {
   lead: "Aday kayıt",
-  c: "Firma verisi",
-  b: "Temas ve ihtiyaç",
-  a: "Ticari şartlar",
-  a_plus: "Operasyon onayları",
-  win: "Kazanıldı",
+  c: "Yeni müşteri",
+  b: "Ara sıcak · satışa hazır",
+  a: "Bitmeye yakın · takipte",
+  a_plus: "Bitmiş · WIN bekliyor",
+  win: "Kazanılmış",
   lost: "Kaybedildi",
 };
 
@@ -458,6 +458,8 @@ export type Activity = {
   id: string;
   salesCaseId: string;
   customerId: string;
+  /** Aktivite belirli bir firma ilgilisiyle yapıldıysa ilgili kontak. */
+  contactId?: string;
   type: string;
   typeCode?: string;
   origin?: "manual" | "system";

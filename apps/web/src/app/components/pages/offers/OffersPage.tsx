@@ -20,7 +20,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from ".
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger,
 } from "../../ui/dropdown-menu";
-import { StatusBadge } from "../../Layout";
+import { StatusBadge } from "../../shared/StatusBadge";
 import { QuoteDialog } from "../../dialogs/QuoteDialog";
 import { DocumentUploadDialog } from "../../dialogs/DocumentUploadDialog";
 import { CreateProformaDialog } from "../../dialogs/CreateProformaDialog";
