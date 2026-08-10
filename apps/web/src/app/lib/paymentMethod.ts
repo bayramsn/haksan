@@ -41,6 +41,38 @@ export const TERM_KIND_TO_METHOD = {
 
 export type TermKind = keyof typeof TERM_KIND_TO_METHOD;
 
+/** Her vade satırında senet/çek için kaydedilen belge ayrıntıları. */
+export type PaymentInstrumentDetails = {
+  documentNo: string;
+  issuer: string;
+  bankName: string;
+  branchName: string;
+};
+
+export type PaymentPlanInstallment = PaymentInstrumentDetails & {
+  amount: number;
+  dueDate: string;
+};
+
+export const EMPTY_PAYMENT_INSTRUMENT_DETAILS: PaymentInstrumentDetails = {
+  documentNo: "",
+  issuer: "",
+  bankName: "",
+  branchName: "",
+};
+
+/** Yeniden hesaplanan tutar/tarihi uygular, girilmiş senet/çek bilgisini korur. */
+export const recalculatePaymentInstallment = (
+  previous: PaymentPlanInstallment | undefined,
+  amount: number,
+  dueDate: string,
+): PaymentPlanInstallment => ({
+  ...EMPTY_PAYMENT_INSTRUMENT_DETAILS,
+  ...previous,
+  amount,
+  dueDate,
+});
+
 export const TERM_KIND_LABELS: Record<TermKind, string> = {
   elden: "Elden",
   senet: "Senet",
@@ -56,6 +88,46 @@ export const familyOfMethod = (method: OpportunityPaymentMethod): PaymentFamily 
 
 export const termKindOfMethod = (method: OpportunityPaymentMethod): TermKind =>
   method === "promissory_note" ? "senet" : method === "cheque" ? "cek" : "elden";
+
+/** Senet ve çekte işin gerçekten takip edilebilmesi için zorunlu alanlar. */
+export const missingPaymentInstrumentFields = (
+  method: OpportunityPaymentMethod,
+  details: PaymentInstrumentDetails,
+): string[] => {
+  if (method === "promissory_note") {
+    return [
+      !details.documentNo.trim() ? "senet numarası" : "",
+      !details.issuer.trim() ? "borçlu" : "",
+    ].filter(Boolean);
+  }
+  if (method === "cheque") {
+    return [
+      !details.documentNo.trim() ? "çek numarası" : "",
+      !details.bankName.trim() ? "banka" : "",
+      !details.issuer.trim() ? "hesap sahibi" : "",
+    ].filter(Boolean);
+  }
+  return [];
+};
+
+/** Cari hareket notunda okunabilir ve aranabilir belge özeti. */
+export const paymentInstrumentNote = (
+  method: OpportunityPaymentMethod,
+  details: PaymentInstrumentDetails,
+): string => {
+  if (method === "promissory_note") {
+    return `Senet No: ${details.documentNo.trim()} · Borçlu: ${details.issuer.trim()}`;
+  }
+  if (method === "cheque") {
+    return [
+      `Çek No: ${details.documentNo.trim()}`,
+      `Banka: ${details.bankName.trim()}`,
+      details.branchName.trim() ? `Şube: ${details.branchName.trim()}` : "",
+      `Hesap Sahibi: ${details.issuer.trim()}`,
+    ].filter(Boolean).join(" · ");
+  }
+  return "";
+};
 
 /** Aile + vade türünden saklanacak yöntem kodu. */
 export const methodOfFamily = (

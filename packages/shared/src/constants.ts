@@ -471,7 +471,9 @@ export const STAGE_TRANSITIONS: Record<PipelineStageCode, PipelineStageCode[]> =
   proforma: ['quote'],
   contract: ['proforma', 'quote'],
   payment_plan: ['contract'],
-  commercial_invoice: ['payment_plan'],
+  // Peşin/leasing kartları ödeme planı üretmez ve sözleşmeden doğrudan fatura
+  // aşamasına geçer; vadeli kartlarda backend yine plan kaydını zorunlu tutar.
+  commercial_invoice: ['contract', 'payment_plan'],
   customs_approved: ['commercial_invoice'],
   stock_picking: ['customs_approved'],
   shipping: ['stock_picking'],

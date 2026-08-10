@@ -32,7 +32,7 @@ import { StatusBadge } from "../Layout";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../ui/table";
 import { useStore } from "../../lib/store";
 import { useAuth } from "../../../lib/auth";
-import { AddActivityDialog, CreateCustomerDialog, CreateShipmentDialog } from "../dialogs/CreateDialogs";
+import { AddActivityDialog, CreateCustomerDialog, CreateInstallationDialog, CreateShipmentDialog } from "../dialogs/CreateDialogs";
 import { QuoteDialog } from "../dialogs/QuoteDialog";
 import { LostCaseDialog } from "../dialogs/LostCaseDialog";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "../ui/dialog";
@@ -75,7 +75,12 @@ import {
   PAYMENT_DUE_LABEL,
   PAYMENT_FAMILY_LABELS,
   PAYMENT_FAMILY_PLAN_SHAPE,
+  EMPTY_PAYMENT_INSTRUMENT_DETAILS,
   familyOfMethod,
+  missingPaymentInstrumentFields,
+  paymentInstrumentNote,
+  type PaymentPlanInstallment,
+  recalculatePaymentInstallment,
 } from "../../lib/paymentMethod";
 import { RemoteCompanyCombobox } from "../shared/RemoteCompanyCombobox";
 import { useCompanyDetail } from "../../lib/companyServerData";
@@ -384,13 +389,18 @@ export function SalesCaseDetailPage({
       setRequestedProcessAction("create_shipment");
       return;
     }
+    if ((actionKey === "open_installation" || actionKey === "complete_installation") && !relatedInstallation) {
+      document.querySelector<HTMLButtonElement>('[data-opportunity-installation-create="true"]')?.click();
+      setRequestedProcessAction(null);
+      return;
+    }
     if (actionKey === "open_installation" || actionKey === "complete_installation") {
       focusWorkspaceTarget(document.getElementById("opportunity-installation"), { focus: false });
       setRequestedProcessAction(null);
       toast.message("Kurulum kaydı servis bölümünden açılabilir", {
         description: relatedInstallation
           ? "Mevcut kurulum kaydı aşağıda gösteriliyor."
-          : "Önce Kurulum operasyon adımına geçerek servis kaydını oluşturun.",
+          : "A+ alanında ticari faturayla paralel bir kurulum planı oluşturabilirsiniz.",
       });
       return;
     }
@@ -610,23 +620,21 @@ export function SalesCaseDetailPage({
           }}
         />
       </div>}
+      <div>
+        <Label className="text-xs">Alım niyeti</Label>
+        <Select value={sc.leadTemperature ?? "unknown"} disabled={!canUpdate} onValueChange={(value) => void updateCase(sc.id, { leadTemperature: value as LeadTemperature })}>
+          <SelectTrigger className="mt-1.5 h-10" aria-label="Fırsat alım niyeti"><SelectValue /></SelectTrigger>
+          <SelectContent>{LEAD_TEMPERATURE_ORDER.map((code) => <SelectItem key={code} value={code}>{LEAD_TEMPERATURE_LABELS[code]} · {LEAD_TEMPERATURE_HINTS[code]}</SelectItem>)}</SelectContent>
+        </Select>
+      </div>
       {isLeadCard && (
-        <>
-          <div>
-            <Label className="text-xs">Alım niyeti</Label>
-            <Select value={sc.leadTemperature ?? "unknown"} disabled={!canUpdate} onValueChange={(value) => void updateCase(sc.id, { leadTemperature: value as LeadTemperature })}>
-              <SelectTrigger className="mt-1.5 h-10" aria-label="Lead alım niyeti"><SelectValue /></SelectTrigger>
-              <SelectContent>{LEAD_TEMPERATURE_ORDER.map((code) => <SelectItem key={code} value={code}>{LEAD_TEMPERATURE_LABELS[code]} · {LEAD_TEMPERATURE_HINTS[code]}</SelectItem>)}</SelectContent>
-            </Select>
-          </div>
-          <div>
-            <Label className="text-xs">Lead durumu</Label>
-            <Select value={sc.leadFollowUpStatus ?? "new"} disabled={!canUpdate} onValueChange={(value) => void updateCase(sc.id, { leadFollowUpStatus: value as LeadFollowUpStatus })}>
-              <SelectTrigger className={`mt-1.5 h-10 ${LEAD_FOLLOW_UP_STATUS_STYLES[sc.leadFollowUpStatus ?? "new"]}`} aria-label="Lead takip durumu"><SelectValue /></SelectTrigger>
-              <SelectContent>{LEAD_FOLLOW_UP_STATUS_ORDER.map((status) => <SelectItem key={status} value={status}>{LEAD_FOLLOW_UP_STATUS_LABELS[status]}</SelectItem>)}</SelectContent>
-            </Select>
-          </div>
-        </>
+        <div>
+          <Label className="text-xs">Lead durumu</Label>
+          <Select value={sc.leadFollowUpStatus ?? "new"} disabled={!canUpdate} onValueChange={(value) => void updateCase(sc.id, { leadFollowUpStatus: value as LeadFollowUpStatus })}>
+            <SelectTrigger className={`mt-1.5 h-10 ${LEAD_FOLLOW_UP_STATUS_STYLES[sc.leadFollowUpStatus ?? "new"]}`} aria-label="Lead takip durumu"><SelectValue /></SelectTrigger>
+            <SelectContent>{LEAD_FOLLOW_UP_STATUS_ORDER.map((status) => <SelectItem key={status} value={status}>{LEAD_FOLLOW_UP_STATUS_LABELS[status]}</SelectItem>)}</SelectContent>
+          </Select>
+        </div>
       )}
       {sc.externalSource === "trello" && (
         <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs">
@@ -1286,7 +1294,7 @@ export function SalesCaseDetailPage({
         </Card>
       )}
 
-      {(reachedInstallation || relatedInstallation) && (
+      {(sc.qualificationStage === "a_plus" || sc.qualificationStage === "win" || reachedInstallation || relatedInstallation) && (
         <Card id="opportunity-installation" className="scroll-mt-24 border-info/30 bg-info-soft/60">
           <CardContent className="p-4 sm:p-5">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -1309,11 +1317,25 @@ export function SalesCaseDetailPage({
                     </div>
                   ) : (
                     <div className="text-xs text-muted-foreground mt-0.5">
-                      Kart kurulum aşamasına geldi. Servis kurulum kaydı yüklenince durum burada görünecek.
+                      A+ alanında ticari faturayla paralel takip edilir. Kurulum planını şimdi oluşturabilirsiniz.
                     </div>
                   )}
                 </div>
               </div>
+              {!relatedInstallation && hasPermission("installations.create") && (
+                <CreateInstallationDialog
+                  defaultCompanyId={sc.customerId}
+                  defaultContactId={sc.primaryContactId}
+                  defaultOpportunityId={sc.id}
+                  defaultQuoteId={(offs.find((offer) => offer.status === "Approved") ?? offs[0])?.id}
+                  onCreated={() => void refresh()}
+                  trigger={
+                    <Button data-opportunity-installation-create="true" size="sm" className="gap-1">
+                      <Plus className="size-4" /> Kurulum planla
+                    </Button>
+                  }
+                />
+              )}
               {relatedInstallation?.statusCode === "completed" && (
                 <div className="inline-flex h-8 items-center gap-1 rounded-md border border-success/30 bg-card px-2.5 text-xs text-success">
                   <CheckCircle2 className="size-3.5" /> Kurulum tamamlandı
@@ -1816,7 +1838,7 @@ export function CreatePaymentPlanDialog({
   const [paymentMethod, setPaymentMethod] = useState<OpportunityPaymentMethod>("undecided");
   const [installmentCount, setInstallmentCount] = useState<number>(3);
   const [paymentTermDays, setPaymentTermDays] = useState<number>(30);
-  const [installments, setInstallments] = useState<Array<{ amount: number; dueDate: string }>>([]);
+  const [installments, setInstallments] = useState<PaymentPlanInstallment[]>([]);
   // Şartlar teklif/proforma/sözleşme ile aynı şablon mekanizmasından gelir.
   const [terms, setTerms] = useState<TermsValue>({ paymentTerms: "", deliveryTerms: "", warrantyTerms: "" });
   const [termsTemplateKeyValue, setTermsTemplateKeyValue] = useState("");
@@ -1839,6 +1861,7 @@ export function CreatePaymentPlanDialog({
       setCurrency(sc.currency || "USD");
     }
     setPaymentTermDays(30);
+    setInstallments([]);
     // Kartta yöntem zaten seçiliyse onunla aç; kullanıcı aynı şeyi iki kez seçmesin.
     setPaymentMethod(sc.paymentMethod ?? "undecided");
     setTerms({ paymentTerms: sc.paymentTerms ?? "", deliveryTerms: "", warrantyTerms: "" });
@@ -1864,7 +1887,7 @@ export function CreatePaymentPlanDialog({
       return;
     }
     const val = Number((amount / installmentCount).toFixed(2));
-    const list = [];
+    const list: PaymentPlanInstallment[] = [];
     const today = new Date();
     const firstTermDays = Math.max(0, Math.trunc(paymentTermDays || 0));
     for (let i = 0; i < installmentCount; i++) {
@@ -1872,12 +1895,17 @@ export function CreatePaymentPlanDialog({
       date.setDate(today.getDate() + firstTermDays + 30 * i);
       const dateStr = date.toISOString().slice(0, 10);
       list.push({
+        ...EMPTY_PAYMENT_INSTRUMENT_DETAILS,
         amount: i === 0 ? Number((amount - val * (installmentCount - 1)).toFixed(2)) : val,
         dueDate: dateStr,
       });
     }
-    setInstallments(list);
-  }, [amount, installmentCount, paymentTermDays]);
+    // Tutar veya tarih yeniden hesaplanırken girilmiş senet/çek bilgileri
+    // kaybolmasın; yalnız plan yeniden açıldığında başlangıçta temizlenir.
+    setInstallments((previous) => list.map((item, index) =>
+      recalculatePaymentInstallment(previous[index], item.amount, item.dueDate),
+    ));
+  }, [open, amount, installmentCount, paymentTermDays]);
 
   const handleEqualize = () => {
     if (amount <= 0 || installmentCount <= 0) return;
@@ -1890,7 +1918,11 @@ export function CreatePaymentPlanDialog({
     );
   };
 
-  const handleInstallmentChange = (index: number, field: "amount" | "dueDate", value: any) => {
+  const handleInstallmentChange = (
+    index: number,
+    field: keyof PaymentPlanInstallment,
+    value: string | number,
+  ) => {
     setInstallments(
       installments.map((inst, i) => {
         if (i !== index) return inst;
@@ -1915,6 +1947,13 @@ export function CreatePaymentPlanDialog({
     if (!planSkipped) {
       if (!isMatch) return toast.error("Taksitlerin toplamı, plan toplam tutarı ile eşleşmelidir");
       if (amount <= 0 || installments.length === 0) return toast.error("Plan tutarı ve en az bir vade girin.");
+      const invalidInstrumentIndex = installments.findIndex(
+        (installment) => missingPaymentInstrumentFields(paymentMethod, installment).length > 0,
+      );
+      if (invalidInstrumentIndex >= 0) {
+        const missing = missingPaymentInstrumentFields(paymentMethod, installments[invalidInstrumentIndex]);
+        return toast.error(`${invalidInstrumentIndex + 1}. taksit için ${missing.join(", ")} zorunludur.`);
+      }
     }
     setSaving(true);
     try {
@@ -1930,6 +1969,10 @@ export function CreatePaymentPlanDialog({
       if (Object.keys(casePatch).length > 0) await updateCase(sc.id, casePatch);
       for (let i = 0; planSkipped ? false : i < installments.length; i++) {
         const inst = installments[i];
+        const baseNote = installments.length > 1
+          ? `${OPPORTUNITY_PAYMENT_METHOD_LABELS[paymentMethod]} ${i + 1}/${installments.length} - ${sc.requestedProduct}`
+          : `${OPPORTUNITY_PAYMENT_METHOD_LABELS[paymentMethod]} - ${sc.requestedProduct}`;
+        const instrumentNote = paymentInstrumentNote(paymentMethod, inst);
         await financeService.createReceivable({
           companyId: sc.customerId,
           ...(selectedQuoteId ? { quoteId: selectedQuoteId } : {}),
@@ -1937,9 +1980,8 @@ export function CreatePaymentPlanDialog({
           currencyCode: currency,
           dueDate: new Date(inst.dueDate),
           movementType: "manual",
-          notes: installments.length > 1
-            ? `${OPPORTUNITY_PAYMENT_METHOD_LABELS[paymentMethod]} ${i + 1}/${installments.length} - ${sc.requestedProduct}`
-            : `${OPPORTUNITY_PAYMENT_METHOD_LABELS[paymentMethod]} - ${sc.requestedProduct}`,
+          ...(inst.documentNo.trim() ? { documentRef: inst.documentNo.trim() } : {}),
+          notes: instrumentNote ? `${baseNote} · ${instrumentNote}` : baseNote,
         });
       }
       toast.success(planSkipped
@@ -2091,31 +2133,49 @@ export function CreatePaymentPlanDialog({
 
               <div className="space-y-2 max-h-[300px] overflow-y-auto pr-1">
                 {installments.map((inst, i) => (
-                  <div key={i} className="flex items-center gap-3 p-2 bg-muted/30 rounded border border-border/40">
+                  <div key={i} className="flex items-start gap-3 p-2 bg-muted/30 rounded border border-border/40">
                     <span className="text-xs font-semibold text-muted-foreground w-12 text-center">
                       Taksit {i + 1}
                     </span>
-                    <div className="flex-1 grid grid-cols-2 gap-2">
-                      <div className="relative">
+                    <div className="flex-1 space-y-2">
+                      <div className="grid grid-cols-2 gap-2">
+                        <div className="relative">
+                          <Input
+                            aria-label={`${i + 1}. taksit tutarı`}
+                            type="number"
+                            step="0.01"
+                            value={inst.amount}
+                            onChange={(e) => handleInstallmentChange(i, "amount", e.target.value)}
+                            className="pr-12 text-sm h-9"
+                            required
+                          />
+                          <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-medium text-muted-foreground">
+                            {currency}
+                          </span>
+                        </div>
                         <Input
-                          type="number"
-                          step="0.01"
-                          value={inst.amount}
-                          onChange={(e) => handleInstallmentChange(i, "amount", e.target.value)}
-                          className="pr-12 text-sm h-9"
+                          aria-label={`${i + 1}. taksit vade tarihi`}
+                          type="date"
+                          value={inst.dueDate}
+                          onChange={(e) => handleInstallmentChange(i, "dueDate", e.target.value)}
+                          className="text-sm h-9"
                           required
                         />
-                        <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-medium text-muted-foreground">
-                          {currency}
-                        </span>
                       </div>
-                      <Input
-                        type="date"
-                        value={inst.dueDate}
-                        onChange={(e) => handleInstallmentChange(i, "dueDate", e.target.value)}
-                        className="text-sm h-9"
-                        required
-                      />
+                      {paymentMethod === "promissory_note" && (
+                        <div className="grid gap-2 sm:grid-cols-2">
+                          <Input aria-label={`${i + 1}. taksit senet numarası`} maxLength={128} value={inst.documentNo} onChange={(e) => handleInstallmentChange(i, "documentNo", e.target.value)} placeholder="Senet numarası" required />
+                          <Input aria-label={`${i + 1}. taksit senet borçlusu`} maxLength={128} value={inst.issuer} onChange={(e) => handleInstallmentChange(i, "issuer", e.target.value)} placeholder="Borçlu / düzenleyen" required />
+                        </div>
+                      )}
+                      {paymentMethod === "cheque" && (
+                        <div className="grid gap-2 sm:grid-cols-2">
+                          <Input aria-label={`${i + 1}. taksit çek numarası`} maxLength={128} value={inst.documentNo} onChange={(e) => handleInstallmentChange(i, "documentNo", e.target.value)} placeholder="Çek numarası" required />
+                          <Input aria-label={`${i + 1}. taksit çek bankası`} maxLength={128} value={inst.bankName} onChange={(e) => handleInstallmentChange(i, "bankName", e.target.value)} placeholder="Banka" required />
+                          <Input aria-label={`${i + 1}. taksit çek şubesi`} maxLength={128} value={inst.branchName} onChange={(e) => handleInstallmentChange(i, "branchName", e.target.value)} placeholder="Şube (opsiyonel)" />
+                          <Input aria-label={`${i + 1}. taksit çek hesap sahibi`} maxLength={128} value={inst.issuer} onChange={(e) => handleInstallmentChange(i, "issuer", e.target.value)} placeholder="Hesap sahibi" required />
+                        </div>
+                      )}
                     </div>
                   </div>
                 ))}

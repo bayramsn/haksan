@@ -4,6 +4,7 @@ import {
   PIPELINE_STAGE_QUALIFICATION,
   QUALIFICATION_STAGE_ENTRY,
   QUALIFICATION_STAGE_PIPELINE_STEPS,
+  STAGE_TRANSITIONS,
 } from './constants';
 
 describe('qualification pipeline ownership', () => {
@@ -23,5 +24,7 @@ describe('qualification pipeline ownership', () => {
     expect(PIPELINE_STAGE_REQUIREMENTS.delivered.requires).toMatch(/Ticari fatura/i);
     expect(PIPELINE_STAGE_QUALIFICATION.commercial_invoice).toBe('a_plus');
     expect(PIPELINE_STAGE_QUALIFICATION.delivered).toBe('win');
+    // Peşin/leasing planı atlar; vadeli akış ödeme planı üzerinden devam eder.
+    expect(STAGE_TRANSITIONS.commercial_invoice).toEqual(['contract', 'payment_plan']);
   });
 });

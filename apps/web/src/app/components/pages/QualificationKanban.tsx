@@ -10,6 +10,9 @@ import { toast } from "sonner";
 import { useAuth } from "../../../lib/auth";
 import { useStore } from "../../lib/store";
 import {
+  LEAD_TEMPERATURE_HINTS,
+  LEAD_TEMPERATURE_LABELS,
+  LEAD_TEMPERATURE_STYLES,
   QUALIFICATION_STAGE_DESCRIPTIONS,
   QUALIFICATION_STAGE_LABELS,
   QUALIFICATION_STAGES,
@@ -253,6 +256,8 @@ export function QualificationKanban({
           const machine = salesCase.requestedMachine?.trim() || salesCase.requestedModel?.trim() || "Belirtilmedi";
           const action = salesCase.nextAction?.trim() || "Planlanmadı";
           const actionOverdue = isActionOverdue(salesCase.nextActionAt);
+          const temperature = salesCase.leadTemperature ?? "unknown";
+          const temperatureStyle = LEAD_TEMPERATURE_STYLES[temperature];
           const openDetailsFromKeyboard = (event: KeyboardEvent<HTMLDivElement>) => {
             if (event.target !== event.currentTarget || (event.key !== "Enter" && event.key !== " ")) return;
             event.preventDefault();
@@ -281,6 +286,14 @@ export function QualificationKanban({
                     <div className="mt-0.5 line-clamp-2 whitespace-normal break-words [overflow-wrap:anywhere] font-display text-[15px] font-semibold leading-[1.25] text-[#0b1739]">
                       {partyName}
                     </div>
+                    <span
+                      className={`mt-1 inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] font-medium ${temperatureStyle.badge}`}
+                      aria-label={`Alım niyeti: ${LEAD_TEMPERATURE_LABELS[temperature]}`}
+                      title={LEAD_TEMPERATURE_HINTS[temperature]}
+                    >
+                      <span className={`size-1.5 rounded-full ${temperatureStyle.dot}`} aria-hidden="true" />
+                      {LEAD_TEMPERATURE_LABELS[temperature]}
+                    </span>
                   </div>
                   <div className="flex shrink-0 items-center gap-0.5">
                     <DropdownMenu>

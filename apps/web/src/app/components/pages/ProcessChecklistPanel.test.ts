@@ -5,6 +5,7 @@ const source = readFileSync(new URL("./ProcessChecklistPanel.tsx", import.meta.u
 const centerSource = readFileSync(new URL("./OpportunityProcessCenter.tsx", import.meta.url), "utf8");
 const detailSource = readFileSync(new URL("./SalesCaseDetail.tsx", import.meta.url), "utf8");
 const workspaceSource = readFileSync(new URL("./OpportunityWorkspace.tsx", import.meta.url), "utf8");
+const createDialogsSource = readFileSync(new URL("../dialogs/CreateDialogs.tsx", import.meta.url), "utf8");
 
 describe("ProcessChecklistPanel teklif adımı", () => {
   it("B sürecindeki teklif kontrolünü doğrudan mevcut teklif penceresine bağlar", () => {
@@ -86,11 +87,10 @@ describe("ProcessChecklistPanel satış alanı kutusunun içeriği", () => {
   });
 
   it("kaydetmeden sonra hem store'u hem kutunun hazırlık verisini tazeler", () => {
-    // Panel `sc.qualificationReadiness`'i (store), kutu kendi detay
-    // çağrısındaki `processReadiness`'i okuyor. Tazeleme tek tek
-    // düzenleyicilere bırakılınca bazıları tazeliyor bazıları tazelemiyordu ve
-    // görev tikli görünürken kutu eski engeli göstermeye devam ediyordu —
-    // kullanıcıya "yapılan görev kabul edilmedi" diye görünen hata buydu.
+    // Panel ile kutu modern `processReadiness` listesini kullanıyor; store
+    // özeti eski ekranların fallback'i. Tazeleme tek tek düzenleyicilere
+    // bırakılınca bazıları tazeliyor bazıları tazelemiyordu ve kullanıcıya
+    // "yapılan görev kabul edilmedi" diye görünen hata oluşuyordu.
     // Tazeleme ortak `run()` sarmalayıcısında, tek yerde olmalı.
     expect(source).toContain("await refresh();");
     expect(source).toContain("await onSaved?.();");
@@ -150,5 +150,22 @@ describe("ProcessChecklistPanel B aşaması aktiviteleri", () => {
     expect(source).toContain("description: draft.trim() || undefined");
     expect(source).toContain("Not yazmak zorunlu değildir. Yazılan not Aktivite bölümünde görünür.");
     expect(source).toContain("props.canCreateActivity,");
+  });
+});
+
+describe("A+ fatura ve kurulum paralel kapanışı", () => {
+  it("fatura ile kurulumu sıralı bir ok yerine iki paralel WIN kapısı olarak gösterir", () => {
+    expect(source).toContain("Ticari Fatura ∥ Kurulum paralel kapanış");
+    expect(source).toContain('aria-label="WIN paralel kapanış koşulları"');
+    expect(source).toContain("WIN için ticari fatura ve kurulum paralel takip edilir");
+  });
+
+  it("A+ alanından çıkmadan fırsata bağlı kurulum planı oluşturur", () => {
+    expect(detailSource).toContain('sc.qualificationStage === "a_plus"');
+    expect(detailSource).toContain('data-opportunity-installation-create="true"');
+    expect(detailSource).toContain("defaultOpportunityId={sc.id}");
+    expect(createDialogsSource).toContain("opportunityId: defaultOpportunityId");
+    expect(createDialogsSource).toContain("quoteId: defaultQuoteId");
+    expect(detailSource).not.toContain("Önce Kurulum operasyon adımına geçerek servis kaydını oluşturun.");
   });
 });

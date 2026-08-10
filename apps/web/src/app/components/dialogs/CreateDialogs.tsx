@@ -6244,18 +6244,29 @@ export function CreateServiceRequestDialog({ trigger, defaultMachineId }: { trig
 export function CreateInstallationDialog({
   trigger,
   onCreated,
+  defaultCompanyId,
+  defaultContactId,
+  defaultOpportunityId,
+  defaultQuoteId,
 }: {
   trigger: React.ReactNode;
   onCreated?: () => void;
+  defaultCompanyId?: string;
+  defaultContactId?: string;
+  defaultOpportunityId?: string;
+  defaultQuoteId?: string;
 }) {
   const { users, machines, deliveries } = useStore();
   const [open, setOpen] = useState(false);
   const submission = useSubmissionLock();
   const emptyForm = () => {
     return {
-      companyId: "",
-      contactId: "",
-      customerDeviceIds: [] as string[],
+      companyId: defaultCompanyId ?? "",
+      contactId: defaultContactId ?? "",
+      customerDeviceIds: machines
+        .filter((machine) => machine.customerId === defaultCompanyId || machine.userCompanyId === defaultCompanyId)
+        .slice(0, 1)
+        .map((machine) => machine.id),
       scheduledDate: new Date().toISOString().slice(0, 10),
       assignedToUserId: users.find((u) => u.role === "Service" || u.department === "Servis")?.id ?? users[0]?.id ?? "",
       location: "",
@@ -6294,6 +6305,8 @@ export function CreateInstallationDialog({
         });
         return serviceService.createInstallation({
           companyId: form.companyId,
+          opportunityId: defaultOpportunityId,
+          quoteId: defaultQuoteId,
           contactId: form.contactId || undefined,
           customerDeviceId,
           scheduledDate: form.scheduledDate || undefined,

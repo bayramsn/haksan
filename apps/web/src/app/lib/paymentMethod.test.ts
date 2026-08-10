@@ -3,7 +3,10 @@ import { requiresPaymentPlan } from "@haksan/shared";
 import {
   PAYMENT_FAMILY_PLAN_SHAPE,
   familyOfMethod,
+  missingPaymentInstrumentFields,
   methodOfFamily,
+  paymentInstrumentNote,
+  recalculatePaymentInstallment,
   paymentFamilyOptions,
   termKindOfMethod,
 } from "./paymentMethod";
@@ -47,5 +50,49 @@ describe("ödeme yöntemi ailesi", () => {
     // Yöntem seçilmeden adım "gerekmiyor" sayılırsa kart planı sessizce atlar.
     expect(requiresPaymentPlan("undecided")).toBe(true);
     expect(requiresPaymentPlan(null)).toBe(true);
+  });
+
+  it("senet ve çek için türe özgü bilgileri doğrular ve cari notu üretir", () => {
+    const empty = { documentNo: "", issuer: "", bankName: "", branchName: "" };
+    expect(missingPaymentInstrumentFields("term", empty)).toEqual([]);
+    expect(missingPaymentInstrumentFields("promissory_note", empty)).toEqual([
+      "senet numarası",
+      "borçlu",
+    ]);
+    expect(missingPaymentInstrumentFields("cheque", empty)).toEqual([
+      "çek numarası",
+      "banka",
+      "hesap sahibi",
+    ]);
+
+    expect(paymentInstrumentNote("promissory_note", {
+      ...empty,
+      documentNo: "SN-42",
+      issuer: "Ada Makina",
+    })).toBe("Senet No: SN-42 · Borçlu: Ada Makina");
+    expect(paymentInstrumentNote("cheque", {
+      documentNo: "CK-17",
+      issuer: "Ada Makina",
+      bankName: "Örnek Bank",
+      branchName: "İkitelli",
+    })).toBe("Çek No: CK-17 · Banka: Örnek Bank · Şube: İkitelli · Hesap Sahibi: Ada Makina");
+  });
+
+  it("tutar ve vade yeniden hesaplanırken senet/çek bilgilerini korur", () => {
+    expect(recalculatePaymentInstallment({
+      amount: 10,
+      dueDate: "2026-09-01",
+      documentNo: "CK-17",
+      issuer: "Ada Makina",
+      bankName: "Örnek Bank",
+      branchName: "İkitelli",
+    }, 25, "2026-10-01")).toEqual({
+      amount: 25,
+      dueDate: "2026-10-01",
+      documentNo: "CK-17",
+      issuer: "Ada Makina",
+      bankName: "Örnek Bank",
+      branchName: "İkitelli",
+    });
   });
 });

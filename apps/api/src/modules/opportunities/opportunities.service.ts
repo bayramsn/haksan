@@ -4400,20 +4400,30 @@ export class OpportunitiesService {
       throw new ValidationError('Kurulum için önce firma satış kartına bağlanmalıdır');
     }
     const existing = await this.db
-      .select({ id: installationJobs.id })
+      .select({ id: installationJobs.id, customerDeviceId: installationJobs.customerDeviceId })
       .from(installationJobs)
       .where(and(eq(installationJobs.tenantId, actor.tenantId), eq(installationJobs.opportunityId, opp.id)))
       .limit(1);
-    if (existing.length) return;
-    const scheduled = await this.db.query.installationStatuses.findFirst({
-      where: eq(installationStatuses.code, 'scheduled'),
-    });
     // Kurulumu (varsa) bu fırsat için oluşturulmuş müşteri cihazına bağla.
     const device = await this.db
       .select({ id: customerDevices.id })
       .from(customerDevices)
       .where(and(eq(customerDevices.tenantId, actor.tenantId), eq(customerDevices.opportunityId, opp.id)))
       .limit(1);
+    // Kurulum A+ alanında faturayla paralel önceden planlandıysa aynı kaydı
+    // koru; stoktan oluşan müşteri cihazını operasyon kurulum adımında bağla.
+    if (existing.length) {
+      if (!existing[0].customerDeviceId && device[0]?.id) {
+        await this.db
+          .update(installationJobs)
+          .set({ customerDeviceId: device[0].id })
+          .where(eq(installationJobs.id, existing[0].id));
+      }
+      return;
+    }
+    const scheduled = await this.db.query.installationStatuses.findFirst({
+      where: eq(installationStatuses.code, 'scheduled'),
+    });
     await this.db.insert(installationJobs).values({
       tenantId: actor.tenantId,
       divisionId: opp.divisionId,

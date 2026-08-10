@@ -4,6 +4,7 @@ import { PIPELINE_STAGE_FLOW } from "@haksan/shared";
 import { SALES_STAGES, opportunityTransitionErrorMessage } from "../../lib/mock";
 
 const source = readFileSync(new URL("./QualificationKanban.tsx", import.meta.url), "utf8");
+const detailSource = readFileSync(new URL("./SalesCaseDetail.tsx", import.meta.url), "utf8");
 
 describe("QualificationKanban LOST yeniden açma akışı", () => {
   it("LOST kart sürüklemesini bırakılan hedef dereceyle geri geçiş akışına yönlendirir", () => {
@@ -43,6 +44,19 @@ describe("QualificationKanban firma ve kart detayı", () => {
     expect(source).toContain("salesCase.requestedMachine?.trim()");
     expect(source).toContain("salesCase.nextAction?.trim()");
     expect(source).toContain("actionDateLabel(salesCase.nextActionAt)");
+  });
+
+  it("alım niyetini Kanban kartında Sıcak/Beklemede/Soğuk etiketi olarak gösterir", () => {
+    expect(source).toContain('const temperature = salesCase.leadTemperature ?? "unknown"');
+    expect(source).toContain('aria-label={`Alım niyeti: ${LEAD_TEMPERATURE_LABELS[temperature]}`}');
+    expect(source).toContain("LEAD_TEMPERATURE_STYLES[temperature]");
+  });
+
+  it("alım niyeti seçimini yalnız leadlere değil bütün fırsat detaylarına açar", () => {
+    const selectorIndex = detailSource.indexOf('aria-label="Fırsat alım niyeti"');
+    const leadOnlyIndex = detailSource.indexOf("{isLeadCard && (", selectorIndex);
+    expect(selectorIndex).toBeGreaterThan(-1);
+    expect(leadOnlyIndex).toBeGreaterThan(selectorIndex);
   });
 });
 

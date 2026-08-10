@@ -352,9 +352,11 @@ export function OpportunityProcessCenter({
         >
           {checklist?.({
             reload: load,
-            // Mevcut alanda panel kendi kaynağını kullanır; başka bir alan
-            // seçiliyse o alanın görevleri geçilir.
-            checks: viewedIsCurrent ? undefined : checksByStage.get(viewedStage ?? "") ?? [],
+            // Mevcut alan dahil her zaman detay uçtan gelen modern
+            // `processReadiness` kontrollerini kullan. Store özetindeki eski
+            // `qualificationReadiness` listesi A+ alanında yalnız onayları
+            // taşıdığı için fatura ve kurulum kapanış koşullarını gizliyordu.
+            checks: checksByStage.get(viewedStage ?? "") ?? [],
             readOnly: viewedIsFuture,
           })}
         </div>

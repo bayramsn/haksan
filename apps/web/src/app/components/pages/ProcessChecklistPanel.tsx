@@ -157,7 +157,7 @@ const DIALOG_ACTION_KEYS = new Set<OpportunityProcessActionKey>([
  * Kartın bulunduğu satış derecesini geçmek için tamamlanması gereken alanları
  * kompakt durum düğmeleriyle listeler; yalnız seçilen adımın düzenleyicisini
  * erişilebilir bir pencerede açar.
- * Kontrol listesi backend'in `qualificationReadiness.checks` çıktısıdır; burada
+ * Kontrol listesi backend'in `processReadiness.checks` çıktısıdır; burada
  * yalnız her `key` için doğru düzenleyici eşlenir. Böylece UI, backend'in
  * gerçekten aradığı koşulun dışına çıkıp olmayan bir kural vaat etmez.
  *
@@ -189,7 +189,8 @@ export function ProcessChecklistPanel({
   onAction?: (actionKey: OpportunityProcessActionKey) => void;
   canPerformAction?: (actionKey: OpportunityProcessActionKey) => boolean;
   /**
-   * Gösterilecek görev listesi. Verilmezse mevcut alanınki kullanılır.
+   * Gösterilecek modern görev listesi. Verilmezse eski store özeti yalnız
+   * geriye dönük uyumluluk için kullanılır.
    * Ray'dan başka bir alan seçildiğinde o alanın görevleri geçilir — kontroller
    * `processReadiness.checks` içinde `qualificationStage` ile etiketli geliyor.
    */
@@ -199,10 +200,8 @@ export function ProcessChecklistPanel({
   /**
    * Kaydetmeden sonra satış alanı kutusunun hazırlık verisini tazeler.
    *
-   * Panel `sc.qualificationReadiness`'i (store) okur, kutu ise kendi detay
-   * çağrısındaki `processReadiness`'i okur. Yalnız store tazelenirse görev
-   * tikli görünür ama kutu eski engeli göstermeye devam eder — kullanıcıya
-   * "yapılan görev kabul edilmedi" gibi görünen şey budur.
+   * Panel ve kutu aynı detay çağrısındaki `processReadiness` listesini kullanır;
+   * store özeti yalnız eski ekranların geri dönüş kaynağıdır.
    */
   onSaved?: () => Promise<void> | void;
 }) {
@@ -219,13 +218,14 @@ export function ProcessChecklistPanel({
   const company = companyQuery.data;
   const grade = (sc.qualificationStage ?? "lead") as QualificationStage;
   const areaSteps = OPPORTUNITY_OPERATION_GROUP_STEPS[grade] ?? [];
+  const availableChecks = checksOverride ?? readiness?.checks ?? [];
   useEffect(() => {
     if (!requestedAction) return;
     const key = OPPORTUNITY_CHECK_BY_ACTION[requestedAction];
-    if (!key || !readiness?.checks.some((item) => item.key === key)) return;
+    if (!key || !availableChecks.some((item) => item.key === key)) return;
     setActiveCheckKey(key);
     onActionHandled?.();
-  }, [requestedAction, readiness?.checks, onActionHandled]);
+  }, [requestedAction, availableChecks, onActionHandled]);
 
   /** Bir görev düzenleyicisini tek-adım penceresinde açar. */
   const openCheck = (key: string) => {
@@ -242,17 +242,32 @@ export function ProcessChecklistPanel({
     onAction?.(check.actionKey);
   };
 
-  if (!readiness) return null;
+  if (!readiness && !checksOverride) return null;
 
-  // Ray'dan seçilen alanın görevleri; seçim yoksa mevcut alanınki.
-  const rawChecks: DisplayProcessCheck[] = checksOverride ?? readiness.checks;
+  // Ray'dan seçilen alanın görevleri; modern detay listesi mevcut alan için de
+  // açıkça geçilir. Eski store listesi yalnız fallback'tir.
+  const rawChecks: DisplayProcessCheck[] = availableChecks;
   const checks: DisplayProcessCheck[] = rawChecks.map((check) => ({
     ...check,
     actionKey: check.actionKey ?? CHECK_ACTION_BY_KEY[check.key],
   }));
   const activeCheck = activeCheckKey
-    ? readiness.checks.find((item) => item.key === activeCheckKey)
+    ? availableChecks.find((item) => item.key === activeCheckKey)
     : undefined;
+  const aPlusClosingGates = grade === "a_plus"
+    ? [
+        {
+          key: "invoice",
+          label: "Ticari fatura",
+          checks: checks.filter((check) => check.key === "commercial_invoice" || check.key === "commercial_invoice_file"),
+        },
+        {
+          key: "installation",
+          label: "Kurulum",
+          checks: checks.filter((check) => check.key === "installation" || check.key === "installation_completed"),
+        },
+      ].filter((gate) => gate.checks.length > 0)
+    : [];
 
   /** Bir düzenleyicinin kaydetme sarmalayıcısı: kilit, hata ve tazeleme tek yerde. */
   const run = async (
@@ -287,7 +302,9 @@ export function ProcessChecklistPanel({
           <h3 className="text-xs font-semibold text-foreground">Operasyon adımları</h3>
           {areaSteps.length > 0 && (
             <p className="mt-0.5 text-[11px] leading-4 text-muted-foreground">
-              {areaSteps.map((step) => salesStageLabel(step)).join(" → ")}
+              {grade === "a_plus"
+                ? "Lojistik akışı · Ticari Fatura ∥ Kurulum paralel kapanış"
+                : areaSteps.map((step) => salesStageLabel(step)).join(" → ")}
             </p>
           )}
         </div>
@@ -295,6 +312,31 @@ export function ProcessChecklistPanel({
           {checks.filter((check) => check.complete).length}/{checks.length} tamamlandı
         </span>
       </div>
+
+      {aPlusClosingGates.length === 2 && (
+        <div
+          aria-label="WIN paralel kapanış koşulları"
+          className="rounded-lg border border-amber-200/80 bg-amber-50/70 p-3"
+        >
+          <p className="text-[11px] leading-4 text-amber-950">
+            WIN için ticari fatura ve kurulum paralel takip edilir; ikisi de tamamlanmalıdır.
+          </p>
+          <div className="mt-2 grid gap-2 sm:grid-cols-2">
+            {aPlusClosingGates.map((gate) => {
+              const complete = gate.checks.every((check) => check.complete);
+              return (
+                <div key={gate.key} className="flex items-center gap-2 rounded-md border border-amber-200 bg-white px-2.5 py-2 text-xs font-medium">
+                  {complete
+                    ? <CheckCircle2 className="size-4 shrink-0 text-success" aria-hidden="true" />
+                    : <Circle className="size-4 shrink-0 text-amber-600" aria-hidden="true" />}
+                  <span className="min-w-0 flex-1">{gate.label}</span>
+                  <span className="text-[10px] text-muted-foreground">{complete ? "Tamam" : "Bekliyor"}</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {checks.length === 0 ? (
         <p className="text-xs text-muted-foreground">Bu aşamada tamamlanacak alan yok.</p>

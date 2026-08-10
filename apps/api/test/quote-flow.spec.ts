@@ -192,6 +192,23 @@ describe('ERP flow', () => {
       lineTotal: 83_000,
     });
     expect(second.body.documentSnapshot).not.toHaveProperty('documentSnapshot');
+
+    // Yalnız sözleşme şartını değiştirmek, daha önce pazarlık edilen fiyatı
+    // teklif fiyatına geri döndürmemeli.
+    const termsOnly = await supertest(app.getHttpServer())
+      .patch(`/api/v1/contracts/${contractId}`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ terms: { paymentTermsText: 'VADELI-ODEME' } });
+    expect(termsOnly.status, JSON.stringify(termsOnly.body)).toBe(200);
+    expect(termsOnly.body.documentSnapshot?.items[0]).toMatchObject({
+      id: quoteItemId,
+      unitPrice: 88_000,
+      discountAmount: 5_000,
+      lineTotal: 83_000,
+    });
+    expect(termsOnly.body.documentSnapshot?.terms).toMatchObject({
+      paymentTermsText: 'VADELI-ODEME',
+    });
   });
 
   it('keeps contract terms on the contract and leaves the quote terms untouched', async () => {

@@ -162,4 +162,18 @@ describe("OpportunityProcessCenter alan görev listesiyle ilişkisi", () => {
     expect(source).toContain("detail?: OpportunityProcessDetail | null");
     expect(source).toContain("onReload?: () => Promise<void>");
   });
+
+  it("mevcut alanı da legacy store özeti yerine modern processReadiness kontrolleriyle besler", () => {
+    expect(source).toContain('checks: checksByStage.get(viewedStage ?? "") ?? []');
+    expect(source).not.toContain("checks: viewedIsCurrent ? undefined");
+    expect(checklistSource).toContain("const availableChecks = checksOverride ?? readiness?.checks ?? []");
+    expect(checklistSource).toContain("activeCheckKey\n    ? availableChecks.find");
+  });
+
+  it("A+ alanında ticari fatura ve kurulumu paralel WIN kapıları olarak birlikte gösterir", () => {
+    expect(checklistSource).toContain('aria-label="WIN paralel kapanış koşulları"');
+    expect(checklistSource).toContain("WIN için ticari fatura ve kurulum paralel takip edilir");
+    expect(checklistSource).toContain('check.key === "commercial_invoice_file"');
+    expect(checklistSource).toContain('check.key === "installation_completed"');
+  });
 });

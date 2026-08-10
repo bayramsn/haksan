@@ -973,6 +973,39 @@ export class QuotesService {
     };
   }
 
+  /**
+   * Taslak belge fiyatlarını kısmi PATCH çağrılarında korur.
+   *
+   * `items` yalnız değişen satırları taşıyabilir; ayrıca kullanıcı sadece
+   * şartları güncellediğinde hiç gelmez. Önceki snapshot fiyatlarını hesaba
+   * katmadan belgeyi yeniden kurmak, sözleşmede pazarlık edilen fiyatları
+   * sessizce tekrar teklif fiyatına döndürüyordu.
+   */
+  private mergeDocumentPriceItems(
+    snapshot: unknown,
+    quoteItemIds: Set<string>,
+    updates?: ProformaPriceItemInput[],
+  ): ProformaPriceItemInput[] | undefined {
+    const storedItems = snapshot && typeof snapshot === 'object'
+      && Array.isArray((snapshot as { items?: unknown }).items)
+      ? (snapshot as { items: Array<Record<string, unknown>> }).items
+      : [];
+    const stored = storedItems.flatMap((item) => {
+      const quoteItemId = typeof item.id === 'string' ? item.id : '';
+      const unitPrice = Number(item.unitPrice);
+      return quoteItemId && quoteItemIds.has(quoteItemId) && Number.isFinite(unitPrice)
+        ? [{ quoteItemId, unitPrice }]
+        : [];
+    });
+    if (updates === undefined) return stored.length > 0 ? stored : undefined;
+
+    const updatedIds = new Set(updates.map((item) => item.quoteItemId));
+    return [
+      ...stored.filter((item) => !updatedIds.has(item.quoteItemId)),
+      ...updates,
+    ];
+  }
+
   private assertCommercialDocumentMutable(document: { finalizedAt?: Date | null }, label: string) {
     if (document.finalizedAt) {
       throw new ConflictError(`${label} kesinleşmiş; içerik değiştirilemez veya silinemez`);
@@ -2733,11 +2766,19 @@ export class QuotesService {
     // Sözleşme fiyatı bağlı teklifi değiştirmeden burada saklanır: onaylı
     // teklif kilitlidir, oysa imza masasında fiyat hâlâ pazarlığa açıktır.
     if (input.items !== undefined || input.terms !== undefined) {
+      const quoteItemIds = new Set(
+        (quote.items ?? []).map((item: { id: string }) => item.id),
+      );
+      const priceItems = this.mergeDocumentPriceItems(
+        input.quoteId !== undefined ? null : existing.documentSnapshot,
+        quoteItemIds,
+        input.items,
+      );
       patch.documentSnapshot = await this.buildPricedDocumentSnapshot(
         snapshotDocument,
         String(patch.quoteId ?? existing.quoteId),
         actor,
-        input.items
+        priceItems,
       );
     }
     if (input.statusCode !== undefined && input.statusCode !== 'draft') {
