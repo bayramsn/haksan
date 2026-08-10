@@ -139,6 +139,30 @@ export const proformaPriceItemSchema = z.object({
 });
 export type ProformaPriceItemInput = z.infer<typeof proformaPriceItemSchema>;
 
+/**
+ * Teklife bağlı belgenin (proforma / sözleşme) kendi net fiyatlarını saklayan
+ * kalem listesi. Belge, bağlı teklifi DEĞİŞTİRMEZ: onaylı teklif kilitlidir
+ * (`assertQuoteMutable`), oysa sözleşme masasında fiyat pazarlığa açıktır.
+ * İskonto bilerek bu payload ile değiştirilemez; teklif satırından korunur.
+ */
+const documentPriceItemsSchema = z
+  .array(proformaPriceItemSchema)
+  .max(200)
+  .superRefine((items, context) => {
+    const seen = new Set<string>();
+    items.forEach((item, index) => {
+      if (seen.has(item.quoteItemId)) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'Aynı teklif kalemi belgeye birden fazla kez eklenemez.',
+          path: [index, 'quoteItemId'],
+        });
+      }
+      seen.add(item.quoteItemId);
+    });
+  })
+  .optional();
+
 export const proformaCreateSchema = z.object({
   quoteId: z.string().min(1),
   documentNo: z.string().trim().min(1).max(64).optional(),
@@ -147,26 +171,8 @@ export const proformaCreateSchema = z.object({
   fileId: z.string().optional(),
   /** Çıktının altına basılacak imza (Ayarlar → İmzalar). `null` → imzasız. */
   signatureId: z.string().uuid().nullish(),
-  // Proforma teklifi değiştirmeden kendi net fiyatlarını saklar. Bilerek
-  // İskonto bu payload ile değiştirilemez; bağlı teklif satırından korunur.
   // `unitPrice` brüt birim fiyatıdır, net toplam mevcut iskonto düşülerek hesaplanır.
-  items: z
-    .array(proformaPriceItemSchema)
-    .max(200)
-    .superRefine((items, context) => {
-      const seen = new Set<string>();
-      items.forEach((item, index) => {
-        if (seen.has(item.quoteItemId)) {
-          context.addIssue({
-            code: z.ZodIssueCode.custom,
-            message: 'Aynı teklif kalemi proformaya birden fazla kez eklenemez.',
-            path: [index, 'quoteItemId'],
-          });
-        }
-        seen.add(item.quoteItemId);
-      });
-    })
-    .optional(),
+  items: documentPriceItemsSchema,
 });
 export type ProformaCreateInput = z.infer<typeof proformaCreateSchema>;
 
@@ -322,6 +328,9 @@ export const contractCreateSchema = z.object({
   fileId: z.string().optional(),
   /** Çıktının altına basılacak imza (Ayarlar → İmzalar). `null` → imzasız. */
   signatureId: z.string().uuid().nullish(),
+  // Sözleşme masasında pazarlık edilen fiyat, onaylı teklife dokunmadan
+  // burada saklanır ve sözleşme çıktısı bu değerlerle basılır.
+  items: documentPriceItemsSchema,
 });
 export type ContractCreateInput = z.infer<typeof contractCreateSchema>;
 

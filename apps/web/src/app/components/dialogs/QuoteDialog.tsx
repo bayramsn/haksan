@@ -5,7 +5,7 @@ import {
 import { Input } from "../ui/input";
 import { Label } from "../ui/label";
 import { Button } from "../ui/button";
-import { Textarea } from "../ui/textarea";
+import { NumberedLinesTextarea } from "../shared/NumberedLinesTextarea";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "../ui/select";
@@ -1564,6 +1564,9 @@ export function QuoteDialog({
 
           <DocumentTermsTemplateEditor
             description="Şablon seçin, metinleri gerekiyorsa düzenleyin; değişiklikler teklif/proforma belgesine eklenir."
+            // Teklif çıktısı maddeleri a) b) c) ile numaralar; ekrandaki işaret
+            // de aynı olsun ki kullanıcı belgeyi basmadan madde sırasını görsün.
+            markerStyle="alpha"
             templateScope={TERMS_TEMPLATE_SCOPE}
             noteTemplates={noteTemplates}
             selectedTemplateKey={noteVariantKey}
@@ -1617,9 +1620,12 @@ export function QuoteDialog({
                 </Button>
               </div>
             </div>
-            <Textarea
+            {/* Notlar da belgede "NOTLAR" başlığı altında madde madde basılır;
+                işaretleme şartlarla aynı biçimde görünür. */}
+            <NumberedLinesTextarea
               id="quote-notes"
               className="mt-1.5"
+              markerStyle="alpha"
               rows={3}
               value={note}
               onChange={(e) => setNote(e.target.value)}

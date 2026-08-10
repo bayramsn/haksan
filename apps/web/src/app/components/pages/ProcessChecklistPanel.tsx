@@ -11,7 +11,6 @@ import { activityService } from "../../../lib/services";
 import { useAuth } from "../../../lib/auth";
 import { useStore } from "../../lib/store";
 import {
-  OPPORTUNITY_PAYMENT_METHOD_LABELS,
   salesStageLabel,
   type OpportunityPaymentMethod,
   type QualificationStage,
@@ -26,6 +25,7 @@ import { Textarea } from "../ui/textarea";
 import { CreateContactDialog } from "../dialogs/CreateDialogs";
 import { QuoteDialog } from "../dialogs/QuoteDialog";
 import { RequestedMachineCombobox } from "../shared/RequestedMachineCombobox";
+import { PaymentMethodSelect } from "../shared/PaymentMethodSelect";
 import { OPPORTUNITY_OPERATION_GROUP_STEPS } from "./opportunityProcessGroups";
 import { focusWorkspaceTarget } from "../../lib/workspaceFocus";
 
@@ -628,26 +628,19 @@ function CheckEditor(props: EditorProps) {
       );
 
     case "payment_method":
+      // Ödeme planı diyaloğuyla aynı iki kademeli seçim: önce şekil, vadeliyse
+      // vade türü. İki ekranın farklı listeler göstermesi, aynı alanı iki ayrı
+      // kavramla dolduruyordu.
       return wrap(
-        <Select
+        <PaymentMethodSelect
+          value={sc.paymentMethod}
           disabled={disabled}
-          onValueChange={(value) =>
-            void saveCase({ paymentMethod: value as OpportunityPaymentMethod }, "Ödeme biçimi kaydedildi")
-          }
-        >
-          <SelectTrigger size="sm" className="h-8 w-full bg-white text-xs sm:w-64">
-            <SelectValue placeholder="Ödeme biçimi seçin" />
-          </SelectTrigger>
-          <SelectContent>
-            {(Object.keys(OPPORTUNITY_PAYMENT_METHOD_LABELS) as OpportunityPaymentMethod[])
-              .filter((code) => code !== "undecided")
-              .map((code) => (
-                <SelectItem key={code} value={code}>
-                  {OPPORTUNITY_PAYMENT_METHOD_LABELS[code]}
-                </SelectItem>
-              ))}
-          </SelectContent>
-        </Select>
+          size="sm"
+          labels={false}
+          idPrefix={`process-payment-${sc.id}`}
+          className="w-full sm:w-96"
+          onChange={(method) => void saveCase({ paymentMethod: method }, "Ödeme biçimi kaydedildi")}
+        />
       );
 
     case "contract_terms":

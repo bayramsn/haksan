@@ -11,6 +11,7 @@ import { CreateProformaDialog } from "../../dialogs/CreateProformaDialog";
 import { QuickProformaDialog } from "../../dialogs/QuickProformaDialog";
 import { QuickContractDialog } from "../../dialogs/QuickContractDialog";
 import { EditProformaPricesDialog } from "../../dialogs/EditProformaPricesDialog";
+import { EditContractPricesDialog } from "../../dialogs/EditContractPricesDialog";
 import { CreateContractDialog } from "../../dialogs/CreateContractDialog";
 import { LinkCommercialDocumentDialog } from "../../dialogs/LinkCommercialDocumentDialog";
 import { useStore } from "../../../lib/store";
@@ -928,10 +929,20 @@ export function DocumentsPage({
                         )}
                         {d.type === "Contract" && (
                           <>
-                            {/* Teklife bağlı sözleşme teklif üzerinden düzenlenir; hızlı
-                                sözleşmenin kalemleri ve şartları belgeye ait olduğu için
-                                tam düzenleyici açılır. */}
-                            {!d.quoteId && (
+                            {/* Teklife bağlı sözleşmede yalnızca fiyat düzenlenir — onaylı
+                                teklif kilitli olduğu hâlde imza masasında fiyat pazarlığa
+                                açıktır; hızlı sözleşmenin kalemleri ve şartları belgeye ait
+                                olduğu için tam düzenleyici açılır. */}
+                            {d.quoteId ? (
+                              <EditContractPricesDialog
+                                document={d}
+                                trigger={
+                                  <Button variant="ghost" size="icon" className="size-7" title="Sözleşme fiyatlarını düzenle">
+                                    <BadgeDollarSign className="size-4 text-muted-foreground hover:text-primary" />
+                                  </Button>
+                                }
+                              />
+                            ) : (
                               <QuickContractDialog
                                 document={d}
                                 trigger={

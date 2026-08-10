@@ -76,7 +76,10 @@ export const PIPELINE_STAGE_REQUIREMENTS: Record<
   contract: { requires: 'Sözleşme dosyası yüklenmiş olmalı', effect: null },
   payment_plan: { requires: null, effect: null },
   commercial_invoice: {
-    requires: 'Ödeme planı oluşturulmuş ve ticari fatura dosyası yüklenmiş olmalı',
+    // Fatura bu aşamada KESİLİR, aşamaya girmek için önceden var olması beklenmez;
+    // faturanın varlığı WIN kapısında (delivered) aranır. Vadeli satışta ödeme
+    // planı bu aşamadan önce kurulmuş olmalıdır — peşin ve leasingde plan yoktur.
+    requires: 'Vadeli ödemede ödeme planı oluşturulmuş olmalı',
     effect: null,
   },
   customs_approved: { requires: null, effect: null },
@@ -89,7 +92,10 @@ export const PIPELINE_STAGE_REQUIREMENTS: Record<
     requires: null,
     effect: 'Garanti/müşteri cihaz kaydı ve servis ekibine kurulum işi açılır.',
   },
-  delivered: { requires: null, effect: 'Fırsat kazanıldı sayılır ve garanti kayıtları tamamlanır.' },
+  delivered: {
+    requires: 'Ticari fatura kesilmiş ve kurulum tamamlanmış olmalı',
+    effect: 'Fırsat kazanıldı sayılır ve garanti kayıtları tamamlanır.',
+  },
   cancelled: { requires: 'İptal nedeni zorunlu', effect: 'Kart LOST derecesine düşer.' },
 };
 
@@ -98,10 +104,10 @@ export const PIPELINE_STAGE_REQUIREMENTS: Record<
  * derecenin "alanına" giriş noktası. Derece ile aşamanın birbirinden kopmaması
  * için iki eksen bu tablo üzerinden çekilir.
  *
- * `gated: true` olan giriş aşamaları somut kanıt ister (teklif kaydı, fatura
- * dosyası vb.). Bu aşamalara YALNIZ changeStage üzerinden, kapıdan geçerek
- * girilir; derece ilerletmesi kartı oraya kendiliğinden taşımaz — aksi hâlde
- * "Ticari Fatura aşamasında ama faturası yok" gibi yalan bir kayıt doğar.
+ * `gated: true` olan giriş aşamaları somut kanıt ister (ör. teklif kaydı). Bu
+ * aşamalara YALNIZ changeStage üzerinden, kapıdan geçerek girilir; derece
+ * ilerletmesi kartı oraya kendiliğinden taşımaz — aksi hâlde "Teklif
+ * aşamasında ama teklifi yok" gibi yalan bir kayıt doğar.
  */
 export const QUALIFICATION_STAGE_ENTRY: Record<
   QualificationStageCode,
@@ -113,6 +119,9 @@ export const QUALIFICATION_STAGE_ENTRY: Record<
   // Teklif B alanının son işidir. A'ya geçiş, tamamlanmış teklif aşamasını
   // sınır kabul eder; böylece teklif B'de hazırlanır ve A teklif sonrasında başlar.
   a: { stage: 'quote', gated: true },
+  // A+ alanının ilk işi ticari faturayı KESMEKtir; bu yüzden giriş aşaması
+  // fatura adımıdır ama faturanın kendisi giriş koşulu değildir. Faturanın
+  // varlığı kurulumla birlikte WIN kapısında aranır (bkz. PIPELINE_STAGE_REQUIREMENTS).
   a_plus: { stage: 'commercial_invoice', gated: true },
   win: { stage: 'delivered', gated: false },
   lost: { stage: 'cancelled', gated: false },
@@ -251,6 +260,64 @@ export const LEAD_DISQUALIFY_REASONS = [
   { code: 'lead_not_relevant', name: 'İlgisiz / spam' },
 ] as const;
 export type LeadDisqualifyReasonCode = (typeof LEAD_DISQUALIFY_REASONS)[number]['code'];
+
+export const OPPORTUNITY_PAYMENT_METHODS = [
+  'undecided',
+  'cash',
+  'wire_transfer',
+  'promissory_note',
+  'term',
+  'installment',
+  'leasing',
+  'letter_of_credit',
+  'cheque',
+] as const;
+export type OpportunityPaymentMethodCode = (typeof OPPORTUNITY_PAYMENT_METHODS)[number];
+
+/**
+ * Ödeme yönteminin tahsilat şekli. Satış ekibi kartta önce şekli seçer
+ * (Peşin / Leasing / Vadeli); vade türü (elden, senet, çek) yalnız vadelide
+ * sorulur ve yöntem kodunun kendisiyle taşınır.
+ */
+export const OPPORTUNITY_PAYMENT_SHAPES = ['undecided', 'cash', 'leasing', 'term'] as const;
+export type OpportunityPaymentShape = (typeof OPPORTUNITY_PAYMENT_SHAPES)[number];
+
+export const OPPORTUNITY_PAYMENT_METHOD_SHAPE: Record<
+  OpportunityPaymentMethodCode,
+  OpportunityPaymentShape
+> = {
+  undecided: 'undecided',
+  // Havale de bedelin tamamının vadesiz tahsilidir; peşinle aynı şekildedir.
+  cash: 'cash',
+  wire_transfer: 'cash',
+  leasing: 'leasing',
+  // Vadeli tahsilatın türleri: elden (term), senet, çek. Taksit ve akreditif
+  // eski kayıtlardan gelir; ikisi de vade tablosu gerektirdiği için buradadır.
+  term: 'term',
+  promissory_note: 'term',
+  cheque: 'term',
+  installment: 'term',
+  letter_of_credit: 'term',
+};
+
+/** Vadeli satışta sorulan vade türleri (sıra UI'daki gösterim sırasıdır). */
+export const OPPORTUNITY_TERM_PAYMENT_METHODS = ['term', 'promissory_note', 'cheque'] as const;
+
+export const paymentShapeOf = (method?: string | null): OpportunityPaymentShape =>
+  OPPORTUNITY_PAYMENT_METHOD_SHAPE[(method ?? 'undecided') as OpportunityPaymentMethodCode] ?? 'undecided';
+
+/**
+ * Kartın vade satırlarından oluşan bir ödeme planı gerektirip gerektirmediği.
+ *
+ * Peşinde tahsilat tek seferdir, leasingde taksitleri finans kuruluşu takip
+ * eder — ikisinde de CRM'de plan tutmak boş satır üretmekten başka bir şey
+ * yapmıyordu. Yöntem henüz seçilmemişse plan beklenir; aksi hâlde kart
+ * "belirlenmedi" durumunda kalıp adımı sessizce atlardı.
+ */
+export const requiresPaymentPlan = (method?: string | null): boolean => {
+  const shape = paymentShapeOf(method);
+  return shape !== 'cash' && shape !== 'leasing';
+};
 
 export const OPPORTUNITY_APPROVAL_TYPES = ['payment', 'customs', 'invoice', 'installation', 'win'] as const;
 export type OpportunityApprovalType = (typeof OPPORTUNITY_APPROVAL_TYPES)[number];

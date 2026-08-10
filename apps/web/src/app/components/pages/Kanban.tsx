@@ -36,7 +36,6 @@ import {
   AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "../ui/alert-dialog";
 import { Label } from "../ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -50,6 +49,7 @@ import { CreateProformaDialog } from "../dialogs/CreateProformaDialog";
 import { CreateContractDialog } from "../dialogs/CreateContractDialog";
 import { QuoteDialog } from "../dialogs/QuoteDialog";
 import { CommercialDocumentRail } from "../shared/CommercialDocumentRail";
+import { PaymentMethodSelect } from "../shared/PaymentMethodSelect";
 import { useAuth } from "../../../lib/auth";
 
 export const STAGE_DOT: Record<string, string> = {
@@ -89,6 +89,16 @@ const initials = (n: string) => (n || "—").split(" ").slice(0, 2).map((p) => p
 // durumu zaten aşamadan okunur.
 const TEMPERATURE_STAGES: SalesStage[] = ["lead", "call", "visit"];
 const COMMERCIAL_DOCUMENT_TYPES = new Set<DocumentItem["type"]>(["Proforma", "Contract", "CommercialInvoice"]);
+
+/**
+ * Ticari fatura, teslimden önceki herhangi bir adımda kesilebilir: kartın
+ * fatura aşamasına gelmesini beklemek gerekmez, ama teslim edilmiş/iptal
+ * kartta yükleme düğmesi anlamsızdır. Faturanın varlığı WIN kapısında aranır.
+ */
+const invoiceUploadable = (stage: SalesStage) => {
+  const index = SALES_STAGES.indexOf(stage);
+  return index >= SALES_STAGES.indexOf("payment_plan") && index < SALES_STAGES.indexOf("delivered");
+};
 
 export function KanbanPage({
   onSelect,
@@ -203,9 +213,6 @@ export function KanbanPage({
     machines.find((x) => x.salesCaseId === sc.id) ??
     machines.find((x) => x.customerId === sc.customerId);
 
-  const hasCommercialInvoice = (caseId: string) =>
-    documents.some((doc) => doc.salesCaseId === caseId && doc.type === "CommercialInvoice");
-
   const loadInstallationMachine = async (sc: SalesCase) => {
     const fallback = localMachineForCase(sc);
     try {
@@ -280,15 +287,6 @@ export function KanbanPage({
       return;
     }
 
-    if (to === "commercial_invoice" && sc && from === "payment_plan" && !hasCommercialInvoice(sc.id)) {
-      if (!offers.some((offer) => offer.salesCaseId === sc.id)) {
-        toast.error("Fatura için ilişkili teklif bulunamadı", { description: "Ticari fatura kaydı teklif üzerinden oluşturulur." });
-        return;
-      }
-      toast.error("Ticari fatura gerekli", { description: "Karttaki Fatura butonuyla belgeyi yükledikten sonra kart otomatik taşınır." });
-      return;
-    }
-
     if (to === "contract" && sc && !documents.some((d) => d.salesCaseId === sc.id && d.type === "Contract")) {
       toast.error("Sözleşme gerekli", { description: "Karttaki Sözleşme butonuyla belgeyi oluşturduktan sonra aşamayı taşıyın." });
       return;
@@ -312,6 +310,11 @@ export function KanbanPage({
 
   const completeCommercialInvoiceStage = async (sc: SalesCase) => {
     setInvoiceUploadCase(null);
+    // Kart fatura aşamasını geçmişse geri çekilmez; yükleme yalnız belgeyi ekler.
+    if (SALES_STAGES.indexOf(sc.stage) >= SALES_STAGES.indexOf("commercial_invoice")) {
+      toast.success("Ticari fatura yüklendi", { description: "Belge karta bağlandı." });
+      return;
+    }
     try {
       await moveCase(sc.id, "commercial_invoice");
       toast.success("Ticari fatura yüklendi", { description: "Kart Ticari Fatura aşamasına alındı." });
@@ -687,20 +690,16 @@ export function KanbanPage({
                     <Label className="mb-1.5 block text-[10px] uppercase tracking-wide text-muted-foreground">
                       Ödeme şekli
                     </Label>
-                    <Select
-                      value={s.paymentMethod ?? "undecided"}
+                    {/* Süreç paneli ve ödeme planı diyaloğuyla aynı iki kademeli
+                        seçim: Peşin / Leasing / Vadeli, vadeliyse vade türü. */}
+                    <PaymentMethodSelect
+                      value={s.paymentMethod}
                       disabled={paymentMethodSavingId === s.id}
-                      onValueChange={(value) => void setPaymentMethod(s, value as OpportunityPaymentMethod)}
-                    >
-                      <SelectTrigger className="h-8 bg-white text-xs">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {(Object.entries(OPPORTUNITY_PAYMENT_METHOD_LABELS) as Array<[OpportunityPaymentMethod, string]>).map(([code, label]) => (
-                          <SelectItem key={code} value={code}>{label}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                      size="sm"
+                      labels={false}
+                      idPrefix={`kanban-payment-${s.id}`}
+                      onChange={(method) => void setPaymentMethod(s, method)}
+                    />
                   </div>
                 )}
               </div>
@@ -781,7 +780,7 @@ export function KanbanPage({
                         }
                       />
                     ) : undefined,
-                    invoice: latestOffer && s.stage === "payment_plan" && hasPermission("commercial_invoices.create") ? (
+                    invoice: latestOffer && invoiceUploadable(s.stage) && hasPermission("commercial_invoices.create") ? (
                       <Button
                         type="button"
                         variant="ghost"

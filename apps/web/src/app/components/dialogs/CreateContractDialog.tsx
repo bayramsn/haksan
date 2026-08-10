@@ -9,6 +9,7 @@ import { Input } from "../ui/input";
 import { Label } from "../ui/label";
 import { Combobox } from "../ui/combobox";
 import { DialogSplitLayout, DialogSidebarSection } from "../shared/DialogSplitLayout";
+import { ProformaItemsEditor, ProformaTotalsPanel } from "../shared/ProformaItemsEditor";
 import { useStore } from "../../lib/store";
 import { documentService, quoteService } from "../../../lib/services";
 import {
@@ -16,6 +17,9 @@ import {
   matchSavedTermsTemplate,
   useTermsTemplates,
 } from "./DocumentTermsTemplateEditor";
+import {
+  computeProformaTotals, proformaRowError, quoteToProformaPriceRows, type ProformaPriceRow,
+} from "../../lib/proformaPricing";
 
 const CONTRACT_TERMS_TEMPLATE_SCOPE = "contract_terms";
 
@@ -64,6 +68,17 @@ export function CreateContractDialog({
   const [warrantyTerms, setWarrantyTerms] = useState("");
   const [termsMetadata, setTermsMetadata] = useState<ContractTermsMetadata>({ importCostsExcluded: true });
   const [termsDirty, setTermsDirty] = useState(false);
+  // Sözleşme fiyatı bağlı teklifi değiştirmez: onaylı teklif kilitlidir, oysa
+  // imza masasında fiyat hâlâ pazarlığa açık. Girilen değerler belgenin kendi
+  // anlık görüntüsüne yazılır ve sözleşme çıktısı bunlarla basılır.
+  const [priceRows, setPriceRows] = useState<ProformaPriceRow[]>([]);
+  // Tekliften gelen ilk fiyatlar. Kullanıcı fiyata dokunmadıysa belge kendi
+  // anlık görüntüsünü dondurmaz; sözleşme eskisi gibi teklifin güncel
+  // fiyatlarıyla basılmaya devam eder.
+  const [loadedPriceRows, setLoadedPriceRows] = useState<ProformaPriceRow[]>([]);
+  // Toplamların basılan belgeyle örtüşmesi için teklifin iskonto/gümrük bağlamı.
+  const [quoteTotals, setQuoteTotals] = useState({ discountTotal: 0, customsTotal: 0 });
+  const [pricesLoading, setPricesLoading] = useState(false);
   const [saving, setSaving] = useState(false);
 
   const savedTermsTemplates = useTermsTemplates(noteTemplates, CONTRACT_TERMS_TEMPLATE_SCOPE);
@@ -80,12 +95,17 @@ export function CreateContractDialog({
     setWarrantyTerms("");
     setTermsMetadata({ importCostsExcluded: true });
     setTermsDirty(false);
+    setPriceRows([]);
+    setLoadedPriceRows([]);
+    setQuoteTotals({ discountTotal: 0, customsTotal: 0 });
+    setPricesLoading(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, defaultQuoteId]);
 
   useEffect(() => {
     if (!open || !quoteId) return;
     let cancelled = false;
+    setPricesLoading(true);
     void (async () => {
       try {
         const data: any = await quoteService.get(quoteId);
@@ -104,6 +124,13 @@ export function CreateContractDialog({
         });
         setTermsTemplateKey(matchSavedTermsTemplate(loadedPayment, loadedDelivery, loadedWarranty, savedTermsTemplates));
         setTermsDirty(false);
+        const loadedRows = quoteToProformaPriceRows(data);
+        setPriceRows(loadedRows);
+        setLoadedPriceRows(loadedRows);
+        setQuoteTotals({
+          discountTotal: Number(data.discountTotal ?? 0) || 0,
+          customsTotal: Number(data.customsTotal ?? 0) || 0,
+        });
       } catch {
         if (cancelled) return;
         setPaymentTerms("");
@@ -112,6 +139,11 @@ export function CreateContractDialog({
         setTermsMetadata({ importCostsExcluded: true });
         setTermsTemplateKey("");
         setTermsDirty(false);
+        setPriceRows([]);
+        setLoadedPriceRows([]);
+        setQuoteTotals({ discountTotal: 0, customsTotal: 0 });
+      } finally {
+        if (!cancelled) setPricesLoading(false);
       }
     })();
     return () => {
@@ -143,10 +175,28 @@ export function CreateContractDialog({
   const selectedCustomer = selectedOffer
     ? customers.find((c) => c.id === (selectedOffer.companyId || selectedCase?.customerId))
     : null;
+  const currency = selectedOffer?.currency ?? "USD";
+  const totals = useMemo(
+    () => computeProformaTotals(priceRows, {
+      quoteDiscountTotal: quoteTotals.discountTotal,
+      customsTotal: quoteTotals.customsTotal,
+    }),
+    [priceRows, quoteTotals],
+  );
+  const rowError = priceRows.map(proformaRowError).find(Boolean) ?? null;
+  // Fiyata dokunulmadıysa kalem göndermeyiz; belge anlık görüntüsünü dondurmaz
+  // ve teklif sonradan güncellenirse taslak sözleşme onu izlemeye devam eder.
+  const pricesChanged = useMemo(
+    () =>
+      priceRows.length !== loadedPriceRows.length ||
+      priceRows.some((row, index) => row.unitPrice !== loadedPriceRows[index]?.unitPrice),
+    [priceRows, loadedPriceRows],
+  );
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!quoteId) return toast.error("Bağlı teklif seçiniz");
+    if (rowError) return toast.error("Fiyat girişini düzeltin", { description: rowError });
     setSaving(true);
     try {
       const termDays = paymentTermDays.trim() === "" ? undefined : Number(paymentTermDays);
@@ -164,6 +214,9 @@ export function CreateContractDialog({
         signedDate: new Date(signedDate),
         paymentTermDays: termDays !== undefined && Number.isFinite(termDays) ? termDays : undefined,
         statusCode: "draft",
+        items: pricesChanged
+          ? priceRows.map((row) => ({ quoteItemId: row.quoteItemId, unitPrice: row.unitPrice }))
+          : undefined,
       });
       toast.success("Sözleşme oluşturuldu", { description: created?.contractNo ?? contractNo.trim() });
       await refresh();
@@ -216,6 +269,17 @@ export function CreateContractDialog({
                     <p className="text-sm text-muted-foreground">Henüz teklif seçilmedi.</p>
                   )}
                 </DialogSidebarSection>
+                {selectedOffer && (
+                  <ProformaTotalsPanel
+                    totals={totals}
+                    currency={currency}
+                    note={
+                      totals.customs > 0
+                        ? "Millileştirme tutarı bağlı teklifin güncel değeridir; kayıtta fiyatlara göre yeniden hesaplanır."
+                        : undefined
+                    }
+                  />
+                )}
                 <DialogFooter className="sm:flex-col-reverse">
                   <Button type="button" variant="outline" className="w-full" onClick={() => setOpen(false)} disabled={saving}>Vazgeç</Button>
                   <Button type="submit" disabled={saving} className="w-full gap-1">
@@ -269,6 +333,17 @@ export function CreateContractDialog({
               Bu firmaya satış faturası kesilirken vade otomatik bu değerden hesaplanır.
             </p>
           </div>
+
+          <ProformaItemsEditor
+            rows={priceRows}
+            onRowsChange={setPriceRows}
+            currency={currency}
+            loading={pricesLoading}
+            idPrefix="create-contract-price"
+            title="Sözleşme Fiyatları"
+            description="Sözleşmede geçerli birim fiyatları girin. Bağlı teklif değişmez; sözleşme çıktısı bu değerlerle basılır."
+            emptyText={quoteId ? "Seçilen teklifte fiyatlandırılacak ürün kalemi bulunamadı." : "Önce bağlı teklifi seçin."}
+          />
 
           <DocumentTermsTemplateEditor
             title="Sözleşme Şartları"

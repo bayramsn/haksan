@@ -23,6 +23,7 @@ import {
 } from "../../lib/mock";
 import {
   PIPELINE_STAGE_FLOW,
+  requiresPaymentPlan,
   type OpportunityProcessActionKey,
 } from "@haksan/shared";
 import { ProcessChecklistPanel } from "./ProcessChecklistPanel";
@@ -69,6 +70,13 @@ import { OpportunityWorkspace } from "./OpportunityWorkspace";
 import { focusWorkspaceTarget } from "../../lib/workspaceFocus";
 import { DocumentTermsTemplateEditor, type TermsValue } from "../dialogs/DocumentTermsTemplateEditor";
 import { shouldUseSimpleOpportunityExperience } from "../../lib/opportunityExperience";
+import { PaymentMethodSelect } from "../shared/PaymentMethodSelect";
+import {
+  PAYMENT_DUE_LABEL,
+  PAYMENT_FAMILY_LABELS,
+  PAYMENT_FAMILY_PLAN_SHAPE,
+  familyOfMethod,
+} from "../../lib/paymentMethod";
 
 export function SalesCaseDetailDialog({
   sc,
@@ -1191,7 +1199,10 @@ export function SalesCaseDetailPage({
         </Card>
       )}
 
-      {sc.stage === "payment_plan" && pays.length === 0 && (
+      {/* Peşin ve leasingde vade satırı üretilmez; kartı olmayan bir plana
+          çağırmak adımı tıkıyordu. Yöntem henüz seçilmemişse uyarı görünür —
+          seçim de bu ekrandan yapılır. */}
+      {sc.stage === "payment_plan" && pays.length === 0 && requiresPaymentPlan(sc.paymentMethod) && (
         <Card className="border-success/30 bg-success-soft/60">
           <CardContent className="p-4 sm:p-5">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -1774,76 +1785,6 @@ export function SalesCaseDetailPage({
 /** Ödeme planı şartları için not şablonu kapsamı (teklif/proforma/sözleşme ile aynı desen). */
 const PAYMENT_PLAN_TERMS_SCOPE = "payment_plan_terms";
 
-/**
- * Ödeme yöntemi ailesi — kullanıcının gördüğü üst seçim.
- *
- * `OpportunityPaymentMethod` sekiz düz değer taşıyor ama satışçının kafasındaki
- * ayrım daha kaba: peşin mi, vadeli mi, leasing mi. Senet ve çek ayrı yöntem
- * değil, VADENİN TÜRÜ. Bu yüzden üst seçim aile üzerinden yapılır, alt tür
- * yalnız "vadeli" seçilince sorulur ve saklanan değere eşlenir — böylece
- * mevcut enum ve backend kuralları değişmeden kalır (migration gerekmez).
- */
-type PaymentFamily = "cash" | "wire_transfer" | "term" | "installment" | "leasing" | "letter_of_credit";
-
-const PAYMENT_FAMILY_LABELS: Record<PaymentFamily, string> = {
-  cash: "Peşin",
-  wire_transfer: "Havale",
-  term: "Vadeli",
-  installment: "Taksitli",
-  leasing: "Leasing",
-  letter_of_credit: "Akreditif",
-};
-
-/** Vade türü → saklanan ödeme yöntemi. "Elden" ayrı bir enum değeri gerektirmiyor. */
-const TERM_KIND_TO_METHOD = {
-  elden: "term",
-  senet: "promissory_note",
-  cek: "cheque",
-} as const satisfies Record<string, OpportunityPaymentMethod>;
-
-type TermKind = keyof typeof TERM_KIND_TO_METHOD;
-
-const TERM_KIND_LABELS: Record<TermKind, string> = {
-  elden: "Elden",
-  senet: "Senet",
-  cek: "Çek",
-};
-
-/** Saklanan yöntemden aileyi ve vade türünü geri okur (düzenleme modu için). */
-const familyOfMethod = (method: OpportunityPaymentMethod): PaymentFamily | null => {
-  if (method === "promissory_note" || method === "cheque" || method === "term") return "term";
-  if (method === "undecided") return null;
-  return method as PaymentFamily;
-};
-
-const termKindOfMethod = (method: OpportunityPaymentMethod): TermKind =>
-  method === "promissory_note" ? "senet" : method === "cheque" ? "cek" : "elden";
-
-/**
- * Ailenin plan şekli.
- *
- * Peşin ve leasingde ödeme planı ADIMI TAMAMEN ATLANIR: peşinde tahsilat tek
- * seferde ve anında, leasingde taksitleri finans kuruluşu takip eder — CRM'de
- * vade satırı üretmek gerçeğe karşılık gelmeyen alacak kayıtları doğuruyordu.
- */
-const PAYMENT_FAMILY_PLAN_SHAPE: Record<PaymentFamily, "schedule" | "single" | "none"> = {
-  cash: "none",
-  leasing: "none",
-  term: "schedule",
-  installment: "schedule",
-  wire_transfer: "single",
-  letter_of_credit: "single",
-};
-
-/** Tek ödemeli yöntemlerde vade alanının anlamı yönteme göre değişir. */
-const PAYMENT_DUE_LABEL: Partial<Record<OpportunityPaymentMethod, string>> = {
-  cash: "Ödeme günü (0 = hemen)",
-  wire_transfer: "Transfer günü",
-  term: "Vade (gün)",
-  leasing: "Peşinat ödeme günü",
-  letter_of_credit: "Akreditif vadesi (gün)",
-};
-
 export function CreatePaymentPlanDialog({
   sc,
   offs,
@@ -1872,8 +1813,7 @@ export function CreatePaymentPlanDialog({
   const [amount, setAmount] = useState<number>(0);
   const [currency, setCurrency] = useState<string>("USD");
   // Ödeme planı yöntemden türer; yöntem seçilmeden plan anlamsız.
-  const [paymentFamily, setPaymentFamily] = useState<PaymentFamily | null>(null);
-  const [termKind, setTermKind] = useState<TermKind>("elden");
+  const [paymentMethod, setPaymentMethod] = useState<OpportunityPaymentMethod>("undecided");
   const [installmentCount, setInstallmentCount] = useState<number>(3);
   const [paymentTermDays, setPaymentTermDays] = useState<number>(30);
   const [installments, setInstallments] = useState<Array<{ amount: number; dueDate: string }>>([]);
@@ -1900,20 +1840,17 @@ export function CreatePaymentPlanDialog({
     }
     setPaymentTermDays(30);
     // Kartta yöntem zaten seçiliyse onunla aç; kullanıcı aynı şeyi iki kez seçmesin.
-    const storedMethod = sc.paymentMethod ?? "undecided";
-    setPaymentFamily(familyOfMethod(storedMethod));
-    setTermKind(termKindOfMethod(storedMethod));
+    setPaymentMethod(sc.paymentMethod ?? "undecided");
     setTerms({ paymentTerms: sc.paymentTerms ?? "", deliveryTerms: "", warrantyTerms: "" });
     setTermsTemplateKeyValue("");
   }, [open, offs, sc]);
 
-  // Saklanacak yöntem aileden (ve vadeliyse alt türden) türer.
-  const paymentMethod: OpportunityPaymentMethod = paymentFamily === "term"
-    ? TERM_KIND_TO_METHOD[termKind]
-    : (paymentFamily ?? "undecided");
+  const paymentFamily = familyOfMethod(paymentMethod);
   const planShape = paymentFamily ? PAYMENT_FAMILY_PLAN_SHAPE[paymentFamily] : "none";
   // Peşin ve leasingde plan adımı atlanır; kaydetme yalnız yöntemi yazar.
-  const planSkipped = paymentFamily === "cash" || paymentFamily === "leasing";
+  // Kuralın kaynağı backend ile ortak (`requiresPaymentPlan`): süreç görevindeki
+  // "ödeme planı" kontrolü de aynı yerden besleniyor.
+  const planSkipped = Boolean(paymentFamily) && !requiresPaymentPlan(paymentMethod);
   // Tek ödemeli yöntemde taksit sayısı kavramı yok; kullanıcı 3 taksitli bir
   // plandan geçiş yapınca eski sayı takılı kalmasın.
   useEffect(() => {
@@ -2052,41 +1989,14 @@ export function CreatePaymentPlanDialog({
                 </Select>
               </div>
 
-              <div className="space-y-1.5">
-                <Label htmlFor="plan-payment-method">Ödeme Yöntemi *</Label>
-                <Select value={paymentFamily ?? ""} onValueChange={(v) => setPaymentFamily(v as PaymentFamily)}>
-                  <SelectTrigger id="plan-payment-method" className="w-full">
-                    <SelectValue placeholder="Ödeme yöntemi seçin" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {(Object.keys(PAYMENT_FAMILY_LABELS) as PaymentFamily[]).map((code) => (
-                      <SelectItem key={code} value={code}>
-                        {PAYMENT_FAMILY_LABELS[code]}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              {/* Senet ve çek ayrı yöntem değil, vadenin türü. Yalnız vadeli
-                  seçilince sorulur ve saklanan enum değerine eşlenir. */}
-              {paymentFamily === "term" && (
-                <div className="space-y-1.5">
-                  <Label htmlFor="plan-term-kind">Vade Türü *</Label>
-                  <Select value={termKind} onValueChange={(v) => setTermKind(v as TermKind)}>
-                    <SelectTrigger id="plan-term-kind" className="w-full">
-                      <SelectValue placeholder="Vade türü seçin" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {(Object.keys(TERM_KIND_LABELS) as TermKind[]).map((kind) => (
-                        <SelectItem key={kind} value={kind}>
-                          {TERM_KIND_LABELS[kind]}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              )}
+              {/* Üst seçim aile (Peşin / Leasing / Vadeli); senet ve çek ayrı
+                  yöntem değil, vadenin türü — yalnız vadelide sorulur. */}
+              <PaymentMethodSelect
+                value={paymentMethod}
+                onChange={setPaymentMethod}
+                idPrefix="plan-payment"
+                className={paymentFamily === "term" ? "md:col-span-2" : ""}
+              />
 
               {planShape === "schedule" && <div className="space-y-1.5">
                 <Label htmlFor="inst-count">Taksit Sayısı</Label>

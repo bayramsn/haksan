@@ -10,6 +10,7 @@ import {
   LEAD_CONTACT_OUTCOMES,
   OPPORTUNITY_APPROVAL_STATUSES,
   OPPORTUNITY_APPROVAL_TYPES,
+  OPPORTUNITY_PAYMENT_METHODS,
   PIPELINE_STAGES,
   QUALIFICATION_STAGES,
   type OpportunityApprovalType,
@@ -18,17 +19,7 @@ import {
 
 export const pipelineStageEnum = z.enum(PIPELINE_STAGES);
 
-export const opportunityPaymentMethodEnum = z.enum([
-  'undecided',
-  'cash',
-  'wire_transfer',
-  'promissory_note',
-  'term',
-  'installment',
-  'leasing',
-  'letter_of_credit',
-  'cheque',
-]);
+export const opportunityPaymentMethodEnum = z.enum(OPPORTUNITY_PAYMENT_METHODS);
 export type OpportunityPaymentMethod = z.infer<typeof opportunityPaymentMethodEnum>;
 
 // Lead sıcaklığı — firmanın alım niyeti. Satış ekibi kartı açmadan önceliklendirir.

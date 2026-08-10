@@ -843,7 +843,12 @@ export class QuotesService {
     };
   }
 
-  private async buildProformaDocumentSnapshot(
+  /**
+   * Teklife bağlı belgenin (proforma / sözleşme) kendi fiyatlarıyla dondurulmuş
+   * anlık görüntüsü. Onaylı teklif kilitlidir; belge fiyatı ondan bağımsız
+   * pazarlık edilebildiği için toplamlar burada yeniden hesaplanır.
+   */
+  private async buildPricedDocumentSnapshot(
     document: Record<string, unknown>,
     quoteId: string,
     actor: AuthContext,
@@ -854,7 +859,7 @@ export class QuotesService {
     const quoteItemIds = new Set(snapshot.items.map((item) => item.id));
     const unknownItemId = [...overrides.keys()].find((id) => !quoteItemIds.has(id));
     if (unknownItemId) {
-      throw new ValidationError('Proforma fiyat kalemi bağlı teklife ait değil', {
+      throw new ValidationError('Belge fiyat kalemi bağlı teklife ait değil', {
         field: 'items',
         quoteItemId: unknownItemId,
       });
@@ -1898,7 +1903,7 @@ export class QuotesService {
     if (!statusId) throw new ValidationError('Geçersiz proforma durumu', { field: 'statusCode' });
     const finalizedAt = input.statusCode !== 'draft' ? new Date() : null;
     const signatureId = (await this.resolveSignatureId(input.signatureId, actor)) ?? null;
-    const documentSnapshot = await this.buildProformaDocumentSnapshot(
+    const documentSnapshot = await this.buildPricedDocumentSnapshot(
       {
         businessLine,
         quoteId: input.quoteId,
@@ -1974,7 +1979,7 @@ export class QuotesService {
     const snapshotDocument = { ...existing, ...patch };
     // İmza değişikliği de snapshot'ı tazeler; aksi halde belge eski imzayla basılırdı.
     if (signatureId !== undefined || input.items !== undefined || input.quoteId !== undefined || !existing.documentSnapshot) {
-      patch.documentSnapshot = await this.buildProformaDocumentSnapshot(
+      patch.documentSnapshot = await this.buildPricedDocumentSnapshot(
         snapshotDocument,
         String(patch.quoteId ?? existing.quoteId),
         actor,
@@ -1987,7 +1992,7 @@ export class QuotesService {
         const currentSnapshot = existing.documentSnapshot as Record<string, unknown> | null;
         patch.documentSnapshot = currentSnapshot
           ? { ...currentSnapshot, document: { ...snapshotDocument, finalizedAt: patch.finalizedAt } }
-          : await this.buildProformaDocumentSnapshot(
+          : await this.buildPricedDocumentSnapshot(
               { ...snapshotDocument, finalizedAt: patch.finalizedAt },
               String(patch.quoteId ?? existing.quoteId),
               actor,
@@ -2614,13 +2619,23 @@ export class QuotesService {
         createdBy: actor.userId,
       })
       .returning();
-    if (input.statusCode !== 'draft') {
-      const finalizedAt = new Date();
-      const documentSnapshot = await this.buildCommercialDocumentSnapshot(
-        row as unknown as Record<string, unknown>,
-        input.quoteId,
-        actor
-      );
+    // Fiyat pazarlığı sözleşmede yapılabildiği için taslak sözleşme de kendi
+    // fiyatlarıyla dondurulur; aksi hâlde çıktı canlı teklife dönerdi.
+    const pricedContract = (input.items?.length ?? 0) > 0;
+    if (input.statusCode !== 'draft' || pricedContract) {
+      const finalizedAt = input.statusCode !== 'draft' ? new Date() : null;
+      const documentSnapshot = pricedContract
+        ? await this.buildPricedDocumentSnapshot(
+            { ...(row as unknown as Record<string, unknown>), finalizedAt },
+            input.quoteId,
+            actor,
+            input.items
+          )
+        : await this.buildCommercialDocumentSnapshot(
+            row as unknown as Record<string, unknown>,
+            input.quoteId,
+            actor
+          );
       await this.db.update(contracts).set({ finalizedAt, documentSnapshot }).where(eq(contracts.id, row.id));
     }
     await this.audit.write({
@@ -2629,7 +2644,7 @@ export class QuotesService {
       action: 'contract.created',
       resourceType: 'contract',
       resourceId: row.id,
-      newValues: { contractNo: row.contractNo, quoteId: row.quoteId },
+      newValues: { contractNo: row.contractNo, quoteId: row.quoteId, priceItemCount: input.items?.length ?? 0 },
     });
     return this.getContract(row.id, actor);
   }
@@ -2663,13 +2678,31 @@ export class QuotesService {
     else if (input.quoteId !== undefined && businessLine !== existing.businessLine) {
       patch.contractNo = await nextSeriesDocumentNo(this.db, actor.tenantId, businessLine, 'contract', input.signedDate ?? existing.signedDate ?? new Date());
     }
+    const snapshotDocument = { ...existing, ...patch };
+    // Sözleşme fiyatı bağlı teklifi değiştirmeden burada saklanır: onaylı
+    // teklif kilitlidir, oysa imza masasında fiyat hâlâ pazarlığa açıktır.
+    if (input.items !== undefined) {
+      patch.documentSnapshot = await this.buildPricedDocumentSnapshot(
+        snapshotDocument,
+        String(patch.quoteId ?? existing.quoteId),
+        actor,
+        input.items
+      );
+    }
     if (input.statusCode !== undefined && input.statusCode !== 'draft') {
       patch.finalizedAt = new Date();
-      patch.documentSnapshot = await this.buildCommercialDocumentSnapshot(
-        { ...existing, ...patch },
-        String(patch.quoteId ?? existing.quoteId),
-        actor
-      );
+      // Kesinleştirme, daha önce pazarlık edilmiş fiyatları silmemeli: mevcut
+      // anlık görüntü varsa yalnız belge başlığı tazelenir.
+      if (!patch.documentSnapshot) {
+        const currentSnapshot = existing.documentSnapshot as Record<string, unknown> | null;
+        patch.documentSnapshot = currentSnapshot
+          ? { ...currentSnapshot, document: { ...snapshotDocument, finalizedAt: patch.finalizedAt } }
+          : await this.buildCommercialDocumentSnapshot(
+              { ...snapshotDocument, finalizedAt: patch.finalizedAt },
+              String(patch.quoteId ?? existing.quoteId),
+              actor
+            );
+      }
     }
     await this.db.update(contracts).set(patch).where(eq(contracts.id, id));
     await this.audit.write({

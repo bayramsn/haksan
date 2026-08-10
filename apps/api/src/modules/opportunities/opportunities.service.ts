@@ -77,6 +77,7 @@ import {
   QUALIFICATION_STAGE_AGE_LIMIT_DAYS,
   QUALIFICATION_STAGES,
   STAGE_TRANSITIONS,
+  requiresPaymentPlan,
   trelloImportRowSchema,
   trelloResolvedImportRowSchema,
   type LeadFollowUpStatusCode,
@@ -805,13 +806,24 @@ export class OpportunitiesService {
         'payment_plan',
         'a'
       ),
-      check('payment_plan', 'Ödeme planı oluşturuldu', evidence.hasPaymentPlan, 'create_payment_plan', 'payment_plan', 'a'),
+      // Peşin ve leasingde vade satırı yoktur; adım plan beklemeden tamamlanmış
+      // sayılır, aksi hâlde kart hiç üretilmeyecek bir plana takılı kalıyordu.
+      check(
+        'payment_plan',
+        requiresPaymentPlan(row.paymentMethod) ? 'Ödeme planı oluşturuldu' : 'Ödeme planı gerekmiyor (peşin/leasing)',
+        evidence.hasPaymentPlan || !requiresPaymentPlan(row.paymentMethod),
+        'create_payment_plan',
+        'payment_plan',
+        'a'
+      ),
+      // Ticari fatura A+ alanının İÇİNDE kesilir, A+'ya girmenin koşulu değildir.
+      // Kurulumla birlikte WIN kapısında (delivered) aranır.
       check(
         'commercial_invoice',
         'Ticari fatura kaydı oluşturuldu',
         evidence.hasCommercialInvoice,
         'create_commercial_invoice',
-        'commercial_invoice',
+        'delivered',
         'a_plus'
       ),
       check(
@@ -819,7 +831,7 @@ export class OpportunitiesService {
         'Ticari fatura dosyası bağlandı',
         evidence.hasCommercialInvoiceFile,
         'create_commercial_invoice',
-        'commercial_invoice',
+        'delivered',
         'a_plus'
       ),
       check(
@@ -4034,7 +4046,11 @@ export class OpportunitiesService {
         .where(and(eq(quotes.tenantId, actor.tenantId), eq(quotes.opportunityId, id)));
       if (!ccount[0].c) throw new ValidationError('Contract aşamasına geçmek için sözleşme dosyası yüklenmelidir');
     }
-    if (movingForward && input.toStage === 'commercial_invoice') {
+    // Ticari fatura BU aşamada kesilir; aşamaya girmek için faturanın önceden
+    // var olmasını beklemek kartı kendi işine başlayamaz hâle getiriyordu.
+    // Faturanın varlığı, kurulumla birlikte `delivered` (WIN) kapısında aranır.
+    // Vade satırları yalnız vadeli satışta gerekir — peşin/leasingde plan yoktur.
+    if (movingForward && input.toStage === 'commercial_invoice' && requiresPaymentPlan(opp.paymentMethod)) {
       const rcount = await this.db
         .select({ c: sql<number>`count(*)::int` })
         .from(receivables)
@@ -4043,13 +4059,6 @@ export class OpportunitiesService {
       if (!rcount[0].c) {
         throw new ValidationError('Ticari fatura aşamasına geçmek için önce ödeme planı oluşturulmalıdır');
       }
-
-      const icount = await this.db
-        .select({ c: sql<number>`count(*)::int` })
-        .from(commercialInvoices)
-        .innerJoin(quotes, eq(commercialInvoices.quoteId, quotes.id))
-        .where(and(eq(quotes.tenantId, actor.tenantId), eq(quotes.opportunityId, id)));
-      if (!icount[0].c) throw new ValidationError('Ticari fatura dosyası yüklenmelidir');
     }
     if (movingForward && toIndex >= PIPELINE_STAGE_FLOW.indexOf('stock_picking')) {
       const existingEvidence = await this.processEvidence(id, actor);

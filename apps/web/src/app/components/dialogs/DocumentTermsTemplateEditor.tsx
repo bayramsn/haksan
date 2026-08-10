@@ -6,8 +6,8 @@ import { Label } from "../ui/label";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "../ui/select";
-import { Textarea } from "../ui/textarea";
 import { Input } from "../ui/input";
+import { NumberedLinesTextarea, type LineMarkerStyle } from "../shared/NumberedLinesTextarea";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "../ui/dialog";
 import type { NoteTemplate } from "../../lib/store";
 import { QUOTE_NOTE_VARIANTS } from "../../lib/print";
@@ -84,6 +84,12 @@ type Props = {
   deleteNoteTemplate: (id: string) => Promise<void>;
   includeBuiltInVariants?: boolean;
   onBuiltInTemplateSelected?: (key: string) => void;
+  /**
+   * Madde işaretinin biçimi. Teklif çıktısı maddeleri `a) b) c)` ile
+   * numaralar (bkz. print/templates.ts `ol.alpha`); proforma ve sözleşme
+   * çıktısı düz sayı kullanır. Ekrandaki işaret basılanla aynı olmalı.
+   */
+  markerStyle?: LineMarkerStyle;
 };
 
 export function useTermsTemplates(noteTemplates: NoteTemplate[], templateScope: string) {
@@ -110,6 +116,7 @@ export function DocumentTermsTemplateEditor({
   deleteNoteTemplate,
   includeBuiltInVariants = true,
   onBuiltInTemplateSelected,
+  markerStyle = "decimal",
 }: Props) {
   const fieldId = useId();
   const [templateDialogMode, setTemplateDialogMode] = useState<"create" | "update" | "delete" | null>(null);
@@ -229,12 +236,15 @@ export function DocumentTermsTemplateEditor({
         </div>
       )}
 
+      {/* Her satır bir maddedir ve belgede numaralanır; numara artık burada da
+          görünür, böylece "kaçıncı madde" sorusu PDF basmadan yanıtlanır. */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3 p-3">
         <div>
           <Label className="text-xs" htmlFor={`${fieldId}-payment`}>Ödeme Şartları</Label>
-          <Textarea
+          <NumberedLinesTextarea
             id={`${fieldId}-payment`}
             className="mt-1.5 min-h-28"
+            markerStyle={markerStyle}
             value={value.paymentTerms}
             onChange={(event) => updateValue({ paymentTerms: event.target.value })}
             placeholder="Her satıra bir madde yazın..."
@@ -242,9 +252,10 @@ export function DocumentTermsTemplateEditor({
         </div>
         <div>
           <Label className="text-xs" htmlFor={`${fieldId}-delivery`}>Teslimat Şartları</Label>
-          <Textarea
+          <NumberedLinesTextarea
             id={`${fieldId}-delivery`}
             className="mt-1.5 min-h-28"
+            markerStyle={markerStyle}
             value={value.deliveryTerms}
             onChange={(event) => updateValue({ deliveryTerms: event.target.value })}
             placeholder="Her satıra bir madde yazın..."
@@ -252,9 +263,10 @@ export function DocumentTermsTemplateEditor({
         </div>
         <div>
           <Label className="text-xs" htmlFor={`${fieldId}-warranty`}>Garanti Şartları</Label>
-          <Textarea
+          <NumberedLinesTextarea
             id={`${fieldId}-warranty`}
             className="mt-1.5 min-h-28"
+            markerStyle={markerStyle}
             value={value.warrantyTerms}
             onChange={(event) => updateValue({ warrantyTerms: event.target.value })}
             placeholder="Her satıra bir madde yazın..."
