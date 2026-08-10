@@ -18,6 +18,8 @@ import {
   type LeadFollowUpStatus,
   type LeadTemperature,
   type Offer,
+  OPPORTUNITY_PAYMENT_METHOD_LABELS,
+  type OpportunityPaymentMethod,
 } from "../../lib/mock";
 import {
   PIPELINE_STAGE_FLOW,
@@ -1768,6 +1770,35 @@ export function SalesCaseDetailPage({
   );
 }
 
+/**
+ * Ödeme yönteminin plan şekli.
+ *
+ * Çok vadeli yöntemlerde (taksit, çek, senet) birden fazla vade satırı yazılır;
+ * tek ödemeli yöntemlerde (peşin, havale, vadeli, leasing, akreditif) tek satır
+ * vardır ve taksit sayısı sormak anlamsızdır — leasingde taksitleri finans
+ * kuruluşu takip eder, akreditifte ödeme vade sonunda tek seferde yapılır.
+ */
+const PAYMENT_METHOD_PLAN_SHAPE: Record<OpportunityPaymentMethod, "schedule" | "single" | "none"> = {
+  undecided: "none",
+  installment: "schedule",
+  cheque: "schedule",
+  promissory_note: "schedule",
+  cash: "single",
+  wire_transfer: "single",
+  term: "single",
+  leasing: "single",
+  letter_of_credit: "single",
+};
+
+/** Tek ödemeli yöntemlerde vade alanının anlamı yönteme göre değişir. */
+const PAYMENT_DUE_LABEL: Partial<Record<OpportunityPaymentMethod, string>> = {
+  cash: "Ödeme günü (0 = hemen)",
+  wire_transfer: "Transfer günü",
+  term: "Vade (gün)",
+  leasing: "Peşinat ödeme günü",
+  letter_of_credit: "Akreditif vadesi (gün)",
+};
+
 export function CreatePaymentPlanDialog({
   sc,
   offs,
@@ -1785,6 +1816,7 @@ export function CreatePaymentPlanDialog({
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
 }) {
+  const { updateCase } = useStore();
   const [internalOpen, setInternalOpen] = useState(false);
   const open = controlledOpen ?? internalOpen;
   const setOpen = (next: boolean) => {
@@ -1794,6 +1826,8 @@ export function CreatePaymentPlanDialog({
   const [selectedQuoteId, setSelectedQuoteId] = useState<string>("");
   const [amount, setAmount] = useState<number>(0);
   const [currency, setCurrency] = useState<string>("USD");
+  // Ödeme planı yöntemden türer; yöntem seçilmeden plan anlamsız.
+  const [paymentMethod, setPaymentMethod] = useState<OpportunityPaymentMethod>("undecided");
   const [installmentCount, setInstallmentCount] = useState<number>(3);
   const [paymentTermDays, setPaymentTermDays] = useState<number>(30);
   const [installments, setInstallments] = useState<Array<{ amount: number; dueDate: string }>>([]);
@@ -1816,7 +1850,16 @@ export function CreatePaymentPlanDialog({
       setCurrency(sc.currency || "USD");
     }
     setPaymentTermDays(30);
+    // Kartta yöntem zaten seçiliyse onunla aç; kullanıcı aynı şeyi iki kez seçmesin.
+    setPaymentMethod(sc.paymentMethod ?? "undecided");
   }, [open, offs, sc]);
+
+  const planShape = PAYMENT_METHOD_PLAN_SHAPE[paymentMethod];
+  // Tek ödemeli yöntemde taksit sayısı kavramı yok; kullanıcı 3 taksitli bir
+  // plandan geçiş yapınca eski sayı takılı kalmasın.
+  useEffect(() => {
+    if (planShape === "single") setInstallmentCount(1);
+  }, [planShape]);
 
   // Recalculate installments when amount, count, term, or quote changes
   useEffect(() => {
@@ -1869,10 +1912,18 @@ export function CreatePaymentPlanDialog({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    // Yöntem seçilmeden plan yazmak, hangi tahsilat biçimini temsil ettiği
+    // belirsiz alacak satırları üretiyordu.
+    if (planShape === "none") return toast.error("Önce ödeme yöntemini seçin.");
     if (!isMatch) return toast.error("Taksitlerin toplamı, plan toplam tutarı ile eşleşmelidir");
-    if (amount <= 0 || installments.length === 0) return toast.error("Plan tutarı ve en az bir taksit girin.");
+    if (amount <= 0 || installments.length === 0) return toast.error("Plan tutarı ve en az bir vade girin.");
     setSaving(true);
     try {
+      // Kartta yöntem yoksa ya da değiştiyse plana yazılanla eşitle; süreç
+      // görevlerindeki "ödeme şekli" kontrolü de böylece tamamlanmış olur.
+      if (sc.paymentMethod !== paymentMethod) {
+        await updateCase(sc.id, { paymentMethod });
+      }
       for (let i = 0; i < installments.length; i++) {
         const inst = installments[i];
         await financeService.createReceivable({
@@ -1882,7 +1933,9 @@ export function CreatePaymentPlanDialog({
           currencyCode: currency,
           dueDate: new Date(inst.dueDate),
           movementType: "manual",
-          notes: `Taksit ${i + 1}/${installments.length} - ${sc.requestedProduct}`,
+          notes: installments.length > 1
+            ? `${OPPORTUNITY_PAYMENT_METHOD_LABELS[paymentMethod]} ${i + 1}/${installments.length} - ${sc.requestedProduct}`
+            : `${OPPORTUNITY_PAYMENT_METHOD_LABELS[paymentMethod]} - ${sc.requestedProduct}`,
         });
       }
       toast.success("Ödeme planı başarıyla oluşturuldu.");
@@ -1931,6 +1984,24 @@ export function CreatePaymentPlanDialog({
               </div>
 
               <div className="space-y-1.5">
+                <Label htmlFor="plan-payment-method">Ödeme Yöntemi *</Label>
+                <Select value={paymentMethod} onValueChange={(v) => setPaymentMethod(v as OpportunityPaymentMethod)}>
+                  <SelectTrigger id="plan-payment-method" className="w-full">
+                    <SelectValue placeholder="Ödeme yöntemi seçin" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(Object.keys(OPPORTUNITY_PAYMENT_METHOD_LABELS) as OpportunityPaymentMethod[])
+                      .filter((code) => code !== "undecided")
+                      .map((code) => (
+                        <SelectItem key={code} value={code}>
+                          {OPPORTUNITY_PAYMENT_METHOD_LABELS[code]}
+                        </SelectItem>
+                      ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {planShape === "schedule" && <div className="space-y-1.5">
                 <Label htmlFor="inst-count">Taksit Sayısı</Label>
                 <Select value={String(installmentCount)} onValueChange={(v) => setInstallmentCount(Number(v))}>
                   <SelectTrigger id="inst-count" className="w-full">
@@ -1944,10 +2015,12 @@ export function CreatePaymentPlanDialog({
                     ))}
                   </SelectContent>
                 </Select>
-              </div>
+              </div>}
 
               <div className="space-y-1.5">
-                <Label htmlFor="payment-term-days">İlk Vade Günü</Label>
+                <Label htmlFor="payment-term-days">
+                  {planShape === "schedule" ? "İlk Vade Günü" : PAYMENT_DUE_LABEL[paymentMethod] ?? "Vade (gün)"}
+                </Label>
                 <Input
                   id="payment-term-days"
                   type="number"
