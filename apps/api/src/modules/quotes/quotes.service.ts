@@ -126,6 +126,18 @@ const documentHeaderOnly = (document: Record<string, unknown>) => {
   const { documentSnapshot: _nested, ...header } = document;
   return header;
 };
+
+/**
+ * Belgenin kendi şartları — yoksa `null` ve çıktı teklifin şartlarına düşer.
+ *
+ * Proforma/sözleşme ekranındaki düzenleme eskiden `quote_terms`'i yeniden
+ * yazıyordu; imza masasında yazılan bir teslim şartı onaylı teklifin çıktısını
+ * da geriye dönük değiştiriyordu. Şart artık belgenin `terms` sütununda durur.
+ */
+const documentOwnTerms = (document: Record<string, unknown>) => {
+  const terms = document.terms;
+  return terms && typeof terms === 'object' ? (terms as Record<string, unknown>) : null;
+};
 const publicProductLabel = (
   catalogName: string | null | undefined,
   description: string | null | undefined,
@@ -849,6 +861,7 @@ export class QuotesService {
     const snapshot = await this.buildDocumentSnapshot(quoteId, actor);
     return {
       ...snapshot,
+      terms: documentOwnTerms(document) ?? snapshot.terms,
       signature: await this.resolveCommercialSignature(document, snapshot.signature, actor),
       document: documentHeaderOnly(document),
     };
@@ -926,6 +939,7 @@ export class QuotesService {
     return {
       ...snapshot,
       schemaVersion: 4,
+      terms: documentOwnTerms(document) ?? snapshot.terms,
       signature: await this.resolveCommercialSignature(document, snapshot.signature, actor),
       quote: {
         ...snapshot.quote,
@@ -1925,6 +1939,7 @@ export class QuotesService {
         signatureId,
         finalizedAt,
         createdBy: actor.userId,
+        terms: input.terms ?? null,
       },
       input.quoteId,
       actor,
@@ -1943,6 +1958,8 @@ export class QuotesService {
         fileId: input.fileId ?? null,
         signatureId,
         documentSnapshot,
+        // Şartlar belgeye özeldir; teklifin `quote_terms` kaydı değişmez.
+        terms: input.terms ?? null,
         finalizedAt,
         createdBy: actor.userId,
       })
@@ -1981,6 +1998,8 @@ export class QuotesService {
     for (const k of ['issueDate', 'fileId'] as const) {
       if ((input as any)[k] !== undefined) patch[k] = (input as any)[k] ?? null;
     }
+    // Belgeye özel şart; `null` gönderilirse belge yeniden teklifin şartlarına düşer.
+    if (input.terms !== undefined) patch.terms = input.terms ?? null;
     const signatureId = await this.resolveSignatureId(input.signatureId, actor);
     if (signatureId !== undefined) patch.signatureId = signatureId;
     if (input.documentNo !== undefined) patch.documentNo = normalizeSeriesDocumentNo(input.documentNo, businessLine);
@@ -1989,7 +2008,7 @@ export class QuotesService {
     }
     const snapshotDocument = { ...existing, ...patch };
     // İmza değişikliği de snapshot'ı tazeler; aksi halde belge eski imzayla basılırdı.
-    if (signatureId !== undefined || input.items !== undefined || input.quoteId !== undefined || !existing.documentSnapshot) {
+    if (signatureId !== undefined || input.items !== undefined || input.terms !== undefined || input.quoteId !== undefined || !existing.documentSnapshot) {
       patch.documentSnapshot = await this.buildPricedDocumentSnapshot(
         snapshotDocument,
         String(patch.quoteId ?? existing.quoteId),
@@ -2628,12 +2647,14 @@ export class QuotesService {
         fileId: input.fileId ?? null,
         signatureId: (await this.resolveSignatureId(input.signatureId, actor)) ?? null,
         createdBy: actor.userId,
+        // Şartlar sözleşmeye özeldir; teklifin `quote_terms` kaydı değişmez.
+        terms: input.terms ?? null,
       })
       .returning();
     // Fiyat pazarlığı sözleşmede yapılabildiği için taslak sözleşme de kendi
     // fiyatlarıyla dondurulur; aksi hâlde çıktı canlı teklife dönerdi.
     const pricedContract = (input.items?.length ?? 0) > 0;
-    if (input.statusCode !== 'draft' || pricedContract) {
+    if (input.statusCode !== 'draft' || pricedContract || input.terms) {
       const finalizedAt = input.statusCode !== 'draft' ? new Date() : null;
       const documentSnapshot = pricedContract
         ? await this.buildPricedDocumentSnapshot(
@@ -2689,10 +2710,12 @@ export class QuotesService {
     else if (input.quoteId !== undefined && businessLine !== existing.businessLine) {
       patch.contractNo = await nextSeriesDocumentNo(this.db, actor.tenantId, businessLine, 'contract', input.signedDate ?? existing.signedDate ?? new Date());
     }
+    // Belgeye özel şart; `null` gönderilirse belge yeniden teklifin şartlarına düşer.
+    if (input.terms !== undefined) patch.terms = input.terms ?? null;
     const snapshotDocument = { ...existing, ...patch };
     // Sözleşme fiyatı bağlı teklifi değiştirmeden burada saklanır: onaylı
     // teklif kilitlidir, oysa imza masasında fiyat hâlâ pazarlığa açıktır.
-    if (input.items !== undefined) {
+    if (input.items !== undefined || input.terms !== undefined) {
       patch.documentSnapshot = await this.buildPricedDocumentSnapshot(
         snapshotDocument,
         String(patch.quoteId ?? existing.quoteId),

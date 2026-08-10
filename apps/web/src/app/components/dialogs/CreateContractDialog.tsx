@@ -200,14 +200,6 @@ export function CreateContractDialog({
     setSaving(true);
     try {
       const termDays = paymentTermDays.trim() === "" ? undefined : Number(paymentTermDays);
-      if (termsDirty) {
-        await quoteService.terms(quoteId, {
-          paymentTermsText: paymentTerms,
-          deliveryTermsText: deliveryTerms,
-          warrantyTermsText: warrantyTerms,
-          ...termsMetadata,
-        });
-      }
       const created = await documentService.createContract({
         quoteId,
         contractNo: contractNo.trim() || undefined,
@@ -216,6 +208,18 @@ export function CreateContractDialog({
         statusCode: "draft",
         items: pricesChanged
           ? priceRows.map((row) => ({ quoteItemId: row.quoteItemId, unitPrice: row.unitPrice }))
+          : undefined,
+        // Şart düzenlemesi SÖZLEŞMEYE özeldir; bağlı teklifin şartlarına
+        // yazılmaz, yoksa imza masasındaki bir değişiklik onaylı teklifin ve
+        // aynı teklife bağlı proformanın çıktısını da geriye dönük değiştirirdi.
+        // Dokunulmadıysa gönderilmez: belge teklifin şartlarıyla basılır.
+        terms: termsDirty
+          ? {
+              paymentTermsText: paymentTerms,
+              deliveryTermsText: deliveryTerms,
+              warrantyTermsText: warrantyTerms,
+              ...termsMetadata,
+            }
           : undefined,
       });
       toast.success("Sözleşme oluşturuldu", { description: created?.contractNo ?? contractNo.trim() });
@@ -348,7 +352,7 @@ export function CreateContractDialog({
           <DocumentTermsTemplateEditor
             markerStyle="none"
             title="Sözleşme Şartları"
-            description="Şablon seçin veya metni düzenleyin. Kaydedilen değişiklik bağlı teklif şartlarına yazılır ve sözleşme çıktısında kullanılır."
+            description="Şablon seçin veya metni düzenleyin. Değişiklik yalnız bu sözleşmeye işlenir; bağlı teklifin şartları olduğu gibi kalır."
             templateScope={CONTRACT_TERMS_TEMPLATE_SCOPE}
             noteTemplates={noteTemplates}
             selectedTemplateKey={termsTemplateKey}

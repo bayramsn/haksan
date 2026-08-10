@@ -164,6 +164,57 @@ describe('ERP flow', () => {
     expect(invoice.body.invoiceNo).toMatch(new RegExp(`^${quoteBusinessLine}-FAT-\\d{4}/\\d{3}$`));
   });
 
+  it('keeps contract terms on the contract and leaves the quote terms untouched', async () => {
+    // İmza masasında yazılan bir teslim şartı, eskiden bağlı teklifin
+    // `quote_terms` kaydını yeniden yazıyor ve onaylı teklifin çıktısını da
+    // geriye dönük değiştiriyordu. Şart artık belgenin kendi sütununda durur.
+    const quoteTerms = await supertest(app.getHttpServer())
+      .put(`/api/v1/quotes/${quoteId}/terms`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({
+        paymentTermsText: 'TEKLIF-ODEME',
+        deliveryTermsText: 'TEKLIF-TESLIM',
+        warrantyTermsText: 'TEKLIF-GARANTI',
+        importCostsExcluded: true,
+      });
+    expect(quoteTerms.status).toBe(200);
+
+    const contract = await supertest(app.getHttpServer())
+      .post('/api/v1/contracts')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({
+        quoteId,
+        signedDate: new Date().toISOString(),
+        statusCode: 'draft',
+        terms: { deliveryTermsText: 'SOZLESME-TESLIM', importCostsExcluded: false },
+      });
+    expect(contract.status).toBe(201);
+    expect(contract.body.terms).toMatchObject({ deliveryTermsText: 'SOZLESME-TESLIM' });
+    // Çıktı anlık görüntüden basılır; belgeye özel şart oraya da geçmeli.
+    expect(contract.body.documentSnapshot?.terms).toMatchObject({
+      deliveryTermsText: 'SOZLESME-TESLIM',
+      importCostsExcluded: false,
+    });
+
+    const quoteAfter = await supertest(app.getHttpServer())
+      .get(`/api/v1/quotes/${quoteId}`)
+      .set('Authorization', `Bearer ${adminToken}`);
+    expect(quoteAfter.status).toBe(200);
+    expect(quoteAfter.body.terms).toMatchObject({
+      paymentTermsText: 'TEKLIF-ODEME',
+      deliveryTermsText: 'TEKLIF-TESLIM',
+      warrantyTermsText: 'TEKLIF-GARANTI',
+    });
+
+    // Şart gönderilmeyen sözleşme eskisi gibi teklifin şartlarıyla basılır.
+    const plain = await supertest(app.getHttpServer())
+      .post('/api/v1/contracts')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ quoteId, signedDate: new Date().toISOString(), statusCode: 'draft' });
+    expect(plain.status).toBe(201);
+    expect(plain.body.terms ?? null).toBeNull();
+  });
+
   it('shows the product name and restores the quote to draft after price approval', async () => {
     const created = await supertest(app.getHttpServer())
       .post('/api/v1/quotes')

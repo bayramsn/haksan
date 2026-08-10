@@ -186,16 +186,8 @@ export function CreateProformaDialog({
   );
   const rowError = priceRows.map(proformaRowError).find(Boolean) ?? null;
 
-  const persist = async () => {
-    if (termsDirty) {
-      await quoteService.terms(quoteId, {
-        paymentTermsText: paymentTerms,
-        deliveryTermsText: deliveryTerms,
-        warrantyTermsText: warrantyTerms,
-        importCostsExcluded: true,
-      });
-    }
-    return documentService.createProforma({
+  const persist = async () =>
+    documentService.createProforma({
       quoteId,
       documentNo: documentNo.trim() || undefined,
       issueDate: new Date(issueDate),
@@ -204,8 +196,17 @@ export function CreateProformaDialog({
         quoteItemId: row.quoteItemId,
         unitPrice: row.unitPrice,
       })),
+      // Şart düzenlemesi PROFORMAYA özeldir; bağlı teklifin şartlarını
+      // yeniden yazmaz. Dokunulmadıysa belge teklifin şartlarıyla basılır.
+      terms: termsDirty
+        ? {
+            paymentTermsText: paymentTerms,
+            deliveryTermsText: deliveryTerms,
+            warrantyTermsText: warrantyTerms,
+            importCostsExcluded: true,
+          }
+        : undefined,
     });
-  };
 
   // Kaydedilen proformayı seçilen şablonla anında yazdırır; hata belgeyi geri almaz,
   // kayıt oluşmuş sayılır ve kullanıcı listeden yeniden yazdırabilir.
@@ -384,7 +385,7 @@ export function CreateProformaDialog({
           <DocumentTermsTemplateEditor
             continuousNumbering
             title="Proforma Şartları"
-            description="Şablon seçin veya metni düzenleyin. Kaydedilen değişiklik bağlı teklif şartlarına yazılır ve proforma çıktısında kullanılır."
+            description="Şablon seçin veya metni düzenleyin. Değişiklik yalnız bu proformaye işlenir; bağlı teklifin şartları olduğu gibi kalır."
             templateScope={PROFORMA_TERMS_TEMPLATE_SCOPE}
             noteTemplates={noteTemplates}
             selectedTemplateKey={termsTemplateKey}

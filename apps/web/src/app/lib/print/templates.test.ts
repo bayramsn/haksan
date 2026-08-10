@@ -200,6 +200,44 @@ describe("print templates", () => {
     expect(document.body).toContain(`Sayfa <b>${totalPages}</b> / <b>${totalPages}</b>`);
   });
 
+  it("keeps a long condition whole and continues the lettering across pages", () => {
+    // Bir madde cümle ortasından ikiye bölünürse ikinci parça, yarım bir
+    // cümleyle başlayan ayrı bir maddeymiş gibi basılıyordu.
+    const longClause =
+      "Tezgahın teslimi, akreditifin açılmasını takip eden 90 gün içinde gerçekleştirilecektir. " +
+      "Gecikme hâlinde taraflar yeni bir teslim takvimi üzerinde yazılı olarak mutabık kalır. " +
+      "Bu madde, mücbir sebep hâllerinde uygulanmaz.";
+    const document = quoteDoc({
+      firma: "Uzun Şart Müşterisi",
+      tarih: "10.08.2026",
+      belgeNo: "CNC-2026/900",
+      // Referans tek-sayfa düzeni yerine sayfalanan düzeni zorlar; şartlar
+      // ancak orada kendi sayfalarına taşar.
+      specs: Array.from({ length: 41 }, (_, index) => ({ key: `SPEC-${index + 1}`, value: `${index + 1}` })),
+      items: Array.from({ length: 17 }, (_, index) => ({ urun: `KALEM-${index + 1}`, birim: "Adet", fiyat: 100, tutar: 100 })),
+      kdvOran: 20,
+      kdvTutar: 20,
+      currency: "USD",
+      notes: {
+        key: "entered",
+        label: "Girilen şartlar",
+        odeme: [longClause, ...Array.from({ length: 11 }, (_, index) => `ODEME-${index + 1}`)],
+        teslimat: [],
+        garanti: [],
+      },
+    }, assetBase);
+
+    // Uzun madde tek parça kalır: cümlenin tamamı tek bir <li> içinde.
+    expect(document.body).toContain(`<li>${longClause}</li>`);
+    // Bölüm ikinci sayfaya taştıysa harfler `a.`dan değil, kaldığı yerden devam eder.
+    const starts = [...document.body.matchAll(/<ol class="alpha" start="(\d+)"/g)].map((m) => Number(m[1]));
+    expect(starts.length).toBeGreaterThan(1);
+    expect(starts[0]).toBe(1);
+    expect(starts[1]).toBeGreaterThan(1);
+    expect(document.body).toContain("ÖDEME ŞARTLARI (devam)");
+    expect(document.body).toContain("ODEME-11");
+  });
+
   it("keeps the reference-shaped sales offer on four A4 pages", () => {
     const document = quoteDoc({
       firma: "SUDEN MAKİNE SAN. VE TİC. LTD. ŞTİ.",

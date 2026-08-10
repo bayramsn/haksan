@@ -175,6 +175,12 @@ export const proformas = pgTable(
     /** Çıktının altına basılacak imza. Basılan ad/ünvan/görsel ayrıca snapshot'a gömülür. */
     signatureId: uuid('signature_id').references(() => signatures.id, { onDelete: 'set null' }),
     documentSnapshot: jsonb('document_snapshot'),
+    /**
+     * Belgenin KENDİ şartları (ödeme / teslimat / garanti + teslim bağlamı).
+     * NULL ise çıktı bağlı teklifin şartlarına düşer; teklif yalnız ön-dolgu
+     * kaynağıdır ve belgede yapılan düzenleme ona geri yazılmaz.
+     */
+    terms: jsonb('terms'),
     finalizedAt: timestamp('finalized_at', { withTimezone: true }),
     createdBy: uuid('created_by').references(() => users.id),
     ...auditColumns,
@@ -213,6 +219,12 @@ export const contracts = pgTable(
     /** Çıktının altına basılacak imza. Basılan ad/ünvan/görsel ayrıca snapshot'a gömülür. */
     signatureId: uuid('signature_id').references(() => signatures.id, { onDelete: 'set null' }),
     documentSnapshot: jsonb('document_snapshot'),
+    /**
+     * Belgenin KENDİ şartları (ödeme / teslimat / garanti + teslim bağlamı).
+     * NULL ise çıktı bağlı teklifin şartlarına düşer; teklif yalnız ön-dolgu
+     * kaynağıdır ve belgede yapılan düzenleme ona geri yazılmaz.
+     */
+    terms: jsonb('terms'),
     finalizedAt: timestamp('finalized_at', { withTimezone: true }),
     createdBy: uuid('created_by').references(() => users.id),
     ...auditColumns,

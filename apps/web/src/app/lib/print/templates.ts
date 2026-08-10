@@ -31,6 +31,14 @@ const chunkByWeight = <T,>(items: readonly T[], capacity: number, weightOf: (ite
 const pageNo = (current: number, total: number) =>
   `<div class="pageno">Sayfa <b>${current}</b> / <b>${total}</b></div>`;
 
+/** Cümle sonu sayılan işaretler — bölme noktası öncelikle burada aranır. */
+const SENTENCE_ENDINGS = [". ", "; ", "! ", "? ", ".\n", ";\n"];
+
+/** Bir şart sayfasının taşıyabildiği ağırlık ve bir satırın karakter karşılığı. */
+const NOTE_PAGE_CAPACITY = 8;
+const NOTE_LINE_CHARS = 280;
+const noteWeightOf = (note: string) => Math.max(1, note.length / NOTE_LINE_CHARS);
+
 const chunkText = (value: string | undefined, maxChars = 1400): string[] => {
   const source = value?.replace(/\r\n?/g, "\n").trim();
   if (!source) return [];
@@ -38,9 +46,19 @@ const chunkText = (value: string | undefined, maxChars = 1400): string[] => {
   let remaining = source;
   while (remaining.length > maxChars) {
     const searchStart = Math.max(1, Math.floor(maxChars * 0.65));
-    const candidates = [remaining.lastIndexOf("\n", maxChars), remaining.lastIndexOf(" ", maxChars)];
-    const boundary = Math.max(...candidates.filter((index) => index >= searchStart));
-    const cutAt = boundary >= searchStart ? boundary : maxChars;
+    // Bölme noktası önce satır/cümle sonunda aranır. Yalnız boşluğa bakmak,
+    // uzun bir şart maddesini cümlenin ortasından kesiyordu; ikinci parça
+    // ayrı bir maddeymiş gibi, yarım bir cümleyle başlayarak basılıyordu.
+    const lineEnd = remaining.lastIndexOf("\n", maxChars);
+    const sentenceEnd = Math.max(
+      ...SENTENCE_ENDINGS.map((mark) => {
+        const at = remaining.lastIndexOf(mark, maxChars - 1);
+        return at >= 0 ? at + 1 : -1;
+      })
+    );
+    const wordEnd = remaining.lastIndexOf(" ", maxChars);
+    const semantic = Math.max(lineEnd, sentenceEnd);
+    const cutAt = semantic >= searchStart ? semantic : wordEnd >= searchStart ? wordEnd : maxChars;
     chunks.push(remaining.slice(0, cutAt).trim());
     remaining = remaining.slice(cutAt).trim();
   }
@@ -597,13 +615,34 @@ export function quoteDoc(d: QuotePrintData, assetBase: string): PrintDocument {
   // Beş satırlık fiyat kutusunda 4. satır daima özel iskonto, son satır boş kalır.
   const itemChunks = chunkByWeight(d.items, 3, (item) => Math.max(1, item.urun.length / 180));
   const addressChunks = chunkText(d.adres, 420);
-  const splitNotes = (notes: string[]) => notes.flatMap((note) => chunkText(note, 1200));
+  /**
+   * Bir şart maddesi TEK bir madde olarak basılır. Eskiden 1200 karakterde
+   * kesiliyordu; uzun bir madde ikiye bölünüp ikinci parça, cümle ortasından
+   * başlayan ayrı bir maddeymiş gibi görünüyordu. Artık yalnız tek başına bir
+   * sayfayı taşıran madde bölünür, o da cümle sonundan (bkz. `chunkText`).
+   */
+  const splitNotes = (notes: string[]) =>
+    notes.flatMap((note) => chunkText(note, NOTE_PAGE_CAPACITY * NOTE_LINE_CHARS));
+  /**
+   * Bir şart bölümü birden çok sayfaya taşarsa madde harfleri DEVAM etmeli:
+   * her sayfa kendi `<ol>`'unu açtığı için ikinci sayfa yeniden `a.`den
+   * başlıyor, ekranda `i.` görünen madde çıktıda `a.` oluyordu.
+   */
+  const notesSection = (title: string, notes: string[]) => {
+    if (!notes.length) return [];
+    let start = 0;
+    return chunkByWeight(splitNotes(notes), NOTE_PAGE_CAPACITY, noteWeightOf).map((list) => {
+      const page = { title, list, start };
+      start += list.length;
+      return page;
+    });
+  };
   const notePages = [
-    ...(d.notes.odeme.length ? chunkByWeight(splitNotes(d.notes.odeme), 8, (note) => Math.max(1, note.length / 280)).map((list) => ({ title: "ÖDEME ŞARTLARI", list })) : []),
-    ...(d.notes.teslimat.length ? chunkByWeight(splitNotes(d.notes.teslimat), 8, (note) => Math.max(1, note.length / 280)).map((list) => ({ title: "TESLİMAT ŞARTLARI", list })) : []),
-    ...(d.notes.garanti.length ? chunkByWeight(splitNotes(d.notes.garanti), 8, (note) => Math.max(1, note.length / 280)).map((list) => ({ title: "GARANTİ ŞARTLARI", list })) : []),
-    ...((d.genelNotlar?.length ?? 0) > 0 ? chunkByWeight(splitNotes(d.genelNotlar ?? []), 8, (note) => Math.max(1, note.length / 280)).map((list) => ({ title: "NOTLAR", list })) : []),
-    ...(addressChunks.length > 1 ? chunkByWeight(addressChunks.slice(1), 8, (note) => Math.max(1, note.length / 280)).map((list) => ({ title: "MÜŞTERİ ADRESİ — DEVAM", list })) : []),
+    ...notesSection("ÖDEME ŞARTLARI", d.notes.odeme),
+    ...notesSection("TESLİMAT ŞARTLARI", d.notes.teslimat),
+    ...notesSection("GARANTİ ŞARTLARI", d.notes.garanti),
+    ...notesSection("NOTLAR", d.genelNotlar ?? []),
+    ...notesSection("MÜŞTERİ ADRESİ — DEVAM", addressChunks.slice(1)),
   ];
   const referenceNoteWeight = [
     ...d.notes.odeme,
@@ -805,10 +844,10 @@ export function quoteDoc(d: QuotePrintData, assetBase: string): PrintDocument {
     pages.push(`
 <div class="page q-price-page">
   ${quoteHeader()}
-  <div class="q-h1">FİYAT ve KOŞULLAR — ${esc(notePage.title)}</div>
+  <div class="q-h1">FİYAT ve KOŞULLAR — ${esc(notePage.title)}${notePage.start ? " (devam)" : ""}</div>
   <div class="q-notes">
-    <ol class="outer"><li><div class="sec">${esc(notePage.title)}</div>
-      <ol class="alpha">${notePage.list.map((note) => `<li>${esc(note)}</li>`).join("")}</ol>
+    <ol class="outer"><li><div class="sec">${esc(notePage.title)}${notePage.start ? " (devam)" : ""}</div>
+      <ol class="alpha" start="${notePage.start + 1}">${notePage.list.map((note) => `<li>${esc(note)}</li>`).join("")}</ol>
     </li></ol>
   </div>
   ${isFinalPage ? signatureHtml() : ""}

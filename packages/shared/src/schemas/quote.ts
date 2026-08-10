@@ -111,6 +111,17 @@ export const quoteTermsUpsertSchema = z.object({
 export type QuoteTermsUpsertInput = z.infer<typeof quoteTermsUpsertSchema>;
 
 /**
+ * Belgenin (proforma / sözleşme) KENDİ şartları.
+ *
+ * Belge ekranındaki düzenleme artık bağlı teklifin şartlarını yeniden yazmaz:
+ * imza masasında sözleşmeye özel yazılan bir teslim şartı, onaylı teklifin ve
+ * aynı teklife bağlı proformanın çıktısını geriye dönük değiştiriyordu. Teklif
+ * yalnız ön-dolgu kaynağıdır; gönderilmezse belge onun şartlarıyla basılır.
+ */
+export const documentTermsSchema = quoteTermsUpsertSchema.partial().optional();
+export type DocumentTermsInput = z.infer<typeof documentTermsSchema>;
+
+/**
  * Fırsat açmadan ("hızlı") kesilen teklif.
  *
  * Normal akışta teklif her zaman bir satış kartına bağlanır; kart yoksa istemci
@@ -173,6 +184,8 @@ export const proformaCreateSchema = z.object({
   signatureId: z.string().uuid().nullish(),
   // `unitPrice` brüt birim fiyatıdır, net toplam mevcut iskonto düşülerek hesaplanır.
   items: documentPriceItemsSchema,
+  // Belgeye özel şartlar; gönderilmezse teklifin şartlarıyla basılır.
+  terms: documentTermsSchema,
 });
 export type ProformaCreateInput = z.infer<typeof proformaCreateSchema>;
 
@@ -331,6 +344,8 @@ export const contractCreateSchema = z.object({
   // Sözleşme masasında pazarlık edilen fiyat, onaylı teklife dokunmadan
   // burada saklanır ve sözleşme çıktısı bu değerlerle basılır.
   items: documentPriceItemsSchema,
+  // Şartlar da sözleşmeye özeldir; teklifinkini yeniden yazmaz.
+  terms: documentTermsSchema,
 });
 export type ContractCreateInput = z.infer<typeof contractCreateSchema>;
 
