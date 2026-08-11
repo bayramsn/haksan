@@ -345,7 +345,7 @@ export function SettingsPage() {
 
           {canReadTenant && !companyLoading && (
             <SettingsSection icon={<Globe />} tone="info" title="Canlı Kurumsal Önizleme" description="Kaydetmeden önce şirket kimliğinin çalışma alanında nasıl görüneceğini kontrol edin.">
-              <div className="premium-blueprint precision-corners overflow-hidden rounded-xl border border-primary/15 bg-[var(--gradient-brand)] p-5 text-white">
+              <div className="premium-blueprint precision-corners overflow-hidden rounded-xl border border-primary/15 [background:var(--gradient-brand)] p-5 text-white">
                 <div className="relative flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
                   <div className="rounded-lg bg-white px-3 py-2 shadow-lg shadow-black/15">
                     <img src="/brand/haksan-logo.png" alt="Haksan Makina" className="h-8 w-auto max-w-[170px] object-contain" />

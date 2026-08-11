@@ -20,7 +20,7 @@
   --secondary: #eef1ff;
   --secondary-foreground: #000c69;
   --muted: #f0f2f5;
-  --muted-foreground: #667085;
+  --muted-foreground: #5f697a;
   --accent: #edf0f4;
   --accent-foreground: #18202a;
   --destructive: #cf060c;
@@ -373,6 +373,15 @@
     padding: 1rem;
   }
 
+  .ui-page-layout > *,
+  .crm-page > *,
+  [data-slot='card'],
+  [data-slot='card-content'],
+  [data-slot='dialog-content'],
+  [data-slot='sheet-content'] {
+    min-width: 0;
+  }
+
   .ui-toolbar {
     display: flex;
     min-width: 0;
@@ -397,7 +406,7 @@
   .ui-eyebrow {
     color: var(--operation-blue);
     font-family: ui-monospace, 'SFMono-Regular', 'Cascadia Code', 'Roboto Mono', monospace;
-    font-size: 0.6875rem;
+    font-size: 0.75rem;
     font-weight: 600;
     line-height: 1.25;
     letter-spacing: 0.1em;
@@ -455,7 +464,7 @@
     padding: 0.125rem 0.5rem;
     border: 1px solid transparent;
     border-radius: 999px;
-    font-size: 11px;
+    font-size: 0.75rem;
     font-weight: var(--font-weight-medium);
     line-height: 1.35;
     white-space: nowrap;
@@ -542,6 +551,10 @@
     padding-bottom: calc(5.75rem + env(safe-area-inset-bottom)) !important;
   }
 
+  .app-main :where(h1, h2, h3, h4, p, td, th, [data-slot='card-title'], [data-slot='dialog-title']) {
+    overflow-wrap: anywhere;
+  }
+
   .app-main::-webkit-scrollbar {
     width: 10px;
   }
@@ -565,7 +578,7 @@
   [data-density='compact'] [data-slot='table-head'] {
     height: 2.25rem;
     padding-inline: 0.625rem;
-    font-size: 0.6875rem;
+    font-size: 0.75rem;
   }
 
   [data-density='compact'] [data-slot='table-cell'] {
@@ -596,6 +609,15 @@
     [data-slot='input'],
     [data-slot='select-trigger'] {
       min-height: 2.75rem;
+    }
+
+    [data-slot='dialog-content'],
+    [data-slot='sheet-content'] {
+      max-width: calc(100vw - 1rem);
+    }
+
+    .app-main {
+      padding-bottom: calc(6.5rem + env(safe-area-inset-bottom)) !important;
     }
   }
 

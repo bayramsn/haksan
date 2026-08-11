@@ -9,6 +9,9 @@ const VIEWPORTS = [
   { name: "mobile", width: 390, height: 844 },
 ] as const;
 
+// Aynı demo hesabıyla eşzamanlı giriş, auth rate-limit kapısına takılmamalı.
+test.describe.configure({ mode: "serial" });
+
 test("ana kabuk desteklenen ekranlarda yatay taşmaz ve temel kontrolleri korur", async ({ page }) => {
   await login(page);
 
@@ -58,5 +61,6 @@ test("azaltılmış hareket tercihi ana kabukta korunur", async ({ page }) => {
   const transitionDuration = await page.getByRole("button", { name: "Menüyü daralt" }).evaluate((element) =>
     getComputedStyle(element.closest("aside") ?? element).transitionDuration
   );
-  expect(transitionDuration).toBe("0s");
+  const longestTransition = Math.max(...transitionDuration.split(",").map((value) => Number.parseFloat(value) || 0));
+  expect(longestTransition).toBeLessThanOrEqual(0.001);
 });

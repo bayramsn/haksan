@@ -19,7 +19,7 @@ export function DashboardBriefing({
   const today = new Intl.DateTimeFormat("tr-TR", { day: "2-digit", month: "long", weekday: "long" }).format(new Date());
 
   return (
-    <section aria-labelledby="dashboard-briefing-title" className="relative isolate overflow-hidden rounded-[var(--overlay-radius)] border border-white/10 border-t-2 border-t-brand-red bg-[var(--gradient-brand)] p-4 text-white shadow-sm sm:p-5">
+    <section aria-labelledby="dashboard-briefing-title" className="relative isolate overflow-hidden rounded-[var(--overlay-radius)] border border-white/10 border-t-2 border-t-brand-red [background:var(--gradient-brand)] p-4 text-white shadow-sm sm:p-5">
       <div className="pointer-events-none absolute inset-0 -z-10 opacity-[0.06] [background-image:linear-gradient(to_right,currentColor_1px,transparent_1px),linear-gradient(to_bottom,currentColor_1px,transparent_1px)] [background-size:28px_28px]" />
       <div className="flex flex-col justify-between gap-4 md:flex-row md:items-center">
         <div className="flex min-w-0 items-center gap-4">

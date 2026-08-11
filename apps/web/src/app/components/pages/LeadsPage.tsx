@@ -277,7 +277,7 @@ export function LeadsPage({ onSelect, focus }: { onSelect: (lead: SalesCase) => 
 
   return (
     <div className="crm-page">
-      <Card className="overflow-hidden border-primary/15 bg-[var(--gradient-brand)] text-white shadow-sm">
+      <Card className="overflow-hidden border-primary/15 [background:var(--gradient-brand)] text-white shadow-sm">
         <CardContent className="space-y-5 p-5">
           <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
           <div>

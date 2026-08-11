@@ -1218,7 +1218,7 @@ export function OfferDetailDialog({
 
     <Dialog open={documentAction !== null} onOpenChange={(open) => !open && setDocumentAction(null)}>
       <DialogContent className="w-[min(680px,calc(100vw-2rem))] max-w-none overflow-hidden p-0 sm:max-w-none">
-        <DialogHeader className="border-b border-border/60 bg-[var(--gradient-brand)] px-6 py-5 text-white">
+        <DialogHeader className="border-b border-border/60 [background:var(--gradient-brand)] px-6 py-5 text-white">
           <DialogTitle className="flex items-center gap-2 text-white">
             <ImageIcon className="size-5 text-sky-300" /> PDF logosunu seçin
           </DialogTitle>

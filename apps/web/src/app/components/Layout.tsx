@@ -497,7 +497,7 @@ export function Layout({ current, onNavigate, onLogout, pageTitle, pageSubtitle,
           )}
           {!collapsed && recentItems.length > 0 && (
             <div>
-              <div className="mb-1.5 px-3 text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/80">Son kullanılan</div>
+              <div className="mb-1.5 px-3 text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">Son kullanılan</div>
               <div className="space-y-0.5">
                 {recentItems.map((item) => {
                   const Icon = item.icon;
@@ -529,7 +529,7 @@ export function Layout({ current, onNavigate, onLogout, pageTitle, pageSubtitle,
                   type="button"
                   aria-expanded={expanded}
                   onClick={() => setExpandedGroups((groups) => ({ ...groups, [group.group]: !expanded }))}
-                  className="mb-1.5 flex w-full items-center justify-between rounded px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/80 transition-colors hover:bg-muted hover:text-foreground"
+                  className="mb-1.5 flex w-full items-center justify-between rounded px-3 py-1 text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
                 >
                   {group.group}
                   <ChevronDown className={`size-3 transition-transform ${expanded ? "rotate-0" : "-rotate-90"}`} />
