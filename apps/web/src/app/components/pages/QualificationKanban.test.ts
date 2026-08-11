@@ -48,6 +48,9 @@ describe("QualificationKanban firma ve kart detayı", () => {
   });
 
   it("firma ilgilisini ve adresi fırsat kartında görünür tutar", () => {
+    expect(source).toContain("useCompanyCardDetails(");
+    expect(source).toContain("companyDetailsQuery.data?.[salesCase.customerId] ?? storedCompany");
+    expect(source).toContain("Adres yükleniyor…");
     expect(source).toContain("salesCase.primaryContactId");
     expect(source).toContain("İlgili kişi belirlenmedi");
     expect(source).toContain("Adres bilgisi yok");

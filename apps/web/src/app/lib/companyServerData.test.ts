@@ -3,6 +3,7 @@ import {
   buildCompanyListParams,
   companyDirectoryViewAfterSave,
   companyQueryKeys,
+  uniqueCompanyDetailIds,
 } from "./companyServerData";
 import { clampServerPage, normalizeTotalPages, serverScopeKey } from "./serverPagination";
 
@@ -52,6 +53,11 @@ describe("company server directory params", () => {
       page: 1,
     });
     expect(companyDirectoryViewAfterSave("competitor", "competitor")).toBeNull();
+  });
+
+  it("fırsat kartı detay isteklerini boş kimliklerden arındırıp tekilleştirir", () => {
+    expect(uniqueCompanyDetailIds(["company-2", "", null, "company-1", "company-2", undefined]))
+      .toEqual(["company-1", "company-2"]);
   });
 });
 

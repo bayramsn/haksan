@@ -1,7 +1,8 @@
-import { keepPreviousData, type QueryClient, useQuery } from "@tanstack/react-query";
+import { keepPreviousData, type QueryClient, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "../../lib/auth";
 import {
   companyService,
+  type CompanyDTO,
   type CompanySummaryDTO,
   type Paginated,
 } from "../../lib/services";
@@ -165,6 +166,58 @@ export function useCompanyDetail(companyId?: string | null, fallback?: Customer)
     queryFn: ({ signal }) => companyService.get(companyId as string, { signal }),
     enabled: Boolean(companyId),
     select: (company) => normalizeCompany(company, fallback),
+  });
+}
+
+export function uniqueCompanyDetailIds(companyIds: Array<string | null | undefined>): string[] {
+  return Array.from(new Set(companyIds.filter((id): id is string => Boolean(id?.trim())))).sort();
+}
+
+/**
+ * Hydrates the companies represented by opportunity cards without restoring
+ * the old global full-directory download. Detail requests stay identity scoped,
+ * share the regular company detail cache and are capped at eight in flight.
+ */
+export function useCompanyCardDetails(
+  companyIds: Array<string | null | undefined>,
+  fallbacks: Customer[] = [],
+) {
+  const { user, activeDivision, activeDepartment } = useAuth();
+  const queryClient = useQueryClient();
+  const scope = serverScopeKey(activeDivision, activeDepartment, user?.tenantId, user?.id);
+  const ids = uniqueCompanyDetailIds(companyIds);
+  const fallbackById = new Map(fallbacks.map((company) => [company.id, company]));
+
+  return useQuery({
+    queryKey: [...companyQueryKeys.details(), "opportunity-card-set", scope, ids],
+    enabled: ids.length > 0,
+    staleTime: 5 * 60_000,
+    queryFn: async ({ signal }): Promise<CompanyDTO[]> => {
+      const companies: CompanyDTO[] = [];
+      let cursor = 0;
+      const worker = async () => {
+        while (cursor < ids.length) {
+          const id = ids[cursor++];
+          try {
+            const company = await companyService.get(id, { signal });
+            companies.push(company);
+            queryClient.setQueryData(companyQueryKeys.detail(scope, id), company);
+          } catch (error) {
+            if (signal.aborted) throw error;
+            // One inaccessible or deleted company must not hide the addresses
+            // of every other visible opportunity card.
+          }
+        }
+      };
+
+      await Promise.all(
+        Array.from({ length: Math.min(8, ids.length) }, () => worker()),
+      );
+      return companies;
+    },
+    select: (companies): Record<string, Customer> => Object.fromEntries(
+      companies.map((company) => [company.id, normalizeCompany(company, fallbackById.get(company.id))]),
+    ),
   });
 }
 

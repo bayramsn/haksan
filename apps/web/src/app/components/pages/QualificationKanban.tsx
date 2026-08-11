@@ -41,6 +41,7 @@ import {
 import { Label } from "../ui/label";
 import { Textarea } from "../ui/textarea";
 import { actionDateLabel, isActionOverdue } from "../shared/NextActionDialog";
+import { useCompanyCardDetails } from "../../lib/companyServerData";
 
 type ActiveQualificationStage = Exclude<QualificationStage, "lead">;
 const ACTIVE_QUALIFICATION_STAGES = QUALIFICATION_STAGES as ActiveQualificationStage[];
@@ -91,6 +92,10 @@ export function QualificationKanban({
 }) {
   const { customers, contacts, moveQualification, closeCase } = useStore();
   const { hasPermission } = useAuth();
+  const companyDetailsQuery = useCompanyCardDetails(
+    items.map((item) => item.customerId),
+    customers,
+  );
   const canUpdate = hasPermission("opportunities.update");
   const [lostId, setLostId] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -242,7 +247,8 @@ export function QualificationKanban({
         columnWidth={typeof window !== "undefined" && window.innerWidth < 640 ? 260 : 304}
         onMove={move}
         renderCard={(salesCase) => {
-          const company = customers.find((item) => item.id === salesCase.customerId);
+          const storedCompany = customers.find((item) => item.id === salesCase.customerId);
+          const company = companyDetailsQuery.data?.[salesCase.customerId] ?? storedCompany;
           const primaryContact =
             contacts.find((item) => item.id === salesCase.primaryContactId) ??
             contacts.find((item) =>
@@ -378,7 +384,9 @@ export function QualificationKanban({
                        <dt className="flex items-center gap-1 font-data text-xs font-medium uppercase tracking-[0.06em] text-muted-foreground">
                          <MapPin className="size-3" aria-hidden="true" /> Adres
                        </dt>
-                       <dd className="min-w-0 line-clamp-2 break-words text-xs leading-4 text-foreground">{address || "Adres bilgisi yok"}</dd>
+                       <dd className="min-w-0 line-clamp-2 break-words text-xs leading-4 text-foreground">
+                         {address || (salesCase.customerId && companyDetailsQuery.isLoading ? "Adres yükleniyor…" : "Adres bilgisi yok")}
+                       </dd>
                      </div>
                      <div className="grid grid-cols-[52px_minmax(0,1fr)] gap-2 py-1.5">
                       <dt className="font-data text-xs font-medium uppercase tracking-[0.06em] text-muted-foreground">Makina</dt>
