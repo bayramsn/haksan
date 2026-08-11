@@ -121,6 +121,7 @@ export interface ProformaPrintData {
   adres?: string;
   tel?: string;
   faks?: string;
+  email?: string;
   vergiDairesi?: string;
   vergiNo?: string;
   tarih: string;
@@ -268,6 +269,7 @@ export function proformaDoc(
           <td class="lbl">Vergi D.</td><td class="val">${blank(d.vergiDairesi)}</td>
           <td class="lbl">Vergi No</td><td class="val">${blank(d.vergiNo)}</td>
         </tr>
+        <tr><td class="lbl">E-Posta</td><td class="val" colspan="3">${blank(d.email)}</td></tr>
       </table>
     </div>
     <div class="pf-right">
@@ -1088,6 +1090,7 @@ export interface ContractPrintData {
     vergiNo?: string;
     tel?: string;
     faks?: string;
+    eposta?: string;
   };
   sozlesmeNo: string;
   sozlesmeTarihi: string; // ISO ya da hazır metin
@@ -1496,7 +1499,7 @@ export function contractDoc(d: ContractPrintData, assetBase: string): PrintDocum
         </tr>
         <tr>
           <td>${kv("Vergi Dairesi", HAKSAN.vergiDairesi)}${kv("Vergi Numarası", HAKSAN.vergiNo)}${kv("Tel.", HAKSAN.telSade)}${kv("Faks", HAKSAN.faksSade)}</td>
-          <td>${kv("Vergi Dairesi", d.alici.vergiDairesi)}${kv("Vergi Numarası", d.alici.vergiNo)}${kv("Tel.", d.alici.tel)}${kv("Faks", d.alici.faks)}</td>
+          <td>${kv("Vergi Dairesi", d.alici.vergiDairesi)}${kv("Vergi Numarası", d.alici.vergiNo)}${kv("Tel.", d.alici.tel)}${kv("Faks", d.alici.faks)}${kv("E-Posta", d.alici.eposta)}</td>
         </tr>
       </table>
       ${d.imza || d.hazirlayan ? `

@@ -240,6 +240,7 @@ async function buildContractPrintData(input: ContractBuildInput): Promise<Contra
     const contact = documentSnapshot.contact ?? {};
     const address = (documentSnapshot.companyAddresses ?? [])[0] ?? {};
     const phones = Array.isArray(documentSnapshot.companyPhones) ? documentSnapshot.companyPhones : [];
+    const emails = Array.isArray(documentSnapshot.companyEmails) ? documentSnapshot.companyEmails : [];
     const items = Array.isArray(documentSnapshot.items) ? documentSnapshot.items : [];
     const machines = buildContractMachines(items, products, quote);
     const mainMachine = machines[0];
@@ -254,6 +255,9 @@ async function buildContractPrintData(input: ContractBuildInput): Promise<Contra
     const warrantyTerms = value(terms, "warrantyTermsText", "warranty_terms_text") ?? value(quote, "warrantyTerms", "warranty_terms");
     const companyPhone = phones.find((phone: any) => !/fax/i.test(String(value(phone, "phoneType", "phone_type") ?? ""))) ?? phones[0];
     const companyFax = phones.find((phone: any) => /fax/i.test(String(value(phone, "phoneType", "phone_type") ?? "")));
+    const companyEmail = emails.find((email: any) =>
+      String(value(email, "emailType", "email_type") ?? "").toLocaleLowerCase("tr-TR") === "main",
+    ) ?? emails.find((email: any) => Boolean(value(email, "isDefault", "is_default"))) ?? emails[0];
     return {
       alici: {
         unvan: String(value(company, "legalTitle", "legal_title", "shortName", "short_name") ?? ""),
@@ -263,6 +267,7 @@ async function buildContractPrintData(input: ContractBuildInput): Promise<Contra
         vergiNo: value(company, "taxNumber", "tax_number"),
         tel: value(contact, "workPhone", "work_phone", "mobilePhone", "mobile_phone") ?? value(companyPhone, "phone"),
         faks: value(companyFax, "phone"),
+        eposta: value(companyEmail, "email") ?? value(contact, "workEmail", "work_email", "email"),
       },
       sozlesmeNo: contractNo,
       sozlesmeTarihi: contractDate,
@@ -346,6 +351,7 @@ async function buildContractPrintData(input: ContractBuildInput): Promise<Contra
       vergiNo: customer?.taxNumber,
       tel: customer?.phone,
       faks: customer?.fax,
+      eposta: customer?.email,
     },
     sozlesmeNo: contractNo,
     sozlesmeTarihi: contractDate,

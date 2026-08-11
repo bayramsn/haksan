@@ -24,6 +24,7 @@ describe("print templates", () => {
       adres: "Gecen köyü aşağı düz mevk.No:47/1 Bartın",
       tel: "0 378 227 46 96",
       faks: "0 378 227 81 05",
+      email: "firma@bartinotomotiv.test",
       vergiDairesi: "Bartın",
       vergiNo: "142 006 63 99",
       tarih: "25 Şubat 2026",
@@ -58,6 +59,7 @@ describe("print templates", () => {
     expect(document.body).toContain("BARTIN OTOMOTİV PAZARLAMA");
     expect(document.body).toContain("L.K. MACHINERY VM-2");
     expect(document.body).toContain("8457.1090.0011");
+    expect(document.body).toContain("firma@bartinotomotiv.test");
     expect(document.body).toContain("66.825,00 USD");
     expect(document.body).toContain("K.D.V. (%20)");
     expect(document.body).toContain("Yalnız #Altmışaltıbinsekizyüzyirmibeş# Amerikan doları");
@@ -618,6 +620,7 @@ describe("print templates", () => {
         vergiDairesi: "Bayrampaşa",
         vergiNo: "9991413459",
         tel: "0 (532) 581 75 92",
+        eposta: "firma@zorkaya.test",
       },
       sozlesmeNo: "CNC-SOZ-2024/001",
       sozlesmeTarihi: "2024-01-19",
@@ -649,6 +652,7 @@ describe("print templates", () => {
     expect(document.body).toContain("2.6.");
     expect(document.body).toContain("3.9.");
     expect(document.body).toContain("TARAFLAR");
+    expect(document.body).toContain("firma@zorkaya.test");
     expect(document.body).not.toContain("SÖZLEŞME TEKNİK EKİ");
     expect(document.body).not.toContain("Sözleşme No:");
   });

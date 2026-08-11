@@ -44,9 +44,13 @@ const proformaFromSnapshot = (
   const contact = snapshot.contact ?? {};
   const address = (snapshot.companyAddresses ?? [])[0] ?? {};
   const companyPhones = Array.isArray(snapshot.companyPhones) ? snapshot.companyPhones : [];
+  const companyEmails = Array.isArray(snapshot.companyEmails) ? snapshot.companyEmails : [];
   const isFaxPhone = (phone: any) => /^(fax|faks)$/i.test(String(snapshotValue(phone, "phoneType", "phone_type") ?? ""));
   const companyPhone = companyPhones.find((phone: any) => !isFaxPhone(phone)) ?? {};
   const companyFax = companyPhones.find((phone: any) => isFaxPhone(phone)) ?? {};
+  const companyEmail = companyEmails.find((email: any) =>
+    String(snapshotValue(email, "emailType", "email_type") ?? "").toLocaleLowerCase("tr-TR") === "main",
+  ) ?? companyEmails.find((email: any) => Boolean(snapshotValue(email, "isDefault", "is_default"))) ?? companyEmails[0] ?? {};
   const rows = Array.isArray(snapshot.items) ? snapshot.items : [];
   const lineDiscount = rows.reduce(
     (sum: number, item: any) => sum + Number(snapshotValue(item, "discountAmount", "discount_amount") ?? 0),
@@ -124,6 +128,7 @@ const proformaFromSnapshot = (
     adres: fullAddress,
     tel: snapshotValue(contact, "workPhone", "work_phone") ?? snapshotValue(companyPhone, "phone"),
     faks: snapshotValue(companyFax, "phone"),
+    email: snapshotValue(companyEmail, "email") ?? snapshotValue(contact, "workEmail", "work_email", "email"),
     vergiDairesi: snapshotValue(company, "taxOffice", "tax_office"),
     vergiNo: snapshotValue(company, "taxNumber", "tax_number"),
     tarih: trLongDate(doc.uploadedAt || snapshot.capturedAt) || trLongDate(new Date()),
@@ -310,6 +315,7 @@ export function buildProformaPrintData(
     adres: printableAddress,
     tel: contact?.phone || cust?.phone,
     faks: cust?.fax,
+    email: cust?.email || contact?.email,
     vergiDairesi: cust?.taxOffice,
     vergiNo: cust?.taxNumber,
     tarih: trLongDate(doc.uploadedAt) || trLongDate(new Date()),

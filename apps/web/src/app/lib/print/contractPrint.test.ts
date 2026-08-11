@@ -22,6 +22,7 @@ describe("contract print data", () => {
         },
         companyAddresses: [{ fullAddress: "Örnek Mah. No:1 İstanbul" }],
         companyPhones: [{ phoneType: "main", phone: "0 212 000 00 00" }],
+        companyEmails: [{ emailType: "main", email: "firma@ornek.test", isDefault: true }],
         contact: {},
         currency: { code: "USD" },
         items: [{
@@ -49,6 +50,7 @@ describe("contract print data", () => {
     expect(data.teslimAyi).toBe("2024 NİSAN");
     expect(data.kontrolUnitesiMarka).toBe("MITSUBISHI");
     expect(data.alici.tel).toBe("0 212 000 00 00");
+    expect(data.alici.eposta).toBe("firma@ornek.test");
   });
 
   it("maps multiple machines with separate specs, options and allocated net prices", async () => {

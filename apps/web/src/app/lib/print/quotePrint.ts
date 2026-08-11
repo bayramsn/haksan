@@ -238,6 +238,13 @@ export function buildQuotePrintData(input: QuoteBuildInput, quote: QuoteDetail):
     (item) => numeric((item as { quantity?: unknown }).quantity) * numeric((item as { unitPrice?: unknown }).unitPrice),
   );
   const snapshotAddress = (quote as any).documentSnapshot?.companyAddresses?.[0];
+  const snapshotEmails = Array.isArray((quote as any).documentSnapshot?.companyEmails)
+    ? (quote as any).documentSnapshot.companyEmails
+    : [];
+  const snapshotCompanyEmail = snapshotEmails.find((email: any) =>
+    String(email?.emailType ?? email?.email_type ?? "").toLocaleLowerCase("tr-TR") === "main",
+  ) ?? snapshotEmails.find((email: any) => Boolean(email?.isDefault ?? email?.is_default)) ?? snapshotEmails[0];
+  const snapshotContact = (quote as any).documentSnapshot?.contact;
   const pdfAddress = customer?.addresses?.find((address) => address.id === quote.companyAddressId)
     ?? customer?.addresses?.find((address) => address.isBilling)
     ?? customer?.addresses?.find((address) => address.isDefault)
@@ -255,7 +262,12 @@ export function buildQuotePrintData(input: QuoteBuildInput, quote: QuoteDetail):
     adres: printableAddress,
     tel: contact?.phone || customer?.phone,
     faks: customer?.fax,
-    email: contact?.email || customer?.email,
+    email: snapshotCompanyEmail?.email
+      || customer?.email
+      || snapshotContact?.workEmail
+      || snapshotContact?.work_email
+      || snapshotContact?.email
+      || contact?.email,
     tarih: trShortDate(quote.quoteDate || offer.date),
     belgeNo: quote.documentNo || offer.quoteNo,
     gecerlilik: quote.validityDays ? `${quote.validityDays} İş Günü` : "",

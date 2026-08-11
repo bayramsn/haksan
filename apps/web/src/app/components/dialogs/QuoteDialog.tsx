@@ -641,16 +641,20 @@ export function QuoteDialog({
     setCompanyDetailsDirty(true);
   };
 
-  const saveCompanyDetails = async () => {
-    if (!selectedCompany) return toast.error("Önce firma seçiniz");
+  const saveCompanyDetails = async ({ notify = true }: { notify?: boolean } = {}): Promise<{ ok: boolean; addressId: string }> => {
+    if (!selectedCompany) {
+      toast.error("Önce firma seçiniz");
+      return { ok: false, addressId: "" };
+    }
     setSavingCompanyDetails(true);
     try {
       const patch = buildQuoteCompanyDetailsPatch(selectedCompany, companyAddressId, companyDetailsDraft);
       await updateCustomer(selectedCompany.id, patch);
       const refreshed = await selectedCompanyQuery.refetch();
       const refreshedCompany = refreshed.data;
+      let nextAddressId = companyAddressId;
       if (refreshedCompany) {
-        const nextAddressId = companyAddressId || preferredPdfAddressId(refreshedCompany);
+        nextAddressId = companyAddressId || preferredPdfAddressId(refreshedCompany);
         setCompanyAddressId(nextAddressId);
         setCompanyDetailsDraft(buildQuoteCompanyDetailsDraft(
           refreshedCompany,
@@ -658,13 +662,17 @@ export function QuoteDialog({
         ));
       }
       setCompanyDetailsDirty(false);
-      toast.success("Firma bilgileri kaydedildi", {
-        description: "Firma adı ve PDF adresi güncellendi.",
-      });
+      if (notify) {
+        toast.success("Firma bilgileri kaydedildi", {
+          description: "Firma adı ve PDF adresi güncellendi.",
+        });
+      }
+      return { ok: true, addressId: nextAddressId };
     } catch (err: any) {
       toast.error("Firma bilgileri kaydedilemedi", {
         description: err?.message ?? "API isteği başarısız oldu.",
       });
+      return { ok: false, addressId: "" };
     } finally {
       setSavingCompanyDetails(false);
     }
@@ -934,7 +942,7 @@ export function QuoteDialog({
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!companyId) return toast.error("Firma seçiniz");
-    if (companyAddresses.length > 0 && !companyAddressId) return toast.error("PDF'de kullanılacak adresi seçiniz");
+    if (!companyDetailsDirty && companyAddresses.length > 0 && !companyAddressId) return toast.error("PDF'de kullanılacak adresi seçiniz");
     if (num(validityDays) < 1) return toast.error("Geçerlilik süresini giriniz");
     if (canPickDivision && !divisionId) return toast.error("Bölüm seçiniz", { description: "Teklifi CNC / Üniversal / Sac bölümlerinden birine atayın." });
     const valid = lines.filter((l) => (l.productId || l.description.trim() || l.stockCode.trim()) && num(l.quantity) > 0);
@@ -996,10 +1004,26 @@ export function QuoteDialog({
 
     setSaving(true);
     try {
+      let resolvedCompanyAddressId = companyAddressId;
+      if (companyDetailsDirty) {
+        const companySave = await saveCompanyDetails({ notify: false });
+        if (!companySave.ok) return;
+        resolvedCompanyAddressId = companySave.addressId;
+      }
+      const hasEditedPdfAddress = Boolean(
+        companyDetailsDraft.address.trim()
+        || companyDetailsDraft.district.trim()
+        || companyDetailsDraft.city.trim(),
+      );
+      if (!resolvedCompanyAddressId && (companyAddresses.length > 0 || hasEditedPdfAddress)) {
+        toast.error("PDF'de kullanılacak adres kaydedilemedi");
+        return;
+      }
+
       if (editing && offerId) {
         await quoteService.update(offerId, {
           companyId,
-          companyAddressId: companyAddressId || undefined,
+          companyAddressId: resolvedCompanyAddressId || undefined,
           contactId: contactId || undefined,
           opportunityId: caseId || undefined,
           divisionId: quoteDivisionId || undefined,
@@ -1038,7 +1062,7 @@ export function QuoteDialog({
         const res = await createQuoteFull({
           opportunityId: caseId || undefined,
           companyId,
-          companyAddressId: companyAddressId || undefined,
+          companyAddressId: resolvedCompanyAddressId || undefined,
           divisionId: canPickDivision ? divisionId || undefined : undefined,
           contactId: contactId || undefined,
           quoteDate: new Date(quoteDate).toISOString(),

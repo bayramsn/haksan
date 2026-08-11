@@ -2123,7 +2123,7 @@ export class QuotesService {
     actor: AuthContext
   ) {
     const company = input.companyId ? await this.assertCompany(input.companyId, actor) : null;
-    const [addresses, phones] = company
+    const [addresses, phones, emails] = company
       ? await Promise.all([
           this.db
             .select()
@@ -2135,15 +2135,20 @@ export class QuotesService {
             .from(companyPhones)
             .where(and(eq(companyPhones.companyId, company.id), isNull(companyPhones.deletedAt)))
             .orderBy(desc(companyPhones.isDefault), companyPhones.createdAt),
+          this.db
+            .select()
+            .from(companyEmails)
+            .where(and(eq(companyEmails.companyId, company.id), isNull(companyEmails.deletedAt)))
+            .orderBy(desc(companyEmails.isDefault), companyEmails.createdAt),
         ])
-      : [[], []];
+      : [[], [], []];
     const currency = input.currencyCode
       ? await this.db.query.currencies.findFirst({ where: eq(currencies.code, input.currencyCode) })
       : null;
     if (input.currencyCode && !currency) {
       throw new ValidationError('Geçersiz para birimi', { field: 'currencyCode' });
     }
-    return { company, addresses, phones, currency };
+    return { company, addresses, phones, emails, currency };
   }
 
   /**
@@ -2235,7 +2240,7 @@ export class QuotesService {
           },
       companyAddresses: address ? [address] : [],
       companyPhones: context.phones,
-      companyEmails: [],
+      companyEmails: context.emails,
       contact:
         input.contactName || input.contactPhone
           ? { fullName: input.contactName ?? null, mobilePhone: input.contactPhone ?? null, workPhone: null }

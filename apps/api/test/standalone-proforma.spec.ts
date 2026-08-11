@@ -66,6 +66,7 @@ describe('standalone proforma', () => {
     });
     // Kayıtlı firmanın unvanı belgeye kopyalanır, serbest metin alanı boş kalır.
     expect(snapshot.company?.id).toBe(companyId);
+    expect(snapshot.companyEmails).toBeInstanceOf(Array);
     expect(res.body.companyNameText).toBeNull();
   });
 

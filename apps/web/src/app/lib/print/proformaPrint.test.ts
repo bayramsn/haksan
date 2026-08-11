@@ -33,6 +33,7 @@ describe("proforma print data", () => {
         { phoneType: "main", phone: "0 378 227 46 96", isDefault: true },
         { phoneType: "fax", phone: "0 378 227 81 05" },
       ],
+      companyEmails: [{ emailType: "main", email: "firma@bartinotomotiv.test", isDefault: true }],
       quote: { vatAmount: 0, discountTotal: 0 },
       currency: { code: "USD" },
       items: [{
@@ -60,6 +61,7 @@ describe("proforma print data", () => {
       adres: "Gecen köyü aşağı düz mevk.No:47/1 Bartın",
       tel: "0 378 227 46 96",
       faks: "0 378 227 81 05",
+      email: "firma@bartinotomotiv.test",
       vergiDairesi: "Bartın",
       vergiNo: "142 006 63 99",
       tarih: "25 Şubat 2026",

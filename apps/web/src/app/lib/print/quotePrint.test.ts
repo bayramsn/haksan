@@ -45,6 +45,26 @@ const build = (quote: Record<string, unknown>) => buildQuotePrintData({
 }, quote as never);
 
 describe("quote print address", () => {
+  it("prints the company email before the selected contact email", () => {
+    const result = buildQuotePrintData({
+      offer,
+      customer: { ...customer, email: "firma@ornek.test" },
+      salesCase: null,
+      users: [],
+      contacts: [{ id: "contact-1", name: "Satın Alma", email: "kisi@ornek.test" }] as never,
+      products: [],
+    }, {
+      contactId: "contact-1",
+      quoteDate: "2026-07-16",
+      documentNo: "CNC-2026/001",
+      items: [],
+      terms: {},
+    } as never);
+
+    expect(result.email).toBe("firma@ornek.test");
+    expect(quoteDoc(result, "/brand").body).toContain("firma@ornek.test");
+  });
+
   it("prints the assigned personal title below the selected sender", () => {
     const result = buildQuotePrintData({
       offer,
