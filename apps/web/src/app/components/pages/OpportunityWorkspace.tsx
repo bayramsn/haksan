@@ -507,7 +507,7 @@ export function OpportunityWorkspace({
   const activityFeed = (
     <section
       aria-labelledby="workspace-activity-title"
-      className="overflow-hidden rounded-xl border border-border bg-white"
+      className="overflow-hidden rounded-[var(--surface-radius)] border border-border bg-card"
     >
       <div className="flex items-center justify-between gap-2 border-b border-border px-4 py-3">
         <h3 id="workspace-activity-title" className="font-display text-base font-semibold text-foreground">
@@ -575,15 +575,15 @@ export function OpportunityWorkspace({
   );
 
   return (
-    <div className="min-w-0 space-y-4">
+    <div className="crm-page">
       {/* Dialog başlığının hemen altında duran ikinci başlık kaldırıldı: kaydın
           ne olduğunu ("LEAD · 8C34E28F" / firma adı) üstteki başlık zaten
           söylüyor, bu blok yalnız yer kaplıyordu. Yalnız legacy (ortak) görünüm
           korunuyor — orada iki farklı ekibin aynı yüzeyi paylaştığı bilgisi
           gerçekten yeni. */}
       {!simpleOpportunity && !isLead && (
-        <div className="border-b border-slate-200 pb-3">
-          <div className="font-data text-[10px] font-semibold uppercase tracking-[0.15em] text-[#536178]">
+        <div className="border-b border-border pb-3">
+          <div className="ui-eyebrow">
             Ortak fırsat görünümü
           </div>
           <div className="mt-1 text-sm text-muted-foreground">
@@ -602,7 +602,7 @@ export function OpportunityWorkspace({
         variant={simpleOpportunity ? "compact" : "default"}
       />
       {detailLoading && <div className="flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-900" role="status" aria-live="polite"><Loader2 className="size-4 animate-spin motion-reduce:animate-none" /> Kayıt kontrolleri güncelleniyor…</div>}
-      {detailError && <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-900" role="alert"><span>{detailError}</span><Button type="button" variant="outline" size="sm" className="min-h-11 bg-white sm:min-h-8" onClick={() => void loadDetail()}><RefreshCw className="size-4" /> Tekrar dene</Button></div>}
+      {detailError && <div className="flex flex-wrap items-center justify-between gap-3 rounded-[var(--surface-radius)] border border-destructive/20 bg-destructive-soft px-3 py-2 text-sm text-destructive" role="alert"><span>{detailError}</span><Button type="button" variant="outline" size="sm" className="min-h-11 bg-card sm:min-h-8" onClick={() => void loadDetail()}><RefreshCw className="size-4" /> Tekrar dene</Button></div>}
 
       <RecordWorkspaceShell rail={<DecisionRail
         salesCase={sc}
@@ -658,7 +658,7 @@ export function OpportunityWorkspace({
                   biri "alan" diğeri "aşama" dediği için aynı şey sanılıyordu.
                   Başlık artık hangi eksende olduğunu açıkça söylüyor. */}
               <div>
-                <h3 className="font-display text-lg font-semibold text-[#0b1739]">Operasyon aşaması</h3>
+                <h3 className="font-display text-lg font-semibold text-foreground">Operasyon aşaması</h3>
                 <p className="text-xs text-muted-foreground">
                   Sevkiyat, teslim ve kurulum akışı. Satış alanı (C/B/A/A+) yukarıdaki kutuda ayrıca izlenir.
                 </p>
@@ -667,8 +667,8 @@ export function OpportunityWorkspace({
                   (`OpportunityProcessCenter`'ın `checklist` prop'u). Burada ayrı
                   bir sarmalayıcı tutmak görevleri kutunun dışında, ikinci bir
                   kutuda gösterirdi. */}
-              <Card className="overflow-hidden border-[#0b2453]/15">
-                <div className="h-1 bg-[linear-gradient(90deg,#0b2453_0%,#2457D6_72%,#CF060C_72%)]" />
+              <Card className="overflow-hidden border-primary/15">
+                <div className="datum-rail h-1" />
                 <CardContent className="space-y-4 p-4 sm:p-5">
                   {/* "Mevcut aşama → Sıradaki aşama" çifti buradan kaldırıldı:
                       karar özeti aynı ikiliyi (`decisionModel.currentStage` /
@@ -678,7 +678,7 @@ export function OpportunityWorkspace({
                       basılmaz — "engel yok" bilgisi de özette duruyor. */}
                   {(nextOperationTarget?.blockers.length || !operationReadiness) ? (
                   <div>
-                    <div className="text-xs font-semibold text-[#0b1739]">Geçiş engelleri</div>
+                    <div className="text-xs font-semibold text-foreground">Geçiş engelleri</div>
                     <div className="mt-2 flex flex-wrap gap-2">
                       {(nextOperationTarget?.blockers ?? []).slice(0, 6).map((blocker) => {
                         const canOpenBlocker = Boolean(onCommercialAction) && canPerformCommercialAction?.(blocker.actionKey) !== false;
@@ -731,21 +731,21 @@ export function OpportunityWorkspace({
                   return (
                     <button
                       type="button"
-                      className="flex min-h-11 w-full items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-left transition hover:border-[#163b75]/40 hover:bg-slate-50"
+                      className="flex min-h-11 w-full items-center justify-between gap-3 rounded-[var(--surface-radius)] border border-border bg-card px-3 py-2.5 text-left transition hover:border-primary/40 hover:bg-muted/40"
                       onClick={revealProcessActions}
                     >
                       <span className="inline-flex items-center gap-2 text-sm text-muted-foreground">
                         <Truck className="size-4" /> Sevkiyat, teslim ve kurulum henüz başlamadı
                       </span>
-                      <span className="shrink-0 text-xs font-semibold text-[#163b75]">Görevlere git</span>
+                      <span className="shrink-0 text-xs font-semibold text-primary">Görevlere git</span>
                     </button>
                   );
                 }
                 return (
                   <div className="grid gap-3 sm:grid-cols-3" aria-label="Saha operasyonu özeti">
                     {fieldStages.map(({ key, label, icon: Icon, status }) => (
-                      <button key={key} type="button" className="min-h-20 rounded-xl border border-slate-200 bg-white p-3 text-left transition hover:border-[#163b75]/40 hover:bg-slate-50" onClick={revealProcessActions}>
-                        <span className="inline-flex items-center gap-2 text-sm font-semibold text-[#0b1739]"><Icon className="size-4" /> {label}</span>
+                      <button key={key} type="button" className="min-h-20 rounded-[var(--surface-radius)] border border-border bg-card p-3 text-left transition hover:border-primary/40 hover:bg-muted/40" onClick={revealProcessActions}>
+                        <span className="inline-flex items-center gap-2 text-sm font-semibold text-foreground"><Icon className="size-4" /> {label}</span>
                         <span className="mt-1 block text-xs text-muted-foreground">{status ?? "Henüz başlamadı"}</span>
                       </button>
                     ))}

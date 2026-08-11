@@ -331,7 +331,7 @@ export function OffersPage({
   };
 
   return (
-    <div className="space-y-5">
+    <div className="crm-page">
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <MiniKpi tone="violet" icon={<FileText className="size-[18px]" />} label="Toplam Teklif" value={total} sub="bu çeyrek" />
         <MiniKpi tone="emerald" icon={<CheckCircle2 className="size-[18px]" />} label="Onaylanan" value={approved} sub={`$ ${(approvedAmount / 1000).toFixed(0)}K`} />
@@ -340,8 +340,8 @@ export function OffersPage({
       </div>
 
       {divisionOptions.length > 0 && (
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="text-[11px] uppercase tracking-wider text-muted-foreground">İş alanı:</span>
+        <div className="crm-filter-surface flex flex-wrap items-center gap-2">
+          <span className="crm-chip-label">İş alanı:</span>
           {[{ id: "all", name: "Tümü" }, ...divisionOptions].map((division) => (
             <button
               key={division.id}
@@ -350,7 +350,7 @@ export function OffersPage({
                 setDivisionTab(division.id);
                 setActiveDivision(division.id);
               }}
-              className={`rounded-full border px-2.5 py-1 text-xs transition-colors ${divisionTab === division.id ? "border-primary bg-primary text-primary-foreground shadow-xs" : "border-border bg-white text-foreground/70 hover:bg-muted"}`}
+              className={`min-h-11 rounded-full border px-3 py-1 text-xs transition-colors sm:min-h-9 ${divisionTab === division.id ? "border-primary bg-primary text-primary-foreground shadow-xs" : "border-border bg-card text-foreground/70 hover:bg-muted"}`}
             >
               {division.name}
             </button>
@@ -367,13 +367,13 @@ export function OffersPage({
           <CardContent className="h-44 pl-2">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={offerTrend} margin={{ top: 5, right: 12, left: 0, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#eef0f3" vertical={false} />
-                <XAxis dataKey="ay" stroke="#9ca3af" fontSize={11} tickLine={false} axisLine={false} />
-                <YAxis stroke="#9ca3af" fontSize={11} tickLine={false} axisLine={false} />
-                <Tooltip contentStyle={{ borderRadius: 8, border: "1px solid #e5e7eb", fontSize: 12 }} />
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" vertical={false} />
+                <XAxis dataKey="ay" stroke="var(--chart-axis-muted)" fontSize={12} tickLine={false} axisLine={false} />
+                <YAxis stroke="var(--chart-axis-muted)" fontSize={12} tickLine={false} axisLine={false} />
+                <Tooltip contentStyle={{ borderRadius: 8, border: "1px solid var(--chart-tooltip-border)", background: "var(--popover)", color: "var(--popover-foreground)", fontSize: 12 }} />
                 <Legend iconType="circle" wrapperStyle={{ fontSize: 11 }} />
-                <Bar dataKey="gonderilen" name="Gönderilen" fill="#000c69" barSize={18} isAnimationActive={false} />
-                <Bar dataKey="onaylanan" name="Onaylanan" fill="#10b981" barSize={18} isAnimationActive={false} />
+                <Bar dataKey="gonderilen" name="Gönderilen" fill="var(--brand-blue)" barSize={18} isAnimationActive={false} />
+                <Bar dataKey="onaylanan" name="Onaylanan" fill="var(--success)" barSize={18} isAnimationActive={false} />
               </BarChart>
             </ResponsiveContainer>
           </CardContent>
@@ -385,11 +385,11 @@ export function OffersPage({
             <p className="text-xs text-muted-foreground">Toplam $ {(totalAmount / 1000).toFixed(0)}K</p>
           </CardHeader>
           <CardContent className="space-y-3 pt-2">
-            {rejectionReasons[0] && <div className="rounded-lg border border-destructive/15 bg-destructive-soft/50 p-3"><div className="flex items-center gap-1.5 text-[9px] font-semibold uppercase tracking-wide text-destructive"><XCircle className="size-3.5" /> En sık ret nedeni</div><div className="mt-1 text-sm font-semibold">{rejectionReasons[0][0]}</div><div className="mt-0.5 text-[10px] text-muted-foreground">{rejectionReasons[0][1]} satış kartı · takip planına dönüştürün</div></div>}
+            {rejectionReasons[0] && <div className="rounded-lg border border-destructive/15 bg-destructive-soft/50 p-3"><div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-destructive"><XCircle className="size-3.5" /> En sık ret nedeni</div><div className="mt-1 text-sm font-semibold">{rejectionReasons[0][0]}</div><div className="mt-0.5 text-xs text-muted-foreground">{rejectionReasons[0][1]} satış kartı · takip planına dönüştürün</div></div>}
             {(["Draft", "Sent", "Approved", "Rejected"] as const).map((st) => {
               const items = divisionOffers.filter((o) => o.status === st);
               const pct = total > 0 ? (items.length / total) * 100 : 0;
-              const color = st === "Approved" ? "#10b981" : st === "Sent" ? "#3b82f6" : st === "Rejected" ? "#ef4444" : "#9ca3af";
+              const color = st === "Approved" ? "var(--success)" : st === "Sent" ? "var(--info)" : st === "Rejected" ? "var(--destructive)" : "var(--chart-axis-muted)";
               return (
                 <div key={st}>
                   <div className="flex items-center justify-between text-[12px] mb-1">
@@ -432,7 +432,7 @@ export function OffersPage({
           <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
             <div className="relative w-full sm:w-64">
               <Search className="size-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-              <Input placeholder="Teklif no / kaynak / ürün..." className="pl-9 h-9 bg-white" value={q} onChange={(e) => setQ(e.target.value)} />
+              <Input placeholder="Teklif no / kaynak / ürün..." className="h-9 bg-card pl-9" value={q} onChange={(e) => setQ(e.target.value)} />
             </div>
             <ExportExcelButton path="/exports/quotes" filename="teklifler.xlsx" params={offerExportParams} className="h-9" />
             {hasPermission("files.create") && (
@@ -486,17 +486,17 @@ export function OffersPage({
                       <div className="truncate">{o.productName || [sc?.requestedProduct, sc?.requestedModel].filter(Boolean).join(" · ") || "—"}</div>
                     </TableCell>
                     <TableCell className="text-sm">{sc ? customerName(sc.customerId, sc.leadCompanyTitle) : customerName(o.companyId ?? "")}</TableCell>
-                    <TableCell><span className="inline-flex px-1.5 py-0.5 rounded text-[11px] bg-muted text-foreground/70">R{o.revision}</span></TableCell>
+                    <TableCell><span className="inline-flex rounded bg-muted px-1.5 py-0.5 text-xs text-foreground/70">R{o.revision}</span></TableCell>
                     <TableCell className="text-sm tabular-nums text-muted-foreground">{o.date}</TableCell>
                     <TableCell className="text-right tabular-nums">
                       <span className="text-sm">{o.amount.toLocaleString()}</span>{" "}
-                      <span className="text-[11px] text-muted-foreground">{o.currency}</span>
+                      <span className="text-xs text-muted-foreground">{o.currency}</span>
                     </TableCell>
                     <TableCell>
                       <div className="space-y-1">
                         <StatusBadge status={o.status} />
                         {o.followUpAt && (
-                          <div className="flex items-center gap-1 whitespace-nowrap text-[10px] text-amber-700">
+                          <div className="flex items-center gap-1 whitespace-nowrap text-xs text-amber-700">
                             <BellRing className="size-3" /> {formatDate(o.followUpAt)}
                           </div>
                         )}
@@ -678,7 +678,7 @@ export function OffersPage({
                         </span>
                         <span className="min-w-0">
                           <span className="block truncate text-sm font-medium">{documentItem.fileName}</span>
-                          <span className="mt-0.5 block text-[11px] text-muted-foreground">{documentItem.size}</span>
+                          <span className="mt-0.5 block text-xs text-muted-foreground">{documentItem.size}</span>
                         </span>
                       </button>
                     </TableCell>
@@ -777,7 +777,7 @@ export function OffersPage({
                       </div>
                       <div>
                         <div className="text-sm leading-tight">{order.orderNo}</div>
-                        <div className="text-[11px] text-muted-foreground mt-0.5">{order.quoteId ? "Teklif bağlantılı" : "Manuel"}</div>
+                        <div className="mt-0.5 text-xs text-muted-foreground">{order.quoteId ? "Teklif bağlantılı" : "Manuel"}</div>
                       </div>
                     </div>
                   </TableCell>
@@ -986,8 +986,8 @@ export function OfferDetailDialog({
         </div>
 
         <div className="px-6 pb-5 grid grid-cols-1 lg:grid-cols-2 gap-4">
-          <div className="rounded-lg border border-border/60 bg-white p-4">
-            <div className="text-[11px] uppercase tracking-wider text-muted-foreground mb-3">Müşteri</div>
+          <div className="rounded-lg border border-border/60 bg-card p-4">
+            <div className="crm-chip-label mb-3">Müşteri</div>
             <div className="flex items-start gap-3">
               <div className="size-9 rounded-lg bg-muted text-primary grid place-items-center shrink-0">
                 <Building2 className="size-4" />
@@ -1000,11 +1000,11 @@ export function OfferDetailDialog({
             </div>
           </div>
 
-          <div className="rounded-lg border border-border/60 bg-white p-4">
+          <div className="rounded-lg border border-border/60 bg-card p-4">
             <div className="mb-3 flex items-center justify-between gap-2">
-              <div className="text-[11px] uppercase tracking-wider text-muted-foreground">Satış kartı</div>
+              <div className="crm-chip-label">Satış kartı</div>
               {salesCase && onOpenOpportunity && (
-                <Button variant="ghost" size="sm" className="h-7 px-2 text-[11px]" onClick={() => { onClose(); onOpenOpportunity(salesCase.id); }}>
+                <Button variant="ghost" size="sm" className="h-8 px-2 text-xs" onClick={() => { onClose(); onOpenOpportunity(salesCase.id); }}>
                   Kartı aç
                 </Button>
               )}
@@ -1030,18 +1030,18 @@ export function OfferDetailDialog({
                 <CreateProformaDialog
                   defaultQuoteId={offer.id}
                   onCreated={() => onOrderCreated?.()}
-                  trigger={<Button variant="outline" size="sm" className="h-7 px-2 text-[10px]"><Plus className="mr-1 size-3" /> Oluştur</Button>}
+                  trigger={<Button variant="outline" size="sm" className="h-8 px-2 text-xs"><Plus className="mr-1 size-3" /> Oluştur</Button>}
                 />
               ),
               contract: (
                 <CreateContractDialog
                   defaultQuoteId={offer.id}
                   onCreated={() => onOrderCreated?.()}
-                  trigger={<Button variant="outline" size="sm" className="h-7 px-2 text-[10px]"><Plus className="mr-1 size-3" /> Oluştur</Button>}
+                  trigger={<Button variant="outline" size="sm" className="h-8 px-2 text-xs"><Plus className="mr-1 size-3" /> Oluştur</Button>}
                 />
               ),
               invoice: salesCase && onOpenOpportunity ? (
-                <Button variant="outline" size="sm" className="h-7 px-2 text-[10px]" onClick={() => { onClose(); onOpenOpportunity(salesCase.id); }}>
+                <Button variant="outline" size="sm" className="h-8 px-2 text-xs" onClick={() => { onClose(); onOpenOpportunity(salesCase.id); }}>
                   Kartta tamamla
                 </Button>
               ) : undefined,
@@ -1051,7 +1051,7 @@ export function OfferDetailDialog({
 
         <div className="px-6 pb-5">
           <div className="rounded-lg border border-border/60 bg-muted/30 p-4">
-            <div className="text-[11px] uppercase tracking-wider text-muted-foreground mb-2">Teklif notu</div>
+            <div className="crm-chip-label mb-2">Teklif notu</div>
             <p className="text-sm leading-relaxed text-foreground/85 whitespace-pre-wrap">{offer.note?.trim() || "Not girilmemiş."}</p>
           </div>
         </div>
@@ -1059,7 +1059,7 @@ export function OfferDetailDialog({
         {(offer.followUpAt || offer.statusNote) && (
           <div className="px-6 pb-5">
             <div className="rounded-lg border border-amber-200 bg-amber-50/70 p-4">
-              <div className="mb-2 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-amber-800">
+              <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-amber-800">
                 <BellRing className="size-3.5" /> Teklif takibi
               </div>
               {offer.followUpAt && <OfferInfo label="Hatırlatma" value={formatDate(offer.followUpAt)} />}
@@ -1070,7 +1070,7 @@ export function OfferDetailDialog({
 
         <div className="px-6 pb-6">
           <div className="flex items-center justify-between gap-3 mb-2">
-            <div className="text-[11px] uppercase tracking-wider text-muted-foreground">Revizyon geçmişi</div>
+            <div className="crm-chip-label">Revizyon geçmişi</div>
             <Badge variant="secondary">{revisions.length} kayıt</Badge>
           </div>
           <div className="rounded-lg border border-border/60 overflow-hidden">
@@ -1218,7 +1218,7 @@ export function OfferDetailDialog({
 
     <Dialog open={documentAction !== null} onOpenChange={(open) => !open && setDocumentAction(null)}>
       <DialogContent className="w-[min(680px,calc(100vw-2rem))] max-w-none overflow-hidden p-0 sm:max-w-none">
-        <DialogHeader className="border-b border-border/60 bg-[linear-gradient(135deg,#07142b,#102652)] px-6 py-5 text-white">
+        <DialogHeader className="border-b border-border/60 bg-[var(--gradient-brand)] px-6 py-5 text-white">
           <DialogTitle className="flex items-center gap-2 text-white">
             <ImageIcon className="size-5 text-sky-300" /> PDF logosunu seçin
           </DialogTitle>
@@ -1238,21 +1238,21 @@ export function OfferDetailDialog({
               className={`group flex min-h-36 cursor-pointer flex-col rounded-xl border p-3.5 transition-colors ${
                 headerLogoMode === "haksan"
                   ? "border-primary bg-primary/5 ring-2 ring-primary/15"
-                  : "border-border/70 bg-white hover:border-primary/35"
+                  : "border-border/70 bg-card hover:border-primary/35"
               }`}
             >
               <span className="mb-3 flex items-center justify-between gap-2">
                 <span className="text-sm font-semibold">HAKSAN anteti</span>
                 <RadioGroupItem id="quote-logo-haksan" value="haksan" />
               </span>
-              <span className="flex min-h-16 flex-1 items-center rounded-lg border border-border/60 bg-white p-2">
+              <span className="flex min-h-16 flex-1 items-center rounded-lg border border-border/60 bg-card p-2">
                 <img
                   src={`${printAssetBase()}/haksan-letterhead.jpg`}
                   alt="HAKSAN anteti"
                   className="h-auto w-full object-contain"
                 />
               </span>
-              <span className="mt-2 text-[11px] leading-4 text-muted-foreground">Standart kurumsal antet</span>
+              <span className="mt-2 text-xs leading-4 text-muted-foreground">Standart kurumsal antet</span>
             </Label>
 
             <Label
@@ -1263,21 +1263,21 @@ export function OfferDetailDialog({
                   ? "cursor-not-allowed border-border/50 bg-muted/30 opacity-60"
                   : headerLogoMode === "company"
                     ? "cursor-pointer border-primary bg-primary/5 ring-2 ring-primary/15"
-                    : "cursor-pointer border-border/70 bg-white hover:border-primary/35"
+                    : "cursor-pointer border-border/70 bg-card hover:border-primary/35"
               }`}
             >
               <span className="mb-3 flex items-center justify-between gap-2">
                 <span className="text-sm font-semibold">Firma logosu</span>
                 <RadioGroupItem id="quote-logo-company" value="company" disabled={!resolvedCustomer?.logoUrl} />
               </span>
-              <span className="flex min-h-16 flex-1 items-center justify-center rounded-lg border border-border/60 bg-white p-2">
+              <span className="flex min-h-16 flex-1 items-center justify-center rounded-lg border border-border/60 bg-card p-2">
                 {resolvedCustomer?.logoUrl ? (
                   <img src={resolvedCustomer.logoUrl} alt={`${resolvedCustomer.name} logosu`} className="max-h-14 max-w-full object-contain" />
                 ) : (
                   <ImageOff className="size-7 text-muted-foreground/55" />
                 )}
               </span>
-              <span className="mt-2 text-[11px] leading-4 text-muted-foreground">
+              <span className="mt-2 text-xs leading-4 text-muted-foreground">
                 {resolvedCustomer?.logoUrl ? resolvedCustomer.name : "Firma kartına önce logo yükleyin"}
               </span>
             </Label>
@@ -1287,7 +1287,7 @@ export function OfferDetailDialog({
               className={`group flex min-h-36 cursor-pointer flex-col rounded-xl border p-3.5 transition-colors ${
                 headerLogoMode === "none"
                   ? "border-primary bg-primary/5 ring-2 ring-primary/15"
-                  : "border-border/70 bg-white hover:border-primary/35"
+                  : "border-border/70 bg-card hover:border-primary/35"
               }`}
             >
               <span className="mb-3 flex items-center justify-between gap-2">
@@ -1297,7 +1297,7 @@ export function OfferDetailDialog({
               <span className="flex min-h-16 flex-1 items-center justify-center rounded-lg border border-dashed border-border bg-muted/20">
                 <ImageOff className="size-7 text-muted-foreground/55" />
               </span>
-              <span className="mt-2 text-[11px] leading-4 text-muted-foreground">Sade üst boşluk</span>
+              <span className="mt-2 text-xs leading-4 text-muted-foreground">Sade üst boşluk</span>
             </Label>
           </RadioGroup>
 
@@ -1466,8 +1466,8 @@ function OfferStat({
   accent?: string;
 }) {
   return (
-    <div className="rounded-lg border border-border/60 bg-white px-3 py-2.5">
-      <div className="flex items-center gap-1.5 text-[11px] uppercase tracking-wide text-muted-foreground">
+    <div className="rounded-lg border border-border/60 bg-card px-3 py-2.5">
+      <div className="flex items-center gap-1.5 text-xs uppercase tracking-wide text-muted-foreground">
         <span className={accent}>{icon}</span>
         {label}
       </div>

@@ -174,7 +174,7 @@ export function CustomersPage(_props: { onSelect?: (c: Customer) => void } = {})
   ) : emptyState;
 
   return (
-    <div className="space-y-4" aria-busy={companyPageQuery.isFetching || companySummaryQuery.isFetching}>
+    <div className="crm-page" aria-busy={companyPageQuery.isFetching || companySummaryQuery.isFetching}>
       <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
         <MiniKpi
           icon={<Building2 className="size-4" />}
@@ -206,33 +206,33 @@ export function CustomersPage(_props: { onSelect?: (c: Customer) => void } = {})
         )}
       </div>
 
-      <div className="premium-blueprint precision-corners space-y-3 rounded-xl border border-primary/10 bg-white p-3 shadow-sm">
+      <div className="crm-filter-surface premium-blueprint precision-corners space-y-3">
       <div className="flex items-center justify-between gap-3 flex-wrap">
-        <span className="font-data text-[9px] font-semibold uppercase tracking-[0.14em] text-operation-blue">Kayıtlı görünüm</span>
+        <span className="ui-eyebrow">Kayıtlı görünüm</span>
         <Tabs value={tab} onValueChange={(value) => { setTab(value as "all" | FirmType); resetPage(); }}>
           <TabsList className="h-9 bg-muted/60">
             <TabsTrigger value="all" className="gap-1.5">
               Tümü
-              <span className="ml-0.5 inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 text-[10px] rounded-full bg-muted text-muted-foreground">
+              <span className="ml-0.5 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-muted px-1 text-xs text-muted-foreground">
                 {summary.total}
               </span>
             </TabsTrigger>
             <TabsTrigger value="customer" className="gap-1.5">
               Müşteri
-              <span className="ml-0.5 inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 text-[10px] rounded-full bg-info-soft text-info">
+              <span className="ml-0.5 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-info-soft px-1 text-xs text-info">
                 {countBy("customer")}
               </span>
             </TabsTrigger>
             <TabsTrigger value="supplier_customer" className="gap-1.5">
               Tedarikçi + Müşteri
-              <span className="ml-0.5 inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 text-[10px] rounded-full bg-brand-blue-soft text-brand-blue">
+              <span className="ml-0.5 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-brand-blue-soft px-1 text-xs text-brand-blue">
                 {countBy("supplier_customer")}
               </span>
             </TabsTrigger>
             {canSeeSuppliers && (
               <TabsTrigger value="supplier" className="gap-1.5">
                 Tedarikçi
-                <span className="ml-0.5 inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 text-[10px] rounded-full bg-warning-soft text-warning">
+                <span className="ml-0.5 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-warning-soft px-1 text-xs text-warning">
                   {countBy("supplier")}
                 </span>
               </TabsTrigger>
@@ -240,7 +240,7 @@ export function CustomersPage(_props: { onSelect?: (c: Customer) => void } = {})
             {canSeeCompetitors && (
               <TabsTrigger value="competitor" className="gap-1.5">
                 Rakip
-                <span className="ml-0.5 inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-rose-50 px-1 text-[10px] text-rose-700">
+                <span className="ml-0.5 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-rose-50 px-1 text-xs text-rose-700">
                   {countBy("competitor")}
                 </span>
               </TabsTrigger>
@@ -253,7 +253,7 @@ export function CustomersPage(_props: { onSelect?: (c: Customer) => void } = {})
             <Search className="size-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
             <Input
               placeholder="Firma, şehir, e-posta ara..."
-              className="pl-9 h-9 bg-white"
+              className="h-9 bg-card pl-9"
               value={q}
               onChange={(event) => { setQ(event.target.value); resetPage(); }}
             />
@@ -266,7 +266,7 @@ export function CustomersPage(_props: { onSelect?: (c: Customer) => void } = {})
             ]}
           />
           <Select value={sortMode} onValueChange={(value) => { setSortMode(value as CompanySortMode); resetPage(); }}>
-            <SelectTrigger className="h-9 w-full bg-white sm:w-52" aria-label="Firmaları sırala">
+            <SelectTrigger className="h-9 w-full bg-card sm:w-52" aria-label="Firmaları sırala">
               <SelectValue placeholder="Sıralama" />
             </SelectTrigger>
             <SelectContent>
@@ -293,7 +293,7 @@ export function CustomersPage(_props: { onSelect?: (c: Customer) => void } = {})
 
       {divisionOptions.length > 0 && (
         <div className="flex items-center gap-2 flex-wrap">
-          <span className="text-[11px] uppercase tracking-wider text-muted-foreground">Bölüm:</span>
+          <span className="crm-chip-label">Bölüm:</span>
           {[{ id: "all", name: "Tümü" }, ...divisionOptions].map((d) => (
             <button
               key={d.id}
@@ -302,10 +302,10 @@ export function CustomersPage(_props: { onSelect?: (c: Customer) => void } = {})
                 setActiveDivision(d.id);
                 resetPage();
               }}
-              className={`text-xs px-2.5 py-1 rounded-full border transition-colors ${
+              className={`min-h-11 rounded-full border px-3 py-1 text-xs transition-colors sm:min-h-0 ${
                 divisionTab === d.id
                   ? "bg-primary text-primary-foreground border-primary shadow-xs"
-                  : "bg-white border-border text-foreground/70 hover:bg-muted"
+                  : "border-border bg-card text-foreground/70 hover:bg-muted"
               }`}
             >
               {d.name}
@@ -315,7 +315,7 @@ export function CustomersPage(_props: { onSelect?: (c: Customer) => void } = {})
       )}
 
       <div className="flex items-center gap-2 flex-wrap">
-        <span className="text-[11px] uppercase tracking-wider text-muted-foreground">Müşteri Statüsü:</span>
+        <span className="crm-chip-label">Müşteri Statüsü:</span>
         {(([
           { k: "all", l: "Hepsi" },
           ...(canSeePotential ? [{ k: "potential", l: "Potansiyel" }] : []),
@@ -324,10 +324,10 @@ export function CustomersPage(_props: { onSelect?: (c: Customer) => void } = {})
           <button
             key={s.k}
             onClick={() => { setSalesTab(s.k); resetPage(); }}
-            className={`text-xs px-2.5 py-1 rounded-full border transition-colors ${
+            className={`min-h-11 rounded-full border px-3 py-1 text-xs transition-colors sm:min-h-0 ${
               salesTab === s.k
                 ? "bg-primary text-primary-foreground border-primary shadow-xs"
-                : "bg-white border-border text-foreground/70 hover:bg-muted"
+                : "border-border bg-card text-foreground/70 hover:bg-muted"
             }`}
           >
             {s.l}
@@ -363,23 +363,23 @@ export function CustomersPage(_props: { onSelect?: (c: Customer) => void } = {})
                           {c.name}
                         </div>
                         <div className="mt-1 flex items-center gap-1.5 flex-wrap">
-                          <span className={`inline-flex items-center px-2 py-0.5 rounded-full border text-[10px] whitespace-nowrap ${FIRM_TYPE_COLOR[c.firmType]}`}>
+                          <span className={`inline-flex items-center whitespace-nowrap rounded-full border px-2 py-0.5 text-xs ${FIRM_TYPE_COLOR[c.firmType]}`}>
                             {FIRM_TYPE_LABEL[c.firmType]}
                           </span>
                           {supplierCategoryLabel(c.supplierCategoryCode) && (
-                            <span className="inline-flex rounded-full border border-sky-200 bg-sky-50 px-2 py-0.5 text-[10px] text-sky-700">{supplierCategoryLabel(c.supplierCategoryCode)}</span>
+                            <span className="inline-flex rounded-full border border-sky-200 bg-sky-50 px-2 py-0.5 text-xs text-sky-700">{supplierCategoryLabel(c.supplierCategoryCode)}</span>
                           )}
                           {c.salesStatus === "active_customer" ? (
-                            <span className="inline-flex px-2 py-0.5 rounded-full border text-[10px] bg-success-soft text-success border-success/20">
+                            <span className="inline-flex rounded-full border border-success/20 bg-success-soft px-2 py-0.5 text-xs text-success">
                               Cari Satış
                             </span>
                           ) : (
-                            <span className="inline-flex px-2 py-0.5 rounded-full border text-[10px] bg-muted text-muted-foreground border-border">
+                            <span className="inline-flex rounded-full border border-border bg-muted px-2 py-0.5 text-xs text-muted-foreground">
                               Potansiyel
                             </span>
                           )}
                           {(c.divisions ?? []).map((d) => (
-                            <span key={d.id} className="inline-flex px-2 py-0.5 rounded-full border text-[10px] bg-primary/5 text-primary border-primary/20">
+                            <span key={d.id} className="inline-flex rounded-full border border-primary/20 bg-primary/5 px-2 py-0.5 text-xs text-primary">
                               {d.name}
                             </span>
                           ))}
@@ -442,7 +442,7 @@ export function CustomersPage(_props: { onSelect?: (c: Customer) => void } = {})
                     </div>
 
                     <div className="border-t border-border/50 pt-2">
-                      <div className="text-[11px] text-muted-foreground/80 truncate">
+                      <div className="truncate text-xs text-muted-foreground/80">
                         Oluşturan: {createdByLabel(c)} · {c.createdAt || "—"}
                       </div>
                     </div>
@@ -464,7 +464,7 @@ export function CustomersPage(_props: { onSelect?: (c: Customer) => void } = {})
           <Table>
             <TableHeader>
               <TableRow className="bg-muted/40 hover:bg-muted/40">
-                <TableHead className="sticky left-0 z-20 w-[300px] bg-muted text-[11px] uppercase tracking-wider text-muted-foreground">
+                <TableHead className="sticky left-0 z-20 w-[300px] bg-muted">
                   <button
                     type="button"
                     className="inline-flex items-center gap-1 uppercase tracking-wider hover:text-foreground"
@@ -477,10 +477,10 @@ export function CustomersPage(_props: { onSelect?: (c: Customer) => void } = {})
                     Firma <ArrowUpDown className="size-3" />
                   </button>
                 </TableHead>
-                <TableHead className="text-[11px] uppercase tracking-wider text-muted-foreground">Firma Tipi</TableHead>
-                <TableHead className="text-[11px] uppercase tracking-wider text-muted-foreground">İletişim</TableHead>
-                <TableHead className="text-[11px] uppercase tracking-wider text-muted-foreground">Konum</TableHead>
-                <TableHead className="text-[11px] uppercase tracking-wider text-muted-foreground">
+                <TableHead>Firma Tipi</TableHead>
+                <TableHead>İletişim</TableHead>
+                <TableHead>Konum</TableHead>
+                <TableHead>
                   <button
                     type="button"
                     className="inline-flex items-center gap-1 uppercase tracking-wider hover:text-foreground"
@@ -499,7 +499,7 @@ export function CustomersPage(_props: { onSelect?: (c: Customer) => void } = {})
             <TableBody>
               {pageItems.map((c) => (
                 <TableRow key={c.id} className="cursor-pointer group hover:bg-primary/[0.025]" onClick={() => openFreshCompany(c)}>
-                  <TableCell className="sticky left-0 z-10 border-r border-border/60 bg-white group-hover:bg-[#f8f9fc]">
+                  <TableCell className="crm-sticky-cell sticky left-0 z-10 border-r border-border/60">
                     <div className="flex items-center gap-3 min-w-0">
                       <div className={`grid size-10 shrink-0 place-items-center rounded-xl border font-display text-xs font-semibold shadow-xs ${c.type === "company" ? "border-primary/10 bg-brand-blue-soft text-primary" : "border-info/10 bg-info-soft text-info"}`}>{companyInitials(c.name)}</div>
                       <div className="min-w-0">
@@ -507,29 +507,29 @@ export function CustomersPage(_props: { onSelect?: (c: Customer) => void } = {})
                         <div className="text-xs text-muted-foreground mt-0.5 truncate">
                           {[c.city, c.district].filter(Boolean).join(" / ") || "Konum yok"}
                         </div>
-                        <div className="text-[11px] text-muted-foreground/80 mt-0.5 truncate">
+                        <div className="mt-0.5 truncate text-xs text-muted-foreground/80">
                           {c.type === "company" ? "Kurumsal" : "Bireysel"} · {c.taxNumber || "Kimlik yok"}
                         </div>
                       </div>
                     </div>
                   </TableCell>
                   <TableCell>
-                    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-[11px] whitespace-nowrap ${FIRM_TYPE_COLOR[c.firmType]}`}>
+                    <span className={`inline-flex items-center gap-1 whitespace-nowrap rounded-full border px-2 py-0.5 text-xs ${FIRM_TYPE_COLOR[c.firmType]}`}>
                       {FIRM_TYPE_LABEL[c.firmType]}
                     </span>
                     {supplierCategoryLabel(c.supplierCategoryCode) && (
-                      <span className="ml-1 inline-flex rounded-full border border-sky-200 bg-sky-50 px-2 py-0.5 text-[10px] text-sky-700">{supplierCategoryLabel(c.supplierCategoryCode)}</span>
+                      <span className="ml-1 inline-flex rounded-full border border-sky-200 bg-sky-50 px-2 py-0.5 text-xs text-sky-700">{supplierCategoryLabel(c.supplierCategoryCode)}</span>
                     )}
                     <div className="mt-1">
                       {c.salesStatus === "active_customer" ? (
-                        <span className="inline-flex px-2 py-0.5 rounded-full border text-[10px] bg-success-soft text-success border-success/20">Cari Satış</span>
+                        <span className="inline-flex rounded-full border border-success/20 bg-success-soft px-2 py-0.5 text-xs text-success">Cari Satış</span>
                       ) : (
-                        <span className="inline-flex px-2 py-0.5 rounded-full border text-[10px] bg-muted text-muted-foreground border-border">Potansiyel</span>
+                        <span className="inline-flex rounded-full border border-border bg-muted px-2 py-0.5 text-xs text-muted-foreground">Potansiyel</span>
                       )}
                     </div>
                     <div className="mt-1 flex flex-wrap gap-1">
                       {(c.divisions ?? []).map((division) => (
-                        <span key={division.id} className="rounded-full border border-primary/20 bg-primary/5 px-1.5 py-0.5 text-[10px] text-primary">{division.name}</span>
+                        <span key={division.id} className="rounded-full border border-primary/20 bg-primary/5 px-1.5 py-0.5 text-xs text-primary">{division.name}</span>
                       ))}
                     </div>
                   </TableCell>
@@ -547,7 +547,7 @@ export function CustomersPage(_props: { onSelect?: (c: Customer) => void } = {})
                   </TableCell>
                   <TableCell>
                     <div className="text-xs text-muted-foreground tabular-nums">{c.createdAt || "—"}</div>
-                    <div className="mt-0.5 max-w-[150px] truncate text-[11px] text-muted-foreground/80">
+                    <div className="mt-0.5 max-w-[150px] truncate text-xs text-muted-foreground/80">
                       {createdByLabel(c)}
                     </div>
                   </TableCell>

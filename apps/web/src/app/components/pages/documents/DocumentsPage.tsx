@@ -89,13 +89,13 @@ function DocumentFolderButton({
         className={`absolute left-px top-0 h-4 w-[42%] rounded-t-[7px] border border-b-0 transition-colors ${active ? "border-primary/35 bg-primary/15" : "border-border/70 bg-slate-100 group-hover:border-primary/25 group-hover:bg-primary/10"}`}
       />
       <span
-        className={`relative flex min-h-[102px] flex-col justify-between rounded-b-xl rounded-tr-xl border px-3 py-3 transition duration-200 group-active:translate-y-px ${active ? "border-primary/35 bg-primary/[0.07] shadow-[0_10px_24px_-18px_rgba(11,36,83,.8)]" : "border-border/70 bg-white group-hover:-translate-y-0.5 group-hover:border-primary/25 group-hover:shadow-[0_10px_24px_-20px_rgba(11,36,83,.7)]"}`}
+        className={`relative flex min-h-[102px] flex-col justify-between rounded-b-xl rounded-tr-xl border px-3 py-3 transition duration-200 group-active:translate-y-px ${active ? "border-primary/35 bg-primary/[0.07] shadow-[0_10px_24px_-18px_rgba(11,36,83,.8)]" : "border-border/70 bg-card group-hover:-translate-y-0.5 group-hover:border-primary/25 group-hover:shadow-[0_10px_24px_-20px_rgba(11,36,83,.7)]"}`}
       >
         <span className="flex items-start justify-between gap-2">
           <span className={`grid size-8 place-items-center rounded-lg ${active ? "bg-primary text-white" : "bg-primary/8 text-primary"}`}>
             <Icon className="size-4" />
           </span>
-          <span className="font-data text-[10px] tabular-nums text-muted-foreground">{count} kayıt</span>
+          <span className="font-data text-xs tabular-nums text-muted-foreground">{count} kayıt</span>
         </span>
         <span className="mt-3 block truncate text-xs font-semibold tracking-tight">{DOC_TYPE_LABELS[type]}</span>
       </span>
@@ -658,11 +658,11 @@ export function DocumentsPage({
   };
 
   return (
-    <div className="space-y-5">
+    <div className="crm-page">
       <section className="premium-blueprint precision-corners overflow-hidden rounded-2xl border border-primary/20 bg-card p-5 shadow-sm">
         <div className="relative flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
           <div>
-            <p className="font-mono text-[10px] font-semibold tracking-[0.2em] text-primary">BELGE KONTROL MERKEZİ</p>
+            <p className="ui-eyebrow text-primary">Belge kontrol merkezi</p>
             <h2 className="mt-1 font-display text-2xl font-semibold tracking-tight sm:text-3xl">{heroTitle}</h2>
             <p className="mt-1 max-w-2xl text-sm text-muted-foreground">{heroDescription}</p>
           </div>
@@ -676,13 +676,13 @@ export function DocumentsPage({
       </section>
 
       {!initialType && (
-        <section className="overflow-hidden rounded-xl border border-[#0b2453]/15 bg-white shadow-sm" aria-label="Ticari belge rotası">
+        <section className="overflow-hidden rounded-xl border border-border/70 bg-card shadow-sm" aria-label="Ticari belge rotası">
           <div className="flex flex-col gap-2 border-b border-border/60 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <div className="flex items-center gap-2 font-data text-[10px] font-semibold uppercase tracking-[0.16em] text-primary"><Route className="size-3.5" /> Ticari belge rotası</div>
+              <div className="ui-eyebrow flex items-center gap-2 text-primary"><Route className="size-3.5" /> Ticari belge rotası</div>
               <p className="mt-1 text-xs text-muted-foreground">Aynı fırsata bağlı çıktılar soldan sağa ilerler; satırdaki kaynak düğmeleri gerçek kaydı açar.</p>
             </div>
-            <div className="text-[11px] text-muted-foreground">Son 30 gün <b className="text-foreground">{recentDocumentCount}</b> · {documentCustomerCount} firma · {liveDocumentCount || documentsWithFiles} canlı/dosyalı kayıt</div>
+            <div className="text-xs text-muted-foreground">Son 30 gün <b className="text-foreground">{recentDocumentCount}</b> · {documentCustomerCount} firma · {liveDocumentCount || documentsWithFiles} canlı/dosyalı kayıt</div>
           </div>
           <div className="relative grid grid-cols-2 gap-2 p-3 sm:grid-cols-4 sm:gap-3 sm:p-4">
             <span className="pointer-events-none absolute left-[12%] right-[12%] top-[38px] hidden h-px bg-slate-200 sm:block" aria-hidden="true" />
@@ -691,14 +691,14 @@ export function DocumentsPage({
                 key={step.label}
                 type="button"
                 onClick={() => step.type ? setDocType(step.type) : onOpenOffer?.("")}
-                className={`relative z-10 rounded-lg border px-3 py-3 text-left transition hover:-translate-y-px hover:border-primary/35 hover:shadow-sm ${step.type && docType === step.type ? "border-primary/35 bg-primary/5" : "border-border/70 bg-white"}`}
+                className={`relative z-10 rounded-lg border px-3 py-3 text-left transition hover:-translate-y-px hover:border-primary/35 hover:shadow-sm ${step.type && docType === step.type ? "border-primary/35 bg-primary/5" : "border-border/70 bg-card"}`}
               >
                 <span className="flex items-center justify-between gap-2">
-                  <span className="grid size-8 place-items-center rounded-full border-2 border-primary/20 bg-white text-primary">{index + 1}</span>
+                  <span className="grid size-8 place-items-center rounded-full border-2 border-primary/20 bg-card text-primary">{index + 1}</span>
                   {index < routeSteps.length - 1 && <ArrowRight className="size-4 text-slate-300 sm:hidden" />}
                 </span>
                 <span className="mt-2 block text-xs font-semibold">{step.label}</span>
-                <span className="mt-0.5 block font-data text-[10px] text-muted-foreground">{step.count} kayıt</span>
+                <span className="mt-0.5 block font-data text-xs text-muted-foreground">{step.count} kayıt</span>
               </button>
             ))}
           </div>
@@ -706,11 +706,11 @@ export function DocumentsPage({
       )}
 
       {!initialType && (
-        <section className="overflow-hidden rounded-xl border border-[#0b2453]/15 bg-slate-50/65 shadow-sm" aria-labelledby="document-folders-title">
-          <div className="flex flex-col gap-3 border-b border-border/60 bg-white px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+        <section className="overflow-hidden rounded-xl border border-border/70 bg-muted/35 shadow-sm" aria-labelledby="document-folders-title">
+          <div className="flex flex-col gap-3 border-b border-border/60 bg-card px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <h3 id="document-folders-title" className="text-sm font-semibold tracking-tight">Belge klasörleri</h3>
-              <p className="mt-0.5 text-[11px] text-muted-foreground">Bir klasör seçin; içindeki belgeler aşağıdaki envanterde açılsın.</p>
+              <p className="mt-0.5 text-xs text-muted-foreground">Bir klasör seçin; içindeki belgeler aşağıdaki envanterde açılsın.</p>
             </div>
             <Button
               type="button"
@@ -723,15 +723,15 @@ export function DocumentsPage({
             >
               {docType === "all" ? <FolderOpen className="size-3.5" /> : <Folder className="size-3.5" />}
               Tüm belgeler
-              <span className="font-data text-[10px] opacity-75">{documents.length}</span>
+              <span className="font-data text-xs opacity-75">{documents.length}</span>
             </Button>
           </div>
           <div className="grid gap-3 p-3 sm:p-4 lg:grid-cols-[1.65fr_1fr_.75fr]">
             {DOC_GROUPS.map((group) => (
-              <section key={group.title} className="min-w-0 rounded-xl border border-border/60 bg-white/90 p-3" aria-label={group.title}>
+              <section key={group.title} className="min-w-0 rounded-xl border border-border/60 bg-card/90 p-3" aria-label={group.title}>
                 <div className="mb-2.5">
                   <p className="text-xs font-semibold">{group.title}</p>
-                  <p className="mt-0.5 text-[10px] text-muted-foreground">{group.description}</p>
+                  <p className="mt-0.5 text-xs text-muted-foreground">{group.description}</p>
                 </div>
                 <div className={`grid gap-2 ${group.types.length >= 4 ? "grid-cols-2 xl:grid-cols-3" : "grid-cols-2 lg:grid-cols-1 xl:grid-cols-2"}`}>
                   {group.types.map((type) => (
@@ -761,7 +761,7 @@ export function DocumentsPage({
           <div className="flex w-full flex-col gap-2 sm:flex-row sm:flex-wrap lg:w-auto lg:justify-end">
             <div className="relative w-full sm:w-64">
               <Search className="size-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-              <Input placeholder="Belge, teklif, firma, ürün..." className="pl-9 h-9 bg-white" value={q} onChange={(e) => setQ(e.target.value)} />
+              <Input placeholder="Belge, teklif, firma, ürün..." className="h-9 bg-card pl-9" value={q} onChange={(e) => setQ(e.target.value)} />
             </div>
             {!initialType && (
               <FilterPopover
@@ -871,14 +871,14 @@ export function DocumentsPage({
                       <div className="flex items-center gap-2.5 min-w-0">
                         <DocumentSheetPreview document={d} />
                         <div className="min-w-0">
-                          <div className="font-data text-[9px] font-semibold uppercase tracking-[0.12em] text-operation-blue">{DOC_TYPE_LABELS[d.type]}</div>
+                          <div className="font-data text-xs font-semibold uppercase tracking-[0.12em] text-operation-blue">{DOC_TYPE_LABELS[d.type]}</div>
                           <div className="mt-1 truncate text-sm font-medium leading-tight">{d.fileName}</div>
                           {companyId && onOpenCustomer ? (
-                            <button type="button" className="mt-0.5 block max-w-full truncate text-left text-[11px] text-primary hover:underline" onClick={(event) => { event.stopPropagation(); onOpenCustomer(companyId); }}>
+                            <button type="button" className="mt-0.5 block max-w-full truncate text-left text-xs text-primary hover:underline" onClick={(event) => { event.stopPropagation(); onOpenCustomer(companyId); }}>
                               {displayCompanyName}
                             </button>
                           ) : (
-                            <div className="text-[11px] text-muted-foreground mt-0.5 truncate">
+                            <div className="mt-0.5 truncate text-xs text-muted-foreground">
                               {displayCompanyName}
                             </div>
                           )}
@@ -896,7 +896,7 @@ export function DocumentsPage({
                             ) : <span className="chip chip-neutral">R{flowOffer.revision}</span>}
                             <StatusBadge status={flowOffer.status} />
                           </div>
-                          <div className="text-[10px] text-muted-foreground">{d.type === "Contract" ? signedAt ? `İmzalandı · ${signedAt.slice(0, 10)}` : "İmza durumu bekleniyor" : `${flowOffer.validityDays ?? 30} gün geçerli`}</div>
+                          <div className="text-xs text-muted-foreground">{d.type === "Contract" ? signedAt ? `İmzalandı · ${signedAt.slice(0, 10)}` : "İmza durumu bekleniyor" : `${flowOffer.validityDays ?? 30} gün geçerli`}</div>
                           <div className="flex flex-wrap items-center gap-1">
                             <span className={`chip ${exactOffer ? "chip-success" : "chip-neutral"}`}>{relationLabel}</span>
                             {sc && onOpenOpportunity && <button type="button" className="chip chip-neutral hover:underline" onClick={(event) => { event.stopPropagation(); onOpenOpportunity(sc.id); }}>Fırsatı aç</button>}
@@ -905,15 +905,15 @@ export function DocumentsPage({
                       ) : (
                         <div className="space-y-1.5">
                           <span className={`chip ${relationLabel === "Bağlantı gerekli" ? "chip-destructive" : "chip-neutral"}`}>{relationLabel}</span>
-                          {sc && onOpenOpportunity && <button type="button" className="block text-[10px] text-primary hover:underline" onClick={(event) => { event.stopPropagation(); onOpenOpportunity(sc.id); }}>Fırsatı aç</button>}
-                          {d.paymentId && onOpenPayment && <button type="button" className="block text-[10px] text-primary hover:underline" onClick={(event) => { event.stopPropagation(); onOpenPayment(d.paymentId!); }}>Kasa kaydını aç</button>}
-                          {d.serviceRequestId && onOpenServiceRequest && <button type="button" className="block text-[10px] text-primary hover:underline" onClick={(event) => { event.stopPropagation(); onOpenServiceRequest(d.serviceRequestId!); }}>Servis talebini aç</button>}
-                          {d.type === "AccountingInvoice" && onOpenAccountingInvoices && <button type="button" className="block text-[10px] text-primary hover:underline" onClick={(event) => { event.stopPropagation(); onOpenAccountingInvoices(d.fileName); }}>Muhasebe kaydını aç</button>}
+                          {sc && onOpenOpportunity && <button type="button" className="block text-xs text-primary hover:underline" onClick={(event) => { event.stopPropagation(); onOpenOpportunity(sc.id); }}>Fırsatı aç</button>}
+                          {d.paymentId && onOpenPayment && <button type="button" className="block text-xs text-primary hover:underline" onClick={(event) => { event.stopPropagation(); onOpenPayment(d.paymentId!); }}>Kasa kaydını aç</button>}
+                          {d.serviceRequestId && onOpenServiceRequest && <button type="button" className="block text-xs text-primary hover:underline" onClick={(event) => { event.stopPropagation(); onOpenServiceRequest(d.serviceRequestId!); }}>Servis talebini aç</button>}
+                          {d.type === "AccountingInvoice" && onOpenAccountingInvoices && <button type="button" className="block text-xs text-primary hover:underline" onClick={(event) => { event.stopPropagation(); onOpenAccountingInvoices(d.fileName); }}>Muhasebe kaydını aç</button>}
                           {commercialTypes.has(d.type) && !d.quoteId && !d.paymentId && d.fileId && (
                             <div onClick={(event) => event.stopPropagation()}>
                               <LinkCommercialDocumentDialog
                                 document={d}
-                                trigger={<Button variant="link" size="sm" className="h-auto p-0 text-[10px]">Bağlantıyı tamamla</Button>}
+                                trigger={<Button variant="link" size="sm" className="h-auto p-0 text-xs">Bağlantıyı tamamla</Button>}
                               />
                             </div>
                           )}

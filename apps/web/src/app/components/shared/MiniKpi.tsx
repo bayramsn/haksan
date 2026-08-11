@@ -27,7 +27,7 @@ export function MiniKpi({
       tabIndex={onClick ? 0 : undefined}
       onClick={onClick}
       onKeyDown={onClick ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onClick(); } } : undefined}
-      className={`min-w-0 border-border/80 shadow-sm overflow-hidden transition-[border-color,box-shadow,transform] ${
+      className={`min-w-0 overflow-hidden border-border/80 shadow-xs transition-[border-color,box-shadow,transform] ${
         onClick ? "cursor-pointer select-none hover:-translate-y-0.5 hover:border-primary/20 hover:shadow-md" : ""
       } ${active ? "ring-2 ring-primary/30 border-primary/40" : ""}`}
     >
@@ -37,7 +37,7 @@ export function MiniKpi({
             {icon}
           </div>
           {delta !== undefined && (
-            <span className={`inline-flex items-center gap-0.5 text-[11px] px-1.5 py-0.5 rounded-full ${
+            <span className={`inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-xs ${
               positive ? "bg-emerald-50 text-emerald-700" : "bg-zinc-100 text-zinc-600"
             }`}>
               {positive ? <ArrowUpRight className="size-3" /> : <ArrowDownRight className="size-3" />}
@@ -45,10 +45,10 @@ export function MiniKpi({
             </span>
           )}
         </div>
-        <div className="mt-3 text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground truncate">{label}</div>
+        <div className="mt-3 truncate text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">{label}</div>
         <div className="mt-1 flex min-w-0 flex-wrap items-baseline gap-x-1.5 gap-y-0.5">
           <div className="font-display min-w-0 text-[26px] font-semibold tabular-nums tracking-tight leading-none">{value}</div>
-          {sub && <div className="min-w-0 text-[10px] text-muted-foreground">{sub}</div>}
+          {sub && <div className="min-w-0 text-xs text-muted-foreground">{sub}</div>}
         </div>
         {progress !== undefined && (
           <div className="mt-3 h-1.5 rounded-full bg-muted overflow-hidden">
@@ -69,14 +69,14 @@ export function PayKpi({
   const t = KPI_TONES[tone];
   const positive = (delta ?? 0) >= 0;
   return (
-    <Card className="min-w-0 border-border/80 shadow-sm overflow-hidden">
+    <Card className="min-w-0 overflow-hidden border-border/80 shadow-xs">
       <CardContent className="p-4">
         <div className="flex items-start justify-between gap-2">
           <div className={`size-9 rounded-md ${t.bg} ${t.ic} grid place-items-center shrink-0 ring-4 ${t.ring}`}>
             {icon}
           </div>
           {delta !== undefined && (
-          <span className={`inline-flex items-center gap-0.5 text-[11px] px-1.5 py-0.5 rounded-full ${
+          <span className={`inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-xs ${
             alarm ? "bg-red-50 text-red-700" : positive ? "bg-emerald-50 text-emerald-700" : "bg-zinc-100 text-zinc-600"
           }`} aria-hidden>
             {positive ? <ArrowUpRight className="size-3" /> : <ArrowDownRight className="size-3" />}
@@ -84,10 +84,10 @@ export function PayKpi({
           </span>
           )}
         </div>
-        <div className="mt-3 text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground truncate">{label}</div>
+        <div className="mt-3 truncate text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">{label}</div>
         <div className="mt-1 flex min-w-0 flex-wrap items-baseline gap-x-1.5 gap-y-0.5">
           <div className="font-display min-w-0 text-[26px] font-semibold tabular-nums tracking-tight leading-none">{value}</div>
-          <div className="min-w-0 text-[10px] text-muted-foreground">{sub}</div>
+          <div className="min-w-0 text-xs text-muted-foreground">{sub}</div>
         </div>
         {progress !== undefined && (
           <div className="mt-3 h-1.5 rounded-full bg-muted overflow-hidden">

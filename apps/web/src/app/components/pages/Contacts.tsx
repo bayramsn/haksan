@@ -157,7 +157,7 @@ export function ContactsPage() {
   );
 
   return (
-    <div className="space-y-4">
+    <div className="crm-page">
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <MiniKpi
           icon={<Users className="size-4" />}
@@ -194,7 +194,7 @@ export function ContactsPage() {
 
       {divisionOptions.length > 0 && (
         <div className="flex flex-wrap items-center gap-2">
-          <span className="text-[11px] uppercase tracking-wider text-muted-foreground">İş alanı:</span>
+          <span className="crm-chip-label">İş alanı:</span>
           {[{ id: "all", name: "Tümü" }, ...divisionOptions].map((division) => (
             <button
               key={division.id}
@@ -203,7 +203,7 @@ export function ContactsPage() {
                 setDivisionTab(division.id);
                 setActiveDivision(division.id);
               }}
-              className={`rounded-full border px-2.5 py-1 text-xs transition-colors ${divisionTab === division.id ? "border-primary bg-primary text-primary-foreground shadow-xs" : "border-border bg-white text-foreground/70 hover:bg-muted"}`}
+              className={`min-h-11 rounded-full border px-3 py-1 text-xs transition-colors sm:min-h-0 ${divisionTab === division.id ? "border-primary bg-primary text-primary-foreground shadow-xs" : "border-border bg-card text-foreground/70 hover:bg-muted"}`}
             >
               {division.name}
             </button>
@@ -211,18 +211,18 @@ export function ContactsPage() {
         </div>
       )}
 
-      <div className="flex items-center justify-between gap-3 flex-wrap">
+      <section className="ui-toolbar" aria-label="Kontak araçları">
         <Tabs value={tab} onValueChange={(v) => setTab(v as any)}>
           <TabsList className="h-9 bg-muted/60">
             <TabsTrigger value="all" className="gap-1.5">
               Tümü
-              <span className="ml-0.5 inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 text-[10px] rounded-full bg-muted text-muted-foreground">
+              <span className="ml-0.5 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-muted px-1 text-xs text-muted-foreground">
                 {summaryQuery.isPending ? "…" : Number(summary?.total ?? 0)}
               </span>
             </TabsTrigger>
             <TabsTrigger value="primary" className="gap-1.5">
               Birincil
-              <span className="ml-0.5 inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 text-[10px] rounded-full bg-warning-soft text-warning">
+              <span className="ml-0.5 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-warning-soft px-1 text-xs text-warning">
                 {primaryCount}
               </span>
             </TabsTrigger>
@@ -234,7 +234,7 @@ export function ContactsPage() {
             <Search className="size-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
             <Input
               placeholder="Kişi, firma, e-posta ara..."
-              className="pl-9 h-9 bg-white"
+              className="h-9 bg-card pl-9"
               value={q}
               onChange={(e) => setQ(e.target.value)}
             />
@@ -272,7 +272,7 @@ export function ContactsPage() {
           <ExportExcelButton path="/exports/contacts" filename="kontaklar.xlsx" params={exportParams} className="h-9" />
           <ViewToggle view={view} onChange={setView} />
         </div>
-      </div>
+      </section>
 
       {view === "cards" ? (
         <>
@@ -330,8 +330,8 @@ export function ContactsPage() {
 
                     <div className="flex items-center justify-between gap-2 pt-2 border-t border-border/50">
                       <div className="min-w-0">
-                        <div className="text-[11px] text-muted-foreground truncate">{k.note ?? ""}</div>
-                        <div className="text-[11px] text-muted-foreground/80 truncate">
+                        <div className="truncate text-xs text-muted-foreground">{k.note ?? ""}</div>
+                        <div className="truncate text-xs text-muted-foreground/80">
                           Oluşturan: {createdByLabel(k)} · {k.createdAt || "—"}
                         </div>
                       </div>
@@ -355,11 +355,11 @@ export function ContactsPage() {
           <Table>
             <TableHeader>
               <TableRow className="bg-muted/40 hover:bg-muted/40">
-                <TableHead className="w-[280px] text-[11px] uppercase tracking-wider text-muted-foreground">Kişi</TableHead>
-                <TableHead className="text-[11px] uppercase tracking-wider text-muted-foreground">Firma</TableHead>
-                <TableHead className="text-[11px] uppercase tracking-wider text-muted-foreground">Ünvan / Departman</TableHead>
-                <TableHead className="text-[11px] uppercase tracking-wider text-muted-foreground">İletişim</TableHead>
-                <TableHead className="text-[11px] uppercase tracking-wider text-muted-foreground">Oluşturma</TableHead>
+                <TableHead className="w-[280px]">Kişi</TableHead>
+                <TableHead>Firma</TableHead>
+                <TableHead>Ünvan / Departman</TableHead>
+                <TableHead>İletişim</TableHead>
+                <TableHead>Oluşturma</TableHead>
                 <TableHead className="w-20"></TableHead>
               </TableRow>
             </TableHeader>
@@ -384,7 +384,7 @@ export function ContactsPage() {
                           {k.isPrimary && <Star className="size-3 fill-warning text-warning" />}
                           {k.isBlacklisted && blacklistBadge(k)}
                         </div>
-                        <div className="text-[11px] text-muted-foreground truncate mt-0.5">{k.note ?? "—"}</div>
+                        <div className="mt-0.5 truncate text-xs text-muted-foreground">{k.note ?? "—"}</div>
                       </div>
                     </div>
                   </TableCell>
@@ -393,11 +393,11 @@ export function ContactsPage() {
                       <Building2 className="size-3.5 text-muted-foreground" />
                       {k.firm?.name ?? "—"}
                     </div>
-                    <div className="text-[11px] text-muted-foreground mt-0.5">{k.firm?.city}</div>
+                    <div className="mt-0.5 text-xs text-muted-foreground">{k.firm?.city}</div>
                   </TableCell>
                   <TableCell>
                     <div className="text-sm leading-tight">{k.title}</div>
-                    <div className="text-[11px] text-muted-foreground mt-0.5">{k.department}</div>
+                    <div className="mt-0.5 text-xs text-muted-foreground">{k.department}</div>
                   </TableCell>
                   <TableCell>
                     <div className="text-xs flex items-center gap-1.5"><Phone className="size-3 text-muted-foreground" />{k.phone}</div>
@@ -412,7 +412,7 @@ export function ContactsPage() {
                   </TableCell>
                   <TableCell>
                     <div className="text-xs text-muted-foreground tabular-nums">{k.createdAt || "—"}</div>
-                    <div className="mt-0.5 max-w-[150px] truncate text-[11px] text-muted-foreground/80">
+                    <div className="mt-0.5 max-w-[150px] truncate text-xs text-muted-foreground/80">
                       {createdByLabel(k)}
                     </div>
                   </TableCell>

@@ -276,12 +276,12 @@ export function LeadsPage({ onSelect, focus }: { onSelect: (lead: SalesCase) => 
   };
 
   return (
-    <div className="space-y-4">
-      <Card className="overflow-hidden border-primary/15 bg-[linear-gradient(105deg,#000c69_0%,#10298f_62%,#d71920_160%)] text-white shadow-sm">
+    <div className="crm-page">
+      <Card className="overflow-hidden border-primary/15 bg-[var(--gradient-brand)] text-white shadow-sm">
         <CardContent className="space-y-5 p-5">
           <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
           <div>
-            <div className="font-data text-[10px] font-semibold uppercase tracking-[0.18em] text-blue-100">
+            <div className="font-data text-xs font-semibold uppercase tracking-[0.08em] text-white/75">
               Gelen satış sinyalleri
             </div>
             <div className="mt-1 font-display text-3xl font-semibold leading-none">Lead çalışma kuyruğu</div>
@@ -303,17 +303,17 @@ export function LeadsPage({ onSelect, focus }: { onSelect: (lead: SalesCase) => 
               ["Dönüşüm", `%${summary?.conversionRate ?? 0}`, "30 günlük baz"],
               ["Sahipsiz", String(summary?.unassignedLeads ?? allLeads.filter((lead) => !lead.assignedUserId).length), "atama bekliyor"],
             ].map(([label, value, hint]) => (
-              <div key={label} className="bg-[#07176f]/70 px-3 py-3">
-                <div className="font-data text-[9px] uppercase tracking-[0.13em] text-blue-100">{label}</div>
+              <div key={label} className="bg-black/15 px-3 py-3">
+                <div className="font-data text-xs uppercase tracking-[0.08em] text-white/75">{label}</div>
                 <div className="mt-1 font-data text-xl font-semibold tabular-nums">{value}</div>
-                <div className="text-[9px] text-blue-100/75">{hint}</div>
+                <div className="text-xs text-white/65">{hint}</div>
               </div>
             ))}
           </div>
         </CardContent>
       </Card>
 
-      <div className="space-y-3 rounded-xl border border-border/70 bg-white p-3 shadow-xs">
+      <div className="crm-filter-surface space-y-3">
         <div className="flex items-center justify-between gap-3">
           <div className="relative w-full max-w-md">
             <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
@@ -321,7 +321,7 @@ export function LeadsPage({ onSelect, focus }: { onSelect: (lead: SalesCase) => 
               value={query}
               onChange={(event) => setQuery(event.target.value)}
               placeholder="Firma, kontak, telefon veya ürün ara..."
-              className="h-11 bg-white pl-9 sm:h-9"
+              className="h-11 bg-card pl-9 sm:h-9"
             />
           </div>
           <Badge variant="outline" className="hidden h-7 shrink-0 sm:inline-flex">
@@ -335,7 +335,7 @@ export function LeadsPage({ onSelect, focus }: { onSelect: (lead: SalesCase) => 
               type="button"
               size="sm"
               variant={queueView === view.value ? "default" : "ghost"}
-              className="h-11 shrink-0 px-3 text-[11px] sm:h-8"
+              className="h-11 shrink-0 px-3 text-xs sm:h-8"
               onClick={() => setQueueView(view.value)}
             >
               {view.value === "sla_risk" && <Zap className="size-3.5" />}
@@ -348,7 +348,7 @@ export function LeadsPage({ onSelect, focus }: { onSelect: (lead: SalesCase) => 
             type="button"
             size="sm"
             variant={status === "all" ? "default" : "outline"}
-            className="h-11 shrink-0 px-2.5 text-[10px] sm:h-7"
+            className="h-11 shrink-0 px-2.5 text-xs sm:h-8"
             onClick={() => setStatus("all")}
           >
             Tümü <span className="font-data opacity-75">{allLeads.length}</span>
@@ -359,7 +359,7 @@ export function LeadsPage({ onSelect, focus }: { onSelect: (lead: SalesCase) => 
               type="button"
               size="sm"
               variant="outline"
-              className={`h-11 shrink-0 px-2.5 text-[10px] sm:h-7 ${status === item ? LEAD_FOLLOW_UP_STATUS_STYLES[item] : ""}`}
+              className={`h-11 shrink-0 px-2.5 text-xs sm:h-8 ${status === item ? LEAD_FOLLOW_UP_STATUS_STYLES[item] : ""}`}
               onClick={() => setStatus(item)}
             >
               {LEAD_FOLLOW_UP_STATUS_LABELS[item]} <span className="font-data opacity-70">{statusCounts[item]}</span>
@@ -382,7 +382,7 @@ export function LeadsPage({ onSelect, focus }: { onSelect: (lead: SalesCase) => 
         <Card className="hidden overflow-hidden border-border/70 lg:block">
           <Table>
             <TableHeader>
-              <TableRow className="bg-slate-50/80">
+              <TableRow className="bg-muted/35">
                 <TableHead className="w-[112px]">Öncelik</TableHead>
                 <TableHead>Lead / konu</TableHead>
                 <TableHead>Sorumlu</TableHead>
@@ -407,7 +407,7 @@ export function LeadsPage({ onSelect, focus }: { onSelect: (lead: SalesCase) => 
                     </TableCell>
                     <TableCell>
                       <div className="max-w-[260px] truncate text-sm font-semibold">{leadName(lead)}</div>
-                      <div className="mt-0.5 max-w-[260px] truncate text-[10px] text-muted-foreground">
+                      <div className="mt-0.5 max-w-[260px] truncate text-xs text-muted-foreground">
                         {lead.leadContactName || "Kontak yok"} · {lead.requestedMachine || lead.requestedProduct || "Konu yok"}
                       </div>
                     </TableCell>
@@ -418,7 +418,7 @@ export function LeadsPage({ onSelect, focus }: { onSelect: (lead: SalesCase) => 
                           disabled={busyId === lead.id}
                           onValueChange={(value) => void assignOwner(lead, value)}
                         >
-                          <SelectTrigger size="sm" className="h-8 w-[160px] bg-white text-xs" aria-label={`${leadName(lead)} sorumlusu`}>
+                          <SelectTrigger size="sm" className="h-8 w-[160px] bg-card text-xs" aria-label={`${leadName(lead)} sorumlusu`}>
                             <SelectValue placeholder="Sahipsiz" />
                           </SelectTrigger>
                           <SelectContent>
@@ -437,7 +437,7 @@ export function LeadsPage({ onSelect, focus }: { onSelect: (lead: SalesCase) => 
                       <div className={`max-w-[210px] truncate text-xs ${isActionOverdue(lead.nextActionAt) ? "font-semibold text-red-700" : ""}`}>
                         {lead.nextAction || "Planlanmadı"}
                       </div>
-                      <div className="mt-0.5 text-[9px] text-muted-foreground">{actionDateLabel(lead.nextActionAt)}</div>
+                      <div className="mt-0.5 text-xs text-muted-foreground">{actionDateLabel(lead.nextActionAt)}</div>
                     </TableCell>
                     <TableCell>
                       <Badge variant="outline" className={health?.leadSlaBreached ? "border-red-200 bg-red-50 text-red-700" : "border-emerald-200 bg-emerald-50 text-emerald-700"}>
@@ -495,7 +495,7 @@ export function LeadsPage({ onSelect, focus }: { onSelect: (lead: SalesCase) => 
                 className="group overflow-hidden border-border/75 transition-[transform,border-color,box-shadow] hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-md"
               >
                 <button type="button" className="w-full text-left" onClick={() => onSelect(lead)}>
-                  <div className="h-1 bg-[linear-gradient(90deg,#64748b_0%,#64748b_64%,#000c69_64%,#000c69_82%,#d71920_82%)]" />
+                  <div className="datum-rail h-1" />
                   <CardContent className="space-y-4 p-4">
                     <div className="flex items-start gap-3">
                       <div className="grid size-10 shrink-0 place-items-center rounded-lg bg-primary/8 text-primary">
@@ -504,16 +504,16 @@ export function LeadsPage({ onSelect, focus }: { onSelect: (lead: SalesCase) => 
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-2">
                           <h3 className="truncate text-sm font-semibold group-hover:text-primary">{leadName(lead)}</h3>
-                          <Badge variant="outline" className={`h-5 text-[9px] ${priorityStyle(lead)}`}>
+                          <Badge variant="outline" className={`min-h-6 text-xs ${priorityStyle(lead)}`}>
                             {lead.leadInsights?.priorityScore ?? 0} · {priorityLabel(lead)}
                           </Badge>
-                          <Badge variant="outline" className={`h-5 text-[9px] ${LEAD_FOLLOW_UP_STATUS_STYLES[leadStatus]}`}>
+                          <Badge variant="outline" className={`min-h-6 text-xs ${LEAD_FOLLOW_UP_STATUS_STYLES[leadStatus]}`}>
                             {LEAD_FOLLOW_UP_STATUS_LABELS[leadStatus]}
                           </Badge>
                           {health?.leadSlaBreached && (
                             <Badge
                               variant="outline"
-                              className="h-5 shrink-0 border-red-200 bg-red-50 text-[9px] text-red-700"
+                              className="min-h-6 shrink-0 border-destructive/20 bg-destructive-soft text-xs text-destructive"
                               title={`Bu durumda ${health.leadStatusAgeHours} saattir bekliyor (hedef ${health.leadSlaHours} saat)`}
                             >
                               SLA aşıldı
@@ -522,7 +522,7 @@ export function LeadsPage({ onSelect, focus }: { onSelect: (lead: SalesCase) => 
                           {health?.attemptLimitReached && (
                             <Badge
                               variant="outline"
-                              className="h-5 shrink-0 border-amber-200 bg-amber-50 text-[9px] text-amber-700"
+                              className="min-h-6 shrink-0 border-warning/20 bg-warning-soft text-xs text-warning"
                               title="Temas deneme sınırına ulaşıldı; beklemeye alın veya eleyin"
                             >
                               {health.contactAttemptCount} deneme
@@ -535,7 +535,7 @@ export function LeadsPage({ onSelect, focus }: { onSelect: (lead: SalesCase) => 
                       </div>
                     </div>
 
-                    <div className="grid gap-2 text-[11px] text-muted-foreground sm:grid-cols-2">
+                    <div className="grid gap-2 text-xs text-muted-foreground sm:grid-cols-2">
                       <span className="flex min-w-0 items-center gap-1.5">
                         <Phone className="size-3.5 shrink-0" />
                         <span className="truncate">{lead.leadPhone || lead.leadContactValue || "Telefon yok"}</span>
@@ -560,21 +560,21 @@ export function LeadsPage({ onSelect, focus }: { onSelect: (lead: SalesCase) => 
                       </span>
                     </div>
                     <div className="grid grid-cols-2 gap-2">
-                      <div className="border-l-2 border-[#2457D6] pl-2"><div className="text-[9px] uppercase text-muted-foreground">Uyum</div><div className="font-data text-sm font-semibold">{lead.leadInsights?.fitScore ?? 0}</div></div>
-                      <div className="border-l-2 border-[#0b2453] pl-2"><div className="text-[9px] uppercase text-muted-foreground">Etkileşim</div><div className="font-data text-sm font-semibold">{lead.leadInsights?.engagementScore ?? 0}</div></div>
+                      <div className="border-l-2 border-operation-blue pl-2"><div className="text-xs uppercase text-muted-foreground">Uyum</div><div className="font-data text-sm font-semibold">{lead.leadInsights?.fitScore ?? 0}</div></div>
+                      <div className="border-l-2 border-brand-blue pl-2"><div className="text-xs uppercase text-muted-foreground">Etkileşim</div><div className="font-data text-sm font-semibold">{lead.leadInsights?.engagementScore ?? 0}</div></div>
                     </div>
 
                     <div className={`rounded-r-lg border-l-[3px] px-3 py-2.5 ${overdue ? "border-red-500 bg-red-50/70" : "border-primary bg-blue-50/65"}`}>
                       <div className="flex items-center justify-between gap-2">
-                        <span className="inline-flex items-center gap-1 font-data text-[9px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                        <span className="inline-flex items-center gap-1 font-data text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">
                           <AlarmClock className="size-3.5 text-primary" /> Sonraki aksiyon
                         </span>
-                        <span className={`inline-flex items-center gap-1 text-[9px] ${overdue ? "font-semibold text-red-700" : "text-muted-foreground"}`}>
+                        <span className={`inline-flex items-center gap-1 text-xs ${overdue ? "font-semibold text-destructive" : "text-muted-foreground"}`}>
                           <CalendarClock className="size-3" />
                           {overdue ? "Gecikti · " : ""}{actionDateLabel(lead.nextActionAt)}
                         </span>
                       </div>
-                      <div className={`mt-1 line-clamp-2 text-[11px] ${lead.nextAction ? "font-medium text-foreground" : "text-muted-foreground"}`}>
+                      <div className={`mt-1 line-clamp-2 text-xs ${lead.nextAction ? "font-medium text-foreground" : "text-muted-foreground"}`}>
                         {lead.nextAction || "İlk temas için yapılacak işi planlayın."}
                       </div>
                     </div>
@@ -584,13 +584,13 @@ export function LeadsPage({ onSelect, focus }: { onSelect: (lead: SalesCase) => 
                         <>
                           <CircleAlert className="size-3.5 text-amber-600" />
                           {missing.map((field) => (
-                            <span key={field} className="rounded bg-amber-50 px-1.5 py-0.5 text-[9px] text-amber-700">
+                            <span key={field} className="rounded bg-warning-soft px-1.5 py-0.5 text-xs text-warning">
                               {field} eksik
                             </span>
                           ))}
                         </>
                       ) : (
-                        <span className="inline-flex items-center gap-1 text-[10px] font-medium text-emerald-700">
+                        <span className="inline-flex items-center gap-1 text-xs font-medium text-success">
                           <CheckCircle2 className="size-3.5" /> Temel bilgiler hazır
                         </span>
                       )}
@@ -598,7 +598,7 @@ export function LeadsPage({ onSelect, focus }: { onSelect: (lead: SalesCase) => 
                   </CardContent>
                 </button>
                 <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border/60 bg-muted/20 px-4 py-2.5">
-                  <span className="font-data text-[9px] uppercase tracking-wide text-muted-foreground">
+                  <span className="font-data text-xs uppercase tracking-wide text-muted-foreground">
                     {lead.leadContactMethodName || lead.externalSource || "Manuel"} · {lead.createdAt}
                   </span>
                   <div className="flex min-w-0 flex-1 items-center justify-end gap-1.5">
@@ -608,7 +608,7 @@ export function LeadsPage({ onSelect, focus }: { onSelect: (lead: SalesCase) => 
                         disabled={busyId === lead.id}
                         onValueChange={(value) => void assignOwner(lead, value)}
                       >
-                        <SelectTrigger size="sm" className="h-11 w-[148px] bg-white text-[9px] sm:h-8" aria-label={`${leadName(lead)} sorumlusu`}>
+                        <SelectTrigger size="sm" className="h-11 w-[148px] bg-card text-xs sm:h-8" aria-label={`${leadName(lead)} sorumlusu`}>
                           <SelectValue placeholder="Sorumlu" />
                         </SelectTrigger>
                         <SelectContent>
@@ -629,7 +629,7 @@ export function LeadsPage({ onSelect, focus }: { onSelect: (lead: SalesCase) => 
                           void updateStatus(lead, value as LeadFollowUpStatus);
                         }}
                       >
-                        <SelectTrigger size="sm" className="h-11 w-[154px] bg-white text-[9px] sm:h-8" aria-label={`${leadName(lead)} lead durumu`}>
+                        <SelectTrigger size="sm" className="h-11 w-[154px] bg-card text-xs sm:h-8" aria-label={`${leadName(lead)} lead durumu`}>
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
@@ -644,7 +644,7 @@ export function LeadsPage({ onSelect, focus }: { onSelect: (lead: SalesCase) => 
                         salesCase={lead}
                         onSave={(patch) => updateCase(lead.id, patch)}
                         trigger={
-                          <Button type="button" variant="outline" size="icon" className="size-11 bg-white sm:size-8" title="Sonraki aksiyonu planla">
+                          <Button type="button" variant="outline" size="icon" className="size-11 bg-card sm:size-8" title="Sonraki aksiyonu planla">
                             <AlarmClock className="size-3.5" />
                             <span className="sr-only">Sonraki aksiyonu planla</span>
                           </Button>

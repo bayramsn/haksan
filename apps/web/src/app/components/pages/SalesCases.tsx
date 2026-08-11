@@ -48,7 +48,7 @@ const qualificationStyle: Record<QualificationStage, string> = {
 };
 
 const QualificationBadge = ({ stage }: { stage: QualificationStage }) => (
-  <Badge variant="outline" className={`font-data text-[10px] ${qualificationStyle[stage]}`}>
+  <Badge variant="outline" className={`font-data text-xs ${qualificationStyle[stage]}`}>
     {QUALIFICATION_STAGE_LABELS[stage]}
   </Badge>
 );
@@ -212,13 +212,13 @@ export function SalesCasesPage({
   };
 
   return (
-    <Tabs value={view} onValueChange={(v) => setView(v as "list" | "kanban" | "archive")} className="space-y-4">
+    <Tabs value={view} onValueChange={(v) => setView(v as "list" | "kanban" | "archive")} className="surface-enter space-y-4">
       <TabsList>
         <TabsTrigger value="list">Liste</TabsTrigger>
         <TabsTrigger value="kanban">Kanban</TabsTrigger>
         <TabsTrigger value="archive">Geçmiş{closedCases.length ? ` (${closedCases.length})` : ""}</TabsTrigger>
       </TabsList>
-      <div className="flex items-center justify-between gap-3 flex-wrap">
+      <section className="ui-toolbar" aria-label="Fırsat araçları">
         <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
           <InputGroup className="w-full bg-card sm:w-72">
             <InputGroupAddon><Search className="size-4" aria-hidden="true" /></InputGroupAddon>
@@ -263,7 +263,7 @@ export function SalesCasesPage({
         <div className="flex items-center gap-2">
           <ExportExcelButton path="/exports/opportunities" filename="firsatlar.xlsx" params={exportParams} className="h-9" />
         </div>
-      </div>
+      </section>
 
       <TabsContent value="kanban" className="mt-0">
         <QualificationKanban
@@ -311,45 +311,45 @@ export function SalesCasesPage({
                   [s.leadContactMethodName, s.leadContactValue].filter(Boolean).join(" · ");
                 return (
                   <TableRow key={s.id} className="cursor-pointer group" onClick={() => onSelect(s)}>
-                    <TableCell className="sticky left-0 z-10 border-r border-border/60 bg-white group-hover:bg-[#f8f9fc]">
+                    <TableCell className="crm-sticky-cell sticky left-0 z-10 border-r border-border/60">
                       <div className="flex items-center gap-3 min-w-0">
                         <EntityVisual size="sm" title={s.requestedModel || s.requestedProduct} imageUrl={product?.imageUrl} icon={<Cpu className="size-4" />} />
                         <div className="min-w-0">
                           <div className="flex min-w-0 items-center gap-1.5">
                             <div className="truncate text-sm font-semibold leading-tight transition-colors group-hover:text-primary">{partyName}</div>
-                            {!c && <span className="shrink-0 rounded bg-warning-soft px-1.5 py-0.5 text-[9px] text-warning">Lead</span>}
+                            {!c && <span className="shrink-0 rounded bg-warning-soft px-1.5 py-0.5 text-xs text-warning">Lead</span>}
                           </div>
-                          <div className="mt-0.5 truncate text-[11px] text-muted-foreground">
+                          <div className="mt-0.5 truncate text-xs text-muted-foreground">
                             {s.leadContactName && s.leadContactName !== partyName ? `${s.leadContactName} · ` : ""}
                             {s.requestedProduct} · {s.requestedModel} · {s.quantity} adet
                           </div>
                           {contactLine && (
-                            <div className="mt-0.5 truncate text-[10px] text-muted-foreground">{contactLine}</div>
+                            <div className="mt-0.5 truncate text-xs text-muted-foreground">{contactLine}</div>
                           )}
                           {(s.leadCity || c?.city) && (
-                            <div className="mt-0.5 truncate text-[10px] text-muted-foreground">
+                            <div className="mt-0.5 truncate text-xs text-muted-foreground">
                               {c?.city
                                 ? [c.city, c.district].filter(Boolean).join(" / ")
                                 : [s.leadCity, s.leadDistrict].filter(Boolean).join(" / ")}
                             </div>
                           )}
-                          <div className="font-data text-[9px] uppercase tracking-wide text-muted-foreground/80">#{s.id.toUpperCase()}</div>
+                          <div className="font-data text-xs uppercase tracking-wide text-muted-foreground/80">#{s.id.toUpperCase()}</div>
                         </div>
                       </div>
                     </TableCell>
                     <TableCell className="text-right tabular-nums">
                       <span className="font-display text-lg font-semibold text-primary">{s.estimatedAmount.toLocaleString("tr-TR")}</span>{" "}
-                      <span className="text-[11px] text-muted-foreground">{s.currency}</span>
+                      <span className="text-xs text-muted-foreground">{s.currency}</span>
                     </TableCell>
                     <TableCell>
                       <div className="space-y-1">
                         <QualificationBadge stage={s.qualificationStage} />
-                        <div className="text-[9px] text-muted-foreground">Operasyon: {salesStageLabel(s.stage)}</div>
+                        <div className="text-xs text-muted-foreground">Operasyon: {salesStageLabel(s.stage)}</div>
                       </div>
                     </TableCell>
                     {showLostDetails && (
                       <TableCell>
-                        <div className="max-w-[340px] space-y-1 text-[11px]">
+                        <div className="max-w-[340px] space-y-1 text-xs">
                           <div className="font-medium text-foreground">
                             {s.lostProductName || s.requestedMachine || [s.requestedProduct, s.requestedModel].filter(Boolean).join(" · ") || "Ürün belirtilmedi"}
                           </div>
@@ -364,7 +364,7 @@ export function SalesCasesPage({
                       </TableCell>
                     )}
                     <TableCell>
-                      <div className="min-w-[160px]"><span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] ${risk.className}`}><AlertTriangle className="mr-1 size-3" />{risk.label}</span><div className="mt-1.5 flex items-center gap-1 text-[10px] text-muted-foreground"><CalendarClock className="size-3.5" />{nextActivity ? `${nextActivity.title} · ${new Date(nextActivity.date).toLocaleDateString("tr-TR")}` : "Sonraki aktivite planlanmamış"}</div></div>
+                      <div className="min-w-[160px]"><span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs ${risk.className}`}><AlertTriangle className="mr-1 size-3" />{risk.label}</span><div className="mt-1.5 flex items-center gap-1 text-xs text-muted-foreground"><CalendarClock className="size-3.5" />{nextActivity ? `${nextActivity.title} · ${new Date(nextActivity.date).toLocaleDateString("tr-TR")}` : "Sonraki aktivite planlanmamış"}</div></div>
                     </TableCell>
                     <TableCell className="hidden sm:table-cell" onClick={(event) => event.stopPropagation()}>
                       {canAssignOwner ? (
@@ -383,7 +383,7 @@ export function SalesCasesPage({
                             }
                           }}
                         >
-                          <SelectTrigger size="sm" className="h-8 w-[160px] bg-white text-xs" aria-label={`${partyName} sorumlusu`}>
+                          <SelectTrigger size="sm" className="h-8 w-[160px] bg-card text-xs" aria-label={`${partyName} sorumlusu`}>
                             <SelectValue placeholder="Atanmadı" />
                           </SelectTrigger>
                           <SelectContent>
@@ -394,7 +394,7 @@ export function SalesCasesPage({
                       ) : (
                         <div className="flex items-center gap-2">
                           <Avatar className="size-6">
-                            <AvatarFallback className="bg-primary/15 text-primary text-[10px]">{initials(u?.name ?? "—")}</AvatarFallback>
+                            <AvatarFallback className="bg-primary/15 text-xs text-primary">{initials(u?.name ?? "—")}</AvatarFallback>
                           </Avatar>
                           <span className="text-sm">{(u?.name ?? "Atanmadı").split(" ")[0]}</span>
                         </div>
@@ -494,18 +494,18 @@ export function SalesCasesPage({
                             </div>
                             <div className="min-w-0">
                               <div className="text-sm leading-tight truncate group-hover:text-primary transition-colors">{salesCasePartyName(s, c)}</div>
-                              <div className="text-[11px] text-muted-foreground truncate mt-0.5">#{s.id.toUpperCase()}</div>
+                              <div className="mt-0.5 truncate text-xs text-muted-foreground">#{s.id.toUpperCase()}</div>
                             </div>
                           </div>
                         </TableCell>
                         <TableCell>
                           <div className="text-sm">{s.lostProductName || s.requestedProduct}</div>
-                          {s.requestedModel && <div className="mt-0.5 text-[11px] text-muted-foreground">{s.requestedModel}</div>}
+                          {s.requestedModel && <div className="mt-0.5 text-xs text-muted-foreground">{s.requestedModel}</div>}
                         </TableCell>
                         <TableCell>
                           <QualificationBadge stage={s.qualificationStage} />
                           {s.qualificationStage === "lost" && (
-                            <div className="mt-1 max-w-[280px] text-[11px] text-muted-foreground">
+                            <div className="mt-1 max-w-[280px] text-xs text-muted-foreground">
                               <div className="text-destructive">{s.lostReason || s.lostReasonCode || "Neden belirtilmedi"}</div>
                               <div>Rakip: {[s.competitor, s.lostCompetitorProductModel].filter(Boolean).join(" · ") || "yok / bilinmiyor"}</div>
                               <div className="line-clamp-2">Uymayan şartlar: {s.lostUnmetConditions || s.qualificationNote || "belirtilmedi"}</div>

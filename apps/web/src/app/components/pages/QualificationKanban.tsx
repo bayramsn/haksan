@@ -49,32 +49,32 @@ const ACTIVE_QUALIFICATION_STAGES = QUALIFICATION_STAGES as ActiveQualificationS
 // (mock.ts#QUALIFICATION_STAGE_DESCRIPTIONS) okunur.
 const STAGE_META: Record<ActiveQualificationStage, { color: string; dot: string; surface: string }> = {
   c: {
-    color: "#64748B",
+    color: "var(--chart-6)",
     dot: "bg-slate-500",
     surface: "bg-slate-50 text-slate-700",
   },
   b: {
-    color: "#2563EB",
+    color: "var(--chart-2)",
     dot: "bg-blue-600",
     surface: "bg-blue-50 text-blue-700",
   },
   a: {
-    color: "#4F46E5",
+    color: "var(--chart-5)",
     dot: "bg-indigo-600",
     surface: "bg-indigo-50 text-indigo-700",
   },
   a_plus: {
-    color: "#D97706",
+    color: "var(--warning)",
     dot: "bg-amber-600",
     surface: "bg-amber-50 text-amber-700",
   },
   win: {
-    color: "#059669",
+    color: "var(--success)",
     dot: "bg-emerald-600",
     surface: "bg-emerald-50 text-emerald-700",
   },
   lost: {
-    color: "#DC2626",
+    color: "var(--destructive)",
     dot: "bg-red-600",
     surface: "bg-red-50 text-red-700",
   },
@@ -280,7 +280,7 @@ export function QualificationKanban({
               aria-label={`${partyName} fırsat detayını aç`}
               onClick={() => onSelect(salesCase)}
               onKeyDown={openDetailsFromKeyboard}
-              className="group cursor-pointer gap-0 overflow-hidden rounded-xl border border-[#0b2453]/15 bg-white p-0 shadow-xs outline-none transition-[border-color,box-shadow,transform] hover:-translate-y-px hover:border-[#2457D6]/40 hover:shadow-md focus-visible:ring-2 focus-visible:ring-[#2457D6] focus-visible:ring-offset-2"
+              className="group cursor-pointer gap-0 overflow-hidden border border-border/80 bg-card p-0 shadow-xs outline-none transition-[border-color,box-shadow,transform] hover:-translate-y-px hover:border-operation-blue/40 hover:shadow-md focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
             >
               <div className="h-1.5" style={{ backgroundColor: meta.color }} />
               <div className="p-3">
@@ -289,10 +289,10 @@ export function QualificationKanban({
                     {company ? <Building2 className="size-4" /> : <UserRound className="size-4" />}
                   </div>
                   <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-center gap-x-1.5 font-data text-[9px] font-semibold uppercase tracking-[0.12em] text-[#0b2453]/55">
+                    <div className="flex flex-wrap items-center gap-x-1.5 font-data text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">
                       <span>Firma</span>
                     </div>
-                    <div className="mt-0.5 line-clamp-2 whitespace-normal break-words [overflow-wrap:anywhere] font-display text-[15px] font-semibold leading-[1.25] text-[#0b1739]">
+                    <div className="mt-0.5 line-clamp-2 whitespace-normal break-words [overflow-wrap:anywhere] font-display text-[15px] font-semibold leading-[1.25] text-foreground">
                       {partyName}
                     </div>
                   </div>
@@ -361,34 +361,34 @@ export function QualificationKanban({
                     </DropdownMenu>
                   </div>
                 </div>
-                <div className="mt-3 border-t border-[#0b2453]/10 pt-2.5">
-                  <div className="font-data text-[8px] font-semibold uppercase tracking-[0.13em] text-[#0b2453]/45">
+                <div className="mt-3 border-t border-border/70 pt-2.5">
+                  <div className="font-data text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">
                   Kart detayları
                   </div>
-                  <dl className="mt-1 divide-y divide-slate-200/70">
+                  <dl className="mt-1 divide-y divide-border/70">
                      <div className="grid grid-cols-[52px_minmax(0,1fr)] gap-2 py-1.5">
-                       <dt className="font-data text-[9px] font-medium uppercase tracking-[0.08em] text-muted-foreground">Konu</dt>
-                       <dd className="min-w-0 line-clamp-2 break-words text-[11px] font-medium leading-4 text-[#0b1739]">{subject}</dd>
+                       <dt className="font-data text-xs font-medium uppercase tracking-[0.06em] text-muted-foreground">Konu</dt>
+                       <dd className="min-w-0 line-clamp-2 break-words text-xs font-medium leading-4 text-foreground">{subject}</dd>
                      </div>
                      <div className="grid grid-cols-[52px_minmax(0,1fr)] gap-2 py-1.5">
-                       <dt className="font-data text-[9px] font-medium uppercase tracking-[0.08em] text-muted-foreground">İlgili</dt>
-                       <dd className="min-w-0 line-clamp-1 break-words text-[11px] font-medium leading-4 text-[#0b1739]">{contactName}</dd>
+                       <dt className="font-data text-xs font-medium uppercase tracking-[0.06em] text-muted-foreground">İlgili</dt>
+                       <dd className="min-w-0 line-clamp-1 break-words text-xs font-medium leading-4 text-foreground">{contactName}</dd>
                      </div>
                      <div className="grid grid-cols-[52px_minmax(0,1fr)] gap-2 py-1.5">
-                       <dt className="flex items-center gap-1 font-data text-[9px] font-medium uppercase tracking-[0.08em] text-muted-foreground">
+                       <dt className="flex items-center gap-1 font-data text-xs font-medium uppercase tracking-[0.06em] text-muted-foreground">
                          <MapPin className="size-3" aria-hidden="true" /> Adres
                        </dt>
-                       <dd className="min-w-0 line-clamp-2 break-words text-[11px] leading-4 text-[#0b1739]">{address || "Adres bilgisi yok"}</dd>
+                       <dd className="min-w-0 line-clamp-2 break-words text-xs leading-4 text-foreground">{address || "Adres bilgisi yok"}</dd>
                      </div>
                      <div className="grid grid-cols-[52px_minmax(0,1fr)] gap-2 py-1.5">
-                      <dt className="font-data text-[9px] font-medium uppercase tracking-[0.08em] text-muted-foreground">Makina</dt>
-                      <dd className="min-w-0 line-clamp-2 break-words text-[11px] font-medium leading-4 text-[#0b1739]">{machine}</dd>
+                      <dt className="font-data text-xs font-medium uppercase tracking-[0.06em] text-muted-foreground">Makina</dt>
+                      <dd className="min-w-0 line-clamp-2 break-words text-xs font-medium leading-4 text-foreground">{machine}</dd>
                     </div>
                     <div className="grid grid-cols-[52px_minmax(0,1fr)] gap-2 py-1.5">
-                      <dt className={`font-data text-[9px] font-medium uppercase tracking-[0.08em] ${actionOverdue ? "text-red-700" : "text-muted-foreground"}`}>Aksiyon</dt>
+                      <dt className={`font-data text-xs font-medium uppercase tracking-[0.06em] ${actionOverdue ? "text-destructive" : "text-muted-foreground"}`}>Aksiyon</dt>
                       <dd className="min-w-0">
-                        <div className={`line-clamp-2 break-words text-[11px] font-medium leading-4 ${salesCase.nextAction ? "text-[#0b1739]" : "text-muted-foreground"}`}>{action}</div>
-                        <div className={`mt-0.5 font-data text-[8px] ${actionOverdue ? "font-semibold text-red-700" : "text-muted-foreground"}`}>
+                        <div className={`line-clamp-2 break-words text-xs font-medium leading-4 ${salesCase.nextAction ? "text-foreground" : "text-muted-foreground"}`}>{action}</div>
+                        <div className={`mt-0.5 font-data text-xs ${actionOverdue ? "font-semibold text-destructive" : "text-muted-foreground"}`}>
                           {actionOverdue ? "Gecikti · " : ""}{actionDateLabel(salesCase.nextActionAt)}
                         </div>
                       </dd>
