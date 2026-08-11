@@ -161,7 +161,20 @@ const quoteMachineModel = (
 export function buildQuotePrintData(input: QuoteBuildInput, quote: QuoteDetail): QuotePrintData {
   const { offer, customer, salesCase, users, contacts, products, headerLogoMode = "haksan" } = input;
   const contact = contacts.find((item) => item.id === quote.contactId);
-  const owner = users.find((item) => item.id === quote.projectOwnerUserId);
+  // Teklif sahibi API'den güncel ünvanıyla gelir. Böylece yönetim ekranında
+  // yapılan değişiklikten sonra açık kalmış global kullanıcı listesi PDF'e eski
+  // departman adını taşımaz. Eski API/snapshot kayıtlarında store yedektir.
+  const serverOwner = quote.projectOwner ?? (quote as any).documentSnapshot?.projectOwner;
+  const owner = serverOwner?.id
+    ? {
+        id: String(serverOwner.id),
+        name: String(serverOwner.name ?? ""),
+        email: String(serverOwner.email ?? ""),
+        phone: serverOwner.phone ? String(serverOwner.phone) : undefined,
+        title: serverOwner.title ? String(serverOwner.title) : undefined,
+        department: serverOwner.department ? String(serverOwner.department) : undefined,
+      }
+    : users.find((item) => item.id === quote.projectOwnerUserId);
   const product = findProduct(products, quote, salesCase);
   const quoteItems = (quote.items ?? []).filter((item: { description?: string | null }) =>
     String(item.description ?? "").trim(),

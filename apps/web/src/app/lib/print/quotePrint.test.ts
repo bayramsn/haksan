@@ -92,6 +92,40 @@ describe("quote print address", () => {
     expect(quoteDoc(result, "/brand").body).toContain("Kıdemli Satış Uzmanı");
   });
 
+  it("prefers the fresh server owner title over a stale department-only user", () => {
+    const result = buildQuotePrintData({
+      offer,
+      customer,
+      salesCase: null,
+      users: [{
+        id: "sender-1",
+        name: "Ersin Çetinbilek",
+        email: "ersin@example.test",
+        department: "Satış",
+      }] as never,
+      contacts: [],
+      products: [],
+    }, {
+      quoteDate: "2026-08-11",
+      documentNo: "CNC-2026/002",
+      projectOwnerUserId: "sender-1",
+      projectOwner: {
+        id: "sender-1",
+        name: "Ersin Çetinbilek",
+        email: "ersin@example.test",
+        phone: null,
+        title: "Satış Müdürü",
+        department: "SATIŞ",
+      },
+      items: [],
+      terms: {},
+    } as never);
+
+    expect(result.projeIlgilisi).toBe("Ersin Çetinbilek");
+    expect(result.projeIlgilisiUnvan).toBe("Satış Müdürü");
+    expect(quoteDoc(result, "/brand").body).toContain("Satış Müdürü");
+  });
+
   it("carries the selected company logo into the PDF data", () => {
     const result = buildQuotePrintData({
       offer,

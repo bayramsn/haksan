@@ -140,7 +140,7 @@ const normalizeAdminUser = (user: any, fallback?: User): AdminUserRow => {
 };
 
 export function UsersPage() {
-  const { users } = useStore();
+  const { users, refresh } = useStore();
   const { hasRole, hasPermission, user: currentUser } = useAuth();
   // Hedef oluşturma süper admin (ve admin) yetkisine bağlı.
   const canSetTargets = hasRole("super_admin") || hasRole("admin");
@@ -325,6 +325,9 @@ export function UsersPage() {
       toast.success("Kullanıcı güncellendi");
       setDeptUser(null);
       await loadAdminUsers();
+      // Belge çıktıları proje ilgilisinin ünvanını ortak kullanıcı listesinden
+      // de okuyabildiği için aynı oturumdaki eski değeri hemen temizle.
+      await refresh();
     } catch (err: any) {
       toast.error("Güncellenemedi", { description: err?.message ?? "Lütfen tekrar deneyin." });
     } finally {

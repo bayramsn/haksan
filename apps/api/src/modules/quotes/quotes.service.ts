@@ -9,7 +9,7 @@ import { opportunities, opportunityApprovals, salesActivities } from '../../db/s
 import { receivables } from '../../db/schema/finance';
 import { inventoryItems } from '../../db/schema/inventory';
 import { brands, productModels } from '../../db/schema/products';
-import { divisions } from '../../db/schema/tenants';
+import { departments, divisions } from '../../db/schema/tenants';
 import { users } from '../../db/schema/users';
 import {
   activityTypes,
@@ -21,6 +21,7 @@ import {
   invoiceStatuses,
   productGroups,
   productTypes,
+  userTitles,
 } from '../../db/schema/lookup';
 import { DB } from '../../shared/database/database.module';
 import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from '../../shared/utils/errors';
@@ -787,12 +788,32 @@ export class QuotesService {
       .where(and(eq(quoteItems.quoteId, id), isNull(quoteItems.deletedAt)))
       .orderBy(quoteItems.sortOrder, quoteItems.createdAt);
     const terms = await this.db.query.quoteTerms.findFirst({ where: eq(quoteTerms.quoteId, id) });
-    return { ...quote, items, terms };
+    const [projectOwner] = quote.projectOwnerUserId
+      ? await this.db
+          .select({
+            id: users.id,
+            name: users.fullName,
+            email: users.email,
+            phone: users.phone,
+            title: userTitles.name,
+            department: departments.name,
+          })
+          .from(users)
+          .leftJoin(userTitles, eq(users.titleId, userTitles.id))
+          .leftJoin(departments, eq(users.departmentId, departments.id))
+          .where(and(
+            eq(users.id, quote.projectOwnerUserId),
+            eq(users.tenantId, actor.tenantId),
+            isNull(users.deletedAt),
+          ))
+          .limit(1)
+      : [];
+    return { ...quote, items, terms, projectOwner: projectOwner ?? null };
   }
 
   private async buildDocumentSnapshot(quoteId: string, actor: AuthContext) {
     const quote = await this.get(quoteId, actor);
-    const { items, terms, documentSnapshot: _documentSnapshot, ...quoteHeader } = quote;
+    const { items, terms, projectOwner, documentSnapshot: _documentSnapshot, ...quoteHeader } = quote;
     const productModelIds = [...new Set(items.map((item) => item.productModelId).filter((id): id is string => Boolean(id)))];
     const unitIds = [...new Set(items.map((item) => item.unitId).filter((id): id is string => Boolean(id)))];
     const [company, contact, currency, addresses, phones, emails, quoteReceivables, productRows, unitRows] = await Promise.all([
@@ -843,6 +864,7 @@ export class QuotesService {
       // Yazdırma katmanı canlı imzaya değil bu bloğa bakar: imza sonradan
       // değişse veya silinse bile belge kendi bastığı imzayı korur.
       signature: await this.captureSignatureSnapshot(quote.signatureId, actor),
+      projectOwner,
       company: company ?? null,
       companyAddresses: orderedAddresses,
       companyPhones: phones,
