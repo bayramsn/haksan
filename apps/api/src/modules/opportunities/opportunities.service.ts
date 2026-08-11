@@ -3324,8 +3324,11 @@ export class OpportunitiesService {
     ]);
     const context = contextMap.get(opp.id)!;
     const insights = this.leadInsights(opp, activityMap.get(opp.id));
-    const hardBlockers: string[] = [];
-    if (!opp.ownerUserId) hardBlockers.push('Sorumlu kullanıcı atanmalıdır');
+    // Lead, satış ekibinin kararıyla her an fırsata çevrilebilir. Eksik alanlar
+    // dönüşümü engellemez; C aşamasının hazırlık listesinde görünmeye devam eder.
+    // Uyarıları denetim kaydına alarak veri kalitesini görünür tutuyoruz.
+    const conversionWarnings: string[] = [];
+    if (!opp.ownerUserId) conversionWarnings.push('Sorumlu kullanıcı atanmamış');
     if (
       !opp.leadPhone?.trim() &&
       !opp.leadEmail?.trim() &&
@@ -3333,35 +3336,21 @@ export class OpportunitiesService {
       !context.hasPhone &&
       !context.hasEmail
     ) {
-      hardBlockers.push('Telefon veya e-posta bilgisi girilmelidir');
+      conversionWarnings.push('Telefon veya e-posta bilgisi eksik');
     }
     if (!opp.title?.trim() && !opp.requestedMachine?.trim()) {
-      hardBlockers.push('Ürün veya makine bilgisi girilmelidir');
+      conversionWarnings.push('Ürün veya makine bilgisi eksik');
     }
     if (!opp.nextAction?.trim() || !opp.nextActionAt) {
-      hardBlockers.push('Tarihli bir sonraki aksiyon planlanmalıdır');
+      conversionWarnings.push('Tarihli bir sonraki aksiyon planlanmamış');
     }
-    if (hardBlockers.length) {
-      throw new ValidationError('Lead fırsata dönüşüm için henüz hazır değil', {
-        blockers: hardBlockers,
-        requiresOverride: false,
-        leadInsights: insights,
-      });
-    }
-    const softBlockers = [...new Set([
+    conversionWarnings.push(...new Set([
       ...insights.softBlockers,
       ...(insights.fitScore < 60 ? ['Uyum skoru 60 puanın altında'] : []),
       ...(opp.leadBudgetStatus === 'unavailable' ? ['Bütçe uygun değil'] : []),
       ...(opp.leadTechnicalFit === 'not_fit' ? ['Teknik uyum olumsuz'] : []),
-    ])];
+    ]));
     const overrideReason = input.overrideReason?.trim();
-    if (softBlockers.length && !overrideReason) {
-      throw new ValidationError('Nitelendirme eksikleri için dönüşüm gerekçesi zorunludur', {
-        blockers: softBlockers,
-        requiresOverride: true,
-        leadInsights: insights,
-      });
-    }
     const now = new Date();
     // Fırsata çevrilen kart C alanının giriş aşamasına ("Satış") taşınır;
     // aksi hâlde derece C olurken operasyon ekseni lead'de takılı kalır.
@@ -3399,7 +3388,7 @@ export class OpportunitiesService {
       'c',
       conversionNote,
       {
-        override: softBlockers.length > 0,
+        override: Boolean(overrideReason),
         fitScore: insights.fitScore,
         engagementScore: insights.engagementScore,
         priorityScore: insights.priorityScore,
@@ -3414,8 +3403,9 @@ export class OpportunitiesService {
       oldValues: { qualificationStage: fromStage },
       newValues: {
         qualificationStage: 'c',
-        conversionOverride: softBlockers.length > 0,
+        conversionOverride: Boolean(overrideReason),
         overrideReason: overrideReason ?? null,
+        conversionWarnings,
         fitScore: insights.fitScore,
         engagementScore: insights.engagementScore,
         priorityScore: insights.priorityScore,

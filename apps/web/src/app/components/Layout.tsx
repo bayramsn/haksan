@@ -43,8 +43,9 @@ export type NavKey =
 
 type NavItem = { key: NavKey; label: string; icon: any; badge?: string; roles?: string[] };
 
-// Yönetim grubu sadece admin/super_admin'e açıktır (canSee bu set'i kullanır).
-export const MGMT_KEYS = new Set<NavKey>(["users", "roles", "departments", "settings"]);
+// Kullanıcı/rol/departman yönetimi yalnız admin/super_admin'e açıktır.
+// Ayarlar içindeki kişisel tercihler ve Webmail ise her oturum sahibi içindir.
+export const MGMT_KEYS = new Set<NavKey>(["users", "roles", "departments"]);
 
 export const RESOURCE_BY_NAV: Partial<Record<NavKey, string>> = {
   calendar: "calendar",
@@ -85,6 +86,7 @@ export function canAccessNavKey(
   hasPermission: (permission: string) => boolean,
   hasRole: (role: string) => boolean
 ) {
+  if (key === "settings") return true;
   if (hasRole("admin") || hasRole("super_admin")) return true;
   if (MGMT_KEYS.has(key)) return false;
   if (key === "documents") {

@@ -466,39 +466,29 @@ export function OpportunityWorkspace({
   );
   const terminal = Boolean(decisionModel.terminalLabel);
 
-  const leadBlockers = sc.qualificationReadiness?.blockers ?? [];
   const processBlocked = Boolean(nextOperationTarget?.blockers.length);
-  const useLeadConversionAsPrimary = !terminal
-    && canUpdate
-    && isLead
-    && !sc.qualificationReadiness?.health?.actionMissing
-    && !decisionModel.nextActionOverdue
-    && leadBlockers.length === 0;
+  // Dönüşüm komutu eksikler varken kaybolmaz; alanlar C aşamasında tamamlanır.
+  const useLeadConversionAsPrimary = !terminal && canUpdate && isLead;
   const revealProcessActions = () => {
     // Görev listesi her zaman mount; kullanıcıyı listeye götürmek yeterli.
     focusWorkspaceTarget(document.getElementById("opportunity-process-actions"), { focus: false, block: "start" });
   };
-  const revealQualification = () => {
-    focusWorkspaceTarget(document.getElementById("opportunity-qualification"), { focus: false, block: "start" });
-  };
   // Kapanmış kayıtta yapılacak bir iş yok: sahte bir birincil eylem (eskiden
   // "Kapanış kayıtlarını gör") kaldırılan Kayıtlar bölümüne gidiyordu.
   const decisionPrimaryAction = terminal || !canUpdate ? undefined
-    : sc.qualificationReadiness?.health?.actionMissing || decisionModel.nextActionOverdue ? (
-      <NextActionDialog
-        salesCase={sc}
-        onSave={(patch) => updateCase(sc.id, patch)}
-        trigger={<Button type="button">{decisionModel.nextActionOverdue ? "Aksiyonu yeniden planla" : "Aksiyon planla"}</Button>}
-      />
-    ) : isLead && leadBlockers.length > 0 ? (
-      <Button type="button" onClick={revealQualification}>Nitelendirmedeki eksikleri tamamla</Button>
-    ) : isLead ? (
+    : isLead ? (
       <Button
         type="button"
         onClick={() => document.querySelector<HTMLButtonElement>('[data-workspace-primary="convert"]')?.click()}
       >
         Fırsata dönüştür
       </Button>
+    ) : sc.qualificationReadiness?.health?.actionMissing || decisionModel.nextActionOverdue ? (
+      <NextActionDialog
+        salesCase={sc}
+        onSave={(patch) => updateCase(sc.id, patch)}
+        trigger={<Button type="button">{decisionModel.nextActionOverdue ? "Aksiyonu yeniden planla" : "Aksiyon planla"}</Button>}
+      />
     ) : processBlocked ? (
       <Button type="button" onClick={revealProcessActions}>Engelleri çöz</Button>
     ) : (

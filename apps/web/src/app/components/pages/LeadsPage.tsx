@@ -390,7 +390,7 @@ export function LeadsPage({ onSelect, focus }: { onSelect: (lead: SalesCase) => 
                 <TableHead>SLA</TableHead>
                 <TableHead>Kaynak</TableHead>
                 <TableHead className="text-right">Uyum · Etkileşim</TableHead>
-                <TableHead className="w-[82px]"><span className="sr-only">İşlemler</span></TableHead>
+                <TableHead className="w-[230px]"><span className="sr-only">İşlemler</span></TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -448,19 +448,33 @@ export function LeadsPage({ onSelect, focus }: { onSelect: (lead: SalesCase) => 
                     <TableCell className="text-right font-data text-xs tabular-nums">
                       {lead.leadInsights?.fitScore ?? 0} · {lead.leadInsights?.engagementScore ?? 0}
                     </TableCell>
-                    <TableCell>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        className="h-8"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          onSelect(lead);
-                        }}
-                      >
-                        İncele
-                      </Button>
+                    <TableCell onClick={(event) => event.stopPropagation()}>
+                      <div className="flex items-center justify-end gap-1.5">
+                        {canConvert && (lead.leadFollowUpStatus ?? "new") !== "disqualified" && (
+                          <Button
+                            type="button"
+                            size="sm"
+                            className="h-8 gap-1.5"
+                            disabled={busyId === lead.id}
+                            onClick={() => void convert(lead)}
+                          >
+                            {busyId === lead.id ? "Çevriliyor…" : "Fırsata çevir"}
+                            <ArrowRight className="size-3.5" />
+                          </Button>
+                        )}
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          className="h-8"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            onSelect(lead);
+                          }}
+                        >
+                          İncele
+                        </Button>
+                      </div>
                     </TableCell>
                   </TableRow>
                 );

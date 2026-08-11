@@ -172,7 +172,8 @@ export function OpportunityProcessCenter({
   const viewedIsFuture = viewedDirection === "forward";
 
   const advance = async () => {
-    if (!canUpdate || advancing || !nextTarget || closed || blockers.length > 0) return;
+    const blockedByRequirements = currentStage !== "lead" && blockers.length > 0;
+    if (!canUpdate || advancing || !nextTarget || closed || blockedByRequirements) return;
     // Lead → C, firma/kontak kurulumunu da yapan ayrı bir dönüştürme akışıdır;
     // doğrudan derece değişimi o akışı atlayıp yarım kart bırakırdı.
     if (currentStage === "lead") {
@@ -197,7 +198,8 @@ export function OpportunityProcessCenter({
     }
   };
 
-  const advanceDisabled = !canUpdate || advancing || closed || blockers.length > 0;
+  const advanceDisabled = !canUpdate || advancing || closed
+    || (currentStage !== "lead" && blockers.length > 0);
   // Lead'de ilerletme, dönüştürme akışını açar; düğme yaptığı işi söylemeli.
   const advanceLabel =
     currentStage === "lead" ? "Fırsata dönüştür" : `${stageLabel(nextTarget?.code)} alanına geç`;
@@ -214,6 +216,9 @@ export function OpportunityProcessCenter({
     if (isLost) return `${base}. Kart kaybedildi olarak kapatıldı.`;
     if (closed) return `${base}. Kart kapalı, önce geri açılmalı.`;
     if (!nextTarget) return `${base}. Sonraki alan yok.`;
+    if (currentStage === "lead") {
+      return `${base}. Fırsata dönüşüm hazır; eksik bilgiler fırsatta tamamlanabilir.`;
+    }
     return blockers.length
       ? `${base}. ${stageLabel(nextTarget.code)} alanına geçmek için ${blockers.length} gereklilik eksik.`
       : `${base}. ${stageLabel(nextTarget.code)} alanına geçiş hazır.`;
@@ -366,7 +371,9 @@ export function OpportunityProcessCenter({
             <span className="text-[11px] text-muted-foreground">
               {closed
                 ? "Kapalı kartta alan değiştirilemez."
-                : blockers.length
+                : currentStage === "lead"
+                  ? "Eksik lead bilgilerini fırsat içinde tamamlayabilirsiniz."
+                  : blockers.length
                   ? "Eksikleri yukarıdaki alan görevlerinden tamamlayın; ardından ilerletme açılır."
                   : "Bu alanın gereklilikleri tamam; ilerletebilirsiniz."}
             </span>

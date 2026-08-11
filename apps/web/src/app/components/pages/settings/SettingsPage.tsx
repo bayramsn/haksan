@@ -97,7 +97,9 @@ export function SettingsPage() {
   const [hiddenNavigationKeys, setHiddenNavigationKeys] = useState<NavigationVisibilityKey[]>([]);
   const [hiddenNavigationBaseline, setHiddenNavigationBaseline] = useState<NavigationVisibilityKey[]>([]);
   const [navigationSaving, setNavigationSaving] = useState(false);
-  const [tab, setTab] = useState("genel");
+  // Kurumsal ayar yetkisi olmayan kullanıcı doğrudan kendi Webmail hesabına
+  // ulaşır; genel tercihler sekmesi yine yan menüde kullanılabilir.
+  const [tab, setTab] = useState(canReadTenant ? "genel" : "webmail");
 
   useEffect(() => {
     if (!canReadTenant) return;

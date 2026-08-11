@@ -12,6 +12,7 @@ vi.hoisted(() => {
 describe('Personal webmail account API', () => {
   let app: NestFastifyApplication;
   let accessToken = '';
+  let salesAccessToken = '';
 
   beforeAll(async () => {
     app = await createTestApp();
@@ -19,6 +20,10 @@ describe('Personal webmail account API', () => {
       .post('/api/v1/auth/login')
       .send({ email: 'admin@haksan.local', password: 'admin12345' });
     accessToken = login.body.accessToken;
+    const salesLogin = await supertest(app.getHttpServer())
+      .post('/api/v1/auth/login')
+      .send({ email: 'sales@haksan.local', password: 'sales12345' });
+    salesAccessToken = salesLogin.body.accessToken;
   });
 
   afterAll(async () => {
@@ -46,5 +51,19 @@ describe('Personal webmail account API', () => {
       .send({ email: 'person@haksancnc.com.tr', displayName: 'Test Kullanıcısı', password: 'not-stored' });
     expect(response.status).toBe(422);
     expect(response.body.error.message).toContain('henüz etkinleştirilmemiş');
+  });
+
+  it('süperadmin olmayan kullanıcıya kendi Webmail hesabını okuma ve gönderme uçlarını açar', async () => {
+    const account = await supertest(app.getHttpServer())
+      .get('/api/v1/mail/account')
+      .set('Authorization', `Bearer ${salesAccessToken}`);
+    expect(account.status).toBe(200);
+
+    const send = await supertest(app.getHttpServer())
+      .post('/api/v1/mail/send')
+      .set('Authorization', `Bearer ${salesAccessToken}`)
+      .send({ to: 'musteri@example.com', subject: 'Test', body: 'Test mesajı' });
+    expect(send.status).toBe(422);
+    expect(send.body.error.message).toContain('henüz etkinleştirilmemiş');
   });
 });

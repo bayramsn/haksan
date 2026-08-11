@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { CreateContactDialog } from "../dialogs/CreateDialogs";
+import { ComposeMailDialog, type MailRecipient } from "../mail/ComposeMailDialog";
 import { ApiError } from "../../../lib/apiClient";
 import { opportunityService } from "../../../lib/services";
 import { useStore } from "../../lib/store";
@@ -330,6 +331,7 @@ export function DecisionRail({
   const isLead = salesCase.qualificationStage === "lead";
   const [contactOpen, setContactOpen] = useState(false);
   const [contactChannel, setContactChannel] = useState<LeadContactChannelCode>("phone");
+  const [mailRecipient, setMailRecipient] = useState<MailRecipient | null>(null);
   const [overrideOpen, setOverrideOpen] = useState(false);
   const [overrideBlockers, setOverrideBlockers] = useState<string[]>([]);
   const [converting, setConverting] = useState(false);
@@ -359,6 +361,20 @@ export function DecisionRail({
   };
 
   const startContact = (channel: LeadContactChannelCode) => {
+    if (channel === "email") {
+      const address = contactEmail || salesCase.leadEmail;
+      if (!address) {
+        toast.message("E-posta bilgisi eksik");
+        return;
+      }
+      setMailRecipient({
+        email: address,
+        name: contactName || salesCase.leadContactName,
+        companyId: salesCase.customerId || undefined,
+        contactId: salesCase.primaryContactId,
+      });
+      return;
+    }
     setContactChannel(channel);
     if (isLead && canUpdate) setContactOpen(true);
     const uri = contactUri(channel);
@@ -447,7 +463,7 @@ export function DecisionRail({
       disabled={converting || salesCase.leadFollowUpStatus === "disqualified"}
       onClick={() => void convert()}
     >
-      {converting ? "Kontrol ediliyor…" : "Fırsata dönüştür"}
+      {converting ? "Dönüştürülüyor…" : "Fırsata dönüştür"}
       <ArrowRight className="size-4" />
     </Button>
   ) : primaryAction ?? (!isLead && canUpdate ? (
@@ -587,6 +603,16 @@ export function DecisionRail({
     <>
       <div className="hidden lg:block">{rail}</div>
       {mobilePortalTarget ? createPortal(mobileDock, mobilePortalTarget) : null}
+      <ComposeMailDialog
+        recipient={mailRecipient}
+        onOpenChange={(open) => !open && setMailRecipient(null)}
+        onSent={() => {
+          if (isLead && canUpdate) {
+            setContactChannel("email");
+            setContactOpen(true);
+          }
+        }}
+      />
       {isLead && (
         <>
           <ContactResultDialog

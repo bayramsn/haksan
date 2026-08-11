@@ -42,9 +42,10 @@ describe("OpportunityProcessCenter tek kutu sözleşmesi", () => {
     expect(source).not.toContain("requiresReason");
     expect(source).not.toContain("invalidatedApprovals");
     expect(source).not.toContain("opportunityService.changeStage");
-    // İlerletme hâlâ tek adım ileri ve yalnız engeller temizken.
+    // İlerletme hâlâ tek adım ileri. Lead→C kullanıcının kararıyla serbest;
+    // sonraki satış alanları ise gereklilik kapılarını korur.
     expect(source).toContain('target.direction === "forward"');
-    expect(source).toContain("!canUpdate || advancing || !nextTarget || closed || blockers.length > 0");
+    expect(source).toContain('currentStage !== "lead" && blockers.length > 0');
   });
 
   it("ileri alanları yalnız önizleme olarak gösterir", () => {
@@ -62,8 +63,8 @@ describe("OpportunityProcessCenter davranış eşdeğerliği", () => {
     expect(checklistSource).toContain("aria-haspopup={hasInlineEditor || (check.actionKey && DIALOG_ACTION_KEYS.has(check.actionKey))");
   });
 
-  it("ilerletmeyi yalnız bütün gereklilikler tamamken ve ileri yönde açar", () => {
-    expect(source).toContain("!canUpdate || advancing || !nextTarget || closed || blockers.length > 0");
+  it("Lead dönüşümünü serbest bırakır, sonraki alanların gereklilik kapılarını korur", () => {
+    expect(source).toContain('currentStage !== "lead" && blockers.length > 0');
     expect(source).toContain("opportunityService.changeQualificationStage");
     expect(source).toContain("await onRefresh()");
     expect(source).toContain("await load()");
@@ -112,8 +113,8 @@ describe("OpportunityProcessCenter tek ilerletme düğmesi", () => {
     expect(checklistSource).not.toContain("Fırsata dönüştür");
   });
 
-  it("kalan düğme kapalı kartı ve engelleri kontrol eder", () => {
-    expect(source).toContain("const advanceDisabled = !canUpdate || advancing || closed || blockers.length > 0");
+  it("kalan düğme kapalı kartı ve Lead dışındaki alan engellerini kontrol eder", () => {
+    expect(source).toContain('currentStage !== "lead" && blockers.length > 0');
     expect(source).toContain("disabled={advanceDisabled}");
   });
 });

@@ -358,44 +358,28 @@ describe('Opportunity qualification pipeline', () => {
     expect(forbidden.status).toBe(403);
   });
 
-  it('uses a soft conversion gate and stores the conversion-time scores with the reason', async () => {
+  it('allows an incomplete Lead to be converted immediately without an override reason', async () => {
     const server = app.getHttpServer();
     const created = await supertest(server)
       .post('/api/v1/opportunities')
       .set('Authorization', `Bearer ${token}`)
       .send({
-        companyId,
-        ownerUserId: userId,
-        title: `Gerekçeli dönüşüm ${suffix}`,
+        leadContactName: `Eksik lead ${suffix}`,
+        title: `Doğrudan dönüşüm ${suffix}`,
         currencyCode: 'EUR',
-        nextAction: 'Teknik toplantı',
-        nextActionAt: '2030-01-20T09:30:00.000Z',
       });
     expect(created.status).toBe(201);
-
-    const reasonless = await supertest(server)
-      .post(`/api/v1/opportunities/${created.body.id}/convert`)
-      .set('Authorization', `Bearer ${token}`)
-      .send({});
-    expect(reasonless.status).toBe(422);
-    expect(reasonless.body.error?.details).toMatchObject({
-      requiresOverride: true,
-      leadInsights: {
-        fitScore: expect.any(Number),
-        engagementScore: expect.any(Number),
-        priorityScore: expect.any(Number),
-      },
-    });
 
     const converted = await supertest(server)
       .post(`/api/v1/opportunities/${created.body.id}/convert`)
       .set('Authorization', `Bearer ${token}`)
-      .send({ overrideReason: 'Yönetim kararıyla teknik keşif fırsat aşamasında tamamlanacak' });
+      .send({});
     expect(converted.status, JSON.stringify(converted.body)).toBe(201);
+    expect(converted.body.qualificationStage).toBe('c');
     expect(converted.body.qualificationHistory[0]).toMatchObject({
       fromStage: 'lead',
       toStage: 'c',
-      conversionOverride: true,
+      conversionOverride: false,
       fitScore: expect.any(Number),
       engagementScore: expect.any(Number),
       priorityScore: expect.any(Number),
