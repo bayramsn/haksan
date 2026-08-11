@@ -19,21 +19,21 @@ export function DashboardBriefing({
   const today = new Intl.DateTimeFormat("tr-TR", { day: "2-digit", month: "long", weekday: "long" }).format(new Date());
 
   return (
-    <section aria-labelledby="dashboard-briefing-title" className="relative isolate overflow-hidden rounded-xl border border-white/10 border-t-2 border-t-brand-red bg-gradient-to-br from-brand-dark via-brand-blue to-[#0a1440] p-4 text-white shadow-sm sm:p-5">
-      <div className="pointer-events-none absolute inset-0 -z-10 opacity-[0.06] [background-image:linear-gradient(to_right,#fff_1px,transparent_1px),linear-gradient(to_bottom,#fff_1px,transparent_1px)] [background-size:28px_28px]" />
+    <section aria-labelledby="dashboard-briefing-title" className="relative isolate overflow-hidden rounded-[var(--overlay-radius)] border border-white/10 border-t-2 border-t-brand-red bg-[var(--gradient-brand)] p-4 text-white shadow-sm sm:p-5">
+      <div className="pointer-events-none absolute inset-0 -z-10 opacity-[0.06] [background-image:linear-gradient(to_right,currentColor_1px,transparent_1px),linear-gradient(to_bottom,currentColor_1px,transparent_1px)] [background-size:28px_28px]" />
       <div className="flex flex-col justify-between gap-4 md:flex-row md:items-center">
         <div className="flex min-w-0 items-center gap-4">
           <div className="grid size-12 shrink-0 place-items-center rounded-xl border border-white/15 bg-white/10 text-white shadow-inner backdrop-blur">
             <Factory className="size-5" aria-hidden="true" />
           </div>
           <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 font-data text-[9px] font-semibold uppercase tracking-[0.16em] text-blue-200">
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 font-data text-xs font-semibold uppercase tracking-[0.08em] text-white/75">
               <span>Günlük operasyon brifingi</span>
               <span aria-hidden="true">·</span>
               <time className="normal-case tracking-normal text-white/60">{today}</time>
             </div>
             <h2 id="dashboard-briefing-title" className="mt-1 font-display text-xl font-semibold leading-none tracking-tight">Hoş geldin {firstName}</h2>
-            <p className="mt-1.5 text-[12px] text-white/72">
+            <p className="mt-1.5 text-sm text-white/75">
               Bugün <b className="text-white">{workItemCount}</b> takip işi var; <b className="text-white">{criticalCount}</b> kritik, <b className="text-white">{warningCount}</b> yakın takip.
             </p>
           </div>

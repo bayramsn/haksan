@@ -72,6 +72,19 @@
   --chart-3: #14b8a6;
   --chart-4: #f59e0b;
   --chart-5: #8b5cf6;
+  --chart-6: #64748b;
+  --chart-7: #0ea5e9;
+  --chart-8: #0f9f8f;
+  --chart-9: #b42318;
+  --chart-10: #334155;
+  --chart-11: #fbbf24;
+  --chart-12: #60a5fa;
+  --chart-grid: #e8ebf0;
+  --chart-axis: #667085;
+  --chart-axis-muted: #98a2b3;
+  --chart-tooltip-border: #dfe3e8;
+  --chart-cursor: #f0f2f5;
+  --chart-contrast: #ffffff;
   --radius: 0.625rem;
   --sidebar: #fbfcfd;
   --sidebar-foreground: #18202a;
@@ -141,6 +154,19 @@
   --chart-3: #2dd4bf;
   --chart-4: #fbbf24;
   --chart-5: #a78bfa;
+  --chart-6: #94a3b8;
+  --chart-7: #38bdf8;
+  --chart-8: #2dd4bf;
+  --chart-9: #fb7185;
+  --chart-10: #cbd5e1;
+  --chart-11: #fde047;
+  --chart-12: #93c5fd;
+  --chart-grid: #26304d;
+  --chart-axis: #a4aec9;
+  --chart-axis-muted: #7f8baa;
+  --chart-tooltip-border: #303b5a;
+  --chart-cursor: #182138;
+  --chart-contrast: #10182e;
   --sidebar: #0d1226;
   --sidebar-foreground: #dbe1f3;
   --sidebar-primary: #8fa2ff;
@@ -525,6 +551,19 @@
 
   [data-density='compact'] [data-kanban-column] {
     width: 242px !important;
+  }
+
+  @media (max-width: 639px) {
+    [data-slot='button'],
+    [data-slot='tabs-trigger'] {
+      min-width: 2.75rem;
+      min-height: 2.75rem;
+    }
+
+    [data-slot='input'],
+    [data-slot='select-trigger'] {
+      min-height: 2.75rem;
+    }
   }
 
   @media (min-width: 640px) {

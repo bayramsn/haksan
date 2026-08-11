@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 const layout = readFileSync(new URL("./Layout.tsx", import.meta.url), "utf8");
+const shellParts = readFileSync(new URL("./shell/ShellParts.tsx", import.meta.url), "utf8");
 const commandPalette = readFileSync(new URL("./operations/CommandPalette.tsx", import.meta.url), "utf8");
 const salesCases = readFileSync(new URL("./pages/SalesCases.tsx", import.meta.url), "utf8");
 const dashboardQualification = readFileSync(new URL("./pages/dashboard/SalesQualificationPanel.tsx", import.meta.url), "utf8");
@@ -16,10 +17,11 @@ describe("UI modernizasyonu davranış korumaları", () => {
   });
 
   it("mobil menüyü erişilebilir Sheet, içerik atlama bağlantısı ve odaklanabilir main ile sunar", () => {
-    expect(layout).toContain("<Sheet open={mobileNavOpen}");
-    expect(layout).toContain('href="#main-content"');
-    expect(layout).toContain('id="main-content"');
-    expect(layout).toContain("tabIndex={-1}");
+    expect(layout).toContain("<ShellMobileNavigation open={mobileNavOpen}");
+    expect(shellParts).toContain("<Sheet open={open}");
+    expect(shellParts).toContain('href="#main-content"');
+    expect(shellParts).toContain('id="main-content"');
+    expect(shellParts).toContain("tabIndex={-1}");
   });
 
   it("komut paletinde ok tuşu/Enter seçimini cmdk üzerinden ve yetki filtresini koruyarak sağlar", () => {

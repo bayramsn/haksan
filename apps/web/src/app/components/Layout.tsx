@@ -31,8 +31,17 @@ import { buildAlerts, type OperationAction, type OperationNav } from "../lib/ope
 import { isNavigationAreaEnabled, NAVIGATION_GROUPS, type NavigationVisibilityKey } from "@haksan/shared";
 import { normalizeCompany } from "../lib/companyNormalizer";
 import { Kbd } from "./ui/kbd";
-import { Sheet, SheetContent, SheetDescription, SheetTitle } from "./ui/sheet";
 import { PageHeader } from "./shared/PageHeader";
+import {
+  AppShell,
+  ShellContent,
+  ShellMain,
+  ShellMobileNavigation,
+  ShellNotifications,
+  ShellSidebar,
+  ShellTopbar,
+  ShellUserMenu,
+} from "./shell/ShellParts";
 
 export type NavKey =
   | NavigationVisibilityKey | "kanban"
@@ -442,7 +451,7 @@ export function Layout({ current, onNavigate, onLogout, pageTitle, pageSubtitle,
         />
         {!collapsed && (
           <div className="min-w-0 flex-1 border-l border-border pl-2.5">
-            <div className="text-[9px] text-muted-foreground leading-[1.35] uppercase tracking-[0.14em]">CRM · Operasyon<br />Servis · Stok</div>
+            <div className="text-[11px] font-medium leading-[1.35] tracking-[0.04em] text-muted-foreground">CRM · Operasyon<br />Servis · Stok</div>
           </div>
         )}
         {onToggle && (
@@ -463,7 +472,7 @@ export function Layout({ current, onNavigate, onLogout, pageTitle, pageSubtitle,
         <nav className={`${collapsed ? "px-2" : "px-3"} py-3.5 space-y-4`}>
           {!collapsed && pinnedItems.length > 0 && (
             <div>
-              <div className="mb-1.5 flex items-center gap-1.5 px-3 text-[9px] font-semibold uppercase tracking-[0.14em] text-operation-blue">
+              <div className="mb-1.5 flex items-center gap-1.5 px-3 text-[11px] font-semibold uppercase tracking-[0.08em] text-operation-blue">
                 <Star className="size-3 fill-current" /> Sabitlenenler
               </div>
               <div className="space-y-0.5">
@@ -488,7 +497,7 @@ export function Layout({ current, onNavigate, onLogout, pageTitle, pageSubtitle,
           )}
           {!collapsed && recentItems.length > 0 && (
             <div>
-              <div className="mb-1.5 px-3 text-[9px] font-semibold uppercase tracking-[0.14em] text-muted-foreground/75">Son kullanılan</div>
+              <div className="mb-1.5 px-3 text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/80">Son kullanılan</div>
               <div className="space-y-0.5">
                 {recentItems.map((item) => {
                   const Icon = item.icon;
@@ -520,7 +529,7 @@ export function Layout({ current, onNavigate, onLogout, pageTitle, pageSubtitle,
                   type="button"
                   aria-expanded={expanded}
                   onClick={() => setExpandedGroups((groups) => ({ ...groups, [group.group]: !expanded }))}
-                  className="mb-1.5 flex w-full items-center justify-between rounded px-3 py-0.5 text-[9px] font-semibold uppercase tracking-[0.14em] text-muted-foreground/75 transition-colors hover:bg-muted hover:text-foreground"
+                  className="mb-1.5 flex w-full items-center justify-between rounded px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/80 transition-colors hover:bg-muted hover:text-foreground"
                 >
                   {group.group}
                   <ChevronDown className={`size-3 transition-transform ${expanded ? "rotate-0" : "-rotate-90"}`} />
@@ -580,7 +589,7 @@ export function Layout({ current, onNavigate, onLogout, pageTitle, pageSubtitle,
       </ScrollArea>
       {onItemClick && (canPickDepartment || (canPickDivision && visibleDivisions.length > 0)) && (
         <div className="shrink-0 border-t border-border/70 bg-canvas/60 p-3">
-          <div className="mb-2 px-1 text-[9px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+          <div className="mb-2 px-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
             Çalışma alanı
           </div>
           <div className={`grid gap-2 ${canPickDepartment && canPickDivision ? "grid-cols-2" : "grid-cols-1"}`}>
@@ -638,28 +647,20 @@ export function Layout({ current, onNavigate, onLogout, pageTitle, pageSubtitle,
 
   return (
     <TooltipProvider delayDuration={150}>
-      <div data-density={density} className="flex h-full min-h-0 w-full overflow-hidden bg-canvas text-foreground">
-        <a href="#main-content" className="fixed left-3 top-3 z-[100] -translate-y-20 rounded-md bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground shadow-lg transition-transform focus:translate-y-0">
-          Ana içeriğe geç
-        </a>
-
-        <Sheet open={mobileNavOpen} onOpenChange={setMobileNavOpen}>
-          <SheetContent side="left" className="w-[min(300px,calc(100vw-2rem))] gap-0 overflow-hidden p-0 lg:hidden">
-            <SheetTitle className="sr-only">Ana menü</SheetTitle>
-            <SheetDescription className="sr-only">Haksan modülleri ve çalışma alanı seçimi</SheetDescription>
-            {renderSidebarContent(() => setMobileNavOpen(false))}
-          </SheetContent>
-        </Sheet>
+      <AppShell density={density}>
+        <ShellMobileNavigation open={mobileNavOpen} onOpenChange={setMobileNavOpen}>
+          {renderSidebarContent(() => setMobileNavOpen(false))}
+        </ShellMobileNavigation>
 
         {/* SIDEBAR */}
-        <aside className={`relative hidden h-full min-h-0 shrink-0 flex-col overflow-visible border-r border-sidebar-border bg-sidebar transition-[width] duration-150 motion-reduce:transition-none lg:flex ${sidebarCollapsed ? "w-[76px]" : "w-[252px]"}`}>
+        <ShellSidebar collapsed={sidebarCollapsed}>
           {renderSidebarContent(undefined, sidebarCollapsed, () => setSidebarCollapsed((value) => !value))}
-        </aside>
+        </ShellSidebar>
 
         {/* MAIN */}
-        <div className="flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden">
+        <ShellMain>
           {/* Topbar */}
-          <header className="flex h-16 shrink-0 items-center gap-1.5 overflow-hidden border-b border-border/70 bg-card/95 px-3 shadow-[0_1px_0_rgba(13,20,68,0.02)] backdrop-blur sm:gap-2.5 md:px-5">
+          <ShellTopbar>
             <Button variant="ghost" size="icon" className="lg:hidden size-9" aria-label="Menüyü aç" onClick={() => setMobileNavOpen(true)}>
               <Menu className="size-[18px]" />
             </Button>
@@ -675,7 +676,7 @@ export function Layout({ current, onNavigate, onLogout, pageTitle, pageSubtitle,
               <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
               <button
                 type="button"
-                className="h-10 w-full rounded-lg border border-border/70 bg-canvas/70 pl-9 pr-16 text-left text-sm text-muted-foreground shadow-xs transition-colors hover:border-primary/25 hover:bg-card focus-visible:border-ring focus-visible:bg-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20"
+                className="h-10 w-full rounded-[var(--control-radius)] border border-border/70 bg-canvas/70 pl-9 pr-16 text-left text-sm text-muted-foreground shadow-xs transition-colors hover:border-primary/25 hover:bg-card focus-visible:border-ring focus-visible:bg-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20"
                 onClick={() => setCommandOpen(true)}
               >
                 {pageTitle} içinde veya tüm kayıtlarda ara...
@@ -771,7 +772,7 @@ export function Layout({ current, onNavigate, onLogout, pageTitle, pageSubtitle,
               />
             </div>
 
-            <DropdownMenu>
+            <ShellNotifications><DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="ghost" size="icon" className="relative size-9" aria-label="Bildirimler">
                   <Bell className="size-[18px] text-muted-foreground" />
@@ -786,7 +787,7 @@ export function Layout({ current, onNavigate, onLogout, pageTitle, pageSubtitle,
                 <DropdownMenuLabel className="flex items-center justify-between">
                   <span>
                     <span className="block font-display text-lg leading-none text-foreground">Bildirim Merkezi</span>
-                    <span className="mt-1 block text-[10px] font-normal text-muted-foreground">Çağrı, kayıt ve operasyon uyarıları</span>
+                    <span className="mt-1 block text-xs font-normal text-muted-foreground">Çağrı, kayıt ve operasyon uyarıları</span>
                   </span>
                   <Badge variant="secondary" className="text-[10px]">{notificationCount} yeni</Badge>
                 </DropdownMenuLabel>
@@ -798,7 +799,7 @@ export function Layout({ current, onNavigate, onLogout, pageTitle, pageSubtitle,
                   </div>
                 ) : (
                   <>
-                    {visibleDbNotifications.length > 0 && <div className="px-2.5 pb-1 pt-2 font-data text-[9px] font-semibold uppercase tracking-[0.13em] text-operation-blue">CRM bildirimleri · {visibleDbNotifications.length}</div>}
+                    {visibleDbNotifications.length > 0 && <div className="px-2.5 pb-1 pt-2 font-data text-[11px] font-semibold uppercase tracking-[0.08em] text-operation-blue">CRM bildirimleri · {visibleDbNotifications.length}</div>}
                     {visibleDbNotifications.map((notification) => (
                       <NotifItem
                         key={notification.id}
@@ -810,7 +811,7 @@ export function Layout({ current, onNavigate, onLogout, pageTitle, pageSubtitle,
                       />
                     ))}
                     {visibleDbNotifications.length > 0 && alerts.length > 0 && <DropdownMenuSeparator />}
-                    {alerts.length > 0 && <div className="px-2.5 pb-1 pt-2 font-data text-[9px] font-semibold uppercase tracking-[0.13em] text-operation-blue">Operasyon takibi · {alerts.length}</div>}
+                    {alerts.length > 0 && <div className="px-2.5 pb-1 pt-2 font-data text-[11px] font-semibold uppercase tracking-[0.08em] text-operation-blue">Operasyon takibi · {alerts.length}</div>}
                     {alerts.map((alert) => (
                       <NotifItem
                         key={alert.id}
@@ -824,11 +825,11 @@ export function Layout({ current, onNavigate, onLogout, pageTitle, pageSubtitle,
                   </>
                 )}
               </DropdownMenuContent>
-            </DropdownMenu>
+            </DropdownMenu></ShellNotifications>
 
             <div className="mx-1 hidden h-6 w-px bg-border sm:block" />
 
-            <DropdownMenu>
+            <ShellUserMenu><DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="ghost" className="h-9 gap-2 px-1.5 sm:px-2" aria-label="Hesap menüsü">
                   <Avatar className="size-7">
@@ -836,7 +837,7 @@ export function Layout({ current, onNavigate, onLogout, pageTitle, pageSubtitle,
                   </Avatar>
                   <div className="text-left hidden md:block">
                     <div className="text-[13px] leading-tight">{user?.fullName ?? "Kullanıcı"}</div>
-                    <div className="text-[10px] text-muted-foreground leading-tight uppercase tracking-wide">{roleLabel}</div>
+                    <div className="text-[11px] leading-tight tracking-wide text-muted-foreground">{roleLabel}</div>
                   </div>
                   <ChevronDown className="hidden size-3.5 text-muted-foreground sm:block" />
                 </Button>
@@ -871,21 +872,21 @@ export function Layout({ current, onNavigate, onLogout, pageTitle, pageSubtitle,
                   <LogOut className="size-4 mr-2" /> Çıkış yap
                 </DropdownMenuItem>
               </DropdownMenuContent>
-            </DropdownMenu>
-          </header>
+            </DropdownMenu></ShellUserMenu>
+          </ShellTopbar>
 
           <PageHeader title={pageTitle} subtitle={pageSubtitle} scopeLabel={activeDivisionLabel} actions={actions} />
 
           {/* Content */}
-          <main id="main-content" tabIndex={-1} ref={mainScrollRef} className="app-main min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain bg-canvas p-3 outline-none sm:p-4 lg:p-5 xl:p-6">{children}</main>
-        </div>
+          <ShellContent ref={mainScrollRef}>{children}</ShellContent>
+        </ShellMain>
         <CommandPalette
           open={commandOpen}
           onOpenChange={setCommandOpen}
           onAction={executeOperationAction}
           canUseAction={canUseAction}
         />
-      </div>
+      </AppShell>
     </TooltipProvider>
   );
 }
@@ -898,7 +899,7 @@ function NotifItem({ icon, title, desc, time, onClick }: { icon: ReactNode; titl
         <div className="text-sm leading-tight truncate">{title}</div>
         <div className="text-xs text-muted-foreground truncate">{desc}</div>
       </div>
-      <div className="text-[10px] text-muted-foreground shrink-0">{time}</div>
+      <div className="shrink-0 text-xs text-muted-foreground">{time}</div>
     </button>
   );
 }
