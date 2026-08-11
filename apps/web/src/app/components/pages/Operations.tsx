@@ -225,7 +225,7 @@ export function ProductsPage({ initialQuery }: { initialQuery?: string }) {
   ).sort(([a], [b]) => seriesSort(a, b));
 
   return (
-    <div className="space-y-4">
+    <div className="crm-page">
       <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
         <MiniKpi
           icon={<Package className="size-4" />}
@@ -272,7 +272,7 @@ export function ProductsPage({ initialQuery }: { initialQuery?: string }) {
             <Search className="size-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
             <Input
               placeholder="Marka, model, ürün ara..."
-              className="pl-9 h-9 bg-white"
+              className="h-9 bg-card pl-9"
               value={q}
               onChange={(e) => setQ(e.target.value)}
             />
@@ -330,7 +330,7 @@ export function ProductsPage({ initialQuery }: { initialQuery?: string }) {
                 key={p.id}
                 role="button"
                 tabIndex={0}
-                className="group relative cursor-pointer overflow-hidden border-border/75 bg-white transition-[transform,border-color,box-shadow] hover:-translate-y-0.5 hover:border-primary/25 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
+                className="group relative cursor-pointer overflow-hidden border-border/75 bg-card transition-[transform,border-color,box-shadow] hover:-translate-y-0.5 hover:border-primary/25 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
                 onClick={() => setSelected(p)}
                 onKeyDown={(event) => {
                   if (event.key === "Enter" || event.key === " ") {
@@ -350,13 +350,13 @@ export function ProductsPage({ initialQuery }: { initialQuery?: string }) {
                 />
                 <CardContent className="space-y-3 p-4 pt-0">
                   <div className="min-w-0">
-                    <div className="font-data text-[9px] font-semibold uppercase tracking-[0.13em] text-operation-blue">
+                    <div className="ui-eyebrow text-operation-blue">
                       {p.brand || "Haksan ürün"}
                     </div>
                     <div className="mt-1 truncate font-display text-xl font-semibold leading-none tracking-tight text-foreground">
                       {productDisplayModel(p)}
                     </div>
-                    <div className="mt-1.5 line-clamp-2 min-h-8 text-[11px] leading-4 text-muted-foreground">
+                    <div className="mt-1.5 line-clamp-2 min-h-8 text-xs leading-4 text-muted-foreground">
                       {p.shortDescription || productSubtitle(p) || productFamilyLabel(p)}
                     </div>
                   </div>
@@ -634,7 +634,7 @@ export function DeviceTrackingPage() {
   });
 
   return (
-    <div className="space-y-5">
+    <div className="crm-page">
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <KpiTile icon={<Cpu className="size-[18px]" />} label="Toplam Cihaz" value={devices.length} tone="violet" />
         <KpiTile icon={<CheckCircle2 className="size-[18px]" />} label="Sahada" value={counts["Kuruldu"]} tone="emerald" />
@@ -659,7 +659,7 @@ export function DeviceTrackingPage() {
           </div>
           <div className="relative w-full sm:w-64">
             <Search className="size-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-            <Input placeholder="Seri no / model / müşteri..." className="pl-9 h-9 bg-white" value={q} onChange={(e) => setQ(e.target.value)} />
+            <Input placeholder="Seri no / model / müşteri..." className="h-9 bg-card pl-9" value={q} onChange={(e) => setQ(e.target.value)} />
           </div>
         </CardHeader>
 

@@ -250,7 +250,7 @@ export function StockPage({ focus, initialQuery }: { focus?: OperationFocus; ini
   };
 
   return (
-    <div className="flex flex-col gap-5">
+    <div className="crm-page flex flex-col">
       <Tabs className="order-1" value={categoryTab} onValueChange={(v) => setCategoryTab(v as typeof categoryTab)}>
         <TabsList className="h-9 bg-muted/60">
           <TabsTrigger value="all" className="text-xs">Tüm Stok</TabsTrigger>
@@ -285,11 +285,11 @@ export function StockPage({ focus, initialQuery }: { focus?: OperationFocus; ini
               const occupied = Math.max(1, Math.round((warehouse.count / maxCount) * 12));
               return (
                 <div key={warehouse.name} className="rounded-lg border border-border/60 bg-muted/15 p-3">
-                  <div className="flex items-center justify-between gap-2"><span className="truncate text-xs font-semibold">{warehouse.name || "Depo belirtilmemiş"}</span><Badge variant="outline" className="bg-white font-data text-[10px]">{warehouse.count} kalem</Badge></div>
+                  <div className="flex items-center justify-between gap-2"><span className="truncate text-xs font-semibold">{warehouse.name || "Depo belirtilmemiş"}</span><Badge variant="outline" className="bg-card font-data text-xs">{warehouse.count} kalem</Badge></div>
                   <div className="mt-3 grid grid-cols-6 gap-1" aria-label={`${warehouse.name} raf yoğunluğu`}>
-                    {Array.from({ length: 12 }, (_, index) => <span key={index} className={`h-4 rounded-sm border ${index < occupied ? index > 8 ? "border-warning/20 bg-warning/70" : "border-primary/10 bg-operation-blue/75" : "border-border/60 bg-white"}`} />)}
+                    {Array.from({ length: 12 }, (_, index) => <span key={index} className={`h-4 rounded-sm border ${index < occupied ? index > 8 ? "border-warning/20 bg-warning/70" : "border-primary/10 bg-operation-blue/75" : "border-border/60 bg-card"}`} />)}
                   </div>
-                  <div className="mt-2 flex justify-between text-[9px] uppercase tracking-wide text-muted-foreground"><span>Raf yoğunluğu</span><span>%{Math.round((warehouse.count / maxCount) * 100)}</span></div>
+                  <div className="mt-2 flex justify-between text-xs uppercase tracking-wide text-muted-foreground"><span>Raf yoğunluğu</span><span>%{Math.round((warehouse.count / maxCount) * 100)}</span></div>
                 </div>
               );
             })}
@@ -307,10 +307,10 @@ export function StockPage({ focus, initialQuery }: { focus?: OperationFocus; ini
               <PieChart>
                 <Pie data={brandPie} dataKey="value" nameKey="name" outerRadius={70} innerRadius={42} paddingAngle={2} isAnimationActive={false}>
                   {brandPie.map((d) => (
-                    <Cell key={`br-${d.name}`} fill={d.fill} stroke="#fff" strokeWidth={2} />
+                    <Cell key={`br-${d.name}`} fill={d.fill} stroke="var(--card)" strokeWidth={2} />
                   ))}
                 </Pie>
-                <Tooltip contentStyle={{ borderRadius: 8, border: "1px solid #e5e7eb", fontSize: 12 }} />
+                <Tooltip contentStyle={{ borderRadius: 8, border: "1px solid var(--chart-tooltip-border)", background: "var(--popover)", color: "var(--popover-foreground)", fontSize: 12 }} />
                 <Legend wrapperStyle={{ fontSize: 11 }} iconType="circle" />
               </PieChart>
             </ResponsiveContainer>
@@ -318,7 +318,7 @@ export function StockPage({ focus, initialQuery }: { focus?: OperationFocus; ini
         </Card>
       </div>
 
-      <Card className="order-3 border-warning/20 bg-gradient-to-br from-warning-soft/45 via-white to-white shadow-sm overflow-hidden">
+      <Card className="order-3 overflow-hidden border-warning/20 bg-gradient-to-br from-warning-soft/45 via-card to-card shadow-sm">
         <CardHeader className="flex flex-row items-center justify-between gap-3 pb-3">
           <div>
             <CardTitle className="tracking-tight flex items-center gap-2">
@@ -346,14 +346,14 @@ export function StockPage({ focus, initialQuery }: { focus?: OperationFocus; ini
                     key={row.product.id}
                     type="button"
                     onClick={() => { setCategoryTab("all"); setTab("all"); setQ(row.product.model || row.product.modelName || ""); }}
-                    className="text-left rounded-lg border border-border/70 bg-white p-3 transition-colors hover:border-primary/40 hover:bg-muted/30"
+                    className="rounded-lg border border-border/70 bg-card p-3 text-left transition-colors hover:border-primary/40 hover:bg-muted/30"
                   >
                     <div className="flex items-start justify-between gap-2">
                       <div className="flex min-w-0 items-center gap-2.5">
                         <EntityVisual size="sm" title={row.product.model || row.product.shortDescription || "Tezgah"} imageUrl={row.product.imageUrl} icon={<Package className="size-4" />} />
                         <div className="min-w-0">
                         <div className="truncate text-sm font-medium">{[row.product.brand, row.product.model].filter(Boolean).join(" ") || row.product.shortDescription || "Tezgah"}</div>
-                        <div className="truncate text-[11px] text-muted-foreground">{row.product.type || row.product.modelName || "Tezgah"}</div>
+                        <div className="truncate text-xs text-muted-foreground">{row.product.type || row.product.modelName || "Tezgah"}</div>
                         </div>
                       </div>
                       <Badge className={out ? "bg-brand-red-soft text-brand-red hover:bg-brand-red-soft" : "bg-warning-soft text-warning hover:bg-warning-soft"}>
@@ -391,7 +391,7 @@ export function StockPage({ focus, initialQuery }: { focus?: OperationFocus; ini
           <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
             <div className="relative w-full sm:w-64">
               <Search className="size-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-              <Input placeholder="Ürün adı / seri / marka..." className="pl-9 h-9 bg-white" value={q} onChange={(e) => setQ(e.target.value)} />
+              <Input placeholder="Ürün adı / seri / marka..." className="h-9 bg-card pl-9" value={q} onChange={(e) => setQ(e.target.value)} />
             </div>
             <ExportExcelButton path="/exports/inventory" filename="stok.xlsx" params={stockExportParams} className="h-9" />
             <CreateStockDialog
@@ -402,7 +402,7 @@ export function StockPage({ focus, initialQuery }: { focus?: OperationFocus; ini
         <div className="overflow-x-auto">
           <Table className="min-w-[1780px]">
             <TableHeader>
-              <TableRow className="bg-muted/40 hover:bg-muted/40 [&_th]:text-[11px] [&_th]:uppercase [&_th]:tracking-wider [&_th]:text-muted-foreground">
+              <TableRow className="bg-muted/40 hover:bg-muted/40 [&_th]:text-xs [&_th]:uppercase [&_th]:tracking-wider [&_th]:text-muted-foreground">
                 <TableHead className="w-14">No.</TableHead>
                 <TableHead>Marka</TableHead>
                 <TableHead>Yeni / Kullanılmış</TableHead>

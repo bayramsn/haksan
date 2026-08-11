@@ -268,7 +268,7 @@ export function InstallationsPage() {
   };
 
   return (
-    <div className="space-y-5">
+    <div className="crm-page">
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <MiniKpi tone="violet" icon={<Wrench className="size-[18px]" />} label="Toplam Kurulum" value={installationRows.length} sub="tüm zamanlar" delta={6} />
         <MiniKpi tone="amber" icon={<Calendar className="size-[18px]" />} label="Planlı" value={planned} sub="gelecek" delta={2} />
@@ -318,14 +318,14 @@ export function InstallationsPage() {
                         <EntityVisual size="sm" title={machine?.model || i.device?.model || i.customerName} imageUrl={product?.imageUrl} icon={<Cpu className="size-4" />} />
                         <div className="min-w-0">
                           <div className="truncate text-sm font-semibold">{machine ? `${machine.brand || ""} ${machine.model}`.trim() : i.device?.model || "Kurulum kaydı"}</div>
-                          <div className="mt-0.5 flex items-center gap-1 text-[11px] text-muted-foreground"><Building2 className="size-3" /><span className="truncate">{i.customerName}</span>{machine?.serialNumber && <span className="font-data">· {machine.serialNumber}</span>}</div>
+                          <div className="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground"><Building2 className="size-3" /><span className="truncate">{i.customerName}</span>{machine?.serialNumber && <span className="font-data">· {machine.serialNumber}</span>}</div>
                         </div>
                       </div>
                     </TableCell>
-                    <TableCell className="text-sm"><div className="flex items-center gap-1.5"><UserRound className="size-3.5 text-muted-foreground" />{i.technician}</div><div className="mt-1 flex items-center gap-1.5 font-data text-[10px] text-muted-foreground"><Calendar className="size-3" />{i.scheduledDate}</div></TableCell>
+                    <TableCell className="text-sm"><div className="flex items-center gap-1.5"><UserRound className="size-3.5 text-muted-foreground" />{i.technician}</div><div className="mt-1 flex items-center gap-1.5 font-data text-xs text-muted-foreground"><Calendar className="size-3" />{i.scheduledDate}</div></TableCell>
                     <TableCell className="min-w-[300px]">
                       <div className="flex items-center" aria-label={`Kurulum yolculuğu ${step}/4`}>
-                        {["Plan", "Atama", "Kurulum", "Teslim", "Tutanak"].map((label, index) => <div key={label} className="flex flex-1 items-center last:flex-none"><span className={`grid size-5 place-items-center rounded-full border text-[8px] font-bold ${index <= step ? "border-primary bg-primary text-white" : "border-border bg-white text-muted-foreground"}`}>{index + 1}</span>{index < 4 && <span className={`h-px flex-1 ${index < step ? "bg-primary" : "bg-border"}`} />}</div>)}
+                        {["Plan", "Atama", "Kurulum", "Teslim", "Tutanak"].map((label, index) => <div key={label} className="flex flex-1 items-center last:flex-none"><span className={`grid size-5 place-items-center rounded-full border text-xs font-bold ${index <= step ? "border-primary bg-primary text-primary-foreground" : "border-border bg-card text-muted-foreground"}`}>{index + 1}</span>{index < 4 && <span className={`h-px flex-1 ${index < step ? "bg-primary" : "bg-border"}`} />}</div>)}
                       </div>
                       <div className="mt-1 grid grid-cols-5 text-center text-[7px] uppercase tracking-wide text-muted-foreground"><span>Plan</span><span>Atama</span><span>Kurulum</span><span>Teslim</span><span>Tutanak</span></div>
                     </TableCell>
@@ -339,7 +339,7 @@ export function InstallationsPage() {
                           }`}>
                             <MapPin className="size-3" />{INSTALLATION_LOCATION_LABELS[i.locationType]}
                           </span>
-                          <span className="text-[11px] text-muted-foreground tabular-nums">{formatDuration(i.durationMinutes ?? 0)}</span>
+                          <span className="text-xs tabular-nums text-muted-foreground">{formatDuration(i.durationMinutes ?? 0)}</span>
                         </div>
                       ) : (
                         <span className="text-[11px] text-muted-foreground">—</span>

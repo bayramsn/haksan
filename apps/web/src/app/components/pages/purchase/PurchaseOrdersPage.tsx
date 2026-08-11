@@ -140,7 +140,7 @@ export function PurchaseOrdersPage() {
   };
 
   return (
-    <div className="space-y-5">
+    <div className="crm-page">
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <MiniKpi tone="violet" icon={<ShoppingCart className="size-[18px]" />} label="Toplam Sipariş" value={total} sub={formatCurrency(totalAmount, "USD")} delta={6} onClick={() => setTab("all")} active={tab === "all"} />
         <MiniKpi tone="emerald" icon={<Package className="size-[18px]" />} label="Ticari" value={commercial} sub="mal/hizmet alımı" delta={3} />
@@ -151,13 +151,13 @@ export function PurchaseOrdersPage() {
       <Card className="border-border/60 shadow-sm overflow-hidden">
         <CardHeader className="flex flex-row items-center justify-between gap-3 pb-2">
           <div><CardTitle className="tracking-tight">Tedarikçi İçgörüsü</CardTitle><p className="text-xs text-muted-foreground">Sipariş hacmi ve açık teslim yükü</p></div>
-          <Badge variant="outline" className="bg-white">{supplierStats.length} tedarikçi</Badge>
+          <Badge variant="outline" className="bg-card">{supplierStats.length} tedarikçi</Badge>
         </CardHeader>
         <CardContent className="grid gap-2 pt-2 sm:grid-cols-2 xl:grid-cols-4">
           {supplierStats.slice(0, 4).map((supplier) => (
             <div key={supplier.name} className="rounded-lg border border-border/60 bg-muted/15 p-3">
-              <div className="flex items-center gap-2"><span className="grid size-8 place-items-center rounded-md bg-brand-blue-soft text-primary"><Building2 className="size-4" /></span><div className="min-w-0"><div className="truncate text-xs font-semibold">{supplier.name}</div><div className="text-[10px] text-muted-foreground">{supplier.count} sipariş</div></div></div>
-              <div className="mt-3 flex items-center justify-between border-t border-dashed border-border pt-2 text-[10px]"><span className="text-muted-foreground">Açık teslim</span><Badge variant="outline" className={supplier.pending ? "border-warning/20 bg-warning-soft text-warning" : "border-success/20 bg-success-soft text-success"}>{supplier.pending}</Badge></div>
+              <div className="flex items-center gap-2"><span className="grid size-8 place-items-center rounded-md bg-brand-blue-soft text-primary"><Building2 className="size-4" /></span><div className="min-w-0"><div className="truncate text-xs font-semibold">{supplier.name}</div><div className="text-xs text-muted-foreground">{supplier.count} sipariş</div></div></div>
+              <div className="mt-3 flex items-center justify-between border-t border-dashed border-border pt-2 text-xs"><span className="text-muted-foreground">Açık teslim</span><Badge variant="outline" className={supplier.pending ? "border-warning/20 bg-warning-soft text-warning" : "border-success/20 bg-success-soft text-success"}>{supplier.pending}</Badge></div>
             </div>
           ))}
           {supplierStats.length === 0 && <div className="col-span-full py-5 text-center text-xs text-muted-foreground">Tedarikçi içgörüsü için sipariş bekleniyor.</div>}
@@ -182,7 +182,7 @@ export function PurchaseOrdersPage() {
           <div className="flex w-full flex-wrap items-center gap-2 lg:w-auto">
             <div className="relative w-full sm:w-64">
               <Search className="size-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-              <Input placeholder="PO / tedarikçi..." className="pl-9 h-9 bg-white" value={q} onChange={(e) => setQ(e.target.value)} />
+              <Input placeholder="PO / tedarikçi..." className="h-9 bg-card pl-9" value={q} onChange={(e) => setQ(e.target.value)} />
             </div>
             <ExportExcelButton path="/exports/purchase-orders" filename="satinalma-siparisleri.xlsx" params={poExportParams} className="h-9" />
             <CreatePurchaseOrderDialog onCreated={() => loadOrders()} />
@@ -191,7 +191,7 @@ export function PurchaseOrdersPage() {
         <div className="overflow-x-auto">
           <Table>
             <TableHeader>
-              <TableRow className="bg-muted/40 hover:bg-muted/40 [&_th]:text-[11px] [&_th]:uppercase [&_th]:tracking-wider [&_th]:text-muted-foreground">
+              <TableRow className="bg-muted/40 hover:bg-muted/40 [&_th]:text-xs [&_th]:uppercase [&_th]:tracking-wider [&_th]:text-muted-foreground">
                 <TableHead>Tedarikçi</TableHead>
                 <TableHead>Tip</TableHead>
                 <TableHead>Ödeme</TableHead>
@@ -222,12 +222,12 @@ export function PurchaseOrdersPage() {
                       </div>
                       <div>
                         <div className="text-sm leading-tight">{p.supplier?.shortName || p.supplier?.legalTitle || "—"}</div>
-                        <div className="text-[11px] text-muted-foreground mt-0.5">#{p.id.toUpperCase()}</div>
+                        <div className="mt-0.5 text-xs text-muted-foreground">#{p.id.toUpperCase()}</div>
                       </div>
                     </div>
                   </TableCell>
                   <TableCell>
-                    <Badge variant="secondary" className="h-6 text-[11px]">{purchaseTypeLabel(p.purchaseType)}</Badge>
+                    <Badge variant="secondary" className="h-6 text-xs">{purchaseTypeLabel(p.purchaseType)}</Badge>
                   </TableCell>
                   <TableCell className="text-sm text-muted-foreground">{paymentTypeLabel(p.paymentType)}</TableCell>
                   <TableCell className="text-sm tabular-nums">{p.orderNo}</TableCell>
@@ -235,7 +235,7 @@ export function PurchaseOrdersPage() {
                   <TableCell className="text-sm tabular-nums text-muted-foreground">{formatDate(p.orderDate)}</TableCell>
                   <TableCell className="text-sm tabular-nums text-muted-foreground">
                     <div>{formatDate(p.expectedDate)}</div>
-                    <Badge variant="outline" className={`mt-1 h-5 px-1.5 text-[9px] ${etaState(p.expectedDate).className}`}>{etaState(p.expectedDate).label}</Badge>
+                    <Badge variant="outline" className={`mt-1 h-6 px-1.5 text-xs ${etaState(p.expectedDate).className}`}>{etaState(p.expectedDate).label}</Badge>
                   </TableCell>
                   <TableCell className="text-right tabular-nums text-sm text-muted-foreground">
                     {formatCurrency(Number(p.vatAmount ?? 0), p.currency?.code ?? "USD")}
@@ -249,10 +249,10 @@ export function PurchaseOrdersPage() {
                         <div>
                           <div className="flex items-center" aria-label={`Sipariş yolculuğu: ${p.status?.name ?? p.status?.code}`}>
                             {["Taslak", "Gönderildi", "Onay", "Hazır", "Teslim"].map((label, index) => (
-                              <div key={label} className="flex flex-1 items-center last:flex-none"><span className={`grid size-4 place-items-center rounded-full border text-[7px] font-bold ${index <= purchaseStep(p.status?.code) ? "border-primary bg-primary text-white" : "border-border bg-white text-muted-foreground"}`}>{index + 1}</span>{index < 4 && <span className={`h-px flex-1 ${index < purchaseStep(p.status?.code) ? "bg-primary" : "bg-border"}`} />}</div>
+                              <div key={label} className="flex flex-1 items-center last:flex-none"><span className={`grid size-5 place-items-center rounded-full border text-[10px] font-bold ${index <= purchaseStep(p.status?.code) ? "border-primary bg-primary text-primary-foreground" : "border-border bg-card text-muted-foreground"}`}>{index + 1}</span>{index < 4 && <span className={`h-px flex-1 ${index < purchaseStep(p.status?.code) ? "bg-primary" : "bg-border"}`} />}</div>
                             ))}
                           </div>
-                          <div className="mt-1 flex justify-between text-[7px] uppercase tracking-wide text-muted-foreground"><span>Taslak</span><span>Gönder</span><span>Onay</span><span>Hazır</span><span>Teslim</span></div>
+                          <div className="mt-1 flex justify-between text-[10px] uppercase tracking-wide text-muted-foreground"><span>Taslak</span><span>Gönder</span><span>Onay</span><span>Hazır</span><span>Teslim</span></div>
                         </div>
                       ) : <Badge variant="outline" className="w-fit border-destructive/20 bg-destructive-soft text-destructive">İptal edildi</Badge>}
                       <div className="flex items-center gap-2">
@@ -296,7 +296,7 @@ export function PurchaseOrdersPage() {
                           <Eye className="size-4" />
                         </Button>
                       </div>
-                      {p.approvalReason && <span className="text-[11px] text-warning">{p.approvalReason}</span>}
+                      {p.approvalReason && <span className="text-xs text-warning">{p.approvalReason}</span>}
                     </div>
                   </TableCell>
                 </TableRow>

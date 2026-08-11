@@ -272,7 +272,7 @@ export function MachinesPage() {
     ?? products.find((item) => item.model.toLocaleLowerCase("tr-TR") === machine.model.toLocaleLowerCase("tr-TR"));
 
   return (
-    <>
+    <div className="crm-page">
       {machines.length > 0 && (
         <Card className="premium-blueprint mb-4 overflow-hidden border-border/75">
           <CardContent className="grid grid-cols-2 gap-4 p-4 sm:grid-cols-4">
@@ -287,14 +287,14 @@ export function MachinesPage() {
         <CardHeader className="border-b border-border/70 pb-4">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
             <div>
-              <div className="font-data text-[9px] font-semibold uppercase tracking-[0.15em] text-operation-blue">Kurulu varlık merkezi</div>
+              <div className="ui-eyebrow text-operation-blue">Kurulu varlık merkezi</div>
               <CardTitle className="mt-1 font-display text-xl">Makineler / Varlıklar</CardTitle>
               <p className="mt-1 text-[12px] text-muted-foreground">Makine kimliği, garanti, kullanıcı firma ve servis geçmişi aynı bağlamda.</p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <div className="relative min-w-[220px] flex-1 lg:w-72">
                 <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-                <Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Model, seri no veya firma ara..." className="h-9 bg-white pl-9" />
+                <Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Model, seri no veya firma ara..." className="h-9 bg-card pl-9" />
               </div>
               <ViewToggle view={view} onChange={setView} />
             <CreateMachineDialog>
@@ -323,7 +323,7 @@ export function MachinesPage() {
                     key={machine.id}
                     tabIndex={0}
                     role="button"
-                    className="group overflow-hidden rounded-xl border border-border/75 bg-white shadow-sm transition-[transform,border-color,box-shadow] hover:-translate-y-0.5 hover:border-primary/25 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
+                    className="group overflow-hidden rounded-xl border border-border/75 bg-card shadow-sm transition-[transform,border-color,box-shadow] hover:-translate-y-0.5 hover:border-primary/25 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
                     onClick={() => setSelected(machine)}
                     onKeyDown={(event) => {
                       if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setSelected(machine); }
@@ -332,24 +332,24 @@ export function MachinesPage() {
                     <EntityVisual imageUrl={product?.imageUrl} title={machine.model} overline={machine.type || "Kurulu makine"} icon={<Cpu className="size-7" />} size="lg" className="m-3 mb-0 h-36 w-auto" />
                     <div className="space-y-3 p-4">
                       <div className="min-w-0">
-                        <div className="font-data text-[9px] font-semibold uppercase tracking-[0.13em] text-operation-blue">{machine.brand || "Makine"}</div>
+                        <div className="ui-eyebrow text-operation-blue">{machine.brand || "Makine"}</div>
                         <h3 className="mt-1 truncate font-display text-xl font-semibold leading-none">{machine.model}</h3>
-                        <div className="mt-1 font-data text-[10px] text-muted-foreground">SN · {machine.serialNumber}</div>
+                        <div className="mt-1 font-data text-xs text-muted-foreground">SN · {machine.serialNumber}</div>
                       </div>
                       <div className="flex items-center gap-2 border-y border-border/60 py-2.5">
                         <div className="grid size-8 place-items-center rounded-lg bg-brand-blue-soft text-primary"><Building2 className="size-4" /></div>
                         <div className="min-w-0 flex-1">
                           <div className="truncate text-[12px] font-medium">{customerName(machine.userCompanyId ?? machine.customerId)}</div>
-                          <div className="text-[10px] text-muted-foreground">Kullanıcı firma</div>
+                          <div className="text-xs text-muted-foreground">Kullanıcı firma</div>
                         </div>
                       </div>
                       <div className="flex flex-wrap items-center gap-1.5">
                         <WarrantyBadge end={machine.warrantyEnd} />
-                        <Badge variant="secondary" className="h-5 gap-1 text-[9px]"><Wrench className="size-3" /> {srCount} servis</Badge>
+                        <Badge variant="secondary" className="h-6 gap-1 text-xs"><Wrench className="size-3" /> {srCount} servis</Badge>
                         <StatusBadge status={machine.status} />
                       </div>
                       <div className="flex items-center justify-between gap-2 pt-1">
-                        <span className="text-[10px] text-muted-foreground">Kurulum · {formatDate(machine.installationDate)}</span>
+                        <span className="text-xs text-muted-foreground">Kurulum · {formatDate(machine.installationDate)}</span>
                         <div className="flex items-center gap-1 opacity-100 transition-opacity sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100">
                           <Button variant="ghost" size="icon" className="size-8" aria-label="QR etiket" onClick={(event) => { event.stopPropagation(); setQrMachine(machine); }}><QrCode className="size-4" /></Button>
                           <Button variant="ghost" size="icon" className="size-8" aria-label="Kullanıcı firma düzenle" onClick={(event) => openCustomerEdit(machine, event)}><Pencil className="size-4" /></Button>
@@ -527,14 +527,14 @@ export function MachinesPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </>
+    </div>
   );
 }
 
 function DetailValue({ label, value, data = false }: { label: string; value?: string | null; data?: boolean }) {
   return (
     <div className="min-w-0">
-      <div className="text-[9px] font-semibold uppercase tracking-[0.1em] text-muted-foreground">{label}</div>
+      <div className="text-xs font-semibold uppercase tracking-[0.1em] text-muted-foreground">{label}</div>
       <div className={`mt-1 truncate text-[12px] font-medium text-foreground ${data ? "font-data" : ""}`}>{value || "—"}</div>
     </div>
   );

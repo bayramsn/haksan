@@ -647,7 +647,7 @@ export function ServiceRequestsPage({
     <section className="premium-blueprint precision-corners overflow-hidden rounded-2xl border border-primary/20 bg-card p-4 shadow-sm sm:p-5">
       <div className="relative flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
         <div>
-          <p className="font-mono text-[10px] font-semibold tracking-[0.2em] text-primary">SAHA SERVİS KONTROLÜ</p>
+          <p className="ui-eyebrow text-primary">Saha servis kontrolü</p>
           <h2 className="mt-1 font-display text-2xl font-semibold tracking-tight sm:text-3xl">Servis operasyon hattı</h2>
           <p className="mt-1 max-w-2xl text-sm text-muted-foreground">Öncelik, SLA, sorumlu ve sıradaki aksiyonu talep bağlamından kopmadan takip edin.</p>
         </div>
@@ -743,7 +743,7 @@ export function ServiceRequestsPage({
   if (kanbanOnly) {
     return (
       <>
-        <div className="space-y-4">
+        <div className="crm-page">
           {serviceOverview}
           <div className="flex items-center justify-end gap-2">
             <span className="text-sm text-muted-foreground tabular-nums">{visibleService.length} kayıt</span>
@@ -758,7 +758,7 @@ export function ServiceRequestsPage({
 
   return (
     <>
-    <div className="space-y-4">
+    <div className="crm-page">
     {serviceOverview}
     <Tabs value={view} onValueChange={(v) => setView(v as ServiceRequestsView)}>
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">

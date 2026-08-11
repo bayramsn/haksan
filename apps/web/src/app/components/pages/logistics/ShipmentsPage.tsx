@@ -122,7 +122,7 @@ export function ShipmentsPage({ focus }: { focus?: OperationFocus }) {
   };
 
   return (
-    <div className="space-y-5">
+    <div className="crm-page">
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <MiniKpi tone="violet" icon={<Truck className="size-[18px]" />} label="Toplam Sevkiyat" value={shipments.length} sub="aktif izlenen" delta={4} onClick={() => setStatusFilter("all")} active={statusFilter === "all"} />
         <MiniKpi tone="blue" icon={<Truck className="size-[18px]" />} label="Yolda" value={inTransit} sub="taşıma sürüyor" delta={1} onClick={() => toggleStatus("Yolda")} active={statusFilter === "Yolda"} />
@@ -151,7 +151,7 @@ export function ShipmentsPage({ focus }: { focus?: OperationFocus }) {
           <div className="overflow-x-auto">
             <Table>
               <TableHeader>
-                <TableRow className="bg-muted/40 hover:bg-muted/40 [&_th]:text-[11px] [&_th]:uppercase [&_th]:tracking-wider [&_th]:text-muted-foreground">
+                <TableRow className="bg-muted/40 hover:bg-muted/40 [&_th]:text-xs [&_th]:uppercase [&_th]:tracking-wider [&_th]:text-muted-foreground">
                   <TableHead>Takip</TableHead>
                   <TableHead>Yön</TableHead>
                   <TableHead>Firma</TableHead>
@@ -174,7 +174,7 @@ export function ShipmentsPage({ focus }: { focus?: OperationFocus }) {
                           </div>
                           <div>
                             <div className="text-sm leading-tight tabular-nums">{s.trackingNo}</div>
-                            <div className="text-[11px] text-muted-foreground mt-0.5">{s.carrier}</div>
+                            <div className="mt-0.5 text-xs text-muted-foreground">{s.carrier}</div>
                           </div>
                         </div>
                       </TableCell>
@@ -185,23 +185,23 @@ export function ShipmentsPage({ focus }: { focus?: OperationFocus }) {
                       </TableCell>
                       <TableCell className="text-sm">{customer?.name ?? (s.direction === "incoming" ? s.senderCompanyName || s.senderName : undefined) ?? liveCustomerName(sc?.customerId ?? "")}</TableCell>
                       <TableCell className="min-w-[260px]">
-                        <div className="mb-2 flex items-center gap-1.5 text-[10px] text-muted-foreground">
+                        <div className="mb-2 flex items-center gap-1.5 text-xs text-muted-foreground">
                           <MapPin className="size-3" /><span className="max-w-24 truncate">{s.origin}</span><span>→</span><span className="max-w-24 truncate">{s.destination}</span>
                         </div>
                         <div className="flex items-center" aria-label={`Sevkiyat aşaması: ${s.status}`}>
                           {["Hazır", "Yolda", "Gümrük", "Teslim"].map((label, index) => (
                             <div key={label} className="flex flex-1 items-center last:flex-none">
-                              <span className={`grid size-5 shrink-0 place-items-center rounded-full border text-[8px] font-semibold ${index <= routeStep(s.status) ? "border-primary bg-primary text-white" : "border-border bg-white text-muted-foreground"}`}>{index + 1}</span>
+                              <span className={`grid size-5 shrink-0 place-items-center rounded-full border text-xs font-semibold ${index <= routeStep(s.status) ? "border-primary bg-primary text-primary-foreground" : "border-border bg-card text-muted-foreground"}`}>{index + 1}</span>
                               {index < 3 && <span className={`h-px flex-1 ${index < routeStep(s.status) ? "bg-primary" : "bg-border"}`} />}
                             </div>
                           ))}
                         </div>
-                        <div className="mt-1 flex justify-between text-[8px] uppercase tracking-wide text-muted-foreground"><span>Hazır</span><span>Yolda</span><span>Gümrük</span><span>Teslim</span></div>
+                        <div className="mt-1 flex justify-between text-[10px] uppercase tracking-wide text-muted-foreground"><span>Hazır</span><span>Yolda</span><span>Gümrük</span><span>Teslim</span></div>
                       </TableCell>
                       <TableCell className="text-sm tabular-nums">
                         {(() => {
                           const eta = etaState(s.eta);
-                          return <><div className="text-muted-foreground">{s.eta || "—"}</div><Badge variant="outline" className={`mt-1 h-5 text-[9px] ${eta.tone === "danger" ? "border-destructive/20 bg-destructive-soft text-destructive" : eta.tone === "warning" ? "border-warning/20 bg-warning-soft text-warning" : eta.tone === "success" ? "border-success/20 bg-success-soft text-success" : "text-muted-foreground"}`}>{eta.label}</Badge></>;
+                          return <><div className="text-muted-foreground">{s.eta || "—"}</div><Badge variant="outline" className={`mt-1 h-5 text-xs ${eta.tone === "danger" ? "border-destructive/20 bg-destructive-soft text-destructive" : eta.tone === "warning" ? "border-warning/20 bg-warning-soft text-warning" : eta.tone === "success" ? "border-success/20 bg-success-soft text-success" : "text-muted-foreground"}`}>{eta.label}</Badge></>;
                         })()}
                       </TableCell>
                       <TableCell>
