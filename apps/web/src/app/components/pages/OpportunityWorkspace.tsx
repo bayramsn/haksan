@@ -476,18 +476,19 @@ export function OpportunityWorkspace({
   // Kapanmış kayıtta yapılacak bir iş yok: sahte bir birincil eylem (eskiden
   // "Kapanış kayıtlarını gör") kaldırılan Kayıtlar bölümüne gidiyordu.
   const decisionPrimaryAction = terminal || !canUpdate ? undefined
-    : isLead ? (
-      <Button
-        type="button"
-        onClick={() => document.querySelector<HTMLButtonElement>('[data-workspace-primary="convert"]')?.click()}
-      >
-        Fırsata dönüştür
-      </Button>
-    ) : sc.qualificationReadiness?.health?.actionMissing || decisionModel.nextActionOverdue ? (
+    : isLead || sc.qualificationReadiness?.health?.actionMissing || decisionModel.nextActionOverdue ? (
       <NextActionDialog
         salesCase={sc}
         onSave={(patch) => updateCase(sc.id, patch)}
-        trigger={<Button type="button">{decisionModel.nextActionOverdue ? "Aksiyonu yeniden planla" : "Aksiyon planla"}</Button>}
+        trigger={(
+          <Button type="button">
+            {decisionModel.nextActionOverdue
+              ? "Aksiyonu yeniden planla"
+              : sc.nextAction
+                ? "Aksiyonu düzenle"
+                : "Aksiyon planla"}
+          </Button>
+        )}
       />
     ) : processBlocked ? (
       <Button type="button" onClick={revealProcessActions}>Engelleri çöz</Button>

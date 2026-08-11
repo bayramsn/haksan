@@ -16,4 +16,13 @@ describe("Lead fırsata dönüşüm erişimi", () => {
     );
     expect(workspaceSource).not.toContain("isLead && leadBlockers.length > 0");
   });
+
+  it("karar özetinde dönüşüm yerine aksiyon planlama komutunu gösterir", () => {
+    expect(workspaceSource).toContain(
+      ": isLead || sc.qualificationReadiness?.health?.actionMissing || decisionModel.nextActionOverdue ? (",
+    );
+    expect(workspaceSource).toContain(': sc.nextAction\n                ? "Aksiyonu düzenle"');
+    expect(workspaceSource).toContain(': "Aksiyon planla"');
+    expect(workspaceSource).not.toContain("data-workspace-primary=\"convert\"");
+  });
 });
