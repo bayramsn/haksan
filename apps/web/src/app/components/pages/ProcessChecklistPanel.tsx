@@ -39,6 +39,11 @@ import { OPPORTUNITY_OPERATION_GROUP_STEPS } from "./opportunityProcessGroups";
 import { useCompanyDetail } from "../../lib/companyServerData";
 import { districtsForCountry, provincesForCountry } from "../../lib/geoByCountry";
 import { Combobox } from "../ui/combobox";
+import {
+  OPPORTUNITY_VISIT_STATUS_RESULT,
+  resolveOpportunityVisitStatus,
+  type OpportunityVisitStatus,
+} from "./opportunityVisitStatus";
 
 /**
  * Ödeme planının ipucu metni seçilen ödeme şekline göre değişir: kullanıcı boş
@@ -208,7 +213,7 @@ export function ProcessChecklistPanel({
    */
   onSaved?: () => Promise<void> | void;
 }) {
-  const { users, products, updateCase, updateCustomer, decideCaseApproval, refresh } =
+  const { users, products, activities, updateCase, updateCustomer, decideCaseApproval, refresh } =
     useStore();
   const { hasRole, hasPermission } = useAuth();
   const isSuperAdmin = hasRole("super_admin");
@@ -417,6 +422,11 @@ export function ProcessChecklistPanel({
                 isSuperAdmin={isSuperAdmin}
                 canCreateActivity={canCreateActivity}
                 complete={activeCheck.complete}
+                visitStatus={resolveOpportunityVisitStatus({
+                  complete: activeCheck.complete,
+                  activities,
+                  salesCaseId: sc.id,
+                })}
                 busy={busyKey !== null}
                 disabled={readOnly || !canUpdate || busyKey !== null}
                 run={run}
@@ -451,6 +461,7 @@ type EditorProps = {
   isSuperAdmin: boolean;
   canCreateActivity: boolean;
   complete: boolean;
+  visitStatus?: OpportunityVisitStatus;
   busy: boolean;
   disabled: boolean;
   run: (
@@ -594,8 +605,9 @@ function CheckEditor(props: EditorProps) {
 
   /**
    * B alanındaki ziyaret sonucu bir onay kutusu yerine açık bir durum listesi
-   * olarak seçilir. "Yapıldı" seçimi fırsata bağlı ziyaret aktivitesini
-   * oluşturur; tamamlanma bilgisi yine sunucudaki aktivite kaydından türetilir.
+   * olarak seçilir. Her iki seçim de fırsata bağlı ziyaret kararını aktivite
+   * olarak kaydeder; böylece "Yapılmadı" seçimi de adımı bilinçli olarak atlar.
+   * Tamamlanma bilgisi yine sunucudaki aktivite kaydından türetilir.
    */
   const visitStatusCheck = () => {
     const unavailable = !props.canCreateActivity || !sc.customerId;
@@ -608,10 +620,11 @@ function CheckEditor(props: EditorProps) {
             Ziyaret durumu
           </label>
           <Select
-            value={props.complete ? "done" : "not_done"}
+            value={props.visitStatus}
             disabled={activityDisabled}
             onValueChange={(value) => {
-              if (value !== "done" || props.complete || unavailable) return;
+              if ((value !== "done" && value !== "not_done") || props.complete || unavailable) return;
+              const visitStatus = value as OpportunityVisitStatus;
               void run(
                 checkKey,
                 async () => {
@@ -622,11 +635,14 @@ function CheckEditor(props: EditorProps) {
                     subject: "Müşteri Ziyareti",
                     activityDate: new Date(),
                     description: draft.trim() || undefined,
+                    result: OPPORTUNITY_VISIT_STATUS_RESULT[visitStatus],
                   });
                   setDraft("");
                   await props.refresh();
                 },
-                "Ziyaret yapıldı olarak kaydedildi",
+                visitStatus === "done"
+                  ? "Ziyaret yapıldı olarak kaydedildi"
+                  : "Ziyaret yapılmadı olarak kaydedildi; adım atlandı",
                 props.canCreateActivity,
               );
             }}
@@ -637,7 +653,7 @@ function CheckEditor(props: EditorProps) {
               className="h-8 w-full bg-white text-xs sm:w-64"
               aria-label="Ziyaret durumu"
             >
-              <SelectValue />
+              <SelectValue placeholder="Durum seçin" />
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="not_done">Yapılmadı</SelectItem>
@@ -660,8 +676,10 @@ function CheckEditor(props: EditorProps) {
             : !sc.customerId
               ? "Önce fırsata firma bağlanmalı."
               : props.complete
-                ? "Ziyaret aktivitesi kaydedildi; durum Yapıldı."
-                : "Yapıldı seçildiğinde fırsata ziyaret aktivitesi kaydedilir."}
+                ? props.visitStatus === "not_done"
+                  ? "Ziyaret yapılmadı olarak kaydedildi; bu adım atlandı."
+                  : "Ziyaret aktivitesi kaydedildi; durum Yapıldı."
+                : "Yapıldı veya Yapılmadı seçimi ziyaret kararını kaydeder ve adımı tamamlar."}
         </p>
       </div>,
     );

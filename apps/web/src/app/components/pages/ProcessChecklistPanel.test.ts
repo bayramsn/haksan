@@ -165,8 +165,11 @@ describe("ProcessChecklistPanel B aşaması aktiviteleri", () => {
     expect(source).toContain('<SelectItem value="not_done">Yapılmadı</SelectItem>');
     expect(source).toContain('<SelectItem value="done">Yapıldı</SelectItem>');
     expect(source).toContain('activityTypeCode: "customer_visit"');
-    expect(source).toContain('value={props.complete ? "done" : "not_done"}');
-    expect(source).toContain("Yapıldı seçildiğinde fırsata ziyaret aktivitesi kaydedilir.");
+    expect(source).toContain("value={props.visitStatus}");
+    expect(source).toContain('value !== "done" && value !== "not_done"');
+    expect(source).toContain("result: OPPORTUNITY_VISIT_STATUS_RESULT[visitStatus]");
+    expect(source).toContain('<SelectValue placeholder="Durum seçin" />');
+    expect(source).toContain("Yapıldı veya Yapılmadı seçimi ziyaret kararını kaydeder ve adımı tamamlar.");
   });
 });
 
