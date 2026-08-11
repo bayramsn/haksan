@@ -982,7 +982,6 @@ export class AdminController {
     return buildPaginated(rows.map((r) => ({ ...r.audit, actor: r.actor })), count, { page, pageSize, sortBy, sortDir });
   }
 
-  @RequirePermissions('tenants.read')
   @Get('tenant')
   async getTenant(@CurrentUser() user: AuthContext) {
     const tenant = await this.db.query.tenants.findFirst({ where: eq(tenants.id, user.tenantId) });

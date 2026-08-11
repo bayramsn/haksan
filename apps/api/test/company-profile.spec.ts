@@ -6,6 +6,7 @@ import { createTestApp } from './setup';
 describe('Company profile', () => {
   let app: NestFastifyApplication;
   let token: string;
+  let salesToken: string;
   let divisionId: string;
   let companyId: string | undefined;
   let directCompetitorCompanyId: string | undefined;
@@ -18,6 +19,11 @@ describe('Company profile', () => {
       .send({ email: 'admin@haksan.local', password: 'admin12345' })
       .expect(201);
     token = login.body.accessToken;
+    const salesLogin = await request(app.getHttpServer())
+      .post('/api/v1/auth/login')
+      .send({ email: 'sales@haksan.local', password: 'sales12345' })
+      .expect(201);
+    salesToken = salesLogin.body.accessToken;
 
     const me = await request(app.getHttpServer())
       .get('/api/v1/auth/me')
@@ -44,6 +50,23 @@ describe('Company profile', () => {
         .set('Authorization', `Bearer ${token}`);
     }
     await app.close();
+  });
+
+  it('lets a standard user view company settings but keeps updates admin-only', async () => {
+    const tenant = await request(app.getHttpServer())
+      .get('/api/v1/tenant')
+      .set('Authorization', `Bearer ${salesToken}`)
+      .expect(200);
+    expect(tenant.body).toMatchObject({
+      id: expect.any(String),
+      name: expect.any(String),
+    });
+
+    await request(app.getHttpServer())
+      .patch('/api/v1/tenant')
+      .set('Authorization', `Bearer ${salesToken}`)
+      .send({ name: 'Yetkisiz şirket değişikliği' })
+      .expect(403);
   });
 
   it('persists tenant-wide hidden navigation pages and exposes them through /auth/me', async () => {

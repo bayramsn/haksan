@@ -74,7 +74,9 @@ function storageKey(userId?: string) {
 
 export function SettingsPage() {
   const { user, hasPermission, hasRole, refresh } = useAuth();
-  const canReadTenant = hasPermission("tenants.read");
+  // Oturum sahibi kendi tenant'ının temel şirket profilini okuyabilir;
+  // değiştirme yetkisi ayrı kalır ve yalnız tenants.update ile açılır.
+  const canReadTenant = Boolean(user);
   const canEditTenant = hasPermission("tenants.update");
   const canManageLookups = hasRole("super_admin");
   const canManageLeadAssignmentRules = hasPermission("lead_assignment_rules.manage");
@@ -97,9 +99,7 @@ export function SettingsPage() {
   const [hiddenNavigationKeys, setHiddenNavigationKeys] = useState<NavigationVisibilityKey[]>([]);
   const [hiddenNavigationBaseline, setHiddenNavigationBaseline] = useState<NavigationVisibilityKey[]>([]);
   const [navigationSaving, setNavigationSaving] = useState(false);
-  // Kurumsal ayar yetkisi olmayan kullanıcı doğrudan kendi Webmail hesabına
-  // ulaşır; genel tercihler sekmesi yine yan menüde kullanılabilir.
-  const [tab, setTab] = useState(canReadTenant ? "genel" : "webmail");
+  const [tab, setTab] = useState("genel");
 
   useEffect(() => {
     if (!canReadTenant) return;
@@ -268,9 +268,11 @@ export function SettingsPage() {
             <TabsTrigger value="bildirimler" className={tabTriggerClass}>
               <Bell className="size-4" /> Bildirimler
             </TabsTrigger>
-            <TabsTrigger value="menu" className={tabTriggerClass}>
-              <Eye className="size-4" /> Menü & Akış
-            </TabsTrigger>
+            {canEditTenant && (
+              <TabsTrigger value="menu" className={tabTriggerClass}>
+                <Eye className="size-4" /> Menü & Akış
+              </TabsTrigger>
+            )}
             <TabsTrigger value="webmail" className={tabTriggerClass}>
               <MailCheck className="size-4" /> Webmail
             </TabsTrigger>
@@ -360,7 +362,7 @@ export function SettingsPage() {
 
           {/* Belge imzaları şirket kimliğinin bir parçası: teklif/proforma/
               sözleşme çıktısının altına basılan ad, ünvan ve ıslak imza. */}
-          {canReadTenant && <SignatureSettingsCard />}
+          {canEditTenant && <SignatureSettingsCard />}
         </TabsContent>
 
         {/* Bildirimler */}
@@ -409,7 +411,7 @@ export function SettingsPage() {
           </SettingsSection>
         </TabsContent>
 
-        <TabsContent value="menu" className="space-y-4">
+        {canEditTenant && <TabsContent value="menu" className="space-y-4">
           <InfoCallout>
             Burada kapatılan sayfalar tüm kullanıcıların ana menüsünden, <span className="font-medium">Sabitlenenler</span>, <span className="font-medium">Son kullanılan</span>, <span className="font-medium">Hızlı Oluştur</span> ve uygulama içi yönlendirme akışlarından çıkarılır. Ayarlar sayfası her zaman açık kalır.
           </InfoCallout>
@@ -479,7 +481,7 @@ export function SettingsPage() {
             </div>
             {!canEditTenant && <p className="mt-3 text-xs text-muted-foreground">Çalışma alanı akışını değiştirmek için şirket ayarlarını düzenleme yetkisi gerekir.</p>}
           </SettingsSection>
-        </TabsContent>
+        </TabsContent>}
 
         <TabsContent value="webmail" className="space-y-4">
           <MailAccountSettings />
