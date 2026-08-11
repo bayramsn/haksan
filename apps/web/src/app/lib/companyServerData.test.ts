@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { buildCompanyListParams, companyQueryKeys } from "./companyServerData";
+import {
+  buildCompanyListParams,
+  companyDirectoryViewAfterSave,
+  companyQueryKeys,
+} from "./companyServerData";
 import { clampServerPage, normalizeTotalPages, serverScopeKey } from "./serverPagination";
 
 describe("company server directory params", () => {
@@ -38,6 +42,16 @@ describe("company server directory params", () => {
       division: "division-1",
       department: "department-2",
     });
+  });
+
+  it("firma tipi değişince kullanıcıyı yeni sekmeye taşır ve gizleyebilecek filtreleri temizler", () => {
+    expect(companyDirectoryViewAfterSave("customer", "competitor")).toEqual({
+      relationType: "competitor",
+      salesStatus: "all",
+      supplierCategoryCode: "all",
+      page: 1,
+    });
+    expect(companyDirectoryViewAfterSave("competitor", "competitor")).toBeNull();
   });
 });
 

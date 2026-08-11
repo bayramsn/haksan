@@ -44,6 +44,16 @@ export interface CompanyQueryScope {
   department: string;
 }
 
+export function companyDirectoryViewAfterSave(previous: FirmType, next: FirmType) {
+  if (previous === next) return null;
+  return {
+    relationType: next,
+    salesStatus: "all" as const,
+    supplierCategoryCode: "all" as const,
+    page: 1,
+  };
+}
+
 export const EMPTY_COMPANY_SUMMARY: CompanySummaryDTO = {
   total: 0,
   byRelation: {},

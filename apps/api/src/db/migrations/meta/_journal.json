@@ -834,6 +834,13 @@
       "when": 1790188800000,
       "tag": "0119_opportunity_lead_district",
       "breakpoints": true
+    },
+    {
+      "idx": 120,
+      "version": "7",
+      "when": 1790275200000,
+      "tag": "0120_company_relation_type_code",
+      "breakpoints": true
     }
   ]
 }

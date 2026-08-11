@@ -1229,7 +1229,15 @@ export function CreateContactDialog({
 
 /* ---------- Sales Case ---------- */
 /* ---------- Firma düzenleme (controlled) ---------- */
-export function EditCustomerDialog({ customer, onClose }: { customer: Customer | null; onClose: () => void }) {
+export function EditCustomerDialog({
+  customer,
+  onClose,
+  onSaved,
+}: {
+  customer: Customer | null;
+  onClose: () => void;
+  onSaved?: (change: { previousFirmType: FirmType; firmType: FirmType }) => void;
+}) {
   const { updateCustomer } = useStore();
   const { user } = useAuth();
   const [saving, setSaving] = useState(false);
@@ -1341,6 +1349,7 @@ export function EditCustomerDialog({ customer, onClose }: { customer: Customer |
         await updateCustomer(customer.id, { logoFileId });
       }
       toast.success("Firma güncellendi", { description: form.name });
+      onSaved?.({ previousFirmType: customer.firmType, firmType: form.firmType as FirmType });
       onClose();
     } catch (err: any) {
       toast.error("Firma güncellenemedi", { description: err?.message ?? "API isteği başarısız oldu." });

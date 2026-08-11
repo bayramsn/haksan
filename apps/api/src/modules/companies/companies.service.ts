@@ -1028,6 +1028,18 @@ export class CompaniesService {
       lookupIdByCode(this.db, companyStatuses, input.customerStatusCode),
       this.resolveContactSourceId(input.contactSourceCode),
     ]);
+    if (!relId) {
+      throw new ValidationError('Geçersiz firma ilişki türü seçildi', {
+        field: 'relationTypeCode',
+        code: input.relationTypeCode,
+      });
+    }
+    if (!statusId) {
+      throw new ValidationError('Geçersiz firma durumu seçildi', {
+        field: 'customerStatusCode',
+        code: input.customerStatusCode,
+      });
+    }
 
     let created: typeof companies.$inferSelect;
     try {
@@ -1224,6 +1236,18 @@ export class CompaniesService {
       lookupIdByCode(this.db, companyStatuses, input.customerStatusCode),
       this.resolveContactSourceId(input.contactSourceCode),
     ]);
+    if (input.relationTypeCode !== undefined && !relId) {
+      throw new ValidationError('Geçersiz firma ilişki türü seçildi', {
+        field: 'relationTypeCode',
+        code: input.relationTypeCode,
+      });
+    }
+    if (input.customerStatusCode !== undefined && !statusId) {
+      throw new ValidationError('Geçersiz firma durumu seçildi', {
+        field: 'customerStatusCode',
+        code: input.customerStatusCode,
+      });
+    }
     const competitorRelationId = await lookupIdByCode(this.db, companyRelationTypes, 'competitor');
     const shouldBeCompetitor = input.relationTypeCode !== undefined
       ? input.relationTypeCode === 'competitor'

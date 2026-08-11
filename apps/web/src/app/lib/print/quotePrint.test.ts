@@ -45,6 +45,33 @@ const build = (quote: Record<string, unknown>) => buildQuotePrintData({
 }, quote as never);
 
 describe("quote print address", () => {
+  it("prints the assigned personal title below the selected sender", () => {
+    const result = buildQuotePrintData({
+      offer,
+      customer,
+      salesCase: null,
+      users: [{
+        id: "sender-1",
+        name: "Ayşe Yılmaz",
+        email: "ayse@example.test",
+        department: "Satış",
+        title: "Kıdemli Satış Uzmanı",
+      }] as never,
+      contacts: [],
+      products: [],
+    }, {
+      quoteDate: "2026-07-16",
+      documentNo: "CNC-2026/001",
+      projectOwnerUserId: "sender-1",
+      items: [],
+      terms: {},
+    } as never);
+
+    expect(result.projeIlgilisi).toBe("Ayşe Yılmaz");
+    expect(result.projeIlgilisiUnvan).toBe("Kıdemli Satış Uzmanı");
+    expect(quoteDoc(result, "/brand").body).toContain("Kıdemli Satış Uzmanı");
+  });
+
   it("carries the selected company logo into the PDF data", () => {
     const result = buildQuotePrintData({
       offer,

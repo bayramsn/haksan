@@ -38,6 +38,11 @@ import { RemoteCompanyCombobox } from "../shared/RemoteCompanyCombobox";
 import { RemoteContactCombobox } from "../shared/RemoteContactCombobox";
 import { useCompanyDetail } from "../../lib/companyServerData";
 import {
+  buildQuoteCompanyDetailsDraft,
+  buildQuoteCompanyDetailsPatch,
+  type QuoteCompanyDetailsDraft,
+} from "../../lib/quoteCompanyDetails";
+import {
   DocumentTermsTemplateEditor,
   matchSavedTermsTemplate,
   useTermsTemplates,
@@ -282,7 +287,7 @@ export function QuoteDialog({
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
 }) {
-  const { customers, products, users, cases, offers, noteTemplates, createQuoteFull, addNoteTemplate, updateNoteTemplate, deleteNoteTemplate, refresh } = useStore();
+  const { customers, products, users, cases, offers, noteTemplates, createQuoteFull, updateCustomer, addNoteTemplate, updateNoteTemplate, deleteNoteTemplate, refresh } = useStore();
   const editing = Boolean(offerId);
   const { convert } = useFx();
   const { user, activeDivision, canUseAllDivisionsForResource, scopesForResource } = useAuth();
@@ -296,6 +301,7 @@ export function QuoteDialog({
   const [internalOpen, setInternalOpen] = useState(false);
   const open = controlledOpen ?? internalOpen;
   const [saving, setSaving] = useState(false);
+  const [savingCompanyDetails, setSavingCompanyDetails] = useState(false);
   const [loadingEdit, setLoadingEdit] = useState(false);
 
   const today = new Date().toISOString().slice(0, 10);
@@ -310,6 +316,10 @@ export function QuoteDialog({
   const [validityDays, setValidityDays] = useState("");
   const [documentNo, setDocumentNo] = useState("");
   const [senderId, setSenderId] = useState("");
+  const [companyDetailsDraft, setCompanyDetailsDraft] = useState<QuoteCompanyDetailsDraft>(
+    buildQuoteCompanyDetailsDraft(),
+  );
+  const [companyDetailsDirty, setCompanyDetailsDirty] = useState(false);
   /** Çıktının altına basılacak imza (Ayarlar → Belge İmzaları). Boş = imzasız. */
   const [signatureId, setSignatureId] = useState("");
   // Tanımlı imza yoksa seçici hiç gösterilmez: seçenek üretmeyen bir kutu
@@ -598,6 +608,7 @@ export function QuoteDialog({
     [selectedCompany],
   );
   const selectedPdfAddress = companyAddresses.find((address) => address.id === companyAddressId);
+  const selectedSender = users.find((selectedUser) => selectedUser.id === senderId);
 
   useEffect(() => {
     if (!companyId) {
@@ -607,6 +618,57 @@ export function QuoteDialog({
     if (companyAddresses.some((address) => address.id === companyAddressId)) return;
     setCompanyAddressId(preferredPdfAddressId(selectedCompany));
   }, [companyAddressId, companyId, companyAddresses, selectedCompany]);
+
+  useEffect(() => {
+    setCompanyDetailsDraft(buildQuoteCompanyDetailsDraft(selectedCompany, selectedPdfAddress));
+    setCompanyDetailsDirty(false);
+  }, [
+    selectedCompany?.id,
+    selectedCompany?.name,
+    selectedCompany?.country,
+    selectedCompany?.city,
+    selectedCompany?.district,
+    selectedCompany?.address,
+    selectedPdfAddress?.id,
+    selectedPdfAddress?.country,
+    selectedPdfAddress?.city,
+    selectedPdfAddress?.district,
+    selectedPdfAddress?.address,
+  ]);
+
+  const setCompanyDetail = (patch: Partial<QuoteCompanyDetailsDraft>) => {
+    setCompanyDetailsDraft((current) => ({ ...current, ...patch }));
+    setCompanyDetailsDirty(true);
+  };
+
+  const saveCompanyDetails = async () => {
+    if (!selectedCompany) return toast.error("Önce firma seçiniz");
+    setSavingCompanyDetails(true);
+    try {
+      const patch = buildQuoteCompanyDetailsPatch(selectedCompany, companyAddressId, companyDetailsDraft);
+      await updateCustomer(selectedCompany.id, patch);
+      const refreshed = await selectedCompanyQuery.refetch();
+      const refreshedCompany = refreshed.data;
+      if (refreshedCompany) {
+        const nextAddressId = companyAddressId || preferredPdfAddressId(refreshedCompany);
+        setCompanyAddressId(nextAddressId);
+        setCompanyDetailsDraft(buildQuoteCompanyDetailsDraft(
+          refreshedCompany,
+          refreshedCompany.addresses?.find((address) => address.id === nextAddressId),
+        ));
+      }
+      setCompanyDetailsDirty(false);
+      toast.success("Firma bilgileri kaydedildi", {
+        description: "Firma adı ve PDF adresi güncellendi.",
+      });
+    } catch (err: any) {
+      toast.error("Firma bilgileri kaydedilemedi", {
+        description: err?.message ?? "API isteği başarısız oldu.",
+      });
+    } finally {
+      setSavingCompanyDetails(false);
+    }
+  };
 
   const onTermsBuiltInSelected = (key: string) => {
     if (key && NOTE_VARIANT_DELIVERY[key]) setDeliveryCode(NOTE_VARIANT_DELIVERY[key]);
@@ -1168,10 +1230,41 @@ export function QuoteDialog({
                 </SelectContent>
               </Select>
             </div>
-            <div className="md:col-span-3 rounded-lg border border-border/70 bg-muted/20 p-3">
-              <Label className="flex items-center gap-1.5 text-xs">
-                <MapPin className="size-3.5 text-primary" /> PDF'de Kullanılacak Firma Adresi
-              </Label>
+            <div className="md:col-span-3 space-y-3 rounded-lg border border-border/70 bg-muted/20 p-3">
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <div>
+                  <Label className="flex items-center gap-1.5 text-xs">
+                    <MapPin className="size-3.5 text-primary" /> Teklif Firma Bilgileri
+                  </Label>
+                  <p className="mt-1 text-[11px] text-muted-foreground">
+                    Buradaki firma adı ve seçili adres PDF'de kullanılır; kaydettiğinizde firma kartı da güncellenir.
+                  </p>
+                </div>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="gap-1.5"
+                  disabled={!companyId || !companyDetailsDirty || savingCompanyDetails}
+                  onClick={() => void saveCompanyDetails()}
+                >
+                  <Save className="size-3.5" />
+                  {savingCompanyDetails ? "Kaydediliyor…" : "Firma Bilgilerini Kaydet"}
+                </Button>
+              </div>
+              <div>
+                <Label className="text-xs" htmlFor="quote-company-name">Firma Adı / Ticari Ünvan</Label>
+                <Input
+                  id="quote-company-name"
+                  className="mt-1.5 bg-background"
+                  value={companyDetailsDraft.name}
+                  disabled={!companyId}
+                  onChange={(event) => setCompanyDetail({ name: event.target.value })}
+                  placeholder="Firma adı"
+                />
+              </div>
+              <div>
+                <Label className="text-xs">PDF'de Kullanılacak Adres</Label>
               <Select
                 value={companyAddressId || undefined}
                 onValueChange={setCompanyAddressId}
@@ -1186,11 +1279,25 @@ export function QuoteDialog({
                   ))}
                 </SelectContent>
               </Select>
-              <p className="mt-1.5 text-[11px] leading-relaxed text-muted-foreground">
-                {selectedPdfAddress
-                  ? `Seçilen adres teklif PDF'ine yazılacak: ${[selectedPdfAddress.address, selectedPdfAddress.district, selectedPdfAddress.city, selectedPdfAddress.country].filter(Boolean).join(", ")}`
-                  : "Seçilen firmanın kayıtlı adreslerinden biri PDF üzerinde gösterilir."}
-              </p>
+              </div>
+              <div className="grid grid-cols-1 gap-2 md:grid-cols-3">
+                <div>
+                  <Label className="text-xs" htmlFor="quote-company-country">Ülke</Label>
+                  <Input id="quote-company-country" className="mt-1.5 bg-background" value={companyDetailsDraft.country} disabled={!companyId} onChange={(event) => setCompanyDetail({ country: event.target.value })} />
+                </div>
+                <div>
+                  <Label className="text-xs" htmlFor="quote-company-city">İl</Label>
+                  <Input id="quote-company-city" className="mt-1.5 bg-background" value={companyDetailsDraft.city} disabled={!companyId} onChange={(event) => setCompanyDetail({ city: event.target.value })} />
+                </div>
+                <div>
+                  <Label className="text-xs" htmlFor="quote-company-district">İlçe</Label>
+                  <Input id="quote-company-district" className="mt-1.5 bg-background" value={companyDetailsDraft.district} disabled={!companyId} onChange={(event) => setCompanyDetail({ district: event.target.value })} />
+                </div>
+              </div>
+              <div>
+                <Label className="text-xs" htmlFor="quote-company-address">Açık Adres</Label>
+                <Input id="quote-company-address" className="mt-1.5 bg-background" value={companyDetailsDraft.address} disabled={!companyId} onChange={(event) => setCompanyDetail({ address: event.target.value })} placeholder="Cadde, sokak, bina ve kapı numarası" />
+              </div>
             </div>
 
             <div>
@@ -1220,9 +1327,14 @@ export function QuoteDialog({
               <Select value={senderId} onValueChange={setSenderId}>
                 <SelectTrigger className="mt-1.5"><SelectValue placeholder="Seçin" /></SelectTrigger>
                 <SelectContent>
-                  {users.map((u) => <SelectItem key={u.id} value={u.id}>{u.name}</SelectItem>)}
+                  {users.map((u) => <SelectItem key={u.id} value={u.id}>{u.name}{u.title ? ` · ${u.title}` : ""}</SelectItem>)}
                 </SelectContent>
               </Select>
+              <p className="mt-1 text-[11px] text-muted-foreground">
+                {selectedSender?.title
+                  ? `PDF'de ${selectedSender.name} adının altında “${selectedSender.title}” görünür.`
+                  : "Kullanıcı ünvanı, Kullanıcılar ekranındaki Departman & Bölüm bölümünden atanabilir."}
+              </p>
             </div>
             {signatureOptions.length > 0 && (
               <div>

@@ -32,6 +32,7 @@ import { ComposeMailDialog, type MailRecipient } from "../mail/ComposeMailDialog
 import { CompanyContactImportDialog } from "../dialogs/CompanyContactImportDialog";
 import {
   companyQueryKeys,
+  companyDirectoryViewAfterSave,
   EMPTY_COMPANY_SUMMARY,
   fetchFreshCompany,
   useCompanyDirectory,
@@ -620,6 +621,17 @@ export function CustomersPage(_props: { onSelect?: (c: Customer) => void } = {})
 
       <EditCustomerDialog
         customer={editing}
+        onSaved={({ previousFirmType, firmType }) => {
+          const nextView = companyDirectoryViewAfterSave(previousFirmType, firmType);
+          if (!nextView) return;
+          setTab(nextView.relationType);
+          setSalesTab(nextView.salesStatus);
+          setSupplierCategory(nextView.supplierCategoryCode);
+          setPage(nextView.page);
+          toast.success(`${FIRM_TYPE_LABEL[firmType]} bölümüne taşındı`, {
+            description: "Firma yeni bölümünde gösteriliyor.",
+          });
+        }}
         onClose={() => {
           setEditing(null);
           void invalidateCompanies();

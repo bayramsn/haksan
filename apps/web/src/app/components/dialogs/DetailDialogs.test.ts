@@ -11,4 +11,13 @@ describe("CompanyDetailDialog firma notları", () => {
     expect(source).toContain("break-words");
     expect(source).toContain("Bu firma için henüz not eklenmemiş.");
   });
+
+  it("firma detayından yetkili kullanıcıyı doğrudan düzenleme formuna geçirir", () => {
+    const source = readFileSync(new URL("./DetailDialogs.tsx", import.meta.url), "utf8");
+
+    expect(source).toContain('hasPermission("companies.update")');
+    expect(source).toContain("onClick={() => onEdit(customer)}");
+    expect(source).toContain("Firma Düzenle");
+    expect(source).toContain("<EditCustomerDialog customer={editingCompany}");
+  });
 });

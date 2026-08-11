@@ -21,7 +21,7 @@ import {
 import { useStore } from "../../lib/store";
 import { StatusBadge } from "../shared/StatusBadge";
 import { CompanyFinancePanel } from "../shared/CompanyFinancePanel";
-import { CreateCaseDialog, CreateContactDialog, EditContactDialog } from "./CreateDialogs";
+import { CreateCaseDialog, CreateContactDialog, EditContactDialog, EditCustomerDialog } from "./CreateDialogs";
 import { CreateContractDialog } from "./CreateContractDialog";
 import { CreateProformaDialog } from "./CreateProformaDialog";
 import { QuoteDialog } from "./QuoteDialog";
@@ -234,13 +234,15 @@ export function CompanyDetailDialog({
   customer,
   onClose,
   onOpenContact,
+  onEdit,
 }: {
   customer: Customer | null;
   onClose: () => void;
   onOpenContact?: (c: Contact) => void;
+  onEdit?: (customer: Customer) => void;
 }) {
   const { cases, offers, documents, payments, machines, service, deleteContact } = useStore();
-  const { user, activeDivision, activeDepartment } = useAuth();
+  const { user, activeDivision, activeDepartment, hasPermission } = useAuth();
   const queryClient = useQueryClient();
   const [editingContact, setEditingContact] = useState<Contact | null>(null);
   const [pendingContactDelete, setPendingContactDelete] = useState<Contact | null>(null);
@@ -349,6 +351,17 @@ export function CompanyDetailDialog({
                 <span className="text-muted-foreground">{customer.type === "company" ? "Kurumsal" : "Bireysel"}</span>
               </DialogDescription>
             </div>
+            {hasPermission("companies.update") && onEdit && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-8 shrink-0 gap-1.5 bg-white text-xs"
+                onClick={() => onEdit(customer)}
+              >
+                <Pencil className="size-3.5" /> Firma Düzenle
+              </Button>
+            )}
           </div>
 
           {/* Aksiyonlar — firmadan doğrudan satış kartı / teklif / proforma / sözleşme açılır. */}
@@ -1159,9 +1172,15 @@ export function ContactDetailDialog({
 export function useDetailDialogs() {
   const [contact, setContact] = useState<Contact | null>(null);
   const [company, setCompany] = useState<Customer | null>(null);
+  const [editingCompany, setEditingCompany] = useState<Customer | null>(null);
 
-  const openContact = (c: Contact) => { setCompany(null); setContact(c); };
-  const openCompany = (c: Customer) => { setContact(null); setCompany(c); };
+  const openContact = (c: Contact) => { setCompany(null); setEditingCompany(null); setContact(c); };
+  const openCompany = (c: Customer) => { setContact(null); setEditingCompany(null); setCompany(c); };
+  const editCompany = (c: Customer) => {
+    setContact(null);
+    setCompany(null);
+    setEditingCompany(c);
+  };
 
   const dialogs = (
     <>
@@ -1175,7 +1194,9 @@ export function useDetailDialogs() {
         customer={company}
         onClose={() => setCompany(null)}
         onOpenContact={openContact}
+        onEdit={editCompany}
       />
+      <EditCustomerDialog customer={editingCompany} onClose={() => setEditingCompany(null)} />
     </>
   );
 

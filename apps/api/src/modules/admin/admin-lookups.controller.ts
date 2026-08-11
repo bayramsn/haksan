@@ -394,7 +394,17 @@ export class AdminLookupsController {
   }
 
   private lookupValues(name: string, body: LookupCreateInput | LookupUpdateInput, existing?: any) {
-    const code = body.code ? toLookupCode(body.code) : body.name ? toLookupCode(body.name) : undefined;
+    // Kod, uygulama akışlarının sabit anahtarıdır. Düzenleme ekranı yalnızca
+    // görünen adı gönderdiğinde kodu addan yeniden üretmek (Rakip -> rakip)
+    // mevcut kayıtları uygulamanın beklediği `competitor` kodundan koparıyordu.
+    // Ad yalnızca yeni kayıt oluşturulurken varsayılan kod üretir.
+    const code = body.code
+      ? toLookupCode(body.code)
+      : existing
+        ? undefined
+        : body.name
+          ? toLookupCode(body.name)
+          : undefined;
     if (body.code && !code) throw new ValidationError('Lookup kodu geçersiz');
     if (name === 'tax-offices' && body.province != null && !body.province.trim()) {
       throw new ValidationError('Vergi dairesi için il bilgisi boş olamaz');
