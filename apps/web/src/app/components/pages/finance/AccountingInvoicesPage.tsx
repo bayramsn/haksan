@@ -246,7 +246,7 @@ export function AccountingInvoicesPage({ initialQuery }: { initialQuery?: string
     .map(([code, amount]) => `${amount.toLocaleString("tr-TR")} ${code}`);
 
   return (
-    <div className="space-y-5">
+    <div className="crm-page">
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <MiniKpi tone="violet" icon={<Receipt className="size-[18px]" />} label="Fatura" value={filtered.length} sub={invoiceCategoryLabel(categoryFilter).toLocaleLowerCase("tr-TR")} />
         <MiniKpi tone="emerald" icon={<ArrowUpRight className="size-[18px]" />} label="Toplam Tutar" value={primaryTotal ?? "—"} sub={otherTotals.join(" · ") || undefined} />
@@ -319,7 +319,7 @@ export function AccountingInvoicesPage({ initialQuery }: { initialQuery?: string
         <CardContent className="p-0">
           <Table>
             <TableHeader>
-              <TableRow className="bg-muted/40 hover:bg-muted/40 [&_th]:text-[11px] [&_th]:uppercase [&_th]:tracking-wider [&_th]:text-muted-foreground">
+              <TableRow className="bg-muted/40 hover:bg-muted/40 [&_th]:text-xs [&_th]:uppercase [&_th]:tracking-wider [&_th]:text-muted-foreground">
                   <TableHead>Belge / Fatura No</TableHead>
                 {typeFilter === "all" && <TableHead>Tür</TableHead>}
                 <TableHead>Sınıf</TableHead>
@@ -342,7 +342,7 @@ export function AccountingInvoicesPage({ initialQuery }: { initialQuery?: string
                       <InvoiceSheet invoice={r} compact />
                       <div className="min-w-0">
                         <div className="font-medium tabular-nums">{r.invoiceNo}</div>
-                        <div className="mt-0.5 text-[10px] text-muted-foreground">{r.type === "sales" ? "Satış belgesi" : "Alış belgesi"}</div>
+                        <div className="mt-0.5 text-xs text-muted-foreground">{r.type === "sales" ? "Satış belgesi" : "Alış belgesi"}</div>
                       </div>
                     </div>
                   </TableCell>
@@ -354,7 +354,7 @@ export function AccountingInvoicesPage({ initialQuery }: { initialQuery?: string
                     </TableCell>
                   )}
                   <TableCell>
-                    <Badge variant="secondary" className="h-6 text-[11px]">
+                    <Badge variant="secondary" className="h-6 text-xs">
                       {invoiceCategoryLabel(r.invoiceCategory)}
                     </Badge>
                   </TableCell>
@@ -370,8 +370,8 @@ export function AccountingInvoicesPage({ initialQuery }: { initialQuery?: string
                       const tone = state.tone === "danger" ? "border-destructive/20 bg-destructive-soft text-destructive" : state.tone === "warning" ? "border-warning/20 bg-warning-soft text-warning" : state.tone === "success" ? "border-success/20 bg-success-soft text-success" : "border-border bg-muted text-muted-foreground";
                       return (
                         <div>
-                          <Badge variant="outline" className={`h-5 px-1.5 text-[10px] ${tone}`}>{state.label}</Badge>
-                          <div className="mt-1 text-[10px] text-muted-foreground">
+                          <Badge variant="outline" className={`h-6 px-1.5 text-xs ${tone}`}>{state.label}</Badge>
+                          <div className="mt-1 text-xs text-muted-foreground">
                             {r.firstDueDate ? new Date(r.firstDueDate).toLocaleDateString("tr-TR") : "Vade tanımlı değil"}
                             {r.lastDueDate && r.installmentCount > 1 ? ` – ${new Date(r.lastDueDate).toLocaleDateString("tr-TR")}` : ""}
                           </div>
@@ -422,7 +422,7 @@ export function AccountingInvoicesPage({ initialQuery }: { initialQuery?: string
               <div className="grid gap-4 rounded-xl border border-primary/10 bg-gradient-to-br from-brand-blue-soft/70 via-white to-white p-4 sm:grid-cols-[auto_1fr]">
                 <InvoiceSheet invoice={detail} />
                 <div className="min-w-0 space-y-3">
-              <div className="rounded-lg border border-border/60 bg-white/80 p-3">
+              <div className="rounded-lg border border-border/60 bg-card/80 p-3">
                 <div className="mb-1 flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
                   <Building2 className="size-3.5" />
                   {detail.type === "sales" ? "Müşteri / Firma" : "Tedarikçi / Firma"}
@@ -438,7 +438,7 @@ export function AccountingInvoicesPage({ initialQuery }: { initialQuery?: string
                   </div>
                 )}
               </div>
-              <div className="grid grid-cols-2 gap-2 rounded-lg border border-border/60 bg-white/80 p-3">
+              <div className="grid grid-cols-2 gap-2 rounded-lg border border-border/60 bg-card/80 p-3">
                 <div><span className="text-muted-foreground">Tür:</span> {detail.type === "sales" ? "Satış" : "Alış"}</div>
                 <div><span className="text-muted-foreground">Sınıf:</span> {invoiceCategoryLabel(detail.invoiceCategory)}</div>
                 <div><span className="text-muted-foreground">Tarih:</span> {new Date(detail.invoiceDate).toLocaleDateString("tr-TR")}</div>
@@ -461,15 +461,15 @@ export function AccountingInvoicesPage({ initialQuery }: { initialQuery?: string
                 )}
               </div>
               <div className="grid grid-cols-2 gap-2">
-                <div className="rounded-lg border border-border/60 bg-white/80 p-3">
-                  <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground"><CalendarClock className="size-3.5" /> Vade durumu</div>
+                <div className="rounded-lg border border-border/60 bg-card/80 p-3">
+                  <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground"><CalendarClock className="size-3.5" /> Vade durumu</div>
                   <div className="mt-1 font-semibold">{dueState(detail).label}</div>
-                  <div className="mt-0.5 text-[10px] text-muted-foreground">{dueState(detail).detail}</div>
+                  <div className="mt-0.5 text-xs text-muted-foreground">{dueState(detail).detail}</div>
                 </div>
-                <div className="rounded-lg border border-border/60 bg-white/80 p-3">
-                  <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground"><Clock3 className="size-3.5" /> Vade planı</div>
+                <div className="rounded-lg border border-border/60 bg-card/80 p-3">
+                  <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground"><Clock3 className="size-3.5" /> Vade planı</div>
                   <div className="mt-1 font-semibold">{detail.installmentCount} ödeme adımı</div>
-                  <div className="mt-0.5 text-[10px] text-muted-foreground">{detail.firstDueDate ? new Date(detail.firstDueDate).toLocaleDateString("tr-TR") : "Tarih tanımlı değil"}</div>
+                  <div className="mt-0.5 text-xs text-muted-foreground">{detail.firstDueDate ? new Date(detail.firstDueDate).toLocaleDateString("tr-TR") : "Tarih tanımlı değil"}</div>
                 </div>
               </div>
                 </div>
@@ -522,9 +522,9 @@ export function AccountingInvoicesPage({ initialQuery }: { initialQuery?: string
                   </Table>
                 </div>
               )}
-              <div className="sticky bottom-0 -mx-1 flex flex-col gap-3 rounded-xl border border-primary/10 bg-white/95 p-3 shadow-lg backdrop-blur sm:flex-row sm:items-center sm:justify-between">
+              <div className="sticky bottom-0 -mx-1 flex flex-col gap-3 rounded-xl border border-primary/10 bg-card/95 p-3 shadow-lg backdrop-blur sm:flex-row sm:items-center sm:justify-between">
                 <div>
-                  <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">Belge toplamı</div>
+                  <div className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">Belge toplamı</div>
                   <div className="font-display text-xl font-semibold tabular-nums text-primary">{Number(detail.grandTotal).toLocaleString("tr-TR")} {detail.currency?.code ?? ""}</div>
                 </div>
                 <div className="flex justify-end gap-2">

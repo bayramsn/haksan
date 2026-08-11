@@ -446,7 +446,7 @@ export function RolesPage() {
 
   return (
     <>
-    <div className="grid gap-4 lg:grid-cols-[320px_minmax(0,1fr)]">
+    <div className="crm-page grid lg:grid-cols-[320px_minmax(0,1fr)]">
       <Card className="min-h-[660px] overflow-hidden border-border/60 shadow-sm">
         <CardHeader className="border-b border-border/60 p-4">
           <div className="flex items-center justify-between gap-2">
@@ -540,7 +540,7 @@ export function RolesPage() {
               value={query}
               onChange={(event) => setQuery(event.target.value)}
               placeholder="Rol adı veya kodu ara..."
-              className="h-9 bg-white pl-9"
+              className="h-9 bg-card pl-9"
             />
           </div>
         </CardHeader>
@@ -559,13 +559,13 @@ export function RolesPage() {
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
                       <div className="truncate text-sm font-medium leading-tight">{role.name}</div>
-                      <div className="mt-0.5 truncate text-[11px] text-muted-foreground">{role.code}</div>
+                      <div className="mt-0.5 truncate text-xs text-muted-foreground">{role.code}</div>
                     </div>
                     <Badge variant="secondary" className={role.isSystemRole ? "bg-zinc-100 text-zinc-700" : "bg-primary/10 text-primary"}>
                       {role.isSystemRole ? "Sistem" : "Özel"}
                     </Badge>
                   </div>
-                  <div className="mt-2 flex items-center gap-2 text-[11px] text-muted-foreground">
+                  <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
                     <ShieldCheck className="size-3.5" />
                     <span>{role.permissions.length} yetki</span>
                   </div>

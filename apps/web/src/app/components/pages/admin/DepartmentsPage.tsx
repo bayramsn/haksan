@@ -132,11 +132,11 @@ export function DepartmentsPage() {
   );
 
   return (
-    <div className="space-y-4">
+    <div className="crm-page">
       <section className="premium-blueprint precision-corners overflow-hidden rounded-2xl border border-primary/20 bg-card p-5 shadow-sm">
         <div className="relative flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
           <div>
-            <p className="font-mono text-[10px] font-semibold tracking-[0.2em] text-primary">ORGANİZASYON MİMARİSİ</p>
+            <p className="ui-eyebrow text-primary">Organizasyon mimarisi</p>
             <h2 className="mt-1 font-display text-2xl font-semibold tracking-tight sm:text-3xl">Departman ağı</h2>
             <p className="mt-1 max-w-2xl text-sm text-muted-foreground">Şirket kapsamındaki ekipleri, kod yapılarını ve dönemsel hedef hazırlığını tek yüzeyde izleyin.</p>
           </div>

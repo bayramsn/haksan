@@ -234,11 +234,11 @@ export function SettingsPage() {
     "h-10 flex-none justify-start gap-2 rounded-lg px-3.5 py-2 text-muted-foreground data-[state=active]:text-foreground data-[state=active]:ring-1 data-[state=active]:ring-border/70 lg:w-full lg:flex-none";
 
   return (
-    <div className="mx-auto max-w-[1480px] space-y-5 pb-20">
+    <div className="crm-page mx-auto max-w-[1480px] pb-20">
       <section className="premium-blueprint precision-corners overflow-hidden rounded-2xl border border-primary/20 bg-[linear-gradient(135deg,var(--card),color-mix(in_srgb,var(--primary)_7%,var(--card)))] px-5 py-5 shadow-sm sm:px-6">
         <div className="relative flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <p className="font-mono text-[10px] font-semibold tracking-[0.2em] text-primary">{activeSection.eyebrow}</p>
+            <p className="ui-eyebrow text-primary">{activeSection.eyebrow}</p>
             <h2 className="mt-1 font-display text-2xl font-semibold tracking-tight sm:text-3xl">{activeSection.title}</h2>
             <p className="mt-1 max-w-2xl text-sm text-muted-foreground">{activeSection.description}</p>
           </div>
@@ -246,7 +246,7 @@ export function SettingsPage() {
             <span className="flex size-10 items-center justify-center rounded-lg bg-success/10 text-success"><ShieldCheck className="size-5" /></span>
             <div>
               <p className="text-xs font-medium">Yetki kapsamı</p>
-              <p className="text-[11px] text-muted-foreground">{canManageLookups ? "Sistem yöneticisi" : canEditTenant ? "Şirket yöneticisi" : "Kişisel tercihler"}</p>
+              <p className="text-xs text-muted-foreground">{canManageLookups ? "Sistem yöneticisi" : canEditTenant ? "Şirket yöneticisi" : "Kişisel tercihler"}</p>
             </div>
           </div>
         </div>
@@ -255,7 +255,7 @@ export function SettingsPage() {
       <Tabs value={tab} onValueChange={setTab} className="gap-5 lg:grid lg:grid-cols-[250px_minmax(0,1fr)] lg:items-start lg:gap-6">
         <aside className="rounded-xl border border-border/60 bg-card p-2 shadow-sm lg:sticky lg:top-4">
           <div className="hidden px-3 pb-2 pt-2 lg:block">
-            <p className="font-mono text-[9px] font-semibold tracking-[0.18em] text-muted-foreground">AYAR BÖLÜMLERİ</p>
+            <p className="ui-eyebrow text-muted-foreground">Ayar bölümleri</p>
             <p className="mt-1 text-xs text-muted-foreground">Bir bölüm seçerek yapılandırın.</p>
           </div>
           <TabsList className="flex h-auto w-full justify-start gap-1 overflow-x-auto border-0 bg-transparent p-0 lg:flex-col lg:overflow-visible">
@@ -345,7 +345,7 @@ export function SettingsPage() {
 
           {canReadTenant && !companyLoading && (
             <SettingsSection icon={<Globe />} tone="info" title="Canlı Kurumsal Önizleme" description="Kaydetmeden önce şirket kimliğinin çalışma alanında nasıl görüneceğini kontrol edin.">
-              <div className="premium-blueprint precision-corners overflow-hidden rounded-xl border border-primary/15 bg-[linear-gradient(135deg,#07113f,#101b55)] p-5 text-white">
+              <div className="premium-blueprint precision-corners overflow-hidden rounded-xl border border-primary/15 bg-[var(--gradient-brand)] p-5 text-white">
                 <div className="relative flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
                   <div className="rounded-lg bg-white px-3 py-2 shadow-lg shadow-black/15">
                     <img src="/brand/haksan-logo.png" alt="Haksan Makina" className="h-8 w-auto max-w-[170px] object-contain" />

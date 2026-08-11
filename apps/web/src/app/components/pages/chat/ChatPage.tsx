@@ -345,15 +345,15 @@ export function ChatPage({ onOpenRecord }: { onOpenRecord?: (card: ChatRefCard) 
   ].filter((group) => group.items.length > 0);
 
   return (
-    <div className="surface-enter flex h-[calc(100vh-13rem)] min-h-[520px] overflow-hidden rounded-xl border border-primary/10 bg-card shadow-sm">
+    <div className="surface-enter flex h-[calc(100dvh-13rem)] min-h-[520px] overflow-hidden rounded-xl border border-primary/10 bg-card shadow-sm">
       {/* Sol pano */}
       <div className={cn("w-full shrink-0 flex-col border-r border-border/60 bg-muted/10 md:flex md:w-80", selectedId ? "hidden" : "flex")}>
         <div className="premium-blueprint border-b border-border/60 p-3">
-          <div className="mb-2 flex items-center justify-between"><div><div className="font-data text-[9px] font-semibold uppercase tracking-[0.14em] text-operation-blue">Kurum içi iletişim</div><div className="mt-0.5 text-sm font-semibold">Sohbetler</div></div>{conversations.some((conversation) => conversation.unreadCount > 0) && <Badge className="bg-brand-red text-white">{conversations.reduce((sum, conversation) => sum + conversation.unreadCount, 0)} yeni</Badge>}</div>
+          <div className="mb-2 flex items-center justify-between"><div><div className="ui-eyebrow text-operation-blue">Kurum içi iletişim</div><div className="mt-0.5 text-sm font-semibold">Sohbetler</div></div>{conversations.some((conversation) => conversation.unreadCount > 0) && <Badge className="bg-brand-red text-white">{conversations.reduce((sum, conversation) => sum + conversation.unreadCount, 0)} yeni</Badge>}</div>
           <div className="flex items-center gap-2">
           <div className="relative flex-1">
             <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-            <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Kişi veya grup ara…" className="bg-white pl-8" />
+            <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Kişi veya grup ara…" className="bg-card pl-8" />
           </div>
           </div>
         </div>
@@ -378,7 +378,7 @@ export function ChatPage({ onOpenRecord }: { onOpenRecord?: (card: ChatRefCard) 
                       <span className="min-w-0 flex-1">
                         <span className="block truncate">{u.fullName}</span>
                         <span className="block truncate text-xs text-muted-foreground">{u.email}</span>
-                        <span className="mt-0.5 inline-flex items-center gap-1 text-[9px] uppercase tracking-wide text-success"><span className="size-1.5 rounded-full bg-success" />{u.status === "active" ? "Aktif" : u.status}</span>
+                        <span className="mt-0.5 inline-flex items-center gap-1 text-xs uppercase tracking-wide text-success"><span className="size-1.5 rounded-full bg-success" />{u.status === "active" ? "Aktif" : u.status}</span>
                       </span>
                     </button>
                   ))}
@@ -393,7 +393,7 @@ export function ChatPage({ onOpenRecord }: { onOpenRecord?: (card: ChatRefCard) 
         </div>
         <ScrollArea className="min-h-0 flex-1">
           <div className="p-1.5">
-            {conversationGroups.map((group) => <div key={group.label} className="mb-2"><div className="px-2 pb-1 pt-2 font-data text-[9px] font-semibold uppercase tracking-[0.13em] text-muted-foreground">{group.label}</div>{group.items.map((c) => {
+            {conversationGroups.map((group) => <div key={group.label} className="mb-2"><div className="px-2 pb-1 pt-2 font-data text-xs font-semibold uppercase tracking-[0.13em] text-muted-foreground">{group.label}</div>{group.items.map((c) => {
               const name = convDisplay(c, meId);
               const active = c.id === selectedId;
               return (
@@ -407,7 +407,7 @@ export function ChatPage({ onOpenRecord }: { onOpenRecord?: (card: ChatRefCard) 
                   <span className="min-w-0 flex-1">
                     <span className="flex items-center justify-between gap-2">
                       <span className="truncate text-sm font-medium">{name}</span>
-                      {c.lastMessage && <span className="shrink-0 text-[10px] text-muted-foreground">{fmtTime(c.lastMessage.createdAt)}</span>}
+                      {c.lastMessage && <span className="shrink-0 text-xs text-muted-foreground">{fmtTime(c.lastMessage.createdAt)}</span>}
                     </span>
                     <span className="flex items-center justify-between gap-2">
                       <span className="truncate text-xs text-muted-foreground">{c.lastMessage?.preview ?? "Henüz mesaj yok"}</span>
@@ -423,7 +423,7 @@ export function ChatPage({ onOpenRecord }: { onOpenRecord?: (card: ChatRefCard) 
       </div>
 
       {/* Sağ pano */}
-      <div className={cn("min-w-0 flex-1 flex-col bg-white md:flex", selectedId ? "flex" : "hidden")}>
+      <div className={cn("min-w-0 flex-1 flex-col bg-card md:flex", selectedId ? "flex" : "hidden")}>
         {!detail ? (
           <div className="premium-blueprint grid flex-1 place-items-center p-6">
             <div className="max-w-sm text-center">

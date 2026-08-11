@@ -105,7 +105,7 @@ export function DueDatesCalendarPage() {
   };
 
   return (
-    <div className="space-y-5">
+    <div className="crm-page">
       <div className={`grid grid-cols-2 gap-3 ${isAdmin ? "lg:grid-cols-4" : "lg:grid-cols-3"}`}>
         <MiniKpi tone="violet" icon={<Calendar className="size-[18px]" />} label="Bu Ay Vade" value={visibleItems.length} sub={monthLabel} />
         <MiniKpi tone="amber" icon={<Clock className="size-[18px]" />} label="Önümüzdeki 7 Gün" value={next7.length} sub={sumByCurrency(next7) || "vade yok"} />
@@ -130,7 +130,7 @@ export function DueDatesCalendarPage() {
           </div>
         </CardHeader>
         <CardContent>
-          <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-2 rounded-lg border border-border/60 bg-muted/25 px-3 py-2 text-[10px] text-muted-foreground">
+          <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-2 rounded-lg border border-border/60 bg-muted/25 px-3 py-2 text-xs text-muted-foreground">
             <span className="font-semibold uppercase tracking-[0.1em]">Gösterge</span>
             <span className="inline-flex items-center gap-1.5"><span className="size-2 rounded-full bg-success" /> Tahsil</span>
             {isAdmin && <span className="inline-flex items-center gap-1.5"><span className="size-2 rounded-full bg-warning" /> Ödeme</span>}
@@ -141,7 +141,7 @@ export function DueDatesCalendarPage() {
           <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
             <div className="min-w-0 overflow-x-auto">
               <div className="min-w-[700px]">
-                <div className="mb-2 grid grid-cols-7 gap-1 text-center text-[11px] font-medium text-muted-foreground">
+                <div className="mb-2 grid grid-cols-7 gap-1 text-center text-xs font-medium text-muted-foreground">
                   {["Pzt", "Sal", "Çar", "Per", "Cum", "Cmt", "Paz"].map((d) => <div key={d}>{d}</div>)}
                 </div>
                 <div className="grid grid-cols-7 gap-1">
@@ -158,16 +158,16 @@ export function DueDatesCalendarPage() {
                         aria-pressed={isSelected}
                         onClick={() => setSelectedDay(day)}
                         className={`min-h-[96px] rounded-md border p-1.5 text-left transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
-                          isSelected ? "border-primary/40 bg-brand-blue-soft shadow-sm ring-1 ring-primary/20" : dayItems.length ? "border-warning/25 bg-warning-soft/35 hover:border-primary/25" : "border-border/50 bg-white hover:bg-muted/25"
+                          isSelected ? "border-primary/40 bg-brand-blue-soft shadow-sm ring-1 ring-primary/20" : dayItems.length ? "border-warning/25 bg-warning-soft/35 hover:border-primary/25" : "border-border/50 bg-card hover:bg-muted/25"
                         } ${isToday ? "ring-2 ring-operation-blue/25" : ""}`}
                       >
                         <div className="mb-1 flex items-center justify-between gap-1">
-                          <span className={`text-[11px] font-semibold ${isToday || isSelected ? "text-primary" : "text-muted-foreground"}`}>{day}</span>
+                          <span className={`text-xs font-semibold ${isToday || isSelected ? "text-primary" : "text-muted-foreground"}`}>{day}</span>
                           {hasOverdue && <CircleAlert className="size-3 text-destructive" aria-label="Gecikmiş hareket var" />}
                         </div>
                         <div className="space-y-1">
                           {dayItems.slice(0, 2).map((it) => (
-                            <div key={it.id} className="rounded border border-border/60 bg-white px-1.5 py-1 text-[10px] leading-tight shadow-xs">
+                            <div key={it.id} className="rounded border border-border/60 bg-card px-1.5 py-1 text-xs leading-tight shadow-xs">
                               <div className="truncate font-medium">{it.companyName}</div>
                               <div className="mt-0.5 flex items-center justify-between gap-1">
                                 <span className="tabular-nums text-muted-foreground">{it.amount.toLocaleString("tr-TR")} {it.currencyCode}</span>
@@ -185,8 +185,8 @@ export function DueDatesCalendarPage() {
             </div>
 
             <aside className="self-start overflow-hidden rounded-xl border border-primary/10 bg-brand-blue-soft/30 xl:sticky xl:top-3">
-              <div className="border-b border-primary/10 bg-white/70 p-4">
-                <div className="font-data text-[9px] font-semibold uppercase tracking-[0.15em] text-operation-blue">Günlük ajanda</div>
+              <div className="border-b border-primary/10 bg-card/70 p-4">
+                <div className="ui-eyebrow text-operation-blue">Günlük ajanda</div>
                 <div className="mt-1 font-display text-lg font-semibold">
                   {selectedDay ? `${selectedDay} ${monthLabel}` : "Önümüzdeki 7 gün"}
                 </div>
@@ -196,7 +196,7 @@ export function DueDatesCalendarPage() {
                 {agendaItems.map((item) => {
                   const overdue = new Date(item.dueDate).getTime() < startOfToday.getTime();
                   return (
-                    <div key={item.id} className="rounded-lg border border-border/60 bg-white p-3 shadow-xs">
+                    <div key={item.id} className="rounded-lg border border-border/60 bg-card p-3 shadow-xs">
                       <div className="flex items-start justify-between gap-2">
                         <div className="min-w-0">
                           <div className="flex items-center gap-1.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground"><Building2 className="size-3" /> {item.invoiceNo || "Cari hareket"}</div>
