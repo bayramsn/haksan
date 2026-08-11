@@ -25,9 +25,9 @@ export function EmptyState({ icon, scene, title, description, action, eyebrow = 
           <span className="grid size-9 place-items-center rounded-lg bg-brand-blue-soft">{icon}</span>
         </div>
       )}
-      <div className="mb-1.5 font-data text-[9px] font-semibold uppercase tracking-[0.18em] text-operation-blue">{eyebrow}</div>
+      <div className="ui-eyebrow mb-1.5">{eyebrow}</div>
       <h3 className="font-display text-lg font-semibold leading-tight text-foreground">{title}</h3>
-      {description && <p className="mt-1.5 max-w-sm text-[13px] leading-relaxed text-muted-foreground">{description}</p>}
+      {description && <p className="mt-1.5 max-w-sm text-pretty text-sm leading-relaxed text-muted-foreground">{description}</p>}
       {action && <div className="mt-4">{action}</div>}
     </div>
   );
