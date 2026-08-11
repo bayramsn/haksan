@@ -1,5 +1,6 @@
 import {
   useEffect,
+  useMemo,
   useState,
   type ReactNode,
 } from "react";
@@ -36,6 +37,8 @@ import { PaymentMethodSelect } from "../shared/PaymentMethodSelect";
 import { RemoteContactCombobox } from "../shared/RemoteContactCombobox";
 import { OPPORTUNITY_OPERATION_GROUP_STEPS } from "./opportunityProcessGroups";
 import { useCompanyDetail } from "../../lib/companyServerData";
+import { districtsForCountry, provincesForCountry } from "../../lib/geoByCountry";
+import { Combobox } from "../ui/combobox";
 
 /**
  * Ödeme planının ipucu metni seçilen ödeme şekline göre değişir: kullanıcı boş
@@ -469,6 +472,14 @@ function CheckEditor(props: EditorProps) {
   const { checkKey, sc, company, users, products, isSuperAdmin, disabled, run, openCheck } = props;
   const [draft, setDraft] = useState("");
   const [draft2, setDraft2] = useState("");
+  const provinceOptions = useMemo(
+    () => provincesForCountry("Türkiye").map((name) => ({ value: name, label: name })),
+    [],
+  );
+  const districtOptions = useMemo(
+    () => districtsForCountry("Türkiye", draft).map((name) => ({ value: name, label: name })),
+    [draft],
+  );
 
   const saveCase = (patch: Parameters<EditorProps["updateCase"]>[1], message: string) =>
     run(checkKey, () => props.updateCase(sc.id, patch), message);
@@ -581,6 +592,81 @@ function CheckEditor(props: EditorProps) {
     );
   };
 
+  /**
+   * B alanındaki ziyaret sonucu bir onay kutusu yerine açık bir durum listesi
+   * olarak seçilir. "Yapıldı" seçimi fırsata bağlı ziyaret aktivitesini
+   * oluşturur; tamamlanma bilgisi yine sunucudaki aktivite kaydından türetilir.
+   */
+  const visitStatusCheck = () => {
+    const unavailable = !props.canCreateActivity || !sc.customerId;
+    const activityDisabled = props.disabled || props.busy || props.complete || unavailable;
+
+    return wrap(
+      <div className="space-y-2 rounded-md bg-slate-50/80 p-2.5">
+        <div className="space-y-1.5">
+          <label className="text-xs font-medium" htmlFor={`qualification-visit-status-${sc.id}`}>
+            Ziyaret durumu
+          </label>
+          <Select
+            value={props.complete ? "done" : "not_done"}
+            disabled={activityDisabled}
+            onValueChange={(value) => {
+              if (value !== "done" || props.complete || unavailable) return;
+              void run(
+                checkKey,
+                async () => {
+                  await activityService.create({
+                    opportunityId: sc.id,
+                    companyId: sc.customerId!,
+                    activityTypeCode: "customer_visit",
+                    subject: "Müşteri Ziyareti",
+                    activityDate: new Date(),
+                    description: draft.trim() || undefined,
+                  });
+                  setDraft("");
+                  await props.refresh();
+                },
+                "Ziyaret yapıldı olarak kaydedildi",
+                props.canCreateActivity,
+              );
+            }}
+          >
+            <SelectTrigger
+              id={`qualification-visit-status-${sc.id}`}
+              size="sm"
+              className="h-8 w-full bg-white text-xs sm:w-64"
+              aria-label="Ziyaret durumu"
+            >
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="not_done">Yapılmadı</SelectItem>
+              <SelectItem value="done">Yapıldı</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        {!props.complete && (
+          <Input
+            className="h-8 bg-white text-xs"
+            placeholder="Ziyaret notu (isteğe bağlı)"
+            value={draft}
+            disabled={activityDisabled}
+            onChange={(event) => setDraft(event.target.value)}
+          />
+        )}
+        <p className="text-[10px] leading-4 text-muted-foreground">
+          {!props.canCreateActivity
+            ? "Aktivite oluşturma yetkiniz bulunmuyor."
+            : !sc.customerId
+              ? "Önce fırsata firma bağlanmalı."
+              : props.complete
+                ? "Ziyaret aktivitesi kaydedildi; durum Yapıldı."
+                : "Yapıldı seçildiğinde fırsata ziyaret aktivitesi kaydedilir."}
+        </p>
+      </div>,
+    );
+  };
+
   switch (checkKey) {
     case "subject":
       return textRow("Satış konusu / talep başlığı", (value) => void saveCase({ title: value }, "Konu kaydedildi"));
@@ -664,17 +750,27 @@ function CheckEditor(props: EditorProps) {
     case "location":
       return (
         <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
-          <Input
-            className="h-8 bg-white text-xs"
-            placeholder="İl"
+          <Combobox
+            className="w-full bg-white text-xs sm:w-56"
+            options={provinceOptions}
             value={draft}
-            onChange={(event) => setDraft(event.target.value)}
+            onChange={(value) => {
+              setDraft(value);
+              setDraft2("");
+            }}
+            placeholder="İl seçin"
+            searchPlaceholder="İl ara…"
+            emptyText="İl bulunamadı"
           />
-          <Input
-            className="h-8 bg-white text-xs"
-            placeholder="İlçe"
+          <Combobox
+            className="w-full bg-white text-xs sm:w-56"
+            options={districtOptions}
             value={draft2}
-            onChange={(event) => setDraft2(event.target.value)}
+            onChange={setDraft2}
+            disabled={disabled || !draft}
+            placeholder={draft ? "İlçe seçin" : "Önce il seçin"}
+            searchPlaceholder="İlçe ara…"
+            emptyText="İlçe bulunamadı"
           />
           <Button
             size="sm"
@@ -708,12 +804,7 @@ function CheckEditor(props: EditorProps) {
       });
 
     case "visit":
-      return activityCheck({
-        label: "Ziyaret yapıldı",
-        activityTypeCode: "customer_visit",
-        subject: "Müşteri Ziyareti",
-        successMessage: "Ziyaret kaydedildi",
-      });
+      return visitStatusCheck();
 
     case "machine":
       return wrap(

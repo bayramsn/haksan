@@ -425,7 +425,7 @@ describe('Opportunity qualification pipeline', () => {
       expect.arrayContaining([
         'Kontak bağlı',
         'Arama kaydı oluşturuldu',
-        'Ziyaret kaydı oluşturuldu',
+        'Ziyaret durumu',
         'Teklif oluşturuldu',
       ])
     );

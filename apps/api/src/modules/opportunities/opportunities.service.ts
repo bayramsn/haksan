@@ -776,7 +776,7 @@ export class OpportunitiesService {
       check('sector', 'Sektör girildi', Boolean(context.company?.sector?.trim()), 'edit_company', 'call', 'c'),
       check('phone', 'Telefon girildi', context.hasPhone, 'edit_company', 'call', 'c'),
       check('call', 'Arama kaydı oluşturuldu', context.hasCall, 'record_call', 'visit', 'b'),
-      check('visit', 'Ziyaret kaydı oluşturuldu', context.hasVisit, 'record_visit', 'quote', 'b'),
+      check('visit', 'Ziyaret durumu', context.hasVisit, 'record_visit', 'quote', 'b'),
       check('machine', 'İstenen makine belirlendi', Boolean(row.requestedMachine?.trim()), 'edit_machine', 'quote', 'b'),
       check(
         'payment_method',

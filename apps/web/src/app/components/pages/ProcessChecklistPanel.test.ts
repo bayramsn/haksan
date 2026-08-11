@@ -35,6 +35,15 @@ describe("ProcessChecklistPanel firma ve kontak çözümleme", () => {
     expect(source).toContain("value={sc.primaryContactId ?? \"\"}");
     expect(source).not.toContain("contacts.filter");
   });
+
+  it("C aşamasında il ve ilçeyi Türkiye listelerinden seçtirir", () => {
+    expect(source).toContain('import { districtsForCountry, provincesForCountry } from "../../lib/geoByCountry"');
+    expect(source).toContain('provincesForCountry("Türkiye")');
+    expect(source).toContain('districtsForCountry("Türkiye", draft)');
+    expect(source).toContain('placeholder="İl seçin"');
+    expect(source).toContain('placeholder={draft ? "İlçe seçin" : "Önce il seçin"}');
+    expect(source).toContain('setDraft2("")');
+  });
 });
 
 describe("ProcessChecklistPanel satış alanı kutusunun içeriği", () => {
@@ -142,14 +151,22 @@ describe("ProcessChecklistPanel ilerletme güvenliği", () => {
 });
 
 describe("ProcessChecklistPanel B aşaması aktiviteleri", () => {
-  it("arama ve ziyareti isteğe bağlı notla tiklenebilir aktivite olarak kaydeder", () => {
+  it("aramayı isteğe bağlı notla tiklenebilir aktivite olarak kaydeder", () => {
     expect(source).toContain('import { Checkbox } from "../ui/checkbox"');
     expect(source).toContain('hasPermission("activities.create")');
     expect(source).toContain('activityTypeCode: "outgoing_call"');
-    expect(source).toContain('activityTypeCode: "customer_visit"');
     expect(source).toContain("description: draft.trim() || undefined");
     expect(source).toContain("Not yazmak zorunlu değildir. Yazılan not Aktivite bölümünde görünür.");
     expect(source).toContain("props.canCreateActivity,");
+  });
+
+  it("ziyaret durumunu Yapılmadı ve Yapıldı seçenekli listeden kaydeder", () => {
+    expect(source).toContain("const visitStatusCheck = () =>");
+    expect(source).toContain('<SelectItem value="not_done">Yapılmadı</SelectItem>');
+    expect(source).toContain('<SelectItem value="done">Yapıldı</SelectItem>');
+    expect(source).toContain('activityTypeCode: "customer_visit"');
+    expect(source).toContain('value={props.complete ? "done" : "not_done"}');
+    expect(source).toContain("Yapıldı seçildiğinde fırsata ziyaret aktivitesi kaydedilir.");
   });
 });
 
