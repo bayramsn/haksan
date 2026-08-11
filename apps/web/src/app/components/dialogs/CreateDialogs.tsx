@@ -6354,6 +6354,7 @@ export function CreateInstallationDialog({
             <div className="col-span-2">
               <Label className="text-xs">Firma *</Label>
               <RemoteCompanyCombobox
+                ariaLabel="Firma"
                 className="mt-1.5"
                 value={form.companyId}
                 onValueChange={onCompanyChange}

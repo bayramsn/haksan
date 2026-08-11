@@ -25,6 +25,7 @@ export function Combobox({
   emptyText = "Sonuç yok.",
   disabled,
   className,
+  ariaLabel,
   onCreate,
   createLabel = (q) => `"${q}" ekle`,
 }: {
@@ -36,6 +37,7 @@ export function Combobox({
   emptyText?: string;
   disabled?: boolean;
   className?: string;
+  ariaLabel?: string;
   onCreate?: (label: string) => void;
   createLabel?: (query: string) => string;
 }) {
@@ -55,6 +57,7 @@ export function Combobox({
           variant="outline"
           role="combobox"
           aria-expanded={open}
+          aria-label={ariaLabel}
           disabled={disabled}
           className={cn("w-full justify-between font-normal", !selected && "text-muted-foreground", className)}
         >

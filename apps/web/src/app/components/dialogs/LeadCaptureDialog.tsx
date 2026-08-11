@@ -348,6 +348,7 @@ export function LeadCaptureDialog({ trigger }: { trigger?: React.ReactNode }) {
             <div>
               <Label>İl *</Label>
               <Combobox
+                ariaLabel="İl"
                 className="mt-1.5"
                 options={provinceOptions}
                 value={city}
@@ -369,6 +370,7 @@ export function LeadCaptureDialog({ trigger }: { trigger?: React.ReactNode }) {
             <div>
               <Label>İlçe <span className="font-normal text-muted-foreground">(opsiyonel)</span></Label>
               <Combobox
+                ariaLabel="İlçe"
                 className="mt-1.5"
                 options={districtOptions}
                 value={district}

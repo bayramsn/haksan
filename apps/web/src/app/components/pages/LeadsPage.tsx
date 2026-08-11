@@ -474,6 +474,20 @@ export function LeadsPage({ onSelect, focus }: { onSelect: (lead: SalesCase) => 
                         >
                           İncele
                         </Button>
+                        {canDelete && (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="size-8 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                            title="Lead kartını sil"
+                            aria-label={`${leadName(lead)} lead kartını sil`}
+                            disabled={busyId === lead.id}
+                            onClick={() => setPendingDelete(lead)}
+                          >
+                            <Trash2 className="size-3.5" />
+                          </Button>
+                        )}
                       </div>
                     </TableCell>
                   </TableRow>

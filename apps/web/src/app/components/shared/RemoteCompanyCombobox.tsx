@@ -59,6 +59,7 @@ export function RemoteCompanyCombobox({
   onValueChange,
   disabled,
   className,
+  ariaLabel,
   placeholder = "Firma seçin…",
   searchPlaceholder = "Firma adı, no veya vergi no ara…",
   onCreate,
@@ -69,6 +70,7 @@ export function RemoteCompanyCombobox({
   onValueChange: (companyId: string) => void;
   disabled?: boolean;
   className?: string;
+  ariaLabel?: string;
   placeholder?: string;
   searchPlaceholder?: string;
   onCreate?: (label: string) => void | Promise<void>;
@@ -158,6 +160,7 @@ export function RemoteCompanyCombobox({
           variant="outline"
           role="combobox"
           aria-expanded={open}
+          aria-label={ariaLabel}
           aria-busy={loading}
           disabled={disabled}
           className={cn("w-full justify-between font-normal", !selected && "text-muted-foreground", className)}

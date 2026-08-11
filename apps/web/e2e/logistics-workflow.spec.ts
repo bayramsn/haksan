@@ -51,6 +51,26 @@ async function mockCrmApi(page: Page) {
       tenant: { id: "tenant-1", name: "HAKSAN", slug: "haksan" },
     });
 
+    if (path === "/companies/summary") return json({
+      total: 1,
+      byRelation: { customer: 1, supplier: 0, prospect: 0, competitor: 0, unknown: 0 },
+      byStatus: { active: 1, passive: 0, blacklisted: 0, unknown: 0 },
+      cities: ["İstanbul"],
+      sectors: [],
+    });
+    if (path === "/reports/team-activity") return json({
+      period: "week",
+      scope: "team",
+      canSeeTeam: true,
+      range: { from: "2026-08-10T00:00:00.000Z", to: "2026-08-17T00:00:00.000Z" },
+      previousRange: { from: "2026-08-03T00:00:00.000Z", to: "2026-08-10T00:00:00.000Z" },
+      bucket: "day",
+      totals: { quotes: 0, visits: 0, calls: 0, activities: 0, opportunitiesCreated: 0, won: 0, wonValue: 0 },
+      previousTotals: { quotes: 0, visits: 0, calls: 0, activities: 0, opportunitiesCreated: 0, won: 0 },
+      timeline: [],
+      users: [],
+    });
+
     if (path === "/companies") return json(paginated([{
       id: companyId,
       companyType: "company",
@@ -105,7 +125,7 @@ async function login(page: Page) {
     window.localStorage.setItem("haksan:onboarding:v1", "seen");
   });
   await page.goto("/");
-  await page.locator("#login-email").fill("superadmin@haksan.local");
+  await page.getByTestId("login-identifier").fill("superadmin@haksan.local");
   await page.locator("#login-password").fill("superadmin12345");
   await page.getByRole("button", { name: "Giriş Yap" }).click();
   await expect(page.getByRole("button", { name: "Hızlı Oluştur" })).toBeVisible();
@@ -145,6 +165,8 @@ test("teslimat kurulum içine taşınır ve çoklu makine seçilir", async ({ pa
   await page.getByRole("button", { name: "Yeni Kurulum" }).click();
   const installationDialog = page.getByRole("dialog", { name: "Yeni Kurulum" });
   await expect(installationDialog.getByText("Makineler", { exact: true })).toBeVisible();
+  await installationDialog.getByRole("combobox", { name: "Firma", exact: true }).click();
+  await page.getByRole("option", { name: /Örnek Lojistik/ }).click();
   await installationDialog.getByRole("combobox", { name: "Kurulacak makineleri seçin" }).click();
   await page.getByRole("button", { name: /HAAS ST-20 · SER-002/ }).click();
   await expect(page.getByText("2 seçili", { exact: true })).toBeVisible();

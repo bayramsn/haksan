@@ -51,6 +51,25 @@ async function mockApi(
       },
       tenant: { id: "tenant-1", name: "HAKSAN", slug: "haksan" },
     });
+    if (path === "/companies/summary") return json({
+      total: 0,
+      byRelation: { customer: 0, supplier: 0, prospect: 0, competitor: 0, unknown: 0 },
+      byStatus: { active: 0, passive: 0, blacklisted: 0, unknown: 0 },
+      cities: [],
+      sectors: [],
+    });
+    if (path === "/reports/team-activity") return json({
+      period: "week",
+      scope: "team",
+      canSeeTeam: true,
+      range: { from: "2026-08-10T00:00:00.000Z", to: "2026-08-17T00:00:00.000Z" },
+      previousRange: { from: "2026-08-03T00:00:00.000Z", to: "2026-08-10T00:00:00.000Z" },
+      bucket: "day",
+      totals: { quotes: 0, visits: 0, calls: 0, activities: 0, opportunitiesCreated: 0, won: 0, wonValue: 0 },
+      previousTotals: { quotes: 0, visits: 0, calls: 0, activities: 0, opportunitiesCreated: 0, won: 0 },
+      timeline: [],
+      users: [],
+    });
     if (path === "/tenant") return json({ id: "tenant-1", name: "HAKSAN" });
     if (path === "/admin/product-spec-templates" && request.method() === "GET") return json([]);
     if (path === "/admin/product-spec-templates/batch" && request.method() === "PUT") {
@@ -84,10 +103,10 @@ test("teknik alanda bölüm, sıra ve silme birlikte kaydedilir", async ({ page 
   });
 
   await page.goto("/");
-  await page.locator("#login-email").fill("superadmin@haksan.local");
+  await page.getByTestId("login-identifier").fill("superadmin@haksan.local");
   await page.locator("#login-password").fill("superadmin12345");
   await page.getByRole("button", { name: "Giriş Yap" }).click();
-  await expect(page.getByRole("button", { name: "Hızlı Oluştur" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Gösterge Paneli" })).toBeVisible();
 
   await page.getByRole("button", { name: "Hesap menüsü" }).click();
   await page.getByRole("menuitem", { name: "Ayarlar", exact: true }).click();
@@ -139,7 +158,7 @@ test("CRM kategori zinciri Teknik Bilgi ve yeni şablon seçimleriyle eşleşir"
   });
 
   await page.goto("/");
-  await page.locator("#login-email").fill("superadmin@haksan.local");
+  await page.getByTestId("login-identifier").fill("superadmin@haksan.local");
   await page.locator("#login-password").fill("superadmin12345");
   await page.getByRole("button", { name: "Giriş Yap" }).click();
   await page.getByRole("button", { name: "Hesap menüsü" }).click();
