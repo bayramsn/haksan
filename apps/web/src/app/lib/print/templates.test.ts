@@ -202,6 +202,54 @@ describe("print templates", () => {
     expect(document.body).toContain(`Sayfa <b>${totalPages}</b> / <b>${totalPages}</b>`);
   });
 
+  it("keeps all offer technical specifications on one compact page without a continuation", () => {
+    const document = quoteDoc({
+      firma: "Tek Sayfa Teknik Müşterisi",
+      tarih: "13.08.2026",
+      belgeNo: "CNC-2026/902",
+      specs: Array.from({ length: 82 }, (_, index) => ({
+        key: `TEKNİK ALAN ${index + 1}`,
+        value: `${index + 1}`,
+      })),
+      items: [{ urun: "CNC Torna", birim: "1 Adet", fiyat: 100, tutar: 100 }],
+      kdvOran: 20,
+      kdvTutar: 20,
+      currency: "USD",
+      notes: { key: "entered", label: "Girilen şartlar", odeme: [], teslimat: [], garanti: [] },
+    }, assetBase);
+
+    expect(document.body.match(/<div class="q-h1">TEKNİK BİLGİLER<\/div>/g) ?? []).toHaveLength(1);
+    expect(document.body).not.toContain("TEKNİK BİLGİLER — DEVAM");
+    expect(document.body).toContain("q-spec-page-ultra");
+    expect(document.body).toContain("q-spec-page");
+    expect(document.body).toMatch(/--q-spec-scale:0\.[0-9]+/);
+    expect(document.body).toContain("TEKNİK ALAN 82");
+    expect(document.css).toContain("height: 296mm");
+    expect(document.css).toContain("zoom: var(--q-spec-scale, 1)");
+  });
+
+  it("omits unused dash-valued CRM specification rows from the offer PDF", () => {
+    const document = quoteDoc({
+      firma: "Teknik Alan Testi",
+      tarih: "13.08.2026",
+      belgeNo: "CNC-2026/901",
+      specs: [
+        { key: "Karşı Ayna Devri", value: "-", groupName: "Karşı Ayna" },
+        { key: "Canlı Takım Devri", value: "4500", unit: "dev/dk", groupName: "Canlı Takım" },
+      ],
+      items: [{ urun: "CNC Torna", birim: "1 Adet", fiyat: 100, tutar: 100 }],
+      kdvOran: 20,
+      kdvTutar: 20,
+      currency: "USD",
+      notes: { key: "entered", label: "Girilen şartlar", odeme: [], teslimat: [], garanti: [] },
+    }, assetBase);
+
+    expect(document.body).not.toContain("Karşı Ayna Devri");
+    expect(document.body).not.toContain("KARŞI AYNA");
+    expect(document.body).toContain("Canlı Takım Devri");
+    expect(document.body).toContain("4500 dev/dk");
+  });
+
   it("keeps a long condition whole and continues the lettering across pages", () => {
     // Bir madde cümle ortasından ikiye bölünürse ikinci parça, yarım bir
     // cümleyle başlayan ayrı bir maddeymiş gibi basılıyordu.

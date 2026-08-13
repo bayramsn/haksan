@@ -95,6 +95,39 @@ describe("contract print data", () => {
     expect(data.fiyat).toBe(2_600);
   });
 
+  it("omits dash-valued technical fields from the contract PDF projection", async () => {
+    const data = await loadContractPrintData({
+      customer: null,
+      salesCase: {} as never,
+      products: [],
+      payments: [],
+      contractDate: "2026-08-13",
+      contractNo: "CNC-SOZ-2026/020",
+      documentSnapshot: {
+        quote: { subtotal: "1000" },
+        company: { legalTitle: "TEKNİK ALAN TEST A.Ş." },
+        currency: { code: "USD" },
+        items: [{
+          description: "CNC Torna",
+          quantity: 1,
+          unitPrice: 1000,
+          lineTotal: 1000,
+          compatibility: {
+            technicalSpecs: [
+              { key: "Karşı Ayna Devri", value: "-", unit: "dev/dk" },
+              { key: "Canlı Takım Devri", value: "4500", unit: "dev/dk" },
+            ],
+          },
+        }],
+        terms: {},
+        receivables: [],
+      },
+    });
+
+    expect(data.ozellikler).not.toContainEqual(expect.objectContaining({ key: "Karşı Ayna Devri" }));
+    expect(data.ozellikler).toContainEqual({ key: "Canlı Takım Devri", value: "4500 dev/dk" });
+  });
+
   it("removes the internal stock code from machine labels", async () => {
     const stockCode = "HAXAN.MMT-1170.15K.DDS.M.30T";
     const data = await loadContractPrintData({

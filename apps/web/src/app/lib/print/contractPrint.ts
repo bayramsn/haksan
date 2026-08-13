@@ -5,13 +5,14 @@ import { specsForProductTypeStrict } from "../productSpecTemplates";
 import { publicProductLabel, trShortDate } from "./core";
 import { allocateCustomsTotal } from "./quotePrint";
 import { printSignatureFromDocumentSnapshot } from "./signature";
+import { printableTechnicalSpecs } from "./technicalSpecs";
 import type { ContractMachinePrintData, ContractPrintData } from "./templates";
 
 // Tezgahın tam teknik özellik listesi (birim değere gömülür) — sözleşme eksik
 // değil bütün özellikleri basar.
 const contractSpecs = (product?: Product): { key: string; value: string }[] => {
   if (!product) return [];
-  return specsForProductTypeStrict(product.productTypeCode, (product.specs ?? []) as ProductSpec[])
+  return printableTechnicalSpecs(specsForProductTypeStrict(product.productTypeCode, (product.specs ?? []) as ProductSpec[]))
     .map((s) => {
       const unit = (s.unit ?? s.specUnit ?? "").trim();
       const value = (s.value ?? "").trim();
@@ -176,13 +177,14 @@ const buildContractMachines = (
     const productModelId = String(recordValue(row.item, "productModelId", "product_model_id") ?? "");
     const product = products.find((candidate) => candidate.id === productModelId);
     const compatibility = recordValue(row.item, "compatibility") as { technicalSpecs?: any[] } | undefined;
-    const snapshotSpecs = (compatibility?.technicalSpecs ?? []).map((spec: any) => ({
+    const snapshotSpecs = printableTechnicalSpecs((compatibility?.technicalSpecs ?? []).map((spec: any) => ({
       key: String(recordValue(spec, "key", "specKey", "spec_key") ?? ""),
-      value: [
-        recordValue(spec, "value", "specValue", "spec_value"),
-        recordValue(spec, "unit", "specUnit", "spec_unit"),
-      ].filter(Boolean).join(" "),
-    })).filter((spec: { key: string }) => spec.key);
+      value: String(recordValue(spec, "value", "specValue", "spec_value") ?? "").trim(),
+      unit: String(recordValue(spec, "unit", "specUnit", "spec_unit") ?? "").trim(),
+    }))).map((spec) => ({
+      key: spec.key,
+      value: [spec.value, spec.unit].filter(Boolean).join(" "),
+    }));
     const specs = snapshotSpecs.length ? snapshotSpecs : contractSpecs(product);
     const options = grouped.filter((candidate) => candidate.isOption && candidate.lineGroupKey === row.lineGroupKey);
     const accessories = [

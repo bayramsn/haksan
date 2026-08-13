@@ -1,5 +1,6 @@
 import type { Product, ProductSpec } from "../mock";
 import { BASE_CSS, esc, haksanHeader, publicProductLabel, trShortDate, type PrintDocument } from "./core";
+import { printableTechnicalSpecs } from "./technicalSpecs";
 
 export type ProductTechnicalPrintInput = {
   product: Product;
@@ -107,7 +108,7 @@ export const productTechnicalDoc = (
   assetBase: string,
 ): PrintDocument => {
   const { product } = input;
-  const specs = (product.specs ?? []).filter((spec) => spec.key?.trim() && spec.value?.trim());
+  const specs = printableTechnicalSpecs(product.specs);
   const specPages = chunk(specs, 25);
   const standardEquipment = (input.standardEquipment ?? product.standardEquipment ?? []).filter(Boolean);
   const optionalEquipment: Array<{ title: string; description?: string | null }> =

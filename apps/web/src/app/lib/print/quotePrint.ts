@@ -5,6 +5,7 @@ import { specsForProductTypeStrict } from "../productSpecTemplates";
 import { publicProductLabel, trShortDate } from "./core";
 import { applyVatRateToNotes } from "./notes";
 import { printSignatureFromDocumentSnapshot } from "./signature";
+import { printableTechnicalSpecs } from "./technicalSpecs";
 import type { QuoteHeaderLogoMode, QuotePrintData } from "./templates";
 
 // Seçilen tezgahın TAM teknik özellik listesi (tip şablonu + üründe girilen
@@ -15,12 +16,12 @@ const fullProductSpecs = (
   customSpecs: Array<{ key: string; value: string; unit?: string; specUnit?: string; groupCode?: string; groupName?: string }>,
 ): QuotePrintData["specs"] => {
   const base = product ? specsForProductTypeStrict(product.productTypeCode, (product.specs ?? []) as ProductSpec[]) : [];
-  if (!base.length) return customSpecs.length ? customSpecs : product?.specs;
+  if (!base.length) return printableTechnicalSpecs(customSpecs.length ? customSpecs : product?.specs);
   const overrides = new Map(customSpecs.map((s) => [s.key.trim().toLocaleLowerCase("tr-TR"), s]));
-  return base.map((s) => {
+  return printableTechnicalSpecs(base.map((s) => {
     const ov = overrides.get(s.key.trim().toLocaleLowerCase("tr-TR"));
     return ov && ov.value.trim() ? { ...s, value: ov.value } : s;
-  });
+  }));
 };
 
 type QuoteDetail = Awaited<ReturnType<typeof quoteService.get>>;
@@ -120,7 +121,7 @@ const quoteItemTechnicalSpecs = (item?: { compatibility?: unknown } | null): Arr
       groupName: String((spec as { groupName?: unknown }).groupName ?? "").trim() || undefined,
       group: String((spec as { group?: unknown; groupName?: unknown; groupCode?: unknown }).group ?? (spec as { groupName?: unknown }).groupName ?? (spec as { groupCode?: unknown }).groupCode ?? "").trim() || undefined,
     }))
-    .filter((spec) => spec.key && spec.value);
+    .filter((spec) => printableTechnicalSpecs([spec]).length > 0);
 };
 
 const quoteItemLineGroupKey = (item?: { compatibility?: unknown } | null): string => {

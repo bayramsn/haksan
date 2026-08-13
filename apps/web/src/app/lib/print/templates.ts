@@ -7,6 +7,7 @@ import {
   PrintDocument, CurrencyCode, esc, blank, fmtMoney, tutarYaziyla, tutarYaziylaProforma, trLongDate,
   haksanHeader, drmakHeader, drmakFooter, drmakWatermark, DRMAK_CSS,
 } from "./core";
+import { printableTechnicalSpecs } from "./technicalSpecs";
 import { QuoteNoteVariant } from "./notes";
 
 const chunkByWeight = <T,>(items: readonly T[], capacity: number, weightOf: (item: T) => number): T[][] => {
@@ -491,6 +492,14 @@ table.q-meta td.lbl, table.q-meta td.val { font-weight: normal; }
 table.q-specs td { border-width: .75pt; font-size: 9.5pt; padding: .92mm 1.5mm; line-height: 1.08; }
 table.q-specs td.g { width: 19mm; }
 table.q-specs td.k { width: 55%; }
+.q-spec-page-compact .q-h1 { margin: 1.8mm 0 3mm; }
+.q-spec-page-compact table.q-specs td { font-size: 8pt; padding: .48mm 1.1mm; line-height: 1.02; }
+.q-spec-page-dense .q-h1 { margin: 1mm 0 2mm; }
+.q-spec-page-dense table.q-specs td { font-size: 6.8pt; padding: .25mm .8mm; line-height: 1; }
+.q-spec-page-ultra .q-h1 { margin: .6mm 0 1.2mm; font-size: 11pt; }
+.q-spec-page-ultra table.q-specs td { font-size: 5.8pt; padding: .12mm .55mm; line-height: .96; }
+.q-spec-page { height: 296mm; min-height: 296mm; max-height: 296mm; overflow: hidden; }
+.q-spec-fit { zoom: var(--q-spec-scale, 1); }
 .q-empty { text-align: center; color: #555; font-style: italic; padding: 8mm !important; }
 .q-eq-h { font-size: 10.5pt; margin: 5mm 0 1.5mm 1mm; }
 ul.q-eq { margin-left: 7mm; font-size: 10.35pt; line-height: 1.22; }
@@ -583,16 +592,17 @@ export function quoteDoc(d: QuotePrintData, assetBase: string): PrintDocument {
   const specGroupLabel = (spec: QuoteTechnicalSpec) =>
     (spec.groupName || spec.group || spec.groupCode || "").trim();
   const renderSpecs = (specs: QuoteTechnicalSpec[]) => {
-    const hasGroups = specs.some((spec) => specGroupLabel(spec));
+    const visibleSpecs = printableTechnicalSpecs(specs);
+    const hasGroups = visibleSpecs.some((spec) => specGroupLabel(spec));
     if (!hasGroups) {
-      return specs.map((s) => `<tr><td class="k">${esc(s.key)}</td><td class="v">${esc(specValue(s))}</td></tr>`).join("");
+      return visibleSpecs.map((s) => `<tr><td class="k">${esc(s.key)}</td><td class="v">${esc(specValue(s))}</td></tr>`).join("");
     }
     const rows: string[] = [];
-    for (let i = 0; i < specs.length;) {
-      const label = specGroupLabel(specs[i]) || "GENEL";
+    for (let i = 0; i < visibleSpecs.length;) {
+      const label = specGroupLabel(visibleSpecs[i]) || "GENEL";
       let end = i + 1;
-      while (end < specs.length && (specGroupLabel(specs[end]) || "GENEL") === label) end += 1;
-      const groupSpecs = specs.slice(i, end);
+      while (end < visibleSpecs.length && (specGroupLabel(visibleSpecs[end]) || "GENEL") === label) end += 1;
+      const groupSpecs = visibleSpecs.slice(i, end);
       for (let j = 0; j < groupSpecs.length; j++) {
         const spec = groupSpecs[j];
         rows.push(`<tr>${j === 0 ? `<td class="g" rowspan="${groupSpecs.length}">${esc(label.toLocaleUpperCase("tr-TR"))}</td>` : ""}<td class="k">${esc(spec.key)}</td><td class="v">${esc(specValue(spec))}</td></tr>`);
@@ -601,10 +611,30 @@ export function quoteDoc(d: QuotePrintData, assetBase: string): PrintDocument {
     }
     return rows.join("");
   };
+  const specPageLayout = (specs: QuoteTechnicalSpec[]) => {
+    const estimatedRows = specs.reduce(
+      (total, spec) => total + Math.max(1, Math.ceil(`${spec.key} ${specValue(spec)}`.length / 90)),
+      0,
+    );
+    const className = estimatedRows > 70
+      ? "q-spec-page-ultra"
+      : estimatedRows > 48
+        ? "q-spec-page-dense"
+        : estimatedRows > 32
+          ? "q-spec-page-compact"
+          : "";
+    // Chromium yazdırma motorunda tablo yüksekliğini gerçek A4 içerik alanına
+    // sığdırır. 64 tahmini satır referans yoğunluğudur; yalnız daha uzun
+    // tablolarda tüm blok oransal küçülür ve fiziksel ikinci sayfa açılmaz.
+    const scale = Math.min(1, 64 / Math.max(estimatedRows, 1));
+    return { className, scale: Number(scale.toFixed(4)) };
+  };
   const machineSections = machines.map((machine) => {
-    const specChunks = (machine.specs?.length ?? 0) > 0
-      ? chunkByWeight(machine.specs ?? [], 35, (spec) => Math.max(1, `${spec.key} ${specValue(spec)}`.length / 90))
-      : [[]];
+    const printableSpecs = printableTechnicalSpecs(machine.specs);
+    // Teknik bilgiler teklif PDF'inde hiçbir zaman "DEVAM" sayfasına bölünmez.
+    // Satır yoğunluğuna göre CSS sıkılığı değişir ve gerçek değerlerin tamamı
+    // her makine için tek teknik bilgi sayfasında kalır.
+    const specChunks = [printableSpecs];
     const equipmentRows = [
       ...(machine.standartDonanim ?? []).map((value) => ({ kind: "standard" as const, value })),
       ...(machine.opsiyonelDonanim ?? []).map((value) => ({ kind: "optional" as const, value })),
@@ -702,15 +732,18 @@ export function quoteDoc(d: QuotePrintData, assetBase: string): PrintDocument {
   ${pn()}
 </div>`);
 
-    specChunks.forEach((specChunk, chunkIndex) => {
+    specChunks.forEach((specChunk) => {
+      const specLayout = specPageLayout(specChunk);
       pages.push(`
-<div class="page">
+<div class="page q-spec-page ${specLayout.className}" style="--q-spec-scale:${specLayout.scale}">
   ${quoteHeader()}
-  <div class="q-h1">TEKNİK BİLGİLER${chunkIndex > 0 ? " — DEVAM" : ""}</div>
+  <div class="q-spec-fit">
+  <div class="q-h1">TEKNİK BİLGİLER</div>
   ${machines.length > 1 ? `<div class="q-machine-ref">${esc(machineLabel)}</div>` : ""}
   <table class="q-specs">
     ${specChunk.length ? renderSpecs(specChunk) : `<tr><td class="q-empty">Bu ürün için teknik bilgi girilmemiştir.</td></tr>`}
   </table>
+  </div>
   ${pn()}
 </div>`);
     });
@@ -1196,11 +1229,11 @@ const contractLineCount = (value: string, charsPerLine = 96): number => {
 };
 
 const contractMachines = (d: ContractPrintData): ContractMachinePrintData[] => d.machines?.length
-  ? d.machines
+  ? d.machines.map((machine) => ({ ...machine, ozellikler: printableTechnicalSpecs(machine.ozellikler) }))
   : [{
       model: d.model,
       adet: d.adet,
-      ozellikler: d.ozellikler,
+      ozellikler: printableTechnicalSpecs(d.ozellikler),
       aksesuarlar: d.aksesuarlar,
       muadiller: d.muadiller,
       fiyat: d.fiyat,

@@ -65,4 +65,22 @@ describe("product technical print image", () => {
     expect(doc.body).not.toContain(stockCode);
     expect(doc.body).toContain("MMT-1170 CNC Dik İşleme Merkezi");
   });
+
+  it("omits unused dash-valued CRM specification rows", () => {
+    const doc = productTechnicalDoc(
+      {
+        product: {
+          ...product,
+          specs: [
+            { key: "Karşı Ayna Devri", value: "-" },
+            { key: "Canlı Takım Devri", value: "4500", unit: "dev/dk" },
+          ],
+        },
+      },
+      "https://example.test/print",
+    );
+
+    expect(doc.body).not.toContain("Karşı Ayna Devri");
+    expect(doc.body).toContain("Canlı Takım Devri");
+  });
 });

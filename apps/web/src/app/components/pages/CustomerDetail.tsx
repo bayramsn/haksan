@@ -1,8 +1,9 @@
-import { type ReactNode, useEffect, useMemo, useState } from "react";
+import { type ReactNode, lazy, Suspense, useEffect, useMemo, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "../ui/card";
 import { Button } from "../ui/button";
+import { Badge } from "../ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../ui/tabs";
-import { ArrowLeft, Phone, Mail, MapPin, Building2, Plus, ArrowUpRight, Clock, AlertTriangle, NotebookText } from "lucide-react";
+import { ArrowLeft, Phone, Mail, MapPin, Building2, Plus, ArrowUpRight, Clock, AlertTriangle, NotebookText, Download, Eye, FileText } from "lucide-react";
 import { Customer } from "../../lib/mock";
 import { useStore } from "../../lib/store";
 import { StatusBadge } from "../shared/StatusBadge";
@@ -10,7 +11,13 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from ".
 import { CreateCaseDialog, LogActivityDialog } from "../dialogs/CreateDialogs";
 import { buildCustomerTimeline, type OperationAction } from "../../lib/operations";
 import { CompanyFinancePanel } from "../shared/CompanyFinancePanel";
-import { companyService } from "../../../lib/services";
+import { companyService, fileService, salesOrderService } from "../../../lib/services";
+import { externalQuotesForCompany, offersForCompany } from "../../lib/customerOfferRelations";
+import { toast } from "sonner";
+
+const OfferDetailDialog = lazy(() =>
+  import("./offers/OffersPage").then((module) => ({ default: module.OfferDetailDialog })),
+);
 
 const ADDRESS_TYPE_LABELS: Record<string, string> = {
   office: "Ofis",
@@ -62,11 +69,50 @@ function CrossDivisionDebtWarning({ companyId }: { companyId: string }) {
 
 export function CustomerDetailPage({ customer, onBack, onAction }: { customer: Customer; onBack: () => void; onAction?: (action: OperationAction) => void }) {
   const store = useStore();
-  const { cases: allCases, activities: allActivities, payments: allPayments, machines: allMachines } = store;
+  const {
+    cases: allCases,
+    closedCases,
+    activities: allActivities,
+    payments: allPayments,
+    machines: allMachines,
+    offers,
+    documents,
+    users,
+    refresh,
+  } = store;
+  const [selectedOfferId, setSelectedOfferId] = useState<string | null>(null);
+  const [companySalesOrders, setCompanySalesOrders] = useState<any[]>([]);
+  const companyCases = useMemo(() => [...allCases, ...closedCases], [allCases, closedCases]);
   const cases = allCases.filter((s) => s.customerId === customer.id);
   const acts = allActivities.filter((a) => a.customerId === customer.id);
   const pays = allPayments.filter((p) => p.customerId === customer.id);
   const mcs = allMachines.filter((m) => m.customerId === customer.id);
+  const companyOffers = useMemo(
+    () => offersForCompany(customer.id, offers, companyCases).sort((left, right) =>
+      right.date.localeCompare(left.date) || right.revision - left.revision),
+    [companyCases, customer.id, offers],
+  );
+  const externalQuotes = useMemo(
+    () => externalQuotesForCompany(customer.id, documents, companyCases, companyOffers)
+      .sort((left, right) => right.uploadedAt.localeCompare(left.uploadedAt)),
+    [companyCases, companyOffers, customer.id, documents],
+  );
+  const selectedOffer = selectedOfferId
+    ? companyOffers.find((offer) => offer.id === selectedOfferId) ?? null
+    : null;
+  const selectedCase = selectedOffer?.salesCaseId
+    ? companyCases.find((salesCase) => salesCase.id === selectedOffer.salesCaseId) ?? null
+    : null;
+  const selectedRevisions = selectedCase
+    ? companyOffers.filter((offer) => offer.salesCaseId === selectedCase.id)
+      .sort((left, right) => right.revision - left.revision || right.date.localeCompare(left.date))
+    : selectedOffer ? [selectedOffer] : [];
+  const selectedAssignee = selectedCase
+    ? users.find((user) => user.id === selectedCase.assignedUserId) ?? null
+    : null;
+  const selectedOrder = selectedOffer
+    ? companySalesOrders.find((order) => order.quoteId === selectedOffer.id || order.quote?.id === selectedOffer.id)
+    : null;
   const timeline = useMemo(() => buildCustomerTimeline(customer.id, store), [customer.id, store]);
   const companyAddresses = customer.addresses?.length
     ? customer.addresses
@@ -82,6 +128,49 @@ export function CustomerDetailPage({ customer, onBack, onAction }: { customer: C
           isBilling: true,
         }]
       : [];
+
+  useEffect(() => setSelectedOfferId(null), [customer.id]);
+
+  useEffect(() => {
+    if (!selectedOfferId) return;
+    let cancelled = false;
+    salesOrderService.list({ companyId: customer.id, pageSize: 200 })
+      .then((response) => {
+        if (!cancelled) setCompanySalesOrders(response.data ?? []);
+      })
+      .catch(() => {
+        if (!cancelled) setCompanySalesOrders([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [customer.id, selectedOfferId]);
+
+  const refreshOfferRelations = async () => {
+    await refresh();
+    const response = await salesOrderService.list({ companyId: customer.id, pageSize: 200 }).catch(() => null);
+    if (response) setCompanySalesOrders(response.data ?? []);
+  };
+
+  const downloadExternalQuote = async (fileId: string | undefined, fileName: string) => {
+    if (!fileId) {
+      toast.message("Dosya bağlantısı yok", { description: "Bu dış teklif yalnızca kayıt bilgisi içeriyor." });
+      return;
+    }
+    try {
+      const signed = await fileService.signedDownload(fileId);
+      const anchor = document.createElement("a");
+      anchor.href = signed.downloadUrl;
+      anchor.download = signed.filename || fileName;
+      document.body.appendChild(anchor);
+      anchor.click();
+      document.body.removeChild(anchor);
+    } catch (error: unknown) {
+      toast.error("Dış teklif indirilemedi", {
+        description: error instanceof Error ? error.message : "İstek başarısız oldu.",
+      });
+    }
+  };
 
   return (
     <div className="space-y-4">
@@ -157,6 +246,7 @@ export function CustomerDetailPage({ customer, onBack, onAction }: { customer: C
             <TabsList className="h-auto flex-wrap justify-start">
               <TabsTrigger value="timeline">Geçmiş ({timeline.length})</TabsTrigger>
               <TabsTrigger value="cases">Satış Kartları ({cases.length})</TabsTrigger>
+              <TabsTrigger value="offers">Teklifler ({companyOffers.length + externalQuotes.length})</TabsTrigger>
               <TabsTrigger value="activity">Aktivite ({acts.length})</TabsTrigger>
               <TabsTrigger value="payments">Cari ({pays.length})</TabsTrigger>
               <TabsTrigger value="machines">Makineler ({mcs.length})</TabsTrigger>
@@ -203,6 +293,123 @@ export function CustomerDetailPage({ customer, onBack, onAction }: { customer: C
                       ))}
                     </ol>
                   )}
+                </CardContent>
+              </Card>
+            </TabsContent>
+
+            <TabsContent value="offers" className="mt-4">
+              <Card>
+                <CardHeader>
+                  <CardTitle className="font-display text-xl font-semibold">Teklifler</CardTitle>
+                </CardHeader>
+                <CardContent className="p-0">
+                  <div className="overflow-x-auto">
+                    <Table className="min-w-[620px]">
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Teklif No</TableHead>
+                          <TableHead>Satış Kartı</TableHead>
+                          <TableHead>Tarih</TableHead>
+                          <TableHead>Tutar</TableHead>
+                          <TableHead>Durum</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {companyOffers.map((offer) => {
+                          const salesCase = companyCases.find((item) => item.id === offer.salesCaseId);
+                          return (
+                            <TableRow
+                              key={offer.id}
+                              className="cursor-pointer hover:bg-muted/40"
+                              tabIndex={0}
+                              onClick={() => setSelectedOfferId(offer.id)}
+                              onKeyDown={(event) => {
+                                if (event.key === "Enter" || event.key === " ") {
+                                  event.preventDefault();
+                                  setSelectedOfferId(offer.id);
+                                }
+                              }}
+                            >
+                              <TableCell>
+                                <div className="font-medium">{offer.quoteNo}</div>
+                                <div className="text-xs text-muted-foreground">Revizyon {offer.revision}</div>
+                              </TableCell>
+                              <TableCell className="text-muted-foreground">
+                                {salesCase
+                                  ? [salesCase.requestedProduct, salesCase.requestedModel].filter(Boolean).join(" · ")
+                                  : "Firma teklifi"}
+                              </TableCell>
+                              <TableCell className="text-muted-foreground">{offer.date}</TableCell>
+                              <TableCell className="tabular-nums">{offer.amount.toLocaleString("tr-TR")} {offer.currency}</TableCell>
+                              <TableCell>
+                                <div className="flex items-center gap-2">
+                                  <StatusBadge status={offer.status} />
+                                  <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="icon"
+                                    className="size-8"
+                                    aria-label={`${offer.quoteNo} teklifini aç`}
+                                    onClick={(event) => {
+                                      event.stopPropagation();
+                                      setSelectedOfferId(offer.id);
+                                    }}
+                                  >
+                                    <Eye className="size-4" />
+                                  </Button>
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                          );
+                        })}
+                        {companyOffers.length === 0 && (
+                          <TableRow>
+                            <TableCell colSpan={5} className="py-10 text-center text-sm text-muted-foreground">
+                              Bu firma için kayıtlı teklif yok.
+                            </TableCell>
+                          </TableRow>
+                        )}
+                      </TableBody>
+                    </Table>
+                  </div>
+
+                  <section className="border-t border-border/60 bg-muted/15 px-5 py-4" aria-label="Dış teklifler">
+                    <div className="mb-3 flex items-center justify-between gap-3">
+                      <div>
+                        <div className="text-sm font-semibold">Dışarıdan yüklenen teklifler</div>
+                        <div className="mt-0.5 text-xs text-muted-foreground">Firmaya veya satış kartlarına bağlı teklif dosyaları</div>
+                      </div>
+                      <Badge variant="secondary">{externalQuotes.length}</Badge>
+                    </div>
+                    <div className="space-y-2">
+                      {externalQuotes.map((externalQuote) => (
+                        <div key={externalQuote.id} className="flex items-center gap-3 rounded-lg border border-border/60 bg-white px-3 py-2.5">
+                          <div className="grid size-9 shrink-0 place-items-center rounded-md bg-primary/10 text-primary">
+                            <FileText className="size-4" />
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <div className="truncate text-sm font-medium">{externalQuote.fileName}</div>
+                            <div className="mt-0.5 text-xs text-muted-foreground">{externalQuote.uploadedAt} · {externalQuote.size}</div>
+                          </div>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="gap-1"
+                            aria-label={`${externalQuote.fileName} dış teklifini indir`}
+                            onClick={() => void downloadExternalQuote(externalQuote.fileId, externalQuote.fileName)}
+                          >
+                            <Download className="size-3.5" /> İndir
+                          </Button>
+                        </div>
+                      ))}
+                      {externalQuotes.length === 0 && (
+                        <div className="rounded-lg border border-dashed border-border/70 px-4 py-6 text-center text-sm text-muted-foreground">
+                          Bu firmaya bağlı dış teklif dosyası yok.
+                        </div>
+                      )}
+                    </div>
+                  </section>
                 </CardContent>
               </Card>
             </TabsContent>
@@ -330,6 +537,26 @@ export function CustomerDetailPage({ customer, onBack, onAction }: { customer: C
           </Tabs>
         </div>
       </div>
+
+      {selectedOffer && (
+        <Suspense fallback={null}>
+          <OfferDetailDialog
+            offer={selectedOffer}
+            salesCase={selectedCase}
+            customer={customer}
+            assignee={selectedAssignee}
+            revisions={selectedRevisions}
+            order={selectedOrder}
+            onClose={() => setSelectedOfferId(null)}
+            onOrderCreated={() => void refreshOfferRelations()}
+            onOpenOffer={(offer) => setSelectedOfferId(offer.id)}
+            onOpenOpportunity={selectedCase ? (salesCaseId) => {
+              setSelectedOfferId(null);
+              onAction?.({ kind: "salesCase", salesCaseId });
+            } : undefined}
+          />
+        </Suspense>
+      )}
     </div>
   );
 }
