@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { companyIdListSchema } from "@haksan/shared";
 import {
   buildCompanyListParams,
   companyDirectoryViewAfterSave,
@@ -67,6 +68,32 @@ describe("company server directory params", () => {
     expect(batches.map((batch) => batch.length)).toEqual([100, 100, 50]);
     expect(batches.flat()).toEqual(ids);
     expect(companyIdBatches([])).toEqual([]);
+  });
+});
+
+describe("kart hidratlama kimlik filtresi (sunucu sözleşmesi)", () => {
+  // İstemci `ids`'i virgülle birleştirip gönderiyor; bu güven sınırındaki
+  // ayrıştırma bozulursa panolar sessizce boş firma bilgisiyle render eder ya da
+  // sınırsız kimlik listesi sorguya girer.
+  it("virgüllü listeyi ayrıştırır ve boşlukları temizler", () => {
+    const a = "11111111-1111-4111-8111-111111111111";
+    const b = "22222222-2222-4222-8222-222222222222";
+    expect(companyIdListSchema.parse(`${a}, ${b}`)).toEqual([a, b]);
+    expect(companyIdListSchema.parse([a])).toEqual([a]);
+  });
+
+  it("uuid olmayanı ve 100'den uzun listeyi reddeder", () => {
+    expect(companyIdListSchema.safeParse("company-1").success).toBe(false);
+    expect(companyIdListSchema.safeParse("").success).toBe(false);
+    const tooMany = Array.from({ length: 101 }, () => "11111111-1111-4111-8111-111111111111");
+    expect(companyIdListSchema.safeParse(tooMany.join(",")).success).toBe(false);
+  });
+
+  it("istemcinin ürettiği grup boyutu sunucu tavanını aşmaz", () => {
+    const ids = Array.from({ length: 250 }, () => "11111111-1111-4111-8111-111111111111");
+    for (const batch of companyIdBatches(ids)) {
+      expect(companyIdListSchema.safeParse(batch.join(",")).success).toBe(true);
+    }
   });
 });
 
