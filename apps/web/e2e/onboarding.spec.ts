@@ -18,7 +18,7 @@ test("ilk anonim ziyarette onboarding açılır ve atlanınca login görünür",
   await expect(page.getByTestId("onboarding-root")).toBeVisible();
   await page.getByTestId("onboarding-skip").click();
 
-  await expect(page.locator("#login-email")).toBeVisible();
+  await expect(page.getByTestId("login-identifier")).toBeVisible();
   await expect.poll(() => page.evaluate((key) => localStorage.getItem(key), ONBOARDING_KEY)).toBe("seen");
 });
 
@@ -26,7 +26,7 @@ test("tamamlanmış onboarding sonraki ziyarette gösterilmez", async ({ page })
   await page.addInitScript((key) => localStorage.setItem(key, "seen"), ONBOARDING_KEY);
   await page.goto("/");
 
-  await expect(page.locator("#login-email")).toBeVisible();
+  await expect(page.getByTestId("login-identifier")).toBeVisible();
   await expect(page.getByTestId("onboarding-root")).toHaveCount(0);
 });
 
@@ -37,7 +37,7 @@ test("intro parametresi onboarding'i zorlar ve tamamlanınca URL'den kaldırıl�
   await expect(page.getByTestId("onboarding-root")).toBeVisible();
   await page.getByTestId("onboarding-skip").click();
 
-  await expect(page.locator("#login-email")).toBeVisible();
+  await expect(page.getByTestId("login-identifier")).toBeVisible();
   await expect(page).not.toHaveURL(/intro=1/);
 });
 
@@ -53,7 +53,7 @@ test("şifre sıfırlama bağlantısı onboarding'i atlayarak login'e ulaşır",
   await page.goto("/?resetToken=ornek-token");
 
   await expect(page.getByTestId("onboarding-root")).toHaveCount(0);
-  await expect(page.locator("#login-email")).toBeVisible();
+  await expect(page.getByTestId("login-identifier")).toBeVisible();
   await expect(page.getByRole("dialog")).toBeVisible();
 });
 
@@ -68,7 +68,7 @@ test("final sahne login ve kurumsal site hedeflerini sunar", async ({ page }) =>
   await expect(page.getByTestId("onboarding-login")).toBeVisible();
   await expect(page.getByRole("link", { name: "Haksan’ı keşfet" })).toHaveAttribute("href", /haksanmakina\.com\.tr/);
   await page.getByTestId("onboarding-login").click();
-  await expect(page.locator("#login-email")).toBeVisible();
+  await expect(page.getByTestId("login-identifier")).toBeVisible();
 });
 
 test("reduced-motion modunda video scrub yerine sahne görseli kullanılır", async ({ page }) => {

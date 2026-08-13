@@ -29,6 +29,7 @@ import {
 import { printOrWarn } from "../../../lib/pageHelpers";
 import { installationFormDoc, printAssetBase, trShortDate } from "../../../lib/print";
 import { relatedDeliveryFormNo, resolveServiceFormNo } from "../../../lib/serviceFormNo";
+import { selectedRecordById } from "../../../lib/selectedRecord";
 import { Plus, Wrench, Calendar, CheckCircle2, Building2, MapPin, Printer, FileText, Save, Lock, Trash2, Cpu, UserRound } from "lucide-react";
 import { toast } from "sonner";
 
@@ -184,7 +185,7 @@ export function InstallationsPage() {
   const { customers, machines, deliveries, products } = useStore();
   const [rows, setRows] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [selectedRow, setSelectedRow] = useState<InstallationRow | null>(null);
+  const [selectedRowId, setSelectedRowId] = useState<string | null>(null);
   const [selectedLegacyDelivery, setSelectedLegacyDelivery] = useState<(typeof deliveries)[number] | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [pendingDelete, setPendingDelete] = useState<InstallationRow | null>(null);
@@ -207,7 +208,7 @@ export function InstallationsPage() {
     loadInstallations();
   }, []);
 
-  const installationRows: InstallationRow[] = rows.map((i) => ({
+  const installationRows: InstallationRow[] = useMemo(() => rows.map((i) => ({
     id: i.id,
     salesCaseId: i.opportunityId ?? "",
     customerId: i.companyId ?? "",
@@ -232,7 +233,8 @@ export function InstallationsPage() {
       : [],
     notes: i.notes ?? "",
     formData: i.formData ?? null,
-  }));
+  })), [customers, rows]);
+  const selectedRow = selectedRecordById(installationRows, selectedRowId);
 
   const planned = installationRows.filter((i) => ["Planlandı", "scheduled"].includes(i.status) || i.statusCode === "scheduled").length;
   const completed = installationRows.filter((i) => ["Tamamlandı", "completed"].includes(i.status) || i.statusCode === "completed").length;
@@ -250,7 +252,7 @@ export function InstallationsPage() {
     try {
       await serviceService.deleteInstallation(row.id);
       toast.success("Kurulum silindi");
-      if (selectedRow?.id === row.id) setSelectedRow(null);
+      if (selectedRowId === row.id) setSelectedRowId(null);
       setPendingDelete(null);
       await loadInstallations();
     } catch (err: any) {
@@ -349,7 +351,7 @@ export function InstallationsPage() {
                     <TableCell className="text-right">
                       <div className="flex items-center justify-end gap-1">
                         <Button variant="ghost" size="icon" className="size-7" title="Son adım: Kurulum tutanağını aç"
-                          onClick={() => setSelectedRow(i)}>
+                          onClick={() => setSelectedRowId(i.id)}>
                           <FileText className="size-4 text-muted-foreground hover:text-primary" />
                         </Button>
                         <Button
@@ -442,7 +444,7 @@ export function InstallationsPage() {
         customers={customers}
         machines={machines}
         deliveries={deliveries}
-        onClose={() => setSelectedRow(null)}
+        onClose={() => setSelectedRowId(null)}
         onSaved={loadInstallations}
       />
       <DeliveryDetailDialog

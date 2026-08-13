@@ -143,12 +143,29 @@ export const companyListQuerySchema = z.object({
 });
 export type CompanyListQuery = z.infer<typeof companyListQuerySchema>;
 
+/**
+ * Kart ekranlarının tek istekte hidratlanması için `?ids=uuid,uuid` filtresi.
+ * Görünürlük sınırı liste sorgusunun kendi filtreleriyle aynı kaldığı için
+ * kimlik listesi kapsamı genişletmez, yalnızca daraltır.
+ */
+export const companyIdListSchema = z.preprocess(
+  (value) => (typeof value === 'string'
+    ? value.split(',').map((id) => id.trim()).filter(Boolean)
+    : value),
+  z.array(z.string().uuid()).min(1).max(100),
+);
+
 export const companyListRequestQuerySchema = companyListQuerySchema.merge(
   paginationSchema.extend({
     sortBy: z.enum(['name', 'createdAt']).optional(),
+    ids: companyIdListSchema.optional(),
   }),
 );
 export type CompanyListRequestQuery = z.infer<typeof companyListRequestQuerySchema>;
+export type CompanyListFilterQuery = Omit<
+  CompanyListRequestQuery,
+  'page' | 'pageSize' | 'sortBy' | 'sortDir'
+>;
 
 export const companySummaryQuerySchema = z.object({
   divisionId: z.string().uuid().optional(),

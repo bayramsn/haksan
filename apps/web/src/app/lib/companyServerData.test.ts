@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildCompanyListParams,
   companyDirectoryViewAfterSave,
+  companyIdBatches,
   companyQueryKeys,
   uniqueCompanyDetailIds,
 } from "./companyServerData";
@@ -58,6 +59,14 @@ describe("company server directory params", () => {
   it("fırsat kartı detay isteklerini boş kimliklerden arındırıp tekilleştirir", () => {
     expect(uniqueCompanyDetailIds(["company-2", "", null, "company-1", "company-2", undefined]))
       .toEqual(["company-1", "company-2"]);
+  });
+
+  it("kart kimliklerini API sınırını aşmayan tek istekliklere böler", () => {
+    const ids = Array.from({ length: 250 }, (_, index) => `company-${index}`);
+    const batches = companyIdBatches(ids);
+    expect(batches.map((batch) => batch.length)).toEqual([100, 100, 50]);
+    expect(batches.flat()).toEqual(ids);
+    expect(companyIdBatches([])).toEqual([]);
   });
 });
 

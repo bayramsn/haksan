@@ -1,4 +1,4 @@
-import { keepPreviousData, type QueryClient, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, type QueryClient, useQuery } from "@tanstack/react-query";
 import { useAuth } from "../../lib/auth";
 import {
   companyService,
@@ -173,17 +173,28 @@ export function uniqueCompanyDetailIds(companyIds: Array<string | null | undefin
   return Array.from(new Set(companyIds.filter((id): id is string => Boolean(id?.trim())))).sort();
 }
 
+/** URL uzunluğunu güvenli tutmak için tek istekte gönderilen kimlik sayısı (API sınırı da 100). */
+const COMPANY_ID_BATCH_SIZE = 100;
+
+export function companyIdBatches(ids: string[], size = COMPANY_ID_BATCH_SIZE): string[][] {
+  return Array.from(
+    { length: Math.ceil(ids.length / size) },
+    (_, index) => ids.slice(index * size, index * size + size),
+  );
+}
+
 /**
  * Hydrates the companies represented by opportunity cards without restoring
- * the old global full-directory download. Detail requests stay identity scoped,
- * share the regular company detail cache and are capped at eight in flight.
+ * the old global full-directory download. The identity scoped list endpoint is
+ * filtered by the visible card ids, so a board costs one request instead of one
+ * detail request per card. Companies the user cannot see are simply absent from
+ * the response, exactly as the per-card detail requests used to fail closed.
  */
 export function useCompanyCardDetails(
   companyIds: Array<string | null | undefined>,
   fallbacks: Customer[] = [],
 ) {
   const { user, activeDivision, activeDepartment } = useAuth();
-  const queryClient = useQueryClient();
   const scope = serverScopeKey(activeDivision, activeDepartment, user?.tenantId, user?.id);
   const ids = uniqueCompanyDetailIds(companyIds);
   const fallbackById = new Map(fallbacks.map((company) => [company.id, company]));
@@ -193,27 +204,15 @@ export function useCompanyCardDetails(
     enabled: ids.length > 0,
     staleTime: 5 * 60_000,
     queryFn: async ({ signal }): Promise<CompanyDTO[]> => {
-      const companies: CompanyDTO[] = [];
-      let cursor = 0;
-      const worker = async () => {
-        while (cursor < ids.length) {
-          const id = ids[cursor++];
-          try {
-            const company = await companyService.get(id, { signal });
-            companies.push(company);
-            queryClient.setQueryData(companyQueryKeys.detail(scope, id), company);
-          } catch (error) {
-            if (signal.aborted) throw error;
-            // One inaccessible or deleted company must not hide the addresses
-            // of every other visible opportunity card.
-          }
-        }
-      };
-
-      await Promise.all(
-        Array.from({ length: Math.min(8, ids.length) }, () => worker()),
+      const batches = await Promise.all(
+        companyIdBatches(ids).map((batch) =>
+          companyService.list(
+            { ids: batch.join(","), page: 1, pageSize: batch.length },
+            { signal },
+          ),
+        ),
       );
-      return companies;
+      return batches.flatMap((batch) => batch.data);
     },
     select: (companies): Record<string, Customer> => Object.fromEntries(
       companies.map((company) => [company.id, normalizeCompany(company, fallbackById.get(company.id))]),

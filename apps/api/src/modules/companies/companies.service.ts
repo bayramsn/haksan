@@ -36,7 +36,7 @@ import type {
   CompanyWebsiteLookupInput,
   CompanyWebsiteLookupResult,
   CompanyUpdateInput,
-  CompanyListQuery,
+  CompanyListFilterQuery,
   CompanySummaryQuery,
   Pagination,
 } from '@haksan/shared';
@@ -581,9 +581,10 @@ export class CompaniesService {
     return row ?? null;
   }
 
-  async list(actor: AuthContext, query: CompanyListQuery, page: Pagination) {
+  async list(actor: AuthContext, query: CompanyListFilterQuery, page: Pagination) {
     const { limit, offset } = pageOffset(page);
     const filters = await this.visibleCompanyFilters(actor, query.divisionId);
+    if (query.ids?.length) filters.push(inArray(companies.id, query.ids));
     if (query.search) {
       const pattern = `%${query.search}%`;
       const normalizedSearch = query.search.toLocaleLowerCase('tr-TR');

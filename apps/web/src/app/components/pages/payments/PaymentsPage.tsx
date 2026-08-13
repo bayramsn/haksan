@@ -18,6 +18,7 @@ import { StatusBadge } from "../../shared/StatusBadge";
 import { CreatePaymentDialog } from "../../dialogs/CreateDialogs";
 import { PayKpi } from "../../shared/MiniKpi";
 import { useStore } from "../../../lib/store";
+import { selectedRecordById } from "../../../lib/selectedRecord";
 import { buildPaymentMonthly, buildCurrencyPie } from "../../../lib/chartAggregates";
 import { useFx, FxRateBadge, type FxCurrency } from "../../../lib/fx";
 import { Payment } from "../../../lib/mock";
@@ -70,7 +71,8 @@ export function PaymentsPage({ focus, initialQuery }: { focus?: OperationFocus; 
   // Kasa yönü: tümü / alınan (giren) / ödenen (çıkan)
   const [dirFilter, setDirFilter] = useState<"all" | "in" | "out">("all");
   // Tıklanan kasa hareketi → detay + fiş/fatura pop-up'ı
-  const [selectedPayment, setSelectedPayment] = useState<Payment | null>(null);
+  const [selectedPaymentId, setSelectedPaymentId] = useState<string | null>(null);
+  const selectedPayment = selectedRecordById(payments, selectedPaymentId);
   const [deletingPaymentId, setDeletingPaymentId] = useState<string | null>(null);
   const [pendingDeletePayment, setPendingDeletePayment] = useState<Payment | null>(null);
 
@@ -151,7 +153,7 @@ export function PaymentsPage({ focus, initialQuery }: { focus?: OperationFocus; 
     try {
       await financeService.deletePayment(payment.id);
       toast.success("Kasa hareketi silindi");
-      if (selectedPayment?.id === payment.id) setSelectedPayment(null);
+      if (selectedPaymentId === payment.id) setSelectedPaymentId(null);
       setPendingDeletePayment(null);
       refresh();
     } catch (err: any) {
@@ -551,8 +553,8 @@ export function PaymentsPage({ focus, initialQuery }: { focus?: OperationFocus; 
                   <TableRow
                     key={p.id}
                     className="group cursor-pointer"
-                    onClick={() => setSelectedPayment(p)}
-                    onKeyDown={(e) => e.key === "Enter" && setSelectedPayment(p)}
+                    onClick={() => setSelectedPaymentId(p.id)}
+                    onKeyDown={(e) => e.key === "Enter" && setSelectedPaymentId(p.id)}
                     tabIndex={0}
                     role="button"
                     aria-label={`${customerName(p.customerId)} kasa hareketi, ${p.amount} ${p.currency}`}
@@ -605,7 +607,7 @@ export function PaymentsPage({ focus, initialQuery }: { focus?: OperationFocus; 
                           title="Detay"
                           onClick={(event) => {
                             event.stopPropagation();
-                            setSelectedPayment(p);
+                            setSelectedPaymentId(p.id);
                           }}
                         >
                           <Eye className="size-4" />
@@ -653,7 +655,7 @@ export function PaymentsPage({ focus, initialQuery }: { focus?: OperationFocus; 
       <PaymentDetailDialog
         payment={selectedPayment}
         customerName={customerName}
-        onClose={() => setSelectedPayment(null)}
+        onClose={() => setSelectedPaymentId(null)}
       />
       <AlertDialog open={!!pendingDeletePayment} onOpenChange={(open) => !open && !deletingPaymentId && setPendingDeletePayment(null)}>
         <AlertDialogContent className="max-w-lg">
