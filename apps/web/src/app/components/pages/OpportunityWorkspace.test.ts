@@ -9,6 +9,14 @@ describe("lead ve fırsat çalışma alanı sorumlu değişikliği", () => {
   const detailSource = readFileSync(new URL("./SalesCaseDetail.tsx", import.meta.url), "utf8");
   const shellSource = readFileSync(new URL("../shared/KanbanDetailDialogShell.tsx", import.meta.url), "utf8");
 
+  it("nitelendirme formunu yalnız başka bir karta geçilince sunucu değeriyle ezer", () => {
+    // Bağımlılık `salesCase` nesnesiyken store'un her tazelemesi yeni referans
+    // üretiyor, efekt de kullanıcının o an yazdığı metni siliyordu: girilen
+    // bilgi kaybolup "kaydet" eski değeri gönderiyordu.
+    expect(railSource).toContain("}, [salesCase.id]);");
+    expect(railSource).not.toContain("}, [salesCase]);");
+  });
+
   it("Karar Rayı içinde izin kontrollü sorumlu seçimi sunar", () => {
     expect(railSource).toContain("canAssignOwner");
     expect(railSource).toContain("Lead sorumlusu değiştirildi");

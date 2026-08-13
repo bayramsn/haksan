@@ -288,11 +288,11 @@ export function ProcessChecklistPanel({
     setBusyKey(key);
     try {
       await action();
-      // Tazeleme burada, tek yerde: tek tek düzenleyicilere bırakıldığında
-      // bazıları tazeliyor bazıları tazelemiyordu ve görev "bazen kabul
-      // edilmemiş" gibi görünüyordu. İki kaynak da güncellenmeli — panel
-      // store'dan, kutu kendi detay çağrısından okuyor.
-      await refresh();
+      // Buradaki `refresh()` kaldırıldı: `updateCase` kaydı store'a doğrudan
+      // yazıyor, `updateCustomer`/`decideCaseApproval` ise zaten kendi içinde
+      // tazeliyor. Her görev kaydı böylece iki tam store çekimi (20+ liste x2)
+      // yapıyor, düğme o süre boyunca kilitli kalıyordu. Kutunun kendi detay
+      // çağrısı hâlâ gerekli — panel store'dan, kutu detaydan okuyor.
       await onSaved?.();
       toast.success(successMessage);
       if (requestedAction) onActionHandled?.();

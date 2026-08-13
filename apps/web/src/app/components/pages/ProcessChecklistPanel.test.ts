@@ -6,6 +6,7 @@ const centerSource = readFileSync(new URL("./OpportunityProcessCenter.tsx", impo
 const detailSource = readFileSync(new URL("./SalesCaseDetail.tsx", import.meta.url), "utf8");
 const workspaceSource = readFileSync(new URL("./OpportunityWorkspace.tsx", import.meta.url), "utf8");
 const createDialogsSource = readFileSync(new URL("../dialogs/CreateDialogs.tsx", import.meta.url), "utf8");
+const storeSource = readFileSync(new URL("../../lib/store.tsx", import.meta.url), "utf8");
 
 describe("ProcessChecklistPanel teklif adımı", () => {
   it("B sürecindeki teklif kontrolünü doğrudan mevcut teklif penceresine bağlar", () => {
@@ -100,9 +101,15 @@ describe("ProcessChecklistPanel satış alanı kutusunun içeriği", () => {
     // özeti eski ekranların fallback'i. Tazeleme tek tek düzenleyicilere
     // bırakılınca bazıları tazeliyor bazıları tazelemiyordu ve kullanıcıya
     // "yapılan görev kabul edilmedi" diye görünen hata oluşuyordu.
-    // Tazeleme ortak `run()` sarmalayıcısında, tek yerde olmalı.
-    expect(source).toContain("await refresh();");
+    // Kutunun tazelemesi ortak `run()` sarmalayıcısında, tek yerde olmalı.
     expect(source).toContain("await onSaved?.();");
+    // Store tarafı: `run()` içinde ikinci bir tam çekim yapılmıyor; `updateCase`
+    // sunucudan dönen kaydı doğrudan store'a yazıyor, diğer iki eylem kendi
+    // içinde tazeliyor. Buraya `refresh()` geri eklenirse her görev kaydı iki
+    // tam store çekimi (20+ liste x2) yapar ve düğme saniyelerce kilitlenir.
+    expect(source).not.toContain("await refresh();");
+    expect(storeSource).toContain("const saved = await opportunityService.update(id, body);");
+    expect(storeSource).toContain("setCases(patchList);");
     // Kutunun kendi tazelemesi panele bağlanmalı, yoksa yalnız store güncellenir.
     expect(detailSource).toContain("onSaved={reloadReadiness}");
   });

@@ -646,6 +646,10 @@ export function LeadQualificationPanel({ salesCase, canUpdate }: { salesCase: Sa
     leadTechnicalNote: salesCase.leadTechnicalNote ?? "",
   });
   const [saving, setSaving] = useState(false);
+  // Yalnız başka bir karta geçilince forma sunucu değerlerini bas. Bağımlılık
+  // `salesCase` nesnesiyken store'un her tazelemesi yeni referans üretiyor,
+  // efekt de kullanıcının o sırada yazdığı metni siliyordu: girilen bilgi
+  // kaydedilmeden kayboluyor, "kaydet" eski değeri gönderiyordu.
   useEffect(() => {
     setForm({
       leadNeedSummary: salesCase.leadNeedSummary ?? "",
@@ -655,7 +659,8 @@ export function LeadQualificationPanel({ salesCase, canUpdate }: { salesCase: Sa
       leadTechnicalFit: salesCase.leadTechnicalFit ?? "unknown",
       leadTechnicalNote: salesCase.leadTechnicalNote ?? "",
     });
-  }, [salesCase]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [salesCase.id]);
   const insights = salesCase.leadInsights;
   const completed = insights?.factors.filter((factor) => factor.complete).length ?? 0;
   const fields = useMemo(() => [

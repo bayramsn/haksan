@@ -153,6 +153,79 @@ const CODE_BY_STAGE: Partial<Record<SalesStage, PipelineStageCode>> = {
   Lost: 'cancelled',
 };
 
+// API fırsat kaydını satış kartına çevirir. `fetchAllOnce` içindeydi; tekil
+// mutasyonlar da yanıtı doğrudan store'a yazabilsin diye modül seviyesine alındı.
+// `isOfferPrepared` teklif listesinden geldiği için dışarıdan veriliyor.
+const mapCase = (o: any, isOfferPrepared: boolean): SalesCase =>
+  ({
+    id: o.id,
+    customerId: o.companyId ?? '',
+    divisionId: o.divisionId ?? undefined,
+    primaryContactId: o.primaryContactId ?? undefined,
+    leadContactName: o.leadContactName ?? undefined,
+    // Firma listesi artık başlangıçta tarayıcıya topluca indirilmediği için
+    // bağlı firmanın güvenli gömülü adını kart üzerinde de taşı. Eski
+    // ekranlar `leadCompanyTitle` fallback'ini zaten kullanıyor.
+    leadCompanyTitle:
+      o.leadCompanyTitle
+      ?? o.company?.shortName
+      ?? o.company?.legalTitle
+      ?? undefined,
+    leadContactValue: o.leadContactValue ?? undefined,
+    leadContactMethodCode: o.source?.code ?? undefined,
+    leadContactMethodName: o.source?.name ?? undefined,
+    leadCity: o.leadCity ?? undefined,
+    leadDistrict: o.leadDistrict ?? undefined,
+    leadPhone: o.leadPhone ?? undefined,
+    leadEmail: o.leadEmail ?? undefined,
+    leadTemperature: o.leadTemperature ?? 'unknown',
+    leadFollowUpStatus: o.leadFollowUpStatus ?? 'new',
+    leadNeedSummary: o.leadNeedSummary ?? undefined,
+    leadAuthorityStatus: o.leadAuthorityStatus ?? 'unknown',
+    leadBudgetStatus: o.leadBudgetStatus ?? 'unknown',
+    leadPurchaseTimeframe: o.leadPurchaseTimeframe ?? 'unknown',
+    leadTechnicalFit: o.leadTechnicalFit ?? 'unknown',
+    leadTechnicalNote: o.leadTechnicalNote ?? undefined,
+    leadInsights: o.leadInsights ?? undefined,
+    nextAction: o.nextAction ?? undefined,
+    nextActionAt: o.nextActionAt ?? undefined,
+    externalSource: o.externalSource ?? undefined,
+    externalKey: o.externalKey ?? undefined,
+    externalUrl: o.externalUrl ?? undefined,
+    externalMetadata: o.externalMetadata ?? undefined,
+    assignedUserId: o.ownerUserId ?? '',
+    department: '',
+    requestedProduct: o.title ?? '',
+    requestedModel: o.externalSource === 'trello' ? '' : o.description ?? o.title ?? '',
+    description: o.description ?? undefined,
+    quantity: 1,
+    estimatedAmount: Number(o.estimatedValue ?? 0),
+    currency: (o.currency?.code as 'USD' | 'EUR' | 'TRY') ?? 'USD',
+    probability: Math.min(100, Math.max(0, Number(o.probability ?? 50))),
+    expectedCloseDate: o.expectedCloseDate ? (o.expectedCloseDate as string).slice(0, 10) : undefined,
+    stage: STAGE_BY_CODE[o.stage?.code ?? ''] ?? 'lead',
+    qualificationStage: (o.qualificationStage ?? 'lead') as QualificationStage,
+    qualificationNote: o.qualificationNote ?? undefined,
+    qualificationReadiness: o.qualificationReadiness ?? undefined,
+    requestedMachine: o.requestedMachine ?? undefined,
+    contractTerms: o.contractTerms ?? undefined,
+    paymentTerms: o.paymentTerms ?? undefined,
+    paymentTermDays: o.paymentTermDays === null || o.paymentTermDays === undefined ? undefined : Number(o.paymentTermDays),
+    paymentMethod: o.paymentMethod ?? 'undecided',
+    isOfferPrepared,
+    isLost: (o.qualificationStage ?? '') === 'lost' || (o.stage?.code ?? '') === 'cancelled',
+    lostReasonCode: o.lostReason?.code ?? undefined,
+    lostReason: o.lostReason?.name ?? undefined,
+    lostCompanyName: o.lostCompanyName ?? undefined,
+    lostProductName: o.lostProductName ?? undefined,
+    lostUnmetConditions: o.lostUnmetConditions ?? undefined,
+    lostCompetitorId: o.lostCompetitor?.id ?? o.lostCompetitorId ?? undefined,
+    competitor: o.lostCompetitor?.name ?? o.lostCompetitorName ?? undefined,
+    lostCompetitorProductModel: o.lostCompetitorProductModel ?? undefined,
+    createdAt: (o.createdAt as string)?.slice(0, 10) ?? '',
+    closedAt: o.closedAt ? (o.closedAt as string).slice(0, 10) : undefined,
+  }) as SalesCase;
+
 const cleanString = (value: unknown) => {
   const text = String(value ?? '').trim();
   return text || undefined;
@@ -791,77 +864,11 @@ function StoreInner({ children }: { children: ReactNode }) {
       }
       setContacts(Array.from(contactReferences.values()));
 
-      const mapCase = (o: any): SalesCase =>
-        ({
-          id: o.id,
-          customerId: o.companyId ?? '',
-          divisionId: o.divisionId ?? undefined,
-          primaryContactId: o.primaryContactId ?? undefined,
-          leadContactName: o.leadContactName ?? undefined,
-          // Firma listesi artık başlangıçta tarayıcıya topluca indirilmediği için
-          // bağlı firmanın güvenli gömülü adını kart üzerinde de taşı. Eski
-          // ekranlar `leadCompanyTitle` fallback'ini zaten kullanıyor.
-          leadCompanyTitle:
-            o.leadCompanyTitle
-            ?? o.company?.shortName
-            ?? o.company?.legalTitle
-            ?? undefined,
-          leadContactValue: o.leadContactValue ?? undefined,
-          leadContactMethodCode: o.source?.code ?? undefined,
-          leadContactMethodName: o.source?.name ?? undefined,
-          leadCity: o.leadCity ?? undefined,
-          leadDistrict: o.leadDistrict ?? undefined,
-          leadPhone: o.leadPhone ?? undefined,
-          leadEmail: o.leadEmail ?? undefined,
-          leadTemperature: o.leadTemperature ?? 'unknown',
-          leadFollowUpStatus: o.leadFollowUpStatus ?? 'new',
-          leadNeedSummary: o.leadNeedSummary ?? undefined,
-          leadAuthorityStatus: o.leadAuthorityStatus ?? 'unknown',
-          leadBudgetStatus: o.leadBudgetStatus ?? 'unknown',
-          leadPurchaseTimeframe: o.leadPurchaseTimeframe ?? 'unknown',
-          leadTechnicalFit: o.leadTechnicalFit ?? 'unknown',
-          leadTechnicalNote: o.leadTechnicalNote ?? undefined,
-          leadInsights: o.leadInsights ?? undefined,
-          nextAction: o.nextAction ?? undefined,
-          nextActionAt: o.nextActionAt ?? undefined,
-          externalSource: o.externalSource ?? undefined,
-          externalKey: o.externalKey ?? undefined,
-          externalUrl: o.externalUrl ?? undefined,
-          externalMetadata: o.externalMetadata ?? undefined,
-          assignedUserId: o.ownerUserId ?? '',
-          department: '',
-          requestedProduct: o.title ?? '',
-          requestedModel: o.externalSource === 'trello' ? '' : o.description ?? o.title ?? '',
-          description: o.description ?? undefined,
-          quantity: 1,
-          estimatedAmount: Number(o.estimatedValue ?? 0),
-          currency: (o.currency?.code as 'USD' | 'EUR' | 'TRY') ?? 'USD',
-          probability: Math.min(100, Math.max(0, Number(o.probability ?? 50))),
-          expectedCloseDate: o.expectedCloseDate ? (o.expectedCloseDate as string).slice(0, 10) : undefined,
-          stage: STAGE_BY_CODE[o.stage?.code ?? ''] ?? 'lead',
-          qualificationStage: (o.qualificationStage ?? 'lead') as QualificationStage,
-          qualificationNote: o.qualificationNote ?? undefined,
-          qualificationReadiness: o.qualificationReadiness ?? undefined,
-          requestedMachine: o.requestedMachine ?? undefined,
-          contractTerms: o.contractTerms ?? undefined,
-          paymentTerms: o.paymentTerms ?? undefined,
-          paymentTermDays: o.paymentTermDays === null || o.paymentTermDays === undefined ? undefined : Number(o.paymentTermDays),
-          paymentMethod: o.paymentMethod ?? 'undecided',
-          isOfferPrepared: qts.data.some((q: any) => q.opportunityId === o.id),
-          isLost: (o.qualificationStage ?? '') === 'lost' || (o.stage?.code ?? '') === 'cancelled',
-          lostReasonCode: o.lostReason?.code ?? undefined,
-          lostReason: o.lostReason?.name ?? undefined,
-          lostCompanyName: o.lostCompanyName ?? undefined,
-          lostProductName: o.lostProductName ?? undefined,
-          lostUnmetConditions: o.lostUnmetConditions ?? undefined,
-          lostCompetitorId: o.lostCompetitor?.id ?? o.lostCompetitorId ?? undefined,
-          competitor: o.lostCompetitor?.name ?? o.lostCompetitorName ?? undefined,
-          lostCompetitorProductModel: o.lostCompetitorProductModel ?? undefined,
-          createdAt: (o.createdAt as string)?.slice(0, 10) ?? '',
-          closedAt: o.closedAt ? (o.closedAt as string).slice(0, 10) : undefined,
-        }) as SalesCase;
-      setCases(opps.data.map(mapCase));
-      setClosedCases(closedOpps.data.map(mapCase));
+      const quotedOpportunityIds = new Set(qts.data.map((q: any) => q.opportunityId));
+      const mapListCase = (o: any) => mapCase(o, quotedOpportunityIds.has(o.id));
+      setCases(opps.data.map(mapListCase));
+      setClosedCases(closedOpps.data.map(mapListCase));
+
 
       const apiProducts = prods.data.map((p: any) => ({
           id: p.id,
@@ -1765,8 +1772,19 @@ function StoreInner({ children }: { children: ReactNode }) {
     if (patch.leadPurchaseTimeframe !== undefined) body.leadPurchaseTimeframe = patch.leadPurchaseTimeframe;
     if (patch.leadTechnicalFit !== undefined) body.leadTechnicalFit = patch.leadTechnicalFit;
     if (patch.leadTechnicalNote !== undefined) body.leadTechnicalNote = patch.leadTechnicalNote;
-    await opportunityService.update(id, body);
-    await fetchAll();
+    const saved = await opportunityService.update(id, body);
+    // Tek alan güncellemesi için tüm store'u (20+ liste) yeniden çekmek AWS'te
+    // saniyeler sürüyordu; kaydet düğmesi o süre boyunca bekliyor, arada gelen
+    // tazeleme de açık formları sunucudaki eski değere sıfırlıyordu. Sunucunun
+    // döndürdüğü güncel kaydı doğrudan yaz.
+    // Kart iki listeden yalnız birinde; bulunmayan liste referansı korunmalı,
+    // yoksa her kaydetme `closedCases`'i tüketen memo'ları boşuna geçersizler.
+    const patchList = (list: SalesCase[]) =>
+      list.some((item) => item.id === id)
+        ? list.map((item) => (item.id === id ? mapCase(saved, item.isOfferPrepared) : item))
+        : list;
+    setCases(patchList);
+    setClosedCases(patchList);
   };
 
   const deleteCase: Store['deleteCase'] = async (id) => {

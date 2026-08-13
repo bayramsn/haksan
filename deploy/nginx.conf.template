@@ -1,6 +1,26 @@
 server_tokens off;
 limit_req_status 429;
 
+# Vite'in hash'li JS/CSS dosyaları uzun süre cache'leniyor; ilk ziyarette ise
+# sıkıştırılmadan gönderilirse ana paket 1 MB'ın üzerinde kalıyor. Nginx'in
+# yerleşik gzip filtresi metin varlıklarını istemci desteklediğinde küçültür.
+# `Vary: Accept-Encoding`, paylaşılan cache/CDN'lerin sıkıştırılmış ve düz
+# yanıtları birbirine karıştırmasını önler.
+gzip on;
+gzip_vary on;
+gzip_proxied any;
+gzip_comp_level 5;
+gzip_min_length 1024;
+gzip_types
+    application/javascript
+    application/json
+    application/manifest+json
+    application/xml
+    image/svg+xml
+    text/css
+    text/plain
+    text/xml;
+
 # AWS ALB / özel ağ reverse proxy arkasında nginx'e gelen isteklerde gerçek
 # istemci IP'sini kullan. Sadece private/proxy ağlarını trusted kabul eder;
 # doğrudan internetten gelen istemci X-Forwarded-For enjekte ederse yok sayılır.
