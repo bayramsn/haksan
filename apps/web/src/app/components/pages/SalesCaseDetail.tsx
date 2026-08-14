@@ -1245,6 +1245,8 @@ export function SalesCaseDetailPage({
                   onAction={(actionKey) => void handleProcessAction(actionKey)}
                   canPerformAction={canPerformProcessAction}
                   onSaved={reloadReadiness}
+                  offers={offs}
+                  onOpenOffer={setSelectedOfferId}
                   checks={stageChecks}
                   readOnly={stageReadOnly}
                 />
@@ -1271,6 +1273,8 @@ export function SalesCaseDetailPage({
             onAction={(actionKey) => void handleProcessAction(actionKey)}
             canPerformAction={canPerformProcessAction}
             onSaved={reloadReadiness}
+            offers={offs}
+            onOpenOffer={setSelectedOfferId}
             checks={stageChecks}
             readOnly={stageReadOnly}
           />

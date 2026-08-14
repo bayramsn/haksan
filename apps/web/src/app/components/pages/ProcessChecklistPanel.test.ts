@@ -22,6 +22,13 @@ describe("ProcessChecklistPanel teklif adımı", () => {
     expect(detailSource).toContain('hasPermission("quotes.create")');
     expect(source).toContain("canPerformAction?.(check.actionKey)");
   });
+
+  it("oluşturulan teklifleri B alanındaki tamamlanmış adımın içinde gösterir", () => {
+    expect(source).toContain('check.key === "quote" && opportunityOffers.length > 0');
+    expect(source).toContain("<OpportunityQuoteList offers={opportunityOffers} onOpenOffer={onOpenOffer} />");
+    expect(detailSource).toContain("offers={offs}");
+    expect(detailSource).toContain("onOpenOffer={setSelectedOfferId}");
+  });
 });
 
 describe("ProcessChecklistPanel firma ve kontak çözümleme", () => {

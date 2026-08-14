@@ -13,6 +13,7 @@ import { useStore } from "../../lib/store";
 import {
   salesStageLabel,
   type Customer,
+  type Offer,
   type OpportunityPaymentMethod,
   type QualificationStage,
   type SalesCase,
@@ -44,6 +45,7 @@ import {
   resolveOpportunityVisitStatus,
   type OpportunityVisitStatus,
 } from "./opportunityVisitStatus";
+import { OpportunityQuoteList } from "./OpportunityQuoteList";
 
 /**
  * Ödeme planının ipucu metni seçilen ödeme şekline göre değişir: kullanıcı boş
@@ -187,6 +189,8 @@ export function ProcessChecklistPanel({
   onAction,
   canPerformAction,
   onSaved,
+  offers = [],
+  onOpenOffer,
   checks: checksOverride,
   readOnly = false,
 }: {
@@ -196,6 +200,10 @@ export function ProcessChecklistPanel({
   /** Kendi özel dialog/akışı olan ticari adımları üst bileşene yönlendirir. */
   onAction?: (actionKey: OpportunityProcessActionKey) => void;
   canPerformAction?: (actionKey: OpportunityProcessActionKey) => boolean;
+  /** B alanında, tamamlanma tikinin altında doğrudan görüntülenecek teklifler. */
+  offers?: Offer[];
+  /** Teklif satırını mevcut teklif detay penceresinde açar. */
+  onOpenOffer?: (offerId: string) => void;
   /**
    * Gösterilecek modern görev listesi. Verilmezse eski store özeti yalnız
    * geriye dönük uyumluluk için kullanılır.
@@ -227,6 +235,10 @@ export function ProcessChecklistPanel({
   const grade = (sc.qualificationStage ?? "lead") as QualificationStage;
   const areaSteps = OPPORTUNITY_OPERATION_GROUP_STEPS[grade] ?? [];
   const availableChecks = checksOverride ?? readiness?.checks ?? [];
+  const opportunityOffers = useMemo(
+    () => offers.filter((offer) => offer.salesCaseId === sc.id),
+    [offers, sc.id],
+  );
   useEffect(() => {
     if (!requestedAction) return;
     const key = OPPORTUNITY_CHECK_BY_ACTION[requestedAction];
@@ -366,6 +378,22 @@ export function ProcessChecklistPanel({
                   : check.complete
                     ? check.key === "call" || check.key === "visit" ? "Görüntüle" : "Düzenle"
                     : CHECK_ACTION_LABELS[check.key] ?? "Aç";
+            if (check.key === "quote" && opportunityOffers.length > 0) {
+              return (
+                <li key={check.key} className="sm:col-span-2">
+                  <div className="overflow-hidden rounded-lg border border-primary/20 bg-background shadow-xs">
+                    <div className="flex min-h-11 items-center gap-2 px-3 py-2">
+                      <CheckCircle2 className="size-4 shrink-0 text-success" aria-hidden="true" />
+                      <span className="min-w-0 flex-1 text-xs font-medium text-foreground">{check.label}</span>
+                      <span className="shrink-0 rounded-full bg-primary/8 px-2 py-0.5 text-[10px] font-semibold tabular-nums text-primary">
+                        {opportunityOffers.length} teklif
+                      </span>
+                    </div>
+                    <OpportunityQuoteList offers={opportunityOffers} onOpenOffer={onOpenOffer} />
+                  </div>
+                </li>
+              );
+            }
             return (
               <li key={check.key}>
                 <button
