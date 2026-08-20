@@ -4,6 +4,12 @@ import { describe, expect, it } from "vitest";
 describe("kaybedilen fırsat ayrıntıları", () => {
   const source = readFileSync(new URL("./LostCaseDialog.tsx", import.meta.url), "utf8");
 
+  it("LOST penceresi rakip kataloğunu API'den yükler", () => {
+    expect(source).toContain("competitorService");
+    expect(source).toContain(".list({ pageSize: 100 })");
+    expect(source).toContain("Rakip seçin");
+  });
+
   it("firma ve ürünü kayıp anında açıkça gösterir", () => {
     expect(source).toContain("Kaybedilen firma");
     expect(source).toContain("Kaybedilen Ürün / Makine *");

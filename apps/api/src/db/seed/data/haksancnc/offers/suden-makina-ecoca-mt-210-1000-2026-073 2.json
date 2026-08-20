@@ -1,0 +1,22 @@
+{
+  "productId": "haksan-cnc-mt-210-1000",
+  "sourceFile": "suden-makina-ecoca-mt-210-1000-2026-073.pdf",
+  "supplierOrCustomer": "SUDEN MAKİNE SAN. VE TİC. LTD. ŞTİ.",
+  "documentType": "Fiyat Teklifi",
+  "documentNo": "2026/073",
+  "documentDate": "2026-06-08",
+  "validity": "5 İş Günü",
+  "projectOwner": "Raif ŞENTÜRK",
+  "product": "ECOCA MT-210/1000 CNC Torna Tezgahı",
+  "quantity": 1,
+  "listPrice": 89235,
+  "discount": 9235,
+  "total": 80000,
+  "currency": "USD",
+  "vatRate": 10,
+  "vatAmount": 0,
+  "grandTotal": 80000,
+  "paymentTerms": "Tamamı nakit/leasing aracılığı ile ödeme; siparişte %25 teminat çek/senet.",
+  "deliveryTerms": "Kesin siparişten 120 (+/-15) gün sonra; HAKSAN MAKİNA/Hadımköy antreposundan teslim.",
+  "warrantyTerms": "1 yıl mekanik tezgah garantisi; 2 yıl uluslararası FANUC kontrol ünitesi garantisi."
+}
