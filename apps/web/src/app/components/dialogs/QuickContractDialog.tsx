@@ -9,6 +9,13 @@ import { Input } from "../ui/input";
 import { Label } from "../ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
 import { Switch } from "../ui/switch";
+import { PAYMENT_METHOD_PRINT_LABELS } from "../../lib/paymentMethod";
+import type { OpportunityPaymentMethod } from "../../lib/mock";
+
+/** Vade satırında sunulan tahsilat yöntemleri; "kararsız" bir vadeye yazılamaz. */
+const INSTALLMENT_PAYMENT_METHODS: OpportunityPaymentMethod[] = [
+  "cash", "wire_transfer", "cheque", "promissory_note", "leasing", "letter_of_credit",
+];
 import { DialogSplitLayout, DialogSidebarSection } from "../shared/DialogSplitLayout";
 import { DocumentDiscountFields, ProformaTotalsPanel } from "../shared/ProformaItemsEditor";
 import {
@@ -44,7 +51,15 @@ import { useCompanyDetail } from "../../lib/companyServerData";
 
 const CONTRACT_TERMS_TEMPLATE_SCOPE = "contract_terms";
 
-type Installment = { key: string; label: string; amount: string; dueDate: string; promissoryNote: boolean };
+type Installment = {
+  key: string;
+  label: string;
+  amount: string;
+  dueDate: string;
+  promissoryNote: boolean;
+  /** Bu vadenin tahsilat yöntemi — çıktıdaki üçüncü sütun. */
+  paymentMethod: OpportunityPaymentMethod;
+};
 
 let installmentCounter = 0;
 const emptyInstallment = (): Installment => ({
@@ -53,6 +68,7 @@ const emptyInstallment = (): Installment => ({
   amount: "",
   dueDate: "",
   promissoryNote: false,
+  paymentMethod: "cash",
 });
 
 const createdContractToDocument = (created: any): DocumentItem => ({
@@ -160,6 +176,8 @@ export function QuickContractDialog({
           amount: formatMoneyInput(Number(receivable.amount ?? 0)),
           dueDate: String(receivable.dueDate ?? "").slice(0, 10),
           promissoryNote: /senet/i.test(String(receivable.notes ?? "")),
+          paymentMethod: (receivable.paymentMethod as OpportunityPaymentMethod | undefined)
+            ?? (/senet/i.test(String(receivable.notes ?? "")) ? "promissory_note" : "cash"),
         })),
       );
     } else {
@@ -265,10 +283,11 @@ export function QuickContractDialog({
         freightPaidBySeller,
         installments: installments.length
           ? installments.map((row) => ({
-              label: row.label.trim() || (row.promissoryNote ? "Senet" : undefined),
+              label: row.label.trim() || undefined,
               amount: parseMoneyInput(row.amount),
               dueDate: row.dueDate ? new Date(row.dueDate) : undefined,
-              promissoryNote: row.promissoryNote,
+              promissoryNote: row.paymentMethod === "promissory_note",
+              paymentMethod: row.paymentMethod,
             }))
           : undefined,
       };
@@ -458,7 +477,7 @@ export function QuickContractDialog({
                 ) : (
                   <div className="divide-y divide-border/60">
                     {installments.map((row) => (
-                      <div key={row.key} className="grid gap-2 px-3 py-3 sm:grid-cols-[minmax(0,1fr)_132px_150px_92px_32px] sm:items-end">
+                      <div key={row.key} className="grid gap-2 px-3 py-3 sm:grid-cols-[minmax(0,1fr)_132px_150px_128px_32px] sm:items-end">
                         <div className="min-w-0">
                           <Label className="text-[10px] text-muted-foreground" htmlFor={`${row.key}-label`}>Açıklama</Label>
                           <Input id={`${row.key}-label`} className="mt-1 h-9" value={row.label} onChange={(e) => patchInstallment(row.key, { label: e.target.value })} placeholder="Peşinat / 1. taksit" />
@@ -471,10 +490,23 @@ export function QuickContractDialog({
                           <Label className="text-[10px] text-muted-foreground" htmlFor={`${row.key}-due`}>Vade Tarihi</Label>
                           <Input id={`${row.key}-due`} type="date" className="mt-1 h-9" value={row.dueDate} onChange={(e) => patchInstallment(row.key, { dueDate: e.target.value })} />
                         </div>
-                        <label className="flex h-9 items-center gap-2 text-[11px] text-muted-foreground">
-                          <Switch checked={row.promissoryNote} onCheckedChange={(next) => patchInstallment(row.key, { promissoryNote: next })} />
-                          Senet
-                        </label>
+                        <div>
+                          {/* Tek "Senet" anahtarı yalnız bir yöntemi ayırt edebiliyordu;
+                              referans sözleşmelerin ödeme tablosu Nakit/Havale/Çek/Senet
+                              ayrımını satır satır yazıyor. */}
+                          <Label className="text-[10px] text-muted-foreground" htmlFor={`${row.key}-method`}>Yöntem</Label>
+                          <Select
+                            value={row.paymentMethod}
+                            onValueChange={(next) => patchInstallment(row.key, { paymentMethod: next as OpportunityPaymentMethod })}
+                          >
+                            <SelectTrigger id={`${row.key}-method`} className="mt-1 h-9"><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                              {INSTALLMENT_PAYMENT_METHODS.map((method) => (
+                                <SelectItem key={method} value={method}>{PAYMENT_METHOD_PRINT_LABELS[method]}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
                         <Button
                           type="button"
                           variant="ghost"

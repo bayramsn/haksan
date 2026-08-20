@@ -1147,7 +1147,7 @@ export interface ContractPrintData {
   garantiKosullari?: string;
   notlar?: string;
   kdvOran: number;
-  odemePlani: { label: string; tutar: number; senet?: boolean }[];
+  odemePlani: { label: string; tutar: number; senet?: boolean; yontem?: string }[];
   kontrolUnitesiMarka?: string;
   machines?: ContractMachinePrintData[];
   /** Sözleşmeyi hazırlayan CRM kullanıcısı ve ünvanı (TARAFLAR sayfası altı). */
@@ -1209,6 +1209,8 @@ table.ct-price-table td.total-label { text-align: right; padding-right: 14mm; }
 table.ct-pay { margin: 3.7mm 0 .6mm 20mm; font-size: 10.7pt; line-height: 1.15; }
 table.ct-pay td { padding: .2mm 3mm .2mm 0; }
 table.ct-pay td.amt { text-align: right; min-width: 36mm; white-space: nowrap; }
+/* Tahsilat yöntemi (Nakit / Çek / Senet) — referans sözleşmelerdeki 3. sütun. */
+table.ct-pay td.mtd { padding-left: 6mm; white-space: nowrap; }
 table.ct-parties { width: 100%; margin-top: 0; font-size: 11pt; line-height: 1.12; }
 table.ct-parties td { vertical-align: top; padding: .2mm 2mm .2mm 0; overflow-wrap: anywhere; }
 table.ct-parties td:first-child { width: 54%; }
@@ -1463,7 +1465,7 @@ export function contractDoc(d: ContractPrintData, assetBase: string): PrintDocum
   // 3.4 maddesi vadeleri "bedelin tamamı" olarak sunar; taban 3.1'deki TOPLAM ile
   // aynı olmalı, yoksa KDV dahil sözleşme kendi kendisiyle çelişen iki rakam basar.
   const paymentPlanHtml = d.odemePlani.length ? `<table class="ct-pay">${d.odemePlani.map((payment) =>
-    `<tr><td>${esc(payment.label)}</td><td class="amt">${esc(fmtMoney(withVat(payment.tutar), d.currency))}${payment.senet ? " (Senet)" : ""}</td></tr>`
+    `<tr><td>${esc(payment.label)}</td><td class="amt">${esc(fmtMoney(withVat(payment.tutar), d.currency))}</td><td class="mtd">${esc(payment.yontem ?? (payment.senet ? "Senet" : ""))}</td></tr>`
   ).join("")}</table>` : "";
   const paymentWeight = 2 + (d.odemeKosullari ? contractLineCount(d.odemeKosullari) : 0) + d.odemePlani.length;
   const paymentBlock: ContractLegalEntry = {

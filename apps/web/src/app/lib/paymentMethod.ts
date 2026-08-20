@@ -25,6 +25,23 @@ export const PAYMENT_FAMILY_LABELS: Record<PaymentFamily, string> = {
  * gelir; yeni kartlarda seçilmez ama kayıt bunlardan birini taşıyorsa listeye
  * eklenir — aksi hâlde kart açıldığında seçim sessizce başka bir değere kayardı.
  */
+/**
+ * Sözleşme/proforma çıktısındaki ödeme planı sütununda basılan karşılıklar.
+ * Aile etiketlerinden ayrı: burada "Peşin" değil "Nakit" yazar — referans
+ * sözleşmelerdeki tablo dili budur.
+ */
+export const PAYMENT_METHOD_PRINT_LABELS: Record<OpportunityPaymentMethod, string> = {
+  undecided: "",
+  cash: "Nakit",
+  wire_transfer: "Havale",
+  promissory_note: "Senet",
+  term: "Vadeli",
+  installment: "Taksit",
+  leasing: "Leasing",
+  letter_of_credit: "Akreditif",
+  cheque: "Çek",
+};
+
 export const PAYMENT_FAMILY_OPTIONS: PaymentFamily[] = ["cash", "leasing", "term"];
 
 export const paymentFamilyOptions = (current: PaymentFamily | null): PaymentFamily[] =>

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { OPPORTUNITY_PAYMENT_METHODS } from '../constants';
 import { moneySchema, percentSchema } from './common';
 
 export const quoteCreateSchema = z.object({
@@ -318,6 +319,12 @@ export const standaloneContractInstallmentSchema = z.object({
   dueDate: z.coerce.date().optional(),
   /** Senetli vade — çıktıda ayrı işaretlenir. */
   promissoryNote: z.boolean().optional(),
+  /**
+   * Bu vadenin tahsilat yöntemi (Nakit / Havale / Çek / Senet …). Referans
+   * sözleşmelerde ödeme tablosunun üçüncü sütunu budur; tek bir "ödeme vadesi
+   * gün sayısı" alanı bunu anlatamıyordu.
+   */
+  paymentMethod: z.enum(OPPORTUNITY_PAYMENT_METHODS).optional(),
 });
 export type StandaloneContractInstallmentInput = z.infer<typeof standaloneContractInstallmentSchema>;
 

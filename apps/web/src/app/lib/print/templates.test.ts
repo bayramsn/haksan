@@ -672,7 +672,7 @@ describe("print templates", () => {
       currency: "USD" as const,
       kdvOran: 20,
       // Vadeler CRM'de net tutulur; 3.4 maddesi bunları "bedelin tamamı" diye sunar.
-      odemePlani: [{ label: "Siparişte peşin", tutar: 8_333.33 }],
+      odemePlani: [{ label: "Siparişte peşin", tutar: 8_333.33, yontem: "Nakit" }],
       teslimYeri: "NORM İNOX METAL/Başakşehir tesisleri",
     };
 
@@ -684,6 +684,8 @@ describe("print templates", () => {
     // 3.1 TOPLAM brütken 3.4 vadesi net kalırsa sözleşme kendi kendisiyle çelişir.
     expect(sl8.body).toContain("10.000,00 USD");
     expect(sl8.body).not.toContain("8.333,33 USD");
+    // Ödeme planının üçüncü sütunu tahsilat yöntemi (referans sözleşmelerdeki tablo).
+    expect(sl8.body).toContain('<td class="mtd">Nakit</td>');
     expect(sl8.body).toContain("NORM İNOX METAL/Başakşehir tesisleri adresine teslim");
     expect(sl8.body).toContain(`nakliye ve sigorta giderleri <span class="b">HAKSAN MAKİNA</span>'ya aittir`);
 

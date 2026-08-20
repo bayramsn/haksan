@@ -1,4 +1,5 @@
-import type { Customer, Offer, Payment, Product, SalesCase, ProductSpec, User } from "../mock";
+import type { Customer, Offer, Payment, Product, SalesCase, ProductSpec, User, OpportunityPaymentMethod } from "../mock";
+import { PAYMENT_METHOD_PRINT_LABELS } from "../paymentMethod";
 import { isMachiningCenterTypeCode } from "@haksan/shared";
 import { quoteService } from "../../../lib/services";
 import { specsForProductTypeStrict } from "../productSpecTemplates";
@@ -48,6 +49,13 @@ const asOptionalNumber = (value: unknown): number | undefined => {
   if (value === undefined || value === null || value === "") return undefined;
   const number = Number(value);
   return Number.isFinite(number) ? number : undefined;
+};
+
+/** Vade satırının tahsilat yöntemi — çıktıdaki üçüncü sütun. */
+const paymentMethodLabel = (method: unknown): string | undefined => {
+  const code = String(method ?? "").trim() as OpportunityPaymentMethod;
+  if (!code || code === "undecided") return undefined;
+  return PAYMENT_METHOD_PRINT_LABELS[code] || undefined;
 };
 
 const contractNetPrice = (quote: any, fallback = 0): number => {
@@ -305,6 +313,7 @@ async function buildContractPrintData(input: ContractBuildInput): Promise<Contra
             label: String(value(receivable, "notes") ?? `Vade ${trShortDate(value(receivable, "dueDate", "due_date"))}`),
             tutar: asNumber(value(receivable, "amount")),
             senet: /senet/i.test(String(value(receivable, "notes") ?? "")),
+            yontem: paymentMethodLabel(value(receivable, "paymentMethod", "payment_method")),
           }))
         : expectedPaymentRows(payments, salesCase),
       kontrolUnitesiMarka: [...new Set(machines.map((machine) => machine.kontrolUnitesiMarka).filter(Boolean))].join(" / ")

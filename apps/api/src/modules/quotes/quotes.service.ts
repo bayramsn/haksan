@@ -2642,6 +2642,9 @@ export class QuotesService {
         amount: roundMoney(Number(installment.amount)),
         dueDate: installment.dueDate ?? null,
         notes: installment.label ?? (installment.promissoryNote ? 'Senet' : null),
+        // Tahsilat yöntemi ödeme planı tablosunun üçüncü sütunu; `notes` içinde
+        // "Senet" aramak yalnız tek bir yöntemi ayırt edebiliyordu.
+        paymentMethod: installment.paymentMethod ?? (installment.promissoryNote ? 'promissory_note' : null),
       })),
       items,
       terms: {
