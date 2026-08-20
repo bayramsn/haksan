@@ -7,6 +7,7 @@ import { publicProductLabel, trShortDate } from "./core";
 import { allocateCustomsTotal } from "./quotePrint";
 import { printSignatureFromDocumentSnapshot } from "./signature";
 import { printableTechnicalSpecs } from "./technicalSpecs";
+import { fillNotePlaceholders } from "./notes";
 import type { ContractMachinePrintData, ContractPrintData } from "./templates";
 
 // Tezgahın tam teknik özellik listesi (birim değere gömülür) — sözleşme eksik
@@ -17,7 +18,7 @@ const contractSpecs = (product?: Product): { key: string; value: string }[] => {
     .map((s) => {
       const unit = (s.unit ?? s.specUnit ?? "").trim();
       const value = (s.value ?? "").trim();
-      return { key: s.key, value: unit && value && value !== "-" ? `${value} ${unit}` : value };
+      return { key: s.key, value: specValueWithUnit(value, unit) };
     })
     .filter((s) => s.key.trim());
 };
@@ -40,6 +41,26 @@ export type ContractBuildInput = {
   users?: User[];
 };
 
+/** İmzaya çıkmadan önce alıcı ve ticari içeriğin gerçekten tamam olduğunu doğrular. */
+export const contractReadinessErrors = (data: ContractPrintData): string[] => {
+  const missing: string[] = [];
+  if (!data.alici.unvan?.trim()) missing.push("firma unvanı");
+  if (!data.alici.adres?.trim()) missing.push("firma adresi");
+  if (!data.alici.vergiDairesi?.trim()) missing.push("vergi dairesi");
+  if (!data.alici.vergiNo?.trim()) missing.push("vergi numarası");
+  if (!data.alici.tel?.trim() && !data.alici.mobil?.trim()) missing.push("telefon");
+  if (!data.machines?.length) missing.push("sözleşme kalemi");
+  if (!Number.isFinite(data.fiyat) || data.fiyat <= 0) missing.push("sözleşme bedeli");
+  const serialized = JSON.stringify(data);
+  if (/\{\{[^}]+\}\}/.test(serialized)) missing.push("doldurulmamış şablon alanı");
+  return missing;
+};
+
+export const assertContractReady = (data: ContractPrintData) => {
+  const errors = contractReadinessErrors(data);
+  if (errors.length) throw new Error(`Sözleşme tamamlanmadan basılamaz: ${errors.join(", ")}.`);
+};
+
 const asNumber = (value: unknown): number => {
   const number = Number(value ?? 0);
   return Number.isFinite(number) ? number : 0;
@@ -59,20 +80,19 @@ const paymentMethodLabel = (method: unknown): string | undefined => {
 };
 
 const contractNetPrice = (quote: any, fallback = 0): number => {
-  // API `subtotal` alanını satır ve başlık iskontoları düşülmüş, KDV hariç net
-  // bedel olarak hesaplar. Millileştirme bedeli ayrıca saklandığı için sözleşme
-  // fiyatına sessizce eklenir; burada yeniden iskonto uygulanmaz.
+  // Sözleşme editöründe girilen satır fiyatı imzalanacak nihai fiyat tabanıdır;
+  // KDV dahil işareti bunu yeniden büyütmez. Millileştirme ayrıca saklanır.
   return Math.max(0, asNumber(quote?.subtotal ?? fallback) + asNumber(quote?.customsTotal ?? quote?.customs_total));
 };
 
 const inferDeliveryBasis = (deliveryTerms: unknown): string | undefined => {
-  const value = String(deliveryTerms ?? "");
-  if (/millileştiril|millilestiril/i.test(value)) return "Millileştirilmiş";
-  if (/c\.?\s*i\.?\s*f|cif|cİf/i.test(value)) return "C.I.F./İstanbul";
-  if (/f\.?\s*o\.?\s*b/i.test(value)) return "F.O.B.";
-  if (/ihracat.*adrese|dap/i.test(value)) return "İhracat Adrese Teslim";
-  if (/işletme teslim|isletme teslim|ex\s*works/i.test(value)) return "İşletme Teslim";
-  if (/gümrük|gumruk/i.test(value)) return "Gümrük";
+  const value = String(deliveryTerms ?? "").toLocaleLowerCase("tr-TR");
+  if (/millileştiril|millilestiril/.test(value)) return "Millileştirilmiş";
+  if (/c\.?\s*i\.?\s*f|cif/.test(value)) return "C.I.F./İstanbul";
+  if (/f\.?\s*o\.?\s*b/.test(value)) return "F.O.B.";
+  if (/ihracat.*adrese|dap/.test(value)) return "İhracat Adrese Teslim";
+  if (/işletme teslim|isletme teslim|ex\s*works/.test(value)) return "İşletme Teslim";
+  if (/gümrük|gumruk/.test(value)) return "Gümrük";
   return undefined;
 };
 
@@ -99,9 +119,95 @@ const inferControlUnitBrand = (
   return source.match(/MITSUBISHI|FANUC|SIEMENS|HEIDENHAIN|SYNTEC/i)?.[0]?.toUpperCase();
 };
 
+const specValueWithUnit = (valueInput: unknown, unitInput: unknown): string => {
+  const value = String(valueInput ?? "").trim();
+  const unit = String(unitInput ?? "").trim();
+  if (!unit || !value || value === "-") return value;
+  const compactValue = value.replace(/\s+/g, "").toLocaleLowerCase("tr-TR");
+  const compactUnit = unit.replace(/\s+/g, "").toLocaleLowerCase("tr-TR");
+  return compactValue.endsWith(compactUnit) ? value : `${value} ${unit}`;
+};
+
+/** Türk telefonlarını sözleşmedeki okunur 0 212 / 0 532 biçimine getirir. */
+const printablePhone = (input: unknown): string | undefined => {
+  const raw = String(input ?? "").trim();
+  if (!raw) return undefined;
+  let digits = raw.replace(/\D/g, "");
+  if (digits.startsWith("90") && digits.length === 12) digits = `0${digits.slice(2)}`;
+  if (digits.length === 10 && digits.startsWith("5")) digits = `0${digits}`;
+  if (digits.length !== 11 || !digits.startsWith("0")) return raw;
+  return `${digits.slice(0, 1)} ${digits.slice(1, 4)} ${digits.slice(4, 7)} ${digits.slice(7, 9)} ${digits.slice(9)}`;
+};
+
+const completeAddress = (address: any): string => {
+  const base = String(recordValue(address, "fullAddress", "full_address") ?? [
+    recordValue(address, "street"),
+    recordValue(address, "buildingNumber", "building_number"),
+  ].filter(Boolean).join(" ")).trim();
+  const locality = [
+    recordValue(address, "district"),
+    recordValue(address, "province", "city"),
+    recordValue(address, "country"),
+  ].map((part) => String(part ?? "").trim()).filter((part) => part && !/^türkiye$/i.test(part));
+  return [base, ...locality.filter((part) => !base.toLocaleLowerCase("tr-TR").includes(part.toLocaleLowerCase("tr-TR")))]
+    .filter(Boolean)
+    .join(", ");
+};
+
+const resolveContractTerms = (
+  value: unknown,
+  context: Parameters<typeof fillNotePlaceholders>[1],
+): string | undefined => {
+  const text = String(value ?? "").trim();
+  if (!text) return undefined;
+  return fillNotePlaceholders(text.split(/\r?\n/), context)
+    .join("\n")
+    // Bilinmeyen/eski bir yer tutucu da müşteriye ham şablon olarak sızmasın.
+    .replace(/\{\{[^{}]+\}\}/g, "belirtilmemiş");
+};
+
 const recordValue = (record: any, ...keys: string[]) => {
   for (const key of keys) if (record?.[key] !== undefined && record?.[key] !== null) return record[key];
   return undefined;
+};
+
+/** Sözleşme şart editörlerindeki yer tutucular için tek, ortak veri yolu. */
+export const contractTermsFillContext = (
+  quoteOrSnapshot: any,
+  products: Product[],
+  buyerName?: string,
+): Parameters<typeof fillNotePlaceholders>[1] => {
+  const source = quoteOrSnapshot ?? {};
+  const items = Array.isArray(source.items) ? source.items : [];
+  const mainItems = items.filter((item: any) => !String(recordValue(item, "description") ?? "").trimStart().startsWith("↳ Opsiyon:"));
+  const product = mainItems
+    .map((item: any) => products.find((candidate) => candidate.id === String(recordValue(item, "productModelId", "product_model_id") ?? "")))
+    .find(Boolean);
+  const specs = mainItems.flatMap((item: any) => {
+    const compatibility = recordValue(item, "compatibility") as { technicalSpecs?: any[] } | undefined;
+    return Array.isArray(compatibility?.technicalSpecs)
+      ? compatibility!.technicalSpecs.map((spec) => ({
+          key: String(recordValue(spec, "key", "specKey", "spec_key") ?? ""),
+          value: specValueWithUnit(
+            recordValue(spec, "value", "specValue", "spec_value"),
+            recordValue(spec, "unit", "specUnit", "spec_unit"),
+          ),
+        }))
+      : [];
+  });
+  const terms = source.terms ?? {};
+  return {
+    alici: buyerName
+      || String(recordValue(source.company, "shortName", "short_name", "legalTitle", "legal_title") ?? "").trim()
+      || undefined,
+    yil: product?.productionYear
+      ?? asOptionalNumber(recordValue(mainItems[0]?.product, "productionYear", "production_year")),
+    kdvOrani: asOptionalNumber(recordValue(mainItems[0], "vatRate", "vat_rate")) ?? 20,
+      kontrolMarka: inferControlUnitBrand(
+        specs.length ? specs : contractSpecs(product),
+        `${recordValue(terms, "warrantyTermsText", "warranty_terms_text") ?? recordValue(source.quote, "warrantyTerms", "warranty_terms") ?? ""} ${product?.controlPanel ?? ""}`,
+    ),
+  };
 };
 
 const lineGroupKey = (item: any): string => {
@@ -165,6 +271,7 @@ const buildContractMachines = (
   items: any[],
   products: Product[],
   quote: any,
+  preferLiveProduct = false,
 ): ContractMachinePrintData[] => {
   const grouped = groupContractItems(items);
   const headerRatio = quoteHeaderRatio(quote, items);
@@ -191,12 +298,23 @@ const buildContractMachines = (
       unit: String(recordValue(spec, "unit", "specUnit", "spec_unit") ?? "").trim(),
     }))).map((spec) => ({
       key: spec.key,
-      value: [spec.value, spec.unit].filter(Boolean).join(" "),
+      value: specValueWithUnit(spec.value, spec.unit),
     }));
-    const specs = snapshotSpecs.length ? snapshotSpecs : contractSpecs(product);
+    const currentProductSpecs = contractSpecs(product);
+    // Taslak belge, ürün kartında düzeltilmiş teknik veriyi izler. Kesinleşmiş
+    // belge ise imzalandığı andaki quote snapshot'ını korur.
+    const specs = preferLiveProduct && currentProductSpecs.length
+      ? currentProductSpecs
+      : snapshotSpecs.length ? snapshotSpecs : currentProductSpecs;
     const options = grouped.filter((candidate) => candidate.isOption && candidate.lineGroupKey === row.lineGroupKey);
+    const snapshotProduct = recordValue(row.item, "product") as { standardEquipment?: unknown } | undefined;
+    const snapshotStandardEquipment = Array.isArray(snapshotProduct?.standardEquipment)
+      ? snapshotProduct.standardEquipment.map((item) => String(item ?? "").trim()).filter(Boolean)
+      : [];
     const accessories = [
-      ...(product?.standardEquipment ?? []),
+      ...(preferLiveProduct || snapshotStandardEquipment.length === 0
+        ? product?.standardEquipment ?? []
+        : snapshotStandardEquipment),
       ...options.map((option) => String(recordValue(option.item, "description") ?? "").trim())
         .filter(Boolean)
         .map((description) => description.replace(/^↳\s*Opsiyon:\s*/, "")),
@@ -216,7 +334,8 @@ const buildContractMachines = (
       aksesuarlar: accessories,
       muadiller: productEquivalents(product, products),
       fiyat: priceBeforeHeader * headerRatio + customsForMachine,
-      kontrolUnitesiMarka: inferControlUnitBrand(specs, warrantyTerms),
+      kontrolUnitesiMarka: inferControlUnitBrand(specs, `${String(warrantyTerms ?? "")} ${product?.controlPanel ?? ""}`),
+      productionYear: product?.productionYear ?? asOptionalNumber(recordValue(row.item?.product, "productionYear", "production_year")),
     };
   });
   return reconcileMachinePrices(machines, contractNetPrice(quote));
@@ -239,6 +358,8 @@ const expectedPaymentRows = (payments: Payment[], salesCase: SalesCase | null) =
       label: payment.note?.trim() || `Vade ${trShortDate(payment.dueDate)}`,
       tutar: payment.amount,
       senet: /senet/i.test(payment.note ?? ""),
+      yontem: paymentMethodLabel(payment.plannedPaymentMethod ?? payment.paymentMethod)
+        ?? (/çek/i.test(payment.note ?? "") ? "Çek" : /senet/i.test(payment.note ?? "") ? "Senet" : undefined),
     }));
 
 async function buildContractPrintData(input: ContractBuildInput): Promise<ContractPrintData> {
@@ -252,13 +373,12 @@ async function buildContractPrintData(input: ContractBuildInput): Promise<Contra
     const phones = Array.isArray(documentSnapshot.companyPhones) ? documentSnapshot.companyPhones : [];
     const emails = Array.isArray(documentSnapshot.companyEmails) ? documentSnapshot.companyEmails : [];
     const items = Array.isArray(documentSnapshot.items) ? documentSnapshot.items : [];
-    const machines = buildContractMachines(items, products, quote);
+    const finalized = Boolean(value(documentSnapshot.document, "finalizedAt", "finalized_at"));
+    const machines = buildContractMachines(items, products, quote, !finalized);
     const mainMachine = machines[0];
     const terms = documentSnapshot.terms ?? {};
     const currency = String(value(documentSnapshot.currency, "code") ?? "USD") as ContractPrintData["currency"];
-    const fullAddress = String(value(address, "fullAddress", "full_address") ?? [
-      value(address, "street"), value(address, "buildingNumber", "building_number"), value(address, "district"), value(address, "province"), value(address, "country"),
-    ].filter(Boolean).join(" "));
+    const snapshotAddress = completeAddress(address);
     const receivables = Array.isArray(documentSnapshot.receivables) ? documentSnapshot.receivables : [];
     const mappedSpecs = mainMachine?.ozellikler ?? [];
     const deliveryTerms = value(terms, "deliveryTermsText", "delivery_terms_text") ?? value(quote, "deliveryTerms", "delivery_terms");
@@ -268,16 +388,43 @@ async function buildContractPrintData(input: ContractBuildInput): Promise<Contra
     const companyEmail = emails.find((email: any) =>
       String(value(email, "emailType", "email_type") ?? "").toLocaleLowerCase("tr-TR") === "main",
     ) ?? emails.find((email: any) => Boolean(value(email, "isDefault", "is_default"))) ?? emails[0];
+    const mainItem = items.find((item: any) => !String(value(item, "description") ?? "").trimStart().startsWith("↳ Opsiyon:"));
+    const vatRate = asNumber(value(mainItem, "vatRate", "vat_rate"));
+    const controlBrand = [...new Set(machines.map((machine) => machine.kontrolUnitesiMarka).filter(Boolean))].join(" / ")
+      || inferControlUnitBrand(mappedSpecs, warrantyTerms);
+    const termsContext = {
+      alici: String(((!finalized && customer?.shortName) || value(company, "shortName", "short_name", "legalTitle", "legal_title")) ?? customer?.name ?? "").trim() || undefined,
+      yil: mainMachine?.productionYear,
+      kdvOrani: vatRate,
+      kontrolMarka: controlBrand,
+    };
+    const liveAddress = customer?.addresses?.find((candidate) => candidate.isBilling)
+      ?? customer?.addresses?.find((candidate) => candidate.isDefault)
+      ?? customer?.addresses?.[0];
+    const liveFullAddress = liveAddress
+      ? [liveAddress.address, liveAddress.district, liveAddress.city, liveAddress.country].filter((part) => part && !/^türkiye$/i.test(String(part))).join(", ")
+      : customer ? [customer.address, customer.district, customer.city, customer.country].filter((part) => part && !/^türkiye$/i.test(String(part))).join(", ") : "";
+    // Taslak sözleşme firma kartındaki düzeltmeleri izler; kesinleşen belge kendi
+    // taraf snapshot'ını korur. Boş canlı alanlarda snapshot'a düşülür.
+    const preferLiveParty = !finalized && Boolean(customer);
     return {
       alici: {
-        unvan: String(value(company, "legalTitle", "legal_title", "shortName", "short_name") ?? ""),
-        yetkili: value(contact, "fullName", "full_name"),
-        adres: fullAddress,
-        vergiDairesi: value(company, "taxOffice", "tax_office"),
-        vergiNo: value(company, "taxNumber", "tax_number"),
-        tel: value(contact, "workPhone", "work_phone", "mobilePhone", "mobile_phone") ?? value(companyPhone, "phone"),
-        faks: value(companyFax, "phone"),
-        eposta: value(companyEmail, "email") ?? value(contact, "workEmail", "work_email", "email"),
+        unvan: String(preferLiveParty && customer?.name
+          ? customer.name
+          : value(company, "legalTitle", "legal_title", "shortName", "short_name") ?? ""),
+        kisaUnvan: String(preferLiveParty && customer?.shortName
+          ? customer.shortName
+          : value(company, "shortName", "short_name") ?? "").trim() || undefined,
+        yetkili: (preferLiveParty && customer?.contactPerson) || value(contact, "fullName", "full_name"),
+        adres: (preferLiveParty && liveFullAddress) || snapshotAddress,
+        vergiDairesi: (preferLiveParty && customer?.taxOffice) || value(company, "taxOffice", "tax_office"),
+        vergiNo: (preferLiveParty && customer?.taxNumber) || value(company, "taxNumber", "tax_number"),
+        tel: printablePhone((preferLiveParty && customer?.phone) || value(companyPhone, "phone") || value(contact, "workPhone", "work_phone")),
+        mobil: printablePhone((preferLiveParty && customer?.phone2) || value(contact, "mobilePhone", "mobile_phone")),
+        faks: printablePhone((preferLiveParty && customer?.fax) || value(companyFax, "phone")),
+        eposta: (preferLiveParty && customer?.email)
+          || value(companyEmail, "email")
+          || value(contact, "workEmail", "work_email", "email"),
       },
       sozlesmeNo: contractNo,
       sozlesmeTarihi: contractDate,
@@ -293,21 +440,23 @@ async function buildContractPrintData(input: ContractBuildInput): Promise<Contra
         value(terms, "estimatedDeliveryDaysMin", "estimated_delivery_days_min"),
         value(terms, "estimatedDeliveryDaysMax", "estimated_delivery_days_max"),
       ),
-      teslimSekli: inferDeliveryBasis(deliveryTerms),
+      teslimGunMin: asOptionalNumber(value(terms, "estimatedDeliveryDaysMin", "estimated_delivery_days_min")),
+      teslimGunMax: asOptionalNumber(value(terms, "estimatedDeliveryDaysMax", "estimated_delivery_days_max")),
+      teslimSekli: inferDeliveryBasis(`${String(deliveryTerms ?? "")}\n${String(value(terms, "paymentTermsText", "payment_terms_text") ?? value(quote, "paymentTerms", "payment_terms") ?? "")}`),
       teslimYeri: value(terms, "deliveryLocation", "delivery_location"),
-      teslimKosullari: deliveryTerms,
-      odemeKosullari: value(terms, "paymentTermsText", "payment_terms_text") ?? value(quote, "paymentTerms", "payment_terms"),
-      garantiKosullari: warrantyTerms,
+      teslimKosullari: resolveContractTerms(deliveryTerms, termsContext),
+      odemeKosullari: resolveContractTerms(
+        value(terms, "paymentTermsText", "payment_terms_text") ?? value(quote, "paymentTerms", "payment_terms"),
+        termsContext,
+      ),
+      garantiKosullari: resolveContractTerms(warrantyTerms, termsContext),
       ithalatMasraflariDahil: value(terms, "importCostsExcluded", "import_costs_excluded") === undefined
         ? undefined
         : !Boolean(value(terms, "importCostsExcluded", "import_costs_excluded")),
       kdvDahil: Boolean(value(terms, "vatIncluded", "vat_included")),
       nakliyeSaticiya: Boolean(value(terms, "freightPaidBySeller", "freight_paid_by_seller")),
       notlar: value(quote, "notes"),
-      kdvOran: (() => {
-        const mainItem = items.find((item: any) => !String(value(item, "description") ?? "").trimStart().startsWith("↳ Opsiyon:"));
-        return asNumber(value(mainItem, "vatRate", "vat_rate"));
-      })(),
+      kdvOran: vatRate,
       odemePlani: receivables.length
         ? receivables.map((receivable: any) => ({
             label: String(value(receivable, "notes") ?? `Vade ${trShortDate(value(receivable, "dueDate", "due_date"))}`),
@@ -316,8 +465,7 @@ async function buildContractPrintData(input: ContractBuildInput): Promise<Contra
             yontem: paymentMethodLabel(value(receivable, "paymentMethod", "payment_method")),
           }))
         : expectedPaymentRows(payments, salesCase),
-      kontrolUnitesiMarka: [...new Set(machines.map((machine) => machine.kontrolUnitesiMarka).filter(Boolean))].join(" / ")
-        || inferControlUnitBrand(mappedSpecs, warrantyTerms),
+      kontrolUnitesiMarka: controlBrand,
       machines,
     };
   }
@@ -326,7 +474,7 @@ async function buildContractPrintData(input: ContractBuildInput): Promise<Contra
   const quoteItems = (quote?.items ?? []).filter((item: { description?: string | null }) =>
     String(item.description ?? "").trim(),
   );
-  const machines = buildContractMachines(quoteItems, products, quote);
+  const machines = buildContractMachines(quoteItems, products, quote, true);
   const mainMachine = machines[0];
   const primaryItems = quoteItems.filter((item: { description?: string | null }) =>
     !String(item.description ?? "").trimStart().startsWith("↳ Opsiyon:"),
@@ -352,18 +500,28 @@ async function buildContractPrintData(input: ContractBuildInput): Promise<Contra
     ?? customer?.addresses?.find((address) => address.isDefault)
     ?? customer?.addresses?.[0];
   const address = pdfAddress
-    ? [pdfAddress.address, pdfAddress.district, pdfAddress.city, pdfAddress.country].filter(Boolean).join(" ")
-    : customer ? [customer.address, customer.district, customer.city, customer.country].filter(Boolean).join(" ") : "";
+    ? [pdfAddress.address, pdfAddress.district, pdfAddress.city, pdfAddress.country].filter((part) => part && !/^türkiye$/i.test(String(part))).join(", ")
+    : customer ? [customer.address, customer.district, customer.city, customer.country].filter((part) => part && !/^türkiye$/i.test(String(part))).join(", ") : "";
   const specs = mainMachine?.ozellikler ?? contractSpecs(product);
+  const controlBrand = [...new Set(machines.map((machine) => machine.kontrolUnitesiMarka).filter(Boolean))].join(" / ")
+    || inferControlUnitBrand(specs, `${String(warrantyTerms ?? "")} ${product?.controlPanel ?? ""}`);
+  const termsContext = {
+    alici: customer?.shortName ?? customer?.name,
+    yil: mainMachine?.productionYear ?? product?.productionYear,
+    kdvOrani: vatRate,
+    kontrolMarka: controlBrand,
+  };
   return {
     alici: {
       unvan: customer?.name ?? "",
+      kisaUnvan: customer?.shortName,
       yetkili: customer?.contactPerson,
       adres: address,
       vergiDairesi: customer?.taxOffice,
       vergiNo: customer?.taxNumber,
-      tel: customer?.phone,
-      faks: customer?.fax,
+      tel: printablePhone(customer?.phone),
+      mobil: printablePhone(customer?.phone2),
+      faks: printablePhone(customer?.fax),
       eposta: customer?.email,
     },
     sozlesmeNo: contractNo,
@@ -376,19 +534,20 @@ async function buildContractPrintData(input: ContractBuildInput): Promise<Contra
     fiyat: contractNetPrice(quote, subtotal),
     currency: offer?.currency ?? salesCase?.currency ?? "USD",
     teslimAyi: inferredDeliveryMonth(contractDate, terms.estimatedDeliveryDaysMin, terms.estimatedDeliveryDaysMax),
-    teslimSekli: inferDeliveryBasis(deliveryTerms),
+    teslimGunMin: asOptionalNumber(terms.estimatedDeliveryDaysMin),
+    teslimGunMax: asOptionalNumber(terms.estimatedDeliveryDaysMax),
+    teslimSekli: inferDeliveryBasis(`${String(deliveryTerms ?? "")}\n${String(terms.paymentTermsText ?? quote?.paymentTerms ?? "")}`),
     teslimYeri: terms.deliveryLocation ?? undefined,
-    teslimKosullari: deliveryTerms,
-    odemeKosullari: terms.paymentTermsText ?? quote?.paymentTerms ?? undefined,
-    garantiKosullari: warrantyTerms,
+    teslimKosullari: resolveContractTerms(deliveryTerms, termsContext),
+    odemeKosullari: resolveContractTerms(terms.paymentTermsText ?? quote?.paymentTerms, termsContext),
+    garantiKosullari: resolveContractTerms(warrantyTerms, termsContext),
     ithalatMasraflariDahil: terms.importCostsExcluded === undefined ? undefined : !Boolean(terms.importCostsExcluded),
     kdvDahil: Boolean(terms.vatIncluded),
     nakliyeSaticiya: Boolean(terms.freightPaidBySeller),
     notlar: quote?.notes ?? offer?.note ?? undefined,
     kdvOran: vatRate,
     odemePlani: expectedPaymentRows(payments, salesCase),
-    kontrolUnitesiMarka: [...new Set(machines.map((machine) => machine.kontrolUnitesiMarka).filter(Boolean))].join(" / ")
-      || inferControlUnitBrand(specs, warrantyTerms),
+    kontrolUnitesiMarka: controlBrand,
     machines,
   };
 }

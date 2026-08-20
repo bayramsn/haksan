@@ -12,11 +12,13 @@ import { documentService, quoteService } from "../../../lib/services";
 import { Button } from "../ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "../ui/dialog";
 import { Switch } from "../ui/switch";
+import { Input } from "../ui/input";
+import { Label } from "../ui/label";
 import { DocumentDiscountFields, ProformaItemsEditor, ProformaTotalsPanel } from "../shared/ProformaItemsEditor";
 import {
   DocumentTermsTemplateEditor, matchSavedTermsTemplate, useTermsTemplates,
 } from "./DocumentTermsTemplateEditor";
-import { CONTRACT_NOTE_VARIANTS, type QuoteNoteVariant } from "../../lib/print";
+import { CONTRACT_NOTE_METADATA, CONTRACT_NOTE_VARIANTS, contractTermsFillContext, type QuoteNoteVariant } from "../../lib/print";
 
 /**
  * Teklife bağlı proforma / sözleşmenin KENDİ fiyatını, iskontosunu ve şartlarını
@@ -55,8 +57,8 @@ const KIND_CONFIG = {
     termsProps: { markerStyle: "none" as const },
     builtInVariants: CONTRACT_NOTE_VARIANTS,
     totalsNote: ({ vatIncluded }: TotalsNoteContext) => vatIncluded
-      ? "K.D.V. dahil seçili: sözleşme çıktısındaki tutar bu net bedelin K.D.V.'li karşılığıdır."
-      : "Sözleşme çıktısındaki tutar K.D.V. hariç net bedeldir (ara toplam + millileştirme).",
+      ? "K.D.V. dahil seçili: girilen nihai sözleşme tutarı değiştirilmeden basılır."
+      : "K.D.V. hariç seçili: girilen nihai sözleşme tutarı değiştirilmeden basılır.",
   },
 } satisfies Record<DocumentKind, unknown>;
 
@@ -125,23 +127,10 @@ export function EditDocumentDialog({
    * teknik özelliklerinden (baskı tarafındaki `inferControlUnitBrand` ile aynı
    * kaynak). Elle yazılırsa belgeye yanlış marka/oran girme riski vardı.
    */
-  const termsFillContext = useMemo(() => {
-    const snapshot: any = document.documentSnapshot ?? {};
-    const specs: { key: string; value: string }[] = Array.isArray(snapshot.items)
-      ? snapshot.items.flatMap((item: any) => (Array.isArray(item?.specs) ? item.specs : []))
-      : [];
-    const controlSpec = specs.find((spec) => /(?:cnc|kontrol)\s*(?:ünite|unite)|kontrol sistemi/i.test(String(spec?.key ?? "")));
-    // {{YIL}} tezgahın ÜRETİM yılıdır, belgenin kesildiği yıl değil.
-    const productionYear = (Array.isArray(snapshot.items) ? snapshot.items : [])
-      .map((item: any) => products.find((product) => product.id === String(item?.productModelId ?? ""))?.productionYear)
-      .find(Boolean);
-    return {
-      alici: String(snapshot.company?.legalTitle ?? snapshot.company?.shortName ?? "").trim() || undefined,
-      yil: productionYear,
-      kdvOrani: rows[0]?.vatRate ?? 20,
-      kontrolMarka: String(controlSpec?.value ?? "").match(/MITSUBISHI|FANUC|SIEMENS|HEIDENHAIN|SYNTEC/i)?.[0]?.toUpperCase(),
-    };
-  }, [document.documentSnapshot, products, rows]);
+  const termsFillContext = useMemo(
+    () => contractTermsFillContext(document.documentSnapshot, products),
+    [document.documentSnapshot, products],
+  );
 
   useEffect(() => {
     if (!open || !document.quoteId) return;
@@ -217,6 +206,12 @@ export function EditDocumentDialog({
   const save = async () => {
     if (!rows.length) return;
     if (rowError) return toast.error(`${config.label} güncellenemedi`, { description: rowError });
+    if (
+      kind === "contract"
+      && termsMetadata.estimatedDeliveryDaysMin !== undefined
+      && termsMetadata.estimatedDeliveryDaysMax !== undefined
+      && termsMetadata.estimatedDeliveryDaysMin > termsMetadata.estimatedDeliveryDaysMax
+    ) return toast.error("Teslim günü aralığını düzeltin", { description: "En erken teslim günü en geç teslim gününden büyük olamaz." });
     setSaving(true);
     try {
       const payload = {
@@ -304,6 +299,22 @@ export function EditDocumentDialog({
             {...config.termsProps}
             builtInVariants={config.builtInVariants}
             fillContext={termsFillContext}
+            onBuiltInTemplateSelected={kind === "contract" ? (key) => {
+              const metadata = CONTRACT_NOTE_METADATA[key];
+              if (!metadata) return;
+              const snapshotAddress = document.documentSnapshot?.companyAddresses?.[0];
+              setTermsMetadata((current) => ({
+                ...current,
+                ...metadata,
+                deliveryLocation: key === "isletme-teslim"
+                  ? `${[
+                      termsFillContext.alici,
+                      snapshotAddress?.district,
+                    ].filter(Boolean).join("/")} tesisleri`
+                  : "HAKSAN MAKİNA/Hadımköy antreposu",
+              }));
+              setTermsDirty(true);
+            } : undefined}
             title={`${config.label} Şartları`}
             description={`Şablon seçin veya metni düzenleyin. Değişiklik yalnız bu ${config.label.toLocaleLowerCase("tr-TR")}ya işlenir; bağlı teklifin şartları olduğu gibi kalır.`}
             templateScope={config.templateScope}
@@ -328,9 +339,68 @@ export function EditDocumentDialog({
           {/* Sözleşme çıktısındaki 2.6 / 3.3 maddeleri metin değil seçimdir;
               proforma bu maddeleri basmaz, o yüzden yalnız sözleşmede görünür. */}
           {kind === "contract" && (
-            <div className="grid gap-2 rounded-xl border border-border/70 bg-card p-3">
-              <p className="text-xs font-semibold">Sözleşme Maddeleri</p>
-              <label className="flex items-center gap-2 text-[11px] text-muted-foreground">
+            <div className="grid gap-3 rounded-xl border border-border/70 bg-card p-3 sm:grid-cols-2">
+              <div className="sm:col-span-2">
+                <p className="text-xs font-semibold">Teslimat ve Sözleşme Maddeleri</p>
+                <p className="mt-0.5 text-[10px] text-muted-foreground">Teslim yeri, süre ve ticari yönler belgede çelişmeyecek şekilde yapısal saklanır.</p>
+              </div>
+              <div className="sm:col-span-2">
+                <Label className="text-xs" htmlFor={`${config.idPrefix}-delivery-location`}>Teslim Yeri</Label>
+                <Input
+                  id={`${config.idPrefix}-delivery-location`}
+                  className="mt-1.5"
+                  value={termsMetadata.deliveryLocation ?? ""}
+                  disabled={saving || loading}
+                  onChange={(event) => {
+                    setTermsMetadata((current) => ({ ...current, deliveryLocation: event.target.value || undefined }));
+                    setTermsDirty(true);
+                  }}
+                />
+              </div>
+              <div>
+                <Label className="text-xs" htmlFor={`${config.idPrefix}-delivery-min`}>En Erken Teslim (Gün)</Label>
+                <Input
+                  id={`${config.idPrefix}-delivery-min`}
+                  type="number"
+                  min={0}
+                  max={3650}
+                  className="mt-1.5"
+                  value={termsMetadata.estimatedDeliveryDaysMin ?? ""}
+                  disabled={saving || loading}
+                  onChange={(event) => {
+                    setTermsMetadata((current) => ({ ...current, estimatedDeliveryDaysMin: event.target.value === "" ? undefined : Number(event.target.value) }));
+                    setTermsDirty(true);
+                  }}
+                />
+              </div>
+              <div>
+                <Label className="text-xs" htmlFor={`${config.idPrefix}-delivery-max`}>En Geç Teslim (Gün)</Label>
+                <Input
+                  id={`${config.idPrefix}-delivery-max`}
+                  type="number"
+                  min={0}
+                  max={3650}
+                  className="mt-1.5"
+                  value={termsMetadata.estimatedDeliveryDaysMax ?? ""}
+                  disabled={saving || loading}
+                  onChange={(event) => {
+                    setTermsMetadata((current) => ({ ...current, estimatedDeliveryDaysMax: event.target.value === "" ? undefined : Number(event.target.value) }));
+                    setTermsDirty(true);
+                  }}
+                />
+              </div>
+              <label className="flex items-center gap-2 text-[11px] text-muted-foreground sm:col-span-2">
+                <Switch
+                  checked={!termsMetadata.importCostsExcluded}
+                  disabled={saving || loading}
+                  onCheckedChange={(next) => {
+                    setTermsMetadata((current) => ({ ...current, importCostsExcluded: !next }));
+                    setTermsDirty(true);
+                  }}
+                />
+                İthalat masraf ve vergileri fiyata dahil (madde 3.2)
+              </label>
+              <label className="flex items-center gap-2 text-[11px] text-muted-foreground sm:col-span-2">
                 <Switch
                   checked={termsMetadata.vatIncluded}
                   disabled={saving || loading}
@@ -339,9 +409,9 @@ export function EditDocumentDialog({
                     setTermsDirty(true);
                   }}
                 />
-                K.D.V. fiyata dahil (madde 3.3 — yazılan tutar brüt basılır)
+                K.D.V. sözleşme fiyatına dahil (madde 3.3 — girilen nihai tutar değişmez)
               </label>
-              <label className="flex items-center gap-2 text-[11px] text-muted-foreground">
+              <label className="flex items-center gap-2 text-[11px] text-muted-foreground sm:col-span-2">
                 <Switch
                   checked={termsMetadata.freightPaidBySeller}
                   disabled={saving || loading}

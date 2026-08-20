@@ -14,7 +14,7 @@ import { Switch } from "../ui/switch";
 import {
   DocumentTermsTemplateEditor, matchSavedTermsTemplate, useTermsTemplates,
 } from "./DocumentTermsTemplateEditor";
-import { CONTRACT_NOTE_VARIANTS } from "../../lib/print";
+import { CONTRACT_NOTE_VARIANTS, contractTermsFillContext } from "../../lib/print";
 
 const CONTRACT_TERMS_TEMPLATE_SCOPE = "contract_terms";
 
@@ -123,7 +123,7 @@ export function SignedContractUploadDialog({
 }
 
 export function EditContractTermsDialog({ document, trigger }: { document: DocumentItem; trigger: React.ReactNode }) {
-  const { noteTemplates, addNoteTemplate, updateNoteTemplate, deleteNoteTemplate, refresh } = useStore();
+  const { products, noteTemplates, addNoteTemplate, updateNoteTemplate, deleteNoteTemplate, refresh } = useStore();
   const snapshotTerms = useMemo(() => document.documentSnapshot?.terms ?? {}, [document.documentSnapshot]);
   /**
    * Belgenin kendi şartı yoksa `documentSnapshot.terms` ham `quote_terms` satırına
@@ -137,6 +137,10 @@ export function EditContractTermsDialog({ document, trigger }: { document: Docum
     [snapshotTerms],
   );
   const savedTermsTemplates = useTermsTemplates(noteTemplates, CONTRACT_TERMS_TEMPLATE_SCOPE);
+  const termsFillContext = useMemo(
+    () => contractTermsFillContext(document.documentSnapshot, products),
+    [document.documentSnapshot, products],
+  );
   const [open, setOpen] = useState(false);
   const [payment, setPayment] = useState(() => String(snapshotTerms.paymentTermsText ?? ""));
   const [delivery, setDelivery] = useState(() => String(snapshotTerms.deliveryTermsText ?? ""));
@@ -193,6 +197,7 @@ export function EditContractTermsDialog({ document, trigger }: { document: Docum
           <DocumentTermsTemplateEditor
             markerStyle="none"
             builtInVariants={CONTRACT_NOTE_VARIANTS}
+            fillContext={termsFillContext}
             title="Sözleşme Şartları"
             description="Şablon seçin veya metni düzenleyin. Değişiklik yalnız bu sözleşmeye işlenir; bağlı teklifin şartları olduğu gibi kalır."
             templateScope={CONTRACT_TERMS_TEMPLATE_SCOPE}

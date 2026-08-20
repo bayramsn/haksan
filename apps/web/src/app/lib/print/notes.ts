@@ -161,43 +161,65 @@ export const CONTRACT_NOTE_VARIANTS: QuoteNoteVariant[] = [
     key: "cif-istanbul",
     label: "Tezgah CİF İstanbul",
     odeme: [
+      "Sözleşmeye konu tezgâh C.I.F./İstanbul teslim şeklinde fiyatlandırılmıştır,",
       "Sözleşme toplam bedelinin tamamı devir sonrası ithalat öncesi peşin tahsil edilecektir,",
-      "Sözleşme bedeline tezgâhın cari orandaki %{{KDV_ORANI}} K.D.V.'si dahil edilmemiştir.",
     ],
     teslimat: [
-      "Sözleşme C.I.F./İstanbul teslim şeklinde düzenlenmiş olup, fiyatımıza tezgâhın ithalatı ile ilgili masraf ve vergiler (Gümrük Vergisi, Liman Masrafları, Ardiye Giderleri, Gümrükleme Ücreti, İlave Gümrük Vergisi) dahil edilmemiştir. Tezgâh Antrepodan devredilecektir.",
-      "Tezgâh antrepoda devir işlemleri için hazırdır, gümrük işlemleri sonrasında derhal teslim edilecektir,",
-      "Tezgâh HAKSAN MAKİNA/Hadımköy antreposundan teslim edilecek olup, tezgâhın İstanbul içi karayolu taşıma ve sigortası alıcı firma tarafından karşılanacaktır,",
-      "Tezgâh yol şartlarına uygun ambalajlanmış olarak sevk edilecektir.",
+      "Tezgâhın teslimi kesin siparişten 90 gün sonra gerçekleştirilecektir,",
+      "Tezgâh HAKSAN MAKİNA/Hadımköy antreposundan teslim edilecek olup, tezgâhın karayolu taşıma ve sigortası alıcı firma tarafından karşılanacaktır,",
     ],
     garanti: [
-      "Tezgâh uluslararası CE standartlarına uygundur.",
-      "Tezgâhın üretim yılı {{YIL}} olup, yeni ve kullanılmamıştır,",
-      "Tezgâh ile birlikte çalışması için zorunlu olanlar dışında aksam ve aksesuar bulunmamaktadır,",
-      "Tezgâh tüm üretim hatalarına karşı 1 (bir) yıl üretici firma garantisi kapsamındadır, kontrol ünitesi 2 (iki) yıl Uluslararası {{KONTROL_MARKA}} garantisi kapsamındadır,",
+      "Tezgâhın alıcı firmaya teslimini müteakip 2 (iki) gün içerisinde HAKSAN MAKİNA personeli tarafından kurulumu ve ilk çalıştırması gerçekleştirilecektir,",
+      "Tezgâhın kurulumunu müteakip eğitim ve demo çalışması HAKSAN MAKİNA tarafından alıcı firma tesislerinde 2 (iki) gün süre ile yapılacaktır,",
+      "Tezgâhın mekanik garantisi teslimiyle başlayacak olup, tüm üretim hatalarını kapsayan mekanik garanti süresi 1 (bir) yıldır,",
+      "Tezgâhın kontrol ünitesi garantisi teslimiyle başlayacak olup, işletim sistemi garantisi 2 (iki) yıl {{KONTROL_MARKA}}/Türkiye garantisi kapsamındadır,",
+      "HAKSAN MAKİNA, alıcı firmaya garanti süresi içerisinde ve sonrasında karşılıklı şartlar dahilinde teknik destek, bilgi, belge, doküman ve yedek parça sağlamakla yükümlüdür.",
     ],
   },
   {
     key: "isletme-teslim",
     label: "İşletme Teslim",
     odeme: [
-      "Sözleşme İşletme teslim şeklinde düzenlenmiş olup, fiyatımıza tezgâhın ithalatı ile ilgili masraf ve vergiler (Gümrük Vergisi, Liman Masrafları, Ardiye Giderleri, Gümrükleme Ücreti, İlave Gümrük Vergisi) dahil edilmiştir,",
-      "Sözleşme bedeline tezgâhın cari orandaki %{{KDV_ORANI}} K.D.V.'si dahil edilmemiştir. Leasing aracılığı ile yapılan işlemlerde K.D.V. %1 olarak tahakkuk edilmektedir,",
+      "Sözleşmeye konu tezgâh İŞLETME TESLİM şeklinde fiyatlandırılmıştır,",
+      "Sözleşme bedeli aşağıda belirtilen ödeme planına göre tahsil edilecektir,",
     ],
     teslimat: [
-      "Tezgâhın teslimi kesin siparişten sonra derhal gerçekleştirilecektir,",
-      "Tezgâh ödeme işlemleri sonrasında {{ALICI}} tesislerine teslim edilecek olup, tezgâhın İstanbul içi karayolu taşıması HAKSAN MAKİNA tarafından karşılanacaktır,",
-      "Tezgâh yol şartlarına uygun ambalajlanmış olarak sevk edilecektir.",
+      "Tezgâhın teslimi sözleşme tarihinden itibaren 90 gün sonra gerçekleştirilecektir,",
+      "Tezgâh {{ALICI}} tesislerine teslim edilecek olup, tezgâhın İstanbul şehir içi karayolu taşıma ve sigortası HAKSAN MAKİNA'ya aittir,",
     ],
     garanti: [
-      "Tezgâh uluslararası CE standartlarına uygundur.",
-      "Tezgâhın üretim yılı {{YIL}} olup, yeni ve kullanılmamıştır,",
-      "Tezgâh ile birlikte çalışması için zorunlu olanlar dışında aksam ve aksesuar bulunmamaktadır,",
-      "Tezgâh tüm üretim hatalarına karşı 1 (bir) yıl üretici firma garantisi kapsamındadır,",
-      "Kontrol ünitesi 2 (iki) yıl Uluslararası {{KONTROL_MARKA}} garantisi kapsamındadır,",
+      "Tezgâhın alıcı firmaya teslimini müteakip 2 (iki) gün içerisinde HAKSAN MAKİNA personeli tarafından kurulumu ve ilk çalıştırması gerçekleştirilecektir,",
+      "Tezgâhın kurulumunu müteakip eğitim ve demo çalışması HAKSAN MAKİNA tarafından alıcı firma tesislerinde 2 (iki) gün süre ile yapılacaktır,",
+      "Tezgâhın mekanik garantisi teslimiyle başlayacak olup, tüm üretim hatalarını kapsayan mekanik garanti süresi 1 (bir) yıldır,",
+      "Tezgâhın kontrol ünitesi garantisi teslimiyle başlayacak olup, işletim sistemi garantisi 2 (iki) yıl {{KONTROL_MARKA}}/Türkiye garantisi kapsamındadır,",
+      "HAKSAN MAKİNA, alıcı firmaya garanti süresi içerisinde ve sonrasında karşılıklı şartlar dahilinde teknik destek, bilgi, belge, doküman ve yedek parça sağlamakla yükümlüdür.",
     ],
   },
 ];
+
+/** Hazır sözleşmeyle birlikte güncellenen, birbiriyle çelişmemesi gereken ticari yönler. */
+export const CONTRACT_NOTE_METADATA: Record<string, {
+  importCostsExcluded: boolean;
+  vatIncluded: boolean;
+  freightPaidBySeller: boolean;
+  estimatedDeliveryDaysMin: number;
+  estimatedDeliveryDaysMax: number;
+}> = {
+  "cif-istanbul": {
+    importCostsExcluded: true,
+    vatIncluded: false,
+    freightPaidBySeller: false,
+    estimatedDeliveryDaysMin: 90,
+    estimatedDeliveryDaysMax: 90,
+  },
+  "isletme-teslim": {
+    importCostsExcluded: false,
+    vatIncluded: true,
+    freightPaidBySeller: true,
+    estimatedDeliveryDaysMin: 90,
+    estimatedDeliveryDaysMax: 90,
+  },
+};
 
 export const SERVICE_NOTE_VARIANTS: FlatNoteVariant[] = [
   {

@@ -1874,8 +1874,11 @@ export function CreateCaseDialog({
     requestedProduct: "",
     requestedModel: "",
     requestedMachine: "",
+    description: "",
     quantity: 1,
     estimatedAmount: 0,
+    probability: 50,
+    expectedCloseDate: "",
     paymentTermDays: undefined as number | undefined,
     currency: "USD" as "USD" | "EUR" | "TRY",
     stage: "sales" as (typeof SALES_STAGES)[number],
@@ -1884,6 +1887,16 @@ export function CreateCaseDialog({
   });
   // Taslak yenilemede korunur; başarılı kayıtta temizlenir.
   const [form, setForm] = usePersistentState("draft.case.form", makeEmptyCase());
+  // Bu forma yeni alan eklendiğinde eski localStorage blob'u başlangıç değeriyle
+  // birleşmez. Mevcut taslağı kaybetmeden yeni alanları bir kez tamamla.
+  useEffect(() => {
+    setForm((current) => ({
+      ...current,
+      description: current.description ?? "",
+      probability: current.probability ?? 50,
+      expectedCloseDate: current.expectedCloseDate ?? "",
+    }));
+  }, [setForm]);
   // Super admin olmayan kullanıcılar için her zaman kendi ID'lerine kilitle.
   useEffect(() => {
     if (!isSuperAdmin && user?.id && form.assignedUserId !== user.id) {
@@ -2003,8 +2016,31 @@ export function CreateCaseDialog({
               </div>
             </div>
             <Field label="Model" value={form.requestedModel} onChange={(v) => setForm({ ...form, requestedModel: v })} placeholder="Model elle girilebilir" />
+            <div className="col-span-2">
+              <Label className="text-xs">Fırsat açıklaması</Label>
+              <Textarea
+                className="mt-1.5"
+                rows={3}
+                maxLength={4000}
+                value={form.description}
+                onChange={(event) => setForm({ ...form, description: event.target.value })}
+                placeholder="İhtiyaç, kullanım amacı ve ticari notlar"
+              />
+            </div>
             <Field label="Adet" type="number" value={String(form.quantity)} onChange={(v) => setForm({ ...form, quantity: Number(v) || 1 })} />
             <Field label="Tahmini Tutar" type="number" value={String(form.estimatedAmount)} onChange={(v) => setForm({ ...form, estimatedAmount: Number(v) || 0 })} />
+            <Field
+              label="Kazanma Olasılığı (%)"
+              type="number"
+              value={String(form.probability)}
+              onChange={(v) => setForm({ ...form, probability: Math.min(100, Math.max(0, Number(v) || 0)) })}
+            />
+            <Field
+              label="Hedef Kapanış Tarihi"
+              type="date"
+              value={form.expectedCloseDate}
+              onChange={(v) => setForm({ ...form, expectedCloseDate: v })}
+            />
             <Field
               label="Vade (gün)"
               type="number"

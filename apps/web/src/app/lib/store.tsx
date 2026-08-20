@@ -196,7 +196,9 @@ const mapCase = (o: any, isOfferPrepared: boolean): SalesCase =>
     assignedUserId: o.ownerUserId ?? '',
     department: '',
     requestedProduct: o.title ?? '',
-    requestedModel: o.externalSource === 'trello' ? '' : o.description ?? o.title ?? '',
+    // Model/makine ve serbest açıklama farklı alanlardır. Açıklamayı model diye
+    // göstermek kart başlıklarını ve belge ürün eşlemesini bozuyordu.
+    requestedModel: o.externalSource === 'trello' ? '' : o.requestedMachine ?? '',
     description: o.description ?? undefined,
     quantity: 1,
     estimatedAmount: Number(o.estimatedValue ?? 0),
@@ -555,6 +557,7 @@ type Store = {
       assignedUserId?: string;
       paymentTermDays?: number | null;
       paymentMethod?: SalesCase['paymentMethod'];
+      description?: string | null;
       estimatedAmount?: number;
       currency?: SalesCase['currency'];
       probability?: number;
@@ -887,7 +890,15 @@ function StoreInner({ children }: { children: ReactNode }) {
           type: p.productType?.name ?? '',
           productTypeCode: p.productType?.code ?? '',
           compatibleMachineTypeCode: p.compatibleMachineType?.code ?? undefined,
-          controlPanel: p.modelName ?? '',
+          controlPanel:
+            (p.specs ?? []).find((spec: any) =>
+              /kontrol\s*(ünitesi|unitesi|paneli)|cnc\s*kontrol/i.test(String(spec.key ?? spec.specKey ?? '')),
+            )?.value
+            ?? (p.specs ?? []).find((spec: any) =>
+              /kontrol\s*(ünitesi|unitesi|paneli)|cnc\s*kontrol/i.test(String(spec.key ?? spec.specKey ?? '')),
+            )?.specValue
+            ?? (p.standardEquipment ?? []).find((title: string) => /kontrol\s*(ünitesi|unitesi|paneli)|cnc\s*kontrol/i.test(title))
+            ?? '',
           category: p.category?.name ?? '',
           categoryCode: p.category?.code ?? '',
           subcategory: p.subcategory?.name ?? '',
@@ -1176,6 +1187,7 @@ function StoreInner({ children }: { children: ReactNode }) {
         status: mapStatus(r.status?.code),
         note: r.notes ?? '',
         invoiceNo: r.invoiceNo ?? undefined,
+        plannedPaymentMethod: r.paymentMethod ?? undefined,
         source: 'receivable',
       }));
       // Ödemeler (payments) → kasa yönü backend'deki `direction` alanından gelir
@@ -1717,10 +1729,11 @@ function StoreInner({ children }: { children: ReactNode }) {
       companyId: c.customerId,
       ownerUserId: c.assignedUserId || undefined,
       title: c.requestedProduct,
-      description: c.requestedModel,
+      description: c.description || undefined,
       estimatedValue: c.estimatedAmount,
       currencyCode: c.currency,
-      probability: 50,
+      probability: c.probability ?? 50,
+      expectedCloseDate: c.expectedCloseDate ? new Date(c.expectedCloseDate) : undefined,
       paymentTermDays: c.paymentTermDays ?? undefined,
       paymentMethod: c.paymentMethod ?? undefined,
       leadFollowUpStatus: c.leadFollowUpStatus ?? undefined,
@@ -1755,6 +1768,7 @@ function StoreInner({ children }: { children: ReactNode }) {
     if (patch.assignedUserId !== undefined) body.ownerUserId = patch.assignedUserId || null;
     if (patch.paymentTermDays !== undefined) body.paymentTermDays = patch.paymentTermDays ?? null;
     if (patch.paymentMethod !== undefined) body.paymentMethod = patch.paymentMethod;
+    if (patch.description !== undefined) body.description = patch.description;
     if (patch.estimatedAmount !== undefined) body.estimatedValue = patch.estimatedAmount;
     if (patch.currency !== undefined) body.currencyCode = patch.currency;
     if (patch.probability !== undefined) body.probability = patch.probability;

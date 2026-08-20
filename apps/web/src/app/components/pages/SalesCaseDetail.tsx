@@ -274,6 +274,134 @@ function OpportunityPartyDialog({
   );
 }
 
+function OpportunityCommercialFieldsDialog({
+  open,
+  onOpenChange,
+  salesCase,
+  onSave,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  salesCase: SalesCase;
+  onSave: (patch: {
+    title: string;
+    description: string | null;
+    requestedMachine: string | null;
+    estimatedAmount: number;
+    currency: SalesCase["currency"];
+    probability: number;
+    expectedCloseDate: string | null;
+  }) => Promise<void>;
+}) {
+  const [saving, setSaving] = useState(false);
+  const [form, setForm] = useState({
+    title: salesCase.requestedProduct,
+    description: salesCase.description ?? "",
+    requestedMachine: salesCase.requestedMachine ?? salesCase.requestedModel ?? "",
+    estimatedAmount: String(salesCase.estimatedAmount ?? 0),
+    currency: salesCase.currency,
+    probability: String(salesCase.probability ?? 50),
+    expectedCloseDate: salesCase.expectedCloseDate ?? "",
+  });
+
+  useEffect(() => {
+    if (!open) return;
+    setForm({
+      title: salesCase.requestedProduct,
+      description: salesCase.description ?? "",
+      requestedMachine: salesCase.requestedMachine ?? salesCase.requestedModel ?? "",
+      estimatedAmount: String(salesCase.estimatedAmount ?? 0),
+      currency: salesCase.currency,
+      probability: String(salesCase.probability ?? 50),
+      expectedCloseDate: salesCase.expectedCloseDate ?? "",
+    });
+  }, [open, salesCase]);
+
+  const submit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    const title = form.title.trim();
+    const amount = Number(form.estimatedAmount);
+    const probability = Number(form.probability);
+    if (!title) return toast.error("Fırsat adı zorunludur");
+    if (!Number.isFinite(amount) || amount < 0) return toast.error("Tahmini tutar geçerli olmalıdır");
+    if (!Number.isInteger(probability) || probability < 0 || probability > 100) {
+      return toast.error("Kazanma olasılığı 0–100 arasında tam sayı olmalıdır");
+    }
+    setSaving(true);
+    try {
+      await onSave({
+        title,
+        description: form.description.trim() || null,
+        requestedMachine: form.requestedMachine.trim() || null,
+        estimatedAmount: amount,
+        currency: form.currency,
+        probability,
+        expectedCloseDate: form.expectedCloseDate || null,
+      });
+      toast.success("Fırsat ticari bilgileri güncellendi");
+      onOpenChange(false);
+    } catch (error: any) {
+      toast.error("Ticari bilgiler kaydedilemedi", { description: error?.message });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={(next) => !saving && onOpenChange(next)}>
+      <DialogContent className="sm:max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>Fırsat ticari bilgileri</DialogTitle>
+          <DialogDescription>Başlık, makine, bütçe ve kapanış tahminini tek yerden tamamlayın.</DialogDescription>
+        </DialogHeader>
+        <form onSubmit={submit} className="space-y-4">
+          <div>
+            <Label htmlFor="opportunity-title">Fırsat adı *</Label>
+            <Input id="opportunity-title" value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} maxLength={255} />
+          </div>
+          <div>
+            <Label htmlFor="opportunity-machine">Talep edilen makine / model</Label>
+            <Input id="opportunity-machine" value={form.requestedMachine} onChange={(event) => setForm({ ...form, requestedMachine: event.target.value })} maxLength={255} />
+          </div>
+          <div>
+            <Label htmlFor="opportunity-description">Açıklama</Label>
+            <Textarea id="opportunity-description" value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} maxLength={4000} rows={3} />
+          </div>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div>
+              <Label htmlFor="opportunity-amount">Tahmini tutar</Label>
+              <Input id="opportunity-amount" type="number" min={0} step="0.01" value={form.estimatedAmount} onChange={(event) => setForm({ ...form, estimatedAmount: event.target.value })} />
+            </div>
+            <div>
+              <Label>Para birimi</Label>
+              <Select value={form.currency} onValueChange={(currency) => setForm({ ...form, currency: currency as SalesCase["currency"] })}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="USD">USD</SelectItem>
+                  <SelectItem value="EUR">EUR</SelectItem>
+                  <SelectItem value="TRY">TRY</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label htmlFor="opportunity-probability">Kazanma olasılığı (%)</Label>
+              <Input id="opportunity-probability" type="number" min={0} max={100} step={1} value={form.probability} onChange={(event) => setForm({ ...form, probability: event.target.value })} />
+            </div>
+            <div>
+              <Label htmlFor="opportunity-close-date">Hedef kapanış tarihi</Label>
+              <Input id="opportunity-close-date" type="date" value={form.expectedCloseDate} onChange={(event) => setForm({ ...form, expectedCloseDate: event.target.value })} />
+            </div>
+          </div>
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>Vazgeç</Button>
+            <Button type="submit" disabled={saving}>{saving ? "Kaydediliyor…" : "Kaydet"}</Button>
+          </div>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export function SalesCaseDetailPage({
   sc,
   onBack,
@@ -316,6 +444,7 @@ export function SalesCaseDetailPage({
   const [salesOrders, setSalesOrders] = useState<any[]>([]);
   const [companyLinking, setCompanyLinking] = useState(false);
   const [partyDialogOpen, setPartyDialogOpen] = useState(false);
+  const [commercialDialogOpen, setCommercialDialogOpen] = useState(false);
   const [requestedProcessAction, setRequestedProcessAction] = useState<OpportunityProcessActionKey | null>(null);
   const canMarkLost = canUpdate && !sc.isLost && sc.stage !== "cancelled" && sc.stage !== "delivered";
   const isLeadCard = (sc.qualificationStage ?? "c") === "lead";
@@ -1920,6 +2049,11 @@ export function SalesCaseDetailPage({
           }
           actions={
             <>
+              {canUpdate && (
+                <Button type="button" variant="outline" size="sm" className="h-9 gap-1.5" onClick={() => setCommercialDialogOpen(true)}>
+                  <Pencil className="size-4" /> Ticari Bilgileri Düzenle
+                </Button>
+              )}
               {onNavigate && (
                 <div className="flex items-center rounded-md border border-slate-200 bg-white">
                   <Button type="button" variant="ghost" size="icon" className="size-11 rounded-r-none sm:size-9" disabled={!previous} onClick={() => previous && onNavigate(previous.id)} aria-label={`Önceki ${cardTypeLabel.toLocaleLowerCase("tr-TR")}`} title={`Önceki ${cardTypeLabel.toLocaleLowerCase("tr-TR")}`}><ChevronLeft className="size-4" /></Button>
@@ -1947,6 +2081,12 @@ export function SalesCaseDetailPage({
           opportunityId={sc.id}
           activities={partyActivities}
           users={users}
+        />
+        <OpportunityCommercialFieldsDialog
+          open={commercialDialogOpen}
+          onOpenChange={setCommercialDialogOpen}
+          salesCase={sc}
+          onSave={(patch) => updateCase(sc.id, patch)}
         />
       </>
     );
@@ -1979,7 +2119,7 @@ export function CreatePaymentPlanDialog({
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
 }) {
-  const { updateCase, noteTemplates, addNoteTemplate, updateNoteTemplate, deleteNoteTemplate } = useStore();
+  const { updateCase, noteTemplates, addNoteTemplate, updateNoteTemplate, deleteNoteTemplate, documents } = useStore();
   const [internalOpen, setInternalOpen] = useState(false);
   const open = controlledOpen ?? internalOpen;
   const setOpen = (next: boolean) => {
@@ -2005,11 +2145,18 @@ export function CreatePaymentPlanDialog({
     const approvedQuote = offs.find((o) => o.status === "Approved");
     const latestQuote = offs.slice().sort((a, b) => b.revision - a.revision)[0];
     const initialQuote = approvedQuote || latestQuote;
+    const latestContract = documents
+      .filter((document) => document.type === "Contract" && document.salesCaseId === sc.id)
+      .sort((left, right) => right.uploadedAt.localeCompare(left.uploadedAt))[0];
+    const contractAmount = Number(latestContract?.documentSnapshot?.quote?.subtotal ?? 0);
+    const contractCurrency = latestContract?.documentSnapshot?.currency?.code;
 
     if (initialQuote) {
       setSelectedQuoteId(initialQuote.id);
-      setAmount(initialQuote.amount);
-      setCurrency(initialQuote.currency);
+      // Sözleşmede teklif fiyatından farklı bir nihai bedel pazarlık edilmişse
+      // ödeme planı teklif grandTotal'ına değil imzalanacak sözleşmeye bağlanır.
+      setAmount(contractAmount > 0 ? contractAmount : initialQuote.amount);
+      setCurrency(contractAmount > 0 && contractCurrency ? contractCurrency : initialQuote.currency);
     } else {
       setSelectedQuoteId("");
       setAmount(sc.estimatedAmount || 0);
@@ -2021,7 +2168,7 @@ export function CreatePaymentPlanDialog({
     setPaymentMethod(sc.paymentMethod ?? "undecided");
     setTerms({ paymentTerms: sc.paymentTerms ?? "", deliveryTerms: "", warrantyTerms: "" });
     setTermsTemplateKeyValue("");
-  }, [open, offs, sc]);
+  }, [open, offs, sc, documents]);
 
   const paymentFamily = familyOfMethod(paymentMethod);
   const planShape = paymentFamily ? PAYMENT_FAMILY_PLAN_SHAPE[paymentFamily] : "none";
@@ -2109,6 +2256,12 @@ export function CreatePaymentPlanDialog({
         const missing = missingPaymentInstrumentFields(paymentMethod, installments[invalidInstrumentIndex]);
         return toast.error(`${invalidInstrumentIndex + 1}. taksit için ${missing.join(", ")} zorunludur.`);
       }
+      const plannedTotal = Number(installments.reduce((sum, installment) => sum + installment.amount, 0).toFixed(2));
+      if (Math.abs(plannedTotal - Number(amount.toFixed(2))) > 0.01) {
+        return toast.error("Ödeme planı toplamı sözleşme bedeliyle eşleşmiyor", {
+          description: `Plan: ${plannedTotal.toLocaleString("tr-TR")} ${currency} · Sözleşme: ${amount.toLocaleString("tr-TR")} ${currency}`,
+        });
+      }
     }
     setSaving(true);
     try {
@@ -2135,6 +2288,7 @@ export function CreatePaymentPlanDialog({
           currencyCode: currency,
           dueDate: new Date(inst.dueDate),
           movementType: "manual",
+          paymentMethod,
           ...(inst.documentNo.trim() ? { documentRef: inst.documentNo.trim() } : {}),
           notes: instrumentNote ? `${baseNote} · ${instrumentNote}` : baseNote,
         });

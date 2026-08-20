@@ -39,12 +39,12 @@ import { useStore } from "../../lib/store";
 import { useAuth } from "../../../lib/auth";
 import { documentService } from "../../../lib/services";
 import { DocumentTermsTemplateEditor, useTermsTemplates } from "./DocumentTermsTemplateEditor";
-import { CONTRACT_NOTE_VARIANTS } from "../../lib/print";
+import { CONTRACT_NOTE_METADATA, CONTRACT_NOTE_VARIANTS, contractTermsFillContext } from "../../lib/print";
 import {
   computeProformaTotals, EMPTY_DOCUMENT_DISCOUNT, formatMoneyInput, hasDocumentDiscount, parseMoneyInput,
   type DocumentDiscount,
 } from "../../lib/proformaPricing";
-import { contractDoc, loadContractPrintData, printAssetBase } from "../../lib/print";
+import { assertContractReady, contractDoc, loadContractPrintData, printAssetBase } from "../../lib/print";
 import { printOrWarn } from "../../lib/pageHelpers";
 import type { DocumentItem } from "../../lib/mock";
 import { useCompanyDetail } from "../../lib/companyServerData";
@@ -193,6 +193,8 @@ export function QuickContractDialog({
       setDeliveryDaysMin("");
       setDeliveryDaysMax("");
       setImportCostsExcluded(true);
+      setVatIncluded(false);
+      setFreightPaidBySeller(false);
       setInstallments([]);
     }
     setPaymentTermDays(editDocument ? "" : "");
@@ -211,6 +213,14 @@ export function QuickContractDialog({
     [documentDiscount, priceRows],
   );
   const installmentTotal = installments.reduce((sum, row) => sum + parseMoneyInput(row.amount), 0);
+  const termsFillContext = useMemo(
+    () => contractTermsFillContext(
+      { items: priceRows },
+      products,
+      party.manualCompany ? party.companyName : selectedCompany?.shortName ?? selectedCompany?.name,
+    ),
+    [party.companyName, party.manualCompany, priceRows, products, selectedCompany?.name, selectedCompany?.shortName],
+  );
 
   const patchInstallment = (key: string, patch: Partial<Installment>) =>
     setInstallments((current) => current.map((row) => (row.key === key ? { ...row, ...patch } : row)));
@@ -242,6 +252,7 @@ export function QuickContractDialog({
         documentSnapshot: created?.documentSnapshot,
         users,
       });
+      assertContractReady(data);
       printOrWarn(contractDoc(data, printAssetBase()));
     } catch (err: any) {
       toast.error("Sözleşme yazdırılamadı", {
@@ -525,7 +536,23 @@ export function QuickContractDialog({
 
               <DocumentTermsTemplateEditor
                 markerStyle="none"
-            builtInVariants={CONTRACT_NOTE_VARIANTS}
+                builtInVariants={CONTRACT_NOTE_VARIANTS}
+                fillContext={termsFillContext}
+                onBuiltInTemplateSelected={(key) => {
+                  const metadata = CONTRACT_NOTE_METADATA[key];
+                  if (!metadata) return;
+                  setImportCostsExcluded(metadata.importCostsExcluded);
+                  setVatIncluded(metadata.vatIncluded);
+                  setFreightPaidBySeller(metadata.freightPaidBySeller);
+                  setDeliveryDaysMin(String(metadata.estimatedDeliveryDaysMin));
+                  setDeliveryDaysMax(String(metadata.estimatedDeliveryDaysMax));
+                  setDeliveryLocation(key === "isletme-teslim"
+                    ? `${[
+                        party.manualCompany ? party.companyName : selectedCompany?.shortName ?? selectedCompany?.name,
+                        party.manualCompany ? undefined : selectedCompany?.district,
+                      ].filter(Boolean).join("/")} tesisleri`
+                    : "HAKSAN MAKİNA/Hadımköy antreposu");
+                }}
                 title="Sözleşme Şartları"
                 description="Şablon seçin veya metni yazın. Bu belge bir teklife bağlı olmadığı için şartlar yalnızca sözleşmeye kaydedilir."
                 templateScope={CONTRACT_TERMS_TEMPLATE_SCOPE}

@@ -676,8 +676,20 @@ type EditorProps = {
 /** Tek bir kontrol satırının düzenleyicisi; `checkKey` backend'in ürettiği anahtardır. */
 function CheckEditor(props: EditorProps) {
   const { checkKey, sc, company, users, products, isSuperAdmin, disabled, run, openCheck } = props;
-  const [draft, setDraft] = useState("");
-  const [draft2, setDraft2] = useState("");
+  const persistedText = (() => {
+    switch (checkKey) {
+      case "subject": return sc.requestedProduct ?? "";
+      case "address": return company?.address ?? "";
+      case "email": return company?.email ?? "";
+      case "phone": return company?.phone ?? "";
+      case "sector": return company?.sector ?? "";
+      case "contract_terms": return sc.contractTerms ?? "";
+      case "payment_terms": return sc.paymentTerms ?? "";
+      default: return "";
+    }
+  })();
+  const [draft, setDraft] = useState(checkKey === "location" ? company?.city ?? "" : persistedText);
+  const [draft2, setDraft2] = useState(checkKey === "location" ? company?.district ?? "" : "");
   const [approvalDecision, setApprovalDecision] = useState<"approved" | "rejected" | "">("");
   const [approvalNote, setApprovalNote] = useState("");
   const provinceOptions = useMemo(
@@ -688,6 +700,13 @@ function CheckEditor(props: EditorProps) {
     () => districtsForCountry("Türkiye", draft).map((name) => ({ value: name, label: name })),
     [draft],
   );
+
+  // Düzenleyici açıldığında mevcut değer görünür; kullanıcı artık kayıtlı metni
+  // körlemesine yeniden yazmak zorunda kalmaz ve alanı bilinçli olarak silebilir.
+  useEffect(() => {
+    setDraft(checkKey === "location" ? company?.city ?? "" : persistedText);
+    setDraft2(checkKey === "location" ? company?.district ?? "" : "");
+  }, [checkKey, company?.city, company?.district, persistedText]);
 
   const saveCase = (patch: Parameters<EditorProps["updateCase"]>[1], message: string) =>
     run(checkKey, () => props.updateCase(sc.id, patch), message);
@@ -718,7 +737,7 @@ function CheckEditor(props: EditorProps) {
         size="sm"
         variant="outline"
         className="h-8 shrink-0"
-        disabled={disabled || !draft.trim()}
+        disabled={disabled || draft.trim() === persistedText.trim() || (checkKey === "subject" && !draft.trim())}
         onClick={() => onSave(draft.trim())}
       >
         Kaydet

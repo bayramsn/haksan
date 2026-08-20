@@ -6,6 +6,7 @@ const editDialog = readFileSync(
   new URL("../../components/dialogs/EditDocumentDialog.tsx", import.meta.url),
   "utf8",
 );
+const contractPrint = readFileSync(new URL("./contractPrint.ts", import.meta.url), "utf8");
 
 describe("belge metnindeki üretim yılı", () => {
   it("yılı belge tarihinden değil ürün kartından alır", () => {
@@ -13,7 +14,8 @@ describe("belge metnindeki üretim yılı", () => {
     // türetilince 2023 üretimi bir tezgah 2026 yazıyordu.
     expect(proforma).toContain("const documentProductionYear = (");
     expect(proforma).toContain("products.find((product) => product.id === String(id ?? \"\"))?.productionYear");
-    expect(editDialog).toContain("yil: productionYear,");
+    expect(contractPrint).toContain("yil: product?.productionYear");
+    expect(editDialog).toContain("contractTermsFillContext(document.documentSnapshot, products)");
   });
 
   it("ürün kartında yıl boşsa eski davranışa düşer", () => {

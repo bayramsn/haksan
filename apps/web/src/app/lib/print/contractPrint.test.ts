@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { loadContractPrintData } from "./contractPrint";
+import { contractReadinessErrors, loadContractPrintData } from "./contractPrint";
 
 describe("contract print data", () => {
   it("maps the finalized snapshot without applying the header discount twice", async () => {
@@ -219,8 +219,127 @@ describe("contract print data", () => {
     });
 
     expect(data.odemePlani).toEqual([
-      { label: "1. taksit senet", tutar: 40_000, senet: true },
-      { label: "2. taksit", tutar: 60_000, senet: false },
+      { label: "1. taksit senet", tutar: 40_000, senet: true, yontem: "Senet" },
+      { label: "2. taksit", tutar: 60_000, senet: false, yontem: undefined },
     ]);
+  });
+
+  it("projects the signed NORMINOX SL-8 agreement without price, party or template drift", async () => {
+    const accessories = [
+      "FANUC 0i-TF Plus Kontrol Ünitesi, LCD Renkli Ekran",
+      "Flash Memory Tip Kart Girişi, USB Arayüzü",
+      "Hidrolik 10 İstasyonlu Taret",
+      "8” (200 mm) 3 Ayaklı Hidrolik Ayna Seti",
+      "RENISHAW Tam Otomatik Takım Boyu Ölçme Kolu",
+      "Tam Kapalı Kabin, Çalışma Lambası",
+      "3 Renkli Alarm Lambası",
+      "Programlanabilir Karşı Punta Pinolü",
+      "Talaş Konveyörü & Talaş Arabası",
+      "Yüksek Basınçlı Soğutma Sıvısı Sistemi",
+      "Otomatik Tezgah Yağlama Sistemi",
+      "Transformatör, Takımlar & Takım Çantası",
+      "Kullanma ve Bakım Kılavuzları",
+      "Dengeye Alma Ayakları ve Vidaları",
+      "CE Normlarına Uygun Elektrik ve Güvenlik Donanımı",
+      "Dış Çap Bağlama Aparatı (6 Adet)",
+      "Alın Kater Tutucu (2 Adet)",
+      "İç Çap Kater Tutucu (6 Adet)",
+      "Mors Konik Tutucu (2 Adet)",
+      "İç Çap Redüksiyon Kovanları (1 Set)",
+      "Ayna İçin Sert Ayak Takımı (1 Set)",
+      "Ayna İçin Yumuşak Ayak Takımı (5 Set)",
+      "Döner Punta Seti (1 Set)",
+    ];
+    const technicalSpecs = [
+      { key: "Maks. Tornalama Kapasitesi", value: "Ø 320 mm" },
+      { key: "Maks. Tornalama Boyu", value: "480 mm" },
+      { key: "Çubuk İşleme Kapasitesi", value: "Ø 52 mm" },
+      { key: "İş Mili Devri", value: "4.500 dv/dk" },
+      { key: "İş Mili Motor Gücü", value: "15 kW" },
+      { key: "Hidrolik Ayna Çapı", value: "8” (Ø 200 mm)" },
+      { key: "Kızak Tipi", value: "Hassas Lineer Kızak" },
+      { key: "X, Z Eksen Motor Gücü", value: "2,5 kW / 2,5 kW" },
+      { key: "Taret Tipi", value: "Hidrolik, 10 İstasyon" },
+      { key: "Karşı Punta Pinol Hareketi", value: "88 mm" },
+      { key: "Karşı Punta Pinol Çapı", value: "Ø 58 mm" },
+      { key: "Tezgah Ağırlığı", value: "3.350 kg" },
+    ];
+    const data = await loadContractPrintData({
+      customer: null,
+      salesCase: { id: "norminox-sl8" } as never,
+      products: [{
+        id: "ecoca-sl8",
+        shortDescription: "ECOCA SL-8 CNC Torna Tezgahı",
+        productionYear: 2026,
+        controlPanel: "FANUC 0i-TF Plus",
+        standardEquipment: ["CANLI-KATALOG-SONRADAN-DEGISTI"],
+      }] as never,
+      payments: [],
+      contractDate: "2026-08-18",
+      contractNo: "CNC-SOZ-2026/005",
+      documentSnapshot: {
+        document: { finalizedAt: "2026-08-18T12:00:00+03:00" },
+        quote: { subtotal: 50_000, discountTotal: 0, vatAmount: 10_000, grandTotal: 60_000 },
+        company: {
+          legalTitle: "NORM İNOX METAL ENDÜSTRİ LAZER SAN. İTH. İHR. LTD. ŞTİ.",
+          shortName: "NORM İNOX METAL",
+          taxOffice: "İkitelli V.D.",
+          taxNumber: "6221661606",
+        },
+        companyAddresses: [{
+          fullAddress: "İkitelli O.S.B. Dersan Koop. Trios 2023 A Blk. No:57",
+          district: "Başakşehir",
+          province: "İstanbul",
+          country: "Türkiye",
+        }],
+        companyPhones: [{ phoneType: "main", phone: "02128018191" }],
+        contact: { fullName: "Eyüp KÖKLÜ", mobilePhone: "05325876736" },
+        currency: { code: "USD" },
+        items: [{
+          productModelId: "ecoca-sl8",
+          description: "ECOCA SL-8 CNC Torna Tezgahı",
+          quantity: 1,
+          unitPrice: 50_000,
+          lineTotal: 50_000,
+          vatRate: 20,
+          product: { standardEquipment: accessories },
+          compatibility: { technicalSpecs },
+        }],
+        terms: {
+          paymentTermsText: "Sözleşmeye konu tezgah İŞLETME TESLİM şeklinde fiyatlandırılmıştır.\nÖdeme tarihinde {{ALICI}}, HAKSAN MAKİNA'dan kur bilgisi alacaktır.",
+          deliveryTermsText: "Tezgahın teslimi sözleşme tarihinden itibaren 90 gün sonra gerçekleştirilecektir.",
+          warrantyTermsText: "Kontrol ünitesi 2 yıl {{KONTROL_MARKA}}/Türkiye garantisi kapsamındadır.",
+          deliveryLocation: "NORM İNOX METAL/Başakşehir tesisleri",
+          estimatedDeliveryDaysMin: 90,
+          estimatedDeliveryDaysMax: 90,
+          importCostsExcluded: false,
+          vatIncluded: true,
+          freightPaidBySeller: true,
+        },
+        receivables: [{ amount: 10_000, dueDate: "2026-08-18", notes: "Siparişte peşin", paymentMethod: "cash" }],
+      },
+    });
+
+    expect(data.fiyat).toBe(50_000);
+    expect(data.currency).toBe("USD");
+    expect(data.alici).toMatchObject({
+      kisaUnvan: "NORM İNOX METAL",
+      tel: "0 212 801 81 91",
+      mobil: "0 532 587 67 36",
+      vergiNo: "6221661606",
+    });
+    expect(data.alici.unvan).toContain("İTH. İHR.");
+    expect(data.alici.adres).toContain("Başakşehir, İstanbul");
+    expect(data.machines?.[0].ozellikler).toHaveLength(12);
+    expect(data.machines?.[0].aksesuarlar).toHaveLength(23);
+    expect(data.machines?.[0].ozellikler).toContainEqual({ key: "Hidrolik Ayna Çapı", value: "8” (Ø 200 mm)" });
+    expect(data.teslimSekli).toBe("İşletme Teslim");
+    expect(data.teslimAyi).toBe("2026 KASIM");
+    expect(data.ithalatMasraflariDahil).toBe(true);
+    expect(data.kdvDahil).toBe(true);
+    expect(data.nakliyeSaticiya).toBe(true);
+    expect(data.odemePlani).toEqual([{ label: "Siparişte peşin", tutar: 10_000, senet: false, yontem: "Nakit" }]);
+    expect(JSON.stringify(data)).not.toContain("{{");
+    expect(contractReadinessErrors(data)).toEqual([]);
   });
 });

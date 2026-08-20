@@ -11,7 +11,7 @@ import {
 import { useStore } from "../../lib/store";
 import type { DocumentItem } from "../../lib/mock";
 import {
-  loadContractPrintData, loadProformaPrintData,
+  assertContractReady, loadContractPrintData, loadProformaPrintData,
   type ContractPrintData, type ProformaPrintData,
 } from "../../lib/print";
 import { formatCurrency } from "../../lib/pageHelpers";
@@ -110,7 +110,7 @@ export function DocumentDetailDialog({
                 .sort((a, b) => b.date.localeCompare(a.date))[0] ?? null;
           const sc = initialSc ?? cases.find((s) => s.id === offer?.salesCaseId) ?? null;
           const cust = hydratedCustomers.find((c) => c.id === (doc.companyId || offer?.companyId || sc?.customerId)) ?? null;
-          if (!sc) throw new Error("Bağlı satış kartı bulunamadı.");
+          if (!sc && !doc.documentSnapshot?.standalone) throw new Error("Bağlı satış kartı bulunamadı.");
           const data = await loadContractPrintData({
             customer: cust,
             salesCase: sc,
@@ -122,6 +122,7 @@ export function DocumentDetailDialog({
             documentSnapshot: doc.documentSnapshot,
             users,
           });
+          assertContractReady(data);
           if (alive) setContract(data);
         } else {
           const data = await loadProformaPrintData({

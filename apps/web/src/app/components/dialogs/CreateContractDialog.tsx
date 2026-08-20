@@ -18,7 +18,7 @@ import {
   matchSavedTermsTemplate,
   useTermsTemplates,
 } from "./DocumentTermsTemplateEditor";
-import { CONTRACT_NOTE_VARIANTS } from "../../lib/print";
+import { CONTRACT_NOTE_METADATA, CONTRACT_NOTE_VARIANTS, contractTermsFillContext } from "../../lib/print";
 import {
   computeProformaTotals, EMPTY_DOCUMENT_DISCOUNT, hasDocumentDiscount, proformaRowError,
   quoteToProformaPriceRows, type DocumentDiscount, type ProformaPriceRow,
@@ -55,7 +55,7 @@ export function CreateContractDialog({
   onOpenChange?: (open: boolean) => void;
   onCreated?: (id: string) => void;
 }) {
-  const { offers, customers, cases, noteTemplates, addNoteTemplate, updateNoteTemplate, deleteNoteTemplate, refresh } = useStore();
+  const { offers, customers, cases, products, noteTemplates, addNoteTemplate, updateNoteTemplate, deleteNoteTemplate, refresh } = useStore();
   const [internalOpen, setInternalOpen] = useState(false);
   const open = controlledOpen ?? internalOpen;
   const setOpen = (next: boolean) => {
@@ -88,6 +88,7 @@ export function CreateContractDialog({
   const [quoteTotals, setQuoteTotals] = useState({ discountTotal: 0, headerDiscountAmount: 0, customsTotal: 0 });
   const [documentDiscount, setDocumentDiscount] = useState<DocumentDiscount>(EMPTY_DOCUMENT_DISCOUNT);
   const [pricesLoading, setPricesLoading] = useState(false);
+  const [loadedQuote, setLoadedQuote] = useState<any>(null);
   const [saving, setSaving] = useState(false);
 
   const savedTermsTemplates = useTermsTemplates(noteTemplates, CONTRACT_TERMS_TEMPLATE_SCOPE);
@@ -109,6 +110,7 @@ export function CreateContractDialog({
     setQuoteTotals({ discountTotal: 0, headerDiscountAmount: 0, customsTotal: 0 });
     setDocumentDiscount(EMPTY_DOCUMENT_DISCOUNT);
     setPricesLoading(false);
+    setLoadedQuote(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, defaultQuoteId]);
 
@@ -120,6 +122,7 @@ export function CreateContractDialog({
       try {
         const data: any = await quoteService.get(quoteId);
         if (cancelled) return;
+        setLoadedQuote(data);
         const loadedPayment = data.terms?.paymentTermsText ?? data.paymentTerms ?? "";
         const loadedDelivery = data.terms?.deliveryTermsText ?? data.deliveryTerms ?? "";
         const loadedWarranty = data.terms?.warrantyTermsText ?? data.warrantyTerms ?? "";
@@ -155,7 +158,8 @@ export function CreateContractDialog({
         setPriceRows([]);
         setLoadedPriceRows([]);
         setQuoteTotals({ discountTotal: 0, headerDiscountAmount: 0, customsTotal: 0 });
-    setDocumentDiscount(EMPTY_DOCUMENT_DISCOUNT);
+        setLoadedQuote(null);
+        setDocumentDiscount(EMPTY_DOCUMENT_DISCOUNT);
       } finally {
         if (!cancelled) setPricesLoading(false);
       }
@@ -193,6 +197,10 @@ export function CreateContractDialog({
     : null;
   const selectedCustomerQuery = useCompanyDetail(selectedCustomerId, storedSelectedCustomer ?? undefined);
   const selectedCustomer = selectedCustomerQuery.data ?? storedSelectedCustomer;
+  const termsFillContext = useMemo(
+    () => contractTermsFillContext(loadedQuote, products, selectedCustomer?.shortName ?? selectedCustomer?.name),
+    [loadedQuote, products, selectedCustomer?.name, selectedCustomer?.shortName],
+  );
   const currency = selectedOffer?.currency ?? "USD";
   const totals = useMemo(
     () => computeProformaTotals(priceRows, {
@@ -219,6 +227,23 @@ export function CreateContractDialog({
     event.preventDefault();
     if (!quoteId) return toast.error("Bağlı teklif seçiniz");
     if (rowError) return toast.error("Fiyat girişini düzeltin", { description: rowError });
+    const partyMissing = [
+      !selectedCustomer?.name && "yasal unvan",
+      !(selectedCustomer?.address || selectedCustomer?.addresses?.length) && "adres",
+      !selectedCustomer?.taxOffice && "vergi dairesi",
+      !selectedCustomer?.taxNumber && "vergi numarası",
+      !(selectedCustomer?.phone || selectedCustomer?.phone2) && "telefon",
+    ].filter(Boolean);
+    if (partyMissing.length) {
+      return toast.error("Firma kartı sözleşmeye hazır değil", {
+        description: `Önce ${partyMissing.join(", ")} alanlarını tamamlayın.`,
+      });
+    }
+    if (
+      termsMetadata.estimatedDeliveryDaysMin !== undefined
+      && termsMetadata.estimatedDeliveryDaysMax !== undefined
+      && termsMetadata.estimatedDeliveryDaysMin > termsMetadata.estimatedDeliveryDaysMax
+    ) return toast.error("Teslim günü aralığını düzeltin", { description: "En erken teslim günü en geç teslim gününden büyük olamaz." });
     setSaving(true);
     try {
       const termDays = paymentTermDays.trim() === "" ? undefined : Number(paymentTermDays);
@@ -395,6 +420,22 @@ export function CreateContractDialog({
           <DocumentTermsTemplateEditor
             markerStyle="none"
             builtInVariants={CONTRACT_NOTE_VARIANTS}
+            fillContext={termsFillContext}
+            onBuiltInTemplateSelected={(key) => {
+              const metadata = CONTRACT_NOTE_METADATA[key];
+              if (!metadata) return;
+              setTermsMetadata((current) => ({
+                ...current,
+                ...metadata,
+                deliveryLocation: key === "isletme-teslim"
+                  ? `${[
+                      selectedCustomer?.shortName ?? selectedCustomer?.name,
+                      selectedCustomer?.district,
+                    ].filter(Boolean).join("/")} tesisleri`
+                  : "HAKSAN MAKİNA/Hadımköy antreposu",
+              }));
+              setTermsDirty(true);
+            }}
             title="Sözleşme Şartları"
             description="Şablon seçin veya metni düzenleyin. Değişiklik yalnız bu sözleşmeye işlenir; bağlı teklifin şartları olduğu gibi kalır."
             templateScope={CONTRACT_TERMS_TEMPLATE_SCOPE}
@@ -416,9 +457,69 @@ export function CreateContractDialog({
             deleteNoteTemplate={deleteNoteTemplate}
           />
 
-          {/* Sabit kodlu iki madde artık burada seçilir; sözleşme çıktısı buna göre basılır. */}
+          <div className="grid gap-3 rounded-xl border border-border/70 bg-card p-3 sm:grid-cols-3">
+            <div className="sm:col-span-3">
+              <p className="text-xs font-semibold">Teslimat Bilgileri</p>
+              <p className="mt-0.5 text-[10px] text-muted-foreground">Sözleşmedeki teslim yeri ve gün taahhüdü serbest metinden ayrı saklanır.</p>
+            </div>
+            <div className="sm:col-span-3">
+              <Label className="text-xs" htmlFor="create-contract-delivery-location">Teslim Yeri</Label>
+              <Input
+                id="create-contract-delivery-location"
+                className="mt-1.5"
+                value={termsMetadata.deliveryLocation ?? ""}
+                onChange={(event) => {
+                  setTermsMetadata((current) => ({ ...current, deliveryLocation: event.target.value || undefined }));
+                  setTermsDirty(true);
+                }}
+                placeholder="Örn. NORM İNOX METAL/Başakşehir tesisleri"
+              />
+            </div>
+            <div>
+              <Label className="text-xs" htmlFor="create-contract-delivery-min">En Erken (Gün)</Label>
+              <Input
+                id="create-contract-delivery-min"
+                type="number"
+                min={0}
+                max={3650}
+                className="mt-1.5"
+                value={termsMetadata.estimatedDeliveryDaysMin ?? ""}
+                onChange={(event) => {
+                  setTermsMetadata((current) => ({ ...current, estimatedDeliveryDaysMin: event.target.value === "" ? undefined : Number(event.target.value) }));
+                  setTermsDirty(true);
+                }}
+              />
+            </div>
+            <div>
+              <Label className="text-xs" htmlFor="create-contract-delivery-max">En Geç (Gün)</Label>
+              <Input
+                id="create-contract-delivery-max"
+                type="number"
+                min={0}
+                max={3650}
+                className="mt-1.5"
+                value={termsMetadata.estimatedDeliveryDaysMax ?? ""}
+                onChange={(event) => {
+                  setTermsMetadata((current) => ({ ...current, estimatedDeliveryDaysMax: event.target.value === "" ? undefined : Number(event.target.value) }));
+                  setTermsDirty(true);
+                }}
+              />
+            </div>
+          </div>
+
+          {/* Ticari yönler metinden ayrı tutulur; çelişkili iki madde basılamaz. */}
           <div className="grid gap-2 rounded-xl border border-border/70 bg-card p-3">
             <p className="text-xs font-semibold">Sözleşme Maddeleri</p>
+            <label className="flex items-center gap-2 text-[11px] text-muted-foreground">
+              <Switch
+                checked={!termsMetadata.importCostsExcluded}
+                onCheckedChange={(next) => {
+                  setTermsMetadata((current) => ({ ...current, importCostsExcluded: !next }));
+                  setTermsDirty(true);
+                }}
+              />
+              İthalat masraf ve vergileri fiyata dahil (madde 3.2)
+            </label>
             <label className="flex items-center gap-2 text-[11px] text-muted-foreground">
               <Switch
                 checked={termsMetadata.vatIncluded}
@@ -427,7 +528,7 @@ export function CreateContractDialog({
                   setTermsDirty(true);
                 }}
               />
-              K.D.V. fiyata dahil (madde 3.3 — yazılan tutar brüt basılır)
+              K.D.V. sözleşme fiyatına dahil (madde 3.3 — girilen nihai tutar değişmez)
             </label>
             <label className="flex items-center gap-2 text-[11px] text-muted-foreground">
               <Switch

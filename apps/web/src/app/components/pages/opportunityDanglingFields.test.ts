@@ -15,10 +15,11 @@ describe("fırsattaki havada kalan alanlar", () => {
     expect(rail).toContain("salesCase.expectedCloseDate ?? \"\"");
   });
 
-  it("probability alanının hâlâ arayüzsüz olduğunu kayda geçirir", () => {
-    // Bilinçli: alan hiçbir yerde gösterilmiyor, düzenlenmiyor ve raporlarda
-    // kullanılmıyor. Kullanılmayan bir metrik için ekran açmak da, sütunu
-    // silmek de ürün kararı — bu test durumu görünür tutar.
-    expect(web).not.toContain("probability");
+  it("olasılık ve ticari alanları fırsat kartında düzenlenebilir yapar", () => {
+    expect(web).toContain('id="opportunity-probability"');
+    expect(web).toContain('id="opportunity-close-date"');
+    expect(web).toContain('id="opportunity-machine"');
+    expect(web).toContain('id="opportunity-description"');
+    expect(web).toContain("probability,");
   });
 });

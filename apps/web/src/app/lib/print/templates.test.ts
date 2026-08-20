@@ -651,7 +651,7 @@ describe("print templates", () => {
     }, assetBase);
 
     const totalPages = pages(document.body);
-    expect(totalPages).toBeGreaterThan(3);
+    expect(totalPages).toBeGreaterThanOrEqual(3);
     expect(document.body).toContain(`toplam ${totalPages}`);
     expect(document.body).toContain("CT-SPEC-41");
     expect(document.body).toContain("CT-AKS-25");
@@ -671,23 +671,21 @@ describe("print templates", () => {
       fiyat: 50_000,
       currency: "USD" as const,
       kdvOran: 20,
-      // Vadeler CRM'de net tutulur; 3.4 maddesi bunları "bedelin tamamı" diye sunar.
+      // Bedel ve plan satırları kullanıcının girdiği nihai sözleşme tutarlarıdır.
       odemePlani: [{ label: "Siparişte peşin", tutar: 8_333.33, yontem: "Nakit" }],
       teslimYeri: "NORM İNOX METAL/Başakşehir tesisleri",
     };
 
     const sl8 = contractDoc({ ...base, kdvDahil: true, nakliyeSaticiya: true }, assetBase);
     expect(sl8.body).toContain("K.D.V.</span> dahildir");
-    // KDV dahilse yazılan bedel brüttür; net 50.000 basılırsa sözleşme yanlış tutara imzalanır.
-    expect(sl8.body).toContain("60.000,00 USD");
-    expect(sl8.body).not.toContain("50.000,00 USD");
-    // 3.1 TOPLAM brütken 3.4 vadesi net kalırsa sözleşme kendi kendisiyle çelişir.
-    expect(sl8.body).toContain("10.000,00 USD");
-    expect(sl8.body).not.toContain("8.333,33 USD");
+    // Referans sözleşmedeki 50.000 USD KDV dahil nihai bedeldir; tekrar %20 eklenmez.
+    expect(sl8.body).toContain("50.000,00 USD");
+    expect(sl8.body).not.toContain("60.000,00 USD");
+    expect(sl8.body).toContain("8.333,33 USD");
     // Ödeme planının üçüncü sütunu tahsilat yöntemi (referans sözleşmelerdeki tablo).
     expect(sl8.body).toContain('<td class="mtd">Nakit</td>');
     expect(sl8.body).toContain("NORM İNOX METAL/Başakşehir tesisleri adresine teslim");
-    expect(sl8.body).toContain(`nakliye ve sigorta giderleri <span class="b">HAKSAN MAKİNA</span>'ya aittir`);
+    expect(sl8.body).toContain("nakliye ve sigorta giderleri HAKSAN MAKİNA'ya aittir");
 
     const defaults = contractDoc(base, assetBase);
     expect(defaults.body).toContain("K.D.V.</span> dahil değildir");
@@ -697,9 +695,51 @@ describe("print templates", () => {
     expect(defaults.body).toContain("adresinden teslim");
   });
 
-  it("keeps VAT-grossed machine rows summing to the printed grand total", () => {
-    // Satırlar tek tek yuvarlanınca 3×39.333,33 = 117.999,99 çıkıyor ama TOPLAM
-    // 118.000,00; farkı son satır yutmazsa fiyat tablosu kendi içinde tutmaz.
+  it("keeps the complete SL-8 agreement on the signed two-page shape", () => {
+    const document = contractDoc({
+      alici: {
+        unvan: "NORM İNOX METAL ENDÜSTRİ LAZER SAN. İTH. İHR. LTD. ŞTİ.",
+        kisaUnvan: "NORM İNOX METAL",
+        yetkili: "Eyüp KÖKLÜ",
+        adres: "İkitelli O.S.B. Dersan Koop. Trios 2023 A Blk. No:57, Başakşehir, İstanbul",
+        vergiDairesi: "İkitelli V.D.",
+        vergiNo: "6221661606",
+        tel: "0 212 801 81 91",
+        mobil: "0 532 587 67 36",
+      },
+      sozlesmeNo: "CNC-SOZ-2026/005",
+      sozlesmeTarihi: "2026-08-18",
+      model: "ECOCA SL-8 CNC Torna Tezgahı",
+      adet: 1,
+      ozellikler: Array.from({ length: 12 }, (_, index) => ({ key: `Teknik özellik ${index + 1}`, value: `Değer ${index + 1}` })),
+      aksesuarlar: Array.from({ length: 23 }, (_, index) => `Standart aksesuar ${index + 1}`),
+      fiyat: 50_000,
+      currency: "USD",
+      kdvOran: 20,
+      kdvDahil: true,
+      nakliyeSaticiya: true,
+      ithalatMasraflariDahil: true,
+      teslimSekli: "İşletme Teslim",
+      teslimGunMin: 90,
+      teslimGunMax: 90,
+      teslimYeri: "NORM İNOX METAL/Başakşehir tesisleri",
+      odemeKosullari: "Siparişte 10.000 USD peşin, kalan bakiye 30 – 60 – 90 – 120 – 150 – 180 gün vadeli USD çekleri ile tahsil edilecektir.",
+      garantiKosullari: "Kontrol ünitesi 2 yıl FANUC/Türkiye garantisi kapsamındadır.",
+      odemePlani: [{ label: "Siparişte peşin", tutar: 10_000, yontem: "Nakit" }],
+    }, assetBase);
+
+    expect(pages(document.body)).toBe(2);
+    expect(document.body).toContain("50.000,00 USD");
+    expect(document.body).not.toContain("60.000,00 USD");
+    expect(document.body).toContain("0 212 801 81 91");
+    expect(document.body).toContain("0 532 587 67 36");
+    expect(document.body).toContain("teknik destek, bilgi, belge, doküman ve yedek parça");
+    expect(document.body).not.toContain("{{");
+  });
+
+  it("keeps final-price machine rows summing to the printed grand total", () => {
+    // Satırlar tek tek yuvarlanınca 3×33.333,33 = 99.999,99 çıkıyor; kuruş
+    // farkını son satır yutar, KDV dahil işareti tutarı yeniden büyütmez.
     const document = contractDoc({
       alici: { unvan: "Çok Tezgahlı Alıcı" },
       sozlesmeNo: "CNC-SOZ-2026/031",
@@ -722,9 +762,9 @@ describe("print templates", () => {
       odemePlani: [],
     }, assetBase);
 
-    const amounts = [...document.body.matchAll(/39\.333,3(\d) USD/g)].map((match) => match[1]);
+    const amounts = [...document.body.matchAll(/33\.333,3(\d) USD/g)].map((match) => match[1]);
     expect(amounts).toEqual(["3", "3", "4"]);
-    expect(document.body).toContain("118.000,00 USD");
+    expect(document.body).toContain("100.000,00 USD");
   });
 
   it("keeps the reference contract structure on three pages", () => {
@@ -766,7 +806,7 @@ describe("print templates", () => {
     expect(document.body).toContain("1.1.2.");
     expect(document.body).toContain("Standart aksesuar 20");
     expect(document.body).toContain("2.6.");
-    expect(document.body).toContain("3.9.");
+    expect(document.body).toContain("4.4.");
     expect(document.body).toContain("TARAFLAR");
     expect(document.body).toContain("firma@zorkaya.test");
     expect(document.body).not.toContain("SÖZLEŞME TEKNİK EKİ");
@@ -792,7 +832,7 @@ describe("print templates", () => {
       ],
     }, assetBase);
 
-    expect(pages(document.body)).toBeGreaterThanOrEqual(4);
+    expect(pages(document.body)).toBeGreaterThanOrEqual(3);
     expect(document.body).toContain("Sözleşmeye Konu Olan Tezgahlar ve Özellikleri");
     expect(document.body).toContain("1.1.1.");
     expect(document.body).toContain("1.2.1.");
@@ -953,7 +993,8 @@ describe("print templates", () => {
       teslimKosullari: `${"Teslimat koşulu ayrıntısı ".repeat(180)}${tail}`,
     }, assetBase);
 
-    const longClause = (document.body.match(/<div class="ct-clause[^"]*"><span class="no">2\.1\.<\/span>/) ?? [])[0];
+    const longClause = [...document.body.matchAll(/<div class="ct-clause[^"]*">[^]*?<\/div>/g)]
+      .find((match) => match[0].includes(tail))?.[0];
     expect(longClause).toBeDefined();
     expect(longClause).not.toContain("avoid-break");
     expect(document.body).toContain(tail);

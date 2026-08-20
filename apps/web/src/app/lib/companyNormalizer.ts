@@ -135,6 +135,7 @@ export function normalizeCompany(company: CompanyDTO, fallback?: Customer): Cust
     sector: company.sector ?? fallback?.sector ?? "",
     supplierCategoryCode: company.supplierCategoryCode ?? fallback?.supplierCategoryCode ?? undefined,
     name: company.legalTitle ?? company.shortName ?? fallback?.name ?? "—",
+    shortName: company.shortName ?? fallback?.shortName ?? undefined,
     contactPerson: fallback?.contactPerson ?? "",
     phone: primaryPhone(company) || fallback?.phone || "",
     phone2: secondaryPhone(company) || fallback?.phone2 || "",

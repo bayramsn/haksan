@@ -228,7 +228,16 @@ export const buildPrintHtml = (doc: PrintDocument, opts?: { autoPrint?: boolean 
   const printScript =
     opts?.autoPrint === false
       ? ""
-      : `<script>window.onload=function(){setTimeout(function(){window.print();},400);};<\/script>`;
+      : `<script>
+window.onload=async function(){
+  var images=Array.from(document.images);
+  await Promise.all(images.map(function(img){
+    if(img.complete&&img.naturalWidth>0)return Promise.resolve();
+    return new Promise(function(resolve){img.addEventListener('load',resolve,{once:true});img.addEventListener('error',resolve,{once:true});});
+  }));
+  if(document.fonts&&document.fonts.ready){try{await document.fonts.ready;}catch(e){}}
+  setTimeout(function(){window.print();},150);
+};<\/script>`;
   return `<!doctype html>
 <html lang="tr"><head><meta charset="utf-8"><title>${esc(doc.title)}</title>
 <style>${BASE_CSS}${doc.css}</style></head>

@@ -74,6 +74,8 @@ export type Customer = {
   /** Tedarikçinin sevkiyat rolü; yalnızca tedarikçi ilişkili firmalarda kullanılır. */
   supplierCategoryCode?: "transportation" | "logistics";
   name: string;
+  /** Resmî unvanın belge metnindeki kısa karşılığı (örn. NORM İNOX METAL). */
+  shortName?: string;
   contactPerson: string;
   phone: string;
   phone2?: string;
@@ -568,6 +570,8 @@ export type Payment = {
   note: string;
   invoiceNo?: string;
   paymentMethod?: "bank_transfer" | "cash" | "credit_card" | "check" | "other";
+  /** Beklenen tahsilatın sözleşme planındaki ayrıntılı ödeme aracı. */
+  plannedPaymentMethod?: OpportunityPaymentMethod;
   /** Durum güncellemesinin hangi backend tablosuna gideceğini belirler. */
   source?: "receivable" | "payment";
 };

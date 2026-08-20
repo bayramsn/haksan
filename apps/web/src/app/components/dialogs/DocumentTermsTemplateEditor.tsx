@@ -158,10 +158,13 @@ export function DocumentTermsTemplateEditor({
     if (key.startsWith(TERMS_TEMPLATE_PREFIX)) {
       const template = savedTemplates.find((item) => item.selectKey === key);
       if (!template) return;
+      const fill = (text: string) => fillContext
+        ? fillNotePlaceholders(text.split(/\r?\n/), fillContext).join("\n")
+        : text;
       onChange({
-        paymentTerms: template.paymentTerms,
-        deliveryTerms: template.deliveryTerms,
-        warrantyTerms: template.warrantyTerms,
+        paymentTerms: fill(template.paymentTerms),
+        deliveryTerms: fill(template.deliveryTerms),
+        warrantyTerms: fill(template.warrantyTerms),
       });
       return;
     }

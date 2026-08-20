@@ -38,7 +38,7 @@ import {
 } from "lucide-react";
 import {
   printAssetBase, proformaDoc, commercialInvoiceDoc, contractDoc, installationFormDoc, loadContractPrintData, loadProformaPrintData, PROFORMA_NOTE_OPTIONS, trShortDate,
-  contractFilename, proformaFilename,
+  assertContractReady, contractFilename, proformaFilename,
 } from "../../../lib/print";
 import { printOrWarn, downloadPrintOrWarn } from "../../../lib/pageHelpers";
 import { companyQueryKeys } from "../../../lib/companyServerData";
@@ -268,7 +268,7 @@ export function DocumentsPage({
 
   const runContract = async (d: (typeof documents)[number], mode: "print" | "download") => {
     const ctx = resolveDocContext(d);
-    if (!ctx.sc) {
+    if (!ctx.sc && !d.documentSnapshot?.standalone) {
       toast.error("Sözleşme oluşturulamadı", { description: "Bağlı satış kartı bulunamadı." });
       return;
     }
@@ -286,6 +286,7 @@ export function DocumentsPage({
         documentSnapshot: d.documentSnapshot,
         users,
       });
+      assertContractReady(data);
       const rendered = contractDoc(data, printAssetBase());
       if (mode === "print") printOrWarn(rendered);
       // Dosya adı: Sozlesme_<bölüm-belge no>_<firma>_<makine>
@@ -852,9 +853,9 @@ export function DocumentsPage({
                             ? "Canlı saha kaydı"
                             : companyId
                               ? "Firma kaydına bağlı"
-                              // Hızlı proforma bilerek teklifsizdir; eksik bağlantı gibi gösterilmemeli.
+                              // Hızlı ticari belge bilerek teklifsizdir; eksik bağlantı gibi gösterilmemeli.
                               : d.documentSnapshot?.standalone
-                                ? "Teklifsiz hızlı proforma"
+                                ? d.type === "Contract" ? "Teklifsiz hızlı sözleşme" : "Teklifsiz hızlı proforma"
                                 : "Bağlantı gerekli";
                 return (
                   <TableRow
