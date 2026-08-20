@@ -25,12 +25,13 @@ async function selectLeadCity(page: import("@playwright/test").Page, city: strin
  * bağlıdır; sabitlenmesi gereken kural "tam olarak biri" olmasıdır. Eskiden operasyon
  * başlığı koşulsuz beklenirdi — lead, fırsatın ilk adımı olunca bu geçersizleşti.
  */
-async function expectSingleWorkspaceAxis(dialog: import("@playwright/test").Locator) {
+async function expectSingleWorkspaceAxis(dialog: import("@playwright/test").Locator): Promise<"operations" | "qualification"> {
   const operations = dialog.getByRole("heading", { name: "Operasyon aşaması", exact: true });
   const qualification = dialog.locator("#opportunity-qualification");
   await expect
     .poll(async () => (await operations.count()) + (await qualification.count()))
     .toBe(1);
+  return (await operations.count()) ? "operations" : "qualification";
 }
 
 test("fırsatlar listelenir ve detay açılır", async ({ page }) => {
@@ -88,8 +89,11 @@ test("fırsatlar listelenir ve detay açılır", async ({ page }) => {
     await expect(dialog.locator('[data-opportunity-primary="true"]:visible')).toHaveCount(1);
     // Süreç gövdesi her zaman görünür; satış alanı kutusu artık bir açma
     // düğmesinin arkasında değil, yoksa tek ilerletme düğmesi kaybolurdu.
-    await expectSingleWorkspaceAxis(dialog);
-    await expect(dialog.getByLabel("Saha operasyonu özeti")).toBeVisible();
+    // Saha operasyonu özeti operasyon ekseninin içeriği; lead kartında o eksen
+    // hiç render edilmiyor, dolayısıyla koşulsuz beklenemez.
+    if ((await expectSingleWorkspaceAxis(dialog)) === "operations") {
+      await expect(dialog.getByLabel("Saha operasyonu özeti")).toBeVisible();
+    }
     await expect(dialog.getByRole("button", { name: "Tam süreç haritasını aç", exact: true })).toHaveCount(0);
   } else {
     await expect(dialog.getByText("Kayıt çalışma alanı", { exact: true })).toBeVisible();
