@@ -69,6 +69,8 @@ export const productModels = pgTable(
     cashPrice: money('cash_price'),
     vatRate: percent('vat_rate'),
     originCountry: varchar('origin_country', { length: 64 }),
+    /** Tezgahın üretim yılı — proforma/sözleşme metnindeki {{YIL}} buradan basılır. */
+    productionYear: integer('production_year'),
     hsCode: varchar('hs_code', { length: 32 }),
     stockCode: varchar('stock_code', { length: 64 }),
     imageUrl: varchar('image_url', { length: 512 }),

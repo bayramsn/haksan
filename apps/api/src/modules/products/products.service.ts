@@ -924,6 +924,7 @@ export class ProductsService {
           cashPrice: input.cashPrice?.toString() ?? null,
           vatRate: input.vatRate.toString(),
           originCountry: input.originCountry ?? null,
+          productionYear: input.productionYear ?? null,
           hsCode: input.hsCode ?? null,
           stockCode: input.stockCode ?? null,
           imageUrl: input.imageUrl ?? null,
@@ -985,7 +986,7 @@ export class ProductsService {
     const alternativesProvided = input.muadilProductIds !== undefined || input.muadilProductId !== undefined;
     const alternativeIds = alternativesProvided ? this.uniqueAlternativeIds(input, id) : [];
     if (alternativesProvided) patch.muadilProductId = alternativeIds[0] ?? null;
-    for (const k of ['series', 'modelCode', 'modelName', 'fullName', 'originCountry', 'hsCode', 'stockCode', 'imageUrl', 'description'] as const) {
+    for (const k of ['series', 'modelCode', 'modelName', 'fullName', 'originCountry', 'productionYear', 'hsCode', 'stockCode', 'imageUrl', 'description'] as const) {
       if ((input as any)[k] !== undefined) patch[k] = (input as any)[k] ?? null;
     }
     for (const k of ['listPrice', 'cashPrice', 'vatRate'] as const) {
@@ -1345,6 +1346,7 @@ export class ProductsService {
         cashPrice: normalized.cashPrice?.toString() ?? null,
         vatRate: normalized.vatRate.toString(),
         originCountry: normalized.originCountry ?? null,
+        productionYear: normalized.productionYear ?? null,
         hsCode: normalized.hsCode ?? null,
         stockCode: normalized.stockCode ?? null,
         imageUrl: normalized.imageUrl ?? null,

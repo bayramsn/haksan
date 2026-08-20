@@ -2959,7 +2959,7 @@ type ProductFormState = {
   model: string; modelName: string; controlPanel: string;
   imageUrl: string; shortDescription: string; description: string;
   listPrice: string; cashPrice: string; currency: "USD" | "EUR" | "TRY";
-  vatRate: string; originCountry: string; hsCode: string; stockCode: string;
+  vatRate: string; originCountry: string; productionYear: string; hsCode: string; stockCode: string;
   specs: ProductSpec[]; standardEquipment: string[]; optionalEquipment: string[];
   muadilProductIds: string[];
   status: "active" | "passive";
@@ -3071,7 +3071,7 @@ const emptyProduct = (productGroupCode = ""): ProductFormState => ({
   model: "", modelName: "", controlPanel: "",
   imageUrl: "", shortDescription: "", description: "",
   listPrice: "", cashPrice: "", currency: "USD",
-  vatRate: DEFAULT_PRODUCT_VAT_RATE, originCountry: "", hsCode: "", stockCode: "",
+  vatRate: DEFAULT_PRODUCT_VAT_RATE, originCountry: "", productionYear: "", hsCode: "", stockCode: "",
   specs: [], standardEquipment: [], optionalEquipment: [],
   muadilProductIds: [],
   status: "active",
@@ -3102,6 +3102,7 @@ const fromProduct = (p: Product): ProductFormState => ({
   listPrice: String(p.listPrice || ""), cashPrice: p.cashPrice ? String(p.cashPrice) : "", currency: p.currency,
   vatRate: normalizeProductVatRate(p.vatRate),
   originCountry: p.originCountry ?? "",
+  productionYear: p.productionYear ? String(p.productionYear) : "",
   hsCode: p.hsCode ?? "",
   stockCode: p.stockCode || p.model,
   // Kayıtlı ürün kendi teknik alanlarıyla açılır; katalog şablonu burada
@@ -3579,6 +3580,7 @@ export function ProductDialog({
       currency: form.currency,
       vatRate: Number(normalizeProductVatRate(form.vatRate)),
       originCountry: form.originCountry.trim(),
+      productionYear: form.productionYear.trim() ? Number(form.productionYear) : undefined,
       hsCode: form.hsCode.trim(),
       stockCode: form.stockCode.trim(),
       supplierCompanyId: form.supplierCompanyId || null,
@@ -3830,6 +3832,18 @@ export function ProductDialog({
               <>
                 <ProductSheetRow label="Menşei">
                   <Input className="h-8 max-w-xs" value={form.originCountry} onChange={(e) => setForm({ ...form, originCountry: e.target.value })} placeholder="Ülke" />
+                </ProductSheetRow>
+
+                {/* Belge metinleri "üretim yılı … olup yeni ve kullanılmamıştır" diye
+                    yazıyor; yıl burada boş kalırsa şablon cari yıla düşer. */}
+                <ProductSheetRow label="Üretim Yılı">
+                  <Input
+                    className="h-8 max-w-xs"
+                    inputMode="numeric"
+                    value={form.productionYear}
+                    onChange={(e) => setForm({ ...form, productionYear: e.target.value.replace(/[^\d]/g, "").slice(0, 4) })}
+                    placeholder="Örn. 2023"
+                  />
                 </ProductSheetRow>
 
                 <ProductSheetRow label="GTIP Kodu">

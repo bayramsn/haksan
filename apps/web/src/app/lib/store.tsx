@@ -383,6 +383,7 @@ const productApiPayload = (p: Partial<Product>, brandId?: string): ProductUpdate
     cashPrice: toOptionalNumber(p.cashPrice),
     vatRate: normalizeProductVatRate(p.vatRate),
     originCountry: cleanString(p.originCountry),
+    productionYear: Number.isFinite(Number(p.productionYear)) && p.productionYear ? Number(p.productionYear) : undefined,
     hsCode: cleanString(p.hsCode),
     stockCode: cleanString(p.stockCode),
     imageUrl: cleanString(p.imageUrl),
@@ -899,6 +900,7 @@ function StoreInner({ children }: { children: ReactNode }) {
           currency: (p.currency?.code as 'USD' | 'EUR' | 'TRY') ?? 'USD',
           vatRate: normalizeProductVatRate(p.vatRate),
           originCountry: p.originCountry ?? '',
+          productionYear: p.productionYear ?? undefined,
           hsCode: p.hsCode ?? '',
           stockCode: p.stockCode ?? '',
           supplierCompanyId: p.supplierCompanyId ?? null,
@@ -2045,6 +2047,7 @@ function StoreInner({ children }: { children: ReactNode }) {
     if (fields.currency !== undefined) apiPatch.currencyCode = fields.currency;
     if (fields.stockCode !== undefined) apiPatch.stockCode = cleanString(fields.stockCode);
     if (fields.originCountry !== undefined) apiPatch.originCountry = cleanString(fields.originCountry);
+    if (fields.productionYear !== undefined) apiPatch.productionYear = fields.productionYear || undefined;
     if (fields.hsCode !== undefined) apiPatch.hsCode = cleanString(fields.hsCode);
     if (fields.modelName !== undefined) apiPatch.modelName = cleanString(fields.modelName);
     if (fields.series !== undefined) apiPatch.series = cleanString(fields.series);

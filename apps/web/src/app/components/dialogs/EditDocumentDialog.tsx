@@ -89,7 +89,7 @@ export function EditDocumentDialog({
 }) {
   const kind: DocumentKind = document.type === "Contract" ? "contract" : "proforma";
   const config = KIND_CONFIG[kind];
-  const { offers, noteTemplates, addNoteTemplate, updateNoteTemplate, deleteNoteTemplate, refresh } = useStore();
+  const { offers, products, noteTemplates, addNoteTemplate, updateNoteTemplate, deleteNoteTemplate, refresh } = useStore();
   const savedTermsTemplates = useTermsTemplates(noteTemplates, config.templateScope);
   const [open, setOpen] = useState(false);
   const [rows, setRows] = useState<ProformaPriceRow[]>([]);
@@ -131,12 +131,17 @@ export function EditDocumentDialog({
       ? snapshot.items.flatMap((item: any) => (Array.isArray(item?.specs) ? item.specs : []))
       : [];
     const controlSpec = specs.find((spec) => /(?:cnc|kontrol)\s*(?:ünite|unite)|kontrol sistemi/i.test(String(spec?.key ?? "")));
+    // {{YIL}} tezgahın ÜRETİM yılıdır, belgenin kesildiği yıl değil.
+    const productionYear = (Array.isArray(snapshot.items) ? snapshot.items : [])
+      .map((item: any) => products.find((product) => product.id === String(item?.productModelId ?? ""))?.productionYear)
+      .find(Boolean);
     return {
       alici: String(snapshot.company?.legalTitle ?? snapshot.company?.shortName ?? "").trim() || undefined,
+      yil: productionYear,
       kdvOrani: rows[0]?.vatRate ?? 20,
       kontrolMarka: String(controlSpec?.value ?? "").match(/MITSUBISHI|FANUC|SIEMENS|HEIDENHAIN|SYNTEC/i)?.[0]?.toUpperCase(),
     };
-  }, [document.documentSnapshot, rows]);
+  }, [document.documentSnapshot, products, rows]);
 
   useEffect(() => {
     if (!open || !document.quoteId) return;

@@ -22,6 +22,8 @@ export const productCreateSchema = z.object({
   cashPrice: moneySchema.optional(),
   vatRate: productVatRateSchema.default(20),
   originCountry: z.string().max(64).optional(),
+  /** Tezgahın üretim yılı; belge metnindeki {{YIL}} buradan doldurulur. */
+  productionYear: z.coerce.number().int().min(1950).max(2100).optional(),
   hsCode: z.string().max(32).optional(),
   stockCode: z.string().max(64).optional(),
   imageUrl: z.string().max(512).optional(),
@@ -318,6 +320,8 @@ export const productImportRowSchema = z.object({
   cashPrice: moneySchema.optional(),
   vatRate: percentSchema.default(20),
   originCountry: z.string().max(64).optional(),
+  /** Tezgahın üretim yılı; belge metnindeki {{YIL}} buradan doldurulur. */
+  productionYear: z.coerce.number().int().min(1950).max(2100).optional(),
   hsCode: z.string().max(32).optional(),
   stockCode: z.string().max(64).optional(),
   imageUrl: z.string().max(512).optional(),

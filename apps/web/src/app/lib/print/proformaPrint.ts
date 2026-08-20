@@ -116,7 +116,13 @@ const proformaFromSnapshot = (
   const warranty = String(snapshotValue(terms, "warrantyTermsText", "warranty_terms_text") ?? snapshotValue(quote, "warrantyTerms", "warranty_terms") ?? "");
   const variant = resolveProformaNotes(variantKey, {
     alici: companyName,
-    yil: new Date(doc.uploadedAt || snapshot.capturedAt || Date.now()).getFullYear(),
+    yil: documentProductionYear(
+      products,
+      (Array.isArray(snapshot.items) ? snapshot.items : []).map(
+        (item: any) => item?.productModelId ?? item?.product_model_id,
+      ),
+      new Date(doc.uploadedAt || snapshot.capturedAt || Date.now()).getFullYear(),
+    ),
     kdvOrani: termsVatRate,
   });
   return {
@@ -199,6 +205,24 @@ const resolveQuote = (doc: DocumentItem, offers: Offer[]): Offer | null => {
     if (byCo.length) return byCo[0];
   }
   return null;
+};
+
+/**
+ * Belge metnindeki {{YIL}} tezgahın ÜRETİM yılıdır, belgenin kesildiği yıl değil.
+ * "Üretim yılı 2023 olup yeni ve kullanılmamıştır" cümlesi belge tarihinden
+ * türetilince 2023 üretimi bir tezgah 2026 yazıyordu. Ürün kartında yıl boşsa
+ * eski davranışa (belge yılı) düşülür.
+ */
+const documentProductionYear = (
+  products: Product[],
+  productModelIds: unknown[],
+  fallbackYear: number,
+): number => {
+  for (const id of productModelIds) {
+    const year = products.find((product) => product.id === String(id ?? ""))?.productionYear;
+    if (year) return year;
+  }
+  return fallbackYear;
 };
 
 const itemsFromQuote = (quote: QuoteDetail, products: Product[], sc: SalesCase | null): ProformaItem[] => {
@@ -351,7 +375,11 @@ export function buildProformaPrintData(
     notlar: (() => {
       const ctx = {
         alici: cust?.name,
-        yil: new Date(doc.uploadedAt || offer?.date || Date.now()).getFullYear(),
+        yil: documentProductionYear(
+          products,
+          [product?.id, ...(quoteDetail?.items ?? []).map((item: any) => item?.productModelId)],
+          new Date(doc.uploadedAt || offer?.date || Date.now()).getFullYear(),
+        ),
         kdvOrani: enteredVatRates.find((rate: number) => rate > 0) ?? kdvOran,
       };
       const payment = String(quoteDetail?.terms?.paymentTermsText ?? quoteDetail?.paymentTerms ?? "");

@@ -855,6 +855,13 @@
       "when": 1790448000000,
       "tag": "0122_contract_vat_freight_terms",
       "breakpoints": true
+    },
+    {
+      "idx": 123,
+      "version": "7",
+      "when": 1790534400000,
+      "tag": "0123_product_production_year",
+      "breakpoints": true
     }
   ]
 }
