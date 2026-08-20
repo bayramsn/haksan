@@ -1755,6 +1755,7 @@ export function QuoteDialog({
           </div>
 
           <DocumentTermsTemplateEditor
+            builtInVariants={QUOTE_NOTE_VARIANTS}
             description="Şablon seçin, metinleri gerekiyorsa düzenleyin; değişiklikler teklif/proforma belgesine eklenir."
             // Teklif çıktısı maddeleri a) b) c) ile numaralar; ekrandaki işaret
             // de aynı olsun ki kullanıcı belgeyi basmadan madde sırasını görsün.

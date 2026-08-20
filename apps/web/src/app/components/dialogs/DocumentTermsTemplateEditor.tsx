@@ -10,7 +10,7 @@ import { Input } from "../ui/input";
 import { NumberedLinesTextarea, markedLineCount, type LineMarkerStyle } from "../shared/NumberedLinesTextarea";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "../ui/dialog";
 import type { NoteTemplate } from "../../lib/store";
-import { QUOTE_NOTE_VARIANTS } from "../../lib/print";
+import type { QuoteNoteVariant } from "../../lib/print";
 
 const TERMS_TEMPLATE_PREFIX = "template:";
 
@@ -82,7 +82,13 @@ type Props = {
   addNoteTemplate: (t: { title: string; body: string; scope?: string }) => Promise<NoteTemplate>;
   updateNoteTemplate: (id: string, patch: { title?: string; body?: string; scope?: string }) => Promise<NoteTemplate>;
   deleteNoteTemplate: (id: string) => Promise<void>;
-  includeBuiltInVariants?: boolean;
+  /**
+   * Bu belgeye AİT hazır şablonlar. Eskiden `includeBuiltInVariants` boolean'ı
+   * vardı ve varsayılanı `true` olduğu için TEKLİF şablonları proforma ve
+   * sözleşme pencerelerine de düşüyordu — imza masasında teklif dili basılıyordu.
+   * Artık her ekran kendi setini açıkça verir; verilmezse hazır şablon çıkmaz.
+   */
+  builtInVariants?: QuoteNoteVariant[];
   onBuiltInTemplateSelected?: (key: string) => void;
   /**
    * Madde işaretinin biçimi — metnin basılacağı belgeye göre seçilir:
@@ -120,7 +126,7 @@ export function DocumentTermsTemplateEditor({
   addNoteTemplate,
   updateNoteTemplate,
   deleteNoteTemplate,
-  includeBuiltInVariants = true,
+  builtInVariants = [],
   onBuiltInTemplateSelected,
   markerStyle = "decimal",
   continuousNumbering = false,
@@ -154,7 +160,7 @@ export function DocumentTermsTemplateEditor({
       return;
     }
 
-    const builtIn = QUOTE_NOTE_VARIANTS.find((variant) => variant.key === key);
+    const builtIn = builtInVariants.find((variant) => variant.key === key);
     if (!builtIn) return;
     onBuiltInTemplateSelected?.(key);
     onChange({
@@ -219,7 +225,7 @@ export function DocumentTermsTemplateEditor({
           <Select value={selectedTemplateKey || "ozel"} onValueChange={(v) => applyTemplate(v === "ozel" ? "" : v)}>
             <SelectTrigger className="h-9 w-full sm:w-64"><SelectValue placeholder="Şablon seçin..." /></SelectTrigger>
             <SelectContent>
-              {includeBuiltInVariants && QUOTE_NOTE_VARIANTS.map((variant) => (
+              {builtInVariants.map((variant) => (
                 <SelectItem key={variant.key} value={variant.key}>{variant.label}</SelectItem>
               ))}
               {savedTemplates.length > 0 && (

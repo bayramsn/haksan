@@ -14,6 +14,7 @@ import { Switch } from "../ui/switch";
 import {
   DocumentTermsTemplateEditor, matchSavedTermsTemplate, useTermsTemplates,
 } from "./DocumentTermsTemplateEditor";
+import { CONTRACT_NOTE_VARIANTS } from "../../lib/print";
 
 const CONTRACT_TERMS_TEMPLATE_SCOPE = "contract_terms";
 
@@ -191,6 +192,7 @@ export function EditContractTermsDialog({ document, trigger }: { document: Docum
               kayıtlı şablonlar, madde sayacı ve şablon kaydetme burada da çalışır. */}
           <DocumentTermsTemplateEditor
             markerStyle="none"
+            builtInVariants={CONTRACT_NOTE_VARIANTS}
             title="Sözleşme Şartları"
             description="Şablon seçin veya metni düzenleyin. Değişiklik yalnız bu sözleşmeye işlenir; bağlı teklifin şartları olduğu gibi kalır."
             templateScope={CONTRACT_TERMS_TEMPLATE_SCOPE}

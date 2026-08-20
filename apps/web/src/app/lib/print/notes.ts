@@ -148,6 +148,57 @@ export const QUOTE_NOTE_VARIANTS: QuoteNoteVariant[] = [
   },
 ];
 
+/**
+ * Sözleşme şart şablonları.
+ *
+ * Proformanın düz "NOTLAR" listesiyle aynı iki teslim şeklini anlatır, ama
+ * sözleşme çıktısı maddeleri ödeme / teslimat / garanti başlıkları altında
+ * bastığı için metin o üç kovaya bölünmüş hâlde durur. Teklif şablonlarından
+ * ayrı: teklif kendi ticari dilini kullanır, sözleşme imza masasının dilini.
+ */
+export const CONTRACT_NOTE_VARIANTS: QuoteNoteVariant[] = [
+  {
+    key: "cif-istanbul",
+    label: "Tezgah CİF İstanbul",
+    odeme: [
+      "Sözleşme toplam bedelinin tamamı devir sonrası ithalat öncesi peşin tahsil edilecektir,",
+      "Sözleşme bedeline tezgâhın cari orandaki %{{KDV_ORANI}} K.D.V.'si dahil edilmemiştir.",
+    ],
+    teslimat: [
+      "Sözleşme C.I.F./İstanbul teslim şeklinde düzenlenmiş olup, fiyatımıza tezgâhın ithalatı ile ilgili masraf ve vergiler (Gümrük Vergisi, Liman Masrafları, Ardiye Giderleri, Gümrükleme Ücreti, İlave Gümrük Vergisi) dahil edilmemiştir. Tezgâh Antrepodan devredilecektir.",
+      "Tezgâh antrepoda devir işlemleri için hazırdır, gümrük işlemleri sonrasında derhal teslim edilecektir,",
+      "Tezgâh HAKSAN MAKİNA/Hadımköy antreposundan teslim edilecek olup, tezgâhın İstanbul içi karayolu taşıma ve sigortası alıcı firma tarafından karşılanacaktır,",
+      "Tezgâh yol şartlarına uygun ambalajlanmış olarak sevk edilecektir.",
+    ],
+    garanti: [
+      "Tezgâh uluslararası CE standartlarına uygundur.",
+      "Tezgâhın üretim yılı {{YIL}} olup, yeni ve kullanılmamıştır,",
+      "Tezgâh ile birlikte çalışması için zorunlu olanlar dışında aksam ve aksesuar bulunmamaktadır,",
+      "Tezgâh tüm üretim hatalarına karşı 1 (bir) yıl üretici firma garantisi kapsamındadır, kontrol ünitesi 2 (iki) yıl Uluslararası {{KONTROL_MARKA}} garantisi kapsamındadır,",
+    ],
+  },
+  {
+    key: "isletme-teslim",
+    label: "İşletme Teslim",
+    odeme: [
+      "Sözleşme İşletme teslim şeklinde düzenlenmiş olup, fiyatımıza tezgâhın ithalatı ile ilgili masraf ve vergiler (Gümrük Vergisi, Liman Masrafları, Ardiye Giderleri, Gümrükleme Ücreti, İlave Gümrük Vergisi) dahil edilmiştir,",
+      "Sözleşme bedeline tezgâhın cari orandaki %{{KDV_ORANI}} K.D.V.'si dahil edilmemiştir. Leasing aracılığı ile yapılan işlemlerde K.D.V. %1 olarak tahakkuk edilmektedir,",
+    ],
+    teslimat: [
+      "Tezgâhın teslimi kesin siparişten sonra derhal gerçekleştirilecektir,",
+      "Tezgâh ödeme işlemleri sonrasında {{ALICI}} tesislerine teslim edilecek olup, tezgâhın İstanbul içi karayolu taşıması HAKSAN MAKİNA tarafından karşılanacaktır,",
+      "Tezgâh yol şartlarına uygun ambalajlanmış olarak sevk edilecektir.",
+    ],
+    garanti: [
+      "Tezgâh uluslararası CE standartlarına uygundur.",
+      "Tezgâhın üretim yılı {{YIL}} olup, yeni ve kullanılmamıştır,",
+      "Tezgâh ile birlikte çalışması için zorunlu olanlar dışında aksam ve aksesuar bulunmamaktadır,",
+      "Tezgâh tüm üretim hatalarına karşı 1 (bir) yıl üretici firma garantisi kapsamındadır,",
+      "Kontrol ünitesi 2 (iki) yıl Uluslararası {{KONTROL_MARKA}} garantisi kapsamındadır,",
+    ],
+  },
+];
+
 export const SERVICE_NOTE_VARIANTS: FlatNoteVariant[] = [
   {
     key: "teknik-servis",
@@ -235,13 +286,20 @@ export const PROFORMA_NOTE_VARIANTS: FlatNoteVariant[] = [
 /** {{ALICI}} / {{YIL}} yer tutucularını belge verisiyle doldurur. */
 export const fillNotePlaceholders = (
   notlar: string[],
-  ctx: { alici?: string; yil?: string | number; kdvOrani?: string | number }
+  ctx: {
+    alici?: string;
+    yil?: string | number;
+    kdvOrani?: string | number;
+    /** Kontrol ünitesi markası — ürün kartından gelir (FANUC / MITSUBISHI …). */
+    kontrolMarka?: string;
+  }
 ): string[] =>
   notlar.map((n) =>
     n
       .replace(/\{\{ALICI\}\}/g, ctx.alici?.trim() || "alıcı firma")
       .replace(/\{\{YIL\}\}/g, String(ctx.yil ?? new Date().getFullYear()))
       .replace(/\{\{KDV_ORANI\}\}/g, String(ctx.kdvOrani ?? 20))
+      .replace(/\{\{KONTROL_MARKA\}\}/g, ctx.kontrolMarka?.trim() || "üretici")
   );
 
 /**

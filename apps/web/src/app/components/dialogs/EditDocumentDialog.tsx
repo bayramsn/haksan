@@ -16,6 +16,7 @@ import { DocumentDiscountFields, ProformaItemsEditor, ProformaTotalsPanel } from
 import {
   DocumentTermsTemplateEditor, matchSavedTermsTemplate, useTermsTemplates,
 } from "./DocumentTermsTemplateEditor";
+import { CONTRACT_NOTE_VARIANTS, type QuoteNoteVariant } from "../../lib/print";
 
 /**
  * Teklife bağlı proforma / sözleşmenin KENDİ fiyatını, iskontosunu ve şartlarını
@@ -39,6 +40,9 @@ const KIND_CONFIG = {
     idPrefix: "edit-proforma",
     // Proforma çıktısı üç şart bloğunu tek kesintisiz numaralı listede basar.
     termsProps: { continuousNumbering: true },
+    // Proformanın hazır metinleri düz "NOTLAR" listesi olarak ayrı seçiliyor;
+    // şart kutularına teklif ya da sözleşme şablonu düşürmek yanlış dil basardı.
+    builtInVariants: [] as QuoteNoteVariant[],
     totalsNote: ({ customs }: TotalsNoteContext) => customs > 0
       ? "Millileştirme tutarı bağlı teklifin güncel değeridir; kayıtta fiyatlara göre yeniden hesaplanır."
       : undefined,
@@ -49,6 +53,7 @@ const KIND_CONFIG = {
     idPrefix: "edit-contract",
     // Sözleşme şartları madde madde numaralanmaz; çıktı kendi 2.x/3.x sırasını basar.
     termsProps: { markerStyle: "none" as const },
+    builtInVariants: CONTRACT_NOTE_VARIANTS,
     totalsNote: ({ vatIncluded }: TotalsNoteContext) => vatIncluded
       ? "K.D.V. dahil seçili: sözleşme çıktısındaki tutar bu net bedelin K.D.V.'li karşılığıdır."
       : "Sözleşme çıktısındaki tutar K.D.V. hariç net bedeldir (ara toplam + millileştirme).",
@@ -274,6 +279,7 @@ export function EditDocumentDialog({
 
           <DocumentTermsTemplateEditor
             {...config.termsProps}
+            builtInVariants={config.builtInVariants}
             title={`${config.label} Şartları`}
             description={`Şablon seçin veya metni düzenleyin. Değişiklik yalnız bu ${config.label.toLocaleLowerCase("tr-TR")}ya işlenir; bağlı teklifin şartları olduğu gibi kalır.`}
             templateScope={config.templateScope}

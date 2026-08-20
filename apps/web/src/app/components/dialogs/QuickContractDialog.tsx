@@ -32,6 +32,7 @@ import { useStore } from "../../lib/store";
 import { useAuth } from "../../../lib/auth";
 import { documentService } from "../../../lib/services";
 import { DocumentTermsTemplateEditor, useTermsTemplates } from "./DocumentTermsTemplateEditor";
+import { CONTRACT_NOTE_VARIANTS } from "../../lib/print";
 import {
   computeProformaTotals, EMPTY_DOCUMENT_DISCOUNT, formatMoneyInput, hasDocumentDiscount, parseMoneyInput,
   type DocumentDiscount,
@@ -492,6 +493,7 @@ export function QuickContractDialog({
 
               <DocumentTermsTemplateEditor
                 markerStyle="none"
+            builtInVariants={CONTRACT_NOTE_VARIANTS}
                 title="Sözleşme Şartları"
                 description="Şablon seçin veya metni yazın. Bu belge bir teklife bağlı olmadığı için şartlar yalnızca sözleşmeye kaydedilir."
                 templateScope={CONTRACT_TERMS_TEMPLATE_SCOPE}

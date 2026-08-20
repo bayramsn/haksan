@@ -18,6 +18,7 @@ import {
   matchSavedTermsTemplate,
   useTermsTemplates,
 } from "./DocumentTermsTemplateEditor";
+import { CONTRACT_NOTE_VARIANTS } from "../../lib/print";
 import {
   computeProformaTotals, EMPTY_DOCUMENT_DISCOUNT, hasDocumentDiscount, proformaRowError,
   quoteToProformaPriceRows, type DocumentDiscount, type ProformaPriceRow,
@@ -393,6 +394,7 @@ export function CreateContractDialog({
 
           <DocumentTermsTemplateEditor
             markerStyle="none"
+            builtInVariants={CONTRACT_NOTE_VARIANTS}
             title="Sözleşme Şartları"
             description="Şablon seçin veya metni düzenleyin. Değişiklik yalnız bu sözleşmeye işlenir; bağlı teklifin şartları olduğu gibi kalır."
             templateScope={CONTRACT_TERMS_TEMPLATE_SCOPE}
