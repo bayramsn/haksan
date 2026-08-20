@@ -17,6 +17,22 @@ async function selectLeadCity(page: import("@playwright/test").Page, city: strin
   await page.getByRole("option", { name: `"${city}" ilini kullan`, exact: true }).click();
 }
 
+/**
+ * Çalışma alanı iki ekseni AYNI ANDA göstermez (OpportunityWorkspace: `isLead ? … : …`).
+ *
+ * Lead aşamasındaki kartta nitelendirme paneli, ilerlemiş kartta operasyon aşaması
+ * render edilir. Test listedeki ilk kartı açtığı için hangisinin çıkacağı veriye
+ * bağlıdır; sabitlenmesi gereken kural "tam olarak biri" olmasıdır. Eskiden operasyon
+ * başlığı koşulsuz beklenirdi — lead, fırsatın ilk adımı olunca bu geçersizleşti.
+ */
+async function expectSingleWorkspaceAxis(dialog: import("@playwright/test").Locator) {
+  const operations = dialog.getByRole("heading", { name: "Operasyon aşaması", exact: true });
+  const qualification = dialog.locator("#opportunity-qualification");
+  await expect
+    .poll(async () => (await operations.count()) + (await qualification.count()))
+    .toBe(1);
+}
+
 test("fırsatlar listelenir ve detay açılır", async ({ page }) => {
   test.setTimeout(90_000);
   const simpleWorkspace = process.env.VITE_OPPORTUNITY_WORKSPACE_SIMPLE === "on";
@@ -66,17 +82,18 @@ test("fırsatlar listelenir ve detay açılır", async ({ page }) => {
   await expect(dialog.getByRole("button", { name: "Ticari alanları kaydet", exact: true })).toHaveCount(0);
 
   if (simpleWorkspace) {
-    await expect(dialog.getByText("Fırsat çalışma alanı", { exact: true })).toBeVisible();
+    // Başlık ürün adıyla birlikte basılıyor ("Fırsat çalışma alanı — <ürün>").
+    await expect(dialog.getByText(/^Fırsat çalışma alanı — /)).toBeVisible();
     await expect(dialog.locator('[data-opportunity-primary="true"]:visible')).toHaveCount(1);
     // Süreç gövdesi her zaman görünür; satış alanı kutusu artık bir açma
     // düğmesinin arkasında değil, yoksa tek ilerletme düğmesi kaybolurdu.
-    await expect(dialog.getByRole("heading", { name: "Operasyon aşaması", exact: true })).toBeVisible();
+    await expectSingleWorkspaceAxis(dialog);
     await expect(dialog.getByLabel("Saha operasyonu özeti")).toBeVisible();
     await expect(dialog.getByRole("button", { name: "Tam süreç haritasını aç", exact: true })).toHaveCount(0);
   } else {
     await expect(dialog.getByText("Kayıt çalışma alanı", { exact: true })).toBeVisible();
     await expect(dialog.getByText("Sıradaki iş ve risk", { exact: true })).toBeVisible();
-    await expect(dialog.getByRole("heading", { name: "Operasyon aşaması", exact: true })).toBeVisible();
+    await expectSingleWorkspaceAxis(dialog);
   }
 
   // Aktivite akışı kalıcı yan panele taşındı: sekme yok, her modda görünür.
@@ -191,7 +208,7 @@ test("lead kartından yeni firma OSM araması üst formu göndermeden açık kal
   await selectLeadCity(page, "İstanbul");
   await page.getByText("Kayıtlı firmadan seçin veya yazın", { exact: true }).click();
   await page.getByPlaceholder("Firma ara…").fill(companyTitle);
-  await page.getByRole("option", { name: `"${companyTitle}" firmasını lead olarak yaz` }).click();
+  await page.getByRole("option", { name: `"${companyTitle}" firmasını fırsata yaz` }).click();
   await page.getByLabel("İstenen ürün *").fill(product);
   await page.getByRole("button", { name: "Fırsat Oluştur", exact: true }).click();
 
@@ -279,7 +296,8 @@ test("Lead Workspace V2 akışı otomatik atamadan gerekçeli fırsat dönüşü
     await search.fill(contactName);
     const row = page.getByRole("row").filter({ hasText: contactName });
     await expect(row).toBeVisible();
-    await expect(row).toContainText(assignee!.fullName);
+    // Satır sorumluyu baş harf rozeti + yalnız ilk adla basıyor (SalesCases.tsx).
+    await expect(row).toContainText(assignee!.fullName.split(" ")[0]);
     await row.getByText(contactName, { exact: true }).click();
 
     const recordDialog = page.getByRole("dialog", { name: new RegExp(product) });
