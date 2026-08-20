@@ -8,6 +8,7 @@ import { productModels } from './products';
 import { inventoryItems } from './inventory';
 import { quoteStatuses, currencies, units, proformaStatuses, contractStatuses, invoiceStatuses } from './lookup';
 import { files } from './files';
+import { signatures } from './signatures';
 
 export const quotes = pgTable(
   'quotes',
@@ -60,6 +61,8 @@ export const quotes = pgTable(
     statusNote: text('status_note'),
     statusChangedAt: timestamp('status_changed_at', { withTimezone: true }),
     statusChangedBy: uuid('status_changed_by').references(() => users.id, { onDelete: 'set null' }),
+    /** Çıktının altına basılacak imza. Basılan ad/ünvan/görsel ayrıca snapshot'a gömülür. */
+    signatureId: uuid('signature_id').references(() => signatures.id, { onDelete: 'set null' }),
     documentSnapshot: jsonb('document_snapshot'),
     finalizedAt: timestamp('finalized_at', { withTimezone: true }),
     ...auditColumns,
@@ -123,6 +126,10 @@ export const quoteTerms = pgTable('quote_terms', {
   deliveryTermsText: text('delivery_terms_text'),
   warrantyTermsText: text('warranty_terms_text'),
   importCostsExcluded: boolean('import_costs_excluded').notNull().default(true),
+  /** Sözleşme 3.3: fiyata K.D.V. dahil mi? Varsayılan hariç. */
+  vatIncluded: boolean('vat_included').notNull().default(false),
+  /** Sözleşme 2.6: nakliye + sigorta satıcıda mı? Varsayılan alıcıda. */
+  freightPaidBySeller: boolean('freight_paid_by_seller').notNull().default(false),
   deliveryLocation: varchar('delivery_location', { length: 255 }),
   estimatedDeliveryDaysMin: integer('estimated_delivery_days_min'),
   estimatedDeliveryDaysMax: integer('estimated_delivery_days_max'),
@@ -157,14 +164,27 @@ export const proformas = pgTable(
       .references(() => tenants.id, { onDelete: 'cascade' }),
     divisionId: uuid('division_id').references(() => divisions.id, { onDelete: 'set null' }),
     businessLine: varchar('business_line', { length: 16 }),
-    quoteId: uuid('quote_id')
-      .notNull()
-      .references(() => quotes.id, { onDelete: 'restrict' }),
+    // Tekliften bağımsız ("hızlı") proformalarda boştur; kalemler ve firma
+    // bilgisi doğrudan documentSnapshot içinde tutulur.
+    quoteId: uuid('quote_id').references(() => quotes.id, { onDelete: 'restrict' }),
+    // Teklif yokken firma/para birimi buradan çözülür (liste sorgusu teklife join atamaz).
+    companyId: uuid('company_id').references(() => companies.id),
+    currencyId: uuid('currency_id').references(() => currencies.id),
+    /** Kayıtlı firması olmayan proformada elle girilen unvan. */
+    companyNameText: varchar('company_name_text', { length: 255 }),
     documentNo: varchar('document_no', { length: 64 }).notNull(),
     issueDate: timestamp('issue_date', { withTimezone: true }).notNull(),
     statusId: uuid('status_id').references(() => proformaStatuses.id),
     fileId: uuid('file_id').references(() => files.id),
+    /** Çıktının altına basılacak imza. Basılan ad/ünvan/görsel ayrıca snapshot'a gömülür. */
+    signatureId: uuid('signature_id').references(() => signatures.id, { onDelete: 'set null' }),
     documentSnapshot: jsonb('document_snapshot'),
+    /**
+     * Belgenin KENDİ şartları (ödeme / teslimat / garanti + teslim bağlamı).
+     * NULL ise çıktı bağlı teklifin şartlarına düşer; teklif yalnız ön-dolgu
+     * kaynağıdır ve belgede yapılan düzenleme ona geri yazılmaz.
+     */
+    terms: jsonb('terms'),
     finalizedAt: timestamp('finalized_at', { withTimezone: true }),
     createdBy: uuid('created_by').references(() => users.id),
     ...auditColumns,
@@ -174,6 +194,7 @@ export const proformas = pgTable(
     tenantDivisionIdx: index('proformas_tenant_division_idx').on(t.tenantId, t.divisionId),
     tenantBusinessLineIdx: index('proformas_tenant_business_line_idx').on(t.tenantId, t.businessLine),
     quoteIdx: index('proformas_quote_idx').on(t.quoteId),
+    companyIdx: index('proformas_company_idx').on(t.companyId),
   })
 );
 
@@ -186,15 +207,28 @@ export const contracts = pgTable(
       .references(() => tenants.id, { onDelete: 'cascade' }),
     divisionId: uuid('division_id').references(() => divisions.id, { onDelete: 'set null' }),
     businessLine: varchar('business_line', { length: 16 }),
-    quoteId: uuid('quote_id')
-      .notNull()
-      .references(() => quotes.id, { onDelete: 'restrict' }),
+    // Tekliften bağımsız ("hızlı") sözleşmelerde boştur; kalemler, şartlar ve
+    // firma bilgisi doğrudan documentSnapshot içinde tutulur.
+    quoteId: uuid('quote_id').references(() => quotes.id, { onDelete: 'restrict' }),
+    // Teklif yokken firma/para birimi buradan çözülür (liste sorgusu teklife join atamaz).
+    companyId: uuid('company_id').references(() => companies.id),
+    currencyId: uuid('currency_id').references(() => currencies.id),
+    /** Kayıtlı firması olmayan sözleşmede elle girilen unvan. */
+    companyNameText: varchar('company_name_text', { length: 255 }),
     contractNo: varchar('contract_no', { length: 64 }).notNull(),
     signedDate: timestamp('signed_date', { withTimezone: true }),
     paymentTermDays: integer('payment_term_days'),
     statusId: uuid('status_id').references(() => contractStatuses.id),
     fileId: uuid('file_id').references(() => files.id),
+    /** Çıktının altına basılacak imza. Basılan ad/ünvan/görsel ayrıca snapshot'a gömülür. */
+    signatureId: uuid('signature_id').references(() => signatures.id, { onDelete: 'set null' }),
     documentSnapshot: jsonb('document_snapshot'),
+    /**
+     * Belgenin KENDİ şartları (ödeme / teslimat / garanti + teslim bağlamı).
+     * NULL ise çıktı bağlı teklifin şartlarına düşer; teklif yalnız ön-dolgu
+     * kaynağıdır ve belgede yapılan düzenleme ona geri yazılmaz.
+     */
+    terms: jsonb('terms'),
     finalizedAt: timestamp('finalized_at', { withTimezone: true }),
     createdBy: uuid('created_by').references(() => users.id),
     ...auditColumns,
@@ -204,6 +238,7 @@ export const contracts = pgTable(
     tenantDivisionIdx: index('contracts_tenant_division_idx').on(t.tenantId, t.divisionId),
     tenantBusinessLineIdx: index('contracts_tenant_business_line_idx').on(t.tenantId, t.businessLine),
     quoteIdx: index('contracts_quote_idx').on(t.quoteId),
+    companyIdx: index('contracts_company_idx').on(t.companyId),
   })
 );
 

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
+import { useQuery } from "@tanstack/react-query";
 import QRCode from "qrcode";
 import { Card, CardContent, CardHeader, CardTitle } from "../../ui/card";
 import { Button } from "../../ui/button";
@@ -19,7 +20,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from ".
 import { Avatar, AvatarFallback, AvatarImage } from "../../ui/avatar";
 import { Badge } from "../../ui/badge";
 import { FilterPopover } from "../../ui/list-controls";
-import { StatusBadge } from "../../Layout";
+import { StatusBadge } from "../../shared/StatusBadge";
 import { CreateServiceRequestDialog } from "../../dialogs/CreateDialogs";
 import { KanbanBoard, type KanbanColumn } from "../../KanbanBoard";
 import { ServiceCardAttachments } from "../../KanbanCardAttachments";
@@ -48,12 +49,14 @@ import {
 import { useAuth } from "../../../../lib/auth";
 import { isServiceQuoteComplete, serviceQuoteMissingFields } from "../../../lib/serviceQuote";
 import { toast } from "sonner";
-import { fileService, inventoryService, serviceService } from "../../../../lib/services";
+import { fileService, inventoryService, serviceService, signatureService } from "../../../../lib/services";
+import { resolveMediaUrl } from "../../../../lib/apiClient";
 import { exportService } from "../../../../lib/downloadExport";
 import { ExportExcelButton } from "../../ui/ExportExcelButton";
 import { KanbanDetailDialogShell } from "../../shared/KanbanDetailDialogShell";
 import { EntityVisual, InsightStat, RecordIdentity } from "../../shared/PremiumPrimitives";
 import type { OperationFocus } from "../../../lib/operations";
+import type { SignatureView } from "@haksan/shared";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
 } from "../../ui/dropdown-menu";
@@ -64,9 +67,12 @@ import { printOrWarn, openInMaps, warrantyInfo, type WarrantyState } from "../..
 import {
   Plus, Printer, MapPin, Wrench, Building2, Lock, Play, Pause, Square, MessageSquare,
   ShieldCheck, Send, Check, CheckCircle2, X, Package, ClipboardCheck, Inbox, Link2, Copy, ExternalLink,
-  PhoneCall, Trash2, ArrowRight, FileCheck2, History, FileText, Save, BookmarkPlus,
+  Trash2, ArrowRight, FileCheck2, History, FileText, Save, BookmarkPlus,
   AlertTriangle, Clock3, UserRoundCheck, Workflow, Share2, Download,
 } from "lucide-react";
+import { RemoteCompanyCombobox } from "../../shared/RemoteCompanyCombobox";
+import { useCompanyDetail } from "../../../lib/companyServerData";
+import { contactQueryKeys, loadAllCompanyContacts } from "../../../lib/contactServerData";
 
 const SERVICE_CURRENCIES = ["USD", "EUR", "TRY"] as const;
 const NONE = "__none__";
@@ -83,6 +89,24 @@ const COMPLAINT_EXT_TO_MIME: Record<string, string> = {
   jpeg: "image/jpeg",
   webp: "image/webp",
 };
+
+function useRemoteCompanyContacts(companyId?: string | null, enabled = true) {
+  const { user, tenant, activeDivision, activeDepartment } = useAuth();
+  const normalizedCompanyId = companyId && companyId !== NONE ? companyId : null;
+  const identityScope = {
+    tenantId: tenant?.id ?? user?.tenantId ?? "anonymous",
+    userId: user?.id ?? "anonymous",
+    activeDivision,
+    activeDepartment,
+  };
+
+  return useQuery({
+    queryKey: contactQueryKeys.companyContacts(identityScope, normalizedCompanyId ?? "none"),
+    queryFn: ({ signal }) => loadAllCompanyContacts(normalizedCompanyId as string, signal),
+    enabled: enabled && Boolean(normalizedCompanyId),
+    staleTime: 60_000,
+  });
+}
 
 const newServiceQuoteItem = (): ServiceQuoteItem => ({
   id: `service-quote-item-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
@@ -113,6 +137,14 @@ const printServiceQuoteForm = (quote: ServiceQuoteForm) =>
       teklifiYazan: quote.writerName,
       teklifiYazanUnvan: quote.writerTitle,
       teklifiYazanEmail: quote.writerEmail,
+      // Seçilmemişse satır teklifi yazana düşer; görsel yalnız imzayla çıkar.
+      imza: quote.signature
+        ? {
+            ad: quote.signature.name,
+            unvan: quote.signature.title || undefined,
+            gorselUrl: quote.signature.imageUrl ? resolveMediaUrl(quote.signature.imageUrl) : undefined,
+          }
+        : undefined,
       konu: quote.subject,
       items: quote.items
         .filter((item) => item.description.trim())
@@ -376,7 +408,7 @@ export function ServiceRequestsPage({
   initialQuery?: string;
   kanbanOnly?: boolean;
 }) {
-  const { service, machines, customers, contacts, users, refresh } = useStore();
+  const { service, machines, customers, users, refresh } = useStore();
   const { hasPermission } = useAuth();
   const canCreateService = hasPermission("service_tickets.create");
   const [view, setView] = useState<ServiceRequestsView>(initialView);
@@ -615,7 +647,7 @@ export function ServiceRequestsPage({
     <section className="premium-blueprint precision-corners overflow-hidden rounded-2xl border border-primary/20 bg-card p-4 shadow-sm sm:p-5">
       <div className="relative flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
         <div>
-          <p className="font-mono text-[10px] font-semibold tracking-[0.2em] text-primary">SAHA SERVİS KONTROLÜ</p>
+          <p className="ui-eyebrow text-primary">Saha servis kontrolü</p>
           <h2 className="mt-1 font-display text-2xl font-semibold tracking-tight sm:text-3xl">Servis operasyon hattı</h2>
           <p className="mt-1 max-w-2xl text-sm text-muted-foreground">Öncelik, SLA, sorumlu ve sıradaki aksiyonu talep bağlamından kopmadan takip edin.</p>
         </div>
@@ -665,7 +697,6 @@ export function ServiceRequestsPage({
       />
       <ComplaintDetailDialog
         complaint={selectedComplaint}
-        customers={customers}
         machines={machines}
         onClose={() => setSelectedComplaint(null)}
         onSaved={loadComplaints}
@@ -675,15 +706,12 @@ export function ServiceRequestsPage({
       <CreateComplaintDialog
         open={createComplaintOpen}
         onOpenChange={setCreateComplaintOpen}
-        customers={customers}
-        contacts={contacts}
         machines={machines}
         onCreated={loadComplaints}
       />
       <CreateComplaintLinkDialog
         open={createLinkOpen}
         onOpenChange={setCreateLinkOpen}
-        customers={customers}
         machines={machines}
         onCreated={loadComplaints}
       />
@@ -715,7 +743,7 @@ export function ServiceRequestsPage({
   if (kanbanOnly) {
     return (
       <>
-        <div className="space-y-4">
+        <div className="crm-page">
           {serviceOverview}
           <div className="flex items-center justify-end gap-2">
             <span className="text-sm text-muted-foreground tabular-nums">{visibleService.length} kayıt</span>
@@ -730,7 +758,7 @@ export function ServiceRequestsPage({
 
   return (
     <>
-    <div className="space-y-4">
+    <div className="crm-page">
     {serviceOverview}
     <Tabs value={view} onValueChange={(v) => setView(v as ServiceRequestsView)}>
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -1331,15 +1359,11 @@ function ComplaintInbox({
 function CreateComplaintDialog({
   open,
   onOpenChange,
-  customers,
-  contacts,
   machines,
   onCreated,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  customers: Customer[];
-  contacts: Contact[];
   machines: Machine[];
   onCreated: () => void;
 }) {
@@ -1355,8 +1379,13 @@ function CreateComplaintDialog({
   const [contactPhone, setContactPhone] = useState("");
   const [contactEmail, setContactEmail] = useState("");
   const [saving, setSaving] = useState(false);
+  const autoFilledCompanyRef = useRef<string | null>(null);
+  const selectedCompanyId = companyId === NONE ? null : companyId;
+  const selectedCompanyQuery = useCompanyDetail(selectedCompanyId);
+  const selectedCompany = selectedCompanyQuery.data;
+  const companyContactsQuery = useRemoteCompanyContacts(selectedCompanyId, open);
   const filteredMachines = companyId === NONE ? machines : machines.filter((m) => m.customerId === companyId);
-  const filteredContacts = companyId === NONE ? [] : contacts.filter((contact) => contact.customerId === companyId);
+  const filteredContacts = companyContactsQuery.data?.data ?? [];
 
   const fillContactFields = (contact?: Contact, customer?: Customer) => {
     setContactName(contact?.name ?? customer?.contactPerson ?? "");
@@ -1367,11 +1396,11 @@ function CreateComplaintDialog({
   const selectCompany = (nextCompanyId: string) => {
     setCompanyId(nextCompanyId);
     setMachineId(NONE);
-    const customer = customers.find((item) => item.id === nextCompanyId);
-    const companyContacts = contacts.filter((contact) => contact.customerId === nextCompanyId);
-    const preferredContact = companyContacts.find((contact) => contact.isPrimary) ?? companyContacts[0];
-    setContactId(preferredContact?.id ?? NONE);
-    fillContactFields(preferredContact, customer);
+    setContactId(NONE);
+    setContactName("");
+    setContactPhone("");
+    setContactEmail("");
+    autoFilledCompanyRef.current = null;
   };
 
   const selectMachine = (nextMachineId: string) => {
@@ -1384,10 +1413,25 @@ function CreateComplaintDialog({
 
   const selectContact = (nextContactId: string) => {
     setContactId(nextContactId);
-    const customer = customers.find((item) => item.id === companyId);
-    const contact = contacts.find((item) => item.id === nextContactId);
-    fillContactFields(contact, customer);
+    const contact = filteredContacts.find((item) => item.id === nextContactId);
+    fillContactFields(contact, selectedCompany);
   };
+
+  useEffect(() => {
+    if (!open || !selectedCompanyId || companyContactsQuery.isPending || selectedCompanyQuery.isPending) return;
+    if (autoFilledCompanyRef.current === selectedCompanyId) return;
+    autoFilledCompanyRef.current = selectedCompanyId;
+    const preferredContact = filteredContacts.find((contact) => contact.isPrimary) ?? filteredContacts[0];
+    setContactId(preferredContact?.id ?? NONE);
+    fillContactFields(preferredContact, selectedCompany);
+  }, [
+    companyContactsQuery.isPending,
+    filteredContacts,
+    open,
+    selectedCompany,
+    selectedCompanyId,
+    selectedCompanyQuery.isPending,
+  ]);
 
   useEffect(() => {
     if (!open) return;
@@ -1402,6 +1446,7 @@ function CreateComplaintDialog({
     setContactName("");
     setContactPhone("");
     setContactEmail("");
+    autoFilledCompanyRef.current = null;
   }, [open]);
 
   const submit = async () => {
@@ -1443,13 +1488,17 @@ function CreateComplaintDialog({
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <div>
             <Label>Firma</Label>
-            <Select value={companyId} onValueChange={selectCompany}>
-              <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value={NONE}>Eşleşmemiş</SelectItem>
-                {customers.map((c) => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
-              </SelectContent>
-            </Select>
+            <RemoteCompanyCombobox
+              value={selectedCompanyId}
+              onValueChange={selectCompany}
+              className="mt-1"
+              placeholder="Eşleşmemiş"
+            />
+            {selectedCompanyId && (
+              <Button type="button" variant="ghost" size="sm" className="mt-1 h-7 px-2 text-[11px] text-muted-foreground" onClick={() => selectCompany(NONE)}>
+                Firma eşleşmesini kaldır
+              </Button>
+            )}
           </div>
           <div>
             <Label>Makine</Label>
@@ -1496,8 +1545,8 @@ function CreateComplaintDialog({
           </div>
           <div>
             <Label>İlgili Kişi</Label>
-            <Select value={contactId} onValueChange={selectContact} disabled={companyId === NONE}>
-              <SelectTrigger className="mt-1"><SelectValue placeholder="İlgili kişi seçin" /></SelectTrigger>
+            <Select value={contactId} onValueChange={selectContact} disabled={companyId === NONE || companyContactsQuery.isPending}>
+              <SelectTrigger className="mt-1"><SelectValue placeholder={companyContactsQuery.isPending ? "İlgili kişiler yükleniyor…" : "İlgili kişi seçin"} /></SelectTrigger>
               <SelectContent>
                 <SelectItem value={NONE}>Firma bilgisi / elle giriş</SelectItem>
                 {filteredContacts.map((contact) => (
@@ -1541,13 +1590,11 @@ function CreateComplaintDialog({
 function CreateComplaintLinkDialog({
   open,
   onOpenChange,
-  customers,
   machines,
   onCreated,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  customers: Customer[];
   machines: Machine[];
   onCreated: () => void;
 }) {
@@ -1558,8 +1605,10 @@ function CreateComplaintLinkDialog({
   const [latestExpiresAt, setLatestExpiresAt] = useState("");
   const [latestQrImage, setLatestQrImage] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const selectedCompanyId = companyId === NONE ? null : companyId;
+  const selectedCompanyQuery = useCompanyDetail(selectedCompanyId);
   const filteredMachines = companyId === NONE ? machines : machines.filter((m) => m.customerId === companyId);
-  const selectedCompany = customers.find((company) => company.id === companyId);
+  const selectedCompany = selectedCompanyQuery.data;
   const selectedMachine = machines.find((machine) => machine.id === machineId);
 
   useEffect(() => {
@@ -1627,13 +1676,17 @@ function CreateComplaintLinkDialog({
         <div className="mt-5 grid grid-cols-1 gap-3 md:grid-cols-2">
           <div>
             <Label>Firma</Label>
-            <Select value={companyId} onValueChange={(v) => { setCompanyId(v); setMachineId(NONE); }}>
-              <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value={NONE}>Genel link</SelectItem>
-                {customers.map((c) => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
-              </SelectContent>
-            </Select>
+            <RemoteCompanyCombobox
+              value={selectedCompanyId}
+              onValueChange={(companyId) => { setCompanyId(companyId); setMachineId(NONE); }}
+              className="mt-1"
+              placeholder="Genel link"
+            />
+            {selectedCompanyId && (
+              <Button type="button" variant="ghost" size="sm" className="mt-1 h-7 px-2 text-[11px] text-muted-foreground" onClick={() => { setCompanyId(NONE); setMachineId(NONE); }}>
+                Genel linke dön
+              </Button>
+            )}
           </div>
           <div>
             <Label>Makine</Label>
@@ -1715,7 +1768,6 @@ function CreateComplaintLinkDialog({
 
 function ComplaintDetailDialog({
   complaint,
-  customers,
   machines,
   onClose,
   onSaved,
@@ -1723,7 +1775,6 @@ function ComplaintDetailDialog({
   onReject,
 }: {
   complaint: ServiceComplaintIntake | null;
-  customers: Customer[];
   machines: Machine[];
   onClose: () => void;
   onSaved: () => void;
@@ -1829,8 +1880,6 @@ function ComplaintDetailDialog({
   };
 
   const warrantyText = WARRANTY_SUGGESTION_LABELS[complaint.warrantyStatusSuggestion ?? "unknown"] ?? "Bilinmiyor";
-  const callAssistant = complaint.callAssistant;
-
   return (
     <Dialog open={!!complaint} onOpenChange={(open) => !open && onClose()}>
       <DialogContent className="w-[min(780px,calc(100vw-2rem))] max-w-none sm:max-w-none">
@@ -1843,13 +1892,18 @@ function ComplaintDetailDialog({
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <div>
             <Label>Firma</Label>
-            <Select value={companyId} onValueChange={(v) => { setCompanyId(v); setMachineId(NONE); }} disabled={closed}>
-              <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value={NONE}>Eşleşmemiş</SelectItem>
-                {customers.map((c) => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
-              </SelectContent>
-            </Select>
+            <RemoteCompanyCombobox
+              value={companyId === NONE ? null : companyId}
+              onValueChange={(nextCompanyId) => { setCompanyId(nextCompanyId); setMachineId(NONE); }}
+              disabled={closed}
+              className="mt-1"
+              placeholder="Eşleşmemiş"
+            />
+            {companyId !== NONE && !closed && (
+              <Button type="button" variant="ghost" size="sm" className="mt-1 h-7 px-2 text-[11px] text-muted-foreground" onClick={() => { setCompanyId(NONE); setMachineId(NONE); }}>
+                Firma eşleşmesini kaldır
+              </Button>
+            )}
           </div>
           <div>
             <Label>Makine</Label>
@@ -1892,30 +1946,6 @@ function ComplaintDetailDialog({
             <div><span className="text-muted-foreground">Telefon:</span> {complaint.contactPhone || "—"}</div>
             <div><span className="text-muted-foreground">E-posta:</span> {complaint.contactEmail || "—"}</div>
           </div>
-          {callAssistant && (
-            <div className="md:col-span-2 rounded-md border border-sky-200 bg-sky-50/70 p-3 text-sm">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div>
-                  <div className="flex items-center gap-2 font-medium text-sky-900">
-                    <PhoneCall className="size-4" /> Telefon / Call Assistant Kaynağı
-                  </div>
-                  <div className="mt-1 text-sky-800/80">
-                    {callAssistant.callEventId ? `Arama: ${callAssistant.callEventId}` : "Arama kaydı yok"} ·{" "}
-                    {callAssistant.callAssistantSuggestionId ? `Öneri: ${callAssistant.callAssistantSuggestionId}` : "Öneri yok"}
-                  </div>
-                </div>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="gap-1 bg-white"
-                  onClick={() => navigator.clipboard?.writeText([callAssistant.callEventId, callAssistant.callAssistantSuggestionId].filter(Boolean).join(" · "))}
-                >
-                  <Copy className="size-4" /> Kaynak ID kopyala
-                </Button>
-              </div>
-            </div>
-          )}
           <div className="md:col-span-2 rounded-md border border-border/60 bg-muted/30 p-3 text-sm">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
@@ -2268,6 +2298,9 @@ function ServiceQuoteEditor({
 
   const [draft, setDraft] = useState<ServiceQuoteForm>(buildDraft);
   const [saving, setSaving] = useState(false);
+  // Ayarlar → Belge İmzaları'ndan gelen aktif imzalar. Liste boşsa seçici hiç
+  // gösterilmez: seçenek üretmeyen bir kutu kullanıcıya yalan söyler.
+  const [signatureOptions, setSignatureOptions] = useState<SignatureView[]>([]);
   const [noteTemplateMode, setNoteTemplateMode] = useState<"create" | "update" | "delete" | null>(null);
   const [noteTemplateTitle, setNoteTemplateTitle] = useState("");
   const [noteTemplateSaving, setNoteTemplateSaving] = useState(false);
@@ -2278,6 +2311,17 @@ function ServiceQuoteEditor({
   useEffect(() => {
     setDraft(buildDraft());
   }, [serviceRequest.id, serviceRequest.serviceQuote]);
+
+  useEffect(() => {
+    let cancelled = false;
+    // İmza listesi teklifin zorunlu parçası değil; yüklenemezse seçici gizli
+    // kalır ve çıktı eski davranışıyla teklifi yazanın adına düşer.
+    signatureService
+      .list({ activeOnly: true })
+      .then((rows) => { if (!cancelled) setSignatureOptions(rows); })
+      .catch(() => { if (!cancelled) setSignatureOptions([]); });
+    return () => { cancelled = true; };
+  }, []);
 
   const updateItem = (id: string, patch: Partial<ServiceQuoteItem>) => {
     setDraft((current) => ({
@@ -2434,6 +2478,33 @@ function ServiceQuoteEditor({
           <div><Label>Teklifi Yazan *</Label><Input className="mt-1" value={draft.writerName} onChange={(e) => setDraft({ ...draft, writerName: e.target.value })} /></div>
           <div><Label>Unvan</Label><Input className="mt-1" value={draft.writerTitle ?? ""} onChange={(e) => setDraft({ ...draft, writerTitle: e.target.value })} /></div>
           <div><Label>E-Posta</Label><Input className="mt-1" type="email" value={draft.writerEmail ?? ""} onChange={(e) => setDraft({ ...draft, writerEmail: e.target.value })} /></div>
+          {signatureOptions.length > 0 && (
+            <div className="md:col-span-3">
+              <Label>Çıktıya basılacak imza</Label>
+              <Select
+                value={draft.signature?.id ?? NONE}
+                onValueChange={(value) => {
+                  const picked = signatureOptions.find((option) => option.id === value);
+                  setDraft({
+                    ...draft,
+                    // Canlı kayda referans değil kopyası saklanır: imza sonradan
+                    // düzenlenirse bu teklif kendi bastığı imzayı korur.
+                    signature: picked
+                      ? { id: picked.id, name: picked.name, title: picked.title, imageUrl: picked.imageUrl }
+                      : undefined,
+                  });
+                }}
+              >
+                <SelectTrigger className="mt-1"><SelectValue placeholder="İmzasız" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={NONE}>İmzasız — teklifi yazanın adı basılır</SelectItem>
+                  {signatureOptions.map((option) => (
+                    <SelectItem key={option.id} value={option.id}>{option.name} · {option.title}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -2589,6 +2660,10 @@ function ServiceDetailDialog({
     service: serviceRequests,
   } = useStore();
   const { user: authUser } = useAuth();
+  const activeCustomerId = serviceRequest?.customerId;
+  const storedCustomer = customers.find((customer) => customer.id === activeCustomerId);
+  const customerQuery = useCompanyDetail(activeCustomerId, storedCustomer);
+  const companyContactsQuery = useRemoteCompanyContacts(activeCustomerId, Boolean(serviceRequest));
   const [nowMs, setNowMs] = useState(Date.now());
   const [note, setNote] = useState("");
   const [editingNoteId, setEditingNoteId] = useState("");
@@ -2682,7 +2757,7 @@ function ServiceDetailDialog({
 
   if (!serviceRequest) return null;
 
-  const customer = customers.find((c) => c.id === serviceRequest.customerId);
+  const customer = customerQuery.data ?? storedCustomer;
   const machine = machines.find((m) => m.id === serviceRequest.machineId);
   const assignee = users.find((u) => u.id === serviceRequest.assignedUserId);
   const warrantyClaim = serviceRequest.warrantyClaim ?? null;
@@ -2749,7 +2824,9 @@ function ServiceDetailDialog({
   const activityTabEnabled = isServiceDetailTabEnabled(serviceRequest.stage, "activities");
   const feeTabEnabled = isServiceDetailTabEnabled(serviceRequest.stage, "operations");
   const completionTabEnabled = isServiceDetailTabEnabled(serviceRequest.stage, "completion");
-  const contact = contacts.find((item) => item.id === serviceRequest.contactId) ?? null;
+  const contact = contacts.find((item) => item.id === serviceRequest.contactId)
+    ?? companyContactsQuery.data?.data.find((item) => item.id === serviceRequest.contactId)
+    ?? null;
   const setAllowedDetailTab = (value: string) => {
     const next = value as ServiceDetailTab;
     if (!isServiceDetailTabEnabled(serviceRequest.stage, next)) return;

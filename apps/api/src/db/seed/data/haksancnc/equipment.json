@@ -1326,5 +1326,40 @@
     ],
     "optional": [],
     "kind": "turkish"
+  },
+  "haksan-cnc-mmt-1170": {
+    "standard": [
+      "MITSUBISHI M80 Cnc Kontrol Ünitesi",
+      "10,4” LCD/TFT Renkli Dokunmatik Ekran",
+      "PLC Kullanıcı Dostu Arayüzü",
+      "“SSS” (Super Smooth Surface) Fonksiyonu",
+      "Diyalog Programlama, Türkçe Dil Opsiyonu",
+      "Ethernet Bağlantı Birimi, RS-232 Bağlantı Birimi",
+      "SD Kart Okuma Yuvası, USB Okuma Yuvası",
+      "X, Y, Z Eksenlerde Yüksek Hassasiyet ve Mukavemette Lineer Kızaklar",
+      "X, Y, Z Eksenlerde Gres Lube Japon yağlama sistemi",
+      "C-3 Kalitesinde Ön Gerilimi Alınmış Vidalı Miller",
+      "“MEHANITE” Mukavemetli ve Hassas Döküm Gövde Yapısı",
+      "Tam Kapalı Kabin & Kabin içi Yıkama Sistemi",
+      "Fener Mili Yağ Soğutma Sistemi & Fener Mili Sürekli Hava Perdeleme Sistemi",
+      "Fener Mili Ucundan Basınçlı Kesme Sıvısı Püskürtme Sistemi",
+      "Fener Mili Çevresinden Basınçlı Hava ve Su Püskürtme Sistemi",
+      "Kabin İçi LED Aydınlatma Sistemi x 2 Adet & LED Çalışma Lambası",
+      "Otomatik (Alarmlı) Üniteden Programlanabilir Merkezi Yağlama Sistemi",
+      "X, Y, Z Eksenlerde Paslanmaz Teleskopik Kızak Koruyucu Sistem",
+      "Vidalı Tip Talaş Atma Helezonu & Talaş Arabası",
+      "Otomatik Program Sonu Tezgah Kapama Fonksiyonu",
+      "Led Ekranlı El Çarkı (MPG)",
+      "Elektrik Kabini Isı Dengeleme Sistemi",
+      "3 Renkli Alarm Lambası",
+      "Hava & Su Tabancası",
+      "Tezgâhı Kullanma ve Bakım Kitapları",
+      "MITSUBISHI Programlama ve Kullanma Kitapları",
+      "CE Normlarına Uygun Elektrik ve Güvenlik Tertibatı",
+      "1 Yıl Mekanik Tezgâh Garantisi",
+      "2 Yıl Kontrol Ünite Garantisi"
+    ],
+    "optional": [],
+    "kind": "turkish"
   }
 }

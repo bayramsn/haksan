@@ -10,7 +10,6 @@ import { cardElevated } from '@/src/theme/styles';
 
 const SLIDES = [
   { title: 'Saha & Ofis Tek Ekranda', body: 'Firmalar, teklifler ve servis talepleri tek mobil uygulamada.', icon: 'business-outline' as const },
-  { title: 'Akıllı Çağrı Asistanı', body: 'Müşteri görüşmelerini CRM kayıtlarına bağlayın.', icon: 'call-outline' as const },
   { title: 'Servis & Bakım Cebinizde', body: 'İmza, fotoğraf ve offline tamamlama ile saha servisi.', icon: 'construct-outline' as const },
 ];
 

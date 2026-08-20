@@ -8,15 +8,10 @@ import {
   salesStageLabel,
   DocumentItem,
   OPPORTUNITY_PAYMENT_METHOD_LABELS,
-  LEAD_TEMPERATURE_HINTS,
-  LEAD_TEMPERATURE_LABELS,
-  LEAD_TEMPERATURE_ORDER,
-  LEAD_TEMPERATURE_STYLES,
-  type LeadTemperature,
   type Machine,
   type OpportunityPaymentMethod,
 } from "../../lib/mock";
-import { ArrowRight, Building2, Calendar, CheckCircle2, FileSignature, FileText, MapPin, Printer, UserRound, Wrench } from "lucide-react";
+import { ArrowRight, Building2, Calendar, CheckCircle2, MapPin, Printer, UserRound, Wrench } from "lucide-react";
 import type { OperationAction } from "../../lib/operations";
 import { KanbanBoard, KanbanColumn } from "../KanbanBoard";
 import { KanbanCardAttachments } from "../KanbanCardAttachments";
@@ -36,7 +31,6 @@ import {
   AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "../ui/alert-dialog";
 import { Label } from "../ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -48,6 +42,10 @@ import {
 import { inventoryService } from "../../../lib/services";
 import { CreateProformaDialog } from "../dialogs/CreateProformaDialog";
 import { CreateContractDialog } from "../dialogs/CreateContractDialog";
+import { QuoteDialog } from "../dialogs/QuoteDialog";
+import { CommercialDocumentRail } from "../shared/CommercialDocumentRail";
+import { PaymentMethodSelect } from "../shared/PaymentMethodSelect";
+import { useAuth } from "../../../lib/auth";
 
 export const STAGE_DOT: Record<string, string> = {
   lead: "bg-zinc-400",
@@ -82,9 +80,17 @@ export const STAGE_DOT: Record<string, string> = {
 
 const initials = (n: string) => (n || "—").split(" ").slice(0, 2).map((p) => p[0]).join("").toUpperCase();
 
-// Alım niyeti satışın erken adımlarında takip edilir; teklif sonrası kartın
-// durumu zaten aşamadan okunur.
-const TEMPERATURE_STAGES: SalesStage[] = ["lead", "call", "visit"];
+const COMMERCIAL_DOCUMENT_TYPES = new Set<DocumentItem["type"]>(["Proforma", "Contract", "CommercialInvoice"]);
+
+/**
+ * Ticari fatura, teslimden önceki herhangi bir adımda kesilebilir: kartın
+ * fatura aşamasına gelmesini beklemek gerekmez, ama teslim edilmiş/iptal
+ * kartta yükleme düğmesi anlamsızdır. Faturanın varlığı WIN kapısında aranır.
+ */
+const invoiceUploadable = (stage: SalesStage) => {
+  const index = SALES_STAGES.indexOf(stage);
+  return index >= SALES_STAGES.indexOf("payment_plan") && index < SALES_STAGES.indexOf("delivered");
+};
 
 export function KanbanPage({
   onSelect,
@@ -96,6 +102,7 @@ export function KanbanPage({
   onAction?: (action: OperationAction) => void;
 }) {
   const { cases: storeCases, moveCase, updateCase, closeCase, customers, users, documents, offers, machines, stock, deliveries, addService } = useStore();
+  const { hasPermission } = useAuth();
   const cases = items ?? storeCases;
   const [lostId, setLostId] = useState<string | null>(null);
   const [previewDoc, setPreviewDoc] = useState<DocumentItem | null>(null);
@@ -106,7 +113,6 @@ export function KanbanPage({
   const [closingCaseId, setClosingCaseId] = useState<string | null>(null);
   const [pendingCloseCase, setPendingCloseCase] = useState<SalesCase | null>(null);
   const [paymentMethodSavingId, setPaymentMethodSavingId] = useState<string | null>(null);
-  const [temperatureSavingId, setTemperatureSavingId] = useState<string | null>(null);
   const [serviceQuoteCaseId, setServiceQuoteCaseId] = useState<string | null>(null);
   const lostCase = lostId ? cases.find((s) => s.id === lostId) : undefined;
   const lostCustomer = lostCase
@@ -198,9 +204,6 @@ export function KanbanPage({
     machines.find((x) => x.salesCaseId === sc.id) ??
     machines.find((x) => x.customerId === sc.customerId);
 
-  const hasCommercialInvoice = (caseId: string) =>
-    documents.some((doc) => doc.salesCaseId === caseId && doc.type === "CommercialInvoice");
-
   const loadInstallationMachine = async (sc: SalesCase) => {
     const fallback = localMachineForCase(sc);
     try {
@@ -275,15 +278,6 @@ export function KanbanPage({
       return;
     }
 
-    if (to === "commercial_invoice" && sc && from === "payment_plan" && !hasCommercialInvoice(sc.id)) {
-      if (!offers.some((offer) => offer.salesCaseId === sc.id)) {
-        toast.error("Fatura için ilişkili teklif bulunamadı", { description: "Ticari fatura kaydı teklif üzerinden oluşturulur." });
-        return;
-      }
-      toast.error("Ticari fatura gerekli", { description: "Karttaki Fatura butonuyla belgeyi yükledikten sonra kart otomatik taşınır." });
-      return;
-    }
-
     if (to === "contract" && sc && !documents.some((d) => d.salesCaseId === sc.id && d.type === "Contract")) {
       toast.error("Sözleşme gerekli", { description: "Karttaki Sözleşme butonuyla belgeyi oluşturduktan sonra aşamayı taşıyın." });
       return;
@@ -307,6 +301,11 @@ export function KanbanPage({
 
   const completeCommercialInvoiceStage = async (sc: SalesCase) => {
     setInvoiceUploadCase(null);
+    // Kart fatura aşamasını geçmişse geri çekilmez; yükleme yalnız belgeyi ekler.
+    if (SALES_STAGES.indexOf(sc.stage) >= SALES_STAGES.indexOf("commercial_invoice")) {
+      toast.success("Ticari fatura yüklendi", { description: "Belge karta bağlandı." });
+      return;
+    }
     try {
       await moveCase(sc.id, "commercial_invoice");
       toast.success("Ticari fatura yüklendi", { description: "Kart Ticari Fatura aşamasına alındı." });
@@ -380,21 +379,6 @@ export function KanbanPage({
     }
   };
 
-  const setLeadTemperature = async (salesCase: SalesCase, leadTemperature: LeadTemperature) => {
-    if (temperatureSavingId) return;
-    setTemperatureSavingId(salesCase.id);
-    try {
-      await updateCase(salesCase.id, { leadTemperature });
-      toast.success("Lead sıcaklığı güncellendi", {
-        description: `${LEAD_TEMPERATURE_LABELS[leadTemperature]} · ${LEAD_TEMPERATURE_HINTS[leadTemperature]}`,
-      });
-    } catch (err: any) {
-      toast.error("Lead sıcaklığı kaydedilemedi", { description: err?.message ?? "API isteği başarısız oldu." });
-    } finally {
-      setTemperatureSavingId(null);
-    }
-  };
-
   const columns: KanbanColumn<SalesCase>[] = SALES_STAGES.map((stage) => {
     const items = cases.filter((s) => s.stage === stage);
     const total = items.reduce((a, s) => a + s.estimatedAmount, 0);
@@ -414,7 +398,13 @@ export function KanbanPage({
 
   return (
     <>
-    <LostCaseDialog open={!!lostId} onOpenChange={(o) => !o && setLostId(null)} caseId={lostId} caseName={lostCustomer} />
+    <LostCaseDialog
+      open={!!lostId}
+      onOpenChange={(o) => !o && setLostId(null)}
+      caseId={lostId}
+      caseName={lostCustomer}
+      productName={lostCase?.requestedMachine || [lostCase?.requestedProduct, lostCase?.requestedModel].filter(Boolean).join(" · ")}
+    />
     <DocumentPreviewDialog doc={previewDoc} onClose={() => setPreviewDoc(null)} />
     <AlertDialog open={Boolean(pendingCloseCase)} onOpenChange={(open) => !open && !closingCaseId && setPendingCloseCase(null)}>
       <AlertDialogContent>
@@ -549,13 +539,12 @@ export function KanbanPage({
         const partyName = c?.name || s.leadCompanyTitle || s.leadContactName || "Firma kaydı bekliyor";
         const u = users.find((x) => x.id === s.assignedUserId);
         const caseDocs = documents.filter((d) => d.salesCaseId === s.id);
+        const supportingDocs = caseDocs.filter((document) => !COMMERCIAL_DOCUMENT_TYPES.has(document.type));
         const latestOffer = latestOfferForCase(s);
-        const hasProforma = caseDocs.some((d) => d.type === "Proforma");
-        const hasContract = caseDocs.some((d) => d.type === "Contract");
         const stopCardClick = (event: MouseEvent) => event.stopPropagation();
-        const temperature: LeadTemperature = s.leadTemperature ?? "unknown";
-        const temperatureStyle = LEAD_TEMPERATURE_STYLES[temperature];
-        const locationText = [c?.district, c?.city].filter(Boolean).join(" / ") || s.leadCity || "";
+        const locationText =
+          [c?.district, c?.city].filter(Boolean).join(" / ") ||
+          [s.leadCity, s.leadDistrict].filter(Boolean).join(" / ");
         const contactLine = [s.leadContactMethodName, s.leadPhone, s.leadEmail]
           .filter(Boolean)
           .join(" · ") || [s.leadContactMethodName, s.leadContactValue].filter(Boolean).join(" · ");
@@ -577,7 +566,7 @@ export function KanbanPage({
               <div className="min-w-0 flex-1">
                 <div className="flex min-w-0 items-center gap-1.5">
                   <div className="truncate text-[13px] font-medium leading-tight transition-colors group-hover:text-primary">{partyName}</div>
-                  {!c && <span className="shrink-0 rounded bg-warning-soft px-1 py-0.5 text-[9px] text-warning">Lead</span>}
+                  {!c && <span className="shrink-0 rounded bg-warning-soft px-1 py-0.5 text-[9px] text-warning">Firma bekliyor</span>}
                 </div>
                 {s.leadContactName && s.leadContactName !== partyName && (
                   <div className="mt-0.5 truncate text-[11px] text-muted-foreground">{s.leadContactName}</div>
@@ -630,167 +619,137 @@ export function KanbanPage({
               {s.isOfferPrepared && (
                 <span className="inline-flex px-1.5 py-0.5 rounded text-[10px] bg-success-soft text-success">Teklif</span>
               )}
-              <span
-                className={`inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] font-medium ${temperatureStyle.badge}`}
-                title={`Alım niyeti: ${LEAD_TEMPERATURE_HINTS[temperature]}`}
-              >
-                <span className={`size-1.5 rounded-full ${temperatureStyle.dot}`} />
-                {LEAD_TEMPERATURE_LABELS[temperature]}
-              </span>
             </div>
 
-            {TEMPERATURE_STAGES.includes(s.stage) && (
+            {s.stage === "lead" && (
               <div
-                className="mt-2.5 space-y-2 rounded-md border border-border/60 bg-muted/30 p-2"
+                className="mt-2.5 rounded-md border border-border/60 bg-muted/30 p-2"
                 onClick={stopCardClick}
                 onMouseDown={stopCardClick}
               >
                 <div>
                   <Label className="mb-1.5 block text-[10px] uppercase tracking-wide text-muted-foreground">
-                    Alım niyeti
+                    Ödeme şekli
                   </Label>
-                  <div className="grid grid-cols-3 gap-1">
-                    {LEAD_TEMPERATURE_ORDER.filter((code) => code !== "unknown").map((code) => {
-                      const active = temperature === code;
-                      const style = LEAD_TEMPERATURE_STYLES[code];
-                      return (
-                        <button
-                          key={code}
-                          type="button"
-                          disabled={temperatureSavingId === s.id}
-                          title={LEAD_TEMPERATURE_HINTS[code]}
-                          aria-pressed={active}
-                          className={`flex h-7 items-center justify-center gap-1 rounded-md border text-[10px] font-medium transition-colors disabled:opacity-60 ${
-                            active ? `${style.badge} border-transparent` : "border-border/60 bg-white text-muted-foreground hover:bg-muted"
-                          }`}
-                          onClick={() => void setLeadTemperature(s, active ? "unknown" : code)}
-                        >
-                          <span className={`size-1.5 rounded-full ${active ? style.dot : "bg-muted-foreground/40"}`} />
-                          {LEAD_TEMPERATURE_LABELS[code]}
-                        </button>
-                      );
-                    })}
-                  </div>
+                  {/* Süreç paneli ve ödeme planı diyaloğuyla aynı iki kademeli
+                      seçim: Peşin / Leasing / Vadeli, vadeliyse vade türü. */}
+                  <PaymentMethodSelect
+                    value={s.paymentMethod}
+                    disabled={paymentMethodSavingId === s.id}
+                    size="sm"
+                    labels={false}
+                    idPrefix={`kanban-payment-${s.id}`}
+                    onChange={(method) => void setPaymentMethod(s, method)}
+                  />
                 </div>
-                {s.stage === "lead" && (
-                  <div>
-                    <Label className="mb-1.5 block text-[10px] uppercase tracking-wide text-muted-foreground">
-                      Ödeme şekli
-                    </Label>
-                    <Select
-                      value={s.paymentMethod ?? "undecided"}
-                      disabled={paymentMethodSavingId === s.id}
-                      onValueChange={(value) => void setPaymentMethod(s, value as OpportunityPaymentMethod)}
-                    >
-                      <SelectTrigger className="h-8 bg-white text-xs">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {(Object.entries(OPPORTUNITY_PAYMENT_METHOD_LABELS) as Array<[OpportunityPaymentMethod, string]>).map(([code, label]) => (
-                          <SelectItem key={code} value={code}>{label}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                )}
+              </div>
+            )}
+
+            {(s.qualificationStage !== "lead" || latestOffer || caseDocs.some((document) => COMMERCIAL_DOCUMENT_TYPES.has(document.type))) && (
+              <div onClick={stopCardClick} onMouseDown={stopCardClick}>
+                <CommercialDocumentRail
+                  variant="compact"
+                  className="mt-2.5 bg-slate-50/60"
+                  offers={offers.filter((offer) => offer.salesCaseId === s.id)}
+                  documents={caseDocs}
+                  onOpenOffer={() => onSelect(s)}
+                  onOpenDocument={setPreviewDoc}
+                  actions={{
+                    quote: hasPermission("quotes.create") && c ? (
+                      <QuoteDialog
+                        defaultCaseId={s.id}
+                        defaultCustomerId={s.customerId}
+                        trigger={
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="h-6 px-1.5 text-[8px] text-[#163b75]"
+                            onClick={stopCardClick}
+                            onMouseDown={stopCardClick}
+                          >
+                            Oluştur
+                          </Button>
+                        }
+                      />
+                    ) : hasPermission("quotes.create") ? (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-6 px-1.5 text-[8px] text-[#163b75]"
+                        onClick={(event) => { event.stopPropagation(); onSelect(s); }}
+                        onMouseDown={stopCardClick}
+                      >
+                        Firma bağla
+                      </Button>
+                    ) : undefined,
+                    proforma: latestOffer && hasPermission("proformas.create") ? (
+                      <CreateProformaDialog
+                        defaultQuoteId={latestOffer.id}
+                        trigger={
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="h-6 px-1.5 text-[8px] text-[#163b75]"
+                            title="Proforma oluştur"
+                            onClick={stopCardClick}
+                            onMouseDown={stopCardClick}
+                          >
+                            Oluştur
+                          </Button>
+                        }
+                      />
+                    ) : undefined,
+                    contract: latestOffer && hasPermission("contracts.create") ? (
+                      <CreateContractDialog
+                        defaultQuoteId={latestOffer.id}
+                        trigger={
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="h-6 px-1.5 text-[8px] text-[#163b75]"
+                            title="Sözleşme oluştur"
+                            onClick={stopCardClick}
+                            onMouseDown={stopCardClick}
+                          >
+                            Oluştur
+                          </Button>
+                        }
+                      />
+                    ) : undefined,
+                    invoice: latestOffer && invoiceUploadable(s.stage) && hasPermission("commercial_invoices.create") ? (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-6 px-1.5 text-[8px] text-[#163b75]"
+                        title="Ticari fatura yükle"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          setInvoiceUploadCase(s);
+                        }}
+                        onMouseDown={stopCardClick}
+                      >
+                        Yükle
+                      </Button>
+                    ) : undefined,
+                  }}
+                />
               </div>
             )}
 
             <KanbanCardAttachments
               caseId={s.id}
               companyId={s.customerId}
-              docs={caseDocs}
+              docs={supportingDocs}
               onPreview={setPreviewDoc}
               onOpenCase={() => onSelect(s)}
             />
 
             <div className="mt-2.5 flex flex-wrap items-center gap-1.5 border-t border-border/40 pt-2">
-              {latestOffer ? (
-                <CreateProformaDialog
-                  defaultQuoteId={latestOffer.id}
-                  trigger={
-                    <Button
-                      type="button"
-                      variant={hasProforma ? "secondary" : "outline"}
-                      size="sm"
-                      className="h-7 gap-1 rounded-md px-2 text-[10px] font-medium"
-                      title="Proforma oluştur"
-                      onClick={stopCardClick}
-                      onMouseDown={stopCardClick}
-                    >
-                      <FileText className="size-3" /> Proforma
-                    </Button>
-                  }
-                />
-              ) : (
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="h-7 gap-1 rounded-md px-2 text-[10px] font-medium"
-                  title="Önce teklif oluşturulmalı"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    toast.error("Teklif gerekli", { description: "Proforma için önce bu karta bağlı teklif oluşturun." });
-                  }}
-                  onMouseDown={stopCardClick}
-                >
-                  <FileText className="size-3" /> Proforma
-                </Button>
-              )}
-              {latestOffer ? (
-                <CreateContractDialog
-                  defaultQuoteId={latestOffer.id}
-                  trigger={
-                    <Button
-                      type="button"
-                      variant={hasContract ? "secondary" : "outline"}
-                      size="sm"
-                      className="h-7 gap-1 rounded-md px-2 text-[10px] font-medium"
-                      title="Sözleşme oluştur"
-                      onClick={stopCardClick}
-                      onMouseDown={stopCardClick}
-                    >
-                      <FileSignature className="size-3" /> Sözleşme
-                    </Button>
-                  }
-                />
-              ) : (
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="h-7 gap-1 rounded-md px-2 text-[10px] font-medium"
-                  title="Önce teklif oluşturulmalı"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    toast.error("Teklif gerekli", { description: "Sözleşme için önce bu karta bağlı teklif oluşturun." });
-                  }}
-                  onMouseDown={stopCardClick}
-                >
-                  <FileSignature className="size-3" /> Sözleşme
-                </Button>
-              )}
-              {s.stage === "payment_plan" && !hasCommercialInvoice(s.id) && (
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="h-7 gap-1 rounded-md px-2 text-[10px] font-medium"
-                  title="Ticari fatura yükle"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    if (!offers.some((offer) => offer.salesCaseId === s.id)) {
-                      toast.error("Teklif gerekli", { description: "Ticari fatura kaydı teklif üzerinden oluşturulur." });
-                      return;
-                    }
-                    setInvoiceUploadCase(s);
-                  }}
-                  onMouseDown={stopCardClick}
-                >
-                  <FileText className="size-3" /> Fatura
-                </Button>
-              )}
               <Button
                 type="button"
                 variant="outline"

@@ -16,6 +16,34 @@ export const esc = (v: unknown): string =>
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;");
 
+const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/**
+ * Yazdırılan belgeler müşteriye açıktır. Katalog adını tercih eder ve eski
+ * kayıtların açıklamasına taşınmış iç stok kodunu çıktıdan temizler.
+ */
+export const publicProductLabel = (input: {
+  description?: unknown;
+  stockCode?: unknown;
+  catalogName?: unknown;
+  fallback?: string;
+}): string => {
+  const stockCode = String(input.stockCode ?? "").trim();
+  const catalogName = String(input.catalogName ?? "").trim();
+  const description = String(input.description ?? "").trim();
+  let label = catalogName || description;
+
+  if (stockCode) {
+    label = label
+      .replace(new RegExp(escapeRegExp(stockCode), "giu"), " ")
+      .replace(/^[\s./|:;,_–—-]+|[\s./|:;,_–—-]+$/g, "")
+      .replace(/\s{2,}/g, " ")
+      .trim();
+  }
+
+  return label || input.fallback || "Ürün";
+};
+
 /** Boş değerleri yazdırırken alan boş kalsın (— değil). */
 export const blank = (v: unknown): string => {
   const s = String(v ?? "").trim();
@@ -209,8 +237,42 @@ ${printScript}
 </body></html>`;
 };
 
-const safeFilename = (name: string): string =>
-  name.replace(/[<>:"/\\|?*\u0000-\u001f]/g, "_").replace(/\s+/g, " ").trim() || "belge";
+const TR_LETTERS: Record<string, string> = {
+  ş: "s", Ş: "S",
+  ı: "i", İ: "I",
+  ğ: "g", Ğ: "G",
+  ü: "u", Ü: "U",
+  ö: "o", Ö: "O",
+  ç: "c", Ç: "C",
+};
+
+/**
+ * Türkçe harfleri ve kalan aksanları ASCII'ye indirger. İndirilen dosya adları
+ * Windows/zip/e-posta ekleri arasında bozulmasın diye kullanılır.
+ * "ı" ve "İ" Unicode ayrıştırmasıyla çözülmediğinden önce elle eşlenir.
+ */
+export const asciiFold = (value: string): string =>
+  value
+    .replace(/[şŞıİğĞüÜöÖçÇ]/g, (char) => TR_LETTERS[char] ?? char)
+    .normalize("NFD")
+    .replace(/\p{M}+/gu, "");
+
+/** Dosya sistemi sınırı 255; ".html" uzantısı ve kopya ekleri için pay bırakılır. */
+const SAFE_FILENAME_MAX = 150;
+
+/**
+ * Dosya adını güvenli hale getirir: ASCII'ye indirger, dosya sistemleri için
+ * tehlikeli karakterleri (`/ \ : * ? " < > |` ve kontrol karakterleri) ayıklar,
+ * baştaki noktaları (gizli dosya) atar ve aşırı uzun adları keser.
+ */
+export const safeFilename = (name: string): string => {
+  const cleaned = asciiFold(name)
+    .replace(/[<>:"/\\|?*\u0000-\u001f]/g, "_")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/^\.+/, "");
+  return cleaned.slice(0, SAFE_FILENAME_MAX).replace(/[\s._-]+$/, "") || "belge";
+};
 
 /** Yazdırılabilir HTML dosyasını indirir (tarayıcıda açılıp PDF olarak kaydedilebilir). */
 export const downloadPrintHtml = (doc: PrintDocument, filename: string): void => {

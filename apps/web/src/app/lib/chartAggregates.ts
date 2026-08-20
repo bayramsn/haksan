@@ -1,6 +1,19 @@
-import type { Offer, Payment, SalesCase } from './mock';
+import type { Offer, Payment, QualificationStage, SalesCase } from './mock';
 
 const TR_MONTH_SHORT = ['Oca', 'Şub', 'Mar', 'Nis', 'May', 'Haz', 'Tem', 'Ağu', 'Eyl', 'Eki', 'Kas', 'Ara'];
+
+export const DASHBOARD_QUALIFICATION_STAGES = ['c', 'b', 'a', 'a_plus', 'win'] as const satisfies readonly QualificationStage[];
+export type DashboardQualificationStage = (typeof DASHBOARD_QUALIFICATION_STAGES)[number];
+
+/** Dashboard satış dereceleri — sıcaklık yerine gerçek C → WIN akışını sayar. */
+export function buildQualificationStageSummary(
+  cases: readonly Pick<SalesCase, 'qualificationStage'>[],
+): Array<{ stage: DashboardQualificationStage; count: number }> {
+  return DASHBOARD_QUALIFICATION_STAGES.map((stage) => ({
+    stage,
+    count: cases.filter((salesCase) => salesCase.qualificationStage === stage).length,
+  }));
+}
 
 /** Son N ay için teklif trendi (gönderilen / onaylanan). */
 export function buildOfferTrend(offers: Offer[], months = 6) {

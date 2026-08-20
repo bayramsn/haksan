@@ -20,7 +20,7 @@ import {
   type AddressRoleKey,
   type AddressRoleState,
 } from "../../lib/addressRoles";
-import { SALES_STAGES, salesStageLabel, SHIPMENT_STATUSES, DELIVERY_STATUSES, type ShipmentStatus, type DeliveryStatus, type Delivery, type Customer, type Contact, type FirmType, type Machine, type Product, type ProductSpec, type ServiceTicketType, type StockItem } from "../../lib/mock";
+import { SALES_STAGES, SHIPMENT_STATUSES, DELIVERY_STATUSES, type ShipmentStatus, type DeliveryStatus, type Delivery, type Customer, type Contact, type FirmType, type Machine, type Product, type ProductSpec, type ServiceTicketType, type StockItem } from "../../lib/mock";
 
 const SERVICE_TICKET_TYPE_OPTIONS: { value: ServiceTicketType; label: string }[] = [
   { value: "complaint", label: "Şikayet" },
@@ -60,19 +60,13 @@ function useSubmissionLock() {
   };
 }
 
-const preferredServiceContact = (items: Contact[], customerId: string) => {
-  const matches = items.filter((contact) => contactBelongsToCustomer(contact, customerId));
-  return matches.find((contact) => contact.isPrimary && contact.customerId === customerId) ??
-    matches.find((contact) => contact.customerId === customerId) ??
-    matches.find((contact) => contact.isPrimary) ??
-    matches[0];
-};
 import { toast } from "sonner";
 import {
   Building2, User as UserIcon, Wallet, Truck, ClipboardCheck, ChevronDown, Receipt, Upload,
-  ClipboardList, Plus, Trash2, X, Loader2, Package, UserRound, Wrench, Check, GripVertical, Pencil,
+  ClipboardList, Plus, Trash2, X, Loader2, Package, UserRound, Wrench, Check, GripVertical, Pencil, ImagePlus,
 } from "lucide-react";
 import { serviceService, fileService, financeService, activityService, inventoryService, contactService, productService, lookupService } from "../../../lib/services";
+import { resolveMediaUrl } from "../../../lib/apiClient";
 import { Badge } from "../ui/badge";
 import { useAuth } from "../../../lib/auth";
 import {
@@ -92,6 +86,7 @@ import { districtsForCountry, provincesForCountry } from "../../lib/geoByCountry
 import {
   DIVISION_MACHINE_TYPES,
   allCatalogProductSpecs,
+  dropForeignMachineSpecs,
   foldProductTypeCode,
   groupProductSpecsForType,
   normalizeProductSpecKey,
@@ -101,16 +96,69 @@ import {
 import { QuoteDialog } from "./QuoteDialog";
 import { ProductSpecGroupManagerDialog } from "./ProductSpecGroupManagerDialog";
 import { ProductSpecsTable } from "../shared/ProductSpecsTable";
+import { RemoteCompanyCombobox } from "../shared/RemoteCompanyCombobox";
+import { RemoteContactCombobox, useRemoteContactDetail } from "../shared/RemoteContactCombobox";
 import { OsmCompanySearch } from "../company/OsmCompanySearch";
 import { CompanyWebsiteLookup } from "../company/CompanyWebsiteLookup";
 import { relatedDeliveryFormNo, resolveServiceFormNo } from "../../lib/serviceFormNo";
+import { useCompanyDetail } from "../../lib/companyServerData";
 
 /* ---------- Customer ---------- */
 const COMPANY_GROUP_OPTIONS = [
-  { code: "cnc", label: "CNC" },
-  { code: "universal", label: "Üniversal" },
-  { code: "sac_isleme", label: "Sac İşleme" },
+  { code: "a_group", label: "A Grubu (Sıcak/Büyük)" },
+  { code: "b_group", label: "B Grubu (Orta)" },
+  { code: "dealer_second_hand", label: "Bayi / 2. Elci" },
+  { code: "potential_cnc_customer", label: "Potansiyel CNC Müşterisi" },
 ];
+const COMPANY_GROUP_CODES = new Set(COMPANY_GROUP_OPTIONS.map((option) => option.code));
+const BUSINESS_UNIT_CODES = new Set(["cnc", "universal", "sac_isleme"]);
+
+const COMPANY_LOGO_MAX_BYTES = 5 * 1024 * 1024;
+const COMPANY_LOGO_EXT_TO_MIME = {
+  png: "image/png",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  webp: "image/webp",
+} satisfies Record<string, AllowedMimeType>;
+type CompanyLogoExtension = keyof typeof COMPANY_LOGO_EXT_TO_MIME;
+
+const companyLogoMeta = (file: File): { extension: CompanyLogoExtension; mimeType: AllowedMimeType } | null => {
+  const extension = (file.name.split(".").pop() ?? "").toLocaleLowerCase("en-US") as CompanyLogoExtension;
+  const mimeType = COMPANY_LOGO_EXT_TO_MIME[extension];
+  if (!mimeType || (file.type && file.type !== mimeType)) return null;
+  return { extension, mimeType };
+};
+
+const validateCompanyLogo = (file: File): string | null => {
+  if (!companyLogoMeta(file)) return "Yalnızca PNG, JPG veya WEBP logo yükleyebilirsiniz.";
+  if (file.size <= 0) return "Logo dosyası boş olamaz.";
+  if (file.size > COMPANY_LOGO_MAX_BYTES) return "Logo dosyası 5 MB'ı aşamaz.";
+  return null;
+};
+
+const uploadCompanyLogo = async (companyId: string, file: File): Promise<string> => {
+  const validationError = validateCompanyLogo(file);
+  if (validationError) throw new Error(validationError);
+  const meta = companyLogoMeta(file)!;
+  const upload = await fileService.signedUpload({
+    bucket: "erp-company-logos",
+    entityType: "company",
+    entityId: companyId,
+    filename: file.name,
+    mimeType: meta.mimeType,
+    extension: meta.extension,
+    sizeBytes: file.size,
+  });
+  await fileService.uploadBinary(upload, file, meta.mimeType);
+  await fileService.link({
+    fileId: upload.fileId,
+    entityType: "company",
+    entityId: companyId,
+    documentTypeCode: "company_logo",
+    description: "Firma logosu",
+  });
+  return upload.fileId;
+};
 
 const toComboboxOptions = (values: readonly string[]) =>
   values.map((v) => ({ value: v, label: v }));
@@ -203,12 +251,11 @@ function FreeTextCombobox({
 }
 
 const CONTACT_SOURCE_OPTIONS = [
-  { code: "email", label: "Mail" },
-  { code: "phone", label: "Telefon" },
-  { code: "dealer", label: "Bayi" },
-  { code: "digital_market", label: "Dijital Pazar" },
-  { code: "fair", label: "Fuar" },
-  { code: "musiad", label: "MÜSİAD" },
+  { code: "maktek_2024_fair", label: "MAKTEK 2024 / Fuar" },
+  { code: "musiad_expo", label: "MÜSİAD Expo" },
+  { code: "harun_aslanbay_reference", label: "Harun Aslanbay (Referans)" },
+  { code: "website_inbound_call", label: "Web Sitesi / Gelen Çağrı" },
+  { code: "cold_call_field", label: "Soğuk Arama / Saha" },
 ];
 
 type LookupRow = {
@@ -381,14 +428,15 @@ const emptyCompanyForm = () => ({
   taxNumber: "",
   website: "",
   initialNote: "",
-  companyGroupCodes: ["cnc"],
-  divisionId: "",
+  companyGroupCode: "",
+  divisionIds: [] as string[],
   addressType: "office" as const,
   isDefault: true,
   isShipping: true,
   isBilling: true,
   additionalAddresses: [] as ReturnType<typeof emptyAdditionalAddress>[],
-  contactSourceCode: "email",
+  contactSourceCode: "",
+  contactSourceText: "",
 });
 
 type CompanyFormDraft = ReturnType<typeof emptyCompanyForm>;
@@ -404,10 +452,13 @@ export function CreateCustomerDialog({
   initialValues?: Partial<CompanyFormDraft>;
   draftKey?: string;
 }) {
-  const { addCustomer } = useStore();
+  const { addCustomer, updateCustomer } = useStore();
   const { user, activeDivision } = useAuth();
   const [open, setOpen] = useState(false);
   const submission = useSubmissionLock();
+  const logoInputRef = useRef<HTMLInputElement>(null);
+  const [logoFile, setLogoFile] = useState<File | null>(null);
+  const [logoPreview, setLogoPreview] = useState("");
   // Taslaklar yenilemede korunur; başarılı kayıtta temizlenir.
   const [type, setType] = usePersistentState<"company" | "person">(`${draftKey}.type`, "company");
   const [firmType, setFirmType] = usePersistentState<FirmType>(`${draftKey}.firmType`, "customer");
@@ -420,18 +471,40 @@ export function CreateCustomerDialog({
     () => toComboboxOptions(districtsForCountry(selectedCountry, form.city)),
     [selectedCountry, form.city],
   );
-  const companyGroupRows = useLookupRows("company-groups", COMPANY_GROUP_OPTIONS.map((g) => ({ code: g.code, name: g.label })));
-  const contactSourceRows = useLookupRows("contact-sources", CONTACT_SOURCE_OPTIONS.map((s) => ({ code: s.code, name: s.label })));
+  const companyGroupRows = useLookupRows("company-groups", COMPANY_GROUP_OPTIONS.map((g) => ({ code: g.code, name: g.label })))
+    .filter((row) => COMPANY_GROUP_CODES.has(row.code));
+  const contactSourceRows = useLookupRows("contact-sources", CONTACT_SOURCE_OPTIONS.map((s) => ({ code: s.code, name: s.label })))
+    .filter((row) => row.isActive !== false);
   const sectorRows = useLookupRows("company-sectors", COMPANY_SECTOR_OPTIONS.map((name, index) => ({ code: name, name, sortOrder: index })));
   const taxOfficeRows = useTaxOfficeRows();
-  const divisionOptions = user?.divisions ?? [];
-  const selectedDivisionId = form.divisionId || (activeDivision !== "all" ? activeDivision : divisionOptions.find((d) => d.isPrimary)?.id ?? divisionOptions[0]?.id ?? "");
+  const divisionOptions = (user?.divisions ?? []).filter((division) => BUSINESS_UNIT_CODES.has(division.code ?? ""));
+  const selectedDivisionIds = form.divisionIds ?? [];
+  const fallbackDivisionId = activeDivision !== "all" && divisionOptions.some((division) => division.id === activeDivision)
+    ? activeDivision
+    : divisionOptions.find((division) => division.isPrimary)?.id ?? divisionOptions[0]?.id ?? "";
+
+  useEffect(() => {
+    if (!open || selectedDivisionIds.length > 0 || !fallbackDivisionId) return;
+    setForm((current) => ({ ...current, divisionIds: [fallbackDivisionId] }));
+  }, [fallbackDivisionId, open, selectedDivisionIds.length, setForm]);
+
+  useEffect(() => {
+    if (!logoFile) {
+      setLogoPreview("");
+      return;
+    }
+    const previewUrl = URL.createObjectURL(logoFile);
+    setLogoPreview(previewUrl);
+    return () => URL.revokeObjectURL(previewUrl);
+  }, [logoFile]);
 
   const reset = () => {
     setForm(emptyCompanyForm());
     setType("company");
     setFirmType("customer");
     setSalesStatus("potential");
+    setLogoFile(null);
+    if (logoInputRef.current) logoInputRef.current.value = "";
   };
 
   const selectCreateAddressRole = (role: AddressRoleKey, additionalIndex: number | null) => {
@@ -469,6 +542,17 @@ export function CreateCustomerDialog({
       toast.error("Tedarikçi türü seçiniz", { description: "Nakliye veya Lojistik seçimi zorunludur." });
       return;
     }
+    if (!selectedDivisionIds.length) {
+      toast.error("Bağlı bulunduğu birimi seçiniz");
+      return;
+    }
+    if (logoFile) {
+      const logoError = validateCompanyLogo(logoFile);
+      if (logoError) {
+        toast.error("Firma logosu yüklenemiyor", { description: logoError });
+        return;
+      }
+    }
     if (!submission.begin()) return;
     try {
       const {
@@ -479,10 +563,14 @@ export function CreateCustomerDialog({
         isDefault,
         isShipping,
         isBilling,
+        divisionIds,
+        companyGroupCode,
+        companyNo: _legacyCompanyNo,
         ...companyForm
-      } = form;
+      } = form as typeof form & { companyNo?: string };
       const latitude = latitudeRaw ? Number(latitudeRaw) : undefined;
       const longitude = longitudeRaw ? Number(longitudeRaw) : undefined;
+      const normalizedDivisionIds = divisionIds ?? [];
       const addresses = normalizeAddressRoles([
         {
           addressType,
@@ -504,18 +592,29 @@ export function CreateCustomerDialog({
         type,
         firmType,
         salesStatus,
-        divisionId: selectedDivisionId,
-        companyGroupCodes: form.companyGroupCodes ?? [],
-        companyGroupNames: companyGroupRows.filter((g) => (form.companyGroupCodes ?? []).includes(g.code)).map((g) => g.name),
+        divisionId: normalizedDivisionIds[0],
+        divisions: divisionOptions.filter((division) => normalizedDivisionIds.includes(division.id)),
+        companyGroupCodes: companyGroupCode ? [companyGroupCode] : [],
+        companyGroupNames: companyGroupRows.filter((group) => group.code === companyGroupCode).map((group) => group.name),
         addresses,
         latitude: Number.isFinite(latitude) ? latitude : undefined,
         longitude: Number.isFinite(longitude) ? longitude : undefined,
         contactPerson: "",
         wantedProduct: "",
-        source: contactSourceRows.find((s) => s.code === form.contactSourceCode)?.name ?? "",
-        companyGroupCode: form.companyGroupCodes?.[0] ?? "",
-        companyGroupName: companyGroupRows.find((g) => g.code === form.companyGroupCodes?.[0])?.name ?? "",
+        source: contactSourceRows.find((s) => s.code === form.contactSourceCode)?.name ?? form.contactSourceText?.trim() ?? "",
+        companyGroupCode,
+        companyGroupName: companyGroupRows.find((group) => group.code === companyGroupCode)?.name ?? "",
       });
+      if (logoFile) {
+        try {
+          const logoFileId = await uploadCompanyLogo(c.id, logoFile);
+          await updateCustomer(c.id, { logoFileId });
+        } catch (logoError: any) {
+          toast.warning("Firma oluşturuldu ancak logo yüklenemedi", {
+            description: logoError?.message ?? "Logoyu firma düzenleme ekranından yeniden seçebilirsiniz.",
+          });
+        }
+      }
       toast.success("Firma oluşturuldu", { description: c.name });
       await onCreated?.(c.id);
       reset();
@@ -561,6 +660,66 @@ export function CreateCustomerDialog({
               <UserIcon className="size-4" /> Bireysel
             </button>
           </div>
+
+          {type === "company" && (
+            <div className="rounded-xl border border-border/70 bg-muted/20 p-3">
+              <div className="flex items-center gap-4">
+                <div className="grid h-20 w-28 shrink-0 place-items-center overflow-hidden rounded-lg border bg-white p-2">
+                  {logoPreview ? (
+                    <img src={logoPreview} alt="Seçilen firma logosu" className="h-full w-full object-contain" />
+                  ) : (
+                    <ImagePlus className="size-6 text-muted-foreground/70" />
+                  )}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <Label className="text-xs" htmlFor="create-company-logo">Firma Logosu</Label>
+                  <p className="mt-1 text-[11px] text-muted-foreground">PNG, JPG veya WEBP · en fazla 5 MB · oranı korunarak gösterilir</p>
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                    <input
+                      ref={logoInputRef}
+                      id="create-company-logo"
+                      type="file"
+                      accept=".png,.jpg,.jpeg,.webp,image/png,image/jpeg,image/webp"
+                      className="hidden"
+                      onChange={(event) => {
+                        const selected = event.target.files?.[0] ?? null;
+                        if (!selected) {
+                          setLogoFile(null);
+                          return;
+                        }
+                        const logoError = validateCompanyLogo(selected);
+                        if (logoError) {
+                          event.target.value = "";
+                          setLogoFile(null);
+                          toast.error("Logo seçilemedi", { description: logoError });
+                          return;
+                        }
+                        setLogoFile(selected);
+                      }}
+                    />
+                    <Button type="button" variant="outline" size="sm" onClick={() => logoInputRef.current?.click()}>
+                      <Upload className="mr-1.5 size-3.5" />
+                      {logoFile ? "Logoyu Değiştir" : "Logo Seç"}
+                    </Button>
+                    {logoFile && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => {
+                          setLogoFile(null);
+                          if (logoInputRef.current) logoInputRef.current.value = "";
+                        }}
+                      >
+                        <X className="mr-1.5 size-3.5" /> Kaldır
+                      </Button>
+                    )}
+                  </div>
+                  {logoFile && <div className="mt-2 truncate text-xs font-medium text-foreground">{logoFile.name}</div>}
+                </div>
+              </div>
+            </div>
+          )}
 
           <div>
             <Label className="text-xs">Firma Tipi *</Label>
@@ -626,26 +785,39 @@ export function CreateCustomerDialog({
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <Label className="text-xs">Firma Grubu</Label>
+              <Label className="text-xs">Bağlı Bulunduğu Birim *</Label>
               <div className="mt-1.5">
                 <MultiSelect
-                  options={lookupCodeOptions(companyGroupRows).map((g) => ({ value: g.code, label: g.label }))}
-                  selected={form.companyGroupCodes ?? []}
-                  onChange={(companyGroupCodes) => setForm({ ...form, companyGroupCodes })}
-                  placeholder="Firma gruplarını seçin"
+                  options={divisionOptions.map((division) => ({ value: division.id, label: division.name }))}
+                  selected={selectedDivisionIds}
+                  onChange={(divisionIds) => setForm({ ...form, divisionIds })}
+                  placeholder="CNC, Üniversal veya Sac İşleme seçin"
                 />
               </div>
             </div>
             <div>
-              <Label className="text-xs">Firma İrtibat Şekli</Label>
-              <Select value={form.contactSourceCode} onValueChange={(v) => setForm({ ...form, contactSourceCode: v })}>
-                <SelectTrigger className="mt-1.5"><SelectValue /></SelectTrigger>
+              <Label className="text-xs">Firma Grubu</Label>
+              <Select value={form.companyGroupCode || undefined} onValueChange={(companyGroupCode) => setForm({ ...form, companyGroupCode })}>
+                <SelectTrigger className="mt-1.5"><SelectValue placeholder="Firma grubunu seçin" /></SelectTrigger>
                 <SelectContent>
-                  {lookupCodeOptions(contactSourceRows).map((s) => (
-                    <SelectItem key={s.code} value={s.code}>{s.label}</SelectItem>
+                  {lookupCodeOptions(companyGroupRows).map((group) => (
+                    <SelectItem key={group.code} value={group.code}>{group.label}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
+            </div>
+            <div>
+              <Label className="text-xs">İrtibat Şekli / Kaynak</Label>
+              <div className="mt-1.5">
+                <FreeTextCombobox
+                  idValue={form.contactSourceCode}
+                  textValue={form.contactSourceText ?? ""}
+                  options={contactSourceRows.map((source) => ({ value: source.code, label: source.name }))}
+                  onPick={(contactSourceCode) => setForm({ ...form, contactSourceCode, contactSourceText: "" })}
+                  onFreeText={(value) => setForm({ ...form, contactSourceCode: "", contactSourceText: value.trim() })}
+                  placeholder="Seçin veya yazın..."
+                />
+              </div>
             </div>
             <LookupCombobox
               label="Firma Sektörü"
@@ -856,19 +1028,24 @@ const emptyContactForm = (defaultCustomerId?: string) => ({
 export function CreateContactDialog({
   trigger,
   defaultCustomerId,
+  initialValues,
+  draftKey,
   onCreated,
 }: {
   trigger: React.ReactNode;
   defaultCustomerId?: string;
+  initialValues?: Partial<ReturnType<typeof emptyContactForm>>;
+  draftKey?: string;
   onCreated?: (id: string) => void;
 }) {
-  const { customers, addContact, addCustomer } = useStore();
+  const { addContact, addCustomer } = useStore();
   const [open, setOpen] = useState(false);
   const submission = useSubmissionLock();
+  const initialForm = () => ({ ...emptyContactForm(defaultCustomerId), ...initialValues });
   // Taslak yenilemede korunur; açılışta sıfırlanmaz, yalnızca başarılı kayıtta temizlenir.
-  const [form, setForm] = usePersistentState("draft.contact.form", emptyContactForm(defaultCustomerId));
+  const [form, setForm] = usePersistentState(draftKey ?? "draft.contact.form", initialForm());
 
-  const reset = () => setForm(emptyContactForm(defaultCustomerId));
+  const reset = () => setForm(initialForm());
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -930,13 +1107,11 @@ export function CreateContactDialog({
             <div className="col-span-2">
               <Label className="text-xs">Firma *</Label>
               <div className="mt-1.5">
-                <Combobox
-                  options={customers.map((c) => ({ value: c.id, label: c.name, hint: c.city }))}
+                <RemoteCompanyCombobox
                   value={form.customerId}
-                  onChange={(v) => setForm({ ...form, customerId: v })}
+                  onValueChange={(value) => setForm({ ...form, customerId: value })}
                   placeholder="Firma seçin veya adını yazın..."
                   searchPlaceholder="Firma adı / şehir ara..."
-                  emptyText="Firma bulunamadı."
                   onCreate={async (label) => {
                     try {
                       const created = await addCustomer({
@@ -1054,17 +1229,35 @@ export function CreateContactDialog({
 
 /* ---------- Sales Case ---------- */
 /* ---------- Firma düzenleme (controlled) ---------- */
-export function EditCustomerDialog({ customer, onClose }: { customer: Customer | null; onClose: () => void }) {
+export function EditCustomerDialog({
+  customer,
+  onClose,
+  onSaved,
+}: {
+  customer: Customer | null;
+  onClose: () => void;
+  onSaved?: (change: { previousFirmType: FirmType; firmType: FirmType }) => void;
+}) {
   const { updateCustomer } = useStore();
+  const { user } = useAuth();
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState<any>({});
+  const editLogoInputRef = useRef<HTMLInputElement>(null);
+  const [editLogoFile, setEditLogoFile] = useState<File | null>(null);
+  const [editLogoPreview, setEditLogoPreview] = useState("");
   const sectorRows = useLookupRows("company-sectors", COMPANY_SECTOR_OPTIONS.map((name, index) => ({ code: name, name, sortOrder: index })));
-  const companyGroupRows = useLookupRows("company-groups", COMPANY_GROUP_OPTIONS.map((g) => ({ code: g.code, name: g.label })));
-  const contactSourceRows = useLookupRows("contact-sources", CONTACT_SOURCE_OPTIONS.map((s) => ({ code: s.code, name: s.label })));
+  const companyGroupRows = useLookupRows("company-groups", COMPANY_GROUP_OPTIONS.map((g) => ({ code: g.code, name: g.label })))
+    .filter((row) => COMPANY_GROUP_CODES.has(row.code));
+  const contactSourceRows = useLookupRows("contact-sources", CONTACT_SOURCE_OPTIONS.map((s) => ({ code: s.code, name: s.label })))
+    .filter((row) => row.isActive !== false);
+  const divisionOptions = (user?.divisions ?? []).filter((division) => BUSINESS_UNIT_CODES.has(division.code ?? ""));
   const taxOfficeRows = useTaxOfficeRows();
 
   useEffect(() => {
     if (!customer) return;
+    setEditLogoFile(null);
+    setEditLogoPreview("");
+    if (editLogoInputRef.current) editLogoInputRef.current.value = "";
     const addresses = customer.addresses?.length
       ? customer.addresses.map((address) => ({ ...address }))
       : [{
@@ -1084,8 +1277,9 @@ export function EditCustomerDialog({ customer, onClose }: { customer: Customer |
       firmType: customer.firmType ?? "customer",
       salesStatus: customer.salesStatus ?? "potential",
       divisionIds: customer.divisions?.map((division) => division.id) ?? [],
-      companyGroupCodes: customer.companyGroupCodes ?? (customer.companyGroupCode ? [customer.companyGroupCode] : []),
+      companyGroupCode: customer.companyGroupCodes?.[0] ?? customer.companyGroupCode ?? "",
       contactSourceCode: customer.contactSourceCode ?? "",
+      contactSourceText: customer.contactSourceText ?? (!customer.contactSourceCode ? customer.source : ""),
       name: customer.name ?? "",
       sector: customer.sector ?? "",
       supplierCategoryCode: customer.supplierCategoryCode ?? "",
@@ -1101,6 +1295,16 @@ export function EditCustomerDialog({ customer, onClose }: { customer: Customer |
       addresses: normalizeAddressRoles(addresses),
     });
   }, [customer]);
+
+  useEffect(() => {
+    if (!editLogoFile) {
+      setEditLogoPreview("");
+      return;
+    }
+    const previewUrl = URL.createObjectURL(editLogoFile);
+    setEditLogoPreview(previewUrl);
+    return () => URL.revokeObjectURL(previewUrl);
+  }, [editLogoFile]);
 
   const selectEditAddressRole = (role: AddressRoleKey, selectedIndex: number) => {
     setForm((current: any) => ({
@@ -1125,14 +1329,27 @@ export function EditCustomerDialog({ customer, onClose }: { customer: Customer |
     if ((form.firmType === "supplier" || form.firmType === "supplier_customer") && !form.supplierCategoryCode) {
       return toast.error("Tedarikçi türü seçiniz", { description: "Nakliye veya Lojistik seçimi zorunludur." });
     }
+    if (!form.divisionIds?.length) return toast.error("Bağlı bulunduğu birimi seçiniz");
+    if (editLogoFile) {
+      const logoError = validateCompanyLogo(editLogoFile);
+      if (logoError) return toast.error("Firma logosu yüklenemiyor", { description: logoError });
+    }
     setSaving(true);
     try {
+      const { companyNo: _companyNo, divisionIds, companyGroupCode, ...editableForm } = form;
       await updateCustomer(customer.id, {
-        ...form,
-        companyGroupCodes: form.companyGroupCodes ?? [],
+        ...editableForm,
+        divisions: divisionOptions.filter((division) => divisionIds.includes(division.id)),
+        companyGroupCode,
+        companyGroupCodes: companyGroupCode ? [companyGroupCode] : [],
         addresses: normalizeAddressRoles(form.addresses ?? []),
       });
+      if (editLogoFile) {
+        const logoFileId = await uploadCompanyLogo(customer.id, editLogoFile);
+        await updateCustomer(customer.id, { logoFileId });
+      }
       toast.success("Firma güncellendi", { description: form.name });
+      onSaved?.({ previousFirmType: customer.firmType, firmType: form.firmType as FirmType });
       onClose();
     } catch (err: any) {
       toast.error("Firma güncellenemedi", { description: err?.message ?? "API isteği başarısız oldu." });
@@ -1154,6 +1371,65 @@ export function EditCustomerDialog({ customer, onClose }: { customer: Customer |
               <button key={option.value} type="button" onClick={() => setForm({ ...form, type: option.value })} className={`rounded-lg border px-3 py-2 text-sm ${form.type === option.value ? "border-primary bg-primary/5 text-primary" : "border-border"}`}>{option.label}</button>
             ))}
           </div>
+          {form.type === "company" && (
+            <div className="rounded-xl border border-border/70 bg-muted/20 p-3">
+              <div className="flex items-center gap-4">
+                <div className="grid h-20 w-28 shrink-0 place-items-center overflow-hidden rounded-lg border bg-white p-2">
+                  {editLogoPreview || customer?.logoUrl ? (
+                    <img
+                      src={editLogoPreview || customer?.logoUrl}
+                      alt={`${customer?.name ?? "Firma"} logosu`}
+                      className="h-full w-full object-contain"
+                    />
+                  ) : (
+                    <ImagePlus className="size-6 text-muted-foreground/70" />
+                  )}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <Label className="text-xs" htmlFor="edit-company-logo">Firma Logosu</Label>
+                  <p className="mt-1 text-[11px] text-muted-foreground">PNG, JPG veya WEBP · en fazla 5 MB</p>
+                  <input
+                    ref={editLogoInputRef}
+                    id="edit-company-logo"
+                    type="file"
+                    accept=".png,.jpg,.jpeg,.webp,image/png,image/jpeg,image/webp"
+                    className="hidden"
+                    onChange={(event) => {
+                      const selected = event.target.files?.[0] ?? null;
+                      if (!selected) return;
+                      const logoError = validateCompanyLogo(selected);
+                      if (logoError) {
+                        event.target.value = "";
+                        toast.error("Logo seçilemedi", { description: logoError });
+                        return;
+                      }
+                      setEditLogoFile(selected);
+                    }}
+                  />
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                    <Button type="button" variant="outline" size="sm" onClick={() => editLogoInputRef.current?.click()}>
+                      <Upload className="mr-1.5 size-3.5" />
+                      {editLogoFile || customer?.logoUrl ? "Logoyu Değiştir" : "Logo Seç"}
+                    </Button>
+                    {editLogoFile && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => {
+                          setEditLogoFile(null);
+                          if (editLogoInputRef.current) editLogoInputRef.current.value = "";
+                        }}
+                      >
+                        <X className="mr-1.5 size-3.5" /> Seçimi İptal Et
+                      </Button>
+                    )}
+                  </div>
+                  {editLogoFile && <div className="mt-2 truncate text-xs font-medium">{editLogoFile.name}</div>}
+                </div>
+              </div>
+            </div>
+          )}
           <div>
             <Label className="text-xs">Firma Tipi *</Label>
             <div className="mt-1.5 grid grid-cols-3 gap-2">
@@ -1180,10 +1456,24 @@ export function EditCustomerDialog({ customer, onClose }: { customer: Customer |
               </div>
             </div>
           )}
-          <div>
+          <div className="grid grid-cols-2 gap-3">
             <div>
-              <Label className="text-xs">Firma Grupları</Label>
-              <div className="mt-1.5"><MultiSelect options={lookupCodeOptions(companyGroupRows).map((group) => ({ value: group.code, label: group.label }))} selected={form.companyGroupCodes ?? []} onChange={(companyGroupCodes) => setForm({ ...form, companyGroupCodes })} /></div>
+              <Label className="text-xs">Bağlı Bulunduğu Birim *</Label>
+              <div className="mt-1.5">
+                <MultiSelect
+                  options={divisionOptions.map((division) => ({ value: division.id, label: division.name }))}
+                  selected={form.divisionIds ?? []}
+                  onChange={(divisionIds) => setForm({ ...form, divisionIds })}
+                  placeholder="CNC, Üniversal veya Sac İşleme seçin"
+                />
+              </div>
+            </div>
+            <div>
+              <Label className="text-xs">Firma Grubu</Label>
+              <Select value={form.companyGroupCode || undefined} onValueChange={(companyGroupCode) => setForm({ ...form, companyGroupCode })}>
+                <SelectTrigger className="mt-1.5"><SelectValue placeholder="Firma grubunu seçin" /></SelectTrigger>
+                <SelectContent>{lookupCodeOptions(companyGroupRows).map((group) => <SelectItem key={group.code} value={group.code}>{group.label}</SelectItem>)}</SelectContent>
+              </Select>
             </div>
           </div>
           <div className="grid grid-cols-2 gap-3">
@@ -1201,11 +1491,17 @@ export function EditCustomerDialog({ customer, onClose }: { customer: Customer |
             <Field label="E-posta-1" value={form.email ?? ""} onChange={(v) => setForm({ ...form, email: v })} />
             <Field label="E-posta-2" value={form.email2 ?? ""} onChange={(v) => setForm({ ...form, email2: v })} />
             <div>
-              <Label className="text-xs">Firma İrtibat Şekli</Label>
-              <Select value={form.contactSourceCode || undefined} onValueChange={(value) => setForm({ ...form, contactSourceCode: value })}>
-                <SelectTrigger className="mt-1.5"><SelectValue placeholder="Seçin" /></SelectTrigger>
-                <SelectContent>{lookupCodeOptions(contactSourceRows).map((source) => <SelectItem key={source.code} value={source.code}>{source.label}</SelectItem>)}</SelectContent>
-              </Select>
+              <Label className="text-xs">İrtibat Şekli / Kaynak</Label>
+              <div className="mt-1.5">
+                <FreeTextCombobox
+                  idValue={form.contactSourceCode ?? ""}
+                  textValue={form.contactSourceText ?? ""}
+                  options={contactSourceRows.map((source) => ({ value: source.code, label: source.name }))}
+                  onPick={(contactSourceCode) => setForm({ ...form, contactSourceCode, contactSourceText: "" })}
+                  onFreeText={(value) => setForm({ ...form, contactSourceCode: "", contactSourceText: value.trim() })}
+                  placeholder="Seçin veya yazın..."
+                />
+              </div>
             </div>
             <Field label="T.C. / Vergi Kimlik Numarası" value={form.taxNumber ?? ""} onChange={(v) => setForm({ ...form, taxNumber: v })} />
             <LookupCombobox
@@ -1255,10 +1551,10 @@ export function EditCustomerDialog({ customer, onClose }: { customer: Customer |
 
 /* ---------- Kontak düzenleme (controlled) ---------- */
 export function EditContactDialog({ contact, onClose }: { contact: Contact | null; onClose: () => void }) {
-  const { customers, updateContact, addCustomer } = useStore();
+  const { updateContact, addCustomer } = useStore();
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState(emptyContactForm());
-  const [linkedCompanies, setLinkedCompanies] = useState<{ id: string; legalTitle: string; shortName: string | null; isPrimary: boolean }[]>([]);
+  const [linkedCompanies, setLinkedCompanies] = useState<{ id: string; legalTitle: string; shortName: string | null; externalCompanyNo: string | null; isPrimary: boolean }[]>([]);
   const [companyBusy, setCompanyBusy] = useState<string | null>(null);
 
   const handleSetPrimary = async (companyId: string) => {
@@ -1390,13 +1686,11 @@ export function EditContactDialog({ contact, onClose }: { contact: Contact | nul
             <div className="col-span-2">
               <Label className="text-xs">Firma *</Label>
               <div className="mt-1.5">
-                <Combobox
-                  options={customers.map((customer) => ({ value: customer.id, label: customer.name, hint: customer.city }))}
+                <RemoteCompanyCombobox
                   value={form.customerId}
-                  onChange={(value) => setForm({ ...form, customerId: value })}
+                  onValueChange={(value) => setForm({ ...form, customerId: value })}
                   placeholder="Firma seçin veya adını yazın..."
                   searchPlaceholder="Firma adı / şehir ara..."
-                  emptyText="Firma bulunamadı."
                   onCreate={async (label) => {
                     try {
                       const created = await addCustomer({
@@ -1554,13 +1848,13 @@ export function EditContactDialog({ contact, onClose }: { contact: Contact | nul
 export function CreateCaseDialog({
   trigger,
   defaultCustomerId,
-  createAsOpportunity = true,
+  createAsOpportunity: _createAsOpportunity = true,
 }: {
   trigger: React.ReactNode;
   defaultCustomerId?: string;
   createAsOpportunity?: boolean;
 }) {
-  const { customers, addCase, convertCase, addCustomer, users, products } = useStore();
+  const { addCase, addCustomer, users, products } = useStore();
   const { user, activeDivision, canUseAllDivisionsForResource, hasRole, scopesForResource } = useAuth();
   const isSuperAdmin = hasRole("super_admin");
   const divisions = user?.divisions ?? [];
@@ -1584,7 +1878,7 @@ export function CreateCaseDialog({
     estimatedAmount: 0,
     paymentTermDays: undefined as number | undefined,
     currency: "USD" as "USD" | "EUR" | "TRY",
-    stage: "lead" as (typeof SALES_STAGES)[number],
+    stage: "sales" as (typeof SALES_STAGES)[number],
     department: "Satış",
     divisionId: canPickDivision ? defaultDivisionId : "",
   });
@@ -1617,8 +1911,7 @@ export function CreateCaseDialog({
     setSaving(true);
     try {
       const sc = await addCase(form as any);
-      if (createAsOpportunity) await convertCase(sc.id, "Firma üzerinden fırsat oluşturuldu");
-      toast.success(createAsOpportunity ? "Fırsat oluşturuldu" : "Lead oluşturuldu", { description: `#${sc.id.toUpperCase()}` });
+      toast.success("Fırsat oluşturuldu", { description: `#${sc.id.toUpperCase()}` });
       setForm(makeEmptyCase());
       setSelectedProductId("");
       setOpen(false);
@@ -1642,11 +1935,9 @@ export function CreateCaseDialog({
       <DialogTrigger asChild>{trigger}</DialogTrigger>
       <DialogContent className="max-w-2xl">
         <DialogHeader>
-          <DialogTitle>{createAsOpportunity ? "Yeni Fırsat" : "Yeni Lead"}</DialogTitle>
+          <DialogTitle>Yeni Fırsat</DialogTitle>
           <DialogDescription>
-            {createAsOpportunity
-              ? "Seçilen firma için C aşamasında bir satış fırsatı oluşturun."
-              : "Satış ekibinin değerlendireceği yeni bir lead oluşturun."}
+            Seçilen firma için ilk C alanında bir satış fırsatı oluşturun.
           </DialogDescription>
         </DialogHeader>
 
@@ -1655,13 +1946,11 @@ export function CreateCaseDialog({
             <div className="col-span-2">
               <Label className="text-xs">Müşteri *</Label>
               <div className="mt-1.5">
-                <Combobox
-                  options={customers.map((c) => ({ value: c.id, label: c.name, hint: c.city }))}
+                <RemoteCompanyCombobox
                   value={form.customerId}
-                  onChange={(v) => setForm({ ...form, customerId: v })}
+                  onValueChange={(value) => setForm({ ...form, customerId: value })}
                   placeholder="Firma seçin veya adını yazın..."
                   searchPlaceholder="Firma adı / şehir ara..."
-                  emptyText="Firma bulunamadı."
                   onCreate={async (label) => {
                     try {
                       const created = await addCustomer({
@@ -1760,23 +2049,12 @@ export function CreateCaseDialog({
                 </Select>
               </div>
             )}
-            {!createAsOpportunity && <div className="col-span-2">
-              <Label className="text-xs">Başlangıç Aşaması</Label>
-              <Select value={form.stage} onValueChange={(v: any) => setForm({ ...form, stage: v })}>
-                <SelectTrigger className="mt-1.5"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {SALES_STAGES.filter((s) => s !== "cancelled" && s !== "delivered").map((s) => (
-                    <SelectItem key={s} value={s}>{salesStageLabel(s)}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>}
           </div>
 
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => setOpen(false)} disabled={saving}>Vazgeç</Button>
             <Button type="submit" disabled={saving}>
-              {saving ? "Oluşturuluyor..." : createAsOpportunity ? "Fırsatı Oluştur" : "Lead Oluştur"}
+              {saving ? "Oluşturuluyor..." : "Fırsatı Oluştur"}
             </Button>
           </DialogFooter>
         </form>
@@ -1844,15 +2122,18 @@ function AutocompleteInput({ value, onChange, options, placeholder, ariaLabel }:
 }
 
 /* ---------- Stock Item ---------- */
-const STATUSES: Array<StockItem["status"]> = ["Available", "Reserved", "InTransit", "Sold", "Inactive"];
+const STATUSES: Array<StockItem["status"]> = ["Available", "InTransit", "Inactive"];
 
 const emptyStockForm = () => ({
   brand: "",
+  productName: "",
   counterType: "",
   counterModel: "",
   serialNumber: "",
   controlPanel: "",
   stockCode: "",
+  itemCondition: "new" as "new" | "used",
+  warehouseId: "",
   warehouse: "",
   status: "Available" as StockItem["status"],
   categoryCode: "TEZGAH" as StockCategoryCode,
@@ -1860,6 +2141,9 @@ const emptyStockForm = () => ({
   spareParts: "",
   productId: "",
   parentInventoryItemId: null as string | null,
+  loadingDate: "",
+  receivedDate: "",
+  arrivalDate: "",
 });
 
 export function CreateStockDialog({ trigger }: { trigger: React.ReactNode }) {
@@ -1870,14 +2154,18 @@ export function CreateStockDialog({ trigger }: { trigger: React.ReactNode }) {
   const [productId, setProductId] = useState("");
   const [quantity, setQuantity] = useState("5");
   const [saving, setSaving] = useState(false);
-  const [warehouses, setWarehouses] = useState<string[]>([]);
+  const [warehouses, setWarehouses] = useState<Array<{ id: string; name: string }>>([]);
   const [form, setForm] = useState(emptyStockForm);
   const [linkedOptionalIds, setLinkedOptionalIds] = useState<string[]>([]);
 
   useEffect(() => {
     if (!open) return;
     inventoryService.listWarehouses()
-      .then((rows) => setWarehouses(rows.map((w: { name?: string }) => w.name).filter(Boolean) as string[]))
+      .then((rows) => setWarehouses(
+        rows
+          .map((warehouse: { id?: string; name?: string }) => ({ id: warehouse.id ?? "", name: warehouse.name ?? "" }))
+          .filter((warehouse) => warehouse.id && warehouse.name),
+      ))
       .catch(() => setWarehouses([]));
   }, [open]);
 
@@ -1886,10 +2174,7 @@ export function CreateStockDialog({ trigger }: { trigger: React.ReactNode }) {
     [products, form.categoryCode],
   );
 
-  const allBrands = Array.from(new Set([...catalogProducts.map((p) => p.brand), ...stock.filter((s) => s.categoryCode === form.categoryCode).map((s) => s.brand), form.brand].filter(Boolean)));
-  const allTypes = Array.from(new Set([...catalogProducts.map((p) => p.type), ...stock.filter((s) => s.categoryCode === form.categoryCode).map((s) => s.counterType), form.counterType].filter(Boolean)));
   const allPanels = Array.from(new Set([...catalogProducts.map((p) => p.controlPanel), ...stock.filter((s) => s.categoryCode === form.categoryCode).map((s) => s.controlPanel), form.controlPanel].filter(Boolean)));
-  const warehouseOptions = Array.from(new Set([...warehouses, ...stock.map((s) => s.warehouse), form.warehouse].filter(Boolean)));
   const machineStockOptions = stock.filter((s) => (s.categoryCode ?? "TEZGAH") === "TEZGAH" && !s.parentInventoryItemId);
   const independentOptionalEquipment = stock.filter((s) => s.categoryCode === "OPSIYONEL_DONANIM" && !s.parentInventoryItemId);
 
@@ -1900,17 +2185,17 @@ export function CreateStockDialog({ trigger }: { trigger: React.ReactNode }) {
     setProductId(id);
     const p = products.find((x) => x.id === id);
     if (!p) return;
-    const codePrefix = (p.brand || "").slice(0, 3).toUpperCase();
-    const codeModel = (p.model || "").replace(/[^A-Z0-9]/gi, "").toUpperCase();
+    const productName = p.shortDescription || [p.brand, p.modelName || p.model].filter(Boolean).join(" ");
     setForm((f) => ({
       ...f,
       productId: id,
+      productName,
       brand: p.brand || f.brand,
       counterModel: p.model || f.counterModel,
       controlPanel: p.controlPanel || f.controlPanel,
       counterType: p.type || f.counterType,
       categoryCode: (p.categoryCode as StockCategoryCode) || f.categoryCode,
-      stockCode: p.stockCode || `${codePrefix}-${codeModel || "MOD"}`,
+      stockCode: p.stockCode || p.model || f.stockCode,
     }));
   };
 
@@ -1922,8 +2207,11 @@ export function CreateStockDialog({ trigger }: { trigger: React.ReactNode }) {
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!form.counterModel.trim()) return toast.error("Model giriniz");
-    if (!form.stockCode.trim()) return toast.error("Stok kodu giriniz");
+    if (!productId || !form.productName.trim()) return toast.error("Ürün adı seçiniz");
+    if (form.categoryCode === "TEZGAH" && !form.controlPanel.trim()) {
+      return toast.error("Tezgah için kontrol ünitesi zorunludur");
+    }
+    if (!form.warehouseId) return toast.error("Ürünün bulunduğu depoyu seçiniz");
     setSaving(true);
     try {
       if (mode === "bulk") {
@@ -1934,26 +2222,26 @@ export function CreateStockDialog({ trigger }: { trigger: React.ReactNode }) {
         let seq = 1;
         let created = 0;
         for (let i = 0; i < qty; i++) {
-          // Çakışmayan bir seri no bul: {stokKodu}-{sıra}
-          let serial = `${form.stockCode}-${String(seq).padStart(3, "0")}`;
-          while (used.has(serial)) { seq++; serial = `${form.stockCode}-${String(seq).padStart(3, "0")}`; }
+          // Çakışmayan seri numarası, seçilen ürünün iç model önekinden üretilir.
+          const serialPrefix = (form.counterModel || "URUN").replace(/[^A-Z0-9]/gi, "").toUpperCase() || "URUN";
+          let serial = `${serialPrefix}-${String(seq).padStart(3, "0")}`;
+          while (used.has(serial)) { seq++; serial = `${serialPrefix}-${String(seq).padStart(3, "0")}`; }
           used.add(serial);
           seq++;
           // eslint-disable-next-line no-await-in-loop
-          await addStock({ ...form, serialNumber: serial, stockCode: serial });
+          await addStock({ ...form, serialNumber: serial });
           created++;
         }
-        toast.success(`${created} adet stok kalemi eklendi`, { description: `${form.counterModel} · ${form.stockCode}` });
+        toast.success(`${created} adet stok kalemi eklendi`, { description: form.productName });
       } else {
         if (!form.serialNumber.trim()) { setSaving(false); return toast.error("Seri numarası giriniz"); }
         if (stock.some((s) => s.serialNumber === form.serialNumber)) { setSaving(false); return toast.error("Bu seri numarası zaten kayıtlı"); }
-        if (stock.some((s) => s.stockCode === form.stockCode)) { setSaving(false); return toast.error("Bu stok kodu zaten kullanılıyor"); }
         const c = await addStock(form);
         if (form.categoryCode === "TEZGAH" && linkedOptionalIds.length) {
           await Promise.all(linkedOptionalIds.map((id) => inventoryService.update(id, { parentInventoryItemId: c.id })));
           await refresh();
         }
-        toast.success("Stok kalemi eklendi", { description: `${c.stockCode} · ${c.serialNumber}` });
+        toast.success("Stok kalemi eklendi", { description: `${c.productName || form.productName} · ${c.serialNumber}` });
       }
       setOpen(false);
       reset();
@@ -1964,17 +2252,10 @@ export function CreateStockDialog({ trigger }: { trigger: React.ReactNode }) {
     }
   };
 
-  const autoStockCode = () => {
-    const prefix = form.brand.slice(0, 3).toUpperCase();
-    const model = form.counterModel.replace(/[^A-Z0-9]/gi, "").toUpperCase();
-    const seq = String(stock.length + 1).padStart(3, "0");
-    setForm((f) => ({ ...f, stockCode: `${prefix}-${model || "MOD"}-${seq}` }));
-  };
-
   return (
-    <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (v && !form.stockCode) autoStockCode(); }}>
+    <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>{trigger}</DialogTrigger>
-      <DialogContent className="max-w-2xl">
+      <DialogContent className="max-h-[92dvh] max-w-2xl overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Yeni Stok Kalemi</DialogTitle>
           <DialogDescription>Sayaç / cihaz bazında yeni stok kaydı oluşturun.</DialogDescription>
@@ -1988,7 +2269,18 @@ export function CreateStockDialog({ trigger }: { trigger: React.ReactNode }) {
               onValueChange={(v: StockCategoryCode) => {
                 setProductId("");
                 setLinkedOptionalIds([]);
-                setForm((f) => ({ ...f, categoryCode: v, counterModel: "", counterType: "", brand: "", controlPanel: "", parentInventoryItemId: null }));
+                setForm((f) => ({
+                  ...f,
+                  categoryCode: v,
+                  productId: "",
+                  productName: "",
+                  counterModel: "",
+                  counterType: "",
+                  brand: "",
+                  stockCode: "",
+                  controlPanel: "",
+                  parentInventoryItemId: null,
+                }));
               }}
             >
               <SelectTrigger className="mt-1.5"><SelectValue /></SelectTrigger>
@@ -2050,56 +2342,41 @@ export function CreateStockDialog({ trigger }: { trigger: React.ReactNode }) {
             </div>
           )}
 
-          {/* Katalogdan ürün seç → alanları otomatik doldur */}
+          {/* Stok, katalogdaki tek bir ürün adına bağlanır; model/tip ayrıca seçilmez. */}
           <div className="rounded-lg border border-border/60 bg-muted/30 p-3 space-y-2.5">
             <div className="flex items-center justify-between gap-2">
-              <Label className="text-xs" htmlFor="stock-product">Üründen Doldur (katalog)</Label>
+              <Label className="text-xs" htmlFor="stock-product">Ürün Adı *</Label>
               {/* Mod: tekli / toplu */}
               <div className="inline-flex rounded-md border border-border/60 bg-white p-0.5 text-xs">
                 <button type="button" onClick={() => setMode("single")} className={`px-2.5 py-1 rounded ${mode === "single" ? "bg-primary text-white" : "text-muted-foreground"}`}>Tekli</button>
                 <button type="button" onClick={() => setMode("bulk")} className={`px-2.5 py-1 rounded ${mode === "bulk" ? "bg-primary text-white" : "text-muted-foreground"}`}>Toplu</button>
               </div>
             </div>
-            <Select value={productId || "none"} onValueChange={(v) => v === "none" ? setProductId("") : fillFromProduct(v)}>
-              <SelectTrigger id="stock-product" className="bg-white"><SelectValue placeholder="Ürün seçin (opsiyonel)..." /></SelectTrigger>
+            <Select value={productId || undefined} onValueChange={fillFromProduct}>
+              <SelectTrigger id="stock-product" className="bg-white"><SelectValue placeholder="Katalogdan ürün adı seçin..." /></SelectTrigger>
               <SelectContent>
-                <SelectItem value="none">Seçilmedi (elle gir)</SelectItem>
                 {catalogProducts.map((p) => (
-                  <SelectItem key={p.id} value={p.id}>{[p.brand, p.model].filter(Boolean).join(" ")}{p.type ? ` · ${p.type}` : ""}</SelectItem>
+                  <SelectItem key={p.id} value={p.id}>
+                    {p.shortDescription || [p.brand, p.modelName || p.model].filter(Boolean).join(" ")}
+                  </SelectItem>
                 ))}
               </SelectContent>
             </Select>
+            {productId && (
+              <div className="text-[11px] text-muted-foreground">
+                Marka ve teknik özellikler seçilen ürün kaydından otomatik alınır; ayrıca model veya sayaç tipi seçilmez.
+              </div>
+            )}
             {mode === "bulk" && (
               <div className="flex items-center gap-2">
                 <Label className="text-xs whitespace-nowrap" htmlFor="stock-qty">Adet</Label>
                 <Input id="stock-qty" name="stock-qty" type="number" min={1} max={100} className="bg-white h-8 w-24" value={quantity} onChange={(e) => setQuantity(e.target.value)} />
-                <span className="text-[11px] text-muted-foreground">Seri no'lar <b>{form.stockCode || "KOD"}-001…</b> şeklinde otomatik üretilir.</span>
+                <span className="text-[11px] text-muted-foreground">Seri numaraları seçilen ürünün iç model önekinden otomatik üretilir.</span>
               </div>
             )}
           </div>
 
           <div className="grid grid-cols-2 gap-3">
-            <div>
-              <Label className="text-xs">Marka</Label>
-              <AutocompleteInput
-                ariaLabel="Marka"
-                options={allBrands}
-                value={form.brand}
-                onChange={(v) => setForm({ ...form, brand: v })}
-                placeholder="Marka seç veya yaz..."
-              />
-            </div>
-            <div>
-              <Label className="text-xs">Sayaç Tipi</Label>
-              <AutocompleteInput
-                ariaLabel="Sayaç tipi"
-                options={allTypes}
-                value={form.counterType}
-                onChange={(v) => setForm({ ...form, counterType: v })}
-                placeholder="Tip seç veya yaz..."
-              />
-            </div>
-            <Field label="Model *" name="stock-model" value={form.counterModel} onChange={(v) => setForm({ ...form, counterModel: v })} placeholder="X-200" />
             {mode === "single" ? (
               <Field label="Seri No *" name="stock-serial" value={form.serialNumber} onChange={(v) => setForm({ ...form, serialNumber: v })} placeholder="SN-200-0001" />
             ) : (
@@ -2109,28 +2386,38 @@ export function CreateStockDialog({ trigger }: { trigger: React.ReactNode }) {
               </div>
             )}
             <div>
-              <Label className="text-xs">Kontrol Paneli</Label>
+              <Label className="text-xs">Kontrol Ünitesi {form.categoryCode === "TEZGAH" ? "*" : ""}</Label>
               <AutocompleteInput
-                ariaLabel="Kontrol paneli"
+                ariaLabel="Kontrol ünitesi"
                 options={allPanels}
                 value={form.controlPanel}
                 onChange={(v) => setForm({ ...form, controlPanel: v })}
-                placeholder="Panel seç veya yaz..."
+                placeholder="Kontrol ünitesi seç veya yaz..."
               />
             </div>
             <div>
-              <Label className="text-xs" htmlFor="stock-code">Stok Kodu *</Label>
-              <div className="flex gap-1.5 mt-1.5">
-                <Input id="stock-code" className="font-data" value={form.stockCode} onChange={(e) => setForm({ ...form, stockCode: e.target.value })} placeholder="ACM-X200-001" />
-                <Button type="button" variant="outline" size="sm" onClick={autoStockCode}>Otomatik</Button>
-              </div>
+              <Label className="text-xs">Yeni / Kullanılmış</Label>
+              <Select value={form.itemCondition} onValueChange={(value: "new" | "used") => setForm({ ...form, itemCondition: value })}>
+                <SelectTrigger className="mt-1.5"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="new">Yeni</SelectItem>
+                  <SelectItem value="used">Kullanılmış</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
             <div>
               <Label className="text-xs">Depo</Label>
-              <Select value={form.warehouse || undefined} onValueChange={(v) => setForm({ ...form, warehouse: v })}>
+              <Select
+                value={form.warehouseId || undefined}
+                onValueChange={(warehouseId) => setForm({
+                  ...form,
+                  warehouseId,
+                  warehouse: warehouses.find((warehouse) => warehouse.id === warehouseId)?.name ?? "",
+                })}
+              >
                 <SelectTrigger className="mt-1.5"><SelectValue placeholder="Depo seçin" /></SelectTrigger>
                 <SelectContent>
-                  {warehouseOptions.map((w) => <SelectItem key={w} value={w}>{w}</SelectItem>)}
+                  {warehouses.map((warehouse) => <SelectItem key={warehouse.id} value={warehouse.id}>{warehouse.name}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
@@ -2143,6 +2430,12 @@ export function CreateStockDialog({ trigger }: { trigger: React.ReactNode }) {
                 </SelectContent>
               </Select>
             </div>
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-3">
+            <Field label="Yüklendiği Tarih" name="stock-loading-date" type="date" value={form.loadingDate} onChange={(value) => setForm({ ...form, loadingDate: value })} />
+            <Field label="Geldiği Tarih" name="stock-received-date" type="date" value={form.receivedDate} onChange={(value) => setForm({ ...form, receivedDate: value })} />
+            <Field label="Geleceği Tarih" name="stock-arrival-date" type="date" value={form.arrivalDate} onChange={(value) => setForm({ ...form, arrivalDate: value })} />
           </div>
 
           <div className="grid grid-cols-2 gap-3 mt-1.5">
@@ -2163,13 +2456,21 @@ export function CreateStockDialog({ trigger }: { trigger: React.ReactNode }) {
 /* ---------- Activity ---------- */
 
 export function AddActivityDialog({
-  trigger, salesCaseId, customerId, open: controlledOpen, onOpenChange,
+  trigger, salesCaseId, customerId, contactId, open: controlledOpen, onOpenChange, commentOnly = false, defaultTypeCode,
 }: {
   trigger?: React.ReactNode;
   salesCaseId: string;
   customerId: string;
+  contactId?: string;
   open?: boolean;
   onOpenChange?: (o: boolean) => void;
+  commentOnly?: boolean;
+  /**
+   * Tetikleyici belirli bir temas türünü vaat ediyorsa (örn. "Toplantı")
+   * dialog o türle açılmalı; aksi halde listenin ilk maddesi ("Gelen Arama")
+   * seçili gelir ve düğme yalan söyler.
+   */
+  defaultTypeCode?: (typeof ACTIVITY_TYPE_OPTIONS)[number]["code"];
 }) {
   const { addActivity, users } = useStore();
   const { user } = useAuth();
@@ -2178,6 +2479,10 @@ export function AddActivityDialog({
   const open = controlledOpen ?? internalOpen;
   const setOpen = (o: boolean) => { onOpenChange ? onOpenChange(o) : setInternalOpen(o); };
 
+  const defaultType = commentOnly
+    ? ACTIVITY_TYPE_OPTIONS.find((option) => option.code === "note")?.label ?? "Yorum"
+    : (defaultTypeCode && ACTIVITY_TYPE_OPTIONS.find((option) => option.code === defaultTypeCode)?.label)
+      || ACTIVITY_TYPE_OPTIONS[0].label;
   const [form, setForm] = usePersistentState<{
     type: string;
     title: string;
@@ -2185,8 +2490,8 @@ export function AddActivityDialog({
     result: string;
     date: string;
     byUserId: string;
-  }>(`draft.activity.${salesCaseId || customerId}`, {
-    type: ACTIVITY_TYPE_OPTIONS[0].label,
+  }>(`draft.activity.${salesCaseId || customerId}${commentOnly ? ".comment" : ""}`, {
+    type: defaultType,
     title: "",
     note: "",
     result: "",
@@ -2199,7 +2504,7 @@ export function AddActivityDialog({
 
   const reset = () => {
     setForm({
-      type: ACTIVITY_TYPE_OPTIONS[0].label,
+      type: defaultType,
       title: "",
       note: "",
       result: "",
@@ -2257,7 +2562,8 @@ export function AddActivityDialog({
       const created = await addActivity({
         salesCaseId,
         customerId,
-        type: form.type,
+        contactId,
+        type: commentOnly ? defaultType : form.type,
         title: form.title.trim(),
         note: form.note.trim(),
         result: form.result.trim(),
@@ -2280,12 +2586,12 @@ export function AddActivityDialog({
       {trigger && <DialogTrigger asChild>{trigger}</DialogTrigger>}
       <DialogContent className="max-w-md">
         <DialogHeader>
-          <DialogTitle>Yeni Aktivite</DialogTitle>
-          <DialogDescription>Bu satış kartına aktivite ekleyin.</DialogDescription>
+          <DialogTitle>{commentOnly ? "Yeni Yorum" : "Yeni Aktivite"}</DialogTitle>
+          <DialogDescription>{commentOnly ? "Bu fırsata kullanıcı yorumu ekleyin." : "Bu satış kartına aktivite ekleyin."}</DialogDescription>
         </DialogHeader>
         <form onSubmit={submit} className="space-y-3">
-          <div className="grid grid-cols-2 gap-3">
-            <div>
+          <div className={`grid gap-3 ${commentOnly ? "grid-cols-1" : "grid-cols-2"}`}>
+            {!commentOnly && <div>
               <Label className="text-xs">Aktivite Türü</Label>
               <Select value={form.type} onValueChange={(v) => setForm({ ...form, type: v })}>
                 <SelectTrigger className="mt-1.5"><SelectValue /></SelectTrigger>
@@ -2293,7 +2599,7 @@ export function AddActivityDialog({
                   {ACTIVITY_TYPE_OPTIONS.map((t) => <SelectItem key={t.code} value={t.label}>{t.label}</SelectItem>)}
                 </SelectContent>
               </Select>
-            </div>
+            </div>}
             <div>
               <Label className="text-xs">Tarih</Label>
               <Input type="date" className="mt-1.5" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} />
@@ -2301,16 +2607,16 @@ export function AddActivityDialog({
           </div>
           <div>
             <Label className="text-xs">Başlık *</Label>
-            <Input className="mt-1.5" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder="Müşteri ile görüşme" />
+            <Input className="mt-1.5" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder={commentOnly ? "Yorum başlığı" : "Müşteri ile görüşme"} />
           </div>
           <div>
-            <Label className="text-xs">Not</Label>
-            <Textarea className="mt-1.5 min-h-[80px]" value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} placeholder="Detaylar..." />
+            <Label className="text-xs">{commentOnly ? "Yorum" : "Not"}</Label>
+            <Textarea className="mt-1.5 min-h-[80px]" value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} placeholder={commentOnly ? "Yorumunuzu yazın..." : "Detaylar..."} />
           </div>
-          <div>
+          {!commentOnly && <div>
             <Label className="text-xs">Sonuç / Ne Yapıldı</Label>
             <Textarea className="mt-1.5 min-h-[64px]" value={form.result} onChange={(e) => setForm({ ...form, result: e.target.value })} placeholder="Yapılan işlem ve sonuç..." />
-          </div>
+          </div>}
           <div>
             <Label className="text-xs">Dosyalar</Label>
             <Input
@@ -2355,8 +2661,15 @@ export function AddActivityDialog({
 }
 
 /* ---------- Quick Create ---------- */
-export function QuickCreateDialog({ trigger }: { trigger: React.ReactNode }) {
+export function QuickCreateDialog({
+  trigger,
+  enabledAreas,
+}: {
+  trigger: React.ReactNode;
+  enabledAreas?: { customers: boolean; contacts: boolean; salesCases: boolean };
+}) {
   const [open, setOpen] = useState(false);
+  const areas = enabledAreas ?? { customers: true, contacts: true, salesCases: true };
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>{trigger}</DialogTrigger>
@@ -2366,7 +2679,7 @@ export function QuickCreateDialog({ trigger }: { trigger: React.ReactNode }) {
           <DialogDescription>Hangi kaydı oluşturmak istersiniz?</DialogDescription>
         </DialogHeader>
         <div className="grid grid-cols-2 gap-2">
-          <CreateCustomerDialog
+          {areas.customers && <CreateCustomerDialog
             trigger={
               <button className="flex flex-col items-start gap-1 p-4 rounded-lg border hover:border-primary hover:bg-primary/5 transition-colors text-left">
                 <Building2 className="size-5 text-primary" />
@@ -2374,8 +2687,8 @@ export function QuickCreateDialog({ trigger }: { trigger: React.ReactNode }) {
                 <div className="text-xs text-muted-foreground">Kurumsal / Bireysel</div>
               </button>
             }
-          />
-          <CreateContactDialog
+          />}
+          {areas.contacts && <CreateContactDialog
             trigger={
               <button className="flex flex-col items-start gap-1 p-4 rounded-lg border hover:border-primary hover:bg-primary/5 transition-colors text-left">
                 <UserIcon className="size-5 text-primary" />
@@ -2383,8 +2696,8 @@ export function QuickCreateDialog({ trigger }: { trigger: React.ReactNode }) {
                 <div className="text-xs text-muted-foreground">Firma kişisi</div>
               </button>
             }
-          />
-          <CreateCaseDialog
+          />}
+          {areas.salesCases && <CreateCaseDialog
             trigger={
               <button className="flex flex-col items-start gap-1 p-4 rounded-lg border hover:border-primary hover:bg-primary/5 transition-colors text-left">
                 <UserIcon className="size-5 text-primary" />
@@ -2392,7 +2705,7 @@ export function QuickCreateDialog({ trigger }: { trigger: React.ReactNode }) {
                 <div className="text-xs text-muted-foreground">Yeni fırsat</div>
               </button>
             }
-          />
+          />}
         </div>
       </DialogContent>
     </Dialog>
@@ -2402,6 +2715,8 @@ export function QuickCreateDialog({ trigger }: { trigger: React.ReactNode }) {
 /* ---------- Product (create / edit) ---------- */
 
 type ProductOption = { code: string; label: string };
+/** Alt kategori, DB'de kendi kategorisine bağlıdır; bu bağ filtrede doğrudan kullanılır. */
+type ProductSubcategoryOption = ProductOption & { categoryCode?: string };
 type ProductTypeOption = ProductOption & { categoryCode?: string; subcategoryCode?: string; productGroupCode?: string };
 
 const PRODUCT_GROUPS: ProductOption[] = [
@@ -2512,16 +2827,37 @@ const PRODUCT_CURRENCIES: Array<{ code: "USD" | "TRY" | "EUR"; label: string }> 
 ];
 const PRODUCT_VAT_RATES = ["10", "20"];
 const DEFAULT_PRODUCT_VAT_RATE = "20";
+const defaultVatRateForProductType = (productTypeCode: string): string | null => {
+  const code = productTypeCode.toLocaleUpperCase("tr-TR");
+  if (code.includes("TORNA")) return "10";
+  if (code.includes("ISLEME_MERKEZ")) return "20";
+  return null;
+};
 
 const normalizeProductVatRate = (value: string | number | null | undefined) => {
   const rate = String(value ?? DEFAULT_PRODUCT_VAT_RATE);
   return PRODUCT_VAT_RATES.includes(rate) ? rate : DEFAULT_PRODUCT_VAT_RATE;
 };
 
+const DIAMETER_SYMBOL = "Ø";
+const DIAMETER_SYMBOL_RE = /^\s*[Ø⌀]\s*/u;
+const isDiameterSpec = (key: string) => normalizeProductSpecKey(key).includes("cap");
+const diameterInputValue = (key: string, value: string) => {
+  if (!isDiameterSpec(key)) return value;
+  const cleanValue = value.replace(DIAMETER_SYMBOL_RE, "");
+  return cleanValue.trim() === "-" ? "" : cleanValue;
+};
+const technicalSpecValue = (key: string, value: string) => {
+  if (!isDiameterSpec(key)) return value;
+  const cleanValue = value.replace(DIAMETER_SYMBOL_RE, "").trim();
+  if (!cleanValue || cleanValue === "-") return cleanValue;
+  return `${DIAMETER_SYMBOL} ${cleanValue}`;
+};
+
 const catalogSpecs = (specs: ProductSpec[] = [], emptyValue = "", productTypeCode?: string) =>
   (productTypeCode ? specsForProductTypeStrict(productTypeCode, specs) : specs).map((spec) => ({
     key: spec.key,
-    value: spec.value?.trim() ? spec.value : emptyValue,
+    value: technicalSpecValue(spec.key, spec.value?.trim() ? spec.value : emptyValue),
     unit: spec.unit ?? spec.specUnit ?? "",
     specUnit: spec.unit ?? spec.specUnit ?? "",
     groupCode: spec.groupCode,
@@ -2572,18 +2908,39 @@ const typeMatchesGroup = (type: ProductTypeOption, groupCode?: string) =>
 const fallbackLookupRows = (options: ProductOption[]): LookupRow[] =>
   options.map((option, index) => ({ code: option.code, name: option.label, sortOrder: index }));
 
+/**
+ * Seçili kategoriye ait ürün alt kategorileri.
+ *
+ * Öncelik sırası:
+ *  1) Alt kategorinin DB'deki kendi kategori bağı (`categoryId` -> kod).
+ *  2) Bağ yoksa ürün tipleri üzerinden çıkarım (eski davranış).
+ *  3) İkisi de sonuç vermezse tüm alt kategoriler — liste asla boş kalmaz,
+ *     çünkü boş liste kullanıcıya "bu kategoride alt kategori yok" yalanını
+ *     söyler ve yeni ürün eklemeyi tıkar.
+ */
 const subcategoriesForProductCategory = (
   categoryCode: string,
   productTypeOptions: ProductTypeOption[] = PRODUCT_TYPE_OPTIONS,
-  productSubcategoryOptions: ProductOption[] = PRODUCT_SUBCATEGORIES,
-) =>
-  sameProductCode(categoryCode, "TEZGAH")
-    ? productSubcategoryOptions
-    : productSubcategoryOptions.filter((subcategory) =>
-        productTypeOptions.some(
-          (type) => (!type.categoryCode || sameProductCode(type.categoryCode, categoryCode)) && sameProductCode(type.subcategoryCode, subcategory.code),
-        ),
-      );
+  productSubcategoryOptions: ProductSubcategoryOption[] = PRODUCT_SUBCATEGORIES,
+) => {
+  if (!categoryCode) return productSubcategoryOptions;
+
+  const linked = productSubcategoryOptions.filter(
+    (subcategory) => subcategory.categoryCode && sameProductCode(subcategory.categoryCode, categoryCode),
+  );
+  if (linked.length > 0) return linked;
+
+  const inferred = productSubcategoryOptions.filter((subcategory) =>
+    productTypeOptions.some(
+      (type) =>
+        (!type.categoryCode || sameProductCode(type.categoryCode, categoryCode)) &&
+        sameProductCode(type.subcategoryCode, subcategory.code),
+    ),
+  );
+  if (inferred.length > 0) return inferred;
+
+  return productSubcategoryOptions;
+};
 
 type ProductFormState = {
   brand: string;
@@ -2602,7 +2959,7 @@ type ProductFormState = {
   model: string; modelName: string; controlPanel: string;
   imageUrl: string; shortDescription: string; description: string;
   listPrice: string; cashPrice: string; currency: "USD" | "EUR" | "TRY";
-  vatRate: string; originCountry: string; hsCode: string; stockCode: string;
+  vatRate: string; originCountry: string; productionYear: string; hsCode: string; stockCode: string;
   specs: ProductSpec[]; standardEquipment: string[]; optionalEquipment: string[];
   muadilProductIds: string[];
   status: "active" | "passive";
@@ -2714,7 +3071,7 @@ const emptyProduct = (productGroupCode = ""): ProductFormState => ({
   model: "", modelName: "", controlPanel: "",
   imageUrl: "", shortDescription: "", description: "",
   listPrice: "", cashPrice: "", currency: "USD",
-  vatRate: DEFAULT_PRODUCT_VAT_RATE, originCountry: "", hsCode: "", stockCode: "",
+  vatRate: DEFAULT_PRODUCT_VAT_RATE, originCountry: "", productionYear: "", hsCode: "", stockCode: "",
   specs: [], standardEquipment: [], optionalEquipment: [],
   muadilProductIds: [],
   status: "active",
@@ -2745,9 +3102,14 @@ const fromProduct = (p: Product): ProductFormState => ({
   listPrice: String(p.listPrice || ""), cashPrice: p.cashPrice ? String(p.cashPrice) : "", currency: p.currency,
   vatRate: normalizeProductVatRate(p.vatRate),
   originCountry: p.originCountry ?? "",
+  productionYear: p.productionYear ? String(p.productionYear) : "",
   hsCode: p.hsCode ?? "",
   stockCode: p.stockCode || p.model,
-  specs: catalogSpecs(p.specs, "", p.productTypeCode),
+  // Kayıtlı ürün kendi teknik alanlarıyla açılır; katalog şablonu burada
+  // yeniden uygulanmaz. Uygulanırsa kullanıcının sildiği alan formda geri
+  // gelir ve ilk kayıtta tekrar yazılır. Şablonun tamamı istendiğinde
+  // "Sabit listeyi tamamla" düğmesiyle bilinçli olarak eklenir.
+  specs: catalogSpecs(dropForeignMachineSpecs(p.productTypeCode, p.specs ?? []), ""),
   standardEquipment: [...p.standardEquipment], optionalEquipment: [...p.optionalEquipment],
   muadilProductIds: p.muadilProductIds?.length ? p.muadilProductIds : (p.muadilProductId ? [p.muadilProductId] : []),
   status: p.status,
@@ -2762,7 +3124,7 @@ export function ProductDialog({
   open?: boolean;
   onOpenChange?: (o: boolean) => void;
 }) {
-  const { addProduct, updateProduct, products, customers } = useStore();
+  const { addProduct, updateProduct, products } = useStore();
   const { activeDivision, user } = useAuth();
   const activeProductGroupCode = useMemo(() => {
     if (!activeDivision || activeDivision === "all") return "";
@@ -2774,7 +3136,6 @@ export function ProductDialog({
   const [internalOpen, setInternalOpen] = useState(false);
   const open = controlledOpen ?? internalOpen;
   const setOpen = (o: boolean) => { onOpenChange ? onOpenChange(o) : setInternalOpen(o); };
-  const productBrandDatalistId = useId();
 
   const [form, setForm] = useState<ProductFormState>(
     mode === "edit" && product ? fromProduct(product) : emptyProduct(activeProductGroupCode)
@@ -2791,7 +3152,7 @@ export function ProductDialog({
   }, [form.productGroupCode, user?.divisions]);
   const [stdInput, setStdInput] = useState("");
   const [optionalEquipmentDraft, setOptionalEquipmentDraft] = useState<OptionalEquipmentDraft>(emptyOptionalEquipmentDraft);
-  const [brandRows, setBrandRows] = useState<Array<{ id: string; name: string }>>([]);
+  const [brandRows, setBrandRows] = useState<Array<{ id: string; name: string; logoUrl?: string | null }>>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploadingImage, setUploadingImage] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -2814,7 +3175,18 @@ export function ProductDialog({
     return byCode.size ? Array.from(byCode.values()) : PRODUCT_GROUPS;
   }, [DIVISION_GROUP_CODES, productGroupRows]);
   const productCategoryOptions = lookupCodeOptions(productCategoryRows);
-  const productSubcategoryOptions = lookupCodeOptions(productSubcategoryRows);
+  // Alt kategori seçenekleri kendi kategori kodlarını taşır; filtre böylece
+  // ürün tipi bağına muhtaç kalmadan doğrudan çalışır.
+  const productSubcategoryOptions = useMemo<ProductSubcategoryOption[]>(() => {
+    const categoryCodeById = new Map(
+      productCategoryRows.filter((row) => row.id).map((row) => [row.id!, row.code]),
+    );
+    return productSubcategoryRows.map((row) => ({
+      code: row.code,
+      label: row.name,
+      categoryCode: row.categoryId ? categoryCodeById.get(row.categoryId) : undefined,
+    }));
+  }, [productSubcategoryRows, productCategoryRows]);
   const productTypeOptions = useMemo<ProductTypeOption[]>(() => {
     const labelByCode = new Map(productTypeRows.map((row) => [row.code, row.name]));
     // DB taksonomi bağları: tipin alt kategorisi ve alt kategorinin kategorisi.
@@ -2879,7 +3251,7 @@ export function ProductDialog({
   useEffect(() => {
     if (!open) return;
     void productService.listBrands(selectedProductDivisionId)
-      .then((rows) => setBrandRows((rows ?? []).map((row: any) => ({ id: row.id, name: row.name })).filter((row: any) => row.id && row.name)))
+      .then((rows) => setBrandRows((rows ?? []).map((row: any) => ({ id: row.id, name: row.name, logoUrl: row.logoUrl ?? null })).filter((row: any) => row.id && row.name)))
       .catch(() => setBrandRows([]));
   }, [open, selectedProductDivisionId]);
 
@@ -3005,7 +3377,6 @@ export function ProductDialog({
   const isMachineProduct = form.categoryCode === "TEZGAH";
   const isOptionalEquipmentProduct = form.categoryCode === OPTIONAL_EQUIPMENT_CATEGORY_CODE;
   const isLaborProduct = form.categoryCode === "ISCILIK" || form.productTypeCode === "ISCILIK";
-  const supplierOptions = customers.filter((c) => c.firmType === "supplier" || c.firmType === "supplier_customer");
   const compatibilityGroupOptions = productGroupOptions.map((o) => ({ value: o.code, label: o.label }));
   const compatibilityCategoryOptions = productCategoryOptions
     .filter((o) => o.code !== OPTIONAL_EQUIPMENT_CATEGORY_CODE)
@@ -3028,34 +3399,8 @@ export function ProductDialog({
     ...brandRows.map((row) => row.name),
     form.brand,
   ].filter(Boolean))).sort((a, b) => a.localeCompare(b, "tr-TR"));
+  const selectedBrandRow = brandRows.find((row) => row.name === form.brand);
   const canSelectProductBrand = Boolean(form.productTypeCode);
-  const specValueOptionsByKey = useMemo(() => {
-    const valuesByKey = new Map<string, Set<string>>();
-    const addValue = (key?: string, value?: string) => {
-      const cleanKey = key?.trim();
-      const cleanValue = value?.trim();
-      if (!cleanKey || !cleanValue) return;
-      const values = valuesByKey.get(cleanKey) ?? new Set<string>();
-      values.add(cleanValue);
-      valuesByKey.set(cleanKey, values);
-    };
-
-    for (const item of products) {
-      for (const spec of item.specs ?? []) addValue(spec.key, spec.value);
-    }
-    for (const spec of form.specs) addValue(spec.key, spec.value);
-
-    return valuesByKey;
-  }, [products, form.specs]);
-  const specValueOptionsFor = (spec: ProductSpec) => {
-    const values = new Set(specValueOptionsByKey.get(spec.key.trim()) ?? []);
-    if (spec.value.trim()) values.add(spec.value.trim());
-    values.add("-");
-    return [...values]
-      .sort((a, b) => a.localeCompare(b, "tr-TR", { numeric: true }))
-      .map((value) => ({ value, label: value }));
-  };
-
   const muadilOptions = products.filter((p) => p.id !== product?.id && p.categoryCode !== OPTIONAL_EQUIPMENT_CATEGORY_CODE);
   const validMuadilIds = new Set(muadilOptions.map((p) => p.id));
   const selectedMuadilIds = form.muadilProductIds.filter((id) => validMuadilIds.has(id));
@@ -3166,6 +3511,7 @@ export function ProductDialog({
       category: findLabel(productCategoryOptions, categoryCode, form.category),
       subcategoryCode,
       subcategory: findLabel(productSubcategoryOptions, subcategoryCode, form.subcategory),
+      vatRate: defaultVatRateForProductType(opt.code) ?? form.vatRate,
       brand: opt.code === form.productTypeCode ? form.brand : "",
       specs: specsForSelectedProductType(form.specs, opt.code),
     });
@@ -3205,7 +3551,12 @@ export function ProductDialog({
       toast.error(isLaborProduct ? "Ürün adı zorunludur" : "Marka ve ürün adı zorunludur");
       return;
     }
-    const cleanSpecs = catalogSpecs(form.specs, "-", form.productTypeCode).filter((s) => s.key.trim());
+    // Katalog şablonu kaydederken YENİDEN uygulanmaz: uygulanırsa
+    // `mergeSpecsWithDefaults` şablondaki her alanı geri ekler ve kullanıcının
+    // sildiği teknik bilgi satırı hiçbir zaman silinmiş olmaz. Burada yalnızca
+    // başka tezgah tipine ait alanlar elenir; ekrandaki liste olduğu gibi gider.
+    const cleanSpecs = catalogSpecs(dropForeignMachineSpecs(form.productTypeCode, form.specs), "-")
+      .filter((s) => s.key.trim());
     const modelCode = form.stockCode.trim() || form.model.trim() || compactProductCode(form.shortDescription) || "URUN";
     const payload = {
       brand: isLaborProduct ? (form.brand.trim() || "Haksan") : form.brand.trim(),
@@ -3229,6 +3580,7 @@ export function ProductDialog({
       currency: form.currency,
       vatRate: Number(normalizeProductVatRate(form.vatRate)),
       originCountry: form.originCountry.trim(),
+      productionYear: form.productionYear.trim() ? Number(form.productionYear) : undefined,
       hsCode: form.hsCode.trim(),
       stockCode: form.stockCode.trim(),
       supplierCompanyId: form.supplierCompanyId || null,
@@ -3337,18 +3689,32 @@ export function ProductDialog({
 
             {!isLaborProduct && (
               <ProductSheetRow label="5. Ürün Markası">
-                <Input
-                  aria-label="Ürün markası"
-                  className="h-8 max-w-xs"
-                  list={canSelectProductBrand ? productBrandDatalistId : undefined}
+                <div className="flex max-w-md items-center gap-2">
+                  <div className="grid size-9 shrink-0 place-items-center overflow-hidden rounded-md border border-border/60 bg-white p-1">
+                    {selectedBrandRow?.logoUrl ? (
+                      <img
+                        src={resolveMediaUrl(selectedBrandRow.logoUrl)}
+                        alt={`${selectedBrandRow.name} logosu`}
+                        className="max-h-full max-w-full object-contain"
+                      />
+                    ) : (
+                      <ImagePlus className="size-4 text-muted-foreground/50" />
+                    )}
+                  </div>
+                  <Combobox
+                    options={productBrandOptions.map((brand) => ({ value: brand, label: brand }))}
                   value={form.brand}
-                  onChange={(e) => setForm({ ...form, brand: e.target.value })}
+                    onChange={(brand) => setForm({ ...form, brand })}
                   disabled={!canSelectProductBrand}
-                  placeholder={canSelectProductBrand ? "Marka seç veya yaz..." : "Önce ürün tipi seçin"}
-                />
-                <datalist id={productBrandDatalistId}>
-                  {productBrandOptions.map((brand) => <option key={brand} value={brand} />)}
-                </datalist>
+                    placeholder={canSelectProductBrand ? "Kayıtlı marka seçin..." : "Önce ürün tipi seçin"}
+                    searchPlaceholder="Marka ara..."
+                    emptyText="Bu bölüm için marka tanımlı değil."
+                    className="h-8 flex-1"
+                  />
+                </div>
+                <p className="mt-1 text-[11px] text-muted-foreground">
+                  Yeni marka eklemek için Ayarlar → CRM Alan Ayarları → Ürün Markaları bölümünü kullanın.
+                </p>
               </ProductSheetRow>
             )}
 
@@ -3382,18 +3748,21 @@ export function ProductDialog({
 
             {!isLaborProduct && (
               <ProductSheetRow label="Ürün Tedarikçisi">
-                <Select
-                  value={form.supplierCompanyId || "__none"}
-                  onValueChange={(v) => setForm({ ...form, supplierCompanyId: v === "__none" ? "" : v })}
-                >
-                  <SelectTrigger className="h-8 max-w-md"><SelectValue placeholder="Tedarikçi seçin" /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="__none">Belirtilmedi</SelectItem>
-                    {supplierOptions.map((supplier) => (
-                      <SelectItem key={supplier.id} value={supplier.id}>{supplier.name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <div className="flex max-w-md items-center gap-1">
+                  <RemoteCompanyCombobox
+                    value={form.supplierCompanyId || null}
+                    relationTypeCodes={["supplier", "supplier_customer"]}
+                    onValueChange={(supplierCompanyId) => setForm({ ...form, supplierCompanyId })}
+                    placeholder="Tedarikçi seçin"
+                    searchPlaceholder="Tedarikçi firma ara..."
+                    className="h-8"
+                  />
+                  {form.supplierCompanyId && (
+                    <Button type="button" variant="ghost" size="icon" className="size-8" title="Tedarikçiyi temizle" onClick={() => setForm({ ...form, supplierCompanyId: "" })}>
+                      <X className="size-3.5" />
+                    </Button>
+                  )}
+                </div>
               </ProductSheetRow>
             )}
 
@@ -3463,6 +3832,18 @@ export function ProductDialog({
               <>
                 <ProductSheetRow label="Menşei">
                   <Input className="h-8 max-w-xs" value={form.originCountry} onChange={(e) => setForm({ ...form, originCountry: e.target.value })} placeholder="Ülke" />
+                </ProductSheetRow>
+
+                {/* Belge metinleri "üretim yılı … olup yeni ve kullanılmamıştır" diye
+                    yazıyor; yıl burada boş kalırsa şablon cari yıla düşer. */}
+                <ProductSheetRow label="Üretim Yılı">
+                  <Input
+                    className="h-8 max-w-xs"
+                    inputMode="numeric"
+                    value={form.productionYear}
+                    onChange={(e) => setForm({ ...form, productionYear: e.target.value.replace(/[^\d]/g, "").slice(0, 4) })}
+                    placeholder="Örn. 2023"
+                  />
                 </ProductSheetRow>
 
                 <ProductSheetRow label="GTIP Kodu">
@@ -3648,7 +4029,7 @@ export function ProductDialog({
                       <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
                         <Badge variant="secondary">{selectedProductTypeLabel}</Badge>
                         <span>{selectedProductTypeTemplateCount || form.specs.length} teknik alan</span>
-                        <span>Etiket ve birim sabittir; sadece değer girilir.</span>
+                        <span>Teknik değerleri kutulara doğrudan yazabilirsiniz.</span>
                       </div>
                       <div className="flex flex-wrap justify-end gap-1.5">
                         <ProductSpecGroupManagerDialog
@@ -3691,17 +4072,25 @@ export function ProductDialog({
                                     <div className="min-w-0 truncate text-xs font-medium text-foreground" title={s.key}>
                                       {s.key}
                                     </div>
-                                    <Combobox
-                                      className="h-8 bg-white"
-                                      options={specValueOptionsFor(s)}
-                                      value={s.value}
-                                      onChange={(value) => updSpec(s.index, { value })}
-                                      placeholder="Boş / -"
-                                      searchPlaceholder="Değer ara..."
-                                      emptyText="Değer bulunamadı"
-                                      onCreate={(value) => updSpec(s.index, { value })}
-                                      createLabel={(query) => `"${query}" kullan`}
-                                    />
+                                    <div className="relative">
+                                      {isDiameterSpec(s.key) && (
+                                        <span
+                                          aria-hidden="true"
+                                          className="pointer-events-none absolute inset-y-0 left-2.5 z-10 flex items-center text-sm font-semibold text-foreground"
+                                        >
+                                          {DIAMETER_SYMBOL}
+                                        </span>
+                                      )}
+                                      <Input
+                                        aria-label={`${s.key} değeri`}
+                                        className={`h-8 bg-white ${isDiameterSpec(s.key) ? "pl-8" : ""}`}
+                                        value={diameterInputValue(s.key, s.value)}
+                                        onChange={(event) => updSpec(s.index, {
+                                          value: technicalSpecValue(s.key, event.target.value),
+                                        })}
+                                        placeholder={isDiameterSpec(s.key) ? "Ölçü girin" : "Değer girin"}
+                                      />
+                                    </div>
                                     <div className="h-8 rounded-md border border-border/70 bg-muted/30 px-2 text-center text-xs leading-8 text-muted-foreground" title={s.unit ?? s.specUnit ?? ""}>
                                       {s.unit || s.specUnit || "-"}
                                     </div>
@@ -4265,14 +4654,31 @@ const emptyShipmentLine = (): ShipmentLineForm => ({
   packageNotes: "",
 });
 
-export function CreateShipmentDialog({ trigger, onCreated }: { trigger: React.ReactNode; onCreated?: () => void }) {
+export function CreateShipmentDialog({
+  trigger,
+  onCreated,
+  defaultSalesCaseId,
+  open: controlledOpen,
+  onOpenChange,
+}: {
+  trigger?: React.ReactNode;
+  onCreated?: () => void;
+  defaultSalesCaseId?: string;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+}) {
   const { addShipment, cases, customers, products, stock } = useStore();
   const customerName = (id: string) => customers.find((c) => c.id === id)?.name ?? "—";
   const addressLabel = (address: NonNullable<Customer["addresses"]>[number]) =>
     [ADDRESS_TYPE_OPTIONS.find((option) => option.value === address.addressType)?.label, address.address, address.district, address.city]
       .filter(Boolean)
       .join(" · ");
-  const [open, setOpen] = useState(false);
+  const [internalOpen, setInternalOpen] = useState(false);
+  const open = controlledOpen ?? internalOpen;
+  const setOpen = (next: boolean) => {
+    if (controlledOpen === undefined) setInternalOpen(next);
+    onOpenChange?.(next);
+  };
   const submission = useSubmissionLock();
   const [warehouses, setWarehouses] = useState<Array<{ id: string; name: string }>>([]);
   const [senderCompanies, setSenderCompanies] = useState<Array<{ id: string; legalTitle: string; shortName?: string | null }>>([]);
@@ -4288,7 +4694,7 @@ export function CreateShipmentDialog({ trigger, onCreated }: { trigger: React.Re
   const [optionalByLine, setOptionalByLine] = useState<Record<string, Array<{ id: string; label: string }>>>({});
   const optionalCache = useRef<Record<string, Array<{ id: string; label: string }>>>({});
   const emptyForm = () => {
-    const initialCase = cases[0];
+    const initialCase = cases.find((item) => item.id === defaultSalesCaseId) ?? cases[0];
     const initialCustomer = initialCase ? customers.find((customer) => customer.id === initialCase.customerId) : undefined;
     const initialAddress = initialCustomer?.addresses?.find((address) => address.isShipping)
       ?? initialCustomer?.addresses?.find((address) => address.isDefault)
@@ -4460,7 +4866,7 @@ export function CreateShipmentDialog({ trigger, onCreated }: { trigger: React.Re
 
   return (
     <Dialog open={open} onOpenChange={(o) => { setOpen(o); if (o) reset(); }}>
-      <DialogTrigger asChild>{trigger}</DialogTrigger>
+      {trigger && <DialogTrigger asChild>{trigger}</DialogTrigger>}
       <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2"><Truck className="size-5 text-primary" /> Yeni Sevkiyat</DialogTitle>
@@ -4861,14 +5267,13 @@ export function deliveryToFormState(d: {
 export function DeliveryFormFields({
   form,
   setForm,
-  customers,
   casesForCustomer,
   machinesForCustomer,
   relatedDeliveries = [],
 }: {
   form: DeliveryFormState;
   setForm: React.Dispatch<React.SetStateAction<DeliveryFormState>>;
-  customers: Customer[];
+  customers?: Customer[];
   casesForCustomer: { id: string; requestedProduct: string }[];
   machinesForCustomer: {
     id: string;
@@ -4898,26 +5303,22 @@ export function DeliveryFormFields({
     <div className="space-y-4 max-h-[min(62dvh,560px)] overflow-y-auto pr-1">
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <div className="sm:col-span-2">
-          <Label className="text-xs" htmlFor="del-customer">Müşteri *</Label>
-          <Select
+          <Label className="text-xs">Müşteri *</Label>
+          <RemoteCompanyCombobox
+            className="mt-1.5"
             value={form.customerId}
-            onValueChange={(v) => {
-              const cust = customers.find((c) => c.id === v);
+            onValueChange={(value) => {
               setForm({
                 ...form,
-                customerId: v,
+                customerId: value,
                 salesCaseId: "",
                 machineId: "",
-                ilgili: cust?.contactPerson ?? "",
+                ilgili: "",
                 technicalSpecs: [],
               });
             }}
-          >
-            <SelectTrigger id="del-customer" className="mt-1.5"><SelectValue placeholder="Müşteri seçin..." /></SelectTrigger>
-            <SelectContent>
-              {customers.map((c) => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
-            </SelectContent>
-          </Select>
+            placeholder="Müşteri seçin..."
+          />
         </div>
         <div>
           <Label className="text-xs">Satış Kartı</Label>
@@ -5021,11 +5422,10 @@ export function DeliveryFormFields({
 
 export function CreateDeliveryDialog({ trigger, onCreated }: { trigger: React.ReactNode; onCreated?: () => void }) {
   const { addDelivery, cases, customers, machines, deliveries } = useStore();
-  const customerName = (id: string) => customers.find((c) => c.id === id)?.name ?? "—";
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const emptyForm = (): DeliveryFormState => ({
-    customerId: customers[0]?.id ?? "",
+    customerId: "",
     salesCaseId: "",
     machineId: "",
     date: new Date().toISOString().slice(0, 10),
@@ -5033,7 +5433,7 @@ export function CreateDeliveryDialog({ trigger, onCreated }: { trigger: React.Re
     formNo: "",
     signedBy: "",
     kurulumuYapan: "",
-    ilgili: customers[0]?.contactPerson ?? "",
+    ilgili: "",
     status: "Bekliyor",
     tezgahMarka: "",
     tezgahTip: "",
@@ -5046,6 +5446,9 @@ export function CreateDeliveryDialog({ trigger, onCreated }: { trigger: React.Re
     technicalSpecs: [],
   });
   const [form, setForm] = useState(emptyForm);
+  const storeSelectedCustomer = customers.find((customer) => customer.id === form.customerId);
+  const selectedCustomerQuery = useCompanyDetail(form.customerId, storeSelectedCustomer);
+  const selectedCustomer = selectedCustomerQuery.data ?? storeSelectedCustomer;
   const reset = () => setForm(emptyForm());
   const casesForCustomer = cases.filter((c) => c.customerId === form.customerId);
   const machinesForCustomer = machines.filter((m) => m.customerId === form.customerId);
@@ -5063,7 +5466,7 @@ export function CreateDeliveryDialog({ trigger, onCreated }: { trigger: React.Re
         status: form.status,
         formData: deliveryFormToPayload(form),
       });
-      toast.success("Teslimat kaydı oluşturuldu", { description: `${customerName(form.customerId)} · ${form.date}` });
+      toast.success("Teslimat kaydı oluşturuldu", { description: `${selectedCustomer?.name ?? "Firma"} · ${form.date}` });
       setOpen(false);
       reset();
       onCreated?.();
@@ -5147,12 +5550,12 @@ export function CreatePaymentDialog({
   onCreated?: () => void;
   defaultDirection?: "in" | "out";
 }) {
-  const { customers, addDocument } = useStore();
+  const { addDocument } = useStore();
   const inputRef = useRef<HTMLInputElement>(null);
   const [open, setOpen] = useState(false);
   const emptyForm = () => ({
     direction: defaultDirection as "in" | "out",
-    companyId: customers[0]?.id ?? "",
+    companyId: "",
     amount: "",
     currencyCode: "USD" as (typeof PAYMENT_CURRENCIES)[number],
     paymentDate: new Date().toISOString().slice(0, 10),
@@ -5314,14 +5717,7 @@ export function CreatePaymentDialog({
 
           <div>
             <Label className="text-xs">Firma *</Label>
-            <Select value={form.companyId} onValueChange={(v) => setForm({ ...form, companyId: v })}>
-              <SelectTrigger className="mt-1.5"><SelectValue placeholder="Firma seçin..." /></SelectTrigger>
-              <SelectContent>
-                {customers.map((c) => (
-                  <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <RemoteCompanyCombobox className="mt-1.5" value={form.companyId} onValueChange={(companyId) => setForm({ ...form, companyId })} placeholder="Firma seçin..." />
           </div>
 
           <div className="grid grid-cols-2 gap-3">
@@ -5427,10 +5823,9 @@ export function CreateReceivableDialog({
   quoteOptions?: { id: string; quoteNo: string; revision: number }[];
   defaultQuoteId?: string;
 }) {
-  const { customers } = useStore();
   const [open, setOpen] = useState(false);
   const emptyForm = () => ({
-    companyId: defaultCompanyId ?? customers[0]?.id ?? "",
+    companyId: defaultCompanyId ?? "",
     quoteId: defaultQuoteId ?? quoteOptions[0]?.id ?? "",
     amount: "",
     currencyCode: "USD" as (typeof PAYMENT_CURRENCIES)[number],
@@ -5485,14 +5880,7 @@ export function CreateReceivableDialog({
         <form onSubmit={submit} className="space-y-4">
           <div>
             <Label className="text-xs">Firma *</Label>
-            <Select value={form.companyId} onValueChange={(v) => setForm({ ...form, companyId: v })}>
-              <SelectTrigger className="mt-1.5"><SelectValue placeholder="Firma seçin..." /></SelectTrigger>
-              <SelectContent>
-                {customers.map((c) => (
-                  <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <RemoteCompanyCombobox className="mt-1.5" value={form.companyId} onValueChange={(companyId) => setForm({ ...form, companyId })} placeholder="Firma seçin..." />
           </div>
 
           {quoteOptions.length > 0 && (
@@ -5546,7 +5934,7 @@ export function CreateReceivableDialog({
 }
 
 export function CreateServiceRequestDialog({ trigger, defaultMachineId }: { trigger: React.ReactNode; defaultMachineId?: string }) {
-  const { customers, contacts, addService, machines: machinesAll, users } = useStore();
+  const { customers, addService, machines: machinesAll, users } = useStore();
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const serviceUsers = useMemo(() => users.filter((u) => u.role === "Service" || u.department === "Servis"), [users]);
@@ -5574,10 +5962,9 @@ export function CreateServiceRequestDialog({ trigger, defaultMachineId }: { trig
     if (!open) return;
     const defaultMachine = machinesAll.find((machine) => machine.id === defaultMachineId);
     const customerId = machineCustomerId(defaultMachine);
-    const preferredContact = preferredServiceContact(contacts, customerId);
     setForm({
       customerId,
-      contactId: preferredContact?.id ?? "",
+      contactId: "",
       machineId: defaultMachine?.id ?? "",
       assignedUserId: (serviceUsers[0] ?? users[0])?.id ?? "",
       ticketType: "complaint",
@@ -5585,23 +5972,18 @@ export function CreateServiceRequestDialog({ trigger, defaultMachineId }: { trig
       quoteRequired: false,
       serviceNote: "",
     });
-  }, [open, defaultMachineId, contacts, machinesAll, serviceUsers, users]);
+  }, [open, defaultMachineId, machinesAll, serviceUsers, users]);
 
-  const customerOptions = useMemo(
-    () => customers.map((customer) => ({ value: customer.id, label: customer.name })),
-    [customers],
-  );
-  const selectedCustomer = customers.find((customer) => customer.id === form.customerId);
+  const storeSelectedCustomer = customers.find((customer) => customer.id === form.customerId);
+  const selectedCustomerQuery = useCompanyDetail(form.customerId, storeSelectedCustomer);
+  const selectedCustomer = selectedCustomerQuery.data ?? storeSelectedCustomer;
   const companyMachines = useMemo(
     () => machinesAll.filter((machine) => machineCustomerId(machine) === form.customerId),
     [machinesAll, form.customerId],
   );
-  const companyContacts = useMemo(
-    () => contacts.filter((contact) => contactBelongsToCustomer(contact, form.customerId)),
-    [contacts, form.customerId],
-  );
   const selectedMachine = machinesAll.find((m) => m.id === form.machineId);
-  const selectedContact = contacts.find((contact) => contact.id === form.contactId);
+  const selectedContactQuery = useRemoteContactDetail(form.contactId);
+  const selectedContact = selectedContactQuery.data;
   const contactPhone = selectedContact?.mobilePhone || selectedContact?.phone || selectedContact?.otherPhone || selectedCustomer?.phone || selectedCustomer?.phone2 || "";
   const contactEmail = selectedContact?.email || selectedContact?.personalEmail || selectedContact?.otherEmail || selectedCustomer?.email || selectedCustomer?.email2 || "";
   const assignedUser = (serviceUsers.length > 0 ? serviceUsers : users).find((u) => u.id === form.assignedUserId);
@@ -5629,14 +6011,13 @@ export function CreateServiceRequestDialog({ trigger, defaultMachineId }: { trig
   }, [companyMachines, machinesAll, customers, form.customerId]);
 
   const selectCustomer = (customerId: string) => {
-    const preferredContact = preferredServiceContact(contacts, customerId);
     const currentMachine = machinesAll.find((machine) => machine.id === form.machineId);
     const currentMachineBelongsToCustomer = machineCustomerId(currentMachine) === customerId;
     const nextMachines = machinesAll.filter((machine) => machineCustomerId(machine) === customerId);
     setForm((current) => ({
       ...current,
       customerId,
-      contactId: preferredContact?.id ?? "",
+      contactId: "",
       machineId: currentMachineBelongsToCustomer ? current.machineId : nextMachines.length === 1 ? nextMachines[0].id : "",
     }));
   };
@@ -5648,13 +6029,12 @@ export function CreateServiceRequestDialog({ trigger, defaultMachineId }: { trig
     }
     const machine = machinesAll.find((item) => item.id === machineId);
     const customerId = machineCustomerId(machine) || form.customerId;
-    const preferredContact = selectedContact && contactBelongsToCustomer(selectedContact, customerId)
-      ? selectedContact
-      : preferredServiceContact(contacts, customerId);
     setForm((current) => ({
       ...current,
       customerId,
-      contactId: preferredContact?.id ?? "",
+      contactId: selectedContact && contactBelongsToCustomer(selectedContact, customerId)
+        ? selectedContact.id
+        : "",
       machineId: machine ? machineId : "",
     }));
   };
@@ -5715,13 +6095,11 @@ export function CreateServiceRequestDialog({ trigger, defaultMachineId }: { trig
                 <div className="min-w-0">
                   <Label className="text-xs">Firma *</Label>
                   <div className="mt-1.5">
-                    <Combobox
-                      options={customerOptions}
+                    <RemoteCompanyCombobox
                       value={form.customerId}
-                      onChange={selectCustomer}
+                      onValueChange={selectCustomer}
                       placeholder="Firma seçin"
                       searchPlaceholder="Firma ara..."
-                      emptyText="Firma bulunamadı."
                     />
                   </div>
                 </div>
@@ -5743,19 +6121,14 @@ export function CreateServiceRequestDialog({ trigger, defaultMachineId }: { trig
 
                 <div className="min-w-0">
                   <Label className="text-xs">İlgili Kişi</Label>
-                  <Select value={form.contactId || "none"} onValueChange={(v) => setForm({ ...form, contactId: v === "none" ? "" : v })}>
-                    <SelectTrigger className="mt-1.5 min-w-0 [&_[data-slot=select-value]]:min-w-0 [&_[data-slot=select-value]]:truncate">
-                      <SelectValue placeholder="İlgili kişi seçin" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="none">Firma genel iletişimi</SelectItem>
-                      {companyContacts.map((contact) => (
-                        <SelectItem key={contact.id} value={contact.id}>
-                          {contact.name}{contact.title ? ` · ${contact.title}` : ""}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <RemoteContactCombobox
+                    className="mt-1.5"
+                    companyId={form.customerId}
+                    value={form.contactId}
+                    onValueChange={(contactId) => setForm((current) => ({ ...current, contactId }))}
+                    placeholder="İlgili kişi seçin"
+                    noneLabel="Firma genel iletişimi"
+                  />
                   <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
                     <Input value={contactPhone} readOnly placeholder="Telefon bulunamadı" aria-label="İlgili kişi telefonu" />
                     <Input value={contactEmail} readOnly placeholder="E-posta bulunamadı" aria-label="İlgili kişi e-postası" />
@@ -5882,27 +6255,36 @@ export function CreateServiceRequestDialog({ trigger, defaultMachineId }: { trig
 export function CreateInstallationDialog({
   trigger,
   onCreated,
+  defaultCompanyId,
+  defaultContactId,
+  defaultOpportunityId,
+  defaultQuoteId,
 }: {
   trigger: React.ReactNode;
   onCreated?: () => void;
+  defaultCompanyId?: string;
+  defaultContactId?: string;
+  defaultOpportunityId?: string;
+  defaultQuoteId?: string;
 }) {
-  const { customers, contacts, users, machines, deliveries } = useStore();
+  const { users, machines, deliveries } = useStore();
   const [open, setOpen] = useState(false);
   const submission = useSubmissionLock();
   const emptyForm = () => {
-    const companyId = customers[0]?.id ?? "";
-    const initialMachineId = machines.find((m) => m.customerId === companyId || m.userCompanyId === companyId)?.id;
     return {
-    companyId,
-    contactId: contacts.find((c) => c.customerId === companyId)?.id ?? "",
-    customerDeviceIds: initialMachineId ? [initialMachineId] : [] as string[],
-    scheduledDate: new Date().toISOString().slice(0, 10),
-    assignedToUserId: users.find((u) => u.role === "Service" || u.department === "Servis")?.id ?? users[0]?.id ?? "",
-    location: "",
-    locationType: "istanbul_ici" as InstallationLocationType,
-    durationHours: "1",
-    durationMinutes: "0",
-    notes: "",
+      companyId: defaultCompanyId ?? "",
+      contactId: defaultContactId ?? "",
+      customerDeviceIds: machines
+        .filter((machine) => machine.customerId === defaultCompanyId || machine.userCompanyId === defaultCompanyId)
+        .slice(0, 1)
+        .map((machine) => machine.id),
+      scheduledDate: new Date().toISOString().slice(0, 10),
+      assignedToUserId: users.find((u) => u.role === "Service" || u.department === "Servis")?.id ?? users[0]?.id ?? "",
+      location: "",
+      locationType: "istanbul_ici" as InstallationLocationType,
+      durationHours: "1",
+      durationMinutes: "0",
+      notes: "",
     };
   };
   const [form, setForm] = useState(emptyForm);
@@ -5912,15 +6294,13 @@ export function CreateInstallationDialog({
   // Süre (saat + dk) → toplam dakika.
   const totalMinutes = (parseInt(form.durationHours || "0", 10) || 0) * 60 + (parseInt(form.durationMinutes || "0", 10) || 0);
 
-  const selectedContacts = contacts.filter((c) => c.customerId === form.companyId);
   // Seçilen her makine için ayrı kurulum işi ve eksiksiz kurulum tutanağı oluşturulur.
   const companyMachines = machines.filter((m) => m.customerId === form.companyId || m.userCompanyId === form.companyId);
   const selectedMachines = companyMachines.filter((m) => form.customerDeviceIds.includes(m.id));
   const serviceUsers = users.filter((u) => u.role === "Service" || u.department === "Servis");
   const onCompanyChange = (companyId: string) => {
-    const contactId = contacts.find((c) => c.customerId === companyId)?.id ?? "";
     const customerDeviceId = machines.find((m) => m.customerId === companyId || m.userCompanyId === companyId)?.id;
-    setForm({ ...form, companyId, contactId, customerDeviceIds: customerDeviceId ? [customerDeviceId] : [] });
+    setForm({ ...form, companyId, contactId: "", customerDeviceIds: customerDeviceId ? [customerDeviceId] : [] });
   };
 
   const submit = async (e: React.FormEvent) => {
@@ -5936,6 +6316,8 @@ export function CreateInstallationDialog({
         });
         return serviceService.createInstallation({
           companyId: form.companyId,
+          opportunityId: defaultOpportunityId,
+          quoteId: defaultQuoteId,
           contactId: form.contactId || undefined,
           customerDeviceId,
           scheduledDate: form.scheduledDate || undefined,
@@ -5971,32 +6353,22 @@ export function CreateInstallationDialog({
           <div className="grid grid-cols-2 gap-3">
             <div className="col-span-2">
               <Label className="text-xs">Firma *</Label>
-              <Select
+              <RemoteCompanyCombobox
+                ariaLabel="Firma"
+                className="mt-1.5"
                 value={form.companyId}
                 onValueChange={onCompanyChange}
-              >
-                <SelectTrigger className="mt-1.5"><SelectValue placeholder="Firma seçin..." /></SelectTrigger>
-                <SelectContent>
-                  {customers.map((c) => (
-                    <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+                placeholder="Firma seçin..."
+              />
             </div>
             <div>
               <Label className="text-xs">Kontak</Label>
-              <Select
-                value={form.contactId || "none"}
-                onValueChange={(v) => setForm({ ...form, contactId: v === "none" ? "" : v })}
-              >
-                <SelectTrigger className="mt-1.5"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">Belirtilmedi</SelectItem>
-                  {selectedContacts.map((c) => (
-                    <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <RemoteContactCombobox
+                className="mt-1.5"
+                companyId={form.companyId}
+                value={form.contactId}
+                onValueChange={(contactId) => setForm((current) => ({ ...current, contactId }))}
+              />
             </div>
             <div>
               <Label className="text-xs">Makineler</Label>
@@ -6085,7 +6457,7 @@ export function CreateInstallationDialog({
 export function CreateMachineDialog({ children }: { children: React.ReactNode }) {
   const [open, setOpen] = useState(false);
   const submission = useSubmissionLock();
-  const { customers, stock, machines, products, addMachine } = useStore();
+  const { stock, machines, products, addMachine } = useStore();
   const [form, setForm] = useState({
     customerId: "",
     stockItemId: "",
@@ -6214,15 +6586,12 @@ export function CreateMachineDialog({ children }: { children: React.ReactNode })
           <div className="grid grid-cols-2 gap-4">
             <div className="col-span-2">
               <Label className="text-xs">Firma Seçimi <span className="text-destructive">*</span></Label>
-              <Select value={form.customerId || "none"} onValueChange={selectCustomer}>
-                <SelectTrigger className="mt-1.5"><SelectValue placeholder="Firma Seçin" /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">Seçilmedi</SelectItem>
-                  {customers.map((c) => (
-                    <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <RemoteCompanyCombobox
+                className="mt-1.5"
+                value={form.customerId}
+                onValueChange={selectCustomer}
+                placeholder="Firma seçin"
+              />
             </div>
             {form.customerId && companyStockCandidates.length > 0 && (
               <div className="col-span-2">
@@ -6308,7 +6677,7 @@ export function LogActivityDialog({
   customerId,
   opportunityId,
   trigger,
-  defaultKind = "visit",
+  defaultKind = "customer_visit",
   onLogged,
 }: {
   customerId: string;
@@ -6317,7 +6686,7 @@ export function LogActivityDialog({
   defaultKind?: (typeof ACTIVITY_TYPE_OPTIONS)[number]["code"];
   onLogged?: () => void;
 }) {
-  const { contacts, refresh } = useStore();
+  const { refresh } = useStore();
   const [open, setOpen] = useState(false);
   const [kind, setKind] = useState<(typeof ACTIVITY_TYPE_OPTIONS)[number]["code"]>(defaultKind);
   const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
@@ -6327,8 +6696,6 @@ export function LogActivityDialog({
   const [nextAction, setNextAction] = useState("");
   const [contactId, setContactId] = useState("");
   const [saving, setSaving] = useState(false);
-
-  const customerContacts = contacts.filter((c) => c.customerId === customerId);
 
   const reset = () => {
     setKind(defaultKind);
@@ -6349,35 +6716,20 @@ export function LogActivityDialog({
         contactId: contactId || undefined,
         opportunityId,
       };
-      if (kind === "visit") {
-        await activityService.createVisit({
-          ...base,
-          visitDate: new Date(date),
-          visitLocation: location.trim() || undefined,
-          visitPurpose: purpose.trim() || undefined,
-          visitResult: result.trim() || undefined,
-          nextAction: nextAction.trim() || undefined,
-        });
-        toast.success("Ziyaret kaydedildi");
-      } else if (kind === "call") {
-        await activityService.createCall({
-          ...base,
-          callDate: new Date(date),
-          callResult: result.trim() || undefined,
-          nextAction: nextAction.trim() || undefined,
-        });
-        toast.success("Arama kaydedildi");
-      } else {
-        const label = ACTIVITY_TYPE_OPTIONS.find((o) => o.code === kind)?.label ?? kind;
-        await activityService.create({
-          ...base,
-          activityTypeCode: kind,
-          subject: label,
-          description: [result.trim(), nextAction.trim() ? `Sonraki adım: ${nextAction.trim()}` : ""].filter(Boolean).join("\n"),
-          activityDate: new Date(date),
-        });
-        toast.success("Aktivite kaydedildi");
-      }
+      const label = ACTIVITY_TYPE_OPTIONS.find((o) => o.code === kind)?.label ?? kind;
+      await activityService.create({
+        ...base,
+        activityTypeCode: kind,
+        subject: label,
+        description: [
+          kind === "customer_visit" && location.trim() ? `Konum: ${location.trim()}` : "",
+          kind === "customer_visit" && purpose.trim() ? `Amaç: ${purpose.trim()}` : "",
+          result.trim(),
+          nextAction.trim() ? `Sonraki adım: ${nextAction.trim()}` : "",
+        ].filter(Boolean).join("\n"),
+        activityDate: new Date(date),
+      });
+      toast.success(`${label} kaydedildi`);
       await refresh();
       onLogged?.();
       setOpen(false);
@@ -6419,21 +6771,18 @@ export function LogActivityDialog({
             </Select>
           </div>
           <Field label="Tarih *" type="date" value={date} onChange={setDate} />
-          {customerContacts.length > 0 && (
-            <div>
-              <Label className="text-xs">Kontak</Label>
-              <Select value={contactId || "none"} onValueChange={(v) => setContactId(v === "none" ? "" : v)}>
-                <SelectTrigger className="mt-1.5"><SelectValue placeholder="Opsiyonel" /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">Seçilmedi</SelectItem>
-                  {customerContacts.map((c) => (
-                    <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          )}
-          {kind === "visit" && (
+          <div>
+            <Label className="text-xs">Kontak</Label>
+            <RemoteContactCombobox
+              className="mt-1.5"
+              companyId={customerId}
+              value={contactId}
+              onValueChange={setContactId}
+              placeholder="Opsiyonel"
+              noneLabel="Seçilmedi"
+            />
+          </div>
+          {kind === "customer_visit" && (
             <>
               <Field label="Konum" value={location} onChange={setLocation} />
               <Field label="Amaç" value={purpose} onChange={setPurpose} />

@@ -6,7 +6,7 @@ import {
   ArrowRight, ShieldCheck,
   CheckCircle2, Eye, EyeOff, KeyRound, MailCheck, PlayCircle,
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { emailSchema } from "@haksan/shared";
 import { authService } from "../../../lib/services";
@@ -18,6 +18,8 @@ const isProd = import.meta.env.PROD;
 // Kurumsal SSO henüz uçtan uca bağlı değil; varsayılan olarak gizli.
 // Backend OIDC/SAML hazır olduğunda VITE_SSO_ENABLED=true ile açılır.
 const ssoEnabled = import.meta.env.VITE_SSO_ENABLED === "true";
+// Anahtar adı tarihsel; artık kullanıcı adı da saklayabilir. Kullanıcıların
+// kayıtlı değerlerini kaybetmemek için adı değiştirilmedi.
 const REMEMBER_KEY = "haksan:login-email";
 
 function readResetToken(): string {
@@ -29,11 +31,12 @@ export function LoginPage({
   onLogin,
   onReplayIntro,
 }: {
-  onLogin: (email: string, password: string) => Promise<void> | void;
+  onLogin: (identifier: string, password: string) => Promise<void> | void;
   onReplayIntro?: () => void;
 }) {
   const [show, setShow] = useState(false);
-  const [email, setEmail] = useState(() => (typeof localStorage !== "undefined" ? localStorage.getItem(REMEMBER_KEY) ?? "" : ""));
+  // Kullanıcı adı veya e-posta olabilir; biçim doğrulaması sunucuda yapılır.
+  const [identifier, setIdentifier] = useState(() => (typeof localStorage !== "undefined" ? localStorage.getItem(REMEMBER_KEY) ?? "" : ""));
   const [password, setPassword] = useState("");
   const [remember, setRemember] = useState(() => !!(typeof localStorage !== "undefined" && localStorage.getItem(REMEMBER_KEY)));
   const [busy, setBusy] = useState(false);
@@ -47,6 +50,16 @@ export function LoginPage({
   const [resetPasswordConfirmation, setResetPasswordConfirmation] = useState("");
   const [resetBusy, setResetBusy] = useState(false);
   const [resetSuccess, setResetSuccess] = useState(false);
+  const [playHeroVideo, setPlayHeroVideo] = useState(false);
+
+  useEffect(() => {
+    if (typeof window.matchMedia !== "function") return;
+    const media = window.matchMedia("(min-width: 1024px) and (prefers-reduced-motion: no-preference)");
+    const update = () => setPlayHeroVideo(media.matches);
+    update();
+    media.addEventListener?.("change", update);
+    return () => media.removeEventListener?.("change", update);
+  }, []);
 
   const passwordStrength = [
     resetPassword.length >= 8,
@@ -58,17 +71,19 @@ export function LoginPage({
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const trimmedEmail = email.trim();
-    const parsed = emailSchema.safeParse(trimmedEmail);
-    if (!parsed.success) {
-      toast.error("Geçerli bir e-posta adresi girin");
+    const trimmedIdentifier = identifier.trim();
+    // Burada e-posta biçimi DAYATILMAZ: alan artık kullanıcı adı da kabul ediyor
+    // (örn. `Raifsenturk`). Doğrulama sunucuda yapılır; istemcide biçim kontrolü
+    // yapmak kullanıcı adıyla girişi tamamen engellerdi.
+    if (!trimmedIdentifier) {
+      toast.error("Kullanıcı adı veya e-posta girin");
       return;
     }
     setBusy(true);
     try {
-      if (remember) localStorage.setItem(REMEMBER_KEY, trimmedEmail);
+      if (remember) localStorage.setItem(REMEMBER_KEY, trimmedIdentifier);
       else localStorage.removeItem(REMEMBER_KEY);
-      await onLogin(trimmedEmail, password);
+      await onLogin(trimmedIdentifier, password);
     } catch (err: any) {
       toast.error(err?.message ?? "Giriş başarısız");
     } finally {
@@ -131,24 +146,26 @@ export function LoginPage({
     <div className="grid h-full min-h-0 w-full grid-cols-1 overflow-hidden bg-[#0a0d12] text-foreground lg:grid-cols-[minmax(0,1fr)_530px] xl:grid-cols-[minmax(0,1fr)_590px]">
       {/* Left video panel */}
       <div className="relative hidden min-h-0 overflow-hidden bg-[#020b2b] lg:block">
-        <video
-          autoPlay
-          loop
-          muted
-          playsInline
-          preload="metadata"
-          poster="/brand/login-hero-2026-07-21-poster.jpg"
-          aria-hidden="true"
-          className="pointer-events-none absolute inset-0 h-full w-full object-cover object-center motion-reduce:hidden"
-        >
-          <source src="/brand/login-hero-2026-07-21.mp4" type="video/mp4" />
-        </video>
         <img
           src="/brand/login-hero-2026-07-21-poster.jpg"
           alt=""
           aria-hidden="true"
-          className="pointer-events-none absolute inset-0 hidden h-full w-full object-cover object-center motion-reduce:block"
+          className="pointer-events-none absolute inset-0 h-full w-full object-cover object-center"
         />
+        {playHeroVideo && (
+          <video
+            autoPlay
+            loop
+            muted
+            playsInline
+            preload="metadata"
+            poster="/brand/login-hero-2026-07-21-poster.jpg"
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-0 h-full w-full object-cover object-center"
+          >
+            <source src="/brand/login-hero-2026-07-21.mp4" type="video/mp4" />
+          </video>
+        )}
         <img
           src="/brand/haksan-logo-white.png"
           alt="Haksan Makina"
@@ -188,19 +205,22 @@ export function LoginPage({
             <CardContent className="p-5">
               <form onSubmit={submit} className="space-y-3.5">
                 <div>
-                  <Label htmlFor="login-email" className="text-xs text-white/75">E-posta</Label>
+                  <Label htmlFor="login-identifier" className="text-xs text-white/75">Kullanıcı adı</Label>
                   <Input
-                    id="login-email"
-                    name="email"
+                    id="login-identifier"
+                    data-testid="login-identifier"
+                    name="identifier"
+                    // type="email" KULLANMA: tarayıcı `Raifsenturk` gibi
+                    // kullanıcı adlarını geçersiz sayıp formu göndermez.
                     type="text"
-                    inputMode="email"
                     autoCapitalize="none"
                     autoCorrect="off"
                     spellCheck={false}
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
+                    value={identifier}
+                    onChange={(e) => setIdentifier(e.target.value)}
                     className="mt-1.5 h-10 border-white/15 bg-black/30 text-white shadow-inner shadow-black/10 placeholder:text-white/35 hover:border-white/25 focus-visible:border-white/35 focus-visible:ring-white/10"
                     autoComplete="username"
+                    placeholder="örn. raifsenturk"
                     required
                   />
                 </div>
@@ -211,7 +231,9 @@ export function LoginPage({
                       type="button"
                       className="text-xs text-white/70 hover:text-white hover:underline"
                       onClick={() => {
-                        setForgotEmail(email);
+                        // Şifre sıfırlama e-posta ile yürür; alanda kullanıcı adı
+                        // varsa kullanıcı e-postasını kendisi yazar.
+                        setForgotEmail(identifier.includes("@") ? identifier : "");
                         setForgotOpen(true);
                       }}
                     >
@@ -296,11 +318,11 @@ export function LoginPage({
               Demo kullanıcılar (yalnızca geliştirme):
             </div>
             <ul className="mt-2 ml-5 list-disc space-y-0.5">
-              <li>superadmin@haksan.local / superadmin12345</li>
-              <li>admin@haksan.local / admin12345</li>
-              <li>sales@haksan.local / sales12345</li>
-              <li>service@haksan.local / service12345</li>
-              <li>finance@haksan.local / finance12345</li>
+              <li>superadmin / superadmin12345</li>
+              <li>admin / admin12345</li>
+              <li>sales / sales12345</li>
+              <li>service / service12345</li>
+              <li>finance / finance12345</li>
             </ul>
           </div>
           )}

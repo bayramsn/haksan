@@ -6,11 +6,11 @@ import { Label } from "../ui/label";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "../ui/select";
-import { Textarea } from "../ui/textarea";
 import { Input } from "../ui/input";
+import { NumberedLinesTextarea, markedLineCount, type LineMarkerStyle } from "../shared/NumberedLinesTextarea";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "../ui/dialog";
 import type { NoteTemplate } from "../../lib/store";
-import { QUOTE_NOTE_VARIANTS } from "../../lib/print";
+import { fillNotePlaceholders, type QuoteNoteVariant } from "../../lib/print";
 
 const TERMS_TEMPLATE_PREFIX = "template:";
 
@@ -82,8 +82,31 @@ type Props = {
   addNoteTemplate: (t: { title: string; body: string; scope?: string }) => Promise<NoteTemplate>;
   updateNoteTemplate: (id: string, patch: { title?: string; body?: string; scope?: string }) => Promise<NoteTemplate>;
   deleteNoteTemplate: (id: string) => Promise<void>;
-  includeBuiltInVariants?: boolean;
+  /**
+   * Bu belgeye AİT hazır şablonlar. Eskiden `includeBuiltInVariants` boolean'ı
+   * vardı ve varsayılanı `true` olduğu için TEKLİF şablonları proforma ve
+   * sözleşme pencerelerine de düşüyordu — imza masasında teklif dili basılıyordu.
+   * Artık her ekran kendi setini açıkça verir; verilmezse hazır şablon çıkmaz.
+   */
+  builtInVariants?: QuoteNoteVariant[];
+  /**
+   * Hazır şablondaki {{…}} yer tutucularının doldurulacağı bağlam. Verilmezse
+   * metin ham hâliyle girer — teklif penceresi doldurmayı kendi yapıyor.
+   */
+  fillContext?: Parameters<typeof fillNotePlaceholders>[1];
   onBuiltInTemplateSelected?: (key: string) => void;
+  /**
+   * Madde işaretinin biçimi — metnin basılacağı belgeye göre seçilir:
+   * teklif `alpha` (`a. b. c.`), proforma `decimal`, sözleşme `none`
+   * (şart metni orada madde madde numaralanmaz). Bkz. `LineMarkerStyle`.
+   */
+  markerStyle?: LineMarkerStyle;
+  /**
+   * Proforma çıktısı ödeme + teslimat + garanti maddelerini tek kesintisiz
+   * listede basar; bu kipte ikinci ve üçüncü kutunun sayacı 1'den başlamaz,
+   * bir öncekinin bittiği yerden devam eder.
+   */
+  continuousNumbering?: boolean;
 };
 
 export function useTermsTemplates(noteTemplates: NoteTemplate[], templateScope: string) {
@@ -108,8 +131,11 @@ export function DocumentTermsTemplateEditor({
   addNoteTemplate,
   updateNoteTemplate,
   deleteNoteTemplate,
-  includeBuiltInVariants = true,
+  builtInVariants = [],
+  fillContext,
   onBuiltInTemplateSelected,
+  markerStyle = "decimal",
+  continuousNumbering = false,
 }: Props) {
   const fieldId = useId();
   const [templateDialogMode, setTemplateDialogMode] = useState<"create" | "update" | "delete" | null>(null);
@@ -117,6 +143,11 @@ export function DocumentTermsTemplateEditor({
   const [templateBusy, setTemplateBusy] = useState(false);
   const savedTemplates = useTermsTemplates(noteTemplates, templateScope);
   const selectedSavedTemplate = savedTemplates.find((template) => template.selectKey === selectedTemplateKey);
+
+  // Baskıda maddeler tek listede birleşiyorsa kutuların sayacı zincirlenir.
+  const paymentStart = 0;
+  const deliveryStart = continuousNumbering ? markedLineCount(value.paymentTerms) : 0;
+  const warrantyStart = continuousNumbering ? deliveryStart + markedLineCount(value.deliveryTerms) : 0;
 
   const updateValue = (patch: Partial<TermsValue>) => onChange({ ...value, ...patch });
   const currentBody = () => encodeTermsTemplateBody(value);
@@ -135,13 +166,15 @@ export function DocumentTermsTemplateEditor({
       return;
     }
 
-    const builtIn = QUOTE_NOTE_VARIANTS.find((variant) => variant.key === key);
+    const builtIn = builtInVariants.find((variant) => variant.key === key);
     if (!builtIn) return;
     onBuiltInTemplateSelected?.(key);
+    const fill = (lines: string[]) =>
+      (fillContext ? fillNotePlaceholders(lines, fillContext) : lines).join("\n");
     onChange({
-      paymentTerms: builtIn.odeme.join("\n"),
-      deliveryTerms: builtIn.teslimat.join("\n"),
-      warrantyTerms: builtIn.garanti.join("\n"),
+      paymentTerms: fill(builtIn.odeme),
+      deliveryTerms: fill(builtIn.teslimat),
+      warrantyTerms: fill(builtIn.garanti),
     });
   };
 
@@ -200,7 +233,7 @@ export function DocumentTermsTemplateEditor({
           <Select value={selectedTemplateKey || "ozel"} onValueChange={(v) => applyTemplate(v === "ozel" ? "" : v)}>
             <SelectTrigger className="h-9 w-full sm:w-64"><SelectValue placeholder="Şablon seçin..." /></SelectTrigger>
             <SelectContent>
-              {includeBuiltInVariants && QUOTE_NOTE_VARIANTS.map((variant) => (
+              {builtInVariants.map((variant) => (
                 <SelectItem key={variant.key} value={variant.key}>{variant.label}</SelectItem>
               ))}
               {savedTemplates.length > 0 && (
@@ -229,12 +262,16 @@ export function DocumentTermsTemplateEditor({
         </div>
       )}
 
+      {/* Her satır bir maddedir ve belgede numaralanır; numara artık burada da
+          görünür, böylece "kaçıncı madde" sorusu PDF basmadan yanıtlanır. */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3 p-3">
         <div>
           <Label className="text-xs" htmlFor={`${fieldId}-payment`}>Ödeme Şartları</Label>
-          <Textarea
+          <NumberedLinesTextarea
             id={`${fieldId}-payment`}
             className="mt-1.5 min-h-28"
+            markerStyle={markerStyle}
+            startIndex={paymentStart}
             value={value.paymentTerms}
             onChange={(event) => updateValue({ paymentTerms: event.target.value })}
             placeholder="Her satıra bir madde yazın..."
@@ -242,9 +279,11 @@ export function DocumentTermsTemplateEditor({
         </div>
         <div>
           <Label className="text-xs" htmlFor={`${fieldId}-delivery`}>Teslimat Şartları</Label>
-          <Textarea
+          <NumberedLinesTextarea
             id={`${fieldId}-delivery`}
             className="mt-1.5 min-h-28"
+            markerStyle={markerStyle}
+            startIndex={deliveryStart}
             value={value.deliveryTerms}
             onChange={(event) => updateValue({ deliveryTerms: event.target.value })}
             placeholder="Her satıra bir madde yazın..."
@@ -252,9 +291,11 @@ export function DocumentTermsTemplateEditor({
         </div>
         <div>
           <Label className="text-xs" htmlFor={`${fieldId}-warranty`}>Garanti Şartları</Label>
-          <Textarea
+          <NumberedLinesTextarea
             id={`${fieldId}-warranty`}
             className="mt-1.5 min-h-28"
+            markerStyle={markerStyle}
+            startIndex={warrantyStart}
             value={value.warrantyTerms}
             onChange={(event) => updateValue({ warrantyTerms: event.target.value })}
             placeholder="Her satıra bir madde yazın..."

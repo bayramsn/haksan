@@ -60,13 +60,13 @@ JWT secret'ları Blueprint `generateValue` ile üretilir.
 curl -s -H "Authorization: Bearer $METRICS_TOKEN" https://haksan-api.onrender.com/metrics | head
 ```
 
-### DB yedek (R2)
+### DB yedek sınırı
 
-Blueprint `DB_BACKUP_ENABLED=true` ile preDeploy'da `pg_dump → erp-backups` dener. Render Node ortamında `pg_dump` genelde **yoktur** — deploy log'unda `[backup] pg_dump not found` görürseniz yedek atlanır (deploy devam eder). Kalıcı offsite yedek için VDS'te `deploy/backup-db.sh` + `DB_BACKUP_ENABLED=true` kullanın veya Render Postgres paid plan yedeklerine geçin.
+Bu Blueprint yalnız staging içindir ve bunu makinece belirten `DEPLOYMENT_PROFILE=staging` değerini taşır. Staging'de `DB_BACKUP_ENABLED=false` ve `DB_BACKUP_REQUIRED=false` kullanılır; ücretsiz Render ortamı production yedek zinciri sayılmaz. Production yalnız VDS/ECR iş akışından, `DEPLOYMENT_PROFILE=production`, `DB_BACKUP_ENABLED=true` ve `DB_BACKUP_REQUIRED=true` ile yayınlanır. Ayrım `npm run validate:deployment-profiles` tarafından CI'da doğrulanır.
 
 ## 4. İlk veritabanı kurulumu
 
-Migration'lar her deploy'da `preDeployCommand` ile çalışır. **İlk admin** için Render Shell (API servisi):
+Ücretsiz Render planında `preDeployCommand` yoktur. Migration'lar API `startCommand` zincirinde, uygulama başlamadan önce çalışır. **İlk admin** için Render Shell (API servisi):
 
 ```bash
 TENANT_NAME='Haksan' TENANT_SLUG='haksan' \
@@ -103,8 +103,8 @@ Tarayıcıda https://haksan-web.onrender.com → giriş yapın.
 
 ## 8. Deploy sonrası migration doğrulama
 
-`preDeployCommand` zinciri her deploy'da migration'ları uygular
-(`node apps/api/dist/db/migrate.js`). İlk deploy sonrası kısa kontrol listesi:
+API `startCommand` zinciri her deploy'da önce migration'ları uygular
+(`node apps/api/dist/db/migrate.js`), ardından uygulamayı başlatır. İlk deploy sonrası kısa kontrol listesi:
 
 - [ ] **Deploy log'u**: API servisinin "Deploy" log'unda `[migrate] running pending migrations …` ve `[migrate] done.` satırlarını görün. Hata varsa `/health/ready` 503 döner ve trafik başlamaz.
 - [ ] **Şema kontrolü** (API Shell veya `render psql`):

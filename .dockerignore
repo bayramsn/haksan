@@ -25,12 +25,26 @@ coverage
 tmp
 output
 screenshots
+design-previews
+docs
+ops
 deploy/certbot
 deploy/keys
 apps/mobile-ios
 *.log
+/*.docx
+/*.pdf
+/*.jpeg
+/*.png
 npm-debug.log*
 package-lock 2.json
+**/* 2.ts
+**/* 3.ts
+**/* 2.sql
+**/* 2.json
+**/* 2.example
+**/* 2.js
+**/* 2.png
 SECURITY-AUDIT 2.md
 crm app
 cnc özellikler

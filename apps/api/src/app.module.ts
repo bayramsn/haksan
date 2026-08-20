@@ -22,14 +22,13 @@ import { ExportsModule } from './modules/exports/exports.module';
 import { LookupsModule } from './modules/lookups/lookups.module';
 import { AdminModule } from './modules/admin/admin.module';
 import { NoteTemplatesModule } from './modules/note-templates/note-templates.module';
+import { SignaturesModule } from './modules/signatures/signatures.module';
 import { FxModule } from './modules/fx/fx.module';
 import { ChatModule } from './modules/chat/chat.module';
-import { CallAssistantModule } from './modules/call-assistant/call-assistant.module';
-import { AssistantModule } from './modules/assistant/assistant.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
 import { CalendarModule } from './modules/calendar/calendar.module';
 import { AutomationModule } from './modules/automation/automation.module';
-import { WhatsAppIntegrationModule } from './modules/whatsapp/whatsapp-integration.module';
+import { MailModule } from './modules/mail/mail.module';
 import { loadEnv } from './config/env';
 
 const env = loadEnv();
@@ -70,14 +69,13 @@ const env = loadEnv();
     ExportsModule,
     AdminModule,
     NoteTemplatesModule,
+    SignaturesModule,
     FxModule,
     ChatModule,
-    CallAssistantModule,
-    AssistantModule,
     NotificationsModule,
     CalendarModule,
     AutomationModule,
-    WhatsAppIntegrationModule,
+    MailModule,
   ],
   providers: [
     // Rate limiting'i tüm route'lara uygular. Bu guard global bağlanmadan

@@ -7,6 +7,7 @@ import {
   PrintDocument, CurrencyCode, esc, blank, fmtMoney, tutarYaziyla, tutarYaziylaProforma, trLongDate,
   haksanHeader, drmakHeader, drmakFooter, drmakWatermark, DRMAK_CSS,
 } from "./core";
+import { printableTechnicalSpecs } from "./technicalSpecs";
 import { QuoteNoteVariant } from "./notes";
 
 const chunkByWeight = <T,>(items: readonly T[], capacity: number, weightOf: (item: T) => number): T[][] => {
@@ -31,6 +32,14 @@ const chunkByWeight = <T,>(items: readonly T[], capacity: number, weightOf: (ite
 const pageNo = (current: number, total: number) =>
   `<div class="pageno">Sayfa <b>${current}</b> / <b>${total}</b></div>`;
 
+/** Cümle sonu sayılan işaretler — bölme noktası öncelikle burada aranır. */
+const SENTENCE_ENDINGS = [". ", "; ", "! ", "? ", ".\n", ";\n"];
+
+/** Bir şart sayfasının taşıyabildiği ağırlık ve bir satırın karakter karşılığı. */
+const NOTE_PAGE_CAPACITY = 8;
+const NOTE_LINE_CHARS = 280;
+const noteWeightOf = (note: string) => Math.max(1, note.length / NOTE_LINE_CHARS);
+
 const chunkText = (value: string | undefined, maxChars = 1400): string[] => {
   const source = value?.replace(/\r\n?/g, "\n").trim();
   if (!source) return [];
@@ -38,9 +47,19 @@ const chunkText = (value: string | undefined, maxChars = 1400): string[] => {
   let remaining = source;
   while (remaining.length > maxChars) {
     const searchStart = Math.max(1, Math.floor(maxChars * 0.65));
-    const candidates = [remaining.lastIndexOf("\n", maxChars), remaining.lastIndexOf(" ", maxChars)];
-    const boundary = Math.max(...candidates.filter((index) => index >= searchStart));
-    const cutAt = boundary >= searchStart ? boundary : maxChars;
+    // Bölme noktası önce satır/cümle sonunda aranır. Yalnız boşluğa bakmak,
+    // uzun bir şart maddesini cümlenin ortasından kesiyordu; ikinci parça
+    // ayrı bir maddeymiş gibi, yarım bir cümleyle başlayarak basılıyordu.
+    const lineEnd = remaining.lastIndexOf("\n", maxChars);
+    const sentenceEnd = Math.max(
+      ...SENTENCE_ENDINGS.map((mark) => {
+        const at = remaining.lastIndexOf(mark, maxChars - 1);
+        return at >= 0 ? at + 1 : -1;
+      })
+    );
+    const wordEnd = remaining.lastIndexOf(" ", maxChars);
+    const semantic = Math.max(lineEnd, sentenceEnd);
+    const cutAt = semantic >= searchStart ? semantic : wordEnd >= searchStart ? wordEnd : maxChars;
     chunks.push(remaining.slice(0, cutAt).trim());
     remaining = remaining.slice(cutAt).trim();
   }
@@ -72,6 +91,8 @@ export const HAKSAN = {
 export interface ProformaItem {
   aciklama: string;
   marka?: string;
+  /** Tezgah modeli; katalog bağı olmayan hızlı proformalarda elle girilir. */
+  model?: string;
   mensei?: string;
   gtip?: string;
   birim: string;
@@ -80,6 +101,20 @@ export interface ProformaItem {
   tutar: number;
 }
 
+/**
+ * Belgeye kaydedilen imza. Ad ve ünvan belge anlık görüntüsünden gelir, bu
+ * yüzden imza kaydı sonradan değişse veya silinse bile geçmiş belge kendi
+ * imzasıyla basılmaya devam eder.
+ *
+ * `gorselUrl` auth GEREKTİRMEYEN bir uçtan servis edilmeli: yazdırma penceresi
+ * oturum çerezi taşımıyor, korumalı bir URL sessizce boş görsel olarak çıkar.
+ */
+export type PrintSignature = {
+  ad: string;
+  unvan?: string;
+  gorselUrl?: string;
+};
+
 export interface ProformaPrintData {
   firma: string;
   ilgili?: string;
@@ -87,6 +122,7 @@ export interface ProformaPrintData {
   adres?: string;
   tel?: string;
   faks?: string;
+  email?: string;
   vergiDairesi?: string;
   vergiNo?: string;
   tarih: string;
@@ -97,6 +133,11 @@ export interface ProformaPrintData {
   kdvTutar: number;
   currency: CurrencyCode;
   notlar: string[];
+  /** Belgeyi hazırlayan CRM kullanıcısı ve ünvanı (imza satırı). */
+  hazirlayan?: string;
+  hazirlayanUnvan?: string;
+  /** Belgeye kaydedilen imza; verilmezse satır hazırlayana düşer, görsel çıkmaz. */
+  imza?: PrintSignature;
 }
 
 const PROFORMA_CSS = `
@@ -139,6 +180,12 @@ table.pf-tot tr.sp td { border: 0; height: 1.6mm; padding: 0; }
 .pf-notes { margin: 5.7mm 0 0 .25mm; font-style: italic; }
 .pf-notes .nt { font-weight: bold; text-decoration: underline; font-size: 10.5pt; margin-bottom: 1mm; }
 .pf-notes ol { margin-left: 6.55mm; font-size: 10.5pt; line-height: 1.26; letter-spacing: .45pt; }
+/* Hazırlayan imza satırı — notların altında, sağa yaslı. */
+.pf-prepared { margin-top: 6mm; text-align: right; font-size: 10.5pt; line-height: 1.3; }
+.pf-prepared .nm { font-weight: bold; }
+/* İmza görseli adın üstünde; yükseklik sabit ki farklı boyuttaki taramalar
+   satır yüksekliğini bozmasın, oran korunur. */
+.pf-signature { display: inline-block; height: 14mm; max-width: 45mm; object-fit: contain; object-position: right bottom; margin-bottom: -1.5mm; }
 .pf-notes li { margin-bottom: .75mm; text-align: justify; padding-left: 1mm; font-weight: normal; }
 .pf-notes li::marker { font-weight: bold; }
 .pf-footer { margin-top: auto; padding-top: 2mm; }
@@ -155,36 +202,30 @@ export function proformaDoc(
   assetBase: string,
   opts?: { title?: string; headingHtml?: string },
 ): PrintDocument {
-  const kalemlerToplami = d.items.reduce((a, i) => a + i.tutar, 0);
-  const silentDiscount = Math.min(Math.max(d.headerDiscount ?? 0, 0), kalemlerToplami);
-  const netRatio = kalemlerToplami > 0 ? (kalemlerToplami - silentDiscount) / kalemlerToplami : 1;
-  const printableItems = d.items.map((item) => {
-    const quantityText = item.birim.match(/[\d.,]+/)?.[0] ?? "";
-    const quantity = Number(quantityText.replace(/\./g, "").replace(",", "."));
-    const tutar = item.tutar * netRatio;
-    return {
-      ...item,
-      birimFiyati: Number.isFinite(quantity) && quantity > 0
-        ? tutar / quantity
-        : item.birimFiyati != null ? item.birimFiyati * netRatio : item.birimFiyati,
-      tutar,
-    };
-  });
-  const netKalemlerToplami = printableItems.reduce((a, i) => a + i.tutar, 0);
-  // Proforma satırları iskonto uygulanmış net fiyatlarla gelir. İskonto ayrıca
-  // adlandırılmaz; belge yalnızca net genel toplamı gösterir.
+  const printableItems = d.items;
+  const brutKalemlerToplami = printableItems.reduce((a, i) => a + i.tutar, 0);
+  const satirIskontoToplami = printableItems.reduce((sum, item) => {
+    const iskonto = Number(item.iskonto ?? 0);
+    return sum + (Number.isFinite(iskonto) ? Math.max(0, iskonto) : 0);
+  }, 0);
+  const teklifGeneliIskonto = Number.isFinite(d.headerDiscount)
+    ? Math.max(0, d.headerDiscount ?? 0)
+    : 0;
+  const toplamIskonto = Math.min(brutKalemlerToplami, satirIskontoToplami + teklifGeneliIskonto);
+  const netKalemlerToplami = Math.max(0, brutKalemlerToplami - toplamIskonto);
   const kdvTutar = d.kdvTutar != null ? d.kdvTutar : netKalemlerToplami * (d.kdvOran / 100);
   const genelToplam = netKalemlerToplami + kdvTutar;
   const meta = (i: ProformaItem) => {
     const rows: string[] = [];
     if (i.marka) rows.push(`<tr><td>Markası</td><td>${esc(i.marka)}</td></tr>`);
+    if (i.model) rows.push(`<tr><td>Modeli</td><td>${esc(i.model)}</td></tr>`);
     if (i.mensei) rows.push(`<tr><td>Menşei</td><td>${esc(i.mensei)}</td></tr>`);
     if (i.gtip) rows.push(`<tr><td>G.T.İ.P.</td><td>${esc(i.gtip)}</td></tr>`);
     return rows.length ? `<table class="meta">${rows.join("")}</table>` : "";
   };
   const yalniz = tutarYaziylaProforma(genelToplam, d.currency);
   const metaRowCount = (item: ProformaItem) =>
-    [item.marka, item.mensei, item.gtip]
+    [item.marka, item.model, item.mensei, item.gtip]
       .filter((value) => value !== undefined && value !== null && value !== "").length;
   const itemMinHeightMm = Math.max(7, 34.4 / Math.max(1, printableItems.length));
   const estimatedItemHeightMm = printableItems.reduce((total, item) => {
@@ -199,7 +240,7 @@ export function proformaDoc(
   const estimatedInfoOverflowMm =
     Math.max(0, Math.ceil(d.firma.length / 70) - 1) * 4.3 +
     Math.max(0, Math.ceil((d.adres?.length ?? 0) / 72) - 1) * 4.3;
-  const estimatedTotalsHeightMm = 10;
+  const estimatedTotalsHeightMm = (toplamIskonto > 0 ? 16 : 10) + (d.kdvOran > 0 ? 5.5 : 0);
   const estimatedNotesBlockHeightMm = d.notlar.length > 0 ? 10.5 + estimatedNoteHeightMm : 0;
   const estimatedMainHeightMm = 12.5 + estimatedItemHeightMm + estimatedTotalsHeightMm + estimatedNotesBlockHeightMm;
   const availableMainHeightMm = Math.max(42, 155 - estimatedInfoOverflowMm);
@@ -229,6 +270,7 @@ export function proformaDoc(
           <td class="lbl">Vergi D.</td><td class="val">${blank(d.vergiDairesi)}</td>
           <td class="lbl">Vergi No</td><td class="val">${blank(d.vergiNo)}</td>
         </tr>
+        <tr><td class="lbl">E-Posta</td><td class="val" colspan="3">${blank(d.email)}</td></tr>
       </table>
     </div>
     <div class="pf-right">
@@ -254,6 +296,10 @@ export function proformaDoc(
   <div class="pf-sum">
     <div class="pf-yalniz">${esc(yalniz)}</div>
     <table class="pf-tot">
+      ${toplamIskonto > 0 ? `
+      <tr><td class="tl">ARA TOPLAM</td><td class="tv">${fmtMoney(brutKalemlerToplami, d.currency)}</td></tr>
+      <tr><td class="tl">ÖZEL İSKONTO</td><td class="tv">-${fmtMoney(toplamIskonto, d.currency)}</td></tr>` : ""}
+      ${d.kdvOran > 0 ? `<tr><td class="tl">K.D.V. (%${esc(d.kdvOran)})</td><td class="tv">${fmtMoney(kdvTutar, d.currency)}</td></tr>` : ""}
       <tr><td class="tl">GENEL TOPLAM</td><td class="tv">${fmtMoney(genelToplam, d.currency)}</td></tr>
     </table>
   </div>`;
@@ -289,6 +335,12 @@ export function proformaDoc(
         <div class="nt">NOTLAR:</div>
         <ol>${d.notlar.map((note) => `<li>${esc(note)}</li>`).join("")}</ol>
       </div>` : ""}
+      ${d.imza || d.hazirlayan ? `
+      <div class="pf-prepared">
+        ${d.imza?.gorselUrl ? `<img class="pf-signature" src="${esc(d.imza.gorselUrl)}" alt="">` : ""}
+        <div class="nm">${esc(d.imza?.ad ?? d.hazirlayan ?? "")}</div>
+        ${(d.imza?.unvan ?? d.hazirlayanUnvan) ? `<div>${esc(d.imza?.unvan ?? d.hazirlayanUnvan ?? "")}</div>` : ""}
+      </div>` : ""}
     </div>
   </div>
   ${footer}
@@ -307,6 +359,7 @@ export interface QuoteItem {
   birim?: string;
   fiyat?: number | null;
   indirim?: number | null;
+  brutTutar?: number | null;
   tutar?: number | null;
 }
 
@@ -316,12 +369,21 @@ export interface QuoteMachinePrintData {
   lineGroupKey?: string;
   urun: string;
   marka?: string;
+  brandLogoUrl?: string;
   model?: string;
   tip?: string;
   imageUrl?: string;
   specs?: QuoteTechnicalSpec[];
   standartDonanim?: string[];
   opsiyonelDonanim?: string[];
+}
+
+export type QuoteHeaderLogoMode = "haksan" | "company" | "none";
+
+export interface QuoteHeaderLogo {
+  mode: QuoteHeaderLogoMode;
+  imageUrl?: string;
+  alt?: string;
 }
 
 export interface QuotePrintData {
@@ -339,7 +401,10 @@ export interface QuotePrintData {
   projeIlgilisiUnvan?: string;
   projeIlgilisiTelefon?: string;
   projeIlgilisiEmail?: string;
+  /** Belgeye kaydedilen imza; verilmezse imza satırı proje ilgilisine düşer. */
+  imza?: PrintSignature;
   marka?: string;
+  brandLogoUrl?: string;
   model?: string;
   tip?: string;
   imageUrl?: string;
@@ -347,6 +412,7 @@ export interface QuotePrintData {
   standartDonanim?: string[];
   opsiyonelDonanim?: string[];
   machines?: QuoteMachinePrintData[];
+  headerLogo?: QuoteHeaderLogo;
   items: QuoteItem[];
   iskonto?: number;
   kdvOran: number;
@@ -370,6 +436,7 @@ table.q-meta td.val { text-align: center; font-style: italic; font-weight: bold;
 .q-machine-index { margin-top: 1mm; font-size: 9pt; font-weight: bold; letter-spacing: .35px; }
 .q-machine-ref { margin: -4mm 0 4mm; text-align: center; font-size: 9pt; font-weight: bold; font-style: italic; }
 .q-brand { font-size: 30pt; font-weight: 900; letter-spacing: 1px; }
+.q-brand-logo { display: block; width: 67mm; height: auto; margin: 0 auto; object-fit: contain; }
 .q-model { font-size: 24pt; font-weight: bold; margin-top: 3mm; }
 .q-type { font-size: 16pt; margin-top: 1mm; }
 .q-photo { max-width: 150mm; max-height: 130mm; margin-top: 6mm; }
@@ -425,6 +492,14 @@ table.q-meta td.lbl, table.q-meta td.val { font-weight: normal; }
 table.q-specs td { border-width: .75pt; font-size: 9.5pt; padding: .92mm 1.5mm; line-height: 1.08; }
 table.q-specs td.g { width: 19mm; }
 table.q-specs td.k { width: 55%; }
+.q-spec-page-compact .q-h1 { margin: 1.8mm 0 3mm; }
+.q-spec-page-compact table.q-specs td { font-size: 8pt; padding: .48mm 1.1mm; line-height: 1.02; }
+.q-spec-page-dense .q-h1 { margin: 1mm 0 2mm; }
+.q-spec-page-dense table.q-specs td { font-size: 6.8pt; padding: .25mm .8mm; line-height: 1; }
+.q-spec-page-ultra .q-h1 { margin: .6mm 0 1.2mm; font-size: 11pt; }
+.q-spec-page-ultra table.q-specs td { font-size: 5.8pt; padding: .12mm .55mm; line-height: .96; }
+.q-spec-page { height: 296mm; min-height: 296mm; max-height: 296mm; overflow: hidden; }
+.q-spec-fit { zoom: var(--q-spec-scale, 1); }
 .q-empty { text-align: center; color: #555; font-style: italic; padding: 8mm !important; }
 .q-eq-h { font-size: 10.5pt; margin: 5mm 0 1.5mm 1mm; }
 ul.q-eq { margin-left: 7mm; font-size: 10.35pt; line-height: 1.22; }
@@ -445,13 +520,25 @@ table.q-tot tr.kdv td { font-weight: normal; }
 .q-signature { display: block; height: 14mm; max-width: 35mm; object-fit: contain; object-position: left bottom; margin-bottom: -1.5mm; }
 .q-price-page .q-h1 { margin-bottom: 3mm; }
 .q-price-page .pageno { padding-top: 1.5mm; }
+.q-company-letterhead {
+  height: 31.4mm;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-bottom: .6pt solid #d7dce2;
+  padding: 2.5mm 8mm 3mm;
+}
+.q-company-letterhead img {
+  display: block;
+  max-width: 92mm;
+  max-height: 24mm;
+  object-fit: contain;
+}
+.q-empty-letterhead { height: 11mm; }
 `;
 
 export function quoteDoc(d: QuotePrintData, assetBase: string): PrintDocument {
   const pages: string[] = [];
-  // Chromium bazı sürümlerde tekrarlanan büyük PNG'yi PDF'e gömerken siyah
-  // raster üretebildiği için satış teklifinde baskıya özel JPEG antet kullanılır.
-  const quoteHeader = () => `<img class="letterhead" src="${assetBase}/haksan-letterhead.jpg" alt="HAKSAN MAKİNA">`;
   const safeImageUrl = (value?: string) => {
     const imageUrl = value?.trim();
     return imageUrl && (
@@ -460,11 +547,35 @@ export function quoteDoc(d: QuotePrintData, assetBase: string): PrintDocument {
       || /^data:image\/(?:png|jpeg|webp|gif);base64,/i.test(imageUrl)
     ) ? esc(imageUrl) : "";
   };
+  // Chromium bazı sürümlerde tekrarlanan büyük PNG'yi PDF'e gömerken siyah
+  // raster üretebildiği için satış teklifinde baskıya özel JPEG antet kullanılır.
+  const quoteHeader = () => {
+    const selection = d.headerLogo;
+    if (selection?.mode === "none") return `<div class="q-empty-letterhead" aria-hidden="true"></div>`;
+    if (selection?.mode === "company") {
+      const companyLogoUrl = safeImageUrl(selection.imageUrl);
+      if (companyLogoUrl) {
+        return `<div class="q-company-letterhead"><img src="${companyLogoUrl}" alt="${esc(selection.alt || d.firma || "Firma logosu")}"></div>`;
+      }
+    }
+    return `<img class="letterhead" src="${assetBase}/haksan-letterhead.jpg" alt="HAKSAN MAKİNA">`;
+  };
+  const machineBrand = (brand?: string, brandLogoUrl?: string) => {
+    if (!brand) return "";
+    const customLogoUrl = safeImageUrl(brandLogoUrl);
+    if (customLogoUrl) {
+      return `<img class="q-brand-logo" src="${customLogoUrl}" alt="${esc(brand)}">`;
+    }
+    return brand.trim().toLocaleUpperCase("tr-TR") === "HAXAN"
+      ? `<img class="q-brand-logo" src="${assetBase}/haxan-product-logo.webp" alt="HAXAN">`
+      : `<div class="q-brand">${esc(brand)}</div>`;
+  };
   const machines: QuoteMachinePrintData[] = d.machines?.length
     ? d.machines
     : [{
         urun: [d.marka, d.model, d.tip].filter(Boolean).join(" "),
         marka: d.marka,
+        brandLogoUrl: d.brandLogoUrl,
         model: d.model,
         tip: d.tip,
         imageUrl: d.imageUrl,
@@ -481,16 +592,17 @@ export function quoteDoc(d: QuotePrintData, assetBase: string): PrintDocument {
   const specGroupLabel = (spec: QuoteTechnicalSpec) =>
     (spec.groupName || spec.group || spec.groupCode || "").trim();
   const renderSpecs = (specs: QuoteTechnicalSpec[]) => {
-    const hasGroups = specs.some((spec) => specGroupLabel(spec));
+    const visibleSpecs = printableTechnicalSpecs(specs);
+    const hasGroups = visibleSpecs.some((spec) => specGroupLabel(spec));
     if (!hasGroups) {
-      return specs.map((s) => `<tr><td class="k">${esc(s.key)}</td><td class="v">${esc(specValue(s))}</td></tr>`).join("");
+      return visibleSpecs.map((s) => `<tr><td class="k">${esc(s.key)}</td><td class="v">${esc(specValue(s))}</td></tr>`).join("");
     }
     const rows: string[] = [];
-    for (let i = 0; i < specs.length;) {
-      const label = specGroupLabel(specs[i]) || "GENEL";
+    for (let i = 0; i < visibleSpecs.length;) {
+      const label = specGroupLabel(visibleSpecs[i]) || "GENEL";
       let end = i + 1;
-      while (end < specs.length && (specGroupLabel(specs[end]) || "GENEL") === label) end += 1;
-      const groupSpecs = specs.slice(i, end);
+      while (end < visibleSpecs.length && (specGroupLabel(visibleSpecs[end]) || "GENEL") === label) end += 1;
+      const groupSpecs = visibleSpecs.slice(i, end);
       for (let j = 0; j < groupSpecs.length; j++) {
         const spec = groupSpecs[j];
         rows.push(`<tr>${j === 0 ? `<td class="g" rowspan="${groupSpecs.length}">${esc(label.toLocaleUpperCase("tr-TR"))}</td>` : ""}<td class="k">${esc(spec.key)}</td><td class="v">${esc(specValue(spec))}</td></tr>`);
@@ -499,10 +611,30 @@ export function quoteDoc(d: QuotePrintData, assetBase: string): PrintDocument {
     }
     return rows.join("");
   };
+  const specPageLayout = (specs: QuoteTechnicalSpec[]) => {
+    const estimatedRows = specs.reduce(
+      (total, spec) => total + Math.max(1, Math.ceil(`${spec.key} ${specValue(spec)}`.length / 90)),
+      0,
+    );
+    const className = estimatedRows > 70
+      ? "q-spec-page-ultra"
+      : estimatedRows > 48
+        ? "q-spec-page-dense"
+        : estimatedRows > 32
+          ? "q-spec-page-compact"
+          : "";
+    // Chromium yazdırma motorunda tablo yüksekliğini gerçek A4 içerik alanına
+    // sığdırır. 64 tahmini satır referans yoğunluğudur; yalnız daha uzun
+    // tablolarda tüm blok oransal küçülür ve fiziksel ikinci sayfa açılmaz.
+    const scale = Math.min(1, 64 / Math.max(estimatedRows, 1));
+    return { className, scale: Number(scale.toFixed(4)) };
+  };
   const machineSections = machines.map((machine) => {
-    const specChunks = (machine.specs?.length ?? 0) > 0
-      ? chunkByWeight(machine.specs ?? [], 35, (spec) => Math.max(1, `${spec.key} ${specValue(spec)}`.length / 90))
-      : [[]];
+    const printableSpecs = printableTechnicalSpecs(machine.specs);
+    // Teknik bilgiler teklif PDF'inde hiçbir zaman "DEVAM" sayfasına bölünmez.
+    // Satır yoğunluğuna göre CSS sıkılığı değişir ve gerçek değerlerin tamamı
+    // her makine için tek teknik bilgi sayfasında kalır.
+    const specChunks = [printableSpecs];
     const equipmentRows = [
       ...(machine.standartDonanim ?? []).map((value) => ({ kind: "standard" as const, value })),
       ...(machine.opsiyonelDonanim ?? []).map((value) => ({ kind: "optional" as const, value })),
@@ -515,13 +647,34 @@ export function quoteDoc(d: QuotePrintData, assetBase: string): PrintDocument {
   // Beş satırlık fiyat kutusunda 4. satır daima özel iskonto, son satır boş kalır.
   const itemChunks = chunkByWeight(d.items, 3, (item) => Math.max(1, item.urun.length / 180));
   const addressChunks = chunkText(d.adres, 420);
-  const splitNotes = (notes: string[]) => notes.flatMap((note) => chunkText(note, 1200));
+  /**
+   * Bir şart maddesi TEK bir madde olarak basılır. Eskiden 1200 karakterde
+   * kesiliyordu; uzun bir madde ikiye bölünüp ikinci parça, cümle ortasından
+   * başlayan ayrı bir maddeymiş gibi görünüyordu. Artık yalnız tek başına bir
+   * sayfayı taşıran madde bölünür, o da cümle sonundan (bkz. `chunkText`).
+   */
+  const splitNotes = (notes: string[]) =>
+    notes.flatMap((note) => chunkText(note, NOTE_PAGE_CAPACITY * NOTE_LINE_CHARS));
+  /**
+   * Bir şart bölümü birden çok sayfaya taşarsa madde harfleri DEVAM etmeli:
+   * her sayfa kendi `<ol>`'unu açtığı için ikinci sayfa yeniden `a.`den
+   * başlıyor, ekranda `i.` görünen madde çıktıda `a.` oluyordu.
+   */
+  const notesSection = (title: string, notes: string[]) => {
+    if (!notes.length) return [];
+    let start = 0;
+    return chunkByWeight(splitNotes(notes), NOTE_PAGE_CAPACITY, noteWeightOf).map((list) => {
+      const page = { title, list, start };
+      start += list.length;
+      return page;
+    });
+  };
   const notePages = [
-    ...(d.notes.odeme.length ? chunkByWeight(splitNotes(d.notes.odeme), 8, (note) => Math.max(1, note.length / 280)).map((list) => ({ title: "ÖDEME ŞARTLARI", list })) : []),
-    ...(d.notes.teslimat.length ? chunkByWeight(splitNotes(d.notes.teslimat), 8, (note) => Math.max(1, note.length / 280)).map((list) => ({ title: "TESLİMAT ŞARTLARI", list })) : []),
-    ...(d.notes.garanti.length ? chunkByWeight(splitNotes(d.notes.garanti), 8, (note) => Math.max(1, note.length / 280)).map((list) => ({ title: "GARANTİ ŞARTLARI", list })) : []),
-    ...((d.genelNotlar?.length ?? 0) > 0 ? chunkByWeight(splitNotes(d.genelNotlar ?? []), 8, (note) => Math.max(1, note.length / 280)).map((list) => ({ title: "NOTLAR", list })) : []),
-    ...(addressChunks.length > 1 ? chunkByWeight(addressChunks.slice(1), 8, (note) => Math.max(1, note.length / 280)).map((list) => ({ title: "MÜŞTERİ ADRESİ — DEVAM", list })) : []),
+    ...notesSection("ÖDEME ŞARTLARI", d.notes.odeme),
+    ...notesSection("TESLİMAT ŞARTLARI", d.notes.teslimat),
+    ...notesSection("GARANTİ ŞARTLARI", d.notes.garanti),
+    ...notesSection("NOTLAR", d.genelNotlar ?? []),
+    ...notesSection("MÜŞTERİ ADRESİ — DEVAM", addressChunks.slice(1)),
   ];
   const referenceNoteWeight = [
     ...d.notes.odeme,
@@ -571,7 +724,7 @@ export function quoteDoc(d: QuotePrintData, assetBase: string): PrintDocument {
   <div class="q-title">FİYAT TEKLİFİ${machines.length > 1 ? `<div class="q-machine-index">MAKİNE ${machineIndex + 1} / ${machines.length}</div>` : ""}</div>
   ${machineIndex === 0 ? customerMetaBlock : ""}
   <div class="q-machine">
-    ${machine.marka ? `<div class="q-brand">${esc(machine.marka)}</div>` : ""}
+    ${machineBrand(machine.marka, machine.brandLogoUrl)}
     ${machine.model ? `<div class="q-model">${esc(machine.model)}</div>` : ""}
     ${machine.tip ? `<div class="q-type">${esc(machine.tip)}</div>` : ""}
     ${machineImageUrl ? `<img class="q-photo" src="${machineImageUrl}" alt="${esc(machineLabel)}">` : `<div class="q-photo-placeholder"></div>`}
@@ -579,15 +732,18 @@ export function quoteDoc(d: QuotePrintData, assetBase: string): PrintDocument {
   ${pn()}
 </div>`);
 
-    specChunks.forEach((specChunk, chunkIndex) => {
+    specChunks.forEach((specChunk) => {
+      const specLayout = specPageLayout(specChunk);
       pages.push(`
-<div class="page">
+<div class="page q-spec-page ${specLayout.className}" style="--q-spec-scale:${specLayout.scale}">
   ${quoteHeader()}
-  <div class="q-h1">TEKNİK BİLGİLER${chunkIndex > 0 ? " — DEVAM" : ""}</div>
+  <div class="q-spec-fit">
+  <div class="q-h1">TEKNİK BİLGİLER</div>
   ${machines.length > 1 ? `<div class="q-machine-ref">${esc(machineLabel)}</div>` : ""}
   <table class="q-specs">
     ${specChunk.length ? renderSpecs(specChunk) : `<tr><td class="q-empty">Bu ürün için teknik bilgi girilmemiştir.</td></tr>`}
   </table>
+  </div>
   ${pn()}
 </div>`);
     });
@@ -631,14 +787,15 @@ export function quoteDoc(d: QuotePrintData, assetBase: string): PrintDocument {
   const kdvTutar = Number.isFinite(d.kdvTutar) ? d.kdvTutar : toplam * (d.kdvOran / 100);
   const genel = toplam + kdvTutar;
 
-  const showRaifSignature = (d.projeIlgilisi ?? "")
-    .toLocaleLowerCase("tr-TR")
-    .replace(/[^a-zçğıöşü]/g, "")
-    .includes("raifşentürk");
+  // İmza artık belgeye kaydedilen seçimden gelir. Eskiden burada tek bir kişinin
+  // adı koda gömülüydü (`projeIlgilisi` normalize edilip "raifşentürk" içeriyor
+  // mu): başka hiç kimse için çalışmıyordu ve yeni imza eklemek kod değişikliği
+  // + deploy gerektiriyordu. İmza seçilmemiş belgelerde eski davranış korunur —
+  // satır proje ilgilisinin adına düşer, yalnız görsel çıkmaz.
   const signatureHtml = () => `<div class="q-sign">
-    ${showRaifSignature ? `<img class="q-signature" src="${assetBase}/raif-signature.jpg" alt="">` : ""}
-    <div class="nm">${blank(d.projeIlgilisi)}</div>
-    <div>${blank(d.projeIlgilisiUnvan)}</div>
+    ${d.imza?.gorselUrl ? `<img class="q-signature" src="${esc(d.imza.gorselUrl)}" alt="">` : ""}
+    <div class="nm">${blank(d.imza?.ad ?? d.projeIlgilisi)}</div>
+    <div>${blank(d.imza?.unvan ?? d.projeIlgilisiUnvan)}</div>
     ${d.projeIlgilisiTelefon ? `<div>${esc(d.projeIlgilisiTelefon)}</div>` : ""}
     <div><span class="link">${blank(d.projeIlgilisiEmail)}</span></div>
   </div>`;
@@ -653,10 +810,10 @@ export function quoteDoc(d: QuotePrintData, assetBase: string): PrintDocument {
   if (referencePricePage) {
     const rows = itemChunks[0].map((item) => `<tr>
       <td class="no">${d.items.indexOf(item) + 1}</td>
-      <td class="urun">${esc(item.urun)}${item.indirim != null && item.indirim > 0 ? `<div class="disc" style="margin-top:.8mm">Ürüne özel iskonto: ${fmtMoney(item.indirim, d.currency)}</div>` : ""}</td>
+      <td class="urun">${esc(item.urun)}</td>
       <td class="c" style="width:20mm">${item.birim ? esc(item.birim) : ""}</td>
       <td class="c" style="width:31mm">${item.fiyat != null ? fmtMoney(item.fiyat, d.currency) : ""}</td>
-      <td class="r" style="width:33mm">${item.tutar != null ? fmtMoney(item.tutar, d.currency) : ""}</td>
+      <td class="r" style="width:33mm">${item.brutTutar != null ? fmtMoney(item.brutTutar, d.currency) : item.tutar != null ? fmtMoney(item.tutar, d.currency) : ""}</td>
     </tr>`);
     while (rows.length < 3) rows.push(`<tr><td class="no"></td><td></td><td></td><td></td><td></td></tr>`);
     rows.push(`<tr><td class="no"></td><td></td><td></td><td class="r disc">ÖZEL İSKONTO</td><td class="r disc">${iskontoTutar}</td></tr>`);
@@ -682,10 +839,10 @@ export function quoteDoc(d: QuotePrintData, assetBase: string): PrintDocument {
   itemChunks.forEach((itemChunk, chunkIndex) => {
     const rows = itemChunk.map((it) => `<tr>
       <td class="no">${d.items.indexOf(it) + 1}</td>
-      <td class="urun">${esc(it.urun)}${it.indirim != null && it.indirim > 0 ? `<div class="disc" style="margin-top:.8mm">Ürüne özel iskonto: ${fmtMoney(it.indirim, d.currency)}</div>` : ""}</td>
+      <td class="urun">${esc(it.urun)}</td>
       <td class="c" style="width:18mm">${it.birim ? esc(it.birim) : ""}</td>
       <td class="c" style="width:32mm">${it.fiyat != null ? fmtMoney(it.fiyat, d.currency) : ""}</td>
-      <td class="r" style="width:36mm">${it.tutar != null ? fmtMoney(it.tutar, d.currency) : ""}</td>
+      <td class="r" style="width:36mm">${it.brutTutar != null ? fmtMoney(it.brutTutar, d.currency) : it.tutar != null ? fmtMoney(it.tutar, d.currency) : ""}</td>
     </tr>`);
     if (chunkIndex === itemChunks.length - 1) {
       while (rows.length < 3) rows.push(`<tr><td class="no"></td><td></td><td></td><td></td><td></td></tr>`);
@@ -722,10 +879,10 @@ export function quoteDoc(d: QuotePrintData, assetBase: string): PrintDocument {
     pages.push(`
 <div class="page q-price-page">
   ${quoteHeader()}
-  <div class="q-h1">FİYAT ve KOŞULLAR — ${esc(notePage.title)}</div>
+  <div class="q-h1">FİYAT ve KOŞULLAR — ${esc(notePage.title)}${notePage.start ? " (devam)" : ""}</div>
   <div class="q-notes">
-    <ol class="outer"><li><div class="sec">${esc(notePage.title)}</div>
-      <ol class="alpha">${notePage.list.map((note) => `<li>${esc(note)}</li>`).join("")}</ol>
+    <ol class="outer"><li><div class="sec">${esc(notePage.title)}${notePage.start ? " (devam)" : ""}</div>
+      <ol class="alpha" start="${notePage.start + 1}">${notePage.list.map((note) => `<li>${esc(note)}</li>`).join("")}</ol>
     </li></ol>
   </div>
   ${isFinalPage ? signatureHtml() : ""}
@@ -752,6 +909,8 @@ export interface ServiceQuotePrintData {
   teklifiYazan: string;
   teklifiYazanUnvan?: string;
   teklifiYazanEmail?: string;
+  /** Belgeye kaydedilen imza; verilmezse satır teklifi yazana düşer, görsel çıkmaz. */
+  imza?: PrintSignature;
   konu: string;
   items: Array<QuoteItem & { miktar: number }>;
   kdvOran: number;
@@ -843,13 +1002,15 @@ export function serviceQuoteDoc(d: ServiceQuotePrintData, assetBase: string): Pr
       <div class="sq-label">Geçerlilik Süresi</div><div class="sq-value">${blank(d.gecerlilik)}</div>
     </div>
   </div>`;
+  // İmza belgeye kaydedilen seçimden gelir (bkz. quoteDoc'taki gerekçe). Seçim
+  // yoksa eski davranış korunur: satır teklifi yazanın adına düşer, görsel çıkmaz.
   const signatures = `
   <div class="sq-signatures">
     <div class="sq-writer">
       <div class="sq-sign-title">İLGİLİ KİŞİ</div>
-      <div>${blank(d.teklifiYazan)}</div>
-      <div>${blank(d.teklifiYazanUnvan)}</div>
-      ${d.teklifiYazan.toLocaleLowerCase("tr-TR") === "raif şentürk" ? `<img class="sq-signature-img" src="${assetBase}/raif-signature.jpg" alt="">` : ""}
+      <div>${blank(d.imza?.ad ?? d.teklifiYazan)}</div>
+      <div>${blank(d.imza?.unvan ?? d.teklifiYazanUnvan)}</div>
+      ${d.imza?.gorselUrl ? `<img class="sq-signature-img" src="${esc(d.imza.gorselUrl)}" alt="">` : ""}
       <div>${blank(d.teklifiYazanEmail)}</div>
     </div>
     <div class="sq-approval"><div class="sq-sign-title">MÜŞTERİ ONAYI</div><div class="stamp">KAŞE + İMZA</div></div>
@@ -962,6 +1123,7 @@ export interface ContractPrintData {
     vergiNo?: string;
     tel?: string;
     faks?: string;
+    eposta?: string;
   };
   sozlesmeNo: string;
   sozlesmeTarihi: string; // ISO ya da hazır metin
@@ -976,17 +1138,30 @@ export interface ContractPrintData {
   currency: CurrencyCode;
   teslimSekli?: string; // ör. "Millileştirilmiş"
   ithalatMasraflariDahil?: boolean;
+  /** 3.3 maddesi: fiyata K.D.V. dahil mi? Dahilse yazılan bedel de brüttür. */
+  kdvDahil?: boolean;
+  /** 2.6 maddesi: nakliye ve sigorta giderleri satıcıda mı? */
+  nakliyeSaticiya?: boolean;
   teslimKosullari?: string;
   odemeKosullari?: string;
   garantiKosullari?: string;
   notlar?: string;
   kdvOran: number;
-  odemePlani: { label: string; tutar: number; senet?: boolean }[];
+  odemePlani: { label: string; tutar: number; senet?: boolean; yontem?: string }[];
   kontrolUnitesiMarka?: string;
   machines?: ContractMachinePrintData[];
+  /** Sözleşmeyi hazırlayan CRM kullanıcısı ve ünvanı (TARAFLAR sayfası altı). */
+  hazirlayan?: string;
+  hazirlayanUnvan?: string;
+  /** Belgeye kaydedilen imza; verilmezse satır hazırlayana düşer, görsel çıkmaz. */
+  imza?: PrintSignature;
 }
 
 const CONTRACT_CSS = `
+/* Hazırlayan bilgisi — taraf imzalarından ayrı, küçük ve gri. */
+.ct-prepared { margin-top: 8mm; font-size: 9pt; color: #444; }
+/* İmza görseli metnin solunda; taraf imza kutularıyla karışmasın diye küçük. */
+.ct-signature { display: block; height: 12mm; max-width: 40mm; object-fit: contain; object-position: left bottom; margin-bottom: 1mm; }
 .ct.page { padding-top: 5mm; }
 .ct { font-family: Cambria, "Times New Roman", Georgia, serif; font-size: 11pt; line-height: 1.11; }
 .ct-body { padding: 0 0 0 4mm; }
@@ -1007,21 +1182,35 @@ table.ct-kv td { padding: .15mm 0; vertical-align: top; overflow-wrap: anywhere;
 table.ct-kv td:first-child { width: 65mm; padding-right: 2mm; }
 .ct-acc { margin: .4mm 0 0 10mm; line-height: 1.1; }
 .ct-acc div { margin-bottom: .15mm; overflow-wrap: anywhere; }
-.ct-h2 { display: grid; grid-template-columns: 7mm 1fr; font-weight: bold; margin: 4.8mm 0 .5mm; }
+.ct-h2 { display: grid; grid-template-columns: 7mm 1fr; font-weight: bold; margin: 3.4mm 0 .5mm; }
 .ct-body > .ct-h2:first-child { margin-top: 0; }
 .ct-clause { display: grid; grid-template-columns: 8mm minmax(0, 1fr); margin: 0 0 .45mm 5mm; text-align: justify; }
 .ct-clause .no { font-weight: bold; }
-.ct-clause .text { overflow-wrap: anywhere; }
-.ct-price { margin: .7mm 0 3.8mm 25mm; }
+/* Sayfa bölünmesi.
+   - Madde bloklarına .avoid-break (BASE_CSS) yalnızca
+     CLAUSE_KEEP_TOGETHER_MAX_LINES sınırının altındaki maddelerde eklenir; bir
+     sayfaya sığmayan bir maddeyi bölünmez ilan etmek onu taşırıp kırpar,
+     kırpmaktansa bölmek yeğdir.
+   - Sınırın üstündeki uzun maddeler bölünebilir kalır; orphans/widows tek
+     satırlık sarkmayı engeller.
+   - Başlıklar sayfanın en altında tek başına kalmasın diye break-after: avoid. */
+.ct-clause .text { overflow-wrap: anywhere; orphans: 2; widows: 2; }
+.ct-h2, .ct-section-title, .ct-tech-heading, .ct-machine, .ct-continuation-title {
+  break-inside: avoid; page-break-inside: avoid;
+  break-after: avoid; page-break-after: avoid;
+}
+.ct-price { margin: .7mm 0 2.6mm 25mm; }
 table.ct-price-table { width: calc(100% - 4mm); font-weight: bold; }
 table.ct-price-table td { padding: .15mm 0; vertical-align: top; text-align: left; }
 table.ct-price-table td.qty { width: 25mm; }
 table.ct-price-table td.amount { width: 36mm; text-align: right; white-space: nowrap; }
 table.ct-price-table td.total-label { text-align: right; padding-right: 14mm; }
 .ct-price-words { margin-top: .4mm; font-weight: bold; }
-table.ct-pay { margin: 3.7mm 0 .6mm 20mm; font-size: 10.7pt; line-height: 1.15; }
+table.ct-pay { margin: 2.4mm 0 .6mm 20mm; font-size: 10.7pt; line-height: 1.15; }
 table.ct-pay td { padding: .2mm 3mm .2mm 0; }
 table.ct-pay td.amt { text-align: right; min-width: 36mm; white-space: nowrap; }
+/* Tahsilat yöntemi (Nakit / Çek / Senet) — referans sözleşmelerdeki 3. sütun. */
+table.ct-pay td.mtd { padding-left: 6mm; white-space: nowrap; }
 table.ct-parties { width: 100%; margin-top: 0; font-size: 11pt; line-height: 1.12; }
 table.ct-parties td { vertical-align: top; padding: .2mm 2mm .2mm 0; overflow-wrap: anywhere; }
 table.ct-parties td:first-child { width: 54%; }
@@ -1038,7 +1227,7 @@ type ContractTechnicalEntry = {
   weight: number;
 };
 
-type ContractLegalEntry = { html: string; weight: number };
+type ContractLegalEntry = { html: string; weight: number; isHeading?: boolean };
 
 const contractLineCount = (value: string, charsPerLine = 96): number => {
   const lines = value.replace(/\r/g, "").split("\n");
@@ -1046,11 +1235,11 @@ const contractLineCount = (value: string, charsPerLine = 96): number => {
 };
 
 const contractMachines = (d: ContractPrintData): ContractMachinePrintData[] => d.machines?.length
-  ? d.machines
+  ? d.machines.map((machine) => ({ ...machine, ozellikler: printableTechnicalSpecs(machine.ozellikler) }))
   : [{
       model: d.model,
       adet: d.adet,
-      ozellikler: d.ozellikler,
+      ozellikler: printableTechnicalSpecs(d.ozellikler),
       aksesuarlar: d.aksesuarlar,
       muadiller: d.muadiller,
       fiyat: d.fiyat,
@@ -1097,15 +1286,34 @@ const contractTechnicalChunks = (machine: ContractMachinePrintData): ContractTec
   return chunks;
 };
 
+/**
+ * Bir maddenin bütün kalabilmesi için üst sınır (tahmini satır sayısı).
+ *
+ * `chunkContractLegalEntries` bir sayfaya 53 satır yerleştirir. Bunun büyük bir
+ * bölümünü kaplayan bir maddeyi `break-inside: avoid` ile korumak, madde sayfaya
+ * sığmadığında metnin taşmasına/kırpılmasına yol açar — böyle bir maddeyi
+ * kırpmaktansa bölmek yeğdir. Bu yüzden koruma yalnızca sayfanın ~%40'ından
+ * kısa maddelere uygulanır; daha uzunları CSS'teki orphans/widows ile yumuşar.
+ */
+const CLAUSE_KEEP_TOGETHER_MAX_LINES = 20;
+
+/** Madde bloğunun sayfa ortasından bölünmesini engelleyen sınıf (yalnız kısa maddelerde). */
+const keepTogetherClass = (weight: number): string =>
+  weight <= CLAUSE_KEEP_TOGETHER_MAX_LINES ? " avoid-break" : "";
+
 const chunkContractLegalEntries = (entries: ContractLegalEntry[]): ContractLegalEntry[][] => {
   const pages: ContractLegalEntry[][] = [];
   let page: ContractLegalEntry[] = [];
   let used = 0;
   for (const entry of entries) {
     if (page.length && used + entry.weight > 53) {
+      // Sayfa sonunda tek başına kalan başlığı bir sonraki sayfaya taşır.
+      // Sayfalar ayrı `.page` blokları olduğu için CSS'teki `break-after: avoid`
+      // bu sınırı geçemez; taşımanın burada yapılması gerekir.
+      const trailingHeading = page.length > 1 && page[page.length - 1].isHeading ? page.pop() : undefined;
       pages.push(page);
-      page = [];
-      used = 0;
+      page = trailingHeading ? [trailingHeading] : [];
+      used = trailingHeading?.weight ?? 0;
     }
     page.push(entry);
     used += entry.weight;
@@ -1122,6 +1330,12 @@ export function contractDoc(d: ContractPrintData, assetBase: string): PrintDocum
   const aliciKisa = esc(aliciKisaRaw);
   const A = `<span class="b">${aliciKisa}</span>`;
   const machines = contractMachines(d);
+  // KDV dahil sözleşmede yazılan bedel brüttür. Net rakamı "K.D.V. dahildir"
+  // maddesinin altına basmak belgeyi yanlış tutara imzalatır, o yüzden fiyat
+  // tablosu ve yazıyla tutar burada brütleştirilir.
+  const vatIncluded = d.kdvDahil === true;
+  const withVat = (amount: number) =>
+    vatIncluded && d.kdvOran > 0 ? Number((amount * (1 + d.kdvOran / 100)).toFixed(2)) : amount;
   const technicalSections = machines.flatMap((machine, machineIndex) =>
     contractTechnicalChunks(machine).map((chunk, chunkIndex) => ({ machine, machineIndex, chunk, chunkIndex }))
   );
@@ -1158,13 +1372,17 @@ export function contractDoc(d: ContractPrintData, assetBase: string): PrintDocum
     }).join("");
   };
 
-  const clause = (number: string, plainText: string, html = contractText(plainText)): ContractLegalEntry => ({
-    html: `<div class="ct-clause"><span class="no">${esc(number)}</span><span class="text">${html}</span></div>`,
-    weight: contractLineCount(plainText),
-  });
+  const clause = (number: string, plainText: string, html = contractText(plainText)): ContractLegalEntry => {
+    const weight = contractLineCount(plainText);
+    return {
+      html: `<div class="ct-clause${keepTogetherClass(weight)}"><span class="no">${esc(number)}</span><span class="text">${html}</span></div>`,
+      weight,
+    };
+  };
   const heading = (number: string, title: string): ContractLegalEntry => ({
     html: `<div class="ct-h2"><span>${esc(number)}</span><span>${esc(title)}</span></div>`,
     weight: 1,
+    isHeading: true,
   });
 
   const deliveryDefault = d.teslimAyi
@@ -1172,7 +1390,13 @@ export function contractDoc(d: ContractPrintData, assetBase: string): PrintDocum
     : "Tezgahın teslimi sözleşme şartlarının yerine getirilmesi ve gümrük işlemlerinin tamamlanmasını takiben gerçekleştirilecektir;";
   const warrantyDefault = `Tezgahın mekanik garantisi ${aliciKisaRaw} firmasına teslimiyle başlayacak olup, mekanik garanti tüm üretim hatalarına karşı 1 (bir) yıldır;`;
   const controlBrand = d.kontrolUnitesiMarka?.trim();
-  const deliveryLocation = d.teslimYeri?.trim() || "HAKSAN MAKİNA/Hadımköy tesisleri";
+  // Nakliyeyi satıcı üstlendiğinde tezgah alıcının tesisine GİDER; alıcı
+  // üstlendiğinde satıcının deposundan ÇIKAR. Yön ve varsayılan adres bu yüzden
+  // birlikte değişir (SL-8: "… tesislerine teslim … taşıma ve sigortası HAKSAN
+  // MAKİNA'ya aittir").
+  const freightBySeller = d.nakliyeSaticiya === true;
+  const deliveryLocation = d.teslimYeri?.trim()
+    || (freightBySeller ? `${aliciKisaRaw} tesisleri` : "HAKSAN MAKİNA/Hadımköy tesisleri");
   const sectionTwo = [
     heading("2.", "Nakliye, Ambalaj ve Teslimat;"),
     clause("2.1.", d.teslimKosullari?.trim() || deliveryDefault),
@@ -1192,11 +1416,17 @@ export function contractDoc(d: ContractPrintData, assetBase: string): PrintDocum
       `Tezgahın kontrol ünitesi garantisi ${aliciKisaRaw} firmasına teslimiyle başlayacak olup, ${controlBrand ? `uluslararası ${controlBrand} garantisi` : "kontrol ünitesi garantisi"} 2 (iki) yıldır;`,
       `Tezgahın kontrol ünitesi garantisi ${A} firmasına teslimiyle başlayacak olup, ${controlBrand ? `uluslararası <span class="b">${esc(controlBrand)}</span> garantisi` : "kontrol ünitesi garantisi"} 2 (iki) yıldır;`,
     ),
-    clause(
-      "2.6.",
-      `Tezgah ${deliveryLocation} adresinden teslim edilecek olup, tezgahın nakliye ve sigorta giderleri ${aliciKisaRaw} firmasına aittir.`,
-      `Tezgah ${esc(deliveryLocation)} adresinden teslim edilecek olup, tezgahın nakliye ve sigorta giderleri ${A} firmasına aittir.`,
-    ),
+    freightBySeller
+      ? clause(
+          "2.6.",
+          `Tezgah ${deliveryLocation} adresine teslim edilecek olup, tezgahın nakliye ve sigorta giderleri HAKSAN MAKİNA'ya aittir.`,
+          `Tezgah ${esc(deliveryLocation)} adresine teslim edilecek olup, tezgahın nakliye ve sigorta giderleri <span class="b">HAKSAN MAKİNA</span>'ya aittir.`,
+        )
+      : clause(
+          "2.6.",
+          `Tezgah ${deliveryLocation} adresinden teslim edilecek olup, tezgahın nakliye ve sigorta giderleri ${aliciKisaRaw} firmasına aittir.`,
+          `Tezgah ${esc(deliveryLocation)} adresinden teslim edilecek olup, tezgahın nakliye ve sigorta giderleri ${A} firmasına aittir.`,
+        ),
   ];
 
   const hasImportCostStatement = Boolean(d.teslimSekli) || d.ithalatMasraflariDahil !== undefined;
@@ -1204,33 +1434,46 @@ export function contractDoc(d: ContractPrintData, assetBase: string): PrintDocum
   const modelSummary = machines.map((machine) => machine.model).filter(Boolean).join(" / ") || d.model;
   const priceBasisPlain = `Sözleşmeye konu ${modelSummary} ${d.teslimSekli ? `${d.teslimSekli} şeklinde` : "yukarıdaki şekilde"} fiyatlandırılmıştır.${hasImportCostStatement ? ` Tezgahın fiyatına, tezgahın ithalatı ile ilgili masraf ve vergiler (Gümrük Vergisi, Liman Masrafları, Ardiye Giderleri, Gümrükleme Ücreti, İlave Gümrük Vergisi) ${importCostsIncluded ? "dahildir" : "dahil değildir"}.` : ""}`;
   const priceBasisHtml = `Sözleşmeye konu <span class="b">${esc(modelSummary)}</span> ${d.teslimSekli ? `<span class="b">${esc(d.teslimSekli)}</span> şeklinde` : "yukarıdaki şekilde"} fiyatlandırılmıştır.${hasImportCostStatement ? ` Tezgahın fiyatına, tezgahın ithalatı ile ilgili masraf ve vergiler (Gümrük Vergisi, Liman Masrafları, Ardiye Giderleri, Gümrükleme Ücreti, İlave Gümrük Vergisi) ${importCostsIncluded ? "dahildir" : "dahil değildir"}.` : ""}`;
-  const machinePriceRows = machines.map((machine) =>
-    `<tr><td class="qty">${esc(machine.adet)} Adet</td><td>${esc(machine.model)}</td><td class="amount">${esc(fmtMoney(machine.fiyat, d.currency))}</td></tr>`
+  const grandTotal = withVat(d.fiyat);
+  // Satırlar tek tek yuvarlanınca toplamları TOPLAM'dan kuruş sapabilir; farkı son
+  // satır yutar — contractPrint'teki `reconcileMachinePrices` ile aynı kural.
+  const machineTotals = machines.map((machine) => withVat(machine.fiyat));
+  if (machineTotals.length) {
+    const drift = Number((grandTotal - machineTotals.reduce((sum, value) => sum + value, 0)).toFixed(2));
+    const last = machineTotals.length - 1;
+    machineTotals[last] = Number((machineTotals[last] + drift).toFixed(2));
+  }
+  const machinePriceRows = machines.map((machine, index) =>
+    `<tr><td class="qty">${esc(machine.adet)} Adet</td><td>${esc(machine.model)}</td><td class="amount">${esc(fmtMoney(machineTotals[index], d.currency))}</td></tr>`
   ).join("");
   const priceIntro = machines.length > 1
     ? "1. bölümde belirtilen tezgahların ilgili maddelerde belirtilmiş olan karakteristik özellikleri ve donanımları ile birlikte fiyatları aşağıdaki gibidir,"
     : "1.1. no'lu maddede belirtilen tezgahın karakteristik özellikleri ve donanımları ile birlikte fiyatı aşağıdaki gibidir,";
+  const priceWeight = 4 + machines.length;
   const priceBlock: ContractLegalEntry = {
-    html: `<div class="ct-clause"><span class="no">3.1.</span><span class="text">${esc(priceIntro)}
+    html: `<div class="ct-clause${keepTogetherClass(priceWeight)}"><span class="no">3.1.</span><span class="text">${esc(priceIntro)}
       <div class="ct-price">
         <table class="ct-price-table">
           ${machinePriceRows}
-          <tr><td colspan="2" class="total-label">TOPLAM</td><td class="amount">${esc(fmtMoney(d.fiyat, d.currency))}</td></tr>
+          <tr><td colspan="2" class="total-label">TOPLAM</td><td class="amount">${esc(fmtMoney(grandTotal, d.currency))}</td></tr>
         </table>
-        <div class="ct-price-words">${esc(tutarYaziyla(d.fiyat, d.currency))}</div>
+        <div class="ct-price-words">${esc(tutarYaziyla(grandTotal, d.currency))}</div>
       </div>
     </span></div>`,
-    weight: 4 + machines.length,
+    weight: priceWeight,
   };
+  // 3.4 maddesi vadeleri "bedelin tamamı" olarak sunar; taban 3.1'deki TOPLAM ile
+  // aynı olmalı, yoksa KDV dahil sözleşme kendi kendisiyle çelişen iki rakam basar.
   const paymentPlanHtml = d.odemePlani.length ? `<table class="ct-pay">${d.odemePlani.map((payment) =>
-    `<tr><td>${esc(payment.label)}</td><td class="amt">${esc(fmtMoney(payment.tutar, d.currency))}${payment.senet ? " (Senet)" : ""}</td></tr>`
+    `<tr><td>${esc(payment.label)}</td><td class="amt">${esc(fmtMoney(withVat(payment.tutar), d.currency))}</td><td class="mtd">${esc(payment.yontem ?? (payment.senet ? "Senet" : ""))}</td></tr>`
   ).join("")}</table>` : "";
+  const paymentWeight = 2 + (d.odemeKosullari ? contractLineCount(d.odemeKosullari) : 0) + d.odemePlani.length;
   const paymentBlock: ContractLegalEntry = {
-    html: `<div class="ct-clause"><span class="no">3.4.</span><span class="text">Sözleşmeye konu tezgahın bedelinin tamamı ${A} firmasından aşağıdaki şekilde tahsil edilecektir;
+    html: `<div class="ct-clause${keepTogetherClass(paymentWeight)}"><span class="no">3.4.</span><span class="text">Sözleşmeye konu tezgahın bedelinin tamamı ${A} firmasından aşağıdaki şekilde tahsil edilecektir;
       ${d.odemeKosullari ? `<div style="margin-top:.7mm">${contractText(d.odemeKosullari)}</div>` : ""}
       ${paymentPlanHtml}
     </span></div>`,
-    weight: 2 + (d.odemeKosullari ? contractLineCount(d.odemeKosullari) : 0) + d.odemePlani.length,
+    weight: paymentWeight,
   };
   const sectionThree = [
     heading("3.", "Fiyat ve Ödeme Şartları;"),
@@ -1238,8 +1481,8 @@ export function contractDoc(d: ContractPrintData, assetBase: string): PrintDocum
     clause("3.2.", priceBasisPlain, priceBasisHtml),
     clause(
       "3.3.",
-      `Sözleşmeye konu tezgahın fiyatına ${d.kdvOran > 0 ? `%${d.kdvOran} oranındaki ` : ""}K.D.V. dahil değildir;`,
-      `Sözleşmeye konu tezgahın fiyatına ${d.kdvOran > 0 ? `<span class="b">%${esc(d.kdvOran)}</span> oranındaki ` : ""}<span class="b">K.D.V.</span> dahil değildir;`,
+      `Sözleşmeye konu tezgahın fiyatına ${d.kdvOran > 0 ? `%${d.kdvOran} oranındaki ` : ""}K.D.V. ${vatIncluded ? "dahildir" : "dahil değildir"};`,
+      `Sözleşmeye konu tezgahın fiyatına ${d.kdvOran > 0 ? `<span class="b">%${esc(d.kdvOran)}</span> oranındaki ` : ""}<span class="b">K.D.V.</span> ${vatIncluded ? "dahildir" : "dahil değildir"};`,
     ),
     paymentBlock,
     heading("", "Diğer Hususlar;"),
@@ -1324,9 +1567,15 @@ export function contractDoc(d: ContractPrintData, assetBase: string): PrintDocum
         </tr>
         <tr>
           <td>${kv("Vergi Dairesi", HAKSAN.vergiDairesi)}${kv("Vergi Numarası", HAKSAN.vergiNo)}${kv("Tel.", HAKSAN.telSade)}${kv("Faks", HAKSAN.faksSade)}</td>
-          <td>${kv("Vergi Dairesi", d.alici.vergiDairesi)}${kv("Vergi Numarası", d.alici.vergiNo)}${kv("Tel.", d.alici.tel)}${kv("Faks", d.alici.faks)}</td>
+          <td>${kv("Vergi Dairesi", d.alici.vergiDairesi)}${kv("Vergi Numarası", d.alici.vergiNo)}${kv("Tel.", d.alici.tel)}${kv("Faks", d.alici.faks)}${kv("E-Posta", d.alici.eposta)}</td>
         </tr>
       </table>
+      ${d.imza || d.hazirlayan ? `
+      <div class="ct-prepared">
+        ${d.imza?.gorselUrl ? `<img class="ct-signature" src="${esc(d.imza.gorselUrl)}" alt="">` : ""}
+        <span>${d.imza ? "İmza:" : "Hazırlayan:"}</span>
+        <b>${esc(d.imza?.ad ?? d.hazirlayan ?? "")}</b>${(d.imza?.unvan ?? d.hazirlayanUnvan) ? ` · ${esc(d.imza?.unvan ?? d.hazirlayanUnvan ?? "")}` : ""}
+      </div>` : ""}
     </div>
     ${pn(partiesPageNumber)}
   </div>`;

@@ -23,7 +23,7 @@ import {
 } from "../../admin/TargetDialog";
 import { useStore } from "../../../lib/store";
 import { useAuth } from "../../../../lib/auth";
-import { adminService } from "../../../../lib/services";
+import { adminService, lookupService } from "../../../../lib/services";
 import type { User } from "../../../lib/mock";
 import { PERMISSION_RESOURCES, type PermissionResource } from "@haksan/shared";
 import { InsightStat } from "../../shared/PremiumPrimitives";
@@ -54,9 +54,13 @@ type AssignableRole = {
 };
 
 type AdminUserRow = User & {
+  /** Girişte e-posta yerine kullanılabilen kullanıcı adı; atanmamışsa null. */
+  username?: string | null;
   roleCodes: string[];
   roleNames: string[];
   departmentId?: string | null;
+  titleId?: string | null;
+  titleName?: string | null;
   divisionIds: string[];
   divisionNames: string[];
   accessScopes: UserAccessScopeRow[];
@@ -114,17 +118,16 @@ const normalizeAdminUser = (user: any, fallback?: User): AdminUserRow => {
     id: user.id,
     name: user.fullName ?? user.name ?? fallback?.name ?? user.email ?? "—",
     email: user.email ?? fallback?.email ?? "",
+    username: user.username ?? null,
     phone: user.phone ?? fallback?.phone ?? null,
     role: ((roleNames[0] ?? fallbackRole) as User["role"]) || fallbackRole,
     department: user.department?.name ?? fallback?.department ?? "",
     departmentId: user.departmentId ?? user.department?.id ?? fallback?.departmentId ?? null,
+    titleId: user.titleId ?? user.title?.id ?? null,
+    titleName: user.title?.name ?? null,
     active: user.status ? user.status !== "passive" : fallback?.active ?? true,
     avatarUrl: user.avatarUrl ?? user.photoUrl ?? fallback?.avatarUrl,
     purchaseApprovalLimit: user.purchaseApprovalLimit ? Number(user.purchaseApprovalLimit) : fallback?.purchaseApprovalLimit,
-    assistantDailyUsdLimit:
-      user.assistantDailyUsdLimit == null
-        ? fallback?.assistantDailyUsdLimit ?? null
-        : Number(user.assistantDailyUsdLimit),
     managerId: user.managerId ?? fallback?.managerId,
     roleCodes: roleCodes.length ? roleCodes : [FALLBACK_ROLE_CODES[fallbackRole] ?? fallbackRole],
     roleNames: roleNames.length ? roleNames : [fallbackRole],
@@ -137,7 +140,7 @@ const normalizeAdminUser = (user: any, fallback?: User): AdminUserRow => {
 };
 
 export function UsersPage() {
-  const { users } = useStore();
+  const { users, refresh } = useStore();
   const { hasRole, hasPermission, user: currentUser } = useAuth();
   // Hedef oluşturma süper admin (ve admin) yetkisine bağlı.
   const canSetTargets = hasRole("super_admin") || hasRole("admin");
@@ -152,6 +155,8 @@ export function UsersPage() {
   const [adminUsers, setAdminUsers] = useState<AdminUserRow[]>([]);
   const [departments, setDepartments] = useState<{ id: string; name: string; code?: string }[]>([]);
   const [divisions, setDivisions] = useState<{ id: string; code: string; name: string }[]>([]);
+  // CRM Alan Ayarları > Kullanıcı Ünvanları listesinden beslenir.
+  const [titles, setTitles] = useState<{ id: string; name: string }[]>([]);
   const [availableRoles, setAvailableRoles] = useState<AssignableRole[]>([]);
   const [adminLoading, setAdminLoading] = useState(true);
   const [adminError, setAdminError] = useState<string | null>(null);
@@ -178,16 +183,22 @@ export function UsersPage() {
     setAdminLoading(true);
     setAdminError(null);
     try {
-      const [userRows, roleRows, deptRows, divisionRows] = await Promise.all([
+      const [userRows, roleRows, deptRows, divisionRows, titleRows] = await Promise.all([
         adminService.users(),
         canAssignRoles || canCreateUser ? adminService.roles() : Promise.resolve([]),
         adminService.departments().catch(() => []),
         adminService.divisions().catch(() => []),
+        lookupService.byName("user-titles").catch(() => []),
       ]);
       const fallbackById = new Map(users.map((user) => [user.id, user]));
       setAdminUsers((Array.isArray(userRows) ? userRows : []).map((user) => normalizeAdminUser(user, fallbackById.get(user.id))));
       setDepartments((Array.isArray(deptRows) ? deptRows : []).map((d: any) => ({ id: d.id, name: d.name, code: d.code })));
       setDivisions((Array.isArray(divisionRows) ? divisionRows : []).map((d: any) => ({ id: d.id, code: d.code, name: d.name })));
+      setTitles(
+        (Array.isArray(titleRows) ? titleRows : [])
+          .filter((t: any) => t?.id && t?.name && t?.isActive !== false)
+          .map((t: any) => ({ id: String(t.id), name: String(t.name) }))
+      );
       setAvailableRoles(
         (Array.isArray(roleRows) ? roleRows : [])
           .map((role: any) => ({
@@ -221,7 +232,7 @@ export function UsersPage() {
   const filteredUsers = useMemo(() => {
     const term = query.trim().toLocaleLowerCase("tr-TR");
     return displayUsers.filter((user) => {
-      const matchesTerm = !term || [user.name, user.email, user.department, ...user.roleNames, ...user.divisionNames]
+      const matchesTerm = !term || [user.name, user.email, user.username, user.department, ...user.roleNames, ...user.divisionNames]
         .filter(Boolean)
         .some((value) => String(value).toLocaleLowerCase("tr-TR").includes(term));
       const matchesStatus = statusFilter === "all"
@@ -258,14 +269,12 @@ export function UsersPage() {
   const handleSaveLimit = async (
     userId: string,
     purchaseLimit: number | undefined,
-    assistantDailyUsdLimit: number | null,
     managerId: string | undefined
   ) => {
     setSavingLimit(true);
     try {
       await adminService.updateUser(userId, {
         purchaseApprovalLimit: purchaseLimit ?? 0,
-        assistantDailyUsdLimit,
         managerId: managerId ?? null,
       });
       toast.success("Kullanıcı limitleri güncellendi");
@@ -297,12 +306,17 @@ export function UsersPage() {
     departmentId: string | null,
     active: boolean,
     divisionIds?: string[],
-    accessScopes?: UserAccessScopeRow[]
+    accessScopes?: UserAccessScopeRow[],
+    titleId?: string | null
   ) => {
     setSavingDept(true);
     try {
+      const editsDepartmentScope = divisionIds !== undefined || accessScopes !== undefined;
       await adminService.updateUser(userId, {
-        departmentId,
+        // Tablo üzerindeki durum anahtarı yalnızca status gönderir; departman
+        // ve özel erişim kapsamlarını farkında olmadan sıfırlamaz.
+        ...(editsDepartmentScope ? { departmentId } : {}),
+        ...(titleId !== undefined ? { titleId } : {}),
         status: active ? "active" : "passive",
         // Yalnızca dialogdan açıkça düzenlendiğinde gönder — durum anahtarı bölümleri silmesin.
         ...(divisionIds ? { divisionIds } : {}),
@@ -311,6 +325,9 @@ export function UsersPage() {
       toast.success("Kullanıcı güncellendi");
       setDeptUser(null);
       await loadAdminUsers();
+      // Belge çıktıları proje ilgilisinin ünvanını ortak kullanıcı listesinden
+      // de okuyabildiği için aynı oturumdaki eski değeri hemen temizle.
+      await refresh();
     } catch (err: any) {
       toast.error("Güncellenemedi", { description: err?.message ?? "Lütfen tekrar deneyin." });
     } finally {
@@ -320,7 +337,7 @@ export function UsersPage() {
 
   const handleSaveEdit = async (
     userId: string,
-    patch: { fullName: string; email: string; phone: string | null; password?: string }
+    patch: { fullName: string; email: string; username: string; phone: string | null; password?: string }
   ) => {
     setSavingEdit(true);
     try {
@@ -366,11 +383,11 @@ export function UsersPage() {
   };
 
   return (
-    <div className="space-y-4">
+    <div className="crm-page">
       <section className="premium-blueprint precision-corners overflow-hidden rounded-2xl border border-primary/20 bg-card p-5 shadow-sm">
         <div className="relative flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
           <div>
-            <p className="font-mono text-[10px] font-semibold tracking-[0.2em] text-primary">ERİŞİM ENVANTERİ</p>
+            <p className="ui-eyebrow text-primary">Erişim envanteri</p>
             <h2 className="mt-1 font-display text-2xl font-semibold tracking-tight sm:text-3xl">Kullanıcı kimlikleri</h2>
             <p className="mt-1 max-w-2xl text-sm text-muted-foreground">Kimlik, organizasyon kapsamı, roller ve hesap güvenliğini birlikte yönetin.</p>
           </div>
@@ -508,7 +525,10 @@ export function UsersPage() {
                             <span className="truncate text-sm font-medium">{u.name}</span>
                             {isUserLocked(u) && <LockKeyhole className="size-3.5 shrink-0 text-warning" aria-label="Hesap kilitli" />}
                           </div>
-                          <p className="mt-0.5 truncate text-xs text-muted-foreground">{u.email}</p>
+                          <p className="mt-0.5 truncate text-xs text-muted-foreground">
+                            {u.email}
+                            {u.username ? <span className="text-muted-foreground/70"> · @{u.username}</span> : null}
+                          </p>
                         </div>
                       </div>
                     </TableCell>
@@ -562,14 +582,6 @@ export function UsersPage() {
                           {u.purchaseApprovalLimit
                             ? `$${u.purchaseApprovalLimit.toLocaleString("tr-TR")}`
                             : <span className="text-muted-foreground">Limitsiz</span>}
-                        </div>
-                        <div>
-                          <span className="text-muted-foreground">Asistan:</span>{" "}
-                          {u.assistantDailyUsdLimit == null
-                            ? <span className="text-muted-foreground">Varsayılan</span>
-                            : u.assistantDailyUsdLimit === 0
-                            ? <span className="text-red-600">Kapalı</span>
-                            : `$${u.assistantDailyUsdLimit.toLocaleString("tr-TR", { minimumFractionDigits: 2 })}/gün`}
                         </div>
                       </div>
                     </TableCell>
@@ -679,6 +691,7 @@ export function UsersPage() {
           user={deptUser}
           departments={departments}
           divisions={divisions}
+          titles={titles}
           saving={savingDept}
           onClose={() => setDeptUser(null)}
           onSave={handleSaveDepartment}
@@ -691,6 +704,7 @@ export function UsersPage() {
           departments={departments}
           roles={availableRoles}
           divisions={divisions}
+          titles={titles}
           onCreated={loadAdminUsers}
         />
       )}
@@ -842,20 +856,15 @@ function UserLimitDialog({ user, users, saving, onClose, onSave }: {
   onSave: (
     userId: string,
     purchaseLimit: number | undefined,
-    assistantDailyUsdLimit: number | null,
     managerId: string | undefined
   ) => Promise<void>;
 }) {
   const [limit, setLimit] = useState<string>(user?.purchaseApprovalLimit?.toString() || "");
-  const [assistantLimit, setAssistantLimit] = useState<string>(
-    user?.assistantDailyUsdLimit == null ? "" : user.assistantDailyUsdLimit.toString()
-  );
   const [managerId, setManagerId] = useState<string>(user?.managerId || "none");
 
   useEffect(() => {
     if (user) {
       setLimit(user.purchaseApprovalLimit?.toString() || "");
-      setAssistantLimit(user.assistantDailyUsdLimit == null ? "" : user.assistantDailyUsdLimit.toString());
       setManagerId(user.managerId || "none");
     }
   }, [user]);
@@ -867,7 +876,7 @@ function UserLimitDialog({ user, users, saving, onClose, onSave }: {
       <DialogContent className="sm:max-w-[460px]">
         <DialogHeader>
           <DialogTitle>Kullanıcı Limitleri · {user.name}</DialogTitle>
-          <DialogDescription>Satınalma onay yetkisini ve günlük asistan maliyet tavanını USD olarak ayarlayın.</DialogDescription>
+          <DialogDescription>Satınalma onay yetkisini ve bağlı yöneticiyi ayarlayın.</DialogDescription>
         </DialogHeader>
         <div className="space-y-4 py-4">
           <div className="space-y-2">
@@ -881,22 +890,6 @@ function UserLimitDialog({ user, users, saving, onClose, onSave }: {
               onChange={(e) => setLimit(e.target.value)}
             />
             <p className="text-[11px] text-muted-foreground">Limit aşıldığında sipariş seçilen yöneticinin onayına düşer.</p>
-          </div>
-          <div className="space-y-2 rounded-md border border-brand-blue/15 bg-brand-blue-soft/40 p-3">
-            <Label>Günlük Asistan Bütçesi (USD)</Label>
-            <Input
-              type="number"
-              min="0"
-              max="1000"
-              step="0.01"
-              placeholder="Sistem varsayılanını kullan"
-              value={assistantLimit}
-              onChange={(e) => setAssistantLimit(e.target.value)}
-            />
-            <p className="text-[11px] leading-relaxed text-muted-foreground">
-              Boş bırakılırsa sistem varsayılanı uygulanır. <b>0</b> girilirse bu kullanıcı için ücretli LLM çağrıları kapatılır;
-              asistan güvenli yerel cevaba düşer.
-            </p>
           </div>
           <div className="space-y-2">
             <Label>Bağlı Olduğu Yönetici</Label>
@@ -921,7 +914,6 @@ function UserLimitDialog({ user, users, saving, onClose, onSave }: {
               await onSave(
                 user.id,
                 limit ? Number(limit) : undefined,
-                assistantLimit === "" ? null : Number(assistantLimit),
                 managerId === "none" ? undefined : managerId
               );
             }}

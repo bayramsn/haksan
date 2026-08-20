@@ -158,7 +158,7 @@ export function ReportAnalyticsHub() {
           <div>
             <CardTitle>Veri Görselleştirme & Excel Raporları</CardTitle>
             <p className="mt-1 text-sm text-muted-foreground">
-              Departman hedef/gerçekleşme, pipeline, stok ve ziyaret analitiği — backend verisi.
+              Departman hedef/gerçekleşme, fırsat, stok ve ziyaret analitiği — sunucu verisi.
             </p>
           </div>
           <div className="flex flex-wrap items-end gap-2">
@@ -192,7 +192,7 @@ export function ReportAnalyticsHub() {
                 <ExportExcelButton
                   path="/reports/export/pipeline-summary"
                   filename="pipeline-summary.xlsx"
-                  label="Pipeline Excel"
+                  label="Fırsat Excel"
                   variant="secondary"
                 />
                 <ExportExcelButton
@@ -324,7 +324,7 @@ export function ReportAnalyticsHub() {
             </ResponsiveContainer>
           </ChartCard>
 
-          <ChartCard title="Satış Pipeline">
+          <ChartCard title="Satış Fırsatları">
             <ResponsiveContainer width="100%" height={260}>
               <BarChart data={pipelineChart} layout="vertical" margin={{ left: 8 }}>
                 <CartesianGrid strokeDasharray="3 3" />
@@ -375,7 +375,7 @@ export function ReportAnalyticsHub() {
                     <th className="py-2 pr-3">%</th>
                     <th className="py-2 pr-3">Teklif Hedef</th>
                     <th className="py-2 pr-3">Teklif</th>
-                    <th className="py-2">Pipeline Açık</th>
+                    <th className="py-2">Açık Fırsat Tutarı</th>
                   </tr>
                 </thead>
                 <tbody>

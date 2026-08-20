@@ -21,7 +21,9 @@ const PRIMARY = '#000c69';
 
 export function LoginScreen() {
   const { login } = useAuth();
-  const [email, setEmail] = useState('');
+  // Kullanıcı adı veya e-posta olabilir; biçim doğrulaması sunucuda yapılır.
+  const [identifier, setIdentifier] = useState('');
+  const [forgotEmail, setForgotEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPass, setShowPass] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -30,19 +32,16 @@ export function LoginScreen() {
   const [forgotSent, setForgotSent] = useState(false);
 
   const handleLogin = async () => {
-    if (!email || !password) {
-      setError('E-posta ve şifre zorunludur.');
+    const trimmedIdentifier = identifier.trim();
+    if (!trimmedIdentifier || !password) {
+      setError('Kullanıcı adı ve şifre zorunludur.');
       return;
     }
-    const parsed = emailSchema.safeParse(email.trim());
-    if (!parsed.success) {
-      setError('Geçerli bir e-posta adresi girin.');
-      return;
-    }
+    // E-posta biçimi DAYATILMAZ: alan kullanıcı adını da kabul eder (örn. `Raifsenturk`).
     setError('');
     setLoading(true);
     try {
-      await login(parsed.data, password);
+      await login(trimmedIdentifier, password);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Giriş başarısız');
     } finally {
@@ -51,7 +50,8 @@ export function LoginScreen() {
   };
 
   const handleForgot = async () => {
-    const parsed = emailSchema.safeParse(email.trim());
+    // Şifre sıfırlama yalnızca e-posta ile yürür.
+    const parsed = emailSchema.safeParse(forgotEmail.trim());
     if (!parsed.success) {
       setError('E-posta adresinizi girin.');
       return;
@@ -104,18 +104,20 @@ export function LoginScreen() {
                   </View>
                 )}
 
-                {/* Email */}
+                {/* Kullanıcı adı */}
                 <View style={styles.inputWrapper}>
-                  <Text style={styles.inputLabel}>E-posta</Text>
+                  <Text style={styles.inputLabel}>Kullanıcı adı</Text>
                   <TextInput
                     style={styles.input}
-                    value={email}
-                    onChangeText={setEmail}
-                    placeholder="ornek@haksan.com.tr"
+                    value={identifier}
+                    onChangeText={setIdentifier}
+                    placeholder="raifsenturk"
                     placeholderTextColor="#9ca3af"
                     autoCapitalize="none"
-                    keyboardType="email-address"
-                    autoComplete="email"
+                    autoCorrect={false}
+                    // `email-address` klavyesi kullanıcı adı yazmayı zorlaştırır.
+                    keyboardType="default"
+                    autoComplete="username"
                     returnKeyType="next"
                   />
                 </View>
@@ -150,7 +152,12 @@ export function LoginScreen() {
 
                 <TouchableOpacity
                   style={styles.forgotLinkContainer}
-                  onPress={() => setForgotMode(true)}
+                  onPress={() => {
+                    // Alanda kullanıcı adı varsa prefill etme; kullanıcı e-postasını yazsın.
+                    setForgotEmail(identifier.includes('@') ? identifier.trim() : '');
+                    setError('');
+                    setForgotMode(true);
+                  }}
                 >
                   <Text style={styles.forgotLinkText}>Şifremi unuttum</Text>
                 </TouchableOpacity>
@@ -192,12 +199,14 @@ export function LoginScreen() {
                       <Text style={styles.inputLabel}>E-posta</Text>
                       <TextInput
                         style={styles.input}
-                        value={email}
-                        onChangeText={setEmail}
+                        value={forgotEmail}
+                        onChangeText={setForgotEmail}
                         placeholder="ornek@haksan.com.tr"
                         placeholderTextColor="#9ca3af"
                         autoCapitalize="none"
+                        autoCorrect={false}
                         keyboardType="email-address"
+                        autoComplete="email"
                       />
                     </View>
                     <TouchableOpacity

@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from ".
 import { Checkbox } from "../ui/checkbox";
 import {
   ImageIcon, ListChecks, CheckCircle2, Sparkles, Tag, Cpu, Package, Wrench, Settings2, FileText,
-  Pencil, Save, X, FileDown,
+  Pencil, Save, X, FileDown, Loader2, Lock,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Product } from "../../lib/mock";
@@ -19,7 +19,7 @@ import { productService } from "../../../lib/services";
 import { resolveMediaUrl } from "../../../lib/apiClient";
 import { ProductSpecsTable } from "../shared/ProductSpecsTable";
 import { EntityVisual } from "../shared/PremiumPrimitives";
-import { printAssetBase, productTechnicalDoc } from "../../lib/print";
+import { embedProductImageForPrint, printAssetBase, productTechnicalDoc } from "../../lib/print";
 import { printOrWarn } from "../../lib/pageHelpers";
 
 type MediaItem = { fileId: string; mediaType: "image" | "document"; title: string | null; mimeType: string; url: string };
@@ -99,10 +99,12 @@ export function ProductDetailDialog({
   const [documents, setDocuments] = useState<MediaItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [selectedOptionalIds, setSelectedOptionalIds] = useState<string[] | null>(null);
+  const [printImageUrl, setPrintImageUrl] = useState<string | undefined>();
+  const [preparingPrintImage, setPreparingPrintImage] = useState(false);
 
   const { patchProduct, products } = useStore();
   const { hasRole, hasPermission } = useAuth();
-  const canEdit = !readOnly && (hasRole("super_admin") || hasPermission("products.update"));
+  const canEdit = !readOnly && (hasRole("super_admin") || hasRole("admin") || hasPermission("products.update"));
   // Yalnızca düzenlenen alanların yereldeki gösterimini tutar (kayıttan sonra
   // dialog'un anlık güncel kalması için). Tablo zaten store'dan tazelenir.
   const [overrides, setOverrides] = useState<Partial<Product>>({});
@@ -156,6 +158,34 @@ export function ProductDetailDialog({
       alive = false;
     };
   }, [product]);
+
+  useEffect(() => {
+    const imageUrl = product?.imageUrl?.trim();
+    let alive = true;
+    setPrintImageUrl(imageUrl || undefined);
+    if (!imageUrl || imageUrl.startsWith("data:image/")) {
+      setPreparingPrintImage(false);
+      return () => {
+        alive = false;
+      };
+    }
+
+    setPreparingPrintImage(true);
+    embedProductImageForPrint(imageUrl)
+      .then((embedded) => {
+        if (alive) setPrintImageUrl(embedded);
+      })
+      .catch(() => {
+        // Harici kaynak CORS izni vermiyorsa özgün URL ile yazdırmayı deneriz.
+      })
+      .finally(() => {
+        if (alive) setPreparingPrintImage(false);
+      });
+
+    return () => {
+      alive = false;
+    };
+  }, [product?.id, product?.imageUrl]);
 
   if (!product) return null;
 
@@ -296,7 +326,7 @@ export function ProductDetailDialog({
   const muadilCount = Object.values(muadilGroups).reduce((sum, items) => sum + items.length, 0);
   const createTechnicalPdf = () => {
     printOrWarn(productTechnicalDoc({
-      product: view,
+      product: { ...view, imageUrl: printImageUrl || view.imageUrl },
       standardEquipment: standardTitles,
       optionalEquipment: optional.map((item) => ({
         title: item.item.title,
@@ -310,8 +340,8 @@ export function ProductDetailDialog({
     <Dialog open={!!product} onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto p-0 gap-0">
         {/* header */}
-        <DialogHeader className="px-6 pt-6 pb-4 border-b border-border/60">
-          <div className="flex items-start gap-2">
+        <DialogHeader className="sticky top-0 z-20 border-b border-border/60 bg-background/95 px-4 pt-5 pb-4 backdrop-blur-sm sm:px-6 sm:pt-6">
+          <div className="flex flex-wrap items-start gap-2">
             <div className="size-9 rounded-lg bg-gradient-to-br from-primary/15 to-primary/5 text-primary grid place-items-center shrink-0">
               <Cpu className="size-4" />
             </div>
@@ -322,18 +352,22 @@ export function ProductDetailDialog({
                 {product.type && <span className="text-muted-foreground">{product.type}</span>}
               </DialogDescription>
             </div>
-            <div className="shrink-0 flex items-center gap-1.5">
+            <div className="flex w-full flex-wrap items-center justify-end gap-1.5 pt-1 sm:w-auto sm:shrink-0 sm:pt-0">
               <Button
                 size="sm"
                 variant="outline"
                 className="h-8 gap-1.5"
                 onClick={createTechnicalPdf}
+                disabled={preparingPrintImage}
               >
-                <FileDown className="size-3.5" /> PDF Oluştur
+                {preparingPrintImage
+                  ? <Loader2 className="size-3.5 animate-spin" />
+                  : <FileDown className="size-3.5" />}
+                {preparingPrintImage ? "PDF hazırlanıyor…" : "PDF Oluştur"}
               </Button>
-              {canEdit && (
+              {!readOnly && (
                 <>
-                {editing ? (
+                {canEdit && editing ? (
                   <>
                     <Button size="sm" className="h-8 gap-1.5" onClick={saveEdit} disabled={saving}>
                       <Save className="size-3.5" /> {saving ? "Kaydediliyor…" : "Kaydet"}
@@ -345,11 +379,14 @@ export function ProductDetailDialog({
                 ) : (
                   <Button
                     size="sm"
-                    variant="outline"
-                    className="h-8 gap-1.5"
+                    variant={canEdit ? "default" : "outline"}
+                    className="h-9 gap-1.5"
+                    disabled={!canEdit}
+                    title={canEdit ? "Ürün bilgilerini güncelle" : "Bu hesapta products.update yetkisi yok"}
                     onClick={() => (onEdit ? onEdit(product) : startEdit())}
                   >
-                    <Pencil className="size-3.5" /> Düzenle
+                    {canEdit ? <Pencil className="size-3.5" /> : <Lock className="size-3.5" />}
+                    {canEdit ? "Ürünü Güncelle" : "Güncelleme Yetkisi Yok"}
                   </Button>
                 )}
                 </>

@@ -54,7 +54,7 @@ function getAvatarColor(str: string) {
 }
 
 export function SalesCasesListScreen({ isTabRoot }: { isTabRoot?: boolean } = {}) {
-  const segments = useSegments();
+  const segments: readonly string[] = useSegments();
   const tabRoot = isTabRoot ?? (segments[0] === '(tabs)' && segments[1] === 'sales');
   const [items, setItems] = useState<Record<string, unknown>[]>([]);
   const [loading, setLoading] = useState(true);
@@ -444,4 +444,3 @@ const styles = StyleSheet.create({
     elevation: 8,
   },
 });
-

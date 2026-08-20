@@ -1,26 +1,35 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, lazy, Suspense } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "../ui/card";
 import { Button } from "../ui/button";
+import { Badge } from "../ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../ui/tabs";
-import { ArrowLeft, Plus, Upload, X, XCircle, Eye, FileText, CreditCard, CheckCircle2, Trash2, Wrench, Pencil, Building2, UserRound } from "lucide-react";
+import { AlarmClock, ArrowLeft, CalendarClock, ChevronLeft, ChevronRight, Plus, Upload, X, XCircle, Eye, FileText, CreditCard, CheckCircle2, Trash2, Wrench, Pencil, Building2, UserRound, Download, Mail, MapPin, Phone } from "lucide-react";
 import {
   SalesCase,
-  SALES_STAGES,
-  salesStageLabel,
-  LEAD_TEMPERATURE_HINTS,
-  LEAD_TEMPERATURE_LABELS,
-  LEAD_TEMPERATURE_ORDER,
-  LEAD_TEMPERATURE_STYLES,
+  LEAD_FOLLOW_UP_STATUS_LABELS,
+  LEAD_FOLLOW_UP_STATUS_ORDER,
+  LEAD_FOLLOW_UP_STATUS_STYLES,
   type Activity,
+  type Contact,
+  type Customer,
   type DocumentItem,
-  type LeadTemperature,
+  type LeadFollowUpStatus,
   type Offer,
+  OPPORTUNITY_PAYMENT_METHOD_LABELS,
+  type OpportunityPaymentMethod,
 } from "../../lib/mock";
-import { StatusBadge } from "../Layout";
+import {
+  PIPELINE_STAGE_FLOW,
+  requiresPaymentPlan,
+  type OpportunityProcessActionKey,
+} from "@haksan/shared";
+import { ProcessChecklistPanel } from "./ProcessChecklistPanel";
+import { OpportunityProcessCenter } from "./OpportunityProcessCenter";
+import { StatusBadge } from "../shared/StatusBadge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../ui/table";
 import { useStore } from "../../lib/store";
 import { useAuth } from "../../../lib/auth";
-import { AddActivityDialog, CreateCustomerDialog } from "../dialogs/CreateDialogs";
+import { AddActivityDialog, CreateCustomerDialog, CreateInstallationDialog, CreateShipmentDialog } from "../dialogs/CreateDialogs";
 import { QuoteDialog } from "../dialogs/QuoteDialog";
 import { LostCaseDialog } from "../dialogs/LostCaseDialog";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "../ui/dialog";
@@ -39,28 +48,227 @@ import { Input } from "../ui/input";
 import { Textarea } from "../ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
 import { DocumentUploadDialog } from "../dialogs/DocumentUploadDialog";
-import { OfferDetailDialog } from "./offers/OffersPage";
+import { CreateProformaDialog } from "../dialogs/CreateProformaDialog";
+import { CreateContractDialog } from "../dialogs/CreateContractDialog";
+import { OpportunityStockPickerDialog } from "../dialogs/OpportunityStockPickerDialog";
+// Statik import, App.tsx'teki `lazy(() => import(".../OffersPage"))` çağrısını
+// tamamen etkisiz kılıyordu: OffersPage kendi chunk'ını alamayıp (~41 kB) ana
+// pakete giriyordu. Dialog yalnız bir teklif seçilince gerekli.
+const OfferDetailDialog = lazy(() =>
+  import("./offers/OffersPage").then((module) => ({ default: module.OfferDetailDialog })),
+);
 import { STAGE_DOT } from "./Kanban";
 import { DialogSplitLayout, DialogSidebarSection } from "../shared/DialogSplitLayout";
+import { NextActionDialog, actionDateLabel, isActionOverdue } from "../shared/NextActionDialog";
 import { KanbanDetailDialogShell } from "../shared/KanbanDetailDialogShell";
 import { fileService, opportunityService, quoteService, salesOrderService, financeService } from "../../../lib/services";
 import { toast } from "sonner";
+import { OpportunityWorkspace } from "./OpportunityWorkspace";
+import { focusWorkspaceTarget } from "../../lib/workspaceFocus";
+import { DocumentTermsTemplateEditor, type TermsValue } from "../dialogs/DocumentTermsTemplateEditor";
+import { shouldUseSimpleOpportunityExperience } from "../../lib/opportunityExperience";
+import { PaymentMethodSelect } from "../shared/PaymentMethodSelect";
+import {
+  PAYMENT_DUE_LABEL,
+  PAYMENT_FAMILY_LABELS,
+  PAYMENT_FAMILY_PLAN_SHAPE,
+  EMPTY_PAYMENT_INSTRUMENT_DETAILS,
+  familyOfMethod,
+  missingPaymentInstrumentFields,
+  paymentInstrumentNote,
+  type PaymentPlanInstallment,
+  recalculatePaymentInstallment,
+} from "../../lib/paymentMethod";
+import { RemoteCompanyCombobox } from "../shared/RemoteCompanyCombobox";
+import { useCompanyDetail } from "../../lib/companyServerData";
 
 export function SalesCaseDetailDialog({
   sc,
   onClose,
+  onNavigate,
 }: {
   sc: SalesCase | null;
   onClose: () => void;
+  onNavigate: (opportunityId: string) => void;
 }) {
+  const { cases } = useStore();
+  const { user } = useAuth();
+  const dialogOpenerRef = useRef<HTMLElement | null>(null);
+  const currentIndex = sc ? cases.findIndex((item) => item.id === sc.id) : -1;
+  const previous = currentIndex > 0 ? cases[currentIndex - 1] : null;
+  const next = currentIndex >= 0 && currentIndex < cases.length - 1 ? cases[currentIndex + 1] : null;
+  const simpleMode = sc?.qualificationStage !== "lead" && shouldUseSimpleOpportunityExperience({
+    mode: import.meta.env.VITE_OPPORTUNITY_WORKSPACE_SIMPLE,
+    pilotUserIds: import.meta.env.VITE_OPPORTUNITY_WORKSPACE_PILOT_USERS,
+    userId: user?.id,
+  });
+
+  // Tek yüzey: fırsat açıldığı anda tam çalışma alanı gelir. Önceden araya
+  // "hızlı özet" paneli giriyordu; `surface` parametresi, ek history kaydı ve
+  // gidiş-dönüş odak yönetimi hep o katman içindi ve hepsi kaldırıldı.
   return (
     <Dialog open={!!sc} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="w-[min(1240px,calc(100vw-2rem))] max-w-none sm:max-w-none max-h-[90dvh] overflow-x-hidden overflow-y-hidden p-0 gap-0">
+      <DialogContent
+        showCloseButton={false}
+        onOpenAutoFocus={() => {
+          dialogOpenerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+        }}
+        onCloseAutoFocus={(event) => {
+          event.preventDefault();
+          focusWorkspaceTarget(dialogOpenerRef.current, { scroll: false });
+        }}
+        className="left-0 top-0 h-dvh max-h-dvh w-screen max-w-none translate-x-0 translate-y-0 overflow-x-hidden overflow-y-hidden rounded-none p-0 gap-0 sm:left-1/2 sm:top-1/2 sm:h-auto sm:max-h-[90dvh] sm:w-[min(1240px,calc(100vw-2rem))] sm:max-w-none sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-lg [&>[data-slot=dialog-close]]:hidden"
+      >
         <DialogHeader className="sr-only">
-          <DialogTitle>{sc?.requestedProduct ?? "Satış kartı detayı"}</DialogTitle>
-          <DialogDescription>Satış kartı, teklifler ve aktiviteler</DialogDescription>
+          {/* Tek dize: ekran okuyucu kart türünü ve konusunu tek seferde duysun. */}
+          <DialogTitle>
+            {`Fırsat çalışma alanı — ${sc?.requestedProduct ?? "Satış kartı"}`}
+          </DialogTitle>
+          <DialogDescription>Karar özeti, görev bölümleri ve kayıt işlemleri</DialogDescription>
         </DialogHeader>
-        {sc && <SalesCaseDetailPage sc={sc} onBack={onClose} mode="dialog" />}
+        {sc && (
+          <SalesCaseDetailPage
+            sc={sc}
+            // Kartın "geri" hedefi artık listenin kendisi: ara panel yok.
+            onBack={onClose}
+            onClose={onClose}
+            mode="dialog"
+            previous={previous}
+            next={next}
+            onNavigate={onNavigate}
+            simpleMode={simpleMode}
+          />
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function OpportunityPartyDialog({
+  open,
+  onOpenChange,
+  company,
+  partyName,
+  contact,
+  contactName,
+  contactPhone,
+  contactEmail,
+  address,
+  opportunityId,
+  activities,
+  users,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  company?: Customer;
+  partyName: string;
+  contact?: Contact;
+  contactName: string;
+  contactPhone: string;
+  contactEmail: string;
+  address: string;
+  opportunityId: string;
+  activities: Activity[];
+  users: Array<{ id: string; name: string }>;
+}) {
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-h-[88dvh] overflow-y-auto sm:max-w-3xl">
+        <DialogHeader>
+          <DialogTitle className="pr-8 font-display text-xl">{partyName}</DialogTitle>
+          <DialogDescription>Firma, ilgili kişi ve bu taraflarla yapılan aktiviteler</DialogDescription>
+        </DialogHeader>
+
+        <div className="grid gap-3 md:grid-cols-2">
+          <section className="rounded-lg border border-border/70 bg-muted/20 p-4" aria-labelledby="opportunity-company-info">
+            <div id="opportunity-company-info" className="flex items-center gap-2 text-sm font-semibold">
+              <Building2 className="size-4 text-primary" aria-hidden="true" /> Firma bilgileri
+            </div>
+            <dl className="mt-3 space-y-2.5 text-sm">
+              <div>
+                <dt className="text-xs text-muted-foreground">Firma</dt>
+                <dd className="font-medium text-foreground">{partyName}</dd>
+              </div>
+              <div>
+                <dt className="flex items-center gap-1 text-xs text-muted-foreground"><MapPin className="size-3" aria-hidden="true" /> Adres</dt>
+                <dd className="mt-0.5 whitespace-pre-wrap leading-relaxed text-foreground">{address || "Adres bilgisi yok"}</dd>
+              </div>
+              {(company?.phone || company?.email) && (
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <div>
+                    <dt className="flex items-center gap-1 text-xs text-muted-foreground"><Phone className="size-3" aria-hidden="true" /> Telefon</dt>
+                    <dd className="break-all text-foreground">{company.phone || "—"}</dd>
+                  </div>
+                  <div>
+                    <dt className="flex items-center gap-1 text-xs text-muted-foreground"><Mail className="size-3" aria-hidden="true" /> E-posta</dt>
+                    <dd className="break-all text-foreground">{company.email || "—"}</dd>
+                  </div>
+                </div>
+              )}
+            </dl>
+          </section>
+
+          <section className="rounded-lg border border-border/70 bg-muted/20 p-4" aria-labelledby="opportunity-contact-info">
+            <div id="opportunity-contact-info" className="flex items-center gap-2 text-sm font-semibold">
+              <UserRound className="size-4 text-primary" aria-hidden="true" /> Firma ilgilisi
+            </div>
+            <dl className="mt-3 space-y-2.5 text-sm">
+              <div>
+                <dt className="text-xs text-muted-foreground">Ad soyad</dt>
+                <dd className="font-medium text-foreground">{contactName}</dd>
+                {(contact?.title || contact?.department) && (
+                  <dd className="mt-0.5 text-xs text-muted-foreground">{[contact.title, contact.department].filter(Boolean).join(" · ")}</dd>
+                )}
+              </div>
+              <div className="grid gap-2 sm:grid-cols-2">
+                <div>
+                  <dt className="flex items-center gap-1 text-xs text-muted-foreground"><Phone className="size-3" aria-hidden="true" /> Telefon</dt>
+                  <dd className="break-all text-foreground">{contactPhone || "—"}</dd>
+                </div>
+                <div>
+                  <dt className="flex items-center gap-1 text-xs text-muted-foreground"><Mail className="size-3" aria-hidden="true" /> E-posta</dt>
+                  <dd className="break-all text-foreground">{contactEmail || "—"}</dd>
+                </div>
+              </div>
+            </dl>
+          </section>
+        </div>
+
+        <section className="overflow-hidden rounded-lg border border-border/70" aria-labelledby="opportunity-party-activities">
+          <div className="flex items-center justify-between gap-3 border-b border-border/60 bg-muted/30 px-4 py-3">
+            <div id="opportunity-party-activities" className="text-sm font-semibold">Firma ve ilgili kişi aktiviteleri</div>
+            <Badge variant="outline" className="bg-background tabular-nums">{activities.length}</Badge>
+          </div>
+          {activities.length === 0 ? (
+            <div className="px-4 py-8 text-center text-sm text-muted-foreground">Bu firma veya ilgili kişiyle bağlantılı aktivite yok.</div>
+          ) : (
+            <ol className="max-h-72 divide-y divide-border/60 overflow-y-auto">
+              {activities.map((activity) => {
+                const scope = contact?.id && activity.contactId === contact.id
+                  ? "İlgili kişi"
+                  : activity.salesCaseId === opportunityId
+                    ? "Bu fırsat"
+                    : "Firma";
+                const owner = activity.createdByName || users.find((user) => user.id === activity.byUserId)?.name || "Haksan";
+                return (
+                  <li key={activity.id} className="px-4 py-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex min-w-0 flex-wrap items-center gap-2">
+                        <span className="font-medium text-foreground">{activity.title || activity.type || "Aktivite"}</span>
+                        <Badge variant="secondary" className="rounded-md text-[10px]">{scope}</Badge>
+                      </div>
+                      <time className="shrink-0 text-xs tabular-nums text-muted-foreground">{activity.date || "Tarih yok"}</time>
+                    </div>
+                    {(activity.note || activity.result) && (
+                      <p className="mt-1.5 whitespace-pre-wrap text-sm leading-relaxed text-muted-foreground">{activity.note || activity.result}</p>
+                    )}
+                    <div className="mt-1.5 text-[11px] text-muted-foreground">{[activity.type, owner].filter(Boolean).join(" · ")}</div>
+                  </li>
+                );
+              })}
+            </ol>
+          )}
+        </section>
       </DialogContent>
     </Dialog>
   );
@@ -70,14 +278,30 @@ export function SalesCaseDetailPage({
   sc,
   onBack,
   mode = "page",
+  previous = null,
+  next = null,
+  onNavigate,
+  onClose,
+  simpleMode = false,
 }: {
   sc: SalesCase;
   onBack: () => void;
   mode?: "page" | "dialog";
+  previous?: SalesCase | null;
+  next?: SalesCase | null;
+  onNavigate?: (opportunityId: string) => void;
+  onClose?: () => void;
+  simpleMode?: boolean;
 }) {
-  const { offers, activities, customers, users, documents, payments, installations, refresh, deleteCase, updateCase, closeCase, updateActivity, deleteActivity } = useStore();
-  const { hasRole } = useAuth();
+  const { offers, activities, customers, contacts, users, documents, payments, installations, refresh, deleteCase, updateCase, closeCase, updateActivity, deleteActivity } = useStore();
+  const { hasRole, hasPermission } = useAuth();
   const isSuperAdmin = hasRole("super_admin");
+  const canAssignOwner = isSuperAdmin || hasRole("sales");
+  const canUpdate = hasPermission("opportunities.update");
+  const canDelete = hasPermission("opportunities.delete");
+  const canCreateActivity = hasPermission("activities.create");
+  const canUpdateActivity = hasPermission("activities.update");
+  const canDeleteActivity = hasPermission("activities.delete");
   const [lostOpen, setLostOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [closeOpen, setCloseOpen] = useState(false);
@@ -91,9 +315,15 @@ export function SalesCaseDetailPage({
   const [activityForm, setActivityForm] = useState({ type: "", title: "", note: "", result: "", date: "" });
   const [salesOrders, setSalesOrders] = useState<any[]>([]);
   const [companyLinking, setCompanyLinking] = useState(false);
-  const canMarkLost = !sc.isLost && sc.stage !== "cancelled" && sc.stage !== "delivered";
-  const c = customers.find((x) => x.id === sc.customerId);
-  const hasCompany = Boolean(sc.customerId && c);
+  const [partyDialogOpen, setPartyDialogOpen] = useState(false);
+  const [requestedProcessAction, setRequestedProcessAction] = useState<OpportunityProcessActionKey | null>(null);
+  const canMarkLost = canUpdate && !sc.isLost && sc.stage !== "cancelled" && sc.stage !== "delivered";
+  const isLeadCard = (sc.qualificationStage ?? "c") === "lead";
+  const cardTypeLabel = "Fırsat";
+  const storedCompany = customers.find((x) => x.id === sc.customerId);
+  const companyQuery = useCompanyDetail(sc.customerId, storedCompany);
+  const c = companyQuery.data ?? storedCompany;
+  const hasCompany = Boolean(sc.customerId);
   const trelloCandidate = sc.externalMetadata?.candidate;
   const partyName =
     c?.name ??
@@ -101,21 +331,49 @@ export function SalesCaseDetailPage({
     sc.leadCompanyTitle ??
     sc.leadContactName ??
     "Firma kaydı bekliyor";
-  const compactSubtitle = [
-    sc.requestedProduct,
-    sc.externalSource === "trello" ? null : sc.requestedModel,
-    `${sc.quantity} adet`,
-  ].filter(Boolean).join(" · ");
+  // Başlıkta yalnız fırsat adı durur. `requestedProduct` aslında kaydın
+  // `title` kolonudur (API onu bu adla gönderiyor); yanına model ve adet
+  // eklenince fırsat adı makine koduna dönüşüp okunmaz oluyordu.
+  const compactSubtitle = sc.requestedProduct ?? "";
   const u = users.find((x) => x.id === sc.assignedUserId);
+  const companyContacts = contacts.filter(
+    (contact) => contact.customerId === sc.customerId || contact.companyIds?.includes(sc.customerId),
+  );
+  const primaryContact =
+    companyContacts.find((contact) => contact.id === sc.primaryContactId) ??
+    companyContacts.find((contact) => contact.isPrimary) ??
+    companyContacts[0];
+  const partyContactName = primaryContact?.name || sc.leadContactName || c?.contactPerson || "İlgili kişi belirlenmedi";
+  const partyContactPhone =
+    primaryContact?.mobilePhone || primaryContact?.phone || primaryContact?.otherPhone || sc.leadPhone || c?.phone || "";
+  const partyContactEmail =
+    primaryContact?.email || primaryContact?.personalEmail || primaryContact?.otherEmail || sc.leadEmail || c?.email || "";
+  const companyAddress = c?.addresses?.find((address) => address.isDefault) ?? c?.addresses?.[0];
+  const partyAddress = companyAddress
+    ? [companyAddress.address, companyAddress.district, companyAddress.city, companyAddress.country].filter(Boolean).join(", ")
+    : c
+      ? [c.address, c.district, c.city, c.country].filter(Boolean).join(", ")
+      : [sc.leadDistrict, sc.leadCity].filter(Boolean).join(", ");
+  const partyActivities = activities
+    .filter((activity) =>
+      activity.salesCaseId === sc.id ||
+      (Boolean(sc.customerId) && activity.customerId === sc.customerId) ||
+      (Boolean(primaryContact?.id) && activity.contactId === primaryContact?.id),
+    )
+    .slice()
+    .sort((left, right) => right.date.localeCompare(left.date));
   const acts = activities.filter((a) => a.salesCaseId === sc.id);
   const offs = offers.filter((o) => o.salesCaseId === sc.id);
+  const latestOffer = offs.slice().sort((a, b) => b.revision - a.revision)[0];
   const docs = documents.filter((d) => d.salesCaseId === sc.id);
+  const externalQuotes = docs.filter((d) => d.type === "ExternalQuote");
   const pays = payments.filter((p) => p.salesCaseId === sc.id);
   const relatedInstallation = installations.find((item) => item.salesCaseId === sc.id);
   // Kart "Sözleşme" aşamasına ulaştıysa ticari fatura yükleme alanını aç.
-  const reachedContract = SALES_STAGES.indexOf(sc.stage) >= SALES_STAGES.indexOf("contract");
-  const reachedPaymentPlan = SALES_STAGES.indexOf(sc.stage) >= SALES_STAGES.indexOf("payment_plan");
-  const reachedInstallation = SALES_STAGES.indexOf(sc.stage) >= SALES_STAGES.indexOf("installation");
+  const currentOperationIndex = PIPELINE_STAGE_FLOW.indexOf(sc.stage as any);
+  const reachedContract = currentOperationIndex >= PIPELINE_STAGE_FLOW.indexOf("contract");
+  const reachedPaymentPlan = currentOperationIndex >= PIPELINE_STAGE_FLOW.indexOf("payment_plan");
+  const reachedInstallation = currentOperationIndex >= PIPELINE_STAGE_FLOW.indexOf("installation");
   const commercialInvoiceDoc = docs.find((d) => d.type === "CommercialInvoice");
   const selectedOffer = selectedOfferId ? offers.find((o) => o.id === selectedOfferId) ?? null : null;
   const selectedRevisions = selectedOffer
@@ -132,7 +390,7 @@ export function SalesCaseDetailPage({
       await opportunityService.linkCompany(sc.id, { companyId, createContact: true });
       await refresh();
       toast.success("Firma satış kartına bağlandı", {
-        description: customers.find((customer) => customer.id === companyId)?.name ?? sc.leadCompanyTitle,
+        description: sc.leadCompanyTitle,
       });
     } catch (err: any) {
       toast.error("Firma satış kartına bağlanamadı", {
@@ -255,6 +513,80 @@ export function SalesCaseDetailPage({
     }
   };
 
+  const handleProcessAction = async (actionKey: OpportunityProcessActionKey) => {
+    const approvalByAction: Partial<Record<OpportunityProcessActionKey, "payment" | "customs" | "invoice" | "installation" | "win">> = {
+      approve_payment: "payment",
+      approve_customs: "customs",
+      approve_invoice: "invoice",
+      approve_installation: "installation",
+      approve_win: "win",
+    };
+    const approvalType = approvalByAction[actionKey];
+    if (approvalType) {
+      try {
+        await opportunityService.decideApproval(sc.id, approvalType, { decision: "approved" });
+        await refresh();
+        toast.success("Onay verildi");
+      } catch (error: any) {
+        toast.error("Onay verilemedi", { description: error?.message ?? "Gerekli kanıtları kontrol edin." });
+      }
+      return;
+    }
+    if (actionKey === "approve_quote") {
+      const candidate = offs.find((offer) => offer.status !== "Approved") ?? offs[0];
+      if (candidate) {
+        await runQuoteAction(candidate.id, "approve");
+        return;
+      }
+    }
+    if (actionKey === "complete_shipment") {
+      setRequestedProcessAction("create_shipment");
+      return;
+    }
+    if ((actionKey === "open_installation" || actionKey === "complete_installation") && !relatedInstallation) {
+      document.querySelector<HTMLButtonElement>('[data-opportunity-installation-create="true"]')?.click();
+      setRequestedProcessAction(null);
+      return;
+    }
+    if (actionKey === "open_installation" || actionKey === "complete_installation") {
+      focusWorkspaceTarget(document.getElementById("opportunity-installation"), { focus: false });
+      setRequestedProcessAction(null);
+      toast.message("Kurulum kaydı servis bölümünden açılabilir", {
+        description: relatedInstallation
+          ? "Mevcut kurulum kaydı aşağıda gösteriliyor."
+          : "A+ alanında ticari faturayla paralel bir kurulum planı oluşturabilirsiniz.",
+      });
+      return;
+    }
+    setRequestedProcessAction(actionKey);
+    // Alan düzenleyicileri artık kompakt görev düğmesinden modal olarak açılır;
+    // sayfayı görev paneline kaydırmak pencere açılırken gereksiz bir sıçrama
+    // yaratır. Radix Dialog odağı doğrudan açılan pencereye taşır.
+  };
+
+  const canPerformProcessAction = (actionKey: OpportunityProcessActionKey) => {
+    if (actionKey.startsWith("approve_")) {
+      if (actionKey === "approve_quote") return hasPermission("quotes.approve");
+      if (actionKey === "approve_win") return isSuperAdmin;
+      return hasPermission("opportunities.approve");
+    }
+    if (actionKey === "create_quote") return hasPermission("quotes.create");
+    if (actionKey === "create_proforma") return hasPermission("proformas.create");
+    if (actionKey === "create_contract") return hasPermission("contracts.create");
+    if (actionKey === "create_commercial_invoice") return hasPermission("commercial_invoices.create");
+    if (actionKey === "reserve_stock") return hasPermission("inventory.update");
+    if (actionKey === "create_shipment" || actionKey === "complete_shipment") {
+      return hasPermission("shipments.create") || hasPermission("shipments.update");
+    }
+    if (actionKey === "open_installation" || actionKey === "complete_installation") {
+      return hasPermission("installations.create") || hasPermission("installations.update");
+    }
+    if (actionKey === "record_call" || actionKey === "record_visit") {
+      return hasPermission("activities.create");
+    }
+    return canUpdate;
+  };
+
   const handleCloseCase = async () => {
     if (closeSaving) return;
     setCloseSaving(true);
@@ -275,11 +607,11 @@ export function SalesCaseDetailPage({
     setDeleteSaving(true);
     try {
       await deleteCase(sc.id);
-      toast.success("Satış kartı silindi", { description: partyName });
+      toast.success(`${cardTypeLabel} kartı silindi`, { description: partyName });
       setDeleteOpen(false);
       onBack();
     } catch (err: any) {
-      toast.error("Satış kartı silinemedi", { description: err?.message ?? "API isteği başarısız oldu." });
+      toast.error(`${cardTypeLabel} kartı silinemedi`, { description: err?.message ?? "API isteği başarısız oldu." });
     } finally {
       setDeleteSaving(false);
     }
@@ -293,15 +625,18 @@ export function SalesCaseDetailPage({
   const bodyClass = "space-y-4";
   const activityPanel = (
     <div className="space-y-3">
-      <AddActivityDialog
-        salesCaseId={sc.id}
-        customerId={sc.customerId}
-        trigger={
-          <Button variant="outline" className="h-10 w-full justify-start rounded-lg bg-white text-left text-sm text-muted-foreground">
-            <Plus className="size-4" /> Yorum / aktivite ekle...
-          </Button>
-        }
-      />
+      {canCreateActivity && (
+        <AddActivityDialog
+          salesCaseId={sc.id}
+          customerId={sc.customerId}
+          contactId={primaryContact?.id}
+          trigger={
+            <Button variant="outline" className="h-10 w-full justify-start rounded-lg bg-white text-left text-sm text-muted-foreground">
+              <Plus className="size-4" /> Yorum / aktivite ekle...
+            </Button>
+          }
+        />
+      )}
       <div className="space-y-3">
         {acts.map((a) => (
           <div key={a.id} className="flex items-start gap-3">
@@ -339,11 +674,13 @@ export function SalesCaseDetailPage({
                   </div>
                 )}
               </div>
-              <div className="mt-1 flex items-center gap-2 px-1 text-[11px] text-muted-foreground">
-                <button type="button" className="underline-offset-2 hover:underline" onClick={() => openActivityEdit(a)}>Düzenle</button>
-                <span>·</span>
-                <button type="button" className="text-destructive underline-offset-2 hover:underline" onClick={() => setPendingActivityDelete(a)}>Sil</button>
-              </div>
+              {(canUpdateActivity || canDeleteActivity) && (
+                <div className="mt-1 flex items-center gap-2 px-1 text-[11px] text-muted-foreground">
+                  {canUpdateActivity && <button type="button" className="underline-offset-2 hover:underline" onClick={() => openActivityEdit(a)}>Düzenle</button>}
+                  {canUpdateActivity && canDeleteActivity && <span>·</span>}
+                  {canDeleteActivity && <button type="button" className="text-destructive underline-offset-2 hover:underline" onClick={() => setPendingActivityDelete(a)}>Sil</button>}
+                </div>
+              )}
             </div>
           </div>
         ))}
@@ -352,6 +689,113 @@ export function SalesCaseDetailPage({
             Aktivite yok.
           </div>
         )}
+      </div>
+    </div>
+  );
+
+  const companyLinkingPanel = !hasCompany ? (
+    <Card className="border-warning/30 bg-warning-soft/55">
+      <CardContent className="p-4 sm:p-5">
+        <div className="min-w-0 space-y-4">
+          <div className="flex min-w-0 items-start gap-3">
+            <div className="grid size-10 shrink-0 place-items-center rounded-lg bg-white text-warning shadow-xs">
+              <Building2 className="size-5" />
+            </div>
+            <div className="min-w-0">
+              <div className="text-sm font-semibold">Tekliften önce firma kaydı gerekli</div>
+              <div className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
+                İlk temas bilgileri fırsat kartında kalır. Mevcut bir firmayı bağlayın veya bu karttan yeni firma kaydını açın.
+              </div>
+            </div>
+          </div>
+          <div className="grid w-full min-w-0 gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+            <RemoteCompanyCombobox
+              value={null}
+              disabled={companyLinking}
+              onValueChange={(companyId) => void linkCompany(companyId)}
+              className="w-full min-w-0 bg-white"
+              placeholder={companyLinking ? "Firma bağlanıyor…" : "Mevcut firma bağla"}
+            />
+            <CreateCustomerDialog
+              draftKey={`draft.customer.sales-case.${sc.id}`}
+              initialValues={{
+                name: trelloCandidate?.companyTitle ?? sc.leadCompanyTitle ?? "",
+                contactSourceCode: sc.leadContactMethodCode ?? "",
+                phone: trelloCandidate?.phone ?? (sc.leadContactMethodCode === "phone" ? sc.leadContactValue ?? "" : ""),
+                email: trelloCandidate?.email ?? (sc.leadContactMethodCode === "email" ? sc.leadContactValue ?? "" : ""),
+                initialNote: [
+                  sc.externalSource === "trello"
+                    ? "Trello satış kartından Potansiyel firma olarak oluşturuldu."
+                    : "Hızlı fırsat kartından oluşturuldu.",
+                  trelloCandidate?.contactName || sc.leadContactName
+                    ? `Kontak: ${trelloCandidate?.contactName ?? sc.leadContactName}`
+                    : null,
+                  sc.leadContactMethodName ? `İrtibat şekli: ${sc.leadContactMethodName}` : null,
+                ].filter(Boolean).join("\n"),
+              }}
+              onCreated={linkCompany}
+              trigger={
+                <Button type="button" className="w-full gap-1.5 whitespace-nowrap sm:w-auto" disabled={companyLinking}>
+                  <Plus className="size-4" /> Yeni Firma Oluştur
+                </Button>
+              }
+            />
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  ) : null;
+
+  const workspaceOtherActions = (
+    <div className="space-y-3">
+      {/* "Diğer işlemler" başlığı kaldırıldı: altında iki üç düğme varken
+          başlığın kapladığı yer ve okuma maliyeti içerikten büyüktü, üstelik
+          "kaybedildi" gibi gerçek eylemleri jenerik bir kovaya gömüyordu. */}
+      {!simpleMode && <div>
+        <Label className="text-xs">Ödeme vadesi (gün)</Label>
+        <Input
+          type="number"
+          min={0}
+          aria-label="Ödeme vadesi gün sayısı"
+          className="mt-1.5 h-10"
+          defaultValue={sc.paymentTermDays ?? ""}
+          placeholder="Belirlenmedi"
+          disabled={!canUpdate}
+          onBlur={async (event) => {
+            const raw = event.target.value.trim();
+            const parsed = raw === "" ? null : Number(raw);
+            if (parsed !== null && (!Number.isFinite(parsed) || parsed < 0)) {
+              toast.error("Ödeme vadesi sıfır veya daha büyük olmalı");
+              event.target.value = sc.paymentTermDays == null ? "" : String(sc.paymentTermDays);
+              return;
+            }
+            const next = parsed === null ? null : Math.trunc(parsed);
+            if ((next ?? undefined) === sc.paymentTermDays) return;
+            await updateCase(sc.id, { paymentTermDays: next });
+          }}
+        />
+      </div>}
+      {isLeadCard && (
+        <div>
+          <Label className="text-xs">İlk temas durumu</Label>
+          <Select value={sc.leadFollowUpStatus ?? "new"} disabled={!canUpdate} onValueChange={(value) => void updateCase(sc.id, { leadFollowUpStatus: value as LeadFollowUpStatus })}>
+            <SelectTrigger className={`mt-1.5 h-10 ${LEAD_FOLLOW_UP_STATUS_STYLES[sc.leadFollowUpStatus ?? "new"]}`} aria-label="İlk temas takip durumu"><SelectValue /></SelectTrigger>
+            <SelectContent>{LEAD_FOLLOW_UP_STATUS_ORDER.map((status) => <SelectItem key={status} value={status}>{LEAD_FOLLOW_UP_STATUS_LABELS[status]}</SelectItem>)}</SelectContent>
+          </Select>
+        </div>
+      )}
+      {sc.externalSource === "trello" && (
+        <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs">
+          <div className="font-semibold">Trello kaynağı</div>
+          <div className="mt-1 text-muted-foreground">{[sc.externalMetadata?.boardName, sc.externalMetadata?.listName].filter(Boolean).join(" · ") || "Kaynak ayrıntısı yok"}</div>
+          {sc.externalUrl && <a href={sc.externalUrl} target="_blank" rel="noreferrer" className="mt-2 block break-all text-primary hover:underline">Kaynak kartı aç</a>}
+        </div>
+      )}
+      {sc.isLost && <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-xs"><div className="font-semibold text-red-900">Kaybedilme detayı</div><div className="mt-1 text-red-800">{sc.lostReason || sc.lostReasonCode || "Neden belirtilmedi"}{sc.competitor ? ` · ${sc.competitor}` : ""}</div></div>}
+      <div className="grid gap-2">
+        {canUpdate && sc.stage === "delivered" && !sc.closedAt && <Button type="button" variant="outline" className="min-h-11 justify-start gap-2 border-emerald-200 text-emerald-700" onClick={() => setCloseOpen(true)} disabled={closeSaving}><CheckCircle2 className="size-4" /> Bitir</Button>}
+        {canMarkLost && <Button type="button" variant="outline" className="min-h-11 justify-start gap-2 border-red-200 text-red-700" onClick={() => setLostOpen(true)}><XCircle className="size-4" /> Kaybedildi olarak işaretle</Button>}
+        {canDelete && <Button type="button" variant="outline" className="min-h-11 justify-start gap-2 border-red-200 text-red-700" onClick={() => setDeleteOpen(true)}><Trash2 className="size-4" /> {cardTypeLabel} kartını sil</Button>}
       </div>
     </div>
   );
@@ -365,14 +809,81 @@ export function SalesCaseDetailPage({
         </Button>
       </div>
 
-      <LostCaseDialog open={lostOpen} onOpenChange={setLostOpen} caseId={sc.id} caseName={partyName} />
+      <LostCaseDialog
+        open={lostOpen}
+        onOpenChange={setLostOpen}
+        caseId={sc.id}
+        caseName={partyName}
+        productName={sc.requestedMachine || [sc.requestedProduct, sc.requestedModel].filter(Boolean).join(" · ")}
+      />
+      <QuoteDialog
+        open={requestedProcessAction === "create_quote"}
+        onOpenChange={(open) => !open && setRequestedProcessAction(null)}
+        defaultCustomerId={sc.customerId || undefined}
+        defaultCaseId={sc.id}
+      />
+      <CreateProformaDialog
+        open={requestedProcessAction === "create_proforma"}
+        onOpenChange={(open) => !open && setRequestedProcessAction(null)}
+        defaultQuoteId={latestOffer?.id}
+        onCreated={() => {
+          setRequestedProcessAction(null);
+          void refresh();
+        }}
+      />
+      <CreateContractDialog
+        open={requestedProcessAction === "create_contract"}
+        onOpenChange={(open) => !open && setRequestedProcessAction(null)}
+        defaultQuoteId={latestOffer?.id}
+        onCreated={() => {
+          setRequestedProcessAction(null);
+          void refresh();
+        }}
+      />
+      <CreatePaymentPlanDialog
+        sc={sc}
+        offs={offs}
+        c={c}
+        open={requestedProcessAction === "create_payment_plan"}
+        onOpenChange={(open) => !open && setRequestedProcessAction(null)}
+        onCreated={() => {
+          setRequestedProcessAction(null);
+          void refresh();
+        }}
+      />
+      <DocumentUploadDialog
+        open={requestedProcessAction === "create_commercial_invoice"}
+        onOpenChange={(open) => !open && setRequestedProcessAction(null)}
+        defaultSalesCaseId={sc.id}
+        defaultCompanyId={sc.customerId || undefined}
+        defaultType="CommercialInvoice"
+        onUploaded={() => setRequestedProcessAction(null)}
+      />
+      <CreateShipmentDialog
+        open={requestedProcessAction === "create_shipment"}
+        onOpenChange={(open) => !open && setRequestedProcessAction(null)}
+        defaultSalesCaseId={sc.id}
+        onCreated={() => {
+          setRequestedProcessAction(null);
+          void refresh();
+        }}
+      />
+      <OpportunityStockPickerDialog
+        open={requestedProcessAction === "reserve_stock"}
+        onOpenChange={(open) => !open && setRequestedProcessAction(null)}
+        salesCase={sc}
+        onCompleted={async () => {
+          setRequestedProcessAction(null);
+          await refresh();
+        }}
+      />
       <AlertDialog open={deleteOpen} onOpenChange={(open) => !deleteSaving && setDeleteOpen(open)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Satış kartını sil?</AlertDialogTitle>
+            <AlertDialogTitle>{cardTypeLabel} kartı silinsin mi?</AlertDialogTitle>
             <AlertDialogDescription>
-              <b>{partyName}</b> için açılan <b>{sc.requestedProduct}</b> satış kartı silinecek.
-              Bağlı teklif, doküman veya ödeme varsa backend işlemi reddedebilir.
+              <b>{partyName}</b> için açılan <b>{sc.requestedProduct}</b> {cardTypeLabel.toLocaleLowerCase("tr-TR")} kartı aktif listelerden kaldırılacak.
+              Bağlı kayıtlar ve denetim izi veri bütünlüğü için korunur.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -385,7 +896,7 @@ export function SalesCaseDetailPage({
                 void handleDeleteCase();
               }}
             >
-              {deleteSaving ? "Siliniyor..." : "Sil"}
+              {deleteSaving ? "Siliniyor..." : `${cardTypeLabel} Kartını Sil`}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -456,7 +967,7 @@ export function SalesCaseDetailPage({
         className={
           mode === "page"
             ? "lg:[&>aside]:top-4"
-            : "lg:grid-cols-[minmax(0,1fr)_360px]"
+            : "lg:grid-cols-1 [&>aside]:hidden"
         }
         aside={
           <>
@@ -470,6 +981,7 @@ export function SalesCaseDetailPage({
                   className="h-6 w-16 rounded border border-border/70 bg-card px-1.5 text-right text-xs tabular-nums outline-none focus:border-ring"
                   defaultValue={sc.paymentTermDays ?? ""}
                   placeholder="—"
+                  disabled={!canUpdate}
                   onBlur={async (e) => {
                     const raw = e.target.value.trim();
                     const next = raw === "" ? null : Math.max(0, Number(raw) || 0);
@@ -480,31 +992,7 @@ export function SalesCaseDetailPage({
                 <span>gün</span>
               </div>
               <div className="mt-2"><StatusBadge status={sc.stage} /></div>
-              <div className="mt-2">
-                <div className="mb-1 text-[10px] uppercase tracking-wide text-muted-foreground">Alım niyeti</div>
-                <Select
-                  value={sc.leadTemperature ?? "unknown"}
-                  onValueChange={async (value) => {
-                    await updateCase(sc.id, { leadTemperature: value as LeadTemperature });
-                  }}
-                >
-                  <SelectTrigger className="h-7 w-full text-xs">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {LEAD_TEMPERATURE_ORDER.map((code) => (
-                      <SelectItem key={code} value={code}>
-                        <span className="flex items-center gap-1.5">
-                          <span className={`size-1.5 rounded-full ${LEAD_TEMPERATURE_STYLES[code].dot}`} />
-                          {LEAD_TEMPERATURE_LABELS[code]}
-                          <span className="text-muted-foreground">· {LEAD_TEMPERATURE_HINTS[code]}</span>
-                        </span>
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              {isSuperAdmin ? (
+              {canAssignOwner ? (
                 <Select
                   value={sc.assignedUserId ?? '__none__'}
                   onValueChange={async (v) => {
@@ -527,8 +1015,57 @@ export function SalesCaseDetailPage({
                 </div>
               )}
             </DialogSidebarSection>
+            <DialogSidebarSection title="Takip Planı">
+              <div className={`rounded-r-lg border-l-[3px] px-3 py-2.5 ${isActionOverdue(sc.nextActionAt) ? "border-red-500 bg-red-50/75" : "border-primary bg-blue-50/70"}`}>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-primary">
+                    <AlarmClock className="size-3.5" /> Sonraki aksiyon
+                  </span>
+                  <span className={`inline-flex items-center gap-1 text-[9px] ${isActionOverdue(sc.nextActionAt) ? "font-semibold text-red-700" : "text-muted-foreground"}`}>
+                    <CalendarClock className="size-3" />
+                    {isActionOverdue(sc.nextActionAt) ? "Gecikti · " : ""}{actionDateLabel(sc.nextActionAt)}
+                  </span>
+                </div>
+                <div className={`mt-1.5 text-xs leading-5 ${sc.nextAction ? "font-medium" : "text-muted-foreground"}`}>
+                  {sc.nextAction || "Henüz bir sonraki aksiyon planlanmadı."}
+                </div>
+              </div>
+              {sc.qualificationStage === "lead" && (
+                <div className="mt-2">
+                  <div className="mb-1 text-[10px] uppercase tracking-wide text-muted-foreground">İlk temas durumu</div>
+                  <Select
+                    value={sc.leadFollowUpStatus ?? "new"}
+                    disabled={!canUpdate}
+                    onValueChange={(value) =>
+                      void updateCase(sc.id, { leadFollowUpStatus: value as LeadFollowUpStatus })
+                    }
+                  >
+                    <SelectTrigger className={`h-8 w-full text-xs ${LEAD_FOLLOW_UP_STATUS_STYLES[sc.leadFollowUpStatus ?? "new"]}`}>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {LEAD_FOLLOW_UP_STATUS_ORDER.map((status) => (
+                        <SelectItem key={status} value={status}>{LEAD_FOLLOW_UP_STATUS_LABELS[status]}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+              {canUpdate && (
+                <NextActionDialog
+                  salesCase={sc}
+                  onSave={(patch) => updateCase(sc.id, patch)}
+                  trigger={
+                    <Button type="button" variant="outline" size="sm" className="mt-2 h-8 w-full gap-1.5 text-[10px]">
+                      <AlarmClock className="size-3.5" />
+                      {sc.nextAction ? "Aksiyonu düzenle" : "Aksiyon planla"}
+                    </Button>
+                  }
+                />
+              )}
+            </DialogSidebarSection>
             {sc.leadContactName && (
-              <DialogSidebarSection title="Lead Bilgisi">
+              <DialogSidebarSection title="İlk Temas Bilgisi">
                 <div className="space-y-2 text-xs">
                   <div className="flex items-start gap-2">
                     <UserRound className="mt-0.5 size-3.5 shrink-0 text-primary" />
@@ -558,7 +1095,9 @@ export function SalesCaseDetailPage({
                   {sc.leadCity && (
                     <div>
                       <div className="text-muted-foreground">Şehir</div>
-                      <div className="font-medium text-foreground">{sc.leadCity}</div>
+                      <div className="font-medium text-foreground">
+                        {[sc.leadCity, sc.leadDistrict].filter(Boolean).join(" / ")}
+                      </div>
                     </div>
                   )}
                 </div>
@@ -598,8 +1137,40 @@ export function SalesCaseDetailPage({
                 </div>
               </DialogSidebarSection>
             )}
+            {sc.isLost && (
+              <DialogSidebarSection title="Kaybedilme Detayı">
+                <div className="space-y-2 rounded-lg border border-destructive/15 bg-destructive-soft/35 p-3 text-xs">
+                  <div>
+                    <div className="text-[9px] font-semibold uppercase tracking-wide text-muted-foreground">Firma</div>
+                    <div className="mt-0.5 font-medium">{sc.lostCompanyName || partyName}</div>
+                  </div>
+                  <div>
+                    <div className="text-[9px] font-semibold uppercase tracking-wide text-muted-foreground">Kaybedilen ürün</div>
+                    <div className="mt-0.5 font-medium">
+                      {sc.lostProductName || sc.requestedMachine || [sc.requestedProduct, sc.requestedModel].filter(Boolean).join(" · ") || "Belirtilmedi"}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-[9px] font-semibold uppercase tracking-wide text-muted-foreground">Kayıp nedeni</div>
+                    <div className="mt-0.5 font-medium">{sc.lostReason || sc.lostReasonCode || "Belirtilmedi"}</div>
+                  </div>
+                  <div>
+                    <div className="text-[9px] font-semibold uppercase tracking-wide text-muted-foreground">Rakip</div>
+                    <div className="mt-0.5 font-medium">
+                      {[sc.competitor, sc.lostCompetitorProductModel].filter(Boolean).join(" · ") || "Rakip yok / bilinmiyor"}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-[9px] font-semibold uppercase tracking-wide text-muted-foreground">Uymayan şartlarımız</div>
+                    <div className="mt-0.5 whitespace-pre-wrap leading-5">
+                      {sc.lostUnmetConditions || sc.qualificationNote || "Belirtilmedi"}
+                    </div>
+                  </div>
+                </div>
+              </DialogSidebarSection>
+            )}
             <DialogSidebarSection title="İşlemler">
-              {sc.stage === "delivered" && !sc.closedAt && (
+              {canUpdate && sc.stage === "delivered" && !sc.closedAt && (
                 <Button
                   variant="outline"
                   size="sm"
@@ -620,14 +1191,16 @@ export function SalesCaseDetailPage({
                   <XCircle className="size-4" /> Kaybedildi olarak işaretle
                 </Button>
               )}
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setDeleteOpen(true)}
-                className="w-full justify-start gap-2 rounded-md border-destructive/30 text-destructive hover:bg-destructive-soft hover:text-destructive"
-              >
-                <Trash2 className="size-4" /> Satış Kartını Sil
-              </Button>
+              {canDelete && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setDeleteOpen(true)}
+                  className="w-full justify-start gap-2 rounded-md border-destructive/30 text-destructive hover:bg-destructive-soft hover:text-destructive"
+                >
+                  <Trash2 className="size-4" /> {cardTypeLabel} Kartını Sil
+                </Button>
+              )}
             </DialogSidebarSection>
             {mode === "dialog" && (
               <DialogSidebarSection title="Yorumlar ve Aktivite">
@@ -637,70 +1210,77 @@ export function SalesCaseDetailPage({
           </>
         }
       >
-      <Card>
-        <CardContent className="p-6">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-            <div className="min-w-0">
-              <div className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">SATIŞ KARTI · #{sc.id.toUpperCase()}</div>
-              <div className="mt-1 flex flex-wrap items-center gap-2">
-                <div className="text-xl font-semibold break-words">{partyName}</div>
-                {!hasCompany && (
-                  <span className="rounded-full border border-warning/25 bg-warning-soft px-2 py-0.5 text-[10px] font-medium text-warning">
-                    Firma kaydı bekliyor
-                  </span>
-                )}
-              </div>
-              <div className="mt-0.5 min-w-0 break-words text-sm text-muted-foreground">{compactSubtitle}</div>
-              {sc.externalSource === "trello" && sc.description && (
-                <div className="mt-2 line-clamp-3 max-w-3xl whitespace-pre-wrap break-words text-xs leading-relaxed text-muted-foreground">
-                  {sc.description}
-                </div>
+      {mode === "dialog" ? (
+        <OpportunityWorkspace
+          key={sc.id}
+          salesCase={sc}
+          focusDecisionOnMount
+          mobilePortalId={`workspace-mobile-actions-${sc.id}`}
+          onEditActivity={(activityId) => {
+            const activity = acts.find((item) => item.id === activityId);
+            if (activity) openActivityEdit(activity);
+          }}
+          onDeleteActivity={(activityId) => {
+            const activity = acts.find((item) => item.id === activityId);
+            if (activity) setPendingActivityDelete(activity);
+          }}
+          processCenter={null}
+          renderProcessCenter={({ detail, loading, reload }) => (
+            <OpportunityProcessCenter
+              salesCase={sc}
+              canUpdate={canUpdate}
+              onRefresh={refresh}
+              detail={detail}
+              loading={loading}
+              onReload={reload}
+              onMarkLost={canMarkLost ? () => setLostOpen(true) : undefined}
+              // Görevler kutunun içinde. Element burada yaratıldığı için engel
+              // düğmelerinin `requestedAction` bağı korunuyor; render kutuda
+              // olduğu için portal/yuva mekanizmasına gerek kalmıyor.
+              checklist={({ reload: reloadReadiness, checks: stageChecks, readOnly: stageReadOnly }) => (
+                <ProcessChecklistPanel
+                  sc={sc}
+                  requestedAction={requestedProcessAction}
+                  onActionHandled={() => setRequestedProcessAction(null)}
+                  onAction={(actionKey) => void handleProcessAction(actionKey)}
+                  canPerformAction={canPerformProcessAction}
+                  onSaved={reloadReadiness}
+                  offers={offs}
+                  onOpenOffer={setSelectedOfferId}
+                  checks={stageChecks}
+                  readOnly={stageReadOnly}
+                />
               )}
-              {sc.leadContactName && (
-                <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
-                  <span>Kontak: <b className="font-medium text-foreground">{sc.leadContactName}</b></span>
-                  {sc.leadContactMethodName && <span>İrtibat: <b className="font-medium text-foreground">{sc.leadContactMethodName}</b></span>}
-                  {sc.leadContactValue && <span><b className="font-medium text-foreground">{sc.leadContactValue}</b></span>}
-                </div>
-              )}
-            </div>
-          </div>
-
-          <div className="mt-5 overflow-x-auto rounded-xl border border-border/70 bg-muted/15 px-3 py-3">
-            <ol className="flex min-w-max items-start" aria-label="Satış aşamaları">
-              {SALES_STAGES.filter((s) => s !== "cancelled").map((s, i, stages) => {
-                const currentIndex = sc.stage === "cancelled" ? -1 : stages.indexOf(sc.stage);
-                const complete = currentIndex >= 0 && i < currentIndex;
-                const active = s === sc.stage;
-                return (
-                  <li key={s} className="flex items-start">
-                    <div className="flex w-[112px] flex-col items-center text-center">
-                      <span
-                        aria-current={active ? "step" : undefined}
-                        className={`grid size-7 place-items-center rounded-full border text-[10px] font-semibold transition-colors ${
-                          complete
-                            ? "border-success bg-success text-white"
-                            : active
-                              ? "border-primary bg-primary text-white ring-4 ring-primary/10"
-                              : "border-border bg-white text-muted-foreground"
-                        }`}
-                      >
-                        {complete ? <CheckCircle2 className="size-4" /> : i + 1}
-                      </span>
-                      <span className={`mt-1.5 max-w-[108px] text-[10px] leading-tight ${active ? "font-semibold text-primary" : complete ? "text-success" : "text-muted-foreground"}`}>
-                        {salesStageLabel(s)}
-                      </span>
-                    </div>
-                    {i < stages.length - 1 && (
-                      <span className={`mt-3.5 h-px w-6 shrink-0 ${complete ? "bg-success" : "bg-border"}`} aria-hidden />
-                    )}
-                  </li>
-                );
-              })}
-            </ol>
-          </div>
-        </CardContent>
-      </Card>
+            />
+          )}
+          companyLinkingPanel={canUpdate ? companyLinkingPanel : undefined}
+          onCommercialAction={(actionKey) => void handleProcessAction(actionKey)}
+          canPerformCommercialAction={canPerformProcessAction}
+          onOpenOffer={setSelectedOfferId}
+          otherActions={workspaceOtherActions}
+          simpleMode={simpleMode}
+        />
+      ) : (
+      <>
+      <OpportunityProcessCenter
+        salesCase={sc}
+        canUpdate={canUpdate}
+        onRefresh={refresh}
+        checklist={({ reload: reloadReadiness, checks: stageChecks, readOnly: stageReadOnly }) => (
+          <ProcessChecklistPanel
+            sc={sc}
+            requestedAction={requestedProcessAction}
+            onActionHandled={() => setRequestedProcessAction(null)}
+            onAction={(actionKey) => void handleProcessAction(actionKey)}
+            canPerformAction={canPerformProcessAction}
+            onSaved={reloadReadiness}
+            offers={offs}
+            onOpenOffer={setSelectedOfferId}
+            checks={stageChecks}
+            readOnly={stageReadOnly}
+          />
+        )}
+      />
 
       {!hasCompany && (
         <Card className="border-warning/30 bg-warning-soft/55">
@@ -713,21 +1293,18 @@ export function SalesCaseDetailPage({
                 <div className="min-w-0">
                   <div className="text-sm font-semibold">Tekliften önce firma kaydı gerekli</div>
                   <div className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
-                    Lead bilgileri satış kartında kalır. Mevcut bir firmayı bağlayın veya bu karttan yeni firma kaydını açın.
+                    İlk temas bilgileri fırsat kartında kalır. Mevcut bir firmayı bağlayın veya bu karttan yeni firma kaydını açın.
                   </div>
                 </div>
               </div>
               <div className="grid w-full min-w-0 gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
-                <Select disabled={companyLinking} onValueChange={(companyId) => void linkCompany(companyId)}>
-                  <SelectTrigger className="w-full min-w-0 bg-white">
-                    <SelectValue placeholder={companyLinking ? "Firma bağlanıyor…" : "Mevcut firma bağla"} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {customers.map((customer) => (
-                      <SelectItem key={customer.id} value={customer.id}>{customer.name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <RemoteCompanyCombobox
+                  value={null}
+                  disabled={companyLinking}
+                  onValueChange={(companyId) => void linkCompany(companyId)}
+                  className="w-full min-w-0 bg-white"
+                  placeholder={companyLinking ? "Firma bağlanıyor…" : "Mevcut firma bağla"}
+                />
                 <CreateCustomerDialog
                   draftKey={`draft.customer.sales-case.${sc.id}`}
                   initialValues={{
@@ -738,7 +1315,7 @@ export function SalesCaseDetailPage({
                     initialNote: [
                       sc.externalSource === "trello"
                         ? "Trello satış kartından Potansiyel firma olarak oluşturuldu."
-                        : "Hızlı lead satış kartından oluşturuldu.",
+                        : "Hızlı fırsat kartından oluşturuldu.",
                       trelloCandidate?.contactName || sc.leadContactName
                         ? `Kontak: ${trelloCandidate?.contactName ?? sc.leadContactName}`
                         : null,
@@ -758,7 +1335,10 @@ export function SalesCaseDetailPage({
         </Card>
       )}
 
-      {sc.stage === "payment_plan" && pays.length === 0 && (
+      {/* Peşin ve leasingde vade satırı üretilmez; kartı olmayan bir plana
+          çağırmak adımı tıkıyordu. Yöntem henüz seçilmemişse uyarı görünür —
+          seçim de bu ekrandan yapılır. */}
+      {sc.stage === "payment_plan" && pays.length === 0 && requiresPaymentPlan(sc.paymentMethod) && (
         <Card className="border-success/30 bg-success-soft/60">
           <CardContent className="p-4 sm:p-5">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -828,6 +1408,7 @@ export function SalesCaseDetailPage({
                   defaultSalesCaseId={sc.id}
                   defaultCompanyId={sc.customerId}
                   defaultType="CommercialInvoice"
+                  onUploaded={() => void refresh()}
                   trigger={
                     <Button size="sm" className="gap-1">
                       <Upload className="size-4" />
@@ -841,8 +1422,8 @@ export function SalesCaseDetailPage({
         </Card>
       )}
 
-      {(reachedInstallation || relatedInstallation) && (
-        <Card className="border-info/30 bg-info-soft/60">
+      {(sc.qualificationStage === "a_plus" || sc.qualificationStage === "win" || reachedInstallation || relatedInstallation) && (
+        <Card id="opportunity-installation" className="scroll-mt-24 border-info/30 bg-info-soft/60">
           <CardContent className="p-4 sm:p-5">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div className="flex items-start gap-3 min-w-0">
@@ -864,11 +1445,25 @@ export function SalesCaseDetailPage({
                     </div>
                   ) : (
                     <div className="text-xs text-muted-foreground mt-0.5">
-                      Kart kurulum aşamasına geldi. Servis kurulum kaydı yüklenince durum burada görünecek.
+                      A+ alanında ticari faturayla paralel takip edilir. Kurulum planını şimdi oluşturabilirsiniz.
                     </div>
                   )}
                 </div>
               </div>
+              {!relatedInstallation && hasPermission("installations.create") && (
+                <CreateInstallationDialog
+                  defaultCompanyId={sc.customerId}
+                  defaultContactId={sc.primaryContactId}
+                  defaultOpportunityId={sc.id}
+                  defaultQuoteId={(offs.find((offer) => offer.status === "Approved") ?? offs[0])?.id}
+                  onCreated={() => void refresh()}
+                  trigger={
+                    <Button data-opportunity-installation-create="true" size="sm" className="gap-1">
+                      <Plus className="size-4" /> Kurulum planla
+                    </Button>
+                  }
+                />
+              )}
               {relatedInstallation?.statusCode === "completed" && (
                 <div className="inline-flex h-8 items-center gap-1 rounded-md border border-success/30 bg-card px-2.5 text-xs text-success">
                   <CheckCircle2 className="size-3.5" /> Kurulum tamamlandı
@@ -879,17 +1474,14 @@ export function SalesCaseDetailPage({
         </Card>
       )}
 
-      <Tabs defaultValue={mode === "dialog" ? "offers" : "timeline"}>
+      <Tabs defaultValue="timeline">
         <TabsList className="h-auto w-full justify-start gap-1 overflow-x-auto rounded-none border-b border-border bg-transparent p-0">
-          {mode !== "dialog" && (
-            <TabsTrigger value="timeline" className="flex-none rounded-none border-0 border-b-2 border-transparent px-3 py-2 text-[13px] data-[state=active]:border-b-primary data-[state=active]:bg-transparent data-[state=active]:text-primary data-[state=active]:shadow-none">Zaman Çizelgesi</TabsTrigger>
-          )}
-          <TabsTrigger value="offers" className="flex-none rounded-none border-0 border-b-2 border-transparent px-3 py-2 text-[13px] data-[state=active]:border-b-primary data-[state=active]:bg-transparent data-[state=active]:text-primary data-[state=active]:shadow-none">Teklifler ({offs.length})</TabsTrigger>
+          <TabsTrigger value="timeline" className="flex-none rounded-none border-0 border-b-2 border-transparent px-3 py-2 text-[13px] data-[state=active]:border-b-primary data-[state=active]:bg-transparent data-[state=active]:text-primary data-[state=active]:shadow-none">Zaman Çizelgesi</TabsTrigger>
+          <TabsTrigger value="offers" className="flex-none rounded-none border-0 border-b-2 border-transparent px-3 py-2 text-[13px] data-[state=active]:border-b-primary data-[state=active]:bg-transparent data-[state=active]:text-primary data-[state=active]:shadow-none">Teklifler ({offs.length + externalQuotes.length})</TabsTrigger>
           <TabsTrigger value="documents" className="flex-none rounded-none border-0 border-b-2 border-transparent px-3 py-2 text-[13px] data-[state=active]:border-b-primary data-[state=active]:bg-transparent data-[state=active]:text-primary data-[state=active]:shadow-none">Dokümanlar ({docs.length})</TabsTrigger>
           <TabsTrigger value="payments" className="flex-none rounded-none border-0 border-b-2 border-transparent px-3 py-2 text-[13px] data-[state=active]:border-b-primary data-[state=active]:bg-transparent data-[state=active]:text-primary data-[state=active]:shadow-none">Ödemeler ({pays.length})</TabsTrigger>
         </TabsList>
 
-        {mode !== "dialog" && (
         <TabsContent value="timeline" className="mt-4">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between">
@@ -897,6 +1489,7 @@ export function SalesCaseDetailPage({
               <AddActivityDialog
                 salesCaseId={sc.id}
                 customerId={sc.customerId}
+                contactId={primaryContact?.id}
                 trigger={<Button size="sm" className="gap-1"><Plus className="size-4" /> Aktivite Ekle</Button>}
               />
             </CardHeader>
@@ -967,34 +1560,43 @@ export function SalesCaseDetailPage({
             </CardContent>
           </Card>
         </TabsContent>
-        )}
 
         <TabsContent value="offers" className="mt-4">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between">
               <CardTitle>Teklifler</CardTitle>
-              {hasCompany ? (
-                <QuoteDialog
-                  defaultCaseId={sc.id}
-                  defaultCustomerId={sc.customerId}
-                  trigger={<Button size="sm" className="gap-1"><Plus className="size-4" /> Yeni Teklif</Button>}
-                />
-              ) : (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="gap-1 border-warning/30 text-warning"
-                  onClick={() => toast.error("Firma kaydı gerekli", {
-                    description: "Yeni teklif açmadan önce yukarıdaki alandan firma oluşturun veya mevcut firmayı bağlayın.",
-                  })}
-                >
-                  <Building2 className="size-4" /> Önce Firma Bağlayın
-                </Button>
-              )}
+              <div className="flex flex-wrap items-center justify-end gap-2">
+                {hasPermission("files.create") && (
+                  <DocumentUploadDialog
+                    defaultSalesCaseId={sc.id}
+                    defaultCompanyId={sc.customerId}
+                    defaultType="ExternalQuote"
+                    trigger={<Button size="sm" variant="outline" className="gap-1"><Upload className="size-4" /> Dış Teklif Yükle</Button>}
+                  />
+                )}
+                {hasCompany ? (
+                  <QuoteDialog
+                    defaultCaseId={sc.id}
+                    defaultCustomerId={sc.customerId}
+                    trigger={<Button size="sm" className="gap-1"><Plus className="size-4" /> Yeni Teklif</Button>}
+                  />
+                ) : (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="gap-1 border-warning/30 text-warning"
+                    onClick={() => toast.error("Firma kaydı gerekli", {
+                      description: "Yeni teklif açmadan önce yukarıdaki alandan firma oluşturun veya mevcut firmayı bağlayın.",
+                    })}
+                  >
+                    <Building2 className="size-4" /> Önce Firma Bağlayın
+                  </Button>
+                )}
+              </div>
             </CardHeader>
             {!hasCompany && (
               <div className="mx-5 mb-4 rounded-lg border border-warning/25 bg-warning-soft/60 px-3 py-2 text-xs text-muted-foreground">
-                Teklif ekranı, firma kartı bağlandıktan sonra açılır. Lead bilgileri kaybolmadan firma ve kontak kaydına aktarılır.
+                Teklif ekranı, firma kartı bağlandıktan sonra açılır. İlk temas bilgileri kaybolmadan firma ve kontak kaydına aktarılır.
               </div>
             )}
             <div className="overflow-x-auto">
@@ -1047,6 +1649,63 @@ export function SalesCaseDetailPage({
                   ))}
                 </TableBody>
               </Table>
+            </div>
+            <div className="border-t border-border/60 bg-muted/15 px-5 py-4">
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <div>
+                  <div className="text-sm font-semibold">Dışarıdan yüklenen teklifler</div>
+                  <div className="mt-0.5 text-xs text-muted-foreground">Bu satış kartına ve bağlı firmaya özel dosyalar</div>
+                </div>
+                <Badge variant="secondary">{externalQuotes.length}</Badge>
+              </div>
+              <div className="space-y-2">
+                {externalQuotes.map((documentItem) => (
+                  <div key={documentItem.id} className="flex items-center gap-3 rounded-lg border border-border/60 bg-white px-3 py-2.5">
+                    <div className="grid size-9 shrink-0 place-items-center rounded-md bg-primary/10 text-primary">
+                      <FileText className="size-4" />
+                    </div>
+                    <button
+                      type="button"
+                      className="min-w-0 flex-1 text-left"
+                      onClick={() => downloadDocument(documentItem.fileId, documentItem.fileName)}
+                    >
+                      <div className="truncate text-sm font-medium hover:text-primary">{documentItem.fileName}</div>
+                      <div className="mt-0.5 text-[11px] text-muted-foreground">
+                        {documentItem.size} · {documentItem.uploadedAt || "Tarih yok"}
+                      </div>
+                    </button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="size-8"
+                      title="Dış teklifi indir"
+                      aria-label={`${documentItem.fileName} dosyasını indir`}
+                      onClick={() => downloadDocument(documentItem.fileId, documentItem.fileName)}
+                    >
+                      <Download className="size-4" />
+                    </Button>
+                    {hasPermission("files.delete") && documentItem.fileId && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="size-8 text-muted-foreground hover:text-destructive"
+                        title="Dış teklifi sil"
+                        aria-label={`${documentItem.fileName} dış teklifini sil`}
+                        onClick={() => setPendingDocumentDelete(documentItem)}
+                      >
+                        <Trash2 className="size-4" />
+                      </Button>
+                    )}
+                  </div>
+                ))}
+                {externalQuotes.length === 0 && (
+                  <div className="rounded-lg border border-dashed border-border/70 px-3 py-5 text-center text-sm text-muted-foreground">
+                    Bu karta yüklenmiş dış teklif yok.
+                  </div>
+                )}
+              </div>
             </div>
           </Card>
         </TabsContent>
@@ -1168,9 +1827,16 @@ export function SalesCaseDetailPage({
           </Card>
         </TabsContent>
       </Tabs>
+      </>
+      )}
       </DialogSplitLayout>
       </div>
 
+      {/* Dialog kendi içinde `if (!offer) return null` yapıyor; dışarıdan
+          kapılamak davranışı değiştirmez ama chunk'ın indirilmesini teklif
+          gerçekten açılana kadar erteler. */}
+      {selectedOffer && (
+      <Suspense fallback={null}>
       <OfferDetailDialog
         offer={selectedOffer}
         salesCase={sc}
@@ -1183,6 +1849,8 @@ export function SalesCaseDetailPage({
         canApprovePrice={isSuperAdmin}
         onOrderCreated={refresh}
       />
+      </Suspense>
+      )}
       <Dialog open={!!editingActivity} onOpenChange={(open) => !open && setEditingActivity(null)}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
@@ -1192,25 +1860,25 @@ export function SalesCaseDetailPage({
           <div className="space-y-3">
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <Label className="text-xs">Tür</Label>
-                <Input className="mt-1.5" value={activityForm.type} onChange={(e) => setActivityForm({ ...activityForm, type: e.target.value })} />
+                <Label htmlFor="workspace-activity-type" className="text-xs">Tür</Label>
+                <Input id="workspace-activity-type" className="mt-1.5" value={activityForm.type} onChange={(e) => setActivityForm({ ...activityForm, type: e.target.value })} />
               </div>
               <div>
-                <Label className="text-xs">Tarih</Label>
-                <Input type="date" className="mt-1.5" value={activityForm.date} onChange={(e) => setActivityForm({ ...activityForm, date: e.target.value })} />
+                <Label htmlFor="workspace-activity-date" className="text-xs">Tarih</Label>
+                <Input id="workspace-activity-date" type="date" className="mt-1.5" value={activityForm.date} onChange={(e) => setActivityForm({ ...activityForm, date: e.target.value })} />
               </div>
             </div>
             <div>
-              <Label className="text-xs">Başlık *</Label>
-              <Input className="mt-1.5" value={activityForm.title} onChange={(e) => setActivityForm({ ...activityForm, title: e.target.value })} />
+              <Label htmlFor="workspace-activity-title" className="text-xs">Başlık *</Label>
+              <Input id="workspace-activity-title" required aria-required="true" className="mt-1.5" value={activityForm.title} onChange={(e) => setActivityForm({ ...activityForm, title: e.target.value })} />
             </div>
             <div>
-              <Label className="text-xs">Not</Label>
-              <Textarea className="mt-1.5 min-h-[80px]" value={activityForm.note} onChange={(e) => setActivityForm({ ...activityForm, note: e.target.value })} />
+              <Label htmlFor="workspace-activity-note" className="text-xs">Not</Label>
+              <Textarea id="workspace-activity-note" className="mt-1.5 min-h-[80px]" value={activityForm.note} onChange={(e) => setActivityForm({ ...activityForm, note: e.target.value })} />
             </div>
             <div>
-              <Label className="text-xs">Sonuç / Ne Yapıldı</Label>
-              <Textarea className="mt-1.5 min-h-[64px]" value={activityForm.result} onChange={(e) => setActivityForm({ ...activityForm, result: e.target.value })} />
+              <Label htmlFor="workspace-activity-result" className="text-xs">Sonuç / Ne Yapıldı</Label>
+              <Textarea id="workspace-activity-result" className="mt-1.5 min-h-[64px]" value={activityForm.result} onChange={(e) => setActivityForm({ ...activityForm, result: e.target.value })} />
             </div>
             <div className="flex justify-end gap-2">
               <Button type="button" variant="outline" onClick={() => setEditingActivity(null)}>Vazgeç</Button>
@@ -1224,32 +1892,63 @@ export function SalesCaseDetailPage({
 
   if (mode === "dialog") {
     return (
-      <KanbanDetailDialogShell
-        accentClassName={STAGE_DOT[sc.stage] ?? "bg-primary"}
-        title={partyName}
-        subtitle={compactSubtitle}
-        bodyClassName="lg:grid-cols-1"
-        activityClassName="hidden"
-        meta={
-          <>
-            <StatusBadge status={sc.stage} />
-            <span className="rounded-md bg-muted px-2.5 py-1 text-xs tabular-nums text-muted-foreground">
-              {sc.estimatedAmount.toLocaleString()} {sc.currency}
-            </span>
-            <span className="rounded-md bg-muted px-2.5 py-1 text-xs text-muted-foreground">
-              Atanan: {u?.name ?? "Atanmadı"}
-            </span>
-          </>
-        }
-        actions={
-          <Button variant="outline" size="sm" onClick={onBack} className="gap-1 bg-white">
-            <X className="size-4" /> Kapat
-          </Button>
-        }
-        right={activityPanel}
-      >
-        {content}
-      </KanbanDetailDialogShell>
+      <>
+        <KanbanDetailDialogShell
+          accentClassName={STAGE_DOT[sc.stage] ?? "bg-primary"}
+          title={
+            <button
+              type="button"
+              className="group inline-flex max-w-full items-center gap-2 rounded-sm text-left outline-none transition-colors hover:text-primary focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+              onClick={() => setPartyDialogOpen(true)}
+              title="Firma, ilgili kişi ve aktiviteleri göster"
+            >
+              <span className="truncate">{partyName}</span>
+              <Building2 className="size-4 shrink-0 text-muted-foreground transition-colors group-hover:text-primary" aria-hidden="true" />
+            </button>
+          }
+          subtitle={compactSubtitle}
+          className="h-dvh max-h-dvh sm:h-auto sm:max-h-[92dvh]"
+          bodyClassName="lg:grid-cols-1"
+          activityClassName="hidden"
+          meta={
+            <>
+              <Badge variant="outline" className="border-[#0b2453]/20 bg-blue-50 text-[#0b2453]">
+                FIRSAT · {sc.id.slice(0, 8).toUpperCase()}
+              </Badge>
+              <StatusBadge status={sc.stage} />
+            </>
+          }
+          actions={
+            <>
+              {onNavigate && (
+                <div className="flex items-center rounded-md border border-slate-200 bg-white">
+                  <Button type="button" variant="ghost" size="icon" className="size-11 rounded-r-none sm:size-9" disabled={!previous} onClick={() => previous && onNavigate(previous.id)} aria-label={`Önceki ${cardTypeLabel.toLocaleLowerCase("tr-TR")}`} title={`Önceki ${cardTypeLabel.toLocaleLowerCase("tr-TR")}`}><ChevronLeft className="size-4" /></Button>
+                  <Button type="button" variant="ghost" size="icon" className="size-11 rounded-l-none border-l border-slate-200 sm:size-9" disabled={!next} onClick={() => next && onNavigate(next.id)} aria-label={`Sonraki ${cardTypeLabel.toLocaleLowerCase("tr-TR")}`} title={`Sonraki ${cardTypeLabel.toLocaleLowerCase("tr-TR")}`}><ChevronRight className="size-4" /></Button>
+                </div>
+              )}
+              {onClose && <Button type="button" variant="ghost" size="icon" className="size-11 sm:size-9" onClick={onClose} aria-label="Çalışma alanını kapat"><X className="size-4" /></Button>}
+            </>
+          }
+          right={activityPanel}
+          mobileFooter={<div id={`workspace-mobile-actions-${sc.id}`} />}
+        >
+          {content}
+        </KanbanDetailDialogShell>
+        <OpportunityPartyDialog
+          open={partyDialogOpen}
+          onOpenChange={setPartyDialogOpen}
+          company={c}
+          partyName={partyName}
+          contact={primaryContact}
+          contactName={partyContactName}
+          contactPhone={partyContactPhone}
+          contactEmail={partyContactEmail}
+          address={partyAddress}
+          opportunityId={sc.id}
+          activities={partyActivities}
+          users={users}
+        />
+      </>
     );
   }
 
@@ -1260,26 +1959,44 @@ export function SalesCaseDetailPage({
   );
 }
 
+/** Ödeme planı şartları için not şablonu kapsamı (teklif/proforma/sözleşme ile aynı desen). */
+const PAYMENT_PLAN_TERMS_SCOPE = "payment_plan_terms";
+
 export function CreatePaymentPlanDialog({
   sc,
   offs,
   c,
   onCreated,
   trigger,
+  open: controlledOpen,
+  onOpenChange,
 }: {
   sc: SalesCase;
   offs: Offer[];
   c: any;
   onCreated?: () => void;
-  trigger: React.ReactNode;
+  trigger?: React.ReactNode;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }) {
-  const [open, setOpen] = useState(false);
+  const { updateCase, noteTemplates, addNoteTemplate, updateNoteTemplate, deleteNoteTemplate } = useStore();
+  const [internalOpen, setInternalOpen] = useState(false);
+  const open = controlledOpen ?? internalOpen;
+  const setOpen = (next: boolean) => {
+    if (controlledOpen === undefined) setInternalOpen(next);
+    onOpenChange?.(next);
+  };
   const [selectedQuoteId, setSelectedQuoteId] = useState<string>("");
   const [amount, setAmount] = useState<number>(0);
   const [currency, setCurrency] = useState<string>("USD");
+  // Ödeme planı yöntemden türer; yöntem seçilmeden plan anlamsız.
+  const [paymentMethod, setPaymentMethod] = useState<OpportunityPaymentMethod>("undecided");
   const [installmentCount, setInstallmentCount] = useState<number>(3);
   const [paymentTermDays, setPaymentTermDays] = useState<number>(30);
-  const [installments, setInstallments] = useState<Array<{ amount: number; dueDate: string }>>([]);
+  const [installments, setInstallments] = useState<PaymentPlanInstallment[]>([]);
+  // Şartlar teklif/proforma/sözleşme ile aynı şablon mekanizmasından gelir.
+  const [terms, setTerms] = useState<TermsValue>({ paymentTerms: "", deliveryTerms: "", warrantyTerms: "" });
+  const [termsTemplateKeyValue, setTermsTemplateKeyValue] = useState("");
   const [saving, setSaving] = useState(false);
 
   // Initialize values based on approved quote or latest quote
@@ -1299,7 +2016,24 @@ export function CreatePaymentPlanDialog({
       setCurrency(sc.currency || "USD");
     }
     setPaymentTermDays(30);
+    setInstallments([]);
+    // Kartta yöntem zaten seçiliyse onunla aç; kullanıcı aynı şeyi iki kez seçmesin.
+    setPaymentMethod(sc.paymentMethod ?? "undecided");
+    setTerms({ paymentTerms: sc.paymentTerms ?? "", deliveryTerms: "", warrantyTerms: "" });
+    setTermsTemplateKeyValue("");
   }, [open, offs, sc]);
+
+  const paymentFamily = familyOfMethod(paymentMethod);
+  const planShape = paymentFamily ? PAYMENT_FAMILY_PLAN_SHAPE[paymentFamily] : "none";
+  // Peşin ve leasingde plan adımı atlanır; kaydetme yalnız yöntemi yazar.
+  // Kuralın kaynağı backend ile ortak (`requiresPaymentPlan`): süreç görevindeki
+  // "ödeme planı" kontrolü de aynı yerden besleniyor.
+  const planSkipped = Boolean(paymentFamily) && !requiresPaymentPlan(paymentMethod);
+  // Tek ödemeli yöntemde taksit sayısı kavramı yok; kullanıcı 3 taksitli bir
+  // plandan geçiş yapınca eski sayı takılı kalmasın.
+  useEffect(() => {
+    if (planShape === "single") setInstallmentCount(1);
+  }, [planShape]);
 
   // Recalculate installments when amount, count, term, or quote changes
   useEffect(() => {
@@ -1308,7 +2042,7 @@ export function CreatePaymentPlanDialog({
       return;
     }
     const val = Number((amount / installmentCount).toFixed(2));
-    const list = [];
+    const list: PaymentPlanInstallment[] = [];
     const today = new Date();
     const firstTermDays = Math.max(0, Math.trunc(paymentTermDays || 0));
     for (let i = 0; i < installmentCount; i++) {
@@ -1316,12 +2050,17 @@ export function CreatePaymentPlanDialog({
       date.setDate(today.getDate() + firstTermDays + 30 * i);
       const dateStr = date.toISOString().slice(0, 10);
       list.push({
+        ...EMPTY_PAYMENT_INSTRUMENT_DETAILS,
         amount: i === 0 ? Number((amount - val * (installmentCount - 1)).toFixed(2)) : val,
         dueDate: dateStr,
       });
     }
-    setInstallments(list);
-  }, [amount, installmentCount, paymentTermDays]);
+    // Tutar veya tarih yeniden hesaplanırken girilmiş senet/çek bilgileri
+    // kaybolmasın; yalnız plan yeniden açıldığında başlangıçta temizlenir.
+    setInstallments((previous) => list.map((item, index) =>
+      recalculatePaymentInstallment(previous[index], item.amount, item.dueDate),
+    ));
+  }, [open, amount, installmentCount, paymentTermDays]);
 
   const handleEqualize = () => {
     if (amount <= 0 || installmentCount <= 0) return;
@@ -1334,7 +2073,11 @@ export function CreatePaymentPlanDialog({
     );
   };
 
-  const handleInstallmentChange = (index: number, field: "amount" | "dueDate", value: any) => {
+  const handleInstallmentChange = (
+    index: number,
+    field: keyof PaymentPlanInstallment,
+    value: string | number,
+  ) => {
     setInstallments(
       installments.map((inst, i) => {
         if (i !== index) return inst;
@@ -1352,12 +2095,39 @@ export function CreatePaymentPlanDialog({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!isMatch) return toast.error("Taksitlerin toplamı, plan toplam tutarı ile eşleşmelidir");
-    if (amount <= 0 || installments.length === 0) return toast.error("Plan tutarı ve en az bir taksit girin.");
+    // Yöntem seçilmeden plan yazmak, hangi tahsilat biçimini temsil ettiği
+    // belirsiz alacak satırları üretiyordu.
+    if (!paymentFamily) return toast.error("Önce ödeme yöntemini seçin.");
+    // Peşin/leasingde vade satırı doğrulaması yapılmaz — plan zaten üretilmiyor.
+    if (!planSkipped) {
+      if (!isMatch) return toast.error("Taksitlerin toplamı, plan toplam tutarı ile eşleşmelidir");
+      if (amount <= 0 || installments.length === 0) return toast.error("Plan tutarı ve en az bir vade girin.");
+      const invalidInstrumentIndex = installments.findIndex(
+        (installment) => missingPaymentInstrumentFields(paymentMethod, installment).length > 0,
+      );
+      if (invalidInstrumentIndex >= 0) {
+        const missing = missingPaymentInstrumentFields(paymentMethod, installments[invalidInstrumentIndex]);
+        return toast.error(`${invalidInstrumentIndex + 1}. taksit için ${missing.join(", ")} zorunludur.`);
+      }
+    }
     setSaving(true);
     try {
-      for (let i = 0; i < installments.length; i++) {
+      // Kartta yöntem yoksa ya da değiştiyse plana yazılanla eşitle; süreç
+      // görevlerindeki "ödeme şekli" kontrolü de böylece tamamlanmış olur.
+      const casePatch: Record<string, unknown> = {};
+      if (sc.paymentMethod !== paymentMethod) casePatch.paymentMethod = paymentMethod;
+      // Şartlar belgeye değil karta yazılır; süreç görevlerindeki
+      // "ödeme koşulları" kontrolü de bu alanı okuyor.
+      if (terms.paymentTerms.trim() && terms.paymentTerms !== sc.paymentTerms) {
+        casePatch.paymentTerms = terms.paymentTerms.trim();
+      }
+      if (Object.keys(casePatch).length > 0) await updateCase(sc.id, casePatch);
+      for (let i = 0; planSkipped ? false : i < installments.length; i++) {
         const inst = installments[i];
+        const baseNote = installments.length > 1
+          ? `${OPPORTUNITY_PAYMENT_METHOD_LABELS[paymentMethod]} ${i + 1}/${installments.length} - ${sc.requestedProduct}`
+          : `${OPPORTUNITY_PAYMENT_METHOD_LABELS[paymentMethod]} - ${sc.requestedProduct}`;
+        const instrumentNote = paymentInstrumentNote(paymentMethod, inst);
         await financeService.createReceivable({
           companyId: sc.customerId,
           ...(selectedQuoteId ? { quoteId: selectedQuoteId } : {}),
@@ -1365,10 +2135,13 @@ export function CreatePaymentPlanDialog({
           currencyCode: currency,
           dueDate: new Date(inst.dueDate),
           movementType: "manual",
-          notes: `Taksit ${i + 1}/${installments.length} - ${sc.requestedProduct}`,
+          ...(inst.documentNo.trim() ? { documentRef: inst.documentNo.trim() } : {}),
+          notes: instrumentNote ? `${baseNote} · ${instrumentNote}` : baseNote,
         });
       }
-      toast.success("Ödeme planı başarıyla oluşturuldu.");
+      toast.success(planSkipped
+        ? "Ödeme yöntemi kaydedildi; bu yöntemde plan gerekmiyor."
+        : "Ödeme planı başarıyla oluşturuldu.");
       setOpen(false);
       onCreated?.();
     } catch (err: any) {
@@ -1380,7 +2153,7 @@ export function CreatePaymentPlanDialog({
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>{trigger}</DialogTrigger>
+      {trigger && <DialogTrigger asChild>{trigger}</DialogTrigger>}
       <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Ödeme Planı Oluştur</DialogTitle>
@@ -1413,7 +2186,16 @@ export function CreatePaymentPlanDialog({
                 </Select>
               </div>
 
-              <div className="space-y-1.5">
+              {/* Üst seçim aile (Peşin / Leasing / Vadeli); senet ve çek ayrı
+                  yöntem değil, vadenin türü — yalnız vadelide sorulur. */}
+              <PaymentMethodSelect
+                value={paymentMethod}
+                onChange={setPaymentMethod}
+                idPrefix="plan-payment"
+                className={paymentFamily === "term" ? "md:col-span-2" : ""}
+              />
+
+              {planShape === "schedule" && <div className="space-y-1.5">
                 <Label htmlFor="inst-count">Taksit Sayısı</Label>
                 <Select value={String(installmentCount)} onValueChange={(v) => setInstallmentCount(Number(v))}>
                   <SelectTrigger id="inst-count" className="w-full">
@@ -1427,10 +2209,12 @@ export function CreatePaymentPlanDialog({
                     ))}
                   </SelectContent>
                 </Select>
-              </div>
+              </div>}
 
-              <div className="space-y-1.5">
-                <Label htmlFor="payment-term-days">İlk Vade Günü</Label>
+              {!planSkipped && <div className="space-y-1.5">
+                <Label htmlFor="payment-term-days">
+                  {planShape === "schedule" ? "İlk Vade Günü" : PAYMENT_DUE_LABEL[paymentMethod] ?? "Vade (gün)"}
+                </Label>
                 <Input
                   id="payment-term-days"
                   type="number"
@@ -1440,9 +2224,9 @@ export function CreatePaymentPlanDialog({
                   onChange={(e) => setPaymentTermDays(Math.max(0, Math.trunc(Number(e.target.value) || 0)))}
                   placeholder="Örn. 30"
                 />
-              </div>
+              </div>}
 
-              <div className="space-y-1.5">
+              {!planSkipped && <div className="space-y-1.5">
                 <Label htmlFor="total-amount">Toplam Plan Tutarı</Label>
                 <Input
                   id="total-amount"
@@ -1452,9 +2236,9 @@ export function CreatePaymentPlanDialog({
                   onChange={(e) => setAmount(Number(e.target.value))}
                   placeholder="Toplam Tutar"
                 />
-              </div>
+              </div>}
 
-              <div className="space-y-1.5">
+              {!planSkipped && <div className="space-y-1.5">
                 <Label htmlFor="currency-select">Para Birimi</Label>
                 <Select value={currency} onValueChange={setCurrency}>
                   <SelectTrigger id="currency-select" className="w-full">
@@ -1466,10 +2250,24 @@ export function CreatePaymentPlanDialog({
                     <SelectItem value="TRY">TRY (₺)</SelectItem>
                   </SelectContent>
                 </Select>
-              </div>
+              </div>}
             </div>
 
-            <div className="border-t pt-4">
+            {/* Peşin ve leasingde plan adımı tamamen atlanır: peşinde tahsilat
+                tek seferde ve anında, leasingde taksitleri finans kuruluşu
+                takip eder. Vade satırı üretmek gerçeğe karşılık gelmeyen alacak
+                kayıtları doğuruyordu. */}
+            {planSkipped && (
+              <div className="rounded-lg border border-info/30 bg-info-soft p-3 text-xs text-info">
+                <b>{PAYMENT_FAMILY_LABELS[paymentFamily!]}</b> yönteminde ödeme planı gerekmiyor; bu adım atlanır.
+                {paymentFamily === "leasing"
+                  ? " Taksitleri finans kuruluşu takip eder."
+                  : " Tahsilat tek seferde yapılır."}
+                {" "}Kaydettiğinizde yalnız ödeme yöntemi ve şartlar satış kartına yazılır.
+              </div>
+            )}
+
+            {!planSkipped && <div className="border-t pt-4">
               <div className="flex items-center justify-between mb-3">
                 <h4 className="text-sm font-medium">Taksit Detayları</h4>
                 <div className="flex items-center gap-2">
@@ -1490,43 +2288,80 @@ export function CreatePaymentPlanDialog({
 
               <div className="space-y-2 max-h-[300px] overflow-y-auto pr-1">
                 {installments.map((inst, i) => (
-                  <div key={i} className="flex items-center gap-3 p-2 bg-muted/30 rounded border border-border/40">
+                  <div key={i} className="flex items-start gap-3 p-2 bg-muted/30 rounded border border-border/40">
                     <span className="text-xs font-semibold text-muted-foreground w-12 text-center">
                       Taksit {i + 1}
                     </span>
-                    <div className="flex-1 grid grid-cols-2 gap-2">
-                      <div className="relative">
+                    <div className="flex-1 space-y-2">
+                      <div className="grid grid-cols-2 gap-2">
+                        <div className="relative">
+                          <Input
+                            aria-label={`${i + 1}. taksit tutarı`}
+                            type="number"
+                            step="0.01"
+                            value={inst.amount}
+                            onChange={(e) => handleInstallmentChange(i, "amount", e.target.value)}
+                            className="pr-12 text-sm h-9"
+                            required
+                          />
+                          <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-medium text-muted-foreground">
+                            {currency}
+                          </span>
+                        </div>
                         <Input
-                          type="number"
-                          step="0.01"
-                          value={inst.amount}
-                          onChange={(e) => handleInstallmentChange(i, "amount", e.target.value)}
-                          className="pr-12 text-sm h-9"
+                          aria-label={`${i + 1}. taksit vade tarihi`}
+                          type="date"
+                          value={inst.dueDate}
+                          onChange={(e) => handleInstallmentChange(i, "dueDate", e.target.value)}
+                          className="text-sm h-9"
                           required
                         />
-                        <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-medium text-muted-foreground">
-                          {currency}
-                        </span>
                       </div>
-                      <Input
-                        type="date"
-                        value={inst.dueDate}
-                        onChange={(e) => handleInstallmentChange(i, "dueDate", e.target.value)}
-                        className="text-sm h-9"
-                        required
-                      />
+                      {paymentMethod === "promissory_note" && (
+                        <div className="grid gap-2 sm:grid-cols-2">
+                          <Input aria-label={`${i + 1}. taksit senet numarası`} maxLength={128} value={inst.documentNo} onChange={(e) => handleInstallmentChange(i, "documentNo", e.target.value)} placeholder="Senet numarası" required />
+                          <Input aria-label={`${i + 1}. taksit senet borçlusu`} maxLength={128} value={inst.issuer} onChange={(e) => handleInstallmentChange(i, "issuer", e.target.value)} placeholder="Borçlu / düzenleyen" required />
+                        </div>
+                      )}
+                      {paymentMethod === "cheque" && (
+                        <div className="grid gap-2 sm:grid-cols-2">
+                          <Input aria-label={`${i + 1}. taksit çek numarası`} maxLength={128} value={inst.documentNo} onChange={(e) => handleInstallmentChange(i, "documentNo", e.target.value)} placeholder="Çek numarası" required />
+                          <Input aria-label={`${i + 1}. taksit çek bankası`} maxLength={128} value={inst.bankName} onChange={(e) => handleInstallmentChange(i, "bankName", e.target.value)} placeholder="Banka" required />
+                          <Input aria-label={`${i + 1}. taksit çek şubesi`} maxLength={128} value={inst.branchName} onChange={(e) => handleInstallmentChange(i, "branchName", e.target.value)} placeholder="Şube (opsiyonel)" />
+                          <Input aria-label={`${i + 1}. taksit çek hesap sahibi`} maxLength={128} value={inst.issuer} onChange={(e) => handleInstallmentChange(i, "issuer", e.target.value)} placeholder="Hesap sahibi" required />
+                        </div>
+                      )}
                     </div>
                   </div>
                 ))}
               </div>
-            </div>
+            </div>}
+
+            {/* Şartlar teklif, proforma ve sözleşme ile aynı şablon mekanizması
+                üzerinden yönetilir: kullanıcı kayıtlı şablonu seçer, gerekirse
+                düzenler, isterse yeni şablon olarak kaydeder. Ayrı bir serbest
+                metin kutusu, aynı şartların her belgede yeniden yazılmasına ve
+                belgeler arası tutarsızlığa yol açıyordu. */}
+            <DocumentTermsTemplateEditor
+              title="Ödeme ve Teslim Şartları"
+              description="Şablon seçin, gerekirse düzenleyin; ödeme şartı satış kartına da yazılır."
+              templateScope={PAYMENT_PLAN_TERMS_SCOPE}
+              noteTemplates={noteTemplates}
+              selectedTemplateKey={termsTemplateKeyValue}
+              onSelectedTemplateKeyChange={setTermsTemplateKeyValue}
+              value={terms}
+              onChange={setTerms}
+              addNoteTemplate={addNoteTemplate}
+              updateNoteTemplate={updateNoteTemplate}
+              deleteNoteTemplate={deleteNoteTemplate}
+            />
 
             <div className="flex justify-end gap-2 border-t pt-4">
               <Button type="button" variant="ghost" onClick={() => setOpen(false)}>
                 Vazgeç
               </Button>
-              <Button type="submit" disabled={saving || !isMatch || amount <= 0 || installments.length === 0}>
-                {saving ? "Kaydediliyor..." : "Planı Onayla ve Kaydet"}
+              <Button type="submit" disabled={saving || !paymentFamily || (!planSkipped && (!isMatch || amount <= 0 || installments.length === 0))}>
+                {saving ? "Kaydediliyor..." : planSkipped ? "Yöntemi Kaydet ve Geç" : "Planı Onayla ve Kaydet"}
               </Button>
             </div>
           </form>

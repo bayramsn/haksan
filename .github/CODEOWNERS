@@ -1,0 +1,9 @@
+# Security-sensitive deployment, CI, and schema changes require repository-owner review.
+/.github/ @bayramsn
+/Dockerfile @bayramsn
+/docker-compose.yml @bayramsn
+/render.yaml @bayramsn
+/deploy/ @bayramsn
+/apps/api/src/config/env.ts @bayramsn
+/apps/api/src/shared/security/ @bayramsn
+/apps/api/src/db/ @bayramsn

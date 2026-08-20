@@ -1,7 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { and, between, desc, eq, gte, inArray, isNull, lte, sql } from 'drizzle-orm';
 import type { DbClient } from '../../db/client';
-import { visits as visitsTbl, calls as callsTbl, leads } from '../../db/schema/crm';
+import { visits as visitsTbl, calls as callsTbl, leads, salesActivities } from '../../db/schema/crm';
 import { opportunities, cancellationReasons, competitors } from '../../db/schema/crm';
 import { users, userDepartmentAssignments, userDivisions, userRoles, roles, userTargets, departmentTargets } from '../../db/schema/users';
 import { departments } from '../../db/schema/tenants';
@@ -16,9 +16,13 @@ import { companies } from '../../db/schema/companies';
 import { DB } from '../../shared/database/database.module';
 import type { AuthContext } from '../../shared/security/auth.types';
 import { resourceDivisionFilter, resolveResourceDivisionScope } from '../../shared/utils/division-scope';
+import { ForbiddenError } from '../../shared/utils/errors';
 import { amountToUsd, FxService, type FxRates, type FxSnapshot } from '../fx/fx.service';
 
 export type Granularity = 'weekly' | 'monthly' | 'yearly';
+
+/** Gösterge panelindeki ekip aktivitesi kırılımı. */
+export type TeamActivityPeriod = 'day' | 'week' | 'month' | 'year';
 
 export type TargetProgressScope = { kind: 'user' | 'department' | 'role' | 'all-users'; id?: string };
 
@@ -341,16 +345,20 @@ export class ReportsService {
 
     const competitorBreakdown = await this.db
       .select({
-        id: competitors.id,
-        name: competitors.name,
+        id: sql<string>`coalesce(${competitors.id}::text, 'manual:' || md5(coalesce(${opportunities.lostCompetitorName}, '')))`,
+        name: sql<string>`coalesce(${competitors.name}, ${opportunities.lostCompetitorName})`,
         count: sql<number>`count(*)::int`,
         value: sql<string>`coalesce(sum(${val}), 0)::text`,
       })
       .from(opportunities)
       .leftJoin(pipelineStages, eq(opportunities.currentStageId, pipelineStages.id))
-      .innerJoin(competitors, eq(opportunities.lostCompetitorId, competitors.id))
-      .where(and(inYear, isLost))
-      .groupBy(competitors.id, competitors.name)
+      .leftJoin(competitors, eq(opportunities.lostCompetitorId, competitors.id))
+      .where(and(
+        inYear,
+        isLost,
+        sql`coalesce(${competitors.name}, ${opportunities.lostCompetitorName}) is not null`,
+      ))
+      .groupBy(competitors.id, competitors.name, opportunities.lostCompetitorName)
       .orderBy(desc(sql`count(*)`));
 
     const wonReasons = await this.db
@@ -487,11 +495,16 @@ export class ReportsService {
    * Kullanıcı hedefleri departman içinde toplanır; satış gerçekleşmesi fırsat/teklif verisinden gelir.
    */
   async departmentPerformance(actor: AuthContext, period: string, departmentId?: string) {
+    // Departman raporu doğası gereği başkalarının verisinin toplamıdır; kural
+    // gereği süper admin dışına kapalı. `reports.read` izni tek başına yetmez.
+    if (!this.canSeeAllUsers(actor)) {
+      throw new ForbiddenError('Bu rapor için yetkiniz yok');
+    }
     const [year, month] = period.split('-').map(Number);
     const from = new Date(Date.UTC(year, month - 1, 1, 0, 0, 0));
     const to = new Date(Date.UTC(year, month, 0, 23, 59, 59, 999));
 
-    const deptFilters = [eq(departments.tenantId, actor.tenantId)];
+    const deptFilters = [eq(departments.tenantId, actor.tenantId), isNull(departments.deletedAt)];
     if (departmentId) deptFilters.push(eq(departments.id, departmentId));
     const depts = await this.db.query.departments.findMany({ where: and(...deptFilters) });
 
@@ -604,11 +617,59 @@ export class ReportsService {
     return { period, departments: rows };
   }
 
+  /**
+   * Rapor görünürlük kuralı: yalnız süper admin tüm kullanıcıların verisini
+   * görür, diğer herkes yalnız kendi verisini. Kuralı genişletmek gerekirse
+   * (ör. departman yöneticileri) tek değiştirilecek yer burasıdır.
+   */
+  private canSeeAllUsers(actor: AuthContext) {
+    return actor.roles.includes('super_admin');
+  }
+
+  /**
+   * Raporun kapsayacağı kullanıcı kümesi. Rapor metotları kullanıcı listesini
+   * asla doğrudan `scopedActiveUsers`'tan almamalı — aksi halde kural yalnızca
+   * çağıran metodun hatırladığı kadar geçerli olur.
+   *
+   * Süper admin olmayan için tenant'ın tamamını çekmek yerine tek satır okunur;
+   * hem kuralın gereği hem de sıcak yolun (her kullanıcının panosu) maliyeti.
+   */
+  private async reportAudience(actor: AuthContext) {
+    if (this.canSeeAllUsers(actor)) return this.scopedActiveUsers(actor);
+    return this.db.query.users.findMany({
+      where: and(
+        eq(users.tenantId, actor.tenantId),
+        eq(users.id, actor.userId),
+        isNull(users.deletedAt),
+        eq(users.status, 'active')
+      ),
+      columns: { id: true, fullName: true, email: true, departmentId: true },
+    });
+  }
+
+  /**
+   * İstemciden gelen kapsamın aktörün yetkisi içinde olduğunu doğrular.
+   * Kullanıcının bilinçli seçtiği kapsamda (belirli kişi/departman/rol) sessizce
+   * daraltmak yetki hatasını gizler ve "başkasını seçtim, kendimi gördüm"
+   * yalanını üretir; bu yüzden 403 atılır. Varsayılan kapsam (`all-users`)
+   * bilinçli bir seçim olmadığı için sessizce aktörün kendisine daraltılır.
+   */
+  private assertScopeAllowed(actor: AuthContext, scope: TargetProgressScope) {
+    if (this.canSeeAllUsers(actor)) return;
+    if (scope.kind === 'department' || scope.kind === 'role') {
+      throw new ForbiddenError('Bu kapsam için yetkiniz yok');
+    }
+    if (scope.kind === 'user' && scope.id && scope.id !== actor.userId) {
+      throw new ForbiddenError('Bu kapsam için yetkiniz yok');
+    }
+  }
+
   /** Aktif kullanıcılar; bölüm kapsamı 'list' modundaysa yalnızca o bölümlere atanmış olanlar. */
   private async scopedActiveUsers(actor: AuthContext) {
     const scope = resolveResourceDivisionScope(actor, 'reports');
     let rows = await this.db.query.users.findMany({
       where: and(eq(users.tenantId, actor.tenantId), isNull(users.deletedAt), eq(users.status, 'active')),
+      columns: { id: true, fullName: true, email: true, departmentId: true },
     });
     if (scope.mode === 'list') {
       if (scope.divisionIds.length === 0) return [];
@@ -642,7 +703,13 @@ export class ReportsService {
       .select({ userId: userDepartmentAssignments.userId, departmentId: userDepartmentAssignments.departmentId })
       .from(userDepartmentAssignments)
       .innerJoin(departments, eq(userDepartmentAssignments.departmentId, departments.id))
-      .where(and(eq(departments.tenantId, actor.tenantId), inArray(userDepartmentAssignments.userId, userIds)));
+      .where(
+        and(
+          eq(departments.tenantId, actor.tenantId),
+          isNull(departments.deletedAt),
+          inArray(userDepartmentAssignments.userId, userIds)
+        )
+      );
     for (const assignment of assignments) {
       const ids = map.get(assignment.userId) ?? new Set<string>();
       ids.add(assignment.departmentId);
@@ -672,10 +739,17 @@ export class ReportsService {
       return entry;
     };
 
+    // Sorguların hiçbiri bir diğerinin sonucunu kullanmaz; tek tek await
+    // edilirse dönem raporu 12 ardışık gidiş-dönüş bekler. Hepsi birlikte
+    // başlatılır, sonuçlar aşağıda aynı sırayla işlenir — döngü gövdeleri
+    // senkron olduğu için `map` üzerinde yarış durumu oluşmaz.
+    const invoiceResponsibleUserId = sql<string | null>`coalesce(${quotes.projectOwnerUserId}, ${opportunities.ownerUserId}, ${accountingInvoices.createdBy})`;
+    const quoteResponsibleUserId = sql<string | null>`coalesce(${quotes.projectOwnerUserId}, ${opportunities.ownerUserId}, ${quotes.createdBy})`;
+    const salesOrderResponsibleUserId = sql<string | null>`coalesce(${opportunities.ownerUserId}, ${salesOrders.createdBy})`;
+
     // Ciro: kesilen satış faturaları. Proje/fırsat sorumlusu varsa ona,
     // bağlantı yoksa faturayı oluşturan kullanıcıya yazılır.
-    const invoiceResponsibleUserId = sql<string | null>`coalesce(${quotes.projectOwnerUserId}, ${opportunities.ownerUserId}, ${accountingInvoices.createdBy})`;
-    const invoiceRows = await this.db
+    const invoiceRowsQuery = this.db
       .select({
         userId: invoiceResponsibleUserId,
         currencyCode: currencies.code,
@@ -698,12 +772,9 @@ export class ReportsService {
         )
       )
       .groupBy(invoiceResponsibleUserId, currencies.code);
-    for (const r of invoiceRows) {
-      this.addUsdAmount(get(r.userId), 'salesAmount', r.total, r.currencyCode, rates, unsupportedCurrencies);
-    }
 
     // Tahsilat: müşteriden gelen ödemeler
-    const paymentRows = await this.db
+    const paymentRowsQuery = this.db
       .select({
         userId: payments.createdBy,
         currencyCode: currencies.code,
@@ -723,12 +794,9 @@ export class ReportsService {
         )
       )
       .groupBy(payments.createdBy, currencies.code);
-    for (const r of paymentRows) {
-      this.addUsdAmount(get(r.userId), 'paymentsInAmount', r.total, r.currencyCode, rates, unsupportedCurrencies);
-    }
 
     // Alış faturası tutarı: finans/satınalma hedefleri için
-    const purchaseInvoiceRows = await this.db
+    const purchaseInvoiceRowsQuery = this.db
       .select({
         userId: accountingInvoices.createdBy,
         currencyCode: currencies.code,
@@ -748,12 +816,9 @@ export class ReportsService {
         )
       )
       .groupBy(accountingInvoices.createdBy, currencies.code);
-    for (const r of purchaseInvoiceRows) {
-      this.addUsdAmount(get(r.userId), 'purchaseInvoiceAmount', r.total, r.currencyCode, rates, unsupportedCurrencies);
-    }
 
     // Yeni müşteri: kullanıcının oluşturduğu firmalar
-    const companyRows = await this.db
+    const companyRowsQuery = this.db
       .select({ userId: companies.createdBy, count: sql<number>`count(*)::int` })
       .from(companies)
       .where(
@@ -766,14 +831,9 @@ export class ReportsService {
         )
       )
       .groupBy(companies.createdBy);
-    for (const r of companyRows) {
-      const entry = get(r.userId);
-      if (entry) entry.salesNewCustomers = r.count;
-    }
 
     // Teklif sayısı (departman performans raporuyla aynı semantik)
-    const quoteResponsibleUserId = sql<string | null>`coalesce(${quotes.projectOwnerUserId}, ${opportunities.ownerUserId}, ${quotes.createdBy})`;
-    const quoteRows = await this.db
+    const quoteRowsQuery = this.db
       .select({ userId: quoteResponsibleUserId, count: sql<number>`count(*)::int` })
       .from(quotes)
       .leftJoin(opportunities, eq(quotes.opportunityId, opportunities.id))
@@ -788,14 +848,9 @@ export class ReportsService {
         )
       )
       .groupBy(quoteResponsibleUserId);
-    for (const r of quoteRows) {
-      const entry = get(r.userId);
-      if (entry) entry.quoteTarget = r.count;
-    }
 
     // Satış siparişleri: operasyon/satış siparişleşme hedefleri
-    const salesOrderResponsibleUserId = sql<string | null>`coalesce(${opportunities.ownerUserId}, ${salesOrders.createdBy})`;
-    const salesOrderRows = await this.db
+    const salesOrderRowsQuery = this.db
       .select({
         userId: salesOrderResponsibleUserId,
         currencyCode: currencies.code,
@@ -816,16 +871,9 @@ export class ReportsService {
         )
       )
       .groupBy(salesOrderResponsibleUserId, currencies.code);
-    for (const r of salesOrderRows) {
-      const entry = get(r.userId);
-      if (entry) {
-        entry.salesOrderCount += r.count;
-        this.addUsdAmount(entry, 'salesOrderAmount', r.total, r.currencyCode, rates, unsupportedCurrencies);
-      }
-    }
 
     // Satınalma siparişleri
-    const purchaseOrderRows = await this.db
+    const purchaseOrderRowsQuery = this.db
       .select({
         userId: purchaseOrders.createdBy,
         currencyCode: currencies.code,
@@ -845,16 +893,9 @@ export class ReportsService {
         )
       )
       .groupBy(purchaseOrders.createdBy, currencies.code);
-    for (const r of purchaseOrderRows) {
-      const entry = get(r.userId);
-      if (entry) {
-        entry.purchaseOrderCount += r.count;
-        this.addUsdAmount(entry, 'purchaseOrderAmount', r.total, r.currencyCode, rates, unsupportedCurrencies);
-      }
-    }
 
     // Ziyaret
-    const visitRows = await this.db
+    const visitRowsQuery = this.db
       .select({ userId: visitsTbl.createdBy, count: sql<number>`count(*)::int` })
       .from(visitsTbl)
       .where(
@@ -868,13 +909,9 @@ export class ReportsService {
         )
       )
       .groupBy(visitsTbl.createdBy);
-    for (const r of visitRows) {
-      const entry = get(r.userId);
-      if (entry) entry.visitTarget = r.count;
-    }
 
     // Arama
-    const callRows = await this.db
+    const callRowsQuery = this.db
       .select({ userId: callsTbl.createdBy, count: sql<number>`count(*)::int` })
       .from(callsTbl)
       .where(
@@ -888,13 +925,9 @@ export class ReportsService {
         )
       )
       .groupBy(callsTbl.createdBy);
-    for (const r of callRows) {
-      const entry = get(r.userId);
-      if (entry) entry.callTarget = r.count;
-    }
 
     // Tamamlanan servis: çözülen servis kayıtları (atanan teknisyene sayılır)
-    const ticketRows = await this.db
+    const ticketRowsQuery = this.db
       .select({ userId: serviceTickets.assignedToUserId, count: sql<number>`count(*)::int` })
       .from(serviceTickets)
       .where(
@@ -908,13 +941,9 @@ export class ReportsService {
         )
       )
       .groupBy(serviceTickets.assignedToUserId);
-    for (const r of ticketRows) {
-      const entry = get(r.userId);
-      if (entry) entry.serviceCompleted = r.count;
-    }
 
     // Servis cirosu ve kurulum sayısı: tamamlanan kurulum işleri
-    const installRows = await this.db
+    const installRowsQuery = this.db
       .select({
         userId: installationJobs.assignedToUserId,
         count: sql<number>`count(*)::int`,
@@ -932,16 +961,9 @@ export class ReportsService {
         )
       )
       .groupBy(installationJobs.assignedToUserId);
-    for (const r of installRows) {
-      const entry = get(r.userId);
-      if (entry) {
-        entry.serviceAmount = Number(r.total ?? 0);
-        entry.installationCompleted = r.count;
-      }
-    }
 
     // Dijital lead
-    const leadRows = await this.db
+    const leadRowsQuery = this.db
       .select({ userId: leads.ownerUserId, count: sql<number>`count(*)::int` })
       .from(leads)
       .where(
@@ -955,6 +977,85 @@ export class ReportsService {
         )
       )
       .groupBy(leads.ownerUserId);
+
+    const [
+      invoiceRows,
+      paymentRows,
+      purchaseInvoiceRows,
+      companyRows,
+      quoteRows,
+      salesOrderRows,
+      purchaseOrderRows,
+      visitRows,
+      callRows,
+      ticketRows,
+      installRows,
+      leadRows,
+    ] = await Promise.all([
+      invoiceRowsQuery,
+      paymentRowsQuery,
+      purchaseInvoiceRowsQuery,
+      companyRowsQuery,
+      quoteRowsQuery,
+      salesOrderRowsQuery,
+      purchaseOrderRowsQuery,
+      visitRowsQuery,
+      callRowsQuery,
+      ticketRowsQuery,
+      installRowsQuery,
+      leadRowsQuery,
+    ]);
+
+    for (const r of invoiceRows) {
+      this.addUsdAmount(get(r.userId), 'salesAmount', r.total, r.currencyCode, rates, unsupportedCurrencies);
+    }
+    for (const r of paymentRows) {
+      this.addUsdAmount(get(r.userId), 'paymentsInAmount', r.total, r.currencyCode, rates, unsupportedCurrencies);
+    }
+    for (const r of purchaseInvoiceRows) {
+      this.addUsdAmount(get(r.userId), 'purchaseInvoiceAmount', r.total, r.currencyCode, rates, unsupportedCurrencies);
+    }
+    for (const r of companyRows) {
+      const entry = get(r.userId);
+      if (entry) entry.salesNewCustomers = r.count;
+    }
+    for (const r of quoteRows) {
+      const entry = get(r.userId);
+      if (entry) entry.quoteTarget = r.count;
+    }
+    for (const r of salesOrderRows) {
+      const entry = get(r.userId);
+      if (entry) {
+        entry.salesOrderCount += r.count;
+        this.addUsdAmount(entry, 'salesOrderAmount', r.total, r.currencyCode, rates, unsupportedCurrencies);
+      }
+    }
+    for (const r of purchaseOrderRows) {
+      const entry = get(r.userId);
+      if (entry) {
+        entry.purchaseOrderCount += r.count;
+        this.addUsdAmount(entry, 'purchaseOrderAmount', r.total, r.currencyCode, rates, unsupportedCurrencies);
+      }
+    }
+    for (const r of visitRows) {
+      const entry = get(r.userId);
+      if (entry) entry.visitTarget = r.count;
+    }
+    for (const r of callRows) {
+      const entry = get(r.userId);
+      if (entry) entry.callTarget = r.count;
+    }
+    for (const r of ticketRows) {
+      const entry = get(r.userId);
+      if (entry) entry.serviceCompleted = r.count;
+    }
+    for (const r of installRows) {
+      const entry = get(r.userId);
+      if (entry) {
+        entry.serviceAmount = Number(r.total ?? 0);
+        entry.installationCompleted = r.count;
+      }
+    }
     for (const r of leadRows) {
       const entry = get(r.userId);
       if (entry) entry.digitalLeadTarget = r.count;
@@ -1098,14 +1199,17 @@ export class ReportsService {
    * rol kapsamı üyelerin kişisel hedef/fiilî toplamıdır.
    */
   async targetProgress(actor: AuthContext, period: string, scope: TargetProgressScope) {
+    this.assertScopeAllowed(actor, scope);
     const [year, month] = period.split('-').map(Number);
     const from = new Date(Date.UTC(year, month - 1, 1, 0, 0, 0));
     const to = new Date(Date.UTC(year, month, 0, 23, 59, 59, 999));
     const expectedProgressPct = expectedPeriodProgressPct(period);
 
     const unsupportedCurrencies = new Set<string>();
+    // Kapsam kuralı burada uygulanır: süper admin değilse `allUsers` yalnız
+    // aktörün kendisidir, dolayısıyla aşağıdaki tüm dallar tek kişiye daralır.
     const [allUsers, fxSnapshot] = await Promise.all([
-      this.scopedActiveUsers(actor),
+      this.reportAudience(actor),
       this.fx.ratesForPeriod(period),
     ]);
     const departmentMemberships = await this.departmentMembershipMap(actor, allUsers);
@@ -1134,7 +1238,11 @@ export class ReportsService {
       ];
       const departmentRows = departmentIds.length
         ? await this.db.query.departments.findMany({
-            where: and(eq(departments.tenantId, actor.tenantId), inArray(departments.id, departmentIds)),
+            where: and(
+              eq(departments.tenantId, actor.tenantId),
+              isNull(departments.deletedAt),
+              inArray(departments.id, departmentIds)
+            ),
           })
         : [];
       const departmentById = new Map(departmentRows.map((department) => [department.id, department]));
@@ -1170,7 +1278,7 @@ export class ReportsService {
     }
 
     if (scope.kind === 'department') {
-      const deptFilters = [eq(departments.tenantId, actor.tenantId)];
+      const deptFilters = [eq(departments.tenantId, actor.tenantId), isNull(departments.deletedAt)];
       if (scope.id) deptFilters.push(eq(departments.id, scope.id));
       const depts = await this.db.query.departments.findMany({ where: and(...deptFilters) });
       const allMemberIds = allUsers.filter((u) => (departmentMemberships.get(u.id)?.size ?? 0) > 0).map((u) => u.id);
@@ -1271,5 +1379,294 @@ export class ReportsService {
       currencyNormalization: this.currencyNormalization(fxSnapshot, unsupportedCurrencies),
       subjects,
     };
+  }
+
+  // ---- Ekip aktivitesi ----------------------------------------------------
+
+  /**
+   * Seçilen dönemin ve bir önceki eşdeğer dönemin sınırlarını üretir.
+   * Haftalar pazartesi başlar (TR iş haftası).
+   */
+  private activityRanges(period: TeamActivityPeriod, anchor: Date) {
+    const start = new Date(anchor);
+    start.setHours(0, 0, 0, 0);
+    let from: Date;
+    let to: Date;
+    let prevFrom: Date;
+
+    if (period === 'day') {
+      from = start;
+      to = new Date(from);
+      to.setDate(to.getDate() + 1);
+      prevFrom = new Date(from);
+      prevFrom.setDate(prevFrom.getDate() - 1);
+    } else if (period === 'week') {
+      const day = (start.getDay() + 6) % 7; // pazartesi = 0
+      from = new Date(start);
+      from.setDate(from.getDate() - day);
+      to = new Date(from);
+      to.setDate(to.getDate() + 7);
+      prevFrom = new Date(from);
+      prevFrom.setDate(prevFrom.getDate() - 7);
+    } else if (period === 'month') {
+      from = new Date(start.getFullYear(), start.getMonth(), 1);
+      to = new Date(start.getFullYear(), start.getMonth() + 1, 1);
+      prevFrom = new Date(start.getFullYear(), start.getMonth() - 1, 1);
+    } else {
+      from = new Date(start.getFullYear(), 0, 1);
+      to = new Date(start.getFullYear() + 1, 0, 1);
+      prevFrom = new Date(start.getFullYear() - 1, 0, 1);
+    }
+    return { from, to, prevFrom, prevTo: from };
+  }
+
+  /** Zaman serisi kovası: gün→saat, hafta/ay→gün, yıl→ay. */
+  private activityBucket(period: TeamActivityPeriod) {
+    if (period === 'day') return 'hour';
+    if (period === 'year') return 'month';
+    return 'day';
+  }
+
+  /**
+   * Kullanıcı bazında aktivite sayıları. Her kaynak için tek sorgu çalışır ve
+   * mevcut/önceki dönem `filter` ile aynı taramadan çıkarılır.
+   */
+  private async activityCounts(
+    table: 'quotes' | 'visits' | 'calls' | 'activities',
+    tenantId: string,
+    userIds: string[],
+    range: { from: Date; to: Date; prevFrom: Date; prevTo: Date }
+  ) {
+    if (!userIds.length) return new Map<string, { current: number; previous: number }>();
+    const spec = {
+      quotes: { actor: quotes.createdBy, date: quotes.quoteDate, tenant: quotes.tenantId, deleted: quotes.deletedAt, from: quotes },
+      visits: { actor: visitsTbl.createdBy, date: visitsTbl.visitDate, tenant: visitsTbl.tenantId, deleted: visitsTbl.deletedAt, from: visitsTbl },
+      calls: { actor: callsTbl.createdBy, date: callsTbl.callDate, tenant: callsTbl.tenantId, deleted: callsTbl.deletedAt, from: callsTbl },
+      activities: { actor: salesActivities.createdBy, date: salesActivities.activityDate, tenant: salesActivities.tenantId, deleted: salesActivities.deletedAt, from: salesActivities },
+    }[table];
+
+    const rows = await this.db
+      .select({
+        userId: spec.actor,
+        current: sql<number>`count(*) filter (where ${spec.date} >= ${range.from} and ${spec.date} < ${range.to})::int`,
+        previous: sql<number>`count(*) filter (where ${spec.date} >= ${range.prevFrom} and ${spec.date} < ${range.prevTo})::int`,
+      })
+      .from(spec.from as any)
+      .where(
+        and(
+          eq(spec.tenant, tenantId),
+          isNull(spec.deleted),
+          inArray(spec.actor, userIds),
+          gte(spec.date, range.prevFrom),
+          lte(spec.date, range.to)
+        )
+      )
+      .groupBy(spec.actor);
+
+    const map = new Map<string, { current: number; previous: number }>();
+    for (const row of rows) {
+      if (row.userId) map.set(row.userId, { current: row.current ?? 0, previous: row.previous ?? 0 });
+    }
+    return map;
+  }
+
+  /**
+   * Gösterge panelinin ekip aktivitesi bölümü: kim ne yaptı, seçilen dönemde ve
+   * bir önceki eşdeğer dönemde.
+   *
+   * Görünürlük sunucuda zorlanır: süper admin dışındaki kullanıcılar `scope`
+   * ne gönderirse göndersin yalnız KENDİ verisini alır.
+   */
+  async teamActivity(
+    actor: AuthContext,
+    period: TeamActivityPeriod,
+    anchorIso?: string,
+    requestedScope: 'team' | 'self' = 'team'
+  ) {
+    const isSuperAdmin = this.canSeeAllUsers(actor);
+    const scope: 'team' | 'self' = isSuperAdmin ? requestedScope : 'self';
+    const anchor = anchorIso ? new Date(anchorIso) : new Date();
+    const range = this.activityRanges(period, anchor);
+
+    // Süper admin değilse `reportAudience` zaten tek satır döner; 'self'
+    // filtresi süper adminin kendi verisine geçtiği durum için kalır.
+    const audience = await this.reportAudience(actor);
+    const people =
+      scope === 'self' ? audience.filter((user) => user.id === actor.userId) : audience;
+    const userIds = people.map((user) => user.id);
+
+    const [quoteCounts, visitCounts, callCounts, activityCounts] = await Promise.all([
+      this.activityCounts('quotes', actor.tenantId, userIds, range),
+      this.activityCounts('visits', actor.tenantId, userIds, range),
+      this.activityCounts('calls', actor.tenantId, userIds, range),
+      this.activityCounts('activities', actor.tenantId, userIds, range),
+    ]);
+
+    // Fırsat: açılan (createdBy/createdAt) ve kazanılan (ownerUserId + derece WIN).
+    const oppRows = userIds.length
+      ? await this.db
+          .select({
+            userId: opportunities.createdBy,
+            current: sql<number>`count(*) filter (where ${opportunities.createdAt} >= ${range.from} and ${opportunities.createdAt} < ${range.to})::int`,
+            previous: sql<number>`count(*) filter (where ${opportunities.createdAt} >= ${range.prevFrom} and ${opportunities.createdAt} < ${range.prevTo})::int`,
+          })
+          .from(opportunities)
+          .where(
+            and(
+              eq(opportunities.tenantId, actor.tenantId),
+              isNull(opportunities.deletedAt),
+              inArray(opportunities.createdBy, userIds),
+              gte(opportunities.createdAt, range.prevFrom),
+              lte(opportunities.createdAt, range.to)
+            )
+          )
+          .groupBy(opportunities.createdBy)
+      : [];
+
+    const wonRows = userIds.length
+      ? await this.db
+          .select({
+            userId: opportunities.ownerUserId,
+            current: sql<number>`count(*) filter (where ${opportunities.qualificationUpdatedAt} >= ${range.from} and ${opportunities.qualificationUpdatedAt} < ${range.to})::int`,
+            previous: sql<number>`count(*) filter (where ${opportunities.qualificationUpdatedAt} >= ${range.prevFrom} and ${opportunities.qualificationUpdatedAt} < ${range.prevTo})::int`,
+            currentValue: sql<string>`coalesce(sum(${opportunities.estimatedValue}) filter (where ${opportunities.qualificationUpdatedAt} >= ${range.from} and ${opportunities.qualificationUpdatedAt} < ${range.to}), 0)::text`,
+          })
+          .from(opportunities)
+          .where(
+            and(
+              eq(opportunities.tenantId, actor.tenantId),
+              isNull(opportunities.deletedAt),
+              eq(opportunities.qualificationStage, 'win'),
+              inArray(opportunities.ownerUserId, userIds),
+              gte(opportunities.qualificationUpdatedAt, range.prevFrom),
+              lte(opportunities.qualificationUpdatedAt, range.to)
+            )
+          )
+          .groupBy(opportunities.ownerUserId)
+      : [];
+
+    const oppMap = new Map(oppRows.filter((r) => r.userId).map((r) => [r.userId!, r]));
+    const wonMap = new Map(wonRows.filter((r) => r.userId).map((r) => [r.userId!, r]));
+    const pick = (map: Map<string, { current: number; previous: number }>, id: string) =>
+      map.get(id) ?? { current: 0, previous: 0 };
+
+    const rows = people
+      .map((user) => {
+        const quote = pick(quoteCounts, user.id);
+        const visit = pick(visitCounts, user.id);
+        const call = pick(callCounts, user.id);
+        const activity = pick(activityCounts, user.id);
+        const opp = oppMap.get(user.id);
+        const won = wonMap.get(user.id);
+        const current =
+          quote.current + visit.current + call.current + activity.current + (opp?.current ?? 0);
+        const previous =
+          quote.previous + visit.previous + call.previous + activity.previous + (opp?.previous ?? 0);
+        return {
+          userId: user.id,
+          name: user.fullName ?? user.email,
+          quotes: quote,
+          visits: visit,
+          calls: call,
+          activities: activity,
+          opportunitiesCreated: { current: opp?.current ?? 0, previous: opp?.previous ?? 0 },
+          won: { current: won?.current ?? 0, previous: won?.previous ?? 0 },
+          wonValue: Number(won?.currentValue ?? 0),
+          total: { current, previous },
+        };
+      })
+      // Hareketsiz kullanıcılar listeyi şişirmesin; hiç aktivitesi olmayanlar sona.
+      .sort((a, b) => b.total.current - a.total.current || a.name.localeCompare(b.name, 'tr-TR'));
+
+    const sum = (key: 'quotes' | 'visits' | 'calls' | 'activities' | 'opportunitiesCreated' | 'won', field: 'current' | 'previous') =>
+      rows.reduce((acc, row) => acc + row[key][field], 0);
+
+    const totals = {
+      quotes: sum('quotes', 'current'),
+      visits: sum('visits', 'current'),
+      calls: sum('calls', 'current'),
+      activities: sum('activities', 'current'),
+      opportunitiesCreated: sum('opportunitiesCreated', 'current'),
+      won: sum('won', 'current'),
+      wonValue: rows.reduce((acc, row) => acc + row.wonValue, 0),
+    };
+    const previousTotals = {
+      quotes: sum('quotes', 'previous'),
+      visits: sum('visits', 'previous'),
+      calls: sum('calls', 'previous'),
+      activities: sum('activities', 'previous'),
+      opportunitiesCreated: sum('opportunitiesCreated', 'previous'),
+      won: sum('won', 'previous'),
+    };
+
+    return {
+      period,
+      scope,
+      canSeeTeam: isSuperAdmin,
+      range: { from: range.from.toISOString(), to: range.to.toISOString() },
+      previousRange: { from: range.prevFrom.toISOString(), to: range.prevTo.toISOString() },
+      bucket: this.activityBucket(period),
+      totals,
+      previousTotals,
+      timeline: await this.activityTimeline(actor.tenantId, userIds, range, this.activityBucket(period)),
+      users: rows,
+    };
+  }
+
+  /** Seçilen dönemin zaman serisi — grafikler için kova bazında toplamlar. */
+  private async activityTimeline(
+    tenantId: string,
+    userIds: string[],
+    range: { from: Date; to: Date },
+    bucket: string
+  ) {
+    if (!userIds.length) return [];
+    // Kova adı SQL'e düz metin gömülür: bind parametresi kullanılırsa SELECT ve
+    // GROUP BY farklı placeholder ($1 / $4) alır, Postgres ifadeleri aynı saymaz
+    // ve "must appear in the GROUP BY clause" hatası verir. Değer kapalı bir
+    // kümeden geldiği için (activityBucket) enjeksiyon riski yok; yine de doğrulanır.
+    const unit = (['hour', 'day', 'month'] as const).includes(bucket as any) ? bucket : 'day';
+    const series = async (
+      dateCol: any,
+      tenantCol: any,
+      deletedCol: any,
+      actorCol: any,
+      table: any
+    ) => {
+      const truncated = sql`date_trunc('${sql.raw(unit)}', ${dateCol})`;
+      const rows = await this.db
+        .select({
+          bucket: sql<string>`${truncated}::text`,
+          count: sql<number>`count(*)::int`,
+        })
+        .from(table)
+        .where(
+          and(
+            eq(tenantCol, tenantId),
+            isNull(deletedCol),
+            inArray(actorCol, userIds),
+            gte(dateCol, range.from),
+            lte(dateCol, range.to)
+          )
+        )
+        .groupBy(truncated);
+      return new Map(rows.map((row) => [row.bucket, row.count]));
+    };
+
+    const [q, v, c, a] = await Promise.all([
+      series(quotes.quoteDate, quotes.tenantId, quotes.deletedAt, quotes.createdBy, quotes),
+      series(visitsTbl.visitDate, visitsTbl.tenantId, visitsTbl.deletedAt, visitsTbl.createdBy, visitsTbl),
+      series(callsTbl.callDate, callsTbl.tenantId, callsTbl.deletedAt, callsTbl.createdBy, callsTbl),
+      series(salesActivities.activityDate, salesActivities.tenantId, salesActivities.deletedAt, salesActivities.createdBy, salesActivities),
+    ]);
+
+    const keys = [...new Set([...q.keys(), ...v.keys(), ...c.keys(), ...a.keys()])].sort();
+    return keys.map((key) => ({
+      bucket: key,
+      quotes: q.get(key) ?? 0,
+      visits: v.get(key) ?? 0,
+      calls: c.get(key) ?? 0,
+      activities: a.get(key) ?? 0,
+    }));
   }
 }

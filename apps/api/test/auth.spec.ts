@@ -43,6 +43,16 @@ describe('Auth', () => {
     expect(Array.isArray(setCookie) ? setCookie.join(';') : setCookie).toMatch(/haksan_rt=/);
   });
 
+  it('allows login with the assigned username while keeping email on the account', async () => {
+    const r = await supertest(app.getHttpServer())
+      .post('/api/v1/auth/login')
+      .send({ identifier: 'ADMIN', password: 'admin12345' });
+
+    expect(r.status).toBe(201);
+    expect(r.body.user.email).toBe('admin@haksan.local');
+    expect(r.body.accessToken).toBeTruthy();
+  });
+
   it('GET /auth/me without token returns 401', async () => {
     const r = await supertest(app.getHttpServer()).get('/api/v1/auth/me');
     expect(r.status).toBe(401);

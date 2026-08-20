@@ -1,14 +1,19 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { and, desc, eq, ilike, inArray, isNotNull, isNull, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, ilike, inArray, isNotNull, isNull, or, sql } from 'drizzle-orm';
 import type { DbClient } from '../../db/client';
 import {
   opportunities,
   opportunityApprovals,
   opportunityQualificationHistory,
   opportunityStageHistory,
+  leadAssignmentCursors,
+  leadAssignmentRules,
+  leadContactEvents,
   salesActivities,
   visits,
   calls,
+  cancellationReasons,
+  competitors,
 } from '../../db/schema/crm';
 import {
   companies,
@@ -18,11 +23,13 @@ import {
   companyPhones,
   contactCompanies,
   contacts,
+  notifications,
 } from '../../db/schema/companies';
-import { users } from '../../db/schema/users';
-import { quotes } from '../../db/schema/quotes';
+import { roles, userDivisions, userRoles, users } from '../../db/schema/users';
+import { auditLogs } from '../../db/schema/audit';
+import { quotes, proformas } from '../../db/schema/quotes';
 import { inventoryItems, inventoryMovements, customerDevices } from '../../db/schema/inventory';
-import { installationJobs } from '../../db/schema/service';
+import { installationJobs, shipments } from '../../db/schema/service';
 import { divisions } from '../../db/schema/tenants';
 import {
   pipelineStages,
@@ -34,9 +41,10 @@ import {
   installationStatuses,
   companyRelationTypes,
   companyStatuses,
+  activityTypes,
 } from '../../db/schema/lookup';
-import { cancellationReasons } from '../../db/schema/crm';
 import { commercialInvoices, contracts } from '../../db/schema/quotes';
+import { opportunityProcessChecks } from '../../db/schema/crm';
 import { receivables } from '../../db/schema/finance';
 import { DB } from '../../shared/database/database.module';
 import { ForbiddenError, NotFoundError, ValidationError } from '../../shared/utils/errors';
@@ -46,6 +54,9 @@ import type {
   OpportunityCreateInput,
   OpportunityApprovalDecisionInput,
   OpportunityConvertInput,
+  LeadAssignmentRuleCreateInput,
+  LeadAssignmentRuleUpdateInput,
+  LeadContactEventInput,
   OpportunityQualificationChangeInput,
   OpportunityUpdateInput,
   OpportunityStageChangeInput,
@@ -56,13 +67,29 @@ import type {
   Pagination,
 } from '@haksan/shared';
 import {
+  LEAD_DISQUALIFY_REASONS,
+  LEAD_FOLLOW_UP_SLA_HOURS,
+  LEAD_MAX_CONTACT_ATTEMPTS,
+  calculateLeadInsights,
+  PIPELINE_STAGE_QUALIFICATION,
+  PIPELINE_STAGE_FLOW,
   PIPELINE_STAGES,
+  QUALIFICATION_STAGE_ENTRY,
+  QUALIFICATION_STAGE_AGE_LIMIT_DAYS,
   QUALIFICATION_STAGES,
   STAGE_TRANSITIONS,
+  requiresPaymentPlan,
   trelloImportRowSchema,
   trelloResolvedImportRowSchema,
+  type LeadFollowUpStatusCode,
+  type LeadContactOutcomeCode,
   type PipelineStageCode,
   type OpportunityApprovalType,
+  type OpportunityProcessReadiness,
+  type OpportunityProcessActionKey,
+  type OpportunityProcessCheckUpsertInput,
+  type ProcessCheck,
+  type ProcessTarget,
   type QualificationStageCode,
 } from '@haksan/shared';
 import { buildPaginated, pageOffset } from '../../shared/utils/pagination';
@@ -90,6 +117,15 @@ import {
 
 type TrelloImportStatus = 'create' | 'skip' | 'error';
 
+const LOST_REASON_NAMES: Record<string, string> = {
+  price: 'Fiyat / Bütçe Yetersiz',
+  competitor: 'Rakip Tercih Edildi',
+  timing: 'Zamanlama / Yatırım Ertelendi',
+  spec: 'Teknik Şartname Karşılanamadı',
+  no_budget: 'Bütçe Onayı Çıkmadı',
+  other: 'Diğer',
+};
+
 type TrelloImportPreviewRow = TrelloImportRowInput & {
   candidate: TrelloCompanyCandidate;
   matches: Array<
@@ -106,12 +142,20 @@ const TRELLO_IMPORT_MAX_BYTES = 2 * 1024 * 1024;
 const TRELLO_IMPORT_MAX_ROWS = 500;
 
 const QUALIFICATION_SEQUENCE: QualificationStageCode[] = ['lead', 'c', 'b', 'a', 'a_plus', 'win'];
+
+/**
+ * İlk temas alanı: kart Lead kolonunda doğar ve C alanında da hâlâ ilk temas
+ * takibindedir. Temas durumu / temas olayı yalnız bu iki derecede yazılır.
+ */
+const isFirstContactStage = (stage: QualificationStageCode) => stage === 'lead' || stage === 'c';
+const HOUR_MS = 60 * 60 * 1000;
+const DAY_MS = 24 * HOUR_MS;
 const APPROVAL_LABELS: Record<OpportunityApprovalType, string> = {
   payment: 'Ödeme onayı',
   customs: 'Gümrük onayı',
   invoice: 'Fatura onayı',
   installation: 'Kurulum onayı',
-  win: 'Nihai WIN onayı',
+  win: 'Süperadmin nihai WIN onayı',
 };
 
 type QualificationContext = {
@@ -122,8 +166,31 @@ type QualificationContext = {
   hasEmail: boolean;
   hasCall: boolean;
   hasVisit: boolean;
+  hasQuote: boolean;
   approvals: Partial<Record<OpportunityApprovalType, 'pending' | 'approved' | 'rejected'>>;
 };
+
+type LeadActivityContext = {
+  latestActivityAt: Date | null;
+  latestContactOutcome: LeadContactOutcomeCode | null;
+};
+
+type ProcessEvidence = {
+  hasQuote: boolean;
+  hasApprovedQuote: boolean;
+  hasProforma: boolean;
+  hasContract: boolean;
+  hasPaymentPlan: boolean;
+  hasCommercialInvoice: boolean;
+  hasCommercialInvoiceFile: boolean;
+  hasStockReservation: boolean;
+  hasShipment: boolean;
+  hasArrivedShipment: boolean;
+  hasInstallation: boolean;
+  hasCompletedInstallation: boolean;
+};
+
+type CheckDefinition = ProcessCheck & { requiredAt: PipelineStageCode };
 
 const TRELLO_FIELD_ALIASES: Record<string, string[]> = {
   trelloCardId: ['card id', 'card id long', 'id', 'kart id', 'kart kimligi', 'kart kimliği'],
@@ -239,7 +306,7 @@ function suggestedStageForTrelloList(listName: string): PipelineStageCode {
     ['call', ['arama', 'telefon', 'call']],
     ['sales', ['satis', 'sales', 'gorusme', 'temas']],
   ];
-  return rules.find(([, keywords]) => keywords.some((keyword) => value.includes(keyword)))?.[0] ?? 'lead';
+  return rules.find(([, keywords]) => keywords.some((keyword) => value.includes(keyword)))?.[0] ?? 'sales';
 }
 
 @Injectable()
@@ -259,7 +326,7 @@ export class OpportunitiesService {
   private qualificationStage(value: string | null | undefined): QualificationStageCode {
     return QUALIFICATION_STAGES.includes(value as QualificationStageCode)
       ? (value as QualificationStageCode)
-      : 'lead';
+      : 'c';
   }
 
   private async qualificationContexts(rows: Array<typeof opportunities.$inferSelect>) {
@@ -267,7 +334,7 @@ export class OpportunitiesService {
     const companyIds = [...new Set(rows.map((row) => row.companyId).filter((id): id is string => Boolean(id)))];
     if (!opportunityIds.length) return new Map<string, QualificationContext>();
 
-    const [companyRows, addressRows, phoneRows, emailRows, callRows, visitRows, approvalRows] = await Promise.all([
+    const [companyRows, addressRows, phoneRows, emailRows, callRows, visitRows, activityRows, approvalRows, quoteRows] = await Promise.all([
       companyIds.length
         ? this.db
             .select({ id: companies.id, sector: companies.sector })
@@ -331,6 +398,28 @@ export class OpportunitiesService {
         .where(and(eq(visits.tenantId, rows[0].tenantId), inArray(visits.opportunityId, opportunityIds), isNull(visits.deletedAt))),
       this.db
         .select({
+          opportunityId: salesActivities.opportunityId,
+          activityTypeCode: activityTypes.code,
+        })
+        .from(salesActivities)
+        .innerJoin(activityTypes, eq(salesActivities.activityTypeId, activityTypes.id))
+        .where(
+          and(
+            eq(salesActivities.tenantId, rows[0].tenantId),
+            inArray(salesActivities.opportunityId, opportunityIds),
+            isNull(salesActivities.deletedAt),
+            inArray(activityTypes.code, [
+              'incoming_call',
+              'outgoing_call',
+              'customer_visit',
+              'call',
+              'visit',
+              'demo',
+            ])
+          )
+        ),
+      this.db
+        .select({
           opportunityId: opportunityApprovals.opportunityId,
           approvalType: opportunityApprovals.approvalType,
           status: opportunityApprovals.status,
@@ -341,6 +430,16 @@ export class OpportunitiesService {
             eq(opportunityApprovals.tenantId, rows[0].tenantId),
             inArray(opportunityApprovals.opportunityId, opportunityIds),
             isNull(opportunityApprovals.deletedAt)
+          )
+        ),
+      this.db
+        .select({ opportunityId: quotes.opportunityId })
+        .from(quotes)
+        .where(
+          and(
+            eq(quotes.tenantId, rows[0].tenantId),
+            inArray(quotes.opportunityId, opportunityIds),
+            isNull(quotes.deletedAt)
           )
         ),
     ]);
@@ -354,8 +453,21 @@ export class OpportunitiesService {
     }
     const phones = new Set(phoneRows.map((row) => row.companyId));
     const emails = new Set(emailRows.map((row) => row.companyId));
-    const callsByOpportunity = new Set(callRows.map((row) => row.opportunityId).filter(Boolean));
-    const visitsByOpportunity = new Set(visitRows.map((row) => row.opportunityId).filter(Boolean));
+    const callsByOpportunity = new Set([
+      ...callRows.map((row) => row.opportunityId).filter(Boolean),
+      ...activityRows
+        .filter((row) => ['incoming_call', 'outgoing_call', 'call'].includes(row.activityTypeCode))
+        .map((row) => row.opportunityId)
+        .filter(Boolean),
+    ]);
+    const visitsByOpportunity = new Set([
+      ...visitRows.map((row) => row.opportunityId).filter(Boolean),
+      ...activityRows
+        .filter((row) => ['customer_visit', 'visit', 'demo'].includes(row.activityTypeCode))
+        .map((row) => row.opportunityId)
+        .filter(Boolean),
+    ]);
+    const quotesByOpportunity = new Set(quoteRows.map((row) => row.opportunityId).filter(Boolean));
     const approvalsByOpportunity = new Map<
       string,
       Partial<Record<OpportunityApprovalType, 'pending' | 'approved' | 'rejected'>>
@@ -380,11 +492,86 @@ export class OpportunitiesService {
             hasEmail: Boolean(companyId && emails.has(companyId)),
             hasCall: callsByOpportunity.has(row.id),
             hasVisit: visitsByOpportunity.has(row.id),
+            hasQuote: quotesByOpportunity.has(row.id),
             approvals: approvalsByOpportunity.get(row.id) ?? {},
           } satisfies QualificationContext,
         ] as const;
       })
     );
+  }
+
+  private async leadActivityContexts(rows: Array<typeof opportunities.$inferSelect>) {
+    const opportunityIds = rows.map((row) => row.id);
+    if (!opportunityIds.length) return new Map<string, LeadActivityContext>();
+
+    const [activityRows, contactRows] = await Promise.all([
+      this.db
+        .select({
+          opportunityId: salesActivities.opportunityId,
+          latestActivityAt: sql<Date | null>`max(${salesActivities.activityDate})`,
+        })
+        .from(salesActivities)
+        .where(
+          and(
+            eq(salesActivities.tenantId, rows[0].tenantId),
+            inArray(salesActivities.opportunityId, opportunityIds),
+            isNull(salesActivities.deletedAt)
+          )
+        )
+        .groupBy(salesActivities.opportunityId),
+      this.db
+        .select({
+          opportunityId: leadContactEvents.opportunityId,
+          outcome: leadContactEvents.outcome,
+        })
+        .from(leadContactEvents)
+        .where(
+          and(
+            eq(leadContactEvents.tenantId, rows[0].tenantId),
+            inArray(leadContactEvents.opportunityId, opportunityIds)
+          )
+        )
+        .orderBy(desc(leadContactEvents.occurredAt)),
+    ]);
+
+    const result = new Map<string, LeadActivityContext>();
+    for (const opportunityId of opportunityIds) {
+      result.set(opportunityId, { latestActivityAt: null, latestContactOutcome: null });
+    }
+    for (const row of activityRows) {
+      if (!row.opportunityId) continue;
+      const current = result.get(row.opportunityId);
+      if (current) current.latestActivityAt = row.latestActivityAt ? new Date(row.latestActivityAt) : null;
+    }
+    for (const row of contactRows) {
+      const current = result.get(row.opportunityId);
+      if (current && !current.latestContactOutcome) {
+        current.latestContactOutcome = row.outcome as LeadContactOutcomeCode;
+      }
+    }
+    return result;
+  }
+
+  private leadInsights(row: typeof opportunities.$inferSelect, activity?: LeadActivityContext) {
+    const status = (row.leadFollowUpStatus ?? 'new') as LeadFollowUpStatusCode;
+    return calculateLeadInsights({
+      requestedProduct: row.title,
+      requestedMachine: row.requestedMachine,
+      leadNeedSummary: row.leadNeedSummary,
+      leadAuthorityStatus: row.leadAuthorityStatus as Parameters<typeof calculateLeadInsights>[0]['leadAuthorityStatus'],
+      leadBudgetStatus: row.leadBudgetStatus as Parameters<typeof calculateLeadInsights>[0]['leadBudgetStatus'],
+      leadPurchaseTimeframe:
+        row.leadPurchaseTimeframe as Parameters<typeof calculateLeadInsights>[0]['leadPurchaseTimeframe'],
+      leadTechnicalFit: row.leadTechnicalFit as Parameters<typeof calculateLeadInsights>[0]['leadTechnicalFit'],
+      leadFollowUpStatus: status,
+      firstContactAt: row.firstContactAt,
+      createdAt: row.createdAt,
+      leadSlaHours: LEAD_FOLLOW_UP_SLA_HOURS[status],
+      nextAction: row.nextAction,
+      nextActionAt: row.nextActionAt,
+      latestActivityAt: activity?.latestActivityAt,
+      latestContactOutcome: activity?.latestContactOutcome,
+    });
   }
 
   private qualificationReadiness(
@@ -422,7 +609,8 @@ export class OpportunitiesService {
           key: 'payment_method',
           label: 'Ödeme biçimi belirlendi',
           complete: Boolean(row.paymentMethod && row.paymentMethod !== 'undecided'),
-        }
+        },
+        { key: 'quote', label: 'Teklif oluşturuldu', complete: context.hasQuote }
       );
     } else if (stage === 'a') {
       checks.push(
@@ -446,6 +634,590 @@ export class OpportunitiesService {
       blockers,
       checks,
       approvals: context.approvals,
+      health: this.processHealth(row, stage),
+    };
+  }
+
+  private async processEvidence(opportunityId: string, actor: AuthContext): Promise<ProcessEvidence> {
+    const [
+      quoteRows,
+      proformaRows,
+      contractRows,
+      paymentPlanRows,
+      invoiceRows,
+      reservationRows,
+      shipmentRows,
+      installationRows,
+    ] = await Promise.all([
+      this.db
+        .select({ id: quotes.id, approvedAt: quotes.approvedAt })
+        .from(quotes)
+        .where(and(eq(quotes.tenantId, actor.tenantId), eq(quotes.opportunityId, opportunityId), isNull(quotes.deletedAt))),
+      this.db
+        .select({ id: proformas.id })
+        .from(proformas)
+        .innerJoin(quotes, eq(proformas.quoteId, quotes.id))
+        .where(
+          and(
+            eq(proformas.tenantId, actor.tenantId),
+            eq(quotes.opportunityId, opportunityId),
+            isNull(proformas.deletedAt),
+            isNull(quotes.deletedAt)
+          )
+        ),
+      this.db
+        .select({ id: contracts.id })
+        .from(contracts)
+        .innerJoin(quotes, eq(contracts.quoteId, quotes.id))
+        .where(
+          and(
+            eq(contracts.tenantId, actor.tenantId),
+            eq(quotes.opportunityId, opportunityId),
+            isNull(contracts.deletedAt),
+            isNull(quotes.deletedAt)
+          )
+        ),
+      this.db
+        .select({ id: receivables.id })
+        .from(receivables)
+        .innerJoin(quotes, eq(receivables.quoteId, quotes.id))
+        .where(
+          and(
+            eq(receivables.tenantId, actor.tenantId),
+            eq(quotes.opportunityId, opportunityId),
+            isNull(receivables.deletedAt),
+            isNull(quotes.deletedAt)
+          )
+        ),
+      this.db
+        .select({ id: commercialInvoices.id, fileId: commercialInvoices.fileId })
+        .from(commercialInvoices)
+        .innerJoin(quotes, eq(commercialInvoices.quoteId, quotes.id))
+        .where(
+          and(
+            eq(commercialInvoices.tenantId, actor.tenantId),
+            eq(quotes.opportunityId, opportunityId),
+            isNull(commercialInvoices.deletedAt),
+            isNull(quotes.deletedAt)
+          )
+        ),
+      this.db
+        .select({ id: inventoryMovements.id })
+        .from(inventoryMovements)
+        .where(
+          and(
+            eq(inventoryMovements.tenantId, actor.tenantId),
+            eq(inventoryMovements.referenceType, 'opportunity'),
+            eq(inventoryMovements.referenceId, opportunityId),
+            eq(inventoryMovements.movementType, 'reserve')
+          )
+        ),
+      this.db
+        .select({ id: shipments.id, arrivedAt: shipments.arrivedAt })
+        .from(shipments)
+        .where(
+          and(
+            eq(shipments.tenantId, actor.tenantId),
+            eq(shipments.opportunityId, opportunityId),
+            eq(shipments.direction, 'outgoing'),
+            isNull(shipments.deletedAt)
+          )
+        ),
+      this.db
+        .select({ id: installationJobs.id, completedAt: installationJobs.completedAt })
+        .from(installationJobs)
+        .where(
+          and(
+            eq(installationJobs.tenantId, actor.tenantId),
+            eq(installationJobs.opportunityId, opportunityId),
+            isNull(installationJobs.deletedAt)
+          )
+        ),
+    ]);
+
+    return {
+      hasQuote: quoteRows.length > 0,
+      hasApprovedQuote: quoteRows.some((quote) => Boolean(quote.approvedAt)),
+      hasProforma: proformaRows.length > 0,
+      hasContract: contractRows.length > 0,
+      hasPaymentPlan: paymentPlanRows.length > 0,
+      hasCommercialInvoice: invoiceRows.length > 0,
+      hasCommercialInvoiceFile: invoiceRows.some((invoice) => Boolean(invoice.fileId)),
+      hasStockReservation: reservationRows.length > 0,
+      hasShipment: shipmentRows.length > 0,
+      hasArrivedShipment: shipmentRows.some((shipment) => Boolean(shipment.arrivedAt)),
+      hasInstallation: installationRows.length > 0,
+      hasCompletedInstallation: installationRows.some((installation) => Boolean(installation.completedAt)),
+    };
+  }
+
+  /**
+   * Elle işaretlenebilen adımlar: A+ alanındaki işlerin bir kısmı CRM dışında
+   * yürüdüğü için (gümrükçü, nakliyeci, saha ekibi) satışçı adımı kendi
+   * kararıyla kapatabilir. Diğer alanlar kanıta bağlı kalır; aksi hâlde
+   * "teklifi yok ama teklif adımı tamam" gibi yalan bir kayıt doğar.
+   */
+  private manualCheckAllowed(definition: CheckDefinition) {
+    return definition.qualificationStage === 'a_plus';
+  }
+
+  private async manualProcessChecks(opportunityId: string, actor: AuthContext) {
+    const rows = await this.db
+      .select({
+        checkKey: opportunityProcessChecks.checkKey,
+        status: opportunityProcessChecks.status,
+        note: opportunityProcessChecks.note,
+        updatedAt: opportunityProcessChecks.updatedAt,
+        updatedByName: users.fullName,
+      })
+      .from(opportunityProcessChecks)
+      .leftJoin(users, eq(opportunityProcessChecks.updatedBy, users.id))
+      .where(
+        and(
+          eq(opportunityProcessChecks.tenantId, actor.tenantId),
+          eq(opportunityProcessChecks.opportunityId, opportunityId)
+        )
+      );
+    return new Map(rows.map((row) => [row.checkKey, row]));
+  }
+
+  private applyManualProcessCheck(
+    definition: CheckDefinition,
+    manual?: {
+      status: string;
+      note: string | null;
+      updatedAt: Date;
+      updatedByName: string | null;
+    }
+  ): CheckDefinition {
+    const manualEditable = this.manualCheckAllowed(definition);
+    if (!manualEditable || !manual) return { ...definition, manualEditable };
+    const status = manual.status === 'done' || manual.status === 'not_done' ? manual.status : null;
+    return {
+      ...definition,
+      manualEditable,
+      manualStatus: status,
+      note: manual.note ?? null,
+      noteUpdatedAt: manual.updatedAt?.toISOString() ?? null,
+      noteUpdatedByName: manual.updatedByName ?? null,
+      // Elle verilen karar kanıttan türetilen değerin yerine geçer.
+      complete: status === 'done' ? true : status === 'not_done' ? false : definition.complete,
+    };
+  }
+
+  /** A+ adımını "yapıldı / yapılmadı" olarak işaretler; `status: null` işareti kaldırır. */
+  async setProcessCheck(
+    id: string,
+    checkKey: string,
+    input: OpportunityProcessCheckUpsertInput,
+    actor: AuthContext
+  ) {
+    const opp = await this.findScopedOpp(id, actor);
+    const contexts = await this.qualificationContexts([opp]);
+    const evidence = await this.processEvidence(opp.id, actor);
+    const definition = this.processCheckDefinitions(opp, contexts.get(opp.id)!, evidence).find(
+      (item) => item.key === checkKey
+    );
+    if (!definition) throw new ValidationError('Bilinmeyen süreç adımı', { field: 'checkKey' });
+    if (!this.manualCheckAllowed(definition)) {
+      throw new ValidationError('Yalnız A+ adımları elle işaretlenebilir', { field: 'checkKey' });
+    }
+
+    const note = input.note?.trim() || null;
+    if (input.status === null && !note) {
+      await this.db
+        .delete(opportunityProcessChecks)
+        .where(
+          and(
+            eq(opportunityProcessChecks.tenantId, actor.tenantId),
+            eq(opportunityProcessChecks.opportunityId, id),
+            eq(opportunityProcessChecks.checkKey, checkKey)
+          )
+        );
+    } else {
+      await this.db
+        .insert(opportunityProcessChecks)
+        .values({
+          tenantId: actor.tenantId,
+          opportunityId: id,
+          checkKey,
+          // İşaret kaldırılıp yalnız yorum bırakıldığında adım kanıta döner;
+          // `not_done` burada "kanıt yok" anlamını taşır, kararı bozmaz.
+          status: input.status ?? 'not_done',
+          note,
+          updatedBy: actor.userId,
+          updatedAt: new Date(),
+        })
+        .onConflictDoUpdate({
+          target: [opportunityProcessChecks.opportunityId, opportunityProcessChecks.checkKey],
+          set: {
+            status: input.status ?? 'not_done',
+            note,
+            updatedBy: actor.userId,
+            updatedAt: new Date(),
+          },
+        });
+    }
+
+    await this.audit.write({
+      tenantId: actor.tenantId,
+      actorUserId: actor.userId,
+      action: 'opportunity.process_check.updated',
+      resourceType: 'opportunity',
+      resourceId: id,
+      newValues: { checkKey, status: input.status ?? null, note },
+    });
+    return this.get(id, actor);
+  }
+
+  private processCheckDefinitions(
+    row: typeof opportunities.$inferSelect,
+    context: QualificationContext,
+    evidence: ProcessEvidence
+  ): CheckDefinition[] {
+    const check = (
+      key: string,
+      label: string,
+      complete: boolean,
+      actionKey: OpportunityProcessActionKey,
+      requiredAt: PipelineStageCode,
+      qualificationStage: QualificationStageCode
+    ): CheckDefinition => ({
+      key,
+      label,
+      complete,
+      actionKey,
+      requiredAt,
+      stageCode: requiredAt,
+      qualificationStage,
+    });
+
+    return [
+      check('owner', 'Sorumlu atandı', Boolean(row.ownerUserId), 'assign_owner', 'sales', 'lead'),
+      check('subject', 'Konu girildi', Boolean(row.title?.trim()), 'edit_subject', 'sales', 'lead'),
+      /**
+       * İlk temas lead alanının işi: `leadSlaBreached` zaten bunun gecikmesini
+       * ölçüyordu ama adım listesinde karşılığı yoktu, kaydetme düğmesi iletişim
+       * kutusunun dibinde duruyordu. `call` aşamasında zorunlu — lead'den C'ye
+       * geçişi kilitlemez, B alanına ilerlemeyi kilitler.
+       */
+      check('first_contact', 'İlk temas kuruldu', Boolean(row.firstContactAt), 'record_first_contact', 'call', 'lead'),
+      check('company', 'Firma bağlı', Boolean(context.company), 'link_company', 'call', 'c'),
+      check('contact', 'Kontak bağlı', Boolean(row.primaryContactId), 'link_contact', 'call', 'c'),
+      check('location', 'İl ve ilçe girildi', context.hasLocation, 'edit_company', 'call', 'c'),
+      check('address', 'Açık adres girildi', context.hasAddress, 'edit_company', 'call', 'c'),
+      check('email', 'E-posta girildi', context.hasEmail, 'edit_company', 'call', 'c'),
+      check('sector', 'Sektör girildi', Boolean(context.company?.sector?.trim()), 'edit_company', 'call', 'c'),
+      check('phone', 'Telefon girildi', context.hasPhone, 'edit_company', 'call', 'c'),
+      check('call', 'Arama kaydı oluşturuldu', context.hasCall, 'record_call', 'visit', 'b'),
+      check('visit', 'Ziyaret durumu', context.hasVisit, 'record_visit', 'quote', 'b'),
+      check('machine', 'İstenen makine belirlendi', Boolean(row.requestedMachine?.trim()), 'edit_machine', 'quote', 'b'),
+      check(
+        'payment_method',
+        'Ödeme biçimi belirlendi',
+        Boolean(row.paymentMethod && row.paymentMethod !== 'undecided'),
+        'edit_payment_method',
+        'quote',
+        'b'
+      ),
+      check('quote', 'Teklif oluşturuldu', evidence.hasQuote, 'create_quote', 'quote', 'b'),
+      check('quote_approved', 'Teklif onaylandı', evidence.hasApprovedQuote, 'approve_quote', 'proforma', 'a'),
+      check('proforma', 'Proforma oluşturuldu', evidence.hasProforma, 'create_proforma', 'proforma', 'a'),
+      check('contract', 'Sözleşme oluşturuldu', evidence.hasContract, 'create_contract', 'contract', 'a'),
+      check(
+        'contract_terms',
+        'Sözleşme şartları girildi',
+        Boolean(row.contractTerms?.trim()),
+        'edit_contract_terms',
+        'contract',
+        'a'
+      ),
+      check(
+        'payment_terms',
+        'Ödeme koşulları girildi',
+        Boolean(row.paymentTerms?.trim()),
+        'edit_payment_terms',
+        'payment_plan',
+        'a'
+      ),
+      // Peşin ve leasingde vade satırı yoktur; adım plan beklemeden tamamlanmış
+      // sayılır, aksi hâlde kart hiç üretilmeyecek bir plana takılı kalıyordu.
+      check(
+        'payment_plan',
+        requiresPaymentPlan(row.paymentMethod) ? 'Ödeme planı oluşturuldu' : 'Ödeme planı gerekmiyor (peşin/leasing)',
+        evidence.hasPaymentPlan || !requiresPaymentPlan(row.paymentMethod),
+        'create_payment_plan',
+        'payment_plan',
+        'a'
+      ),
+      // Ticari fatura A+ alanının İÇİNDE kesilir, A+'ya girmenin koşulu değildir.
+      // Kurulumla birlikte WIN kapısında (delivered) aranır.
+      check(
+        'commercial_invoice',
+        'Ticari fatura kaydı oluşturuldu',
+        evidence.hasCommercialInvoice,
+        'create_commercial_invoice',
+        'delivered',
+        'a_plus'
+      ),
+      check(
+        'commercial_invoice_file',
+        'Ticari fatura dosyası bağlandı',
+        evidence.hasCommercialInvoiceFile,
+        'create_commercial_invoice',
+        'delivered',
+        'a_plus'
+      ),
+      check(
+        'customs',
+        'Gümrük onayı verildi',
+        context.approvals.customs === 'approved',
+        'approve_customs',
+        'stock_picking',
+        'a_plus'
+      ),
+      check(
+        'stock',
+        'Geçerli seri numarası rezerve edildi',
+        evidence.hasStockReservation,
+        'reserve_stock',
+        'stock_picking',
+        'a_plus'
+      ),
+      check('shipment', 'Giden sevkiyat oluşturuldu', evidence.hasShipment, 'create_shipment', 'shipping', 'a_plus'),
+      check(
+        'shipment_arrived',
+        'Giden sevkiyatın varış bilgisi tamamlandı',
+        evidence.hasArrivedShipment,
+        'complete_shipment',
+        'installation',
+        'a_plus'
+      ),
+      check(
+        'installation',
+        'Kurulum kaydı oluşturuldu',
+        evidence.hasInstallation,
+        'open_installation',
+        'delivered',
+        'a_plus'
+      ),
+      check(
+        'installation_completed',
+        'Kurulum tamamlandı',
+        evidence.hasCompletedInstallation,
+        'complete_installation',
+        'delivered',
+        'a_plus'
+      ),
+      check(
+        'payment_approval',
+        APPROVAL_LABELS.payment,
+        context.approvals.payment === 'approved',
+        'approve_payment',
+        'delivered',
+        'a_plus'
+      ),
+      check(
+        'invoice_approval',
+        APPROVAL_LABELS.invoice,
+        context.approvals.invoice === 'approved',
+        'approve_invoice',
+        'delivered',
+        'a_plus'
+      ),
+      check(
+        'installation_approval',
+        APPROVAL_LABELS.installation,
+        context.approvals.installation === 'approved',
+        'approve_installation',
+        'delivered',
+        'a_plus'
+      ),
+      check(
+        'win_approval',
+        APPROVAL_LABELS.win,
+        context.approvals.win === 'approved',
+        'approve_win',
+        'delivered',
+        'a_plus'
+      ),
+    ];
+  }
+
+  private approvalsInvalidatedByBackwardTarget(targetCode: PipelineStageCode): OpportunityApprovalType[] {
+    const targetIndex = PIPELINE_STAGE_FLOW.indexOf(targetCode);
+    const invalidated = new Set<OpportunityApprovalType>();
+    if (targetIndex < PIPELINE_STAGE_FLOW.indexOf('delivered')) invalidated.add('win');
+    if (targetIndex < PIPELINE_STAGE_FLOW.indexOf('installation')) invalidated.add('installation');
+    if (targetIndex < PIPELINE_STAGE_FLOW.indexOf('customs_approved')) invalidated.add('customs');
+    if (targetIndex < PIPELINE_STAGE_FLOW.indexOf('commercial_invoice')) invalidated.add('invoice');
+    if (targetIndex < PIPELINE_STAGE_FLOW.indexOf('payment_plan')) invalidated.add('payment');
+    return [...invalidated];
+  }
+
+  private async invalidateApprovals(
+    opportunityId: string,
+    approvalTypes: OpportunityApprovalType[],
+    actor: AuthContext,
+    reason: string
+  ) {
+    if (!approvalTypes.length) return;
+    await this.db
+      .update(opportunityApprovals)
+      .set({
+        status: 'pending',
+        decidedBy: null,
+        decidedAt: null,
+        note: null,
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(opportunityApprovals.tenantId, actor.tenantId),
+          eq(opportunityApprovals.opportunityId, opportunityId),
+          inArray(opportunityApprovals.approvalType, approvalTypes),
+          isNull(opportunityApprovals.deletedAt)
+        )
+      );
+    await this.audit.write({
+      tenantId: actor.tenantId,
+      actorUserId: actor.userId,
+      action: 'opportunity.approvals.invalidated',
+      resourceType: 'opportunity',
+      resourceId: opportunityId,
+      oldValues: { approvalTypes },
+      newValues: { status: 'pending', reason },
+    });
+  }
+
+  private processTarget(
+    axis: ProcessTarget['axis'],
+    code: ProcessTarget['code'],
+    currentCode: ProcessTarget['code'],
+    currentIndex: number,
+    targetIndex: number,
+    checks: CheckDefinition[],
+    targetOperationIndex: number,
+    closed: boolean
+  ): ProcessTarget {
+    const direction = targetIndex === currentIndex ? 'current' : targetIndex > currentIndex ? 'forward' : 'backward';
+    const blockers =
+      direction === 'forward'
+        ? checks
+            .filter((item) => PIPELINE_STAGE_FLOW.indexOf(item.requiredAt) <= targetOperationIndex && !item.complete)
+            .map(({ requiredAt: _requiredAt, ...item }) => item)
+        : [];
+    const targetOperationCode = PIPELINE_STAGE_FLOW[Math.max(0, targetOperationIndex)] ?? 'sales';
+    const selectable = !closed && direction !== 'current';
+    return {
+      axis,
+      code,
+      direction,
+      selectable,
+      canTransition: selectable && (direction === 'backward' || blockers.length === 0),
+      requiresReason: direction === 'backward',
+      blockers,
+      invalidatedApprovals:
+        direction === 'backward' ? this.approvalsInvalidatedByBackwardTarget(targetOperationCode) : [],
+    };
+  }
+
+  private async opportunityProcessReadiness(
+    row: typeof opportunities.$inferSelect,
+    currentOperationStage: PipelineStageCode,
+    context: QualificationContext,
+    actor: AuthContext
+  ): Promise<OpportunityProcessReadiness> {
+    const evidence = await this.processEvidence(row.id, actor);
+    const manualChecks = await this.manualProcessChecks(row.id, actor);
+    const definitions = this.processCheckDefinitions(row, context, evidence).map((definition) =>
+      this.applyManualProcessCheck(definition, manualChecks.get(definition.key))
+    );
+    const currentQualificationStage = this.qualificationStage(row.qualificationStage);
+    const currentQualificationIndex = QUALIFICATION_SEQUENCE.indexOf(currentQualificationStage);
+    const currentOperationIndex = PIPELINE_STAGE_FLOW.indexOf(currentOperationStage);
+    const closed = Boolean(row.closedAt) || currentQualificationStage === 'lost';
+
+    const qualificationTargets = QUALIFICATION_SEQUENCE.map((code, targetIndex) => {
+      const operationCode = QUALIFICATION_STAGE_ENTRY[code].stage;
+      return this.processTarget(
+        'qualification',
+        code,
+        currentQualificationStage,
+        currentQualificationIndex,
+        targetIndex,
+        definitions,
+        PIPELINE_STAGE_FLOW.indexOf(operationCode),
+        closed
+      );
+    });
+    const operationTargets = PIPELINE_STAGE_FLOW.map((code, targetIndex) =>
+      this.processTarget(
+        'operation',
+        code,
+        currentOperationStage,
+        currentOperationIndex,
+        targetIndex,
+        definitions,
+        targetIndex,
+        closed
+      )
+    );
+
+    return {
+      currentQualificationStage,
+      currentOperationStage,
+      closed,
+      targets: [...qualificationTargets, ...operationTargets],
+      checks: definitions.map(({ requiredAt: _requiredAt, ...item }) => item),
+    };
+  }
+
+  /**
+   * Kartın süreç sağlığı: aşamada ne kadar beklediği, lead SLA'sını aşıp aşmadığı
+   * ve takip aksiyonunun durumu. Hiçbiri geçişi engellemez; pano ve bildirimler
+   * bu alanlara bakar. Aşama yaşı `qualificationUpdatedAt` üzerinden hesaplanır —
+   * bu kolon yalnız satış derecesi değiştiğinde yazıldığı için aşamaya giriş anıdır.
+   */
+  private processHealth(row: typeof opportunities.$inferSelect, stage: QualificationStageCode) {
+    const now = Date.now();
+    const days = (value: Date | null | undefined) =>
+      value ? Math.floor((now - new Date(value).getTime()) / DAY_MS) : null;
+
+    const stageAgeDays = days(row.qualificationUpdatedAt ?? row.createdAt);
+    const stageAgeLimitDays = QUALIFICATION_STAGE_AGE_LIMIT_DAYS[stage];
+    const terminal = stage === 'win' || stage === 'lost';
+
+    const leadStatus = (row.leadFollowUpStatus ?? 'new') as LeadFollowUpStatusCode;
+    const leadSlaHours = isFirstContactStage(stage) ? LEAD_FOLLOW_UP_SLA_HOURS[leadStatus] : null;
+    const leadStatusSince = row.leadStatusUpdatedAt ?? row.createdAt;
+    const leadStatusAgeHours = leadStatusSince
+      ? Math.floor((now - new Date(leadStatusSince).getTime()) / HOUR_MS)
+      : null;
+
+    const nextActionAt = row.nextActionAt ? new Date(row.nextActionAt).getTime() : null;
+
+    return {
+      stageAgeDays,
+      stageAgeLimitDays,
+      // Çürüyen kart: aşamada izin verilen süreyi aşmış, kapanmamış kart.
+      rotting:
+        !terminal &&
+        !row.closedAt &&
+        stageAgeLimitDays !== null &&
+        stageAgeDays !== null &&
+        stageAgeDays > stageAgeLimitDays,
+      leadStatus,
+      leadSlaHours,
+      leadStatusAgeHours,
+      leadSlaBreached:
+        leadSlaHours !== null && leadStatusAgeHours !== null && leadStatusAgeHours > leadSlaHours,
+      contactAttemptCount: row.contactAttemptCount ?? 0,
+      attemptLimitReached: (row.contactAttemptCount ?? 0) >= LEAD_MAX_CONTACT_ATTEMPTS,
+      firstContactAt: row.firstContactAt ?? null,
+      // Takip tarihi geçmiş ya da hiç planlanmamış açık kart.
+      actionOverdue: !terminal && !row.closedAt && nextActionAt !== null && nextActionAt < now,
+      actionMissing: !terminal && !row.closedAt && !row.nextActionAt,
     };
   }
 
@@ -675,6 +1447,317 @@ export class OpportunitiesService {
     return user;
   }
 
+  async listAssignableOwners(actor: AuthContext) {
+    const [userRows, divisionRows] = await Promise.all([
+      this.db
+        .select({ id: users.id, fullName: users.fullName, email: users.email })
+        .from(users)
+        .where(
+          and(
+            eq(users.tenantId, actor.tenantId),
+            eq(users.status, 'active'),
+            isNull(users.deletedAt)
+          )
+        )
+        .orderBy(asc(users.fullName)),
+      this.db
+        .select({ userId: userDivisions.userId, divisionId: userDivisions.divisionId })
+        .from(userDivisions)
+        .innerJoin(users, eq(userDivisions.userId, users.id))
+        .where(
+          and(
+            eq(users.tenantId, actor.tenantId),
+            eq(users.status, 'active'),
+            isNull(users.deletedAt)
+          )
+        ),
+    ]);
+    const divisionIdsByUser = new Map<string, string[]>();
+    for (const row of divisionRows) {
+      const divisionIds = divisionIdsByUser.get(row.userId) ?? [];
+      divisionIds.push(row.divisionId);
+      divisionIdsByUser.set(row.userId, divisionIds);
+    }
+    return userRows.map((row) => ({
+      id: row.id,
+      name: row.fullName?.trim() || row.email,
+      divisionIds: divisionIdsByUser.get(row.id) ?? [],
+    }));
+  }
+
+  private normalizeAssignmentValue(value: string | null | undefined) {
+    return (value ?? '')
+      .trim()
+      .toLocaleLowerCase('tr-TR')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '');
+  }
+
+  private async eligibleAssignmentUsers(
+    assigneeUserIds: string[],
+    tenantId: string,
+    divisionId: string | null
+  ) {
+    if (!assigneeUserIds.length) return [];
+    const activeSalesRows = await this.db
+      .select({ id: users.id })
+      .from(users)
+      .innerJoin(userRoles, eq(userRoles.userId, users.id))
+      .innerJoin(roles, eq(roles.id, userRoles.roleId))
+      .where(
+        and(
+          eq(users.tenantId, tenantId),
+          eq(users.status, 'active'),
+          isNull(users.deletedAt),
+          eq(roles.code, 'sales'),
+          inArray(users.id, assigneeUserIds)
+        )
+      );
+    const activeIds = new Set(activeSalesRows.map((row) => row.id));
+    if (!activeIds.size) return [];
+    if (divisionId) {
+      const memberships = await this.db
+        .select({ userId: userDivisions.userId })
+        .from(userDivisions)
+        .where(
+          and(
+            eq(userDivisions.divisionId, divisionId),
+            inArray(userDivisions.userId, [...activeIds])
+          )
+        );
+      const divisionIds = new Set(memberships.map((row) => row.userId));
+      for (const userId of activeIds) {
+        if (!divisionIds.has(userId)) activeIds.delete(userId);
+      }
+    }
+    return assigneeUserIds.filter((userId) => activeIds.has(userId));
+  }
+
+  private async assertAssignmentAssignees(
+    assigneeUserIds: string[],
+    tenantId: string,
+    divisionId: string | null
+  ) {
+    const eligible = await this.eligibleAssignmentUsers(assigneeUserIds, tenantId, divisionId);
+    if (eligible.length !== assigneeUserIds.length) {
+      throw new ValidationError(
+        'Atama kuralındaki tüm kullanıcılar aktif satış kullanıcısı olmalı ve seçilen bölüme bağlı olmalıdır',
+        { field: 'assigneeUserIds' }
+      );
+    }
+  }
+
+  private async resolveLeadOwner(input: {
+    tenantId: string;
+    divisionId: string | null;
+    city?: string | null;
+    product?: string | null;
+    sourceCode?: string | null;
+  }) {
+    const rules = await this.db
+      .select()
+      .from(leadAssignmentRules)
+      .where(
+        and(
+          eq(leadAssignmentRules.tenantId, input.tenantId),
+          eq(leadAssignmentRules.active, true),
+          isNull(leadAssignmentRules.deletedAt),
+          input.divisionId
+            ? or(eq(leadAssignmentRules.divisionId, input.divisionId), isNull(leadAssignmentRules.divisionId))
+            : isNull(leadAssignmentRules.divisionId)
+        )
+      )
+      .orderBy(asc(leadAssignmentRules.priority), asc(leadAssignmentRules.createdAt));
+
+    const city = this.normalizeAssignmentValue(input.city);
+    const product = this.normalizeAssignmentValue(input.product);
+    const sourceCode = this.normalizeAssignmentValue(input.sourceCode);
+    for (const rule of rules) {
+      const criteria = rule.criteria ?? { cities: [], productTerms: [], sourceCodes: [] };
+      const cityMatches =
+        !criteria.cities.length ||
+        criteria.cities.some((value) => this.normalizeAssignmentValue(value) === city);
+      const productMatches =
+        !criteria.productTerms.length ||
+        criteria.productTerms.some((value) => product.includes(this.normalizeAssignmentValue(value)));
+      const sourceMatches =
+        !criteria.sourceCodes.length ||
+        criteria.sourceCodes.some((value) => this.normalizeAssignmentValue(value) === sourceCode);
+      if (!cityMatches || !productMatches || !sourceMatches) continue;
+
+      const eligible = await this.eligibleAssignmentUsers(
+        rule.assigneeUserIds,
+        input.tenantId,
+        input.divisionId
+      );
+      if (!eligible.length) continue;
+
+      const ownerUserId = await this.db.transaction(async (tx) => {
+        await tx
+          .insert(leadAssignmentCursors)
+          .values({ ruleId: rule.id, nextIndex: 0 })
+          .onConflictDoNothing();
+        const cursorResult = await tx.execute(
+          sql`select next_index from lead_assignment_cursors where rule_id = ${rule.id} for update`
+        );
+        const row = cursorResult.rows[0] as { next_index?: number | string } | undefined;
+        const nextIndex = Number(row?.next_index ?? 0);
+        const selected = eligible[nextIndex % eligible.length];
+        await tx
+          .update(leadAssignmentCursors)
+          .set({ nextIndex: nextIndex + 1, updatedAt: new Date() })
+          .where(eq(leadAssignmentCursors.ruleId, rule.id));
+        return selected;
+      });
+      return { ownerUserId, ruleId: rule.id };
+    }
+    return { ownerUserId: null, ruleId: null };
+  }
+
+  private async notifyUnassignedLead(
+    opportunityId: string,
+    title: string,
+    tenantId: string,
+    divisionId: string | null
+  ) {
+    await this.db.insert(notifications).values({
+      tenantId,
+      divisionId,
+      type: 'lead_unassigned',
+      title: 'Sahipsiz fırsat atama bekliyor',
+      body: `${title} için eşleşen aktif satış kullanıcısı bulunamadı.`,
+      entityType: 'opportunity',
+      entityId: opportunityId,
+    });
+  }
+
+  async listAssignmentRules(actor: AuthContext) {
+    const filters = [
+      eq(leadAssignmentRules.tenantId, actor.tenantId),
+      isNull(leadAssignmentRules.deletedAt),
+    ];
+    const scoped = resourceDivisionFilter(actor, 'lead_assignment_rules', leadAssignmentRules.divisionId);
+    if (scoped) filters.push(scoped);
+    return this.db
+      .select()
+      .from(leadAssignmentRules)
+      .where(and(...filters))
+      .orderBy(asc(leadAssignmentRules.priority), asc(leadAssignmentRules.createdAt));
+  }
+
+  private resolveAssignmentRuleDivision(actor: AuthContext, requested: string | null | undefined) {
+    if (requested) {
+      return resolveAssignedResourceDivision(actor, 'lead_assignment_rules', requested);
+    }
+    const resourceScopes = actor.accessScopes.filter(
+      (scope) => scope.resource === 'lead_assignment_rules'
+    );
+    const canManageAllDivisions = resourceScopes.length
+      ? resourceScopes.some((scope) => scope.divisionId === null)
+      : actor.canViewAllDivisions;
+    if (canManageAllDivisions) return null;
+    const scopedDivision = resolveAssignedResourceDivision(actor, 'lead_assignment_rules', null);
+    if (!scopedDivision) {
+      throw new ForbiddenError('Fırsat atama kuralı için erişilebilir bir bölüm bulunamadı');
+    }
+    return scopedDivision;
+  }
+
+  async createAssignmentRule(input: LeadAssignmentRuleCreateInput, actor: AuthContext) {
+    const divisionId = this.resolveAssignmentRuleDivision(actor, input.divisionId);
+    await this.assertAssignmentAssignees(input.assigneeUserIds, actor.tenantId, divisionId);
+    const [row] = await this.db
+      .insert(leadAssignmentRules)
+      .values({
+        tenantId: actor.tenantId,
+        divisionId,
+        name: input.name,
+        priority: input.priority,
+        active: input.active,
+        criteria: input.criteria,
+        assigneeUserIds: input.assigneeUserIds,
+        createdBy: actor.userId,
+        updatedBy: actor.userId,
+      })
+      .returning();
+    await this.audit.write({
+      tenantId: actor.tenantId,
+      actorUserId: actor.userId,
+      action: 'lead_assignment_rule.created',
+      resourceType: 'lead_assignment_rule',
+      resourceId: row.id,
+      newValues: row,
+    });
+    return row;
+  }
+
+  private async findAssignmentRule(id: string, actor: AuthContext) {
+    const row = await this.db.query.leadAssignmentRules.findFirst({
+      where: and(
+        eq(leadAssignmentRules.id, id),
+        eq(leadAssignmentRules.tenantId, actor.tenantId),
+        isNull(leadAssignmentRules.deletedAt),
+        resourceDivisionFilter(actor, 'lead_assignment_rules', leadAssignmentRules.divisionId) ?? sql`true`
+      ),
+    });
+    if (!row) throw new NotFoundError('Fırsat atama kuralı');
+    return row;
+  }
+
+  async updateAssignmentRule(id: string, input: LeadAssignmentRuleUpdateInput, actor: AuthContext) {
+    const existing = await this.findAssignmentRule(id, actor);
+    const divisionId =
+      input.divisionId !== undefined
+        ? this.resolveAssignmentRuleDivision(actor, input.divisionId)
+        : existing.divisionId;
+    const assigneeUserIds = input.assigneeUserIds ?? existing.assigneeUserIds;
+    await this.assertAssignmentAssignees(assigneeUserIds, actor.tenantId, divisionId);
+    const patch = {
+      ...(input.name !== undefined ? { name: input.name } : {}),
+      ...(input.priority !== undefined ? { priority: input.priority } : {}),
+      ...(input.active !== undefined ? { active: input.active } : {}),
+      ...(input.criteria !== undefined ? { criteria: input.criteria } : {}),
+      ...(input.assigneeUserIds !== undefined ? { assigneeUserIds: input.assigneeUserIds } : {}),
+      ...(input.divisionId !== undefined ? { divisionId } : {}),
+      updatedAt: new Date(),
+      updatedBy: actor.userId,
+    };
+    const [updated] = await this.db
+      .update(leadAssignmentRules)
+      .set(patch)
+      .where(eq(leadAssignmentRules.id, id))
+      .returning();
+    await this.audit.write({
+      tenantId: actor.tenantId,
+      actorUserId: actor.userId,
+      action: 'lead_assignment_rule.updated',
+      resourceType: 'lead_assignment_rule',
+      resourceId: id,
+      oldValues: existing,
+      newValues: patch,
+    });
+    return updated;
+  }
+
+  async deleteAssignmentRule(id: string, actor: AuthContext) {
+    const existing = await this.findAssignmentRule(id, actor);
+    const deletedAt = new Date();
+    await this.db
+      .update(leadAssignmentRules)
+      .set({ active: false, deletedAt, updatedAt: deletedAt, updatedBy: actor.userId })
+      .where(eq(leadAssignmentRules.id, id));
+    await this.audit.write({
+      tenantId: actor.tenantId,
+      actorUserId: actor.userId,
+      action: 'lead_assignment_rule.deleted',
+      resourceType: 'lead_assignment_rule',
+      resourceId: id,
+      oldValues: existing,
+      newValues: { deletedAt: deletedAt.toISOString() },
+    });
+    return { ok: true };
+  }
+
   private async tenantHasActiveDivisions(actor: AuthContext): Promise<boolean> {
     const [row] = await this.db
       .select({ count: sql<number>`count(*)::int` })
@@ -687,6 +1770,114 @@ export class OpportunitiesService {
     const filters = [resourceDivisionFilter(actor, 'inventory', inventoryItems.divisionId) ?? sql`true`];
     if (divisionId) filters.push(or(eq(inventoryItems.divisionId, divisionId), isNull(inventoryItems.divisionId)) ?? sql`true`);
     return filters;
+  }
+
+  async leadSummary(actor: AuthContext) {
+    const since = new Date(Date.now() - 30 * DAY_MS);
+    const visibility = await companyVisibilityExistsFilter(this.db, actor, opportunities.companyId);
+    const filters = [
+      eq(opportunities.tenantId, actor.tenantId),
+      isNull(opportunities.deletedAt),
+      sql`${opportunities.createdAt} >= ${since}`,
+      resourceDivisionFilter(actor, 'opportunities', opportunities.divisionId) ?? sql`true`,
+      allowUnlinkedCompanyRecords(opportunities.companyId, visibility),
+    ];
+    const rows = await this.db
+      .select({
+        opp: opportunities,
+        sourceCode: contactSources.code,
+        sourceName: contactSources.name,
+        ownerId: users.id,
+        ownerName: users.fullName,
+      })
+      .from(opportunities)
+      .leftJoin(contactSources, eq(opportunities.sourceId, contactSources.id))
+      .leftJoin(users, eq(opportunities.ownerUserId, users.id))
+      .where(and(...filters));
+
+    const firstStageRows = rows.filter((row) => isFirstContactStage(this.qualificationStage(row.opp.qualificationStage)));
+    const firstContactHours = rows
+      .filter((row) => row.opp.firstContactAt)
+      .map((row) =>
+        Math.max(0, (new Date(row.opp.firstContactAt!).getTime() - new Date(row.opp.createdAt).getTime()) / HOUR_MS)
+      )
+      .sort((a, b) => a - b);
+    const middle = Math.floor(firstContactHours.length / 2);
+    const medianFirstContactHours = firstContactHours.length
+      ? firstContactHours.length % 2
+        ? firstContactHours[middle]
+        : (firstContactHours[middle - 1] + firstContactHours[middle]) / 2
+      : null;
+    const progressed = rows.filter((row) => !isFirstContactStage(this.qualificationStage(row.opp.qualificationStage)));
+    const conversionHistory = await this.db
+      .select({
+        conversionOverride: opportunityQualificationHistory.conversionOverride,
+      })
+      .from(opportunityQualificationHistory)
+      .innerJoin(opportunities, eq(opportunityQualificationHistory.opportunityId, opportunities.id))
+      .where(
+        and(
+          eq(opportunityQualificationHistory.tenantId, actor.tenantId),
+          eq(opportunityQualificationHistory.fromStage, 'c'),
+          eq(opportunityQualificationHistory.toStage, 'b'),
+          sql`${opportunityQualificationHistory.createdAt} >= ${since}`,
+          resourceDivisionFilter(actor, 'opportunities', opportunities.divisionId) ?? sql`true`,
+          allowUnlinkedCompanyRecords(opportunities.companyId, visibility)
+        )
+      );
+
+    const breakdown = (
+      keyFor: (row: (typeof rows)[number]) => { key: string; label: string }
+    ) => {
+      const grouped = new Map<string, { key: string; label: string; total: number; converted: number }>();
+      for (const row of rows) {
+        const item = keyFor(row);
+        const current = grouped.get(item.key) ?? { ...item, total: 0, converted: 0 };
+        current.total += 1;
+        if (!isFirstContactStage(this.qualificationStage(row.opp.qualificationStage))) current.converted += 1;
+        grouped.set(item.key, current);
+      }
+      return [...grouped.values()]
+        .map((item) => ({
+          ...item,
+          conversionRate: item.total ? Math.round((item.converted / item.total) * 1000) / 10 : 0,
+        }))
+        .sort((a, b) => b.total - a.total);
+    };
+
+    return {
+      periodDays: 30,
+      totalCreated: rows.length,
+      activeLeads: firstStageRows.length,
+      medianFirstContactHours:
+        medianFirstContactHours === null ? null : Math.round(medianFirstContactHours * 10) / 10,
+      contactedWithinFourHoursRate: firstContactHours.length
+        ? Math.round((firstContactHours.filter((hours) => hours <= 4).length / firstContactHours.length) * 1000) / 10
+        : null,
+      slaBreaches: firstStageRows.filter((row) =>
+        this.processHealth(row.opp, 'c').leadSlaBreached
+      ).length,
+      actionlessLeads: firstStageRows.filter((row) => !row.opp.nextAction?.trim() || !row.opp.nextActionAt).length,
+      unassignedLeads: firstStageRows.filter((row) => !row.opp.ownerUserId).length,
+      conversionRate: rows.length ? Math.round((progressed.length / rows.length) * 1000) / 10 : 0,
+      justifiedConversionRate: conversionHistory.length
+        ? Math.round(
+            (conversionHistory.filter((row) => row.conversionOverride).length / conversionHistory.length) * 1000
+          ) / 10
+        : 0,
+      bySource: breakdown((row) => ({
+        key: row.sourceCode ?? 'unknown',
+        label: row.sourceName ?? 'Kaynak yok',
+      })),
+      byProduct: breakdown((row) => ({
+        key: row.opp.requestedMachine?.trim() || row.opp.title,
+        label: row.opp.requestedMachine?.trim() || row.opp.title,
+      })),
+      byOwner: breakdown((row) => ({
+        key: row.ownerId ?? 'unassigned',
+        label: row.ownerName ?? 'Sahipsiz havuz',
+      })),
+    };
   }
 
   async list(
@@ -738,28 +1929,56 @@ export class OpportunitiesService {
       .select({
         opp: opportunities,
         company: { id: companies.id, legalTitle: companies.legalTitle, shortName: companies.shortName },
+        primaryContact: { id: contacts.id, fullName: contacts.fullName },
         stage: { id: pipelineStages.id, code: pipelineStages.code, name: pipelineStages.name },
         currency: { id: currencies.id, code: currencies.code },
         source: { id: contactSources.id, code: contactSources.code, name: contactSources.name },
+        lostReason: { id: cancellationReasons.id, code: cancellationReasons.code, name: cancellationReasons.name },
+        lostCompetitor: { id: competitors.id, name: competitors.name },
       })
       .from(opportunities)
-      .leftJoin(companies, eq(opportunities.companyId, companies.id))
+      .leftJoin(
+        companies,
+        and(
+          eq(opportunities.companyId, companies.id),
+          eq(companies.tenantId, actor.tenantId),
+          isNull(companies.deletedAt),
+        ),
+      )
+      .leftJoin(
+        contacts,
+        and(
+          eq(opportunities.primaryContactId, contacts.id),
+          eq(contacts.tenantId, actor.tenantId),
+          isNull(contacts.deletedAt),
+        ),
+      )
       .leftJoin(pipelineStages, eq(opportunities.currentStageId, pipelineStages.id))
       .leftJoin(currencies, eq(opportunities.currencyId, currencies.id))
       .leftJoin(contactSources, eq(opportunities.sourceId, contactSources.id))
+      .leftJoin(cancellationReasons, eq(opportunities.lostReasonId, cancellationReasons.id))
+      .leftJoin(competitors, eq(opportunities.lostCompetitorId, competitors.id))
       .where(where)
       .orderBy(desc(opportunities.createdAt))
       .limit(limit)
       .offset(offset);
-    const contexts = await this.qualificationContexts(rows.map((row) => row.opp));
+    const opportunityRows = rows.map((row) => row.opp);
+    const [contexts, activityContexts] = await Promise.all([
+      this.qualificationContexts(opportunityRows),
+      this.leadActivityContexts(opportunityRows),
+    ]);
     return buildPaginated(
       rows.map((r) => ({
         ...r.opp,
         company: r.company?.id ? r.company : null,
+        primaryContact: r.primaryContact?.id ? r.primaryContact : null,
         stage: r.stage,
         currency: r.currency,
         source: r.source?.id ? r.source : null,
+        lostReason: r.lostReason?.id ? r.lostReason : null,
+        lostCompetitor: r.lostCompetitor?.id ? r.lostCompetitor : null,
         qualificationReadiness: this.qualificationReadiness(r.opp, contexts.get(r.opp.id)!),
+        leadInsights: this.leadInsights(r.opp, activityContexts.get(r.opp.id)),
       })),
       count,
       page
@@ -772,15 +1991,35 @@ export class OpportunitiesService {
       .select({
         opp: opportunities,
         company: { id: companies.id, legalTitle: companies.legalTitle, shortName: companies.shortName },
+        primaryContact: { id: contacts.id, fullName: contacts.fullName },
         stage: { id: pipelineStages.id, code: pipelineStages.code, name: pipelineStages.name },
         currency: { id: currencies.id, code: currencies.code },
         source: { id: contactSources.id, code: contactSources.code, name: contactSources.name },
+        lostReason: { id: cancellationReasons.id, code: cancellationReasons.code, name: cancellationReasons.name },
+        lostCompetitor: { id: competitors.id, name: competitors.name },
       })
       .from(opportunities)
-      .leftJoin(companies, eq(opportunities.companyId, companies.id))
+      .leftJoin(
+        companies,
+        and(
+          eq(opportunities.companyId, companies.id),
+          eq(companies.tenantId, actor.tenantId),
+          isNull(companies.deletedAt),
+        ),
+      )
+      .leftJoin(
+        contacts,
+        and(
+          eq(opportunities.primaryContactId, contacts.id),
+          eq(contacts.tenantId, actor.tenantId),
+          isNull(contacts.deletedAt),
+        ),
+      )
       .leftJoin(pipelineStages, eq(opportunities.currentStageId, pipelineStages.id))
       .leftJoin(currencies, eq(opportunities.currencyId, currencies.id))
       .leftJoin(contactSources, eq(opportunities.sourceId, contactSources.id))
+      .leftJoin(cancellationReasons, eq(opportunities.lostReasonId, cancellationReasons.id))
+      .leftJoin(competitors, eq(opportunities.lostCompetitorId, competitors.id))
       .where(
         and(
           eq(opportunities.id, id),
@@ -799,6 +2038,20 @@ export class OpportunitiesService {
       .from(opportunityStageHistory)
       .where(eq(opportunityStageHistory.opportunityId, id))
       .orderBy(desc(opportunityStageHistory.createdAt));
+    const historyStageIds = Array.from(
+      new Set(
+        history
+          .flatMap((item) => [item.fromStageId, item.toStageId])
+          .filter((stageId): stageId is string => Boolean(stageId))
+      )
+    );
+    const historyStages = historyStageIds.length
+      ? await this.db
+          .select({ id: pipelineStages.id, code: pipelineStages.code, name: pipelineStages.name })
+          .from(pipelineStages)
+          .where(inArray(pipelineStages.id, historyStageIds))
+      : [];
+    const historyStageMap = new Map(historyStages.map((stage) => [stage.id, stage]));
     const qualificationHistory = await this.db
       .select()
       .from(opportunityQualificationHistory)
@@ -824,20 +2077,88 @@ export class OpportunitiesService {
         )
       )
       .orderBy(opportunityApprovals.approvalType);
-    const contexts = await this.qualificationContexts([r.opp]);
+    const auditHistory = await this.db
+      .select({
+        id: auditLogs.id,
+        action: auditLogs.action,
+        oldValues: auditLogs.oldValues,
+        newValues: auditLogs.newValues,
+        createdAt: auditLogs.createdAt,
+        actor: { id: users.id, fullName: users.fullName, email: users.email },
+      })
+      .from(auditLogs)
+      .leftJoin(users, eq(auditLogs.actorUserId, users.id))
+      .where(
+        and(
+          eq(auditLogs.tenantId, actor.tenantId),
+          eq(auditLogs.resourceType, 'opportunity'),
+          eq(auditLogs.resourceId, id)
+        )
+      )
+      .orderBy(desc(auditLogs.createdAt))
+      .limit(100);
+    const [contexts, activityContexts, contactEventRows] = await Promise.all([
+      this.qualificationContexts([r.opp]),
+      this.leadActivityContexts([r.opp]),
+      this.db
+        .select({
+          id: leadContactEvents.id,
+          channel: leadContactEvents.channel,
+          outcome: leadContactEvents.outcome,
+          occurredAt: leadContactEvents.occurredAt,
+          activityId: leadContactEvents.activityId,
+          subject: salesActivities.subject,
+          note: salesActivities.description,
+          result: salesActivities.result,
+          nextFollowUpAt: salesActivities.nextFollowUpAt,
+          actor: { id: users.id, fullName: users.fullName },
+        })
+        .from(leadContactEvents)
+        .innerJoin(salesActivities, eq(leadContactEvents.activityId, salesActivities.id))
+        .leftJoin(users, eq(leadContactEvents.actorUserId, users.id))
+        .where(
+          and(
+            eq(leadContactEvents.tenantId, actor.tenantId),
+            eq(leadContactEvents.opportunityId, id)
+          )
+        )
+        .orderBy(desc(leadContactEvents.occurredAt))
+        .limit(100),
+    ]);
+    const qualificationContext = contexts.get(r.opp.id)!;
+    const currentOperationStage = (r.stage?.code ?? 'sales') as PipelineStageCode;
     return {
       ...r.opp,
       company: r.company?.id ? r.company : null,
+      primaryContact: r.primaryContact?.id ? r.primaryContact : null,
       stage: r.stage,
       currency: r.currency,
       source: r.source?.id ? r.source : null,
-      history,
+      lostReason: r.lostReason?.id ? r.lostReason : null,
+      lostCompetitor: r.lostCompetitor?.id ? r.lostCompetitor : null,
+      history: history.map((item) => ({
+        ...item,
+        fromStage: item.fromStageId ? historyStageMap.get(item.fromStageId) ?? null : null,
+        toStage: historyStageMap.get(item.toStageId) ?? null,
+      })),
       qualificationHistory,
       approvals: approvalRows.map((approval) => ({
         ...approval.approval,
         decidedByUser: approval.decidedByUser?.id ? approval.decidedByUser : null,
       })),
-      qualificationReadiness: this.qualificationReadiness(r.opp, contexts.get(r.opp.id)!),
+      auditHistory,
+      contactEvents: contactEventRows.map((event) => ({
+        ...event,
+        actor: event.actor?.id ? event.actor : null,
+      })),
+      leadInsights: this.leadInsights(r.opp, activityContexts.get(r.opp.id)),
+      qualificationReadiness: this.qualificationReadiness(r.opp, qualificationContext),
+      processReadiness: await this.opportunityProcessReadiness(
+        r.opp,
+        currentOperationStage,
+        qualificationContext,
+        actor
+      ),
     };
   }
 
@@ -847,14 +2168,17 @@ export class OpportunitiesService {
       if (!input.companyId) throw new ValidationError('Kontak bağlamak için önce firma seçilmelidir');
       await this.assertContact(input.primaryContactId, actor, input.companyId);
     }
-    // super_admin olmayan kullanıcılar sadece kendilerine lead açabilir.
-    const isSuperAdmin = actor.roles.includes('super_admin');
-    if (!isSuperAdmin && input.ownerUserId && input.ownerUserId !== actor.userId) {
-      throw new ForbiddenError('Yalnızca süper admin başka kullanıcıya lead atayabilir');
+    const canAssignOthers = actor.roles.includes('super_admin') || actor.roles.includes('sales');
+    if (!canAssignOthers && input.ownerUserId && input.ownerUserId !== actor.userId) {
+      throw new ForbiddenError('Başka bir kullanıcıya lead atamak için satış kartı güncelleme yetkisi gerekir');
     }
-    if (input.ownerUserId) await this.assertUser(input.ownerUserId, actor);
+    const requestedOwner = input.ownerUserId ? await this.assertUser(input.ownerUserId, actor) : null;
+    if (requestedOwner && requestedOwner.status !== 'active') {
+      throw new ValidationError('Yalnızca aktif kullanıcılar sorumlu olarak atanabilir', { field: 'ownerUserId' });
+    }
 
-    const leadStage = await this.stageRowByCode('lead');
+    // Yeni kart fırsatın ilk adımında (Lead kolonu) doğar.
+    const entryStage = await this.stageRowByCode(QUALIFICATION_STAGE_ENTRY.lead.stage);
     const currencyId = await lookupIdByCode(this.db, currencies, input.currencyCode);
     const sourceId = await lookupIdByCode(this.db, contactSources, input.sourceCode);
     const openStatus = await this.db.query.opportunityStatuses.findFirst({ where: eq(opportunityStatuses.code, 'open') });
@@ -862,6 +2186,15 @@ export class OpportunitiesService {
     if (!divisionId && (await this.tenantHasActiveDivisions(actor))) {
       throw new ValidationError('Fırsat için bölüm ataması zorunludur', { field: 'divisionId' });
     }
+    const assignment = input.ownerUserId
+      ? { ownerUserId: input.ownerUserId, ruleId: null }
+      : await this.resolveLeadOwner({
+          tenantId: actor.tenantId,
+          divisionId,
+          city: input.leadCity,
+          product: `${input.title} ${input.requestedMachine ?? ''}`,
+          sourceCode: input.sourceCode,
+        });
 
     const [row] = await this.db
       .insert(opportunities)
@@ -870,17 +2203,32 @@ export class OpportunitiesService {
         divisionId,
         companyId: input.companyId ?? null,
         primaryContactId: input.primaryContactId ?? null,
-        ownerUserId: input.ownerUserId ?? actor.userId,
+        ownerUserId: assignment.ownerUserId,
         title: input.title,
         description: input.description ?? null,
         leadContactName: input.leadContactName?.trim() || null,
         leadCompanyTitle: input.leadCompanyTitle?.trim() || null,
         leadContactValue: input.leadContactValue?.trim() || null,
         leadCity: input.leadCity?.trim() || null,
+        leadDistrict: input.leadDistrict?.trim() || null,
         leadPhone: input.leadPhone?.trim() || null,
         leadEmail: input.leadEmail?.trim() || null,
         leadTemperature: input.leadTemperature ?? 'unknown',
-        currentStageId: leadStage.id,
+        leadNeedSummary: input.leadNeedSummary?.trim() || null,
+        leadAuthorityStatus: input.leadAuthorityStatus ?? 'unknown',
+        leadBudgetStatus: input.leadBudgetStatus ?? 'unknown',
+        leadPurchaseTimeframe: input.leadPurchaseTimeframe ?? 'unknown',
+        leadTechnicalFit: input.leadTechnicalFit ?? 'unknown',
+        leadTechnicalNote: input.leadTechnicalNote?.trim() || null,
+        leadFollowUpStatus: input.leadFollowUpStatus ?? 'new',
+        // SLA saati kartın havuza düştüğü andan itibaren işler.
+        leadStatusUpdatedAt: new Date(),
+        disqualifyReasonId: input.disqualifyReasonCode
+          ? (await this.resolveCancellationReason(input.disqualifyReasonCode.trim(), actor)).id
+          : null,
+        nextAction: input.nextAction?.trim() || null,
+        nextActionAt: input.nextActionAt ?? null,
+        currentStageId: entryStage.id,
         estimatedValue: input.estimatedValue?.toString() ?? null,
         currencyId,
         probability: input.probability,
@@ -888,6 +2236,7 @@ export class OpportunitiesService {
         paymentTermDays: input.paymentTermDays ?? null,
         paymentMethod: input.paymentMethod ?? 'undecided',
         qualificationStage: 'lead',
+        qualificationNote: input.qualificationNote?.trim() || null,
         qualificationUpdatedAt: new Date(),
         requestedMachine: input.requestedMachine?.trim() || null,
         contractTerms: input.contractTerms?.trim() || null,
@@ -902,9 +2251,9 @@ export class OpportunitiesService {
       tenantId: actor.tenantId,
       opportunityId: row.id,
       fromStageId: null,
-      toStageId: leadStage.id,
+      toStageId: entryStage.id,
       changedBy: actor.userId,
-      changeReason: 'Initial lead',
+      changeReason: 'Fırsat oluşturuldu (Lead adımı)',
     });
     await this.db.insert(opportunityQualificationHistory).values({
       tenantId: actor.tenantId,
@@ -912,7 +2261,7 @@ export class OpportunitiesService {
       fromStage: null,
       toStage: 'lead',
       changedBy: actor.userId,
-      changeReason: 'Lead oluşturuldu',
+      changeReason: 'Fırsat oluşturuldu (Lead adımı)',
     });
     await this.audit.write({
       tenantId: actor.tenantId,
@@ -920,8 +2269,11 @@ export class OpportunitiesService {
       action: 'opportunity.created',
       resourceType: 'opportunity',
       resourceId: row.id,
-      newValues: { title: row.title },
+      newValues: { title: row.title, ownerUserId: row.ownerUserId, assignmentRuleId: assignment.ruleId },
     });
+    if (!row.ownerUserId) {
+      await this.notifyUnassignedLead(row.id, row.title, actor.tenantId, divisionId);
+    }
     return this.get(row.id, actor);
   }
 
@@ -1196,11 +2548,24 @@ export class OpportunitiesService {
 
       try {
         let selectedCompany: typeof companies.$inferSelect | null = null;
-        let stage = stageCache.get(row.stageCode);
+        // Eski istemcilerden gelebilecek `lead` eşlemesini de savunmacı olarak
+        // C'nin operasyon başlangıcı olan `sales` alanına taşırız.
+        const effectiveStageCode: PipelineStageCode = row.stageCode === 'lead' ? 'sales' : row.stageCode;
+        let stage = stageCache.get(effectiveStageCode);
         if (!stage) {
-          stage = await this.stageRowByCode(row.stageCode);
-          stageCache.set(row.stageCode, stage);
+          stage = await this.stageRowByCode(effectiveStageCode);
+          stageCache.set(effectiveStageCode, stage);
         }
+        const assignment =
+          stage.code === 'sales'
+            ? await this.resolveLeadOwner({
+                tenantId: actor.tenantId,
+                divisionId,
+                city: row.candidate.province,
+                product: row.title,
+                sourceCode: 'trello',
+              })
+            : { ownerUserId: actor.userId, ruleId: null };
         if (resolution.action === 'existing') {
           selectedCompany = await this.assertCompany(resolution.companyId, actor);
           if (resolution.primaryContactId) {
@@ -1387,7 +2752,7 @@ export class OpportunitiesService {
               divisionId,
               companyId,
               primaryContactId,
-              ownerUserId: actor.userId,
+              ownerUserId: assignment.ownerUserId,
               title: row.title,
               description: row.description?.trim() || null,
               leadContactName: null,
@@ -1406,6 +2771,8 @@ export class OpportunitiesService {
                 resolution: resolution.action,
               },
               currentStageId: stage.id,
+              qualificationStage: PIPELINE_STAGE_QUALIFICATION[stage.code as PipelineStageCode] ?? 'c',
+              qualificationUpdatedAt: new Date(),
               currencyId,
               probability: 50,
               expectedCloseDate: row.dueAt ? new Date(row.dueAt) : null,
@@ -1425,6 +2792,14 @@ export class OpportunitiesService {
               ? `Trello CSV aktarımı · Liste: ${row.listName}`
               : 'Trello CSV aktarımı',
           });
+          await tx.insert(opportunityQualificationHistory).values({
+            tenantId: actor.tenantId,
+            opportunityId: opportunity.id,
+            fromStage: null,
+            toStage: PIPELINE_STAGE_QUALIFICATION[stage.code as PipelineStageCode] ?? 'c',
+            changedBy: actor.userId,
+            changeReason: 'Trello CSV aktarımı',
+          });
           return opportunity;
         });
 
@@ -1441,6 +2816,9 @@ export class OpportunitiesService {
               source: 'trello',
             },
           });
+        }
+        if (stage.code === 'sales' && !created.ownerUserId) {
+          await this.notifyUnassignedLead(created.id, created.title, actor.tenantId, divisionId);
         }
         if (acceptedPhoneAction || acceptedEmailAction) {
           await this.audit.write({
@@ -1580,8 +2958,75 @@ export class OpportunitiesService {
     };
   }
 
+  /**
+   * Lead takip durumu değiştiğinde SLA sayaçlarını yürütür: duruma giriş anı,
+   * temas deneme sayısı, ilk temas anı ve eleme nedeni. Durum yalnız kart hâlâ
+   * Lead havuzundayken değiştirilebilir; fırsata çevrilmiş kartta bu alanlar
+   * geçmiş kaydı olarak dondurulur.
+   */
+  private async applyLeadFollowUpTransition(
+    patch: Record<string, unknown>,
+    existing: { qualificationStage?: string | null; leadFollowUpStatus?: string | null; contactAttemptCount?: number | null; firstContactAt?: Date | null },
+    input: OpportunityUpdateInput,
+    actor: AuthContext
+  ) {
+    const nextStatus = input.leadFollowUpStatus ?? undefined;
+    if (nextStatus === undefined) {
+      // Durum değişmiyorsa yalnız neden kodu güncellemesi anlamsızdır.
+      if (input.disqualifyReasonCode !== undefined && existing.leadFollowUpStatus !== 'disqualified') {
+        throw new ValidationError('Eleme nedeni yalnız lead elenirken girilebilir', {
+          field: 'disqualifyReasonCode',
+        });
+      }
+      if (input.disqualifyReasonCode) {
+        patch.disqualifyReasonId = (await this.resolveCancellationReason(input.disqualifyReasonCode, actor)).id;
+      }
+      return;
+    }
+
+    const currentStatus = (existing.leadFollowUpStatus ?? 'new') as LeadFollowUpStatusCode;
+    if (nextStatus === currentStatus) return;
+    if (!isFirstContactStage(this.qualificationStage(existing.qualificationStage))) {
+      throw new ValidationError('İlk temas durumu yalnız Lead ve C alanındaki fırsatlarda değiştirilebilir', {
+        field: 'leadFollowUpStatus',
+      });
+    }
+
+    const now = new Date();
+    patch.leadStatusUpdatedAt = now;
+
+    if (nextStatus === 'disqualified') {
+      if (!input.disqualifyReasonCode?.trim()) {
+        throw new ValidationError('Fırsat uygun değil olarak işaretlenirken neden zorunludur', {
+          field: 'disqualifyReasonCode',
+        });
+      }
+      patch.disqualifyReasonId = (await this.resolveCancellationReason(input.disqualifyReasonCode.trim(), actor)).id;
+    } else if (currentStatus === 'disqualified') {
+      // Lead geri açılıyor; eski eleme nedeni artık geçerli değil.
+      patch.disqualifyReasonId = null;
+    }
+
+    // "Deneniyor" her seçilişinde bir temas denemesi sayılır.
+    if (nextStatus === 'attempting') {
+      patch.contactAttemptCount = (existing.contactAttemptCount ?? 0) + 1;
+    }
+    // Temas kurulduysa ilk temas anı bir kez yazılır (speed-to-lead ölçümü).
+    if (nextStatus === 'contacted') {
+      if (!existing.firstContactAt) patch.firstContactAt = now;
+      if ((existing.contactAttemptCount ?? 0) === 0) patch.contactAttemptCount = 1;
+    }
+  }
+
   async update(id: string, input: OpportunityUpdateInput, actor: AuthContext) {
     const existing = await this.get(id, actor);
+    const resultingNextAction =
+      input.nextAction !== undefined ? input.nextAction?.trim() || null : existing.nextAction?.trim() || null;
+    const resultingNextActionAt =
+      input.nextActionAt !== undefined ? input.nextActionAt : existing.nextActionAt;
+    if (resultingNextActionAt && !resultingNextAction) {
+      throw new ValidationError('Takip zamanı için sonraki aksiyon zorunludur', { field: 'nextAction' });
+    }
     if (input.companyId === null && existing.companyId) {
       throw new ValidationError('Satış kartına bağlanan firma kaldırılamaz; gerekirse başka bir firma bağlayın');
     }
@@ -1595,12 +3040,19 @@ export class OpportunitiesService {
     } else if (input.companyId !== undefined && existing.primaryContactId) {
       if (companyId) await this.assertContact(existing.primaryContactId, actor, companyId);
     }
-    const isSuperAdmin = actor.roles.includes('super_admin');
-    if (input.ownerUserId !== undefined && !isSuperAdmin) {
-      throw new ForbiddenError('Sorumlu kullanıcıyı yalnızca süper admin değiştirebilir');
+    const canReassignOwner = actor.roles.includes('super_admin') || actor.roles.includes('sales');
+    if (input.ownerUserId !== undefined && !canReassignOwner) {
+      throw new ForbiddenError('Sorumlu kullanıcıyı yalnızca satış veya süper admin değiştirebilir');
     }
-    if (input.ownerUserId) await this.assertUser(input.ownerUserId, actor);
+    const assignedOwner = input.ownerUserId ? await this.assertUser(input.ownerUserId, actor) : null;
+    if (assignedOwner && assignedOwner.status !== 'active') {
+      throw new ValidationError('Yalnızca aktif kullanıcılar sorumlu olarak atanabilir', { field: 'ownerUserId' });
+    }
+    const ownerChanged =
+      input.ownerUserId !== undefined
+      && (input.ownerUserId ?? null) !== (existing.ownerUserId ?? null);
     const patch: Record<string, unknown> = { updatedBy: actor.userId };
+    await this.applyLeadFollowUpTransition(patch, existing, input, actor);
     if (input.currencyCode !== undefined) patch.currencyId = await lookupIdByCode(this.db, currencies, input.currencyCode);
     if (input.sourceCode !== undefined) patch.sourceId = await lookupIdByCode(this.db, contactSources, input.sourceCode);
     if (input.estimatedValue !== undefined) patch.estimatedValue = input.estimatedValue?.toString() ?? null;
@@ -1614,9 +3066,19 @@ export class OpportunitiesService {
       'leadCompanyTitle',
       'leadContactValue',
       'leadCity',
+      'leadDistrict',
       'leadPhone',
       'leadEmail',
       'leadTemperature',
+      'leadNeedSummary',
+      'leadAuthorityStatus',
+      'leadBudgetStatus',
+      'leadPurchaseTimeframe',
+      'leadTechnicalFit',
+      'leadTechnicalNote',
+      'leadFollowUpStatus',
+      'nextAction',
+      'nextActionAt',
       'probability',
       'expectedCloseDate',
       'paymentTermDays',
@@ -1624,6 +3086,7 @@ export class OpportunitiesService {
       'requestedMachine',
       'contractTerms',
       'paymentTerms',
+      'qualificationNote',
       'wonReason',
     ] as const) {
       if ((input as any)[k] !== undefined) patch[k] = (input as any)[k] ?? null;
@@ -1633,10 +3096,19 @@ export class OpportunitiesService {
       (input.paymentMethod !== undefined && (input.paymentMethod ?? null) !== (existing.paymentMethod ?? null)) ||
       (input.paymentTerms !== undefined && (input.paymentTerms?.trim() || null) !== (existing.paymentTerms?.trim() || null)) ||
       (input.paymentTermDays !== undefined && (input.paymentTermDays ?? null) !== (existing.paymentTermDays ?? null));
+    const broadEvidenceChanged =
+      (input.companyId !== undefined && (input.companyId ?? null) !== (existing.companyId ?? null)) ||
+      (input.requestedMachine !== undefined &&
+        (input.requestedMachine?.trim() || null) !== (existing.requestedMachine?.trim() || null));
+    const invalidatedApprovalTypes: OpportunityApprovalType[] = broadEvidenceChanged
+      ? ['payment', 'customs', 'invoice', 'installation', 'win']
+      : paymentEvidenceChanged
+        ? ['payment', 'win']
+        : [];
 
     await this.db.transaction(async (tx) => {
       await tx.update(opportunities).set(patch).where(eq(opportunities.id, id));
-      if (paymentEvidenceChanged) {
+      if (invalidatedApprovalTypes.length) {
         await tx
           .update(opportunityApprovals)
           .set({
@@ -1648,13 +3120,52 @@ export class OpportunitiesService {
           })
           .where(
             and(
+              eq(opportunityApprovals.tenantId, actor.tenantId),
               eq(opportunityApprovals.opportunityId, id),
-              inArray(opportunityApprovals.approvalType, ['payment', 'win']),
+              inArray(opportunityApprovals.approvalType, invalidatedApprovalTypes),
               isNull(opportunityApprovals.deletedAt)
             )
           );
       }
+      if (ownerChanged && assignedOwner && assignedOwner.id !== actor.userId) {
+        const isLead = existing.qualificationStage === 'lead';
+        await tx.insert(notifications).values({
+          tenantId: actor.tenantId,
+          userId: assignedOwner.id,
+          divisionId: existing.divisionId,
+          type: isLead ? 'lead_assigned' : 'opportunity_assigned',
+          title: isLead ? 'Yeni lead size atandı' : 'Yeni fırsat size atandı',
+          body: existing.title,
+          entityType: 'opportunity',
+          entityId: id,
+        });
+      }
     });
+    if (invalidatedApprovalTypes.length) {
+      await this.audit.write({
+        tenantId: actor.tenantId,
+        actorUserId: actor.userId,
+        action: 'opportunity.approvals.invalidated',
+        resourceType: 'opportunity',
+        resourceId: id,
+        oldValues: { approvalTypes: invalidatedApprovalTypes },
+        newValues: {
+          status: 'pending',
+          reason: broadEvidenceChanged ? 'Firma veya makine bilgisi değişti' : 'Ödeme bilgisi değişti',
+        },
+      });
+    }
+    if (ownerChanged) {
+      await this.audit.write({
+        tenantId: actor.tenantId,
+        actorUserId: actor.userId,
+        action: 'opportunity.owner_changed',
+        resourceType: 'opportunity',
+        resourceId: id,
+        oldValues: { ownerUserId: existing.ownerUserId ?? null },
+        newValues: { ownerUserId: input.ownerUserId ?? null },
+      });
+    }
     return this.get(id, actor);
   }
 
@@ -1697,7 +3208,9 @@ export class OpportunitiesService {
             contactValue && contactValue !== phone && contactValue !== email
               ? `İrtibat bilgisi${source?.name ? ` (${source.name})` : ''}: ${contactValue}`
               : null,
-            existing.leadCity?.trim() ? `Şehir: ${existing.leadCity.trim()}` : null,
+            existing.leadCity?.trim()
+              ? `Şehir: ${[existing.leadCity.trim(), existing.leadDistrict?.trim()].filter(Boolean).join(' / ')}`
+              : null,
           ]
             .filter(Boolean)
             .join('\n'),
@@ -1718,6 +3231,14 @@ export class OpportunitiesService {
         updatedAt: new Date(),
       })
       .where(eq(opportunities.id, id));
+    if (existing.companyId && existing.companyId !== input.companyId) {
+      await this.invalidateApprovals(
+        id,
+        ['payment', 'customs', 'invoice', 'installation', 'win'],
+        actor,
+        'Fırsata bağlı firma değişti'
+      );
+    }
     // Firma oluşturulmadan önce karta eklenen aktiviteleri de yeni firmaya bağla.
     await this.db
       .update(salesActivities)
@@ -1742,9 +3263,26 @@ export class OpportunitiesService {
   }
 
   async delete(id: string, actor: AuthContext) {
-    await this.get(id, actor);
-    await this.db.update(opportunities).set({ deletedAt: new Date() }).where(eq(opportunities.id, id));
-    return { ok: true };
+    const existing = await this.get(id, actor);
+    const deletedAt = new Date();
+    await this.db
+      .update(opportunities)
+      .set({ deletedAt, updatedAt: deletedAt, updatedBy: actor.userId })
+      .where(and(eq(opportunities.id, id), eq(opportunities.tenantId, actor.tenantId)));
+    await this.audit.write({
+      tenantId: actor.tenantId,
+      actorUserId: actor.userId,
+      action: 'opportunity.deleted',
+      resourceType: 'opportunity',
+      resourceId: id,
+      oldValues: {
+        title: existing.title,
+        qualificationStage: existing.qualificationStage,
+        companyId: existing.companyId,
+      },
+      newValues: { deletedAt: deletedAt.toISOString() },
+    });
+    return { ok: true, deletedAt: deletedAt.toISOString() };
   }
 
   private async findScopedOpp(id: string, actor: AuthContext) {
@@ -1768,7 +3306,13 @@ export class OpportunitiesService {
     actorUserId: string,
     fromStage: QualificationStageCode,
     toStage: QualificationStageCode,
-    note?: string
+    note?: string,
+    conversion?: {
+      override: boolean;
+      fitScore: number;
+      engagementScore: number;
+      priorityScore: number;
+    }
   ) {
     await this.db.insert(opportunityQualificationHistory).values({
       tenantId,
@@ -1777,7 +3321,144 @@ export class OpportunitiesService {
       toStage,
       changedBy: actorUserId,
       changeReason: note?.trim() || null,
+      conversionOverride: conversion?.override ?? false,
+      fitScore: conversion?.fitScore ?? null,
+      engagementScore: conversion?.engagementScore ?? null,
+      priorityScore: conversion?.priorityScore ?? null,
     });
+  }
+
+  async recordLeadContactEvent(id: string, input: LeadContactEventInput, actor: AuthContext) {
+    const opp = await this.findScopedOpp(id, actor);
+    if (!isFirstContactStage(this.qualificationStage(opp.qualificationStage))) {
+      throw new ValidationError('Temas sonucu yalnızca Lead ve C alanındaki fırsatlarda kullanılabilir');
+    }
+    if (opp.closedAt) throw new ValidationError('Arşivlenmiş fırsat için temas sonucu kaydedilemez');
+
+    const existingEvent = await this.db.query.leadContactEvents.findFirst({
+      where: and(
+        eq(leadContactEvents.tenantId, actor.tenantId),
+        eq(leadContactEvents.opportunityId, id),
+        eq(leadContactEvents.idempotencyKey, input.idempotencyKey)
+      ),
+    });
+    if (existingEvent) return this.get(id, actor);
+
+    const channelLabels: Record<LeadContactEventInput['channel'], string> = {
+      phone: 'Giden Arama',
+      email: 'E-posta',
+      whatsapp: 'WhatsApp',
+    };
+    const outcomeLabels: Record<LeadContactOutcomeCode, string> = {
+      no_answer: 'Yanıt yok',
+      contacted: 'Temas kuruldu',
+      callback: 'Geri arama istendi',
+      requested_info: 'Bilgi istendi',
+      meeting_booked: 'Toplantı planlandı',
+      not_interested: 'İlgilenmiyor',
+      wrong_contact: 'Yanlış kontak',
+    };
+    const requestedActivityType = input.channel === 'phone' ? 'outgoing_call' : input.channel;
+    const activityTypeId =
+      (await lookupIdByCode(this.db, activityTypes, requestedActivityType)) ??
+      (requestedActivityType === 'outgoing_call'
+        ? await lookupIdByCode(this.db, activityTypes, 'call')
+        : null);
+    if (!activityTypeId) throw new ValidationError('Temas kanalı için aktivite tipi bulunamadı');
+    const now = new Date();
+    const nextAttemptCount = (opp.contactAttemptCount ?? 0) + 1;
+    const successfulContact = !['no_answer', 'wrong_contact'].includes(input.outcome);
+    const nextStatus: LeadFollowUpStatusCode =
+      input.outcome === 'callback' || input.outcome === 'not_interested'
+        ? 'waiting'
+        : successfulContact
+          ? 'contacted'
+          : nextAttemptCount >= LEAD_MAX_CONTACT_ATTEMPTS
+            ? 'waiting'
+            : 'attempting';
+
+    try {
+      await this.db.transaction(async (tx) => {
+        const [activity] = await tx
+          .insert(salesActivities)
+          .values({
+            tenantId: actor.tenantId,
+            divisionId: opp.divisionId,
+            opportunityId: opp.id,
+            companyId: opp.companyId,
+            contactId: opp.primaryContactId,
+            activityTypeId,
+            subject: `${channelLabels[input.channel]} · ${outcomeLabels[input.outcome]}`,
+            description: input.note?.trim() || null,
+            activityDate: now,
+            nextFollowUpAt: input.nextActionAt ?? null,
+            result: outcomeLabels[input.outcome],
+            createdBy: actor.userId,
+          })
+          .returning({ id: salesActivities.id });
+        await tx.insert(leadContactEvents).values({
+          tenantId: actor.tenantId,
+          opportunityId: opp.id,
+          activityId: activity.id,
+          idempotencyKey: input.idempotencyKey,
+          channel: input.channel,
+          outcome: input.outcome,
+          actorUserId: actor.userId,
+          occurredAt: now,
+        });
+        await tx
+          .update(opportunities)
+          .set({
+            contactAttemptCount: nextAttemptCount,
+            firstContactAt: successfulContact && !opp.firstContactAt ? now : opp.firstContactAt,
+            leadFollowUpStatus: nextStatus,
+            leadStatusUpdatedAt: now,
+            ...(input.nextAction !== undefined
+              ? {
+                  nextAction: input.nextAction?.trim() || null,
+                  nextActionAt: input.nextActionAt ?? null,
+                }
+              : {}),
+            updatedAt: now,
+            updatedBy: actor.userId,
+          })
+          .where(
+            and(
+              eq(opportunities.id, opp.id),
+              eq(opportunities.tenantId, actor.tenantId),
+              isNull(opportunities.deletedAt)
+            )
+          );
+      });
+    } catch (error) {
+      const code = (error as { code?: string; cause?: { code?: string } })?.code
+        ?? (error as { cause?: { code?: string } })?.cause?.code;
+      if (code === '23505') return this.get(id, actor);
+      throw error;
+    }
+
+    await this.audit.write({
+      tenantId: actor.tenantId,
+      actorUserId: actor.userId,
+      action: 'lead.contact_recorded',
+      resourceType: 'opportunity',
+      resourceId: id,
+      oldValues: {
+        leadFollowUpStatus: opp.leadFollowUpStatus,
+        contactAttemptCount: opp.contactAttemptCount,
+        nextAction: opp.nextAction,
+        nextActionAt: opp.nextActionAt,
+      },
+      newValues: {
+        channel: input.channel,
+        outcome: input.outcome,
+        leadFollowUpStatus: nextStatus,
+        contactAttemptCount: nextAttemptCount,
+        nextAction: input.nextAction,
+        nextActionAt: input.nextActionAt,
+      },
+    });
+    return this.get(id, actor);
   }
 
   async convertLead(id: string, input: OpportunityConvertInput, actor: AuthContext) {
@@ -1785,20 +3466,85 @@ export class OpportunitiesService {
     if (opp.closedAt) throw new ValidationError('Arşivlenmiş lead fırsata çevrilemez');
     const fromStage = this.qualificationStage(opp.qualificationStage);
     if (fromStage !== 'lead') throw new ValidationError('Kayıt zaten fırsata çevrilmiş');
-    if (!opp.ownerUserId) throw new ValidationError('Fırsata çevirmeden önce sorumlu kullanıcı atanmalıdır');
-    if (!opp.title?.trim()) throw new ValidationError('Fırsata çevirmeden önce konu girilmelidir');
+    if (opp.leadFollowUpStatus === 'disqualified') {
+      throw new ValidationError('Uygun değil durumundaki fırsat C alanına taşınamaz; önce ilk temas durumunu değiştirin');
+    }
+    const [contextMap, activityMap] = await Promise.all([
+      this.qualificationContexts([opp]),
+      this.leadActivityContexts([opp]),
+    ]);
+    const context = contextMap.get(opp.id)!;
+    const insights = this.leadInsights(opp, activityMap.get(opp.id));
+    // Lead, satış ekibinin kararıyla her an fırsata çevrilebilir. Eksik alanlar
+    // dönüşümü engellemez; C aşamasının hazırlık listesinde görünmeye devam eder.
+    // Uyarıları denetim kaydına alarak veri kalitesini görünür tutuyoruz.
+    const conversionWarnings: string[] = [];
+    if (!opp.ownerUserId) conversionWarnings.push('Sorumlu kullanıcı atanmamış');
+    if (
+      !opp.leadPhone?.trim() &&
+      !opp.leadEmail?.trim() &&
+      !opp.leadContactValue?.trim() &&
+      !context.hasPhone &&
+      !context.hasEmail
+    ) {
+      conversionWarnings.push('Telefon veya e-posta bilgisi eksik');
+    }
+    if (!opp.title?.trim() && !opp.requestedMachine?.trim()) {
+      conversionWarnings.push('Ürün veya makine bilgisi eksik');
+    }
+    if (!opp.nextAction?.trim() || !opp.nextActionAt) {
+      conversionWarnings.push('Tarihli bir sonraki aksiyon planlanmamış');
+    }
+    conversionWarnings.push(...new Set([
+      ...insights.softBlockers,
+      ...(insights.fitScore < 60 ? ['Uyum skoru 60 puanın altında'] : []),
+      ...(opp.leadBudgetStatus === 'unavailable' ? ['Bütçe uygun değil'] : []),
+      ...(opp.leadTechnicalFit === 'not_fit' ? ['Teknik uyum olumsuz'] : []),
+    ]));
+    const overrideReason = input.overrideReason?.trim();
     const now = new Date();
+    // Fırsata çevrilen kart C alanının giriş aşamasına ("Satış") taşınır;
+    // aksi hâlde derece C olurken operasyon ekseni lead'de takılı kalır.
+    const entryStage = await this.pipelineStageForQualification(opp, 'c');
     await this.db
       .update(opportunities)
       .set({
         qualificationStage: 'c',
-        qualificationNote: input.note?.trim() || opp.qualificationNote,
+        qualificationNote: input.note?.trim() || overrideReason || opp.qualificationNote,
         qualificationUpdatedAt: now,
+        ...(entryStage ? { currentStageId: entryStage.id } : {}),
         updatedAt: now,
         updatedBy: actor.userId,
       })
       .where(eq(opportunities.id, id));
-    await this.recordQualificationChange(id, actor.tenantId, actor.userId, fromStage, 'c', input.note ?? 'Fırsata çevrildi');
+    if (entryStage) {
+      await this.db.insert(opportunityStageHistory).values({
+        tenantId: actor.tenantId,
+        opportunityId: id,
+        fromStageId: opp.currentStageId,
+        toStageId: entryStage.id,
+        changedBy: actor.userId,
+        changeReason: 'Fırsata çevrildi (C alanı)',
+      });
+    }
+    const conversionNote = [
+      input.note?.trim(),
+      overrideReason ? `Dönüşüm gerekçesi: ${overrideReason}` : null,
+    ].filter(Boolean).join('\n') || 'Fırsata çevrildi';
+    await this.recordQualificationChange(
+      id,
+      actor.tenantId,
+      actor.userId,
+      fromStage,
+      'c',
+      conversionNote,
+      {
+        override: Boolean(overrideReason),
+        fitScore: insights.fitScore,
+        engagementScore: insights.engagementScore,
+        priorityScore: insights.priorityScore,
+      }
+    );
     await this.audit.write({
       tenantId: actor.tenantId,
       actorUserId: actor.userId,
@@ -1806,9 +3552,41 @@ export class OpportunitiesService {
       resourceType: 'opportunity',
       resourceId: id,
       oldValues: { qualificationStage: fromStage },
-      newValues: { qualificationStage: 'c' },
+      newValues: {
+        qualificationStage: 'c',
+        conversionOverride: Boolean(overrideReason),
+        overrideReason: overrideReason ?? null,
+        conversionWarnings,
+        fitScore: insights.fitScore,
+        engagementScore: insights.engagementScore,
+        priorityScore: insights.priorityScore,
+      },
     });
     return this.get(id, actor);
+  }
+
+  /**
+   * Neden kodunu tenant içinde bulur, yoksa açar. LOST nedeni ile lead eleme
+   * nedeni aynı lookup tablosunu paylaştığı için iki akış da buradan geçer.
+   */
+  private async resolveCancellationReason(code: string, actor: AuthContext) {
+    const existing = await this.db.query.cancellationReasons.findFirst({
+      where: and(eq(cancellationReasons.tenantId, actor.tenantId), eq(cancellationReasons.code, code)),
+    });
+    if (existing) return existing;
+    const [created] = await this.db
+      .insert(cancellationReasons)
+      .values({
+        tenantId: actor.tenantId,
+        code,
+        // Kod bilinen bir lead eleme nedeniyse Türkçe etiketini kullan.
+        name:
+          LEAD_DISQUALIFY_REASONS.find((reason) => reason.code === code)?.name
+          ?? LOST_REASON_NAMES[code]
+          ?? code,
+      })
+      .returning();
+    return created;
   }
 
   private async setLostQualification(
@@ -1821,39 +3599,71 @@ export class OpportunitiesService {
         field: 'cancellationReasonCode',
       });
     }
-    let reason = await this.db.query.cancellationReasons.findFirst({
-      where: and(
-        eq(cancellationReasons.tenantId, actor.tenantId),
-        eq(cancellationReasons.code, input.cancellationReasonCode)
-      ),
-    });
-    if (!reason) {
-      [reason] = await this.db
-        .insert(cancellationReasons)
-        .values({
-          tenantId: actor.tenantId,
-          code: input.cancellationReasonCode,
-          name: input.cancellationReasonCode,
+    const reason = await this.resolveCancellationReason(input.cancellationReasonCode, actor);
+    const companySnapshot = opp.companyId
+      ? await this.db.query.companies.findFirst({
+          where: and(
+            eq(companies.id, opp.companyId),
+            eq(companies.tenantId, actor.tenantId),
+            isNull(companies.deletedAt)
+          ),
         })
-        .returning();
+      : null;
+    const competitorSnapshot = input.lostCompetitorId
+      ? await this.db.query.competitors.findFirst({
+          where: and(
+            eq(competitors.id, input.lostCompetitorId),
+            eq(competitors.tenantId, actor.tenantId),
+            isNull(competitors.deletedAt)
+          ),
+        })
+      : null;
+    if (input.lostCompetitorId && !competitorSnapshot) {
+      throw new ValidationError('Seçilen rakip bulunamadı');
     }
     const lostStatus = await this.db.query.opportunityStatuses.findFirst({
       where: eq(opportunityStatuses.code, 'lost'),
     });
+    const cancelledStage = await this.stageRowByCode('cancelled');
     await this.db
       .update(opportunities)
       .set({
         qualificationStage: 'lost',
-        qualificationNote: input.note?.trim() || null,
+        currentStageId: cancelledStage.id,
+        qualificationNote: input.note?.trim() || input.lostUnmetConditions?.trim() || null,
         qualificationUpdatedAt: new Date(),
         lostReasonId: reason.id,
         lostCompetitorId: input.lostCompetitorId ?? null,
         lostCompetitorProductModel: input.lostCompetitorProductModel?.trim() || null,
+        lostCompanyName:
+          companySnapshot?.shortName?.trim()
+          || companySnapshot?.legalTitle?.trim()
+          || opp.leadCompanyTitle?.trim()
+          || null,
+        lostProductName:
+          input.lostProductName?.trim()
+          || opp.requestedMachine?.trim()
+          || opp.title?.trim()
+          || opp.description?.trim()
+          || null,
+        lostCompetitorName:
+          competitorSnapshot?.name?.trim()
+          || input.lostCompetitorName?.trim()
+          || null,
+        lostUnmetConditions: input.lostUnmetConditions?.trim() || input.note?.trim() || null,
         statusId: lostStatus?.id ?? opp.statusId,
         updatedAt: new Date(),
         updatedBy: actor.userId,
       })
       .where(eq(opportunities.id, opp.id));
+    await this.db.insert(opportunityStageHistory).values({
+      tenantId: actor.tenantId,
+      opportunityId: opp.id,
+      fromStageId: opp.currentStageId,
+      toStageId: cancelledStage.id,
+      changedBy: actor.userId,
+      changeReason: input.note?.trim() || 'Fırsat kaybedildi',
+    });
   }
 
   async changeQualificationStage(
@@ -1866,44 +3676,53 @@ export class OpportunitiesService {
     const fromStage = this.qualificationStage(opp.qualificationStage);
     const toStage = input.toStage;
     if (fromStage === toStage) return this.get(id, actor);
-    if (fromStage === 'win' || fromStage === 'lost') {
-      throw new ValidationError('WIN veya LOST kartı taşımak için önce Geçmiş ekranından geri açın');
-    }
-    if (toStage === 'lead') throw new ValidationError('Fırsat yeniden Leadler havuzuna taşınamaz');
-    if (toStage === 'c' && fromStage === 'lead') return this.convertLead(id, { note: input.note }, actor);
+    const reopeningLost = fromStage === 'lost';
 
     if (toStage === 'lost') {
       await this.setLostQualification(opp, input, actor);
     } else {
-      const fromIndex = QUALIFICATION_SEQUENCE.indexOf(fromStage);
+      // LOST satış derecesi dizisinin terminal ucudur. LOST'tan yapılan seçimler
+      // hedef dereceye doğrudan geri geçiştir; kart Lead havuzuna düşürülmez.
+      const fromIndex = reopeningLost ? QUALIFICATION_SEQUENCE.length : QUALIFICATION_SEQUENCE.indexOf(fromStage);
       const toIndex = QUALIFICATION_SEQUENCE.indexOf(toStage);
       if (toIndex < 0 || fromIndex < 0) throw new ValidationError('Geçersiz satış derecesi');
-      const movingForward = toIndex > fromIndex;
-      if (movingForward && toIndex !== fromIndex + 1) {
-        throw new ValidationError('Satış dereceleri sırayla ilerletilmelidir');
-      }
-      if (!movingForward && toIndex !== fromIndex - 1) {
-        throw new ValidationError('Kart yalnızca bir önceki satış derecesine geri alınabilir');
-      }
+      const movingForward = !reopeningLost && toIndex > fromIndex;
       if (!movingForward && !input.note?.trim()) {
         throw new ValidationError('Geri geçişte gerekçe zorunludur', { field: 'note' });
       }
       if (movingForward) {
         const contexts = await this.qualificationContexts([opp]);
-        const readiness = this.qualificationReadiness(opp, contexts.get(opp.id)!);
-        if (!readiness.ready) {
-          throw new ValidationError('Bir sonraki aşama için eksik bilgiler var', {
-            blockers: readiness.blockers,
+        const currentStage = await this.db.query.pipelineStages.findFirst({
+          where: eq(pipelineStages.id, opp.currentStageId),
+        });
+        const readiness = await this.opportunityProcessReadiness(
+          opp,
+          (currentStage?.code ?? 'sales') as PipelineStageCode,
+          contexts.get(opp.id)!,
+          actor
+        );
+        const target = readiness.targets.find(
+          (item) => item.axis === 'qualification' && item.code === toStage
+        );
+        if (!target?.canTransition) {
+          throw new ValidationError('Hedef satış alanı için eksik gereklilikler var', {
+            blockers: target?.blockers ?? [],
+            blockerLabels: target?.blockers.map((blocker) => blocker.label) ?? [],
             fromStage,
             toStage,
           });
         }
       }
 
+      const entry = QUALIFICATION_STAGE_ENTRY[toStage];
+      const entryStage = await this.stageRowByCode(entry.stage);
       const patch: Record<string, unknown> = {
         qualificationStage: toStage,
-        qualificationNote: input.note?.trim() || opp.qualificationNote,
+        // LOST'tan çıkış gerekçesi geçmişe yazılır; kayıp anındaki kart notu
+        // ayrı bir kayıt bilgisi olarak korunur.
+        qualificationNote: reopeningLost ? opp.qualificationNote : input.note?.trim() || opp.qualificationNote,
         qualificationUpdatedAt: new Date(),
+        currentStageId: entryStage.id,
         updatedAt: new Date(),
         updatedBy: actor.userId,
       };
@@ -1912,24 +3731,34 @@ export class OpportunitiesService {
           where: eq(opportunityStatuses.code, 'won'),
         });
         if (wonStatus) patch.statusId = wonStatus.id;
+      } else if (fromStage === 'win' || reopeningLost) {
+        const openStatus = await this.db.query.opportunityStatuses.findFirst({
+          where: eq(opportunityStatuses.code, 'open'),
+        });
+        if (openStatus) patch.statusId = openStatus.id;
       }
       await this.db.update(opportunities).set(patch).where(eq(opportunities.id, id));
+      await this.db.insert(opportunityStageHistory).values({
+        tenantId: actor.tenantId,
+        opportunityId: id,
+        fromStageId: opp.currentStageId,
+        toStageId: entryStage.id,
+        changedBy: actor.userId,
+        changeReason: input.note?.trim() || `Satış derecesi ${toStage.toUpperCase()} alanına taşındı`,
+      });
 
       if (!movingForward) {
-        await this.db
-          .update(opportunityApprovals)
-          .set({
-            status: 'pending',
-            decidedBy: null,
-            decidedAt: null,
-            note: null,
-            updatedAt: new Date(),
-          })
-          .where(and(eq(opportunityApprovals.opportunityId, id), isNull(opportunityApprovals.deletedAt)));
+        await this.invalidateApprovals(
+          id,
+          this.approvalsInvalidatedByBackwardTarget(entry.stage),
+          actor,
+          input.note!.trim()
+        );
       }
     }
 
-    await this.recordQualificationChange(id, actor.tenantId, actor.userId, fromStage, toStage, input.note);
+    const qualificationChangeNote = input.note?.trim() || input.lostUnmetConditions?.trim();
+    await this.recordQualificationChange(id, actor.tenantId, actor.userId, fromStage, toStage, qualificationChangeNote);
     await this.audit.write({
       tenantId: actor.tenantId,
       actorUserId: actor.userId,
@@ -1937,7 +3766,14 @@ export class OpportunitiesService {
       resourceType: 'opportunity',
       resourceId: id,
       oldValues: { qualificationStage: fromStage },
-      newValues: { qualificationStage: toStage, note: input.note ?? null },
+      newValues: {
+        qualificationStage: toStage,
+        note: qualificationChangeNote ?? null,
+        lostProductName: input.lostProductName ?? null,
+        lostUnmetConditions: input.lostUnmetConditions ?? null,
+        lostCompetitorId: input.lostCompetitorId ?? null,
+        lostCompetitorProductModel: input.lostCompetitorProductModel ?? null,
+      },
     });
     return this.get(id, actor);
   }
@@ -1955,7 +3791,7 @@ export class OpportunitiesService {
     }
     if (approvalType === 'customs') {
       const stage = await this.db.query.pipelineStages.findFirst({ where: eq(pipelineStages.id, opp.currentStageId) });
-      const currentIndex = PIPELINE_STAGES.indexOf((stage?.code ?? 'lead') as PipelineStageCode);
+      const currentIndex = PIPELINE_STAGES.indexOf((stage?.code ?? 'sales') as PipelineStageCode);
       if (currentIndex < PIPELINE_STAGES.indexOf('customs_approved')) {
         throw new ValidationError('Gümrük onayı için operasyon aşaması Gümrük Onayı veya sonrasında olmalıdır');
       }
@@ -2005,6 +3841,9 @@ export class OpportunitiesService {
     actor: AuthContext
   ) {
     const opp = await this.findScopedOpp(id, actor);
+    if (approvalType === 'win' && !actor.roles.includes('super_admin')) {
+      throw new ForbiddenError('Nihai WIN kararını yalnızca Süperadmin verebilir');
+    }
     if (this.qualificationStage(opp.qualificationStage) !== 'a_plus') {
       throw new ValidationError('Onaylar yalnız A+ aşamasındaki fırsatlar için verilebilir');
     }
@@ -2083,14 +3922,25 @@ export class OpportunitiesService {
     return this.get(id, actor);
   }
 
-  /** Geri Aç: yanlış kapatmayı geri alır ve terminal satış derecesini önceki aktif dereceye taşır. */
+  /**
+   * Geri Aç:
+   * - LOST kartını satış/süper admin için önceki fırsat derecesine döndürür.
+   *   Önceki derece bulunamazsa C kullanılır; kart Lead havuzuna düşmez.
+   * - Kayıp snapshot alanları korunur; yalnız terminal durum kaldırılır.
+   * - WIN arşivini önceki aktif dereceye döndüren davranışı korur.
+   */
   async reopen(id: string, actor: AuthContext) {
     const opp = await this.findScopedOpp(id, actor);
-    if (!opp.closedAt) throw new ValidationError('Fırsat zaten açık');
     const terminalStage = this.qualificationStage(opp.qualificationStage);
+    const reopeningLost = terminalStage === 'lost';
+    if (reopeningLost && !actor.roles.some((role) => role === 'sales' || role === 'super_admin')) {
+      throw new ForbiddenError('LOST fırsatı yalnızca satış veya süper admin aktif fırsatlara döndürebilir');
+    }
+    if (!reopeningLost && !opp.closedAt) throw new ValidationError('Fırsat zaten açık');
     const isQualificationTerminal = terminalStage === 'win' || terminalStage === 'lost';
     let reopenedStage: QualificationStageCode | null = null;
-    let openStatusId: string | null = null;
+    let reopenedStatusId: string | null = null;
+    let entryStage: { id: string } | null = null;
 
     if (isQualificationTerminal) {
       const previousChange = await this.db.query.opportunityQualificationHistory.findFirst({
@@ -2102,22 +3952,29 @@ export class OpportunitiesService {
         orderBy: desc(opportunityQualificationHistory.createdAt),
       });
       const previousStage = previousChange?.fromStage as QualificationStageCode | null | undefined;
-      reopenedStage =
+      const validPreviousOpportunityStage =
         previousStage &&
         QUALIFICATION_STAGES.includes(previousStage) &&
-        previousStage !== 'win' &&
-        previousStage !== 'lost'
-          ? previousStage
-          : terminalStage === 'win'
-            ? 'a_plus'
-            : 'c';
-      const openStatus = await this.db.query.opportunityStatuses.findFirst({
-        where: eq(opportunityStatuses.code, 'open'),
+        previousStage !== 'lead' &&
+        previousStage !== 'lost' &&
+        previousStage !== terminalStage;
+      reopenedStage = validPreviousOpportunityStage
+        ? previousStage
+        : reopeningLost
+          ? 'c'
+          : 'a_plus';
+      entryStage = await this.stageRowByCode(QUALIFICATION_STAGE_ENTRY[reopenedStage].stage);
+      const reopenedStatus = await this.db.query.opportunityStatuses.findFirst({
+        where: eq(opportunityStatuses.code, reopenedStage === 'win' ? 'won' : 'open'),
       });
-      openStatusId = openStatus?.id ?? null;
+      reopenedStatusId = reopenedStatus?.id ?? null;
     }
 
     const now = new Date();
+    const reopenedStageLabel = reopenedStage === 'a_plus' ? 'A+' : reopenedStage?.toUpperCase();
+    const reopenReason = reopeningLost
+      ? `LOST kaydından ${reopenedStageLabel ?? 'önceki'} derecesine geri açıldı`
+      : 'Geçmişten geri açıldı';
     await this.db.transaction(async (tx) => {
       await tx
         .update(opportunities)
@@ -2127,9 +3984,10 @@ export class OpportunitiesService {
           ...(reopenedStage
             ? {
                 qualificationStage: reopenedStage,
-                qualificationNote: 'Geçmişten geri açıldı',
+                qualificationNote: reopeningLost ? opp.qualificationNote : reopenReason,
                 qualificationUpdatedAt: now,
-                statusId: openStatusId ?? opp.statusId,
+                statusId: reopenedStatusId ?? opp.statusId,
+                ...(entryStage ? { currentStageId: entryStage.id } : {}),
               }
             : {}),
           updatedAt: now,
@@ -2150,17 +4008,27 @@ export class OpportunitiesService {
           .where(
             and(
               eq(opportunityApprovals.opportunityId, id),
-              eq(opportunityApprovals.approvalType, 'win'),
+              ...(reopeningLost ? [] : [eq(opportunityApprovals.approvalType, 'win')]),
               isNull(opportunityApprovals.deletedAt)
             )
           );
+        if (entryStage && entryStage.id !== opp.currentStageId) {
+          await tx.insert(opportunityStageHistory).values({
+            tenantId: actor.tenantId,
+            opportunityId: id,
+            fromStageId: opp.currentStageId,
+            toStageId: entryStage.id,
+            changedBy: actor.userId,
+            changeReason: reopenReason,
+          });
+        }
         await tx.insert(opportunityQualificationHistory).values({
           tenantId: actor.tenantId,
           opportunityId: id,
           fromStage: terminalStage,
           toStage: reopenedStage,
           changedBy: actor.userId,
-          changeReason: 'Geçmişten geri açıldı',
+          changeReason: reopenReason,
         });
       }
     });
@@ -2171,7 +4039,11 @@ export class OpportunitiesService {
       resourceType: 'opportunity',
       resourceId: id,
       oldValues: { qualificationStage: terminalStage, closedAt: opp.closedAt },
-      newValues: { qualificationStage: reopenedStage ?? terminalStage, closedAt: null },
+      newValues: {
+        qualificationStage: reopenedStage ?? terminalStage,
+        currentStageId: entryStage?.id ?? opp.currentStageId,
+        closedAt: null,
+      },
     });
     return this.get(id, actor);
   }
@@ -2181,11 +4053,63 @@ export class OpportunitiesService {
    *  - cancelled → cancellation_reason zorunlu
    *  - quote → mevcut quote olmalı
    *  - contract → quote'a contract dosyası yüklenmeli
-   *  - commercial_invoice → ticari fatura dosyası yüklenmeli
+   *  - commercial_invoice → ödeme yöntemi gerektiriyorsa ödeme planı tamamlanmalı
    *  - customs_approved → öncesinde commercial_invoice tamamlanmış olmalı
    *  - stock_picking → customs_approved'tan sonra; inventory_item seçilmeli (reserved'a alınır)
-   *  - delivered → customer_device kaydı oluşturulur
+   *  - delivered → ticari fatura + kurulum kanıtları doğrulanır, customer_device kaydı oluşturulur
    */
+  /**
+   * Derece ilerlediğinde kartı o derecenin giriş aşamasına taşır (ters yön
+   * senkron). Kapılı giriş aşamaları (teklif, ticari fatura) atlanır: oralara
+   * yalnız changeStage üzerinden, kanıt üretilerek girilir. Kart zaten yeni
+   * derecenin alanında ya da ilerisindeyse dokunulmaz.
+   */
+  private async pipelineStageForQualification(
+    opp: typeof opportunities.$inferSelect,
+    toStage: QualificationStageCode
+  ): Promise<{ id: string; code: PipelineStageCode } | null> {
+    const entry = QUALIFICATION_STAGE_ENTRY[toStage];
+    if (entry.gated) return null;
+
+    const currentStage = await this.db.query.pipelineStages.findFirst({
+      where: eq(pipelineStages.id, opp.currentStageId),
+    });
+    const currentCode = (currentStage?.code ?? 'sales') as PipelineStageCode;
+    // Kartın bulunduğu aşama zaten bu dereceye ya da ilerisine aitse taşıma.
+    const currentGrade = PIPELINE_STAGE_QUALIFICATION[currentCode];
+    if (currentGrade === toStage) return null;
+    if (toStage !== 'lost') {
+      const currentIndex = QUALIFICATION_SEQUENCE.indexOf(currentGrade);
+      const targetIndex = QUALIFICATION_SEQUENCE.indexOf(toStage);
+      if (currentIndex >= 0 && targetIndex >= 0 && currentIndex > targetIndex) return null;
+    }
+
+    const row = await this.stageRowByCode(entry.stage);
+    return { id: row.id, code: entry.stage };
+  }
+
+  /**
+   * Operasyon aşamasının karşılık geldiği satış derecesini döndürür — yalnız
+   * kartın bulunduğu dereceden İLERİdeyse. Aynı ya da geride ise null döner ve
+   * derece olduğu gibi kalır, böylece operasyonda geri adım atmak satış
+   * derecesini düşürmez. WIN/LOST kartlar bu senkrondan muaftır.
+   */
+  private syncQualificationForPipeline(
+    opp: typeof opportunities.$inferSelect,
+    toStage: PipelineStageCode
+  ): QualificationStageCode | null {
+    const current = this.qualificationStage(opp.qualificationStage);
+    if (current === 'win' || current === 'lost') return null;
+    const mapped = PIPELINE_STAGE_QUALIFICATION[toStage];
+    if (mapped === current) return null;
+    // LOST tek başına kayıp nedeni ister; iptal akışı zaten onu yazıyor.
+    if (mapped === 'lost') return 'lost';
+    const currentIndex = QUALIFICATION_SEQUENCE.indexOf(current);
+    const mappedIndex = QUALIFICATION_SEQUENCE.indexOf(mapped);
+    if (currentIndex < 0 || mappedIndex < 0) return null;
+    return mappedIndex > currentIndex ? mapped : null;
+  }
+
   async changeStage(id: string, input: OpportunityStageChangeInput, actor: AuthContext) {
     const opp = await this.db.query.opportunities.findFirst({
       where: and(
@@ -2196,6 +4120,10 @@ export class OpportunitiesService {
       ),
     });
     if (!opp) throw new NotFoundError('Fırsat');
+    if (opp.closedAt) throw new ValidationError('Arşivlenmiş fırsat taşınamaz; önce geri açın');
+    if (this.qualificationStage(opp.qualificationStage) === 'lost') {
+      throw new ValidationError('LOST kaydını operasyon rayından değil, fırsat derecesi panosundan hedef dereceye taşıyın');
+    }
 
     const fromStage = await this.db.query.pipelineStages.findFirst({
       where: eq(pipelineStages.id, opp.currentStageId),
@@ -2216,9 +4144,39 @@ export class OpportunitiesService {
     }
     if (fromStage.code === input.toStage) return this.get(id, actor);
 
-    const allowedFrom = STAGE_TRANSITIONS[input.toStage as PipelineStageCode];
-    if (!allowedFrom.includes(fromStage.code as PipelineStageCode)) {
-      throw new ValidationError(`'${fromStage.code}' aşamasından '${input.toStage}' aşamasına geçiş yapılamaz`);
+    const fromIndex = PIPELINE_STAGE_FLOW.indexOf(fromStage.code as PipelineStageCode);
+    const toIndex = PIPELINE_STAGE_FLOW.indexOf(input.toStage as PipelineStageCode);
+    const terminalCancellation = input.toStage === 'cancelled';
+    if (!terminalCancellation && (fromIndex < 0 || toIndex < 0)) {
+      throw new ValidationError('LOST/iptal akışı normal süreç rayından değiştirilemez');
+    }
+    const movingForward = !terminalCancellation && toIndex > fromIndex;
+    const movingBackward = !terminalCancellation && toIndex < fromIndex;
+    if (movingBackward && !input.changeReason?.trim()) {
+      throw new ValidationError('Geri geçişte gerekçe zorunludur', { field: 'changeReason' });
+    }
+    if (movingForward) {
+      const contexts = await this.qualificationContexts([opp]);
+      const readiness = await this.opportunityProcessReadiness(
+        opp,
+        fromStage.code as PipelineStageCode,
+        contexts.get(opp.id)!,
+        actor
+      );
+      const target = readiness.targets.find(
+        (item) => item.axis === 'operation' && item.code === input.toStage
+      );
+      const blockers = (target?.blockers ?? []).filter(
+        (blocker) => !(blocker.key === 'stock' && Boolean(input.inventoryItemIds?.length))
+      );
+      if (!target || blockers.length) {
+        throw new ValidationError('Hedef operasyon adımı için eksik gereklilikler var', {
+          blockers,
+          blockerLabels: blockers.map((blocker) => blocker.label),
+          fromStage: fromStage.code,
+          toStage: input.toStage,
+        });
+      }
     }
 
     const patch: Record<string, unknown> = { currentStageId: toStage.id, updatedBy: actor.userId };
@@ -2246,9 +4204,14 @@ export class OpportunitiesService {
       if (input.lostCompetitorProductModel) patch.lostCompetitorProductModel = input.lostCompetitorProductModel;
       const lost = await this.db.query.opportunityStatuses.findFirst({ where: eq(opportunityStatuses.code, 'lost') });
       if (lost) patch.statusId = lost.id;
+      patch.qualificationStage = 'lost';
+      patch.qualificationUpdatedAt = new Date();
+    } else if (movingBackward && this.qualificationStage(opp.qualificationStage) === 'win') {
+      const open = await this.db.query.opportunityStatuses.findFirst({ where: eq(opportunityStatuses.code, 'open') });
+      if (open) patch.statusId = open.id;
     }
 
-    if (input.toStage === 'quote') {
+    if (movingForward && input.toStage === 'quote') {
       const qcount = await this.db
         .select({ c: sql<number>`count(*)::int` })
         .from(quotes)
@@ -2257,7 +4220,7 @@ export class OpportunitiesService {
         throw new ValidationError('Quote aşamasına geçmek için en az bir teklif oluşturulmalıdır');
       }
     }
-    if (input.toStage === 'contract') {
+    if (movingForward && input.toStage === 'contract') {
       const ccount = await this.db
         .select({ c: sql<number>`count(*)::int` })
         .from(contracts)
@@ -2265,7 +4228,11 @@ export class OpportunitiesService {
         .where(and(eq(quotes.tenantId, actor.tenantId), eq(quotes.opportunityId, id)));
       if (!ccount[0].c) throw new ValidationError('Contract aşamasına geçmek için sözleşme dosyası yüklenmelidir');
     }
-    if (input.toStage === 'commercial_invoice') {
+    // Ticari fatura BU aşamada kesilir; aşamaya girmek için faturanın önceden
+    // var olmasını beklemek kartı kendi işine başlayamaz hâle getiriyordu.
+    // Faturanın varlığı, kurulumla birlikte `delivered` (WIN) kapısında aranır.
+    // Vade satırları yalnız vadeli satışta gerekir — peşin/leasingde plan yoktur.
+    if (movingForward && input.toStage === 'commercial_invoice' && requiresPaymentPlan(opp.paymentMethod)) {
       const rcount = await this.db
         .select({ c: sql<number>`count(*)::int` })
         .from(receivables)
@@ -2274,15 +4241,10 @@ export class OpportunitiesService {
       if (!rcount[0].c) {
         throw new ValidationError('Ticari fatura aşamasına geçmek için önce ödeme planı oluşturulmalıdır');
       }
-
-      const icount = await this.db
-        .select({ c: sql<number>`count(*)::int` })
-        .from(commercialInvoices)
-        .innerJoin(quotes, eq(commercialInvoices.quoteId, quotes.id))
-        .where(and(eq(quotes.tenantId, actor.tenantId), eq(quotes.opportunityId, id)));
-      if (!icount[0].c) throw new ValidationError('Ticari fatura dosyası yüklenmelidir');
     }
-    if (input.toStage === 'stock_picking') {
+    if (movingForward && toIndex >= PIPELINE_STAGE_FLOW.indexOf('stock_picking')) {
+      const existingEvidence = await this.processEvidence(id, actor);
+      if (!existingEvidence.hasStockReservation) {
       const inventoryItemIds = await this.resolveStockPickingItemIds(opp, actor, input.inventoryItemIds);
       const reserved = await this.db.query.inventoryStatuses.findFirst({ where: eq(inventoryStatuses.code, 'reserved') });
       const available = await this.db.query.inventoryStatuses.findFirst({ where: eq(inventoryStatuses.code, 'available') });
@@ -2327,8 +4289,9 @@ export class OpportunitiesService {
           createdBy: actor.userId,
         });
       }
+      }
     }
-    if (input.toStage === 'installation') {
+    if (movingForward && input.toStage === 'installation') {
       // Garanti, tezgâhın kurulumuyla başlar: rezerve stok kalemlerinden
       // müşteri cihazı / garanti kayıtları oluşturulur (idempotent).
       await this.ensureWarrantyDevices(opp, actor, input.inventoryItemIds);
@@ -2336,12 +4299,33 @@ export class OpportunitiesService {
       // bir kurulum kaydı oluşturulur (idempotent).
       await this.ensureInstallationJob(opp, actor);
     }
-    if (input.toStage === 'delivered') {
+    if (movingForward && input.toStage === 'delivered') {
       // Cihaz/garanti kayıtları kurulumda oluşturulmuş olabilir; tekrar çağırmak
       // güvenlidir (idempotent). Kurulum atlandıysa burada oluşturulur.
       await this.ensureWarrantyDevices(opp, actor, input.inventoryItemIds);
       const won = await this.db.query.opportunityStatuses.findFirst({ where: eq(opportunityStatuses.code, 'won') });
       if (won) patch.statusId = won.id;
+    }
+
+    // Operasyon aşaması, satış derecesinin alt adımıdır: teklif/sözleşme/fatura
+    // gibi somut kanıtlar üretildiğinde derece kendiliğinden yükselir. Yalnız
+    // ileri yönde çalışır; geri alma satış ekibinin açık kararıdır.
+    const mappedQualification = PIPELINE_STAGE_QUALIFICATION[input.toStage as PipelineStageCode];
+    const syncedQualification =
+      !terminalCancellation && mappedQualification !== this.qualificationStage(opp.qualificationStage)
+        ? mappedQualification
+        : null;
+    if (syncedQualification) {
+      patch.qualificationStage = syncedQualification;
+      patch.qualificationUpdatedAt = new Date();
+    }
+    if (movingBackward) {
+      await this.invalidateApprovals(
+        id,
+        this.approvalsInvalidatedByBackwardTarget(input.toStage as PipelineStageCode),
+        actor,
+        input.changeReason!.trim()
+      );
     }
 
     await this.db.update(opportunities).set(patch).where(eq(opportunities.id, id));
@@ -2353,6 +4337,25 @@ export class OpportunitiesService {
       changedBy: actor.userId,
       changeReason: input.changeReason ?? null,
     });
+    if (syncedQualification) {
+      await this.recordQualificationChange(
+        id,
+        actor.tenantId,
+        actor.userId,
+        this.qualificationStage(opp.qualificationStage),
+        syncedQualification,
+        `Operasyon aşaması ilerledi: ${toStage.code}`
+      );
+    } else if (terminalCancellation) {
+      await this.recordQualificationChange(
+        id,
+        actor.tenantId,
+        actor.userId,
+        this.qualificationStage(opp.qualificationStage),
+        'lost',
+        input.changeReason ?? input.cancellationReasonCode ?? 'Fırsat kaybedildi'
+      );
+    }
     await this.audit.write({
       tenantId: actor.tenantId,
       actorUserId: actor.userId,
@@ -2541,20 +4544,30 @@ export class OpportunitiesService {
       throw new ValidationError('Kurulum için önce firma satış kartına bağlanmalıdır');
     }
     const existing = await this.db
-      .select({ id: installationJobs.id })
+      .select({ id: installationJobs.id, customerDeviceId: installationJobs.customerDeviceId })
       .from(installationJobs)
       .where(and(eq(installationJobs.tenantId, actor.tenantId), eq(installationJobs.opportunityId, opp.id)))
       .limit(1);
-    if (existing.length) return;
-    const scheduled = await this.db.query.installationStatuses.findFirst({
-      where: eq(installationStatuses.code, 'scheduled'),
-    });
     // Kurulumu (varsa) bu fırsat için oluşturulmuş müşteri cihazına bağla.
     const device = await this.db
       .select({ id: customerDevices.id })
       .from(customerDevices)
       .where(and(eq(customerDevices.tenantId, actor.tenantId), eq(customerDevices.opportunityId, opp.id)))
       .limit(1);
+    // Kurulum A+ alanında faturayla paralel önceden planlandıysa aynı kaydı
+    // koru; stoktan oluşan müşteri cihazını operasyon kurulum adımında bağla.
+    if (existing.length) {
+      if (!existing[0].customerDeviceId && device[0]?.id) {
+        await this.db
+          .update(installationJobs)
+          .set({ customerDeviceId: device[0].id })
+          .where(eq(installationJobs.id, existing[0].id));
+      }
+      return;
+    }
+    const scheduled = await this.db.query.installationStatuses.findFirst({
+      where: eq(installationStatuses.code, 'scheduled'),
+    });
     await this.db.insert(installationJobs).values({
       tenantId: actor.tenantId,
       divisionId: opp.divisionId,

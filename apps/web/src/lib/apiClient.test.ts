@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { buildMutationDedupeKey, resolveMediaUrlAgainstBase, SingleFlightRequestStore } from './apiClient';
+import { buildMutationDedupeKey, resolveMediaUrlAgainstBase, scheduleApiRequest, SingleFlightRequestStore } from './apiClient';
 
 describe('resolveMediaUrlAgainstBase', () => {
   it('adds the API base to canonical product media paths', () => {
@@ -107,5 +107,40 @@ describe('mutation request deduplication', () => {
     await expect(store.run('company-create', async () => ({ id: 'company-2' }))).resolves.toEqual({
       id: 'company-2',
     });
+  });
+});
+
+describe('istek kuyruğu', () => {
+  it('kuyruktaki istekleri yapay gecikmeyle aralamaz', async () => {
+    // Regresyon koruması: burada istekler arasına 120 ms zorunlu boşluk
+    // konuyordu ve açılıştaki ~31 isteğe ~3,7 sn ekliyordu. Boşluk geri
+    // gelirse bu test patlar — 30 istek ≥3,6 sn sürerdi.
+    const started = Date.now();
+    await Promise.all(
+      Array.from({ length: 30 }, () => scheduleApiRequest(async () => 'ok')),
+    );
+    // Gerçek sınır ~0 ms; eşik yalnız sabit aralamayı yakalamak için geniş.
+    expect(Date.now() - started).toBeLessThan(300);
+  });
+
+  it('eşzamanlılık tavanını korur', async () => {
+    let active = 0;
+    let peak = 0;
+    await Promise.all(
+      Array.from({ length: 12 }, () =>
+        scheduleApiRequest(async () => {
+          active += 1;
+          peak = Math.max(peak, active);
+          await new Promise((resolve) => setTimeout(resolve, 5));
+          active -= 1;
+        }),
+      ),
+    );
+    // Tavan sunucuyu ani yığından koruyan tek istemci kısıtı; kalkmamalı.
+    // 4 → 8 yükseltildi: açılıştaki ~31 istek sekiz dalga yerine dört dalgada
+    // iniyor. Asıl güvence 12 isteğin 12'sinin birden uçmaması, yani kuyruğun
+    // gerçekten çalışması.
+    expect(peak).toBeLessThanOrEqual(8);
+    expect(peak).toBeLessThan(12);
   });
 });

@@ -1,7 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { and, desc, eq, inArray, isNull, or, sql } from 'drizzle-orm';
 import type { DbClient } from '../../db/client';
-import { salesActivities, visits, calls, opportunities } from '../../db/schema/crm';
+import { salesActivities, visits, calls, opportunities, type ActivityOrigin } from '../../db/schema/crm';
 import { companies, contactCompanies, contacts, notifications } from '../../db/schema/companies';
 import { activityTypes, fileDocumentTypes } from '../../db/schema/lookup';
 import { fileLinks, files } from '../../db/schema/files';
@@ -27,6 +27,23 @@ import {
 @Injectable()
 export class ActivitiesService {
   constructor(@Inject(DB) private readonly db: DbClient) {}
+
+  private async resolveActivityTypeId(code: string) {
+    const exact = await lookupIdByCode(this.db, activityTypes, code);
+    if (exact) return exact;
+
+    // Uygulama ile lookup migration'ı farklı anlarda yayınlansa bile aktivite
+    // kaydı kesilmesin. Migration tamamlanınca doğrudan yeni kodlar kullanılır.
+    const legacyCodeByType: Record<string, string> = {
+      incoming_call: 'call',
+      outgoing_call: 'call',
+      customer_visit: 'visit',
+      online_meeting: 'meeting',
+      showroom_meeting: 'meeting',
+    };
+    const legacyCode = legacyCodeByType[code];
+    return legacyCode ? lookupIdByCode(this.db, activityTypes, legacyCode) : undefined;
+  }
 
   private async assertCompany(companyId: string, actor: AuthContext) {
     const company = await this.db.query.companies.findFirst({
@@ -194,9 +211,9 @@ export class ActivitiesService {
     );
   }
 
-  async createActivity(input: ActivityCreateInput, actor: AuthContext) {
+  async createActivity(input: ActivityCreateInput, actor: AuthContext, origin: ActivityOrigin = 'system') {
     const companyId = await this.assertReferences(input, actor);
-    const typeId = await lookupIdByCode(this.db, activityTypes, input.activityTypeCode);
+    const typeId = await this.resolveActivityTypeId(input.activityTypeCode);
     if (!typeId) throw new ValidationError(`Bilinmeyen aktivite türü: ${input.activityTypeCode}`);
     const divisionId = await this.resolveActivityDivision(input, actor);
     if (!divisionId) throw new ValidationError('Aktivite için bölüm ataması zorunludur', { field: 'divisionId' });
@@ -211,6 +228,7 @@ export class ActivitiesService {
         activityTypeId: typeId,
         subject: input.subject,
         description: input.description ?? null,
+        origin,
         activityDate: input.activityDate,
         nextFollowUpAt: input.nextFollowUpAt ?? null,
         result: input.result ?? null,
@@ -233,7 +251,13 @@ export class ActivitiesService {
    * gelen harf/rakamla devam eden token'lar (kısmi eşleşme) elenir.
    */
   private async notifyActivityMentions(
-    activity: { id: string; divisionId: string | null; subject: string; description: string | null },
+    activity: {
+      id: string;
+      divisionId: string | null;
+      subject: string;
+      description: string | null;
+      previousText?: string;
+    },
     actor: AuthContext,
   ) {
     const text = [activity.subject, activity.description].filter(Boolean).join(' ');
@@ -251,7 +275,10 @@ export class ActivitiesService {
       const emailLocal = (u.email ?? '').split('@')[0] ?? '';
       const handles = [full, first, emailLocal].filter((h) => h.length >= 2);
       const hit = handles.some((h) => new RegExp('@' + escape(h) + '(?![\\p{L}\\p{N}])', 'iu').test(text));
-      if (hit) mentioned.add(u.id);
+      const existedBefore = activity.previousText
+        ? handles.some((h) => new RegExp('@' + escape(h) + '(?![\\p{L}\\p{N}])', 'iu').test(activity.previousText!))
+        : false;
+      if (hit && !existedBefore) mentioned.add(u.id);
     }
     if (!mentioned.size) return;
     let mentionedIds = [...mentioned];
@@ -305,7 +332,7 @@ export class ActivitiesService {
     if (input.contactId !== undefined) patch.contactId = input.contactId || null;
     if (input.opportunityId !== undefined) patch.opportunityId = input.opportunityId || null;
     if (input.activityTypeCode !== undefined) {
-      const typeId = await lookupIdByCode(this.db, activityTypes, input.activityTypeCode);
+      const typeId = await this.resolveActivityTypeId(input.activityTypeCode);
       if (!typeId) throw new ValidationError(`Bilinmeyen aktivite türü: ${input.activityTypeCode}`);
       patch.activityTypeId = typeId;
     }
@@ -317,6 +344,16 @@ export class ActivitiesService {
     patch.updatedAt = new Date();
 
     const [row] = await this.db.update(salesActivities).set(patch).where(eq(salesActivities.id, activityId)).returning();
+    await this.notifyActivityMentions(
+      {
+        id: row.id,
+        divisionId: row.divisionId,
+        subject: row.subject,
+        description: row.description,
+        previousText: [existing.subject, existing.description].filter(Boolean).join(' '),
+      },
+      actor,
+    ).catch(() => undefined);
     return row;
   }
 

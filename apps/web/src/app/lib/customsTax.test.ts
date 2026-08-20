@@ -6,10 +6,10 @@ describe("computeCustomsCharges", () => {
     // 100.000 USD'lik tek işleme merkezi
     const r = computeCustomsCharges({ lineTotal: 100_000, quantity: 1 });
     expect(r.customsDuty).toBe(2700); // %2.7
-    expect(r.additionalCustomsDuty).toBe(10_000); // %10
+    expect(r.additionalCustomsDuty).toBe(10_270); // (100.000 + 2.700) × %10
     expect(r.tseFee).toBe(1600); // adet başına 1600 USD
     expect(r.fixedCustomsFee).toBe(1000); // adet başına 1000 USD
-    expect(r.total).toBe(15_300);
+    expect(r.total).toBe(15_570);
   });
 
   it("sabit ücretleri adet başına uygular", () => {
@@ -17,15 +17,18 @@ describe("computeCustomsCharges", () => {
     expect(r.tseFee).toBe(3200); // 1600 × 2
     expect(r.fixedCustomsFee).toBe(2000); // 1000 × 2
     expect(r.customsDuty).toBe(5400); // 200.000 × %2.7
-    expect(r.additionalCustomsDuty).toBe(20_000); // 200.000 × %10
+    expect(r.additionalCustomsDuty).toBe(20_540); // (200.000 + 5.400) × %10
+    expect(r.total).toBe(31_140);
   });
 
   it("USD dışı teklifte sabit ücretleri kur ile çevirir", () => {
     // 1 USD = 33 TRY; yüzdeler satır tutarı (TRY) üzerinden, sabitler USD→TRY
     const r = computeCustomsCharges({ lineTotal: 3_300_000, quantity: 1, usdToQuoteRate: 33 });
     expect(r.customsDuty).toBe(89_100); // 3.300.000 × %2.7
+    expect(r.additionalCustomsDuty).toBe(338_910); // (3.300.000 + 89.100) × %10
     expect(r.tseFee).toBe(52_800); // 1600 × 33
     expect(r.fixedCustomsFee).toBe(33_000); // 1000 × 33
+    expect(r.total).toBe(513_810);
   });
 
   it("geçersiz/negatif girdide 0 döner", () => {

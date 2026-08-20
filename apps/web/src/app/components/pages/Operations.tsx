@@ -105,6 +105,15 @@ function productSeriesCode(product: Product) {
   return model.match(SERIES_PREFIX_RE)?.[1]?.toLocaleUpperCase("tr-TR") ?? "";
 }
 
+/**
+ * Listede gösterilecek model adı. `model` alanı çoğu üründe stok kodu
+ * biçimindedir (ör. "LK.VM-2.12K.DDS.M"); okunabilir ad `modelName`dedir.
+ * Kodun geri kalanında (ProductDetailDialog, RequestedMachineCombobox)
+ * zaten bu öncelik kullanılıyor — liste de aynı kurala uyar.
+ */
+const productDisplayModel = (product: Product) =>
+  product.modelName?.trim() || product.model;
+
 function productSeriesLabel(product: Product) {
   const code = productSeriesCode(product);
   return code ? `${code} Serisi` : "Serisiz";
@@ -144,9 +153,10 @@ export function ProductsPage({ initialQuery }: { initialQuery?: string }) {
   const [deleting, setDeleting] = useState<Product | null>(null);
   const [deleteSaving, setDeleteSaving] = useState(false);
   const [view, setView] = usePersistentState<ListView>("products.view", "cards");
-  const canCreateProducts = hasPermission("products.create");
-  const canEditProducts = hasPermission("products.update");
-  const canDeleteProducts = hasPermission("products.delete");
+  const isProductAdmin = hasRole("super_admin") || hasRole("admin");
+  const canCreateProducts = isProductAdmin || hasPermission("products.create");
+  const canEditProducts = isProductAdmin || hasPermission("products.update");
+  const canDeleteProducts = isProductAdmin || hasPermission("products.delete");
 
   useEffect(() => {
     if (initialQuery) setQ(initialQuery);
@@ -215,7 +225,7 @@ export function ProductsPage({ initialQuery }: { initialQuery?: string }) {
   ).sort(([a], [b]) => seriesSort(a, b));
 
   return (
-    <div className="space-y-4">
+    <div className="crm-page">
       <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
         <MiniKpi
           icon={<Package className="size-4" />}
@@ -262,7 +272,7 @@ export function ProductsPage({ initialQuery }: { initialQuery?: string }) {
             <Search className="size-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
             <Input
               placeholder="Marka, model, ürün ara..."
-              className="pl-9 h-9 bg-white"
+              className="h-9 bg-card pl-9"
               value={q}
               onChange={(e) => setQ(e.target.value)}
             />
@@ -320,7 +330,7 @@ export function ProductsPage({ initialQuery }: { initialQuery?: string }) {
                 key={p.id}
                 role="button"
                 tabIndex={0}
-                className="group relative cursor-pointer overflow-hidden border-border/75 bg-white transition-[transform,border-color,box-shadow] hover:-translate-y-0.5 hover:border-primary/25 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
+                className="group relative cursor-pointer overflow-hidden border-border/75 bg-card transition-[transform,border-color,box-shadow] hover:-translate-y-0.5 hover:border-primary/25 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
                 onClick={() => setSelected(p)}
                 onKeyDown={(event) => {
                   if (event.key === "Enter" || event.key === " ") {
@@ -340,13 +350,13 @@ export function ProductsPage({ initialQuery }: { initialQuery?: string }) {
                 />
                 <CardContent className="space-y-3 p-4 pt-0">
                   <div className="min-w-0">
-                    <div className="font-data text-[9px] font-semibold uppercase tracking-[0.13em] text-operation-blue">
+                    <div className="ui-eyebrow text-operation-blue">
                       {p.brand || "Haksan ürün"}
                     </div>
                     <div className="mt-1 truncate font-display text-xl font-semibold leading-none tracking-tight text-foreground">
-                      {p.model}
+                      {productDisplayModel(p)}
                     </div>
-                    <div className="mt-1.5 line-clamp-2 min-h-8 text-[11px] leading-4 text-muted-foreground">
+                    <div className="mt-1.5 line-clamp-2 min-h-8 text-xs leading-4 text-muted-foreground">
                       {p.shortDescription || productSubtitle(p) || productFamilyLabel(p)}
                     </div>
                   </div>
@@ -433,7 +443,7 @@ export function ProductsPage({ initialQuery }: { initialQuery?: string }) {
                           <ProductThumb product={p} />
                           <div className="min-w-0">
                             <div className="text-sm leading-tight truncate group-hover:text-primary transition-colors">
-                              {p.brand} {p.model}
+                              {p.brand} {productDisplayModel(p)}
                             </div>
                             <div className="text-[11px] text-muted-foreground mt-0.5 truncate">
                               {p.shortDescription || productSubtitle(p) || "—"}
@@ -444,9 +454,15 @@ export function ProductsPage({ initialQuery }: { initialQuery?: string }) {
                       <TableCell>
                         <Badge variant="outline" className="h-5 text-[10px]">{productSeriesLabel(p)}</Badge>
                       </TableCell>
-                      <TableCell className="text-sm text-muted-foreground">{p.type || productFamilyLabel(p) || "—"}</TableCell>
+                      <TableCell className="text-sm text-muted-foreground">{p.type || "—"}</TableCell>
                       <TableCell>
-                        <Badge variant="secondary" className="text-[10px] h-5">{productFamilyLabel(p)}</Badge>
+                        {/* Ürünün gerçek kategorisi. productFamilyLabel tip kodundan
+                            türetildiği için burada kullanılırsa Tip kolonunu tekrarlar
+                            ("CNC Dik İşleme Merkezi" / "CNC Dik İşleme Merkezleri").
+                            Aile etiketi yalnız gruplama ve filtre için kalır. */}
+                        <Badge variant="secondary" className="text-[10px] h-5">
+                          {p.category || p.subcategory || p.productGroup || "—"}
+                        </Badge>
                       </TableCell>
                       <TableCell className="text-right tabular-nums">{fmtMoney(p.listPrice, p.currency)}</TableCell>
                       <TableCell className="text-right tabular-nums text-success">{fmtMoney(p.cashPrice, p.currency)}</TableCell>
@@ -618,7 +634,7 @@ export function DeviceTrackingPage() {
   });
 
   return (
-    <div className="space-y-5">
+    <div className="crm-page">
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <KpiTile icon={<Cpu className="size-[18px]" />} label="Toplam Cihaz" value={devices.length} tone="violet" />
         <KpiTile icon={<CheckCircle2 className="size-[18px]" />} label="Sahada" value={counts["Kuruldu"]} tone="emerald" />
@@ -643,7 +659,7 @@ export function DeviceTrackingPage() {
           </div>
           <div className="relative w-full sm:w-64">
             <Search className="size-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-            <Input placeholder="Seri no / model / müşteri..." className="pl-9 h-9 bg-white" value={q} onChange={(e) => setQ(e.target.value)} />
+            <Input placeholder="Seri no / model / müşteri..." className="h-9 bg-card pl-9" value={q} onChange={(e) => setQ(e.target.value)} />
           </div>
         </CardHeader>
 

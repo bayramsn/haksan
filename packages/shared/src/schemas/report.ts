@@ -17,14 +17,21 @@ export const exportQuoteQuerySchema = z.object({
 export type ExportQuoteQuery = z.infer<typeof exportQuoteQuerySchema>;
 
 export const exportContactQuerySchema = z.object({
-  search: z.string().optional(),
+  search: z.string().trim().max(128).optional(),
   companyId: z.string().uuid().optional(),
+  divisionId: z.string().uuid().optional(),
+  department: z.string().trim().min(1).max(128).optional(),
+  isPrimary: z.preprocess(
+    (value) => value === 'true' ? true : value === 'false' ? false : value,
+    z.boolean().optional(),
+  ),
 });
 export type ExportContactQuery = z.infer<typeof exportContactQuerySchema>;
 
 export const exportInventoryQuerySchema = z.object({
   search: z.string().optional(),
   statusCode: z.string().optional(),
+  categoryCode: z.string().optional(),
 });
 export type ExportInventoryQuery = z.infer<typeof exportInventoryQuerySchema>;
 

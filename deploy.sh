@@ -133,15 +133,15 @@ build_and_start() {
     # Offsite backup is best-effort: a local verified backup already ran above.
     # The S3 uploader still fails on some endpoints (chunked Transfer-Encoding →
     # NotImplemented), so a failed offsite upload must not abort the deploy.
-    compose --env-file "$ENV_FILE" run --rm api npm --workspace @haksan/api run db:backup:prod \
+    compose --env-file "$ENV_FILE" run --rm api node apps/api/dist/db/backup.js \
       || log "WARN offsite backup failed (WIP S3 upload bug) — continuing; local backup already taken"
   fi
 
   log "running schema migrations"
-  compose --env-file "$ENV_FILE" run --rm api npm --workspace @haksan/api run db:migrate:prod
+  compose --env-file "$ENV_FILE" run --rm api node apps/api/dist/db/migrate.js
 
   log "running data migrations"
-  compose --env-file "$ENV_FILE" run --rm api npm --workspace @haksan/api run db:data-migrate:prod
+  compose --env-file "$ENV_FILE" run --rm api node apps/api/dist/db/data-migrate.js
 
   log "starting api and nginx"
   compose --env-file "$ENV_FILE" up -d api nginx

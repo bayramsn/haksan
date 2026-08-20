@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { FileText, Save } from "lucide-react";
+import { FileText, Printer, Save } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "../ui/button";
 import {
@@ -8,7 +8,9 @@ import {
 import { Input } from "../ui/input";
 import { Label } from "../ui/label";
 import { Combobox } from "../ui/combobox";
+import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "../ui/select";
 import { DialogSplitLayout, DialogSidebarSection } from "../shared/DialogSplitLayout";
+import { DocumentDiscountFields, ProformaItemsEditor, ProformaTotalsPanel } from "../shared/ProformaItemsEditor";
 import { useStore } from "../../lib/store";
 import { documentService, quoteService } from "../../../lib/services";
 import {
@@ -16,14 +18,43 @@ import {
   matchSavedTermsTemplate,
   useTermsTemplates,
 } from "./DocumentTermsTemplateEditor";
-import { quoteToProformaPriceRows, type ProformaPriceRow } from "../../lib/proformaPricing";
+import {
+  computeProformaTotals, EMPTY_DOCUMENT_DISCOUNT, hasDocumentDiscount, proformaRowError,
+  quoteToProformaPriceRows, type DocumentDiscount, type ProformaPriceRow,
+} from "../../lib/proformaPricing";
+import {
+  loadProformaPrintData, printAssetBase, proformaDoc, PROFORMA_NOTE_OPTIONS,
+} from "../../lib/print";
+import { printOrWarn } from "../../lib/pageHelpers";
+import type { DocumentItem } from "../../lib/mock";
+import { useCompanyDetail } from "../../lib/companyServerData";
+import { contactQueryKeys, loadAllCompanyContacts, type ContactQueryScope } from "../../lib/contactServerData";
+import { useAuth } from "../../../lib/auth";
+import { useQueryClient } from "@tanstack/react-query";
 
 const PROFORMA_TERMS_TEMPLATE_SCOPE = "proforma_terms";
+const AUTO_VARIANT_KEY = "auto";
+
+/** Yeni oluşturulan proforma yanıtını, yazdırma katmanının beklediği belge kaydına çevirir. */
+const createdProformaToDocument = (created: any): DocumentItem => ({
+  id: String(created?.id ?? ""),
+  salesCaseId: created?.quote?.opportunityId ?? "",
+  source: "commercial_record",
+  quoteId: created?.quoteId ?? created?.quote?.id ?? undefined,
+  companyId: created?.quote?.companyId ?? created?.companyId ?? undefined,
+  type: "Proforma",
+  fileName: created?.documentNo ?? "Proforma",
+  uploadedBy: created?.createdBy ?? "",
+  uploadedAt: String(created?.issueDate ?? "").slice(0, 10),
+  size: created?.fileId ? "Dosya bağlı" : "Kayıt",
+  fileId: created?.fileId ?? undefined,
+  documentSnapshot: created?.documentSnapshot ?? undefined,
+});
 
 /**
- * Yüklemesiz proforma kaydı oluşturur — sadece tekliften no/tarih bilgisi ile
- * referans satırı açar. Dosya yüklemek gerekmez; yazdırma "Girilen verilerle"
- * üretilir.
+ * Yüklemesiz proforma kaydı oluşturur — teklif formuna benzer tek ekranda kalemler,
+ * toplamlar ve şartlar düzenlenir. Dosya yüklemek gerekmez; yazdırma "Girilen
+ * verilerle" üretilir.
  */
 export function CreateProformaDialog({
   trigger,
@@ -38,7 +69,18 @@ export function CreateProformaDialog({
   onOpenChange?: (open: boolean) => void;
   onCreated?: (id: string) => void;
 }) {
-  const { offers, customers, cases, noteTemplates, addNoteTemplate, updateNoteTemplate, deleteNoteTemplate, refresh } = useStore();
+  const {
+    offers, customers, cases, products, contacts, users,
+    noteTemplates, addNoteTemplate, updateNoteTemplate, deleteNoteTemplate, refresh,
+  } = useStore();
+  const { user, tenant, activeDivision, activeDepartment } = useAuth();
+  const queryClient = useQueryClient();
+  const contactScope = useMemo<ContactQueryScope>(() => ({
+    tenantId: tenant?.id ?? user?.tenantId ?? "anonymous",
+    userId: user?.id ?? "anonymous",
+    activeDivision,
+    activeDepartment,
+  }), [activeDepartment, activeDivision, tenant?.id, user?.id, user?.tenantId]);
   const [internalOpen, setInternalOpen] = useState(false);
   const open = controlledOpen ?? internalOpen;
   const setOpen = (next: boolean) => {
@@ -58,6 +100,10 @@ export function CreateProformaDialog({
   const [warrantyTerms, setWarrantyTerms] = useState("");
   const [termsDirty, setTermsDirty] = useState(false);
   const [priceRows, setPriceRows] = useState<ProformaPriceRow[]>([]);
+  // Toplamların yazdırılan belgeyle örtüşmesi için teklifin iskonto/gümrük bağlamı.
+  const [quoteTotals, setQuoteTotals] = useState({ discountTotal: 0, headerDiscountAmount: 0, customsTotal: 0 });
+  const [documentDiscount, setDocumentDiscount] = useState<DocumentDiscount>(EMPTY_DOCUMENT_DISCOUNT);
+  const [printVariantKey, setPrintVariantKey] = useState(AUTO_VARIANT_KEY);
   const [pricesLoading, setPricesLoading] = useState(false);
   const [saving, setSaving] = useState(false);
 
@@ -74,6 +120,9 @@ export function CreateProformaDialog({
     setWarrantyTerms("");
     setTermsDirty(false);
     setPriceRows([]);
+    setQuoteTotals({ discountTotal: 0, headerDiscountAmount: 0, customsTotal: 0 });
+    setDocumentDiscount(EMPTY_DOCUMENT_DISCOUNT);
+    setPrintVariantKey(AUTO_VARIANT_KEY);
     setPricesLoading(false);
     // suggestNo, today: stable per open
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -96,6 +145,11 @@ export function CreateProformaDialog({
         setTermsTemplateKey(matchSavedTermsTemplate(loadedPayment, loadedDelivery, loadedWarranty, savedTermsTemplates));
         setTermsDirty(false);
         setPriceRows(quoteToProformaPriceRows(data));
+        setQuoteTotals({
+          discountTotal: Number(data.discountTotal ?? 0) || 0,
+          headerDiscountAmount: Number(data.headerDiscountAmount ?? 0) || 0,
+          customsTotal: Number(data.customsTotal ?? 0) || 0,
+        });
       } catch {
         if (cancelled) return;
         setPaymentTerms("");
@@ -104,6 +158,8 @@ export function CreateProformaDialog({
         setTermsTemplateKey("");
         setTermsDirty(false);
         setPriceRows([]);
+        setQuoteTotals({ discountTotal: 0, headerDiscountAmount: 0, customsTotal: 0 });
+    setDocumentDiscount(EMPTY_DOCUMENT_DISCOUNT);
       } finally {
         if (!cancelled) setPricesLoading(false);
       }
@@ -122,7 +178,8 @@ export function CreateProformaDialog({
         .sort((a, b) => b.quoteNo.localeCompare(a.quoteNo, "tr", { numeric: true }))
         .map((o) => {
           const sc = cases.find((c) => c.id === o.salesCaseId);
-          const cust = sc ? customerName(sc.customerId) : customerName(o.companyId ?? "");
+          const cust = (sc ? customerName(sc.customerId) : customerName(o.companyId ?? ""))
+            || sc?.leadCompanyTitle;
           return {
             value: o.id,
             label: `${o.quoteNo} · ${cust || "—"}`,
@@ -134,38 +191,106 @@ export function CreateProformaDialog({
 
   const selectedOffer = offers.find((o) => o.id === quoteId) ?? null;
   const selectedCase = selectedOffer ? cases.find((c) => c.id === selectedOffer.salesCaseId) : null;
-  const selectedCustomer = selectedOffer
-    ? customers.find((c) => c.id === (selectedOffer.companyId || selectedCase?.customerId))
+  const selectedCustomerId = selectedOffer?.companyId || selectedCase?.customerId || "";
+  const storedSelectedCustomer = selectedCustomerId
+    ? customers.find((c) => c.id === selectedCustomerId)
     : null;
-  const proformaSubtotal = useMemo(
-    () => priceRows.reduce((sum, row) => sum + row.quantity * row.unitPrice, 0),
-    [priceRows],
+  const selectedCustomerQuery = useCompanyDetail(selectedCustomerId, storedSelectedCustomer ?? undefined);
+  const selectedCustomer = selectedCustomerQuery.data ?? storedSelectedCustomer;
+  const currency = selectedOffer?.currency ?? "USD";
+  const totals = useMemo(
+    () => computeProformaTotals(priceRows, {
+      quoteDiscountTotal: quoteTotals.discountTotal,
+      headerDiscountAmount: quoteTotals.headerDiscountAmount,
+      customsTotal: quoteTotals.customsTotal,
+      documentDiscount,
+    }),
+    [documentDiscount, priceRows, quoteTotals],
   );
+  const rowError = priceRows.map(proformaRowError).find(Boolean) ?? null;
 
-  const submit = async (event: React.FormEvent) => {
-    event.preventDefault();
+  const persist = async () =>
+    documentService.createProforma({
+      quoteId,
+      documentNo: documentNo.trim() || undefined,
+      issueDate: new Date(issueDate),
+      statusCode: "draft",
+      items: priceRows.map((row) => ({
+        quoteItemId: row.quoteItemId,
+        unitPrice: row.unitPrice,
+        discountAmount: row.discountAmount,
+      })),
+      // Belge geneli iskonto girildiyse gönderilir; boşsa proforma teklifin
+      // genel iskontosunu devralır.
+      ...(hasDocumentDiscount(documentDiscount)
+        ? {
+            headerDiscountAmount: documentDiscount.amount,
+            headerDiscountPercent: documentDiscount.percent,
+          }
+        : {}),
+      // Şart düzenlemesi PROFORMAYA özeldir; bağlı teklifin şartlarını
+      // yeniden yazmaz. Dokunulmadıysa belge teklifin şartlarıyla basılır.
+      terms: termsDirty
+        ? {
+            paymentTermsText: paymentTerms,
+            deliveryTermsText: deliveryTerms,
+            warrantyTermsText: warrantyTerms,
+            importCostsExcluded: true,
+          }
+        : undefined,
+    });
+
+  // Kaydedilen proformayı seçilen şablonla anında yazdırır; hata belgeyi geri almaz,
+  // kayıt oluşmuş sayılır ve kullanıcı listeden yeniden yazdırabilir.
+  const printCreated = async (created: any) => {
+    try {
+      const doc = createdProformaToDocument(created);
+      let printCustomers = customers;
+      let printContacts = contacts;
+
+      // Yeni API kayıtları normalde immutable belge snapshot'ı döndürür. Eski
+      // sunucu sürümü snapshot döndürmezse yalnız seçili firmayı ve kontaklarını
+      // yükleyerek eksik adres/telefon/vergi alanlarını tamamlarız.
+      if (!doc.documentSnapshot && selectedCustomerId) {
+        const freshCustomer = (await selectedCustomerQuery.refetch()).data ?? selectedCustomer;
+        if (freshCustomer) {
+          printCustomers = [freshCustomer, ...customers.filter((customer) => customer.id !== freshCustomer.id)];
+        }
+        const companyContacts = await queryClient.fetchQuery({
+          queryKey: contactQueryKeys.companyContacts(contactScope, selectedCustomerId),
+          queryFn: ({ signal }) => loadAllCompanyContacts(selectedCustomerId, signal),
+          staleTime: 60_000,
+        });
+        const remoteIds = new Set(companyContacts.data.map((contact) => contact.id));
+        printContacts = [...companyContacts.data, ...contacts.filter((contact) => !remoteIds.has(contact.id))];
+      }
+
+      const data = await loadProformaPrintData({
+        doc,
+        customers: printCustomers,
+        cases,
+        offers,
+        products,
+        contacts: printContacts,
+        users,
+        variantKey: printVariantKey === AUTO_VARIANT_KEY ? "" : printVariantKey,
+      });
+      printOrWarn(proformaDoc(data, printAssetBase()));
+    } catch (err: any) {
+      toast.error("Proforma yazdırılamadı", {
+        description: err?.message ?? "Kayıt oluşturuldu; listeden yeniden yazdırabilirsiniz.",
+      });
+    }
+  };
+
+  const save = async (thenPrint: boolean) => {
     if (!quoteId) return toast.error("Bağlı teklif seçiniz");
+    if (rowError) return toast.error("Proforma kaydedilemedi", { description: rowError });
     setSaving(true);
     try {
-      if (termsDirty) {
-        await quoteService.terms(quoteId, {
-          paymentTermsText: paymentTerms,
-          deliveryTermsText: deliveryTerms,
-          warrantyTermsText: warrantyTerms,
-          importCostsExcluded: true,
-        });
-      }
-      const created = await documentService.createProforma({
-        quoteId,
-        documentNo: documentNo.trim() || undefined,
-        issueDate: new Date(issueDate),
-        statusCode: "draft",
-        items: priceRows.map((row) => ({
-          quoteItemId: row.quoteItemId,
-          unitPrice: row.unitPrice,
-        })),
-      });
+      const created = await persist();
       toast.success("Proforma oluşturuldu", { description: created?.documentNo ?? documentNo.trim() });
+      if (thenPrint) await printCreated(created);
       await refresh();
       onCreated?.(created?.id ?? "");
       setOpen(false);
@@ -176,16 +301,23 @@ export function CreateProformaDialog({
     }
   };
 
+  const submit = (event: React.FormEvent) => {
+    event.preventDefault();
+    void save(false);
+  };
+
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       {trigger && <DialogTrigger asChild>{trigger}</DialogTrigger>}
-      <DialogContent className="w-[min(1000px,calc(100vw-2rem))] max-w-none sm:max-w-none">
+      <DialogContent className="w-[min(1080px,calc(100vw-2rem))] max-w-none sm:max-w-none">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <FileText className="size-5 text-primary" />
             Yeni Proforma
           </DialogTitle>
-          <DialogDescription>Teklife bağlı proforma kaydı oluşturun. Dosya yüklemek gerekmez.</DialogDescription>
+          <DialogDescription>
+            Teklife bağlı proformayı tek ekranda hazırlayın: kalemler, toplamlar ve şartlar. Dosya yüklemek gerekmez.
+          </DialogDescription>
         </DialogHeader>
 
         <form onSubmit={submit}>
@@ -204,9 +336,8 @@ export function CreateProformaDialog({
                         )}
                         {selectedCase?.requestedProduct && <SummaryRow label="Ürün" value={selectedCase.requestedProduct} />}
                         {selectedCase?.requestedModel && <SummaryRow label="Model" value={selectedCase.requestedModel} />}
-                        {selectedCase?.quantity != null && <SummaryRow label="Adet" value={String(selectedCase.quantity)} />}
                         {selectedOffer.date && <SummaryRow label="Teklif Tarihi" value={selectedOffer.date} />}
-                        <SummaryRow label="Tutar" value={`${selectedOffer.amount.toLocaleString("tr-TR")} ${selectedOffer.currency}`} highlight />
+                        <SummaryRow label="Teklif Tutarı" value={`${selectedOffer.amount.toLocaleString("tr-TR")} ${selectedOffer.currency}`} />
                       </dl>
                       {(paymentTerms || deliveryTerms || warrantyTerms) && (
                         <p className="text-[11px] text-muted-foreground">Şartlar bağlı tekliften otomatik dolduruldu.</p>
@@ -216,9 +347,37 @@ export function CreateProformaDialog({
                     <p className="text-sm text-muted-foreground">Henüz teklif seçilmedi.</p>
                   )}
                 </DialogSidebarSection>
+
+                <DocumentDiscountFields
+                  value={documentDiscount}
+                  onChange={setDocumentDiscount}
+                  currency={currency}
+                  idPrefix="create-proforma-discount"
+                  disabled={saving}
+                />
+
+                <ProformaTotalsPanel
+                  totals={totals}
+                  currency={currency}
+                  note={
+                    totals.customs > 0
+                      ? "Millileştirme tutarı bağlı teklifin güncel değeridir; kayıtta fiyatlara göre yeniden hesaplanır."
+                      : undefined
+                  }
+                />
+
                 <DialogFooter className="sm:flex-col-reverse">
                   <Button type="button" variant="outline" className="w-full" onClick={() => setOpen(false)} disabled={saving}>Vazgeç</Button>
-                  <Button type="submit" disabled={saving} className="w-full gap-1">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="w-full gap-1"
+                    onClick={() => void save(true)}
+                    disabled={saving || pricesLoading || !quoteId}
+                  >
+                    <Printer className="size-4" /> Kaydet ve Yazdır
+                  </Button>
+                  <Button type="submit" disabled={saving || pricesLoading} className="w-full gap-1">
                     <Save className="size-4" /> {saving ? "Oluşturuluyor…" : "Proforma Oluştur"}
                   </Button>
                 </DialogFooter>
@@ -241,7 +400,7 @@ export function CreateProformaDialog({
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid gap-3 sm:grid-cols-3">
             <div>
               <Label className="text-xs" htmlFor="create-proforma-number">Proforma No</Label>
               <Input id="create-proforma-number" className="mt-1.5 font-data" value={documentNo} onChange={(e) => setDocumentNo(e.target.value)} placeholder={`Otomatik: ${selectedOffer?.businessLine ?? "CNC"}-PRF-${new Date().getFullYear()}/...`} />
@@ -251,67 +410,43 @@ export function CreateProformaDialog({
               <Label className="text-xs" htmlFor="create-proforma-date">Tarih</Label>
               <Input id="create-proforma-date" type="date" className="mt-1.5" value={issueDate} onChange={(e) => setIssueDate(e.target.value)} />
             </div>
+            <div>
+              <Label className="text-xs">Çıktı Şablonu</Label>
+              <Select value={printVariantKey} onValueChange={setPrintVariantKey}>
+                <SelectTrigger className="mt-1.5"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={AUTO_VARIANT_KEY}>Otomatik (teklife göre)</SelectItem>
+                  <SelectGroup>
+                    <SelectLabel>Proforma şablonu</SelectLabel>
+                    {PROFORMA_NOTE_OPTIONS.filter((v) => v.group === "proforma").map((v) => (
+                      <SelectItem key={v.key} value={v.key}>{v.label}</SelectItem>
+                    ))}
+                  </SelectGroup>
+                  <SelectGroup>
+                    <SelectLabel>Teklif teslim şekli</SelectLabel>
+                    {PROFORMA_NOTE_OPTIONS.filter((v) => v.group === "teslim").map((v) => (
+                      <SelectItem key={v.key} value={v.key}>{v.label}</SelectItem>
+                    ))}
+                  </SelectGroup>
+                </SelectContent>
+              </Select>
+              <p className="mt-1 text-[10px] text-muted-foreground">Yalnızca "Kaydet ve Yazdır" çıktısında kullanılır.</p>
+            </div>
           </div>
 
-          <section className="overflow-hidden rounded-xl border border-border/70 bg-card">
-            <div className="flex items-center justify-between gap-3 border-b border-border/60 bg-muted/20 px-3 py-2.5">
-              <div>
-                <p className="text-xs font-semibold">Proforma Fiyatları</p>
-                <p className="mt-0.5 text-[10px] text-muted-foreground">Net birim fiyatları düzenleyebilirsiniz; değişiklik bağlı teklifi etkilemez.</p>
-              </div>
-              <span className="shrink-0 font-data text-xs font-semibold text-emerald-600">
-                {proformaSubtotal.toLocaleString("tr-TR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {selectedOffer?.currency ?? ""}
-              </span>
-            </div>
-            {pricesLoading ? (
-              <p className="px-3 py-5 text-center text-xs text-muted-foreground">Fiyatlar yükleniyor…</p>
-            ) : priceRows.length > 0 ? (
-              <div className="divide-y divide-border/60">
-                {priceRows.map((row, index) => (
-                  <div key={row.quoteItemId} className="grid gap-2 px-3 py-2.5 sm:grid-cols-[minmax(0,1fr)_70px_180px] sm:items-center">
-                    <div className="min-w-0">
-                      <p className="truncate text-xs font-medium">{row.description || `Ürün ${index + 1}`}</p>
-                      <p className="mt-0.5 text-[10px] text-muted-foreground">KDV %{row.vatRate}</p>
-                    </div>
-                    <div className="text-xs text-muted-foreground sm:text-center">{row.quantity.toLocaleString("tr-TR")} adet</div>
-                    <div>
-                      <Label className="sr-only" htmlFor={`proforma-price-${row.quoteItemId}`}>Net birim fiyat</Label>
-                      <div className="relative">
-                        <Input
-                          id={`proforma-price-${row.quoteItemId}`}
-                          type="number"
-                          min="0"
-                          step="0.0001"
-                          inputMode="decimal"
-                          className="h-9 pr-12 text-right font-data"
-                          value={row.unitPrice}
-                          onChange={(event) => {
-                            const unitPrice = Number(event.target.value);
-                            setPriceRows((current) => current.map((item) =>
-                              item.quoteItemId === row.quoteItemId
-                                ? { ...item, unitPrice: Number.isFinite(unitPrice) ? Math.max(0, unitPrice) : 0 }
-                                : item
-                            ));
-                          }}
-                        />
-                        <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground">
-                          {selectedOffer?.currency ?? ""}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <p className="px-3 py-5 text-center text-xs text-muted-foreground">
-                Seçilen teklifte fiyatlandırılacak ürün kalemi bulunamadı.
-              </p>
-            )}
-          </section>
+          <ProformaItemsEditor
+            rows={priceRows}
+            onRowsChange={setPriceRows}
+            currency={currency}
+            loading={pricesLoading}
+            idPrefix="create-proforma-price"
+            emptyText={quoteId ? "Seçilen teklifte fiyatlandırılacak ürün kalemi bulunamadı." : "Önce bağlı teklifi seçin."}
+          />
 
           <DocumentTermsTemplateEditor
+            continuousNumbering
             title="Proforma Şartları"
-            description="Şablon seçin veya metni düzenleyin. Kaydedilen değişiklik bağlı teklif şartlarına yazılır ve proforma çıktısında kullanılır."
+            description="Şablon seçin veya metni düzenleyin. Değişiklik yalnız bu proformaye işlenir; bağlı teklifin şartları olduğu gibi kalır."
             templateScope={PROFORMA_TERMS_TEMPLATE_SCOPE}
             noteTemplates={noteTemplates}
             selectedTemplateKey={termsTemplateKey}
@@ -342,7 +477,7 @@ function SummaryRow({ label, value, highlight = false }: { label: string; value:
   return (
     <div className="grid grid-cols-[84px_1fr] gap-2 text-sm">
       <dt className="text-xs text-muted-foreground">{label}</dt>
-      <dd className={`min-w-0 break-words ${highlight ? "font-medium text-emerald-600 tabular-nums" : "text-foreground/90"}`}>{value}</dd>
+      <dd className={`min-w-0 break-words ${highlight ? "font-medium text-success tabular-nums" : "text-foreground/90"}`}>{value}</dd>
     </div>
   );
 }

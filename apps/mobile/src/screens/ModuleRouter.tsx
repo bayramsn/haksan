@@ -22,7 +22,6 @@ import { GenericListScreen } from '@/src/screens/GenericListScreen';
 import { KanbanScreen } from '@/src/screens/KanbanScreen';
 import { MapScreen } from '@/src/screens/MapScreen';
 import { NotificationsScreen } from '@/src/screens/NotificationsScreen';
-import { CallAssistantScreen } from '@/src/screens/CallAssistantScreen';
 import { CustomerBalancesScreen, PriceListScreen, ReportsScreen } from '@/src/screens/ReportsScreen';
 import { SettingsScreen } from '@/src/screens/SettingsScreen';
 import { DueDatesScreen } from '@/src/screens/DueDatesScreen';
@@ -54,8 +53,6 @@ export function ModuleRouter({ navKey, id }: Props) {
       return <ChatScreen />;
     case 'notifications':
       return <NotificationsScreen />;
-    case 'call-assistant':
-      return <CallAssistantScreen />;
     case 'reports':
       return <ReportsScreen />;
     case 'settings':

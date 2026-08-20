@@ -85,6 +85,7 @@ beforeAll(async () => {
       .send({
         fullName: `Scoped ${def.division}`,
         email: def.email,
+        username: `scoped-${def.division}-${Date.now().toString(36)}`.slice(0, 32),
         password: SCOPED_PWD,
         roleCodes: ['sales'],
         departmentId: departmentIdByCode.sales,
@@ -220,7 +221,15 @@ describe('Bölüm izolasyonu — teklifler', () => {
   it('CNC satışçısının tüm teklifleri CNC bölümünde', async () => {
     const rows = await listData(tokens.salesCnc, '/api/v1/quotes?page=1&pageSize=200');
     expect(rows.length).toBeGreaterThan(0);
-    for (const q of rows) expect(q.divisionId).toBe(divisionIdByCode.cnc);
+    for (const q of rows) {
+      expect(q.divisionId).toBe(divisionIdByCode.cnc);
+      expect(q.company?.id).toBe(q.companyId);
+      expect(Object.keys(q.company).sort()).toEqual(['id', 'legalTitle', 'shortName']);
+      if (q.contactId) {
+        expect(q.contact?.id).toBe(q.contactId);
+        expect(Object.keys(q.contact).sort()).toEqual(['fullName', 'id']);
+      }
+    }
   });
 
   it('Üniversal satışçısının teklifleri yalnızca Üniversal bölümünde', async () => {
@@ -274,6 +283,9 @@ describe('Bölüm izolasyonu — yazma yolunda otomatik atama', () => {
     const mine = rows.find((o) => o.id === oppId);
     expect(mine).toBeTruthy();
     expect(mine.divisionId).toBe(divisionIdByCode.cnc);
+    expect(mine.company?.id).toBe(mine.companyId);
+    expect(Object.keys(mine.company).sort()).toEqual(['id', 'legalTitle', 'shortName']);
+    expect(mine.primaryContact).toBeNull();
   });
 
   it('başka bölüm satışçısı bu fırsatı göremez (404)', async () => {
@@ -285,6 +297,9 @@ describe('Bölüm izolasyonu — yazma yolunda otomatik atama', () => {
     const r = await supertest(server).get(`/api/v1/opportunities/${oppId}`).set(auth(tokens.salesCnc));
     expect(r.status).toBe(200);
     expect(r.body.divisionId).toBe(divisionIdByCode.cnc);
+    expect(r.body.company?.id).toBe(r.body.companyId);
+    expect(Object.keys(r.body.company).sort()).toEqual(['id', 'legalTitle', 'shortName']);
+    expect(r.body.primaryContact).toBeNull();
   });
 });
 

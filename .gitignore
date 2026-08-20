@@ -63,3 +63,7 @@ yarn-debug.log*
 
 # openapi-generator-cli drops this config wherever it runs
 openapitools.json
+
+# Finder/kopyala-yapıştır artıkları: "foo 2.ts", "bar 3.json".
+# Asla kaynak değiller ve drizzle-kit snapshot çakışması üretiyorlar.
+* [0-9].*

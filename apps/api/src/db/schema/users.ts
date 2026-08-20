@@ -2,6 +2,7 @@ import { pgTable, uuid, varchar, text, boolean, timestamp, integer, jsonb, index
 import { sql } from 'drizzle-orm';
 import { auditColumns, money } from './_helpers';
 import { tenants, departments, divisions } from './tenants';
+import { userTitles } from './lookup';
 
 export const users = pgTable(
   'users',
@@ -11,8 +12,15 @@ export const users = pgTable(
       .notNull()
       .references(() => tenants.id, { onDelete: 'cascade' }),
     departmentId: uuid('department_id').references(() => departments.id, { onDelete: 'set null' }),
+    // Ünvan (Satış Müdürü, Bölge Sorumlusu…) — belge çıktılarında imza satırında yazar.
+    titleId: uuid('title_id').references(() => userTitles.id, { onDelete: 'set null' }),
     fullName: varchar('full_name', { length: 255 }).notNull(),
     email: varchar('email', { length: 255 }).notNull(),
+    // Girişte kullanılan kullanıcı adı (örn. `raifsenturk`). E-postanın yerine
+    // geçmez, yanına eklenir: kullanıcı ikisiyle de giriş yapabilir.
+    // NULL olabilir — mevcut kayıtlar için doldurulmadı, onlar e-postayla girer.
+    // Her zaman küçük harf saklanır (bkz. usernameSchema + login sorgusu).
+    username: varchar('username', { length: 32 }),
     phone: varchar('phone', { length: 32 }),
     passwordHash: varchar('password_hash', { length: 512 }).notNull(),
     status: varchar('status', { length: 32 }).notNull().default('active'),
@@ -30,8 +38,15 @@ export const users = pgTable(
   },
   (t) => ({
     tenantEmailUnique: uniqueIndex('users_tenant_email_unique').on(t.tenantId, t.email),
+    // Kullanıcı adı tenant içinde ve büyük/küçük harf duyarsız benzersizdir.
+    // Postgres unique index'te NULL'ları birbirinden farklı sayar, bu yüzden
+    // kullanıcı adı boş olan sınırsız kayıt yan yana durabilir.
+    tenantUsernameUnique: uniqueIndex('users_tenant_username_unique').on(t.tenantId, sql`lower(username)`),
     tenantIdx: index('users_tenant_idx').on(t.tenantId),
     emailLowerIdx: index('users_email_idx').on(t.email),
+    // Giriş sorgusu `lower(email)` üzerinden eşleştiği için düz `email`
+    // indeksi kullanılamaz; ifade indeksi login lookup'ını seq scan'den kurtarır.
+    emailLowerExprIdx: index('users_email_lower_idx').on(sql`lower(email)`),
   })
 );
 

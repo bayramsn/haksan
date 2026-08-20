@@ -8,7 +8,9 @@ import {
   quoteItemUpdateSchema,
   quoteStatusChangeSchema,
   quoteTermsUpsertSchema,
+  standaloneQuoteCreateSchema,
   paginationSchema,
+  type StandaloneQuoteCreateInput,
   type QuoteCreateInput,
   type QuoteUpdateInput,
   type QuoteItemCreateInput,
@@ -58,6 +60,16 @@ export class QuotesController {
   @Post()
   create(@Body(new ZodValidationPipe(quoteCreateSchema)) body: QuoteCreateInput, @CurrentUser() user: AuthContext) {
     return this.svc.create(body, user);
+  }
+
+  /** Fırsat açmadan ("hızlı") teklif — başlık, kalemler ve şartlar tek istekte gelir. */
+  @RequirePermissions('quotes.create')
+  @Post('standalone')
+  createStandalone(
+    @Body(new ZodValidationPipe(standaloneQuoteCreateSchema)) body: StandaloneQuoteCreateInput,
+    @CurrentUser() user: AuthContext
+  ) {
+    return this.svc.createStandaloneQuote(body, user);
   }
 
   @RequirePermissions('quotes.update')

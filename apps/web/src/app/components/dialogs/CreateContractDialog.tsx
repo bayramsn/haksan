@@ -8,7 +8,9 @@ import {
 import { Input } from "../ui/input";
 import { Label } from "../ui/label";
 import { Combobox } from "../ui/combobox";
+import { Switch } from "../ui/switch";
 import { DialogSplitLayout, DialogSidebarSection } from "../shared/DialogSplitLayout";
+import { DocumentDiscountFields, ProformaItemsEditor, ProformaTotalsPanel } from "../shared/ProformaItemsEditor";
 import { useStore } from "../../lib/store";
 import { documentService, quoteService } from "../../../lib/services";
 import {
@@ -16,11 +18,21 @@ import {
   matchSavedTermsTemplate,
   useTermsTemplates,
 } from "./DocumentTermsTemplateEditor";
+import { CONTRACT_NOTE_VARIANTS } from "../../lib/print";
+import {
+  computeProformaTotals, EMPTY_DOCUMENT_DISCOUNT, hasDocumentDiscount, proformaRowError,
+  quoteToProformaPriceRows, type DocumentDiscount, type ProformaPriceRow,
+} from "../../lib/proformaPricing";
+import { useCompanyDetail } from "../../lib/companyServerData";
 
 const CONTRACT_TERMS_TEMPLATE_SCOPE = "contract_terms";
 
 type ContractTermsMetadata = {
   importCostsExcluded: boolean;
+  /** Sözleşme 3.3 — K.D.V. fiyata dahil mi? */
+  vatIncluded: boolean;
+  /** Sözleşme 2.6 — nakliye ve sigorta satıcıya mı ait? */
+  freightPaidBySeller: boolean;
   deliveryLocation?: string;
   estimatedDeliveryDaysMin?: number;
   estimatedDeliveryDaysMax?: number;
@@ -62,8 +74,20 @@ export function CreateContractDialog({
   const [paymentTerms, setPaymentTerms] = useState("");
   const [deliveryTerms, setDeliveryTerms] = useState("");
   const [warrantyTerms, setWarrantyTerms] = useState("");
-  const [termsMetadata, setTermsMetadata] = useState<ContractTermsMetadata>({ importCostsExcluded: true });
+  const [termsMetadata, setTermsMetadata] = useState<ContractTermsMetadata>({ importCostsExcluded: true, vatIncluded: false, freightPaidBySeller: false });
   const [termsDirty, setTermsDirty] = useState(false);
+  // Sözleşme fiyatı bağlı teklifi değiştirmez: onaylı teklif kilitlidir, oysa
+  // imza masasında fiyat hâlâ pazarlığa açık. Girilen değerler belgenin kendi
+  // anlık görüntüsüne yazılır ve sözleşme çıktısı bunlarla basılır.
+  const [priceRows, setPriceRows] = useState<ProformaPriceRow[]>([]);
+  // Tekliften gelen ilk fiyatlar. Kullanıcı fiyata dokunmadıysa belge kendi
+  // anlık görüntüsünü dondurmaz; sözleşme eskisi gibi teklifin güncel
+  // fiyatlarıyla basılmaya devam eder.
+  const [loadedPriceRows, setLoadedPriceRows] = useState<ProformaPriceRow[]>([]);
+  // Toplamların basılan belgeyle örtüşmesi için teklifin iskonto/gümrük bağlamı.
+  const [quoteTotals, setQuoteTotals] = useState({ discountTotal: 0, headerDiscountAmount: 0, customsTotal: 0 });
+  const [documentDiscount, setDocumentDiscount] = useState<DocumentDiscount>(EMPTY_DOCUMENT_DISCOUNT);
+  const [pricesLoading, setPricesLoading] = useState(false);
   const [saving, setSaving] = useState(false);
 
   const savedTermsTemplates = useTermsTemplates(noteTemplates, CONTRACT_TERMS_TEMPLATE_SCOPE);
@@ -78,14 +102,20 @@ export function CreateContractDialog({
     setPaymentTerms("");
     setDeliveryTerms("");
     setWarrantyTerms("");
-    setTermsMetadata({ importCostsExcluded: true });
+    setTermsMetadata({ importCostsExcluded: true, vatIncluded: false, freightPaidBySeller: false });
     setTermsDirty(false);
+    setPriceRows([]);
+    setLoadedPriceRows([]);
+    setQuoteTotals({ discountTotal: 0, headerDiscountAmount: 0, customsTotal: 0 });
+    setDocumentDiscount(EMPTY_DOCUMENT_DISCOUNT);
+    setPricesLoading(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, defaultQuoteId]);
 
   useEffect(() => {
     if (!open || !quoteId) return;
     let cancelled = false;
+    setPricesLoading(true);
     void (async () => {
       try {
         const data: any = await quoteService.get(quoteId);
@@ -98,20 +128,36 @@ export function CreateContractDialog({
         setWarrantyTerms(loadedWarranty);
         setTermsMetadata({
           importCostsExcluded: data.terms?.importCostsExcluded ?? true,
+          vatIncluded: data.terms?.vatIncluded ?? false,
+          freightPaidBySeller: data.terms?.freightPaidBySeller ?? false,
           deliveryLocation: data.terms?.deliveryLocation ?? undefined,
           estimatedDeliveryDaysMin: data.terms?.estimatedDeliveryDaysMin ?? undefined,
           estimatedDeliveryDaysMax: data.terms?.estimatedDeliveryDaysMax ?? undefined,
         });
         setTermsTemplateKey(matchSavedTermsTemplate(loadedPayment, loadedDelivery, loadedWarranty, savedTermsTemplates));
         setTermsDirty(false);
+        const loadedRows = quoteToProformaPriceRows(data);
+        setPriceRows(loadedRows);
+        setLoadedPriceRows(loadedRows);
+        setQuoteTotals({
+          discountTotal: Number(data.discountTotal ?? 0) || 0,
+          headerDiscountAmount: Number(data.headerDiscountAmount ?? 0) || 0,
+          customsTotal: Number(data.customsTotal ?? 0) || 0,
+        });
       } catch {
         if (cancelled) return;
         setPaymentTerms("");
         setDeliveryTerms("");
         setWarrantyTerms("");
-        setTermsMetadata({ importCostsExcluded: true });
+        setTermsMetadata({ importCostsExcluded: true, vatIncluded: false, freightPaidBySeller: false });
         setTermsTemplateKey("");
         setTermsDirty(false);
+        setPriceRows([]);
+        setLoadedPriceRows([]);
+        setQuoteTotals({ discountTotal: 0, headerDiscountAmount: 0, customsTotal: 0 });
+    setDocumentDiscount(EMPTY_DOCUMENT_DISCOUNT);
+      } finally {
+        if (!cancelled) setPricesLoading(false);
       }
     })();
     return () => {
@@ -128,7 +174,8 @@ export function CreateContractDialog({
         .sort((a, b) => b.quoteNo.localeCompare(a.quoteNo, "tr", { numeric: true }))
         .map((o) => {
           const sc = cases.find((c) => c.id === o.salesCaseId);
-          const cust = sc ? customerName(sc.customerId) : customerName(o.companyId ?? "");
+          const cust = (sc ? customerName(sc.customerId) : customerName(o.companyId ?? ""))
+            || sc?.leadCompanyTitle;
           return {
             value: o.id,
             label: `${o.quoteNo} · ${cust || "—"}`,
@@ -140,30 +187,74 @@ export function CreateContractDialog({
 
   const selectedOffer = offers.find((o) => o.id === quoteId) ?? null;
   const selectedCase = selectedOffer ? cases.find((c) => c.id === selectedOffer.salesCaseId) : null;
-  const selectedCustomer = selectedOffer
-    ? customers.find((c) => c.id === (selectedOffer.companyId || selectedCase?.customerId))
+  const selectedCustomerId = selectedOffer?.companyId || selectedCase?.customerId || "";
+  const storedSelectedCustomer = selectedCustomerId
+    ? customers.find((c) => c.id === selectedCustomerId)
     : null;
+  const selectedCustomerQuery = useCompanyDetail(selectedCustomerId, storedSelectedCustomer ?? undefined);
+  const selectedCustomer = selectedCustomerQuery.data ?? storedSelectedCustomer;
+  const currency = selectedOffer?.currency ?? "USD";
+  const totals = useMemo(
+    () => computeProformaTotals(priceRows, {
+      quoteDiscountTotal: quoteTotals.discountTotal,
+      headerDiscountAmount: quoteTotals.headerDiscountAmount,
+      customsTotal: quoteTotals.customsTotal,
+      documentDiscount,
+    }),
+    [documentDiscount, priceRows, quoteTotals],
+  );
+  const rowError = priceRows.map(proformaRowError).find(Boolean) ?? null;
+  // Fiyata dokunulmadıysa kalem göndermeyiz; belge anlık görüntüsünü dondurmaz
+  // ve teklif sonradan güncellenirse taslak sözleşme onu izlemeye devam eder.
+  const pricesChanged = useMemo(
+    () =>
+      priceRows.length !== loadedPriceRows.length ||
+      priceRows.some((row, index) =>
+        row.unitPrice !== loadedPriceRows[index]?.unitPrice
+        || row.discountAmount !== loadedPriceRows[index]?.discountAmount),
+    [priceRows, loadedPriceRows],
+  );
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!quoteId) return toast.error("Bağlı teklif seçiniz");
+    if (rowError) return toast.error("Fiyat girişini düzeltin", { description: rowError });
     setSaving(true);
     try {
       const termDays = paymentTermDays.trim() === "" ? undefined : Number(paymentTermDays);
-      if (termsDirty) {
-        await quoteService.terms(quoteId, {
-          paymentTermsText: paymentTerms,
-          deliveryTermsText: deliveryTerms,
-          warrantyTermsText: warrantyTerms,
-          ...termsMetadata,
-        });
-      }
       const created = await documentService.createContract({
         quoteId,
         contractNo: contractNo.trim() || undefined,
         signedDate: new Date(signedDate),
         paymentTermDays: termDays !== undefined && Number.isFinite(termDays) ? termDays : undefined,
         statusCode: "draft",
+        items: pricesChanged
+          ? priceRows.map((row) => ({
+              quoteItemId: row.quoteItemId,
+              unitPrice: row.unitPrice,
+              discountAmount: row.discountAmount,
+            }))
+          : undefined,
+        // Belge geneli iskonto girildiyse gönderilir; boşsa sözleşme teklifin
+        // genel iskontosunu devralır.
+        ...(hasDocumentDiscount(documentDiscount)
+          ? {
+              headerDiscountAmount: documentDiscount.amount,
+              headerDiscountPercent: documentDiscount.percent,
+            }
+          : {}),
+        // Şart düzenlemesi SÖZLEŞMEYE özeldir; bağlı teklifin şartlarına
+        // yazılmaz, yoksa imza masasındaki bir değişiklik onaylı teklifin ve
+        // aynı teklife bağlı proformanın çıktısını da geriye dönük değiştirirdi.
+        // Dokunulmadıysa gönderilmez: belge teklifin şartlarıyla basılır.
+        terms: termsDirty
+          ? {
+              paymentTermsText: paymentTerms,
+              deliveryTermsText: deliveryTerms,
+              warrantyTermsText: warrantyTerms,
+              ...termsMetadata,
+            }
+          : undefined,
       });
       toast.success("Sözleşme oluşturuldu", { description: created?.contractNo ?? contractNo.trim() });
       await refresh();
@@ -216,6 +307,26 @@ export function CreateContractDialog({
                     <p className="text-sm text-muted-foreground">Henüz teklif seçilmedi.</p>
                   )}
                 </DialogSidebarSection>
+                {selectedOffer && (
+                  <>
+                    <DocumentDiscountFields
+                      value={documentDiscount}
+                      onChange={setDocumentDiscount}
+                      currency={currency}
+                      idPrefix="create-contract-discount"
+                      disabled={saving}
+                    />
+                    <ProformaTotalsPanel
+                      totals={totals}
+                      currency={currency}
+                      note={
+                        totals.customs > 0
+                          ? "Millileştirme tutarı bağlı teklifin güncel değeridir; kayıtta fiyatlara göre yeniden hesaplanır."
+                          : undefined
+                      }
+                    />
+                  </>
+                )}
                 <DialogFooter className="sm:flex-col-reverse">
                   <Button type="button" variant="outline" className="w-full" onClick={() => setOpen(false)} disabled={saving}>Vazgeç</Button>
                   <Button type="submit" disabled={saving} className="w-full gap-1">
@@ -270,9 +381,22 @@ export function CreateContractDialog({
             </p>
           </div>
 
+          <ProformaItemsEditor
+            rows={priceRows}
+            onRowsChange={setPriceRows}
+            currency={currency}
+            loading={pricesLoading}
+            idPrefix="create-contract-price"
+            title="Sözleşme Fiyatları"
+            description="Sözleşmede geçerli birim fiyatları girin. Bağlı teklif değişmez; sözleşme çıktısı bu değerlerle basılır."
+            emptyText={quoteId ? "Seçilen teklifte fiyatlandırılacak ürün kalemi bulunamadı." : "Önce bağlı teklifi seçin."}
+          />
+
           <DocumentTermsTemplateEditor
+            markerStyle="none"
+            builtInVariants={CONTRACT_NOTE_VARIANTS}
             title="Sözleşme Şartları"
-            description="Şablon seçin veya metni düzenleyin. Kaydedilen değişiklik bağlı teklif şartlarına yazılır ve sözleşme çıktısında kullanılır."
+            description="Şablon seçin veya metni düzenleyin. Değişiklik yalnız bu sözleşmeye işlenir; bağlı teklifin şartları olduğu gibi kalır."
             templateScope={CONTRACT_TERMS_TEMPLATE_SCOPE}
             noteTemplates={noteTemplates}
             selectedTemplateKey={termsTemplateKey}
@@ -291,6 +415,31 @@ export function CreateContractDialog({
             updateNoteTemplate={updateNoteTemplate}
             deleteNoteTemplate={deleteNoteTemplate}
           />
+
+          {/* Sabit kodlu iki madde artık burada seçilir; sözleşme çıktısı buna göre basılır. */}
+          <div className="grid gap-2 rounded-xl border border-border/70 bg-card p-3">
+            <p className="text-xs font-semibold">Sözleşme Maddeleri</p>
+            <label className="flex items-center gap-2 text-[11px] text-muted-foreground">
+              <Switch
+                checked={termsMetadata.vatIncluded}
+                onCheckedChange={(next) => {
+                  setTermsMetadata((current) => ({ ...current, vatIncluded: next }));
+                  setTermsDirty(true);
+                }}
+              />
+              K.D.V. fiyata dahil (madde 3.3 — yazılan tutar brüt basılır)
+            </label>
+            <label className="flex items-center gap-2 text-[11px] text-muted-foreground">
+              <Switch
+                checked={termsMetadata.freightPaidBySeller}
+                onCheckedChange={(next) => {
+                  setTermsMetadata((current) => ({ ...current, freightPaidBySeller: next }));
+                  setTermsDirty(true);
+                }}
+              />
+              Nakliye ve sigorta HAKSAN'a ait (madde 2.6)
+            </label>
+          </div>
           </div>
           </DialogSplitLayout>
         </form>

@@ -143,13 +143,13 @@ export async function seedDemo(): Promise<void> {
 
   // 4. Users
   const userDefs = [
-    { email: 'superadmin@haksan.local', fullName: 'Süper Yönetici', password: 'superadmin12345', roles: ['super_admin'], departmentCode: 'sales', divisionCodes: allDivisionCodes },
-    { email: 'admin@haksan.local', fullName: 'Sistem Yöneticisi', password: 'admin12345', roles: ['admin'], departmentCode: 'sales', divisionCodes: allDivisionCodes },
-    { email: 'sales@haksan.local', fullName: 'Ersin Çetinbilek', password: 'sales12345', roles: ['sales'], departmentCode: 'sales', divisionCodes: allDivisionCodes },
-    { email: 'service@haksan.local', fullName: 'Servis Sorumlusu', password: 'service12345', roles: ['service'], departmentCode: 'service', divisionCodes: allDivisionCodes },
-    { email: 'finance@haksan.local', fullName: 'Finans Sorumlusu', password: 'finance12345', roles: ['finance'], departmentCode: 'finance', divisionCodes: allDivisionCodes },
-    { email: 'stock@haksan.local', fullName: 'Stok Sorumlusu', password: 'stock12345', roles: ['stock'], departmentCode: 'stock', divisionCodes: allDivisionCodes },
-    { email: 'readonly@haksan.local', fullName: 'Salt Okunur Kullanıcı', password: 'readonly12345', roles: ['readonly'], departmentCode: 'sales', divisionCodes: allDivisionCodes },
+    { username: 'superadmin', email: 'superadmin@haksan.local', fullName: 'Süper Yönetici', password: 'superadmin12345', roles: ['super_admin'], departmentCode: 'sales', divisionCodes: allDivisionCodes },
+    { username: 'admin', email: 'admin@haksan.local', fullName: 'Sistem Yöneticisi', password: 'admin12345', roles: ['admin'], departmentCode: 'sales', divisionCodes: allDivisionCodes },
+    { username: 'sales', email: 'sales@haksan.local', fullName: 'Ersin Çetinbilek', password: 'sales12345', roles: ['sales'], departmentCode: 'sales', divisionCodes: allDivisionCodes },
+    { username: 'service', email: 'service@haksan.local', fullName: 'Servis Sorumlusu', password: 'service12345', roles: ['service'], departmentCode: 'service', divisionCodes: allDivisionCodes },
+    { username: 'finance', email: 'finance@haksan.local', fullName: 'Finans Sorumlusu', password: 'finance12345', roles: ['finance'], departmentCode: 'finance', divisionCodes: allDivisionCodes },
+    { username: 'stock', email: 'stock@haksan.local', fullName: 'Stok Sorumlusu', password: 'stock12345', roles: ['stock'], departmentCode: 'stock', divisionCodes: allDivisionCodes },
+    { username: 'readonly', email: 'readonly@haksan.local', fullName: 'Salt Okunur Kullanıcı', password: 'readonly12345', roles: ['readonly'], departmentCode: 'sales', divisionCodes: allDivisionCodes },
   ];
   for (const u of userDefs) {
     const existing = await db.query.users.findFirst({
@@ -166,12 +166,16 @@ export async function seedDemo(): Promise<void> {
             departmentId: dept?.id ?? null,
             fullName: u.fullName,
             email: u.email,
+            username: u.username,
             passwordHash: await hashPassword(u.password),
           })
           .returning()
       )[0];
-    if (existing && dept && existing.departmentId !== dept.id) {
-      await db.update(schema.users).set({ departmentId: dept.id }).where(eq(schema.users.id, existing.id));
+    if (existing && ((dept && existing.departmentId !== dept.id) || !existing.username)) {
+      await db.update(schema.users).set({
+        ...(dept && existing.departmentId !== dept.id ? { departmentId: dept.id } : {}),
+        ...(!existing.username ? { username: u.username } : {}),
+      }).where(eq(schema.users.id, existing.id));
     }
     for (const roleCode of u.roles) {
       const role = rolesByCode.get(roleCode);
@@ -1188,15 +1192,15 @@ export async function seedDemo(): Promise<void> {
 
   // 9d. Sales activities, visits and calls (dashboard + activity reports)
   const demoActivityExists = await db.query.salesActivities.findFirst({
-    where: and(eq(schema.salesActivities.tenantId, tenantRow.id), eq(schema.salesActivities.subject, 'Demo CNC teklif takip araması')),
+    where: and(eq(schema.salesActivities.tenantId, tenantRow.id), eq(schema.salesActivities.subject, 'CNC teklif takip araması')),
   });
   if (!demoActivityExists) {
     const activityType = async (code: string) =>
       (await db.query.activityTypes.findFirst({ where: eq(schema.activityTypes.code, code) }))?.id;
-    const [callTypeId, visitTypeId, demoTypeId] = await Promise.all([
-      activityType('call'),
-      activityType('visit'),
-      activityType('demo'),
+    const [callTypeId, visitTypeId, showroomTypeId] = await Promise.all([
+      activityType('outgoing_call'),
+      activityType('customer_visit'),
+      activityType('showroom_meeting'),
     ]);
     const activityOpps = await db.query.opportunities.findMany({
       where: eq(schema.opportunities.tenantId, tenantRow.id),
@@ -1206,7 +1210,7 @@ export async function seedDemo(): Promise<void> {
     const visitRows: (typeof schema.visits.$inferInsert)[] = [];
     const callRows: (typeof schema.calls.$inferInsert)[] = [];
     for (const [index, opp] of activityOpps.entries()) {
-      const typeId = index % 3 === 0 ? demoTypeId : index % 2 === 0 ? visitTypeId : callTypeId;
+      const typeId = index % 3 === 0 ? showroomTypeId : index % 2 === 0 ? visitTypeId : callTypeId;
       if (!typeId) continue;
       activityRows.push({
         tenantId: tenantRow.id,
@@ -1216,13 +1220,13 @@ export async function seedDemo(): Promise<void> {
         activityTypeId: typeId,
         subject:
           index === 0
-            ? 'Demo CNC teklif takip araması'
+            ? 'CNC teklif takip araması'
             : index % 3 === 0
-              ? 'Demo makine sunumu'
+              ? 'Showroom makine toplantısı'
               : index % 2 === 0
-                ? 'Demo saha ziyareti'
-                : 'Demo ihtiyaç analizi görüşmesi',
-        description: 'Demo veri: satış ekibi tarafından oluşturulan takip aktivitesi.',
+                ? 'Müşteri saha ziyareti'
+                : 'İhtiyaç analizi görüşmesi',
+        description: 'Örnek veri: satış ekibi tarafından oluşturulan takip aktivitesi.',
         activityDate: new Date(Date.UTC(2026, index + 1, 10 + index)),
         nextFollowUpAt: new Date(Date.UTC(2026, index + 1, 17 + index)),
         result: 'Müşteri teknik şartname ve termin bilgisini bekliyor.',

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "../../ui/card";
 import { Button } from "../../ui/button";
 import { Input } from "../../ui/input";
@@ -6,6 +7,7 @@ import { Label } from "../../ui/label";
 import { Textarea } from "../../ui/textarea";
 import { Badge } from "../../ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../ui/select";
+import { RadioGroup, RadioGroupItem } from "../../ui/radio-group";
 import { Tabs, TabsList, TabsTrigger } from "../../ui/tabs";
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
@@ -18,19 +20,21 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from ".
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger,
 } from "../../ui/dropdown-menu";
-import { StatusBadge } from "../../Layout";
+import { StatusBadge } from "../../shared/StatusBadge";
 import { QuoteDialog } from "../../dialogs/QuoteDialog";
+import { DocumentUploadDialog } from "../../dialogs/DocumentUploadDialog";
 import { CreateProformaDialog } from "../../dialogs/CreateProformaDialog";
 import { CreateContractDialog } from "../../dialogs/CreateContractDialog";
 import { MiniKpi } from "../../shared/MiniKpi";
+import { CommercialDocumentRail } from "../../shared/CommercialDocumentRail";
 import { salesStageLabel } from "../../../lib/mock";
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, Legend,
 } from "recharts";
 import {
-  Plus, Search, CheckCircle2, TrendingUp, Mail, FileText, FileSignature, ClipboardCheck, Building2,
+  Plus, Search, CheckCircle2, TrendingUp, Mail, FileText, ClipboardCheck, Building2,
   Wallet, Receipt, Calendar, Printer, Download, Eye, RotateCcw, XCircle, Pencil, ChevronDown, Trash2,
-  BellRing,
+  BellRing, Image as ImageIcon, ImageOff, Upload,
 } from "lucide-react";
 import { useStore } from "../../../lib/store";
 import { useAuth } from "../../../../lib/auth";
@@ -38,13 +42,17 @@ import { buildOfferTrend } from "../../../lib/chartAggregates";
 import { useFx } from "../../../lib/fx";
 import { Customer, Offer, SalesCase, User } from "../../../lib/mock";
 import { toast } from "sonner";
-import { salesOrderService, quoteService } from "../../../../lib/services";
+import { fileService, salesOrderService, quoteService } from "../../../../lib/services";
 import { ExportExcelButton } from "../../ui/ExportExcelButton";
 import { CreateAccountingInvoiceDialog, type AccountingInvoicePrefill } from "../finance/CreateAccountingInvoiceDialog";
 import type { OperationFocus } from "../../../lib/operations";
-import { loadQuotePrintData, printAssetBase, quoteDoc } from "../../../lib/print";
+import { loadQuotePrintData, printAssetBase, quoteDoc, quoteFilename } from "../../../lib/print";
+import type { QuoteHeaderLogoMode } from "../../../lib/print";
 import { downloadPrintOrWarn, previewPrintOrWarn, printOrWarn, splitVat, formatDate, formatCurrency } from "../../../lib/pageHelpers";
 import type { QuoteWorkflowStatus } from "@haksan/shared";
+import { ComposeMailDialog, type MailRecipient } from "../../mail/ComposeMailDialog";
+import { useCompanyDetail } from "../../../lib/companyServerData";
+import { contactQueryKeys, loadAllCompanyContacts, type ContactQueryScope } from "../../../lib/contactServerData";
 
 const FOLLOW_UP_OFFER_STATUSES: Offer["status"][] = ["Price Waiting", "Budget Waiting", "On Hold", "Postponed"];
 
@@ -98,12 +106,22 @@ function invoicePrefillFromOrder(order: any): AccountingInvoicePrefill {
   };
 }
 
-export function OffersPage({ focus }: { focus?: OperationFocus }) {
-  const { offers: rawOffers, cases, customers, users, moveCase, refresh } = useStore();
-  const { hasRole, user, activeDivision, setActiveDivision } = useAuth();
+export function OffersPage({
+  focus,
+  initialQuery,
+  onOpenOpportunity,
+  onOpenDocuments,
+}: {
+  focus?: OperationFocus;
+  initialQuery?: string;
+  onOpenOpportunity?: (salesCaseId: string) => void;
+  onOpenDocuments?: (query?: string) => void;
+}) {
+  const { offers: rawOffers, cases, customers, users, documents, moveCase, refresh } = useStore();
+  const { hasRole, hasPermission, user, activeDivision, setActiveDivision } = useAuth();
   const { convert } = useFx();
   const isSuperAdmin = hasRole("super_admin");
-  const customerName = (id: string) => customers.find((c) => c.id === id)?.name ?? "—";
+  const customerName = (id: string, fallback?: string) => customers.find((c) => c.id === id)?.name ?? fallback ?? "—";
   const backToSales = async (caseId: string) => {
     try {
       await moveCase(caseId, "sales");
@@ -153,12 +171,48 @@ export function OffersPage({ focus }: { focus?: OperationFocus }) {
     return sc?.isLost ? { ...o, status: "Rejected" as const } : o;
   });
   const divisionOffers = divisionTab === "all" ? offers : offers.filter((offer) => offer.divisionId === divisionTab);
+  const externalQuotes = documents.filter((documentItem) => {
+    if (documentItem.type !== "ExternalQuote") return false;
+    const salesCase = documentItem.salesCaseId
+      ? cases.find((item) => item.id === documentItem.salesCaseId)
+      : null;
+    if (divisionTab !== "all" && salesCase && salesCase.divisionId !== divisionTab) return false;
+    if (!q) return true;
+    const company = customers.find((item) => item.id === (documentItem.companyId || salesCase?.customerId));
+    return [
+      documentItem.fileName,
+      company?.name ?? documentItem.companyNameText ?? salesCase?.leadCompanyTitle,
+      salesCase?.requestedProduct,
+      salesCase?.requestedModel,
+    ].some((value) => (value ?? "").toLocaleLowerCase("tr-TR").includes(q.toLocaleLowerCase("tr-TR")));
+  });
+
+  const downloadExternalQuote = async (fileId: string | undefined, fileName: string) => {
+    if (!fileId) return;
+    try {
+      const signed = await fileService.signedDownload(fileId);
+      const anchor = document.createElement("a");
+      anchor.href = signed.downloadUrl;
+      anchor.download = signed.filename || fileName;
+      document.body.appendChild(anchor);
+      anchor.click();
+      document.body.removeChild(anchor);
+    } catch (error: any) {
+      toast.error("Dış teklif indirilemedi", {
+        description: error?.message ?? "Dosya bağlantısı alınamadı.",
+      });
+    }
+  };
 
   useEffect(() => {
     if (focus === "open" || focus === "pending" || focus === "expired") setTab("Sent");
     if (focus === "won") setTab("Approved");
     if (focus === "lost") setTab("closed");
   }, [focus]);
+
+  useEffect(() => {
+    if (initialQuery !== undefined) setQ(initialQuery);
+  }, [initialQuery]);
 
   const total = divisionOffers.length;
   const approved = divisionOffers.filter((o) => o.status === "Approved").length;
@@ -176,7 +230,7 @@ export function OffersPage({ focus }: { focus?: OperationFocus }) {
       if (tab !== "all" && tab !== "follow-up" && tab !== "closed" && o.status !== tab) return false;
       if (q) {
         const sc = cases.find((s) => s.id === o.salesCaseId);
-        const cName = sc ? customerName(sc.customerId) : "";
+        const cName = sc ? customerName(sc.customerId, sc.leadCompanyTitle) : "";
         const productName = o.productName || [sc?.requestedProduct, sc?.requestedModel].filter(Boolean).join(" ");
         return [o.quoteNo, cName, productName, o.businessLine, o.divisionName]
           .some((value) => (value ?? "").toLowerCase().includes(q.toLowerCase()));
@@ -277,7 +331,7 @@ export function OffersPage({ focus }: { focus?: OperationFocus }) {
   };
 
   return (
-    <div className="space-y-5">
+    <div className="crm-page">
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <MiniKpi tone="violet" icon={<FileText className="size-[18px]" />} label="Toplam Teklif" value={total} sub="bu çeyrek" />
         <MiniKpi tone="emerald" icon={<CheckCircle2 className="size-[18px]" />} label="Onaylanan" value={approved} sub={`$ ${(approvedAmount / 1000).toFixed(0)}K`} />
@@ -286,8 +340,8 @@ export function OffersPage({ focus }: { focus?: OperationFocus }) {
       </div>
 
       {divisionOptions.length > 0 && (
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="text-[11px] uppercase tracking-wider text-muted-foreground">İş alanı:</span>
+        <div className="crm-filter-surface flex flex-wrap items-center gap-2">
+          <span className="crm-chip-label">İş alanı:</span>
           {[{ id: "all", name: "Tümü" }, ...divisionOptions].map((division) => (
             <button
               key={division.id}
@@ -296,7 +350,7 @@ export function OffersPage({ focus }: { focus?: OperationFocus }) {
                 setDivisionTab(division.id);
                 setActiveDivision(division.id);
               }}
-              className={`rounded-full border px-2.5 py-1 text-xs transition-colors ${divisionTab === division.id ? "border-primary bg-primary text-primary-foreground shadow-xs" : "border-border bg-white text-foreground/70 hover:bg-muted"}`}
+              className={`min-h-11 rounded-full border px-3 py-1 text-xs transition-colors sm:min-h-9 ${divisionTab === division.id ? "border-primary bg-primary text-primary-foreground shadow-xs" : "border-border bg-card text-foreground/70 hover:bg-muted"}`}
             >
               {division.name}
             </button>
@@ -313,13 +367,13 @@ export function OffersPage({ focus }: { focus?: OperationFocus }) {
           <CardContent className="h-44 pl-2">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={offerTrend} margin={{ top: 5, right: 12, left: 0, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#eef0f3" vertical={false} />
-                <XAxis dataKey="ay" stroke="#9ca3af" fontSize={11} tickLine={false} axisLine={false} />
-                <YAxis stroke="#9ca3af" fontSize={11} tickLine={false} axisLine={false} />
-                <Tooltip contentStyle={{ borderRadius: 8, border: "1px solid #e5e7eb", fontSize: 12 }} />
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" vertical={false} />
+                <XAxis dataKey="ay" stroke="var(--chart-axis-muted)" fontSize={12} tickLine={false} axisLine={false} />
+                <YAxis stroke="var(--chart-axis-muted)" fontSize={12} tickLine={false} axisLine={false} />
+                <Tooltip contentStyle={{ borderRadius: 8, border: "1px solid var(--chart-tooltip-border)", background: "var(--popover)", color: "var(--popover-foreground)", fontSize: 12 }} />
                 <Legend iconType="circle" wrapperStyle={{ fontSize: 11 }} />
-                <Bar dataKey="gonderilen" name="Gönderilen" fill="#000c69" barSize={18} isAnimationActive={false} />
-                <Bar dataKey="onaylanan" name="Onaylanan" fill="#10b981" barSize={18} isAnimationActive={false} />
+                <Bar dataKey="gonderilen" name="Gönderilen" fill="var(--brand-blue)" barSize={18} isAnimationActive={false} />
+                <Bar dataKey="onaylanan" name="Onaylanan" fill="var(--success)" barSize={18} isAnimationActive={false} />
               </BarChart>
             </ResponsiveContainer>
           </CardContent>
@@ -331,11 +385,11 @@ export function OffersPage({ focus }: { focus?: OperationFocus }) {
             <p className="text-xs text-muted-foreground">Toplam $ {(totalAmount / 1000).toFixed(0)}K</p>
           </CardHeader>
           <CardContent className="space-y-3 pt-2">
-            {rejectionReasons[0] && <div className="rounded-lg border border-destructive/15 bg-destructive-soft/50 p-3"><div className="flex items-center gap-1.5 text-[9px] font-semibold uppercase tracking-wide text-destructive"><XCircle className="size-3.5" /> En sık ret nedeni</div><div className="mt-1 text-sm font-semibold">{rejectionReasons[0][0]}</div><div className="mt-0.5 text-[10px] text-muted-foreground">{rejectionReasons[0][1]} satış kartı · takip planına dönüştürün</div></div>}
+            {rejectionReasons[0] && <div className="rounded-lg border border-destructive/15 bg-destructive-soft/50 p-3"><div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-destructive"><XCircle className="size-3.5" /> En sık ret nedeni</div><div className="mt-1 text-sm font-semibold">{rejectionReasons[0][0]}</div><div className="mt-0.5 text-xs text-muted-foreground">{rejectionReasons[0][1]} satış kartı · takip planına dönüştürün</div></div>}
             {(["Draft", "Sent", "Approved", "Rejected"] as const).map((st) => {
               const items = divisionOffers.filter((o) => o.status === st);
               const pct = total > 0 ? (items.length / total) * 100 : 0;
-              const color = st === "Approved" ? "#10b981" : st === "Sent" ? "#3b82f6" : st === "Rejected" ? "#ef4444" : "#9ca3af";
+              const color = st === "Approved" ? "var(--success)" : st === "Sent" ? "var(--info)" : st === "Rejected" ? "var(--destructive)" : "var(--chart-axis-muted)";
               return (
                 <div key={st}>
                   <div className="flex items-center justify-between text-[12px] mb-1">
@@ -378,9 +432,15 @@ export function OffersPage({ focus }: { focus?: OperationFocus }) {
           <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
             <div className="relative w-full sm:w-64">
               <Search className="size-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-              <Input placeholder="Teklif no / kaynak / ürün..." className="pl-9 h-9 bg-white" value={q} onChange={(e) => setQ(e.target.value)} />
+              <Input placeholder="Teklif no / kaynak / ürün..." className="h-9 bg-card pl-9" value={q} onChange={(e) => setQ(e.target.value)} />
             </div>
             <ExportExcelButton path="/exports/quotes" filename="teklifler.xlsx" params={offerExportParams} className="h-9" />
+            {hasPermission("files.create") && (
+              <DocumentUploadDialog
+                defaultType="ExternalQuote"
+                trigger={<Button size="sm" variant="outline" className="h-9 gap-1"><Upload className="size-4" /> Dış Teklif Yükle</Button>}
+              />
+            )}
             <QuoteDialog
               trigger={<Button size="sm" className="h-9 gap-1"><Plus className="size-4" /> Yeni Teklif</Button>}
             />
@@ -425,18 +485,18 @@ export function OffersPage({ focus }: { focus?: OperationFocus }) {
                     <TableCell className="max-w-[260px] text-sm">
                       <div className="truncate">{o.productName || [sc?.requestedProduct, sc?.requestedModel].filter(Boolean).join(" · ") || "—"}</div>
                     </TableCell>
-                    <TableCell className="text-sm">{sc ? customerName(sc.customerId) : "—"}</TableCell>
-                    <TableCell><span className="inline-flex px-1.5 py-0.5 rounded text-[11px] bg-muted text-foreground/70">R{o.revision}</span></TableCell>
+                    <TableCell className="text-sm">{sc ? customerName(sc.customerId, sc.leadCompanyTitle) : customerName(o.companyId ?? "")}</TableCell>
+                    <TableCell><span className="inline-flex rounded bg-muted px-1.5 py-0.5 text-xs text-foreground/70">R{o.revision}</span></TableCell>
                     <TableCell className="text-sm tabular-nums text-muted-foreground">{o.date}</TableCell>
                     <TableCell className="text-right tabular-nums">
                       <span className="text-sm">{o.amount.toLocaleString()}</span>{" "}
-                      <span className="text-[11px] text-muted-foreground">{o.currency}</span>
+                      <span className="text-xs text-muted-foreground">{o.currency}</span>
                     </TableCell>
                     <TableCell>
                       <div className="space-y-1">
                         <StatusBadge status={o.status} />
                         {o.followUpAt && (
-                          <div className="flex items-center gap-1 whitespace-nowrap text-[10px] text-amber-700">
+                          <div className="flex items-center gap-1 whitespace-nowrap text-xs text-amber-700">
                             <BellRing className="size-3" /> {formatDate(o.followUpAt)}
                           </div>
                         )}
@@ -579,6 +639,89 @@ export function OffersPage({ focus }: { focus?: OperationFocus }) {
         </div>
       </Card>
 
+      <Card className="border-border/60 shadow-sm overflow-hidden">
+        <CardHeader className="flex flex-row items-center justify-between gap-3 pb-3">
+          <div>
+            <CardTitle className="tracking-tight">Dış Teklifler</CardTitle>
+            <p className="mt-1 text-xs text-muted-foreground">Firma veya satış kartı özelinde dışarıdan yüklenen teklif dosyaları</p>
+          </div>
+          <Badge variant="secondary" className="h-6">{externalQuotes.length} dosya</Badge>
+        </CardHeader>
+        <div className="overflow-x-auto">
+          <Table className="min-w-[760px]">
+            <TableHeader>
+              <TableRow className="bg-muted/30 hover:bg-muted/30">
+                <TableHead>Dosya</TableHead>
+                <TableHead>Firma</TableHead>
+                <TableHead>Satış Kartı</TableHead>
+                <TableHead>Bağlantı</TableHead>
+                <TableHead>Tarih</TableHead>
+                <TableHead className="w-16 text-right">İşlem</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {externalQuotes.map((documentItem) => {
+                const salesCase = documentItem.salesCaseId
+                  ? cases.find((item) => item.id === documentItem.salesCaseId)
+                  : null;
+                const company = customers.find((item) => item.id === (documentItem.companyId || salesCase?.customerId));
+                return (
+                  <TableRow key={documentItem.id}>
+                    <TableCell>
+                      <button
+                        type="button"
+                        className="flex max-w-[320px] items-center gap-2.5 text-left hover:text-primary"
+                        onClick={() => void downloadExternalQuote(documentItem.fileId, documentItem.fileName)}
+                      >
+                        <span className="grid size-8 shrink-0 place-items-center rounded-md bg-primary/10 text-primary">
+                          <FileText className="size-4" />
+                        </span>
+                        <span className="min-w-0">
+                          <span className="block truncate text-sm font-medium">{documentItem.fileName}</span>
+                          <span className="mt-0.5 block text-xs text-muted-foreground">{documentItem.size}</span>
+                        </span>
+                      </button>
+                    </TableCell>
+                    <TableCell className="text-sm">{company?.name ?? documentItem.companyNameText ?? salesCase?.leadCompanyTitle ?? "Firma bağlantısı yok"}</TableCell>
+                    <TableCell className="max-w-[260px] text-sm">
+                      <div className="truncate">
+                        {salesCase
+                          ? [salesCase.requestedProduct, salesCase.requestedModel].filter(Boolean).join(" · ") || `#${salesCase.id.slice(0, 8).toUpperCase()}`
+                          : "—"}
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant="outline">{salesCase ? "Kart + firma" : "Firma"}</Badge>
+                    </TableCell>
+                    <TableCell className="text-sm tabular-nums text-muted-foreground">{documentItem.uploadedAt || "—"}</TableCell>
+                    <TableCell className="text-right">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="size-8"
+                        title="Dış teklifi indir"
+                        aria-label={`${documentItem.fileName} dosyasını indir`}
+                        onClick={() => void downloadExternalQuote(documentItem.fileId, documentItem.fileName)}
+                      >
+                        <Download className="size-4" />
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
+              {externalQuotes.length === 0 && (
+                <TableRow>
+                  <TableCell colSpan={6} className="py-10 text-center text-sm text-muted-foreground">
+                    {q ? "Aramayla eşleşen dış teklif yok." : "Henüz dış teklif yüklenmedi."}
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </div>
+      </Card>
+
       <OfferDetailDialog
         offer={selectedOffer}
         salesCase={selectedCase}
@@ -592,6 +735,9 @@ export function OffersPage({ focus }: { focus?: OperationFocus }) {
         canApprovePrice={isSuperAdmin}
         onDeleteOffer={async (offer) => setPendingDeleteOffer(offer)}
         onOrderCreated={refresh}
+        onOpenOffer={(nextOffer) => setSelectedOfferId(nextOffer.id)}
+        onOpenOpportunity={onOpenOpportunity}
+        onOpenDocuments={onOpenDocuments}
       />
 
       <QuoteStatusDialog
@@ -631,7 +777,7 @@ export function OffersPage({ focus }: { focus?: OperationFocus }) {
                       </div>
                       <div>
                         <div className="text-sm leading-tight">{order.orderNo}</div>
-                        <div className="text-[11px] text-muted-foreground mt-0.5">{order.quoteId ? "Teklif bağlantılı" : "Manuel"}</div>
+                        <div className="mt-0.5 text-xs text-muted-foreground">{order.quoteId ? "Teklif bağlantılı" : "Manuel"}</div>
                       </div>
                     </div>
                   </TableCell>
@@ -697,6 +843,9 @@ export function OfferDetailDialog({
   onManageStatus,
   onDeleteOffer,
   onOrderCreated,
+  onOpenOffer,
+  onOpenOpportunity,
+  onOpenDocuments,
   canApprovePrice = false,
 }: {
   offer: Offer | null;
@@ -710,31 +859,87 @@ export function OfferDetailDialog({
   onManageStatus?: () => void;
   onDeleteOffer?: (offer: Offer) => Promise<void>;
   onOrderCreated?: () => void;
+  onOpenOffer?: (offer: Offer) => void;
+  onOpenOpportunity?: (salesCaseId: string) => void;
+  onOpenDocuments?: (query?: string) => void;
   canApprovePrice?: boolean;
 }) {
-  const { products, users, contacts } = useStore();
+  const { products, users, contacts, documents } = useStore();
+  const { user, tenant, activeDivision, activeDepartment } = useAuth();
+  const queryClient = useQueryClient();
   const [creatingOrder, setCreatingOrder] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
+  const [mailRecipient, setMailRecipient] = useState<MailRecipient | null>(null);
+  const [documentAction, setDocumentAction] = useState<"print" | "preview" | "download" | null>(null);
+  const [headerLogoMode, setHeaderLogoMode] = useState<QuoteHeaderLogoMode>("haksan");
+  const customerId = offer?.companyId || salesCase?.customerId || customer?.id || "";
+  const customerQuery = useCompanyDetail(customerId, customer ?? undefined);
+  const resolvedCustomer = customerQuery.data ?? customer;
+  const contactScope = useMemo<ContactQueryScope>(() => ({
+    tenantId: tenant?.id ?? user?.tenantId ?? "anonymous",
+    userId: user?.id ?? "anonymous",
+    activeDivision,
+    activeDepartment,
+  }), [activeDepartment, activeDivision, tenant?.id, user?.id, user?.tenantId]);
+  useEffect(() => {
+    setDocumentAction(null);
+    setHeaderLogoMode("haksan");
+  }, [offer?.id]);
   if (!offer) return null;
 
   const productText = offer.productName
     || (salesCase ? [salesCase.requestedProduct, salesCase.requestedModel].filter(Boolean).join(" · ") : "")
     || "Ürün bilgisi yok";
+  const relatedDocuments = documents.filter((document) =>
+    document.salesCaseId === salesCase?.id || document.quoteId === offer.id
+  );
+  const openDocumentCenter = (query?: string) => {
+    onClose();
+    onOpenDocuments?.(query);
+  };
 
   // Teklif yazdırma: ürün kataloğundan model eşleşirse teknik bilgiler ve
   // donanım sayfaları da basılır; alt notlar seçilen teslim şekline göre gelir.
   const loadQuoteDocument = async () => {
-    const data = await loadQuotePrintData({ offer, customer, salesCase, users, contacts, products });
-    return quoteDoc(data, printAssetBase());
+    let printCustomer = resolvedCustomer;
+    if (customerId && !customerQuery.data) {
+      const freshCustomer = await customerQuery.refetch();
+      if (freshCustomer.error) throw freshCustomer.error;
+      printCustomer = freshCustomer.data ?? printCustomer;
+    }
+    const companyContacts = customerId
+      ? await queryClient.fetchQuery({
+          queryKey: contactQueryKeys.companyContacts(contactScope, customerId),
+          queryFn: ({ signal }) => loadAllCompanyContacts(customerId, signal),
+          staleTime: 60_000,
+        })
+      : null;
+    const remoteContacts = companyContacts?.data ?? [];
+    const remoteContactIds = new Set(remoteContacts.map((contact) => contact.id));
+    const data = await loadQuotePrintData({
+      offer,
+      customer: printCustomer,
+      salesCase,
+      users,
+      contacts: [...remoteContacts, ...contacts.filter((contact) => !remoteContactIds.has(contact.id))],
+      products,
+      headerLogoMode,
+    });
+    return { data, doc: quoteDoc(data, printAssetBase()) };
   };
 
   const runQuoteDocument = async (mode: "print" | "preview" | "download") => {
+    setDocumentAction(null);
     const loading = toast.loading("Teklif hazırlanıyor…");
     try {
-      const doc = await loadQuoteDocument();
+      const { data, doc } = await loadQuoteDocument();
       if (mode === "print") printOrWarn(doc);
       else if (mode === "preview") previewPrintOrWarn(doc);
-      else downloadPrintOrWarn(doc, `Teklif-${offer.quoteNo}`, "Teklif");
+      // Dosya adı: Teklif_<bölüm-belge no>_<firma>_<makine>
+      else downloadPrintOrWarn(doc, quoteFilename(data, {
+        division: offer.businessLine ?? offer.divisionCode ?? offer.divisionName,
+        company: data.firma || resolvedCustomer?.name,
+      }), "Teklif");
     } catch (error: unknown) {
       toast.error("Teklif dosyası hazırlanamadı", {
         description: error instanceof Error ? error.message : "Teklif ayrıntıları alınamadı.",
@@ -744,11 +949,17 @@ export function OfferDetailDialog({
     }
   };
 
-  const handlePrint = () => void runQuoteDocument("print");
-  const handlePreview = () => void runQuoteDocument("preview");
-  const handleDownload = () => void runQuoteDocument("download");
+  const handlePrint = () => setDocumentAction("print");
+  const handlePreview = () => setDocumentAction("preview");
+  const handleDownload = () => setDocumentAction("download");
+  const documentActionLabel = documentAction === "preview"
+    ? "Önizlemeyi Aç"
+    : documentAction === "download"
+      ? "HTML İndir"
+      : "Yazdır / PDF Kaydet";
 
   return (
+    <>
     <Dialog open={!!offer} onOpenChange={(open) => !open && onClose()}>
       <DialogContent className="w-[min(900px,calc(100vw-2rem))] max-w-none sm:max-w-none max-h-[88dvh] grid-rows-[auto_1fr_auto] overflow-hidden p-0 gap-0">
         <DialogHeader className="px-6 pt-6 pb-4 border-b border-border/60">
@@ -775,22 +986,29 @@ export function OfferDetailDialog({
         </div>
 
         <div className="px-6 pb-5 grid grid-cols-1 lg:grid-cols-2 gap-4">
-          <div className="rounded-lg border border-border/60 bg-white p-4">
-            <div className="text-[11px] uppercase tracking-wider text-muted-foreground mb-3">Müşteri</div>
+          <div className="rounded-lg border border-border/60 bg-card p-4">
+            <div className="crm-chip-label mb-3">Müşteri</div>
             <div className="flex items-start gap-3">
               <div className="size-9 rounded-lg bg-muted text-primary grid place-items-center shrink-0">
                 <Building2 className="size-4" />
               </div>
               <div className="min-w-0">
-                <div className="text-sm font-medium truncate">{customer?.name ?? "Müşteri bulunamadı"}</div>
-                <div className="text-xs text-muted-foreground mt-1">{customer?.city ?? "—"} {customer?.district ? `· ${customer.district}` : ""}</div>
-                <div className="text-xs text-muted-foreground mt-1">{customer?.email ?? "E-posta yok"}</div>
+                <div className="text-sm font-medium truncate">{resolvedCustomer?.name ?? salesCase?.leadCompanyTitle ?? "Müşteri bulunamadı"}</div>
+                <div className="text-xs text-muted-foreground mt-1">{resolvedCustomer?.city ?? "—"} {resolvedCustomer?.district ? `· ${resolvedCustomer.district}` : ""}</div>
+                <div className="text-xs text-muted-foreground mt-1">{resolvedCustomer?.email ?? "E-posta yok"}</div>
               </div>
             </div>
           </div>
 
-          <div className="rounded-lg border border-border/60 bg-white p-4">
-            <div className="text-[11px] uppercase tracking-wider text-muted-foreground mb-3">Satış kartı</div>
+          <div className="rounded-lg border border-border/60 bg-card p-4">
+            <div className="mb-3 flex items-center justify-between gap-2">
+              <div className="crm-chip-label">Satış kartı</div>
+              {salesCase && onOpenOpportunity && (
+                <Button variant="ghost" size="sm" className="h-8 px-2 text-xs" onClick={() => { onClose(); onOpenOpportunity(salesCase.id); }}>
+                  Kartı aç
+                </Button>
+              )}
+            </div>
             <div className="space-y-2.5">
               <OfferInfo label="Kart No" value={salesCase ? `#${salesCase.id.slice(0, 8).toUpperCase()}` : "—"} />
               <OfferInfo label="Ürün / Model" value={productText} />
@@ -802,8 +1020,38 @@ export function OfferDetailDialog({
         </div>
 
         <div className="px-6 pb-5">
+          <CommercialDocumentRail
+            offers={revisions}
+            documents={relatedDocuments}
+            onOpenOffer={onOpenOffer}
+            onOpenDocument={(document) => openDocumentCenter(document.fileName)}
+            actions={{
+              proforma: (
+                <CreateProformaDialog
+                  defaultQuoteId={offer.id}
+                  onCreated={() => onOrderCreated?.()}
+                  trigger={<Button variant="outline" size="sm" className="h-8 px-2 text-xs"><Plus className="mr-1 size-3" /> Oluştur</Button>}
+                />
+              ),
+              contract: (
+                <CreateContractDialog
+                  defaultQuoteId={offer.id}
+                  onCreated={() => onOrderCreated?.()}
+                  trigger={<Button variant="outline" size="sm" className="h-8 px-2 text-xs"><Plus className="mr-1 size-3" /> Oluştur</Button>}
+                />
+              ),
+              invoice: salesCase && onOpenOpportunity ? (
+                <Button variant="outline" size="sm" className="h-8 px-2 text-xs" onClick={() => { onClose(); onOpenOpportunity(salesCase.id); }}>
+                  Kartta tamamla
+                </Button>
+              ) : undefined,
+            }}
+          />
+        </div>
+
+        <div className="px-6 pb-5">
           <div className="rounded-lg border border-border/60 bg-muted/30 p-4">
-            <div className="text-[11px] uppercase tracking-wider text-muted-foreground mb-2">Teklif notu</div>
+            <div className="crm-chip-label mb-2">Teklif notu</div>
             <p className="text-sm leading-relaxed text-foreground/85 whitespace-pre-wrap">{offer.note?.trim() || "Not girilmemiş."}</p>
           </div>
         </div>
@@ -811,7 +1059,7 @@ export function OfferDetailDialog({
         {(offer.followUpAt || offer.statusNote) && (
           <div className="px-6 pb-5">
             <div className="rounded-lg border border-amber-200 bg-amber-50/70 p-4">
-              <div className="mb-2 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-amber-800">
+              <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-amber-800">
                 <BellRing className="size-3.5" /> Teklif takibi
               </div>
               {offer.followUpAt && <OfferInfo label="Hatırlatma" value={formatDate(offer.followUpAt)} />}
@@ -822,7 +1070,7 @@ export function OfferDetailDialog({
 
         <div className="px-6 pb-6">
           <div className="flex items-center justify-between gap-3 mb-2">
-            <div className="text-[11px] uppercase tracking-wider text-muted-foreground">Revizyon geçmişi</div>
+            <div className="crm-chip-label">Revizyon geçmişi</div>
             <Badge variant="secondary">{revisions.length} kayıt</Badge>
           </div>
           <div className="rounded-lg border border-border/60 overflow-hidden">
@@ -889,24 +1137,22 @@ export function OfferDetailDialog({
               {onDeleteOffer && <><DropdownMenuSeparator /><DropdownMenuItem className="text-destructive focus:text-destructive" onClick={() => void onDeleteOffer(offer)}><Trash2 className="size-4" /> Teklifi Sil</DropdownMenuItem></>}
             </DropdownMenuContent>
           </DropdownMenu>
-          <CreateProformaDialog
-            defaultQuoteId={offer.id}
-            onCreated={() => onOrderCreated?.()}
-            trigger={
-              <Button variant="outline" size="sm" className="h-9 gap-1">
-                <FileText className="size-4" /> Proforma
-              </Button>
-            }
-          />
-          <CreateContractDialog
-            defaultQuoteId={offer.id}
-            onCreated={() => onOrderCreated?.()}
-            trigger={
-              <Button variant="outline" size="sm" className="h-9 gap-1">
-                <FileSignature className="size-4" /> Sözleşme
-              </Button>
-            }
-          />
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-9 gap-1"
+            disabled={!resolvedCustomer?.email}
+            title={resolvedCustomer?.email ? `${resolvedCustomer.email} adresine gönder` : "Firma kartında e-posta adresi bulunmuyor"}
+            onClick={() => resolvedCustomer?.email && setMailRecipient({
+              email: resolvedCustomer.email,
+              name: resolvedCustomer.contactPerson || resolvedCustomer.name,
+              companyId: resolvedCustomer.id,
+              subject: `${offer.quoteNo} Fiyat Teklifi`,
+              body: `Merhaba ${resolvedCustomer.contactPerson || resolvedCustomer.name},\n\n${offer.quoteNo} numaralı ${productText} fiyat teklifimizi bilgilerinize sunarız.\n\nSaygılarımızla,`,
+            })}
+          >
+            <Mail className="size-4" /> Firmaya E-posta Gönder
+          </Button>
           {offer.status === "Draft" && onQuoteAction && (
             <Button size="sm" className="h-9 gap-1" onClick={() => onQuoteAction(offer.id, "send")}>
               <Mail className="size-4" /> Gönderildi İşaretle
@@ -924,7 +1170,7 @@ export function OfferDetailDialog({
           )}
           {offer.status === "Approved" && (
             <CreateAccountingInvoiceDialog
-              prefill={invoicePrefillFromOffer(offer, customer, order)}
+              prefill={invoicePrefillFromOffer(offer, resolvedCustomer, order)}
               onCreated={onOrderCreated}
               trigger={
                 <Button variant="outline" size="sm" className="h-9 gap-1">
@@ -969,6 +1215,119 @@ export function OfferDetailDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+
+    <Dialog open={documentAction !== null} onOpenChange={(open) => !open && setDocumentAction(null)}>
+      <DialogContent className="w-[min(680px,calc(100vw-2rem))] max-w-none overflow-hidden p-0 sm:max-w-none">
+        <DialogHeader className="border-b border-border/60 [background:var(--gradient-brand)] px-6 py-5 text-white">
+          <DialogTitle className="flex items-center gap-2 text-white">
+            <ImageIcon className="size-5 text-sky-300" /> PDF logosunu seçin
+          </DialogTitle>
+          <DialogDescription className="text-slate-300">
+            Seçtiğiniz logo teklifin her sayfasındaki üst alanda kullanılır.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-4 px-6 py-5">
+          <RadioGroup
+            value={headerLogoMode}
+            onValueChange={(value) => setHeaderLogoMode(value as QuoteHeaderLogoMode)}
+            className="grid gap-3 md:grid-cols-3"
+          >
+            <Label
+              htmlFor="quote-logo-haksan"
+              className={`group flex min-h-36 cursor-pointer flex-col rounded-xl border p-3.5 transition-colors ${
+                headerLogoMode === "haksan"
+                  ? "border-primary bg-primary/5 ring-2 ring-primary/15"
+                  : "border-border/70 bg-card hover:border-primary/35"
+              }`}
+            >
+              <span className="mb-3 flex items-center justify-between gap-2">
+                <span className="text-sm font-semibold">HAKSAN anteti</span>
+                <RadioGroupItem id="quote-logo-haksan" value="haksan" />
+              </span>
+              <span className="flex min-h-16 flex-1 items-center rounded-lg border border-border/60 bg-card p-2">
+                <img
+                  src={`${printAssetBase()}/haksan-letterhead.jpg`}
+                  alt="HAKSAN anteti"
+                  className="h-auto w-full object-contain"
+                />
+              </span>
+              <span className="mt-2 text-xs leading-4 text-muted-foreground">Standart kurumsal antet</span>
+            </Label>
+
+            <Label
+              htmlFor="quote-logo-company"
+              aria-disabled={!resolvedCustomer?.logoUrl}
+              className={`group flex min-h-36 flex-col rounded-xl border p-3.5 transition-colors ${
+                !resolvedCustomer?.logoUrl
+                  ? "cursor-not-allowed border-border/50 bg-muted/30 opacity-60"
+                  : headerLogoMode === "company"
+                    ? "cursor-pointer border-primary bg-primary/5 ring-2 ring-primary/15"
+                    : "cursor-pointer border-border/70 bg-card hover:border-primary/35"
+              }`}
+            >
+              <span className="mb-3 flex items-center justify-between gap-2">
+                <span className="text-sm font-semibold">Firma logosu</span>
+                <RadioGroupItem id="quote-logo-company" value="company" disabled={!resolvedCustomer?.logoUrl} />
+              </span>
+              <span className="flex min-h-16 flex-1 items-center justify-center rounded-lg border border-border/60 bg-card p-2">
+                {resolvedCustomer?.logoUrl ? (
+                  <img src={resolvedCustomer.logoUrl} alt={`${resolvedCustomer.name} logosu`} className="max-h-14 max-w-full object-contain" />
+                ) : (
+                  <ImageOff className="size-7 text-muted-foreground/55" />
+                )}
+              </span>
+              <span className="mt-2 text-xs leading-4 text-muted-foreground">
+                {resolvedCustomer?.logoUrl ? resolvedCustomer.name : "Firma kartına önce logo yükleyin"}
+              </span>
+            </Label>
+
+            <Label
+              htmlFor="quote-logo-none"
+              className={`group flex min-h-36 cursor-pointer flex-col rounded-xl border p-3.5 transition-colors ${
+                headerLogoMode === "none"
+                  ? "border-primary bg-primary/5 ring-2 ring-primary/15"
+                  : "border-border/70 bg-card hover:border-primary/35"
+              }`}
+            >
+              <span className="mb-3 flex items-center justify-between gap-2">
+                <span className="text-sm font-semibold">Logosuz</span>
+                <RadioGroupItem id="quote-logo-none" value="none" />
+              </span>
+              <span className="flex min-h-16 flex-1 items-center justify-center rounded-lg border border-dashed border-border bg-muted/20">
+                <ImageOff className="size-7 text-muted-foreground/55" />
+              </span>
+              <span className="mt-2 text-xs leading-4 text-muted-foreground">Sade üst boşluk</span>
+            </Label>
+          </RadioGroup>
+
+          <p className="text-xs leading-5 text-muted-foreground">
+            Ürün marka logosu, örneğin HAXAN, makinenin ürün sayfasında ayrıca görünmeye devam eder.
+          </p>
+        </div>
+
+        <DialogFooter className="border-t border-border/60 bg-muted/20 px-6 py-4">
+          <Button variant="outline" onClick={() => setDocumentAction(null)}>Vazgeç</Button>
+          <Button className="gap-2" onClick={() => documentAction && void runQuoteDocument(documentAction)}>
+            {documentAction === "preview"
+              ? <Eye className="size-4" />
+              : documentAction === "download"
+                ? <Download className="size-4" />
+                : <Printer className="size-4" />}
+            {documentActionLabel}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+
+    <ComposeMailDialog
+      recipient={mailRecipient}
+      onOpenChange={(open) => !open && setMailRecipient(null)}
+      onSent={async () => {
+        if (offer.status === "Draft" && onQuoteAction) await onQuoteAction(offer.id, "send");
+      }}
+    />
+    </>
   );
 }
 
@@ -1107,8 +1466,8 @@ function OfferStat({
   accent?: string;
 }) {
   return (
-    <div className="rounded-lg border border-border/60 bg-white px-3 py-2.5">
-      <div className="flex items-center gap-1.5 text-[11px] uppercase tracking-wide text-muted-foreground">
+    <div className="rounded-lg border border-border/60 bg-card px-3 py-2.5">
+      <div className="flex items-center gap-1.5 text-xs uppercase tracking-wide text-muted-foreground">
         <span className={accent}>{icon}</span>
         {label}
       </div>

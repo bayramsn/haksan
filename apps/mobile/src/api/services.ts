@@ -22,11 +22,12 @@ async function persistLoginCookies(headers: Headers): Promise<void> {
 }
 
 export const authService = {
-  login: async (email: string, password: string) => {
+  // `identifier` kullanıcı adı ya da e-posta olabilir; API ikisini de kabul eder.
+  login: async (identifier: string, password: string) => {
     const response = await fetch(`${getApiBaseUrl()}/auth/login`, {
       method: 'POST',
       headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password }),
+      body: JSON.stringify({ identifier, password }),
     });
     await persistLoginCookies(response.headers);
     if (!response.ok) {

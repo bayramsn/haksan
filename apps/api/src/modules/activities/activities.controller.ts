@@ -43,7 +43,7 @@ export class ActivitiesController {
     @Body(new ZodValidationPipe(activityCreateSchema)) body: ActivityCreateInput,
     @CurrentUser() user: AuthContext
   ) {
-    return this.svc.createActivity(body, user);
+    return this.svc.createActivity(body, user, 'manual');
   }
 
   @RequirePermissions('activities.update')

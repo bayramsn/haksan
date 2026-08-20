@@ -19,7 +19,6 @@ import {
 export type OperationNav =
   | "dashboard"
   | "calendar"
-  | "call-assistant"
   | "customers"
   | "contacts"
   | "sales-cases"
@@ -30,6 +29,7 @@ export type OperationNav =
   | "contracts"
   | "documents"
   | "payments"
+  | "accounting-invoices"
   | "customer-balances"
   | "sales-price-list"
   | "products"
@@ -65,7 +65,11 @@ export type OperationFocus =
   | "expired"
   | "won"
   | "lost"
-  | "today";
+  | "today"
+  | "sla_risk"
+  | "uncontacted"
+  | "unassigned"
+  | "no_action";
 
 export type OperationAction =
   | { kind: "navigate"; nav: OperationNav; focus?: OperationFocus; query?: string }
@@ -132,7 +136,7 @@ export type TimelineItem = {
   action?: OperationAction;
 };
 
-export type AssistantReply = {
+export type OperationQueryReply = {
   text: string;
   actions: Array<{ label: string; action: OperationAction }>;
   results?: SearchResult[];
@@ -249,7 +253,9 @@ const findUser = (data: OperationStoreSnapshot, id?: string) =>
   data.users.find((u) => u.id === id)?.name ?? "Atanmadı";
 
 const isOpenSalesCase = (s: SalesCase) =>
-  !s.isLost && !["Completed", "Lost", "delivered"].includes(String(s.stage));
+  (s.qualificationStage ?? "c") !== "lead" &&
+  !s.isLost &&
+  !["Completed", "Lost", "delivered"].includes(String(s.stage));
 
 const isWonSalesCase = (s: SalesCase) =>
   !s.isLost && ["Completed", "delivered"].includes(String(s.stage));
@@ -304,7 +310,7 @@ const byType = (index: SearchResult[], type: string, query: string, intentWords:
   return pool.filter((result) => result.type === type).slice(0, limit);
 };
 
-const asAssistantResults = (items: WorkItem[]): SearchResult[] =>
+const asQueryResults = (items: WorkItem[]): SearchResult[] =>
   items.map((w) => ({
     id: w.id,
     type: "İş",
@@ -318,11 +324,47 @@ const asAssistantResults = (items: WorkItem[]): SearchResult[] =>
 const customerName = (data: OperationStoreSnapshot, id?: string) =>
   id ? findCustomer(data, id)?.name ?? "Firma" : "Firma";
 
-const documentNav = (type: DocumentItem["type"]): OperationNav =>
-  type === "Proforma" ? "proformas" : type === "Contract" ? "contracts" : "documents";
+const documentNav = (_type: DocumentItem["type"]): OperationNav => "documents";
 
 export function buildWorkItems(data: OperationStoreSnapshot): WorkItem[] {
   const items: WorkItem[] = [];
+
+  data.cases
+    .filter((salesCase) =>
+      (salesCase.qualificationStage ?? "c") === "lead" &&
+      salesCase.leadFollowUpStatus !== "disqualified"
+    )
+    .sort((left, right) =>
+      Number(Boolean(right.qualificationReadiness?.health?.leadSlaBreached)) -
+        Number(Boolean(left.qualificationReadiness?.health?.leadSlaBreached)) ||
+      (right.leadInsights?.priorityScore ?? 0) - (left.leadInsights?.priorityScore ?? 0)
+    )
+    .slice(0, 8)
+    .forEach((salesCase) => {
+      const health = salesCase.qualificationReadiness?.health;
+      const slaRisk = Boolean(health?.leadSlaBreached || health?.actionOverdue);
+      const needsAction = !salesCase.nextActionAt;
+      const leadTitle =
+        salesCase.leadCompanyTitle ||
+        salesCase.leadContactName ||
+        findCustomer(data, salesCase.customerId)?.name ||
+        "Yeni lead";
+      items.push({
+        id: `lead:${salesCase.id}`,
+        title: `${leadTitle} lead takibi`,
+        subtitle: salesCase.nextAction || salesCase.requestedProduct || "İlk temas aksiyonu planlanmalı",
+        meta: health?.leadSlaBreached
+          ? "SLA aşıldı"
+          : needsAction
+            ? "Aksiyon tarihi yok"
+            : `Öncelik %${salesCase.leadInsights?.priorityScore ?? 0}`,
+        owner: findUser(data, salesCase.assignedUserId),
+        severity: slaRisk ? "critical" : !salesCase.assignedUserId || needsAction ? "warning" : "info",
+        module: "sales-cases",
+        action: { kind: "salesCase", salesCaseId: salesCase.id },
+        dueDate: salesCase.nextActionAt ?? salesCase.createdAt,
+      });
+    });
 
   data.payments
     .filter((p) => p.status === "Overdue")
@@ -434,6 +476,21 @@ export function buildWorkItems(data: OperationStoreSnapshot): WorkItem[] {
 }
 
 export function buildAlerts(data: OperationStoreSnapshot): OperationAlert[] {
+  const leads = data.cases.filter((salesCase) =>
+    (salesCase.qualificationStage ?? "c") === "lead" &&
+    salesCase.leadFollowUpStatus !== "disqualified"
+  );
+  const leadSlaRisks = leads.filter((salesCase) => {
+    const health = salesCase.qualificationReadiness?.health;
+    const nearLimit =
+      health?.leadSlaHours != null &&
+      health.leadStatusAgeHours != null &&
+      health.leadStatusAgeHours >= health.leadSlaHours * 0.75;
+    return Boolean(health?.leadSlaBreached || health?.actionOverdue || nearLimit);
+  });
+  const uncontactedLeads = leads.filter((salesCase) => !salesCase.qualificationReadiness?.health?.firstContactAt);
+  const unassignedLeads = leads.filter((salesCase) => !salesCase.assignedUserId);
+  const leadsWithoutAction = leads.filter((salesCase) => !salesCase.nextActionAt);
   const overduePayments = data.payments.filter((p) => p.status === "Overdue");
   const expiringOffers = data.offers.filter(isExpiredOffer);
   const lateServices = data.service.filter(isLateService);
@@ -442,6 +499,46 @@ export function buildAlerts(data: OperationStoreSnapshot): OperationAlert[] {
   const reservedStock = data.stock.filter((s) => s.status === "Reserved");
 
   return [
+    leadSlaRisks.length
+      ? {
+          id: "alert:lead-sla",
+          title: `${leadSlaRisks.length} lead SLA riski`,
+          description: "İlk temas veya sonraki aksiyon süresi kritik seviyede",
+          severity: "critical" as const,
+          module: "sales-cases" as const,
+          action: { kind: "navigate", nav: "sales-cases", focus: "sla_risk" } as OperationAction,
+        }
+      : null,
+    unassignedLeads.length
+      ? {
+          id: "alert:lead-unassigned",
+          title: `${unassignedLeads.length} sahipsiz lead`,
+          description: "Atama kuralı eşleşmeyen kayıtlar satış yöneticisi kararı bekliyor",
+          severity: "warning" as const,
+          module: "sales-cases" as const,
+          action: { kind: "navigate", nav: "sales-cases", focus: "unassigned" } as OperationAction,
+        }
+      : null,
+    leadsWithoutAction.length
+      ? {
+          id: "alert:lead-no-action",
+          title: `${leadsWithoutAction.length} aksiyonsuz lead`,
+          description: "Tarihli sonraki aksiyonu olmayan kayıtlar var",
+          severity: "warning" as const,
+          module: "sales-cases" as const,
+          action: { kind: "navigate", nav: "sales-cases", focus: "no_action" } as OperationAction,
+        }
+      : null,
+    uncontactedLeads.length
+      ? {
+          id: "alert:lead-uncontacted",
+          title: `${uncontactedLeads.length} temas kurulmamış lead`,
+          description: "Henüz ilk temas kaydı bulunmayan leadler var",
+          severity: "info" as const,
+          module: "sales-cases" as const,
+          action: { kind: "navigate", nav: "sales-cases", focus: "uncontacted" } as OperationAction,
+        }
+      : null,
     overduePayments.length
       ? {
           id: "alert:overdue-payments",
@@ -783,7 +880,7 @@ export function buildKpiDrilldowns(data: OperationStoreSnapshot): KpiDrilldown[]
     },
     {
       id: "kpi:pipeline",
-      label: "Açık pipeline",
+      label: "Açık fırsat tutarı",
       value: formatMoney(openPipeline, "USD"),
       description: `${openCases.length} açık satış kartı`,
       severity: openCases.length ? "info" : "warning",
@@ -883,7 +980,7 @@ export function buildManagementInsights(data: OperationStoreSnapshot): ReportSum
     {
       id: "opp:pipeline",
       category: "opportunity",
-      title: "Açık pipeline",
+      title: "Açık fırsat tutarı",
       description: `${openCases.length} açık satış kartında ${formatMoney(openCases.reduce((sum, s) => sum + s.estimatedAmount, 0), "USD")} potansiyel var.`,
       metric: String(openCases.length),
       severity: openCases.length ? "info" : "warning",
@@ -1069,7 +1166,7 @@ const COMMAND_HELP_TEXT = [
   "Şu komutları API kullanmadan mevcut veriden cevaplayabilirim:",
   "• Bugün / görevler / takip işleri",
   "• Firma ara, firma geçmişi, kontak ara, haritada firma",
-  "• Açık satış kartları, pipeline, kaybedilen/kazanılan işler",
+  "• Açık fırsatlar, kaybedilen/kazanılan işler",
   "• Teklifler, gönderilen teklifler, onaylanan teklifler",
   "• Geciken ödeme, bekleyen tahsilat, kasa özeti",
   "• Stok, rezerve stok, hazır stok, seri no ara",
@@ -1081,9 +1178,7 @@ const COMMAND_HELP_TEXT = [
   "• Raporlar, dashboard, kullanıcı/rol/ayar sayfaları",
 ].join("\n");
 
-export type AssistantExtras = { pendingCallCount?: number };
-
-export function answerAssistant(input: string, data: OperationStoreSnapshot, extras?: AssistantExtras): AssistantReply {
+export function answerOperationQuery(input: string, data: OperationStoreSnapshot): OperationQueryReply {
   const query = input.trim();
   const text = normalize(query);
   const index = buildGlobalSearchIndex(data);
@@ -1096,22 +1191,6 @@ export function answerAssistant(input: string, data: OperationStoreSnapshot, ext
         { label: "Yönetim özeti", action: { kind: "navigate", nav: "reports" } },
         { label: "Global arama", action: { kind: "navigate", nav: "dashboard", focus: "today" } },
         { label: "Harita", action: { kind: "navigate", nav: "sales-map" } },
-      ],
-    };
-  }
-
-  if (includesAny(text, ["arayan", "cagri", "çağrı", "cevapsiz", "cevapsız", "kacan arama", "kaçan arama", "santral"])) {
-    const pending = extras?.pendingCallCount;
-    return {
-      text:
-        pending === undefined
-          ? "Çağrı Asistanı gelen aramaları firma ve kontaklarla eşleştirip teklif, servis kaydı ve görüşme notu önerir."
-          : pending > 0
-            ? `${pending} bekleyen çağrı önerisi var. Çağrı Asistanı sayfasından teklif, servis kaydı veya görüşme notu oluşturabilirsiniz.`
-            : "Bekleyen çağrı önerisi yok. Manuel arama kaydıyla yeni öneri oluşturabilirsiniz.",
-      actions: [
-        { label: "Çağrı Asistanı", action: { kind: "navigate", nav: "call-assistant" } },
-        { label: "Kontaklar", action: { kind: "navigate", nav: "contacts" } },
       ],
     };
   }
@@ -1273,7 +1352,7 @@ export function answerAssistant(input: string, data: OperationStoreSnapshot, ext
         { label: "Geciken ödemeler", action: { kind: "navigate", nav: "payments", focus: "overdue" } },
         { label: "Açık servisler", action: { kind: "navigate", nav: "service-requests", focus: "open" } },
       ],
-      results: asAssistantResults(work.slice(0, 6)),
+      results: asQueryResults(work.slice(0, 6)),
     };
   }
 
@@ -1292,24 +1371,34 @@ export function answerAssistant(input: string, data: OperationStoreSnapshot, ext
   }
 
   if (includesAny(text, ["firma", "musteri", "müşteri", "tedarikci", "tedarikçi", "gecmis", "geçmiş"])) {
-    const results = byType(index, "Firma", query, ["firma", "musteri", "müşteri", "tedarikci", "tedarikçi", "gecmis", "geçmiş"], 6);
+    const ignoredWords = ["firma", "musteri", "müşteri", "tedarikci", "tedarikçi", "gecmis", "geçmiş"];
+    const searchTerm = stripCommandWords(query, ignoredWords);
+    const results = byType(index, "Firma", query, ignoredWords, 6);
     return {
       text: results.length
-        ? `${results.length} firma sonucu buldum. Firma kartına girince birleşik geçmiş sekmesinden satış, teklif, ödeme, servis, makine ve dokümanları görebilirsiniz.`
-        : `${data.customers.length} firma var; ${data.customers.filter((c) => c.status === "active").length} tanesi aktif.`,
+        ? `${results.length} hızlı firma eşleşmesi gösteriliyor. Tüm yetkili kayıtlar için firma sayfasındaki sunucu aramasını kullanabilirsiniz.`
+        : searchTerm
+          ? `"${searchTerm}" için tüm yetkili firmalarda sunucu araması açılabilir.`
+          : "Toplam ve aktif firma sayıları firma sayfasında sunucudan güncel olarak hesaplanır.",
       actions: [
-        { label: "Firmalar", action: { kind: "navigate", nav: "customers" } },
-        { label: "Firma Haritası", action: { kind: "navigate", nav: "sales-map" } },
+        { label: "Firmalar", action: { kind: "navigate", nav: "customers", query: searchTerm } },
+        { label: "Firma Haritası", action: { kind: "navigate", nav: "sales-map", query: searchTerm } },
       ],
       results,
     };
   }
 
   if (includesAny(text, ["kontak", "kisi", "kişi", "ilgili", "yetkili"])) {
-    const results = byType(index, "Kontak", query, ["kontak", "kisi", "kişi", "ilgili", "yetkili"], 6);
+    const ignoredWords = ["kontak", "kisi", "kişi", "ilgili", "yetkili"];
+    const searchTerm = stripCommandWords(query, ignoredWords);
+    const results = byType(index, "Kontak", query, ignoredWords, 6);
     return {
-      text: results.length ? `${results.length} kontak sonucu buldum.` : `${data.contacts.length} kontak kaydı var.`,
-      actions: [{ label: "Kontaklar", action: { kind: "navigate", nav: "contacts" } }],
+      text: results.length
+        ? `${results.length} hızlı kontak eşleşmesi gösteriliyor. Tüm yetkili kayıtlar için kontak sayfasındaki sunucu aramasını kullanabilirsiniz.`
+        : searchTerm
+          ? `"${searchTerm}" için tüm yetkili kontaklarda sunucu araması açılabilir.`
+          : "Toplam kontak sayısı kontak sayfasında sunucudan güncel olarak hesaplanır.",
+      actions: [{ label: "Kontaklar", action: { kind: "navigate", nav: "contacts", query: searchTerm } }],
       results,
     };
   }
@@ -1333,7 +1422,7 @@ export function answerAssistant(input: string, data: OperationStoreSnapshot, ext
     const pipeline = open.reduce((sum, s) => sum + s.estimatedAmount, 0);
     const results = byType(index, "Satış", query, ["satis", "satış", "kart", "firsat", "fırsat", "pipeline"], 6);
     return {
-      text: `${open.length} açık satış kartı var. Açık pipeline yaklaşık ${formatMoney(pipeline, "USD")} seviyesinde; ${lost} kayıp/iptal kayıt görünüyor.`,
+      text: `${open.length} açık satış kartı var. Açık fırsat tutarı yaklaşık ${formatMoney(pipeline, "USD")} seviyesinde; ${lost} kayıp/iptal kayıt görünüyor.`,
       actions: [
         { label: "Açık kartlar", action: { kind: "navigate", nav: "sales-cases", focus: "open" } },
         { label: "Kanban", action: { kind: "navigate", nav: "kanban", focus: "open" } },
@@ -1504,11 +1593,9 @@ export function answerAssistant(input: string, data: OperationStoreSnapshot, ext
     const proformas = data.documents.filter((d) => d.type === "Proforma").length;
     const contracts = data.documents.filter((d) => d.type === "Contract").length;
     return {
-      text: `${data.documents.length} doküman var. ${proformas} proforma, ${contracts} sözleşme kaydı satış menüsünde ayrı takip ediliyor.`,
+      text: `${data.documents.length} doküman var. ${proformas} proforma ve ${contracts} sözleşme tek ticari belge merkezinde kaynak kayıtlarıyla izleniyor.`,
       actions: [
-        { label: "Proformalar", action: { kind: "navigate", nav: "proformas" } },
-        { label: "Sözleşmeler", action: { kind: "navigate", nav: "contracts" } },
-        { label: "Tüm dokümanlar", action: { kind: "navigate", nav: "documents" } },
+        { label: "Ticari belge merkezi", action: { kind: "navigate", nav: "documents" } },
       ],
       results,
     };

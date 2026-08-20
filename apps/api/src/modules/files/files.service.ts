@@ -9,7 +9,7 @@ import { fileDocumentTypes, productGroups, storageProviders } from '../../db/sch
 import { companies } from '../../db/schema/companies';
 import { opportunities, salesActivities } from '../../db/schema/crm';
 import { customerDevices } from '../../db/schema/inventory';
-import { productModels } from '../../db/schema/products';
+import { brands, productModels } from '../../db/schema/products';
 import { quotes } from '../../db/schema/quotes';
 import { serviceComplaintIntakes, serviceTickets } from '../../db/schema/service';
 import { chatMessages, conversationMembers, conversations } from '../../db/schema/chat';
@@ -55,6 +55,24 @@ export class FilesService {
               isNull(companies.deletedAt),
               resourceCompanyPortfolioFilter(actor, 'companies', companies.id) ?? sql`true`,
               allowUnlinkedCompanyRecords(opportunities.companyId, visibility)
+            )
+          )
+          .limit(1);
+        if (row) return;
+        break;
+      }
+      case 'brand': {
+        if (!actor.roles.includes('super_admin') && !actor.permissions.has('brands.read')) {
+          throw new ForbiddenError('Markaya erişim yetkiniz yok');
+        }
+        const [row] = await this.db
+          .select({ id: brands.id })
+          .from(brands)
+          .where(
+            and(
+              eq(brands.id, entityId),
+              eq(brands.tenantId, actor.tenantId),
+              isNull(brands.deletedAt)
             )
           )
           .limit(1);
@@ -302,9 +320,11 @@ export class FilesService {
         extension: input.extension,
         sizeBytes: input.sizeBytes,
         storageProviderId: provider?.id ?? null,
-        // Ürün pazarlama görselleri (teklif/katalog fotoğrafı) auth'suz public
-        // /products/media/:id ucundan sunulur; diğer belgeler private kalır.
-        visibility: input.bucket === 'erp-product-images' ? 'public' : 'private',
+        // Pazarlama görselleri auth'suz, yalnızca alanlarına özel doğrulamalı
+        // media uçlarından sunulur; teklif/sözleşme gibi belgeler private kalır.
+        // İmza görseli de buradadır: yazdırma penceresi auth çerezi taşımaz, bu
+        // yüzden imza `/signatures/media/:fileId` ucundan auth'suz sunulur.
+        visibility: ['erp-product-images', 'erp-company-logos', 'erp-brand-logos', 'erp-signatures'].includes(input.bucket) ? 'public' : 'private',
         uploadedBy: actor.userId,
       })
       .returning();
@@ -353,6 +373,24 @@ export class FilesService {
     if (!file || file.deletedAt || file.uploadStatus !== 'uploaded') throw new NotFoundError('Dosya');
     if (file.uploadedBy !== actor.userId) {
       throw new ForbiddenError('Yalnızca dosyayı yükleyen kullanıcı dosyayı bağlayabilir');
+    }
+    if (input.documentTypeCode === 'external_quote') {
+      const allowedMimeTypes = [
+        'application/pdf',
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      ];
+      if (!['company', 'opportunity'].includes(input.entityType)) {
+        throw new ValidationError('Dış teklif yalnızca firma veya satış kartına bağlanabilir');
+      }
+      if (
+        file.bucket !== 'erp-quote-documents'
+        || !allowedMimeTypes.includes(file.mimeType)
+        || !['pdf', 'docx', 'xlsx'].includes(file.extension)
+        || file.sizeBytes > 25 * 1024 * 1024
+      ) {
+        throw new ValidationError('Dış teklif PDF, DOCX veya XLSX olmalı ve 25 MB sınırını aşmamalıdır');
+      }
     }
     await this.assertEntityVisible(input.entityType, input.entityId, actor);
     const docType = await this.db.query.fileDocumentTypes.findFirst({

@@ -6,7 +6,7 @@ import { Input } from "../../ui/input";
 import { Label } from "../../ui/label";
 import { Tabs, TabsList, TabsTrigger } from "../../ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../../ui/table";
-import { StatusBadge } from "../../Layout";
+import { StatusBadge } from "../../shared/StatusBadge";
 import { CreateStockDialog } from "../../dialogs/CreateDialogs";
 import { MiniKpi } from "../../shared/MiniKpi";
 import { EmptyState } from "../../shared/EmptyState";
@@ -19,7 +19,6 @@ import type { StockItem } from "../../../lib/mock";
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from "../../ui/dialog";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../ui/select";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger,
 } from "../../ui/dropdown-menu";
@@ -32,6 +31,7 @@ import {
 import {
   Plus, Search, Package, Clock, CheckCircle2, AlertTriangle, MoreHorizontal, Wrench, Bookmark, ChevronDown,
 } from "lucide-react";
+import { RemoteCompanyCombobox } from "../../shared/RemoteCompanyCombobox";
 
 const CATEGORY_ICONS: Record<StockCategoryCode, typeof Package> = {
   TEZGAH: Package,
@@ -64,18 +64,6 @@ const specValue = (
   return found?.value || "—";
 };
 
-const fallbackSpecValue = (
-  product: { specs?: Array<{ key: string; value: string }> } | undefined,
-  index: number,
-) => {
-  const excluded = ["spindle", "is mili", "mil", "tool", "takim", "kontrol", "cnc"];
-  const remaining = (product?.specs ?? []).filter((spec) => {
-    const key = normalizeSpecKey(spec.key);
-    return !excluded.some((item) => key.includes(item));
-  });
-  return remaining[index]?.value || "—";
-};
-
 const stockRowClass = (status: StockItem["status"]) => {
   if (status === "Available") return "bg-success-soft/60 hover:bg-success-soft";
   if (status === "Reserved") return "bg-warning-soft/70 hover:bg-warning-soft";
@@ -92,9 +80,21 @@ const STOCK_STATUS_LABELS: Record<StockItem["status"], string> = {
 };
 
 const STOCK_STATUS_ACTIONS: Array<Exclude<StockItem["status"], "Sold">> = ["Available", "Reserved", "InTransit", "Inactive"];
+const LOCATION_STATUS_LABELS: Record<string, string> = {
+  at_warehouse: "Depoda",
+  in_transit: "Yolda",
+  at_customer: "Müşteride",
+  at_service: "Serviste",
+  customs: "Gümrükte",
+};
+
+const stockLocationLabel = (item: StockItem) => {
+  const location = item.locationStatus ? (LOCATION_STATUS_LABELS[item.locationStatus] ?? item.locationStatus) : "";
+  return [item.warehouse, location].filter(Boolean).join(" · ") || "—";
+};
 
 export function StockPage({ focus, initialQuery }: { focus?: OperationFocus; initialQuery?: string }) {
-  const { stock, customers, products, updateStockStatus, reserveStock } = useStore();
+  const { stock, products, updateStockStatus, reserveStock } = useStore();
   const [q, setQ] = useState("");
   const [tab, setTab] = useState<"all" | "Available" | "Reserved" | "InTransit" | "Sold" | "Inactive">("all");
   const [categoryTab, setCategoryTab] = useState<"all" | StockCategoryCode>("all");
@@ -223,6 +223,7 @@ export function StockPage({ focus, initialQuery }: { focus?: OperationFocus; ini
     return (
       s.serialNumber.toLowerCase().includes(q.toLowerCase()) ||
       s.stockCode.toLowerCase().includes(q.toLowerCase()) ||
+      (s.productName ?? "").toLowerCase().includes(q.toLowerCase()) ||
       s.counterModel.toLowerCase().includes(q.toLowerCase()) ||
       s.brand.toLowerCase().includes(q.toLowerCase()) ||
       (s.reservedCompanyName ?? "").toLowerCase().includes(q.toLowerCase())
@@ -249,7 +250,7 @@ export function StockPage({ focus, initialQuery }: { focus?: OperationFocus; ini
   };
 
   return (
-    <div className="flex flex-col gap-5">
+    <div className="crm-page flex flex-col">
       <Tabs className="order-1" value={categoryTab} onValueChange={(v) => setCategoryTab(v as typeof categoryTab)}>
         <TabsList className="h-9 bg-muted/60">
           <TabsTrigger value="all" className="text-xs">Tüm Stok</TabsTrigger>
@@ -284,11 +285,11 @@ export function StockPage({ focus, initialQuery }: { focus?: OperationFocus; ini
               const occupied = Math.max(1, Math.round((warehouse.count / maxCount) * 12));
               return (
                 <div key={warehouse.name} className="rounded-lg border border-border/60 bg-muted/15 p-3">
-                  <div className="flex items-center justify-between gap-2"><span className="truncate text-xs font-semibold">{warehouse.name || "Depo belirtilmemiş"}</span><Badge variant="outline" className="bg-white font-data text-[10px]">{warehouse.count} kalem</Badge></div>
+                  <div className="flex items-center justify-between gap-2"><span className="truncate text-xs font-semibold">{warehouse.name || "Depo belirtilmemiş"}</span><Badge variant="outline" className="bg-card font-data text-xs">{warehouse.count} kalem</Badge></div>
                   <div className="mt-3 grid grid-cols-6 gap-1" aria-label={`${warehouse.name} raf yoğunluğu`}>
-                    {Array.from({ length: 12 }, (_, index) => <span key={index} className={`h-4 rounded-sm border ${index < occupied ? index > 8 ? "border-warning/20 bg-warning/70" : "border-primary/10 bg-operation-blue/75" : "border-border/60 bg-white"}`} />)}
+                    {Array.from({ length: 12 }, (_, index) => <span key={index} className={`h-4 rounded-sm border ${index < occupied ? index > 8 ? "border-warning/20 bg-warning/70" : "border-primary/10 bg-operation-blue/75" : "border-border/60 bg-card"}`} />)}
                   </div>
-                  <div className="mt-2 flex justify-between text-[9px] uppercase tracking-wide text-muted-foreground"><span>Raf yoğunluğu</span><span>%{Math.round((warehouse.count / maxCount) * 100)}</span></div>
+                  <div className="mt-2 flex justify-between text-xs uppercase tracking-wide text-muted-foreground"><span>Raf yoğunluğu</span><span>%{Math.round((warehouse.count / maxCount) * 100)}</span></div>
                 </div>
               );
             })}
@@ -306,10 +307,10 @@ export function StockPage({ focus, initialQuery }: { focus?: OperationFocus; ini
               <PieChart>
                 <Pie data={brandPie} dataKey="value" nameKey="name" outerRadius={70} innerRadius={42} paddingAngle={2} isAnimationActive={false}>
                   {brandPie.map((d) => (
-                    <Cell key={`br-${d.name}`} fill={d.fill} stroke="#fff" strokeWidth={2} />
+                    <Cell key={`br-${d.name}`} fill={d.fill} stroke="var(--card)" strokeWidth={2} />
                   ))}
                 </Pie>
-                <Tooltip contentStyle={{ borderRadius: 8, border: "1px solid #e5e7eb", fontSize: 12 }} />
+                <Tooltip contentStyle={{ borderRadius: 8, border: "1px solid var(--chart-tooltip-border)", background: "var(--popover)", color: "var(--popover-foreground)", fontSize: 12 }} />
                 <Legend wrapperStyle={{ fontSize: 11 }} iconType="circle" />
               </PieChart>
             </ResponsiveContainer>
@@ -317,7 +318,7 @@ export function StockPage({ focus, initialQuery }: { focus?: OperationFocus; ini
         </Card>
       </div>
 
-      <Card className="order-3 border-warning/20 bg-gradient-to-br from-warning-soft/45 via-white to-white shadow-sm overflow-hidden">
+      <Card className="order-3 overflow-hidden border-warning/20 bg-gradient-to-br from-warning-soft/45 via-card to-card shadow-sm">
         <CardHeader className="flex flex-row items-center justify-between gap-3 pb-3">
           <div>
             <CardTitle className="tracking-tight flex items-center gap-2">
@@ -345,14 +346,14 @@ export function StockPage({ focus, initialQuery }: { focus?: OperationFocus; ini
                     key={row.product.id}
                     type="button"
                     onClick={() => { setCategoryTab("all"); setTab("all"); setQ(row.product.model || row.product.modelName || ""); }}
-                    className="text-left rounded-lg border border-border/70 bg-white p-3 transition-colors hover:border-primary/40 hover:bg-muted/30"
+                    className="rounded-lg border border-border/70 bg-card p-3 text-left transition-colors hover:border-primary/40 hover:bg-muted/30"
                   >
                     <div className="flex items-start justify-between gap-2">
                       <div className="flex min-w-0 items-center gap-2.5">
                         <EntityVisual size="sm" title={row.product.model || row.product.shortDescription || "Tezgah"} imageUrl={row.product.imageUrl} icon={<Package className="size-4" />} />
                         <div className="min-w-0">
                         <div className="truncate text-sm font-medium">{[row.product.brand, row.product.model].filter(Boolean).join(" ") || row.product.shortDescription || "Tezgah"}</div>
-                        <div className="truncate text-[11px] text-muted-foreground">{row.product.type || row.product.modelName || "Tezgah"}</div>
+                        <div className="truncate text-xs text-muted-foreground">{row.product.type || row.product.modelName || "Tezgah"}</div>
                         </div>
                       </div>
                       <Badge className={out ? "bg-brand-red-soft text-brand-red hover:bg-brand-red-soft" : "bg-warning-soft text-warning hover:bg-warning-soft"}>
@@ -390,7 +391,7 @@ export function StockPage({ focus, initialQuery }: { focus?: OperationFocus; ini
           <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
             <div className="relative w-full sm:w-64">
               <Search className="size-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-              <Input placeholder="Seri / kod / model..." className="pl-9 h-9 bg-white" value={q} onChange={(e) => setQ(e.target.value)} />
+              <Input placeholder="Ürün adı / seri / marka..." className="h-9 bg-card pl-9" value={q} onChange={(e) => setQ(e.target.value)} />
             </div>
             <ExportExcelButton path="/exports/inventory" filename="stok.xlsx" params={stockExportParams} className="h-9" />
             <CreateStockDialog
@@ -399,23 +400,24 @@ export function StockPage({ focus, initialQuery }: { focus?: OperationFocus; ini
           </div>
         </CardHeader>
         <div className="overflow-x-auto">
-          <Table>
+          <Table className="min-w-[1780px]">
             <TableHeader>
-              <TableRow className="bg-muted/40 hover:bg-muted/40 [&_th]:text-[11px] [&_th]:uppercase [&_th]:tracking-wider [&_th]:text-muted-foreground">
+              <TableRow className="bg-muted/40 hover:bg-muted/40 [&_th]:text-xs [&_th]:uppercase [&_th]:tracking-wider [&_th]:text-muted-foreground">
                 <TableHead className="w-14">No.</TableHead>
                 <TableHead>Marka</TableHead>
                 <TableHead>Yeni / Kullanılmış</TableHead>
-                <TableHead>Kod</TableHead>
+                <TableHead className="min-w-[260px]">Ürün Adı</TableHead>
                 <TableHead>Seri No</TableHead>
-                <TableHead>Kontrol Paneli</TableHead>
-                <TableHead>Spindle</TableHead>
-                <TableHead>Tool Changer</TableHead>
-                <TableHead>Spec. 1</TableHead>
-                <TableHead>Spec. 2</TableHead>
-                <TableHead>Sipariş Tarihi</TableHead>
-                <TableHead>Geliş Tarihi</TableHead>
+                <TableHead>Kontrol Ünitesi</TableHead>
+                <TableHead>Fener Mili Devri</TableHead>
+                <TableHead>Takım Adeti</TableHead>
+                <TableHead>Fener Mili Motor Gücü</TableHead>
+                <TableHead>Ürünün Bulunduğu Yer</TableHead>
+                <TableHead>Rezerve Edildiği Firma</TableHead>
+                <TableHead>Yüklendiği Tarih</TableHead>
+                <TableHead>Geldiği Tarih</TableHead>
+                <TableHead>Geleceği Tarih</TableHead>
                 <TableHead>Durum</TableHead>
-                <TableHead>Rezervasyon</TableHead>
                 <TableHead className="w-12"></TableHead>
               </TableRow>
             </TableHeader>
@@ -429,7 +431,7 @@ export function StockPage({ focus, initialQuery }: { focus?: OperationFocus; ini
                 <TableRow className={`group ${stockRowClass(s.status)}`}>
                   <TableCell className="text-xs tabular-nums text-muted-foreground">{index + 1}</TableCell>
                   <TableCell className="text-sm font-medium">{s.brand || "—"}</TableCell>
-                  <TableCell className="text-sm">Yeni</TableCell>
+                  <TableCell className="text-sm">{s.itemCondition === "used" ? "Kullanılmış" : "Yeni"}</TableCell>
                   <TableCell>
                     <div className="flex items-center gap-2.5">
                       {linkedOptions.length > 0 && (
@@ -444,22 +446,24 @@ export function StockPage({ focus, initialQuery }: { focus?: OperationFocus; ini
                           <ChevronDown className={`size-4 transition-transform ${isExpanded ? "" : "-rotate-90"}`} />
                         </Button>
                       )}
-                      <EntityVisual size="sm" className="size-9" title={s.counterModel || s.stockCode || "Stok kalemi"} imageUrl={product?.imageUrl} icon={<Package className="size-4" />} />
-                      <div className="min-w-0"><div className="text-sm font-medium">{s.stockCode || s.counterModel || "—"}</div><div className="mt-0.5 max-w-32 truncate text-[10px] text-muted-foreground">{s.counterModel}</div></div>
+                      <EntityVisual size="sm" className="size-9" title={s.productName || s.counterModel || "Stok kalemi"} imageUrl={product?.imageUrl} icon={<Package className="size-4" />} />
+                      <div className="min-w-0">
+                        <div className="max-w-[260px] truncate text-sm font-medium">{s.productName || product?.shortDescription || s.counterModel || "—"}</div>
+                        {s.counterModel && <div className="mt-0.5 max-w-48 truncate text-[10px] text-muted-foreground">{s.counterModel}</div>}
+                      </div>
                     </div>
                   </TableCell>
                   <TableCell className="text-sm tabular-nums">{s.serialNumber}</TableCell>
-                  <TableCell className="text-sm text-muted-foreground">{s.controlPanel}</TableCell>
-                  <TableCell className="text-xs text-muted-foreground">{specValue(product, ["spindle", "iş mili", "is mili", "mil"])}</TableCell>
-                  <TableCell className="text-xs text-muted-foreground">{specValue(product, ["tool changer", "takım", "takim"])}</TableCell>
-                  <TableCell className="text-xs text-muted-foreground">{fallbackSpecValue(product, 0)}</TableCell>
-                  <TableCell className="text-xs text-muted-foreground">{fallbackSpecValue(product, 1)}</TableCell>
+                  <TableCell className="text-sm text-muted-foreground">{s.controlPanel || "—"}</TableCell>
+                  <TableCell className="text-xs text-muted-foreground">{specValue(product, ["fener mili devri", "spindle speed"])}</TableCell>
+                  <TableCell className="text-xs text-muted-foreground">{specValue(product, ["takım adeti", "takim adeti", "takım kapasitesi", "takim kapasitesi", "takım yuvası sayısı", "takim yuvasi sayisi", "tool count", "tool capacity"])}</TableCell>
+                  <TableCell className="text-xs text-muted-foreground">{specValue(product, ["fener mili motor gücü", "fener mili motor gucu", "spindle motor power"])}</TableCell>
+                  <TableCell className="text-xs text-muted-foreground">{stockLocationLabel(s)}</TableCell>
+                  <TableCell className="max-w-[180px] truncate text-xs text-muted-foreground">{s.reservedCompanyName ?? "—"}</TableCell>
                   <TableCell className="text-xs text-muted-foreground tabular-nums">{s.loadingDate ?? "—"}</TableCell>
+                  <TableCell className="text-xs text-muted-foreground tabular-nums">{s.receivedDate ?? "—"}</TableCell>
                   <TableCell className="text-xs text-muted-foreground tabular-nums">{s.arrivalDate ?? "—"}</TableCell>
                   <TableCell><StatusBadge status={s.status} /></TableCell>
-                  <TableCell className="text-xs text-muted-foreground max-w-[160px] truncate">
-                    {s.reservedCompanyName ?? (s.warehouse ? `Depo: ${s.warehouse}` : "—")}
-                  </TableCell>
                   <TableCell>
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
@@ -499,7 +503,7 @@ export function StockPage({ focus, initialQuery }: { focus?: OperationFocus; ini
                               }
                               try {
                                 await updateStockStatus(s.id, st);
-                                toast.success("Durum güncellendi", { description: `${s.stockCode} → ${STOCK_STATUS_LABELS[st]}` });
+                                toast.success("Durum güncellendi", { description: `${s.productName || s.counterModel} → ${STOCK_STATUS_LABELS[st]}` });
                               } catch (err: any) {
                                 toast.error("Durum güncellenemedi", { description: err?.message ?? "API isteği başarısız oldu." });
                               }
@@ -523,7 +527,7 @@ export function StockPage({ focus, initialQuery }: { focus?: OperationFocus; ini
                 {isExpanded && linkedOptions.length > 0 && (
                   <TableRow className="bg-muted/20 hover:bg-muted/20">
                     <TableCell />
-                    <TableCell colSpan={14} className="py-3">
+                    <TableCell colSpan={15} className="py-3">
                       <div className="flex flex-wrap gap-2">
                         {linkedOptions.map((item) => (
                           <span key={item.id} className="inline-flex items-center gap-1.5 rounded-md border border-border/70 bg-white px-2 py-1 text-xs">
@@ -541,7 +545,7 @@ export function StockPage({ focus, initialQuery }: { focus?: OperationFocus; ini
               })}
               {filtered.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={15} className="py-4">
+                  <TableCell colSpan={16} className="py-4">
                     <EmptyState
                       scene="search"
                       title="Kayıt bulunamadı"
@@ -566,12 +570,12 @@ export function StockPage({ focus, initialQuery }: { focus?: OperationFocus; ini
           <div className="space-y-3">
             <div>
               <Label className="text-xs">Firma *</Label>
-              <Select value={reserveCompanyId} onValueChange={setReserveCompanyId}>
-                <SelectTrigger className="mt-1 h-9"><SelectValue placeholder="Firma seçin" /></SelectTrigger>
-                <SelectContent>
-                  {customers.map((c) => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
-                </SelectContent>
-              </Select>
+              <RemoteCompanyCombobox
+                value={reserveCompanyId}
+                onValueChange={setReserveCompanyId}
+                className="mt-1 h-9"
+                placeholder="Firma seçin"
+              />
             </div>
           </div>
           <DialogFooter>

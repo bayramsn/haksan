@@ -38,6 +38,11 @@ import type {
   SalesOrderUpdateInput,
 } from '@haksan/shared';
 import {
+  DISCOUNT_APPROVAL_THRESHOLD_PERCENT,
+  discountPercent,
+  requiresDiscountApproval,
+} from '@haksan/shared';
+import {
   resourceCompanyPortfolioFilter,
   resourceDivisionFilter,
   resourceDivisionFilterWithShared,
@@ -129,6 +134,68 @@ export class OrdersService {
     return actor.roles.includes('super_admin');
   }
 
+  private async salesOrderDiscountCheck(orderId: string) {
+    const items = await this.db
+      .select({
+        quantity: salesOrderItems.quantity,
+        unitPrice: salesOrderItems.unitPrice,
+        discountAmount: salesOrderItems.discountAmount,
+      })
+      .from(salesOrderItems)
+      .where(and(eq(salesOrderItems.salesOrderId, orderId), isNull(salesOrderItems.deletedAt)));
+    const grossTotal = items.reduce(
+      (sum, item) => sum + Number(item.quantity) * Number(item.unitPrice),
+      0,
+    );
+    const discountTotal = items.reduce((sum, item) => sum + Number(item.discountAmount), 0);
+    return {
+      needsApproval: requiresDiscountApproval(grossTotal, discountTotal),
+      thresholdPercent: DISCOUNT_APPROVAL_THRESHOLD_PERCENT,
+      grossTotal,
+      discountTotal,
+      discountPercent: discountPercent(grossTotal, discountTotal),
+    };
+  }
+
+  private async refreshSalesOrderDiscountApproval(orderId: string, actor: AuthContext) {
+    const [check, order, pendingId, draftId] = await Promise.all([
+      this.salesOrderDiscountCheck(orderId),
+      this.db.query.salesOrders.findFirst({
+        where: and(
+          eq(salesOrders.id, orderId),
+          eq(salesOrders.tenantId, actor.tenantId),
+          isNull(salesOrders.deletedAt),
+        ),
+      }),
+      lookupIdByCode(this.db, salesOrderStatuses, 'pending_super_admin_approval'),
+      lookupIdByCode(this.db, salesOrderStatuses, 'draft'),
+    ]);
+    if (!order || order.confirmedAt) return check;
+    if (check.needsApproval) {
+      if (!pendingId) throw new ValidationError('Satış siparişi indirim onay durumu yapılandırılmamış');
+      if (order.statusId !== pendingId) {
+        await this.db
+          .update(salesOrders)
+          .set({ statusId: pendingId, approvedBy: null, updatedAt: new Date() })
+          .where(eq(salesOrders.id, orderId));
+        await this.audit.write({
+          tenantId: actor.tenantId,
+          actorUserId: actor.userId,
+          action: 'sales_order.discount_approval_requested',
+          resourceType: 'sales_order',
+          resourceId: orderId,
+          newValues: check,
+        });
+      }
+    } else if (pendingId && draftId && order.statusId === pendingId) {
+      await this.db
+        .update(salesOrders)
+        .set({ statusId: draftId, approvedBy: null, updatedAt: new Date() })
+        .where(eq(salesOrders.id, orderId));
+    }
+    return check;
+  }
+
   private assertSalesOrderMutable(order: { confirmedAt: Date | null }) {
     if (order.confirmedAt) {
       throw new ConflictError('Onaylanmış satış siparişi değiştirilemez');
@@ -162,13 +229,26 @@ export class OrdersService {
     return reasons;
   }
 
-  private purchaseItemApprovalReasons(input: { listPrice?: number | null; approvedPrice?: number | null }): string[] {
+  private purchaseItemApprovalReasons(input: {
+    listPrice?: number | null;
+    approvedPrice?: number | null;
+    quantity?: number | null;
+    unitPrice?: number | null;
+    discountAmount?: number | null;
+  }): string[] {
     const reasons: string[] = [];
     const hasListPrice = input.listPrice !== undefined && input.listPrice !== null;
     const hasApprovedPrice = input.approvedPrice !== undefined && input.approvedPrice !== null;
     if (hasListPrice || hasApprovedPrice) reasons.push('Liste / olur fiyatı');
     if (hasListPrice && hasApprovedPrice && Number(input.approvedPrice) < Number(input.listPrice)) {
       reasons.push('Olur fiyatı liste fiyatının altında');
+    }
+    const gross = Number(input.quantity ?? 0) * Number(input.unitPrice ?? 0);
+    const discount = Number(input.discountAmount ?? 0);
+    if (requiresDiscountApproval(gross, discount)) {
+      reasons.push(
+        `İndirim %${discountPercent(gross, discount).toFixed(2)} (%${DISCOUNT_APPROVAL_THRESHOLD_PERCENT} sınırı aşıldı)`,
+      );
     }
     return reasons;
   }
@@ -484,6 +564,7 @@ export class OrdersService {
       })
       .returning();
     await this.recalcSalesOrderTotals(orderId);
+    await this.refreshSalesOrderDiscountApproval(orderId, actor);
     return row;
   }
 
@@ -514,6 +595,7 @@ export class OrdersService {
     patch.lineTotal = t.lineTotal.toFixed(4);
     await this.db.update(salesOrderItems).set(patch).where(eq(salesOrderItems.id, itemId));
     await this.recalcSalesOrderTotals(orderId);
+    await this.refreshSalesOrderDiscountApproval(orderId, actor);
     return { ok: true };
   }
 
@@ -531,6 +613,7 @@ export class OrdersService {
     if (!item) throw new NotFoundError('Satış siparişi kalemi');
     await this.db.update(salesOrderItems).set({ deletedAt: new Date() }).where(eq(salesOrderItems.id, item.id));
     await this.recalcSalesOrderTotals(orderId);
+    await this.refreshSalesOrderDiscountApproval(orderId, actor);
     return { ok: true };
   }
 
@@ -539,6 +622,13 @@ export class OrdersService {
     if (input.statusCode === 'reserved') return this.reserveSalesOrder(id, actor);
     if (input.statusCode === 'confirmed' && !actor.permissions.has('sales_orders.approve')) {
       throw new ForbiddenError('Satış siparişi onayı için yetkiniz yok');
+    }
+    const discountCheck = await this.salesOrderDiscountCheck(id);
+    if (input.statusCode === 'confirmed' && discountCheck.needsApproval && !this.isSuperAdmin(actor)) {
+      await this.refreshSalesOrderDiscountApproval(id, actor);
+      throw new ForbiddenError(
+        `%${DISCOUNT_APPROVAL_THRESHOLD_PERCENT} üzeri indirimli satış siparişini yalnızca Süperadmin onaylayabilir`,
+      );
     }
     if (existing.confirmedAt && !['fulfilled', 'cancelled'].includes(input.statusCode)) {
       throw new ConflictError('Onaylanmış satış siparişi için yalnızca teslim veya iptal durumu değiştirilebilir');
@@ -657,6 +747,14 @@ export class OrdersService {
 
   async reserveSalesOrder(id: string, actor: AuthContext) {
     const order = await this.getSalesOrder(id, actor);
+    const discountCheck = await this.salesOrderDiscountCheck(id);
+    if (discountCheck.needsApproval && (!order.confirmedAt || !order.approvedBy)) {
+      await this.refreshSalesOrderDiscountApproval(id, actor);
+      throw new ConflictError(
+        `%${DISCOUNT_APPROVAL_THRESHOLD_PERCENT} üzeri indirim için Süperadmin onayı tamamlanmadan stok ayrılamaz`,
+        discountCheck,
+      );
+    }
     const items = await this.db
       .select()
       .from(salesOrderItems)
@@ -917,7 +1015,17 @@ export class OrdersService {
     patch.lineTotal = t.lineTotal.toFixed(4);
     await this.db.update(purchaseOrderItems).set(patch).where(eq(purchaseOrderItems.id, itemId));
     await this.recalcPurchaseOrderTotals(orderId);
-    await this.markPurchaseOrderPendingApproval(orderId, actor, this.purchaseItemApprovalReasons(input));
+    await this.markPurchaseOrderPendingApproval(
+      orderId,
+      actor,
+      this.purchaseItemApprovalReasons({
+        listPrice: input.listPrice ?? (existing.listPrice === null ? null : Number(existing.listPrice)),
+        approvedPrice: input.approvedPrice ?? (existing.approvedPrice === null ? null : Number(existing.approvedPrice)),
+        quantity,
+        unitPrice,
+        discountAmount,
+      }),
+    );
     return { ok: true };
   }
 

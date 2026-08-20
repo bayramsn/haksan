@@ -14,10 +14,11 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from ".
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../../ui/table";
 import { Label } from "../../ui/label";
 import { Textarea } from "../../ui/textarea";
-import { StatusBadge } from "../../Layout";
+import { StatusBadge } from "../../shared/StatusBadge";
 import { CreatePaymentDialog } from "../../dialogs/CreateDialogs";
 import { PayKpi } from "../../shared/MiniKpi";
 import { useStore } from "../../../lib/store";
+import { selectedRecordById } from "../../../lib/selectedRecord";
 import { buildPaymentMonthly, buildCurrencyPie } from "../../../lib/chartAggregates";
 import { useFx, FxRateBadge, type FxCurrency } from "../../../lib/fx";
 import { Payment } from "../../../lib/mock";
@@ -36,7 +37,7 @@ import {
   Upload, FileText, Receipt, Eye, Save, Trash2,
 } from "lucide-react";
 
-export function PaymentsPage({ focus }: { focus?: OperationFocus }) {
+export function PaymentsPage({ focus, initialQuery }: { focus?: OperationFocus; initialQuery?: string }) {
   const { payments, customers, cases, refresh } = useStore();
   const { convert } = useFx();
   const [upcomingDues, setUpcomingDues] = useState<Array<{ id: string; companyName: string; dueDate: string; amount: number; currencyCode: string; type: string }>>([]);
@@ -70,7 +71,8 @@ export function PaymentsPage({ focus }: { focus?: OperationFocus }) {
   // Kasa yönü: tümü / alınan (giren) / ödenen (çıkan)
   const [dirFilter, setDirFilter] = useState<"all" | "in" | "out">("all");
   // Tıklanan kasa hareketi → detay + fiş/fatura pop-up'ı
-  const [selectedPayment, setSelectedPayment] = useState<Payment | null>(null);
+  const [selectedPaymentId, setSelectedPaymentId] = useState<string | null>(null);
+  const selectedPayment = selectedRecordById(payments, selectedPaymentId);
   const [deletingPaymentId, setDeletingPaymentId] = useState<string | null>(null);
   const [pendingDeletePayment, setPendingDeletePayment] = useState<Payment | null>(null);
 
@@ -79,6 +81,10 @@ export function PaymentsPage({ focus }: { focus?: OperationFocus }) {
     if (focus === "pending" || focus === "upcoming") setStatusFilter("Pending");
     if (focus === "paid") setStatusFilter("Paid");
   }, [focus]);
+
+  useEffect(() => {
+    if (initialQuery !== undefined) setQ(initialQuery);
+  }, [initialQuery]);
 
   // Tahsilat metrikleri yalnızca GİREN (alınan) hareketler üzerinden hesaplanır (USD karşılığı).
   const inflow = filteredPayments.filter((p) => p.direction === "in");
@@ -105,10 +111,10 @@ export function PaymentsPage({ focus }: { focus?: OperationFocus }) {
   // Aging buckets (days past dueDate, Overdue + Pending past due)
   const today = new Date();
   const buckets = [
-    { key: "0-30", label: "0–30 gün", color: "#fbbf24", value: 0 },
-    { key: "31-60", label: "31–60 gün", color: "#f59e0b", value: 0 },
-    { key: "61-90", label: "61–90 gün", color: "#f97316", value: 0 },
-    { key: "90+", label: "90+ gün", color: "#ef4444", value: 0 },
+    { key: "0-30", label: "0–30 gün", color: "var(--warning)", value: 0 },
+    { key: "31-60", label: "31–60 gün", color: "var(--chart-4)", value: 0 },
+    { key: "61-90", label: "61–90 gün", color: "var(--chart-5)", value: 0 },
+    { key: "90+", label: "90+ gün", color: "var(--destructive)", value: 0 },
   ];
   filteredPayments.forEach((p) => {
     if (p.status !== "Overdue") return;
@@ -132,7 +138,8 @@ export function PaymentsPage({ focus }: { focus?: OperationFocus }) {
   const filtered = filteredPayments.filter((p) => {
     if (statusFilter !== "all" && p.status !== statusFilter) return false;
     if (dirFilter !== "all" && p.direction !== dirFilter) return false;
-    if (q && !customerName(p.customerId).toLowerCase().includes(q.toLowerCase())) return false;
+    if (q && ![customerName(p.customerId), p.id, p.invoiceNo, p.note]
+      .some((value) => (value ?? "").toLocaleLowerCase("tr-TR").includes(q.toLocaleLowerCase("tr-TR")))) return false;
     return true;
   });
   const { page, setPage, totalPages, pageItems } = usePaged(filtered, 12);
@@ -146,7 +153,7 @@ export function PaymentsPage({ focus }: { focus?: OperationFocus }) {
     try {
       await financeService.deletePayment(payment.id);
       toast.success("Kasa hareketi silindi");
-      if (selectedPayment?.id === payment.id) setSelectedPayment(null);
+      if (selectedPaymentId === payment.id) setSelectedPaymentId(null);
       setPendingDeletePayment(null);
       refresh();
     } catch (err: any) {
@@ -159,7 +166,7 @@ export function PaymentsPage({ focus }: { focus?: OperationFocus }) {
   const payMonthly = useMemo(() => buildPaymentMonthly(filteredPayments, 6, (amount, currency) => convert(amount, currency as FxCurrency, "USD")), [filteredPayments, convert]);
   const currencyPie = useMemo(() => {
     const pie = buildCurrencyPie(filteredPayments);
-    return pie.length ? pie : [{ name: "USD", value: 0, fill: "#000c69" }];
+    return pie.length ? pie : [{ name: "USD", value: 0, fill: "var(--brand-blue)" }];
   }, [filteredPayments]);
   const cashflow = useMemo(() => {
     const now = new Date();
@@ -175,7 +182,7 @@ export function PaymentsPage({ focus }: { focus?: OperationFocus }) {
   }, [filteredPayments, convert]);
 
   return (
-    <div className="space-y-5">
+    <div className="crm-page">
       {/* KPI strip — kasa odaklı */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <PayKpi
@@ -304,26 +311,26 @@ export function PaymentsPage({ focus }: { focus?: OperationFocus }) {
               <AreaChart data={payMonthly} margin={{ top: 5, right: 12, left: 0, bottom: 0 }}>
                 <defs>
                   <linearGradient id="pgT" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#10b981" stopOpacity={0.4} />
-                    <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
+                    <stop offset="5%" stopColor="var(--success)" stopOpacity={0.4} />
+                    <stop offset="95%" stopColor="var(--success)" stopOpacity={0} />
                   </linearGradient>
                   <linearGradient id="pgB" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#f59e0b" stopOpacity={0.35} />
-                    <stop offset="95%" stopColor="#f59e0b" stopOpacity={0} />
+                    <stop offset="5%" stopColor="var(--warning)" stopOpacity={0.35} />
+                    <stop offset="95%" stopColor="var(--warning)" stopOpacity={0} />
                   </linearGradient>
                   <linearGradient id="pgO" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#ef4444" stopOpacity={0.3} />
-                    <stop offset="95%" stopColor="#ef4444" stopOpacity={0} />
+                    <stop offset="5%" stopColor="var(--destructive)" stopOpacity={0.3} />
+                    <stop offset="95%" stopColor="var(--destructive)" stopOpacity={0} />
                   </linearGradient>
                 </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="#eef0f3" vertical={false} />
-                <XAxis dataKey="ay" stroke="#9ca3af" fontSize={11} tickLine={false} axisLine={false} />
-                <YAxis stroke="#9ca3af" fontSize={11} tickLine={false} axisLine={false} />
-                <Tooltip contentStyle={{ borderRadius: 8, border: "1px solid #e5e7eb", fontSize: 12 }} />
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" vertical={false} />
+                <XAxis dataKey="ay" stroke="var(--chart-axis-muted)" fontSize={12} tickLine={false} axisLine={false} />
+                <YAxis stroke="var(--chart-axis-muted)" fontSize={12} tickLine={false} axisLine={false} />
+                <Tooltip contentStyle={{ borderRadius: 8, border: "1px solid var(--chart-tooltip-border)", background: "var(--popover)", color: "var(--popover-foreground)", fontSize: 12 }} />
                 <Legend iconType="circle" wrapperStyle={{ fontSize: 11 }} />
-                <Area type="monotone" dataKey="tahsilat" name="Tahsilat" stroke="#10b981" strokeWidth={2} fill="url(#pgT)" isAnimationActive={false} />
-                <Area type="monotone" dataKey="beklenen" name="Bekleyen" stroke="#f59e0b" strokeWidth={2} fill="url(#pgB)" isAnimationActive={false} />
-                <Area type="monotone" dataKey="gecikmis" name="Gecikmiş" stroke="#ef4444" strokeWidth={2} fill="url(#pgO)" isAnimationActive={false} />
+                <Area type="monotone" dataKey="tahsilat" name="Tahsilat" stroke="var(--success)" strokeWidth={2} fill="url(#pgT)" isAnimationActive={false} />
+                <Area type="monotone" dataKey="beklenen" name="Bekleyen" stroke="var(--warning)" strokeWidth={2} fill="url(#pgB)" isAnimationActive={false} />
+                <Area type="monotone" dataKey="gecikmis" name="Gecikmiş" stroke="var(--destructive)" strokeWidth={2} fill="url(#pgO)" isAnimationActive={false} />
               </AreaChart>
             </ResponsiveContainer>
           </CardContent>
@@ -342,7 +349,7 @@ export function PaymentsPage({ focus }: { focus?: OperationFocus }) {
                     <Cell key={`cur-${d.name}`} fill={d.fill} stroke="#fff" strokeWidth={2} />
                   ))}
                 </Pie>
-                <Tooltip contentStyle={{ borderRadius: 8, border: "1px solid #e5e7eb", fontSize: 12 }} formatter={(v: any) => `%${v}`} />
+                <Tooltip contentStyle={{ borderRadius: 8, border: "1px solid var(--chart-tooltip-border)", background: "var(--popover)", color: "var(--popover-foreground)", fontSize: 12 }} formatter={(v: any) => `%${v}`} />
                 <Legend wrapperStyle={{ fontSize: 11 }} iconType="circle" />
               </PieChart>
             </ResponsiveContainer>
@@ -388,13 +395,13 @@ export function PaymentsPage({ focus }: { focus?: OperationFocus }) {
           <CardContent className="h-56 pl-2">
             <ResponsiveContainer width="100%" height="100%">
               <LineChart data={cashflow} margin={{ top: 5, right: 12, left: 0, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#eef0f3" vertical={false} />
-                <XAxis dataKey="gun" stroke="#9ca3af" fontSize={11} tickLine={false} axisLine={false} />
-                <YAxis stroke="#9ca3af" fontSize={11} tickLine={false} axisLine={false} />
-                <Tooltip contentStyle={{ borderRadius: 8, border: "1px solid #e5e7eb", fontSize: 12 }} />
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" vertical={false} />
+                <XAxis dataKey="gun" stroke="var(--chart-axis-muted)" fontSize={12} tickLine={false} axisLine={false} />
+                <YAxis stroke="var(--chart-axis-muted)" fontSize={12} tickLine={false} axisLine={false} />
+                <Tooltip contentStyle={{ borderRadius: 8, border: "1px solid var(--chart-tooltip-border)", background: "var(--popover)", color: "var(--popover-foreground)", fontSize: 12 }} />
                 <Legend iconType="circle" wrapperStyle={{ fontSize: 11 }} />
-                <Line type="monotone" dataKey="giris" name="Giriş" stroke="#10b981" strokeWidth={2} dot={{ r: 3, strokeWidth: 2, fill: "#fff", stroke: "#10b981" }} isAnimationActive={false} />
-                <Line type="monotone" dataKey="cikis" name="Çıkış" stroke="#ef4444" strokeWidth={2} dot={{ r: 3, strokeWidth: 2, fill: "#fff", stroke: "#ef4444" }} isAnimationActive={false} />
+                <Line type="monotone" dataKey="giris" name="Giriş" stroke="var(--success)" strokeWidth={2} dot={{ r: 3, strokeWidth: 2, fill: "var(--card)", stroke: "var(--success)" }} isAnimationActive={false} />
+                <Line type="monotone" dataKey="cikis" name="Çıkış" stroke="var(--destructive)" strokeWidth={2} dot={{ r: 3, strokeWidth: 2, fill: "var(--card)", stroke: "var(--destructive)" }} isAnimationActive={false} />
               </LineChart>
             </ResponsiveContainer>
           </CardContent>
@@ -511,7 +518,7 @@ export function PaymentsPage({ focus }: { focus?: OperationFocus }) {
           <div className="flex w-full flex-col gap-2 sm:flex-row sm:flex-wrap lg:w-auto lg:justify-end">
             <div className="relative w-full sm:w-64">
               <Search className="size-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-              <Input placeholder="Firma ara..." className="pl-9 h-9 bg-white" value={q} onChange={(e) => setQ(e.target.value)} />
+              <Input placeholder="Firma ara..." className="h-9 bg-card pl-9" value={q} onChange={(e) => setQ(e.target.value)} />
             </div>
             <ExportExcelButton path="/exports/finance" filename="kasa-hareketleri.xlsx" className="h-9 justify-center" />
             <CreateAccountingInvoiceDialog onCreated={refresh} trigger={<Button size="sm" variant="outline" className="h-9 gap-1"><Receipt className="size-4" /> Muhasebe Faturası</Button>} />
@@ -546,8 +553,8 @@ export function PaymentsPage({ focus }: { focus?: OperationFocus }) {
                   <TableRow
                     key={p.id}
                     className="group cursor-pointer"
-                    onClick={() => setSelectedPayment(p)}
-                    onKeyDown={(e) => e.key === "Enter" && setSelectedPayment(p)}
+                    onClick={() => setSelectedPaymentId(p.id)}
+                    onKeyDown={(e) => e.key === "Enter" && setSelectedPaymentId(p.id)}
                     tabIndex={0}
                     role="button"
                     aria-label={`${customerName(p.customerId)} kasa hareketi, ${p.amount} ${p.currency}`}
@@ -600,7 +607,7 @@ export function PaymentsPage({ focus }: { focus?: OperationFocus }) {
                           title="Detay"
                           onClick={(event) => {
                             event.stopPropagation();
-                            setSelectedPayment(p);
+                            setSelectedPaymentId(p.id);
                           }}
                         >
                           <Eye className="size-4" />
@@ -648,7 +655,7 @@ export function PaymentsPage({ focus }: { focus?: OperationFocus }) {
       <PaymentDetailDialog
         payment={selectedPayment}
         customerName={customerName}
-        onClose={() => setSelectedPayment(null)}
+        onClose={() => setSelectedPaymentId(null)}
       />
       <AlertDialog open={!!pendingDeletePayment} onOpenChange={(open) => !open && !deletingPaymentId && setPendingDeletePayment(null)}>
         <AlertDialogContent className="max-w-lg">
@@ -713,8 +720,8 @@ const PAYMENT_METHOD_OPTIONS = Object.keys(PAYMENT_METHOD_LABELS) as Array<NonNu
 
 function DetailRow({ label, value, accent }: { label: string; value: React.ReactNode; accent?: string }) {
   return (
-    <div className="rounded-lg border border-border/60 bg-white px-3 py-2">
-      <div className="text-[11px] uppercase tracking-wide text-muted-foreground">{label}</div>
+    <div className="rounded-lg border border-border/60 bg-card px-3 py-2">
+      <div className="text-xs uppercase tracking-wide text-muted-foreground">{label}</div>
       <div className={`mt-0.5 text-sm tabular-nums ${accent ?? ""}`}>{value}</div>
     </div>
   );
@@ -883,6 +890,7 @@ function PaymentDetailDialog({
       await addDocument({
         id: up.fileId,
         fileId: up.fileId,
+        paymentId: payment.id,
         salesCaseId: payment.salesCaseId || "",
         companyId: payment.customerId,
         type: docType,

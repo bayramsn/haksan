@@ -629,14 +629,238 @@
       "idx": 90,
       "version": "7",
       "when": 1787683200000,
-      "tag": "0090_competitor_company_sync",
+      "tag": "0090_opportunity_action_workflow",
       "breakpoints": true
     },
     {
       "idx": 91,
       "version": "7",
       "when": 1787769600000,
-      "tag": "0091_document_folder_types",
+      "tag": "0091_lead_sla_process",
+      "breakpoints": true
+    },
+    {
+      "idx": 92,
+      "version": "7",
+      "when": 1787856000000,
+      "tag": "0092_align_pipeline_to_qualification",
+      "breakpoints": true
+    },
+    {
+      "idx": 93,
+      "version": "7",
+      "when": 1787942400000,
+      "tag": "0093_repair_alignment_regressions",
+      "breakpoints": true
+    },
+    {
+      "idx": 94,
+      "version": "7",
+      "when": 1788028800000,
+      "tag": "0094_user_personal_webmail",
+      "breakpoints": true
+    },
+    {
+      "idx": 95,
+      "version": "7",
+      "when": 1788115200000,
+      "tag": "0095_discount_approval_policy",
+      "breakpoints": true
+    },
+    {
+      "idx": 96,
+      "version": "7",
+      "when": 1788201600000,
+      "tag": "0096_company_contact_excel_import",
+      "breakpoints": true
+    },
+    {
+      "idx": 97,
+      "version": "7",
+      "when": 1788288000000,
+      "tag": "0097_chat_search_location",
+      "breakpoints": true
+    },
+    {
+      "idx": 98,
+      "version": "7",
+      "when": 1788374400000,
+      "tag": "0098_company_logos",
+      "breakpoints": true
+    },
+    {
+      "idx": 99,
+      "version": "7",
+      "when": 1788460800000,
+      "tag": "0099_brand_management",
+      "breakpoints": true
+    },
+    {
+      "idx": 100,
+      "version": "7",
+      "when": 1788547200000,
+      "tag": "0100_brand_supplier_company_scope",
+      "breakpoints": true
+    },
+    {
+      "idx": 101,
+      "version": "7",
+      "when": 1788633600000,
+      "tag": "0101_external_quote_documents",
+      "breakpoints": true
+    },
+    {
+      "idx": 102,
+      "version": "7",
+      "when": 1788720000000,
+      "tag": "0102_opportunity_lost_details",
+      "breakpoints": true
+    },
+    {
+      "idx": 103,
+      "version": "7",
+      "when": 1788806400000,
+      "tag": "0103_lead_workspace_v2",
+      "breakpoints": true
+    },
+    {
+      "idx": 104,
+      "version": "7",
+      "when": 1788892800000,
+      "tag": "0104_inventory_sales_columns",
+      "breakpoints": true
+    },
+    {
+      "idx": 105,
+      "version": "7",
+      "when": 1788979200000,
+      "tag": "0105_user_titles",
+      "breakpoints": true
+    },
+    {
+      "idx": 106,
+      "version": "7",
+      "when": 1789065600000,
+      "tag": "0106_user_username",
+      "breakpoints": true
+    },
+    {
+      "idx": 107,
+      "version": "7",
+      "when": 1789152000000,
+      "tag": "0107_tenant_hidden_navigation_keys",
+      "breakpoints": true
+    },
+    {
+      "idx": 108,
+      "version": "7",
+      "when": 1789238400000,
+      "tag": "0108_record_sequences",
+      "breakpoints": true
+    },
+    {
+      "idx": 109,
+      "version": "7",
+      "when": 1789324800000,
+      "tag": "0109_company_classification_lookups",
+      "breakpoints": true
+    },
+    {
+      "idx": 110,
+      "version": "7",
+      "when": 1789411200000,
+      "tag": "0110_activity_origin",
+      "breakpoints": true
+    },
+    {
+      "idx": 111,
+      "version": "7",
+      "when": 1789497600000,
+      "tag": "0111_competitor_company_sync",
+      "breakpoints": true
+    },
+    {
+      "idx": 112,
+      "version": "7",
+      "when": 1789584000000,
+      "tag": "0112_document_folder_types",
+      "breakpoints": true
+    },
+    {
+      "idx": 113,
+      "version": "7",
+      "when": 1789670400000,
+      "tag": "0113_company_contact_source_text",
+      "breakpoints": true
+    },
+    {
+      "idx": 114,
+      "version": "7",
+      "when": 1789756800000,
+      "tag": "0114_activity_type_split",
+      "breakpoints": true
+    },
+    {
+      "idx": 115,
+      "version": "7",
+      "when": 1789843200000,
+      "tag": "0115_standalone_proforma",
+      "breakpoints": true
+    },
+    {
+      "idx": 116,
+      "version": "7",
+      "when": 1789929600000,
+      "tag": "0116_standalone_contract",
+      "breakpoints": true
+    },
+    {
+      "idx": 117,
+      "version": "7",
+      "when": 1790016000000,
+      "tag": "0117_document_signatures",
+      "breakpoints": true
+    },
+    {
+      "idx": 118,
+      "version": "7",
+      "when": 1790102400000,
+      "tag": "0118_document_terms",
+      "breakpoints": true
+    },
+    {
+      "idx": 119,
+      "version": "7",
+      "when": 1790188800000,
+      "tag": "0119_opportunity_lead_district",
+      "breakpoints": true
+    },
+    {
+      "idx": 120,
+      "version": "7",
+      "when": 1790275200000,
+      "tag": "0120_company_relation_type_code",
+      "breakpoints": true
+    },
+    {
+      "idx": 121,
+      "version": "7",
+      "when": 1790361600000,
+      "tag": "0121_opportunity_process_check_notes",
+      "breakpoints": true
+    },
+    {
+      "idx": 122,
+      "version": "7",
+      "when": 1790448000000,
+      "tag": "0122_contract_vat_freight_terms",
+      "breakpoints": true
+    },
+    {
+      "idx": 123,
+      "version": "7",
+      "when": 1790534400000,
+      "tag": "0123_product_production_year",
       "breakpoints": true
     }
   ]

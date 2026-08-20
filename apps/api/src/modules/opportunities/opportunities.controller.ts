@@ -10,7 +10,9 @@ import {
   opportunityApprovalTypeEnum,
   opportunityCloseSchema,
   opportunityConvertSchema,
+  leadContactEventSchema,
   opportunityQualificationChangeSchema,
+  opportunityProcessCheckUpsertSchema,
   opportunityQualificationStageEnum,
   trelloImportCommitRequestSchema,
   trelloImportPreviewRequestSchema,
@@ -23,7 +25,9 @@ import {
   type OpportunityApprovalDecisionInput,
   type OpportunityCloseInput,
   type OpportunityConvertInput,
+  type LeadContactEventInput,
   type OpportunityQualificationChangeInput,
+  type OpportunityProcessCheckUpsertInput,
   type OpportunityApprovalType,
   type TrelloImportCommitRequest,
   type TrelloImportPreviewRequest,
@@ -62,6 +66,19 @@ export class OpportunitiesController {
   ) {
     const { page, pageSize, sortBy, sortDir, ...query } = qp;
     return this.svc.list(user, query, { page, pageSize, sortBy, sortDir });
+  }
+
+  @RequirePermissions('opportunities.read')
+  @Throttle({ default: { limit: 60, ttl: 60_000 } })
+  @Get('lead-summary')
+  leadSummary(@CurrentUser() user: AuthContext) {
+    return this.svc.leadSummary(user);
+  }
+
+  @RequirePermissions('opportunities.create')
+  @Get('assignees')
+  assignees(@CurrentUser() user: AuthContext) {
+    return this.svc.listAssignableOwners(user);
   }
 
   @RequirePermissions('opportunities.read')
@@ -120,6 +137,17 @@ export class OpportunitiesController {
   }
 
   @RequirePermissions('opportunities.update')
+  @Throttle({ default: { limit: 30, ttl: 60_000 } })
+  @Post(':id/contact-events')
+  recordLeadContactEvent(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(leadContactEventSchema)) body: LeadContactEventInput,
+    @CurrentUser() user: AuthContext
+  ) {
+    return this.svc.recordLeadContactEvent(id, body, user);
+  }
+
+  @RequirePermissions('opportunities.update')
   @Post(':id/convert')
   convertLead(
     @Param('id') id: string,
@@ -137,6 +165,17 @@ export class OpportunitiesController {
     @CurrentUser() user: AuthContext
   ) {
     return this.svc.changeQualificationStage(id, body, user);
+  }
+
+  @RequirePermissions('opportunities.update')
+  @Patch(':id/process-checks/:key')
+  setProcessCheck(
+    @Param('id') id: string,
+    @Param('key') key: string,
+    @Body(new ZodValidationPipe(opportunityProcessCheckUpsertSchema)) body: OpportunityProcessCheckUpsertInput,
+    @CurrentUser() user: AuthContext
+  ) {
+    return this.svc.setProcessCheck(id, key, body, user);
   }
 
   @RequirePermissions('opportunities.approve')

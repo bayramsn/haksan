@@ -21,6 +21,7 @@ import {
   resourceDivisionFilter,
   resolveAssignedResourceDivision,
 } from '../../shared/utils/division-scope';
+import { companyVisibilityExistsFilter } from '../../shared/utils/company-visibility';
 
 function addWarrantyYears(date: Date, years: number): Date {
   const next = new Date(date);
@@ -156,7 +157,19 @@ export class InventoryService {
   async list(actor: AuthContext, query: { search?: string; statusCode?: string; categoryCode?: string }, page: Pagination) {
     const { limit, offset } = pageOffset(page);
     const filters = [eq(inventoryItems.tenantId, actor.tenantId), isNull(inventoryItems.deletedAt)];
-    if (query.search) filters.push(ilike(inventoryItems.serialNumber, `%${query.search}%`));
+    if (query.search) {
+      const term = `%${query.search}%`;
+      filters.push(
+        or(
+          ilike(inventoryItems.serialNumber, term),
+          ilike(inventoryItems.controlUnit, term),
+          ilike(productModels.fullName, term),
+          ilike(productModels.modelCode, term),
+          ilike(productModels.stockCode, term),
+          ilike(brands.name, term),
+        ) ?? sql`false`,
+      );
+    }
     if (query.statusCode) {
       const sid = await lookupIdByCode(this.db, inventoryStatuses, query.statusCode);
       if (sid) filters.push(eq(inventoryItems.stockStatusId, sid));
@@ -172,11 +185,17 @@ export class InventoryService {
       .select({ count: sql<number>`count(*)::int` })
       .from(inventoryItems)
       .leftJoin(productModels, eq(inventoryItems.productModelId, productModels.id))
+      .leftJoin(brands, eq(productModels.brandId, brands.id))
       .where(categoryId ? and(where, eq(productModels.categoryId, categoryId)) : where);
     const rows = await this.db
       .select({
         item: inventoryItems,
-        product: { id: productModels.id, modelCode: productModels.modelCode, fullName: productModels.fullName },
+        product: {
+          id: productModels.id,
+          modelCode: productModels.modelCode,
+          fullName: productModels.fullName,
+          stockCode: productModels.stockCode,
+        },
         brand: { id: brands.id, name: brands.name },
         category: { id: productCategories.id, code: productCategories.code, name: productCategories.name },
         status: { id: inventoryStatuses.id, code: inventoryStatuses.code, name: inventoryStatuses.name },
@@ -238,6 +257,9 @@ export class InventoryService {
   }
 
   async create(input: InventoryItemCreateInput, actor: AuthContext) {
+    if (input.stockStatusCode === 'sold') {
+      throw new ValidationError('Satıldı durumu yalnızca satış faturası ile işaretlenebilir');
+    }
     const existing = await this.db.query.inventoryItems.findFirst({
       where: and(eq(inventoryItems.tenantId, actor.tenantId), eq(inventoryItems.serialNumber, input.serialNumber)),
     });
@@ -261,9 +283,11 @@ export class InventoryService {
         productModelId: input.productModelId,
         parentInventoryItemId: input.parentInventoryItemId ?? null,
         serialNumber: input.serialNumber,
+        itemCondition: input.itemCondition,
         controlUnit: input.controlUnit ?? null,
         controlUnitSerialNumber: input.controlUnitSerialNumber ?? null,
         loadingDate: input.loadingDate ?? null,
+        receivedDate: input.receivedDate ?? null,
         arrivalDate: input.arrivalDate ?? null,
         locationStatusId,
         stockStatusId: statusId,
@@ -288,7 +312,7 @@ export class InventoryService {
       throw new ValidationError('Satıldı durumu yalnızca satış faturası ile işaretlenebilir (harici satış kapalı)');
     }
     const patch: Record<string, unknown> = {};
-    for (const k of ['productModelId', 'parentInventoryItemId', 'serialNumber', 'controlUnit', 'controlUnitSerialNumber', 'loadingDate', 'arrivalDate', 'warehouseId', 'notes'] as const) {
+    for (const k of ['productModelId', 'parentInventoryItemId', 'serialNumber', 'itemCondition', 'controlUnit', 'controlUnitSerialNumber', 'loadingDate', 'receivedDate', 'arrivalDate', 'warehouseId', 'notes'] as const) {
       if ((input as any)[k] !== undefined) patch[k] = (input as any)[k] ?? null;
     }
     if (input.parentInventoryItemId) {
@@ -339,6 +363,14 @@ export class InventoryService {
     const now = new Date();
     const divisionId = item.divisionId ?? resolveAssignedResourceDivision(actor, 'inventory', input.divisionId ?? null);
     if (!divisionId) throw new ValidationError('Rezervasyon için bölüm ataması zorunludur', { field: 'divisionId' });
+    const reservableStatusIds = item.stockStatusId === reserved.id
+      ? [reserved.id]
+      : item.stockStatusId === available.id
+        ? [available.id]
+        : [];
+    if (!reservableStatusIds.length) {
+      throw new ValidationError('Sadece hazır veya rezerve stok kalemleri firmaya ayrılabilir');
+    }
     await this.db.transaction(async (tx) => {
       const [claimed] = await tx
         .update(inventoryItems)
@@ -348,13 +380,13 @@ export class InventoryService {
             eq(inventoryItems.id, id),
             eq(inventoryItems.tenantId, actor.tenantId),
             isNull(inventoryItems.deletedAt),
-            eq(inventoryItems.stockStatusId, available.id),
+            inArray(inventoryItems.stockStatusId, reservableStatusIds),
             resourceDivisionFilter(actor, 'inventory', inventoryItems.divisionId) ?? sql`true`
           )
         )
         .returning({ id: inventoryItems.id });
       if (!claimed) {
-        throw new ValidationError('Sadece stokta olan ve güncellenmemiş kalemler rezerve edilebilir');
+        throw new ValidationError('Stok kalemi başka bir işlem tarafından güncellendi; yeniden deneyin');
       }
       await tx.insert(inventoryMovements).values({
         tenantId: actor.tenantId,
@@ -767,6 +799,8 @@ export class InventoryService {
     if (query.companyId) filters.push(eq(customerDevices.companyId, query.companyId));
     const deviceScoped = resourceDivisionFilter(actor, 'customer_devices', customerDevices.divisionId);
     if (deviceScoped) filters.push(deviceScoped);
+    const visibility = await companyVisibilityExistsFilter(this.db, actor, customerDevices.companyId);
+    if (visibility) filters.push(visibility);
     const where = and(...filters);
     const [{ count }] = await this.db.select({ count: sql<number>`count(*)::int` }).from(customerDevices).where(where);
     // Envanter + ürün join'i: kurulum tutanağı / servis formu çıktıları
@@ -774,6 +808,7 @@ export class InventoryService {
     const rows = await this.db
       .select({
         device: customerDevices,
+        company: { id: companies.id, legalTitle: companies.legalTitle, shortName: companies.shortName },
         productModelId: inventoryItems.productModelId,
         serialNumber: inventoryItems.serialNumber,
         controlUnit: inventoryItems.controlUnit,
@@ -786,6 +821,14 @@ export class InventoryService {
         productTypeName: productTypes.name,
       })
       .from(customerDevices)
+      .leftJoin(
+        companies,
+        and(
+          eq(customerDevices.companyId, companies.id),
+          eq(companies.tenantId, actor.tenantId),
+          isNull(companies.deletedAt),
+        ),
+      )
       .leftJoin(inventoryItems, eq(customerDevices.inventoryItemId, inventoryItems.id))
       .leftJoin(productModels, eq(inventoryItems.productModelId, productModels.id))
       .leftJoin(currencies, eq(productModels.currencyId, currencies.id))
@@ -827,6 +870,7 @@ export class InventoryService {
         const manual = parseManualDeviceNotes(r.device.notes);
         return {
           ...r.device,
+          company: r.company?.id ? r.company : null,
           productModelId: r.productModelId,
           serialNumber: r.serialNumber ?? manual.serialNumber,
           controlUnit: r.controlUnit,

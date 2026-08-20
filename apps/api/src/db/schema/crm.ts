@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm';
-import { pgTable, uuid, varchar, text, integer, timestamp, jsonb, index, uniqueIndex } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, varchar, text, integer, boolean, timestamp, jsonb, index, uniqueIndex, check } from 'drizzle-orm/pg-core';
 import { auditColumns, ownerColumns, money } from './_helpers';
 import { tenants, divisions } from './tenants';
 import { users } from './users';
@@ -35,6 +35,10 @@ export const competitors = pgTable(
     tenantId: uuid('tenant_id')
       .notNull()
       .references(() => tenants.id, { onDelete: 'cascade' }),
+    /**
+     * Rakip firma kartıyla CRM kayıp analizi kataloğunu aynı kayda bağlar.
+     * Elle açılan eski katalog kayıtlarında null kalabilir.
+     */
     companyId: uuid('company_id').references(() => companies.id, { onDelete: 'set null' }),
     name: varchar('name', { length: 255 }).notNull(),
     website: varchar('website', { length: 512 }),
@@ -112,10 +116,17 @@ export const opportunities = pgTable(
     leadCompanyTitle: varchar('lead_company_title', { length: 255 }),
     leadContactValue: varchar('lead_contact_value', { length: 320 }),
     leadCity: varchar('lead_city', { length: 120 }),
+    leadDistrict: varchar('lead_district', { length: 120 }),
     leadPhone: varchar('lead_phone', { length: 64 }),
     leadEmail: varchar('lead_email', { length: 254 }),
     // Firmanın alım niyeti: hot (sıcak) | waiting (beklemede) | cold (soğuk).
     leadTemperature: varchar('lead_temperature', { length: 16 }),
+    leadNeedSummary: text('lead_need_summary'),
+    leadAuthorityStatus: varchar('lead_authority_status', { length: 32 }).notNull().default('unknown'),
+    leadBudgetStatus: varchar('lead_budget_status', { length: 32 }).notNull().default('unknown'),
+    leadPurchaseTimeframe: varchar('lead_purchase_timeframe', { length: 32 }).notNull().default('unknown'),
+    leadTechnicalFit: varchar('lead_technical_fit', { length: 32 }).notNull().default('unknown'),
+    leadTechnicalNote: text('lead_technical_note'),
     // Harici sistem kimliği lead/kontak alanlarından ayrı tutulur. Böylece
     // Trello pano adı, üyesi ve URL'si CRM firma bilgisi gibi davranmaz.
     externalSource: varchar('external_source', { length: 32 }),
@@ -134,10 +145,31 @@ export const opportunities = pgTable(
     lostReasonId: uuid('lost_reason_id').references(() => cancellationReasons.id),
     lostCompetitorId: uuid('lost_competitor_id').references(() => competitors.id),
     lostCompetitorProductModel: varchar('lost_competitor_product_model', { length: 255 }),
+    // LOST anındaki firma/ürün/rakip bilgileri sonradan kartlar değişse bile
+    // kayıp analizinin tarihsel doğruluğunu korumak için snapshot olarak tutulur.
+    lostCompanyName: varchar('lost_company_name', { length: 255 }),
+    lostProductName: varchar('lost_product_name', { length: 512 }),
+    lostCompetitorName: varchar('lost_competitor_name', { length: 255 }),
+    lostUnmetConditions: text('lost_unmet_conditions'),
     // Makine satışında ödeme vadesi (gün); sözleşme/ödeme planı varsayılanı.
     paymentTermDays: integer('payment_term_days'),
     // Lead kartında seçilen ödeme yöntemi (cash, term, leasing vb.).
     paymentMethod: varchar('payment_method', { length: 32 }),
+    // Lead'in günlük takip durumu, satış derecesinden (Lead/C/B/A/...) bağımsızdır.
+    leadFollowUpStatus: varchar('lead_follow_up_status', { length: 24 }).notNull().default('new'),
+    // Takip durumuna giriş anı — lead SLA sayacı buradan işler.
+    leadStatusUpdatedAt: timestamp('lead_status_updated_at', { withTimezone: true }),
+    // Kaç kez temas denendi; üst sınır aşılınca kart beklemeye düşürülür.
+    contactAttemptCount: integer('contact_attempt_count').notNull().default(0),
+    // İlk başarılı temas anı — "speed-to-lead" ölçümünün paydası.
+    firstContactAt: timestamp('first_contact_at', { withTimezone: true }),
+    // Lead elendiğinde nedeni; LOST nedeniyle aynı lookup tablosunu paylaşır.
+    disqualifyReasonId: uuid('disqualify_reason_id').references(() => cancellationReasons.id, {
+      onDelete: 'set null',
+    }),
+    // Satışçının kartı yeniden açmadan göreceği bir sonraki somut aksiyon.
+    nextAction: text('next_action'),
+    nextActionAt: timestamp('next_action_at', { withTimezone: true }),
     // Lead havuzu ile C/B/A/A+/WIN/LOST satış derecesi, operasyon aşamasından ayrıdır.
     qualificationStage: varchar('qualification_stage', { length: 16 }).notNull().default('lead'),
     qualificationNote: text('qualification_note'),
@@ -161,6 +193,18 @@ export const opportunities = pgTable(
     companyIdx: index('opportunities_company_idx').on(t.companyId),
     stageIdx: index('opportunities_stage_idx').on(t.currentStageId),
     qualificationStageIdx: index('opportunities_qualification_stage_idx').on(t.tenantId, t.qualificationStage),
+    leadFollowUpStatusIdx: index('opportunities_lead_follow_up_status_idx').on(t.tenantId, t.leadFollowUpStatus),
+    qualificationAgeIdx: index('opportunities_qualification_age_idx').on(
+      t.tenantId,
+      t.qualificationStage,
+      t.qualificationUpdatedAt
+    ),
+    leadStatusAgeIdx: index('opportunities_lead_status_age_idx').on(
+      t.tenantId,
+      t.leadFollowUpStatus,
+      t.leadStatusUpdatedAt
+    ),
+    nextActionAtIdx: index('opportunities_next_action_at_idx').on(t.tenantId, t.nextActionAt),
     expectedCloseDateIdx: index('opportunities_expected_close_date_idx').on(t.expectedCloseDate),
     ownerIdx: index('opportunities_owner_idx').on(t.ownerUserId),
     closedAtIdx: index('opportunities_closed_at_idx').on(t.closedAt),
@@ -169,6 +213,42 @@ export const opportunities = pgTable(
       .where(sql`${t.deletedAt} is null and ${t.externalSource} is not null and ${t.externalKey} is not null`),
   })
 );
+
+export type LeadAssignmentCriteria = {
+  cities: string[];
+  productTerms: string[];
+  sourceCodes: string[];
+};
+
+export const leadAssignmentRules = pgTable(
+  'lead_assignment_rules',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id')
+      .notNull()
+      .references(() => tenants.id, { onDelete: 'cascade' }),
+    divisionId: uuid('division_id').references(() => divisions.id, { onDelete: 'cascade' }),
+    name: varchar('name', { length: 255 }).notNull(),
+    priority: integer('priority').notNull().default(100),
+    active: boolean('active').notNull().default(true),
+    criteria: jsonb('criteria').$type<LeadAssignmentCriteria>().notNull(),
+    assigneeUserIds: uuid('assignee_user_ids').array().notNull(),
+    ...ownerColumns,
+    ...auditColumns,
+  },
+  (t) => ({
+    tenantIdx: index('lead_assignment_rules_tenant_idx').on(t.tenantId),
+    tenantPriorityIdx: index('lead_assignment_rules_tenant_priority_idx').on(t.tenantId, t.priority),
+  })
+);
+
+export const leadAssignmentCursors = pgTable('lead_assignment_cursors', {
+  ruleId: uuid('rule_id')
+    .primaryKey()
+    .references(() => leadAssignmentRules.id, { onDelete: 'cascade' }),
+  nextIndex: integer('next_index').notNull().default(0),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
 
 export const opportunityQualificationHistory = pgTable(
   'opportunity_qualification_history',
@@ -184,11 +264,49 @@ export const opportunityQualificationHistory = pgTable(
     toStage: varchar('to_stage', { length: 16 }).notNull(),
     changedBy: uuid('changed_by').references(() => users.id, { onDelete: 'set null' }),
     changeReason: text('change_reason'),
+    conversionOverride: boolean('conversion_override').notNull().default(false),
+    fitScore: integer('fit_score'),
+    engagementScore: integer('engagement_score'),
+    priorityScore: integer('priority_score'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => ({
     opportunityIdx: index('opportunity_qualification_history_opportunity_idx').on(t.opportunityId),
     tenantIdx: index('opportunity_qualification_history_tenant_idx').on(t.tenantId),
+  })
+);
+
+/**
+ * A+ süreç adımlarının elle işaretlenmesi.
+ *
+ * Adımların çoğu kanıttan türetilir; A+ alanındaki işlerin bir kısmı ise CRM
+ * dışında yürür (gümrükçü, nakliyeci, saha ekibi). Bu tablo adım başına tek
+ * "yapıldı / yapılmadı" kaydı ve satışçının bıraktığı yorumu tutar.
+ */
+export const opportunityProcessChecks = pgTable(
+  'opportunity_process_checks',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id')
+      .notNull()
+      .references(() => tenants.id, { onDelete: 'cascade' }),
+    opportunityId: uuid('opportunity_id')
+      .notNull()
+      .references(() => opportunities.id, { onDelete: 'cascade' }),
+    checkKey: varchar('check_key', { length: 64 }).notNull(),
+    status: varchar('status', { length: 16 }).notNull(),
+    note: text('note'),
+    updatedBy: uuid('updated_by').references(() => users.id, { onDelete: 'set null' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true })
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (t) => ({
+    opportunityCheckUnique: uniqueIndex('opportunity_process_checks_unique').on(t.opportunityId, t.checkKey),
+    tenantIdx: index('opportunity_process_checks_tenant_idx').on(t.tenantId),
+    statusCheck: check('opportunity_process_checks_status_check', sql`${t.status} in ('done', 'not_done')`),
   })
 );
 
@@ -239,6 +357,8 @@ export const opportunityStageHistory = pgTable(
   })
 );
 
+export type ActivityOrigin = 'manual' | 'system';
+
 export const salesActivities = pgTable(
   'sales_activities',
   {
@@ -255,6 +375,7 @@ export const salesActivities = pgTable(
       .references(() => activityTypes.id),
     subject: varchar('subject', { length: 255 }).notNull(),
     description: text('description'),
+    origin: varchar('origin', { length: 16 }).$type<ActivityOrigin>().notNull().default('manual'),
     activityDate: timestamp('activity_date', { withTimezone: true }).notNull(),
     nextFollowUpAt: timestamp('next_follow_up_at', { withTimezone: true }),
     result: text('result'),
@@ -266,6 +387,36 @@ export const salesActivities = pgTable(
     tenantDivisionIdx: index('sales_activities_tenant_division_idx').on(t.tenantId, t.divisionId),
     oppIdx: index('sales_activities_opp_idx').on(t.opportunityId),
     dateIdx: index('sales_activities_date_idx').on(t.activityDate),
+    originCheck: check('sales_activities_origin_check', sql`${t.origin} in ('manual', 'system')`),
+  })
+);
+
+export const leadContactEvents = pgTable(
+  'lead_contact_events',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id')
+      .notNull()
+      .references(() => tenants.id, { onDelete: 'cascade' }),
+    opportunityId: uuid('opportunity_id')
+      .notNull()
+      .references(() => opportunities.id, { onDelete: 'cascade' }),
+    activityId: uuid('activity_id')
+      .notNull()
+      .references(() => salesActivities.id, { onDelete: 'cascade' }),
+    idempotencyKey: uuid('idempotency_key').notNull(),
+    channel: varchar('channel', { length: 16 }).notNull(),
+    outcome: varchar('outcome', { length: 32 }).notNull(),
+    actorUserId: uuid('actor_user_id').references(() => users.id, { onDelete: 'set null' }),
+    occurredAt: timestamp('occurred_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    opportunityIdx: index('lead_contact_events_opportunity_idx').on(t.opportunityId, t.occurredAt),
+    idempotencyUnique: uniqueIndex('lead_contact_events_idempotency_unique').on(
+      t.tenantId,
+      t.opportunityId,
+      t.idempotencyKey
+    ),
   })
 );
 

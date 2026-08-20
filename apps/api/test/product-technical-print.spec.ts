@@ -9,8 +9,9 @@ describe('product technical print', () => {
         brand: 'HAKSAN',
         series: 'VM',
         productGroup: 'Tezgah',
-        model: 'VM-2',
+        model: 'HAKSAN.VM-2.INTERNAL',
         modelName: 'Dik İşleme Merkezi',
+        stockCode: 'HAKSAN.VM-2.INTERNAL',
         type: 'CNC İşleme Merkezi',
         controlPanel: 'Fanuc',
         category: 'Dik İşleme',
@@ -38,5 +39,7 @@ describe('product technical print', () => {
     expect(doc.body).not.toContain('Liste Fiyatı');
     expect(doc.body).not.toContain('Peşin');
     expect(doc.body).not.toContain('USD');
+    expect(doc.title).not.toContain('HAKSAN.VM-2.INTERNAL');
+    expect(doc.body).not.toContain('HAKSAN.VM-2.INTERNAL');
   });
 });

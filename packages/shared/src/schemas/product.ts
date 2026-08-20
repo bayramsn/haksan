@@ -22,6 +22,8 @@ export const productCreateSchema = z.object({
   cashPrice: moneySchema.optional(),
   vatRate: productVatRateSchema.default(20),
   originCountry: z.string().max(64).optional(),
+  /** Tezgahın üretim yılı; belge metnindeki {{YIL}} buradan doldurulur. */
+  productionYear: z.coerce.number().int().min(1950).max(2100).optional(),
   hsCode: z.string().max(32).optional(),
   stockCode: z.string().max(64).optional(),
   imageUrl: z.string().max(512).optional(),
@@ -53,9 +55,12 @@ export type ProductSpecCreateInput = z.infer<typeof productSpecCreateSchema>;
 export const productSpecTemplateCreateSchema = z.object({
   productTypeCode: z.string().min(1).max(64),
   specKey: z.string().min(1).max(255),
-  specGroupCode: z.string().max(64).optional(),
-  defaultValue: z.string().max(2000).optional(),
-  specUnit: z.string().max(64).optional(),
+  // `null` = alanı temizle, `undefined` = alana hiç dokunma. Batch güncellemede
+  // `.set()` yalnız gönderilen kolonlara yazdığı için ayrım şarttır: boşaltılan
+  // değer `undefined` gider ve kolon güncellenmezse eski değer geri gelir.
+  specGroupCode: z.string().max(64).nullish(),
+  defaultValue: z.string().max(2000).nullish(),
+  specUnit: z.string().max(64).nullish(),
   // Bölüm (CNC / Üniversal / Sac İşleme). Boş/null → tüm bölümlerde ("Tümü").
   divisionId: z.string().uuid().nullish(),
   sortOrder: z.coerce.number().int().default(0),
@@ -77,9 +82,42 @@ export const productSpecTemplateBatchItemSchema = productSpecTemplateCreateSchem
 });
 
 export const productSpecTemplateBatchSchema = z.object({
+  // Kaydın kapsamı. `pruneMissing` ile birlikte gönderildiğinde bu (ürün tipi +
+  // bölüm) kapsamında olup `items` içinde bulunmayan alanlar tombstone'lanır;
+  // böylece çalışma sayfasından çıkarılan alan aynı transaction içinde silinir.
+  productTypeCode: z.string().min(1).max(64).optional(),
+  divisionId: z.string().uuid().nullish(),
+  pruneMissing: z.boolean().default(false),
   items: z.array(productSpecTemplateBatchItemSchema).min(1).max(1000),
 });
 export type ProductSpecTemplateBatchInput = z.infer<typeof productSpecTemplateBatchSchema>;
+
+export const machineTemplateFieldSchema = productSpecTemplateCreateSchema.omit({
+  productTypeCode: true,
+  divisionId: true,
+});
+
+export const machineTemplateCreateSchema = z
+  .object({
+    name: z.string().trim().min(2).max(255),
+    code: z.string().trim().min(2).max(64),
+    divisionId: z.string().uuid(),
+    subcategoryId: z.string().uuid(),
+    fields: z.array(machineTemplateFieldSchema).max(1000).default([]),
+  })
+  .superRefine((value, ctx) => {
+    const normalizedKeys = value.fields.map((field) =>
+      field.specKey.trim().toLocaleLowerCase('tr-TR'),
+    );
+    if (new Set(normalizedKeys).size !== normalizedKeys.length) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['fields'],
+        message: 'Aynı teknik bilgi adı birden fazla kez kullanılamaz',
+      });
+    }
+  });
+export type MachineTemplateCreateInput = z.infer<typeof machineTemplateCreateSchema>;
 
 export const technicalImportModeSchema = z.enum(['template_fields', 'machine_data']);
 export type TechnicalImportMode = z.infer<typeof technicalImportModeSchema>;
@@ -190,6 +228,9 @@ export const brandCreateSchema = z.object({
   country: z.string().max(64).optional(),
   website: z.string().url().max(512).optional(),
   notes: z.string().max(4000).optional(),
+  companyId: z.string().uuid().nullish(),
+  isOwned: z.boolean().default(false),
+  logoFileId: z.string().uuid().nullish(),
   // Ürün formunda seçilen CNC / Üniversal / Sac İşleme grubunun bölümü.
   // Boş bırakılırsa marka tüm bölümlerde kullanılabilen ortak kayıt olur.
   divisionId: z.string().uuid().nullish(),
@@ -279,6 +320,8 @@ export const productImportRowSchema = z.object({
   cashPrice: moneySchema.optional(),
   vatRate: percentSchema.default(20),
   originCountry: z.string().max(64).optional(),
+  /** Tezgahın üretim yılı; belge metnindeki {{YIL}} buradan doldurulur. */
+  productionYear: z.coerce.number().int().min(1950).max(2100).optional(),
   hsCode: z.string().max(32).optional(),
   stockCode: z.string().max(64).optional(),
   imageUrl: z.string().max(512).optional(),

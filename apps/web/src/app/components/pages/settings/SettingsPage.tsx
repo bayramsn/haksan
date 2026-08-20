@@ -11,8 +11,12 @@ import {
   Database,
   FileCheck2,
   Globe,
+  GitBranch,
+  Eye,
+  EyeOff,
   Layers,
   Mail,
+  MailCheck,
   RotateCcw,
   Save,
   Settings2,
@@ -25,7 +29,12 @@ import { useAuth } from "../../../../lib/auth";
 import { adminService } from "../../../../lib/services";
 import { ProductSpecTemplatesCard } from "./ProductSpecTemplatesCard";
 import { LookupManagerTab } from "./LookupManagerTab";
+import { DepartmentSettingsCard } from "./DepartmentSettingsCard";
+import { SignatureSettingsCard } from "./SignatureSettingsCard";
 import { InfoCallout, SettingsField, SettingsSection, SettingsToggle } from "./settings-controls";
+import { MailAccountSettings } from "./MailAccountSettings";
+import { LeadAssignmentRulesCard } from "./LeadAssignmentRulesCard";
+import { NAVIGATION_GROUPS, type NavigationVisibilityKey } from "@haksan/shared";
 
 type Preferences = {
   notifyNewCase: boolean;
@@ -64,10 +73,13 @@ function storageKey(userId?: string) {
 }
 
 export function SettingsPage() {
-  const { user, hasPermission, hasRole } = useAuth();
-  const canReadTenant = hasPermission("tenants.read");
+  const { user, hasPermission, hasRole, refresh } = useAuth();
+  // Oturum sahibi kendi tenant'ının temel şirket profilini okuyabilir;
+  // değiştirme yetkisi ayrı kalır ve yalnız tenants.update ile açılır.
+  const canReadTenant = Boolean(user);
   const canEditTenant = hasPermission("tenants.update");
   const canManageLookups = hasRole("super_admin");
+  const canManageLeadAssignmentRules = hasPermission("lead_assignment_rules.manage");
 
   const [prefs, setPrefs] = useState<Preferences>(() => {
     try {
@@ -84,6 +96,9 @@ export function SettingsPage() {
   const [companyBaseline, setCompanyBaseline] = useState<CompanyInfo>(companyDefaults);
   const [companyLoading, setCompanyLoading] = useState(canReadTenant);
   const [companySaving, setCompanySaving] = useState(false);
+  const [hiddenNavigationKeys, setHiddenNavigationKeys] = useState<NavigationVisibilityKey[]>([]);
+  const [hiddenNavigationBaseline, setHiddenNavigationBaseline] = useState<NavigationVisibilityKey[]>([]);
+  const [navigationSaving, setNavigationSaving] = useState(false);
   const [tab, setTab] = useState("genel");
 
   useEffect(() => {
@@ -102,6 +117,11 @@ export function SettingsPage() {
         };
         setCompany(nextCompany);
         setCompanyBaseline(nextCompany);
+        const nextHiddenNavigationKeys = Array.isArray(t.hiddenNavigationKeys)
+          ? t.hiddenNavigationKeys as NavigationVisibilityKey[]
+          : [];
+        setHiddenNavigationKeys(nextHiddenNavigationKeys);
+        setHiddenNavigationBaseline(nextHiddenNavigationKeys);
       })
       .catch(() => {
         if (!cancelled) toast.error("Şirket bilgileri yüklenemedi");
@@ -150,18 +170,52 @@ export function SettingsPage() {
     }
   };
 
+  const saveNavigation = async () => {
+    if (!canEditTenant) return;
+    setNavigationSaving(true);
+    try {
+      const updated = await adminService.updateTenant({ hiddenNavigationKeys });
+      const next = Array.isArray(updated.hiddenNavigationKeys)
+        ? updated.hiddenNavigationKeys as NavigationVisibilityKey[]
+        : [];
+      setHiddenNavigationKeys(next);
+      setHiddenNavigationBaseline(next);
+      await refresh();
+      toast.success("Menü ve akış ayarları kaydedildi", {
+        description: "Seçim tüm kullanıcıların sol menüsüne uygulandı.",
+      });
+    } catch (err: any) {
+      toast.error("Menü ve akış ayarları kaydedilemedi", { description: err?.message ?? "API isteği başarısız oldu." });
+    } finally {
+      setNavigationSaving(false);
+    }
+  };
+
   const prefsDirty = useMemo(() => JSON.stringify(prefs) !== JSON.stringify(prefsBaseline), [prefs, prefsBaseline]);
   const companyDirty = useMemo(() => JSON.stringify(company) !== JSON.stringify(companyBaseline), [company, companyBaseline]);
-  const hasPendingChanges = (tab === "genel" || tab === "bildirimler") ? prefsDirty : tab === "sirket" ? companyDirty : false;
-  const canSavePending = tab !== "sirket" || canEditTenant;
+  const navigationDirty = useMemo(
+    () => JSON.stringify([...hiddenNavigationKeys].sort()) !== JSON.stringify([...hiddenNavigationBaseline].sort()),
+    [hiddenNavigationBaseline, hiddenNavigationKeys]
+  );
+  const hasPendingChanges = (tab === "genel" || tab === "bildirimler")
+    ? prefsDirty
+    : tab === "sirket"
+      ? companyDirty
+      : tab === "menu"
+        ? navigationDirty
+        : false;
+  const canSavePending = (tab !== "sirket" && tab !== "menu") || canEditTenant;
+  const pendingSaveBusy = companySaving || navigationSaving;
 
   const resetPendingChanges = () => {
     if (tab === "sirket") setCompany(companyBaseline);
+    else if (tab === "menu") setHiddenNavigationKeys(hiddenNavigationBaseline);
     else setPrefs(prefsBaseline);
   };
 
   const savePendingChanges = () => {
     if (tab === "sirket") void saveCompany();
+    else if (tab === "menu") void saveNavigation();
     else savePrefs();
   };
 
@@ -169,7 +223,10 @@ export function SettingsPage() {
     genel: { eyebrow: "KİŞİSEL ÇALIŞMA ALANI", title: "Genel tercihler", description: "Bölge, para birimi ve kullanıcıya özel davranışlar." },
     sirket: { eyebrow: "KURUMSAL KİMLİK", title: "Şirket profili", description: "Tüm kullanıcıların gördüğü doğrulanmış şirket bilgileri." },
     bildirimler: { eyebrow: "OLAY AKIŞI", title: "Bildirim merkezi", description: "Kritik operasyon olaylarının kişisel teslim tercihleri." },
+    menu: { eyebrow: "ÇALIŞMA ALANI", title: "Menü ve akış", description: "Kullanıcıların kullanacağı sayfaları ve uygulama akışını yönetin." },
+    webmail: { eyebrow: "GÜVENLİ GÖNDERİCİ", title: "Webmail bağlantısı", description: "CRM e-postalarını kendi kurumsal adresinizden gönderin." },
     "crm-alan": { eyebrow: "VERİ MODELİ", title: "CRM alan yöneticisi", description: "Kayıt formlarının alan yapısı ve seçim sözlükleri." },
+    "lead-atama": { eyebrow: "SATIŞ YÖNLENDİRME", title: "Fırsat atama motoru", description: "Yeni fırsatları bölüm ve ticari kriterlere göre sırayla yönlendirin." },
     "teknik-bilgi": { eyebrow: "ÜRÜN ŞEMASI", title: "Teknik bilgi şablonları", description: "Ürün ailelerine göre teknik bilgi kapsamı." },
   }[tab] ?? { eyebrow: "SİSTEM", title: "Ayarlar", description: "Çalışma alanı ayarlarını yönetin." };
 
@@ -177,11 +234,11 @@ export function SettingsPage() {
     "h-10 flex-none justify-start gap-2 rounded-lg px-3.5 py-2 text-muted-foreground data-[state=active]:text-foreground data-[state=active]:ring-1 data-[state=active]:ring-border/70 lg:w-full lg:flex-none";
 
   return (
-    <div className="mx-auto max-w-[1480px] space-y-5 pb-20">
+    <div className="crm-page mx-auto max-w-[1480px] pb-20">
       <section className="premium-blueprint precision-corners overflow-hidden rounded-2xl border border-primary/20 bg-[linear-gradient(135deg,var(--card),color-mix(in_srgb,var(--primary)_7%,var(--card)))] px-5 py-5 shadow-sm sm:px-6">
         <div className="relative flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <p className="font-mono text-[10px] font-semibold tracking-[0.2em] text-primary">{activeSection.eyebrow}</p>
+            <p className="ui-eyebrow text-primary">{activeSection.eyebrow}</p>
             <h2 className="mt-1 font-display text-2xl font-semibold tracking-tight sm:text-3xl">{activeSection.title}</h2>
             <p className="mt-1 max-w-2xl text-sm text-muted-foreground">{activeSection.description}</p>
           </div>
@@ -189,7 +246,7 @@ export function SettingsPage() {
             <span className="flex size-10 items-center justify-center rounded-lg bg-success/10 text-success"><ShieldCheck className="size-5" /></span>
             <div>
               <p className="text-xs font-medium">Yetki kapsamı</p>
-              <p className="text-[11px] text-muted-foreground">{canManageLookups ? "Sistem yöneticisi" : canEditTenant ? "Şirket yöneticisi" : "Kişisel tercihler"}</p>
+              <p className="text-xs text-muted-foreground">{canManageLookups ? "Sistem yöneticisi" : canEditTenant ? "Şirket yöneticisi" : "Kişisel tercihler"}</p>
             </div>
           </div>
         </div>
@@ -198,7 +255,7 @@ export function SettingsPage() {
       <Tabs value={tab} onValueChange={setTab} className="gap-5 lg:grid lg:grid-cols-[250px_minmax(0,1fr)] lg:items-start lg:gap-6">
         <aside className="rounded-xl border border-border/60 bg-card p-2 shadow-sm lg:sticky lg:top-4">
           <div className="hidden px-3 pb-2 pt-2 lg:block">
-            <p className="font-mono text-[9px] font-semibold tracking-[0.18em] text-muted-foreground">AYAR BÖLÜMLERİ</p>
+            <p className="ui-eyebrow text-muted-foreground">Ayar bölümleri</p>
             <p className="mt-1 text-xs text-muted-foreground">Bir bölüm seçerek yapılandırın.</p>
           </div>
           <TabsList className="flex h-auto w-full justify-start gap-1 overflow-x-auto border-0 bg-transparent p-0 lg:flex-col lg:overflow-visible">
@@ -211,9 +268,22 @@ export function SettingsPage() {
             <TabsTrigger value="bildirimler" className={tabTriggerClass}>
               <Bell className="size-4" /> Bildirimler
             </TabsTrigger>
+            {canEditTenant && (
+              <TabsTrigger value="menu" className={tabTriggerClass}>
+                <Eye className="size-4" /> Menü & Akış
+              </TabsTrigger>
+            )}
+            <TabsTrigger value="webmail" className={tabTriggerClass}>
+              <MailCheck className="size-4" /> Webmail
+            </TabsTrigger>
             {canManageLookups && (
               <TabsTrigger value="crm-alan" className={tabTriggerClass}>
                 <SlidersHorizontal className="size-4" /> CRM Alan Ayarları
+              </TabsTrigger>
+            )}
+            {canManageLeadAssignmentRules && (
+              <TabsTrigger value="lead-atama" className={tabTriggerClass}>
+                <GitBranch className="size-4" /> Fırsat Atama
               </TabsTrigger>
             )}
             {canManageLookups && (
@@ -275,7 +345,7 @@ export function SettingsPage() {
 
           {canReadTenant && !companyLoading && (
             <SettingsSection icon={<Globe />} tone="info" title="Canlı Kurumsal Önizleme" description="Kaydetmeden önce şirket kimliğinin çalışma alanında nasıl görüneceğini kontrol edin.">
-              <div className="premium-blueprint precision-corners overflow-hidden rounded-xl border border-primary/15 bg-[linear-gradient(135deg,#07113f,#101b55)] p-5 text-white">
+              <div className="premium-blueprint precision-corners overflow-hidden rounded-xl border border-primary/15 [background:var(--gradient-brand)] p-5 text-white">
                 <div className="relative flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
                   <div className="rounded-lg bg-white px-3 py-2 shadow-lg shadow-black/15">
                     <img src="/brand/haksan-logo.png" alt="Haksan Makina" className="h-8 w-auto max-w-[170px] object-contain" />
@@ -289,6 +359,10 @@ export function SettingsPage() {
               </div>
             </SettingsSection>
           )}
+
+          {/* Belge imzaları şirket kimliğinin bir parçası: teklif/proforma/
+              sözleşme çıktısının altına basılan ad, ünvan ve ıslak imza. */}
+          {canEditTenant && <SignatureSettingsCard />}
         </TabsContent>
 
         {/* Bildirimler */}
@@ -337,10 +411,93 @@ export function SettingsPage() {
           </SettingsSection>
         </TabsContent>
 
+        {canEditTenant && <TabsContent value="menu" className="space-y-4">
+          <InfoCallout>
+            Burada kapatılan sayfalar tüm kullanıcıların ana menüsünden, <span className="font-medium">Sabitlenenler</span>, <span className="font-medium">Son kullanılan</span>, <span className="font-medium">Hızlı Oluştur</span> ve uygulama içi yönlendirme akışlarından çıkarılır. Ayarlar sayfası her zaman açık kalır.
+          </InfoCallout>
+          <SettingsSection
+            icon={<Eye />}
+            tone="primary"
+            title="Çalışma alanları"
+            description="Şirket akışında kullanılmayan sayfaları kapatın. Ayarlar sayfası güvenli geri dönüş için her zaman açık kalır."
+          >
+            <div className="mb-4 flex flex-col gap-3 rounded-lg border border-border/60 bg-muted/20 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p className="text-sm font-medium">
+                  {NAVIGATION_GROUPS.reduce((total, group) => total + group.items.length, 0) - hiddenNavigationKeys.length} sayfa açık
+                </p>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  {hiddenNavigationKeys.length === 0 ? "Tüm çalışma alanları akışta." : `${hiddenNavigationKeys.length} çalışma alanı kapatıldı.`}
+                </p>
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="gap-1.5"
+                disabled={!canEditTenant || hiddenNavigationKeys.length === 0}
+                onClick={() => setHiddenNavigationKeys([])}
+              >
+                <Eye className="size-3.5" /> Tümünü göster
+              </Button>
+            </div>
+
+            <div className="grid gap-3 xl:grid-cols-2">
+              {NAVIGATION_GROUPS.map((group) => (
+                <section key={group.group} className="overflow-hidden rounded-lg border border-border/60 bg-card">
+                  <div className="flex items-center justify-between border-b border-border/60 bg-muted/25 px-3 py-2.5">
+                    <p className="text-xs font-semibold">{group.group}</p>
+                    <p className="text-[10px] text-muted-foreground">
+                      {group.items.filter((item) => !hiddenNavigationKeys.includes(item.key)).length}/{group.items.length} açık
+                    </p>
+                  </div>
+                  <div className="divide-y divide-border/50">
+                    {group.items.map((item) => {
+                      const visible = !hiddenNavigationKeys.includes(item.key);
+                      return (
+                        <button
+                          key={item.key}
+                          type="button"
+                          aria-pressed={visible}
+                          disabled={!canEditTenant}
+                          onClick={() => setHiddenNavigationKeys((keys) => visible
+                            ? [...keys, item.key]
+                            : keys.filter((key) => key !== item.key))}
+                          className="flex w-full items-center gap-3 px-3 py-2.5 text-left transition-colors hover:bg-muted/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary/35 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          <span className={`grid size-8 place-items-center rounded-md ${visible ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground"}`}>
+                            {visible ? <Eye className="size-4" /> : <EyeOff className="size-4" />}
+                          </span>
+                          <span className="min-w-0 flex-1 text-sm font-medium">{item.label}</span>
+                          <span className={`text-[11px] font-semibold ${visible ? "text-success" : "text-muted-foreground"}`}>
+                            {visible ? "Açık" : "Akış dışı"}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </section>
+              ))}
+            </div>
+            {!canEditTenant && <p className="mt-3 text-xs text-muted-foreground">Çalışma alanı akışını değiştirmek için şirket ayarlarını düzenleme yetkisi gerekir.</p>}
+          </SettingsSection>
+        </TabsContent>}
+
+        <TabsContent value="webmail" className="space-y-4">
+          <MailAccountSettings />
+        </TabsContent>
+
         {/* CRM Alan Ayarları (super_admin) */}
         {canManageLookups && (
           <TabsContent value="crm-alan" className="space-y-4">
+            <DepartmentSettingsCard />
             <LookupManagerTab />
+          </TabsContent>
+        )}
+
+        {canManageLeadAssignmentRules && (
+          <TabsContent value="lead-atama" className="space-y-4">
+            <LeadAssignmentRulesCard />
           </TabsContent>
         )}
 
@@ -360,12 +517,18 @@ export function SettingsPage() {
               <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-warning/10 text-warning"><AlertCircle className="size-4" /></span>
               <div>
                 <p className="text-sm font-medium">Kaydedilmemiş değişiklikler var</p>
-                <p className="text-xs text-muted-foreground">{tab === "sirket" ? "Kurumsal profil henüz tüm kullanıcılara yansıtılmadı." : "Bu cihazdaki tercihlerinizi kaydetmeyi unutmayın."}</p>
+                <p className="text-xs text-muted-foreground">
+                  {tab === "sirket"
+                    ? "Kurumsal profil henüz tüm kullanıcılara yansıtılmadı."
+                    : tab === "menu"
+                      ? "Menü seçimi henüz tüm kullanıcılara uygulanmadı."
+                      : "Bu cihazdaki tercihlerinizi kaydetmeyi unutmayın."}
+                </p>
               </div>
             </div>
             <div className="flex shrink-0 items-center justify-end gap-2">
-              <Button variant="outline" size="sm" onClick={resetPendingChanges} disabled={companySaving} className="gap-1.5"><RotateCcw className="size-3.5" /> Geri Al</Button>
-              <Button size="sm" onClick={savePendingChanges} disabled={companySaving} className="gap-1.5"><Save className="size-3.5" /> {companySaving ? "Kaydediliyor" : "Değişiklikleri Kaydet"}</Button>
+              <Button variant="outline" size="sm" onClick={resetPendingChanges} disabled={pendingSaveBusy} className="gap-1.5"><RotateCcw className="size-3.5" /> Geri Al</Button>
+              <Button size="sm" onClick={savePendingChanges} disabled={pendingSaveBusy} className="gap-1.5"><Save className="size-3.5" /> {pendingSaveBusy ? "Kaydediliyor" : "Değişiklikleri Kaydet"}</Button>
             </div>
           </div>
         </div>

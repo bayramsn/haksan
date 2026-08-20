@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   cargoLabelDoc,
+  commercialInvoiceDoc,
   contractDoc,
   deliveryReceiptDoc,
   dispatchNoteDoc,
@@ -23,6 +24,7 @@ describe("print templates", () => {
       adres: "Gecen köyü aşağı düz mevk.No:47/1 Bartın",
       tel: "0 378 227 46 96",
       faks: "0 378 227 81 05",
+      email: "firma@bartinotomotiv.test",
       vergiDairesi: "Bartın",
       vergiNo: "142 006 63 99",
       tarih: "25 Şubat 2026",
@@ -57,7 +59,9 @@ describe("print templates", () => {
     expect(document.body).toContain("BARTIN OTOMOTİV PAZARLAMA");
     expect(document.body).toContain("L.K. MACHINERY VM-2");
     expect(document.body).toContain("8457.1090.0011");
+    expect(document.body).toContain("firma@bartinotomotiv.test");
     expect(document.body).toContain("66.825,00 USD");
+    expect(document.body).toContain("K.D.V. (%20)");
     expect(document.body).toContain("Yalnız #Altmışaltıbinsekizyüzyirmibeş# Amerikan doları");
     expect(document.body).toContain("transform:scale(1.0000)");
     expect(document.body).not.toContain("DEVAM");
@@ -125,8 +129,8 @@ describe("print templates", () => {
     expect(pages(document.body)).toBe(1);
     expect(document.body).toContain("PROFORMA-KALEM-9");
     expect(document.body).toContain("PROFORMA-NOT-9");
-    expect(document.body).not.toContain("ÖZEL İSKONTO");
-    expect(document.body).not.toContain(">İskonto<");
+    expect(document.body).toContain("ÖZEL İSKONTO");
+    expect(document.body).toContain("-50,00 TRY");
     expect(document.body).toContain("1.020,00");
     expect(document.body).not.toContain("<script>");
     expect(document.body).toContain("&lt;script&gt;");
@@ -134,6 +138,36 @@ describe("print templates", () => {
     expect(document.body).not.toContain("class=\"pageno\"");
     const scale = Number(document.body.match(/transform:scale\(([\d.]+)\)/)?.[1]);
     expect(scale).toBeLessThan(1);
+  });
+
+  it.each([
+    ["proforma", proformaDoc],
+    ["commercial invoice", commercialInvoiceDoc],
+  ])("shows gross row amount and applies each discount once in %s totals", (_label, render) => {
+    const document = render({
+      firma: "İskontolu Belge Müşterisi",
+      tarih: "31 Temmuz 2026",
+      belgeNo: "CNC-PRF-2026/013",
+      items: [{
+        aciklama: "ECOCA SL-8 CNC Torna Tezgahı",
+        birim: "1 Adet",
+        birimFiyati: 59_400,
+        iskonto: 30_000,
+        tutar: 59_400,
+      }],
+      headerDiscount: 0,
+      kdvOran: 0,
+      kdvTutar: 0,
+      currency: "USD",
+      notlar: [],
+    }, assetBase);
+
+    expect(document.body).not.toContain("Ürüne özel iskonto");
+    expect(document.body).toContain("59.400,00 USD");
+    expect(document.body).toMatch(/<td class="r">59\.400,00 USD<\/td>/);
+    expect(document.body).toContain("-30.000,00 USD");
+    expect(document.body).toContain("29.400,00 USD");
+    expect(document.body.match(/30\.000,00 USD/g) ?? []).toHaveLength(1);
   });
 
   it("paginates offer specifications, equipment, items and conditions", () => {
@@ -166,6 +200,92 @@ describe("print templates", () => {
     expect(document.body).toContain("TEKLIF-KALEM-17");
     expect(document.body).toContain("ODEME-9");
     expect(document.body).toContain(`Sayfa <b>${totalPages}</b> / <b>${totalPages}</b>`);
+  });
+
+  it("keeps all offer technical specifications on one compact page without a continuation", () => {
+    const document = quoteDoc({
+      firma: "Tek Sayfa Teknik Müşterisi",
+      tarih: "13.08.2026",
+      belgeNo: "CNC-2026/902",
+      specs: Array.from({ length: 82 }, (_, index) => ({
+        key: `TEKNİK ALAN ${index + 1}`,
+        value: `${index + 1}`,
+      })),
+      items: [{ urun: "CNC Torna", birim: "1 Adet", fiyat: 100, tutar: 100 }],
+      kdvOran: 20,
+      kdvTutar: 20,
+      currency: "USD",
+      notes: { key: "entered", label: "Girilen şartlar", odeme: [], teslimat: [], garanti: [] },
+    }, assetBase);
+
+    expect(document.body.match(/<div class="q-h1">TEKNİK BİLGİLER<\/div>/g) ?? []).toHaveLength(1);
+    expect(document.body).not.toContain("TEKNİK BİLGİLER — DEVAM");
+    expect(document.body).toContain("q-spec-page-ultra");
+    expect(document.body).toContain("q-spec-page");
+    expect(document.body).toMatch(/--q-spec-scale:0\.[0-9]+/);
+    expect(document.body).toContain("TEKNİK ALAN 82");
+    expect(document.css).toContain("height: 296mm");
+    expect(document.css).toContain("zoom: var(--q-spec-scale, 1)");
+  });
+
+  it("omits unused dash-valued CRM specification rows from the offer PDF", () => {
+    const document = quoteDoc({
+      firma: "Teknik Alan Testi",
+      tarih: "13.08.2026",
+      belgeNo: "CNC-2026/901",
+      specs: [
+        { key: "Karşı Ayna Devri", value: "-", groupName: "Karşı Ayna" },
+        { key: "Canlı Takım Devri", value: "4500", unit: "dev/dk", groupName: "Canlı Takım" },
+      ],
+      items: [{ urun: "CNC Torna", birim: "1 Adet", fiyat: 100, tutar: 100 }],
+      kdvOran: 20,
+      kdvTutar: 20,
+      currency: "USD",
+      notes: { key: "entered", label: "Girilen şartlar", odeme: [], teslimat: [], garanti: [] },
+    }, assetBase);
+
+    expect(document.body).not.toContain("Karşı Ayna Devri");
+    expect(document.body).not.toContain("KARŞI AYNA");
+    expect(document.body).toContain("Canlı Takım Devri");
+    expect(document.body).toContain("4500 dev/dk");
+  });
+
+  it("keeps a long condition whole and continues the lettering across pages", () => {
+    // Bir madde cümle ortasından ikiye bölünürse ikinci parça, yarım bir
+    // cümleyle başlayan ayrı bir maddeymiş gibi basılıyordu.
+    const longClause =
+      "Tezgahın teslimi, akreditifin açılmasını takip eden 90 gün içinde gerçekleştirilecektir. " +
+      "Gecikme hâlinde taraflar yeni bir teslim takvimi üzerinde yazılı olarak mutabık kalır. " +
+      "Bu madde, mücbir sebep hâllerinde uygulanmaz.";
+    const document = quoteDoc({
+      firma: "Uzun Şart Müşterisi",
+      tarih: "10.08.2026",
+      belgeNo: "CNC-2026/900",
+      // Referans tek-sayfa düzeni yerine sayfalanan düzeni zorlar; şartlar
+      // ancak orada kendi sayfalarına taşar.
+      specs: Array.from({ length: 41 }, (_, index) => ({ key: `SPEC-${index + 1}`, value: `${index + 1}` })),
+      items: Array.from({ length: 17 }, (_, index) => ({ urun: `KALEM-${index + 1}`, birim: "Adet", fiyat: 100, tutar: 100 })),
+      kdvOran: 20,
+      kdvTutar: 20,
+      currency: "USD",
+      notes: {
+        key: "entered",
+        label: "Girilen şartlar",
+        odeme: [longClause, ...Array.from({ length: 11 }, (_, index) => `ODEME-${index + 1}`)],
+        teslimat: [],
+        garanti: [],
+      },
+    }, assetBase);
+
+    // Uzun madde tek parça kalır: cümlenin tamamı tek bir <li> içinde.
+    expect(document.body).toContain(`<li>${longClause}</li>`);
+    // Bölüm ikinci sayfaya taştıysa harfler `a.`dan değil, kaldığı yerden devam eder.
+    const starts = [...document.body.matchAll(/<ol class="alpha" start="(\d+)"/g)].map((m) => Number(m[1]));
+    expect(starts.length).toBeGreaterThan(1);
+    expect(starts[0]).toBe(1);
+    expect(starts[1]).toBeGreaterThan(1);
+    expect(document.body).toContain("ÖDEME ŞARTLARI (devam)");
+    expect(document.body).toContain("ODEME-11");
   });
 
   it("keeps the reference-shaped sales offer on four A4 pages", () => {
@@ -223,6 +343,101 @@ describe("print templates", () => {
     expect(document.body).toContain("Sayfa <b>4</b> / <b>4</b>");
   });
 
+  it("renders the reference HAXAN product logo instead of a bold text brand", () => {
+    const document = quoteDoc({
+      firma: "Logo Kontrol Müşterisi",
+      tarih: "30.07.2026",
+      belgeNo: "CNC-2026/005",
+      marka: "HAXAN",
+      model: "MMT-1170",
+      tip: "CNC Dik İşleme Merkezi",
+      items: [{ urun: "HAXAN MMT-1170 CNC Dik İşleme Merkezi", birim: "1 Adet", fiyat: 100_000, tutar: 100_000 }],
+      kdvOran: 0,
+      kdvTutar: 0,
+      currency: "USD",
+      notes: { key: "entered", label: "Girilen şartlar", odeme: [], teslimat: [], garanti: [] },
+    }, assetBase);
+
+    expect(document.body).toContain('class="q-brand-logo"');
+    expect(document.body).toContain(`${assetBase}/haxan-product-logo.webp`);
+    expect(document.body).not.toContain('<div class="q-brand">HAXAN</div>');
+    expect(document.body).toContain('<div class="q-model">MMT-1170</div>');
+  });
+
+  it("uses the configured brand logo in the offer and rejects unsafe logo URLs", () => {
+    const base = {
+      firma: "Marka Logolu Müşteri",
+      tarih: "30.07.2026",
+      belgeNo: "CNC-2026/005-B",
+      marka: "ECOCA",
+      model: "MT-208",
+      items: [{ urun: "ECOCA MT-208", birim: "1 Adet", fiyat: 100_000, tutar: 100_000 }],
+      kdvOran: 0,
+      kdvTutar: 0,
+      currency: "USD" as const,
+      notes: { key: "entered" as const, label: "Girilen şartlar", odeme: [], teslimat: [], garanti: [] },
+    };
+    const configured = quoteDoc({
+      ...base,
+      brandLogoUrl: "data:image/webp;base64,YnJhbmQtbG9nbw==",
+    }, assetBase);
+    const unsafe = quoteDoc({
+      ...base,
+      brandLogoUrl: "javascript:alert(1)",
+    }, assetBase);
+
+    expect(configured.body).toContain('src="data:image/webp;base64,YnJhbmQtbG9nbw=="');
+    expect(configured.body).not.toContain('<div class="q-brand">ECOCA</div>');
+    expect(unsafe.body).not.toContain("javascript:alert(1)");
+    expect(unsafe.body).toContain('<div class="q-brand">ECOCA</div>');
+  });
+
+  it("uses the selected company logo as the offer letterhead", () => {
+    const document = quoteDoc({
+      firma: "Örnek & Firma",
+      tarih: "30.07.2026",
+      belgeNo: "CNC-2026/006",
+      headerLogo: {
+        mode: "company",
+        imageUrl: "data:image/webp;base64,Y29tcGFueS1sb2dv",
+        alt: "Örnek & Firma logosu",
+      },
+      items: [{ urun: "MMT-1170", birim: "1 Adet", fiyat: 100_000, tutar: 100_000 }],
+      kdvOran: 0,
+      kdvTutar: 0,
+      currency: "USD",
+      notes: { key: "entered", label: "Girilen şartlar", odeme: [], teslimat: [], garanti: [] },
+    }, assetBase);
+
+    expect(document.body).toContain('class="q-company-letterhead"');
+    expect(document.body).toContain('src="data:image/webp;base64,Y29tcGFueS1sb2dv"');
+    expect(document.body).toContain('alt="Örnek &amp; Firma logosu"');
+    expect(document.body).not.toContain(`${assetBase}/haksan-letterhead.jpg`);
+  });
+
+  it("supports a logo-free offer and rejects unsafe company logo URLs", () => {
+    const base = {
+      firma: "Logo Güvenlik Müşterisi",
+      tarih: "30.07.2026",
+      belgeNo: "CNC-2026/007",
+      items: [{ urun: "MMT-1170", birim: "1 Adet", fiyat: 100_000, tutar: 100_000 }],
+      kdvOran: 0,
+      kdvTutar: 0,
+      currency: "USD" as const,
+      notes: { key: "entered" as const, label: "Girilen şartlar", odeme: [], teslimat: [], garanti: [] },
+    };
+    const withoutLogo = quoteDoc({ ...base, headerLogo: { mode: "none" } }, assetBase);
+    const unsafe = quoteDoc({
+      ...base,
+      headerLogo: { mode: "company", imageUrl: "javascript:alert(1)" },
+    }, assetBase);
+
+    expect(withoutLogo.body).toContain('class="q-empty-letterhead"');
+    expect(withoutLogo.body).not.toContain(`${assetBase}/haksan-letterhead.jpg`);
+    expect(unsafe.body).not.toContain("javascript:alert(1)");
+    expect(unsafe.body).toContain(`${assetBase}/haksan-letterhead.jpg`);
+  });
+
   it("always reserves the special-discount row in the offer price box", () => {
     const document = quoteDoc({
       firma: "İskontosuz Müşteri",
@@ -239,6 +454,35 @@ describe("print templates", () => {
     expect(document.body).toContain("ÖZEL İSKONTO");
     expect(document.body).toContain("0,00 USD");
     expect(document.body.indexOf("ÖZEL İSKONTO")).toBeLessThan(document.body.indexOf("GENEL TOPLAM"));
+  });
+
+  it("shows quantity times unit price in the offer row while keeping totals discounted", () => {
+    const document = quoteDoc({
+      firma: "İskontolu Teklif Müşterisi",
+      tarih: "31.07.2026",
+      belgeNo: "CNC-2026/013",
+      items: [{
+        urun: "ECOCA SL-8 CNC Torna Tezgahı",
+        birim: "1 Adet",
+        fiyat: 59_400,
+        indirim: 30_000,
+        brutTutar: 59_400,
+        tutar: 29_400,
+      }],
+      iskonto: 0,
+      kdvOran: 0,
+      kdvTutar: 0,
+      currency: "USD",
+      notes: { key: "entered", label: "Girilen şartlar", odeme: [], teslimat: [], garanti: [] },
+    }, assetBase);
+
+    expect(document.body).not.toContain("Ürüne özel iskonto");
+    expect(document.body).toContain("-30.000,00 USD");
+    expect(document.body).toContain("59.400,00 USD");
+    expect(document.body).toMatch(/<td class="r" style="width:33mm">59\.400,00 USD<\/td>/);
+    expect(document.body).toContain("29.400,00 USD");
+    expect(document.body.match(/30\.000,00 USD/g) ?? []).toHaveLength(1);
+    expect(document.body.indexOf("59.400,00 USD")).toBeLessThan(document.body.indexOf("GENEL TOPLAM"));
   });
 
   it("embeds a raster product photo and rejects executable image URLs", () => {
@@ -309,7 +553,7 @@ describe("print templates", () => {
     expect(document.body).toContain("X Ekseni");
     expect(document.body).toContain("Talaş konveyörü");
     expect(document.body).toContain("Takım ölçme");
-    expect(document.body).toContain("Ürüne özel iskonto: 10.000,00 USD");
+    expect(document.body).not.toContain("Ürüne özel iskonto");
     const firstPageStart = document.body.indexOf('<div class="page">');
     const secondPageStart = document.body.indexOf('<div class="page">', firstPageStart + 1);
     const customerMetaBlock = document.body.indexOf('class="q-top"');
@@ -415,6 +659,74 @@ describe("print templates", () => {
     expect(document.body).toContain(`Sayfa <b>${totalPages}</b> / <b>${totalPages}</b>`);
   });
 
+  it("prints the SL-8 shape: VAT included in the total and freight on the seller", () => {
+    const base = {
+      alici: { unvan: "NORM İNOX METAL ENDÜSTRİ LAZER SAN. İTH. İHR. LTD. ŞTİ." },
+      sozlesmeNo: "CNC-SOZ-2026/030",
+      sozlesmeTarihi: "2026-08-18",
+      model: "ECOCA SL-8 Cnc Torna Tezgahı",
+      adet: 1,
+      ozellikler: [{ key: "Maks. Tornalama Kapasitesi", value: "Ø 320 mm" }],
+      aksesuarlar: ["FANUC Oi-TF Plus Kontrol Ünitesi"],
+      fiyat: 50_000,
+      currency: "USD" as const,
+      kdvOran: 20,
+      // Vadeler CRM'de net tutulur; 3.4 maddesi bunları "bedelin tamamı" diye sunar.
+      odemePlani: [{ label: "Siparişte peşin", tutar: 8_333.33, yontem: "Nakit" }],
+      teslimYeri: "NORM İNOX METAL/Başakşehir tesisleri",
+    };
+
+    const sl8 = contractDoc({ ...base, kdvDahil: true, nakliyeSaticiya: true }, assetBase);
+    expect(sl8.body).toContain("K.D.V.</span> dahildir");
+    // KDV dahilse yazılan bedel brüttür; net 50.000 basılırsa sözleşme yanlış tutara imzalanır.
+    expect(sl8.body).toContain("60.000,00 USD");
+    expect(sl8.body).not.toContain("50.000,00 USD");
+    // 3.1 TOPLAM brütken 3.4 vadesi net kalırsa sözleşme kendi kendisiyle çelişir.
+    expect(sl8.body).toContain("10.000,00 USD");
+    expect(sl8.body).not.toContain("8.333,33 USD");
+    // Ödeme planının üçüncü sütunu tahsilat yöntemi (referans sözleşmelerdeki tablo).
+    expect(sl8.body).toContain('<td class="mtd">Nakit</td>');
+    expect(sl8.body).toContain("NORM İNOX METAL/Başakşehir tesisleri adresine teslim");
+    expect(sl8.body).toContain(`nakliye ve sigorta giderleri <span class="b">HAKSAN MAKİNA</span>'ya aittir`);
+
+    const defaults = contractDoc(base, assetBase);
+    expect(defaults.body).toContain("K.D.V.</span> dahil değildir");
+    expect(defaults.body).toContain("50.000,00 USD");
+    expect(defaults.body).not.toContain("60.000,00 USD");
+    expect(defaults.body).toContain("8.333,33 USD");
+    expect(defaults.body).toContain("adresinden teslim");
+  });
+
+  it("keeps VAT-grossed machine rows summing to the printed grand total", () => {
+    // Satırlar tek tek yuvarlanınca 3×39.333,33 = 117.999,99 çıkıyor ama TOPLAM
+    // 118.000,00; farkı son satır yutmazsa fiyat tablosu kendi içinde tutmaz.
+    const document = contractDoc({
+      alici: { unvan: "Çok Tezgahlı Alıcı" },
+      sozlesmeNo: "CNC-SOZ-2026/031",
+      sozlesmeTarihi: "2026-08-18",
+      model: "ÜÇLÜ SET",
+      adet: 3,
+      ozellikler: [],
+      aksesuarlar: [],
+      machines: [1, 2, 3].map((index) => ({
+        model: `TEZGAH-${index}`,
+        adet: 1,
+        ozellikler: [],
+        aksesuarlar: [],
+        fiyat: 100_000 / 3,
+      })),
+      fiyat: 100_000,
+      currency: "USD" as const,
+      kdvOran: 18,
+      kdvDahil: true,
+      odemePlani: [],
+    }, assetBase);
+
+    const amounts = [...document.body.matchAll(/39\.333,3(\d) USD/g)].map((match) => match[1]);
+    expect(amounts).toEqual(["3", "3", "4"]);
+    expect(document.body).toContain("118.000,00 USD");
+  });
+
   it("keeps the reference contract structure on three pages", () => {
     const document = contractDoc({
       alici: {
@@ -424,6 +736,7 @@ describe("print templates", () => {
         vergiDairesi: "Bayrampaşa",
         vergiNo: "9991413459",
         tel: "0 (532) 581 75 92",
+        eposta: "firma@zorkaya.test",
       },
       sozlesmeNo: "CNC-SOZ-2024/001",
       sozlesmeTarihi: "2024-01-19",
@@ -455,6 +768,7 @@ describe("print templates", () => {
     expect(document.body).toContain("2.6.");
     expect(document.body).toContain("3.9.");
     expect(document.body).toContain("TARAFLAR");
+    expect(document.body).toContain("firma@zorkaya.test");
     expect(document.body).not.toContain("SÖZLEŞME TEKNİK EKİ");
     expect(document.body).not.toContain("Sözleşme No:");
   });
@@ -602,5 +916,190 @@ describe("print templates", () => {
     expect(delivery.body).toContain("TESLIMAT-NOT-SON");
     expect(dispatch.body).toContain(`Sayfa <b>${pages(dispatch.body)}</b> / <b>${pages(dispatch.body)}</b>`);
     expect(delivery.body).toContain(`Sayfa <b>${pages(delivery.body)}</b> / <b>${pages(delivery.body)}</b>`);
+  });
+
+  // ── Sözleşme sayfa bölünmesi ──────────────────────────────────────────────
+
+  const contractBreakBase = {
+    alici: { unvan: "Bölünme Müşterisi" },
+    sozlesmeNo: "CNC-SOZ-2026/020",
+    sozlesmeTarihi: "2026-07-14",
+    model: "MODEL-X",
+    adet: 1,
+    ozellikler: [],
+    aksesuarlar: [],
+    fiyat: 100_000,
+    currency: "USD" as const,
+    kdvOran: 20,
+    odemePlani: [],
+  };
+
+  it("keeps normal-length contract clauses from splitting across a page break", () => {
+    const document = contractDoc(contractBreakBase, assetBase);
+
+    // Şablonun sabit maddeleri (2.2., 2.3., 3.6. …) kısa; hepsi bütün kalmalı.
+    const clauses = document.body.match(/<div class="ct-clause[^"]*"/g) ?? [];
+    expect(clauses.length).toBeGreaterThan(5);
+    expect(clauses.every((clause) => clause.includes("avoid-break"))).toBe(true);
+    expect(document.css).toContain("orphans: 2; widows: 2");
+  });
+
+  it("lets a clause longer than a page split instead of clipping it", () => {
+    const tail = "COK-UZUN-MADDE-SON";
+    const document = contractDoc({
+      ...contractBreakBase,
+      // ~48 satırlık tek madde: bir sayfaya sığmaz. Bölünmez ilan edilirse
+      // taşar/kırpılır; bu yüzden koruma sınıfı almamalı.
+      teslimKosullari: `${"Teslimat koşulu ayrıntısı ".repeat(180)}${tail}`,
+    }, assetBase);
+
+    const longClause = (document.body.match(/<div class="ct-clause[^"]*"><span class="no">2\.1\.<\/span>/) ?? [])[0];
+    expect(longClause).toBeDefined();
+    expect(longClause).not.toContain("avoid-break");
+    expect(document.body).toContain(tail);
+  });
+
+  it("does not strand a section heading at the bottom of a legal page", () => {
+    const document = contractDoc({
+      ...contractBreakBase,
+      // "3. Fiyat ve Ödeme Şartları" başlığını sayfa sınırına itecek uzunluk.
+      teslimKosullari: `${"Teslimat koşulu ".repeat(120)}TESLIMAT-SON`,
+      garantiKosullari: `${"Garanti koşulu ".repeat(60)}GARANTI-SON`,
+    }, assetBase);
+
+    const legalPages = document.body.split('<div class="page ct">').slice(1);
+    for (const page of legalPages) {
+      const blocks = page.match(/<div class="ct-(?:h2|clause)[^"]*"/g) ?? [];
+      if (blocks.length === 0) continue;
+      // Bir sayfanın son bloğu başlık olmamalı: metni bir sonraki sayfada kalır.
+      expect(blocks[blocks.length - 1]).not.toContain("ct-h2");
+    }
+  });
+
+  it("keeps headings and machine lines with the content that follows them", () => {
+    const document = contractDoc(contractBreakBase, assetBase);
+    const headingRule = (document.css.match(/\.ct-h2[^{]*\{[^}]*\}/g) ?? [])
+      .find((rule) => rule.includes("break-after")) ?? "";
+
+    expect(headingRule).toContain(".ct-section-title");
+    expect(headingRule).toContain(".ct-tech-heading");
+    expect(headingRule).toContain(".ct-machine");
+    expect(headingRule).toContain("break-after: avoid");
+    expect(headingRule).toContain("page-break-after: avoid");
+  });
+});
+
+describe("belge imzası", () => {
+  const signature = { ad: "Ayşe Yılmaz", unvan: "Satış Müdürü", gorselUrl: "/signatures/media/sig-1" };
+  const quoteBase = {
+    firma: "İmza Testi",
+    tarih: "01.08.2026",
+    specs: [],
+    standartDonanim: [],
+    opsiyonelDonanim: [],
+    items: [{ urun: "TEST", birim: "Adet", fiyat: 100, tutar: 100 }],
+    iskonto: 0,
+    kdvOran: 20,
+    kdvTutar: 20,
+    currency: "TRY" as const,
+    notes: { key: "entered", label: "Girilen şartlar", odeme: [], teslimat: [], garanti: [] },
+  };
+
+  it("seçilen imzayı teklifte görsel ve adla basar", () => {
+    const document = quoteDoc({ ...quoteBase, belgeNo: "CNC-2026/900", imza: signature }, assetBase);
+    expect(document.body).toContain('src="/signatures/media/sig-1"');
+    expect(document.body).toContain("Ayşe Yılmaz");
+    expect(document.body).toContain("Satış Müdürü");
+  });
+
+  it("koda gömülü tek kişilik imza kontrolünü geri getirmez", () => {
+    // Eskiden imza yalnız `projeIlgilisi` normalize edilip "raifşentürk"
+    // içeriyorsa basılıyordu: başka hiç kimse için çalışmıyor, yeni imza
+    // eklemek kod değişikliği + deploy gerektiriyordu.
+    const document = quoteDoc(
+      { ...quoteBase, belgeNo: "CNC-2026/901", projeIlgilisi: "Raif Şentürk" },
+      assetBase,
+    );
+    expect(document.body).not.toContain("raif-signature.jpg");
+    // İmza seçilmemişse satır proje ilgilisine düşer, görsel çıkmaz.
+    expect(document.body).toContain("Raif Şentürk");
+  });
+
+  it("proformada da aynı imzayı görselle basar", () => {
+    const proforma = proformaDoc(
+      {
+        firma: "İmza Testi",
+        tarih: "01.08.2026",
+        belgeNo: "PRF-900",
+        items: [{ aciklama: "TEST", birim: "1 Adet", birimFiyati: 100, tutar: 100 }],
+        kdvOran: 20,
+        kdvTutar: 20,
+        currency: "USD" as const,
+        notlar: [],
+        imza: signature,
+      },
+      assetBase,
+    );
+    expect(proforma.body).toContain('class="pf-signature"');
+    expect(proforma.body).toContain("Ayşe Yılmaz");
+    expect(proforma.css).toContain(".pf-signature");
+  });
+
+  const serviceQuoteBase = {
+    firma: "İmza Testi",
+    tarih: "01.08.2026",
+    belgeNo: "SRV-2026/900",
+    gecerlilik: "5 İş Günü",
+    teklifiYazan: "Raif Şentürk",
+    teklifiYazanUnvan: "Koordinatör",
+    teklifiYazanEmail: "servis@haksancnc.com.tr",
+    konu: "ATC arızası",
+    items: [{ urun: "ATC Tool Gripper", miktar: 1, birim: "Ad.", fiyat: 150, tutar: 150 }],
+    kdvOran: 20,
+    kdvTutar: 30,
+    currency: "USD" as const,
+    notlar: [],
+  };
+
+  it("servis teklifinde seçilen imzayı basar", () => {
+    const document = serviceQuoteDoc({ ...serviceQuoteBase, imza: signature }, assetBase);
+    expect(document.body).toContain('src="/signatures/media/sig-1"');
+    expect(document.body).toContain("Ayşe Yılmaz");
+    expect(document.body).toContain("Satış Müdürü");
+  });
+
+  it("servis teklifinde koda gömülü imza kontrolüne geri dönmez", () => {
+    // Bu şablon en son geçirilendi: `teklifiYazan === "raif şentürk"` kontrolü
+    // ve sabit raif-signature.jpg burada duruyordu.
+    const document = serviceQuoteDoc(serviceQuoteBase, assetBase);
+    expect(document.body).not.toContain("raif-signature.jpg");
+    expect(document.body).toContain("Raif Şentürk");
+    expect(document.body).toContain("Koordinatör");
+  });
+
+  it("sözleşmede imza satırını hazırlayan yerine imzaya çevirir", () => {
+    const withSignature = contractDoc(
+      {
+        alici: { unvan: "İmza Testi A.Ş." },
+        sozlesmeNo: "UNI-SOZ-2026/900",
+        sozlesmeTarihi: "2026-08-01",
+        model: "MODEL-X",
+        adet: 1,
+        ozellikler: [],
+        aksesuarlar: [],
+        fiyat: 100_000,
+        currency: "EUR" as const,
+        kdvOran: 20,
+        odemePlani: [],
+        hazirlayan: "Hazırlayan Kişi",
+        imza: signature,
+      },
+      assetBase,
+    );
+    expect(withSignature.body).toContain('class="ct-signature"');
+    expect(withSignature.body).toContain("Ayşe Yılmaz");
+    // İmza seçildiğinde satır "Hazırlayan" değil "İmza" olarak etiketlenir.
+    expect(withSignature.body).toContain("İmza:");
+    expect(withSignature.body).not.toContain("Hazırlayan Kişi");
   });
 });

@@ -1,16 +1,20 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import supertest from 'supertest';
 import type { NestFastifyApplication } from '@nestjs/platform-fastify';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { createTestApp } from './setup';
 import type { DbClient } from '../src/db/client';
-import { opportunities, opportunityApprovals } from '../src/db/schema/crm';
-import { opportunityStatuses } from '../src/db/schema/lookup';
+import { leadContactEvents, opportunities, opportunityApprovals, salesActivities } from '../src/db/schema/crm';
+import { opportunityStatuses, pipelineStages } from '../src/db/schema/lookup';
 import { DB } from '../src/shared/database/database.module';
 
 let app: NestFastifyApplication;
 let db: DbClient;
 let token = '';
+let userId = '';
+let salesToken = '';
+let salesUserId = '';
+let adminToken = '';
 let readonlyToken = '';
 let companyId = '';
 let opportunityId = '';
@@ -24,14 +28,29 @@ beforeAll(async () => {
     .post('/api/v1/auth/login')
     .send({ email: 'superadmin@haksan.local', password: 'superadmin12345' });
   token = login.body.accessToken;
+  userId = login.body.user.id;
+  const adminLogin = await supertest(server)
+    .post('/api/v1/auth/login')
+    .send({ email: 'admin@haksan.local', password: 'admin12345' });
+  adminToken = adminLogin.body.accessToken;
+  const salesLogin = await supertest(server)
+    .post('/api/v1/auth/login')
+    .send({ email: 'sales@haksan.local', password: 'sales12345' });
+  salesToken = salesLogin.body.accessToken;
+  salesUserId = salesLogin.body.user.id;
   const readonlyLogin = await supertest(server)
     .post('/api/v1/auth/login')
     .send({ email: 'readonly@haksan.local', password: 'readonly12345' });
   readonlyToken = readonlyLogin.body.accessToken;
 
+  // Satış rolünün görebildiği ve adresi özellikle eksik olan sabit demo
+  // firmasını seç. Sırasız data[0] saf tedarikçi olabildiği için test aksi
+  // halde owner yetkisine ulaşmadan görünürlük filtresinde 404 alıyordu.
   const companies = await supertest(server)
-    .get('/api/v1/companies?pageSize=10')
-    .set('Authorization', `Bearer ${token}`);
+    .get('/api/v1/companies?search=5550001111&pageSize=1')
+    .set('Authorization', `Bearer ${salesToken}`);
+  expect(companies.status, JSON.stringify(companies.body)).toBe(200);
+  expect(companies.body.data.length).toBeGreaterThan(0);
   companyId = companies.body.data[0].id;
 });
 
@@ -40,47 +59,335 @@ afterAll(async () => {
 });
 
 describe('Opportunity qualification pipeline', () => {
-  it('creates a Lead and exposes it through the lead lifecycle filter', async () => {
+  it('creates a Fırsat in the lead step and lets it advance to C', async () => {
     const server = app.getHttpServer();
     const created = await supertest(server)
       .post('/api/v1/opportunities')
       .set('Authorization', `Bearer ${token}`)
       .send({
         companyId,
+        ownerUserId: userId,
         title: `Qualification test ${suffix}`,
         currencyCode: 'EUR',
       });
 
     expect(created.status, JSON.stringify(created.body)).toBe(201);
+    // Lead ayrı bir havuz değil, fırsat akışının ilk adımı.
     expect(created.body.qualificationStage).toBe('lead');
+    expect(created.body.stage.code).toBe('lead');
+    expect(created.body.leadFollowUpStatus).toBe('new');
+    expect(created.body.nextAction).toBeNull();
     expect(created.body.qualificationReadiness).toMatchObject({
       stage: 'lead',
       nextStage: 'c',
-      ready: true,
     });
     opportunityId = created.body.id;
 
+    const advanced = await supertest(server)
+      .patch(`/api/v1/opportunities/${opportunityId}/qualification-stage`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ toStage: 'c' });
+    expect(advanced.status, JSON.stringify(advanced.body)).toBe(200);
+    expect(advanced.body.qualificationStage).toBe('c');
+    expect(advanced.body.stage.code).toBe('sales');
+
     const leads = await supertest(server)
-      .get('/api/v1/opportunities?lifecycle=lead&pageSize=100')
+      .get('/api/v1/opportunities?lifecycle=opportunity&pageSize=100')
       .set('Authorization', `Bearer ${token}`);
     expect(leads.status).toBe(200);
     expect(leads.body.data.some((row: { id: string }) => row.id === opportunityId)).toBe(true);
   });
 
-  it('converts a Lead to C and removes it from the Leadler pool', async () => {
+  it('stores the Lead follow-up status and shared next action safely', async () => {
     const server = app.getHttpServer();
-    const converted = await supertest(server)
-      .post(`/api/v1/opportunities/${opportunityId}/convert`)
+    const invalid = await supertest(server)
+      .patch(`/api/v1/opportunities/${opportunityId}`)
       .set('Authorization', `Bearer ${token}`)
-      .send({ note: 'Test dönüşümü' });
+      .send({ leadFollowUpStatus: 'not-a-status' });
+    expect(invalid.status).toBe(422);
 
-    expect(converted.status, JSON.stringify(converted.body)).toBe(201);
-    expect(converted.body.qualificationStage).toBe('c');
-    expect(converted.body.qualificationHistory[0]).toMatchObject({
-      fromStage: 'lead',
-      toStage: 'c',
+    const nextActionAt = '2030-01-15T09:30:00.000Z';
+    const updated = await supertest(server)
+      .patch(`/api/v1/opportunities/${opportunityId}`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        leadFollowUpStatus: 'attempting',
+        nextAction: 'Teknik ihtiyaç listesini teyit etmek için satın alma müdürünü ara',
+        nextActionAt,
+      });
+
+    expect(updated.status, JSON.stringify(updated.body)).toBe(200);
+    expect(updated.body).toMatchObject({
+      leadFollowUpStatus: 'attempting',
+      nextAction: 'Teknik ihtiyaç listesini teyit etmek için satın alma müdürünü ara',
+      nextActionAt,
     });
 
+    const dateWithoutAction = await supertest(server)
+      .patch(`/api/v1/opportunities/${opportunityId}`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ nextAction: null, nextActionAt });
+    expect(dateWithoutAction.status).toBe(422);
+
+    // Eleme nedeni zorunludur: nedensiz eleme reddedilir.
+    const reasonless = await supertest(server)
+      .patch(`/api/v1/opportunities/${opportunityId}`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ leadFollowUpStatus: 'disqualified' });
+    expect(reasonless.status).toBe(422);
+
+    const disqualified = await supertest(server)
+      .patch(`/api/v1/opportunities/${opportunityId}`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ leadFollowUpStatus: 'disqualified', disqualifyReasonCode: 'lead_no_budget' });
+    expect(disqualified.status, JSON.stringify(disqualified.body)).toBe(200);
+    const blockedConversion = await supertest(server)
+      .post(`/api/v1/opportunities/${opportunityId}/convert`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ note: 'Uygun değilken çevrilmemeli' });
+    expect(blockedConversion.status).toBe(422);
+
+    const restored = await supertest(server)
+      .patch(`/api/v1/opportunities/${opportunityId}`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ leadFollowUpStatus: 'attempting' });
+    expect(restored.status).toBe(200);
+    // Geri açılan lead'de eleme nedeni temizlenir.
+    const restoredRow = await db.query.opportunities.findFirst({ where: eq(opportunities.id, opportunityId) });
+    expect(restoredRow?.disqualifyReasonId).toBeNull();
+  });
+
+  it('lets sales reassign a Lead while a non-sales admin cannot', async () => {
+    const server = app.getHttpServer();
+    const reassigned = await supertest(server)
+      .patch(`/api/v1/opportunities/${opportunityId}`)
+      .set('Authorization', `Bearer ${salesToken}`)
+      .send({ ownerUserId: salesUserId });
+    expect(reassigned.status, JSON.stringify(reassigned.body)).toBe(200);
+    expect(reassigned.body.ownerUserId).toBe(salesUserId);
+
+    const forbidden = await supertest(server)
+      .patch(`/api/v1/opportunities/${opportunityId}`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ ownerUserId: userId });
+    expect(forbidden.status).toBe(403);
+  });
+
+  it('does not let the operation endpoint bypass qualification requirements', async () => {
+    const server = app.getHttpServer();
+    const created = await supertest(server)
+      .post('/api/v1/opportunities')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        companyId,
+        ownerUserId: userId,
+        title: `Hizalama test ${suffix}`,
+        currencyCode: 'EUR',
+        nextAction: 'İlk keşif görüşmesini planla',
+        nextActionAt: '2030-01-16T09:30:00.000Z',
+      });
+    expect(created.status, JSON.stringify(created.body)).toBe(201);
+    const alignId = created.body.id;
+    expect(created.body.stage.code).toBe('lead');
+    expect(created.body.qualificationStage).toBe('lead');
+
+    const toC = await supertest(server)
+      .patch(`/api/v1/opportunities/${alignId}/qualification-stage`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ toStage: 'c' });
+    expect(toC.status, JSON.stringify(toC.body)).toBe(200);
+    expect(toC.body.stage.code).toBe('sales');
+
+    // C gereklilikleri tamamlanmadan operasyon endpoint'i üzerinden B'ye
+    // geçilemez. Bu, UI dışında doğrudan API çağrısındaki atlamayı da kapatır.
+    const toCall = await supertest(server)
+      .patch(`/api/v1/opportunities/${alignId}/stage`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ toStage: 'call' });
+    expect(toCall.status, JSON.stringify(toCall.body)).toBe(422);
+    expect(toCall.body.error?.details?.blockerLabels).toEqual(
+      expect.arrayContaining(['Kontak bağlı', 'İl ve ilçe girildi'])
+    );
+    expect(toCall.body.error?.details?.blockers?.[0]).toMatchObject({
+      complete: false,
+      actionKey: expect.any(String),
+    });
+
+    const unchanged = await supertest(server)
+      .get(`/api/v1/opportunities/${alignId}`)
+      .set('Authorization', `Bearer ${token}`);
+    expect(unchanged.body.stage.code).toBe('sales');
+    expect(unchanged.body.qualificationStage).toBe('c');
+  });
+
+  it('tracks lead SLA counters and exposes process health', async () => {
+    const server = app.getHttpServer();
+    const created = await supertest(server)
+      .post('/api/v1/opportunities')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        companyId,
+        ownerUserId: userId,
+        title: `SLA test ${suffix}`,
+        currencyCode: 'EUR',
+        nextAction: 'Takip görüşmesi',
+        nextActionAt: '2030-01-17T09:30:00.000Z',
+      });
+    expect(created.status, JSON.stringify(created.body)).toBe(201);
+    const slaId = created.body.id;
+
+    // Yeni lead: sayaç sıfır, SLA saati işlemeye başlamış ve girilen takip
+    // aksiyonu sağlık özetinde eksik sayılmıyor olmalı.
+    expect(created.body.qualificationReadiness.health).toMatchObject({
+      leadStatus: 'new',
+      leadSlaHours: 4,
+      leadSlaBreached: false,
+      contactAttemptCount: 0,
+      attemptLimitReached: false,
+      actionMissing: false,
+      rotting: false,
+    });
+
+    // Her "deneniyor" seçimi bir temas denemesi sayılır.
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      const attempting = await supertest(server)
+        .patch(`/api/v1/opportunities/${slaId}`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({ leadFollowUpStatus: 'attempting' });
+      expect(attempting.status, JSON.stringify(attempting.body)).toBe(200);
+      expect(attempting.body.qualificationReadiness.health.contactAttemptCount).toBe(attempt);
+
+      if (attempt < 3) {
+        // Aynı duruma tekrar geçebilmek için araya farklı bir durum konur.
+        const waiting = await supertest(server)
+          .patch(`/api/v1/opportunities/${slaId}`)
+          .set('Authorization', `Bearer ${token}`)
+          .send({ leadFollowUpStatus: 'waiting' });
+        expect(waiting.status).toBe(200);
+      }
+    }
+    const exhausted = await supertest(server)
+      .get(`/api/v1/opportunities/${slaId}`)
+      .set('Authorization', `Bearer ${token}`);
+    expect(exhausted.body.qualificationReadiness.health.attemptLimitReached).toBe(true);
+
+    // İlk temas anı bir kez yazılır ve sonraki geçişlerde değişmez.
+    const contacted = await supertest(server)
+      .patch(`/api/v1/opportunities/${slaId}`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ leadFollowUpStatus: 'contacted' });
+    expect(contacted.status).toBe(200);
+    const firstContactAt = contacted.body.qualificationReadiness.health.firstContactAt;
+    expect(firstContactAt).toBeTruthy();
+
+    const reContacted = await supertest(server)
+      .patch(`/api/v1/opportunities/${slaId}`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ leadFollowUpStatus: 'waiting' });
+    expect(reContacted.status).toBe(200);
+    expect(reContacted.body.qualificationReadiness.health.firstContactAt).toBe(firstContactAt);
+
+    // İlk C alanından çıkmış kartta ilk temas takip durumu dondurulur.
+    // Bu senaryo temas sağlık sayacını izole ettiği için C alanı blokajlarını
+    // ayrıca kurmak yerine, bir sonraki satış alanını doğrudan hazırlarız.
+    const callStage = await db.query.pipelineStages.findFirst({ where: eq(pipelineStages.code, 'call') });
+    expect(callStage).toBeTruthy();
+    await db
+      .update(opportunities)
+      .set({ qualificationStage: 'b', currentStageId: callStage!.id })
+      .where(eq(opportunities.id, slaId));
+    const frozen = await supertest(server)
+      .patch(`/api/v1/opportunities/${slaId}`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ leadFollowUpStatus: 'new' });
+    expect(frozen.status).toBe(422);
+  });
+
+  it('records a contact result atomically and replays an idempotent request without duplicates', async () => {
+    const server = app.getHttpServer();
+    const created = await supertest(server)
+      .post('/api/v1/opportunities')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        companyId,
+        ownerUserId: userId,
+        title: `Temas testi ${suffix}`,
+        currencyCode: 'EUR',
+        nextAction: 'İlk teknik keşif',
+        nextActionAt: '2030-01-18T09:30:00.000Z',
+      });
+    expect(created.status, JSON.stringify(created.body)).toBe(201);
+    const idempotencyKey = crypto.randomUUID();
+    const body = {
+      idempotencyKey,
+      channel: 'phone',
+      outcome: 'meeting_booked',
+      note: 'Karar vericiyle showroom toplantısı planlandı',
+      nextAction: 'Showroom takvimini teyit et',
+      nextActionAt: '2030-01-19T09:30:00.000Z',
+    };
+
+    const first = await supertest(server)
+      .post(`/api/v1/opportunities/${created.body.id}/contact-events`)
+      .set('Authorization', `Bearer ${token}`)
+      .send(body);
+    expect(first.status, JSON.stringify(first.body)).toBe(201);
+    expect(first.body).toMatchObject({
+      leadFollowUpStatus: 'contacted',
+      contactAttemptCount: 1,
+      nextAction: body.nextAction,
+    });
+    expect(first.body.firstContactAt).toBeTruthy();
+
+    const replay = await supertest(server)
+      .post(`/api/v1/opportunities/${created.body.id}/contact-events`)
+      .set('Authorization', `Bearer ${token}`)
+      .send(body);
+    expect(replay.status, JSON.stringify(replay.body)).toBe(201);
+    expect(replay.body.contactAttemptCount).toBe(1);
+
+    const eventRows = await db
+      .select({ id: leadContactEvents.id, activityId: leadContactEvents.activityId })
+      .from(leadContactEvents)
+      .where(
+        and(
+          eq(leadContactEvents.opportunityId, created.body.id),
+          eq(leadContactEvents.idempotencyKey, idempotencyKey)
+        )
+      );
+    expect(eventRows).toHaveLength(1);
+    const activityRows = await db
+      .select({ id: salesActivities.id })
+      .from(salesActivities)
+      .where(eq(salesActivities.id, eventRows[0].activityId));
+    expect(activityRows).toHaveLength(1);
+
+    const forbidden = await supertest(server)
+      .post(`/api/v1/opportunities/${created.body.id}/contact-events`)
+      .set('Authorization', `Bearer ${readonlyToken}`)
+      .send({ ...body, idempotencyKey: crypto.randomUUID() });
+    expect(forbidden.status).toBe(403);
+  });
+
+  it('opens an incomplete record in the lead step', async () => {
+    const server = app.getHttpServer();
+    const created = await supertest(server)
+      .post('/api/v1/opportunities')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        leadContactName: `Eksik lead ${suffix}`,
+        title: `Doğrudan dönüşüm ${suffix}`,
+        currencyCode: 'EUR',
+      });
+    expect(created.status).toBe(201);
+
+    expect(created.body.qualificationStage).toBe('lead');
+    expect(created.body.stage.code).toBe('lead');
+    expect(created.body.qualificationHistory[0]).toMatchObject({ fromStage: null, toStage: 'lead' });
+  });
+
+  it('separates the lead step from advanced opportunities in the lifecycle filter', async () => {
+    const server = app.getHttpServer();
     const leads = await supertest(server)
       .get(`/api/v1/opportunities?lifecycle=lead&search=${encodeURIComponent(`Qualification test ${suffix}`)}`)
       .set('Authorization', `Bearer ${token}`);
@@ -94,14 +401,27 @@ describe('Opportunity qualification pipeline', () => {
     expect(opportunities.body.data.some((row: { id: string }) => row.id === opportunityId)).toBe(true);
   });
 
-  it('enforces ordered transitions and returns field-level blockers', async () => {
+  it('returns every intermediate blocker for a distant direct target', async () => {
     const server = app.getHttpServer();
     const skipped = await supertest(server)
       .patch(`/api/v1/opportunities/${opportunityId}/qualification-stage`)
       .set('Authorization', `Bearer ${token}`)
       .send({ toStage: 'a' });
     expect(skipped.status).toBe(422);
-    expect(skipped.body.error?.message).toContain('sırayla');
+    expect(skipped.body.error?.message).toContain('eksik');
+    expect(skipped.body.error?.details?.blockerLabels).toEqual(
+      expect.arrayContaining([
+        'Kontak bağlı',
+        'Arama kaydı oluşturuldu',
+        'Ziyaret durumu',
+        'Teklif oluşturuldu',
+      ])
+    );
+    expect(skipped.body.error?.details?.blockers).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ key: 'quote', actionKey: 'create_quote', qualificationStage: 'b' }),
+      ])
+    );
 
     const blocked = await supertest(server)
       .patch(`/api/v1/opportunities/${opportunityId}/qualification-stage`)
@@ -109,7 +429,110 @@ describe('Opportunity qualification pipeline', () => {
       .send({ toStage: 'b' });
     expect(blocked.status).toBe(422);
     expect(blocked.body.error?.message).toContain('eksik');
-    expect(blocked.body.error?.details?.blockers).toEqual(expect.arrayContaining(['Kontak bağlı']));
+    expect(blocked.body.error?.details?.blockerLabels).toEqual(expect.arrayContaining(['Kontak bağlı']));
+  });
+
+  it('shows quote creation as a B-process requirement', async () => {
+    const server = app.getHttpServer();
+    const callStage = await db.query.pipelineStages.findFirst({ where: eq(pipelineStages.code, 'call') });
+    expect(callStage).toBeTruthy();
+    await db
+      .update(opportunities)
+      .set({ qualificationStage: 'b', currentStageId: callStage!.id })
+      .where(eq(opportunities.id, opportunityId));
+
+    const detail = await supertest(server)
+      .get(`/api/v1/opportunities/${opportunityId}`)
+      .set('Authorization', `Bearer ${token}`);
+
+    expect(detail.status, JSON.stringify(detail.body)).toBe(200);
+    expect(detail.body.qualificationReadiness).toMatchObject({ stage: 'b', ready: false });
+    expect(detail.body.qualificationReadiness.checks).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ key: 'quote', label: 'Teklif oluşturuldu', complete: false }),
+      ])
+    );
+    expect(detail.body.processReadiness.checks).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ key: 'quote', actionKey: 'create_quote', qualificationStage: 'b' }),
+      ])
+    );
+  });
+
+  it('does not require a commercial invoice to enter A+ but requires it at WIN', async () => {
+    const contractStage = await db.query.pipelineStages.findFirst({ where: eq(pipelineStages.code, 'contract') });
+    expect(contractStage).toBeTruthy();
+    await db
+      .update(opportunities)
+      .set({ qualificationStage: 'a', currentStageId: contractStage!.id })
+      .where(eq(opportunities.id, opportunityId));
+
+    const detail = await supertest(app.getHttpServer())
+      .get(`/api/v1/opportunities/${opportunityId}`)
+      .set('Authorization', `Bearer ${token}`);
+    expect(detail.status, JSON.stringify(detail.body)).toBe(200);
+
+    const aPlusTarget = detail.body.processReadiness.targets.find(
+      (target: { axis: string; code: string }) => target.axis === 'qualification' && target.code === 'a_plus',
+    );
+    const winTarget = detail.body.processReadiness.targets.find(
+      (target: { axis: string; code: string }) => target.axis === 'qualification' && target.code === 'win',
+    );
+    expect(aPlusTarget).toBeTruthy();
+    expect(winTarget).toBeTruthy();
+    expect(aPlusTarget.blockers).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ key: 'commercial_invoice' }),
+        expect.objectContaining({ key: 'commercial_invoice_file' }),
+      ]),
+    );
+    expect(winTarget.blockers).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ key: 'commercial_invoice' }),
+        expect.objectContaining({ key: 'commercial_invoice_file' }),
+      ]),
+    );
+  });
+
+  it('marks an A+ step done by hand with a comment and refuses it outside A+', async () => {
+    const server = app.getHttpServer();
+
+    // A+ dışı adım elle işaretlenemez: kanıt gerektiren kural açık kalır.
+    const rejected = await supertest(server)
+      .patch(`/api/v1/opportunities/${opportunityId}/process-checks/quote`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ status: 'done' });
+    expect(rejected.status, JSON.stringify(rejected.body)).toBe(422);
+
+    const marked = await supertest(server)
+      .patch(`/api/v1/opportunities/${opportunityId}/process-checks/customs`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ status: 'done', note: 'Gümrükçüden yazılı teyit alındı' });
+    expect(marked.status, JSON.stringify(marked.body)).toBe(200);
+    expect(marked.body.processReadiness.checks).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          key: 'customs',
+          complete: true,
+          manualEditable: true,
+          manualStatus: 'done',
+          note: 'Gümrükçüden yazılı teyit alındı',
+        }),
+      ]),
+    );
+
+    // İşaret kaldırılınca adım yeniden kanıttan (gümrük onayı) okunur.
+    const cleared = await supertest(server)
+      .patch(`/api/v1/opportunities/${opportunityId}/process-checks/customs`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ status: null, note: null });
+    expect(cleared.status, JSON.stringify(cleared.body)).toBe(200);
+    const clearedCheck = cleared.body.processReadiness.checks.find(
+      (check: { key: string }) => check.key === 'customs',
+    );
+    expect(clearedCheck.manualStatus).toBeUndefined();
+    expect(clearedCheck.note).toBeUndefined();
+    expect(clearedCheck.manualEditable).toBe(true);
   });
 
   it('protects operational approvals with opportunities.approve', async () => {
@@ -126,6 +549,16 @@ describe('Opportunity qualification pipeline', () => {
       .send({ decision: 'approved' });
     expect(wrongStage.status).toBe(422);
     expect(wrongStage.body.error?.message).toContain('A+');
+  });
+
+  it('reserves the final WIN decision for superadmin even when the actor has approval permission', async () => {
+    const forbidden = await supertest(app.getHttpServer())
+      .post(`/api/v1/opportunities/${opportunityId}/approvals/win`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ decision: 'rejected', note: 'Admin rolü nihai kararı verememeli' });
+
+    expect(forbidden.status, JSON.stringify(forbidden.body)).toBe(403);
+    expect(forbidden.body.error?.message).toContain('Süperadmin');
   });
 
   it('invalidates payment and WIN approvals when payment evidence changes', async () => {
@@ -185,6 +618,64 @@ describe('Opportunity qualification pipeline', () => {
     });
   });
 
+  it('allows an active WIN card to move backward with a reason and renews affected approvals', async () => {
+    const server = app.getHttpServer();
+    const created = await supertest(server)
+      .post('/api/v1/opportunities')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ companyId, title: `WIN geri dönüş ${suffix}`, currencyCode: 'EUR' });
+    expect(created.status, JSON.stringify(created.body)).toBe(201);
+
+    const deliveredStage = await db.query.pipelineStages.findFirst({ where: eq(pipelineStages.code, 'delivered') });
+    const wonStatus = await db.query.opportunityStatuses.findFirst({ where: eq(opportunityStatuses.code, 'won') });
+    expect(deliveredStage).toBeTruthy();
+    await db
+      .update(opportunities)
+      .set({
+        currentStageId: deliveredStage!.id,
+        qualificationStage: 'win',
+        statusId: wonStatus?.id ?? null,
+        closedAt: null,
+      })
+      .where(eq(opportunities.id, created.body.id));
+    await db
+      .insert(opportunityApprovals)
+      .values(
+        ['payment', 'customs', 'invoice', 'installation', 'win'].map((approvalType) => ({
+          tenantId: created.body.tenantId,
+          opportunityId: created.body.id,
+          approvalType,
+          status: 'approved',
+          decidedAt: new Date(),
+        }))
+      )
+      .onConflictDoNothing();
+
+    const missingReason = await supertest(server)
+      .patch(`/api/v1/opportunities/${created.body.id}/stage`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ toStage: 'quote' });
+    expect(missingReason.status).toBe(422);
+    expect(missingReason.body.error?.details?.field).toBe('changeReason');
+
+    const moved = await supertest(server)
+      .patch(`/api/v1/opportunities/${created.body.id}/stage`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ toStage: 'quote', changeReason: 'Teklif kapsamı yeniden değerlendirilecek' });
+    expect(moved.status, JSON.stringify(moved.body)).toBe(200);
+    expect(moved.body.stage.code).toBe('quote');
+    expect(moved.body.qualificationStage).toBe('b');
+    expect(moved.body.closedAt).toBeNull();
+    expect(moved.body.processReadiness.currentOperationStage).toBe('quote');
+    expect(moved.body.qualificationReadiness.approvals).toMatchObject({
+      payment: 'pending',
+      customs: 'pending',
+      invoice: 'pending',
+      installation: 'pending',
+      win: 'pending',
+    });
+  });
+
   it('requires a LOST reason, then archives the terminal opportunity without deleting it', async () => {
     const server = app.getHttpServer();
     const missingReason = await supertest(server)
@@ -200,9 +691,15 @@ describe('Opportunity qualification pipeline', () => {
         toStage: 'lost',
         cancellationReasonCode: 'qualification_test',
         note: 'Test kayıp gerekçesi',
+        lostProductName: 'Test CNC ürünü',
+        lostUnmetConditions: 'Teslim süresi ve ödeme şartı müşteriye uymadı',
       });
     expect(lost.status, JSON.stringify(lost.body)).toBe(200);
     expect(lost.body.qualificationStage).toBe('lost');
+    expect(lost.body.lostProductName).toBe('Test CNC ürünü');
+    expect(lost.body.lostUnmetConditions).toBe('Teslim süresi ve ödeme şartı müşteriye uymadı');
+    expect(lost.body.lostCompanyName).toBeTruthy();
+    expect(lost.body.lostReason).toMatchObject({ code: 'qualification_test' });
 
     const closed = await supertest(server)
       .post(`/api/v1/opportunities/${opportunityId}/close`)
@@ -228,6 +725,11 @@ describe('Opportunity qualification pipeline', () => {
     expect(reopened.status, JSON.stringify(reopened.body)).toBe(201);
     expect(reopened.body.closedAt).toBeNull();
     expect(reopened.body.qualificationStage).toBe('a_plus');
+    expect(reopened.body.stage.code).toBe('commercial_invoice');
+    expect(reopened.body.lostReason).toMatchObject({ code: 'qualification_test' });
+    expect(reopened.body.lostProductName).toBe('Test CNC ürünü');
+    expect(reopened.body.lostUnmetConditions).toBe('Teslim süresi ve ödeme şartı müşteriye uymadı');
+    expect(reopened.body.qualificationNote).toBe('Test kayıp gerekçesi');
     expect(reopened.body.qualificationHistory[0]).toMatchObject({
       fromStage: 'lost',
       toStage: 'a_plus',

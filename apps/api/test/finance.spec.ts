@@ -10,6 +10,22 @@ const auth = () => `Bearer ${adminToken}`;
 const now = () => new Date().toISOString();
 const uniqueNo = (prefix: string) => `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 
+const listAllCompanyReceivables = async () => {
+  const data: any[] = [];
+  let page = 1;
+  let totalPages = 1;
+  do {
+    const response = await supertest(app.getHttpServer())
+      .get(`/api/v1/receivables?companyId=${companyId}&page=${page}&pageSize=200`)
+      .set('Authorization', auth());
+    expect(response.status).toBe(200);
+    data.push(...response.body.data);
+    totalPages = Math.max(1, Number(response.body.meta?.totalPages ?? 1));
+    page += 1;
+  } while (page <= totalPages);
+  return data;
+};
+
 beforeAll(async () => {
   app = await createTestApp();
   const login = await supertest(app.getHttpServer())
@@ -154,11 +170,8 @@ describe('Finance — cari özet ve raporlar', () => {
     expect(detail.status).toBe(200);
     expect(detail.body.installments).toHaveLength(3);
 
-    const recv = await supertest(app.getHttpServer())
-      .get(`/api/v1/receivables?companyId=${companyId}&pageSize=100`)
-      .set('Authorization', auth());
-    expect(recv.status).toBe(200);
-    const matched = recv.body.data.filter((row: any) => row.invoiceNo === invoiceNo);
+    const receivables = await listAllCompanyReceivables();
+    const matched = receivables.filter((row: any) => row.invoiceNo === invoiceNo);
     expect(matched).toHaveLength(3);
   });
 
@@ -233,10 +246,8 @@ describe('Finance — cari özet ve raporlar', () => {
     expect(pay.status).toBe(201);
     expect(pay.body.invoiceNo).toBe('PART-PAY-001');
 
-    const recv = await supertest(app.getHttpServer())
-      .get(`/api/v1/receivables?companyId=${companyId}&pageSize=100`)
-      .set('Authorization', auth());
-    const row = recv.body.data.find((r: any) => r.id === receivableId);
+    const receivables = await listAllCompanyReceivables();
+    const row = receivables.find((r: any) => r.id === receivableId);
     expect(row?.status?.code).toBe('partial');
   });
 

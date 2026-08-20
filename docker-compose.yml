@@ -39,6 +39,7 @@ services:
     volumes:
       - haksan_minio_data:/data
     ports:
+      - "127.0.0.1:${MINIO_PORT:-9000}:9000"
       - "127.0.0.1:${MINIO_CONSOLE_PORT:-9001}:9001"
     networks:
       - haksan_internal
@@ -65,6 +66,9 @@ services:
       mc admin user add local \"$${S3_ACCESS_KEY_ID}\" \"$${S3_SECRET_ACCESS_KEY}\" || true;
       mc admin policy attach local readwrite --user \"$${S3_ACCESS_KEY_ID}\";
       mc mb -p local/erp-product-images || true;
+      mc mb -p local/erp-company-logos || true;
+      mc mb -p local/erp-brand-logos || true;
+      mc mb -p local/erp-signatures || true;
       mc mb -p local/erp-quote-documents || true;
       mc mb -p local/erp-proforma-documents || true;
       mc mb -p local/erp-contract-documents || true;
@@ -74,6 +78,9 @@ services:
       mc mb -p local/erp-import-raw || true;
       mc mb -p local/$${S3_BACKUP_BUCKET} || true;
       mc anonymous set none local/erp-product-images || true;
+      mc anonymous set none local/erp-company-logos || true;
+      mc anonymous set none local/erp-brand-logos || true;
+      mc anonymous set none local/erp-signatures || true;
       mc anonymous set none local/$${S3_BACKUP_BUCKET} || true;
       exit 0;
       "
@@ -92,6 +99,8 @@ services:
       target: api
       args:
         VITE_API_BASE_URL: ${VITE_API_BASE_URL:-/api/v1}
+        VITE_OPPORTUNITY_WORKSPACE_SIMPLE: ${VITE_OPPORTUNITY_WORKSPACE_SIMPLE:-legacy}
+        VITE_OPPORTUNITY_WORKSPACE_PILOT_USERS: ${VITE_OPPORTUNITY_WORKSPACE_PILOT_USERS:-}
     restart: unless-stopped
     env_file:
       - .env
@@ -129,6 +138,12 @@ services:
       SMTP_SECURE: ${SMTP_SECURE:?SMTP_SECURE is required}
       SMTP_FROM: ${SMTP_FROM:?SMTP_FROM is required}
       APP_PUBLIC_URL: ${APP_PUBLIC_URL:?APP_PUBLIC_URL is required}
+      USER_MAIL_ENABLED: ${USER_MAIL_ENABLED:-false}
+      USER_MAIL_SMTP_HOST: ${USER_MAIL_SMTP_HOST:-mail.haksancnc.com.tr}
+      USER_MAIL_SMTP_PORT: ${USER_MAIL_SMTP_PORT:-587}
+      USER_MAIL_SMTP_SECURE: ${USER_MAIL_SMTP_SECURE:-false}
+      USER_MAIL_ALLOWED_EMAIL_DOMAINS: ${USER_MAIL_ALLOWED_EMAIL_DOMAINS:-haksancnc.com.tr}
+      USER_MAIL_CREDENTIAL_ENCRYPTION_KEY: ${USER_MAIL_CREDENTIAL_ENCRYPTION_KEY:-}
     depends_on:
       postgres:
         condition: service_healthy
@@ -164,6 +179,8 @@ services:
       target: nginx
       args:
         VITE_API_BASE_URL: ${VITE_API_BASE_URL:-/api/v1}
+        VITE_OPPORTUNITY_WORKSPACE_SIMPLE: ${VITE_OPPORTUNITY_WORKSPACE_SIMPLE:-legacy}
+        VITE_OPPORTUNITY_WORKSPACE_PILOT_USERS: ${VITE_OPPORTUNITY_WORKSPACE_PILOT_USERS:-}
     restart: unless-stopped
     environment:
       APP_DOMAIN: ${APP_DOMAIN:?APP_DOMAIN is required}

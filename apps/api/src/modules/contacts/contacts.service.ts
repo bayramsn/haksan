@@ -1,7 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { and, desc, eq, ilike, inArray, isNull, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, exists, ilike, inArray, isNotNull, isNull, ne, or, sql, type SQL } from 'drizzle-orm';
 import type { DbClient } from '../../db/client';
-import { companyDivisions, contactCompanies, contacts, companies } from '../../db/schema/companies';
+import { companyAddresses, companyDivisions, contactCompanies, contacts, companies } from '../../db/schema/companies';
 import { decisionRoles } from '../../db/schema/lookup';
 import { users } from '../../db/schema/users';
 import { DB } from '../../shared/database/database.module';
@@ -14,6 +14,7 @@ import { AuditService } from '../../shared/database/audit.service';
 import { resourceCompanyPortfolioFilter, resolveResourceDivisionScope } from '../../shared/utils/division-scope';
 import { companyVisibilityFilter } from '../../shared/utils/company-visibility';
 import { normalizePersonName } from '../../shared/utils/text-normalization';
+import { nextRecordNo } from '../../shared/utils/record-sequence';
 
 @Injectable()
 export class ContactsService {
@@ -32,54 +33,128 @@ export class ContactsService {
     return row ?? null;
   }
 
-  async list(actor: AuthContext, query: { search?: string; companyId?: string; divisionId?: string }, page: Pagination) {
-    const { limit, offset } = pageOffset(page);
+  /**
+   * Kontak sorgularında kullanılabilecek görünür firma bağlantılarının ortak
+   * güvenlik koşulları. divisionId yalnızca mevcut contact resource scope'u
+   * içinde ise daraltma yapar; aksi halde aktörün mevcut scope'u korunur.
+   */
+  private async visibleCompanyLinkConditions(actor: AuthContext, requestedDivisionId?: string): Promise<SQL[]> {
     const scope = resolveResourceDivisionScope(actor, 'contacts');
     const visibility = await companyVisibilityFilter(this.db, actor);
-    const filters = [eq(contacts.tenantId, actor.tenantId), isNull(contacts.deletedAt)];
-    if (query.companyId) {
-      await this.assertCompany(query.companyId, actor);
-      filters.push(sql`exists (
-        select 1
-        from contact_companies cc
-        where cc.contact_id = ${contacts.id}
-          and cc.company_id = ${query.companyId}
-      )`);
-    } else {
-      const requestedDivisionAllowed =
-        query.divisionId && (scope.mode === 'all' || scope.divisionIds.includes(query.divisionId));
-      const scopeFilter = requestedDivisionAllowed
-        ? eq(companyDivisions.divisionId, query.divisionId!)
-        : scope.mode === 'all'
-          ? sql`true`
-          : scope.divisionIds.length === 0
-            ? sql`1 = 0`
-            : inArray(companyDivisions.divisionId, scope.divisionIds);
-      filters.push(sql`exists (
-        select 1
-        from contact_companies
-        join companies on companies.id = contact_companies.company_id
-        left join company_divisions on company_divisions.company_id = contact_companies.company_id
-        where contact_companies.contact_id = ${contacts.id}
-          and companies.tenant_id = ${actor.tenantId}
-          and companies.deleted_at is null
-          and ${resourceCompanyPortfolioFilter(actor, 'contacts', companies.id) ?? sql`true`}
-          and ${visibility ?? sql`true`}
-          and ${scopeFilter}
-      )`);
+    const conditions: SQL[] = [
+      eq(contactCompanies.tenantId, actor.tenantId),
+      eq(companies.tenantId, actor.tenantId),
+      isNull(companies.deletedAt),
+      resourceCompanyPortfolioFilter(actor, 'contacts', companies.id) ?? sql`true`,
+      visibility ?? sql`true`,
+    ];
+
+    const requestedDivisionAllowed =
+      requestedDivisionId && (scope.mode === 'all' || scope.divisionIds.includes(requestedDivisionId));
+    const divisionIds = requestedDivisionAllowed
+      ? [requestedDivisionId]
+      : scope.mode === 'list'
+        ? scope.divisionIds
+        : null;
+    if (divisionIds) {
+      if (divisionIds.length === 0) {
+        conditions.push(sql`1 = 0`);
+      } else {
+        conditions.push(
+          exists(
+            this.db
+              .select({ companyId: companyDivisions.companyId })
+              .from(companyDivisions)
+              .where(
+                and(
+                  eq(companyDivisions.companyId, companies.id),
+                  eq(companyDivisions.tenantId, actor.tenantId),
+                  inArray(companyDivisions.divisionId, divisionIds),
+                ),
+              ),
+          ),
+        );
+      }
     }
+    return conditions;
+  }
+
+  private contactHasVisibleCompany(
+    companyConditions: SQL[],
+    options: { companyId?: string; searchPattern?: string } = {},
+  ): SQL {
+    const conditions: SQL[] = [eq(contactCompanies.contactId, contacts.id), ...companyConditions];
+    if (options.companyId) conditions.push(eq(contactCompanies.companyId, options.companyId));
+    if (options.searchPattern) {
+      conditions.push(
+        or(
+          ilike(companies.legalTitle, options.searchPattern),
+          ilike(companies.shortName, options.searchPattern),
+          ilike(companies.externalCompanyNo, options.searchPattern),
+        )!,
+      );
+    }
+    return exists(
+      this.db
+        .select({ contactId: contactCompanies.contactId })
+        .from(contactCompanies)
+        .innerJoin(companies, eq(contactCompanies.companyId, companies.id))
+        .where(and(...conditions)),
+    );
+  }
+
+  async list(
+    actor: AuthContext,
+    query: {
+      search?: string;
+      companyId?: string;
+      divisionId?: string;
+      department?: string;
+      isPrimary?: boolean;
+      isBlacklisted?: boolean;
+    },
+    page: Pagination,
+  ) {
+    const { limit, offset } = pageOffset(page);
+    const companyConditions = await this.visibleCompanyLinkConditions(actor, query.divisionId);
+    const filters: SQL[] = [
+      eq(contacts.tenantId, actor.tenantId),
+      isNull(contacts.deletedAt),
+      this.contactHasVisibleCompany(companyConditions, { companyId: query.companyId }),
+    ];
     if (query.search) {
-      filters.push(ilike(contacts.fullName, `%${query.search}%`));
+      const pattern = `%${query.search}%`;
+      filters.push(or(
+        ilike(contacts.fullName, pattern),
+        ilike(contacts.externalContactNo, pattern),
+        ilike(contacts.workEmail, pattern),
+        ilike(contacts.personalEmail, pattern),
+        ilike(contacts.otherEmail, pattern),
+        ilike(contacts.workPhone, pattern),
+        ilike(contacts.phoneExtension, pattern),
+        ilike(contacts.mobilePhone, pattern),
+        ilike(contacts.otherPhone, pattern),
+        ilike(contacts.title, pattern),
+        ilike(contacts.department, pattern),
+        this.contactHasVisibleCompany(companyConditions, { searchPattern: pattern }),
+      )!);
     }
+    if (query.department) filters.push(eq(contacts.department, query.department));
+    if (query.isPrimary !== undefined) filters.push(eq(contacts.isPrimary, query.isPrimary));
+    if (query.isBlacklisted !== undefined) filters.push(eq(contacts.isBlacklisted, query.isBlacklisted));
     const where = and(...filters);
     const [{ count }] = await this.db
       .select({ count: sql<number>`count(*)::int` })
       .from(contacts)
       .where(where);
+    const sortColumn = page.sortBy === 'name' ? contacts.fullName : contacts.createdAt;
+    const orderBy = page.sortDir === 'asc'
+      ? [asc(sortColumn), asc(contacts.id)]
+      : [desc(sortColumn), desc(contacts.id)];
     const rows = await this.db
       .select({
         contact: contacts,
-        company: { id: companies.id, legalTitle: companies.legalTitle, shortName: companies.shortName },
+        company: { id: companies.id, legalTitle: companies.legalTitle, shortName: companies.shortName, externalCompanyNo: companies.externalCompanyNo },
         decisionRole: { code: decisionRoles.code, name: decisionRoles.name },
         createdByUser: { id: users.id, fullName: users.fullName, email: users.email },
       })
@@ -88,7 +163,7 @@ export class ContactsService {
       .leftJoin(decisionRoles, eq(contacts.decisionRoleId, decisionRoles.id))
       .leftJoin(users, and(eq(contacts.createdBy, users.id), eq(users.tenantId, actor.tenantId)))
       .where(where)
-      .orderBy(desc(contacts.createdAt))
+      .orderBy(...orderBy)
       .limit(limit)
       .offset(offset);
     if (rows.length === 0) return buildPaginated([], count, page);
@@ -99,25 +174,45 @@ export class ContactsService {
         id: companies.id,
         legalTitle: companies.legalTitle,
         shortName: companies.shortName,
+        externalCompanyNo: companies.externalCompanyNo,
+        city: sql<string | null>`(
+          select ${companyAddresses.province}
+          from ${companyAddresses}
+          where ${companyAddresses.companyId} = ${companies.id}
+            and ${companyAddresses.tenantId} = ${actor.tenantId}
+            and ${companyAddresses.deletedAt} is null
+          order by ${companyAddresses.isDefault} desc, ${companyAddresses.createdAt} asc, ${companyAddresses.id} asc
+          limit 1
+        )`,
         isPrimary: contactCompanies.isPrimary,
       })
       .from(contactCompanies)
       .innerJoin(companies, eq(contactCompanies.companyId, companies.id))
       .where(
         and(
-          eq(contactCompanies.tenantId, actor.tenantId),
           inArray(contactCompanies.contactId, contactIds),
-          eq(companies.tenantId, actor.tenantId),
-          isNull(companies.deletedAt),
-          resourceCompanyPortfolioFilter(actor, 'contacts', companies.id) ?? sql`true`,
-          visibility ?? sql`true`
+          ...companyConditions,
         )
       )
       .orderBy(desc(contactCompanies.isPrimary));
-    const linksByContact = new Map<string, Array<{ id: string; legalTitle: string; shortName: string | null; isPrimary: boolean }>>();
+    const linksByContact = new Map<string, Array<{
+      id: string;
+      legalTitle: string;
+      shortName: string | null;
+      externalCompanyNo: string | null;
+      city: string | null;
+      isPrimary: boolean;
+    }>>();
     for (const link of linkRows) {
       const links = linksByContact.get(link.contactId) ?? [];
-      links.push({ id: link.id, legalTitle: link.legalTitle, shortName: link.shortName, isPrimary: link.isPrimary });
+      links.push({
+        id: link.id,
+        legalTitle: link.legalTitle,
+        shortName: link.shortName,
+        externalCompanyNo: link.externalCompanyNo,
+        city: link.city,
+        isPrimary: link.isPrimary,
+      });
       linksByContact.set(link.contactId, links);
     }
     return buildPaginated(
@@ -130,7 +225,13 @@ export class ContactsService {
           // burada döndürülmez. Görünen bağlardan biri güvenli temsilci olur.
           companyId: primaryCompany?.id ?? null,
           company: primaryCompany
-            ? { id: primaryCompany.id, legalTitle: primaryCompany.legalTitle, shortName: primaryCompany.shortName }
+            ? {
+                id: primaryCompany.id,
+                legalTitle: primaryCompany.legalTitle,
+                shortName: primaryCompany.shortName,
+                externalCompanyNo: primaryCompany.externalCompanyNo,
+                city: primaryCompany.city,
+              }
             : null,
           decisionRole: r.decisionRole,
           createdByUser: r.createdByUser?.id ? r.createdByUser : null,
@@ -140,6 +241,52 @@ export class ContactsService {
       count,
       page
     );
+  }
+
+  async summary(actor: AuthContext, query: { divisionId?: string }) {
+    const companyConditions = await this.visibleCompanyLinkConditions(actor, query.divisionId);
+    const contactWhere = and(
+      eq(contacts.tenantId, actor.tenantId),
+      isNull(contacts.deletedAt),
+      this.contactHasVisibleCompany(companyConditions),
+    );
+    const [countRows, firmRows, departmentRows] = await Promise.all([
+      this.db
+        .select({
+          total: sql<number>`count(*)::int`,
+          primary: sql<number>`count(*) filter (where ${contacts.isPrimary})::int`,
+          blacklisted: sql<number>`count(*) filter (where ${contacts.isBlacklisted})::int`,
+        })
+        .from(contacts)
+        .where(contactWhere),
+      this.db
+        .select({ firmCount: sql<number>`count(distinct ${companies.id})::int` })
+        .from(contactCompanies)
+        .innerJoin(contacts, eq(contactCompanies.contactId, contacts.id))
+        .innerJoin(companies, eq(contactCompanies.companyId, companies.id))
+        .where(
+          and(
+            eq(contacts.tenantId, actor.tenantId),
+            isNull(contacts.deletedAt),
+            ...companyConditions,
+          ),
+        ),
+      this.db
+        .selectDistinct({ value: contacts.department })
+        .from(contacts)
+        .where(and(contactWhere, isNotNull(contacts.department), ne(contacts.department, '')))
+        .orderBy(asc(contacts.department)),
+    ]);
+
+    return {
+      total: countRows[0]?.total ?? 0,
+      primary: countRows[0]?.primary ?? 0,
+      blacklisted: countRows[0]?.blacklisted ?? 0,
+      firmCount: firmRows[0]?.firmCount ?? 0,
+      departments: departmentRows
+        .map((row) => row.value)
+        .filter((value): value is string => Boolean(value)),
+    };
   }
 
   async get(id: string, actor: AuthContext) {
@@ -178,6 +325,16 @@ export class ContactsService {
         id: companies.id,
         legalTitle: companies.legalTitle,
         shortName: companies.shortName,
+        externalCompanyNo: companies.externalCompanyNo,
+        city: sql<string | null>`(
+          select ${companyAddresses.province}
+          from ${companyAddresses}
+          where ${companyAddresses.companyId} = ${companies.id}
+            and ${companyAddresses.tenantId} = ${actor.tenantId}
+            and ${companyAddresses.deletedAt} is null
+          order by ${companyAddresses.isDefault} desc, ${companyAddresses.createdAt} asc, ${companyAddresses.id} asc
+          limit 1
+        )`,
         isPrimary: contactCompanies.isPrimary,
       })
       .from(contactCompanies)
@@ -285,11 +442,13 @@ export class ContactsService {
       return this.get(duplicate.id, actor);
     }
     const decisionId = await lookupIdByCode(this.db, decisionRoles, input.decisionRoleCode);
+    const externalContactNo = input.externalContactNo ?? await nextRecordNo(this.db, actor.tenantId, 'contact');
     const [created] = await this.db
       .insert(contacts)
       .values({
         tenantId: actor.tenantId,
         companyId: input.companyId,
+        externalContactNo,
         fullName: normalizePersonName(input.fullName),
         title: input.title ?? null,
         department: input.department ?? null,
@@ -338,6 +497,17 @@ export class ContactsService {
   async update(id: string, input: ContactUpdateInput, actor: AuthContext) {
     const existing = await this.get(id, actor);
     await this.assertAllContactCompaniesVisible(id, actor);
+    if (input.externalContactNo && input.externalContactNo !== existing.externalContactNo) {
+      const duplicate = await this.db.query.contacts.findFirst({
+        where: and(
+          eq(contacts.tenantId, actor.tenantId),
+          eq(contacts.externalContactNo, input.externalContactNo),
+          isNull(contacts.deletedAt),
+          ne(contacts.id, id)
+        ),
+      });
+      if (duplicate) throw new ConflictError('Bu kontak numarası ile bir kontak zaten kayıtlı');
+    }
     const patch: Record<string, unknown> = { updatedBy: actor.userId };
     if (input.companyId !== undefined) await this.assertCompany(input.companyId, actor);
     if (input.decisionRoleCode !== undefined) {
@@ -345,6 +515,7 @@ export class ContactsService {
     }
     for (const k of [
       'fullName',
+      'externalContactNo',
       'title',
       'department',
       'workPhone',
@@ -457,6 +628,7 @@ export class ContactsService {
 
   private async findDuplicate(input: ContactCreateInput, actor: AuthContext) {
     const probes = [
+      input.externalContactNo ? eq(contacts.externalContactNo, input.externalContactNo) : undefined,
       input.workEmail ? eq(contacts.workEmail, input.workEmail) : undefined,
       input.personalEmail ? eq(contacts.personalEmail, input.personalEmail) : undefined,
       input.otherEmail ? eq(contacts.otherEmail, input.otherEmail) : undefined,

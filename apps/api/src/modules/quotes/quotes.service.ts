@@ -1,15 +1,17 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { existsSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
 import { and, desc, eq, ilike, inArray, isNull, sql } from 'drizzle-orm';
 import type { DbClient } from '../../db/client';
 import { quotes, quoteItems, quoteTerms, proformas, contracts, commercialInvoices } from '../../db/schema/quotes';
 import { companies, companyAddresses, companyEmails, companyPhones, contactCompanies, contacts } from '../../db/schema/companies';
-import { opportunities, salesActivities } from '../../db/schema/crm';
+import { opportunities, opportunityApprovals, salesActivities } from '../../db/schema/crm';
 import { receivables } from '../../db/schema/finance';
 import { inventoryItems } from '../../db/schema/inventory';
 import { brands, productModels } from '../../db/schema/products';
-import { divisions } from '../../db/schema/tenants';
+import { departments, divisions } from '../../db/schema/tenants';
 import { users } from '../../db/schema/users';
+import { files, fileLinks } from '../../db/schema/files';
 import {
   activityTypes,
   currencies,
@@ -20,6 +22,7 @@ import {
   invoiceStatuses,
   productGroups,
   productTypes,
+  userTitles,
 } from '../../db/schema/lookup';
 import { DB } from '../../shared/database/database.module';
 import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from '../../shared/utils/errors';
@@ -28,9 +31,11 @@ import type {
   CommercialInvoiceCreateInput,
   CommercialInvoiceUpdateInput,
   ContractCreateInput,
+  DocumentSignatureSnapshot,
   ContractUpdateInput,
   Pagination,
   ProformaCreateInput,
+  ProformaFreeItemInput,
   ProformaPriceItemInput,
   ProformaUpdateInput,
   QuoteCreateInput,
@@ -39,9 +44,23 @@ import type {
   QuoteStatusChangeInput,
   QuoteTermsUpsertInput,
   QuoteUpdateInput,
+  StandaloneContractCreateInput,
+  StandaloneContractUpdateInput,
+  StandaloneProformaCreateInput,
+  StandaloneProformaUpdateInput,
+  StandaloneQuoteCreateInput,
 } from '@haksan/shared';
-import { computeCustomsCharges, isMachiningCenterTypeCode } from '@haksan/shared';
+import {
+  DISCOUNT_APPROVAL_THRESHOLD_PERCENT,
+  computeCustomsCharges,
+  discountPercent,
+  isMachiningCenterTypeCode,
+  referencePriceDiscountPercent,
+  requiresDiscountApproval,
+  requiresReferencePriceApproval,
+} from '@haksan/shared';
 import { FxService } from '../fx/fx.service';
+import { SignaturesService } from '../signatures/signatures.service';
 import { buildPaginated, pageOffset } from '../../shared/utils/pagination';
 import { lookupIdByCode } from '../../shared/utils/lookup.helper';
 import { AuditService } from '../../shared/database/audit.service';
@@ -97,14 +116,198 @@ const PDF_BOLD_FONT_CANDIDATES = [
 ];
 
 const firstExistingPath = (paths: string[]) => paths.find((p) => existsSync(p));
+const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+/**
+ * Anlık görüntüye gömülecek belge başlığı — kendi `documentSnapshot` sütunu
+ * ATILIR. Fiyat her yeniden pazarlık edildiğinde görüntü yeniden kuruluyor ve
+ * `{ ...existing }` bir önceki görüntüyü de taşıdığı için, temizlenmezse JSONB
+ * her düzenlemede bir kat daha katlanıyordu (belge listesi bu sütunu tam olarak
+ * döndürdüğü için yük doğrudan açılış süresine biniyor).
+ */
+const documentHeaderOnly = (document: Record<string, unknown>) => {
+  const { documentSnapshot: _nested, ...header } = document;
+  return header;
+};
+
+/**
+ * Belgenin kendi şartları — yoksa `null` ve çıktı teklifin şartlarına düşer.
+ *
+ * Proforma/sözleşme ekranındaki düzenleme eskiden `quote_terms`'i yeniden
+ * yazıyordu; imza masasında yazılan bir teslim şartı onaylı teklifin çıktısını
+ * da geriye dönük değiştiriyordu. Şart artık belgenin `terms` sütununda durur.
+ */
+const documentOwnTerms = (document: Record<string, unknown>) => {
+  const terms = document.terms;
+  return terms && typeof terms === 'object' ? (terms as Record<string, unknown>) : null;
+};
+
+/** Belgeye özel genel iskonto girdisi (tutar ya da yüzde). */
+type DocumentHeaderDiscount = { amount?: number; percent?: number };
+
+/**
+ * Genel iskontoyu kısmi PATCH'lerde korur: istekte alan yoksa belgenin
+ * anlık görüntüsünde saklanan girdi devam eder, o da yoksa belge bağlı
+ * teklifin genel iskontosuna düşer.
+ */
+const mergeDocumentHeaderDiscount = (
+  snapshot: unknown,
+  input: { headerDiscountAmount?: number; headerDiscountPercent?: number },
+): DocumentHeaderDiscount | undefined => {
+  if (input.headerDiscountAmount !== undefined || input.headerDiscountPercent !== undefined) {
+    return { amount: input.headerDiscountAmount, percent: input.headerDiscountPercent };
+  }
+  const stored = snapshot && typeof snapshot === 'object'
+    ? (snapshot as { documentDiscount?: unknown }).documentDiscount
+    : null;
+  if (!stored || typeof stored !== 'object') return undefined;
+  const amount = Number((stored as { amount?: unknown }).amount);
+  const percent = Number((stored as { percent?: unknown }).percent);
+  if (!Number.isFinite(amount) && !Number.isFinite(percent)) return undefined;
+  return {
+    amount: Number.isFinite(amount) ? amount : undefined,
+    percent: Number.isFinite(percent) ? percent : undefined,
+  };
+};
+const publicProductLabel = (
+  catalogName: string | null | undefined,
+  description: string | null | undefined,
+  stockCode: string | null | undefined,
+) => {
+  let label = String(catalogName ?? '').trim() || String(description ?? '').trim();
+  const code = String(stockCode ?? '').trim();
+  if (code) {
+    label = label
+      .replace(new RegExp(escapeRegExp(code), 'giu'), ' ')
+      .replace(/^[\s./|:;,_–—-]+|[\s./|:;,_–—-]+$/g, '')
+      .replace(/\s{2,}/g, ' ')
+      .trim();
+  }
+  return label || 'Ürün';
+};
 
 @Injectable()
 export class QuotesService {
+  private async assertContractFile(
+    fileId: string,
+    actor: AuthContext,
+    relation: { opportunityId?: string | null; companyId?: string | null },
+  ) {
+    const file = await this.db.query.files.findFirst({
+      where: and(
+        eq(files.id, fileId),
+        eq(files.tenantId, actor.tenantId),
+        isNull(files.deletedAt),
+      ),
+    });
+    if (!file) throw new ValidationError('İmzalı sözleşme dosyası bulunamadı', { field: 'fileId' });
+    if (file.bucket !== 'erp-contract-documents') {
+      throw new ValidationError('Sözleşme dosyası yanlış depolama alanında', { field: 'fileId' });
+    }
+    if (file.uploadStatus !== 'linked' || file.mimeType !== 'application/pdf' || file.extension.toLowerCase() !== 'pdf') {
+      throw new ValidationError('İmzalı sözleşme tamamlanmış ve PDF formatında olmalıdır', { field: 'fileId' });
+    }
+    const allowedRelations = [
+      relation.opportunityId ? { entityType: 'opportunity', entityId: relation.opportunityId } : null,
+      relation.companyId ? { entityType: 'company', entityId: relation.companyId } : null,
+    ].filter((item): item is { entityType: string; entityId: string } => Boolean(item));
+    const links = await this.db
+      .select({ entityType: fileLinks.entityType, entityId: fileLinks.entityId })
+      .from(fileLinks)
+      .where(and(eq(fileLinks.tenantId, actor.tenantId), eq(fileLinks.fileId, fileId)));
+    if (!allowedRelations.some((allowed) => links.some(
+      (link) => link.entityType === allowed.entityType && link.entityId === allowed.entityId,
+    ))) {
+      throw new ValidationError('İmzalı sözleşme bu fırsat veya firmaya bağlı değil', { field: 'fileId' });
+    }
+  }
   constructor(
     @Inject(DB) private readonly db: DbClient,
     private readonly audit: AuditService,
-    private readonly fx: FxService
+    private readonly fx: FxService,
+    private readonly signatures: SignaturesService
   ) {}
+
+  /**
+   * Belge gövdesinden gelen imza seçimini tabloya yazılacak kolona çevirir.
+   *
+   * `undefined` → alan gönderilmedi, mevcut seçim korunur (patch'e girmez).
+   * `null`      → imza kaldırılır.
+   * Dolu değer  → kiracı, bölüm ve aktiflik doğrulanır (SignaturesService).
+   *
+   * Belgeye gömülen ad/ünvan/görsel kopyası burada değil, `document_snapshot`
+   * üretilirken alınır: snapshot belgenin dondurulduğu andaki imzayı taşımalı,
+   * seçimin yapıldığı andakini değil.
+   */
+  private async resolveSignatureId(
+    signatureId: string | null | undefined,
+    actor: AuthContext
+  ): Promise<string | null | undefined> {
+    if (signatureId === undefined) return undefined;
+    if (signatureId === null) return null;
+    return (await this.signatures.resolveForDocument(signatureId, actor)).signatureId;
+  }
+
+  /** Belgenin `signature_id`'sinden `document_snapshot`'a gömülecek kopyayı üretir. */
+  private async captureSignatureSnapshot(
+    signatureId: string | null | undefined,
+    actor: AuthContext
+  ): Promise<DocumentSignatureSnapshot | null> {
+    if (!signatureId) return null;
+    // Seçim yapıldıktan sonra imza pasife alınmış/silinmiş olabilir; belgeyi
+    // dondurmak bu yüzden patlamamalı, imza sessizce boş kalır.
+    try {
+      return (await this.signatures.resolveForDocument(signatureId, actor)).snapshot;
+    } catch {
+      return null;
+    }
+  }
+
+  private async invalidateInvoiceApprovals(quoteIds: string[], actor: AuthContext, reason: string) {
+    const ids = [...new Set(quoteIds.filter(Boolean))];
+    if (!ids.length) return;
+    const rows = await this.db
+      .select({ opportunityId: quotes.opportunityId })
+      .from(quotes)
+      .where(
+        and(
+          eq(quotes.tenantId, actor.tenantId),
+          inArray(quotes.id, ids),
+          isNull(quotes.deletedAt)
+        )
+      );
+    const opportunityIds = [
+      ...new Set(rows.map((row) => row.opportunityId).filter((id): id is string => Boolean(id))),
+    ];
+    if (!opportunityIds.length) return;
+    await this.db
+      .update(opportunityApprovals)
+      .set({
+        status: 'pending',
+        decidedBy: null,
+        decidedAt: null,
+        note: null,
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(opportunityApprovals.tenantId, actor.tenantId),
+          inArray(opportunityApprovals.opportunityId, opportunityIds),
+          inArray(opportunityApprovals.approvalType, ['invoice', 'win']),
+          isNull(opportunityApprovals.deletedAt)
+        )
+      );
+    for (const opportunityId of opportunityIds) {
+      await this.audit.write({
+        tenantId: actor.tenantId,
+        actorUserId: actor.userId,
+        action: 'opportunity.approvals.invalidated',
+        resourceType: 'opportunity',
+        resourceId: opportunityId,
+        oldValues: { approvalTypes: ['invoice', 'win'] },
+        newValues: { status: 'pending', reason },
+      });
+    }
+  }
 
   /** 1 USD karşılığı teklif para birimi tutarı (USD teklif için 1). */
   private async usdToQuoteRate(currencyCode: string | null | undefined): Promise<number> {
@@ -180,7 +383,12 @@ export class QuotesService {
    */
   private async calcCustomsTotal(
     currencyId: string | null,
-    items: Array<typeof quoteItems.$inferSelect>
+    items: Array<{
+      nationalized: boolean;
+      productModelId: string | null;
+      quantity: string | number;
+      unitPrice: string | number;
+    }>
   ): Promise<number> {
     const nationalized = items.filter((it) => it.nationalized);
     if (!nationalized.length) return 0;
@@ -325,7 +533,7 @@ export class QuotesService {
   }
 
   /**
-   * Asistan teklifleri fiyatı hiçbir zaman LLM'den almaz. Ürün kimliği, bölüm
+   * Teklif otomasyonu fiyatı hiçbir zaman LLM'den almaz. Ürün kimliği, bölüm
    * görünürlüğü, para birimi ve fiyat burada sunucu tarafında doğrulanır.
    */
   async previewCatalogItems(
@@ -409,11 +617,14 @@ export class QuotesService {
   }
 
   private async quotePriceCheck(quoteId: string) {
-    const rows = await this.db
-      .select({ item: quoteItems, product: productModels })
-      .from(quoteItems)
-      .leftJoin(productModels, eq(quoteItems.productModelId, productModels.id))
-      .where(and(eq(quoteItems.quoteId, quoteId), isNull(quoteItems.deletedAt)));
+    const [rows, quote] = await Promise.all([
+      this.db
+        .select({ item: quoteItems, product: productModels })
+        .from(quoteItems)
+        .leftJoin(productModels, eq(quoteItems.productModelId, productModels.id))
+        .where(and(eq(quoteItems.quoteId, quoteId), isNull(quoteItems.deletedAt))),
+      this.db.query.quotes.findFirst({ where: eq(quotes.id, quoteId) }),
+    ]);
     const belowItems = rows
       .map((row) => {
         const product = row.product;
@@ -423,7 +634,7 @@ export class QuotesService {
         const quantity = Number(row.item.quantity);
         if (!Number.isFinite(quantity) || quantity <= 0) return null;
         const netUnitPrice = Math.max((quantity * Number(row.item.unitPrice) - Number(row.item.discountAmount ?? 0)) / quantity, 0);
-        if (netUnitPrice + 0.0001 >= basePrice) return null;
+        if (!requiresReferencePriceApproval(basePrice, netUnitPrice)) return null;
         return {
           itemId: row.item.id,
           productModelId: product.id,
@@ -431,6 +642,7 @@ export class QuotesService {
           stockCode: row.item.stockCode ?? product.stockCode,
           basePrice,
           netUnitPrice,
+          discountPercent: referencePriceDiscountPercent(basePrice, netUnitPrice),
         };
       })
       .filter(Boolean) as Array<{
@@ -440,8 +652,29 @@ export class QuotesService {
       stockCode: string | null;
       basePrice: number;
       netUnitPrice: number;
+      discountPercent: number;
     }>;
-    return { needsApproval: belowItems.length > 0, belowItems };
+    const grossTotal = rows.reduce(
+      (sum, row) => sum + Number(row.item.quantity) * Number(row.item.unitPrice),
+      0,
+    );
+    const lineDiscountTotal = rows.reduce(
+      (sum, row) => sum + Number(row.item.discountAmount ?? 0),
+      0,
+    );
+    const totalDiscount = Math.max(Number(quote?.discountTotal ?? 0), lineDiscountTotal);
+    const totalDiscountPercent = discountPercent(grossTotal, totalDiscount);
+    const documentDiscountNeedsApproval = requiresDiscountApproval(grossTotal, totalDiscount);
+    return {
+      needsApproval: belowItems.length > 0 || documentDiscountNeedsApproval,
+      belowItems,
+      discountSummary: {
+        thresholdPercent: DISCOUNT_APPROVAL_THRESHOLD_PERCENT,
+        grossTotal,
+        discountTotal: totalDiscount,
+        discountPercent: totalDiscountPercent,
+      },
+    };
   }
 
   private async refreshPriceApprovalStatus(quoteId: string, actor: AuthContext) {
@@ -501,8 +734,9 @@ export class QuotesService {
       return;
     }
     await this.refreshPriceApprovalStatus(quoteId, actor);
-    throw new ConflictError('Peşin/liste fiyatının altındaki teklif için Süper Admin onayı gerekiyor', {
+    throw new ConflictError(`%${DISCOUNT_APPROVAL_THRESHOLD_PERCENT} üzeri indirim için onay gerekiyor`, {
       belowItems: check.belowItems,
+      discountSummary: check.discountSummary,
     });
   }
 
@@ -526,12 +760,28 @@ export class QuotesService {
       .select({
         quote: quotes,
         company: { id: companies.id, legalTitle: companies.legalTitle, shortName: companies.shortName },
+        contact: { id: contacts.id, fullName: contacts.fullName },
         status: { id: quoteStatuses.id, code: quoteStatuses.code, name: quoteStatuses.name },
         currency: { id: currencies.id, code: currencies.code },
         division: { id: divisions.id, code: divisions.code, name: divisions.name },
       })
       .from(quotes)
-      .leftJoin(companies, eq(quotes.companyId, companies.id))
+      .leftJoin(
+        companies,
+        and(
+          eq(quotes.companyId, companies.id),
+          eq(companies.tenantId, actor.tenantId),
+          isNull(companies.deletedAt),
+        ),
+      )
+      .leftJoin(
+        contacts,
+        and(
+          eq(quotes.contactId, contacts.id),
+          eq(contacts.tenantId, actor.tenantId),
+          isNull(contacts.deletedAt),
+        ),
+      )
       .leftJoin(quoteStatuses, eq(quotes.statusId, quoteStatuses.id))
       .leftJoin(currencies, eq(quotes.currencyId, currencies.id))
       .leftJoin(divisions, eq(quotes.divisionId, divisions.id))
@@ -571,6 +821,7 @@ export class QuotesService {
       rows.map((r) => ({
         ...r.quote,
         company: r.company,
+        contact: r.contact?.id ? r.contact : null,
         status: r.status,
         currency: r.currency,
         division: r.division,
@@ -599,12 +850,32 @@ export class QuotesService {
       .where(and(eq(quoteItems.quoteId, id), isNull(quoteItems.deletedAt)))
       .orderBy(quoteItems.sortOrder, quoteItems.createdAt);
     const terms = await this.db.query.quoteTerms.findFirst({ where: eq(quoteTerms.quoteId, id) });
-    return { ...quote, items, terms };
+    const [projectOwner] = quote.projectOwnerUserId
+      ? await this.db
+          .select({
+            id: users.id,
+            name: users.fullName,
+            email: users.email,
+            phone: users.phone,
+            title: userTitles.name,
+            department: departments.name,
+          })
+          .from(users)
+          .leftJoin(userTitles, eq(users.titleId, userTitles.id))
+          .leftJoin(departments, eq(users.departmentId, departments.id))
+          .where(and(
+            eq(users.id, quote.projectOwnerUserId),
+            eq(users.tenantId, actor.tenantId),
+            isNull(users.deletedAt),
+          ))
+          .limit(1)
+      : [];
+    return { ...quote, items, terms, projectOwner: projectOwner ?? null };
   }
 
   private async buildDocumentSnapshot(quoteId: string, actor: AuthContext) {
     const quote = await this.get(quoteId, actor);
-    const { items, terms, documentSnapshot: _documentSnapshot, ...quoteHeader } = quote;
+    const { items, terms, projectOwner, documentSnapshot: _documentSnapshot, ...quoteHeader } = quote;
     const productModelIds = [...new Set(items.map((item) => item.productModelId).filter((id): id is string => Boolean(id)))];
     const unitIds = [...new Set(items.map((item) => item.unitId).filter((id): id is string => Boolean(id)))];
     const [company, contact, currency, addresses, phones, emails, quoteReceivables, productRows, unitRows] = await Promise.all([
@@ -652,6 +923,10 @@ export class QuotesService {
       schemaVersion: 2,
       capturedAt: new Date().toISOString(),
       quote: quoteHeader,
+      // Yazdırma katmanı canlı imzaya değil bu bloğa bakar: imza sonradan
+      // değişse veya silinse bile belge kendi bastığı imzayı korur.
+      signature: await this.captureSignatureSnapshot(quote.signatureId, actor),
+      projectOwner,
       company: company ?? null,
       companyAddresses: orderedAddresses,
       companyPhones: phones,
@@ -664,82 +939,190 @@ export class QuotesService {
     };
   }
 
+  /**
+   * Teklife bağlı ticari belgenin (proforma / sözleşme / fatura) imzası:
+   * belgenin kendi seçimi varsa o, yoksa bağlı teklifin imzası. Böylece
+   * teklifte imzayı seçen kullanıcı aynı seçimi her belgede tekrarlamaz.
+   */
+  private async resolveCommercialSignature(
+    document: Record<string, unknown>,
+    inherited: DocumentSignatureSnapshot | null,
+    actor: AuthContext
+  ): Promise<DocumentSignatureSnapshot | null> {
+    const own = document.signatureId;
+    if (typeof own !== 'string' || !own) return inherited;
+    return this.captureSignatureSnapshot(own, actor);
+  }
+
   private async buildCommercialDocumentSnapshot(
     document: Record<string, unknown>,
     quoteId: string,
     actor: AuthContext
   ) {
     const snapshot = await this.buildDocumentSnapshot(quoteId, actor);
-    return { ...snapshot, document };
+    return {
+      ...snapshot,
+      terms: documentOwnTerms(document) ?? snapshot.terms,
+      signature: await this.resolveCommercialSignature(document, snapshot.signature, actor),
+      document: documentHeaderOnly(document),
+    };
   }
 
-  private async buildProformaDocumentSnapshot(
+  /**
+   * Teklife bağlı belgenin (proforma / sözleşme) kendi fiyatlarıyla dondurulmuş
+   * anlık görüntüsü. Onaylı teklif kilitlidir; belge fiyatı ondan bağımsız
+   * pazarlık edilebildiği için toplamlar burada yeniden hesaplanır.
+   */
+  private async buildPricedDocumentSnapshot(
     document: Record<string, unknown>,
     quoteId: string,
     actor: AuthContext,
-    priceItems?: ProformaPriceItemInput[]
+    priceItems?: ProformaPriceItemInput[],
+    headerDiscount?: DocumentHeaderDiscount
   ) {
     const snapshot = await this.buildDocumentSnapshot(quoteId, actor);
-    const overrides = new Map((priceItems ?? []).map((item) => [item.quoteItemId, Number(item.unitPrice)]));
+    const overrides = new Map((priceItems ?? []).map((item) => [item.quoteItemId, item]));
     const quoteItemIds = new Set(snapshot.items.map((item) => item.id));
     const unknownItemId = [...overrides.keys()].find((id) => !quoteItemIds.has(id));
     if (unknownItemId) {
-      throw new ValidationError('Proforma fiyat kalemi bağlı teklife ait değil', {
+      throw new ValidationError('Belge fiyat kalemi bağlı teklife ait değil', {
         field: 'items',
         quoteItemId: unknownItemId,
       });
     }
 
-    const lineDiscount = snapshot.items.reduce(
+    const originalLineDiscount = snapshot.items.reduce(
       (sum, item) => sum + Number(item.discountAmount ?? 0),
       0
     );
-    const headerDiscount = Math.max(Number(snapshot.quote.discountTotal ?? 0) - lineDiscount, 0);
-    const taxableBeforeHeader = snapshot.items.reduce((sum, item) => {
-      const quantity = Number(item.quantity ?? 0);
-      const unitPrice = Number(item.unitPrice ?? 0);
-      return sum + Number(item.lineTotal ?? quantity * unitPrice - Number(item.discountAmount ?? 0));
-    }, 0);
-    const headerRatio = taxableBeforeHeader > 0
-      ? Math.max(0, taxableBeforeHeader - headerDiscount) / taxableBeforeHeader
-      : 1;
+    // Belgenin kendi genel iskontosu verilmemişse bağlı teklifin geneli devralınır.
+    const ownHeaderDiscount =
+      headerDiscount?.amount !== undefined || headerDiscount?.percent !== undefined
+        ? { amount: Number(headerDiscount.amount ?? 0), percent: Number(headerDiscount.percent ?? 0) }
+        : null;
+    const inheritedHeaderDiscount = Math.max(
+      Number(snapshot.quote.discountTotal ?? 0) - originalLineDiscount,
+      0
+    );
     const roundMoney = (value: number) => Number(value.toFixed(4));
 
-    const items = snapshot.items.map((item) => {
+    const pricedItems = snapshot.items.map((item) => {
       const quantity = Number(item.quantity ?? 0);
-      const originalLineTotal = Number(
-        item.lineTotal ?? quantity * Number(item.unitPrice ?? 0) - Number(item.discountAmount ?? 0)
-      );
-      const defaultNetUnitPrice = quantity > 0 ? (originalLineTotal * headerRatio) / quantity : 0;
-      const unitPrice = overrides.get(item.id) ?? defaultNetUnitPrice;
-      const lineTotal = roundMoney(quantity * unitPrice);
-      const vatAmount = roundMoney(lineTotal * (Number(item.vatRate ?? 0) / 100));
+      const override = overrides.get(item.id);
+      const unitPrice = override ? Number(override.unitPrice) : Number(item.unitPrice ?? 0);
+      const discountAmount = override?.discountAmount !== undefined
+        ? Number(override.discountAmount)
+        : Number(item.discountAmount ?? 0);
+      this.assertItemDiscount(quantity, unitPrice, discountAmount);
+      const lineTotal = roundMoney(quantity * unitPrice - discountAmount);
       return {
         ...item,
         unitPrice: roundMoney(unitPrice),
-        discountAmount: 0,
+        discountAmount: roundMoney(discountAmount),
         lineTotal,
-        vatAmount,
       };
     });
-    const subtotal = roundMoney(items.reduce((sum, item) => sum + Number(item.lineTotal), 0));
+    const lineDiscount = roundMoney(
+      pricedItems.reduce((sum, item) => sum + Number(item.discountAmount), 0)
+    );
+    const taxableBeforeHeader = roundMoney(
+      pricedItems.reduce((sum, item) => sum + Number(item.lineTotal), 0)
+    );
+    // Yüzde doluysa tutar net ara toplamdan türetilir (teklifteki kuralla aynı).
+    const requestedHeaderDiscount = ownHeaderDiscount
+      ? Math.max(
+          ownHeaderDiscount.percent > 0
+            ? taxableBeforeHeader * (ownHeaderDiscount.percent / 100)
+            : ownHeaderDiscount.amount,
+          0
+        )
+      : inheritedHeaderDiscount;
+    const appliedHeaderDiscount = roundMoney(
+      Math.min(requestedHeaderDiscount, taxableBeforeHeader)
+    );
+    const headerRatio = taxableBeforeHeader > 0
+      ? (taxableBeforeHeader - appliedHeaderDiscount) / taxableBeforeHeader
+      : 1;
+    const items = pricedItems.map((item) => ({
+      ...item,
+      vatAmount: roundMoney(
+        Number(item.lineTotal) * headerRatio * (Number(item.vatRate ?? 0) / 100)
+      ),
+    }));
+    const subtotal = roundMoney(taxableBeforeHeader - appliedHeaderDiscount);
     const vatAmount = roundMoney(items.reduce((sum, item) => sum + Number(item.vatAmount), 0));
+    const customsTotal = roundMoney(
+      await this.calcCustomsTotal(snapshot.quote.currencyId ?? null, pricedItems)
+    );
 
     return {
       ...snapshot,
-      schemaVersion: 3,
+      schemaVersion: 4,
+      terms: documentOwnTerms(document) ?? snapshot.terms,
+      signature: await this.resolveCommercialSignature(document, snapshot.signature, actor),
+      // Belgenin kendi genel iskonto GİRDİSİ; PATCH'te kaybolmaması için saklanır
+      // (uygulanan tutar tekrar hesaplanır, çünkü satır fiyatları değişebilir).
+      documentDiscount: ownHeaderDiscount,
       quote: {
         ...snapshot.quote,
         subtotal,
-        discountTotal: 0,
-        headerDiscountAmount: 0,
-        headerDiscountPercent: 0,
+        discountTotal: roundMoney(lineDiscount + appliedHeaderDiscount),
+        headerDiscountAmount: appliedHeaderDiscount,
+        headerDiscountPercent: ownHeaderDiscount?.percent ?? 0,
         vatAmount,
-        grandTotal: roundMoney(subtotal + vatAmount),
+        customsTotal,
+        grandTotal: roundMoney(subtotal + vatAmount + customsTotal),
       },
       items,
-      document,
+      document: documentHeaderOnly(document),
     };
+  }
+
+  /**
+   * Taslak belge fiyatlarını kısmi PATCH çağrılarında korur.
+   *
+   * `items` yalnız değişen satırları taşıyabilir; ayrıca kullanıcı sadece
+   * şartları güncellediğinde hiç gelmez. Önceki snapshot fiyatlarını hesaba
+   * katmadan belgeyi yeniden kurmak, sözleşmede pazarlık edilen fiyatları
+   * sessizce tekrar teklif fiyatına döndürüyordu.
+   */
+  private mergeDocumentPriceItems(
+    snapshot: unknown,
+    quoteItemIds: Set<string>,
+    updates?: ProformaPriceItemInput[],
+  ): ProformaPriceItemInput[] | undefined {
+    const storedItems = snapshot && typeof snapshot === 'object'
+      && Array.isArray((snapshot as { items?: unknown }).items)
+      ? (snapshot as { items: Array<Record<string, unknown>> }).items
+      : [];
+    const stored = storedItems.flatMap((item) => {
+      const quoteItemId = typeof item.id === 'string' ? item.id : '';
+      const unitPrice = Number(item.unitPrice);
+      const discountAmount = Number(item.discountAmount);
+      return quoteItemId && quoteItemIds.has(quoteItemId) && Number.isFinite(unitPrice)
+        ? [{
+            quoteItemId,
+            unitPrice,
+            ...(Number.isFinite(discountAmount) ? { discountAmount } : {}),
+          }]
+        : [];
+    });
+    if (updates === undefined) return stored.length > 0 ? stored : undefined;
+
+    const merged = new Map(stored.map((item) => [item.quoteItemId, item]));
+    for (const update of updates) {
+      const previous = merged.get(update.quoteItemId);
+      merged.set(update.quoteItemId, {
+        ...previous,
+        ...update,
+        // Birim fiyat tek başına değiştirildiğinde belgeye özel iskonto
+        // teklif satırına geri düşmemeli.
+        ...(update.discountAmount === undefined && previous?.discountAmount !== undefined
+          ? { discountAmount: previous.discountAmount }
+          : {}),
+      });
+    }
+    return [...merged.values()];
   }
 
   private assertCommercialDocumentMutable(document: { finalizedAt?: Date | null }, label: string) {
@@ -784,11 +1167,46 @@ export class QuotesService {
     const itemProductIds = [...new Set(items.map((item) => item.productModelId).filter((value): value is string => Boolean(value)))];
     const itemProducts = itemProductIds.length
       ? await this.db
-          .select({ id: productModels.id, fullName: productModels.fullName })
+          .select({ id: productModels.id, fullName: productModels.fullName, typeCode: productTypes.code })
           .from(productModels)
+          .leftJoin(productTypes, eq(productModels.productTypeId, productTypes.id))
           .where(and(eq(productModels.tenantId, actor.tenantId), inArray(productModels.id, itemProductIds), isNull(productModels.deletedAt)))
       : [];
     const itemProductNames = new Map(itemProducts.map((product) => [product.id, product.fullName]));
+    const itemProductTypes = new Map(itemProducts.map((product) => [product.id, product.typeCode]));
+    const customsTotal = Math.max(0, Number(quote.customsTotal ?? 0));
+    const nationalizedIndexes = items
+      .map((item, index) => item.nationalized ? index : -1)
+      .filter((index) => index >= 0);
+    const machiningIndexes = items
+      .map((item, index) => item.productModelId && isMachiningCenterTypeCode(itemProductTypes.get(item.productModelId)) ? index : -1)
+      .filter((index) => index >= 0);
+    const eligibleIndexes = nationalizedIndexes.filter((index) => {
+      const productModelId = items[index].productModelId;
+      const typeCode = productModelId ? itemProductTypes.get(productModelId) : null;
+      return !typeCode || isMachiningCenterTypeCode(typeCode);
+    });
+    const allocationIndexes = eligibleIndexes.length
+      ? eligibleIndexes
+      : nationalizedIndexes.length
+        ? nationalizedIndexes
+        : machiningIndexes;
+    const customsAllocations = items.map(() => 0);
+    const allocationGross = allocationIndexes.reduce(
+      (sum, index) => sum + Math.max(0, Number(items[index].quantity) * Number(items[index].unitPrice)),
+      0,
+    );
+    let allocatedCustoms = 0;
+    allocationIndexes.forEach((index, allocationIndex) => {
+      const weight = allocationGross > 0
+        ? Math.max(0, Number(items[index].quantity) * Number(items[index].unitPrice)) / allocationGross
+        : 1 / allocationIndexes.length;
+      const allocation = allocationIndex === allocationIndexes.length - 1
+        ? customsTotal - allocatedCustoms
+        : Number((customsTotal * weight).toFixed(4));
+      customsAllocations[index] = allocation;
+      allocatedCustoms += allocation;
+    });
     const terms = snapshot ? (snapshot.terms ?? null) : await this.db.query.quoteTerms.findFirst({ where: eq(quoteTerms.quoteId, id) });
     const company = snapshot ? (snapshot.company ?? null) : await this.db.query.companies.findFirst({ where: eq(companies.id, quote.companyId) });
     const liveCompanyAddresses = snapshot
@@ -982,9 +1400,12 @@ export class QuotesService {
     const lineHeight = 10.5;
     for (let i = 0; i < items.length; i++) {
       const it = items[i];
-      const productName = (it as typeof it & { product?: { fullName?: string | null } | null }).product?.fullName
-        ?? (it.productModelId ? itemProductNames.get(it.productModelId) : undefined)
-        ?? it.description;
+      const productName = publicProductLabel(
+        (it as typeof it & { product?: { fullName?: string | null } | null }).product?.fullName
+          ?? (it.productModelId ? itemProductNames.get(it.productModelId) : undefined),
+        it.description,
+        it.stockCode,
+      );
       const description = String(it.description ?? '').trim() === String(productName ?? '').trim()
         ? ''
         : it.description;
@@ -1007,9 +1428,12 @@ export class QuotesService {
         doc.text(stockFragment, x.stock, y + 2, { width: colW.stock, lineGap: 0 });
         doc.text(descriptionFragment, x.desc, y + 2, { width: colW.desc, lineGap: 0 });
         if (lineOffset === 0) {
+          const quantity = Number(it.quantity);
+          const displayGross = quantity * Number(it.unitPrice) + (customsAllocations[i] ?? 0);
+          const displayUnitPrice = quantity > 0 ? displayGross / quantity : Number(it.unitPrice);
           fitCell(Number(it.quantity).toLocaleString('tr-TR'), x.qty, y + 2, colW.qty, { align: 'right' });
-          fitCell(money(it.unitPrice), x.price, y + 2, colW.price, { align: 'right' });
-          fitCell(money(it.lineTotal), x.total, y + 2, colW.total, { align: 'right' });
+          fitCell(money(displayUnitPrice), x.price, y + 2, colW.price, { align: 'right' });
+          fitCell(money(displayGross), x.total, y + 2, colW.total, { align: 'right' });
         }
         y += rowHeight;
         doc.moveTo(50, y).lineTo(545, y).lineWidth(0.35).strokeColor('#d1d5db').stroke();
@@ -1030,23 +1454,31 @@ export class QuotesService {
       fitCell(val, 455, y, 90, { align: 'right', bold, size: bold ? 11 : 9, minSize: 7.5 });
       y += bold ? 20 : 15;
     };
-    const grossTotal = items.reduce((sum, item) => sum + Number(item.quantity) * Number(item.unitPrice), 0);
+    const grossTotal = items.reduce((sum, item) => sum + Number(item.quantity) * Number(item.unitPrice), customsTotal);
     const lineDiscountTotal = items.reduce((sum, item) => sum + Number(item.discountAmount ?? 0), 0);
     const headerDiscountTotal = Math.max(Number(quote.discountTotal ?? 0) - lineDiscountTotal, 0);
+    const primaryItem = items.find((item) => !String(item.description ?? '').trimStart().startsWith('↳ Opsiyon:'));
+    const documentVatRate = Number(primaryItem?.vatRate ?? 0);
+    const applyDocumentVatRate = (value: unknown) => {
+      const text = String(value ?? '');
+      if (!Number.isFinite(documentVatRate) || documentVatRate <= 0) return text;
+      return text
+        .replace(/\{\{KDV_ORANI\}\}/g, String(documentVatRate))
+        .replace(/%(?:10|20)(?=\s*K\.?\s*D\.?\s*V\.?)/giu, `%${documentVatRate}`);
+    };
     totalLine('Brüt Toplam', money(grossTotal));
     if (lineDiscountTotal > 0) totalLine('Kalem İndirimi', `-${money(lineDiscountTotal)}`);
     totalLine('Özel İskonto', headerDiscountTotal > 0 ? `-${money(headerDiscountTotal)}` : money(0));
-    totalLine('Net Ara Toplam', money(quote.subtotal));
-    totalLine('KDV', money(quote.vatAmount));
-    if (Number(quote.customsTotal ?? 0) > 0) totalLine('Millileştirme / Gümrük', money(quote.customsTotal));
+    totalLine('Net Ara Toplam', money(Number(quote.subtotal ?? 0) + customsTotal));
+    totalLine(documentVatRate > 0 ? `KDV (%${documentVatRate})` : 'KDV', money(quote.vatAmount));
     totalLine('GENEL TOPLAM', money(quote.grandTotal), true);
     doc.y = y;
 
     // Şartlar — örnek formdaki gibi 1/2/3 ve a/b/c maddeleri.
     const termSections = ([
-      ['ÖDEME ŞARTLARI', splitTermLines(terms?.paymentTermsText ?? quote.paymentTerms)],
-      ['TESLİMAT ŞARTLARI', splitTermLines(terms?.deliveryTermsText ?? quote.deliveryTerms)],
-      ['GARANTİ ŞARTLARI', splitTermLines(terms?.warrantyTermsText ?? quote.warrantyTerms)],
+      ['ÖDEME ŞARTLARI', splitTermLines(applyDocumentVatRate(terms?.paymentTermsText ?? quote.paymentTerms))],
+      ['TESLİMAT ŞARTLARI', splitTermLines(applyDocumentVatRate(terms?.deliveryTermsText ?? quote.deliveryTerms))],
+      ['GARANTİ ŞARTLARI', splitTermLines(applyDocumentVatRate(terms?.warrantyTermsText ?? quote.warrantyTerms))],
       ['NOTLAR', splitTermLines(quote.notes)],
     ] as Array<[string, string[]]>).filter(([, lines]) => lines.length > 0);
 
@@ -1129,6 +1561,7 @@ export class QuotesService {
         deliveryTerms: input.deliveryTerms ?? null,
         warrantyTerms: input.warrantyTerms ?? null,
         notes: input.notes ?? null,
+        signatureId: (await this.resolveSignatureId(input.signatureId, actor)) ?? null,
         statusId: draft?.id ?? null,
         createdBy: actor.userId,
       })
@@ -1142,6 +1575,50 @@ export class QuotesService {
       newValues: { documentNo: row.documentNo, companyId: row.companyId },
     });
     return this.get(row.id, actor);
+  }
+
+  /**
+   * Fırsat açmadan ("hızlı") teklif keser.
+   *
+   * Normal akışta istemci önce fırsat açıp sonra teklifi ve kalemleri tek tek
+   * eklediği için, satış kartı istemeyen küçük işler bile boş bir fırsat üretiyordu.
+   * Burada başlık, kalemler ve şartlar tek istekte yazılır ve `opportunityId`
+   * bilerek boş bırakılır (şema zaten izin veriyor, revizyon numarası 1'de kalır).
+   *
+   * Kalem ekleme veya şart yazma sırasında hata olursa yarım kalan teklif
+   * arkada bırakılmaz; taslak yumuşak silinir ve hata istemciye döner.
+   */
+  async createStandaloneQuote(input: StandaloneQuoteCreateInput, actor: AuthContext) {
+    const { items, terms, ...header } = input;
+    const quote = await this.create({ ...header, opportunityId: undefined }, actor);
+    try {
+      for (let index = 0; index < items.length; index++) {
+        await this.addItem(quote.id, { ...items[index], sortOrder: items[index].sortOrder || index }, actor);
+      }
+      if (terms) {
+        await this.upsertTerms(
+          quote.id,
+          {
+            importCostsExcluded: true,
+            ...terms,
+          } as QuoteTermsUpsertInput,
+          actor
+        );
+      }
+    } catch (error) {
+      // Telafi: kalemsiz/eksik teklif kaydı kalmasın.
+      await this.db.update(quotes).set({ deletedAt: new Date() }).where(eq(quotes.id, quote.id));
+      throw error;
+    }
+    await this.audit.write({
+      tenantId: actor.tenantId,
+      actorUserId: actor.userId,
+      action: 'quote.created',
+      resourceType: 'quote',
+      resourceId: quote.id,
+      newValues: { documentNo: quote.documentNo, standalone: true, itemCount: items.length },
+    });
+    return this.get(quote.id, actor);
   }
 
   async update(id: string, input: QuoteUpdateInput, actor: AuthContext) {
@@ -1199,6 +1676,9 @@ export class QuotesService {
     for (const k of ['headerDiscountAmount', 'headerDiscountPercent'] as const) {
       if ((input as any)[k] !== undefined) patch[k] = ((input as any)[k] as number | undefined)?.toString() ?? '0';
     }
+    // Yukarıdaki döngüde değil: imza seçimi doğrulanmadan tabloya yazılamaz.
+    const signatureId = await this.resolveSignatureId(input.signatureId, actor);
+    if (signatureId !== undefined) patch.signatureId = signatureId;
     await this.db.update(quotes).set(patch).where(eq(quotes.id, id));
     if (input.headerDiscountAmount !== undefined || input.headerDiscountPercent !== undefined) {
       await this.recalcQuoteTotals(id);
@@ -1312,6 +1792,8 @@ export class QuotesService {
           deliveryTermsText: input.deliveryTermsText ?? null,
           warrantyTermsText: input.warrantyTermsText ?? null,
           importCostsExcluded: input.importCostsExcluded,
+          vatIncluded: input.vatIncluded ?? false,
+          freightPaidBySeller: input.freightPaidBySeller ?? false,
           deliveryLocation: input.deliveryLocation ?? null,
           estimatedDeliveryDaysMin: input.estimatedDeliveryDaysMin ?? null,
           estimatedDeliveryDaysMax: input.estimatedDeliveryDaysMax ?? null,
@@ -1325,6 +1807,8 @@ export class QuotesService {
         deliveryTermsText: input.deliveryTermsText ?? null,
         warrantyTermsText: input.warrantyTermsText ?? null,
         importCostsExcluded: input.importCostsExcluded,
+        vatIncluded: input.vatIncluded ?? false,
+        freightPaidBySeller: input.freightPaidBySeller ?? false,
         deliveryLocation: input.deliveryLocation ?? null,
         estimatedDeliveryDaysMin: input.estimatedDeliveryDaysMin ?? null,
         estimatedDeliveryDaysMax: input.estimatedDeliveryDaysMax ?? null,
@@ -1364,7 +1848,7 @@ export class QuotesService {
       action: 'quote.price_approved',
       resourceType: 'quote',
       resourceId: quoteId,
-      newValues: { belowItems: check.belowItems, note },
+      newValues: { belowItems: check.belowItems, discountSummary: check.discountSummary, note },
     });
     return this.get(quoteId, actor);
   }
@@ -1540,6 +2024,7 @@ export class QuotesService {
           activityTypeId,
           subject: `${quote.documentNo} teklif takibi — ${statusLabels[input.statusCode as keyof typeof statusLabels]}`,
           description: input.note ?? null,
+          origin: 'system',
           activityDate: changedAt,
           nextFollowUpAt: input.followUpAt,
           createdBy: actor.userId,
@@ -1590,8 +2075,10 @@ export class QuotesService {
       })
       .from(proformas)
       .leftJoin(quotes, eq(proformas.quoteId, quotes.id))
-      .leftJoin(companies, eq(quotes.companyId, companies.id))
-      .leftJoin(currencies, eq(quotes.currencyId, currencies.id))
+      // Teklifsiz ("hızlı") proformada firma ve para birimi teklif üzerinden
+      // okunamaz; coalesce ile belgenin kendi sütunlarına düşülür.
+      .leftJoin(companies, eq(companies.id, sql`coalesce(${quotes.companyId}, ${proformas.companyId})`))
+      .leftJoin(currencies, eq(currencies.id, sql`coalesce(${quotes.currencyId}, ${proformas.currencyId})`))
       .leftJoin(proformaStatuses, eq(proformas.statusId, proformaStatuses.id))
       .where(where)
       .orderBy(desc(proformas.issueDate))
@@ -1613,7 +2100,8 @@ export class QuotesService {
     const statusId = await lookupIdByCode(this.db, proformaStatuses, input.statusCode);
     if (!statusId) throw new ValidationError('Geçersiz proforma durumu', { field: 'statusCode' });
     const finalizedAt = input.statusCode !== 'draft' ? new Date() : null;
-    const documentSnapshot = await this.buildProformaDocumentSnapshot(
+    const signatureId = (await this.resolveSignatureId(input.signatureId, actor)) ?? null;
+    const documentSnapshot = await this.buildPricedDocumentSnapshot(
       {
         businessLine,
         quoteId: input.quoteId,
@@ -1621,12 +2109,15 @@ export class QuotesService {
         issueDate: input.issueDate,
         statusId,
         fileId: input.fileId ?? null,
+        signatureId,
         finalizedAt,
         createdBy: actor.userId,
+        terms: input.terms ?? null,
       },
       input.quoteId,
       actor,
-      input.items
+      input.items,
+      mergeDocumentHeaderDiscount(null, input)
     );
     const [row] = await this.db
       .insert(proformas)
@@ -1639,7 +2130,10 @@ export class QuotesService {
         issueDate: input.issueDate,
         statusId,
         fileId: input.fileId ?? null,
+        signatureId,
         documentSnapshot,
+        // Şartlar belgeye özeldir; teklifin `quote_terms` kaydı değişmez.
+        terms: input.terms ?? null,
         finalizedAt,
         createdBy: actor.userId,
       })
@@ -1658,8 +2152,11 @@ export class QuotesService {
   async updateProforma(id: string, input: ProformaUpdateInput, actor: AuthContext) {
     const existing = await this.getProforma(id, actor);
     this.assertCommercialDocumentMutable(existing, 'Proforma');
+    if (!existing.quoteId && !input.quoteId) {
+      throw new ValidationError('Bu proforma bir teklife bağlı değil; hızlı proforma olarak güncelleyin');
+    }
     const patch: Record<string, unknown> = {};
-    let quote = await this.get(existing.quoteId, actor);
+    let quote = await this.get(String(input.quoteId ?? existing.quoteId), actor);
     if (input.quoteId !== undefined) {
       quote = await this.get(input.quoteId, actor);
       patch.quoteId = input.quoteId;
@@ -1675,17 +2172,28 @@ export class QuotesService {
     for (const k of ['issueDate', 'fileId'] as const) {
       if ((input as any)[k] !== undefined) patch[k] = (input as any)[k] ?? null;
     }
+    // Belgeye özel şart; `null` gönderilirse belge yeniden teklifin şartlarına düşer.
+    if (input.terms !== undefined) patch.terms = input.terms ?? null;
+    const signatureId = await this.resolveSignatureId(input.signatureId, actor);
+    if (signatureId !== undefined) patch.signatureId = signatureId;
     if (input.documentNo !== undefined) patch.documentNo = normalizeSeriesDocumentNo(input.documentNo, businessLine);
     else if (input.quoteId !== undefined && businessLine !== existing.businessLine) {
       patch.documentNo = await nextSeriesDocumentNo(this.db, actor.tenantId, businessLine, 'proforma', input.issueDate ?? existing.issueDate);
     }
     const snapshotDocument = { ...existing, ...patch };
-    if (input.items !== undefined || input.quoteId !== undefined || !existing.documentSnapshot) {
-      patch.documentSnapshot = await this.buildProformaDocumentSnapshot(
+    // İmza değişikliği de snapshot'ı tazeler; aksi halde belge eski imzayla basılırdı.
+    const headerDiscountChanged =
+      input.headerDiscountAmount !== undefined || input.headerDiscountPercent !== undefined;
+    if (signatureId !== undefined || input.items !== undefined || headerDiscountChanged || input.terms !== undefined || input.quoteId !== undefined || !existing.documentSnapshot) {
+      const quoteItemIds = new Set((quote.items ?? []).map((item: { id: string }) => item.id));
+      const carriedSnapshot = input.quoteId !== undefined ? null : existing.documentSnapshot;
+      const priceItems = this.mergeDocumentPriceItems(carriedSnapshot, quoteItemIds, input.items);
+      patch.documentSnapshot = await this.buildPricedDocumentSnapshot(
         snapshotDocument,
         String(patch.quoteId ?? existing.quoteId),
         actor,
-        input.items
+        priceItems,
+        mergeDocumentHeaderDiscount(carriedSnapshot, input)
       );
     }
     if (input.statusCode !== undefined && input.statusCode !== 'draft') {
@@ -1693,12 +2201,17 @@ export class QuotesService {
       if (!patch.documentSnapshot) {
         const currentSnapshot = existing.documentSnapshot as Record<string, unknown> | null;
         patch.documentSnapshot = currentSnapshot
-          ? { ...currentSnapshot, document: { ...snapshotDocument, finalizedAt: patch.finalizedAt } }
-          : await this.buildProformaDocumentSnapshot(
+          ? { ...currentSnapshot, document: documentHeaderOnly({ ...snapshotDocument, finalizedAt: patch.finalizedAt }) }
+          : await this.buildPricedDocumentSnapshot(
               { ...snapshotDocument, finalizedAt: patch.finalizedAt },
               String(patch.quoteId ?? existing.quoteId),
               actor,
-              input.items
+              this.mergeDocumentPriceItems(
+                existing.documentSnapshot,
+                new Set((quote.items ?? []).map((item: { id: string }) => item.id)),
+                input.items,
+              ),
+              mergeDocumentHeaderDiscount(existing.documentSnapshot, input)
             );
       }
     }
@@ -1732,6 +2245,582 @@ export class QuotesService {
     return { ok: true };
   }
 
+  // ────────── TEKLİFTEN BAĞIMSIZ ("HIZLI") PROFORMA ──────────
+  //
+  // Küçük/ad-hoc işlerde teklif açmadan proforma kesilebilmesi gerekir. Kalemler bir
+  // teklif satırına değil doğrudan belgeye aittir; bu yüzden tutarlar ve firma bilgisi
+  // burada üretilip `documentSnapshot` içine yazılır. Yazdırma katmanı zaten yalnızca
+  // snapshot okuduğu için PDF tarafında değişiklik gerekmez.
+
+  /** Firma, adres, telefon ve para birimi bağlamını (kayıtlı firma varsa DB'den) çözer. */
+  private async resolveStandaloneDocumentContext(
+    input: Partial<Pick<StandaloneProformaCreateInput, 'companyId' | 'currencyCode'>>,
+    actor: AuthContext
+  ) {
+    const company = input.companyId ? await this.assertCompany(input.companyId, actor) : null;
+    const [addresses, phones, emails] = company
+      ? await Promise.all([
+          this.db
+            .select()
+            .from(companyAddresses)
+            .where(and(eq(companyAddresses.companyId, company.id), isNull(companyAddresses.deletedAt)))
+            .orderBy(desc(companyAddresses.isBilling), desc(companyAddresses.isDefault), companyAddresses.createdAt),
+          this.db
+            .select()
+            .from(companyPhones)
+            .where(and(eq(companyPhones.companyId, company.id), isNull(companyPhones.deletedAt)))
+            .orderBy(desc(companyPhones.isDefault), companyPhones.createdAt),
+          this.db
+            .select()
+            .from(companyEmails)
+            .where(and(eq(companyEmails.companyId, company.id), isNull(companyEmails.deletedAt)))
+            .orderBy(desc(companyEmails.isDefault), companyEmails.createdAt),
+        ])
+      : [[], [], []];
+    const currency = input.currencyCode
+      ? await this.db.query.currencies.findFirst({ where: eq(currencies.code, input.currencyCode) })
+      : null;
+    if (input.currencyCode && !currency) {
+      throw new ValidationError('Geçersiz para birimi', { field: 'currencyCode' });
+    }
+    return { company, addresses, phones, emails, currency };
+  }
+
+  /**
+   * Belgeye ait (teklif satırına değil) serbest kalemleri fiyatlandırır.
+   * Gümrük bu akışta yoktur; satır toplamı brüt eksi satır iskontosudur.
+   * Belgenin kendi GENEL iskontosu varsa net ara toplamdan düşülür ve KDV
+   * aynı oranla ölçeklenir (teklife bağlı belgelerdeki kuralla aynı).
+   */
+  private priceStandaloneItems(
+    items: ProformaFreeItemInput[],
+    headerDiscount?: DocumentHeaderDiscount,
+  ) {
+    const roundMoney = (value: number) => Number(value.toFixed(4));
+    const priced = items.map((item) => {
+      const quantity = Number(item.quantity);
+      const unitPrice = Number(item.unitPrice);
+      const discountAmount = Number(item.discountAmount ?? 0);
+      this.assertItemDiscount(quantity, unitPrice, discountAmount);
+      const lineTotal = roundMoney(quantity * unitPrice - discountAmount);
+      return {
+        id: randomUUID(),
+        description: item.description,
+        quantity,
+        unitCode: item.unitCode ?? 'adet',
+        unitPrice: roundMoney(unitPrice),
+        discountAmount: roundMoney(discountAmount),
+        vatRate: Number(item.vatRate ?? 0),
+        lineTotal,
+        vatAmount: roundMoney(lineTotal * (Number(item.vatRate ?? 0) / 100)),
+        // Katalog bağı yok; PDF'deki Markası/Menşei/G.T.İ.P. satırları elle girilir
+        // ve boş bırakılırsa basılmaz.
+        product:
+          item.brand || item.model || item.originCountry || item.hsCode
+            ? {
+                brandName: item.brand ?? null,
+                modelName: item.model ?? null,
+                originCountry: item.originCountry ?? null,
+                hsCode: item.hsCode ?? null,
+              }
+            : null,
+        productModelId: null,
+        nationalized: false,
+      };
+    });
+    const lineDiscountTotal = roundMoney(priced.reduce((sum, item) => sum + item.discountAmount, 0));
+    const taxableBeforeHeader = roundMoney(priced.reduce((sum, item) => sum + item.lineTotal, 0));
+    const headerPercent = Math.max(Number(headerDiscount?.percent ?? 0), 0);
+    const requestedHeaderDiscount = Math.max(
+      headerPercent > 0 ? taxableBeforeHeader * (headerPercent / 100) : Number(headerDiscount?.amount ?? 0),
+      0,
+    );
+    const headerDiscountAmount = roundMoney(Math.min(requestedHeaderDiscount, taxableBeforeHeader));
+    const headerRatio = taxableBeforeHeader > 0
+      ? (taxableBeforeHeader - headerDiscountAmount) / taxableBeforeHeader
+      : 1;
+    const pricedWithVat = priced.map((item) => ({
+      ...item,
+      vatAmount: roundMoney(item.lineTotal * headerRatio * (item.vatRate / 100)),
+    }));
+    return {
+      items: pricedWithVat,
+      headerDiscountAmount,
+      headerDiscountPercent: headerPercent,
+      discountTotal: roundMoney(lineDiscountTotal + headerDiscountAmount),
+      subtotal: roundMoney(taxableBeforeHeader - headerDiscountAmount),
+      vatAmount: roundMoney(pricedWithVat.reduce((sum, item) => sum + item.vatAmount, 0)),
+    };
+  }
+
+  /**
+   * Alıcı bloğunu (`company` / `companyAddresses` / `contact` / `currency`) yazdırma
+   * katmanının beklediği biçimde üretir. Kayıtlı firma varsa DB kaydı, yoksa elle
+   * girilen serbest metin kullanılır.
+   */
+  private buildStandalonePartySnapshot(
+    input: Partial<
+      Pick<
+        StandaloneProformaCreateInput,
+        | 'companyName'
+        | 'companyAddress'
+        | 'companyTaxOffice'
+        | 'companyTaxNumber'
+        | 'contactName'
+        | 'contactPhone'
+        | 'currencyCode'
+      >
+    >,
+    context: Awaited<ReturnType<QuotesService['resolveStandaloneDocumentContext']>>
+  ) {
+    const address = context.company
+      ? context.addresses[0] ?? null
+      : input.companyAddress
+        ? { fullAddress: input.companyAddress }
+        : null;
+    return {
+      company: context.company
+        ? {
+            id: context.company.id,
+            legalTitle: context.company.legalTitle,
+            shortName: context.company.shortName,
+            taxOffice: context.company.taxOffice,
+            taxNumber: context.company.taxNumber,
+          }
+        : {
+            id: null,
+            legalTitle: input.companyName ?? null,
+            shortName: null,
+            taxOffice: input.companyTaxOffice ?? null,
+            taxNumber: input.companyTaxNumber ?? null,
+          },
+      companyAddresses: address ? [address] : [],
+      companyPhones: context.phones,
+      companyEmails: context.emails,
+      contact:
+        input.contactName || input.contactPhone
+          ? { fullName: input.contactName ?? null, mobilePhone: input.contactPhone ?? null, workPhone: null }
+          : null,
+      currency: context.currency ?? { code: input.currencyCode ?? 'USD' },
+    };
+  }
+
+  /**
+   * Yazdırma katmanının (`proformaFromSnapshot`) beklediği şekilde bir belge anlık
+   * görüntüsü üretir. Toplam mantığı teklife bağlı proformayla aynıdır; tek fark
+   * teklif geneli iskonto ve gümrüğün burada bulunmamasıdır.
+   */
+  private buildStandaloneProformaSnapshot(
+    document: Record<string, unknown>,
+    input: StandaloneProformaCreateInput,
+    context: Awaited<ReturnType<QuotesService['resolveStandaloneDocumentContext']>>,
+    signature: DocumentSignatureSnapshot | null = null
+  ) {
+    const roundMoney = (value: number) => Number(value.toFixed(4));
+    const { items, discountTotal, subtotal, vatAmount, headerDiscountAmount, headerDiscountPercent } =
+      this.priceStandaloneItems(input.items, {
+        amount: input.headerDiscountAmount,
+        percent: input.headerDiscountPercent,
+      });
+
+    return {
+      schemaVersion: 4,
+      capturedAt: new Date().toISOString(),
+      /** Teklife bağlı snapshot'lardan ayırmak için işaret. */
+      standalone: true,
+      // Bu kurucu senkron; imza kopyası çağrı yerinde çözülüp buraya verilir.
+      signature,
+      document,
+      quote: {
+        documentNo: document.documentNo ?? null,
+        subtotal,
+        discountTotal,
+        headerDiscountAmount,
+        headerDiscountPercent,
+        vatAmount,
+        customsTotal: 0,
+        grandTotal: roundMoney(subtotal + vatAmount),
+        paymentTerms: input.paymentTerms ?? null,
+        deliveryTerms: input.deliveryTerms ?? null,
+        warrantyTerms: input.warrantyTerms ?? null,
+        notes: input.notes ?? null,
+      },
+      ...this.buildStandalonePartySnapshot(input, context),
+      receivables: [],
+      items,
+      terms: {
+        paymentTermsText: input.paymentTerms ?? null,
+        deliveryTermsText: input.deliveryTerms ?? null,
+        warrantyTermsText: input.warrantyTerms ?? null,
+      },
+    };
+  }
+
+  async createStandaloneProforma(input: StandaloneProformaCreateInput, actor: AuthContext) {
+    const context = await this.resolveStandaloneDocumentContext(input, actor);
+    const divisionId = resolveAssignedResourceDivision(actor, 'proformas', input.divisionId ?? null);
+    if (!divisionId && (await this.tenantHasActiveDivisions(actor))) {
+      throw new ValidationError('Proforma için bölüm ataması zorunludur', { field: 'divisionId' });
+    }
+    const businessLine = divisionId ? await resolveBusinessLine(this.db, actor.tenantId, divisionId) : 'CNC';
+    const documentNo =
+      normalizeSeriesDocumentNo(input.documentNo, businessLine) ??
+      (await nextSeriesDocumentNo(this.db, actor.tenantId, businessLine, 'proforma', input.issueDate));
+    const statusId = await lookupIdByCode(this.db, proformaStatuses, input.statusCode);
+    if (!statusId) throw new ValidationError('Geçersiz proforma durumu', { field: 'statusCode' });
+    const finalizedAt = input.statusCode !== 'draft' ? new Date() : null;
+    const signatureId = (await this.resolveSignatureId(input.signatureId, actor)) ?? null;
+    const documentSnapshot = this.buildStandaloneProformaSnapshot(
+      {
+        businessLine,
+        quoteId: null,
+        documentNo,
+        issueDate: input.issueDate,
+        statusId,
+        signatureId,
+        finalizedAt,
+        createdBy: actor.userId,
+      },
+      input,
+      context,
+      await this.captureSignatureSnapshot(signatureId, actor)
+    );
+    const [row] = await this.db
+      .insert(proformas)
+      .values({
+        tenantId: actor.tenantId,
+        divisionId,
+        businessLine,
+        quoteId: null,
+        companyId: context.company?.id ?? null,
+        currencyId: context.currency?.id ?? null,
+        companyNameText: context.company ? null : (input.companyName ?? null),
+        documentNo,
+        issueDate: input.issueDate,
+        statusId,
+        signatureId,
+        documentSnapshot,
+        finalizedAt,
+        createdBy: actor.userId,
+      })
+      .returning();
+    await this.audit.write({
+      tenantId: actor.tenantId,
+      actorUserId: actor.userId,
+      action: 'proforma.created',
+      resourceType: 'proforma',
+      resourceId: row.id,
+      newValues: { documentNo: row.documentNo, standalone: true, itemCount: input.items.length },
+    });
+    return this.getProforma(row.id, actor);
+  }
+
+  async updateStandaloneProforma(id: string, input: StandaloneProformaUpdateInput, actor: AuthContext) {
+    const existing = await this.getProforma(id, actor);
+    if (existing.quoteId) {
+      throw new ValidationError('Bu proforma bir teklife bağlı; teklif proforması olarak güncelleyin');
+    }
+    this.assertCommercialDocumentMutable(existing, 'Proforma');
+    const previous = (existing.documentSnapshot ?? {}) as Record<string, any>;
+    // Gönderilmeyen alanlar mevcut belgeden korunur: kısmi güncelleme snapshot'ı sıfırlamamalı.
+    const merged: StandaloneProformaCreateInput = {
+      companyId: input.companyId ?? existing.companyId ?? undefined,
+      companyName: input.companyName ?? previous.company?.legalTitle ?? undefined,
+      companyAddress: input.companyAddress ?? previous.companyAddresses?.[0]?.fullAddress ?? undefined,
+      companyTaxOffice: input.companyTaxOffice ?? previous.company?.taxOffice ?? undefined,
+      companyTaxNumber: input.companyTaxNumber ?? previous.company?.taxNumber ?? undefined,
+      contactName: input.contactName ?? previous.contact?.fullName ?? undefined,
+      contactPhone: input.contactPhone ?? previous.contact?.mobilePhone ?? undefined,
+      divisionId: input.divisionId ?? existing.divisionId ?? undefined,
+      documentNo: input.documentNo ?? existing.documentNo,
+      issueDate: input.issueDate ?? existing.issueDate,
+      statusCode: input.statusCode ?? 'draft',
+      currencyCode: input.currencyCode ?? previous.currency?.code ?? 'USD',
+      items: input.items ?? previous.items ?? [],
+      paymentTerms: input.paymentTerms ?? previous.terms?.paymentTermsText ?? undefined,
+      deliveryTerms: input.deliveryTerms ?? previous.terms?.deliveryTermsText ?? undefined,
+      warrantyTerms: input.warrantyTerms ?? previous.terms?.warrantyTermsText ?? undefined,
+      notes: input.notes ?? previous.quote?.notes ?? undefined,
+    };
+    if (!merged.items.length) throw new ValidationError('Proforma en az bir kalem içermeli', { field: 'items' });
+    const context = await this.resolveStandaloneDocumentContext(merged, actor);
+    const businessLine = (existing.businessLine ?? 'CNC') as BusinessLine;
+    const documentNo =
+      input.documentNo !== undefined
+        ? normalizeSeriesDocumentNo(input.documentNo, businessLine) ?? existing.documentNo
+        : existing.documentNo;
+    const statusId =
+      input.statusCode !== undefined
+        ? await lookupIdByCode(this.db, proformaStatuses, input.statusCode)
+        : existing.statusId;
+    if (!statusId) throw new ValidationError('Geçersiz proforma durumu', { field: 'statusCode' });
+    const finalizedAt = input.statusCode !== undefined && input.statusCode !== 'draft' ? new Date() : existing.finalizedAt;
+    // Gönderilmeyen imza mevcut seçimi korur (diğer alanlarla aynı birleştirme
+    // kuralı); açıkça `null` gönderilmişse imza kaldırılır.
+    const requestedSignatureId = await this.resolveSignatureId(input.signatureId, actor);
+    const signatureId = requestedSignatureId === undefined ? existing.signatureId ?? null : requestedSignatureId;
+    const patch = {
+      companyId: context.company?.id ?? null,
+      currencyId: context.currency?.id ?? null,
+      companyNameText: context.company ? null : (merged.companyName ?? null),
+      documentNo,
+      issueDate: merged.issueDate,
+      statusId,
+      signatureId,
+      finalizedAt,
+      documentSnapshot: this.buildStandaloneProformaSnapshot(
+        { businessLine, quoteId: null, documentNo, issueDate: merged.issueDate, statusId, signatureId, finalizedAt, createdBy: existing.createdBy },
+        merged,
+        context,
+        await this.captureSignatureSnapshot(signatureId, actor)
+      ),
+    };
+    await this.db.update(proformas).set(patch).where(eq(proformas.id, id));
+    await this.audit.write({
+      tenantId: actor.tenantId,
+      actorUserId: actor.userId,
+      action: 'proforma.updated',
+      resourceType: 'proforma',
+      resourceId: id,
+      oldValues: existing,
+      newValues: { ...patch, standalone: true },
+    });
+    return this.getProforma(id, actor);
+  }
+
+  // ────────── TEKLİFTEN BAĞIMSIZ ("HIZLI") SÖZLEŞME ──────────
+  //
+  // Proforma ile aynı gerekçe: teklif açmadan sözleşme kesilebilmeli. Sözleşme
+  // çıktısı (`buildContractPrintData`) zaten `documentSnapshot` verildiğinde canlı
+  // teklife hiç bakmadığı için PDF tarafında yeni bir yol açmak gerekmez.
+
+  /**
+   * Sözleşme çıktısının beklediği belge anlık görüntüsü. Teklife bağlı sözleşmenin
+   * snapshot'ıyla aynı alan adlarını kullanır; ödeme planı cari alacaklar yerine
+   * elle girilen taksitlerden üretilir.
+   */
+  private buildStandaloneContractSnapshot(
+    document: Record<string, unknown>,
+    input: StandaloneContractCreateInput,
+    context: Awaited<ReturnType<QuotesService['resolveStandaloneDocumentContext']>>,
+    signature: DocumentSignatureSnapshot | null = null
+  ) {
+    const roundMoney = (value: number) => Number(value.toFixed(4));
+    const { items, discountTotal, subtotal, vatAmount, headerDiscountAmount, headerDiscountPercent } =
+      this.priceStandaloneItems(input.items, {
+        amount: input.headerDiscountAmount,
+        percent: input.headerDiscountPercent,
+      });
+
+    return {
+      schemaVersion: 4,
+      capturedAt: new Date().toISOString(),
+      /** Teklife bağlı snapshot'lardan ayırmak için işaret. */
+      standalone: true,
+      // Bu kurucu senkron; imza kopyası çağrı yerinde çözülüp buraya verilir.
+      signature,
+      document,
+      quote: {
+        documentNo: document.contractNo ?? null,
+        subtotal,
+        discountTotal,
+        headerDiscountAmount,
+        headerDiscountPercent,
+        vatAmount,
+        customsTotal: 0,
+        grandTotal: roundMoney(subtotal + vatAmount),
+        paymentTerms: input.paymentTerms ?? null,
+        deliveryTerms: input.deliveryTerms ?? null,
+        warrantyTerms: input.warrantyTerms ?? null,
+        notes: input.notes ?? null,
+      },
+      ...this.buildStandalonePartySnapshot(input, context),
+      // Sözleşme çıktısındaki ödeme planı bu listeden basılır; teklife bağlı
+      // sözleşmede aynı alan cari alacaklardan doldurulur.
+      receivables: (input.installments ?? []).map((installment) => ({
+        id: randomUUID(),
+        amount: roundMoney(Number(installment.amount)),
+        dueDate: installment.dueDate ?? null,
+        notes: installment.label ?? (installment.promissoryNote ? 'Senet' : null),
+        // Tahsilat yöntemi ödeme planı tablosunun üçüncü sütunu; `notes` içinde
+        // "Senet" aramak yalnız tek bir yöntemi ayırt edebiliyordu.
+        paymentMethod: installment.paymentMethod ?? (installment.promissoryNote ? 'promissory_note' : null),
+      })),
+      items,
+      terms: {
+        paymentTermsText: input.paymentTerms ?? null,
+        deliveryTermsText: input.deliveryTerms ?? null,
+        warrantyTermsText: input.warrantyTerms ?? null,
+        deliveryLocation: input.deliveryLocation ?? null,
+        estimatedDeliveryDaysMin: input.estimatedDeliveryDaysMin ?? null,
+        estimatedDeliveryDaysMax: input.estimatedDeliveryDaysMax ?? null,
+        importCostsExcluded: input.importCostsExcluded ?? true,
+        vatIncluded: input.vatIncluded ?? false,
+        freightPaidBySeller: input.freightPaidBySeller ?? false,
+      },
+    };
+  }
+
+  async createStandaloneContract(input: StandaloneContractCreateInput, actor: AuthContext) {
+    const context = await this.resolveStandaloneDocumentContext(input, actor);
+    const divisionId = resolveAssignedResourceDivision(actor, 'contracts', input.divisionId ?? null);
+    if (!divisionId && (await this.tenantHasActiveDivisions(actor))) {
+      throw new ValidationError('Sözleşme için bölüm ataması zorunludur', { field: 'divisionId' });
+    }
+    const businessLine = divisionId ? await resolveBusinessLine(this.db, actor.tenantId, divisionId) : 'CNC';
+    const contractNo =
+      normalizeSeriesDocumentNo(input.contractNo, businessLine) ??
+      (await nextSeriesDocumentNo(this.db, actor.tenantId, businessLine, 'contract', input.signedDate));
+    const statusId = await lookupIdByCode(this.db, contractStatuses, input.statusCode);
+    if (!statusId) throw new ValidationError('Geçersiz sözleşme durumu', { field: 'statusCode' });
+    const finalizedAt = input.statusCode !== 'draft' ? new Date() : null;
+    const signatureId = (await this.resolveSignatureId(input.signatureId, actor)) ?? null;
+    const documentSnapshot = this.buildStandaloneContractSnapshot(
+      {
+        businessLine,
+        quoteId: null,
+        contractNo,
+        signedDate: input.signedDate,
+        paymentTermDays: input.paymentTermDays ?? null,
+        statusId,
+        signatureId,
+        finalizedAt,
+        createdBy: actor.userId,
+      },
+      input,
+      context,
+      await this.captureSignatureSnapshot(signatureId, actor)
+    );
+    const [row] = await this.db
+      .insert(contracts)
+      .values({
+        tenantId: actor.tenantId,
+        divisionId,
+        businessLine,
+        quoteId: null,
+        companyId: context.company?.id ?? null,
+        currencyId: context.currency?.id ?? null,
+        companyNameText: context.company ? null : (input.companyName ?? null),
+        contractNo,
+        signedDate: input.signedDate,
+        paymentTermDays: input.paymentTermDays ?? null,
+        statusId,
+        signatureId,
+        documentSnapshot,
+        finalizedAt,
+        createdBy: actor.userId,
+      })
+      .returning();
+    await this.audit.write({
+      tenantId: actor.tenantId,
+      actorUserId: actor.userId,
+      action: 'contract.created',
+      resourceType: 'contract',
+      resourceId: row.id,
+      newValues: { contractNo: row.contractNo, standalone: true, itemCount: input.items.length },
+    });
+    return this.getContract(row.id, actor);
+  }
+
+  async updateStandaloneContract(id: string, input: StandaloneContractUpdateInput, actor: AuthContext) {
+    const existing = await this.getContract(id, actor);
+    if (existing.quoteId) {
+      throw new ValidationError('Bu sözleşme bir teklife bağlı; teklif sözleşmesi olarak güncelleyin');
+    }
+    this.assertCommercialDocumentMutable(existing, 'Sözleşme');
+    const previous = (existing.documentSnapshot ?? {}) as Record<string, any>;
+    // Gönderilmeyen alanlar mevcut belgeden korunur: kısmi güncelleme snapshot'ı sıfırlamamalı.
+    const merged: StandaloneContractCreateInput = {
+      companyId: input.companyId ?? existing.companyId ?? undefined,
+      companyName: input.companyName ?? previous.company?.legalTitle ?? undefined,
+      companyAddress: input.companyAddress ?? previous.companyAddresses?.[0]?.fullAddress ?? undefined,
+      companyTaxOffice: input.companyTaxOffice ?? previous.company?.taxOffice ?? undefined,
+      companyTaxNumber: input.companyTaxNumber ?? previous.company?.taxNumber ?? undefined,
+      contactName: input.contactName ?? previous.contact?.fullName ?? undefined,
+      contactPhone: input.contactPhone ?? previous.contact?.mobilePhone ?? undefined,
+      divisionId: input.divisionId ?? existing.divisionId ?? undefined,
+      contractNo: input.contractNo ?? existing.contractNo,
+      signedDate: input.signedDate ?? existing.signedDate ?? new Date(),
+      paymentTermDays: input.paymentTermDays ?? existing.paymentTermDays ?? undefined,
+      statusCode: input.statusCode ?? 'draft',
+      currencyCode: input.currencyCode ?? previous.currency?.code ?? 'USD',
+      items: input.items ?? previous.items ?? [],
+      paymentTerms: input.paymentTerms ?? previous.terms?.paymentTermsText ?? undefined,
+      deliveryTerms: input.deliveryTerms ?? previous.terms?.deliveryTermsText ?? undefined,
+      warrantyTerms: input.warrantyTerms ?? previous.terms?.warrantyTermsText ?? undefined,
+      notes: input.notes ?? previous.quote?.notes ?? undefined,
+      deliveryLocation: input.deliveryLocation ?? previous.terms?.deliveryLocation ?? undefined,
+      estimatedDeliveryDaysMin:
+        input.estimatedDeliveryDaysMin ?? previous.terms?.estimatedDeliveryDaysMin ?? undefined,
+      estimatedDeliveryDaysMax:
+        input.estimatedDeliveryDaysMax ?? previous.terms?.estimatedDeliveryDaysMax ?? undefined,
+      importCostsExcluded: input.importCostsExcluded ?? previous.terms?.importCostsExcluded ?? true,
+      vatIncluded: input.vatIncluded ?? previous.terms?.vatIncluded ?? false,
+      freightPaidBySeller: input.freightPaidBySeller ?? previous.terms?.freightPaidBySeller ?? false,
+      installments:
+        input.installments
+        ?? (previous.receivables ?? []).map((receivable: any) => ({
+          label: receivable?.notes ?? undefined,
+          amount: Number(receivable?.amount ?? 0),
+          dueDate: receivable?.dueDate ?? undefined,
+        })),
+    };
+    if (!merged.items.length) throw new ValidationError('Sözleşme en az bir kalem içermeli', { field: 'items' });
+    const context = await this.resolveStandaloneDocumentContext(merged, actor);
+    const businessLine = (existing.businessLine ?? 'CNC') as BusinessLine;
+    const contractNo =
+      input.contractNo !== undefined
+        ? normalizeSeriesDocumentNo(input.contractNo, businessLine) ?? existing.contractNo
+        : existing.contractNo;
+    const statusId =
+      input.statusCode !== undefined
+        ? await lookupIdByCode(this.db, contractStatuses, input.statusCode)
+        : existing.statusId;
+    if (!statusId) throw new ValidationError('Geçersiz sözleşme durumu', { field: 'statusCode' });
+    const finalizedAt = input.statusCode !== undefined && input.statusCode !== 'draft' ? new Date() : existing.finalizedAt;
+    // Gönderilmeyen imza mevcut seçimi korur; açıkça `null` gönderilmişse kaldırılır.
+    const requestedSignatureId = await this.resolveSignatureId(input.signatureId, actor);
+    const signatureId = requestedSignatureId === undefined ? existing.signatureId ?? null : requestedSignatureId;
+    const patch = {
+      companyId: context.company?.id ?? null,
+      currencyId: context.currency?.id ?? null,
+      companyNameText: context.company ? null : (merged.companyName ?? null),
+      contractNo,
+      signedDate: merged.signedDate,
+      paymentTermDays: merged.paymentTermDays ?? null,
+      statusId,
+      signatureId,
+      finalizedAt,
+      documentSnapshot: this.buildStandaloneContractSnapshot(
+        {
+          businessLine,
+          quoteId: null,
+          contractNo,
+          signedDate: merged.signedDate,
+          paymentTermDays: merged.paymentTermDays ?? null,
+          statusId,
+          signatureId,
+          finalizedAt,
+          createdBy: existing.createdBy,
+        },
+        merged,
+        context,
+        await this.captureSignatureSnapshot(signatureId, actor)
+      ),
+    };
+    await this.db.update(contracts).set(patch).where(eq(contracts.id, id));
+    await this.audit.write({
+      tenantId: actor.tenantId,
+      actorUserId: actor.userId,
+      action: 'contract.updated',
+      resourceType: 'contract',
+      resourceId: id,
+      oldValues: existing,
+      newValues: { ...patch, standalone: true },
+    });
+    return this.getContract(id, actor);
+  }
+
   async listContracts(actor: AuthContext, page: Pagination) {
     const { limit, offset } = pageOffset(page);
     const where = and(
@@ -1750,8 +2839,10 @@ export class QuotesService {
       })
       .from(contracts)
       .leftJoin(quotes, eq(contracts.quoteId, quotes.id))
-      .leftJoin(companies, eq(quotes.companyId, companies.id))
-      .leftJoin(currencies, eq(quotes.currencyId, currencies.id))
+      // Teklifsiz ("hızlı") sözleşmede firma ve para birimi teklif üzerinden
+      // okunamaz; coalesce ile belgenin kendi sütunlarına düşülür.
+      .leftJoin(companies, eq(companies.id, sql`coalesce(${quotes.companyId}, ${contracts.companyId})`))
+      .leftJoin(currencies, eq(currencies.id, sql`coalesce(${quotes.currencyId}, ${contracts.currencyId})`))
       .leftJoin(contractStatuses, eq(contracts.statusId, contractStatuses.id))
       .where(where)
       .orderBy(desc(contracts.createdAt))
@@ -1766,6 +2857,12 @@ export class QuotesService {
 
   async createContract(input: ContractCreateInput, actor: AuthContext) {
     const quote = await this.get(input.quoteId, actor);
+    if (input.fileId) {
+      await this.assertContractFile(input.fileId, actor, {
+        opportunityId: quote.opportunityId,
+        companyId: quote.companyId,
+      });
+    }
     const businessLine = await this.businessLineForQuote(quote, actor);
     const contractNo =
       normalizeSeriesDocumentNo(input.contractNo, businessLine) ??
@@ -1784,12 +2881,32 @@ export class QuotesService {
         paymentTermDays: input.paymentTermDays ?? null,
         statusId,
         fileId: input.fileId ?? null,
+        signatureId: (await this.resolveSignatureId(input.signatureId, actor)) ?? null,
         createdBy: actor.userId,
+        // Şartlar sözleşmeye özeldir; teklifin `quote_terms` kaydı değişmez.
+        terms: input.terms ?? null,
       })
       .returning();
-    if (input.statusCode !== 'draft') {
-      const finalizedAt = new Date();
-      const documentSnapshot = await this.buildCommercialDocumentSnapshot(row as unknown as Record<string, unknown>, row.quoteId, actor);
+    // Fiyat pazarlığı sözleşmede yapılabildiği için taslak sözleşme de kendi
+    // fiyatlarıyla dondurulur; aksi hâlde çıktı canlı teklife dönerdi.
+    const pricedContract = (input.items?.length ?? 0) > 0
+      || input.headerDiscountAmount !== undefined
+      || input.headerDiscountPercent !== undefined;
+    if (input.statusCode !== 'draft' || pricedContract || input.terms) {
+      const finalizedAt = input.statusCode !== 'draft' ? new Date() : null;
+      const documentSnapshot = pricedContract
+        ? await this.buildPricedDocumentSnapshot(
+            { ...(row as unknown as Record<string, unknown>), finalizedAt },
+            input.quoteId,
+            actor,
+            input.items,
+            mergeDocumentHeaderDiscount(null, input)
+          )
+        : await this.buildCommercialDocumentSnapshot(
+            row as unknown as Record<string, unknown>,
+            input.quoteId,
+            actor
+          );
       await this.db.update(contracts).set({ finalizedAt, documentSnapshot }).where(eq(contracts.id, row.id));
     }
     await this.audit.write({
@@ -1798,7 +2915,7 @@ export class QuotesService {
       action: 'contract.created',
       resourceType: 'contract',
       resourceId: row.id,
-      newValues: { contractNo: row.contractNo, quoteId: row.quoteId },
+      newValues: { contractNo: row.contractNo, quoteId: row.quoteId, priceItemCount: input.items?.length ?? 0 },
     });
     return this.getContract(row.id, actor);
   }
@@ -1806,14 +2923,23 @@ export class QuotesService {
   async updateContract(id: string, input: ContractUpdateInput, actor: AuthContext) {
     const existing = await this.getContract(id, actor);
     this.assertCommercialDocumentMutable(existing, 'Sözleşme');
+    if (!existing.quoteId && !input.quoteId) {
+      throw new ValidationError('Bu sözleşme bir teklife bağlı değil; hızlı sözleşme olarak güncelleyin');
+    }
     const patch: Record<string, unknown> = {};
-    let quote = await this.get(existing.quoteId, actor);
+    let quote = await this.get(String(input.quoteId ?? existing.quoteId), actor);
     if (input.quoteId !== undefined) {
       quote = await this.get(input.quoteId, actor);
       patch.quoteId = input.quoteId;
       patch.divisionId = quote.divisionId;
     }
     const businessLine = await this.businessLineForQuote(quote, actor);
+    if (input.fileId) {
+      await this.assertContractFile(input.fileId, actor, {
+        opportunityId: quote.opportunityId,
+        companyId: quote.companyId,
+      });
+    }
     if (input.quoteId !== undefined) patch.businessLine = businessLine;
     if (input.statusCode !== undefined) {
       const statusId = await lookupIdByCode(this.db, contractStatuses, input.statusCode);
@@ -1823,17 +2949,47 @@ export class QuotesService {
     for (const k of ['signedDate', 'paymentTermDays', 'fileId'] as const) {
       if ((input as any)[k] !== undefined) patch[k] = (input as any)[k] ?? null;
     }
+    const signatureId = await this.resolveSignatureId(input.signatureId, actor);
+    if (signatureId !== undefined) patch.signatureId = signatureId;
     if (input.contractNo !== undefined) patch.contractNo = normalizeSeriesDocumentNo(input.contractNo, businessLine);
     else if (input.quoteId !== undefined && businessLine !== existing.businessLine) {
       patch.contractNo = await nextSeriesDocumentNo(this.db, actor.tenantId, businessLine, 'contract', input.signedDate ?? existing.signedDate ?? new Date());
     }
+    // Belgeye özel şart; `null` gönderilirse belge yeniden teklifin şartlarına düşer.
+    if (input.terms !== undefined) patch.terms = input.terms ?? null;
+    const snapshotDocument = { ...existing, ...patch };
+    // Sözleşme fiyatı bağlı teklifi değiştirmeden burada saklanır: onaylı
+    // teklif kilitlidir, oysa imza masasında fiyat hâlâ pazarlığa açıktır.
+    const headerDiscountChanged =
+      input.headerDiscountAmount !== undefined || input.headerDiscountPercent !== undefined;
+    if (input.items !== undefined || headerDiscountChanged || input.terms !== undefined) {
+      const quoteItemIds = new Set(
+        (quote.items ?? []).map((item: { id: string }) => item.id),
+      );
+      const carriedSnapshot = input.quoteId !== undefined ? null : existing.documentSnapshot;
+      const priceItems = this.mergeDocumentPriceItems(carriedSnapshot, quoteItemIds, input.items);
+      patch.documentSnapshot = await this.buildPricedDocumentSnapshot(
+        snapshotDocument,
+        String(patch.quoteId ?? existing.quoteId),
+        actor,
+        priceItems,
+        mergeDocumentHeaderDiscount(carriedSnapshot, input)
+      );
+    }
     if (input.statusCode !== undefined && input.statusCode !== 'draft') {
       patch.finalizedAt = new Date();
-      patch.documentSnapshot = await this.buildCommercialDocumentSnapshot(
-        { ...existing, ...patch },
-        String(patch.quoteId ?? existing.quoteId),
-        actor
-      );
+      // Kesinleştirme, daha önce pazarlık edilmiş fiyatları silmemeli: mevcut
+      // anlık görüntü varsa yalnız belge başlığı tazelenir.
+      if (!patch.documentSnapshot) {
+        const currentSnapshot = existing.documentSnapshot as Record<string, unknown> | null;
+        patch.documentSnapshot = currentSnapshot
+          ? { ...currentSnapshot, document: documentHeaderOnly({ ...snapshotDocument, finalizedAt: patch.finalizedAt }) }
+          : await this.buildCommercialDocumentSnapshot(
+              { ...snapshotDocument, finalizedAt: patch.finalizedAt },
+              String(patch.quoteId ?? existing.quoteId),
+              actor
+            );
+      }
     }
     await this.db.update(contracts).set(patch).where(eq(contracts.id, id));
     await this.audit.write({
@@ -1916,6 +3072,7 @@ export class QuotesService {
       const documentSnapshot = await this.buildCommercialDocumentSnapshot(row as unknown as Record<string, unknown>, row.quoteId, actor);
       await this.db.update(commercialInvoices).set({ finalizedAt, documentSnapshot }).where(eq(commercialInvoices.id, row.id));
     }
+    await this.invalidateInvoiceApprovals([row.quoteId], actor, 'Ticari fatura oluşturuldu');
     await this.audit.write({
       tenantId: actor.tenantId,
       actorUserId: actor.userId,
@@ -1960,6 +3117,11 @@ export class QuotesService {
       );
     }
     await this.db.update(commercialInvoices).set(patch).where(eq(commercialInvoices.id, id));
+    await this.invalidateInvoiceApprovals(
+      [existing.quoteId, String(patch.quoteId ?? existing.quoteId)],
+      actor,
+      'Ticari fatura değiştirildi'
+    );
     await this.audit.write({
       tenantId: actor.tenantId,
       actorUserId: actor.userId,
@@ -1976,6 +3138,7 @@ export class QuotesService {
     const existing = await this.getCommercialInvoice(id, actor);
     this.assertCommercialDocumentMutable(existing, 'Ticari fatura');
     await this.db.update(commercialInvoices).set({ deletedAt: new Date() }).where(eq(commercialInvoices.id, id));
+    await this.invalidateInvoiceApprovals([existing.quoteId], actor, 'Ticari fatura silindi');
     await this.audit.write({
       tenantId: actor.tenantId,
       actorUserId: actor.userId,

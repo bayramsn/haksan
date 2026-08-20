@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "../ui/dialog";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription,
@@ -11,17 +12,28 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from ".
 import {
   Phone, Smartphone, Mail, MapPin, Building2, Star, Globe, Hash, Briefcase,
   FileText, FileSignature, Receipt, Wallet, Cpu, Wrench, ChevronRight, User as UserIcon,
-  Plus, Pencil, Trash2, NotebookText,
+  Plus, Pencil, Trash2, NotebookText, CalendarPlus,
 } from "lucide-react";
 import {
   Customer, Contact, FirmType, SalesCase, Offer, Machine, DocumentItem, ServiceRequest,
   salesStageLabel,
 } from "../../lib/mock";
 import { useStore } from "../../lib/store";
-import { StatusBadge } from "../Layout";
+import { StatusBadge } from "../shared/StatusBadge";
 import { CompanyFinancePanel } from "../shared/CompanyFinancePanel";
-import { CreateContactDialog, EditContactDialog } from "./CreateDialogs";
+import { CreateCaseDialog, CreateContactDialog, EditContactDialog, EditCustomerDialog, LogActivityDialog } from "./CreateDialogs";
+import { CreateContractDialog } from "./CreateContractDialog";
+import { CreateProformaDialog } from "./CreateProformaDialog";
+import { QuoteDialog } from "./QuoteDialog";
+import { useAuth } from "../../../lib/auth";
 import { toast } from "sonner";
+import {
+  contactQueryKeys,
+  invalidateContactQueries,
+  loadAllCompanyContacts,
+  type ContactQueryScope,
+} from "../../lib/contactServerData";
+import { useCompanyDetail } from "../../lib/companyServerData";
 
 // ───────────────────────── helpers ─────────────────────────
 
@@ -118,22 +130,155 @@ function EmptyRow({ cols, text }: { cols: number; text: string }) {
 
 // ───────────────────────── Company popup ─────────────────────────
 
+/**
+ * Firma pop-up'ından doğrudan aksiyon almayı sağlar. Satış kartı ve teklif
+ * firmayı ön seçili alır; proforma ve sözleşme bir TEKLİFE bağlandığı için
+ * firmanın en yeni teklifi ön seçili gelir, teklifi yoksa diyalogdaki seçici
+ * kullanılır.
+ */
+function CompanyQuickActions({
+  customer,
+  latestQuoteId,
+}: {
+  customer: Customer;
+  latestQuoteId?: string;
+}) {
+  const { hasPermission } = useAuth();
+  const [quoteOpen, setQuoteOpen] = useState(false);
+  const [proformaOpen, setProformaOpen] = useState(false);
+  const [contractOpen, setContractOpen] = useState(false);
+
+  const canOpportunity = hasPermission("opportunities.create");
+  const canActivity = hasPermission("activities.create");
+  const canQuote = hasPermission("quotes.create");
+  const canProforma = hasPermission("proformas.create");
+  const canContract = hasPermission("contracts.create");
+  if (!canOpportunity && !canActivity && !canQuote && !canProforma && !canContract) return null;
+
+  return (
+    <div className="mt-4 flex flex-wrap items-center gap-2 rounded-lg border border-primary/15 bg-primary/[0.03] px-3 py-2.5">
+      <span className="mr-1 font-data text-[9px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+        Hızlı aksiyon
+      </span>
+
+      {canOpportunity && (
+        <CreateCaseDialog
+          defaultCustomerId={customer.id}
+          trigger={
+            <Button size="sm" variant="outline" className="h-8 gap-1.5 bg-white text-xs">
+              <Briefcase className="size-3.5" /> Satış Kartı
+            </Button>
+          }
+        />
+      )}
+
+      {canActivity && (
+        <LogActivityDialog
+          customerId={customer.id}
+          defaultKind="customer_visit"
+          trigger={
+            <Button size="sm" variant="outline" className="h-8 gap-1.5 bg-white text-xs">
+              <CalendarPlus className="size-3.5" /> Fırsat Dışı Aktivite
+            </Button>
+          }
+        />
+      )}
+
+      {canQuote && (
+        <>
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-8 gap-1.5 bg-white text-xs"
+            onClick={() => setQuoteOpen(true)}
+          >
+            <FileText className="size-3.5" /> Teklif
+          </Button>
+          <QuoteDialog defaultCustomerId={customer.id} open={quoteOpen} onOpenChange={setQuoteOpen} />
+        </>
+      )}
+
+      {canProforma && (
+        <>
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-8 gap-1.5 bg-white text-xs"
+            onClick={() => setProformaOpen(true)}
+          >
+            <FileText className="size-3.5" /> Proforma
+          </Button>
+          <CreateProformaDialog
+            defaultQuoteId={latestQuoteId}
+            open={proformaOpen}
+            onOpenChange={setProformaOpen}
+          />
+        </>
+      )}
+
+      {canContract && (
+        <>
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-8 gap-1.5 bg-white text-xs"
+            onClick={() => setContractOpen(true)}
+          >
+            <FileText className="size-3.5" /> Sözleşme
+          </Button>
+          <CreateContractDialog
+            defaultQuoteId={latestQuoteId}
+            open={contractOpen}
+            onOpenChange={setContractOpen}
+          />
+        </>
+      )}
+
+      {(canProforma || canContract) && !latestQuoteId && (
+        <span className="text-[10px] text-muted-foreground">
+          Proforma/sözleşme bir teklife bağlanır — bu firmanın teklifi yok, diyalogda seçmeniz gerekir.
+        </span>
+      )}
+    </div>
+  );
+}
+
 export function CompanyDetailDialog({
   customer,
   onClose,
   onOpenContact,
+  onEdit,
+  onOpenFullDetail,
 }: {
   customer: Customer | null;
   onClose: () => void;
   onOpenContact?: (c: Contact) => void;
+  onEdit?: (customer: Customer) => void;
+  onOpenFullDetail?: (customer: Customer) => void;
 }) {
-  const { contacts, cases, offers, documents, payments, machines, service, deleteContact } = useStore();
+  const { cases, offers, documents, payments, machines, service, activities, deleteContact } = useStore();
+  const { user, activeDivision, activeDepartment, hasPermission } = useAuth();
+  const canReadActivities = hasPermission("activities.read");
+  const queryClient = useQueryClient();
   const [editingContact, setEditingContact] = useState<Contact | null>(null);
   const [pendingContactDelete, setPendingContactDelete] = useState<Contact | null>(null);
   const [breakdown, setBreakdown] = useState<BreakdownKey | null>(null);
+  const contactScope: ContactQueryScope = {
+    tenantId: user?.tenantId ?? "anonymous",
+    userId: user?.id ?? "anonymous",
+    activeDivision,
+    activeDepartment,
+  };
+  const companyId = customer?.id ?? "";
+  const firmContactsQuery = useQuery({
+    queryKey: contactQueryKeys.companyContacts(contactScope, companyId),
+    queryFn: ({ signal }) => loadAllCompanyContacts(companyId, signal),
+    enabled: Boolean(customer),
+  });
   if (!customer) return null;
 
-  const firmContacts = contacts.filter((k) => k.customerId === customer.id);
+  const firmContacts = firmContactsQuery.data?.data ?? [];
+  const firmContactCount = firmContactsQuery.data?.total ?? 0;
   const firmCases = cases.filter((c) => c.customerId === customer.id);
   const caseIds = new Set(firmCases.map((c) => c.id));
   // Quotes/documents tie to a firm directly via companyId; fall back to the
@@ -142,6 +287,11 @@ export function CompanyDetailDialog({
   const firmDocs = documents.filter((d) => d.companyId === customer.id || (d.salesCaseId && caseIds.has(d.salesCaseId)));
   const firmProformas = firmDocs.filter((d) => d.type === "Proforma");
   const firmPayments = payments.filter((p) => p.customerId === customer.id);
+  // Firma kartındaki bu alan özellikle herhangi bir satış fırsatına bağlı
+  // olmayan temasları gösterir. Fırsata bağlı aktiviteler satış kartında kalır.
+  const firmStandaloneActivities = activities.filter(
+    (activity) => activity.customerId === customer.id && !activity.salesCaseId,
+  );
   const firmMachines = machines.filter((m) => m.customerId === customer.id);
   const firmService = service.filter((s) => s.customerId === customer.id);
   const companyAddresses = customer.addresses?.length
@@ -162,6 +312,10 @@ export function CompanyDetailDialog({
   // Total quoted value across all offers for this firm, grouped by currency.
   const totalQuoted = sumByCurrency(firmOffers.map((o) => ({ amount: o.amount, currency: o.currency })));
 
+  // Proforma ve sözleşme bir teklife bağlanır; firmanın en yeni teklifi ön seçili gelir.
+  const latestQuoteId = [...firmOffers]
+    .sort((a, b) => (b.date ?? "").localeCompare(a.date ?? ""))[0]?.id;
+
   const DOC_LABEL: Record<string, string> = {
     Proforma: "Proforma",
     Contract: "Sözleşme",
@@ -176,6 +330,7 @@ export function CompanyDetailDialog({
     if (!pendingContactDelete) return;
     try {
       await deleteContact(pendingContactDelete.id);
+      await invalidateContactQueries(queryClient);
       toast.success("Kontak silindi");
       setPendingContactDelete(null);
     } catch (err: any) {
@@ -217,7 +372,34 @@ export function CompanyDetailDialog({
                 <span className="text-muted-foreground">{customer.type === "company" ? "Kurumsal" : "Bireysel"}</span>
               </DialogDescription>
             </div>
+            {hasPermission("companies.update") && onEdit && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-8 shrink-0 gap-1.5 bg-white text-xs"
+                onClick={() => onEdit(customer)}
+              >
+                <Pencil className="size-3.5" /> Firma Düzenle
+              </Button>
+            )}
+            {onOpenFullDetail && (
+              <Button
+                type="button"
+                size="sm"
+                className="h-8 shrink-0 gap-1.5 text-xs"
+                onClick={() => {
+                  onClose();
+                  onOpenFullDetail(customer);
+                }}
+              >
+                <ChevronRight className="size-3.5" /> Müşteri Detayına Git
+              </Button>
+            )}
           </div>
+
+          {/* Aksiyonlar — firmadan doğrudan satış kartı / teklif / proforma / sözleşme açılır. */}
+          <CompanyQuickActions customer={customer} latestQuoteId={latestQuoteId} />
 
           {/* contact info row */}
           <div className="mt-4 grid grid-cols-2 sm:grid-cols-3 gap-3">
@@ -226,6 +408,7 @@ export function CompanyDetailDialog({
             <Field icon={<Mail className="size-4" />} label="E-posta" value={customer.email} />
             <Field icon={<MapPin className="size-4" />} label="Konum" value={[customer.city, customer.district].filter(Boolean).join(" / ")} />
             <Field icon={<Briefcase className="size-4" />} label="Sektör" value={customer.sector} />
+            <Field icon={<Building2 className="size-4" />} label="Bağlı Bulunduğu Birim" value={(customer.divisions ?? []).map((division) => division.name).join(", ")} />
             <Field icon={<Building2 className="size-4" />} label="Firma Grubu" value={customer.companyGroupNames?.join(", ") || customer.companyGroupName} />
             <Field icon={<Globe className="size-4" />} label="Web" value={customer.website} />
             <Field icon={<UserIcon className="size-4" />} label="Oluşturan" value={createdMeta(customer)} />
@@ -293,7 +476,7 @@ export function CompanyDetailDialog({
 
         {/* KPI tiles — her biri tıklanınca ilgili kayıtlar pop-up olarak açılır */}
         <div className="grid grid-cols-3 gap-2.5 px-4 py-4 sm:px-6">
-          <Stat icon={<UserIcon className="size-3.5" />} label="Kontak" value={firmContacts.length} accent="text-indigo-600" onClick={() => setBreakdown("contacts")} />
+          <Stat icon={<UserIcon className="size-3.5" />} label="Kontak" value={firmContactsQuery.isPending ? "…" : firmContactCount} accent="text-indigo-600" onClick={() => setBreakdown("contacts")} />
           <Stat icon={<Briefcase className="size-3.5" />} label="Satış Kartı" value={firmCases.length} accent="text-sky-600" onClick={() => setBreakdown("cases")} />
           <Stat icon={<FileText className="size-3.5" />} label="Teklif" value={firmOffers.length} accent="text-blue-600" onClick={() => setBreakdown("offers")} />
           <Stat icon={<FileSignature className="size-3.5" />} label="Proforma" value={firmProformas.length} accent="text-brand-blue" onClick={() => setBreakdown("proformas")} />
@@ -317,10 +500,13 @@ export function CompanyDetailDialog({
         <div className="px-4 pb-6 sm:px-6">
           <Tabs defaultValue="kontaklar">
             <TabsList className="h-auto flex-wrap justify-start bg-muted/60">
-              <TabsTrigger value="kontaklar">Kontaklar ({firmContacts.length})</TabsTrigger>
+              <TabsTrigger value="kontaklar">Kontaklar ({firmContactsQuery.isPending ? "…" : firmContactCount})</TabsTrigger>
               <TabsTrigger value="satis">Satış ({firmCases.length})</TabsTrigger>
               <TabsTrigger value="teklif">Teklifler ({firmOffers.length})</TabsTrigger>
               <TabsTrigger value="dokuman">Dökümanlar ({firmDocs.length})</TabsTrigger>
+              {canReadActivities && (
+                <TabsTrigger value="aktivite">Fırsat Dışı Aktiviteler ({firmStandaloneActivities.length})</TabsTrigger>
+              )}
               <TabsTrigger value="cari">Cari ({firmPayments.length})</TabsTrigger>
               <TabsTrigger value="makine">Makineler ({firmMachines.length})</TabsTrigger>
             </TabsList>
@@ -330,6 +516,7 @@ export function CompanyDetailDialog({
               <div className="mb-2 flex justify-end">
                 <CreateContactDialog
                   defaultCustomerId={customer.id}
+                  onCreated={() => void invalidateContactQueries(queryClient)}
                   trigger={
                     <Button type="button" size="sm" className="gap-1">
                       <Plus className="size-4" /> Kontak Ekle
@@ -348,6 +535,8 @@ export function CompanyDetailDialog({
                     </TableRow>
                   </TableHeader>
                   <TableBody>
+                    {firmContactsQuery.isPending && <EmptyRow cols={4} text="Kontaklar yükleniyor..." />}
+                    {firmContactsQuery.isError && <EmptyRow cols={4} text="Kontaklar yüklenemedi." />}
                     {firmContacts.map((k) => (
                       <TableRow
                         key={k.id}
@@ -408,11 +597,65 @@ export function CompanyDetailDialog({
                         </TableCell>
                       </TableRow>
                     ))}
-                    {firmContacts.length === 0 && <EmptyRow cols={4} text="Bu firmaya bağlı kontak yok." />}
+                    {!firmContactsQuery.isPending && !firmContactsQuery.isError && firmContacts.length === 0 && <EmptyRow cols={4} text="Bu firmaya bağlı kontak yok." />}
                   </TableBody>
                 </Table>
               </div>
             </TabsContent>
+
+            {/* activities recorded directly against the company, without an opportunity */}
+            {canReadActivities && (
+              <TabsContent value="aktivite" className="mt-3">
+                <div className="mb-2 flex justify-end">
+                  {hasPermission("activities.create") && (
+                    <LogActivityDialog
+                      customerId={customer.id}
+                      defaultKind="customer_visit"
+                      trigger={
+                        <Button type="button" size="sm" className="gap-1.5">
+                          <CalendarPlus className="size-4" /> Aktivite Ekle
+                        </Button>
+                      }
+                    />
+                  )}
+                </div>
+                <div className="overflow-hidden rounded-lg border border-border/60">
+                  <Table>
+                    <TableHeader>
+                      <TableRow className="bg-muted/30 hover:bg-muted/30">
+                        <TableHead>Tarih</TableHead>
+                        <TableHead>Tür</TableHead>
+                        <TableHead>Aktivite</TableHead>
+                        <TableHead>Kaydeden</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {firmStandaloneActivities.map((activity) => (
+                        <TableRow key={activity.id}>
+                          <TableCell className="whitespace-nowrap tabular-nums text-muted-foreground">{activity.date}</TableCell>
+                          <TableCell className="whitespace-nowrap">{activity.type || "Aktivite"}</TableCell>
+                          <TableCell>
+                            <div className="font-medium">{activity.title}</div>
+                            {activity.note && (
+                              <div className="mt-0.5 whitespace-pre-wrap text-xs leading-relaxed text-muted-foreground">
+                                {activity.note}
+                              </div>
+                            )}
+                            {activity.result && activity.result !== activity.note && (
+                              <div className="mt-1 text-xs text-muted-foreground">Sonuç: {activity.result}</div>
+                            )}
+                          </TableCell>
+                          <TableCell className="text-muted-foreground">{activity.createdByName || "—"}</TableCell>
+                        </TableRow>
+                      ))}
+                      {firmStandaloneActivities.length === 0 && (
+                        <EmptyRow cols={4} text="Bu firmaya ait fırsat dışı aktivite yok." />
+                      )}
+                    </TableBody>
+                  </Table>
+                </div>
+              </TabsContent>
+            )}
 
             {/* sales cases */}
             <TabsContent value="satis" className="mt-3">
@@ -560,7 +803,13 @@ export function CompanyDetailDialog({
           </Tabs>
         </div>
       </DialogContent>
-      <EditContactDialog contact={editingContact} onClose={() => setEditingContact(null)} />
+      <EditContactDialog
+        contact={editingContact}
+        onClose={() => {
+          setEditingContact(null);
+          void invalidateContactQueries(queryClient);
+        }}
+      />
       <CompanyBreakdownDialog
         breakdown={breakdown}
         onClose={() => setBreakdown(null)}
@@ -848,11 +1097,24 @@ export function ContactDetailDialog({
   onOpenCompany?: (c: Customer) => void;
   onSwitchContact?: (c: Contact) => void;
 }) {
-  const { customers, contacts } = useStore();
+  const { user, activeDivision, activeDepartment } = useAuth();
+  const contactScope: ContactQueryScope = {
+    tenantId: user?.tenantId ?? "anonymous",
+    userId: user?.id ?? "anonymous",
+    activeDivision,
+    activeDepartment,
+  };
+  const companyId = contact?.customerId ?? "";
+  const firmQuery = useCompanyDetail(companyId);
+  const siblingsQuery = useQuery({
+    queryKey: contactQueryKeys.companyContacts(contactScope, companyId),
+    queryFn: ({ signal }) => loadAllCompanyContacts(companyId, signal),
+    enabled: Boolean(contact && companyId),
+  });
   if (!contact) return null;
 
-  const firm = customers.find((c) => c.id === contact.customerId) ?? null;
-  const siblings = contacts.filter((k) => k.customerId === contact.customerId && k.id !== contact.id);
+  const firm = firmQuery.data ?? null;
+  const siblings = (siblingsQuery.data?.data ?? []).filter((item) => item.id !== contact.id);
 
   const personalFields: Array<[string, string | undefined]> = [
     ["Memleket", contact.hometown],
@@ -920,7 +1182,11 @@ export function ContactDetailDialog({
         {/* linked company */}
         <div className="px-6 pb-4">
           <div className="text-[11px] uppercase tracking-wide text-muted-foreground mb-2">Bağlı Firma</div>
-          {firm ? (
+          {companyId && firmQuery.isPending ? (
+            <div className="text-sm text-muted-foreground rounded-lg border border-dashed border-border/60 px-3 py-3">Bağlı firma yükleniyor...</div>
+          ) : companyId && firmQuery.isError ? (
+            <div className="text-sm text-destructive rounded-lg border border-dashed border-destructive/40 px-3 py-3">Bağlı firma yüklenemedi.</div>
+          ) : firm ? (
             <button
               type="button"
               onClick={() => onOpenCompany?.(firm)}
@@ -946,6 +1212,12 @@ export function ContactDetailDialog({
         </div>
 
         {/* sibling contacts at the same firm */}
+        {siblingsQuery.isPending && (
+          <div className="px-6 pb-6 text-xs text-muted-foreground">Aynı firmadaki kontaklar yükleniyor...</div>
+        )}
+        {siblingsQuery.isError && (
+          <div className="px-6 pb-6 text-xs text-destructive">Aynı firmadaki kontaklar yüklenemedi.</div>
+        )}
         {siblings.length > 0 && (
           <div className="px-6 pb-6">
             <div className="text-[11px] uppercase tracking-wide text-muted-foreground mb-2">
@@ -988,12 +1260,18 @@ export function ContactDetailDialog({
  * line and get smooth contact ⇄ company navigation. Opening one closes the
  * other to avoid stacked overlays.
  */
-export function useDetailDialogs() {
+export function useDetailDialogs(options: { onOpenCompanyDetail?: (customer: Customer) => void } = {}) {
   const [contact, setContact] = useState<Contact | null>(null);
   const [company, setCompany] = useState<Customer | null>(null);
+  const [editingCompany, setEditingCompany] = useState<Customer | null>(null);
 
-  const openContact = (c: Contact) => { setCompany(null); setContact(c); };
-  const openCompany = (c: Customer) => { setContact(null); setCompany(c); };
+  const openContact = (c: Contact) => { setCompany(null); setEditingCompany(null); setContact(c); };
+  const openCompany = (c: Customer) => { setContact(null); setEditingCompany(null); setCompany(c); };
+  const editCompany = (c: Customer) => {
+    setContact(null);
+    setCompany(null);
+    setEditingCompany(c);
+  };
 
   const dialogs = (
     <>
@@ -1007,7 +1285,10 @@ export function useDetailDialogs() {
         customer={company}
         onClose={() => setCompany(null)}
         onOpenContact={openContact}
+        onEdit={editCompany}
+        onOpenFullDetail={options.onOpenCompanyDetail}
       />
+      <EditCustomerDialog customer={editingCompany} onClose={() => setEditingCompany(null)} />
     </>
   );
 

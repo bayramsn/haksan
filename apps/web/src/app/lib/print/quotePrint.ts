@@ -1,8 +1,12 @@
 import type { Contact, Customer, Offer, Product, SalesCase, User, ProductSpec } from "../mock";
+import { isMachiningCenterTypeCode } from "@haksan/shared";
 import { quoteService } from "../../../lib/services";
 import { specsForProductTypeStrict } from "../productSpecTemplates";
-import { trShortDate } from "./core";
-import type { QuotePrintData } from "./templates";
+import { publicProductLabel, trShortDate } from "./core";
+import { applyVatRateToNotes } from "./notes";
+import { printSignatureFromDocumentSnapshot } from "./signature";
+import { printableTechnicalSpecs } from "./technicalSpecs";
+import type { QuoteHeaderLogoMode, QuotePrintData } from "./templates";
 
 // Seçilen tezgahın TAM teknik özellik listesi (tip şablonu + üründe girilen
 // değerler), teklifte kalem bazında girilen (customSpecs) değerlerle üzerine
@@ -12,12 +16,12 @@ const fullProductSpecs = (
   customSpecs: Array<{ key: string; value: string; unit?: string; specUnit?: string; groupCode?: string; groupName?: string }>,
 ): QuotePrintData["specs"] => {
   const base = product ? specsForProductTypeStrict(product.productTypeCode, (product.specs ?? []) as ProductSpec[]) : [];
-  if (!base.length) return customSpecs.length ? customSpecs : product?.specs;
+  if (!base.length) return printableTechnicalSpecs(customSpecs.length ? customSpecs : product?.specs);
   const overrides = new Map(customSpecs.map((s) => [s.key.trim().toLocaleLowerCase("tr-TR"), s]));
-  return base.map((s) => {
+  return printableTechnicalSpecs(base.map((s) => {
     const ov = overrides.get(s.key.trim().toLocaleLowerCase("tr-TR"));
     return ov && ov.value.trim() ? { ...s, value: ov.value } : s;
-  });
+  }));
 };
 
 type QuoteDetail = Awaited<ReturnType<typeof quoteService.get>>;
@@ -29,6 +33,7 @@ export type QuoteBuildInput = {
   users: User[];
   contacts: Contact[];
   products: Product[];
+  headerLogoMode?: QuoteHeaderLogoMode;
 };
 
 const enteredLines = (value?: string | null): string[] =>
@@ -65,6 +70,44 @@ const numeric = (value: unknown): number => {
   return Number.isFinite(result) ? result : 0;
 };
 
+/**
+ * Saklanan gümrük toplamını belge satırlarına dağıtır. CRM fiyatlarını değiştirmez;
+ * yalnızca PDF için üretilen birim fiyat ve tutarlara eklenecek payları döndürür.
+ */
+export const allocateCustomsTotal = <T,>(
+  rows: T[],
+  customsTotal: number,
+  isEligible: (row: T) => boolean,
+  grossOf: (row: T) => number,
+): number[] => {
+  const allocations = rows.map(() => 0);
+  const total = Number.isFinite(customsTotal) ? Math.max(0, customsTotal) : 0;
+  if (total <= 0) return allocations;
+
+  const eligibleIndexes = rows
+    .map((row, index) => (isEligible(row) ? index : -1))
+    .filter((index) => index >= 0);
+  if (!eligibleIndexes.length) return allocations;
+
+  const grossTotal = eligibleIndexes.reduce(
+    (sum, index) => sum + Math.max(0, grossOf(rows[index])),
+    0,
+  );
+  let distributed = 0;
+  eligibleIndexes.forEach((index, eligibleIndex) => {
+    const isLast = eligibleIndex === eligibleIndexes.length - 1;
+    const weight = grossTotal > 0
+      ? Math.max(0, grossOf(rows[index])) / grossTotal
+      : 1 / eligibleIndexes.length;
+    const allocation = isLast
+      ? total - distributed
+      : Math.round(total * weight * 10_000) / 10_000;
+    allocations[index] = allocation;
+    distributed += allocation;
+  });
+  return allocations;
+};
+
 const quoteItemTechnicalSpecs = (item?: { compatibility?: unknown } | null): Array<{ key: string; value: string; unit?: string; specUnit?: string; groupCode?: string; groupName?: string; group?: string }> => {
   const specs = (item?.compatibility as { technicalSpecs?: unknown } | null | undefined)?.technicalSpecs;
   if (!Array.isArray(specs)) return [];
@@ -78,7 +121,7 @@ const quoteItemTechnicalSpecs = (item?: { compatibility?: unknown } | null): Arr
       groupName: String((spec as { groupName?: unknown }).groupName ?? "").trim() || undefined,
       group: String((spec as { group?: unknown; groupName?: unknown; groupCode?: unknown }).group ?? (spec as { groupName?: unknown }).groupName ?? (spec as { groupCode?: unknown }).groupCode ?? "").trim() || undefined,
     }))
-    .filter((spec) => spec.key && spec.value);
+    .filter((spec) => printableTechnicalSpecs([spec]).length > 0);
 };
 
 const quoteItemLineGroupKey = (item?: { compatibility?: unknown } | null): string => {
@@ -86,10 +129,53 @@ const quoteItemLineGroupKey = (item?: { compatibility?: unknown } | null): strin
   return typeof value === "string" ? value.trim() : "";
 };
 
+const normalizedLabel = (value?: string | null): string =>
+  String(value ?? "").trim().replace(/\s+/g, " ").toLocaleUpperCase("tr-TR");
+
+const quoteMachineModel = (
+  product: Product | undefined,
+  itemStockCode?: string | null,
+): string | undefined => {
+  const model = product?.model?.trim() || "";
+  const stockCode = String(itemStockCode ?? product?.stockCode ?? "").trim();
+  if (model && (!stockCode || normalizedLabel(model) !== normalizedLabel(stockCode))) return model;
+
+  const brand = product?.brand?.trim() || "";
+  const type = product?.type?.trim() || "";
+  for (const source of [product?.modelName, product?.shortDescription]) {
+    let label = source?.trim() || "";
+    if (!label) continue;
+    if (brand && normalizedLabel(label).startsWith(`${normalizedLabel(brand)} `)) {
+      label = label.slice(brand.length).trim();
+    }
+    if (type && normalizedLabel(label).endsWith(normalizedLabel(type))) {
+      label = label.slice(0, Math.max(0, label.length - type.length)).trim();
+    }
+    if (label && normalizedLabel(label) !== normalizedLabel(stockCode)) return label;
+  }
+
+  // Model alanı stok kodu olarak kullanılmış eski ürünlerde iç kodu teklife
+  // taşımaktansa model satırını boş bırakmak daha güvenlidir.
+  return undefined;
+};
+
 export function buildQuotePrintData(input: QuoteBuildInput, quote: QuoteDetail): QuotePrintData {
-  const { offer, customer, salesCase, users, contacts, products } = input;
+  const { offer, customer, salesCase, users, contacts, products, headerLogoMode = "haksan" } = input;
   const contact = contacts.find((item) => item.id === quote.contactId);
-  const owner = users.find((item) => item.id === quote.projectOwnerUserId);
+  // Teklif sahibi API'den güncel ünvanıyla gelir. Böylece yönetim ekranında
+  // yapılan değişiklikten sonra açık kalmış global kullanıcı listesi PDF'e eski
+  // departman adını taşımaz. Eski API/snapshot kayıtlarında store yedektir.
+  const serverOwner = quote.projectOwner ?? (quote as any).documentSnapshot?.projectOwner;
+  const owner = serverOwner?.id
+    ? {
+        id: String(serverOwner.id),
+        name: String(serverOwner.name ?? ""),
+        email: String(serverOwner.email ?? ""),
+        phone: serverOwner.phone ? String(serverOwner.phone) : undefined,
+        title: serverOwner.title ? String(serverOwner.title) : undefined,
+        department: serverOwner.department ? String(serverOwner.department) : undefined,
+      }
+    : users.find((item) => item.id === quote.projectOwnerUserId);
   const product = findProduct(products, quote, salesCase);
   const quoteItems = (quote.items ?? []).filter((item: { description?: string | null }) =>
     String(item.description ?? "").trim(),
@@ -118,6 +204,7 @@ export function buildQuotePrintData(input: QuoteBuildInput, quote: QuoteDetail):
     if (isOption || !item.productModelId) return false;
     return products.find((candidate) => candidate.id === item.productModelId)?.categoryCode !== "ISCILIK";
   });
+  const termsVatRate = numeric(primaryRows[0]?.item.vatRate) || commonVatRate;
   const machineRows = primaryRows.some(({ item }) =>
     products.find((candidate) => candidate.id === item.productModelId)?.categoryCode === "TEZGAH")
     ? primaryRows.filter(({ item }) =>
@@ -131,9 +218,14 @@ export function buildQuotePrintData(input: QuoteBuildInput, quote: QuoteDetail):
       .filter(Boolean);
     return {
       lineGroupKey,
-      urun: catalogProduct?.shortDescription?.trim() || String(item.description ?? "").trim(),
+      urun: publicProductLabel({
+        catalogName: catalogProduct?.shortDescription,
+        description: item.description,
+        stockCode: item.stockCode ?? catalogProduct?.stockCode,
+      }),
       marka: catalogProduct?.brand,
-      model: catalogProduct?.model,
+      brandLogoUrl: catalogProduct?.brandLogoUrl,
+      model: quoteMachineModel(catalogProduct, item.stockCode),
       tip: catalogProduct?.type,
       imageUrl: catalogProduct?.imageUrl || undefined,
       specs: fullProductSpecs(catalogProduct, quoteItemTechnicalSpecs(item as { compatibility?: unknown })),
@@ -147,7 +239,26 @@ export function buildQuotePrintData(input: QuoteBuildInput, quote: QuoteDetail):
     0,
   );
   const headerDiscount = Math.max(numeric(quote.discountTotal) - lineDiscountTotal, 0);
+  const customsAllocations = allocateCustomsTotal(
+    quoteItems,
+    numeric(quote.customsTotal),
+    (item) => {
+      if (!(item as { nationalized?: boolean | null }).nationalized) return false;
+      const product = (item as { productModelId?: string | null }).productModelId
+        ? products.find((candidate) => candidate.id === (item as { productModelId?: string | null }).productModelId)
+        : undefined;
+      return !product?.productTypeCode || isMachiningCenterTypeCode(product.productTypeCode);
+    },
+    (item) => numeric((item as { quantity?: unknown }).quantity) * numeric((item as { unitPrice?: unknown }).unitPrice),
+  );
   const snapshotAddress = (quote as any).documentSnapshot?.companyAddresses?.[0];
+  const snapshotEmails = Array.isArray((quote as any).documentSnapshot?.companyEmails)
+    ? (quote as any).documentSnapshot.companyEmails
+    : [];
+  const snapshotCompanyEmail = snapshotEmails.find((email: any) =>
+    String(email?.emailType ?? email?.email_type ?? "").toLocaleLowerCase("tr-TR") === "main",
+  ) ?? snapshotEmails.find((email: any) => Boolean(email?.isDefault ?? email?.is_default)) ?? snapshotEmails[0];
+  const snapshotContact = (quote as any).documentSnapshot?.contact;
   const pdfAddress = customer?.addresses?.find((address) => address.id === quote.companyAddressId)
     ?? customer?.addresses?.find((address) => address.isBilling)
     ?? customer?.addresses?.find((address) => address.isDefault)
@@ -165,15 +276,25 @@ export function buildQuotePrintData(input: QuoteBuildInput, quote: QuoteDetail):
     adres: printableAddress,
     tel: contact?.phone || customer?.phone,
     faks: customer?.fax,
-    email: contact?.email || customer?.email,
+    email: snapshotCompanyEmail?.email
+      || customer?.email
+      || snapshotContact?.workEmail
+      || snapshotContact?.work_email
+      || snapshotContact?.email
+      || contact?.email,
     tarih: trShortDate(quote.quoteDate || offer.date),
     belgeNo: quote.documentNo || offer.quoteNo,
     gecerlilik: quote.validityDays ? `${quote.validityDays} İş Günü` : "",
+    // İmza seçilmişse imza satırı ondan basılır; seçilmemiş tekliflerde eski
+    // davranış korunur ve satır proje ilgilisine düşer (yalnız görsel çıkmaz).
+    imza: printSignatureFromDocumentSnapshot((quote as any).documentSnapshot),
     projeIlgilisi: owner?.name,
-    projeIlgilisiUnvan: owner?.department,
+    // Ünvan atanmışsa o yazar; atanmamışsa eski davranışla departman adına düşer.
+    projeIlgilisiUnvan: owner?.title || owner?.department,
     projeIlgilisiTelefon: owner?.phone || undefined,
     projeIlgilisiEmail: owner?.email,
     marka: firstMachine?.marka ?? product?.brand,
+    brandLogoUrl: firstMachine?.brandLogoUrl ?? product?.brandLogoUrl,
     model: firstMachine?.model ?? product?.model ?? salesCase?.requestedModel,
     tip: firstMachine?.tip ?? product?.type ?? salesCase?.requestedProduct,
     imageUrl: firstMachine?.imageUrl ?? product?.imageUrl ?? undefined,
@@ -181,6 +302,11 @@ export function buildQuotePrintData(input: QuoteBuildInput, quote: QuoteDetail):
     standartDonanim: firstMachine?.standartDonanim ?? product?.standardEquipment ?? [],
     opsiyonelDonanim: firstMachine?.opsiyonelDonanim ?? product?.optionalEquipment ?? [],
     machines,
+    headerLogo: {
+      mode: headerLogoMode,
+      imageUrl: headerLogoMode === "company" ? customer?.logoUrl : undefined,
+      alt: headerLogoMode === "company" ? `${customer?.name ?? "Firma"} logosu` : undefined,
+    },
     items: quoteItems.map((item: {
       productModelId?: string | null;
       description?: string | null;
@@ -189,9 +315,11 @@ export function buildQuotePrintData(input: QuoteBuildInput, quote: QuoteDetail):
       unitPrice?: unknown;
       lineTotal?: unknown;
       discountAmount?: unknown;
-    }) => {
+      nationalized?: boolean | null;
+    }, index: number) => {
       const quantity = numeric(item.quantity) || 1;
       const unitPrice = numeric(item.unitPrice);
+      const customsAllocation = customsAllocations[index] ?? 0;
       const catalogProduct = item.productModelId
         ? products.find((candidate) => candidate.id === item.productModelId)
         : undefined;
@@ -203,11 +331,16 @@ export function buildQuotePrintData(input: QuoteBuildInput, quote: QuoteDetail):
       return {
         urun: isOption
           ? enteredDescription
-          : catalogProduct?.shortDescription?.trim() || enteredDescription,
+          : publicProductLabel({
+              catalogName: catalogProduct?.shortDescription,
+              description: enteredDescription,
+              stockCode: (item as { stockCode?: string | null }).stockCode ?? catalogProduct?.stockCode,
+            }),
         birim: `${new Intl.NumberFormat("tr-TR", { maximumFractionDigits: 3 }).format(quantity)} ${item.unitCode || "Adet"}`,
-        fiyat: unitPrice,
+        fiyat: quantity > 0 ? unitPrice + customsAllocation / quantity : unitPrice,
         indirim: numeric(item.discountAmount),
-        tutar: lineTotal,
+        brutTutar: quantity * unitPrice + customsAllocation,
+        tutar: lineTotal + customsAllocation,
       };
     }),
     iskonto: headerDiscount,
@@ -217,9 +350,9 @@ export function buildQuotePrintData(input: QuoteBuildInput, quote: QuoteDetail):
     notes: {
       key: "entered",
       label: "Girilen şartlar",
-      odeme: enteredLines(terms.paymentTermsText ?? quote.paymentTerms),
-      teslimat: enteredLines(terms.deliveryTermsText ?? quote.deliveryTerms),
-      garanti: enteredLines(terms.warrantyTermsText ?? quote.warrantyTerms),
+      odeme: applyVatRateToNotes(enteredLines(terms.paymentTermsText ?? quote.paymentTerms), termsVatRate),
+      teslimat: applyVatRateToNotes(enteredLines(terms.deliveryTermsText ?? quote.deliveryTerms), termsVatRate),
+      garanti: applyVatRateToNotes(enteredLines(terms.warrantyTermsText ?? quote.warrantyTerms), termsVatRate),
     },
     genelNotlar: enteredLines(quote.notes ?? offer.note),
   };
@@ -229,8 +362,11 @@ export async function loadQuotePrintData(input: QuoteBuildInput): Promise<QuoteP
   const quote = await quoteService.get(input.offer.id);
   const data = buildQuotePrintData(input, quote);
   const imageUrls = [...new Set([
+    data.headerLogo?.imageUrl,
     data.imageUrl,
+    data.brandLogoUrl,
     ...(data.machines ?? []).map((machine) => machine.imageUrl),
+    ...(data.machines ?? []).map((machine) => machine.brandLogoUrl),
   ].filter((value): value is string => Boolean(value)))];
   if (!imageUrls.length) return data;
 
@@ -260,9 +396,18 @@ export async function loadQuotePrintData(input: QuoteBuildInput): Promise<QuoteP
     }
   }));
   const imageUrl = data.imageUrl ? embeddedByUrl.get(data.imageUrl) ?? data.imageUrl : undefined;
+  const brandLogoUrl = data.brandLogoUrl
+    ? embeddedByUrl.get(data.brandLogoUrl) ?? data.brandLogoUrl
+    : undefined;
+  const headerLogo = data.headerLogo?.imageUrl
+    ? { ...data.headerLogo, imageUrl: embeddedByUrl.get(data.headerLogo.imageUrl) ?? data.headerLogo.imageUrl }
+    : data.headerLogo;
   const machines = data.machines?.map((machine) => ({
     ...machine,
     imageUrl: machine.imageUrl ? embeddedByUrl.get(machine.imageUrl) ?? machine.imageUrl : undefined,
+    brandLogoUrl: machine.brandLogoUrl
+      ? embeddedByUrl.get(machine.brandLogoUrl) ?? machine.brandLogoUrl
+      : undefined,
   }));
-  return { ...data, imageUrl, machines };
+  return { ...data, headerLogo, imageUrl, brandLogoUrl, machines };
 }

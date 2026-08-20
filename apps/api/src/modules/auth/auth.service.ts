@@ -1,5 +1,5 @@
 import { Inject, Injectable, Optional } from '@nestjs/common';
-import { and, eq, gt, ilike, isNull, sql } from 'drizzle-orm';
+import { and, eq, gt, isNull, or, sql } from 'drizzle-orm';
 import * as argon2 from 'argon2';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { hashPassword } from '../../shared/security/password';
@@ -24,8 +24,17 @@ import { AuditService } from '../../shared/database/audit.service';
 import { invalidateRbacCache, rolePermissionsCacheKey } from '../../shared/security/rbac.cache';
 import { MailerService } from '../../shared/mailer/mailer.service';
 import { logger } from '../../shared/utils/logger';
+import type { NavigationVisibilityKey } from '@haksan/shared';
 
 const REFRESH_REPLAY_GRACE_MS = 10_000;
+
+/**
+ * Giriş başarısızlığında dönen TEK mesaj. "Kullanıcı yok" ile "şifre yanlış"
+ * ayrımı kullanıcı numaralandırmasına (user enumeration) yol açtığı için her iki
+ * durumda da bu sabit kullanılır — kullanıcı adı yolu için de geçerlidir.
+ * Yeni bir başarısızlık dalı eklerken bu sabiti kullanın, yeni metin yazmayın.
+ */
+const INVALID_CREDENTIALS_MESSAGE = 'Kullanıcı adı/e-posta veya şifre hatalı';
 
 interface AccessSessionResult {
   accessToken: string;
@@ -66,10 +75,23 @@ export class AuthService {
     return unit === 's' ? v * 1000 : unit === 'm' ? v * 60_000 : unit === 'h' ? v * 3_600_000 : v * 86_400_000;
   }
 
-  private async resolveAuthUser(email: string, tenantSlug?: string | null) {
-    const normalizedEmail = email.trim().toLowerCase();
+  /**
+   * Girişte kullanılan tanımlayıcıdan (kullanıcı adı VEYA e-posta) hesabı bulur.
+   *
+   * Karşılaştırma büyük/küçük harf duyarsız ama TAM eşleşmelidir. Önceki
+   * uygulama `ilike` kullanıyordu; `ilike` girdideki `%` ve `_` karakterlerini
+   * joker olarak yorumlar, yani `%` göndermek tenant'taki rastgele bir hesabı
+   * hedeflemeye yarardı. `lower(...) = ...` bunu kapatır ve 0106 migration'ında
+   * eklenen ifade indekslerini kullanır.
+   *
+   * Kullanıcı adı NULL olan kayıtlarda `lower(username) = $1` sonucu NULL'dır,
+   * yani hiçbir zaman eşleşmez — e-posta yolu bozulmadan kalır.
+   */
+  private async resolveAuthUser(identifier: string, tenantSlug?: string | null) {
+    const normalized = identifier.trim().toLowerCase();
+    if (!normalized) return null;
     const filters = [
-      ilike(users.email, normalizedEmail),
+      or(sql`lower(${users.email}) = ${normalized}`, sql`lower(${users.username}) = ${normalized}`),
       isNull(users.deletedAt),
       eq(tenants.isActive, true),
       isNull(tenants.deletedAt),
@@ -81,8 +103,10 @@ export class AuthService {
       .innerJoin(tenants, eq(users.tenantId, tenants.id))
       .where(and(...filters))
       .limit(2);
-    // Tenant belirtilmemişse aynı e-postanın birden çok tenant'ta bulunması
-    // hangi hesaba erişileceğini açıkça seçmeyi zorunlu kılar.
+    // Tenant belirtilmemişse aynı tanımlayıcının (kullanıcı adı ya da e-posta)
+    // birden çok tenant'ta bulunması hangi hesaba erişileceğini açıkça seçmeyi
+    // zorunlu kılar. Belirsizlik sessizce "bulunamadı" sayılır — çağıran taraf
+    // yine aynı genel hata mesajını görür.
     return rows.length === 1 ? rows[0].user : null;
   }
 
@@ -105,12 +129,18 @@ export class AuthService {
     ).map((row) => row.code);
   }
 
-  async login(email: string, password: string, ip?: string, ua?: string, tenantSlug?: string | null): Promise<LoginResult> {
-    const user = await this.resolveAuthUser(email, tenantSlug);
+  /**
+   * `identifier` kullanıcı adı ya da e-posta olabilir. Hangi yoldan gelinirse
+   * gelinsin başarısızlık davranışı AYNIDIR: aynı genel mesaj, aynı süre
+   * (dummy argon2 doğrulaması) ve aynı hatalı-deneme sayacı. Böylece saldırgan
+   * "böyle bir kullanıcı adı var mı" sorusunu yanıt üzerinden yanıtlayamaz.
+   */
+  async login(identifier: string, password: string, ip?: string, ua?: string, tenantSlug?: string | null): Promise<LoginResult> {
+    const user = await this.resolveAuthUser(identifier, tenantSlug);
     if (!user) {
       // Take same time as a valid login to avoid user enumeration
       await this.dummyPasswordVerify(password);
-      throw new UnauthorizedError('E-posta veya şifre hatalı');
+      throw new UnauthorizedError(INVALID_CREDENTIALS_MESSAGE);
     }
 
     if (user.lockedUntil && user.lockedUntil > new Date()) {
@@ -148,7 +178,7 @@ export class AuthService {
       if (lockUntil) {
         throw new LockedError('Çok hatalı giriş. Hesap kilitlendi.', lockMin * 60);
       }
-      throw new UnauthorizedError('E-posta veya şifre hatalı');
+      throw new UnauthorizedError(INVALID_CREDENTIALS_MESSAGE);
     }
 
     // Success — clear lockout, set last_login_at
@@ -436,7 +466,12 @@ export class AuthService {
       accessScopes: Array<{ resource: string; departmentId: string | null; divisionId: string | null; isPrimary: boolean }>;
       canViewAllDivisions: boolean;
     };
-    tenant: { id: string; name: string; slug: string };
+    tenant: {
+      id: string;
+      name: string;
+      slug: string;
+      hiddenNavigationKeys: NavigationVisibilityKey[];
+    };
   }> {
     const user = await this.db.query.users.findFirst({ where: eq(users.id, userId) });
     if (!user) throw new NotFoundError('Kullanıcı');
@@ -497,20 +532,32 @@ export class AuthService {
       })
       .from(userDepartmentAssignments)
       .innerJoin(departments, eq(userDepartmentAssignments.departmentId, departments.id))
-      .where(and(eq(userDepartmentAssignments.userId, user.id), eq(departments.tenantId, user.tenantId)));
+      .where(
+        and(
+          eq(userDepartmentAssignments.userId, user.id),
+          eq(departments.tenantId, user.tenantId),
+          isNull(departments.deletedAt)
+        )
+      );
     const rawAvailableDepartments =
       canViewAllDivisions || userRoleCodes.includes('super_admin')
         ? await this.db
             .select({ id: departments.id, code: departments.code, name: departments.name })
             .from(departments)
-            .where(eq(departments.tenantId, user.tenantId))
+            .where(and(eq(departments.tenantId, user.tenantId), isNull(departments.deletedAt)))
         : assignedDepartments.length
           ? assignedDepartments
           : user.departmentId
             ? await this.db
                 .select({ id: departments.id, code: departments.code, name: departments.name })
                 .from(departments)
-                .where(and(eq(departments.id, user.departmentId), eq(departments.tenantId, user.tenantId)))
+                .where(
+                  and(
+                    eq(departments.id, user.departmentId),
+                    eq(departments.tenantId, user.tenantId),
+                    isNull(departments.deletedAt)
+                  )
+                )
             : [];
     const primaryDepartmentId = assignedDepartments.find((department) => department.isPrimary)?.id ?? user.departmentId ?? null;
     const hasPrimaryDepartment = rawAvailableDepartments.some((department) => department.id === primaryDepartmentId);
@@ -533,7 +580,12 @@ export class AuthService {
         accessScopes,
         canViewAllDivisions,
       },
-      tenant: { id: tenant.id, name: tenant.name, slug: tenant.slug },
+      tenant: {
+        id: tenant.id,
+        name: tenant.name,
+        slug: tenant.slug,
+        hiddenNavigationKeys: tenant.hiddenNavigationKeys,
+      },
     };
   }
 

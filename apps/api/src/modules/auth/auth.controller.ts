@@ -1,7 +1,15 @@
 import { Body, Controller, Get, Post, Req, Res, UseGuards } from '@nestjs/common';
 import '@fastify/cookie';
 import type { FastifyReply, FastifyRequest } from 'fastify';
-import { loginSchema, forgotPasswordSchema, resetPasswordSchema, type LoginInput, type ForgotPasswordInput, type ResetPasswordInput } from '@haksan/shared';
+import {
+  loginSchema,
+  forgotPasswordSchema,
+  resetPasswordSchema,
+  resolveLoginIdentifier,
+  type LoginInput,
+  type ForgotPasswordInput,
+  type ResetPasswordInput,
+} from '@haksan/shared';
 import { AuthService } from './auth.service';
 import { ZodValidationPipe } from '../../shared/utils/zod-pipe';
 import { Public, AuthGuard } from '../../shared/security/auth.guard';
@@ -85,8 +93,10 @@ export class AuthController {
     @Res({ passthrough: true }) res: FastifyReply
   ) {
     const ua = req.headers['user-agent'];
+    // `identifier` (yeni istemciler) ya da `email` (yayındaki eski istemciler);
+    // ikisi de kullanıcı adı veya e-posta taşıyabilir.
     const result = await this.auth.login(
-      body.email,
+      resolveLoginIdentifier(body),
       body.password,
       getIp(req),
       typeof ua === 'string' ? ua : undefined,

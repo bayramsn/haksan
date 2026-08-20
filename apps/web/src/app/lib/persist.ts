@@ -6,7 +6,7 @@
  * `haksan:` ön eki ile saklanır ve hata durumları sessizce yutulur (özel/gizli
  * modda localStorage erişilemeyebilir).
  */
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 const PREFIX = "haksan:";
 
@@ -50,14 +50,29 @@ export function clearDrafts(): void {
 
 /**
  * `useState` gibi davranır ama değeri localStorage ile eşitler; yenilemede
- * son değer geri yüklenir. `key` sabit olmalıdır.
+ * son değer geri yüklenir. Anahtar kullanıcı/tenant değişiminde güncellenirse
+ * yeni kapsamın değeri yüklenir; önceki kullanıcının değeri yeni kapsama yazılmaz.
  */
 export function usePersistentState<T>(
   key: string,
   initial: T
 ): [T, React.Dispatch<React.SetStateAction<T>>] {
   const [value, setValue] = useState<T>(() => loadPersisted(key, initial));
+  const activeKeyRef = useRef(key);
+  const skipNextSaveRef = useRef(false);
+
   useEffect(() => {
+    if (activeKeyRef.current === key) return;
+    activeKeyRef.current = key;
+    skipNextSaveRef.current = true;
+    setValue(loadPersisted(key, initial));
+  }, [initial, key]);
+
+  useEffect(() => {
+    if (skipNextSaveRef.current) {
+      skipNextSaveRef.current = false;
+      return;
+    }
     savePersisted(key, value);
   }, [key, value]);
   return [value, setValue];

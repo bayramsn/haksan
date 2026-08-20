@@ -2,6 +2,17 @@
  * UI domain types + pipeline/shipment label constants.
  * İş verisi burada tutulmaz — tüm kayıtlar API / store üzerinden gelir.
  */
+import {
+  PIPELINE_STAGE_FLOW,
+  type PipelineStageCode,
+  type LeadAuthorityStatusCode,
+  type LeadBudgetStatusCode,
+  type LeadInsights,
+  type LeadPurchaseTimeframeCode,
+  type LeadTechnicalFitCode,
+  type ProcessCheck,
+} from "@haksan/shared";
+
 export type Role = "SuperAdmin" | "Admin" | "Sales" | "Service";
 
 export type User = {
@@ -12,12 +23,14 @@ export type User = {
   role: Role;
   roleCodes?: string[];
   roleNames?: string[];
+  divisionIds?: string[];
   department: string;
   departmentId?: string | null;
+  /** Ünvan (CRM Alan Ayarları > Kullanıcı Ünvanları) — belge imza satırında yazar. */
+  title?: string | null;
   active: boolean;
   avatarUrl?: string;
   purchaseApprovalLimit?: number;
-  assistantDailyUsdLimit?: number | null;
   managerId?: string;
 };
 
@@ -41,6 +54,10 @@ export type CompanyAddress = {
 
 export type Customer = {
   id: string;
+  logoFileId?: string | null;
+  logoUrl?: string;
+  /** Kaynak CRM/Excel sistemindeki kalıcı firma numarası. */
+  companyNo?: string;
   type: "person" | "company";
   firmType: FirmType;
   salesStatus?: CustomerSalesStatus;
@@ -52,6 +69,7 @@ export type Customer = {
   companyGroupCodes?: string[];
   companyGroupNames?: string[];
   contactSourceCode?: string;
+  contactSourceText?: string;
   sector?: string;
   /** Tedarikçinin sevkiyat rolü; yalnızca tedarikçi ilişkili firmalarda kullanılır. */
   supplierCategoryCode?: "transportation" | "logistics";
@@ -86,6 +104,10 @@ export type Customer = {
 
 export type Contact = {
   id: string;
+  /** Kaynak CRM/Excel sistemindeki kalıcı kontak numarası. */
+  contactNo?: string;
+  /** Kontağın birincil firmasının kaynak sistem numarası. */
+  companyNo?: string;
   customerId: string;
   companyIds?: string[];
   name: string;
@@ -146,23 +168,40 @@ export type SalesStage =
   | "Completed"
   | "Lost";
 
+// Operasyon panosu backend ile aynı süreç sırasını kullanır. PIPELINE_STAGES
+// bildirim sırasıdır ve `sales` kodunu tekliften sonra tuttuğu için pano akışı
+// ondan türetilmemelidir; aksi hâlde görsel ileri hareket sunucuda geri geçiş
+// sayılır. İptal/LOST doğrusal akışın dışında, terminal kolon olarak sona eklenir.
 export const SALES_STAGES: SalesStage[] = [
-  "lead",
-  "call",
-  "visit",
-  "quote",
-  "sales",
+  ...(PIPELINE_STAGE_FLOW satisfies readonly PipelineStageCode[]),
   "cancelled",
-  "proforma",
-  "contract",
-  "payment_plan",
-  "commercial_invoice",
-  "customs_approved",
-  "stock_picking",
-  "shipping",
-  "installation",
-  "delivered",
 ];
+
+/** Geçiş API'sinin yapılandırılmış engellerini kullanıcıya okunur biçimde gösterir. */
+export function opportunityTransitionErrorMessage(error: unknown, fallback: string): string {
+  const candidate = error as {
+    message?: string;
+    details?: { blockerLabels?: unknown; blockers?: unknown };
+    response?: { data?: { error?: { details?: { blockerLabels?: unknown; blockers?: unknown } } } };
+  } | null;
+  const details = candidate?.details ?? candidate?.response?.data?.error?.details;
+  const blockerLabels = Array.isArray(details?.blockerLabels)
+    ? details.blockerLabels.filter((label): label is string => typeof label === "string" && Boolean(label.trim()))
+    : [];
+  const blockerNames = Array.isArray(details?.blockers)
+    ? details.blockers
+        .map((blocker) =>
+          typeof blocker === "string"
+            ? blocker
+            : blocker && typeof blocker === "object" && "label" in blocker
+              ? String((blocker as { label?: unknown }).label ?? "")
+              : ""
+        )
+        .filter(Boolean)
+    : [];
+  const labels = blockerLabels.length ? blockerLabels : blockerNames;
+  return labels.length ? labels.join(" · ") : candidate?.message ?? fallback;
+}
 
 export const SALES_STAGE_LABELS: Record<SalesStage, string> = {
   lead: "Lead",
@@ -199,7 +238,11 @@ export const salesStageLabel = (stage: string) => SALES_STAGE_LABELS[stage as Sa
 
 export type QualificationStage = "lead" | "c" | "b" | "a" | "a_plus" | "win" | "lost";
 
-export const QUALIFICATION_STAGES: QualificationStage[] = ["c", "b", "a", "a_plus", "win", "lost"];
+/**
+ * Fırsat panosunun kolonları. Lead ayrı bir sayfa değil, akışın İLK adımıdır:
+ * yeni kartlar Lead kolonunda doğar ve oradan C alanına ilerler.
+ */
+export const QUALIFICATION_STAGES: QualificationStage[] = ["lead", "c", "b", "a", "a_plus", "win", "lost"];
 
 export const QUALIFICATION_STAGE_LABELS: Record<QualificationStage, string> = {
   lead: "Lead",
@@ -209,6 +252,22 @@ export const QUALIFICATION_STAGE_LABELS: Record<QualificationStage, string> = {
   a_plus: "A+",
   win: "WIN",
   lost: "LOST",
+};
+
+/**
+ * Derece kodlarının Türkçe karşılığı. QUALIFICATION_STAGE_LABELS kısa koddur
+ * (C/B/A+/WIN/LOST); kodun tek başına anlaşılmadığı yerlerde — pano kolon
+ * altlığı, süreç rayındaki kapanış dalı — bu metin gösterilir. Etiketler tek
+ * yerde dursun diye bileşenlerin içine sabit metin gömülmez.
+ */
+export const QUALIFICATION_STAGE_DESCRIPTIONS: Record<QualificationStage, string> = {
+  lead: "Yeni kayıt · ilk temas",
+  c: "Yeni müşteri",
+  b: "Ara sıcak · satışa hazır",
+  a: "Bitmeye yakın · takipte",
+  a_plus: "Bitmiş · WIN bekliyor",
+  win: "Kazanılmış",
+  lost: "Kaybedildi",
 };
 
 export type OpportunityApprovalType = "payment" | "customs" | "invoice" | "installation" | "win";
@@ -264,10 +323,39 @@ export const LEAD_TEMPERATURE_STYLES: Record<LeadTemperature, { badge: string; d
 
 export const LEAD_TEMPERATURE_ORDER: LeadTemperature[] = ["hot", "waiting", "cold", "unknown"];
 
+/** Lead'in günlük çalışma durumu — satış derecesinden bağımsızdır. */
+export type LeadFollowUpStatus = "new" | "attempting" | "contacted" | "waiting" | "disqualified";
+
+export const LEAD_FOLLOW_UP_STATUS_LABELS: Record<LeadFollowUpStatus, string> = {
+  new: "Yeni",
+  attempting: "Ulaşılmaya çalışılıyor",
+  contacted: "Görüşüldü",
+  waiting: "Beklemede",
+  disqualified: "Uygun değil",
+};
+
+export const LEAD_FOLLOW_UP_STATUS_ORDER: LeadFollowUpStatus[] = [
+  "new",
+  "attempting",
+  "contacted",
+  "waiting",
+  "disqualified",
+];
+
+export const LEAD_FOLLOW_UP_STATUS_STYLES: Record<LeadFollowUpStatus, string> = {
+  new: "border-blue-200 bg-blue-50 text-blue-700",
+  attempting: "border-violet-200 bg-violet-50 text-violet-700",
+  contacted: "border-emerald-200 bg-emerald-50 text-emerald-700",
+  waiting: "border-amber-200 bg-amber-50 text-amber-700",
+  disqualified: "border-slate-200 bg-slate-100 text-slate-600",
+};
+
 export type SalesCase = {
   id: string;
   /** Firma henüz bağlanmadıysa hızlı lead kartlarında boş string olur. */
   customerId: string;
+  /** Tenant içindeki ticari bölüm kapsamı (CNC / Üniversal / Sac İşleme). */
+  divisionId?: string;
   primaryContactId?: string;
   /** Firma ana kaydı oluşmadan önce satış kartında tutulan lead bağlamı. */
   leadContactName?: string;
@@ -276,10 +364,25 @@ export type SalesCase = {
   leadContactMethodCode?: string;
   leadContactMethodName?: string;
   leadCity?: string;
+  leadDistrict?: string;
   leadPhone?: string;
   leadEmail?: string;
   /** Firmanın alım niyeti — sıcak / beklemede / soğuk. */
   leadTemperature?: LeadTemperature;
+  /** Lead havuzundaki günlük takip durumu. */
+  leadFollowUpStatus?: LeadFollowUpStatus;
+  /** Açıklanabilir beşli lead nitelendirme yüzeyi. */
+  leadNeedSummary?: string;
+  leadAuthorityStatus?: LeadAuthorityStatusCode;
+  leadBudgetStatus?: LeadBudgetStatusCode;
+  leadPurchaseTimeframe?: LeadPurchaseTimeframeCode;
+  leadTechnicalFit?: LeadTechnicalFitCode;
+  leadTechnicalNote?: string;
+  /** Sunucunun CRM alanlarından deterministik olarak türettiği skorlar. */
+  leadInsights?: LeadInsights;
+  /** Satış ekibinin bir sonraki somut aksiyonu ve hedef zamanı. */
+  nextAction?: string;
+  nextActionAt?: string;
   externalSource?: string;
   externalKey?: string;
   externalUrl?: string;
@@ -305,6 +408,10 @@ export type SalesCase = {
   quantity: number;
   estimatedAmount: number;
   currency: "USD" | "EUR" | "TRY";
+  /** CRM tahmin olasılığı; 0–100 aralığında yüzde. */
+  probability?: number;
+  /** Satış ekibinin hedeflediği kapanış tarihi. */
+  expectedCloseDate?: string;
   stage: SalesStage;
   qualificationStage: QualificationStage;
   qualificationNote?: string;
@@ -316,8 +423,24 @@ export type SalesCase = {
     nextStage: QualificationStage | null;
     ready: boolean;
     blockers: string[];
-    checks: Array<{ key: string; label: string; complete: boolean }>;
+    /** Süreç adımları — `manualEditable` olanlar A+ alanında elle işaretlenir. */
+    checks: ProcessCheck[];
     approvals: Partial<Record<OpportunityApprovalType, OpportunityApprovalStatus>>;
+    /** Süreç sağlığı: aşamada bekleme, lead SLA aşımı ve takip aksiyonu durumu. */
+    health?: {
+      stageAgeDays: number | null;
+      stageAgeLimitDays: number | null;
+      rotting: boolean;
+      leadStatus: LeadFollowUpStatus;
+      leadSlaHours: number | null;
+      leadStatusAgeHours: number | null;
+      leadSlaBreached: boolean;
+      contactAttemptCount: number;
+      attemptLimitReached: boolean;
+      firstContactAt: string | null;
+      actionOverdue: boolean;
+      actionMissing: boolean;
+    };
   };
   /** Makine satışında ödeme vadesi (gün); sözleşme/ödeme planı varsayılanı. */
   paymentTermDays?: number;
@@ -325,8 +448,14 @@ export type SalesCase = {
   paymentMethod?: OpportunityPaymentMethod;
   isOfferPrepared: boolean;
   isLost: boolean;
+  lostReasonCode?: string;
   lostReason?: string;
+  lostCompanyName?: string;
+  lostProductName?: string;
+  lostUnmetConditions?: string;
+  lostCompetitorId?: string;
   competitor?: string;
+  lostCompetitorProductModel?: string;
   createdAt: string;
   closedAt?: string;
 };
@@ -335,7 +464,11 @@ export type Activity = {
   id: string;
   salesCaseId: string;
   customerId: string;
+  /** Aktivite belirli bir firma ilgilisiyle yapıldıysa ilgili kontak. */
+  contactId?: string;
   type: string;
+  typeCode?: string;
+  origin?: "manual" | "system";
   title: string;
   note: string;
   result?: string;
@@ -391,8 +524,12 @@ export type DocumentItem = {
   /** Proforma / sözleşme / fatura kaydının bağlı olduğu teklif. */
   quoteId?: string;
   companyId?: string;
+  /** Kayıtlı firması olmayan hızlı proformada elle girilen unvan. */
+  companyNameText?: string;
   /** Servis talebine bağlı ek (service kanban kartı). */
   serviceRequestId?: string;
+  /** Kasa hareketine eklenen ödeme fişi / fatura dosyası. */
+  paymentId?: string;
   /** Canlı teslim/kurulum formu kayıtları için üretilmiş doküman referansları. */
   deliveryId?: string;
   installationId?: string;
@@ -406,6 +543,7 @@ export type DocumentItem = {
     | "AccountingInvoice"
     | "DeliveryForm"
     | "InstallationForm"
+    | "ExternalQuote"
     | "Other";
   fileName: string;
   uploadedBy: string;
@@ -437,11 +575,14 @@ export type Payment = {
 export type StockItem = {
   id: string;
   brand: string;
+  productName?: string;
   counterType: string;
   counterModel: string;
   serialNumber: string;
   controlPanel: string;
   stockCode: string;
+  itemCondition?: "new" | "used";
+  warehouseId?: string;
   warehouse: string;
   status: "Available" | "Reserved" | "InTransit" | "Sold" | "Inactive";
   /** Seri no ile takip edilen CRM stok kategorisi. */
@@ -454,6 +595,7 @@ export type StockItem = {
   productId?: string;
   parentInventoryItemId?: string | null;
   loadingDate?: string;
+  receivedDate?: string;
   arrivalDate?: string;
   locationStatus?: string;
 };
@@ -463,6 +605,7 @@ export type ProductSpec = { key: string; value: string; unit?: string; specUnit?
 export type ProductAlternative = {
   id: string;
   brand: string;
+  brandLogoUrl?: string;
   model: string;
   shortDescription: string;
   category: string;
@@ -475,6 +618,9 @@ export type ProductAlternative = {
 export type Product = {
   id: string;
   brand: string;
+  brandId?: string;
+  brandLogoFileId?: string | null;
+  brandLogoUrl?: string;
   series?: string;
   productGroup?: string;
   productGroupCode?: string;
@@ -497,6 +643,8 @@ export type Product = {
   currency: "USD" | "EUR" | "TRY";
   vatRate?: number;
   originCountry?: string;
+  /** Tezgahın üretim yılı — belge metnindeki {{YIL}}. */
+  productionYear?: number;
   hsCode?: string;
   stockCode?: string;
   specs: ProductSpec[];
@@ -610,10 +758,6 @@ export type ServiceComplaintIntake = {
     warrantyEndDate?: string | null;
   } | null;
   warrantyStatusSuggestion?: ServiceWarrantySuggestion;
-  callAssistant?: {
-    callAssistantSuggestionId?: string | null;
-    callEventId?: string | null;
-  } | null;
   attachments?: Array<{
     id: string;
     fileId: string;
@@ -809,6 +953,14 @@ export type ServiceQuoteForm = {
   writerName: string;
   writerTitle?: string;
   writerEmail?: string;
+  /**
+   * Çıktının altına basılacak imza (Ayarlar → Belge İmzaları).
+   *
+   * Canlı imza kaydına referans değil, seçildiği andaki kopyası saklanır: imza
+   * sonradan düzenlense veya kaldırılsa bile bu teklif kendi imzasıyla basılır.
+   * Eski kayıtlarda alan yok — okurken her zaman opsiyonel varsayılmalı.
+   */
+  signature?: { id: string; name: string; title: string; imageUrl: string | null };
   company: string;
   contact?: string;
   mobile?: string;

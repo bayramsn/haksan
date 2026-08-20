@@ -264,7 +264,7 @@ export function CustomerBalancesPage() {
   }).length;
 
   return (
-    <div className="space-y-5">
+    <div className="crm-page">
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <MiniKpi tone="violet" icon={<Building2 className="size-[18px]" />} label="Kayıtlı Firma" value={filtered.length} sub="açık cari" />
         <MiniKpi
@@ -286,9 +286,9 @@ export function CustomerBalancesPage() {
 
       {currencyTotals.length > 0 && (
         <div className="flex flex-wrap items-center gap-2 rounded-xl border border-primary/10 bg-brand-blue-soft/50 px-4 py-3">
-          <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">Net bakiye · para birimi bazında</span>
+          <span className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">Net bakiye · para birimi bazında</span>
           {currencyTotals.map(([code, amount]) => (
-            <Badge key={code} variant="outline" className={`bg-white font-data tabular-nums ${balanceTone(amount)}`}>{formatMoney(amount, code)}</Badge>
+            <Badge key={code} variant="outline" className={`bg-card font-data tabular-nums ${balanceTone(amount)}`}>{formatMoney(amount, code)}</Badge>
           ))}
         </div>
       )}
@@ -308,7 +308,7 @@ export function CustomerBalancesPage() {
         <CardContent className="p-0">
           <Table className="min-w-[1080px]">
             <TableHeader>
-              <TableRow className="bg-muted/40 hover:bg-muted/40 [&_th]:text-[11px] [&_th]:uppercase [&_th]:tracking-wider [&_th]:text-muted-foreground">
+              <TableRow className="bg-muted/40 hover:bg-muted/40 [&_th]:text-xs [&_th]:uppercase [&_th]:tracking-wider [&_th]:text-muted-foreground">
                 <TableHead className="sticky left-0 z-20 min-w-52 bg-muted">Firma / Para Birimi</TableHead>
                 <TableHead className="text-right">Satış</TableHead>
                 <TableHead className="text-right">Tahsilat</TableHead>
@@ -329,11 +329,11 @@ export function CustomerBalancesPage() {
                   className={`cursor-pointer ${openDebtForRow(r) > 0 ? "bg-warning-soft/40 hover:bg-warning-soft/60" : "hover:bg-primary/[0.025]"}`}
                   onClick={() => openStatement(r)}
                 >
-                  <TableCell className={`sticky left-0 z-10 min-w-52 border-r border-border/60 ${openDebtForRow(r) > 0 ? "bg-[#fffaf0]" : "bg-white"}`}>
+                  <TableCell className={`sticky left-0 z-10 min-w-52 border-r border-border/60 ${openDebtForRow(r) > 0 ? "bg-warning-soft/35" : "bg-card"}`}>
                     <div className="font-medium">{r.companyName}</div>
                     <div className="mt-1 flex flex-wrap gap-1">
                       {(r.currencies ?? []).slice(0, 3).map((item) => (
-                        <span key={item.currencyCode} className="rounded border border-border/60 bg-white px-1.5 py-0.5 font-data text-[9px] text-muted-foreground">
+                        <span key={item.currencyCode} className="rounded border border-border/60 bg-card px-1.5 py-0.5 font-data text-xs text-muted-foreground">
                           {item.currencyCode} {Number(item.net).toLocaleString("tr-TR", { maximumFractionDigits: 0 })}
                         </span>
                       ))}

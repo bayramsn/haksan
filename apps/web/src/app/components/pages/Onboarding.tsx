@@ -317,7 +317,7 @@ export function OnboardingPage({ onFinish }: { onFinish: () => void }) {
                 ref={videoRef}
                 muted
                 playsInline
-                preload="auto"
+                preload="metadata"
                 poster="/onboarding/haksan-story-poster.webp"
                 aria-hidden="true"
                 tabIndex={-1}

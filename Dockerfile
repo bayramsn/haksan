@@ -25,6 +25,13 @@ COPY . .
 ARG VITE_API_BASE_URL=/api/v1
 ENV VITE_API_BASE_URL=${VITE_API_BASE_URL}
 
+# Fırsat çalışma alanı arayüz seçici; yetki sınırı değil, yalnız hangi
+# bileşenin render edileceğini belirler. Vite build anında gömülür.
+ARG VITE_OPPORTUNITY_WORKSPACE_SIMPLE=legacy
+ENV VITE_OPPORTUNITY_WORKSPACE_SIMPLE=${VITE_OPPORTUNITY_WORKSPACE_SIMPLE}
+ARG VITE_OPPORTUNITY_WORKSPACE_PILOT_USERS=
+ENV VITE_OPPORTUNITY_WORKSPACE_PILOT_USERS=${VITE_OPPORTUNITY_WORKSPACE_PILOT_USERS}
+
 RUN npm run build:shared \
   && npm run build:api \
   && npm run build:web \
@@ -43,7 +50,10 @@ ARG BUILD_TIME=unknown
 ENV API_RELEASE_ID=${API_RELEASE_ID}
 ENV IMAGE_BUILD_TIME=${BUILD_TIME}
 
-RUN apk add --no-cache font-dejavu postgresql-client
+RUN apk add --no-cache font-dejavu postgresql-client \
+  && rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack \
+  && rm -f /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack \
+    /usr/local/bin/yarn /usr/local/bin/yarnpkg /usr/local/bin/pnpm /usr/local/bin/pnpx
 
 COPY --from=build --chown=node:node /app/package.json /app/package-lock.json ./
 COPY --from=build --chown=node:node /app/node_modules ./node_modules
@@ -60,7 +70,7 @@ EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
   CMD node -e "fetch('http://127.0.0.1:3000/health').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 
-CMD ["npm", "--workspace", "@haksan/api", "run", "start"]
+CMD ["node", "apps/api/dist/main.js"]
 
 FROM nginx:stable-alpine-slim@sha256:ddde39c6e51f02fde7410c2e9c234cf2d0a4c7bdbbe176aeb37d8ad7ab4eb58c AS nginx
 

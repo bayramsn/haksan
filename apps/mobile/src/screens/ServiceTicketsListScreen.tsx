@@ -38,7 +38,7 @@ type Props = {
 
 /** Stitch Servis Talepleri — `8d84b0d695cc4130acafcd7ab6bd5362` */
 export function ServiceTicketsListScreen({ isTabRoot }: Props = {}) {
-  const segments = useSegments();
+  const segments: readonly string[] = useSegments();
   const tabRoot = isTabRoot ?? (segments[0] === '(tabs)' && segments[1] === 'service');
 
   const [allItems, setAllItems] = useState<Record<string, unknown>[]>([]);

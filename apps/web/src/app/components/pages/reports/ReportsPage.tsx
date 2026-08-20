@@ -97,39 +97,39 @@ export function ReportsPage({ onAction }: { onAction?: (action: OperationAction)
     {
       title: "Teklif Raporu",
       keys: [
-        { dataKey: "teklif", label: "Toplam Teklif", color: "#000c69" },
-        { dataKey: "onaylanan", label: "Onaylanan", color: "#10b981" },
-        { dataKey: "reddedilen", label: "Reddedilen", color: "#ef4444" },
+        { dataKey: "teklif", label: "Toplam Teklif", color: "var(--brand-blue)" },
+        { dataKey: "onaylanan", label: "Onaylanan", color: "var(--success)" },
+        { dataKey: "reddedilen", label: "Reddedilen", color: "var(--destructive)" },
       ],
     },
     {
       title: "Satış Dönüşüm",
       keys: [
-        { dataKey: "kazanilan", label: "Kazanılan", color: "#10b981" },
-        { dataKey: "kaybedilen", label: "Kaybedilen", color: "#ef4444" },
+        { dataKey: "kazanilan", label: "Kazanılan", color: "var(--success)" },
+        { dataKey: "kaybedilen", label: "Kaybedilen", color: "var(--destructive)" },
       ],
     },
     {
       title: "Servis Raporu",
-      keys: [{ dataKey: "servis", label: "Servis Talebi", color: "#3b82f6" }],
+      keys: [{ dataKey: "servis", label: "Servis Talebi", color: "var(--info)" }],
     },
     {
       title: "Ciro (Tahmini)",
-      keys: [{ dataKey: "ciro", label: "USD", color: "#000c69" }],
+      keys: [{ dataKey: "ciro", label: "USD", color: "var(--brand-blue)" }],
     },
   ];
 
   return (
-    <div className="space-y-4">
+    <div className="crm-page">
       <Card className="flex flex-col gap-3 border-border/60 bg-[linear-gradient(110deg,rgba(0,12,105,0.04),white_45%)] p-3 shadow-sm lg:flex-row lg:items-center lg:justify-between">
         <div className="flex min-w-0 items-center gap-3">
           <span className="grid size-9 shrink-0 place-items-center rounded-xl border border-primary/15 bg-primary/5 text-primary"><Bookmark className="size-4" /></span>
           <div className="min-w-0">
-            <div className="font-data text-[9px] font-semibold uppercase tracking-[0.14em] text-primary">Kayıtlı rapor görünümleri</div>
+            <div className="ui-eyebrow text-primary">Kayıtlı rapor görünümleri</div>
             <div className="mt-0.5 text-xs text-muted-foreground">Sık kullanılan yönetim kesitlerine tek tıkla geçin</div>
           </div>
         </div>
-        <div className="flex max-w-full gap-1 overflow-x-auto rounded-lg border border-border bg-white p-1">
+        <div className="flex max-w-full gap-1 overflow-x-auto rounded-lg border border-border bg-card p-1">
         <button
           onClick={() => setMode("operasyonel")}
           className={`shrink-0 rounded-md px-3 py-1.5 text-sm ${mode === "operasyonel" ? "bg-primary text-primary-foreground shadow-sm" : "text-foreground/70 hover:bg-muted"}`}
@@ -175,7 +175,7 @@ export function ReportsPage({ onAction }: { onAction?: (action: OperationAction)
       {mode === "operasyonel" && (
       <>
       <div className="flex items-center gap-2 flex-wrap">
-        <div className="inline-flex rounded-md border border-border bg-white p-0.5">
+        <div className="inline-flex rounded-md border border-border bg-card p-0.5">
           <button
             onClick={() => setPeriod("monthly")}
             className={`px-3 py-1.5 text-sm rounded ${period === "monthly" ? "bg-primary text-primary-foreground" : "text-foreground/70 hover:bg-muted"}`}
@@ -191,8 +191,8 @@ export function ReportsPage({ onAction }: { onAction?: (action: OperationAction)
         </div>
 
         {period === "monthly" && (
-          <div className="inline-flex items-center gap-1 rounded-md border border-border bg-white px-2 py-1">
-            <span className="text-[11px] uppercase tracking-wider text-muted-foreground mr-1">Yıl:</span>
+          <div className="inline-flex items-center gap-1 rounded-md border border-border bg-card px-2 py-1">
+            <span className="mr-1 text-xs uppercase tracking-wider text-muted-foreground">Yıl:</span>
             {allYears.map((y) => (
               <button
                 key={y}
@@ -226,17 +226,17 @@ export function ReportsPage({ onAction }: { onAction?: (action: OperationAction)
           <Card key={rc.title} className="border-border/60 shadow-sm">
             <CardHeader className="flex flex-row items-center justify-between">
               <CardTitle className="text-sm">{rc.title}</CardTitle>
-              <span className="text-[11px] text-muted-foreground uppercase tracking-wider">
+              <span className="text-xs uppercase tracking-wider text-muted-foreground">
                 {period === "monthly" ? `${year}` : "Yıllık"}
               </span>
             </CardHeader>
             <CardContent className="h-56">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={chartData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                  <XAxis dataKey="name" stroke="#6b7280" fontSize={11} tickLine={false} axisLine={false} />
-                  <YAxis stroke="#6b7280" fontSize={11} tickLine={false} axisLine={false} />
-                  <Tooltip contentStyle={{ borderRadius: 8, border: "1px solid #e5e7eb", fontSize: 12 }} />
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" />
+                  <XAxis dataKey="name" stroke="var(--chart-axis-muted)" fontSize={12} tickLine={false} axisLine={false} />
+                  <YAxis stroke="var(--chart-axis-muted)" fontSize={12} tickLine={false} axisLine={false} />
+                  <Tooltip contentStyle={{ borderRadius: 8, border: "1px solid var(--chart-tooltip-border)", background: "var(--popover)", color: "var(--popover-foreground)", fontSize: 12 }} />
                   {rc.keys.length > 1 && <Legend iconType="circle" wrapperStyle={{ fontSize: 11 }} />}
                   {rc.keys.map((k) => (
                     <Bar key={k.dataKey} dataKey={k.dataKey} name={k.label} fill={k.color} barSize={18} isAnimationActive={false} />
@@ -678,7 +678,7 @@ function TargetPerformanceReport() {
   };
 
   return (
-    <div className="space-y-4">
+    <div className="crm-page">
       <Card className="overflow-hidden border-border/60 shadow-sm">
         <CardHeader className="flex flex-col gap-3 border-b border-border/60 bg-muted/15 sm:flex-row sm:items-center sm:justify-between">
           <div>
@@ -1128,7 +1128,7 @@ function YearEndReportView() {
   };
 
   return (
-    <div className="space-y-4">
+    <div className="crm-page">
       <div className="flex items-center gap-2 flex-wrap">
         <div className="inline-flex items-center gap-1 rounded-md border border-border bg-white px-2 py-1">
           <span className="text-[11px] uppercase tracking-wider text-muted-foreground mr-1">Yıl:</span>

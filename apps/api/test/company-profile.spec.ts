@@ -6,6 +6,7 @@ import { createTestApp } from './setup';
 describe('Company profile', () => {
   let app: NestFastifyApplication;
   let token: string;
+  let salesToken: string;
   let divisionId: string;
   let companyId: string | undefined;
   let directCompetitorCompanyId: string | undefined;
@@ -18,6 +19,11 @@ describe('Company profile', () => {
       .send({ email: 'admin@haksan.local', password: 'admin12345' })
       .expect(201);
     token = login.body.accessToken;
+    const salesLogin = await request(app.getHttpServer())
+      .post('/api/v1/auth/login')
+      .send({ email: 'sales@haksan.local', password: 'sales12345' })
+      .expect(201);
+    salesToken = salesLogin.body.accessToken;
 
     const me = await request(app.getHttpServer())
       .get('/api/v1/auth/me')
@@ -44,6 +50,44 @@ describe('Company profile', () => {
         .set('Authorization', `Bearer ${token}`);
     }
     await app.close();
+  });
+
+  it('lets a standard user view company settings but keeps updates admin-only', async () => {
+    const tenant = await request(app.getHttpServer())
+      .get('/api/v1/tenant')
+      .set('Authorization', `Bearer ${salesToken}`)
+      .expect(200);
+    expect(tenant.body).toMatchObject({
+      id: expect.any(String),
+      name: expect.any(String),
+    });
+
+    await request(app.getHttpServer())
+      .patch('/api/v1/tenant')
+      .set('Authorization', `Bearer ${salesToken}`)
+      .send({ name: 'Yetkisiz şirket değişikliği' })
+      .expect(403);
+  });
+
+  it('persists tenant-wide hidden navigation pages and exposes them through /auth/me', async () => {
+    const updated = await request(app.getHttpServer())
+      .patch('/api/v1/tenant')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ hiddenNavigationKeys: ['calendar', 'offers'] })
+      .expect(200);
+    expect(updated.body.hiddenNavigationKeys).toEqual(['calendar', 'offers']);
+
+    const me = await request(app.getHttpServer())
+      .get('/api/v1/auth/me')
+      .set('Authorization', `Bearer ${token}`)
+      .expect(200);
+    expect(me.body.tenant.hiddenNavigationKeys).toEqual(['calendar', 'offers']);
+
+    await request(app.getHttpServer())
+      .patch('/api/v1/tenant')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ hiddenNavigationKeys: [] })
+      .expect(200);
   });
 
   it('persists company details, uppercases its name and allows the competitor type', async () => {
@@ -198,11 +242,46 @@ describe('Company profile', () => {
       .set('Authorization', `Bearer ${token}`)
       .expect(200);
 
-    expect(catalog.body.data).toContainEqual(expect.objectContaining({
+    const syncedCompetitor = catalog.body.data.find(
+      (competitor: { companyId?: string }) => competitor.companyId === directCompetitorCompanyId,
+    );
+    expect(syncedCompetitor).toMatchObject({
       companyId: directCompetitorCompanyId,
       name: normalizedTitle,
       website: 'https://rakip.example',
-    }));
+    });
+
+    const opportunityCompanyList = await request(app.getHttpServer())
+      .get('/api/v1/companies')
+      .query({ relationTypeCode: 'customer', divisionId, pageSize: 1 })
+      .set('Authorization', `Bearer ${token}`)
+      .expect(200);
+    const opportunityCompanyId = opportunityCompanyList.body.data[0]?.id;
+    expect(opportunityCompanyId).toBeTruthy();
+
+    const opportunity = await request(app.getHttpServer())
+      .post('/api/v1/opportunities')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        companyId: opportunityCompanyId,
+        title: `Rakip senkron LOST testi ${Date.now()}`,
+        currencyCode: 'USD',
+      })
+      .expect(201);
+
+    const lost = await request(app.getHttpServer())
+      .patch(`/api/v1/opportunities/${opportunity.body.id}/qualification-stage`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        toStage: 'lost',
+        cancellationReasonCode: 'competitor',
+        lostCompetitorId: syncedCompetitor.id,
+        lostProductName: 'Test CNC tezgâhı',
+        lostUnmetConditions: 'Rakip teslim süresi tercih edildi',
+      })
+      .expect(200);
+    expect(lost.body.lostCompetitor).toMatchObject({ id: syncedCompetitor.id, name: normalizedTitle });
+    expect(lost.body.lostCompetitorName).toBe(normalizedTitle);
   });
 
   it('updates and clears every optional contact detail', async () => {

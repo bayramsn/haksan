@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { emailSchema, phoneSchema, urlSchema } from './common';
+import { emailSchema, paginationSchema, phoneSchema, urlSchema } from './common';
 
 export const companyTypeEnum = z.enum(['person', 'company']);
 export const supplierCategoryCodeSchema = z.enum(['transportation', 'logistics']);
@@ -11,6 +11,13 @@ const emptyToUndefined = (value: unknown) => {
   return typeof value === 'string' && value.trim() === '' ? undefined : value;
 };
 const optionalText = (max: number) => z.preprocess(emptyToUndefined, z.string().max(max).optional());
+const optionalTrimmedText = (max: number) =>
+  z.preprocess(emptyToUndefined, z.string().trim().max(max).optional());
+const nullableOptionalTrimmedText = (max: number) =>
+  z.preprocess(
+    (value) => (typeof value === 'string' ? value.trim() || null : value),
+    z.string().max(max).nullable().optional(),
+  );
 const optionalPhone = z.preprocess(emptyToUndefined, phoneSchema.optional());
 const optionalEmail = z.preprocess(emptyToUndefined, emailSchema.optional());
 const optionalCoordinate = (min: number, max: number) =>
@@ -42,13 +49,15 @@ export const companyAddressSchema = z.object({
 });
 export type CompanyAddressInput = z.infer<typeof companyAddressSchema>;
 
-export const companyCreateSchema = z.object({
+const companyCreateBaseSchema = z.object({
+  externalCompanyNo: optionalText(32),
   companyType: companyTypeEnum.default('company'),
   relationTypeCode: z.enum(['customer', 'supplier', 'supplier_customer', 'competitor']).default('customer'),
   customerStatusCode: z.enum(['potential', 'active', 'passive', 'blacklist']).default('potential'),
   companyGroupCode: optionalText(64),
   companyGroupCodes: z.array(z.string().trim().min(1).max(64)).max(32).optional(),
-  contactSourceCode: optionalText(64),
+  contactSourceCode: optionalTrimmedText(64),
+  contactSourceText: optionalTrimmedText(255),
   sector: optionalText(128),
   supplierCategoryCode: supplierCategoryCodeSchema.optional(),
   legalTitle: z.string().min(1).max(255),
@@ -81,11 +90,28 @@ export const companyCreateSchema = z.object({
   primaryEmail: optionalEmail,
   secondaryEmail: optionalEmail,
 });
+
+const validateContactSourceChoice = (
+  value: { contactSourceCode?: string | null; contactSourceText?: string | null },
+  ctx: z.RefinementCtx,
+) => {
+  if (!value.contactSourceCode || !value.contactSourceText) return;
+  ctx.addIssue({
+    code: z.ZodIssueCode.custom,
+    path: ['contactSourceText'],
+    message: 'İrtibat şekli kodu ve elle yazılan irtibat şekli aynı anda kullanılamaz.',
+  });
+};
+
+export const companyCreateSchema = companyCreateBaseSchema.superRefine(validateContactSourceChoice);
 export type CompanyCreateInput = z.infer<typeof companyCreateSchema>;
 
-export const companyUpdateSchema = companyCreateSchema.partial().extend({
+export const companyUpdateSchema = companyCreateBaseSchema.partial().extend({
+  logoFileId: z.string().uuid().nullable().optional(),
+  externalCompanyNo: z.string().trim().max(32).nullable().optional(),
   companyGroupCode: z.string().trim().max(64).nullable().optional(),
-  contactSourceCode: z.string().trim().max(64).nullable().optional(),
+  contactSourceCode: nullableOptionalTrimmedText(64),
+  contactSourceText: nullableOptionalTrimmedText(255),
   sector: z.string().trim().max(128).nullable().optional(),
   supplierCategoryCode: supplierCategoryCodeSchema.nullable().optional(),
   shortName: z.string().trim().max(128).nullable().optional(),
@@ -103,16 +129,48 @@ export const companyUpdateSchema = companyCreateSchema.partial().extend({
   fax: phoneSchema.nullable().optional(),
   primaryEmail: emailSchema.nullable().optional(),
   secondaryEmail: emailSchema.nullable().optional(),
-});
+}).superRefine(validateContactSourceChoice);
 export type CompanyUpdateInput = z.infer<typeof companyUpdateSchema>;
 
 export const companyListQuerySchema = z.object({
-  search: z.string().max(128).optional(),
+  search: z.string().trim().max(128).optional(),
   relationTypeCode: z.enum(['customer', 'supplier', 'supplier_customer', 'competitor']).optional(),
   customerStatusCode: z.enum(['potential', 'active', 'passive', 'blacklist']).optional(),
   divisionId: z.string().uuid().optional(),
+  city: z.string().trim().min(1).max(64).optional(),
+  sector: z.string().trim().min(1).max(128).optional(),
+  supplierCategoryCode: supplierCategoryCodeSchema.optional(),
 });
 export type CompanyListQuery = z.infer<typeof companyListQuerySchema>;
+
+/**
+ * Kart ekranlarının tek istekte hidratlanması için `?ids=uuid,uuid` filtresi.
+ * Görünürlük sınırı liste sorgusunun kendi filtreleriyle aynı kaldığı için
+ * kimlik listesi kapsamı genişletmez, yalnızca daraltır.
+ */
+export const companyIdListSchema = z.preprocess(
+  (value) => (typeof value === 'string'
+    ? value.split(',').map((id) => id.trim()).filter(Boolean)
+    : value),
+  z.array(z.string().uuid()).min(1).max(100),
+);
+
+export const companyListRequestQuerySchema = companyListQuerySchema.merge(
+  paginationSchema.extend({
+    sortBy: z.enum(['name', 'createdAt']).optional(),
+    ids: companyIdListSchema.optional(),
+  }),
+);
+export type CompanyListRequestQuery = z.infer<typeof companyListRequestQuerySchema>;
+export type CompanyListFilterQuery = Omit<
+  CompanyListRequestQuery,
+  'page' | 'pageSize' | 'sortBy' | 'sortDir'
+>;
+
+export const companySummaryQuerySchema = z.object({
+  divisionId: z.string().uuid().optional(),
+});
+export type CompanySummaryQuery = z.infer<typeof companySummaryQuerySchema>;
 
 export const companyOsmSearchQuerySchema = z.object({
   q: z.string().trim().min(2).max(160),
@@ -172,6 +230,60 @@ export const companyWebsiteLookupResultSchema = z.object({
   warnings: z.array(z.string().max(500)).max(8),
 });
 export type CompanyWebsiteLookupResult = z.infer<typeof companyWebsiteLookupResultSchema>;
+
+const companyContactImportFileSchema = z.object({
+  fileName: z.string().trim().min(1).max(255).refine((value) => value.toLocaleLowerCase('tr-TR').endsWith('.xlsx'), {
+    message: 'Yalnızca XLSX dosyası yüklenebilir.',
+  }),
+  mimeType: z.string().trim().max(128).optional(),
+  fileBase64: z.string().min(4).max(15_000_000),
+});
+
+export const companyContactImportPreviewSchema = z.object({
+  companiesFile: companyContactImportFileSchema,
+  contactsFile: companyContactImportFileSchema,
+  divisionId: z.string().uuid().nullable().optional(),
+});
+export type CompanyContactImportPreviewInput = z.infer<typeof companyContactImportPreviewSchema>;
+
+export const companyContactImportCommitSchema = companyContactImportPreviewSchema.extend({
+  confirmed: z.literal(true),
+});
+export type CompanyContactImportCommitInput = z.infer<typeof companyContactImportCommitSchema>;
+
+export type CompanyContactImportIssue = {
+  kind: 'company' | 'contact';
+  rowNumber: number;
+  sourceNo?: string;
+  companyNo?: string;
+  severity: 'warning' | 'error';
+  message: string;
+};
+
+export type CompanyContactImportPreview = {
+  files: { companies: string; contacts: string };
+  summary: {
+    companyRows: number;
+    companyCreates: number;
+    companyUpdates: number;
+    companySkipped: number;
+    contactRows: number;
+    contactCreates: number;
+    contactUpdates: number;
+    contactSkipped: number;
+    warnings: number;
+    errors: number;
+  };
+  issues: CompanyContactImportIssue[];
+};
+
+export type CompanyContactImportCommitResult = {
+  ok: true;
+  companies: { created: number; updated: number; skipped: number };
+  contacts: { created: number; updated: number; skipped: number };
+  warnings: number;
+  errors: number;
+};
 
 export const companyLocationSchema = z.object({
   latitude: z.coerce.number().min(-90).max(90).nullable(),

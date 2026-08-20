@@ -1,36 +1,47 @@
 import { z } from 'zod';
 import { moneySchema } from './common';
 import {
+  LEAD_FOLLOW_UP_STATUSES,
+  LEAD_AUTHORITY_STATUSES,
+  LEAD_BUDGET_STATUSES,
+  LEAD_PURCHASE_TIMEFRAMES,
+  LEAD_TECHNICAL_FITS,
+  LEAD_CONTACT_CHANNELS,
+  LEAD_CONTACT_OUTCOMES,
   OPPORTUNITY_APPROVAL_STATUSES,
   OPPORTUNITY_APPROVAL_TYPES,
+  OPPORTUNITY_PAYMENT_METHODS,
   PIPELINE_STAGES,
   QUALIFICATION_STAGES,
+  type OpportunityApprovalType,
+  type PipelineStageCode,
 } from '../constants';
 
 export const pipelineStageEnum = z.enum(PIPELINE_STAGES);
 
-export const opportunityPaymentMethodEnum = z.enum([
-  'undecided',
-  'cash',
-  'wire_transfer',
-  'promissory_note',
-  'term',
-  'installment',
-  'leasing',
-  'letter_of_credit',
-  'cheque',
-]);
+export const opportunityPaymentMethodEnum = z.enum(OPPORTUNITY_PAYMENT_METHODS);
 export type OpportunityPaymentMethod = z.infer<typeof opportunityPaymentMethodEnum>;
 
 // Lead sıcaklığı — firmanın alım niyeti. Satış ekibi kartı açmadan önceliklendirir.
 export const leadTemperatureEnum = z.enum(['hot', 'waiting', 'cold', 'unknown']);
 export type LeadTemperature = z.infer<typeof leadTemperatureEnum>;
 
+// Lead takip durumu, lead'in satış derecesinden bağımsız günlük çalışma durumudur.
+export const leadFollowUpStatusEnum = z.enum(LEAD_FOLLOW_UP_STATUSES);
+export type LeadFollowUpStatus = z.infer<typeof leadFollowUpStatusEnum>;
+export const leadAuthorityStatusEnum = z.enum(LEAD_AUTHORITY_STATUSES);
+export const leadBudgetStatusEnum = z.enum(LEAD_BUDGET_STATUSES);
+export const leadPurchaseTimeframeEnum = z.enum(LEAD_PURCHASE_TIMEFRAMES);
+export const leadTechnicalFitEnum = z.enum(LEAD_TECHNICAL_FITS);
+export const leadContactChannelEnum = z.enum(LEAD_CONTACT_CHANNELS);
+export const leadContactOutcomeEnum = z.enum(LEAD_CONTACT_OUTCOMES);
+
 const opportunityInputSchema = z.object({
   companyId: z.string().min(1).nullish(),
   divisionId: z.string().uuid().optional(),
   primaryContactId: z.string().min(1).nullish(),
-  ownerUserId: z.string().min(1).optional(),
+  // Null, kaydı yeniden sahipsiz havuza bırakmak için açıkça desteklenir.
+  ownerUserId: z.string().uuid().nullish(),
   title: z.string().min(1).max(255),
   description: z.string().max(4000).optional(),
   // Firma kaydı henüz açılmamış hızlı lead bilgileri. Firma bağlandıktan sonra
@@ -39,9 +50,25 @@ const opportunityInputSchema = z.object({
   leadCompanyTitle: z.string().trim().max(255).nullish(),
   leadContactValue: z.string().trim().max(320).nullish(),
   leadCity: z.string().trim().max(120).nullish(),
+  leadDistrict: z.string().trim().max(120).nullish(),
   leadPhone: z.string().trim().max(64).nullish(),
   leadEmail: z.string().trim().max(254).nullish(),
   leadTemperature: leadTemperatureEnum.nullish(),
+  leadFollowUpStatus: leadFollowUpStatusEnum.nullish(),
+  leadNeedSummary: z.string().trim().max(2000).nullish(),
+  leadAuthorityStatus: leadAuthorityStatusEnum.nullish(),
+  leadBudgetStatus: leadBudgetStatusEnum.nullish(),
+  leadPurchaseTimeframe: leadPurchaseTimeframeEnum.nullish(),
+  leadTechnicalFit: leadTechnicalFitEnum.nullish(),
+  leadTechnicalNote: z.string().trim().max(2000).nullish(),
+  // Lead "disqualified" durumuna alınırken zorunlu; LOST nedenleriyle aynı
+  // lookup tablosuna yazılır, kod yoksa backend satırı kendisi açar.
+  disqualifyReasonCode: z.string().trim().max(64).nullish(),
+  // Satış derecesi/eleme kararının serbest metin gerekçesi.
+  qualificationNote: z.string().trim().max(1000).nullish(),
+  // Lead ve fırsat kartlarında ekibin bir sonraki somut işi.
+  nextAction: z.string().trim().max(1000).nullish(),
+  nextActionAt: z.coerce.date().nullish(),
   estimatedValue: moneySchema.optional(),
   currencyCode: z.string().max(8).default('USD'),
   probability: z.coerce.number().int().min(0).max(100).default(50),
@@ -59,6 +86,20 @@ const opportunityInputSchema = z.object({
   wonReason: z.string().max(255).nullish(),
 });
 
+/** Lead elenirken neden kodu zorunludur; create ve update aynı kuralı paylaşır. */
+const requireDisqualifyReason = (
+  value: { leadFollowUpStatus?: LeadFollowUpStatus | null; disqualifyReasonCode?: string | null },
+  context: z.RefinementCtx
+) => {
+  if (value.leadFollowUpStatus === 'disqualified' && !value.disqualifyReasonCode?.trim()) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'Fırsat uygun değil olarak işaretlenirken neden zorunludur.',
+      path: ['disqualifyReasonCode'],
+    });
+  }
+};
+
 export const opportunityCreateSchema = opportunityInputSchema.superRefine((value, context) => {
   if (!value.companyId && !value.leadContactName?.trim()) {
     context.addIssue({
@@ -67,6 +108,14 @@ export const opportunityCreateSchema = opportunityInputSchema.superRefine((value
       path: ['leadContactName'],
     });
   }
+  if (value.nextActionAt && !value.nextAction?.trim()) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'Takip zamanı için sonraki aksiyon zorunludur.',
+      path: ['nextAction'],
+    });
+  }
+  requireDisqualifyReason(value, context);
 });
 export type OpportunityCreateInput = z.infer<typeof opportunityCreateSchema>;
 
@@ -97,7 +146,7 @@ export const trelloImportRowSchema = z
     dueAt: z.string().datetime().optional(),
     trelloCreatedAt: z.string().datetime().optional(),
     archived: z.boolean().default(false),
-    stageCode: pipelineStageEnum.default('lead'),
+    stageCode: pipelineStageEnum.default('sales'),
   })
   .superRefine((value, context) => {
     if (!value.trelloCardId && !value.cardUrl) {
@@ -162,7 +211,7 @@ export const trelloImportCommitRequestSchema = z.object({
 });
 export type TrelloImportCommitRequest = z.infer<typeof trelloImportCommitRequestSchema>;
 
-export const opportunityUpdateSchema = opportunityInputSchema.partial();
+export const opportunityUpdateSchema = opportunityInputSchema.partial().superRefine(requireDisqualifyReason);
 export type OpportunityUpdateInput = z.infer<typeof opportunityUpdateSchema>;
 
 export const opportunityQualificationStageEnum = z.enum(QUALIFICATION_STAGES);
@@ -170,17 +219,143 @@ export type OpportunityQualificationStage = z.infer<typeof opportunityQualificat
 
 export const opportunityConvertSchema = z.object({
   note: z.string().trim().max(1000).optional(),
+  overrideReason: z.string().trim().max(1000).optional(),
 });
 export type OpportunityConvertInput = z.infer<typeof opportunityConvertSchema>;
 
+export const leadContactEventSchema = z
+  .object({
+    idempotencyKey: z.string().uuid(),
+    channel: leadContactChannelEnum,
+    outcome: leadContactOutcomeEnum,
+    note: z.string().trim().max(2000).optional(),
+    nextAction: z.string().trim().max(1000).nullish(),
+    nextActionAt: z.coerce.date().nullish(),
+  })
+  .superRefine((value, context) => {
+    if (value.nextActionAt && !value.nextAction?.trim()) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Takip zamanı için sonraki aksiyon zorunludur.',
+        path: ['nextAction'],
+      });
+    }
+  });
+export type LeadContactEventInput = z.infer<typeof leadContactEventSchema>;
+
+const leadAssignmentCriteriaSchema = z.object({
+  cities: z.array(z.string().trim().min(1).max(120)).max(100).default([]),
+  productTerms: z.array(z.string().trim().min(1).max(120)).max(100).default([]),
+  sourceCodes: z.array(z.string().trim().min(1).max(64)).max(100).default([]),
+});
+
+export const leadAssignmentRuleCreateSchema = z.object({
+  name: z.string().trim().min(1).max(255),
+  priority: z.coerce.number().int().min(0).max(10_000).default(100),
+  active: z.boolean().default(true),
+  divisionId: z.string().uuid().nullish(),
+  criteria: leadAssignmentCriteriaSchema.default({ cities: [], productTerms: [], sourceCodes: [] }),
+  assigneeUserIds: z.array(z.string().uuid()).min(1).max(100),
+});
+export const leadAssignmentRuleUpdateSchema = leadAssignmentRuleCreateSchema.partial();
+export type LeadAssignmentRuleCreateInput = z.infer<typeof leadAssignmentRuleCreateSchema>;
+export type LeadAssignmentRuleUpdateInput = z.infer<typeof leadAssignmentRuleUpdateSchema>;
+
 export const opportunityQualificationChangeSchema = z.object({
+  // Lead, fırsat akışının İLK adımıdır; ayrı bir "Bugünüm" sayfası yerine
+  // panonun ilk kolonu olarak yaşar, bu yüzden geçerli bir hedeftir.
   toStage: opportunityQualificationStageEnum,
   note: z.string().trim().max(1000).optional(),
   cancellationReasonCode: z.string().trim().max(64).optional(),
   lostCompetitorId: z.string().uuid().optional(),
+  lostCompetitorName: z.string().trim().min(1).max(255).optional(),
   lostCompetitorProductModel: z.string().trim().max(255).optional(),
+  lostProductName: z.string().trim().max(512).optional(),
+  lostUnmetConditions: z.string().trim().max(2000).optional(),
 });
 export type OpportunityQualificationChangeInput = z.infer<typeof opportunityQualificationChangeSchema>;
+
+export const opportunityProcessActionKeys = [
+  'assign_owner',
+  'edit_subject',
+  'link_company',
+  'edit_company',
+  'link_contact',
+  'create_contact',
+  'record_call',
+  'record_visit',
+  'record_first_contact',
+  'edit_machine',
+  'edit_payment_method',
+  'edit_contract_terms',
+  'edit_payment_terms',
+  'create_quote',
+  'approve_quote',
+  'create_proforma',
+  'create_contract',
+  'create_payment_plan',
+  'create_commercial_invoice',
+  'approve_customs',
+  'reserve_stock',
+  'create_shipment',
+  'complete_shipment',
+  'open_installation',
+  'complete_installation',
+  'approve_payment',
+  'approve_invoice',
+  'approve_installation',
+  'approve_win',
+] as const;
+export type OpportunityProcessActionKey = (typeof opportunityProcessActionKeys)[number];
+
+export const opportunityProcessCheckStatusEnum = z.enum(['done', 'not_done']);
+export type OpportunityProcessCheckStatus = z.infer<typeof opportunityProcessCheckStatusEnum>;
+
+/**
+ * A+ adımının elle işaretlenmesi. `status: null` işareti kaldırır ve adım
+ * yeniden kanıttan (fatura, sevkiyat, kurulum kaydı...) türetilir.
+ */
+export const opportunityProcessCheckUpsertSchema = z.object({
+  status: opportunityProcessCheckStatusEnum.nullable(),
+  note: z.string().trim().max(2000).nullish(),
+});
+export type OpportunityProcessCheckUpsertInput = z.infer<typeof opportunityProcessCheckUpsertSchema>;
+
+export type ProcessCheck = {
+  key: string;
+  label: string;
+  complete: boolean;
+  actionKey: OpportunityProcessActionKey;
+  stageCode?: PipelineStageCode;
+  qualificationStage?: OpportunityQualificationStage;
+  /** Adım elle işaretlenebilir mi (şimdilik yalnız A+ alanı). */
+  manualEditable?: boolean;
+  /** Elle verilen karar; yoksa `complete` kanıttan türetilmiştir. */
+  manualStatus?: OpportunityProcessCheckStatus | null;
+  /** Elle işaretlemenin gerekçesi / notu. */
+  note?: string | null;
+  noteUpdatedAt?: string | null;
+  noteUpdatedByName?: string | null;
+};
+
+export type ProcessTarget = {
+  axis: 'qualification' | 'operation';
+  code: OpportunityQualificationStage | PipelineStageCode;
+  direction: 'current' | 'forward' | 'backward';
+  selectable: boolean;
+  canTransition: boolean;
+  requiresReason: boolean;
+  blockers: ProcessCheck[];
+  invalidatedApprovals: OpportunityApprovalType[];
+};
+
+export type OpportunityProcessReadiness = {
+  currentQualificationStage: OpportunityQualificationStage;
+  currentOperationStage: PipelineStageCode;
+  closed: boolean;
+  targets: ProcessTarget[];
+  checks: ProcessCheck[];
+};
 
 export const opportunityApprovalTypeEnum = z.enum(OPPORTUNITY_APPROVAL_TYPES);
 export const opportunityApprovalStatusEnum = z.enum(OPPORTUNITY_APPROVAL_STATUSES);
@@ -203,6 +378,7 @@ export const opportunityStageChangeSchema = z
     changeReason: z.string().max(1000).optional(),
     cancellationReasonCode: z.string().max(64).optional(),
     lostCompetitorId: z.string().optional(),
+    lostCompetitorName: z.string().trim().min(1).max(255).optional(),
     lostCompetitorProductModel: z.string().max(255).optional(),
     quoteId: z.string().optional(),
     inventoryItemIds: z.array(z.string()).optional(),

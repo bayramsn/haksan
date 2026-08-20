@@ -27,14 +27,57 @@ describe('Departments admin API', () => {
     expect(Array.isArray(r.body)).toBe(true);
   });
 
-  it('POST /departments creates department with unique code', async () => {
+  it('creates a department, exposes it to user forms, and safely removes it', async () => {
     const code = `dept_${Date.now()}`;
-    const r = await supertest(app.getHttpServer())
+    const created = await supertest(app.getHttpServer())
       .post('/api/v1/departments')
       .set('Authorization', `Bearer ${adminToken}`)
       .send({ name: 'Test Dept', code, description: 'vitest' });
-    expect(r.status).toBe(201);
-    expect(r.body.code).toBe(code);
+    expect(created.status).toBe(201);
+    expect(created.body.code).toBe(code);
+
+    const listed = await supertest(app.getHttpServer())
+      .get('/api/v1/departments')
+      .set('Authorization', `Bearer ${adminToken}`);
+    expect(listed.body.some((department: { id: string }) => department.id === created.body.id)).toBe(true);
+
+    const removed = await supertest(app.getHttpServer())
+      .delete(`/api/v1/departments/${created.body.id}`)
+      .set('Authorization', `Bearer ${adminToken}`);
+    expect(removed.status).toBe(200);
+    expect(removed.body).toEqual({ ok: true, id: created.body.id });
+
+    const afterRemoval = await supertest(app.getHttpServer())
+      .get('/api/v1/departments')
+      .set('Authorization', `Bearer ${adminToken}`);
+    expect(afterRemoval.body.some((department: { id: string }) => department.id === created.body.id)).toBe(false);
+
+    const restored = await supertest(app.getHttpServer())
+      .post('/api/v1/departments')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ name: 'Restored Test Dept', code, description: 'vitest restored' });
+    expect(restored.status).toBe(201);
+    expect(restored.body.id).toBe(created.body.id);
+    expect(restored.body.name).toBe('Restored Test Dept');
+
+    const cleanup = await supertest(app.getHttpServer())
+      .delete(`/api/v1/departments/${restored.body.id}`)
+      .set('Authorization', `Bearer ${adminToken}`);
+    expect(cleanup.status).toBe(200);
+  });
+
+  it('does not remove a department assigned to a user', async () => {
+    const users = await supertest(app.getHttpServer())
+      .get('/api/v1/users')
+      .set('Authorization', `Bearer ${adminToken}`);
+    const assignedDepartmentId = users.body.find((user: { departmentId?: string | null }) => user.departmentId)?.departmentId;
+    expect(assignedDepartmentId).toBeTruthy();
+
+    const removed = await supertest(app.getHttpServer())
+      .delete(`/api/v1/departments/${assignedDepartmentId}`)
+      .set('Authorization', `Bearer ${adminToken}`);
+    expect(removed.status).toBe(409);
+    expect(removed.body.error.message).toContain('kullanıcılara');
   });
 
   it('GET /department-targets returns array', async () => {

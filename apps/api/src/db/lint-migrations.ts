@@ -17,68 +17,13 @@
  */
 import { readdirSync, readFileSync } from 'fs';
 import { join } from 'path';
+import { findMigrationLintRules } from './migration-lint-rules';
 
 const MIGRATIONS_DIR = join(__dirname, 'migrations');
 // Highest migration index that is already applied in production. New migrations
 // (idx > BASELINE_IDX) must pass the safety rules.
 const BASELINE_IDX = Number(process.env.BASELINE_IDX ?? '57');
 const STRICT = process.env.STRICT === '1';
-
-type Severity = 'high' | 'warn';
-interface Rule {
-  id: string;
-  severity: Severity;
-  test: (sql: string) => boolean;
-  hint: string;
-}
-
-// SQL is normalized to upper-case, comments stripped, before testing.
-const RULES: Rule[] = [
-  {
-    id: 'drop-column',
-    severity: 'high',
-    test: (s) => /\bDROP\s+COLUMN\b/.test(s),
-    hint: 'DROP COLUMN must ship in a separate, post-deploy release (expand-contract). Stop writing to the column first.',
-  },
-  {
-    id: 'drop-table',
-    severity: 'high',
-    test: (s) => /\bDROP\s+TABLE\b/.test(s),
-    hint: 'DROP TABLE is destructive. Confirm no code/tenant depends on it and that a backup exists.',
-  },
-  {
-    id: 'index-not-concurrent',
-    severity: 'warn',
-    test: (s) => /\bCREATE\s+(?:UNIQUE\s+)?INDEX\b/.test(s) && !/\bCREATE\s+(?:UNIQUE\s+)?INDEX\s+CONCURRENTLY\b/.test(s),
-    hint: 'On large tables use CREATE INDEX CONCURRENTLY (outside a transaction) to avoid long write locks.',
-  },
-  {
-    id: 'add-column-no-if-not-exists',
-    severity: 'warn',
-    test: (s) => /\bADD\s+COLUMN\b/.test(s) && !/\bADD\s+COLUMN\s+IF\s+NOT\s+EXISTS\b/.test(s),
-    hint: 'Use ADD COLUMN IF NOT EXISTS so a partially-applied/retried migration is idempotent.',
-  },
-  {
-    id: 'set-not-null',
-    severity: 'warn',
-    test: (s) => /\bSET\s+NOT\s+NULL\b/.test(s),
-    hint: 'SET NOT NULL requires a full backfill first. Prefer: add nullable column, backfill, then SET NOT NULL in a later migration.',
-  },
-  {
-    id: 'add-unique-constraint',
-    severity: 'warn',
-    test: (s) => /\bADD\s+CONSTRAINT\b[\s\S]*?\bUNIQUE\b/.test(s),
-    hint: 'A UNIQUE constraint fails the deploy if duplicates already exist. Verify/clean duplicates before shipping.',
-  },
-];
-
-function stripSql(raw: string): string {
-  return raw
-    .replace(/--[^\n]*/g, ' ')
-    .replace(/\/\*[\s\S]*?\*\//g, ' ')
-    .replace(/\s+/g, ' ')
-    .toUpperCase();
-}
 
 function indexOfFile(file: string): number {
   const m = /^(\d+)_/.exec(file);
@@ -100,9 +45,8 @@ function main(): void {
     if (!enforce) continue;
     enforced.push(file);
 
-    const sql = stripSql(readFileSync(join(MIGRATIONS_DIR, file), 'utf8'));
-    for (const rule of RULES) {
-      if (!rule.test(sql)) continue;
+    const sql = readFileSync(join(MIGRATIONS_DIR, file), 'utf8');
+    for (const rule of findMigrationLintRules(sql)) {
       const isError = rule.severity === 'high' || STRICT;
       if (isError) errors++;
       else warnings++;

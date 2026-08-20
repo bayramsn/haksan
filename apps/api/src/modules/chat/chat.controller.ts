@@ -26,6 +26,8 @@ import { CurrentUser } from '../../shared/security/current-user.decorator';
 import type { AuthContext } from '../../shared/security/auth.types';
 import { ForbiddenError } from '../../shared/utils/errors';
 import { ChatService } from './chat.service';
+import { loadEnv } from '../../config/env';
+import { createHmac } from 'node:crypto';
 
 /**
  * Kurum içi sohbet. Erişim tüm kimliği doğrulanmış çalışanlara açık (izin matrisi
@@ -51,6 +53,32 @@ export class ChatController {
   @Get('conversations')
   listConversations(@CurrentUser() user: AuthContext) {
     return this.chat.listConversations(user);
+  }
+
+  @Get('webrtc-config')
+  webRtcConfig(@CurrentUser() user: AuthContext) {
+    const env = loadEnv();
+    const iceServers: Array<{ urls: string | string[]; username?: string; credential?: string }> = [
+      { urls: 'stun:stun.l.google.com:19302' },
+    ];
+    if (!env.WEBRTC_TURN_URLS || !env.WEBRTC_TURN_SHARED_SECRET) {
+      return { iceServers, expiresAt: null };
+    }
+
+    const expiresAtSeconds = Math.floor(Date.now() / 1000) + env.WEBRTC_TURN_TTL_SECONDS;
+    const username = `${expiresAtSeconds}:${user.userId}`;
+    const credential = createHmac('sha1', env.WEBRTC_TURN_SHARED_SECRET)
+      .update(username)
+      .digest('base64');
+    iceServers.push({
+      urls: env.WEBRTC_TURN_URLS.split(',').map((url) => url.trim()).filter(Boolean),
+      username,
+      credential,
+    });
+    return {
+      iceServers,
+      expiresAt: new Date(expiresAtSeconds * 1000).toISOString(),
+    };
   }
 
   @Post('conversations/dm')

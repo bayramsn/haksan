@@ -1,35 +1,25 @@
-import { useState, type MouseEvent } from "react";
+import { useState, type KeyboardEvent, type MouseEvent } from "react";
 import {
-  ArrowRight,
   Building2,
-  Calendar,
   Check,
-  CheckCircle2,
-  CircleAlert,
-  LockKeyhole,
   MapPin,
-  Phone,
-  ShieldCheck,
+  MoreHorizontal,
+  Trash2,
   UserRound,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "../../../lib/auth";
 import { useStore } from "../../lib/store";
 import {
-  OPPORTUNITY_PAYMENT_METHOD_LABELS,
+  QUALIFICATION_STAGE_DESCRIPTIONS,
   QUALIFICATION_STAGE_LABELS,
   QUALIFICATION_STAGES,
-  salesStageLabel,
-  type OpportunityApprovalType,
-  type OpportunityPaymentMethod,
+  opportunityTransitionErrorMessage,
   type QualificationStage,
   type SalesCase,
 } from "../../lib/mock";
 import { KanbanBoard, type KanbanColumn } from "../KanbanBoard";
-import { LogActivityDialog } from "../dialogs/CreateDialogs";
 import { LostCaseDialog } from "../dialogs/LostCaseDialog";
-import { Avatar, AvatarFallback } from "../ui/avatar";
-import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { Card } from "../ui/card";
 import {
@@ -48,89 +38,67 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "../ui/dropdown-menu";
-import { Input } from "../ui/input";
 import { Label } from "../ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
 import { Textarea } from "../ui/textarea";
+import { actionDateLabel, isActionOverdue } from "../shared/NextActionDialog";
+import { useCompanyCardDetails } from "../../lib/companyServerData";
 
-type ActiveQualificationStage = Exclude<QualificationStage, "lead">;
-const ACTIVE_QUALIFICATION_STAGES = QUALIFICATION_STAGES as ActiveQualificationStage[];
-
-const STAGE_META: Record<
-  ActiveQualificationStage,
-  { color: string; dot: string; surface: string; description: string }
-> = {
+// Kolon açıklaması burada tutulmaz; Türkçe derece metinleri tek kaynaktan
+// (mock.ts#QUALIFICATION_STAGE_DESCRIPTIONS) okunur.
+const STAGE_META: Record<QualificationStage, { color: string; dot: string; surface: string }> = {
+  lead: {
+    color: "var(--chart-3)",
+    dot: "bg-teal-600",
+    surface: "bg-teal-50 text-teal-700",
+  },
   c: {
-    color: "#64748B",
+    color: "var(--chart-6)",
     dot: "bg-slate-500",
     surface: "bg-slate-50 text-slate-700",
-    description: "Firma verisi",
   },
   b: {
-    color: "#2563EB",
+    color: "var(--chart-2)",
     dot: "bg-blue-600",
     surface: "bg-blue-50 text-blue-700",
-    description: "Temas ve ihtiyaç",
   },
   a: {
-    color: "#4F46E5",
+    color: "var(--chart-5)",
     dot: "bg-indigo-600",
     surface: "bg-indigo-50 text-indigo-700",
-    description: "Ticari şartlar",
   },
   a_plus: {
-    color: "#D97706",
+    color: "var(--warning)",
     dot: "bg-amber-600",
     surface: "bg-amber-50 text-amber-700",
-    description: "Operasyon onayları",
   },
   win: {
-    color: "#059669",
+    color: "var(--success)",
     dot: "bg-emerald-600",
     surface: "bg-emerald-50 text-emerald-700",
-    description: "Kazanıldı",
   },
   lost: {
-    color: "#DC2626",
+    color: "var(--destructive)",
     dot: "bg-red-600",
     surface: "bg-red-50 text-red-700",
-    description: "Kaybedildi",
   },
 };
-
-const APPROVALS: Array<{ type: OpportunityApprovalType; label: string }> = [
-  { type: "payment", label: "Ödeme" },
-  { type: "customs", label: "Gümrük" },
-  { type: "invoice", label: "Fatura" },
-  { type: "installation", label: "Kurulum" },
-  { type: "win", label: "WIN onayı" },
-];
-
-const initials = (value: string) =>
-  (value || "—")
-    .split(" ")
-    .slice(0, 2)
-    .map((part) => part[0])
-    .join("")
-    .toUpperCase();
 
 export function QualificationKanban({
   items,
   onSelect,
+  onRequestDelete,
 }: {
   items: SalesCase[];
   onSelect: (salesCase: SalesCase) => void;
+  onRequestDelete?: (salesCase: SalesCase) => void;
 }) {
-  const {
-    customers,
-    users,
-    moveQualification,
-    decideCaseApproval,
-    updateCase,
-    closeCase,
-  } = useStore();
+  const { customers, contacts, moveQualification, closeCase } = useStore();
   const { hasPermission } = useAuth();
-  const canApprove = hasPermission("opportunities.approve");
+  const companyDetailsQuery = useCompanyCardDetails(
+    items.map((item) => item.customerId),
+    customers,
+  );
+  const canUpdate = hasPermission("opportunities.update");
   const [lostId, setLostId] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [pendingBackMove, setPendingBackMove] = useState<{
@@ -142,8 +110,8 @@ export function QualificationKanban({
   const lostCase = lostId ? items.find((item) => item.id === lostId) : null;
   const lostCompany = lostCase ? customers.find((company) => company.id === lostCase.customerId) : null;
 
-  const columns: KanbanColumn<SalesCase>[] = ACTIVE_QUALIFICATION_STAGES.map((stage) => {
-    const stageItems = items.filter((item) => (item.qualificationStage ?? "c") === stage);
+  const columns: KanbanColumn<SalesCase>[] = QUALIFICATION_STAGES.map((stage) => {
+    const stageItems = items.filter((item) => (item.qualificationStage ?? "lead") === stage);
     const total = stageItems.reduce((sum, item) => sum + item.estimatedAmount, 0);
     return {
       key: stage,
@@ -152,7 +120,7 @@ export function QualificationKanban({
       items: stageItems,
       footer: (
         <div className="flex items-center justify-between">
-          <span>{STAGE_META[stage].description}</span>
+          <span>{QUALIFICATION_STAGE_DESCRIPTIONS[stage]}</span>
           <span>{total.toLocaleString("tr-TR")} €</span>
         </div>
       ),
@@ -160,10 +128,20 @@ export function QualificationKanban({
   });
 
   const move = async (id: string, fromValue: string, toValue: string) => {
+    if (!canUpdate) {
+      toast.error("Bu fırsatı ilerletme yetkiniz bulunmuyor");
+      return;
+    }
+    if (busyId) return;
     const salesCase = items.find((item) => item.id === id);
     if (!salesCase) return;
     const from = fromValue as QualificationStage;
     const to = toValue as QualificationStage;
+    if (from === "lost") {
+      setPendingBackMove({ salesCase, to });
+      setBackReason("");
+      return;
+    }
     if (to === "lost") {
       setLostId(id);
       return;
@@ -178,13 +156,10 @@ export function QualificationKanban({
     setBusyId(id);
     try {
       await moveQualification(id, to);
-      toast.success("Fırsat taşındı", { description: `Yeni derece: ${QUALIFICATION_STAGE_LABELS[to]}` });
-    } catch (error: any) {
-      const blockers = error?.details?.blockers ?? error?.response?.data?.error?.details?.blockers;
+      toast.success("Fırsat taşındı", { description: `Yeni satış alanı: ${QUALIFICATION_STAGE_LABELS[to]}` });
+    } catch (error: unknown) {
       toast.error("Fırsat taşınamadı", {
-        description: Array.isArray(blockers) && blockers.length
-          ? blockers.join(" · ")
-          : error?.message ?? "Aşama koşullarını tamamlayın.",
+        description: opportunityTransitionErrorMessage(error, "Aşama koşullarını tamamlayın."),
       });
     } finally {
       setBusyId(null);
@@ -192,12 +167,15 @@ export function QualificationKanban({
   };
 
   const confirmBackMove = async () => {
-    if (!pendingBackMove || !backReason.trim()) return;
+    if (!canUpdate || busyId || !pendingBackMove || !backReason.trim()) return;
     setBusyId(pendingBackMove.salesCase.id);
     try {
       await moveQualification(pendingBackMove.salesCase.id, pendingBackMove.to, { note: backReason });
-      toast.success("Fırsat önceki dereceye alındı", {
-        description: QUALIFICATION_STAGE_LABELS[pendingBackMove.to],
+      const fromLost = pendingBackMove.salesCase.qualificationStage === "lost";
+      toast.success(fromLost ? "LOST kaydı hedef satış alanına taşındı" : "Fırsat önceki satış alanına alındı", {
+        description: fromLost
+          ? `${QUALIFICATION_STAGE_LABELS[pendingBackMove.to]} · Firma, makine ve kayıp bilgileri korundu`
+          : QUALIFICATION_STAGE_LABELS[pendingBackMove.to],
       });
       setPendingBackMove(null);
       setBackReason("");
@@ -208,23 +186,8 @@ export function QualificationKanban({
     }
   };
 
-  const approve = async (salesCase: SalesCase, type: OpportunityApprovalType) => {
-    if (busyId) return;
-    setBusyId(salesCase.id);
-    try {
-      await decideCaseApproval(salesCase.id, type, "approved");
-      toast.success("Onay kaydedildi", { description: APPROVALS.find((item) => item.type === type)?.label });
-    } catch (error: any) {
-      toast.error("Onay verilemedi", {
-        description: error?.message ?? "Bağlı operasyon kaydını kontrol edin.",
-      });
-    } finally {
-      setBusyId(null);
-    }
-  };
-
   const archive = async (salesCase: SalesCase) => {
-    if (busyId) return;
+    if (!canUpdate || busyId) return;
     setBusyId(salesCase.id);
     try {
       await closeCase(salesCase.id);
@@ -243,16 +206,19 @@ export function QualificationKanban({
         onOpenChange={(open) => !open && setLostId(null)}
         caseId={lostId}
         caseName={lostCompany?.name ?? lostCase?.leadCompanyTitle ?? lostCase?.leadContactName}
+        productName={lostCase?.requestedMachine || [lostCase?.requestedProduct, lostCase?.requestedModel].filter(Boolean).join(" · ")}
       />
       <Dialog open={Boolean(pendingBackMove)} onOpenChange={(open) => !open && setPendingBackMove(null)}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className={`sm:max-w-md ${pendingBackMove?.salesCase.qualificationStage === "lost" ? "overflow-hidden border-l-4 border-red-600" : ""}`}>
           <DialogHeader>
-            <DialogTitle>Fırsatı geri al</DialogTitle>
+            <DialogTitle>{pendingBackMove?.salesCase.qualificationStage === "lost" ? "LOST kaydını hedef satış alanına taşı" : "Fırsatı geri al"}</DialogTitle>
             <DialogDescription>
               {pendingBackMove
                 ? `${QUALIFICATION_STAGE_LABELS[pendingBackMove.salesCase.qualificationStage]} → ${QUALIFICATION_STAGE_LABELS[pendingBackMove.to]} geçişi`
                 : ""}
-              . Sonraki aşamaya ait onaylar sıfırlanır.
+              {pendingBackMove?.salesCase.qualificationStage === "lost"
+                ? ". Kart doğrudan seçtiğiniz satış alanına taşınır; firma, makine, aktiviteler ve kayıp bilgileri korunur."
+                : ". Sonraki aşamaya ait onaylar sıfırlanır."}
             </DialogDescription>
           </DialogHeader>
           <div>
@@ -269,7 +235,9 @@ export function QualificationKanban({
           <DialogFooter>
             <Button variant="outline" onClick={() => setPendingBackMove(null)}>Vazgeç</Button>
             <Button disabled={!backReason.trim() || Boolean(busyId)} onClick={() => void confirmBackMove()}>
-              Geri al
+              {pendingBackMove?.salesCase.qualificationStage === "lost"
+                ? `${pendingBackMove ? QUALIFICATION_STAGE_LABELS[pendingBackMove.to] : "Hedef"} satış alanına taşı`
+                : "Geri al"}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -281,275 +249,161 @@ export function QualificationKanban({
         columnWidth={typeof window !== "undefined" && window.innerWidth < 640 ? 260 : 304}
         onMove={move}
         renderCard={(salesCase) => {
-          const company = customers.find((item) => item.id === salesCase.customerId);
-          const owner = users.find((item) => item.id === salesCase.assignedUserId);
-          const stage = (salesCase.qualificationStage ?? "c") as Exclude<QualificationStage, "lead">;
+          const storedCompany = customers.find((item) => item.id === salesCase.customerId);
+          const company = companyDetailsQuery.data?.[salesCase.customerId] ?? storedCompany;
+          const primaryContact =
+            contacts.find((item) => item.id === salesCase.primaryContactId) ??
+            contacts.find((item) =>
+              (item.customerId === salesCase.customerId || item.companyIds?.includes(salesCase.customerId)) && item.isPrimary,
+            ) ??
+            contacts.find((item) => item.customerId === salesCase.customerId || item.companyIds?.includes(salesCase.customerId));
+          const contactName = primaryContact?.name || salesCase.leadContactName || company?.contactPerson || "İlgili kişi belirlenmedi";
+          const defaultAddress = company?.addresses?.find((item) => item.isDefault) ?? company?.addresses?.[0];
+          const address = defaultAddress
+            ? [defaultAddress.address, defaultAddress.district, defaultAddress.city].filter(Boolean).join(", ")
+            : company
+              ? [company.address, company.district, company.city].filter(Boolean).join(", ")
+              : [salesCase.leadDistrict, salesCase.leadCity].filter(Boolean).join(", ");
+          const stage = (salesCase.qualificationStage ?? "lead") as QualificationStage;
           const meta = STAGE_META[stage];
-          const readiness = salesCase.qualificationReadiness;
-          const checks = readiness?.checks ?? [];
           const stopCardClick = (event: MouseEvent) => event.stopPropagation();
           const partyName =
             company?.name ||
             salesCase.leadCompanyTitle ||
-            salesCase.leadContactName ||
             "Firma bilgisi bekleniyor";
-          const contactLine =
-            [salesCase.leadPhone || company?.phone, salesCase.leadEmail || company?.email]
-              .filter(Boolean)
-              .join(" · ") || "İletişim bilgisi bekleniyor";
+          const subject = salesCase.requestedProduct?.trim() || "Belirtilmedi";
+          const machine = salesCase.requestedMachine?.trim() || salesCase.requestedModel?.trim() || "Belirtilmedi";
+          const action = salesCase.nextAction?.trim() || "Planlanmadı";
+          const actionOverdue = isActionOverdue(salesCase.nextActionAt);
+          const openDetailsFromKeyboard = (event: KeyboardEvent<HTMLDivElement>) => {
+            if (event.target !== event.currentTarget || (event.key !== "Enter" && event.key !== " ")) return;
+            event.preventDefault();
+            onSelect(salesCase);
+          };
           return (
             <Card
               data-testid={`sales-kanban-card-${salesCase.id}`}
+              role="button"
+              tabIndex={0}
+              aria-label={`${partyName} fırsat detayını aç`}
               onClick={() => onSelect(salesCase)}
-              className="group gap-0 overflow-hidden rounded-xl border border-border/70 bg-white p-0 shadow-xs transition-all hover:-translate-y-px hover:border-primary/30 hover:shadow-md"
+              onKeyDown={openDetailsFromKeyboard}
+              className="group cursor-pointer gap-0 overflow-hidden border border-border/80 bg-card p-0 shadow-xs outline-none transition-[border-color,box-shadow,transform] hover:-translate-y-px hover:border-operation-blue/40 hover:shadow-md focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
             >
               <div className="h-1.5" style={{ backgroundColor: meta.color }} />
-              <div className="space-y-3 p-3">
+              <div className="p-3">
                 <div className="flex items-start gap-2.5">
-                  <div className={`grid size-9 shrink-0 place-items-center rounded-lg ${meta.surface}`}>
+                  <div className={`grid size-8 shrink-0 place-items-center rounded-md ${meta.surface}`} aria-hidden="true">
                     {company ? <Building2 className="size-4" /> : <UserRound className="size-4" />}
                   </div>
                   <div className="min-w-0 flex-1">
-                    <div className="truncate text-[13px] font-semibold leading-tight group-hover:text-primary">
+                    <div className="flex flex-wrap items-center gap-x-1.5 font-data text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+                      <span>Firma</span>
+                    </div>
+                    <div className="mt-0.5 line-clamp-2 whitespace-normal break-words [overflow-wrap:anywhere] font-display text-[15px] font-semibold leading-[1.25] text-foreground">
                       {partyName}
                     </div>
-                    <div className="mt-1 truncate text-[10px] text-muted-foreground">
-                      {salesCase.leadContactName || company?.contactPerson || "Kontak bekleniyor"}
-                    </div>
                   </div>
-                  {stage !== "win" && stage !== "lost" && <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="size-7 shrink-0"
-                        title="Dereceye gönder"
-                        onClick={stopCardClick}
-                        onMouseDown={stopCardClick}
-                      >
-                        <ArrowRight className="size-3.5" />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end" className="w-52" onClick={stopCardClick}>
-                      <DropdownMenuLabel>Dereceye gönder</DropdownMenuLabel>
-                      <DropdownMenuSeparator />
-                      {ACTIVE_QUALIFICATION_STAGES.map((target) => {
-                        const currentIndex = ACTIVE_QUALIFICATION_STAGES.indexOf(stage);
-                        const targetIndex = ACTIVE_QUALIFICATION_STAGES.indexOf(target);
-                        const adjacent = Math.abs(targetIndex - currentIndex) === 1;
-                        const allowed = target === "lost" || adjacent;
-                        return (
-                          <DropdownMenuItem
-                            key={target}
-                            disabled={target === stage || !allowed}
-                            onSelect={() => void move(salesCase.id, stage, target)}
-                          >
-                            <span className={`size-2 rounded-full ${STAGE_META[target].dot}`} />
-                            {QUALIFICATION_STAGE_LABELS[target]}
-                          </DropdownMenuItem>
-                        );
-                      })}
-                    </DropdownMenuContent>
-                  </DropdownMenu>}
-                </div>
-
-                <div className="space-y-1.5 rounded-lg border border-border/60 bg-slate-50/75 p-2.5 text-[10px]">
-                  <div className="flex items-center gap-1.5 text-foreground/80">
-                    <MapPin className="size-3 shrink-0 text-muted-foreground" />
-                    <span className="truncate">
-                      {[company?.district, company?.city].filter(Boolean).join(" / ") || salesCase.leadCity || "Konum bekleniyor"}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-1.5 text-foreground/80">
-                    <Phone className="size-3 shrink-0 text-muted-foreground" />
-                    <span className="truncate">{contactLine}</span>
-                  </div>
-                  {stage === "c" && (
-                    <>
-                      <div className="truncate text-muted-foreground">{company?.address || "Açık adres bekleniyor"}</div>
-                      <div className="truncate text-muted-foreground">Sektör: {company?.sector || "bekleniyor"}</div>
-                    </>
-                  )}
-                </div>
-
-                <div>
-                  <div className="text-[9px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">Konu / Makine</div>
-                  <div className="mt-1 line-clamp-2 text-[11px] font-medium">
-                    {salesCase.requestedMachine || salesCase.requestedModel || salesCase.requestedProduct}
-                  </div>
-                </div>
-
-                {stage === "b" && (
-                  <div className="space-y-2" onClick={stopCardClick} onMouseDown={stopCardClick}>
-                    {company && (
-                      <div className="grid grid-cols-2 gap-2">
-                        <LogActivityDialog
-                          customerId={company.id}
-                          opportunityId={salesCase.id}
-                          defaultKind="call"
-                          trigger={
-                            <Button variant="outline" size="sm" className="h-8 gap-1 text-[10px]">
-                              <Phone className="size-3.5" /> Arama yap
-                            </Button>
-                          }
-                        />
-                        <LogActivityDialog
-                          customerId={company.id}
-                          opportunityId={salesCase.id}
-                          defaultKind="visit"
-                          trigger={
-                            <Button variant="outline" size="sm" className="h-8 gap-1 text-[10px]">
-                              <MapPin className="size-3.5" /> Ziyaret et
-                            </Button>
-                          }
-                        />
-                      </div>
-                    )}
-                    <Input
-                      className="h-8 bg-white text-[11px]"
-                      defaultValue={salesCase.requestedMachine ?? ""}
-                      placeholder="İstenen makine"
-                      onBlur={(event) => {
-                        const value = event.target.value.trim();
-                        if (value !== (salesCase.requestedMachine ?? "")) {
-                          void updateCase(salesCase.id, { requestedMachine: value || null });
-                        }
-                      }}
-                    />
-                    <Select
-                      value={salesCase.paymentMethod ?? "undecided"}
-                      onValueChange={(value) =>
-                        void updateCase(salesCase.id, { paymentMethod: value as OpportunityPaymentMethod })
-                      }
-                    >
-                      <SelectTrigger className="h-8 bg-white text-[11px]"><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        {(Object.entries(OPPORTUNITY_PAYMENT_METHOD_LABELS) as Array<[OpportunityPaymentMethod, string]>).map(
-                          ([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>
+                  <div className="flex shrink-0 items-center gap-0.5">
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="size-7 shrink-0"
+                          title="Kart işlemleri"
+                          aria-label={`${partyName} kart işlemleri`}
+                          onClick={stopCardClick}
+                          onMouseDown={stopCardClick}
+                        >
+                          <MoreHorizontal className="size-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end" className="w-52" onClick={stopCardClick}>
+                        <DropdownMenuLabel>Kart işlemleri</DropdownMenuLabel>
+                        {stage !== "win" && (
+                          <>
+                            <DropdownMenuSeparator />
+                            {QUALIFICATION_STAGES.map((target) => {
+                              const currentIndex = QUALIFICATION_STAGES.indexOf(stage);
+                              const targetIndex = QUALIFICATION_STAGES.indexOf(target);
+                              const adjacent = Math.abs(targetIndex - currentIndex) === 1;
+                              const allowed = stage === "lost" || target === "lost" || adjacent;
+                              return (
+                                <DropdownMenuItem
+                                  key={target}
+                                  disabled={!canUpdate || Boolean(busyId) || target === stage || !allowed}
+                                  onSelect={() => void move(salesCase.id, stage, target)}
+                                >
+                                  <span className={`size-2 rounded-full ${STAGE_META[target].dot}`} />
+                                  {QUALIFICATION_STAGE_LABELS[target]}
+                                </DropdownMenuItem>
+                              );
+                            })}
+                          </>
                         )}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                )}
-
-                {stage === "a" && (
-                  <div className="space-y-2" onClick={stopCardClick} onMouseDown={stopCardClick}>
-                    <Textarea
-                      className="min-h-16 bg-white text-[11px]"
-                      defaultValue={salesCase.contractTerms ?? ""}
-                      placeholder="Sözleşme şartları"
-                      onBlur={(event) => {
-                        const value = event.target.value.trim();
-                        if (value !== (salesCase.contractTerms ?? "")) {
-                          void updateCase(salesCase.id, { contractTerms: value || null });
-                        }
-                      }}
-                    />
-                    <Textarea
-                      className="min-h-16 bg-white text-[11px]"
-                      defaultValue={salesCase.paymentTerms ?? ""}
-                      placeholder="Ödeme koşulları"
-                      onBlur={(event) => {
-                        const value = event.target.value.trim();
-                        if (value !== (salesCase.paymentTerms ?? "")) {
-                          void updateCase(salesCase.id, { paymentTerms: value || null });
-                        }
-                      }}
-                    />
-                  </div>
-                )}
-
-                {stage === "a_plus" && (
-                  <div className="space-y-1.5" onClick={stopCardClick} onMouseDown={stopCardClick}>
-                    {APPROVALS.map(({ type, label }) => {
-                      const status = readiness?.approvals?.[type] ?? "pending";
-                      const approved = status === "approved";
-                      return (
-                        <div key={type} className="flex items-center justify-between gap-2 rounded-md border border-border/60 bg-white px-2 py-1.5">
-                          <span className="flex min-w-0 items-center gap-1.5 text-[10px]">
-                            {approved
-                              ? <CheckCircle2 className="size-3.5 shrink-0 text-emerald-600" />
-                              : <LockKeyhole className="size-3.5 shrink-0 text-amber-600" />}
-                            <span className="truncate">{label}</span>
-                          </span>
-                          {canApprove && !approved && (
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="h-6 gap-1 px-1.5 text-[9px] text-primary"
-                              disabled={busyId === salesCase.id}
-                              onClick={() => void approve(salesCase, type)}
+                        {(stage === "win" || stage === "lost") && (
+                          <>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem
+                              disabled={!canUpdate || Boolean(busyId)}
+                              onSelect={() => void archive(salesCase)}
                             >
-                              <ShieldCheck className="size-3" /> Onayla
-                            </Button>
-                          )}
+                              <Check className="size-3.5" /> Tamamla ve Geçmiş'e al
+                            </DropdownMenuItem>
+                          </>
+                        )}
+                        {onRequestDelete && (
+                          <>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem
+                              className="text-destructive focus:bg-destructive/10 focus:text-destructive"
+                              disabled={!canUpdate || Boolean(busyId)}
+                              onSelect={() => onRequestDelete(salesCase)}
+                            >
+                              <Trash2 className="size-3.5" /> Fırsat kartını sil
+                            </DropdownMenuItem>
+                          </>
+                        )}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </div>
+                </div>
+                <div className="mt-3 border-t border-border/70 pt-2.5">
+                  <div className="font-data text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+                  Kart detayları
+                  </div>
+                  <dl className="mt-1 divide-y divide-border/70">
+                     <div className="grid grid-cols-[52px_minmax(0,1fr)] gap-2 py-1.5">
+                       <dt className="font-data text-xs font-medium uppercase tracking-[0.06em] text-muted-foreground">Konu</dt>
+                       <dd className="min-w-0 line-clamp-2 break-words text-xs font-medium leading-4 text-foreground">{subject}</dd>
+                     </div>
+                     <div className="grid grid-cols-[52px_minmax(0,1fr)] gap-2 py-1.5">
+                       <dt className="font-data text-xs font-medium uppercase tracking-[0.06em] text-muted-foreground">İlgili</dt>
+                       <dd className="min-w-0 line-clamp-1 break-words text-xs font-medium leading-4 text-foreground">{contactName}</dd>
+                     </div>
+                     <div className="grid grid-cols-[52px_minmax(0,1fr)] gap-2 py-1.5">
+                       <dt className="flex items-center gap-1 font-data text-xs font-medium uppercase tracking-[0.06em] text-muted-foreground">
+                         <MapPin className="size-3" aria-hidden="true" /> Adres
+                       </dt>
+                       <dd className="min-w-0 line-clamp-2 break-words text-xs leading-4 text-foreground">
+                         {address || (salesCase.customerId && companyDetailsQuery.isLoading ? "Adres yükleniyor…" : "Adres bilgisi yok")}
+                       </dd>
+                     </div>
+                     <div className="grid grid-cols-[52px_minmax(0,1fr)] gap-2 py-1.5">
+                      <dt className="font-data text-xs font-medium uppercase tracking-[0.06em] text-muted-foreground">Makina</dt>
+                      <dd className="min-w-0 line-clamp-2 break-words text-xs font-medium leading-4 text-foreground">{machine}</dd>
+                    </div>
+                    <div className="grid grid-cols-[52px_minmax(0,1fr)] gap-2 py-1.5">
+                      <dt className={`font-data text-xs font-medium uppercase tracking-[0.06em] ${actionOverdue ? "text-destructive" : "text-muted-foreground"}`}>Aksiyon</dt>
+                      <dd className="min-w-0">
+                        <div className={`line-clamp-2 break-words text-xs font-medium leading-4 ${salesCase.nextAction ? "text-foreground" : "text-muted-foreground"}`}>{action}</div>
+                        <div className={`mt-0.5 font-data text-xs ${actionOverdue ? "font-semibold text-destructive" : "text-muted-foreground"}`}>
+                          {actionOverdue ? "Gecikti · " : ""}{actionDateLabel(salesCase.nextActionAt)}
                         </div>
-                      );
-                    })}
-                  </div>
-                )}
-
-                {checks.length > 0 && (
-                  <div
-                    className="rounded-lg border border-border/60 bg-white p-2"
-                    title={readiness?.blockers?.join(" · ")}
-                  >
-                    <div className="mb-1.5 flex items-center justify-between text-[9px] font-semibold uppercase tracking-[0.1em] text-muted-foreground">
-                      <span>Hazırlık</span>
-                      <span>{checks.filter((check) => check.complete).length}/{checks.length}</span>
+                      </dd>
                     </div>
-                    <div className="flex gap-1">
-                      {checks.map((check) => (
-                        <span
-                          key={check.key}
-                          className={`h-1.5 min-w-2 flex-1 rounded-full ${check.complete ? meta.dot : "bg-slate-200"}`}
-                          title={`${check.label}: ${check.complete ? "tamam" : "eksik"}`}
-                        />
-                      ))}
-                    </div>
-                    {!readiness?.ready && readiness?.blockers?.[0] && (
-                      <div className="mt-1.5 flex items-center gap-1 text-[9px] text-amber-700">
-                        <CircleAlert className="size-3 shrink-0" />
-                        <span className="truncate">{readiness.blockers[0]}</span>
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                <div className="flex items-center justify-between border-t border-border/60 pt-2.5">
-                  <div className="min-w-0">
-                    <div className="truncate font-display text-lg font-semibold leading-none text-primary">
-                      {salesCase.estimatedAmount.toLocaleString("tr-TR")}{" "}
-                      <span className="font-data text-[9px] font-medium text-muted-foreground">{salesCase.currency}</span>
-                    </div>
-                    <Badge variant="outline" className="mt-1 h-5 max-w-[140px] text-[8px]">
-                      Operasyon: {salesStageLabel(salesCase.stage)}
-                    </Badge>
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    {(stage === "win" || stage === "lost") && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className={`h-7 gap-1 px-2 text-[9px] ${stage === "win" ? "text-emerald-700" : "text-red-700"}`}
-                        disabled={busyId === salesCase.id}
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          void archive(salesCase);
-                        }}
-                      >
-                        <Check className="size-3" /> Tamamla
-                      </Button>
-                    )}
-                    <span className="inline-flex items-center gap-1 text-[9px] text-muted-foreground">
-                      <Calendar className="size-3" /> {salesCase.createdAt.slice(5)}
-                    </span>
-                    <Avatar className="size-5">
-                      <AvatarFallback className="bg-primary/10 text-[8px] text-primary">
-                        {initials(owner?.name ?? "—")}
-                      </AvatarFallback>
-                    </Avatar>
-                  </div>
+                  </dl>
                 </div>
               </div>
             </Card>

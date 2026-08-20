@@ -1,19 +1,24 @@
 import { useEffect, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Card, CardHeader, CardTitle } from "../../ui/card";
 import { Button } from "../../ui/button";
 import { Input } from "../../ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../../ui/table";
-import { StatusBadge } from "../../Layout";
+import { StatusBadge } from "../../shared/StatusBadge";
 import { DocumentUploadDialog } from "../../dialogs/DocumentUploadDialog";
 import { DocumentPreviewDialog } from "../../dialogs/DocumentPreviewDialog";
 import { DocumentDetailDialog } from "../../dialogs/DocumentDetailDialog";
 import { CreateProformaDialog } from "../../dialogs/CreateProformaDialog";
-import { EditProformaPricesDialog } from "../../dialogs/EditProformaPricesDialog";
+import { QuickProformaDialog } from "../../dialogs/QuickProformaDialog";
+import { QuickContractDialog } from "../../dialogs/QuickContractDialog";
+import { EditDocumentDialog } from "../../dialogs/EditDocumentDialog";
 import { CreateContractDialog } from "../../dialogs/CreateContractDialog";
+import { LinkCommercialDocumentDialog } from "../../dialogs/LinkCommercialDocumentDialog";
 import { useStore } from "../../../lib/store";
 import { DocumentItem } from "../../../lib/mock";
 import { toast } from "sonner";
-import { documentService, fileService, serviceService } from "../../../../lib/services";
+import { companyService, documentService, fileService, serviceService } from "../../../../lib/services";
+import { useAuth } from "../../../../lib/auth";
 import { exportToCsv } from "../../../../lib/exportCsv";
 import { formatDuration } from "@haksan/shared";
 import { ExportExcelButton } from "../../ui/ExportExcelButton";
@@ -28,25 +33,32 @@ import {
 } from "../../ui/dropdown-menu";
 import {
   Search, Upload, Download, Printer, Eye, Plus, Trash2,
-  Files, Layers3, Clock3, FileCheck2, BadgeDollarSign, Folder, FolderOpen,
+  Files, Layers3, FileCheck2, BadgeDollarSign, Link2, Route, Unlink, ArrowRight,
+  Folder, FolderOpen, Zap,
 } from "lucide-react";
 import {
   printAssetBase, proformaDoc, commercialInvoiceDoc, contractDoc, installationFormDoc, loadContractPrintData, loadProformaPrintData, PROFORMA_NOTE_OPTIONS, trShortDate,
+  contractFilename, proformaFilename,
 } from "../../../lib/print";
 import { printOrWarn, downloadPrintOrWarn } from "../../../lib/pageHelpers";
+import { companyQueryKeys } from "../../../lib/companyServerData";
+import { normalizeCompany } from "../../../lib/companyNormalizer";
+import { contactQueryKeys, loadAllCompanyContacts, type ContactQueryScope } from "../../../lib/contactServerData";
+import { serverScopeKey } from "../../../lib/serverPagination";
 
 const DOC_TYPE_LABELS: Record<DocumentItem["type"], string> = {
   Proforma: "Proforma",
   Contract: "Sözleşme",
   CommercialInvoice: "Ticari fatura",
   AccountingInvoice: "Muhasebe faturası",
+  ExternalQuote: "Dış teklif",
   DeliveryForm: "Teslim formu",
   InstallationForm: "Kurulum formu",
   Other: "Diğer",
 };
 
 const DOC_GROUPS: Array<{ title: string; description: string; types: DocumentItem["type"][] }> = [
-  { title: "Ticari Belgeler", description: "Satış ve finans kayıtları", types: ["Proforma", "Contract", "CommercialInvoice", "AccountingInvoice"] },
+  { title: "Ticari Belgeler", description: "Satış ve finans kayıtları", types: ["Proforma", "Contract", "CommercialInvoice", "AccountingInvoice", "ExternalQuote"] },
   { title: "Saha Formları", description: "Teslim ve kurulum kanıtları", types: ["DeliveryForm", "InstallationForm"] },
   { title: "Diğer Dosyalar", description: "Genel ekler ve arşiv", types: ["Other"] },
 ];
@@ -76,13 +88,13 @@ function DocumentFolderButton({
         className={`absolute left-px top-0 h-4 w-[42%] rounded-t-[7px] border border-b-0 transition-colors ${active ? "border-primary/35 bg-primary/15" : "border-border/70 bg-slate-100 group-hover:border-primary/25 group-hover:bg-primary/10"}`}
       />
       <span
-        className={`relative flex min-h-[102px] flex-col justify-between rounded-b-xl rounded-tr-xl border px-3 py-3 transition duration-200 group-active:translate-y-px ${active ? "border-primary/35 bg-primary/[0.07] shadow-[0_10px_24px_-18px_rgba(11,36,83,.8)]" : "border-border/70 bg-white group-hover:-translate-y-0.5 group-hover:border-primary/25 group-hover:shadow-[0_10px_24px_-20px_rgba(11,36,83,.7)]"}`}
+        className={`relative flex min-h-[102px] flex-col justify-between rounded-b-xl rounded-tr-xl border px-3 py-3 transition duration-200 group-active:translate-y-px ${active ? "border-primary/35 bg-primary/[0.07] shadow-[0_10px_24px_-18px_rgba(11,36,83,.8)]" : "border-border/70 bg-card group-hover:-translate-y-0.5 group-hover:border-primary/25 group-hover:shadow-[0_10px_24px_-20px_rgba(11,36,83,.7)]"}`}
       >
         <span className="flex items-start justify-between gap-2">
           <span className={`grid size-8 place-items-center rounded-lg ${active ? "bg-primary text-white" : "bg-primary/8 text-primary"}`}>
             <Icon className="size-4" />
           </span>
-          <span className="font-data text-[10px] tabular-nums text-muted-foreground">{count} kayıt</span>
+          <span className="font-data text-xs tabular-nums text-muted-foreground">{count} kayıt</span>
         </span>
         <span className="mt-3 block truncate text-xs font-semibold tracking-tight">{DOC_TYPE_LABELS[type]}</span>
       </span>
@@ -110,15 +122,36 @@ function DocumentSheetPreview({ document }: { document: DocumentItem }) {
 export function DocumentsPage({
   initialType,
   initialQuery,
-  title = "Dokümanlar",
-  description = "Proforma, sözleşme, fatura ve servis/teslim formları",
+  title = "Bağlı belge envanteri",
+  description = "Her belgeyi kaynak teklif, fırsat, firma veya saha kaydıyla birlikte yönetin",
+  onOpenOpportunity,
+  onOpenOffer,
+  onOpenCustomer,
+  onOpenPayment,
+  onOpenServiceRequest,
+  onOpenAccountingInvoices,
 }: {
   initialType?: DocumentItem["type"];
   initialQuery?: string;
   title?: string;
   description?: string;
+  onOpenOpportunity?: (salesCaseId: string) => void;
+  onOpenOffer?: (query: string) => void;
+  onOpenCustomer?: (customerId: string) => void;
+  onOpenPayment?: (query: string) => void;
+  onOpenServiceRequest?: (query: string) => void;
+  onOpenAccountingInvoices?: (query?: string) => void;
 }) {
   const { documents, cases, customers, contacts, users, offers, payments, products, deliveries, machines, refresh } = useStore();
+  const { user, tenant, activeDivision, activeDepartment } = useAuth();
+  const queryClient = useQueryClient();
+  const companyScope = serverScopeKey(activeDivision, activeDepartment, tenant?.id ?? user?.tenantId, user?.id);
+  const contactScope: ContactQueryScope = {
+    tenantId: tenant?.id ?? user?.tenantId ?? "anonymous",
+    userId: user?.id ?? "anonymous",
+    activeDivision,
+    activeDepartment,
+  };
   const customerName = (id: string) => customers.find((c) => c.id === id)?.name ?? "—";
   const userName = (id: string) => users.find((u) => u.id === id)?.name ?? "—";
 
@@ -148,15 +181,59 @@ export function DocumentsPage({
     };
   };
 
-  const proformaInput = (d: (typeof documents)[number], variantKey: string) => ({
-    doc: d,
-    customers,
-    cases,
-    offers,
-    products,
-    contacts,
-    variantKey,
-  });
+  const loadCompany = async (companyId: string, fallback: (typeof customers)[number] | null) => {
+    if (!companyId) return fallback;
+    const dto = await queryClient.fetchQuery({
+      queryKey: companyQueryKeys.detail(companyScope, companyId),
+      queryFn: ({ signal }) => companyService.get(companyId, { signal }),
+      staleTime: 60_000,
+    });
+    return normalizeCompany(dto, fallback ?? undefined);
+  };
+
+  const hydratePrintReferences = async (d: (typeof documents)[number], includeContacts: boolean) => {
+    const ctx = resolveDocContext(d);
+    if (d.documentSnapshot) {
+      return { ctx, customer: ctx.cust, customers, contacts };
+    }
+
+    const companyId = d.companyId || ctx.offer?.companyId || ctx.sc?.customerId || "";
+    const [customer, companyContacts] = await Promise.all([
+      loadCompany(companyId, ctx.cust),
+      includeContacts && companyId
+        ? queryClient.fetchQuery({
+            queryKey: contactQueryKeys.companyContacts(contactScope, companyId),
+            queryFn: ({ signal }) => loadAllCompanyContacts(companyId, signal),
+            staleTime: 60_000,
+          })
+        : Promise.resolve(null),
+    ]);
+    const hydratedCustomers = customer
+      ? [customer, ...customers.filter((item) => item.id !== customer.id)]
+      : customers;
+    const remoteContacts = companyContacts?.data ?? [];
+    const remoteContactIds = new Set(remoteContacts.map((contact) => contact.id));
+    return {
+      ctx,
+      customer,
+      customers: hydratedCustomers,
+      contacts: [...remoteContacts, ...contacts.filter((contact) => !remoteContactIds.has(contact.id))],
+    };
+  };
+
+  const proformaInput = async (d: (typeof documents)[number], variantKey: string) => {
+    const hydrated = await hydratePrintReferences(d, true);
+    return {
+      doc: d,
+      customers: hydrated.customers,
+      cases,
+      offers,
+      products,
+      contacts: hydrated.contacts,
+      users,
+      variantKey,
+    };
+  };
 
   const runProforma = async (
     d: (typeof documents)[number],
@@ -165,10 +242,15 @@ export function DocumentsPage({
   ) => {
     const loading = toast.loading("Proforma hazırlanıyor…");
     try {
-      const data = await loadProformaPrintData(proformaInput(d, variantKey));
+      const data = await loadProformaPrintData(await proformaInput(d, variantKey));
       const rendered = proformaDoc(data, printAssetBase());
       if (mode === "print") printOrWarn(rendered);
-      else downloadPrintOrWarn(rendered, `Proforma-${d.fileName}`, "Proforma");
+      // Dosya adı: Proforma_<bölüm-belge no>_<firma>_<makine>. Kayıtlı firması
+      // olmayan hızlı proformada unvan serbest metinden (companyNameText) gelir.
+      else downloadPrintOrWarn(rendered, proformaFilename(data, {
+        division: resolveDocContext(d).offer?.businessLine,
+        company: d.companyNameText,
+      }), "Proforma");
     } catch (err: any) {
       toast.error("Proforma oluşturulamadı", { description: err?.message ?? "Teklif verisi okunamadı." });
     } finally {
@@ -192,8 +274,9 @@ export function DocumentsPage({
     }
     const loading = toast.loading("Sözleşme hazırlanıyor…");
     try {
+      const hydrated = await hydratePrintReferences(d, false);
       const data = await loadContractPrintData({
-        customer: ctx.cust,
+        customer: hydrated.customer,
         salesCase: ctx.sc,
         offer: ctx.offer,
         products,
@@ -201,10 +284,15 @@ export function DocumentsPage({
         contractDate: d.uploadedAt || new Date().toISOString().slice(0, 10),
         contractNo: d.fileName,
         documentSnapshot: d.documentSnapshot,
+        users,
       });
       const rendered = contractDoc(data, printAssetBase());
       if (mode === "print") printOrWarn(rendered);
-      else downloadPrintOrWarn(rendered, `Sozlesme-${d.fileName}`, "Sözleşme");
+      // Dosya adı: Sozlesme_<bölüm-belge no>_<firma>_<makine>
+      else downloadPrintOrWarn(rendered, contractFilename(data, {
+        division: ctx.offer?.businessLine,
+        company: d.companyNameText,
+      }), "Sözleşme");
     } catch (error: unknown) {
       toast.error("Sözleşme oluşturulamadı", {
         description: error instanceof Error ? error.message : "Teklif ayrıntıları alınamadı.",
@@ -240,14 +328,22 @@ export function DocumentsPage({
     }
   };
 
-  const printDeliveryForm = (d: (typeof documents)[number]) => {
+  const printDeliveryForm = async (d: (typeof documents)[number]) => {
     const delivery = deliveries.find((item) => item.id === d.deliveryId);
     if (!delivery) {
       toast.error("Teslim formu yazdırılamadı", { description: "Canlı teslimat kaydı bulunamadı." });
       return;
     }
-    const cust = customers.find((c) => c.id === delivery.customerId);
     const fd = delivery.formData;
+    let cust = customers.find((c) => c.id === delivery.customerId) ?? null;
+    try {
+      cust = await loadCompany(delivery.customerId, cust);
+    } catch (error: unknown) {
+      toast.error("Teslim formu yazdırılamadı", {
+        description: error instanceof Error ? error.message : "Firma ayrıntıları yüklenemedi.",
+      });
+      return;
+    }
     printOrWarn(
       installationFormDoc(
         {
@@ -286,7 +382,15 @@ export function DocumentsPage({
       toast.error("Kurulum formu yazdırılamadı", { description: "Canlı kurulum kaydı bulunamadı." });
       return;
     }
-    const cust = customers.find((c) => c.id === installation.companyId);
+    let cust = customers.find((c) => c.id === installation.companyId) ?? null;
+    try {
+      cust = await loadCompany(installation.companyId ?? "", cust);
+    } catch (error: unknown) {
+      toast.error("Kurulum formu yazdırılamadı", {
+        description: error instanceof Error ? error.message : "Firma ayrıntıları yüklenemedi.",
+      });
+      return;
+    }
     const specs = Array.isArray(installation.customerDevice?.technicalSpecs)
       ? installation.customerDevice.technicalSpecs.map((spec: any) => ({
           key: String(spec.key ?? ""),
@@ -361,7 +465,7 @@ export function DocumentsPage({
 
   const printDocument = async (d: (typeof documents)[number]) => {
     if (d.type === "DeliveryForm" && d.deliveryId) {
-      printDeliveryForm(d);
+      await printDeliveryForm(d);
       return;
     }
     if (d.type === "InstallationForm" && d.installationId) {
@@ -388,7 +492,7 @@ export function DocumentsPage({
     else if (d.type === "Contract") downloadContract(d);
     else if (d.type === "CommercialInvoice") downloadCommercialInvoice(d);
   };
-  const types: DocumentItem["type"][] = ["Proforma", "Contract", "CommercialInvoice", "AccountingInvoice", "DeliveryForm", "InstallationForm", "Other"];
+  const types: DocumentItem["type"][] = ["Proforma", "Contract", "CommercialInvoice", "AccountingInvoice", "ExternalQuote", "DeliveryForm", "InstallationForm", "Other"];
   const visibleTypes = initialType ? [initialType] : types;
   const counts = visibleTypes.map((t) => ({ type: t, count: documents.filter((d) => d.type === t).length }));
   const scopeDocuments = initialType ? documents.filter((document) => document.type === initialType) : documents;
@@ -402,12 +506,30 @@ export function DocumentsPage({
     const salesCase = cases.find((item) => item.id === document.salesCaseId);
     return document.companyId || salesCase?.customerId || "";
   }).filter(Boolean)).size;
-  const heroTitle = initialType === "Proforma" ? "Proforma kontrol merkezi" : initialType === "Contract" ? "Sözleşme kontrol merkezi" : "Doküman envanteri";
+  const linkedDocumentCount = scopeDocuments.filter((document) =>
+    Boolean(document.quoteId || document.salesCaseId || document.companyId || document.deliveryId || document.installationId || document.serviceRequestId || document.paymentId)
+  ).length;
+  const directQuoteLinkCount = scopeDocuments.filter((document) => Boolean(document.quoteId)).length;
+  const commercialTypes = new Set<DocumentItem["type"]>(["Proforma", "Contract", "CommercialInvoice"]);
+  const reviewNeededCount = scopeDocuments.filter((document) =>
+    commercialTypes.has(document.type)
+    && !document.quoteId
+    && !document.paymentId
+    // Hızlı proforma bilerek teklifsizdir; eksik bağlantı olarak sayılmaz.
+    && !document.documentSnapshot?.standalone
+  ).length;
+  const routeSteps: Array<{ label: string; count: number; type?: DocumentItem["type"] }> = [
+    { label: "Teklif", count: offers.length },
+    { label: "Proforma", count: documents.filter((document) => document.type === "Proforma").length, type: "Proforma" },
+    { label: "Sözleşme", count: documents.filter((document) => document.type === "Contract").length, type: "Contract" },
+    { label: "Ticari fatura", count: documents.filter((document) => document.type === "CommercialInvoice").length, type: "CommercialInvoice" },
+  ];
+  const heroTitle = initialType === "Proforma" ? "Proforma kontrol merkezi" : initialType === "Contract" ? "Sözleşme kontrol merkezi" : "Ticari belge merkezi";
   const heroDescription = initialType === "Proforma"
     ? "Revizyon, teklif durumu ve geçerlilik bağlamını ilk sayfa önizlemesiyle birlikte izleyin."
     : initialType === "Contract"
       ? "İmza, revizyon ve bağlı satış kaydını tek belge akışında takip edin."
-      : "Ticari belgeleri, saha formlarını ve yüklenen dosyaları önizleme bağlamıyla birlikte yönetin.";
+      : "Tekliften faturaya uzanan belge rotasını; satış kartı, firma ve saha kayıtlarından koparmadan yönetin.";
   const activeFolderType = docType === "all" ? null : docType as DocumentItem["type"];
   const activeFolderCount = activeFolderType
     ? counts.find((item) => item.type === activeFolderType)?.count ?? 0
@@ -435,18 +557,36 @@ export function DocumentsPage({
     .filter((d) => {
       const sc = cases.find((s) => s.id === d.salesCaseId);
       const companyId = d.companyId || sc?.customerId || "";
+      const exactOffer = d.quoteId ? offers.find((offer) => offer.id === d.quoteId) : undefined;
+      const inferredOffer = exactOffer ?? offers
+        .filter((offer) => (d.salesCaseId && offer.salesCaseId === d.salesCaseId) || (companyId && offer.companyId === companyId))
+        .sort((a, b) => b.revision - a.revision)[0];
       if (docType !== "all" && d.type !== docType) return false;
-      return (
-        d.fileName.toLowerCase().includes(q.toLowerCase()) ||
-        customerName(companyId).toLowerCase().includes(q.toLowerCase())
-      );
+      const needle = q.toLocaleLowerCase("tr-TR").trim();
+      if (!needle) return true;
+      return [
+        d.fileName,
+        DOC_TYPE_LABELS[d.type],
+        customerName(companyId),
+        d.companyNameText,
+        sc?.leadCompanyTitle,
+        inferredOffer?.quoteNo,
+        inferredOffer ? `R${inferredOffer.revision}` : "",
+        sc?.requestedProduct,
+        sc?.requestedModel,
+        sc?.id,
+        userName(d.uploadedBy),
+        d.paymentId,
+        d.serviceRequestId,
+      ].some((value) => (value ?? "").toLocaleLowerCase("tr-TR").includes(needle));
     })
     // Proforma / Sözleşme no'larına (fileName olarak tutulan documentNo / contractNo) göre azalan sırala.
     .sort((a, b) => b.fileName.localeCompare(a.fileName, "tr", { numeric: true, sensitivity: "base" }));
 
   const downloadDocument = async (d: (typeof documents)[number]) => {
     const sc = cases.find((s) => s.id === d.salesCaseId);
-    const fallbackCustomer = customerName(sc?.customerId || d.companyId || "");
+    const storedName = customerName(sc?.customerId || d.companyId || "");
+    const fallbackCustomer = storedName !== "—" ? storedName : d.companyNameText || sc?.leadCompanyTitle || "—";
     if (!d.fileId) {
       exportToCsv(d.fileName || "dokuman", ["Dosya", "Tip", "Müşteri", "Boyut", "Tarih"], [[d.fileName, d.type, fallbackCustomer, d.size, d.uploadedAt]]);
       return;
@@ -467,7 +607,7 @@ export function DocumentsPage({
   const runCommercialInvoice = async (d: (typeof documents)[number], mode: "print" | "download") => {
     const loading = toast.loading("Ticari fatura hazırlanıyor…");
     try {
-      const data = await loadProformaPrintData(proformaInput(d, ""));
+      const data = await loadProformaPrintData(await proformaInput(d, ""));
       const rendered = commercialInvoiceDoc(data, printAssetBase());
       if (mode === "print") printOrWarn(rendered);
       else downloadPrintOrWarn(rendered, `Ticari-Fatura-${d.fileName}`, "Ticari fatura");
@@ -517,29 +657,59 @@ export function DocumentsPage({
   };
 
   return (
-    <div className="space-y-5">
+    <div className="crm-page">
       <section className="premium-blueprint precision-corners overflow-hidden rounded-2xl border border-primary/20 bg-card p-5 shadow-sm">
         <div className="relative flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
           <div>
-            <p className="font-mono text-[10px] font-semibold tracking-[0.2em] text-primary">BELGE KONTROL MERKEZİ</p>
+            <p className="ui-eyebrow text-primary">Belge kontrol merkezi</p>
             <h2 className="mt-1 font-display text-2xl font-semibold tracking-tight sm:text-3xl">{heroTitle}</h2>
             <p className="mt-1 max-w-2xl text-sm text-muted-foreground">{heroDescription}</p>
           </div>
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 xl:min-w-[610px]">
             <InsightStat label={initialType ? DOC_TYPE_LABELS[initialType] : "Toplam"} value={scopeDocuments.length} icon={<Files />} />
-            <InsightStat label="Son 30 Gün" value={recentDocumentCount} icon={<Clock3 />} tone="success" />
-            <InsightStat label="Müşteri" value={documentCustomerCount} icon={<FileCheck2 />} />
-            <InsightStat label={initialType ? "Canlı Kayıt" : "Canlı Belge"} value={liveDocumentCount || documentsWithFiles} icon={<Layers3 />} tone="success" />
+            <InsightStat label="Kaynağa Bağlı" value={linkedDocumentCount} icon={<Link2 />} tone="success" />
+            <InsightStat label="Teklife Bağlı" value={directQuoteLinkCount} icon={<FileCheck2 />} />
+            <InsightStat label="Bağlantı İncele" value={reviewNeededCount} icon={reviewNeededCount ? <Unlink /> : <Layers3 />} tone={reviewNeededCount ? undefined : "success"} />
           </div>
         </div>
       </section>
 
       {!initialType && (
-        <section className="overflow-hidden rounded-xl border border-[#0b2453]/15 bg-slate-50/65 shadow-sm" aria-labelledby="document-folders-title">
-          <div className="flex flex-col gap-3 border-b border-border/60 bg-white px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+        <section className="overflow-hidden rounded-xl border border-border/70 bg-card shadow-sm" aria-label="Ticari belge rotası">
+          <div className="flex flex-col gap-2 border-b border-border/60 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <div className="ui-eyebrow flex items-center gap-2 text-primary"><Route className="size-3.5" /> Ticari belge rotası</div>
+              <p className="mt-1 text-xs text-muted-foreground">Aynı fırsata bağlı çıktılar soldan sağa ilerler; satırdaki kaynak düğmeleri gerçek kaydı açar.</p>
+            </div>
+            <div className="text-xs text-muted-foreground">Son 30 gün <b className="text-foreground">{recentDocumentCount}</b> · {documentCustomerCount} firma · {liveDocumentCount || documentsWithFiles} canlı/dosyalı kayıt</div>
+          </div>
+          <div className="relative grid grid-cols-2 gap-2 p-3 sm:grid-cols-4 sm:gap-3 sm:p-4">
+            <span className="pointer-events-none absolute left-[12%] right-[12%] top-[38px] hidden h-px bg-slate-200 sm:block" aria-hidden="true" />
+            {routeSteps.map((step, index) => (
+              <button
+                key={step.label}
+                type="button"
+                onClick={() => step.type ? setDocType(step.type) : onOpenOffer?.("")}
+                className={`relative z-10 rounded-lg border px-3 py-3 text-left transition hover:-translate-y-px hover:border-primary/35 hover:shadow-sm ${step.type && docType === step.type ? "border-primary/35 bg-primary/5" : "border-border/70 bg-card"}`}
+              >
+                <span className="flex items-center justify-between gap-2">
+                  <span className="grid size-8 place-items-center rounded-full border-2 border-primary/20 bg-card text-primary">{index + 1}</span>
+                  {index < routeSteps.length - 1 && <ArrowRight className="size-4 text-slate-300 sm:hidden" />}
+                </span>
+                <span className="mt-2 block text-xs font-semibold">{step.label}</span>
+                <span className="mt-0.5 block font-data text-xs text-muted-foreground">{step.count} kayıt</span>
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {!initialType && (
+        <section className="overflow-hidden rounded-xl border border-border/70 bg-muted/35 shadow-sm" aria-labelledby="document-folders-title">
+          <div className="flex flex-col gap-3 border-b border-border/60 bg-card px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <h3 id="document-folders-title" className="text-sm font-semibold tracking-tight">Belge klasörleri</h3>
-              <p className="mt-0.5 text-[11px] text-muted-foreground">Bir klasör seçin; içindeki belgeler aşağıdaki envanterde açılsın.</p>
+              <p className="mt-0.5 text-xs text-muted-foreground">Bir klasör seçin; içindeki belgeler aşağıdaki envanterde açılsın.</p>
             </div>
             <Button
               type="button"
@@ -552,15 +722,15 @@ export function DocumentsPage({
             >
               {docType === "all" ? <FolderOpen className="size-3.5" /> : <Folder className="size-3.5" />}
               Tüm belgeler
-              <span className="font-data text-[10px] opacity-75">{documents.length}</span>
+              <span className="font-data text-xs opacity-75">{documents.length}</span>
             </Button>
           </div>
           <div className="grid gap-3 p-3 sm:p-4 lg:grid-cols-[1.65fr_1fr_.75fr]">
             {DOC_GROUPS.map((group) => (
-              <section key={group.title} className="min-w-0 rounded-xl border border-border/60 bg-white/90 p-3" aria-label={group.title}>
+              <section key={group.title} className="min-w-0 rounded-xl border border-border/60 bg-card/90 p-3" aria-label={group.title}>
                 <div className="mb-2.5">
                   <p className="text-xs font-semibold">{group.title}</p>
-                  <p className="mt-0.5 text-[10px] text-muted-foreground">{group.description}</p>
+                  <p className="mt-0.5 text-xs text-muted-foreground">{group.description}</p>
                 </div>
                 <div className={`grid gap-2 ${group.types.length >= 4 ? "grid-cols-2 xl:grid-cols-3" : "grid-cols-2 lg:grid-cols-1 xl:grid-cols-2"}`}>
                   {group.types.map((type) => (
@@ -569,7 +739,9 @@ export function DocumentsPage({
                       type={type}
                       count={counts.find((item) => item.type === type)?.count ?? 0}
                       active={docType === type}
-                      onClick={() => setDocType(type)}
+                      onClick={() => type === "AccountingInvoice" && onOpenAccountingInvoices
+                        ? onOpenAccountingInvoices()
+                        : setDocType(type)}
                     />
                   ))}
                 </div>
@@ -588,7 +760,7 @@ export function DocumentsPage({
           <div className="flex w-full flex-col gap-2 sm:flex-row sm:flex-wrap lg:w-auto lg:justify-end">
             <div className="relative w-full sm:w-64">
               <Search className="size-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-              <Input placeholder="Dosya / müşteri ara..." className="pl-9 h-9 bg-white" value={q} onChange={(e) => setQ(e.target.value)} />
+              <Input placeholder="Belge, teklif, firma, ürün..." className="h-9 bg-card pl-9" value={q} onChange={(e) => setQ(e.target.value)} />
             </div>
             {!initialType && (
               <FilterPopover
@@ -596,6 +768,31 @@ export function DocumentsPage({
               />
             )}
             <ExportExcelButton path="/exports/documents" filename="dokumanlar.xlsx" className="h-9 justify-center" />
+            {!initialType && (
+              <CreateProformaDialog
+                trigger={<Button size="sm" variant="outline" className="h-9 justify-center gap-1"><Plus className="size-4" /> Proforma</Button>}
+              />
+            )}
+            <QuickProformaDialog
+              trigger={
+                <Button size="sm" variant="outline" className="h-9 justify-center gap-1" title="Teklif açmadan proforma kes">
+                  <Zap className="size-4" /> Hızlı Proforma
+                </Button>
+              }
+            />
+
+            {!initialType && (
+              <CreateContractDialog
+                trigger={<Button size="sm" variant="outline" className="h-9 justify-center gap-1"><Plus className="size-4" /> Sözleşme</Button>}
+              />
+            )}
+            <QuickContractDialog
+              trigger={
+                <Button size="sm" variant="outline" className="h-9 justify-center gap-1" title="Teklif açmadan sözleşme kes">
+                  <Zap className="size-4" /> Hızlı Sözleşme
+                </Button>
+              }
+            />
             {initialType === "Proforma" && (
               <CreateProformaDialog
                 trigger={<Button size="sm" className="h-9 justify-center gap-1"><Plus className="size-4" /> Proforma Oluştur</Button>}
@@ -620,7 +817,7 @@ export function DocumentsPage({
               <TableRow className="bg-muted/30 hover:bg-muted/30">
                 <TableHead className="w-[34%]">Dosya ve müşteri</TableHead>
                 <TableHead className="w-[10%]">Tip</TableHead>
-                <TableHead className="w-[19%]">Belge Akışı</TableHead>
+                <TableHead className="w-[19%]">Kaynak ve akış</TableHead>
                 <TableHead className="w-[8%]">Boyut</TableHead>
                 <TableHead className="w-[11%]">Yükleyen</TableHead>
                 <TableHead className="w-[10%]">Tarih</TableHead>
@@ -631,9 +828,34 @@ export function DocumentsPage({
               {filtered.map((d) => {
                 const sc = cases.find((s) => s.id === d.salesCaseId);
                 const companyId = sc?.customerId || d.companyId || "";
-                const openable = CONTENT_TYPES.includes(d.type);
-                const flowOffer = d.quoteId ? offers.find((offer) => offer.id === d.quoteId) : offers.filter((offer) => offer.salesCaseId === d.salesCaseId).sort((a, b) => b.revision - a.revision)[0];
+                const storedCompanyName = customerName(companyId);
+                const displayCompanyName = storedCompanyName !== "—"
+                  ? storedCompanyName
+                  : d.companyNameText || sc?.leadCompanyTitle || (companyId ? "Firma dokümanı" : sc ? `#${sc.id.toUpperCase()}` : "—");
+                const openable = CONTENT_TYPES.includes(d.type) && !d.paymentId;
+                const exactOffer = d.quoteId ? offers.find((offer) => offer.id === d.quoteId) : undefined;
+                // salesCaseId boşken eşleştirme yapılmamalı: aksi halde satış kartı olmayan
+                // belgeler (ör. hızlı proforma) yine satış kartsız rastgele bir teklife bağlıymış gibi görünür.
+                const flowOffer = exactOffer ?? (!d.salesCaseId || d.paymentId || d.serviceRequestId || d.type === "AccountingInvoice" ? undefined : offers.filter((offer) => offer.salesCaseId === d.salesCaseId).sort((a, b) => b.revision - a.revision)[0]);
                 const signedAt = String(d.documentSnapshot?.signedAt ?? d.documentSnapshot?.signatureDate ?? "");
+                const relationLabel = exactOffer
+                  ? "Teklife doğrudan bağlı"
+                  : d.paymentId
+                    ? "Kasa hareketine bağlı"
+                    : d.serviceRequestId
+                      ? "Servis talebine bağlı"
+                      : d.type === "AccountingInvoice"
+                        ? "Muhasebe kaydına bağlı"
+                        : flowOffer
+                          ? "Fırsattan eşleştirildi"
+                          : d.deliveryId || d.installationId
+                            ? "Canlı saha kaydı"
+                            : companyId
+                              ? "Firma kaydına bağlı"
+                              // Hızlı proforma bilerek teklifsizdir; eksik bağlantı gibi gösterilmemeli.
+                              : d.documentSnapshot?.standalone
+                                ? "Teklifsiz hızlı proforma"
+                                : "Bağlantı gerekli";
                 return (
                   <TableRow
                     key={d.id}
@@ -648,11 +870,17 @@ export function DocumentsPage({
                       <div className="flex items-center gap-2.5 min-w-0">
                         <DocumentSheetPreview document={d} />
                         <div className="min-w-0">
-                          <div className="font-data text-[9px] font-semibold uppercase tracking-[0.12em] text-operation-blue">{DOC_TYPE_LABELS[d.type]}</div>
+                          <div className="font-data text-xs font-semibold uppercase tracking-[0.12em] text-operation-blue">{DOC_TYPE_LABELS[d.type]}</div>
                           <div className="mt-1 truncate text-sm font-medium leading-tight">{d.fileName}</div>
-                          <div className="text-[11px] text-muted-foreground mt-0.5 truncate">
-                            {customerName(companyId) !== "—" ? customerName(companyId) : sc ? `#${sc.id.toUpperCase()}` : d.companyId ? "Firma dokümanı" : "—"}
-                          </div>
+                          {companyId && onOpenCustomer ? (
+                            <button type="button" className="mt-0.5 block max-w-full truncate text-left text-xs text-primary hover:underline" onClick={(event) => { event.stopPropagation(); onOpenCustomer(companyId); }}>
+                              {displayCompanyName}
+                            </button>
+                          ) : (
+                            <div className="mt-0.5 truncate text-xs text-muted-foreground">
+                              {displayCompanyName}
+                            </div>
+                          )}
                           <div className="mt-1.5 flex flex-wrap gap-1.5"><span className="chip chip-neutral">{d.fileId ? "Dosya mevcut" : d.deliveryId || d.installationId ? "Canlı saha formu" : "Canlı kayıt"}</span>{d.documentSnapshot && <span className="chip chip-info">Snapshot korumalı</span>}</div>
                         </div>
                       </div>
@@ -661,10 +889,35 @@ export function DocumentsPage({
                     <TableCell>
                       {flowOffer ? (
                         <div className="min-w-[145px] space-y-1">
-                          <div className="flex flex-wrap items-center gap-1.5"><span className="chip chip-neutral">R{flowOffer.revision}</span><StatusBadge status={flowOffer.status} /></div>
-                          <div className="text-[10px] text-muted-foreground">{d.type === "Contract" ? signedAt ? `İmzalandı · ${signedAt.slice(0, 10)}` : "İmza durumu bekleniyor" : `${flowOffer.validityDays ?? 30} gün geçerli`}</div>
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            {onOpenOffer ? (
+                              <button type="button" className="chip chip-info hover:underline" onClick={(event) => { event.stopPropagation(); onOpenOffer(flowOffer.quoteNo); }}>{flowOffer.quoteNo} · R{flowOffer.revision}</button>
+                            ) : <span className="chip chip-neutral">R{flowOffer.revision}</span>}
+                            <StatusBadge status={flowOffer.status} />
+                          </div>
+                          <div className="text-xs text-muted-foreground">{d.type === "Contract" ? signedAt ? `İmzalandı · ${signedAt.slice(0, 10)}` : "İmza durumu bekleniyor" : `${flowOffer.validityDays ?? 30} gün geçerli`}</div>
+                          <div className="flex flex-wrap items-center gap-1">
+                            <span className={`chip ${exactOffer ? "chip-success" : "chip-neutral"}`}>{relationLabel}</span>
+                            {sc && onOpenOpportunity && <button type="button" className="chip chip-neutral hover:underline" onClick={(event) => { event.stopPropagation(); onOpenOpportunity(sc.id); }}>Fırsatı aç</button>}
+                          </div>
                         </div>
-                      ) : <span className="text-xs text-muted-foreground">{d.fileId ? "Yüklenmiş belge" : "Canlı kayıt"}</span>}
+                      ) : (
+                        <div className="space-y-1.5">
+                          <span className={`chip ${relationLabel === "Bağlantı gerekli" ? "chip-destructive" : "chip-neutral"}`}>{relationLabel}</span>
+                          {sc && onOpenOpportunity && <button type="button" className="block text-xs text-primary hover:underline" onClick={(event) => { event.stopPropagation(); onOpenOpportunity(sc.id); }}>Fırsatı aç</button>}
+                          {d.paymentId && onOpenPayment && <button type="button" className="block text-xs text-primary hover:underline" onClick={(event) => { event.stopPropagation(); onOpenPayment(d.paymentId!); }}>Kasa kaydını aç</button>}
+                          {d.serviceRequestId && onOpenServiceRequest && <button type="button" className="block text-xs text-primary hover:underline" onClick={(event) => { event.stopPropagation(); onOpenServiceRequest(d.serviceRequestId!); }}>Servis talebini aç</button>}
+                          {d.type === "AccountingInvoice" && onOpenAccountingInvoices && <button type="button" className="block text-xs text-primary hover:underline" onClick={(event) => { event.stopPropagation(); onOpenAccountingInvoices(d.fileName); }}>Muhasebe kaydını aç</button>}
+                          {commercialTypes.has(d.type) && !d.quoteId && !d.paymentId && d.fileId && (
+                            <div onClick={(event) => event.stopPropagation()}>
+                              <LinkCommercialDocumentDialog
+                                document={d}
+                                trigger={<Button variant="link" size="sm" className="h-auto p-0 text-xs">Bağlantıyı tamamla</Button>}
+                              />
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </TableCell>
                     <TableCell className="text-sm tabular-nums text-muted-foreground">{d.size}</TableCell>
                     <TableCell className="text-sm">{userName(d.uploadedBy)}</TableCell>
@@ -673,14 +926,27 @@ export function DocumentsPage({
                       <div className="flex items-center gap-1 justify-end">
                         {d.type === "Proforma" && (
                           <>
-                            <EditProformaPricesDialog
-                              document={d}
-                              trigger={
-                                <Button variant="ghost" size="icon" className="size-7" title="Proforma fiyatlarını düzenle">
-                                  <BadgeDollarSign className="size-4 text-muted-foreground hover:text-primary" />
-                                </Button>
-                              }
-                            />
+                            {/* Teklife bağlı proformada fiyat, iskonto ve şartlar düzenlenir; hızlı
+                                proformanın kalemleri belgeye ait olduğu için tam düzenleyici açılır. */}
+                            {d.quoteId ? (
+                              <EditDocumentDialog
+                                document={d}
+                                trigger={
+                                  <Button variant="ghost" size="icon" className="size-7" title="Proforma fiyat ve şartlarını düzenle">
+                                    <BadgeDollarSign className="size-4 text-muted-foreground hover:text-primary" />
+                                  </Button>
+                                }
+                              />
+                            ) : (
+                              <QuickProformaDialog
+                                document={d}
+                                trigger={
+                                  <Button variant="ghost" size="icon" className="size-7" title="Hızlı proformayı düzenle">
+                                    <Zap className="size-4 text-muted-foreground hover:text-primary" />
+                                  </Button>
+                                }
+                              />
+                            )}
                             <DropdownMenu>
                               <DropdownMenuTrigger asChild>
                                 <Button variant="ghost" size="icon" className="size-7" title="Proforma yazdır">
@@ -743,6 +1009,29 @@ export function DocumentsPage({
                         )}
                         {d.type === "Contract" && (
                           <>
+                            {/* Teklife bağlı sözleşmede fiyat, iskonto ve şartlar düzenlenir — onaylı
+                                teklif kilitli olduğu hâlde imza masasında ikisi de pazarlığa
+                                açıktır; hızlı sözleşmenin kalemleri ve şartları belgeye ait
+                                olduğu için tam düzenleyici açılır. */}
+                            {d.quoteId ? (
+                              <EditDocumentDialog
+                                document={d}
+                                trigger={
+                                  <Button variant="ghost" size="icon" className="size-7" title="Sözleşme fiyat ve şartlarını düzenle">
+                                    <BadgeDollarSign className="size-4 text-muted-foreground hover:text-primary" />
+                                  </Button>
+                                }
+                              />
+                            ) : (
+                              <QuickContractDialog
+                                document={d}
+                                trigger={
+                                  <Button variant="ghost" size="icon" className="size-7" title="Hızlı sözleşmeyi düzenle">
+                                    <Zap className="size-4 text-muted-foreground hover:text-primary" />
+                                  </Button>
+                                }
+                              />
+                            )}
                             <Button variant="ghost" size="icon" className="size-7" title="Satış sözleşmesi yazdır / PDF"
                               onClick={() => printContract(d)}>
                               <Printer className="size-4 text-muted-foreground hover:text-primary" />
@@ -753,7 +1042,7 @@ export function DocumentsPage({
                             </Button>
                           </>
                         )}
-                        {d.type === "CommercialInvoice" && (
+                        {d.type === "CommercialInvoice" && !d.paymentId && (
                           <>
                             <Button variant="ghost" size="icon" className="size-7" title="Ticari fatura yazdır / PDF"
                               onClick={() => printCommercialInvoice(d)}>
@@ -765,7 +1054,7 @@ export function DocumentsPage({
                             </Button>
                           </>
                         )}
-                        {d.type !== "Proforma" && d.type !== "Contract" && d.type !== "CommercialInvoice" && (
+                        {(d.type !== "Proforma" && d.type !== "Contract" && d.type !== "CommercialInvoice" || Boolean(d.paymentId)) && (
                           <Button variant="ghost" size="icon" className="size-7" title="Yazdır / PDF"
                             onClick={() => void printDocument(d)}>
                             <Printer className="size-4 text-muted-foreground hover:text-primary" />
@@ -777,7 +1066,7 @@ export function DocumentsPage({
                             <Eye className="size-4 text-muted-foreground hover:text-primary" />
                           </Button>
                         )}
-                        {d.type !== "Proforma" && d.type !== "Contract" && d.type !== "CommercialInvoice" && !(d.deliveryId || d.installationId) && (
+                        {(d.type !== "Proforma" && d.type !== "Contract" && d.type !== "CommercialInvoice" || Boolean(d.paymentId)) && !(d.deliveryId || d.installationId) && (
                           <Button variant="ghost" size="icon" className="size-7" title="İndir"
                             onClick={() => downloadDocument(d)}>
                             <Download className="size-4 text-muted-foreground hover:text-primary" />
@@ -801,8 +1090,23 @@ export function DocumentsPage({
               })}
               {filtered.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={7} className="text-center py-10 text-sm text-muted-foreground">
-                    Doküman bulunamadı.
+                  <TableCell colSpan={7} className="py-10 text-center">
+                    <div className="mx-auto flex max-w-lg flex-col items-center gap-3">
+                      <div className="grid size-11 place-items-center rounded-full bg-muted text-muted-foreground"><Files className="size-5" /></div>
+                      <div>
+                        <p className="text-sm font-medium text-foreground">Bu görünümde belge bulunamadı</p>
+                        <p className="mt-1 text-xs text-muted-foreground">Filtreyi temizleyin veya belgeyi doğrudan kaynak teklif/fırsata bağlı oluşturarak akışı başlatın.</p>
+                      </div>
+                      <div className="flex flex-wrap justify-center gap-2">
+                        {(q || docType !== "all") && <Button variant="outline" size="sm" onClick={() => { setQ(""); setDocType(initialType ?? "all"); }}>Filtreyi temizle</Button>}
+                        {docType === "AccountingInvoice" && onOpenAccountingInvoices && <Button size="sm" onClick={() => onOpenAccountingInvoices()}>Muhasebe faturalarına git</Button>}
+                        {(docType === "Proforma" || initialType === "Proforma") && <CreateProformaDialog trigger={<Button size="sm"><Plus className="mr-1 size-4" /> Proforma oluştur</Button>} />}
+                        {(docType === "Contract" || initialType === "Contract") && <CreateContractDialog trigger={<Button size="sm"><Plus className="mr-1 size-4" /> Sözleşme oluştur</Button>} />}
+                        {docType !== "Proforma" && docType !== "Contract" && initialType !== "Proforma" && initialType !== "Contract" && (
+                          <DocumentUploadDialog defaultType={docType === "all" ? undefined : docType as DocumentItem["type"]} trigger={<Button size="sm"><Upload className="mr-1 size-4" /> Kaynağa bağlı dosya yükle</Button>} />
+                        )}
+                      </div>
+                    </div>
                   </TableCell>
                 </TableRow>
               )}
@@ -818,6 +1122,9 @@ export function DocumentsPage({
         onPrint={detailPrint}
         onDownload={detailDownload}
         onOpenFile={(d) => { setDetailDoc(null); setPreviewDoc(d); }}
+        onOpenOpportunity={onOpenOpportunity}
+        onOpenOffer={onOpenOffer}
+        onOpenCustomer={onOpenCustomer}
       />
       <AlertDialog open={!!pendingDeleteDoc} onOpenChange={(open) => !open && !deletingDocumentId && setPendingDeleteDoc(null)}>
         <AlertDialogContent>

@@ -58,6 +58,7 @@ import {
   resolveAssignedResourceDivision,
 } from '../../shared/utils/division-scope';
 import { AuditService } from '../../shared/database/audit.service';
+import { brandLogoPath } from './brand-media.service';
 
 type ImportStatus = 'create' | 'update' | 'error' | 'skip';
 
@@ -272,6 +273,16 @@ export class ProductsService {
     private readonly audit: AuditService
   ) {}
 
+  private brandView(brand: { id: string | null; name: string | null; logoFileId: string | null } | null) {
+    if (!brand?.id || !brand.name) return null;
+    return {
+      id: brand.id,
+      name: brand.name,
+      logoFileId: brand.logoFileId,
+      logoUrl: brand.logoFileId ? brandLogoPath(brand.logoFileId) : null,
+    };
+  }
+
   // ────────── BRANDS ──────────
   // divisionScoped: markalar bölüme (departmana) atanabilir; form listeleri aktif
   // bölümün + paylaşılan ("Tümü") markaları görür. İçerideki kullanım (import
@@ -300,15 +311,36 @@ export class ProductsService {
       const divisionFilter = resourceDivisionFilterWithShared(actor, 'products', brands.divisionId);
       if (divisionFilter) filters.push(divisionFilter);
     }
-    return this.db
+    const rows = await this.db
       .select()
       .from(brands)
       .where(and(...filters))
       .orderBy(asc(brands.sortOrder), asc(brands.name));
+    return rows.map((brand) => ({
+      ...brand,
+      logoUrl: brand.logoFileId ? brandLogoPath(brand.logoFileId) : null,
+    }));
   }
 
   async createBrand(input: BrandCreateInput, actor: AuthContext) {
     if (input.divisionId) await this.assertActiveDivision(input.divisionId, actor);
+    const isOwned = input.isOwned === true;
+    const companyId = isOwned ? null : input.companyId ?? null;
+    if (!isOwned) {
+      if (!companyId) throw new ValidationError('Markanın bağlı olduğu firma zorunludur', { field: 'companyId' });
+      const [company] = await this.db
+        .select({ id: companies.id, relationCode: companyRelationTypes.code })
+        .from(companies)
+        .leftJoin(companyRelationTypes, eq(companies.relationTypeId, companyRelationTypes.id))
+        .where(and(eq(companies.id, companyId), eq(companies.tenantId, actor.tenantId), isNull(companies.deletedAt)))
+        .limit(1);
+      if (!company || !['supplier', 'supplier_customer'].includes(company.relationCode ?? '')) {
+        throw new ValidationError('Yalnızca Tedarikçi veya Müşteri + Tedarikçi firması seçilebilir', { field: 'companyId' });
+      }
+    }
+    if (input.logoFileId) {
+      throw new ValidationError('Marka logosunu CRM Alan Ayarları üzerinden yükleyin', { field: 'logoFileId' });
+    }
     const existing = await this.db.query.brands.findFirst({
       where: and(eq(brands.tenantId, actor.tenantId), eq(brands.name, input.name)),
     });
@@ -331,11 +363,13 @@ export class ProductsService {
         country: input.country ?? null,
         website: input.website ?? null,
         notes: input.notes ?? null,
+        companyId,
+        isOwned,
         divisionId: input.divisionId ?? null,
         sortOrder: Number(orderRow?.value ?? 0) + 10,
       })
       .returning();
-    return row;
+    return { ...row, logoUrl: row.logoFileId ? brandLogoPath(row.logoFileId) : null };
   }
 
   private async assertBrandMatchesProductGroup(brandId: string, productGroupId: string, actor: AuthContext) {
@@ -407,7 +441,7 @@ export class ProductsService {
       .select({
         productId: productAlternatives.productModelId,
         product: productModels,
-        brand: { id: brands.id, name: brands.name },
+        brand: { id: brands.id, name: brands.name, logoFileId: brands.logoFileId },
         currency: { id: currencies.id, code: currencies.code },
         category: { id: productCategories.id, code: productCategories.code, name: productCategories.name },
         productType: { id: productTypes.id, code: productTypes.code, name: productTypes.name },
@@ -431,7 +465,7 @@ export class ProductsService {
       const list = out.get(row.productId) ?? [];
       list.push({
         ...row.product,
-        brand: row.brand,
+        brand: this.brandView(row.brand),
         currency: row.currency,
         category: row.category,
         productType: row.productType,
@@ -690,7 +724,7 @@ export class ProductsService {
     const rows = await this.db
       .select({
         product: productModels,
-        brand: { id: brands.id, name: brands.name },
+        brand: { id: brands.id, name: brands.name, logoFileId: brands.logoFileId },
         currency: { id: currencies.id, code: currencies.code },
         productGroup: { id: productGroups.id, code: productGroups.code, name: productGroups.name },
         category: { id: productCategories.id, code: productCategories.code, name: productCategories.name },
@@ -767,7 +801,7 @@ export class ProductsService {
         const optionalCompatibility = optionalCompatibilities.get(r.product.id);
         return {
           ...r.product,
-          brand: r.brand,
+          brand: this.brandView(r.brand),
           currency: r.currency,
           productGroup: r.productGroup,
           category: r.category,
@@ -795,7 +829,7 @@ export class ProductsService {
     const [row] = await this.db
       .select({
         product: productModels,
-        brand: { id: brands.id, name: brands.name },
+        brand: { id: brands.id, name: brands.name, logoFileId: brands.logoFileId },
         currency: { id: currencies.id, code: currencies.code },
         productGroup: { id: productGroups.id, code: productGroups.code, name: productGroups.name },
         category: { id: productCategories.id, code: productCategories.code, name: productCategories.name },
@@ -828,7 +862,7 @@ export class ProductsService {
     const optionalCompatibility = optionalCompatibilities.get(id);
     return {
       ...row.product,
-      brand: row.brand,
+      brand: this.brandView(row.brand),
       currency: row.currency,
       productGroup: row.productGroup,
       category: row.category,
@@ -890,6 +924,7 @@ export class ProductsService {
           cashPrice: input.cashPrice?.toString() ?? null,
           vatRate: input.vatRate.toString(),
           originCountry: input.originCountry ?? null,
+          productionYear: input.productionYear ?? null,
           hsCode: input.hsCode ?? null,
           stockCode: input.stockCode ?? null,
           imageUrl: input.imageUrl ?? null,
@@ -951,7 +986,7 @@ export class ProductsService {
     const alternativesProvided = input.muadilProductIds !== undefined || input.muadilProductId !== undefined;
     const alternativeIds = alternativesProvided ? this.uniqueAlternativeIds(input, id) : [];
     if (alternativesProvided) patch.muadilProductId = alternativeIds[0] ?? null;
-    for (const k of ['series', 'modelCode', 'modelName', 'fullName', 'originCountry', 'hsCode', 'stockCode', 'imageUrl', 'description'] as const) {
+    for (const k of ['series', 'modelCode', 'modelName', 'fullName', 'originCountry', 'productionYear', 'hsCode', 'stockCode', 'imageUrl', 'description'] as const) {
       if ((input as any)[k] !== undefined) patch[k] = (input as any)[k] ?? null;
     }
     for (const k of ['listPrice', 'cashPrice', 'vatRate'] as const) {
@@ -1057,7 +1092,7 @@ export class ProductsService {
     const rows = await this.db
       .select({
         product: productModels,
-        brand: { id: brands.id, name: brands.name },
+        brand: { id: brands.id, name: brands.name, logoFileId: brands.logoFileId },
         currency: { id: currencies.id, code: currencies.code },
         productGroup: { id: productGroups.id, code: productGroups.code, name: productGroups.name },
         category: { id: productCategories.id, code: productCategories.code, name: productCategories.name },
@@ -1311,6 +1346,7 @@ export class ProductsService {
         cashPrice: normalized.cashPrice?.toString() ?? null,
         vatRate: normalized.vatRate.toString(),
         originCountry: normalized.originCountry ?? null,
+        productionYear: normalized.productionYear ?? null,
         hsCode: normalized.hsCode ?? null,
         stockCode: normalized.stockCode ?? null,
         imageUrl: normalized.imageUrl ?? null,
@@ -1414,7 +1450,7 @@ export class ProductsService {
       .from(priceLists)
       .leftJoin(currencies, eq(priceLists.currencyId, currencies.id))
       .where(where)
-      .orderBy(desc(priceLists.createdAt))
+      .orderBy(asc(priceLists.name), asc(priceLists.code), asc(priceLists.id))
       .limit(limit)
       .offset(offset);
     return buildPaginated(rows.map((r) => ({ ...r.priceList, currency: r.currency })), count, page);

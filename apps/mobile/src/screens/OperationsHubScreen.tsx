@@ -271,7 +271,7 @@ function canAccess(key: NavKey, hasRole: (code: string) => boolean): boolean {
 /** Stitch Operasyon Hub — `59dda0b65eb34257a78da299cdb1ca5f` */
 export function OperationsHubScreen({ isTabRoot }: Props = {}) {
   const { hasRole } = useAuth();
-  const segments = useSegments();
+  const segments: readonly string[] = useSegments();
   const tabRoot = isTabRoot ?? (segments[0] === '(tabs)' && segments[1] === 'operations');
 
   const [loading, setLoading] = useState(true);

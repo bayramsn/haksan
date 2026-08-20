@@ -82,14 +82,6 @@ import type {
   UserUpdateInput,
   VisitCreateInput,
   WarehouseCreateInput,
-  CallAssistantAction,
-  CallSuggestionActionInput,
-  ManualCallEventInput,
-  AssistantChatInput,
-  AssistantChatResponse,
-  AssistantExecuteActionInput,
-  AssistantExecuteActionResponse,
-  AssistantSuggestion,
 } from '@haksan/shared';
 import { ApiError, api, getAccessToken, getActiveDepartment, getActiveDivision } from './apiClient';
 import { getApiBaseUrl } from './config';
@@ -204,39 +196,6 @@ export const accessRequestService = {
   reject: (id: string, decisionNote?: string) => api.post(`/access-requests/${id}/reject`, { decisionNote }),
 };
 
-export interface CallSuggestionDTO {
-  id: string;
-  title: string;
-  body: string | null;
-  status: 'pending' | 'acted' | 'dismissed';
-  companyId: string;
-  contactId: string | null;
-  createdAt: string;
-  event: {
-    id: string;
-    eventType: 'completed' | 'missed';
-    direction: 'inbound' | 'outbound';
-    normalizedPhone: string | null;
-    endedAt: string | null;
-    startedAt: string | null;
-  };
-  company: { id: string; legalTitle: string; shortName?: string | null };
-  contact: { id: string; fullName: string } | null;
-  availableActions: { createQuote: boolean; createServiceTicket: boolean; logCall: boolean };
-}
-
-export interface CallEventIngestResponse {
-  event: {
-    id: string;
-    matchStatus: 'matched' | 'unmatched' | 'ambiguous';
-    companyId: string | null;
-    contactId: string | null;
-    normalizedPhone: string | null;
-  };
-  suggestions: CallSuggestionDTO[];
-  idempotent?: boolean;
-}
-
 export interface NotificationDTO {
   id: string;
   type: string;
@@ -257,22 +216,6 @@ export const notificationService = {
   markRead: (id: string) => api.patch<NotificationDTO>(`/notifications/${id}/read`, {}),
   registerPushToken: (token: string, platform: 'expo' | 'ios' | 'android' = 'expo') =>
     api.post<{ ok: boolean }>('/notifications/push-token', { token, platform }),
-};
-
-export const callAssistantService = {
-  suggestions: (params?: { status?: 'pending' | 'acted' | 'dismissed' }) =>
-    api.get<Paginated<CallSuggestionDTO>>(`/call-assistant/suggestions${qs(params)}`),
-  manualEvent: (body: ManualCallEventInput) =>
-    api.post<CallEventIngestResponse>('/call-assistant/manual-events', body),
-  action: (id: string, action: CallAssistantAction, body: Omit<CallSuggestionActionInput, 'action'> = {}) =>
-    api.post<any>(`/call-assistant/suggestions/${id}/actions`, { action, ...body }),
-};
-
-export const assistantService = {
-  suggestions: () => api.get<AssistantSuggestion[]>('/assistant/suggestions'),
-  chat: (body: AssistantChatInput) => api.post<AssistantChatResponse>('/assistant/chat', body),
-  executeAction: (id: string, body: AssistantExecuteActionInput) =>
-    api.post<AssistantExecuteActionResponse>(`/assistant/actions/${encodeURIComponent(id)}/execute`, body),
 };
 
 // ───── Contacts ─────

@@ -5,7 +5,8 @@ import {
   Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger,
 } from "../../ui/dialog";
 import { ScrollArea } from "../../ui/scroll-area";
-import { companyService, quoteService, opportunityService, serviceService } from "../../../../lib/services";
+import { quoteService, opportunityService, serviceService } from "../../../../lib/services";
+import { RemoteCompanyCombobox } from "../../shared/RemoteCompanyCombobox";
 import type { ChatRefType } from "@haksan/shared";
 import { Link2, Search, FileText, Building2, Briefcase, LifeBuoy } from "lucide-react";
 
@@ -20,10 +21,6 @@ const TABS: { type: ChatRefType; label: string; icon: any }[] = [
 
 async function loadRecords(type: ChatRefType): Promise<RecordRow[]> {
   const params = { pageSize: 50 } as Record<string, number>;
-  if (type === "company") {
-    const res = await companyService.list(params);
-    return (res.data ?? []).map((c: any) => ({ id: c.id, label: c.legalTitle, sublabel: c.shortName ?? undefined }));
-  }
   if (type === "quote") {
     const res = await quoteService.list(params);
     return (res.data ?? []).map((q: any) => ({ id: q.id, label: `Teklif ${q.documentNo}`, sublabel: q.companyName ?? q.status }));
@@ -46,6 +43,11 @@ export function ShareRecordDialog({ onShare }: { onShare: (refType: ChatRefType,
 
   useEffect(() => {
     if (!open) return;
+    if (type === "company") {
+      setRows([]);
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     loadRecords(type).then(setRows).catch(() => setRows([])).finally(() => setLoading(false));
   }, [open, type]);
@@ -78,11 +80,18 @@ export function ShareRecordDialog({ onShare }: { onShare: (refType: ChatRefType,
             );
           })}
         </div>
-        <div className="relative">
-          <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-          <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Ara…" className="pl-8" />
-        </div>
-        <ScrollArea className="h-64 rounded-md border border-border/60">
+        {type === "company" ? (
+          <RemoteCompanyCombobox
+            value={null}
+            onValueChange={(companyId) => { onShare("company", companyId); setOpen(false); setSearch(""); }}
+            placeholder="Paylaşılacak firmayı ara…"
+          />
+        ) : <>
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+            <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Ara…" className="pl-8" />
+          </div>
+          <ScrollArea className="h-64 rounded-md border border-border/60">
           <div className="p-1.5 space-y-0.5">
             {loading && <div className="px-2 py-6 text-center text-sm text-muted-foreground">Yükleniyor…</div>}
             {!loading && filtered.map((r) => (
@@ -99,7 +108,8 @@ export function ShareRecordDialog({ onShare }: { onShare: (refType: ChatRefType,
               <div className="px-2 py-6 text-center text-sm text-muted-foreground">Kayıt bulunamadı</div>
             )}
           </div>
-        </ScrollArea>
+          </ScrollArea>
+        </>}
       </DialogContent>
     </Dialog>
   );

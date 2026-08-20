@@ -8,20 +8,41 @@ import {
   Users, Briefcase, FileText, AlertTriangle, TrendingUp, TrendingDown,
   Package, Wrench, Target, ArrowUpRight, Calendar,
   CheckCircle2, Clock, Wallet, Truck, BarChart3, LayoutDashboard, ListTodo, LineChart as LineChartIcon,
-  Cpu, Factory,
+  Cpu,
 } from "lucide-react";
 import {
   ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid,
   BarChart, Bar, PieChart, Pie, Cell, Legend, LineChart, Line, RadarChart,
   Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis,
 } from "recharts";
-import { SALES_STAGES, SALES_STAGE_LABELS, salesStageLabel } from "../../lib/mock";
-import { StatusBadge } from "../Layout";
+import {
+  SALES_STAGES,
+  SALES_STAGE_LABELS,
+  salesStageLabel,
+} from "../../lib/mock";
+import { useCompanySummary } from "../../lib/companyServerData";
+import { StatusBadge } from "../shared/StatusBadge";
 import { useStore } from "../../lib/store";
 import { useAuth } from "../../../lib/auth";
 import { useFx, type FxCurrency } from "../../lib/fx";
-import { buildSalesMonthly, buildFunnelFromCases, buildPipelineFunnel, buildPipelineStagePie } from "../../lib/chartAggregates";
+import {
+  buildQualificationStageSummary,
+  buildSalesMonthly,
+  buildFunnelFromCases,
+  buildPipelineFunnel,
+  buildPipelineStagePie,
+} from "../../lib/chartAggregates";
 import { reportService } from "../../../lib/services";
+import { TeamActivityPanel } from "./TeamActivityPanel";
+import { DashboardBriefing } from "./dashboard/DashboardBriefing";
+import {
+  DashboardCanvas,
+  DashboardChartGrid,
+  DashboardKpiGrid,
+  DashboardPrimaryGrid,
+  DashboardSplitGrid,
+} from "./dashboard/DashboardLayout";
+import { SalesQualificationPanel } from "./dashboard/SalesQualificationPanel";
 import {
   buildManagementInsights,
   buildWorkItems,
@@ -31,7 +52,18 @@ import {
   type WorkItem,
 } from "../../lib/operations";
 
-const COLORS = ["var(--brand-blue)", "var(--brand-red)", "#3b82f6", "var(--success)", "var(--warning)", "#64748b", "#0ea5e9", "#14b8a6", "var(--destructive)", "#334155", "#fbbf24", "#60a5fa"];
+const COLORS = Array.from({ length: 12 }, (_, index) => `var(--chart-${index + 1})`);
+const CHART_GRID = "var(--chart-grid)";
+const CHART_AXIS = "var(--chart-axis)";
+const CHART_AXIS_MUTED = "var(--chart-axis-muted)";
+const CHART_CONTRAST = "var(--chart-contrast)";
+const chartTooltipStyle = (fontSize: number) => ({
+  borderRadius: 8,
+  border: "1px solid var(--chart-tooltip-border)",
+  backgroundColor: "var(--popover)",
+  color: "var(--popover-foreground)",
+  fontSize,
+});
 
 type AssignedTargetItem = {
   targetType: "sales" | "service" | "finance" | "purchase" | "operations" | "logistics" | "other";
@@ -74,24 +106,6 @@ const TARGET_TYPE_LABEL: Record<AssignedTargetItem["targetType"], string> = {
   logistics: "Lojistik",
   other: "Diğer",
 };
-const METRIC_LABEL: Record<string, string> = {
-  salesAmount: "Satış Cirosu",
-  salesNewCustomers: "Yeni Müşteri",
-  quoteTarget: "Teklif",
-  visitTarget: "Ziyaret",
-  callTarget: "Arama",
-  serviceCompleted: "Tamamlanan Servis",
-  serviceAmount: "Servis Cirosu",
-  digitalLeadTarget: "Dijital Lead",
-  paymentsInAmount: "Tahsilat",
-  purchaseInvoiceAmount: "Alış Faturası",
-  purchaseOrderAmount: "Satınalma Tutarı",
-  purchaseOrderCount: "Satınalma Siparişi",
-  salesOrderAmount: "Satış Sipariş Tutarı",
-  salesOrderCount: "Satış Siparişi",
-  installationCompleted: "Kurulum",
-};
-
 /** Özet alanlardan hedef kalemleri türetir (targetItems boşken görünürlük için). */
 const synthesizeTargetItems = (t: AssignedTarget | null): AssignedTargetItem[] => {
   if (!t) return [];
@@ -111,7 +125,7 @@ const synthesizeTargetItems = (t: AssignedTarget | null): AssignedTargetItem[] =
   add("sales", "Ziyaret", "count", t.visitTarget);
   add("sales", "Arama", "count", t.callTarget);
   add("sales", "Teklif", "count", t.quoteTarget);
-  add("sales", "Dijital Lead", "count", t.digitalLeadTarget);
+  add("sales", "Dijital Fırsat", "count", t.digitalLeadTarget);
   add("sales", "Dijital Dönüşüm", "count", t.digitalConversionTarget);
   add("sales", "Dijital Bütçe", "amount", t.digitalBudget);
   add("service", "Servis Cirosu", "amount", t.serviceAmount);
@@ -136,7 +150,10 @@ type DashboardSection = "ozet" | "operasyon" | "grafikler" | "hedefler";
 export function DashboardPage({ onAction }: { onAction?: (action: OperationAction) => void }) {
   const store = useStore();
   const { customers, cases: salesCases, service: serviceRequests, machines, users, offers } = store;
-  const { user } = useAuth();
+  const { user, activeDivision } = useAuth();
+  const companySummaryQuery = useCompanySummary(activeDivision);
+  const companySummary = companySummaryQuery.data;
+  const totalCompanyCount = companySummary?.total ?? customers.length;
   const { convert } = useFx();
   const [targetPeriod, setTargetPeriod] = useState(currentPeriod());
   const [myTarget, setMyTarget] = useState<AssignedTarget | null>(null);
@@ -150,6 +167,7 @@ export function DashboardPage({ onAction }: { onAction?: (action: OperationActio
     () => buildSalesMonthly(offers, salesCases, 12, (amount, currency) => convert(amount, currency as FxCurrency, "USD")),
     [offers, salesCases, convert],
   );
+  const qualificationSummary = useMemo(() => buildQualificationStageSummary(salesCases), [salesCases]);
   const monthlyView = monthly.slice(-monthCount);
   const storeFunnel = useMemo(() => buildFunnelFromCases(salesCases, SALES_STAGE_LABELS), [salesCases]);
   const funnelData = useMemo(() => {
@@ -175,7 +193,7 @@ export function DashboardPage({ onAction }: { onAction?: (action: OperationActio
     return storeStageData;
   }, [pipelineRows, storeStageData]);
   const radarData = useMemo(() => {
-    const total = Math.max(customers.length, 1);
+    const total = Math.max(totalCompanyCount, 1);
     const openSvc = serviceRequests.filter((s) => s.stage !== "Closed").length;
     const approved = offers.filter((o) => o.status === "Approved").length;
     const overdue = store.payments.filter((p) => p.status === "Overdue").length;
@@ -188,8 +206,12 @@ export function DashboardPage({ onAction }: { onAction?: (action: OperationActio
       { konu: "Stok", deger: Math.min(100, store.stock.filter((s) => s.status === "Available").length * 8) },
       { konu: "Onay", deger: Math.min(100, approved * 10) },
     ];
-  }, [customers.length, salesCases, offers, serviceRequests, store.stock, store.payments]);
-  const activeCustomers = customers.filter((c) => c.status === "active").length;
+  }, [totalCompanyCount, salesCases, offers, serviceRequests, store.stock, store.payments]);
+  const activeCustomers: number | string = companySummary
+    ? companySummary.byStatus.active
+    : companySummaryQuery.isPending
+      ? "…"
+      : "—";
   const openService = serviceRequests.filter((s) => s.stage !== "Closed").length;
   const installedMachines = machines.filter((m) => m.status === "Active").length;
   const workItems = useMemo(() => buildWorkItems(store), [store]);
@@ -213,25 +235,6 @@ export function DashboardPage({ onAction }: { onAction?: (action: OperationActio
   const myTargetItems = useMemo(() => {
     const items = Array.isArray(myTarget?.targetItems) ? myTarget!.targetItems! : [];
     return items.length > 0 ? items : synthesizeTargetItems(myTarget);
-  }, [myTarget]);
-
-  const targetAchievements = useMemo(() => {
-    const metrics = myTarget?.metrics ?? {};
-    return Object.entries(metrics)
-      .filter(([, metric]) => metric.target != null && metric.target > 0)
-      .map(([key, metric]) => {
-        const pct = metric.pct ?? 0;
-        const target = metric.target ?? 0;
-        const actual = metric.actual ?? 0;
-        return {
-          label: METRIC_LABEL[key] ?? key,
-          pct,
-          hint: `${actual.toLocaleString("tr-TR")} / ${target.toLocaleString("tr-TR")}`,
-          tone: pct >= 100 ? ("ok" as const) : pct < 60 ? ("warn" as const) : undefined,
-        };
-      })
-      .sort((a, b) => b.pct - a.pct)
-      .slice(0, 8);
   }, [myTarget]);
 
   useEffect(() => {
@@ -279,43 +282,15 @@ export function DashboardPage({ onAction }: { onAction?: (action: OperationActio
   }, [targetPeriod]);
 
   return (
-    <div className="space-y-5">
-      {/* Welcome strip */}
-      <div className="relative isolate overflow-hidden rounded-xl border-t-2 border-brand-red bg-gradient-to-br from-brand-dark via-brand-blue to-[#0a1440] p-4 text-white shadow-sm sm:p-5">
-        <div className="pointer-events-none absolute inset-0 -z-10 opacity-[0.06] [background-image:linear-gradient(to_right,#fff_1px,transparent_1px),linear-gradient(to_bottom,#fff_1px,transparent_1px)] [background-size:28px_28px]" />
-        <div className="flex flex-col justify-between gap-4 md:flex-row md:items-center">
-        <div className="flex items-center gap-4 min-w-0">
-          <div className="grid size-12 shrink-0 place-items-center rounded-xl border border-white/15 bg-white/10 text-white shadow-inner backdrop-blur">
-            <Factory className="size-5" />
-          </div>
-          <div className="min-w-0">
-            <div className="font-data text-[9px] font-semibold uppercase tracking-[0.16em] text-blue-200">Günlük operasyon brifingi</div>
-            <div className="mt-1 font-display text-xl font-semibold leading-none tracking-tight">Hoş geldin {user?.fullName?.split(" ")[0] ?? "ekip"}</div>
-            <div className="mt-1.5 text-[12px] text-white/72">
-              Bugün <b className="text-white">{workItems.length}</b> takip işi var; <b className="text-white">{criticalWork}</b> kritik, <b className="text-white">{warningWork}</b> yakın takip.
-            </div>
-          </div>
-        </div>
-        <div className="flex items-center gap-2 shrink-0">
-          <Button
-            variant="secondary"
-            size="sm"
-            className="bg-white/15 hover:bg-white/25 text-white border-0 backdrop-blur"
-            onClick={() => setSection("operasyon")}
-          >
-            <Calendar className="size-4" /> Bugün
-          </Button>
-          <Button
-            size="sm"
-            className="bg-white text-primary hover:bg-white/90"
-            onClick={() => onAction?.({ kind: "navigate", nav: "payments", focus: "overdue" })}
-          >
-            Gecikenler
-            <ArrowUpRight className="size-4" />
-          </Button>
-        </div>
-        </div>
-      </div>
+    <DashboardCanvas>
+      <DashboardBriefing
+        firstName={user?.fullName?.split(" ")[0] ?? "ekip"}
+        workItemCount={workItems.length}
+        criticalCount={criticalWork}
+        warningCount={warningWork}
+        onOpenToday={() => setSection("operasyon")}
+        onOpenOverdue={() => onAction?.({ kind: "navigate", nav: "payments", focus: "overdue" })}
+      />
 
       <Tabs value={section} onValueChange={(v) => setSection(v as DashboardSection)} className="gap-4">
         <TabsList className="grid h-auto w-full grid-cols-2 gap-1 bg-muted/60 p-1 sm:inline-flex sm:h-10 sm:w-auto">
@@ -327,7 +302,7 @@ export function DashboardPage({ onAction }: { onAction?: (action: OperationActio
             <ListTodo className="size-4" />
             Operasyon
             {workItems.length > 0 && (
-              <span className="rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-primary">
+              <span className="rounded-full bg-primary/10 px-1.5 py-0.5 text-xs font-semibold tabular-nums text-primary">
                 {workItems.length}
               </span>
             )}
@@ -343,14 +318,14 @@ export function DashboardPage({ onAction }: { onAction?: (action: OperationActio
         </TabsList>
 
         <TabsContent value="ozet" className="mt-0 space-y-4">
-          <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
+          <DashboardKpiGrid>
             <Kpi icon={<Users className="size-[18px]" />} tone="violet" label="Aktif Müşteri" value={activeCustomers} sub="bu ay" onClick={() => onAction?.({ kind: "navigate", nav: "customers" })} />
             <KpiFromDrilldown icon={<Wallet className="size-[18px]" />} tone="emerald" item={drilldown("kpi:revenue")} onAction={onAction} />
-            <Kpi icon={<Briefcase className="size-[18px]" />} tone="blue" label="Pipeline" value={`$${(totalPipeline / 1000).toFixed(0)}K`} sub="açık" onClick={() => onAction?.({ kind: "navigate", nav: "sales-cases", focus: "open" })} />
+            <Kpi icon={<Briefcase className="size-[18px]" />} tone="blue" label="Fırsat" value={`$${(totalPipeline / 1000).toFixed(0)}K`} sub="açık" onClick={() => onAction?.({ kind: "navigate", nav: "sales-cases", focus: "open" })} />
             <KpiFromDrilldown icon={<AlertTriangle className="size-[18px]" />} tone="red" item={drilldown("kpi:overdue")} alarm onAction={onAction} />
             <KpiFromDrilldown icon={<Wrench className="size-[18px]" />} tone="amber" item={drilldown("kpi:service-open")} onAction={onAction} />
             <Kpi icon={<Cpu className="size-[18px]" />} tone="amber" label="Aktif Makine" value={installedMachines} sub="garantili" onClick={() => onAction?.({ kind: "navigate", nav: "machines" })} />
-          </div>
+          </DashboardKpiGrid>
 
           <OverviewPulseBar
             workItems={workItems.length}
@@ -361,7 +336,15 @@ export function DashboardPage({ onAction }: { onAction?: (action: OperationActio
             overdue={overdueCount}
           />
 
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-5">
+          <SalesQualificationPanel
+            summary={qualificationSummary}
+            onSelect={(stage) => onAction?.({ kind: "navigate", nav: "sales-cases", query: `qualification:${stage}` })}
+          />
+
+          {/* Kim ne yaptı — süper adminde tüm ekip, diğerlerinde yalnız kendi verisi. */}
+          <TeamActivityPanel />
+
+          <DashboardPrimaryGrid>
             <Card className="border-border/60 shadow-sm lg:col-span-3">
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                 <div>
@@ -385,10 +368,10 @@ export function DashboardPage({ onAction }: { onAction?: (action: OperationActio
                         <stop offset="95%" stopColor="var(--success)" stopOpacity={0} />
                       </linearGradient>
                     </defs>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#eef0f3" vertical={false} />
-                    <XAxis dataKey="ay" stroke="#9ca3af" fontSize={10} tickLine={false} axisLine={false} />
-                    <YAxis stroke="#9ca3af" fontSize={10} tickLine={false} axisLine={false} width={28} />
-                    <Tooltip contentStyle={{ borderRadius: 8, border: "1px solid #e5e7eb", fontSize: 11 }} />
+                    <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID} vertical={false} />
+                    <XAxis dataKey="ay" stroke={CHART_AXIS_MUTED} fontSize={10} tickLine={false} axisLine={false} />
+                    <YAxis stroke={CHART_AXIS_MUTED} fontSize={10} tickLine={false} axisLine={false} width={28} />
+                    <Tooltip contentStyle={chartTooltipStyle(11)} />
                     <Area type="monotone" dataKey="teklif" name="Teklif" stroke="var(--brand-blue)" strokeWidth={2} fill="url(#ozet-g1)" isAnimationActive={false} />
                     <Area type="monotone" dataKey="kazanan" name="Kazanan" stroke="var(--success)" strokeWidth={2} fill="url(#ozet-g2)" isAnimationActive={false} />
                   </AreaChart>
@@ -398,7 +381,7 @@ export function DashboardPage({ onAction }: { onAction?: (action: OperationActio
 
             <Card className="border-border/60 shadow-sm lg:col-span-2">
               <CardHeader className="pb-2">
-                <CardTitle className="tracking-tight text-base">Pipeline Dağılımı</CardTitle>
+                <CardTitle className="tracking-tight text-base">Fırsat Dağılımı</CardTitle>
                 <p className="text-xs text-muted-foreground">{openSalesCount} açık kart</p>
               </CardHeader>
               <CardContent className="h-52">
@@ -411,22 +394,22 @@ export function DashboardPage({ onAction }: { onAction?: (action: OperationActio
                     <PieChart>
                       <Pie data={stageData} dataKey="count" nameKey="name" outerRadius={68} innerRadius={42} paddingAngle={2} isAnimationActive={false}>
                         {stageData.map((d, i) => (
-                          <Cell key={`ozet-pc-${d.name}`} fill={COLORS[i % COLORS.length]} stroke="#fff" strokeWidth={2} />
+                          <Cell key={`ozet-pc-${d.name}`} fill={COLORS[i % COLORS.length]} stroke={CHART_CONTRAST} strokeWidth={2} />
                         ))}
                       </Pie>
-                      <Tooltip contentStyle={{ borderRadius: 8, border: "1px solid #e5e7eb", fontSize: 11 }} />
+                      <Tooltip contentStyle={chartTooltipStyle(11)} />
                       <Legend wrapperStyle={{ fontSize: 9 }} iconType="circle" />
                     </PieChart>
                   </ResponsiveContainer>
                 )}
               </CardContent>
             </Card>
-          </div>
+          </DashboardPrimaryGrid>
 
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+          <DashboardSplitGrid label="Öncelikli işler ve yönetim sinyalleri">
             <OverviewPriorityPanel items={priorityWork} onAction={onAction} onViewAll={() => setSection("operasyon")} />
             <OverviewSignalsPanel risks={topRisks} opportunities={topOpportunities} onAction={onAction} onViewAll={() => setSection("operasyon")} />
-          </div>
+          </DashboardSplitGrid>
 
           <div className="grid gap-3 sm:grid-cols-3">
             <QuickSectionCard
@@ -484,7 +467,7 @@ export function DashboardPage({ onAction }: { onAction?: (action: OperationActio
           </div>
 
       {/* Main charts */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+      <DashboardChartGrid>
         <Card className="lg:col-span-2 border-border/60 shadow-sm">
           <CardHeader className="flex flex-row items-center justify-between pb-3 space-y-0">
             <div>
@@ -519,10 +502,10 @@ export function DashboardPage({ onAction }: { onAction?: (action: OperationActio
                     <stop offset="95%" stopColor="var(--success)" stopOpacity={0} />
                   </linearGradient>
                 </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="#eef0f3" vertical={false} />
-                <XAxis dataKey="ay" stroke="#9ca3af" fontSize={11} tickLine={false} axisLine={false} />
-                <YAxis stroke="#9ca3af" fontSize={11} tickLine={false} axisLine={false} />
-                <Tooltip contentStyle={{ borderRadius: 8, border: "1px solid #e5e7eb", fontSize: 12 }} />
+                <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID} vertical={false} />
+                <XAxis dataKey="ay" stroke={CHART_AXIS_MUTED} fontSize={11} tickLine={false} axisLine={false} />
+                <YAxis stroke={CHART_AXIS_MUTED} fontSize={11} tickLine={false} axisLine={false} />
+                <Tooltip contentStyle={chartTooltipStyle(12)} />
                 <Legend iconType="circle" wrapperStyle={{ fontSize: 11 }} />
                 <Area type="monotone" dataKey="teklif" name="Teklif" stroke="var(--brand-blue)" strokeWidth={2} fill="url(#g1)" isAnimationActive={false} />
                 <Area type="monotone" dataKey="kazanan" name="Kazanan" stroke="var(--success)" strokeWidth={2} fill="url(#g2)" isAnimationActive={false} />
@@ -533,7 +516,7 @@ export function DashboardPage({ onAction }: { onAction?: (action: OperationActio
 
         <Card className="border-border/60 shadow-sm">
           <CardHeader className="pb-2">
-            <CardTitle className="tracking-tight">Pipeline Dağılımı</CardTitle>
+            <CardTitle className="tracking-tight">Fırsat Dağılımı</CardTitle>
             <p className="text-xs text-muted-foreground">Aşamalara göre kart sayısı</p>
           </CardHeader>
           <CardContent className="h-72">
@@ -541,24 +524,24 @@ export function DashboardPage({ onAction }: { onAction?: (action: OperationActio
               <PieChart>
                 <Pie data={stageData} dataKey="count" nameKey="name" outerRadius={75} innerRadius={48} paddingAngle={2} isAnimationActive={false}>
                   {stageData.map((d, i) => (
-                    <Cell key={`pc-${d.name}`} fill={COLORS[i % COLORS.length]} stroke="#fff" strokeWidth={2} />
+                    <Cell key={`pc-${d.name}`} fill={COLORS[i % COLORS.length]} stroke={CHART_CONTRAST} strokeWidth={2} />
                   ))}
                 </Pie>
-                <Tooltip contentStyle={{ borderRadius: 8, border: "1px solid #e5e7eb", fontSize: 12 }} />
+                <Tooltip contentStyle={chartTooltipStyle(12)} />
                 <Legend wrapperStyle={{ fontSize: 10 }} iconType="circle" />
               </PieChart>
             </ResponsiveContainer>
           </CardContent>
         </Card>
-      </div>
+      </DashboardChartGrid>
 
       {/* Secondary charts */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+      <DashboardChartGrid>
         <Card className="border-border/60 shadow-sm">
           <CardHeader className="pb-2">
             <CardTitle className="tracking-tight">Satış Hunisi</CardTitle>
             <p className="text-xs text-muted-foreground">
-              {pipelineRows.length > 0 ? "API pipeline özeti" : "Lead → Kurulum dönüşümü"}
+              {pipelineRows.length > 0 ? "API fırsat özeti" : "Fırsat → Kurulum dönüşümü"}
             </p>
           </CardHeader>
           <CardContent className="h-72 pl-2">
@@ -572,10 +555,10 @@ export function DashboardPage({ onAction }: { onAction?: (action: OperationActio
             ) : (
             <ResponsiveContainer width="100%" height="100%" aria-label="Satış hunisi grafiği">
               <BarChart data={funnelData} layout="vertical" margin={{ top: 4, right: 16, left: 6, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#eef0f3" horizontal={false} />
-                <XAxis type="number" stroke="#9ca3af" fontSize={11} tickLine={false} axisLine={false} />
-                <YAxis type="category" dataKey="name" stroke="#6b7280" fontSize={11} width={75} tickLine={false} axisLine={false} />
-                <Tooltip cursor={{ fill: "#f4f0f3" }} contentStyle={{ borderRadius: 8, border: "1px solid #e5e7eb", fontSize: 12 }} />
+                <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID} horizontal={false} />
+                <XAxis type="number" stroke={CHART_AXIS_MUTED} fontSize={11} tickLine={false} axisLine={false} />
+                <YAxis type="category" dataKey="name" stroke={CHART_AXIS} fontSize={11} width={75} tickLine={false} axisLine={false} />
+                <Tooltip cursor={{ fill: "var(--chart-cursor)" }} contentStyle={chartTooltipStyle(12)} />
                 <Bar dataKey="value" barSize={22} fill="var(--brand-blue)" isAnimationActive={false} />
               </BarChart>
             </ResponsiveContainer>
@@ -591,11 +574,11 @@ export function DashboardPage({ onAction }: { onAction?: (action: OperationActio
           <CardContent className="h-72">
             <ResponsiveContainer width="100%" height="100%">
               <RadarChart data={radarData} margin={{ top: 8, right: 16, bottom: 8, left: 16 }}>
-                <PolarGrid stroke="#e5e7eb" />
-                <PolarAngleAxis dataKey="konu" fontSize={11} stroke="#6b7280" />
-                <PolarRadiusAxis angle={30} domain={[0, 100]} fontSize={9} stroke="#9ca3af" />
+                <PolarGrid stroke={CHART_GRID} />
+                <PolarAngleAxis dataKey="konu" fontSize={11} stroke={CHART_AXIS} />
+                <PolarRadiusAxis angle={30} domain={[0, 100]} fontSize={9} stroke={CHART_AXIS_MUTED} />
                 <Radar dataKey="deger" stroke="var(--brand-blue)" fill="var(--brand-blue)" fillOpacity={0.35} strokeWidth={2} />
-                <Tooltip contentStyle={{ borderRadius: 8, border: "1px solid #e5e7eb", fontSize: 12 }} />
+                <Tooltip contentStyle={chartTooltipStyle(12)} />
               </RadarChart>
             </ResponsiveContainer>
           </CardContent>
@@ -609,16 +592,16 @@ export function DashboardPage({ onAction }: { onAction?: (action: OperationActio
           <CardContent className="h-72 pl-2">
             <ResponsiveContainer width="100%" height="100%">
               <LineChart data={monthly} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#eef0f3" vertical={false} />
-                <XAxis dataKey="ay" stroke="#9ca3af" fontSize={11} tickLine={false} axisLine={false} />
-                <YAxis stroke="#9ca3af" fontSize={11} tickLine={false} axisLine={false} />
-                <Tooltip contentStyle={{ borderRadius: 8, border: "1px solid #e5e7eb", fontSize: 12 }} />
-                <Line type="monotone" dataKey="ciro" stroke="var(--brand-blue)" strokeWidth={2.5} dot={{ r: 4, fill: "var(--brand-blue)", strokeWidth: 2, stroke: "#fff" }} activeDot={{ r: 6 }} isAnimationActive={false} />
+                <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID} vertical={false} />
+                <XAxis dataKey="ay" stroke={CHART_AXIS_MUTED} fontSize={11} tickLine={false} axisLine={false} />
+                <YAxis stroke={CHART_AXIS_MUTED} fontSize={11} tickLine={false} axisLine={false} />
+                <Tooltip contentStyle={chartTooltipStyle(12)} />
+                <Line type="monotone" dataKey="ciro" stroke="var(--brand-blue)" strokeWidth={2.5} dot={{ r: 4, fill: "var(--brand-blue)", strokeWidth: 2, stroke: CHART_CONTRAST }} activeDot={{ r: 6 }} isAnimationActive={false} />
               </LineChart>
             </ResponsiveContainer>
           </CardContent>
         </Card>
-      </div>
+      </DashboardChartGrid>
 
       {/* Bar chart */}
       <Card className="border-border/60 shadow-sm">
@@ -629,10 +612,10 @@ export function DashboardPage({ onAction }: { onAction?: (action: OperationActio
         <CardContent className="h-64 pl-2">
           <ResponsiveContainer width="100%" height="100%">
             <BarChart data={monthly} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#eef0f3" vertical={false} />
-              <XAxis dataKey="ay" stroke="#9ca3af" fontSize={11} tickLine={false} axisLine={false} />
-              <YAxis stroke="#9ca3af" fontSize={11} tickLine={false} axisLine={false} />
-              <Tooltip contentStyle={{ borderRadius: 8, border: "1px solid #e5e7eb", fontSize: 12 }} />
+              <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID} vertical={false} />
+              <XAxis dataKey="ay" stroke={CHART_AXIS_MUTED} fontSize={11} tickLine={false} axisLine={false} />
+              <YAxis stroke={CHART_AXIS_MUTED} fontSize={11} tickLine={false} axisLine={false} />
+              <Tooltip contentStyle={chartTooltipStyle(12)} />
               <Legend iconType="circle" wrapperStyle={{ fontSize: 11 }} />
               <Bar dataKey="kazanan" name="Kazanan" fill="var(--success)" barSize={18} isAnimationActive={false} />
               <Bar dataKey="kayip" name="Kaybedilen" fill="var(--destructive)" barSize={18} isAnimationActive={false} />
@@ -652,26 +635,9 @@ export function DashboardPage({ onAction }: { onAction?: (action: OperationActio
             error={targetError}
             note={myTarget?.note ?? ""}
           />
-          <Card className="border-border/60 shadow-sm">
-            <CardHeader className="pb-2">
-              <CardTitle className="tracking-tight">Hedef Gerçekleşme</CardTitle>
-              <p className="text-xs text-muted-foreground">Dönem özeti</p>
-            </CardHeader>
-            <CardContent className="grid gap-4 pt-2 sm:grid-cols-2">
-              {targetAchievements.length === 0 ? (
-                <div className="sm:col-span-2 rounded-lg border border-dashed border-border/70 bg-muted/20 px-4 py-8 text-center text-sm text-muted-foreground">
-                  Bu dönem için ölçülebilir hedef kalemi yok.
-                </div>
-              ) : (
-                targetAchievements.map((g) => (
-                  <Goal key={g.label} label={g.label} value={g.pct} hint={g.hint} tone={g.tone} />
-                ))
-              )}
-            </CardContent>
-          </Card>
         </TabsContent>
       </Tabs>
-    </div>
+    </DashboardCanvas>
   );
 }
 
@@ -706,7 +672,7 @@ function OverviewPulseBar({
         {pills.map((pill) => (
           <span key={pill.label} className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs ${pill.tone}`}>
             <span className="font-semibold tabular-nums">{pill.value}</span>
-            <span className="text-[11px] opacity-80">{pill.label}</span>
+            <span className="text-xs opacity-80">{pill.label}</span>
           </span>
         ))}
       </CardContent>
@@ -760,7 +726,7 @@ function OverviewPriorityPanel({
                   <span className="min-w-0 flex-1">
                     <span className="flex items-center justify-between gap-2">
                       <span className="truncate text-sm font-medium">{item.title}</span>
-                      <span className="shrink-0 text-[10px] uppercase tracking-wide text-muted-foreground">{tone.label}</span>
+                      <span className="shrink-0 text-xs font-medium tracking-wide text-muted-foreground">{tone.label}</span>
                     </span>
                     <span className="mt-0.5 line-clamp-1 text-xs text-muted-foreground">{item.subtitle}</span>
                   </span>
@@ -817,7 +783,7 @@ function OverviewSignalsPanel({
                   item.kind === "risk" ? "border-red-100/80 bg-destructive-soft/40" : "border-emerald-100/80 bg-success-soft/40"
                 }`}
               >
-                <span className={`mt-0.5 text-[10px] font-semibold uppercase tracking-wide ${item.kind === "risk" ? "text-destructive" : "text-success"}`}>
+                <span className={`mt-0.5 text-xs font-semibold uppercase tracking-wide ${item.kind === "risk" ? "text-destructive" : "text-success"}`}>
                   {item.kind === "risk" ? "Risk" : "Fırsat"}
                 </span>
                 <span className="min-w-0 flex-1">
@@ -1068,7 +1034,7 @@ function InsightColumn({
     <div className="min-w-0 rounded-lg border border-border/60 bg-muted/15">
       <div className="flex items-center justify-between border-b border-border/60 px-3 py-2">
         <div className="text-sm font-medium">{title}</div>
-        <span className="rounded-full bg-white px-2 py-0.5 text-[11px] text-muted-foreground">{items.length}</span>
+        <span className="rounded-full bg-card px-2 py-0.5 text-xs text-muted-foreground">{items.length}</span>
       </div>
       <div className="divide-y divide-border/60">
         {items.length === 0 ? (
@@ -1089,7 +1055,7 @@ function InsightColumn({
                 <span className="min-w-0 flex-1">
                   <span className="flex items-center justify-between gap-2">
                     <span className="truncate text-sm font-medium">{item.title}</span>
-                    <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">{item.metric}</span>
+                    <span className="shrink-0 text-xs tabular-nums text-muted-foreground">{item.metric}</span>
                   </span>
                   <span className="mt-0.5 line-clamp-2 text-xs leading-relaxed text-muted-foreground">{item.description}</span>
                 </span>
@@ -1139,15 +1105,15 @@ function TodayWorkPanel({ items, onAction }: { items: WorkItem[]; onAction?: (ac
                   onClick={() => onAction?.(item.action)}
                 >
                   <div className="flex items-start justify-between gap-3">
-                    <span className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] ${tone.cls}`}>
+                    <span className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-xs ${tone.cls}`}>
                       {tone.icon}
                       {tone.label}
                     </span>
-                    <span className="shrink-0 text-[11px] text-muted-foreground">{item.owner}</span>
+                    <span className="shrink-0 text-xs text-muted-foreground">{item.owner}</span>
                   </div>
                   <div className="mt-2 truncate text-sm font-medium">{item.title}</div>
                   <div className="mt-1 line-clamp-2 min-h-8 text-xs leading-relaxed text-muted-foreground">{item.subtitle}</div>
-                  <div className="mt-2 flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
+                  <div className="mt-2 flex items-center justify-between gap-2 text-xs text-muted-foreground">
                     <span className="truncate">{item.meta}</span>
                     <ArrowUpRight className="size-3.5 shrink-0" />
                   </div>
@@ -1176,6 +1142,7 @@ function MyTargetsPanel({
   error: string;
   note?: string | null;
 }) {
+  const [activeTargetType, setActiveTargetType] = useState<AssignedTargetItem["targetType"] | "all">("all");
   const groups = TARGET_TYPE_ORDER
     .map((targetType) => ({
       targetType,
@@ -1183,6 +1150,14 @@ function MyTargetsPanel({
     }))
     .filter((group) => group.items.length > 0);
   const hasItems = items.length > 0;
+  const measuredItems = items.filter((item) => item.pct != null);
+  const averageProgress = measuredItems.length > 0
+    ? Math.round(measuredItems.reduce((sum, item) => sum + (item.pct ?? 0), 0) / measuredItems.length)
+    : null;
+  const attentionCount = measuredItems.filter((item) => (item.pct ?? 0) < 70).length;
+  const visibleGroups = activeTargetType === "all"
+    ? groups
+    : groups.filter((group) => group.targetType === activeTargetType);
 
   return (
     <Card className="border-border/60 shadow-sm overflow-hidden">
@@ -1224,11 +1199,32 @@ function MyTargetsPanel({
           <>
             <div className="grid gap-2 sm:grid-cols-3">
               <TargetSummary label="Aktif Hedef" value={`${items.filter((item) => item.target?.trim()).length}/${items.length}`} />
-              <TargetSummary label="Otomatik Takip" value={`${items.filter((item) => item.trackingMode !== "manual" && item.metricKey).length}`} />
-              <TargetSummary label="Para Birimi" value="USD" />
+              <TargetSummary label="Ortalama Gerçekleşme" value={averageProgress == null ? "—" : `%${averageProgress}`} />
+              <TargetSummary label="Yakın Takip" value={`${attentionCount}`} tone={attentionCount > 0 ? "warning" : "success"} />
             </div>
-            <div className="grid gap-3 lg:grid-cols-2">
+            <div className="flex max-w-full items-center gap-1 overflow-x-auto rounded-lg border border-border/60 bg-muted/25 p-1" aria-label="Hedef grupları">
+              <button
+                type="button"
+                aria-pressed={activeTargetType === "all"}
+                onClick={() => setActiveTargetType("all")}
+                className={`min-h-8 shrink-0 rounded-md px-3 text-xs font-medium transition ${activeTargetType === "all" ? "bg-card text-primary shadow-sm" : "text-muted-foreground hover:bg-card/60"}`}
+              >
+                Tümü · {items.length}
+              </button>
               {groups.map((group) => (
+                <button
+                  key={group.targetType}
+                  type="button"
+                  aria-pressed={activeTargetType === group.targetType}
+                  onClick={() => setActiveTargetType(group.targetType)}
+                  className={`min-h-8 shrink-0 rounded-md px-3 text-xs font-medium transition ${activeTargetType === group.targetType ? "bg-card text-primary shadow-sm" : "text-muted-foreground hover:bg-card/60"}`}
+                >
+                  {targetTypeLabel(group.targetType)} · {group.items.length}
+                </button>
+              ))}
+            </div>
+            <div className="grid gap-3 xl:grid-cols-2">
+              {visibleGroups.map((group) => (
                 <TargetList key={group.targetType} title={`${targetTypeLabel(group.targetType)} Hedefleri`} items={group.items} />
               ))}
             </div>
@@ -1240,11 +1236,11 @@ function MyTargetsPanel({
   );
 }
 
-function TargetSummary({ label, value }: { label: string; value: string }) {
+function TargetSummary({ label, value, tone = "default" }: { label: string; value: string; tone?: "default" | "warning" | "success" }) {
   return (
     <div className="flex items-center justify-between rounded-md border border-border/60 bg-muted/20 px-3 py-2">
       <span className="text-xs text-muted-foreground">{label}</span>
-      <span className="text-sm font-medium tabular-nums">{value}</span>
+      <span className={`text-sm font-medium tabular-nums ${tone === "warning" ? "text-warning" : tone === "success" ? "text-success" : ""}`}>{value}</span>
     </div>
   );
 }
@@ -1254,9 +1250,9 @@ function TargetList({ title, items }: { title: string; items: AssignedTargetItem
     <div className="overflow-hidden rounded-md border border-border/60">
       <div className="flex items-center justify-between border-b border-border/60 bg-muted/25 px-3 py-2">
         <div className="text-sm font-medium">{title}</div>
-        <div className="text-[11px] text-muted-foreground">{items.filter((item) => item.target?.trim()).length} aktif</div>
+        <div className="text-xs text-muted-foreground">{items.filter((item) => item.target?.trim()).length} aktif</div>
       </div>
-      <div className="max-h-[340px] divide-y divide-border/60 overflow-y-auto">
+      <div className="divide-y divide-border/60">
         {items.length === 0 ? (
           <div className="px-3 py-6 text-center text-sm text-muted-foreground">Hedef yok.</div>
         ) : (
@@ -1264,12 +1260,12 @@ function TargetList({ title, items }: { title: string; items: AssignedTargetItem
             <div key={`${item.targetType}:${item.category}:${item.activity}`} className="px-3 py-2.5">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
-                  <div className="text-[11px] font-semibold tracking-wide text-muted-foreground">{item.category} · {targetTypeLabel(item.targetType)}</div>
+                  <div className="text-xs font-semibold tracking-wide text-muted-foreground">{item.category}</div>
                   <div className="mt-0.5 text-sm font-medium leading-snug">{item.activity}</div>
                   {item.description && <div className="mt-1 text-xs leading-relaxed text-muted-foreground">{item.description}</div>}
                   {item.actual != null && item.pct != null && (
                     <div className="mt-2">
-                      <div className="flex items-center justify-between text-[11px] text-muted-foreground">
+                      <div className="flex items-center justify-between text-xs text-muted-foreground">
                         <span>Gerçekleşen: {item.actual.toLocaleString("tr-TR")}</span>
                         <span>%{item.pct}</span>
                       </div>
@@ -1324,7 +1320,7 @@ function Kpi({
           </div>
           {delta !== undefined && (
           <span
-            className={`inline-flex items-center gap-0.5 text-[11px] px-1.5 py-0.5 rounded-full ${
+            className={`inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-xs ${
               alarm
                 ? "bg-destructive-soft text-destructive"
                 : positive
@@ -1338,30 +1334,12 @@ function Kpi({
           </span>
           )}
         </div>
-        <div className="mt-3 truncate text-[10px] font-semibold uppercase tracking-[0.1em] text-muted-foreground">{label}</div>
+        <div className="mt-3 truncate text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">{label}</div>
         <div className="mt-1 flex min-w-0 flex-wrap items-baseline gap-x-1.5 gap-y-0.5">
           <div className="font-display min-w-0 text-[clamp(1.15rem,1.65vw,1.55rem)] font-semibold tabular-nums tracking-tight leading-none" title={String(value)}>{value}</div>
-          <div className="text-[10px] text-muted-foreground">{sub}</div>
+          <div className="text-xs text-muted-foreground">{sub}</div>
         </div>
       </CardContent>
     </Card>
-  );
-}
-
-function Goal({ label, value, hint, tone }: { label: string; value: number; hint: string; tone?: "warn" | "ok" }) {
-  const color = tone === "warn" ? "text-destructive" : tone === "ok" ? "text-success" : "text-foreground";
-  const Icon = tone === "warn" ? AlertTriangle : tone === "ok" ? CheckCircle2 : Clock;
-  return (
-    <div>
-      <div className="flex items-center justify-between text-sm">
-        <div className="flex items-center gap-1.5">
-          <Icon className={`size-3.5 ${color}`} />
-          <span>{label}</span>
-        </div>
-        <span className={`tabular-nums text-[13px] ${color}`}>{value}%</span>
-      </div>
-      <Progress value={value} className="h-1.5 mt-1.5" />
-      <div className="text-xs text-muted-foreground mt-1">{hint}</div>
-    </div>
   );
 }

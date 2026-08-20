@@ -2,7 +2,7 @@ import { Body, Controller, Delete, Get, Inject, Param, Patch, Post, Put, Query, 
 import { Throttle } from '@nestjs/throttler';
 import type { FastifyReply } from 'fastify';
 import { z } from 'zod';
-import { and, asc, eq, inArray, isNull, max, or } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNull, max, notInArray, or } from 'drizzle-orm';
 import type { DbClient } from '../../db/client';
 import * as schema from '../../db/schema';
 import { productSpecTemplates } from '../../db/schema/products';
@@ -15,6 +15,7 @@ import { ZodValidationPipe } from '../../shared/utils/zod-pipe';
 import { AuditService } from '../../shared/database/audit.service';
 import { availableLookupNames, BRAND_LOOKUP_NAME, DIVISION_SCOPED_LOOKUPS, LOOKUP_PARENT_COLUMNS, LOOKUP_TABLE_MAP } from '../lookups/lookups.controller';
 import {
+  machineTemplateCreateSchema,
   productSpecTemplateBulkCreateSchema,
   productSpecTemplateBatchSchema,
   productSpecTemplateCreateSchema,
@@ -22,6 +23,7 @@ import {
   technicalImportCommitRequestSchema,
   technicalImportPreviewRequestSchema,
   technicalImportTemplateRequestSchema,
+  type MachineTemplateCreateInput,
   type ProductSpecTemplateBatchInput,
   type ProductSpecTemplateBulkCreateInput,
   type ProductSpecTemplateCreateInput,
@@ -31,7 +33,8 @@ import {
   type TechnicalImportTemplateRequest,
 } from '@haksan/shared';
 import { rowsToCsvBuffer, rowsToXlsxBuffer, sendCsv, sendXlsx } from '../../shared/utils/excel-export';
-import { TechnicalImportService } from './technical-import.service';
+import { TechnicalImportService, productTypeCodeVariants } from './technical-import.service';
+import { brandLogoPath } from '../products/brand-media.service';
 
 const lookupCreateSchema = z.object({
   code: z.string().trim().min(1).max(64).optional(),
@@ -48,6 +51,10 @@ const lookupCreateSchema = z.object({
   // Yalnızca teknik bilgi gruplarında: grubun atandığı ürün tipleri.
   // Boş dizi → atama yok, grup tüm tiplerde ("Tümü") geçerli.
   productTypeIds: z.array(z.string().uuid()).max(200).optional(),
+  // Yalnızca ürün markalarında: Haksan'a ait marka veya bağlı müşteri firma.
+  companyId: z.string().uuid().nullish(),
+  isOwned: z.boolean().optional(),
+  logoFileId: z.string().uuid().nullish(),
 });
 type LookupCreateInput = z.infer<typeof lookupCreateSchema>;
 
@@ -134,7 +141,10 @@ export class AdminLookupsController {
     if (!division) throw new AppError('INVALID_DIVISION', 'Seçilen bölüm bulunamadı veya aktif değil', 400);
   }
 
-  private brandToLookupRow(row: typeof schema.brands.$inferSelect) {
+  private brandToLookupRow(
+    row: typeof schema.brands.$inferSelect,
+    company?: { id: string; legalTitle: string; externalCompanyNo: string | null } | null,
+  ) {
     return {
       id: row.id,
       code: row.name,
@@ -143,7 +153,92 @@ export class AdminLookupsController {
       sortOrder: row.sortOrder,
       isActive: !row.deletedAt,
       divisionId: row.divisionId ?? null,
+      companyId: row.companyId ?? null,
+      companyName: row.isOwned ? 'Haksan Makina' : company?.legalTitle ?? null,
+      companyNo: company?.externalCompanyNo ?? null,
+      isOwned: row.isOwned,
+      logoFileId: row.logoFileId ?? null,
+      logoUrl: row.logoFileId ? brandLogoPath(row.logoFileId) : null,
     };
+  }
+
+  private async assertBrandCompany(companyId: string | null, isOwned: boolean, user: AuthContext) {
+    if (isOwned) {
+      if (companyId) throw new ValidationError('Kendi markamız seçiliyken ayrıca firma seçilemez');
+      return;
+    }
+    if (!companyId) throw new ValidationError('Markanın bağlı olduğu firma zorunludur', { field: 'companyId' });
+    const [company] = await this.db
+      .select({ id: schema.companies.id, relationCode: schema.companyRelationTypes.code })
+      .from(schema.companies)
+      .leftJoin(schema.companyRelationTypes, eq(schema.companies.relationTypeId, schema.companyRelationTypes.id))
+      .where(
+        and(
+          eq(schema.companies.id, companyId),
+          eq(schema.companies.tenantId, user.tenantId),
+          isNull(schema.companies.deletedAt),
+        ),
+      )
+      .limit(1);
+    if (!company || !['supplier', 'supplier_customer'].includes(company.relationCode ?? '')) {
+      throw new ValidationError('Yalnızca Tedarikçi veya Müşteri + Tedarikçi firması seçilebilir', { field: 'companyId' });
+    }
+  }
+
+  private async assertBrandLogoFile(fileId: string, brandId: string, user: AuthContext) {
+    const [logo] = await this.db
+      .select({
+        mimeType: schema.files.mimeType,
+        extension: schema.files.extension,
+        sizeBytes: schema.files.sizeBytes,
+      })
+      .from(schema.files)
+      .innerJoin(schema.fileLinks, eq(schema.fileLinks.fileId, schema.files.id))
+      .innerJoin(schema.fileDocumentTypes, eq(schema.fileLinks.documentTypeId, schema.fileDocumentTypes.id))
+      .where(
+        and(
+          eq(schema.files.id, fileId),
+          eq(schema.files.tenantId, user.tenantId),
+          eq(schema.files.bucket, 'erp-brand-logos'),
+          eq(schema.files.visibility, 'public'),
+          eq(schema.files.uploadStatus, 'linked'),
+          isNull(schema.files.deletedAt),
+          eq(schema.fileLinks.tenantId, user.tenantId),
+          eq(schema.fileLinks.entityType, 'brand'),
+          eq(schema.fileLinks.entityId, brandId),
+          eq(schema.fileDocumentTypes.code, 'brand_logo'),
+        ),
+      )
+      .limit(1);
+    const extension = logo?.extension.toLocaleLowerCase('en-US');
+    if (
+      !logo
+      || !['image/png', 'image/jpeg', 'image/webp'].includes(logo.mimeType)
+      || !extension
+      || !['png', 'jpg', 'jpeg', 'webp'].includes(extension)
+      || logo.sizeBytes <= 0
+      || logo.sizeBytes > 5 * 1024 * 1024
+    ) {
+      throw new ValidationError('Marka logosu geçersiz veya bu markaya bağlı değil', { field: 'logoFileId' });
+    }
+  }
+
+  private async getBrandLookupRow(id: string, user: AuthContext) {
+    const [row] = await this.db
+      .select({
+        brand: schema.brands,
+        company: {
+          id: schema.companies.id,
+          legalTitle: schema.companies.legalTitle,
+          externalCompanyNo: schema.companies.externalCompanyNo,
+        },
+      })
+      .from(schema.brands)
+      .leftJoin(schema.companies, eq(schema.brands.companyId, schema.companies.id))
+      .where(and(eq(schema.brands.id, id), eq(schema.brands.tenantId, user.tenantId)))
+      .limit(1);
+    if (!row) throw new NotFoundError('Lookup');
+    return this.brandToLookupRow(row.brand, row.company);
   }
 
   private async listBrandLookups(user: AuthContext, divisionId?: string, scope?: string) {
@@ -158,11 +253,19 @@ export class AdminLookupsController {
       );
     }
     const rows = await this.db
-      .select()
+      .select({
+        brand: schema.brands,
+        company: {
+          id: schema.companies.id,
+          legalTitle: schema.companies.legalTitle,
+          externalCompanyNo: schema.companies.externalCompanyNo,
+        },
+      })
       .from(schema.brands)
+      .leftJoin(schema.companies, eq(schema.brands.companyId, schema.companies.id))
       .where(and(...filters))
       .orderBy(asc(schema.brands.sortOrder), asc(schema.brands.name));
-    return rows.map((row) => this.brandToLookupRow(row));
+    return rows.map((row) => this.brandToLookupRow(row.brand, row.company));
   }
 
   private async nextLookupSortOrder(
@@ -191,6 +294,9 @@ export class AdminLookupsController {
 
   private async createBrandLookup(body: LookupCreateInput, user: AuthContext) {
     const name = body.name.trim();
+    const isOwned = body.isOwned === true;
+    const companyId = isOwned ? null : body.companyId ?? null;
+    await this.assertBrandCompany(companyId, isOwned, user);
     const existing = await this.db.query.brands.findFirst({
       where: and(eq(schema.brands.tenantId, user.tenantId), eq(schema.brands.name, name)),
     });
@@ -200,13 +306,16 @@ export class AdminLookupsController {
       name,
       notes: body.description?.trim() || null,
       divisionId: body.divisionId || null,
+      companyId,
+      isOwned,
+      logoFileId: null,
       sortOrder: body.sortOrder ?? (await this.nextLookupSortOrder(BRAND_LOOKUP_NAME, schema.brands, body, user)),
       deletedAt: null,
     };
     const [row] = existing
       ? await this.db.update(schema.brands).set(values).where(eq(schema.brands.id, existing.id)).returning()
       : await this.db.insert(schema.brands).values(values).returning();
-    const lookupRow = this.brandToLookupRow(row);
+    const lookupRow = await this.getBrandLookupRow(row.id, user);
     await this.audit.write({
       tenantId: user.tenantId,
       actorUserId: user.userId,
@@ -226,16 +335,27 @@ export class AdminLookupsController {
       .where(and(eq(schema.brands.id, id), eq(schema.brands.tenantId, user.tenantId), isNull(schema.brands.deletedAt)))
       .limit(1);
     if (!existing) throw new NotFoundError('Lookup');
+    const isOwned = body.isOwned ?? existing.isOwned;
+    const companyId = isOwned ? null : body.companyId !== undefined ? body.companyId ?? null : existing.companyId;
+    if (body.isOwned !== undefined || body.companyId !== undefined) {
+      await this.assertBrandCompany(companyId, isOwned, user);
+    }
+    if (body.logoFileId) await this.assertBrandLogoFile(body.logoFileId, id, user);
     const values: Record<string, unknown> = {};
     if (body.name != null) values.name = body.name.trim();
     if (body.description !== undefined) values.notes = body.description?.trim() || null;
     if (body.divisionId !== undefined) values.divisionId = body.divisionId || null;
     if (body.sortOrder !== undefined) values.sortOrder = body.sortOrder;
+    if (body.isOwned !== undefined || body.companyId !== undefined) {
+      values.isOwned = isOwned;
+      values.companyId = companyId;
+    }
+    if (body.logoFileId !== undefined) values.logoFileId = body.logoFileId ?? null;
     if (!Object.keys(values).length) return this.brandToLookupRow(existing);
     try {
-      const [row] = await this.db.update(schema.brands).set(values).where(eq(schema.brands.id, id)).returning();
+      await this.db.update(schema.brands).set(values).where(eq(schema.brands.id, id));
       const oldValues = this.brandToLookupRow(existing);
-      const newValues = this.brandToLookupRow(row);
+      const newValues = await this.getBrandLookupRow(id, user);
       await this.audit.write({
         tenantId: user.tenantId,
         actorUserId: user.userId,
@@ -274,7 +394,17 @@ export class AdminLookupsController {
   }
 
   private lookupValues(name: string, body: LookupCreateInput | LookupUpdateInput, existing?: any) {
-    const code = body.code ? toLookupCode(body.code) : body.name ? toLookupCode(body.name) : undefined;
+    // Kod, uygulama akışlarının sabit anahtarıdır. Düzenleme ekranı yalnızca
+    // görünen adı gönderdiğinde kodu addan yeniden üretmek (Rakip -> rakip)
+    // mevcut kayıtları uygulamanın beklediği `competitor` kodundan koparıyordu.
+    // Ad yalnızca yeni kayıt oluşturulurken varsayılan kod üretir.
+    const code = body.code
+      ? toLookupCode(body.code)
+      : existing
+        ? undefined
+        : body.name
+          ? toLookupCode(body.name)
+          : undefined;
     if (body.code && !code) throw new ValidationError('Lookup kodu geçersiz');
     if (name === 'tax-offices' && body.province != null && !body.province.trim()) {
       throw new ValidationError('Vergi dairesi için il bilgisi boş olamaz');
@@ -545,6 +675,117 @@ export class AdminLookupsController {
       .orderBy(asc(productSpecTemplates.productTypeCode), asc(productSpecTemplates.sortOrder), asc(productSpecTemplates.specKey));
   }
 
+  /**
+   * Ürün tipi ile ilk teknik alanlarını aynı transaction içinde oluşturur.
+   * Böylece kopyalama sırasında alan kaydı başarısız olursa sahipsiz/yarım bir
+   * ürün tipi bırakılmaz.
+   */
+  @Throttle({ default: { limit: 60, ttl: 60_000 } })
+  @Post('machine-templates')
+  async createMachineTemplate(
+    @Body(new ZodValidationPipe(machineTemplateCreateSchema)) body: MachineTemplateCreateInput,
+    @CurrentUser() user: AuthContext
+  ) {
+    this.requireSuperAdmin(user);
+    await this.assertLookupDivision('product-types', body.divisionId, user);
+
+    const [subcategory] = await this.db
+      .select({
+        id: schema.productSubcategories.id,
+        subcategoryDivisionId: schema.productSubcategories.divisionId,
+        categoryCode: schema.productCategories.code,
+        categoryDivisionId: schema.productCategories.divisionId,
+        groupDivisionId: schema.productGroups.divisionId,
+      })
+      .from(schema.productSubcategories)
+      .leftJoin(
+        schema.productCategories,
+        eq(schema.productSubcategories.categoryId, schema.productCategories.id)
+      )
+      .leftJoin(
+        schema.productGroups,
+        eq(schema.productCategories.productGroupId, schema.productGroups.id)
+      )
+      .where(eq(schema.productSubcategories.id, body.subcategoryId))
+      .limit(1);
+    if (!subcategory) throw new NotFoundError('Ürün alt kategorisi');
+    const taxonomyDivisionIds = [
+      subcategory.subcategoryDivisionId,
+      subcategory.categoryDivisionId,
+      subcategory.groupDivisionId,
+    ].filter((divisionId): divisionId is string => Boolean(divisionId));
+    if (taxonomyDivisionIds.some((divisionId) => divisionId !== body.divisionId)) {
+      throw new ValidationError('Ürün alt kategorisi seçilen bölüme ait değil', { field: 'subcategoryId' });
+    }
+    if (!subcategory.categoryCode) {
+      throw new ValidationError('Ürün alt kategorisi bir ürün kategorisine bağlı olmalıdır', {
+        field: 'subcategoryId',
+      });
+    }
+
+    const code = toLookupCode(body.code);
+    if (!code) throw new ValidationError('Ürün şablonu kodu geçersiz', { field: 'code' });
+    const sortOrder = await this.nextLookupSortOrder(
+      'product-types',
+      schema.productTypes,
+      { divisionId: body.divisionId, parentId: body.subcategoryId },
+      user
+    );
+
+    try {
+      const result = await this.db.transaction(async (tx) => {
+        const [type] = await tx
+          .insert(schema.productTypes)
+          .values({
+            code,
+            name: body.name,
+            divisionId: body.divisionId,
+            subcategoryId: body.subcategoryId,
+            sortOrder,
+            isActive: true,
+          })
+          .returning();
+        const specs = body.fields.length
+          ? await tx
+              .insert(productSpecTemplates)
+              .values(
+                body.fields.map((field, index) => ({
+                  ...field,
+                  specKey: field.specKey.trim(),
+                  specGroupCode: field.specGroupCode?.trim() || undefined,
+                  specUnit: field.specUnit?.trim() || undefined,
+                  productTypeCode: code,
+                  divisionId: body.divisionId,
+                  sortOrder: index,
+                }))
+              )
+              .returning()
+          : [];
+        return { type, specs };
+      });
+      await this.audit.write({
+        tenantId: user.tenantId,
+        actorUserId: user.userId,
+        action: 'machine_template.created',
+        resourceType: 'machine_template',
+        resourceId: result.type.id,
+        newValues: {
+          productTypeCode: result.type.code,
+          productTypeName: result.type.name,
+          divisionId: body.divisionId,
+          subcategoryId: body.subcategoryId,
+          fieldCount: result.specs.length,
+        },
+      });
+      return result;
+    } catch (error: any) {
+      if (databaseErrorCode(error) === '23505') {
+        throw new ConflictError('Bu ürün şablonu kodu seçilen bölümde zaten kullanılıyor');
+      }
+      throw error;
+    }
+  }
+
   @Post('product-spec-templates')
   async createProductSpecTemplate(
     @Body(new ZodValidationPipe(productSpecTemplateCreateSchema)) body: ProductSpecTemplateCreateInput,
@@ -586,7 +827,7 @@ export class AdminLookupsController {
   ) {
     this.requireSuperAdmin(user);
     try {
-      const rows = await this.db.transaction(async (tx) => {
+      const { rows, prunedIds } = await this.db.transaction(async (tx) => {
         const saved = [];
         for (const item of body.items) {
           const { id, ...values } = item;
@@ -599,17 +840,41 @@ export class AdminLookupsController {
             saved.push(row);
           }
         }
-        return saved;
+        // Çalışma sayfasından çıkarılan alanlar: gönderilen liste kapsamın
+        // tamamıdır, dolayısıyla aynı (ürün tipi + bölüm) kapsamında olup
+        // burada bulunmayan kayıtlar silinmiş sayılır. Katalog varsayılanları
+        // koddan yeniden üretilebildiği için fiziksel silme yerine tombstone
+        // bırakılır (bkz. deleteProductSpecTemplate). Aynı transaction içinde
+        // yapılır ki yarım kalan kayıtta şablon tutarsız kalmasın.
+        let prunedIds: string[] = [];
+        if (body.pruneMissing && body.productTypeCode) {
+          const keptIds = saved.map((row) => row.id);
+          const scope = [
+            inArray(productSpecTemplates.productTypeCode, productTypeCodeVariants(body.productTypeCode)),
+            body.divisionId
+              ? eq(productSpecTemplates.divisionId, body.divisionId)
+              : isNull(productSpecTemplates.divisionId),
+            eq(productSpecTemplates.isDeleted, false),
+          ];
+          if (keptIds.length) scope.push(notInArray(productSpecTemplates.id, keptIds));
+          const removed = await tx
+            .update(productSpecTemplates)
+            .set({ isDeleted: true, isActive: false })
+            .where(and(...scope))
+            .returning({ id: productSpecTemplates.id });
+          prunedIds = removed.map((row) => row.id);
+        }
+        return { rows: saved, prunedIds };
       });
       await this.audit.write({
         tenantId: user.tenantId,
         actorUserId: user.userId,
         action: 'product_spec_template.batch_updated',
         resourceType: 'product_spec_template',
-        resourceId: body.items[0]?.productTypeCode ?? 'batch',
-        newValues: { count: rows.length },
+        resourceId: body.productTypeCode ?? body.items[0]?.productTypeCode ?? 'batch',
+        newValues: { count: rows.length, pruned: prunedIds.length },
       });
-      return { ok: true, rows };
+      return { ok: true, rows, prunedIds };
     } catch (error: any) {
       if (databaseErrorCode(error) === '23505') throw new ConflictError('Bu ürün tipi için aynı teknik alan birden fazla kez kullanılamaz');
       throw error;

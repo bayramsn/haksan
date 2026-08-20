@@ -16,6 +16,10 @@ import type {
   CommercialInvoiceCreateInput,
   CommercialInvoiceUpdateInput,
   CompanyCreateInput,
+  CompanyContactImportCommitInput,
+  CompanyContactImportPreview,
+  CompanyContactImportPreviewInput,
+  CompanyContactImportCommitResult,
   CompanyOsmSearchResult,
   CompanyWebsiteLookupInput,
   CompanyWebsiteLookupResult,
@@ -38,6 +42,7 @@ import type {
   InventoryItemUpdateInput,
   InventoryReserveInput,
   InventorySellInput,
+  MachineTemplateCreateInput,
   NoteTemplateCreateInput,
   NoteTemplateUpdateInput,
   OpportunityCreateInput,
@@ -45,7 +50,11 @@ import type {
   OpportunityApprovalType,
   OpportunityCompanyLinkInput,
   OpportunityConvertInput,
+  LeadAssignmentRuleCreateInput,
+  LeadAssignmentRuleUpdateInput,
+  LeadContactEventInput,
   OpportunityQualificationChangeInput,
+  OpportunityProcessCheckUpsertInput,
   OpportunityStageChangeInput,
   OpportunityUpdateInput,
   TrelloImportCommitRequest,
@@ -73,6 +82,11 @@ import type {
   ProductUpdateInput,
   ProformaCreateInput,
   ProformaUpdateInput,
+  StandaloneContractCreateInput,
+  StandaloneContractUpdateInput,
+  StandaloneProformaCreateInput,
+  StandaloneProformaUpdateInput,
+  StandaloneQuoteCreateInput,
   PublicServiceComplaintInput,
   PurchaseOrderCreateInput,
   PurchaseOrderItemCreateInput,
@@ -98,6 +112,9 @@ import type {
   ShipmentCreateInput,
   ShipmentStartInput,
   ShipmentStatusUpdateInput,
+  SignatureCreateInput,
+  SignatureUpdateInput,
+  SignatureView,
   SignedUploadUrlInput,
   TargetUpsertInput,
   TenantUpdateInput,
@@ -105,22 +122,10 @@ import type {
   UserUpdateInput,
   VisitCreateInput,
   WarehouseCreateInput,
-  CallAssistantAction,
-  CallSuggestionActionInput,
-  ManualCallEventInput,
-  AssistantApprovalCard,
-  AssistantApprovalDecisionResponse,
-  AssistantBriefingResponse,
-  AssistantChatInput,
-  AssistantChatResponse,
-  AssistantCompanyMemory,
-  AssistantExecuteActionInput,
-  AssistantExecuteActionResponse,
-  AssistantInboxCapture,
-  AssistantInboxItem,
-  AssistantInboxListQuery,
-  AssistantInboxUpdate,
-  AssistantSuggestion,
+  MailSendInput,
+  MailSendResult,
+  UserMailAccountStatus,
+  UserMailAccountUpsertInput,
 } from '@haksan/shared';
 import { API_BASE_URL, ApiError, api, getAccessToken, getActiveDepartment, getActiveDivision } from './apiClient';
 import { exportService } from './downloadExport';
@@ -259,29 +264,98 @@ export interface AuditUserDTO {
   email?: string | null;
 }
 
+export interface CompanyLookupDTO {
+  id?: string;
+  code: string;
+  name: string;
+}
+
+export interface CompanyAddressDTO {
+  id?: string;
+  addressType?: string | null;
+  country?: string | null;
+  province?: string | null;
+  district?: string | null;
+  fullAddress?: string | null;
+  latitude?: string | number | null;
+  longitude?: string | number | null;
+  locationSource?: string | null;
+  isDefault?: boolean | null;
+  isShipping?: boolean | null;
+  isBilling?: boolean | null;
+}
+
+export interface CompanyPhoneDTO {
+  phone: string;
+  phoneType?: string | null;
+  isDefault?: boolean | null;
+}
+
+export interface CompanyEmailDTO {
+  email: string;
+  emailType?: string | null;
+  isDefault?: boolean | null;
+}
+
 export interface CompanyDTO {
   id: string;
+  logoFileId?: string | null;
+  logoUrl?: string | null;
+  externalCompanyNo?: string | null;
   legalTitle: string;
   shortName?: string | null;
+  companyType?: 'person' | 'company' | string | null;
   sector?: string | null;
   supplierCategoryCode?: 'transportation' | 'logistics' | null;
   taxNumber?: string | null;
   taxOffice?: string | null;
   website?: string | null;
   notes?: string | null;
+  contactSourceText?: string | null;
   relationTypeId?: string | null;
+  relationType?: Omit<CompanyLookupDTO, 'id'> | null;
   customerStatusId?: string | null;
+  customerStatus?: Omit<CompanyLookupDTO, 'id'> | null;
+  companyGroup?: Omit<CompanyLookupDTO, 'id'> | null;
+  companyGroups?: CompanyLookupDTO[] | null;
+  contactSource?: Omit<CompanyLookupDTO, 'id'> | null;
+  divisions?: CompanyLookupDTO[] | null;
+  primaryAddress?: CompanyAddressDTO | null;
+  addresses?: CompanyAddressDTO[] | null;
+  primaryPhone?: string | null;
+  secondaryPhone?: string | null;
+  fax?: string | null;
+  phones?: CompanyPhoneDTO[] | null;
+  primaryEmail?: string | null;
+  secondaryEmail?: string | null;
+  emails?: CompanyEmailDTO[] | null;
   createdBy?: string | null;
   createdByUser?: AuditUserDTO | null;
   createdAt: string;
 }
 
+export interface CompanySummaryDTO {
+  total: number;
+  byRelation: Record<string, number>;
+  byStatus: Record<string, number>;
+  cities: string[];
+  sectors: string[];
+}
+
+type QueryRequestOptions = { signal?: AbortSignal };
+
 export const companyService = {
-  list: (params?: Record<string, string | number | undefined>) =>
-    api.get<Paginated<CompanyDTO>>(`/companies${qs(params)}`),
-  get: (id: string) => api.get<CompanyDTO & { addresses: any[]; phones: any[]; emails: any[] }>(`/companies/${id}`),
+  list: (params?: Record<string, string | number | undefined>, opts?: QueryRequestOptions) =>
+    api.get<Paginated<CompanyDTO>>(`/companies${qs(params)}`, opts),
+  summary: (params?: Record<string, string | number | undefined>, opts?: QueryRequestOptions) =>
+    api.get<CompanySummaryDTO>(`/companies/summary${qs(params)}`, opts),
+  get: (id: string, opts?: QueryRequestOptions) => api.get<CompanyDTO>(`/companies/${id}`, opts),
   create: (body: CompanyCreateInput) => api.post<CompanyDTO>('/companies', body),
   update: (id: string, body: CompanyUpdateInput) => api.patch<CompanyDTO>(`/companies/${id}`, body),
+  previewCompanyContactImport: (body: CompanyContactImportPreviewInput) =>
+    api.post<CompanyContactImportPreview>('/companies/imports/company-contacts/preview', body),
+  commitCompanyContactImport: (body: CompanyContactImportCommitInput) =>
+    api.post<CompanyContactImportCommitResult>('/companies/imports/company-contacts/commit', body),
   osmSearch: (params: { q: string; address?: string; city?: string; district?: string; country?: string }) =>
     api.get<CompanyOsmSearchResult[]>(`/companies/osm-search${qs(params)}`),
   websiteLookup: (body: CompanyWebsiteLookupInput) =>
@@ -329,42 +403,9 @@ export const accessRequestService = {
   reject: (id: string, decisionNote?: string) => api.post(`/access-requests/${id}/reject`, { decisionNote }),
 };
 
-export interface CallSuggestionDTO {
-  id: string;
-  title: string;
-  body: string | null;
-  status: 'pending' | 'acted' | 'dismissed';
-  companyId: string;
-  contactId: string | null;
-  createdAt: string;
-  event: {
-    id: string;
-    eventType: 'completed' | 'missed';
-    direction: 'inbound' | 'outbound';
-    normalizedPhone: string | null;
-    endedAt: string | null;
-    startedAt: string | null;
-  };
-  company: { id: string; legalTitle: string; shortName?: string | null };
-  contact: { id: string; fullName: string } | null;
-  availableActions: { createQuote: boolean; createServiceTicket: boolean; logCall: boolean };
-}
-
-export interface CallEventIngestResponse {
-  event: {
-    id: string;
-    matchStatus: 'matched' | 'unmatched' | 'ambiguous';
-    companyId: string | null;
-    contactId: string | null;
-    normalizedPhone: string | null;
-  };
-  suggestions: CallSuggestionDTO[];
-  idempotent?: boolean;
-}
-
 export type NotificationTarget =
   | { kind: 'company'; companyId: string }
-  | { kind: 'opportunity'; opportunityId: string }
+  | { kind: 'opportunity'; opportunityId: string; activityId?: string }
   | { kind: 'navigate'; nav: string; query?: string };
 
 export interface NotificationDTO {
@@ -389,48 +430,37 @@ export const notificationService = {
   markRead: (id: string) => api.patch<NotificationDTO>(`/notifications/${id}/read`, {}),
 };
 
-export const callAssistantService = {
-  suggestions: (params?: { status?: 'pending' | 'acted' | 'dismissed' }) =>
-    api.get<Paginated<CallSuggestionDTO>>(`/call-assistant/suggestions${qs(params)}`),
-  manualEvent: (body: ManualCallEventInput) =>
-    api.post<CallEventIngestResponse>('/call-assistant/manual-events', body),
-  action: (id: string, action: CallAssistantAction, body: Omit<CallSuggestionActionInput, 'action'> = {}) =>
-    api.post<any>(`/call-assistant/suggestions/${id}/actions`, { action, ...body }),
-};
-
-export const assistantService = {
-  suggestions: () => api.get<AssistantSuggestion[]>('/assistant/suggestions'),
-  briefing: () => api.get<AssistantBriefingResponse>('/assistant/briefing'),
-  companyMemory: (companyId: string) =>
-    api.get<AssistantCompanyMemory>(`/assistant/companies/${encodeURIComponent(companyId)}/memory`),
-  approvals: () => api.get<AssistantApprovalCard[]>('/assistant/approvals'),
-  inbox: (params: Partial<AssistantInboxListQuery> = {}) =>
-    api.get<AssistantInboxItem[]>(`/assistant/inbox${qs(params as Record<string, string | number | undefined>)}`),
-  captureInbox: (body: AssistantInboxCapture) => api.post<AssistantInboxItem>('/assistant/inbox', body),
-  updateInbox: (id: string, body: AssistantInboxUpdate) =>
-    api.patch<AssistantInboxItem>(`/assistant/inbox/${encodeURIComponent(id)}`, body),
-  prepareInboxReply: (id: string) =>
-    api.post<AssistantApprovalCard>(`/assistant/inbox/${encodeURIComponent(id)}/reply-approval`, {}),
-  chat: (body: AssistantChatInput) => api.post<AssistantChatResponse>('/assistant/chat', body),
-  decideApproval: (id: string, confirm: boolean) =>
-    api.post<AssistantApprovalDecisionResponse>(`/assistant/approvals/${encodeURIComponent(id)}/decision`, { confirm }),
-  executeAction: (id: string, body: AssistantExecuteActionInput) =>
-    api.post<AssistantExecuteActionResponse>(`/assistant/actions/${encodeURIComponent(id)}/execute`, body),
+export const mailService = {
+  account: () => api.get<UserMailAccountStatus>('/mail/account'),
+  connect: (body: UserMailAccountUpsertInput) => api.put<UserMailAccountStatus>('/mail/account', body),
+  disconnect: () => api.delete<{ ok: true }>('/mail/account'),
+  send: (body: MailSendInput) => api.post<MailSendResult>('/mail/send', body),
 };
 
 // ───── Contacts ─────
+export interface ContactSummaryDTO {
+  total: number;
+  primary: number;
+  blacklisted: number;
+  firmCount: number;
+  departments: string[];
+}
+
 export const contactService = {
-  list: (params?: Record<string, string | number | undefined>) => api.get<Paginated<any>>(`/contacts${qs(params)}`),
-  get: (id: string) => api.get<any>(`/contacts/${id}`),
+  list: (params?: Record<string, string | number | undefined>, opts?: QueryRequestOptions) =>
+    api.get<Paginated<any>>(`/contacts${qs(params)}`, opts),
+  summary: (params?: Record<string, string | number | undefined>, opts?: QueryRequestOptions) =>
+    api.get<ContactSummaryDTO>(`/contacts/summary${qs(params)}`, opts),
+  get: (id: string, opts?: QueryRequestOptions) => api.get<any>(`/contacts/${id}`, opts),
   /** Kontağın bağlı olduğu firmalar (çoklu firma — aynı kişi birden çok firmada). */
   companies: (id: string) =>
-    api.get<{ id: string; legalTitle: string; shortName: string | null; isPrimary: boolean }[]>(`/contacts/${id}/companies`),
+    api.get<{ id: string; legalTitle: string; shortName: string | null; externalCompanyNo: string | null; isPrimary: boolean }[]>(`/contacts/${id}/companies`),
   /** Kontağı bir firmadan ayırır (en az bir firma kalmalı). Güncel firma listesini döner. */
   unlinkCompany: (id: string, companyId: string) =>
-    api.delete<{ id: string; legalTitle: string; shortName: string | null; isPrimary: boolean }[]>(`/contacts/${id}/companies/${companyId}`),
+    api.delete<{ id: string; legalTitle: string; shortName: string | null; externalCompanyNo: string | null; isPrimary: boolean }[]>(`/contacts/${id}/companies/${companyId}`),
   /** Bir firmayı kontağın birincil firması yapar. Güncel firma listesini döner. */
   setPrimaryCompany: (id: string, companyId: string) =>
-    api.post<{ id: string; legalTitle: string; shortName: string | null; isPrimary: boolean }[]>(`/contacts/${id}/companies/${companyId}/primary`),
+    api.post<{ id: string; legalTitle: string; shortName: string | null; externalCompanyNo: string | null; isPrimary: boolean }[]>(`/contacts/${id}/companies/${companyId}/primary`),
   create: (body: ContactCreateInput) => api.post<any>('/contacts', body),
   update: (id: string, body: ContactUpdateInput) => api.patch<any>(`/contacts/${id}`, body),
   remove: (id: string) => api.delete(`/contacts/${id}`),
@@ -440,6 +470,7 @@ export const contactService = {
 export const opportunityService = {
   list: (params?: Record<string, string | number | undefined>) => api.get<Paginated<any>>(`/opportunities${qs(params)}`),
   get: (id: string) => api.get<any>(`/opportunities/${id}`),
+  assignees: () => api.get<Array<{ id: string; name: string; divisionIds: string[] }>>('/opportunities/assignees'),
   create: (body: OpportunityCreateInput) => api.post<any>('/opportunities', body),
   previewTrelloImport: (body: TrelloImportPreviewRequest) =>
     api.post<TrelloImportPreview>('/opportunities/imports/trello/preview', body),
@@ -450,8 +481,14 @@ export const opportunityService = {
     api.post<any>(`/opportunities/${id}/company`, body),
   convert: (id: string, body: OpportunityConvertInput = {}) =>
     api.post<any>(`/opportunities/${id}/convert`, body),
+  recordContact: (id: string, body: LeadContactEventInput) =>
+    api.post<any>(`/opportunities/${id}/contact-events`, body),
+  leadSummary: () => api.get<any>('/opportunities/lead-summary'),
   changeQualificationStage: (id: string, body: OpportunityQualificationChangeInput) =>
     api.patch<any>(`/opportunities/${id}/qualification-stage`, body),
+  /** A+ süreç adımını elle "yapıldı / yapılmadı" işaretler; `status: null` işareti kaldırır. */
+  setProcessCheck: (id: string, key: string, body: OpportunityProcessCheckUpsertInput) =>
+    api.patch<any>(`/opportunities/${id}/process-checks/${encodeURIComponent(key)}`, body),
   decideApproval: (id: string, type: OpportunityApprovalType, body: OpportunityApprovalDecisionInput) =>
     api.post<any>(`/opportunities/${id}/approvals/${type}`, body),
   remove: (id: string) => api.delete(`/opportunities/${id}`),
@@ -460,6 +497,14 @@ export const opportunityService = {
   close: (id: string, body?: { reason?: string }) => api.post<any>(`/opportunities/${id}/close`, body ?? {}),
   // Geri Aç — kapanışı geri alır, fırsatı aktif panoya döndürür.
   reopen: (id: string) => api.post<any>(`/opportunities/${id}/reopen`, {}),
+};
+
+export const leadAssignmentRuleService = {
+  list: () => api.get<any[]>('/lead-assignment-rules'),
+  create: (body: LeadAssignmentRuleCreateInput) => api.post<any>('/lead-assignment-rules', body),
+  update: (id: string, body: LeadAssignmentRuleUpdateInput) =>
+    api.patch<any>(`/lead-assignment-rules/${id}`, body),
+  remove: (id: string) => api.delete<{ ok: true }>(`/lead-assignment-rules/${id}`),
 };
 
 // ───── Activities ─────
@@ -614,6 +659,8 @@ export const quoteService = {
   list: (params?: Record<string, string | number | undefined>) => api.get<Paginated<any>>(`/quotes${qs(params)}`),
   get: (id: string) => api.get<any>(`/quotes/${id}`),
   create: (body: QuoteCreateInput) => api.post<any>('/quotes', body),
+  /** Fırsat açmadan ("hızlı") teklif — başlık, kalemler ve şartlar tek istekte gider. */
+  createStandalone: (body: StandaloneQuoteCreateInput) => api.post<any>('/quotes/standalone', body),
   update: (id: string, body: QuoteUpdateInput) => api.patch<any>(`/quotes/${id}`, body),
   remove: (id: string) => api.delete(`/quotes/${id}`),
   addItem: (id: string, body: QuoteItemCreateInput) => api.post<any>(`/quotes/${id}/items`, body),
@@ -725,10 +772,18 @@ export const documentService = {
   proformas: (params?: Record<string, string | number | undefined>) => api.get<Paginated<any>>(`/proformas${qs(params)}`),
   createProforma: (body: ProformaCreateInput) => api.post<any>('/proformas', body),
   updateProforma: (id: string, body: ProformaUpdateInput) => api.patch<any>(`/proformas/${id}`, body),
+  /** Tekliften bağımsız ("hızlı") proforma — kalemler doğrudan belgeye yazılır. */
+  createStandaloneProforma: (body: StandaloneProformaCreateInput) => api.post<any>('/proformas/standalone', body),
+  updateStandaloneProforma: (id: string, body: StandaloneProformaUpdateInput) =>
+    api.patch<any>(`/proformas/standalone/${id}`, body),
   deleteProforma: (id: string) => api.delete<any>(`/proformas/${id}`),
   contracts: (params?: Record<string, string | number | undefined>) => api.get<Paginated<any>>(`/contracts${qs(params)}`),
   createContract: (body: ContractCreateInput) => api.post<any>('/contracts', body),
   updateContract: (id: string, body: ContractUpdateInput) => api.patch<any>(`/contracts/${id}`, body),
+  /** Tekliften bağımsız ("hızlı") sözleşme — kalemler ve şartlar doğrudan belgeye yazılır. */
+  createStandaloneContract: (body: StandaloneContractCreateInput) => api.post<any>('/contracts/standalone', body),
+  updateStandaloneContract: (id: string, body: StandaloneContractUpdateInput) =>
+    api.patch<any>(`/contracts/standalone/${id}`, body),
   deleteContract: (id: string) => api.delete<any>(`/contracts/${id}`),
   commercialInvoices: (params?: Record<string, string | number | undefined>) =>
     api.get<Paginated<any>>(`/commercial-invoices${qs(params)}`),
@@ -948,6 +1003,38 @@ export const fileService = {
   remove: (id: string) => api.delete(`/files/${id}`),
 };
 
+// ───── Belge imzaları ─────
+export const signatureService = {
+  /** Belge ekranları `activeOnly` ister; ayar ekranı pasifleri de görmek için boş bırakır. */
+  list: (params?: { activeOnly?: boolean }) =>
+    api.get<SignatureView[]>(`/signatures${qs({ activeOnly: params?.activeOnly ? 'true' : undefined })}`),
+  create: (body: SignatureCreateInput) => api.post<SignatureView>('/signatures', body),
+  update: (id: string, body: SignatureUpdateInput) => api.patch<SignatureView>(`/signatures/${id}`, body),
+  remove: (id: string) => api.delete(`/signatures/${id}`),
+  /**
+   * Görseli yükler ve dosya kimliğini döndürür. Bağlama işini API üstlenir:
+   * dönen `fileId` create/update gövdesine konur, ayrıca /files/link çağrılmaz.
+   * Yeni (henüz kaydedilmemiş) imza için `signatureId` yerine 'new' geçilir.
+   */
+  uploadImage: async (
+    signatureId: string,
+    file: Blob,
+    meta: { filename: string; mimeType: string; extension: string },
+  ): Promise<string> => {
+    const upload = await fileService.signedUpload({
+      bucket: 'erp-signatures',
+      entityType: 'signature',
+      entityId: signatureId,
+      filename: meta.filename,
+      mimeType: meta.mimeType,
+      extension: meta.extension,
+      sizeBytes: file.size,
+    } as SignedUploadUrlInput);
+    await fileService.uploadBinary(upload, file, meta.mimeType);
+    return upload.fileId;
+  },
+};
+
 // ───── Reports ─────
 
 /** Yıl sonu / karlılık raporu (GET /reports/year-end). Tüm parasal alanlar string döner. */
@@ -993,8 +1080,41 @@ export const reportService = {
   targetProgress: (params: { period: string; scope?: 'user' | 'department' | 'role' | 'all-users'; id?: string }) =>
     api.get<any>(`/reports/target-progress${qs(params)}`),
   myTargetProgress: (params: { period: string }) => api.get<any>(`/reports/my-target-progress${qs(params)}`),
+  /**
+   * Ekip aktivitesi. `scope: 'team'` yalnız süper adminde geçerlidir; diğer
+   * kullanıcılarda sunucu isteği sessizce 'self'e düşürür.
+   */
+  teamActivity: (params: { period: TeamActivityPeriod; date?: string; scope?: 'team' | 'self' }) =>
+    api.get<TeamActivityReport>(`/reports/team-activity${qs(params)}`),
   downloadYearEnd: (year: number) => exportService.yearEnd(year),
 };
+
+export type TeamActivityPeriod = 'day' | 'week' | 'month' | 'year';
+/** Mevcut dönem ve bir önceki eşdeğer dönem sayacı. */
+export type ActivityDelta = { current: number; previous: number };
+export interface TeamActivityReport {
+  period: TeamActivityPeriod;
+  scope: 'team' | 'self';
+  canSeeTeam: boolean;
+  range: { from: string; to: string };
+  previousRange: { from: string; to: string };
+  bucket: 'hour' | 'day' | 'month';
+  totals: {
+    quotes: number; visits: number; calls: number; activities: number;
+    opportunitiesCreated: number; won: number; wonValue: number;
+  };
+  previousTotals: {
+    quotes: number; visits: number; calls: number; activities: number;
+    opportunitiesCreated: number; won: number;
+  };
+  timeline: Array<{ bucket: string; quotes: number; visits: number; calls: number; activities: number }>;
+  users: Array<{
+    userId: string; name: string;
+    quotes: ActivityDelta; visits: ActivityDelta; calls: ActivityDelta; activities: ActivityDelta;
+    opportunitiesCreated: ActivityDelta; won: ActivityDelta;
+    wonValue: number; total: ActivityDelta;
+  }>;
+}
 
 // ───── Admin (users, roles, departments) ─────
 export const adminService = {
@@ -1021,18 +1141,19 @@ export const adminService = {
   departments: () => api.get<any[]>('/departments'),
   divisions: () => api.get<any[]>('/divisions'),
   createDept: (body: DepartmentCreateInput) => api.post<any>('/departments', body),
+  deleteDept: (id: string) => api.delete<{ ok: true; id: string }>(`/departments/${id}`),
   auditLogs: (params?: Record<string, string | number | undefined>) => api.get<Paginated<any>>(`/audit-logs${qs(params)}`),
   tenant: () => api.get<any>('/tenant'),
   updateTenant: (body: TenantUpdateInput) => api.patch<any>('/tenant', body),
   lookups: () => api.get<{ available: string[] }>('/admin/lookups'),
   lookupRows: (name: string, params?: Record<string, string | number | undefined>) =>
     api.get<any[]>(`/admin/lookups/${name}${qs(params)}`),
-  createLookup: (name: string, body: { code?: string; name: string; description?: string; sortOrder?: number; isActive?: boolean; province?: string; divisionId?: string | null; parentId?: string | null; productTypeIds?: string[] }) =>
+  createLookup: (name: string, body: { code?: string; name: string; description?: string; sortOrder?: number; isActive?: boolean; province?: string; divisionId?: string | null; parentId?: string | null; productTypeIds?: string[]; companyId?: string | null; isOwned?: boolean; logoFileId?: string | null }) =>
     api.post<any>(`/admin/lookups/${name}`, body),
   updateLookup: (
     name: string,
     id: string,
-    body: { code?: string; name?: string; description?: string; sortOrder?: number; isActive?: boolean; province?: string; divisionId?: string | null; parentId?: string | null; productTypeIds?: string[] }
+    body: { code?: string; name?: string; description?: string; sortOrder?: number; isActive?: boolean; province?: string; divisionId?: string | null; parentId?: string | null; productTypeIds?: string[]; companyId?: string | null; isOwned?: boolean; logoFileId?: string | null }
   ) => api.patch<any>(`/admin/lookups/${name}/${id}`, body),
   reorderLookup: (name: string, items: Array<{ id: string; sortOrder: number }>) =>
     api.patch<{ ok: true; items: Array<{ id: string; sortOrder: number }> }>(`/admin/lookups/${name}/reorder`, { items }),
@@ -1042,8 +1163,10 @@ export const adminService = {
   createProductSpecTemplate: (body: ProductSpecTemplateCreateInput) => api.post<any>('/admin/product-spec-templates', body),
   bulkCreateProductSpecTemplates: (items: ProductSpecTemplateBulkCreateInput['items']) =>
     api.post<{ ok: boolean; created: number; skipped: number; rows: any[] }>('/admin/product-spec-templates/bulk', { items }),
-  batchSaveProductSpecTemplates: (items: ProductSpecTemplateBatchInput['items']) =>
-    api.put<{ ok: boolean; rows: any[] }>('/admin/product-spec-templates/batch', { items }),
+  batchSaveProductSpecTemplates: (body: ProductSpecTemplateBatchInput) =>
+    api.put<{ ok: boolean; rows: any[]; prunedIds: string[] }>('/admin/product-spec-templates/batch', body),
+  createMachineTemplate: (body: MachineTemplateCreateInput) =>
+    api.post<{ type: any; specs: any[] }>('/admin/machine-templates', body),
   updateProductSpecTemplate: (id: string, body: ProductSpecTemplateUpdateInput) =>
     api.patch<any>(`/admin/product-spec-templates/${id}`, body),
   deleteProductSpecTemplate: (id: string) => api.delete<any>(`/admin/product-spec-templates/${id}`),
@@ -1104,6 +1227,7 @@ export interface ChatMessageDTO {
   createdAt: string;
   editedAt: string | null;
   kind: 'text' | 'system' | 'voice' | string;
+  location: { latitude: number; longitude: number; label: string | null } | null;
   attachments: ChatAttachment[];
   reactions: ChatReaction[];
   replyTo: ChatReplyPreview | null;
@@ -1144,6 +1268,7 @@ export interface ChatConversationDetail {
 
 export const chatService = {
   directory: () => api.get<ChatDirectoryUser[]>('/chat/directory'),
+  webrtcConfig: () => api.get<{ iceServers: RTCIceServer[]; expiresAt: string | null }>('/chat/webrtc-config'),
   conversations: () => api.get<ChatConversationSummary[]>('/chat/conversations'),
   createDm: (userId: string) => api.post<ChatConversationDetail>('/chat/conversations/dm', { userId }),
   createGroup: (body: CreateGroupInput) => api.post<ChatConversationDetail>('/chat/conversations/group', body),
@@ -1153,7 +1278,7 @@ export const chatService = {
   removeMember: (id: string, userId: string) => api.delete(`/chat/conversations/${id}/members/${userId}`),
   setMemberRole: (id: string, userId: string, role: ChatMemberRole) =>
     api.patch(`/chat/conversations/${id}/members/${userId}/role`, { role }),
-  messages: (id: string, params?: { before?: string; limit?: number }) =>
+  messages: (id: string, params?: { before?: string; limit?: number; search?: string }) =>
     api.get<{ messages: ChatMessageDTO[]; hasMore: boolean }>(`/chat/conversations/${id}/messages${qs(params)}`),
   sendMessage: (id: string, body: SendMessageInput) => api.post<ChatMessageDTO>(`/chat/conversations/${id}/messages`, body),
   markRead: (id: string) => api.post(`/chat/conversations/${id}/read`),

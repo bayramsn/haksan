@@ -5,7 +5,7 @@ import {
 import { Input } from "../ui/input";
 import { Label } from "../ui/label";
 import { Button } from "../ui/button";
-import { Textarea } from "../ui/textarea";
+import { NumberedLinesTextarea } from "../shared/NumberedLinesTextarea";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "../ui/select";
@@ -13,20 +13,35 @@ import { MultiSelect } from "../ui/multi-select";
 import { useStore } from "../../lib/store";
 import { useFx, FxRateBadge } from "../../lib/fx";
 import { useAuth } from "../../../lib/auth";
-import { lookupService, quoteService, productService } from "../../../lib/services";
+import { lookupService, quoteService, productService, signatureService } from "../../../lib/services";
+import type { SignatureView } from "@haksan/shared";
 import { toast } from "sonner";
-import { Plus, Trash2, Save, BookmarkPlus, Bold, MapPin } from "lucide-react";
+import { AlertTriangle, Plus, Trash2, Save, BookmarkPlus, Bold, MapPin } from "lucide-react";
 import type { CompanyAddress, Customer, Product, ProductSpec } from "../../lib/mock";
 import { normalizeProductSpecKey, productSpecDefaults, specsForProductTypeStrict } from "../../lib/productSpecTemplates";
-import { computeCustomsCharges, isMachiningCenterTypeCode } from "@haksan/shared";
+import {
+  DISCOUNT_APPROVAL_THRESHOLD_PERCENT,
+  computeCustomsCharges,
+  discountPercent,
+  isMachiningCenterTypeCode,
+  requiresDiscountApproval,
+} from "@haksan/shared";
 import { quoteDefaultsFromCase } from "../../lib/workflow";
 import {
   calculateProductDiscountAmount,
   isProductDiscountValid,
   type ProductDiscountType,
 } from "../../lib/quoteDiscount";
-import { matchQuoteNoteVariantKey, QUOTE_NOTE_VARIANTS } from "../../lib/print";
+import { fillNotePlaceholders, matchQuoteNoteVariantKey, QUOTE_NOTE_VARIANTS } from "../../lib/print";
 import { DialogSplitLayout, DialogSidebarSection } from "../shared/DialogSplitLayout";
+import { RemoteCompanyCombobox } from "../shared/RemoteCompanyCombobox";
+import { RemoteContactCombobox } from "../shared/RemoteContactCombobox";
+import { useCompanyDetail } from "../../lib/companyServerData";
+import {
+  buildQuoteCompanyDetailsDraft,
+  buildQuoteCompanyDetailsPatch,
+  type QuoteCompanyDetailsDraft,
+} from "../../lib/quoteCompanyDetails";
 import {
   DocumentTermsTemplateEditor,
   matchSavedTermsTemplate,
@@ -37,6 +52,56 @@ import {
 // o şablonu önseç (proforma otomatik tespitiyle aynı yardımcıyı kullanır).
 const matchNoteVariant = matchQuoteNoteVariantKey;
 const TERMS_TEMPLATE_SCOPE = "quote_terms";
+/** Radix Select boş string değeri kabul etmez; "imzasız" için ayrı bir işaret gerekiyor. */
+const NO_SIGNATURE = "__no_signature__";
+
+function RemoteSupplierMultiSelect({
+  selected,
+  onChange,
+}: {
+  selected: string[];
+  onChange: (supplierIds: string[]) => void;
+}) {
+  const replaceSupplier = (index: number, supplierId: string) => {
+    const next = selected.map((current, currentIndex) => currentIndex === index ? supplierId : current);
+    onChange(Array.from(new Set(next.filter(Boolean))));
+  };
+
+  return (
+    <div className="space-y-1.5">
+      {selected.map((supplierId, index) => (
+        <div key={supplierId} className="flex items-center gap-1.5">
+          <RemoteCompanyCombobox
+            value={supplierId}
+            relationTypeCodes={["supplier", "supplier_customer"]}
+            onValueChange={(nextSupplierId) => replaceSupplier(index, nextSupplierId)}
+            placeholder="Tedarikçi seçin"
+            searchPlaceholder="Tedarikçi firma ara..."
+          />
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="size-9 shrink-0 text-muted-foreground hover:text-destructive"
+            aria-label="Tedarikçiyi kaldır"
+            onClick={() => onChange(selected.filter((_, currentIndex) => currentIndex !== index))}
+          >
+            <Trash2 className="size-4" />
+          </Button>
+        </div>
+      ))}
+      <RemoteCompanyCombobox
+        value=""
+        relationTypeCodes={["supplier", "supplier_customer"]}
+        onValueChange={(supplierId) => {
+          if (supplierId && !selected.includes(supplierId)) onChange([...selected, supplierId]);
+        }}
+        placeholder={selected.length > 0 ? "Başka tedarikçi ekle..." : "Tedarikçi seçin..."}
+        searchPlaceholder="Tedarikçi firma ara..."
+      />
+    </div>
+  );
+}
 
 type Currency = "USD" | "EUR" | "TRY";
 
@@ -222,7 +287,7 @@ export function QuoteDialog({
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
 }) {
-  const { customers, contacts, products, users, cases, offers, noteTemplates, createQuoteFull, addNoteTemplate, updateNoteTemplate, deleteNoteTemplate, refresh } = useStore();
+  const { customers, products, users, cases, offers, noteTemplates, createQuoteFull, updateCustomer, addNoteTemplate, updateNoteTemplate, deleteNoteTemplate, refresh } = useStore();
   const editing = Boolean(offerId);
   const { convert } = useFx();
   const { user, activeDivision, canUseAllDivisionsForResource, scopesForResource } = useAuth();
@@ -236,6 +301,7 @@ export function QuoteDialog({
   const [internalOpen, setInternalOpen] = useState(false);
   const open = controlledOpen ?? internalOpen;
   const [saving, setSaving] = useState(false);
+  const [savingCompanyDetails, setSavingCompanyDetails] = useState(false);
   const [loadingEdit, setLoadingEdit] = useState(false);
 
   const today = new Date().toISOString().slice(0, 10);
@@ -250,6 +316,15 @@ export function QuoteDialog({
   const [validityDays, setValidityDays] = useState("");
   const [documentNo, setDocumentNo] = useState("");
   const [senderId, setSenderId] = useState("");
+  const [companyDetailsDraft, setCompanyDetailsDraft] = useState<QuoteCompanyDetailsDraft>(
+    buildQuoteCompanyDetailsDraft(),
+  );
+  const [companyDetailsDirty, setCompanyDetailsDirty] = useState(false);
+  /** Çıktının altına basılacak imza (Ayarlar → Belge İmzaları). Boş = imzasız. */
+  const [signatureId, setSignatureId] = useState("");
+  // Tanımlı imza yoksa seçici hiç gösterilmez: seçenek üretmeyen bir kutu
+  // kullanıcıya olmayan bir özellik varmış gibi görünür.
+  const [signatureOptions, setSignatureOptions] = useState<SignatureView[]>([]);
   const [currency, setCurrency] = useState<Currency>("USD");
   const [vatEnabled, setVatEnabled] = useState(false);
   const [deliveryCode, setDeliveryCode] = useState<string>("");
@@ -285,6 +360,20 @@ export function QuoteDialog({
         : products,
     [products, quoteDivisionGroupCode]
   );
+  // İmza listesi teklifin zorunlu parçası değil: yüklenemezse seçici gizli
+  // kalır ve çıktı eski davranışıyla proje ilgilisinin adına düşer.
+  useEffect(() => {
+    if (!open) return;
+    let alive = true;
+    signatureService
+      .list({ activeOnly: true })
+      .then((rows) => alive && setSignatureOptions(rows))
+      .catch(() => alive && setSignatureOptions([]));
+    return () => {
+      alive = false;
+    };
+  }, [open]);
+
   const [productLookupRows, setProductLookupRows] = useState<Record<ProductLookupName, LookupRow[]>>(FALLBACK_PRODUCT_LOOKUPS);
   useEffect(() => {
     if (!open) return;
@@ -326,6 +415,7 @@ export function QuoteDialog({
     setValidityDays("");
     setDocumentNo("");
     setSenderId(users.find((u) => u.id === user?.id)?.id ?? users[0]?.id ?? "");
+    setSignatureId("");
     setVatEnabled(false);
     setDeliveryCode("");
     setNoteVariantKey("");
@@ -368,6 +458,7 @@ export function QuoteDialog({
       setValidityDays(data.validityDays ? String(data.validityDays) : "");
       setDocumentNo(data.documentNo ?? "");
       setSenderId(data.projectOwnerUserId ?? "");
+      setSignatureId(data.signatureId ?? "");
       const offer = offers.find((o) => o.id === id);
       const currencyCode = (offer?.currency ?? "USD") as Currency;
       setCurrency(currencyCode);
@@ -505,17 +596,19 @@ export function QuoteDialog({
       .catch(() => setSpecTemplatesByType({}));
   }, [open]);
 
-  const companyContacts = contacts.filter((c) => c.customerId === companyId);
   const companyCases = cases.filter((c) => c.customerId === companyId);
-  const selectedCompany = useMemo(
+  const storeSelectedCompany = useMemo(
     () => customers.find((customer) => customer.id === companyId),
     [companyId, customers],
   );
+  const selectedCompanyQuery = useCompanyDetail(companyId, storeSelectedCompany);
+  const selectedCompany = selectedCompanyQuery.data ?? storeSelectedCompany;
   const companyAddresses = useMemo(
     () => (selectedCompany?.addresses ?? []).filter((address) => Boolean(address.id)),
     [selectedCompany],
   );
   const selectedPdfAddress = companyAddresses.find((address) => address.id === companyAddressId);
+  const selectedSender = users.find((selectedUser) => selectedUser.id === senderId);
 
   useEffect(() => {
     if (!companyId) {
@@ -526,6 +619,65 @@ export function QuoteDialog({
     setCompanyAddressId(preferredPdfAddressId(selectedCompany));
   }, [companyAddressId, companyId, companyAddresses, selectedCompany]);
 
+  useEffect(() => {
+    setCompanyDetailsDraft(buildQuoteCompanyDetailsDraft(selectedCompany, selectedPdfAddress));
+    setCompanyDetailsDirty(false);
+  }, [
+    selectedCompany?.id,
+    selectedCompany?.name,
+    selectedCompany?.country,
+    selectedCompany?.city,
+    selectedCompany?.district,
+    selectedCompany?.address,
+    selectedPdfAddress?.id,
+    selectedPdfAddress?.country,
+    selectedPdfAddress?.city,
+    selectedPdfAddress?.district,
+    selectedPdfAddress?.address,
+  ]);
+
+  const setCompanyDetail = (patch: Partial<QuoteCompanyDetailsDraft>) => {
+    setCompanyDetailsDraft((current) => ({ ...current, ...patch }));
+    setCompanyDetailsDirty(true);
+  };
+
+  const saveCompanyDetails = async ({ notify = true }: { notify?: boolean } = {}): Promise<{ ok: boolean; addressId: string }> => {
+    if (!selectedCompany) {
+      toast.error("Önce firma seçiniz");
+      return { ok: false, addressId: "" };
+    }
+    setSavingCompanyDetails(true);
+    try {
+      const patch = buildQuoteCompanyDetailsPatch(selectedCompany, companyAddressId, companyDetailsDraft);
+      await updateCustomer(selectedCompany.id, patch);
+      const refreshed = await selectedCompanyQuery.refetch();
+      const refreshedCompany = refreshed.data;
+      let nextAddressId = companyAddressId;
+      if (refreshedCompany) {
+        nextAddressId = companyAddressId || preferredPdfAddressId(refreshedCompany);
+        setCompanyAddressId(nextAddressId);
+        setCompanyDetailsDraft(buildQuoteCompanyDetailsDraft(
+          refreshedCompany,
+          refreshedCompany.addresses?.find((address) => address.id === nextAddressId),
+        ));
+      }
+      setCompanyDetailsDirty(false);
+      if (notify) {
+        toast.success("Firma bilgileri kaydedildi", {
+          description: "Firma adı ve PDF adresi güncellendi.",
+        });
+      }
+      return { ok: true, addressId: nextAddressId };
+    } catch (err: any) {
+      toast.error("Firma bilgileri kaydedilemedi", {
+        description: err?.message ?? "API isteği başarısız oldu.",
+      });
+      return { ok: false, addressId: "" };
+    } finally {
+      setSavingCompanyDetails(false);
+    }
+  };
+
   const onTermsBuiltInSelected = (key: string) => {
     if (key && NOTE_VARIANT_DELIVERY[key]) setDeliveryCode(NOTE_VARIANT_DELIVERY[key]);
   };
@@ -535,9 +687,11 @@ export function QuoteDialog({
     setNoteVariantKey(key);
     const builtIn = QUOTE_NOTE_VARIANTS.find((variant) => variant.key === key);
     if (!builtIn) return;
-    setPaymentTerms(builtIn.odeme.join("\n"));
-    setDeliveryTerms(builtIn.teslimat.join("\n"));
-    setWarrantyTerms(builtIn.garanti.join("\n"));
+    const mainLine = lines.find((line) => !line.description.trimStart().startsWith("↳ Opsiyon:"));
+    const kdvOrani = Number(mainLine?.vatRate || 20);
+    setPaymentTerms(fillNotePlaceholders(builtIn.odeme, { kdvOrani }).join("\n"));
+    setDeliveryTerms(fillNotePlaceholders(builtIn.teslimat, { kdvOrani }).join("\n"));
+    setWarrantyTerms(fillNotePlaceholders(builtIn.garanti, { kdvOrani }).join("\n"));
   };
 
   const setLine = (i: number, patch: Partial<LineState>) =>
@@ -731,10 +885,6 @@ export function QuoteDialog({
     () => Array.from(new Set(scopedProducts.map((p) => p.brand).filter(Boolean))).sort().map((b) => ({ value: b, label: b })),
     [scopedProducts]
   );
-  const supplierOptions = useMemo(
-    () => customers.filter((c) => c.firmType === "supplier" || c.firmType === "supplier_customer").map((c) => ({ value: c.id, label: c.name })),
-    [customers]
-  );
   const controlUnitOptions = useMemo(() => CONTROL_UNITS.map((c) => ({ value: c, label: c })), []);
 
   // Girilen fiyat KDV hariç (net). KDV yalnızca "KDV Hesapla" açıkken eklenir.
@@ -786,11 +936,13 @@ export function QuoteDialog({
     const grand = taxableBeforeHeader - headerDiscount + vat + customs;
     return { subtotal, lineDiscount, headerDiscount, discount, vat, customs, grand };
   }, [lines, vatEnabled, headerDiscountType, headerDiscountValue, convert, currency]);
+  const totalDiscountPercent = discountPercent(totals.subtotal, totals.discount);
+  const discountNeedsApproval = requiresDiscountApproval(totals.subtotal, totals.discount);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!companyId) return toast.error("Firma seçiniz");
-    if (companyAddresses.length > 0 && !companyAddressId) return toast.error("PDF'de kullanılacak adresi seçiniz");
+    if (!companyDetailsDirty && companyAddresses.length > 0 && !companyAddressId) return toast.error("PDF'de kullanılacak adresi seçiniz");
     if (num(validityDays) < 1) return toast.error("Geçerlilik süresini giriniz");
     if (canPickDivision && !divisionId) return toast.error("Bölüm seçiniz", { description: "Teklifi CNC / Üniversal / Sac bölümlerinden birine atayın." });
     const valid = lines.filter((l) => (l.productId || l.description.trim() || l.stockCode.trim()) && num(l.quantity) > 0);
@@ -852,10 +1004,26 @@ export function QuoteDialog({
 
     setSaving(true);
     try {
+      let resolvedCompanyAddressId = companyAddressId;
+      if (companyDetailsDirty) {
+        const companySave = await saveCompanyDetails({ notify: false });
+        if (!companySave.ok) return;
+        resolvedCompanyAddressId = companySave.addressId;
+      }
+      const hasEditedPdfAddress = Boolean(
+        companyDetailsDraft.address.trim()
+        || companyDetailsDraft.district.trim()
+        || companyDetailsDraft.city.trim(),
+      );
+      if (!resolvedCompanyAddressId && (companyAddresses.length > 0 || hasEditedPdfAddress)) {
+        toast.error("PDF'de kullanılacak adres kaydedilemedi");
+        return;
+      }
+
       if (editing && offerId) {
         await quoteService.update(offerId, {
           companyId,
-          companyAddressId: companyAddressId || undefined,
+          companyAddressId: resolvedCompanyAddressId || undefined,
           contactId: contactId || undefined,
           opportunityId: caseId || undefined,
           divisionId: quoteDivisionId || undefined,
@@ -866,6 +1034,9 @@ export function QuoteDialog({
           headerDiscountAmount,
           headerDiscountPercent,
           projectOwnerUserId: senderId || undefined,
+          // Boş seçim `null` gider: mevcut imzayı kaldırmanın tek yolu bu
+          // (`undefined` "alan gönderilmedi" demek, seçim korunurdu).
+          signatureId: signatureId || null,
           notes: note.trim() || undefined,
           paymentTerms: paymentTerms.trim() || undefined,
           deliveryTerms: deliveryTerms.trim() || undefined,
@@ -891,7 +1062,7 @@ export function QuoteDialog({
         const res = await createQuoteFull({
           opportunityId: caseId || undefined,
           companyId,
-          companyAddressId: companyAddressId || undefined,
+          companyAddressId: resolvedCompanyAddressId || undefined,
           divisionId: canPickDivision ? divisionId || undefined : undefined,
           contactId: contactId || undefined,
           quoteDate: new Date(quoteDate).toISOString(),
@@ -901,6 +1072,7 @@ export function QuoteDialog({
           headerDiscountAmount,
           headerDiscountPercent,
           projectOwnerUserId: senderId || undefined,
+          signatureId: signatureId || undefined,
           notes: note.trim() || undefined,
           paymentTermsText: paymentTerms.trim() || undefined,
           deliveryTermsText: deliveryTerms.trim() || undefined,
@@ -1019,6 +1191,14 @@ export function QuoteDialog({
                     <div className="flex justify-between"><span className="text-muted-foreground">Millileştirme / Gümrük Vergileri</span><span className="tabular-nums">{money(totals.customs, currency)}</span></div>
                   )}
                   <div className="flex justify-between border-t border-border/60 pt-1 font-medium"><span>Genel Toplam</span><span className="tabular-nums">{money(totals.grand, currency)}</span></div>
+                  {discountNeedsApproval && (
+                    <div className="mt-2 flex gap-2 rounded-md border border-amber-300 bg-amber-50 p-2 text-[11px] leading-4 text-amber-900">
+                      <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
+                      <span>
+                        Toplam indirim %{totalDiscountPercent.toFixed(2)}. %{DISCOUNT_APPROVAL_THRESHOLD_PERCENT} üzeri teklifler kaydedildiğinde otomatik onaya düşer.
+                      </span>
+                    </div>
+                  )}
                   <div className="flex justify-between items-center gap-2 pt-1.5 mt-1 border-t border-dashed border-border/60 flex-wrap">
                     <FxRateBadge />
                     <span className="tabular-nums text-xs text-muted-foreground">
@@ -1042,22 +1222,27 @@ export function QuoteDialog({
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
             <div className="md:col-span-1">
               <Label className="text-xs">Firma *</Label>
-              <Select value={companyId} onValueChange={(v) => { setCompanyId(v); setCompanyAddressId(preferredPdfAddressId(customers.find((customer) => customer.id === v))); setContactId(""); setCaseId(""); }}>
-                <SelectTrigger className="mt-1.5"><SelectValue placeholder="Firma seçin..." /></SelectTrigger>
-                <SelectContent>
-                  {customers.map((c) => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
-                </SelectContent>
-              </Select>
+              <RemoteCompanyCombobox
+                className="mt-1.5"
+                value={companyId}
+                onValueChange={(value) => {
+                  setCompanyId(value);
+                  setCompanyAddressId("");
+                  setContactId("");
+                  setCaseId("");
+                }}
+                placeholder="Firma seçin..."
+              />
             </div>
             <div>
               <Label className="text-xs">Kontak</Label>
-              <Select value={contactId || "none"} onValueChange={(v) => setContactId(v === "none" ? "" : v)} disabled={!companyId}>
-                <SelectTrigger className="mt-1.5"><SelectValue placeholder="Kontak seçin" /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">Belirtilmedi</SelectItem>
-                  {companyContacts.map((c) => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
-                </SelectContent>
-              </Select>
+              <RemoteContactCombobox
+                className="mt-1.5"
+                companyId={companyId}
+                value={contactId}
+                onValueChange={setContactId}
+                placeholder="Kontak seçin"
+              />
             </div>
             <div>
               <Label className="text-xs">Satış Kartı</Label>
@@ -1069,10 +1254,41 @@ export function QuoteDialog({
                 </SelectContent>
               </Select>
             </div>
-            <div className="md:col-span-3 rounded-lg border border-border/70 bg-muted/20 p-3">
-              <Label className="flex items-center gap-1.5 text-xs">
-                <MapPin className="size-3.5 text-primary" /> PDF'de Kullanılacak Firma Adresi
-              </Label>
+            <div className="md:col-span-3 space-y-3 rounded-lg border border-border/70 bg-muted/20 p-3">
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <div>
+                  <Label className="flex items-center gap-1.5 text-xs">
+                    <MapPin className="size-3.5 text-primary" /> Teklif Firma Bilgileri
+                  </Label>
+                  <p className="mt-1 text-[11px] text-muted-foreground">
+                    Buradaki firma adı ve seçili adres PDF'de kullanılır; kaydettiğinizde firma kartı da güncellenir.
+                  </p>
+                </div>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="gap-1.5"
+                  disabled={!companyId || !companyDetailsDirty || savingCompanyDetails}
+                  onClick={() => void saveCompanyDetails()}
+                >
+                  <Save className="size-3.5" />
+                  {savingCompanyDetails ? "Kaydediliyor…" : "Firma Bilgilerini Kaydet"}
+                </Button>
+              </div>
+              <div>
+                <Label className="text-xs" htmlFor="quote-company-name">Firma Adı / Ticari Ünvan</Label>
+                <Input
+                  id="quote-company-name"
+                  className="mt-1.5 bg-background"
+                  value={companyDetailsDraft.name}
+                  disabled={!companyId}
+                  onChange={(event) => setCompanyDetail({ name: event.target.value })}
+                  placeholder="Firma adı"
+                />
+              </div>
+              <div>
+                <Label className="text-xs">PDF'de Kullanılacak Adres</Label>
               <Select
                 value={companyAddressId || undefined}
                 onValueChange={setCompanyAddressId}
@@ -1087,11 +1303,25 @@ export function QuoteDialog({
                   ))}
                 </SelectContent>
               </Select>
-              <p className="mt-1.5 text-[11px] leading-relaxed text-muted-foreground">
-                {selectedPdfAddress
-                  ? `Seçilen adres teklif PDF'ine yazılacak: ${[selectedPdfAddress.address, selectedPdfAddress.district, selectedPdfAddress.city, selectedPdfAddress.country].filter(Boolean).join(", ")}`
-                  : "Seçilen firmanın kayıtlı adreslerinden biri PDF üzerinde gösterilir."}
-              </p>
+              </div>
+              <div className="grid grid-cols-1 gap-2 md:grid-cols-3">
+                <div>
+                  <Label className="text-xs" htmlFor="quote-company-country">Ülke</Label>
+                  <Input id="quote-company-country" className="mt-1.5 bg-background" value={companyDetailsDraft.country} disabled={!companyId} onChange={(event) => setCompanyDetail({ country: event.target.value })} />
+                </div>
+                <div>
+                  <Label className="text-xs" htmlFor="quote-company-city">İl</Label>
+                  <Input id="quote-company-city" className="mt-1.5 bg-background" value={companyDetailsDraft.city} disabled={!companyId} onChange={(event) => setCompanyDetail({ city: event.target.value })} />
+                </div>
+                <div>
+                  <Label className="text-xs" htmlFor="quote-company-district">İlçe</Label>
+                  <Input id="quote-company-district" className="mt-1.5 bg-background" value={companyDetailsDraft.district} disabled={!companyId} onChange={(event) => setCompanyDetail({ district: event.target.value })} />
+                </div>
+              </div>
+              <div>
+                <Label className="text-xs" htmlFor="quote-company-address">Açık Adres</Label>
+                <Input id="quote-company-address" className="mt-1.5 bg-background" value={companyDetailsDraft.address} disabled={!companyId} onChange={(event) => setCompanyDetail({ address: event.target.value })} placeholder="Cadde, sokak, bina ve kapı numarası" />
+              </div>
             </div>
 
             <div>
@@ -1121,10 +1351,29 @@ export function QuoteDialog({
               <Select value={senderId} onValueChange={setSenderId}>
                 <SelectTrigger className="mt-1.5"><SelectValue placeholder="Seçin" /></SelectTrigger>
                 <SelectContent>
-                  {users.map((u) => <SelectItem key={u.id} value={u.id}>{u.name}</SelectItem>)}
+                  {users.map((u) => <SelectItem key={u.id} value={u.id}>{u.name}{u.title ? ` · ${u.title}` : ""}</SelectItem>)}
                 </SelectContent>
               </Select>
+              <p className="mt-1 text-[11px] text-muted-foreground">
+                {selectedSender?.title
+                  ? `PDF'de ${selectedSender.name} adının altında “${selectedSender.title}” görünür.`
+                  : "Kullanıcı ünvanı, Kullanıcılar ekranındaki Departman & Bölüm bölümünden atanabilir."}
+              </p>
             </div>
+            {signatureOptions.length > 0 && (
+              <div>
+                <Label className="text-xs">Çıktıya Basılacak İmza</Label>
+                <Select value={signatureId || NO_SIGNATURE} onValueChange={(value) => setSignatureId(value === NO_SIGNATURE ? "" : value)}>
+                  <SelectTrigger className="mt-1.5"><SelectValue placeholder="İmzasız" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={NO_SIGNATURE}>İmzasız — gönderenin adı basılır</SelectItem>
+                    {signatureOptions.map((option) => (
+                      <SelectItem key={option.id} value={option.id}>{option.name} · {option.title}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
             {canPickDivision && (
               <div>
                 <Label className="text-xs">Bölüm *</Label>
@@ -1286,7 +1535,7 @@ export function QuoteDialog({
                           checked={l.nationalized}
                           onChange={(e) => setLine(i, { nationalized: e.target.checked })}
                         />
-                        Millileştirilmiş (ithal) — otomatik gümrük/vergi ekle (%2,7 + %10 + adet başına $1600 TSE + $1000 gümrük)
+                        Millileştirilmiş (ithal) — otomatik gümrük/vergi ekle (%2,7, ardından büyüyen tutara %10 + adet başına $1600 TSE + $1000 gümrük)
                         {l.nationalized && num(l.quantity) > 0 && num(l.unitPrice) > 0 && (
                           <span className="ml-auto shrink-0 text-[10px] text-muted-foreground tabular-nums">
                             +{money(computeCustomsCharges({ lineTotal: num(l.quantity) * netUnitPrice(l), quantity: num(l.quantity), usdToQuoteRate: convert(1, "USD", currency) }).total, currency)}
@@ -1485,7 +1734,10 @@ export function QuoteDialog({
                         </div>
                         <div>
                           <Label className="text-[10px] uppercase text-muted-foreground">Tedarikçiler</Label>
-                          <MultiSelect options={supplierOptions} selected={l.compatibility.supplierIds} onChange={(v) => setCompat(i, { supplierIds: v })} placeholder="Tedarikçi seçin" emptyText="Tedarikçi firma yok" />
+                          <RemoteSupplierMultiSelect
+                            selected={l.compatibility.supplierIds}
+                            onChange={(supplierIds) => setCompat(i, { supplierIds })}
+                          />
                         </div>
                       </div>
                     </div>
@@ -1503,7 +1755,11 @@ export function QuoteDialog({
           </div>
 
           <DocumentTermsTemplateEditor
+            builtInVariants={QUOTE_NOTE_VARIANTS}
             description="Şablon seçin, metinleri gerekiyorsa düzenleyin; değişiklikler teklif/proforma belgesine eklenir."
+            // Teklif çıktısı maddeleri a) b) c) ile numaralar; ekrandaki işaret
+            // de aynı olsun ki kullanıcı belgeyi basmadan madde sırasını görsün.
+            markerStyle="alpha"
             templateScope={TERMS_TEMPLATE_SCOPE}
             noteTemplates={noteTemplates}
             selectedTemplateKey={noteVariantKey}
@@ -1557,9 +1813,12 @@ export function QuoteDialog({
                 </Button>
               </div>
             </div>
-            <Textarea
+            {/* Notlar da belgede "NOTLAR" başlığı altında madde madde basılır;
+                işaretleme şartlarla aynı biçimde görünür. */}
+            <NumberedLinesTextarea
               id="quote-notes"
               className="mt-1.5"
+              markerStyle="alpha"
               rows={3}
               value={note}
               onChange={(e) => setNote(e.target.value)}

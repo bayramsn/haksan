@@ -22,6 +22,7 @@ describe("contract print data", () => {
         },
         companyAddresses: [{ fullAddress: "Örnek Mah. No:1 İstanbul" }],
         companyPhones: [{ phoneType: "main", phone: "0 212 000 00 00" }],
+        companyEmails: [{ emailType: "main", email: "firma@ornek.test", isDefault: true }],
         contact: {},
         currency: { code: "USD" },
         items: [{
@@ -49,6 +50,7 @@ describe("contract print data", () => {
     expect(data.teslimAyi).toBe("2024 NİSAN");
     expect(data.kontrolUnitesiMarka).toBe("MITSUBISHI");
     expect(data.alici.tel).toBe("0 212 000 00 00");
+    expect(data.alici.eposta).toBe("firma@ornek.test");
   });
 
   it("maps multiple machines with separate specs, options and allocated net prices", async () => {
@@ -91,5 +93,134 @@ describe("contract print data", () => {
     expect(data.machines?.[1].ozellikler).toContainEqual({ key: "X Ekseni", value: "800 mm" });
     expect(data.machines?.reduce((sum, machine) => sum + machine.fiyat, 0)).toBeCloseTo(2_600, 6);
     expect(data.fiyat).toBe(2_600);
+  });
+
+  it("omits dash-valued technical fields from the contract PDF projection", async () => {
+    const data = await loadContractPrintData({
+      customer: null,
+      salesCase: {} as never,
+      products: [],
+      payments: [],
+      contractDate: "2026-08-13",
+      contractNo: "CNC-SOZ-2026/020",
+      documentSnapshot: {
+        quote: { subtotal: "1000" },
+        company: { legalTitle: "TEKNİK ALAN TEST A.Ş." },
+        currency: { code: "USD" },
+        items: [{
+          description: "CNC Torna",
+          quantity: 1,
+          unitPrice: 1000,
+          lineTotal: 1000,
+          compatibility: {
+            technicalSpecs: [
+              { key: "Karşı Ayna Devri", value: "-", unit: "dev/dk" },
+              { key: "Canlı Takım Devri", value: "4500", unit: "dev/dk" },
+            ],
+          },
+        }],
+        terms: {},
+        receivables: [],
+      },
+    });
+
+    expect(data.ozellikler).not.toContainEqual(expect.objectContaining({ key: "Karşı Ayna Devri" }));
+    expect(data.ozellikler).toContainEqual({ key: "Canlı Takım Devri", value: "4500 dev/dk" });
+  });
+
+  it("removes the internal stock code from machine labels", async () => {
+    const stockCode = "HAXAN.MMT-1170.15K.DDS.M.30T";
+    const data = await loadContractPrintData({
+      customer: null,
+      salesCase: {} as never,
+      products: [{
+        id: "machine-1",
+        stockCode,
+        shortDescription: "HAXAN MMT-1170 CNC Dik İşleme Merkezi",
+      }] as never,
+      payments: [],
+      contractDate: "2026-07-31",
+      contractNo: "CNC-SOZ-2026/011",
+      documentSnapshot: {
+        quote: { subtotal: "1000" },
+        company: { legalTitle: "PDF Müşterisi" },
+        currency: { code: "USD" },
+        items: [{
+          productModelId: "machine-1",
+          stockCode,
+          description: `${stockCode} - HAXAN MMT-1170 CNC Dik İşleme Merkezi`,
+          quantity: 1,
+          unitPrice: 1000,
+          lineTotal: 1000,
+        }],
+        terms: {},
+        receivables: [],
+      },
+    });
+
+    expect(data.machines?.[0].model).toBe("HAXAN MMT-1170 CNC Dik İşleme Merkezi");
+    expect(JSON.stringify(data)).not.toContain(stockCode);
+  });
+
+  it("falls back to the live payment plan when a draft snapshot froze before installments existed", async () => {
+    const data = await loadContractPrintData({
+      customer: null,
+      salesCase: { id: "case-payment-plan" } as never,
+      products: [],
+      payments: [
+        {
+          id: "second",
+          salesCaseId: "case-payment-plan",
+          customerId: "company-1",
+          paymentType: "expected",
+          direction: "in",
+          amount: 60_000,
+          currency: "USD",
+          dueDate: "2026-10-01",
+          status: "Pending",
+          note: "2. taksit",
+        },
+        {
+          id: "first",
+          salesCaseId: "case-payment-plan",
+          customerId: "company-1",
+          paymentType: "expected",
+          direction: "in",
+          amount: 40_000,
+          currency: "USD",
+          dueDate: "2026-09-01",
+          status: "Pending",
+          note: "1. taksit senet",
+        },
+        {
+          id: "other-case",
+          salesCaseId: "other-case",
+          customerId: "company-2",
+          paymentType: "expected",
+          direction: "in",
+          amount: 999_999,
+          currency: "USD",
+          dueDate: "2026-08-01",
+          status: "Pending",
+          note: "Başka kart",
+        },
+      ],
+      contractDate: "2026-08-10",
+      contractNo: "CNC-SOZ-2026/012",
+      documentSnapshot: {
+        quote: { subtotal: 100_000 },
+        company: { legalTitle: "ÖDEME PLANI TEST A.Ş." },
+        currency: { code: "USD" },
+        items: [{ description: "Test CNC", quantity: 1, unitPrice: 100_000, lineTotal: 100_000 }],
+        terms: {},
+        // Sözleşme payment_plan aşamasından önce oluşturulduğu için boş.
+        receivables: [],
+      },
+    });
+
+    expect(data.odemePlani).toEqual([
+      { label: "1. taksit senet", tutar: 40_000, senet: true },
+      { label: "2. taksit", tutar: 60_000, senet: false },
+    ]);
   });
 });

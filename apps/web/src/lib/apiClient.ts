@@ -100,12 +100,23 @@ let refreshing: Promise<string | null> | null = null;
 let onSessionExpired: (() => void) | null = null;
 let sessionGeneration = 0;
 
-const API_MAX_CONCURRENT_REQUESTS = 4;
-const API_REQUEST_SPACING_MS = 120;
+/**
+ * İstemci tarafı eşzamanlılık tavanı.
+ *
+ * Açılışta mağaza ~31 istek atıyor (20 tablo, firma/kontak sayfalı). Tavan 4
+ * iken bunlar sekiz dalgaya bölünüyordu; 8 ile dalga sayısı yarıya iniyor.
+ *
+ * TOPLAM istek sayısı değişmiyor, yalnız aynı anda kaçının uçtuğu değişiyor —
+ * bu yüzden sunucudaki `RATE_LIMIT_GLOBAL` (dakikada 100) üzerinde hiçbir
+ * etkisi yok. Bu kuyruk bir güvenlik kontrolü DEĞİL, yalnız tarayıcının kendi
+ * bağlantı havuzunu ve sunucuyu ani yığından korumak için var; gerçek koruma
+ * sunucuda. 8'in üstüne çıkmak HTTP/1.1 origin başına bağlantı sınırına
+ * (tarayıcılarda 6) takılacağı için kazanç getirmez.
+ */
+const API_MAX_CONCURRENT_REQUESTS = 8;
 const API_RATE_LIMIT_RETRIES = 2;
 
 let activeScheduledRequests = 0;
-let nextScheduledRequestAt = 0;
 const requestQueue: Array<() => void> = [];
 
 function sleep(ms: number): Promise<void> {
@@ -119,22 +130,33 @@ function drainRequestQueue(): void {
   }
 }
 
-function scheduleApiRequest<T>(task: () => Promise<T>): Promise<T> {
+/**
+ * İstekleri eşzamanlılık tavanının altında tutar.
+ *
+ * Burada ayrıca istekler arasına 120 ms zorunlu boşluk konuyordu. İkisi birden
+ * gereksizdi ve ölçünce pahalı olduğu görüldü: açılışta mağaza ~31 istek atıyor
+ * (20 tablo, firma/kontak birkaç sayfa), boşluk eşzamanlılıktan bağımsız
+ * işlediği için son istek başlamadan ~3,7 sn geçiyordu.
+ *
+ * Boşluk bir güvenlik kontrolü DEĞİLDİ — istemci tarafındaki hiçbir kısıt öyle
+ * olamaz, saldırgan bu kodu çalıştırmaz. Gerçek koruma sunucudaki throttler
+ * (RATE_LIMIT_GLOBAL, dakikada 100) ve o yerinde duruyor. Üstelik 120 ms
+ * saniyede ~8 isteğe, yani dakikada ~500'e izin verdiği için sunucunun limitini
+ * zaten uygulamıyordu; sadece meşru kullanıcıyı yavaşlatıyordu.
+ *
+ * Kalan tavan (4) patlamayı sınırlamaya yetiyor; 429 gelirse
+ * `fetchWithRateLimitRetry` Retry-After'a uyarak geri çekiliyor.
+ */
+export function scheduleApiRequest<T>(task: () => Promise<T>): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     requestQueue.push(() => {
       activeScheduledRequests += 1;
-      const now = Date.now();
-      const waitMs = Math.max(0, nextScheduledRequestAt - now);
-      nextScheduledRequestAt = Math.max(now, nextScheduledRequestAt) + API_REQUEST_SPACING_MS;
-
-      window.setTimeout(() => {
-        task()
-          .then(resolve, reject)
-          .finally(() => {
-            activeScheduledRequests -= 1;
-            drainRequestQueue();
-          });
-      }, waitMs);
+      task()
+        .then(resolve, reject)
+        .finally(() => {
+          activeScheduledRequests -= 1;
+          drainRequestQueue();
+        });
     });
     drainRequestQueue();
   });

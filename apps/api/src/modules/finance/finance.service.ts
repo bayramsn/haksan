@@ -687,8 +687,10 @@ export class FinanceService {
     const [byCompany] = await this.db
       .select({ paymentTermDays: contracts.paymentTermDays, contractNo: contracts.contractNo })
       .from(contracts)
-      .innerJoin(quotes, eq(contracts.quoteId, quotes.id))
-      .where(and(...baseWhere, eq(quotes.companyId, companyId)))
+      // Teklifsiz ("hızlı") sözleşmede firma teklif üzerinden okunamaz; belgenin
+      // kendi firma sütununa düşülür, aksi halde o sözleşmenin vadesi hiç bulunmaz.
+      .leftJoin(quotes, eq(contracts.quoteId, quotes.id))
+      .where(and(...baseWhere, sql`coalesce(${quotes.companyId}, ${contracts.companyId}) = ${companyId}`))
       .orderBy(sql`${contracts.signedDate} DESC NULLS LAST`, desc(contracts.createdAt))
       .limit(1);
     return byCompany ?? null;

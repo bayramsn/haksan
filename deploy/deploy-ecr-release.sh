@@ -116,6 +116,15 @@ trap cleanup EXIT
 
 [[ -f "$APP_ROOT/.env" ]] || { echo "ECR_DEPLOY_ERROR production env missing" >&2; exit 1; }
 [[ -f "$APP_ROOT/docker-compose.yml" ]] || { echo "ECR_DEPLOY_ERROR compose file missing" >&2; exit 1; }
+for required_setting in \
+  'DEPLOYMENT_PROFILE=production' \
+  'DB_BACKUP_ENABLED=true' \
+  'DB_BACKUP_REQUIRED=true'; do
+  if ! grep -Eq "^[[:space:]]*${required_setting}[[:space:]]*$" "$APP_ROOT/.env"; then
+    echo "ECR_DEPLOY_ERROR production env must set ${required_setting}" >&2
+    exit 1
+  fi
+done
 
 # Capture the actual running containers so rollback remains available even when
 # Docker's original source-image record was pruned by an earlier host cleanup.
@@ -185,8 +194,8 @@ fi
 
 cd "$APP_ROOT"
 docker compose --env-file .env config --quiet
-docker compose --env-file .env run --rm --no-deps api npm --workspace @haksan/api run db:migrate:prod
-docker compose --env-file .env run --rm --no-deps api npm --workspace @haksan/api run db:data-migrate:prod
+docker compose --env-file .env run --rm --no-deps api node apps/api/dist/db/migrate.js
+docker compose --env-file .env run --rm --no-deps api node apps/api/dist/db/data-migrate.js
 
 SWITCH_STARTED=true
 docker compose --env-file .env up -d --no-deps --no-build --force-recreate api
@@ -214,6 +223,12 @@ set +a
 for endpoint in / /health /health/live /health/ready /health/dependencies /health/version; do
   curl -kfsS --resolve "${APP_DOMAIN}:443:127.0.0.1" "https://${APP_DOMAIN}${endpoint}" >/dev/null
 done
+
+# Etiket değişimi ve başarılı container geçişinden sonra eski release katmanları
+# dangling duruma gelir. En güncel rollback çifti etiketli olduğu için korunur;
+# yalnız dangling katmanlar ve bir haftadan eski kullanılmayan build cache silinir.
+docker image prune --force
+docker builder prune --force --filter "until=168h"
 
 trap - ERR
 echo "ECR_DEPLOY_SUCCEEDED release=$RELEASE_ID api=$API_IMAGE_URI web=$WEB_IMAGE_URI rollback_api=$API_ROLLBACK_TAG rollback_web=$NGINX_ROLLBACK_TAG"

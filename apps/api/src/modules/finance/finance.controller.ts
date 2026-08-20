@@ -2,6 +2,7 @@ import { Body, Controller, Delete, Get, Inject, Param, Patch, Post, Query, UseGu
 import { and, desc, eq, isNull, sql } from 'drizzle-orm';
 import type { DbClient } from '../../db/client';
 import { receivables, payments } from '../../db/schema/finance';
+import { companies } from '../../db/schema/companies';
 import { paymentStatuses, currencies } from '../../db/schema/lookup';
 import { DB } from '../../shared/database/database.module';
 import {
@@ -37,6 +38,8 @@ import { CurrentUser } from '../../shared/security/current-user.decorator';
 import type { AuthContext } from '../../shared/security/auth.types';
 import { buildPaginated, pageOffset } from '../../shared/utils/pagination';
 import { NotFoundError } from '../../shared/utils/errors';
+import { companyVisibilityExistsFilter } from '../../shared/utils/company-visibility';
+import { resourceDivisionFilter } from '../../shared/utils/division-scope';
 import { FinanceService } from './finance.service';
 import { z } from 'zod';
 
@@ -71,24 +74,50 @@ export class FinanceController {
     @CurrentUser() user: AuthContext
   ) {
     const { limit, offset } = pageOffset(qp);
-    const filters = [eq(receivables.tenantId, user.tenantId), isNull(receivables.deletedAt)];
+    const companyVisibility = await companyVisibilityExistsFilter(this.db, user, receivables.companyId);
+    const filters = [
+      eq(receivables.tenantId, user.tenantId),
+      isNull(receivables.deletedAt),
+      resourceDivisionFilter(user, 'receivables', receivables.divisionId) ?? sql`true`,
+      companyVisibility ?? sql`true`,
+    ];
     if (qp.companyId) filters.push(eq(receivables.companyId, qp.companyId));
     const where = and(...filters);
-    const [{ count }] = await this.db.select({ count: sql<number>`count(*)::int` }).from(receivables).where(where);
+    const companyJoin = and(
+      eq(receivables.companyId, companies.id),
+      eq(companies.tenantId, user.tenantId),
+      isNull(companies.deletedAt),
+    );
+    const [{ count }] = await this.db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(receivables)
+      .innerJoin(companies, companyJoin)
+      .where(where);
     const rows = await this.db
       .select({
         r: receivables,
+        company: {
+          id: companies.id,
+          externalCompanyNo: companies.externalCompanyNo,
+          legalTitle: companies.legalTitle,
+          shortName: companies.shortName,
+        },
         status: { id: paymentStatuses.id, code: paymentStatuses.code, name: paymentStatuses.name },
         currency: { id: currencies.id, code: currencies.code },
       })
       .from(receivables)
+      .innerJoin(companies, companyJoin)
       .leftJoin(paymentStatuses, eq(receivables.statusId, paymentStatuses.id))
       .leftJoin(currencies, eq(receivables.currencyId, currencies.id))
       .where(where)
-      .orderBy(desc(receivables.dueDate))
+      .orderBy(desc(receivables.dueDate), desc(receivables.id))
       .limit(limit)
       .offset(offset);
-    return buildPaginated(rows.map((x) => ({ ...x.r, status: x.status, currency: x.currency })), count, qp);
+    return buildPaginated(
+      rows.map((x) => ({ ...x.r, company: x.company, status: x.status, currency: x.currency })),
+      count,
+      qp,
+    );
   }
 
   @RequirePermissions('receivables.create')
@@ -104,24 +133,50 @@ export class FinanceController {
     @CurrentUser() user: AuthContext
   ) {
     const { limit, offset } = pageOffset(qp);
-    const filters = [eq(payments.tenantId, user.tenantId), isNull(payments.deletedAt)];
+    const companyVisibility = await companyVisibilityExistsFilter(this.db, user, payments.companyId);
+    const filters = [
+      eq(payments.tenantId, user.tenantId),
+      isNull(payments.deletedAt),
+      resourceDivisionFilter(user, 'payments', payments.divisionId) ?? sql`true`,
+      companyVisibility ?? sql`true`,
+    ];
     if (qp.companyId) filters.push(eq(payments.companyId, qp.companyId));
     const where = and(...filters);
-    const [{ count }] = await this.db.select({ count: sql<number>`count(*)::int` }).from(payments).where(where);
+    const companyJoin = and(
+      eq(payments.companyId, companies.id),
+      eq(companies.tenantId, user.tenantId),
+      isNull(companies.deletedAt),
+    );
+    const [{ count }] = await this.db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(payments)
+      .innerJoin(companies, companyJoin)
+      .where(where);
     const rows = await this.db
       .select({
         p: payments,
+        company: {
+          id: companies.id,
+          externalCompanyNo: companies.externalCompanyNo,
+          legalTitle: companies.legalTitle,
+          shortName: companies.shortName,
+        },
         status: { id: paymentStatuses.id, code: paymentStatuses.code, name: paymentStatuses.name },
         currency: { id: currencies.id, code: currencies.code },
       })
       .from(payments)
+      .innerJoin(companies, companyJoin)
       .leftJoin(paymentStatuses, eq(payments.statusId, paymentStatuses.id))
       .leftJoin(currencies, eq(payments.currencyId, currencies.id))
       .where(where)
-      .orderBy(desc(payments.paymentDate))
+      .orderBy(desc(payments.paymentDate), desc(payments.id))
       .limit(limit)
       .offset(offset);
-    return buildPaginated(rows.map((x) => ({ ...x.p, status: x.status, currency: x.currency })), count, qp);
+    return buildPaginated(
+      rows.map((x) => ({ ...x.p, company: x.company, status: x.status, currency: x.currency })),
+      count,
+      qp,
+    );
   }
 
   @RequirePermissions('payments.create')

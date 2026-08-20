@@ -1,12 +1,37 @@
 import { z } from 'zod';
-import { emailSchema } from './common';
+import { NAVIGATION_VISIBILITY_KEYS } from '../navigation';
+import { emailSchema, loginIdentifierSchema } from './common';
 
-export const loginSchema = z.object({
-  email: emailSchema,
-  password: z.string().min(8).max(128),
-  tenantSlug: z.string().trim().toLowerCase().regex(/^[a-z0-9-]{2,64}$/).optional(),
-});
+/**
+ * Giriş: kullanıcı adı veya e-posta kabul edilir.
+ *
+ * `identifier` yeni istemcilerin gönderdiği alandır. `email` ise geriye dönük
+ * uyumluluk içindir: yayında olan web/mobil sürümler hâlâ `email` gönderiyor ve
+ * bu istemciler güncellenene kadar çalışmaya devam etmelidir. İkisinden en az
+ * biri zorunludur; ikisi de gelirse `identifier` kazanır.
+ *
+ * `email` artık `emailSchema` ile değil `loginIdentifierSchema` ile
+ * doğrulanıyor — eski bir istemcinin `email` alanına kullanıcı adı yazması da
+ * çalışsın diye. Doğrulamanın gevşemesi güvenlik açığı yaratmaz: hesap araması
+ * parametreli ve tam eşleşmelidir (bkz. AuthService.resolveAuthUser).
+ */
+export const loginSchema = z
+  .object({
+    identifier: loginIdentifierSchema.optional(),
+    email: loginIdentifierSchema.optional(),
+    password: z.string().min(8).max(128),
+    tenantSlug: z.string().trim().toLowerCase().regex(/^[a-z0-9-]{2,64}$/).optional(),
+  })
+  .refine((input) => Boolean(input.identifier || input.email), {
+    message: 'Kullanıcı adı veya e-posta zorunludur',
+    path: ['identifier'],
+  });
 export type LoginInput = z.infer<typeof loginSchema>;
+
+/** `identifier` / `email` ikilisinden geçerli olanı seçer. */
+export function resolveLoginIdentifier(input: Pick<LoginInput, 'identifier' | 'email'>): string {
+  return (input.identifier || input.email || '').trim();
+}
 
 export const forgotPasswordSchema = z.object({
   email: emailSchema,
@@ -60,6 +85,7 @@ export const meResponseSchema = z.object({
     id: z.string(),
     name: z.string(),
     slug: z.string(),
+    hiddenNavigationKeys: z.array(z.enum(NAVIGATION_VISIBILITY_KEYS)).default([]),
   }),
 });
 export type MeResponse = z.infer<typeof meResponseSchema>;

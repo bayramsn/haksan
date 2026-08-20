@@ -1,8 +1,10 @@
 import { Inject, Injectable } from '@nestjs/common';
 import {
   and,
+  asc,
   desc,
   eq,
+  exists,
   gte,
   ilike,
   inArray,
@@ -10,40 +12,51 @@ import {
   lte,
   or,
   sql,
+  type SQL,
 } from 'drizzle-orm';
 import type { DbClient } from '../../db/client';
-import { companies, companyAddresses, companyEmails, companyPhones, contacts } from '../../db/schema/companies';
+import { companies, companyAddresses, companyDivisions, companyEmails, companyPhones, contactCompanies, contacts } from '../../db/schema/companies';
 import { opportunities, salesActivities } from '../../db/schema/crm';
 import { files, fileLinks } from '../../db/schema/files';
 import { receivables, payments } from '../../db/schema/finance';
 import { customerDevices, inventoryItems } from '../../db/schema/inventory';
 import { purchaseOrders } from '../../db/schema/orders';
-import { productModels, brands } from '../../db/schema/products';
+import { productModels, productSpecs, brands } from '../../db/schema/products';
 import { quotes } from '../../db/schema/quotes';
 import { deliveries, serviceComplaintIntakes, serviceTickets, shipments } from '../../db/schema/service';
 import {
   companyRelationTypes,
   companyStatuses,
+  companyGroups,
+  contactSources,
   currencies,
   fileDocumentTypes,
   inventoryStatuses,
   paymentStatuses,
   pipelineStages,
+  productCategories,
   productGroups,
   purchaseOrderStatuses,
   quoteStatuses,
   serviceTicketStatuses,
   shipmentStatuses,
+  stockLocationStatuses,
 } from '../../db/schema/lookup';
 import { users } from '../../db/schema/users';
 import { warehouses } from '../../db/schema/inventory';
+import { divisions } from '../../db/schema/tenants';
 import { DB } from '../../shared/database/database.module';
 import type { AuthContext } from '../../shared/security/auth.types';
 import { isoDate, type ExportRow } from '../../shared/utils/excel-export';
 import { lookupIdByCode } from '../../shared/utils/lookup.helper';
 import { FinanceService } from '../finance/finance.service';
-import type { DateRange } from '@haksan/shared';
-import { resourceCompanyPortfolioFilter, resourceDivisionFilter, resourceDivisionFilterWithShared } from '../../shared/utils/division-scope';
+import type { CompanyListQuery, DateRange, ExportContactQuery } from '@haksan/shared';
+import {
+  resolveResourceDivisionScope,
+  resourceCompanyPortfolioFilter,
+  resourceDivisionFilter,
+  resourceDivisionFilterWithShared,
+} from '../../shared/utils/division-scope';
 import {
   allowUnlinkedCompanyRecords,
   companyVisibilityExistsFilter,
@@ -58,6 +71,96 @@ export class ExportsService {
     @Inject(DB) private readonly db: DbClient,
     private readonly finance: FinanceService
   ) {}
+
+  private async visibleCompanyExportFilters(actor: AuthContext, requestedDivisionId?: string): Promise<SQL[]> {
+    const scope = resolveResourceDivisionScope(actor, 'companies');
+    const filters: SQL[] = [eq(companies.tenantId, actor.tenantId), isNull(companies.deletedAt)];
+    filters.push(resourceCompanyPortfolioFilter(actor, 'companies', companies.id) ?? sql`true`);
+    filters.push((await companyVisibilityFilter(this.db, actor)) ?? sql`true`);
+
+    const requestedDivisionAllowed =
+      requestedDivisionId && (scope.mode === 'all' || scope.divisionIds.includes(requestedDivisionId));
+    if (requestedDivisionAllowed) {
+      filters.push(
+        exists(
+          this.db
+            .select({ companyId: companyDivisions.companyId })
+            .from(companyDivisions)
+            .where(
+              and(
+                eq(companyDivisions.companyId, companies.id),
+                eq(companyDivisions.tenantId, actor.tenantId),
+                eq(companyDivisions.divisionId, requestedDivisionId),
+              ),
+            ),
+        ),
+      );
+    }
+    return filters;
+  }
+
+  private async visibleContactCompanyConditions(actor: AuthContext, requestedDivisionId?: string): Promise<SQL[]> {
+    const scope = resolveResourceDivisionScope(actor, 'contacts');
+    const conditions: SQL[] = [
+      eq(contactCompanies.tenantId, actor.tenantId),
+      eq(companies.tenantId, actor.tenantId),
+      isNull(companies.deletedAt),
+      resourceCompanyPortfolioFilter(actor, 'contacts', companies.id) ?? sql`true`,
+      (await companyVisibilityFilter(this.db, actor)) ?? sql`true`,
+    ];
+    const requestedDivisionAllowed =
+      requestedDivisionId && (scope.mode === 'all' || scope.divisionIds.includes(requestedDivisionId));
+    const divisionIds = requestedDivisionAllowed
+      ? [requestedDivisionId]
+      : scope.mode === 'list'
+        ? scope.divisionIds
+        : null;
+    if (divisionIds) {
+      if (divisionIds.length === 0) {
+        conditions.push(sql`1 = 0`);
+      } else {
+        conditions.push(
+          exists(
+            this.db
+              .select({ companyId: companyDivisions.companyId })
+              .from(companyDivisions)
+              .where(
+                and(
+                  eq(companyDivisions.companyId, companies.id),
+                  eq(companyDivisions.tenantId, actor.tenantId),
+                  inArray(companyDivisions.divisionId, divisionIds),
+                ),
+              ),
+          ),
+        );
+      }
+    }
+    return conditions;
+  }
+
+  private contactHasVisibleCompany(
+    companyConditions: SQL[],
+    options: { companyId?: string; searchPattern?: string } = {},
+  ): SQL {
+    const filters: SQL[] = [eq(contactCompanies.contactId, contacts.id), ...companyConditions];
+    if (options.companyId) filters.push(eq(contactCompanies.companyId, options.companyId));
+    if (options.searchPattern) {
+      filters.push(
+        or(
+          ilike(companies.legalTitle, options.searchPattern),
+          ilike(companies.shortName, options.searchPattern),
+          ilike(companies.externalCompanyNo, options.searchPattern),
+        )!,
+      );
+    }
+    return exists(
+      this.db
+        .select({ contactId: contactCompanies.contactId })
+        .from(contactCompanies)
+        .innerJoin(companies, eq(contactCompanies.companyId, companies.id))
+        .where(and(...filters)),
+    );
+  }
 
   private async canExportDocumentLink(link: typeof fileLinks.$inferSelect, actor: AuthContext): Promise<boolean> {
     switch (link.entityType) {
@@ -158,50 +261,150 @@ export class ExportsService {
 
   async exportCompanies(
     actor: AuthContext,
-    query: { search?: string; relationTypeCode?: string; customerStatusCode?: string }
+    query: CompanyListQuery,
   ): Promise<ExportRow[]> {
-    const filters = [eq(companies.tenantId, actor.tenantId), isNull(companies.deletedAt)];
+    const filters = await this.visibleCompanyExportFilters(actor, query.divisionId);
     if (query.search) {
+      const pattern = `%${query.search}%`;
+      const normalizedSearch = query.search.toLocaleLowerCase('tr-TR');
+      const supplierCategoryCodes = [
+        { code: 'transportation', label: 'nakliye' },
+        { code: 'logistics', label: 'lojistik' },
+      ]
+        .filter((category) => category.label.includes(normalizedSearch))
+        .map((category) => category.code);
       filters.push(
         or(
-          ilike(companies.legalTitle, `%${query.search}%`),
-          ilike(companies.shortName, `%${query.search}%`),
-          ilike(companies.taxNumber, `%${query.search}%`)
+          ilike(companies.legalTitle, pattern),
+          ilike(companies.shortName, pattern),
+          ilike(companies.taxNumber, pattern),
+          ilike(companies.externalCompanyNo, pattern),
+          ilike(companies.sector, pattern),
+          ilike(companies.supplierCategoryCode, pattern),
+          supplierCategoryCodes.length
+            ? inArray(companies.supplierCategoryCode, supplierCategoryCodes)
+            : undefined,
+          exists(
+            this.db
+              .select({ id: companyAddresses.id })
+              .from(companyAddresses)
+              .where(
+                and(
+                  eq(companyAddresses.companyId, companies.id),
+                  eq(companyAddresses.tenantId, actor.tenantId),
+                  isNull(companyAddresses.deletedAt),
+                  or(
+                    ilike(companyAddresses.province, pattern),
+                    ilike(companyAddresses.district, pattern),
+                  ),
+                ),
+              ),
+          ),
+          exists(
+            this.db
+              .select({ id: companyPhones.id })
+              .from(companyPhones)
+              .where(
+                and(
+                  eq(companyPhones.companyId, companies.id),
+                  eq(companyPhones.tenantId, actor.tenantId),
+                  isNull(companyPhones.deletedAt),
+                  ilike(companyPhones.phone, pattern),
+                ),
+              ),
+          ),
+          exists(
+            this.db
+              .select({ id: companyEmails.id })
+              .from(companyEmails)
+              .where(
+                and(
+                  eq(companyEmails.companyId, companies.id),
+                  eq(companyEmails.tenantId, actor.tenantId),
+                  isNull(companyEmails.deletedAt),
+                  ilike(companyEmails.email, pattern),
+                ),
+              ),
+          ),
         )!
       );
     }
     if (query.relationTypeCode) {
       const relId = await lookupIdByCode(this.db, companyRelationTypes, query.relationTypeCode);
-      if (relId) filters.push(eq(companies.relationTypeId, relId));
+      filters.push(relId ? eq(companies.relationTypeId, relId) : sql`1 = 0`);
     }
     if (query.customerStatusCode) {
       const sid = await lookupIdByCode(this.db, companyStatuses, query.customerStatusCode);
-      if (sid) filters.push(eq(companies.customerStatusId, sid));
+      filters.push(sid ? eq(companies.customerStatusId, sid) : sql`1 = 0`);
     }
-    filters.push(resourceCompanyPortfolioFilter(actor, 'companies', companies.id) ?? sql`true`);
-    filters.push((await companyVisibilityFilter(this.db, actor)) ?? sql`true`);
+    if (query.city) {
+      filters.push(
+        exists(
+          this.db
+            .select({ id: companyAddresses.id })
+            .from(companyAddresses)
+            .where(
+              and(
+                eq(companyAddresses.companyId, companies.id),
+                eq(companyAddresses.tenantId, actor.tenantId),
+                isNull(companyAddresses.deletedAt),
+                eq(companyAddresses.province, query.city),
+              ),
+            ),
+        ),
+      );
+    }
+    if (query.sector) filters.push(eq(companies.sector, query.sector));
+    if (query.supplierCategoryCode) {
+      filters.push(eq(companies.supplierCategoryCode, query.supplierCategoryCode));
+    }
 
     const rows = await this.db
       .select({
         company: companies,
         relationType: { name: companyRelationTypes.name },
         customerStatus: { name: companyStatuses.name },
+        companyGroup: { name: companyGroups.name },
+        contactSource: { name: contactSources.name },
       })
       .from(companies)
       .leftJoin(companyRelationTypes, eq(companies.relationTypeId, companyRelationTypes.id))
       .leftJoin(companyStatuses, eq(companies.customerStatusId, companyStatuses.id))
+      .leftJoin(companyGroups, eq(companies.companyGroupId, companyGroups.id))
+      .leftJoin(contactSources, eq(companies.contactSourceId, contactSources.id))
       .where(and(...filters))
-      .orderBy(desc(companies.createdAt))
+      .orderBy(desc(companies.createdAt), desc(companies.id))
       .limit(EXPORT_LIMIT);
 
     const companyIds = rows.map((r) => r.company.id);
-    const [addresses, phones, emails] = companyIds.length
+    const [addresses, phones, emails, companyDivisionRows] = companyIds.length
       ? await Promise.all([
-          this.db.select().from(companyAddresses).where(inArray(companyAddresses.companyId, companyIds)),
-          this.db.select().from(companyPhones).where(inArray(companyPhones.companyId, companyIds)),
-          this.db.select().from(companyEmails).where(inArray(companyEmails.companyId, companyIds)),
+          this.db.select().from(companyAddresses).where(and(
+            eq(companyAddresses.tenantId, actor.tenantId),
+            inArray(companyAddresses.companyId, companyIds),
+            isNull(companyAddresses.deletedAt),
+          )),
+          this.db.select().from(companyPhones).where(and(
+            eq(companyPhones.tenantId, actor.tenantId),
+            inArray(companyPhones.companyId, companyIds),
+            isNull(companyPhones.deletedAt),
+          )),
+          this.db.select().from(companyEmails).where(and(
+            eq(companyEmails.tenantId, actor.tenantId),
+            inArray(companyEmails.companyId, companyIds),
+            isNull(companyEmails.deletedAt),
+          )),
+          this.db
+            .select({ companyId: companyDivisions.companyId, name: divisions.name })
+            .from(companyDivisions)
+            .innerJoin(divisions, eq(companyDivisions.divisionId, divisions.id))
+            .where(and(
+              eq(companyDivisions.tenantId, actor.tenantId),
+              eq(divisions.tenantId, actor.tenantId),
+              inArray(companyDivisions.companyId, companyIds),
+            )),
         ])
-      : [[], [], []];
+      : [[], [], [], []];
 
     return rows.map((r) => {
       const cid = r.company.id;
@@ -215,50 +418,101 @@ export class ExportsService {
         emails.find((e) => e.companyId === cid && e.isDefault)?.email ??
         '';
       return {
+        'Firma No': r.company.externalCompanyNo ?? '',
         Firma: r.company.legalTitle,
         'Kısa Ad': r.company.shortName ?? '',
         Tip: r.relationType?.name ?? '',
         'Müşteri Statüsü': r.customerStatus?.name ?? '',
+        'Bağlı Bulunduğu Birim': companyDivisionRows.filter((division) => division.companyId === cid).map((division) => division.name).join(', '),
+        'Firma Grubu': r.companyGroup?.name ?? '',
+        'İrtibat Şekli / Kaynak': r.company.contactSourceText ?? r.contactSource?.name ?? '',
         Telefon: phone,
         'E-posta': email,
         Şehir: addr?.province ?? '',
         İlçe: addr?.district ?? '',
         VKN: r.company.taxNumber ?? '',
         Sektör: r.company.sector ?? '',
+        'Tedarikçi Türü': r.company.supplierCategoryCode === 'transportation'
+          ? 'Nakliye'
+          : r.company.supplierCategoryCode === 'logistics'
+            ? 'Lojistik'
+            : '',
         'Oluşturma': isoDate(r.company.createdAt),
       };
     });
   }
 
-  async exportContacts(actor: AuthContext, query: { search?: string; companyId?: string }): Promise<ExportRow[]> {
-    const filters = [eq(contacts.tenantId, actor.tenantId), isNull(contacts.deletedAt)];
-    if (query.companyId) filters.push(eq(contacts.companyId, query.companyId));
-    if (query.search) filters.push(ilike(contacts.fullName, `%${query.search}%`));
-    filters.push(eq(companies.tenantId, actor.tenantId), isNull(companies.deletedAt));
-    filters.push(resourceCompanyPortfolioFilter(actor, 'contacts', companies.id) ?? sql`true`);
-    filters.push((await companyVisibilityFilter(this.db, actor)) ?? sql`true`);
+  async exportContacts(actor: AuthContext, query: ExportContactQuery): Promise<ExportRow[]> {
+    const companyConditions = await this.visibleContactCompanyConditions(actor, query.divisionId);
+    const filters: SQL[] = [
+      eq(contacts.tenantId, actor.tenantId),
+      isNull(contacts.deletedAt),
+      this.contactHasVisibleCompany(companyConditions, { companyId: query.companyId }),
+    ];
+    if (query.search) {
+      const pattern = `%${query.search}%`;
+      filters.push(
+        or(
+          ilike(contacts.fullName, pattern),
+          ilike(contacts.externalContactNo, pattern),
+          ilike(contacts.workEmail, pattern),
+          ilike(contacts.personalEmail, pattern),
+          ilike(contacts.otherEmail, pattern),
+          ilike(contacts.workPhone, pattern),
+          ilike(contacts.phoneExtension, pattern),
+          ilike(contacts.mobilePhone, pattern),
+          ilike(contacts.otherPhone, pattern),
+          ilike(contacts.title, pattern),
+          ilike(contacts.department, pattern),
+          this.contactHasVisibleCompany(companyConditions, { searchPattern: pattern }),
+        )!
+      );
+    }
+    if (query.department) filters.push(eq(contacts.department, query.department));
+    if (query.isPrimary !== undefined) filters.push(eq(contacts.isPrimary, query.isPrimary));
 
     const rows = await this.db
-      .select({
-        contact: contacts,
-        company: { legalTitle: companies.legalTitle },
-      })
+      .select({ contact: contacts })
       .from(contacts)
-      .leftJoin(companies, eq(contacts.companyId, companies.id))
       .where(and(...filters))
-      .orderBy(desc(contacts.createdAt))
+      .orderBy(desc(contacts.createdAt), desc(contacts.id))
       .limit(EXPORT_LIMIT);
 
-    return rows.map((r) => ({
+    const contactIds = rows.map((row) => row.contact.id);
+    const linkRows = contactIds.length
+      ? await this.db
+          .select({
+            contactId: contactCompanies.contactId,
+            id: companies.id,
+            legalTitle: companies.legalTitle,
+            externalCompanyNo: companies.externalCompanyNo,
+            isPrimary: contactCompanies.isPrimary,
+          })
+          .from(contactCompanies)
+          .innerJoin(companies, eq(contactCompanies.companyId, companies.id))
+          .where(and(inArray(contactCompanies.contactId, contactIds), ...companyConditions))
+          .orderBy(desc(contactCompanies.isPrimary), asc(companies.id))
+      : [];
+    const companyByContact = new Map<string, typeof linkRows[number]>();
+    for (const link of linkRows) {
+      if (!companyByContact.has(link.contactId)) companyByContact.set(link.contactId, link);
+    }
+
+    return rows.map((r) => {
+      const company = companyByContact.get(r.contact.id);
+      return {
+      'Kontak No': r.contact.externalContactNo ?? '',
       'Ad Soyad': r.contact.fullName,
       Ünvan: r.contact.title ?? '',
       Departman: r.contact.department ?? '',
-      Firma: r.company?.legalTitle ?? '',
+      Firma: company?.legalTitle ?? '',
+      'Firma No': company?.externalCompanyNo ?? '',
       Telefon: r.contact.workPhone ?? '',
       Cep: r.contact.mobilePhone ?? '',
       'E-posta': r.contact.workEmail ?? r.contact.personalEmail ?? '',
       Birincil: r.contact.isPrimary ? 'Evet' : 'Hayır',
-    }));
+      };
+    });
   }
 
   async exportOpportunities(
@@ -582,42 +836,95 @@ export class ExportsService {
 
   async exportInventory(
     actor: AuthContext,
-    query: { search?: string; statusCode?: string }
+    query: { search?: string; statusCode?: string; categoryCode?: string }
   ): Promise<ExportRow[]> {
     const filters = [eq(inventoryItems.tenantId, actor.tenantId), isNull(inventoryItems.deletedAt)];
     if (query.search) {
-      filters.push(ilike(inventoryItems.serialNumber, `%${query.search}%`));
+      const term = `%${query.search}%`;
+      filters.push(
+        or(
+          ilike(inventoryItems.serialNumber, term),
+          ilike(inventoryItems.controlUnit, term),
+          ilike(productModels.fullName, term),
+          ilike(productModels.modelCode, term),
+          ilike(productModels.stockCode, term),
+          ilike(brands.name, term),
+        ) ?? sql`false`,
+      );
     }
     if (query.statusCode) {
       const sid = await lookupIdByCode(this.db, inventoryStatuses, query.statusCode);
       if (sid) filters.push(eq(inventoryItems.stockStatusId, sid));
+    }
+    if (query.categoryCode) {
+      const categoryId = await lookupIdByCode(this.db, productCategories, query.categoryCode);
+      filters.push(categoryId ? eq(productModels.categoryId, categoryId) : sql`false`);
     }
     filters.push(resourceDivisionFilter(actor, 'inventory', inventoryItems.divisionId) ?? sql`true`);
 
     const rows = await this.db
       .select({
         item: inventoryItems,
-        product: { fullName: productModels.fullName, modelCode: productModels.modelCode },
+        product: { id: productModels.id, fullName: productModels.fullName, modelCode: productModels.modelCode },
         brand: { name: brands.name },
         status: { name: inventoryStatuses.name },
+        locationStatus: { name: stockLocationStatuses.name },
         warehouse: { name: warehouses.name },
+        reservedCompany: { legalTitle: companies.legalTitle, shortName: companies.shortName },
       })
       .from(inventoryItems)
       .leftJoin(productModels, eq(inventoryItems.productModelId, productModels.id))
       .leftJoin(brands, eq(productModels.brandId, brands.id))
       .leftJoin(inventoryStatuses, eq(inventoryItems.stockStatusId, inventoryStatuses.id))
+      .leftJoin(stockLocationStatuses, eq(inventoryItems.locationStatusId, stockLocationStatuses.id))
       .leftJoin(warehouses, eq(inventoryItems.warehouseId, warehouses.id))
+      .leftJoin(companies, eq(inventoryItems.reservedCompanyId, companies.id))
       .where(and(...filters))
       .orderBy(desc(inventoryItems.createdAt))
       .limit(EXPORT_LIMIT);
 
+    const productIds = Array.from(new Set(rows.map((row) => row.product?.id).filter((id): id is string => Boolean(id))));
+    const specs = productIds.length
+      ? await this.db
+          .select({
+            productModelId: productSpecs.productModelId,
+            key: productSpecs.specKey,
+            value: productSpecs.specValue,
+            unit: productSpecs.specUnit,
+          })
+          .from(productSpecs)
+          .where(and(
+            eq(productSpecs.tenantId, actor.tenantId),
+            inArray(productSpecs.productModelId, productIds),
+            isNull(productSpecs.deletedAt),
+          ))
+      : [];
+    const normalizedSpecKey = (value: string) =>
+      value.toLocaleLowerCase('tr-TR').normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    const specFor = (productModelId: string | null | undefined, keywords: string[]) => {
+      if (!productModelId) return '';
+      const normalizedKeywords = keywords.map(normalizedSpecKey);
+      const spec = specs.find((item) => (
+        item.productModelId === productModelId
+        && normalizedKeywords.some((keyword) => normalizedSpecKey(item.key).includes(keyword))
+      ));
+      return spec ? `${spec.value}${spec.unit ? ` ${spec.unit}` : ''}` : '';
+    };
+
     return rows.map((r) => ({
-      'Stok Kodu': r.product?.modelCode ?? r.item.serialNumber,
       Marka: r.brand?.name ?? '',
-      Model: r.product?.fullName ?? r.product?.modelCode ?? '',
+      'Yeni / Kullanılmış': r.item.itemCondition === 'used' ? 'Kullanılmış' : 'Yeni',
+      'Ürün Adı': r.product?.fullName ?? r.product?.modelCode ?? '',
       'Seri No': r.item.serialNumber ?? '',
       'Kontrol Ünitesi': r.item.controlUnit ?? '',
-      Depo: r.warehouse?.name ?? '',
+      'Fener Mili Devri': specFor(r.product?.id, ['fener mili devri', 'spindle speed']),
+      'Takım Adeti': specFor(r.product?.id, ['takim adeti', 'takim kapasitesi', 'takim yuvasi sayisi', 'tool count', 'tool capacity']),
+      'Fener Mili Motor Gücü': specFor(r.product?.id, ['fener mili motor gucu', 'spindle motor power']),
+      'Ürünün Bulunduğu Yer': [r.warehouse?.name, r.locationStatus?.name].filter(Boolean).join(' · '),
+      'Rezerve Edilen Firma': r.reservedCompany?.shortName ?? r.reservedCompany?.legalTitle ?? '',
+      'Yüklendiği Tarih': isoDate(r.item.loadingDate),
+      'Geldiği Tarih': isoDate(r.item.receivedDate),
+      'Geleceği Tarih': isoDate(r.item.arrivalDate),
       Durum: r.status?.name ?? '',
     }));
   }

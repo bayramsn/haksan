@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import type { Customer, Offer, Product } from "../mock";
+import { loadContractPrintData } from "./contractPrint";
+import { buildProformaPrintData } from "./proformaPrint";
 import { buildQuotePrintData } from "./quotePrint";
+import { proformaDoc, quoteDoc } from "./templates";
 
 const offer = {
   id: "quote-1",
@@ -42,6 +45,113 @@ const build = (quote: Record<string, unknown>) => buildQuotePrintData({
 }, quote as never);
 
 describe("quote print address", () => {
+  it("prints the company email before the selected contact email", () => {
+    const result = buildQuotePrintData({
+      offer,
+      customer: { ...customer, email: "firma@ornek.test" },
+      salesCase: null,
+      users: [],
+      contacts: [{ id: "contact-1", name: "Satın Alma", email: "kisi@ornek.test" }] as never,
+      products: [],
+    }, {
+      contactId: "contact-1",
+      quoteDate: "2026-07-16",
+      documentNo: "CNC-2026/001",
+      items: [],
+      terms: {},
+    } as never);
+
+    expect(result.email).toBe("firma@ornek.test");
+    expect(quoteDoc(result, "/brand").body).toContain("firma@ornek.test");
+  });
+
+  it("prints the assigned personal title below the selected sender", () => {
+    const result = buildQuotePrintData({
+      offer,
+      customer,
+      salesCase: null,
+      users: [{
+        id: "sender-1",
+        name: "Ayşe Yılmaz",
+        email: "ayse@example.test",
+        department: "Satış",
+        title: "Kıdemli Satış Uzmanı",
+      }] as never,
+      contacts: [],
+      products: [],
+    }, {
+      quoteDate: "2026-07-16",
+      documentNo: "CNC-2026/001",
+      projectOwnerUserId: "sender-1",
+      items: [],
+      terms: {},
+    } as never);
+
+    expect(result.projeIlgilisi).toBe("Ayşe Yılmaz");
+    expect(result.projeIlgilisiUnvan).toBe("Kıdemli Satış Uzmanı");
+    expect(quoteDoc(result, "/brand").body).toContain("Kıdemli Satış Uzmanı");
+  });
+
+  it("prefers the fresh server owner title over a stale department-only user", () => {
+    const result = buildQuotePrintData({
+      offer,
+      customer,
+      salesCase: null,
+      users: [{
+        id: "sender-1",
+        name: "Ersin Çetinbilek",
+        email: "ersin@example.test",
+        department: "Satış",
+      }] as never,
+      contacts: [],
+      products: [],
+    }, {
+      quoteDate: "2026-08-11",
+      documentNo: "CNC-2026/002",
+      projectOwnerUserId: "sender-1",
+      projectOwner: {
+        id: "sender-1",
+        name: "Ersin Çetinbilek",
+        email: "ersin@example.test",
+        phone: null,
+        title: "Satış Müdürü",
+        department: "SATIŞ",
+      },
+      items: [],
+      terms: {},
+    } as never);
+
+    expect(result.projeIlgilisi).toBe("Ersin Çetinbilek");
+    expect(result.projeIlgilisiUnvan).toBe("Satış Müdürü");
+    expect(quoteDoc(result, "/brand").body).toContain("Satış Müdürü");
+  });
+
+  it("carries the selected company logo into the PDF data", () => {
+    const result = buildQuotePrintData({
+      offer,
+      customer: {
+        ...customer,
+        logoUrl: "/api/v1/companies/media/logo-file-1",
+      },
+      salesCase: null,
+      users: [],
+      contacts: [],
+      products: [],
+      headerLogoMode: "company",
+    }, {
+      quoteDate: "2026-07-16",
+      documentNo: "CNC-2026/001",
+      items: [],
+      terms: {},
+    } as never);
+
+    expect(result.headerLogo).toEqual({
+      mode: "company",
+      imageUrl: "/api/v1/companies/media/logo-file-1",
+      alt: "Örnek Firma logosu",
+    });
+  });
+
   it("writes the address selected on the quote", () => {
     const result = build({
       companyAddressId: "selected-address",
@@ -71,12 +181,16 @@ describe("quote print address", () => {
     expect(result.adres).toBe("Belgeye Sabitlenen Adres Ankara");
   });
 
-  it("uses the catalog product name and carries its photo to the offer", () => {
+  it("uses the catalog name and removes an internal stock code from the machine heading", () => {
     const product = {
       id: "product-1",
-      brand: "HAKSAN",
-      model: "VM-2",
-      shortDescription: "HAKSAN VM-2 CNC Dik İşleme Merkezi",
+      brand: "HAXAN",
+      brandLogoUrl: "/api/v1/brands/media/brand-logo-1",
+      model: "HAXAN.MMT-1170.15K.DDS.M.30T",
+      modelName: "MMT-1170 CNC Dik İşleme Merkezi",
+      type: "CNC Dik İşleme Merkezi",
+      stockCode: "HAXAN.MMT-1170.15K.DDS.M.30T",
+      shortDescription: "HAXAN MMT-1170 CNC Dik İşleme Merkezi",
       imageUrl: "/api/v1/products/media/photo-1",
     } as Product;
     const result = buildQuotePrintData({
@@ -93,8 +207,8 @@ describe("quote print address", () => {
       validityDays: 15,
       items: [{
         productModelId: product.id,
-        stockCode: "VM2-STOK-KODU",
-        description: "VM2-STOK-KODU",
+        stockCode: "HAXAN.MMT-1170.15K.DDS.M.30T",
+        description: "HAXAN.MMT-1170.15K.DDS.M.30T",
         quantity: 1,
         unitPrice: 10_000,
         discountAmount: 0,
@@ -103,9 +217,13 @@ describe("quote print address", () => {
       terms: {},
     } as never);
 
-    expect(result.items[0].urun).toBe("HAKSAN VM-2 CNC Dik İşleme Merkezi");
-    expect(result.items[0].urun).not.toContain("STOK-KODU");
+    expect(result.items[0].urun).toBe("HAXAN MMT-1170 CNC Dik İşleme Merkezi");
+    expect(result.machines?.[0].model).toBe("MMT-1170");
+    expect(result.machines?.[0].model).not.toContain("15K.DDS.M.30T");
     expect(result.imageUrl).toBe("/api/v1/products/media/photo-1");
+    expect(result.brandLogoUrl).toBe("/api/v1/brands/media/brand-logo-1");
+    expect(result.machines?.[0].brandLogoUrl).toBe("/api/v1/brands/media/brand-logo-1");
+    expect(JSON.stringify(result)).not.toContain("HAXAN.MMT-1170.15K.DDS.M.30T");
   });
 
   it("keeps every selected machine, its own specs, options and line discount", () => {
@@ -167,7 +285,123 @@ describe("quote print address", () => {
     });
     expect(result.machines?.[1].specs).toContainEqual(expect.objectContaining({ key: "X Ekseni", value: "800" }));
     expect(result.items).toHaveLength(4);
-    expect(result.items[0]).toMatchObject({ fiyat: 10_000, indirim: 1_000, tutar: 9_000 });
-    expect(result.items[2]).toMatchObject({ fiyat: 20_000, indirim: 500, tutar: 39_500 });
+    expect(result.items[0]).toMatchObject({ fiyat: 10_000, indirim: 1_000, brutTutar: 10_000, tutar: 9_000 });
+    expect(result.items[2]).toMatchObject({ fiyat: 20_000, indirim: 500, brutTutar: 40_000, tutar: 39_500 });
+  });
+
+  it("silently includes nationalization charges in the PDF product price and total", () => {
+    const product = {
+      id: "machine-nationalized",
+      categoryCode: "TEZGAH",
+      productTypeCode: "DIK_ISLEME_MERKEZI",
+      brand: "LK",
+      model: "VM-2",
+      type: "CNC Dik İşleme Merkezi",
+      shortDescription: "LK VM-2 CNC Dik İşleme Merkezi",
+      imageUrl: "",
+    } as Product;
+    const result = buildQuotePrintData({
+      offer,
+      customer,
+      salesCase: null,
+      users: [],
+      contacts: [],
+      products: [product],
+    }, {
+      quoteDate: "2026-08-03",
+      documentNo: "CNC-2026/020",
+      customsTotal: 15_570,
+      vatAmount: 0,
+      items: [{
+        productModelId: product.id,
+        description: product.shortDescription,
+        quantity: 1,
+        unitPrice: 100_000,
+        discountAmount: 0,
+        lineTotal: 100_000,
+        nationalized: true,
+      }],
+      terms: {},
+    } as never);
+
+    expect(result.items[0]).toMatchObject({
+      fiyat: 115_570,
+      brutTutar: 115_570,
+      tutar: 115_570,
+    });
+    const document = quoteDoc(result, "/brand");
+    expect(document.body).toContain("115.570,00 USD");
+    expect(document.body).not.toContain("Millileştirme / Gümrük");
+  });
+
+  it("keeps the same silent nationalization price in proforma, invoice and contract data", async () => {
+    const product = {
+      id: "machine-nationalized",
+      categoryCode: "TEZGAH",
+      productTypeCode: "DIK_ISLEME_MERKEZI",
+      brand: "LK",
+      model: "VM-2",
+      type: "CNC Dik İşleme Merkezi",
+      shortDescription: "LK VM-2 CNC Dik İşleme Merkezi",
+      imageUrl: "",
+      standardEquipment: [],
+      specs: [],
+    } as unknown as Product;
+    const documentSnapshot = {
+      capturedAt: "2026-08-03T08:00:00.000Z",
+      quote: {
+        subtotal: 100_000,
+        customsTotal: 15_570,
+        discountTotal: 0,
+        vatAmount: 0,
+        grandTotal: 115_570,
+      },
+      company: { legalTitle: customer.name },
+      companyAddresses: [],
+      companyPhones: [],
+      contact: {},
+      currency: { code: "USD" },
+      items: [{
+        productModelId: product.id,
+        description: product.shortDescription,
+        quantity: 1,
+        unitCode: "adet",
+        unitPrice: 100_000,
+        discountAmount: 0,
+        lineTotal: 100_000,
+        vatRate: 0,
+        nationalized: true,
+      }],
+      terms: {},
+    };
+    const doc = {
+      fileName: "CNC-PRF-2026/001",
+      uploadedAt: "2026-08-03",
+      documentSnapshot,
+    } as never;
+    const proforma = buildProformaPrintData({
+      doc,
+      customers: [customer],
+      cases: [],
+      offers: [offer],
+      products: [product],
+    });
+
+    expect(proforma.items[0]).toMatchObject({ birimFiyati: 115_570, tutar: 115_570 });
+    const proformaDocument = proformaDoc(proforma, "/brand");
+    expect(proformaDocument.body).toContain("115.570,00 USD");
+    expect(proformaDocument.body).not.toContain("Millileştirme / Gümrük");
+
+    const contract = await loadContractPrintData({
+      customer,
+      salesCase: { id: "case-1", currency: "USD" },
+      products: [product],
+      payments: [],
+      contractDate: "2026-08-03",
+      contractNo: "CNC-SOZ-2026/001",
+      documentSnapshot,
+    } as never);
+    expect(contract.fiyat).toBe(115_570);
+    expect(contract.machines?.[0]?.fiyat).toBe(115_570);
   });
 });

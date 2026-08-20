@@ -5,7 +5,7 @@ import { GearSpinner } from '../brand';
 export function PageLoadingSkeleton() {
   return (
     <div className="surface-enter space-y-4" aria-busy="true" aria-label="Veriler yükleniyor">
-      <div className="flex items-center gap-3 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+      <div className="flex items-center gap-3 text-xs font-semibold tracking-[0.04em] text-muted-foreground">
         <GearSpinner size="sm" label="" className="shrink-0" />
         Veriler hazırlanıyor
         <div className="h-px flex-1 bg-border" />

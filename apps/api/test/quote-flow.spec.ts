@@ -5,12 +5,14 @@ import { createTestApp } from './setup';
 
 let app: NestFastifyApplication;
 let adminToken: string;
+let adminUserId: string;
 let companyId: string;
 let companyAddressId: string;
 let opportunityId: string;
 let quoteId: string;
 let quoteBusinessLine: string;
 let proformaId: string;
+let contractId: string;
 let quoteItemId: string;
 let productModelId: string;
 let productFullName: string;
@@ -22,6 +24,7 @@ beforeAll(async () => {
     .post('/api/v1/auth/login')
     .send({ email: 'admin@haksan.local', password: 'admin12345' });
   adminToken = login.body.accessToken;
+  adminUserId = login.body.user.id;
   const r = await supertest(app.getHttpServer()).get('/api/v1/companies?pageSize=100').set('Authorization', `Bearer ${adminToken}`);
   const company = r.body.data.find((item: { addresses?: unknown[] }) => (item.addresses?.length ?? 0) > 0);
   if (!company) throw new Error('PDF adresi testi için adresi olan firma bulunamadı');
@@ -45,13 +48,14 @@ afterAll(async () => {
 });
 
 describe('ERP flow', () => {
-  it('creates an opportunity in lead stage', async () => {
+  it('creates an opportunity in the lead stage, the first step of the flow', async () => {
     const r = await supertest(app.getHttpServer())
       .post('/api/v1/opportunities')
       .set('Authorization', `Bearer ${adminToken}`)
       .send({
         companyId,
         title: 'Test opp',
+        ownerUserId: adminUserId,
         estimatedValue: 100000,
         currencyCode: 'USD',
         probability: 50,
@@ -59,17 +63,24 @@ describe('ERP flow', () => {
       });
     expect(r.status).toBe(201);
     expect(r.body.stage?.code).toBe('lead');
+    expect(r.body.qualificationStage).toBe('lead');
     expect(r.body.paymentMethod).toBe('leasing');
     opportunityId = r.body.id;
   });
 
-  it('moves lead → sales', async () => {
-    const r = await supertest(app.getHttpServer())
-      .patch(`/api/v1/opportunities/${opportunityId}/stage`)
+  it('moves the new opportunity on to the C field', async () => {
+    const move = await supertest(app.getHttpServer())
+      .patch(`/api/v1/opportunities/${opportunityId}/qualification-stage`)
       .set('Authorization', `Bearer ${adminToken}`)
-      .send({ toStage: 'sales' });
+      .send({ toStage: 'c' });
+    expect(move.status).toBe(200);
+
+    const r = await supertest(app.getHttpServer())
+      .get(`/api/v1/opportunities/${opportunityId}`)
+      .set('Authorization', `Bearer ${adminToken}`);
     expect(r.status).toBe(200);
     expect(r.body.stage?.code).toBe('sales');
+    expect(r.body.qualificationStage).toBe('c');
   });
 
   it('refuses to go directly from sales → contract (skipping quote)', async () => {
@@ -126,12 +137,17 @@ describe('ERP flow', () => {
           quoteId,
           issueDate: new Date().toISOString(),
           statusCode: 'draft',
-          items: [{ quoteItemId, unitPrice: 90_000 }],
+          items: [{ quoteItemId, unitPrice: 90_000, discountAmount: 7_000 }],
         }),
       supertest(app.getHttpServer())
         .post('/api/v1/contracts')
         .set('Authorization', `Bearer ${adminToken}`)
-        .send({ quoteId, signedDate: new Date().toISOString(), statusCode: 'draft' }),
+        .send({
+          quoteId,
+          signedDate: new Date().toISOString(),
+          statusCode: 'draft',
+          items: [{ quoteItemId, unitPrice: 90_000, discountAmount: 6_000 }],
+        }),
       supertest(app.getHttpServer())
         .post('/api/v1/commercial-invoices')
         .set('Authorization', `Bearer ${adminToken}`)
@@ -141,24 +157,127 @@ describe('ERP flow', () => {
     expect(proforma.status).toBe(201);
     proformaId = proforma.body.id;
     expect(proforma.body.documentNo).toMatch(new RegExp(`^${quoteBusinessLine}-PRF-\\d{4}/\\d{3}$`));
-    expect(proforma.body.documentSnapshot?.schemaVersion).toBe(3);
+    expect(proforma.body.documentSnapshot?.schemaVersion).toBe(4);
     expect(proforma.body.documentSnapshot?.items[0]).toMatchObject({
       id: quoteItemId,
       unitPrice: 90_000,
-      discountAmount: 0,
-      lineTotal: 90_000,
-      vatAmount: 18_000,
+      discountAmount: 7_000,
+      lineTotal: 83_000,
+      vatAmount: 16_600,
     });
     expect(proforma.body.documentSnapshot?.quote).toMatchObject({
-      discountTotal: 0,
-      subtotal: 90_000,
-      vatAmount: 18_000,
-      grandTotal: 108_000,
+      discountTotal: 7_000,
+      subtotal: 83_000,
+      vatAmount: 16_600,
+      grandTotal: 99_600,
     });
     expect(contract.status).toBe(201);
+    contractId = contract.body.id;
     expect(contract.body.contractNo).toMatch(new RegExp(`^${quoteBusinessLine}-SOZ-\\d{4}/\\d{3}$`));
+    expect(contract.body.documentSnapshot?.items[0]).toMatchObject({
+      id: quoteItemId,
+      unitPrice: 90_000,
+      discountAmount: 6_000,
+      lineTotal: 84_000,
+    });
     expect(invoice.status).toBe(201);
     expect(invoice.body.invoiceNo).toMatch(new RegExp(`^${quoteBusinessLine}-FAT-\\d{4}/\\d{3}$`));
+  });
+
+  it('reprices a draft contract without nesting the previous snapshot', async () => {
+    const first = await supertest(app.getHttpServer())
+      .patch(`/api/v1/contracts/${contractId}`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ items: [{ quoteItemId, unitPrice: 89_000 }] });
+    expect(first.status, JSON.stringify(first.body)).toBe(200);
+    expect(first.body.documentSnapshot?.items[0]).toMatchObject({
+      id: quoteItemId,
+      unitPrice: 89_000,
+      discountAmount: 6_000,
+      lineTotal: 83_000,
+    });
+    expect(first.body.documentSnapshot).not.toHaveProperty('documentSnapshot');
+
+    const second = await supertest(app.getHttpServer())
+      .patch(`/api/v1/contracts/${contractId}`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ items: [{ quoteItemId, unitPrice: 88_000 }] });
+    expect(second.status, JSON.stringify(second.body)).toBe(200);
+    expect(second.body.documentSnapshot?.items[0]).toMatchObject({
+      id: quoteItemId,
+      unitPrice: 88_000,
+      discountAmount: 6_000,
+      lineTotal: 82_000,
+    });
+    expect(second.body.documentSnapshot).not.toHaveProperty('documentSnapshot');
+
+    // Yalnız sözleşme şartını değiştirmek, daha önce pazarlık edilen fiyatı
+    // teklif fiyatına geri döndürmemeli.
+    const termsOnly = await supertest(app.getHttpServer())
+      .patch(`/api/v1/contracts/${contractId}`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ terms: { paymentTermsText: 'VADELI-ODEME' } });
+    expect(termsOnly.status, JSON.stringify(termsOnly.body)).toBe(200);
+    expect(termsOnly.body.documentSnapshot?.items[0]).toMatchObject({
+      id: quoteItemId,
+      unitPrice: 88_000,
+      discountAmount: 6_000,
+      lineTotal: 82_000,
+    });
+    expect(termsOnly.body.documentSnapshot?.terms).toMatchObject({
+      paymentTermsText: 'VADELI-ODEME',
+    });
+  });
+
+  it('keeps contract terms on the contract and leaves the quote terms untouched', async () => {
+    // İmza masasında yazılan bir teslim şartı, eskiden bağlı teklifin
+    // `quote_terms` kaydını yeniden yazıyor ve onaylı teklifin çıktısını da
+    // geriye dönük değiştiriyordu. Şart artık belgenin kendi sütununda durur.
+    const quoteTerms = await supertest(app.getHttpServer())
+      .put(`/api/v1/quotes/${quoteId}/terms`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({
+        paymentTermsText: 'TEKLIF-ODEME',
+        deliveryTermsText: 'TEKLIF-TESLIM',
+        warrantyTermsText: 'TEKLIF-GARANTI',
+        importCostsExcluded: true,
+      });
+    expect(quoteTerms.status).toBe(200);
+
+    const contract = await supertest(app.getHttpServer())
+      .post('/api/v1/contracts')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({
+        quoteId,
+        signedDate: new Date().toISOString(),
+        statusCode: 'draft',
+        terms: { deliveryTermsText: 'SOZLESME-TESLIM', importCostsExcluded: false },
+      });
+    expect(contract.status).toBe(201);
+    expect(contract.body.terms).toMatchObject({ deliveryTermsText: 'SOZLESME-TESLIM' });
+    // Çıktı anlık görüntüden basılır; belgeye özel şart oraya da geçmeli.
+    expect(contract.body.documentSnapshot?.terms).toMatchObject({
+      deliveryTermsText: 'SOZLESME-TESLIM',
+      importCostsExcluded: false,
+    });
+
+    const quoteAfter = await supertest(app.getHttpServer())
+      .get(`/api/v1/quotes/${quoteId}`)
+      .set('Authorization', `Bearer ${adminToken}`);
+    expect(quoteAfter.status).toBe(200);
+    expect(quoteAfter.body.terms).toMatchObject({
+      paymentTermsText: 'TEKLIF-ODEME',
+      deliveryTermsText: 'TEKLIF-TESLIM',
+      warrantyTermsText: 'TEKLIF-GARANTI',
+    });
+
+    // Şart gönderilmeyen sözleşme eskisi gibi teklifin şartlarıyla basılır.
+    const plain = await supertest(app.getHttpServer())
+      .post('/api/v1/contracts')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ quoteId, signedDate: new Date().toISOString(), statusCode: 'draft' });
+    expect(plain.status).toBe(201);
+    expect(plain.body.terms ?? null).toBeNull();
   });
 
   it('shows the product name and restores the quote to draft after price approval', async () => {
@@ -205,6 +324,54 @@ describe('ERP flow', () => {
     const approvedQuote = approvedList.body.data.find((quote: { id: string }) => quote.id === created.body.id);
     expect(approvedQuote?.status?.code).toBe('draft');
     expect(approvedQuote?.priceApprovalStatus).toBe('approved');
+  });
+
+  it('automatically routes only discounts above 10 percent to approval', async () => {
+    const created = await supertest(app.getHttpServer())
+      .post('/api/v1/quotes')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ companyId, companyAddressId, quoteDate: new Date().toISOString(), currencyCode: 'USD' });
+    expect(created.status).toBe(201);
+
+    const item = await supertest(app.getHttpServer())
+      .post(`/api/v1/quotes/${created.body.id}/items`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({
+        description: 'İndirim eşiği kontrol kalemi',
+        quantity: 1,
+        unitPrice: 1_000,
+        discountAmount: 100,
+        vatRate: 0,
+        sortOrder: 0,
+      });
+    expect(item.status).toBe(201);
+
+    const exactThreshold = await supertest(app.getHttpServer())
+      .get(`/api/v1/quotes/${created.body.id}`)
+      .set('Authorization', `Bearer ${adminToken}`);
+    expect(exactThreshold.body.priceApprovalStatus).toBe('not_required');
+
+    const aboveThreshold = await supertest(app.getHttpServer())
+      .patch(`/api/v1/quotes/${created.body.id}/items/${item.body.id}`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ discountAmount: 100.01 });
+    expect(aboveThreshold.status).toBe(200);
+
+    const pending = await supertest(app.getHttpServer())
+      .get(`/api/v1/quotes/${created.body.id}`)
+      .set('Authorization', `Bearer ${adminToken}`);
+    expect(pending.body.priceApprovalStatus).toBe('pending');
+
+    const restored = await supertest(app.getHttpServer())
+      .patch(`/api/v1/quotes/${created.body.id}/items/${item.body.id}`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ discountAmount: 100 });
+    expect(restored.status).toBe(200);
+
+    const noLongerPending = await supertest(app.getHttpServer())
+      .get(`/api/v1/quotes/${created.body.id}`)
+      .set('Authorization', `Bearer ${adminToken}`);
+    expect(noLongerPending.body.priceApprovalStatus).toBe('not_required');
   });
 
   it('keeps multiple products in print order and rejects an excessive product discount', async () => {
@@ -317,6 +484,16 @@ describe('ERP flow', () => {
       .set('Authorization', `Bearer ${adminToken}`);
     const listedQuote = listed.body.data.find((quote: { id: string }) => quote.id === draft.body.id);
     expect(listedQuote?.status?.code).toBe('budget_waiting');
+
+    const activities = await supertest(app.getHttpServer())
+      .get(`/api/v1/activities?companyId=${companyId}&pageSize=100`)
+      .set('Authorization', `Bearer ${adminToken}`);
+    expect(activities.status, JSON.stringify(activities.body)).toBe(200);
+    expect(
+      activities.body.data.find((activity: { subject: string }) =>
+        activity.subject.startsWith(`${draft.body.documentNo} teklif takibi —`),
+      ),
+    ).toMatchObject({ origin: 'system' });
   });
 
   it('snapshots sent commercial documents and prevents later mutation or deletion', async () => {
@@ -327,8 +504,19 @@ describe('ERP flow', () => {
     expect(repriced.status).toBe(200);
     expect(repriced.body.documentSnapshot?.items[0]).toMatchObject({
       unitPrice: 88_000,
-      discountAmount: 0,
-      lineTotal: 88_000,
+      discountAmount: 7_000,
+      lineTotal: 81_000,
+    });
+
+    const termsOnly = await supertest(app.getHttpServer())
+      .patch(`/api/v1/proformas/${proformaId}`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ terms: { deliveryTermsText: 'PROFORMA-TESLIM' } });
+    expect(termsOnly.status, JSON.stringify(termsOnly.body)).toBe(200);
+    expect(termsOnly.body.documentSnapshot?.items[0]).toMatchObject({
+      unitPrice: 88_000,
+      discountAmount: 7_000,
+      lineTotal: 81_000,
     });
 
     const finalized = await supertest(app.getHttpServer())
@@ -340,7 +528,7 @@ describe('ERP flow', () => {
     expect(finalized.body.documentSnapshot?.company).toBeTruthy();
     expect(finalized.body.documentSnapshot?.companyAddresses?.[0]?.id).toBe(companyAddressId);
     expect(finalized.body.documentSnapshot?.items).toHaveLength(1);
-    expect(finalized.body.documentSnapshot?.schemaVersion).toBe(3);
+    expect(finalized.body.documentSnapshot?.schemaVersion).toBe(4);
     expect(finalized.body.documentSnapshot?.items[0]?.unitCode).toBe('adet');
     expect(finalized.body.documentSnapshot?.items[0]?.product?.id).toBe(productModelId);
     expect(finalized.body.documentSnapshot?.items[0]?.product?.brandName).toBeTruthy();
@@ -419,13 +607,17 @@ describe('ERP flow', () => {
     expect(companies.body.data.some((company: { id: string }) => company.id === companyId)).toBe(true);
   });
 
-  it('moves sales → quote (now that a quote exists)', async () => {
+  it('keeps sales → quote gated when discovery evidence is still missing', async () => {
     const r = await supertest(app.getHttpServer())
       .patch(`/api/v1/opportunities/${opportunityId}/stage`)
       .set('Authorization', `Bearer ${adminToken}`)
       .send({ toStage: 'quote' });
-    expect(r.status).toBe(200);
-    expect(r.body.stage?.code).toBe('quote');
+    expect(r.status).toBe(422);
+    const unchanged = await supertest(app.getHttpServer())
+      .get(`/api/v1/opportunities/${opportunityId}`)
+      .set('Authorization', `Bearer ${adminToken}`);
+    expect(unchanged.status).toBe(200);
+    expect(unchanged.body.stage?.code).toBe('sales');
   });
 
   it('cancels opportunity with required reason', async () => {

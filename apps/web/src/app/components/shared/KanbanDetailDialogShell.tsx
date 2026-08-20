@@ -15,6 +15,7 @@ export function KanbanDetailDialogShell({
   contentClassName,
   activityClassName,
   bodyClassName,
+  mobileFooter,
 }: {
   accentClassName?: string;
   title: ReactNode;
@@ -29,6 +30,7 @@ export function KanbanDetailDialogShell({
   contentClassName?: string;
   activityClassName?: string;
   bodyClassName?: string;
+  mobileFooter?: ReactNode;
 }) {
   return (
     <div className={cn("flex max-h-[92dvh] min-h-0 flex-col overflow-hidden bg-[#f7f8fa]", className)}>
@@ -45,9 +47,9 @@ export function KanbanDetailDialogShell({
         </div>
       </div>
       <div className={cn("grid min-h-0 min-w-0 flex-1 grid-cols-1 overflow-hidden lg:grid-cols-[minmax(0,1fr)_400px]", bodyClassName)}>
-        <main className={cn("min-h-0 min-w-0 overflow-x-hidden overflow-y-auto bg-white px-4 py-4 sm:px-6", contentClassName)}>
+        <section className={cn("min-h-0 min-w-0 overflow-x-hidden overflow-y-auto bg-white px-4 py-4 sm:px-6", contentClassName)} aria-label="Kayıt çalışma alanı içeriği">
           {children}
-        </main>
+        </section>
         <aside
           className={cn(
             "min-h-0 overflow-y-auto border-t border-border/70 bg-[#f3f4f6] px-4 py-4 lg:border-l lg:border-t-0",
@@ -61,6 +63,11 @@ export function KanbanDetailDialogShell({
           {right}
         </aside>
       </div>
+      {mobileFooter && (
+        <div className="shrink-0 border-t border-slate-200 bg-white px-3 pt-2 pb-[max(.5rem,env(safe-area-inset-bottom))] lg:hidden">
+          {mobileFooter}
+        </div>
+      )}
     </div>
   );
 }

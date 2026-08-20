@@ -30,6 +30,14 @@ const targetPeriodOnlySchema = z.object({
   period: z.string().regex(/^\d{4}-\d{2}$/),
 });
 
+const teamActivitySchema = z.object({
+  period: z.enum(['day', 'week', 'month', 'year']).default('week'),
+  // Dönemin çapası; verilmezse bugün. Önceki dönem buradan türetilir.
+  date: z.string().datetime().optional(),
+  // Yalnız süper admin 'team' alabilir; servis diğerlerini 'self'e zorlar.
+  scope: z.enum(['team', 'self']).default('team'),
+});
+
 type TargetExportMetric = { target: number | null; actual: number | null; pct: number | null };
 type TargetExportItem = {
   targetType?: string;
@@ -313,6 +321,20 @@ export class ReportsController {
   @Get('my-target-progress')
   myTargetProgress(@Query(new ZodValidationPipe(targetPeriodOnlySchema)) q: z.infer<typeof targetPeriodOnlySchema>, @CurrentUser() u: AuthContext) {
     return this.svc.targetProgress(u, q.period, { kind: 'user', id: u.userId });
+  }
+
+  /**
+   * Gösterge panelindeki ekip aktivitesi. Süper admin tüm ekibi görür; diğer
+   * kullanıcılar `scope` ne gönderirse göndersin yalnız kendi verisini alır
+   * (kısıt serviste zorlanır, arayüzde değil).
+   */
+  @RequirePermissions('reports.read')
+  @Get('team-activity')
+  teamActivity(
+    @Query(new ZodValidationPipe(teamActivitySchema)) q: z.infer<typeof teamActivitySchema>,
+    @CurrentUser() u: AuthContext
+  ) {
+    return this.svc.teamActivity(u, q.period, q.date, q.scope);
   }
 
   @RequirePermissions('reports.read')

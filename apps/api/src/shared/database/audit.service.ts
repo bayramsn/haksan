@@ -17,7 +17,16 @@ export interface AuditEntry {
   requestId?: string | null;
 }
 
-const REDACT_KEYS = new Set(['password', 'passwordHash', 'password_hash', 'tokenHash', 'refreshToken', 'token']);
+const REDACT_KEYS = new Set([
+  'password',
+  'passwordHash',
+  'password_hash',
+  'encryptedPassword',
+  'encrypted_password',
+  'tokenHash',
+  'refreshToken',
+  'token',
+]);
 
 function redact(value: unknown): unknown {
   if (value === null || value === undefined) return value;

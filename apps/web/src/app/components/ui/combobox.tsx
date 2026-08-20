@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Check, ChevronsUpDown, Plus } from "lucide-react";
 import { cn } from "./utils";
+import { foldTr, matchesTr } from "../../lib/trSearch";
 import { Button } from "./button";
 import { Popover, PopoverContent, PopoverTrigger } from "./popover";
 import {
@@ -11,7 +12,7 @@ export type ComboboxOption = { value: string; label: string; hint?: string };
 
 /**
  * Aramalı seçim kutusu (Popover + cmdk Command).
- * - Liste içi arama otomatik (cmdk filtreler).
+ * - Liste içi arama otomatik (cmdk filtreler, Türkçe karakter duyarsız).
  * - `onCreate` verilirse, eşleşme yokken yazılan metni yeni kayıt olarak ekleme
  *   seçeneği sunar (ör. yeni firma adı yazma).
  */
@@ -24,6 +25,7 @@ export function Combobox({
   emptyText = "Sonuç yok.",
   disabled,
   className,
+  ariaLabel,
   onCreate,
   createLabel = (q) => `"${q}" ekle`,
 }: {
@@ -35,6 +37,7 @@ export function Combobox({
   emptyText?: string;
   disabled?: boolean;
   className?: string;
+  ariaLabel?: string;
   onCreate?: (label: string) => void;
   createLabel?: (query: string) => string;
 }) {
@@ -44,7 +47,7 @@ export function Combobox({
   const showCreate =
     !!onCreate &&
     query.trim().length > 0 &&
-    !options.some((o) => o.label.toLocaleLowerCase("tr-TR") === query.trim().toLocaleLowerCase("tr-TR"));
+    !options.some((o) => foldTr(o.label) === foldTr(query.trim()));
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -54,6 +57,7 @@ export function Combobox({
           variant="outline"
           role="combobox"
           aria-expanded={open}
+          aria-label={ariaLabel}
           disabled={disabled}
           className={cn("w-full justify-between font-normal", !selected && "text-muted-foreground", className)}
         >
@@ -66,7 +70,7 @@ export function Combobox({
           filter={(value, search) => {
             // value burada CommandItem'ın `value`'su; label üzerinden arama yapmak
             // için option label'ını da içeren bir string kullanıyoruz.
-            return value.toLocaleLowerCase("tr-TR").includes(search.toLocaleLowerCase("tr-TR")) ? 1 : 0;
+            return matchesTr(value, search) ? 1 : 0;
           }}
         >
           <CommandInput placeholder={searchPlaceholder} value={query} onValueChange={setQuery} />

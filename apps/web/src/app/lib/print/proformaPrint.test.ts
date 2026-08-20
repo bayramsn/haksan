@@ -33,6 +33,7 @@ describe("proforma print data", () => {
         { phoneType: "main", phone: "0 378 227 46 96", isDefault: true },
         { phoneType: "fax", phone: "0 378 227 81 05" },
       ],
+      companyEmails: [{ emailType: "main", email: "firma@bartinotomotiv.test", isDefault: true }],
       quote: { vatAmount: 0, discountTotal: 0 },
       currency: { code: "USD" },
       items: [{
@@ -60,6 +61,7 @@ describe("proforma print data", () => {
       adres: "Gecen köyü aşağı düz mevk.No:47/1 Bartın",
       tel: "0 378 227 46 96",
       faks: "0 378 227 81 05",
+      email: "firma@bartinotomotiv.test",
       vergiDairesi: "Bartın",
       vergiNo: "142 006 63 99",
       tarih: "25 Şubat 2026",
@@ -104,7 +106,43 @@ describe("proforma print data", () => {
     expect(result.items[0]).toMatchObject({ marka: "ECOCA", mensei: "Tayvan", gtip: "8458.11" });
   });
 
-  it("bakes line and special discounts into proforma item prices without exposing discount fields", () => {
+  it("hızlı proformada elle girilen modeli PDF satırına taşır", () => {
+    // Katalog bağı olmayan kalemlerde model yalnız snapshot'tan gelebilir;
+    // açıklamaya gömülmesi `publicProductLabel` onu ezdiği için doğru değil.
+    const result = build(baseDoc({
+      items: [{
+        description: "Cnc Dik İşleme Merkezi",
+        product: { brandName: "ECOCA", modelName: "MT-210/1000", originCountry: "Tayvan" },
+        quantity: 1,
+        unitCode: "adet",
+        unitPrice: 1_000,
+        discountAmount: 0,
+        vatRate: 20,
+        lineTotal: 1_000,
+      }],
+    }));
+
+    expect(result.items[0]).toMatchObject({ marka: "ECOCA", model: "MT-210/1000", mensei: "Tayvan" });
+  });
+
+  it("model girilmediğinde satırı hiç üretmez", () => {
+    const result = build(baseDoc({
+      items: [{
+        description: "Danışmanlık",
+        product: { brandName: "ECOCA" },
+        quantity: 1,
+        unitCode: "adet",
+        unitPrice: 500,
+        discountAmount: 0,
+        vatRate: 20,
+        lineTotal: 500,
+      }],
+    }));
+
+    expect(result.items[0].model).toBeUndefined();
+  });
+
+  it("keeps gross item prices and exposes line and special discounts separately", () => {
     const result = build(baseDoc({
       schemaVersion: 2,
       company: { legalTitle: "İskontolu Müşteri" },
@@ -120,12 +158,11 @@ describe("proforma print data", () => {
       }],
     }));
 
-    expect(result.headerDiscount).toBe(0);
-    expect(result.items[0]).toMatchObject({ birimFiyati: 850, tutar: 1_700 });
-    expect(result.items[0].iskonto).toBeUndefined();
+    expect(result.headerDiscount).toBe(100);
+    expect(result.items[0]).toMatchObject({ birimFiyati: 1_000, iskonto: 200, tutar: 2_000 });
   });
 
-  it("prints every machine as a separate net-priced proforma row", () => {
+  it("prints every machine as a separate gross-priced proforma row", () => {
     const result = build(baseDoc({
       schemaVersion: 2,
       company: { legalTitle: "Çoklu Makine Müşterisi" },
@@ -138,9 +175,35 @@ describe("proforma print data", () => {
     }));
 
     expect(result.items).toHaveLength(2);
-    expect(result.items[0]).toMatchObject({ aciklama: "ECOCA MT-208 CNC Torna", birimFiyati: 850, tutar: 850 });
-    expect(result.items[1]).toMatchObject({ aciklama: "LK VM-2 CNC Dik İşleme Merkezi", birimFiyati: 425, tutar: 850 });
-    expect(result.items.reduce((sum, item) => sum + item.tutar, 0)).toBe(1_700);
-    expect(result.items.every((item) => item.iskonto === undefined)).toBe(true);
+    expect(result.headerDiscount).toBe(100);
+    expect(result.items[0]).toMatchObject({ aciklama: "ECOCA MT-208 CNC Torna", birimFiyati: 1_000, iskonto: 100, tutar: 1_000 });
+    expect(result.items[1]).toMatchObject({ aciklama: "LK VM-2 CNC Dik İşleme Merkezi", birimFiyati: 500, iskonto: 100, tutar: 1_000 });
+    expect(result.items.reduce((sum, item) => sum + item.tutar, 0)).toBe(2_000);
+  });
+
+  it("uses the catalog product name and removes the internal stock code", () => {
+    const stockCode = "HAXAN.MMT-1170.15K.DDS.M.30T";
+    const product = {
+      id: "machine-with-code",
+      stockCode,
+      shortDescription: "HAXAN MMT-1170 CNC Dik İşleme Merkezi",
+    } as Product;
+    const result = build(baseDoc({
+      schemaVersion: 2,
+      company: { legalTitle: "PDF Müşterisi" },
+      quote: { vatAmount: 0 },
+      currency: { code: "USD" },
+      items: [{
+        productModelId: product.id,
+        stockCode,
+        description: `${stockCode} - HAXAN MMT-1170 CNC Dik İşleme Merkezi`,
+        quantity: 1,
+        unitPrice: 1,
+        lineTotal: 1,
+      }],
+    }), [product]);
+
+    expect(result.items[0].aciklama).toBe("HAXAN MMT-1170 CNC Dik İşleme Merkezi");
+    expect(JSON.stringify(result)).not.toContain(stockCode);
   });
 });

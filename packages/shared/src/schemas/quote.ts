@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { OPPORTUNITY_PAYMENT_METHODS } from '../constants';
 import { moneySchema, percentSchema } from './common';
 
 export const quoteCreateSchema = z.object({
@@ -18,6 +19,8 @@ export const quoteCreateSchema = z.object({
   deliveryTerms: z.string().max(2000).optional(),
   warrantyTerms: z.string().max(2000).optional(),
   notes: z.string().max(4000).optional(),
+  /** Çıktının altına basılacak imza (Ayarlar → İmzalar). `null` → imzasız. */
+  signatureId: z.string().uuid().nullish(),
 });
 type QuoteCreateParsed = z.infer<typeof quoteCreateSchema>;
 export type QuoteCreateInput = Omit<QuoteCreateParsed, 'headerDiscountAmount' | 'headerDiscountPercent'> & {
@@ -102,48 +105,267 @@ export const quoteTermsUpsertSchema = z.object({
   deliveryTermsText: z.string().max(4000).optional(),
   warrantyTermsText: z.string().max(4000).optional(),
   importCostsExcluded: z.boolean().default(true),
+  /** Sözleşme 3.3 — fiyata K.D.V. dahil mi? Gönderilmezse hariç sayılır. */
+  vatIncluded: z.boolean().optional(),
+  /** Sözleşme 2.6 — nakliye ve sigorta satıcıya mı ait? Gönderilmezse alıcıya. */
+  freightPaidBySeller: z.boolean().optional(),
   deliveryLocation: z.string().max(255).optional(),
   estimatedDeliveryDaysMin: z.coerce.number().int().nonnegative().optional(),
   estimatedDeliveryDaysMax: z.coerce.number().int().nonnegative().optional(),
 });
 export type QuoteTermsUpsertInput = z.infer<typeof quoteTermsUpsertSchema>;
 
+/**
+ * Belgenin (proforma / sözleşme) KENDİ şartları.
+ *
+ * Belge ekranındaki düzenleme artık bağlı teklifin şartlarını yeniden yazmaz:
+ * imza masasında sözleşmeye özel yazılan bir teslim şartı, onaylı teklifin ve
+ * aynı teklife bağlı proformanın çıktısını geriye dönük değiştiriyordu. Teklif
+ * yalnız ön-dolgu kaynağıdır; gönderilmezse belge onun şartlarıyla basılır.
+ */
+export const documentTermsSchema = quoteTermsUpsertSchema.partial().optional();
+export type DocumentTermsInput = z.infer<typeof documentTermsSchema>;
+
+/**
+ * Fırsat açmadan ("hızlı") kesilen teklif.
+ *
+ * Normal akışta teklif her zaman bir satış kartına bağlanır; kart yoksa istemci
+ * önce fırsat açar. Küçük/ad-hoc işlerde bu zorunluluk gereksiz kayıt üretiyor,
+ * bu yüzden başlık + kalemler + şartlar tek istekte gelir ve `opportunityId`
+ * hiç gönderilemez. Firma bilgisi bilinçli olarak zorunludur: teklif; cari,
+ * alacak ve sipariş akışlarını besleyen bir CRM kaydıdır, proformadan farklı
+ * olarak firmasız var olamaz.
+ */
+export const standaloneQuoteCreateSchema = quoteCreateSchema.omit({ opportunityId: true }).extend({
+  items: z.array(quoteItemCreateSchema).min(1).max(200),
+  terms: quoteTermsUpsertSchema.partial().optional(),
+});
+type StandaloneQuoteCreateParsed = z.infer<typeof standaloneQuoteCreateSchema>;
+export type StandaloneQuoteCreateInput = Omit<
+  StandaloneQuoteCreateParsed,
+  'headerDiscountAmount' | 'headerDiscountPercent'
+> & {
+  headerDiscountAmount?: number;
+  headerDiscountPercent?: number;
+};
+
 export const proformaPriceItemSchema = z.object({
   quoteItemId: z.string().uuid(),
   unitPrice: moneySchema,
+  /** Belgeye özel satır iskontosu; gönderilmezse bağlı teklif kaleminden devralınır. */
+  discountAmount: moneySchema.optional(),
 });
 export type ProformaPriceItemInput = z.infer<typeof proformaPriceItemSchema>;
+
+/**
+ * Teklife bağlı belgenin (proforma / sözleşme) kendi net fiyatlarını saklayan
+ * kalem listesi. Belge, bağlı teklifi DEĞİŞTİRMEZ: onaylı teklif kilitlidir
+ * (`assertQuoteMutable`), oysa sözleşme masasında fiyat pazarlığa açıktır.
+ * Birim fiyat ve iskonto yalnız belge anlık görüntüsünü değiştirir; bağlı teklif
+ * kalemi değişmeden kalır. `discountAmount` gönderilmezse teklif değeri korunur.
+ */
+const documentPriceItemsSchema = z
+  .array(proformaPriceItemSchema)
+  .max(200)
+  .superRefine((items, context) => {
+    const seen = new Set<string>();
+    items.forEach((item, index) => {
+      if (seen.has(item.quoteItemId)) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'Aynı teklif kalemi belgeye birden fazla kez eklenemez.',
+          path: [index, 'quoteItemId'],
+        });
+      }
+      seen.add(item.quoteItemId);
+    });
+  })
+  .optional();
+
+/**
+ * Belgeye (proforma / sözleşme) özel GENEL iskonto.
+ *
+ * Satır iskontosu kalemin kendisine aittir; bu ikili belgenin tamamına
+ * uygulanır. Gönderilmezse belge, bağlı teklifin genel iskontosunu devralır —
+ * yani teklifle aynı kalır. `percent` doluysa tutar net ara toplam üzerinden
+ * hesaplanır (teklifteki `recalcQuoteTotals` ile aynı kural).
+ */
+const documentHeaderDiscountFields = {
+  headerDiscountAmount: moneySchema.optional(),
+  headerDiscountPercent: percentSchema.optional(),
+} as const;
 
 export const proformaCreateSchema = z.object({
   quoteId: z.string().min(1),
   documentNo: z.string().trim().min(1).max(64).optional(),
   issueDate: z.coerce.date(),
   statusCode: z.string().max(64).default('draft'),
-  fileId: z.string().optional(),
-  // Proforma teklifi değiştirmeden kendi net fiyatlarını saklar. Bilerek
-  // iskonto alanı kabul edilmez; proforma satırları her zaman iskontosuzdur.
-  items: z
-    .array(proformaPriceItemSchema)
-    .max(200)
-    .superRefine((items, context) => {
-      const seen = new Set<string>();
-      items.forEach((item, index) => {
-        if (seen.has(item.quoteItemId)) {
-          context.addIssue({
-            code: z.ZodIssueCode.custom,
-            message: 'Aynı teklif kalemi proformaya birden fazla kez eklenemez.',
-            path: [index, 'quoteItemId'],
-          });
-        }
-        seen.add(item.quoteItemId);
-      });
-    })
-    .optional(),
+  fileId: z.string().uuid().optional(),
+  /** Çıktının altına basılacak imza (Ayarlar → İmzalar). `null` → imzasız. */
+  signatureId: z.string().uuid().nullish(),
+  // `unitPrice` brüt birim fiyatıdır, net toplam mevcut iskonto düşülerek hesaplanır.
+  items: documentPriceItemsSchema,
+  ...documentHeaderDiscountFields,
+  // Belgeye özel şartlar; gönderilmezse teklifin şartlarıyla basılır.
+  terms: documentTermsSchema,
 });
 export type ProformaCreateInput = z.infer<typeof proformaCreateSchema>;
 
 export const proformaUpdateSchema = proformaCreateSchema.partial();
 export type ProformaUpdateInput = z.infer<typeof proformaUpdateSchema>;
+
+/**
+ * Tekliften bağımsız ("hızlı") belge kalemi. Teklife bağlı belgeden farkı,
+ * satırın kendi açıklaması/adedi/iskontosu olması — bir teklif kalemine değil,
+ * doğrudan belgeye aittir. Proforma ve sözleşme aynı kalem şeklini paylaşır.
+ */
+export const proformaFreeItemSchema = z
+  .object({
+    description: z.string().trim().min(1).max(2000),
+    quantity: z.coerce.number().positive().multipleOf(0.001),
+    unitCode: z.string().trim().max(16).default('adet'),
+    unitPrice: moneySchema,
+    discountAmount: moneySchema.default(0),
+    vatRate: percentSchema.default(20),
+    /** PDF'deki Markası / Modeli / Menşei / G.T.İ.P. satırları — boş bırakılırsa basılmaz. */
+    brand: z.string().trim().max(255).optional(),
+    model: z.string().trim().max(255).optional(),
+    originCountry: z.string().trim().max(255).optional(),
+    hsCode: z.string().trim().max(64).optional(),
+  })
+  .superRefine((item, context) => {
+    if (item.discountAmount > item.quantity * item.unitPrice + 0.0001) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Satır iskontosu brüt tutarını aşamaz',
+        path: ['discountAmount'],
+      });
+    }
+  });
+export type ProformaFreeItemInput = z.infer<typeof proformaFreeItemSchema>;
+
+/**
+ * Bağımsız belgelerin ortak alıcı alanları: kayıtlı firma seçilmezse aynı
+ * bilgiler serbest metin olarak girilir ve yalnızca belgeye yazılır.
+ */
+const standaloneOwnerFields = {
+  /** Kayıtlı firma; verilmezse serbest metin alanları kullanılır. */
+  companyId: z.string().uuid().optional(),
+  companyName: z.string().trim().max(255).optional(),
+  companyAddress: z.string().trim().max(1000).optional(),
+  companyTaxOffice: z.string().trim().max(255).optional(),
+  companyTaxNumber: z.string().trim().max(64).optional(),
+  contactName: z.string().trim().max(255).optional(),
+  contactPhone: z.string().trim().max(64).optional(),
+  divisionId: z.string().uuid().optional(),
+  /** Çıktının altına basılacak imza (Ayarlar → İmzalar). `null` → imzasız. */
+  signatureId: z.string().uuid().nullish(),
+  statusCode: z.string().max(64).default('draft'),
+  currencyCode: z.string().trim().max(8).default('USD'),
+  paymentTerms: z.string().max(4000).optional(),
+  deliveryTerms: z.string().max(4000).optional(),
+  warrantyTerms: z.string().max(4000).optional(),
+  notes: z.string().max(4000).optional(),
+  /** Belge geneline uygulanan iskonto (satır iskontolarından ayrı). */
+  headerDiscountAmount: moneySchema.optional(),
+  headerDiscountPercent: percentSchema.optional(),
+} as const;
+
+const standaloneProformaFields = z.object({
+  ...standaloneOwnerFields,
+  documentNo: z.string().trim().min(1).max(64).optional(),
+  issueDate: z.coerce.date(),
+  items: z.array(proformaFreeItemSchema).min(1).max(200),
+});
+
+/** Kime kesildiği belirsiz bir belge oluşmasın: firma kaydı ya da unvan şart. */
+const requireStandaloneOwner = (
+  value: { companyId?: string; companyName?: string },
+  context: z.RefinementCtx,
+) => {
+  if (!value.companyId && !value.companyName?.trim()) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'Firma seçin veya firma unvanını yazın',
+      path: ['companyName'],
+    });
+  }
+};
+
+/** Firma alanlarına hiç dokunulmayan güncellemede mevcut kayıt geçerliliğini korur. */
+const requireStandaloneOwnerOnPatch = (
+  value: { companyId?: string; companyName?: string },
+  context: z.RefinementCtx,
+) => {
+  if (value.companyId === undefined && value.companyName === undefined) return;
+  requireStandaloneOwner(value, context);
+};
+
+export const standaloneProformaCreateSchema = standaloneProformaFields.superRefine(requireStandaloneOwner);
+export type StandaloneProformaCreateInput = z.infer<typeof standaloneProformaCreateSchema>;
+
+export const standaloneProformaUpdateSchema = standaloneProformaFields
+  .partial()
+  .superRefine(requireStandaloneOwnerOnPatch);
+export type StandaloneProformaUpdateInput = z.infer<typeof standaloneProformaUpdateSchema>;
+
+/**
+ * Sözleşme çıktısındaki ödeme planı satırı. Teklife bağlı sözleşmede plan
+ * cari alacaklardan gelir; teklifsiz sözleşmede elle girilir.
+ */
+export const standaloneContractInstallmentSchema = z.object({
+  label: z.string().trim().max(255).optional(),
+  amount: moneySchema,
+  dueDate: z.coerce.date().optional(),
+  /** Senetli vade — çıktıda ayrı işaretlenir. */
+  promissoryNote: z.boolean().optional(),
+  /**
+   * Bu vadenin tahsilat yöntemi (Nakit / Havale / Çek / Senet …). Referans
+   * sözleşmelerde ödeme tablosunun üçüncü sütunu budur; tek bir "ödeme vadesi
+   * gün sayısı" alanı bunu anlatamıyordu.
+   */
+  paymentMethod: z.enum(OPPORTUNITY_PAYMENT_METHODS).optional(),
+});
+export type StandaloneContractInstallmentInput = z.infer<typeof standaloneContractInstallmentSchema>;
+
+const standaloneContractFields = z.object({
+  ...standaloneOwnerFields,
+  contractNo: z.string().trim().min(1).max(64).optional(),
+  signedDate: z.coerce.date(),
+  paymentTermDays: z.coerce.number().int().min(0).max(3650).optional(),
+  items: z.array(proformaFreeItemSchema).min(1).max(200),
+  /** Sözleşme çıktısındaki teslim bilgileri (teklif şartları tablosunun karşılığı). */
+  deliveryLocation: z.string().trim().max(255).optional(),
+  estimatedDeliveryDaysMin: z.coerce.number().int().nonnegative().max(3650).optional(),
+  estimatedDeliveryDaysMax: z.coerce.number().int().nonnegative().max(3650).optional(),
+  importCostsExcluded: z.boolean().default(true),
+  /** Sözleşme 3.3 — fiyata K.D.V. dahil mi? */
+  vatIncluded: z.boolean().default(false),
+  /** Sözleşme 2.6 — nakliye ve sigorta satıcıya mı ait? */
+  freightPaidBySeller: z.boolean().default(false),
+  installments: z.array(standaloneContractInstallmentSchema).max(60).optional(),
+});
+
+export const standaloneContractCreateSchema = standaloneContractFields.superRefine((value, context) => {
+  requireStandaloneOwner(value, context);
+  if (
+    value.estimatedDeliveryDaysMin !== undefined
+    && value.estimatedDeliveryDaysMax !== undefined
+    && value.estimatedDeliveryDaysMin > value.estimatedDeliveryDaysMax
+  ) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'En erken teslim günü en geçten büyük olamaz',
+      path: ['estimatedDeliveryDaysMin'],
+    });
+  }
+});
+export type StandaloneContractCreateInput = z.infer<typeof standaloneContractCreateSchema>;
+
+export const standaloneContractUpdateSchema = standaloneContractFields
+  .partial()
+  .superRefine(requireStandaloneOwnerOnPatch);
+export type StandaloneContractUpdateInput = z.infer<typeof standaloneContractUpdateSchema>;
 
 export const contractCreateSchema = z.object({
   quoteId: z.string().min(1),
@@ -151,7 +373,15 @@ export const contractCreateSchema = z.object({
   signedDate: z.coerce.date().optional(),
   paymentTermDays: z.coerce.number().int().min(0).max(3650).optional(),
   statusCode: z.string().max(64).default('draft'),
-  fileId: z.string().optional(),
+  fileId: z.string().uuid().optional(),
+  /** Çıktının altına basılacak imza (Ayarlar → İmzalar). `null` → imzasız. */
+  signatureId: z.string().uuid().nullish(),
+  // Sözleşme masasında pazarlık edilen fiyat, onaylı teklife dokunmadan
+  // burada saklanır ve sözleşme çıktısı bu değerlerle basılır.
+  items: documentPriceItemsSchema,
+  ...documentHeaderDiscountFields,
+  // Şartlar da sözleşmeye özeldir; teklifinkini yeniden yazmaz.
+  terms: documentTermsSchema,
 });
 export type ContractCreateInput = z.infer<typeof contractCreateSchema>;
 

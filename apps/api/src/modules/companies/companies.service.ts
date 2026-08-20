@@ -1,5 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { and, desc, eq, ilike, inArray, isNotNull, isNull, ne, not, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, exists, ilike, inArray, isNotNull, isNull, ne, not, or, sql, type SQL } from 'drizzle-orm';
 import type { DbClient } from '../../db/client';
 import {
   companies,
@@ -20,7 +20,8 @@ import { competitors, opportunities, salesActivities } from '../../db/schema/crm
 import { deliveries, installationJobs, serviceTickets, shipments } from '../../db/schema/service';
 import { divisions } from '../../db/schema/tenants';
 import { users, userDivisions } from '../../db/schema/users';
-import { companyRelationTypes, companyStatuses, companyGroups, contactSources, paymentStatuses } from '../../db/schema/lookup';
+import { companyRelationTypes, companyStatuses, companyGroups, contactSources, fileDocumentTypes, paymentStatuses } from '../../db/schema/lookup';
+import { files, fileLinks } from '../../db/schema/files';
 import { DB } from '../../shared/database/database.module';
 import { CompanyWebsiteLookupError, ConflictError, ForbiddenError, NotFoundError, ValidationError } from '../../shared/utils/errors';
 import type { AuthContext } from '../../shared/security/auth.types';
@@ -35,7 +36,8 @@ import type {
   CompanyWebsiteLookupInput,
   CompanyWebsiteLookupResult,
   CompanyUpdateInput,
-  CompanyListQuery,
+  CompanyListFilterQuery,
+  CompanySummaryQuery,
   Pagination,
 } from '@haksan/shared';
 import { buildPaginated, pageOffset } from '../../shared/utils/pagination';
@@ -52,6 +54,12 @@ import {
 import { companyVisibilityFilter } from '../../shared/utils/company-visibility';
 import { normalizeCompanyName } from '../../shared/utils/text-normalization';
 import { inspectOfficialCompanyWebsite } from './company-website-lookup';
+import { companyLogoPath } from './company-media.service';
+import { nextRecordNo } from '../../shared/utils/record-sequence';
+
+const COMPANY_LOGO_MIME_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp']);
+const COMPANY_LOGO_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'webp']);
+const MAX_COMPANY_LOGO_BYTES = 5 * 1024 * 1024;
 
 const TURKISH_FOLD_MAP: Record<string, string> = {
   ç: 'c',
@@ -344,17 +352,55 @@ export class CompaniesService {
     return resolveResourceDivisionScope(actor, 'companies');
   }
 
-  private async resolveCreateDivision(input: CompanyCreateInput, actor: AuthContext): Promise<string> {
-    const assigned = resolveAssignedResourceDivision(actor, 'companies', input.divisionId ?? null);
-    if (assigned) {
-      await this.assertDivision(assigned, actor);
-      return assigned;
+  /**
+   * Firma liste ve aggregate sorgularının ortak güvenlik sınırı. İstemcinin
+   * istediği bölüm yalnızca mevcut resource scope içinde ise ek bir daraltma
+   * olarak uygulanır; yetkisiz bir UUID hiçbir zaman kapsamı genişletemez.
+   */
+  private async visibleCompanyFilters(actor: AuthContext, requestedDivisionId?: string): Promise<SQL[]> {
+    const scope = this.scope(actor);
+    const filters: SQL[] = [eq(companies.tenantId, actor.tenantId), isNull(companies.deletedAt)];
+    const portfolio = companyPortfolioFilter(scope, companies.id);
+    if (portfolio) filters.push(portfolio);
+    const visibility = await companyVisibilityFilter(this.db, actor);
+    if (visibility) filters.push(visibility);
+
+    const requestedDivisionAllowed =
+      requestedDivisionId && (scope.mode === 'all' || scope.divisionIds.includes(requestedDivisionId));
+    if (requestedDivisionAllowed) {
+      filters.push(
+        exists(
+          this.db
+            .select({ companyId: companyDivisions.companyId })
+            .from(companyDivisions)
+            .where(
+              and(
+                eq(companyDivisions.companyId, companies.id),
+                eq(companyDivisions.tenantId, actor.tenantId),
+                eq(companyDivisions.divisionId, requestedDivisionId),
+              ),
+            ),
+        ),
+      );
     }
+    return filters;
+  }
+
+  private async resolveCreateDivisions(input: CompanyCreateInput, actor: AuthContext): Promise<string[]> {
+    const requested = Array.from(new Set((input.divisionIds ?? []).filter(Boolean)));
+    if (requested.length) {
+      for (const divisionId of requested) await this.assertDivision(divisionId, actor);
+      return requested;
+    }
+
+    const assigned = resolveAssignedResourceDivision(actor, 'companies', input.divisionId ?? null);
+    if (assigned) return [(await this.assertDivision(assigned, actor)).id];
+
     if (input.companyGroupCode && ['cnc', 'universal', 'sac_isleme'].includes(input.companyGroupCode)) {
       const division = await this.db.query.divisions.findFirst({
         where: and(eq(divisions.tenantId, actor.tenantId), eq(divisions.code, input.companyGroupCode)),
       });
-      if (division) return division.id;
+      if (division) return [(await this.assertDivision(division.id, actor)).id];
     }
     throw new ValidationError('Firma için CNC / Üniversal / Sac İşleme bölümü seçimi zorunludur', { field: 'divisionId' });
   }
@@ -366,6 +412,18 @@ export class CompaniesService {
     if (!division) throw new NotFoundError('Bölüm');
     assertCanUseResourceDivision(actor, 'companies', divisionId);
     return division;
+  }
+
+  private async resolveContactSourceId(code: string | null | undefined): Promise<string | null> {
+    if (!code) return null;
+    const sourceId = await lookupIdByCode(this.db, contactSources, code);
+    if (!sourceId) {
+      throw new ValidationError('Geçersiz irtibat şekli / kaynak seçildi', {
+        field: 'contactSourceCode',
+        code,
+      });
+    }
+    return sourceId;
   }
 
   private async hasCompanyDivision(companyId: string, divisionId: string): Promise<boolean> {
@@ -384,6 +442,43 @@ export class CompaniesService {
     const row = await this.db.query.companies.findFirst({ where: and(...filters) });
     if (!row) throw new NotFoundError('Firma');
     return row;
+  }
+
+  private async assertCompanyLogoFile(fileId: string, companyId: string, actor: AuthContext): Promise<void> {
+    const [logo] = await this.db
+      .select({
+        mimeType: files.mimeType,
+        extension: files.extension,
+        sizeBytes: files.sizeBytes,
+      })
+      .from(files)
+      .innerJoin(fileLinks, eq(fileLinks.fileId, files.id))
+      .innerJoin(fileDocumentTypes, eq(fileLinks.documentTypeId, fileDocumentTypes.id))
+      .where(
+        and(
+          eq(files.id, fileId),
+          eq(files.tenantId, actor.tenantId),
+          eq(files.bucket, 'erp-company-logos'),
+          eq(files.visibility, 'public'),
+          eq(files.uploadStatus, 'linked'),
+          isNull(files.deletedAt),
+          eq(fileLinks.tenantId, actor.tenantId),
+          eq(fileLinks.entityType, 'company'),
+          eq(fileLinks.entityId, companyId),
+          eq(fileDocumentTypes.code, 'company_logo'),
+        ),
+      )
+      .limit(1);
+
+    if (
+      !logo
+      || !COMPANY_LOGO_MIME_TYPES.has(logo.mimeType)
+      || !COMPANY_LOGO_EXTENSIONS.has(logo.extension.toLocaleLowerCase('en-US'))
+      || logo.sizeBytes <= 0
+      || logo.sizeBytes > MAX_COMPANY_LOGO_BYTES
+    ) {
+      throw new ValidationError('Firma logosu geçersiz veya bu firmaya bağlı değil', { field: 'logoFileId' });
+    }
   }
 
   private async companyDivisionRows(companyIds: string[]) {
@@ -486,37 +581,104 @@ export class CompaniesService {
     return row ?? null;
   }
 
-  async list(actor: AuthContext, query: CompanyListQuery, page: Pagination) {
+  async list(actor: AuthContext, query: CompanyListFilterQuery, page: Pagination) {
     const { limit, offset } = pageOffset(page);
-    const filters = [eq(companies.tenantId, actor.tenantId), isNull(companies.deletedAt)];
+    const filters = await this.visibleCompanyFilters(actor, query.divisionId);
+    if (query.ids?.length) filters.push(inArray(companies.id, query.ids));
     if (query.search) {
+      const pattern = `%${query.search}%`;
+      const normalizedSearch = query.search.toLocaleLowerCase('tr-TR');
+      const supplierCategoryCodes = [
+        { code: 'transportation', label: 'nakliye' },
+        { code: 'logistics', label: 'lojistik' },
+      ]
+        .filter((category) => category.label.includes(normalizedSearch))
+        .map((category) => category.code);
       filters.push(
         or(
-          ilike(companies.legalTitle, `%${query.search}%`),
-          ilike(companies.shortName, `%${query.search}%`),
-          ilike(companies.taxNumber, `%${query.search}%`)
+          ilike(companies.legalTitle, pattern),
+          ilike(companies.shortName, pattern),
+          ilike(companies.externalCompanyNo, pattern),
+          ilike(companies.taxNumber, pattern),
+          ilike(companies.sector, pattern),
+          ilike(companies.supplierCategoryCode, pattern),
+          supplierCategoryCodes.length
+            ? inArray(companies.supplierCategoryCode, supplierCategoryCodes)
+            : undefined,
+          exists(
+            this.db
+              .select({ id: companyAddresses.id })
+              .from(companyAddresses)
+              .where(
+                and(
+                  eq(companyAddresses.companyId, companies.id),
+                  eq(companyAddresses.tenantId, actor.tenantId),
+                  isNull(companyAddresses.deletedAt),
+                  or(
+                    ilike(companyAddresses.province, pattern),
+                    ilike(companyAddresses.district, pattern),
+                  ),
+                ),
+              ),
+          ),
+          exists(
+            this.db
+              .select({ id: companyPhones.id })
+              .from(companyPhones)
+              .where(
+                and(
+                  eq(companyPhones.companyId, companies.id),
+                  eq(companyPhones.tenantId, actor.tenantId),
+                  isNull(companyPhones.deletedAt),
+                  ilike(companyPhones.phone, pattern),
+                ),
+              ),
+          ),
+          exists(
+            this.db
+              .select({ id: companyEmails.id })
+              .from(companyEmails)
+              .where(
+                and(
+                  eq(companyEmails.companyId, companies.id),
+                  eq(companyEmails.tenantId, actor.tenantId),
+                  isNull(companyEmails.deletedAt),
+                  ilike(companyEmails.email, pattern),
+                ),
+              ),
+          ),
         )!
       );
     }
     if (query.relationTypeCode) {
       const relId = await lookupIdByCode(this.db, companyRelationTypes, query.relationTypeCode);
-      if (relId) filters.push(eq(companies.relationTypeId, relId));
+      filters.push(relId ? eq(companies.relationTypeId, relId) : sql`1 = 0`);
     }
     if (query.customerStatusCode) {
       const sid = await lookupIdByCode(this.db, companyStatuses, query.customerStatusCode);
-      if (sid) filters.push(eq(companies.customerStatusId, sid));
+      filters.push(sid ? eq(companies.customerStatusId, sid) : sql`1 = 0`);
     }
-    if (query.divisionId) {
-      filters.push(sql`exists (
-        select 1 from company_divisions selected_cd
-        where selected_cd.company_id = ${companies.id}
-          and selected_cd.division_id = ${query.divisionId}
-      )`);
+    if (query.city) {
+      filters.push(
+        exists(
+          this.db
+            .select({ id: companyAddresses.id })
+            .from(companyAddresses)
+            .where(
+              and(
+                eq(companyAddresses.companyId, companies.id),
+                eq(companyAddresses.tenantId, actor.tenantId),
+                isNull(companyAddresses.deletedAt),
+                eq(companyAddresses.province, query.city),
+              ),
+            ),
+        ),
+      );
     }
-    const portfolio = companyPortfolioFilter(this.scope(actor), companies.id);
-    if (portfolio) filters.push(portfolio);
-    const visibility = await companyVisibilityFilter(this.db, actor);
-    if (visibility) filters.push(visibility);
+    if (query.sector) filters.push(eq(companies.sector, query.sector));
+    if (query.supplierCategoryCode) {
+      filters.push(eq(companies.supplierCategoryCode, query.supplierCategoryCode));
+    }
 
     const where = and(...filters);
     const [{ count }] = await this.db
@@ -524,6 +686,10 @@ export class CompaniesService {
       .from(companies)
       .where(where);
 
+    const sortColumn = page.sortBy === 'name' ? companies.legalTitle : companies.createdAt;
+    const orderBy = page.sortDir === 'asc'
+      ? [asc(sortColumn), asc(companies.id)]
+      : [desc(sortColumn), desc(companies.id)];
     const rows = await this.db
       .select({
         company: companies,
@@ -540,7 +706,7 @@ export class CompaniesService {
       .leftJoin(contactSources, eq(companies.contactSourceId, contactSources.id))
       .leftJoin(users, and(eq(companies.createdBy, users.id), eq(users.tenantId, actor.tenantId)))
       .where(where)
-      .orderBy(desc(companies.createdAt))
+      .orderBy(...orderBy)
       .limit(limit)
       .offset(offset);
 
@@ -561,6 +727,7 @@ export class CompaniesService {
         const rowEmails = emails.filter((e) => e.companyId === r.company.id);
         return {
           ...r.company,
+          logoUrl: r.company.logoFileId ? companyLogoPath(r.company.logoFileId) : null,
           relationType: r.relationType,
           customerStatus: r.customerStatus,
           companyGroup: r.companyGroup,
@@ -584,6 +751,71 @@ export class CompaniesService {
     );
   }
 
+  async summary(actor: AuthContext, query: CompanySummaryQuery) {
+    const filters = await this.visibleCompanyFilters(actor, query.divisionId);
+    const where = and(...filters);
+    const [totalRows, relationRows, statusRows, cityRows, sectorRows] = await Promise.all([
+      this.db
+        .select({ total: sql<number>`count(*)::int` })
+        .from(companies)
+        .where(where),
+      this.db
+        .select({ code: companyRelationTypes.code, count: sql<number>`count(*)::int` })
+        .from(companies)
+        .innerJoin(companyRelationTypes, eq(companies.relationTypeId, companyRelationTypes.id))
+        .where(where)
+        .groupBy(companyRelationTypes.code),
+      this.db
+        .select({ code: companyStatuses.code, count: sql<number>`count(*)::int` })
+        .from(companies)
+        .innerJoin(companyStatuses, eq(companies.customerStatusId, companyStatuses.id))
+        .where(where)
+        .groupBy(companyStatuses.code),
+      this.db
+        .selectDistinct({ value: companyAddresses.province })
+        .from(companyAddresses)
+        .innerJoin(companies, eq(companyAddresses.companyId, companies.id))
+        .where(
+          and(
+            ...filters,
+            eq(companyAddresses.tenantId, actor.tenantId),
+            isNull(companyAddresses.deletedAt),
+            isNotNull(companyAddresses.province),
+            ne(companyAddresses.province, ''),
+          ),
+        )
+        .orderBy(asc(companyAddresses.province)),
+      this.db
+        .selectDistinct({ value: companies.sector })
+        .from(companies)
+        .where(and(...filters, isNotNull(companies.sector), ne(companies.sector, '')))
+        .orderBy(asc(companies.sector)),
+    ]);
+
+    const byRelation: Record<string, number> = {
+      customer: 0,
+      supplier: 0,
+      supplier_customer: 0,
+      competitor: 0,
+    };
+    for (const row of relationRows) byRelation[row.code] = row.count;
+    const byStatus: Record<string, number> = {
+      potential: 0,
+      active: 0,
+      passive: 0,
+      blacklist: 0,
+    };
+    for (const row of statusRows) byStatus[row.code] = row.count;
+
+    return {
+      total: totalRows[0]?.total ?? 0,
+      byRelation,
+      byStatus,
+      cities: cityRows.map((row) => row.value).filter((value): value is string => Boolean(value)),
+      sectors: sectorRows.map((row) => row.value).filter((value): value is string => Boolean(value)),
+    };
+  }
+
   async get(id: string, actor: AuthContext) {
     const row = await this.assertCompanyVisible(id, actor);
 
@@ -597,6 +829,7 @@ export class CompaniesService {
     const creator = await this.createdByUser(row.createdBy, actor.tenantId);
     return {
       ...row,
+      logoUrl: row.logoFileId ? companyLogoPath(row.logoFileId) : null,
       createdByUser: creator,
       addresses,
       phones,
@@ -753,7 +986,18 @@ export class CompaniesService {
   }
 
   async create(input: CompanyCreateInput, actor: AuthContext) {
-    const divisionId = await this.resolveCreateDivision(input, actor);
+    const divisionIds = await this.resolveCreateDivisions(input, actor);
+    const primaryDivisionId = divisionIds[0];
+    if (input.externalCompanyNo) {
+      const existing = await this.db.query.companies.findFirst({
+        where: and(
+          eq(companies.tenantId, actor.tenantId),
+          eq(companies.externalCompanyNo, input.externalCompanyNo),
+          isNull(companies.deletedAt)
+        ),
+      });
+      if (existing) throw new ConflictError('Bu firma numarası ile bir firma zaten kayıtlı');
+    }
     if (input.taxNumber) {
       const existing = await this.db.query.companies.findFirst({
         where: and(
@@ -763,10 +1007,10 @@ export class CompaniesService {
         ),
       });
       if (existing) {
-        if (await this.hasCompanyDivision(existing.id, divisionId)) {
+        if (await this.hasCompanyDivision(existing.id, primaryDivisionId)) {
           throw new ConflictError('Bu vergi numarası ile bir firma zaten kayıtlı');
         }
-        const request = await this.createAccessRequestForDivision(existing.id, divisionId, actor, {
+        const request = await this.createAccessRequestForDivision(existing.id, primaryDivisionId, actor, {
           note: input.notes ?? null,
         });
         throw new ConflictError('Bu vergi numarası başka bir bölüm portföyünde kayıtlı; erişim talebi oluşturuldu', {
@@ -779,11 +1023,24 @@ export class CompaniesService {
 
     const selectedGroupCodes = input.companyGroupCodes ?? (input.companyGroupCode ? [input.companyGroupCode] : []);
     const selectedGroups = await this.resolveCompanyGroups(selectedGroupCodes);
+    const externalCompanyNo = input.externalCompanyNo ?? await nextRecordNo(this.db, actor.tenantId, 'company');
     const [relId, statusId, sourceId] = await Promise.all([
       lookupIdByCode(this.db, companyRelationTypes, input.relationTypeCode),
       lookupIdByCode(this.db, companyStatuses, input.customerStatusCode),
-      lookupIdByCode(this.db, contactSources, input.contactSourceCode),
+      this.resolveContactSourceId(input.contactSourceCode),
     ]);
+    if (!relId) {
+      throw new ValidationError('Geçersiz firma ilişki türü seçildi', {
+        field: 'relationTypeCode',
+        code: input.relationTypeCode,
+      });
+    }
+    if (!statusId) {
+      throw new ValidationError('Geçersiz firma durumu seçildi', {
+        field: 'customerStatusCode',
+        code: input.customerStatusCode,
+      });
+    }
 
     let created: typeof companies.$inferSelect;
     try {
@@ -792,11 +1049,13 @@ export class CompaniesService {
           .insert(companies)
           .values({
             tenantId: actor.tenantId,
+            externalCompanyNo,
             companyType: input.companyType,
             relationTypeId: relId,
             customerStatusId: statusId,
             companyGroupId: selectedGroups[0]?.id ?? null,
             contactSourceId: sourceId,
+            contactSourceText: input.contactSourceText ?? null,
             sector: input.sector ?? null,
             supplierCategoryCode: input.supplierCategoryCode ?? null,
             legalTitle: normalizeCompanyName(input.legalTitle),
@@ -810,6 +1069,8 @@ export class CompaniesService {
           })
           .returning();
 
+        // Firma kartındaki "Rakip" seçimi LOST penceresinin kullandığı rakip
+        // kataloğuna aynı transaction içinde yansır; kısmi kayıt oluşmaz.
         if (input.relationTypeCode === 'competitor') {
           const competitorName = company.shortName || company.legalTitle;
           const legacyCompetitor = await tx.query.competitors.findFirst({
@@ -836,15 +1097,14 @@ export class CompaniesService {
           }
         }
 
-        await tx
-          .insert(companyDivisions)
-          .values({
+        await tx.insert(companyDivisions).values(
+          divisionIds.map((divisionId) => ({
             tenantId: actor.tenantId,
             companyId: company.id,
             divisionId,
             addedByUserId: actor.userId,
-          })
-          .onConflictDoNothing();
+          }))
+        ).onConflictDoNothing();
 
         if (selectedGroups.length) {
           await tx.insert(companyGroupAssignments).values(
@@ -940,6 +1200,22 @@ export class CompaniesService {
   async update(id: string, input: CompanyUpdateInput, actor: AuthContext) {
     const existing = await this.get(id, actor);
 
+    if (input.logoFileId) {
+      await this.assertCompanyLogoFile(input.logoFileId, id, actor);
+    }
+
+    if (input.externalCompanyNo && input.externalCompanyNo !== existing.externalCompanyNo) {
+      const duplicate = await this.db.query.companies.findFirst({
+        where: and(
+          eq(companies.tenantId, actor.tenantId),
+          eq(companies.externalCompanyNo, input.externalCompanyNo),
+          isNull(companies.deletedAt),
+          ne(companies.id, id)
+        ),
+      });
+      if (duplicate) throw new ConflictError('Bu firma numarası ile bir firma zaten kayıtlı');
+    }
+
     if (input.taxNumber && input.taxNumber !== existing.taxNumber) {
       const duplicate = await this.db.query.companies.findFirst({
         where: and(
@@ -953,13 +1229,26 @@ export class CompaniesService {
     }
 
     const groupSelectionProvided = input.companyGroupCodes !== undefined || input.companyGroupCode !== undefined;
+    const contactSourceSelectionProvided = input.contactSourceCode !== undefined || input.contactSourceText !== undefined;
     const selectedGroupCodes = input.companyGroupCodes ?? (input.companyGroupCode ? [input.companyGroupCode] : []);
     const selectedGroups = groupSelectionProvided ? await this.resolveCompanyGroups(selectedGroupCodes) : [];
     const [relId, statusId, sourceId] = await Promise.all([
       lookupIdByCode(this.db, companyRelationTypes, input.relationTypeCode),
       lookupIdByCode(this.db, companyStatuses, input.customerStatusCode),
-      lookupIdByCode(this.db, contactSources, input.contactSourceCode),
+      this.resolveContactSourceId(input.contactSourceCode),
     ]);
+    if (input.relationTypeCode !== undefined && !relId) {
+      throw new ValidationError('Geçersiz firma ilişki türü seçildi', {
+        field: 'relationTypeCode',
+        code: input.relationTypeCode,
+      });
+    }
+    if (input.customerStatusCode !== undefined && !statusId) {
+      throw new ValidationError('Geçersiz firma durumu seçildi', {
+        field: 'customerStatusCode',
+        code: input.customerStatusCode,
+      });
+    }
     const competitorRelationId = await lookupIdByCode(this.db, companyRelationTypes, 'competitor');
     const shouldBeCompetitor = input.relationTypeCode !== undefined
       ? input.relationTypeCode === 'competitor'
@@ -969,10 +1258,15 @@ export class CompaniesService {
       updatedBy: actor.userId,
     };
     if (input.companyType !== undefined) patch.companyType = input.companyType;
+    if (input.logoFileId !== undefined) patch.logoFileId = input.logoFileId;
+    if (input.externalCompanyNo !== undefined) patch.externalCompanyNo = input.externalCompanyNo;
     if (input.relationTypeCode !== undefined) patch.relationTypeId = relId;
     if (input.customerStatusCode !== undefined) patch.customerStatusId = statusId;
     if (groupSelectionProvided) patch.companyGroupId = selectedGroups[0]?.id ?? null;
-    if (input.contactSourceCode !== undefined) patch.contactSourceId = sourceId;
+    if (contactSourceSelectionProvided) {
+      patch.contactSourceId = sourceId;
+      patch.contactSourceText = input.contactSourceText ?? null;
+    }
     for (const k of ['sector', 'supplierCategoryCode', 'legalTitle', 'shortName', 'taxOffice', 'taxNumber', 'website', 'notes'] as const) {
       if ((input as any)[k] === undefined) continue;
       const value = (input as any)[k];

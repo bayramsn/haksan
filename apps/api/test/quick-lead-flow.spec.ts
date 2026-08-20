@@ -7,6 +7,7 @@ let app: NestFastifyApplication;
 let token = '';
 let companyId = '';
 let opportunityId = '';
+let ownerUserId = '';
 const suffix = Date.now();
 const contactName = `Hızlı Lead Kontak ${suffix}`;
 const phoneSuffix = String(suffix).slice(-7);
@@ -23,14 +24,19 @@ beforeAll(async () => {
     .get('/api/v1/companies?pageSize=10')
     .set('Authorization', `Bearer ${token}`);
   companyId = companies.body.data[0].id;
+  const assignees = await supertest(server)
+    .get('/api/v1/opportunities/assignees')
+    .set('Authorization', `Bearer ${token}`);
+  expect(assignees.status, JSON.stringify(assignees.body)).toBe(200);
+  ownerUserId = assignees.body[0].id;
 });
 
 afterAll(async () => {
   await app.close();
 });
 
-describe('Companyless quick lead flow', () => {
-  it('creates a lead without creating a company record', async () => {
+describe('Companyless quick opportunity flow', () => {
+  it('creates a lead opportunity without creating a company record', async () => {
     const server = app.getHttpServer();
     const before = await supertest(server)
       .get('/api/v1/companies?pageSize=1')
@@ -55,7 +61,21 @@ describe('Companyless quick lead flow', () => {
     expect(created.body.leadCompanyTitle).toBe(`Opsiyonel Ünvan ${suffix}`);
     expect(created.body.source?.code).toBe('phone');
     expect(created.body.stage?.code).toBe('lead');
+    expect(created.body.qualificationStage).toBe('lead');
     opportunityId = created.body.id;
+
+    // Lead adımından çıkmak için sorumlu şart; kalan adımlar C alanından devam eder.
+    const owned = await supertest(server)
+      .patch(`/api/v1/opportunities/${opportunityId}`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ ownerUserId });
+    expect(owned.status, JSON.stringify(owned.body)).toBe(200);
+
+    const advanced = await supertest(server)
+      .patch(`/api/v1/opportunities/${opportunityId}/qualification-stage`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ toStage: 'c' });
+    expect(advanced.status, JSON.stringify(advanced.body)).toBe(200);
 
     const after = await supertest(server)
       .get('/api/v1/companies?pageSize=1')
@@ -71,7 +91,22 @@ describe('Companyless quick lead flow', () => {
     expect([400, 422]).toContain(response.status);
   });
 
-  it('keeps the lead searchable by contact and blocks quote stage until a company is linked', async () => {
+  it('accepts an optional responsible user while creating an opportunity', async () => {
+    const response = await supertest(app.getHttpServer())
+      .post('/api/v1/opportunities')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        leadContactName: `Atamalı Lead ${suffix}`,
+        leadContactValue: `0533${phoneSuffix}`,
+        title: `Atamalı ürün ${suffix}`,
+        currencyCode: 'USD',
+        ownerUserId,
+      });
+    expect(response.status, JSON.stringify(response.body)).toBe(201);
+    expect(response.body.ownerUserId).toBe(ownerUserId);
+  });
+
+  it('keeps the opportunity searchable by contact and blocks quote stage until a company is linked', async () => {
     const server = app.getHttpServer();
     const listed = await supertest(server)
       .get(`/api/v1/opportunities?search=${encodeURIComponent(contactName)}&pageSize=10`)
@@ -87,7 +122,7 @@ describe('Companyless quick lead flow', () => {
     expect(blocked.body.error?.message).toContain('firma');
   });
 
-  it('links a company and converts the lead contact into a real contact', async () => {
+  it('links a company and converts the first-contact person into a real contact', async () => {
     const server = app.getHttpServer();
     const linked = await supertest(server)
       .post(`/api/v1/opportunities/${opportunityId}/company`)

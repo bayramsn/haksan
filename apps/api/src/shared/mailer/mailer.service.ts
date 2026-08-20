@@ -1,32 +1,31 @@
 import { Injectable } from '@nestjs/common';
 import nodemailer, { type Transporter } from 'nodemailer';
 import { loadEnv } from '../../config/env';
+import type { AuthContext } from '../security/auth.types';
 import { logger } from '../utils/logger';
-
-type TextMailAttachment = {
-  filename: string;
-  content: Buffer;
-  contentType: string;
-};
+import { UserMailAccountService, type MailAttachment } from './user-mail-account.service';
 
 @Injectable()
 export class MailerService {
   private readonly env = loadEnv();
   private transporter: Transporter | null = null;
 
+  constructor(private readonly userMailAccounts: UserMailAccountService) {}
+
   private getTransporter(): Transporter | null {
     if (
-      !this.env.APP_PUBLIC_URL ||
-      !this.env.SMTP_USER ||
-      !this.env.SMTP_PASSWORD ||
-      /^(localhost|127\.0\.0\.1)$/i.test(this.env.SMTP_HOST)
+      this.env.NODE_ENV === 'test' ||
+      (this.env.NODE_ENV === 'production' &&
+        (!this.env.SMTP_USER || !this.env.SMTP_PASSWORD || /^(localhost|127\.0\.0\.1)$/i.test(this.env.SMTP_HOST)))
     ) return null;
     if (!this.transporter) {
       this.transporter = nodemailer.createTransport({
         host: this.env.SMTP_HOST,
         port: this.env.SMTP_PORT,
         secure: this.env.SMTP_SECURE,
-        auth: { user: this.env.SMTP_USER, pass: this.env.SMTP_PASSWORD },
+        ...(this.env.SMTP_USER && this.env.SMTP_PASSWORD
+          ? { auth: { user: this.env.SMTP_USER, pass: this.env.SMTP_PASSWORD } }
+          : {}),
       });
     }
     return this.transporter;
@@ -36,12 +35,26 @@ export class MailerService {
     return this.getTransporter() !== null;
   }
 
+  async canSendFor(actor: Pick<AuthContext, 'tenantId' | 'userId'>): Promise<boolean> {
+    const personal = await this.userMailAccounts.status(actor);
+    if (personal.configured) return personal.featureEnabled && personal.status === 'active';
+    return this.isConfigured();
+  }
+
   async sendTextEmail(input: {
     to: string;
     subject: string;
     text: string;
-    attachments?: TextMailAttachment[];
+    attachments?: MailAttachment[];
+    actor?: Pick<AuthContext, 'tenantId' | 'userId'>;
   }): Promise<boolean> {
+    if (input.actor) {
+      const personal = await this.userMailAccounts.status(input.actor);
+      if (personal.configured) {
+        await this.userMailAccounts.send(input, input.actor);
+        return true;
+      }
+    }
     const transporter = this.getTransporter();
     if (!transporter) return false;
     await transporter.sendMail({
@@ -52,8 +65,8 @@ export class MailerService {
       attachments: input.attachments,
     });
     logger.info(
-      { action: 'assistant_mail_sent', attachmentCount: input.attachments?.length ?? 0 },
-      '[mailer] assistant mail delivered'
+      { action: 'mail_sent', attachmentCount: input.attachments?.length ?? 0 },
+      '[mailer] mail delivered'
     );
     return true;
   }
