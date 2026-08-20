@@ -521,6 +521,28 @@ export function DecisionRail({
         </div>
         {canAssignOwner ? ownerSelect() : <div className="mt-1 text-sm font-medium">{ownerName || "Sahipsiz havuz"}</div>}
       </div>
+      {/*
+        Tahmini kapanış tarihi düzenleyicisiz kalmıştı: "Ticari alanları kaydet"
+        formu kaldırılınca alanın tek yazarı Trello içe aktarımı kaldı ve
+        oradan gelen termin tarihi kullanıcıya hiç görünmedi. Rayda duruyor —
+        her aşamada görünür, sorumlu ve sonraki aksiyonla aynı yerde.
+      */}
+      <div>
+        <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+          Tahmini kapanış
+        </div>
+        <Input
+          type="date"
+          className="h-9 text-xs"
+          aria-label="Tahmini kapanış tarihi"
+          value={salesCase.expectedCloseDate ?? ""}
+          disabled={!canUpdate}
+          onChange={(event) => {
+            const next = event.target.value;
+            void updateCase(salesCase.id, { expectedCloseDate: next || null });
+          }}
+        />
+      </div>
       {quickContactActions}
       {canUpdate && !simpleMode && (
         <NextActionDialog
