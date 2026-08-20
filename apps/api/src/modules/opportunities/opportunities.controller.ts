@@ -12,6 +12,7 @@ import {
   opportunityConvertSchema,
   leadContactEventSchema,
   opportunityQualificationChangeSchema,
+  opportunityProcessCheckUpsertSchema,
   opportunityQualificationStageEnum,
   trelloImportCommitRequestSchema,
   trelloImportPreviewRequestSchema,
@@ -26,6 +27,7 @@ import {
   type OpportunityConvertInput,
   type LeadContactEventInput,
   type OpportunityQualificationChangeInput,
+  type OpportunityProcessCheckUpsertInput,
   type OpportunityApprovalType,
   type TrelloImportCommitRequest,
   type TrelloImportPreviewRequest,
@@ -163,6 +165,17 @@ export class OpportunitiesController {
     @CurrentUser() user: AuthContext
   ) {
     return this.svc.changeQualificationStage(id, body, user);
+  }
+
+  @RequirePermissions('opportunities.update')
+  @Patch(':id/process-checks/:key')
+  setProcessCheck(
+    @Param('id') id: string,
+    @Param('key') key: string,
+    @Body(new ZodValidationPipe(opportunityProcessCheckUpsertSchema)) body: OpportunityProcessCheckUpsertInput,
+    @CurrentUser() user: AuthContext
+  ) {
+    return this.svc.setProcessCheck(id, key, body, user);
   }
 
   @RequirePermissions('opportunities.approve')

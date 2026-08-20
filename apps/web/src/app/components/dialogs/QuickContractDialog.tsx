@@ -10,7 +10,7 @@ import { Label } from "../ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
 import { Switch } from "../ui/switch";
 import { DialogSplitLayout, DialogSidebarSection } from "../shared/DialogSplitLayout";
-import { ProformaTotalsPanel } from "../shared/ProformaItemsEditor";
+import { DocumentDiscountFields, ProformaTotalsPanel } from "../shared/ProformaItemsEditor";
 import {
   emptyQuickFreeItem,
   emptyQuickParty,
@@ -32,7 +32,10 @@ import { useStore } from "../../lib/store";
 import { useAuth } from "../../../lib/auth";
 import { documentService } from "../../../lib/services";
 import { DocumentTermsTemplateEditor, useTermsTemplates } from "./DocumentTermsTemplateEditor";
-import { computeProformaTotals, formatMoneyInput, parseMoneyInput } from "../../lib/proformaPricing";
+import {
+  computeProformaTotals, EMPTY_DOCUMENT_DISCOUNT, formatMoneyInput, hasDocumentDiscount, parseMoneyInput,
+  type DocumentDiscount,
+} from "../../lib/proformaPricing";
 import { contractDoc, loadContractPrintData, printAssetBase } from "../../lib/print";
 import { printOrWarn } from "../../lib/pageHelpers";
 import type { DocumentItem } from "../../lib/mock";
@@ -117,6 +120,9 @@ export function QuickContractDialog({
   const [deliveryDaysMin, setDeliveryDaysMin] = useState("");
   const [deliveryDaysMax, setDeliveryDaysMax] = useState("");
   const [importCostsExcluded, setImportCostsExcluded] = useState(true);
+  // Sözleşme 3.3 ve 2.6 maddelerinin yönü; varsayılanlar bugünkü çıktıyı korur.
+  const [vatIncluded, setVatIncluded] = useState(false);
+  const [freightPaidBySeller, setFreightPaidBySeller] = useState(false);
   const [installments, setInstallments] = useState<Installment[]>([]);
   const [termsTemplateKey, setTermsTemplateKey] = useState("");
   const [paymentTerms, setPaymentTerms] = useState("");
@@ -144,6 +150,8 @@ export function QuickContractDialog({
       setDeliveryDaysMin(snapshot.terms?.estimatedDeliveryDaysMin?.toString() ?? "");
       setDeliveryDaysMax(snapshot.terms?.estimatedDeliveryDaysMax?.toString() ?? "");
       setImportCostsExcluded(snapshot.terms?.importCostsExcluded ?? true);
+      setVatIncluded(snapshot.terms?.vatIncluded ?? false);
+      setFreightPaidBySeller(snapshot.terms?.freightPaidBySeller ?? false);
       setInstallments(
         (Array.isArray(snapshot.receivables) ? snapshot.receivables : []).map((receivable: any) => ({
           ...emptyInstallment(),
@@ -178,7 +186,11 @@ export function QuickContractDialog({
   const selectedCompanyQuery = useCompanyDetail(party.manualCompany ? null : party.companyId);
   const selectedCompany = selectedCompanyQuery.data ?? null;
   const priceRows = useMemo(() => quickFreeItemsToRows(items), [items]);
-  const totals = useMemo(() => computeProformaTotals(priceRows), [priceRows]);
+  const [documentDiscount, setDocumentDiscount] = useState<DocumentDiscount>(EMPTY_DOCUMENT_DISCOUNT);
+  const totals = useMemo(
+    () => computeProformaTotals(priceRows, { documentDiscount }),
+    [documentDiscount, priceRows],
+  );
   const installmentTotal = installments.reduce((sum, row) => sum + parseMoneyInput(row.amount), 0);
 
   const patchInstallment = (key: string, patch: Partial<Installment>) =>
@@ -234,6 +246,13 @@ export function QuickContractDialog({
         statusCode: "draft",
         currencyCode,
         items: quickFreeItemsPayload(items, { productDetails: true }),
+        // Belge geneli iskonto; satır iskontolarından ayrı olarak net toplamdan düşülür.
+        ...(hasDocumentDiscount(documentDiscount)
+          ? {
+              headerDiscountAmount: documentDiscount.amount,
+              headerDiscountPercent: documentDiscount.percent,
+            }
+          : {}),
         paymentTerms: paymentTerms || undefined,
         deliveryTerms: deliveryTerms || undefined,
         warrantyTerms: warrantyTerms || undefined,
@@ -241,6 +260,8 @@ export function QuickContractDialog({
         estimatedDeliveryDaysMin: deliveryDaysMin.trim() === "" ? undefined : Number(deliveryDaysMin),
         estimatedDeliveryDaysMax: deliveryDaysMax.trim() === "" ? undefined : Number(deliveryDaysMax),
         importCostsExcluded,
+        vatIncluded,
+        freightPaidBySeller,
         installments: installments.length
           ? installments.map((row) => ({
               label: row.label.trim() || (row.promissoryNote ? "Senet" : undefined),
@@ -306,6 +327,14 @@ export function QuickContractDialog({
                     )}
                   </dl>
                 </DialogSidebarSection>
+
+                <DocumentDiscountFields
+                  value={documentDiscount}
+                  onChange={setDocumentDiscount}
+                  currency={currencyCode}
+                  idPrefix="quick-contract-discount"
+                  disabled={saving}
+                />
 
                 <ProformaTotalsPanel totals={totals} currency={currencyCode} />
 
@@ -395,10 +424,20 @@ export function QuickContractDialog({
                     <p className="mt-1 text-[10px] text-muted-foreground">Bu firmaya fatura kesilirken vade önerisi olur.</p>
                   </div>
                 </div>
-                <label className="mt-3 flex items-center gap-2 text-[11px] text-muted-foreground">
-                  <Switch checked={!importCostsExcluded} onCheckedChange={(next) => setImportCostsExcluded(!next)} />
-                  İthalat masrafları fiyata dahil
-                </label>
+                <div className="mt-3 grid gap-2">
+                  <label className="flex items-center gap-2 text-[11px] text-muted-foreground">
+                    <Switch checked={!importCostsExcluded} onCheckedChange={(next) => setImportCostsExcluded(!next)} />
+                    İthalat masrafları fiyata dahil
+                  </label>
+                  <label className="flex items-center gap-2 text-[11px] text-muted-foreground">
+                    <Switch checked={vatIncluded} onCheckedChange={setVatIncluded} />
+                    K.D.V. fiyata dahil (sözleşme 3.3 — yazılan tutar brüt basılır)
+                  </label>
+                  <label className="flex items-center gap-2 text-[11px] text-muted-foreground">
+                    <Switch checked={freightPaidBySeller} onCheckedChange={setFreightPaidBySeller} />
+                    Nakliye ve sigorta HAKSAN'a ait (sözleşme 2.6)
+                  </label>
+                </div>
               </section>
 
               <section className="overflow-hidden rounded-xl border border-border/70 bg-card">

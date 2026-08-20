@@ -276,6 +276,40 @@ export const opportunityQualificationHistory = pgTable(
   })
 );
 
+/**
+ * A+ süreç adımlarının elle işaretlenmesi.
+ *
+ * Adımların çoğu kanıttan türetilir; A+ alanındaki işlerin bir kısmı ise CRM
+ * dışında yürür (gümrükçü, nakliyeci, saha ekibi). Bu tablo adım başına tek
+ * "yapıldı / yapılmadı" kaydı ve satışçının bıraktığı yorumu tutar.
+ */
+export const opportunityProcessChecks = pgTable(
+  'opportunity_process_checks',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id')
+      .notNull()
+      .references(() => tenants.id, { onDelete: 'cascade' }),
+    opportunityId: uuid('opportunity_id')
+      .notNull()
+      .references(() => opportunities.id, { onDelete: 'cascade' }),
+    checkKey: varchar('check_key', { length: 64 }).notNull(),
+    status: varchar('status', { length: 16 }).notNull(),
+    note: text('note'),
+    updatedBy: uuid('updated_by').references(() => users.id, { onDelete: 'set null' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true })
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (t) => ({
+    opportunityCheckUnique: uniqueIndex('opportunity_process_checks_unique').on(t.opportunityId, t.checkKey),
+    tenantIdx: index('opportunity_process_checks_tenant_idx').on(t.tenantId),
+    statusCheck: check('opportunity_process_checks_status_check', sql`${t.status} in ('done', 'not_done')`),
+  })
+);
+
 export const opportunityApprovals = pgTable(
   'opportunity_approvals',
   {

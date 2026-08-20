@@ -64,8 +64,8 @@ async function expectSoftDeleted(id: string, actorUserId: string) {
   expect(audit?.newValues).toMatchObject({ deletedAt: expect.any(String) });
 }
 
-describe('Lead and opportunity card deletion', () => {
-  it('enforces delete permission and soft-deletes a Lead card', async () => {
+describe('Opportunity card deletion', () => {
+  it('enforces delete permission and soft-deletes a companyless lead opportunity', async () => {
     const server = app.getHttpServer();
     const created = await supertest(server)
       .post('/api/v1/opportunities')
@@ -79,6 +79,7 @@ describe('Lead and opportunity card deletion', () => {
 
     expect(created.status, JSON.stringify(created.body)).toBe(201);
     expect(created.body.qualificationStage).toBe('lead');
+    expect(created.body.stage?.code).toBe('lead');
     const leadId = created.body.id as string;
 
     const forbidden = await supertest(server)
@@ -97,15 +98,15 @@ describe('Lead and opportunity card deletion', () => {
       .set('Authorization', `Bearer ${superAdminToken}`);
     expect(hiddenDetail.status).toBe(404);
 
-    const leads = await supertest(server)
-      .get('/api/v1/opportunities?lifecycle=lead&pageSize=100')
+    const opportunities = await supertest(server)
+      .get('/api/v1/opportunities?lifecycle=opportunity&pageSize=100')
       .set('Authorization', `Bearer ${superAdminToken}`);
-    expect(leads.body.data.some((row: { id: string }) => row.id === leadId)).toBe(false);
+    expect(opportunities.body.data.some((row: { id: string }) => row.id === leadId)).toBe(false);
 
     await expectSoftDeleted(leadId, superAdminUserId);
   });
 
-  it('soft-deletes a converted opportunity from the opportunity pool', async () => {
+  it('soft-deletes a created opportunity from the opportunity pool', async () => {
     const server = app.getHttpServer();
     const created = await supertest(server)
       .post('/api/v1/opportunities')
@@ -119,15 +120,9 @@ describe('Lead and opportunity card deletion', () => {
         nextActionAt: '2030-01-15T09:30:00.000Z',
       });
     expect(created.status, JSON.stringify(created.body)).toBe(201);
+    expect(created.body.qualificationStage).toBe('lead');
 
     const opportunityId = created.body.id as string;
-    const converted = await supertest(server)
-      .post(`/api/v1/opportunities/${opportunityId}/convert`)
-      .set('Authorization', `Bearer ${superAdminToken}`)
-      .send({ note: 'Silme akışı testi', overrideReason: 'Silme testi için nitelendirme eksikleri kabul edildi' });
-    expect(converted.status, JSON.stringify(converted.body)).toBe(201);
-    expect(converted.body.qualificationStage).toBe('c');
-
     const removed = await supertest(server)
       .delete(`/api/v1/opportunities/${opportunityId}`)
       .set('Authorization', `Bearer ${superAdminToken}`);

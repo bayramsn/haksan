@@ -21,7 +21,6 @@ export type OperationNav =
   | "calendar"
   | "customers"
   | "contacts"
-  | "leads"
   | "sales-cases"
   | "kanban"
   | "sales-map"
@@ -254,7 +253,7 @@ const findUser = (data: OperationStoreSnapshot, id?: string) =>
   data.users.find((u) => u.id === id)?.name ?? "Atanmadı";
 
 const isOpenSalesCase = (s: SalesCase) =>
-  (s.qualificationStage ?? "lead") !== "lead" &&
+  (s.qualificationStage ?? "c") !== "lead" &&
   !s.isLost &&
   !["Completed", "Lost", "delivered"].includes(String(s.stage));
 
@@ -332,7 +331,7 @@ export function buildWorkItems(data: OperationStoreSnapshot): WorkItem[] {
 
   data.cases
     .filter((salesCase) =>
-      (salesCase.qualificationStage ?? "lead") === "lead" &&
+      (salesCase.qualificationStage ?? "c") === "lead" &&
       salesCase.leadFollowUpStatus !== "disqualified"
     )
     .sort((left, right) =>
@@ -361,7 +360,7 @@ export function buildWorkItems(data: OperationStoreSnapshot): WorkItem[] {
             : `Öncelik %${salesCase.leadInsights?.priorityScore ?? 0}`,
         owner: findUser(data, salesCase.assignedUserId),
         severity: slaRisk ? "critical" : !salesCase.assignedUserId || needsAction ? "warning" : "info",
-        module: "leads",
+        module: "sales-cases",
         action: { kind: "salesCase", salesCaseId: salesCase.id },
         dueDate: salesCase.nextActionAt ?? salesCase.createdAt,
       });
@@ -478,7 +477,7 @@ export function buildWorkItems(data: OperationStoreSnapshot): WorkItem[] {
 
 export function buildAlerts(data: OperationStoreSnapshot): OperationAlert[] {
   const leads = data.cases.filter((salesCase) =>
-    (salesCase.qualificationStage ?? "lead") === "lead" &&
+    (salesCase.qualificationStage ?? "c") === "lead" &&
     salesCase.leadFollowUpStatus !== "disqualified"
   );
   const leadSlaRisks = leads.filter((salesCase) => {
@@ -506,8 +505,8 @@ export function buildAlerts(data: OperationStoreSnapshot): OperationAlert[] {
           title: `${leadSlaRisks.length} lead SLA riski`,
           description: "İlk temas veya sonraki aksiyon süresi kritik seviyede",
           severity: "critical" as const,
-          module: "leads" as const,
-          action: { kind: "navigate", nav: "leads", focus: "sla_risk" } as OperationAction,
+          module: "sales-cases" as const,
+          action: { kind: "navigate", nav: "sales-cases", focus: "sla_risk" } as OperationAction,
         }
       : null,
     unassignedLeads.length
@@ -516,8 +515,8 @@ export function buildAlerts(data: OperationStoreSnapshot): OperationAlert[] {
           title: `${unassignedLeads.length} sahipsiz lead`,
           description: "Atama kuralı eşleşmeyen kayıtlar satış yöneticisi kararı bekliyor",
           severity: "warning" as const,
-          module: "leads" as const,
-          action: { kind: "navigate", nav: "leads", focus: "unassigned" } as OperationAction,
+          module: "sales-cases" as const,
+          action: { kind: "navigate", nav: "sales-cases", focus: "unassigned" } as OperationAction,
         }
       : null,
     leadsWithoutAction.length
@@ -526,8 +525,8 @@ export function buildAlerts(data: OperationStoreSnapshot): OperationAlert[] {
           title: `${leadsWithoutAction.length} aksiyonsuz lead`,
           description: "Tarihli sonraki aksiyonu olmayan kayıtlar var",
           severity: "warning" as const,
-          module: "leads" as const,
-          action: { kind: "navigate", nav: "leads", focus: "no_action" } as OperationAction,
+          module: "sales-cases" as const,
+          action: { kind: "navigate", nav: "sales-cases", focus: "no_action" } as OperationAction,
         }
       : null,
     uncontactedLeads.length
@@ -536,8 +535,8 @@ export function buildAlerts(data: OperationStoreSnapshot): OperationAlert[] {
           title: `${uncontactedLeads.length} temas kurulmamış lead`,
           description: "Henüz ilk temas kaydı bulunmayan leadler var",
           severity: "info" as const,
-          module: "leads" as const,
-          action: { kind: "navigate", nav: "leads", focus: "uncontacted" } as OperationAction,
+          module: "sales-cases" as const,
+          action: { kind: "navigate", nav: "sales-cases", focus: "uncontacted" } as OperationAction,
         }
       : null,
     overduePayments.length
@@ -881,7 +880,7 @@ export function buildKpiDrilldowns(data: OperationStoreSnapshot): KpiDrilldown[]
     },
     {
       id: "kpi:pipeline",
-      label: "Açık pipeline",
+      label: "Açık fırsat tutarı",
       value: formatMoney(openPipeline, "USD"),
       description: `${openCases.length} açık satış kartı`,
       severity: openCases.length ? "info" : "warning",
@@ -981,7 +980,7 @@ export function buildManagementInsights(data: OperationStoreSnapshot): ReportSum
     {
       id: "opp:pipeline",
       category: "opportunity",
-      title: "Açık pipeline",
+      title: "Açık fırsat tutarı",
       description: `${openCases.length} açık satış kartında ${formatMoney(openCases.reduce((sum, s) => sum + s.estimatedAmount, 0), "USD")} potansiyel var.`,
       metric: String(openCases.length),
       severity: openCases.length ? "info" : "warning",
@@ -1167,7 +1166,7 @@ const COMMAND_HELP_TEXT = [
   "Şu komutları API kullanmadan mevcut veriden cevaplayabilirim:",
   "• Bugün / görevler / takip işleri",
   "• Firma ara, firma geçmişi, kontak ara, haritada firma",
-  "• Açık satış kartları, pipeline, kaybedilen/kazanılan işler",
+  "• Açık fırsatlar, kaybedilen/kazanılan işler",
   "• Teklifler, gönderilen teklifler, onaylanan teklifler",
   "• Geciken ödeme, bekleyen tahsilat, kasa özeti",
   "• Stok, rezerve stok, hazır stok, seri no ara",
@@ -1423,7 +1422,7 @@ export function answerOperationQuery(input: string, data: OperationStoreSnapshot
     const pipeline = open.reduce((sum, s) => sum + s.estimatedAmount, 0);
     const results = byType(index, "Satış", query, ["satis", "satış", "kart", "firsat", "fırsat", "pipeline"], 6);
     return {
-      text: `${open.length} açık satış kartı var. Açık pipeline yaklaşık ${formatMoney(pipeline, "USD")} seviyesinde; ${lost} kayıp/iptal kayıt görünüyor.`,
+      text: `${open.length} açık satış kartı var. Açık fırsat tutarı yaklaşık ${formatMoney(pipeline, "USD")} seviyesinde; ${lost} kayıp/iptal kayıt görünüyor.`,
       actions: [
         { label: "Açık kartlar", action: { kind: "navigate", nav: "sales-cases", focus: "open" } },
         { label: "Kanban", action: { kind: "navigate", nav: "kanban", focus: "open" } },

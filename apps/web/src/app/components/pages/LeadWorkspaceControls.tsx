@@ -390,16 +390,16 @@ export function DecisionRail({
     if (converting) return;
     setConverting(true);
     try {
-      await convertCase(salesCase.id, "Lead çalışma alanından fırsata çevrildi", overrideReason);
+      await convertCase(salesCase.id, "Eski ilk temas kaydı C alanına taşındı", overrideReason);
       await refresh();
-      toast.success("Lead fırsata çevrildi");
+      toast.success("Fırsat C alanına taşındı");
     } catch (error: any) {
       const details = error instanceof ApiError ? error.details as { requiresOverride?: boolean; blockers?: string[] } : null;
       if (details?.requiresOverride) {
         setOverrideBlockers(details.blockers ?? []);
         setOverrideOpen(true);
       } else {
-        toast.error("Lead fırsata çevrilemedi", {
+        toast.error("Fırsat C alanına taşınamadı", {
           description: details?.blockers?.join(" · ") || error?.message || "Temel alanları kontrol edin.",
         });
       }

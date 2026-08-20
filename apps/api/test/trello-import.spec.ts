@@ -101,7 +101,7 @@ describe('Trello CSV sales-card import', () => {
       trelloCardId: 'abc-1',
       externalReference: 'trello:abc-1',
       title: 'Kart',
-      stageCode: 'lead',
+      stageCode: 'sales',
       archived: false,
     };
     const parsed = trelloImportCommitRequestSchema.safeParse({
@@ -143,7 +143,7 @@ describe('Trello CSV sales-card import', () => {
       trelloCardId: 'abc-1',
       externalReference: 'trello:abc-1',
       title: 'Göler Makina / Afyon',
-      stageCode: 'lead',
+      stageCode: 'sales',
       archived: false,
       candidate: { companyTitle: 'Göler Makina' },
     };

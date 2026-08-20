@@ -15,7 +15,6 @@ const CustomersPage = lazy(() => import("./components/pages/Customers").then((m)
 const ContactsPage = lazy(() => import("./components/pages/Contacts").then((m) => ({ default: m.ContactsPage })));
 const CustomerDetailPage = lazy(() => import("./components/pages/CustomerDetail").then((m) => ({ default: m.CustomerDetailPage })));
 const SalesCasesPage = lazy(() => import("./components/pages/SalesCases").then((m) => ({ default: m.SalesCasesPage })));
-const LeadsPage = lazy(() => import("./components/pages/LeadsPage").then((m) => ({ default: m.LeadsPage })));
 // Fırsat kartı yalnız kullanıcı bir kayıt açtığında render ediliyor; eager
 // import edildiğinde alt ağacı (teklif/proforma/sözleşme dialogları dahil)
 // ana pakete giriyordu.
@@ -51,6 +50,7 @@ import { toast } from "sonner";
 import { applyOpportunityUrlState } from "./lib/opportunityUrlState";
 import { VoiceCallProvider } from "../lib/voiceCall";
 import { CreateCustomerDialog, CreateCaseDialog, CreateContactDialog, CreateServiceRequestDialog } from "./components/dialogs/CreateDialogs";
+import { LeadCaptureDialog } from "./components/dialogs/LeadCaptureDialog";
 const ProductsPage = lazy(() => import("./components/pages/Operations").then((m) => ({ default: m.ProductsPage })));
 const SalesPriceListPage = lazy(() => import("./components/pages/PriceLists").then((m) => ({ default: m.SalesPriceListPage })));
 const ServicePriceListPage = lazy(() => import("./components/pages/PriceLists").then((m) => ({ default: m.ServicePriceListPage })));
@@ -69,6 +69,7 @@ import { PageLoadingSkeleton } from "./components/shared/PageLoadingSkeleton";
 import type { OperationAction, OperationFocus } from "./lib/operations";
 import { isNavigationAreaEnabled, NAVIGATION_VISIBILITY_KEYS } from "@haksan/shared";
 import { useCompanyDetail } from "./lib/companyServerData";
+import { defaultOpportunityView } from "./lib/opportunityPresentation";
 
 const TITLES: Partial<Record<NavKey, { title: string; subtitle?: string }>> = {
   dashboard: { title: "Gösterge Paneli", subtitle: "Genel performans ve KPI özeti" },
@@ -76,9 +77,8 @@ const TITLES: Partial<Record<NavKey, { title: string; subtitle?: string }>> = {
   calendar: { title: "Takvim", subtitle: "Kişisel planlar, toplantılar ve müşteri ziyaretleri" },
   customers: { title: "Firmalar", subtitle: "Müşteri, tedarikçi+müşteri ve tedarikçi kayıtları" },
   contacts: { title: "Kontaklar", subtitle: "Firmalara bağlı kişiler" },
-  leads: { title: "Leadler", subtitle: "Tüm kanallardan gelen satış sinyalleri" },
-  "sales-cases": { title: "Fırsatlar", subtitle: "C / B / A / A+ satış akışı" },
-  kanban: { title: "Fırsatlar", subtitle: "C / B / A / A+ satış akışı" },
+  "sales-cases": { title: "Fırsat", subtitle: "C / B / A / A+ ana satış akışı" },
+  kanban: { title: "Fırsat", subtitle: "C / B / A / A+ ana satış akışı" },
   "sales-map": { title: "Firma Haritası", subtitle: "Yakındaki firmaları haritada görün" },
   offers: { title: "Teklifler", subtitle: "Hazırlanmış ve gönderilmiş teklifler" },
   proformas: { title: "Proformalar", subtitle: "Satış proforma dokümanları ve PDF çıktıları" },
@@ -113,13 +113,19 @@ function isNavKey(value: unknown): value is NavKey {
 }
 
 function AppShell() {
-  const { authed, loading, login, logout, hasPermission, hasRole, tenant } = useAuth();
+  const { authed, loading, login, logout, hasPermission, hasRole, tenant, user } = useAuth();
   const { customers, cases, closedCases, loading: storeLoading } = useStore();
   const [showOnboarding, setShowOnboarding] = useState(shouldShowOnboarding);
-  // Yenilemede kullanıcının kaldığı yer korunur (sayfa + seçili firma/satış kartı).
-  const [nav, setNav] = usePersistentState<NavKey>("nav", "dashboard");
-  const [selectedCustomerId, setSelectedCustomerId] = usePersistentState<string | null>("selectedCustomerId", null);
-  const [selectedCaseId, setSelectedCaseId] = usePersistentState<string | null>("selectedCaseId", null);
+  // Satış rolleri doğrudan Fırsat panosuna düşer; Lead artık o panonun ilk kolonu.
+  const defaultNav: NavKey = defaultOpportunityView(user?.roles) === "pipeline"
+    ? "sales-cases"
+    : DEFAULT_NAV;
+  const persistenceScope = user ? `${user.tenantId}.${user.id}` : "anonymous";
+  // Yenilemede kullanıcının kaldığı yer korunur; seçimler tenant+kullanıcı
+  // kimliğiyle kapsamlanır, aynı tarayıcıdaki hesaplar birbirine sızmaz.
+  const [nav, setNav] = usePersistentState<NavKey>(`nav.${persistenceScope}`, defaultNav);
+  const [selectedCustomerId, setSelectedCustomerId] = usePersistentState<string | null>(`selectedCustomerId.${persistenceScope}`, null);
+  const [selectedCaseId, setSelectedCaseId] = usePersistentState<string | null>(`selectedCaseId.${persistenceScope}`, null);
   const selectedCustomerFallback = selectedCustomerId
     ? customers.find((customer) => customer.id === selectedCustomerId)
     : undefined;
@@ -428,15 +434,17 @@ function AppShell() {
         ) : null;
         content = <ContactsPage />;
         break;
-      case "leads":
-        content = <LeadsPage onSelect={(lead) => selectOpportunity(lead.id)} focus={focus?.nav === "leads" ? focus.focus : undefined} />;
-        break;
       case "sales-cases":
+        // Hızlı giriş formu "Bugünüm" ile birlikte kalkmadı: Lead artık panonun
+        // ilk kolonu olduğu için aynı form Fırsat başlığından açılır.
         actions = canCreate("opportunities.create") ? (
-          <CreateCaseDialog
-            trigger={<Button className="gap-1"><Plus className="size-4" /> Yeni Fırsat</Button>}
-            createAsOpportunity
-          />
+          <div className="flex flex-wrap items-center gap-2">
+            <LeadCaptureDialog />
+            <CreateCaseDialog
+              trigger={<Button className="gap-1"><Plus className="size-4" /> Yeni Fırsat</Button>}
+              createAsOpportunity
+            />
+          </div>
         ) : null;
         content = <SalesCasesPage onSelect={(s) => selectOpportunity(s.id)} initialView="kanban" focus={focus?.nav === "sales-cases" ? focus.focus : undefined} initialQuery={focus?.nav === "sales-cases" ? focus.query : undefined} onAction={runOperationAction} />;
         break;

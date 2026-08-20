@@ -204,7 +204,7 @@ const mapCase = (o: any, isOfferPrepared: boolean): SalesCase =>
     probability: Math.min(100, Math.max(0, Number(o.probability ?? 50))),
     expectedCloseDate: o.expectedCloseDate ? (o.expectedCloseDate as string).slice(0, 10) : undefined,
     stage: STAGE_BY_CODE[o.stage?.code ?? ''] ?? 'lead',
-    qualificationStage: (o.qualificationStage ?? 'lead') as QualificationStage,
+    qualificationStage: (o.qualificationStage ?? 'c') as QualificationStage,
     qualificationNote: o.qualificationNote ?? undefined,
     qualificationReadiness: o.qualificationReadiness ?? undefined,
     requestedMachine: o.requestedMachine ?? undefined,
@@ -608,6 +608,7 @@ type Store = {
       note?: string;
       cancellationReasonCode?: string;
       lostCompetitorId?: string;
+      lostCompetitorName?: string;
       lostCompetitorProductModel?: string;
       lostProductName?: string;
       lostUnmetConditions?: string;
@@ -629,6 +630,7 @@ type Store = {
       productName: string;
       unmetConditions: string;
       competitorId?: string;
+      competitorName?: string;
       competitorProductModel?: string;
     }
   ) => Promise<void>;
@@ -1727,8 +1729,8 @@ function StoreInner({ children }: { children: ReactNode }) {
       paymentTerms: c.paymentTerms ?? undefined,
       divisionId: c.divisionId || undefined,
     });
-    const targetStage = c.stage ?? 'lead';
-    if (targetStage !== 'lead') {
+    const targetStage = c.stage === 'lead' || !c.stage ? 'sales' : c.stage;
+    if (targetStage !== 'sales') {
       const code = CODE_BY_STAGE[targetStage];
       if (code) {
         await opportunityService.changeStage(created.id, { toStage: code });
@@ -1739,7 +1741,7 @@ function StoreInner({ children }: { children: ReactNode }) {
       id: created.id,
       ...c,
       stage: targetStage,
-      qualificationStage: 'lead',
+      qualificationStage: 'c',
       isLost: false,
       isOfferPrepared: false,
       createdAt: new Date().toISOString().slice(0, 10),
@@ -1823,6 +1825,7 @@ function StoreInner({ children }: { children: ReactNode }) {
       note: options?.note?.trim() || undefined,
       cancellationReasonCode: options?.cancellationReasonCode,
       lostCompetitorId: options?.lostCompetitorId,
+      lostCompetitorName: options?.lostCompetitorName,
       lostCompetitorProductModel: options?.lostCompetitorProductModel,
       lostProductName: options?.lostProductName,
       lostUnmetConditions: options?.lostUnmetConditions,
@@ -1858,6 +1861,7 @@ function StoreInner({ children }: { children: ReactNode }) {
       toStage: 'lost',
       cancellationReasonCode: payload.reasonCode,
       lostCompetitorId: payload.competitorId || undefined,
+      lostCompetitorName: payload.competitorName?.trim() || undefined,
       lostCompetitorProductModel: payload.competitorProductModel || undefined,
       lostProductName: payload.productName,
       lostUnmetConditions: payload.unmetConditions,

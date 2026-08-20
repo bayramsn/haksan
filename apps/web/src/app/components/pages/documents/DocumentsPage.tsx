@@ -11,8 +11,7 @@ import { DocumentDetailDialog } from "../../dialogs/DocumentDetailDialog";
 import { CreateProformaDialog } from "../../dialogs/CreateProformaDialog";
 import { QuickProformaDialog } from "../../dialogs/QuickProformaDialog";
 import { QuickContractDialog } from "../../dialogs/QuickContractDialog";
-import { EditProformaPricesDialog } from "../../dialogs/EditProformaPricesDialog";
-import { EditContractPricesDialog } from "../../dialogs/EditContractPricesDialog";
+import { EditDocumentDialog } from "../../dialogs/EditDocumentDialog";
 import { CreateContractDialog } from "../../dialogs/CreateContractDialog";
 import { LinkCommercialDocumentDialog } from "../../dialogs/LinkCommercialDocumentDialog";
 import { useStore } from "../../../lib/store";
@@ -927,13 +926,13 @@ export function DocumentsPage({
                       <div className="flex items-center gap-1 justify-end">
                         {d.type === "Proforma" && (
                           <>
-                            {/* Teklife bağlı proformada yalnızca fiyat düzenlenir; hızlı
+                            {/* Teklife bağlı proformada fiyat, iskonto ve şartlar düzenlenir; hızlı
                                 proformanın kalemleri belgeye ait olduğu için tam düzenleyici açılır. */}
                             {d.quoteId ? (
-                              <EditProformaPricesDialog
+                              <EditDocumentDialog
                                 document={d}
                                 trigger={
-                                  <Button variant="ghost" size="icon" className="size-7" title="Proforma fiyatlarını düzenle">
+                                  <Button variant="ghost" size="icon" className="size-7" title="Proforma fiyat ve şartlarını düzenle">
                                     <BadgeDollarSign className="size-4 text-muted-foreground hover:text-primary" />
                                   </Button>
                                 }
@@ -1010,15 +1009,15 @@ export function DocumentsPage({
                         )}
                         {d.type === "Contract" && (
                           <>
-                            {/* Teklife bağlı sözleşmede yalnızca fiyat düzenlenir — onaylı
-                                teklif kilitli olduğu hâlde imza masasında fiyat pazarlığa
+                            {/* Teklife bağlı sözleşmede fiyat, iskonto ve şartlar düzenlenir — onaylı
+                                teklif kilitli olduğu hâlde imza masasında ikisi de pazarlığa
                                 açıktır; hızlı sözleşmenin kalemleri ve şartları belgeye ait
                                 olduğu için tam düzenleyici açılır. */}
                             {d.quoteId ? (
-                              <EditContractPricesDialog
+                              <EditDocumentDialog
                                 document={d}
                                 trigger={
-                                  <Button variant="ghost" size="icon" className="size-7" title="Sözleşme fiyatlarını düzenle">
+                                  <Button variant="ghost" size="icon" className="size-7" title="Sözleşme fiyat ve şartlarını düzenle">
                                     <BadgeDollarSign className="size-4 text-muted-foreground hover:text-primary" />
                                   </Button>
                                 }

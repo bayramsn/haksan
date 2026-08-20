@@ -3,9 +3,9 @@ export type ProformaPriceRow = {
   description: string;
   quantity: number;
   unitCode: string;
-  /** Brüt birim fiyat — proformada düzenlenebilen tek alan. */
+  /** Belgeye özel brüt birim fiyat. */
   unitPrice: number;
-  /** Satır iskontosu; tekliften gelir ve proforma bunu değiştiremez. */
+  /** Belgeye özel satır iskontosu. */
   discountAmount: number;
   vatRate: number;
 };
@@ -82,9 +82,36 @@ export type ProformaTotals = {
 export type ProformaTotalsContext = {
   /** Teklifin toplam iskontosu (satır + teklif geneli). */
   quoteDiscountTotal?: number;
+  /** Teklif başlık iskontosu; satır iskontosu belge içinde değişse de sabit kalır. */
+  headerDiscountAmount?: number;
   /** Millileştirme / gümrük vergileri; tekliften okunur. */
   customsTotal?: number;
+  /**
+   * Belgenin KENDİ genel iskontosu. Verildiğinde tekliften devralınan genel
+   * iskontonun yerine geçer; yüzde doluysa tutar net ara toplamdan türetilir
+   * (API `buildPricedDocumentSnapshot` ile aynı kural).
+   */
+  documentDiscount?: DocumentDiscount | null;
 };
+
+/** Belge geneline uygulanan iskonto girdisi. */
+export type DocumentDiscount = { amount: number; percent: number };
+
+export const EMPTY_DOCUMENT_DISCOUNT: DocumentDiscount = { amount: 0, percent: 0 };
+
+/** Belge anlık görüntüsünde saklanan genel iskonto girdisini okur. */
+export function snapshotToDocumentDiscount(snapshot: Record<string, any> | undefined): DocumentDiscount {
+  const stored = snapshot?.documentDiscount;
+  if (!stored || typeof stored !== "object") return EMPTY_DOCUMENT_DISCOUNT;
+  return {
+    amount: Math.max(numberValue(stored.amount), 0),
+    percent: Math.max(numberValue(stored.percent), 0),
+  };
+}
+
+/** Belge geneli iskonto girildi mi (tutar ya da yüzde)? */
+export const hasDocumentDiscount = (discount: DocumentDiscount | null | undefined) =>
+  Boolean(discount && (discount.amount > 0 || discount.percent > 0));
 
 /**
  * Proforma toplamlarını API'nin `buildProformaDocumentSnapshot` mantığıyla birebir
@@ -105,7 +132,16 @@ export function computeProformaTotals(
   const gross = money(lines.reduce((sum, line) => sum + line.gross, 0));
   const lineDiscount = money(lines.reduce((sum, line) => sum + line.discount, 0));
   const taxableBeforeHeader = money(lines.reduce((sum, line) => sum + line.net, 0));
-  const requestedHeaderDiscount = Math.max(numberValue(context.quoteDiscountTotal) - lineDiscount, 0);
+  const requestedHeaderDiscount = hasDocumentDiscount(context.documentDiscount)
+    ? Math.max(
+        context.documentDiscount!.percent > 0
+          ? taxableBeforeHeader * (context.documentDiscount!.percent / 100)
+          : context.documentDiscount!.amount,
+        0,
+      )
+    : context.headerDiscountAmount !== undefined
+      ? Math.max(numberValue(context.headerDiscountAmount), 0)
+      : Math.max(numberValue(context.quoteDiscountTotal) - lineDiscount, 0);
   const headerDiscount = money(Math.min(requestedHeaderDiscount, taxableBeforeHeader));
   const headerRatio = taxableBeforeHeader > 0
     ? (taxableBeforeHeader - headerDiscount) / taxableBeforeHeader
@@ -147,4 +183,16 @@ export const parseMoneyInput = (raw: string): number => {
   }
   const parsed = Number(normalized);
   return Number.isFinite(parsed) ? Math.max(0, parsed) : 0;
+};
+
+/** Satır iskonto yüzdesi ↔ tutar dönüşümü (brüt satır tutarı üzerinden). */
+export const discountPercentOf = (row: ProformaPriceRow): number => {
+  const gross = row.quantity * row.unitPrice;
+  if (!(gross > 0)) return 0;
+  return Number(((row.discountAmount / gross) * 100).toFixed(2));
+};
+
+export const discountAmountFromPercent = (row: ProformaPriceRow, percent: number): number => {
+  const gross = Math.max(0, row.quantity * row.unitPrice);
+  return money(Math.max(0, Math.min(gross, (gross * percent) / 100)));
 };

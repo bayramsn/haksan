@@ -7,7 +7,7 @@ import {
 import { CheckCircle2, Circle, Loader2, Pencil } from "lucide-react";
 import { toast } from "sonner";
 import { type OpportunityProcessActionKey, type ProcessCheck } from "@haksan/shared";
-import { activityService } from "../../../lib/services";
+import { activityService, opportunityService } from "../../../lib/services";
 import { useAuth } from "../../../lib/auth";
 import { useStore } from "../../lib/store";
 import {
@@ -46,6 +46,7 @@ import {
   type OpportunityVisitStatus,
 } from "./opportunityVisitStatus";
 import { OpportunityQuoteList } from "./OpportunityQuoteList";
+import { OpportunityContractList } from "./OpportunityContractList";
 
 /**
  * Ödeme planının ipucu metni seçilen ödeme şekline göre değişir: kullanıcı boş
@@ -118,7 +119,10 @@ const CHECK_ACTION_BY_KEY: Record<string, OpportunityProcessActionKey> = {
   win_approval: "approve_win",
 };
 
-type DisplayProcessCheck = Pick<ProcessCheck, "key" | "label" | "complete"> & {
+type DisplayProcessCheck = Pick<
+  ProcessCheck,
+  "key" | "label" | "complete" | "manualEditable" | "manualStatus" | "note" | "noteUpdatedByName"
+> & {
   actionKey?: OpportunityProcessActionKey;
 };
 
@@ -139,6 +143,10 @@ const INLINE_EDITOR_CHECK_KEYS = new Set([
   "contract_terms",
   "payment_terms",
   "customs",
+  "payment_approval",
+  "invoice_approval",
+  "installation_approval",
+  "win_approval",
 ]);
 
 const CHECK_ACTION_LABELS: Record<string, string> = {
@@ -162,6 +170,105 @@ const DIALOG_ACTION_KEYS = new Set<OpportunityProcessActionKey>([
   "create_shipment",
   "complete_shipment",
 ]);
+
+/**
+ * A+ adımının elle işaretlenmesi.
+ *
+ * A+ alanındaki işlerin bir kısmı CRM dışında yürür (gümrükçü, nakliyeci, saha
+ * ekibi); satışçı adımı "yapıldı / yapılmadı" olarak kapatıp gerekçesini yorum
+ * bırakabilsin diye kanıt üretmeden karar verilebilir. İşaret kaldırıldığında
+ * adım yeniden kanıttan türetilir.
+ */
+function ManualCheckControls({
+  salesCaseId,
+  check,
+  disabled,
+  onSaved,
+}: {
+  salesCaseId: string;
+  check: DisplayProcessCheck;
+  disabled: boolean;
+  onSaved?: () => Promise<void> | void;
+}) {
+  const [note, setNote] = useState(check.note ?? "");
+  const [saving, setSaving] = useState(false);
+  const savedNote = check.note ?? "";
+
+  useEffect(() => {
+    setNote(check.note ?? "");
+  }, [check.note]);
+
+  const save = async (status: "done" | "not_done" | null, nextNote: string) => {
+    if (saving) return;
+    setSaving(true);
+    try {
+      await opportunityService.setProcessCheck(salesCaseId, check.key, { status, note: nextNote.trim() || null });
+      await onSaved?.();
+      toast.success(
+        status === "done" ? "Adım yapıldı olarak işaretlendi"
+          : status === "not_done" ? "Adım yapılmadı olarak işaretlendi"
+            : "İşaret kaldırıldı; adım yeniden kanıttan okunuyor",
+        { description: check.label },
+      );
+    } catch (error: unknown) {
+      toast.error("Adım işaretlenemedi", {
+        description: error instanceof Error ? error.message : "İstek başarısız oldu.",
+      });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const statusButton = (value: "done" | "not_done", label: string) => (
+    <Button
+      type="button"
+      size="sm"
+      variant={check.manualStatus === value ? "default" : "outline"}
+      className="h-7 px-2 text-[11px]"
+      disabled={disabled || saving}
+      aria-pressed={check.manualStatus === value}
+      onClick={() => void save(check.manualStatus === value ? null : value, note)}
+    >
+      {label}
+    </Button>
+  );
+
+  return (
+    <div className="mt-1.5 rounded-lg border border-border/60 bg-muted/20 px-2.5 py-2">
+      <div className="flex flex-wrap items-center gap-1.5">
+        <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Elle işaret</span>
+        {statusButton("done", "Yapıldı")}
+        {statusButton("not_done", "Yapılmadı")}
+        {check.manualStatus && (
+          <span className="text-[10px] text-muted-foreground">
+            {check.noteUpdatedByName ? `${check.noteUpdatedByName} · ` : ""}işaretledi
+          </span>
+        )}
+      </div>
+      <div className="mt-1.5 flex items-start gap-1.5">
+        <Textarea
+          aria-label={`${check.label} yorumu`}
+          className="min-h-9 flex-1 resize-y bg-background text-xs"
+          placeholder="Yorum (ör. gümrükçüden teyit alındı)"
+          value={note}
+          maxLength={2000}
+          disabled={disabled || saving}
+          onChange={(event) => setNote(event.target.value)}
+        />
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          className="h-9 px-2 text-[11px]"
+          disabled={disabled || saving || note.trim() === savedNote.trim()}
+          onClick={() => void save(check.manualStatus ?? null, note)}
+        >
+          Kaydet
+        </Button>
+      </div>
+    </div>
+  );
+}
 
 /**
  * Kartın bulunduğu satış derecesini geçmek için tamamlanması gereken alanları
@@ -221,7 +328,7 @@ export function ProcessChecklistPanel({
    */
   onSaved?: () => Promise<void> | void;
 }) {
-  const { users, products, activities, updateCase, updateCustomer, decideCaseApproval, refresh } =
+  const { users, products, activities, documents, updateCase, updateCustomer, decideCaseApproval, refresh } =
     useStore();
   const { hasRole, hasPermission } = useAuth();
   const isSuperAdmin = hasRole("super_admin");
@@ -232,12 +339,16 @@ export function ProcessChecklistPanel({
   const readiness = sc.qualificationReadiness;
   const companyQuery = useCompanyDetail(sc.customerId);
   const company = companyQuery.data;
-  const grade = (sc.qualificationStage ?? "lead") as QualificationStage;
+  const grade = (sc.qualificationStage ?? "c") as QualificationStage;
   const areaSteps = OPPORTUNITY_OPERATION_GROUP_STEPS[grade] ?? [];
   const availableChecks = checksOverride ?? readiness?.checks ?? [];
   const opportunityOffers = useMemo(
     () => offers.filter((offer) => offer.salesCaseId === sc.id),
     [offers, sc.id],
+  );
+  const opportunityContracts = useMemo(
+    () => documents.filter((item) => item.type === "Contract" && item.salesCaseId === sc.id),
+    [documents, sc.id],
   );
   useEffect(() => {
     if (!requestedAction) return;
@@ -378,6 +489,32 @@ export function ProcessChecklistPanel({
                   : check.complete
                     ? check.key === "call" || check.key === "visit" ? "Görüntüle" : "Düzenle"
                     : CHECK_ACTION_LABELS[check.key] ?? "Aç";
+            // Sözleşme adımı da teklif gibi kanıta dönüşür: fırsata bağlı
+            // sözleşmeler burada listelenir ve imzalı nüsha buraya yüklenir.
+            if (check.key === "contract" && opportunityContracts.length > 0) {
+              return (
+                <li key={check.key} className="sm:col-span-2">
+                  <div className="overflow-hidden rounded-lg border border-primary/20 bg-background shadow-xs">
+                    <button
+                      type="button"
+                      aria-label={`${check.label}: ${actionLabel}`}
+                      disabled={disabled}
+                      onClick={() => handleCheckOpen(check)}
+                      className="flex min-h-11 w-full items-center gap-2 px-3 py-2 text-left disabled:cursor-not-allowed disabled:opacity-70"
+                    >
+                      {check.complete
+                        ? <CheckCircle2 className="size-4 shrink-0 text-success" aria-hidden="true" />
+                        : <Circle className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />}
+                      <span className="min-w-0 flex-1 text-xs font-medium text-foreground">{check.label}</span>
+                      <span className="shrink-0 rounded-full bg-primary/8 px-2 py-0.5 text-[10px] font-semibold tabular-nums text-primary">
+                        {opportunityContracts.length} sözleşme
+                      </span>
+                    </button>
+                    <OpportunityContractList salesCase={sc} canUpload={!readOnly && canUpdate} />
+                  </div>
+                </li>
+              );
+            }
             if (check.key === "quote" && opportunityOffers.length > 0) {
               return (
                 <li key={check.key} className="sm:col-span-2">
@@ -419,6 +556,14 @@ export function ProcessChecklistPanel({
                     </span>
                   )}
                 </button>
+                {check.manualEditable && (
+                  <ManualCheckControls
+                    salesCaseId={sc.id}
+                    check={check}
+                    disabled={readOnly || !canUpdate}
+                    onSaved={onSaved}
+                  />
+                )}
               </li>
             );
           })}
@@ -511,6 +656,8 @@ function CheckEditor(props: EditorProps) {
   const { checkKey, sc, company, users, products, isSuperAdmin, disabled, run, openCheck } = props;
   const [draft, setDraft] = useState("");
   const [draft2, setDraft2] = useState("");
+  const [approvalDecision, setApprovalDecision] = useState<"approved" | "rejected" | "">("");
+  const [approvalNote, setApprovalNote] = useState("");
   const provinceOptions = useMemo(
     () => provincesForCountry("Türkiye").map((name) => ({ value: name, label: name })),
     [],
@@ -917,29 +1064,80 @@ function CheckEditor(props: EditorProps) {
       );
     }
 
-    // A+ alanı: beş onay. Onay yetkisi backend'de rol bazlı kontrol edilir.
-    case "payment":
+    // A+ alanı: karar + yorum. "Yapılmadı" rejected olarak saklanır ve WIN
+    // kapısını açmaz; gerçek operasyon kanıtlarının yerine geçmez.
+    case "payment_approval":
     case "customs":
-    case "invoice":
-    case "installation":
-    case "win":
+    case "invoice_approval":
+    case "installation_approval":
+    case "win_approval": {
+      const approvalMap = {
+        payment_approval: "payment",
+        customs: "customs",
+        invoice_approval: "invoice",
+        installation_approval: "installation",
+        win_approval: "win",
+      } as const;
+      const approvalType = approvalMap[checkKey as keyof typeof approvalMap];
       return wrap(
-        <Button
-          size="sm"
-          variant="outline"
-          className="h-8"
-          disabled={disabled}
-          onClick={() =>
-            void run(
-              checkKey,
-              () => props.decideCaseApproval(sc.id, checkKey as any, "approved"),
-              "Onay verildi"
-            )
-          }
-        >
-          Onayla
-        </Button>
+        <div className="space-y-3">
+          <div className="grid grid-cols-2 gap-2" role="group" aria-label="Adım durumu">
+            <Button
+              type="button"
+              size="sm"
+              variant={approvalDecision === "approved" ? "default" : "outline"}
+              disabled={disabled}
+              onClick={() => setApprovalDecision("approved")}
+            >
+              Yapıldı
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant={approvalDecision === "rejected" ? "destructive" : "outline"}
+              disabled={disabled}
+              onClick={() => setApprovalDecision("rejected")}
+            >
+              Yapılmadı
+            </Button>
+          </div>
+          <Textarea
+            value={approvalNote}
+            onChange={(event) => setApprovalNote(event.target.value)}
+            placeholder="Karar hakkında yorum yazın"
+            maxLength={1000}
+            className="min-h-20 bg-white text-xs"
+            disabled={disabled}
+          />
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-[10px] text-muted-foreground">
+              Yapılmadı seçildiğinde yorum zorunludur ve adım tamamlanmış sayılmaz.
+            </span>
+            <Button
+              type="button"
+              size="sm"
+              disabled={
+                disabled
+                || !approvalDecision
+                || (approvalDecision === "rejected" && !approvalNote.trim())
+              }
+              onClick={() => void run(
+                checkKey,
+                () => props.decideCaseApproval(
+                  sc.id,
+                  approvalType,
+                  approvalDecision as "approved" | "rejected",
+                  approvalNote.trim() || undefined,
+                ),
+                approvalDecision === "approved" ? "Adım yapıldı olarak kaydedildi" : "Adım yapılmadı olarak kaydedildi",
+              )}
+            >
+              Kararı Kaydet
+            </Button>
+          </div>
+        </div>,
       );
+    }
 
     default:
       return null;

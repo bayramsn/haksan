@@ -16,7 +16,7 @@ CNC takım tezgahları satan bir firma için **ERP + CRM + teklif/proforma/sözl
 
 | Araç | Sürüm | Not |
 |------|-------|-----|
-| Node.js | ≥ 20 | `node --version` |
+| Node.js | ≥ 22.22.2, < 23 | `node --version` (`.node-version`: 22.22.3) |
 | npm | ≥ 10 | npm workspaces kullanıyoruz |
 | Docker Desktop | son | Postgres + MinIO + Mailhog için |
 
@@ -200,7 +200,15 @@ Bucket'ları her sağlayıcıda manuel oluştur (MinIO'da `minio-init` otomatik 
 ## Test çalıştırma
 
 ```bash
-# Backend testleri (Vitest + Supertest + canlı Postgres)
+# Önerilen: izole ve geçici Postgres + MinIO'yu kurar, migrate/seed/test
+# zincirini çalıştırır ve servisleri sonunda kaldırır.
+npm run test:local
+
+# Aynı zincir, coverage raporuyla:
+npm run test:local:coverage
+
+# Yalnız önceden hazırlanmış bir test veritabanına karşı ham test komutu.
+# DATABASE_URL test DB'sini göstermeli; migration ve demo seed önceden koşmalıdır.
 npm test
 
 # Beklenen sonuç: tüm testler geçiyor
@@ -209,7 +217,14 @@ npm test
 #   - permissions.spec.ts: RBAC sınırları
 #   - quote-flow.spec.ts: stage transition state machine (lead→sales→quote→cancel)
 #   - file-upload.spec.ts: MIME/size validasyonu, signed URL üretimi
+#   - storage-minio.integration.spec.ts: gerçek upload/download/delete round-trip
 ```
+
+Script önce `55432` ve `59000` portlarını dener; dolu olanlar için otomatik olarak
+boş bir loopback portu seçer. Sabit port gerekiyorsa `HAKSAN_TEST_DB_PORT` ve
+`HAKSAN_TEST_S3_PORT` ile açıkça belirtilebilir. Geliştirme veya production
+veritabanını kullanmaz; her çalıştırmada rastgele credential ve geçici Docker
+`tmpfs` depolaması oluşturur. MinIO root ve uygulama credential'ları ayrıdır.
 
 ---
 
@@ -241,7 +256,7 @@ Production'da:
 Bu uygulama VDS/VPS sunucuya kurulabilir. Production için önerilen temel topoloji:
 
 - Ubuntu 22.04/24.04 veya benzeri Linux
-- Node.js 20+ ve npm 10+
+- Node.js 22.22.2–22.x ve npm 10+
 - PostgreSQL 16 (aynı sunucuda Docker ile veya yönetilen DB)
 - S3 uyumlu storage: MinIO, AWS S3, Cloudflare R2 veya Supabase Storage
 - Reverse proxy: Caddy veya nginx üzerinden HTTPS

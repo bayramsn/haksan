@@ -67,7 +67,7 @@ export const PIPELINE_STAGE_REQUIREMENTS: Record<
   PipelineStageCode,
   { requires: string | null; effect: string | null }
 > = {
-  lead: { requires: null, effect: 'Satış kartı lead havuzunda açılır.' },
+  lead: { requires: null, effect: 'Fırsatın ilk adımı; yeni kartlar burada doğar.' },
   call: { requires: null, effect: null },
   visit: { requires: null, effect: null },
   quote: { requires: 'Firma bağlı olmalı ve en az bir teklif kaydı bulunmalı', effect: null },
@@ -127,7 +127,11 @@ export const QUALIFICATION_STAGE_ENTRY: Record<
   lost: { stage: 'cancelled', gated: false },
 };
 
-/** Derecelerin ilerleyiş sırası; kapanış dereceleri sona eklenir. */
+/**
+ * Derecelerin ilerleyiş sırası; kapanış dereceleri sona eklenir.
+ * Lead ayrı bir sayfa değil, fırsatın İLK adımıdır: yeni kartlar burada doğar
+ * ve sorumlu + konu girildikten sonra C alanına ilerler.
+ */
 const GRADE_FLOW_ORDER: QualificationStageCode[] = ['lead', 'c', 'b', 'a', 'a_plus', 'win'];
 
 /**
@@ -447,11 +451,13 @@ export type AllowedFileExtension = (typeof ALLOWED_FILE_EXTENSIONS)[number];
 // Stage transition rules (bölüm 3 mega prompt'tan)
 // Maps each stage to the stages it can transition FROM
 export const STAGE_TRANSITIONS: Record<PipelineStageCode, PipelineStageCode[]> = {
-  // Görüşme sonrası "henüz erken" çıkan kart lead havuzuna geri çekilebilir.
-  lead: ['call'],
+  // Kartlar `lead` aşamasında DOĞAR; operasyon ekseninde buraya geri taşınmaz.
+  // Panodan Lead kolonuna geri alma satış derecesi ekseninden yapılır
+  // (changeQualificationStage aşamayı doğrudan yazar).
+  lead: [],
   sales: ['lead'],
-  call: ['lead', 'sales', 'visit'],
-  visit: ['lead', 'sales', 'call'],
+  call: ['sales', 'visit'],
+  visit: ['sales', 'call'],
   cancelled: [
     'lead',
     'sales',
@@ -467,7 +473,7 @@ export const STAGE_TRANSITIONS: Record<PipelineStageCode, PipelineStageCode[]> =
     'shipping',
     'installation',
   ],
-  quote: ['lead', 'sales', 'call', 'visit'],
+  quote: ['sales', 'call', 'visit'],
   proforma: ['quote'],
   contract: ['proforma', 'quote'],
   payment_plan: ['contract'],

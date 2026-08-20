@@ -345,16 +345,20 @@ export class ReportsService {
 
     const competitorBreakdown = await this.db
       .select({
-        id: competitors.id,
-        name: competitors.name,
+        id: sql<string>`coalesce(${competitors.id}::text, 'manual:' || md5(coalesce(${opportunities.lostCompetitorName}, '')))`,
+        name: sql<string>`coalesce(${competitors.name}, ${opportunities.lostCompetitorName})`,
         count: sql<number>`count(*)::int`,
         value: sql<string>`coalesce(sum(${val}), 0)::text`,
       })
       .from(opportunities)
       .leftJoin(pipelineStages, eq(opportunities.currentStageId, pipelineStages.id))
-      .innerJoin(competitors, eq(opportunities.lostCompetitorId, competitors.id))
-      .where(and(inYear, isLost))
-      .groupBy(competitors.id, competitors.name)
+      .leftJoin(competitors, eq(opportunities.lostCompetitorId, competitors.id))
+      .where(and(
+        inYear,
+        isLost,
+        sql`coalesce(${competitors.name}, ${opportunities.lostCompetitorName}) is not null`,
+      ))
+      .groupBy(competitors.id, competitors.name, opportunities.lostCompetitorName)
       .orderBy(desc(sql`count(*)`));
 
     const wonReasons = await this.db

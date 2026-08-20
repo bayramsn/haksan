@@ -46,10 +46,10 @@ export function LeadDisqualifyDialog({ open, onOpenChange, leadName, onConfirm }
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Lead'i ele</DialogTitle>
+          <DialogTitle>Fırsatı uygun değil olarak işaretle</DialogTitle>
           <DialogDescription>
-            {leadName ? `${leadName} — ` : ""}Bu lead'in neden takip edilmeyeceğini belirtin. Elenen lead
-            fırsata çevrilemez; nedeni değiştirirseniz kart yeniden açılabilir.
+            {leadName ? `${leadName} — ` : ""}Bu fırsatın neden takip edilmeyeceğini belirtin. Uygun değil
+            olarak işaretlenen kayıt, nedeni değiştirildiğinde yeniden açılabilir.
           </DialogDescription>
         </DialogHeader>
 

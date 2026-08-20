@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  PIPELINE_STAGE_FLOW,
   PIPELINE_STAGE_REQUIREMENTS,
   PIPELINE_STAGE_QUALIFICATION,
   QUALIFICATION_STAGE_ENTRY,
@@ -8,6 +9,15 @@ import {
 } from './constants';
 
 describe('qualification pipeline ownership', () => {
+  it('starts the opportunity flow at lead and lets it move on to sales/C', () => {
+    expect(PIPELINE_STAGE_FLOW[0]).toBe('lead');
+    expect(PIPELINE_STAGE_FLOW[1]).toBe('sales');
+    // Operasyon ekseninde lead'e GERİ dönülmez; kartlar orada doğar.
+    expect(STAGE_TRANSITIONS.lead).toEqual([]);
+    expect(STAGE_TRANSITIONS.sales).toEqual(['lead']);
+    expect(QUALIFICATION_STAGE_ENTRY.lead).toEqual({ stage: 'lead', gated: false });
+  });
+
   it('places quote creation in the B process', () => {
     expect(PIPELINE_STAGE_QUALIFICATION.quote).toBe('b');
     expect(QUALIFICATION_STAGE_PIPELINE_STEPS.b).toContain('quote');

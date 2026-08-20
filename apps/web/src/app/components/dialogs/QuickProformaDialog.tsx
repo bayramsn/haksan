@@ -9,7 +9,7 @@ import { Input } from "../ui/input";
 import { Label } from "../ui/label";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "../ui/select";
 import { DialogSplitLayout, DialogSidebarSection } from "../shared/DialogSplitLayout";
-import { ProformaTotalsPanel } from "../shared/ProformaItemsEditor";
+import { DocumentDiscountFields, ProformaTotalsPanel } from "../shared/ProformaItemsEditor";
 import {
   emptyQuickFreeItem,
   emptyQuickParty,
@@ -31,7 +31,9 @@ import { useStore } from "../../lib/store";
 import { useAuth } from "../../../lib/auth";
 import { documentService } from "../../../lib/services";
 import { DocumentTermsTemplateEditor, useTermsTemplates } from "./DocumentTermsTemplateEditor";
-import { computeProformaTotals } from "../../lib/proformaPricing";
+import {
+  computeProformaTotals, EMPTY_DOCUMENT_DISCOUNT, hasDocumentDiscount, type DocumentDiscount,
+} from "../../lib/proformaPricing";
 import { loadProformaPrintData, printAssetBase, proformaDoc, PROFORMA_NOTE_OPTIONS } from "../../lib/print";
 import { printOrWarn } from "../../lib/pageHelpers";
 import type { DocumentItem } from "../../lib/mock";
@@ -141,7 +143,11 @@ export function QuickProformaDialog({
   const selectedCompanyQuery = useCompanyDetail(party.manualCompany ? null : party.companyId);
   const selectedCompany = selectedCompanyQuery.data ?? null;
   const priceRows = useMemo(() => quickFreeItemsToRows(items), [items]);
-  const totals = useMemo(() => computeProformaTotals(priceRows), [priceRows]);
+  const [documentDiscount, setDocumentDiscount] = useState<DocumentDiscount>(EMPTY_DOCUMENT_DISCOUNT);
+  const totals = useMemo(
+    () => computeProformaTotals(priceRows, { documentDiscount }),
+    [documentDiscount, priceRows],
+  );
 
   const validationError = (): string | null => {
     const partyError = quickPartyValidationError(party);
@@ -185,6 +191,13 @@ export function QuickProformaDialog({
         statusCode: "draft",
         currencyCode,
         items: quickFreeItemsPayload(items, { productDetails: true }),
+        // Belge geneli iskonto; satır iskontolarından ayrı olarak net toplamdan düşülür.
+        ...(hasDocumentDiscount(documentDiscount)
+          ? {
+              headerDiscountAmount: documentDiscount.amount,
+              headerDiscountPercent: documentDiscount.percent,
+            }
+          : {}),
         paymentTerms: paymentTerms || undefined,
         deliveryTerms: deliveryTerms || undefined,
         warrantyTerms: warrantyTerms || undefined,
@@ -239,6 +252,14 @@ export function QuickProformaDialog({
                     <QuickSummaryRow label="Kalem" value={`${priceRows.filter((r) => r.description.trim()).length} satır`} />
                   </dl>
                 </DialogSidebarSection>
+
+                <DocumentDiscountFields
+                  value={documentDiscount}
+                  onChange={setDocumentDiscount}
+                  currency={currencyCode}
+                  idPrefix="quick-proforma-discount"
+                  disabled={saving}
+                />
 
                 <ProformaTotalsPanel totals={totals} currency={currencyCode} />
 

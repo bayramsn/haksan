@@ -6,7 +6,7 @@ import {
   ArrowRight, ShieldCheck,
   CheckCircle2, Eye, EyeOff, KeyRound, MailCheck, PlayCircle,
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { emailSchema } from "@haksan/shared";
 import { authService } from "../../../lib/services";
@@ -50,6 +50,16 @@ export function LoginPage({
   const [resetPasswordConfirmation, setResetPasswordConfirmation] = useState("");
   const [resetBusy, setResetBusy] = useState(false);
   const [resetSuccess, setResetSuccess] = useState(false);
+  const [playHeroVideo, setPlayHeroVideo] = useState(false);
+
+  useEffect(() => {
+    if (typeof window.matchMedia !== "function") return;
+    const media = window.matchMedia("(min-width: 1024px) and (prefers-reduced-motion: no-preference)");
+    const update = () => setPlayHeroVideo(media.matches);
+    update();
+    media.addEventListener?.("change", update);
+    return () => media.removeEventListener?.("change", update);
+  }, []);
 
   const passwordStrength = [
     resetPassword.length >= 8,
@@ -136,24 +146,26 @@ export function LoginPage({
     <div className="grid h-full min-h-0 w-full grid-cols-1 overflow-hidden bg-[#0a0d12] text-foreground lg:grid-cols-[minmax(0,1fr)_530px] xl:grid-cols-[minmax(0,1fr)_590px]">
       {/* Left video panel */}
       <div className="relative hidden min-h-0 overflow-hidden bg-[#020b2b] lg:block">
-        <video
-          autoPlay
-          loop
-          muted
-          playsInline
-          preload="metadata"
-          poster="/brand/login-hero-2026-07-21-poster.jpg"
-          aria-hidden="true"
-          className="pointer-events-none absolute inset-0 h-full w-full object-cover object-center motion-reduce:hidden"
-        >
-          <source src="/brand/login-hero-2026-07-21.mp4" type="video/mp4" />
-        </video>
         <img
           src="/brand/login-hero-2026-07-21-poster.jpg"
           alt=""
           aria-hidden="true"
-          className="pointer-events-none absolute inset-0 hidden h-full w-full object-cover object-center motion-reduce:block"
+          className="pointer-events-none absolute inset-0 h-full w-full object-cover object-center"
         />
+        {playHeroVideo && (
+          <video
+            autoPlay
+            loop
+            muted
+            playsInline
+            preload="metadata"
+            poster="/brand/login-hero-2026-07-21-poster.jpg"
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-0 h-full w-full object-cover object-center"
+          >
+            <source src="/brand/login-hero-2026-07-21.mp4" type="video/mp4" />
+          </video>
+        )}
         <img
           src="/brand/haksan-logo-white.png"
           alt="Haksan Makina"

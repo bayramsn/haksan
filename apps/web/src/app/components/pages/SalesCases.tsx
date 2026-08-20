@@ -91,7 +91,7 @@ export function SalesCasesPage({
     setBusyId(id);
     try {
       await reopenCase(id);
-      toast.success("Fırsat önceki derecesine geri açıldı", {
+      toast.success("Fırsat önceki satış alanına geri açıldı", {
         description: "Kart ve kayıp bilgileri korunarak fırsat panosuna alındı.",
       });
     } catch (error: any) {
@@ -129,13 +129,20 @@ export function SalesCasesPage({
   const focusOpen = focus === "open" || focus === "today";
   const focusWon = focus === "won";
   const focusLost = focus === "lost";
+  // Gösterge panelindeki lead uyarıları (SLA / sahipsiz / aksiyonsuz / temassız)
+  // artık ayrı bir sayfaya değil panonun Lead kolonuna götürür.
+  const focusLead =
+    focus === "sla_risk" || focus === "unassigned" || focus === "no_action" || focus === "uncontacted";
   const showLostDetails = focusLost || stage === "lost";
   const filtered = salesCases.filter((s) => {
     const qualification = s.qualificationStage ?? "lead";
-    if (qualification === "lead") return false;
     if (focusOpen && (qualification === "win" || qualification === "lost")) return false;
     if (focusWon && qualification !== "win") return false;
     if (focusLost && qualification !== "lost") return false;
+    if (focusLead && qualification !== "lead") return false;
+    if (focus === "unassigned" && s.assignedUserId) return false;
+    if (focus === "no_action" && s.nextActionAt) return false;
+    if (focus === "uncontacted" && s.qualificationReadiness?.health?.firstContactAt) return false;
     if (stage !== "all" && qualification !== stage) return false;
     if (currency !== "all" && s.currency !== currency) return false;
     if (companyResolution === "pending" && s.customerId) return false;
@@ -317,7 +324,7 @@ export function SalesCasesPage({
                         <div className="min-w-0">
                           <div className="flex min-w-0 items-center gap-1.5">
                             <div className="truncate text-sm font-semibold leading-tight transition-colors group-hover:text-primary">{partyName}</div>
-                            {!c && <span className="shrink-0 rounded bg-warning-soft px-1.5 py-0.5 text-xs text-warning">Lead</span>}
+                            {!c && <span className="shrink-0 rounded bg-warning-soft px-1.5 py-0.5 text-xs text-warning">Firma bekliyor</span>}
                           </div>
                           <div className="mt-0.5 truncate text-xs text-muted-foreground">
                             {s.leadContactName && s.leadContactName !== partyName ? `${s.leadContactName} · ` : ""}
@@ -409,7 +416,7 @@ export function SalesCasesPage({
                             size="sm"
                             className="h-8 gap-1 text-xs"
                             disabled={busyId === s.id}
-                            title="LOST fırsatı önceki derecesine döndür"
+                            title="LOST fırsatı önceki satış alanına döndür"
                             onClick={() => void onReopen(s.id)}
                           >
                             <RotateCcw className="size-3.5" /> Önceki Dereceye Aç
@@ -520,10 +527,10 @@ export function SalesCasesPage({
                               size="sm"
                               className="h-8 gap-1 text-xs"
                               disabled={busyId === s.id}
-                              title={s.qualificationStage === "lost" ? "Önceki fırsat derecesine geri aç" : "Aktif panoya geri aç"}
+                              title={s.qualificationStage === "lost" ? "Önceki satış alanına geri aç" : "Aktif panoya geri aç"}
                               onClick={() => onReopen(s.id)}
                             >
-                              <RotateCcw className="size-3.5" /> {s.qualificationStage === "lost" ? "Önceki Dereceye Aç" : "Geri Aç"}
+                              <RotateCcw className="size-3.5" /> {s.qualificationStage === "lost" ? "Önceki Satış Alanına Aç" : "Geri Aç"}
                             </Button>}
                             {canDelete && (
                               <Button
@@ -556,7 +563,7 @@ export function SalesCasesPage({
       </TabsContent>
 
       <AlertDialog open={!!pendingClose} onOpenChange={(open) => !open && !busyId && setPendingClose(null)}>
-        <AlertDialogContent className="max-w-lg"><AlertDialogHeader><AlertDialogTitle>Fırsat tamamlanıp arşivlensin mi?</AlertDialogTitle><AlertDialogDescription><span className="block font-medium text-foreground">{pendingClose ? salesCasePartyName(pendingClose, customers.find((customer) => customer.id === pendingClose.customerId)) : "Fırsat"} · {pendingClose?.requestedModel || pendingClose?.requestedProduct}</span>Kart silinmez; “Geçmiş” görünümüne taşınır. Teklif, proforma, sözleşme ve aktiviteler korunur.</AlertDialogDescription></AlertDialogHeader>{pendingClose && <div className="rounded-lg border border-primary/10 bg-brand-blue-soft/50 p-3 text-xs"><div className="font-display text-lg font-semibold text-primary">{pendingClose.estimatedAmount.toLocaleString("tr-TR")} {pendingClose.currency}</div><div className="mt-1 text-muted-foreground">Derece: {QUALIFICATION_STAGE_LABELS[pendingClose.qualificationStage]}</div></div>}<AlertDialogFooter><AlertDialogCancel>Vazgeç</AlertDialogCancel><AlertDialogAction disabled={!!busyId} onClick={(event) => { event.preventDefault(); if (pendingClose) void onClose(pendingClose.id); }}>{busyId ? "Arşivleniyor…" : "Tamamla ve Arşivle"}</AlertDialogAction></AlertDialogFooter></AlertDialogContent>
+        <AlertDialogContent className="max-w-lg"><AlertDialogHeader><AlertDialogTitle>Fırsat tamamlanıp arşivlensin mi?</AlertDialogTitle><AlertDialogDescription><span className="block font-medium text-foreground">{pendingClose ? salesCasePartyName(pendingClose, customers.find((customer) => customer.id === pendingClose.customerId)) : "Fırsat"} · {pendingClose?.requestedModel || pendingClose?.requestedProduct}</span>Kart silinmez; “Geçmiş” görünümüne taşınır. Teklif, proforma, sözleşme ve aktiviteler korunur.</AlertDialogDescription></AlertDialogHeader>{pendingClose && <div className="rounded-lg border border-primary/10 bg-brand-blue-soft/50 p-3 text-xs"><div className="font-display text-lg font-semibold text-primary">{pendingClose.estimatedAmount.toLocaleString("tr-TR")} {pendingClose.currency}</div><div className="mt-1 text-muted-foreground">Satış alanı: {QUALIFICATION_STAGE_LABELS[pendingClose.qualificationStage]}</div></div>}<AlertDialogFooter><AlertDialogCancel>Vazgeç</AlertDialogCancel><AlertDialogAction disabled={!!busyId} onClick={(event) => { event.preventDefault(); if (pendingClose) void onClose(pendingClose.id); }}>{busyId ? "Arşivleniyor…" : "Tamamla ve Arşivle"}</AlertDialogAction></AlertDialogFooter></AlertDialogContent>
       </AlertDialog>
       <AlertDialog open={Boolean(pendingDelete)} onOpenChange={(open) => !open && !busyId && setPendingDelete(null)}>
         <AlertDialogContent className="max-w-lg">

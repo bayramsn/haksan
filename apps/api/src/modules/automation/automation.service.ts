@@ -260,7 +260,7 @@ export class AutomationService {
       .where(
         and(
           this.aliveOpportunity(tenantId),
-          eq(opportunities.qualificationStage, 'lead'),
+          eq(opportunities.qualificationStage, 'c'),
           or(
             ...timed.map(([status, hours]) =>
               and(
@@ -284,7 +284,7 @@ export class AutomationService {
       .where(
         and(
           this.aliveOpportunity(tenantId),
-          eq(opportunities.qualificationStage, 'lead'),
+          eq(opportunities.qualificationStage, 'c'),
           eq(opportunities.leadFollowUpStatus, 'attempting'),
           gte(opportunities.contactAttemptCount, LEAD_MAX_CONTACT_ATTEMPTS),
         ),

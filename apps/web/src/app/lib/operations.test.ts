@@ -64,21 +64,21 @@ describe("lead uygulama-geneli aksiyonları", () => {
 
     expect(leadItem).toMatchObject({
       severity: "critical",
-      module: "leads",
+      module: "sales-cases",
       action: { kind: "salesCase", salesCaseId: "lead-1" },
     });
   });
 
   it("Bildirim Merkezi uyarılarını açıklanabilir lead kuyruklarına bağlar", () => {
     const alerts = buildAlerts(snapshotWithLead());
-    const leadAlerts = alerts.filter((alert) => alert.module === "leads");
+    const leadAlerts = alerts.filter((alert) => alert.module === "sales-cases");
 
     expect(leadAlerts.map((alert) => alert.action)).toEqual(
       expect.arrayContaining([
-        { kind: "navigate", nav: "leads", focus: "sla_risk" },
-        { kind: "navigate", nav: "leads", focus: "unassigned" },
-        { kind: "navigate", nav: "leads", focus: "no_action" },
-        { kind: "navigate", nav: "leads", focus: "uncontacted" },
+        { kind: "navigate", nav: "sales-cases", focus: "sla_risk" },
+        { kind: "navigate", nav: "sales-cases", focus: "unassigned" },
+        { kind: "navigate", nav: "sales-cases", focus: "no_action" },
+        { kind: "navigate", nav: "sales-cases", focus: "uncontacted" },
       ]),
     );
   });

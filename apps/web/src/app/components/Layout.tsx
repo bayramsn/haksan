@@ -60,7 +60,6 @@ export const RESOURCE_BY_NAV: Partial<Record<NavKey, string>> = {
   calendar: "calendar",
   customers: "companies",
   contacts: "contacts",
-  leads: "opportunities",
   "sales-cases": "opportunities",
   kanban: "opportunities",
   "sales-map": "companies",
@@ -115,7 +114,6 @@ const NAV_ICON: Record<NavigationVisibilityKey, any> = {
   chat: MessageCircle,
   calendar: Calendar,
   customers: Building2,
-  leads: Rows3,
   "sales-cases": Briefcase,
   references: ListChecks,
   contacts: ContactIcon,
@@ -139,7 +137,6 @@ const NAV_ICON: Record<NavigationVisibilityKey, any> = {
 
 const NAV_ROLES: Partial<Record<NavigationVisibilityKey, string[]>> = {
   customers: ["sales", "finance"],
-  leads: ["sales"],
   "sales-cases": ["sales"],
   references: ["sales"],
   contacts: ["sales"],

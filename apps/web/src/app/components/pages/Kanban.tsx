@@ -566,7 +566,7 @@ export function KanbanPage({
               <div className="min-w-0 flex-1">
                 <div className="flex min-w-0 items-center gap-1.5">
                   <div className="truncate text-[13px] font-medium leading-tight transition-colors group-hover:text-primary">{partyName}</div>
-                  {!c && <span className="shrink-0 rounded bg-warning-soft px-1 py-0.5 text-[9px] text-warning">Lead</span>}
+                  {!c && <span className="shrink-0 rounded bg-warning-soft px-1 py-0.5 text-[9px] text-warning">Firma bekliyor</span>}
                 </div>
                 {s.leadContactName && s.leadContactName !== partyName && (
                   <div className="mt-0.5 truncate text-[11px] text-muted-foreground">{s.leadContactName}</div>

@@ -94,7 +94,7 @@ const requireDisqualifyReason = (
   if (value.leadFollowUpStatus === 'disqualified' && !value.disqualifyReasonCode?.trim()) {
     context.addIssue({
       code: z.ZodIssueCode.custom,
-      message: 'Lead elenirken eleme nedeni zorunludur.',
+      message: 'Fırsat uygun değil olarak işaretlenirken neden zorunludur.',
       path: ['disqualifyReasonCode'],
     });
   }
@@ -146,7 +146,7 @@ export const trelloImportRowSchema = z
     dueAt: z.string().datetime().optional(),
     trelloCreatedAt: z.string().datetime().optional(),
     archived: z.boolean().default(false),
-    stageCode: pipelineStageEnum.default('lead'),
+    stageCode: pipelineStageEnum.default('sales'),
   })
   .superRefine((value, context) => {
     if (!value.trelloCardId && !value.cardUrl) {
@@ -262,10 +262,13 @@ export type LeadAssignmentRuleCreateInput = z.infer<typeof leadAssignmentRuleCre
 export type LeadAssignmentRuleUpdateInput = z.infer<typeof leadAssignmentRuleUpdateSchema>;
 
 export const opportunityQualificationChangeSchema = z.object({
+  // Lead, fırsat akışının İLK adımıdır; ayrı bir "Bugünüm" sayfası yerine
+  // panonun ilk kolonu olarak yaşar, bu yüzden geçerli bir hedeftir.
   toStage: opportunityQualificationStageEnum,
   note: z.string().trim().max(1000).optional(),
   cancellationReasonCode: z.string().trim().max(64).optional(),
   lostCompetitorId: z.string().uuid().optional(),
+  lostCompetitorName: z.string().trim().min(1).max(255).optional(),
   lostCompetitorProductModel: z.string().trim().max(255).optional(),
   lostProductName: z.string().trim().max(512).optional(),
   lostUnmetConditions: z.string().trim().max(2000).optional(),
@@ -304,6 +307,19 @@ export const opportunityProcessActionKeys = [
 ] as const;
 export type OpportunityProcessActionKey = (typeof opportunityProcessActionKeys)[number];
 
+export const opportunityProcessCheckStatusEnum = z.enum(['done', 'not_done']);
+export type OpportunityProcessCheckStatus = z.infer<typeof opportunityProcessCheckStatusEnum>;
+
+/**
+ * A+ adımının elle işaretlenmesi. `status: null` işareti kaldırır ve adım
+ * yeniden kanıttan (fatura, sevkiyat, kurulum kaydı...) türetilir.
+ */
+export const opportunityProcessCheckUpsertSchema = z.object({
+  status: opportunityProcessCheckStatusEnum.nullable(),
+  note: z.string().trim().max(2000).nullish(),
+});
+export type OpportunityProcessCheckUpsertInput = z.infer<typeof opportunityProcessCheckUpsertSchema>;
+
 export type ProcessCheck = {
   key: string;
   label: string;
@@ -311,6 +327,14 @@ export type ProcessCheck = {
   actionKey: OpportunityProcessActionKey;
   stageCode?: PipelineStageCode;
   qualificationStage?: OpportunityQualificationStage;
+  /** Adım elle işaretlenebilir mi (şimdilik yalnız A+ alanı). */
+  manualEditable?: boolean;
+  /** Elle verilen karar; yoksa `complete` kanıttan türetilmiştir. */
+  manualStatus?: OpportunityProcessCheckStatus | null;
+  /** Elle işaretlemenin gerekçesi / notu. */
+  note?: string | null;
+  noteUpdatedAt?: string | null;
+  noteUpdatedByName?: string | null;
 };
 
 export type ProcessTarget = {
@@ -353,6 +377,7 @@ export const opportunityStageChangeSchema = z
     changeReason: z.string().max(1000).optional(),
     cancellationReasonCode: z.string().max(64).optional(),
     lostCompetitorId: z.string().optional(),
+    lostCompetitorName: z.string().trim().min(1).max(255).optional(),
     lostCompetitorProductModel: z.string().max(255).optional(),
     quoteId: z.string().optional(),
     inventoryItemIds: z.array(z.string()).optional(),

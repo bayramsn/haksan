@@ -18,7 +18,7 @@ import { Textarea } from "../ui/textarea";
 
 /**
  * Firma bilgisi henüz kesinleşmemiş talebi, firma/kontak ana kayıtlarını kirletmeden
- * doğrudan lead aşamasında bir satış kartına dönüştürür.
+ * doğrudan Fırsat'ın ilk C alanında bir satış kartına dönüştürür.
  */
 export function LeadCaptureDialog({ trigger }: { trigger?: React.ReactNode }) {
   const { refresh } = useStore();
@@ -215,7 +215,7 @@ export function LeadCaptureDialog({ trigger }: { trigger?: React.ReactNode }) {
           `İstenen ürün: ${product.trim()}`,
           qtyNum > 0 ? `Adet: ${qtyNum}` : null,
           `Şehir: ${[city.trim(), district.trim()].filter(Boolean).join(" / ")}`,
-          "Kaynak: Hızlı lead",
+          "Kaynak: Hızlı fırsat",
         ].filter(Boolean).join("\n"),
         divisionId: divisionArg,
         ownerUserId: ownerUserId || undefined,
@@ -223,13 +223,13 @@ export function LeadCaptureDialog({ trigger }: { trigger?: React.ReactNode }) {
       } as any);
 
       await refresh();
-      toast.success("Lead satış kartı oluşturuldu", {
+      toast.success("Fırsat oluşturuldu", {
         description: `${companyTitle.trim() || contactName.trim()} · ${title}`,
       });
       reset();
       setOpen(false);
     } catch (error: unknown) {
-      toast.error("Lead oluşturulamadı", {
+      toast.error("Fırsat oluşturulamadı", {
         description: error instanceof Error ? error.message : "İstek başarısız oldu.",
       });
     } finally {
@@ -242,17 +242,17 @@ export function LeadCaptureDialog({ trigger }: { trigger?: React.ReactNode }) {
       <DialogTrigger asChild>
         {trigger ?? (
           <Button variant="outline" className="h-9 gap-1.5">
-            <UserPlus className="size-4" /> Hızlı Lead
+            <UserPlus className="size-4" /> Hızlı Fırsat
           </Button>
         )}
       </DialogTrigger>
       <DialogContent className="w-[min(560px,calc(100vw-2rem))]">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <UserPlus className="size-5 text-primary" /> Hızlı Lead
+            <UserPlus className="size-5 text-primary" /> Hızlı Fırsat
           </DialogTitle>
           <DialogDescription>
-            Talebi lead olarak kaydedin. Bu adımda firma veya kontak ana kaydı oluşturulmaz; teklif hazırlarken firma bağlanır.
+            Talebi Fırsat'ın ilk C alanına kaydedin. Firma veya kontak ana kaydı daha sonra bağlanabilir.
           </DialogDescription>
         </DialogHeader>
 
@@ -274,7 +274,7 @@ export function LeadCaptureDialog({ trigger }: { trigger?: React.ReactNode }) {
                 setContactId("");
                 setCompanyTitle(label);
               }}
-              createLabel={(query) => `"${query}" firmasını lead olarak yaz`}
+              createLabel={(query) => `"${query}" firmasını fırsata yaz`}
             />
             {companyId ? (
               <p className="mt-1.5 text-[11px] text-muted-foreground">
@@ -282,7 +282,7 @@ export function LeadCaptureDialog({ trigger }: { trigger?: React.ReactNode }) {
               </p>
             ) : companyTitle.trim() ? (
               <p className="mt-1.5 text-[11px] text-muted-foreground">
-                Elle giriş: “{companyTitle.trim()}” yalnız lead alanına yazılır, firma kaydı oluşturulmaz.
+                Elle giriş: “{companyTitle.trim()}” yalnız fırsata yazılır, firma kaydı oluşturulmaz.
               </p>
             ) : null}
           </div>
@@ -466,7 +466,7 @@ export function LeadCaptureDialog({ trigger }: { trigger?: React.ReactNode }) {
               </SelectContent>
             </Select>
             <p className="mt-1.5 text-[11px] text-muted-foreground">
-              Seçim yapmazsanız mevcut lead atama kuralları uygulanır; uygun kural yoksa kayıt sahipsiz açılır.
+              Seçim yapmazsanız mevcut fırsat atama kuralları uygulanır; uygun kural yoksa kayıt sahipsiz açılır.
             </p>
           </div>
         </div>
@@ -474,7 +474,7 @@ export function LeadCaptureDialog({ trigger }: { trigger?: React.ReactNode }) {
         <DialogFooter>
           <Button type="button" variant="outline" onClick={() => setOpen(false)} disabled={saving}>Vazgeç</Button>
           <Button type="button" onClick={() => void submit()} disabled={saving || !canSubmit}>
-            {saving ? "Oluşturuluyor…" : "Lead Kartı Oluştur"}
+            {saving ? "Oluşturuluyor…" : "Fırsat Oluştur"}
           </Button>
         </DialogFooter>
       </DialogContent>

@@ -15,7 +15,7 @@ describe("QualificationKanban LOST yeniden açma akışı", () => {
   });
 
   it("hedefi açıkça gösterir ve kayıt bilgilerinin korunacağını bildirir", () => {
-    expect(source).toContain("LOST kaydını hedef dereceye taşı");
+    expect(source).toContain("LOST kaydını hedef satış alanına taşı");
     expect(source).toContain("firma, makine, aktiviteler ve kayıp bilgileri korunur");
     expect(source).toContain('const allowed = stage === "lost" || target === "lost" || adjacent');
     expect(source).not.toContain("await reopenCase(salesCase.id)");

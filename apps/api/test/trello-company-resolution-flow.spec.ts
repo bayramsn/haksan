@@ -179,7 +179,7 @@ describe('Trello company resolution flow', () => {
             title: `Yeni Potansiyel ${suffix} / Bursa`,
             cardUrl: `https://trello.com/c/${createCardId}`,
             archived: false,
-            stageCode: 'lead',
+            stageCode: 'sales',
             candidate: {
               companyTitle: `Yeni Potansiyel ${suffix}`,
               province: 'Bursa',
@@ -195,7 +195,7 @@ describe('Trello company resolution flow', () => {
             title: `Atlanan Kart ${suffix}`,
             cardUrl: `https://trello.com/c/${skipCardId}`,
             archived: false,
-            stageCode: 'lead',
+            stageCode: 'sales',
             candidate: { companyTitle: `Atlanan Firma ${suffix}` },
             resolution: { action: 'skip' },
           },
@@ -211,6 +211,8 @@ describe('Trello company resolution flow', () => {
       .set('Authorization', `Bearer ${token}`)
       .expect(200);
     companyIds.push(opportunity.body.companyId);
+    expect(opportunity.body.stage.code).toBe('sales');
+    expect(opportunity.body.qualificationStage).toBe('c');
     if (opportunity.body.primaryContactId) contactIds.push(opportunity.body.primaryContactId);
 
     const companies = await request(app.getHttpServer())

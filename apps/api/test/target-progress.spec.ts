@@ -87,7 +87,7 @@ describe('automatic target progress', () => {
 
     const db = getDb();
     const eur = await db.query.currencies.findFirst({ where: eq(currencies.code, 'EUR') });
-    const stage = await db.query.pipelineStages.findFirst({ where: eq(pipelineStages.code, 'lead') });
+    const stage = await db.query.pipelineStages.findFirst({ where: eq(pipelineStages.code, 'sales') });
     if (!eur || !stage) throw new Error('Hedef testi lookup kayıtları bulunamadı');
     const suffix = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 
@@ -101,6 +101,7 @@ describe('automatic target progress', () => {
       tenantId,
       companyId: companyId!,
       currentStageId: stage.id,
+      qualificationStage: 'c',
       ownerUserId: salesId,
       title: `Hedef Test ${suffix}`,
       createdBy: adminId,

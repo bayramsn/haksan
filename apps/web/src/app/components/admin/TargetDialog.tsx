@@ -663,7 +663,7 @@ const MAIN_METRIC_FIELDS: { key: Extract<keyof UserTarget, string>; label: strin
   { key: "callTarget", label: "Arama", unit: "adet", metricKey: "callTarget" },
   { key: "serviceAmount", label: "Servis Cirosu", unit: "USD", metricKey: "serviceAmount" },
   { key: "serviceCompleted", label: "Tamamlanan Servis", unit: "adet", metricKey: "serviceCompleted" },
-  { key: "digitalLeadTarget", label: "Dijital Lead", unit: "adet", metricKey: "digitalLeadTarget" },
+  { key: "digitalLeadTarget", label: "Dijital Fırsat", unit: "adet", metricKey: "digitalLeadTarget" },
   { key: "digitalConversionTarget", label: "Dijital Dönüşüm", unit: "adet", metricKey: "digitalConversionTarget" },
   { key: "digitalBudget", label: "Dijital Bütçe", unit: "USD", metricKey: "digitalBudget" },
 ];

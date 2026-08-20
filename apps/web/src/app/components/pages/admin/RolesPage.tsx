@@ -50,7 +50,7 @@ const RESOURCE_LABEL: Record<string, string> = {
   departments: "Departmanlar",
   companies: "Firmalar",
   contacts: "Kontaklar",
-  leads: "Lead",
+  leads: "Fırsatlar",
   opportunities: "Fırsatlar",
   activities: "Aktiviteler",
   competitors: "Rakipler",

@@ -22,8 +22,11 @@
     "audit:contracts": "npm --workspace @haksan/api run audit:contracts",
     "verify:agent-skills": "node scripts/verify-agent-skills.mjs",
     "scan:secrets": "node scripts/security-scan.mjs",
+    "validate:deployment-profiles": "node scripts/validate-deployment-profiles.mjs",
     "lint:migrations": "npm --workspace @haksan/api run db:lint:migrations",
     "test:coverage": "npm --workspace @haksan/api run test:coverage",
+    "test:local": "node scripts/test-api-local.mjs",
+    "test:local:coverage": "node scripts/test-api-local.mjs --coverage",
     "db:generate": "npm --workspace @haksan/api run db:generate",
     "db:migrate": "npm --workspace @haksan/api run db:migrate",
     "db:seed": "npm --workspace @haksan/api run db:seed",
@@ -39,7 +42,7 @@
     "docker:logs": "docker compose logs -f"
   },
   "engines": {
-    "node": "22.x"
+    "node": ">=22.22.2 <23"
   },
   "devDependencies": {
     "typescript": "5.6.3",

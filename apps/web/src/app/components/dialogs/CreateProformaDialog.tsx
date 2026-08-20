@@ -10,7 +10,7 @@ import { Label } from "../ui/label";
 import { Combobox } from "../ui/combobox";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "../ui/select";
 import { DialogSplitLayout, DialogSidebarSection } from "../shared/DialogSplitLayout";
-import { ProformaItemsEditor, ProformaTotalsPanel } from "../shared/ProformaItemsEditor";
+import { DocumentDiscountFields, ProformaItemsEditor, ProformaTotalsPanel } from "../shared/ProformaItemsEditor";
 import { useStore } from "../../lib/store";
 import { documentService, quoteService } from "../../../lib/services";
 import {
@@ -19,7 +19,8 @@ import {
   useTermsTemplates,
 } from "./DocumentTermsTemplateEditor";
 import {
-  computeProformaTotals, proformaRowError, quoteToProformaPriceRows, type ProformaPriceRow,
+  computeProformaTotals, EMPTY_DOCUMENT_DISCOUNT, hasDocumentDiscount, proformaRowError,
+  quoteToProformaPriceRows, type DocumentDiscount, type ProformaPriceRow,
 } from "../../lib/proformaPricing";
 import {
   loadProformaPrintData, printAssetBase, proformaDoc, PROFORMA_NOTE_OPTIONS,
@@ -100,7 +101,8 @@ export function CreateProformaDialog({
   const [termsDirty, setTermsDirty] = useState(false);
   const [priceRows, setPriceRows] = useState<ProformaPriceRow[]>([]);
   // Toplamların yazdırılan belgeyle örtüşmesi için teklifin iskonto/gümrük bağlamı.
-  const [quoteTotals, setQuoteTotals] = useState({ discountTotal: 0, customsTotal: 0 });
+  const [quoteTotals, setQuoteTotals] = useState({ discountTotal: 0, headerDiscountAmount: 0, customsTotal: 0 });
+  const [documentDiscount, setDocumentDiscount] = useState<DocumentDiscount>(EMPTY_DOCUMENT_DISCOUNT);
   const [printVariantKey, setPrintVariantKey] = useState(AUTO_VARIANT_KEY);
   const [pricesLoading, setPricesLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -118,7 +120,8 @@ export function CreateProformaDialog({
     setWarrantyTerms("");
     setTermsDirty(false);
     setPriceRows([]);
-    setQuoteTotals({ discountTotal: 0, customsTotal: 0 });
+    setQuoteTotals({ discountTotal: 0, headerDiscountAmount: 0, customsTotal: 0 });
+    setDocumentDiscount(EMPTY_DOCUMENT_DISCOUNT);
     setPrintVariantKey(AUTO_VARIANT_KEY);
     setPricesLoading(false);
     // suggestNo, today: stable per open
@@ -144,6 +147,7 @@ export function CreateProformaDialog({
         setPriceRows(quoteToProformaPriceRows(data));
         setQuoteTotals({
           discountTotal: Number(data.discountTotal ?? 0) || 0,
+          headerDiscountAmount: Number(data.headerDiscountAmount ?? 0) || 0,
           customsTotal: Number(data.customsTotal ?? 0) || 0,
         });
       } catch {
@@ -154,7 +158,8 @@ export function CreateProformaDialog({
         setTermsTemplateKey("");
         setTermsDirty(false);
         setPriceRows([]);
-        setQuoteTotals({ discountTotal: 0, customsTotal: 0 });
+        setQuoteTotals({ discountTotal: 0, headerDiscountAmount: 0, customsTotal: 0 });
+    setDocumentDiscount(EMPTY_DOCUMENT_DISCOUNT);
       } finally {
         if (!cancelled) setPricesLoading(false);
       }
@@ -196,9 +201,11 @@ export function CreateProformaDialog({
   const totals = useMemo(
     () => computeProformaTotals(priceRows, {
       quoteDiscountTotal: quoteTotals.discountTotal,
+      headerDiscountAmount: quoteTotals.headerDiscountAmount,
       customsTotal: quoteTotals.customsTotal,
+      documentDiscount,
     }),
-    [priceRows, quoteTotals],
+    [documentDiscount, priceRows, quoteTotals],
   );
   const rowError = priceRows.map(proformaRowError).find(Boolean) ?? null;
 
@@ -211,7 +218,16 @@ export function CreateProformaDialog({
       items: priceRows.map((row) => ({
         quoteItemId: row.quoteItemId,
         unitPrice: row.unitPrice,
+        discountAmount: row.discountAmount,
       })),
+      // Belge geneli iskonto girildiyse gönderilir; boşsa proforma teklifin
+      // genel iskontosunu devralır.
+      ...(hasDocumentDiscount(documentDiscount)
+        ? {
+            headerDiscountAmount: documentDiscount.amount,
+            headerDiscountPercent: documentDiscount.percent,
+          }
+        : {}),
       // Şart düzenlemesi PROFORMAYA özeldir; bağlı teklifin şartlarını
       // yeniden yazmaz. Dokunulmadıysa belge teklifin şartlarıyla basılır.
       terms: termsDirty
@@ -331,6 +347,14 @@ export function CreateProformaDialog({
                     <p className="text-sm text-muted-foreground">Henüz teklif seçilmedi.</p>
                   )}
                 </DialogSidebarSection>
+
+                <DocumentDiscountFields
+                  value={documentDiscount}
+                  onChange={setDocumentDiscount}
+                  currency={currency}
+                  idPrefix="create-proforma-discount"
+                  disabled={saving}
+                />
 
                 <ProformaTotalsPanel
                   totals={totals}

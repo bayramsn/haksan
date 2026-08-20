@@ -841,6 +841,20 @@
       "when": 1790275200000,
       "tag": "0120_company_relation_type_code",
       "breakpoints": true
+    },
+    {
+      "idx": 121,
+      "version": "7",
+      "when": 1790361600000,
+      "tag": "0121_opportunity_process_check_notes",
+      "breakpoints": true
+    },
+    {
+      "idx": 122,
+      "version": "7",
+      "when": 1790448000000,
+      "tag": "0122_contract_vat_freight_terms",
+      "breakpoints": true
     }
   ]
 }

@@ -78,6 +78,8 @@ export function DocumentUploadDialog({
   defaultSalesCaseId,
   defaultCompanyId,
   defaultType,
+  /** Sayfadaki bırakma alanından gelen dosya; pencere açılınca hazır gelir. */
+  initialFile,
   open: controlledOpen,
   onOpenChange,
   onUploaded,
@@ -86,6 +88,7 @@ export function DocumentUploadDialog({
   defaultSalesCaseId?: string;
   defaultCompanyId?: string;
   defaultType?: DocumentTypeValue;
+  initialFile?: File | null;
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
   onUploaded?: (document: DocumentItem) => void | Promise<void>;
@@ -107,6 +110,7 @@ export function DocumentUploadDialog({
   const [description, setDescription] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [dragging, setDragging] = useState(false);
 
   useEffect(() => {
     if (!open) return;
@@ -116,9 +120,9 @@ export function DocumentUploadDialog({
     setSelectedCompanyId(defaultCompanyId ?? "");
     setQuoteId("");
     setDescription("");
-    setFile(null);
+    setFile(initialFile ?? null);
     if (inputRef.current) inputRef.current.value = "";
-  }, [defaultCompanyId, defaultSalesCaseId, defaultType, initialScope, open]);
+  }, [defaultCompanyId, defaultSalesCaseId, defaultType, initialFile, initialScope, open]);
 
   const selectedCase = useMemo(
     () => cases.find((item) => item.id === selectedCaseId),
@@ -355,8 +359,16 @@ export function DocumentUploadDialog({
 
             <button
               type="button"
-              className="w-full rounded-lg border border-dashed border-border/80 bg-muted/20 px-4 py-5 text-left transition hover:bg-muted/40"
+              className={`w-full rounded-lg border border-dashed px-4 py-5 text-left transition ${dragging ? "border-primary bg-primary/[0.06]" : "border-border/80 bg-muted/20 hover:bg-muted/40"}`}
               onClick={() => inputRef.current?.click()}
+              onDragOver={(event) => { event.preventDefault(); setDragging(true); }}
+              onDragLeave={() => setDragging(false)}
+              onDrop={(event) => {
+                event.preventDefault();
+                setDragging(false);
+                const dropped = event.dataTransfer.files?.[0];
+                if (dropped) setFile(dropped);
+              }}
             >
               <input
                 ref={inputRef}
@@ -370,7 +382,7 @@ export function DocumentUploadDialog({
                   <FileText className="size-5" />
                 </div>
                 <div className="min-w-0">
-                  <div className="text-sm font-medium break-words">{file?.name ?? "Dosya seç"}</div>
+                  <div className="text-sm font-medium break-words">{file?.name ?? "Dosya seç veya buraya sürükleyip bırak"}</div>
                   <div className="text-xs text-muted-foreground mt-1">
                     {file
                       ? `${formatFileSize(file.size)} · ${file.type || extensionFromName(file.name).toLocaleUpperCase("tr-TR")}`

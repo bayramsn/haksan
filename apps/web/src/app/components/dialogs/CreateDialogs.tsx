@@ -20,7 +20,7 @@ import {
   type AddressRoleKey,
   type AddressRoleState,
 } from "../../lib/addressRoles";
-import { SALES_STAGES, salesStageLabel, SHIPMENT_STATUSES, DELIVERY_STATUSES, type ShipmentStatus, type DeliveryStatus, type Delivery, type Customer, type Contact, type FirmType, type Machine, type Product, type ProductSpec, type ServiceTicketType, type StockItem } from "../../lib/mock";
+import { SALES_STAGES, SHIPMENT_STATUSES, DELIVERY_STATUSES, type ShipmentStatus, type DeliveryStatus, type Delivery, type Customer, type Contact, type FirmType, type Machine, type Product, type ProductSpec, type ServiceTicketType, type StockItem } from "../../lib/mock";
 
 const SERVICE_TICKET_TYPE_OPTIONS: { value: ServiceTicketType; label: string }[] = [
   { value: "complaint", label: "Şikayet" },
@@ -1848,13 +1848,13 @@ export function EditContactDialog({ contact, onClose }: { contact: Contact | nul
 export function CreateCaseDialog({
   trigger,
   defaultCustomerId,
-  createAsOpportunity = true,
+  createAsOpportunity: _createAsOpportunity = true,
 }: {
   trigger: React.ReactNode;
   defaultCustomerId?: string;
   createAsOpportunity?: boolean;
 }) {
-  const { addCase, convertCase, addCustomer, users, products } = useStore();
+  const { addCase, addCustomer, users, products } = useStore();
   const { user, activeDivision, canUseAllDivisionsForResource, hasRole, scopesForResource } = useAuth();
   const isSuperAdmin = hasRole("super_admin");
   const divisions = user?.divisions ?? [];
@@ -1878,7 +1878,7 @@ export function CreateCaseDialog({
     estimatedAmount: 0,
     paymentTermDays: undefined as number | undefined,
     currency: "USD" as "USD" | "EUR" | "TRY",
-    stage: "lead" as (typeof SALES_STAGES)[number],
+    stage: "sales" as (typeof SALES_STAGES)[number],
     department: "Satış",
     divisionId: canPickDivision ? defaultDivisionId : "",
   });
@@ -1911,8 +1911,7 @@ export function CreateCaseDialog({
     setSaving(true);
     try {
       const sc = await addCase(form as any);
-      if (createAsOpportunity) await convertCase(sc.id, "Firma üzerinden fırsat oluşturuldu");
-      toast.success(createAsOpportunity ? "Fırsat oluşturuldu" : "Lead oluşturuldu", { description: `#${sc.id.toUpperCase()}` });
+      toast.success("Fırsat oluşturuldu", { description: `#${sc.id.toUpperCase()}` });
       setForm(makeEmptyCase());
       setSelectedProductId("");
       setOpen(false);
@@ -1936,11 +1935,9 @@ export function CreateCaseDialog({
       <DialogTrigger asChild>{trigger}</DialogTrigger>
       <DialogContent className="max-w-2xl">
         <DialogHeader>
-          <DialogTitle>{createAsOpportunity ? "Yeni Fırsat" : "Yeni Lead"}</DialogTitle>
+          <DialogTitle>Yeni Fırsat</DialogTitle>
           <DialogDescription>
-            {createAsOpportunity
-              ? "Seçilen firma için C aşamasında bir satış fırsatı oluşturun."
-              : "Satış ekibinin değerlendireceği yeni bir lead oluşturun."}
+            Seçilen firma için ilk C alanında bir satış fırsatı oluşturun.
           </DialogDescription>
         </DialogHeader>
 
@@ -2052,23 +2049,12 @@ export function CreateCaseDialog({
                 </Select>
               </div>
             )}
-            {!createAsOpportunity && <div className="col-span-2">
-              <Label className="text-xs">Başlangıç Aşaması</Label>
-              <Select value={form.stage} onValueChange={(v: any) => setForm({ ...form, stage: v })}>
-                <SelectTrigger className="mt-1.5"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {SALES_STAGES.filter((s) => s !== "cancelled" && s !== "delivered").map((s) => (
-                    <SelectItem key={s} value={s}>{salesStageLabel(s)}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>}
           </div>
 
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => setOpen(false)} disabled={saving}>Vazgeç</Button>
             <Button type="submit" disabled={saving}>
-              {saving ? "Oluşturuluyor..." : createAsOpportunity ? "Fırsatı Oluştur" : "Lead Oluştur"}
+              {saving ? "Oluşturuluyor..." : "Fırsatı Oluştur"}
             </Button>
           </DialogFooter>
         </form>

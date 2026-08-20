@@ -8,7 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from ".
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../ui/table";
 import {
   Search, MoreHorizontal, Eye, Pencil, Phone, Mail, MapPin, Building2, User as UserIcon, ArrowUpDown, Trash2,
-  Handshake, Factory, TrendingUp, Loader2,
+  Handshake, Factory, TrendingUp, Loader2, ChevronRight,
 } from "lucide-react";
 import { toast } from "sonner";
 import { CreateCaseDialog, EditCustomerDialog } from "../dialogs/CreateDialogs";
@@ -73,9 +73,9 @@ const createdByLabel = (item: Pick<Customer, "createdByName" | "createdByEmail">
 const companyInitials = (name: string) => name.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]).join("").toLocaleUpperCase("tr-TR");
 const supplierCategoryLabel = (code?: Customer["supplierCategoryCode"]) => code === "transportation" ? "Nakliye" : code === "logistics" ? "Lojistik" : "";
 
-export function CustomersPage(_props: { onSelect?: (c: Customer) => void } = {}) {
+export function CustomersPage({ onSelect }: { onSelect?: (c: Customer) => void } = {}) {
   const { deleteCustomer, refresh } = useStore();
-  const { openCompany, dialogs } = useDetailDialogs();
+  const { openCompany, dialogs } = useDetailDialogs({ onOpenCompanyDetail: onSelect });
   const queryClient = useQueryClient();
   // Rol bazlı görünürlük (backend ile aynı kural): yalnızca sales/service rolleri
   // kısıtlıdır. Kısıtlı kullanıcılar tedarikçi sekmesini hiç görmez; servis-only
@@ -385,6 +385,18 @@ export function CustomersPage(_props: { onSelect?: (c: Customer) => void } = {})
                           ))}
                         </div>
                       </div>
+                      {onSelect && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="size-7 shrink-0 text-primary"
+                          aria-label={`${c.name} müşteri detay sayfasını aç`}
+                          title="Müşteri detayı"
+                          onClick={(event) => { event.stopPropagation(); onSelect(c); }}
+                        >
+                          <ChevronRight className="size-4" />
+                        </Button>
+                      )}
                       <CreateCaseDialog
                         defaultCustomerId={c.id}
                         createAsOpportunity
@@ -414,6 +426,9 @@ export function CustomersPage(_props: { onSelect?: (c: Customer) => void } = {})
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
                           <DropdownMenuItem onClick={() => openFreshCompany(c)}><Eye className="size-4 mr-2" /> Görüntüle</DropdownMenuItem>
+                          {onSelect && (
+                            <DropdownMenuItem onClick={() => onSelect(c)}><ChevronRight className="size-4 mr-2" /> Müşteri detayı</DropdownMenuItem>
+                          )}
                           <DropdownMenuItem onClick={() => setEditing(c)}><Pencil className="size-4 mr-2" /> Düzenle</DropdownMenuItem>
                           <DropdownMenuItem disabled={!c.email} onClick={() => c.email && setMailRecipient({ email: c.email, name: c.contactPerson || c.name, companyId: c.id })}>
                             <Mail className="size-4 mr-2" /> E-posta gönder
@@ -553,6 +568,18 @@ export function CustomersPage(_props: { onSelect?: (c: Customer) => void } = {})
                   </TableCell>
                   <TableCell className="text-right">
                     <div className="flex items-center justify-end gap-1">
+                    {onSelect && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="size-8 text-primary"
+                        aria-label={`${c.name} müşteri detay sayfasını aç`}
+                        title="Müşteri detayı"
+                        onClick={(event) => { event.stopPropagation(); onSelect(c); }}
+                      >
+                        <ChevronRight className="size-4" />
+                      </Button>
+                    )}
                     <CreateCaseDialog
                       defaultCustomerId={c.id}
                       createAsOpportunity
@@ -582,6 +609,9 @@ export function CustomersPage(_props: { onSelect?: (c: Customer) => void } = {})
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
                         <DropdownMenuItem onClick={() => openFreshCompany(c)}><Eye className="size-4 mr-2" /> Görüntüle</DropdownMenuItem>
+                          {onSelect && (
+                            <DropdownMenuItem onClick={() => onSelect(c)}><ChevronRight className="size-4 mr-2" /> Müşteri detayı</DropdownMenuItem>
+                          )}
                         <DropdownMenuItem onClick={() => setEditing(c)}><Pencil className="size-4 mr-2" /> Düzenle</DropdownMenuItem>
                         <DropdownMenuItem disabled={!c.email} onClick={() => c.email && setMailRecipient({ email: c.email, name: c.contactPerson || c.name, companyId: c.id })}>
                           <Mail className="size-4 mr-2" /> E-posta gönder

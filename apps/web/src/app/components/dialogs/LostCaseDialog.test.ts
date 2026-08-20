@@ -13,6 +13,11 @@ describe("kaybedilen fırsat ayrıntıları", () => {
   it("rakip ve karşılanmayan şartları toplar", () => {
     expect(source).toContain("Rakip Kim?");
     expect(source).toContain("Rakip yok / bilinmiyor");
+    // Tek combobox: listeden seç ya da yazdığını elle kaydet.
+    expect(source).toContain("<Combobox");
+    expect(source).toContain("Listede yok — \"${query}\" olarak kaydet");
+    expect(source).toContain('competitorName: competitorId === "__manual__" ? competitorName.trim() : undefined');
+    expect(source).toContain('maxLength={255}');
     expect(source).toContain("Hangi Şartlarımız Uymadı? *");
     expect(source).toContain("unmetConditions: unmetConditions.trim()");
   });

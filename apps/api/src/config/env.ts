@@ -21,6 +21,7 @@ const envOptionalText = z.preprocess((value) => {
 
 const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
+  DEPLOYMENT_PROFILE: z.enum(['local', 'staging', 'production']).default('local'),
   PORT: z.coerce.number().int().positive().default(3000),
   API_PREFIX: z.string().default('/api/v1'),
 
@@ -218,6 +219,27 @@ const envSchema = z.object({
     }
   }
   if (env.NODE_ENV !== 'production') return;
+  if (env.DEPLOYMENT_PROFILE === 'local') {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['DEPLOYMENT_PROFILE'],
+      message: 'Production NODE_ENV requires an explicit staging or production deployment profile',
+    });
+  }
+  if (env.DEPLOYMENT_PROFILE === 'production' && (!env.DB_BACKUP_ENABLED || !env.DB_BACKUP_REQUIRED)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['DB_BACKUP_REQUIRED'],
+      message: 'The production deployment profile requires enabled and mandatory database backups',
+    });
+  }
+  if (env.DEPLOYMENT_PROFILE === 'staging' && (env.DB_BACKUP_ENABLED || env.DB_BACKUP_REQUIRED)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['DB_BACKUP_ENABLED'],
+      message: 'The disposable staging deployment profile must not claim production backup guarantees',
+    });
+  }
   if (!env.COOKIE_SECURE) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,

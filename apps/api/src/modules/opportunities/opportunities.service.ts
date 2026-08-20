@@ -44,6 +44,7 @@ import {
   activityTypes,
 } from '../../db/schema/lookup';
 import { commercialInvoices, contracts } from '../../db/schema/quotes';
+import { opportunityProcessChecks } from '../../db/schema/crm';
 import { receivables } from '../../db/schema/finance';
 import { DB } from '../../shared/database/database.module';
 import { ForbiddenError, NotFoundError, ValidationError } from '../../shared/utils/errors';
@@ -86,6 +87,7 @@ import {
   type OpportunityApprovalType,
   type OpportunityProcessReadiness,
   type OpportunityProcessActionKey,
+  type OpportunityProcessCheckUpsertInput,
   type ProcessCheck,
   type ProcessTarget,
   type QualificationStageCode,
@@ -140,6 +142,12 @@ const TRELLO_IMPORT_MAX_BYTES = 2 * 1024 * 1024;
 const TRELLO_IMPORT_MAX_ROWS = 500;
 
 const QUALIFICATION_SEQUENCE: QualificationStageCode[] = ['lead', 'c', 'b', 'a', 'a_plus', 'win'];
+
+/**
+ * İlk temas alanı: kart Lead kolonunda doğar ve C alanında da hâlâ ilk temas
+ * takibindedir. Temas durumu / temas olayı yalnız bu iki derecede yazılır.
+ */
+const isFirstContactStage = (stage: QualificationStageCode) => stage === 'lead' || stage === 'c';
 const HOUR_MS = 60 * 60 * 1000;
 const DAY_MS = 24 * HOUR_MS;
 const APPROVAL_LABELS: Record<OpportunityApprovalType, string> = {
@@ -298,7 +306,7 @@ function suggestedStageForTrelloList(listName: string): PipelineStageCode {
     ['call', ['arama', 'telefon', 'call']],
     ['sales', ['satis', 'sales', 'gorusme', 'temas']],
   ];
-  return rules.find(([, keywords]) => keywords.some((keyword) => value.includes(keyword)))?.[0] ?? 'lead';
+  return rules.find(([, keywords]) => keywords.some((keyword) => value.includes(keyword)))?.[0] ?? 'sales';
 }
 
 @Injectable()
@@ -318,7 +326,7 @@ export class OpportunitiesService {
   private qualificationStage(value: string | null | undefined): QualificationStageCode {
     return QUALIFICATION_STAGES.includes(value as QualificationStageCode)
       ? (value as QualificationStageCode)
-      : 'lead';
+      : 'c';
   }
 
   private async qualificationContexts(rows: Array<typeof opportunities.$inferSelect>) {
@@ -743,6 +751,125 @@ export class OpportunitiesService {
     };
   }
 
+  /**
+   * Elle işaretlenebilen adımlar: A+ alanındaki işlerin bir kısmı CRM dışında
+   * yürüdüğü için (gümrükçü, nakliyeci, saha ekibi) satışçı adımı kendi
+   * kararıyla kapatabilir. Diğer alanlar kanıta bağlı kalır; aksi hâlde
+   * "teklifi yok ama teklif adımı tamam" gibi yalan bir kayıt doğar.
+   */
+  private manualCheckAllowed(definition: CheckDefinition) {
+    return definition.qualificationStage === 'a_plus';
+  }
+
+  private async manualProcessChecks(opportunityId: string, actor: AuthContext) {
+    const rows = await this.db
+      .select({
+        checkKey: opportunityProcessChecks.checkKey,
+        status: opportunityProcessChecks.status,
+        note: opportunityProcessChecks.note,
+        updatedAt: opportunityProcessChecks.updatedAt,
+        updatedByName: users.fullName,
+      })
+      .from(opportunityProcessChecks)
+      .leftJoin(users, eq(opportunityProcessChecks.updatedBy, users.id))
+      .where(
+        and(
+          eq(opportunityProcessChecks.tenantId, actor.tenantId),
+          eq(opportunityProcessChecks.opportunityId, opportunityId)
+        )
+      );
+    return new Map(rows.map((row) => [row.checkKey, row]));
+  }
+
+  private applyManualProcessCheck(
+    definition: CheckDefinition,
+    manual?: {
+      status: string;
+      note: string | null;
+      updatedAt: Date;
+      updatedByName: string | null;
+    }
+  ): CheckDefinition {
+    const manualEditable = this.manualCheckAllowed(definition);
+    if (!manualEditable || !manual) return { ...definition, manualEditable };
+    const status = manual.status === 'done' || manual.status === 'not_done' ? manual.status : null;
+    return {
+      ...definition,
+      manualEditable,
+      manualStatus: status,
+      note: manual.note ?? null,
+      noteUpdatedAt: manual.updatedAt?.toISOString() ?? null,
+      noteUpdatedByName: manual.updatedByName ?? null,
+      // Elle verilen karar kanıttan türetilen değerin yerine geçer.
+      complete: status === 'done' ? true : status === 'not_done' ? false : definition.complete,
+    };
+  }
+
+  /** A+ adımını "yapıldı / yapılmadı" olarak işaretler; `status: null` işareti kaldırır. */
+  async setProcessCheck(
+    id: string,
+    checkKey: string,
+    input: OpportunityProcessCheckUpsertInput,
+    actor: AuthContext
+  ) {
+    const opp = await this.findScopedOpp(id, actor);
+    const contexts = await this.qualificationContexts([opp]);
+    const evidence = await this.processEvidence(opp.id, actor);
+    const definition = this.processCheckDefinitions(opp, contexts.get(opp.id)!, evidence).find(
+      (item) => item.key === checkKey
+    );
+    if (!definition) throw new ValidationError('Bilinmeyen süreç adımı', { field: 'checkKey' });
+    if (!this.manualCheckAllowed(definition)) {
+      throw new ValidationError('Yalnız A+ adımları elle işaretlenebilir', { field: 'checkKey' });
+    }
+
+    const note = input.note?.trim() || null;
+    if (input.status === null && !note) {
+      await this.db
+        .delete(opportunityProcessChecks)
+        .where(
+          and(
+            eq(opportunityProcessChecks.tenantId, actor.tenantId),
+            eq(opportunityProcessChecks.opportunityId, id),
+            eq(opportunityProcessChecks.checkKey, checkKey)
+          )
+        );
+    } else {
+      await this.db
+        .insert(opportunityProcessChecks)
+        .values({
+          tenantId: actor.tenantId,
+          opportunityId: id,
+          checkKey,
+          // İşaret kaldırılıp yalnız yorum bırakıldığında adım kanıta döner;
+          // `not_done` burada "kanıt yok" anlamını taşır, kararı bozmaz.
+          status: input.status ?? 'not_done',
+          note,
+          updatedBy: actor.userId,
+          updatedAt: new Date(),
+        })
+        .onConflictDoUpdate({
+          target: [opportunityProcessChecks.opportunityId, opportunityProcessChecks.checkKey],
+          set: {
+            status: input.status ?? 'not_done',
+            note,
+            updatedBy: actor.userId,
+            updatedAt: new Date(),
+          },
+        });
+    }
+
+    await this.audit.write({
+      tenantId: actor.tenantId,
+      actorUserId: actor.userId,
+      action: 'opportunity.process_check.updated',
+      resourceType: 'opportunity',
+      resourceId: id,
+      newValues: { checkKey, status: input.status ?? null, note },
+    });
+    return this.get(id, actor);
+  }
+
   private processCheckDefinitions(
     row: typeof opportunities.$inferSelect,
     context: QualificationContext,
@@ -973,7 +1100,7 @@ export class OpportunitiesService {
             .filter((item) => PIPELINE_STAGE_FLOW.indexOf(item.requiredAt) <= targetOperationIndex && !item.complete)
             .map(({ requiredAt: _requiredAt, ...item }) => item)
         : [];
-    const targetOperationCode = PIPELINE_STAGE_FLOW[Math.max(0, targetOperationIndex)] ?? 'lead';
+    const targetOperationCode = PIPELINE_STAGE_FLOW[Math.max(0, targetOperationIndex)] ?? 'sales';
     const selectable = !closed && direction !== 'current';
     return {
       axis,
@@ -995,7 +1122,10 @@ export class OpportunitiesService {
     actor: AuthContext
   ): Promise<OpportunityProcessReadiness> {
     const evidence = await this.processEvidence(row.id, actor);
-    const definitions = this.processCheckDefinitions(row, context, evidence);
+    const manualChecks = await this.manualProcessChecks(row.id, actor);
+    const definitions = this.processCheckDefinitions(row, context, evidence).map((definition) =>
+      this.applyManualProcessCheck(definition, manualChecks.get(definition.key))
+    );
     const currentQualificationStage = this.qualificationStage(row.qualificationStage);
     const currentQualificationIndex = QUALIFICATION_SEQUENCE.indexOf(currentQualificationStage);
     const currentOperationIndex = PIPELINE_STAGE_FLOW.indexOf(currentOperationStage);
@@ -1052,7 +1182,7 @@ export class OpportunitiesService {
     const terminal = stage === 'win' || stage === 'lost';
 
     const leadStatus = (row.leadFollowUpStatus ?? 'new') as LeadFollowUpStatusCode;
-    const leadSlaHours = stage === 'lead' ? LEAD_FOLLOW_UP_SLA_HOURS[leadStatus] : null;
+    const leadSlaHours = isFirstContactStage(stage) ? LEAD_FOLLOW_UP_SLA_HOURS[leadStatus] : null;
     const leadStatusSince = row.leadStatusUpdatedAt ?? row.createdAt;
     const leadStatusAgeHours = leadStatusSince
       ? Math.floor((now - new Date(leadStatusSince).getTime()) / HOUR_MS)
@@ -1487,7 +1617,7 @@ export class OpportunitiesService {
       tenantId,
       divisionId,
       type: 'lead_unassigned',
-      title: 'Sahipsiz lead atama bekliyor',
+      title: 'Sahipsiz fırsat atama bekliyor',
       body: `${title} için eşleşen aktif satış kullanıcısı bulunamadı.`,
       entityType: 'opportunity',
       entityId: opportunityId,
@@ -1521,7 +1651,7 @@ export class OpportunitiesService {
     if (canManageAllDivisions) return null;
     const scopedDivision = resolveAssignedResourceDivision(actor, 'lead_assignment_rules', null);
     if (!scopedDivision) {
-      throw new ForbiddenError('Lead atama kuralı için erişilebilir bir bölüm bulunamadı');
+      throw new ForbiddenError('Fırsat atama kuralı için erişilebilir bir bölüm bulunamadı');
     }
     return scopedDivision;
   }
@@ -1563,7 +1693,7 @@ export class OpportunitiesService {
         resourceDivisionFilter(actor, 'lead_assignment_rules', leadAssignmentRules.divisionId) ?? sql`true`
       ),
     });
-    if (!row) throw new NotFoundError('Lead atama kuralı');
+    if (!row) throw new NotFoundError('Fırsat atama kuralı');
     return row;
   }
 
@@ -1658,7 +1788,7 @@ export class OpportunitiesService {
       .leftJoin(users, eq(opportunities.ownerUserId, users.id))
       .where(and(...filters));
 
-    const leadRows = rows.filter((row) => this.qualificationStage(row.opp.qualificationStage) === 'lead');
+    const firstStageRows = rows.filter((row) => isFirstContactStage(this.qualificationStage(row.opp.qualificationStage)));
     const firstContactHours = rows
       .filter((row) => row.opp.firstContactAt)
       .map((row) =>
@@ -1671,7 +1801,7 @@ export class OpportunitiesService {
         ? firstContactHours[middle]
         : (firstContactHours[middle - 1] + firstContactHours[middle]) / 2
       : null;
-    const converted = rows.filter((row) => this.qualificationStage(row.opp.qualificationStage) !== 'lead');
+    const progressed = rows.filter((row) => !isFirstContactStage(this.qualificationStage(row.opp.qualificationStage)));
     const conversionHistory = await this.db
       .select({
         conversionOverride: opportunityQualificationHistory.conversionOverride,
@@ -1681,8 +1811,8 @@ export class OpportunitiesService {
       .where(
         and(
           eq(opportunityQualificationHistory.tenantId, actor.tenantId),
-          eq(opportunityQualificationHistory.fromStage, 'lead'),
-          eq(opportunityQualificationHistory.toStage, 'c'),
+          eq(opportunityQualificationHistory.fromStage, 'c'),
+          eq(opportunityQualificationHistory.toStage, 'b'),
           sql`${opportunityQualificationHistory.createdAt} >= ${since}`,
           resourceDivisionFilter(actor, 'opportunities', opportunities.divisionId) ?? sql`true`,
           allowUnlinkedCompanyRecords(opportunities.companyId, visibility)
@@ -1697,7 +1827,7 @@ export class OpportunitiesService {
         const item = keyFor(row);
         const current = grouped.get(item.key) ?? { ...item, total: 0, converted: 0 };
         current.total += 1;
-        if (this.qualificationStage(row.opp.qualificationStage) !== 'lead') current.converted += 1;
+        if (!isFirstContactStage(this.qualificationStage(row.opp.qualificationStage))) current.converted += 1;
         grouped.set(item.key, current);
       }
       return [...grouped.values()]
@@ -1711,18 +1841,18 @@ export class OpportunitiesService {
     return {
       periodDays: 30,
       totalCreated: rows.length,
-      activeLeads: leadRows.length,
+      activeLeads: firstStageRows.length,
       medianFirstContactHours:
         medianFirstContactHours === null ? null : Math.round(medianFirstContactHours * 10) / 10,
       contactedWithinFourHoursRate: firstContactHours.length
         ? Math.round((firstContactHours.filter((hours) => hours <= 4).length / firstContactHours.length) * 1000) / 10
         : null,
-      slaBreaches: leadRows.filter((row) =>
-        this.processHealth(row.opp, 'lead').leadSlaBreached
+      slaBreaches: firstStageRows.filter((row) =>
+        this.processHealth(row.opp, 'c').leadSlaBreached
       ).length,
-      actionlessLeads: leadRows.filter((row) => !row.opp.nextAction?.trim() || !row.opp.nextActionAt).length,
-      unassignedLeads: leadRows.filter((row) => !row.opp.ownerUserId).length,
-      conversionRate: rows.length ? Math.round((converted.length / rows.length) * 1000) / 10 : 0,
+      actionlessLeads: firstStageRows.filter((row) => !row.opp.nextAction?.trim() || !row.opp.nextActionAt).length,
+      unassignedLeads: firstStageRows.filter((row) => !row.opp.ownerUserId).length,
+      conversionRate: rows.length ? Math.round((progressed.length / rows.length) * 1000) / 10 : 0,
       justifiedConversionRate: conversionHistory.length
         ? Math.round(
             (conversionHistory.filter((row) => row.conversionOverride).length / conversionHistory.length) * 1000
@@ -1989,7 +2119,7 @@ export class OpportunitiesService {
         .limit(100),
     ]);
     const qualificationContext = contexts.get(r.opp.id)!;
-    const currentOperationStage = (r.stage?.code ?? 'lead') as PipelineStageCode;
+    const currentOperationStage = (r.stage?.code ?? 'sales') as PipelineStageCode;
     return {
       ...r.opp,
       company: r.company?.id ? r.company : null,
@@ -2040,7 +2170,8 @@ export class OpportunitiesService {
       throw new ValidationError('Yalnızca aktif kullanıcılar sorumlu olarak atanabilir', { field: 'ownerUserId' });
     }
 
-    const leadStage = await this.stageRowByCode('lead');
+    // Yeni kart fırsatın ilk adımında (Lead kolonu) doğar.
+    const entryStage = await this.stageRowByCode(QUALIFICATION_STAGE_ENTRY.lead.stage);
     const currencyId = await lookupIdByCode(this.db, currencies, input.currencyCode);
     const sourceId = await lookupIdByCode(this.db, contactSources, input.sourceCode);
     const openStatus = await this.db.query.opportunityStatuses.findFirst({ where: eq(opportunityStatuses.code, 'open') });
@@ -2090,7 +2221,7 @@ export class OpportunitiesService {
           : null,
         nextAction: input.nextAction?.trim() || null,
         nextActionAt: input.nextActionAt ?? null,
-        currentStageId: leadStage.id,
+        currentStageId: entryStage.id,
         estimatedValue: input.estimatedValue?.toString() ?? null,
         currencyId,
         probability: input.probability,
@@ -2113,9 +2244,9 @@ export class OpportunitiesService {
       tenantId: actor.tenantId,
       opportunityId: row.id,
       fromStageId: null,
-      toStageId: leadStage.id,
+      toStageId: entryStage.id,
       changedBy: actor.userId,
-      changeReason: 'Initial lead',
+      changeReason: 'Fırsat oluşturuldu (Lead adımı)',
     });
     await this.db.insert(opportunityQualificationHistory).values({
       tenantId: actor.tenantId,
@@ -2123,7 +2254,7 @@ export class OpportunitiesService {
       fromStage: null,
       toStage: 'lead',
       changedBy: actor.userId,
-      changeReason: 'Lead oluşturuldu',
+      changeReason: 'Fırsat oluşturuldu (Lead adımı)',
     });
     await this.audit.write({
       tenantId: actor.tenantId,
@@ -2410,13 +2541,16 @@ export class OpportunitiesService {
 
       try {
         let selectedCompany: typeof companies.$inferSelect | null = null;
-        let stage = stageCache.get(row.stageCode);
+        // Eski istemcilerden gelebilecek `lead` eşlemesini de savunmacı olarak
+        // C'nin operasyon başlangıcı olan `sales` alanına taşırız.
+        const effectiveStageCode: PipelineStageCode = row.stageCode === 'lead' ? 'sales' : row.stageCode;
+        let stage = stageCache.get(effectiveStageCode);
         if (!stage) {
-          stage = await this.stageRowByCode(row.stageCode);
-          stageCache.set(row.stageCode, stage);
+          stage = await this.stageRowByCode(effectiveStageCode);
+          stageCache.set(effectiveStageCode, stage);
         }
         const assignment =
-          stage.code === 'lead'
+          stage.code === 'sales'
             ? await this.resolveLeadOwner({
                 tenantId: actor.tenantId,
                 divisionId,
@@ -2630,6 +2764,8 @@ export class OpportunitiesService {
                 resolution: resolution.action,
               },
               currentStageId: stage.id,
+              qualificationStage: PIPELINE_STAGE_QUALIFICATION[stage.code as PipelineStageCode] ?? 'c',
+              qualificationUpdatedAt: new Date(),
               currencyId,
               probability: 50,
               expectedCloseDate: row.dueAt ? new Date(row.dueAt) : null,
@@ -2649,6 +2785,14 @@ export class OpportunitiesService {
               ? `Trello CSV aktarımı · Liste: ${row.listName}`
               : 'Trello CSV aktarımı',
           });
+          await tx.insert(opportunityQualificationHistory).values({
+            tenantId: actor.tenantId,
+            opportunityId: opportunity.id,
+            fromStage: null,
+            toStage: PIPELINE_STAGE_QUALIFICATION[stage.code as PipelineStageCode] ?? 'c',
+            changedBy: actor.userId,
+            changeReason: 'Trello CSV aktarımı',
+          });
           return opportunity;
         });
 
@@ -2666,7 +2810,7 @@ export class OpportunitiesService {
             },
           });
         }
-        if (stage.code === 'lead' && !created.ownerUserId) {
+        if (stage.code === 'sales' && !created.ownerUserId) {
           await this.notifyUnassignedLead(created.id, created.title, actor.tenantId, divisionId);
         }
         if (acceptedPhoneAction || acceptedEmailAction) {
@@ -2835,8 +2979,8 @@ export class OpportunitiesService {
 
     const currentStatus = (existing.leadFollowUpStatus ?? 'new') as LeadFollowUpStatusCode;
     if (nextStatus === currentStatus) return;
-    if (this.qualificationStage(existing.qualificationStage) !== 'lead') {
-      throw new ValidationError('Fırsata çevrilmiş kartta lead takip durumu değiştirilemez', {
+    if (!isFirstContactStage(this.qualificationStage(existing.qualificationStage))) {
+      throw new ValidationError('İlk temas durumu yalnız Lead ve C alanındaki fırsatlarda değiştirilebilir', {
         field: 'leadFollowUpStatus',
       });
     }
@@ -2846,7 +2990,7 @@ export class OpportunitiesService {
 
     if (nextStatus === 'disqualified') {
       if (!input.disqualifyReasonCode?.trim()) {
-        throw new ValidationError('Lead elenirken eleme nedeni zorunludur', {
+        throw new ValidationError('Fırsat uygun değil olarak işaretlenirken neden zorunludur', {
           field: 'disqualifyReasonCode',
         });
       }
@@ -3179,10 +3323,10 @@ export class OpportunitiesService {
 
   async recordLeadContactEvent(id: string, input: LeadContactEventInput, actor: AuthContext) {
     const opp = await this.findScopedOpp(id, actor);
-    if (this.qualificationStage(opp.qualificationStage) !== 'lead') {
-      throw new ValidationError('Temas sonucu yalnızca lead kayıtlarında kullanılabilir');
+    if (!isFirstContactStage(this.qualificationStage(opp.qualificationStage))) {
+      throw new ValidationError('Temas sonucu yalnızca Lead ve C alanındaki fırsatlarda kullanılabilir');
     }
-    if (opp.closedAt) throw new ValidationError('Arşivlenmiş lead için temas sonucu kaydedilemez');
+    if (opp.closedAt) throw new ValidationError('Arşivlenmiş fırsat için temas sonucu kaydedilemez');
 
     const existingEvent = await this.db.query.leadContactEvents.findFirst({
       where: and(
@@ -3316,7 +3460,7 @@ export class OpportunitiesService {
     const fromStage = this.qualificationStage(opp.qualificationStage);
     if (fromStage !== 'lead') throw new ValidationError('Kayıt zaten fırsata çevrilmiş');
     if (opp.leadFollowUpStatus === 'disqualified') {
-      throw new ValidationError('Uygun değil durumundaki Lead fırsata çevrilemez; önce Lead durumunu değiştirin');
+      throw new ValidationError('Uygun değil durumundaki fırsat C alanına taşınamaz; önce ilk temas durumunu değiştirin');
     }
     const [contextMap, activityMap] = await Promise.all([
       this.qualificationContexts([opp]),
@@ -3495,7 +3639,10 @@ export class OpportunitiesService {
           || opp.title?.trim()
           || opp.description?.trim()
           || null,
-        lostCompetitorName: competitorSnapshot?.name?.trim() || null,
+        lostCompetitorName:
+          competitorSnapshot?.name?.trim()
+          || input.lostCompetitorName?.trim()
+          || null,
         lostUnmetConditions: input.lostUnmetConditions?.trim() || input.note?.trim() || null,
         statusId: lostStatus?.id ?? opp.statusId,
         updatedAt: new Date(),
@@ -3543,7 +3690,7 @@ export class OpportunitiesService {
         });
         const readiness = await this.opportunityProcessReadiness(
           opp,
-          (currentStage?.code ?? 'lead') as PipelineStageCode,
+          (currentStage?.code ?? 'sales') as PipelineStageCode,
           contexts.get(opp.id)!,
           actor
         );
@@ -3637,7 +3784,7 @@ export class OpportunitiesService {
     }
     if (approvalType === 'customs') {
       const stage = await this.db.query.pipelineStages.findFirst({ where: eq(pipelineStages.id, opp.currentStageId) });
-      const currentIndex = PIPELINE_STAGES.indexOf((stage?.code ?? 'lead') as PipelineStageCode);
+      const currentIndex = PIPELINE_STAGES.indexOf((stage?.code ?? 'sales') as PipelineStageCode);
       if (currentIndex < PIPELINE_STAGES.indexOf('customs_approved')) {
         throw new ValidationError('Gümrük onayı için operasyon aşaması Gümrük Onayı veya sonrasında olmalıdır');
       }
@@ -3780,7 +3927,7 @@ export class OpportunitiesService {
     const terminalStage = this.qualificationStage(opp.qualificationStage);
     const reopeningLost = terminalStage === 'lost';
     if (reopeningLost && !actor.roles.some((role) => role === 'sales' || role === 'super_admin')) {
-      throw new ForbiddenError('LOST fırsatı yalnızca satış veya süper admin Lead havuzuna döndürebilir');
+      throw new ForbiddenError('LOST fırsatı yalnızca satış veya süper admin aktif fırsatlara döndürebilir');
     }
     if (!reopeningLost && !opp.closedAt) throw new ValidationError('Fırsat zaten açık');
     const isQualificationTerminal = terminalStage === 'win' || terminalStage === 'lost';
@@ -3920,7 +4067,7 @@ export class OpportunitiesService {
     const currentStage = await this.db.query.pipelineStages.findFirst({
       where: eq(pipelineStages.id, opp.currentStageId),
     });
-    const currentCode = (currentStage?.code ?? 'lead') as PipelineStageCode;
+    const currentCode = (currentStage?.code ?? 'sales') as PipelineStageCode;
     // Kartın bulunduğu aşama zaten bu dereceye ya da ilerisine aitse taşıma.
     const currentGrade = PIPELINE_STAGE_QUALIFICATION[currentCode];
     if (currentGrade === toStage) return null;

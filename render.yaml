@@ -39,8 +39,11 @@ services:
     envVars:
       - key: NODE_ENV
         value: production
+      # Machine-readable guard: this Blueprint is never the VDS production path.
+      - key: DEPLOYMENT_PROFILE
+        value: staging
       - key: NODE_VERSION
-        value: "22"
+        value: "22.22.3"
       - key: DB_PROVIDER
         value: postgres
       - key: DATABASE_URL

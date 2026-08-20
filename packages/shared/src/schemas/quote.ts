@@ -104,6 +104,10 @@ export const quoteTermsUpsertSchema = z.object({
   deliveryTermsText: z.string().max(4000).optional(),
   warrantyTermsText: z.string().max(4000).optional(),
   importCostsExcluded: z.boolean().default(true),
+  /** Sözleşme 3.3 — fiyata K.D.V. dahil mi? Gönderilmezse hariç sayılır. */
+  vatIncluded: z.boolean().optional(),
+  /** Sözleşme 2.6 — nakliye ve sigorta satıcıya mı ait? Gönderilmezse alıcıya. */
+  freightPaidBySeller: z.boolean().optional(),
   deliveryLocation: z.string().max(255).optional(),
   estimatedDeliveryDaysMin: z.coerce.number().int().nonnegative().optional(),
   estimatedDeliveryDaysMax: z.coerce.number().int().nonnegative().optional(),
@@ -147,6 +151,8 @@ export type StandaloneQuoteCreateInput = Omit<
 export const proformaPriceItemSchema = z.object({
   quoteItemId: z.string().uuid(),
   unitPrice: moneySchema,
+  /** Belgeye özel satır iskontosu; gönderilmezse bağlı teklif kaleminden devralınır. */
+  discountAmount: moneySchema.optional(),
 });
 export type ProformaPriceItemInput = z.infer<typeof proformaPriceItemSchema>;
 
@@ -154,7 +160,8 @@ export type ProformaPriceItemInput = z.infer<typeof proformaPriceItemSchema>;
  * Teklife bağlı belgenin (proforma / sözleşme) kendi net fiyatlarını saklayan
  * kalem listesi. Belge, bağlı teklifi DEĞİŞTİRMEZ: onaylı teklif kilitlidir
  * (`assertQuoteMutable`), oysa sözleşme masasında fiyat pazarlığa açıktır.
- * İskonto bilerek bu payload ile değiştirilemez; teklif satırından korunur.
+ * Birim fiyat ve iskonto yalnız belge anlık görüntüsünü değiştirir; bağlı teklif
+ * kalemi değişmeden kalır. `discountAmount` gönderilmezse teklif değeri korunur.
  */
 const documentPriceItemsSchema = z
   .array(proformaPriceItemSchema)
@@ -174,16 +181,30 @@ const documentPriceItemsSchema = z
   })
   .optional();
 
+/**
+ * Belgeye (proforma / sözleşme) özel GENEL iskonto.
+ *
+ * Satır iskontosu kalemin kendisine aittir; bu ikili belgenin tamamına
+ * uygulanır. Gönderilmezse belge, bağlı teklifin genel iskontosunu devralır —
+ * yani teklifle aynı kalır. `percent` doluysa tutar net ara toplam üzerinden
+ * hesaplanır (teklifteki `recalcQuoteTotals` ile aynı kural).
+ */
+const documentHeaderDiscountFields = {
+  headerDiscountAmount: moneySchema.optional(),
+  headerDiscountPercent: percentSchema.optional(),
+} as const;
+
 export const proformaCreateSchema = z.object({
   quoteId: z.string().min(1),
   documentNo: z.string().trim().min(1).max(64).optional(),
   issueDate: z.coerce.date(),
   statusCode: z.string().max(64).default('draft'),
-  fileId: z.string().optional(),
+  fileId: z.string().uuid().optional(),
   /** Çıktının altına basılacak imza (Ayarlar → İmzalar). `null` → imzasız. */
   signatureId: z.string().uuid().nullish(),
   // `unitPrice` brüt birim fiyatıdır, net toplam mevcut iskonto düşülerek hesaplanır.
   items: documentPriceItemsSchema,
+  ...documentHeaderDiscountFields,
   // Belgeye özel şartlar; gönderilmezse teklifin şartlarıyla basılır.
   terms: documentTermsSchema,
 });
@@ -244,6 +265,9 @@ const standaloneOwnerFields = {
   deliveryTerms: z.string().max(4000).optional(),
   warrantyTerms: z.string().max(4000).optional(),
   notes: z.string().max(4000).optional(),
+  /** Belge geneline uygulanan iskonto (satır iskontolarından ayrı). */
+  headerDiscountAmount: moneySchema.optional(),
+  headerDiscountPercent: percentSchema.optional(),
 } as const;
 
 const standaloneProformaFields = z.object({
@@ -308,6 +332,10 @@ const standaloneContractFields = z.object({
   estimatedDeliveryDaysMin: z.coerce.number().int().nonnegative().max(3650).optional(),
   estimatedDeliveryDaysMax: z.coerce.number().int().nonnegative().max(3650).optional(),
   importCostsExcluded: z.boolean().default(true),
+  /** Sözleşme 3.3 — fiyata K.D.V. dahil mi? */
+  vatIncluded: z.boolean().default(false),
+  /** Sözleşme 2.6 — nakliye ve sigorta satıcıya mı ait? */
+  freightPaidBySeller: z.boolean().default(false),
   installments: z.array(standaloneContractInstallmentSchema).max(60).optional(),
 });
 
@@ -338,12 +366,13 @@ export const contractCreateSchema = z.object({
   signedDate: z.coerce.date().optional(),
   paymentTermDays: z.coerce.number().int().min(0).max(3650).optional(),
   statusCode: z.string().max(64).default('draft'),
-  fileId: z.string().optional(),
+  fileId: z.string().uuid().optional(),
   /** Çıktının altına basılacak imza (Ayarlar → İmzalar). `null` → imzasız. */
   signatureId: z.string().uuid().nullish(),
   // Sözleşme masasında pazarlık edilen fiyat, onaylı teklife dokunmadan
   // burada saklanır ve sözleşme çıktısı bu değerlerle basılır.
   items: documentPriceItemsSchema,
+  ...documentHeaderDiscountFields,
   // Şartlar da sözleşmeye özeldir; teklifinkini yeniden yazmaz.
   terms: documentTermsSchema,
 });

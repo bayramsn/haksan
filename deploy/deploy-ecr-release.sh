@@ -116,6 +116,15 @@ trap cleanup EXIT
 
 [[ -f "$APP_ROOT/.env" ]] || { echo "ECR_DEPLOY_ERROR production env missing" >&2; exit 1; }
 [[ -f "$APP_ROOT/docker-compose.yml" ]] || { echo "ECR_DEPLOY_ERROR compose file missing" >&2; exit 1; }
+for required_setting in \
+  'DEPLOYMENT_PROFILE=production' \
+  'DB_BACKUP_ENABLED=true' \
+  'DB_BACKUP_REQUIRED=true'; do
+  if ! grep -Eq "^[[:space:]]*${required_setting}[[:space:]]*$" "$APP_ROOT/.env"; then
+    echo "ECR_DEPLOY_ERROR production env must set ${required_setting}" >&2
+    exit 1
+  fi
+done
 
 # Capture the actual running containers so rollback remains available even when
 # Docker's original source-image record was pruned by an earlier host cleanup.

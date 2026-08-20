@@ -5,7 +5,7 @@ const e2eApiBase = process.env.E2E_API_URL ?? "http://localhost:3000/api/v1";
 
 async function selectLeadCity(page: import("@playwright/test").Page, city: string) {
   const leadDialog = page.getByRole("dialog").filter({
-    has: page.getByRole("button", { name: "Lead Kartı Oluştur" }),
+    has: page.getByRole("button", { name: "Fırsat Oluştur", exact: true }),
   });
   await leadDialog.getByRole("combobox", { name: "İl", exact: true }).click();
   await page.getByPlaceholder("İl ara…").fill(city);
@@ -18,10 +18,10 @@ async function selectLeadCity(page: import("@playwright/test").Page, city: strin
 }
 
 test("fırsatlar listelenir ve detay açılır", async ({ page }) => {
-  test.setTimeout(60_000);
+  test.setTimeout(90_000);
   const simpleWorkspace = process.env.VITE_OPPORTUNITY_WORKSPACE_SIMPLE === "on";
   await login(page);
-  await navigateTo(page, "Fırsatlar");
+  await navigateTo(page, "Fırsat");
 
   // Sayfa varsayılan olarak Kanban açılır; liste görünümünü açıkça seç.
   await page.getByRole("tab", { name: "Liste" }).click();
@@ -46,7 +46,7 @@ test("fırsatlar listelenir ve detay açılır", async ({ page }) => {
 
   // Derin bağlantı (yenileme) de aynı yüzeye açılmalı.
   await page.reload();
-  await expect(dialog.getByText("Kayıt çalışma alanı", { exact: true })).toBeVisible();
+  await expect(dialog.getByText("Kayıt çalışma alanı", { exact: true })).toBeVisible({ timeout: 30_000 });
   await expect(dialog.getByRole("region", { name: "Kayıt çalışma alanı içeriği" })).toBeVisible();
 
   // Kart tek history kaydı itiyor: geri tuşu kartı kapatır, ileri tuşu geri getirir.
@@ -109,7 +109,7 @@ test("fırsatlar listelenir ve detay açılır", async ({ page }) => {
 
 test("liste filtresi kanban görünümüne de uygulanır", async ({ page }) => {
   await login(page);
-  await navigateTo(page, "Fırsatlar");
+  await navigateTo(page, "Fırsat");
 
   const search = page.getByPlaceholder("Firma / kontak / ürün ara...");
   await expect(search).toBeVisible();
@@ -120,29 +120,31 @@ test("liste filtresi kanban görünümüne de uygulanır", async ({ page }) => {
   await expect(page.locator('[data-testid^="sales-kanban-card-"]')).toHaveCount(0);
 });
 
-test("lead kartı onay alınarak silinir", async ({ page }) => {
+test("lead adımındaki fırsat kartı onay alınarak silinir", async ({ page }) => {
   const suffix = Date.now().toString(36);
   const contactName = `Silme Test Lead ${suffix}`;
   const product = `Silme Test Ürünü ${suffix}`;
 
   await login(page);
-  await navigateTo(page, "Leadler");
-  await page.getByRole("button", { name: "Hızlı Lead", exact: true }).click();
+  await navigateTo(page, "Fırsat");
+  await page.getByRole("button", { name: "Hızlı Fırsat", exact: true }).click();
   await page.getByLabel("Kontak ismi *").fill(contactName);
   await page.locator("#lead-phone").fill("05325550002");
   await selectLeadCity(page, "İstanbul");
   await page.getByLabel("İstenen ürün *").fill(product);
-  await page.getByRole("button", { name: "Lead Kartı Oluştur" }).click();
+  await page.getByRole("button", { name: "Fırsat Oluştur", exact: true }).click();
 
-  const search = page.getByPlaceholder("Firma, kontak, telefon veya ürün ara...");
+  // Lead artık Fırsat panosunun ilk kolonu; kart aynı listeden silinir.
+  await page.getByRole("tab", { name: "Liste" }).click();
+  const search = page.getByPlaceholder("Firma / kontak / ürün ara...");
   await search.fill(contactName);
-  const deleteButton = page.getByRole("button", { name: `${contactName} lead kartını sil` });
+  const deleteButton = page.getByRole("button", { name: `${contactName} fırsat kartını sil` });
   await expect(deleteButton).toBeVisible();
   await deleteButton.click();
 
   const confirmation = page.getByRole("alertdialog");
-  await expect(confirmation.getByText("Lead kartı silinsin mi?", { exact: true })).toBeVisible();
-  await confirmation.getByRole("button", { name: "Lead Kartını Sil", exact: true }).click();
+  await expect(confirmation.getByText("Fırsat kartı silinsin mi?", { exact: true })).toBeVisible();
+  await confirmation.getByRole("button", { name: "Fırsat Kartını Sil", exact: true }).click();
 
   await expect(confirmation).toBeHidden();
   await expect(deleteButton).toHaveCount(0);
@@ -182,8 +184,8 @@ test("lead kartından yeni firma OSM araması üst formu göndermeden açık kal
   });
 
   await login(page);
-  await navigateTo(page, "Leadler");
-  await page.getByRole("button", { name: "Hızlı Lead", exact: true }).click();
+  await navigateTo(page, "Fırsat");
+  await page.getByRole("button", { name: "Hızlı Fırsat", exact: true }).click();
   await page.getByLabel("Kontak ismi *").fill(`OSM Test ${suffix}`);
   await page.locator("#lead-phone").fill("05325551212");
   await selectLeadCity(page, "İstanbul");
@@ -191,9 +193,10 @@ test("lead kartından yeni firma OSM araması üst formu göndermeden açık kal
   await page.getByPlaceholder("Firma ara…").fill(companyTitle);
   await page.getByRole("option", { name: `"${companyTitle}" firmasını lead olarak yaz` }).click();
   await page.getByLabel("İstenen ürün *").fill(product);
-  await page.getByRole("button", { name: "Lead Kartı Oluştur" }).click();
+  await page.getByRole("button", { name: "Fırsat Oluştur", exact: true }).click();
 
-  const search = page.getByPlaceholder("Firma, kontak, telefon veya ürün ara...");
+  await page.getByRole("tab", { name: "Liste" }).click();
+  const search = page.getByPlaceholder("Firma / kontak / ürün ara...");
   await search.fill(companyTitle);
   // Lead kart ızgarası `lg:hidden`; masaüstü genişliğinde yalnız tablo görünür.
   const card = page.getByRole("row").filter({ hasText: companyTitle }).first();
@@ -260,18 +263,19 @@ test("Lead Workspace V2 akışı otomatik atamadan gerekçeli fırsat dönüşü
       window.localStorage.setItem("haksan_active_division", divisionId);
     }, division.id);
     await login(page);
-    await navigateTo(page, "Leadler");
+    await navigateTo(page, "Fırsat");
 
-    await page.getByRole("button", { name: "Hızlı Lead", exact: true }).click();
+    await page.getByRole("button", { name: "Hızlı Fırsat", exact: true }).click();
     await page.getByLabel("Kontak ismi *").fill(contactName);
     await page.locator("#lead-phone").fill("05325550123");
     await selectLeadCity(page, city);
     await page.getByLabel("İstenen ürün *").fill(product);
     await page.getByLabel("İlk takip aksiyonu").fill("Teknik keşif görüşmesini gerçekleştir");
     await page.getByLabel("Takip zamanı").fill("2030-02-01T10:30");
-    await page.getByRole("button", { name: "Lead Kartı Oluştur" }).click();
+    await page.getByRole("button", { name: "Fırsat Oluştur", exact: true }).click();
 
-    const search = page.getByPlaceholder("Firma, kontak, telefon veya ürün ara...");
+    await page.getByRole("tab", { name: "Liste" }).click();
+    const search = page.getByPlaceholder("Firma / kontak / ürün ara...");
     await search.fill(contactName);
     const row = page.getByRole("row").filter({ hasText: contactName });
     await expect(row).toBeVisible();

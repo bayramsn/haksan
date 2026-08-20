@@ -11,6 +11,7 @@ import { inventoryItems } from '../../db/schema/inventory';
 import { brands, productModels } from '../../db/schema/products';
 import { departments, divisions } from '../../db/schema/tenants';
 import { users } from '../../db/schema/users';
+import { files, fileLinks } from '../../db/schema/files';
 import {
   activityTypes,
   currencies,
@@ -139,6 +140,34 @@ const documentOwnTerms = (document: Record<string, unknown>) => {
   const terms = document.terms;
   return terms && typeof terms === 'object' ? (terms as Record<string, unknown>) : null;
 };
+
+/** Belgeye özel genel iskonto girdisi (tutar ya da yüzde). */
+type DocumentHeaderDiscount = { amount?: number; percent?: number };
+
+/**
+ * Genel iskontoyu kısmi PATCH'lerde korur: istekte alan yoksa belgenin
+ * anlık görüntüsünde saklanan girdi devam eder, o da yoksa belge bağlı
+ * teklifin genel iskontosuna düşer.
+ */
+const mergeDocumentHeaderDiscount = (
+  snapshot: unknown,
+  input: { headerDiscountAmount?: number; headerDiscountPercent?: number },
+): DocumentHeaderDiscount | undefined => {
+  if (input.headerDiscountAmount !== undefined || input.headerDiscountPercent !== undefined) {
+    return { amount: input.headerDiscountAmount, percent: input.headerDiscountPercent };
+  }
+  const stored = snapshot && typeof snapshot === 'object'
+    ? (snapshot as { documentDiscount?: unknown }).documentDiscount
+    : null;
+  if (!stored || typeof stored !== 'object') return undefined;
+  const amount = Number((stored as { amount?: unknown }).amount);
+  const percent = Number((stored as { percent?: unknown }).percent);
+  if (!Number.isFinite(amount) && !Number.isFinite(percent)) return undefined;
+  return {
+    amount: Number.isFinite(amount) ? amount : undefined,
+    percent: Number.isFinite(percent) ? percent : undefined,
+  };
+};
 const publicProductLabel = (
   catalogName: string | null | undefined,
   description: string | null | undefined,
@@ -158,6 +187,39 @@ const publicProductLabel = (
 
 @Injectable()
 export class QuotesService {
+  private async assertContractFile(
+    fileId: string,
+    actor: AuthContext,
+    relation: { opportunityId?: string | null; companyId?: string | null },
+  ) {
+    const file = await this.db.query.files.findFirst({
+      where: and(
+        eq(files.id, fileId),
+        eq(files.tenantId, actor.tenantId),
+        isNull(files.deletedAt),
+      ),
+    });
+    if (!file) throw new ValidationError('İmzalı sözleşme dosyası bulunamadı', { field: 'fileId' });
+    if (file.bucket !== 'erp-contract-documents') {
+      throw new ValidationError('Sözleşme dosyası yanlış depolama alanında', { field: 'fileId' });
+    }
+    if (file.uploadStatus !== 'linked' || file.mimeType !== 'application/pdf' || file.extension.toLowerCase() !== 'pdf') {
+      throw new ValidationError('İmzalı sözleşme tamamlanmış ve PDF formatında olmalıdır', { field: 'fileId' });
+    }
+    const allowedRelations = [
+      relation.opportunityId ? { entityType: 'opportunity', entityId: relation.opportunityId } : null,
+      relation.companyId ? { entityType: 'company', entityId: relation.companyId } : null,
+    ].filter((item): item is { entityType: string; entityId: string } => Boolean(item));
+    const links = await this.db
+      .select({ entityType: fileLinks.entityType, entityId: fileLinks.entityId })
+      .from(fileLinks)
+      .where(and(eq(fileLinks.tenantId, actor.tenantId), eq(fileLinks.fileId, fileId)));
+    if (!allowedRelations.some((allowed) => links.some(
+      (link) => link.entityType === allowed.entityType && link.entityId === allowed.entityId,
+    ))) {
+      throw new ValidationError('İmzalı sözleşme bu fırsat veya firmaya bağlı değil', { field: 'fileId' });
+    }
+  }
   constructor(
     @Inject(DB) private readonly db: DbClient,
     private readonly audit: AuditService,
@@ -915,10 +977,11 @@ export class QuotesService {
     document: Record<string, unknown>,
     quoteId: string,
     actor: AuthContext,
-    priceItems?: ProformaPriceItemInput[]
+    priceItems?: ProformaPriceItemInput[],
+    headerDiscount?: DocumentHeaderDiscount
   ) {
     const snapshot = await this.buildDocumentSnapshot(quoteId, actor);
-    const overrides = new Map((priceItems ?? []).map((item) => [item.quoteItemId, Number(item.unitPrice)]));
+    const overrides = new Map((priceItems ?? []).map((item) => [item.quoteItemId, item]));
     const quoteItemIds = new Set(snapshot.items.map((item) => item.id));
     const unknownItemId = [...overrides.keys()].find((id) => !quoteItemIds.has(id));
     if (unknownItemId) {
@@ -932,7 +995,12 @@ export class QuotesService {
       (sum, item) => sum + Number(item.discountAmount ?? 0),
       0
     );
-    const requestedHeaderDiscount = Math.max(
+    // Belgenin kendi genel iskontosu verilmemişse bağlı teklifin geneli devralınır.
+    const ownHeaderDiscount =
+      headerDiscount?.amount !== undefined || headerDiscount?.percent !== undefined
+        ? { amount: Number(headerDiscount.amount ?? 0), percent: Number(headerDiscount.percent ?? 0) }
+        : null;
+    const inheritedHeaderDiscount = Math.max(
       Number(snapshot.quote.discountTotal ?? 0) - originalLineDiscount,
       0
     );
@@ -940,8 +1008,11 @@ export class QuotesService {
 
     const pricedItems = snapshot.items.map((item) => {
       const quantity = Number(item.quantity ?? 0);
-      const unitPrice = overrides.get(item.id) ?? Number(item.unitPrice ?? 0);
-      const discountAmount = Number(item.discountAmount ?? 0);
+      const override = overrides.get(item.id);
+      const unitPrice = override ? Number(override.unitPrice) : Number(item.unitPrice ?? 0);
+      const discountAmount = override?.discountAmount !== undefined
+        ? Number(override.discountAmount)
+        : Number(item.discountAmount ?? 0);
       this.assertItemDiscount(quantity, unitPrice, discountAmount);
       const lineTotal = roundMoney(quantity * unitPrice - discountAmount);
       return {
@@ -957,11 +1028,20 @@ export class QuotesService {
     const taxableBeforeHeader = roundMoney(
       pricedItems.reduce((sum, item) => sum + Number(item.lineTotal), 0)
     );
-    const headerDiscount = roundMoney(
+    // Yüzde doluysa tutar net ara toplamdan türetilir (teklifteki kuralla aynı).
+    const requestedHeaderDiscount = ownHeaderDiscount
+      ? Math.max(
+          ownHeaderDiscount.percent > 0
+            ? taxableBeforeHeader * (ownHeaderDiscount.percent / 100)
+            : ownHeaderDiscount.amount,
+          0
+        )
+      : inheritedHeaderDiscount;
+    const appliedHeaderDiscount = roundMoney(
       Math.min(requestedHeaderDiscount, taxableBeforeHeader)
     );
     const headerRatio = taxableBeforeHeader > 0
-      ? (taxableBeforeHeader - headerDiscount) / taxableBeforeHeader
+      ? (taxableBeforeHeader - appliedHeaderDiscount) / taxableBeforeHeader
       : 1;
     const items = pricedItems.map((item) => ({
       ...item,
@@ -969,7 +1049,7 @@ export class QuotesService {
         Number(item.lineTotal) * headerRatio * (Number(item.vatRate ?? 0) / 100)
       ),
     }));
-    const subtotal = roundMoney(taxableBeforeHeader - headerDiscount);
+    const subtotal = roundMoney(taxableBeforeHeader - appliedHeaderDiscount);
     const vatAmount = roundMoney(items.reduce((sum, item) => sum + Number(item.vatAmount), 0));
     const customsTotal = roundMoney(
       await this.calcCustomsTotal(snapshot.quote.currencyId ?? null, pricedItems)
@@ -980,12 +1060,15 @@ export class QuotesService {
       schemaVersion: 4,
       terms: documentOwnTerms(document) ?? snapshot.terms,
       signature: await this.resolveCommercialSignature(document, snapshot.signature, actor),
+      // Belgenin kendi genel iskonto GİRDİSİ; PATCH'te kaybolmaması için saklanır
+      // (uygulanan tutar tekrar hesaplanır, çünkü satır fiyatları değişebilir).
+      documentDiscount: ownHeaderDiscount,
       quote: {
         ...snapshot.quote,
         subtotal,
-        discountTotal: roundMoney(lineDiscount + headerDiscount),
-        headerDiscountAmount: headerDiscount,
-        headerDiscountPercent: 0,
+        discountTotal: roundMoney(lineDiscount + appliedHeaderDiscount),
+        headerDiscountAmount: appliedHeaderDiscount,
+        headerDiscountPercent: ownHeaderDiscount?.percent ?? 0,
         vatAmount,
         customsTotal,
         grandTotal: roundMoney(subtotal + vatAmount + customsTotal),
@@ -1015,17 +1098,31 @@ export class QuotesService {
     const stored = storedItems.flatMap((item) => {
       const quoteItemId = typeof item.id === 'string' ? item.id : '';
       const unitPrice = Number(item.unitPrice);
+      const discountAmount = Number(item.discountAmount);
       return quoteItemId && quoteItemIds.has(quoteItemId) && Number.isFinite(unitPrice)
-        ? [{ quoteItemId, unitPrice }]
+        ? [{
+            quoteItemId,
+            unitPrice,
+            ...(Number.isFinite(discountAmount) ? { discountAmount } : {}),
+          }]
         : [];
     });
     if (updates === undefined) return stored.length > 0 ? stored : undefined;
 
-    const updatedIds = new Set(updates.map((item) => item.quoteItemId));
-    return [
-      ...stored.filter((item) => !updatedIds.has(item.quoteItemId)),
-      ...updates,
-    ];
+    const merged = new Map(stored.map((item) => [item.quoteItemId, item]));
+    for (const update of updates) {
+      const previous = merged.get(update.quoteItemId);
+      merged.set(update.quoteItemId, {
+        ...previous,
+        ...update,
+        // Birim fiyat tek başına değiştirildiğinde belgeye özel iskonto
+        // teklif satırına geri düşmemeli.
+        ...(update.discountAmount === undefined && previous?.discountAmount !== undefined
+          ? { discountAmount: previous.discountAmount }
+          : {}),
+      });
+    }
+    return [...merged.values()];
   }
 
   private assertCommercialDocumentMutable(document: { finalizedAt?: Date | null }, label: string) {
@@ -1695,6 +1792,8 @@ export class QuotesService {
           deliveryTermsText: input.deliveryTermsText ?? null,
           warrantyTermsText: input.warrantyTermsText ?? null,
           importCostsExcluded: input.importCostsExcluded,
+          vatIncluded: input.vatIncluded ?? false,
+          freightPaidBySeller: input.freightPaidBySeller ?? false,
           deliveryLocation: input.deliveryLocation ?? null,
           estimatedDeliveryDaysMin: input.estimatedDeliveryDaysMin ?? null,
           estimatedDeliveryDaysMax: input.estimatedDeliveryDaysMax ?? null,
@@ -1708,6 +1807,8 @@ export class QuotesService {
         deliveryTermsText: input.deliveryTermsText ?? null,
         warrantyTermsText: input.warrantyTermsText ?? null,
         importCostsExcluded: input.importCostsExcluded,
+        vatIncluded: input.vatIncluded ?? false,
+        freightPaidBySeller: input.freightPaidBySeller ?? false,
         deliveryLocation: input.deliveryLocation ?? null,
         estimatedDeliveryDaysMin: input.estimatedDeliveryDaysMin ?? null,
         estimatedDeliveryDaysMax: input.estimatedDeliveryDaysMax ?? null,
@@ -2015,7 +2116,8 @@ export class QuotesService {
       },
       input.quoteId,
       actor,
-      input.items
+      input.items,
+      mergeDocumentHeaderDiscount(null, input)
     );
     const [row] = await this.db
       .insert(proformas)
@@ -2080,12 +2182,18 @@ export class QuotesService {
     }
     const snapshotDocument = { ...existing, ...patch };
     // İmza değişikliği de snapshot'ı tazeler; aksi halde belge eski imzayla basılırdı.
-    if (signatureId !== undefined || input.items !== undefined || input.terms !== undefined || input.quoteId !== undefined || !existing.documentSnapshot) {
+    const headerDiscountChanged =
+      input.headerDiscountAmount !== undefined || input.headerDiscountPercent !== undefined;
+    if (signatureId !== undefined || input.items !== undefined || headerDiscountChanged || input.terms !== undefined || input.quoteId !== undefined || !existing.documentSnapshot) {
+      const quoteItemIds = new Set((quote.items ?? []).map((item: { id: string }) => item.id));
+      const carriedSnapshot = input.quoteId !== undefined ? null : existing.documentSnapshot;
+      const priceItems = this.mergeDocumentPriceItems(carriedSnapshot, quoteItemIds, input.items);
       patch.documentSnapshot = await this.buildPricedDocumentSnapshot(
         snapshotDocument,
         String(patch.quoteId ?? existing.quoteId),
         actor,
-        input.items
+        priceItems,
+        mergeDocumentHeaderDiscount(carriedSnapshot, input)
       );
     }
     if (input.statusCode !== undefined && input.statusCode !== 'draft') {
@@ -2098,7 +2206,12 @@ export class QuotesService {
               { ...snapshotDocument, finalizedAt: patch.finalizedAt },
               String(patch.quoteId ?? existing.quoteId),
               actor,
-              input.items
+              this.mergeDocumentPriceItems(
+                existing.documentSnapshot,
+                new Set((quote.items ?? []).map((item: { id: string }) => item.id)),
+                input.items,
+              ),
+              mergeDocumentHeaderDiscount(existing.documentSnapshot, input)
             );
       }
     }
@@ -2175,10 +2288,14 @@ export class QuotesService {
 
   /**
    * Belgeye ait (teklif satırına değil) serbest kalemleri fiyatlandırır.
-   * Teklif geneli iskonto ve gümrük bu akışta yoktur, bu yüzden satır toplamı
-   * doğrudan brüt eksi satır iskontosudur.
+   * Gümrük bu akışta yoktur; satır toplamı brüt eksi satır iskontosudur.
+   * Belgenin kendi GENEL iskontosu varsa net ara toplamdan düşülür ve KDV
+   * aynı oranla ölçeklenir (teklife bağlı belgelerdeki kuralla aynı).
    */
-  private priceStandaloneItems(items: ProformaFreeItemInput[]) {
+  private priceStandaloneItems(
+    items: ProformaFreeItemInput[],
+    headerDiscount?: DocumentHeaderDiscount,
+  ) {
     const roundMoney = (value: number) => Number(value.toFixed(4));
     const priced = items.map((item) => {
       const quantity = Number(item.quantity);
@@ -2211,11 +2328,28 @@ export class QuotesService {
         nationalized: false,
       };
     });
+    const lineDiscountTotal = roundMoney(priced.reduce((sum, item) => sum + item.discountAmount, 0));
+    const taxableBeforeHeader = roundMoney(priced.reduce((sum, item) => sum + item.lineTotal, 0));
+    const headerPercent = Math.max(Number(headerDiscount?.percent ?? 0), 0);
+    const requestedHeaderDiscount = Math.max(
+      headerPercent > 0 ? taxableBeforeHeader * (headerPercent / 100) : Number(headerDiscount?.amount ?? 0),
+      0,
+    );
+    const headerDiscountAmount = roundMoney(Math.min(requestedHeaderDiscount, taxableBeforeHeader));
+    const headerRatio = taxableBeforeHeader > 0
+      ? (taxableBeforeHeader - headerDiscountAmount) / taxableBeforeHeader
+      : 1;
+    const pricedWithVat = priced.map((item) => ({
+      ...item,
+      vatAmount: roundMoney(item.lineTotal * headerRatio * (item.vatRate / 100)),
+    }));
     return {
-      items: priced,
-      discountTotal: roundMoney(priced.reduce((sum, item) => sum + item.discountAmount, 0)),
-      subtotal: roundMoney(priced.reduce((sum, item) => sum + item.lineTotal, 0)),
-      vatAmount: roundMoney(priced.reduce((sum, item) => sum + item.vatAmount, 0)),
+      items: pricedWithVat,
+      headerDiscountAmount,
+      headerDiscountPercent: headerPercent,
+      discountTotal: roundMoney(lineDiscountTotal + headerDiscountAmount),
+      subtotal: roundMoney(taxableBeforeHeader - headerDiscountAmount),
+      vatAmount: roundMoney(pricedWithVat.reduce((sum, item) => sum + item.vatAmount, 0)),
     };
   }
 
@@ -2283,7 +2417,11 @@ export class QuotesService {
     signature: DocumentSignatureSnapshot | null = null
   ) {
     const roundMoney = (value: number) => Number(value.toFixed(4));
-    const { items, discountTotal, subtotal, vatAmount } = this.priceStandaloneItems(input.items);
+    const { items, discountTotal, subtotal, vatAmount, headerDiscountAmount, headerDiscountPercent } =
+      this.priceStandaloneItems(input.items, {
+        amount: input.headerDiscountAmount,
+        percent: input.headerDiscountPercent,
+      });
 
     return {
       schemaVersion: 4,
@@ -2297,6 +2435,8 @@ export class QuotesService {
         documentNo: document.documentNo ?? null,
         subtotal,
         discountTotal,
+        headerDiscountAmount,
+        headerDiscountPercent,
         vatAmount,
         customsTotal: 0,
         grandTotal: roundMoney(subtotal + vatAmount),
@@ -2466,7 +2606,11 @@ export class QuotesService {
     signature: DocumentSignatureSnapshot | null = null
   ) {
     const roundMoney = (value: number) => Number(value.toFixed(4));
-    const { items, discountTotal, subtotal, vatAmount } = this.priceStandaloneItems(input.items);
+    const { items, discountTotal, subtotal, vatAmount, headerDiscountAmount, headerDiscountPercent } =
+      this.priceStandaloneItems(input.items, {
+        amount: input.headerDiscountAmount,
+        percent: input.headerDiscountPercent,
+      });
 
     return {
       schemaVersion: 4,
@@ -2480,6 +2624,8 @@ export class QuotesService {
         documentNo: document.contractNo ?? null,
         subtotal,
         discountTotal,
+        headerDiscountAmount,
+        headerDiscountPercent,
         vatAmount,
         customsTotal: 0,
         grandTotal: roundMoney(subtotal + vatAmount),
@@ -2506,6 +2652,8 @@ export class QuotesService {
         estimatedDeliveryDaysMin: input.estimatedDeliveryDaysMin ?? null,
         estimatedDeliveryDaysMax: input.estimatedDeliveryDaysMax ?? null,
         importCostsExcluded: input.importCostsExcluded ?? true,
+        vatIncluded: input.vatIncluded ?? false,
+        freightPaidBySeller: input.freightPaidBySeller ?? false,
       },
     };
   }
@@ -2604,6 +2752,8 @@ export class QuotesService {
       estimatedDeliveryDaysMax:
         input.estimatedDeliveryDaysMax ?? previous.terms?.estimatedDeliveryDaysMax ?? undefined,
       importCostsExcluded: input.importCostsExcluded ?? previous.terms?.importCostsExcluded ?? true,
+      vatIncluded: input.vatIncluded ?? previous.terms?.vatIncluded ?? false,
+      freightPaidBySeller: input.freightPaidBySeller ?? previous.terms?.freightPaidBySeller ?? false,
       installments:
         input.installments
         ?? (previous.receivables ?? []).map((receivable: any) => ({
@@ -2704,6 +2854,12 @@ export class QuotesService {
 
   async createContract(input: ContractCreateInput, actor: AuthContext) {
     const quote = await this.get(input.quoteId, actor);
+    if (input.fileId) {
+      await this.assertContractFile(input.fileId, actor, {
+        opportunityId: quote.opportunityId,
+        companyId: quote.companyId,
+      });
+    }
     const businessLine = await this.businessLineForQuote(quote, actor);
     const contractNo =
       normalizeSeriesDocumentNo(input.contractNo, businessLine) ??
@@ -2730,7 +2886,9 @@ export class QuotesService {
       .returning();
     // Fiyat pazarlığı sözleşmede yapılabildiği için taslak sözleşme de kendi
     // fiyatlarıyla dondurulur; aksi hâlde çıktı canlı teklife dönerdi.
-    const pricedContract = (input.items?.length ?? 0) > 0;
+    const pricedContract = (input.items?.length ?? 0) > 0
+      || input.headerDiscountAmount !== undefined
+      || input.headerDiscountPercent !== undefined;
     if (input.statusCode !== 'draft' || pricedContract || input.terms) {
       const finalizedAt = input.statusCode !== 'draft' ? new Date() : null;
       const documentSnapshot = pricedContract
@@ -2738,7 +2896,8 @@ export class QuotesService {
             { ...(row as unknown as Record<string, unknown>), finalizedAt },
             input.quoteId,
             actor,
-            input.items
+            input.items,
+            mergeDocumentHeaderDiscount(null, input)
           )
         : await this.buildCommercialDocumentSnapshot(
             row as unknown as Record<string, unknown>,
@@ -2772,6 +2931,12 @@ export class QuotesService {
       patch.divisionId = quote.divisionId;
     }
     const businessLine = await this.businessLineForQuote(quote, actor);
+    if (input.fileId) {
+      await this.assertContractFile(input.fileId, actor, {
+        opportunityId: quote.opportunityId,
+        companyId: quote.companyId,
+      });
+    }
     if (input.quoteId !== undefined) patch.businessLine = businessLine;
     if (input.statusCode !== undefined) {
       const statusId = await lookupIdByCode(this.db, contractStatuses, input.statusCode);
@@ -2792,20 +2957,20 @@ export class QuotesService {
     const snapshotDocument = { ...existing, ...patch };
     // Sözleşme fiyatı bağlı teklifi değiştirmeden burada saklanır: onaylı
     // teklif kilitlidir, oysa imza masasında fiyat hâlâ pazarlığa açıktır.
-    if (input.items !== undefined || input.terms !== undefined) {
+    const headerDiscountChanged =
+      input.headerDiscountAmount !== undefined || input.headerDiscountPercent !== undefined;
+    if (input.items !== undefined || headerDiscountChanged || input.terms !== undefined) {
       const quoteItemIds = new Set(
         (quote.items ?? []).map((item: { id: string }) => item.id),
       );
-      const priceItems = this.mergeDocumentPriceItems(
-        input.quoteId !== undefined ? null : existing.documentSnapshot,
-        quoteItemIds,
-        input.items,
-      );
+      const carriedSnapshot = input.quoteId !== undefined ? null : existing.documentSnapshot;
+      const priceItems = this.mergeDocumentPriceItems(carriedSnapshot, quoteItemIds, input.items);
       patch.documentSnapshot = await this.buildPricedDocumentSnapshot(
         snapshotDocument,
         String(patch.quoteId ?? existing.quoteId),
         actor,
         priceItems,
+        mergeDocumentHeaderDiscount(carriedSnapshot, input)
       );
     }
     if (input.statusCode !== undefined && input.statusCode !== 'draft') {

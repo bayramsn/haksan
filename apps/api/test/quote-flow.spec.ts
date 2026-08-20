@@ -48,7 +48,7 @@ afterAll(async () => {
 });
 
 describe('ERP flow', () => {
-  it('creates an opportunity in lead stage', async () => {
+  it('creates an opportunity in the lead stage, the first step of the flow', async () => {
     const r = await supertest(app.getHttpServer())
       .post('/api/v1/opportunities')
       .set('Authorization', `Bearer ${adminToken}`)
@@ -63,17 +63,24 @@ describe('ERP flow', () => {
       });
     expect(r.status).toBe(201);
     expect(r.body.stage?.code).toBe('lead');
+    expect(r.body.qualificationStage).toBe('lead');
     expect(r.body.paymentMethod).toBe('leasing');
     opportunityId = r.body.id;
   });
 
-  it('moves lead → sales', async () => {
-    const r = await supertest(app.getHttpServer())
-      .patch(`/api/v1/opportunities/${opportunityId}/stage`)
+  it('moves the new opportunity on to the C field', async () => {
+    const move = await supertest(app.getHttpServer())
+      .patch(`/api/v1/opportunities/${opportunityId}/qualification-stage`)
       .set('Authorization', `Bearer ${adminToken}`)
-      .send({ toStage: 'sales' });
+      .send({ toStage: 'c' });
+    expect(move.status).toBe(200);
+
+    const r = await supertest(app.getHttpServer())
+      .get(`/api/v1/opportunities/${opportunityId}`)
+      .set('Authorization', `Bearer ${adminToken}`);
     expect(r.status).toBe(200);
     expect(r.body.stage?.code).toBe('sales');
+    expect(r.body.qualificationStage).toBe('c');
   });
 
   it('refuses to go directly from sales → contract (skipping quote)', async () => {
@@ -130,12 +137,17 @@ describe('ERP flow', () => {
           quoteId,
           issueDate: new Date().toISOString(),
           statusCode: 'draft',
-          items: [{ quoteItemId, unitPrice: 90_000 }],
+          items: [{ quoteItemId, unitPrice: 90_000, discountAmount: 7_000 }],
         }),
       supertest(app.getHttpServer())
         .post('/api/v1/contracts')
         .set('Authorization', `Bearer ${adminToken}`)
-        .send({ quoteId, signedDate: new Date().toISOString(), statusCode: 'draft' }),
+        .send({
+          quoteId,
+          signedDate: new Date().toISOString(),
+          statusCode: 'draft',
+          items: [{ quoteItemId, unitPrice: 90_000, discountAmount: 6_000 }],
+        }),
       supertest(app.getHttpServer())
         .post('/api/v1/commercial-invoices')
         .set('Authorization', `Bearer ${adminToken}`)
@@ -149,19 +161,25 @@ describe('ERP flow', () => {
     expect(proforma.body.documentSnapshot?.items[0]).toMatchObject({
       id: quoteItemId,
       unitPrice: 90_000,
-      discountAmount: 5_000,
-      lineTotal: 85_000,
-      vatAmount: 17_000,
+      discountAmount: 7_000,
+      lineTotal: 83_000,
+      vatAmount: 16_600,
     });
     expect(proforma.body.documentSnapshot?.quote).toMatchObject({
-      discountTotal: 5_000,
-      subtotal: 85_000,
-      vatAmount: 17_000,
-      grandTotal: 102_000,
+      discountTotal: 7_000,
+      subtotal: 83_000,
+      vatAmount: 16_600,
+      grandTotal: 99_600,
     });
     expect(contract.status).toBe(201);
     contractId = contract.body.id;
     expect(contract.body.contractNo).toMatch(new RegExp(`^${quoteBusinessLine}-SOZ-\\d{4}/\\d{3}$`));
+    expect(contract.body.documentSnapshot?.items[0]).toMatchObject({
+      id: quoteItemId,
+      unitPrice: 90_000,
+      discountAmount: 6_000,
+      lineTotal: 84_000,
+    });
     expect(invoice.status).toBe(201);
     expect(invoice.body.invoiceNo).toMatch(new RegExp(`^${quoteBusinessLine}-FAT-\\d{4}/\\d{3}$`));
   });
@@ -175,8 +193,8 @@ describe('ERP flow', () => {
     expect(first.body.documentSnapshot?.items[0]).toMatchObject({
       id: quoteItemId,
       unitPrice: 89_000,
-      discountAmount: 5_000,
-      lineTotal: 84_000,
+      discountAmount: 6_000,
+      lineTotal: 83_000,
     });
     expect(first.body.documentSnapshot).not.toHaveProperty('documentSnapshot');
 
@@ -188,8 +206,8 @@ describe('ERP flow', () => {
     expect(second.body.documentSnapshot?.items[0]).toMatchObject({
       id: quoteItemId,
       unitPrice: 88_000,
-      discountAmount: 5_000,
-      lineTotal: 83_000,
+      discountAmount: 6_000,
+      lineTotal: 82_000,
     });
     expect(second.body.documentSnapshot).not.toHaveProperty('documentSnapshot');
 
@@ -203,8 +221,8 @@ describe('ERP flow', () => {
     expect(termsOnly.body.documentSnapshot?.items[0]).toMatchObject({
       id: quoteItemId,
       unitPrice: 88_000,
-      discountAmount: 5_000,
-      lineTotal: 83_000,
+      discountAmount: 6_000,
+      lineTotal: 82_000,
     });
     expect(termsOnly.body.documentSnapshot?.terms).toMatchObject({
       paymentTermsText: 'VADELI-ODEME',
@@ -486,8 +504,19 @@ describe('ERP flow', () => {
     expect(repriced.status).toBe(200);
     expect(repriced.body.documentSnapshot?.items[0]).toMatchObject({
       unitPrice: 88_000,
-      discountAmount: 5_000,
-      lineTotal: 83_000,
+      discountAmount: 7_000,
+      lineTotal: 81_000,
+    });
+
+    const termsOnly = await supertest(app.getHttpServer())
+      .patch(`/api/v1/proformas/${proformaId}`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ terms: { deliveryTermsText: 'PROFORMA-TESLIM' } });
+    expect(termsOnly.status, JSON.stringify(termsOnly.body)).toBe(200);
+    expect(termsOnly.body.documentSnapshot?.items[0]).toMatchObject({
+      unitPrice: 88_000,
+      discountAmount: 7_000,
+      lineTotal: 81_000,
     });
 
     const finalized = await supertest(app.getHttpServer())

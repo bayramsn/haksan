@@ -54,6 +54,7 @@ import type {
   LeadAssignmentRuleUpdateInput,
   LeadContactEventInput,
   OpportunityQualificationChangeInput,
+  OpportunityProcessCheckUpsertInput,
   OpportunityStageChangeInput,
   OpportunityUpdateInput,
   TrelloImportCommitRequest,
@@ -485,6 +486,9 @@ export const opportunityService = {
   leadSummary: () => api.get<any>('/opportunities/lead-summary'),
   changeQualificationStage: (id: string, body: OpportunityQualificationChangeInput) =>
     api.patch<any>(`/opportunities/${id}/qualification-stage`, body),
+  /** A+ süreç adımını elle "yapıldı / yapılmadı" işaretler; `status: null` işareti kaldırır. */
+  setProcessCheck: (id: string, key: string, body: OpportunityProcessCheckUpsertInput) =>
+    api.patch<any>(`/opportunities/${id}/process-checks/${encodeURIComponent(key)}`, body),
   decideApproval: (id: string, type: OpportunityApprovalType, body: OpportunityApprovalDecisionInput) =>
     api.post<any>(`/opportunities/${id}/approvals/${type}`, body),
   remove: (id: string) => api.delete(`/opportunities/${id}`),

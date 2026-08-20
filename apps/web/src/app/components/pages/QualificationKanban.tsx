@@ -43,12 +43,14 @@ import { Textarea } from "../ui/textarea";
 import { actionDateLabel, isActionOverdue } from "../shared/NextActionDialog";
 import { useCompanyCardDetails } from "../../lib/companyServerData";
 
-type ActiveQualificationStage = Exclude<QualificationStage, "lead">;
-const ACTIVE_QUALIFICATION_STAGES = QUALIFICATION_STAGES as ActiveQualificationStage[];
-
 // Kolon açıklaması burada tutulmaz; Türkçe derece metinleri tek kaynaktan
 // (mock.ts#QUALIFICATION_STAGE_DESCRIPTIONS) okunur.
-const STAGE_META: Record<ActiveQualificationStage, { color: string; dot: string; surface: string }> = {
+const STAGE_META: Record<QualificationStage, { color: string; dot: string; surface: string }> = {
+  lead: {
+    color: "var(--chart-3)",
+    dot: "bg-teal-600",
+    surface: "bg-teal-50 text-teal-700",
+  },
   c: {
     color: "var(--chart-6)",
     dot: "bg-slate-500",
@@ -108,8 +110,8 @@ export function QualificationKanban({
   const lostCase = lostId ? items.find((item) => item.id === lostId) : null;
   const lostCompany = lostCase ? customers.find((company) => company.id === lostCase.customerId) : null;
 
-  const columns: KanbanColumn<SalesCase>[] = ACTIVE_QUALIFICATION_STAGES.map((stage) => {
-    const stageItems = items.filter((item) => (item.qualificationStage ?? "c") === stage);
+  const columns: KanbanColumn<SalesCase>[] = QUALIFICATION_STAGES.map((stage) => {
+    const stageItems = items.filter((item) => (item.qualificationStage ?? "lead") === stage);
     const total = stageItems.reduce((sum, item) => sum + item.estimatedAmount, 0);
     return {
       key: stage,
@@ -154,7 +156,7 @@ export function QualificationKanban({
     setBusyId(id);
     try {
       await moveQualification(id, to);
-      toast.success("Fırsat taşındı", { description: `Yeni derece: ${QUALIFICATION_STAGE_LABELS[to]}` });
+      toast.success("Fırsat taşındı", { description: `Yeni satış alanı: ${QUALIFICATION_STAGE_LABELS[to]}` });
     } catch (error: unknown) {
       toast.error("Fırsat taşınamadı", {
         description: opportunityTransitionErrorMessage(error, "Aşama koşullarını tamamlayın."),
@@ -170,7 +172,7 @@ export function QualificationKanban({
     try {
       await moveQualification(pendingBackMove.salesCase.id, pendingBackMove.to, { note: backReason });
       const fromLost = pendingBackMove.salesCase.qualificationStage === "lost";
-      toast.success(fromLost ? "LOST kaydı hedef dereceye taşındı" : "Fırsat önceki dereceye alındı", {
+      toast.success(fromLost ? "LOST kaydı hedef satış alanına taşındı" : "Fırsat önceki satış alanına alındı", {
         description: fromLost
           ? `${QUALIFICATION_STAGE_LABELS[pendingBackMove.to]} · Firma, makine ve kayıp bilgileri korundu`
           : QUALIFICATION_STAGE_LABELS[pendingBackMove.to],
@@ -209,13 +211,13 @@ export function QualificationKanban({
       <Dialog open={Boolean(pendingBackMove)} onOpenChange={(open) => !open && setPendingBackMove(null)}>
         <DialogContent className={`sm:max-w-md ${pendingBackMove?.salesCase.qualificationStage === "lost" ? "overflow-hidden border-l-4 border-red-600" : ""}`}>
           <DialogHeader>
-            <DialogTitle>{pendingBackMove?.salesCase.qualificationStage === "lost" ? "LOST kaydını hedef dereceye taşı" : "Fırsatı geri al"}</DialogTitle>
+            <DialogTitle>{pendingBackMove?.salesCase.qualificationStage === "lost" ? "LOST kaydını hedef satış alanına taşı" : "Fırsatı geri al"}</DialogTitle>
             <DialogDescription>
               {pendingBackMove
                 ? `${QUALIFICATION_STAGE_LABELS[pendingBackMove.salesCase.qualificationStage]} → ${QUALIFICATION_STAGE_LABELS[pendingBackMove.to]} geçişi`
                 : ""}
               {pendingBackMove?.salesCase.qualificationStage === "lost"
-                ? ". Kart doğrudan seçtiğiniz dereceye taşınır; firma, makine, aktiviteler ve kayıp bilgileri korunur."
+                ? ". Kart doğrudan seçtiğiniz satış alanına taşınır; firma, makine, aktiviteler ve kayıp bilgileri korunur."
                 : ". Sonraki aşamaya ait onaylar sıfırlanır."}
             </DialogDescription>
           </DialogHeader>
@@ -234,7 +236,7 @@ export function QualificationKanban({
             <Button variant="outline" onClick={() => setPendingBackMove(null)}>Vazgeç</Button>
             <Button disabled={!backReason.trim() || Boolean(busyId)} onClick={() => void confirmBackMove()}>
               {pendingBackMove?.salesCase.qualificationStage === "lost"
-                ? `${pendingBackMove ? QUALIFICATION_STAGE_LABELS[pendingBackMove.to] : "Hedef"} derecesine taşı`
+                ? `${pendingBackMove ? QUALIFICATION_STAGE_LABELS[pendingBackMove.to] : "Hedef"} satış alanına taşı`
                 : "Geri al"}
             </Button>
           </DialogFooter>
@@ -262,7 +264,7 @@ export function QualificationKanban({
             : company
               ? [company.address, company.district, company.city].filter(Boolean).join(", ")
               : [salesCase.leadDistrict, salesCase.leadCity].filter(Boolean).join(", ");
-          const stage = (salesCase.qualificationStage ?? "c") as Exclude<QualificationStage, "lead">;
+          const stage = (salesCase.qualificationStage ?? "lead") as QualificationStage;
           const meta = STAGE_META[stage];
           const stopCardClick = (event: MouseEvent) => event.stopPropagation();
           const partyName =
@@ -322,9 +324,9 @@ export function QualificationKanban({
                         {stage !== "win" && (
                           <>
                             <DropdownMenuSeparator />
-                            {ACTIVE_QUALIFICATION_STAGES.map((target) => {
-                              const currentIndex = ACTIVE_QUALIFICATION_STAGES.indexOf(stage);
-                              const targetIndex = ACTIVE_QUALIFICATION_STAGES.indexOf(target);
+                            {QUALIFICATION_STAGES.map((target) => {
+                              const currentIndex = QUALIFICATION_STAGES.indexOf(stage);
+                              const targetIndex = QUALIFICATION_STAGES.indexOf(target);
                               const adjacent = Math.abs(targetIndex - currentIndex) === 1;
                               const allowed = stage === "lost" || target === "lost" || adjacent;
                               return (

@@ -659,6 +659,72 @@ describe("print templates", () => {
     expect(document.body).toContain(`Sayfa <b>${totalPages}</b> / <b>${totalPages}</b>`);
   });
 
+  it("prints the SL-8 shape: VAT included in the total and freight on the seller", () => {
+    const base = {
+      alici: { unvan: "NORM İNOX METAL ENDÜSTRİ LAZER SAN. İTH. İHR. LTD. ŞTİ." },
+      sozlesmeNo: "CNC-SOZ-2026/030",
+      sozlesmeTarihi: "2026-08-18",
+      model: "ECOCA SL-8 Cnc Torna Tezgahı",
+      adet: 1,
+      ozellikler: [{ key: "Maks. Tornalama Kapasitesi", value: "Ø 320 mm" }],
+      aksesuarlar: ["FANUC Oi-TF Plus Kontrol Ünitesi"],
+      fiyat: 50_000,
+      currency: "USD" as const,
+      kdvOran: 20,
+      // Vadeler CRM'de net tutulur; 3.4 maddesi bunları "bedelin tamamı" diye sunar.
+      odemePlani: [{ label: "Siparişte peşin", tutar: 8_333.33 }],
+      teslimYeri: "NORM İNOX METAL/Başakşehir tesisleri",
+    };
+
+    const sl8 = contractDoc({ ...base, kdvDahil: true, nakliyeSaticiya: true }, assetBase);
+    expect(sl8.body).toContain("K.D.V.</span> dahildir");
+    // KDV dahilse yazılan bedel brüttür; net 50.000 basılırsa sözleşme yanlış tutara imzalanır.
+    expect(sl8.body).toContain("60.000,00 USD");
+    expect(sl8.body).not.toContain("50.000,00 USD");
+    // 3.1 TOPLAM brütken 3.4 vadesi net kalırsa sözleşme kendi kendisiyle çelişir.
+    expect(sl8.body).toContain("10.000,00 USD");
+    expect(sl8.body).not.toContain("8.333,33 USD");
+    expect(sl8.body).toContain("NORM İNOX METAL/Başakşehir tesisleri adresine teslim");
+    expect(sl8.body).toContain(`nakliye ve sigorta giderleri <span class="b">HAKSAN MAKİNA</span>'ya aittir`);
+
+    const defaults = contractDoc(base, assetBase);
+    expect(defaults.body).toContain("K.D.V.</span> dahil değildir");
+    expect(defaults.body).toContain("50.000,00 USD");
+    expect(defaults.body).not.toContain("60.000,00 USD");
+    expect(defaults.body).toContain("8.333,33 USD");
+    expect(defaults.body).toContain("adresinden teslim");
+  });
+
+  it("keeps VAT-grossed machine rows summing to the printed grand total", () => {
+    // Satırlar tek tek yuvarlanınca 3×39.333,33 = 117.999,99 çıkıyor ama TOPLAM
+    // 118.000,00; farkı son satır yutmazsa fiyat tablosu kendi içinde tutmaz.
+    const document = contractDoc({
+      alici: { unvan: "Çok Tezgahlı Alıcı" },
+      sozlesmeNo: "CNC-SOZ-2026/031",
+      sozlesmeTarihi: "2026-08-18",
+      model: "ÜÇLÜ SET",
+      adet: 3,
+      ozellikler: [],
+      aksesuarlar: [],
+      machines: [1, 2, 3].map((index) => ({
+        model: `TEZGAH-${index}`,
+        adet: 1,
+        ozellikler: [],
+        aksesuarlar: [],
+        fiyat: 100_000 / 3,
+      })),
+      fiyat: 100_000,
+      currency: "USD" as const,
+      kdvOran: 18,
+      kdvDahil: true,
+      odemePlani: [],
+    }, assetBase);
+
+    const amounts = [...document.body.matchAll(/39\.333,3(\d) USD/g)].map((match) => match[1]);
+    expect(amounts).toEqual(["3", "3", "4"]);
+    expect(document.body).toContain("118.000,00 USD");
+  });
+
   it("keeps the reference contract structure on three pages", () => {
     const document = contractDoc({
       alici: {

@@ -70,6 +70,41 @@ describe('standalone proforma', () => {
     expect(res.body.companyNameText).toBeNull();
   });
 
+  it('belge geneli iskontoyu net ara toplamdan düşer ve KDV\'yi aynı oranla ölçekler', async () => {
+    const amountRes = await post({
+      companyId,
+      issueDate: issueDate(),
+      currencyCode: 'USD',
+      headerDiscountAmount: 200,
+      items: [{ description: 'Bakım paketi', quantity: 1, unitPrice: 1_000, vatRate: 20 }],
+    });
+    expect(amountRes.status).toBe(201);
+    // 1.000 - 200 = 800 net; KDV 1.000 × 0,8 × %20 = 160.
+    expect(amountRes.body.documentSnapshot.quote).toMatchObject({
+      subtotal: 800,
+      discountTotal: 200,
+      headerDiscountAmount: 200,
+      vatAmount: 160,
+      grandTotal: 960,
+    });
+
+    const percentRes = await post({
+      companyId,
+      issueDate: issueDate(),
+      currencyCode: 'USD',
+      headerDiscountPercent: 10,
+      items: [{ description: 'Bakım paketi', quantity: 2, unitPrice: 1_000, discountAmount: 200, vatRate: 20 }],
+    });
+    expect(percentRes.status).toBe(201);
+    // Net ara toplam 1.800 → %10 = 180; toplam iskonto 380.
+    expect(percentRes.body.documentSnapshot.quote).toMatchObject({
+      subtotal: 1_620,
+      discountTotal: 380,
+      headerDiscountAmount: 180,
+      headerDiscountPercent: 10,
+    });
+  });
+
   it('kayıtlı firma olmadan elle girilen unvanla proforma oluşturur', async () => {
     const res = await post({
       companyName: 'ELLE GİRİLEN MAKİNA LTD. ŞTİ.',

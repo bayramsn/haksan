@@ -10,6 +10,7 @@ import {
   type LeadInsights,
   type LeadPurchaseTimeframeCode,
   type LeadTechnicalFitCode,
+  type ProcessCheck,
 } from "@haksan/shared";
 
 export type Role = "SuperAdmin" | "Admin" | "Sales" | "Service";
@@ -237,7 +238,11 @@ export const salesStageLabel = (stage: string) => SALES_STAGE_LABELS[stage as Sa
 
 export type QualificationStage = "lead" | "c" | "b" | "a" | "a_plus" | "win" | "lost";
 
-export const QUALIFICATION_STAGES: QualificationStage[] = ["c", "b", "a", "a_plus", "win", "lost"];
+/**
+ * Fırsat panosunun kolonları. Lead ayrı bir sayfa değil, akışın İLK adımıdır:
+ * yeni kartlar Lead kolonunda doğar ve oradan C alanına ilerler.
+ */
+export const QUALIFICATION_STAGES: QualificationStage[] = ["lead", "c", "b", "a", "a_plus", "win", "lost"];
 
 export const QUALIFICATION_STAGE_LABELS: Record<QualificationStage, string> = {
   lead: "Lead",
@@ -256,7 +261,7 @@ export const QUALIFICATION_STAGE_LABELS: Record<QualificationStage, string> = {
  * yerde dursun diye bileşenlerin içine sabit metin gömülmez.
  */
 export const QUALIFICATION_STAGE_DESCRIPTIONS: Record<QualificationStage, string> = {
-  lead: "Aday kayıt",
+  lead: "Yeni kayıt · ilk temas",
   c: "Yeni müşteri",
   b: "Ara sıcak · satışa hazır",
   a: "Bitmeye yakın · takipte",
@@ -418,7 +423,8 @@ export type SalesCase = {
     nextStage: QualificationStage | null;
     ready: boolean;
     blockers: string[];
-    checks: Array<{ key: string; label: string; complete: boolean }>;
+    /** Süreç adımları — `manualEditable` olanlar A+ alanında elle işaretlenir. */
+    checks: ProcessCheck[];
     approvals: Partial<Record<OpportunityApprovalType, OpportunityApprovalStatus>>;
     /** Süreç sağlığı: aşamada bekleme, lead SLA aşımı ve takip aksiyonu durumu. */
     health?: {

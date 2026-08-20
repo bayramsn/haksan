@@ -2,9 +2,12 @@ import { useState } from "react";
 import { Input } from "../ui/input";
 import { Label } from "../ui/label";
 import {
+  discountAmountFromPercent,
+  discountPercentOf,
   formatMoneyInput,
   parseMoneyInput,
   proformaRowError,
+  type DocumentDiscount,
   type ProformaPriceRow,
   type ProformaTotals,
 } from "../../lib/proformaPricing";
@@ -17,8 +20,8 @@ const quantityLabel = (row: ProformaPriceRow) =>
 
 /**
  * Proforma kalem tablosu — teklif formundaki satır düzenini birebir izler:
- * açıklama, adet, düzenlenebilir brüt birim fiyat, tekliften gelen iskonto, KDV ve
- * satır toplamı. Yalnızca birim fiyat düzenlenebilir; iskonto/adet bağlı teklife aittir.
+ * açıklama, adet, düzenlenebilir brüt birim fiyat ve iskonto, KDV ve satır toplamı.
+ * Fiyat/iskonto değişiklikleri yalnız bu belgeye yazılır.
  */
 export function ProformaItemsEditor({
   rows,
@@ -27,7 +30,7 @@ export function ProformaItemsEditor({
   loading = false,
   idPrefix,
   title = "Proforma Kalemleri",
-  description = "Brüt birim fiyatları düzenleyin. İskonto ve adet bağlı teklifden gelir; buradaki değişiklik teklifi etkilemez.",
+  description = "Brüt birim fiyatı ve iskontoyu düzenleyin. Değişiklikler bağlı teklifi etkilemez.",
   emptyText = "Seçilen teklifte fiyatlandırılacak ürün kalemi bulunamadı.",
 }: {
   rows: ProformaPriceRow[];
@@ -46,6 +49,9 @@ export function ProformaItemsEditor({
   const setUnitPrice = (quoteItemId: string, unitPrice: number) => {
     onRowsChange(rows.map((row) => (row.quoteItemId === quoteItemId ? { ...row, unitPrice } : row)));
   };
+  const setDiscount = (quoteItemId: string, discountAmount: number) => {
+    onRowsChange(rows.map((row) => (row.quoteItemId === quoteItemId ? { ...row, discountAmount } : row)));
+  };
 
   return (
     <section className="overflow-hidden rounded-xl border border-border/70 bg-card">
@@ -60,12 +66,13 @@ export function ProformaItemsEditor({
         <p className="px-3 py-8 text-center text-xs text-muted-foreground">{emptyText}</p>
       ) : (
         <div className="overflow-x-auto">
-          <div className="min-w-[600px]">
-            <div className="grid grid-cols-[minmax(0,1fr)_76px_140px_96px_52px_116px] gap-2 border-b border-border/60 bg-muted/10 px-3 py-2 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+          <div className="min-w-[660px]">
+            <div className="grid grid-cols-[minmax(0,1fr)_72px_132px_92px_62px_48px_108px] gap-2 border-b border-border/60 bg-muted/10 px-3 py-2 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
               <span>Açıklama</span>
               <span className="text-center">Adet</span>
               <span className="text-right">Brüt Birim Fiyat</span>
               <span className="text-right">İskonto</span>
+              <span className="text-right">İsk. %</span>
               <span className="text-center">KDV</span>
               <span className="text-right">Satır Toplamı</span>
             </div>
@@ -76,7 +83,7 @@ export function ProformaItemsEditor({
                 return (
                   <div
                     key={row.quoteItemId}
-                    className="grid grid-cols-[minmax(0,1fr)_76px_140px_96px_52px_116px] items-center gap-2 px-3 py-2.5"
+                    className="grid grid-cols-[minmax(0,1fr)_72px_132px_92px_62px_48px_108px] items-center gap-2 px-3 py-2.5"
                   >
                     <p className="min-w-0 truncate text-xs font-medium" title={row.description}>
                       {row.description || `Ürün ${index + 1}`}
@@ -117,9 +124,60 @@ export function ProformaItemsEditor({
                       </div>
                       {error && <p className="mt-1 text-[10px] text-warning">{error}</p>}
                     </div>
-                    <span className="text-right font-data text-xs tabular-nums text-muted-foreground">
-                      {row.discountAmount > 0 ? `-${amount(row.discountAmount)}` : "—"}
-                    </span>
+                    <div>
+                      <Label className="sr-only" htmlFor={`${idPrefix}-${row.quoteItemId}-discount`}>
+                        {row.description || `Ürün ${index + 1}`} iskontosu
+                      </Label>
+                      <Input
+                        id={`${idPrefix}-${row.quoteItemId}-discount`}
+                        type="text"
+                        inputMode="decimal"
+                        aria-invalid={error ? true : undefined}
+                        className="h-9 text-right font-data tabular-nums"
+                        value={drafts[`${row.quoteItemId}-discount`] ?? formatMoneyInput(row.discountAmount)}
+                        onFocus={(event) => {
+                          setDrafts((current) => ({ ...current, [`${row.quoteItemId}-discount`]: String(row.discountAmount) }));
+                          event.target.select();
+                        }}
+                        onChange={(event) => {
+                          const text = event.target.value;
+                          setDrafts((current) => ({ ...current, [`${row.quoteItemId}-discount`]: text }));
+                          setDiscount(row.quoteItemId, parseMoneyInput(text));
+                        }}
+                        onBlur={() => setDrafts((current) => {
+                          const next = { ...current };
+                          delete next[`${row.quoteItemId}-discount`];
+                          return next;
+                        })}
+                      />
+                    </div>
+                    <div>
+                      <Label className="sr-only" htmlFor={`${idPrefix}-${row.quoteItemId}-discount-percent`}>
+                        {row.description || `Ürün ${index + 1}`} iskonto yüzdesi
+                      </Label>
+                      <Input
+                        id={`${idPrefix}-${row.quoteItemId}-discount-percent`}
+                        type="text"
+                        inputMode="decimal"
+                        aria-invalid={error ? true : undefined}
+                        className="h-9 text-right font-data tabular-nums"
+                        value={drafts[`${row.quoteItemId}-percent`] ?? String(discountPercentOf(row))}
+                        onFocus={(event) => {
+                          setDrafts((current) => ({ ...current, [`${row.quoteItemId}-percent`]: String(discountPercentOf(row)) }));
+                          event.target.select();
+                        }}
+                        onChange={(event) => {
+                          const text = event.target.value;
+                          setDrafts((current) => ({ ...current, [`${row.quoteItemId}-percent`]: text }));
+                          setDiscount(row.quoteItemId, discountAmountFromPercent(row, parseMoneyInput(text)));
+                        }}
+                        onBlur={() => setDrafts((current) => {
+                          const next = { ...current };
+                          delete next[`${row.quoteItemId}-percent`];
+                          return next;
+                        })}
+                      />
+                    </div>
                     <span className="text-center text-xs text-muted-foreground">%{row.vatRate}</span>
                     <span className="text-right font-data text-xs font-medium tabular-nums">{amount(lineTotal)}</span>
                   </div>
@@ -129,6 +187,96 @@ export function ProformaItemsEditor({
           </div>
         </div>
       )}
+    </section>
+  );
+}
+
+/**
+ * Belge geneline uygulanan iskonto. Satır iskontosundan ayrıdır ve bağlı
+ * teklifi değiştirmez: boş bırakılırsa belge teklifin genel iskontosunu
+ * devralır, doldurulduğunda onun yerine geçer. Yüzde ve tutar birbirini
+ * dışlar — biri girildiğinde diğeri sıfırlanır.
+ */
+export function DocumentDiscountFields({
+  value,
+  onChange,
+  currency,
+  idPrefix,
+  disabled = false,
+}: {
+  value: DocumentDiscount;
+  onChange: (next: DocumentDiscount) => void;
+  currency: string;
+  idPrefix: string;
+  disabled?: boolean;
+}) {
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const draft = (key: string, fallback: string) => drafts[key] ?? fallback;
+  const clearDraft = (key: string) =>
+    setDrafts((current) => {
+      const next = { ...current };
+      delete next[key];
+      return next;
+    });
+
+  return (
+    <section className="rounded-xl border border-border/70 bg-card px-3 py-2.5">
+      <p className="text-xs font-semibold">Belge Geneli İskonto</p>
+      <p className="mt-0.5 text-[10px] leading-relaxed text-muted-foreground">
+        Satır iskontosundan ayrı, belgenin tamamına uygulanır. Boş bırakılırsa bağlı teklifin genel iskontosu kullanılır; bağlı teklif değişmez.
+      </p>
+      <div className="mt-2 grid gap-2 sm:grid-cols-2">
+        <div>
+          <Label className="text-[10px] text-muted-foreground" htmlFor={`${idPrefix}-header-discount-amount`}>Tutar</Label>
+          <div className="relative">
+            <Input
+              id={`${idPrefix}-header-discount-amount`}
+              type="text"
+              inputMode="decimal"
+              disabled={disabled}
+              className="h-9 pr-11 text-right font-data tabular-nums"
+              value={draft("amount", formatMoneyInput(value.amount))}
+              onFocus={(event) => {
+                setDrafts((current) => ({ ...current, amount: String(value.amount) }));
+                event.target.select();
+              }}
+              onChange={(event) => {
+                const text = event.target.value;
+                setDrafts((current) => ({ ...current, amount: text }));
+                onChange({ amount: parseMoneyInput(text), percent: 0 });
+              }}
+              onBlur={() => clearDraft("amount")}
+            />
+            <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground">
+              {currency}
+            </span>
+          </div>
+        </div>
+        <div>
+          <Label className="text-[10px] text-muted-foreground" htmlFor={`${idPrefix}-header-discount-percent`}>Yüzde</Label>
+          <div className="relative">
+            <Input
+              id={`${idPrefix}-header-discount-percent`}
+              type="text"
+              inputMode="decimal"
+              disabled={disabled}
+              className="h-9 pr-8 text-right font-data tabular-nums"
+              value={draft("percent", String(value.percent))}
+              onFocus={(event) => {
+                setDrafts((current) => ({ ...current, percent: String(value.percent) }));
+                event.target.select();
+              }}
+              onChange={(event) => {
+                const text = event.target.value;
+                setDrafts((current) => ({ ...current, percent: text }));
+                onChange({ amount: 0, percent: Math.min(100, parseMoneyInput(text)) });
+              }}
+              onBlur={() => clearDraft("percent")}
+            />
+            <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground">%</span>
+          </div>
+        </div>
+      </div>
     </section>
   );
 }
@@ -150,7 +298,7 @@ export function ProformaTotalsPanel({
         <Row label="Satır İskontosu" value={`-${amount(totals.lineDiscount)}`} currency={currency} />
       )}
       {totals.headerDiscount > 0 && (
-        <Row label="Teklif İskontosu" value={`-${amount(totals.headerDiscount)}`} currency={currency} />
+        <Row label="Genel İskonto" value={`-${amount(totals.headerDiscount)}`} currency={currency} />
       )}
       <Row label="KDV" value={amount(totals.vat)} currency={currency} />
       {totals.customs > 0 && (

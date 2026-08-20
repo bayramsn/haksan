@@ -293,6 +293,8 @@ async function buildContractPrintData(input: ContractBuildInput): Promise<Contra
       ithalatMasraflariDahil: value(terms, "importCostsExcluded", "import_costs_excluded") === undefined
         ? undefined
         : !Boolean(value(terms, "importCostsExcluded", "import_costs_excluded")),
+      kdvDahil: Boolean(value(terms, "vatIncluded", "vat_included")),
+      nakliyeSaticiya: Boolean(value(terms, "freightPaidBySeller", "freight_paid_by_seller")),
       notlar: value(quote, "notes"),
       kdvOran: (() => {
         const mainItem = items.find((item: any) => !String(value(item, "description") ?? "").trimStart().startsWith("↳ Opsiyon:"));
@@ -371,6 +373,8 @@ async function buildContractPrintData(input: ContractBuildInput): Promise<Contra
     odemeKosullari: terms.paymentTermsText ?? quote?.paymentTerms ?? undefined,
     garantiKosullari: warrantyTerms,
     ithalatMasraflariDahil: terms.importCostsExcluded === undefined ? undefined : !Boolean(terms.importCostsExcluded),
+    kdvDahil: Boolean(terms.vatIncluded),
+    nakliyeSaticiya: Boolean(terms.freightPaidBySeller),
     notlar: quote?.notes ?? offer?.note ?? undefined,
     kdvOran: vatRate,
     odemePlani: expectedPaymentRows(payments, salesCase),

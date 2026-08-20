@@ -81,6 +81,34 @@ test("reduced-motion modunda video scrub yerine sahne görseli kullanılır", as
   await expect(onboarding.locator('img[src="/onboarding/scene-01.webp"]')).toBeVisible();
 });
 
+test("tanıtım videosu yalnız uygun masaüstü koşullarında ve metadata ön yüklemesiyle bağlanır", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto("/?intro=1");
+
+  const video = page.getByTestId("onboarding-root").locator("video");
+  await expect(video).toHaveCount(1);
+  await expect(video).toHaveAttribute("preload", "metadata");
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(page.getByTestId("onboarding-root").locator("video")).toHaveCount(0);
+});
+
+test("login arka plan videosu mobil ve reduced-motion istemcilerde DOM'a eklenmez", async ({ page }) => {
+  await page.addInitScript((key) => localStorage.setItem(key, "seen"), ONBOARDING_KEY);
+
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto("/");
+  const loginVideo = page.locator('video source[src="/brand/login-hero-2026-07-21.mp4"]');
+  await expect(loginVideo).toHaveCount(1);
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(loginVideo).toHaveCount(0);
+
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await expect(loginVideo).toHaveCount(0);
+});
+
 test("mobil onboarding yatay taşma üretmez", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/?intro=1");

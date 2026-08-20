@@ -1,8 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from "../ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
+import { Combobox } from "../ui/combobox";
 import { Input } from "../ui/input";
 import { Textarea } from "../ui/textarea";
 import { Label } from "../ui/label";
@@ -42,11 +43,22 @@ export function LostCaseDialog({ open, onOpenChange, caseId, caseName, productNa
   const [productName, setProductName] = useState("");
   const [unmetConditions, setUnmetConditions] = useState("");
   const [competitorId, setCompetitorId] = useState("__none__");
+  const [competitorName, setCompetitorName] = useState("");
   const [competitorModel, setCompetitorModel] = useState("");
   const [competitors, setCompetitors] = useState<{ id: string; name: string }[]>([]);
   const [competitorsLoading, setCompetitorsLoading] = useState(false);
   const [competitorLoadError, setCompetitorLoadError] = useState(false);
   const [saving, setSaving] = useState(false);
+
+  // Listedeki rakipler + "yok" seçeneği + elle yazılan ad tek kutuda toplanır.
+  const competitorOptions = useMemo(
+    () => [
+      { value: "__none__", label: "Rakip yok / bilinmiyor" },
+      ...competitors.map((competitor) => ({ value: competitor.id, label: competitor.name })),
+      ...(competitorName.trim() ? [{ value: "__manual__", label: competitorName.trim(), hint: "elle girildi" }] : []),
+    ],
+    [competitorName, competitors],
+  );
 
   useEffect(() => {
     if (!open) return;
@@ -54,6 +66,7 @@ export function LostCaseDialog({ open, onOpenChange, caseId, caseName, productNa
     setProductName(initialProductName?.trim() ?? "");
     setUnmetConditions("");
     setCompetitorId("__none__");
+    setCompetitorName("");
     setCompetitorModel("");
     setCompetitorsLoading(true);
     setCompetitorLoadError(false);
@@ -68,7 +81,13 @@ export function LostCaseDialog({ open, onOpenChange, caseId, caseName, productNa
   }, [initialProductName, open]);
 
   const submit = async () => {
-    if (!caseId || !reasonCode || !productName.trim() || !unmetConditions.trim()) {
+    if (
+      !caseId
+      || !reasonCode
+      || !productName.trim()
+      || !unmetConditions.trim()
+      || (competitorId === "__manual__" && !competitorName.trim())
+    ) {
       toast.error("Firma, ürün, kayıp nedeni ve uymayan şartlar tamamlanmalıdır.");
       return;
     }
@@ -78,7 +97,8 @@ export function LostCaseDialog({ open, onOpenChange, caseId, caseName, productNa
         reasonCode,
         productName: productName.trim(),
         unmetConditions: unmetConditions.trim(),
-        competitorId: competitorId === "__none__" ? undefined : competitorId,
+        competitorId: competitorId !== "__none__" && competitorId !== "__manual__" ? competitorId : undefined,
+        competitorName: competitorId === "__manual__" ? competitorName.trim() : undefined,
         competitorProductModel: competitorModel.trim() || undefined,
       });
       toast.success("Fırsat kaybedildi olarak işaretlendi");
@@ -135,24 +155,41 @@ export function LostCaseDialog({ open, onOpenChange, caseId, caseName, productNa
           </div>
 
           <div className="space-y-1.5">
-            <Label>Rakip Kim?</Label>
-            <Select value={competitorId} onValueChange={setCompetitorId}>
-              <SelectTrigger>
-                <SelectValue placeholder={competitorsLoading ? "Rakipler yükleniyor…" : competitorLoadError ? "Rakip listesi yüklenemedi" : competitors.length ? "Rakip seçin" : "Kayıtlı rakip yok"} />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="__none__">Rakip yok / bilinmiyor</SelectItem>
-                {competitors.map((c) => (
-                  <SelectItem key={c.id} value={c.id}>
-                    {c.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <Label id="lost-competitor-label">Rakip Kim?</Label>
+            {/* Tek kutu: yazarak listede ara, listede yoksa yazdığın adı olduğu gibi kabul et. */}
+            <Combobox
+              ariaLabel="Rakip Kim?"
+              value={competitorId}
+              onChange={(value) => {
+                setCompetitorId(value);
+                if (value !== "__manual__") setCompetitorName("");
+              }}
+              options={competitorOptions}
+              placeholder={competitorsLoading ? "Rakipler yükleniyor…" : competitorLoadError ? "Rakip listesi yüklenemedi" : "Rakip seçin veya yazın"}
+              searchPlaceholder="Rakip adı yazın…"
+              emptyText="Kayıtlı rakip bulunamadı — adı yazıp ekleyin."
+              onCreate={(label) => {
+                setCompetitorName(label.slice(0, 255));
+                setCompetitorId("__manual__");
+              }}
+              createLabel={(query) => `Listede yok — "${query}" olarak kaydet`}
+            />
             {competitorLoadError && (
               <p className="text-[11px] text-destructive" role="alert">
                 Rakip kataloğu alınamadı. Pencereyi kapatıp yeniden açarak tekrar deneyin.
               </p>
+            )}
+            {competitorId === "__manual__" && (
+              <div className="space-y-1.5 pt-1">
+                <Label htmlFor="lost-competitor-name">Rakip adı *</Label>
+                <Input
+                  id="lost-competitor-name"
+                  value={competitorName}
+                  onChange={(event) => setCompetitorName(event.target.value)}
+                  placeholder="Rakip firma adını yazın"
+                  maxLength={255}
+                />
+              </div>
             )}
           </div>
 
@@ -186,7 +223,13 @@ export function LostCaseDialog({ open, onOpenChange, caseId, caseName, productNa
           </Button>
           <Button
             onClick={submit}
-            disabled={saving || !reasonCode || !productName.trim() || !unmetConditions.trim()}
+            disabled={
+              saving
+              || !reasonCode
+              || !productName.trim()
+              || !unmetConditions.trim()
+              || (competitorId === "__manual__" && !competitorName.trim())
+            }
             className="bg-red-600 text-white hover:bg-red-700"
           >
             {saving ? "Kaydediliyor…" : "Kaybedildi İşaretle"}

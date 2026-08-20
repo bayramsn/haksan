@@ -5,7 +5,10 @@ import { Label } from "../ui/label";
 import { RemoteCompanyCombobox } from "./RemoteCompanyCombobox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
 import { Switch } from "../ui/switch";
-import { formatMoneyInput, parseMoneyInput, type ProformaPriceRow } from "../../lib/proformaPricing";
+import {
+  discountAmountFromPercent, discountPercentOf, formatMoneyInput, parseMoneyInput,
+  type ProformaPriceRow,
+} from "../../lib/proformaPricing";
 
 /**
  * "Hızlı" belgelerin (proforma / sözleşme / teklif) ortak düzenleyici parçaları.
@@ -346,7 +349,7 @@ export function QuickFreeItemsEditor({
           const overDiscount = row.discountAmount > row.quantity * row.unitPrice + 0.0001;
           return (
             <div key={item.key} className="px-3 py-3">
-              <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_72px_92px_128px_104px_58px_32px] sm:items-end">
+              <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_66px_86px_118px_96px_58px_58px_32px] sm:items-end">
                 <div className="min-w-0">
                   <Label className="text-[10px] text-muted-foreground" htmlFor={`${item.key}-description`}>Açıklama *</Label>
                   <Input
@@ -397,6 +400,20 @@ export function QuickFreeItemsEditor({
                     value={item.discountAmount}
                     onChange={(e) => patchItem(item.key, { discountAmount: e.target.value })}
                     placeholder="0,00"
+                  />
+                </div>
+                <div>
+                  <Label className="text-[10px] text-muted-foreground" htmlFor={`${item.key}-discount-percent`}>İsk. %</Label>
+                  <Input
+                    id={`${item.key}-discount-percent`}
+                    inputMode="decimal"
+                    aria-invalid={overDiscount || undefined}
+                    className="mt-1 h-9 text-right font-data"
+                    value={String(discountPercentOf(row))}
+                    onChange={(e) => patchItem(item.key, {
+                      discountAmount: formatMoneyInput(discountAmountFromPercent(row, parseMoneyInput(e.target.value))),
+                    })}
+                    placeholder="0"
                   />
                 </div>
                 <div>

@@ -1,9 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
   computeProformaTotals,
+  discountAmountFromPercent,
+  discountPercentOf,
   parseMoneyInput,
   proformaRowError,
   quoteToProformaPriceRows,
+  snapshotToDocumentDiscount,
   type ProformaPriceRow,
 } from "./proformaPricing";
 
@@ -74,6 +77,18 @@ describe("computeProformaTotals", () => {
     expect(totals.grand).toBe(840);
   });
 
+  it("belge satır iskontosu değişse de teklif başlık iskontosunu sabit tutar", () => {
+    const totals = computeProformaTotals(
+      [row({ quantity: 1, unitPrice: 1_000, discountAmount: 0, vatRate: 20 })],
+      { quoteDiscountTotal: 300, headerDiscountAmount: 200 },
+    );
+    expect(totals.lineDiscount).toBe(0);
+    expect(totals.headerDiscount).toBe(200);
+    expect(totals.subtotal).toBe(800);
+    expect(totals.vat).toBe(160);
+    expect(totals.grand).toBe(960);
+  });
+
   it("teklif geneli iskontoyu net toplamla sınırlar", () => {
     const totals = computeProformaTotals([row({ quantity: 1, unitPrice: 100 })], { quoteDiscountTotal: 5_000 });
     expect(totals.headerDiscount).toBe(100);
@@ -124,5 +139,64 @@ describe("parseMoneyInput", () => {
     expect(parseMoneyInput("1234,56")).toBe(1_234.56);
     expect(parseMoneyInput("")).toBe(0);
     expect(parseMoneyInput("-50")).toBe(0);
+  });
+});
+
+describe("belge geneli iskonto", () => {
+  it("tutar girildiğinde tekliften devralınan genel iskontonun yerine geçer", () => {
+    const totals = computeProformaTotals([row({ quantity: 1, unitPrice: 1_000, vatRate: 20 })], {
+      headerDiscountAmount: 400,
+      documentDiscount: { amount: 100, percent: 0 },
+    });
+    expect(totals.headerDiscount).toBe(100);
+    expect(totals.subtotal).toBe(900);
+    // KDV iskonto oranıyla ölçeklenir: 1.000 × 0,9 × %20.
+    expect(totals.vat).toBe(180);
+    expect(totals.grand).toBe(1_080);
+  });
+
+  it("yüzde girildiğinde tutarı net ara toplamdan türetir", () => {
+    const totals = computeProformaTotals(
+      [row({ quantity: 2, unitPrice: 1_000, discountAmount: 200, vatRate: 20 })],
+      { documentDiscount: { amount: 0, percent: 10 } },
+    );
+    // Net ara toplam 1.800 → %10 = 180.
+    expect(totals.lineDiscount).toBe(200);
+    expect(totals.headerDiscount).toBe(180);
+    expect(totals.subtotal).toBe(1_620);
+  });
+
+  it("net ara toplamı aşan iskontoyu kırpar", () => {
+    const totals = computeProformaTotals([row({ quantity: 1, unitPrice: 500 })], {
+      documentDiscount: { amount: 9_999, percent: 0 },
+    });
+    expect(totals.headerDiscount).toBe(500);
+    expect(totals.subtotal).toBe(0);
+  });
+
+  it("boş iskonto teklifin genel iskontosunu bozmaz", () => {
+    const totals = computeProformaTotals([row({ quantity: 1, unitPrice: 1_000 })], {
+      headerDiscountAmount: 250,
+      documentDiscount: { amount: 0, percent: 0 },
+    });
+    expect(totals.headerDiscount).toBe(250);
+  });
+
+  it("anlık görüntüdeki girdiyi geri okur", () => {
+    expect(snapshotToDocumentDiscount({ documentDiscount: { amount: 120, percent: 0 } })).toEqual({ amount: 120, percent: 0 });
+    expect(snapshotToDocumentDiscount(undefined)).toEqual({ amount: 0, percent: 0 });
+  });
+});
+
+describe("satır iskonto yüzdesi", () => {
+  it("tutarı yüzdeye ve yüzdeyi tutara çevirir", () => {
+    const line = row({ quantity: 2, unitPrice: 500, discountAmount: 100 });
+    expect(discountPercentOf(line)).toBe(10);
+    expect(discountAmountFromPercent(line, 25)).toBe(250);
+  });
+
+  it("brüt tutarı aşan yüzdeyi kırpar ve sıfır brütte çökmez", () => {
+    expect(discountAmountFromPercent(row({ quantity: 1, unitPrice: 100 }), 250)).toBe(100);
+    expect(discountPercentOf(row({ quantity: 0, unitPrice: 0 }))).toBe(0);
   });
 });

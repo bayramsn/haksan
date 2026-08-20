@@ -71,7 +71,7 @@ export function LeadAssignmentRulesCard() {
     try {
       setRules(await leadAssignmentRuleService.list());
     } catch (error: any) {
-      toast.error("Lead atama kuralları yüklenemedi", { description: error?.message });
+      toast.error("Fırsat atama kuralları yüklenemedi", { description: error?.message });
     } finally {
       setLoading(false);
     }
@@ -172,7 +172,7 @@ export function LeadAssignmentRulesCard() {
         <div className="h-1 bg-[linear-gradient(90deg,#0b2453_0%,#2457D6_72%,#CF060C_72%)]" />
         <CardHeader className="flex-row items-start justify-between gap-3">
           <div>
-            <CardTitle className="inline-flex items-center gap-2 font-display text-xl"><GitBranch className="size-5 text-primary" /> Lead atama kuralları</CardTitle>
+            <CardTitle className="inline-flex items-center gap-2 font-display text-xl"><GitBranch className="size-5 text-primary" /> Fırsat atama kuralları</CardTitle>
             <p className="mt-1 text-xs text-muted-foreground">Bölüm, şehir, ürün ve kaynağa göre aktif satış kullanıcılarına round-robin dağıtım.</p>
           </div>
           <Button type="button" size="sm" className="gap-1.5" onClick={showCreate}><Plus className="size-4" /> Kural ekle</Button>
@@ -218,14 +218,14 @@ export function LeadAssignmentRulesCard() {
               </div>
             </div>
           ))}
-          {!loading && !rules.length && <div className="rounded-lg border border-dashed border-border p-8 text-center text-sm text-muted-foreground">Henüz atama kuralı yok. Yeni leadler sahipsiz havuzda kalır.</div>}
+          {!loading && !rules.length && <div className="rounded-lg border border-dashed border-border p-8 text-center text-sm text-muted-foreground">Henüz atama kuralı yok. Yeni fırsatlar sahipsiz havuzda kalır.</div>}
         </CardContent>
       </Card>
 
       <Dialog open={open} onOpenChange={(next) => !saving && setOpen(next)}>
         <DialogContent className="max-w-2xl">
           <DialogHeader>
-            <DialogTitle>{editing ? "Lead atama kuralını düzenle" : "Yeni lead atama kuralı"}</DialogTitle>
+            <DialogTitle>{editing ? "Fırsat atama kuralını düzenle" : "Yeni fırsat atama kuralı"}</DialogTitle>
             <DialogDescription>Boş bırakılan kriter tüm değerlerle eşleşir. Düşük öncelik numarası önce çalışır.</DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 sm:grid-cols-[1fr_130px]">
@@ -293,7 +293,7 @@ export function LeadAssignmentRulesCard() {
           <AlertDialogHeader>
             <AlertDialogTitle>Atama kuralı silinsin mi?</AlertDialogTitle>
             <AlertDialogDescription>
-              “{pendingDelete?.name}” yeni leadlerde artık çalışmayacak. Mevcut lead sahipleri değişmeyecek.
+              “{pendingDelete?.name}” yeni fırsatlarda artık çalışmayacak. Mevcut fırsat sahipleri değişmeyecek.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

@@ -1138,6 +1138,10 @@ export interface ContractPrintData {
   currency: CurrencyCode;
   teslimSekli?: string; // ör. "Millileştirilmiş"
   ithalatMasraflariDahil?: boolean;
+  /** 3.3 maddesi: fiyata K.D.V. dahil mi? Dahilse yazılan bedel de brüttür. */
+  kdvDahil?: boolean;
+  /** 2.6 maddesi: nakliye ve sigorta giderleri satıcıda mı? */
+  nakliyeSaticiya?: boolean;
   teslimKosullari?: string;
   odemeKosullari?: string;
   garantiKosullari?: string;
@@ -1324,6 +1328,12 @@ export function contractDoc(d: ContractPrintData, assetBase: string): PrintDocum
   const aliciKisa = esc(aliciKisaRaw);
   const A = `<span class="b">${aliciKisa}</span>`;
   const machines = contractMachines(d);
+  // KDV dahil sözleşmede yazılan bedel brüttür. Net rakamı "K.D.V. dahildir"
+  // maddesinin altına basmak belgeyi yanlış tutara imzalatır, o yüzden fiyat
+  // tablosu ve yazıyla tutar burada brütleştirilir.
+  const vatIncluded = d.kdvDahil === true;
+  const withVat = (amount: number) =>
+    vatIncluded && d.kdvOran > 0 ? Number((amount * (1 + d.kdvOran / 100)).toFixed(2)) : amount;
   const technicalSections = machines.flatMap((machine, machineIndex) =>
     contractTechnicalChunks(machine).map((chunk, chunkIndex) => ({ machine, machineIndex, chunk, chunkIndex }))
   );
@@ -1378,7 +1388,13 @@ export function contractDoc(d: ContractPrintData, assetBase: string): PrintDocum
     : "Tezgahın teslimi sözleşme şartlarının yerine getirilmesi ve gümrük işlemlerinin tamamlanmasını takiben gerçekleştirilecektir;";
   const warrantyDefault = `Tezgahın mekanik garantisi ${aliciKisaRaw} firmasına teslimiyle başlayacak olup, mekanik garanti tüm üretim hatalarına karşı 1 (bir) yıldır;`;
   const controlBrand = d.kontrolUnitesiMarka?.trim();
-  const deliveryLocation = d.teslimYeri?.trim() || "HAKSAN MAKİNA/Hadımköy tesisleri";
+  // Nakliyeyi satıcı üstlendiğinde tezgah alıcının tesisine GİDER; alıcı
+  // üstlendiğinde satıcının deposundan ÇIKAR. Yön ve varsayılan adres bu yüzden
+  // birlikte değişir (SL-8: "… tesislerine teslim … taşıma ve sigortası HAKSAN
+  // MAKİNA'ya aittir").
+  const freightBySeller = d.nakliyeSaticiya === true;
+  const deliveryLocation = d.teslimYeri?.trim()
+    || (freightBySeller ? `${aliciKisaRaw} tesisleri` : "HAKSAN MAKİNA/Hadımköy tesisleri");
   const sectionTwo = [
     heading("2.", "Nakliye, Ambalaj ve Teslimat;"),
     clause("2.1.", d.teslimKosullari?.trim() || deliveryDefault),
@@ -1398,11 +1414,17 @@ export function contractDoc(d: ContractPrintData, assetBase: string): PrintDocum
       `Tezgahın kontrol ünitesi garantisi ${aliciKisaRaw} firmasına teslimiyle başlayacak olup, ${controlBrand ? `uluslararası ${controlBrand} garantisi` : "kontrol ünitesi garantisi"} 2 (iki) yıldır;`,
       `Tezgahın kontrol ünitesi garantisi ${A} firmasına teslimiyle başlayacak olup, ${controlBrand ? `uluslararası <span class="b">${esc(controlBrand)}</span> garantisi` : "kontrol ünitesi garantisi"} 2 (iki) yıldır;`,
     ),
-    clause(
-      "2.6.",
-      `Tezgah ${deliveryLocation} adresinden teslim edilecek olup, tezgahın nakliye ve sigorta giderleri ${aliciKisaRaw} firmasına aittir.`,
-      `Tezgah ${esc(deliveryLocation)} adresinden teslim edilecek olup, tezgahın nakliye ve sigorta giderleri ${A} firmasına aittir.`,
-    ),
+    freightBySeller
+      ? clause(
+          "2.6.",
+          `Tezgah ${deliveryLocation} adresine teslim edilecek olup, tezgahın nakliye ve sigorta giderleri HAKSAN MAKİNA'ya aittir.`,
+          `Tezgah ${esc(deliveryLocation)} adresine teslim edilecek olup, tezgahın nakliye ve sigorta giderleri <span class="b">HAKSAN MAKİNA</span>'ya aittir.`,
+        )
+      : clause(
+          "2.6.",
+          `Tezgah ${deliveryLocation} adresinden teslim edilecek olup, tezgahın nakliye ve sigorta giderleri ${aliciKisaRaw} firmasına aittir.`,
+          `Tezgah ${esc(deliveryLocation)} adresinden teslim edilecek olup, tezgahın nakliye ve sigorta giderleri ${A} firmasına aittir.`,
+        ),
   ];
 
   const hasImportCostStatement = Boolean(d.teslimSekli) || d.ithalatMasraflariDahil !== undefined;
@@ -1410,8 +1432,17 @@ export function contractDoc(d: ContractPrintData, assetBase: string): PrintDocum
   const modelSummary = machines.map((machine) => machine.model).filter(Boolean).join(" / ") || d.model;
   const priceBasisPlain = `Sözleşmeye konu ${modelSummary} ${d.teslimSekli ? `${d.teslimSekli} şeklinde` : "yukarıdaki şekilde"} fiyatlandırılmıştır.${hasImportCostStatement ? ` Tezgahın fiyatına, tezgahın ithalatı ile ilgili masraf ve vergiler (Gümrük Vergisi, Liman Masrafları, Ardiye Giderleri, Gümrükleme Ücreti, İlave Gümrük Vergisi) ${importCostsIncluded ? "dahildir" : "dahil değildir"}.` : ""}`;
   const priceBasisHtml = `Sözleşmeye konu <span class="b">${esc(modelSummary)}</span> ${d.teslimSekli ? `<span class="b">${esc(d.teslimSekli)}</span> şeklinde` : "yukarıdaki şekilde"} fiyatlandırılmıştır.${hasImportCostStatement ? ` Tezgahın fiyatına, tezgahın ithalatı ile ilgili masraf ve vergiler (Gümrük Vergisi, Liman Masrafları, Ardiye Giderleri, Gümrükleme Ücreti, İlave Gümrük Vergisi) ${importCostsIncluded ? "dahildir" : "dahil değildir"}.` : ""}`;
-  const machinePriceRows = machines.map((machine) =>
-    `<tr><td class="qty">${esc(machine.adet)} Adet</td><td>${esc(machine.model)}</td><td class="amount">${esc(fmtMoney(machine.fiyat, d.currency))}</td></tr>`
+  const grandTotal = withVat(d.fiyat);
+  // Satırlar tek tek yuvarlanınca toplamları TOPLAM'dan kuruş sapabilir; farkı son
+  // satır yutar — contractPrint'teki `reconcileMachinePrices` ile aynı kural.
+  const machineTotals = machines.map((machine) => withVat(machine.fiyat));
+  if (machineTotals.length) {
+    const drift = Number((grandTotal - machineTotals.reduce((sum, value) => sum + value, 0)).toFixed(2));
+    const last = machineTotals.length - 1;
+    machineTotals[last] = Number((machineTotals[last] + drift).toFixed(2));
+  }
+  const machinePriceRows = machines.map((machine, index) =>
+    `<tr><td class="qty">${esc(machine.adet)} Adet</td><td>${esc(machine.model)}</td><td class="amount">${esc(fmtMoney(machineTotals[index], d.currency))}</td></tr>`
   ).join("");
   const priceIntro = machines.length > 1
     ? "1. bölümde belirtilen tezgahların ilgili maddelerde belirtilmiş olan karakteristik özellikleri ve donanımları ile birlikte fiyatları aşağıdaki gibidir,"
@@ -1422,15 +1453,17 @@ export function contractDoc(d: ContractPrintData, assetBase: string): PrintDocum
       <div class="ct-price">
         <table class="ct-price-table">
           ${machinePriceRows}
-          <tr><td colspan="2" class="total-label">TOPLAM</td><td class="amount">${esc(fmtMoney(d.fiyat, d.currency))}</td></tr>
+          <tr><td colspan="2" class="total-label">TOPLAM</td><td class="amount">${esc(fmtMoney(grandTotal, d.currency))}</td></tr>
         </table>
-        <div class="ct-price-words">${esc(tutarYaziyla(d.fiyat, d.currency))}</div>
+        <div class="ct-price-words">${esc(tutarYaziyla(grandTotal, d.currency))}</div>
       </div>
     </span></div>`,
     weight: priceWeight,
   };
+  // 3.4 maddesi vadeleri "bedelin tamamı" olarak sunar; taban 3.1'deki TOPLAM ile
+  // aynı olmalı, yoksa KDV dahil sözleşme kendi kendisiyle çelişen iki rakam basar.
   const paymentPlanHtml = d.odemePlani.length ? `<table class="ct-pay">${d.odemePlani.map((payment) =>
-    `<tr><td>${esc(payment.label)}</td><td class="amt">${esc(fmtMoney(payment.tutar, d.currency))}${payment.senet ? " (Senet)" : ""}</td></tr>`
+    `<tr><td>${esc(payment.label)}</td><td class="amt">${esc(fmtMoney(withVat(payment.tutar), d.currency))}${payment.senet ? " (Senet)" : ""}</td></tr>`
   ).join("")}</table>` : "";
   const paymentWeight = 2 + (d.odemeKosullari ? contractLineCount(d.odemeKosullari) : 0) + d.odemePlani.length;
   const paymentBlock: ContractLegalEntry = {
@@ -1446,8 +1479,8 @@ export function contractDoc(d: ContractPrintData, assetBase: string): PrintDocum
     clause("3.2.", priceBasisPlain, priceBasisHtml),
     clause(
       "3.3.",
-      `Sözleşmeye konu tezgahın fiyatına ${d.kdvOran > 0 ? `%${d.kdvOran} oranındaki ` : ""}K.D.V. dahil değildir;`,
-      `Sözleşmeye konu tezgahın fiyatına ${d.kdvOran > 0 ? `<span class="b">%${esc(d.kdvOran)}</span> oranındaki ` : ""}<span class="b">K.D.V.</span> dahil değildir;`,
+      `Sözleşmeye konu tezgahın fiyatına ${d.kdvOran > 0 ? `%${d.kdvOran} oranındaki ` : ""}K.D.V. ${vatIncluded ? "dahildir" : "dahil değildir"};`,
+      `Sözleşmeye konu tezgahın fiyatına ${d.kdvOran > 0 ? `<span class="b">%${esc(d.kdvOran)}</span> oranındaki ` : ""}<span class="b">K.D.V.</span> ${vatIncluded ? "dahildir" : "dahil değildir"};`,
     ),
     paymentBlock,
     heading("", "Diğer Hususlar;"),

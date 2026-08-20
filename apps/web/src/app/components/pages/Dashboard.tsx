@@ -125,7 +125,7 @@ const synthesizeTargetItems = (t: AssignedTarget | null): AssignedTargetItem[] =
   add("sales", "Ziyaret", "count", t.visitTarget);
   add("sales", "Arama", "count", t.callTarget);
   add("sales", "Teklif", "count", t.quoteTarget);
-  add("sales", "Dijital Lead", "count", t.digitalLeadTarget);
+  add("sales", "Dijital Fırsat", "count", t.digitalLeadTarget);
   add("sales", "Dijital Dönüşüm", "count", t.digitalConversionTarget);
   add("sales", "Dijital Bütçe", "amount", t.digitalBudget);
   add("service", "Servis Cirosu", "amount", t.serviceAmount);
@@ -321,7 +321,7 @@ export function DashboardPage({ onAction }: { onAction?: (action: OperationActio
           <DashboardKpiGrid>
             <Kpi icon={<Users className="size-[18px]" />} tone="violet" label="Aktif Müşteri" value={activeCustomers} sub="bu ay" onClick={() => onAction?.({ kind: "navigate", nav: "customers" })} />
             <KpiFromDrilldown icon={<Wallet className="size-[18px]" />} tone="emerald" item={drilldown("kpi:revenue")} onAction={onAction} />
-            <Kpi icon={<Briefcase className="size-[18px]" />} tone="blue" label="Pipeline" value={`$${(totalPipeline / 1000).toFixed(0)}K`} sub="açık" onClick={() => onAction?.({ kind: "navigate", nav: "sales-cases", focus: "open" })} />
+            <Kpi icon={<Briefcase className="size-[18px]" />} tone="blue" label="Fırsat" value={`$${(totalPipeline / 1000).toFixed(0)}K`} sub="açık" onClick={() => onAction?.({ kind: "navigate", nav: "sales-cases", focus: "open" })} />
             <KpiFromDrilldown icon={<AlertTriangle className="size-[18px]" />} tone="red" item={drilldown("kpi:overdue")} alarm onAction={onAction} />
             <KpiFromDrilldown icon={<Wrench className="size-[18px]" />} tone="amber" item={drilldown("kpi:service-open")} onAction={onAction} />
             <Kpi icon={<Cpu className="size-[18px]" />} tone="amber" label="Aktif Makine" value={installedMachines} sub="garantili" onClick={() => onAction?.({ kind: "navigate", nav: "machines" })} />
@@ -381,7 +381,7 @@ export function DashboardPage({ onAction }: { onAction?: (action: OperationActio
 
             <Card className="border-border/60 shadow-sm lg:col-span-2">
               <CardHeader className="pb-2">
-                <CardTitle className="tracking-tight text-base">Pipeline Dağılımı</CardTitle>
+                <CardTitle className="tracking-tight text-base">Fırsat Dağılımı</CardTitle>
                 <p className="text-xs text-muted-foreground">{openSalesCount} açık kart</p>
               </CardHeader>
               <CardContent className="h-52">
@@ -516,7 +516,7 @@ export function DashboardPage({ onAction }: { onAction?: (action: OperationActio
 
         <Card className="border-border/60 shadow-sm">
           <CardHeader className="pb-2">
-            <CardTitle className="tracking-tight">Pipeline Dağılımı</CardTitle>
+            <CardTitle className="tracking-tight">Fırsat Dağılımı</CardTitle>
             <p className="text-xs text-muted-foreground">Aşamalara göre kart sayısı</p>
           </CardHeader>
           <CardContent className="h-72">
@@ -541,7 +541,7 @@ export function DashboardPage({ onAction }: { onAction?: (action: OperationActio
           <CardHeader className="pb-2">
             <CardTitle className="tracking-tight">Satış Hunisi</CardTitle>
             <p className="text-xs text-muted-foreground">
-              {pipelineRows.length > 0 ? "API pipeline özeti" : "Lead → Kurulum dönüşümü"}
+              {pipelineRows.length > 0 ? "API fırsat özeti" : "Fırsat → Kurulum dönüşümü"}
             </p>
           </CardHeader>
           <CardContent className="h-72 pl-2">

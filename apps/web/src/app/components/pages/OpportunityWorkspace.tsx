@@ -15,6 +15,8 @@ import {
   Truck,
   Wrench,
   Pencil,
+  Eye,
+  FileSignature,
 } from "lucide-react";
 import { opportunityService } from "../../../lib/services";
 import { useAuth } from "../../../lib/auth";
@@ -47,6 +49,11 @@ import {
   type ContactQueryScope,
 } from "../../lib/contactServerData";
 import { useRemoteContactDetail } from "../shared/RemoteContactCombobox";
+import { CommercialDocumentRail } from "../shared/CommercialDocumentRail";
+import { DocumentDetailDialog } from "../dialogs/DocumentDetailDialog";
+import { DocumentPreviewDialog } from "../dialogs/DocumentPreviewDialog";
+import { EditContractTermsDialog, SignedContractUploadDialog } from "../dialogs/ContractActionsDialogs";
+import type { DocumentItem } from "../../lib/mock";
 
 /**
  * Fırsat / lead çalışma alanı.
@@ -146,7 +153,7 @@ export function buildWorkspaceDecisionModel({
   const risks = [
     !terminalLabel && health?.actionOverdue ? { key: "action-overdue", label: "Aksiyon gecikmiş", detail: actionDateLabel(salesCase.nextActionAt), tone: "danger" as const, priority: 100 } : null,
     !terminalLabel && (health?.actionMissing || !salesCase.nextAction) ? { key: "action-missing", label: "Aksiyon planlanmamış", detail: "Takip işi ve tarihi belirleyin", tone: "warning" as const, priority: 95 } : null,
-    !terminalLabel && health?.leadSlaBreached ? { key: "lead-sla", label: "Lead SLA ihlali", detail: `${health.leadStatusAgeHours ?? 0} saat bekledi`, tone: "danger" as const, priority: 90 } : null,
+    !terminalLabel && health?.leadSlaBreached ? { key: "lead-sla", label: "İlk temas SLA ihlali", detail: `${health.leadStatusAgeHours ?? 0} saat bekledi`, tone: "danger" as const, priority: 90 } : null,
     !terminalLabel && health?.rotting ? { key: "stage-age", label: "Aşama yaşlanıyor", detail: `${health.stageAgeDays ?? 0} gün / ${health.stageAgeLimitDays ?? "—"} gün`, tone: "warning" as const, priority: 80 } : null,
     !terminalLabel && overduePaymentCount > 0 ? { key: "payment-overdue", label: "Gecikmiş ödeme", detail: `${overduePaymentCount} ödeme kaydı`, tone: "danger" as const, priority: 75 } : null,
     !terminalLabel && (nextOperationTarget?.blockers.length ?? 0) > 0 ? { key: "process-blockers", label: "Süreç geçişi engelli", detail: `${nextOperationTarget?.blockers.length ?? 0} backend kontrolü`, tone: "warning" as const, priority: 70 } : null,
@@ -188,6 +195,7 @@ export function OpportunityWorkspace({
   companyLinkingPanel,
   onCommercialAction,
   canPerformCommercialAction,
+  onOpenOffer,
   mobilePortalId,
   focusDecisionOnMount = false,
   onEditActivity,
@@ -202,6 +210,7 @@ export function OpportunityWorkspace({
   companyLinkingPanel?: ReactNode;
   onCommercialAction?: (actionKey: OpportunityProcessActionKey) => void;
   canPerformCommercialAction?: (actionKey: OpportunityProcessActionKey) => boolean;
+  onOpenOffer?: (offerId: string) => void;
   mobilePortalId?: string;
   focusDecisionOnMount?: boolean;
   onEditActivity?: (activityId: string) => void;
@@ -232,10 +241,18 @@ export function OpportunityWorkspace({
     error: null,
   }));
   const [focusedActivityId, setFocusedActivityId] = useState<string | null>(null);
+  const [selectedCommercialDocument, setSelectedCommercialDocument] = useState<DocumentItem | null>(null);
+  const [selectedFileDocument, setSelectedFileDocument] = useState<DocumentItem | null>(null);
   const [operationsExpanded, setOperationsExpanded] = useState(() => !simpleOpportunity);
   const decisionSummaryRef = useRef<HTMLElement>(null);
   const detailRequestRef = useRef(0);
   const detail = detailResource.caseId === sc.id ? detailResource.data : null;
+  const caseOffers = useMemo(() => offers.filter((item) => item.salesCaseId === sc.id), [offers, sc.id]);
+  const caseDocuments = useMemo(() => documents.filter((item) => item.salesCaseId === sc.id), [documents, sc.id]);
+  const contractDocuments = useMemo(
+    () => caseDocuments.filter((item) => item.type === "Contract" && item.source === "commercial_record"),
+    [caseDocuments],
+  );
   const detailLoading = detailResource.caseId !== sc.id || detailResource.status === "idle" || detailResource.status === "loading";
   const detailError = detailResource.caseId === sc.id ? detailResource.error : null;
   const contactScope = useMemo<ContactQueryScope>(() => ({
@@ -390,7 +407,7 @@ export function OpportunityWorkspace({
       id: `qualification-${history.id}`,
       date: history.createdAt,
       category: "process",
-      title: `Nitelik: ${QUALIFICATION_STAGE_LABELS[history.toStage as keyof typeof QUALIFICATION_STAGE_LABELS] ?? history.toStage}`,
+      title: `Satış alanı: ${QUALIFICATION_STAGE_LABELS[history.toStage as keyof typeof QUALIFICATION_STAGE_LABELS] ?? history.toStage}`,
       detail: history.changeReason ?? undefined,
     }));
     (detail?.approvals ?? []).forEach((approval) => items.push({
@@ -540,7 +557,7 @@ export function OpportunityWorkspace({
             items={timeline.map((item) => ({ ...item, categoryLabel: item.categoryLabel ?? categoryLabel[item.category] }))}
             focusedId={focusedActivityId ? `activity-${focusedActivityId}` : null}
             formatDate={formatDate}
-            emptyLabel={isLead ? "Bu lead için temas kaydı yok." : "Bu fırsat için henüz aktivite veya yorum yok."}
+            emptyLabel={isLead ? "Bu fırsat için temas kaydı yok." : "Bu fırsat için henüz aktivite veya yorum yok."}
             renderActions={(item) => item.sourceActivityId ? (
               <div className="flex gap-1">
                 {hasPermission("activities.update") && onEditActivity && <Button type="button" variant="ghost" size="icon" className="size-11 sm:size-8" onClick={() => onEditActivity(item.sourceActivityId!)}><Pencil className="size-3.5" /><span className="sr-only">{item.title} aktivitesini düzenle</span></Button>}
@@ -602,6 +619,43 @@ export function OpportunityWorkspace({
         primaryAction={decisionPrimaryAction}
         variant={simpleOpportunity ? "compact" : "default"}
       />
+      <CommercialDocumentRail
+        offers={caseOffers}
+        documents={caseDocuments}
+        onOpenOffer={(offer) => onOpenOffer?.(offer.id)}
+        onOpenDocument={setSelectedCommercialDocument}
+        showStepActions={false}
+      />
+      {contractDocuments.length > 0 && (
+        <Card className="border-primary/15">
+          <CardHeader className="pb-2">
+            <CardTitle className="flex items-center gap-2 text-sm"><FileSignature className="size-4 text-primary" /> Sözleşmeler</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {contractDocuments.map((document) => (
+              <div key={document.id} className="flex flex-col gap-2 rounded-lg border border-border/60 px-3 py-2.5 sm:flex-row sm:items-center">
+                <button type="button" className="min-w-0 flex-1 text-left" onClick={() => setSelectedCommercialDocument(document)}>
+                  <div className="truncate text-sm font-medium">{document.fileName}</div>
+                  <div className="text-[10px] text-muted-foreground">{document.fileId ? "İmzalı nüsha bağlı" : "Üretilmiş sözleşme"}</div>
+                </button>
+                <div className="flex flex-wrap gap-2">
+                  <Button type="button" variant="outline" size="sm" className="h-8 gap-1" onClick={() => setSelectedCommercialDocument(document)}>
+                    <Eye className="size-3.5" /> Görüntüle
+                  </Button>
+                  {hasPermission("contracts.update") && !document.fileId && (
+                    <EditContractTermsDialog document={document} trigger={<Button type="button" variant="outline" size="sm" className="h-8">Şartları Düzenle</Button>} />
+                  )}
+                  {document.fileId ? (
+                    <Button type="button" variant="outline" size="sm" className="h-8" onClick={() => setSelectedFileDocument(document)}>İmzalı PDF</Button>
+                  ) : hasPermission("files.create") && hasPermission("contracts.update") ? (
+                    <SignedContractUploadDialog document={document} salesCase={sc} trigger={<Button type="button" size="sm" className="h-8">İmzalı Sözleşme Yükle</Button>} />
+                  ) : null}
+                </div>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
       {detailLoading && <div className="flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-900" role="status" aria-live="polite"><Loader2 className="size-4 animate-spin motion-reduce:animate-none" /> Kayıt kontrolleri güncelleniyor…</div>}
       {detailError && <div className="flex flex-wrap items-center justify-between gap-3 rounded-[var(--surface-radius)] border border-destructive/20 bg-destructive-soft px-3 py-2 text-sm text-destructive" role="alert"><span>{detailError}</span><Button type="button" variant="outline" size="sm" className="min-h-11 bg-card sm:min-h-8" onClick={() => void loadDetail()}><RefreshCw className="size-4" /> Tekrar dene</Button></div>}
 
@@ -643,7 +697,7 @@ export function OpportunityWorkspace({
                 {
                   label: "İlk temas",
                   value: formatDate(sc.qualificationReadiness?.health?.firstContactAt, true),
-                  hint: "Speed-to-lead",
+                  hint: "İlk temas hızı",
                   tone: sc.qualificationReadiness?.health?.firstContactAt ? "good" : "neutral",
                 },
               ]} />
@@ -770,6 +824,12 @@ export function OpportunityWorkspace({
           )}
         </div>
       </RecordWorkspaceShell>
+      <DocumentDetailDialog
+        doc={selectedCommercialDocument}
+        onClose={() => setSelectedCommercialDocument(null)}
+        onOpenFile={(document) => setSelectedFileDocument(document)}
+      />
+      <DocumentPreviewDialog doc={selectedFileDocument} onClose={() => setSelectedFileDocument(null)} />
     </div>
   );
 }

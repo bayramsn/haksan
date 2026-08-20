@@ -599,7 +599,7 @@ export function TrelloCsvImportDialog() {
                         >
                           <SelectTrigger className="h-8 bg-white text-xs"><SelectValue /></SelectTrigger>
                           <SelectContent>
-                            {PIPELINE_STAGES.map((stage) => (
+                            {PIPELINE_STAGES.filter((stage) => stage !== "lead").map((stage) => (
                               <SelectItem key={stage} value={stage}>{salesStageLabel(stage)}</SelectItem>
                             ))}
                           </SelectContent>

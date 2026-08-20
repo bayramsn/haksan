@@ -3,7 +3,6 @@ export const NAVIGATION_VISIBILITY_KEYS = [
   'chat',
   'calendar',
   'customers',
-  'leads',
   'sales-cases',
   'references',
   'contacts',
@@ -31,6 +30,9 @@ const NAVIGATION_VISIBILITY_KEY_SET = new Set<string>(NAVIGATION_VISIBILITY_KEYS
 
 const NAVIGATION_VISIBILITY_ALIASES: Readonly<Record<string, NavigationVisibilityKey>> = {
   kanban: 'sales-cases',
+  // "Bugünüm" ayrı bir sayfa değil; lead artık Fırsat panosunun ilk kolonu.
+  // Kiracı ayarlarında kayıtlı eski anahtar Fırsat alanına düşer.
+  leads: 'sales-cases',
   proformas: 'documents',
   contracts: 'documents',
   deliveries: 'installations',
@@ -64,8 +66,7 @@ export const NAVIGATION_GROUPS = [
     group: 'Satış',
     items: [
       { key: 'customers', label: 'Firmalar' },
-      { key: 'leads', label: 'Leadler' },
-      { key: 'sales-cases', label: 'Fırsatlar' },
+      { key: 'sales-cases', label: 'Fırsat' },
       { key: 'references', label: 'Referanslar' },
     ],
   },

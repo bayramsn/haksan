@@ -235,11 +235,13 @@ export function CompanyDetailDialog({
   onClose,
   onOpenContact,
   onEdit,
+  onOpenFullDetail,
 }: {
   customer: Customer | null;
   onClose: () => void;
   onOpenContact?: (c: Contact) => void;
   onEdit?: (customer: Customer) => void;
+  onOpenFullDetail?: (customer: Customer) => void;
 }) {
   const { cases, offers, documents, payments, machines, service, deleteContact } = useStore();
   const { user, activeDivision, activeDepartment, hasPermission } = useAuth();
@@ -360,6 +362,19 @@ export function CompanyDetailDialog({
                 onClick={() => onEdit(customer)}
               >
                 <Pencil className="size-3.5" /> Firma Düzenle
+              </Button>
+            )}
+            {onOpenFullDetail && (
+              <Button
+                type="button"
+                size="sm"
+                className="h-8 shrink-0 gap-1.5 text-xs"
+                onClick={() => {
+                  onClose();
+                  onOpenFullDetail(customer);
+                }}
+              >
+                <ChevronRight className="size-3.5" /> Müşteri Detayına Git
               </Button>
             )}
           </div>
@@ -1169,7 +1184,7 @@ export function ContactDetailDialog({
  * line and get smooth contact ⇄ company navigation. Opening one closes the
  * other to avoid stacked overlays.
  */
-export function useDetailDialogs() {
+export function useDetailDialogs(options: { onOpenCompanyDetail?: (customer: Customer) => void } = {}) {
   const [contact, setContact] = useState<Contact | null>(null);
   const [company, setCompany] = useState<Customer | null>(null);
   const [editingCompany, setEditingCompany] = useState<Customer | null>(null);
@@ -1195,6 +1210,7 @@ export function useDetailDialogs() {
         onClose={() => setCompany(null)}
         onOpenContact={openContact}
         onEdit={editCompany}
+        onOpenFullDetail={options.onOpenCompanyDetail}
       />
       <EditCustomerDialog customer={editingCompany} onClose={() => setEditingCompany(null)} />
     </>

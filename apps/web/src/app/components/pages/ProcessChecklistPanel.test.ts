@@ -188,6 +188,15 @@ describe("ProcessChecklistPanel B aşaması aktiviteleri", () => {
 });
 
 describe("A+ fatura ve kurulum paralel kapanışı", () => {
+  it("A+ onaylarını Yapıldı veya yorumlu Yapılmadı kararıyla kaydeder", () => {
+    expect(source).toContain('setApprovalDecision("approved")');
+    expect(source).toContain('setApprovalDecision("rejected")');
+    expect(source).toContain('placeholder="Karar hakkında yorum yazın"');
+    expect(source).toContain('approvalDecision === "rejected" && !approvalNote.trim()');
+    expect(source).toContain('approvalDecision as "approved" | "rejected"');
+    expect(source).toContain("Yapılmadı seçildiğinde yorum zorunludur ve adım tamamlanmış sayılmaz.");
+  });
+
   it("fatura ile kurulumu sıralı bir ok yerine iki paralel WIN kapısı olarak gösterir", () => {
     expect(source).toContain("Ticari Fatura ∥ Kurulum paralel kapanış");
     expect(source).toContain('aria-label="WIN paralel kapanış koşulları"');

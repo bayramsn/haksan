@@ -122,7 +122,7 @@ export function SalesCaseDetailDialog({
         <DialogHeader className="sr-only">
           {/* Tek dize: ekran okuyucu kart türünü ve konusunu tek seferde duysun. */}
           <DialogTitle>
-            {`${sc?.qualificationStage === "lead" ? "Lead" : "Fırsat"} çalışma alanı — ${sc?.requestedProduct ?? "Satış kartı"}`}
+            {`Fırsat çalışma alanı — ${sc?.requestedProduct ?? "Satış kartı"}`}
           </DialogTitle>
           <DialogDescription>Karar özeti, görev bölümleri ve kayıt işlemleri</DialogDescription>
         </DialogHeader>
@@ -318,8 +318,8 @@ export function SalesCaseDetailPage({
   const [partyDialogOpen, setPartyDialogOpen] = useState(false);
   const [requestedProcessAction, setRequestedProcessAction] = useState<OpportunityProcessActionKey | null>(null);
   const canMarkLost = canUpdate && !sc.isLost && sc.stage !== "cancelled" && sc.stage !== "delivered";
-  const isLeadCard = (sc.qualificationStage ?? "lead") === "lead";
-  const cardTypeLabel = isLeadCard ? "Lead" : "Fırsat";
+  const isLeadCard = (sc.qualificationStage ?? "c") === "lead";
+  const cardTypeLabel = "Fırsat";
   const storedCompany = customers.find((x) => x.id === sc.customerId);
   const companyQuery = useCompanyDetail(sc.customerId, storedCompany);
   const c = companyQuery.data ?? storedCompany;
@@ -704,7 +704,7 @@ export function SalesCaseDetailPage({
             <div className="min-w-0">
               <div className="text-sm font-semibold">Tekliften önce firma kaydı gerekli</div>
               <div className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
-                Lead bilgileri satış kartında kalır. Mevcut bir firmayı bağlayın veya bu karttan yeni firma kaydını açın.
+                İlk temas bilgileri fırsat kartında kalır. Mevcut bir firmayı bağlayın veya bu karttan yeni firma kaydını açın.
               </div>
             </div>
           </div>
@@ -726,7 +726,7 @@ export function SalesCaseDetailPage({
                 initialNote: [
                   sc.externalSource === "trello"
                     ? "Trello satış kartından Potansiyel firma olarak oluşturuldu."
-                    : "Hızlı lead satış kartından oluşturuldu.",
+                    : "Hızlı fırsat kartından oluşturuldu.",
                   trelloCandidate?.contactName || sc.leadContactName
                     ? `Kontak: ${trelloCandidate?.contactName ?? sc.leadContactName}`
                     : null,
@@ -777,9 +777,9 @@ export function SalesCaseDetailPage({
       </div>}
       {isLeadCard && (
         <div>
-          <Label className="text-xs">Lead durumu</Label>
+          <Label className="text-xs">İlk temas durumu</Label>
           <Select value={sc.leadFollowUpStatus ?? "new"} disabled={!canUpdate} onValueChange={(value) => void updateCase(sc.id, { leadFollowUpStatus: value as LeadFollowUpStatus })}>
-            <SelectTrigger className={`mt-1.5 h-10 ${LEAD_FOLLOW_UP_STATUS_STYLES[sc.leadFollowUpStatus ?? "new"]}`} aria-label="Lead takip durumu"><SelectValue /></SelectTrigger>
+            <SelectTrigger className={`mt-1.5 h-10 ${LEAD_FOLLOW_UP_STATUS_STYLES[sc.leadFollowUpStatus ?? "new"]}`} aria-label="İlk temas takip durumu"><SelectValue /></SelectTrigger>
             <SelectContent>{LEAD_FOLLOW_UP_STATUS_ORDER.map((status) => <SelectItem key={status} value={status}>{LEAD_FOLLOW_UP_STATUS_LABELS[status]}</SelectItem>)}</SelectContent>
           </Select>
         </div>
@@ -1032,7 +1032,7 @@ export function SalesCaseDetailPage({
               </div>
               {sc.qualificationStage === "lead" && (
                 <div className="mt-2">
-                  <div className="mb-1 text-[10px] uppercase tracking-wide text-muted-foreground">Lead durumu</div>
+                  <div className="mb-1 text-[10px] uppercase tracking-wide text-muted-foreground">İlk temas durumu</div>
                   <Select
                     value={sc.leadFollowUpStatus ?? "new"}
                     disabled={!canUpdate}
@@ -1065,7 +1065,7 @@ export function SalesCaseDetailPage({
               )}
             </DialogSidebarSection>
             {sc.leadContactName && (
-              <DialogSidebarSection title="Lead Bilgisi">
+              <DialogSidebarSection title="İlk Temas Bilgisi">
                 <div className="space-y-2 text-xs">
                   <div className="flex items-start gap-2">
                     <UserRound className="mt-0.5 size-3.5 shrink-0 text-primary" />
@@ -1256,6 +1256,7 @@ export function SalesCaseDetailPage({
           companyLinkingPanel={canUpdate ? companyLinkingPanel : undefined}
           onCommercialAction={(actionKey) => void handleProcessAction(actionKey)}
           canPerformCommercialAction={canPerformProcessAction}
+          onOpenOffer={setSelectedOfferId}
           otherActions={workspaceOtherActions}
           simpleMode={simpleMode}
         />
@@ -1292,7 +1293,7 @@ export function SalesCaseDetailPage({
                 <div className="min-w-0">
                   <div className="text-sm font-semibold">Tekliften önce firma kaydı gerekli</div>
                   <div className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
-                    Lead bilgileri satış kartında kalır. Mevcut bir firmayı bağlayın veya bu karttan yeni firma kaydını açın.
+                    İlk temas bilgileri fırsat kartında kalır. Mevcut bir firmayı bağlayın veya bu karttan yeni firma kaydını açın.
                   </div>
                 </div>
               </div>
@@ -1314,7 +1315,7 @@ export function SalesCaseDetailPage({
                     initialNote: [
                       sc.externalSource === "trello"
                         ? "Trello satış kartından Potansiyel firma olarak oluşturuldu."
-                        : "Hızlı lead satış kartından oluşturuldu.",
+                        : "Hızlı fırsat kartından oluşturuldu.",
                       trelloCandidate?.contactName || sc.leadContactName
                         ? `Kontak: ${trelloCandidate?.contactName ?? sc.leadContactName}`
                         : null,
@@ -1595,7 +1596,7 @@ export function SalesCaseDetailPage({
             </CardHeader>
             {!hasCompany && (
               <div className="mx-5 mb-4 rounded-lg border border-warning/25 bg-warning-soft/60 px-3 py-2 text-xs text-muted-foreground">
-                Teklif ekranı, firma kartı bağlandıktan sonra açılır. Lead bilgileri kaybolmadan firma ve kontak kaydına aktarılır.
+                Teklif ekranı, firma kartı bağlandıktan sonra açılır. İlk temas bilgileri kaybolmadan firma ve kontak kaydına aktarılır.
               </div>
             )}
             <div className="overflow-x-auto">
@@ -1912,7 +1913,7 @@ export function SalesCaseDetailPage({
           meta={
             <>
               <Badge variant="outline" className="border-[#0b2453]/20 bg-blue-50 text-[#0b2453]">
-                {isLeadCard ? "LEAD" : "FIRSAT"} · {sc.id.slice(0, 8).toUpperCase()}
+                FIRSAT · {sc.id.slice(0, 8).toUpperCase()}
               </Badge>
               <StatusBadge status={sc.stage} />
             </>

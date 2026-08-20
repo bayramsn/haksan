@@ -59,7 +59,7 @@ afterAll(async () => {
 });
 
 describe('Opportunity qualification pipeline', () => {
-  it('creates a Lead and exposes it through the lead lifecycle filter', async () => {
+  it('creates a Fırsat in the lead step and lets it advance to C', async () => {
     const server = app.getHttpServer();
     const created = await supertest(server)
       .post('/api/v1/opportunities')
@@ -72,18 +72,27 @@ describe('Opportunity qualification pipeline', () => {
       });
 
     expect(created.status, JSON.stringify(created.body)).toBe(201);
+    // Lead ayrı bir havuz değil, fırsat akışının ilk adımı.
     expect(created.body.qualificationStage).toBe('lead');
+    expect(created.body.stage.code).toBe('lead');
     expect(created.body.leadFollowUpStatus).toBe('new');
     expect(created.body.nextAction).toBeNull();
     expect(created.body.qualificationReadiness).toMatchObject({
       stage: 'lead',
       nextStage: 'c',
-      ready: true,
     });
     opportunityId = created.body.id;
 
+    const advanced = await supertest(server)
+      .patch(`/api/v1/opportunities/${opportunityId}/qualification-stage`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ toStage: 'c' });
+    expect(advanced.status, JSON.stringify(advanced.body)).toBe(200);
+    expect(advanced.body.qualificationStage).toBe('c');
+    expect(advanced.body.stage.code).toBe('sales');
+
     const leads = await supertest(server)
-      .get('/api/v1/opportunities?lifecycle=lead&pageSize=100')
+      .get('/api/v1/opportunities?lifecycle=opportunity&pageSize=100')
       .set('Authorization', `Bearer ${token}`);
     expect(leads.status).toBe(200);
     expect(leads.body.data.some((row: { id: string }) => row.id === opportunityId)).toBe(true);
@@ -180,15 +189,14 @@ describe('Opportunity qualification pipeline', () => {
     expect(created.status, JSON.stringify(created.body)).toBe(201);
     const alignId = created.body.id;
     expect(created.body.stage.code).toBe('lead');
+    expect(created.body.qualificationStage).toBe('lead');
 
-    // Fırsata çevrilince kart C alanının giriş aşamasına ("Satış") taşınır.
-    const converted = await supertest(server)
-      .post(`/api/v1/opportunities/${alignId}/convert`)
+    const toC = await supertest(server)
+      .patch(`/api/v1/opportunities/${alignId}/qualification-stage`)
       .set('Authorization', `Bearer ${token}`)
-      .send({ note: 'Hizalama testi', overrideReason: 'Hizalama testi için nitelendirme daha sonra tamamlanacak' });
-    expect(converted.status, JSON.stringify(converted.body)).toBe(201);
-    expect(converted.body.qualificationStage).toBe('c');
-    expect(converted.body.stage.code).toBe('sales');
+      .send({ toStage: 'c' });
+    expect(toC.status, JSON.stringify(toC.body)).toBe(200);
+    expect(toC.body.stage.code).toBe('sales');
 
     // C gereklilikleri tamamlanmadan operasyon endpoint'i üzerinden B'ye
     // geçilemez. Bu, UI dışında doğrudan API çağrısındaki atlamayı da kapatır.
@@ -279,12 +287,15 @@ describe('Opportunity qualification pipeline', () => {
     expect(reContacted.status).toBe(200);
     expect(reContacted.body.qualificationReadiness.health.firstContactAt).toBe(firstContactAt);
 
-    // Fırsata çevrilmiş kartta lead takip durumu dondurulur.
-    const converted = await supertest(server)
-      .post(`/api/v1/opportunities/${slaId}/convert`)
-      .set('Authorization', `Bearer ${token}`)
-      .send({ note: 'SLA testi', overrideReason: 'SLA akışı testi için nitelendirme daha sonra tamamlanacak' });
-    expect(converted.status, JSON.stringify(converted.body)).toBe(201);
+    // İlk C alanından çıkmış kartta ilk temas takip durumu dondurulur.
+    // Bu senaryo temas sağlık sayacını izole ettiği için C alanı blokajlarını
+    // ayrıca kurmak yerine, bir sonraki satış alanını doğrudan hazırlarız.
+    const callStage = await db.query.pipelineStages.findFirst({ where: eq(pipelineStages.code, 'call') });
+    expect(callStage).toBeTruthy();
+    await db
+      .update(opportunities)
+      .set({ qualificationStage: 'b', currentStageId: callStage!.id })
+      .where(eq(opportunities.id, slaId));
     const frozen = await supertest(server)
       .patch(`/api/v1/opportunities/${slaId}`)
       .set('Authorization', `Bearer ${token}`)
@@ -358,7 +369,7 @@ describe('Opportunity qualification pipeline', () => {
     expect(forbidden.status).toBe(403);
   });
 
-  it('allows an incomplete Lead to be converted immediately without an override reason', async () => {
+  it('opens an incomplete record in the lead step', async () => {
     const server = app.getHttpServer();
     const created = await supertest(server)
       .post('/api/v1/opportunities')
@@ -370,36 +381,13 @@ describe('Opportunity qualification pipeline', () => {
       });
     expect(created.status).toBe(201);
 
-    const converted = await supertest(server)
-      .post(`/api/v1/opportunities/${created.body.id}/convert`)
-      .set('Authorization', `Bearer ${token}`)
-      .send({});
-    expect(converted.status, JSON.stringify(converted.body)).toBe(201);
-    expect(converted.body.qualificationStage).toBe('c');
-    expect(converted.body.qualificationHistory[0]).toMatchObject({
-      fromStage: 'lead',
-      toStage: 'c',
-      conversionOverride: false,
-      fitScore: expect.any(Number),
-      engagementScore: expect.any(Number),
-      priorityScore: expect.any(Number),
-    });
+    expect(created.body.qualificationStage).toBe('lead');
+    expect(created.body.stage.code).toBe('lead');
+    expect(created.body.qualificationHistory[0]).toMatchObject({ fromStage: null, toStage: 'lead' });
   });
 
-  it('converts a Lead to C and removes it from the Leadler pool', async () => {
+  it('separates the lead step from advanced opportunities in the lifecycle filter', async () => {
     const server = app.getHttpServer();
-    const converted = await supertest(server)
-      .post(`/api/v1/opportunities/${opportunityId}/convert`)
-      .set('Authorization', `Bearer ${token}`)
-      .send({ note: 'Test dönüşümü', overrideReason: 'Test verisinde nitelendirme alanları bilinçli olarak eksik' });
-
-    expect(converted.status, JSON.stringify(converted.body)).toBe(201);
-    expect(converted.body.qualificationStage).toBe('c');
-    expect(converted.body.qualificationHistory[0]).toMatchObject({
-      fromStage: 'lead',
-      toStage: 'c',
-    });
-
     const leads = await supertest(server)
       .get(`/api/v1/opportunities?lifecycle=lead&search=${encodeURIComponent(`Qualification test ${suffix}`)}`)
       .set('Authorization', `Bearer ${token}`);
@@ -504,6 +492,47 @@ describe('Opportunity qualification pipeline', () => {
         expect.objectContaining({ key: 'commercial_invoice_file' }),
       ]),
     );
+  });
+
+  it('marks an A+ step done by hand with a comment and refuses it outside A+', async () => {
+    const server = app.getHttpServer();
+
+    // A+ dışı adım elle işaretlenemez: kanıt gerektiren kural açık kalır.
+    const rejected = await supertest(server)
+      .patch(`/api/v1/opportunities/${opportunityId}/process-checks/quote`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ status: 'done' });
+    expect(rejected.status, JSON.stringify(rejected.body)).toBe(422);
+
+    const marked = await supertest(server)
+      .patch(`/api/v1/opportunities/${opportunityId}/process-checks/customs`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ status: 'done', note: 'Gümrükçüden yazılı teyit alındı' });
+    expect(marked.status, JSON.stringify(marked.body)).toBe(200);
+    expect(marked.body.processReadiness.checks).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          key: 'customs',
+          complete: true,
+          manualEditable: true,
+          manualStatus: 'done',
+          note: 'Gümrükçüden yazılı teyit alındı',
+        }),
+      ]),
+    );
+
+    // İşaret kaldırılınca adım yeniden kanıttan (gümrük onayı) okunur.
+    const cleared = await supertest(server)
+      .patch(`/api/v1/opportunities/${opportunityId}/process-checks/customs`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ status: null, note: null });
+    expect(cleared.status, JSON.stringify(cleared.body)).toBe(200);
+    const clearedCheck = cleared.body.processReadiness.checks.find(
+      (check: { key: string }) => check.key === 'customs',
+    );
+    expect(clearedCheck.manualStatus).toBeUndefined();
+    expect(clearedCheck.note).toBeUndefined();
+    expect(clearedCheck.manualEditable).toBe(true);
   });
 
   it('protects operational approvals with opportunities.approve', async () => {

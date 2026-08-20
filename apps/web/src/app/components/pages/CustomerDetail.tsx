@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "../ui/card";
 import { Button } from "../ui/button";
 import { Badge } from "../ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../ui/tabs";
-import { ArrowLeft, Phone, Mail, MapPin, Building2, Plus, ArrowUpRight, Clock, AlertTriangle, NotebookText, Download, Eye, FileText } from "lucide-react";
+import { ArrowLeft, Phone, Mail, MapPin, Building2, Plus, ArrowUpRight, Clock, AlertTriangle, NotebookText, Download, Eye, FileText, Upload } from "lucide-react";
 import { Customer } from "../../lib/mock";
 import { useStore } from "../../lib/store";
 import { StatusBadge } from "../shared/StatusBadge";
@@ -14,6 +14,10 @@ import { CompanyFinancePanel } from "../shared/CompanyFinancePanel";
 import { companyService, fileService, salesOrderService } from "../../../lib/services";
 import { externalQuotesForCompany, offersForCompany } from "../../lib/customerOfferRelations";
 import { toast } from "sonner";
+import { useAuth } from "../../../lib/auth";
+import { DocumentUploadDialog } from "../dialogs/DocumentUploadDialog";
+import { DocumentPreviewDialog } from "../dialogs/DocumentPreviewDialog";
+import type { DocumentItem } from "../../lib/mock";
 
 const OfferDetailDialog = lazy(() =>
   import("./offers/OffersPage").then((module) => ({ default: module.OfferDetailDialog })),
@@ -68,6 +72,7 @@ function CrossDivisionDebtWarning({ companyId }: { companyId: string }) {
 }
 
 export function CustomerDetailPage({ customer, onBack, onAction }: { customer: Customer; onBack: () => void; onAction?: (action: OperationAction) => void }) {
+  const { hasPermission } = useAuth();
   const store = useStore();
   const {
     cases: allCases,
@@ -81,9 +86,25 @@ export function CustomerDetailPage({ customer, onBack, onAction }: { customer: C
     refresh,
   } = store;
   const [selectedOfferId, setSelectedOfferId] = useState<string | null>(null);
+  const [selectedDocument, setSelectedDocument] = useState<DocumentItem | null>(null);
   const [companySalesOrders, setCompanySalesOrders] = useState<any[]>([]);
+  // Belge yükleme alanı: bırakılan dosya pencereye devredilir, kullanıcı yalnız türü seçer.
+  const [uploadOpen, setUploadOpen] = useState(false);
+  const [droppedFile, setDroppedFile] = useState<File | null>(null);
+  const [dragging, setDragging] = useState(false);
+  const canUploadDocument = hasPermission("files.create");
   const companyCases = useMemo(() => [...allCases, ...closedCases], [allCases, closedCases]);
   const cases = allCases.filter((s) => s.customerId === customer.id);
+  const companyCaseIds = useMemo(
+    () => new Set(companyCases.filter((item) => item.customerId === customer.id).map((item) => item.id)),
+    [companyCases, customer.id],
+  );
+  const companyDocuments = useMemo(
+    () => documents
+      .filter((item) => item.companyId === customer.id || (item.salesCaseId && companyCaseIds.has(item.salesCaseId)))
+      .sort((left, right) => right.uploadedAt.localeCompare(left.uploadedAt)),
+    [companyCaseIds, customer.id, documents],
+  );
   const acts = allActivities.filter((a) => a.customerId === customer.id);
   const pays = allPayments.filter((p) => p.customerId === customer.id);
   const mcs = allMachines.filter((m) => m.customerId === customer.id);
@@ -247,6 +268,7 @@ export function CustomerDetailPage({ customer, onBack, onAction }: { customer: C
               <TabsTrigger value="timeline">Geçmiş ({timeline.length})</TabsTrigger>
               <TabsTrigger value="cases">Satış Kartları ({cases.length})</TabsTrigger>
               <TabsTrigger value="offers">Teklifler ({companyOffers.length + externalQuotes.length})</TabsTrigger>
+              <TabsTrigger value="documents">Belgeler ({companyDocuments.length})</TabsTrigger>
               <TabsTrigger value="activity">Aktivite ({acts.length})</TabsTrigger>
               <TabsTrigger value="payments">Cari ({pays.length})</TabsTrigger>
               <TabsTrigger value="machines">Makineler ({mcs.length})</TabsTrigger>
@@ -414,6 +436,92 @@ export function CustomerDetailPage({ customer, onBack, onAction }: { customer: C
               </Card>
             </TabsContent>
 
+            <TabsContent value="documents" className="mt-4">
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between gap-3">
+                  <div>
+                    <CardTitle className="font-display text-xl font-semibold">Belgeler</CardTitle>
+                    <p className="mt-1 text-xs text-muted-foreground">Firmaya ve firmanın fırsatlarına bağlı dosyalar.</p>
+                  </div>
+                  {canUploadDocument && (
+                    <DocumentUploadDialog
+                      defaultCompanyId={customer.id}
+                      initialFile={droppedFile}
+                      open={uploadOpen}
+                      onOpenChange={(next) => { setUploadOpen(next); if (!next) setDroppedFile(null); }}
+                      onUploaded={() => refresh()}
+                      trigger={<Button size="sm" className="gap-1"><Plus className="size-4" /> Belge Yükle</Button>}
+                    />
+                  )}
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  {canUploadDocument && (
+                    <button
+                      type="button"
+                      aria-label="Belge yükle — dosyayı sürükleyip bırakın"
+                      className={`flex w-full items-center justify-center gap-2 rounded-lg border border-dashed px-4 py-6 text-sm transition ${
+                        dragging ? "border-primary bg-primary/[0.06] text-primary" : "border-border/70 bg-muted/20 text-muted-foreground hover:bg-muted/40"
+                      }`}
+                      onClick={() => setUploadOpen(true)}
+                      onDragOver={(event) => { event.preventDefault(); setDragging(true); }}
+                      onDragLeave={() => setDragging(false)}
+                      onDrop={(event) => {
+                        event.preventDefault();
+                        setDragging(false);
+                        const dropped = event.dataTransfer.files?.[0];
+                        if (!dropped) return;
+                        setDroppedFile(dropped);
+                        setUploadOpen(true);
+                      }}
+                    >
+                      <Upload className="size-4 shrink-0" />
+                      <span>Dosyayı buraya sürükleyip bırakın veya seçmek için tıklayın · PDF, DOCX, XLSX, PNG, JPG, WEBP · en fazla 25 MB</span>
+                    </button>
+                  )}
+                  <div className="overflow-hidden rounded-lg border border-border/60">
+                    <Table>
+                      <TableHeader>
+                        <TableRow className="bg-muted/30 hover:bg-muted/30">
+                          <TableHead>Belge</TableHead>
+                          <TableHead>Tür</TableHead>
+                          <TableHead>Tarih</TableHead>
+                          <TableHead className="w-20 text-right">İşlem</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {companyDocuments.map((item) => (
+                          <TableRow key={`${item.source ?? "document"}-${item.id}`}>
+                            <TableCell className="font-medium">{item.fileName}</TableCell>
+                            <TableCell className="text-muted-foreground">{item.type}</TableCell>
+                            <TableCell className="text-muted-foreground tabular-nums">{item.uploadedAt || "—"}</TableCell>
+                            <TableCell className="text-right">
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                disabled={!item.fileId}
+                                aria-label={`${item.fileName} belgesini görüntüle`}
+                                onClick={() => setSelectedDocument(item)}
+                              >
+                                <Eye className="size-4" />
+                              </Button>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                        {companyDocuments.length === 0 && (
+                          <TableRow>
+                            <TableCell colSpan={4} className="py-10 text-center text-sm text-muted-foreground">
+                              Bu firmaya bağlı belge yok.
+                            </TableCell>
+                          </TableRow>
+                        )}
+                      </TableBody>
+                    </Table>
+                  </div>
+                </CardContent>
+              </Card>
+            </TabsContent>
+
             <TabsContent value="cases" className="mt-4">
               <Card>
                 <CardHeader className="flex flex-col items-stretch justify-between gap-3 sm:flex-row sm:items-center">
@@ -537,6 +645,7 @@ export function CustomerDetailPage({ customer, onBack, onAction }: { customer: C
           </Tabs>
         </div>
       </div>
+      <DocumentPreviewDialog doc={selectedDocument} onClose={() => setSelectedDocument(null)} />
 
       {selectedOffer && (
         <Suspense fallback={null}>

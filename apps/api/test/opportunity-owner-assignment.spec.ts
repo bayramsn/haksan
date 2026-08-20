@@ -40,9 +40,11 @@ beforeAll(async () => {
   salesUserId = salesLogin.body.user.id;
   adminToken = adminLogin.body.accessToken;
 
+  // Atanan satış kullanıcısı firma görünürlük matrisini aşamaz. Test fırsatını
+  // satış rolünün gerçekten görebildiği bir müşteri üzerinde oluştur.
   const companies = await supertest(server)
     .get('/api/v1/companies?pageSize=1')
-    .set('Authorization', `Bearer ${superAdminToken}`);
+    .set('Authorization', `Bearer ${salesToken}`);
   companyId = companies.body.data[0].id;
 });
 
@@ -50,7 +52,7 @@ afterAll(async () => {
   await app.close();
 });
 
-describe('Lead ve fırsat sorumlu değişikliği', () => {
+describe('Fırsat sorumlu değişikliği', () => {
   it('null ile sahipsiz havuzu destekler ve geçersiz kullanıcı kimliğini reddeder', () => {
     expect(opportunityUpdateSchema.safeParse({ ownerUserId: null }).success).toBe(true);
     expect(opportunityUpdateSchema.safeParse({ ownerUserId: 'not-a-uuid' }).success).toBe(false);
@@ -79,7 +81,8 @@ describe('Lead ve fırsat sorumlu değişikliği', () => {
     expect(assignedToSales.status, JSON.stringify(assignedToSales.body)).toBe(200);
     expect(assignedToSales.body.ownerUserId).toBe(salesUserId);
 
-    const leadNotification = await db
+    // Kart Lead adımında doğduğu için ilk devir "lead_assigned" bildirir.
+    const firstLeadNotification = await db
       .select()
       .from(notifications)
       .where(
@@ -89,7 +92,7 @@ describe('Lead ve fırsat sorumlu değişikliği', () => {
           eq(notifications.type, 'lead_assigned'),
         ),
       );
-    expect(leadNotification).toHaveLength(1);
+    expect(firstLeadNotification).toHaveLength(1);
 
     const ownerAudit = await db
       .select()
@@ -124,12 +127,12 @@ describe('Lead ve fırsat sorumlu değişikliği', () => {
       .send({ ownerUserId: superAdminUserId });
     expect(restored.status).toBe(200);
 
-    const converted = await supertest(server)
-      .post(`/api/v1/opportunities/${opportunityId}/convert`)
+    // C alanına ilerleyen kartta devir artık "opportunity_assigned" bildirir.
+    const advanced = await supertest(server)
+      .patch(`/api/v1/opportunities/${opportunityId}/qualification-stage`)
       .set('Authorization', `Bearer ${superAdminToken}`)
-      .send({ overrideReason: 'Sorumlu değişikliği fırsat görünümünde de doğrulanacak' });
-    expect(converted.status, JSON.stringify(converted.body)).toBe(201);
-    expect(converted.body.qualificationStage).toBe('c');
+      .send({ toStage: 'c' });
+    expect(advanced.status, JSON.stringify(advanced.body)).toBe(200);
 
     const opportunityAssigned = await supertest(server)
       .patch(`/api/v1/opportunities/${opportunityId}`)

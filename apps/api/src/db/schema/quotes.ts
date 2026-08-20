@@ -126,6 +126,10 @@ export const quoteTerms = pgTable('quote_terms', {
   deliveryTermsText: text('delivery_terms_text'),
   warrantyTermsText: text('warranty_terms_text'),
   importCostsExcluded: boolean('import_costs_excluded').notNull().default(true),
+  /** Sözleşme 3.3: fiyata K.D.V. dahil mi? Varsayılan hariç. */
+  vatIncluded: boolean('vat_included').notNull().default(false),
+  /** Sözleşme 2.6: nakliye + sigorta satıcıda mı? Varsayılan alıcıda. */
+  freightPaidBySeller: boolean('freight_paid_by_seller').notNull().default(false),
   deliveryLocation: varchar('delivery_location', { length: 255 }),
   estimatedDeliveryDaysMin: integer('estimated_delivery_days_min'),
   estimatedDeliveryDaysMax: integer('estimated_delivery_days_max'),

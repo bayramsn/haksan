@@ -226,7 +226,7 @@ export function SettingsPage() {
     menu: { eyebrow: "ÇALIŞMA ALANI", title: "Menü ve akış", description: "Kullanıcıların kullanacağı sayfaları ve uygulama akışını yönetin." },
     webmail: { eyebrow: "GÜVENLİ GÖNDERİCİ", title: "Webmail bağlantısı", description: "CRM e-postalarını kendi kurumsal adresinizden gönderin." },
     "crm-alan": { eyebrow: "VERİ MODELİ", title: "CRM alan yöneticisi", description: "Kayıt formlarının alan yapısı ve seçim sözlükleri." },
-    "lead-atama": { eyebrow: "SATIŞ YÖNLENDİRME", title: "Lead atama motoru", description: "Yeni leadleri bölüm ve ticari kriterlere göre sırayla yönlendirin." },
+    "lead-atama": { eyebrow: "SATIŞ YÖNLENDİRME", title: "Fırsat atama motoru", description: "Yeni fırsatları bölüm ve ticari kriterlere göre sırayla yönlendirin." },
     "teknik-bilgi": { eyebrow: "ÜRÜN ŞEMASI", title: "Teknik bilgi şablonları", description: "Ürün ailelerine göre teknik bilgi kapsamı." },
   }[tab] ?? { eyebrow: "SİSTEM", title: "Ayarlar", description: "Çalışma alanı ayarlarını yönetin." };
 
@@ -283,7 +283,7 @@ export function SettingsPage() {
             )}
             {canManageLeadAssignmentRules && (
               <TabsTrigger value="lead-atama" className={tabTriggerClass}>
-                <GitBranch className="size-4" /> Lead Atama
+                <GitBranch className="size-4" /> Fırsat Atama
               </TabsTrigger>
             )}
             {canManageLookups && (

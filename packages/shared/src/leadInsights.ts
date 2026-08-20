@@ -169,7 +169,7 @@ export function calculateLeadInsights(input: LeadInsightInput): LeadInsights {
 
   const recommendedAction =
     status === 'disqualified'
-      ? 'Lead durumunu gözden geçirin'
+      ? 'İlk temas durumunu gözden geçirin'
       : budget === 'unavailable' || technical === 'not_fit'
         ? 'Beklemeye alın veya eleyin'
         : nextActionAt !== null && nextActionAt < now
