@@ -1182,7 +1182,7 @@ table.ct-kv td { padding: .15mm 0; vertical-align: top; overflow-wrap: anywhere;
 table.ct-kv td:first-child { width: 65mm; padding-right: 2mm; }
 .ct-acc { margin: .4mm 0 0 10mm; line-height: 1.1; }
 .ct-acc div { margin-bottom: .15mm; overflow-wrap: anywhere; }
-.ct-h2 { display: grid; grid-template-columns: 7mm 1fr; font-weight: bold; margin: 4.8mm 0 .5mm; }
+.ct-h2 { display: grid; grid-template-columns: 7mm 1fr; font-weight: bold; margin: 3.4mm 0 .5mm; }
 .ct-body > .ct-h2:first-child { margin-top: 0; }
 .ct-clause { display: grid; grid-template-columns: 8mm minmax(0, 1fr); margin: 0 0 .45mm 5mm; text-align: justify; }
 .ct-clause .no { font-weight: bold; }
@@ -1199,14 +1199,14 @@ table.ct-kv td:first-child { width: 65mm; padding-right: 2mm; }
   break-inside: avoid; page-break-inside: avoid;
   break-after: avoid; page-break-after: avoid;
 }
-.ct-price { margin: .7mm 0 3.8mm 25mm; }
+.ct-price { margin: .7mm 0 2.6mm 25mm; }
 table.ct-price-table { width: calc(100% - 4mm); font-weight: bold; }
 table.ct-price-table td { padding: .15mm 0; vertical-align: top; text-align: left; }
 table.ct-price-table td.qty { width: 25mm; }
 table.ct-price-table td.amount { width: 36mm; text-align: right; white-space: nowrap; }
 table.ct-price-table td.total-label { text-align: right; padding-right: 14mm; }
 .ct-price-words { margin-top: .4mm; font-weight: bold; }
-table.ct-pay { margin: 3.7mm 0 .6mm 20mm; font-size: 10.7pt; line-height: 1.15; }
+table.ct-pay { margin: 2.4mm 0 .6mm 20mm; font-size: 10.7pt; line-height: 1.15; }
 table.ct-pay td { padding: .2mm 3mm .2mm 0; }
 table.ct-pay td.amt { text-align: right; min-width: 36mm; white-space: nowrap; }
 /* Tahsilat yöntemi (Nakit / Çek / Senet) — referans sözleşmelerdeki 3. sütun. */
