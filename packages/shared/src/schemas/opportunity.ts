@@ -284,6 +284,7 @@ export const opportunityProcessActionKeys = [
   'create_contact',
   'record_call',
   'record_visit',
+  'record_first_contact',
   'edit_machine',
   'edit_payment_method',
   'edit_contract_terms',

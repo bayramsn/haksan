@@ -895,6 +895,13 @@ export class OpportunitiesService {
     return [
       check('owner', 'Sorumlu atandı', Boolean(row.ownerUserId), 'assign_owner', 'sales', 'lead'),
       check('subject', 'Konu girildi', Boolean(row.title?.trim()), 'edit_subject', 'sales', 'lead'),
+      /**
+       * İlk temas lead alanının işi: `leadSlaBreached` zaten bunun gecikmesini
+       * ölçüyordu ama adım listesinde karşılığı yoktu, kaydetme düğmesi iletişim
+       * kutusunun dibinde duruyordu. `call` aşamasında zorunlu — lead'den C'ye
+       * geçişi kilitlemez, B alanına ilerlemeyi kilitler.
+       */
+      check('first_contact', 'İlk temas kuruldu', Boolean(row.firstContactAt), 'record_first_contact', 'call', 'lead'),
       check('company', 'Firma bağlı', Boolean(context.company), 'link_company', 'call', 'c'),
       check('contact', 'Kontak bağlı', Boolean(row.primaryContactId), 'link_contact', 'call', 'c'),
       check('location', 'İl ve ilçe girildi', context.hasLocation, 'edit_company', 'call', 'c'),

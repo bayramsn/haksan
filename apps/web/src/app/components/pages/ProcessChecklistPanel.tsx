@@ -6,7 +6,27 @@ import {
 } from "react";
 import { CheckCircle2, Circle, Loader2, Pencil } from "lucide-react";
 import { toast } from "sonner";
-import { type OpportunityProcessActionKey, type ProcessCheck } from "@haksan/shared";
+import {
+  LEAD_CONTACT_OUTCOMES,
+  type LeadContactOutcomeCode,
+  type OpportunityProcessActionKey,
+  type ProcessCheck,
+} from "@haksan/shared";
+
+/** `contact-events` ucunun başarılı saydığı sonuçlar (API: `successfulContact`). */
+const LEAD_CONTACT_SUCCESS_OUTCOMES: readonly LeadContactOutcomeCode[] = LEAD_CONTACT_OUTCOMES.filter(
+  (outcome) => outcome !== "no_answer" && outcome !== "wrong_contact",
+);
+
+const LEAD_CONTACT_OUTCOME_LABELS: Record<LeadContactOutcomeCode, string> = {
+  no_answer: "Ulaşılamadı",
+  contacted: "Görüşüldü",
+  callback: "Tekrar aranacak",
+  requested_info: "Bilgi istedi",
+  meeting_booked: "Randevu alındı",
+  not_interested: "İlgilenmiyor",
+  wrong_contact: "Yanlış kişi",
+};
 import { activityService, opportunityService } from "../../../lib/services";
 import { useAuth } from "../../../lib/auth";
 import { useStore } from "../../lib/store";
@@ -71,6 +91,7 @@ const OPPORTUNITY_CHECK_BY_ACTION: Partial<Record<OpportunityProcessActionKey, s
   link_contact: "contact",
   create_contact: "contact",
   record_call: "call",
+  record_first_contact: "first_contact",
   record_visit: "visit",
   edit_machine: "machine",
   edit_payment_method: "payment_method",
@@ -136,6 +157,7 @@ const INLINE_EDITOR_CHECK_KEYS = new Set([
   "email",
   "phone",
   "sector",
+  "first_contact",
   "call",
   "visit",
   "machine",
@@ -784,9 +806,85 @@ function CheckEditor(props: EditorProps) {
    * olarak kaydeder; böylece "Yapılmadı" seçimi de adımı bilinçli olarak atlar.
    * Tamamlanma bilgisi yine sunucudaki aktivite kaydından türetilir.
    */
+  /**
+   * Lead alanının ilk adımı: temas sonucu. `contact-events` ucu başarılı bir
+   * sonuçta `firstContactAt`'i yazar — SLA ölçümü buradan besleniyor. Sonuç
+   * "ulaşılamadı" ise deneme sayılır, adım tamamlanmaz.
+   */
+  const firstContactCheck = () => {
+    const unavailable = !props.canCreateActivity;
+    const disabled = props.disabled || props.busy || unavailable;
+
+    return wrap(
+      <div className="space-y-2 rounded-md bg-slate-50/80 p-2.5">
+        <div className="space-y-1.5">
+          <label className="text-xs font-medium" htmlFor={`qualification-first-contact-${sc.id}`}>
+            Temas sonucu
+          </label>
+          <Select
+            value=""
+            disabled={disabled}
+            onValueChange={(value) => {
+              if (!LEAD_CONTACT_OUTCOMES.includes(value as LeadContactOutcomeCode) || unavailable) return;
+              const outcome = value as LeadContactOutcomeCode;
+              void run(
+                checkKey,
+                async () => {
+                  await opportunityService.recordContact(sc.id, {
+                    idempotencyKey: crypto.randomUUID(),
+                    channel: "phone",
+                    outcome,
+                    note: draft.trim() || undefined,
+                  });
+                  setDraft("");
+                  await props.refresh();
+                },
+                LEAD_CONTACT_SUCCESS_OUTCOMES.includes(outcome)
+                  ? "İlk temas kaydedildi"
+                  : "Temas denemesi kaydedildi; ilk temas henüz kurulmadı",
+                props.canCreateActivity,
+              );
+            }}
+          >
+            <SelectTrigger
+              id={`qualification-first-contact-${sc.id}`}
+              size="sm"
+              className="h-8 w-full bg-white text-xs sm:w-64"
+              aria-label="Temas sonucu"
+            >
+              <SelectValue placeholder={props.complete ? "Yeni temas kaydet" : "Sonuç seçin"} />
+            </SelectTrigger>
+            <SelectContent>
+              {LEAD_CONTACT_OUTCOMES.map((outcome) => (
+                <SelectItem key={outcome} value={outcome}>{LEAD_CONTACT_OUTCOME_LABELS[outcome]}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <Input
+          className="h-8 bg-white text-xs"
+          placeholder="Temas notu (isteğe bağlı)"
+          value={draft}
+          disabled={disabled}
+          onChange={(event) => setDraft(event.target.value)}
+        />
+        <p className="text-[10px] leading-4 text-muted-foreground">
+          {!props.canCreateActivity
+            ? "Aktivite oluşturma yetkiniz bulunmuyor."
+            : props.complete
+              ? "İlk temas kuruldu. Sonraki temasları da buradan kaydedebilirsiniz."
+              : "Ulaşıldığını gösteren bir sonuç seçilince ilk temas zamanı işlenir ve lead SLA'sı durur."}
+        </p>
+      </div>,
+    );
+  };
+
   const visitStatusCheck = () => {
     const unavailable = !props.canCreateActivity || !sc.customerId;
-    const activityDisabled = props.disabled || props.busy || props.complete || unavailable;
+    // Karar kilitlenmez: saha ziyareti ertelenir, iptal olur ya da yanlış
+    // işaretlenir. `props.complete` artık seçimi engellemiyor — düzeltme yeni bir
+    // ziyaret aktivitesi yazar, eski kayıt geçmişte durur.
+    const activityDisabled = props.disabled || props.busy || unavailable;
 
     return wrap(
       <div className="space-y-2 rounded-md bg-slate-50/80 p-2.5">
@@ -798,7 +896,8 @@ function CheckEditor(props: EditorProps) {
             value={props.visitStatus}
             disabled={activityDisabled}
             onValueChange={(value) => {
-              if ((value !== "done" && value !== "not_done") || props.complete || unavailable) return;
+              // Aynı durumu yeniden seçmek mükerrer aktivite yazmasın.
+              if ((value !== "done" && value !== "not_done") || value === props.visitStatus || unavailable) return;
               const visitStatus = value as OpportunityVisitStatus;
               void run(
                 checkKey,
@@ -816,8 +915,8 @@ function CheckEditor(props: EditorProps) {
                   await props.refresh();
                 },
                 visitStatus === "done"
-                  ? "Ziyaret yapıldı olarak kaydedildi"
-                  : "Ziyaret yapılmadı olarak kaydedildi; adım atlandı",
+                  ? props.complete ? "Ziyaret durumu Yapıldı olarak güncellendi" : "Ziyaret yapıldı olarak kaydedildi"
+                  : props.complete ? "Ziyaret durumu Yapılmadı olarak güncellendi" : "Ziyaret yapılmadı olarak kaydedildi; adım atlandı",
                 props.canCreateActivity,
               );
             }}
@@ -836,15 +935,14 @@ function CheckEditor(props: EditorProps) {
             </SelectContent>
           </Select>
         </div>
-        {!props.complete && (
-          <Input
-            className="h-8 bg-white text-xs"
-            placeholder="Ziyaret notu (isteğe bağlı)"
-            value={draft}
-            disabled={activityDisabled}
-            onChange={(event) => setDraft(event.target.value)}
-          />
-        )}
+        {/* Not alanı kapanmıyor: kararı değiştiren kullanıcı gerekçesini de yazabilmeli. */}
+        <Input
+          className="h-8 bg-white text-xs"
+          placeholder={props.complete ? "Değişiklik notu (isteğe bağlı)" : "Ziyaret notu (isteğe bağlı)"}
+          value={draft}
+          disabled={activityDisabled}
+          onChange={(event) => setDraft(event.target.value)}
+        />
         <p className="text-[10px] leading-4 text-muted-foreground">
           {!props.canCreateActivity
             ? "Aktivite oluşturma yetkiniz bulunmuyor."
@@ -852,8 +950,8 @@ function CheckEditor(props: EditorProps) {
               ? "Önce fırsata firma bağlanmalı."
               : props.complete
                 ? props.visitStatus === "not_done"
-                  ? "Ziyaret yapılmadı olarak kaydedildi; bu adım atlandı."
-                  : "Ziyaret aktivitesi kaydedildi; durum Yapıldı."
+                  ? "Ziyaret yapılmadı olarak kaydedildi; bu adım atlandı. Karar değiştiyse yeniden seçebilirsiniz."
+                  : "Ziyaret aktivitesi kaydedildi; durum Yapıldı. Karar değiştiyse yeniden seçebilirsiniz."
                 : "Yapıldı veya Yapılmadı seçimi ziyaret kararını kaydeder ve adımı tamamlar."}
         </p>
       </div>,
@@ -995,6 +1093,9 @@ function CheckEditor(props: EditorProps) {
         subject: "Giden Arama",
         successMessage: "Arama kaydedildi",
       });
+
+    case "first_contact":
+      return firstContactCheck();
 
     case "visit":
       return visitStatusCheck();

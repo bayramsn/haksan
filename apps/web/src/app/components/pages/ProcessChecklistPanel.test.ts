@@ -8,6 +8,34 @@ const workspaceSource = readFileSync(new URL("./OpportunityWorkspace.tsx", impor
 const createDialogsSource = readFileSync(new URL("../dialogs/CreateDialogs.tsx", import.meta.url), "utf8");
 const storeSource = readFileSync(new URL("../../lib/store.tsx", import.meta.url), "utf8");
 
+describe("ziyaret ve ilk temas adımları", () => {
+  it("ziyaret kararını seçimden sonra da değiştirilebilir bırakır", () => {
+    // Saha ziyareti ertelenir, iptal olur ya da yanlış işaretlenir; karar
+    // kilitlenirse kart yanlış durumda takılı kalıyordu.
+    expect(source).toContain("const activityDisabled = props.disabled || props.busy || unavailable;");
+    // Aynı durumu yeniden seçmek mükerrer aktivite yazmamalı.
+    expect(source).toContain('value === props.visitStatus');
+    expect(source).toContain("Karar değiştiyse yeniden seçebilirsiniz.");
+  });
+
+  it("lead alanına ilk temas adımını ekler ve contact-events ucuna bağlar", () => {
+    expect(source).toContain('record_first_contact: "first_contact"');
+    expect(source).toContain('case "first_contact":');
+    expect(source).toContain("opportunityService.recordContact(sc.id");
+    // "Ulaşılamadı" / "yanlış kişi" ilk temas saymaz — API ile aynı kural.
+    expect(source).toContain('outcome !== "no_answer" && outcome !== "wrong_contact"');
+  });
+
+  it("ilk temas adımını lead alanında ve call aşamasında zorunlu tutar", () => {
+    const apiSource = readFileSync(
+      new URL("../../../../../api/src/modules/opportunities/opportunities.service.ts", import.meta.url),
+      "utf8",
+    );
+    // Lead'den C'ye geçişi kilitlemez; B alanına ilerlemeyi kilitler.
+    expect(apiSource).toContain("check('first_contact', 'İlk temas kuruldu', Boolean(row.firstContactAt), 'record_first_contact', 'call', 'lead')");
+  });
+});
+
 describe("ProcessChecklistPanel teklif adımı", () => {
   it("B sürecindeki teklif kontrolünü doğrudan mevcut teklif penceresine bağlar", () => {
     expect(source).toContain('quote: "Teklif oluştur"');
