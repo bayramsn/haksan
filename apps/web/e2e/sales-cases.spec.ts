@@ -82,8 +82,9 @@ test("fırsatlar listelenir ve detay açılır", async ({ page }) => {
   await expect(dialog.getByRole("button", { name: "Ticari alanları kaydet", exact: true })).toHaveCount(0);
 
   if (simpleWorkspace) {
-    // Başlık ürün adıyla birlikte basılıyor ("Fırsat çalışma alanı — <ürün>").
-    await expect(dialog.getByText(/^Fırsat çalışma alanı — /)).toBeVisible();
+    // Başlık `sr-only` bir DialogTitle; metin olarak değil, diyaloğun erişilebilir
+    // adı olarak doğrulanır ("Fırsat çalışma alanı — <ürün>").
+    await expect(page.getByRole("dialog", { name: /^Fırsat çalışma alanı — / })).toBeVisible();
     await expect(dialog.locator('[data-opportunity-primary="true"]:visible')).toHaveCount(1);
     // Süreç gövdesi her zaman görünür; satış alanı kutusu artık bir açma
     // düğmesinin arkasında değil, yoksa tek ilerletme düğmesi kaybolurdu.
@@ -234,6 +235,7 @@ test("lead kartından yeni firma OSM araması üst formu göndermeden açık kal
 });
 
 test("Lead Workspace V2 akışı otomatik atamadan gerekçeli fırsat dönüşümüne ilerler", async ({ page, request }) => {
+  const simpleWorkspace = process.env.VITE_OPPORTUNITY_WORKSPACE_SIMPLE === "on";
   const suffix = Date.now().toString(36);
   const city = `V2-${suffix}`;
   const product = `HAXAN-V2-${suffix}`;
@@ -344,7 +346,11 @@ test("Lead Workspace V2 akışı otomatik atamadan gerekçeli fırsat dönüşü
       await expect(overrideDialog).toBeHidden();
     }
 
-    await expect(recordDialog.getByText("Ortak fırsat görünümü", { exact: true })).toBeVisible();
+    // "Ortak fırsat görünümü" bilinçli olarak yalnız legacy görünümde basılıyor
+    // (OpportunityWorkspace: `!simpleOpportunity && !isLead`).
+    if (!simpleWorkspace) {
+      await expect(recordDialog.getByText("Ortak fırsat görünümü", { exact: true })).toBeVisible();
+    }
     // Dönüşümden sonra da sekme yok: süreç gövdesi ve aktivite akışı doğrudan görünür.
     await expect(recordDialog.getByRole("heading", { name: "Operasyon aşaması", exact: true })).toBeVisible();
     await expect(recordDialog.getByRole("heading", { name: /Aktivite akışı|Temas akışı/ })).toBeVisible();

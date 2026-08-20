@@ -40,6 +40,12 @@ test("ana kabuk desteklenen ekranlarda yatay taşmaz ve temel kontrolleri korur"
 });
 
 test("ana kabuk kritik veya ciddi WCAG ihlali üretmez", async ({ page }) => {
+  // Ölçüm YERLEŞMİŞ arayüzde yapılmalı. `surface-enter` girişte 280 ms boyunca
+  // opacity 0→1 yürütüyor; axe araya girdiğinde metni zemine karıştırıp gerçekte
+  // 5.12 olan `--muted-foreground` kontrastını 4.34 okuyor ve testi sallıyor.
+  // Azaltılmış hareket kipi theme.css'te animasyonları 0.01 ms'ye indiriyor, yani
+  // ölçülen renkler nihai renkler oluyor; kontrast kuralı hareketten bağımsızdır.
+  await page.emulateMedia({ reducedMotion: "reduce" });
   await page.setViewportSize({ width: 1440, height: 900 });
   await login(page);
 

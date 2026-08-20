@@ -107,9 +107,10 @@ test("teknik alanda bölüm, sıra ve silme birlikte kaydedilir", async ({ page 
   await page.locator("#login-password").fill("superadmin12345");
   await page.getByRole("button", { name: "Giriş Yap" }).click();
   // Giriş sonrası açılış sayfası artık Fırsat panosu (App.tsx varsayılanı), gösterge
-  // paneli değil. Bu testin konusu teknik alan çalışma sayfası; burada yalnız uygulama
-  // kabuğunun yüklendiğini doğrulamak yeterli — helpers.ts'teki login() ile aynı ölçüt.
-  await expect(page.getByRole("button", { name: "Hızlı Oluştur" })).toBeVisible();
+  // paneli değil. 900px viewport'ta kenar çubuğu katlandığı için oradaki düğmeler de
+  // yok; girişin tamamlandığını üst bardaki hesap menüsü kanıtlar — testin bir sonraki
+  // adımda zaten kullandığı kontrol.
+  await expect(page.getByRole("button", { name: "Hesap menüsü" })).toBeVisible();
 
   await page.getByRole("button", { name: "Hesap menüsü" }).click();
   await page.getByRole("menuitem", { name: "Ayarlar", exact: true }).click();
