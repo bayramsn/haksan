@@ -180,6 +180,7 @@ describe('ERP flow', () => {
       discountAmount: 6_000,
       lineTotal: 84_000,
     });
+    expect(Array.isArray(contract.body.documentSnapshot?.items[0]?.product?.standardEquipment)).toBe(true);
     expect(invoice.status).toBe(201);
     expect(invoice.body.invoiceNo).toMatch(new RegExp(`^${quoteBusinessLine}-FAT-\\d{4}/\\d{3}$`));
   });
@@ -226,6 +227,23 @@ describe('ERP flow', () => {
     });
     expect(termsOnly.body.documentSnapshot?.terms).toMatchObject({
       paymentTermsText: 'VADELI-ODEME',
+    });
+
+    // İçerik ile durum aynı PATCH'te değişirse snapshot imzalı kalmalı; aksi
+    // halde web baskısı canlı firma/ürün verisine dönerek imzalı belgeyi oynatır.
+    const signedWithTerms = await supertest(app.getHttpServer())
+      .patch(`/api/v1/contracts/${contractId}`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({
+        statusCode: 'signed',
+        terms: { paymentTermsText: 'IMZALI-VADE', vatIncluded: true },
+      });
+    expect(signedWithTerms.status, JSON.stringify(signedWithTerms.body)).toBe(200);
+    expect(signedWithTerms.body.finalizedAt).toBeTruthy();
+    expect(signedWithTerms.body.documentSnapshot?.document?.finalizedAt).toBeTruthy();
+    expect(signedWithTerms.body.documentSnapshot?.terms).toMatchObject({
+      paymentTermsText: 'IMZALI-VADE',
+      vatIncluded: true,
     });
   });
 

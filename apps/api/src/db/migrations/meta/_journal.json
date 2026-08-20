@@ -862,6 +862,27 @@
       "when": 1790534400000,
       "tag": "0123_product_production_year",
       "breakpoints": true
+    },
+    {
+      "idx": 124,
+      "version": "7",
+      "when": 1790620800000,
+      "tag": "0124_receivable_payment_method",
+      "breakpoints": true
+    },
+    {
+      "idx": 125,
+      "version": "7",
+      "when": 1790707200000,
+      "tag": "0125_correct_sl8_contract_catalog",
+      "breakpoints": true
+    },
+    {
+      "idx": 126,
+      "version": "7",
+      "when": 1790793600000,
+      "tag": "0126_correct_norminox_sl8_contract",
+      "breakpoints": true
     }
   ]
 }

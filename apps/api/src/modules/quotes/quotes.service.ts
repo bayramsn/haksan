@@ -8,7 +8,7 @@ import { companies, companyAddresses, companyEmails, companyPhones, contactCompa
 import { opportunities, opportunityApprovals, salesActivities } from '../../db/schema/crm';
 import { receivables } from '../../db/schema/finance';
 import { inventoryItems } from '../../db/schema/inventory';
-import { brands, productModels } from '../../db/schema/products';
+import { brands, productEquipmentItems, productModels } from '../../db/schema/products';
 import { departments, divisions } from '../../db/schema/tenants';
 import { users } from '../../db/schema/users';
 import { files, fileLinks } from '../../db/schema/files';
@@ -19,6 +19,7 @@ import {
   quoteStatuses,
   proformaStatuses,
   contractStatuses,
+  equipmentTypes,
   invoiceStatuses,
   productGroups,
   productTypes,
@@ -878,7 +879,7 @@ export class QuotesService {
     const { items, terms, projectOwner, documentSnapshot: _documentSnapshot, ...quoteHeader } = quote;
     const productModelIds = [...new Set(items.map((item) => item.productModelId).filter((id): id is string => Boolean(id)))];
     const unitIds = [...new Set(items.map((item) => item.unitId).filter((id): id is string => Boolean(id)))];
-    const [company, contact, currency, addresses, phones, emails, quoteReceivables, productRows, unitRows] = await Promise.all([
+    const [company, contact, currency, addresses, phones, emails, quoteReceivables, productRows, unitRows, equipmentRows] = await Promise.all([
       this.db.query.companies.findFirst({ where: eq(companies.id, quote.companyId) }),
       quote.contactId ? this.db.query.contacts.findFirst({ where: eq(contacts.id, quote.contactId) }) : null,
       quote.currencyId ? this.db.query.currencies.findFirst({ where: eq(currencies.id, quote.currencyId) }) : null,
@@ -894,6 +895,7 @@ export class QuotesService {
               modelCode: productModels.modelCode,
               modelName: productModels.modelName,
               fullName: productModels.fullName,
+              productionYear: productModels.productionYear,
               originCountry: productModels.originCountry,
               hsCode: productModels.hsCode,
               stockCode: productModels.stockCode,
@@ -905,8 +907,36 @@ export class QuotesService {
       unitIds.length
         ? this.db.select({ id: units.id, code: units.code }).from(units).where(inArray(units.id, unitIds))
         : Promise.resolve([]),
+      productModelIds.length
+        ? this.db
+            .select({
+              productModelId: productEquipmentItems.productModelId,
+              title: productEquipmentItems.title,
+              typeCode: equipmentTypes.code,
+            })
+            .from(productEquipmentItems)
+            .leftJoin(equipmentTypes, eq(productEquipmentItems.equipmentTypeId, equipmentTypes.id))
+            .where(and(
+              eq(productEquipmentItems.tenantId, actor.tenantId),
+              inArray(productEquipmentItems.productModelId, productModelIds),
+              isNull(productEquipmentItems.deletedAt),
+            ))
+            .orderBy(productEquipmentItems.sortOrder, productEquipmentItems.createdAt)
+        : Promise.resolve([]),
     ]);
-    const productsById = new Map(productRows.map((product) => [product.id, product]));
+    const standardEquipmentByProduct = new Map<string, string[]>();
+    for (const equipment of equipmentRows) {
+      if (equipment.typeCode !== 'standart') continue;
+      const list = standardEquipmentByProduct.get(equipment.productModelId) ?? [];
+      list.push(equipment.title);
+      standardEquipmentByProduct.set(equipment.productModelId, list);
+    }
+    const productsById = new Map(productRows.map((product) => [product.id, {
+      ...product,
+      // İmzalı sözleşmenin standart aksesuarları katalog sonradan değişse de
+      // teknik özellikler gibi aynı anlık görüntüde kalır.
+      standardEquipment: standardEquipmentByProduct.get(product.id) ?? [],
+    }]));
     const unitsById = new Map(unitRows.map((unit) => [unit.id, unit.code]));
     const orderedAddresses = quote.companyAddressId
       ? [
@@ -2180,11 +2210,22 @@ export class QuotesService {
     else if (input.quoteId !== undefined && businessLine !== existing.businessLine) {
       patch.documentNo = await nextSeriesDocumentNo(this.db, actor.tenantId, businessLine, 'proforma', input.issueDate ?? existing.issueDate);
     }
+    // Durum ve içerik aynı PATCH'te değiştiğinde snapshot da imzalı başlığı
+    // taşımalı. FinalizedAt'i snapshot kurulmadan sonra eklemek, yeni şartları
+    // dondurmasına rağmen belgeyi baskı katmanında hâlâ taslak gösteriyordu.
+    if (input.statusCode !== undefined && input.statusCode !== 'draft') {
+      patch.finalizedAt = new Date();
+    }
     const snapshotDocument = { ...existing, ...patch };
     // İmza değişikliği de snapshot'ı tazeler; aksi halde belge eski imzayla basılırdı.
     const headerDiscountChanged =
       input.headerDiscountAmount !== undefined || input.headerDiscountPercent !== undefined;
-    if (signatureId !== undefined || input.items !== undefined || headerDiscountChanged || input.terms !== undefined || input.quoteId !== undefined || !existing.documentSnapshot) {
+    const snapshotHeaderChanged =
+      signatureId !== undefined
+      || input.issueDate !== undefined
+      || input.fileId !== undefined
+      || input.documentNo !== undefined;
+    if (snapshotHeaderChanged || input.items !== undefined || headerDiscountChanged || input.terms !== undefined || input.quoteId !== undefined || !existing.documentSnapshot) {
       const quoteItemIds = new Set((quote.items ?? []).map((item: { id: string }) => item.id));
       const carriedSnapshot = input.quoteId !== undefined ? null : existing.documentSnapshot;
       const priceItems = this.mergeDocumentPriceItems(carriedSnapshot, quoteItemIds, input.items);
@@ -2197,7 +2238,6 @@ export class QuotesService {
       );
     }
     if (input.statusCode !== undefined && input.statusCode !== 'draft') {
-      patch.finalizedAt = new Date();
       if (!patch.documentSnapshot) {
         const currentSnapshot = existing.documentSnapshot as Record<string, unknown> | null;
         patch.documentSnapshot = currentSnapshot
@@ -2763,6 +2803,10 @@ export class QuotesService {
           label: receivable?.notes ?? undefined,
           amount: Number(receivable?.amount ?? 0),
           dueDate: receivable?.dueDate ?? undefined,
+          paymentMethod: receivable?.paymentMethod ?? undefined,
+          promissoryNote:
+            receivable?.paymentMethod === 'promissory_note'
+            || /senet/i.test(String(receivable?.notes ?? '')),
         })),
     };
     if (!merged.items.length) throw new ValidationError('Sözleşme en az bir kalem içermeli', { field: 'items' });
@@ -2957,12 +3001,24 @@ export class QuotesService {
     }
     // Belgeye özel şart; `null` gönderilirse belge yeniden teklifin şartlarına düşer.
     if (input.terms !== undefined) patch.terms = input.terms ?? null;
+    // İçerik ile imza durumu aynı istekte değişirse kurulan snapshot'ın belge
+    // başlığı da kesinleşmiş olmalı; baskı yalnız bu işarete göre canlı veriyi
+    // kullanıp kullanmayacağına karar verir.
+    if (input.statusCode !== undefined && input.statusCode !== 'draft') {
+      patch.finalizedAt = new Date();
+    }
     const snapshotDocument = { ...existing, ...patch };
     // Sözleşme fiyatı bağlı teklifi değiştirmeden burada saklanır: onaylı
     // teklif kilitlidir, oysa imza masasında fiyat hâlâ pazarlığa açıktır.
     const headerDiscountChanged =
       input.headerDiscountAmount !== undefined || input.headerDiscountPercent !== undefined;
-    if (input.items !== undefined || headerDiscountChanged || input.terms !== undefined) {
+    const snapshotHeaderChanged =
+      signatureId !== undefined
+      || input.signedDate !== undefined
+      || input.paymentTermDays !== undefined
+      || input.fileId !== undefined
+      || input.contractNo !== undefined;
+    if (snapshotHeaderChanged || input.items !== undefined || headerDiscountChanged || input.terms !== undefined || input.quoteId !== undefined || !existing.documentSnapshot) {
       const quoteItemIds = new Set(
         (quote.items ?? []).map((item: { id: string }) => item.id),
       );
@@ -2977,18 +3033,20 @@ export class QuotesService {
       );
     }
     if (input.statusCode !== undefined && input.statusCode !== 'draft') {
-      patch.finalizedAt = new Date();
       // Kesinleştirme, daha önce pazarlık edilmiş fiyatları silmemeli: mevcut
       // anlık görüntü varsa yalnız belge başlığı tazelenir.
-      if (!patch.documentSnapshot) {
-        const currentSnapshot = existing.documentSnapshot as Record<string, unknown> | null;
-        patch.documentSnapshot = currentSnapshot
-          ? { ...currentSnapshot, document: documentHeaderOnly({ ...snapshotDocument, finalizedAt: patch.finalizedAt }) }
-          : await this.buildCommercialDocumentSnapshot(
-              { ...snapshotDocument, finalizedAt: patch.finalizedAt },
-              String(patch.quoteId ?? existing.quoteId),
-              actor
-            );
+      const currentSnapshot = (patch.documentSnapshot ?? existing.documentSnapshot) as Record<string, unknown> | null;
+      if (currentSnapshot) {
+        patch.documentSnapshot = {
+          ...currentSnapshot,
+          document: documentHeaderOnly({ ...snapshotDocument, finalizedAt: patch.finalizedAt }),
+        };
+      } else {
+        patch.documentSnapshot = await this.buildCommercialDocumentSnapshot(
+          { ...snapshotDocument, finalizedAt: patch.finalizedAt },
+          String(patch.quoteId ?? existing.quoteId),
+          actor
+        );
       }
     }
     await this.db.update(contracts).set(patch).where(eq(contracts.id, id));

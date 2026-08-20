@@ -124,6 +124,8 @@ export const receivables = pgTable(
     accountingInvoiceId: uuid('accounting_invoice_id').references(() => accountingInvoices.id, { onDelete: 'set null' }),
     invoiceNo: varchar('invoice_no', { length: 64 }),
     movementType: varchar('movement_type', { length: 32 }).notNull().default('manual'),
+    /** Sözleşme ödeme planında basılan tahsilat aracı (çek, senet, havale vb.). */
+    paymentMethod: varchar('payment_method', { length: 32 }),
     documentRef: varchar('document_ref', { length: 128 }),
     amount: money('amount').notNull(),
     currencyId: uuid('currency_id').references(() => currencies.id),

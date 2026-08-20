@@ -62,6 +62,50 @@ interface ManifestProduct {
   specs: Array<{ key: string; value: string }>;
 }
 
+// Broşürden alınan eski SL-8 satırları başka bir modelin ölçülerini taşıyordu.
+// İmzaya esas 18.08.2026 satış sözleşmesindeki onaylı katalog verisi, sıfırdan
+// kurulumlarda da production düzeltme migration'ıyla aynı sonucu üretir.
+const SL8_CONTRACT_SPECS: ManifestProduct['specs'] = [
+  { key: 'Maks. Tornalama Kapasitesi', value: 'Ø 320 mm' },
+  { key: 'Maks. Tornalama Boyu', value: '480 mm' },
+  { key: 'Çubuk İşleme Kapasitesi', value: 'Ø 52 mm' },
+  { key: 'İş Mili Devri', value: '4.500 dv/dk' },
+  { key: 'İş Mili Motor Gücü', value: '15 kW' },
+  { key: 'Hidrolik Ayna Çapı', value: '8” (Ø 200 mm)' },
+  { key: 'Kızak Tipi', value: 'Hassas Lineer Kızak' },
+  { key: 'X, Z Eksen Motor Gücü', value: '2,5 kW / 2,5 kW' },
+  { key: 'Taret Tipi', value: 'Hidrolik, 10 İstasyon' },
+  { key: 'Karşı Punta Pinol Hareketi', value: '88 mm' },
+  { key: 'Karşı Punta Pinol Çapı', value: 'Ø 58 mm' },
+  { key: 'Tezgah Ağırlığı', value: '3.350 kg' },
+];
+
+const SL8_CONTRACT_EQUIPMENT = [
+  'FANUC 0i-TF Plus Kontrol Ünitesi, LCD Renkli Ekran',
+  'Flash Memory Tip Kart Girişi, USB Arayüzü',
+  'Hidrolik 10 İstasyonlu Taret',
+  '8” (200 mm) 3 Ayaklı Hidrolik Ayna Seti',
+  'RENISHAW Tam Otomatik Takım Boyu Ölçme Kolu',
+  'Tam Kapalı Kabin, Çalışma Lambası',
+  '3 Renkli Alarm Lambası',
+  'Programlanabilir Karşı Punta Pinolü',
+  'Talaş Konveyörü & Talaş Arabası',
+  'Yüksek Basınçlı Soğutma Sıvısı Sistemi',
+  'Otomatik Tezgah Yağlama Sistemi',
+  'Transformatör, Takımlar & Takım Çantası',
+  'Kullanma ve Bakım Kılavuzları',
+  'Dengeye Alma Ayakları ve Vidaları',
+  'CE Normlarına Uygun Elektrik ve Güvenlik Donanımı',
+  'Dış Çap Bağlama Aparatı (6 Adet)',
+  'Alın Kater Tutucu (2 Adet)',
+  'İç Çap Kater Tutucu (6 Adet)',
+  'Mors Konik Tutucu (2 Adet)',
+  'İç Çap Redüksiyon Kovanları (1 Set)',
+  'Ayna İçin Sert Ayak Takımı (1 Set)',
+  'Ayna İçin Yumuşak Ayak Takımı (5 Set)',
+  'Döner Punta Seti (1 Set)',
+] as const;
+
 const env = loadEnv();
 
 async function ensureBucket(client: S3Client, bucket: string): Promise<void> {
@@ -133,7 +177,8 @@ export async function importHaksanCnc(): Promise<void> {
     where: eq(schema.fileDocumentTypes.code, 'product_brochure'),
   });
 
-  const manifest: ManifestProduct[] = JSON.parse(await readFile(path.join(dataDir, 'products.json'), 'utf8'));
+  const manifest: ManifestProduct[] = (JSON.parse(await readFile(path.join(dataDir, 'products.json'), 'utf8')) as ManifestProduct[])
+    .map((product) => product.id === 'haksan-cnc-sl-8' ? { ...product, specs: SL8_CONTRACT_SPECS } : product);
   const imageFiles = new Set(await readdir(path.join(dataDir, 'images')).catch(() => []));
   const pdfFiles = new Set(await readdir(path.join(dataDir, 'pdfs')).catch(() => []));
 
@@ -145,6 +190,7 @@ export async function importHaksanCnc(): Promise<void> {
   )
     .then((s) => JSON.parse(s))
     .catch(() => ({}));
+  equipmentByStem['haksan-cnc-sl-8'] = { standard: [...SL8_CONTRACT_EQUIPMENT], optional: [] };
   const [standartType, opsiyonelType] = await Promise.all([
     db.query.equipmentTypes.findFirst({ where: eq(schema.equipmentTypes.code, 'standart') }),
     db.query.equipmentTypes.findFirst({ where: eq(schema.equipmentTypes.code, 'opsiyonel') }),

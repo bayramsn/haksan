@@ -1355,6 +1355,7 @@ export class FinanceService {
         statusId: pending?.id ?? null,
         invoiceNo: body.invoiceNo ?? null,
         movementType: body.movementType ?? 'manual',
+        paymentMethod: body.paymentMethod ?? null,
         documentRef: body.documentRef ?? null,
         notes: body.notes ?? null,
       })

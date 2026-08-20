@@ -41,6 +41,31 @@ afterAll(async () => {
 });
 
 describe('Finance — kasa hareketleri (alınan/ödenen)', () => {
+  it('alacak ödeme aracını oluşturma ve listelemede korur', async () => {
+    const documentRef = uniqueNo('CEK');
+    const created = await supertest(app.getHttpServer())
+      .post('/api/v1/receivables')
+      .set('Authorization', auth())
+      .send({
+        companyId,
+        amount: 750,
+        currencyCode: 'USD',
+        dueDate: now(),
+        movementType: 'manual',
+        paymentMethod: 'cheque',
+        documentRef,
+        notes: 'Sözleşme ödeme planı',
+      });
+    expect(created.status, JSON.stringify(created.body)).toBe(201);
+    expect(created.body.paymentMethod).toBe('cheque');
+
+    const receivables = await listAllCompanyReceivables();
+    expect(receivables.find((row: any) => row.id === created.body.id)).toMatchObject({
+      paymentMethod: 'cheque',
+      documentRef,
+    });
+  });
+
   it('giren (alınan) ödeme oluşturur', async () => {
     const r = await supertest(app.getHttpServer())
       .post('/api/v1/payments')

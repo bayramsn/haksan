@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { moneySchema, dateRangeSchema, percentSchema } from './common';
+import { OPPORTUNITY_PAYMENT_METHODS } from '../constants';
 
 export const receivableCreateSchema = z.object({
   companyId: z.string().min(1),
@@ -10,6 +11,7 @@ export const receivableCreateSchema = z.object({
   dueDate: z.coerce.date(),
   invoiceNo: z.string().max(64).optional(),
   movementType: z.enum(['manual', 'sales_invoice', 'purchase_invoice']).default('manual'),
+  paymentMethod: z.enum(OPPORTUNITY_PAYMENT_METHODS).optional(),
   documentRef: z.string().max(128).optional(),
   notes: z.string().max(2000).optional(),
 });
