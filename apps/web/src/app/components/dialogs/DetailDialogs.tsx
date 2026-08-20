@@ -12,7 +12,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from ".
 import {
   Phone, Smartphone, Mail, MapPin, Building2, Star, Globe, Hash, Briefcase,
   FileText, FileSignature, Receipt, Wallet, Cpu, Wrench, ChevronRight, User as UserIcon,
-  Plus, Pencil, Trash2, NotebookText,
+  Plus, Pencil, Trash2, NotebookText, CalendarPlus,
 } from "lucide-react";
 import {
   Customer, Contact, FirmType, SalesCase, Offer, Machine, DocumentItem, ServiceRequest,
@@ -21,7 +21,7 @@ import {
 import { useStore } from "../../lib/store";
 import { StatusBadge } from "../shared/StatusBadge";
 import { CompanyFinancePanel } from "../shared/CompanyFinancePanel";
-import { CreateCaseDialog, CreateContactDialog, EditContactDialog, EditCustomerDialog } from "./CreateDialogs";
+import { CreateCaseDialog, CreateContactDialog, EditContactDialog, EditCustomerDialog, LogActivityDialog } from "./CreateDialogs";
 import { CreateContractDialog } from "./CreateContractDialog";
 import { CreateProformaDialog } from "./CreateProformaDialog";
 import { QuoteDialog } from "./QuoteDialog";
@@ -149,10 +149,11 @@ function CompanyQuickActions({
   const [contractOpen, setContractOpen] = useState(false);
 
   const canOpportunity = hasPermission("opportunities.create");
+  const canActivity = hasPermission("activities.create");
   const canQuote = hasPermission("quotes.create");
   const canProforma = hasPermission("proformas.create");
   const canContract = hasPermission("contracts.create");
-  if (!canOpportunity && !canQuote && !canProforma && !canContract) return null;
+  if (!canOpportunity && !canActivity && !canQuote && !canProforma && !canContract) return null;
 
   return (
     <div className="mt-4 flex flex-wrap items-center gap-2 rounded-lg border border-primary/15 bg-primary/[0.03] px-3 py-2.5">
@@ -166,6 +167,18 @@ function CompanyQuickActions({
           trigger={
             <Button size="sm" variant="outline" className="h-8 gap-1.5 bg-white text-xs">
               <Briefcase className="size-3.5" /> Satış Kartı
+            </Button>
+          }
+        />
+      )}
+
+      {canActivity && (
+        <LogActivityDialog
+          customerId={customer.id}
+          defaultKind="customer_visit"
+          trigger={
+            <Button size="sm" variant="outline" className="h-8 gap-1.5 bg-white text-xs">
+              <CalendarPlus className="size-3.5" /> Fırsat Dışı Aktivite
             </Button>
           }
         />
@@ -243,8 +256,9 @@ export function CompanyDetailDialog({
   onEdit?: (customer: Customer) => void;
   onOpenFullDetail?: (customer: Customer) => void;
 }) {
-  const { cases, offers, documents, payments, machines, service, deleteContact } = useStore();
+  const { cases, offers, documents, payments, machines, service, activities, deleteContact } = useStore();
   const { user, activeDivision, activeDepartment, hasPermission } = useAuth();
+  const canReadActivities = hasPermission("activities.read");
   const queryClient = useQueryClient();
   const [editingContact, setEditingContact] = useState<Contact | null>(null);
   const [pendingContactDelete, setPendingContactDelete] = useState<Contact | null>(null);
@@ -273,6 +287,11 @@ export function CompanyDetailDialog({
   const firmDocs = documents.filter((d) => d.companyId === customer.id || (d.salesCaseId && caseIds.has(d.salesCaseId)));
   const firmProformas = firmDocs.filter((d) => d.type === "Proforma");
   const firmPayments = payments.filter((p) => p.customerId === customer.id);
+  // Firma kartındaki bu alan özellikle herhangi bir satış fırsatına bağlı
+  // olmayan temasları gösterir. Fırsata bağlı aktiviteler satış kartında kalır.
+  const firmStandaloneActivities = activities.filter(
+    (activity) => activity.customerId === customer.id && !activity.salesCaseId,
+  );
   const firmMachines = machines.filter((m) => m.customerId === customer.id);
   const firmService = service.filter((s) => s.customerId === customer.id);
   const companyAddresses = customer.addresses?.length
@@ -485,6 +504,9 @@ export function CompanyDetailDialog({
               <TabsTrigger value="satis">Satış ({firmCases.length})</TabsTrigger>
               <TabsTrigger value="teklif">Teklifler ({firmOffers.length})</TabsTrigger>
               <TabsTrigger value="dokuman">Dökümanlar ({firmDocs.length})</TabsTrigger>
+              {canReadActivities && (
+                <TabsTrigger value="aktivite">Fırsat Dışı Aktiviteler ({firmStandaloneActivities.length})</TabsTrigger>
+              )}
               <TabsTrigger value="cari">Cari ({firmPayments.length})</TabsTrigger>
               <TabsTrigger value="makine">Makineler ({firmMachines.length})</TabsTrigger>
             </TabsList>
@@ -580,6 +602,60 @@ export function CompanyDetailDialog({
                 </Table>
               </div>
             </TabsContent>
+
+            {/* activities recorded directly against the company, without an opportunity */}
+            {canReadActivities && (
+              <TabsContent value="aktivite" className="mt-3">
+                <div className="mb-2 flex justify-end">
+                  {hasPermission("activities.create") && (
+                    <LogActivityDialog
+                      customerId={customer.id}
+                      defaultKind="customer_visit"
+                      trigger={
+                        <Button type="button" size="sm" className="gap-1.5">
+                          <CalendarPlus className="size-4" /> Aktivite Ekle
+                        </Button>
+                      }
+                    />
+                  )}
+                </div>
+                <div className="overflow-hidden rounded-lg border border-border/60">
+                  <Table>
+                    <TableHeader>
+                      <TableRow className="bg-muted/30 hover:bg-muted/30">
+                        <TableHead>Tarih</TableHead>
+                        <TableHead>Tür</TableHead>
+                        <TableHead>Aktivite</TableHead>
+                        <TableHead>Kaydeden</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {firmStandaloneActivities.map((activity) => (
+                        <TableRow key={activity.id}>
+                          <TableCell className="whitespace-nowrap tabular-nums text-muted-foreground">{activity.date}</TableCell>
+                          <TableCell className="whitespace-nowrap">{activity.type || "Aktivite"}</TableCell>
+                          <TableCell>
+                            <div className="font-medium">{activity.title}</div>
+                            {activity.note && (
+                              <div className="mt-0.5 whitespace-pre-wrap text-xs leading-relaxed text-muted-foreground">
+                                {activity.note}
+                              </div>
+                            )}
+                            {activity.result && activity.result !== activity.note && (
+                              <div className="mt-1 text-xs text-muted-foreground">Sonuç: {activity.result}</div>
+                            )}
+                          </TableCell>
+                          <TableCell className="text-muted-foreground">{activity.createdByName || "—"}</TableCell>
+                        </TableRow>
+                      ))}
+                      {firmStandaloneActivities.length === 0 && (
+                        <EmptyRow cols={4} text="Bu firmaya ait fırsat dışı aktivite yok." />
+                      )}
+                    </TableBody>
+                  </Table>
+                </div>
+              </TabsContent>
+            )}
 
             {/* sales cases */}
             <TabsContent value="satis" className="mt-3">

@@ -38,6 +38,43 @@ afterAll(async () => {
 });
 
 describe('Activity mentions', () => {
+  it('creates and lists a company activity without an opportunity', async () => {
+    const server = app.getHttpServer();
+    const subject = `Fırsat dışı müşteri ziyareti ${Date.now()}`;
+    const activity = await supertest(server)
+      .post('/api/v1/activities')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({
+        companyId,
+        activityTypeCode: 'customer_visit',
+        subject,
+        description: 'Firma kartından doğrudan girilen ziyaret kaydı.',
+        activityDate: new Date().toISOString(),
+      });
+
+    expect(activity.status, JSON.stringify(activity.body)).toBe(201);
+    expect(activity.body).toMatchObject({
+      companyId,
+      opportunityId: null,
+      subject,
+      origin: 'manual',
+    });
+
+    const activityList = await supertest(server)
+      .get(`/api/v1/activities?companyId=${companyId}&pageSize=100`)
+      .set('Authorization', `Bearer ${adminToken}`);
+    expect(activityList.status, JSON.stringify(activityList.body)).toBe(200);
+    expect(
+      activityList.body.data.find((row: { id: string }) => row.id === activity.body.id),
+    ).toMatchObject({
+      companyId,
+      opportunityId: null,
+      subject,
+      origin: 'manual',
+      type: { code: 'customer_visit', name: 'Müşteri Ziyareti' },
+    });
+  });
+
   it('resolves a mention notification to the exact activity in its opportunity', async () => {
     const server = app.getHttpServer();
     const activity = await supertest(server)
