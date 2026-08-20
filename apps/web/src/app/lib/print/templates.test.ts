@@ -695,6 +695,40 @@ describe("print templates", () => {
     expect(defaults.body).toContain("adresinden teslim");
   });
 
+  it("drops contradictory legacy clauses when structural contract terms are set", () => {
+    const document = contractDoc({
+      alici: { unvan: "NORM İNOX METAL", kisaUnvan: "NORM İNOX METAL" },
+      sozlesmeNo: "CNC-SOZ-2026/032",
+      sozlesmeTarihi: "2026-08-18",
+      model: "ECOCA SL-8",
+      adet: 1,
+      ozellikler: [],
+      aksesuarlar: [],
+      fiyat: 50_000,
+      currency: "USD",
+      kdvOran: 20,
+      kdvDahil: true,
+      ithalatMasraflariDahil: true,
+      nakliyeSaticiya: true,
+      teslimGunMin: 90,
+      teslimGunMax: 90,
+      teslimYeri: "NORM İNOX METAL/Başakşehir tesisleri",
+      teslimKosullari: [
+        "ESKI-KDV: Fiyatımıza K.D.V. dahil değildir.",
+        "ESKI-TESLIM: Tezgah teslimi 10 gün içinde yapılacaktır.",
+        "ESKI-NAVLUN: Tezgahın nakliye ve sigorta giderleri NORM İNOX METAL firmasına aittir.",
+      ].join("\n"),
+      odemePlani: [],
+    }, assetBase);
+
+    expect(document.body).not.toContain("ESKI-KDV");
+    expect(document.body).not.toContain("ESKI-TESLIM");
+    expect(document.body).not.toContain("ESKI-NAVLUN");
+    expect(document.body).toContain("90 gün");
+    expect(document.body).toContain("nakliye ve sigorta giderleri HAKSAN MAKİNA'ya aittir");
+    expect(document.body).toContain("K.D.V.</span> dahildir");
+  });
+
   it("keeps the complete SL-8 agreement on the signed two-page shape", () => {
     const document = contractDoc({
       alici: {

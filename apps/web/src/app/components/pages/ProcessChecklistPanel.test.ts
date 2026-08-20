@@ -192,6 +192,19 @@ describe("ProcessChecklistPanel ilerletme güvenliği", () => {
   });
 });
 
+describe("ProcessChecklistPanel kayıtlı değer düzenleme", () => {
+  it("metin ve konum editörlerini mevcut değerle açar ve bilinçli temizlemeye izin verir", () => {
+    expect(source).toContain('case "contract_terms": return sc.contractTerms ?? ""');
+    expect(source).toContain('case "payment_terms": return sc.paymentTerms ?? ""');
+    expect(source).toContain('useState(checkKey === "location" ? company?.city ?? "" : persistedText)');
+    expect(source).toContain('setDraft2(checkKey === "location" ? company?.district ?? "" : "")');
+    expect(source).toContain('draft.trim() === persistedText.trim()');
+    expect(source).toContain('onClick={() => onSave(draft.trim())}');
+    expect(source).toContain('saveCase({ contractTerms: value }');
+    expect(source).toContain('saveCase({ paymentTerms: value }');
+  });
+});
+
 describe("ProcessChecklistPanel B aşaması aktiviteleri", () => {
   it("aramayı isteğe bağlı notla tiklenebilir aktivite olarak kaydeder", () => {
     expect(source).toContain('import { Checkbox } from "../ui/checkbox"');

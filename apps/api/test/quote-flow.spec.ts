@@ -537,6 +537,18 @@ describe('ERP flow', () => {
       lineTotal: 81_000,
     });
 
+    // Yalnız başlık alanı değiştiğinde de snapshot yenilenmeli. Aksi halde
+    // kullanıcı ekranda yeni tarihi görürken indirilen proforma eski tarihi basar.
+    const nextIssueDate = new Date('2026-08-21T09:30:00.000Z');
+    const headerOnly = await supertest(app.getHttpServer())
+      .patch(`/api/v1/proformas/${proformaId}`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ issueDate: nextIssueDate.toISOString() });
+    expect(headerOnly.status, JSON.stringify(headerOnly.body)).toBe(200);
+    expect(new Date(headerOnly.body.issueDate).toISOString()).toBe(nextIssueDate.toISOString());
+    expect(new Date(headerOnly.body.documentSnapshot?.document?.issueDate).toISOString())
+      .toBe(nextIssueDate.toISOString());
+
     const finalized = await supertest(app.getHttpServer())
       .patch(`/api/v1/proformas/${proformaId}`)
       .set('Authorization', `Bearer ${adminToken}`)

@@ -8,6 +8,7 @@ import {
   shortCompanyToken,
   shortMachineToken,
 } from "./filename";
+import { buildPrintHtml } from "./core";
 import type { ContractPrintData, ProformaPrintData, QuotePrintData } from "./templates";
 
 describe("divisionShortCode", () => {
@@ -31,6 +32,16 @@ describe("divisionShortCode", () => {
     expect(divisionShortCode(undefined)).toBe("");
     expect(divisionShortCode(null)).toBe("");
     expect(divisionShortCode("  ")).toBe("");
+  });
+});
+
+describe("print readiness", () => {
+  it("waits for images and fonts before opening the browser print dialog", () => {
+    const html = buildPrintHtml({ title: "Test", body: '<img src="/print/test.png">', css: "" });
+    expect(html).toContain("Promise.all(images.map");
+    expect(html).toContain("img.complete&&img.naturalWidth>0");
+    expect(html).toContain("document.fonts.ready");
+    expect(html).toContain("setTimeout(function(){window.print();},150)");
   });
 });
 

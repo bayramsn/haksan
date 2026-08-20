@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { contractReadinessErrors, loadContractPrintData } from "./contractPrint";
+import { assertContractReady, contractReadinessErrors, loadContractPrintData } from "./contractPrint";
 
 describe("contract print data", () => {
   it("maps the finalized snapshot without applying the header discount twice", async () => {
@@ -341,5 +341,34 @@ describe("contract print data", () => {
     expect(data.odemePlani).toEqual([{ label: "Siparişte peşin", tutar: 10_000, senet: false, yontem: "Nakit" }]);
     expect(JSON.stringify(data)).not.toContain("{{");
     expect(contractReadinessErrors(data)).toEqual([]);
+  });
+
+  it("blocks printing when party, price, item or template data is incomplete", () => {
+    const incomplete = {
+      alici: { unvan: "", adres: "", vergiDairesi: "", vergiNo: "" },
+      sozlesmeNo: "CNC-SOZ-2026/999",
+      sozlesmeTarihi: "2026-08-20",
+      model: "{{MODEL}}",
+      adet: 0,
+      ozellikler: [],
+      aksesuarlar: [],
+      machines: [],
+      fiyat: 0,
+      currency: "USD" as const,
+      kdvOran: 20,
+      odemePlani: [],
+    };
+
+    expect(contractReadinessErrors(incomplete)).toEqual([
+      "firma unvanı",
+      "firma adresi",
+      "vergi dairesi",
+      "vergi numarası",
+      "telefon",
+      "sözleşme kalemi",
+      "sözleşme bedeli",
+      "doldurulmamış şablon alanı",
+    ]);
+    expect(() => assertContractReady(incomplete)).toThrow(/Sözleşme tamamlanmadan basılamaz/);
   });
 });
