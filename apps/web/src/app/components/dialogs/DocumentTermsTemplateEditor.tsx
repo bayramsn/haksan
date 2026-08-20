@@ -10,7 +10,7 @@ import { Input } from "../ui/input";
 import { NumberedLinesTextarea, markedLineCount, type LineMarkerStyle } from "../shared/NumberedLinesTextarea";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "../ui/dialog";
 import type { NoteTemplate } from "../../lib/store";
-import type { QuoteNoteVariant } from "../../lib/print";
+import { fillNotePlaceholders, type QuoteNoteVariant } from "../../lib/print";
 
 const TERMS_TEMPLATE_PREFIX = "template:";
 
@@ -89,6 +89,11 @@ type Props = {
    * Artık her ekran kendi setini açıkça verir; verilmezse hazır şablon çıkmaz.
    */
   builtInVariants?: QuoteNoteVariant[];
+  /**
+   * Hazır şablondaki {{…}} yer tutucularının doldurulacağı bağlam. Verilmezse
+   * metin ham hâliyle girer — teklif penceresi doldurmayı kendi yapıyor.
+   */
+  fillContext?: Parameters<typeof fillNotePlaceholders>[1];
   onBuiltInTemplateSelected?: (key: string) => void;
   /**
    * Madde işaretinin biçimi — metnin basılacağı belgeye göre seçilir:
@@ -127,6 +132,7 @@ export function DocumentTermsTemplateEditor({
   updateNoteTemplate,
   deleteNoteTemplate,
   builtInVariants = [],
+  fillContext,
   onBuiltInTemplateSelected,
   markerStyle = "decimal",
   continuousNumbering = false,
@@ -163,10 +169,12 @@ export function DocumentTermsTemplateEditor({
     const builtIn = builtInVariants.find((variant) => variant.key === key);
     if (!builtIn) return;
     onBuiltInTemplateSelected?.(key);
+    const fill = (lines: string[]) =>
+      (fillContext ? fillNotePlaceholders(lines, fillContext) : lines).join("\n");
     onChange({
-      paymentTerms: builtIn.odeme.join("\n"),
-      deliveryTerms: builtIn.teslimat.join("\n"),
-      warrantyTerms: builtIn.garanti.join("\n"),
+      paymentTerms: fill(builtIn.odeme),
+      deliveryTerms: fill(builtIn.teslimat),
+      warrantyTerms: fill(builtIn.garanti),
     });
   };
 

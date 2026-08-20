@@ -119,6 +119,24 @@ export function EditDocumentDialog({
     [documentDiscount, rows, quoteTotals],
   );
   const rowError = rows.map(proformaRowError).find(Boolean) ?? null;
+  /**
+   * Hazır şablondaki {{…}} yer tutucuları belgenin kendi verisinden dolar:
+   * alıcı unvanı ve KDV oranı anlık görüntüden, kontrol ünitesi markası ürünün
+   * teknik özelliklerinden (baskı tarafındaki `inferControlUnitBrand` ile aynı
+   * kaynak). Elle yazılırsa belgeye yanlış marka/oran girme riski vardı.
+   */
+  const termsFillContext = useMemo(() => {
+    const snapshot: any = document.documentSnapshot ?? {};
+    const specs: { key: string; value: string }[] = Array.isArray(snapshot.items)
+      ? snapshot.items.flatMap((item: any) => (Array.isArray(item?.specs) ? item.specs : []))
+      : [];
+    const controlSpec = specs.find((spec) => /(?:cnc|kontrol)\s*(?:ünite|unite)|kontrol sistemi/i.test(String(spec?.key ?? "")));
+    return {
+      alici: String(snapshot.company?.legalTitle ?? snapshot.company?.shortName ?? "").trim() || undefined,
+      kdvOrani: rows[0]?.vatRate ?? 20,
+      kontrolMarka: String(controlSpec?.value ?? "").match(/MITSUBISHI|FANUC|SIEMENS|HEIDENHAIN|SYNTEC/i)?.[0]?.toUpperCase(),
+    };
+  }, [document.documentSnapshot, rows]);
 
   useEffect(() => {
     if (!open || !document.quoteId) return;
@@ -280,6 +298,7 @@ export function EditDocumentDialog({
           <DocumentTermsTemplateEditor
             {...config.termsProps}
             builtInVariants={config.builtInVariants}
+            fillContext={termsFillContext}
             title={`${config.label} Şartları`}
             description={`Şablon seçin veya metni düzenleyin. Değişiklik yalnız bu ${config.label.toLocaleLowerCase("tr-TR")}ya işlenir; bağlı teklifin şartları olduğu gibi kalır.`}
             templateScope={config.templateScope}
