@@ -169,7 +169,16 @@ export const WorkspaceDecisionSummary = forwardRef<HTMLElement, {
               ))}
             </ul>
           ) : <div className="mt-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">Kritik risk görünmüyor.</div>}
-          {primaryAction && <div className="mt-3 [&_button]:min-h-11 [&_button]:w-full">{primaryAction}</div>}
+          {/* `default` dalıyla aynı sözleşme: ilerletme komutu masaüstünde karar
+              özetinde durur, mobilde `workspace-mobile-dock`'a bırakılır. Sade
+              modda işaretleyici ve masaüstü kapısı eksikti — düğme görünüyordu
+              ama "tek birincil yüzey" kuralı ölçülemiyor, mobilde de dock'la
+              birlikte iki kez çıkıyordu. */}
+          {primaryAction && (
+            <div data-opportunity-primary="true" className="mt-3 hidden lg:block [&_button]:min-h-11 [&_button]:w-full">
+              {primaryAction}
+            </div>
+          )}
         </div>
       </div>
     </section>
