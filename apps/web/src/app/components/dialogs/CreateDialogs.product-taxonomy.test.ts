@@ -1,5 +1,8 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { subcategoriesForProductCategory } from "./CreateDialogs";
+
+const createDialogsSource = readFileSync(new URL("./CreateDialogs.tsx", import.meta.url), "utf8");
 
 const subcategories = [
   { code: "ISLEME_MERKEZI", label: "İşleme Merkezi", categoryCode: "TEZGAH" },
@@ -16,6 +19,11 @@ const productTypes = [
 ];
 
 describe("ürün taksonomisi bölüm filtresi", () => {
+  it("Tümü kapsamında ürün grubu seçilmeden alt kategori göstermez", () => {
+    const result = subcategoriesForProductCategory("TEZGAH", productTypes, subcategories, "");
+    expect(result).toEqual([]);
+  });
+
   it("CNC grubunda Sac İşleme alt kategorilerini göstermez", () => {
     const result = subcategoriesForProductCategory("TEZGAH", productTypes, subcategories, "CNC");
     expect(result.map((item) => item.label)).toEqual(["İşleme Merkezi", "Torna"]);
@@ -24,5 +32,10 @@ describe("ürün taksonomisi bölüm filtresi", () => {
   it("Sac İşleme grubunda yalnız Bükme ve Kesme gösterir", () => {
     const result = subcategoriesForProductCategory("TEZGAH", productTypes, subcategories, "SAC_ISLEME");
     expect(result.map((item) => item.label)).toEqual(["Bükme", "Kesme"]);
+  });
+
+  it("departman değiştiğinde CRM lookup kayıtlarını yeniden yükler", () => {
+    expect(createDialogsSource).toContain("const { activeDivision, activeDepartment } = useAuth();");
+    expect(createDialogsSource).toContain("[name, activeDivision, activeDepartment, exactDivision]");
   });
 });

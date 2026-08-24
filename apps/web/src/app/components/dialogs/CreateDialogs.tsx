@@ -273,7 +273,7 @@ type LookupRow = {
 };
 
 function useLookupRows(name: string, fallback: LookupRow[] = [], exactDivision = false) {
-  const { activeDivision } = useAuth();
+  const { activeDivision, activeDepartment } = useAuth();
   const [rows, setRows] = useState<LookupRow[]>(fallback);
   useEffect(() => {
     let alive = true;
@@ -301,7 +301,7 @@ function useLookupRows(name: string, fallback: LookupRow[] = [], exactDivision =
     return () => {
       alive = false;
     };
-  }, [name, activeDivision, exactDivision]);
+  }, [name, activeDivision, activeDepartment, exactDivision]);
   return rows;
 }
 
@@ -2965,9 +2965,8 @@ const fallbackLookupRows = (options: ProductOption[]): LookupRow[] =>
  * Öncelik sırası:
  *  1) Alt kategorinin DB'deki kendi kategori bağı (`categoryId` -> kod).
  *  2) Bağ yoksa ürün tipleri üzerinden çıkarım (eski davranış).
- *  3) İkisi de sonuç vermezse tüm alt kategoriler — liste asla boş kalmaz,
- *     çünkü boş liste kullanıcıya "bu kategoride alt kategori yok" yalanını
- *     söyler ve yeni ürün eklemeyi tıkar.
+ *  3) Ürün grubu seçilmediyse alt kategori gösterilmez. Böylece "Tümü"
+ *     kapsamında farklı bölümlere ait CRM kayıtları birbirine karışmaz.
  */
 export const subcategoriesForProductCategory = (
   categoryCode: string,
@@ -2976,7 +2975,7 @@ export const subcategoriesForProductCategory = (
   productGroupCode = "",
 ) => {
   const scopeToProductGroup = (candidates: ProductSubcategoryOption[]) => {
-    if (!productGroupCode) return candidates;
+    if (!productGroupCode) return [];
 
     const withAllowedGroups = candidates.map((subcategory) => {
       const allowedGroups = new Set<string>();
