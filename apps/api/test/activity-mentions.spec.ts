@@ -29,9 +29,14 @@ beforeAll(async () => {
   readonlyToken = readonly.body.accessToken;
   superadminToken = superadmin.body.accessToken;
 
+  // Test firmasını servis rolünün de görebildiği cari müşteri havuzundan seç.
+  // Admin listesinin ilk satırı sıralamaya göre potansiyel müşteri/tedarikçi
+  // olabildiği için tam test paketinde servis kapsamı dışında kalabiliyordu.
   const companies = await supertest(server)
     .get('/api/v1/companies?pageSize=10')
-    .set('Authorization', `Bearer ${adminToken}`);
+    .set('Authorization', `Bearer ${serviceToken}`);
+  expect(companies.status, JSON.stringify(companies.body)).toBe(200);
+  expect(companies.body.data.length).toBeGreaterThan(0);
   companyId = companies.body.data[0].id;
   const contact = await supertest(server)
     .post('/api/v1/contacts')

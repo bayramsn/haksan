@@ -35,6 +35,30 @@ const TECHNICAL_ALIASES: Record<string, string> = {
   'machine weight': 'tezgah agirligi',
 };
 
+const TECHNICAL_METADATA_KEYS = new Set([
+  'tezgah',
+  'urun grubu',
+  'urun tipi',
+  'marka',
+  'seri',
+]);
+
+const TECHNICAL_SECTION_CODES: Record<string, string> = {
+  kapasite: 'KAPASITE',
+  bukme: 'BUKME',
+  kesme: 'KESME',
+  tabla: 'TABLA',
+  eksenler: 'EKSENLER',
+  'fener mili': 'FENER_MILI',
+  'karsi punta': 'KARSI_PUNTA',
+  'karsi ayna': 'KARSI_AYNA',
+  'canli takim': 'CANLI_TAKIM',
+  motorlar: 'MOTORLAR',
+  taret: 'TARET',
+  'takim degistirici': 'TAKIM_DEGISTIRICI',
+  genel: 'GENEL',
+};
+
 /**
  * Şablon tablosunda aynı makine tipi hem güncel hem eski kodla kayıtlı olabilir
  * (ör. KOPRU_TIPI_ISLEME_MERKEZI ↔ CNC_KOPRU_TIPI_ISLEME_MERKEZI). Web tarafı okurken
@@ -55,6 +79,11 @@ export function productTypeCodeVariants(code: string): string[] {
     .filter(([, target]) => target === canonical)
     .map(([source]) => source);
   return [...new Set([code, upper, canonical, ...legacy])];
+}
+
+export function sameProductTypeCode(left: string, right: string): boolean {
+  const rightVariants = new Set(productTypeCodeVariants(right));
+  return productTypeCodeVariants(left).some((code) => rightVariants.has(code));
 }
 
 const HEADER_WORDS = {
@@ -146,8 +175,23 @@ function headerIndex(row: string[], candidates: string[]): number {
 
 function splitValueAndUnit(value: string, explicitUnit: string): { value: string; unit: string } {
   if (explicitUnit || !value) return { value, unit: explicitUnit };
-  const match = value.match(/^(.+?)\s+(mm\/dk|m\/dk|dev\/dk|dv\/dk|mm|cm|m|kg|kw|kW|hp|bar|sn|adet|N·m|N-m)$/i);
+  const match = value.match(/^(.+?)(?:\s+|(?=["'%°]$))(mm\/dk|m\/dk|mm\/dev|dev\/dk|dv\/dk|rpm|mm|cm|m|kg|kw|hp|bar|sn|adet|lt|ton|kN|N·m|N-m|Nm|"|'|%|°)$/i);
   return match ? { value: match[1].trim(), unit: match[2].trim() } : { value, unit: '' };
+}
+
+function technicalSectionCode(section: string): string {
+  return TECHNICAL_SECTION_CODES[normalizeTechnicalLabel(section)] ?? 'GENEL';
+}
+
+export function extractTechnicalSourceNames(rows: string[][]): string[] {
+  const names: string[] = [];
+  for (const row of rows) {
+    const keyIndex = row.findIndex((cell) => TECHNICAL_METADATA_KEYS.has(normalizeTechnicalLabel(cell)));
+    if (keyIndex < 0) continue;
+    const value = row.slice(keyIndex + 1).find((cell) => cell.trim());
+    if (value) names.push(value.trim());
+  }
+  return names;
 }
 
 export function rowsToTechnicalRows(rows: string[][], sheetName: string): Array<Omit<TechnicalImportRowInput, 'targetKey' | 'targetGroupCode' | 'targetUnit' | 'matchStatus' | 'include'>> {
@@ -173,6 +217,10 @@ export function rowsToTechnicalRows(rows: string[][], sheetName: string): Array<
     if (section) currentSection = section;
     const sourceKey = String(source[keyColumn] ?? '').trim();
     if (!sourceKey || HEADER_WORDS.key.some((word) => normalizeTechnicalLabel(sourceKey) === word)) continue;
+    // Üretici teknik föylerinin üst kısmındaki model/taksonomi satırları teknik
+    // özellik değildir. Bunlar hedef makine önerisinde kullanılır, spec olarak
+    // kaydedilmez.
+    if (TECHNICAL_METADATA_KEYS.has(normalizeTechnicalLabel(sourceKey))) continue;
     const split = splitValueAndUnit(String(source[valueColumn] ?? '').trim(), unitColumn >= 0 ? String(source[unitColumn] ?? '').trim() : '');
     result.push({
       rowNumber: index + 1,
@@ -184,6 +232,46 @@ export function rowsToTechnicalRows(rows: string[][], sheetName: string): Array<
     });
   }
   return result;
+}
+
+export function prepareTechnicalImportRow(
+  row: ReturnType<typeof rowsToTechnicalRows>[number],
+  availableFields: TechnicalImportAvailableField[],
+  mode: TechnicalImportPreviewRequest['mode'],
+): TechnicalImportRowInput {
+  const match = matchTechnicalField(row.sourceKey, availableFields);
+  if (match.field) {
+    return {
+      ...row,
+      targetKey: match.field.key,
+      targetGroupCode: match.field.groupCode ?? technicalSectionCode(row.section),
+      targetUnit: match.field.unit ?? row.sourceUnit,
+      matchStatus: match.status,
+      include: true,
+    };
+  }
+  // Şablon alanı aktarımı kullanıcının açıkça yüklediği teknik föyden yeni CRM
+  // alanları oluşturabilmelidir. Önizlemede "Onay gerekli" olarak görünür ve
+  // kullanıcı istemediği satırı kapatabilir. Makine verisinde ise bilinmeyen bir
+  // alan sessizce oluşturulmaz; mevcut sistem alanıyla eşleştirme gerekir.
+  if (mode === 'template_fields') {
+    return {
+      ...row,
+      targetKey: row.sourceKey,
+      targetGroupCode: technicalSectionCode(row.section),
+      targetUnit: row.sourceUnit,
+      matchStatus: 'review',
+      include: true,
+    };
+  }
+  return {
+    ...row,
+    targetKey: '',
+    targetGroupCode: technicalSectionCode(row.section),
+    targetUnit: row.sourceUnit,
+    matchStatus: 'unmatched',
+    include: false,
+  };
 }
 
 function tokenSimilarity(left: string, right: string): number {
@@ -247,6 +335,7 @@ export class TechnicalImportService {
   private async parseFile(body: TechnicalImportPreviewRequest): Promise<{
     rows: ReturnType<typeof rowsToTechnicalRows>;
     sheetNames: string[];
+    sourceNames: string[];
   }> {
     const buffer = this.decodeFile(body);
     const extension = body.fileName.split('.').pop()?.toLocaleLowerCase('tr-TR');
@@ -255,7 +344,11 @@ export class TechnicalImportService {
       if (rows.length > MAX_ROWS_PER_SHEET || Math.max(0, ...rows.map((row) => row.length)) > MAX_COLUMNS) {
         throw new ValidationError('CSV dosyası satır veya sütun sınırını aşıyor');
       }
-      return { rows: rowsToTechnicalRows(rows, 'CSV'), sheetNames: ['CSV'] };
+      return {
+        rows: rowsToTechnicalRows(rows, 'CSV'),
+        sheetNames: ['CSV'],
+        sourceNames: extractTechnicalSourceNames(rows),
+      };
     }
 
     const workbook = new ExcelJS.Workbook();
@@ -268,6 +361,7 @@ export class TechnicalImportService {
     let totalCells = 0;
     const parsed: ReturnType<typeof rowsToTechnicalRows> = [];
     const sheetNames: string[] = [];
+    const sourceNames: string[] = [];
     for (const worksheet of workbook.worksheets) {
       if (worksheet.rowCount > MAX_ROWS_PER_SHEET || worksheet.columnCount > MAX_COLUMNS) {
         throw new ValidationError(`“${worksheet.name}” çalışma sayfası satır veya sütun sınırını aşıyor`);
@@ -282,9 +376,10 @@ export class TechnicalImportService {
         rows.push(values);
       }
       sheetNames.push(worksheet.name);
+      sourceNames.push(...extractTechnicalSourceNames(rows));
       parsed.push(...rowsToTechnicalRows(rows, worksheet.name));
     }
-    return { rows: parsed, sheetNames };
+    return { rows: parsed, sheetNames, sourceNames };
   }
 
   private async suggestedProducts(actor: AuthContext, productTypeCode: string, sourceNames: string[]) {
@@ -299,7 +394,11 @@ export class TechnicalImportService {
       .from(productModels)
       .leftJoin(brands, eq(productModels.brandId, brands.id))
       .leftJoin(productTypes, eq(productModels.productTypeId, productTypes.id))
-      .where(and(eq(productModels.tenantId, actor.tenantId), eq(productTypes.code, productTypeCode), isNull(productModels.deletedAt)))
+      .where(and(
+        eq(productModels.tenantId, actor.tenantId),
+        inArray(productTypes.code, productTypeCodeVariants(productTypeCode)),
+        isNull(productModels.deletedAt),
+      ))
       .orderBy(asc(productModels.fullName))
       .limit(200);
     const source = normalizeTechnicalLabel(sourceNames.join(' '));
@@ -318,17 +417,7 @@ export class TechnicalImportService {
     const parsed = await this.parseFile(body);
     if (!parsed.rows.length) throw new ValidationError('Dosyada teknik bilgi satırı bulunamadı');
     if (parsed.rows.length > MAX_IMPORT_ROWS) throw new ValidationError(`Tek seferde en fazla ${MAX_IMPORT_ROWS} teknik satır aktarılabilir`);
-    const rows: TechnicalImportRowInput[] = parsed.rows.map((row) => {
-      const match = matchTechnicalField(row.sourceKey, body.availableFields);
-      return {
-        ...row,
-        targetKey: match.field?.key ?? '',
-        targetGroupCode: match.field?.groupCode ?? 'GENEL',
-        targetUnit: match.field?.unit ?? row.sourceUnit,
-        matchStatus: match.status,
-        include: match.status !== 'unmatched',
-      };
-    });
+    const rows = parsed.rows.map((row) => prepareTechnicalImportRow(row, body.availableFields, body.mode));
     const count = (status: TechnicalImportMatchStatus) => rows.filter((row) => row.matchStatus === status).length;
     return {
       file: { name: body.fileName, sheetNames: parsed.sheetNames, rowCount: rows.length },
@@ -342,7 +431,7 @@ export class TechnicalImportService {
         ready: rows.filter((row) => row.include && row.targetKey).length,
       },
       suggestedProducts: body.mode === 'machine_data'
-        ? await this.suggestedProducts(actor, body.productTypeCode, [body.fileName, ...parsed.sheetNames])
+        ? await this.suggestedProducts(actor, body.productTypeCode, [body.fileName, ...parsed.sheetNames, ...parsed.sourceNames])
         : [],
     };
   }
@@ -407,7 +496,7 @@ export class TechnicalImportService {
       .where(and(eq(productModels.id, body.targetProductId), eq(productModels.tenantId, actor.tenantId), isNull(productModels.deletedAt)))
       .limit(1);
     if (!target) throw new NotFoundError('Hedef makine');
-    if (target.productTypeCode && target.productTypeCode !== body.productTypeCode) {
+    if (target.productTypeCode && !sameProductTypeCode(target.productTypeCode, body.productTypeCode)) {
       throw new ValidationError('Seçilen makine bu teknik şablonun ürün tipiyle eşleşmiyor');
     }
 

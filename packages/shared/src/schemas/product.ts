@@ -137,7 +137,8 @@ export const technicalImportPreviewRequestSchema = z.object({
   mode: technicalImportModeSchema,
   productTypeCode: z.string().trim().min(1).max(64),
   divisionId: z.string().uuid().nullish(),
-  availableFields: z.array(technicalImportAvailableFieldSchema).min(1).max(1000),
+  // Yeni bir teknik şablon, ilk Excel/CSV yüklemesinden oluşturulabilir.
+  availableFields: z.array(technicalImportAvailableFieldSchema).max(1000).default([]),
 });
 export type TechnicalImportPreviewRequest = z.infer<typeof technicalImportPreviewRequestSchema>;
 
