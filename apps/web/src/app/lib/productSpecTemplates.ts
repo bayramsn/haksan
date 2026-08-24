@@ -736,14 +736,12 @@ const HAKSAN_CNC_SPEC_DEFAULTS: readonly ProductSpec[] = HAKSAN_CNC_SPEC_KEYS.ma
   specUnit: specUnitForKey(key),
 }));
 
-const SPEC_DEFAULTS: Record<string, readonly ProductSpec[]> = {
-  CNC_YATAY_TORNA_TEZGAHI: CNC_YATAY_TORNA_SPEC_DEFAULTS,
-  CNC_DIK_TORNA_TEZGAHI: CNC_DIK_TORNA_SPEC_DEFAULTS,
-  CNC_DIK_ISLEME_MERKEZ: CNC_DIK_ISLEME_SPEC_DEFAULTS,
-  CNC_TAPPING_CENTER: CNC_TAPPING_CENTER_SPEC_DEFAULTS,
-  CNC_5_EKSEN_ISLEME_MERKEZI: CNC_BES_EKSEN_SPEC_DEFAULTS,
-  CNC_KOPRU_TIPI_ISLEME_MERKEZI: CNC_KOPRU_TIPI_SPEC_DEFAULTS,
-};
+// Ürün diyaloglarındaki teknik alanlar da Ayarlar > Teknik Bilgi ile aynı katalogdan
+// beslenir. Ayrı bir liste tutulduğunda Üniversal / Sac İşleme tipleri ayarlarda
+// şablonlu görünüp ürün eklerken boş kalıyordu.
+const SPEC_DEFAULTS: Record<string, readonly ProductSpec[]> = Object.fromEntries(
+  Object.entries(MACHINE_SPEC_TEMPLATES).map(([code, entries]) => [code, entries.map(templateEntryToSpec)]),
+);
 
 function normalizeSpecKey(value: string) {
   const normalized = value

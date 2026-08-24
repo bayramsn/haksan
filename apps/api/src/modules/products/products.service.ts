@@ -29,6 +29,7 @@ import {
   currencies,
   companyRelationTypes,
 } from '../../db/schema/lookup';
+import { productTypeCodeVariants } from '../admin/technical-import.service';
 import { DB } from '../../shared/database/database.module';
 import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from '../../shared/utils/errors';
 import type { AuthContext } from '../../shared/security/auth.types';
@@ -1025,7 +1026,12 @@ export class ProductsService {
       eq(productSpecTemplates.isActive, true),
       eq(productSpecTemplates.isDeleted, false),
     ];
-    if (productTypeCode?.trim()) filters.push(eq(productSpecTemplates.productTypeCode, productTypeCode.trim()));
+    // Aynı tezgah şablonu hem güncel hem eski kodla kayıtlı olabilir
+    // (CNC_TORNA ↔ CNC_YATAY_TORNA_TEZGAHI). Ayarlar ekranı bu kodları eşitleyerek
+    // gösterir; tam eşitlikle arayan ürün/teklif diyalogları ise şablonu hiç bulamıyordu.
+    if (productTypeCode?.trim()) {
+      filters.push(inArray(productSpecTemplates.productTypeCode, productTypeCodeVariants(productTypeCode.trim())));
+    }
     // Aktif bölüm kendi + paylaşılan ("Tümü") şablonları görür (teklif/ürün diyalogları).
     if (actor) {
       const divFilter = resourceDivisionFilterWithShared(actor, 'products', productSpecTemplates.divisionId);

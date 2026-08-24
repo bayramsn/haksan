@@ -89,6 +89,7 @@ import {
   dropForeignMachineSpecs,
   foldProductTypeCode,
   groupProductSpecsForType,
+  mergeSpecsWithDefaults,
   normalizeProductSpecKey,
   productSpecDefaults,
   specsForProductTypeStrict,
@@ -2919,15 +2920,24 @@ const ALL_MACHINE_TEMPLATE_KEYS = new Set(
   allCatalogProductSpecs([], "").map((spec) => normalizeProductSpecKey(spec.key)),
 );
 
-const templateKeysForProductType = (productTypeCode?: string) =>
-  new Set(productSpecDefaults(productTypeCode).map((spec) => normalizeProductSpecKey(spec.key)));
-
 const hasSpecContent = (spec: ProductSpec) => Boolean(spec.key.trim() || spec.value.trim());
 
-const specsForSelectedProductType = (specs: ProductSpec[] = [], productTypeCode?: string, emptyValue = "") => {
+/**
+ * Seçili ürün tipinin "sabit listesi". Katalogda tanımlı tezgahlarda liste koddan,
+ * ayarlardan yeni eklenen tiplerde ise o tipin DB teknik bilgi şablonundan gelir —
+ * aksi halde yeni tipin alanları "başka tezgaha ait" sayılıp eleniyordu.
+ */
+export const specsForSelectedProductType = (
+  specs: ProductSpec[] = [],
+  productTypeCode?: string,
+  emptyValue = "",
+  typeTemplate: readonly ProductSpec[] = [],
+) => {
   if (!productTypeCode) return catalogSpecs(specs.filter(hasSpecContent), emptyValue);
 
-  const selectedTemplateKeys = templateKeysForProductType(productTypeCode);
+  const catalogDefaults = productSpecDefaults(productTypeCode);
+  const defaults = catalogDefaults.length ? catalogDefaults : typeTemplate;
+  const selectedTemplateKeys = new Set(defaults.map((spec) => normalizeProductSpecKey(spec.key)));
   const source = specs.filter((spec) => {
     const normalizedKey = normalizeProductSpecKey(spec.key);
     if (selectedTemplateKeys.has(normalizedKey)) return true;
@@ -2935,7 +2945,8 @@ const specsForSelectedProductType = (specs: ProductSpec[] = [], productTypeCode?
     return hasSpecContent(spec);
   });
 
-  return catalogSpecs(source, emptyValue, productTypeCode);
+  if (catalogDefaults.length) return catalogSpecs(source, emptyValue, productTypeCode);
+  return catalogSpecs(mergeSpecsWithDefaults(source, defaults), emptyValue);
 };
 
 // Ürün Kategorisi → Ürün → Ürün Alt Kategorisi → Ürün Grubu → Ürün Tipi sırasıyla daraltılır.
@@ -3233,6 +3244,10 @@ export function ProductDialog({
   const [uploadingImage, setUploadingImage] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [specGroupNameOverrides, setSpecGroupNameOverrides] = useState<Record<string, string>>({});
+  // Seçili ürün tipinin DB teknik bilgi şablonu: katalogda olmayan (ayarlardan
+  // eklenen) tiplerde "sabit liste" bu olur.
+  const [typeSpecTemplate, setTypeSpecTemplate] = useState<ProductSpec[]>([]);
+  const typeSpecTemplateFetch = useRef("");
   const productGroupRows = useLookupRows("product-groups", [], true);
   const productCategoryRows = useLookupRows("product-categories", fallbackLookupRows(PRODUCT_CATEGORIES), true);
   const productSubcategoryRows = useLookupRows("product-subcategories", [], true);
@@ -3529,7 +3544,7 @@ export function ProductDialog({
 
   // Ürün tipi/kategori değişse de sabit teknik katalog korunur.
   const specsAfterChange = (kept: { productTypeCode: string }) =>
-    specsForSelectedProductType(form.specs, kept.productTypeCode);
+    specsForSelectedProductType(form.specs, kept.productTypeCode, "", typeSpecTemplate);
 
   const onProductGroupChange = (code: string) => {
     // Ürün Kategorisi → Ürün → Ürün Alt Kategorisi → Ürün Grubu → Ürün Tipi:
@@ -3595,6 +3610,50 @@ export function ProductDialog({
     });
   };
 
+  // Tipin DB teknik bilgi şablonunu çeker ve aklında tutar; forma dokunmaz.
+  const loadSpecTemplate = async (code: string): Promise<ProductSpec[]> => {
+    typeSpecTemplateFetch.current = code;
+    try {
+      const rows = await productService.specTemplates(code);
+      const templateSpecs: ProductSpec[] = (rows ?? [])
+        .filter((row: any) => row.isActive !== false && row.specKey)
+        .map((row: any) => ({
+          key: row.specKey,
+          value: row.defaultValue ?? "",
+          unit: row.specUnit ?? "",
+          specUnit: row.specUnit ?? "",
+          groupCode: row.specGroupCode ?? undefined,
+        }));
+      setTypeSpecTemplate(templateSpecs);
+      return templateSpecs;
+    } catch {
+      typeSpecTemplateFetch.current = "";
+      return [];
+    }
+  };
+
+  // Ürün düzenlerken de şablon bilinmeli: yoksa "Sabit listeyi tamamla" katalog
+  // dışı tiplerde elinde liste olmadan çalışır.
+  useEffect(() => {
+    if (!form.productTypeCode || typeSpecTemplateFetch.current === form.productTypeCode) return;
+    void loadSpecTemplate(form.productTypeCode);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form.productTypeCode]);
+
+  // Şablonu teknik bilgi listesine işler; tip seçiminde ve "Sabit listeyi
+  // tamamla" düğmesinde aynı yol kullanılır.
+  const applySpecTemplate = async (code: string) => {
+    const templateSpecs = typeSpecTemplateFetch.current === code ? typeSpecTemplate : await loadSpecTemplate(code);
+    if (!templateSpecs.length) return;
+    setForm((current) => {
+      if (current.productTypeCode !== code) return current;
+      return {
+        ...current,
+        specs: specsForSelectedProductType([...current.specs, ...templateSpecs], code, "", templateSpecs),
+      };
+    });
+  };
+
   const onTypeChange = (code: string) => {
     const opt = productTypeOptions.find((item) => item.code === code);
     if (!opt) return;
@@ -3614,25 +3673,7 @@ export function ProductDialog({
       brand: opt.code === form.productTypeCode ? form.brand : "",
       specs: specsForSelectedProductType(form.specs, opt.code),
     });
-    void productService
-      .specTemplates(opt.code)
-      .then((rows) => {
-        const templateSpecs = (rows ?? [])
-          .filter((row: any) => row.isActive !== false && row.specKey)
-          .map((row: any) => ({
-            key: row.specKey,
-            value: row.defaultValue ?? "",
-            unit: row.specUnit ?? "",
-            specUnit: row.specUnit ?? "",
-            groupCode: row.specGroupCode ?? undefined,
-          }));
-        if (!templateSpecs.length) return;
-        setForm((current) => {
-          if (current.productTypeCode !== opt.code) return current;
-          return { ...current, specs: specsForSelectedProductType([...current.specs, ...templateSpecs], opt.code) };
-        });
-      })
-      .catch(() => undefined);
+    void applySpecTemplate(opt.code);
   };
 
   const submit = async (e: React.FormEvent) => {
@@ -4146,10 +4187,13 @@ export function ProductDialog({
                           variant="outline"
                           size="sm"
                           className="h-7"
-                          onClick={() => setForm((f) => ({
-                            ...f,
-                            specs: specsForSelectedProductType(f.specs, f.productTypeCode),
-                          }))}
+                          onClick={() => {
+                            setForm((f) => ({
+                              ...f,
+                              specs: specsForSelectedProductType(f.specs, f.productTypeCode, "", typeSpecTemplate),
+                            }));
+                            void applySpecTemplate(form.productTypeCode);
+                          }}
                         >
                           Sabit listeyi tamamla
                         </Button>
