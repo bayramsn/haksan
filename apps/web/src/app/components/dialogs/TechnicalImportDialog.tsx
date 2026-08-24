@@ -238,7 +238,7 @@ export function TechnicalImportDialog({
 
   return (
     <Dialog open={open} onOpenChange={close}>
-      <DialogContent className="flex h-[min(92vh,920px)] w-[min(96vw,1560px)] max-w-none flex-col gap-0 overflow-hidden border-slate-300 p-0">
+      <DialogContent className="flex h-[calc(100dvh-0.5rem)] w-[calc(100vw-1rem)] max-w-none flex-col gap-0 overflow-hidden border-slate-300 p-0 sm:h-[min(92dvh,920px)] sm:w-[min(96vw,1560px)]">
         <DialogHeader className="border-b border-slate-200 bg-[#071c54] px-5 py-3 text-white">
           <div className="flex items-center gap-3">
             <span className="font-display text-xl font-bold tracking-wide">HAKSAN</span>
@@ -250,16 +250,16 @@ export function TechnicalImportDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="grid grid-cols-4 border-b border-slate-200 bg-white px-6">
+        <div className="grid grid-cols-4 border-b border-slate-200 bg-white px-2 sm:px-6">
           {["Dosya", "Eşleştirme", "Önizleme", "Onay"].map((label, index) => {
             const activeIndex = preview ? 2 : file ? 1 : 0;
             const active = index === activeIndex;
             const complete = index < activeIndex;
             return (
-              <div key={label} className={cn("relative flex h-14 items-center justify-center gap-2 text-xs", active ? "font-semibold text-blue-700" : "text-slate-500")}>
+              <div key={label} className={cn("relative flex h-14 min-w-0 items-center justify-center gap-1 text-xs sm:gap-2", active ? "font-semibold text-blue-700" : "text-slate-500")}>
                 <span className={cn("flex size-6 items-center justify-center rounded-full text-[11px]", active ? "bg-blue-600 text-white" : complete ? "bg-emerald-100 text-emerald-700" : "bg-slate-100")}>{complete ? <Check className="size-3.5" /> : index + 1}</span>
-                {label}
-                {active && <span className="absolute inset-x-6 bottom-0 h-0.5 bg-blue-600" />}
+                <span className="hidden min-[420px]:inline">{label}</span>
+                {active && <span className="absolute inset-x-1 bottom-0 h-0.5 bg-blue-600 sm:inset-x-6" />}
               </div>
             );
           })}
@@ -268,11 +268,11 @@ export function TechnicalImportDialog({
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-[#f8fafc]">
           <div className="border-b border-slate-200 bg-white px-5 py-3">
             <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="flex items-center gap-2">
+              <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto sm:items-center">
                 <button type="button" onClick={() => changeMode("template_fields")} className={cn("h-9 rounded-md border px-4 text-xs font-medium", mode === "template_fields" ? "border-blue-600 bg-blue-600 text-white" : "border-slate-300 bg-white text-slate-700")}>Şablon alanları</button>
                 <button type="button" onClick={() => changeMode("machine_data")} className={cn("h-9 rounded-md border px-4 text-xs font-medium", mode === "machine_data" ? "border-blue-600 bg-blue-600 text-white" : "border-slate-300 bg-white text-slate-700")}>Makine verileri</button>
               </div>
-              <div className="flex items-center gap-1.5 text-[11px] text-slate-500">
+              <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-slate-500">
                 {hierarchyLabel.split("›").map((item, index) => (
                   <span key={`${item}-${index}`} className="inline-flex items-center gap-1.5">
                     {index > 0 && <ArrowRight className="size-3" />}
@@ -283,21 +283,21 @@ export function TechnicalImportDialog({
             </div>
 
             <div className="mt-3 grid gap-3 lg:grid-cols-[minmax(300px,1fr)_minmax(420px,1.35fr)]">
-              <div className="flex min-h-[86px] items-center gap-3 rounded-md border border-slate-200 bg-slate-50 px-4">
+              <div className="flex min-h-[86px] flex-wrap items-center gap-3 rounded-md border border-slate-200 bg-slate-50 px-4 py-3">
                 <span className="flex size-10 items-center justify-center rounded bg-emerald-600 text-white"><FileSpreadsheet className="size-5" /></span>
-                <div className="min-w-0 flex-1">
+                <div className="min-w-0 flex-1 basis-[calc(100%-3.5rem)]">
                   <p className="truncate text-sm font-medium text-slate-900">{file?.name ?? "Excel veya CSV dosyası seçin"}</p>
                   <p className="mt-0.5 text-xs text-slate-500">{file ? `${(file.size / 1024).toFixed(0)} KB` : "XLSX / CSV · en fazla 10 MB"}{preview ? ` · ${preview.file.sheetNames.length} çalışma sayfası · ${preview.file.rowCount} teknik satır` : ""}</p>
                 </div>
                 <input ref={fileRef} type="file" accept=".xlsx,.csv,text/csv" className="hidden" onChange={(event) => selectFile(event.target.files?.[0])} />
-                <Button variant="outline" size="sm" onClick={() => fileRef.current?.click()}><Upload className="mr-1.5 size-4" />{file ? "Değiştir" : "Dosya seç"}</Button>
-                <Button size="sm" disabled={!file || loading} onClick={createPreview}>{loading ? <RefreshCw className="mr-1.5 size-4 animate-spin" /> : <Search className="mr-1.5 size-4" />}İncele</Button>
+                <Button className="flex-1 sm:flex-none" variant="outline" size="sm" onClick={() => fileRef.current?.click()}><Upload className="mr-1.5 size-4" />{file ? "Değiştir" : "Dosya seç"}</Button>
+                <Button className="flex-1 sm:flex-none" size="sm" disabled={!file || loading} onClick={createPreview}>{loading ? <RefreshCw className="mr-1.5 size-4 animate-spin" /> : <Search className="mr-1.5 size-4" />}İncele</Button>
               </div>
 
               {mode === "machine_data" ? (
                 <div className="rounded-md border border-slate-300 bg-white px-4 py-2.5">
                   <label className="text-xs font-semibold text-slate-800">Bu çalışma sayfası hangi makineye ait?</label>
-                  <div className="mt-1.5 flex items-center gap-2">
+                  <div className="mt-1.5 flex flex-col items-stretch gap-2 sm:flex-row sm:items-center">
                     <div className="relative flex-1">
                       <select value={targetProductId} onChange={(event) => { setTargetProductId(event.target.value); setConfirmedTarget(false); }} className="h-9 w-full appearance-none rounded-md border border-slate-300 bg-white px-3 pr-9 text-xs outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100">
                         <option value="">Hedef makineyi seçin</option>
@@ -364,8 +364,8 @@ export function TechnicalImportDialog({
                 </div>
               </div>
 
-              <div className="flex items-center gap-2 border-b border-slate-200 bg-white px-5 py-2">
-                <div className="relative w-72">
+              <div className="flex flex-wrap items-center gap-2 border-b border-slate-200 bg-white px-5 py-2">
+                <div className="relative w-full sm:w-72">
                   <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
                   <Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Alan veya değerde ara" className="h-8 border-slate-300 pl-9 text-xs" />
                 </div>
@@ -410,15 +410,15 @@ export function TechnicalImportDialog({
           )}
         </div>
 
-        <div className="flex items-center justify-between border-t border-slate-300 bg-white px-5 py-3">
-          <div className="flex items-center gap-4 text-xs">
+        <div className="flex flex-col gap-3 border-t border-slate-300 bg-white px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-5">
+          <div className="flex flex-wrap items-center gap-2 text-xs sm:gap-4">
             <span>{rows.length} satır</span><span className="text-emerald-700">{readyRows.length} hazır</span>{needsReview > 0 && <span className="text-amber-700">{needsReview} inceleme gerekiyor</span>}
             {unmatched > 0 && <span className="flex items-center gap-1 text-slate-500"><AlertTriangle className="size-3.5" /> Eşleşmeyen satırlar içe aktarılmayacak.</span>}
           </div>
-          <div className="flex items-center gap-2">
+          <div className="grid grid-cols-1 gap-2 min-[420px]:grid-cols-3 sm:flex sm:items-center">
             {file && <Button variant="outline" onClick={() => fileRef.current?.click()} disabled={loading || committing}><RefreshCw className="mr-1.5 size-4" />Dosyayı değiştir</Button>}
             <Button variant="outline" onClick={() => close(false)}>Vazgeç</Button>
-            <Button onClick={commit} disabled={!preview || !readyRows.length || committing || (mode === "machine_data" && (!targetProductId || !confirmedTarget))} className="min-w-44 bg-blue-600 hover:bg-blue-700">
+            <Button onClick={commit} disabled={!preview || !readyRows.length || committing || (mode === "machine_data" && (!targetProductId || !confirmedTarget))} className="w-full bg-blue-600 hover:bg-blue-700 sm:min-w-44 sm:w-auto">
               {committing ? <RefreshCw className="mr-1.5 size-4 animate-spin" /> : readyRows.length ? <CheckCircle2 className="mr-1.5 size-4" /> : <XCircle className="mr-1.5 size-4" />}{readyRows.length} satırı içe aktar
             </Button>
           </div>

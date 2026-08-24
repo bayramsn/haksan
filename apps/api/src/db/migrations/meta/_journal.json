@@ -883,6 +883,27 @@
       "when": 1790793600000,
       "tag": "0126_correct_norminox_sl8_contract",
       "breakpoints": true
+    },
+    {
+      "idx": 127,
+      "version": "7",
+      "when": 1790880000000,
+      "tag": "0127_notification_actions",
+      "breakpoints": true
+    },
+    {
+      "idx": 128,
+      "version": "7",
+      "when": 1790966400000,
+      "tag": "0128_service_standalone_activity_visibility",
+      "breakpoints": true
+    },
+    {
+      "idx": 129,
+      "version": "7",
+      "when": 1791052800000,
+      "tag": "0129_activity_conversion_permission",
+      "breakpoints": true
     }
   ]
 }

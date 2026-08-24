@@ -9,6 +9,7 @@ import {
   companyContactImportPreviewSchema,
   companyLocationSchema,
   companyOsmSearchQuerySchema,
+  nearbyStaleVisitSchema,
   companyWebsiteLookupSchema,
   companyUpdateSchema,
   companyListRequestQuerySchema,
@@ -22,6 +23,7 @@ import {
   type CompanyContactImportPreviewInput,
   type CompanyLocationInput,
   type CompanyOsmSearchQuery,
+  type NearbyStaleVisitInput,
   type CompanyWebsiteLookupInput,
   type CompanyUpdateInput,
   type CompanyListRequestQuery,
@@ -72,6 +74,20 @@ export class CompaniesController {
     @CurrentUser() user: AuthContext
   ) {
     return this.svc.searchOpenStreetMap(query, user);
+  }
+
+  /**
+   * Saha ziyaret hatırlatması. Konum gövdede taşınır (URL sorgusunda konum
+   * loglara/refererlara sızar), bu yüzden GET değil POST.
+   */
+  @RequirePermissions('companies.read')
+  @Throttle({ default: { limit: 12, ttl: 60_000 } })
+  @Post('nearby-stale-visits')
+  nearbyStaleVisits(
+    @Body(new ZodValidationPipe(nearbyStaleVisitSchema)) body: NearbyStaleVisitInput,
+    @CurrentUser() user: AuthContext
+  ) {
+    return this.svc.nearbyStaleVisits(body, user);
   }
 
   @RequirePermissions('companies.create')

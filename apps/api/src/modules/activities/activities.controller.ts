@@ -19,7 +19,11 @@ import { CurrentUser } from '../../shared/security/current-user.decorator';
 import type { AuthContext } from '../../shared/security/auth.types';
 import { ActivitiesService } from './activities.service';
 
-const listQuery = z.object({ opportunityId: z.string().optional(), companyId: z.string().optional() });
+const listQuery = z.object({
+  opportunityId: z.string().optional(),
+  companyId: z.string().optional(),
+  contactId: z.string().optional(),
+});
 
 @UseGuards(AuthGuard, PermissionsGuard)
 @Controller()

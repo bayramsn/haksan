@@ -96,6 +96,17 @@ export class OpportunitiesController {
     return this.svc.create(body, user);
   }
 
+  @RequirePermissions('activities.convert')
+  @Throttle({ default: { limit: 30, ttl: 60_000 } })
+  @Post('from-activity/:activityId')
+  createFromActivity(
+    @Param('activityId') activityId: string,
+    @Body(new ZodValidationPipe(opportunityCreateSchema)) body: OpportunityCreateInput,
+    @CurrentUser() user: AuthContext
+  ) {
+    return this.svc.create({ ...body, sourceActivityId: activityId }, user);
+  }
+
   @RequirePermissions('opportunities.create')
   @Throttle(TRELLO_IMPORT_THROTTLE)
   @Post('imports/trello/preview')

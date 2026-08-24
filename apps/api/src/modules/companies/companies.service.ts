@@ -1,5 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { and, asc, desc, eq, exists, ilike, inArray, isNotNull, isNull, ne, not, or, sql, type SQL } from 'drizzle-orm';
+import { and, asc, desc, eq, exists, gte, ilike, inArray, isNotNull, isNull, ne, not, or, sql, type SQL } from 'drizzle-orm';
 import type { DbClient } from '../../db/client';
 import {
   companies,
@@ -20,7 +20,7 @@ import { competitors, opportunities, salesActivities } from '../../db/schema/crm
 import { deliveries, installationJobs, serviceTickets, shipments } from '../../db/schema/service';
 import { divisions } from '../../db/schema/tenants';
 import { users, userDivisions } from '../../db/schema/users';
-import { companyRelationTypes, companyStatuses, companyGroups, contactSources, fileDocumentTypes, paymentStatuses } from '../../db/schema/lookup';
+import { activityTypes, companyRelationTypes, companyStatuses, companyGroups, contactSources, fileDocumentTypes, paymentStatuses } from '../../db/schema/lookup';
 import { files, fileLinks } from '../../db/schema/files';
 import { DB } from '../../shared/database/database.module';
 import { CompanyWebsiteLookupError, ConflictError, ForbiddenError, NotFoundError, ValidationError } from '../../shared/utils/errors';
@@ -31,6 +31,8 @@ import type {
   CompanyAddressInput,
   CompanyCreateInput,
   CompanyLocationInput,
+  NearbyStaleVisitCompany,
+  NearbyStaleVisitInput,
   CompanyOsmSearchQuery,
   CompanyOsmSearchResult,
   CompanyWebsiteLookupInput,
@@ -52,12 +54,28 @@ import {
   type DivisionScope,
 } from '../../shared/utils/division-scope';
 import { companyVisibilityFilter } from '../../shared/utils/company-visibility';
+import { PushService } from '../../shared/push/push.service';
 import { normalizeCompanyName } from '../../shared/utils/text-normalization';
 import { inspectOfficialCompanyWebsite } from './company-website-lookup';
 import { companyLogoPath } from './company-media.service';
 import { nextRecordNo } from '../../shared/utils/record-sequence';
 
 const COMPANY_LOGO_MIME_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp']);
+/** Yakınlık taramasında kutu ön elemesinden sonra JS'e çekilecek azami satır. */
+const NEARBY_SCAN_LIMIT = 500;
+/** Tek seferde bildirilecek azami firma; saha kullanıcısını boğmamak için. */
+const NEARBY_RESULT_LIMIT = 5;
+const NEARBY_STALE_VISIT_NOTIFICATION = 'nearby_stale_visit';
+
+/** İki koordinat arası kilometre (haversine). */
+const haversineKm = (lat1: number, lng1: number, lat2: number, lng2: number) => {
+  const toRad = (value: number) => (value * Math.PI) / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLng = toRad(lng2 - lng1);
+  const h =
+    Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
+  return 2 * 6371 * Math.asin(Math.min(1, Math.sqrt(h)));
+};
 const COMPANY_LOGO_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'webp']);
 const MAX_COMPANY_LOGO_BYTES = 5 * 1024 * 1024;
 
@@ -345,7 +363,8 @@ export class CompaniesService {
 
   constructor(
     @Inject(DB) private readonly db: DbClient,
-    private readonly audit: AuditService
+    private readonly audit: AuditService,
+    private readonly push: PushService
   ) {}
 
   private scope(actor: AuthContext): DivisionScope {
@@ -1491,6 +1510,195 @@ export class CompaniesService {
       newValues: { latitude: patch.latitude, longitude: patch.longitude, locationSource: patch.locationSource },
     });
     return this.get(id, actor);
+  }
+
+  /**
+   * Saha hatırlatması: kullanıcının anlık konumuna `radiusKm` içinde olup son
+   * `staleDays` gündür ziyaret edilmemiş firmaları döner ve (notify ise) her biri
+   * için günde bir kez bildirim + push üretir.
+   *
+   * Yalnızca varsayılan adresinde koordinat kayıtlı firmalar değerlendirilir;
+   * il/ilçe merkezine düşen yaklaşık konumlar "yakınımdasın" demek için yeterince
+   * doğru değil. Ziyaret ölçütü `customer_visit` tipi aktivitedir.
+   */
+  async nearbyStaleVisits(input: NearbyStaleVisitInput, actor: AuthContext) {
+    const staleBefore = new Date(Date.now() - input.staleDays * 24 * 60 * 60 * 1000);
+
+    // Kaba ön eleme: yarıçapı çevreleyen kutu. Kesin mesafe aşağıda haversine ile.
+    const latDelta = input.radiusKm / 111.32;
+    const cosLat = Math.max(Math.cos((input.latitude * Math.PI) / 180), 0.01);
+    const lngDelta = input.radiusKm / (111.32 * cosLat);
+    const inBoundingBox = and(
+      isNotNull(companyAddresses.latitude),
+      isNotNull(companyAddresses.longitude),
+      sql`${companyAddresses.latitude} between ${input.latitude - latDelta} and ${input.latitude + latDelta}`,
+      sql`${companyAddresses.longitude} between ${input.longitude - lngDelta} and ${input.longitude + lngDelta}`,
+    )!;
+
+    const filters = await this.visibleCompanyFilters(actor);
+    filters.push(
+      exists(
+        this.db
+          .select({ id: companyAddresses.id })
+          .from(companyAddresses)
+          .where(
+            and(
+              eq(companyAddresses.companyId, companies.id),
+              eq(companyAddresses.tenantId, actor.tenantId),
+              isNull(companyAddresses.deletedAt),
+              inBoundingBox,
+            ),
+          ),
+      ),
+    );
+
+    const companyRows = await this.db
+      .select({ id: companies.id, legalTitle: companies.legalTitle, shortName: companies.shortName })
+      .from(companies)
+      .where(and(...filters))
+      .limit(NEARBY_SCAN_LIMIT);
+    if (companyRows.length === 0) {
+      return { staleDays: input.staleDays, radiusKm: input.radiusKm, companies: [] as NearbyStaleVisitCompany[] };
+    }
+    const companyIds = companyRows.map((row) => row.id);
+
+    // Konum: firmanın koordinatı olan varsayılan (yoksa ilk) adresi.
+    const addressRows = await this.db
+      .select({
+        companyId: companyAddresses.companyId,
+        latitude: companyAddresses.latitude,
+        longitude: companyAddresses.longitude,
+        province: companyAddresses.province,
+        district: companyAddresses.district,
+      })
+      .from(companyAddresses)
+      .where(
+        and(
+          inArray(companyAddresses.companyId, companyIds),
+          eq(companyAddresses.tenantId, actor.tenantId),
+          isNull(companyAddresses.deletedAt),
+          isNotNull(companyAddresses.latitude),
+          isNotNull(companyAddresses.longitude),
+        ),
+      )
+      .orderBy(desc(companyAddresses.isDefault), asc(companyAddresses.id));
+    const addressByCompany = new Map<string, (typeof addressRows)[number]>();
+    for (const row of addressRows) if (!addressByCompany.has(row.companyId)) addressByCompany.set(row.companyId, row);
+
+    // Ziyaret tipi iki kodla kaydedilmiş olabilir: güncel `customer_visit` ve
+    // lookup migration'ı öncesi yazılan eski `visit`. İkisi de sayılmazsa eski
+    // ziyaretler görünmez olur ve firma haksız yere "hiç uğranmadı" sayılır.
+    const visitTypeRows = await this.db
+      .select({ id: activityTypes.id })
+      .from(activityTypes)
+      .where(inArray(activityTypes.code, ['customer_visit', 'visit']));
+    const lastVisitByCompany = new Map<string, Date>();
+    if (visitTypeRows.length > 0) {
+      const visitRows = await this.db
+        .select({
+          companyId: salesActivities.companyId,
+          lastVisitAt: sql<string | null>`max(${salesActivities.activityDate})`,
+        })
+        .from(salesActivities)
+        .where(
+          and(
+            eq(salesActivities.tenantId, actor.tenantId),
+            isNull(salesActivities.deletedAt),
+            inArray(salesActivities.companyId, companyIds),
+            inArray(
+              salesActivities.activityTypeId,
+              visitTypeRows.map((row) => row.id),
+            ),
+          ),
+        )
+        .groupBy(salesActivities.companyId);
+      for (const row of visitRows) {
+        if (row.companyId && row.lastVisitAt) lastVisitByCompany.set(row.companyId, new Date(row.lastVisitAt));
+      }
+    }
+
+    const nearby: NearbyStaleVisitCompany[] = [];
+    for (const row of companyRows) {
+      const address = addressByCompany.get(row.id);
+      const latitude = Number(address?.latitude);
+      const longitude = Number(address?.longitude);
+      if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) continue;
+      const distanceKm = haversineKm(input.latitude, input.longitude, latitude, longitude);
+      if (distanceKm > input.radiusKm) continue;
+      const lastVisitAt = lastVisitByCompany.get(row.id) ?? null;
+      if (lastVisitAt && lastVisitAt >= staleBefore) continue;
+      nearby.push({
+        id: row.id,
+        name: row.shortName || row.legalTitle,
+        city: address?.province ?? null,
+        district: address?.district ?? null,
+        latitude,
+        longitude,
+        distanceKm: Math.round(distanceKm * 10) / 10,
+        lastVisitAt: lastVisitAt ? lastVisitAt.toISOString() : null,
+        daysSinceVisit: lastVisitAt
+          ? Math.floor((Date.now() - lastVisitAt.getTime()) / (24 * 60 * 60 * 1000))
+          : null,
+      });
+    }
+    nearby.sort((a, b) => a.distanceKm - b.distanceKm);
+    const result = nearby.slice(0, NEARBY_RESULT_LIMIT);
+    if (input.notify) await this.notifyNearbyStaleVisits(result, input.staleDays, actor);
+    return { staleDays: input.staleDays, radiusKm: input.radiusKm, companies: result };
+  }
+
+  /**
+   * Aynı firma için 24 saatte bir kez, yanıtlanana kadar kapanmayan ziyaret
+   * sorusu + push üretir. Açık bir soru 24 saati aşsa da mükerrer yazılmaz.
+   */
+  private async notifyNearbyStaleVisits(
+    rows: NearbyStaleVisitCompany[],
+    staleDays: number,
+    actor: AuthContext,
+  ): Promise<void> {
+    if (rows.length === 0) return;
+    const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const alreadySent = await this.db
+      .select({ entityId: notifications.entityId })
+      .from(notifications)
+      .where(
+        and(
+          eq(notifications.tenantId, actor.tenantId),
+          eq(notifications.userId, actor.userId),
+          eq(notifications.type, NEARBY_STALE_VISIT_NOTIFICATION),
+          inArray(notifications.entityId, rows.map((row) => row.id)),
+          or(gte(notifications.createdAt, since), eq(notifications.actionStatus, 'pending')),
+        ),
+      );
+    const sent = new Set(alreadySent.map((row) => row.entityId));
+    const pending = rows.filter((row) => !sent.has(row.id));
+    if (pending.length === 0) return;
+
+    await this.db.insert(notifications).values(
+      pending.map((row) => ({
+        tenantId: actor.tenantId,
+        userId: actor.userId,
+        type: NEARBY_STALE_VISIT_NOTIFICATION,
+        title: `Yakınınızda: ${row.name}`,
+        body: `${row.distanceKm} km uzaklıkta${row.city ? ` · ${row.city}` : ''}. ${
+          row.daysSinceVisit == null ? 'Hiç ziyaret kaydı yok' : `${row.daysSinceVisit} gündür uğranmadı`
+        } (eşik ${staleDays} gün). Bu firmaya gidecek misiniz?`,
+        entityType: 'company',
+        entityId: row.id,
+        actionType: 'visit_intent',
+        actionStatus: 'pending',
+      })),
+    );
+
+    const first = pending[0];
+    await this.push.sendToUser(actor.userId, {
+      title: pending.length === 1 ? `Yakınınızda: ${first.name}` : `Yakınınızda ${pending.length} firma`,
+      body:
+        pending.length === 1
+          ? `${first.distanceKm} km uzaklıkta · ${first.daysSinceVisit == null ? 'hiç ziyaret edilmemiş' : `${first.daysSinceVisit} gündür uğranmamış`}. Gidecek misiniz?`
+          : `${staleDays}+ gündür uğranmayan ${pending.length} firma yakınınızda. En yakını: ${first.name} (${first.distanceKm} km).`,
+      data: { kind: 'company', companyId: first.id },
+    });
   }
 
   async createAccessRequest(companyId: string, input: CompanyAccessRequestInput, actor: AuthContext) {

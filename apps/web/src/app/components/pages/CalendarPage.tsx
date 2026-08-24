@@ -57,7 +57,9 @@ function emptyDraft(date = new Date()): CalendarEventInput {
 export function CalendarPage() {
   const { hasRole, user } = useAuth();
   const isSuperAdmin = hasRole('super_admin');
-  const [view, setView] = useState<CalendarView>('month');
+  const [view, setView] = useState<CalendarView>(() =>
+    typeof window !== 'undefined' && window.matchMedia('(max-width: 639px)').matches ? 'list' : 'month'
+  );
   const [cursor, setCursor] = useState(() => new Date());
   const [events, setEvents] = useState<CalendarEventDTO[]>([]);
   const [owners, setOwners] = useState<Array<{ id: string; fullName: string; email: string }>>([]);
@@ -277,7 +279,7 @@ function MonthGrid({ cursor, rangeStart, byDay, onCreate, onOpen }: { cursor: Da
   return <div><div className="grid grid-cols-7 border-b bg-muted/20 text-center text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{['Pzt', 'Sal', 'Çar', 'Per', 'Cum', 'Cmt', 'Paz'].map((day) => <div key={day} className="py-2">{day}</div>)}</div><div className="grid grid-cols-7">{Array.from({ length: 42 }, (_, index) => addDays(rangeStart, index)).map((day) => { const rows = byDay.get(dateKey(day)) ?? []; const outside = day.getMonth() !== cursor.getMonth(); const today = dateKey(day) === dateKey(new Date()); return <div key={dateKey(day)} onDoubleClick={() => onCreate(day)} className={`min-h-28 border-b border-r p-1.5 transition hover:bg-muted/40 ${outside ? 'bg-muted/20 text-muted-foreground' : 'bg-background'}`}><div className={`mb-1 grid size-6 place-items-center rounded-full text-xs font-semibold ${today ? 'bg-success text-success-foreground' : ''}`}>{day.getDate()}</div><div className="space-y-1">{rows.slice(0, 4).map((event) => <EventChip key={event.id} event={event} onOpen={onOpen} />)}{rows.length > 4 && <div className="px-1 text-[10px] text-muted-foreground">+{rows.length - 4} daha</div>}</div></div>; })}</div></div>;
 }
 
-function EventChip({ event, onOpen }: { event: CalendarEventDTO; onOpen: (event: CalendarEventDTO) => void }) { return <button onClick={() => onOpen(event)} className={`block w-full truncate rounded border-l-4 px-1.5 py-1 text-left text-[10px] font-medium shadow-sm ${TYPE_STYLES[event.eventType]} ${event.deletedAt ? 'opacity-40 line-through' : ''}`}>{!event.allDay && <span className="mr-1 tabular-nums opacity-60">{new Date(event.startsAt).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })}</span>}{event.title}</button>; }
+function EventChip({ event, onOpen }: { event: CalendarEventDTO; onOpen: (event: CalendarEventDTO) => void }) { return <button onClick={() => onOpen(event)} className={`block min-h-11 w-full truncate rounded border-l-4 px-1.5 py-1 text-left text-[10px] font-medium shadow-sm sm:min-h-0 ${TYPE_STYLES[event.eventType]} ${event.deletedAt ? 'opacity-40 line-through' : ''}`}>{!event.allDay && <span className="mr-1 tabular-nums opacity-60">{new Date(event.startsAt).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })}</span>}{event.title}</button>; }
 
 function AgendaView({ view, events, range, onOpen }: { view: CalendarView; events: CalendarEventDTO[]; range: { from: Date; to: Date }; onOpen: (event: CalendarEventDTO) => void }) {
   const days = view === 'day' ? [range.from] : view === 'week' ? Array.from({ length: 7 }, (_, index) => addDays(range.from, index)) : Array.from(new Set(events.map((event) => dateKey(new Date(event.startsAt))))).map((key) => new Date(`${key}T12:00:00`));

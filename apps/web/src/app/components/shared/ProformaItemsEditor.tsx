@@ -65,9 +65,9 @@ export function ProformaItemsEditor({
       ) : rows.length === 0 ? (
         <p className="px-3 py-8 text-center text-xs text-muted-foreground">{emptyText}</p>
       ) : (
-        <div className="overflow-x-auto">
-          <div className="min-w-[660px]">
-            <div className="grid grid-cols-[minmax(0,1fr)_72px_132px_92px_62px_48px_108px] gap-2 border-b border-border/60 bg-muted/10 px-3 py-2 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+        <div className="overflow-x-hidden md:overflow-x-auto">
+          <div className="min-w-0 md:min-w-[660px]">
+            <div className="hidden grid-cols-[minmax(0,1fr)_72px_132px_92px_62px_48px_108px] gap-2 border-b border-border/60 bg-muted/10 px-3 py-2 text-[10px] font-medium uppercase tracking-wide text-muted-foreground md:grid">
               <span>Açıklama</span>
               <span className="text-center">Adet</span>
               <span className="text-right">Brüt Birim Fiyat</span>
@@ -83,14 +83,17 @@ export function ProformaItemsEditor({
                 return (
                   <div
                     key={row.quoteItemId}
-                    className="grid grid-cols-[minmax(0,1fr)_72px_132px_92px_62px_48px_108px] items-center gap-2 px-3 py-2.5"
+                    className="grid grid-cols-2 items-end gap-3 px-3 py-3 md:grid-cols-[minmax(0,1fr)_72px_132px_92px_62px_48px_108px] md:items-center md:gap-2 md:py-2.5"
                   >
-                    <p className="min-w-0 truncate text-xs font-medium" title={row.description}>
+                    <p className="col-span-2 min-w-0 break-words text-xs font-medium md:col-span-1 md:truncate" title={row.description}>
                       {row.description || `Ürün ${index + 1}`}
                     </p>
-                    <span className="text-center text-xs text-muted-foreground">{quantityLabel(row)}</span>
                     <div>
-                      <Label className="sr-only" htmlFor={`${idPrefix}-${row.quoteItemId}`}>
+                      <span className="block text-[10px] text-muted-foreground md:hidden">Adet</span>
+                      <span className="block text-left text-xs text-muted-foreground md:text-center">{quantityLabel(row)}</span>
+                    </div>
+                    <div>
+                      <Label className="text-[10px] text-muted-foreground md:sr-only" htmlFor={`${idPrefix}-${row.quoteItemId}`}>
                         {row.description || `Ürün ${index + 1}`} brüt birim fiyatı
                       </Label>
                       <div className="relative">
@@ -125,7 +128,7 @@ export function ProformaItemsEditor({
                       {error && <p className="mt-1 text-[10px] text-warning">{error}</p>}
                     </div>
                     <div>
-                      <Label className="sr-only" htmlFor={`${idPrefix}-${row.quoteItemId}-discount`}>
+                      <Label className="text-[10px] text-muted-foreground md:sr-only" htmlFor={`${idPrefix}-${row.quoteItemId}-discount`}>
                         {row.description || `Ürün ${index + 1}`} iskontosu
                       </Label>
                       <Input
@@ -152,7 +155,7 @@ export function ProformaItemsEditor({
                       />
                     </div>
                     <div>
-                      <Label className="sr-only" htmlFor={`${idPrefix}-${row.quoteItemId}-discount-percent`}>
+                      <Label className="text-[10px] text-muted-foreground md:sr-only" htmlFor={`${idPrefix}-${row.quoteItemId}-discount-percent`}>
                         {row.description || `Ürün ${index + 1}`} iskonto yüzdesi
                       </Label>
                       <Input
@@ -178,8 +181,14 @@ export function ProformaItemsEditor({
                         })}
                       />
                     </div>
-                    <span className="text-center text-xs text-muted-foreground">%{row.vatRate}</span>
-                    <span className="text-right font-data text-xs font-medium tabular-nums">{amount(lineTotal)}</span>
+                    <div>
+                      <span className="block text-[10px] text-muted-foreground md:hidden">KDV</span>
+                      <span className="block text-left text-xs text-muted-foreground md:text-center">%{row.vatRate}</span>
+                    </div>
+                    <div>
+                      <span className="block text-[10px] text-muted-foreground md:hidden">Satır Toplamı</span>
+                      <span className="block text-right font-data text-xs font-medium tabular-nums">{amount(lineTotal)}</span>
+                    </div>
                   </div>
                 );
               })}

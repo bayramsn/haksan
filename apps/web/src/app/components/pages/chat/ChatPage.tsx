@@ -345,7 +345,7 @@ export function ChatPage({ onOpenRecord }: { onOpenRecord?: (card: ChatRefCard) 
   ].filter((group) => group.items.length > 0);
 
   return (
-    <div className="surface-enter flex h-[calc(100dvh-13rem)] min-h-[520px] overflow-hidden rounded-xl border border-primary/10 bg-card shadow-sm">
+    <div className="surface-enter flex h-[calc(100dvh-9rem)] min-h-0 overflow-hidden rounded-xl border border-primary/10 bg-card shadow-sm sm:h-[calc(100dvh-13rem)] sm:min-h-[520px]">
       {/* Sol pano */}
       <div className={cn("w-full shrink-0 flex-col border-r border-border/60 bg-muted/10 md:flex md:w-80", selectedId ? "hidden" : "flex")}>
         <div className="premium-blueprint border-b border-border/60 p-3">
@@ -705,23 +705,23 @@ function MessageItem({
       )}
 
       {/* Hover aksiyonları */}
-      <div className={cn("mt-0.5 hidden items-center gap-1 group-hover:flex", mine ? "flex-row-reverse" : "")}>
+      <div className={cn("mt-0.5 flex items-center gap-1 md:hidden md:group-hover:flex", mine ? "flex-row-reverse" : "")}>
         <div className="relative">
-          <button className="text-muted-foreground hover:text-foreground" title="Tepki ver" onClick={() => setShowEmoji((s) => !s)}><Smile className="size-3.5" /></button>
+          <button className="grid size-11 place-items-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground md:size-7" title="Tepki ver" onClick={() => setShowEmoji((s) => !s)}><Smile className="size-3.5" /></button>
           {showEmoji && (
-            <div className="absolute z-10 mt-1 flex gap-0.5 rounded-full border border-border bg-popover px-1.5 py-1 shadow-md">
+            <div className={cn("absolute z-10 mt-1 flex gap-0.5 rounded-xl border border-border bg-popover px-1.5 py-1 shadow-md", mine ? "right-0" : "left-0")}>
               {QUICK_EMOJIS.map((e) => (
-                <button key={e} className="rounded-full px-1 text-sm hover:bg-muted" onClick={() => { onReact(e); setShowEmoji(false); }}>{e}</button>
+                <button key={e} className="grid size-11 place-items-center rounded-full text-sm hover:bg-muted md:size-8" onClick={() => { onReact(e); setShowEmoji(false); }}>{e}</button>
               ))}
             </div>
           )}
         </div>
-        <button className="text-muted-foreground hover:text-foreground" title="Yanıtla" onClick={onReply}><CornerUpLeft className="size-3.5" /></button>
+        <button className="grid size-11 place-items-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground md:size-7" title="Yanıtla" onClick={onReply}><CornerUpLeft className="size-3.5" /></button>
         {mine && m.kind !== "voice" && m.body && (
-          <button className="text-muted-foreground hover:text-foreground" title="Düzenle" onClick={onEdit}><Pencil className="size-3.5" /></button>
+          <button className="grid size-11 place-items-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground md:size-7" title="Düzenle" onClick={onEdit}><Pencil className="size-3.5" /></button>
         )}
         {(mine || canModerate) && (
-          <button className="text-muted-foreground hover:text-destructive" title="Herkesten sil" onClick={onDelete}><Trash2 className="size-3.5" /></button>
+          <button className="grid size-11 place-items-center rounded-md text-muted-foreground hover:bg-muted hover:text-destructive md:size-7" title="Herkesten sil" onClick={onDelete}><Trash2 className="size-3.5" /></button>
         )}
       </div>
     </div>

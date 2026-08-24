@@ -1418,13 +1418,29 @@ export function QuoteDialog({
                 const productsInSubcategory = productsInCategory.filter((p) => !l.subcategoryCode || (p.subcategoryCode || "") === l.subcategoryCode);
                 const productsInGroup = productsInSubcategory.filter((p) => !l.groupCode || (p.productGroupCode || "") === l.groupCode);
                 const lineProducts = productsInGroup.filter((p) => !l.productTypeCode || (p.productTypeCode || "") === l.productTypeCode);
-                const subcategoryOptionsMap = new Map<string, string>(productSubcategoryLookupOptions.map((option) => [option.code, option.label]));
-                for (const p of productsInCategory) if (p.subcategoryCode) subcategoryOptionsMap.set(p.subcategoryCode, p.subcategory || p.subcategoryCode);
+                const productsForSubcategories = productsInCategory.filter((p) => !l.groupCode || (p.productGroupCode || "") === l.groupCode);
+                const availableSubcategoryCodes = new Set(productsForSubcategories.map((p) => p.subcategoryCode).filter(Boolean));
+                const subcategoryOptionsMap = new Map<string, string>(
+                  productSubcategoryLookupOptions
+                    .filter((option) => availableSubcategoryCodes.has(option.code))
+                    .map((option) => [option.code, option.label]),
+                );
+                for (const p of productsForSubcategories) if (p.subcategoryCode) subcategoryOptionsMap.set(p.subcategoryCode, p.subcategory || p.subcategoryCode);
                 const subcategoryOptions = Array.from(subcategoryOptionsMap, ([code, label]) => ({ code, label }));
-                const groupOptionsMap = new Map<string, string>(productGroupLookupOptions.map((option) => [option.code, option.label]));
+                const availableGroupCodes = new Set(productsInSubcategory.map((p) => p.productGroupCode).filter(Boolean));
+                const groupOptionsMap = new Map<string, string>(
+                  productGroupLookupOptions
+                    .filter((option) => availableGroupCodes.has(option.code))
+                    .map((option) => [option.code, option.label]),
+                );
                 for (const p of productsInSubcategory) if (p.productGroupCode) groupOptionsMap.set(p.productGroupCode, p.productGroup || p.productGroupCode);
                 const groupOptions = Array.from(groupOptionsMap, ([code, label]) => ({ code, label }));
-                const typeOptionsMap = new Map<string, string>(productTypeLookupOptions.map((option) => [option.code, option.label]));
+                const availableTypeCodes = new Set(productsInGroup.map((p) => p.productTypeCode).filter(Boolean));
+                const typeOptionsMap = new Map<string, string>(
+                  productTypeLookupOptions
+                    .filter((option) => availableTypeCodes.has(option.code))
+                    .map((option) => [option.code, option.label]),
+                );
                 for (const p of productsInGroup) if (p.productTypeCode) typeOptionsMap.set(p.productTypeCode, p.type || p.productTypeCode);
                 const typeOptions = Array.from(typeOptionsMap, ([code, label]) => ({ code, label }));
                 const isLaborLine = l.categoryCode === "ISCILIK";

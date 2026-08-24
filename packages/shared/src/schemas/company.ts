@@ -307,3 +307,30 @@ export const accessRequestListQuerySchema = z.object({
   status: z.enum(['pending', 'approved', 'rejected']).optional(),
 });
 export type AccessRequestListQuery = z.infer<typeof accessRequestListQuerySchema>;
+
+/**
+ * Saha ziyaret hatırlatması: kullanıcının anlık konumuna yakın olup uzun
+ * süredir uğranmayan firmaları sorgular. Yarıçap ve "bayat" eşiği istemciden
+ * gelebilir ama varsayılanlar sunucuda sabittir.
+ */
+export const nearbyStaleVisitSchema = z.object({
+  latitude: z.coerce.number().min(-90).max(90),
+  longitude: z.coerce.number().min(-180).max(180),
+  radiusKm: z.coerce.number().min(1).max(200).default(25),
+  staleDays: z.coerce.number().int().min(1).max(365).default(15),
+  /** false ise yalnızca liste döner, bildirim/push üretilmez. */
+  notify: z.coerce.boolean().default(true),
+});
+export type NearbyStaleVisitInput = z.infer<typeof nearbyStaleVisitSchema>;
+
+export type NearbyStaleVisitCompany = {
+  id: string;
+  name: string;
+  city: string | null;
+  district: string | null;
+  latitude: number;
+  longitude: number;
+  distanceKm: number;
+  lastVisitAt: string | null;
+  daysSinceVisit: number | null;
+};

@@ -488,7 +488,7 @@ export function DecisionRail({
     <div>
       <div className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{simpleMode ? "İletişim" : "Hızlı temas"}</div>
       {hasAnyContactChannel ? (
-        <div className="grid grid-cols-3 gap-2">
+        <div className="grid grid-cols-1 gap-2 min-[420px]:grid-cols-3">
           <Button type="button" variant="outline" size="sm" className="h-11 gap-1 px-2 text-[11px]" onClick={() => startContact("phone")}><Phone className="size-4" /><span className={simpleMode ? "" : "sr-only"}>Ara</span></Button>
           <Button type="button" variant="outline" size="sm" className="h-11 gap-1 px-2 text-[11px]" onClick={() => startContact("email")}><Mail className="size-4" /><span className={simpleMode ? "" : "sr-only"}>E-posta</span></Button>
           <Button type="button" variant="outline" size="sm" className="h-11 gap-1 px-2 text-[11px]" onClick={() => startContact("whatsapp")}><MessageCircle className="size-4" /><span className={simpleMode ? "" : "sr-only"}>WhatsApp</span></Button>

@@ -16,6 +16,16 @@ import { toast } from "sonner";
 import { Button } from "./ui/button";
 import { Avatar, AvatarFallback } from "./ui/avatar";
 import { Badge } from "./ui/badge";
+import { Label } from "./ui/label";
+import { Textarea } from "./ui/textarea";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "./ui/dialog";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem,
   DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger,
@@ -304,6 +314,9 @@ export function Layout({ current, onNavigate, onLogout, pageTitle, pageSubtitle,
   // Sohbet okunmamış rozeti — konuşmaları 15 sn'de bir özetleyip toplam okunmamışı gösterir.
   const [chatUnread, setChatUnread] = useState(0);
   const [dbNotifications, setDbNotifications] = useState<NotificationDTO[]>([]);
+  const [decliningNotification, setDecliningNotification] = useState<NotificationDTO | null>(null);
+  const [declineReason, setDeclineReason] = useState("");
+  const [respondingNotificationId, setRespondingNotificationId] = useState<string | null>(null);
   useEffect(() => {
     const tick = () => {
       if (document.hidden) return;
@@ -409,6 +422,7 @@ export function Layout({ current, onNavigate, onLogout, pageTitle, pageSubtitle,
   const visibleDbNotifications = dbNotifications.filter((notification) => canUseNotificationTarget(notificationTarget(notification)));
   const notificationCount = alerts.length + visibleDbNotifications.length;
   const openDbNotification = async (notification: NotificationDTO) => {
+    if (notification.actionStatus === "pending") return;
     try {
       await notificationService.markRead(notification.id);
       setDbNotifications((rows) => rows.filter((row) => row.id !== notification.id));
@@ -436,6 +450,29 @@ export function Layout({ current, onNavigate, onLogout, pageTitle, pageSubtitle,
         ? { kind: "customer", customerId: target.companyId }
         : { kind: "navigate", nav: target.nav as OperationNav, query: target.query };
     executeOperationAction(action);
+  };
+  const respondDbNotification = async (
+    notification: NotificationDTO,
+    decision: "yes" | "no",
+    reason?: string,
+  ) => {
+    setRespondingNotificationId(notification.id);
+    try {
+      await notificationService.respond(notification.id, { decision, reason });
+      setDbNotifications((rows) => rows.filter((row) => row.id !== notification.id));
+      if (decision === "yes") {
+        toast.success("Ziyaret planı kaydedildi", { description: `${notification.title} bildirimi kapatıldı.` });
+      } else {
+        toast.success("Yanıt süper yöneticiye iletildi");
+        setDecliningNotification(null);
+        setDeclineReason("");
+      }
+    } catch (error: any) {
+      toast.error("Yanıt kaydedilemedi", { description: error?.message ?? "Lütfen tekrar deneyin." });
+      refreshNotifications();
+    } finally {
+      setRespondingNotificationId(null);
+    }
   };
   const renderSidebarContent = (onItemClick?: () => void, collapsed = false, onToggle?: () => void) => (
     <div className="flex h-full min-h-0 flex-col overflow-visible">
@@ -797,16 +834,30 @@ export function Layout({ current, onNavigate, onLogout, pageTitle, pageSubtitle,
                 ) : (
                   <>
                     {visibleDbNotifications.length > 0 && <div className="px-2.5 pb-1 pt-2 font-data text-[11px] font-semibold uppercase tracking-[0.08em] text-operation-blue">CRM bildirimleri · {visibleDbNotifications.length}</div>}
-                    {visibleDbNotifications.map((notification) => (
-                      <NotifItem
-                        key={notification.id}
-                        icon={<MessageSquare className="size-4 text-emerald-600" />}
-                        title={notification.title}
-                        desc={notification.body ?? ""}
-                        time="yeni"
-                        onClick={() => openDbNotification(notification)}
-                      />
-                    ))}
+                    {visibleDbNotifications.map((notification) =>
+                      notification.actionStatus === "pending" ? (
+                        <ActionNotifItem
+                          key={notification.id}
+                          title={notification.title}
+                          desc={notification.body ?? ""}
+                          busy={respondingNotificationId === notification.id}
+                          onYes={() => void respondDbNotification(notification, "yes")}
+                          onNo={() => {
+                            setDeclineReason("");
+                            setDecliningNotification(notification);
+                          }}
+                        />
+                      ) : (
+                        <NotifItem
+                          key={notification.id}
+                          icon={<MessageSquare className="size-4 text-emerald-600" />}
+                          title={notification.title}
+                          desc={notification.body ?? ""}
+                          time="yeni"
+                          onClick={() => openDbNotification(notification)}
+                        />
+                      ),
+                    )}
                     {visibleDbNotifications.length > 0 && alerts.length > 0 && <DropdownMenuSeparator />}
                     {alerts.length > 0 && <div className="px-2.5 pb-1 pt-2 font-data text-[11px] font-semibold uppercase tracking-[0.08em] text-operation-blue">Operasyon takibi · {alerts.length}</div>}
                     {alerts.map((alert) => (
@@ -877,6 +928,64 @@ export function Layout({ current, onNavigate, onLogout, pageTitle, pageSubtitle,
           {/* Content */}
           <ShellContent ref={mainScrollRef}>{children}</ShellContent>
         </ShellMain>
+        <Dialog
+          open={!!decliningNotification}
+          onOpenChange={(open) => {
+            if (!open && !respondingNotificationId) {
+              setDecliningNotification(null);
+              setDeclineReason("");
+            }
+          }}
+        >
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>Neden gitmeyeceksiniz?</DialogTitle>
+              <DialogDescription>
+                {decliningNotification?.title}. Yanıtınız doğrudan süper yöneticiye iletilecek.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-2 py-1">
+              <Label htmlFor="nearby-visit-decline-reason">Neden *</Label>
+              <Textarea
+                id="nearby-visit-decline-reason"
+                autoFocus
+                required
+                minLength={3}
+                maxLength={1000}
+                value={declineReason}
+                onChange={(event) => setDeclineReason(event.target.value)}
+                placeholder="Örn. Bugünkü rota dolu, firma ile yarın için randevu planlandı."
+                className="min-h-28"
+              />
+              <div className="text-right text-xs text-muted-foreground">{declineReason.trim().length}/1000</div>
+            </div>
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                disabled={!!respondingNotificationId}
+                onClick={() => {
+                  setDecliningNotification(null);
+                  setDeclineReason("");
+                }}
+              >
+                Vazgeç
+              </Button>
+              <Button
+                type="button"
+                disabled={declineReason.trim().length < 3 || !!respondingNotificationId}
+                onClick={() => {
+                  if (decliningNotification) {
+                    void respondDbNotification(decliningNotification, "no", declineReason.trim());
+                  }
+                }}
+              >
+                {respondingNotificationId ? "Gönderiliyor…" : "Gönder ve Kapat"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
         <CommandPalette
           open={commandOpen}
           onOpenChange={setCommandOpen}
@@ -898,5 +1007,44 @@ function NotifItem({ icon, title, desc, time, onClick }: { icon: ReactNode; titl
       </div>
       <div className="shrink-0 text-xs text-muted-foreground">{time}</div>
     </button>
+  );
+}
+
+function ActionNotifItem({
+  title,
+  desc,
+  busy,
+  onYes,
+  onNo,
+}: {
+  title: string;
+  desc: string;
+  busy: boolean;
+  onYes: () => void;
+  onNo: () => void;
+}) {
+  return (
+    <div className="border-b border-border/60 px-3 py-3 last:border-b-0">
+      <div className="flex items-start gap-3">
+        <div className="grid size-8 shrink-0 place-items-center rounded-full bg-amber-50">
+          <MapIcon className="size-4 text-amber-700" />
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="text-sm font-medium leading-tight">{title}</div>
+          <div className="mt-1 text-xs leading-relaxed text-muted-foreground">{desc}</div>
+          <div className="mt-3 grid grid-cols-2 gap-2">
+            <Button type="button" size="sm" variant="outline" disabled={busy} onClick={onNo}>
+              Hayır
+            </Button>
+            <Button type="button" size="sm" disabled={busy} onClick={onYes}>
+              {busy ? "Kaydediliyor…" : "Evet, gideceğim"}
+            </Button>
+          </div>
+          <div className="mt-1.5 text-[10px] font-medium uppercase tracking-wide text-amber-700">
+            Yanıt bekliyor · okundu olarak kapatılamaz
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }

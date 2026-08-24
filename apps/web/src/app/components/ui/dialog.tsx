@@ -47,7 +47,7 @@ const DialogOverlay = React.forwardRef<
 DialogOverlay.displayName = "DialogOverlay";
 
 const dialogSurfaceSizeClassName =
-  "w-[calc(100vw-1rem)] max-w-lg max-h-[92dvh]";
+  "bottom-0 top-auto left-1/2 w-[calc(100vw-1rem)] max-w-lg max-h-[calc(100dvh-0.5rem)] -translate-x-1/2 translate-y-0 rounded-b-none rounded-t-2xl p-4 sm:bottom-auto sm:top-1/2 sm:w-[calc(100vw-2rem)] sm:-translate-y-1/2 sm:rounded-xl sm:p-6";
 
 const DialogContent = React.forwardRef<
   React.ElementRef<typeof DialogPrimitive.Content>,
@@ -59,7 +59,7 @@ const DialogContent = React.forwardRef<
       ref={ref}
       data-slot="dialog-content"
       className={cn(
-        "bg-background before:absolute before:inset-x-0 before:top-0 before:h-[3px] before:bg-[linear-gradient(90deg,var(--brand-red)_0_72px,var(--brand-blue)_72px_100%)] data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 fixed top-[50%] left-[50%] z-50 grid translate-x-[-50%] translate-y-[-50%] gap-4 overflow-y-auto rounded-xl border border-border/80 p-6 shadow-xl duration-200",
+        "bg-background before:absolute before:inset-x-0 before:top-0 before:h-[3px] before:bg-[linear-gradient(90deg,var(--brand-red)_0_72px,var(--brand-blue)_72px_100%)] data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 fixed z-50 grid grid-cols-[minmax(0,1fr)] gap-4 overflow-x-hidden overflow-y-auto overscroll-contain border border-border/80 shadow-xl duration-200",
         dialogSurfaceSizeClassName,
         className,
       )}
@@ -93,7 +93,7 @@ function DialogFooter({ className, ...props }: React.ComponentProps<"div">) {
     <div
       data-slot="dialog-footer"
       className={cn(
-        "mt-1 flex flex-col-reverse gap-2 border-t border-border/70 pt-4 sm:flex-row sm:justify-end",
+        "sticky bottom-0 z-10 -mx-4 -mb-4 mt-1 flex flex-col-reverse gap-2 border-t border-border/70 bg-background/95 px-4 pt-4 pb-[max(1rem,env(safe-area-inset-bottom))] backdrop-blur sm:static sm:z-auto sm:mx-0 sm:mb-0 sm:flex-row sm:justify-end sm:bg-transparent sm:px-0 sm:pb-0 sm:backdrop-blur-none",
         className,
       )}
       {...props}

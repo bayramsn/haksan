@@ -1513,7 +1513,7 @@ function EditorView({ type, search, setSearch, rows, displayRows, selectedRow, s
     <div className="bg-[#f8fafc]">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-white px-4 py-3">
         <div className="min-w-0"><h2 className="truncate font-display text-2xl font-bold text-[#0b1f44]">{type.label}</h2><p className="font-mono text-[9px] tracking-[0.22em] text-slate-500">{type.code}</p></div>
-        <div className="flex items-center gap-2 text-[10px] text-slate-500"><Badge variant="outline" className="border-slate-300 bg-white">{type.familyCode === "SAC_ISLEME" ? "Sac İşleme" : type.familyCode === "UNIVERSAL" ? "Üniversal" : "CNC"}</Badge><ArrowRight className="size-3" /><span>{type.categoryLabel}</span><ArrowRight className="size-3" /><span>{type.subcategoryLabel}</span></div>
+        <div className="flex flex-wrap items-center gap-2 text-[10px] text-slate-500"><Badge variant="outline" className="border-slate-300 bg-white">{type.familyCode === "SAC_ISLEME" ? "Sac İşleme" : type.familyCode === "UNIVERSAL" ? "Üniversal" : "CNC"}</Badge><ArrowRight className="size-3" /><span>{type.categoryLabel}</span><ArrowRight className="size-3" /><span>{type.subcategoryLabel}</span></div>
       </div>
       <div className="flex flex-wrap items-center gap-2 border-b border-slate-300 bg-white px-3 py-2">
         <Button variant="outline" size="sm" onClick={() => addField()}><Plus className="mr-1.5 size-4" />Alan ekle</Button>
@@ -1525,8 +1525,8 @@ function EditorView({ type, search, setSearch, rows, displayRows, selectedRow, s
           </Button>
           <Button variant="outline" size="sm" className="-ml-px rounded-l-none px-2 text-[10px] font-medium" disabled={downloading} title="Şablonu CSV olarak indir" onClick={() => void downloadTemplate("csv")}>CSV</Button>
         </div>
-        <div className="ml-auto flex min-w-64 flex-1 items-center justify-end gap-2">
-          <div className="relative w-full max-w-sm"><Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" /><Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Teknik bilgide ara" className="h-8 border-slate-300 pl-9 text-xs" /></div>
+        <div className="flex w-full min-w-0 flex-1 flex-wrap items-center justify-end gap-2 lg:ml-auto lg:w-auto lg:min-w-64 lg:flex-nowrap">
+          <div className="relative w-full max-w-sm basis-full sm:basis-auto"><Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" /><Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Teknik bilgide ara" className="h-8 border-slate-300 pl-9 text-xs" /></div>
           <Button
             variant="outline"
             size="sm"
@@ -1700,8 +1700,8 @@ function EditorView({ type, search, setSearch, rows, displayRows, selectedRow, s
       </div>
 
       <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-300 bg-white px-4 py-2.5 text-[11px]">
-        <div className="flex items-center gap-4"><span>{rows.length} teknik alan</span><span>{groupCount} bölüm</span>{search.trim() && <span className="text-amber-700">Sürüklemek için aramayı temizleyin</span>}<span className={cn("flex items-center gap-1", dirty ? "text-amber-700" : "text-emerald-700")}>{dirty ? <CircleAlert className="size-3.5" /> : <CheckCircle2 className="size-3.5" />}{dirty ? lastDraftSave ? `Taslak kaydedildi ${lastDraftSave.toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" })}` : "Kaydedilmemiş değişiklikler" : "Tüm değişiklikler kayıtlı"}</span></div>
-        <div className="flex items-center"><button type="button" className="border-b-2 border-blue-600 px-5 py-2 font-medium text-blue-700">Şablon Alanları</button><button type="button" onClick={openImport} className="border-b-2 border-transparent px-5 py-2 text-slate-600 hover:text-slate-900">Makine Verileri</button><button type="button" onClick={() => addField()} className="ml-2 grid size-8 place-items-center rounded border border-slate-200 hover:bg-slate-50"><Plus className="size-4" /></button></div>
+        <div className="flex w-full flex-wrap items-center gap-3 sm:w-auto sm:gap-4"><span>{rows.length} teknik alan</span><span>{groupCount} bölüm</span>{search.trim() && <span className="text-amber-700">Sürüklemek için aramayı temizleyin</span>}<span className={cn("flex items-center gap-1", dirty ? "text-amber-700" : "text-emerald-700")}>{dirty ? <CircleAlert className="size-3.5" /> : <CheckCircle2 className="size-3.5" />}{dirty ? lastDraftSave ? `Taslak kaydedildi ${lastDraftSave.toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" })}` : "Kaydedilmemiş değişiklikler" : "Tüm değişiklikler kayıtlı"}</span></div>
+        <div className="flex w-full flex-wrap items-center sm:w-auto"><button type="button" className="min-h-11 border-b-2 border-blue-600 px-3 py-2 font-medium text-blue-700 sm:px-5">Şablon Alanları</button><button type="button" onClick={openImport} className="min-h-11 border-b-2 border-transparent px-3 py-2 text-slate-600 hover:text-slate-900 sm:px-5">Makine Verileri</button><button type="button" onClick={() => addField()} className="ml-2 grid size-11 place-items-center rounded border border-slate-200 hover:bg-slate-50"><Plus className="size-4" /></button></div>
       </div>
 
       <SideSheet open={inspectorOpen && Boolean(selectedRow)} onOpenChange={setInspectorOpen}>

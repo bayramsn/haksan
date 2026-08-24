@@ -601,7 +601,7 @@ export function OffersPage({
                         <Button
                           variant="ghost"
                           size="icon"
-                          className="size-8 opacity-0 group-hover:opacity-100 sm:opacity-100"
+                          className="size-8 opacity-100 md:opacity-0 md:group-hover:opacity-100"
                           title="Teklif detayı"
                           aria-label="Teklif detayı"
                           onClick={(event) => {
@@ -614,7 +614,7 @@ export function OffersPage({
                         <Button
                           variant="ghost"
                           size="icon"
-                          className="size-8 opacity-0 group-hover:opacity-100 sm:opacity-100"
+                          className="size-8 opacity-100 md:opacity-0 md:group-hover:opacity-100"
                           title="Teklifi sil"
                           aria-label="Teklifi sil"
                           onClick={(event) => {

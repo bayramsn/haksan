@@ -392,6 +392,7 @@ export const rolePermissionMatrix: Record<string, Record<string, string[] | '*'>
     calendar: '*',
     companies: ['read'],
     contacts: ['read'],
+    activities: ['read', 'convert'],
     customer_devices: '*',
     installations: '*',
     service_tickets: '*',

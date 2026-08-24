@@ -11,6 +11,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from ".
 import { CreateCaseDialog, LogActivityDialog } from "../dialogs/CreateDialogs";
 import { buildCustomerTimeline, type OperationAction } from "../../lib/operations";
 import { CompanyFinancePanel } from "../shared/CompanyFinancePanel";
+import { ActivityDetailDialog, canViewStandaloneActivities, ConvertActivityToOpportunity, NonOpportunityBadge, isStandaloneActivity } from "../shared/StandaloneActivity";
 import { companyService, fileService, salesOrderService } from "../../../lib/services";
 import { externalQuotesForCompany, offersForCompany } from "../../lib/customerOfferRelations";
 import { toast } from "sonner";
@@ -72,7 +73,7 @@ function CrossDivisionDebtWarning({ companyId }: { companyId: string }) {
 }
 
 export function CustomerDetailPage({ customer, onBack, onAction }: { customer: Customer; onBack: () => void; onAction?: (action: OperationAction) => void }) {
-  const { hasPermission } = useAuth();
+  const { hasPermission, user } = useAuth();
   const store = useStore();
   const {
     cases: allCases,
@@ -105,7 +106,10 @@ export function CustomerDetailPage({ customer, onBack, onAction }: { customer: C
       .sort((left, right) => right.uploadedAt.localeCompare(left.uploadedAt)),
     [companyCaseIds, customer.id, documents],
   );
-  const acts = allActivities.filter((a) => a.customerId === customer.id);
+  const canViewStandalone = canViewStandaloneActivities(user?.roles);
+  const acts = allActivities.filter(
+    (a) => a.customerId === customer.id && (!isStandaloneActivity(a) || canViewStandalone),
+  );
   const pays = allPayments.filter((p) => p.customerId === customer.id);
   const mcs = allMachines.filter((m) => m.customerId === customer.id);
   const companyOffers = useMemo(
@@ -264,7 +268,7 @@ export function CustomerDetailPage({ customer, onBack, onAction }: { customer: C
 
         <div className="lg:col-span-2">
           <Tabs defaultValue="timeline">
-            <TabsList className="h-auto flex-wrap justify-start">
+            <TabsList className="flex-nowrap justify-start">
               <TabsTrigger value="timeline">Geçmiş ({timeline.length})</TabsTrigger>
               <TabsTrigger value="cases">Satış Kartları ({cases.length})</TabsTrigger>
               <TabsTrigger value="offers">Teklifler ({companyOffers.length + externalQuotes.length})</TabsTrigger>
@@ -579,8 +583,20 @@ export function CustomerDetailPage({ customer, onBack, onAction }: { customer: C
                       <li key={a.id} className="ml-4">
                         <span className="absolute -left-1.5 size-3 rounded-full bg-primary" />
                         <div className="text-xs text-muted-foreground">{a.date}{a.type ? ` · ${a.type}` : ""}</div>
-                        <div className="text-sm font-medium">{a.title}</div>
-                        <div className="text-sm text-muted-foreground">{a.note}</div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-sm font-medium">{a.title}</span>
+                          {isStandaloneActivity(a) && <NonOpportunityBadge />}
+                        </div>
+                        {a.note && <div className="whitespace-pre-wrap text-sm text-muted-foreground">{a.note}</div>}
+                        {a.result && a.result !== a.note && <div className="mt-1 text-sm text-muted-foreground">Sonuç: {a.result}</div>}
+                        <div className="mt-1.5 flex flex-wrap items-center gap-2">
+                          <ActivityDetailDialog
+                            activity={a}
+                            showConvert={false}
+                            trigger={<Button type="button" variant="ghost" size="sm" className="h-8 px-2 text-xs">Ayrıntıyı Oku</Button>}
+                          />
+                          {isStandaloneActivity(a) && <ConvertActivityToOpportunity activity={a} />}
+                        </div>
                       </li>
                     ))}
                     {acts.length === 0 && <div className="text-sm text-muted-foreground">Aktivite yok.</div>}

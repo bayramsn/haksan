@@ -42,6 +42,7 @@ import { Label } from "../ui/label";
 import { Textarea } from "../ui/textarea";
 import { actionDateLabel, isActionOverdue } from "../shared/NextActionDialog";
 import { useCompanyCardDetails } from "../../lib/companyServerData";
+import { LostOpportunityDetailsDialog } from "../shared/LostOpportunityDetails";
 
 // Kolon açıklaması burada tutulmaz; Türkçe derece metinleri tek kaynaktan
 // (mock.ts#QUALIFICATION_STAGE_DESCRIPTIONS) okunur.
@@ -404,6 +405,23 @@ export function QualificationKanban({
                       </dd>
                     </div>
                   </dl>
+                  {stage === "lost" && (
+                    <LostOpportunityDetailsDialog
+                      salesCase={salesCase}
+                      companyName={partyName}
+                      trigger={(
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="mt-2 h-8 w-full text-xs text-destructive"
+                          onClick={(event) => event.stopPropagation()}
+                        >
+                          Kayıp Ayrıntısını Oku
+                        </Button>
+                      )}
+                    />
+                  )}
                 </div>
               </div>
             </Card>

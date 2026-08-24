@@ -23,10 +23,10 @@ export function PageHeader({
           <ChevronRight className="hidden size-3 sm:block" aria-hidden="true" />
           <span className="hidden text-foreground/70 sm:block" aria-current="page">{title}</span>
         </nav>
-        <h1 className="mt-1 truncate text-balance font-display text-[28px] font-bold leading-none tracking-[-0.015em] text-foreground sm:text-[31px]">{title}</h1>
-        {subtitle ? <p className="mt-1 max-w-3xl truncate text-sm leading-tight text-muted-foreground">{subtitle}</p> : null}
+        <h1 className="mt-1 whitespace-normal break-words text-balance font-display text-[28px] font-bold leading-none tracking-[-0.015em] text-foreground sm:truncate sm:text-[31px]">{title}</h1>
+        {subtitle ? <p className="mt-1 max-w-3xl whitespace-normal break-words text-sm leading-tight text-muted-foreground sm:truncate">{subtitle}</p> : null}
       </div>
-      {actions ? <div className="flex w-full max-w-full shrink-0 items-center gap-2 overflow-x-auto pb-0.5 sm:w-auto sm:pb-0">{actions}</div> : null}
+      {actions ? <div className="flex w-full max-w-full shrink-0 flex-wrap items-center gap-2 pb-0.5 sm:w-auto sm:flex-nowrap sm:overflow-x-auto sm:pb-0">{actions}</div> : null}
     </header>
   );
 }

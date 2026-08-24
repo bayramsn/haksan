@@ -292,6 +292,14 @@ export const notifications = pgTable(
     body: text('body'),
     entityType: varchar('entity_type', { length: 64 }),
     entityId: uuid('entity_id'),
+    /**
+     * Bazı bildirimler yalnız okunarak kapatılamaz; kullanıcıdan açık bir karar
+     * bekler. `actionType` null ise bildirim klasik okunur bildirimdir.
+     */
+    actionType: varchar('action_type', { length: 64 }),
+    actionStatus: varchar('action_status', { length: 32 }),
+    responseReason: text('response_reason'),
+    respondedAt: timestamp('responded_at', { withTimezone: true }),
     readAt: timestamp('read_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
@@ -300,6 +308,28 @@ export const notifications = pgTable(
     userIdx: index('notifications_user_idx').on(t.userId),
     divisionIdx: index('notifications_division_idx').on(t.divisionId),
     readIdx: index('notifications_read_idx').on(t.readAt),
+    actionIdx: index('notifications_action_idx').on(t.actionType, t.actionStatus),
+    pendingActionUnique: uniqueIndex('notifications_pending_action_unique')
+      .on(t.tenantId, t.userId, t.type, t.entityId)
+      .where(sql`${t.actionStatus} = 'pending' and ${t.userId} is not null and ${t.entityId} is not null`),
+    actionStatusCheck: check(
+      'notifications_action_status_check',
+      sql`(${t.actionType} is null and ${t.actionStatus} is null and ${t.responseReason} is null and ${t.respondedAt} is null)
+        or (${t.actionType} is not null and ${t.actionStatus} in ('pending', 'accepted', 'declined'))`,
+    ),
+    pendingActionUnreadCheck: check(
+      'notifications_pending_action_unread_check',
+      sql`${t.actionStatus} <> 'pending' or (${t.readAt} is null and ${t.respondedAt} is null and ${t.responseReason} is null)`,
+    ),
+    completedActionCheck: check(
+      'notifications_completed_action_check',
+      sql`${t.actionStatus} is null or ${t.actionStatus} = 'pending'
+        or (${t.readAt} is not null and ${t.respondedAt} is not null)`,
+    ),
+    declinedReasonCheck: check(
+      'notifications_declined_reason_check',
+      sql`${t.actionStatus} <> 'declined' or length(trim(${t.responseReason})) between 3 and 1000`,
+    ),
   })
 );
 

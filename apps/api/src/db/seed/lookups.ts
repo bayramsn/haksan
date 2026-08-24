@@ -102,6 +102,15 @@ export async function seedLookups(): Promise<void> {
     resource: 'divisions',
     action: 'view_all',
   });
+  // Fırsat dışı aktiviteyi yeni fırsata atomik biçimde taşıyan dar yetki.
+  // Genel aktivite güncelleme veya genel fırsat oluşturma izni vermeden servis
+  // kullanıcılarının bu tek iş akışını kullanabilmesini sağlar.
+  permRows.push({
+    code: 'activities.convert',
+    name: 'Aktiviteler — fırsata dönüştür',
+    resource: 'activities',
+    action: 'convert',
+  });
   if (permRows.length) {
     await db.insert(schema.permissions).values(permRows).onConflictDoNothing({ target: schema.permissions.code });
     console.log(`[lookups] seeded ${permRows.length} permissions`);

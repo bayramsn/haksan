@@ -231,7 +231,7 @@ export function ShipmentsPage({ focus }: { focus?: OperationFocus }) {
                           <Button
                             variant="ghost"
                             size="icon"
-                            className="size-8 opacity-0 group-hover:opacity-100 sm:opacity-100"
+                            className="size-8 opacity-100 md:opacity-0 md:group-hover:opacity-100"
                             title="Sevkiyatı başlat"
                             disabled={startingId === s.id}
                             onClick={async () => {
@@ -252,7 +252,7 @@ export function ShipmentsPage({ focus }: { focus?: OperationFocus }) {
                         <Button
                           variant="ghost"
                           size="icon"
-                          className="size-8 opacity-0 group-hover:opacity-100 sm:opacity-100"
+                          className="size-8 opacity-100 md:opacity-0 md:group-hover:opacity-100"
                           title="Kargo etiketi yazdır"
                           disabled={!customer}
                           onClick={() => {
@@ -265,14 +265,14 @@ export function ShipmentsPage({ focus }: { focus?: OperationFocus }) {
                         >
                           <Tag className="size-4" />
                         </Button>
-                        <Button variant="ghost" size="icon" className="size-8 opacity-0 group-hover:opacity-100 sm:opacity-100" title="Sevk İrsaliyesi yazdır"
+                        <Button variant="ghost" size="icon" className="size-8 opacity-100 md:opacity-0 md:group-hover:opacity-100" title="Sevk İrsaliyesi yazdır"
                           onClick={() => printDispatchNote(s)}>
                           <Printer className="size-4" />
                         </Button>
                         <Button
                           variant="ghost"
                           size="icon"
-                          className="size-8 text-muted-foreground opacity-0 group-hover:opacity-100 hover:text-destructive sm:opacity-100"
+                          className="size-8 text-muted-foreground opacity-100 hover:text-destructive md:opacity-0 md:group-hover:opacity-100"
                           title="Sevkiyatı sil"
                           disabled={deletingId === s.id}
                           onClick={() => setPendingDelete(s)}

@@ -209,8 +209,8 @@ export function CustomersPage({ onSelect }: { onSelect?: (c: Customer) => void }
       <div className="crm-filter-surface premium-blueprint precision-corners space-y-3">
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <span className="ui-eyebrow">Kayıtlı görünüm</span>
-        <Tabs value={tab} onValueChange={(value) => { setTab(value as "all" | FirmType); resetPage(); }}>
-          <TabsList className="h-9 bg-muted/60">
+        <Tabs className="w-full min-w-0 lg:w-auto" value={tab} onValueChange={(value) => { setTab(value as "all" | FirmType); resetPage(); }}>
+          <TabsList className="bg-muted/60">
             <TabsTrigger value="all" className="gap-1.5">
               Tümü
               <span className="ml-0.5 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-muted px-1 text-xs text-muted-foreground">
@@ -479,7 +479,7 @@ export function CustomersPage({ onSelect }: { onSelect?: (c: Customer) => void }
           <Table>
             <TableHeader>
               <TableRow className="bg-muted/40 hover:bg-muted/40">
-                <TableHead className="sticky left-0 z-20 w-[300px] bg-muted">
+                <TableHead className="w-[220px] min-w-[220px] bg-muted md:sticky md:left-0 md:z-20 md:w-[300px]">
                   <button
                     type="button"
                     className="inline-flex items-center gap-1 uppercase tracking-wider hover:text-foreground"
@@ -514,7 +514,7 @@ export function CustomersPage({ onSelect }: { onSelect?: (c: Customer) => void }
             <TableBody>
               {pageItems.map((c) => (
                 <TableRow key={c.id} className="cursor-pointer group hover:bg-primary/[0.025]" onClick={() => openFreshCompany(c)}>
-                  <TableCell className="crm-sticky-cell sticky left-0 z-10 border-r border-border/60">
+                  <TableCell className="crm-sticky-cell border-r border-border/60 md:sticky md:left-0 md:z-10">
                     <div className="flex items-center gap-3 min-w-0">
                       <div className={`grid size-10 shrink-0 place-items-center rounded-xl border font-display text-xs font-semibold shadow-xs ${c.type === "company" ? "border-primary/10 bg-brand-blue-soft text-primary" : "border-info/10 bg-info-soft text-info"}`}>{companyInitials(c.name)}</div>
                       <div className="min-w-0">

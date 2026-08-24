@@ -1,5 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { and, desc, eq, inArray, isNull, or, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNotNull, isNull, or, sql } from 'drizzle-orm';
 import type { DbClient } from '../../db/client';
 import { salesActivities, visits, calls, opportunities, type ActivityOrigin } from '../../db/schema/crm';
 import { companies, contactCompanies, contacts, notifications } from '../../db/schema/companies';
@@ -141,11 +141,23 @@ export class ActivitiesService {
     return resolveAssignedResourceDivision(actor, 'activities', null);
   }
 
-  async list(actor: AuthContext, query: { opportunityId?: string; companyId?: string }, page: Pagination) {
+  async list(
+    actor: AuthContext,
+    query: { opportunityId?: string; companyId?: string; contactId?: string },
+    page: Pagination,
+  ) {
     const { limit, offset } = pageOffset(page);
     const filters = [eq(salesActivities.tenantId, actor.tenantId), isNull(salesActivities.deletedAt)];
+    const canViewStandaloneActivities = actor.roles.some((role) =>
+      ['sales', 'service', 'admin', 'super_admin'].includes(role),
+    );
+    // Fırsata bağlı olmayan firma temasları yalnız satış, servis ve yönetim
+    // rollerine görünür. Diğer roller kendi yetkileri dahilinde yalnız fırsat
+    // geçmişini görmeye devam eder.
+    if (!canViewStandaloneActivities) filters.push(isNotNull(salesActivities.opportunityId));
     if (query.opportunityId) filters.push(eq(salesActivities.opportunityId, query.opportunityId));
     if (query.companyId) filters.push(eq(salesActivities.companyId, query.companyId));
+    if (query.contactId) filters.push(eq(salesActivities.contactId, query.contactId));
     const scoped = resourceDivisionFilter(actor, 'activities', salesActivities.divisionId);
     if (scoped) filters.push(scoped);
     const visibility = await companyVisibilityExistsFilter(this.db, actor, salesActivities.companyId);

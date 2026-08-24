@@ -790,8 +790,8 @@ export function CreateAccountingInvoiceDialog({
                   <Plus className="size-3.5" /> Kalem Ekle
                 </Button>
               </div>
-              <div className="overflow-x-auto">
-                <div className="grid min-w-[1060px] grid-cols-[260px_260px_76px_112px_112px_96px_92px_120px_40px] gap-2 bg-muted/30 px-3 py-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+              <div className="overflow-x-hidden md:overflow-x-auto">
+                <div className="hidden min-w-[1060px] grid-cols-[260px_260px_76px_112px_112px_96px_92px_120px_40px] gap-2 bg-muted/30 px-3 py-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground md:grid">
                   <div>{isAdministrative ? "Gider Türü" : form.type === "sales" ? "Ürün / Stok" : "Ürün"}</div>
                   <div>Açıklama</div>
                   <div>Adet</div>
@@ -806,7 +806,7 @@ export function CreateAccountingInvoiceDialog({
                   {lines.map((line, lineIndex) => {
                     const totals = lineTotals(line);
                     return (
-                      <div key={line.id} className="grid min-w-[1060px] grid-cols-[260px_260px_76px_112px_112px_96px_92px_120px_40px] gap-2 px-3 py-2 items-center">
+                      <div key={line.id} className="grid grid-cols-2 items-end gap-2 px-3 py-3 md:min-w-[1060px] md:grid-cols-[260px_260px_76px_112px_112px_96px_92px_120px_40px] md:items-center md:py-2">
                         {isAdministrative ? (
                           <Input
                             aria-label={`Fatura kalemi ${lineIndex + 1} gider türü`}
@@ -864,9 +864,10 @@ export function CreateAccountingInvoiceDialog({
                           </SelectContent>
                         </Select>
                         <div className="text-right text-sm tabular-nums">
+                          <span className="mb-1 block text-[10px] text-muted-foreground md:hidden">Son Tutar</span>
                           {roundMoney(totals.total).toLocaleString("tr-TR")} {form.currencyCode}
                         </div>
-                        <Button type="button" variant="ghost" size="icon" aria-label={`Fatura kalemi ${lineIndex + 1} satırını sil`} title="Kalemi sil" className="size-8" onClick={() => removeLine(line.id)}>
+                        <Button type="button" variant="ghost" size="icon" aria-label={`Fatura kalemi ${lineIndex + 1} satırını sil`} title="Kalemi sil" className="size-11 justify-self-end md:size-8" onClick={() => removeLine(line.id)}>
                           <Trash2 className="size-4 text-muted-foreground" />
                         </Button>
                       </div>
@@ -878,7 +879,7 @@ export function CreateAccountingInvoiceDialog({
                 <div className="text-xs text-muted-foreground">
                   {lines.length} kalem{form.type === "sales" && !isAdministrative ? " · tezgah satışında seri no zorunludur; fatura kaydında stok düşülür ve kurulum açılır" : ""}
                 </div>
-                <div className="grid min-w-[280px] grid-cols-2 gap-x-4 gap-y-1 text-sm">
+                <div className="grid w-full min-w-0 grid-cols-2 gap-x-4 gap-y-1 text-sm sm:w-auto sm:min-w-[280px]">
                   <span className="text-muted-foreground">Ara Toplam</span><span className="text-right tabular-nums">{roundMoney(gridTotals.subtotal).toLocaleString("tr-TR")} {form.currencyCode}</span>
                   <span className="text-muted-foreground">İndirim</span><span className="text-right tabular-nums">{roundMoney(gridTotals.discount).toLocaleString("tr-TR")} {form.currencyCode}</span>
                   <span className="text-muted-foreground">KDV</span><span className="text-right tabular-nums">{roundMoney(gridTotals.vat).toLocaleString("tr-TR")} {form.currencyCode}</span>

@@ -21,6 +21,7 @@ import type {
   CompanyContactImportPreviewInput,
   CompanyContactImportCommitResult,
   CompanyOsmSearchResult,
+  NearbyStaleVisitCompany,
   CompanyWebsiteLookupInput,
   CompanyWebsiteLookupResult,
   CompanyUpdateInput,
@@ -367,6 +368,21 @@ export const companyService = {
     source?: 'manual' | 'verified' | 'osm_exact' | 'osm_street' | 'osm_area';
   }) =>
     api.patch<CompanyDTO>(`/companies/${id}/location`, body),
+  /**
+   * Konuma yakın olup uzun süredir uğranmamış firmalar. Sunucu aynı firma için
+   * günde bir kez bildirim + push üretir; `notify: false` yalnız listeler.
+   */
+  nearbyStaleVisits: (body: {
+    latitude: number;
+    longitude: number;
+    radiusKm?: number;
+    staleDays?: number;
+    notify?: boolean;
+  }) =>
+    api.post<{ staleDays: number; radiusKm: number; companies: NearbyStaleVisitCompany[] }>(
+      '/companies/nearby-stale-visits',
+      body
+    ),
   remove: (id: string) => api.delete(`/companies/${id}`),
   /** Başka bölümlerdeki açık alacak (borç) uyarısı. Tutar yalnızca süper yönetici/view_all için döner. */
   crossDivisionDebt: (id: string) =>
@@ -415,6 +431,10 @@ export interface NotificationDTO {
   body?: string | null;
   entityType?: string | null;
   entityId?: string | null;
+  actionType?: 'visit_intent' | string | null;
+  actionStatus?: 'pending' | 'accepted' | 'declined' | null;
+  responseReason?: string | null;
+  respondedAt?: string | null;
   /** Tıklanınca açılacak kayıt/ekran — API tarafında çözülür. */
   target?: NotificationTarget | null;
   readAt?: string | null;
@@ -428,6 +448,8 @@ export const notificationService = {
       pageSize: params?.pageSize,
     })}`),
   markRead: (id: string) => api.patch<NotificationDTO>(`/notifications/${id}/read`, {}),
+  respond: (id: string, body: { decision: 'yes' | 'no'; reason?: string }) =>
+    api.post<NotificationDTO>(`/notifications/${id}/respond`, body),
 };
 
 export const mailService = {
@@ -472,6 +494,8 @@ export const opportunityService = {
   get: (id: string) => api.get<any>(`/opportunities/${id}`),
   assignees: () => api.get<Array<{ id: string; name: string; divisionIds: string[] }>>('/opportunities/assignees'),
   create: (body: OpportunityCreateInput) => api.post<any>('/opportunities', body),
+  createFromActivity: (activityId: string, body: OpportunityCreateInput) =>
+    api.post<any>(`/opportunities/from-activity/${activityId}`, { ...body, sourceActivityId: activityId }),
   previewTrelloImport: (body: TrelloImportPreviewRequest) =>
     api.post<TrelloImportPreview>('/opportunities/imports/trello/preview', body),
   commitTrelloImport: (body: TrelloImportCommitRequest) =>

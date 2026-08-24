@@ -32,12 +32,19 @@ describe("CompanyDetailDialog fırsat dışı aktiviteler", () => {
     expect(source).toContain("customerId={customer.id}");
   });
 
-  it("firma kartında yalnız fırsata bağlı olmayan aktiviteleri listeler", () => {
+  it("aktivite sekmesinde tüm temasları listeler, fırsat dışı olanları etiketler", () => {
     const source = readFileSync(new URL("./DetailDialogs.tsx", import.meta.url), "utf8");
 
     expect(source).toContain("activity.customerId === customer.id && !activity.salesCaseId");
     expect(source).toContain('hasPermission("activities.read")');
-    expect(source).toContain("Fırsat Dışı Aktiviteler ({firmStandaloneActivities.length})");
-    expect(source).toContain("Bu firmaya ait fırsat dışı aktivite yok.");
+    expect(source).toContain("Aktiviteler ({firmActivities.length})");
+    expect(source).toContain("isStandaloneActivity(activity) && <NonOpportunityBadge />");
+    expect(source).toContain("Bu firmaya ait aktivite yok.");
+  });
+
+  it("fırsat dışı aktiviteyi fırsata dönüştürme düğmesi sunar", () => {
+    const source = readFileSync(new URL("./DetailDialogs.tsx", import.meta.url), "utf8");
+
+    expect(source).toContain("<ConvertActivityToOpportunity activity={activity}");
   });
 });

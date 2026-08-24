@@ -8,7 +8,7 @@ import { Button } from "../ui/button";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "../ui/select";
-import { Search, LocateFixed, Navigation, Phone, Building2, MapPin, AlertCircle, Crosshair, X, RotateCcw, Route as RouteIcon, Plus, Check } from "lucide-react";
+import { Search, LocateFixed, Navigation, Phone, Building2, MapPin, AlertCircle, Crosshair, X, RotateCcw, Route as RouteIcon, Plus, Check, BellRing, CalendarPlus } from "lucide-react";
 import { Customer, FirmType } from "../../lib/mock";
 import { useExplicitFullCompanyDirectory } from "../../lib/companyServerData";
 import { coordsForCity, haversineKm, openDirections, centroidForProvince, PROVINCE_NAMES, TURKEY_CENTER, type LatLng } from "../../lib/geo";
@@ -16,7 +16,8 @@ import { usePersistentState } from "../../lib/persist";
 import { companyService } from "../../../lib/services";
 import { OsmCompanySearch } from "../company/OsmCompanySearch";
 import { toast } from "sonner";
-import type { CompanyOsmSearchResult } from "@haksan/shared";
+import type { CompanyOsmSearchResult, NearbyStaleVisitCompany } from "@haksan/shared";
+import { LogActivityDialog } from "../dialogs/CreateDialogs";
 
 const FIRM_TYPE_LABEL: Record<FirmType, string> = {
   customer: "Müşteri",
@@ -211,6 +212,7 @@ export function SalesMapPage({ initialQuery }: { initialQuery?: string }) {
   const [tileLoadFailed, setTileLoadFailed] = useState(false);
   const [route, setRoute] = usePersistentState<string[]>("salesmap.route", []);
   const watchdog = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [staleNearby, setStaleNearby] = useState<NearbyStaleVisitCompany[]>([]);
 
   const toggleRouteStop = (id: string) =>
     setRoute((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
@@ -379,6 +381,41 @@ export function SalesMapPage({ initialQuery }: { initialQuery?: string }) {
       { enableHighAccuracy: false, timeout: 12000, maximumAge: 300000 }
     );
   };
+
+  /**
+   * Saha hatırlatması: konum bilinince, yakında olup uzun süredir uğranmamış
+   * firmaları sunucudan sorar. Bildirim (zil + mobil push) yalnızca konum
+   * gerçekten GPS'ten geldiyse üretilir — kalıcı saklanan eski bir pin ya da
+   * elle seçilen il merkezi "oradayım" demek için yeterli kanıt değil.
+   */
+  useEffect(() => {
+    if (!userPos) {
+      setStaleNearby([]);
+      return;
+    }
+    let alive = true;
+    companyService
+      .nearbyStaleVisits({
+        latitude: userPos.lat,
+        longitude: userPos.lng,
+        notify: geoMeta?.source === "gps",
+      })
+      .then((res) => {
+        if (!alive) return;
+        setStaleNearby(res.companies);
+        if (geoMeta?.source === "gps" && res.companies.length > 0) {
+          toast.warning(`Yakınınızda ${res.companies.length} firma ${res.staleDays}+ gündür ziyaret edilmemiş`, {
+            description: res.companies.map((c) => `${c.name} · ${c.distanceKm} km`).join(", "),
+          });
+        }
+      })
+      .catch(() => {
+        if (alive) setStaleNearby([]);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [userPos?.lat, userPos?.lng, geoMeta?.source]);
 
   // Eski localStorage pinlerini tek seferlik DB'ye taşı (DB'de konumu olmayanlar için).
   const migratedPins = useRef(false);
@@ -641,6 +678,57 @@ export function SalesMapPage({ initialQuery }: { initialQuery?: string }) {
           </Card>
         )}
 
+        {staleNearby.length > 0 && (
+          <Card className="border-amber-300/70 bg-amber-50/60 p-3 shadow-sm">
+            <div className="flex items-center gap-2 text-sm font-semibold text-amber-900">
+              <BellRing className="size-4" /> Yakında · uzun süredir uğranmadı
+              <span className="ml-auto rounded-full bg-amber-200/70 px-2 py-0.5 text-[11px] tabular-nums text-amber-900">
+                {staleNearby.length}
+              </span>
+            </div>
+            <p className="mt-1 text-[11px] leading-relaxed text-amber-800">
+              Yalnızca haritada kayıtlı gerçek koordinatı olan firmalar değerlendirilir.
+            </p>
+            <ul className="mt-2 space-y-1.5">
+              {staleNearby.map((firm) => (
+                <li key={firm.id} className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    className="min-w-0 flex-1 text-left"
+                    onClick={() => { setSelectedId(firm.id); setFocusedId(firm.id); }}
+                  >
+                    <span className="block truncate text-[13px] font-medium text-amber-950">{firm.name}</span>
+                    <span className="block text-[11px] text-amber-800">
+                      {firm.distanceKm} km · {firm.daysSinceVisit == null ? "hiç ziyaret kaydı yok" : `${firm.daysSinceVisit} gündür uğranmadı`}
+                    </span>
+                  </button>
+                  <LogActivityDialog
+                    customerId={firm.id}
+                    defaultKind="customer_visit"
+                    onLogged={() => setStaleNearby((rows) => rows.filter((row) => row.id !== firm.id))}
+                    trigger={
+                      <Button type="button" variant="ghost" size="icon" className="size-8 shrink-0 text-amber-900" title="Ziyaret kaydet" aria-label={`${firm.name} ziyaret kaydet`}>
+                        <CalendarPlus className="size-4" />
+                      </Button>
+                    }
+                  />
+                  <Button
+                    type="button"
+                    variant={route.includes(firm.id) ? "secondary" : "ghost"}
+                    size="icon"
+                    className="size-8 shrink-0 text-amber-900"
+                    title={route.includes(firm.id) ? "Rotadan çıkar" : "Rotaya ekle"}
+                    aria-label={route.includes(firm.id) ? `${firm.name} rotadan çıkar` : `${firm.name} rotaya ekle`}
+                    onClick={() => toggleRouteStop(firm.id)}
+                  >
+                    {route.includes(firm.id) ? <Check className="size-4" /> : <Plus className="size-4" />}
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          </Card>
+        )}
+
         {routePlan.ordered.length > 0 && (
           <Card className="border-primary/30 bg-primary/[0.03] p-3 shadow-sm">
             <div className="flex items-center justify-between gap-2">
@@ -811,23 +899,27 @@ export function SalesMapPage({ initialQuery }: { initialQuery?: string }) {
 
       {/* Sağ panel: harita */}
       <Card className="border-border/60 shadow-sm overflow-hidden p-0">
-        <div className="relative h-[72vh] min-h-[480px] w-full">
-          {tileLoadFailed && (
-            <div className="absolute inset-x-3 top-3 z-[600] rounded-md border border-amber-200 bg-amber-50/95 px-3 py-2 text-xs text-amber-800 shadow-lg backdrop-blur">
-              Harita zemini yüklenemedi. Firma pinleri çalışmaya devam eder; ağ güvenlik grubunda ve tarayıcıda
-              <b> tile.openstreetmap.org</b> HTTPS erişimini kontrol edin.
-            </div>
-          )}
-          {selectionMode && (
-            <div className="absolute left-3 top-3 z-[500] max-w-[320px] rounded-md border border-primary/20 bg-white/95 px-3 py-2 text-xs shadow-lg backdrop-blur">
-              <div className="font-medium text-primary">
-                {selectionMode.type === "user" ? "Kendi konumunuzu seçin" : "Firma pinini düzeltin"}
-              </div>
-              <div className="mt-0.5 text-muted-foreground">
-                {selectionMode.type === "user"
-                  ? "Haritada doğru noktaya tıklayın. Kendi konumunuz yalnızca bu tarayıcıda saklanır."
-                  : "Haritada doğru noktaya tıklayın. Firma pini kalıcı olarak kaydedilir ve herkes görür."}
-              </div>
+        <div className="relative h-[min(72vh,38rem)] min-h-[320px] w-full sm:min-h-[480px]">
+          {(tileLoadFailed || selectionMode) && (
+            <div className="absolute inset-x-3 top-3 z-[600] space-y-2">
+              {tileLoadFailed && (
+                <div className="rounded-md border border-amber-200 bg-amber-50/95 px-3 py-2 text-xs text-amber-800 shadow-lg backdrop-blur">
+                  Harita zemini yüklenemedi. Firma pinleri çalışmaya devam eder; ağ güvenlik grubunda ve tarayıcıda
+                  <b> tile.openstreetmap.org</b> HTTPS erişimini kontrol edin.
+                </div>
+              )}
+              {selectionMode && (
+                <div className="max-w-[320px] rounded-md border border-primary/20 bg-white/95 px-3 py-2 text-xs shadow-lg backdrop-blur">
+                  <div className="font-medium text-primary">
+                    {selectionMode.type === "user" ? "Kendi konumunuzu seçin" : "Firma pinini düzeltin"}
+                  </div>
+                  <div className="mt-0.5 text-muted-foreground">
+                    {selectionMode.type === "user"
+                      ? "Haritada doğru noktaya tıklayın. Kendi konumunuz yalnızca bu tarayıcıda saklanır."
+                      : "Haritada doğru noktaya tıklayın. Firma pini kalıcı olarak kaydedilir ve herkes görür."}
+                  </div>
+                </div>
+              )}
             </div>
           )}
           <MapContainer center={center} zoom={userPos ? 9 : 6} scrollWheelZoom style={{ height: "100%", width: "100%" }}>

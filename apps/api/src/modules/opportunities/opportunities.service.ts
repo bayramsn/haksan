@@ -47,7 +47,7 @@ import { commercialInvoices, contracts } from '../../db/schema/quotes';
 import { opportunityProcessChecks } from '../../db/schema/crm';
 import { receivables } from '../../db/schema/finance';
 import { DB } from '../../shared/database/database.module';
-import { ForbiddenError, NotFoundError, ValidationError } from '../../shared/utils/errors';
+import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from '../../shared/utils/errors';
 import type { AuthContext } from '../../shared/security/auth.types';
 import type {
   OpportunityCompanyLinkInput,
@@ -2164,6 +2164,35 @@ export class OpportunitiesService {
 
   async create(input: OpportunityCreateInput, actor: AuthContext) {
     if (input.companyId) await this.assertCompany(input.companyId, actor);
+    let sourceActivity: { id: string; companyId: string | null; opportunityId: string | null } | null = null;
+    if (input.sourceActivityId) {
+      if (!this.hasPermission(actor, 'activities.convert')) {
+        throw new ForbiddenError('Fırsat dışı aktiviteyi fırsata dönüştürme yetkisi gerekir');
+      }
+      const filters = [
+        eq(salesActivities.id, input.sourceActivityId),
+        eq(salesActivities.tenantId, actor.tenantId),
+        isNull(salesActivities.deletedAt),
+        resourceDivisionFilter(actor, 'activities', salesActivities.divisionId) ?? sql`true`,
+      ];
+      const activityVisibility = await companyVisibilityExistsFilter(this.db, actor, salesActivities.companyId);
+      filters.push(allowUnlinkedCompanyRecords(salesActivities.companyId, activityVisibility));
+      const [activity] = await this.db
+        .select({
+          id: salesActivities.id,
+          companyId: salesActivities.companyId,
+          opportunityId: salesActivities.opportunityId,
+        })
+        .from(salesActivities)
+        .where(and(...filters))
+        .limit(1);
+      if (!activity) throw new NotFoundError('Fırsat dışı aktivite');
+      if (activity.opportunityId) throw new ConflictError('Bu aktivite zaten bir fırsata bağlı');
+      if (!input.companyId || activity.companyId !== input.companyId) {
+        throw new ValidationError('Aktivite yalnızca kendi firmasındaki bir fırsata dönüştürülebilir');
+      }
+      sourceActivity = activity;
+    }
     if (input.primaryContactId) {
       if (!input.companyId) throw new ValidationError('Kontak bağlamak için önce firma seçilmelidir');
       await this.assertContact(input.primaryContactId, actor, input.companyId);
@@ -2181,6 +2210,9 @@ export class OpportunitiesService {
     const entryStage = await this.stageRowByCode(QUALIFICATION_STAGE_ENTRY.lead.stage);
     const currencyId = await lookupIdByCode(this.db, currencies, input.currencyCode);
     const sourceId = await lookupIdByCode(this.db, contactSources, input.sourceCode);
+    const disqualifyReasonId = input.disqualifyReasonCode
+      ? (await this.resolveCancellationReason(input.disqualifyReasonCode.trim(), actor)).id
+      : null;
     const openStatus = await this.db.query.opportunityStatuses.findFirst({ where: eq(opportunityStatuses.code, 'open') });
     const divisionId = resolveAssignedResourceDivision(actor, 'opportunities', input.divisionId ?? null);
     if (!divisionId && (await this.tenantHasActiveDivisions(actor))) {
@@ -2196,9 +2228,10 @@ export class OpportunitiesService {
           sourceCode: input.sourceCode,
         });
 
-    const [row] = await this.db
-      .insert(opportunities)
-      .values({
+    const row = await this.db.transaction(async (tx) => {
+      const [created] = await tx
+        .insert(opportunities)
+        .values({
         tenantId: actor.tenantId,
         divisionId,
         companyId: input.companyId ?? null,
@@ -2223,9 +2256,7 @@ export class OpportunitiesService {
         leadFollowUpStatus: input.leadFollowUpStatus ?? 'new',
         // SLA saati kartın havuza düştüğü andan itibaren işler.
         leadStatusUpdatedAt: new Date(),
-        disqualifyReasonId: input.disqualifyReasonCode
-          ? (await this.resolveCancellationReason(input.disqualifyReasonCode.trim(), actor)).id
-          : null,
+        disqualifyReasonId,
         nextAction: input.nextAction?.trim() || null,
         nextActionAt: input.nextActionAt ?? null,
         currentStageId: entryStage.id,
@@ -2245,23 +2276,47 @@ export class OpportunitiesService {
         statusId: openStatus?.id ?? null,
         createdBy: actor.userId,
         updatedBy: actor.userId,
-      })
-      .returning();
-    await this.db.insert(opportunityStageHistory).values({
-      tenantId: actor.tenantId,
-      opportunityId: row.id,
-      fromStageId: null,
-      toStageId: entryStage.id,
-      changedBy: actor.userId,
-      changeReason: 'Fırsat oluşturuldu (Lead adımı)',
-    });
-    await this.db.insert(opportunityQualificationHistory).values({
-      tenantId: actor.tenantId,
-      opportunityId: row.id,
-      fromStage: null,
-      toStage: 'lead',
-      changedBy: actor.userId,
-      changeReason: 'Fırsat oluşturuldu (Lead adımı)',
+        })
+        .returning();
+      await tx.insert(opportunityStageHistory).values({
+        tenantId: actor.tenantId,
+        opportunityId: created.id,
+        fromStageId: null,
+        toStageId: entryStage.id,
+        changedBy: actor.userId,
+        changeReason: sourceActivity ? 'Fırsat dışı aktiviteden oluşturuldu (Lead adımı)' : 'Fırsat oluşturuldu (Lead adımı)',
+      });
+      await tx.insert(opportunityQualificationHistory).values({
+        tenantId: actor.tenantId,
+        opportunityId: created.id,
+        fromStage: null,
+        toStage: 'lead',
+        changedBy: actor.userId,
+        changeReason: sourceActivity ? 'Fırsat dışı aktiviteden oluşturuldu (Lead adımı)' : 'Fırsat oluşturuldu (Lead adımı)',
+      });
+
+      if (sourceActivity) {
+        const [linked] = await tx
+          .update(salesActivities)
+          .set({
+            opportunityId: created.id,
+            divisionId,
+            updatedAt: new Date(),
+          })
+          .where(
+            and(
+              eq(salesActivities.id, sourceActivity.id),
+              eq(salesActivities.tenantId, actor.tenantId),
+              eq(salesActivities.companyId, input.companyId!),
+              isNull(salesActivities.opportunityId),
+              isNull(salesActivities.deletedAt),
+            ),
+          )
+          .returning({ id: salesActivities.id });
+        if (!linked) throw new ConflictError('Aktivite başka bir fırsata taşındı; yeni fırsat oluşturulmadı');
+      }
+
+      return created;
     });
     await this.audit.write({
       tenantId: actor.tenantId,
@@ -2269,7 +2324,12 @@ export class OpportunitiesService {
       action: 'opportunity.created',
       resourceType: 'opportunity',
       resourceId: row.id,
-      newValues: { title: row.title, ownerUserId: row.ownerUserId, assignmentRuleId: assignment.ruleId },
+      newValues: {
+        title: row.title,
+        ownerUserId: row.ownerUserId,
+        assignmentRuleId: assignment.ruleId,
+        sourceActivityId: sourceActivity?.id ?? null,
+      },
     });
     if (!row.ownerUserId) {
       await this.notifyUnassignedLead(row.id, row.title, actor.tenantId, divisionId);

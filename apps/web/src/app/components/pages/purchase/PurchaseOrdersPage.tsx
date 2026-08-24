@@ -286,7 +286,7 @@ export function PurchaseOrdersPage() {
                         <Button
                           variant="ghost"
                           size="icon"
-                          className="size-7 opacity-0 group-hover:opacity-100 sm:opacity-100"
+                          className="size-8 opacity-100 md:size-7 md:opacity-0 md:group-hover:opacity-100"
                           title="Satın alma detayı"
                           onClick={(event) => {
                             event.stopPropagation();
@@ -852,8 +852,8 @@ function CreatePurchaseOrderDialog({ onCreated }: { onCreated: () => void }) {
             </div>
           </div>
 
-          <div className="rounded-lg border border-border/60 overflow-x-auto">
-            <div className="grid min-w-[1280px] grid-cols-[320px_280px_80px_120px_120px_105px_96px_130px_40px] gap-2 bg-muted/30 px-3 py-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+          <div className="overflow-x-hidden rounded-lg border border-border/60 md:overflow-x-auto">
+            <div className="hidden min-w-[1280px] grid-cols-[320px_280px_80px_120px_120px_105px_96px_130px_40px] gap-2 bg-muted/30 px-3 py-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground md:grid">
               <div>{form.purchaseType === "commercial" ? "Ürün" : "Gider Türü"}</div>
               <div>Açıklama</div>
               <div>Adet</div>
@@ -868,7 +868,7 @@ function CreatePurchaseOrderDialog({ onCreated }: { onCreated: () => void }) {
               {form.lines.map((line, index) => {
                 const t = lineTotals(line);
                 return (
-                  <div key={index} className="grid min-w-[1280px] grid-cols-[320px_280px_80px_120px_120px_105px_96px_130px_40px] gap-2 px-3 py-2 items-center">
+                  <div key={index} className="grid grid-cols-2 items-end gap-2 px-3 py-3 md:min-w-[1280px] md:grid-cols-[320px_280px_80px_120px_120px_105px_96px_130px_40px] md:items-center md:py-2">
                     {form.purchaseType === "commercial" ? (
                       <Select value={line.productModelId || "__none"} onValueChange={(value) => {
                         if (value === "__none") {
@@ -913,8 +913,8 @@ function CreatePurchaseOrderDialog({ onCreated }: { onCreated: () => void }) {
                         {VAT_OPTIONS.map((rate) => <SelectItem key={rate} value={rate}>%{rate}</SelectItem>)}
                       </SelectContent>
                     </Select>
-                    <div className="text-right text-sm tabular-nums">{formatCurrency(t.total, form.currencyCode)}</div>
-                    <Button type="button" variant="ghost" size="icon" aria-label={`Kalem ${index + 1} satırını sil`} title="Kalemi sil" className="size-8" onClick={() => removeLine(index)}>
+                    <div className="text-right text-sm tabular-nums"><span className="mb-1 block text-[10px] text-muted-foreground md:hidden">Son Tutar</span>{formatCurrency(t.total, form.currencyCode)}</div>
+                    <Button type="button" variant="ghost" size="icon" aria-label={`Kalem ${index + 1} satırını sil`} title="Kalemi sil" className="size-11 justify-self-end md:size-8" onClick={() => removeLine(index)}>
                       <Trash2 className="size-4" />
                     </Button>
                   </div>
@@ -923,7 +923,7 @@ function CreatePurchaseOrderDialog({ onCreated }: { onCreated: () => void }) {
             </div>
           </div>
 
-          <div className="flex items-start justify-between gap-4">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
             <Button type="button" variant="outline" size="sm" className="gap-1" onClick={addLine}>
               <Plus className="size-4" /> Kalem Ekle
             </Button>

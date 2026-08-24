@@ -23,6 +23,7 @@ import { ExportExcelButton } from "../ui/ExportExcelButton";
 import { type OperationAction, type OperationFocus } from "../../lib/operations";
 import { EntityVisual } from "../shared/PremiumPrimitives";
 import { EmptyState } from "../shared/EmptyState";
+import { LostOpportunityDetailsDialog } from "../shared/LostOpportunityDetails";
 import { InputGroup, InputGroupAddon, InputGroupInput } from "../ui/input-group";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription,
@@ -286,7 +287,7 @@ export function SalesCasesPage({
           <Table className="min-w-[980px]">
             <TableHeader>
               <TableRow className="bg-muted/30 hover:bg-muted/30">
-                <TableHead className="sticky left-0 z-20 w-[320px] min-w-[320px] bg-muted">
+                <TableHead className="w-[240px] min-w-[240px] bg-muted md:sticky md:left-0 md:z-20 md:w-[320px] md:min-w-[320px]">
                   <button
                     type="button"
                     className="inline-flex items-center gap-1 hover:text-foreground"
@@ -318,7 +319,7 @@ export function SalesCasesPage({
                   [s.leadContactMethodName, s.leadContactValue].filter(Boolean).join(" · ");
                 return (
                   <TableRow key={s.id} className="cursor-pointer group" onClick={() => onSelect(s)}>
-                    <TableCell className="crm-sticky-cell sticky left-0 z-10 border-r border-border/60">
+                    <TableCell className="crm-sticky-cell border-r border-border/60 md:sticky md:left-0 md:z-10">
                       <div className="flex items-center gap-3 min-w-0">
                         <EntityVisual size="sm" title={s.requestedModel || s.requestedProduct} imageUrl={product?.imageUrl} icon={<Cpu className="size-4" />} />
                         <div className="min-w-0">
@@ -352,6 +353,23 @@ export function SalesCasesPage({
                       <div className="space-y-1">
                         <QualificationBadge stage={s.qualificationStage} />
                         <div className="text-xs text-muted-foreground">Operasyon: {salesStageLabel(s.stage)}</div>
+                        {s.qualificationStage === "lost" && (
+                          <LostOpportunityDetailsDialog
+                            salesCase={s}
+                            companyName={partyName}
+                            trigger={(
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                className="h-8 px-2 text-xs text-destructive"
+                                onClick={(event) => event.stopPropagation()}
+                              >
+                                Kayıp Ayrıntısını Oku
+                              </Button>
+                            )}
+                          />
+                        )}
                       </div>
                     </TableCell>
                     {showLostDetails && (
@@ -516,6 +534,21 @@ export function SalesCasesPage({
                               <div className="text-destructive">{s.lostReason || s.lostReasonCode || "Neden belirtilmedi"}</div>
                               <div>Rakip: {[s.competitor, s.lostCompetitorProductModel].filter(Boolean).join(" · ") || "yok / bilinmiyor"}</div>
                               <div className="line-clamp-2">Uymayan şartlar: {s.lostUnmetConditions || s.qualificationNote || "belirtilmedi"}</div>
+                              <LostOpportunityDetailsDialog
+                                salesCase={s}
+                                companyName={salesCasePartyName(s, c)}
+                                trigger={(
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    className="mt-2 h-8 gap-1.5 text-xs"
+                                    onClick={(event) => event.stopPropagation()}
+                                  >
+                                    Ayrıntıyı Oku
+                                  </Button>
+                                )}
+                              />
                             </div>
                           )}
                         </TableCell>

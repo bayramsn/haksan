@@ -262,7 +262,7 @@ export function ProductSpecGroupManagerDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="grid min-h-[470px] overflow-hidden rounded-lg border border-border/70 bg-white md:grid-cols-[300px_minmax(0,1fr)]">
+        <div className="grid min-h-0 overflow-hidden rounded-lg border border-border/70 bg-white md:min-h-[470px] md:grid-cols-[300px_minmax(0,1fr)]">
           <aside className="border-b border-border/70 bg-muted/15 md:border-b-0 md:border-r">
             <div className="space-y-2 border-b border-border/60 p-3">
               <div className="relative">

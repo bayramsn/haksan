@@ -10,4 +10,13 @@ describe("teklif PDF adresi düzenleme", () => {
     expect(source.match(/companyAddressId: resolvedCompanyAddressId \|\| undefined/g)).toHaveLength(2);
     expect(source).toContain("Firma Bilgilerini Kaydet");
   });
+
+  it("ürün kaskadındaki alt kategori, grup ve tip seçeneklerini gerçek ürün kapsamına daraltır", () => {
+    const source = readFileSync(new URL("./QuoteDialog.tsx", import.meta.url), "utf8");
+
+    expect(source).toContain("productsForSubcategories");
+    expect(source).toContain("availableSubcategoryCodes.has(option.code)");
+    expect(source).toContain("availableGroupCodes.has(option.code)");
+    expect(source).toContain("availableTypeCodes.has(option.code)");
+  });
 });

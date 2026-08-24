@@ -21,6 +21,7 @@ import {
 import { useStore } from "../../lib/store";
 import { StatusBadge } from "../shared/StatusBadge";
 import { CompanyFinancePanel } from "../shared/CompanyFinancePanel";
+import { ActivityDetailDialog, canViewStandaloneActivities, ConvertActivityToOpportunity, NonOpportunityBadge, isStandaloneActivity } from "../shared/StandaloneActivity";
 import { CreateCaseDialog, CreateContactDialog, EditContactDialog, EditCustomerDialog, LogActivityDialog } from "./CreateDialogs";
 import { CreateContractDialog } from "./CreateContractDialog";
 import { CreateProformaDialog } from "./CreateProformaDialog";
@@ -156,8 +157,8 @@ function CompanyQuickActions({
   if (!canOpportunity && !canActivity && !canQuote && !canProforma && !canContract) return null;
 
   return (
-    <div className="mt-4 flex flex-wrap items-center gap-2 rounded-lg border border-primary/15 bg-primary/[0.03] px-3 py-2.5">
-      <span className="mr-1 font-data text-[9px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+    <div className="mt-4 grid grid-cols-1 gap-2 rounded-lg border border-primary/15 bg-primary/[0.03] px-3 py-2.5 min-[420px]:grid-cols-2 sm:flex sm:flex-wrap sm:items-center">
+      <span className="font-data text-[9px] font-semibold uppercase tracking-[0.12em] text-muted-foreground min-[420px]:col-span-2 sm:col-auto sm:mr-1">
         Hızlı aksiyon
       </span>
 
@@ -165,7 +166,7 @@ function CompanyQuickActions({
         <CreateCaseDialog
           defaultCustomerId={customer.id}
           trigger={
-            <Button size="sm" variant="outline" className="h-8 gap-1.5 bg-white text-xs">
+            <Button size="sm" variant="outline" className="min-h-11 w-full justify-start gap-1.5 whitespace-normal bg-white text-xs sm:h-8 sm:min-h-0 sm:w-auto sm:justify-center sm:whitespace-nowrap">
               <Briefcase className="size-3.5" /> Satış Kartı
             </Button>
           }
@@ -177,7 +178,7 @@ function CompanyQuickActions({
           customerId={customer.id}
           defaultKind="customer_visit"
           trigger={
-            <Button size="sm" variant="outline" className="h-8 gap-1.5 bg-white text-xs">
+            <Button size="sm" variant="outline" className="min-h-11 w-full justify-start gap-1.5 whitespace-normal bg-white text-xs sm:h-8 sm:min-h-0 sm:w-auto sm:justify-center sm:whitespace-nowrap">
               <CalendarPlus className="size-3.5" /> Fırsat Dışı Aktivite
             </Button>
           }
@@ -189,7 +190,7 @@ function CompanyQuickActions({
           <Button
             size="sm"
             variant="outline"
-            className="h-8 gap-1.5 bg-white text-xs"
+            className="min-h-11 w-full justify-start gap-1.5 whitespace-normal bg-white text-xs sm:h-8 sm:min-h-0 sm:w-auto sm:justify-center sm:whitespace-nowrap"
             onClick={() => setQuoteOpen(true)}
           >
             <FileText className="size-3.5" /> Teklif
@@ -203,7 +204,7 @@ function CompanyQuickActions({
           <Button
             size="sm"
             variant="outline"
-            className="h-8 gap-1.5 bg-white text-xs"
+            className="min-h-11 w-full justify-start gap-1.5 whitespace-normal bg-white text-xs sm:h-8 sm:min-h-0 sm:w-auto sm:justify-center sm:whitespace-nowrap"
             onClick={() => setProformaOpen(true)}
           >
             <FileText className="size-3.5" /> Proforma
@@ -221,7 +222,7 @@ function CompanyQuickActions({
           <Button
             size="sm"
             variant="outline"
-            className="h-8 gap-1.5 bg-white text-xs"
+            className="min-h-11 w-full justify-start gap-1.5 whitespace-normal bg-white text-xs sm:h-8 sm:min-h-0 sm:w-auto sm:justify-center sm:whitespace-nowrap"
             onClick={() => setContractOpen(true)}
           >
             <FileText className="size-3.5" /> Sözleşme
@@ -235,7 +236,7 @@ function CompanyQuickActions({
       )}
 
       {(canProforma || canContract) && !latestQuoteId && (
-        <span className="text-[10px] text-muted-foreground">
+        <span className="text-[10px] text-muted-foreground min-[420px]:col-span-2 sm:col-auto">
           Proforma/sözleşme bir teklife bağlanır — bu firmanın teklifi yok, diyalogda seçmeniz gerekir.
         </span>
       )}
@@ -287,9 +288,14 @@ export function CompanyDetailDialog({
   const firmDocs = documents.filter((d) => d.companyId === customer.id || (d.salesCaseId && caseIds.has(d.salesCaseId)));
   const firmProformas = firmDocs.filter((d) => d.type === "Proforma");
   const firmPayments = payments.filter((p) => p.customerId === customer.id);
-  // Firma kartındaki bu alan özellikle herhangi bir satış fırsatına bağlı
-  // olmayan temasları gösterir. Fırsata bağlı aktiviteler satış kartında kalır.
-  const firmStandaloneActivities = activities.filter(
+  // Aktivite sekmesi firmanın tüm temaslarını tek akışta gösterir; fırsata bağlı
+  // olmayanlar "Fırsat Dışı Aktivite" etiketiyle ayrışır ve tek tıkla fırsata
+  // dönüştürülebilir.
+  const canViewStandalone = canViewStandaloneActivities(user?.roles);
+  const firmActivities = activities.filter(
+    (activity) => activity.customerId === customer.id && (!isStandaloneActivity(activity) || canViewStandalone),
+  );
+  const firmStandaloneActivities = firmActivities.filter(
     (activity) => activity.customerId === customer.id && !activity.salesCaseId,
   );
   const firmMachines = machines.filter((m) => m.customerId === customer.id);
@@ -343,7 +349,7 @@ export function CompanyDetailDialog({
       <DialogContent className="sm:max-w-3xl max-h-[88vh] overflow-y-auto p-0 gap-0">
         {/* header */}
         <DialogHeader className="border-b border-border/60 px-4 pb-4 pt-6 sm:px-6">
-          <div className="flex items-start gap-3">
+          <div className="flex flex-wrap items-start gap-3">
             <div className={`size-11 rounded-xl grid place-items-center shrink-0 ${
               customer.type === "company"
                 ? "bg-gradient-to-br from-primary/15 to-primary/5 text-primary"
@@ -372,30 +378,32 @@ export function CompanyDetailDialog({
                 <span className="text-muted-foreground">{customer.type === "company" ? "Kurumsal" : "Bireysel"}</span>
               </DialogDescription>
             </div>
-            {hasPermission("companies.update") && onEdit && (
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="h-8 shrink-0 gap-1.5 bg-white text-xs"
-                onClick={() => onEdit(customer)}
-              >
-                <Pencil className="size-3.5" /> Firma Düzenle
-              </Button>
-            )}
-            {onOpenFullDetail && (
-              <Button
-                type="button"
-                size="sm"
-                className="h-8 shrink-0 gap-1.5 text-xs"
-                onClick={() => {
-                  onClose();
-                  onOpenFullDetail(customer);
-                }}
-              >
-                <ChevronRight className="size-3.5" /> Müşteri Detayına Git
-              </Button>
-            )}
+            <div className="order-3 flex w-full flex-col gap-2 min-[420px]:flex-row sm:order-none sm:w-auto">
+              {hasPermission("companies.update") && onEdit && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="min-h-11 flex-1 shrink-0 gap-1.5 whitespace-normal bg-white text-xs sm:h-8 sm:min-h-0 sm:flex-none"
+                  onClick={() => onEdit(customer)}
+                >
+                  <Pencil className="size-3.5" /> Firma Düzenle
+                </Button>
+              )}
+              {onOpenFullDetail && (
+                <Button
+                  type="button"
+                  size="sm"
+                  className="min-h-11 flex-1 shrink-0 gap-1.5 whitespace-normal text-xs sm:h-8 sm:min-h-0 sm:flex-none"
+                  onClick={() => {
+                    onClose();
+                    onOpenFullDetail(customer);
+                  }}
+                >
+                  <ChevronRight className="size-3.5" /> Müşteri Detayına Git
+                </Button>
+              )}
+            </div>
           </div>
 
           {/* Aksiyonlar — firmadan doğrudan satış kartı / teklif / proforma / sözleşme açılır. */}
@@ -475,7 +483,7 @@ export function CompanyDetailDialog({
         </DialogHeader>
 
         {/* KPI tiles — her biri tıklanınca ilgili kayıtlar pop-up olarak açılır */}
-        <div className="grid grid-cols-3 gap-2.5 px-4 py-4 sm:px-6">
+        <div className="grid grid-cols-1 gap-2.5 px-4 py-4 min-[420px]:grid-cols-3 sm:px-6">
           <Stat icon={<UserIcon className="size-3.5" />} label="Kontak" value={firmContactsQuery.isPending ? "…" : firmContactCount} accent="text-indigo-600" onClick={() => setBreakdown("contacts")} />
           <Stat icon={<Briefcase className="size-3.5" />} label="Satış Kartı" value={firmCases.length} accent="text-sky-600" onClick={() => setBreakdown("cases")} />
           <Stat icon={<FileText className="size-3.5" />} label="Teklif" value={firmOffers.length} accent="text-blue-600" onClick={() => setBreakdown("offers")} />
@@ -499,13 +507,13 @@ export function CompanyDetailDialog({
         {/* tabs */}
         <div className="px-4 pb-6 sm:px-6">
           <Tabs defaultValue="kontaklar">
-            <TabsList className="h-auto flex-wrap justify-start bg-muted/60">
+            <TabsList className="flex-nowrap justify-start bg-muted/60">
               <TabsTrigger value="kontaklar">Kontaklar ({firmContactsQuery.isPending ? "…" : firmContactCount})</TabsTrigger>
               <TabsTrigger value="satis">Satış ({firmCases.length})</TabsTrigger>
               <TabsTrigger value="teklif">Teklifler ({firmOffers.length})</TabsTrigger>
               <TabsTrigger value="dokuman">Dökümanlar ({firmDocs.length})</TabsTrigger>
               {canReadActivities && (
-                <TabsTrigger value="aktivite">Fırsat Dışı Aktiviteler ({firmStandaloneActivities.length})</TabsTrigger>
+                <TabsTrigger value="aktivite">Aktiviteler ({firmActivities.length})</TabsTrigger>
               )}
               <TabsTrigger value="cari">Cari ({firmPayments.length})</TabsTrigger>
               <TabsTrigger value="makine">Makineler ({firmMachines.length})</TabsTrigger>
@@ -603,10 +611,13 @@ export function CompanyDetailDialog({
               </div>
             </TabsContent>
 
-            {/* activities recorded directly against the company, without an opportunity */}
+            {/* firmanın tüm aktiviteleri; fırsat dışı olanlar etiketli */}
             {canReadActivities && (
               <TabsContent value="aktivite" className="mt-3">
-                <div className="mb-2 flex justify-end">
+                <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                  <span className="text-xs text-muted-foreground">
+                    {firmStandaloneActivities.length} fırsat dışı aktivite
+                  </span>
                   {hasPermission("activities.create") && (
                     <LogActivityDialog
                       customerId={customer.id}
@@ -627,15 +638,19 @@ export function CompanyDetailDialog({
                         <TableHead>Tür</TableHead>
                         <TableHead>Aktivite</TableHead>
                         <TableHead>Kaydeden</TableHead>
+                        <TableHead className="w-10" />
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {firmStandaloneActivities.map((activity) => (
+                      {firmActivities.map((activity) => (
                         <TableRow key={activity.id}>
                           <TableCell className="whitespace-nowrap tabular-nums text-muted-foreground">{activity.date}</TableCell>
                           <TableCell className="whitespace-nowrap">{activity.type || "Aktivite"}</TableCell>
                           <TableCell>
-                            <div className="font-medium">{activity.title}</div>
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="font-medium">{activity.title}</span>
+                              {isStandaloneActivity(activity) && <NonOpportunityBadge />}
+                            </div>
                             {activity.note && (
                               <div className="mt-0.5 whitespace-pre-wrap text-xs leading-relaxed text-muted-foreground">
                                 {activity.note}
@@ -646,10 +661,16 @@ export function CompanyDetailDialog({
                             )}
                           </TableCell>
                           <TableCell className="text-muted-foreground">{activity.createdByName || "—"}</TableCell>
+                          <TableCell className="text-right">
+                            <div className="flex items-center justify-end gap-1">
+                              <ActivityDetailDialog activity={activity} showConvert={false} />
+                              <ConvertActivityToOpportunity activity={activity} size="icon" />
+                            </div>
+                          </TableCell>
                         </TableRow>
                       ))}
-                      {firmStandaloneActivities.length === 0 && (
-                        <EmptyRow cols={4} text="Bu firmaya ait fırsat dışı aktivite yok." />
+                      {firmActivities.length === 0 && (
+                        <EmptyRow cols={5} text="Bu firmaya ait aktivite yok." />
                       )}
                     </TableBody>
                   </Table>

@@ -64,6 +64,7 @@ import { KanbanDetailDialogShell } from "../shared/KanbanDetailDialogShell";
 import { fileService, opportunityService, quoteService, salesOrderService, financeService } from "../../../lib/services";
 import { toast } from "sonner";
 import { OpportunityWorkspace } from "./OpportunityWorkspace";
+import { ActivityDetailDialog } from "../shared/StandaloneActivity";
 import { focusWorkspaceTarget } from "../../lib/workspaceFocus";
 import { DocumentTermsTemplateEditor, type TermsValue } from "../dialogs/DocumentTermsTemplateEditor";
 import { shouldUseSimpleOpportunityExperience } from "../../lib/opportunityExperience";
@@ -259,10 +260,19 @@ function OpportunityPartyDialog({
                       </div>
                       <time className="shrink-0 text-xs tabular-nums text-muted-foreground">{activity.date || "Tarih yok"}</time>
                     </div>
-                    {(activity.note || activity.result) && (
-                      <p className="mt-1.5 whitespace-pre-wrap text-sm leading-relaxed text-muted-foreground">{activity.note || activity.result}</p>
+                    {activity.note && (
+                      <p className="mt-1.5 whitespace-pre-wrap text-sm leading-relaxed text-muted-foreground">{activity.note}</p>
                     )}
-                    <div className="mt-1.5 text-[11px] text-muted-foreground">{[activity.type, owner].filter(Boolean).join(" · ")}</div>
+                    {activity.result && activity.result !== activity.note && (
+                      <p className="mt-1 text-sm leading-relaxed text-muted-foreground">Sonuç: {activity.result}</p>
+                    )}
+                    <div className="mt-1.5 flex flex-wrap items-center justify-between gap-2">
+                      <div className="text-[11px] text-muted-foreground">{[activity.type, owner].filter(Boolean).join(" · ")}</div>
+                      <ActivityDetailDialog
+                        activity={activity}
+                        trigger={<Button type="button" variant="ghost" size="sm" className="h-8 px-2 text-xs">Ayrıntıyı Oku</Button>}
+                      />
+                    </div>
                   </li>
                 );
               })}

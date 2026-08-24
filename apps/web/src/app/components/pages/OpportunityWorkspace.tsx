@@ -54,6 +54,12 @@ import { DocumentDetailDialog } from "../dialogs/DocumentDetailDialog";
 import { DocumentPreviewDialog } from "../dialogs/DocumentPreviewDialog";
 import { EditContractTermsDialog, SignedContractUploadDialog } from "../dialogs/ContractActionsDialogs";
 import type { DocumentItem } from "../../lib/mock";
+import { ActivityDetailDialog } from "../shared/StandaloneActivity";
+import {
+  LostOpportunityDetails,
+  LostOpportunityDetailsDialog,
+  lostTimelineDetail,
+} from "../shared/LostOpportunityDetails";
 
 /**
  * Fırsat / lead çalışma alanı.
@@ -372,7 +378,7 @@ export function OpportunityWorkspace({
     const visibleActivities = isLead
       ? opportunityActivities
       : opportunityActivities.filter(isOpportunityTimelineActivity);
-    return visibleActivities
+    const activityItems = visibleActivities
       .map((activity) => {
         const isComment = isManualTimelineComment(activity);
         return {
@@ -385,9 +391,20 @@ export function OpportunityWorkspace({
           detail: [activity.note, activity.result].filter(Boolean).join(" · "),
           actor: activity.createdByName || users.find((item) => item.id === activity.byUserId)?.name,
         };
-      })
+      });
+    const lostItems = (detail?.qualificationHistory ?? [])
+      .filter((history) => history.toStage === "lost")
+      .map((history) => ({
+        id: `qualification-${history.id}`,
+        date: history.createdAt,
+        category: "process" as const,
+        categoryLabel: "LOST",
+        title: "Fırsat kaybedildi",
+        detail: lostTimelineDetail(sc),
+      }));
+    return [...activityItems, ...lostItems]
       .sort((a, b) => timelineTime(b.date) - timelineTime(a.date));
-  }, [isLead, opportunityActivities, users]);
+  }, [detail?.qualificationHistory, isLead, opportunityActivities, sc, users]);
 
   /**
    * Salt okunur sistem olayları. Aktivite akışının altında kendi küçük
@@ -403,7 +420,7 @@ export function OpportunityWorkspace({
       title: `Operasyon aşaması: ${history.toStage?.name ?? salesStageLabel(history.toStage?.code ?? history.toStageCode ?? "güncellendi")}`,
       detail: history.changeReason ?? history.notes ?? undefined,
     }));
-    (detail?.qualificationHistory ?? []).forEach((history) => items.push({
+    (detail?.qualificationHistory ?? []).filter((history) => history.toStage !== "lost").forEach((history) => items.push({
       id: `qualification-${history.id}`,
       date: history.createdAt,
       category: "process",
@@ -558,12 +575,22 @@ export function OpportunityWorkspace({
             focusedId={focusedActivityId ? `activity-${focusedActivityId}` : null}
             formatDate={formatDate}
             emptyLabel={isLead ? "Bu fırsat için temas kaydı yok." : "Bu fırsat için henüz aktivite veya yorum yok."}
-            renderActions={(item) => item.sourceActivityId ? (
-              <div className="flex gap-1">
-                {hasPermission("activities.update") && onEditActivity && <Button type="button" variant="ghost" size="icon" className="size-11 sm:size-8" onClick={() => onEditActivity(item.sourceActivityId!)}><Pencil className="size-3.5" /><span className="sr-only">{item.title} aktivitesini düzenle</span></Button>}
-                {hasPermission("activities.delete") && onDeleteActivity && <Button type="button" variant="ghost" size="icon" className="size-11 text-red-700 sm:size-8" onClick={() => onDeleteActivity(item.sourceActivityId!)}><Trash2 className="size-3.5" /><span className="sr-only">{item.title} aktivitesini sil</span></Button>}
-              </div>
-            ) : null}
+            renderActions={(item) => {
+              const activity = item.sourceActivityId
+                ? opportunityActivities.find((candidate) => candidate.id === item.sourceActivityId)
+                : undefined;
+              if (item.id.startsWith("qualification-") && item.categoryLabel === "LOST") {
+                return <LostOpportunityDetailsDialog salesCase={sc} companyName={customer?.name} />;
+              }
+              if (!activity) return null;
+              return (
+                <div className="flex gap-1">
+                  <ActivityDetailDialog activity={activity} showConvert={false} />
+                  {hasPermission("activities.update") && onEditActivity && <Button type="button" variant="ghost" size="icon" className="size-11 sm:size-8" onClick={() => onEditActivity(item.sourceActivityId!)}><Pencil className="size-3.5" /><span className="sr-only">{item.title} aktivitesini düzenle</span></Button>}
+                  {hasPermission("activities.delete") && onDeleteActivity && <Button type="button" variant="ghost" size="icon" className="size-11 text-red-700 sm:size-8" onClick={() => onDeleteActivity(item.sourceActivityId!)}><Trash2 className="size-3.5" /><span className="sr-only">{item.title} aktivitesini sil</span></Button>}
+                </div>
+              );
+            }}
           />
         )}
       </div>
@@ -619,6 +646,7 @@ export function OpportunityWorkspace({
         primaryAction={decisionPrimaryAction}
         variant={simpleOpportunity ? "compact" : "default"}
       />
+      {sc.isLost && <LostOpportunityDetails salesCase={sc} companyName={customer?.name} />}
       <CommercialDocumentRail
         offers={caseOffers}
         documents={caseDocuments}

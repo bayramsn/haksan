@@ -98,7 +98,7 @@ export function ShareRecordDialog({ onShare }: { onShare: (refType: ChatRefType,
               <button
                 key={r.id} type="button"
                 onClick={() => { onShare(type, r.id); setOpen(false); setSearch(""); }}
-                className="flex w-full flex-col rounded-md px-2 py-1.5 text-left text-sm hover:bg-muted"
+                className="flex min-h-11 w-full flex-col justify-center rounded-md px-2 py-1.5 text-left text-sm hover:bg-muted"
               >
                 <span className="truncate font-medium">{r.label}</span>
                 {r.sublabel && <span className="truncate text-xs text-muted-foreground">{r.sublabel}</span>}

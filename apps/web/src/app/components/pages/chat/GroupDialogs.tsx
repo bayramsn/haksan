@@ -106,7 +106,7 @@ export function NewGroupDialog({
                       key={u.id}
                       type="button"
                       onClick={() => toggle(u.id)}
-                      className={`flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-left text-sm transition-colors ${on ? "bg-primary/10" : "hover:bg-muted"}`}
+                      className={`flex min-h-11 w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-left text-sm transition-colors ${on ? "bg-primary/10" : "hover:bg-muted"}`}
                     >
                       <span className="grid size-7 shrink-0 place-items-center rounded-full bg-muted text-[11px] font-medium">
                         {initials(u.fullName)}

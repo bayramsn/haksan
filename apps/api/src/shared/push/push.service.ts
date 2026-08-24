@@ -28,8 +28,10 @@ export class PushService {
       });
   }
 
-  async removeToken(token: string): Promise<void> {
-    await this.db.delete(pushTokens).where(eq(pushTokens.token, token));
+  async removeToken(tenantId: string, userId: string, token: string): Promise<void> {
+    await this.db
+      .delete(pushTokens)
+      .where(and(eq(pushTokens.token, token), eq(pushTokens.tenantId, tenantId), eq(pushTokens.userId, userId)));
   }
 
   /** Bir kullanıcının tüm cihazlarına push gönderir. Hata halinde yutulur. */

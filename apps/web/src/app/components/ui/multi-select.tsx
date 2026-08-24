@@ -76,7 +76,7 @@ export function MultiSelect({
                     key={o.value}
                     type="button"
                     onClick={() => toggle(o.value)}
-                    className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs hover:bg-muted"
+                    className="flex min-h-11 w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs hover:bg-muted sm:min-h-0"
                   >
                     <span
                       className={`grid size-4 shrink-0 place-items-center rounded border ${
@@ -104,7 +104,7 @@ export function MultiSelect({
                 aria-label={`${labelOf(v)} seçimini kaldır`}
                 title="Seçimi kaldır"
                 onClick={() => toggle(v)}
-                className="hover:text-destructive"
+                className="-my-2 -mr-2 grid size-11 place-items-center rounded-full hover:bg-background hover:text-destructive sm:m-0 sm:size-auto"
               >
                 <X className="size-2.5" />
               </button>

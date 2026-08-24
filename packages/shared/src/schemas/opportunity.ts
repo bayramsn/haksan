@@ -38,6 +38,11 @@ export const leadContactOutcomeEnum = z.enum(LEAD_CONTACT_OUTCOMES);
 
 const opportunityInputSchema = z.object({
   companyId: z.string().min(1).nullish(),
+  /**
+   * Fırsat dışı bir aktiviteden oluşturuluyorsa aktiviteyi aynı transaction'da
+   * yeni fırsata bağlar. Genel fırsat oluşturma çağrılarında gönderilmez.
+   */
+  sourceActivityId: z.string().uuid().optional(),
   divisionId: z.string().uuid().optional(),
   primaryContactId: z.string().min(1).nullish(),
   // Null, kaydı yeniden sahipsiz havuza bırakmak için açıkça desteklenir.

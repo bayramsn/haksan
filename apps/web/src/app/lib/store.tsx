@@ -549,7 +549,7 @@ type Store = {
     c: Omit<
       SalesCase,
       'id' | 'createdAt' | 'stage' | 'qualificationStage' | 'qualificationNote' | 'qualificationReadiness' | 'isLost' | 'isOfferPrepared'
-    > & { stage?: SalesStage; divisionId?: string }
+    > & { stage?: SalesStage; divisionId?: string; sourceActivityId?: string }
   ) => Promise<SalesCase>;
   updateCase: (
     id: string,
@@ -1725,8 +1725,9 @@ function StoreInner({ children }: { children: ReactNode }) {
   };
 
   const addCase: Store['addCase'] = async (c) => {
-    const created = await opportunityService.create({
+    const payload = {
       companyId: c.customerId,
+      sourceActivityId: c.sourceActivityId,
       ownerUserId: c.assignedUserId || undefined,
       title: c.requestedProduct,
       description: c.description || undefined,
@@ -1743,7 +1744,10 @@ function StoreInner({ children }: { children: ReactNode }) {
       contractTerms: c.contractTerms ?? undefined,
       paymentTerms: c.paymentTerms ?? undefined,
       divisionId: c.divisionId || undefined,
-    });
+    };
+    const created = c.sourceActivityId
+      ? await opportunityService.createFromActivity(c.sourceActivityId, payload)
+      : await opportunityService.create(payload);
     const targetStage = c.stage === 'lead' || !c.stage ? 'sales' : c.stage;
     if (targetStage !== 'sales') {
       const code = CODE_BY_STAGE[targetStage];

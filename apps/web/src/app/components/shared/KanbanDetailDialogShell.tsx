@@ -39,11 +39,11 @@ export function KanbanDetailDialogShell({
         <div className="flex min-w-0 flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
           <div className="min-w-0">
             <div className="mb-1 font-data text-[9px] font-semibold uppercase tracking-[0.16em] text-operation-blue">Kayıt çalışma alanı</div>
-            <h2 className="font-display truncate text-2xl font-semibold leading-none tracking-[-0.01em] text-foreground">{title}</h2>
+            <h2 className="whitespace-normal break-words font-display text-2xl font-semibold leading-none tracking-[-0.01em] text-foreground sm:truncate">{title}</h2>
             {subtitle && <div className="mt-1 line-clamp-2 min-w-0 break-words text-sm text-muted-foreground">{subtitle}</div>}
             {meta && <div className="mt-3 flex flex-wrap items-center gap-2">{meta}</div>}
           </div>
-          {actions && <div className="flex shrink-0 flex-wrap items-center gap-2">{actions}</div>}
+          {actions && <div className="flex w-full shrink-0 flex-wrap items-center gap-2 lg:w-auto">{actions}</div>}
         </div>
       </div>
       <div className={cn("grid min-h-0 min-w-0 flex-1 grid-cols-1 overflow-hidden lg:grid-cols-[minmax(0,1fr)_400px]", bodyClassName)}>

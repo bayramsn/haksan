@@ -600,7 +600,7 @@ export function UserDepartmentDialog({
               <Button type="button" size="sm" variant="outline" onClick={addScope} disabled={saving}>Kapsam Ekle</Button>
             </div>
             <div className="mt-2 overflow-hidden rounded-md border border-border/60">
-              <div className="grid grid-cols-[1fr_1fr_1fr_80px_72px] gap-2 border-b bg-muted/40 px-3 py-2 text-xs font-medium text-muted-foreground">
+              <div className="hidden grid-cols-[1fr_1fr_1fr_80px_72px] gap-2 border-b bg-muted/40 px-3 py-2 text-xs font-medium text-muted-foreground md:grid">
                 <span>Sayfa</span>
                 <span>Departman</span>
                 <span>Bölüm</span>
@@ -609,7 +609,9 @@ export function UserDepartmentDialog({
               </div>
               <div className="divide-y">
                 {accessScopes.map((scope, index) => (
-                  <div key={`${scope.resource}-${index}`} className="grid grid-cols-[1fr_1fr_1fr_80px_72px] gap-2 px-3 py-2 text-sm">
+                  <div key={`${scope.resource}-${index}`} className="grid grid-cols-1 gap-3 px-3 py-3 text-sm md:grid-cols-[1fr_1fr_1fr_80px_72px] md:gap-2 md:py-2">
+                    <div className="min-w-0">
+                      <Label className="mb-1 block text-[11px] md:hidden">Sayfa</Label>
                     <Select
                       value={scope.resource}
                       onValueChange={(value) => {
@@ -623,6 +625,9 @@ export function UserDepartmentDialog({
                         ))}
                       </SelectContent>
                     </Select>
+                    </div>
+                    <div className="min-w-0">
+                      <Label className="mb-1 block text-[11px] md:hidden">Departman</Label>
                     <Select
                       value={scope.departmentId ?? "__all__"}
                       onValueChange={(value) => updateScope(index, { departmentId: value === "__all__" ? null : value })}
@@ -635,6 +640,9 @@ export function UserDepartmentDialog({
                         ))}
                       </SelectContent>
                     </Select>
+                    </div>
+                    <div className="min-w-0">
+                      <Label className="mb-1 block text-[11px] md:hidden">Bölüm</Label>
                     <Select
                       value={scope.divisionId ?? "__all__"}
                       onValueChange={(value) => updateScope(index, { divisionId: value === "__all__" ? null : value })}
@@ -647,14 +655,16 @@ export function UserDepartmentDialog({
                         ))}
                       </SelectContent>
                     </Select>
-                    <div className="flex items-center justify-center">
+                    </div>
+                    <div className="flex min-h-11 items-center justify-between rounded-md border border-border/60 px-3 md:min-h-0 md:justify-center md:border-0 md:px-0">
+                      <Label className="text-[11px] md:hidden">Birincil kapsam</Label>
                       <Checkbox
                         checked={scope.isPrimary}
                         onCheckedChange={(value) => updateScope(index, { isPrimary: value === true })}
                         disabled={saving}
                       />
                     </div>
-                    <Button type="button" variant="ghost" size="sm" onClick={() => removeScope(index)} disabled={saving || accessScopes.length <= 1}>Sil</Button>
+                    <Button className="w-full md:w-auto" type="button" variant="ghost" size="sm" onClick={() => removeScope(index)} disabled={saving || accessScopes.length <= 1}>Sil</Button>
                   </div>
                 ))}
               </div>

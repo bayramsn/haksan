@@ -249,6 +249,62 @@ export function StockPage({ focus, initialQuery }: { focus?: OperationFocus; ini
     setReserveOpen(true);
   };
 
+  const renderStockActions = (item: StockItem) => (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button variant="ghost" size="icon" className="size-11" aria-label={`${item.serialNumber} stok işlemleri`}>
+          <MoreHorizontal className="size-4" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        {item.status !== "Sold" && (
+          <DropdownMenuItem onClick={() => openReserveDialog(item)}>
+            {item.status === "Reserved" ? "Firma bilgisini düzenle" : "Firmaya rezerve et"}
+          </DropdownMenuItem>
+        )}
+        {item.status === "Reserved" && (
+          <DropdownMenuItem onClick={async () => {
+            try {
+              await updateStockStatus(item.id, "Available");
+              toast.success("Rezervasyon kaldırıldı");
+            } catch (err: any) {
+              toast.error("İşlem başarısız", { description: err?.message });
+            }
+          }}>
+            Rezervasyonu kaldır
+          </DropdownMenuItem>
+        )}
+        <DropdownMenuSeparator />
+        {STOCK_STATUS_ACTIONS.map((status) => (
+          <DropdownMenuItem
+            key={status}
+            disabled={item.status === status}
+            onClick={async () => {
+              if (status === "Reserved") {
+                openReserveDialog(item);
+                return;
+              }
+              try {
+                await updateStockStatus(item.id, status);
+                toast.success("Durum güncellendi", { description: `${item.productName || item.counterModel} → ${STOCK_STATUS_LABELS[status]}` });
+              } catch (err: any) {
+                toast.error("Durum güncellenemedi", { description: err?.message ?? "API isteği başarısız oldu." });
+              }
+            }}
+          >
+            {STOCK_STATUS_LABELS[status]} olarak işaretle
+          </DropdownMenuItem>
+        ))}
+        {item.status === "Sold" && (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem disabled className="text-xs text-muted-foreground">Satıldı — yalnızca fatura ile</DropdownMenuItem>
+          </>
+        )}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+
   return (
     <div className="crm-page flex flex-col">
       <Tabs className="order-1" value={categoryTab} onValueChange={(v) => setCategoryTab(v as typeof categoryTab)}>
@@ -399,7 +455,47 @@ export function StockPage({ focus, initialQuery }: { focus?: OperationFocus; ini
             />
           </div>
         </CardHeader>
-        <div className="overflow-x-auto">
+        <div className="divide-y divide-border/60 md:hidden">
+          {filtered.map((item) => {
+            const product = item.productId ? productById.get(item.productId) : undefined;
+            const linkedOptions = optionsByParent.get(item.id) ?? [];
+            return (
+              <article key={item.id} className={`p-3 ${stockRowClass(item.status)}`}>
+                <div className="flex items-start gap-3">
+                  <EntityVisual size="sm" className="size-10 shrink-0" title={item.productName || item.counterModel || "Stok kalemi"} imageUrl={product?.imageUrl} icon={<Package className="size-4" />} />
+                  <div className="min-w-0 flex-1">
+                    <div className="break-words text-sm font-semibold">{item.productName || product?.shortDescription || item.counterModel || "—"}</div>
+                    <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+                      <span>{item.brand || "Marka yok"}</span>
+                      <span aria-hidden="true">·</span>
+                      <span className="font-data">{item.serialNumber || "Seri no yok"}</span>
+                    </div>
+                  </div>
+                  {renderStockActions(item)}
+                </div>
+                <div className="mt-3 grid grid-cols-2 gap-2 rounded-lg border border-border/60 bg-card/80 p-2 text-xs">
+                  <div><span className="block text-[10px] text-muted-foreground">Durum</span><StatusBadge status={item.status} /></div>
+                  <div><span className="block text-[10px] text-muted-foreground">Konum</span><span>{stockLocationLabel(item)}</span></div>
+                  <div><span className="block text-[10px] text-muted-foreground">Kondisyon</span><span>{item.itemCondition === "used" ? "Kullanılmış" : "Yeni"}</span></div>
+                  <div><span className="block text-[10px] text-muted-foreground">Rezerve Firma</span><span className="break-words">{item.reservedCompanyName ?? "—"}</span></div>
+                </div>
+                {linkedOptions.length > 0 && (
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {linkedOptions.map((option) => (
+                      <span key={option.id} className="inline-flex items-center gap-1 rounded-md border border-border/70 bg-card px-2 py-1 text-xs">
+                        <Wrench className="size-3.5" /> {option.brand} {option.counterModel}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </article>
+            );
+          })}
+          {filtered.length === 0 && (
+            <EmptyState scene="search" title="Kayıt bulunamadı" description="Arama terimini veya durum/kategori sekmelerini değiştirerek tekrar deneyin." />
+          )}
+        </div>
+        <div className="hidden overflow-x-auto md:block">
           <Table className="min-w-[1780px]">
             <TableHeader>
               <TableRow className="bg-muted/40 hover:bg-muted/40 [&_th]:text-xs [&_th]:uppercase [&_th]:tracking-wider [&_th]:text-muted-foreground">
@@ -467,7 +563,7 @@ export function StockPage({ focus, initialQuery }: { focus?: OperationFocus; ini
                   <TableCell>
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="icon" className="size-8 opacity-0 group-hover:opacity-100 sm:opacity-100" aria-label="Durum değiştir">
+                        <Button variant="ghost" size="icon" className="size-8 opacity-100 md:opacity-0 md:group-hover:opacity-100" aria-label="Durum değiştir">
                           <MoreHorizontal className="size-4" />
                         </Button>
                       </DropdownMenuTrigger>

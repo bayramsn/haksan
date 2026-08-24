@@ -30,7 +30,7 @@ describe("fırsattaki havada kalan alanlar", () => {
     expect(createDialog).toContain('description: current.description ?? ""');
     expect(createDialog).toContain("probability: current.probability ?? 50");
     expect(createDialog).toContain('expectedCloseDate: current.expectedCloseDate ?? ""');
-    expect(createDialog).toContain("await addCase(form as any)");
+    expect(createDialog).toContain("await addCase({ ...form, sourceActivityId } as any)");
   });
 
   it("ödeme planını son sözleşme bedeline bağlar ve yöntemi alacağa taşır", () => {
