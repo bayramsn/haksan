@@ -1,0 +1,68 @@
+name: Mobile preview builds and smoke tests
+
+on:
+  workflow_dispatch: {}
+  pull_request_labeled:
+    labels:
+      - mobile-preview
+
+concurrency:
+  group: mobile-preview-${{ github.ref }}
+  cancel_in_progress: true
+
+jobs:
+  quality:
+    name: Typecheck, tests, doctor, schema and export gates
+    environment: preview
+    runs_on: linux-medium
+    steps:
+      - uses: eas/checkout
+      - uses: eas/install_node_modules
+      - name: Run mobile quality gates
+        run: npm run quality
+
+  build_android:
+    name: Build Android emulator preview
+    needs: [quality]
+    type: build
+    environment: preview
+    params:
+      platform: android
+      profile: preview-simulator
+      message: Preview ${{ github.sha }}
+
+  build_ios:
+    name: Build iOS simulator preview
+    needs: [quality]
+    type: build
+    environment: preview
+    params:
+      platform: ios
+      profile: preview-simulator
+      message: Preview ${{ github.sha }}
+
+  smoke_android:
+    name: Maestro smoke on Android
+    needs: [build_android]
+    type: maestro
+    environment: preview
+    image: latest
+    params:
+      build_id: ${{ needs.build_android.outputs.build_id }}
+      flow_path: .maestro/smoke.yaml
+      device_identifier: pixel_6
+      record_screen: true
+      retries: 1
+
+  smoke_ios:
+    name: Maestro smoke on iOS
+    needs: [build_ios]
+    type: maestro
+    environment: preview
+    image: latest
+    params:
+      build_id: ${{ needs.build_ios.outputs.build_id }}
+      flow_path: .maestro/smoke.yaml
+      device_identifier: iPhone 16
+      record_screen: true
+      retries: 1

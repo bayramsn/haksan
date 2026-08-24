@@ -1,0 +1,93 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ÜRETİLMİŞ DOSYA — elle düzenleme. Kaynak: theme.config.js
+   Yeniden üretmek için: npm run gen:css */
+:root {
+  --c-canvas: #f4f6f8;
+  --c-card: #ffffff;
+  --c-card-subtle: #f8f9fb;
+  --c-border: rgba(13, 20, 68, 0.11);
+  --c-line-strong: rgba(13, 20, 68, 0.18);
+  --c-foreground: #18202a;
+  --c-muted-foreground: #5f697a;
+  --c-muted: #f0f2f5;
+  --c-input-background: #f7f8fa;
+  --c-brand-blue: #000c69;
+  --c-brand-red: #cf060c;
+  --c-operation-blue: #2457d6;
+  --c-primary: #000c69;
+  --c-primary-foreground: #ffffff;
+  --c-secondary: #eef1ff;
+  --c-secondary-foreground: #000c69;
+  --c-destructive: #cf060c;
+  --c-destructive-soft: #fef2f2;
+  --c-success: #087f5b;
+  --c-success-soft: #ecfdf5;
+  --c-warning: #d97706;
+  --c-warning-soft: #fffbeb;
+  --c-info: #2563eb;
+  --c-info-soft: #eff6ff;
+  --c-stage: #4f46e5;
+  --c-stage-soft: #eef2ff;
+  --c-neutral-soft: #f4f4f5;
+  --c-chart-1: #2a3aa0;
+  --c-chart-2: #4e8df5;
+  --c-chart-3: #14b8a6;
+  --c-chart-4: #f59e0b;
+  --c-chart-5: #8b5cf6;
+  --c-chart-grid: #e8ebf0;
+  --c-chart-axis: #667085;
+  --c-destructive-border: rgba(207, 6, 12, 0.28);
+  --c-success-border: rgba(8, 127, 91, 0.28);
+  --c-warning-border: rgba(217, 119, 6, 0.32);
+  --c-info-border: rgba(37, 99, 235, 0.28);
+  --c-stage-border: rgba(79, 70, 229, 0.28);
+  --c-neutral-border: rgba(95, 105, 122, 0.25);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --c-canvas: #070b18;
+    --c-card: #10182e;
+    --c-card-subtle: #0e1527;
+    --c-border: rgba(148, 163, 214, 0.16);
+    --c-line-strong: rgba(148, 163, 214, 0.3);
+    --c-foreground: #e7ebf7;
+    --c-muted-foreground: #94a0c2;
+    --c-muted: #1a2340;
+    --c-input-background: #141d38;
+    --c-brand-blue: #7d8ffb;
+    --c-brand-red: #f0565b;
+    --c-operation-blue: #6ea0ff;
+    --c-primary: #8fa2ff;
+    --c-primary-foreground: #0a1030;
+    --c-secondary: rgba(125, 143, 251, 0.16);
+    --c-secondary-foreground: #c7d2ff;
+    --c-destructive: #f0565b;
+    --c-destructive-soft: rgba(240, 86, 91, 0.14);
+    --c-success: #34d399;
+    --c-success-soft: rgba(52, 211, 153, 0.13);
+    --c-warning: #fbbf24;
+    --c-warning-soft: rgba(251, 191, 36, 0.13);
+    --c-info: #60a5fa;
+    --c-info-soft: rgba(96, 165, 250, 0.13);
+    --c-stage: #a5b4fc;
+    --c-stage-soft: rgba(165, 180, 252, 0.14);
+    --c-neutral-soft: rgba(148, 163, 214, 0.12);
+    --c-chart-1: #8fa2ff;
+    --c-chart-2: #6ea0ff;
+    --c-chart-3: #2dd4bf;
+    --c-chart-4: #fbbf24;
+    --c-chart-5: #a78bfa;
+    --c-chart-grid: #26304d;
+    --c-chart-axis: #a4aec9;
+    --c-destructive-border: rgba(240, 86, 91, 0.28);
+    --c-success-border: rgba(52, 211, 153, 0.28);
+    --c-warning-border: rgba(251, 191, 36, 0.32);
+    --c-info-border: rgba(96, 165, 250, 0.28);
+    --c-stage-border: rgba(165, 180, 252, 0.28);
+    --c-neutral-border: rgba(148, 160, 194, 0.25);
+  }
+}

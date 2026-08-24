@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "approvedAppVersion": "1.0.0",
+  "releaseReady": false,
+  "approvals": {
+    "productOwner": false,
+    "security": false,
+    "privacy": false,
+    "brand": false
+  },
+  "storeRecords": {
+    "ios": false,
+    "android": false
+  },
+  "declarations": {
+    "applePrivacy": false,
+    "googleDataSafety": false,
+    "contentRating": false,
+    "exportCompliance": false,
+    "reviewCredentialsConfiguredInStore": false
+  },
+  "qa": {
+    "iosRealDevice": false,
+    "androidRealDevice": false,
+    "maestroPreview": false,
+    "accessibility": false
+  },
+  "screenshots": {
+    "iosPhone": [],
+    "iosTablet": [],
+    "androidPhone": []
+  }
+}
