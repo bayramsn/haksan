@@ -5,7 +5,7 @@ import {
   LayoutDashboard, Users, Briefcase, KanbanSquare, FileText, FolderOpen,
   CreditCard, Boxes, Truck, Wrench, Cpu,
   LifeBuoy, BarChart3, ShieldCheck, Building2, Contact as ContactIcon, Settings as SettingsIcon,
-  Search, Bell, ChevronDown, LogOut, Plus, HelpCircle, Menu, PanelLeftClose, PanelLeftOpen,
+  Search, Bell, ChevronDown, ChevronRight, LogOut, Plus, HelpCircle, Menu, PanelLeftClose, PanelLeftOpen,
   CheckCircle2, Clock, AlertTriangle, Tag, Receipt, Map as MapIcon, Wallet, Calendar, MessageCircle, MessageSquare,
   ListChecks,
   Star, Rows3,
@@ -38,7 +38,7 @@ import { BrandIllustration } from "./brand";
 import { HelpCenterDialog } from "./HelpCenterDialog";
 import { ApprovalsDialog } from "./ApprovalsDialog";
 import { CommandPalette } from "./operations/CommandPalette";
-import { buildAlerts, type OperationAction, type OperationNav } from "../lib/operations";
+import { buildAlerts, type OperationAction, type OperationFocus, type OperationNav } from "../lib/operations";
 import { isNavigationAreaEnabled, NAVIGATION_GROUPS, type NavigationVisibilityKey } from "@haksan/shared";
 import { normalizeCompany } from "../lib/companyNormalizer";
 import { Kbd } from "./ui/kbd";
@@ -851,6 +851,23 @@ export function Layout({ current, onNavigate, onLogout, pageTitle, pageSubtitle,
                             setDecliningNotification(notification);
                           }}
                         />
+                      ) : notification.items?.length ? (
+                        // Özet bildirim: her satır kendi listesine gider, metin olarak asılı kalmaz.
+                        <DigestNotifItem
+                          key={notification.id}
+                          title={notification.title}
+                          items={notification.items.filter((item) => canSeeNav(item.nav))}
+                          onSelect={(item) => {
+                            void notificationService.markRead(notification.id).catch(() => undefined);
+                            setDbNotifications((rows) => rows.filter((row) => row.id !== notification.id));
+                            executeOperationAction({
+                              kind: "navigate",
+                              nav: item.nav as OperationNav,
+                              focus: item.focus as OperationFocus | undefined,
+                              query: item.query,
+                            });
+                          }}
+                        />
                       ) : (
                         <NotifItem
                           key={notification.id}
@@ -1011,6 +1028,47 @@ function NotifItem({ icon, title, desc, time, onClick }: { icon: ReactNode; titl
       </div>
       <div className="shrink-0 text-xs text-muted-foreground">{time}</div>
     </button>
+  );
+}
+
+/**
+ * Sabah brifingi gibi özet bildirimler: başlık altında her madde kendi
+ * listesine götüren bir satırdır. Kapatılınca bildirim okundu sayılır.
+ */
+function DigestNotifItem({
+  title,
+  items,
+  onSelect,
+}: {
+  title: string;
+  items: Array<{ label: string; nav: string; focus?: string; query?: string }>;
+  onSelect: (item: { label: string; nav: string; focus?: string; query?: string }) => void;
+}) {
+  return (
+    <div className="rounded-md px-1 py-1.5">
+      <div className="flex items-center gap-2 px-2 pb-1">
+        <div className="size-8 shrink-0 rounded-full bg-muted grid place-items-center">
+          <MessageSquare className="size-4 text-emerald-600" />
+        </div>
+        <div className="text-sm font-medium leading-tight">{title}</div>
+      </div>
+      {items.length === 0 ? (
+        <div className="px-3 pb-1 text-xs text-muted-foreground">Bekleyen kritik konu yok.</div>
+      ) : (
+        items.map((item) => (
+          <button
+            key={`${item.nav}:${item.focus ?? ""}:${item.label}`}
+            type="button"
+            onClick={() => onSelect(item)}
+            className="flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-left text-xs hover:bg-muted/60"
+          >
+            <span className="text-muted-foreground">•</span>
+            <span className="min-w-0 flex-1 truncate">{item.label}</span>
+            <ChevronRight className="size-3.5 shrink-0 text-muted-foreground" />
+          </button>
+        ))
+      )}
+    </div>
   );
 }
 

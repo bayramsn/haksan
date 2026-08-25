@@ -438,6 +438,8 @@ export interface NotificationDTO {
   respondedAt?: string | null;
   /** Tıklanınca açılacak kayıt/ekran — API tarafında çözülür. */
   target?: NotificationTarget | null;
+  /** Özet bildirimlerde her satırın kendi hedefi (sabah brifingi gibi). */
+  items?: Array<{ label: string; nav: string; focus?: string; query?: string }> | null;
   readAt?: string | null;
   createdAt: string;
 }
