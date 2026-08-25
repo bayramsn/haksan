@@ -360,6 +360,11 @@ export const notifications = pgTable(
      * Bazı bildirimler yalnız okunarak kapatılamaz; kullanıcıdan açık bir karar
      * bekler. `actionType` null ise bildirim klasik okunur bildirimdir.
      */
+    /**
+     * Özet bildirimlerin tıklanabilir satırları: [{ label, nav, focus?, query? }].
+     * Tek `entityType/entityId` hedefi birden çok konuyu anlatamadığı için ayrı tutulur.
+     */
+    items: jsonb('items').$type<Array<{ label: string; nav: string; focus?: string; query?: string }> | null>(),
     actionType: varchar('action_type', { length: 64 }),
     actionStatus: varchar('action_status', { length: 32 }),
     responseReason: text('response_reason'),

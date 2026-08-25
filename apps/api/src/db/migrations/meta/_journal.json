@@ -932,6 +932,13 @@
       "when": 1791398400000,
       "tag": "0133_company_references",
       "breakpoints": true
+    },
+    {
+      "idx": 134,
+      "version": "7",
+      "when": 1791484800000,
+      "tag": "0134_notification_items",
+      "breakpoints": true
     }
   ]
 }

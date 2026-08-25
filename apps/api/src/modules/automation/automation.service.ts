@@ -43,6 +43,57 @@ export type WeeklySalesReportStats = {
   overdueActions: number;
 };
 
+export type BriefingItem = { label: string; nav: string; focus?: string; query?: string };
+
+/**
+ * Sabah brifinginin tıklanabilir satırları. Hedefler operasyon uyarılarıyla aynı
+ * ekran/odak çiftlerini kullanır ki bildirimden gidilen liste, panelde görülenle
+ * birebir aynı olsun. Sayısı sıfır olan konu satır üretmez.
+ */
+export function buildMorningBriefingItems(counts: {
+  leadBreaches: number;
+  overdueActions: number;
+  rotting: number;
+  overdueReceivables: number;
+  overdueReceivableTotal: string;
+  staleQuotes: number;
+  staleQuoteDays: number;
+  openTickets: number;
+  expiringWarranties: number;
+  warrantyWindowDays: number;
+}): BriefingItem[] {
+  return [
+    counts.leadBreaches > 0
+      ? { label: `${counts.leadBreaches} lead yanıt süresini aştı`, nav: 'sales-cases', focus: 'sla_risk' }
+      : null,
+    counts.overdueActions > 0
+      ? { label: `${counts.overdueActions} satış kartında takip tarihi geçti`, nav: 'sales-cases', focus: 'no_action' }
+      : null,
+    counts.rotting > 0
+      ? { label: `${counts.rotting} satış kartı aşamasında bekliyor`, nav: 'sales-cases', focus: 'uncontacted' }
+      : null,
+    counts.overdueReceivables > 0
+      ? {
+          label: `${counts.overdueReceivables} geciken tahsilat (toplam ${counts.overdueReceivableTotal})`,
+          nav: 'payments',
+          focus: 'overdue',
+        }
+      : null,
+    counts.staleQuotes > 0
+      ? { label: `${counts.staleQuotes} teklif ${counts.staleQuoteDays}+ gündür cevapsız`, nav: 'offers', focus: 'expired' }
+      : null,
+    counts.openTickets > 0
+      ? { label: `${counts.openTickets} açık servis kaydı`, nav: 'service-requests', focus: 'open' }
+      : null,
+    counts.expiringWarranties > 0
+      ? {
+          label: `${counts.expiringWarranties} makinenin garantisi ${counts.warrantyWindowDays} gün içinde bitiyor`,
+          nav: 'machines',
+        }
+      : null,
+  ].filter(Boolean) as BriefingItem[];
+}
+
 export function formatWeeklySalesReport(
   stats: WeeklySalesReportStats,
   period: { from: Date; to: Date },
@@ -127,6 +178,8 @@ export class AutomationService {
     title: string,
     body: string,
     target?: { entityType: string; entityId?: string },
+    /** Özet bildirimlerde her satırın kendi hedefi. */
+    items?: Array<{ label: string; nav: string; focus?: string; query?: string }>,
   ): Promise<void> {
     await this.db.insert(notifications).values({
       tenantId,
@@ -137,6 +190,7 @@ export class AutomationService {
       body,
       entityType: target?.entityType ?? null,
       entityId: target?.entityId ?? null,
+      items: items?.length ? items : null,
     });
   }
 
@@ -488,17 +542,23 @@ export class AutomationService {
           this.rottingOpportunities(tenant.id),
           this.overdueActionOpportunities(tenant.id),
         ]);
-        const lines = [
-          leadBreaches.length > 0 ? `• ${leadBreaches.length} lead yanıt süresini aştı` : null,
-          overdueActions.length > 0 ? `• ${overdueActions.length} satış kartında takip tarihi geçti` : null,
-          rotting.length > 0 ? `• ${rotting.length} satış kartı aşamasında bekliyor` : null,
-          overdue.count > 0 ? `• ${overdue.count} geciken tahsilat (toplam ${this.money(overdue.total)})` : null,
-          stale.length > 0 ? `• ${stale.length} teklif ${this.env.AUTOMATION_STALE_QUOTE_DAYS}+ gündür cevapsız` : null,
-          openTickets > 0 ? `• ${openTickets} açık servis kaydı` : null,
-          warranties.length > 0 ? `• ${warranties.length} makinenin garantisi ${this.env.AUTOMATION_WARRANTY_WINDOW_DAYS} gün içinde bitiyor` : null,
-        ].filter(Boolean) as string[];
-        const body = lines.length > 0 ? lines.join('\n') : 'Bekleyen kritik konu yok. İyi çalışmalar!';
-        await this.notify(tenant.id, 'daily_briefing', 'Günaydın — günün özeti', body);
+        const items = buildMorningBriefingItems({
+          leadBreaches: leadBreaches.length,
+          overdueActions: overdueActions.length,
+          rotting: rotting.length,
+          overdueReceivables: overdue.count,
+          overdueReceivableTotal: this.money(overdue.total),
+          staleQuotes: stale.length,
+          staleQuoteDays: this.env.AUTOMATION_STALE_QUOTE_DAYS,
+          openTickets,
+          expiringWarranties: warranties.length,
+          warrantyWindowDays: this.env.AUTOMATION_WARRANTY_WINDOW_DAYS,
+        });
+        // Gövde e-posta ve bildirim önizlemesi için düz metin kalır.
+        const body = items.length > 0
+          ? items.map((item) => `• ${item.label}`).join('\n')
+          : 'Bekleyen kritik konu yok. İyi çalışmalar!';
+        await this.notify(tenant.id, 'daily_briefing', 'Günaydın — günün özeti', body, undefined, items);
         await this.sendDigestEmail(`Haksan CRM sabah özeti — ${tenant.name}`, body);
       }
       logger.info({ action: 'automation_morning_briefing' }, '[automation] morning briefing done');
