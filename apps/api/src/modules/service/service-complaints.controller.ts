@@ -1,7 +1,7 @@
 import { Body, Controller, Get, Inject, Param, Patch, Post, Put, Query, UseGuards } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'crypto';
-import { and, desc, eq, gt, inArray, isNull, or, sql } from 'drizzle-orm';
+import { and, desc, eq, gt, ilike, inArray, isNull, or, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import type { DbClient } from '../../db/client';
 import {
@@ -43,6 +43,7 @@ import {
 } from '@haksan/shared';
 
 const complaintListQuery = paginationSchema.extend({
+  search: z.string().trim().max(128).optional(),
   status: serviceComplaintStatusSchema.optional(),
   source: serviceComplaintSourceSchema.optional(),
   companyId: z.string().uuid().optional(),
@@ -426,7 +427,14 @@ export class ServiceComplaintsController {
         link: { id: serviceComplaintLinks.id, title: serviceComplaintLinks.title, slug: serviceComplaintLinks.slug },
       })
       .from(serviceComplaintIntakes)
-      .leftJoin(companies, eq(serviceComplaintIntakes.companyId, companies.id))
+      .leftJoin(
+        companies,
+        and(
+          eq(serviceComplaintIntakes.companyId, companies.id),
+          eq(companies.tenantId, tenantId),
+          isNull(companies.deletedAt),
+        ),
+      )
       .leftJoin(customerDevices, eq(serviceComplaintIntakes.customerDeviceId, customerDevices.id))
       .leftJoin(inventoryItems, eq(customerDevices.inventoryItemId, inventoryItems.id))
       .leftJoin(productModels, eq(inventoryItems.productModelId, productModels.id))
@@ -481,8 +489,31 @@ export class ServiceComplaintsController {
     if (query.source) filters.push(eq(serviceComplaintIntakes.source, query.source));
     if (query.companyId) filters.push(eq(serviceComplaintIntakes.companyId, query.companyId));
     if (query.customerDeviceId) filters.push(eq(serviceComplaintIntakes.customerDeviceId, query.customerDeviceId));
+    if (query.search) {
+      const term = `%${query.search}%`;
+      filters.push(
+        or(
+          ilike(serviceComplaintIntakes.complaintNo, term),
+          ilike(serviceComplaintIntakes.subject, term),
+          ilike(serviceComplaintIntakes.contactName, term),
+          ilike(companies.legalTitle, term),
+          ilike(companies.shortName, term),
+        ) ?? sql`false`,
+      );
+    }
     const where = and(...filters);
-    const [{ count }] = await this.db.select({ count: sql<number>`count(*)::int` }).from(serviceComplaintIntakes).where(where);
+    const [{ count }] = await this.db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(serviceComplaintIntakes)
+      .leftJoin(
+        companies,
+        and(
+          eq(serviceComplaintIntakes.companyId, companies.id),
+          eq(companies.tenantId, user.tenantId),
+          isNull(companies.deletedAt),
+        ),
+      )
+      .where(where);
     const rows = await this.db
       .select({
         complaint: serviceComplaintIntakes,
@@ -495,7 +526,14 @@ export class ServiceComplaintsController {
         link: { id: serviceComplaintLinks.id, title: serviceComplaintLinks.title, slug: serviceComplaintLinks.slug },
       })
       .from(serviceComplaintIntakes)
-      .leftJoin(companies, eq(serviceComplaintIntakes.companyId, companies.id))
+      .leftJoin(
+        companies,
+        and(
+          eq(serviceComplaintIntakes.companyId, companies.id),
+          eq(companies.tenantId, user.tenantId),
+          isNull(companies.deletedAt),
+        ),
+      )
       .leftJoin(customerDevices, eq(serviceComplaintIntakes.customerDeviceId, customerDevices.id))
       .leftJoin(inventoryItems, eq(customerDevices.inventoryItemId, inventoryItems.id))
       .leftJoin(productModels, eq(inventoryItems.productModelId, productModels.id))
@@ -507,6 +545,15 @@ export class ServiceComplaintsController {
       .limit(limit)
       .offset(offset);
     return buildPaginated(await Promise.all(rows.map((row) => this.mapComplaintRow(row))), count, query);
+  }
+
+  @RequirePermissions('service_tickets.read')
+  @Get('service-complaints/:id')
+  async getComplaint(@Param('id') id: string, @CurrentUser() user: AuthContext) {
+    await this.scopedIntake(id, user);
+    const complaint = await this.complaintView(id, user.tenantId);
+    if (!complaint) throw new NotFoundError('Şikayet kaydı');
+    return complaint;
   }
 
   @RequirePermissions('service_tickets.create')

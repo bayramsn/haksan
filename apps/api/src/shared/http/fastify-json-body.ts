@@ -6,6 +6,11 @@ export function registerLenientJsonBodyParser(app: NestFastifyApplication): void
   const fastify = app.getHttpAdapter().getInstance();
   fastify.removeContentTypeParser('application/json');
   fastify.addContentTypeParser('application/json', { parseAs: 'string' }, (req, body, done) => {
+    // Meta gibi imzalı webhook sağlayıcıları HMAC'i ayrıştırılmış nesne üzerinden
+    // değil, gönderilen baytların birebir karşılığı üzerinden hesaplar. JSON
+    // ayrıştırılmadan önce ham gövdeyi sakla; controller yalnız imzalı endpoint'te
+    // bunu kullanır ve normal API yanıtlarına/loglarına taşımaz.
+    req.rawBody = typeof body === 'string' ? body : undefined;
     if (body === '' || body == null) {
       done(null, undefined);
       return;

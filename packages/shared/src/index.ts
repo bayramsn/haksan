@@ -25,3 +25,4 @@ export * from './schemas/report';
 export * from './schemas/chat';
 export * from './schemas/calendar';
 export * from './schemas/mail';
+export * from './schemas/meta';

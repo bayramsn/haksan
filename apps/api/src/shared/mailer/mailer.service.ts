@@ -76,11 +76,12 @@ export class MailerService {
     if (!transporter || !this.env.APP_PUBLIC_URL) return false;
     const resetUrl = new URL(this.env.APP_PUBLIC_URL);
     resetUrl.searchParams.set('resetToken', token);
+    const nativeResetUrl = `haksan://reset-password?token=${encodeURIComponent(token)}`;
     await transporter.sendMail({
       from: this.env.SMTP_FROM,
       to,
       subject: 'Haksan parola sıfırlama',
-      text: `Parolanızı sıfırlamak için bu bağlantıyı açın: ${resetUrl.toString()}\n\nBu bağlantı ${this.env.RESET_TOKEN_TTL_MINUTES} dakika geçerlidir.`,
+      text: `Parolanızı webde sıfırlamak için bu bağlantıyı açın: ${resetUrl.toString()}\n\nHaksan mobil uygulamasında açmak için: ${nativeResetUrl}\n\nBu bağlantılar ${this.env.RESET_TOKEN_TTL_MINUTES} dakika geçerlidir.`,
     });
     logger.info({ action: 'password_reset_mail_sent' }, '[mailer] password reset delivered');
     return true;

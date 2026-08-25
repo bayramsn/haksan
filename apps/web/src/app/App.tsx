@@ -15,6 +15,7 @@ const CustomersPage = lazy(() => import("./components/pages/Customers").then((m)
 const ContactsPage = lazy(() => import("./components/pages/Contacts").then((m) => ({ default: m.ContactsPage })));
 const CustomerDetailPage = lazy(() => import("./components/pages/CustomerDetail").then((m) => ({ default: m.CustomerDetailPage })));
 const SalesCasesPage = lazy(() => import("./components/pages/SalesCases").then((m) => ({ default: m.SalesCasesPage })));
+const MetaPage = lazy(() => import("./components/pages/meta/MetaPage").then((m) => ({ default: m.MetaPage })));
 // Fırsat kartı yalnız kullanıcı bir kayıt açtığında render ediliyor; eager
 // import edildiğinde alt ağacı (teklif/proforma/sözleşme dialogları dahil)
 // ana pakete giriyordu.
@@ -78,6 +79,7 @@ const TITLES: Partial<Record<NavKey, { title: string; subtitle?: string }>> = {
   customers: { title: "Firmalar", subtitle: "Müşteri, tedarikçi+müşteri ve tedarikçi kayıtları" },
   contacts: { title: "Kontaklar", subtitle: "Firmalara bağlı kişiler" },
   "sales-cases": { title: "Fırsat", subtitle: "C / B / A / A+ ana satış akışı" },
+  meta: { title: "Meta Merkezi", subtitle: "Lead, reklam, mesaj ve dönüşüm yönetimi" },
   kanban: { title: "Fırsat", subtitle: "C / B / A / A+ ana satış akışı" },
   "sales-map": { title: "Firma Haritası", subtitle: "Yakındaki firmaları haritada görün" },
   offers: { title: "Teklifler", subtitle: "Hazırlanmış ve gönderilmiş teklifler" },
@@ -448,6 +450,7 @@ function AppShell() {
         ) : null;
         content = <SalesCasesPage onSelect={(s) => selectOpportunity(s.id)} initialView="kanban" focus={focus?.nav === "sales-cases" ? focus.focus : undefined} initialQuery={focus?.nav === "sales-cases" ? focus.query : undefined} onAction={runOperationAction} />;
         break;
+      case "meta": content = <MetaPage />; break;
       case "kanban":
         actions = canCreate("opportunities.create") ? (
           <CreateCaseDialog

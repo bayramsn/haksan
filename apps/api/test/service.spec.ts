@@ -72,6 +72,52 @@ afterAll(async () => {
 });
 
 describe('Service — kurulum / sevkiyat / teslimat', () => {
+  it('makine parkını arama ve garanti durumu ile sunucuda filtreler', async () => {
+    const filtered = await supertest(app.getHttpServer())
+      .get('/api/v1/customer-devices')
+      .query({ search: 'Vitest garanti cihazı', preset: 'warranty', pageSize: 10 })
+      .set('Authorization', auth());
+    expect(filtered.status).toBe(200);
+    expect(filtered.body.data.map((row: { id: string }) => row.id)).toContain(customerDeviceId);
+    expect(
+      filtered.body.data.every(
+        (row: { warrantyEndDate: string | null }) =>
+          row.warrantyEndDate !== null && new Date(row.warrantyEndDate).getTime() >= Date.now(),
+      ),
+    ).toBe(true);
+
+    const detail = await supertest(app.getHttpServer())
+      .get(`/api/v1/customer-devices/${customerDeviceId}`)
+      .set('Authorization', auth());
+    expect(detail.status, JSON.stringify(detail.body)).toBe(200);
+    expect(detail.body).toMatchObject({ id: customerDeviceId, companyId });
+  });
+
+  it('bakım planını oluşturur ve kapsamlı tekil detayını döner', async () => {
+    const created = await supertest(app.getHttpServer())
+      .post('/api/v1/maintenance-plans')
+      .set('Authorization', auth())
+      .send({
+        customerDeviceId,
+        title: `Mobil bakım detayı ${Date.now()}`,
+        intervalDays: 90,
+        reminderLeadDays: 7,
+        autoCreateTicket: false,
+      });
+    expect(created.status, JSON.stringify(created.body)).toBe(201);
+
+    const detail = await supertest(app.getHttpServer())
+      .get(`/api/v1/maintenance-plans/${created.body.id}`)
+      .set('Authorization', auth());
+    expect(detail.status, JSON.stringify(detail.body)).toBe(200);
+    expect(detail.body).toMatchObject({
+      id: created.body.id,
+      companyId,
+      customerDeviceId,
+      company: { id: companyId },
+    });
+  });
+
   it('servis talebi oluşturur ve atama/metadata alanlarını kaydeder', async () => {
     const r = await supertest(app.getHttpServer())
       .post('/api/v1/service-tickets')
@@ -90,6 +136,49 @@ describe('Service — kurulum / sevkiyat / teslimat', () => {
     expect(r.body.ticketNo).toMatch(/^(CNC|UNI|SACISLE)-SRV-\d{4}\/\d{4}$/);
     expect(r.body.assignedToUserId).toBe(adminUserId);
     expect(r.body.metadata.quoteRequired).toBe(true);
+  });
+
+  it('servis talebi arama, aşama ve önem filtrelerini tüm sunucu veri kümesine uygular', async () => {
+    const marker = `Mobil filtre ${Date.now()}`;
+    const created = await supertest(app.getHttpServer())
+      .post('/api/v1/service-tickets')
+      .set('Authorization', auth())
+      .send({
+        companyId,
+        subject: marker,
+        description: 'Sunucu tarafı mobil liste filtresi regresyon testi',
+        severity: 'high',
+      });
+    expect(created.status).toBe(201);
+
+    const matching = await supertest(app.getHttpServer())
+      .get('/api/v1/service-tickets')
+      .query({ search: marker, phase: 'open', severity: 'high', pageSize: 10, sortDir: 'asc' })
+      .set('Authorization', auth());
+    expect(matching.status).toBe(200);
+    expect(matching.body.meta.total).toBe(1);
+    expect(matching.body.data.map((row: { id: string }) => row.id)).toEqual([created.body.id]);
+
+    const summary = await supertest(app.getHttpServer())
+      .get('/api/v1/service-tickets/summary')
+      .query({ search: marker, phase: 'open' })
+      .set('Authorization', auth());
+    expect(summary.status).toBe(200);
+    expect(summary.body).toMatchObject({ total: 1, open: 1, urgent: 1, openPhase: 1 });
+
+    const wrongSeverity = await supertest(app.getHttpServer())
+      .get('/api/v1/service-tickets')
+      .query({ search: marker, severity: 'low', pageSize: 10 })
+      .set('Authorization', auth());
+    expect(wrongSeverity.status).toBe(200);
+    expect(wrongSeverity.body.meta.total).toBe(0);
+
+    const wrongPhase = await supertest(app.getHttpServer())
+      .get('/api/v1/service-tickets')
+      .query({ search: marker, phase: 'done', pageSize: 10 })
+      .set('Authorization', auth());
+    expect(wrongPhase.status).toBe(200);
+    expect(wrongPhase.body.meta.total).toBe(0);
   });
 
   it('servis talebini arşivler ve listeden düşürür', async () => {
@@ -352,12 +441,31 @@ describe('Service — kurulum / sevkiyat / teslimat', () => {
     expect(created.body.status).toBe('new');
     expect(created.body.source).toBe('phone');
 
+    const detail = await supertest(app.getHttpServer())
+      .get(`/api/v1/service-complaints/${created.body.id}`)
+      .set('Authorization', auth());
+    expect(detail.status, JSON.stringify(detail.body)).toBe(200);
+    expect(detail.body).toMatchObject({
+      id: created.body.id,
+      company: { id: companyId },
+      machine: { id: customerDeviceId },
+      attachments: expect.any(Array),
+    });
+
     const reviewing = await supertest(app.getHttpServer())
       .patch(`/api/v1/service-complaints/${created.body.id}`)
       .set('Authorization', auth())
       .send({ status: 'reviewing' });
     expect(reviewing.status).toBe(200);
     expect(reviewing.body.status).toBe('reviewing');
+
+    const filtered = await supertest(app.getHttpServer())
+      .get('/api/v1/service-complaints')
+      .query({ search: 'Telefonla gelen şikayet', status: 'reviewing', pageSize: 10 })
+      .set('Authorization', auth());
+    expect(filtered.status).toBe(200);
+    expect(filtered.body.data.map((row: { id: string }) => row.id)).toContain(created.body.id);
+    expect(filtered.body.data.every((row: { status: string }) => row.status === 'reviewing')).toBe(true);
 
     const converted = await supertest(app.getHttpServer())
       .post(`/api/v1/service-complaints/${created.body.id}/convert`)
@@ -433,12 +541,26 @@ describe('Service — kurulum / sevkiyat / teslimat', () => {
   });
 
   it('kurulum oluşturur ve ücret yazmaz', async () => {
+    const location = `Mobil kurulum filtre ${Date.now()}`;
     const r = await supertest(app.getHttpServer())
       .post('/api/v1/installations')
       .set('Authorization', auth())
-      .send({ companyId, locationType: 'istanbul_ici', durationMinutes: 90, scheduledDate: now() });
+      .send({ companyId, location, locationType: 'istanbul_ici', durationMinutes: 90, scheduledDate: now() });
     expect(r.status).toBe(201);
     expect(r.body.feeAmount).toBeNull();
+
+    const detail = await supertest(app.getHttpServer())
+      .get(`/api/v1/installations/${r.body.id}`)
+      .set('Authorization', auth());
+    expect(detail.status, JSON.stringify(detail.body)).toBe(200);
+    expect(detail.body).toMatchObject({ id: r.body.id, company: { id: companyId } });
+
+    const filtered = await supertest(app.getHttpServer())
+      .get('/api/v1/installations')
+      .query({ search: location, phase: 'planned', pageSize: 10 })
+      .set('Authorization', auth());
+    expect(filtered.status).toBe(200);
+    expect(filtered.body.data.map((row: { id: string }) => row.id)).toEqual([r.body.id]);
   });
 
   it('kurulum tamamlamadan önce tutanak kontrol ve problem alanlarını zorunlu tutar', async () => {
@@ -550,6 +672,12 @@ describe('Service — kurulum / sevkiyat / teslimat', () => {
     expect(started.status).toBe(201);
     expect(started.body.status.code).toBe('in_transit');
 
+    const activeBeforeDelivery = await supertest(app.getHttpServer())
+      .get('/api/v1/shipments?phase=active&pageSize=200')
+      .set('Authorization', auth());
+    expect(activeBeforeDelivery.status).toBe(200);
+    expect(activeBeforeDelivery.body.data.some((row: { id: string }) => row.id === c.body.id)).toBe(true);
+
     const inTransit = await supertest(app.getHttpServer())
       .get(`/api/v1/inventory?search=${encodeURIComponent(serialNumber)}&pageSize=5`)
       .set('Authorization', auth());
@@ -562,6 +690,15 @@ describe('Service — kurulum / sevkiyat / teslimat', () => {
       .set('Authorization', auth())
       .send({ statusCode: 'delivered', destinationWarehouseId: warehouseId, arrivedAt: now() });
     expect(delivered.status).toBe(200);
+
+    const [activeAfterDelivery, arrived] = await Promise.all([
+      supertest(app.getHttpServer()).get('/api/v1/shipments?phase=active&pageSize=200').set('Authorization', auth()),
+      supertest(app.getHttpServer()).get('/api/v1/shipments?phase=arrived&pageSize=200').set('Authorization', auth()),
+    ]);
+    expect(activeAfterDelivery.status).toBe(200);
+    expect(activeAfterDelivery.body.data.some((row: { id: string }) => row.id === c.body.id)).toBe(false);
+    expect(arrived.status).toBe(200);
+    expect(arrived.body.data.some((row: { id: string }) => row.id === c.body.id)).toBe(true);
 
     const received = await supertest(app.getHttpServer())
       .get(`/api/v1/inventory?search=${encodeURIComponent(serialNumber)}&pageSize=5`)

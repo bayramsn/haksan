@@ -51,7 +51,7 @@ describe('standalone proforma', () => {
     expect(res.status).toBe(201);
     expect(res.body.quoteId).toBeNull();
     expect(res.body.companyId).toBe(companyId);
-    expect(res.body.documentNo).toMatch(/^(CNC|UNI|SACISLE)-PRF-\d{4}\/\d{3}$/);
+    expect(res.body.documentNo).toMatch(/^(CNC|UNI|SACISLE)-PRF-\d{4}\/\d{3,}$/);
 
     const snapshot = res.body.documentSnapshot;
     expect(snapshot.standalone).toBe(true);

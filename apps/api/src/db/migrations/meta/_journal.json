@@ -904,6 +904,34 @@
       "when": 1791052800000,
       "tag": "0129_activity_conversion_permission",
       "breakpoints": true
+    },
+    {
+      "idx": 130,
+      "version": "7",
+      "when": 1791139200000,
+      "tag": "0130_company_status_idempotency",
+      "breakpoints": true
+    },
+    {
+      "idx": 131,
+      "version": "7",
+      "when": 1791225600000,
+      "tag": "0131_meta_crm_hub",
+      "breakpoints": true
+    },
+    {
+      "idx": 132,
+      "version": "7",
+      "when": 1791312000000,
+      "tag": "0132_meta_permissions",
+      "breakpoints": true
+    },
+    {
+      "idx": 133,
+      "version": "7",
+      "when": 1791398400000,
+      "tag": "0133_company_references",
+      "breakpoints": true
     }
   ]
 }

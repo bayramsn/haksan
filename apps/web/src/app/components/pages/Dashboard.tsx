@@ -15,6 +15,7 @@ import {
   BarChart, Bar, PieChart, Pie, Cell, Legend, LineChart, Line, RadarChart,
   Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis,
 } from "recharts";
+import { PIPELINE_STAGE_QUALIFICATION, type PipelineStageCode } from "@haksan/shared";
 import {
   SALES_STAGES,
   SALES_STAGE_LABELS,
@@ -31,6 +32,7 @@ import {
   buildFunnelFromCases,
   buildPipelineFunnel,
   buildPipelineStagePie,
+  buildSalesPerformance,
 } from "../../lib/chartAggregates";
 import { reportService } from "../../../lib/services";
 import { TeamActivityPanel } from "./TeamActivityPanel";
@@ -147,6 +149,39 @@ const formatTargetValue = (item: AssignedTargetItem) => {
 };
 type DashboardSection = "ozet" | "operasyon" | "grafikler" | "hedefler";
 
+/**
+ * Rol bazlı kişiselleştirme: herkes aynı veriyi görmeye devam eder, sadece
+ * sıralama değişir. Kendi işine yarayan sayı ilk sırada olsun diye; veri
+ * gizlemek yetki katmanının işi, gösterge panelinin değil.
+ */
+const KPI_ORDER_BY_ROLE: Record<string, string[]> = {
+  sales: ["pipeline", "customers", "revenue", "service-open", "overdue", "machines"],
+  finance: ["overdue", "revenue", "pipeline", "customers", "service-open", "machines"],
+  service: ["service-open", "machines", "customers", "pipeline", "overdue", "revenue"],
+  stock: ["machines", "service-open", "pipeline", "customers", "revenue", "overdue"],
+};
+/** Rolüne göre panele girişte açılacak sekme. */
+const SECTION_BY_ROLE: Record<string, DashboardSection> = {
+  finance: "operasyon",
+  service: "operasyon",
+  stock: "operasyon",
+};
+const primaryRole = (roles: string[] | undefined) =>
+  roles?.find((role) => role in KPI_ORDER_BY_ROLE) ?? null;
+
+/**
+ * Grafik elemanı → kayıt listesi. Operasyon aşaması (teklif, proforma, sevkiyat…)
+ * fırsat listesinde ayrı bir filtre değil; karşılığı olan satış derecesine
+ * (C / B / A / A+ / WIN) çevrilip listeye o filtreyle gidilir. Kod bilinmiyorsa
+ * filtresiz listeye düşer — yanlış filtre göstermektense filtresiz göstermek yeğdir.
+ */
+export const stageDrilldown = (stage?: string | null): OperationAction => {
+  const grade = stage ? PIPELINE_STAGE_QUALIFICATION[stage as PipelineStageCode] : undefined;
+  return grade
+    ? { kind: "navigate", nav: "sales-cases", query: `qualification:${grade}` }
+    : { kind: "navigate", nav: "sales-cases" };
+};
+
 export function DashboardPage({ onAction }: { onAction?: (action: OperationAction) => void }) {
   const store = useStore();
   const { customers, cases: salesCases, service: serviceRequests, machines, users, offers } = store;
@@ -159,9 +194,12 @@ export function DashboardPage({ onAction }: { onAction?: (action: OperationActio
   const [myTarget, setMyTarget] = useState<AssignedTarget | null>(null);
   const [targetLoading, setTargetLoading] = useState(false);
   const [targetError, setTargetError] = useState("");
-  const [section, setSection] = useState<DashboardSection>("ozet");
+  const dashboardRole = primaryRole(user?.roles);
+  const [section, setSection] = useState<DashboardSection>(
+    () => (dashboardRole ? SECTION_BY_ROLE[dashboardRole] : undefined) ?? "ozet",
+  );
   const [chartPeriod, setChartPeriod] = useState<"1A" | "3A" | "6A" | "1Y">("6A");
-  const [pipelineRows, setPipelineRows] = useState<Array<{ stageName?: string; count?: number; sortOrder?: number }>>([]);
+  const [pipelineRows, setPipelineRows] = useState<Array<{ stageCode?: string; stageName?: string; count?: number; sortOrder?: number }>>([]);
   const monthCount = { "1A": 1, "3A": 3, "6A": 6, "1Y": 12 }[chartPeriod];
   const monthly = useMemo(
     () => buildSalesMonthly(offers, salesCases, 12, (amount, currency) => convert(amount, currency as FxCurrency, "USD")),
@@ -181,6 +219,7 @@ export function DashboardPage({ onAction }: { onAction?: (action: OperationActio
     () =>
       SALES_STAGES.map((s) => ({
         name: salesStageLabel(s),
+        stage: s as string | null,
         count: salesCases.filter((sc) => sc.stage === s).length,
       })).filter((d) => d.count > 0),
     [salesCases],
@@ -197,14 +236,15 @@ export function DashboardPage({ onAction }: { onAction?: (action: OperationActio
     const openSvc = serviceRequests.filter((s) => s.stage !== "Closed").length;
     const approved = offers.filter((o) => o.status === "Approved").length;
     const overdue = store.payments.filter((p) => p.status === "Overdue").length;
+    // Her eksen kendi modülüne götürür; radar sadece bakılan değil tıklanan grafik.
     return [
-      { konu: "Satış", deger: Math.min(100, Math.round((salesCases.filter((s) => !s.isLost).length / total) * 100)) },
-      { konu: "Teklif", deger: Math.min(100, Math.round((offers.length / Math.max(total, 1)) * 20)) },
-      { konu: "Tahsilat", deger: Math.min(100, Math.max(0, 100 - overdue * 15)) },
-      { konu: "Servis", deger: Math.min(100, openSvc * 12) },
+      { konu: "Satış", deger: Math.min(100, Math.round((salesCases.filter((s) => !s.isLost).length / total) * 100)), action: { kind: "navigate", nav: "sales-cases", focus: "open" } as OperationAction },
+      { konu: "Teklif", deger: Math.min(100, Math.round((offers.length / Math.max(total, 1)) * 20)), action: { kind: "navigate", nav: "offers" } as OperationAction },
+      { konu: "Tahsilat", deger: Math.min(100, Math.max(0, 100 - overdue * 15)), action: { kind: "navigate", nav: "payments", focus: "overdue" } as OperationAction },
+      { konu: "Servis", deger: Math.min(100, openSvc * 12), action: { kind: "navigate", nav: "service-requests", focus: "open" } as OperationAction },
       // Stok seri no bazlı takip edilir (adet alanı yok); satılabilir gücü Available birim sayısı gösterir.
-      { konu: "Stok", deger: Math.min(100, store.stock.filter((s) => s.status === "Available").length * 8) },
-      { konu: "Onay", deger: Math.min(100, approved * 10) },
+      { konu: "Stok", deger: Math.min(100, store.stock.filter((s) => s.status === "Available").length * 8), action: { kind: "navigate", nav: "stock", focus: "available" } as OperationAction },
+      { konu: "Onay", deger: Math.min(100, approved * 10), action: { kind: "navigate", nav: "offers", focus: "pending" } as OperationAction },
     ];
   }, [totalCompanyCount, salesCases, offers, serviceRequests, store.stock, store.payments]);
   const activeCustomers: number | string = companySummary
@@ -232,6 +272,29 @@ export function DashboardPage({ onAction }: { onAction?: (action: OperationActio
   const topOpportunities = management.opportunities.slice(0, 2);
 
   const totalPipeline = salesCases.filter((s) => !s.isLost).reduce((a, s) => a + s.estimatedAmount, 0);
+
+  const orderedKpis = useMemo(() => {
+    const cards = [
+      { id: "customers", node: <Kpi key="customers" icon={<Users className="size-[18px]" />} tone="violet" label="Aktif Müşteri" value={activeCustomers} sub="bu ay" onClick={() => onAction?.({ kind: "navigate", nav: "customers" })} /> },
+      { id: "revenue", node: <KpiFromDrilldown key="revenue" icon={<Wallet className="size-[18px]" />} tone="emerald" item={drilldown("kpi:revenue")} onAction={onAction} /> },
+      { id: "pipeline", node: <Kpi key="pipeline" icon={<Briefcase className="size-[18px]" />} tone="blue" label="Fırsat" value={`$${(totalPipeline / 1000).toFixed(0)}K`} sub="açık" onClick={() => onAction?.({ kind: "navigate", nav: "sales-cases", focus: "open" })} /> },
+      { id: "overdue", node: <KpiFromDrilldown key="overdue" icon={<AlertTriangle className="size-[18px]" />} tone="red" item={drilldown("kpi:overdue")} alarm onAction={onAction} /> },
+      { id: "service-open", node: <KpiFromDrilldown key="service-open" icon={<Wrench className="size-[18px]" />} tone="amber" item={drilldown("kpi:service-open")} onAction={onAction} /> },
+      { id: "machines", node: <Kpi key="machines" icon={<Cpu className="size-[18px]" />} tone="amber" label="Aktif Makine" value={installedMachines} sub="garantili" onClick={() => onAction?.({ kind: "navigate", nav: "machines" })} /> },
+    ];
+    const order = dashboardRole ? KPI_ORDER_BY_ROLE[dashboardRole] : null;
+    if (!order) return cards;
+    // Listede olmayan kart sona düşer; hiçbir kart kaybolmaz.
+    return [...cards].sort((a, b) => {
+      const rank = (id: string) => (order.indexOf(id) === -1 ? order.length : order.indexOf(id));
+      return rank(a.id) - rank(b.id);
+    });
+  }, [dashboardRole, activeCustomers, installedMachines, totalPipeline, management, onAction]);
+
+  const salesPerformance = useMemo(
+    () => buildSalesPerformance(salesCases, (amount, currency) => convert(amount, currency as FxCurrency, "USD")),
+    [salesCases, convert],
+  );
   const myTargetItems = useMemo(() => {
     const items = Array.isArray(myTarget?.targetItems) ? myTarget!.targetItems! : [];
     return items.length > 0 ? items : synthesizeTargetItems(myTarget);
@@ -318,14 +381,7 @@ export function DashboardPage({ onAction }: { onAction?: (action: OperationActio
         </TabsList>
 
         <TabsContent value="ozet" className="mt-0 space-y-4">
-          <DashboardKpiGrid>
-            <Kpi icon={<Users className="size-[18px]" />} tone="violet" label="Aktif Müşteri" value={activeCustomers} sub="bu ay" onClick={() => onAction?.({ kind: "navigate", nav: "customers" })} />
-            <KpiFromDrilldown icon={<Wallet className="size-[18px]" />} tone="emerald" item={drilldown("kpi:revenue")} onAction={onAction} />
-            <Kpi icon={<Briefcase className="size-[18px]" />} tone="blue" label="Fırsat" value={`$${(totalPipeline / 1000).toFixed(0)}K`} sub="açık" onClick={() => onAction?.({ kind: "navigate", nav: "sales-cases", focus: "open" })} />
-            <KpiFromDrilldown icon={<AlertTriangle className="size-[18px]" />} tone="red" item={drilldown("kpi:overdue")} alarm onAction={onAction} />
-            <KpiFromDrilldown icon={<Wrench className="size-[18px]" />} tone="amber" item={drilldown("kpi:service-open")} onAction={onAction} />
-            <Kpi icon={<Cpu className="size-[18px]" />} tone="amber" label="Aktif Makine" value={installedMachines} sub="garantili" onClick={() => onAction?.({ kind: "navigate", nav: "machines" })} />
-          </DashboardKpiGrid>
+          <DashboardKpiGrid>{orderedKpis.map((kpi) => kpi.node)}</DashboardKpiGrid>
 
           <OverviewPulseBar
             workItems={workItems.length}
@@ -335,6 +391,8 @@ export function DashboardPage({ onAction }: { onAction?: (action: OperationActio
             openService={openService}
             overdue={overdueCount}
           />
+
+          <SalesPerformanceStrip performance={salesPerformance} onAction={onAction} />
 
           <SalesQualificationPanel
             summary={qualificationSummary}
@@ -392,7 +450,17 @@ export function DashboardPage({ onAction }: { onAction?: (action: OperationActio
                 ) : (
                   <ResponsiveContainer width="100%" height="100%">
                     <PieChart>
-                      <Pie data={stageData} dataKey="count" nameKey="name" outerRadius={68} innerRadius={42} paddingAngle={2} isAnimationActive={false}>
+                      <Pie
+                        data={stageData}
+                        dataKey="count"
+                        nameKey="name"
+                        outerRadius={68}
+                        innerRadius={42}
+                        paddingAngle={2}
+                        isAnimationActive={false}
+                        className="cursor-pointer"
+                        onClick={(entry: any) => onAction?.(stageDrilldown(entry?.payload?.stage ?? entry?.stage))}
+                      >
                         {stageData.map((d, i) => (
                           <Cell key={`ozet-pc-${d.name}`} fill={COLORS[i % COLORS.length]} stroke={CHART_CONTRAST} strokeWidth={2} />
                         ))}
@@ -517,12 +585,22 @@ export function DashboardPage({ onAction }: { onAction?: (action: OperationActio
         <Card className="border-border/60 shadow-sm">
           <CardHeader className="pb-2">
             <CardTitle className="tracking-tight">Fırsat Dağılımı</CardTitle>
-            <p className="text-xs text-muted-foreground">Aşamalara göre kart sayısı</p>
+            <p className="text-xs text-muted-foreground">Aşamalara göre kart sayısı · dilime tıklayın</p>
           </CardHeader>
           <CardContent className="h-72">
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>
-                <Pie data={stageData} dataKey="count" nameKey="name" outerRadius={75} innerRadius={48} paddingAngle={2} isAnimationActive={false}>
+                <Pie
+                  data={stageData}
+                  dataKey="count"
+                  nameKey="name"
+                  outerRadius={75}
+                  innerRadius={48}
+                  paddingAngle={2}
+                  isAnimationActive={false}
+                  className="cursor-pointer"
+                  onClick={(entry: any) => onAction?.(stageDrilldown(entry?.payload?.stage ?? entry?.stage))}
+                >
                   {stageData.map((d, i) => (
                     <Cell key={`pc-${d.name}`} fill={COLORS[i % COLORS.length]} stroke={CHART_CONTRAST} strokeWidth={2} />
                   ))}
@@ -541,7 +619,7 @@ export function DashboardPage({ onAction }: { onAction?: (action: OperationActio
           <CardHeader className="pb-2">
             <CardTitle className="tracking-tight">Satış Hunisi</CardTitle>
             <p className="text-xs text-muted-foreground">
-              {pipelineRows.length > 0 ? "API fırsat özeti" : "Fırsat → Kurulum dönüşümü"}
+              {pipelineRows.length > 0 ? "API fırsat özeti" : "Fırsat → Kurulum dönüşümü"} · çubuğa tıklayın
             </p>
           </CardHeader>
           <CardContent className="h-72 pl-2">
@@ -559,7 +637,14 @@ export function DashboardPage({ onAction }: { onAction?: (action: OperationActio
                 <XAxis type="number" stroke={CHART_AXIS_MUTED} fontSize={11} tickLine={false} axisLine={false} />
                 <YAxis type="category" dataKey="name" stroke={CHART_AXIS} fontSize={11} width={75} tickLine={false} axisLine={false} />
                 <Tooltip cursor={{ fill: "var(--chart-cursor)" }} contentStyle={chartTooltipStyle(12)} />
-                <Bar dataKey="value" barSize={22} fill="var(--brand-blue)" isAnimationActive={false} />
+                <Bar
+                  dataKey="value"
+                  barSize={22}
+                  fill="var(--brand-blue)"
+                  isAnimationActive={false}
+                  className="cursor-pointer"
+                  onClick={(entry: any) => onAction?.(stageDrilldown(entry?.payload?.stage ?? entry?.stage))}
+                />
               </BarChart>
             </ResponsiveContainer>
             )}
@@ -569,13 +654,22 @@ export function DashboardPage({ onAction }: { onAction?: (action: OperationActio
         <Card className="border-border/60 shadow-sm">
           <CardHeader className="pb-2">
             <CardTitle className="tracking-tight">Departman Performansı</CardTitle>
-            <p className="text-xs text-muted-foreground">KPI · 0–100 endeks</p>
+            <p className="text-xs text-muted-foreground">KPI · 0–100 endeks · eksen adına tıklayın</p>
           </CardHeader>
           <CardContent className="h-72">
             <ResponsiveContainer width="100%" height="100%">
               <RadarChart data={radarData} margin={{ top: 8, right: 16, bottom: 8, left: 16 }}>
                 <PolarGrid stroke={CHART_GRID} />
-                <PolarAngleAxis dataKey="konu" fontSize={11} stroke={CHART_AXIS} />
+                <PolarAngleAxis
+                  dataKey="konu"
+                  fontSize={11}
+                  stroke={CHART_AXIS}
+                  tick={{ cursor: "pointer" } as any}
+                  onClick={(entry: any) => {
+                    const row = radarData.find((item) => item.konu === (entry?.value ?? entry?.payload?.value));
+                    if (row) onAction?.(row.action);
+                  }}
+                />
                 <PolarRadiusAxis angle={30} domain={[0, 100]} fontSize={9} stroke={CHART_AXIS_MUTED} />
                 <Radar dataKey="deger" stroke="var(--brand-blue)" fill="var(--brand-blue)" fillOpacity={0.35} strokeWidth={2} />
                 <Tooltip contentStyle={chartTooltipStyle(12)} />
@@ -607,7 +701,7 @@ export function DashboardPage({ onAction }: { onAction?: (action: OperationActio
       <Card className="border-border/60 shadow-sm">
         <CardHeader className="pb-2">
           <CardTitle className="tracking-tight">Kazanan vs Kaybedilen</CardTitle>
-          <p className="text-xs text-muted-foreground">Aylık karşılaştırma</p>
+          <p className="text-xs text-muted-foreground">Aylık karşılaştırma · çubuğa tıklayın</p>
         </CardHeader>
         <CardContent className="h-64 pl-2">
           <ResponsiveContainer width="100%" height="100%">
@@ -617,8 +711,24 @@ export function DashboardPage({ onAction }: { onAction?: (action: OperationActio
               <YAxis stroke={CHART_AXIS_MUTED} fontSize={11} tickLine={false} axisLine={false} />
               <Tooltip contentStyle={chartTooltipStyle(12)} />
               <Legend iconType="circle" wrapperStyle={{ fontSize: 11 }} />
-              <Bar dataKey="kazanan" name="Kazanan" fill="var(--success)" barSize={18} isAnimationActive={false} />
-              <Bar dataKey="kayip" name="Kaybedilen" fill="var(--destructive)" barSize={18} isAnimationActive={false} />
+              <Bar
+                dataKey="kazanan"
+                name="Kazanan"
+                fill="var(--success)"
+                barSize={18}
+                isAnimationActive={false}
+                className="cursor-pointer"
+                onClick={() => onAction?.({ kind: "navigate", nav: "sales-cases", focus: "won" })}
+              />
+              <Bar
+                dataKey="kayip"
+                name="Kaybedilen"
+                fill="var(--destructive)"
+                barSize={18}
+                isAnimationActive={false}
+                className="cursor-pointer"
+                onClick={() => onAction?.({ kind: "navigate", nav: "sales-cases", focus: "lost" })}
+              />
             </BarChart>
           </ResponsiveContainer>
         </CardContent>
@@ -674,6 +784,73 @@ function OverviewPulseBar({
             <span className="font-semibold tabular-nums">{pill.value}</span>
             <span className="text-xs opacity-80">{pill.label}</span>
           </span>
+        ))}
+      </CardContent>
+    </Card>
+  );
+}
+
+/**
+ * Yönetim metrikleri: kazanma oranı, satış döngüsü ve pipeline hızı. Hepsi
+ * mevcut satış kartı verisinden türetilir; hesaplanamayanlar 0 yerine "—"
+ * gösterir, çünkü "veri yok" ile "sıfır" farklı kararlar doğurur.
+ */
+function SalesPerformanceStrip({
+  performance,
+  onAction,
+}: {
+  performance: ReturnType<typeof buildSalesPerformance>;
+  onAction?: (action: OperationAction) => void;
+}) {
+  const money = (value: number) =>
+    `$${value >= 1000 ? `${(value / 1000).toFixed(value >= 10000 ? 0 : 1)}K` : value.toFixed(0)}`;
+  const metrics = [
+    {
+      label: "Kazanma Oranı",
+      value: performance.winRate == null ? "—" : `%${performance.winRate}`,
+      hint: `${performance.wonCount} kazanıldı · ${performance.lostCount} kaybedildi`,
+      action: { kind: "navigate", nav: "sales-cases", focus: "won" } as OperationAction,
+    },
+    {
+      label: "Satış Döngüsü",
+      value: performance.avgCycleDays == null ? "—" : `${performance.avgCycleDays} gün`,
+      hint: performance.avgCycleDays == null ? "Kapanış tarihi olan kart yok" : "Kazanılan kartların ortalaması",
+      action: { kind: "navigate", nav: "sales-cases" } as OperationAction,
+    },
+    {
+      label: "Ortalama Fırsat",
+      value: performance.openCount ? money(performance.avgDealValue) : "—",
+      hint: `${performance.openCount} açık kart · toplam ${money(performance.openValue)}`,
+      action: { kind: "navigate", nav: "sales-cases", focus: "open" } as OperationAction,
+    },
+    {
+      label: "Pipeline Hızı",
+      value: performance.velocityPerDay == null ? "—" : `${money(performance.velocityPerDay)}/gün`,
+      hint: performance.velocityPerDay == null ? "Kazanma oranı veya döngü süresi eksik" : "Beklenen günlük kazanç akışı",
+      action: { kind: "navigate", nav: "sales-cases", focus: "open" } as OperationAction,
+    },
+  ];
+
+  return (
+    <Card className="border-border/60 shadow-sm">
+      <CardHeader className="pb-2">
+        <CardTitle className="tracking-tight text-base">Satış Performansı</CardTitle>
+        <p className="text-xs text-muted-foreground">Açık ve kapanmış kartlardan türetilen yönetim metrikleri</p>
+      </CardHeader>
+      <CardContent className="grid grid-cols-2 gap-3 pt-0 lg:grid-cols-4">
+        {metrics.map((metric) => (
+          <button
+            key={metric.label}
+            type="button"
+            className="rounded-lg border border-border/60 bg-muted/20 px-3 py-2.5 text-left transition-colors hover:border-primary/30 hover:bg-muted/40"
+            onClick={() => onAction?.(metric.action)}
+          >
+            <div className="font-data text-[10px] font-semibold uppercase tracking-[0.1em] text-muted-foreground">
+              {metric.label}
+            </div>
+            <div className="mt-1 text-xl font-semibold tabular-nums">{metric.value}</div>
+            <div className="mt-0.5 text-[11px] leading-snug text-muted-foreground">{metric.hint}</div>
+          </button>
         ))}
       </CardContent>
     </Card>
@@ -1245,6 +1422,37 @@ function TargetSummary({ label, value, tone = "default" }: { label: string; valu
   );
 }
 
+/**
+ * Hedef ilerlemesi: yüzde çubuğunun üstüne çeyrek kilometre taşları. Sadece
+ * yüzde görmek "ne kadar kaldı" sorusunu cevaplamıyor; işaretler ilerlemeyi
+ * gözle ölçülebilir hale getirir.
+ */
+const TARGET_MILESTONES = [25, 50, 75] as const;
+const milestoneLabel = (pct: number) => {
+  if (pct >= 100) return { text: "Hedef tamam", className: "chip chip-success" };
+  if (pct >= 75) return { text: "Son çeyrek", className: "chip chip-info" };
+  if (pct >= 50) return { text: "Yarıyı geçti", className: "chip chip-info" };
+  if (pct >= 25) return { text: "İlk çeyrek", className: "chip chip-neutral" };
+  return { text: "Başlangıç", className: "chip chip-warning" };
+};
+
+function TargetProgress({ pct }: { pct: number }) {
+  const clamped = Math.min(Math.max(pct, 0), 100);
+  return (
+    <div className="relative mt-1">
+      <Progress value={clamped} className="h-1.5" />
+      {TARGET_MILESTONES.map((milestone) => (
+        <span
+          key={milestone}
+          aria-hidden="true"
+          className={`absolute top-0 h-1.5 w-px ${clamped >= milestone ? "bg-white/70" : "bg-border"}`}
+          style={{ left: `${milestone}%` }}
+        />
+      ))}
+    </div>
+  );
+}
+
 function TargetList({ title, items }: { title: string; items: AssignedTargetItem[] }) {
   return (
     <div className="overflow-hidden rounded-md border border-border/60">
@@ -1265,11 +1473,14 @@ function TargetList({ title, items }: { title: string; items: AssignedTargetItem
                   {item.description && <div className="mt-1 text-xs leading-relaxed text-muted-foreground">{item.description}</div>}
                   {item.actual != null && item.pct != null && (
                     <div className="mt-2">
-                      <div className="flex items-center justify-between text-xs text-muted-foreground">
+                      <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 text-xs text-muted-foreground">
                         <span>Gerçekleşen: {item.actual.toLocaleString("tr-TR")}</span>
-                        <span>%{item.pct}</span>
+                        <span className="flex items-center gap-1.5">
+                          <span className={milestoneLabel(item.pct).className}>{milestoneLabel(item.pct).text}</span>
+                          <span className="tabular-nums">%{item.pct}</span>
+                        </span>
                       </div>
-                      <Progress value={Math.min(Math.max(item.pct, 0), 100)} className="mt-1 h-1.5" />
+                      <TargetProgress pct={item.pct} />
                     </div>
                   )}
                 </div>

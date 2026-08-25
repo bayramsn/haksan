@@ -602,6 +602,7 @@ export type StockItem = {
   receivedDate?: string;
   arrivalDate?: string;
   locationStatus?: string;
+  notes?: string;
 };
 
 export type ProductSpec = { key: string; value: string; unit?: string; specUnit?: string; groupCode?: string; groupName?: string };

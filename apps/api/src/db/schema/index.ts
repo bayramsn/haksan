@@ -19,3 +19,4 @@ export * from './chat';
 export * from './call-assistant';
 export * from './calendar';
 export * from './mail';
+export * from './meta';

@@ -4,6 +4,7 @@ export const NAVIGATION_VISIBILITY_KEYS = [
   'calendar',
   'customers',
   'sales-cases',
+  'meta',
   'references',
   'contacts',
   'sales-map',
@@ -67,6 +68,7 @@ export const NAVIGATION_GROUPS = [
     items: [
       { key: 'customers', label: 'Firmalar' },
       { key: 'sales-cases', label: 'Fırsat' },
+      { key: 'meta', label: 'Meta Merkezi' },
       { key: 'references', label: 'Referanslar' },
     ],
   },

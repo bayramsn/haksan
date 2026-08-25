@@ -442,7 +442,14 @@ export const activityCreateSchema = z.object({
 });
 export type ActivityCreateInput = z.infer<typeof activityCreateSchema>;
 
-export const activityUpdateSchema = activityCreateSchema.partial();
+export const activityUpdateSchema = activityCreateSchema.partial().extend({
+  opportunityId: z.string().nullable().optional(),
+  companyId: z.string().min(1).nullable().optional(),
+  contactId: z.string().nullable().optional(),
+  description: z.string().max(4000).nullable().optional(),
+  nextFollowUpAt: z.coerce.date().nullable().optional(),
+  result: z.string().max(2000).nullable().optional(),
+});
 export type ActivityUpdateInput = z.infer<typeof activityUpdateSchema>;
 
 export const competitorCreateSchema = z.object({

@@ -123,6 +123,7 @@ import type {
   UserUpdateInput,
   VisitCreateInput,
   WarehouseCreateInput,
+  MailRecipients,
   MailSendInput,
   MailSendResult,
   UserMailAccountStatus,
@@ -457,6 +458,9 @@ export const mailService = {
   connect: (body: UserMailAccountUpsertInput) => api.put<UserMailAccountStatus>('/mail/account', body),
   disconnect: () => api.delete<{ ok: true }>('/mail/account'),
   send: (body: MailSendInput) => api.post<MailSendResult>('/mail/send', body),
+  /** Alıcı seçicisi: firmanın kontakları + kendi kullanıcılarımız. */
+  recipients: (companyId?: string) =>
+    api.get<MailRecipients>(`/mail/recipients${qs(companyId ? { companyId } : undefined)}`),
 };
 
 // ───── Contacts ─────
@@ -755,6 +759,37 @@ export const noteTemplateService = {
   create: (body: NoteTemplateCreateInput) => api.post<any>('/note-templates', body),
   update: (id: string, body: NoteTemplateUpdateInput) => api.patch<any>(`/note-templates/${id}`, body),
   remove: (id: string) => api.delete(`/note-templates/${id}`),
+};
+
+// ───── References (delivered machines) ─────
+export type ReferenceDTO = {
+  id: string;
+  firm: string;
+  contact: string | null;
+  district: string | null;
+  city: string | null;
+  brand: string | null;
+  model: string | null;
+  deliveryDate: string | null;
+  notes: string | null;
+};
+
+export type ReferenceInput = {
+  firm: string;
+  contact?: string;
+  district?: string;
+  city?: string;
+  brand?: string;
+  model?: string;
+  deliveryDate?: string;
+  notes?: string;
+};
+
+export const referenceService = {
+  list: () => api.get<ReferenceDTO[]>('/references'),
+  create: (body: ReferenceInput) => api.post<ReferenceDTO>('/references', body),
+  update: (id: string, body: ReferenceInput) => api.patch<ReferenceDTO>(`/references/${id}`, body),
+  remove: (id: string) => api.delete(`/references/${id}`),
 };
 
 // ───── Sales / Purchase Orders ─────

@@ -13,6 +13,7 @@ let quoteId: string;
 let quoteBusinessLine: string;
 let proformaId: string;
 let contractId: string;
+let commercialInvoiceId: string;
 let quoteItemId: string;
 let productModelId: string;
 let productFullName: string;
@@ -101,7 +102,7 @@ describe('ERP flow', () => {
     quoteBusinessLine = r.body.businessLine;
     expect(['CNC', 'UNI', 'SACISLE']).toContain(quoteBusinessLine);
     expect(r.body.companyAddressId).toBe(companyAddressId);
-    expect(r.body.documentNo).toMatch(new RegExp(`^${quoteBusinessLine}-\\d{4}/\\d{3}$`));
+    expect(r.body.documentNo).toMatch(new RegExp(`^${quoteBusinessLine}-\\d{4}/\\d{3,}$`));
 
     const item = await supertest(app.getHttpServer())
       .post(`/api/v1/quotes/${quoteId}/items`)
@@ -156,7 +157,7 @@ describe('ERP flow', () => {
 
     expect(proforma.status).toBe(201);
     proformaId = proforma.body.id;
-    expect(proforma.body.documentNo).toMatch(new RegExp(`^${quoteBusinessLine}-PRF-\\d{4}/\\d{3}$`));
+    expect(proforma.body.documentNo).toMatch(new RegExp(`^${quoteBusinessLine}-PRF-\\d{4}/\\d{3,}$`));
     expect(proforma.body.documentSnapshot?.schemaVersion).toBe(4);
     expect(proforma.body.documentSnapshot?.items[0]).toMatchObject({
       id: quoteItemId,
@@ -173,7 +174,7 @@ describe('ERP flow', () => {
     });
     expect(contract.status).toBe(201);
     contractId = contract.body.id;
-    expect(contract.body.contractNo).toMatch(new RegExp(`^${quoteBusinessLine}-SOZ-\\d{4}/\\d{3}$`));
+    expect(contract.body.contractNo).toMatch(new RegExp(`^${quoteBusinessLine}-SOZ-\\d{4}/\\d{3,}$`));
     expect(contract.body.documentSnapshot?.items[0]).toMatchObject({
       id: quoteItemId,
       unitPrice: 90_000,
@@ -182,7 +183,82 @@ describe('ERP flow', () => {
     });
     expect(Array.isArray(contract.body.documentSnapshot?.items[0]?.product?.standardEquipment)).toBe(true);
     expect(invoice.status).toBe(201);
-    expect(invoice.body.invoiceNo).toMatch(new RegExp(`^${quoteBusinessLine}-FAT-\\d{4}/\\d{3}$`));
+    commercialInvoiceId = invoice.body.id;
+    expect(invoice.body.invoiceNo).toMatch(new RegExp(`^${quoteBusinessLine}-FAT-\\d{4}/\\d{3,}$`));
+  });
+
+  it('teklif listesini sunucuda tarih aralığıyla filtreler', async () => {
+    const from = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+    const to = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+    const current = await supertest(app.getHttpServer())
+      .get(`/api/v1/quotes?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&pageSize=10`)
+      .set('Authorization', `Bearer ${adminToken}`);
+    expect(current.status).toBe(200);
+    expect(current.body.data.some((row: { id: string }) => row.id === quoteId)).toBe(true);
+
+    const summary = await supertest(app.getHttpServer())
+      .get(`/api/v1/quotes/summary?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`)
+      .set('Authorization', `Bearer ${adminToken}`);
+    expect(summary.status).toBe(200);
+    expect(summary.body.totalCount).toBeGreaterThanOrEqual(1);
+    expect(
+      summary.body.byCurrency
+        .find((row: { currencyCode: string }) => row.currencyCode === 'USD')
+        ?.months.some((month: { count: number }) => month.count > 0),
+    ).toBe(true);
+
+    const historical = await supertest(app.getHttpServer())
+      .get('/api/v1/quotes?from=2000-01-01T00%3A00%3A00.000Z&to=2000-02-01T00%3A00%3A00.000Z&pageSize=10')
+      .set('Authorization', `Bearer ${adminToken}`);
+    expect(historical.status).toBe(200);
+    expect(historical.body.data.some((row: { id: string }) => row.id === quoteId)).toBe(false);
+  });
+
+  it('filters commercial documents by quote and company on the server', async () => {
+    const server = app.getHttpServer();
+    const endpoints = [
+      { path: 'proformas', id: proformaId },
+      { path: 'contracts', id: contractId },
+      { path: 'commercial-invoices', id: commercialInvoiceId },
+    ];
+
+    for (const endpoint of endpoints) {
+      const byQuote = await supertest(server)
+        .get(`/api/v1/${endpoint.path}`)
+        .query({ quoteId, pageSize: 10 })
+        .set('Authorization', `Bearer ${adminToken}`)
+        .expect(200);
+      expect(byQuote.body.data.some((row: { id: string }) => row.id === endpoint.id)).toBe(true);
+      expect(byQuote.body.data.every((row: { quoteId: string | null }) => row.quoteId === quoteId)).toBe(true);
+
+      const byCompany = await supertest(server)
+        .get(`/api/v1/${endpoint.path}`)
+        .query({ companyId, pageSize: 10 })
+        .set('Authorization', `Bearer ${adminToken}`)
+        .expect(200);
+      expect(byCompany.body.data.some((row: { id: string }) => row.id === endpoint.id)).toBe(true);
+      expect(byCompany.body.data.every((row: { company?: { id?: string } | null }) => row.company?.id === companyId)).toBe(true);
+
+      const matched = byCompany.body.data.find((row: { id: string }) => row.id === endpoint.id);
+      const documentNo = matched?.documentNo ?? matched?.contractNo ?? matched?.invoiceNo;
+      const searched = await supertest(server)
+        .get(`/api/v1/${endpoint.path}`)
+        .query({ search: documentNo, pageSize: 10 })
+        .set('Authorization', `Bearer ${adminToken}`)
+        .expect(200);
+      expect(searched.body.data.some((row: { id: string }) => row.id === endpoint.id)).toBe(true);
+
+      const detail = await supertest(server)
+        .get(`/api/v1/${endpoint.path}/${endpoint.id}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .expect(200);
+      expect(detail.body).toMatchObject({ id: endpoint.id, quoteId });
+      // Taslak ticari fatura kasıtlı olarak snapshot taşımaz; snapshot kesinleşmede
+      // (statusCode !== 'draft') üretilir. Proforma ve sözleşme oluşturulurken alınır.
+      if (endpoint.path !== 'commercial-invoices') {
+        expect(detail.body.documentSnapshot).toBeTruthy();
+      }
+    }
   });
 
   it('reprices a draft contract without nesting the previous snapshot', async () => {

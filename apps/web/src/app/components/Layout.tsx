@@ -9,6 +9,7 @@ import {
   CheckCircle2, Clock, AlertTriangle, Tag, Receipt, Map as MapIcon, Wallet, Calendar, MessageCircle, MessageSquare,
   ListChecks,
   Star, Rows3,
+  Megaphone,
 } from "lucide-react";
 import { chatService, notificationService, type NotificationDTO, type NotificationTarget } from "../../lib/services";
 import { useAuth } from "../../lib/auth";
@@ -71,6 +72,7 @@ export const RESOURCE_BY_NAV: Partial<Record<NavKey, string>> = {
   customers: "companies",
   contacts: "contacts",
   "sales-cases": "opportunities",
+  meta: "meta",
   kanban: "opportunities",
   "sales-map": "companies",
   offers: "quotes",
@@ -125,6 +127,7 @@ const NAV_ICON: Record<NavigationVisibilityKey, any> = {
   calendar: Calendar,
   customers: Building2,
   "sales-cases": Briefcase,
+  meta: Megaphone,
   references: ListChecks,
   contacts: ContactIcon,
   "sales-map": MapIcon,
@@ -148,6 +151,7 @@ const NAV_ICON: Record<NavigationVisibilityKey, any> = {
 const NAV_ROLES: Partial<Record<NavigationVisibilityKey, string[]>> = {
   customers: ["sales", "finance"],
   "sales-cases": ["sales"],
+  meta: ["sales"],
   references: ["sales"],
   contacts: ["sales"],
   "sales-map": ["sales", "service"],

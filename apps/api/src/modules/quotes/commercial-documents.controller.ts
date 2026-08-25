@@ -1,4 +1,5 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
+import { z } from 'zod';
 import {
   commercialInvoiceCreateSchema,
   commercialInvoiceUpdateSchema,
@@ -15,7 +16,6 @@ import {
   type CommercialInvoiceUpdateInput,
   type ContractCreateInput,
   type ContractUpdateInput,
-  type Pagination,
   type ProformaCreateInput,
   type ProformaUpdateInput,
   type StandaloneContractCreateInput,
@@ -30,6 +30,13 @@ import { CurrentUser } from '../../shared/security/current-user.decorator';
 import type { AuthContext } from '../../shared/security/auth.types';
 import { QuotesService } from './quotes.service';
 
+const commercialDocumentListQuery = paginationSchema.extend({
+  search: z.string().trim().max(128).optional(),
+  companyId: z.string().optional(),
+  quoteId: z.string().optional(),
+});
+type CommercialDocumentListQuery = z.infer<typeof commercialDocumentListQuery>;
+
 @UseGuards(AuthGuard, PermissionsGuard)
 @Controller()
 export class CommercialDocumentsController {
@@ -37,8 +44,14 @@ export class CommercialDocumentsController {
 
   @RequirePermissions('proformas.read')
   @Get('proformas')
-  listProformas(@Query(new ZodValidationPipe(paginationSchema)) qp: Pagination, @CurrentUser() user: AuthContext) {
+  listProformas(@Query(new ZodValidationPipe(commercialDocumentListQuery)) qp: CommercialDocumentListQuery, @CurrentUser() user: AuthContext) {
     return this.svc.listProformas(user, qp);
+  }
+
+  @RequirePermissions('proformas.read')
+  @Get('proformas/:id')
+  getProforma(@Param('id') id: string, @CurrentUser() user: AuthContext) {
+    return this.svc.getProforma(id, user);
   }
 
   @RequirePermissions('proformas.create')
@@ -85,8 +98,14 @@ export class CommercialDocumentsController {
 
   @RequirePermissions('contracts.read')
   @Get('contracts')
-  listContracts(@Query(new ZodValidationPipe(paginationSchema)) qp: Pagination, @CurrentUser() user: AuthContext) {
+  listContracts(@Query(new ZodValidationPipe(commercialDocumentListQuery)) qp: CommercialDocumentListQuery, @CurrentUser() user: AuthContext) {
     return this.svc.listContracts(user, qp);
+  }
+
+  @RequirePermissions('contracts.read')
+  @Get('contracts/:id')
+  getContract(@Param('id') id: string, @CurrentUser() user: AuthContext) {
+    return this.svc.getContract(id, user);
   }
 
   @RequirePermissions('contracts.create')
@@ -134,8 +153,14 @@ export class CommercialDocumentsController {
 
   @RequirePermissions('commercial_invoices.read')
   @Get('commercial-invoices')
-  listCommercialInvoices(@Query(new ZodValidationPipe(paginationSchema)) qp: Pagination, @CurrentUser() user: AuthContext) {
+  listCommercialInvoices(@Query(new ZodValidationPipe(commercialDocumentListQuery)) qp: CommercialDocumentListQuery, @CurrentUser() user: AuthContext) {
     return this.svc.listCommercialInvoices(user, qp);
+  }
+
+  @RequirePermissions('commercial_invoices.read')
+  @Get('commercial-invoices/:id')
+  getCommercialInvoice(@Param('id') id: string, @CurrentUser() user: AuthContext) {
+    return this.svc.getCommercialInvoice(id, user);
   }
 
   @RequirePermissions('commercial_invoices.create')

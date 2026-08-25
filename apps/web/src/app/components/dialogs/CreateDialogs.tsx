@@ -2198,6 +2198,18 @@ const emptyStockForm = () => ({
   arrivalDate: "",
 });
 
+const stockEditForm = (item: StockItem | null) => ({
+  productId: item?.productId ?? "",
+  serialNumber: item?.serialNumber ?? "",
+  controlPanel: item?.controlPanel ?? "",
+  itemCondition: (item?.itemCondition ?? "new") as "new" | "used",
+  warehouseId: item?.warehouseId ?? "",
+  loadingDate: item?.loadingDate ?? "",
+  receivedDate: item?.receivedDate ?? "",
+  arrivalDate: item?.arrivalDate ?? "",
+  notes: item?.notes ?? "",
+});
+
 export function CreateStockDialog({ trigger }: { trigger: React.ReactNode }) {
   const { addStock, stock, products, refresh } = useStore();
   const [open, setOpen] = useState(false);
@@ -2498,6 +2510,159 @@ export function CreateStockDialog({ trigger }: { trigger: React.ReactNode }) {
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => setOpen(false)}>Vazgeç</Button>
             <Button type="submit" disabled={saving}>{saving ? "Kaydediliyor..." : mode === "bulk" ? `${parseInt(quantity || "0", 10) || 0} Kalem Üret` : "Stoğa Ekle"}</Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/**
+ * Kayıtlı stok kalemini düzenler. Seri no, kontrol ünitesi, depo, tarihler ve
+ * notlar oluşturduktan sonra da değişebilmeli; API zaten PATCH kabul ediyordu,
+ * arayüzde karşılığı yoktu.
+ */
+export function EditStockDialog({ item, onClose }: { item: StockItem | null; onClose: () => void }) {
+  const { updateStock, stock, products } = useStore();
+  const [saving, setSaving] = useState(false);
+  const [warehouses, setWarehouses] = useState<Array<{ id: string; name: string }>>([]);
+  const [form, setForm] = useState(() => stockEditForm(item));
+
+  useEffect(() => {
+    if (!item) return;
+    inventoryService.listWarehouses()
+      .then((rows) => setWarehouses(
+        rows
+          .map((warehouse: { id?: string; name?: string }) => ({ id: warehouse.id ?? "", name: warehouse.name ?? "" }))
+          .filter((warehouse) => warehouse.id && warehouse.name),
+      ))
+      .catch(() => setWarehouses([]));
+  }, [item]);
+
+  const categoryCode = item?.categoryCode ?? "TEZGAH";
+  const catalogProducts = useMemo(
+    () => products.filter((p) => (p.categoryCode ?? "TEZGAH") === categoryCode),
+    [products, categoryCode],
+  );
+  const allPanels = Array.from(new Set([
+    ...catalogProducts.map((p) => p.controlPanel),
+    ...stock.filter((s) => s.categoryCode === categoryCode).map((s) => s.controlPanel),
+    form.controlPanel,
+  ].filter(Boolean)));
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!item) return;
+    if (!form.serialNumber.trim()) return toast.error("Seri numarası giriniz");
+    if (stock.some((s) => s.id !== item.id && s.serialNumber === form.serialNumber.trim())) {
+      return toast.error("Bu seri numarası başka bir kalemde kayıtlı");
+    }
+    // Eskiden kontrol ünitesiz kaydedilmiş tezgahlarda diğer alanların düzeltilmesini
+    // engellememek için zorunluluk yalnızca mevcut değeri silmeye karşı uygulanır.
+    if (categoryCode === "TEZGAH" && item.controlPanel && !form.controlPanel.trim()) {
+      return toast.error("Tezgahın kontrol ünitesi boş bırakılamaz");
+    }
+    setSaving(true);
+    try {
+      await updateStock(item.id, {
+        productId: form.productId || undefined,
+        serialNumber: form.serialNumber.trim(),
+        controlPanel: form.controlPanel.trim(),
+        itemCondition: form.itemCondition,
+        warehouseId: form.warehouseId,
+        loadingDate: form.loadingDate,
+        receivedDate: form.receivedDate,
+        arrivalDate: form.arrivalDate,
+        notes: form.notes,
+      });
+      toast.success("Stok kalemi güncellendi", { description: form.serialNumber });
+      onClose();
+    } catch (err: any) {
+      toast.error("Stok kalemi güncellenemedi", { description: err?.message ?? "API isteği başarısız oldu." });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Dialog open={!!item} onOpenChange={(open) => { if (!open) onClose(); }}>
+      <DialogContent className="max-h-[92dvh] max-w-2xl overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Stok Kalemini Düzenle</DialogTitle>
+          <DialogDescription>{item ? `${item.productName || item.counterModel} · ${item.serialNumber}` : ""}</DialogDescription>
+        </DialogHeader>
+
+        <form onSubmit={submit} className="space-y-4">
+          <div>
+            <Label className="text-xs" htmlFor="edit-stock-product">Ürün</Label>
+            <Select value={form.productId || undefined} onValueChange={(v) => setForm({ ...form, productId: v })}>
+              <SelectTrigger id="edit-stock-product" className="mt-1.5"><SelectValue placeholder="Katalogdan ürün seçin..." /></SelectTrigger>
+              <SelectContent>
+                {catalogProducts.map((p) => (
+                  <SelectItem key={p.id} value={p.id}>
+                    {p.shortDescription || [p.brand, p.modelName || p.model].filter(Boolean).join(" ")}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Seri No *" name="edit-stock-serial" value={form.serialNumber} onChange={(v) => setForm({ ...form, serialNumber: v })} />
+            <div>
+              <Label className="text-xs">Kontrol Ünitesi {categoryCode === "TEZGAH" ? "*" : ""}</Label>
+              <AutocompleteInput
+                ariaLabel="Kontrol ünitesi"
+                options={allPanels}
+                value={form.controlPanel}
+                onChange={(v) => setForm({ ...form, controlPanel: v })}
+                placeholder="Kontrol ünitesi seç veya yaz..."
+              />
+            </div>
+            <div>
+              <Label className="text-xs">Yeni / Kullanılmış</Label>
+              <Select value={form.itemCondition} onValueChange={(value: "new" | "used") => setForm({ ...form, itemCondition: value })}>
+                <SelectTrigger className="mt-1.5"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="new">Yeni</SelectItem>
+                  <SelectItem value="used">Kullanılmış</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label className="text-xs">Depo</Label>
+              <Select
+                value={form.warehouseId || undefined}
+                onValueChange={(warehouseId) => setForm({ ...form, warehouseId })}
+              >
+                <SelectTrigger className="mt-1.5"><SelectValue placeholder="Depo seçin" /></SelectTrigger>
+                <SelectContent>
+                  {warehouses.map((warehouse) => <SelectItem key={warehouse.id} value={warehouse.id}>{warehouse.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-3">
+            <Field label="Yüklendiği Tarih" name="edit-stock-loading-date" type="date" value={form.loadingDate} onChange={(v) => setForm({ ...form, loadingDate: v })} />
+            <Field label="Geldiği Tarih" name="edit-stock-received-date" type="date" value={form.receivedDate} onChange={(v) => setForm({ ...form, receivedDate: v })} />
+            <Field label="Geleceği Tarih" name="edit-stock-arrival-date" type="date" value={form.arrivalDate} onChange={(v) => setForm({ ...form, arrivalDate: v })} />
+          </div>
+
+          <div>
+            <Label className="text-xs" htmlFor="edit-stock-notes">Notlar (opsiyon donanım / yedek parça)</Label>
+            <Textarea
+              id="edit-stock-notes"
+              className="mt-1.5"
+              rows={3}
+              value={form.notes}
+              onChange={(e) => setForm({ ...form, notes: e.target.value })}
+            />
+          </div>
+
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={onClose}>Vazgeç</Button>
+            <Button type="submit" disabled={saving}>{saving ? "Kaydediliyor..." : "Kaydet"}</Button>
           </DialogFooter>
         </form>
       </DialogContent>

@@ -3,6 +3,7 @@ import { and, asc, desc, eq, exists, gte, ilike, inArray, isNotNull, isNull, ne,
 import type { DbClient } from '../../db/client';
 import {
   companies,
+  companyStatusOperations,
   companyAccessRequests,
   companyAddresses,
   companyDivisions,
@@ -40,6 +41,7 @@ import type {
   CompanyUpdateInput,
   CompanyListFilterQuery,
   CompanySummaryQuery,
+  CompanyStatusMutationInput,
   Pagination,
 } from '@haksan/shared';
 import { buildPaginated, pageOffset } from '../../shared/utils/pagination';
@@ -55,7 +57,7 @@ import {
 } from '../../shared/utils/division-scope';
 import { companyVisibilityFilter } from '../../shared/utils/company-visibility';
 import { PushService } from '../../shared/push/push.service';
-import { normalizeCompanyName } from '../../shared/utils/text-normalization';
+import { companyNameKey, companyNameKeySql, normalizeCompanyName } from '../../shared/utils/text-normalization';
 import { inspectOfficialCompanyWebsite } from './company-website-lookup';
 import { companyLogoPath } from './company-media.service';
 import { nextRecordNo } from '../../shared/utils/record-sequence';
@@ -1004,6 +1006,40 @@ export class CompaniesService {
     return result;
   }
 
+  /**
+   * Mükerrer firma kaydını reddeder. Kayıt başka bir bölümün portföyündeyse
+   * kullanıcı onu göremediği için körlemesine ikinci kez açmasın diye erişim
+   * talebi üretilir; kendi bölümündeyse doğrudan çakışma döner.
+   *
+   * ponytail: kontrol uygulama katmanında — iki eşzamanlı istek ikisini de
+   * geçebilir. Sıkışırsa (tenant_id, ünvan anahtarı) üzerine kısmi unique index
+   * eklenmeli; mevcut mükerrer kayıtlar temizlenmeden migration patlar.
+   */
+  private async rejectDuplicateCompany(
+    match: SQL,
+    sameDivisionMessage: string,
+    otherDivisionMessage: string,
+    primaryDivisionId: string,
+    actor: AuthContext,
+    note: string | null,
+  ) {
+    const existing = await this.db.query.companies.findFirst({
+      where: and(eq(companies.tenantId, actor.tenantId), isNull(companies.deletedAt), match),
+    });
+    if (!existing) return;
+    if (await this.hasCompanyDivision(existing.id, primaryDivisionId)) {
+      throw new ConflictError(`${sameDivisionMessage}: ${existing.legalTitle}`, {
+        duplicateCompanyId: existing.id,
+      });
+    }
+    const request = await this.createAccessRequestForDivision(existing.id, primaryDivisionId, actor, { note });
+    throw new ConflictError(`${otherDivisionMessage}: ${existing.legalTitle}`, {
+      duplicateCompanyId: existing.id,
+      accessRequestId: request.id,
+      status: request.status,
+    });
+  }
+
   async create(input: CompanyCreateInput, actor: AuthContext) {
     const divisionIds = await this.resolveCreateDivisions(input, actor);
     const primaryDivisionId = divisionIds[0];
@@ -1018,26 +1054,27 @@ export class CompaniesService {
       if (existing) throw new ConflictError('Bu firma numarası ile bir firma zaten kayıtlı');
     }
     if (input.taxNumber) {
-      const existing = await this.db.query.companies.findFirst({
-        where: and(
-          eq(companies.tenantId, actor.tenantId),
-          eq(companies.taxNumber, input.taxNumber),
-          isNull(companies.deletedAt)
-        ),
-      });
-      if (existing) {
-        if (await this.hasCompanyDivision(existing.id, primaryDivisionId)) {
-          throw new ConflictError('Bu vergi numarası ile bir firma zaten kayıtlı');
-        }
-        const request = await this.createAccessRequestForDivision(existing.id, primaryDivisionId, actor, {
-          note: input.notes ?? null,
-        });
-        throw new ConflictError('Bu vergi numarası başka bir bölüm portföyünde kayıtlı; erişim talebi oluşturuldu', {
-          duplicateCompanyId: existing.id,
-          accessRequestId: request.id,
-          status: request.status,
-        });
-      }
+      await this.rejectDuplicateCompany(
+        eq(companies.taxNumber, input.taxNumber),
+        'Bu vergi numarası ile bir firma zaten kayıtlı',
+        'Bu vergi numarası başka bir bölüm portföyünde kayıtlı; erişim talebi oluşturuldu',
+        primaryDivisionId,
+        actor,
+        input.notes ?? null,
+      );
+    }
+    // Vergi numarası girilmeyen firmalar (lead/potansiyel) aynı ünvanla defalarca
+    // açılabiliyordu; ünvan anahtarı bu mükerrer kaydı da kapatır.
+    const nameKey = companyNameKey(input.legalTitle);
+    if (nameKey) {
+      await this.rejectDuplicateCompany(
+        sql`${companyNameKeySql(companies.legalTitle)} = ${nameKey}`,
+        'Bu ünvanla bir firma zaten kayıtlı',
+        'Bu ünvanla bir firma başka bir bölüm portföyünde kayıtlı; erişim talebi oluşturuldu',
+        primaryDivisionId,
+        actor,
+        input.notes ?? null,
+      );
     }
 
     const selectedGroupCodes = input.companyGroupCodes ?? (input.companyGroupCode ? [input.companyGroupCode] : []);
@@ -1245,6 +1282,22 @@ export class CompaniesService {
         ),
       });
       if (duplicate) throw new ConflictError('Bu vergi numarası ile bir firma zaten kayıtlı');
+    }
+
+    if (input.legalTitle && companyNameKey(input.legalTitle) !== companyNameKey(existing.legalTitle)) {
+      const duplicate = await this.db.query.companies.findFirst({
+        where: and(
+          eq(companies.tenantId, actor.tenantId),
+          isNull(companies.deletedAt),
+          ne(companies.id, id),
+          sql`${companyNameKeySql(companies.legalTitle)} = ${companyNameKey(input.legalTitle)}`,
+        ),
+      });
+      if (duplicate) {
+        throw new ConflictError(`Bu ünvanla bir firma zaten kayıtlı: ${duplicate.legalTitle}`, {
+          duplicateCompanyId: duplicate.id,
+        });
+      }
     }
 
     const groupSelectionProvided = input.companyGroupCodes !== undefined || input.companyGroupCode !== undefined;
@@ -1464,6 +1517,80 @@ export class CompaniesService {
       oldValues: existing,
       newValues: patch,
     });
+    return this.get(id, actor);
+  }
+
+  /**
+   * Dar mobil durum mutasyonu: aynı operationId aynı kullanıcı+tenant altında
+   * en fazla bir kez uygulanır. Ağ yanıtı kaybolduğunda güvenli replay sağlar.
+   */
+  async updateStatus(id: string, input: CompanyStatusMutationInput, actor: AuthContext) {
+    const existing = await this.get(id, actor);
+    const statusId = await lookupIdByCode(this.db, companyStatuses, input.customerStatusCode);
+    if (!statusId) {
+      throw new ValidationError('Geçersiz firma durumu seçildi', {
+        field: 'customerStatusCode',
+        code: input.customerStatusCode,
+      });
+    }
+
+    const changed = await this.db.transaction(async (tx) => {
+      const [claimed] = await tx
+        .insert(companyStatusOperations)
+        .values({
+          tenantId: actor.tenantId,
+          userId: actor.userId,
+          operationId: input.operationId,
+          companyId: id,
+          statusCode: input.customerStatusCode,
+        })
+        .onConflictDoNothing({
+          target: [
+            companyStatusOperations.tenantId,
+            companyStatusOperations.userId,
+            companyStatusOperations.operationId,
+          ],
+        })
+        .returning({ operationId: companyStatusOperations.operationId });
+
+      if (!claimed) {
+        const [prior] = await tx
+          .select({
+            companyId: companyStatusOperations.companyId,
+            statusCode: companyStatusOperations.statusCode,
+          })
+          .from(companyStatusOperations)
+          .where(and(
+            eq(companyStatusOperations.tenantId, actor.tenantId),
+            eq(companyStatusOperations.userId, actor.userId),
+            eq(companyStatusOperations.operationId, input.operationId),
+          ))
+          .limit(1);
+        if (!prior || prior.companyId !== id || prior.statusCode !== input.customerStatusCode) {
+          throw new ConflictError('İşlem kimliği farklı bir durum değişikliği için zaten kullanılmış');
+        }
+        return false;
+      }
+
+      if (existing.customerStatusId === statusId) return false;
+      await tx
+        .update(companies)
+        .set({ customerStatusId: statusId, updatedBy: actor.userId })
+        .where(and(eq(companies.id, id), eq(companies.tenantId, actor.tenantId), isNull(companies.deletedAt)));
+      return true;
+    });
+
+    if (changed) {
+      await this.audit.write({
+        tenantId: actor.tenantId,
+        actorUserId: actor.userId,
+        action: 'company.status_updated',
+        resourceType: 'company',
+        resourceId: id,
+        oldValues: { customerStatusId: existing.customerStatusId },
+        newValues: { customerStatusCode: input.customerStatusCode, operationId: input.operationId },
+      });
+    }
     return this.get(id, actor);
   }
 
@@ -1995,5 +2122,60 @@ export class CompaniesService {
       oldValues: existing,
     });
     return { ok: true };
+  }
+
+  /** Harita için yalnız görünür firmaların tek varsayılan koordinatını döndürür. */
+  async mapPoints(actor: AuthContext) {
+    const visible = await this.visibleCompanyFilters(actor);
+    const rankedAddresses = this.db
+      .select({
+        companyId: companyAddresses.companyId,
+        latitude: companyAddresses.latitude,
+        longitude: companyAddresses.longitude,
+        province: companyAddresses.province,
+        district: companyAddresses.district,
+        locationSource: companyAddresses.locationSource,
+        rn: sql<number>`row_number() over (partition by ${companyAddresses.companyId} order by ${companyAddresses.isDefault} desc, ${companyAddresses.id} asc)`.as('rn'),
+      })
+      .from(companyAddresses)
+      .where(
+        and(
+          eq(companyAddresses.tenantId, actor.tenantId),
+          isNull(companyAddresses.deletedAt),
+          isNotNull(companyAddresses.latitude),
+          isNotNull(companyAddresses.longitude),
+        ),
+      )
+      .as('map_address');
+
+    const rows = await this.db
+      .select({
+        id: companies.id,
+        legalTitle: companies.legalTitle,
+        shortName: companies.shortName,
+        relationTypeCode: companyRelationTypes.code,
+        statusCode: companyStatuses.code,
+        latitude: rankedAddresses.latitude,
+        longitude: rankedAddresses.longitude,
+        province: rankedAddresses.province,
+        district: rankedAddresses.district,
+        locationSource: rankedAddresses.locationSource,
+      })
+      .from(companies)
+      .innerJoin(rankedAddresses, and(eq(rankedAddresses.companyId, companies.id), eq(rankedAddresses.rn, 1)))
+      .leftJoin(companyRelationTypes, eq(companies.relationTypeId, companyRelationTypes.id))
+      .leftJoin(companyStatuses, eq(companies.customerStatusId, companyStatuses.id))
+      .where(and(...visible))
+      .orderBy(asc(companies.legalTitle))
+      .limit(2001);
+
+    return {
+      data: rows.slice(0, 2000).map((row) => ({
+        ...row,
+        latitude: Number(row.latitude),
+        longitude: Number(row.longitude),
+      })),
+      truncated: rows.length > 2000,
+    };
   }
 }

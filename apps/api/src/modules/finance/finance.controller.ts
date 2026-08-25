@@ -43,6 +43,11 @@ import { resourceDivisionFilter } from '../../shared/utils/division-scope';
 import { FinanceService } from './finance.service';
 import { z } from 'zod';
 
+const paymentListQuerySchema = financeListQuerySchema.extend({
+  direction: z.enum(['in', 'out']).optional(),
+});
+type PaymentListQuery = z.infer<typeof paymentListQuerySchema>;
+
 @UseGuards(AuthGuard, PermissionsGuard)
 @Controller()
 export class FinanceController {
@@ -126,10 +131,100 @@ export class FinanceController {
     return this.finance.createReceivable(body, user);
   }
 
+  @RequirePermissions('receivables.read')
+  @Get('receivables/summary')
+  async receivableSummary(
+    @Query(new ZodValidationPipe(financeListQuerySchema)) query: FinanceListQuery,
+    @CurrentUser() user: AuthContext,
+  ) {
+    const companyVisibility = await companyVisibilityExistsFilter(this.db, user, receivables.companyId);
+    const filters = [
+      eq(receivables.tenantId, user.tenantId),
+      isNull(receivables.deletedAt),
+      resourceDivisionFilter(user, 'receivables', receivables.divisionId) ?? sql`true`,
+      companyVisibility ?? sql`true`,
+    ];
+    if (query.companyId) filters.push(eq(receivables.companyId, query.companyId));
+    const open = sql`(${paymentStatuses.code} is null or ${paymentStatuses.code} not in ('paid', 'cancelled'))`;
+    const overdue = sql`(${open} and ${receivables.dueDate} < now())`;
+    const rows = await this.db
+      .select({
+        currencyCode: currencies.code,
+        totalCount: sql<number>`count(*)::int`,
+        openCount: sql<number>`count(*) filter (where ${open})::int`,
+        overdueCount: sql<number>`count(*) filter (where ${overdue})::int`,
+        openAmount: sql<string>`coalesce(sum(case when ${open} then ${receivables.amount} else 0 end), 0)::text`,
+        overdueAmount: sql<string>`coalesce(sum(case when ${overdue} then ${receivables.amount} else 0 end), 0)::text`,
+      })
+      .from(receivables)
+      .innerJoin(
+        companies,
+        and(
+          eq(receivables.companyId, companies.id),
+          eq(companies.tenantId, user.tenantId),
+          isNull(companies.deletedAt),
+        ),
+      )
+      .leftJoin(paymentStatuses, eq(receivables.statusId, paymentStatuses.id))
+      .leftJoin(currencies, eq(receivables.currencyId, currencies.id))
+      .where(and(...filters))
+      .groupBy(currencies.code)
+      .orderBy(currencies.code);
+    return {
+      total: rows.reduce((sum, row) => sum + row.totalCount, 0),
+      openCount: rows.reduce((sum, row) => sum + row.openCount, 0),
+      overdueCount: rows.reduce((sum, row) => sum + row.overdueCount, 0),
+      byCurrency: rows.map((row) => ({
+        currencyCode: row.currencyCode ?? 'TRY',
+        openAmount: Number(row.openAmount),
+        overdueAmount: Number(row.overdueAmount),
+      })),
+    };
+  }
+
+  @RequirePermissions('receivables.read')
+  @Get('receivables/:id')
+  async getReceivable(@Param('id') id: string, @CurrentUser() user: AuthContext) {
+    const companyVisibility = await companyVisibilityExistsFilter(this.db, user, receivables.companyId);
+    const [row] = await this.db
+      .select({
+        r: receivables,
+        company: {
+          id: companies.id,
+          externalCompanyNo: companies.externalCompanyNo,
+          legalTitle: companies.legalTitle,
+          shortName: companies.shortName,
+        },
+        status: { id: paymentStatuses.id, code: paymentStatuses.code, name: paymentStatuses.name },
+        currency: { id: currencies.id, code: currencies.code },
+      })
+      .from(receivables)
+      .innerJoin(
+        companies,
+        and(
+          eq(receivables.companyId, companies.id),
+          eq(companies.tenantId, user.tenantId),
+          isNull(companies.deletedAt),
+        ),
+      )
+      .leftJoin(paymentStatuses, eq(receivables.statusId, paymentStatuses.id))
+      .leftJoin(currencies, eq(receivables.currencyId, currencies.id))
+      .where(and(
+        eq(receivables.id, id),
+        eq(receivables.tenantId, user.tenantId),
+        isNull(receivables.deletedAt),
+        resourceDivisionFilter(user, 'receivables', receivables.divisionId) ?? sql`true`,
+        companyVisibility ?? sql`true`,
+      ))
+      .limit(1);
+    if (!row) throw new NotFoundError('Alacak kaydı bulunamadı');
+    return { ...row.r, company: row.company, status: row.status, currency: row.currency };
+  }
+
   @RequirePermissions('payments.read')
   @Get('payments')
   async listPayments(
-    @Query(new ZodValidationPipe(paginationSchema.merge(financeListQuerySchema))) qp: Pagination & FinanceListQuery,
+    @Query(new ZodValidationPipe(paginationSchema.merge(paymentListQuerySchema))) qp: Pagination & PaymentListQuery,
     @CurrentUser() user: AuthContext
   ) {
     const { limit, offset } = pageOffset(qp);
@@ -141,6 +236,7 @@ export class FinanceController {
       companyVisibility ?? sql`true`,
     ];
     if (qp.companyId) filters.push(eq(payments.companyId, qp.companyId));
+    if (qp.direction) filters.push(eq(payments.direction, qp.direction));
     const where = and(...filters);
     const companyJoin = and(
       eq(payments.companyId, companies.id),
@@ -177,6 +273,86 @@ export class FinanceController {
       count,
       qp,
     );
+  }
+
+  @RequirePermissions('payments.read')
+  @Get('payments/summary')
+  async paymentSummary(
+    @Query(new ZodValidationPipe(financeListQuerySchema)) query: FinanceListQuery,
+    @CurrentUser() user: AuthContext,
+  ) {
+    const companyVisibility = await companyVisibilityExistsFilter(this.db, user, payments.companyId);
+    const filters = [
+      eq(payments.tenantId, user.tenantId),
+      isNull(payments.deletedAt),
+      resourceDivisionFilter(user, 'payments', payments.divisionId) ?? sql`true`,
+      companyVisibility ?? sql`true`,
+    ];
+    if (query.companyId) filters.push(eq(payments.companyId, query.companyId));
+    const rows = await this.db
+      .select({
+        currencyCode: currencies.code,
+        incoming: sql<string>`coalesce(sum(case when ${payments.direction} = 'in' then ${payments.amount} else 0 end), 0)`,
+        outgoing: sql<string>`coalesce(sum(case when ${payments.direction} = 'out' then ${payments.amount} else 0 end), 0)`,
+        count: sql<number>`count(*)::int`,
+      })
+      .from(payments)
+      .leftJoin(currencies, eq(payments.currencyId, currencies.id))
+      .where(and(...filters))
+      .groupBy(currencies.code)
+      .orderBy(currencies.code);
+    return {
+      total: rows.reduce((sum, row) => sum + row.count, 0),
+      byCurrency: rows.map((row) => {
+        const incoming = Number(row.incoming);
+        const outgoing = Number(row.outgoing);
+        return {
+          currencyCode: row.currencyCode ?? 'TRY',
+          incoming,
+          outgoing,
+          net: incoming - outgoing,
+        };
+      }),
+    };
+  }
+
+  @RequirePermissions('payments.read')
+  @Get('payments/:id')
+  async getPayment(@Param('id') id: string, @CurrentUser() user: AuthContext) {
+    const companyVisibility = await companyVisibilityExistsFilter(this.db, user, payments.companyId);
+    const [row] = await this.db
+      .select({
+        p: payments,
+        company: {
+          id: companies.id,
+          externalCompanyNo: companies.externalCompanyNo,
+          legalTitle: companies.legalTitle,
+          shortName: companies.shortName,
+        },
+        status: { id: paymentStatuses.id, code: paymentStatuses.code, name: paymentStatuses.name },
+        currency: { id: currencies.id, code: currencies.code },
+      })
+      .from(payments)
+      .innerJoin(
+        companies,
+        and(
+          eq(payments.companyId, companies.id),
+          eq(companies.tenantId, user.tenantId),
+          isNull(companies.deletedAt),
+        ),
+      )
+      .leftJoin(paymentStatuses, eq(payments.statusId, paymentStatuses.id))
+      .leftJoin(currencies, eq(payments.currencyId, currencies.id))
+      .where(and(
+        eq(payments.id, id),
+        eq(payments.tenantId, user.tenantId),
+        isNull(payments.deletedAt),
+        resourceDivisionFilter(user, 'payments', payments.divisionId) ?? sql`true`,
+        companyVisibility ?? sql`true`,
+      ))
+      .limit(1);
+    if (!row) throw new NotFoundError('Ödeme kaydı bulunamadı');
+    return { ...row.p, company: row.company, status: row.status, currency: row.currency };
   }
 
   @RequirePermissions('payments.create')

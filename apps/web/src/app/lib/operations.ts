@@ -22,6 +22,7 @@ export type OperationNav =
   | "customers"
   | "contacts"
   | "sales-cases"
+  | "meta"
   | "kanban"
   | "sales-map"
   | "offers"

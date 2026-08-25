@@ -19,13 +19,22 @@ export interface AuditEntry {
 
 const REDACT_KEYS = new Set([
   'password',
-  'passwordHash',
   'password_hash',
-  'encryptedPassword',
   'encrypted_password',
-  'tokenHash',
-  'refreshToken',
+  'passwordhash',
+  'encryptedpassword',
+  'tokenhash',
+  'refreshtoken',
   'token',
+  'accesstoken',
+  'access_token',
+  'encryptedaccesstoken',
+  'appsecret',
+  'app_secret',
+  'clientsecret',
+  'client_secret',
+  'webhookverifytoken',
+  'encryptedcredentials',
 ]);
 
 function redact(value: unknown): unknown {
@@ -34,7 +43,7 @@ function redact(value: unknown): unknown {
   if (typeof value === 'object') {
     const out: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
-      out[k] = REDACT_KEYS.has(k) ? '[REDACTED]' : redact(v);
+      out[k] = REDACT_KEYS.has(k.toLowerCase()) ? '[REDACTED]' : redact(v);
     }
     return out;
   }

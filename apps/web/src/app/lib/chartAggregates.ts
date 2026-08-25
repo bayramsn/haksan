@@ -101,9 +101,13 @@ export function buildCurrencyPie(payments: Payment[]) {
   }));
 }
 
-/** API pipeline-summary satırlarından huni grafiği. */
+/**
+ * API pipeline-summary satırlarından huni grafiği. `stage` kodu drill-down için
+ * taşınır: grafik elemanına tıklanınca aşamanın karşılığı olan satış derecesine
+ * filtrelenmiş fırsat listesine gidilir.
+ */
 export function buildPipelineFunnel(
-  rows: Array<{ stageName?: string | null; count?: number; sortOrder?: number }>,
+  rows: Array<{ stageCode?: string | null; stageName?: string | null; count?: number; sortOrder?: number }>,
 ) {
   return [...rows]
     .filter((r) => (r.count ?? 0) > 0)
@@ -112,6 +116,7 @@ export function buildPipelineFunnel(
       const palette = ['#93c5fd', '#3b82f6', '#000c69', '#0a192f', '#cf060c'];
       return {
         name: r.stageName ?? '—',
+        stage: r.stageCode ?? null,
         value: r.count ?? 0,
         fill: palette[i % palette.length],
       };
@@ -120,11 +125,11 @@ export function buildPipelineFunnel(
 
 /** API pipeline-summary → pasta grafik verisi. */
 export function buildPipelineStagePie(
-  rows: Array<{ stageName?: string | null; count?: number }>,
+  rows: Array<{ stageCode?: string | null; stageName?: string | null; count?: number }>,
 ) {
   return rows
     .filter((r) => (r.count ?? 0) > 0)
-    .map((r) => ({ name: r.stageName ?? '—', count: r.count ?? 0 }));
+    .map((r) => ({ name: r.stageName ?? '—', stage: r.stageCode ?? null, count: r.count ?? 0 }));
 }
 
 /** Satış hunisi — aşama sayıları (store fallback). */
@@ -134,9 +139,68 @@ export function buildFunnelFromCases(cases: SalesCase[], stageLabels: Record<str
   return stages
     .map((stage, i) => ({
       name: stageLabels[stage] ?? stage,
+      stage: stage as string | null,
       value: cases.filter((c) => c.stage === stage && !c.isLost).length,
       fill: palette[i % palette.length],
     }))
     .filter((d) => d.value > 0)
     .sort((a, b) => b.value - a.value);
+}
+
+/**
+ * Satış performans metrikleri — kazanma oranı, ortalama satış döngüsü ve
+ * pipeline hızı. Hepsi mevcut satış kartı alanlarından türetilir; tutarlar
+ * karışık para biriminde tutulduğu için `convertToUsd` ile tek birime çekilir.
+ *
+ * Kazanma oranı yalnızca karara bağlanmış (kazanılan + kaybedilen) kartlar
+ * üzerinden hesaplanır; açık kartlar oranı yapay olarak düşürmesin diye
+ * paydaya girmez. Karar verilmiş kart yoksa metrik `null` döner — 0 göstermek
+ * "hiç kazanamadık" yalanı olur.
+ */
+export function buildSalesPerformance(
+  cases: SalesCase[],
+  convertToUsd: (amount: number, currency: string) => number,
+) {
+  const isWon = (c: SalesCase) => !c.isLost && ['Completed', 'delivered'].includes(String(c.stage));
+  const isLost = (c: SalesCase) => c.isLost || String(c.stage) === 'Lost';
+  const isOpen = (c: SalesCase) => !isWon(c) && !isLost(c) && (c.qualificationStage ?? 'c') !== 'lead';
+
+  const won = cases.filter(isWon);
+  const lost = cases.filter(isLost);
+  const open = cases.filter(isOpen);
+  const decided = won.length + lost.length;
+  const winRate = decided > 0 ? Math.round((won.length / decided) * 100) : null;
+
+  const cycleDays = won
+    .map((c) => {
+      const start = Date.parse(String(c.createdAt ?? ''));
+      const end = Date.parse(String(c.closedAt ?? ''));
+      if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) return null;
+      return (end - start) / 86_400_000;
+    })
+    .filter((days): days is number => days != null);
+  const avgCycleDays = cycleDays.length
+    ? Math.round(cycleDays.reduce((sum, days) => sum + days, 0) / cycleDays.length)
+    : null;
+
+  const openValue = open.reduce((sum, c) => sum + convertToUsd(c.estimatedAmount ?? 0, c.currency), 0);
+  const avgDealValue = open.length ? openValue / open.length : 0;
+
+  // Pipeline hızı: günde kaç dolarlık fırsatın kazanca dönmesi beklenir.
+  // Döngü süresi bilinmiyorsa hesaplanamaz.
+  const velocityPerDay =
+    winRate != null && avgCycleDays != null && avgCycleDays > 0
+      ? (open.length * avgDealValue * (winRate / 100)) / avgCycleDays
+      : null;
+
+  return {
+    wonCount: won.length,
+    lostCount: lost.length,
+    openCount: open.length,
+    winRate,
+    avgCycleDays,
+    avgDealValue,
+    openValue,
+    velocityPerDay,
+  };
 }

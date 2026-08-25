@@ -56,6 +56,70 @@ export const companies = pgTable(
   })
 );
 
+/**
+ * Satışta kullanılan teslim edilmiş makine referansları. Eski/harici teslimatlar
+ * CRM'de firma veya stok kaydı olmadan da girilebilsin diye alanlar serbest metin;
+ * kazanılan fırsatlardan türeyen referanslar bu tabloya yazılmaz, listede birleştirilir.
+ */
+export const companyReferences = pgTable(
+  'company_references',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id')
+      .notNull()
+      .references(() => tenants.id, { onDelete: 'cascade' }),
+    firm: varchar('firm', { length: 255 }).notNull(),
+    contact: varchar('contact', { length: 255 }),
+    district: varchar('district', { length: 128 }),
+    city: varchar('city', { length: 128 }),
+    brand: varchar('brand', { length: 128 }),
+    model: varchar('model', { length: 128 }),
+    deliveryDate: timestamp('delivery_date', { withTimezone: true }),
+    notes: text('notes'),
+    ...ownerColumns,
+    ...auditColumns,
+  },
+  (t) => ({
+    tenantIdx: index('company_references_tenant_idx').on(t.tenantId),
+    deliveryDateIdx: index('company_references_delivery_date_idx').on(t.deliveryDate),
+  })
+);
+
+/**
+ * Mobil/offline durum değişikliklerinin at-least-once tesliminde aynı işlemin
+ * iki kez uygulanmasını önler. Payload özeti, operationId'nin farklı bir firma
+ * veya durum için yeniden kullanılmasını da fail-closed reddetmeye yarar.
+ */
+export const companyStatusOperations = pgTable(
+  'company_status_operations',
+  {
+    tenantId: uuid('tenant_id')
+      .notNull()
+      .references(() => tenants.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    operationId: uuid('operation_id').notNull(),
+    companyId: uuid('company_id')
+      .notNull()
+      .references(() => companies.id, { onDelete: 'cascade' }),
+    statusCode: varchar('status_code', { length: 32 }).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    pk: primaryKey({
+      name: 'company_status_operations_pk',
+      columns: [t.tenantId, t.userId, t.operationId],
+    }),
+    companyIdx: index('company_status_operations_company_idx').on(t.companyId),
+    createdAtIdx: index('company_status_operations_created_at_idx').on(t.createdAt),
+    statusCheck: check(
+      'company_status_operations_status_check',
+      sql`${t.statusCode} in ('potential', 'active', 'passive', 'blacklist')`,
+    ),
+  }),
+);
+
 export const companyAddresses = pgTable(
   'company_addresses',
   {

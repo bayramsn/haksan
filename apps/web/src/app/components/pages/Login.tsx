@@ -24,7 +24,8 @@ const REMEMBER_KEY = "haksan:login-email";
 
 function readResetToken(): string {
   if (typeof window === "undefined") return "";
-  return new URLSearchParams(window.location.search).get("resetToken")?.trim() ?? "";
+  const params = new URLSearchParams(window.location.search);
+  return (params.get("resetToken") ?? params.get("token"))?.trim() ?? "";
 }
 
 export function LoginPage({
@@ -132,6 +133,7 @@ export function LoginPage({
       if (typeof window !== "undefined") {
         const url = new URL(window.location.href);
         url.searchParams.delete("resetToken");
+        url.searchParams.delete("token");
         window.history.replaceState({}, document.title, `${url.pathname}${url.search}${url.hash}`);
       }
       toast.success("Şifreniz güncellendi. Yeni şifrenizle giriş yapabilirsiniz.");

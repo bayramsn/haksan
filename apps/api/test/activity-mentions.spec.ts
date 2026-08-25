@@ -101,6 +101,18 @@ describe('Activity mentions', () => {
       origin: 'manual',
     });
 
+    const detail = await supertest(server)
+      .get(`/api/v1/activities/${activity.body.id}`)
+      .set('Authorization', `Bearer ${adminToken}`);
+    expect(detail.status, JSON.stringify(detail.body)).toBe(200);
+    expect(detail.body).toMatchObject({
+      id: activity.body.id,
+      companyId,
+      subject,
+      type: { code: 'customer_visit', name: 'Müşteri Ziyareti' },
+      files: expect.any(Array),
+    });
+
     const activityList = await supertest(server)
       .get(`/api/v1/activities?companyId=${companyId}&pageSize=100`)
       .set('Authorization', `Bearer ${adminToken}`);

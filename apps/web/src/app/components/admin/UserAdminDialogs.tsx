@@ -58,6 +58,11 @@ const PERMISSION_RESOURCE_LABELS: Record<PermissionResource, string> = {
   payments: "Ödemeler",
   files: "Dokümanlar",
   reports: "Raporlar",
+  meta: "Meta Merkezi",
+  meta_campaigns: "Meta Kampanyaları",
+  meta_messages: "Meta Mesajları",
+  meta_audiences: "Meta Hedef Kitleleri",
+  meta_catalogs: "Meta Katalogları",
   audit: "Denetim Kayıtları",
 };
 
