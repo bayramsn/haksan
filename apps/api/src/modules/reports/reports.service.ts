@@ -1,5 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { and, between, desc, eq, gte, inArray, isNull, lte, sql } from 'drizzle-orm';
+import { and, between, desc, eq, gte, inArray, isNull, lte, notInArray, sql } from 'drizzle-orm';
 import type { DbClient } from '../../db/client';
 import { visits as visitsTbl, calls as callsTbl, leads, salesActivities } from '../../db/schema/crm';
 import { opportunities, cancellationReasons, competitors } from '../../db/schema/crm';
@@ -11,7 +11,7 @@ import { receivables, payments, accountingInvoices } from '../../db/schema/finan
 import { inventoryItems, customerDevices } from '../../db/schema/inventory';
 import { serviceComplaintIntakes, serviceTickets, installationJobs } from '../../db/schema/service';
 import { salesOrders, purchaseOrders } from '../../db/schema/orders';
-import { currencies, pipelineStages, inventoryStatuses, paymentStatuses, warrantyStatuses, quoteStatuses } from '../../db/schema/lookup';
+import { activityTypes, currencies, pipelineStages, inventoryStatuses, paymentStatuses, warrantyStatuses, quoteStatuses } from '../../db/schema/lookup';
 import { companies } from '../../db/schema/companies';
 import { DB } from '../../shared/database/database.module';
 import type { AuthContext } from '../../shared/security/auth.types';
@@ -92,6 +92,21 @@ const expectedPeriodProgressPct = (period: string, now = new Date()) => {
 const measuredMetricSet = new Set<string>(MEASURED_METRICS);
 const manualMetricSet = new Set<string>(MANUAL_METRICS);
 const allMetricKeys = [...MEASURED_METRICS, ...MANUAL_METRICS] as TargetMetricKey[];
+
+type PeriodCount = { current: number; previous: number };
+
+/** Aynı metriğin iki kaynağını kullanıcı bazında toplar. */
+const mergeCountMaps = (left: Map<string, PeriodCount>, right: Map<string, PeriodCount>) => {
+  const merged = new Map<string, PeriodCount>(left);
+  for (const [userId, value] of right) {
+    const existing = merged.get(userId);
+    merged.set(userId, {
+      current: (existing?.current ?? 0) + value.current,
+      previous: (existing?.previous ?? 0) + value.previous,
+    });
+  }
+  return merged;
+};
 
 @Injectable()
 export class ReportsService {
@@ -1476,13 +1491,32 @@ export class ReportsService {
    * Kullanıcı bazında aktivite sayıları. Her kaynak için tek sorgu çalışır ve
    * mevcut/önceki dönem `filter` ile aynı taramadan çıkarılır.
    */
+  /**
+   * Ziyaret ve arama iki ayrı yere kaydedilebiliyor: kendi tabloları (`visits`,
+   * `calls`) ve genel aktivite kaydının türü. Rapor ikisini birlikte saysın diye
+   * ilgili aktivite türlerinin kimlikleri burada çözülür.
+   */
+  private async visitCallActivityTypeIds() {
+    const rows = await this.db
+      .select({ id: activityTypes.id, code: activityTypes.code })
+      .from(activityTypes)
+      .where(inArray(activityTypes.code, ['customer_visit', 'incoming_call', 'outgoing_call']));
+    const idOf = (codes: string[]) => rows.filter((row) => codes.includes(row.code)).map((row) => row.id);
+    const visit = idOf(['customer_visit']);
+    const call = idOf(['incoming_call', 'outgoing_call']);
+    return { visit, call, all: [...visit, ...call] };
+  }
+
   private async activityCounts(
     table: 'quotes' | 'visits' | 'calls' | 'activities',
     tenantId: string,
     userIds: string[],
-    range: { from: Date; to: Date; prevFrom: Date; prevTo: Date }
+    range: { from: Date; to: Date; prevFrom: Date; prevTo: Date },
+    /** Yalnız 'activities' için: sayılacak ya da dışlanacak aktivite türleri. */
+    typeFilter?: { in?: string[]; notIn?: string[] }
   ) {
     if (!userIds.length) return new Map<string, { current: number; previous: number }>();
+    if (typeFilter?.in && !typeFilter.in.length) return new Map<string, { current: number; previous: number }>();
     const spec = {
       quotes: { actor: quotes.createdBy, date: quotes.quoteDate, tenant: quotes.tenantId, deleted: quotes.deletedAt, from: quotes },
       visits: { actor: visitsTbl.createdBy, date: visitsTbl.visitDate, tenant: visitsTbl.tenantId, deleted: visitsTbl.deletedAt, from: visitsTbl },
@@ -1503,7 +1537,9 @@ export class ReportsService {
           isNull(spec.deleted),
           inArray(spec.actor, userIds),
           gte(spec.date, range.prevFrom),
-          lte(spec.date, range.to)
+          lte(spec.date, range.to),
+          typeFilter?.in?.length ? inArray(salesActivities.activityTypeId, typeFilter.in) : undefined,
+          typeFilter?.notIn?.length ? notInArray(salesActivities.activityTypeId, typeFilter.notIn) : undefined
         )
       )
       .groupBy(spec.actor);
@@ -1540,12 +1576,21 @@ export class ReportsService {
       scope === 'self' ? audience.filter((user) => user.id === actor.userId) : audience;
     const userIds = people.map((user) => user.id);
 
-    const [quoteCounts, visitCounts, callCounts, activityCounts] = await Promise.all([
-      this.activityCounts('quotes', actor.tenantId, userIds, range),
-      this.activityCounts('visits', actor.tenantId, userIds, range),
-      this.activityCounts('calls', actor.tenantId, userIds, range),
-      this.activityCounts('activities', actor.tenantId, userIds, range),
-    ]);
+    // Ziyaret/arama hem kendi tablosundan hem aynı türdeki aktivite kaydından
+    // sayılır; "Aktivite" ise geri kalan türlerdir. Aksi halde aktivite ekranından
+    // girilen ziyaret/arama yalnız "Aktivite" çubuğunda görünüp sayılar yanıltıyordu.
+    const activityTypeIds = await this.visitCallActivityTypeIds();
+    const [quoteCounts, visitTableCounts, callTableCounts, activityCounts, visitActivityCounts, callActivityCounts] =
+      await Promise.all([
+        this.activityCounts('quotes', actor.tenantId, userIds, range),
+        this.activityCounts('visits', actor.tenantId, userIds, range),
+        this.activityCounts('calls', actor.tenantId, userIds, range),
+        this.activityCounts('activities', actor.tenantId, userIds, range, { notIn: activityTypeIds.all }),
+        this.activityCounts('activities', actor.tenantId, userIds, range, { in: activityTypeIds.visit }),
+        this.activityCounts('activities', actor.tenantId, userIds, range, { in: activityTypeIds.call }),
+      ]);
+    const visitCounts = mergeCountMaps(visitTableCounts, visitActivityCounts);
+    const callCounts = mergeCountMaps(callTableCounts, callActivityCounts);
 
     // Fırsat: açılan (createdBy/createdAt) ve kazanılan (ownerUserId + derece WIN).
     const oppRows = userIds.length
@@ -1676,8 +1721,11 @@ export class ReportsService {
       tenantCol: any,
       deletedCol: any,
       actorCol: any,
-      table: any
+      table: any,
+      /** Yalnız aktivite serisi için tür süzgeci. */
+      typeFilter?: { in?: string[]; notIn?: string[] }
     ) => {
+      if (typeFilter?.in && !typeFilter.in.length) return new Map<string, number>();
       const truncated = sql`date_trunc('${sql.raw(unit)}', ${dateCol})`;
       const rows = await this.db
         .select({
@@ -1691,26 +1739,42 @@ export class ReportsService {
             isNull(deletedCol),
             inArray(actorCol, userIds),
             gte(dateCol, range.from),
-            lte(dateCol, range.to)
+            lte(dateCol, range.to),
+            typeFilter?.in?.length ? inArray(salesActivities.activityTypeId, typeFilter.in) : undefined,
+            typeFilter?.notIn?.length ? notInArray(salesActivities.activityTypeId, typeFilter.notIn) : undefined
           )
         )
         .groupBy(truncated);
       return new Map(rows.map((row) => [row.bucket, row.count]));
     };
 
-    const [q, v, c, a] = await Promise.all([
+    const activityTypeIds = await this.visitCallActivityTypeIds();
+    const activitySeries = (typeFilter: { in?: string[]; notIn?: string[] }) =>
+      series(
+        salesActivities.activityDate,
+        salesActivities.tenantId,
+        salesActivities.deletedAt,
+        salesActivities.createdBy,
+        salesActivities,
+        typeFilter,
+      );
+    const [q, vTable, cTable, a, vActivity, cActivity] = await Promise.all([
       series(quotes.quoteDate, quotes.tenantId, quotes.deletedAt, quotes.createdBy, quotes),
       series(visitsTbl.visitDate, visitsTbl.tenantId, visitsTbl.deletedAt, visitsTbl.createdBy, visitsTbl),
       series(callsTbl.callDate, callsTbl.tenantId, callsTbl.deletedAt, callsTbl.createdBy, callsTbl),
-      series(salesActivities.activityDate, salesActivities.tenantId, salesActivities.deletedAt, salesActivities.createdBy, salesActivities),
+      activitySeries({ notIn: activityTypeIds.all }),
+      activitySeries({ in: activityTypeIds.visit }),
+      activitySeries({ in: activityTypeIds.call }),
     ]);
 
-    const keys = [...new Set([...q.keys(), ...v.keys(), ...c.keys(), ...a.keys()])].sort();
+    const keys = [
+      ...new Set([...q.keys(), ...vTable.keys(), ...cTable.keys(), ...a.keys(), ...vActivity.keys(), ...cActivity.keys()]),
+    ].sort();
     return keys.map((key) => ({
       bucket: key,
       quotes: q.get(key) ?? 0,
-      visits: v.get(key) ?? 0,
-      calls: c.get(key) ?? 0,
+      visits: (vTable.get(key) ?? 0) + (vActivity.get(key) ?? 0),
+      calls: (cTable.get(key) ?? 0) + (cActivity.get(key) ?? 0),
       activities: a.get(key) ?? 0,
     }));
   }
