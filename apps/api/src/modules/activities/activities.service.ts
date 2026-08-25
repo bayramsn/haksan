@@ -223,6 +223,54 @@ export class ActivitiesService {
     );
   }
 
+  async getActivity(activityId: string, actor: AuthContext) {
+    await this.assertActivity(activityId, actor);
+    const [row] = await this.db
+      .select({
+        activity: salesActivities,
+        type: { id: activityTypes.id, code: activityTypes.code, name: activityTypes.name },
+        createdByUser: { id: users.id, fullName: users.fullName, email: users.email },
+      })
+      .from(salesActivities)
+      .leftJoin(activityTypes, eq(salesActivities.activityTypeId, activityTypes.id))
+      .leftJoin(users, eq(salesActivities.createdBy, users.id))
+      .where(and(
+        eq(salesActivities.id, activityId),
+        eq(salesActivities.tenantId, actor.tenantId),
+        isNull(salesActivities.deletedAt),
+      ))
+      .limit(1);
+    if (!row) throw new NotFoundError('Aktivite');
+
+    const linkedFiles = await this.db
+      .select({
+        link: fileLinks,
+        file: files,
+        documentType: { id: fileDocumentTypes.id, code: fileDocumentTypes.code, name: fileDocumentTypes.name },
+      })
+      .from(fileLinks)
+      .innerJoin(files, eq(fileLinks.fileId, files.id))
+      .leftJoin(fileDocumentTypes, eq(fileLinks.documentTypeId, fileDocumentTypes.id))
+      .where(and(
+        eq(fileLinks.tenantId, actor.tenantId),
+        eq(fileLinks.entityType, 'sales_activity'),
+        eq(fileLinks.entityId, activityId),
+        isNull(files.deletedAt),
+      ));
+
+    return {
+      ...row.activity,
+      type: row.type,
+      createdByUser: row.createdByUser?.id ? row.createdByUser : null,
+      files: linkedFiles.map((linked) => ({
+        ...linked.file,
+        linkId: linked.link.id,
+        documentType: linked.documentType,
+        description: linked.link.description,
+      })),
+    };
+  }
+
   async createActivity(input: ActivityCreateInput, actor: AuthContext, origin: ActivityOrigin = 'system') {
     const companyId = await this.assertReferences(input, actor);
     const typeId = await this.resolveActivityTypeId(input.activityTypeCode);
@@ -332,9 +380,9 @@ export class ActivitiesService {
     const existing = await this.assertActivity(activityId, actor);
     const companyId = await this.assertReferences(
       {
-        companyId: input.companyId ?? existing.companyId ?? undefined,
-        contactId: input.contactId ?? existing.contactId ?? undefined,
-        opportunityId: input.opportunityId ?? existing.opportunityId ?? undefined,
+        companyId: input.companyId === undefined ? existing.companyId ?? undefined : input.companyId ?? undefined,
+        contactId: input.contactId === undefined ? existing.contactId ?? undefined : input.contactId ?? undefined,
+        opportunityId: input.opportunityId === undefined ? existing.opportunityId ?? undefined : input.opportunityId ?? undefined,
       },
       actor
     );

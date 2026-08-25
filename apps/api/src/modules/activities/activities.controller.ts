@@ -41,6 +41,12 @@ export class ActivitiesController {
     return this.svc.list(user, query, { page, pageSize, sortBy, sortDir });
   }
 
+  @RequirePermissions('activities.read')
+  @Get('activities/:id')
+  getActivity(@Param('id') id: string, @CurrentUser() user: AuthContext) {
+    return this.svc.getActivity(id, user);
+  }
+
   @RequirePermissions('activities.create')
   @Post('activities')
   createActivity(

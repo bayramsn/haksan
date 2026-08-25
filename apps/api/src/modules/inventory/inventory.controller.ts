@@ -30,7 +30,11 @@ const listQuery = z.object({
   statusCode: z.string().optional(),
   categoryCode: z.string().optional(),
 });
-const cdQuery = z.object({ companyId: z.string().optional() });
+const cdQuery = z.object({
+  companyId: z.string().optional(),
+  search: z.string().trim().max(128).optional(),
+  preset: z.enum(['warranty', 'expired']).optional(),
+});
 
 const servicePartsConsumeSchema = z.object({
   serviceTicketId: z.string().min(1),
@@ -124,6 +128,12 @@ export class InventoryController {
   ) {
     const { page, pageSize, sortBy, sortDir, ...query } = qp;
     return this.svc.listCustomerDevices(user, query, { page, pageSize, sortBy, sortDir });
+  }
+
+  @RequirePermissions('customer_devices.read')
+  @Get('customer-devices/:id')
+  getCustomerDevice(@Param('id') id: string, @CurrentUser() user: AuthContext) {
+    return this.svc.getCustomerDevice(id, user);
   }
 
   @RequirePermissions('customer_devices.update')

@@ -114,7 +114,7 @@ export class UserMailAccountService {
   }
 
   async send(
-    input: { to: string; subject: string; text: string; attachments?: MailAttachment[] },
+    input: { to: string; cc?: string[]; subject: string; text: string; attachments?: MailAttachment[] },
     actor: Pick<AuthContext, 'tenantId' | 'userId'>
   ): Promise<PersonalMailDelivery> {
     this.assertFeatureEnabled();
@@ -138,6 +138,7 @@ export class UserMailAccountService {
         from: { name: account.displayName, address: account.email },
         replyTo: account.email,
         to: input.to,
+        cc: input.cc?.length ? input.cc : undefined,
         subject: input.subject,
         text: input.text,
         attachments: input.attachments,

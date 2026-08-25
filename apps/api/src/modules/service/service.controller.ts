@@ -1,7 +1,7 @@
 import { Body, Controller, Delete, Get, Inject, Param, Patch, Post, Put, Query, Res, UseGuards } from '@nestjs/common';
 import type { FastifyReply } from 'fastify';
 import { z } from 'zod';
-import { and, asc, desc, eq, ilike, inArray, isNull, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, ilike, inArray, isNotNull, isNull, or, sql, type SQL } from 'drizzle-orm';
 import type { DbClient } from '../../db/client';
 import {
   serviceTickets,
@@ -204,10 +204,24 @@ const ticketUpdate = z.object({
   metadata: z.record(z.string(), z.unknown()).optional(),
 });
 
+/** Liste filtreleri hem web hem mobil istemcide aynı sunucu veri kümesine
+ * uygulanır. `phase`, mobilde resolved+closed durumlarını tek "tamamlandı"
+ * kolonunda birleştiren görünüm modelidir; DB'deki gerçek status kodlarını
+ * değiştirmez. */
+const ticketListQuery = paginationSchema.extend({
+  search: z.string().trim().max(128).optional(),
+  phase: z.enum(['open', 'ongoing', 'done']).optional(),
+  severity: z.enum(['low', 'normal', 'high', 'critical']).optional(),
+});
+const ticketSummaryQuery = ticketListQuery.pick({ search: true, phase: true, severity: true });
+
 const shipmentCompanyOptionsQuery = z.object({
   purpose: z.enum(['sender', 'carrier']).default('sender'),
   transportMode: z.enum(['road', 'air', 'sea', 'local_cargo']).optional(),
   search: z.string().max(128).optional(),
+});
+const shipmentListQuery = paginationSchema.extend({
+  phase: z.enum(['active', 'arrived']).optional(),
 });
 
 const currencySchema = z.enum(['USD', 'EUR', 'TRY']);
@@ -261,6 +275,10 @@ const installCreate = z.object({
   durationMinutes: z.coerce.number().int().min(0).max(100000).optional(),
   notes: z.string().max(2000).optional(),
   formData: installationFormDataSchema.optional(),
+});
+const installationListQuery = paginationSchema.extend({
+  search: z.string().trim().max(128).optional(),
+  phase: z.enum(['planned', 'ongoing', 'done']).optional(),
 });
 const installUpdate = z.object({
   divisionId: z.string().uuid().optional(),
@@ -850,7 +868,10 @@ export class ServiceController {
 
   private async assertShipment(shipmentId: string, tenantId: string, actor?: AuthContext) {
     const filters = [eq(shipments.id, shipmentId), eq(shipments.tenantId, tenantId), isNull(shipments.deletedAt)];
-    if (actor) filters.push(resourceDivisionFilter(actor, 'shipments', shipments.divisionId) ?? sql`true`);
+    if (actor) {
+      filters.push(resourceDivisionFilter(actor, 'shipments', shipments.divisionId) ?? sql`true`);
+      filters.push((await companyVisibilityExistsFilter(this.db, actor, shipments.companyId)) ?? sql`true`);
+    }
     const shipment = await this.db.query.shipments.findFirst({
       where: and(...filters),
     });
@@ -1321,18 +1342,62 @@ export class ServiceController {
   }
 
   // ─────── SERVICE TICKETS ───────
-  @RequirePermissions('service_tickets.read')
-  @Get('service-tickets')
-  async listTickets(@Query(new ZodValidationPipe(paginationSchema)) p: Pagination, @CurrentUser() user: AuthContext) {
-    const { limit, offset } = pageOffset(p);
+  private async ticketListWhere(
+    user: AuthContext,
+    query: z.infer<typeof ticketSummaryQuery>,
+  ): Promise<SQL> {
     const visibility = await companyVisibilityExistsFilter(this.db, user, serviceTickets.companyId);
-    const where = and(
+    const filters: SQL[] = [
       eq(serviceTickets.tenantId, user.tenantId),
       isNull(serviceTickets.deletedAt),
       resourceDivisionFilter(user, 'service_tickets', serviceTickets.divisionId) ?? sql`true`,
-      visibility ?? sql`true`
-    );
-    const [{ count }] = await this.db.select({ count: sql<number>`count(*)::int` }).from(serviceTickets).where(where);
+      visibility ?? sql`true`,
+    ];
+
+    if (query.search) {
+      const term = `%${query.search}%`;
+      filters.push(
+        or(
+          ilike(serviceTickets.ticketNo, term),
+          ilike(serviceTickets.subject, term),
+          ilike(companies.legalTitle, term),
+          ilike(companies.shortName, term),
+        ) ?? sql`false`,
+      );
+    }
+    if (query.severity) filters.push(eq(serviceTickets.severity, query.severity));
+    if (query.phase === 'open') filters.push(eq(serviceTicketStatuses.code, 'open'));
+    if (query.phase === 'ongoing') {
+      filters.push(inArray(serviceTicketStatuses.code, ['in_progress', 'waiting_customer']));
+    }
+    if (query.phase === 'done') filters.push(inArray(serviceTicketStatuses.code, ['resolved', 'closed']));
+    return and(...filters) ?? sql`false`;
+  }
+
+  @RequirePermissions('service_tickets.read')
+  @Get('service-tickets')
+  async listTickets(
+    @Query(new ZodValidationPipe(ticketListQuery)) query: z.infer<typeof ticketListQuery>,
+    @CurrentUser() user: AuthContext,
+  ) {
+    const { search, phase, severity, ...p } = query;
+    const { limit, offset } = pageOffset(p);
+    const where = await this.ticketListWhere(user, { search, phase, severity });
+    const [{ count }] = await this.db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(serviceTickets)
+      .leftJoin(
+        companies,
+        and(
+          eq(serviceTickets.companyId, companies.id),
+          eq(companies.tenantId, user.tenantId),
+          isNull(companies.deletedAt),
+        ),
+      )
+      .leftJoin(serviceTicketStatuses, eq(serviceTickets.statusId, serviceTicketStatuses.id))
+      .where(where);
+
+    const sortDirection = p.sortDir === 'asc' ? asc : desc;
     const rows = await this.db
       .select({
         ticket: serviceTickets,
@@ -1378,7 +1443,7 @@ export class ServiceController {
       .leftJoin(serviceWarrantyClaims, and(eq(serviceWarrantyClaims.serviceTicketId, serviceTickets.id), isNull(serviceWarrantyClaims.deletedAt)))
       .leftJoin(serviceComplaintIntakes, and(eq(serviceComplaintIntakes.serviceTicketId, serviceTickets.id), isNull(serviceComplaintIntakes.deletedAt)))
       .where(where)
-      .orderBy(desc(serviceTickets.reportedAt))
+      .orderBy(sortDirection(serviceTickets.reportedAt), sortDirection(serviceTickets.id))
       .limit(limit)
       .offset(offset);
     return buildPaginated(
@@ -1393,6 +1458,107 @@ export class ServiceController {
       count,
       p
     );
+  }
+
+  @RequirePermissions('service_tickets.read')
+  @Get('service-tickets/summary')
+  async ticketSummary(
+    @Query(new ZodValidationPipe(ticketSummaryQuery)) query: z.infer<typeof ticketSummaryQuery>,
+    @CurrentUser() user: AuthContext,
+  ) {
+    const where = await this.ticketListWhere(user, query);
+    const [summary] = await this.db
+      .select({
+        total: sql<number>`count(*)::int`,
+        open: sql<number>`count(*) filter (where ${serviceTicketStatuses.code} not in ('resolved', 'closed') or ${serviceTicketStatuses.code} is null)::int`,
+        urgent: sql<number>`count(*) filter (where ${serviceTickets.severity} in ('high', 'critical'))::int`,
+        openPhase: sql<number>`count(*) filter (where ${serviceTicketStatuses.code} = 'open')::int`,
+        inProgressPhase: sql<number>`count(*) filter (where ${serviceTicketStatuses.code} = 'in_progress')::int`,
+        waitingCustomerPhase: sql<number>`count(*) filter (where ${serviceTicketStatuses.code} = 'waiting_customer')::int`,
+        donePhase: sql<number>`count(*) filter (where ${serviceTicketStatuses.code} in ('resolved', 'closed'))::int`,
+      })
+      .from(serviceTickets)
+      .leftJoin(
+        companies,
+        and(
+          eq(serviceTickets.companyId, companies.id),
+          eq(companies.tenantId, user.tenantId),
+          isNull(companies.deletedAt),
+        ),
+      )
+      .leftJoin(serviceTicketStatuses, eq(serviceTickets.statusId, serviceTicketStatuses.id))
+      .where(where);
+    return summary ?? {
+      total: 0,
+      open: 0,
+      urgent: 0,
+      openPhase: 0,
+      inProgressPhase: 0,
+      waitingCustomerPhase: 0,
+      donePhase: 0,
+    };
+  }
+
+  /** Mobil cold deep-link ve kayıt yenileme için tekil, aynı görünürlük kurallı detay. */
+  @RequirePermissions('service_tickets.read')
+  @Get('service-tickets/:id')
+  async getTicket(@Param('id') id: string, @CurrentUser() user: AuthContext) {
+    const visibility = await companyVisibilityExistsFilter(this.db, user, serviceTickets.companyId);
+    const [row] = await this.db
+      .select({
+        ticket: serviceTickets,
+        company: { id: companies.id, legalTitle: companies.legalTitle, shortName: companies.shortName },
+        contact: { id: contacts.id, fullName: contacts.fullName },
+        status: { id: serviceTicketStatuses.id, code: serviceTicketStatuses.code, name: serviceTicketStatuses.name },
+        warrantyClaim: {
+          id: serviceWarrantyClaims.id,
+          status: serviceWarrantyClaims.status,
+          coverageSuggestion: serviceWarrantyClaims.coverageSuggestion,
+          coverageDecision: serviceWarrantyClaims.coverageDecision,
+          rmaNo: serviceWarrantyClaims.rmaNo,
+          supplierRmaStatus: serviceWarrantyClaims.supplierRmaStatus,
+          decidedAt: serviceWarrantyClaims.decidedAt,
+        },
+        sourceComplaint: {
+          id: serviceComplaintIntakes.id,
+          complaintNo: serviceComplaintIntakes.complaintNo,
+          source: serviceComplaintIntakes.source,
+          contactName: serviceComplaintIntakes.contactName,
+          contactPhone: serviceComplaintIntakes.contactPhone,
+          contactEmail: serviceComplaintIntakes.contactEmail,
+        },
+      })
+      .from(serviceTickets)
+      .leftJoin(
+        companies,
+        and(eq(serviceTickets.companyId, companies.id), eq(companies.tenantId, user.tenantId), isNull(companies.deletedAt)),
+      )
+      .leftJoin(
+        contacts,
+        and(eq(serviceTickets.contactId, contacts.id), eq(contacts.tenantId, user.tenantId), isNull(contacts.deletedAt)),
+      )
+      .leftJoin(serviceTicketStatuses, eq(serviceTickets.statusId, serviceTicketStatuses.id))
+      .leftJoin(serviceWarrantyClaims, and(eq(serviceWarrantyClaims.serviceTicketId, serviceTickets.id), isNull(serviceWarrantyClaims.deletedAt)))
+      .leftJoin(serviceComplaintIntakes, and(eq(serviceComplaintIntakes.serviceTicketId, serviceTickets.id), isNull(serviceComplaintIntakes.deletedAt)))
+      .where(
+        and(
+          eq(serviceTickets.id, id),
+          eq(serviceTickets.tenantId, user.tenantId),
+          isNull(serviceTickets.deletedAt),
+          resourceDivisionFilter(user, 'service_tickets', serviceTickets.divisionId) ?? sql`true`,
+          visibility ?? sql`true`,
+        ),
+      )
+      .limit(1);
+    if (!row) throw new NotFoundError('Servis kaydı');
+    return {
+      ...row.ticket,
+      company: row.company?.id ? row.company : null,
+      contact: row.contact?.id ? row.contact : null,
+      status: row.status,
+      warrantyClaim: row.warrantyClaim?.id ? row.warrantyClaim : null,
+      sourceComplaint: row.sourceComplaint?.id ? row.sourceComplaint : null,
+    };
   }
 
   @RequirePermissions('service_tickets.create')
@@ -1712,14 +1878,55 @@ export class ServiceController {
   // ─────── INSTALLATIONS ───────
   @RequirePermissions('installations.read')
   @Get('installations')
-  async listInstallations(@Query(new ZodValidationPipe(paginationSchema)) p: Pagination, @CurrentUser() user: AuthContext) {
+  async listInstallations(
+    @Query(new ZodValidationPipe(installationListQuery)) p: z.infer<typeof installationListQuery>,
+    @CurrentUser() user: AuthContext,
+  ) {
     const { limit, offset } = pageOffset(p);
-    const where = and(
+    const visibility = await companyVisibilityExistsFilter(this.db, user, installationJobs.companyId);
+    const filters: SQL[] = [
       eq(installationJobs.tenantId, user.tenantId),
       isNull(installationJobs.deletedAt),
-      resourceDivisionFilter(user, 'installations', installationJobs.divisionId) ?? sql`true`
-    );
-    const [{ count }] = await this.db.select({ count: sql<number>`count(*)::int` }).from(installationJobs).where(where);
+      resourceDivisionFilter(user, 'installations', installationJobs.divisionId) ?? sql`true`,
+      visibility ? (or(isNull(installationJobs.companyId), visibility) ?? sql`false`) : sql`true`,
+    ];
+    if (p.phase === 'planned') {
+      filters.push(isNull(installationJobs.startedAt), isNull(installationJobs.completedAt));
+    }
+    if (p.phase === 'ongoing') {
+      filters.push(isNotNull(installationJobs.startedAt), isNull(installationJobs.completedAt));
+    }
+    if (p.phase === 'done') filters.push(isNotNull(installationJobs.completedAt));
+    if (p.search) {
+      const term = `%${p.search}%`;
+      filters.push(
+        or(
+          ilike(companies.legalTitle, term),
+          ilike(companies.shortName, term),
+          ilike(installationJobs.location, term),
+          ilike(inventoryItems.serialNumber, term),
+          ilike(productModels.modelCode, term),
+          ilike(productModels.modelName, term),
+          ilike(productModels.fullName, term),
+        ) ?? sql`false`,
+      );
+    }
+    const where = and(...filters);
+    const [{ count }] = await this.db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(installationJobs)
+      .leftJoin(
+        companies,
+        and(
+          eq(installationJobs.companyId, companies.id),
+          eq(companies.tenantId, user.tenantId),
+          isNull(companies.deletedAt),
+        ),
+      )
+      .leftJoin(customerDevices, eq(installationJobs.customerDeviceId, customerDevices.id))
+      .leftJoin(inventoryItems, eq(customerDevices.inventoryItemId, inventoryItems.id))
+      .leftJoin(productModels, eq(inventoryItems.productModelId, productModels.id))
+      .where(where);
     const rows = await this.db
       .select({
         installation: installationJobs,
@@ -1744,7 +1951,14 @@ export class ServiceController {
       })
       .from(installationJobs)
       .leftJoin(installationStatuses, eq(installationJobs.statusId, installationStatuses.id))
-      .leftJoin(companies, eq(installationJobs.companyId, companies.id))
+      .leftJoin(
+        companies,
+        and(
+          eq(installationJobs.companyId, companies.id),
+          eq(companies.tenantId, user.tenantId),
+          isNull(companies.deletedAt),
+        ),
+      )
       .leftJoin(contacts, eq(installationJobs.contactId, contacts.id))
       .leftJoin(usersTable, eq(installationJobs.assignedToUserId, usersTable.id))
       .leftJoin(customerDevices, eq(installationJobs.customerDeviceId, customerDevices.id))
@@ -1807,6 +2021,81 @@ export class ServiceController {
       count,
       p
     );
+  }
+
+  @RequirePermissions('installations.read')
+  @Get('installations/:id')
+  async getInstallation(@Param('id') id: string, @CurrentUser() user: AuthContext) {
+    const visibility = await companyVisibilityExistsFilter(this.db, user, installationJobs.companyId);
+    const [row] = await this.db
+      .select({
+        installation: installationJobs,
+        status: { id: installationStatuses.id, code: installationStatuses.code, name: installationStatuses.name },
+        company: { id: companies.id, legalTitle: companies.legalTitle, shortName: companies.shortName },
+        contact: { id: contacts.id, fullName: contacts.fullName },
+        assignedTo: { id: usersTable.id, fullName: usersTable.fullName },
+        customerDevice: {
+          id: customerDevices.id,
+          productModelId: inventoryItems.productModelId,
+          serialNumber: inventoryItems.serialNumber,
+          controlUnit: inventoryItems.controlUnit,
+          controlUnitSerialNumber: inventoryItems.controlUnitSerialNumber,
+          model: productModels.modelCode,
+          productModelName: productModels.modelName,
+          deliveryDate: customerDevices.deliveryDate,
+          cashPrice: productModels.cashPrice,
+          currencyCode: currencies.code,
+          brandName: brands.name,
+          productTypeName: productTypes.name,
+        },
+      })
+      .from(installationJobs)
+      .leftJoin(installationStatuses, eq(installationJobs.statusId, installationStatuses.id))
+      .leftJoin(
+        companies,
+        and(
+          eq(installationJobs.companyId, companies.id),
+          eq(companies.tenantId, user.tenantId),
+          isNull(companies.deletedAt),
+        ),
+      )
+      .leftJoin(contacts, eq(installationJobs.contactId, contacts.id))
+      .leftJoin(usersTable, eq(installationJobs.assignedToUserId, usersTable.id))
+      .leftJoin(customerDevices, eq(installationJobs.customerDeviceId, customerDevices.id))
+      .leftJoin(inventoryItems, eq(customerDevices.inventoryItemId, inventoryItems.id))
+      .leftJoin(productModels, eq(inventoryItems.productModelId, productModels.id))
+      .leftJoin(currencies, eq(productModels.currencyId, currencies.id))
+      .leftJoin(brands, eq(productModels.brandId, brands.id))
+      .leftJoin(productTypes, eq(productModels.productTypeId, productTypes.id))
+      .where(and(
+        eq(installationJobs.id, id),
+        eq(installationJobs.tenantId, user.tenantId),
+        isNull(installationJobs.deletedAt),
+        resourceDivisionFilter(user, 'installations', installationJobs.divisionId) ?? sql`true`,
+        visibility ? (or(isNull(installationJobs.companyId), visibility) ?? sql`false`) : sql`true`,
+      ))
+      .limit(1);
+    if (!row) throw new NotFoundError('Kurulum');
+
+    const technicalSpecs = row.customerDevice?.productModelId
+      ? await this.db
+          .select({ key: productSpecs.specKey, value: productSpecs.specValue, unit: productSpecs.specUnit })
+          .from(productSpecs)
+          .where(and(
+            eq(productSpecs.tenantId, user.tenantId),
+            eq(productSpecs.productModelId, row.customerDevice.productModelId),
+            isNull(productSpecs.deletedAt),
+          ))
+          .orderBy(asc(productSpecs.sortOrder))
+      : [];
+    return {
+      ...row.installation,
+      status: row.status,
+      company: row.company,
+      contact: row.contact,
+      assignedTo: row.assignedTo,
+      customerDevice: row.customerDevice?.id ? { ...row.customerDevice, technicalSpecs } : null,
+    };
   }
 
   @RequirePermissions('installations.create')
@@ -2059,13 +2348,21 @@ export class ServiceController {
 
   @RequirePermissions('shipments.read')
   @Get('shipments')
-  async listShipments(@Query(new ZodValidationPipe(paginationSchema)) p: Pagination, @CurrentUser() user: AuthContext) {
+  async listShipments(
+    @Query(new ZodValidationPipe(shipmentListQuery)) p: Pagination & { phase?: 'active' | 'arrived' },
+    @CurrentUser() user: AuthContext,
+  ) {
     const { limit, offset } = pageOffset(p);
-    const where = and(
+    const visibility = await companyVisibilityExistsFilter(this.db, user, shipments.companyId);
+    const filters = [
       eq(shipments.tenantId, user.tenantId),
       isNull(shipments.deletedAt),
-      resourceDivisionFilter(user, 'shipments', shipments.divisionId) ?? sql`true`
-    );
+      resourceDivisionFilter(user, 'shipments', shipments.divisionId) ?? sql`true`,
+      visibility ?? sql`true`,
+    ];
+    if (p.phase === 'active') filters.push(isNull(shipments.arrivedAt));
+    if (p.phase === 'arrived') filters.push(isNotNull(shipments.arrivedAt));
+    const where = and(...filters);
     const [{ count }] = await this.db.select({ count: sql<number>`count(*)::int` }).from(shipments).where(where);
     const rows = await this.db.select().from(shipments).where(where).orderBy(desc(shipments.createdAt)).limit(limit).offset(offset);
     const enriched = await Promise.all(rows.map((s) => this.enrichShipment(s)));

@@ -20,7 +20,12 @@ import { seedLookups } from './lookups';
 import { PERMISSION_RESOURCES } from '@haksan/shared';
 
 const DEFAULT_SCOPE_RESOURCES = PERMISSION_RESOURCES.filter(
-  (resource) => !['tenants', 'users', 'roles', 'departments', 'divisions', 'audit', 'files'].includes(resource)
+  (resource) => ![
+    'tenants', 'users', 'roles', 'departments', 'divisions', 'audit', 'files',
+    // Meta asset bağlantıları tenant-genelidir; lead/fırsat görünürlüğü mevcut
+    // opportunity division scope'u üzerinden ayrıca korunur.
+    'meta', 'meta_campaigns', 'meta_messages', 'meta_audiences', 'meta_catalogs',
+  ].includes(resource)
 );
 
 async function main(): Promise<void> {

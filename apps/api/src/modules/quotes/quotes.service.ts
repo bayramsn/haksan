@@ -1,7 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { existsSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
-import { and, desc, eq, ilike, inArray, isNull, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, ilike, inArray, isNull, lte, or, sql, type SQL } from 'drizzle-orm';
 import type { DbClient } from '../../db/client';
 import { quotes, quoteItems, quoteTerms, proformas, contracts, commercialInvoices } from '../../db/schema/quotes';
 import { companies, companyAddresses, companyEmails, companyPhones, contactCompanies, contacts } from '../../db/schema/companies';
@@ -86,6 +86,16 @@ interface ItemTotals {
   vat: number;
   total: number;
 }
+
+type CommercialDocumentListQuery = Pagination & { search?: string; companyId?: string; quoteId?: string };
+type QuoteListFilterQuery = {
+  search?: string;
+  statusCode?: string;
+  companyId?: string;
+  businessLine?: BusinessLine;
+  from?: Date;
+  to?: Date;
+};
 
 export type CatalogQuoteItemRequest = {
   productModelId: string;
@@ -741,12 +751,22 @@ export class QuotesService {
     });
   }
 
-  async list(actor: AuthContext, query: { search?: string; statusCode?: string; companyId?: string; businessLine?: BusinessLine }, page: Pagination) {
-    const { limit, offset } = pageOffset(page);
+  private async quoteListFilters(actor: AuthContext, query: QuoteListFilterQuery) {
     const filters = [eq(quotes.tenantId, actor.tenantId), isNull(quotes.deletedAt)];
-    if (query.search) filters.push(ilike(quotes.documentNo, `%${query.search}%`));
+    if (query.search?.trim()) {
+      const search = `%${query.search.trim()}%`;
+      filters.push(
+        or(
+          ilike(quotes.documentNo, search),
+          ilike(companies.legalTitle, search),
+          ilike(companies.shortName, search),
+        )!,
+      );
+    }
     if (query.companyId) filters.push(eq(quotes.companyId, query.companyId));
     if (query.businessLine) filters.push(eq(quotes.businessLine, query.businessLine));
+    if (query.from) filters.push(gte(quotes.quoteDate, query.from));
+    if (query.to) filters.push(lte(quotes.quoteDate, query.to));
     if (query.statusCode) {
       const sid = await lookupIdByCode(this.db, quoteStatuses, query.statusCode);
       if (sid) filters.push(eq(quotes.statusId, sid));
@@ -755,8 +775,23 @@ export class QuotesService {
     if (scoped) filters.push(scoped);
     const visibility = await companyVisibilityExistsFilter(this.db, actor, quotes.companyId);
     if (visibility) filters.push(visibility);
+    return filters;
+  }
+
+  async list(actor: AuthContext, query: QuoteListFilterQuery, page: Pagination) {
+    const { limit, offset } = pageOffset(page);
+    const filters = await this.quoteListFilters(actor, query);
     const where = and(...filters);
-    const [{ count }] = await this.db.select({ count: sql<number>`count(*)::int` }).from(quotes).where(where);
+    const companyJoin = and(
+      eq(quotes.companyId, companies.id),
+      eq(companies.tenantId, actor.tenantId),
+      isNull(companies.deletedAt),
+    );
+    const [{ count }] = await this.db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(quotes)
+      .innerJoin(companies, companyJoin)
+      .where(where);
     const rows = await this.db
       .select({
         quote: quotes,
@@ -767,14 +802,7 @@ export class QuotesService {
         division: { id: divisions.id, code: divisions.code, name: divisions.name },
       })
       .from(quotes)
-      .leftJoin(
-        companies,
-        and(
-          eq(quotes.companyId, companies.id),
-          eq(companies.tenantId, actor.tenantId),
-          isNull(companies.deletedAt),
-        ),
-      )
+      .innerJoin(companies, companyJoin)
       .leftJoin(
         contacts,
         and(
@@ -831,6 +859,45 @@ export class QuotesService {
       count,
       page
     );
+  }
+
+  async summary(actor: AuthContext, query: QuoteListFilterQuery) {
+    const filters = await this.quoteListFilters(actor, query);
+    const month = sql<string>`to_char(date_trunc('month', ${quotes.quoteDate}), 'YYYY-MM')`;
+    const rows = await this.db
+      .select({
+        month,
+        currencyCode: currencies.code,
+        count: sql<number>`count(*)::int`,
+        total: sql<string>`coalesce(sum(${quotes.grandTotal}), 0)::text`,
+      })
+      .from(quotes)
+      .innerJoin(
+        companies,
+        and(
+          eq(quotes.companyId, companies.id),
+          eq(companies.tenantId, actor.tenantId),
+          isNull(companies.deletedAt),
+        ),
+      )
+      .leftJoin(currencies, eq(quotes.currencyId, currencies.id))
+      .where(and(...filters))
+      .groupBy(month, currencies.code)
+      .orderBy(month, currencies.code);
+
+    const grouped = new Map<string, { month: string; count: number; total: string }[]>();
+    for (const row of rows) {
+      const currencyCode = row.currencyCode ?? 'TRY';
+      const months = grouped.get(currencyCode) ?? [];
+      months.push({ month: row.month, count: row.count, total: row.total });
+      grouped.set(currencyCode, months);
+    }
+    return {
+      totalCount: rows.reduce((sum, row) => sum + row.count, 0),
+      byCurrency: [...grouped.entries()]
+        .sort(([a], [b]) => (a === 'TRY' ? -1 : b === 'TRY' ? 1 : a.localeCompare(b)))
+        .map(([currencyCode, months]) => ({ currencyCode, months })),
+    };
   }
 
   async get(id: string, actor: AuthContext) {
@@ -2087,14 +2154,44 @@ export class QuotesService {
   }
 
   // ────────── PROFORMA / CONTRACT / COMMERCIAL INVOICE ──────────
-  async listProformas(actor: AuthContext, page: Pagination) {
+  async listProformas(actor: AuthContext, page: CommercialDocumentListQuery) {
     const { limit, offset } = pageOffset(page);
-    const where = and(
+    const filters: SQL[] = [
       eq(proformas.tenantId, actor.tenantId),
       isNull(proformas.deletedAt),
-      resourceDivisionFilter(actor, 'proformas', proformas.divisionId) ?? sql`true`
-    );
-    const [{ count }] = await this.db.select({ count: sql<number>`count(*)::int` }).from(proformas).where(where);
+      resourceDivisionFilter(actor, 'proformas', proformas.divisionId) ?? sql`true`,
+    ];
+    if (page.quoteId) filters.push(eq(proformas.quoteId, page.quoteId));
+    if (page.companyId) {
+      filters.push(or(eq(proformas.companyId, page.companyId), eq(quotes.companyId, page.companyId)) ?? sql`false`);
+    }
+    if (page.search) {
+      const term = `%${page.search}%`;
+      filters.push(
+        or(
+          ilike(proformas.documentNo, term),
+          ilike(proformas.companyNameText, term),
+          ilike(companies.legalTitle, term),
+          ilike(companies.shortName, term),
+        ) ?? sql`false`,
+      );
+    }
+    const visibility = await companyVisibilityFilter(this.db, actor);
+    if (visibility) filters.push(visibility);
+    const where = and(...filters);
+    const [{ count }] = await this.db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(proformas)
+      .leftJoin(quotes, eq(proformas.quoteId, quotes.id))
+      .leftJoin(
+        companies,
+        and(
+          eq(companies.id, sql`coalesce(${quotes.companyId}, ${proformas.companyId})`),
+          eq(companies.tenantId, actor.tenantId),
+          isNull(companies.deletedAt),
+        ),
+      )
+      .where(where);
     const rows = await this.db
       .select({
         proforma: proformas,
@@ -2107,7 +2204,14 @@ export class QuotesService {
       .leftJoin(quotes, eq(proformas.quoteId, quotes.id))
       // Teklifsiz ("hızlı") proformada firma ve para birimi teklif üzerinden
       // okunamaz; coalesce ile belgenin kendi sütunlarına düşülür.
-      .leftJoin(companies, eq(companies.id, sql`coalesce(${quotes.companyId}, ${proformas.companyId})`))
+      .leftJoin(
+        companies,
+        and(
+          eq(companies.id, sql`coalesce(${quotes.companyId}, ${proformas.companyId})`),
+          eq(companies.tenantId, actor.tenantId),
+          isNull(companies.deletedAt),
+        ),
+      )
       .leftJoin(currencies, eq(currencies.id, sql`coalesce(${quotes.currencyId}, ${proformas.currencyId})`))
       .leftJoin(proformaStatuses, eq(proformas.statusId, proformaStatuses.id))
       .where(where)
@@ -2865,14 +2969,44 @@ export class QuotesService {
     return this.getContract(id, actor);
   }
 
-  async listContracts(actor: AuthContext, page: Pagination) {
+  async listContracts(actor: AuthContext, page: CommercialDocumentListQuery) {
     const { limit, offset } = pageOffset(page);
-    const where = and(
+    const filters: SQL[] = [
       eq(contracts.tenantId, actor.tenantId),
       isNull(contracts.deletedAt),
-      resourceDivisionFilter(actor, 'contracts', contracts.divisionId) ?? sql`true`
-    );
-    const [{ count }] = await this.db.select({ count: sql<number>`count(*)::int` }).from(contracts).where(where);
+      resourceDivisionFilter(actor, 'contracts', contracts.divisionId) ?? sql`true`,
+    ];
+    if (page.quoteId) filters.push(eq(contracts.quoteId, page.quoteId));
+    if (page.companyId) {
+      filters.push(or(eq(contracts.companyId, page.companyId), eq(quotes.companyId, page.companyId)) ?? sql`false`);
+    }
+    if (page.search) {
+      const term = `%${page.search}%`;
+      filters.push(
+        or(
+          ilike(contracts.contractNo, term),
+          ilike(contracts.companyNameText, term),
+          ilike(companies.legalTitle, term),
+          ilike(companies.shortName, term),
+        ) ?? sql`false`,
+      );
+    }
+    const visibility = await companyVisibilityFilter(this.db, actor);
+    if (visibility) filters.push(visibility);
+    const where = and(...filters);
+    const [{ count }] = await this.db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(contracts)
+      .leftJoin(quotes, eq(contracts.quoteId, quotes.id))
+      .leftJoin(
+        companies,
+        and(
+          eq(companies.id, sql`coalesce(${quotes.companyId}, ${contracts.companyId})`),
+          eq(companies.tenantId, actor.tenantId),
+          isNull(companies.deletedAt),
+        ),
+      )
+      .where(where);
     const rows = await this.db
       .select({
         contract: contracts,
@@ -2885,7 +3019,14 @@ export class QuotesService {
       .leftJoin(quotes, eq(contracts.quoteId, quotes.id))
       // Teklifsiz ("hızlı") sözleşmede firma ve para birimi teklif üzerinden
       // okunamaz; coalesce ile belgenin kendi sütunlarına düşülür.
-      .leftJoin(companies, eq(companies.id, sql`coalesce(${quotes.companyId}, ${contracts.companyId})`))
+      .leftJoin(
+        companies,
+        and(
+          eq(companies.id, sql`coalesce(${quotes.companyId}, ${contracts.companyId})`),
+          eq(companies.tenantId, actor.tenantId),
+          isNull(companies.deletedAt),
+        ),
+      )
       .leftJoin(currencies, eq(currencies.id, sql`coalesce(${quotes.currencyId}, ${contracts.currencyId})`))
       .leftJoin(contractStatuses, eq(contracts.statusId, contractStatuses.id))
       .where(where)
@@ -3079,28 +3220,64 @@ export class QuotesService {
     return { ok: true };
   }
 
-  async listCommercialInvoices(actor: AuthContext, page: Pagination) {
+  async listCommercialInvoices(actor: AuthContext, page: CommercialDocumentListQuery) {
     const { limit, offset } = pageOffset(page);
-    const where = and(
+    const filters: SQL[] = [
       eq(commercialInvoices.tenantId, actor.tenantId),
       isNull(commercialInvoices.deletedAt),
-      resourceDivisionFilter(actor, 'commercial_invoices', commercialInvoices.divisionId) ?? sql`true`
-    );
-    const [{ count }] = await this.db.select({ count: sql<number>`count(*)::int` }).from(commercialInvoices).where(where);
+      resourceDivisionFilter(actor, 'commercial_invoices', commercialInvoices.divisionId) ?? sql`true`,
+    ];
+    if (page.quoteId) filters.push(eq(commercialInvoices.quoteId, page.quoteId));
+    if (page.companyId) filters.push(eq(quotes.companyId, page.companyId));
+    if (page.search) {
+      const term = `%${page.search}%`;
+      filters.push(
+        or(
+          ilike(commercialInvoices.invoiceNo, term),
+          ilike(companies.legalTitle, term),
+          ilike(companies.shortName, term),
+        ) ?? sql`false`,
+      );
+    }
+    const visibility = await companyVisibilityFilter(this.db, actor);
+    if (visibility) filters.push(visibility);
+    const where = and(...filters);
+    const [{ count }] = await this.db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(commercialInvoices)
+      .leftJoin(quotes, eq(commercialInvoices.quoteId, quotes.id))
+      .leftJoin(
+        companies,
+        and(
+          eq(companies.id, quotes.companyId),
+          eq(companies.tenantId, actor.tenantId),
+          isNull(companies.deletedAt),
+        ),
+      )
+      .where(where);
     const rows = await this.db
       .select({
         invoice: commercialInvoices,
         quote: { id: quotes.id, documentNo: quotes.documentNo, companyId: quotes.companyId, opportunityId: quotes.opportunityId },
+        company: { id: companies.id, legalTitle: companies.legalTitle, shortName: companies.shortName },
         status: { id: invoiceStatuses.id, code: invoiceStatuses.code, name: invoiceStatuses.name },
       })
       .from(commercialInvoices)
       .leftJoin(quotes, eq(commercialInvoices.quoteId, quotes.id))
+      .leftJoin(
+        companies,
+        and(
+          eq(companies.id, quotes.companyId),
+          eq(companies.tenantId, actor.tenantId),
+          isNull(companies.deletedAt),
+        ),
+      )
       .leftJoin(invoiceStatuses, eq(commercialInvoices.statusId, invoiceStatuses.id))
       .where(where)
       .orderBy(desc(commercialInvoices.invoiceDate))
       .limit(limit)
       .offset(offset);
-    return buildPaginated(rows.map((r) => ({ ...r.invoice, quote: r.quote, status: r.status })), count, page);
+    return buildPaginated(rows.map((r) => ({ ...r.invoice, quote: r.quote, company: r.company, status: r.status })), count, page);
   }
 
   async createCommercialInvoice(input: CommercialInvoiceCreateInput, actor: AuthContext) {
@@ -3208,41 +3385,83 @@ export class QuotesService {
     return { ok: true };
   }
 
-  private async getProforma(id: string, actor: AuthContext) {
-    const row = await this.db.query.proformas.findFirst({
-      where: and(
+  async getProforma(id: string, actor: AuthContext) {
+    const visibility = await companyVisibilityFilter(this.db, actor);
+    const [result] = await this.db
+      .select({ document: proformas })
+      .from(proformas)
+      .leftJoin(quotes, eq(proformas.quoteId, quotes.id))
+      .leftJoin(
+        companies,
+        and(
+          eq(companies.id, sql`coalesce(${quotes.companyId}, ${proformas.companyId})`),
+          eq(companies.tenantId, actor.tenantId),
+          isNull(companies.deletedAt),
+        ),
+      )
+      .where(and(
         eq(proformas.id, id),
         eq(proformas.tenantId, actor.tenantId),
         isNull(proformas.deletedAt),
-        resourceDivisionFilter(actor, 'proformas', proformas.divisionId) ?? sql`true`
-      ),
-    });
+        resourceDivisionFilter(actor, 'proformas', proformas.divisionId) ?? sql`true`,
+        visibility ?? sql`true`,
+      ))
+      .limit(1);
+    const row = result?.document;
     if (!row) throw new NotFoundError('Proforma');
     return row;
   }
 
-  private async getContract(id: string, actor: AuthContext) {
-    const row = await this.db.query.contracts.findFirst({
-      where: and(
+  async getContract(id: string, actor: AuthContext) {
+    const visibility = await companyVisibilityFilter(this.db, actor);
+    const [result] = await this.db
+      .select({ document: contracts })
+      .from(contracts)
+      .leftJoin(quotes, eq(contracts.quoteId, quotes.id))
+      .leftJoin(
+        companies,
+        and(
+          eq(companies.id, sql`coalesce(${quotes.companyId}, ${contracts.companyId})`),
+          eq(companies.tenantId, actor.tenantId),
+          isNull(companies.deletedAt),
+        ),
+      )
+      .where(and(
         eq(contracts.id, id),
         eq(contracts.tenantId, actor.tenantId),
         isNull(contracts.deletedAt),
-        resourceDivisionFilter(actor, 'contracts', contracts.divisionId) ?? sql`true`
-      ),
-    });
+        resourceDivisionFilter(actor, 'contracts', contracts.divisionId) ?? sql`true`,
+        visibility ?? sql`true`,
+      ))
+      .limit(1);
+    const row = result?.document;
     if (!row) throw new NotFoundError('Sözleşme');
     return row;
   }
 
-  private async getCommercialInvoice(id: string, actor: AuthContext) {
-    const row = await this.db.query.commercialInvoices.findFirst({
-      where: and(
+  async getCommercialInvoice(id: string, actor: AuthContext) {
+    const visibility = await companyVisibilityFilter(this.db, actor);
+    const [result] = await this.db
+      .select({ document: commercialInvoices })
+      .from(commercialInvoices)
+      .innerJoin(quotes, eq(commercialInvoices.quoteId, quotes.id))
+      .leftJoin(
+        companies,
+        and(
+          eq(companies.id, quotes.companyId),
+          eq(companies.tenantId, actor.tenantId),
+          isNull(companies.deletedAt),
+        ),
+      )
+      .where(and(
         eq(commercialInvoices.id, id),
         eq(commercialInvoices.tenantId, actor.tenantId),
         isNull(commercialInvoices.deletedAt),
-        resourceDivisionFilter(actor, 'commercial_invoices', commercialInvoices.divisionId) ?? sql`true`
-      ),
-    });
+        resourceDivisionFilter(actor, 'commercial_invoices', commercialInvoices.divisionId) ?? sql`true`,
+        visibility ?? sql`true`,
+      ))
+      .limit(1);
+    const row = result?.document;
     if (!row) throw new NotFoundError('Ticari fatura');
     return row;
   }

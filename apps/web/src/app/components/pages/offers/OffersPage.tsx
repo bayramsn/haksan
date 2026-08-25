@@ -1141,14 +1141,16 @@ export function OfferDetailDialog({
             variant="outline"
             size="sm"
             className="h-9 gap-1"
-            disabled={!resolvedCustomer?.email}
-            title={resolvedCustomer?.email ? `${resolvedCustomer.email} adresine gönder` : "Firma kartında e-posta adresi bulunmuyor"}
-            onClick={() => resolvedCustomer?.email && setMailRecipient({
-              email: resolvedCustomer.email,
+            disabled={!resolvedCustomer}
+            title={resolvedCustomer?.email ? `${resolvedCustomer.email} adresine gönder` : "Alıcıyı firma kontaklarından seçebilirsiniz"}
+            onClick={() => resolvedCustomer && setMailRecipient({
+              email: resolvedCustomer.email ?? "",
               name: resolvedCustomer.contactPerson || resolvedCustomer.name,
               companyId: resolvedCustomer.id,
               subject: `${offer.quoteNo} Fiyat Teklifi`,
               body: `Merhaba ${resolvedCustomer.contactPerson || resolvedCustomer.name},\n\n${offer.quoteNo} numaralı ${productText} fiyat teklifimizi bilgilerinize sunarız.\n\nSaygılarımızla,`,
+              quoteId: offer.id,
+              attachmentLabel: offer.quoteNo,
             })}
           >
             <Mail className="size-4" /> Firmaya E-posta Gönder

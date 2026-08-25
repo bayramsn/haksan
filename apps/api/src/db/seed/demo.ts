@@ -12,7 +12,10 @@ import { PERMISSION_RESOURCES } from '@haksan/shared';
 import { normalizeCompanyName } from '../../shared/utils/text-normalization';
 
 const DEFAULT_SCOPE_RESOURCES = PERMISSION_RESOURCES.filter(
-  (resource) => !['tenants', 'users', 'roles', 'departments', 'divisions', 'audit', 'files'].includes(resource)
+  (resource) => ![
+    'tenants', 'users', 'roles', 'departments', 'divisions', 'audit', 'files',
+    'meta', 'meta_campaigns', 'meta_messages', 'meta_audiences', 'meta_catalogs',
+  ].includes(resource)
 );
 
 async function getOrCreate<T extends { id: string }>(

@@ -298,6 +298,15 @@ const toNullableNumber = (value: unknown) => {
 
 const toOptionalDate = (value: string | Date | null | undefined) => (value ? new Date(value) : undefined);
 
+/** UI stok durumu → API stok durum kodu. */
+const STOCK_STATUS_CODES: Record<StockItem['status'], string> = {
+  Available: 'available',
+  Reserved: 'reserved',
+  InTransit: 'in_transit',
+  Sold: 'sold',
+  Inactive: 'damaged',
+};
+
 const deliveryFormDataPayload = (formData: Delivery['formData'] | undefined) =>
   formData
     ? {
@@ -589,6 +598,7 @@ type Store = {
   updateNoteTemplate: (id: string, patch: { title?: string; body?: string; scope?: string }) => Promise<NoteTemplate>;
   deleteNoteTemplate: (id: string) => Promise<void>;
   addStock: (s: Omit<StockItem, 'id'>) => Promise<StockItem>;
+  updateStock: (id: string, patch: Partial<Omit<StockItem, 'id'>>) => Promise<void>;
   updateStockStatus: (id: string, status: StockItem['status']) => Promise<void>;
   reserveStock: (id: string, companyId: string, notes?: string) => Promise<void>;
   addShipment: (s: Omit<Shipment, 'id'>) => Promise<Shipment>;
@@ -974,6 +984,7 @@ function StoreInner({ children }: { children: ReactNode }) {
             receivedDate: (s.receivedDate as string | undefined)?.slice(0, 10) ?? undefined,
             arrivalDate: (s.arrivalDate as string | undefined)?.slice(0, 10) ?? undefined,
             locationStatus: s.locationStatus?.code ?? s.locationStatusCode ?? undefined,
+            notes: s.notes ?? undefined,
             status:
               s.status?.code === 'available'
                 ? 'Available'
@@ -2116,14 +2127,6 @@ function StoreInner({ children }: { children: ReactNode }) {
       s.optionalHardware ? `Opsiyon Donanım: ${s.optionalHardware}` : '',
       s.spareParts ? `Yedek Parça: ${s.spareParts}` : '',
     ].filter(Boolean).join('\n');
-    const createStatusCodeMap: Record<StockItem['status'], string> = {
-      Available: 'available',
-      Reserved: 'reserved',
-      InTransit: 'in_transit',
-      Sold: 'sold',
-      Inactive: 'damaged',
-    };
-
     const created = await inventoryService.create({
       productModelId: product.id,
       parentInventoryItemId: s.parentInventoryItemId ?? undefined,
@@ -2133,7 +2136,7 @@ function StoreInner({ children }: { children: ReactNode }) {
       loadingDate: toOptionalDate(s.loadingDate),
       receivedDate: toOptionalDate(s.receivedDate),
       arrivalDate: toOptionalDate(s.arrivalDate),
-      stockStatusCode: createStatusCodeMap[s.status] ?? 'available',
+      stockStatusCode: STOCK_STATUS_CODES[s.status] ?? 'available',
       warehouseId: s.warehouseId || undefined,
       notes: extraNotes || undefined,
     });
@@ -2145,18 +2148,29 @@ function StoreInner({ children }: { children: ReactNode }) {
     } as StockItem;
   };
 
+  const updateStock: Store['updateStock'] = async (id, patch) => {
+    if (patch.status === 'Sold') throw new Error('Satıldı durumu yalnızca satış faturası ile işaretlenebilir');
+    await inventoryService.update(id, {
+      ...(patch.productId !== undefined ? { productModelId: patch.productId } : {}),
+      ...(patch.parentInventoryItemId !== undefined ? { parentInventoryItemId: patch.parentInventoryItemId } : {}),
+      ...(patch.serialNumber !== undefined ? { serialNumber: patch.serialNumber } : {}),
+      ...(patch.itemCondition !== undefined ? { itemCondition: patch.itemCondition } : {}),
+      ...(patch.controlPanel !== undefined ? { controlUnit: patch.controlPanel } : {}),
+      ...(patch.warehouseId !== undefined ? { warehouseId: patch.warehouseId || undefined } : {}),
+      ...(patch.loadingDate !== undefined ? { loadingDate: toOptionalDate(patch.loadingDate) } : {}),
+      ...(patch.receivedDate !== undefined ? { receivedDate: toOptionalDate(patch.receivedDate) } : {}),
+      ...(patch.arrivalDate !== undefined ? { arrivalDate: toOptionalDate(patch.arrivalDate) } : {}),
+      ...(patch.notes !== undefined ? { notes: patch.notes } : {}),
+      ...(patch.status !== undefined ? { stockStatusCode: STOCK_STATUS_CODES[patch.status] } : {}),
+    });
+    await fetchAll();
+  };
+
   const updateStockStatus: Store['updateStockStatus'] = async (id, status) => {
     if (status === 'Sold') {
       throw new Error('Satıldı durumu yalnızca satış faturası ile işaretlenebilir');
     }
-    const codeMap: Record<StockItem['status'], string> = {
-      Available: 'available',
-      Reserved: 'reserved',
-      InTransit: 'in_transit',
-      Sold: 'sold',
-      Inactive: 'damaged',
-    };
-    await inventoryService.update(id, { stockStatusCode: codeMap[status] });
+    await inventoryService.update(id, { stockStatusCode: STOCK_STATUS_CODES[status] });
     await fetchAll();
   };
 
@@ -2679,6 +2693,7 @@ function StoreInner({ children }: { children: ReactNode }) {
       updateNoteTemplate,
       deleteNoteTemplate,
       addStock,
+      updateStock,
       updateStockStatus,
       reserveStock,
       addShipment,

@@ -59,6 +59,12 @@ describe('Finance — kasa hareketleri (alınan/ödenen)', () => {
     expect(created.status, JSON.stringify(created.body)).toBe(201);
     expect(created.body.paymentMethod).toBe('cheque');
 
+    const detail = await supertest(app.getHttpServer())
+      .get(`/api/v1/receivables/${created.body.id}`)
+      .set('Authorization', auth());
+    expect(detail.status, JSON.stringify(detail.body)).toBe(200);
+    expect(detail.body).toMatchObject({ id: created.body.id, company: { id: companyId } });
+
     const receivables = await listAllCompanyReceivables();
     expect(receivables.find((row: any) => row.id === created.body.id)).toMatchObject({
       paymentMethod: 'cheque',
@@ -73,6 +79,17 @@ describe('Finance — kasa hareketleri (alınan/ödenen)', () => {
       .send({ direction: 'in', companyId, amount: 5000, currencyCode: 'USD', paymentDate: now(), paymentMethod: 'cash' });
     expect(r.status).toBe(201);
     expect(r.body.direction).toBe('in');
+
+    const detail = await supertest(app.getHttpServer())
+      .get(`/api/v1/payments/${r.body.id}`)
+      .set('Authorization', auth());
+    expect(detail.status, JSON.stringify(detail.body)).toBe(200);
+    expect(detail.body).toMatchObject({
+      id: r.body.id,
+      direction: 'in',
+      company: { id: companyId },
+      currency: { code: 'USD' },
+    });
   });
 
   it('çıkan (ödenen) ödeme oluşturur', async () => {
@@ -105,6 +122,37 @@ describe('Finance — kasa hareketleri (alınan/ödenen)', () => {
     expect(r.status).toBe(200);
     expect(Array.isArray(r.body.data)).toBe(true);
     expect(r.body.data[0]).toHaveProperty('direction');
+  });
+
+  it('ödeme yönünü tüm veri kümesinde filtreler ve para birimlerini karıştırmadan özetler', async () => {
+    const outgoing = await supertest(app.getHttpServer())
+      .get('/api/v1/payments?direction=out&pageSize=100')
+      .set('Authorization', auth());
+    expect(outgoing.status).toBe(200);
+    expect(outgoing.body.data.every((row: { direction: string }) => row.direction === 'out')).toBe(true);
+
+    const summary = await supertest(app.getHttpServer())
+      .get('/api/v1/payments/summary')
+      .set('Authorization', auth());
+    expect(summary.status).toBe(200);
+    expect(summary.body.total).toBeGreaterThanOrEqual(2);
+    expect(summary.body.byCurrency.find((row: { currencyCode: string }) => row.currencyCode === 'USD')?.incoming).toBeGreaterThanOrEqual(5000);
+    expect(summary.body.byCurrency.find((row: { currencyCode: string }) => row.currencyCode === 'EUR')?.outgoing).toBeGreaterThanOrEqual(1250);
+  });
+
+  it('tamamlanmış ödeme raporu mobil/web sözleşmesi için firma, durum ve para birimini döner', async () => {
+    const response = await supertest(app.getHttpServer())
+      .get('/api/v1/reports/completed-payments')
+      .set('Authorization', auth());
+    expect(response.status).toBe(200);
+    expect(Array.isArray(response.body)).toBe(true);
+    expect(response.body.length).toBeGreaterThan(0);
+    expect(response.body[0]).toHaveProperty('company.id');
+    expect(response.body[0]).toHaveProperty('company.legalTitle');
+    expect(response.body[0]).toHaveProperty('currency');
+    expect(response.body[0]).toHaveProperty('status');
+    expect(response.body.some((row: { currency?: { code?: string } }) => row.currency?.code === 'USD')).toBe(true);
+    expect(response.body.some((row: { currency?: { code?: string } }) => row.currency?.code === 'EUR')).toBe(true);
   });
 
   it('ödeme oluştururken invoiceNo kaydedilir', async () => {
@@ -143,6 +191,26 @@ describe('Finance — cari özet ve raporlar', () => {
       expect(r.body[0]).toHaveProperty('companyId');
       expect(r.body[0]).toHaveProperty('borc');
       expect(r.body[0]).toHaveProperty('salesTotal');
+    }
+  });
+
+  it('alacak özetini tüm veri kümesi ve para birimi bazında döner', async () => {
+    const response = await supertest(app.getHttpServer())
+      .get('/api/v1/receivables/summary')
+      .set('Authorization', auth());
+    expect(response.status).toBe(200);
+    expect(response.body).toMatchObject({
+      total: expect.any(Number),
+      openCount: expect.any(Number),
+      overdueCount: expect.any(Number),
+      byCurrency: expect.any(Array),
+    });
+    for (const row of response.body.byCurrency) {
+      expect(row).toMatchObject({
+        currencyCode: expect.any(String),
+        openAmount: expect.any(Number),
+        overdueAmount: expect.any(Number),
+      });
     }
   });
 

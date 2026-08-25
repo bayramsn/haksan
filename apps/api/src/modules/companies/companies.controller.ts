@@ -14,6 +14,7 @@ import {
   companyUpdateSchema,
   companyListRequestQuerySchema,
   companySummaryQuerySchema,
+  companyStatusMutationSchema,
   paginationSchema,
   type AccessRequestListQuery,
   type CompanyAccessRequestDecisionInput,
@@ -28,6 +29,7 @@ import {
   type CompanyUpdateInput,
   type CompanyListRequestQuery,
   type CompanySummaryQuery,
+  type CompanyStatusMutationInput,
   type Pagination,
 } from '@haksan/shared';
 import { ZodValidationPipe } from '../../shared/utils/zod-pipe';
@@ -55,6 +57,12 @@ export class CompaniesController {
   ) {
     const { page, pageSize, sortBy, sortDir, ...query } = qp;
     return this.svc.list(user, query, { page, pageSize, sortBy, sortDir });
+  }
+
+  @RequirePermissions('companies.read')
+  @Get('map-points')
+  mapPoints(@CurrentUser() user: AuthContext) {
+    return this.svc.mapPoints(user);
   }
 
   @RequirePermissions('companies.read')
@@ -149,6 +157,17 @@ export class CompaniesController {
     @CurrentUser() user: AuthContext
   ) {
     return this.svc.create(body, user);
+  }
+
+  @RequirePermissions('companies.update')
+  @Throttle({ default: { limit: 30, ttl: 60_000 } })
+  @Patch(':id/status')
+  updateStatus(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(companyStatusMutationSchema)) body: CompanyStatusMutationInput,
+    @CurrentUser() user: AuthContext,
+  ) {
+    return this.svc.updateStatus(id, body, user);
   }
 
   @RequirePermissions('companies.update')

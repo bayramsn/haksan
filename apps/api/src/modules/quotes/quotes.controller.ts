@@ -31,6 +31,8 @@ const listQuery = z.object({
   statusCode: z.string().optional(),
   companyId: z.string().optional(),
   businessLine: z.enum(['CNC', 'UNI', 'SACISLE']).optional(),
+  from: z.coerce.date().optional(),
+  to: z.coerce.date().optional(),
 });
 const priceApprovalSchema = z.object({ note: z.string().max(1000).optional() });
 
@@ -48,6 +50,15 @@ export class QuotesController {
   ) {
     const { page, pageSize, sortBy, sortDir, ...query } = qp;
     return this.svc.list(user, query, { page, pageSize, sortBy, sortDir });
+  }
+
+  @RequirePermissions('quotes.read')
+  @Get('summary')
+  summary(
+    @Query(new ZodValidationPipe(listQuery)) query: z.infer<typeof listQuery>,
+    @CurrentUser() user: AuthContext,
+  ) {
+    return this.svc.summary(user, query);
   }
 
   @RequirePermissions('quotes.read')

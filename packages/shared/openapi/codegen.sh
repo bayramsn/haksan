@@ -2,8 +2,7 @@
 #
 # Sözleşme codegen hattı — zod → openapi.json
 #
-# Mobil istemci: @haksan/shared (zod şemaları) + apps/mobile/src/api/services.ts
-# Web istemci: apps/web/src/lib/services.ts
+# Web istemcisi: @haksan/shared (zod şemaları) + apps/web/src/lib/services.ts
 #
 # Kullanım:  bash packages/shared/openapi/codegen.sh
 set -euo pipefail
@@ -45,6 +44,6 @@ java -jar "$JAR" generate \
 
 echo "✓ Bitti."
 echo "  openapi.json : $SPEC"
-echo "  Mobil/Web    : @haksan/shared + apps/mobile|web API servisleri"
+echo "  Web          : @haksan/shared + apps/web API servisleri"
 echo "  Kotlin arşiv : $OUT/kotlin/src/main/kotlin/com/haksan/api"
 echo "  Swift arşiv  : $OUT/swift/Sources/HaksanApi"

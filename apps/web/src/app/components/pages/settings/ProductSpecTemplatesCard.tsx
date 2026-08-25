@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import {
   ArrowLeft,
   ArrowRight,
@@ -38,6 +38,12 @@ import {
   productSpecGroupForTypeKey,
 } from "../../../lib/productSpecTemplates";
 import { TechnicalImportDialog } from "../../dialogs/TechnicalImportDialog";
+import {
+  WORKBOOK_COLUMNS,
+  applyPastedBlock,
+  parseClipboardMatrix,
+  type WorkbookColumn,
+} from "./technical-workbook";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription,
   AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
@@ -240,6 +246,18 @@ function buildDraftRows(typeCode: string, specRows: SpecTemplateRow[]): DraftRow
 
   return draft;
 }
+
+const createDraftRow = (groupCode: string, specKey = ""): DraftRow => ({
+  clientId: `new-${crypto.randomUUID()}`,
+  specKey,
+  groupCode,
+  defaultValue: "",
+  unit: "",
+  isActive: true,
+  isDeleted: false,
+  catalogOnly: true,
+  inCatalog: false,
+});
 
 function groupRows(rows: DraftRow[]) {
   return rows.map((row, index) => {
@@ -563,17 +581,7 @@ export function ProductSpecTemplatesCard() {
     const existingNames = new Set(draftRows.map((row) => normalizeProductSpecKey(row.specKey)));
     let number = 1;
     while (existingNames.has(normalizeProductSpecKey(`Yeni Teknik Bilgi ${number}`))) number += 1;
-    const row: DraftRow = {
-      clientId: `new-${crypto.randomUUID()}`,
-      specKey: `Yeni Teknik Bilgi ${number}`,
-      groupCode: targetGroup,
-      defaultValue: "",
-      unit: "",
-      isActive: true,
-      isDeleted: false,
-      catalogOnly: true,
-      inCatalog: false,
-    };
+    const row = createDraftRow(targetGroup, `Yeni Teknik Bilgi ${number}`);
     const lastGroupIndex = draftRows.reduce((last, item, index) => (item.groupCode === targetGroup ? index : last), -1);
     applyDraft((current) => {
       const next = [...current];
@@ -673,19 +681,35 @@ export function ProductSpecTemplatesCard() {
     });
   };
 
-  const pasteValues = (clientId: string, text: string) => {
-    const matrix = text.replace(/\r/g, "").split("\n").filter(Boolean).map((line) => line.split("\t"));
-    if (matrix.length <= 1 && matrix[0]?.length <= 1) return false;
+  /**
+   * Excel bloğunu yapıştırılan hücreden başlayarak yazar; blok sayfadan uzunsa
+   * eksik satırlar aynı bölümde açılır. Arama açıkken satır sırası ekranda
+   * süzülü olduğu için yapıştırma engellenir.
+   */
+  const pasteValues = (clientId: string, column: WorkbookColumn, text: string) => {
+    const visible = draftRows.filter((row) => !row.isDeleted);
+    const anchor = visible.findIndex((row) => row.clientId === clientId);
+    const matrix = parseClipboardMatrix(text);
+    if (matrix.length === 1 && matrix[0].length <= 1) return false;
+    if (search.trim()) {
+      toast.info("Blok yapıştırmak için aramayı temizleyin");
+      return true;
+    }
+    const groupCode = visible[anchor]?.groupCode ?? "GENEL";
+    const pasted = applyPastedBlock(visible, anchor, column, text, () => createDraftRow(groupCode));
+    if (!pasted) return false;
+    const byId = new Map(pasted.map((row) => [row.clientId, row]));
     applyDraft((current) => {
-      const start = current.findIndex((row) => row.clientId === clientId);
-      if (start < 0) return current;
-      return current.map((row, index) => {
-        const values = matrix[index - start];
-        if (!values) return row;
-        return { ...row, defaultValue: values[0] ?? row.defaultValue, unit: values[1] ?? row.unit };
-      });
+      const currentIds = new Set(current.map((row) => row.clientId));
+      return [
+        ...current.map((row) => byId.get(row.clientId) ?? row),
+        ...pasted.filter((row) => !currentIds.has(row.clientId)),
+      ];
     });
-    toast.success(`${matrix.length} satıra değer yapıştırıldı`);
+    const added = pasted.length - visible.length;
+    toast.success(`${matrix.length} satıra değer yapıştırıldı`, {
+      description: added > 0 ? `${added} yeni alan eklendi.` : undefined,
+    });
     return true;
   };
 
@@ -1461,7 +1485,7 @@ type EditorViewProps = {
   moveRow: (id: string, direction: -1 | 1) => void;
   moveRowToPosition: (id: string, position: number) => void;
   moveRowByDrag: (sourceId: string, targetId: string, edge: DragEdge) => void;
-  pasteValues: (id: string, text: string) => boolean;
+  pasteValues: (id: string, column: WorkbookColumn, text: string) => boolean;
   undo: () => void;
   redo: () => void;
   canUndo: boolean;
@@ -1490,6 +1514,34 @@ function EditorView({ type, search, setSearch, rows, displayRows, selectedRow, s
       .filter((row) => row.clientId !== draggedRowId && row.groupCode === dragTargetRow.groupCode)
       .findIndex((row) => row.clientId === dragTargetRow.clientId) + (dragTarget.edge === "after" ? 2 : 1)
     : null;
+
+  const focusCell = (rowIndex: number, column: number) => {
+    const cell = document.querySelector<HTMLInputElement>(`[data-workbook-cell="${rowIndex}:${column}"]`);
+    if (!cell) return false;
+    cell.focus();
+    cell.select();
+    return true;
+  };
+
+  /** Excel alışkanlığı: Enter/ok tuşu hücre gezer, Ctrl+D üstteki değeri kopyalar. */
+  const cellKeyDown = (event: ReactKeyboardEvent<HTMLInputElement>, rowIndex: number, column: number) => {
+    if (event.key === "Enter" || event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      const step = event.key === "ArrowUp" || (event.key === "Enter" && event.shiftKey) ? -1 : 1;
+      if (focusCell(rowIndex + step, column) || step < 0) return;
+      // Son satırda aşağı gitmek Excel'deki gibi yeni satır açar.
+      addField();
+      requestAnimationFrame(() => focusCell(rowIndex + 1, column));
+      return;
+    }
+    if ((event.metaKey || event.ctrlKey) && event.key.toLocaleLowerCase("tr-TR") === "d") {
+      const above = displayRows[rowIndex - 1]?.row;
+      const target = displayRows[rowIndex]?.row;
+      if (!above || !target) return;
+      event.preventDefault();
+      updateRow(target.clientId, { [WORKBOOK_COLUMNS[column]]: above[WORKBOOK_COLUMNS[column]] });
+    }
+  };
 
   // Şablon ekrandaki alanlardan üretilir: kullanıcı ne görüyorsa dosyada o var.
   const downloadTemplate = async (format: "xlsx" | "csv") => {
@@ -1648,9 +1700,9 @@ function EditorView({ type, search, setSearch, rows, displayRows, selectedRow, s
                       </div>
                     </td>
                     {rowSpan > 0 && <td rowSpan={rowSpan} className="border-r border-slate-300 bg-slate-50 p-0 text-center"><span style={{ writingMode: "vertical-rl", transform: "rotate(180deg)" }} className="inline-block py-2 font-display text-sm font-bold tracking-[0.08em] text-slate-700">{groupLabel(row.groupCode)}</span></td>}
-                    <td className="border-r border-slate-200 p-0"><input value={row.specKey} onFocus={() => setSelectedRowId(row.clientId)} onChange={(event) => updateRow(row.clientId, { specKey: event.target.value })} className="h-8 w-full border-0 bg-transparent px-3 outline-none focus:bg-white focus:ring-2 focus:ring-inset focus:ring-blue-500" /></td>
-                    <td className="border-r border-slate-200 p-0"><input value={row.defaultValue} onFocus={() => setSelectedRowId(row.clientId)} onPaste={(event) => { if (pasteValues(row.clientId, event.clipboardData.getData("text"))) event.preventDefault(); }} onChange={(event) => updateRow(row.clientId, { defaultValue: event.target.value })} className="h-8 w-full border-0 bg-transparent px-3 font-medium outline-none focus:bg-white focus:ring-2 focus:ring-inset focus:ring-blue-500" /></td>
-                    <td className="border-r border-slate-200 p-0"><input value={row.unit} onFocus={() => setSelectedRowId(row.clientId)} onChange={(event) => updateRow(row.clientId, { unit: event.target.value })} className="h-8 w-full border-0 bg-transparent px-3 outline-none focus:bg-white focus:ring-2 focus:ring-inset focus:ring-blue-500" /></td>
+                    <td className="border-r border-slate-200 p-0"><input value={row.specKey} data-workbook-cell={`${index}:0`} onFocus={() => setSelectedRowId(row.clientId)} onKeyDown={(event) => cellKeyDown(event, index, 0)} onPaste={(event) => { if (pasteValues(row.clientId, "specKey", event.clipboardData.getData("text"))) event.preventDefault(); }} onChange={(event) => updateRow(row.clientId, { specKey: event.target.value })} className="h-8 w-full border-0 bg-transparent px-3 outline-none focus:bg-white focus:ring-2 focus:ring-inset focus:ring-blue-500" /></td>
+                    <td className="border-r border-slate-200 p-0"><input value={row.defaultValue} data-workbook-cell={`${index}:1`} onFocus={() => setSelectedRowId(row.clientId)} onKeyDown={(event) => cellKeyDown(event, index, 1)} onPaste={(event) => { if (pasteValues(row.clientId, "defaultValue", event.clipboardData.getData("text"))) event.preventDefault(); }} onChange={(event) => updateRow(row.clientId, { defaultValue: event.target.value })} className="h-8 w-full border-0 bg-transparent px-3 font-medium outline-none focus:bg-white focus:ring-2 focus:ring-inset focus:ring-blue-500" /></td>
+                    <td className="border-r border-slate-200 p-0"><input value={row.unit} data-workbook-cell={`${index}:2`} onFocus={() => setSelectedRowId(row.clientId)} onKeyDown={(event) => cellKeyDown(event, index, 2)} onPaste={(event) => { if (pasteValues(row.clientId, "unit", event.clipboardData.getData("text"))) event.preventDefault(); }} onChange={(event) => updateRow(row.clientId, { unit: event.target.value })} className="h-8 w-full border-0 bg-transparent px-3 outline-none focus:bg-white focus:ring-2 focus:ring-inset focus:ring-blue-500" /></td>
                     <td className="border-r border-slate-200 p-0"><select value={row.isActive ? "active" : "inactive"} onChange={(event) => updateRow(row.clientId, { isActive: event.target.value === "active" })} className="h-8 w-full border-0 bg-transparent px-2 text-[11px] outline-none focus:ring-2 focus:ring-inset focus:ring-blue-500"><option value="active">● Aktif</option><option value="inactive">○ Pasif</option></select></td>
                     <td className="p-0 text-center">
                       <button
@@ -1700,7 +1752,7 @@ function EditorView({ type, search, setSearch, rows, displayRows, selectedRow, s
       </div>
 
       <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-300 bg-white px-4 py-2.5 text-[11px]">
-        <div className="flex w-full flex-wrap items-center gap-3 sm:w-auto sm:gap-4"><span>{rows.length} teknik alan</span><span>{groupCount} bölüm</span>{search.trim() && <span className="text-amber-700">Sürüklemek için aramayı temizleyin</span>}<span className={cn("flex items-center gap-1", dirty ? "text-amber-700" : "text-emerald-700")}>{dirty ? <CircleAlert className="size-3.5" /> : <CheckCircle2 className="size-3.5" />}{dirty ? lastDraftSave ? `Taslak kaydedildi ${lastDraftSave.toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" })}` : "Kaydedilmemiş değişiklikler" : "Tüm değişiklikler kayıtlı"}</span></div>
+        <div className="flex w-full flex-wrap items-center gap-3 sm:w-auto sm:gap-4"><span>{rows.length} teknik alan</span><span>{groupCount} bölüm</span><span className="hidden text-slate-500 xl:inline">Enter / ↑ ↓ hücre gezer · Ctrl+V Excel bloğu · Ctrl+D üsttekini kopyalar</span>{search.trim() && <span className="text-amber-700">Sürüklemek için aramayı temizleyin</span>}<span className={cn("flex items-center gap-1", dirty ? "text-amber-700" : "text-emerald-700")}>{dirty ? <CircleAlert className="size-3.5" /> : <CheckCircle2 className="size-3.5" />}{dirty ? lastDraftSave ? `Taslak kaydedildi ${lastDraftSave.toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" })}` : "Kaydedilmemiş değişiklikler" : "Tüm değişiklikler kayıtlı"}</span></div>
         <div className="flex w-full flex-wrap items-center sm:w-auto"><button type="button" className="min-h-11 border-b-2 border-blue-600 px-3 py-2 font-medium text-blue-700 sm:px-5">Şablon Alanları</button><button type="button" onClick={openImport} className="min-h-11 border-b-2 border-transparent px-3 py-2 text-slate-600 hover:text-slate-900 sm:px-5">Makine Verileri</button><button type="button" onClick={() => addField()} className="ml-2 grid size-11 place-items-center rounded border border-slate-200 hover:bg-slate-50"><Plus className="size-4" /></button></div>
       </div>
 

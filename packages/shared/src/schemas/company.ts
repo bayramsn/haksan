@@ -132,6 +132,17 @@ export const companyUpdateSchema = companyCreateBaseSchema.partial().extend({
 }).superRefine(validateContactSourceChoice);
 export type CompanyUpdateInput = z.infer<typeof companyUpdateSchema>;
 
+/**
+ * Mobil çevrimdışı tekrar oynatma için dar ve idempotent durum mutasyonu.
+ * operationId aynı kullanıcının aynı işlemini ağ hatası sonrası güvenle yeniden
+ * göndermesini sağlar; genel firma gövdesi cihaz kuyruğuna alınmaz.
+ */
+export const companyStatusMutationSchema = z.object({
+  customerStatusCode: z.enum(['potential', 'active', 'passive', 'blacklist']),
+  operationId: z.string().uuid(),
+});
+export type CompanyStatusMutationInput = z.infer<typeof companyStatusMutationSchema>;
+
 export const companyListQuerySchema = z.object({
   search: z.string().trim().max(128).optional(),
   relationTypeCode: z.enum(['customer', 'supplier', 'supplier_customer', 'competitor']).optional(),
@@ -334,3 +345,22 @@ export type NearbyStaleVisitCompany = {
   lastVisitAt: string | null;
   daysSinceVisit: number | null;
 };
+
+/**
+ * Satış referansı (teslim edilmiş makine). CRM'de karşılığı olmayan eski
+ * teslimatlar da girilebilsin diye firma/marka/model serbest metindir.
+ */
+export const companyReferenceCreateSchema = z.object({
+  firm: z.string().trim().min(1).max(255),
+  contact: z.string().trim().max(255).optional(),
+  district: z.string().trim().max(128).optional(),
+  city: z.string().trim().max(128).optional(),
+  brand: z.string().trim().max(128).optional(),
+  model: z.string().trim().max(128).optional(),
+  deliveryDate: z.coerce.date().optional(),
+  notes: z.string().max(4000).optional(),
+});
+export type CompanyReferenceCreateInput = z.infer<typeof companyReferenceCreateSchema>;
+
+export const companyReferenceUpdateSchema = companyReferenceCreateSchema.partial();
+export type CompanyReferenceUpdateInput = z.infer<typeof companyReferenceUpdateSchema>;

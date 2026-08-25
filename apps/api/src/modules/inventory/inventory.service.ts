@@ -1,5 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { and, asc, desc, eq, ilike, inArray, isNull, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, ilike, inArray, isNull, lt, or, sql } from 'drizzle-orm';
 import type { DbClient } from '../../db/client';
 import { inventoryItems, inventoryMovements, warehouses, customerDevices } from '../../db/schema/inventory';
 import { warrantyStatuses } from '../../db/schema/lookup';
@@ -793,16 +793,51 @@ export class InventoryService {
   }
 
   // ────────── CUSTOMER DEVICES ──────────
-  async listCustomerDevices(actor: AuthContext, query: { companyId?: string }, page: Pagination) {
+  async listCustomerDevices(
+    actor: AuthContext,
+    query: { companyId?: string; search?: string; preset?: 'warranty' | 'expired' },
+    page: Pagination,
+  ) {
     const { limit, offset } = pageOffset(page);
     const filters = [eq(customerDevices.tenantId, actor.tenantId), isNull(customerDevices.deletedAt)];
     if (query.companyId) filters.push(eq(customerDevices.companyId, query.companyId));
+    if (query.preset === 'warranty') filters.push(gte(customerDevices.warrantyEndDate, new Date()));
+    if (query.preset === 'expired') filters.push(lt(customerDevices.warrantyEndDate, new Date()));
+    if (query.search) {
+      const term = `%${query.search}%`;
+      filters.push(
+        or(
+          ilike(companies.legalTitle, term),
+          ilike(companies.shortName, term),
+          ilike(inventoryItems.serialNumber, term),
+          ilike(productModels.modelCode, term),
+          ilike(productModels.modelName, term),
+          ilike(productModels.fullName, term),
+          ilike(brands.name, term),
+          ilike(customerDevices.notes, term),
+        ) ?? sql`false`,
+      );
+    }
     const deviceScoped = resourceDivisionFilter(actor, 'customer_devices', customerDevices.divisionId);
     if (deviceScoped) filters.push(deviceScoped);
     const visibility = await companyVisibilityExistsFilter(this.db, actor, customerDevices.companyId);
     if (visibility) filters.push(visibility);
     const where = and(...filters);
-    const [{ count }] = await this.db.select({ count: sql<number>`count(*)::int` }).from(customerDevices).where(where);
+    const [{ count }] = await this.db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(customerDevices)
+      .leftJoin(
+        companies,
+        and(
+          eq(customerDevices.companyId, companies.id),
+          eq(companies.tenantId, actor.tenantId),
+          isNull(companies.deletedAt),
+        ),
+      )
+      .leftJoin(inventoryItems, eq(customerDevices.inventoryItemId, inventoryItems.id))
+      .leftJoin(productModels, eq(inventoryItems.productModelId, productModels.id))
+      .leftJoin(brands, eq(productModels.brandId, brands.id))
+      .where(where);
     // Envanter + ürün join'i: kurulum tutanağı / servis formu çıktıları
     // tezgah marka-model-seri no ve CNC bilgilerini buradan doldurur.
     const rows = await this.db
@@ -887,6 +922,76 @@ export class InventoryService {
       count,
       page
     );
+  }
+
+  async getCustomerDevice(id: string, actor: AuthContext) {
+    const visibility = await companyVisibilityExistsFilter(this.db, actor, customerDevices.companyId);
+    const [row] = await this.db
+      .select({
+        device: customerDevices,
+        company: { id: companies.id, legalTitle: companies.legalTitle, shortName: companies.shortName },
+        productModelId: inventoryItems.productModelId,
+        serialNumber: inventoryItems.serialNumber,
+        controlUnit: inventoryItems.controlUnit,
+        controlUnitSerialNumber: inventoryItems.controlUnitSerialNumber,
+        modelCode: productModels.modelCode,
+        modelName: productModels.modelName,
+        cashPrice: productModels.cashPrice,
+        currencyCode: currencies.code,
+        brandName: brands.name,
+        productTypeName: productTypes.name,
+      })
+      .from(customerDevices)
+      .leftJoin(
+        companies,
+        and(
+          eq(customerDevices.companyId, companies.id),
+          eq(companies.tenantId, actor.tenantId),
+          isNull(companies.deletedAt),
+        ),
+      )
+      .leftJoin(inventoryItems, eq(customerDevices.inventoryItemId, inventoryItems.id))
+      .leftJoin(productModels, eq(inventoryItems.productModelId, productModels.id))
+      .leftJoin(currencies, eq(productModels.currencyId, currencies.id))
+      .leftJoin(brands, eq(productModels.brandId, brands.id))
+      .leftJoin(productTypes, eq(productModels.productTypeId, productTypes.id))
+      .where(and(
+        eq(customerDevices.id, id),
+        eq(customerDevices.tenantId, actor.tenantId),
+        isNull(customerDevices.deletedAt),
+        resourceDivisionFilter(actor, 'customer_devices', customerDevices.divisionId) ?? sql`true`,
+        visibility ?? sql`true`,
+      ))
+      .limit(1);
+    if (!row) throw new NotFoundError('Makine kaydı bulunamadı');
+
+    const technicalSpecs = row.productModelId
+      ? await this.db
+          .select({ key: productSpecs.specKey, value: productSpecs.specValue, unit: productSpecs.specUnit })
+          .from(productSpecs)
+          .where(and(
+            eq(productSpecs.tenantId, actor.tenantId),
+            eq(productSpecs.productModelId, row.productModelId),
+            isNull(productSpecs.deletedAt),
+          ))
+          .orderBy(asc(productSpecs.sortOrder))
+      : [];
+    const manual = parseManualDeviceNotes(row.device.notes);
+    return {
+      ...row.device,
+      company: row.company?.id ? row.company : null,
+      productModelId: row.productModelId,
+      serialNumber: row.serialNumber ?? manual.serialNumber,
+      controlUnit: row.controlUnit,
+      controlUnitSerialNumber: row.controlUnitSerialNumber,
+      model: row.modelCode ?? manual.model,
+      productModelName: row.modelName,
+      cashPrice: row.cashPrice,
+      currencyCode: row.currencyCode,
+      brandName: row.brandName,
+      productTypeName: row.productTypeName,
+      technicalSpecs,
+    };
   }
 
   async createCustomerDevice(input: CustomerDeviceCreateInput, actor: AuthContext) {

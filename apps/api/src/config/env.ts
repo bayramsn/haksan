@@ -161,6 +161,17 @@ const envSchema = z.object({
   USER_MAIL_ALLOWED_EMAIL_DOMAINS: envOptionalText,
   // `openssl rand -base64 32` ile üretilmiş 32-byte AES anahtarı.
   USER_MAIL_CREDENTIAL_ENCRYPTION_KEY: envOptionalSecret,
+
+  // Meta Business entegrasyonu. Uygulama kimliği ve imza sırları yalnız
+  // backend'de kalır; tenant erişim tokenları ayrı AES-256-GCM anahtarıyla
+  // veritabanında şifrelenir. Değerler boşsa CRM açılır, Meta bağlantı ekranı
+  // yapılandırma eksikliğini kontrollü biçimde gösterir.
+  META_APP_ID: envOptionalText,
+  META_APP_SECRET: envOptionalSecret,
+  META_WEBHOOK_VERIFY_TOKEN: envOptionalSecret,
+  META_CREDENTIAL_ENCRYPTION_KEY: envOptionalSecret,
+  META_GRAPH_API_VERSION: z.string().regex(/^v\d+\.\d+$/).default('v25.0'),
+  META_GRAPH_BASE_URL: z.string().url().default('https://graph.facebook.com'),
   // Operasyon ekibi gerektiğinde uygulama güncellemeden uyumlu bir Nominatim
   // sağlayıcısına geçebilsin. API çağrıları yalnız backend üzerinden yapılır.
   OSM_NOMINATIM_URL: z.string().url().default('https://nominatim.openstreetmap.org/search'),
@@ -215,6 +226,24 @@ const envSchema = z.object({
         code: z.ZodIssueCode.custom,
         path: ['USER_MAIL_CREDENTIAL_ENCRYPTION_KEY'],
         message: 'USER_MAIL_CREDENTIAL_ENCRYPTION_KEY must be a base64-encoded 32-byte key',
+      });
+    }
+  }
+  const metaConfiguredValues = [env.META_APP_ID, env.META_APP_SECRET, env.META_WEBHOOK_VERIFY_TOKEN, env.META_CREDENTIAL_ENCRYPTION_KEY];
+  if (metaConfiguredValues.some(Boolean) && !metaConfiguredValues.every(Boolean)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['META_APP_ID'],
+      message: 'META_APP_ID, META_APP_SECRET, META_WEBHOOK_VERIFY_TOKEN and META_CREDENTIAL_ENCRYPTION_KEY must be configured together',
+    });
+  }
+  if (env.META_CREDENTIAL_ENCRYPTION_KEY) {
+    const key = env.META_CREDENTIAL_ENCRYPTION_KEY;
+    if (!/^[A-Za-z0-9+/]{43}=$/.test(key) || Buffer.from(key, 'base64').length !== 32) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['META_CREDENTIAL_ENCRYPTION_KEY'],
+        message: 'META_CREDENTIAL_ENCRYPTION_KEY must be a base64-encoded 32-byte key',
       });
     }
   }

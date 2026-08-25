@@ -29,6 +29,7 @@ import { NotificationsModule } from './modules/notifications/notifications.modul
 import { CalendarModule } from './modules/calendar/calendar.module';
 import { AutomationModule } from './modules/automation/automation.module';
 import { MailModule } from './modules/mail/mail.module';
+import { MetaModule } from './modules/meta/meta.module';
 import { loadEnv } from './config/env';
 
 const env = loadEnv();
@@ -76,6 +77,7 @@ const env = loadEnv();
     CalendarModule,
     AutomationModule,
     MailModule,
+    MetaModule,
   ],
   providers: [
     // Rate limiting'i tüm route'lara uygular. Bu guard global bağlanmadan

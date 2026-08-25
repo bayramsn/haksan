@@ -7,7 +7,7 @@ import { Label } from "../../ui/label";
 import { Tabs, TabsList, TabsTrigger } from "../../ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../../ui/table";
 import { StatusBadge } from "../../shared/StatusBadge";
-import { CreateStockDialog } from "../../dialogs/CreateDialogs";
+import { CreateStockDialog, EditStockDialog } from "../../dialogs/CreateDialogs";
 import { MiniKpi } from "../../shared/MiniKpi";
 import { EmptyState } from "../../shared/EmptyState";
 import { EntityVisual } from "../../shared/PremiumPrimitives";
@@ -95,6 +95,7 @@ const stockLocationLabel = (item: StockItem) => {
 
 export function StockPage({ focus, initialQuery }: { focus?: OperationFocus; initialQuery?: string }) {
   const { stock, products, updateStockStatus, reserveStock } = useStore();
+  const [editTarget, setEditTarget] = useState<StockItem | null>(null);
   const [q, setQ] = useState("");
   const [tab, setTab] = useState<"all" | "Available" | "Reserved" | "InTransit" | "Sold" | "Inactive">("all");
   const [categoryTab, setCategoryTab] = useState<"all" | StockCategoryCode>("all");
@@ -249,14 +250,21 @@ export function StockPage({ focus, initialQuery }: { focus?: OperationFocus; ini
     setReserveOpen(true);
   };
 
-  const renderStockActions = (item: StockItem) => (
+  // compact: tablo satırı (yoğun düzen) · varsayılan: mobil kart listesi (dokunma hedefi)
+  const renderStockActions = (item: StockItem, compact = false) => (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="ghost" size="icon" className="size-11" aria-label={`${item.serialNumber} stok işlemleri`}>
+        <Button
+          variant="ghost"
+          size="icon"
+          className={compact ? "size-8 opacity-100 md:opacity-0 md:group-hover:opacity-100" : "size-11"}
+          aria-label={`${item.serialNumber} stok işlemleri`}
+        >
           <MoreHorizontal className="size-4" />
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
+        <DropdownMenuItem onClick={() => setEditTarget(item)}>Düzenle</DropdownMenuItem>
         {item.status !== "Sold" && (
           <DropdownMenuItem onClick={() => openReserveDialog(item)}>
             {item.status === "Reserved" ? "Firma bilgisini düzenle" : "Firmaya rezerve et"}
@@ -560,65 +568,7 @@ export function StockPage({ focus, initialQuery }: { focus?: OperationFocus; ini
                   <TableCell className="text-xs text-muted-foreground tabular-nums">{s.receivedDate ?? "—"}</TableCell>
                   <TableCell className="text-xs text-muted-foreground tabular-nums">{s.arrivalDate ?? "—"}</TableCell>
                   <TableCell><StatusBadge status={s.status} /></TableCell>
-                  <TableCell>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="icon" className="size-8 opacity-100 md:opacity-0 md:group-hover:opacity-100" aria-label="Durum değiştir">
-                          <MoreHorizontal className="size-4" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        {s.status !== "Sold" && (
-                          <DropdownMenuItem onClick={() => openReserveDialog(s)}>
-                            {s.status === "Reserved" ? "Firma bilgisini düzenle" : "Firmaya rezerve et"}
-                          </DropdownMenuItem>
-                        )}
-                        {s.status === "Reserved" && (
-                          <DropdownMenuItem
-                            onClick={async () => {
-                              try {
-                                await updateStockStatus(s.id, "Available");
-                                toast.success("Rezervasyon kaldırıldı");
-                              } catch (err: any) {
-                                toast.error("İşlem başarısız", { description: err?.message });
-                              }
-                            }}
-                          >
-                            Rezervasyonu kaldır
-                          </DropdownMenuItem>
-                        )}
-                        <DropdownMenuSeparator />
-                        {STOCK_STATUS_ACTIONS.map((st) => (
-                          <DropdownMenuItem
-                            key={st}
-                            disabled={s.status === st}
-                            onClick={async () => {
-                              if (st === "Reserved") {
-                                openReserveDialog(s);
-                                return;
-                              }
-                              try {
-                                await updateStockStatus(s.id, st);
-                                toast.success("Durum güncellendi", { description: `${s.productName || s.counterModel} → ${STOCK_STATUS_LABELS[st]}` });
-                              } catch (err: any) {
-                                toast.error("Durum güncellenemedi", { description: err?.message ?? "API isteği başarısız oldu." });
-                              }
-                            }}
-                          >
-                            {STOCK_STATUS_LABELS[st]} olarak işaretle
-                          </DropdownMenuItem>
-                        ))}
-                        {s.status === "Sold" && (
-                          <>
-                            <DropdownMenuSeparator />
-                            <DropdownMenuItem disabled className="text-muted-foreground text-xs">
-                              Satıldı — yalnızca fatura ile
-                            </DropdownMenuItem>
-                          </>
-                        )}
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </TableCell>
+                  <TableCell>{renderStockActions(s, true)}</TableCell>
                 </TableRow>
                 {isExpanded && linkedOptions.length > 0 && (
                   <TableRow className="bg-muted/20 hover:bg-muted/20">
@@ -654,6 +604,8 @@ export function StockPage({ focus, initialQuery }: { focus?: OperationFocus; ini
           </Table>
         </div>
       </Card>
+
+      {editTarget && <EditStockDialog key={editTarget.id} item={editTarget} onClose={() => setEditTarget(null)} />}
 
       <Dialog open={reserveOpen} onOpenChange={setReserveOpen}>
         <DialogContent className="max-w-md">

@@ -375,6 +375,11 @@ export const PERMISSION_RESOURCES = [
   'payments',
   'files',
   'reports',
+  'meta',
+  'meta_campaigns',
+  'meta_messages',
+  'meta_audiences',
+  'meta_catalogs',
   'audit',
 ] as const;
 export type PermissionResource = (typeof PERMISSION_RESOURCES)[number];

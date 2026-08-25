@@ -112,6 +112,13 @@ export function TeamActivityPanel() {
     [data]
   );
 
+  // Sıralama tablosu: en çok iş üreten üstte. Ekip içi şeffaflık ve tatlı rekabet
+  // için; sayılar zaten herkesin gördüğü rapordan geliyor, yeni veri açılmıyor.
+  const ranked = useMemo(
+    () => [...(data?.users ?? [])].sort((a, b) => b.total.current - a.total.current),
+    [data]
+  );
+
   const rangeLabel = data
     ? `${new Date(data.range.from).toLocaleDateString("tr-TR")} – ${new Date(
         new Date(data.range.to).getTime() - 1
@@ -221,6 +228,7 @@ export function TeamActivityPanel() {
                 <Table>
                   <TableHeader>
                     <TableRow>
+                      <TableHead className="w-8 text-[10px]">#</TableHead>
                       <TableHead className="text-[10px]">Kullanıcı</TableHead>
                       {METRICS.map((metric) => (
                         <TableHead key={metric.key} className="text-right text-[10px]">
@@ -231,8 +239,15 @@ export function TeamActivityPanel() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {data.users.map((user) => (
+                    {ranked.map((user, index) => (
                       <TableRow key={user.userId}>
+                        <TableCell className="text-xs font-semibold tabular-nums text-muted-foreground">
+                          {index === 0 && user.total.current > 0 ? (
+                            <Trophy className="size-3.5 text-warning" aria-label="Dönem birincisi" />
+                          ) : (
+                            index + 1
+                          )}
+                        </TableCell>
                         <TableCell className="whitespace-nowrap text-xs font-medium">{user.name}</TableCell>
                         {METRICS.map((metric) => (
                           <TableCell key={metric.key} className="text-right font-data text-xs">
@@ -250,9 +265,9 @@ export function TeamActivityPanel() {
                         </TableCell>
                       </TableRow>
                     ))}
-                    {data.users.length === 0 && (
+                    {ranked.length === 0 && (
                       <TableRow>
-                        <TableCell colSpan={METRICS.length + 2} className="py-6 text-center text-xs text-muted-foreground">
+                        <TableCell colSpan={METRICS.length + 3} className="py-6 text-center text-xs text-muted-foreground">
                           Bu dönemde kayıtlı aktivite yok.
                         </TableCell>
                       </TableRow>

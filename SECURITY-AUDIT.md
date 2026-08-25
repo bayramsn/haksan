@@ -1,7 +1,7 @@
 # Güvenlik Denetimi — Haksan ERP/CRM
 
 **Tarih:** 2026-06-26
-**Kapsam:** `apps/api` (NestJS + Fastify + Drizzle) ve `apps/web` (React + Vite). `apps/mobile` ve `packages/shared` kapsam dışı.
+**Kapsam:** `apps/api` (NestJS + Fastify + Drizzle) ve `apps/web` (React + Vite). `packages/shared` kapsam dışı.
 **Yöntem:** Otomatik tarama (`ruflo security` + `npm audit`) + manuel kod-seviyesi denetim. **Her bulgu kaynak kodda teyit edildi**; araçların ürettiği aday bulgular tek tek doğrulanıp false-positive'ler elendi.
 **Not:** İlk sürüm bir **tespit** raporuydu; **2026-06-26 itibarıyla bulunan açıklar düzeltildi** (aşağıdaki Remediation Durumu).
 

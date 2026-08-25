@@ -52,12 +52,14 @@ export class MaintenancePlansController {
   }
 
   private async assertScopedPlan(id: string, actor: AuthContext) {
+    const visibility = await companyVisibilityExistsFilter(this.db, actor, maintenancePlans.companyId);
     const plan = await this.db.query.maintenancePlans.findFirst({
       where: and(
         eq(maintenancePlans.id, id),
         eq(maintenancePlans.tenantId, actor.tenantId),
         isNull(maintenancePlans.deletedAt),
         resourceDivisionFilter(actor, 'service_tickets', maintenancePlans.divisionId) ?? sql`true`,
+        visibility ?? sql`true`,
       ),
     });
     if (!plan) throw new NotFoundError('Bakım planı');
@@ -73,6 +75,8 @@ export class MaintenancePlansController {
       isNull(maintenancePlans.deletedAt),
       resourceDivisionFilter(user, 'service_tickets', maintenancePlans.divisionId) ?? sql`true`,
     ];
+    const visibility = await companyVisibilityExistsFilter(this.db, user, maintenancePlans.companyId);
+    if (visibility) filters.push(visibility);
     if (query.customerDeviceId) filters.push(eq(maintenancePlans.customerDeviceId, query.customerDeviceId));
     if (query.companyId) filters.push(eq(maintenancePlans.companyId, query.companyId));
     if (query.dueSoon) {
@@ -103,7 +107,12 @@ export class MaintenancePlansController {
     return buildPaginated(
       rows.map((row) => ({
         ...row.plan,
-        company: row.company?.id ? { id: row.company.id, name: row.company.shortName ?? row.company.legalTitle } : null,
+        company: row.company?.id ? {
+          id: row.company.id,
+          legalTitle: row.company.legalTitle,
+          shortName: row.company.shortName,
+          name: row.company.shortName ?? row.company.legalTitle,
+        } : null,
         machine: {
           serialNumber: row.serialNumber ?? null,
           model: row.model ?? row.modelCode ?? null,
@@ -113,6 +122,44 @@ export class MaintenancePlansController {
       count,
       query,
     );
+  }
+
+  @RequirePermissions('service_tickets.read')
+  @Get(':id')
+  async get(@Param('id') id: string, @CurrentUser() user: AuthContext) {
+    await this.assertScopedPlan(id, user);
+    const [row] = await this.db
+      .select({
+        plan: maintenancePlans,
+        company: { id: companies.id, legalTitle: companies.legalTitle, shortName: companies.shortName },
+        serialNumber: inventoryItems.serialNumber,
+        model: productModels.modelName,
+        modelCode: productModels.modelCode,
+        brand: brands.name,
+      })
+      .from(maintenancePlans)
+      .leftJoin(companies, eq(maintenancePlans.companyId, companies.id))
+      .leftJoin(customerDevices, eq(maintenancePlans.customerDeviceId, customerDevices.id))
+      .leftJoin(inventoryItems, eq(customerDevices.inventoryItemId, inventoryItems.id))
+      .leftJoin(productModels, eq(inventoryItems.productModelId, productModels.id))
+      .leftJoin(brands, eq(productModels.brandId, brands.id))
+      .where(and(eq(maintenancePlans.id, id), eq(maintenancePlans.tenantId, user.tenantId)))
+      .limit(1);
+    if (!row) throw new NotFoundError('Bakım planı');
+    return {
+      ...row.plan,
+      company: row.company?.id ? {
+        id: row.company.id,
+        legalTitle: row.company.legalTitle,
+        shortName: row.company.shortName,
+        name: row.company.shortName ?? row.company.legalTitle,
+      } : null,
+      machine: {
+        serialNumber: row.serialNumber ?? null,
+        model: row.model ?? row.modelCode ?? null,
+        brand: row.brand ?? null,
+      },
+    };
   }
 
   @RequirePermissions('service_tickets.create')

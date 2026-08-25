@@ -15,6 +15,7 @@ import { currencies, pipelineStages, inventoryStatuses, paymentStatuses, warrant
 import { companies } from '../../db/schema/companies';
 import { DB } from '../../shared/database/database.module';
 import type { AuthContext } from '../../shared/security/auth.types';
+import { companyVisibilityExistsFilter } from '../../shared/utils/company-visibility';
 import { resourceDivisionFilter, resolveResourceDivisionScope } from '../../shared/utils/division-scope';
 import { ForbiddenError } from '../../shared/utils/errors';
 import { amountToUsd, FxService, type FxRates, type FxSnapshot } from '../fx/fx.service';
@@ -181,18 +182,27 @@ export class ReportsService {
 
   async expectedReceivables(actor: AuthContext) {
     const pending = await this.db.query.paymentStatuses.findFirst({ where: eq(paymentStatuses.code, 'pending') });
+    const visibility = await companyVisibilityExistsFilter(this.db, actor, receivables.companyId);
     const rows = await this.db
       .select({
         receivable: receivables,
         company: { id: companies.id, legalTitle: companies.legalTitle },
       })
       .from(receivables)
-      .leftJoin(companies, eq(receivables.companyId, companies.id))
+      .innerJoin(
+        companies,
+        and(
+          eq(receivables.companyId, companies.id),
+          eq(companies.tenantId, actor.tenantId),
+          isNull(companies.deletedAt),
+        ),
+      )
       .where(
         and(
           eq(receivables.tenantId, actor.tenantId),
           isNull(receivables.deletedAt),
           this.activeDivisionFilter(actor, receivables.divisionId),
+          visibility ?? sql`true`,
           pending ? eq(receivables.statusId, pending.id) : sql`true`
         )
       );
@@ -200,10 +210,41 @@ export class ReportsService {
   }
 
   async completedPayments(actor: AuthContext, range: { from?: Date; to?: Date }) {
-    const filters = [eq(payments.tenantId, actor.tenantId), isNull(payments.deletedAt), this.activeDivisionFilter(actor, payments.divisionId)];
+    const visibility = await companyVisibilityExistsFilter(this.db, actor, payments.companyId);
+    const filters = [
+      eq(payments.tenantId, actor.tenantId),
+      isNull(payments.deletedAt),
+      this.activeDivisionFilter(actor, payments.divisionId),
+      visibility ?? sql`true`,
+    ];
     if (range.from) filters.push(gte(payments.paymentDate, range.from));
     if (range.to) filters.push(lte(payments.paymentDate, range.to));
-    return this.db.select().from(payments).where(and(...filters)).orderBy(desc(payments.paymentDate));
+    return this.db
+      .select({
+        payment: payments,
+        company: {
+          id: companies.id,
+          externalCompanyNo: companies.externalCompanyNo,
+          legalTitle: companies.legalTitle,
+          shortName: companies.shortName,
+        },
+        status: { id: paymentStatuses.id, code: paymentStatuses.code, name: paymentStatuses.name },
+        currency: { id: currencies.id, code: currencies.code },
+      })
+      .from(payments)
+      .innerJoin(
+        companies,
+        and(
+          eq(payments.companyId, companies.id),
+          eq(companies.tenantId, actor.tenantId),
+          isNull(companies.deletedAt),
+        ),
+      )
+      .leftJoin(paymentStatuses, eq(payments.statusId, paymentStatuses.id))
+      .leftJoin(currencies, eq(payments.currencyId, currencies.id))
+      .where(and(...filters))
+      .orderBy(desc(payments.paymentDate), desc(payments.id))
+      .then((rows) => rows.map((row) => ({ ...row.payment, company: row.company, status: row.status, currency: row.currency })));
   }
 
   async stockSummary(actor: AuthContext) {
@@ -226,6 +267,7 @@ export class ReportsService {
   }
 
   async pipelineSummary(actor: AuthContext) {
+    const visibility = await companyVisibilityExistsFilter(this.db, actor, opportunities.companyId);
     return this.db
       .select({
         stageCode: pipelineStages.code,
@@ -243,7 +285,8 @@ export class ReportsService {
           isNull(opportunities.deletedAt),
           // Mantıksal kapanış: kapatılan (arşivlenen) fırsatlar aktif pano sayımından düşer.
           isNull(opportunities.closedAt),
-          this.activeDivisionFilter(actor, opportunities.divisionId)
+          this.activeDivisionFilter(actor, opportunities.divisionId),
+          visibility ?? sql`true`,
         )
       )
       .groupBy(pipelineStages.code, pipelineStages.name, pipelineStages.sortOrder)
@@ -251,10 +294,12 @@ export class ReportsService {
   }
 
   async serviceComplaintsSummary(actor: AuthContext) {
+    const visibility = await companyVisibilityExistsFilter(this.db, actor, serviceComplaintIntakes.companyId);
     const filters = [
       eq(serviceComplaintIntakes.tenantId, actor.tenantId),
       isNull(serviceComplaintIntakes.deletedAt),
       this.activeDivisionFilter(actor, serviceComplaintIntakes.divisionId),
+      visibility ?? sql`true`,
     ];
     const where = and(...filters);
     const [totals] = await this.db

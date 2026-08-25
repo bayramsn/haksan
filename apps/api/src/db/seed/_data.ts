@@ -355,6 +355,11 @@ export const rolePermissionMatrix: Record<string, Record<string, string[] | '*'>
     payments: '*',
     files: '*',
     reports: ['read', 'export'],
+    meta: '*',
+    meta_campaigns: '*',
+    meta_messages: '*',
+    meta_audiences: '*',
+    meta_catalogs: '*',
     audit: ['read'],
   },
   sales: {
@@ -383,6 +388,13 @@ export const rolePermissionMatrix: Record<string, Record<string, string[] | '*'>
     accounting_invoices: ['read', 'create', 'update', 'delete'],
     files: ['read', 'create'],
     reports: ['read', 'export'],
+    // Satış ekibi performansı ve gelen talepleri görür, konuşmaları yönetebilir.
+    // Bütçe/kampanya, kitle ve katalog yazma işlemleri yönetici yetkisinde kalır.
+    meta: ['read'],
+    meta_campaigns: ['read'],
+    meta_messages: ['read', 'create', 'update'],
+    meta_audiences: ['read'],
+    meta_catalogs: ['read'],
     inventory: ['read'],
     // Departmanlar arası görünürlük: stok gibi makineler de (fiyat listeleri hariç)
     // tüm departman rollerince okunabilir.
