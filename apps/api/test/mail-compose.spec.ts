@@ -11,6 +11,9 @@ import { createTestApp } from './setup';
 describe('Mail compose', () => {
   let app: NestFastifyApplication;
   let token: string;
+  let divisionId: string;
+  let createdCompanyId: string | undefined;
+  let createdContactId: string | undefined;
 
   beforeAll(async () => {
     app = await createTestApp();
@@ -19,9 +22,25 @@ describe('Mail compose', () => {
       .send({ email: 'superadmin@haksan.local', password: 'superadmin12345' })
       .expect(201);
     token = login.body.accessToken;
+    const me = await request(app.getHttpServer())
+      .get('/api/v1/auth/me')
+      .set('Authorization', `Bearer ${token}`)
+      .expect(200);
+    divisionId = me.body.user.divisions[0].id;
   });
 
   afterAll(async () => {
+    // Kontak silinmeden firma silinemez (bağımlılık kontrolü 409 döner).
+    if (createdContactId) {
+      await request(app.getHttpServer())
+        .delete(`/api/v1/contacts/${createdContactId}`)
+        .set('Authorization', `Bearer ${token}`);
+    }
+    if (createdCompanyId) {
+      await request(app.getHttpServer())
+        .delete(`/api/v1/companies/${createdCompanyId}`)
+        .set('Authorization', `Bearer ${token}`);
+    }
     await app.close();
   });
 
@@ -50,18 +69,40 @@ describe('Mail compose', () => {
   });
 
   it('firma verildiğinde o firmanın kontak e-postalarını döner', async () => {
-    const contacts = await request(app.getHttpServer())
-      .get('/api/v1/contacts?page=1&pageSize=200')
+    // Seed verisine güvenilmez (CI'da taze veritabanı): firma ve kontak testin
+    // kendisi tarafından üretilir, sonunda temizlenir.
+    const suffix = Date.now();
+    const workEmail = `mail.compose.${suffix}@example.com`;
+    const company = await request(app.getHttpServer())
+      .post('/api/v1/companies')
       .set('Authorization', `Bearer ${token}`)
-      .expect(200);
-    const withEmail = contacts.body.data.find((row: { companyId?: string; workEmail?: string }) => row.companyId && row.workEmail);
-    expect(withEmail, 'e-postalı kontak bulunamadı').toBeTruthy();
+      .send({
+        companyType: 'company',
+        legalTitle: `Mail Alıcı Testi ${suffix}`,
+        relationTypeCode: 'customer',
+        customerStatusCode: 'potential',
+        divisionIds: [divisionId],
+      })
+      .expect(201);
+    createdCompanyId = company.body.id;
+
+    const contact = await request(app.getHttpServer())
+      .post('/api/v1/contacts')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ companyId: createdCompanyId, fullName: `Mail Kontağı ${suffix}`, title: 'Satın Alma', workEmail })
+      .expect(201);
+    createdContactId = contact.body.id;
 
     const response = await request(app.getHttpServer())
-      .get(`/api/v1/mail/recipients?companyId=${withEmail.companyId}`)
+      .get(`/api/v1/mail/recipients?companyId=${createdCompanyId}`)
       .set('Authorization', `Bearer ${token}`)
       .expect(200);
-    expect(response.body.contacts.some((row: { email: string }) => row.email === withEmail.workEmail)).toBe(true);
+    expect(response.body.contacts).toContainEqual({
+      email: workEmail,
+      name: contact.body.fullName,
+      detail: 'Satın Alma',
+      contactId: contact.body.id,
+    });
   });
 
   it('mail şablonu not şablonu olarak kaydedilip listeleniyor', async () => {
