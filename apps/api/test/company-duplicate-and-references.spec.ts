@@ -59,6 +59,28 @@ describe('Company duplicates & references', () => {
     expect(second.body.error.details?.duplicateCompanyId).toBe(first.body.id);
   });
 
+  it('çift tıklamada (eşzamanlı iki istek) tek firma oluşturur', async () => {
+    const title = `Çift Tıklama Testi ${suffix}`;
+    const [first, second] = await Promise.all([createCompany(title), createCompany(title)]);
+
+    const statuses = [first.status, second.status].sort();
+    expect(statuses).toEqual([201, 409]);
+    const ok = first.status === 201 ? first : second;
+    createdCompanyIds.push(ok.body.id);
+
+    // Kayıtta gerçekten tek satır olmalı; 409 dönen istek hiçbir şey yazmamalı.
+    // Arama terimi olarak yalnız sayısal son ek kullanılır: ünvan Türkçe kurallarıyla
+    // BÜYÜK harfe çevrilerek saklandığı için ILIKE 'i'/'İ' eşleşmesini yakalamaz.
+    const list = await request(app.getHttpServer())
+      .get(`/api/v1/companies?search=${suffix}&pageSize=50`)
+      .set('Authorization', `Bearer ${token}`)
+      .expect(200);
+    const matches = list.body.data.filter(
+      (row: { legalTitle: string }) => row.legalTitle.toLocaleUpperCase('tr-TR') === title.toLocaleUpperCase('tr-TR'),
+    );
+    expect(matches).toHaveLength(1);
+  });
+
   it('farklı ünvanı kabul eder', async () => {
     const other = await createCompany(`Mükerrer Test Ticaret ${suffix}`).expect(201);
     createdCompanyIds.push(other.body.id);

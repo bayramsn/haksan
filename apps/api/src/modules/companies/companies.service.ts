@@ -1011,9 +1011,11 @@ export class CompaniesService {
    * kullanıcı onu göremediği için körlemesine ikinci kez açmasın diye erişim
    * talebi üretilir; kendi bölümündeyse doğrudan çakışma döner.
    *
-   * ponytail: kontrol uygulama katmanında — iki eşzamanlı istek ikisini de
-   * geçebilir. Sıkışırsa (tenant_id, ünvan anahtarı) üzerine kısmi unique index
-   * eklenmeli; mevcut mükerrer kayıtlar temizlenmeden migration patlar.
+   * Eşzamanlı istekler `create` içindeki danışma kilidiyle serileştirilir.
+   *
+   * ponytail: kalıcı çözüm (tenant_id, ünvan anahtarı) üzerinde kısmi unique
+   * index olurdu; mevcut mükerrer kayıtlar temizlenmeden migration patlayacağı
+   * için şimdilik uygulama katmanında.
    */
   private async rejectDuplicateCompany(
     match: SQL,
@@ -1101,6 +1103,27 @@ export class CompaniesService {
     let created: typeof companies.$inferSelect;
     try {
       created = await this.db.transaction(async (tx) => {
+        // Çift tıklama / yeniden gönderim iki isteği aynı anda buraya sokabiliyor;
+        // ikisi de yukarıdaki kontrolü geçer. Ünvan anahtarı üzerinde işlem ömürlü
+        // danışma kilidi alıp kontrolü kilit altında tekrarlıyoruz: ikinci istek
+        // birincinin commit'ini görür ve çakışma döner. Vergi numarasında bu gerekmez,
+        // orada kısmi unique index zaten var.
+        if (nameKey) {
+          await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`${actor.tenantId}:${nameKey}`}, 0))`);
+          const raced = await tx.query.companies.findFirst({
+            where: and(
+              eq(companies.tenantId, actor.tenantId),
+              isNull(companies.deletedAt),
+              sql`${companyNameKeySql(companies.legalTitle)} = ${nameKey}`,
+            ),
+          });
+          if (raced) {
+            throw new ConflictError(`Bu ünvanla bir firma zaten kayıtlı: ${raced.legalTitle}`, {
+              duplicateCompanyId: raced.id,
+            });
+          }
+        }
+
         const [company] = await tx
           .insert(companies)
           .values({
@@ -1236,6 +1259,7 @@ export class CompaniesService {
         return company;
       });
     } catch (error: any) {
+      if (error instanceof ConflictError) throw error;
       if ((error?.code ?? error?.cause?.code) === '23505') {
         throw new ConflictError('Bu vergi numarası ile bir firma zaten kayıtlı');
       }
