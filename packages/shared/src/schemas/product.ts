@@ -63,6 +63,12 @@ export const productSpecTemplateCreateSchema = z.object({
   specUnit: z.string().max(64).nullish(),
   // Bölüm (CNC / Üniversal / Sac İşleme). Boş/null → tüm bölümlerde ("Tümü").
   divisionId: z.string().uuid().nullish(),
+  /**
+   * Bu teknik alanın satılabilir alternatif değerleri (opsiyonel donanım).
+   * Örn. "Fener Mili" varsayılan BT-40 iken ['BT-50'] tanımlanırsa, teklifte
+   * BT-50 seçilince alan yalnız o teklif için BT-50'ye döner.
+   */
+  specOptions: z.array(z.string().trim().min(1).max(255)).max(20).nullish(),
   sortOrder: z.coerce.number().int().default(0),
   isActive: z.boolean().default(true),
   isDeleted: z.boolean().default(false),

@@ -2,14 +2,31 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 describe("CompanyDetailDialog firma notları", () => {
+  // Not kutusu CompanyNotesCard'a taşındı; firma kartı ile firma detay penceresi
+  // aynı bileşeni kullanıyor. Satır sonu/kelime kırma davranışı orada yaşıyor.
   it("firma notunu satır sonlarını ve uzun kelimeleri koruyarak gösterir", () => {
-    const source = readFileSync(new URL("./DetailDialogs.tsx", import.meta.url), "utf8");
+    const source = readFileSync(new URL("../shared/CompanyNotesCard.tsx", import.meta.url), "utf8");
 
     expect(source).toContain('aria-label="Firma notları"');
-    expect(source).toContain("customer.initialNote?.trim()");
+    expect(source).toContain("shownNote.trim()");
     expect(source).toContain("whitespace-pre-wrap");
     expect(source).toContain("break-words");
     expect(source).toContain("Bu firma için henüz not eklenmemiş.");
+  });
+
+  it("notu pop-up içinde yetkiliye düzenletir", () => {
+    const source = readFileSync(new URL("../shared/CompanyNotesCard.tsx", import.meta.url), "utf8");
+
+    expect(source).toContain('hasPermission("companies.update")');
+    expect(source).toContain("updateCustomer(companyId, { initialNote: next })");
+    expect(source).toContain("Tümünü gör");
+  });
+
+  it("firma detay penceresi not kutusunu ortak bileşenden basar", () => {
+    const source = readFileSync(new URL("./DetailDialogs.tsx", import.meta.url), "utf8");
+
+    expect(source).toContain("<CompanyNotesCard");
+    expect(source).toContain("note={customer.initialNote}");
   });
 
   it("firma detayından yetkili kullanıcıyı doğrudan düzenleme formuna geçirir", () => {

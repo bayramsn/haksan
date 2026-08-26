@@ -1,4 +1,4 @@
-import { pgTable, uuid, varchar, text, boolean, integer, timestamp, index, uniqueIndex } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, varchar, text, boolean, integer, jsonb, timestamp, index, uniqueIndex } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 import { auditColumns, money, percent } from './_helpers';
 import { tenants, divisions } from './tenants';
@@ -173,6 +173,8 @@ export const productSpecTemplates = pgTable(
     specGroupCode: varchar('spec_group_code', { length: 64 }),
     defaultValue: text('default_value'),
     specUnit: varchar('spec_unit', { length: 64 }),
+    /** Satılabilir alternatif değerler; teklifte seçilince alanı o teklife özel ezer. */
+    specOptions: jsonb('spec_options').$type<string[] | null>(),
     // Bölüm (CNC / Üniversal / Sac İşleme). NULL → tüm bölümlerde ("Tümü") geçerli.
     divisionId: uuid('division_id').references(() => divisions.id, { onDelete: 'set null' }),
     sortOrder: integer('sort_order').notNull().default(0),
