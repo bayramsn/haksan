@@ -40,7 +40,11 @@ ARG BUILD_TIME=unknown
 ENV API_RELEASE_ID=${API_RELEASE_ID}
 ENV IMAGE_BUILD_TIME=${BUILD_TIME}
 
-RUN apk add --no-cache font-dejavu \
+# Taban imaj digest ile sabit; yamalı sistem paketleri ancak burada alınır.
+# Trivy HIGH/CRITICAL bulunca yayın bloklanıyor (2026-08-26: openssl CVE-2026-14456),
+# bu yüzden çalışma katmanı her build'de güncel Alpine paketleriyle kurulur.
+RUN apk upgrade --no-cache \
+  && apk add --no-cache font-dejavu \
   && rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack \
   && rm -f /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack \
     /usr/local/bin/yarn /usr/local/bin/yarnpkg /usr/local/bin/pnpm /usr/local/bin/pnpx
