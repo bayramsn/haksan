@@ -4,12 +4,13 @@
  */
 import {
   PIPELINE_STAGE_FLOW,
-  type PipelineStageCode,
+  StockConditionCode,
   type LeadAuthorityStatusCode,
   type LeadBudgetStatusCode,
   type LeadInsights,
   type LeadPurchaseTimeframeCode,
   type LeadTechnicalFitCode,
+  type PipelineStageCode,
   type ProcessCheck,
 } from "@haksan/shared";
 
@@ -585,7 +586,7 @@ export type StockItem = {
   serialNumber: string;
   controlPanel: string;
   stockCode: string;
-  itemCondition?: "new" | "used";
+  itemCondition?: StockConditionCode;
   warehouseId?: string;
   warehouse: string;
   status: "Available" | "Reserved" | "InTransit" | "Sold" | "Inactive";

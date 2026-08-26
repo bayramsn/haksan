@@ -26,6 +26,7 @@ import { ResponsiveContainer, Tooltip, PieChart, Pie, Cell, Legend } from "recha
 import {
   STOCK_CATEGORY_CODES,
   STOCK_CATEGORY_LABELS,
+  STOCK_CONDITION_LABELS,
   type StockCategoryCode,
 } from "@haksan/shared";
 import {
@@ -484,7 +485,7 @@ export function StockPage({ focus, initialQuery }: { focus?: OperationFocus; ini
                 <div className="mt-3 grid grid-cols-2 gap-2 rounded-lg border border-border/60 bg-card/80 p-2 text-xs">
                   <div><span className="block text-[10px] text-muted-foreground">Durum</span><StatusBadge status={item.status} /></div>
                   <div><span className="block text-[10px] text-muted-foreground">Konum</span><span>{stockLocationLabel(item)}</span></div>
-                  <div><span className="block text-[10px] text-muted-foreground">Kondisyon</span><span>{item.itemCondition === "used" ? "Kullanılmış" : "Yeni"}</span></div>
+                  <div><span className="block text-[10px] text-muted-foreground">Kondisyon</span><span>{STOCK_CONDITION_LABELS[item.itemCondition ?? "new"]}</span></div>
                   <div><span className="block text-[10px] text-muted-foreground">Rezerve Firma</span><span className="break-words">{item.reservedCompanyName ?? "—"}</span></div>
                 </div>
                 {linkedOptions.length > 0 && (
@@ -509,7 +510,7 @@ export function StockPage({ focus, initialQuery }: { focus?: OperationFocus; ini
               <TableRow className="bg-muted/40 hover:bg-muted/40 [&_th]:text-xs [&_th]:uppercase [&_th]:tracking-wider [&_th]:text-muted-foreground">
                 <TableHead className="w-14">No.</TableHead>
                 <TableHead>Marka</TableHead>
-                <TableHead>Yeni / Kullanılmış</TableHead>
+                <TableHead>Kondisyon</TableHead>
                 <TableHead className="min-w-[260px]">Ürün Adı</TableHead>
                 <TableHead>Seri No</TableHead>
                 <TableHead>Kontrol Ünitesi</TableHead>
@@ -535,7 +536,7 @@ export function StockPage({ focus, initialQuery }: { focus?: OperationFocus; ini
                 <TableRow className={`group ${stockRowClass(s.status)}`}>
                   <TableCell className="text-xs tabular-nums text-muted-foreground">{index + 1}</TableCell>
                   <TableCell className="text-sm font-medium">{s.brand || "—"}</TableCell>
-                  <TableCell className="text-sm">{s.itemCondition === "used" ? "Kullanılmış" : "Yeni"}</TableCell>
+                  <TableCell className="text-sm">{STOCK_CONDITION_LABELS[s.itemCondition ?? "new"]}</TableCell>
                   <TableCell>
                     <div className="flex items-center gap-2.5">
                       {linkedOptions.length > 0 && (

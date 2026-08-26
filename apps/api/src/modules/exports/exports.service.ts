@@ -1,3 +1,4 @@
+import { STOCK_CONDITION_LABELS, type StockConditionCode } from '@haksan/shared';
 import { Inject, Injectable } from '@nestjs/common';
 import {
   and,
@@ -913,7 +914,7 @@ export class ExportsService {
 
     return rows.map((r) => ({
       Marka: r.brand?.name ?? '',
-      'Yeni / Kullanılmış': r.item.itemCondition === 'used' ? 'Kullanılmış' : 'Yeni',
+      Kondisyon: STOCK_CONDITION_LABELS[r.item.itemCondition as StockConditionCode] ?? 'Yeni',
       'Ürün Adı': r.product?.fullName ?? r.product?.modelCode ?? '',
       'Seri No': r.item.serialNumber ?? '',
       'Kontrol Ünitesi': r.item.controlUnit ?? '',
