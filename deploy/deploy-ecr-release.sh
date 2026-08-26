@@ -224,10 +224,18 @@ for endpoint in / /health /health/live /health/ready /health/dependencies /healt
   curl -kfsS --resolve "${APP_DOMAIN}:443:127.0.0.1" "https://${APP_DOMAIN}${endpoint}" >/dev/null
 done
 
-# Etiket değişimi ve başarılı container geçişinden sonra eski release katmanları
-# dangling duruma gelir. En güncel rollback çifti etiketli olduğu için korunur;
-# yalnız dangling katmanlar ve bir haftadan eski kullanılmayan build cache silinir.
-docker image prune --force
+# Geçiş başarılı: eski release imajları artık kullanılmıyor.
+#
+# Sade `docker image prune` BURADA YETMEZ: ECR'dan digest ile çekilen imajlar
+# etiketsiz görünse de RepoDigest referansı taşır, yani "dangling" sayılmazlar.
+# Bu yüzden her yayında ~800 MB birikti ve 2026-08-26'da disk %95'e çıkıp
+# temizlik 0 bayt kazandırdı (elle `prune -a` 13.5 GB geri aldı).
+#
+# `-a` ile kullanılmayan imajlar da silinir; 48 saat süzgeci güvenliği korur:
+#   · çalışan container'ların imajlarına Docker zaten dokunmaz,
+#   · az önce yakalanan rollback çifti dakikalar önce oluşturuldu,
+#   · son iki günün imajları elle geri dönüş için diskte kalır.
+docker image prune -a --force --filter "until=48h"
 docker builder prune --force --filter "until=168h"
 
 trap - ERR
