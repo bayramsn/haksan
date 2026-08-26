@@ -435,6 +435,16 @@ export const STOCK_CATEGORY_LABELS: Record<StockCategoryCode, string> = {
   IDARI_MALZEME: 'İdari Malzeme',
 };
 
+/** Stok kalemi kondisyonu — demo makineler satış/servis akışında ayrı izlenir. */
+export const STOCK_CONDITION_CODES = ['new', 'used', 'demo'] as const;
+export type StockConditionCode = (typeof STOCK_CONDITION_CODES)[number];
+
+export const STOCK_CONDITION_LABELS: Record<StockConditionCode, string> = {
+  new: 'Yeni',
+  used: 'Kullanılmış',
+  demo: 'Demo',
+};
+
 export const STOCK_CATEGORY_USAGE: Record<StockCategoryCode, { sales: boolean; service: boolean }> = {
   TEZGAH: { sales: true, service: false },
   OPSIYONEL_DONANIM: { sales: true, service: true },

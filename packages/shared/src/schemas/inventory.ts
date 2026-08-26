@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { STOCK_CONDITION_CODES } from '../companyLookups';
 
 export const warehouseCreateSchema = z.object({
   name: z.string().min(1).max(255),
@@ -15,7 +16,7 @@ export const inventoryItemCreateSchema = z.object({
   productModelId: z.string().min(1),
   parentInventoryItemId: z.string().uuid().optional().nullable(),
   serialNumber: z.string().min(1).max(128),
-  itemCondition: z.enum(['new', 'used']).default('new'),
+  itemCondition: z.enum(STOCK_CONDITION_CODES).default('new'),
   controlUnit: z.string().max(128).optional(),
   controlUnitSerialNumber: z.string().max(128).optional(),
   loadingDate: z.coerce.date().optional(),

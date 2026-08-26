@@ -30,13 +30,14 @@ import {
 import { useAuth } from '../../lib/auth';
 import { resolveMediaUrl } from '../../lib/apiClient';
 import {
-  activityTypeCodeFromLabel,
   STOCK_CATEGORY_LABELS,
+  STOCK_CONDITION_CODES,
+  activityTypeCodeFromLabel,
   type PipelineStageCode,
   type ProductCreateInput,
   type ProductUpdateInput,
   type StockCategoryCode,
-} from '@haksan/shared';
+} from "@haksan/shared";
 import {
   Customer,
   SalesCase,
@@ -972,7 +973,7 @@ function StoreInner({ children }: { children: ReactNode }) {
             serialNumber: s.serialNumber ?? '',
             controlPanel: s.controlUnit ?? '',
             stockCode: s.product?.stockCode ?? s.product?.modelCode ?? '',
-            itemCondition: s.itemCondition === 'used' ? 'used' : 'new',
+            itemCondition: STOCK_CONDITION_CODES.includes(s.itemCondition) ? s.itemCondition : 'new',
             warehouseId: s.warehouse?.id ?? s.warehouseId ?? undefined,
             warehouse: s.warehouse?.name ?? '',
             categoryCode,

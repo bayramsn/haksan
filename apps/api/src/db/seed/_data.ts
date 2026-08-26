@@ -108,6 +108,7 @@ export const lookupRows = {
     { code: 'harun_aslanbay_reference', name: 'Harun Aslanbay (Referans)', sortOrder: 3 },
     { code: 'website_inbound_call', name: 'Web Sitesi / Gelen Çağrı', sortOrder: 4 },
     { code: 'cold_call_field', name: 'Soğuk Arama / Saha', sortOrder: 5 },
+    { code: 'visit', name: 'Ziyaret', sortOrder: 6 },
     { code: 'email', name: 'Mail', sortOrder: 1 },
     { code: 'phone', name: 'Telefon', sortOrder: 2 },
     { code: 'dealer', name: 'Bayi', sortOrder: 3 },

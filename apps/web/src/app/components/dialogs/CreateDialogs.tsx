@@ -70,17 +70,20 @@ import { resolveMediaUrl } from "../../../lib/apiClient";
 import { Badge } from "../ui/badge";
 import { useAuth } from "../../../lib/auth";
 import {
-  INSTALLATION_LOCATION_LABELS,
-  type InstallationLocationType,
+  ACTIVITY_TYPE_OPTIONS,
   COMPANY_SECTOR_OPTIONS,
   COUNTRY_OPTIONS,
-  TAX_OFFICE_OPTIONS,
-  ACTIVITY_TYPE_OPTIONS,
+  INSTALLATION_LOCATION_LABELS,
   STOCK_CATEGORY_CODES,
   STOCK_CATEGORY_LABELS,
-  type StockCategoryCode,
+  STOCK_CONDITION_CODES,
+  STOCK_CONDITION_LABELS,
+  StockConditionCode,
+  TAX_OFFICE_OPTIONS,
   type AllowedFileExtension,
   type AllowedMimeType,
+  type InstallationLocationType,
+  type StockCategoryCode,
 } from "@haksan/shared";
 import { districtsForCountry, provincesForCountry } from "../../lib/geoByCountry";
 import {
@@ -257,6 +260,7 @@ const CONTACT_SOURCE_OPTIONS = [
   { code: "harun_aslanbay_reference", label: "Harun Aslanbay (Referans)" },
   { code: "website_inbound_call", label: "Web Sitesi / Gelen Çağrı" },
   { code: "cold_call_field", label: "Soğuk Arama / Saha" },
+  { code: "visit", label: "Ziyaret" },
 ];
 
 type LookupRow = {
@@ -2184,7 +2188,7 @@ const emptyStockForm = () => ({
   serialNumber: "",
   controlPanel: "",
   stockCode: "",
-  itemCondition: "new" as "new" | "used",
+  itemCondition: "new" as StockConditionCode,
   warehouseId: "",
   warehouse: "",
   status: "Available" as StockItem["status"],
@@ -2202,7 +2206,7 @@ const stockEditForm = (item: StockItem | null) => ({
   productId: item?.productId ?? "",
   serialNumber: item?.serialNumber ?? "",
   controlPanel: item?.controlPanel ?? "",
-  itemCondition: (item?.itemCondition ?? "new") as "new" | "used",
+  itemCondition: (item?.itemCondition ?? "new") as StockConditionCode,
   warehouseId: item?.warehouseId ?? "",
   loadingDate: item?.loadingDate ?? "",
   receivedDate: item?.receivedDate ?? "",
@@ -2460,12 +2464,13 @@ export function CreateStockDialog({ trigger }: { trigger: React.ReactNode }) {
               />
             </div>
             <div>
-              <Label className="text-xs">Yeni / Kullanılmış</Label>
-              <Select value={form.itemCondition} onValueChange={(value: "new" | "used") => setForm({ ...form, itemCondition: value })}>
+              <Label className="text-xs">Kondisyon</Label>
+              <Select value={form.itemCondition} onValueChange={(value: StockConditionCode) => setForm({ ...form, itemCondition: value })}>
                 <SelectTrigger className="mt-1.5"><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="new">Yeni</SelectItem>
-                  <SelectItem value="used">Kullanılmış</SelectItem>
+                  {STOCK_CONDITION_CODES.map((code) => (
+                    <SelectItem key={code} value={code}>{STOCK_CONDITION_LABELS[code]}</SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
@@ -2620,12 +2625,13 @@ export function EditStockDialog({ item, onClose }: { item: StockItem | null; onC
               />
             </div>
             <div>
-              <Label className="text-xs">Yeni / Kullanılmış</Label>
-              <Select value={form.itemCondition} onValueChange={(value: "new" | "used") => setForm({ ...form, itemCondition: value })}>
+              <Label className="text-xs">Kondisyon</Label>
+              <Select value={form.itemCondition} onValueChange={(value: StockConditionCode) => setForm({ ...form, itemCondition: value })}>
                 <SelectTrigger className="mt-1.5"><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="new">Yeni</SelectItem>
-                  <SelectItem value="used">Kullanılmış</SelectItem>
+                  {STOCK_CONDITION_CODES.map((code) => (
+                    <SelectItem key={code} value={code}>{STOCK_CONDITION_LABELS[code]}</SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
