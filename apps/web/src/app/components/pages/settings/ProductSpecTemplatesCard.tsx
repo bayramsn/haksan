@@ -23,6 +23,7 @@ import {
   Undo2,
   Upload,
   Wrench,
+  X,
 } from "lucide-react";
 import { toast } from "sonner";
 import { adminService } from "../../../../lib/services";
@@ -92,6 +93,7 @@ type SpecTemplateRow = {
   specGroupCode?: string | null;
   defaultValue?: string | null;
   specUnit?: string | null;
+  specOptions?: string[] | null;
   divisionId?: string | null;
   sortOrder?: number;
   isActive?: boolean;
@@ -139,6 +141,8 @@ type DraftRow = {
   groupCode: string;
   defaultValue: string;
   unit: string;
+  /** Satılabilir alternatif değerler; teklifte seçilince alanı o teklife özel ezer. */
+  specOptions: string[];
   isActive: boolean;
   isDeleted: boolean;
   catalogOnly: boolean;
@@ -217,6 +221,7 @@ function buildDraftRows(typeCode: string, specRows: SpecTemplateRow[]): DraftRow
       groupCode: row?.specGroupCode ?? entry.group,
       defaultValue: row?.defaultValue ?? (entry.value === "-" ? "" : entry.value),
       unit: row?.specUnit ?? entry.unit,
+      specOptions: row?.specOptions ?? [],
       isActive: row?.isActive !== false,
       isDeleted: row?.isDeleted === true,
       catalogOnly: !row,
@@ -237,6 +242,7 @@ function buildDraftRows(typeCode: string, specRows: SpecTemplateRow[]): DraftRow
         groupCode: row.specGroupCode ?? inferred,
         defaultValue: row.defaultValue ?? "",
         unit: row.specUnit ?? "",
+        specOptions: row.specOptions ?? [],
         isActive: row.isActive !== false,
         isDeleted: row.isDeleted === true,
         catalogOnly: false,
@@ -253,6 +259,7 @@ const createDraftRow = (groupCode: string, specKey = ""): DraftRow => ({
   groupCode,
   defaultValue: "",
   unit: "",
+  specOptions: [],
   isActive: true,
   isDeleted: false,
   catalogOnly: true,
@@ -739,6 +746,7 @@ export function ProductSpecTemplatesCard() {
           // sildiği değer bir sonraki yüklemede geri gelir.
           defaultValue: row.defaultValue.trim() || null,
           specUnit: row.unit.trim() || null,
+          specOptions: row.specOptions.length ? row.specOptions : null,
           divisionId: row.divisionId ?? familyDivisionId ?? null,
           sortOrder: index,
           isActive: row.isActive,
@@ -1832,6 +1840,76 @@ type FieldInspectorProps = {
   requestDelete: (row: DraftRow) => void;
 };
 
+/**
+ * Alanın satılabilir alternatif değerleri. Teklifte bu değerlerden biri
+ * seçilince alan yalnız o teklif için değişir; şablon ve katalog aynı kalır.
+ */
+function SpecOptionsEditor({
+  options,
+  defaultValue,
+  onChange,
+}: {
+  options: string[];
+  defaultValue: string;
+  onChange: (next: string[]) => void;
+}) {
+  const [draft, setDraft] = useState("");
+  const add = () => {
+    const value = draft.trim();
+    if (!value) return;
+    if (options.some((option) => option.toLocaleLowerCase("tr-TR") === value.toLocaleLowerCase("tr-TR"))) {
+      setDraft("");
+      return;
+    }
+    onChange([...options, value]);
+    setDraft("");
+  };
+
+  return (
+    <div>
+      <label className="text-[10px] font-medium text-slate-500">Opsiyonel değerler</label>
+      <p className="mt-0.5 text-[10px] text-slate-500">
+        Teklifte seçilebilecek alternatifler. Örn. başlangıç {defaultValue.trim() ? `"${defaultValue.trim()}"` : "değeri"} iken
+        "BT-50" eklenirse, teklifte BT-50 seçildiğinde bu alan yalnız o teklifte BT-50 olur.
+      </p>
+      {options.length > 0 && (
+        <div className="mt-1.5 flex flex-wrap gap-1">
+          {options.map((option) => (
+            <span key={option} className="inline-flex items-center gap-1 rounded-full border border-slate-300 bg-white px-2 py-0.5 text-[11px]">
+              {option}
+              <button
+                type="button"
+                aria-label={`${option} opsiyonunu kaldır`}
+                onClick={() => onChange(options.filter((item) => item !== option))}
+                className="text-slate-400 hover:text-rose-600"
+              >
+                <X className="size-3" />
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+      <div className="mt-1.5 flex gap-1.5">
+        <input
+          value={draft}
+          onChange={(event) => setDraft(event.target.value)}
+          onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); add(); } }}
+          placeholder="Örn. BT-50"
+          className="h-9 flex-1 rounded-md border border-slate-300 bg-white px-2 text-xs outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100"
+        />
+        <button
+          type="button"
+          onClick={add}
+          disabled={!draft.trim()}
+          className="h-9 rounded-md border border-slate-300 px-2.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40"
+        >
+          Ekle
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function FieldInspector({
   row,
   rows,
@@ -1848,6 +1926,12 @@ function FieldInspector({
     <div className="space-y-4 p-4">
       <InspectorField label="Teknik bilgi adı" value={row.specKey} onChange={(value) => updateRow(row.clientId, { specKey: value })} />
       <InspectorField label="Başlangıç değeri" value={row.defaultValue} onChange={(value) => updateRow(row.clientId, { defaultValue: value })} />
+
+      <SpecOptionsEditor
+        options={row.specOptions}
+        defaultValue={row.defaultValue}
+        onChange={(next) => updateRow(row.clientId, { specOptions: next })}
+      />
 
       <div>
         <label className="text-[10px] font-medium text-slate-500">Bölüm</label>

@@ -1,9 +1,10 @@
+import { CompanyNotesCard } from "../shared/CompanyNotesCard";
 import { type ReactNode, lazy, Suspense, useEffect, useMemo, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "../ui/card";
 import { Button } from "../ui/button";
 import { Badge } from "../ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../ui/tabs";
-import { ArrowLeft, Phone, Mail, MapPin, Building2, Plus, ArrowUpRight, Clock, AlertTriangle, NotebookText, Download, Eye, FileText, Upload } from "lucide-react";
+import { ArrowLeft, Phone, Mail, MapPin, Building2, Plus, ArrowUpRight, Clock, AlertTriangle, Download, Eye, FileText, Upload } from "lucide-react";
 import { Customer } from "../../lib/mock";
 import { useStore } from "../../lib/store";
 import { StatusBadge } from "../shared/StatusBadge";
@@ -253,15 +254,7 @@ export function CustomerDetailPage({ customer, onBack, onAction }: { customer: C
               <div className="text-xs uppercase text-muted-foreground mb-1">Talep Edilen Ürün</div>
               <div>{customer.wantedProduct}</div>
             </div>
-            <section className="overflow-hidden rounded-lg border border-amber-200/80 bg-amber-50/45" aria-label="Firma notları">
-              <div className="flex items-center gap-2 border-b border-amber-200/70 bg-amber-50/70 px-3 py-2 text-xs font-semibold text-amber-950">
-                <NotebookText className="size-3.5 text-amber-700" />
-                Firma Notları
-              </div>
-              <div className={`max-h-40 overflow-y-auto whitespace-pre-wrap break-words px-3 py-2.5 text-sm leading-relaxed ${customer.initialNote?.trim() ? "text-foreground" : "text-muted-foreground"}`}>
-                {customer.initialNote?.trim() || "Bu firma için henüz not eklenmemiş."}
-              </div>
-            </section>
+            <CompanyNotesCard companyId={customer.id} companyName={customer.name} note={customer.initialNote} />
             <CompanyFinancePanel companyId={customer.id} companyName={customer.name} />
           </CardContent>
         </Card>

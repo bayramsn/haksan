@@ -16,7 +16,7 @@ import { useAuth } from "../../../lib/auth";
 import { lookupService, quoteService, productService, signatureService } from "../../../lib/services";
 import type { SignatureView } from "@haksan/shared";
 import { toast } from "sonner";
-import { AlertTriangle, Plus, Trash2, Save, BookmarkPlus, Bold, MapPin } from "lucide-react";
+import { AlertTriangle, Check, Plus, Trash2, Save, BookmarkPlus, Bold, MapPin } from "lucide-react";
 import type { CompanyAddress, Customer, Product, ProductSpec } from "../../lib/mock";
 import { normalizeProductSpecKey, productSpecDefaults, specsForProductTypeStrict } from "../../lib/productSpecTemplates";
 import {
@@ -579,17 +579,22 @@ export function QuoteDialog({
   // Opsiyonel donanım → tezgah teknik bilgisi eşlemesi: ürün tipine göre şablon
   // alanlarını yükler. Bir opsiyonel donanımın tipi, tezgahın bir teknik alanını
   // etkiliyorsa (specKey eşleşiyorsa) o alanı değiştirir; etkilemezse normal opsiyon olur.
-  const [specTemplatesByType, setSpecTemplatesByType] = useState<Record<string, { specKey: string; defaultValue: string }[]>>({});
+  const [specTemplatesByType, setSpecTemplatesByType] = useState<Record<string, { specKey: string; defaultValue: string; specUnit: string; specOptions: string[] }[]>>({});
   useEffect(() => {
     if (!open) return;
     void productService
       .specTemplates()
       .then((rows) => {
-        const map: Record<string, { specKey: string; defaultValue: string }[]> = {};
+        const map: Record<string, { specKey: string; defaultValue: string; specUnit: string; specOptions: string[] }[]> = {};
         for (const r of (rows ?? []) as any[]) {
           if (r?.isActive === false || !r?.specKey) continue;
           const type = String(r.productTypeCode ?? "");
-          (map[type] ??= []).push({ specKey: String(r.specKey), defaultValue: String(r.defaultValue ?? "") });
+          (map[type] ??= []).push({
+            specKey: String(r.specKey),
+            defaultValue: String(r.defaultValue ?? ""),
+            specUnit: String(r.specUnit ?? ""),
+            specOptions: Array.isArray(r.specOptions) ? r.specOptions.map((option: unknown) => String(option)).filter(Boolean) : [],
+          });
         }
         setSpecTemplatesByType(map);
       })
@@ -813,6 +818,46 @@ export function QuoteDialog({
     setLines((ls) => ls.map((l, idx) => (idx === i ? { ...l, options: [...l.options, { ...emptyOption(l.vatRate), ...seed }] } : l)));
   const rmOption = (i: number, j: number) =>
     setLines((ls) => ls.map((l, idx) => (idx === i ? { ...l, options: l.options.filter((_, k) => k !== j) } : l)));
+
+  /**
+   * Ayarlar → Teknik Bilgi'de alana tanımlanan alternatif değer teklifte seçilince
+   * yalnız BU teklifin satırındaki teknik bilgiyi ezer; şablon ve katalog değişmez.
+   * Aynı değere tekrar basmak şablon başlangıç değerine döndürür.
+   */
+  const toggleSpecOption = (
+    i: number,
+    field: { specKey: string; defaultValue: string; specUnit: string },
+    value: string,
+  ) => {
+    const normalized = normalizeProductSpecKey(field.specKey);
+    setLines((ls) =>
+      ls.map((l, idx) => {
+        if (idx !== i) return l;
+        const existing = l.technicalSpecs.find((spec) => normalizeProductSpecKey(spec.key) === normalized);
+        // Şablonda tanımlı ama makinede değeri girilmemiş alan satırda yoktur;
+        // opsiyon seçilince alan teklife eklenir.
+        if (!existing) {
+          return {
+            ...l,
+            technicalSpecs: [
+              ...l.technicalSpecs,
+              { key: field.specKey, value, unit: field.specUnit || undefined, specUnit: field.specUnit || undefined },
+            ],
+          };
+        }
+        return {
+          ...l,
+          technicalSpecs: l.technicalSpecs.flatMap((spec) => {
+            if (normalizeProductSpecKey(spec.key) !== normalized) return [spec];
+            if (spec.value.trim() !== value.trim()) return [{ ...spec, value }];
+            // Aynı opsiyona tekrar basmak şablon başlangıcına döner; şablonda da
+            // değer yoksa alan tekrar teklif dışında kalır.
+            return field.defaultValue.trim() ? [{ ...spec, value: field.defaultValue }] : [];
+          }),
+        };
+      }),
+    );
+  };
 
   const onPickOptionProduct = (i: number, j: number, productId: string) => {
     const p = products.find((x) => x.id === productId);
@@ -1651,6 +1696,45 @@ export function QuoteDialog({
                           <Plus className="size-3.5" /> Opsiyon Ekle
                         </Button>
                       </div>
+
+                      {(() => {
+                        // Şablonda tanımlı alternatif değerler: bu satırın teknik
+                        // bilgisinde bulunan alanlar için rozet olarak sunulur.
+                        const templateRows = specTemplatesByType[l.productTypeCode ?? ""] ?? [];
+                        const specOptionChips = templateRows.flatMap((tf) => {
+                          if (!tf.specOptions.length) return [];
+                          const lineSpec = l.technicalSpecs.find(
+                            (spec) => normalizeProductSpecKey(spec.key) === normalizeProductSpecKey(tf.specKey),
+                          );
+                          return tf.specOptions.map((value) => ({
+                            field: tf,
+                            specKey: lineSpec?.key ?? tf.specKey,
+                            value,
+                            active: (lineSpec?.value ?? "").trim() === value.trim(),
+                          }));
+                        });
+                        if (!specOptionChips.length) return null;
+                        return (
+                          <div className="flex flex-wrap gap-1.5">
+                            {specOptionChips.map((chip) => (
+                              <button
+                                key={`${chip.specKey}-${chip.value}`}
+                                type="button"
+                                title={`${chip.specKey}: ${chip.value} — yalnız bu teklifte geçerli`}
+                                onClick={() => toggleSpecOption(i, chip.field, chip.value)}
+                                className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] ${
+                                  chip.active
+                                    ? "border-primary bg-primary/10 font-medium text-primary"
+                                    : "border-border/70 bg-white hover:border-primary/50 hover:bg-primary/5"
+                                }`}
+                              >
+                                {chip.active ? <Check className="size-3" /> : <Plus className="size-3" />}
+                                {chip.specKey}: {chip.value}
+                              </button>
+                            ))}
+                          </div>
+                        );
+                      })()}
 
                       {suggestions.length > 0 && (
                         <div className="flex flex-wrap gap-1.5">
