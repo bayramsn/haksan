@@ -214,8 +214,18 @@ export function ProductsPage({ initialQuery }: { initialQuery?: string }) {
       (v) => (v ?? "").toLocaleLowerCase("tr-TR").includes(s)
     );
   });
+  // Liste ve kart görünümünde ürünler seri içinde A-Z: sıralama görünen etikete
+  // (marka + model) göre yapılır. `numeric` sayesinde MV-2, MV-10'dan önce gelir;
+  // düz metin sıralamasında MV-10 başa geçiyordu.
+  const sortedProducts = [...filtered].sort((a, b) =>
+    `${a.brand ?? ""} ${productDisplayModel(a)}`.trim().localeCompare(
+      `${b.brand ?? ""} ${productDisplayModel(b)}`.trim(),
+      "tr",
+      { numeric: true, sensitivity: "base" },
+    ),
+  );
   const grouped = Array.from(
-    filtered.reduce((acc, product) => {
+    sortedProducts.reduce((acc, product) => {
       const label = productSeriesLabel(product);
       const list = acc.get(label) ?? [];
       list.push(product);
@@ -323,9 +333,9 @@ export function ProductsPage({ initialQuery }: { initialQuery?: string }) {
       )}
 
       {view === "cards" ? (
-        filtered.length > 0 ? (
+        sortedProducts.length > 0 ? (
           <div className="surface-enter grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
-            {filtered.map((p) => (
+            {sortedProducts.map((p) => (
               <Card
                 key={p.id}
                 role="button"
