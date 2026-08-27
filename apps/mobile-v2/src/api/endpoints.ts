@@ -14,6 +14,7 @@ import type {
   ServiceComplaintConvertInput,
   ServiceComplaintRejectInput,
   ServiceComplaintUpdateInput,
+  ProductUpdateInput,
 } from '@haksan/shared';
 import { request, type Paginated } from './client';
 import {
@@ -1205,7 +1206,7 @@ export const devices = {
 export type InventoryItem = {
   id: string;
   serialNumber: string;
-  /** 'new' | 'used' — web'de "Yeni / Kullanılmış" kolonu. */
+  /** 'new' | 'used' | 'demo' — web'de "Kondisyon" kolonu. */
   itemCondition: string;
   controlUnit: string | null;
   controlUnitSerialNumber: string | null;
@@ -1298,6 +1299,8 @@ export const productsApi = {
   list: (query: { page: number; pageSize: number; search?: string; brandId?: string; categoryCode?: string }) =>
     request<Paginated<ProductModel>>('/products', { query }),
   get: (id: string) => request<ProductModel>(`/products/${id}`),
+  update: (id: string, body: ProductUpdateInput) =>
+    request<ProductModel>(`/products/${id}`, { method: 'PATCH', body }),
   priceLists: (query: { page: number; pageSize: number }) => request<Paginated<PriceList>>('/price-lists', { query }),
   priceListItems: (id: string) => request<PriceListItem[]>(`/price-lists/${id}/items`),
   /** Kampanya/liste/nakit fiyat güncelleme (web PriceLists ile aynı uç). */
@@ -1687,6 +1690,8 @@ export type CalendarEvent = {
   allDay: boolean;
   companyId: string | null;
   opportunityId: string | null;
+  /** Dolu ise görev kapanmış demektir. */
+  completedAt: string | null;
   owner: { id: string; fullName: string; email: string } | null;
   company: { id: string; legalTitle: string; shortName: string | null } | null;
 };
@@ -1717,7 +1722,76 @@ export type CalendarEventInput = {
   opportunityId?: string | null;
 };
 
-export type CalendarEventPatch = Partial<CalendarEventInput>;
+export type CalendarEventPatch = Partial<CalendarEventInput> & { completedAt?: string | null };
+
+/* -------------------------------------------------------------- görevler ---- */
+
+export type TaskStatus = 'todo' | 'in_progress' | 'done' | 'cancelled';
+export type TaskPriority = 'low' | 'normal' | 'high' | 'urgent';
+export type TaskView = 'all' | 'mine' | 'today' | 'overdue' | 'upcoming' | 'completed';
+
+export type Task = {
+  id: string;
+  title: string;
+  description: string | null;
+  status: TaskStatus;
+  priority: TaskPriority;
+  assignedToUserId: string | null;
+  dueAt: string | null;
+  remindBeforeMinutes: number | null;
+  companyId: string | null;
+  contactId: string | null;
+  opportunityId: string | null;
+  quoteId: string | null;
+  serviceTicketId: string | null;
+  completedAt: string | null;
+  createdAt: string;
+  /** Sunucu hesaplar: son tarihi geçmiş ve hâlâ açık. */
+  overdue: boolean;
+  assignee: { id: string; fullName: string; email: string } | null;
+  company: { id: string; legalTitle: string; shortName: string | null } | null;
+  contact: { id: string; fullName: string } | null;
+  opportunity: { id: string; title: string } | null;
+  quote: { id: string; documentNo: string } | null;
+  serviceTicket: { id: string; ticketNo: string; subject: string } | null;
+};
+
+export type TaskDetail = Task & {
+  events: Array<{
+    id: string;
+    eventType: string;
+    summary: string;
+    createdAt: string;
+    actor: { id: string; fullName: string } | null;
+  }>;
+};
+
+export type TaskCounts = Record<TaskView, number>;
+
+export type TaskInput = {
+  title: string;
+  description?: string | null;
+  status?: TaskStatus;
+  priority?: TaskPriority;
+  assignedToUserId?: string | null;
+  dueAt?: string | null;
+  remindBeforeMinutes?: number | null;
+  companyId?: string | null;
+  contactId?: string | null;
+  opportunityId?: string | null;
+  quoteId?: string | null;
+  serviceTicketId?: string | null;
+};
+
+export const tasks = {
+  list: (query: { view?: TaskView; search?: string; companyId?: string; opportunityId?: string; pageSize?: number }) =>
+    request<{ data: Task[]; meta: { total: number } }>('/tasks', { query }),
+  counts: () => request<TaskCounts>('/tasks/counts'),
+  assignees: () => request<{ id: string; fullName: string; email: string }[]>('/tasks/assignees'),
+  get: (id: string) => request<TaskDetail>(`/tasks/${id}`),
+  create: (body: TaskInput) => request<TaskDetail>('/tasks', { method: 'POST', body }),
+  update: (id: string, body: Partial<TaskInput>) => request<TaskDetail>(`/tasks/${id}`, { method: 'PATCH', body }),
+};
 
 /* ----------------------------------------------------------- raporlar ---- */
 

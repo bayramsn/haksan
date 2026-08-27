@@ -17,11 +17,13 @@ import {
   calendarSyncSettings,
   companies,
   contacts,
+  notifications,
   opportunities,
   users,
   visits,
 } from '../../db/schema';
 import { DB } from '../../shared/database/database.module';
+import { PushService } from '../../shared/push/push.service';
 import type { AuthContext } from '../../shared/security/auth.types';
 import { ForbiddenError, NotFoundError, ValidationError } from '../../shared/utils/errors';
 
@@ -32,18 +34,73 @@ type EventRow = typeof calendarEvents.$inferSelect;
 
 @Injectable()
 export class CalendarService {
-  constructor(@Inject(DB) private readonly db: DbClient) {}
+  constructor(
+    @Inject(DB) private readonly db: DbClient,
+    private readonly push: PushService
+  ) {}
 
   private isSuperAdmin(actor: AuthContext) {
     return actor.roles.includes('super_admin');
   }
 
   private async findOwnedEvent(actor: AuthContext, id: string, includeDeleted = true): Promise<EventRow> {
-    const filters = [eq(calendarEvents.id, id), eq(calendarEvents.tenantId, actor.tenantId), eq(calendarEvents.ownerUserId, actor.userId)];
+    // Süper yönetici başkasının takvimini görebiliyor ama düzenleyemiyor; tek
+    // istisna kendi atadığı kayıt (created_by). Yoksa saati değişen bir görevi
+    // atayan kişi düzeltemez, iptal de edemezdi.
+    const ownership = this.isSuperAdmin(actor)
+      ? or(eq(calendarEvents.ownerUserId, actor.userId), eq(calendarEvents.createdBy, actor.userId))!
+      : eq(calendarEvents.ownerUserId, actor.userId);
+    const filters = [eq(calendarEvents.id, id), eq(calendarEvents.tenantId, actor.tenantId), ownership];
     if (!includeDeleted) filters.push(isNull(calendarEvents.deletedAt));
     const event = await this.db.query.calendarEvents.findFirst({ where: and(...filters) });
     if (!event) throw new NotFoundError('Takvim etkinliği');
     return event;
+  }
+
+  /**
+   * Etkinliği başkasının takvimine yazmak süper yöneticiye özel. Hedef aynı
+   * tenant'ta aktif bir kullanıcı olmalı; değilse atama sessizce kendi
+   * takvimine düşmesin diye hata veriyoruz.
+   */
+  private async resolveOwner(actor: AuthContext, ownerUserId?: string) {
+    if (!ownerUserId || ownerUserId === actor.userId) return actor.userId;
+    if (!this.isSuperAdmin(actor)) throw new ForbiddenError('Başka bir kullanıcıya etkinlik atayamazsınız');
+    const target = await this.db.query.users.findFirst({
+      columns: { id: true },
+      where: and(
+        eq(users.id, ownerUserId),
+        eq(users.tenantId, actor.tenantId),
+        eq(users.status, 'active'),
+        isNull(users.deletedAt)
+      ),
+    });
+    if (!target) throw new NotFoundError('Kullanıcı');
+    return target.id;
+  }
+
+  /** Atanan kişi takvimine bakmıyor olabilir: zil bildirimi + varsa push. */
+  private async notifyAssignment(event: EventRow) {
+    const title = event.eventType === 'task' ? 'Size yeni bir görev atandı' : 'Takviminize yeni bir etkinlik eklendi';
+    const body = `${event.title} — ${this.formatWhen(event.startsAt, event.timezone)}`;
+    await this.db.insert(notifications).values({
+      tenantId: event.tenantId,
+      userId: event.ownerUserId,
+      type: 'calendar_assignment',
+      title,
+      body,
+      entityType: 'calendar_event',
+      entityId: event.id,
+    });
+    await this.push.sendToUser(event.ownerUserId, { title, body, data: { nav: 'calendar', entityId: event.id } });
+  }
+
+  /** timezone serbest metin olarak saklanıyor; geçersizse bildirimi düşürmeyelim. */
+  private formatWhen(date: Date, timeZone: string) {
+    try {
+      return new Intl.DateTimeFormat('tr-TR', { dateStyle: 'short', timeStyle: 'short', timeZone }).format(date);
+    } catch {
+      return new Intl.DateTimeFormat('tr-TR', { dateStyle: 'short', timeStyle: 'short', timeZone: 'Europe/Istanbul' }).format(date);
+    }
   }
 
   private async assertReferences(
@@ -118,8 +175,9 @@ export class CalendarService {
 
   async create(actor: AuthContext, input: CalendarEventCreateInput) {
     await this.assertReferences(actor, input);
+    const ownerUserId = await this.resolveOwner(actor, input.ownerUserId);
     const now = new Date();
-    return this.db.transaction(async (tx) => {
+    const event = await this.db.transaction(async (tx) => {
       let visitId: string | null = null;
       if (input.eventType === 'customer_visit') {
         const [visit] = await tx
@@ -141,7 +199,7 @@ export class CalendarService {
         .insert(calendarEvents)
         .values({
           tenantId: actor.tenantId,
-          ownerUserId: actor.userId,
+          ownerUserId,
           eventType: input.eventType,
           source: 'manual',
           title: input.title,
@@ -163,17 +221,20 @@ export class CalendarService {
         .returning();
       return event;
     });
+    if (event.ownerUserId !== actor.userId) await this.notifyAssignment(event);
+    return event;
   }
 
   async update(actor: AuthContext, id: string, input: CalendarEventUpdateInput) {
     const current = await this.findOwnedEvent(actor, id, false);
+    const previousStart = current.startsAt.getTime();
     const merged = { ...current, ...input };
     if (merged.endsAt < merged.startsAt) throw new ValidationError('Bitiş başlangıçtan önce olamaz');
     if (merged.eventType === 'customer_visit' && !merged.companyId) throw new ValidationError('Müşteri ziyareti için firma zorunlu');
     await this.assertReferences(actor, merged);
     const now = new Date();
 
-    return this.db.transaction(async (tx) => {
+    const updated = await this.db.transaction(async (tx) => {
       let visitId = current.visitId;
       if (merged.eventType === 'customer_visit') {
         if (visitId) {
@@ -226,6 +287,7 @@ export class CalendarService {
           companyId: input.companyId,
           contactId: input.contactId,
           opportunityId: input.opportunityId,
+          completedAt: input.completedAt,
           visitId,
           sourceModifiedAt: now,
           updatedAt: now,
@@ -235,6 +297,25 @@ export class CalendarService {
         .returning();
       return event;
     });
+    if (updated.startsAt.getTime() !== previousStart) await this.notifyReschedule(updated, actor.userId);
+    return updated;
+  }
+
+  /** Atanan kişi takvimine bakmıyor olabilir: saat değiştiyse haber ver. */
+  private async notifyReschedule(event: EventRow, actorUserId: string) {
+    if (!event.ownerUserId || event.ownerUserId === actorUserId) return;
+    const title = event.eventType === 'task' ? 'Görevinizin saati değişti' : 'Etkinliğinizin saati değişti';
+    const body = `${event.title} — ${this.formatWhen(event.startsAt, event.timezone)}`;
+    await this.db.insert(notifications).values({
+      tenantId: event.tenantId,
+      userId: event.ownerUserId,
+      type: 'calendar_assignment',
+      title,
+      body,
+      entityType: 'calendar_event',
+      entityId: event.id,
+    });
+    await this.push.sendToUser(event.ownerUserId, { title, body, data: { nav: 'calendar', entityId: event.id } });
   }
 
   async remove(actor: AuthContext, id: string) {

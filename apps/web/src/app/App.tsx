@@ -43,6 +43,7 @@ const DepartmentsPage = lazy(() => import("./components/pages/admin/DepartmentsP
 const SettingsPage = lazy(() => import("./components/pages/settings/SettingsPage").then((m) => ({ default: m.SettingsPage })));
 const ChatPage = lazy(() => import("./components/pages/chat/ChatPage").then((m) => ({ default: m.ChatPage })));
 const CalendarPage = lazy(() => import("./components/pages/CalendarPage").then((m) => ({ default: m.CalendarPage })));
+const TasksPage = lazy(() => import("./components/pages/tasks/TasksPage").then((m) => ({ default: m.TasksPage })));
 import { Customer, SalesCase } from "./lib/mock";
 import { StoreProvider, useStore } from "./lib/store";
 import { clearDrafts, usePersistentState } from "./lib/persist";
@@ -76,6 +77,7 @@ const TITLES: Partial<Record<NavKey, { title: string; subtitle?: string }>> = {
   dashboard: { title: "Gösterge Paneli", subtitle: "Genel performans ve KPI özeti" },
   chat: { title: "Sohbet", subtitle: "Çalışanlarla özel ve grup mesajlaşma" },
   calendar: { title: "Takvim", subtitle: "Kişisel planlar, toplantılar ve müşteri ziyaretleri" },
+  tasks: { title: "Görevler", subtitle: "Bugün yapılacak işler, gecikenler ve ekip görevleri" },
   customers: { title: "Firmalar", subtitle: "Müşteri, tedarikçi+müşteri ve tedarikçi kayıtları" },
   contacts: { title: "Kontaklar", subtitle: "Firmalara bağlı kişiler" },
   "sales-cases": { title: "Fırsat", subtitle: "C / B / A / A+ ana satış akışı" },
@@ -420,6 +422,18 @@ function AppShell() {
         />
       ); break;
       case "calendar": content = <CalendarPage />; break;
+      case "tasks":
+        content = (
+          <TasksPage
+            onOpenRecord={(task) => {
+              if (task.opportunityId) runOperationAction({ kind: "salesCase", salesCaseId: task.opportunityId });
+              else if (task.companyId) runOperationAction({ kind: "customer", customerId: task.companyId });
+              else if (task.quoteId) runOperationAction({ kind: "navigate", nav: "offers" });
+              else if (task.serviceTicketId) runOperationAction({ kind: "navigate", nav: "service-requests" });
+            }}
+          />
+        );
+        break;
       case "customers":
         actions = canCreate("companies.create") ? (
           <CreateCustomerDialog

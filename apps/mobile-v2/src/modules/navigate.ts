@@ -102,6 +102,7 @@ const entityDetailRoutes: Record<string, string> = {
   machines: '/(tabs)/modules/customer-devices',
   'maintenance-plans': '/(tabs)/modules/maintenance-plans',
   activities: '/(tabs)/modules/activities',
+  tasks: '/(tabs)/modules/tasks',
   'service-complaints': '/(tabs)/modules/service-complaints',
   proformas: '/(tabs)/modules/documents/proforma',
   contracts: '/(tabs)/modules/documents/contract',

@@ -7,6 +7,7 @@ import { activityTypes, fileDocumentTypes } from '../../db/schema/lookup';
 import { fileLinks, files } from '../../db/schema/files';
 import { userAccessScopes, userDivisions, users } from '../../db/schema/users';
 import { DB } from '../../shared/database/database.module';
+import { PushService } from '../../shared/push/push.service';
 import { NotFoundError, ValidationError } from '../../shared/utils/errors';
 import type { AuthContext } from '../../shared/security/auth.types';
 import type { ActivityCreateInput, ActivityUpdateInput, VisitCreateInput, CallCreateInput, Pagination } from '@haksan/shared';
@@ -26,7 +27,10 @@ import {
 
 @Injectable()
 export class ActivitiesService {
-  constructor(@Inject(DB) private readonly db: DbClient) {}
+  constructor(
+    @Inject(DB) private readonly db: DbClient,
+    private readonly push: PushService
+  ) {}
 
   private async resolveActivityTypeId(code: string) {
     const exact = await lookupIdByCode(this.db, activityTypes, code);
@@ -327,13 +331,22 @@ export class ActivitiesService {
       .from(users)
       .where(and(eq(users.tenantId, actor.tenantId), eq(users.status, 'active')));
     const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    // İlk ad ancak kiracıda TEK kişiye aitse etiket sayılır. Aksi hâlde
+    // "@Ahmet Yılmaz" yazmak "@Ahmet" kalıbıyla Ahmet Kaya'ya da bildirim
+    // gönderiyordu — seçiciyle tek kişi seçen kullanıcı bunu beklemiyor.
+    const firstNameCounts = new Map<string, number>();
+    for (const u of tenantUsers) {
+      const first = ((u.fullName ?? '').trim().split(/\s+/)[0] ?? '').toLocaleLowerCase('tr');
+      if (first) firstNameCounts.set(first, (firstNameCounts.get(first) ?? 0) + 1);
+    }
     const mentioned = new Set<string>();
     for (const u of tenantUsers) {
       if (u.id === actor.userId) continue;
       const full = (u.fullName ?? '').trim();
       const first = full.split(/\s+/)[0] ?? '';
+      const uniqueFirst = firstNameCounts.get(first.toLocaleLowerCase('tr')) === 1 ? first : '';
       const emailLocal = (u.email ?? '').split('@')[0] ?? '';
-      const handles = [full, first, emailLocal].filter((h) => h.length >= 2);
+      const handles = [full, uniqueFirst, emailLocal].filter((h) => h.length >= 2);
       const hit = handles.some((h) => new RegExp('@' + escape(h) + '(?![\\p{L}\\p{N}])', 'iu').test(text));
       const existedBefore = activity.previousText
         ? handles.some((h) => new RegExp('@' + escape(h) + '(?![\\p{L}\\p{N}])', 'iu').test(activity.previousText!))
@@ -362,17 +375,34 @@ export class ActivitiesService {
       mentionedIds = mentionedIds.filter((userId) => visibleUserIds.has(userId));
       if (!mentionedIds.length) return;
     }
+    // "Bir aktivitede sizden bahsedildi" kimin, neyle ilgili yazdığını
+    // söylemiyordu; kişi bildirimi açmadan konuyu anlayamıyordu.
+    const actorRow = tenantUsers.find((u) => u.id === actor.userId);
+    const actorName = actorRow?.fullName?.trim() || actor.email.split('@')[0] || 'Bir kullanıcı';
+    const title = `${actorName} sizden bahsetti`;
+    const excerpt = (activity.description?.trim() || activity.subject || '').slice(0, 240) || null;
     await this.db.insert(notifications).values(
       mentionedIds.map((userId) => ({
         tenantId: actor.tenantId,
         userId,
         divisionId: activity.divisionId,
         type: 'mention',
-        title: 'Bir aktivitede sizden bahsedildi',
-        body: activity.subject?.slice(0, 240) ?? null,
+        title,
+        body: excerpt,
         entityType: 'activity',
         entityId: activity.id,
       })),
+    );
+    // Zil bildirimi kullanıcı uygulamayı açana kadar görünmüyor; etiketleme
+    // çoğunlukla "şunu şimdi yap" demek olduğu için telefona da düşsün.
+    await Promise.all(
+      mentionedIds.map((userId) =>
+        this.push.sendToUser(userId, {
+          title,
+          body: excerpt ?? '',
+          data: { nav: 'activities', entityId: activity.id },
+        })
+      )
     );
   }
 

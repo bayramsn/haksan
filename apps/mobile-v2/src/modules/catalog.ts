@@ -85,6 +85,16 @@ export const modules: ModuleEntry[] = [
     navKey: 'offers',
   },
   {
+    key: 'tasks',
+    title: 'Görevler',
+    icon: 'checkbox-outline',
+    tone: 'success',
+    group: 'sales',
+    route: '/(tabs)/modules/tasks' as Href,
+    permission: 'tasks.read',
+    navKey: 'tasks',
+  },
+  {
     key: 'activities',
     title: 'Aktiviteler',
     icon: 'pulse-outline',

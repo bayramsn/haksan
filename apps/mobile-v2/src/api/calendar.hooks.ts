@@ -34,6 +34,15 @@ export function useUpdateCalendarEvent(id: string) {
   });
 }
 
+/** Listeden tek dokunuşla görevi kapatma/açma; id gövdeyle geldiği için satır başına hook gerekmez. */
+export function useToggleCalendarEventDone() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, completedAt }: { id: string; completedAt: string | null }) => calendar.update(id, { completedAt }),
+    onSuccess: settleCalendar(qc),
+  });
+}
+
 export function useDeleteCalendarEvent() {
   const qc = useQueryClient();
   return useMutation({ mutationFn: (id: string) => calendar.remove(id), onSuccess: settleCalendar(qc) });

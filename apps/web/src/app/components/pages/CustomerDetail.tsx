@@ -10,10 +10,11 @@ import { useStore } from "../../lib/store";
 import { StatusBadge } from "../shared/StatusBadge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../ui/table";
 import { CreateCaseDialog, LogActivityDialog } from "../dialogs/CreateDialogs";
-import { buildCustomerTimeline, type OperationAction } from "../../lib/operations";
+import { buildCustomerTimeline, type OperationAction, type TimelineItem } from "../../lib/operations";
 import { CompanyFinancePanel } from "../shared/CompanyFinancePanel";
 import { ActivityDetailDialog, canViewStandaloneActivities, ConvertActivityToOpportunity, NonOpportunityBadge, isStandaloneActivity } from "../shared/StandaloneActivity";
-import { companyService, fileService, salesOrderService } from "../../../lib/services";
+import { companyService, fileService, salesOrderService, tasksService, type TaskRecordEvent } from "../../../lib/services";
+import { TaskRecordSection } from "./tasks/TaskRecordSection";
 import { externalQuotesForCompany, offersForCompany } from "../../lib/customerOfferRelations";
 import { toast } from "sonner";
 import { useAuth } from "../../../lib/auth";
@@ -139,7 +140,31 @@ export function CustomerDetailPage({ customer, onBack, onAction }: { customer: C
   const selectedOrder = selectedOffer
     ? companySalesOrders.find((order) => order.quoteId === selectedOffer.id || order.quote?.id === selectedOffer.id)
     : null;
-  const timeline = useMemo(() => buildCustomerTimeline(customer.id, store), [customer.id, store]);
+  const [taskEvents, setTaskEvents] = useState<TaskRecordEvent[]>([]);
+  // Görev hareketleri store'da değil (görevler açılışta topluca yüklenmiyor);
+  // firma geçmişine katılabilmesi için ayrıca çekilip zaman çizgisine karışır.
+  const [taskRefresh, setTaskRefresh] = useState(0);
+  useEffect(() => {
+    let cancelled = false;
+    tasksService
+      .events({ companyId: customer.id })
+      .then((rows) => { if (!cancelled) setTaskEvents(rows); })
+      .catch(() => { if (!cancelled) setTaskEvents([]); });
+    return () => { cancelled = true; };
+  }, [customer.id, taskRefresh]);
+
+  const timeline = useMemo(() => {
+    const base = buildCustomerTimeline(customer.id, store);
+    const taskItems: TimelineItem[] = taskEvents.map((event) => ({
+      id: `task-event:${event.id}`,
+      date: event.createdAt,
+      type: "Görev",
+      title: event.summary,
+      description: event.taskTitle,
+      meta: event.actorName ?? undefined,
+    }));
+    return [...base, ...taskItems].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  }, [customer.id, store, taskEvents]);
   const companyAddresses = customer.addresses?.length
     ? customer.addresses
     : (customer.address || customer.city || customer.district || customer.country)
@@ -266,10 +291,18 @@ export function CustomerDetailPage({ customer, onBack, onAction }: { customer: C
               <TabsTrigger value="cases">Satış Kartları ({cases.length})</TabsTrigger>
               <TabsTrigger value="offers">Teklifler ({companyOffers.length + externalQuotes.length})</TabsTrigger>
               <TabsTrigger value="documents">Belgeler ({companyDocuments.length})</TabsTrigger>
+              <TabsTrigger value="tasks">Görevler</TabsTrigger>
               <TabsTrigger value="activity">Aktivite ({acts.length})</TabsTrigger>
               <TabsTrigger value="payments">Cari ({pays.length})</TabsTrigger>
               <TabsTrigger value="machines">Makineler ({mcs.length})</TabsTrigger>
             </TabsList>
+
+            <TabsContent value="tasks" className="mt-4">
+              <TaskRecordSection
+                relation={{ companyId: customer.id, label: customer.name }}
+                onChanged={() => setTaskRefresh((value) => value + 1)}
+              />
+            </TabsContent>
 
             <TabsContent value="timeline" className="mt-4">
               <Card>

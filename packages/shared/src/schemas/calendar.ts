@@ -27,6 +27,9 @@ const calendarEventFields = z.object({
   });
 
 export const calendarEventCreateSchema = calendarEventFields
+  // Süper yönetici etkinliği başkasının takvimine yazabilir; boş bırakılırsa
+  // kayıt her zamanki gibi oluşturanın kendi takvimine düşer.
+  .extend({ ownerUserId: z.string().uuid().optional() })
   .superRefine((value, ctx) => {
     if (value.endsAt < value.startsAt) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['endsAt'], message: 'Bitiş başlangıçtan önce olamaz' });
@@ -36,7 +39,10 @@ export const calendarEventCreateSchema = calendarEventFields
     }
   });
 
-export const calendarEventUpdateSchema = calendarEventFields.partial();
+// completedAt yalnız güncellemede: yeni açılan bir görev tamamlanmış olamaz.
+export const calendarEventUpdateSchema = calendarEventFields
+  .partial()
+  .extend({ completedAt: z.coerce.date().nullable().optional() });
 
 export const calendarSyncSettingsSchema = z.object({
   deviceId: z.string().trim().min(1).max(128),

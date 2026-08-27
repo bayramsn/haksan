@@ -34,6 +34,7 @@ import { Button } from "../ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "../ui/card";
 import { NextActionDialog, actionDateLabel, isActionOverdue } from "../shared/NextActionDialog";
 import { DecisionRail, LeadQualificationPanel } from "./LeadWorkspaceControls";
+import { TaskRecordSection } from "./tasks/TaskRecordSection";
 import {
   HealthStrip,
   RecordWorkspaceShell,
@@ -555,10 +556,11 @@ export function OpportunityWorkspace({
             salesCaseId={sc.id}
             customerId={sc.customerId}
             contactId={resolvedContact.primaryContact?.id}
-            commentOnly={!isLead}
+            /* Sade fırsat akışı da tam aktivite girişi alır: tür seçimi (ziyaret,
+               arama, toplantı...) artık burada da açık, yalnız yorum değil. */
             trigger={
               <Button type="button" variant="outline" className="h-11 w-full justify-start gap-2 text-muted-foreground">
-                <ActivityIcon className="size-4" /> {isLead ? "Aktivite ekle" : "Yorum yaz…"}
+                <ActivityIcon className="size-4" /> {isLead ? "Aktivite ekle" : "Aktivite gir…"}
               </Button>
             }
           />
@@ -710,6 +712,12 @@ export function OpportunityWorkspace({
           {/* Firma bağlama uyarısı kaldırılan Özet bölümünün içindeydi; teklif
               öncesi zorunlu bir adım olduğu için gövdenin tepesine alındı. */}
           {companyLinkingPanel}
+          {/* Görevler kartın gövdesinde: personel lead üzerinde çalışırken
+              görevi buradan açar, görür ve kapatır — ayrı ekrana gitmeden. */}
+          <TaskRecordSection
+            relation={{ opportunityId: sc.id, companyId: sc.customerId ?? null, label: sc.requestedProduct || "Fırsat" }}
+            title={isLead ? "Lead Görevleri" : "Fırsat Görevleri"}
+          />
           {isLead ? (
             <>
               {/* "Sonraki aksiyon" sütunu kaldırıldı: hemen üstteki karar kartı
