@@ -960,6 +960,20 @@
       "when": 1791744000000,
       "tag": "0137_spec_template_options",
       "breakpoints": true
+    },
+    {
+      "idx": 138,
+      "version": "7",
+      "when": 1791830400000,
+      "tag": "0138_calendar_event_assignment",
+      "breakpoints": true
+    },
+    {
+      "idx": 139,
+      "version": "7",
+      "when": 1791916800000,
+      "tag": "0139_tasks",
+      "breakpoints": true
     }
   ]
 }

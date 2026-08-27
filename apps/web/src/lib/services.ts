@@ -58,6 +58,9 @@ import type {
   OpportunityProcessCheckUpsertInput,
   OpportunityStageChangeInput,
   OpportunityUpdateInput,
+  TaskPriority,
+  TaskStatus,
+  TaskView,
   TrelloImportCommitRequest,
   TrelloImportPreviewRequest,
   TrelloImportRowInput,
@@ -565,6 +568,9 @@ export interface CalendarEventDTO {
   contactId: string | null;
   opportunityId: string | null;
   visitId: string | null;
+  completedAt: string | null;
+  /** Atayan kişi. owner_user_id'den farklıysa kayıt biri tarafından atanmıştır. */
+  createdBy: string | null;
   deletedAt: string | null;
   owner: { id: string; fullName: string; email: string };
   company: { id: string; legalTitle: string; shortName: string | null } | null;
@@ -580,6 +586,8 @@ export interface CalendarEventInput {
   allDay: boolean;
   timezone: string;
   companyId?: string | null;
+  /** Yalnız süper yönetici: etkinliği başka bir kullanıcının takvimine yazar. */
+  ownerUserId?: string;
 }
 
 export type CalendarImportEventType = 'other' | 'meeting' | 'call' | 'task';
@@ -604,11 +612,133 @@ export interface CalendarImportPreview {
   events: CalendarImportEvent[];
 }
 
+/* ------------------------------------------------------------------ görevler ---- */
+
+export interface TaskEventDTO {
+  id: string;
+  eventType: string;
+  summary: string;
+  createdAt: string;
+  actor: { id: string; fullName: string } | null;
+}
+
+export interface TaskDTO {
+  id: string;
+  title: string;
+  description: string | null;
+  status: TaskStatus;
+  priority: TaskPriority;
+  assignedToUserId: string | null;
+  createdBy: string | null;
+  dueAt: string | null;
+  remindBeforeMinutes: number | null;
+  companyId: string | null;
+  contactId: string | null;
+  opportunityId: string | null;
+  quoteId: string | null;
+  serviceTicketId: string | null;
+  completedAt: string | null;
+  createdAt: string;
+  /** Sunucu hesaplar: son tarihi geçmiş ve hâlâ açık. Saklanan bir durum değil. */
+  overdue: boolean;
+  assignee: { id: string; fullName: string; email: string } | null;
+  company: { id: string; legalTitle: string; shortName: string | null } | null;
+  contact: { id: string; fullName: string } | null;
+  opportunity: { id: string; title: string } | null;
+  quote: { id: string; documentNo: string } | null;
+  serviceTicket: { id: string; ticketNo: string; subject: string } | null;
+}
+
+export interface TaskDetailDTO extends TaskDTO {
+  events: TaskEventDTO[];
+}
+
+export interface TaskCounts {
+  all: number;
+  mine: number;
+  today: number;
+  overdue: number;
+  upcoming: number;
+  completed: number;
+}
+
+export interface TaskUserSummary {
+  userId: string;
+  fullName: string;
+  open: number;
+  overdue: number;
+  completed: number;
+}
+
+/** Form girdisi: tarihler burada ISO metin, sunucudaki zod şeması Date'e çevirir. */
+export interface TaskInput {
+  title: string;
+  description?: string | null;
+  status?: TaskStatus;
+  priority?: TaskPriority;
+  assignedToUserId?: string | null;
+  dueAt?: string | null;
+  remindBeforeMinutes?: number | null;
+  companyId?: string | null;
+  contactId?: string | null;
+  opportunityId?: string | null;
+  quoteId?: string | null;
+  serviceTicketId?: string | null;
+}
+
+export type TaskListParams = {
+  view?: TaskView;
+  status?: TaskStatus;
+  priority?: TaskPriority;
+  assignedToUserId?: string;
+  createdBy?: string;
+  companyId?: string;
+  contactId?: string;
+  opportunityId?: string;
+  quoteId?: string;
+  serviceTicketId?: string;
+  relatedType?: 'company' | 'contact' | 'opportunity' | 'quote' | 'service_ticket' | 'none';
+  search?: string;
+  dueFrom?: string;
+  dueTo?: string;
+  sortBy?: 'dueAt' | 'priority' | 'createdAt' | 'status';
+  sortDir?: 'asc' | 'desc';
+  page?: number;
+  pageSize?: number;
+};
+
+export interface TaskRecordEvent {
+  id: string;
+  taskId: string;
+  taskTitle: string;
+  eventType: string;
+  summary: string;
+  createdAt: string;
+  actorName: string | null;
+}
+
+export const tasksService = {
+  list: (params: TaskListParams = {}) =>
+    api.get<{ data: TaskDTO[]; meta: { page: number; pageSize: number; total: number; totalPages: number } }>(
+      `/tasks${qs(params as Record<string, string | number | undefined>)}`
+    ),
+  counts: () => api.get<TaskCounts>('/tasks/counts'),
+  events: (params: TaskListParams) =>
+    api.get<TaskRecordEvent[]>(`/tasks/events${qs(params as Record<string, string | number | undefined>)}`),
+  summary: () => api.get<TaskUserSummary[]>('/tasks/summary'),
+  assignees: () => api.get<Array<{ id: string; fullName: string; email: string }>>('/tasks/assignees'),
+  get: (id: string) => api.get<TaskDetailDTO>(`/tasks/${id}`),
+  create: (body: TaskInput) => api.post<TaskDetailDTO>('/tasks', body),
+  update: (id: string, body: Partial<TaskInput>) => api.patch<TaskDetailDTO>(`/tasks/${id}`, body),
+  remove: (id: string) => api.delete<{ deleted: boolean }>(`/tasks/${id}`),
+};
+
 export const calendarService = {
   events: (params: { from: string; to: string; ownerUserId?: string; includeArchived?: boolean }) =>
     api.get<CalendarEventDTO[]>(`/calendar/events${qs(params)}`),
   create: (body: CalendarEventInput) => api.post<CalendarEventDTO>('/calendar/events', body),
-  update: (id: string, body: Partial<CalendarEventInput>) => api.patch<CalendarEventDTO>(`/calendar/events/${id}`, body),
+  update: (id: string, body: Partial<CalendarEventInput> & { completedAt?: string | null }) =>
+    api.patch<CalendarEventDTO>(`/calendar/events/${id}`, body),
   remove: (id: string) => api.delete<{ deleted: boolean; restoreUntil: string }>(`/calendar/events/${id}`),
   restore: (id: string) => api.post<CalendarEventDTO>(`/calendar/events/${id}/restore`, {}),
   owners: () => api.get<Array<{ id: string; fullName: string; email: string }>>('/calendar/owners'),

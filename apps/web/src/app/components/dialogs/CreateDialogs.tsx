@@ -6,6 +6,7 @@ import { Input } from "../ui/input";
 import { Label } from "../ui/label";
 import { Button } from "../ui/button";
 import { Textarea } from "../ui/textarea";
+import { MentionTextarea } from "../shared/MentionTextarea";
 import { Combobox, type ComboboxOption } from "../ui/combobox";
 import {
   Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue,
@@ -2834,7 +2835,15 @@ export function AddActivityDialog({
           </div>
           <div>
             <Label className="text-xs">{commentOnly ? "Yorum" : "Not"}</Label>
-            <Textarea className="mt-1.5 min-h-[80px]" value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} placeholder={commentOnly ? "Yorumunuzu yazın..." : "Detaylar..."} />
+            {/* `@` yazınca kişi listesi açılır; adı elle doğru yazma zorunluluğu
+                kalktı — yanlış yazılan etiket kimseye bildirim göndermiyordu. */}
+            <MentionTextarea
+              className="mt-1.5 min-h-[80px]"
+              value={form.note}
+              onValueChange={(note) => setForm({ ...form, note })}
+              users={users}
+              placeholder={commentOnly ? "Yorum yazın; kişi etiketlemek için @ kullanın..." : "Detaylar; kişi etiketlemek için @ kullanın..."}
+            />
           </div>
           {!commentOnly && <div>
             <Label className="text-xs">Sonuç / Ne Yapıldı</Label>

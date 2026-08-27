@@ -81,6 +81,65 @@ describe('Personal calendar and device sync', () => {
     expect(update.status).toBe(404);
   });
 
+  it('lets super admin assign a task to another user and keeps it manageable', async () => {
+    const startsAt = new Date(Date.now() + 2 * 86_400_000);
+    const assign = await request()
+      .post('/api/v1/calendar/events')
+      .set('Authorization', `Bearer ${superToken}`)
+      .send({
+        eventType: 'task',
+        title: `Atanan görev ${syncRunId}`,
+        ownerUserId: salesUserId,
+        startsAt: startsAt.toISOString(),
+        endsAt: new Date(startsAt.getTime() + 3_600_000).toISOString(),
+        allDay: false,
+        timezone: 'Europe/Istanbul',
+      });
+    expect(assign.status).toBe(201);
+    expect(assign.body.ownerUserId).toBe(salesUserId);
+    const assignedId = assign.body.id;
+
+    // Atanan kişi görevi kendi takviminde görür ve kapatabilir.
+    const from = new Date(Date.now() - 86_400_000).toISOString();
+    const to = new Date(Date.now() + 7 * 86_400_000).toISOString();
+    const mine = await request()
+      .get(`/api/v1/calendar/events?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`)
+      .set('Authorization', `Bearer ${salesToken}`);
+    expect(mine.body.some((event: { id: string }) => event.id === assignedId)).toBe(true);
+
+    const complete = await request()
+      .patch(`/api/v1/calendar/events/${assignedId}`)
+      .set('Authorization', `Bearer ${salesToken}`)
+      .send({ completedAt: new Date().toISOString() });
+    expect(complete.status).toBe(200);
+    expect(complete.body.completedAt).toBeTruthy();
+
+    // Atayan kendi yazdığı kaydı düzeltebilir; başkasının kendi etkinliğine
+    // dokunamaması (yukarıdaki 404 testi) değişmedi.
+    const edit = await request()
+      .patch(`/api/v1/calendar/events/${assignedId}`)
+      .set('Authorization', `Bearer ${superToken}`)
+      .send({ title: `Atanan görev ${syncRunId} (saat değişti)` });
+    expect(edit.status).toBe(200);
+  });
+
+  it('refuses assignment from a non super admin', async () => {
+    const startsAt = new Date(Date.now() + 3 * 86_400_000);
+    const response = await request()
+      .post('/api/v1/calendar/events')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({
+        eventType: 'task',
+        title: 'Yetkisiz atama',
+        ownerUserId: salesUserId,
+        startsAt: startsAt.toISOString(),
+        endsAt: new Date(startsAt.getTime() + 3_600_000).toISOString(),
+        allDay: false,
+        timezone: 'Europe/Istanbul',
+      });
+    expect(response.status).toBe(403);
+  });
+
   it('syncs a device event idempotently and applies last-write-wins', async () => {
     const settings = await request()
       .put('/api/v1/calendar/sync-settings')

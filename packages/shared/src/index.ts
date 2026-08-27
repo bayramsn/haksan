@@ -24,5 +24,6 @@ export * from './schemas/service';
 export * from './schemas/report';
 export * from './schemas/chat';
 export * from './schemas/calendar';
+export * from './schemas/task';
 export * from './schemas/mail';
 export * from './schemas/meta';

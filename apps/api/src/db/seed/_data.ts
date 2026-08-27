@@ -334,6 +334,7 @@ export const rolePermissionMatrix: Record<string, Record<string, string[] | '*'>
     opportunities: '*',
     activities: '*',
     calendar: '*',
+    tasks: '*',
     competitors: '*',
     brands: '*',
     products: '*',
@@ -365,6 +366,7 @@ export const rolePermissionMatrix: Record<string, Record<string, string[] | '*'>
   },
   sales: {
     calendar: '*',
+    tasks: ['read', 'create', 'update'],
     companies: '*',
     contacts: '*',
     leads: '*',
@@ -403,6 +405,7 @@ export const rolePermissionMatrix: Record<string, Record<string, string[] | '*'>
   },
   service: {
     calendar: '*',
+    tasks: ['read', 'create', 'update'],
     companies: ['read'],
     contacts: ['read'],
     activities: ['read', 'convert'],
@@ -416,6 +419,7 @@ export const rolePermissionMatrix: Record<string, Record<string, string[] | '*'>
   },
   finance: {
     calendar: '*',
+    tasks: ['read', 'create', 'update'],
     companies: ['read'],
     contacts: ['read'],
     quotes: ['read', 'approve', 'reject'],
@@ -438,6 +442,7 @@ export const rolePermissionMatrix: Record<string, Record<string, string[] | '*'>
   },
   stock: {
     calendar: '*',
+    tasks: ['read', 'create', 'update'],
     // Sevkiyat/teslimat için hedef firma ve ilgili kişiyi okuyabilmeli.
     companies: ['read'],
     contacts: ['read'],

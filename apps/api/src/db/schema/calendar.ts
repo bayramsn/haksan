@@ -30,6 +30,8 @@ export const calendarEvents = pgTable(
     visitId: uuid('visit_id').references(() => visits.id, { onDelete: 'set null' }),
     sourceModifiedAt: timestamp('source_modified_at', { withTimezone: true }).notNull().defaultNow(),
     lastSyncedAt: timestamp('last_synced_at', { withTimezone: true }),
+    /** Görev tipi etkinliklerin kapanışı. Dolu ise iş yapılmıştır. */
+    completedAt: timestamp('completed_at', { withTimezone: true }),
     createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
     updatedBy: uuid('updated_by').references(() => users.id, { onDelete: 'set null' }),
     ...auditColumns,

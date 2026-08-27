@@ -27,6 +27,7 @@ import { FxModule } from './modules/fx/fx.module';
 import { ChatModule } from './modules/chat/chat.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
 import { CalendarModule } from './modules/calendar/calendar.module';
+import { TasksModule } from './modules/tasks/tasks.module';
 import { AutomationModule } from './modules/automation/automation.module';
 import { MailModule } from './modules/mail/mail.module';
 import { MetaModule } from './modules/meta/meta.module';
@@ -75,6 +76,7 @@ const env = loadEnv();
     ChatModule,
     NotificationsModule,
     CalendarModule,
+    TasksModule,
     AutomationModule,
     MailModule,
     MetaModule,
