@@ -1147,10 +1147,25 @@ export const reportService = {
    */
   teamActivity: (params: { period: TeamActivityPeriod; date?: string; scope?: 'team' | 'self' }) =>
     api.get<TeamActivityReport>(`/reports/team-activity${qs(params)}`),
+  teamActivityDetails: (params: {
+    period: TeamActivityPeriod;
+    date?: string;
+    scope?: 'team' | 'self';
+    metric?: TeamActivityMetric;
+    userId?: string;
+  }) => api.get<TeamActivityDetails>(`/reports/team-activity/details${qs(params)}`),
   downloadYearEnd: (year: number) => exportService.yearEnd(year),
 };
 
 export type TeamActivityPeriod = 'day' | 'week' | 'month' | 'year';
+export type TeamActivityMetric =
+  | 'all'
+  | 'quotes'
+  | 'visits'
+  | 'calls'
+  | 'activities'
+  | 'opportunitiesCreated'
+  | 'won';
 /** Mevcut dönem ve bir önceki eşdeğer dönem sayacı. */
 export type ActivityDelta = { current: number; previous: number };
 export interface TeamActivityReport {
@@ -1175,6 +1190,28 @@ export interface TeamActivityReport {
     opportunitiesCreated: ActivityDelta; won: ActivityDelta;
     wonValue: number; total: ActivityDelta;
   }>;
+}
+
+export interface TeamActivityDetailItem {
+  id: string;
+  source: 'quote' | 'visit' | 'call' | 'activity' | 'opportunity_created' | 'opportunity_won';
+  metric: Exclude<TeamActivityMetric, 'all'>;
+  typeCode: string;
+  typeName: string;
+  title: string;
+  occurredAt: string;
+  userId: string;
+  userName: string;
+  company: { id: string | null; name: string | null };
+}
+
+export interface TeamActivityDetails {
+  period: TeamActivityPeriod;
+  scope: 'team' | 'self';
+  metric: TeamActivityMetric;
+  range: { from: string; to: string };
+  user: { id: string; name: string } | null;
+  items: TeamActivityDetailItem[];
 }
 
 // ───── Admin (users, roles, departments) ─────

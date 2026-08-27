@@ -150,6 +150,22 @@ describe('reports scope authorization', () => {
       expect(response.body.users).toHaveLength(1);
       expect(response.body.users[0].userId).toBe(salesId);
     });
+
+    it('ekip aktivitesi detayında başka kullanıcının id’sini sorgulayamaz', async () => {
+      await request(app.getHttpServer())
+        .get(`/api/v1/reports/team-activity/details?period=week&scope=team&metric=all&userId=${adminId}`)
+        .set('Authorization', `Bearer ${salesToken}`)
+        .expect(403);
+    });
+
+    it('ekip kapsamı istese bile aktivite detayları yalnız kendisine daralır', async () => {
+      const response = await request(app.getHttpServer())
+        .get('/api/v1/reports/team-activity/details?period=week&scope=team&metric=all')
+        .set('Authorization', `Bearer ${salesToken}`)
+        .expect(200);
+      expect(response.body.scope).toBe('self');
+      expect(response.body.items.every((item: any) => item.userId === salesId)).toBe(true);
+    });
   });
 
   describe('salt okunur kullanıcı', () => {

@@ -36,10 +36,15 @@ const matches = (p: Product, q: string) => {
     (v) => (v ?? "").toLowerCase().includes(s)
   );
 };
-const productName = (product: Product) =>
-  product.shortDescription || [product.brand, product.modelName || product.model].filter(Boolean).join(" ") || product.stockCode || "";
+// Ürünler sayfasıyla aynı A-Z kuralı: sıralama görünen etikete (marka + model)
+// göre yapılır, `shortDescription`a göre değil — bazı kayıtlarda marka adı başta
+// olup bazılarında olmadığı için liste karma çıkıyordu. `numeric` sayesinde
+// MV-850, MV-1050'den önce gelir.
+const productSortKey = (product: Product) =>
+  `${product.brand ?? ""} ${product.modelName?.trim() || product.model}`.trim();
 const sortProductsByName = (items: Product[]) =>
-  [...items].sort((a, b) => productName(a).localeCompare(productName(b), "tr", { sensitivity: "base" }));
+  [...items].sort((a, b) =>
+    productSortKey(a).localeCompare(productSortKey(b), "tr", { numeric: true, sensitivity: "base" }));
 const sortPriceListsByName = <T extends { name: string; code: string }>(items: T[]) =>
   [...items].sort((a, b) => (a.name || a.code).localeCompare(b.name || b.code, "tr", { sensitivity: "base" }));
 

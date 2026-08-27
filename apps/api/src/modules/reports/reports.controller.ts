@@ -38,6 +38,15 @@ const teamActivitySchema = z.object({
   scope: z.enum(['team', 'self']).default('team'),
 });
 
+const teamActivityDetailsSchema = teamActivitySchema.extend({
+  // Bir tablo hücresi seçildiğinde yalnız o sütunun kayıtları; kullanıcı/toplam
+  // seçildiğinde bütün kaynaklar tek zaman akışında döner.
+  metric: z
+    .enum(['all', 'quotes', 'visits', 'calls', 'activities', 'opportunitiesCreated', 'won'])
+    .default('all'),
+  userId: z.string().uuid().optional(),
+});
+
 type TargetExportMetric = { target: number | null; actual: number | null; pct: number | null };
 type TargetExportItem = {
   targetType?: string;
@@ -335,6 +344,16 @@ export class ReportsController {
     @CurrentUser() u: AuthContext
   ) {
     return this.svc.teamActivity(u, q.period, q.date, q.scope);
+  }
+
+  /** Ekip aktivitesi tablosundaki sayaçların kişi/firma bazlı kayıt dökümü. */
+  @RequirePermissions('reports.read', 'companies.read')
+  @Get('team-activity/details')
+  teamActivityDetails(
+    @Query(new ZodValidationPipe(teamActivityDetailsSchema)) q: z.infer<typeof teamActivityDetailsSchema>,
+    @CurrentUser() u: AuthContext
+  ) {
+    return this.svc.teamActivityDetails(u, q.period, q.date, q.scope, q.metric, q.userId);
   }
 
   @RequirePermissions('reports.read')

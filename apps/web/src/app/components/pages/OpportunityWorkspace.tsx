@@ -555,10 +555,11 @@ export function OpportunityWorkspace({
             salesCaseId={sc.id}
             customerId={sc.customerId}
             contactId={resolvedContact.primaryContact?.id}
-            commentOnly={!isLead}
+            /* Sade fırsat akışı da tam aktivite girişi alır: tür seçimi (ziyaret,
+               arama, toplantı...) artık burada da açık, yalnız yorum değil. */
             trigger={
               <Button type="button" variant="outline" className="h-11 w-full justify-start gap-2 text-muted-foreground">
-                <ActivityIcon className="size-4" /> {isLead ? "Aktivite ekle" : "Yorum yaz…"}
+                <ActivityIcon className="size-4" /> {isLead ? "Aktivite ekle" : "Aktivite gir…"}
               </Button>
             }
           />

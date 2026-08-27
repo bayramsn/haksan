@@ -3868,7 +3868,9 @@ export function ProductDialog({
     // başka tezgah tipine ait alanlar elenir; ekrandaki liste olduğu gibi gider.
     const cleanSpecs = catalogSpecs(dropForeignMachineSpecs(form.productTypeCode, form.specs), "-")
       .filter((s) => s.key.trim());
-    const modelCode = form.stockCode.trim() || form.model.trim() || compactProductCode(form.shortDescription) || "URUN";
+    // Model, stok kodunun kopyası değil: önceliği kullanıcının girdiği model
+    // alanı alır. Ters sırada tüm ekranlarda model yerine stok kodu görülüyordu.
+    const modelCode = form.model.trim() || form.modelName.trim() || form.stockCode.trim() || compactProductCode(form.shortDescription) || "URUN";
     const payload = {
       brand: isLaborProduct ? (form.brand.trim() || "Haksan") : form.brand.trim(),
       series: isMachineProduct ? form.series.trim() : "",
@@ -4044,6 +4046,20 @@ export function ProductDialog({
 
             <ProductSheetRow label={isMachineProduct ? "7. Ürün Adı" : "Ürün Adı"}>
               <Input className="h-8" value={form.shortDescription} onChange={(e) => setForm({ ...form, shortDescription: e.target.value })} placeholder="Ürün adı" />
+            </ProductSheetRow>
+
+            {/* Model alanı formda hiç yoktu; model kodu stok koduna düşüyor ve
+                listelerde model yerine stok kodu görünüyordu. Ürün kartındaki
+                "Model Adı" ile aynı alan. */}
+            <ProductSheetRow label="Model">
+              <Input
+                aria-label="Ürün modeli"
+                className="h-8 max-w-xs"
+                value={form.modelName}
+                onChange={(e) => setForm({ ...form, modelName: e.target.value })}
+                placeholder="örn. MT-520/2000"
+                maxLength={255}
+              />
             </ProductSheetRow>
 
             {isMachineProduct && (

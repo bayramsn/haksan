@@ -7,14 +7,17 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import request from 'supertest';
 import type { NestFastifyApplication } from '@nestjs/platform-fastify';
 import { createTestApp } from './setup';
+import { normalizeCompanyName } from '../src/shared/utils/text-normalization';
 
 type Totals = { quotes: number; visits: number; calls: number; activities: number };
 
 describe('Team activity report', () => {
   let app: NestFastifyApplication;
   let token: string;
+  let userId: string;
   let divisionId: string;
   let companyId: string | undefined;
+  const companyName = `Ekip Aktivite Testi ${Date.now()}`;
   const createdActivityIds: string[] = [];
 
   const totals = async (): Promise<Totals> => {
@@ -46,6 +49,7 @@ describe('Team activity report', () => {
       .get('/api/v1/auth/me')
       .set('Authorization', `Bearer ${token}`)
       .expect(200);
+    userId = me.body.user.id;
     divisionId = me.body.user.divisions[0].id;
 
     const company = await request(app.getHttpServer())
@@ -53,7 +57,7 @@ describe('Team activity report', () => {
       .set('Authorization', `Bearer ${token}`)
       .send({
         companyType: 'company',
-        legalTitle: `Ekip Aktivite Testi ${Date.now()}`,
+        legalTitle: companyName,
         relationTypeCode: 'customer',
         customerStatusCode: 'potential',
         divisionIds: [divisionId],
@@ -102,5 +106,37 @@ describe('Team activity report', () => {
     const after = await totals();
     expect(after.visits - before.visits).toBe(1);
     expect(after.activities - before.activities).toBe(0);
+  });
+
+  it('tüm aktivite türlerini kişi ve firma bilgisiyle tek tek listeler', async () => {
+    const types = [
+      ['incoming_call', 'Gelen Arama'],
+      ['outgoing_call', 'Giden Arama'],
+      ['customer_visit', 'Müşteri Ziyareti'],
+      ['online_meeting', 'Çevrimiçi Toplantı'],
+      ['showroom_meeting', 'Showroom Toplantısı'],
+      ['email', 'E-posta / Mail'],
+      ['whatsapp', 'WhatsApp'],
+      ['note', 'Yorum'],
+    ] as const;
+    const marker = `Detay listesi ${Date.now()}`;
+    for (const [code, label] of types) {
+      await logActivity(code, `${marker} · ${label}`);
+    }
+
+    const response = await request(app.getHttpServer())
+      .get(`/api/v1/reports/team-activity/details?period=week&scope=self&metric=all&userId=${userId}`)
+      .set('Authorization', `Bearer ${token}`)
+      .expect(200);
+
+    const created = response.body.items.filter((item: any) => item.title.startsWith(marker));
+    expect(created).toHaveLength(types.length);
+    expect(created.map((item: any) => item.typeCode).sort()).toEqual(types.map(([code]) => code).sort());
+    expect(created.map((item: any) => item.typeName).sort()).toEqual(types.map(([, label]) => label).sort());
+    expect(created.every((item: any) => item.userId === userId)).toBe(true);
+    expect(created.every((item: any) => item.company.id === companyId)).toBe(true);
+    // Firma unvanı kayıtta BÜYÜK harfe normalize ediliyor; detay yanıtı
+    // saklanan değeri döndürür, ham girdiyi değil.
+    expect(created.every((item: any) => item.company.name === normalizeCompanyName(companyName))).toBe(true);
   });
 });

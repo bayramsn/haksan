@@ -93,9 +93,11 @@ describe("lead ve fırsat çalışma alanı sorumlu değişikliği", () => {
     // Sekmeler kaldırıldıktan sonra akışın tek yeri kalıcı yan panel; buraya
     // geçirilmezse aktivite arayüzden tamamen kaybolur.
     expect(workspaceSource).toContain("activityFeed={activityFeed}");
-    // Fırsatta giriş yorum kutusu (Trello kart yorumu), lead'de tam aktivite
-    // kaydı. Bu ayrım kalkarsa fırsatta gereksiz tip/tarih alanları geri gelir.
-    expect(workspaceSource).toContain("commentOnly={!isLead}");
+    // Fırsat akışı da lead gibi TAM aktivite girişi alır: `commentOnly` geri
+    // gelirse tür seçimi (ziyaret, arama, toplantı...) kaybolur ve kullanıcı
+    // yeniden yalnız yorum yazabilir.
+    expect(workspaceSource).not.toContain("commentOnly=");
+    expect(workspaceSource).toContain('"Aktivite gir…"');
     expect(workspaceSource).toContain("Bu fırsat için henüz aktivite veya yorum yok.");
   });
 });

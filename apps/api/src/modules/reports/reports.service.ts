@@ -1,4 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
+import { activityTypeLabel } from '@haksan/shared';
 import { and, between, desc, eq, gte, inArray, isNull, lte, notInArray, sql } from 'drizzle-orm';
 import type { DbClient } from '../../db/client';
 import { visits as visitsTbl, calls as callsTbl, leads, salesActivities } from '../../db/schema/crm';
@@ -15,8 +16,12 @@ import { activityTypes, currencies, pipelineStages, inventoryStatuses, paymentSt
 import { companies } from '../../db/schema/companies';
 import { DB } from '../../shared/database/database.module';
 import type { AuthContext } from '../../shared/security/auth.types';
-import { companyVisibilityExistsFilter } from '../../shared/utils/company-visibility';
-import { resourceDivisionFilter, resolveResourceDivisionScope } from '../../shared/utils/division-scope';
+import { companyVisibilityExistsFilter, companyVisibilityFilter } from '../../shared/utils/company-visibility';
+import {
+  resourceCompanyPortfolioFilter,
+  resourceDivisionFilter,
+  resolveResourceDivisionScope,
+} from '../../shared/utils/division-scope';
 import { ForbiddenError } from '../../shared/utils/errors';
 import { amountToUsd, FxService, type FxRates, type FxSnapshot } from '../fx/fx.service';
 
@@ -24,6 +29,27 @@ export type Granularity = 'weekly' | 'monthly' | 'yearly';
 
 /** Gösterge panelindeki ekip aktivitesi kırılımı. */
 export type TeamActivityPeriod = 'day' | 'week' | 'month' | 'year';
+export type TeamActivityDetailMetric =
+  | 'all'
+  | 'quotes'
+  | 'visits'
+  | 'calls'
+  | 'activities'
+  | 'opportunitiesCreated'
+  | 'won';
+
+type TeamActivityDetailItem = {
+  id: string;
+  source: 'quote' | 'visit' | 'call' | 'activity' | 'opportunity_created' | 'opportunity_won';
+  metric: Exclude<TeamActivityDetailMetric, 'all'>;
+  typeCode: string;
+  typeName: string;
+  title: string;
+  occurredAt: string;
+  userId: string;
+  userName: string;
+  company: { id: string | null; name: string | null };
+};
 
 export type TargetProgressScope = { kind: 'user' | 'department' | 'role' | 'all-users'; id?: string };
 
@@ -1700,6 +1726,368 @@ export class ReportsService {
       previousTotals,
       timeline: await this.activityTimeline(actor.tenantId, userIds, range, this.activityBucket(period)),
       users: rows,
+    };
+  }
+
+  /**
+   * Ekip aktivitesi tablosundaki sayıları oluşturan kayıtların kişi ve firma
+   * kırılımı. Detaylar yalnız pencere açıldığında yüklendiği için normal pano
+   * isteğini büyütmez; seçilen dönemdeki kayıtların tamamı döner.
+   */
+  async teamActivityDetails(
+    actor: AuthContext,
+    period: TeamActivityPeriod,
+    anchorIso?: string,
+    requestedScope: 'team' | 'self' = 'team',
+    metric: TeamActivityDetailMetric = 'all',
+    requestedUserId?: string,
+  ) {
+    const isSuperAdmin = this.canSeeAllUsers(actor);
+    const scope: 'team' | 'self' = isSuperAdmin ? requestedScope : 'self';
+    const anchor = anchorIso ? new Date(anchorIso) : new Date();
+    const range = this.activityRanges(period, anchor);
+    const audience = await this.reportAudience(actor);
+    const scopedPeople = scope === 'self' ? audience.filter((user) => user.id === actor.userId) : audience;
+
+    if (requestedUserId && !scopedPeople.some((user) => user.id === requestedUserId)) {
+      throw new ForbiddenError('Bu kullanıcının aktivite detaylarını görme yetkiniz yok');
+    }
+
+    const people = requestedUserId
+      ? scopedPeople.filter((user) => user.id === requestedUserId)
+      : scopedPeople;
+    const userIds = people.map((user) => user.id);
+    const userNames = new Map(people.map((user) => [user.id, user.fullName ?? user.email]));
+    if (!userIds.length) {
+      return {
+        period,
+        scope,
+        metric,
+        range: { from: range.from.toISOString(), to: range.to.toISOString() },
+        user: null,
+        items: [] as TeamActivityDetailItem[],
+      };
+    }
+
+    // Firma görünürlüğü satırı gizlemek yerine LEFT JOIN üzerinde uygulanır.
+    // Böylece sayaç ile kayıt adedi aynı kalır, fakat kısıtlı rol göremediği
+    // firmanın adını detay yanıtından çıkaramaz.
+    const visibility = await companyVisibilityFilter(this.db, actor);
+    const portfolio = resourceCompanyPortfolioFilter(actor, 'companies', companies.id);
+    const companyJoin = (companyId: any) =>
+      and(
+        eq(companies.id, companyId),
+        eq(companies.tenantId, actor.tenantId),
+        isNull(companies.deletedAt),
+        visibility,
+        portfolio,
+      );
+    const opportunityJoin = (opportunityId: any) =>
+      and(
+        eq(opportunities.id, opportunityId),
+        eq(opportunities.tenantId, actor.tenantId),
+        isNull(opportunities.deletedAt),
+      );
+    const userName = (userId: string) => userNames.get(userId) ?? 'Bilinmeyen kullanıcı';
+    const occurredAt = (value: Date | string) =>
+      value instanceof Date ? value.toISOString() : new Date(value).toISOString();
+    const loaders: Array<Promise<TeamActivityDetailItem[]>> = [];
+
+    if (metric === 'all' || metric === 'quotes') {
+      loaders.push(
+        this.db
+          .select({
+            id: quotes.id,
+            date: quotes.quoteDate,
+            documentNo: quotes.documentNo,
+            userId: quotes.createdBy,
+            companyId: companies.id,
+            companyName: companies.legalTitle,
+          })
+          .from(quotes)
+          .leftJoin(companies, companyJoin(quotes.companyId))
+          .where(
+            and(
+              eq(quotes.tenantId, actor.tenantId),
+              isNull(quotes.deletedAt),
+              inArray(quotes.createdBy, userIds),
+              gte(quotes.quoteDate, range.from),
+              sql`${quotes.quoteDate} < ${range.to}`,
+            ),
+          )
+          .then((rows) =>
+            rows
+              .filter((row): row is typeof row & { userId: string } => Boolean(row.userId))
+              .map((row) => ({
+                id: row.id,
+                source: 'quote' as const,
+                metric: 'quotes' as const,
+                typeCode: 'quote',
+                typeName: 'Teklif',
+                title: `Teklif ${row.documentNo}`,
+                occurredAt: occurredAt(row.date),
+                userId: row.userId,
+                userName: userName(row.userId),
+                company: { id: row.companyId, name: row.companyName },
+              })),
+          ),
+      );
+    }
+
+    const indirectCompanyId = (directCompanyId: any) =>
+      sql<string | null>`coalesce(${directCompanyId}, ${opportunities.companyId})`;
+    const visibleCompany = (
+      directCompanyId: string | null,
+      opportunityCompanyId: string | null,
+      visibleId: string | null,
+      visibleName: string | null,
+      leadCompanyTitle: string | null,
+    ) => ({
+      id: visibleId,
+      name: visibleName ?? (!directCompanyId && !opportunityCompanyId ? leadCompanyTitle : null),
+    });
+
+    if (metric === 'all' || metric === 'visits') {
+      loaders.push(
+        this.db
+          .select({
+            id: visitsTbl.id,
+            date: visitsTbl.visitDate,
+            title: visitsTbl.visitPurpose,
+            userId: visitsTbl.createdBy,
+            directCompanyId: visitsTbl.companyId,
+            opportunityCompanyId: opportunities.companyId,
+            leadCompanyTitle: opportunities.leadCompanyTitle,
+            companyId: companies.id,
+            companyName: companies.legalTitle,
+          })
+          .from(visitsTbl)
+          .leftJoin(opportunities, opportunityJoin(visitsTbl.opportunityId))
+          .leftJoin(companies, companyJoin(indirectCompanyId(visitsTbl.companyId)))
+          .where(
+            and(
+              eq(visitsTbl.tenantId, actor.tenantId),
+              isNull(visitsTbl.deletedAt),
+              inArray(visitsTbl.createdBy, userIds),
+              gte(visitsTbl.visitDate, range.from),
+              sql`${visitsTbl.visitDate} < ${range.to}`,
+            ),
+          )
+          .then((rows) =>
+            rows
+              .filter((row): row is typeof row & { userId: string } => Boolean(row.userId))
+              .map((row) => ({
+                id: row.id,
+                source: 'visit' as const,
+                metric: 'visits' as const,
+                typeCode: 'customer_visit',
+                typeName: 'Müşteri Ziyareti',
+                title: row.title?.trim() || 'Müşteri ziyareti',
+                occurredAt: occurredAt(row.date),
+                userId: row.userId,
+                userName: userName(row.userId),
+                company: visibleCompany(
+                  row.directCompanyId,
+                  row.opportunityCompanyId,
+                  row.companyId,
+                  row.companyName,
+                  row.leadCompanyTitle,
+                ),
+              })),
+          ),
+      );
+    }
+
+    if (metric === 'all' || metric === 'calls') {
+      loaders.push(
+        this.db
+          .select({
+            id: callsTbl.id,
+            date: callsTbl.callDate,
+            title: callsTbl.callResult,
+            userId: callsTbl.createdBy,
+            directCompanyId: callsTbl.companyId,
+            opportunityCompanyId: opportunities.companyId,
+            leadCompanyTitle: opportunities.leadCompanyTitle,
+            companyId: companies.id,
+            companyName: companies.legalTitle,
+          })
+          .from(callsTbl)
+          .leftJoin(opportunities, opportunityJoin(callsTbl.opportunityId))
+          .leftJoin(companies, companyJoin(indirectCompanyId(callsTbl.companyId)))
+          .where(
+            and(
+              eq(callsTbl.tenantId, actor.tenantId),
+              isNull(callsTbl.deletedAt),
+              inArray(callsTbl.createdBy, userIds),
+              gte(callsTbl.callDate, range.from),
+              sql`${callsTbl.callDate} < ${range.to}`,
+            ),
+          )
+          .then((rows) =>
+            rows
+              .filter((row): row is typeof row & { userId: string } => Boolean(row.userId))
+              .map((row) => ({
+                id: row.id,
+                source: 'call' as const,
+                metric: 'calls' as const,
+                typeCode: 'call',
+                typeName: 'Arama',
+                title: row.title?.trim() || 'Arama',
+                occurredAt: occurredAt(row.date),
+                userId: row.userId,
+                userName: userName(row.userId),
+                company: visibleCompany(
+                  row.directCompanyId,
+                  row.opportunityCompanyId,
+                  row.companyId,
+                  row.companyName,
+                  row.leadCompanyTitle,
+                ),
+              })),
+          ),
+      );
+    }
+
+    if (metric === 'all' || metric === 'activities' || metric === 'visits' || metric === 'calls') {
+      const activityTypeIds = await this.visitCallActivityTypeIds();
+      const activityTypeFilter =
+        metric === 'visits'
+          ? inArray(salesActivities.activityTypeId, activityTypeIds.visit)
+          : metric === 'calls'
+            ? inArray(salesActivities.activityTypeId, activityTypeIds.call)
+            : metric === 'activities'
+              ? notInArray(salesActivities.activityTypeId, activityTypeIds.all)
+              : undefined;
+      loaders.push(
+        this.db
+          .select({
+            id: salesActivities.id,
+            date: salesActivities.activityDate,
+            title: salesActivities.subject,
+            userId: salesActivities.createdBy,
+            typeCode: activityTypes.code,
+            typeName: activityTypes.name,
+            directCompanyId: salesActivities.companyId,
+            opportunityCompanyId: opportunities.companyId,
+            leadCompanyTitle: opportunities.leadCompanyTitle,
+            companyId: companies.id,
+            companyName: companies.legalTitle,
+          })
+          .from(salesActivities)
+          .innerJoin(activityTypes, eq(salesActivities.activityTypeId, activityTypes.id))
+          .leftJoin(opportunities, opportunityJoin(salesActivities.opportunityId))
+          .leftJoin(companies, companyJoin(indirectCompanyId(salesActivities.companyId)))
+          .where(
+            and(
+              eq(salesActivities.tenantId, actor.tenantId),
+              isNull(salesActivities.deletedAt),
+              inArray(salesActivities.createdBy, userIds),
+              gte(salesActivities.activityDate, range.from),
+              sql`${salesActivities.activityDate} < ${range.to}`,
+              activityTypeFilter,
+            ),
+          )
+          .then((rows) =>
+            rows
+              .filter((row): row is typeof row & { userId: string } => Boolean(row.userId))
+              .map((row) => ({
+                id: row.id,
+                source: 'activity' as const,
+                metric:
+                  row.typeCode === 'customer_visit'
+                    ? ('visits' as const)
+                    : row.typeCode === 'incoming_call' || row.typeCode === 'outgoing_call'
+                      ? ('calls' as const)
+                      : ('activities' as const),
+                typeCode: row.typeCode,
+                typeName: activityTypeLabel(row.typeCode),
+                title: row.title,
+                occurredAt: occurredAt(row.date),
+                userId: row.userId,
+                userName: userName(row.userId),
+                company: visibleCompany(
+                  row.directCompanyId,
+                  row.opportunityCompanyId,
+                  row.companyId,
+                  row.companyName,
+                  row.leadCompanyTitle,
+                ),
+              })),
+          ),
+      );
+    }
+
+    const opportunityItems = (eventMetric: 'opportunitiesCreated' | 'won') => {
+      const won = eventMetric === 'won';
+      const actorColumn = won ? opportunities.ownerUserId : opportunities.createdBy;
+      const dateColumn = won ? opportunities.qualificationUpdatedAt : opportunities.createdAt;
+      return this.db
+        .select({
+          id: opportunities.id,
+          date: dateColumn,
+          title: opportunities.title,
+          userId: actorColumn,
+          linkedCompanyId: opportunities.companyId,
+          leadCompanyTitle: opportunities.leadCompanyTitle,
+          companyId: companies.id,
+          companyName: companies.legalTitle,
+        })
+        .from(opportunities)
+        .leftJoin(companies, companyJoin(opportunities.companyId))
+        .where(
+          and(
+            eq(opportunities.tenantId, actor.tenantId),
+            isNull(opportunities.deletedAt),
+            inArray(actorColumn, userIds),
+            gte(dateColumn, range.from),
+            sql`${dateColumn} < ${range.to}`,
+            won ? eq(opportunities.qualificationStage, 'win') : undefined,
+          ),
+        )
+        .then((rows) =>
+          rows
+            .filter(
+              (row): row is typeof row & { userId: string; date: Date } =>
+                Boolean(row.userId && row.date),
+            )
+            .map((row) => ({
+              id: row.id,
+              source: won ? ('opportunity_won' as const) : ('opportunity_created' as const),
+              metric: eventMetric,
+              typeCode: won ? 'opportunity_won' : 'opportunity_created',
+              typeName: won ? 'Kazanılan Fırsat' : 'Yeni Fırsat',
+              title: row.title,
+              occurredAt: occurredAt(row.date),
+              userId: row.userId,
+              userName: userName(row.userId),
+              company: {
+                id: row.companyId,
+                name: row.companyName ?? (!row.linkedCompanyId ? row.leadCompanyTitle : null),
+              },
+            })),
+        );
+    };
+
+    if (metric === 'all' || metric === 'opportunitiesCreated') {
+      loaders.push(opportunityItems('opportunitiesCreated'));
+    }
+    if (metric === 'all' || metric === 'won') {
+      loaders.push(opportunityItems('won'));
+    }
+
+    const items = (await Promise.all(loaders))
+      .flat()
+      .sort((left, right) => right.occurredAt.localeCompare(left.occurredAt));
+    return {
+      period,
+      scope,
+      metric,
+      range: { from: range.from.toISOString(), to: range.to.toISOString() },
+      user: requestedUserId
+        ? { id: requestedUserId, name: userNames.get(requestedUserId) ?? 'Bilinmeyen kullanıcı' }
+        : null,
+      items,
     };
   }
 

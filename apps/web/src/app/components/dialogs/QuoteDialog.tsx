@@ -891,14 +891,32 @@ export function QuoteDialog({
             const val = applied.get(normalizeProductSpecKey(s.key));
             return val ? { ...s, value: val } : s;
           });
-          return { ...l, technicalSpecs: nextSpecs, options: l.options.filter((_, k) => k !== j) };
+          // Opsiyon satırı KALIR. Teknik bilgiyi güncellemesi bedelini yok
+          // saymaz: donanım ayrı kalem olarak toplama, teklif listesine ve
+          // PDF'e girer. Açıklamada spec tekrarı yok, değer zaten tezgahın
+          // teknik bilgisine yazıldı.
+          const nextOptions = l.options.map((o, k) => (
+            k === j
+              ? {
+                  ...o,
+                  productId,
+                  description: p.shortDescription?.trim() || `${p.brand} ${p.model}`.trim(),
+                  unitPrice: p.listPrice ? String(p.listPrice) : o.unitPrice,
+                  vatRate: String(p.vatRate ?? 20),
+                }
+              : o
+          ));
+          return { ...l, technicalSpecs: nextSpecs, options: nextOptions };
         }),
       );
       const summary = lineSpecs
         .filter((s) => applied.has(normalizeProductSpecKey(s.key)))
         .map((s) => `${s.key} → ${applied.get(normalizeProductSpecKey(s.key))}`);
       toast.success(`${p.shortDescription?.trim() || `${p.brand} ${p.model}`.trim()} teknik bilgiyi güncelledi`, {
-        description: `Etkilenen alan: ${summary.length ? summary.join(", ") : affecting.map((a) => a.specKey).join(", ")}`,
+        description: [
+          `Etkilenen alan: ${summary.length ? summary.join(", ") : affecting.map((a) => a.specKey).join(", ")}`,
+          p.listPrice ? "Bedeli opsiyon kalemi olarak eklendi." : null,
+        ].filter(Boolean).join(" \u00b7 "),
       });
       return;
     }

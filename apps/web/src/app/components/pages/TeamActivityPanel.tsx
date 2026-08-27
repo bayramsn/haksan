@@ -1,16 +1,23 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   Activity as ActivityIcon, ArrowDownRight, ArrowRight, ArrowUpRight,
-  CalendarDays, FileText, MapPin, Phone, Trophy, Users2,
+  Building2, CalendarDays, ChevronRight, Clock3, FileText, MapPin, Phone, Trophy, Users2,
 } from "lucide-react";
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, Legend,
 } from "recharts";
-import { reportService, type TeamActivityPeriod, type TeamActivityReport } from "../../../lib/services";
+import {
+  reportService,
+  type TeamActivityDetails,
+  type TeamActivityMetric,
+  type TeamActivityPeriod,
+  type TeamActivityReport,
+} from "../../../lib/services";
 import { useAuth } from "../../../lib/auth";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { Card, CardContent } from "../ui/card";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "../ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../ui/table";
 
 const PERIOD_LABELS: Record<TeamActivityPeriod, string> = {
@@ -66,6 +73,166 @@ const METRICS = [
   { key: "won", label: "Kazanılan", icon: Trophy },
 ] as const;
 
+const METRIC_LABELS: Record<TeamActivityMetric, string> = {
+  all: "Tüm kayıtlar",
+  quotes: "Teklifler",
+  visits: "Ziyaretler",
+  calls: "Aramalar",
+  activities: "Aktiviteler",
+  opportunitiesCreated: "Yeni fırsatlar",
+  won: "Kazanılan fırsatlar",
+};
+
+type DetailSelection = {
+  metric: TeamActivityMetric;
+  userId?: string;
+  userName?: string;
+};
+
+function detailDate(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleDateString("tr-TR", {
+    day: "2-digit",
+    month: "long",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function TeamActivityDetailsDialog({
+  selection,
+  data,
+  loading,
+  error,
+  onClose,
+  onRetry,
+}: {
+  selection: DetailSelection | null;
+  data: TeamActivityDetails | null;
+  loading: boolean;
+  error: string | null;
+  onClose: () => void;
+  onRetry: () => void;
+}) {
+  // Kayıtlar aktivite türüne göre kümelenir: tek yığın halindeki 40+ satır
+  // okunmuyordu, tür başlıkları ("Müşteri Ziyareti · 41") listeyi anlaşılır
+  // kılıyor. Tür sırası çokluğa göre; en yoğun iş en üstte.
+  const groups = useMemo(() => {
+    const map = new Map<string, TeamActivityDetails["items"]>();
+    for (const item of data?.items ?? []) {
+      const bucket = map.get(item.typeName);
+      if (bucket) bucket.push(item);
+      else map.set(item.typeName, [item]);
+    }
+    return [...map.entries()].sort(
+      (left, right) => right[1].length - left[1].length || left[0].localeCompare(right[0], "tr-TR")
+    );
+  }, [data]);
+
+  const title = selection?.userName
+    ? `${selection.userName} · ${METRIC_LABELS[selection.metric]}`
+    : `Ekip · ${METRIC_LABELS[selection?.metric ?? "all"]}`;
+
+  return (
+    <Dialog open={!!selection} onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="max-h-[88dvh] w-[min(760px,calc(100vw-1rem))] max-w-none grid-rows-[auto_minmax(0,1fr)] gap-0 overflow-hidden p-0 sm:max-w-none">
+        <DialogHeader className="border-b border-border/70 bg-muted/20 px-5 py-5 pr-12 sm:px-6">
+          <div className="mb-1 flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-primary">
+            <span className="flex size-7 items-center justify-center rounded-full bg-primary/10">
+              <ActivityIcon className="size-3.5" />
+            </span>
+            Ekip aktivitesi detayları
+          </div>
+          <DialogTitle>{title}</DialogTitle>
+          <DialogDescription>
+            Seçilen dönemdeki kayıtlar kişi, aktivite türü ve firma bilgisiyle tek tek listelenir.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="min-h-0 overflow-y-auto overscroll-contain px-4 py-4 sm:px-6 sm:py-5">
+          {loading ? (
+            <div className="space-y-3" aria-live="polite" aria-label="Aktivite detayları yükleniyor">
+              {[0, 1, 2].map((item) => (
+                <div key={item} className="h-24 animate-pulse rounded-xl border border-border/50 bg-muted/35" />
+              ))}
+            </div>
+          ) : error ? (
+            <div className="rounded-xl border border-destructive/25 bg-destructive/5 p-5 text-center">
+              <p className="text-sm text-destructive">{error}</p>
+              <Button className="mt-3" size="sm" variant="outline" onClick={onRetry}>Yeniden dene</Button>
+            </div>
+          ) : !data?.items.length ? (
+            <div className="rounded-xl border border-dashed border-border px-6 py-12 text-center">
+              <ActivityIcon className="mx-auto size-8 text-muted-foreground/50" />
+              <p className="mt-3 text-sm font-medium">Bu seçimde kayıt yok</p>
+              <p className="mt-1 text-xs text-muted-foreground">Başka bir dönem veya aktivite türü seçebilirsiniz.</p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 rounded-xl border border-border/60 bg-muted/15 px-3.5 py-2.5">
+                <span className="text-xs font-medium text-muted-foreground">
+                  {groups.length} aktivite türü
+                  {!selection?.userId && ` \u00b7 ${new Set(data.items.map((item) => item.userId)).size} kişi`}
+                </span>
+                <span className="font-display text-2xl font-semibold leading-none text-foreground">
+                  {data.items.length}
+                  <span className="ml-1 text-xs font-normal text-muted-foreground">kayıt</span>
+                </span>
+              </div>
+
+              {groups.map(([typeName, items]) => (
+                <details
+                  key={typeName}
+                  open
+                  className="group/type overflow-hidden rounded-xl border border-border/65 bg-background"
+                >
+                  <summary className="flex cursor-pointer list-none items-center gap-2 border-b border-transparent bg-muted/20 px-3.5 py-2.5 marker:content-none hover:bg-muted/35 group-open/type:border-border/60">
+                    <ChevronRight className="size-3.5 shrink-0 text-muted-foreground transition-transform group-open/type:rotate-90" />
+                    <span className="min-w-0 flex-1 truncate text-sm font-semibold">{typeName}</span>
+                    <span className="shrink-0 rounded-full bg-primary/10 px-2 py-0.5 font-data text-[11px] font-semibold tabular-nums text-primary">
+                      {items.length}
+                    </span>
+                  </summary>
+                  <ol className="divide-y divide-border/45">
+                    {items.map((item) => (
+                      <li
+                        key={`${item.source}-${item.id}`}
+                        className="px-3.5 py-2.5 transition-colors hover:bg-muted/20"
+                      >
+                        <p className="break-words text-sm font-medium leading-snug text-foreground">{item.title}</p>
+                        <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
+                          <span
+                            className={`inline-flex min-w-0 items-center gap-1 ${
+                              item.company.name ? "font-medium text-foreground" : ""
+                            }`}
+                          >
+                            <Building2 className="size-3 shrink-0" />
+                            <span className="truncate">{item.company.name ?? "Firma bilgisi görünmüyor"}</span>
+                          </span>
+                          {!selection?.userId && (
+                            <span className="inline-flex items-center gap-1">
+                              <Users2 className="size-3" /> {item.userName}
+                            </span>
+                          )}
+                          <time className="inline-flex items-center gap-1" dateTime={item.occurredAt}>
+                            <Clock3 className="size-3" /> {detailDate(item.occurredAt)}
+                          </time>
+                        </div>
+                      </li>
+                    ))}
+                  </ol>
+                </details>
+              ))}
+            </div>
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 /**
  * Gösterge panelinde "kim ne yaptı" bölümü. Süper admin tüm ekibi görür ve
  * kapsamı değiştirebilir; diğer kullanıcılar yalnız kendi verisini alır
@@ -79,6 +246,11 @@ export function TeamActivityPanel() {
   const [data, setData] = useState<TeamActivityReport | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [detailSelection, setDetailSelection] = useState<DetailSelection | null>(null);
+  const [detailData, setDetailData] = useState<TeamActivityDetails | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailError, setDetailError] = useState<string | null>(null);
+  const [detailRetry, setDetailRetry] = useState(0);
 
   useEffect(() => {
     let alive = true;
@@ -99,6 +271,37 @@ export function TeamActivityPanel() {
       alive = false;
     };
   }, [period, scope]);
+
+  useEffect(() => {
+    if (!detailSelection) return;
+    let alive = true;
+    setDetailLoading(true);
+    setDetailError(null);
+    setDetailData(null);
+    reportService
+      .teamActivityDetails({
+        period,
+        scope,
+        metric: detailSelection.metric,
+        userId: detailSelection.userId,
+      })
+      .then((res) => {
+        if (alive) setDetailData(res);
+      })
+      .catch((err: any) => {
+        if (alive) setDetailError(err?.message ?? "Aktivite detayları yüklenemedi.");
+      })
+      .finally(() => {
+        if (alive) setDetailLoading(false);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [detailRetry, detailSelection, period, scope]);
+
+  const openDetails = (metric: TeamActivityMetric, user?: { userId: string; name: string }) => {
+    setDetailSelection({ metric, userId: user?.userId, userName: user?.name });
+  };
 
   const chartData = useMemo(
     () =>
@@ -130,15 +333,23 @@ export function TeamActivityPanel() {
       <CardContent className="space-y-4 p-4 sm:p-5">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="min-w-0">
-            <div className="flex items-center gap-2">
-              <ActivityIcon className="size-4 text-primary" />
-              <span className="text-sm font-semibold">
+            <button
+              type="button"
+              className="group flex items-center gap-2 rounded-md text-left outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-60"
+              disabled={!data || data.users.length === 0}
+              onClick={() => openDetails("all")}
+              aria-label="Tüm ekip aktivitesi kayıtlarını aç"
+            >
+              <span className="flex size-7 items-center justify-center rounded-full bg-primary/10 transition-colors group-hover:bg-primary/15">
+                <ActivityIcon className="size-4 text-primary" />
+              </span>
+              <span className="text-sm font-semibold underline-offset-4 group-hover:underline">
                 {data?.scope === "self" ? "Benim aktivitem" : "Ekip aktivitesi"}
               </span>
               {data?.scope === "self" && !isSuperAdmin && (
                 <Badge variant="outline" className="text-[10px]">Kendi verileriniz</Badge>
               )}
-            </div>
+            </button>
             <p className="mt-0.5 text-[11px] text-muted-foreground">
               {rangeLabel && (
                 <span className="inline-flex items-center gap-1">
@@ -192,15 +403,22 @@ export function TeamActivityPanel() {
                 const previous = data.previousTotals[metric.key];
                 const Icon = metric.icon;
                 return (
-                  <div key={metric.key} className="rounded-lg border border-border/60 bg-muted/15 px-3 py-2.5">
+                  <button
+                    type="button"
+                    key={metric.key}
+                    disabled={current === 0}
+                    onClick={() => openDetails(metric.key)}
+                    className="group rounded-lg border border-border/60 bg-muted/15 px-3 py-2.5 text-left transition-[border-color,background-color,transform] hover:-translate-y-0.5 hover:border-primary/30 hover:bg-primary/[0.035] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-60"
+                    aria-label={`${metric.label} kayıtlarını aç: ${current}`}
+                  >
                     <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wide text-muted-foreground">
-                      <Icon className="size-3.5" /> {metric.label}
+                      <Icon className="size-3.5 transition-colors group-hover:text-primary" /> {metric.label}
                     </div>
                     <div className="mt-1 font-display text-xl leading-none">{current}</div>
                     <div className="mt-1">
                       <DeltaBadge current={current} previous={previous} suffix={PREVIOUS_LABELS[period]} />
                     </div>
-                  </div>
+                  </button>
                 );
               })}
             </div>
@@ -248,20 +466,45 @@ export function TeamActivityPanel() {
                             index + 1
                           )}
                         </TableCell>
-                        <TableCell className="whitespace-nowrap text-xs font-medium">{user.name}</TableCell>
+                        <TableCell className="whitespace-nowrap text-xs font-medium">
+                          <button
+                            type="button"
+                            onClick={() => openDetails("all", user)}
+                            className="rounded-sm text-left underline-offset-4 hover:text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                            aria-label={`${user.name} için tüm aktivite kayıtlarını aç`}
+                          >
+                            {user.name}
+                          </button>
+                        </TableCell>
                         {METRICS.map((metric) => (
                           <TableCell key={metric.key} className="text-right font-data text-xs">
-                            {user[metric.key].current}
-                            <span className="ml-1 text-[9px] text-muted-foreground">
-                              ({user[metric.key].previous})
-                            </span>
+                            <button
+                              type="button"
+                              disabled={user[metric.key].current === 0}
+                              onClick={() => openDetails(metric.key, user)}
+                              className="rounded-md px-1.5 py-1 tabular-nums transition-colors hover:bg-primary/8 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-65"
+                              aria-label={`${user.name}: ${metric.label} kayıtlarını aç, ${user[metric.key].current} kayıt`}
+                            >
+                              {user[metric.key].current}
+                              <span className="ml-1 text-[9px] text-muted-foreground">
+                                ({user[metric.key].previous})
+                              </span>
+                            </button>
                           </TableCell>
                         ))}
                         <TableCell className="text-right font-data text-xs font-semibold">
-                          {user.total.current}
-                          <span className="ml-1 text-[9px] font-normal text-muted-foreground">
-                            ({user.total.previous})
-                          </span>
+                          <button
+                            type="button"
+                            disabled={user.total.current === 0 && user.won.current === 0}
+                            onClick={() => openDetails("all", user)}
+                            className="rounded-md px-1.5 py-1 tabular-nums transition-colors hover:bg-primary/8 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-65"
+                            aria-label={`${user.name}: tüm kayıtları aç`}
+                          >
+                            {user.total.current}
+                            <span className="ml-1 text-[9px] font-normal text-muted-foreground">
+                              ({user.total.previous})
+                            </span>
+                          </button>
                         </TableCell>
                       </TableRow>
                     ))}
@@ -282,6 +525,14 @@ export function TeamActivityPanel() {
           </>
         )}
       </CardContent>
+      <TeamActivityDetailsDialog
+        selection={detailSelection}
+        data={detailData}
+        loading={detailLoading}
+        error={detailError}
+        onClose={() => setDetailSelection(null)}
+        onRetry={() => setDetailRetry((value) => value + 1)}
+      />
     </Card>
   );
 }
