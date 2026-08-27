@@ -138,8 +138,12 @@ test("firma ve sevkiyat ekranları yeni lojistik alanlarını gösterir", async 
   await page.getByRole("button", { name: "Yeni Firma" }).click();
   await page.getByRole("button", { name: "Tedarikçi", exact: true }).click();
   await expect(page.getByText("Tedarikçi Türü *")).toBeVisible();
-  await expect(page.getByRole("button", { name: /Nakliye/ })).toBeVisible();
-  await expect(page.getByRole("button", { name: /Lojistik/ })).toBeVisible();
+  // Tedarikçi türü seçenekleri diyaloğun içinde aranır: arkadaki firma listesinde
+  // "Örnek Lojistik A.Ş." satırı var ve kapsız /Lojistik/ o satırın butonlarına da
+  // çarpıp strict mode ihlali veriyor — liste ne zaman boyanırsa o zaman.
+  const firmaDialog = page.getByRole("dialog");
+  await expect(firmaDialog.getByRole("button", { name: /Nakliye/ })).toBeVisible();
+  await expect(firmaDialog.getByRole("button", { name: /Lojistik/ })).toBeVisible();
   await page.getByRole("button", { name: "Vazgeç" }).click();
 
   await page.getByRole("button", { name: "Sevkiyat", exact: true }).click();
