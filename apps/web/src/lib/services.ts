@@ -1333,6 +1333,13 @@ export interface TeamActivityDetailItem {
   userId: string;
   userName: string;
   company: { id: string | null; name: string | null };
+  content?: {
+    detail: string | null;
+    result: string | null;
+    location: string | null;
+    nextAction: string | null;
+    followUpAt: string | null;
+  };
 }
 
 export interface TeamActivityDetails {

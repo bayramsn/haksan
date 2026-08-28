@@ -49,7 +49,30 @@ type TeamActivityDetailItem = {
   userId: string;
   userName: string;
   company: { id: string | null; name: string | null };
+  content: {
+    detail: string | null;
+    result: string | null;
+    location: string | null;
+    nextAction: string | null;
+    followUpAt: string | null;
+  };
 };
+
+export function canExposeTeamActivityContent(
+  actor: AuthContext,
+  permission: 'quotes.read' | 'activities.read' | 'opportunities.read',
+  resource: 'quotes' | 'activities' | 'opportunities',
+  divisionId: string | null,
+  hasLinkedCompany: boolean,
+  visibleCompanyId: string | null,
+): boolean {
+  if (!actor.permissions.has(permission)) return false;
+  const scope = resolveResourceDivisionScope(actor, resource);
+  if (scope.mode === 'list' && (!divisionId || !scope.divisionIds.includes(divisionId))) return false;
+  // Rapor sayacı değişmeden kalabilir; ancak kaynak modülünde görünmeyen bir
+  // firmaya bağlı kaydın notu/sonucu rapor üzerinden sızmamalıdır.
+  return !hasLinkedCompany || Boolean(visibleCompanyId);
+}
 
 export type TargetProgressScope = { kind: 'user' | 'department' | 'role' | 'all-users'; id?: string };
 
@@ -1791,6 +1814,22 @@ export class ReportsService {
     const userName = (userId: string) => userNames.get(userId) ?? 'Bilinmeyen kullanıcı';
     const occurredAt = (value: Date | string) =>
       value instanceof Date ? value.toISOString() : new Date(value).toISOString();
+    const content = (allowed: boolean, values?: {
+      detail?: string | null;
+      result?: string | null;
+      location?: string | null;
+      nextAction?: string | null;
+      followUpAt?: Date | string | null;
+    }): TeamActivityDetailItem['content'] => {
+      const clean = (value?: string | null) => (allowed ? value?.trim() || null : null);
+      return {
+        detail: clean(values?.detail),
+        result: clean(values?.result),
+        location: clean(values?.location),
+        nextAction: clean(values?.nextAction),
+        followUpAt: allowed && values?.followUpAt ? occurredAt(values.followUpAt) : null,
+      };
+    };
     const loaders: Array<Promise<TeamActivityDetailItem[]>> = [];
 
     if (metric === 'all' || metric === 'quotes') {
@@ -1800,6 +1839,10 @@ export class ReportsService {
             id: quotes.id,
             date: quotes.quoteDate,
             documentNo: quotes.documentNo,
+            divisionId: quotes.divisionId,
+            notes: quotes.notes,
+            statusNote: quotes.statusNote,
+            followUpAt: quotes.followUpAt,
             userId: quotes.createdBy,
             companyId: companies.id,
             companyName: companies.legalTitle,
@@ -1829,6 +1872,18 @@ export class ReportsService {
                 userId: row.userId,
                 userName: userName(row.userId),
                 company: { id: row.companyId, name: row.companyName },
+                content: content(canExposeTeamActivityContent(
+                  actor,
+                  'quotes.read',
+                  'quotes',
+                  row.divisionId,
+                  true,
+                  row.companyId,
+                ), {
+                  detail: row.notes,
+                  result: row.statusNote,
+                  followUpAt: row.followUpAt,
+                }),
               })),
           ),
       );
@@ -1854,6 +1909,10 @@ export class ReportsService {
             id: visitsTbl.id,
             date: visitsTbl.visitDate,
             title: visitsTbl.visitPurpose,
+            divisionId: visitsTbl.divisionId,
+            result: visitsTbl.visitResult,
+            location: visitsTbl.visitLocation,
+            nextAction: visitsTbl.nextAction,
             userId: visitsTbl.createdBy,
             directCompanyId: visitsTbl.companyId,
             opportunityCompanyId: opportunities.companyId,
@@ -1893,6 +1952,19 @@ export class ReportsService {
                   row.companyName,
                   row.leadCompanyTitle,
                 ),
+                content: content(canExposeTeamActivityContent(
+                  actor,
+                  'activities.read',
+                  'activities',
+                  row.divisionId,
+                  Boolean(row.directCompanyId || row.opportunityCompanyId),
+                  row.companyId,
+                ), {
+                  detail: row.title,
+                  result: row.result,
+                  location: row.location,
+                  nextAction: row.nextAction,
+                }),
               })),
           ),
       );
@@ -1905,6 +1977,8 @@ export class ReportsService {
             id: callsTbl.id,
             date: callsTbl.callDate,
             title: callsTbl.callResult,
+            divisionId: callsTbl.divisionId,
+            nextAction: callsTbl.nextAction,
             userId: callsTbl.createdBy,
             directCompanyId: callsTbl.companyId,
             opportunityCompanyId: opportunities.companyId,
@@ -1944,6 +2018,14 @@ export class ReportsService {
                   row.companyName,
                   row.leadCompanyTitle,
                 ),
+                content: content(canExposeTeamActivityContent(
+                  actor,
+                  'activities.read',
+                  'activities',
+                  row.divisionId,
+                  Boolean(row.directCompanyId || row.opportunityCompanyId),
+                  row.companyId,
+                ), { result: row.title, nextAction: row.nextAction }),
               })),
           ),
       );
@@ -1965,6 +2047,10 @@ export class ReportsService {
             id: salesActivities.id,
             date: salesActivities.activityDate,
             title: salesActivities.subject,
+            divisionId: salesActivities.divisionId,
+            description: salesActivities.description,
+            result: salesActivities.result,
+            followUpAt: salesActivities.nextFollowUpAt,
             userId: salesActivities.createdBy,
             typeCode: activityTypes.code,
             typeName: activityTypes.name,
@@ -2013,6 +2099,18 @@ export class ReportsService {
                   row.companyName,
                   row.leadCompanyTitle,
                 ),
+                content: content(canExposeTeamActivityContent(
+                  actor,
+                  'activities.read',
+                  'activities',
+                  row.divisionId,
+                  Boolean(row.directCompanyId || row.opportunityCompanyId),
+                  row.companyId,
+                ), {
+                  detail: row.description,
+                  result: row.result,
+                  followUpAt: row.followUpAt,
+                }),
               })),
           ),
       );
@@ -2027,6 +2125,11 @@ export class ReportsService {
           id: opportunities.id,
           date: dateColumn,
           title: opportunities.title,
+          divisionId: opportunities.divisionId,
+          description: opportunities.description,
+          result: opportunities.wonReason,
+          nextAction: opportunities.nextAction,
+          followUpAt: opportunities.nextActionAt,
           userId: actorColumn,
           linkedCompanyId: opportunities.companyId,
           leadCompanyTitle: opportunities.leadCompanyTitle,
@@ -2065,6 +2168,19 @@ export class ReportsService {
                 id: row.companyId,
                 name: row.companyName ?? (!row.linkedCompanyId ? row.leadCompanyTitle : null),
               },
+              content: content(canExposeTeamActivityContent(
+                actor,
+                'opportunities.read',
+                'opportunities',
+                row.divisionId,
+                Boolean(row.linkedCompanyId),
+                row.companyId,
+              ), {
+                detail: row.description,
+                result: won ? row.result : null,
+                nextAction: row.nextAction,
+                followUpAt: row.followUpAt,
+              }),
             })),
         );
     };
