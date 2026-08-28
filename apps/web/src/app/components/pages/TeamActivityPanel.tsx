@@ -8,6 +8,7 @@ import {
 } from "recharts";
 import {
   reportService,
+  type TeamActivityDetailItem,
   type TeamActivityDetails,
   type TeamActivityMetric,
   type TeamActivityPeriod,
@@ -101,7 +102,50 @@ function detailDate(value: string) {
   });
 }
 
-function TeamActivityDetailsDialog({
+export function teamActivityContentRows(item: TeamActivityDetailItem) {
+  const rows: Array<{ label: string; value: string }> = [];
+  const content = item.content ?? {
+    detail: null,
+    result: null,
+    location: null,
+    nextAction: null,
+    followUpAt: null,
+  };
+  const add = (label: string, value: string | null | undefined) => {
+    const cleanValue = value?.trim();
+    if (cleanValue) rows.push({ label, value: cleanValue });
+  };
+
+  const detailLabel =
+    item.source === "quote"
+      ? "Teklif notu"
+      : item.source === "visit"
+        ? "Ziyaret amacı"
+        : item.source === "opportunity_created" || item.source === "opportunity_won"
+          ? "Fırsat açıklaması"
+          : "Not / Ayrıntı";
+  const resultLabel =
+    item.source === "quote"
+      ? "Durum notu"
+      : item.source === "visit"
+        ? "Ziyaret sonucu"
+        : item.source === "call"
+          ? "Arama sonucu"
+          : item.source === "opportunity_won"
+            ? "Kazanma nedeni"
+            : "Sonuç";
+
+  // Ziyaret amacı ve arama sonucu bazı eski kayıtlarda başlık olarak da
+  // kullanılıyor. Aynı metni ayrıntıda ikinci kez göstermeyelim.
+  if (content.detail?.trim() !== item.title.trim()) add(detailLabel, content.detail);
+  if (content.result?.trim() !== item.title.trim()) add(resultLabel, content.result);
+  add("Konum", content.location);
+  add("Sonraki aksiyon", content.nextAction);
+  if (content.followUpAt) add("Sonraki takip", detailDate(content.followUpAt));
+  return rows;
+}
+
+export function TeamActivityDetailsDialog({
   selection,
   data,
   loading,
@@ -116,6 +160,12 @@ function TeamActivityDetailsDialog({
   onClose: () => void;
   onRetry: () => void;
 }) {
+  const [expandedItemKey, setExpandedItemKey] = useState<string | null>(null);
+
+  useEffect(() => {
+    setExpandedItemKey(null);
+  }, [data, selection?.metric, selection?.userId]);
+
   // Kayıtlar aktivite türüne göre kümelenir: tek yığın halindeki 40+ satır
   // okunmuyordu, tür başlıkları ("Müşteri Ziyareti · 41") listeyi anlaşılır
   // kılıyor. Tür sırası çokluğa göre; en yoğun iş en üstte.
@@ -147,7 +197,7 @@ function TeamActivityDetailsDialog({
           </div>
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription>
-            Seçilen dönemdeki kayıtlar kişi, aktivite türü ve firma bilgisiyle tek tek listelenir.
+            Seçilen dönemdeki kayıtlar listelenir. İçeriğini görmek için bir aktiviteye tıklayın.
           </DialogDescription>
         </DialogHeader>
 
@@ -196,32 +246,81 @@ function TeamActivityDetailsDialog({
                     </span>
                   </summary>
                   <ol className="divide-y divide-border/45">
-                    {items.map((item) => (
-                      <li
-                        key={`${item.source}-${item.id}`}
-                        className="px-3.5 py-2.5 transition-colors hover:bg-muted/20"
-                      >
-                        <p className="break-words text-sm font-medium leading-snug text-foreground">{item.title}</p>
-                        <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
-                          <span
-                            className={`inline-flex min-w-0 items-center gap-1 ${
-                              item.company.name ? "font-medium text-foreground" : ""
-                            }`}
+                    {items.map((item) => {
+                      const itemKey = `${item.source}-${item.id}`;
+                      const contentId = `team-activity-content-${itemKey}`;
+                      const isExpanded = expandedItemKey === itemKey;
+                      const contentRows = teamActivityContentRows(item);
+                      return (
+                        <li key={itemKey}>
+                          <button
+                            type="button"
+                            className="group/item w-full px-3.5 py-2.5 text-left transition-colors hover:bg-muted/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+                            aria-expanded={isExpanded}
+                            aria-controls={contentId}
+                            aria-label={`${item.title} aktivite içeriğini ${isExpanded ? "kapat" : "aç"}`}
+                            onClick={() => setExpandedItemKey((current) => (current === itemKey ? null : itemKey))}
                           >
-                            <Building2 className="size-3 shrink-0" />
-                            <span className="truncate">{item.company.name ?? "Firma bilgisi görünmüyor"}</span>
-                          </span>
-                          {!selection?.userId && (
-                            <span className="inline-flex items-center gap-1">
-                              <Users2 className="size-3" /> {item.userName}
-                            </span>
+                            <div className="flex items-start gap-2">
+                              <ChevronRight
+                                className={`mt-0.5 size-3.5 shrink-0 text-muted-foreground transition-transform ${
+                                  isExpanded ? "rotate-90 text-primary" : "group-hover/item:text-primary"
+                                }`}
+                              />
+                              <div className="min-w-0 flex-1">
+                                <p className="break-words text-sm font-medium leading-snug text-foreground">{item.title}</p>
+                                <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
+                                  <span
+                                    className={`inline-flex min-w-0 items-center gap-1 ${
+                                      item.company.name ? "font-medium text-foreground" : ""
+                                    }`}
+                                  >
+                                    <Building2 className="size-3 shrink-0" />
+                                    <span className="truncate">{item.company.name ?? "Firma bilgisi görünmüyor"}</span>
+                                  </span>
+                                  {!selection?.userId && (
+                                    <span className="inline-flex items-center gap-1">
+                                      <Users2 className="size-3" /> {item.userName}
+                                    </span>
+                                  )}
+                                  <time className="inline-flex items-center gap-1" dateTime={item.occurredAt}>
+                                    <Clock3 className="size-3" /> {detailDate(item.occurredAt)}
+                                  </time>
+                                </div>
+                              </div>
+                              <span className="hidden shrink-0 pt-0.5 text-[10px] font-medium text-primary/80 sm:inline">
+                                {isExpanded ? "İçeriği kapat" : "İçeriği gör"}
+                              </span>
+                            </div>
+                          </button>
+                          {isExpanded && (
+                            <section
+                              id={contentId}
+                              className="mx-3.5 mb-3 rounded-lg border border-primary/15 bg-primary/[0.025] px-3 py-2.5"
+                              aria-label="Aktivite içeriği"
+                            >
+                              <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-primary">
+                                Aktivite içeriği
+                              </div>
+                              {contentRows.length ? (
+                                <dl className="mt-2 space-y-2.5">
+                                  {contentRows.map((row) => (
+                                    <div key={row.label}>
+                                      <dt className="text-[10px] font-medium text-muted-foreground">{row.label}</dt>
+                                      <dd className="mt-0.5 whitespace-pre-wrap break-words text-sm leading-5 text-foreground">
+                                        {row.value}
+                                      </dd>
+                                    </div>
+                                  ))}
+                                </dl>
+                              ) : (
+                                <p className="mt-1.5 text-xs text-muted-foreground">Bu kayıt için ek içerik girilmemiş.</p>
+                              )}
+                            </section>
                           )}
-                          <time className="inline-flex items-center gap-1" dateTime={item.occurredAt}>
-                            <Clock3 className="size-3" /> {detailDate(item.occurredAt)}
-                          </time>
-                        </div>
-                      </li>
-                    ))}
+                        </li>
+                      );
+                    })}
                   </ol>
                 </details>
               ))}
@@ -300,6 +399,9 @@ export function TeamActivityPanel() {
   }, [detailRetry, detailSelection, period, scope]);
 
   const openDetails = (metric: TeamActivityMetric, user?: { userId: string; name: string }) => {
+    setDetailData(null);
+    setDetailError(null);
+    setDetailLoading(true);
     setDetailSelection({ metric, userId: user?.userId, userName: user?.name });
   };
 

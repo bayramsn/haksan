@@ -28,11 +28,15 @@ describe('Team activity report', () => {
     return response.body.totals;
   };
 
-  const logActivity = async (activityTypeCode: string, subject: string) => {
+  const logActivity = async (
+    activityTypeCode: string,
+    subject: string,
+    content?: { description?: string; result?: string; nextFollowUpAt?: string },
+  ) => {
     const response = await request(app.getHttpServer())
       .post('/api/v1/activities')
       .set('Authorization', `Bearer ${token}`)
-      .send({ companyId, activityTypeCode, subject, activityDate: new Date().toISOString() })
+      .send({ companyId, activityTypeCode, subject, activityDate: new Date().toISOString(), ...content })
       .expect(201);
     createdActivityIds.push(response.body.id);
     return response;
@@ -106,6 +110,31 @@ describe('Team activity report', () => {
     const after = await totals();
     expect(after.visits - before.visits).toBe(1);
     expect(after.activities - before.activities).toBe(0);
+  });
+
+  it('aktivite içeriğini detay yanıtında döndürür', async () => {
+    const marker = `İçerik testi ${Date.now()}`;
+    const followUpAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+    await logActivity('customer_visit', marker, {
+      description: 'Müşterinin üretim hattı ve kapasite ihtiyacı görüşüldü.',
+      result: 'Teknik keşif planlandı.',
+      nextFollowUpAt: followUpAt,
+    });
+
+    const response = await request(app.getHttpServer())
+      .get('/api/v1/reports/team-activity/details?period=week&scope=self&metric=visits')
+      .set('Authorization', `Bearer ${token}`)
+      .expect(200);
+
+    const item = response.body.items.find((candidate: any) => candidate.title === marker);
+    expect(item).toBeDefined();
+    expect(item.content).toEqual({
+      detail: 'Müşterinin üretim hattı ve kapasite ihtiyacı görüşüldü.',
+      result: 'Teknik keşif planlandı.',
+      location: null,
+      nextAction: null,
+      followUpAt,
+    });
   });
 
   it('tüm aktivite türlerini kişi ve firma bilgisiyle tek tek listeler', async () => {
