@@ -19,6 +19,11 @@ const productTypes = [
 ];
 
 describe("ürün taksonomisi bölüm filtresi", () => {
+  it("fırsat sorumlusu listesinde rol ayırmadan tüm kullanıcıları gösterir", () => {
+    expect(createDialogsSource).toContain("{users.map((u) => (");
+    expect(createDialogsSource).not.toContain('users.filter((u) => u.role === "Sales" || u.role === "Admin")');
+  });
+
   it("Tümü kapsamında ürün grubu seçilmeden alt kategori göstermez", () => {
     const result = subcategoriesForProductCategory("TEZGAH", productTypes, subcategories, "");
     expect(result).toEqual([]);
