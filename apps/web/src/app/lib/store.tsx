@@ -63,6 +63,7 @@ import {
 import { productSpecGroupForTypeKey, specsForProductTypeStrict } from './productSpecTemplates';
 import { isServiceQuoteComplete, serviceQuoteMissingFields } from './serviceQuote';
 import { normalizeCompany } from './companyNormalizer';
+import { buildCompanyAddressPatch } from './companyAddressPatch';
 
 const SERVICE_STAGES: ServiceStage[] = [
   'Request Opened',
@@ -225,6 +226,7 @@ const mapCase = (o: any, isOfferPrepared: boolean): SalesCase =>
     lostCompetitorId: o.lostCompetitor?.id ?? o.lostCompetitorId ?? undefined,
     competitor: o.lostCompetitor?.name ?? o.lostCompetitorName ?? undefined,
     lostCompetitorProductModel: o.lostCompetitorProductModel ?? undefined,
+    wonReason: o.wonReason ?? undefined,
     createdAt: (o.createdAt as string)?.slice(0, 10) ?? '',
     closedAt: o.closedAt ? (o.closedAt as string).slice(0, 10) : undefined,
   }) as SalesCase;
@@ -637,6 +639,7 @@ type Store = {
   ) => Promise<void>;
   // Mantıksal kapanış (Bitir) ve geri alma (Geri Aç) — silmez, closedAt set/sıfırlar.
   closeCase: (id: string, reason?: string) => Promise<void>;
+  postponeCase: (id: string, input: { reason: string; nextAction: string; followUpAt: string }) => Promise<void>;
   reopenCase: (id: string) => Promise<void>;
   markCaseLost: (
     id: string,
@@ -1617,12 +1620,9 @@ function StoreInner({ children }: { children: ReactNode }) {
         isBilling: address.isBilling,
       }));
     } else if (patch.city !== undefined || patch.district !== undefined || patch.country !== undefined || patch.address !== undefined) {
-      body.address = {
-        country: patch.country ?? undefined,
-        province: patch.city ?? undefined,
-        district: patch.district ?? undefined,
-        fullAddress: patch.address ?? undefined,
-      };
+      // Kısmi adres güncellemesi satırın tamamını yazdığı için dokunulmayan
+      // alanlar mevcut kayıttan tamamlanır (bkz. buildCompanyAddressPatch).
+      body.address = buildCompanyAddressPatch(customers.find((customer) => customer.id === id), patch);
     }
     await companyService.update(id, body);
     await fetchAll();
@@ -1877,6 +1877,11 @@ function StoreInner({ children }: { children: ReactNode }) {
   // kart aktif listeden düşer (view=active), Geçmiş'te görünür. delivered ise servise devir korunur.
   const closeCase: Store['closeCase'] = async (id, reason) => {
     await opportunityService.close(id, reason ? { reason } : undefined);
+    await fetchAll();
+  };
+
+  const postponeCase: Store['postponeCase'] = async (id, input) => {
+    await opportunityService.defer(id, input);
     await fetchAll();
   };
 
@@ -2710,6 +2715,7 @@ function StoreInner({ children }: { children: ReactNode }) {
       moveQualification,
       decideCaseApproval,
       closeCase,
+      postponeCase,
       reopenCase,
       markCaseLost,
       moveService,

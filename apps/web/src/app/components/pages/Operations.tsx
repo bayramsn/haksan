@@ -214,15 +214,18 @@ export function ProductsPage({ initialQuery }: { initialQuery?: string }) {
       (v) => (v ?? "").toLocaleLowerCase("tr-TR").includes(s)
     );
   });
-  // Liste ve kart görünümünde ürünler seri içinde A-Z: sıralama görünen etikete
-  // (marka + model) göre yapılır. `numeric` sayesinde MV-2, MV-10'dan önce gelir;
-  // düz metin sıralamasında MV-10 başa geçiyordu.
-  const sortedProducts = [...filtered].sort((a, b) =>
-    `${a.brand ?? ""} ${productDisplayModel(a)}`.trim().localeCompare(
-      `${b.brand ?? ""} ${productDisplayModel(b)}`.trim(),
-      "tr",
-      { numeric: true, sensitivity: "base" },
-    ),
+  // Liste ve kart görünümünde ürünler A-Z: önce marka, marka aynıysa ürün adı.
+  // İki ayrı karşılaştırma şart — birleşik metinde "LK" ile "LK Machinery" gibi
+  // biri diğerinin öneki olan markalar iç içe geçiyordu.
+  // `numeric` sayesinde MV-850, MV-1050'den önce gelir; düz metin sıralamasında
+  // MV-1050 başa geçiyordu.
+  const compareProductText = (a: string, b: string) =>
+    a.trim().localeCompare(b.trim(), "tr", { numeric: true, sensitivity: "base" });
+  const sortedProducts = [...filtered].sort(
+    (a, b) =>
+      compareProductText(a.brand ?? "", b.brand ?? "") ||
+      compareProductText(productDisplayModel(a), productDisplayModel(b)) ||
+      compareProductText(a.shortDescription ?? "", b.shortDescription ?? ""),
   );
   const grouped = Array.from(
     sortedProducts.reduce((acc, product) => {
