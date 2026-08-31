@@ -2,7 +2,7 @@ import { Body, Controller, Delete, Get, Inject, Patch, Post, Param, Query, UseGu
 import { hashPassword } from '../../shared/security/password';
 import { and, asc, desc, eq, inArray, isNull, ne, sql } from 'drizzle-orm';
 import type { DbClient } from '../../db/client';
-import { users, roles, permissions, userRoles, rolePermissions, userTargets, departmentTargets, userAccessScopes, userDepartmentAssignments, userDivisions, loginSessions, refreshTokens } from '../../db/schema/users';
+import { users, roles, permissions, userRoles, rolePermissions, userTargets, departmentTargets, divisionTargets, userAccessScopes, userDepartmentAssignments, userDivisions, loginSessions, refreshTokens } from '../../db/schema/users';
 import { departments, tenants, divisions } from '../../db/schema/tenants';
 import { auditLogs } from '../../db/schema/audit';
 import { DB } from '../../shared/database/database.module';
@@ -723,6 +723,70 @@ export class AdminController {
       return row;
     }
     const [row] = await this.db.insert(departmentTargets).values(values).returning();
+    return row;
+  }
+
+  @RequirePermissions('users.read')
+  @Get('division-targets')
+  async listDivisionTargets(
+    @Query(new ZodValidationPipe(targetPeriodQuerySchema)) query: TargetPeriodQuery,
+    @CurrentUser() user: AuthContext
+  ) {
+    const filters = [eq(divisionTargets.tenantId, user.tenantId), isNull(divisionTargets.deletedAt)];
+    if (query.period) filters.push(eq(divisionTargets.period, query.period));
+    return this.db.query.divisionTargets.findMany({
+      where: and(...filters),
+      orderBy: [desc(divisionTargets.period), desc(divisionTargets.updatedAt)],
+    });
+  }
+
+  @RequirePermissions('divisions.update')
+  @Post('divisions/:id/targets')
+  async upsertDivisionTarget(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(targetUpsertSchema)) body: TargetUpsertInput,
+    @CurrentUser() user: AuthContext
+  ) {
+    const division = await this.db.query.divisions.findFirst({
+      where: and(
+        eq(divisions.id, id),
+        eq(divisions.tenantId, user.tenantId),
+        eq(divisions.isActive, true),
+        isNull(divisions.deletedAt)
+      ),
+    });
+    if (!division) throw new NotFoundError('Bölüm');
+
+    const values = {
+      tenantId: user.tenantId,
+      divisionId: id,
+      period: body.period,
+      currency: 'USD' as const,
+      salesAmount: body.salesAmount == null ? null : body.salesAmount.toString(),
+      salesNewCustomers: body.salesNewCustomers,
+      serviceAmount: body.serviceAmount == null ? null : body.serviceAmount.toString(),
+      serviceCompleted: body.serviceCompleted,
+      digitalLeadTarget: body.digitalLeadTarget,
+      digitalConversionTarget: body.digitalConversionTarget,
+      digitalBudget: body.digitalBudget == null ? null : body.digitalBudget.toString(),
+      visitTarget: body.visitTarget,
+      callTarget: body.callTarget,
+      quoteTarget: body.quoteTarget,
+      targetItems: body.targetItems,
+      note: body.note?.trim() || null,
+    };
+    const existing = await this.db.query.divisionTargets.findFirst({
+      where: and(
+        eq(divisionTargets.tenantId, user.tenantId),
+        eq(divisionTargets.divisionId, id),
+        eq(divisionTargets.period, body.period)
+      ),
+    });
+    if (existing) {
+      const [row] = await this.db.update(divisionTargets).set(values).where(eq(divisionTargets.id, existing.id)).returning();
+      return row;
+    }
+    const [row] = await this.db.insert(divisionTargets).values(values).returning();
     return row;
   }
 

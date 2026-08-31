@@ -7,6 +7,7 @@ describe("lead ve fırsat çalışma alanı sorumlu değişikliği", () => {
   const railSource = readFileSync(new URL("./LeadWorkspaceControls.tsx", import.meta.url), "utf8");
   const workspaceSource = readFileSync(new URL("./OpportunityWorkspace.tsx", import.meta.url), "utf8");
   const detailSource = readFileSync(new URL("./SalesCaseDetail.tsx", import.meta.url), "utf8");
+  const taskSectionSource = readFileSync(new URL("./tasks/TaskRecordSection.tsx", import.meta.url), "utf8");
   const shellSource = readFileSync(new URL("../shared/KanbanDetailDialogShell.tsx", import.meta.url), "utf8");
 
   it("nitelendirme formunu yalnız başka bir karta geçilince sunucu değeriyle ezer", () => {
@@ -40,6 +41,19 @@ describe("lead ve fırsat çalışma alanı sorumlu değişikliği", () => {
     expect(detailSource).toContain('hasPermission("activities.update")');
     expect(detailSource).toContain('hasPermission("activities.delete")');
     expect(detailSource).toContain("{canCreateActivity && (");
+  });
+
+  it("takibe alma eylemini fırsat görevleri kartında gösterir", () => {
+    expect(detailSource).toContain("taskActions={canFollowUp ? (");
+    expect(workspaceSource).toContain("headerActions={taskActions}");
+    expect(taskSectionSource).toContain("{headerActions}");
+    // Sağ komut panelindeki eski kopya kaldırılmalı; eylem görev kartında tek
+    // bir bağlam altında kalır.
+    const otherActions = detailSource.slice(
+      detailSource.indexOf("const workspaceOtherActions"),
+      detailSource.indexOf("const content"),
+    );
+    expect(otherActions).not.toContain("Takibe al");
   });
 
   it("satış alanı kutusunu kapının dışında tutar, yalnız operasyon kartlarını kapatır", () => {

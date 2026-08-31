@@ -93,7 +93,7 @@ export function QualificationKanban({
   onSelect: (salesCase: SalesCase) => void;
   onRequestDelete?: (salesCase: SalesCase) => void;
 }) {
-  const { customers, contacts, moveQualification, closeCase } = useStore();
+  const { customers, contacts, moveQualification } = useStore();
   const { hasPermission } = useAuth();
   const companyDetailsQuery = useCompanyCardDetails(
     items.map((item) => item.customerId),
@@ -182,19 +182,6 @@ export function QualificationKanban({
       setBackReason("");
     } catch (error: any) {
       toast.error("Geri alınamadı", { description: error?.message ?? "İşlem başarısız oldu." });
-    } finally {
-      setBusyId(null);
-    }
-  };
-
-  const archive = async (salesCase: SalesCase) => {
-    if (!canUpdate || busyId) return;
-    setBusyId(salesCase.id);
-    try {
-      await closeCase(salesCase.id);
-      toast.success("Fırsat Geçmiş'e alındı");
-    } catch (error: any) {
-      toast.error("Fırsat arşivlenemedi", { description: error?.message ?? "İşlem başarısız oldu." });
     } finally {
       setBusyId(null);
     }
@@ -348,9 +335,9 @@ export function QualificationKanban({
                             <DropdownMenuSeparator />
                             <DropdownMenuItem
                               disabled={!canUpdate || Boolean(busyId)}
-                              onSelect={() => void archive(salesCase)}
+                              onSelect={() => onSelect(salesCase)}
                             >
-                              <Check className="size-3.5" /> Tamamla ve Geçmiş'e al
+                              <Check className="size-3.5" /> Fırsatı kapat / nedeni gir
                             </DropdownMenuItem>
                           </>
                         )}

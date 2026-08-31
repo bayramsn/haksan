@@ -1,9 +1,10 @@
 /**
  * Rapor kapsamı yetkilendirmesi.
  *
- * Kural: süper admin tüm kullanıcıların verisini görür, diğer herkes yalnız
- * kendi verisini. Bu dosya kuralı uçlarda doğrular; toplama/kur semantiği
- * target-progress.spec.ts'in işi.
+ * Kural: hedef takibinde süper admin ve admin yönetim kapsamlarını görebilir;
+ * diğer roller yalnız kendisini görür. Diğer raporların süper-admin sınırı
+ * değişmez. Bu dosya uç yetkilendirmesini doğrular; toplama/kur semantiği
+ * target-progress.spec.ts'in işidir.
  *
  * Bu testlerin çoğu düzeltmeden ÖNCE kırmızıydı: `target-progress` isteği kimin
  * yaptığına bakmadığı için `reports.read` izni olan herkes tüm kullanıcıların
@@ -24,6 +25,7 @@ describe('reports scope authorization', () => {
   let readonlyToken = '';
   let adminId = '';
   let salesId = '';
+  let salesDepartmentId = '';
 
   const period = new Date().toISOString().slice(0, 7);
 
@@ -55,9 +57,10 @@ describe('reports scope authorization', () => {
     const db = getDb();
     const admin = await db.query.users.findFirst({ where: eq(users.email, 'admin@haksan.local') });
     const sales = await db.query.users.findFirst({ where: eq(users.email, 'sales@haksan.local') });
-    if (!admin || !sales) throw new Error('Kapsam testi kullanıcıları bulunamadı');
+    if (!admin || !sales || !sales.departmentId) throw new Error('Kapsam testi kullanıcıları bulunamadı');
     adminId = admin.id;
     salesId = sales.id;
+    salesDepartmentId = sales.departmentId;
   });
 
   afterAll(async () => {
@@ -72,7 +75,7 @@ describe('reports scope authorization', () => {
     });
 
     it('departman kapsamını alabilir', async () => {
-      await targetProgress(superAdminToken, { scope: 'department' }).expect(200);
+      await targetProgress(superAdminToken, { scope: 'department', id: salesDepartmentId }).expect(200);
     });
 
     it('departman performans raporunu alabilir', async () => {
@@ -108,7 +111,7 @@ describe('reports scope authorization', () => {
     });
 
     it('departman kapsamı isterse 403 alır', async () => {
-      await targetProgress(salesToken, { scope: 'department' }).expect(403);
+      await targetProgress(salesToken, { scope: 'department', id: salesDepartmentId }).expect(403);
     });
 
     it('rol kapsamı isterse 403 alır', async () => {

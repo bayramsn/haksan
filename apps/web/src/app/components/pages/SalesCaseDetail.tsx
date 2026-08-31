@@ -32,6 +32,7 @@ import { useAuth } from "../../../lib/auth";
 import { AddActivityDialog, CreateCustomerDialog, CreateInstallationDialog, CreateShipmentDialog } from "../dialogs/CreateDialogs";
 import { QuoteDialog } from "../dialogs/QuoteDialog";
 import { LostCaseDialog } from "../dialogs/LostCaseDialog";
+import { OpportunityFollowUpDialog } from "../dialogs/OpportunityFollowUpDialog";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "../ui/dialog";
 import {
   AlertDialog,
@@ -441,6 +442,7 @@ export function SalesCaseDetailPage({
   const canUpdateActivity = hasPermission("activities.update");
   const canDeleteActivity = hasPermission("activities.delete");
   const [lostOpen, setLostOpen] = useState(false);
+  const [followUpOpen, setFollowUpOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [closeOpen, setCloseOpen] = useState(false);
   const [pendingActivityDelete, setPendingActivityDelete] = useState<Activity | null>(null);
@@ -448,6 +450,7 @@ export function SalesCaseDetailPage({
   const [deletingDocumentId, setDeletingDocumentId] = useState<string | null>(null);
   const [deleteSaving, setDeleteSaving] = useState(false);
   const [closeSaving, setCloseSaving] = useState(false);
+  const [closeReason, setCloseReason] = useState("");
   const [selectedOfferId, setSelectedOfferId] = useState<string | null>(null);
   const [editingActivity, setEditingActivity] = useState<Activity | null>(null);
   const [activityForm, setActivityForm] = useState({ type: "", title: "", note: "", result: "", date: "" });
@@ -457,6 +460,8 @@ export function SalesCaseDetailPage({
   const [commercialDialogOpen, setCommercialDialogOpen] = useState(false);
   const [requestedProcessAction, setRequestedProcessAction] = useState<OpportunityProcessActionKey | null>(null);
   const canMarkLost = canUpdate && !sc.isLost && sc.stage !== "cancelled" && sc.stage !== "delivered";
+  const canFollowUp = canUpdate && !sc.closedAt && !sc.isLost && sc.qualificationStage !== "win";
+  const canCloseOpportunity = canUpdate && !sc.closedAt && (sc.qualificationStage === "win" || sc.stage === "delivered");
   const isLeadCard = (sc.qualificationStage ?? "c") === "lead";
   const cardTypeLabel = "Fırsat";
   const storedCompany = customers.find((x) => x.id === sc.customerId);
@@ -728,11 +733,16 @@ export function SalesCaseDetailPage({
 
   const handleCloseCase = async () => {
     if (closeSaving) return;
+    if (!closeReason.trim()) {
+      toast.error("Fırsatı kapatmak için kazanma nedenini yazın.");
+      return;
+    }
     setCloseSaving(true);
     try {
-      await closeCase(sc.id);
+      await closeCase(sc.id, closeReason.trim());
       toast.success("Kart Geçmiş'e alındı", { description: partyName });
       setCloseOpen(false);
+      setCloseReason("");
       onBack();
     } catch (err: any) {
       toast.error("Kart bitirilemedi", { description: err?.message ?? "Yalnız teslim edilen veya iptal edilen kartlar kapatılabilir." });
@@ -931,8 +941,9 @@ export function SalesCaseDetailPage({
         </div>
       )}
       {sc.isLost && <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-xs"><div className="font-semibold text-red-900">Kaybedilme detayı</div><div className="mt-1 text-red-800">{sc.lostReason || sc.lostReasonCode || "Neden belirtilmedi"}{sc.competitor ? ` · ${sc.competitor}` : ""}</div></div>}
+      {sc.qualificationStage === "win" && sc.wonReason && <div className="rounded-lg border border-success/25 bg-success-soft p-3 text-xs"><div className="font-semibold text-success">Kapanış nedeni</div><div className="mt-1 text-foreground">{sc.wonReason}</div></div>}
       <div className="grid gap-2">
-        {canUpdate && sc.stage === "delivered" && !sc.closedAt && <Button type="button" variant="outline" className="min-h-11 justify-start gap-2 border-emerald-200 text-emerald-700" onClick={() => setCloseOpen(true)} disabled={closeSaving}><CheckCircle2 className="size-4" /> Bitir</Button>}
+        {canCloseOpportunity && <Button type="button" variant="outline" className="min-h-11 justify-start gap-2 border-emerald-200 text-emerald-700" onClick={() => setCloseOpen(true)} disabled={closeSaving}><CheckCircle2 className="size-4" /> Fırsatı kapat</Button>}
         {canMarkLost && <Button type="button" variant="outline" className="min-h-11 justify-start gap-2 border-red-200 text-red-700" onClick={() => setLostOpen(true)}><XCircle className="size-4" /> Kaybedildi olarak işaretle</Button>}
         {canDelete && <Button type="button" variant="outline" className="min-h-11 justify-start gap-2 border-red-200 text-red-700" onClick={() => setDeleteOpen(true)}><Trash2 className="size-4" /> {cardTypeLabel} kartını sil</Button>}
       </div>
@@ -954,6 +965,13 @@ export function SalesCaseDetailPage({
         caseId={sc.id}
         caseName={partyName}
         productName={sc.requestedMachine || [sc.requestedProduct, sc.requestedModel].filter(Boolean).join(" · ")}
+      />
+      <OpportunityFollowUpDialog
+        open={followUpOpen}
+        onOpenChange={setFollowUpOpen}
+        caseId={sc.id}
+        caseName={partyName}
+        defaultAction={sc.nextAction}
       />
       <QuoteDialog
         open={requestedProcessAction === "create_quote"}
@@ -1043,15 +1061,26 @@ export function SalesCaseDetailPage({
       <AlertDialog open={closeOpen} onOpenChange={(open) => !closeSaving && setCloseOpen(open)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Satış kartı tamamlansın mı?</AlertDialogTitle>
+            <AlertDialogTitle>Fırsat kapatılsın mı?</AlertDialogTitle>
             <AlertDialogDescription>
               <b>{partyName}</b> · <b>{sc.requestedProduct}</b> kartı silinmeden Geçmiş görünümüne taşınacak. Teklif, belge ve aktivite bağlantıları korunur.
             </AlertDialogDescription>
           </AlertDialogHeader>
+          <div className="space-y-1.5">
+            <Label htmlFor="opportunity-close-reason">Kazanma / kapatma nedeni *</Label>
+            <Textarea
+              id="opportunity-close-reason"
+              value={closeReason}
+              onChange={(event) => setCloseReason(event.target.value.slice(0, 255))}
+              placeholder="Örn. Teknik çözüm ve teslim süresi müşteri tarafından onaylandı."
+              maxLength={255}
+              className="min-h-20"
+            />
+          </div>
           <AlertDialogFooter>
             <AlertDialogCancel disabled={closeSaving}>Vazgeç</AlertDialogCancel>
-            <AlertDialogAction disabled={closeSaving} onClick={(event) => { event.preventDefault(); void handleCloseCase(); }}>
-              {closeSaving ? "Tamamlanıyor…" : "Tamamla ve arşivle"}
+            <AlertDialogAction disabled={closeSaving || !closeReason.trim()} onClick={(event) => { event.preventDefault(); void handleCloseCase(); }}>
+              {closeSaving ? "Kapatılıyor…" : "Fırsatı kapat ve Geçmiş'e al"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -1308,8 +1337,26 @@ export function SalesCaseDetailPage({
                 </div>
               </DialogSidebarSection>
             )}
+            {sc.qualificationStage === "win" && sc.wonReason && (
+              <DialogSidebarSection title="Kapanış Detayı">
+                <div className="rounded-lg border border-success/20 bg-success-soft/45 p-3 text-xs">
+                  <div className="text-[9px] font-semibold uppercase tracking-wide text-muted-foreground">Kazanma / kapatma nedeni</div>
+                  <div className="mt-1 whitespace-pre-wrap font-medium leading-5">{sc.wonReason}</div>
+                </div>
+              </DialogSidebarSection>
+            )}
             <DialogSidebarSection title="İşlemler">
-              {canUpdate && sc.stage === "delivered" && !sc.closedAt && (
+              {canFollowUp && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setFollowUpOpen(true)}
+                  className="w-full justify-start gap-2 rounded-md border-warning/30 text-warning hover:bg-warning-soft"
+                >
+                  <CalendarClock className="size-4" /> Takibe al / ileri tarihe ertele
+                </Button>
+              )}
+              {canCloseOpportunity && (
                 <Button
                   variant="outline"
                   size="sm"
@@ -1317,7 +1364,7 @@ export function SalesCaseDetailPage({
                   disabled={closeSaving}
                   className="w-full justify-start gap-2 rounded-md border-success/30 text-success hover:bg-success-soft hover:text-success"
                 >
-                  <CheckCircle2 className="size-4" /> Bitir
+                  <CheckCircle2 className="size-4" /> Fırsatı kapat
                 </Button>
               )}
               {canMarkLost && (
@@ -1373,6 +1420,8 @@ export function SalesCaseDetailPage({
               loading={loading}
               onReload={reload}
               onMarkLost={canMarkLost ? () => setLostOpen(true) : undefined}
+              onFollowUp={canFollowUp ? () => setFollowUpOpen(true) : undefined}
+              onCloseOpportunity={canCloseOpportunity ? () => setCloseOpen(true) : undefined}
               // Görevler kutunun içinde. Element burada yaratıldığı için engel
               // düğmelerinin `requestedAction` bağı korunuyor; render kutuda
               // olduğu için portal/yuva mekanizmasına gerek kalmıyor.
@@ -1396,6 +1445,17 @@ export function SalesCaseDetailPage({
           onCommercialAction={(actionKey) => void handleProcessAction(actionKey)}
           canPerformCommercialAction={canPerformProcessAction}
           onOpenOffer={setSelectedOfferId}
+          taskActions={canFollowUp ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="gap-1.5 border-warning/30 text-warning hover:bg-warning-soft"
+              onClick={() => setFollowUpOpen(true)}
+            >
+              <CalendarClock className="size-4" /> Takibe al
+            </Button>
+          ) : undefined}
           otherActions={workspaceOtherActions}
           simpleMode={simpleMode}
         />
@@ -1405,6 +1465,9 @@ export function SalesCaseDetailPage({
         salesCase={sc}
         canUpdate={canUpdate}
         onRefresh={refresh}
+        onMarkLost={canMarkLost ? () => setLostOpen(true) : undefined}
+        onFollowUp={canFollowUp ? () => setFollowUpOpen(true) : undefined}
+        onCloseOpportunity={canCloseOpportunity ? () => setCloseOpen(true) : undefined}
         checklist={({ reload: reloadReadiness, checks: stageChecks, readOnly: stageReadOnly }) => (
           <ProcessChecklistPanel
             sc={sc}

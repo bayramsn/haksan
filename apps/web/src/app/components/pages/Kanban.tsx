@@ -31,6 +31,7 @@ import {
   AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "../ui/alert-dialog";
 import { Label } from "../ui/label";
+import { Textarea } from "../ui/textarea";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -111,6 +112,7 @@ export function KanbanPage({
   const [stockPickSaving, setStockPickSaving] = useState(false);
   const [invoiceUploadCase, setInvoiceUploadCase] = useState<SalesCase | null>(null);
   const [closingCaseId, setClosingCaseId] = useState<string | null>(null);
+  const [closeReason, setCloseReason] = useState("");
   const [pendingCloseCase, setPendingCloseCase] = useState<SalesCase | null>(null);
   const [paymentMethodSavingId, setPaymentMethodSavingId] = useState<string | null>(null);
   const [serviceQuoteCaseId, setServiceQuoteCaseId] = useState<string | null>(null);
@@ -317,11 +319,16 @@ export function KanbanPage({
 
   const finishDeliveredCase = async (sc: SalesCase) => {
     if (closingCaseId) return;
+    if (!closeReason.trim()) {
+      toast.error("Fırsatı kapatmak için kazanma nedenini yazın.");
+      return;
+    }
     setClosingCaseId(sc.id);
     try {
-      await closeCase(sc.id);
+      await closeCase(sc.id, closeReason.trim());
       toast.success("Kart Geçmiş'e alındı", { description: salesStageLabel(sc.stage) });
       setPendingCloseCase(null);
+      setCloseReason("");
     } catch (err: any) {
       toast.error("Kart bitirilemedi", { description: err?.message ?? "Yalnız teslim edilen veya iptal edilen kartlar kapatılabilir." });
     } finally {
@@ -409,15 +416,19 @@ export function KanbanPage({
     <AlertDialog open={Boolean(pendingCloseCase)} onOpenChange={(open) => !open && !closingCaseId && setPendingCloseCase(null)}>
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogTitle>Satış kartı tamamlansın mı?</AlertDialogTitle>
+          <AlertDialogTitle>Fırsat kapatılsın mı?</AlertDialogTitle>
           <AlertDialogDescription>
             <b>{pendingCloseCase ? customers.find((item) => item.id === pendingCloseCase.customerId)?.name ?? pendingCloseCase.leadCompanyTitle ?? pendingCloseCase.leadContactName ?? "Firma kaydı bekleyen lead" : "Seçili kart"}</b> kartı silinmeden Geçmiş görünümüne taşınacak. Bağlı belgeler ve aktiviteler korunur.
           </AlertDialogDescription>
         </AlertDialogHeader>
+        <div className="space-y-1.5">
+          <Label htmlFor="kanban-close-reason">Kazanma / kapatma nedeni *</Label>
+          <Textarea id="kanban-close-reason" value={closeReason} onChange={(event) => setCloseReason(event.target.value.slice(0, 255))} maxLength={255} placeholder="Müşteri neden bizi tercih etti?" className="min-h-20" />
+        </div>
         <AlertDialogFooter>
           <AlertDialogCancel>Vazgeç</AlertDialogCancel>
-          <AlertDialogAction disabled={Boolean(closingCaseId)} onClick={(event) => { event.preventDefault(); if (pendingCloseCase) void finishDeliveredCase(pendingCloseCase); }}>
-            {closingCaseId ? "Tamamlanıyor…" : "Tamamla ve arşivle"}
+          <AlertDialogAction disabled={Boolean(closingCaseId) || !closeReason.trim()} onClick={(event) => { event.preventDefault(); if (pendingCloseCase) void finishDeliveredCase(pendingCloseCase); }}>
+            {closingCaseId ? "Kapatılıyor…" : "Fırsatı kapat"}
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>
@@ -795,14 +806,15 @@ export function KanbanPage({
                     size="sm"
                     className="h-7 gap-1 rounded-md px-2 text-[10px] font-medium text-success hover:bg-success-soft hover:text-success"
                     disabled={closingCaseId === s.id}
-                    title="Tamamla / Geçmiş'e al"
+                    title="Fırsatı kapat / Geçmiş'e al"
                     onClick={(event) => {
                       event.stopPropagation();
+                      setCloseReason(s.wonReason || "");
                       setPendingCloseCase(s);
                     }}
                     onMouseDown={(event) => event.stopPropagation()}
                   >
-                    <CheckCircle2 className="size-3" /> Bitir
+                    <CheckCircle2 className="size-3" /> Fırsatı kapat
                   </Button>
                 )}
                 <span className="inline-flex items-center gap-1 rounded-md bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">

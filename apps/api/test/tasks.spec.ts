@@ -155,6 +155,45 @@ describe('Tasks module', () => {
     );
   });
 
+  it('moves a task cancelled without work from the open assignee view into history', async () => {
+    const created = await request()
+      .post('/api/v1/tasks')
+      .set('Authorization', `Bearer ${salesToken}`)
+      .send({ title: `İşlem yapılmadan kapanan görev ${runId}` })
+      .expect(201);
+
+    const cancelled = await request()
+      .patch(`/api/v1/tasks/${created.body.id}`)
+      .set('Authorization', `Bearer ${salesToken}`)
+      .send({ status: 'cancelled' })
+      .expect(200);
+    expect(cancelled.body.status).toBe('cancelled');
+    expect(cancelled.body.completedAt).toBeNull();
+    expect(cancelled.body.events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ eventType: 'status', summary: 'Durum İptal Edildi olarak değiştirildi' }),
+      ])
+    );
+
+    const [mine, history, counts] = await Promise.all([
+      request().get('/api/v1/tasks?view=mine').set('Authorization', `Bearer ${salesToken}`).expect(200),
+      request().get('/api/v1/tasks?view=history').set('Authorization', `Bearer ${salesToken}`).expect(200),
+      request().get('/api/v1/tasks/counts').set('Authorization', `Bearer ${salesToken}`).expect(200),
+    ]);
+    expect(mine.body.data.some((task: { id: string }) => task.id === created.body.id)).toBe(false);
+    expect(history.body.data.some((task: { id: string }) => task.id === created.body.id)).toBe(true);
+    expect(counts.body.history).toBeGreaterThan(0);
+
+    const reopened = await request()
+      .patch(`/api/v1/tasks/${created.body.id}`)
+      .set('Authorization', `Bearer ${salesToken}`)
+      .send({ status: 'todo' })
+      .expect(200);
+    expect(reopened.body.events).toEqual(
+      expect.arrayContaining([expect.objectContaining({ eventType: 'reopened', summary: 'Görev tekrar açıldı' })])
+    );
+  });
+
   it('rejects an empty task comment', async () => {
     const response = await request()
       .post(`/api/v1/tasks/${assignedTaskId}/comments`)

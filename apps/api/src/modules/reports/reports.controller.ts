@@ -22,8 +22,16 @@ const periodSchema = z.object({
 
 const targetProgressSchema = z.object({
   period: z.string().regex(/^\d{4}-\d{2}$/),
-  scope: z.enum(['user', 'department', 'role', 'all-users']).default('all-users'),
+  scope: z.enum(['user', 'department', 'division', 'role', 'all-users']).default('all-users'),
   id: z.string().uuid().optional(),
+}).superRefine((value, ctx) => {
+  if (['user', 'department', 'division'].includes(value.scope) && !value.id) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['id'],
+      message: `${value.scope} kapsamı için id zorunludur`,
+    });
+  }
 });
 
 const targetPeriodOnlySchema = z.object({

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
-import { ArrowRight, Check, Loader2, LockKeyhole, XCircle } from "lucide-react";
+import { ArrowRight, CalendarClock, Check, Loader2, LockKeyhole, XCircle } from "lucide-react";
 import {
   type OpportunityProcessReadiness,
   type ProcessCheck,
@@ -62,6 +62,8 @@ export function OpportunityProcessCenter({
   loading: controlledLoading,
   onReload,
   onMarkLost,
+  onFollowUp,
+  onCloseOpportunity,
   checklist,
 }: {
   salesCase: SalesCase;
@@ -72,6 +74,10 @@ export function OpportunityProcessCenter({
   onReload?: () => Promise<void>;
   /** Kartı kaybedildi olarak işaretleme akışını açar; yetki üst bileşende kontrol edilir. */
   onMarkLost?: () => void;
+  /** Kartı kapatmadan gelecekteki bir tarihe görevle taşır. */
+  onFollowUp?: () => void;
+  /** WIN kararından sonra gerekçeli kapatma penceresini açar. */
+  onCloseOpportunity?: () => void;
   /**
    * Mevcut alanın görev listesi (`ProcessChecklistPanel`). Üst bileşende
    * yaratılır ki dış operasyon kısayollarının `requestedAction` bağı korunsun, ama
@@ -378,6 +384,17 @@ export function OpportunityProcessCenter({
                   : "Bu alanın gereklilikleri tamam; ilerletebilirsiniz."}
             </span>
             <div className="flex flex-wrap items-center gap-2">
+              {onFollowUp && !closed && (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="min-h-11 gap-1.5 border-warning/30 text-warning hover:bg-warning-soft sm:min-h-8"
+                  onClick={onFollowUp}
+                >
+                  <CalendarClock className="size-3.5" /> Takibe al
+                </Button>
+              )}
               {/* Kaybedildi, ilerletmenin karşıtı: aynı kararın iki sonucu.
                   Sağ rayın en altındaki "Diğer işlemler" başlığı altındayken
                   katlamanın altında kalıyor ve kullanıcı bulamıyordu. */}
@@ -407,6 +424,13 @@ export function OpportunityProcessCenter({
                 {advancing ? "İlerletiliyor…" : advanceLabel}
               </Button>
             </div>
+          </div>
+        )}
+        {!nextTarget && currentStage === "win" && !closed && onCloseOpportunity && (
+          <div className="flex justify-end border-t border-border/60 pt-3">
+            <Button type="button" size="sm" className="min-h-11 gap-1.5 bg-success text-success-foreground hover:bg-success/90 sm:min-h-8" onClick={onCloseOpportunity}>
+              <Check className="size-3.5" /> Fırsatı kapat
+            </Button>
           </div>
         )}
       </CardContent>

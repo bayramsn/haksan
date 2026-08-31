@@ -19,7 +19,7 @@ import { toast } from "sonner";
 const LOST_REASONS: { code: string; name: string }[] = [
   { code: "price", name: "Fiyat / Bütçe Yetersiz" },
   { code: "competitor", name: "Rakip Tercih Edildi" },
-  { code: "timing", name: "Zamanlama / Yatırım Ertelendi" },
+  { code: "timing", name: "Yatırım İptal Edildi / Zamanlama Uymadı" },
   { code: "spec", name: "Teknik Şartname Karşılanamadı" },
   { code: "no_budget", name: "Bütçe Onayı Çıkmadı" },
   { code: "other", name: "Diğer" },
@@ -117,7 +117,8 @@ export function LostCaseDialog({ open, onOpenChange, caseId, caseName, productNa
           <DialogTitle>Kaybedildi olarak işaretle</DialogTitle>
           <DialogDescription>
             Firma, kaybedilen ürün, rakip ve karşılanmayan şartları kaydedin. Bu bilgiler kart geçmişinde
-            değişmeden korunur ve kayıp analizini besler.
+            değişmeden korunur ve kayıp analizini besler. Müşteri yalnız ileri bir tarih verdiyse bu ekranı
+            kullanmayın; fırsat detayındaki “Takibe al” ile tarihli görev oluşturun.
           </DialogDescription>
         </DialogHeader>
 

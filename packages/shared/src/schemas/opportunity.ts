@@ -280,6 +280,17 @@ export const opportunityQualificationChangeSchema = z.object({
 });
 export type OpportunityQualificationChangeInput = z.infer<typeof opportunityQualificationChangeSchema>;
 
+/**
+ * Satış henüz kaybedilmediğinde kartı açık tutup somut bir ileri takip kurar.
+ * Aynı işlem opportunity.next_action alanını ve bağlı CRM görevini birlikte yazar.
+ */
+export const opportunityDeferSchema = z.object({
+  reason: z.string().trim().min(3, 'Takip gerekçesi zorunludur.').max(1000),
+  nextAction: z.string().trim().min(3, 'Sonraki aksiyon zorunludur.').max(1000),
+  followUpAt: z.coerce.date(),
+});
+export type OpportunityDeferInput = z.infer<typeof opportunityDeferSchema>;
+
 export const opportunityProcessActionKeys = [
   'assign_owner',
   'edit_subject',
@@ -399,7 +410,7 @@ export type OpportunityStageChangeInput = z.infer<typeof opportunityStageChangeS
 
 // Mantıksal kapanış ("Bitir") — opsiyonel gerekçe. Yalnız terminal (delivered/cancelled) fırsatlar.
 export const opportunityCloseSchema = z.object({
-  reason: z.string().max(1000).optional(),
+  reason: z.string().trim().max(255).optional(),
 });
 export type OpportunityCloseInput = z.infer<typeof opportunityCloseSchema>;
 

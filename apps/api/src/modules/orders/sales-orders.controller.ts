@@ -23,7 +23,13 @@ import { CurrentUser } from '../../shared/security/current-user.decorator';
 import type { AuthContext } from '../../shared/security/auth.types';
 import { OrdersService } from './orders.service';
 
-const listQuery = z.object({ search: z.string().optional(), statusCode: z.string().optional(), companyId: z.string().optional() });
+const listQuery = z.object({
+  search: z.string().optional(),
+  statusCode: z.string().optional(),
+  companyId: z.string().optional(),
+  /** Teklif kartından "bağlı sipariş"i bulmak için; sales_orders.quote_id tekil. */
+  quoteId: z.string().uuid().optional(),
+});
 
 @UseGuards(AuthGuard, PermissionsGuard)
 @Controller('sales-orders')

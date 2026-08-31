@@ -124,7 +124,7 @@ export function TaskDetailPanel({
         ) : (
           <>
             <SheetHeader className="gap-2">
-              <SheetTitle className={task.status === "done" ? "line-through" : ""}>{task.title}</SheetTitle>
+              <SheetTitle className={task.status === "done" || task.status === "cancelled" ? "line-through" : ""}>{task.title}</SheetTitle>
               <SheetDescription className="flex flex-wrap items-center gap-2">
                 <Badge variant="outline" className={STATUS_STYLE[task.status]}>
                   {TASK_STATUS_LABELS[task.status]}
@@ -137,7 +137,7 @@ export function TaskDetailPanel({
             </SheetHeader>
 
             <div className="flex flex-wrap gap-2 px-4 pb-3">
-              {task.status === "done" ? (
+              {task.status === "done" || task.status === "cancelled" ? (
                 <Button size="sm" variant="outline" disabled={busy} onClick={() => mutate({ status: "todo" }, "Görev tekrar açıldı")}>
                   <RotateCcw className="size-4" /> Tekrar Aç
                 </Button>

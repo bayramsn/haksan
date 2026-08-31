@@ -44,7 +44,17 @@ export type FilterDef = {
 };
 
 /** A real, working "Filtre" button: opens a popover with select dropdowns. */
-export function FilterPopover({ filters }: { filters: FilterDef[] }) {
+export function FilterPopover({
+  filters,
+  children,
+  contentClassName,
+  filtersClassName,
+}: {
+  filters: FilterDef[];
+  children?: React.ReactNode;
+  contentClassName?: string;
+  filtersClassName?: string;
+}) {
   const activeCount = filters.filter((f) => f.value && f.value !== "all").length;
   return (
     <Popover>
@@ -58,24 +68,27 @@ export function FilterPopover({ filters }: { filters: FilterDef[] }) {
           )}
         </Button>
       </PopoverTrigger>
-      <PopoverContent align="end" className="w-64 space-y-3">
+      <PopoverContent align="end" className={`space-y-3 ${contentClassName ?? "w-64"}`}>
         <div className="text-xs uppercase tracking-wider text-muted-foreground">Filtrele</div>
-        {filters.map((f) => (
-          <div key={f.label} className="space-y-1">
-            <label className="text-[11px] text-muted-foreground">{f.label}</label>
-            <Select value={f.value || "all"} onValueChange={f.onChange}>
-              <SelectTrigger className="h-9 bg-white">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">{f.allLabel ?? "Tümü"}</SelectItem>
-                {f.options.map((o) => (
-                  <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        ))}
+        <div className={filtersClassName ?? "space-y-3"}>
+          {filters.map((f) => (
+            <div key={f.label} className="space-y-1">
+              <label className="text-[11px] text-muted-foreground">{f.label}</label>
+              <Select value={f.value || "all"} onValueChange={f.onChange}>
+                <SelectTrigger className="h-9 bg-white">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">{f.allLabel ?? "Tümü"}</SelectItem>
+                  {f.options.map((o) => (
+                    <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          ))}
+        </div>
+        {children}
         {activeCount > 0 && (
           <Button
             variant="ghost"

@@ -207,6 +207,7 @@ export function OpportunityWorkspace({
   focusDecisionOnMount = false,
   onEditActivity,
   onDeleteActivity,
+  taskActions,
   otherActions,
   simpleMode = false,
 }: {
@@ -222,6 +223,8 @@ export function OpportunityWorkspace({
   focusDecisionOnMount?: boolean;
   onEditActivity?: (activityId: string) => void;
   onDeleteActivity?: (activityId: string) => void;
+  /** Fırsat görevleri kartında, görev oluşturmanın yanında gösterilen eylemler. */
+  taskActions?: ReactNode;
   otherActions?: ReactNode;
   simpleMode?: boolean;
 }) {
@@ -717,6 +720,7 @@ export function OpportunityWorkspace({
           <TaskRecordSection
             relation={{ opportunityId: sc.id, companyId: sc.customerId ?? null, label: sc.requestedProduct || "Fırsat" }}
             title={isLead ? "Lead Görevleri" : "Fırsat Görevleri"}
+            headerActions={taskActions}
           />
           {isLead ? (
             <>

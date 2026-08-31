@@ -62,7 +62,9 @@ export const taskCommentSchema = z.object({
  * yapılır ki "bugün" her istemcide aynı anlama gelsin.
  */
 export const taskListQuerySchema = z.object({
-  view: z.enum(['all', 'mine', 'today', 'overdue', 'upcoming', 'completed']).default('all'),
+  // `completed` eski istemciler için korunur; yeni `history` görünümü hem
+  // tamamlanan hem de hiçbir işlem yapılmadan iptal edilen görevleri içerir.
+  view: z.enum(['all', 'mine', 'today', 'overdue', 'upcoming', 'completed', 'history']).default('all'),
   status: taskStatusSchema.optional(),
   priority: taskPrioritySchema.optional(),
   assignedToUserId: z.string().uuid().optional(),

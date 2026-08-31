@@ -46,6 +46,7 @@ import {
 import { commercialInvoices, contracts } from '../../db/schema/quotes';
 import { opportunityProcessChecks } from '../../db/schema/crm';
 import { receivables } from '../../db/schema/finance';
+import { taskEvents, tasks } from '../../db/schema/tasks';
 import { DB } from '../../shared/database/database.module';
 import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from '../../shared/utils/errors';
 import type { AuthContext } from '../../shared/security/auth.types';
@@ -60,6 +61,7 @@ import type {
   OpportunityQualificationChangeInput,
   OpportunityUpdateInput,
   OpportunityStageChangeInput,
+  OpportunityDeferInput,
   TrelloImportCommitRequest,
   TrelloImportPreviewRequest,
   TrelloImportRowInput,
@@ -1889,6 +1891,9 @@ export class OpportunitiesService {
       lifecycle?: 'lead' | 'opportunity';
       companyId?: string;
       view?: 'active' | 'closed' | 'all';
+      lostReasonCode?: string;
+      wonReason?: string;
+      followUp?: 'true';
     },
     page: Pagination
   ) {
@@ -1909,6 +1914,19 @@ export class OpportunitiesService {
       );
     }
     if (query.companyId) filters.push(eq(opportunities.companyId, query.companyId));
+    if (query.lostReasonCode) {
+      filters.push(
+        sql`exists (select 1 from cancellation_reasons cr where cr.id = ${opportunities.lostReasonId} and cr.code = ${query.lostReasonCode})`
+      );
+    }
+    if (query.wonReason) filters.push(ilike(opportunities.wonReason, `%${query.wonReason}%`));
+    if (query.followUp === 'true') {
+      filters.push(
+        isNotNull(opportunities.nextActionAt),
+        sql`${opportunities.nextActionAt} > now()`,
+        sql`${opportunities.qualificationStage} not in ('win', 'lost')`
+      );
+    }
     if (query.qualificationStage) filters.push(eq(opportunities.qualificationStage, query.qualificationStage));
     if (query.lifecycle === 'lead') filters.push(eq(opportunities.qualificationStage, 'lead'));
     if (query.lifecycle === 'opportunity') filters.push(sql`${opportunities.qualificationStage} <> 'lead'`);
@@ -3968,8 +3986,17 @@ export class OpportunitiesService {
         /* best-effort servise devir */
       }
     }
+    const wonClosure = qualificationStage === 'win' || stage?.code === 'delivered';
+    const cleanReason = reason?.trim() || null;
     const now = new Date();
-    await this.db.update(opportunities).set({ closedAt: now, closedBy: actor.userId }).where(eq(opportunities.id, id));
+    await this.db
+      .update(opportunities)
+      .set({
+        closedAt: now,
+        closedBy: actor.userId,
+        ...(wonClosure && cleanReason ? { wonReason: cleanReason } : {}),
+      })
+      .where(eq(opportunities.id, id));
     await this.audit.write({
       tenantId: actor.tenantId,
       actorUserId: actor.userId,
@@ -3977,7 +4004,94 @@ export class OpportunitiesService {
       resourceType: 'opportunity',
       resourceId: id,
       oldValues: { stage: stage?.code ?? null, qualificationStage },
-      newValues: { closedAt: now, reason: reason ?? null },
+      newValues: { closedAt: now, reason: cleanReason },
+    });
+    return this.get(id, actor);
+  }
+
+  /**
+   * Müşterinin alımı ileri bir tarihe bıraktığı ama fırsatın kaybedilmediği durum.
+   * Fırsat açık kalır; takip notu aktivite akışına, tarihli aksiyon da görevlere
+   * aynı transaction içinde yazılır.
+   */
+  async defer(id: string, input: OpportunityDeferInput, actor: AuthContext) {
+    const opp = await this.findScopedOpp(id, actor);
+    if (opp.closedAt) throw new ValidationError('Kapalı fırsat takibe alınamaz; önce geri açın');
+    if (this.qualificationStage(opp.qualificationStage) === 'lost') {
+      throw new ValidationError('Kaybedilmiş fırsat takibe alınamaz; önce satış alanına geri açın');
+    }
+    if (input.followUpAt.getTime() <= Date.now()) {
+      throw new ValidationError('Takip tarihi gelecekte olmalıdır', { field: 'followUpAt' });
+    }
+
+    const noteTypeId = await lookupIdByCode(this.db, activityTypes, 'note');
+    const now = new Date();
+    await this.db.transaction(async (tx) => {
+      await tx
+        .update(opportunities)
+        .set({
+          nextAction: input.nextAction.trim(),
+          nextActionAt: input.followUpAt,
+          expectedCloseDate: input.followUpAt,
+        })
+        .where(eq(opportunities.id, id));
+
+      const [task] = await tx
+        .insert(tasks)
+        .values({
+          tenantId: actor.tenantId,
+          divisionId: opp.divisionId,
+          title: input.nextAction.trim().slice(0, 255),
+          description: input.reason.trim(),
+          status: 'todo',
+          priority: 'normal',
+          assignedToUserId: opp.ownerUserId ?? actor.userId,
+          createdBy: actor.userId,
+          dueAt: input.followUpAt,
+          opportunityId: opp.id,
+          companyId: opp.companyId,
+          contactId: opp.primaryContactId,
+        })
+        .returning({ id: tasks.id });
+      await tx.insert(taskEvents).values({
+        tenantId: actor.tenantId,
+        taskId: task.id,
+        eventType: 'created',
+        summary: `İleri takip görevi oluşturuldu: ${input.nextAction.trim()}`.slice(0, 512),
+        actorUserId: actor.userId,
+      });
+
+      if (noteTypeId) {
+        await tx.insert(salesActivities).values({
+          tenantId: actor.tenantId,
+          divisionId: opp.divisionId,
+          opportunityId: opp.id,
+          companyId: opp.companyId,
+          contactId: opp.primaryContactId,
+          activityTypeId: noteTypeId,
+          subject: 'Fırsat ileri takibe alındı',
+          description: input.reason.trim(),
+          result: input.nextAction.trim(),
+          origin: 'system',
+          activityDate: now,
+          nextFollowUpAt: input.followUpAt,
+          createdBy: actor.userId,
+        });
+      }
+    });
+
+    await this.audit.write({
+      tenantId: actor.tenantId,
+      actorUserId: actor.userId,
+      action: 'opportunity.deferred',
+      resourceType: 'opportunity',
+      resourceId: id,
+      oldValues: { nextAction: opp.nextAction, nextActionAt: opp.nextActionAt },
+      newValues: {
+        reason: input.reason.trim(),
+        nextAction: input.nextAction.trim(),
+        nextActionAt: input.followUpAt,
+      },
     });
     return this.get(id, actor);
   }

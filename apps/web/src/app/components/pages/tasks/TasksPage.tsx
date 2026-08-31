@@ -27,6 +27,7 @@ const EMPTY_BY_VIEW: Record<TaskView, string> = {
   overdue: "Geciken görev yok.",
   upcoming: "Yaklaşan görev yok.",
   completed: "Tamamlanmış görev yok.",
+  history: "Henüz tamamlanan veya iptal edilen görev yok.",
 };
 
 export function TasksPage({

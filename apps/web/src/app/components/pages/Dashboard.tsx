@@ -1,8 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "../ui/card";
-import { Progress } from "../ui/progress";
 import { Button } from "../ui/button";
-import { Input } from "../ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../ui/tabs";
 import {
   Users, Briefcase, FileText, AlertTriangle, TrendingUp, TrendingDown,
@@ -37,6 +35,7 @@ import {
 import { reportService } from "../../../lib/services";
 import { TeamActivityPanel } from "./TeamActivityPanel";
 import { DashboardBriefing } from "./dashboard/DashboardBriefing";
+import { TargetWorkspace } from "./dashboard/TargetWorkspace";
 import {
   DashboardCanvas,
   DashboardChartGrid,
@@ -98,16 +97,6 @@ type AssignedTarget = {
   digitalBudget?: string | number | null;
 };
 
-const TARGET_TYPE_ORDER: AssignedTargetItem["targetType"][] = ["sales", "service", "finance", "purchase", "operations", "logistics", "other"];
-const TARGET_TYPE_LABEL: Record<AssignedTargetItem["targetType"], string> = {
-  sales: "Satış",
-  service: "Servis",
-  finance: "Finans",
-  purchase: "Satınalma",
-  operations: "Operasyon",
-  logistics: "Lojistik",
-  other: "Diğer",
-};
 /** Özet alanlardan hedef kalemleri türetir (targetItems boşken görünürlük için). */
 const synthesizeTargetItems = (t: AssignedTarget | null): AssignedTargetItem[] => {
   if (!t) return [];
@@ -136,17 +125,6 @@ const synthesizeTargetItems = (t: AssignedTarget | null): AssignedTargetItem[] =
 };
 
 const currentPeriod = () => new Date().toISOString().slice(0, 7);
-const targetTypeLabel = (type: AssignedTargetItem["targetType"]) => TARGET_TYPE_LABEL[type] ?? type;
-const formatTargetValue = (item: AssignedTargetItem) => {
-  const value = item.target?.trim();
-  if (!value) return "Belirlenmedi";
-  if (item.unit === "amount") {
-    const number = Number(value.replace(",", "."));
-    const shown = Number.isFinite(number) ? number.toLocaleString("tr-TR") : value;
-    return `${shown} USD`;
-  }
-  return `${value} adet`;
-};
 type DashboardSection = "ozet" | "operasyon" | "grafikler" | "hedefler";
 
 /**
@@ -190,10 +168,9 @@ export function DashboardPage({ onAction }: { onAction?: (action: OperationActio
   const companySummary = companySummaryQuery.data;
   const totalCompanyCount = companySummary?.total ?? customers.length;
   const { convert } = useFx();
-  const [targetPeriod, setTargetPeriod] = useState(currentPeriod());
+  const [targetPeriod] = useState(currentPeriod);
   const [myTarget, setMyTarget] = useState<AssignedTarget | null>(null);
   const [targetLoading, setTargetLoading] = useState(false);
-  const [targetError, setTargetError] = useState("");
   const dashboardRole = primaryRole(user?.roles);
   const [section, setSection] = useState<DashboardSection>(
     () => (dashboardRole ? SECTION_BY_ROLE[dashboardRole] : undefined) ?? "ozet",
@@ -318,7 +295,6 @@ export function DashboardPage({ onAction }: { onAction?: (action: OperationActio
   useEffect(() => {
     let cancelled = false;
     setTargetLoading(true);
-    setTargetError("");
     reportService.myTargetProgress({ period: targetPeriod })
       .then((progress) => {
         if (cancelled) return;
@@ -330,10 +306,9 @@ export function DashboardPage({ onAction }: { onAction?: (action: OperationActio
           note: subject.note ?? "",
         } : null);
       })
-      .catch((err: any) => {
+      .catch(() => {
         if (!cancelled) {
           setMyTarget(null);
-          setTargetError(err?.message ?? "Hedefler yüklenemedi.");
         }
       })
       .finally(() => {
@@ -737,14 +712,7 @@ export function DashboardPage({ onAction }: { onAction?: (action: OperationActio
         </TabsContent>
 
         <TabsContent value="hedefler" className="mt-0 space-y-4">
-          <MyTargetsPanel
-            period={targetPeriod}
-            onPeriodChange={setTargetPeriod}
-            items={myTargetItems}
-            loading={targetLoading}
-            error={targetError}
-            note={myTarget?.note ?? ""}
-          />
+          <TargetWorkspace />
         </TabsContent>
       </Tabs>
     </DashboardCanvas>
@@ -1301,198 +1269,6 @@ function TodayWorkPanel({ items, onAction }: { items: WorkItem[]; onAction?: (ac
         )}
       </CardContent>
     </Card>
-  );
-}
-
-function MyTargetsPanel({
-  period,
-  onPeriodChange,
-  items,
-  loading,
-  error,
-  note,
-}: {
-  period: string;
-  onPeriodChange: (period: string) => void;
-  items: AssignedTargetItem[];
-  loading: boolean;
-  error: string;
-  note?: string | null;
-}) {
-  const [activeTargetType, setActiveTargetType] = useState<AssignedTargetItem["targetType"] | "all">("all");
-  const groups = TARGET_TYPE_ORDER
-    .map((targetType) => ({
-      targetType,
-      items: items.filter((item) => item.targetType === targetType),
-    }))
-    .filter((group) => group.items.length > 0);
-  const hasItems = items.length > 0;
-  const measuredItems = items.filter((item) => item.pct != null);
-  const averageProgress = measuredItems.length > 0
-    ? Math.round(measuredItems.reduce((sum, item) => sum + (item.pct ?? 0), 0) / measuredItems.length)
-    : null;
-  const attentionCount = measuredItems.filter((item) => (item.pct ?? 0) < 70).length;
-  const visibleGroups = activeTargetType === "all"
-    ? groups
-    : groups.filter((group) => group.targetType === activeTargetType);
-
-  return (
-    <Card className="border-border/60 shadow-sm overflow-hidden">
-      <CardHeader className="flex flex-col gap-3 pb-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="min-w-0">
-          <CardTitle className="flex items-center gap-2 tracking-tight">
-            <span className="grid size-8 place-items-center rounded-md bg-brand-blue-soft text-brand-blue">
-              <Target className="size-4" />
-            </span>
-            Hedeflerim
-          </CardTitle>
-          <p className="mt-1 text-xs text-muted-foreground">Size atanmış aylık hedefler · ölçülebilenler sistemden takip edilir</p>
-        </div>
-        <Input
-          type="month"
-          className="h-9 w-full sm:w-[150px]"
-          value={period}
-          onChange={(e) => onPeriodChange(e.target.value || currentPeriod())}
-        />
-      </CardHeader>
-      <CardContent className="space-y-4 pt-0">
-        {loading ? (
-          <div className="grid min-h-32 place-items-center rounded-lg border border-dashed border-border/70 bg-muted/20 text-sm text-muted-foreground">
-            Hedefler yükleniyor…
-          </div>
-        ) : error ? (
-          <div className="rounded-lg border border-red-100 bg-destructive-soft px-4 py-3 text-sm text-destructive">{error}</div>
-        ) : !hasItems ? (
-          <div className="grid min-h-32 place-items-center rounded-lg border border-dashed border-border/70 bg-muted/20 px-5 py-8 text-center">
-            <div>
-              <div className="mx-auto grid size-10 place-items-center rounded-lg bg-slate-100 text-slate-500">
-                <Target className="size-5" />
-              </div>
-              <div className="mt-3 text-sm font-medium">Bu dönem için hedef atanmadı</div>
-              <p className="mt-1 text-xs leading-relaxed text-muted-foreground">Yöneticiniz hedef atadığında bu alanda görüntülenecek.</p>
-            </div>
-          </div>
-        ) : (
-          <>
-            <div className="grid gap-2 sm:grid-cols-3">
-              <TargetSummary label="Aktif Hedef" value={`${items.filter((item) => item.target?.trim()).length}/${items.length}`} />
-              <TargetSummary label="Ortalama Gerçekleşme" value={averageProgress == null ? "—" : `%${averageProgress}`} />
-              <TargetSummary label="Yakın Takip" value={`${attentionCount}`} tone={attentionCount > 0 ? "warning" : "success"} />
-            </div>
-            <div className="flex max-w-full items-center gap-1 overflow-x-auto rounded-lg border border-border/60 bg-muted/25 p-1" aria-label="Hedef grupları">
-              <button
-                type="button"
-                aria-pressed={activeTargetType === "all"}
-                onClick={() => setActiveTargetType("all")}
-                className={`min-h-8 shrink-0 rounded-md px-3 text-xs font-medium transition ${activeTargetType === "all" ? "bg-card text-primary shadow-sm" : "text-muted-foreground hover:bg-card/60"}`}
-              >
-                Tümü · {items.length}
-              </button>
-              {groups.map((group) => (
-                <button
-                  key={group.targetType}
-                  type="button"
-                  aria-pressed={activeTargetType === group.targetType}
-                  onClick={() => setActiveTargetType(group.targetType)}
-                  className={`min-h-8 shrink-0 rounded-md px-3 text-xs font-medium transition ${activeTargetType === group.targetType ? "bg-card text-primary shadow-sm" : "text-muted-foreground hover:bg-card/60"}`}
-                >
-                  {targetTypeLabel(group.targetType)} · {group.items.length}
-                </button>
-              ))}
-            </div>
-            <div className="grid gap-3 xl:grid-cols-2">
-              {visibleGroups.map((group) => (
-                <TargetList key={group.targetType} title={`${targetTypeLabel(group.targetType)} Hedefleri`} items={group.items} />
-              ))}
-            </div>
-            {note && <div className="rounded-md bg-muted/35 px-3 py-2 text-xs leading-relaxed text-muted-foreground">{note}</div>}
-          </>
-        )}
-      </CardContent>
-    </Card>
-  );
-}
-
-function TargetSummary({ label, value, tone = "default" }: { label: string; value: string; tone?: "default" | "warning" | "success" }) {
-  return (
-    <div className="flex items-center justify-between rounded-md border border-border/60 bg-muted/20 px-3 py-2">
-      <span className="text-xs text-muted-foreground">{label}</span>
-      <span className={`text-sm font-medium tabular-nums ${tone === "warning" ? "text-warning" : tone === "success" ? "text-success" : ""}`}>{value}</span>
-    </div>
-  );
-}
-
-/**
- * Hedef ilerlemesi: yüzde çubuğunun üstüne çeyrek kilometre taşları. Sadece
- * yüzde görmek "ne kadar kaldı" sorusunu cevaplamıyor; işaretler ilerlemeyi
- * gözle ölçülebilir hale getirir.
- */
-const TARGET_MILESTONES = [25, 50, 75] as const;
-const milestoneLabel = (pct: number) => {
-  if (pct >= 100) return { text: "Hedef tamam", className: "chip chip-success" };
-  if (pct >= 75) return { text: "Son çeyrek", className: "chip chip-info" };
-  if (pct >= 50) return { text: "Yarıyı geçti", className: "chip chip-info" };
-  if (pct >= 25) return { text: "İlk çeyrek", className: "chip chip-neutral" };
-  return { text: "Başlangıç", className: "chip chip-warning" };
-};
-
-function TargetProgress({ pct }: { pct: number }) {
-  const clamped = Math.min(Math.max(pct, 0), 100);
-  return (
-    <div className="relative mt-1">
-      <Progress value={clamped} className="h-1.5" />
-      {TARGET_MILESTONES.map((milestone) => (
-        <span
-          key={milestone}
-          aria-hidden="true"
-          className={`absolute top-0 h-1.5 w-px ${clamped >= milestone ? "bg-white/70" : "bg-border"}`}
-          style={{ left: `${milestone}%` }}
-        />
-      ))}
-    </div>
-  );
-}
-
-function TargetList({ title, items }: { title: string; items: AssignedTargetItem[] }) {
-  return (
-    <div className="overflow-hidden rounded-md border border-border/60">
-      <div className="flex items-center justify-between border-b border-border/60 bg-muted/25 px-3 py-2">
-        <div className="text-sm font-medium">{title}</div>
-        <div className="text-xs text-muted-foreground">{items.filter((item) => item.target?.trim()).length} aktif</div>
-      </div>
-      <div className="divide-y divide-border/60">
-        {items.length === 0 ? (
-          <div className="px-3 py-6 text-center text-sm text-muted-foreground">Hedef yok.</div>
-        ) : (
-          items.map((item) => (
-            <div key={`${item.targetType}:${item.category}:${item.activity}`} className="px-3 py-2.5">
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <div className="text-xs font-semibold tracking-wide text-muted-foreground">{item.category}</div>
-                  <div className="mt-0.5 text-sm font-medium leading-snug">{item.activity}</div>
-                  {item.description && <div className="mt-1 text-xs leading-relaxed text-muted-foreground">{item.description}</div>}
-                  {item.actual != null && item.pct != null && (
-                    <div className="mt-2">
-                      <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 text-xs text-muted-foreground">
-                        <span>Gerçekleşen: {item.actual.toLocaleString("tr-TR")}</span>
-                        <span className="flex items-center gap-1.5">
-                          <span className={milestoneLabel(item.pct).className}>{milestoneLabel(item.pct).text}</span>
-                          <span className="tabular-nums">%{item.pct}</span>
-                        </span>
-                      </div>
-                      <TargetProgress pct={item.pct} />
-                    </div>
-                  )}
-                </div>
-                <div className="shrink-0 rounded-md bg-brand-blue-soft px-2 py-1 text-right text-xs font-medium tabular-nums text-brand-blue">
-                  {formatTargetValue(item)}
-                </div>
-              </div>
-            </div>
-          ))
-        )}
-      </div>
-    </div>
   );
 }
 

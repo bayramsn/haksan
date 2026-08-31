@@ -745,49 +745,7 @@ export class ProductsService {
       .offset(offset);
 
     const productIds = rows.map((r) => r.product.id);
-    const specsByProduct = new Map<string, Array<{ key: string; value: string; unit?: string | null; groupCode?: string | null; groupName?: string | null; group?: string | null }>>();
-    const standardByProduct = new Map<string, string[]>();
-    const optionalByProduct = new Map<string, string[]>();
-
-    if (productIds.length) {
-      const specRows = await this.db
-        .select({
-          productId: productSpecs.productModelId,
-          key: productSpecs.specKey,
-          value: productSpecs.specValue,
-          unit: productSpecs.specUnit,
-          groupCode: productSpecGroups.code,
-          groupName: productSpecGroups.name,
-        })
-        .from(productSpecs)
-        .leftJoin(productSpecGroups, eq(productSpecs.specGroupId, productSpecGroups.id))
-        .where(and(inArray(productSpecs.productModelId, productIds), isNull(productSpecs.deletedAt)))
-        .orderBy(asc(productSpecs.sortOrder));
-
-      for (const spec of specRows) {
-        const list = specsByProduct.get(spec.productId) ?? [];
-        list.push({ key: spec.key, value: spec.value, unit: spec.unit, groupCode: spec.groupCode, groupName: spec.groupName, group: spec.groupName });
-        specsByProduct.set(spec.productId, list);
-      }
-
-      const equipmentRows = await this.db
-        .select({
-          productId: productEquipmentItems.productModelId,
-          title: productEquipmentItems.title,
-          typeCode: equipmentTypes.code,
-        })
-        .from(productEquipmentItems)
-        .leftJoin(equipmentTypes, eq(productEquipmentItems.equipmentTypeId, equipmentTypes.id))
-        .where(and(inArray(productEquipmentItems.productModelId, productIds), isNull(productEquipmentItems.deletedAt)))
-        .orderBy(asc(productEquipmentItems.sortOrder));
-
-      for (const item of equipmentRows) {
-        const target = item.typeCode === 'opsiyonel' ? optionalByProduct : standardByProduct;
-        const list = target.get(item.productId) ?? [];
-        list.push(item.title);
-        target.set(item.productId, list);
-      }
-    }
+    const { specsByProduct, standardByProduct, optionalByProduct } = await this.productSpecsAndEquipment(productIds);
     const compatibleTypes = await this.productTypesById(
       rows.map((r) => r.product.compatibleMachineTypeId).filter((id): id is string => !!id)
     );
@@ -826,6 +784,58 @@ export class ProductsService {
     );
   }
 
+  /**
+   * Teknik özellik + donanım listeleri. Hem `list` hem `get` aynı gövdeyi
+   * döndürsün diye ortak; detay ucu bunları döndürmediğinde mobil "Özellikler"
+   * sekmesi boş kalıyordu.
+   */
+  private async productSpecsAndEquipment(productIds: string[]) {
+    const specsByProduct = new Map<string, Array<{ key: string; value: string; unit?: string | null; groupCode?: string | null; groupName?: string | null; group?: string | null }>>();
+    const standardByProduct = new Map<string, string[]>();
+    const optionalByProduct = new Map<string, string[]>();
+    if (!productIds.length) return { specsByProduct, standardByProduct, optionalByProduct };
+
+    const specRows = await this.db
+      .select({
+        productId: productSpecs.productModelId,
+        key: productSpecs.specKey,
+        value: productSpecs.specValue,
+        unit: productSpecs.specUnit,
+        groupCode: productSpecGroups.code,
+        groupName: productSpecGroups.name,
+      })
+      .from(productSpecs)
+      .leftJoin(productSpecGroups, eq(productSpecs.specGroupId, productSpecGroups.id))
+      .where(and(inArray(productSpecs.productModelId, productIds), isNull(productSpecs.deletedAt)))
+      .orderBy(asc(productSpecs.sortOrder));
+
+    for (const spec of specRows) {
+      const list = specsByProduct.get(spec.productId) ?? [];
+      list.push({ key: spec.key, value: spec.value, unit: spec.unit, groupCode: spec.groupCode, groupName: spec.groupName, group: spec.groupName });
+      specsByProduct.set(spec.productId, list);
+    }
+
+    const equipmentRows = await this.db
+      .select({
+        productId: productEquipmentItems.productModelId,
+        title: productEquipmentItems.title,
+        typeCode: equipmentTypes.code,
+      })
+      .from(productEquipmentItems)
+      .leftJoin(equipmentTypes, eq(productEquipmentItems.equipmentTypeId, equipmentTypes.id))
+      .where(and(inArray(productEquipmentItems.productModelId, productIds), isNull(productEquipmentItems.deletedAt)))
+      .orderBy(asc(productEquipmentItems.sortOrder));
+
+    for (const item of equipmentRows) {
+      const target = item.typeCode === 'opsiyonel' ? optionalByProduct : standardByProduct;
+      const list = target.get(item.productId) ?? [];
+      list.push(item.title);
+      target.set(item.productId, list);
+    }
+
+    return { specsByProduct, standardByProduct, optionalByProduct };
+  }
+
   async get(id: string, actor: AuthContext) {
     const [row] = await this.db
       .select({
@@ -836,6 +846,7 @@ export class ProductsService {
         category: { id: productCategories.id, code: productCategories.code, name: productCategories.name },
         subcategory: { id: productSubcategories.id, code: productSubcategories.code, name: productSubcategories.name },
         productType: { id: productTypes.id, code: productTypes.code, name: productTypes.name },
+        supplierCompany: { id: companies.id, legalTitle: companies.legalTitle, shortName: companies.shortName },
       })
       .from(productModels)
       .leftJoin(brands, eq(productModels.brandId, brands.id))
@@ -844,6 +855,7 @@ export class ProductsService {
       .leftJoin(productCategories, eq(productModels.categoryId, productCategories.id))
       .leftJoin(productSubcategories, eq(productModels.subcategoryId, productSubcategories.id))
       .leftJoin(productTypes, eq(productModels.productTypeId, productTypes.id))
+      .leftJoin(companies, and(eq(productModels.supplierCompanyId, companies.id), eq(companies.tenantId, actor.tenantId)))
       .where(
         and(
           eq(productModels.id, id),
@@ -854,10 +866,11 @@ export class ProductsService {
       )
       .limit(1);
     if (!row) throw new NotFoundError('Ürün');
-    const [compatibleTypes, alternatives, optionalCompatibilities] = await Promise.all([
+    const [compatibleTypes, alternatives, optionalCompatibilities, details] = await Promise.all([
       this.productTypesById(row.product.compatibleMachineTypeId ? [row.product.compatibleMachineTypeId] : []),
       this.alternativesByProduct([id], actor.tenantId),
       this.optionalCompatibilitiesByProduct([id], actor.tenantId),
+      this.productSpecsAndEquipment([id]),
     ]);
     const muadilProducts = alternatives.get(id) ?? [];
     const optionalCompatibility = optionalCompatibilities.get(id);
@@ -870,6 +883,10 @@ export class ProductsService {
       subcategory: row.subcategory,
       productType: row.productType,
       compatibleMachineType: row.product.compatibleMachineTypeId ? compatibleTypes.get(row.product.compatibleMachineTypeId) ?? null : null,
+      supplierCompany: row.supplierCompany?.id ? row.supplierCompany : null,
+      specs: details.specsByProduct.get(id) ?? [],
+      standardEquipment: details.standardByProduct.get(id) ?? [],
+      optionalEquipment: details.optionalByProduct.get(id) ?? [],
       muadilProductIds: muadilProducts.map((p) => p.id),
       muadilProducts,
       optionalCompatibilityGroupCodes: optionalCompatibility?.groupCodes ?? [],
