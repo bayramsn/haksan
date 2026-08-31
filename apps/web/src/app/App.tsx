@@ -425,6 +425,7 @@ function AppShell() {
       case "tasks":
         content = (
           <TasksPage
+            initialQuery={focus?.nav === "tasks" ? focus.query : undefined}
             onOpenRecord={(task) => {
               if (task.opportunityId) runOperationAction({ kind: "salesCase", salesCaseId: task.opportunityId });
               else if (task.companyId) runOperationAction({ kind: "customer", customerId: task.companyId });

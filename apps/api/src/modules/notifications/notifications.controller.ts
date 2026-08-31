@@ -2,7 +2,7 @@ import { Body, Controller, Delete, Get, Inject, Param, Patch, Post, Query, UseGu
 import { and, desc, eq, inArray, isNull, ne, or, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import type { DbClient } from '../../db/client';
-import { companies, companyAccessRequests, notifications } from '../../db/schema/companies';
+import { companies, companyAccessRequests, contacts, notifications } from '../../db/schema/companies';
 import { salesActivities } from '../../db/schema/crm';
 import { roles, userRoles, users } from '../../db/schema/users';
 import { DB } from '../../shared/database/database.module';
@@ -105,6 +105,18 @@ export class NotificationsController {
       }
     }
 
+    // Kontak bildirimi kişinin kendi ekranı olmadığı için bağlı firma kartına gider.
+    const contactIds = idsFor('contact');
+    if (contactIds.length) {
+      const contactRows = await this.db
+        .select({ id: contacts.id, companyId: contacts.companyId })
+        .from(contacts)
+        .where(and(eq(contacts.tenantId, tenantId), inArray(contacts.id, contactIds)));
+      for (const row of contactRows) {
+        if (row.companyId) targets.set(`contact:${row.id}`, { kind: 'company', companyId: row.companyId });
+      }
+    }
+
     const accessRequestIds = idsFor('company_access_request');
     if (accessRequestIds.length) {
       const requestRows = await this.db
@@ -137,6 +149,20 @@ export class NotificationsController {
         return row.entityId ? { kind: 'company', companyId: row.entityId } : null;
       case 'opportunity':
         return row.entityId ? { kind: 'opportunity', opportunityId: row.entityId } : null;
+      // Aşağıdakiler hedefsizdi: bildirim listede görünüyor ama tıklayınca hiçbir
+      // yere gitmiyordu (görev ataması, servis kaydı, takvim, imza).
+      case 'task':
+        return row.entityId
+          ? { kind: 'navigate', nav: 'tasks', query: `task:${row.entityId}` }
+          : { kind: 'navigate', nav: 'tasks' };
+      case 'service_ticket':
+        return row.entityId
+          ? { kind: 'navigate', nav: 'service-requests', query: `ticket:${row.entityId}` }
+          : { kind: 'navigate', nav: 'service-requests' };
+      case 'calendar_event':
+        return { kind: 'navigate', nav: 'calendar' };
+      case 'signature':
+        return { kind: 'navigate', nav: 'settings' };
       default:
         return null;
     }
