@@ -1484,8 +1484,24 @@ export class CompaniesService {
           .from(companyAddresses)
           .where(and(eq(companyAddresses.companyId, id), isNull(companyAddresses.deletedAt)));
         const current = currentAddresses.find((address) => address.isDefault) ?? currentAddresses[0];
+        // Tek adres güncellemesi satırın TÜM kolonlarını yazar. İstemci yalnız bir
+        // alanı gönderdiğinde (fırsat süreç listesinde "İl/İlçe" ile "Açık adres"
+        // ayrı adımlar) diğerleri null'a düşüp siliniyordu. Bu yüzden gönderilmeyen
+        // alanlar mevcut satırdan korunur; gönderilen alanlar üzerine yazılır.
+        const keep = <T>(next: T | undefined, existing: T | null | undefined): T | undefined =>
+          next !== undefined ? next : (existing ?? undefined);
         const address: CompanyAddressInput = {
           ...input.address,
+          country: keep(input.address.country, current?.country) ?? 'Türkiye',
+          province: keep(input.address.province, current?.province),
+          district: keep(input.address.district, current?.district),
+          locality: keep(input.address.locality, current?.locality),
+          zipCode: keep(input.address.zipCode, current?.zipCode),
+          street: keep(input.address.street, current?.street),
+          buildingNumber: keep(input.address.buildingNumber, current?.buildingNumber),
+          fullAddress: keep(input.address.fullAddress, current?.fullAddress),
+          latitude: keep(input.address.latitude, current?.latitude == null ? undefined : Number(current.latitude)),
+          longitude: keep(input.address.longitude, current?.longitude == null ? undefined : Number(current.longitude)),
           addressType: current?.addressType as CompanyAddressInput['addressType'] ?? 'office',
           isDefault: true,
           isShipping: current?.isShipping ?? true,

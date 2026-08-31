@@ -1618,9 +1618,9 @@ function StoreInner({ children }: { children: ReactNode }) {
         isBilling: address.isBilling,
       }));
     } else if (patch.city !== undefined || patch.district !== undefined || patch.country !== undefined || patch.address !== undefined) {
-      // Kısmi adres güncellemesi satırın tamamını yazdığı için dokunulmayan
-      // alanlar mevcut kayıttan tamamlanır (bkz. buildCompanyAddressPatch).
-      body.address = buildCompanyAddressPatch(customers.find((customer) => customer.id === id), patch);
+      // Yalnız değiştirilen alanlar gönderilir; sunucu diğerlerini mevcut adres
+      // satırından korur (bkz. buildCompanyAddressPatch).
+      body.address = buildCompanyAddressPatch(patch);
     }
     await companyService.update(id, body);
     await fetchAll();
