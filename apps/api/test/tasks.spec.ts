@@ -141,6 +141,28 @@ describe('Tasks module', () => {
     expect(reopened.body.events.some((event: { eventType: string }) => event.eventType === 'reopened')).toBe(true);
   });
 
+  it('adds a visible team comment to the task activity stream', async () => {
+    const comment = `Müşteri iki ay sonra tekrar aranacak ${runId}`;
+    const response = await request()
+      .post(`/api/v1/tasks/${assignedTaskId}/comments`)
+      .set('Authorization', `Bearer ${salesToken}`)
+      .send({ comment });
+    expect(response.status).toBe(201);
+    expect(response.body.events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ eventType: 'comment', summary: comment }),
+      ])
+    );
+  });
+
+  it('rejects an empty task comment', async () => {
+    const response = await request()
+      .post(`/api/v1/tasks/${assignedTaskId}/comments`)
+      .set('Authorization', `Bearer ${salesToken}`)
+      .send({ comment: '   ' });
+    expect(response.status).toBe(422);
+  });
+
   it('sends a reminder once and never twice', async () => {
     // Son tarih 10 dk sonra, hatırlatma 30 dk önce → hatırlatma anı çoktan geçti.
     const created = await request()

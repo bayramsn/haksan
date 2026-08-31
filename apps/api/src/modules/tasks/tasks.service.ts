@@ -554,6 +554,12 @@ export class TasksService {
     return this.get(actor, id);
   }
 
+  async addComment(actor: AuthContext, id: string, comment: string) {
+    const task = await this.findEditable(actor, id);
+    await this.logEvent(this.db, task, 'comment', comment.trim(), actor.userId);
+    return this.get(actor, id);
+  }
+
   async remove(actor: AuthContext, id: string) {
     const task = await this.findEditable(actor, id);
     // `tasks.delete` iznini controller şart koşuyor; buradaki kural silme

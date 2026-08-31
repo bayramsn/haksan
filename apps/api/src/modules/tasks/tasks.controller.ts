@@ -1,9 +1,11 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import {
   taskCreateSchema,
+  taskCommentSchema,
   taskListQuerySchema,
   taskUpdateSchema,
   type TaskCreateInput,
+  type TaskCommentInput,
   type TaskListQuery,
   type TaskUpdateInput,
 } from '@haksan/shared';
@@ -82,6 +84,16 @@ export class TasksController {
     @CurrentUser() actor: AuthContext
   ) {
     return this.service.update(actor, id, body);
+  }
+
+  @RequirePermissions('tasks.update')
+  @Post(':id/comments')
+  comment(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(taskCommentSchema)) body: TaskCommentInput,
+    @CurrentUser() actor: AuthContext
+  ) {
+    return this.service.addComment(actor, id, body.comment);
   }
 
   @RequirePermissions('tasks.delete')

@@ -730,6 +730,7 @@ export const tasksService = {
   get: (id: string) => api.get<TaskDetailDTO>(`/tasks/${id}`),
   create: (body: TaskInput) => api.post<TaskDetailDTO>('/tasks', body),
   update: (id: string, body: Partial<TaskInput>) => api.patch<TaskDetailDTO>(`/tasks/${id}`, body),
+  comment: (id: string, comment: string) => api.post<TaskDetailDTO>(`/tasks/${id}/comments`, { comment }),
   remove: (id: string) => api.delete<{ deleted: boolean }>(`/tasks/${id}`),
 };
 
