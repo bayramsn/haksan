@@ -226,7 +226,6 @@ const mapCase = (o: any, isOfferPrepared: boolean): SalesCase =>
     lostCompetitorId: o.lostCompetitor?.id ?? o.lostCompetitorId ?? undefined,
     competitor: o.lostCompetitor?.name ?? o.lostCompetitorName ?? undefined,
     lostCompetitorProductModel: o.lostCompetitorProductModel ?? undefined,
-    wonReason: o.wonReason ?? undefined,
     createdAt: (o.createdAt as string)?.slice(0, 10) ?? '',
     closedAt: o.closedAt ? (o.closedAt as string).slice(0, 10) : undefined,
   }) as SalesCase;
@@ -639,7 +638,6 @@ type Store = {
   ) => Promise<void>;
   // Mantıksal kapanış (Bitir) ve geri alma (Geri Aç) — silmez, closedAt set/sıfırlar.
   closeCase: (id: string, reason?: string) => Promise<void>;
-  postponeCase: (id: string, input: { reason: string; nextAction: string; followUpAt: string }) => Promise<void>;
   reopenCase: (id: string) => Promise<void>;
   markCaseLost: (
     id: string,
@@ -1880,11 +1878,6 @@ function StoreInner({ children }: { children: ReactNode }) {
     await fetchAll();
   };
 
-  const postponeCase: Store['postponeCase'] = async (id, input) => {
-    await opportunityService.defer(id, input);
-    await fetchAll();
-  };
-
   // Geri Aç: kapanışı geri alır, kart aktif panoya döner.
   const reopenCase: Store['reopenCase'] = async (id) => {
     await opportunityService.reopen(id);
@@ -2715,7 +2708,6 @@ function StoreInner({ children }: { children: ReactNode }) {
       moveQualification,
       decideCaseApproval,
       closeCase,
-      postponeCase,
       reopenCase,
       markCaseLost,
       moveService,
