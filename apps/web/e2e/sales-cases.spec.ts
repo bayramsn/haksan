@@ -351,8 +351,9 @@ test("Lead Workspace V2 akışı otomatik atamadan gerekçeli fırsat dönüşü
 
     // Dekoratif "Ortak fırsat görünümü" başlığının yerini kartın kendi özeti
     // aldı: özet boşken bile yetkili kullanıcı "Özet ekle" ile yazabilmeli.
-    await expect(recordDialog.getByText("Özet", { exact: true })).toBeVisible();
-    await expect(recordDialog.getByRole("button", { name: /Özet ekle|Düzenle/ }).first()).toBeVisible();
+    const summaryBlock = recordDialog.getByTestId("opportunity-summary");
+    await expect(summaryBlock).toBeVisible();
+    await expect(summaryBlock.getByRole("button", { name: /Özet ekle|Düzenle/ })).toBeVisible();
     // Dönüşümden sonra da sekme yok: süreç gövdesi ve aktivite akışı doğrudan görünür.
     await expect(recordDialog.getByRole("heading", { name: "Operasyon aşaması", exact: true })).toBeVisible();
     await expect(recordDialog.getByRole("heading", { name: /Aktivite akışı|Temas akışı/ })).toBeVisible();

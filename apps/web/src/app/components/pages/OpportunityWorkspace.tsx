@@ -915,7 +915,7 @@ function OpportunitySummary({
   if (!summary && !canEdit) return null;
 
   return (
-    <div className="border-b border-border pb-3">
+    <div className="border-b border-border pb-3" data-testid="opportunity-summary">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="ui-eyebrow flex items-center gap-1.5">
