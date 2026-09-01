@@ -7,6 +7,7 @@ import type {
 import {
   AlarmClock,
   ArrowRight,
+  ChevronDown,
   Loader2,
   Mail,
   MessageCircle,
@@ -597,7 +598,24 @@ export function DecisionRail({
               masaüstünde aynı düğme ekranda iki kez çıkıyordu. Yalnız rayın
               KENDİ ürettiği komut (lead dönüştürme) burada kalır. */}
           {!simpleMode && primaryCommand && !primaryCommandIsSummaryCopy && <div className="border-t border-slate-200 pt-3">{primaryCommand}</div>}
-          {otherActions && <div className="border-t border-slate-200 pt-3">{otherActions}</div>}
+          {/* Fırsatta ödeme vadesi, Trello kaynağı, kapanış/kayıp notu ve kartı
+              kapat/kaybet/sil düğmeleri katlanır alana indi: hepsi günde bir kez
+              bile açılmayan işler ve rayda açık dururken sık kullanılan aktivite
+              akışını ekranın altına itiyorlardı. "Kaybedildi" ve "Fırsatı kapat"
+              zaten satış alanı kutusunun altında da duruyor. Lead'de katlanmaz —
+              orada blok, günlük olarak değişen "İlk temas durumu" seçimini
+              taşıyor. */}
+          {otherActions && (isLead ? (
+            <div className="border-t border-slate-200 pt-3">{otherActions}</div>
+          ) : (
+            <details className="border-t border-slate-200 pt-3">
+              <summary className="flex min-h-9 cursor-pointer list-none items-center justify-between gap-2 text-xs font-semibold text-muted-foreground marker:content-none hover:text-foreground">
+                Kart işlemleri
+                <ChevronDown className="size-4 shrink-0" aria-hidden="true" />
+              </summary>
+              <div className="mt-3">{otherActions}</div>
+            </details>
+          ))}
           {/* Aktivite akışı: sekmeler kaldırıldıktan sonra ayakta kalan tek
               kalıcı yüzey burası. "Sorumlu" ve iletişim bloklarının altında
               duruyor ki panelin küçük ve sık kullanılan parçaları akışın

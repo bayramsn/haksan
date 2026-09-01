@@ -9,6 +9,7 @@ import {
 import {
   Activity as ActivityIcon,
   AlertTriangle,
+  ChevronDown,
   FileClock,
   Loader2,
   RefreshCw,
@@ -259,7 +260,7 @@ export function OpportunityWorkspace({
   const [focusedActivityId, setFocusedActivityId] = useState<string | null>(null);
   const [selectedCommercialDocument, setSelectedCommercialDocument] = useState<DocumentItem | null>(null);
   const [selectedFileDocument, setSelectedFileDocument] = useState<DocumentItem | null>(null);
-  const [operationsExpanded, setOperationsExpanded] = useState(() => !simpleOpportunity);
+  const [operationsExpanded, setOperationsExpanded] = useState(false);
   const decisionSummaryRef = useRef<HTMLElement>(null);
   const detailRequestRef = useRef(0);
   const detail = detailResource.caseId === sc.id ? detailResource.data : null;
@@ -290,10 +291,6 @@ export function OpportunityWorkspace({
     const timer = window.setTimeout(() => focusWorkspaceTarget(decisionSummaryRef.current, { scroll: false }), 0);
     return () => window.clearTimeout(timer);
   }, [focusDecisionOnMount, sc.id]);
-
-  useEffect(() => {
-    setOperationsExpanded(!simpleOpportunity);
-  }, [sc.id, simpleOpportunity]);
 
   useEffect(() => {
     // Bölüm/kayıt çapası kalmadı: URL'de yalnız hangi kaydın açık olduğu ve
@@ -368,6 +365,16 @@ export function OpportunityWorkspace({
   const opportunityShipments = useMemo(() => shipments.filter((item) => item.salesCaseId === sc.id), [shipments, sc.id]);
   const opportunityDeliveries = useMemo(() => deliveries.filter((item) => item.salesCaseId === sc.id), [deliveries, sc.id]);
   const opportunityInstallations = useMemo(() => installations.filter((item) => item.salesCaseId === sc.id), [installations, sc.id]);
+  const hasFieldRecords =
+    opportunityShipments.length > 0 || opportunityDeliveries.length > 0 || opportunityInstallations.length > 0;
+
+  // Kapak, gösterecek gerçek bir kayıt varken açılır. Sevkiyat/teslim/kurulum
+  // hiç başlamamışken üç boş kart ekranın üçte birini kaplayıp hiçbir şey
+  // söylemiyordu; durum satırı zaten "Henüz başlamadı" yazıyor.
+  useEffect(() => {
+    setOperationsExpanded(hasFieldRecords);
+  }, [sc.id, hasFieldRecords]);
+
   const resolvedContacts = useMemo(() => {
     const contactsById = new Map(
       (companyContactsQuery.data?.data ?? []).map((contact) => [contact.id, contact]),
@@ -630,27 +637,29 @@ export function OpportunityWorkspace({
     </section>
   );
 
-  return (
-    <div className="crm-page">
-      {/* Başlığın altındaki dekoratif metin ("Ortak fırsat görünümü") yerine
-          kartın kendi özeti duruyor: Trello'dan gelen kart açıklaması dahil
-          hiçbir yerde görünmüyordu. */}
-      <OpportunitySummary
-        salesCase={sc}
-        canEdit={canUpdate}
-        onSave={(description) => updateCase(sc.id, { description })}
-      />
+  const operationBlockers = nextOperationTarget?.blockers ?? [];
+  const fieldStages = [
+    { key: "shipment", label: "Sevkiyat", icon: Truck, status: opportunityShipments[0]?.status },
+    { key: "delivery", label: "Teslim", icon: FileClock, status: opportunityDeliveries[0]?.status },
+    { key: "installation", label: "Kurulum", icon: Wrench, status: opportunityInstallations[0]?.statusName },
+  ];
 
-      {/* Alan rayı satış alanı kutusunun içine taşındı ve orada tıklanabilir
-          (alanlar arası gezinme). Buradaki dekoratif kopyası aynı bilgiyi
-          ikinci kez, üstelik tıklanamaz hâlde gösteriyordu. */}
-      <WorkspaceDecisionSummary
-        ref={decisionSummaryRef}
-        model={decisionModel}
-        primaryAction={decisionPrimaryAction}
-        variant={simpleOpportunity ? "compact" : "default"}
-      />
-      {sc.isLost && <LostOpportunityDetails salesCase={sc} companyName={customer?.name} />}
+  const taskSection = (
+    <TaskRecordSection
+      relation={{ opportunityId: sc.id, companyId: sc.customerId ?? null, label: sc.requestedProduct || "Fırsat" }}
+      title={isLead ? "Lead Görevleri" : "Fırsat Görevleri"}
+      headerActions={taskActions}
+    />
+  );
+
+  /*
+    Ticari belge zinciri ve üretilmiş sözleşmeler tek bölüm. Sözleşme listesi
+    zincirin altındaki katlanır alana indi: zincirin "Sözleşme" adımı durumu
+    zaten söylüyor, liste ise yalnız imzalı nüsha yüklerken ya da şartları
+    düzenlerken gerekiyor. Düğmelerin hiçbiri kaldırılmadı, bir tık arkasında.
+  */
+  const documentsSection = (
+    <div className="space-y-2">
       <CommercialDocumentRail
         offers={caseOffers}
         documents={caseDocuments}
@@ -659,11 +668,11 @@ export function OpportunityWorkspace({
         showStepActions={false}
       />
       {contractDocuments.length > 0 && (
-        <Card className="border-primary/15">
-          <CardHeader className="pb-2">
-            <CardTitle className="flex items-center gap-2 text-sm"><FileSignature className="size-4 text-primary" /> Sözleşmeler</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-2">
+        <details className="overflow-hidden rounded-xl border border-primary/15 bg-card">
+          <summary className="flex min-h-11 cursor-pointer list-none items-center gap-2 px-4 py-2.5 text-sm font-semibold text-foreground marker:content-none hover:bg-muted/40">
+            <FileSignature className="size-4 text-primary" /> Sözleşmeler · {contractDocuments.length}
+          </summary>
+          <div className="space-y-2 border-t border-border/60 p-4">
             {contractDocuments.map((document) => (
               <div key={document.id} className="flex flex-col gap-2 rounded-lg border border-border/60 px-3 py-2.5 sm:flex-row sm:items-center">
                 <button type="button" className="min-w-0 flex-1 text-left" onClick={() => setSelectedCommercialDocument(document)}>
@@ -685,9 +694,119 @@ export function OpportunityWorkspace({
                 </div>
               </div>
             ))}
-          </CardContent>
-        </Card>
+          </div>
+        </details>
       )}
+    </div>
+  );
+
+  /*
+    Operasyon ekseni artık TEK bölüm. Öncesinde aynı eksen dört ayrı yüzeye
+    dağılmıştı: başlık + açıklama paragrafı, yalnız engel varken çizilen ayrı
+    bir "Geçiş engelleri" kartı, sade modda üç durumluk özet satırı ve tam
+    modda çoğu kartta boş duran üç kayıt kartı. Hepsi tek kapağın altında:
+    üç aşamanın durumu her zaman görünür, engeller ve kayıt ayrıntıları
+    (takip no, ETA, imza, teknisyen) katlanır alanda. Hiçbir bilgi ya da
+    düğme kaldırılmadı; iki mod da aynı yüzeyi kullanıyor.
+  */
+  const operationsSection = (
+    <section
+      aria-labelledby="opportunity-operations-title"
+      className="overflow-hidden rounded-[var(--surface-radius)] border border-border bg-card"
+    >
+      <div className="flex flex-wrap items-start justify-between gap-2 border-b border-border px-4 py-3">
+        <div className="min-w-0">
+          <h3 id="opportunity-operations-title" className="font-display text-base font-semibold text-foreground">Operasyon aşaması</h3>
+          <p className="text-xs text-muted-foreground">
+            Sevkiyat, teslim ve kurulum akışı. Satış alanı (C/B/A/A+) yukarıdaki kutuda izlenir.
+          </p>
+        </div>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="h-9 shrink-0 gap-1 text-xs"
+          aria-expanded={operationsExpanded}
+          aria-controls="opportunity-operations-detail"
+          onClick={() => setOperationsExpanded((value) => !value)}
+        >
+          {operationsExpanded ? "Ayrıntıyı gizle" : "Ayrıntıyı göster"}
+          <ChevronDown className={`size-4 transition-transform ${operationsExpanded ? "rotate-180" : ""}`} aria-hidden="true" />
+        </Button>
+      </div>
+      <div className="space-y-3 p-4">
+        {/* Üç aşamanın durumu kapak açılmadan okunur: "nerede kaldık" sorusu
+            tıklama gerektirmez. Kutular görev listesine götürür. */}
+        <div className="grid gap-2 sm:grid-cols-3" aria-label="Saha operasyonu özeti">
+          {fieldStages.map(({ key, label, icon: Icon, status }) => (
+            <button
+              key={key}
+              type="button"
+              className="min-h-16 rounded-[var(--surface-radius)] border border-border bg-muted/30 p-3 text-left transition hover:border-primary/40 hover:bg-muted/60"
+              onClick={revealProcessActions}
+            >
+              <span className="inline-flex items-center gap-2 text-sm font-semibold text-foreground"><Icon className="size-4" /> {label}</span>
+              <span className="mt-1 block text-xs text-muted-foreground">{status ?? "Henüz başlamadı"}</span>
+            </button>
+          ))}
+        </div>
+        {/* Engeller kendi kartını kaybetti ama kendisi kaybolmadı: ait olduğu
+            eksenin içinde, tıklanabilir hâlde duruyor. */}
+        {(operationBlockers.length > 0 || !operationReadiness) && (
+          <div className="border-t border-border/60 pt-3">
+            <div className="text-xs font-semibold text-foreground">Geçiş engelleri</div>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {operationBlockers.slice(0, 6).map((blocker) => {
+                const canOpenBlocker = Boolean(onCommercialAction) && canPerformCommercialAction?.(blocker.actionKey) !== false;
+                return canOpenBlocker ? (
+                  // Engel eylemini tüketen görev listesi sayfada duruyor; kullanıcı
+                  // isteği tetikledikten sonra listeye kaydırılır.
+                  <Button key={blocker.key} type="button" variant="outline" size="sm" className="min-h-9 border-amber-200 bg-amber-50 text-amber-900 hover:bg-amber-100" onClick={() => { revealProcessActions(); onCommercialAction?.(blocker.actionKey); }}>
+                    {blocker.label}
+                  </Button>
+                ) : (
+                  <Badge key={blocker.key} variant="outline" className="border-amber-200 bg-amber-50 text-amber-800">
+                    {blocker.label}
+                  </Badge>
+                );
+              })}
+              {!operationReadiness && (
+                <span className="inline-flex items-center gap-1.5 text-sm text-amber-800"><AlertTriangle className="size-4" /> Hazırlık bilgisi alınamadı; geçiş hazır varsayılmıyor.</span>
+              )}
+            </div>
+          </div>
+        )}
+        {operationsExpanded && (
+          <div id="opportunity-operations-detail" className="grid gap-3 border-t border-border/60 pt-3 lg:grid-cols-3">
+            <Card><CardHeader className="pb-3"><CardTitle className="inline-flex items-center gap-2 text-sm"><Truck className="size-4" /> Sevkiyat</CardTitle></CardHeader><CardContent className="space-y-2">{opportunityShipments.map((shipment) => <div key={shipment.id} className="rounded-lg border border-slate-200 p-3 text-sm"><div className="font-medium">{shipment.trackingNo || "Takip numarası yok"}</div><div className="mt-1 text-xs text-muted-foreground">{shipment.status} · ETA {formatDate(shipment.eta)}</div></div>)}{opportunityShipments.length === 0 && <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-4 text-center"><div className="text-sm text-muted-foreground">Sevkiyat yok.</div><Button type="button" variant="outline" size="sm" className="mt-3 min-h-11 sm:min-h-8" onClick={revealProcessActions}>Sevkiyat oluştur</Button></div>}</CardContent></Card>
+            <Card><CardHeader className="pb-3"><CardTitle className="inline-flex items-center gap-2 text-sm"><FileClock className="size-4" /> Teslim</CardTitle></CardHeader><CardContent className="space-y-2">{opportunityDeliveries.map((delivery) => <div key={delivery.id} className="rounded-lg border border-slate-200 p-3 text-sm"><div className="font-medium">{delivery.status}</div><div className="mt-1 text-xs text-muted-foreground">{formatDate(delivery.date)} · {delivery.signedBy || "İmza bekliyor"}</div></div>)}{opportunityDeliveries.length === 0 && <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-4 text-center"><div className="text-sm text-muted-foreground">Teslim kaydı yok.</div><Button type="button" variant="outline" size="sm" className="mt-3 min-h-11 sm:min-h-8" onClick={revealProcessActions}>Teslim kaydı oluştur</Button></div>}</CardContent></Card>
+            <Card><CardHeader className="pb-3"><CardTitle className="inline-flex items-center gap-2 text-sm"><Wrench className="size-4" /> Kurulum</CardTitle></CardHeader><CardContent className="space-y-2">{opportunityInstallations.map((installation) => <div key={installation.id} className="rounded-lg border border-slate-200 p-3 text-sm"><div className="font-medium">{installation.statusName}</div><div className="mt-1 text-xs text-muted-foreground">{installation.technician || "Teknisyen atanmadı"} · {formatDate(installation.scheduledDate)}</div></div>)}{opportunityInstallations.length === 0 && <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-4 text-center"><div className="text-sm text-muted-foreground">Kurulum kaydı yok.</div><Button type="button" variant="outline" size="sm" className="mt-3 min-h-11 sm:min-h-8" onClick={revealProcessActions}>Kurulum oluştur</Button></div>}</CardContent></Card>
+          </div>
+        )}
+      </div>
+    </section>
+  );
+
+  return (
+    <div className="crm-page">
+      {/* Başlığın altındaki dekoratif metin ("Ortak fırsat görünümü") yerine
+          kartın kendi özeti duruyor: Trello'dan gelen kart açıklaması dahil
+          hiçbir yerde görünmüyordu. */}
+      <OpportunitySummary
+        salesCase={sc}
+        canEdit={canUpdate}
+        onSave={(description) => updateCase(sc.id, { description })}
+      />
+
+      {/* Alan rayı satış alanı kutusunun içine taşındı ve orada tıklanabilir
+          (alanlar arası gezinme). Buradaki dekoratif kopyası aynı bilgiyi
+          ikinci kez, üstelik tıklanamaz hâlde gösteriyordu. */}
+      <WorkspaceDecisionSummary
+        ref={decisionSummaryRef}
+        model={decisionModel}
+        primaryAction={decisionPrimaryAction}
+      />
+      {sc.isLost && <LostOpportunityDetails salesCase={sc} companyName={customer?.name} />}
       {detailLoading && <div className="flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-900" role="status" aria-live="polite"><Loader2 className="size-4 animate-spin motion-reduce:animate-none" /> Kayıt kontrolleri güncelleniyor…</div>}
       {detailError && <div className="flex flex-wrap items-center justify-between gap-3 rounded-[var(--surface-radius)] border border-destructive/20 bg-destructive-soft px-3 py-2 text-sm text-destructive" role="alert"><span>{detailError}</span><Button type="button" variant="outline" size="sm" className="min-h-11 bg-card sm:min-h-8" onClick={() => void loadDetail()}><RefreshCw className="size-4" /> Tekrar dene</Button></div>}
 
@@ -714,15 +833,11 @@ export function OpportunityWorkspace({
           {/* Firma bağlama uyarısı kaldırılan Özet bölümünün içindeydi; teklif
               öncesi zorunlu bir adım olduğu için gövdenin tepesine alındı. */}
           {companyLinkingPanel}
-          {/* Görevler kartın gövdesinde: personel lead üzerinde çalışırken
-              görevi buradan açar, görür ve kapatır — ayrı ekrana gitmeden. */}
-          <TaskRecordSection
-            relation={{ opportunityId: sc.id, companyId: sc.customerId ?? null, label: sc.requestedProduct || "Fırsat" }}
-            title={isLead ? "Lead Görevleri" : "Fırsat Görevleri"}
-            headerActions={taskActions}
-          />
           {isLead ? (
             <>
+              {/* Görevler kartın gövdesinde: personel lead üzerinde çalışırken
+                  görevi buradan açar, görür ve kapatır — ayrı ekrana gitmeden. */}
+              {taskSection}
               {/* "Sonraki aksiyon" sütunu kaldırıldı: hemen üstteki karar kartı
                   aynı metni, aynı tarihi ve sorumluyu zaten gösteriyor; gecikme
                   ise ayrıca risk rozetinde yazıyordu. Aynı cümle ekranda üç
@@ -743,122 +858,19 @@ export function OpportunityWorkspace({
               <div id="opportunity-qualification" className="scroll-mt-24">
                 <LeadQualificationPanel salesCase={sc} canUpdate={canUpdate} />
               </div>
+              {/* Lead'de belge zinciri normalde dört boş adımdan ibaret; yalnız
+                  gerçekten bir teklif/belge varsa çizilir. */}
+              {(caseOffers.length > 0 || caseDocuments.length > 0) && documentsSection}
             </>
           ) : (
             <div className="space-y-4">
-              {/* İki ayrı eksen var ve karışıyorlardı: satış alanı (C/B/A/A+,
-                  yukarıdaki kutu) ve operasyon aşaması (sevkiyat → teslim →
-                  kurulum, bu blok). İkisi de "mevcut → sıradaki" gösterdiği ve
-                  biri "alan" diğeri "aşama" dediği için aynı şey sanılıyordu.
-                  Başlık artık hangi eksende olduğunu açıkça söylüyor. */}
-              <div>
-                <h3 className="font-display text-lg font-semibold text-foreground">Operasyon aşaması</h3>
-                <p className="text-xs text-muted-foreground">
-                  Sevkiyat, teslim ve kurulum akışı. Satış alanı (C/B/A/A+) yukarıdaki kutuda ayrıca izlenir.
-                </p>
-              </div>
-              {/* Alan görevleri artık satış alanı kutusunun kendi içeriği
-                  (`OpportunityProcessCenter`'ın `checklist` prop'u). Burada ayrı
-                  bir sarmalayıcı tutmak görevleri kutunun dışında, ikinci bir
-                  kutuda gösterirdi. */}
-              <Card className="overflow-hidden border-primary/15">
-                <div className="datum-rail h-1" />
-                <CardContent className="space-y-4 p-4 sm:p-5">
-                  {/* "Mevcut aşama → Sıradaki aşama" çifti buradan kaldırıldı:
-                      karar özeti aynı ikiliyi (`decisionModel.currentStage` /
-                      `nextStage`) zaten aynı ekranda gösteriyordu. Engel listesi
-                      kaldı çünkü özette olmayan bir şey sunuyor: engellere
-                      tıklayıp görev listesine gitmek. Engel yokken blok hiç
-                      basılmaz — "engel yok" bilgisi de özette duruyor. */}
-                  {(nextOperationTarget?.blockers.length || !operationReadiness) ? (
-                  <div>
-                    <div className="text-xs font-semibold text-foreground">Geçiş engelleri</div>
-                    <div className="mt-2 flex flex-wrap gap-2">
-                      {(nextOperationTarget?.blockers ?? []).slice(0, 6).map((blocker) => {
-                        const canOpenBlocker = Boolean(onCommercialAction) && canPerformCommercialAction?.(blocker.actionKey) !== false;
-                        return canOpenBlocker ? (
-                          // Engel eylemini tüketen görev listesi sayfada duruyor; kullanıcı
-                          // isteği tetikledikten sonra listeye kaydırılır.
-                          <Button key={blocker.key} type="button" variant="outline" size="sm" className="min-h-9 border-amber-200 bg-amber-50 text-amber-900 hover:bg-amber-100" onClick={() => { revealProcessActions(); onCommercialAction?.(blocker.actionKey); }}>
-                            {blocker.label}
-                          </Button>
-                        ) : (
-                          <Badge key={blocker.key} variant="outline" className="border-amber-200 bg-amber-50 text-amber-800">
-                            {blocker.label}
-                          </Badge>
-                        );
-                      })}
-                      {!operationReadiness && (
-                        <span className="inline-flex items-center gap-1.5 text-sm text-amber-800"><AlertTriangle className="size-4" /> Hazırlık bilgisi alınamadı; geçiş hazır varsayılmıyor.</span>
-                      )}
-                    </div>
-                  </div>
-                  ) : null}
-                  {/* Sade modda bu düğmenin açacağı bir şey kalmadı: kutu artık
-                      her zaman görünür, operasyon kartları ise yalnız tam modda
-                      render ediliyor. Ölü düğme bırakmamak için gizlendi. */}
-                  {!simpleOpportunity && (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      aria-expanded={operationsExpanded}
-                      onClick={() => setOperationsExpanded((value) => !value)}
-                    >
-                      {operationsExpanded ? "Operasyon kartlarını kapat" : "Operasyon kartlarını aç"}
-                    </Button>
-                  )}
-                </CardContent>
-              </Card>
-              {/* Saha operasyonu özeti. Üçü de başlamamışken üç ayrı kart
-                  ekranın üçte birini kaplayıp hiçbir şey söylemiyordu; o hâlde
-                  tek satıra iner. Bir tanesi bile başladıysa kartlara döner,
-                  çünkü artık gösterecek gerçek durum var. */}
-              {simpleOpportunity && (() => {
-                const fieldStages = [
-                  { key: "shipment", label: "Sevkiyat", icon: Truck, status: opportunityShipments[0]?.status },
-                  { key: "delivery", label: "Teslim", icon: FileClock, status: opportunityDeliveries[0]?.status },
-                  { key: "installation", label: "Kurulum", icon: Wrench, status: opportunityInstallations[0]?.statusName },
-                ];
-                const anyStarted = fieldStages.some((stage) => stage.status);
-                if (!anyStarted) {
-                  return (
-                    <button
-                      type="button"
-                      className="flex min-h-11 w-full items-center justify-between gap-3 rounded-[var(--surface-radius)] border border-border bg-card px-3 py-2.5 text-left transition hover:border-primary/40 hover:bg-muted/40"
-                      onClick={revealProcessActions}
-                    >
-                      <span className="inline-flex items-center gap-2 text-sm text-muted-foreground">
-                        <Truck className="size-4" /> Sevkiyat, teslim ve kurulum henüz başlamadı
-                      </span>
-                      <span className="shrink-0 text-xs font-semibold text-primary">Görevlere git</span>
-                    </button>
-                  );
-                }
-                return (
-                  <div className="grid gap-3 sm:grid-cols-3" aria-label="Saha operasyonu özeti">
-                    {fieldStages.map(({ key, label, icon: Icon, status }) => (
-                      <button key={key} type="button" className="min-h-20 rounded-[var(--surface-radius)] border border-border bg-card p-3 text-left transition hover:border-primary/40 hover:bg-muted/40" onClick={revealProcessActions}>
-                        <span className="inline-flex items-center gap-2 text-sm font-semibold text-foreground"><Icon className="size-4" /> {label}</span>
-                        <span className="mt-1 block text-xs text-muted-foreground">{status ?? "Henüz başlamadı"}</span>
-                      </button>
-                    ))}
-                  </div>
-                );
-              })()}
-              {/* Satış alanı kutusu isteğe bağlı OLAMAZ: alan görevleri ve tek
-                  ilerletme düğmesi onun içinde. Sade modda `operationsExpanded`
-                  false başladığı için kutu kapının arkasında kalıyordu, yani
-                  kullanıcı ilerletme düğmesini hiç göremiyordu. İsteğe bağlı olan
-                  operasyon kartları; kutu değil. */}
-              <div className="space-y-4">
-                {renderProcessCenter ? renderProcessCenter({ detail, loading: detailLoading, reload: loadDetail }) : processCenter}
-                {operationsExpanded && !simpleOpportunity && <div className="grid gap-4 lg:grid-cols-3">
-                    <Card><CardHeader className="pb-3"><CardTitle className="inline-flex items-center gap-2 text-sm"><Truck className="size-4" /> Sevkiyat</CardTitle></CardHeader><CardContent className="space-y-2">{opportunityShipments.map((shipment) => <div key={shipment.id} className="rounded-lg border border-slate-200 p-3 text-sm"><div className="font-medium">{shipment.trackingNo || "Takip numarası yok"}</div><div className="mt-1 text-xs text-muted-foreground">{shipment.status} · ETA {formatDate(shipment.eta)}</div></div>)}{opportunityShipments.length === 0 && <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-4 text-center"><div className="text-sm text-muted-foreground">Sevkiyat yok.</div><Button type="button" variant="outline" size="sm" className="mt-3 min-h-11 sm:min-h-8" onClick={revealProcessActions}>Sevkiyat oluştur</Button></div>}</CardContent></Card>
-                    <Card><CardHeader className="pb-3"><CardTitle className="inline-flex items-center gap-2 text-sm"><FileClock className="size-4" /> Teslim</CardTitle></CardHeader><CardContent className="space-y-2">{opportunityDeliveries.map((delivery) => <div key={delivery.id} className="rounded-lg border border-slate-200 p-3 text-sm"><div className="font-medium">{delivery.status}</div><div className="mt-1 text-xs text-muted-foreground">{formatDate(delivery.date)} · {delivery.signedBy || "İmza bekliyor"}</div></div>)}{opportunityDeliveries.length === 0 && <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-4 text-center"><div className="text-sm text-muted-foreground">Teslim kaydı yok.</div><Button type="button" variant="outline" size="sm" className="mt-3 min-h-11 sm:min-h-8" onClick={revealProcessActions}>Teslim kaydı oluştur</Button></div>}</CardContent></Card>
-                    <Card><CardHeader className="pb-3"><CardTitle className="inline-flex items-center gap-2 text-sm"><Wrench className="size-4" /> Kurulum</CardTitle></CardHeader><CardContent className="space-y-2">{opportunityInstallations.map((installation) => <div key={installation.id} className="rounded-lg border border-slate-200 p-3 text-sm"><div className="font-medium">{installation.statusName}</div><div className="mt-1 text-xs text-muted-foreground">{installation.technician || "Teknisyen atanmadı"} · {formatDate(installation.scheduledDate)}</div></div>)}{opportunityInstallations.length === 0 && <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-4 text-center"><div className="text-sm text-muted-foreground">Kurulum kaydı yok.</div><Button type="button" variant="outline" size="sm" className="mt-3 min-h-11 sm:min-h-8" onClick={revealProcessActions}>Kurulum oluştur</Button></div>}</CardContent></Card>
-                  </div>}
-              </div>
+              {/* Satış alanı kutusu gövdenin en üstünde: alan görevleri ve TEK
+                  ilerletme düğmesi onun içinde, kartın asıl işi bu. Kutu hiçbir
+                  zaman bir kapağın arkasında değildir. */}
+              {renderProcessCenter ? renderProcessCenter({ detail, loading: detailLoading, reload: loadDetail }) : processCenter}
+              {taskSection}
+              {documentsSection}
+              {operationsSection}
             </div>
           )}
         </div>
@@ -890,11 +902,17 @@ function OpportunitySummary({
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState("");
   const [saving, setSaving] = useState(false);
+  // Trello'dan aktarılan açıklamalar birkaç paragraf olabiliyor ve kartı
+  // açar açmaz ekranın tamamını dolduruyordu. İlk iki satır her zaman
+  // görünür, gerisi tek tıkla açılır — metin kısaltılmıyor, katlanıyor.
+  const [summaryExpanded, setSummaryExpanded] = useState(false);
   // Kaydedilen değer, store tazelenene kadar prop'taki eski metni gölgeler.
   const [savedSummary, setSavedSummary] = useState<string | null>(null);
   const summary = (savedSummary ?? salesCase.description ?? "").trim();
+  const isLongSummary = summary.length > 140 || summary.includes("\n");
 
   useEffect(() => { setSavedSummary(null); }, [salesCase.description]);
+  useEffect(() => { setSummaryExpanded(false); }, [salesCase.id]);
   useEffect(() => { if (open) setDraft(summary); }, [open, summary]);
 
   const save = async () => {
@@ -921,9 +939,19 @@ function OpportunitySummary({
           <div className="ui-eyebrow flex items-center gap-1.5">
             <NotebookText className="size-3.5" /> Özet
           </div>
-          <p className={`mt-1 whitespace-pre-wrap text-sm ${summary ? "text-foreground" : "text-muted-foreground"}`}>
+          <p className={`mt-1 whitespace-pre-wrap text-sm ${summary ? "text-foreground" : "text-muted-foreground"} ${summaryExpanded ? "" : "line-clamp-2"}`}>
             {summary || "Bu fırsat için özet girilmemiş."}
           </p>
+          {isLongSummary && (
+            <button
+              type="button"
+              className="mt-1 text-xs font-medium text-primary hover:underline"
+              aria-expanded={summaryExpanded}
+              onClick={() => setSummaryExpanded((value) => !value)}
+            >
+              {summaryExpanded ? "Daha az göster" : "Tamamını göster"}
+            </button>
+          )}
         </div>
         {canEdit && (
           <Button type="button" variant="outline" size="sm" className="shrink-0 gap-1" onClick={() => setOpen(true)}>

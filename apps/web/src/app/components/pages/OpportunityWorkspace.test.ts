@@ -56,18 +56,38 @@ describe("lead ve fırsat çalışma alanı sorumlu değişikliği", () => {
     expect(otherActions).not.toContain("Takibe al");
   });
 
-  it("satış alanı kutusunu kapının dışında tutar, yalnız operasyon kartlarını kapatır", () => {
-    // Kutu alan görevlerini ve TEK ilerletme düğmesini taşıyor. İsteğe bağlı
-    // olursa sade modda hiç mount olmaz (kapı `!simpleOpportunity` ile kapalı
-    // başlıyor) ve kullanıcı ilerletme düğmesini hiçbir yerde göremez.
-    // İsteğe bağlı olan operasyon kartları; kutu değil.
-    expect(workspaceSource).toContain("useState(() => !simpleOpportunity)");
-    expect(workspaceSource).toContain("setOperationsExpanded(!simpleOpportunity)");
-    expect(workspaceSource).toContain("{operationsExpanded && !simpleOpportunity && <div");
-    // Sade modda düğmenin açacağı bir şey kalmadığı için gizlendi; eski
-    // etiketler geri gelirse ölü düğme de geri gelmiş demektir.
+  it("satış alanı kutusunu kapının dışında tutar, yalnız operasyon ayrıntısını katlar", () => {
+    // Kutu alan görevlerini ve TEK ilerletme düğmesini taşıyor; hiçbir kapının
+    // arkasında olamaz, yoksa kullanıcı ilerletme düğmesini hiç göremez.
+    // Katlanan yalnız operasyon KAYIT kartlarıdır (takip no, ETA, teknisyen).
+    expect(workspaceSource).toContain("{renderProcessCenter ? renderProcessCenter({ detail, loading: detailLoading, reload: loadDetail }) : processCenter}");
+    expect(workspaceSource).not.toContain("operationsExpanded && renderProcessCenter");
+    expect(workspaceSource).toContain('id="opportunity-operations-detail"');
+    // Üç aşamanın durumu kapak kapalıyken de okunur; sade/tam mod ayrımı yok.
+    expect(workspaceSource).toContain('aria-label="Saha operasyonu özeti"');
+    expect(workspaceSource).not.toContain("{simpleOpportunity && (() => {");
+    // Kapak, gösterecek gerçek kayıt varken açılır; boş üç kart açılışta
+    // ekranın üçte birini kaplamaz.
+    expect(workspaceSource).toContain("setOperationsExpanded(hasFieldRecords)");
+    // Eski etiketler geri gelirse ölü/çift düğmeler de geri gelmiş demektir.
     expect(workspaceSource).not.toContain("Tam süreç haritasını aç");
-    expect(workspaceSource).toContain("Operasyon kartlarını kapat");
+    expect(workspaceSource).not.toContain("Operasyon kartlarını aç");
+  });
+
+  it("aynı bilgiyi ikinci kez basan yüzeyleri geri getirmez", () => {
+    const recordWorkspaceSource = readFileSync(new URL("../shared/RecordWorkspace.tsx", import.meta.url), "utf8");
+    // Karar özetinin iki varyantı vardı; `default` olan aynı üç bilgiyi iki
+    // katı yükseklikte gösterip satış alanı kutusunu ekran dışına itiyordu.
+    expect(recordWorkspaceSource).not.toContain('variant?: "default" | "compact"');
+    expect(recordWorkspaceSource).not.toContain("Sıradaki iş ve risk");
+    expect(workspaceSource).not.toContain('variant={simpleOpportunity ? "compact" : "default"}');
+    // Geçiş engelleri ait olduğu eksenin (operasyon) içinde tek yerde durur;
+    // kendi başına bir kart olarak ikinci kez çizilmez.
+    expect(workspaceSource).toContain("const operationBlockers = nextOperationTarget?.blockers ?? [];");
+    expect(workspaceSource).not.toContain('<Card className="overflow-hidden border-primary/15">');
+    // Dialogda gizlenip yine de çizilen iki ağır alt ağaç geri gelmemeli.
+    expect(detailSource).toContain("right={null}");
+    expect(detailSource).toContain('aside={mode === "dialog" ? null : (');
   });
 
   it("fırsat zaman çizelgesini doğru kaynaktan besler", () => {

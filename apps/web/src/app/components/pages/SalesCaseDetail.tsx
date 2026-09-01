@@ -1137,7 +1137,10 @@ export function SalesCaseDetailPage({
             ? "lg:[&>aside]:top-4"
             : "lg:grid-cols-1 [&>aside]:hidden"
         }
-        aside={
+        // Yan sütun dialogda `[&>aside]:hidden` ile gizli, ama yine de
+        // çiziliyordu: sekiz bölüm ve içlerindeki select/dialog'lar her kart
+        // açılışında görünmeden mount oluyordu.
+        aside={mode === "dialog" ? null : (
           <>
             <DialogSidebarSection title="Özet">
               <div className="text-2xl font-semibold tabular-nums">{sc.estimatedAmount.toLocaleString()} {sc.currency}</div>
@@ -1388,13 +1391,13 @@ export function SalesCaseDetailPage({
                 </Button>
               )}
             </DialogSidebarSection>
-            {mode === "dialog" && (
-              <DialogSidebarSection title="Yorumlar ve Aktivite">
-                {activityPanel}
-              </DialogSidebarSection>
-            )}
+            {/* Koşul `mode === "dialog"` idi; bu sütun yalnız "page" modunda
+                çizildiği için bölüm hiçbir zaman görünmüyordu. */}
+            <DialogSidebarSection title="Yorumlar ve Aktivite">
+              {activityPanel}
+            </DialogSidebarSection>
           </>
-        }
+        )}
       >
       {mode === "dialog" ? (
         <OpportunityWorkspace
@@ -2114,10 +2117,16 @@ export function SalesCaseDetailPage({
           activityClassName="hidden"
           meta={
             <>
+              <StatusBadge status={sc.stage} />
+              {/* Tahmini tutar dialogda hiçbir yerde görünmüyordu: tek yazıldığı
+                  yer yalnız "page" modunda çizilen özet paneliydi. Kartın en çok
+                  aranan sayısı başlıkta, aşamanın yanında duruyor. */}
+              <span className="font-data text-sm font-semibold tabular-nums text-foreground">
+                {sc.estimatedAmount.toLocaleString("tr-TR")} {sc.currency}
+              </span>
               <Badge variant="outline" className="border-[#0b2453]/20 bg-blue-50 text-[#0b2453]">
                 FIRSAT · {sc.id.slice(0, 8).toUpperCase()}
               </Badge>
-              <StatusBadge status={sc.stage} />
             </>
           }
           actions={
@@ -2136,7 +2145,12 @@ export function SalesCaseDetailPage({
               {onClose && <Button type="button" variant="ghost" size="icon" className="size-11 sm:size-9" onClick={onClose} aria-label="Çalışma alanını kapat"><X className="size-4" /></Button>}
             </>
           }
-          right={activityPanel}
+          // Aynı gerekçe (bkz. yukarıdaki `aside`): kabuğun sağ sütunu
+          // `activityClassName="hidden"` ile kapalı — akış
+          // `OpportunityWorkspace` rayında duruyor — ama panel yine de
+          // çizilip bütün aktivite listesini görünmez bir DOM olarak
+          // üretiyordu.
+          right={null}
           mobileFooter={<div id={`workspace-mobile-actions-${sc.id}`} />}
         >
           {content}

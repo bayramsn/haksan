@@ -95,9 +95,14 @@ test("fırsatlar listelenir ve detay açılır", async ({ page }) => {
       await expect(dialog.getByLabel("Saha operasyonu özeti")).toBeVisible();
     }
     await expect(dialog.getByRole("button", { name: "Tam süreç haritasını aç", exact: true })).toHaveCount(0);
+    await expect(dialog.getByRole("button", { name: "Operasyon kartlarını aç", exact: true })).toHaveCount(0);
   } else {
     await expect(dialog.getByText("Kayıt çalışma alanı", { exact: true })).toBeVisible();
-    await expect(dialog.getByText("Sıradaki iş ve risk", { exact: true })).toBeVisible();
+    // Karar özetinin ikinci varyantı ("Sıradaki iş ve risk", iki kat yüksek ve
+    // aynı üç bilgiyi tekrar eden kutu) kaldırıldı; tek gösterim kompakt
+    // "Sonraki iş" şeridi.
+    await expect(dialog.getByTestId("workspace-decision-summary")).toBeVisible();
+    await expect(dialog.getByText("Sonraki iş", { exact: true })).toBeVisible();
     await expectSingleWorkspaceAxis(dialog);
   }
 
