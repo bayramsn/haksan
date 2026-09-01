@@ -409,7 +409,7 @@ function AppShell() {
     content = <CustomerDetailPage customer={selectedCustomer} onBack={() => setSelectedCustomerId(null)} onAction={runOperationAction} />;
   } else {
     switch (currentNav) {
-      case "dashboard": content = <DashboardPage onAction={runOperationAction} />; break;
+      case "dashboard": content = <DashboardPage onAction={runOperationAction} initialSection={focus?.nav === "dashboard" && focus.focus === "targets" ? "hedefler" : undefined} />; break;
       case "chat": content = (
         <ChatPage
           onOpenRecord={(card) => {

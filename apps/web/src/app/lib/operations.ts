@@ -51,6 +51,7 @@ export type OperationNav =
   | "settings";
 
 export type OperationFocus =
+  | "targets"
   | "open"
   | "overdue"
   | "upcoming"

@@ -18,7 +18,7 @@ import { KanbanCardAttachments } from "../KanbanCardAttachments";
 import { DocumentPreviewDialog } from "../dialogs/DocumentPreviewDialog";
 import { DocumentUploadDialog } from "../dialogs/DocumentUploadDialog";
 import { useStore } from "../../lib/store";
-import { LostCaseDialog } from "../dialogs/LostCaseDialog";
+import { CloseCaseDialog } from "../dialogs/CloseCaseDialog";
 import { installationFormDoc, printAssetBase, trShortDate } from "../../lib/print";
 import { printOrWarn } from "../../lib/pageHelpers";
 import { relatedDeliveryFormNo, resolveServiceFormNo } from "../../lib/serviceFormNo";
@@ -405,7 +405,7 @@ export function KanbanPage({
 
   return (
     <>
-    <LostCaseDialog
+    <CloseCaseDialog
       open={!!lostId}
       onOpenChange={(o) => !o && setLostId(null)}
       caseId={lostId}

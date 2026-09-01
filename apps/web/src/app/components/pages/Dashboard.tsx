@@ -160,7 +160,11 @@ export const stageDrilldown = (stage?: string | null): OperationAction => {
     : { kind: "navigate", nav: "sales-cases" };
 };
 
-export function DashboardPage({ onAction }: { onAction?: (action: OperationAction) => void }) {
+export function DashboardPage({ onAction, initialSection }: {
+  onAction?: (action: OperationAction) => void;
+  /** Bildirimden gelen derin bağlantı (ör. sabah brifingindeki hedef satırı). */
+  initialSection?: DashboardSection;
+}) {
   const store = useStore();
   const { customers, cases: salesCases, service: serviceRequests, machines, users, offers } = store;
   const { user, activeDivision } = useAuth();
@@ -173,8 +177,10 @@ export function DashboardPage({ onAction }: { onAction?: (action: OperationActio
   const [targetLoading, setTargetLoading] = useState(false);
   const dashboardRole = primaryRole(user?.roles);
   const [section, setSection] = useState<DashboardSection>(
-    () => (dashboardRole ? SECTION_BY_ROLE[dashboardRole] : undefined) ?? "ozet",
+    () => initialSection ?? (dashboardRole ? SECTION_BY_ROLE[dashboardRole] : undefined) ?? "ozet",
   );
+  // Aynı sayfadayken gelen ikinci bildirim de sekmeyi taşısın.
+  useEffect(() => { if (initialSection) setSection(initialSection); }, [initialSection]);
   const [chartPeriod, setChartPeriod] = useState<"1A" | "3A" | "6A" | "1Y">("6A");
   const [pipelineRows, setPipelineRows] = useState<Array<{ stageCode?: string; stageName?: string; count?: number; sortOrder?: number }>>([]);
   const monthCount = { "1A": 1, "3A": 3, "6A": 6, "1Y": 12 }[chartPeriod];

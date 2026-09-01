@@ -1,10 +1,12 @@
+import { VISIT_NOT_DONE_RESULT } from "@haksan/shared";
 import type { Activity } from "../../lib/mock";
 
 export type OpportunityVisitStatus = "done" | "not_done";
 
 export const OPPORTUNITY_VISIT_STATUS_RESULT: Record<OpportunityVisitStatus, string> = {
   done: "Ziyaret yapıldı",
-  not_done: "Ziyaret yapılmadı",
+  // Rapor sayımları bu metne bakarak ziyareti eler; sabit paylaşımlı.
+  not_done: VISIT_NOT_DONE_RESULT,
 };
 
 const VISIT_ACTIVITY_TYPE_CODES = new Set(["customer_visit", "visit", "demo"]);

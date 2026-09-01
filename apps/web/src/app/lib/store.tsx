@@ -217,7 +217,9 @@ const mapCase = (o: any, isOfferPrepared: boolean): SalesCase =>
     paymentTermDays: o.paymentTermDays === null || o.paymentTermDays === undefined ? undefined : Number(o.paymentTermDays),
     paymentMethod: o.paymentMethod ?? 'undecided',
     isOfferPrepared,
-    isLost: (o.qualificationStage ?? '') === 'lost' || (o.stage?.code ?? '') === 'cancelled',
+    // İptal edilen kart da 'cancelled' aşamasındadır ama kaybedilmiş değildir;
+    // kayıp yalnız nitelendirme aşamasından okunur (bkz. Fırsatı Kapat akışı).
+    isLost: (o.qualificationStage ?? '') === 'lost',
     lostReasonCode: o.lostReason?.code ?? undefined,
     lostReason: o.lostReason?.name ?? undefined,
     lostCompanyName: o.lostCompanyName ?? undefined,
@@ -652,6 +654,8 @@ type Store = {
       competitorProductModel?: string;
     }
   ) => Promise<void>;
+  /** İptal kapanışı: kayıp analizine girmeyen terminal kapanış. */
+  cancelCase: (id: string, payload: { reasonCode: string; note?: string }) => Promise<void>;
   moveService: (id: string, to: ServiceStage) => Promise<void>;
   updateService: (id: string, patch: Partial<ServiceRequest>) => Promise<void>;
   loadServiceWarranty: (id: string) => Promise<ServiceWarrantyClaim | null>;
@@ -1906,6 +1910,18 @@ function StoreInner({ children }: { children: ReactNode }) {
     await fetchAll();
   };
 
+  // İptal: yatırım düştü, rakibe kaybedilmedi. Kart 'cancelled' aşamasına
+  // taşınır ama kayıp analizine girmez.
+  const cancelCase: Store['cancelCase'] = async (id, payload) => {
+    await opportunityService.changeStage(id, {
+      toStage: 'cancelled',
+      outcome: 'cancelled',
+      cancellationReasonCode: payload.reasonCode,
+      changeReason: payload.note?.trim() || undefined,
+    } as any);
+    await fetchAll();
+  };
+
   const addOffer: Store['addOffer'] = async (o) => {
     const sc = cases.find((c) => c.id === o.salesCaseId);
     if (!sc) throw new Error('Satış kartı bulunamadı');
@@ -2718,6 +2734,7 @@ function StoreInner({ children }: { children: ReactNode }) {
       postponeCase,
       reopenCase,
       markCaseLost,
+      cancelCase,
       moveService,
       updateService,
       loadServiceWarranty,

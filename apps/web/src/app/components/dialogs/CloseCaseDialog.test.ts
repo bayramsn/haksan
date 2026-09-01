@@ -1,8 +1,8 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
-describe("kaybedilen fırsat ayrıntıları", () => {
-  const source = readFileSync(new URL("./LostCaseDialog.tsx", import.meta.url), "utf8");
+describe("fırsat kapatma penceresi", () => {
+  const source = readFileSync(new URL("./CloseCaseDialog.tsx", import.meta.url), "utf8");
 
   it("LOST penceresi rakip kataloğunu API'den yükler", () => {
     expect(source).toContain("competitorService");
@@ -11,13 +11,13 @@ describe("kaybedilen fırsat ayrıntıları", () => {
   });
 
   it("firma ve ürünü kayıp anında açıkça gösterir", () => {
-    expect(source).toContain("Kaybedilen firma");
+    expect(source).toContain("Kapatılan fırsat");
     expect(source).toContain("Kaybedilen Ürün / Makine *");
     expect(source).toContain("productName: productName.trim()");
   });
 
   it("rakip ve karşılanmayan şartları toplar", () => {
-    expect(source).toContain("Rakip Kim?");
+    expect(source).toContain("Hangi firmaya kaybedildi?");
     expect(source).toContain("Rakip yok / bilinmiyor");
     // Tek combobox: listeden seç ya da yazdığını elle kaydet.
     expect(source).toContain("<Combobox");
@@ -32,5 +32,18 @@ describe("kaybedilen fırsat ayrıntıları", () => {
     expect(source).toContain("competitorLoadError");
     expect(source).toContain("Rakip kataloğu alınamadı");
     expect(source).toContain('role="alert"');
+  });
+
+  it("kapanış türünü seçtirir ve iptali kayıptan ayırır", () => {
+    // "İptal" kayıp analizine girmemeli: ayrı neden listesi ve ayrı store eylemi.
+    expect(source).toContain("Kapanış türü *");
+    expect(source).toContain("İptal edildi");
+    expect(source).toContain("CANCEL_REASONS");
+    expect(source).toContain("cancelCase(caseId!, { reasonCode");
+    expect(source).toContain("cancel_second_hand");
+  });
+
+  it("iptal seçiliyken rakip kataloğunu çağırmaz", () => {
+    expect(source).toContain('outcome !== "lost"');
   });
 });

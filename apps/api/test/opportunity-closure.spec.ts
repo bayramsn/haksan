@@ -81,6 +81,37 @@ describe('Opportunity logical closure (Bitir / Arşiv / Geri Aç)', () => {
     );
   });
 
+  it('separates a cancelled deal from a lost one', async () => {
+    const server = app.getHttpServer();
+    const id = await createOpp(server, `cancelled-not-lost-${Date.now()}`);
+
+    const cancelled = await supertest(server)
+      .patch(`/api/v1/opportunities/${id}/stage`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        toStage: 'cancelled',
+        outcome: 'cancelled',
+        cancellationReasonCode: 'cancel_second_hand',
+        cancellationReasonName: '2. El Makine Aldı',
+        changeReason: 'Müşteri ikinci el tezgah aldı',
+      });
+    expect(cancelled.status, JSON.stringify(cancelled.body)).toBe(200);
+    // İptal, kayıp analizine girmemeli: nitelendirme aşaması 'lost' olmaz.
+    expect(cancelled.body.qualificationStage).not.toBe('lost');
+    expect(cancelled.body.stage?.code).toBe('cancelled');
+    expect(cancelled.body.lostReason?.name ?? cancelled.body.lostReason).toBe('2. El Makine Aldı');
+    expect(cancelled.body.lostCompetitor ?? cancelled.body.lostCompetitorId ?? null).toBeNull();
+
+    const lostId = await createOpp(server, `lost-stays-lost-${Date.now()}`);
+    const lost = await supertest(server)
+      .patch(`/api/v1/opportunities/${lostId}/stage`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ toStage: 'cancelled', cancellationReasonCode: 'competitor' });
+    expect(lost.status, JSON.stringify(lost.body)).toBe(200);
+    // Alan gönderilmeyen eski istemciler kayıp davranışını korur.
+    expect(lost.body.qualificationStage).toBe('lost');
+  });
+
   it('refuses to close a non-terminal opportunity (422)', async () => {
     const id = await createOpp(app.getHttpServer(), `closure-nonterminal-${Date.now()}`);
     const r = await supertest(app.getHttpServer())

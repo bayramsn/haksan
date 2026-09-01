@@ -4368,17 +4368,28 @@ export class OpportunitiesService {
           .values({
             tenantId: actor.tenantId,
             code: input.cancellationReasonCode,
-            name: input.cancellationReasonCode,
+            name: input.cancellationReasonName?.trim() || input.cancellationReasonCode,
           })
           .returning();
         reasonId = created.id;
       }
       patch.lostReasonId = reasonId;
-      if (input.lostCompetitorId) patch.lostCompetitorId = input.lostCompetitorId;
-      if (input.lostCompetitorProductModel) patch.lostCompetitorProductModel = input.lostCompetitorProductModel;
-      const lost = await this.db.query.opportunityStatuses.findFirst({ where: eq(opportunityStatuses.code, 'lost') });
-      if (lost) patch.statusId = lost.id;
-      patch.qualificationStage = 'lost';
+      // İptal, kayıp değildir: rakip/ürün alanları yalnız kayıpta yazılır ve
+      // nitelendirme aşaması 'lost'a çekilmez, aksi halde kayıp analizi
+      // yatırımdan vazgeçen fırsatları da sayar.
+      const cancelledOutcome = input.outcome === 'cancelled';
+      if (!cancelledOutcome) {
+        if (input.lostCompetitorId) patch.lostCompetitorId = input.lostCompetitorId;
+        if (input.lostCompetitorProductModel) patch.lostCompetitorProductModel = input.lostCompetitorProductModel;
+      }
+      const statusCode = cancelledOutcome ? 'cancelled' : 'lost';
+      const status =
+        (await this.db.query.opportunityStatuses.findFirst({ where: eq(opportunityStatuses.code, statusCode) }))
+        // 'cancelled' statüsü eski tenant'ta yoksa kayıt statüsüz kalmasın.
+        ?? (await this.db.query.opportunityStatuses.findFirst({ where: eq(opportunityStatuses.code, 'lost') }));
+      if (status) patch.statusId = status.id;
+      if (!cancelledOutcome) patch.qualificationStage = 'lost';
+      if (input.changeReason?.trim()) patch.qualificationNote = input.changeReason.trim();
       patch.qualificationUpdatedAt = new Date();
     } else if (movingBackward && this.qualificationStage(opp.qualificationStage) === 'win') {
       const open = await this.db.query.opportunityStatuses.findFirst({ where: eq(opportunityStatuses.code, 'open') });

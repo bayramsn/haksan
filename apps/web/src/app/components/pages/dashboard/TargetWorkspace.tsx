@@ -83,7 +83,7 @@ type TargetItem = {
 };
 
 type TargetSubject = {
-  subject: { kind: ScopeKind; id: string; name: string };
+  subject: { kind: ScopeKind; id: string; name: string; departmentName?: string | null; departmentNames?: string[] };
   hasTarget: boolean;
   note?: string | null;
   metrics?: Record<string, TargetMetric>;
@@ -363,6 +363,62 @@ const targetReportDocument = (input: {
   };
 };
 
+type TeamRow = {
+  id: string;
+  name: string;
+  department: string | null;
+  averagePct: number | null;
+  /** Ay içi beklenen tempo ile fark; eksi değer "geride" demek. */
+  pace: number | null;
+  achievedCount: number;
+  riskCount: number;
+  lineCount: number;
+};
+type TeamSort = "pace" | "name" | "progress";
+
+/** Tempo rozeti: ölçülemeyen satır "hedef yok" der, sayı yerine yön gösterir. */
+export const paceMeta = (pace: number | null) => {
+  if (pace == null) return { label: "Hedef yok", className: STATUS_META.not_configured.className };
+  if (pace >= 0) return { label: `+${pace} puan`, className: STATUS_META.on_track.className };
+  if (pace >= -15) return { label: `${pace} puan`, className: STATUS_META.at_risk.className };
+  return { label: `${pace} puan`, className: STATUS_META.missed.className };
+};
+
+/** Tek çağrılık `all-users` yanıtını karne satırlarına indirger. */
+export const buildTeamRows = (response: any): TeamRow[] => {
+  const expectedPct = Number(response?.expectedProgressPct ?? 0);
+  const subjects = (Array.isArray(response?.subjects) ? response.subjects : []) as TargetSubject[];
+  return subjects.map((subject) => {
+    const lines = reportLines(subject, String(response?.period ?? ""), expectedPct);
+    const measurable = lines.filter((line) => line.pct != null);
+    const averagePct = measurable.length
+      ? Math.round(measurable.reduce((sum, line) => sum + Math.min(100, Math.max(0, line.pct ?? 0)), 0) / measurable.length)
+      : null;
+    return {
+      id: subject.subject.id,
+      name: subject.subject.name,
+      department: subject.subject.departmentNames?.[0] ?? subject.subject.departmentName ?? null,
+      averagePct,
+      pace: averagePct == null ? null : averagePct - expectedPct,
+      achievedCount: lines.filter((line) => line.status === "achieved").length,
+      riskCount: lines.filter((line) => line.status === "at_risk" || line.status === "missed").length,
+      lineCount: lines.length,
+    };
+  });
+};
+
+/** Hedefi olmayan ve ölçülemeyen satırlar her sıralamada en sona düşer. */
+export const sortTeamRows = (rows: TeamRow[], sort: TeamSort): TeamRow[] =>
+  [...rows].sort((left, right) => {
+    if (sort === "name") return left.name.localeCompare(right.name, "tr-TR");
+    const leftValue = sort === "pace" ? left.pace : left.averagePct;
+    const rightValue = sort === "pace" ? right.pace : right.averagePct;
+    if (leftValue == null && rightValue == null) return left.name.localeCompare(right.name, "tr-TR");
+    if (leftValue == null) return 1;
+    if (rightValue == null) return -1;
+    return leftValue - rightValue;
+  });
+
 export function TargetWorkspace() {
   const { user, hasRole } = useAuth();
   const canManageTargets = hasRole("super_admin") || hasRole("admin");
@@ -379,6 +435,9 @@ export function TargetWorkspace() {
   const [lastUpdatedAt, setLastUpdatedAt] = useState<Date | null>(null);
   const [targetScope, setTargetScope] = useState<TargetScope | null>(null);
   const [editingTarget, setEditingTarget] = useState<UserTarget | undefined>();
+  const [teamRows, setTeamRows] = useState<TeamRow[]>([]);
+  const [teamLoading, setTeamLoading] = useState(false);
+  const [teamSort, setTeamSort] = useState<TeamSort>("pace");
 
   useEffect(() => {
     if (!user?.id) return;
@@ -441,6 +500,20 @@ export function TargetWorkspace() {
   useEffect(() => {
     if (subjectId) void loadReport();
   }, [loadReport, subjectId]);
+
+  // Ekip karnesi tek istekle gelir (`all-users`), yalnız son dönem için:
+  // "kim geride" sorusu ay bazlıdır, aralık ortalaması onu gizler.
+  useEffect(() => {
+    if (!canManageTargets) return;
+    let alive = true;
+    setTeamLoading(true);
+    reportService
+      .targetProgress({ period: toPeriod, scope: "all-users" })
+      .then((response: any) => { if (alive) setTeamRows(buildTeamRows({ ...response, period: toPeriod })); })
+      .catch(() => { if (alive) setTeamRows([]); })
+      .finally(() => { if (alive) setTeamLoading(false); });
+    return () => { alive = false; };
+  }, [canManageTargets, toPeriod]);
 
   const latest = results[results.length - 1] ?? null;
   const measurablePeriods = results.filter((row) => row.averagePct != null);
@@ -637,6 +710,63 @@ export function TargetWorkspace() {
           </CardContent>
         </Card>
       </div>
+
+      {canManageTargets && (
+        <Card className="overflow-hidden border-border/70 shadow-sm">
+          <CardHeader className="flex flex-col gap-2 border-b border-border/60 bg-muted/15 pb-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <CardTitle className="flex items-center gap-2 text-base"><Users className="size-4 text-primary" /> Ekip karnesi · {periodLabel(toPeriod)}</CardTitle>
+              <p className="mt-1 text-xs text-muted-foreground">Tempo, gerçekleşme ile ayın geçen kısmı arasındaki fark. Satıra tıklayınca o kişinin detayı açılır.</p>
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {([["pace", "Tempo"], ["progress", "Gerçekleşme"], ["name", "İsim"]] as [TeamSort, string][]).map(([value, label]) => (
+                <Button
+                  key={value}
+                  type="button"
+                  size="sm"
+                  variant={teamSort === value ? "default" : "outline"}
+                  className="h-7 px-2.5 text-xs"
+                  onClick={() => setTeamSort(value)}
+                >
+                  {label}
+                </Button>
+              ))}
+            </div>
+          </CardHeader>
+          <CardContent className="p-0">
+            {teamLoading ? (
+              <div className="flex items-center gap-2 p-5 text-sm text-muted-foreground"><RefreshCw className="size-4 animate-spin" /> Ekip karnesi hazırlanıyor</div>
+            ) : teamRows.length ? (
+              <div className="divide-y divide-border/60">
+                {sortTeamRows(teamRows, teamSort).map((row) => (
+                  <button
+                    key={row.id}
+                    type="button"
+                    className="flex w-full flex-col gap-2 px-4 py-3 text-left transition hover:bg-muted/40 sm:flex-row sm:items-center sm:gap-4"
+                    onClick={() => { setScopeKind("user"); setSubjectId(row.id); }}
+                  >
+                    <div className="min-w-0 sm:w-56">
+                      <div className="truncate text-sm font-medium">{row.name}</div>
+                      <div className="truncate text-[11px] text-muted-foreground">{row.department ?? "Departman atanmamış"}</div>
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <Progress value={Math.min(100, row.averagePct ?? 0)} className="h-1.5" />
+                      <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[10px] text-muted-foreground">
+                        <span>{row.lineCount} hedef</span><span>·</span><span>{row.achievedCount} tamam</span>
+                        {row.riskCount > 0 && <><span>·</span><span className="text-amber-700">{row.riskCount} riskli</span></>}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 sm:w-44 sm:justify-end">
+                      <span className="text-sm font-semibold tabular-nums">{row.averagePct == null ? "—" : `%${row.averagePct}`}</span>
+                      <Badge variant="outline" className={paceMeta(row.pace).className}>{paceMeta(row.pace).label}</Badge>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            ) : <div className="p-5"><EmptyReport /></div>}
+          </CardContent>
+        </Card>
+      )}
 
       <Card className="overflow-hidden border-border/70 shadow-sm">
         <CardHeader className="flex flex-col gap-2 border-b border-border/60 bg-muted/15 pb-3 sm:flex-row sm:items-center sm:justify-between">

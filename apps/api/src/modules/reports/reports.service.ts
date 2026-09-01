@@ -1,5 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { activityTypeLabel } from '@haksan/shared';
+import { activityTypeLabel, VISIT_NOT_DONE_RESULT } from '@haksan/shared';
 import { and, between, desc, eq, gte, inArray, isNull, lte, notInArray, sql } from 'drizzle-orm';
 import type { DbClient } from '../../db/client';
 import { visits as visitsTbl, calls as callsTbl, leads, salesActivities } from '../../db/schema/crm';
@@ -1669,8 +1669,8 @@ export class ReportsService {
     tenantId: string,
     userIds: string[],
     range: { from: Date; to: Date; prevFrom: Date; prevTo: Date },
-    /** Yalnız 'activities' için: sayılacak ya da dışlanacak aktivite türleri. */
-    typeFilter?: { in?: string[]; notIn?: string[] }
+    /** Yalnız 'activities' için: sayılacak/dışlanacak türler ve elenecek sonuç. */
+    typeFilter?: { in?: string[]; notIn?: string[]; notResult?: string }
   ) {
     if (!userIds.length) return new Map<string, { current: number; previous: number }>();
     if (typeFilter?.in && !typeFilter.in.length) return new Map<string, { current: number; previous: number }>();
@@ -1696,7 +1696,8 @@ export class ReportsService {
           gte(spec.date, range.prevFrom),
           lte(spec.date, range.to),
           typeFilter?.in?.length ? inArray(salesActivities.activityTypeId, typeFilter.in) : undefined,
-          typeFilter?.notIn?.length ? notInArray(salesActivities.activityTypeId, typeFilter.notIn) : undefined
+          typeFilter?.notIn?.length ? notInArray(salesActivities.activityTypeId, typeFilter.notIn) : undefined,
+          typeFilter?.notResult ? sql`coalesce(${salesActivities.result}, '') <> ${typeFilter.notResult}` : undefined
         )
       )
       .groupBy(spec.actor);
@@ -1743,7 +1744,7 @@ export class ReportsService {
         this.activityCounts('visits', actor.tenantId, userIds, range),
         this.activityCounts('calls', actor.tenantId, userIds, range),
         this.activityCounts('activities', actor.tenantId, userIds, range, { notIn: activityTypeIds.all }),
-        this.activityCounts('activities', actor.tenantId, userIds, range, { in: activityTypeIds.visit }),
+        this.activityCounts('activities', actor.tenantId, userIds, range, { in: activityTypeIds.visit, notResult: VISIT_NOT_DONE_RESULT }),
         this.activityCounts('activities', actor.tenantId, userIds, range, { in: activityTypeIds.call }),
       ]);
     const visitCounts = mergeCountMaps(visitTableCounts, visitActivityCounts);
@@ -2143,7 +2144,10 @@ export class ReportsService {
       const activityTypeIds = await this.visitCallActivityTypeIds();
       const activityTypeFilter =
         metric === 'visits'
-          ? inArray(salesActivities.activityTypeId, activityTypeIds.visit)
+          ? and(
+              inArray(salesActivities.activityTypeId, activityTypeIds.visit),
+              sql`coalesce(${salesActivities.result}, '') <> ${VISIT_NOT_DONE_RESULT}`
+            )
           : metric === 'calls'
             ? inArray(salesActivities.activityTypeId, activityTypeIds.call)
             : metric === 'activities'
@@ -2335,7 +2339,7 @@ export class ReportsService {
       actorCol: any,
       table: any,
       /** Yalnız aktivite serisi için tür süzgeci. */
-      typeFilter?: { in?: string[]; notIn?: string[] }
+      typeFilter?: { in?: string[]; notIn?: string[]; notResult?: string }
     ) => {
       if (typeFilter?.in && !typeFilter.in.length) return new Map<string, number>();
       const truncated = sql`date_trunc('${sql.raw(unit)}', ${dateCol})`;
@@ -2353,7 +2357,8 @@ export class ReportsService {
             gte(dateCol, range.from),
             lte(dateCol, range.to),
             typeFilter?.in?.length ? inArray(salesActivities.activityTypeId, typeFilter.in) : undefined,
-            typeFilter?.notIn?.length ? notInArray(salesActivities.activityTypeId, typeFilter.notIn) : undefined
+            typeFilter?.notIn?.length ? notInArray(salesActivities.activityTypeId, typeFilter.notIn) : undefined,
+            typeFilter?.notResult ? sql`coalesce(${salesActivities.result}, '') <> ${typeFilter.notResult}` : undefined
           )
         )
         .groupBy(truncated);
@@ -2361,7 +2366,7 @@ export class ReportsService {
     };
 
     const activityTypeIds = await this.visitCallActivityTypeIds();
-    const activitySeries = (typeFilter: { in?: string[]; notIn?: string[] }) =>
+    const activitySeries = (typeFilter: { in?: string[]; notIn?: string[]; notResult?: string }) =>
       series(
         salesActivities.activityDate,
         salesActivities.tenantId,
@@ -2375,7 +2380,7 @@ export class ReportsService {
       series(visitsTbl.visitDate, visitsTbl.tenantId, visitsTbl.deletedAt, visitsTbl.createdBy, visitsTbl),
       series(callsTbl.callDate, callsTbl.tenantId, callsTbl.deletedAt, callsTbl.createdBy, callsTbl),
       activitySeries({ notIn: activityTypeIds.all }),
-      activitySeries({ in: activityTypeIds.visit }),
+      activitySeries({ in: activityTypeIds.visit, notResult: VISIT_NOT_DONE_RESULT }),
       activitySeries({ in: activityTypeIds.call }),
     ]);
 

@@ -31,7 +31,7 @@ import { useStore } from "../../lib/store";
 import { useAuth } from "../../../lib/auth";
 import { AddActivityDialog, CreateCustomerDialog, CreateInstallationDialog, CreateShipmentDialog } from "../dialogs/CreateDialogs";
 import { QuoteDialog } from "../dialogs/QuoteDialog";
-import { LostCaseDialog } from "../dialogs/LostCaseDialog";
+import { CloseCaseDialog } from "../dialogs/CloseCaseDialog";
 import { OpportunityFollowUpDialog } from "../dialogs/OpportunityFollowUpDialog";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "../ui/dialog";
 import {
@@ -944,7 +944,7 @@ export function SalesCaseDetailPage({
       {sc.qualificationStage === "win" && sc.wonReason && <div className="rounded-lg border border-success/25 bg-success-soft p-3 text-xs"><div className="font-semibold text-success">Kapanış nedeni</div><div className="mt-1 text-foreground">{sc.wonReason}</div></div>}
       <div className="grid gap-2">
         {canCloseOpportunity && <Button type="button" variant="outline" className="min-h-11 justify-start gap-2 border-emerald-200 text-emerald-700" onClick={() => setCloseOpen(true)} disabled={closeSaving}><CheckCircle2 className="size-4" /> Fırsatı kapat</Button>}
-        {canMarkLost && <Button type="button" variant="outline" className="min-h-11 justify-start gap-2 border-red-200 text-red-700" onClick={() => setLostOpen(true)}><XCircle className="size-4" /> Kaybedildi olarak işaretle</Button>}
+        {canMarkLost && <Button type="button" variant="outline" className="min-h-11 justify-start gap-2 border-red-200 text-red-700" onClick={() => setLostOpen(true)}><XCircle className="size-4" /> Fırsatı Kapat</Button>}
         {canDelete && <Button type="button" variant="outline" className="min-h-11 justify-start gap-2 border-red-200 text-red-700" onClick={() => setDeleteOpen(true)}><Trash2 className="size-4" /> {cardTypeLabel} kartını sil</Button>}
       </div>
     </div>
@@ -959,7 +959,7 @@ export function SalesCaseDetailPage({
         </Button>
       </div>
 
-      <LostCaseDialog
+      <CloseCaseDialog
         open={lostOpen}
         onOpenChange={setLostOpen}
         caseId={sc.id}
@@ -1374,7 +1374,7 @@ export function SalesCaseDetailPage({
                   onClick={() => setLostOpen(true)}
                   className="w-full justify-start gap-2 rounded-md border-destructive/30 text-destructive hover:bg-destructive-soft hover:text-destructive"
                 >
-                  <XCircle className="size-4" /> Kaybedildi olarak işaretle
+                  <XCircle className="size-4" /> Fırsatı Kapat
                 </Button>
               )}
               {canDelete && (

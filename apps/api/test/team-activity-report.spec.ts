@@ -5,6 +5,7 @@
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import request from 'supertest';
+import { VISIT_NOT_DONE_RESULT } from '@haksan/shared';
 import type { NestFastifyApplication } from '@nestjs/platform-fastify';
 import { createTestApp } from './setup';
 import { normalizeCompanyName } from '../src/shared/utils/text-normalization';
@@ -97,6 +98,23 @@ describe('Team activity report', () => {
     expect(after.calls - before.calls).toBe(1);
     // Ziyaret/arama türleri "Aktivite"den düşülür; yalnız not sayılır.
     expect(after.activities - before.activities).toBe(1);
+  });
+
+  it('"Yapılmadı" kararıyla yazılan ziyareti hiçbir sayımda ziyaret saymaz', async () => {
+    const before = await totals();
+    await logActivity('customer_visit', 'Ziyaret kararı', { result: VISIT_NOT_DONE_RESULT });
+
+    const after = await totals();
+    expect(after.visits - before.visits).toBe(0);
+    // "Aktivite" kovasına da düşmez: tür hâlâ ziyaret.
+    expect(after.activities - before.activities).toBe(0);
+
+    const details = await request(app.getHttpServer())
+      .get('/api/v1/reports/team-activity/details?period=week&scope=self&metric=visits')
+      .set('Authorization', `Bearer ${token}`)
+      .expect(200);
+    const titles = (details.body.items ?? details.body.data ?? []).map((item: any) => item.title);
+    expect(titles).not.toContain('Ziyaret kararı');
   });
 
   it('ziyaret formundan girilen kayıt da aynı metriğe eklenir', async () => {

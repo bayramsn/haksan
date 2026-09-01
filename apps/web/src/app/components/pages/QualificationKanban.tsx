@@ -19,7 +19,7 @@ import {
   type SalesCase,
 } from "../../lib/mock";
 import { KanbanBoard, type KanbanColumn } from "../KanbanBoard";
-import { LostCaseDialog } from "../dialogs/LostCaseDialog";
+import { CloseCaseDialog } from "../dialogs/CloseCaseDialog";
 import { Button } from "../ui/button";
 import { Card } from "../ui/card";
 import {
@@ -189,7 +189,7 @@ export function QualificationKanban({
 
   return (
     <>
-      <LostCaseDialog
+      <CloseCaseDialog
         open={Boolean(lostId)}
         onOpenChange={(open) => !open && setLostId(null)}
         caseId={lostId}

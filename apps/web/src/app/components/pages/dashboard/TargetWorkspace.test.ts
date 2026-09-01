@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildPeriodResult, monthRange, reportLines } from "./TargetWorkspace";
+import { buildPeriodResult, buildTeamRows, monthRange, paceMeta, reportLines, sortTeamRows } from "./TargetWorkspace";
 
 describe("hedef raporu dönem aralığı", () => {
   it("başlangıç ve bitiş aylarını dahil eder", () => {
@@ -60,5 +60,55 @@ describe("hedef raporu kalem normalizasyonu", () => {
     expect(result.averagePct).toBe(90);
     expect(result.achievedCount).toBe(1);
     expect(result.manualCount).toBe(1);
+  });
+});
+
+describe("ekip karnesi", () => {
+  const response = {
+    period: "2026-08",
+    expectedProgressPct: 60,
+    subjects: [
+      {
+        subject: { kind: "user", id: "u1", name: "Ayşe Yılmaz", departmentNames: ["Satış"] },
+        hasTarget: true,
+        metrics: { quoteTarget: { target: 10, actual: 9, pct: 90 } },
+      },
+      {
+        subject: { kind: "user", id: "u2", name: "Barış Demir" },
+        hasTarget: true,
+        metrics: { quoteTarget: { target: 10, actual: 2, pct: 20 } },
+      },
+      {
+        subject: { kind: "user", id: "u3", name: "Cem Kaya" },
+        hasTarget: false,
+        metrics: {},
+      },
+    ],
+  };
+
+  it("tempoyu beklenen ilerlemeye göre hesaplar", () => {
+    const rows = buildTeamRows(response);
+    expect(rows).toHaveLength(3);
+    expect(rows[0]).toMatchObject({ id: "u1", averagePct: 90, pace: 30, department: "Satış" });
+    expect(rows[1]).toMatchObject({ id: "u2", averagePct: 20, pace: -40 });
+    // Hedefi olmayan kişi ölçülemez; tempo boş kalır.
+    expect(rows[2]).toMatchObject({ id: "u3", averagePct: null, pace: null });
+  });
+
+  it("geride kalanı başa alır, ölçülemeyeni sona atar", () => {
+    const sorted = sortTeamRows(buildTeamRows(response), "pace");
+    expect(sorted.map((row) => row.id)).toEqual(["u2", "u1", "u3"]);
+  });
+
+  it("isme göre sıralarken Türkçe alfabeyi kullanır", () => {
+    const sorted = sortTeamRows(buildTeamRows(response), "name");
+    expect(sorted.map((row) => row.name)).toEqual(["Ayşe Yılmaz", "Barış Demir", "Cem Kaya"]);
+  });
+
+  it("tempo rozeti eşiğe göre renk sınıfı seçer", () => {
+    expect(paceMeta(5).label).toBe("+5 puan");
+    expect(paceMeta(-8).className).toContain("amber");
+    expect(paceMeta(-40).className).toContain("red");
+    expect(paceMeta(null).label).toBe("Hedef yok");
   });
 });
