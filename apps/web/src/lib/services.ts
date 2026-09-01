@@ -1258,6 +1258,9 @@ export const reportService = {
   weeklyVisits: (params?: Record<string, string>) => api.get<any[]>(`/reports/weekly-visits${qs(params)}`),
   monthlyVisits: (params?: Record<string, string>) => api.get<any[]>(`/reports/monthly-visits${qs(params)}`),
   yearlyVisits: (params?: Record<string, string>) => api.get<any[]>(`/reports/yearly-visits${qs(params)}`),
+  weeklyActivities: (params?: Record<string, string>) => api.get<any[]>(`/reports/weekly-activities${qs(params)}`),
+  monthlyActivities: (params?: Record<string, string>) => api.get<any[]>(`/reports/monthly-activities${qs(params)}`),
+  yearlyActivities: (params?: Record<string, string>) => api.get<any[]>(`/reports/yearly-activities${qs(params)}`),
   weeklyQuotes: (params?: Record<string, string>) => api.get<any[]>(`/reports/weekly-quotes-by-product${qs(params)}`),
   monthlyQuotes: (params?: Record<string, string>) => api.get<any[]>(`/reports/monthly-quotes-by-product${qs(params)}`),
   stockSummary: () => api.get<any[]>('/reports/stock-summary'),
@@ -1291,8 +1294,6 @@ export type TeamActivityPeriod = 'day' | 'week' | 'month' | 'year';
 export type TeamActivityMetric =
   | 'all'
   | 'quotes'
-  | 'visits'
-  | 'calls'
   | 'activities'
   | 'opportunitiesCreated'
   | 'won';
@@ -1306,17 +1307,17 @@ export interface TeamActivityReport {
   previousRange: { from: string; to: string };
   bucket: 'hour' | 'day' | 'month';
   totals: {
-    quotes: number; visits: number; calls: number; activities: number;
+    quotes: number; activities: number;
     opportunitiesCreated: number; won: number; wonValue: number;
   };
   previousTotals: {
-    quotes: number; visits: number; calls: number; activities: number;
+    quotes: number; activities: number;
     opportunitiesCreated: number; won: number;
   };
-  timeline: Array<{ bucket: string; quotes: number; visits: number; calls: number; activities: number }>;
+  timeline: Array<{ bucket: string; quotes: number; activities: number }>;
   users: Array<{
     userId: string; name: string;
-    quotes: ActivityDelta; visits: ActivityDelta; calls: ActivityDelta; activities: ActivityDelta;
+    quotes: ActivityDelta; activities: ActivityDelta;
     opportunitiesCreated: ActivityDelta; won: ActivityDelta;
     wonValue: number; total: ActivityDelta;
   }>;

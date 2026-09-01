@@ -1,15 +1,11 @@
-/**
- * Ziyaret ve arama iki yere kaydedilebiliyor: kendi tabloları ve aynı türdeki
- * genel aktivite kaydı. Rapor ikisini birlikte saymalı, "Aktivite" ise yalnız
- * geri kalan türleri göstermeli — aksi halde ziyaret/arama olduğundan düşük görünür.
- */
+/** Ziyaret, arama ve diğer temaslar raporda tek Aktivite metriğinde birleşir. */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import request from 'supertest';
 import type { NestFastifyApplication } from '@nestjs/platform-fastify';
 import { createTestApp } from './setup';
 import { normalizeCompanyName } from '../src/shared/utils/text-normalization';
 
-type Totals = { quotes: number; visits: number; calls: number; activities: number };
+type Totals = { quotes: number; activities: number };
 
 describe('Team activity report', () => {
   let app: NestFastifyApplication;
@@ -85,7 +81,7 @@ describe('Team activity report', () => {
     await app.close();
   });
 
-  it('aktivite olarak girilen ziyaret ve aramayı kendi metriğinde sayar', async () => {
+  it('aktivite olarak girilen ziyaret, arama ve notu tek Aktivite metriğinde sayar', async () => {
     const before = await totals();
 
     await logActivity('customer_visit', 'Ziyaret aktivitesi');
@@ -93,13 +89,12 @@ describe('Team activity report', () => {
     await logActivity('note', 'Serbest not');
 
     const after = await totals();
-    expect(after.visits - before.visits).toBe(1);
-    expect(after.calls - before.calls).toBe(1);
-    // Ziyaret/arama türleri "Aktivite"den düşülür; yalnız not sayılır.
-    expect(after.activities - before.activities).toBe(1);
+    expect(after.activities - before.activities).toBe(3);
+    expect(after).not.toHaveProperty('visits');
+    expect(after).not.toHaveProperty('calls');
   });
 
-  it('ziyaret formundan girilen kayıt da aynı metriğe eklenir', async () => {
+  it('legacy ziyaret formundan girilen kayıt da Aktivite metriğine eklenir', async () => {
     const before = await totals();
     await request(app.getHttpServer())
       .post('/api/v1/visits')
@@ -108,8 +103,13 @@ describe('Team activity report', () => {
       .expect(201);
 
     const after = await totals();
-    expect(after.visits - before.visits).toBe(1);
-    expect(after.activities - before.activities).toBe(0);
+    expect(after.activities - before.activities).toBe(1);
+
+    const monthly = await request(app.getHttpServer())
+      .get('/api/v1/reports/monthly-activities')
+      .set('Authorization', `Bearer ${token}`)
+      .expect(200);
+    expect(monthly.body.reduce((sum: number, row: { count: number }) => sum + row.count, 0)).toBeGreaterThan(0);
   });
 
   it('aktivite içeriğini detay yanıtında döndürür', async () => {
@@ -122,7 +122,7 @@ describe('Team activity report', () => {
     });
 
     const response = await request(app.getHttpServer())
-      .get('/api/v1/reports/team-activity/details?period=week&scope=self&metric=visits')
+      .get('/api/v1/reports/team-activity/details?period=week&scope=self&metric=activities')
       .set('Authorization', `Bearer ${token}`)
       .expect(200);
 

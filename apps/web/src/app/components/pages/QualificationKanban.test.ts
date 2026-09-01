@@ -8,17 +8,16 @@ const workspaceSource = readFileSync(new URL("./OpportunityWorkspace.tsx", impor
 const detailSource = readFileSync(new URL("./SalesCaseDetail.tsx", import.meta.url), "utf8");
 
 describe("QualificationKanban LOST yeniden açma akışı", () => {
-  it("LOST kart sürüklemesini bırakılan hedef dereceyle geri geçiş akışına yönlendirir", () => {
-    expect(source).toContain('if (from === "lost")');
-    expect(source).toContain("setPendingBackMove({ salesCase, to })");
-    expect(source).toContain("await moveQualification(pendingBackMove.salesCase.id, pendingBackMove.to");
+  it("LOST hedefini korur fakat Kanban sütunu üretmez", () => {
+    expect(source).toContain('const KANBAN_STAGES = QUALIFICATION_STAGES.filter((stage) => stage !== "lost")');
+    expect(source).toContain("KANBAN_STAGES.map((stage)");
+    expect(source).toContain('if (to === "lost")');
+    expect(source).toContain("<LostCaseDialog");
   });
 
-  it("hedefi açıkça gösterir ve kayıt bilgilerinin korunacağını bildirir", () => {
-    expect(source).toContain("LOST kaydını hedef satış alanına taşı");
-    expect(source).toContain("firma, makine, aktiviteler ve kayıp bilgileri korunur");
-    expect(source).toContain('const allowed = stage === "lost" || target === "lost" || adjacent');
-    expect(source).not.toContain("await reopenCase(salesCase.id)");
+  it("LOST hedefini kart menüsünde erişilebilir tutar", () => {
+    expect(source).toContain("QUALIFICATION_STAGES.map((target)");
+    expect(source).toContain('target === "lost"');
   });
 });
 
@@ -36,15 +35,15 @@ describe("QualificationKanban firma ve kart detayı", () => {
     expect(source).not.toContain("group-hover:text-[#2457D6]");
   });
 
-  it("konu, makina ve aksiyonu kart detayları bölümünde gösterir", () => {
+  it("konu, makina ve sıradaki aktiviteyi kart detayları bölümünde gösterir", () => {
     expect(source).toContain("Kart detayları");
     expect(source).toContain("Konu");
     expect(source).toContain("Makina");
-    expect(source).toContain("Aksiyon");
+    expect(source).toContain("Aktivite</dt>");
     expect(source).toContain("salesCase.requestedProduct?.trim()");
     expect(source).toContain("salesCase.requestedMachine?.trim()");
-    expect(source).toContain("salesCase.nextAction?.trim()");
-    expect(source).toContain("actionDateLabel(salesCase.nextActionAt)");
+    expect(source).toContain("activity.salesCaseId === salesCase.id");
+    expect(source).not.toContain("salesCase.nextAction?.trim()");
   });
 
   it("firma ilgilisini ve adresi fırsat kartında görünür tutar", () => {

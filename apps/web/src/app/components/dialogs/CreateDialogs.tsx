@@ -66,7 +66,7 @@ import {
   Building2, User as UserIcon, Wallet, Truck, ClipboardCheck, ChevronDown, Receipt, Upload,
   ClipboardList, Plus, Trash2, X, Loader2, Package, UserRound, Wrench, Check, GripVertical, Pencil, ImagePlus,
 } from "lucide-react";
-import { serviceService, fileService, financeService, activityService, inventoryService, contactService, productService, lookupService } from "../../../lib/services";
+import { serviceService, fileService, financeService, activityService, inventoryService, contactService, productService, lookupService, opportunityService } from "../../../lib/services";
 import { resolveMediaUrl } from "../../../lib/apiClient";
 import { Badge } from "../ui/badge";
 import { useAuth } from "../../../lib/auth";
@@ -2723,8 +2723,34 @@ export function AddActivityDialog({
     byUserId: defaultUserId,
   });
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
+  const [activityAssignees, setActivityAssignees] = useState<Array<{ id: string; name: string }>>([]);
   const activityFileRef = useRef<HTMLInputElement>(null);
   const submission = useSubmissionLock();
+
+  useEffect(() => {
+    if (!open) return;
+    let active = true;
+    opportunityService
+      .assignees()
+      .then((rows) => {
+        if (!active) return;
+        setActivityAssignees(rows);
+        setForm((current) => ({
+          ...current,
+          byUserId: rows.some((candidate) => candidate.id === current.byUserId)
+            ? current.byUserId
+            : rows.find((candidate) => candidate.id === user?.id)?.id || rows[0]?.id || "",
+        }));
+      })
+      .catch(() => {
+        if (active) setActivityAssignees([]);
+      });
+    return () => {
+      active = false;
+    };
+  }, [open, setForm, user?.id]);
+
+  const assignableActivityUsers = activityAssignees.length > 0 ? activityAssignees : users;
 
   const reset = () => {
     setForm({
@@ -2875,9 +2901,10 @@ export function AddActivityDialog({
             <Select value={form.byUserId} onValueChange={(v) => setForm({ ...form, byUserId: v })}>
               <SelectTrigger className="mt-1.5"><SelectValue /></SelectTrigger>
               <SelectContent>
-                {users.map((u) => <SelectItem key={u.id} value={u.id}>{u.name}</SelectItem>)}
+                {assignableActivityUsers.map((u) => <SelectItem key={u.id} value={u.id}>{u.name}</SelectItem>)}
               </SelectContent>
             </Select>
+            <p className="mt-1 text-xs text-muted-foreground">İleri tarihli aktiviteler seçilen kişiye görev olarak atanır.</p>
           </div>
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => setOpen(false)} disabled={submission.locked}>İptal</Button>

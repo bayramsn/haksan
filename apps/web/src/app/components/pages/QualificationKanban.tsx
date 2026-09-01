@@ -40,7 +40,6 @@ import {
 } from "../ui/dropdown-menu";
 import { Label } from "../ui/label";
 import { Textarea } from "../ui/textarea";
-import { actionDateLabel, isActionOverdue } from "../shared/NextActionDialog";
 import { useCompanyCardDetails } from "../../lib/companyServerData";
 import { LostOpportunityDetailsDialog } from "../shared/LostOpportunityDetails";
 
@@ -84,6 +83,8 @@ const STAGE_META: Record<QualificationStage, { color: string; dot: string; surfa
   },
 };
 
+const KANBAN_STAGES = QUALIFICATION_STAGES.filter((stage) => stage !== "lost");
+
 export function QualificationKanban({
   items,
   onSelect,
@@ -93,7 +94,7 @@ export function QualificationKanban({
   onSelect: (salesCase: SalesCase) => void;
   onRequestDelete?: (salesCase: SalesCase) => void;
 }) {
-  const { customers, contacts, moveQualification, closeCase } = useStore();
+  const { customers, contacts, activities, moveQualification, closeCase } = useStore();
   const { hasPermission } = useAuth();
   const companyDetailsQuery = useCompanyCardDetails(
     items.map((item) => item.customerId),
@@ -111,7 +112,7 @@ export function QualificationKanban({
   const lostCase = lostId ? items.find((item) => item.id === lostId) : null;
   const lostCompany = lostCase ? customers.find((company) => company.id === lostCase.customerId) : null;
 
-  const columns: KanbanColumn<SalesCase>[] = QUALIFICATION_STAGES.map((stage) => {
+  const columns: KanbanColumn<SalesCase>[] = KANBAN_STAGES.map((stage) => {
     const stageItems = items.filter((item) => (item.qualificationStage ?? "lead") === stage);
     const total = stageItems.reduce((sum, item) => sum + item.estimatedAmount, 0);
     return {
@@ -274,8 +275,11 @@ export function QualificationKanban({
             "Firma bilgisi bekleniyor";
           const subject = salesCase.requestedProduct?.trim() || "Belirtilmedi";
           const machine = salesCase.requestedMachine?.trim() || salesCase.requestedModel?.trim() || "Belirtilmedi";
-          const action = salesCase.nextAction?.trim() || "Planlanmadı";
-          const actionOverdue = isActionOverdue(salesCase.nextActionAt);
+          const todayStart = new Date();
+          todayStart.setHours(0, 0, 0, 0);
+          const nextActivity = activities
+            .filter((activity) => activity.salesCaseId === salesCase.id && new Date(activity.date).getTime() >= todayStart.getTime())
+            .sort((left, right) => new Date(left.date).getTime() - new Date(right.date).getTime())[0];
           const openDetailsFromKeyboard = (event: KeyboardEvent<HTMLDivElement>) => {
             if (event.target !== event.currentTarget || (event.key !== "Enter" && event.key !== " ")) return;
             event.preventDefault();
@@ -396,11 +400,11 @@ export function QualificationKanban({
                       <dd className="min-w-0 line-clamp-2 break-words text-xs font-medium leading-4 text-foreground">{machine}</dd>
                     </div>
                     <div className="grid grid-cols-[52px_minmax(0,1fr)] gap-2 py-1.5">
-                      <dt className={`font-data text-xs font-medium uppercase tracking-[0.06em] ${actionOverdue ? "text-destructive" : "text-muted-foreground"}`}>Aksiyon</dt>
+                      <dt className="font-data text-xs font-medium uppercase tracking-[0.06em] text-muted-foreground">Aktivite</dt>
                       <dd className="min-w-0">
-                        <div className={`line-clamp-2 break-words text-xs font-medium leading-4 ${salesCase.nextAction ? "text-foreground" : "text-muted-foreground"}`}>{action}</div>
-                        <div className={`mt-0.5 font-data text-xs ${actionOverdue ? "font-semibold text-destructive" : "text-muted-foreground"}`}>
-                          {actionOverdue ? "Gecikti · " : ""}{actionDateLabel(salesCase.nextActionAt)}
+                        <div className={`line-clamp-2 break-words text-xs font-medium leading-4 ${nextActivity ? "text-foreground" : "text-muted-foreground"}`}>{nextActivity?.title || "Planlanmadı"}</div>
+                        <div className="mt-0.5 font-data text-xs text-muted-foreground">
+                          {nextActivity ? new Date(nextActivity.date).toLocaleDateString("tr-TR") : "Tarih yok"}
                         </div>
                       </dd>
                     </div>

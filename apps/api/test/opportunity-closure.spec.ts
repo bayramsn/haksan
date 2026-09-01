@@ -45,7 +45,7 @@ describe('Opportunity logical closure (Bitir / Arşiv / Geri Aç)', () => {
     expect(r.status).toBe(422);
   });
 
-  it('closes a cancelled deal: drops from active list, shows in archive, reopen restores it', async () => {
+  it('moves a cancelled/LOST deal directly to history and reopen restores it', async () => {
     const server = app.getHttpServer();
     const id = await createOpp(server, `closure-cancelled-${Date.now()}`);
 
@@ -55,14 +55,7 @@ describe('Opportunity logical closure (Bitir / Arşiv / Geri Aç)', () => {
       .set('Authorization', `Bearer ${token}`)
       .send({ toStage: 'cancelled', cancellationReasonCode: 'test_price' });
     expect(cancel.status, JSON.stringify(cancel.body)).toBe(200);
-
-    // close (Bitir) — logical closure, not delete
-    const close = await supertest(server)
-      .post(`/api/v1/opportunities/${id}/close`)
-      .set('Authorization', `Bearer ${token}`)
-      .send({ reason: 'arşivlendi' });
-    expect(close.status).toBe(201);
-    expect(close.body.closedAt).toBeTruthy();
+    expect(cancel.body.closedAt).toBeTruthy();
 
     // gone from active pipeline list
     const active = await supertest(server)
@@ -99,23 +92,18 @@ describe('Opportunity logical closure (Bitir / Arşiv / Geri Aç)', () => {
     expect(active2.body.data.some((o: any) => o.id === id)).toBe(true);
   });
 
-  it('cannot close an already-closed deal twice', async () => {
+  it('cannot close a LOST deal that was already moved to history', async () => {
     const server = app.getHttpServer();
     const id = await createOpp(server, `closure-double-${Date.now()}`);
     await supertest(server)
       .patch(`/api/v1/opportunities/${id}/stage`)
       .set('Authorization', `Bearer ${token}`)
       .send({ toStage: 'cancelled', cancellationReasonCode: 'test_price' });
-    const first = await supertest(server)
+    const close = await supertest(server)
       .post(`/api/v1/opportunities/${id}/close`)
       .set('Authorization', `Bearer ${token}`)
       .send({});
-    expect(first.status).toBe(201);
-    const second = await supertest(server)
-      .post(`/api/v1/opportunities/${id}/close`)
-      .set('Authorization', `Bearer ${token}`)
-      .send({});
-    expect(second.status).toBe(422);
+    expect(close.status).toBe(422);
   });
 
   it('returns an open LOST card to its previous opportunity grade without clearing loss details', async () => {
@@ -151,7 +139,7 @@ describe('Opportunity logical closure (Bitir / Arşiv / Geri Aç)', () => {
     expect(reopened.body.stage.code).toBe('sales');
   });
 
-  it('moves an open LOST card to the exact selected grade and preserves its data', async () => {
+  it('requires the reopen action before a LOST card can return to the active board', async () => {
     const server = app.getHttpServer();
     const id = await createOpp(server, `lost-direct-target-${Date.now()}`);
     const lost = await supertest(server)
@@ -173,20 +161,19 @@ describe('Opportunity logical closure (Bitir / Arşiv / Geri Aç)', () => {
         toStage: 'b',
         note: 'Müşteri yeniden değerlendirme istedi',
       });
-    expect(moved.status, JSON.stringify(moved.body)).toBe(200);
-    expect(moved.body).toMatchObject({
-      qualificationStage: 'b',
+    expect(moved.status).toBe(422);
+
+    const reopened = await supertest(server)
+      .post(`/api/v1/opportunities/${id}/reopen`)
+      .set('Authorization', `Bearer ${token}`);
+    expect(reopened.status, JSON.stringify(reopened.body)).toBe(201);
+    expect(reopened.body).toMatchObject({
+      qualificationStage: 'c',
       closedAt: null,
       qualificationNote: 'Rakip ürün tercih edildi',
       lostProductName: 'Korunacak CNC tezgahı',
       lostUnmetConditions: 'Fiyat ve termin beklentisi karşılanmadı',
     });
-    expect(moved.body.lostReason).toMatchObject({ code: 'test_competitor' });
-    expect(moved.body.stage.code).toBe('call');
-    expect(moved.body.qualificationHistory[0]).toMatchObject({
-      fromStage: 'lost',
-      toStage: 'b',
-      changeReason: 'Müşteri yeniden değerlendirme istedi',
-    });
+    expect(reopened.body.lostReason).toMatchObject({ code: 'test_competitor' });
   });
 });

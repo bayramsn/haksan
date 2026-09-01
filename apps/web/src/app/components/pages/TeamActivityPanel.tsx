@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   Activity as ActivityIcon, ArrowDownRight, ArrowRight, ArrowUpRight,
-  Building2, CalendarDays, ChevronRight, Clock3, FileText, MapPin, Phone, Trophy, Users2,
+  Building2, CalendarDays, ChevronRight, Clock3, FileText, Trophy, Users2,
 } from "lucide-react";
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, Legend,
@@ -67,8 +67,6 @@ function DeltaBadge({ current, previous, suffix }: { current: number; previous: 
 
 const METRICS = [
   { key: "quotes", label: "Teklif", icon: FileText },
-  { key: "visits", label: "Ziyaret", icon: MapPin },
-  { key: "calls", label: "Arama", icon: Phone },
   { key: "activities", label: "Aktivite", icon: ActivityIcon },
   { key: "opportunitiesCreated", label: "Yeni fırsat", icon: Users2 },
   { key: "won", label: "Kazanılan", icon: Trophy },
@@ -77,8 +75,6 @@ const METRICS = [
 const METRIC_LABELS: Record<TeamActivityMetric, string> = {
   all: "Tüm kayıtlar",
   quotes: "Teklifler",
-  visits: "Ziyaretler",
-  calls: "Aramalar",
   activities: "Aktiviteler",
   opportunitiesCreated: "Yeni fırsatlar",
   won: "Kazanılan fırsatlar",
@@ -410,8 +406,6 @@ export function TeamActivityPanel() {
       (data?.timeline ?? []).map((row) => ({
         label: bucketLabel(row.bucket, data?.bucket ?? "day"),
         Teklif: row.quotes,
-        Ziyaret: row.visits,
-        Arama: row.calls,
         Aktivite: row.activities,
       })),
     [data]
@@ -499,7 +493,7 @@ export function TeamActivityPanel() {
           <p className="text-xs text-muted-foreground">Aktiviteler yükleniyor…</p>
         ) : !data ? null : (
           <>
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
               {METRICS.map((metric) => {
                 const current = data.totals[metric.key];
                 const previous = data.previousTotals[metric.key];
@@ -535,8 +529,6 @@ export function TeamActivityPanel() {
                     <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8 }} />
                     <Legend wrapperStyle={{ fontSize: 11 }} />
                     <Bar dataKey="Teklif" stackId="a" fill="var(--brand-blue)" radius={[0, 0, 0, 0]} />
-                    <Bar dataKey="Ziyaret" stackId="a" fill="#3b82f6" />
-                    <Bar dataKey="Arama" stackId="a" fill="#0ea5e9" />
                     <Bar dataKey="Aktivite" stackId="a" fill="var(--success)" radius={[4, 4, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>

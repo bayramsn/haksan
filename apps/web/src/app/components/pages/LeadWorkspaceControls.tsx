@@ -5,7 +5,6 @@ import type {
   LeadContactOutcomeCode,
 } from "@haksan/shared";
 import {
-  AlarmClock,
   ArrowRight,
   Loader2,
   Mail,
@@ -23,7 +22,6 @@ import { ApiError } from "../../../lib/apiClient";
 import { opportunityService } from "../../../lib/services";
 import { useStore } from "../../lib/store";
 import type { SalesCase, User } from "../../lib/mock";
-import { NextActionDialog } from "../shared/NextActionDialog";
 import { Button } from "../ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "../ui/card";
 import {
@@ -56,14 +54,6 @@ const OUTCOME_LABELS: Record<LeadContactOutcomeCode, string> = {
   wrong_contact: "Yanlış kontak",
 };
 
-const localDateTime = (value?: string) => {
-  if (!value) return "";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "";
-  const offset = date.getTimezoneOffset() * 60_000;
-  return new Date(date.getTime() - offset).toISOString().slice(0, 16);
-};
-
 const newIdempotencyKey = () => {
   const cryptoApi = typeof globalThis !== "undefined" ? globalThis.crypto : undefined;
   if (cryptoApi?.randomUUID) return cryptoApi.randomUUID();
@@ -91,8 +81,6 @@ function ContactResultDialog({
   const [channel, setChannel] = useState<LeadContactChannelCode>(initialChannel);
   const [outcome, setOutcome] = useState<LeadContactOutcomeCode>("contacted");
   const [note, setNote] = useState("");
-  const [nextAction, setNextAction] = useState(salesCase.nextAction ?? "");
-  const [nextActionAt, setNextActionAt] = useState(localDateTime(salesCase.nextActionAt));
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const idempotencyKeyRef = useRef(newIdempotencyKey());
@@ -102,18 +90,12 @@ function ContactResultDialog({
     setChannel(initialChannel);
     setOutcome("contacted");
     setNote("");
-    setNextAction(salesCase.nextAction ?? "");
-    setNextActionAt(localDateTime(salesCase.nextActionAt));
     setFormError(null);
     idempotencyKeyRef.current = newIdempotencyKey();
-  }, [initialChannel, open, salesCase.nextAction, salesCase.nextActionAt]);
+  }, [initialChannel, open]);
 
   const save = async () => {
     if (saving) return;
-    if (nextActionAt && !nextAction.trim()) {
-      setFormError("Takip tarihi seçildiğinde sonraki aksiyon zorunludur.");
-      return;
-    }
     setFormError(null);
     setSaving(true);
     try {
@@ -122,8 +104,6 @@ function ContactResultDialog({
         channel,
         outcome,
         note: note.trim() || undefined,
-        nextAction: nextAction.trim() || null,
-        nextActionAt: nextActionAt ? new Date(nextActionAt) : null,
       });
       await refresh();
       idempotencyKeyRef.current = newIdempotencyKey();
@@ -147,7 +127,7 @@ function ContactResultDialog({
         <DialogHeader>
           <DialogTitle>Temas sonucunu kaydet</DialogTitle>
           <DialogDescription>
-            Sonuç, not ve yeni takip tarihini tek işlemde kaydeder; çift gönderim yeni aktivite oluşturmaz.
+            Sonuç ve not tek işlemde aktiviteye kaydedilir; çift gönderim yeni kayıt oluşturmaz.
           </DialogDescription>
         </DialogHeader>
         <div className="grid gap-4 sm:grid-cols-2">
@@ -184,32 +164,6 @@ function ContactResultDialog({
             className="mt-1.5 min-h-20"
             placeholder="Konuşulanlar, itiraz veya talep..."
           />
-        </div>
-        <div className="grid gap-4 sm:grid-cols-[1fr_190px]">
-          <div>
-            <Label htmlFor="lead-contact-next-action">Sonraki aksiyon</Label>
-            <Input
-              id="lead-contact-next-action"
-              value={nextAction}
-              onChange={(event) => setNextAction(event.target.value)}
-              maxLength={1000}
-              className="mt-1.5"
-              aria-invalid={Boolean(formError && nextActionAt && !nextAction.trim())}
-              aria-describedby={formError ? "lead-contact-error" : undefined}
-              placeholder="Teknik föy gönder"
-            />
-          </div>
-          <div>
-            <Label htmlFor="lead-contact-next-at">Takip zamanı</Label>
-            <Input
-              id="lead-contact-next-at"
-              type="datetime-local"
-              value={nextActionAt}
-              onChange={(event) => setNextActionAt(event.target.value)}
-              className="mt-1.5"
-              aria-describedby={formError ? "lead-contact-error" : undefined}
-            />
-          </div>
         </div>
         {formError && <p id="lead-contact-error" role="alert" className="text-sm text-red-700">{formError}</p>}
         <DialogFooter>
@@ -466,15 +420,7 @@ export function DecisionRail({
       {converting ? "Dönüştürülüyor…" : "Fırsata dönüştür"}
       <ArrowRight className="size-4" />
     </Button>
-  ) : primaryAction ?? (!isLead && canUpdate ? (
-    // NOT: aşağıdaki `primaryCommandIsSummaryCopy` bu ifadeye dayanıyor —
-    // `primaryAction` verilmişse komut karar özetinin kopyasıdır.
-    <NextActionDialog
-      salesCase={salesCase}
-      onSave={(patch) => updateCase(salesCase.id, patch)}
-      trigger={<Button type="button" className="h-11 w-full gap-1.5"><AlarmClock className="size-4" /> {salesCase.nextAction ? "Aksiyonu düzenle" : "Aksiyon planla"}</Button>}
-    />
-  ) : null);
+  ) : primaryAction ?? null;
 
   const primaryCommandIsSummaryCopy = !useLeadConversionAsPrimary && Boolean(primaryAction);
 
@@ -544,13 +490,7 @@ export function DecisionRail({
         />
       </div>
       {quickContactActions}
-      {canUpdate && !simpleMode && (
-        <NextActionDialog
-          salesCase={salesCase}
-          onSave={(patch) => updateCase(salesCase.id, patch)}
-          trigger={<Button type="button" variant="outline" className="h-11 w-full gap-1.5"><AlarmClock className="size-4" /> {salesCase.nextAction ? "Aksiyonu düzenle" : "Aksiyon planla"}</Button>}
-        />
-      )}
+      {useLeadConversionAsPrimary && primaryAction && <div>{primaryAction}</div>}
       {otherActions && <div className="space-y-3 border-t border-slate-200 pt-4">{otherActions}</div>}
     </div>
   );

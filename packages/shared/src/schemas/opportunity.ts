@@ -433,6 +433,8 @@ export const activityCreateSchema = z.object({
   opportunityId: z.string().optional(),
   companyId: z.string().min(1).optional(),
   contactId: z.string().optional(),
+  /** İleri tarihli aktiviteden üretilecek görevin sorumlusu. */
+  assignedToUserId: z.string().uuid().optional(),
   activityTypeCode: z.string().max(64),
   subject: z.string().min(1).max(255),
   description: z.string().max(4000).optional(),
@@ -442,7 +444,7 @@ export const activityCreateSchema = z.object({
 });
 export type ActivityCreateInput = z.infer<typeof activityCreateSchema>;
 
-export const activityUpdateSchema = activityCreateSchema.partial().extend({
+export const activityUpdateSchema = activityCreateSchema.omit({ assignedToUserId: true }).partial().extend({
   opportunityId: z.string().nullable().optional(),
   companyId: z.string().min(1).nullable().optional(),
   contactId: z.string().nullable().optional(),

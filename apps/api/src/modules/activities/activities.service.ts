@@ -5,6 +5,7 @@ import { salesActivities, visits, calls, opportunities, type ActivityOrigin } fr
 import { companies, contactCompanies, contacts, notifications } from '../../db/schema/companies';
 import { activityTypes, fileDocumentTypes } from '../../db/schema/lookup';
 import { fileLinks, files } from '../../db/schema/files';
+import { taskEvents, tasks } from '../../db/schema/tasks';
 import { userAccessScopes, userDivisions, users } from '../../db/schema/users';
 import { DB } from '../../shared/database/database.module';
 import { PushService } from '../../shared/push/push.service';
@@ -24,6 +25,27 @@ import {
   companyVisibilityExistsFilter,
   companyVisibilityFilter,
 } from '../../shared/utils/company-visibility';
+
+const ISTANBUL_OFFSET_HOURS = 3;
+
+function istanbulDateKey(value: Date) {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Europe/Istanbul',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(value);
+  const part = (type: Intl.DateTimeFormatPartTypes) => parts.find((item) => item.type === type)?.value ?? '';
+  return `${part('year')}-${part('month')}-${part('day')}`;
+}
+
+function futureActivityTaskDueAt(activityDate: Date, now = new Date()): Date | null {
+  const activityKey = istanbulDateKey(activityDate);
+  if (activityKey <= istanbulDateKey(now)) return null;
+  const [year, month, day] = activityKey.split('-').map(Number);
+  // Tarih alanından gelen tüm-gün görevini İstanbul'da gün sonuna kur.
+  return new Date(Date.UTC(year, month - 1, day, 24 - ISTANBUL_OFFSET_HOURS - 1, 59, 59, 999));
+}
 
 @Injectable()
 export class ActivitiesService {
@@ -124,6 +146,20 @@ export class ActivitiesService {
     const [row] = await this.db.select().from(salesActivities).where(and(...filters)).limit(1);
     if (!row) throw new NotFoundError('Aktivite');
     return row;
+  }
+
+  private async assertTaskAssignee(userId: string, actor: AuthContext) {
+    const target = await this.db.query.users.findFirst({
+      columns: { id: true, fullName: true },
+      where: and(
+        eq(users.id, userId),
+        eq(users.tenantId, actor.tenantId),
+        eq(users.status, 'active'),
+        isNull(users.deletedAt),
+      ),
+    });
+    if (!target) throw new NotFoundError('Atanan kullanıcı');
+    return target;
   }
 
   /** Aktiviteye atanacak bölüm: bağlı fırsattan miras, yoksa kullanıcının birincil bölümü. */
@@ -281,31 +317,89 @@ export class ActivitiesService {
     if (!typeId) throw new ValidationError(`Bilinmeyen aktivite türü: ${input.activityTypeCode}`);
     const divisionId = await this.resolveActivityDivision(input, actor);
     if (!divisionId) throw new ValidationError('Aktivite için bölüm ataması zorunludur', { field: 'divisionId' });
-    const [row] = await this.db
-      .insert(salesActivities)
-      .values({
-        tenantId: actor.tenantId,
-        divisionId,
-        opportunityId: input.opportunityId ?? null,
-        companyId,
-        contactId: input.contactId ?? null,
-        activityTypeId: typeId,
-        subject: input.subject,
-        description: input.description ?? null,
-        origin,
-        activityDate: input.activityDate,
-        nextFollowUpAt: input.nextFollowUpAt ?? null,
-        result: input.result ?? null,
-        createdBy: actor.userId,
-      })
-      .returning();
+    const dueAt = futureActivityTaskDueAt(input.activityDate);
+    const assignedToUserId = input.assignedToUserId ?? actor.userId;
+    if (dueAt) await this.assertTaskAssignee(assignedToUserId, actor);
+    const created = await this.db.transaction(async (tx) => {
+      const [activity] = await tx
+        .insert(salesActivities)
+        .values({
+          tenantId: actor.tenantId,
+          divisionId,
+          opportunityId: input.opportunityId ?? null,
+          companyId,
+          contactId: input.contactId ?? null,
+          activityTypeId: typeId,
+          subject: input.subject,
+          description: input.description ?? null,
+          origin,
+          activityDate: input.activityDate,
+          nextFollowUpAt: input.nextFollowUpAt ?? null,
+          result: input.result ?? null,
+          createdBy: actor.userId,
+        })
+        .returning();
+
+      let taskId: string | null = null;
+      if (dueAt) {
+        const [task] = await tx
+          .insert(tasks)
+          .values({
+            tenantId: actor.tenantId,
+            divisionId,
+            title: input.subject,
+            description: input.description ?? input.result ?? null,
+            status: 'todo',
+            priority: 'normal',
+            assignedToUserId,
+            createdBy: actor.userId,
+            dueAt,
+            companyId,
+            contactId: input.contactId ?? null,
+            opportunityId: input.opportunityId ?? null,
+          })
+          .returning({ id: tasks.id });
+        taskId = task.id;
+        await tx.insert(taskEvents).values({
+          tenantId: actor.tenantId,
+          taskId,
+          eventType: 'created',
+          summary: `Aktiviteden görev oluşturuldu: ${input.subject}`.slice(0, 512),
+          actorUserId: actor.userId,
+        });
+        if (assignedToUserId !== actor.userId) {
+          await tx.insert(notifications).values({
+            tenantId: actor.tenantId,
+            userId: assignedToUserId,
+            divisionId,
+            type: 'task_assigned',
+            title: 'Size yeni bir görev atandı',
+            body: `${input.subject} — son tarih ${new Intl.DateTimeFormat('tr-TR', {
+              dateStyle: 'short',
+              timeStyle: 'short',
+              timeZone: 'Europe/Istanbul',
+            }).format(dueAt)}`,
+            entityType: 'task',
+            entityId: taskId,
+          });
+        }
+      }
+      return { activity, taskId };
+    });
+    if (created.taskId && assignedToUserId !== actor.userId) {
+      await this.push.sendToUser(assignedToUserId, {
+        title: 'Size yeni bir görev atandı',
+        body: input.subject,
+        data: { nav: 'tasks', entityId: created.taskId },
+      }).catch(() => undefined);
+    }
     // Aktivite metninde (@ isim) etiketlenen kullanıcılara bildirim gönder.
     // Bildirim hatası aktivite oluşturmayı bozmamalı.
     await this.notifyActivityMentions(
-      { id: row.id, divisionId, subject: input.subject, description: input.description ?? null },
+      { id: created.activity.id, divisionId, subject: input.subject, description: input.description ?? null },
       actor,
     ).catch(() => undefined);
-    return row;
+    return created.activity;
   }
 
   /**

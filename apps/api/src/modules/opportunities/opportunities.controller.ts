@@ -75,7 +75,7 @@ export class OpportunitiesController {
     return this.svc.leadSummary(user);
   }
 
-  @RequirePermissions('opportunities.create')
+  @RequirePermissions('opportunities.read')
   @Get('assignees')
   assignees(@CurrentUser() user: AuthContext) {
     return this.svc.listAssignableOwners(user);

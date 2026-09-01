@@ -42,7 +42,7 @@ const teamActivityDetailsSchema = teamActivitySchema.extend({
   // Bir tablo hücresi seçildiğinde yalnız o sütunun kayıtları; kullanıcı/toplam
   // seçildiğinde bütün kaynaklar tek zaman akışında döner.
   metric: z
-    .enum(['all', 'quotes', 'visits', 'calls', 'activities', 'opportunitiesCreated', 'won'])
+    .enum(['all', 'quotes', 'activities', 'opportunitiesCreated', 'won'])
     .default('all'),
   userId: z.string().uuid().optional(),
 });
@@ -193,6 +193,24 @@ export class ReportsController {
   @Get('yearly-visits')
   yearlyVisits(@Query(new ZodValidationPipe(dateRangeSchema)) r: DateRange, @CurrentUser() u: AuthContext) {
     return this.svc.visitsReport(u, 'yearly', r);
+  }
+
+  @RequirePermissions('reports.read')
+  @Get('weekly-activities')
+  weeklyActivities(@Query(new ZodValidationPipe(dateRangeSchema)) r: DateRange, @CurrentUser() u: AuthContext) {
+    return this.svc.activitiesReport(u, 'weekly', r);
+  }
+
+  @RequirePermissions('reports.read')
+  @Get('monthly-activities')
+  monthlyActivities(@Query(new ZodValidationPipe(dateRangeSchema)) r: DateRange, @CurrentUser() u: AuthContext) {
+    return this.svc.activitiesReport(u, 'monthly', r);
+  }
+
+  @RequirePermissions('reports.read')
+  @Get('yearly-activities')
+  yearlyActivities(@Query(new ZodValidationPipe(dateRangeSchema)) r: DateRange, @CurrentUser() u: AuthContext) {
+    return this.svc.activitiesReport(u, 'yearly', r);
   }
 
   @RequirePermissions('reports.read')
