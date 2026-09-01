@@ -9,7 +9,6 @@ import {
 import {
   Activity as ActivityIcon,
   AlertTriangle,
-  ChevronDown,
   FileClock,
   Loader2,
   RefreshCw,
@@ -46,6 +45,8 @@ import {
   HealthStrip,
   RecordWorkspaceShell,
   UnifiedTimeline,
+  WorkspaceSection,
+  useSectionOpen,
   WorkspaceDecisionSummary,
   type WorkspaceDecisionModel,
 } from "../shared/RecordWorkspace";
@@ -260,7 +261,6 @@ export function OpportunityWorkspace({
   const [focusedActivityId, setFocusedActivityId] = useState<string | null>(null);
   const [selectedCommercialDocument, setSelectedCommercialDocument] = useState<DocumentItem | null>(null);
   const [selectedFileDocument, setSelectedFileDocument] = useState<DocumentItem | null>(null);
-  const [operationsExpanded, setOperationsExpanded] = useState(false);
   const decisionSummaryRef = useRef<HTMLElement>(null);
   const detailRequestRef = useRef(0);
   const detail = detailResource.caseId === sc.id ? detailResource.data : null;
@@ -367,13 +367,6 @@ export function OpportunityWorkspace({
   const opportunityInstallations = useMemo(() => installations.filter((item) => item.salesCaseId === sc.id), [installations, sc.id]);
   const hasFieldRecords =
     opportunityShipments.length > 0 || opportunityDeliveries.length > 0 || opportunityInstallations.length > 0;
-
-  // Kapak, gösterecek gerçek bir kayıt varken açılır. Sevkiyat/teslim/kurulum
-  // hiç başlamamışken üç boş kart ekranın üçte birini kaplayıp hiçbir şey
-  // söylemiyordu; durum satırı zaten "Henüz başlamadı" yazıyor.
-  useEffect(() => {
-    setOperationsExpanded(hasFieldRecords);
-  }, [sc.id, hasFieldRecords]);
 
   const resolvedContacts = useMemo(() => {
     const contactsById = new Map(
@@ -649,94 +642,82 @@ export function OpportunityWorkspace({
       relation={{ opportunityId: sc.id, companyId: sc.customerId ?? null, label: sc.requestedProduct || "Fırsat" }}
       title={isLead ? "Lead Görevleri" : "Fırsat Görevleri"}
       headerActions={taskActions}
+      collapsible
     />
   );
 
   /*
-    Ticari belge zinciri ve üretilmiş sözleşmeler tek bölüm. Sözleşme listesi
-    zincirin altındaki katlanır alana indi: zincirin "Sözleşme" adımı durumu
-    zaten söylüyor, liste ise yalnız imzalı nüsha yüklerken ya da şartları
-    düzenlerken gerekiyor. Düğmelerin hiçbiri kaldırılmadı, bir tık arkasında.
+    Ticari belge zinciri ve üretilmiş sözleşmeler tek katlanır bölüm. Zincir
+    hiçbir belge hazır değilken dört boş düğümden ibaret olduğu için kapalı
+    başlar; başlık satırı "N/4 hazır" ve aktif kaynak teklifi yazar. Sözleşme
+    listesi ve düğmeleri (Şartları Düzenle, İmzalı PDF, İmzalı Sözleşme Yükle)
+    aynı bölümün içinde, zincirin hemen altında.
   */
   const documentsSection = (
-    <div className="space-y-2">
-      <CommercialDocumentRail
-        offers={caseOffers}
-        documents={caseDocuments}
-        onOpenOffer={(offer) => onOpenOffer?.(offer.id)}
-        onOpenDocument={setSelectedCommercialDocument}
-        showStepActions={false}
-      />
-      {contractDocuments.length > 0 && (
-        <details className="overflow-hidden rounded-xl border border-primary/15 bg-card">
-          <summary className="flex min-h-11 cursor-pointer list-none items-center gap-2 px-4 py-2.5 text-sm font-semibold text-foreground marker:content-none hover:bg-muted/40">
-            <FileSignature className="size-4 text-primary" /> Sözleşmeler · {contractDocuments.length}
-          </summary>
-          <div className="space-y-2 border-t border-border/60 p-4">
-            {contractDocuments.map((document) => (
-              <div key={document.id} className="flex flex-col gap-2 rounded-lg border border-border/60 px-3 py-2.5 sm:flex-row sm:items-center">
-                <button type="button" className="min-w-0 flex-1 text-left" onClick={() => setSelectedCommercialDocument(document)}>
-                  <div className="truncate text-sm font-medium">{document.fileName}</div>
-                  <div className="text-[10px] text-muted-foreground">{document.fileId ? "İmzalı nüsha bağlı" : "Üretilmiş sözleşme"}</div>
-                </button>
-                <div className="flex flex-wrap gap-2">
-                  <Button type="button" variant="outline" size="sm" className="h-8 gap-1" onClick={() => setSelectedCommercialDocument(document)}>
-                    <Eye className="size-3.5" /> Görüntüle
-                  </Button>
-                  {hasPermission("contracts.update") && !document.fileId && (
-                    <EditContractTermsDialog document={document} trigger={<Button type="button" variant="outline" size="sm" className="h-8">Şartları Düzenle</Button>} />
-                  )}
-                  {document.fileId ? (
-                    <Button type="button" variant="outline" size="sm" className="h-8" onClick={() => setSelectedFileDocument(document)}>İmzalı PDF</Button>
-                  ) : hasPermission("files.create") && hasPermission("contracts.update") ? (
-                    <SignedContractUploadDialog document={document} salesCase={sc} trigger={<Button type="button" size="sm" className="h-8">İmzalı Sözleşme Yükle</Button>} />
-                  ) : null}
-                </div>
-              </div>
-            ))}
+    <CommercialDocumentRail
+      collapsible
+      offers={caseOffers}
+      documents={caseDocuments}
+      onOpenOffer={(offer) => onOpenOffer?.(offer.id)}
+      onOpenDocument={setSelectedCommercialDocument}
+      showStepActions={false}
+      footer={contractDocuments.length > 0 ? (
+        <div className="space-y-2 border-t border-border/60 p-4">
+          <div className="inline-flex items-center gap-1.5 text-xs font-semibold text-foreground">
+            <FileSignature className="size-3.5 text-primary" /> Sözleşmeler · {contractDocuments.length}
           </div>
-        </details>
-      )}
-    </div>
+          {contractDocuments.map((document) => (
+            <div key={document.id} className="flex flex-col gap-2 rounded-lg border border-border/60 px-3 py-2.5 sm:flex-row sm:items-center">
+              <button type="button" className="min-w-0 flex-1 text-left" onClick={() => setSelectedCommercialDocument(document)}>
+                <div className="truncate text-sm font-medium">{document.fileName}</div>
+                <div className="text-[10px] text-muted-foreground">{document.fileId ? "İmzalı nüsha bağlı" : "Üretilmiş sözleşme"}</div>
+              </button>
+              <div className="flex flex-wrap gap-2">
+                <Button type="button" variant="outline" size="sm" className="h-8 gap-1" onClick={() => setSelectedCommercialDocument(document)}>
+                  <Eye className="size-3.5" /> Görüntüle
+                </Button>
+                {hasPermission("contracts.update") && !document.fileId && (
+                  <EditContractTermsDialog document={document} trigger={<Button type="button" variant="outline" size="sm" className="h-8">Şartları Düzenle</Button>} />
+                )}
+                {document.fileId ? (
+                  <Button type="button" variant="outline" size="sm" className="h-8" onClick={() => setSelectedFileDocument(document)}>İmzalı PDF</Button>
+                ) : hasPermission("files.create") && hasPermission("contracts.update") ? (
+                  <SignedContractUploadDialog document={document} salesCase={sc} trigger={<Button type="button" size="sm" className="h-8">İmzalı Sözleşme Yükle</Button>} />
+                ) : null}
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : null}
+    />
   );
 
   /*
-    Operasyon ekseni artık TEK bölüm. Öncesinde aynı eksen dört ayrı yüzeye
+    Operasyon ekseni tek katlanır bölüm. Öncesinde aynı eksen dört ayrı yüzeye
     dağılmıştı: başlık + açıklama paragrafı, yalnız engel varken çizilen ayrı
-    bir "Geçiş engelleri" kartı, sade modda üç durumluk özet satırı ve tam
-    modda çoğu kartta boş duran üç kayıt kartı. Hepsi tek kapağın altında:
-    üç aşamanın durumu her zaman görünür, engeller ve kayıt ayrıntıları
-    (takip no, ETA, imza, teknisyen) katlanır alanda. Hiçbir bilgi ya da
-    düğme kaldırılmadı; iki mod da aynı yüzeyi kullanıyor.
+    bir "Geçiş engelleri" kartı, sade moddaki durum satırı ve çoğu kartta boş
+    duran üç kayıt kartı. Hepsi tek kapağın altında; kapak kapalıyken de üç
+    aşamanın durumu başlık satırında yazıyor. Sevkiyat/teslim/kurulum hiç
+    başlamamış ve engel de yoksa bölüm kapalı açılır — bakılacak bir şey yok.
   */
+  const operationsOpen = useSectionOpen(hasFieldRecords || operationBlockers.length > 0, sc.id);
+  const fieldStatusLine = hasFieldRecords
+    ? fieldStages.map((stage) => `${stage.label}: ${stage.status ?? "—"}`).join(" · ")
+    : "Sevkiyat, teslim ve kurulum henüz başlamadı";
   const operationsSection = (
-    <section
-      aria-labelledby="opportunity-operations-title"
-      className="overflow-hidden rounded-[var(--surface-radius)] border border-border bg-card"
+    <WorkspaceSection
+      id="opportunity-operations"
+      title="Operasyon aşaması"
+      status={operationBlockers.length > 0
+        ? `${operationBlockers.length} geçiş engeli · ${fieldStatusLine}`
+        : fieldStatusLine}
+      open={operationsOpen}
     >
-      <div className="flex flex-wrap items-start justify-between gap-2 border-b border-border px-4 py-3">
-        <div className="min-w-0">
-          <h3 id="opportunity-operations-title" className="font-display text-base font-semibold text-foreground">Operasyon aşaması</h3>
-          <p className="text-xs text-muted-foreground">
-            Sevkiyat, teslim ve kurulum akışı. Satış alanı (C/B/A/A+) yukarıdaki kutuda izlenir.
-          </p>
-        </div>
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          className="h-9 shrink-0 gap-1 text-xs"
-          aria-expanded={operationsExpanded}
-          aria-controls="opportunity-operations-detail"
-          onClick={() => setOperationsExpanded((value) => !value)}
-        >
-          {operationsExpanded ? "Ayrıntıyı gizle" : "Ayrıntıyı göster"}
-          <ChevronDown className={`size-4 transition-transform ${operationsExpanded ? "rotate-180" : ""}`} aria-hidden="true" />
-        </Button>
-      </div>
       <div className="space-y-3 p-4">
-        {/* Üç aşamanın durumu kapak açılmadan okunur: "nerede kaldık" sorusu
-            tıklama gerektirmez. Kutular görev listesine götürür. */}
+        <p className="text-xs text-muted-foreground">
+          Sevkiyat, teslim ve kurulum akışı. Satış alanı (C/B/A/A+) yukarıdaki kutuda ayrıca izlenir.
+        </p>
+        {/* Kutular görev listesine götürür. */}
         <div className="grid gap-2 sm:grid-cols-3" aria-label="Saha operasyonu özeti">
           {fieldStages.map(({ key, label, icon: Icon, status }) => (
             <button
@@ -760,7 +741,8 @@ export function OpportunityWorkspace({
                 const canOpenBlocker = Boolean(onCommercialAction) && canPerformCommercialAction?.(blocker.actionKey) !== false;
                 return canOpenBlocker ? (
                   // Engel eylemini tüketen görev listesi sayfada duruyor; kullanıcı
-                  // isteği tetikledikten sonra listeye kaydırılır.
+                  // isteği tetikledikten sonra listeye kaydırılır ve kapalıysa
+                  // kapağı `focusWorkspaceTarget` açar.
                   <Button key={blocker.key} type="button" variant="outline" size="sm" className="min-h-9 border-amber-200 bg-amber-50 text-amber-900 hover:bg-amber-100" onClick={() => { revealProcessActions(); onCommercialAction?.(blocker.actionKey); }}>
                     {blocker.label}
                   </Button>
@@ -776,15 +758,13 @@ export function OpportunityWorkspace({
             </div>
           </div>
         )}
-        {operationsExpanded && (
-          <div id="opportunity-operations-detail" className="grid gap-3 border-t border-border/60 pt-3 lg:grid-cols-3">
-            <Card><CardHeader className="pb-3"><CardTitle className="inline-flex items-center gap-2 text-sm"><Truck className="size-4" /> Sevkiyat</CardTitle></CardHeader><CardContent className="space-y-2">{opportunityShipments.map((shipment) => <div key={shipment.id} className="rounded-lg border border-slate-200 p-3 text-sm"><div className="font-medium">{shipment.trackingNo || "Takip numarası yok"}</div><div className="mt-1 text-xs text-muted-foreground">{shipment.status} · ETA {formatDate(shipment.eta)}</div></div>)}{opportunityShipments.length === 0 && <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-4 text-center"><div className="text-sm text-muted-foreground">Sevkiyat yok.</div><Button type="button" variant="outline" size="sm" className="mt-3 min-h-11 sm:min-h-8" onClick={revealProcessActions}>Sevkiyat oluştur</Button></div>}</CardContent></Card>
-            <Card><CardHeader className="pb-3"><CardTitle className="inline-flex items-center gap-2 text-sm"><FileClock className="size-4" /> Teslim</CardTitle></CardHeader><CardContent className="space-y-2">{opportunityDeliveries.map((delivery) => <div key={delivery.id} className="rounded-lg border border-slate-200 p-3 text-sm"><div className="font-medium">{delivery.status}</div><div className="mt-1 text-xs text-muted-foreground">{formatDate(delivery.date)} · {delivery.signedBy || "İmza bekliyor"}</div></div>)}{opportunityDeliveries.length === 0 && <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-4 text-center"><div className="text-sm text-muted-foreground">Teslim kaydı yok.</div><Button type="button" variant="outline" size="sm" className="mt-3 min-h-11 sm:min-h-8" onClick={revealProcessActions}>Teslim kaydı oluştur</Button></div>}</CardContent></Card>
-            <Card><CardHeader className="pb-3"><CardTitle className="inline-flex items-center gap-2 text-sm"><Wrench className="size-4" /> Kurulum</CardTitle></CardHeader><CardContent className="space-y-2">{opportunityInstallations.map((installation) => <div key={installation.id} className="rounded-lg border border-slate-200 p-3 text-sm"><div className="font-medium">{installation.statusName}</div><div className="mt-1 text-xs text-muted-foreground">{installation.technician || "Teknisyen atanmadı"} · {formatDate(installation.scheduledDate)}</div></div>)}{opportunityInstallations.length === 0 && <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-4 text-center"><div className="text-sm text-muted-foreground">Kurulum kaydı yok.</div><Button type="button" variant="outline" size="sm" className="mt-3 min-h-11 sm:min-h-8" onClick={revealProcessActions}>Kurulum oluştur</Button></div>}</CardContent></Card>
-          </div>
-        )}
+        <div className="grid gap-3 border-t border-border/60 pt-3 lg:grid-cols-3">
+          <Card><CardHeader className="pb-3"><CardTitle className="inline-flex items-center gap-2 text-sm"><Truck className="size-4" /> Sevkiyat</CardTitle></CardHeader><CardContent className="space-y-2">{opportunityShipments.map((shipment) => <div key={shipment.id} className="rounded-lg border border-slate-200 p-3 text-sm"><div className="font-medium">{shipment.trackingNo || "Takip numarası yok"}</div><div className="mt-1 text-xs text-muted-foreground">{shipment.status} · ETA {formatDate(shipment.eta)}</div></div>)}{opportunityShipments.length === 0 && <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-4 text-center"><div className="text-sm text-muted-foreground">Sevkiyat yok.</div><Button type="button" variant="outline" size="sm" className="mt-3 min-h-11 sm:min-h-8" onClick={revealProcessActions}>Sevkiyat oluştur</Button></div>}</CardContent></Card>
+          <Card><CardHeader className="pb-3"><CardTitle className="inline-flex items-center gap-2 text-sm"><FileClock className="size-4" /> Teslim</CardTitle></CardHeader><CardContent className="space-y-2">{opportunityDeliveries.map((delivery) => <div key={delivery.id} className="rounded-lg border border-slate-200 p-3 text-sm"><div className="font-medium">{delivery.status}</div><div className="mt-1 text-xs text-muted-foreground">{formatDate(delivery.date)} · {delivery.signedBy || "İmza bekliyor"}</div></div>)}{opportunityDeliveries.length === 0 && <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-4 text-center"><div className="text-sm text-muted-foreground">Teslim kaydı yok.</div><Button type="button" variant="outline" size="sm" className="mt-3 min-h-11 sm:min-h-8" onClick={revealProcessActions}>Teslim kaydı oluştur</Button></div>}</CardContent></Card>
+          <Card><CardHeader className="pb-3"><CardTitle className="inline-flex items-center gap-2 text-sm"><Wrench className="size-4" /> Kurulum</CardTitle></CardHeader><CardContent className="space-y-2">{opportunityInstallations.map((installation) => <div key={installation.id} className="rounded-lg border border-slate-200 p-3 text-sm"><div className="font-medium">{installation.statusName}</div><div className="mt-1 text-xs text-muted-foreground">{installation.technician || "Teknisyen atanmadı"} · {formatDate(installation.scheduledDate)}</div></div>)}{opportunityInstallations.length === 0 && <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-4 text-center"><div className="text-sm text-muted-foreground">Kurulum kaydı yok.</div><Button type="button" variant="outline" size="sm" className="mt-3 min-h-11 sm:min-h-8" onClick={revealProcessActions}>Kurulum oluştur</Button></div>}</CardContent></Card>
+        </div>
       </div>
-    </section>
+    </WorkspaceSection>
   );
 
   return (

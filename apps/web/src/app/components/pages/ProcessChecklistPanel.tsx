@@ -4,7 +4,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { CheckCircle2, Circle, Loader2, Pencil } from "lucide-react";
+import { CheckCircle2, ChevronRight, Circle, Loader2, Pencil } from "lucide-react";
 import { toast } from "sonner";
 import {
   LEAD_CONTACT_OUTCOMES,
@@ -58,6 +58,7 @@ import { PaymentMethodSelect } from "../shared/PaymentMethodSelect";
 import { RemoteContactCombobox } from "../shared/RemoteContactCombobox";
 import { OPPORTUNITY_OPERATION_GROUP_STEPS } from "./opportunityProcessGroups";
 import { useCompanyDetail } from "../../lib/companyServerData";
+import { useSectionOpen } from "../shared/RecordWorkspace";
 import { districtsForCountry, provincesForCountry } from "../../lib/geoByCountry";
 import { Combobox } from "../ui/combobox";
 import {
@@ -364,6 +365,14 @@ export function ProcessChecklistPanel({
   const grade = (sc.qualificationStage ?? "c") as QualificationStage;
   const areaSteps = OPPORTUNITY_OPERATION_GROUP_STEPS[grade] ?? [];
   const availableChecks = checksOverride ?? readiness?.checks ?? [];
+  // Kanca aşağıdaki `if (!readiness && !checksOverride) return null;` erken
+  // dönüşünün ÜSTÜNDE çağrılmalı; altında kalırsa hazırlık geldiğinde kanca
+  // sayısı değişir. `complete` alanı aşağıdaki eşlemede değişmiyor, bu yüzden
+  // sayım burada da doğru.
+  const checksOpen = useSectionOpen(
+    availableChecks.some((check) => !check.complete),
+    sc.id,
+  );
   const opportunityOffers = useMemo(
     () => offers.filter((offer) => offer.salesCaseId === sc.id),
     [offers, sc.id],
@@ -448,10 +457,23 @@ export function ProcessChecklistPanel({
     }
   };
 
+  // Yapılacak bir şey kalmadıysa liste kapalı başlar: tamamlanmış on kutucuk
+  // ekranı doldurup hiçbir karar değiştirmiyor. Eksik varken her zaman açık —
+  // kartın asıl işi bu liste.
+  const completedCount = checks.filter((check) => check.complete).length;
+
   const body = (
-    <section aria-label="Mevcut satış alanının görevleri" className="space-y-3 p-4 sm:p-5">
-      <div className="flex flex-wrap items-start justify-between gap-2">
-        <div className="min-w-0">
+    <details
+      open={checksOpen}
+      className="group/checks"
+      aria-label="Mevcut satış alanının görevleri"
+    >
+      <summary className="flex min-h-12 cursor-pointer list-none items-start gap-2 p-4 marker:content-none hover:bg-muted/40 sm:p-5">
+        <ChevronRight
+          className="mt-0.5 size-4 shrink-0 text-muted-foreground transition-transform group-open/checks:rotate-90 motion-reduce:transition-none"
+          aria-hidden="true"
+        />
+        <div className="min-w-0 flex-1">
           <h3 className="text-xs font-semibold text-foreground">Operasyon adımları</h3>
           {areaSteps.length > 0 && (
             <p className="mt-0.5 text-[11px] leading-4 text-muted-foreground">
@@ -462,9 +484,10 @@ export function ProcessChecklistPanel({
           )}
         </div>
         <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">
-          {checks.filter((check) => check.complete).length}/{checks.length} tamamlandı
+          {completedCount}/{checks.length} tamamlandı
         </span>
-      </div>
+      </summary>
+      <div className="space-y-3 px-4 pb-4 sm:px-5 sm:pb-5">
 
       {aPlusClosingGates.length === 2 && (
         <div
@@ -639,7 +662,8 @@ export function ProcessChecklistPanel({
           </DialogContent>
         )}
       </Dialog>
-    </section>
+      </div>
+    </details>
   );
 
   // Eksik özeti ve ilerletme düğmesi kutunun altında; burada tekrar etmek aynı

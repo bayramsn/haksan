@@ -1,10 +1,11 @@
-import { forwardRef, useState, type ReactNode } from "react";
-import { ArrowRight, CalendarClock, Download, Eye, FileText, ShieldCheck, UserRound } from "lucide-react";
+import { forwardRef, useEffect, useState, type ReactNode } from "react";
+import { ArrowRight, CalendarClock, ChevronRight, Download, Eye, FileText, ShieldCheck, UserRound } from "lucide-react";
 import type { DocumentItem } from "../../lib/mock";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "../ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
+import { cn } from "../ui/utils";
 
 const DOCUMENT_TYPE_LABELS: Record<DocumentItem["type"], string> = {
   Proforma: "Proforma",
@@ -23,6 +24,95 @@ export function RecordWorkspaceShell({ children, rail }: { children: ReactNode; 
       <div className="min-w-0">{children}</div>
       {rail}
     </div>
+  );
+}
+
+/**
+ * Katlanır bölümün başlangıç durumu.
+ *
+ * `shouldOpen` doğrudan `open`'a bağlanırsa bölüm kullanıcının ALTINDAN kapanır:
+ * son görev tamamlandığında, son engel çözüldüğünde ya da son adım tiklendiğinde
+ * — tam da sonucu görmek istediği anda. Bir kez açılan bölüm o kayıt boyunca
+ * açık kalır; kapağı yalnız kullanıcı kapatır. Başka bir karta geçildiğinde
+ * (`resetKey`) durum yeniden hesaplanır.
+ */
+export function useSectionOpen(shouldOpen: boolean, resetKey?: string): boolean {
+  const [opened, setOpened] = useState(shouldOpen);
+  useEffect(() => {
+    setOpened(shouldOpen);
+    // Kart değişiminde bilerek yalnız `resetKey` izleniyor: `shouldOpen`
+    // eklenirse her kapanışta bölüm yeniden hesaplanıp geri kapanır.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [resetKey]);
+  useEffect(() => {
+    if (shouldOpen) setOpened(true);
+  }, [shouldOpen]);
+  return opened;
+}
+
+/**
+ * Katlanır çalışma alanı bölümü.
+ *
+ * Kart detayı, hepsi aynı anda açık duran tam genişlik bloklarından oluşuyordu;
+ * kullanıcı her açılışta ilgilenmediği dört beş kutuyu kaydırarak geçiyordu.
+ * Her bölüm artık kendi kapağının altında ve KAPALIYKEN DE durumunu söylüyor
+ * (`status`): "nerede kaldık" sorusu bölüm açılmadan yanıtlanır.
+ *
+ * `open` yalnız başlangıç değeridir. React aynı değeri yeniden dayatmadığı için
+ * kullanıcının açıp kapaması korunur; değer gerçekten döndüğünde (ör. ilk açık
+ * görev çıktığında) bölüm kendiliğinden açılır. Kapalı bölümdeki bir hedefe
+ * giden derin bağlantılar `focusWorkspaceTarget` sayesinde kapağı açar.
+ */
+export function WorkspaceSection({
+  id,
+  title,
+  status,
+  actions,
+  open = true,
+  className,
+  bodyClassName,
+  children,
+}: {
+  id?: string;
+  title: ReactNode;
+  status?: ReactNode;
+  actions?: ReactNode;
+  open?: boolean;
+  className?: string;
+  bodyClassName?: string;
+  children: ReactNode;
+}) {
+  return (
+    <details
+      id={id}
+      open={open}
+      className={cn(
+        "group/section overflow-hidden rounded-[var(--surface-radius)] border border-border/80 bg-card text-card-foreground shadow-xs",
+        className,
+      )}
+    >
+      <summary className="flex min-h-14 cursor-pointer list-none items-center gap-3 px-4 py-3 marker:content-none hover:bg-muted/30 sm:px-5">
+        <ChevronRight
+          className="size-4 shrink-0 text-muted-foreground transition-transform group-open/section:rotate-90 motion-reduce:transition-none"
+          aria-hidden="true"
+        />
+        <div className="min-w-0 flex-1">
+          <h3 className="font-display text-lg font-semibold leading-tight tracking-[-0.01em] text-foreground">{title}</h3>
+          {status && <div className="mt-0.5 truncate text-xs text-muted-foreground">{status}</div>}
+        </div>
+        {actions && (
+          // Düğmeler `<summary>` içinde duruyor; tıklama kapağa sıçrayıp
+          // bölümü açıp kapatmasın diye burada durduruluyor.
+          <div
+            className="flex shrink-0 flex-wrap items-center justify-end gap-2"
+            onClick={(event) => event.stopPropagation()}
+          >
+            {actions}
+          </div>
+        )}
+      </summary>
+      <div className={cn("border-t border-border/70", bodyClassName)}>{children}</div>
+    </details>
   );
 }
 

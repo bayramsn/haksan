@@ -14,6 +14,7 @@ import {
   type CommercialDocumentStepKey,
 } from "../../lib/commercialDocuments";
 import { cn } from "../ui/utils";
+import { WorkspaceSection } from "./RecordWorkspace";
 
 const STEP_ICONS: Record<CommercialDocumentStepKey, typeof FileText> = {
   quote: FileText,
@@ -49,6 +50,8 @@ export function CommercialDocumentRail({
   onOpenDocument,
   className,
   showStepActions = true,
+  collapsible = false,
+  footer,
 }: {
   offers: Offer[];
   documents: DocumentItem[];
@@ -58,6 +61,13 @@ export function CommercialDocumentRail({
   onOpenDocument?: (document: DocumentItem) => void;
   className?: string;
   showStepActions?: boolean;
+  /**
+   * Katlanır bölüm olarak çizer: kendi başlığı yerine ortak bölüm başlığını
+   * kullanır ve hiçbir belge hazır değilken (dört boş adım) kapalı başlar.
+   */
+  collapsible?: boolean;
+  /** Zincirin altına eklenen kayıt listesi (ör. üretilmiş sözleşmeler). */
+  footer?: ReactNode;
 }) {
   const chain = buildCommercialDocumentChain(offers, documents);
   const isCompact = variant === "compact";
@@ -71,6 +81,101 @@ export function CommercialDocumentRail({
     const document = documents.find((candidate) => candidate.id === itemId);
     if (document) onOpenDocument?.(document);
   };
+
+  const stepsGrid = (
+    <div className={cn("relative grid grid-cols-4", isCompact ? "mt-2 gap-1" : "gap-2 px-3 py-4 sm:gap-3 sm:px-5")}>
+      <div
+        className={cn(
+          "pointer-events-none absolute h-px bg-slate-200",
+          isCompact ? "left-[12%] right-[12%] top-[19px]" : "left-[13%] right-[13%] top-[43px]",
+        )}
+        aria-hidden="true"
+      />
+      {chain.steps.map((step) => {
+        const Icon = STEP_ICONS[step.key];
+        const style = STATE_STYLE[step.state];
+        const canOpen = step.state === "ready" && Boolean(step.itemId) && (
+          step.key === "quote" ? Boolean(onOpenOffer) : Boolean(onOpenDocument)
+        );
+        const action = showStepActions && step.state !== "ready" ? actions?.[step.key] : null;
+        return (
+          <div key={step.key} className="relative z-10 min-w-0 text-center">
+            <button
+              type="button"
+              disabled={!canOpen}
+              onClick={() => openStep(step.key, step.itemId)}
+              className={cn(
+                "group w-full min-w-0 rounded-lg outline-none transition focus-visible:ring-2 focus-visible:ring-[#2457D6] focus-visible:ring-offset-2",
+                isCompact ? "px-0.5" : cn("border px-2 py-3 text-left", style.card),
+                canOpen && "cursor-pointer hover:-translate-y-px hover:border-[#2457D6]/40 hover:shadow-sm",
+                !canOpen && "cursor-default",
+              )}
+              aria-label={`${step.label}: ${step.primary}`}
+            >
+              <span
+                className={cn(
+                  "mx-auto grid shrink-0 place-items-center rounded-full border-2 ring-4 ring-white",
+                  isCompact ? "size-9" : "size-10",
+                  style.node,
+                )}
+              >
+                {step.state === "ready" ? <Check className="size-4" /> : step.state === "blocked" ? <LockKeyhole className="size-3.5" /> : <Icon className="size-4" />}
+              </span>
+              <span className={cn("mt-1.5 block truncate font-semibold text-[#0b1739]", isCompact ? "text-[9px]" : "text-xs")}>
+                {step.label}
+              </span>
+              <span className={cn("mt-0.5 block truncate text-muted-foreground", isCompact ? "text-[8px]" : "text-[10px]")} title={step.primary}>
+                {step.primary}
+              </span>
+              {!isCompact && (
+                <span className="mt-2 flex items-center justify-between gap-2 border-t border-slate-200/70 pt-2 text-[9px] text-muted-foreground">
+                  <span className="truncate" title={step.source}>{step.source ?? style.status}</span>
+                  {step.count > 1 && <span className="shrink-0 font-data tabular-nums">×{step.count}</span>}
+                </span>
+              )}
+            </button>
+            {action && <div className={cn("flex justify-center", isCompact ? "mt-1" : "mt-2")}>{action}</div>}
+          </div>
+        );
+      })}
+    </div>
+  );
+
+  const sourceFooter = (
+    <>
+      {!isCompact && chain.latestOffer && (
+        <div className="flex items-center gap-2 border-t border-slate-100 bg-slate-50/70 px-4 py-2.5 text-[10px] text-muted-foreground sm:px-5">
+          <Link2 className="size-3.5 shrink-0 text-[#2457D6]" />
+          <span className="truncate">
+            Aktif kaynak: <b className="font-semibold text-[#0b1739]">{chain.latestOffer.quoteNo} · R{chain.latestOffer.revision}</b>
+          </span>
+        </div>
+      )}
+    </>
+  );
+
+  if (collapsible) {
+    /*
+      Katlanır bölüm: kendi başlığı ortak bölüm başlığına taşındı, açıklama
+      cümlesi durum satırına indi. Hiçbir belge hazır değilken zincir dört boş
+      düğümden ibaret — o hâlde kapalı başlar, sayı başlıkta yazar.
+    */
+    return (
+      <WorkspaceSection
+        title="Ticari belge zinciri"
+        status={[
+          `${chain.readyCount}/4 hazır`,
+          "teklif → proforma → sözleşme → fatura",
+          chain.latestOffer ? `kaynak ${chain.latestOffer.quoteNo} · R${chain.latestOffer.revision}` : null,
+        ].filter(Boolean).join(" · ")}
+        open={chain.readyCount > 0}
+        className={className}
+      >
+        {stepsGrid}
+        {footer}
+      </WorkspaceSection>
+    );
+  }
 
   return (
     <section
@@ -97,71 +202,10 @@ export function CommercialDocumentRail({
         </span>
       </div>
 
-      <div className={cn("relative grid grid-cols-4", isCompact ? "mt-2 gap-1" : "gap-2 px-3 py-4 sm:gap-3 sm:px-5")}>
-        <div
-          className={cn(
-            "pointer-events-none absolute h-px bg-slate-200",
-            isCompact ? "left-[12%] right-[12%] top-[19px]" : "left-[13%] right-[13%] top-[43px]",
-          )}
-          aria-hidden="true"
-        />
-        {chain.steps.map((step) => {
-          const Icon = STEP_ICONS[step.key];
-          const style = STATE_STYLE[step.state];
-          const canOpen = step.state === "ready" && Boolean(step.itemId) && (
-            step.key === "quote" ? Boolean(onOpenOffer) : Boolean(onOpenDocument)
-          );
-          const action = showStepActions && step.state !== "ready" ? actions?.[step.key] : null;
-          return (
-            <div key={step.key} className="relative z-10 min-w-0 text-center">
-              <button
-                type="button"
-                disabled={!canOpen}
-                onClick={() => openStep(step.key, step.itemId)}
-                className={cn(
-                  "group w-full min-w-0 rounded-lg outline-none transition focus-visible:ring-2 focus-visible:ring-[#2457D6] focus-visible:ring-offset-2",
-                  isCompact ? "px-0.5" : cn("border px-2 py-3 text-left", style.card),
-                  canOpen && "cursor-pointer hover:-translate-y-px hover:border-[#2457D6]/40 hover:shadow-sm",
-                  !canOpen && "cursor-default",
-                )}
-                aria-label={`${step.label}: ${step.primary}`}
-              >
-                <span
-                  className={cn(
-                    "mx-auto grid shrink-0 place-items-center rounded-full border-2 ring-4 ring-white",
-                    isCompact ? "size-9" : "size-10",
-                    style.node,
-                  )}
-                >
-                  {step.state === "ready" ? <Check className="size-4" /> : step.state === "blocked" ? <LockKeyhole className="size-3.5" /> : <Icon className="size-4" />}
-                </span>
-                <span className={cn("mt-1.5 block truncate font-semibold text-[#0b1739]", isCompact ? "text-[9px]" : "text-xs")}>
-                  {step.label}
-                </span>
-                <span className={cn("mt-0.5 block truncate text-muted-foreground", isCompact ? "text-[8px]" : "text-[10px]")} title={step.primary}>
-                  {step.primary}
-                </span>
-                {!isCompact && (
-                  <span className="mt-2 flex items-center justify-between gap-2 border-t border-slate-200/70 pt-2 text-[9px] text-muted-foreground">
-                    <span className="truncate" title={step.source}>{step.source ?? style.status}</span>
-                    {step.count > 1 && <span className="shrink-0 font-data tabular-nums">×{step.count}</span>}
-                  </span>
-                )}
-              </button>
-              {action && <div className={cn("flex justify-center", isCompact ? "mt-1" : "mt-2")}>{action}</div>}
-            </div>
-          );
-        })}
-      </div>
+      {stepsGrid}
 
-      {!isCompact && chain.latestOffer && (
-        <div className="flex items-center gap-2 border-t border-slate-100 bg-slate-50/70 px-4 py-2.5 text-[10px] text-muted-foreground sm:px-5">
-          <Link2 className="size-3.5 shrink-0 text-[#2457D6]" />
-          <span className="truncate">
-            Aktif kaynak: <b className="font-semibold text-[#0b1739]">{chain.latestOffer.quoteNo} · R{chain.latestOffer.revision}</b>
-          </span>
-        </div>
-      )}
+      {sourceFooter}
+      {footer}
     </section>
   );
 }

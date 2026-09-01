@@ -26,12 +26,32 @@ async function selectLeadCity(page: import("@playwright/test").Page, city: strin
  * başlığı koşulsuz beklenirdi — lead, fırsatın ilk adımı olunca bu geçersizleşti.
  */
 async function expectSingleWorkspaceAxis(dialog: import("@playwright/test").Locator): Promise<"operations" | "qualification"> {
-  const operations = dialog.getByRole("heading", { name: "Operasyon aşaması", exact: true });
+  // Bölüm katlanır oldu ve başlığı `<summary>` içinde duruyor; erişilebilirlik
+  // ağacında bir düğmenin çocukları sunum kabul edilebildiği için rol yerine
+  // bölümün kendi kimliği aranıyor.
+  const operations = dialog.locator("#opportunity-operations");
   const qualification = dialog.locator("#opportunity-qualification");
   await expect
     .poll(async () => (await operations.count()) + (await qualification.count()))
     .toBe(1);
   return (await operations.count()) ? "operations" : "qualification";
+}
+
+/**
+ * Çalışma alanı bölümleri katlanır ve "bakılacak bir şey yoksa" kapalı açılır
+ * (boş sevkiyat/teslim/kurulum, hazır belge olmayan zincir, açık görevi olmayan
+ * liste). İçeriğini doğrulayacak testler kapağı önce açar.
+ */
+async function openWorkspaceSection(
+  dialog: import("@playwright/test").Locator,
+  selector: string,
+) {
+  const section = dialog.locator(`details${selector}`);
+  await expect(section).toHaveCount(1);
+  if (!(await section.evaluate((element) => (element as HTMLDetailsElement).open))) {
+    await section.locator("summary").click();
+  }
+  await expect(section).toHaveAttribute("open", "");
 }
 
 test("fırsatlar listelenir ve detay açılır", async ({ page }) => {
@@ -92,6 +112,7 @@ test("fırsatlar listelenir ve detay açılır", async ({ page }) => {
     // Saha operasyonu özeti operasyon ekseninin içeriği; lead kartında o eksen
     // hiç render edilmiyor, dolayısıyla koşulsuz beklenemez.
     if ((await expectSingleWorkspaceAxis(dialog)) === "operations") {
+      await openWorkspaceSection(dialog, "#opportunity-operations");
       await expect(dialog.getByLabel("Saha operasyonu özeti")).toBeVisible();
     }
     await expect(dialog.getByRole("button", { name: "Tam süreç haritasını aç", exact: true })).toHaveCount(0);
@@ -360,7 +381,8 @@ test("Lead Workspace V2 akışı otomatik atamadan gerekçeli fırsat dönüşü
     await expect(summaryBlock).toBeVisible();
     await expect(summaryBlock.getByRole("button", { name: /Özet ekle|Düzenle/ })).toBeVisible();
     // Dönüşümden sonra da sekme yok: süreç gövdesi ve aktivite akışı doğrudan görünür.
-    await expect(recordDialog.getByRole("heading", { name: "Operasyon aşaması", exact: true })).toBeVisible();
+    await expect(recordDialog.locator("#opportunity-operations")).toBeVisible();
+    await expect(recordDialog.locator("#opportunity-operations")).toContainText("Operasyon aşaması");
     await expect(recordDialog.getByRole("heading", { name: /Aktivite akışı|Temas akışı/ })).toBeVisible();
 
     // Ölçmeden önce yeniden akış beklenmeli; `boundingBox` hemen okunursa

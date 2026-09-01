@@ -9,6 +9,10 @@ describe("lead ve fırsat çalışma alanı sorumlu değişikliği", () => {
   const detailSource = readFileSync(new URL("./SalesCaseDetail.tsx", import.meta.url), "utf8");
   const taskSectionSource = readFileSync(new URL("./tasks/TaskRecordSection.tsx", import.meta.url), "utf8");
   const shellSource = readFileSync(new URL("../shared/KanbanDetailDialogShell.tsx", import.meta.url), "utf8");
+  const recordWorkspaceSource = readFileSync(new URL("../shared/RecordWorkspace.tsx", import.meta.url), "utf8");
+  const commercialRailSource = readFileSync(new URL("../shared/CommercialDocumentRail.tsx", import.meta.url), "utf8");
+  const checklistSource = readFileSync(new URL("./ProcessChecklistPanel.tsx", import.meta.url), "utf8");
+  const focusSource = readFileSync(new URL("../../lib/workspaceFocus.ts", import.meta.url), "utf8");
 
   it("nitelendirme formunu yalnız başka bir karta geçilince sunucu değeriyle ezer", () => {
     // Bağımlılık `salesCase` nesnesiyken store'un her tazelemesi yeni referans
@@ -56,26 +60,46 @@ describe("lead ve fırsat çalışma alanı sorumlu değişikliği", () => {
     expect(otherActions).not.toContain("Takibe al");
   });
 
-  it("satış alanı kutusunu kapının dışında tutar, yalnız operasyon ayrıntısını katlar", () => {
-    // Kutu alan görevlerini ve TEK ilerletme düğmesini taşıyor; hiçbir kapının
+  it("satış alanı kutusunu kapının dışında tutar, bölümleri duruma göre katlar", () => {
+    // Kutu alan görevlerini ve TEK ilerletme düğmesini taşıyor; hiçbir kapağın
     // arkasında olamaz, yoksa kullanıcı ilerletme düğmesini hiç göremez.
-    // Katlanan yalnız operasyon KAYIT kartlarıdır (takip no, ETA, teknisyen).
     expect(workspaceSource).toContain("{renderProcessCenter ? renderProcessCenter({ detail, loading: detailLoading, reload: loadDetail }) : processCenter}");
-    expect(workspaceSource).not.toContain("operationsExpanded && renderProcessCenter");
-    expect(workspaceSource).toContain('id="opportunity-operations-detail"');
+    expect(workspaceSource).not.toContain("<WorkspaceSection\n      id=\"opportunity-process");
+    // Katlanan bölümler duruma göre açılır: bakılacak bir şey varsa açık.
+    expect(workspaceSource).toContain("useSectionOpen(hasFieldRecords || operationBlockers.length > 0, sc.id)");
+    expect(taskSectionSource).toContain("useSectionOpen(open.length > 0, paramKey)");
+    expect(commercialRailSource).toContain("open={chain.readyCount > 0}");
+    expect(checklistSource).toContain("availableChecks.some((check) => !check.complete)");
+    // Kancalar erken dönüşlerin üstünde çağrılmalı; altına inerse kanca sayısı
+    // veri geldiğinde değişir ve React kaydı çökertir.
+    // Satır başındaki biçim aranıyor: aynı metin açıklama satırlarında da geçiyor.
+    expect(taskSectionSource.indexOf("const sectionOpen = useSectionOpen(")).toBeLessThan(taskSectionSource.indexOf("\n  if (!canRead) return null;"));
+    expect(checklistSource.indexOf("const checksOpen = useSectionOpen(")).toBeLessThan(checklistSource.indexOf("\n  if (!readiness && !checksOverride) return null;"));
     // Üç aşamanın durumu kapak kapalıyken de okunur; sade/tam mod ayrımı yok.
     expect(workspaceSource).toContain('aria-label="Saha operasyonu özeti"');
     expect(workspaceSource).not.toContain("{simpleOpportunity && (() => {");
-    // Kapak, gösterecek gerçek kayıt varken açılır; boş üç kart açılışta
-    // ekranın üçte birini kaplamaz.
-    expect(workspaceSource).toContain("setOperationsExpanded(hasFieldRecords)");
     // Eski etiketler geri gelirse ölü/çift düğmeler de geri gelmiş demektir.
     expect(workspaceSource).not.toContain("Tam süreç haritasını aç");
     expect(workspaceSource).not.toContain("Operasyon kartlarını aç");
   });
 
+  it("kapalı bölüm de durumunu söyler ve derin bağlantı kapağı açar", () => {
+    // Kapağın tek maliyeti "içeride ne var?" sorusu olmalı; bölüm kapalıyken
+    // bile durumunu yazmazsa kullanıcı hepsini tek tek açmak zorunda kalır.
+    expect(recordWorkspaceSource).toContain("status && <div className=\"mt-0.5 truncate text-xs text-muted-foreground\">{status}</div>");
+    expect(workspaceSource).toContain("const fieldStatusLine = hasFieldRecords");
+    expect(taskSectionSource).toContain("`${open.length} açık görev`");
+    // Bölüm bir kez açıldıysa son görev/engel bitince altından kapanmaz.
+    expect(recordWorkspaceSource).toContain("export function useSectionOpen");
+    expect(commercialRailSource).toContain("`${chain.readyCount}/4 hazır`");
+    expect(checklistSource).toContain("{completedCount}/{checks.length} tamamlandı");
+    // Engel düğmeleri, "Engelleri çöz" ve aktivite derin bağlantıları kapalı
+    // bölümdeki hedeflere gidiyor; kapak açılmazsa boş başlığa iniyorlar.
+    expect(focusSource).toContain("function openCollapsedAncestors");
+    expect(focusSource).toContain("openCollapsedAncestors(target);");
+  });
+
   it("aynı bilgiyi ikinci kez basan yüzeyleri geri getirmez", () => {
-    const recordWorkspaceSource = readFileSync(new URL("../shared/RecordWorkspace.tsx", import.meta.url), "utf8");
     // Karar özetinin iki varyantı vardı; `default` olan aynı üç bilgiyi iki
     // katı yükseklikte gösterip satış alanı kutusunu ekran dışına itiyordu.
     expect(recordWorkspaceSource).not.toContain('variant?: "default" | "compact"');

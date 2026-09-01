@@ -6,6 +6,7 @@ import { tasksService, type TaskDTO, type TaskListParams } from "../../../../lib
 import { useAuth } from "../../../../lib/auth";
 import { Button } from "../../ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "../../ui/card";
+import { WorkspaceSection, useSectionOpen } from "../../shared/RecordWorkspace";
 import { TaskDetailPanel } from "./TaskDetailPanel";
 import { TaskFormDialog, type TaskRelation } from "./TaskFormDialog";
 import { TaskList } from "./TaskList";
@@ -20,6 +21,7 @@ export function TaskRecordSection({
   title = "Görevler",
   headerActions,
   onChanged,
+  collapsible = false,
 }: {
   relation: TaskRelation;
   title?: string;
@@ -27,6 +29,12 @@ export function TaskRecordSection({
   headerActions?: ReactNode;
   /** Üst ekran kendi geçmişini tazelemek isterse (timeline gibi). */
   onChanged?: () => void;
+  /**
+   * Kalabalık çalışma alanlarında bölüm katlanır: açık görev yokken kapalı
+   * başlar, başlık satırı sayıyı yine de gösterir. Diğer ekranlar (müşteri,
+   * teklif, servis) varsayılan açık kartı kullanmaya devam eder.
+   */
+  collapsible?: boolean;
 }) {
   const { user, hasPermission } = useAuth();
   const canCreate = hasPermission("tasks.create");
@@ -85,44 +93,44 @@ export function TaskRecordSection({
     }
   };
 
+  const open = tasks.filter((task) => task.status === "todo" || task.status === "in_progress");
+  // Kanca `if (!canRead) return null;` erken dönüşünün ÜSTÜNDE: altında
+  // kalırsa yetki değiştiğinde kanca sayısı değişir.
+  const sectionOpen = useSectionOpen(open.length > 0, paramKey);
+
   if (!canRead) return null;
 
-  const open = tasks.filter((task) => task.status === "todo" || task.status === "in_progress");
+  const actions = (
+    <>
+      {headerActions}
+      {canCreate && (
+        <Button
+          size="sm"
+          className="gap-1"
+          onClick={() => {
+            setEditing(null);
+            setFormOpen(true);
+          }}
+        >
+          <Plus className="size-4" /> Görev Oluştur
+        </Button>
+      )}
+    </>
+  );
 
-  return (
-    <Card>
-      <CardHeader className="flex-row items-center justify-between gap-2 space-y-0">
-        <CardTitle className="font-display text-xl font-semibold">
-          {title}
-          {open.length > 0 && <span className="ml-2 text-sm font-normal text-muted-foreground">{open.length} açık</span>}
-        </CardTitle>
-        <div className="flex flex-wrap items-center justify-end gap-2">
-          {headerActions}
-          {canCreate && (
-            <Button
-              size="sm"
-              className="gap-1"
-              onClick={() => {
-                setEditing(null);
-                setFormOpen(true);
-              }}
-            >
-              <Plus className="size-4" /> Görev Oluştur
-            </Button>
-          )}
-        </div>
-      </CardHeader>
-      <CardContent className="p-0">
-        <TaskList
-          tasks={tasks}
-          loading={loading}
-          compact
-          onOpen={(task) => setDetailId(task.id)}
-          onToggleDone={toggleDone}
-          emptyLabel="Bu kayda bağlı görev yok."
-        />
-      </CardContent>
+  const list = (
+    <TaskList
+      tasks={tasks}
+      loading={loading}
+      compact
+      onOpen={(task) => setDetailId(task.id)}
+      onToggleDone={toggleDone}
+      emptyLabel="Bu kayda bağlı görev yok."
+    />
+  );
 
+  const dialogs = (
+    <>
       <TaskDetailPanel
         taskId={detailId}
         onOpenChange={(next) => !next && setDetailId(null)}
@@ -148,6 +156,36 @@ export function TaskRecordSection({
           onChanged?.();
         }}
       />
+    </>
+  );
+
+  if (collapsible) {
+    return (
+      <WorkspaceSection
+        title={title}
+        // Kapalıyken de "yapılacak bir şey var mı" sorusunu yanıtlar.
+        status={open.length > 0 ? `${open.length} açık görev` : loading ? "Yükleniyor…" : "Açık görev yok"}
+        actions={actions}
+        open={sectionOpen}
+      >
+        {list}
+        {dialogs}
+      </WorkspaceSection>
+    );
+  }
+
+  return (
+    <Card>
+      <CardHeader className="flex-row items-center justify-between gap-2 space-y-0">
+        <CardTitle className="font-display text-xl font-semibold">
+          {title}
+          {open.length > 0 && <span className="ml-2 text-sm font-normal text-muted-foreground">{open.length} açık</span>}
+        </CardTitle>
+        <div className="flex flex-wrap items-center justify-end gap-2">{actions}</div>
+      </CardHeader>
+      <CardContent className="p-0">{list}</CardContent>
+
+      {dialogs}
     </Card>
   );
 }
