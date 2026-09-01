@@ -988,6 +988,13 @@
       "when": 1792089600000,
       "tag": "0141_cancelled_opportunity_status",
       "breakpoints": true
+    },
+    {
+      "idx": 142,
+      "version": "7",
+      "when": 1792176000000,
+      "tag": "0142_opportunity_products",
+      "breakpoints": true
     }
   ]
 }

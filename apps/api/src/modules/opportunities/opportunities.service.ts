@@ -4,6 +4,7 @@ import type { DbClient } from '../../db/client';
 import {
   opportunities,
   opportunityApprovals,
+  opportunityProducts,
   opportunityQualificationHistory,
   opportunityStageHistory,
   leadAssignmentCursors,
@@ -60,6 +61,7 @@ import type {
   LeadContactEventInput,
   OpportunityQualificationChangeInput,
   OpportunityUpdateInput,
+  OpportunityProductInput,
   OpportunityStageChangeInput,
   OpportunityDeferInput,
   TrelloImportCommitRequest,
@@ -1981,13 +1983,15 @@ export class OpportunitiesService {
       .limit(limit)
       .offset(offset);
     const opportunityRows = rows.map((row) => row.opp);
-    const [contexts, activityContexts] = await Promise.all([
+    const [contexts, activityContexts, productMap] = await Promise.all([
       this.qualificationContexts(opportunityRows),
       this.leadActivityContexts(opportunityRows),
+      this.productsByOpportunity(opportunityRows.map((row) => row.id)),
     ]);
     return buildPaginated(
       rows.map((r) => ({
         ...r.opp,
+        products: productMap.get(r.opp.id) ?? [],
         company: r.company?.id ? r.company : null,
         primaryContact: r.primaryContact?.id ? r.primaryContact : null,
         stage: r.stage,
@@ -2001,6 +2005,56 @@ export class OpportunitiesService {
       count,
       page
     );
+  }
+
+  /** Fırsat kartlarındaki makine listesi; id'ye göre gruplu döner. */
+  private async productsByOpportunity(opportunityIds: string[]) {
+    const result = new Map<string, Array<typeof opportunityProducts.$inferSelect>>();
+    if (!opportunityIds.length) return result;
+    const rows = await this.db
+      .select()
+      .from(opportunityProducts)
+      .where(
+        and(
+          inArray(opportunityProducts.opportunityId, opportunityIds),
+          isNull(opportunityProducts.deletedAt)
+        )
+      )
+      .orderBy(asc(opportunityProducts.sortOrder), asc(opportunityProducts.createdAt));
+    for (const row of rows) {
+      const list = result.get(row.opportunityId) ?? [];
+      list.push(row);
+      result.set(row.opportunityId, list);
+    }
+    return result;
+  }
+
+  /**
+   * Makine listesini tümüyle değiştirir ve ilk satırı `requestedMachine`
+   * alanına yazar; hazırlık kontrolleri, PDF ve raporlar o alanı okuyor.
+   * Dönen değer çağıranın aynı transaction'da fırsat satırını güncellemesi
+   * içindir.
+   */
+  private async replaceProducts(
+    tx: DbClient,
+    actor: AuthContext,
+    opportunityId: string,
+    products: OpportunityProductInput[]
+  ): Promise<string | null> {
+    await tx.delete(opportunityProducts).where(eq(opportunityProducts.opportunityId, opportunityId));
+    const rows = products
+      .map((product, index) => ({
+        tenantId: actor.tenantId,
+        opportunityId,
+        productModelId: product.productModelId ?? null,
+        machineName: product.machineName.trim().slice(0, 255),
+        quantity: product.quantity ?? 1,
+        note: product.note?.trim() || null,
+        sortOrder: index,
+      }))
+      .filter((row) => row.machineName.length > 0);
+    if (rows.length) await tx.insert(opportunityProducts).values(rows);
+    return rows[0]?.machineName ?? null;
   }
 
   async get(id: string, actor: AuthContext) {
@@ -2145,8 +2199,10 @@ export class OpportunitiesService {
     ]);
     const qualificationContext = contexts.get(r.opp.id)!;
     const currentOperationStage = (r.stage?.code ?? 'sales') as PipelineStageCode;
+    const productRows = (await this.productsByOpportunity([r.opp.id])).get(r.opp.id) ?? [];
     return {
       ...r.opp,
+      products: productRows,
       company: r.company?.id ? r.company : null,
       primaryContact: r.primaryContact?.id ? r.primaryContact : null,
       stage: r.stage,
@@ -2304,6 +2360,13 @@ export class OpportunitiesService {
         changedBy: actor.userId,
         changeReason: sourceActivity ? 'Fırsat dışı aktiviteden oluşturuldu (Lead adımı)' : 'Fırsat oluşturuldu (Lead adımı)',
       });
+      if (input.products?.length) {
+        const primary = await this.replaceProducts(tx as DbClient, actor, created.id, input.products);
+        if (primary && !created.requestedMachine) {
+          await tx.update(opportunities).set({ requestedMachine: primary }).where(eq(opportunities.id, created.id));
+          created.requestedMachine = primary;
+        }
+      }
       await tx.insert(opportunityQualificationHistory).values({
         tenantId: actor.tenantId,
         opportunityId: created.id,
@@ -3186,6 +3249,14 @@ export class OpportunitiesService {
 
     await this.db.transaction(async (tx) => {
       await tx.update(opportunities).set(patch).where(eq(opportunities.id, id));
+      // Liste gönderildiyse tümüyle değişir; ilk satır tek alanlı okuyucular
+      // (hazırlık kontrolü, PDF, rapor) için `requestedMachine`e yazılır.
+      if (input.products !== undefined) {
+        const primary = await this.replaceProducts(tx as DbClient, actor, id, input.products);
+        if (input.requestedMachine === undefined) {
+          await tx.update(opportunities).set({ requestedMachine: primary }).where(eq(opportunities.id, id));
+        }
+      }
       if (invalidatedApprovalTypes.length) {
         await tx
           .update(opportunityApprovals)

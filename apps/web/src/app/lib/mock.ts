@@ -407,6 +407,8 @@ export type SalesCase = {
   department: string;
   requestedProduct: string;
   requestedModel: string;
+  /** Fırsatta konuşulan makineler; fırsat firma bazlı olduğu için birden çok olabilir. */
+  machines?: { id?: string; productModelId?: string; name: string; quantity: number }[];
   description?: string;
   quantity: number;
   estimatedAmount: number;

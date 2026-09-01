@@ -201,6 +201,14 @@ const mapCase = (o: any, isOfferPrepared: boolean): SalesCase =>
     // Model/makine ve serbest açıklama farklı alanlardır. Açıklamayı model diye
     // göstermek kart başlıklarını ve belge ürün eşlemesini bozuyordu.
     requestedModel: o.externalSource === 'trello' ? '' : o.requestedMachine ?? '',
+    machines: Array.isArray(o.products)
+      ? o.products.map((product: any) => ({
+          id: product.id as string,
+          productModelId: product.productModelId ?? undefined,
+          name: product.machineName ?? '',
+          quantity: Number(product.quantity ?? 1) || 1,
+        }))
+      : [],
     description: o.description ?? undefined,
     quantity: 1,
     estimatedAmount: Number(o.estimatedValue ?? 0),
@@ -232,6 +240,24 @@ const mapCase = (o: any, isOfferPrepared: boolean): SalesCase =>
     createdAt: (o.createdAt as string)?.slice(0, 10) ?? '',
     closedAt: o.closedAt ? (o.closedAt as string).slice(0, 10) : undefined,
   }) as SalesCase;
+
+/**
+ * Fırsat makine listesini API sözleşmesine çevirir. Taslak formu localStorage'da
+ * yaşadığı için saklanan değerin dizi olduğu varsayılamaz; boş liste gönderilirse
+ * sunucu listeyi temizler, bu yüzden yalnız dolu liste yollanır.
+ */
+const toProductPayload = (machines: unknown) => {
+  if (!Array.isArray(machines)) return undefined;
+  const rows = machines
+    .filter((item): item is { name?: string; productModelId?: string; quantity?: number } => Boolean(item))
+    .map((item) => ({
+      productModelId: item.productModelId || undefined,
+      machineName: String(item.name ?? '').trim(),
+      quantity: Number(item.quantity ?? 1) || 1,
+    }))
+    .filter((item) => item.machineName.length > 0);
+  return rows.length ? rows : undefined;
+};
 
 const cleanString = (value: unknown) => {
   const text = String(value ?? '').trim();
@@ -572,6 +598,8 @@ type Store = {
       paymentTermDays?: number | null;
       paymentMethod?: SalesCase['paymentMethod'];
       description?: string | null;
+      /** Fırsatta konuşulan makineler; gönderilirse liste tümüyle değişir. */
+      machines?: { productModelId?: string; name: string; quantity: number }[];
       estimatedAmount?: number;
       currency?: SalesCase['currency'];
       probability?: number;
@@ -1757,6 +1785,8 @@ function StoreInner({ children }: { children: ReactNode }) {
       nextAction: c.nextAction ?? undefined,
       nextActionAt: c.nextActionAt ? new Date(c.nextActionAt) : undefined,
       requestedMachine: c.requestedMachine ?? c.requestedModel ?? undefined,
+      // Fırsat firma bazlı: kartta birden çok makine olabilir.
+      products: toProductPayload(c.machines),
       contractTerms: c.contractTerms ?? undefined,
       paymentTerms: c.paymentTerms ?? undefined,
       divisionId: c.divisionId || undefined,
@@ -1788,6 +1818,8 @@ function StoreInner({ children }: { children: ReactNode }) {
     if (patch.assignedUserId !== undefined) body.ownerUserId = patch.assignedUserId || null;
     if (patch.paymentTermDays !== undefined) body.paymentTermDays = patch.paymentTermDays ?? null;
     if (patch.paymentMethod !== undefined) body.paymentMethod = patch.paymentMethod;
+    // Boş liste de anlamlı: kullanıcı tüm makineleri kaldırmış olabilir.
+    if (patch.machines !== undefined) body.products = toProductPayload(patch.machines) ?? [];
     if (patch.description !== undefined) body.description = patch.description;
     if (patch.estimatedAmount !== undefined) body.estimatedValue = patch.estimatedAmount;
     if (patch.currency !== undefined) body.currencyCode = patch.currency;

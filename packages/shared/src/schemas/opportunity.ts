@@ -36,6 +36,19 @@ export const leadTechnicalFitEnum = z.enum(LEAD_TECHNICAL_FITS);
 export const leadContactChannelEnum = z.enum(LEAD_CONTACT_CHANNELS);
 export const leadContactOutcomeEnum = z.enum(LEAD_CONTACT_OUTCOMES);
 
+/**
+ * Fırsatta konuşulan makineler. Fırsat firma bazlıdır: aynı kartta birden çok
+ * makine olabilir, teklifler de bu listeden beslenir. Katalogda karşılığı
+ * olmayan makine serbest adla girilebilir.
+ */
+export const opportunityProductInputSchema = z.object({
+  productModelId: z.string().uuid().optional(),
+  machineName: z.string().trim().min(1, 'Makine adı zorunludur').max(255),
+  quantity: z.coerce.number().int().min(1).max(999).default(1),
+  note: z.string().trim().max(1000).optional(),
+});
+export type OpportunityProductInput = z.infer<typeof opportunityProductInputSchema>;
+
 const opportunityInputSchema = z.object({
   companyId: z.string().min(1).nullish(),
   /**
@@ -85,6 +98,9 @@ const opportunityInputSchema = z.object({
   paymentMethod: opportunityPaymentMethodEnum.nullish(),
   // Yeni C/B/A satış derecelendirmesinde ayrı takip edilen ticari alanlar.
   requestedMachine: z.string().trim().max(255).nullish(),
+  // Gönderilirse liste tümüyle bununla değiştirilir; ilk satır
+  // `requestedMachine` alanına da yazılır (eski okuyucular için).
+  products: z.array(opportunityProductInputSchema).max(20).optional(),
   contractTerms: z.string().trim().max(4000).nullish(),
   paymentTerms: z.string().trim().max(4000).nullish(),
   // Kazanılan fırsat için kabul/kazanma nedeni (yıl sonu raporu).

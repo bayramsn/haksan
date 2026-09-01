@@ -35,6 +35,8 @@ import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "../ui/card";
 import { Textarea } from "../ui/textarea";
+import { Input } from "../ui/input";
+import { Combobox } from "../ui/combobox";
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from "../ui/dialog";
@@ -640,6 +642,11 @@ export function OpportunityWorkspace({
         canEdit={canUpdate}
         onSave={(description) => updateCase(sc.id, { description })}
       />
+      <OpportunityMachines
+        salesCase={sc}
+        canEdit={canUpdate}
+        onSave={(machines) => updateCase(sc.id, { machines })}
+      />
 
       {/* Alan rayı satış alanı kutusunun içine taşındı ve orada tıklanabilir
           (alanlar arası gezinme). Buradaki dekoratif kopyası aynı bilgiyi
@@ -953,6 +960,143 @@ function OpportunitySummary({
                 {saving ? "Kaydediliyor…" : "Kaydet"}
               </Button>
             </div>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+/**
+ * Fırsattaki makineler. Fırsat firma bazlıdır: aynı kartta birden çok makine
+ * konuşulabilir ve her biri ayrı teklife konu olabilir.
+ */
+function OpportunityMachines({
+  salesCase,
+  canEdit,
+  onSave,
+}: {
+  salesCase: SalesCase;
+  canEdit: boolean;
+  onSave: (machines: { productModelId?: string; name: string; quantity: number }[]) => Promise<void>;
+}) {
+  const { products } = useStore();
+  const [open, setOpen] = useState(false);
+  const [draft, setDraft] = useState<{ productModelId?: string; name: string; quantity: number }[]>([]);
+  const [saving, setSaving] = useState(false);
+  const [savedMachines, setSavedMachines] = useState<typeof draft | null>(null);
+  const machines = savedMachines ?? salesCase.machines ?? [];
+
+  useEffect(() => { setSavedMachines(null); }, [salesCase.machines]);
+  useEffect(() => { if (open) setDraft(machines.map((machine) => ({ ...machine }))); }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const options = useMemo(
+    () => products
+      .filter((product) => (product.categoryCode ?? "").toLocaleUpperCase("en-US") === "TEZGAH")
+      .map((product) => ({ value: product.id, label: [product.brand, product.model].filter(Boolean).join(" "), hint: product.type })),
+    [products],
+  );
+
+  const addRow = (name: string, productModelId?: string) => {
+    const clean = name.trim();
+    if (!clean) return;
+    setDraft((current) => current.some((item) => item.name.toLocaleLowerCase("tr-TR") === clean.toLocaleLowerCase("tr-TR"))
+      ? current
+      : [...current, { productModelId, name: clean, quantity: 1 }]);
+  };
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      await onSave(draft);
+      setSavedMachines(draft);
+      toast.success("Makine listesi kaydedildi");
+      setOpen(false);
+    } catch (error: any) {
+      toast.error("Makine listesi kaydedilemedi", { description: error?.message ?? "API isteği başarısız oldu." });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (!machines.length && !canEdit) return null;
+
+  return (
+    <div className="border-b border-border pb-3" data-testid="opportunity-machines">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="ui-eyebrow flex items-center gap-1.5">
+            <Wrench className="size-3.5" /> Makineler
+          </div>
+          {machines.length ? (
+            <ul className="mt-1 flex flex-wrap gap-1.5">
+              {machines.map((machine, index) => (
+                <li key={`${machine.name}-${index}`}>
+                  <Badge variant="outline" className="max-w-full whitespace-normal text-left">
+                    {machine.name}
+                    {machine.quantity > 1 ? ` × ${machine.quantity}` : ""}
+                  </Badge>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="mt-1 text-sm text-muted-foreground">Bu fırsata makine eklenmemiş.</p>
+          )}
+        </div>
+        {canEdit && (
+          <Button type="button" variant="outline" size="sm" className="shrink-0 gap-1" onClick={() => setOpen(true)}>
+            <Pencil className="size-3.5" /> {machines.length ? "Düzenle" : "Makine ekle"}
+          </Button>
+        )}
+      </div>
+
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent className="max-w-xl">
+          <DialogHeader>
+            <DialogTitle>Fırsattaki makineler</DialogTitle>
+            <DialogDescription>Bir fırsatta birden çok makine olabilir; her biri ayrı teklife konu edilebilir.</DialogDescription>
+          </DialogHeader>
+
+          <Combobox
+            ariaLabel="Makine ekle"
+            value=""
+            onChange={(value) => {
+              const product = products.find((item) => item.id === value);
+              if (product) addRow([product.brand, product.model].filter(Boolean).join(" ") || product.model || "", product.id);
+            }}
+            options={options}
+            placeholder="Tezgah seçin veya yazın…"
+            searchPlaceholder="Marka / model ara…"
+            emptyText="Tezgah bulunamadı."
+            onCreate={(label) => addRow(label)}
+            createLabel={(query) => `"${query}" serbest makine olarak ekle`}
+          />
+
+          <ul className="max-h-64 space-y-1.5 overflow-y-auto">
+            {draft.length ? draft.map((machine, index) => (
+              <li key={`${machine.name}-${index}`} className="flex items-center gap-2 rounded-md border border-border/60 px-2.5 py-1.5">
+                <span className="min-w-0 flex-1 truncate text-sm">{machine.name}</span>
+                <Input
+                  type="number"
+                  min={1}
+                  max={999}
+                  aria-label={`${machine.name} adedi`}
+                  className="h-7 w-16 text-xs"
+                  value={String(machine.quantity)}
+                  onChange={(event) => setDraft((current) => current.map((item, i) => (
+                    i === index ? { ...item, quantity: Math.max(1, Number(event.target.value) || 1) } : item
+                  )))}
+                />
+                <Button type="button" variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => setDraft((current) => current.filter((_, i) => i !== index))}>
+                  Kaldır
+                </Button>
+              </li>
+            )) : <li className="rounded-md border border-dashed border-border/60 px-3 py-4 text-center text-xs text-muted-foreground">Henüz makine eklenmedi.</li>}
+          </ul>
+
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setOpen(false)}>Vazgeç</Button>
+            <Button type="button" disabled={saving} onClick={() => void save()}>{saving ? "Kaydediliyor…" : "Kaydet"}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

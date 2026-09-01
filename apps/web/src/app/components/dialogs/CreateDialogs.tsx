@@ -1890,6 +1890,8 @@ export function CreateCaseDialog({
     requestedProduct: "",
     requestedModel: "",
     requestedMachine: "",
+    // Fırsat firma bazlı: aynı kartta birden çok makine konuşulabilir.
+    machines: [] as { productModelId?: string; name: string; quantity: number }[],
     description: "",
     quantity: 1,
     estimatedAmount: 0,
@@ -1920,6 +1922,53 @@ export function CreateCaseDialog({
     }
   }, [user?.id, isSuperAdmin]);
 
+  /**
+   * Taslak localStorage'da yaşıyor; eski taslakta `machines` alanı yok. Ham
+   * değere güvenmeden okunur (bkz. usePersistentState şema tuzağı).
+   */
+  const machineList: { productModelId?: string; name: string; quantity: number }[] = Array.isArray((form as any).machines)
+    ? (form as any).machines
+    : [];
+
+  /** Listeye ekler; ilk makine tek alanlı okuyucular için forma da yazılır. */
+  const addMachine = (
+    machine: { productModelId?: string; name: string },
+    primary?: { brand: string; model: string; unit?: number; currency?: string },
+  ) => {
+    const name = machine.name.trim();
+    if (!name) return;
+    setForm((f: any) => {
+      const current: { productModelId?: string; name: string; quantity: number }[] = Array.isArray(f.machines) ? f.machines : [];
+      if (current.some((item) => item.name.toLocaleLowerCase("tr-TR") === name.toLocaleLowerCase("tr-TR"))) return f;
+      const next = [...current, { productModelId: machine.productModelId, name, quantity: 1 }];
+      const isFirst = current.length === 0;
+      return {
+        ...f,
+        machines: next,
+        requestedProduct: isFirst && primary ? primary.brand : f.requestedProduct || primary?.brand || name,
+        requestedModel: isFirst && primary ? primary.model : f.requestedModel,
+        requestedMachine: isFirst ? name : f.requestedMachine,
+        estimatedAmount: isFirst && primary?.unit ? primary.unit * (Number(f.quantity) || 1) : f.estimatedAmount,
+        currency: isFirst && primary?.currency ? primary.currency : f.currency,
+      };
+    });
+  };
+
+  const updateMachineQuantity = (index: number, quantity: number) => {
+    setForm((f: any) => {
+      const current: { productModelId?: string; name: string; quantity: number }[] = Array.isArray(f.machines) ? f.machines : [];
+      return { ...f, machines: current.map((item, i) => (i === index ? { ...item, quantity: Math.max(1, quantity) } : item)) };
+    });
+  };
+
+  const removeMachine = (index: number) => {
+    setForm((f: any) => {
+      const current: { productModelId?: string; name: string; quantity: number }[] = Array.isArray(f.machines) ? f.machines : [];
+      const next = current.filter((_, i) => i !== index);
+      return { ...f, machines: next, requestedMachine: next[0]?.name ?? "" };
+    });
+  };
+
   // Satış kartı ürün seçici: yalnızca tezgahlar (satış kalemi), aktif/seçili bölüme
   // (CNC/Üniversal/Sac) göre daraltılır. Serbest ürün adı yine elle yazılabilir.
   const machineProductOptions = useMemo(() => {
@@ -1935,7 +1984,7 @@ export function CreateCaseDialog({
     e.preventDefault();
     if (saving) return;
     if (!form.customerId) return toast.error("Müşteri seçiniz");
-    if (!form.requestedProduct) return toast.error("Ürün giriniz");
+    if (!form.requestedProduct && machineList.length === 0) return toast.error("En az bir makine seçiniz");
     if (canPickDivision && !form.divisionId) return toast.error("Bölüm seçiniz", { description: "Satış kartını CNC / Üniversal / Sac bölümlerinden birine atayın." });
     setSaving(true);
     try {
@@ -2003,26 +2052,22 @@ export function CreateCaseDialog({
               </div>
             </div>
             <div>
-              <Label className="text-xs">Talep Edilen Ürün *</Label>
+              <Label className="text-xs">Talep Edilen Makineler *</Label>
               <div className="mt-1.5">
                 <Combobox
                   options={machineProductOptions}
                   value={selectedProductId}
                   onChange={(v) => {
                     const p = products.find((pr) => pr.id === v);
-                    setSelectedProductId(v);
+                    setSelectedProductId("");
                     if (p) {
                       // Tahmini tutar peşin fiyattan otomatik çekilir (yoksa liste
                       // fiyatı) ve adetle çarpılır; kullanıcı el ile değiştirebilir.
                       const unit = p.cashPrice ?? p.listPrice ?? 0;
-                      setForm((f) => ({
-                        ...f,
-                        requestedProduct: p.brand || p.type || p.model,
-                        requestedModel: p.model ?? "",
-                        requestedMachine: [p.brand, p.model].filter(Boolean).join(" "),
-                        estimatedAmount: unit ? unit * (Number(f.quantity) || 1) : f.estimatedAmount,
-                        currency: (p.currency as typeof f.currency) ?? f.currency,
-                      }));
+                      addMachine(
+                        { productModelId: p.id, name: [p.brand, p.model].filter(Boolean).join(" ") || p.model || p.type || "" },
+                        { brand: p.brand || p.type || p.model, model: p.model ?? "", unit, currency: p.currency },
+                      );
                     }
                   }}
                   placeholder="Tezgah seçin veya yazın..."
@@ -2030,10 +2075,31 @@ export function CreateCaseDialog({
                   emptyText="Tezgah bulunamadı."
                   onCreate={(label) => {
                     setSelectedProductId("");
-                    setForm((f) => ({ ...f, requestedProduct: label, requestedMachine: label }));
+                    addMachine({ name: label }, { brand: label, model: "" });
                   }}
                   createLabel={(q) => `"${q}" serbest ürün olarak ekle`}
                 />
+                {machineList.length > 0 && (
+                  <ul className="mt-2 space-y-1.5">
+                    {machineList.map((machine, index) => (
+                      <li key={`${machine.name}-${index}`} className="flex items-center gap-2 rounded-md border border-border/60 bg-muted/20 px-2.5 py-1.5">
+                        <span className="min-w-0 flex-1 truncate text-sm">{machine.name}</span>
+                        <Input
+                          type="number"
+                          min={1}
+                          max={999}
+                          aria-label={`${machine.name} adedi`}
+                          className="h-7 w-16 bg-white text-xs"
+                          value={String(machine.quantity)}
+                          onChange={(event) => updateMachineQuantity(index, Number(event.target.value) || 1)}
+                        />
+                        <Button type="button" variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => removeMachine(index)}>
+                          Kaldır
+                        </Button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
               </div>
             </div>
             <Field label="Model" value={form.requestedModel} onChange={(v) => setForm({ ...form, requestedModel: v })} placeholder="Model elle girilebilir" />

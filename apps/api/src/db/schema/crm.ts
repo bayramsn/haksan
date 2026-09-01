@@ -4,6 +4,7 @@ import { auditColumns, ownerColumns, money } from './_helpers';
 import { tenants, divisions } from './tenants';
 import { users } from './users';
 import { companies, contacts } from './companies';
+import { productModels } from './products';
 import {
   pipelineStages,
   opportunityStatuses,
@@ -307,6 +308,35 @@ export const opportunityProcessChecks = pgTable(
     opportunityCheckUnique: uniqueIndex('opportunity_process_checks_unique').on(t.opportunityId, t.checkKey),
     tenantIdx: index('opportunity_process_checks_tenant_idx').on(t.tenantId),
     statusCheck: check('opportunity_process_checks_status_check', sql`${t.status} in ('done', 'not_done')`),
+  })
+);
+
+/**
+ * Fırsatta konuşulan makineler. Fırsat firma bazlıdır; tek kartta birden çok
+ * makine olabilir. `opportunities.requested_machine` listenin ilk satırıyla
+ * eşitlenir — hazırlık kontrolleri, PDF ve raporlar onu okumaya devam eder.
+ */
+export const opportunityProducts = pgTable(
+  'opportunity_products',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id')
+      .notNull()
+      .references(() => tenants.id, { onDelete: 'cascade' }),
+    opportunityId: uuid('opportunity_id')
+      .notNull()
+      .references(() => opportunities.id, { onDelete: 'cascade' }),
+    // Katalogda karşılığı olmayan makineler serbest adla yaşar.
+    productModelId: uuid('product_model_id').references(() => productModels.id, { onDelete: 'set null' }),
+    machineName: varchar('machine_name', { length: 255 }).notNull(),
+    quantity: integer('quantity').notNull().default(1),
+    note: text('note'),
+    sortOrder: integer('sort_order').notNull().default(0),
+    ...auditColumns,
+  },
+  (t) => ({
+    opportunityIdx: index('opportunity_products_opportunity_idx').on(t.opportunityId),
+    tenantIdx: index('opportunity_products_tenant_idx').on(t.tenantId),
   })
 );
 
