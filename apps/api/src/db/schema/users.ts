@@ -127,6 +127,43 @@ export const departmentTargets = pgTable(
   })
 );
 
+export const divisionTargets = pgTable(
+  'division_targets',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id')
+      .notNull()
+      .references(() => tenants.id, { onDelete: 'cascade' }),
+    divisionId: uuid('division_id')
+      .notNull()
+      .references(() => divisions.id, { onDelete: 'cascade' }),
+    period: varchar('period', { length: 7 }).notNull(),
+    currency: varchar('currency', { length: 3 }).notNull().default('USD'),
+    salesAmount: money('sales_amount'),
+    salesNewCustomers: integer('sales_new_customers'),
+    serviceAmount: money('service_amount'),
+    serviceCompleted: integer('service_completed'),
+    digitalLeadTarget: integer('digital_lead_target'),
+    digitalConversionTarget: integer('digital_conversion_target'),
+    digitalBudget: money('digital_budget'),
+    visitTarget: integer('visit_target'),
+    callTarget: integer('call_target'),
+    quoteTarget: integer('quote_target'),
+    targetItems: jsonb('target_items').$type<UserTargetItem[]>(),
+    note: text('note'),
+    ...auditColumns,
+  },
+  (t) => ({
+    tenantIdx: index('division_targets_tenant_idx').on(t.tenantId),
+    divisionIdx: index('division_targets_division_idx').on(t.divisionId),
+    tenantDivisionPeriodUnique: uniqueIndex('division_targets_tenant_division_period_unique').on(
+      t.tenantId,
+      t.divisionId,
+      t.period
+    ),
+  })
+);
+
 export const roles = pgTable(
   'roles',
   {

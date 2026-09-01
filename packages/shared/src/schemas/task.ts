@@ -52,12 +52,19 @@ const taskFields = z.object({
 export const taskCreateSchema = taskFields;
 export const taskUpdateSchema = taskFields.partial();
 
+/** Görev detayındaki ekip yorumu; task_events akışında değişmez bir kayıt olur. */
+export const taskCommentSchema = z.object({
+  comment: z.string().trim().min(1, 'Yorum boş bırakılamaz').max(512, 'Yorum en fazla 512 karakter olabilir'),
+});
+
 /**
  * Liste filtreleri. `view` hazır görünümlerin kısayolu; tarih hesabı sunucuda
  * yapılır ki "bugün" her istemcide aynı anlama gelsin.
  */
 export const taskListQuerySchema = z.object({
-  view: z.enum(['all', 'mine', 'today', 'overdue', 'upcoming', 'completed']).default('all'),
+  // `completed` eski istemciler için korunur; yeni `history` görünümü hem
+  // tamamlanan hem de hiçbir işlem yapılmadan iptal edilen görevleri içerir.
+  view: z.enum(['all', 'mine', 'today', 'overdue', 'upcoming', 'completed', 'history']).default('all'),
   status: taskStatusSchema.optional(),
   priority: taskPrioritySchema.optional(),
   assignedToUserId: z.string().uuid().optional(),
@@ -84,5 +91,6 @@ export const taskListQuerySchema = z.object({
 
 export type TaskCreateInput = z.infer<typeof taskCreateSchema>;
 export type TaskUpdateInput = z.infer<typeof taskUpdateSchema>;
+export type TaskCommentInput = z.infer<typeof taskCommentSchema>;
 export type TaskListQuery = z.infer<typeof taskListQuerySchema>;
 export type TaskView = TaskListQuery['view'];

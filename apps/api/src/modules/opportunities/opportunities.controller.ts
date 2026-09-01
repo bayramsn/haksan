@@ -9,6 +9,7 @@ import {
   opportunityApprovalDecisionSchema,
   opportunityApprovalTypeEnum,
   opportunityCloseSchema,
+  opportunityDeferSchema,
   opportunityConvertSchema,
   leadContactEventSchema,
   opportunityQualificationChangeSchema,
@@ -24,6 +25,7 @@ import {
   type OpportunityCompanyLinkInput,
   type OpportunityApprovalDecisionInput,
   type OpportunityCloseInput,
+  type OpportunityDeferInput,
   type OpportunityConvertInput,
   type LeadContactEventInput,
   type OpportunityQualificationChangeInput,
@@ -48,6 +50,9 @@ const listQuery = z.object({
   companyId: z.string().optional(),
   // active (varsayılan) | closed (Geçmiş/Arşiv) | all
   view: opportunityViewEnum.optional(),
+  lostReasonCode: z.string().trim().max(64).optional(),
+  wonReason: z.string().trim().max(255).optional(),
+  followUp: z.enum(['true']).optional(),
 });
 
 const TRELLO_IMPORT_THROTTLE = { default: { limit: 5, ttl: 60_000 } };
@@ -208,6 +213,16 @@ export class OpportunitiesController {
     @CurrentUser() user: AuthContext
   ) {
     return this.svc.changeStage(id, body, user);
+  }
+
+  @RequirePermissions('opportunities.update')
+  @Post(':id/defer')
+  defer(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(opportunityDeferSchema)) body: OpportunityDeferInput,
+    @CurrentUser() user: AuthContext
+  ) {
+    return this.svc.defer(id, body, user);
   }
 
   @RequirePermissions('opportunities.update')

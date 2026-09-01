@@ -284,11 +284,12 @@ export class OrdersService {
       .where(eq(purchaseOrders.id, orderId));
   }
 
-  async listSalesOrders(actor: AuthContext, query: { search?: string; statusCode?: string; companyId?: string }, page: Pagination) {
+  async listSalesOrders(actor: AuthContext, query: { search?: string; statusCode?: string; companyId?: string; quoteId?: string }, page: Pagination) {
     const { limit, offset } = pageOffset(page);
     const filters = [eq(salesOrders.tenantId, actor.tenantId), isNull(salesOrders.deletedAt)];
     if (query.search) filters.push(ilike(salesOrders.orderNo, `%${query.search}%`));
     if (query.companyId) filters.push(eq(salesOrders.companyId, query.companyId));
+    if (query.quoteId) filters.push(eq(salesOrders.quoteId, query.quoteId));
     if (query.statusCode) {
       const statusId = await lookupIdByCode(this.db, salesOrderStatuses, query.statusCode);
       if (statusId) filters.push(eq(salesOrders.statusId, statusId));

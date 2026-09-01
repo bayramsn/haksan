@@ -10,6 +10,8 @@ import {
 import type { DbClient } from '../../db/client';
 import { DB } from '../../shared/database/database.module';
 import { MailerService } from '../../shared/mailer/mailer.service';
+import { ReportsService } from '../reports/reports.service';
+import type { AuthContext } from '../../shared/security/auth.types';
 import { loadEnv } from '../../config/env';
 import { logger } from '../../shared/utils/logger';
 import { tenants } from '../../db/schema/tenants';
@@ -50,6 +52,11 @@ export type BriefingItem = { label: string; nav: string; focus?: string; query?:
  * ekran/odak çiftlerini kullanır ki bildirimden gidilen liste, panelde görülenle
  * birebir aynı olsun. Sayısı sıfır olan konu satır üretmez.
  */
+/** Cron'un rapor motoruna kimliği; gerçek bir kullanıcıya bağlı değildir. */
+const AUTOMATION_ACTOR_ID = '00000000-0000-0000-0000-000000000000';
+/** Tempo farkı bu kadar puanı geçmeden "geride" denmez; gürültüyü keser. */
+const TARGET_PACE_TOLERANCE = 10;
+
 export function buildMorningBriefingItems(counts: {
   leadBreaches: number;
   overdueActions: number;
@@ -61,8 +68,19 @@ export function buildMorningBriefingItems(counts: {
   openTickets: number;
   expiringWarranties: number;
   warrantyWindowDays: number;
+  /** Ay içi temposunun altında kalan hedef sahibi sayısı. */
+  targetsBehind: number;
+  /** Ayın geçen kısmı (%) — "geride" ifadesi ancak bununla anlam kazanır. */
+  periodElapsedPct: number;
 }): BriefingItem[] {
   return [
+    counts.targetsBehind > 0
+      ? {
+          label: `Ayın %${counts.periodElapsedPct}'i geçti; ${counts.targetsBehind} kişi hedef temposunun altında`,
+          nav: 'dashboard',
+          focus: 'targets',
+        }
+      : null,
     counts.leadBreaches > 0
       ? { label: `${counts.leadBreaches} lead yanıt süresini aştı`, nav: 'sales-cases', focus: 'sla_risk' }
       : null,
@@ -138,6 +156,7 @@ export class AutomationService {
   constructor(
     @Inject(DB) private readonly db: DbClient,
     private readonly mailer: MailerService,
+    private readonly reports: ReportsService,
   ) {}
 
   private get active(): boolean {
@@ -208,6 +227,54 @@ export class AutomationService {
   }
 
   // ---- Veri sorguları ----------------------------------------------------
+
+  /**
+   * Ay hedefi olup ay içi temposunun gerisinde kalanlar. Rapor motoru tekrar
+   * yazılmasın diye ReportsService'e tenant kapsamlı sentetik aktörle sorulur;
+   * cron'un HTTP oturumu yoktur.
+   */
+  private async targetsBehindPace(tenantId: string): Promise<{ behind: number; expected: number }> {
+    const period = new Date().toISOString().slice(0, 7);
+    const actor = {
+      userId: AUTOMATION_ACTOR_ID,
+      tenantId,
+      email: 'automation@haksan.local',
+      roles: ['super_admin'],
+      permissions: new Set<string>(),
+      divisionIds: [],
+      primaryDivisionId: null,
+      departmentIds: [],
+      primaryDepartmentId: null,
+      canViewAllDivisions: true,
+      activeDivisionId: null,
+      activeDepartmentId: null,
+      accessScopes: [],
+    } satisfies AuthContext;
+
+    const report = (await this.reports.targetProgress(actor, period, { kind: 'all-users' })) as {
+      expectedProgressPct?: number;
+      subjects?: Array<{
+        hasTarget?: boolean;
+        metrics?: Record<string, { pct: number | null }>;
+        targetItems?: Array<{ pct?: number | null }>;
+      }>;
+    };
+    const expected = Math.round(Number(report.expectedProgressPct ?? 0));
+    let behind = 0;
+    for (const subject of report.subjects ?? []) {
+      if (!subject.hasTarget) continue;
+      const pcts = [
+        ...Object.values(subject.metrics ?? {}).map((metric) => metric?.pct),
+        ...(subject.targetItems ?? []).map((item) => item?.pct),
+      ].filter((pct): pct is number => typeof pct === 'number');
+      if (!pcts.length) continue;
+      const average = Math.round(
+        pcts.reduce((sum, pct) => sum + Math.min(100, Math.max(0, pct)), 0) / pcts.length
+      );
+      if (average < expected - TARGET_PACE_TOLERANCE) behind += 1;
+    }
+    return { behind, expected };
+  }
 
   private async overdueReceivableStats(tenantId: string) {
     const [row] = await this.db
@@ -533,7 +600,7 @@ export class AutomationService {
     try {
       for (const tenant of await this.listTenants()) {
         if (await this.alreadyNotified(tenant.id, 'daily_briefing')) continue;
-        const [overdue, warranties, stale, openTickets, leadBreaches, rotting, overdueActions] = await Promise.all([
+        const [overdue, warranties, stale, openTickets, leadBreaches, rotting, overdueActions, targets] = await Promise.all([
           this.overdueReceivableStats(tenant.id),
           this.expiringWarranties(tenant.id, this.env.AUTOMATION_WARRANTY_WINDOW_DAYS),
           this.staleQuotes(tenant.id, this.env.AUTOMATION_STALE_QUOTE_DAYS),
@@ -541,8 +608,11 @@ export class AutomationService {
           this.leadSlaBreaches(tenant.id),
           this.rottingOpportunities(tenant.id),
           this.overdueActionOpportunities(tenant.id),
+          this.targetsBehindPace(tenant.id).catch(() => ({ behind: 0, expected: 0 })),
         ]);
         const items = buildMorningBriefingItems({
+          targetsBehind: targets.behind,
+          periodElapsedPct: targets.expected,
           leadBreaches: leadBreaches.length,
           overdueActions: overdueActions.length,
           rotting: rotting.length,

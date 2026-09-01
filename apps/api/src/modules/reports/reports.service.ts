@@ -1,11 +1,11 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { activityTypeLabel } from '@haksan/shared';
+import { activityTypeLabel, VISIT_NOT_DONE_RESULT } from '@haksan/shared';
 import { and, between, desc, eq, gte, inArray, isNull, lte, sql } from 'drizzle-orm';
 import type { DbClient } from '../../db/client';
 import { visits as visitsTbl, calls as callsTbl, leads, salesActivities } from '../../db/schema/crm';
 import { opportunities, cancellationReasons, competitors } from '../../db/schema/crm';
-import { users, userDepartmentAssignments, userDivisions, userRoles, roles, userTargets, departmentTargets } from '../../db/schema/users';
-import { departments } from '../../db/schema/tenants';
+import { users, userDepartmentAssignments, userDivisions, userRoles, roles, userTargets, departmentTargets, divisionTargets } from '../../db/schema/users';
+import { departments, divisions } from '../../db/schema/tenants';
 import { quotes, quoteItems } from '../../db/schema/quotes';
 import { productModels, brands } from '../../db/schema/products';
 import { receivables, payments, accountingInvoices } from '../../db/schema/finance';
@@ -72,7 +72,7 @@ export function canExposeTeamActivityContent(
   return !hasLinkedCompany || Boolean(visibleCompanyId);
 }
 
-export type TargetProgressScope = { kind: 'user' | 'department' | 'role' | 'all-users'; id?: string };
+export type TargetProgressScope = { kind: 'user' | 'department' | 'division' | 'role' | 'all-users'; id?: string };
 
 /** Ölçülebilir hedef metrikleri; digitalConversionTarget/digitalBudget fiilîsi hesaplanamaz (manuel takip). */
 const MEASURED_METRICS = [
@@ -796,6 +796,24 @@ export class ReportsService {
     });
   }
 
+  /** Hedef yönetimi kullanıcı/departman/bölüm seçicisi için admin de tenant ekibini görebilir. */
+  private canManageTargetProgress(actor: AuthContext) {
+    return actor.roles.includes('super_admin') || actor.roles.includes('admin');
+  }
+
+  /** Bu geniş audience yalnız hedef takibinde kullanılır; diğer raporların görünürlüğünü değiştirmez. */
+  private async targetProgressAudience(actor: AuthContext) {
+    if (!this.canManageTargetProgress(actor)) return this.reportAudience(actor);
+    return this.db.query.users.findMany({
+      where: and(
+        eq(users.tenantId, actor.tenantId),
+        isNull(users.deletedAt),
+        eq(users.status, 'active')
+      ),
+      columns: { id: true, fullName: true, email: true, departmentId: true },
+    });
+  }
+
   /**
    * İstemciden gelen kapsamın aktörün yetkisi içinde olduğunu doğrular.
    * Kullanıcının bilinçli seçtiği kapsamda (belirli kişi/departman/rol) sessizce
@@ -805,7 +823,11 @@ export class ReportsService {
    */
   private assertScopeAllowed(actor: AuthContext, scope: TargetProgressScope) {
     if (this.canSeeAllUsers(actor)) return;
-    if (scope.kind === 'department' || scope.kind === 'role') {
+    if (actor.roles.includes('admin')) {
+      if (scope.kind !== 'role') return;
+      throw new ForbiddenError('Bu kapsam için yetkiniz yok');
+    }
+    if (scope.kind === 'department' || scope.kind === 'division' || scope.kind === 'role') {
       throw new ForbiddenError('Bu kapsam için yetkiniz yok');
     }
     if (scope.kind === 'user' && scope.id && scope.id !== actor.userId) {
@@ -875,6 +897,7 @@ export class ReportsService {
     to: Date,
     rates: FxRates,
     unsupportedCurrencies: Set<string>,
+    exactDivisionId?: string,
   ) {
     const map = new Map<string, UserActuals>();
     if (userIds.length === 0) return map;
@@ -895,6 +918,8 @@ export class ReportsService {
     const invoiceResponsibleUserId = sql<string | null>`coalesce(${quotes.projectOwnerUserId}, ${opportunities.ownerUserId}, ${accountingInvoices.createdBy})`;
     const quoteResponsibleUserId = sql<string | null>`coalesce(${quotes.projectOwnerUserId}, ${opportunities.ownerUserId}, ${quotes.createdBy})`;
     const salesOrderResponsibleUserId = sql<string | null>`coalesce(${opportunities.ownerUserId}, ${salesOrders.createdBy})`;
+    const operationDivisionFilter = (column: any) =>
+      exactDivisionId ? eq(column, exactDivisionId) : this.activeDivisionFilter(actor, column);
 
     // Ciro: kesilen satış faturaları. Proje/fırsat sorumlusu varsa ona,
     // bağlantı yoksa faturayı oluşturan kullanıcıya yazılır.
@@ -917,7 +942,7 @@ export class ReportsService {
           gte(accountingInvoices.invoiceDate, from),
           lte(accountingInvoices.invoiceDate, to),
           inArray(invoiceResponsibleUserId, userIds),
-          this.activeDivisionFilter(actor, accountingInvoices.divisionId)
+          operationDivisionFilter(accountingInvoices.divisionId)
         )
       )
       .groupBy(invoiceResponsibleUserId, currencies.code);
@@ -939,7 +964,7 @@ export class ReportsService {
           gte(payments.paymentDate, from),
           lte(payments.paymentDate, to),
           inArray(payments.createdBy, userIds),
-          this.activeDivisionFilter(actor, payments.divisionId)
+          operationDivisionFilter(payments.divisionId)
         )
       )
       .groupBy(payments.createdBy, currencies.code);
@@ -961,7 +986,7 @@ export class ReportsService {
           gte(accountingInvoices.invoiceDate, from),
           lte(accountingInvoices.invoiceDate, to),
           inArray(accountingInvoices.createdBy, userIds),
-          this.activeDivisionFilter(actor, accountingInvoices.divisionId)
+          operationDivisionFilter(accountingInvoices.divisionId)
         )
       )
       .groupBy(accountingInvoices.createdBy, currencies.code);
@@ -976,7 +1001,14 @@ export class ReportsService {
           isNull(companies.deletedAt),
           gte(companies.createdAt, from),
           lte(companies.createdAt, to),
-          inArray(companies.createdBy, userIds)
+          inArray(companies.createdBy, userIds),
+          exactDivisionId
+            ? sql`exists (
+                select 1 from company_divisions cd
+                where cd.company_id = ${companies.id}
+                  and cd.division_id = ${exactDivisionId}
+              )`
+            : sql`true`
         )
       )
       .groupBy(companies.createdBy);
@@ -993,7 +1025,7 @@ export class ReportsService {
           gte(quotes.quoteDate, from),
           lte(quotes.quoteDate, to),
           inArray(quoteResponsibleUserId, userIds),
-          this.activeDivisionFilter(actor, quotes.divisionId)
+          operationDivisionFilter(quotes.divisionId)
         )
       )
       .groupBy(quoteResponsibleUserId);
@@ -1016,7 +1048,7 @@ export class ReportsService {
           gte(salesOrders.orderDate, from),
           lte(salesOrders.orderDate, to),
           inArray(salesOrderResponsibleUserId, userIds),
-          this.activeDivisionFilter(actor, salesOrders.divisionId)
+          operationDivisionFilter(salesOrders.divisionId)
         )
       )
       .groupBy(salesOrderResponsibleUserId, currencies.code);
@@ -1038,7 +1070,7 @@ export class ReportsService {
           gte(purchaseOrders.orderDate, from),
           lte(purchaseOrders.orderDate, to),
           inArray(purchaseOrders.createdBy, userIds),
-          this.activeDivisionFilter(actor, purchaseOrders.divisionId)
+          operationDivisionFilter(purchaseOrders.divisionId)
         )
       )
       .groupBy(purchaseOrders.createdBy, currencies.code);
@@ -1054,7 +1086,7 @@ export class ReportsService {
           gte(visitsTbl.visitDate, from),
           lte(visitsTbl.visitDate, to),
           inArray(visitsTbl.createdBy, userIds),
-          this.activeDivisionFilter(actor, visitsTbl.divisionId)
+          operationDivisionFilter(visitsTbl.divisionId)
         )
       )
       .groupBy(visitsTbl.createdBy);
@@ -1070,7 +1102,7 @@ export class ReportsService {
           gte(callsTbl.callDate, from),
           lte(callsTbl.callDate, to),
           inArray(callsTbl.createdBy, userIds),
-          this.activeDivisionFilter(actor, callsTbl.divisionId)
+          operationDivisionFilter(callsTbl.divisionId)
         )
       )
       .groupBy(callsTbl.createdBy);
@@ -1086,7 +1118,7 @@ export class ReportsService {
           gte(serviceTickets.resolvedAt, from),
           lte(serviceTickets.resolvedAt, to),
           inArray(serviceTickets.assignedToUserId, userIds),
-          this.activeDivisionFilter(actor, serviceTickets.divisionId)
+          operationDivisionFilter(serviceTickets.divisionId)
         )
       )
       .groupBy(serviceTickets.assignedToUserId);
@@ -1106,7 +1138,7 @@ export class ReportsService {
           gte(installationJobs.completedAt, from),
           lte(installationJobs.completedAt, to),
           inArray(installationJobs.assignedToUserId, userIds),
-          this.activeDivisionFilter(actor, installationJobs.divisionId)
+          operationDivisionFilter(installationJobs.divisionId)
         )
       )
       .groupBy(installationJobs.assignedToUserId);
@@ -1122,7 +1154,7 @@ export class ReportsService {
           gte(leads.createdAt, from),
           lte(leads.createdAt, to),
           inArray(leads.ownerUserId, userIds),
-          this.activeDivisionFilter(actor, leads.divisionId)
+          operationDivisionFilter(leads.divisionId)
         )
       )
       .groupBy(leads.ownerUserId);
@@ -1213,7 +1245,14 @@ export class ReportsService {
     return map;
   }
 
-  private targetNumbers(row: typeof userTargets.$inferSelect | typeof departmentTargets.$inferSelect | null | undefined) {
+  private targetNumbers(
+    row:
+      | typeof userTargets.$inferSelect
+      | typeof departmentTargets.$inferSelect
+      | typeof divisionTargets.$inferSelect
+      | null
+      | undefined
+  ) {
     if (!row) return null;
     const values = Object.fromEntries(allMetricKeys.map((key) => [key, null])) as Record<TargetMetricKey, number | null>;
     return {
@@ -1355,10 +1394,10 @@ export class ReportsService {
     const expectedProgressPct = expectedPeriodProgressPct(period);
 
     const unsupportedCurrencies = new Set<string>();
-    // Kapsam kuralı burada uygulanır: süper admin değilse `allUsers` yalnız
-    // aktörün kendisidir, dolayısıyla aşağıdaki tüm dallar tek kişiye daralır.
+    // Hedef takibi için admin/süper admin tenant ekibini görebilir; diğer roller
+    // yalnız kendisine daralır. Bu audience diğer raporlar tarafından kullanılmaz.
     const [allUsers, fxSnapshot] = await Promise.all([
-      this.reportAudience(actor),
+      this.targetProgressAudience(actor),
       this.fx.ratesForPeriod(period),
     ]);
     const departmentMemberships = await this.departmentMembershipMap(actor, allUsers);
@@ -1423,6 +1462,75 @@ export class ReportsService {
         expectedProgressPct,
         currencyNormalization: this.currencyNormalization(fxSnapshot, unsupportedCurrencies),
         subjects,
+      };
+    }
+
+    if (scope.kind === 'division') {
+      const division = scope.id
+        ? await this.db.query.divisions.findFirst({
+            where: and(
+              eq(divisions.id, scope.id),
+              eq(divisions.tenantId, actor.tenantId),
+              eq(divisions.isActive, true),
+              isNull(divisions.deletedAt)
+            ),
+          })
+        : null;
+      if (!division) {
+        return {
+          period,
+          scope: scope.kind,
+          expectedProgressPct,
+          currencyNormalization: this.currencyNormalization(fxSnapshot, unsupportedCurrencies),
+          subjects: [],
+        };
+      }
+
+      const userIds = allUsers.map((user) => user.id);
+      const [actualsMap, targetRow, membershipRows] = await Promise.all([
+        this.userActuals(
+          actor,
+          userIds,
+          from,
+          to,
+          fxSnapshot.rates,
+          unsupportedCurrencies,
+          division.id
+        ),
+        this.db.query.divisionTargets.findFirst({
+          where: and(
+            eq(divisionTargets.tenantId, actor.tenantId),
+            eq(divisionTargets.divisionId, division.id),
+            eq(divisionTargets.period, period),
+            isNull(divisionTargets.deletedAt)
+          ),
+        }),
+        userIds.length
+          ? this.db
+              .select({ userId: userDivisions.userId })
+              .from(userDivisions)
+              .where(and(eq(userDivisions.divisionId, division.id), inArray(userDivisions.userId, userIds)))
+          : Promise.resolve([]),
+      ]);
+      const summed = this.sumActuals(userIds.map((id) => actualsMap.get(id)));
+      return {
+        period,
+        scope: scope.kind,
+        expectedProgressPct,
+        currencyNormalization: this.currencyNormalization(fxSnapshot, unsupportedCurrencies),
+        subjects: [{
+          subject: {
+            kind: 'division' as const,
+            id: division.id,
+            name: division.name,
+            code: division.code,
+            memberCount: new Set(membershipRows.map((row) => row.userId)).size,
+          },
+          hasTarget: Boolean(targetRow),
+          note: targetRow?.note ?? null,
+          targetItems: this.buildTargetItems(targetRow?.targetItems ?? [], summed),
+          metrics: this.buildMetrics(this.targetNumbers(targetRow), summed),
+        }],
       };
     }
 
@@ -1585,6 +1693,8 @@ export class ReportsService {
     tenantId: string,
     userIds: string[],
     range: { from: Date; to: Date; prevFrom: Date; prevTo: Date },
+    /** Yalnız genel aktivite tablosunda sayılmayacak sonuç. */
+    typeFilter?: { notResult?: string }
   ) {
     if (!userIds.length) return new Map<string, { current: number; previous: number }>();
     const spec = {
@@ -1608,6 +1718,7 @@ export class ReportsService {
           inArray(spec.actor, userIds),
           gte(spec.date, range.prevFrom),
           lte(spec.date, range.to),
+          typeFilter?.notResult ? sql`coalesce(${salesActivities.result}, '') <> ${typeFilter.notResult}` : undefined
         )
       )
       .groupBy(spec.actor);
@@ -1651,7 +1762,7 @@ export class ReportsService {
         this.activityCounts('quotes', actor.tenantId, userIds, range),
         this.activityCounts('visits', actor.tenantId, userIds, range),
         this.activityCounts('calls', actor.tenantId, userIds, range),
-        this.activityCounts('activities', actor.tenantId, userIds, range),
+        this.activityCounts('activities', actor.tenantId, userIds, range, { notResult: VISIT_NOT_DONE_RESULT }),
       ]);
     const activityCounts = mergeCountMaps(
       mergeCountMaps(salesActivityCounts, visitTableCounts),
@@ -2071,6 +2182,7 @@ export class ReportsService {
               inArray(salesActivities.createdBy, userIds),
               gte(salesActivities.activityDate, range.from),
               sql`${salesActivities.activityDate} < ${range.to}`,
+              sql`coalesce(${salesActivities.result}, '') <> ${VISIT_NOT_DONE_RESULT}`,
             ),
           )
           .then((rows) =>
@@ -2220,6 +2332,8 @@ export class ReportsService {
       deletedCol: any,
       actorCol: any,
       table: any,
+      /** Yalnız genel aktivite serisinde sayılmayacak sonuç. */
+      notResult?: string,
     ) => {
       const truncated = sql`date_trunc('${sql.raw(unit)}', ${dateCol})`;
       const rows = await this.db
@@ -2235,6 +2349,7 @@ export class ReportsService {
             inArray(actorCol, userIds),
             gte(dateCol, range.from),
             lte(dateCol, range.to),
+            notResult ? sql`coalesce(${salesActivities.result}, '') <> ${notResult}` : undefined,
           )
         )
         .groupBy(truncated);
@@ -2251,6 +2366,7 @@ export class ReportsService {
         salesActivities.deletedAt,
         salesActivities.createdBy,
         salesActivities,
+        VISIT_NOT_DONE_RESULT,
       ),
     ]);
 

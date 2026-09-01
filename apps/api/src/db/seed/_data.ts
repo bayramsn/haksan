@@ -55,6 +55,8 @@ export const lookupRows = {
     { code: 'open', name: 'Açık', sortOrder: 10 },
     { code: 'won', name: 'Kazanıldı', sortOrder: 20 },
     { code: 'lost', name: 'Kaybedildi', sortOrder: 30 },
+    // İptal, kayıptan ayrı: rakibe kaybetme değil, yatırımın düşmesi.
+    { code: 'cancelled', name: 'İptal Edildi', sortOrder: 35 },
     { code: 'on_hold', name: 'Beklemede', sortOrder: 40 },
   ],
   activity_types: [

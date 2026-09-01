@@ -83,12 +83,19 @@ export function TaskList({
                 <td className="px-3 py-2" onClick={(event) => event.stopPropagation()}>
                   <Checkbox
                     checked={task.status === "done"}
+                    disabled={task.status === "cancelled"}
                     onCheckedChange={() => onToggleDone(task)}
-                    aria-label={task.status === "done" ? "Görevi tekrar aç" : "Görevi tamamla"}
+                    aria-label={
+                      task.status === "cancelled"
+                        ? "İptal edilmiş görev"
+                        : task.status === "done"
+                          ? "Görevi tekrar aç"
+                          : "Görevi tamamla"
+                    }
                   />
                 </td>
                 <td className="px-2 py-2">
-                  <div className={`font-medium ${task.status === "done" ? "line-through" : ""}`}>{task.title}</div>
+                  <div className={`font-medium ${closed ? "line-through" : ""}`}>{task.title}</div>
                   {compact && related && (
                     <div className="text-xs text-muted-foreground">
                       {related.kind}: {related.label}

@@ -63,6 +63,7 @@ import {
 import { productSpecGroupForTypeKey, specsForProductTypeStrict } from './productSpecTemplates';
 import { isServiceQuoteComplete, serviceQuoteMissingFields } from './serviceQuote';
 import { normalizeCompany } from './companyNormalizer';
+import { buildCompanyAddressPatch } from './companyAddressPatch';
 
 const SERVICE_STAGES: ServiceStage[] = [
   'Request Opened',
@@ -216,7 +217,9 @@ const mapCase = (o: any, isOfferPrepared: boolean): SalesCase =>
     paymentTermDays: o.paymentTermDays === null || o.paymentTermDays === undefined ? undefined : Number(o.paymentTermDays),
     paymentMethod: o.paymentMethod ?? 'undecided',
     isOfferPrepared,
-    isLost: (o.qualificationStage ?? '') === 'lost' || (o.stage?.code ?? '') === 'cancelled',
+    // İptal edilen kart da 'cancelled' aşamasındadır ama kaybedilmiş değildir;
+    // kayıp yalnız nitelendirme aşamasından okunur (bkz. Fırsatı Kapat akışı).
+    isLost: (o.qualificationStage ?? '') === 'lost',
     lostReasonCode: o.lostReason?.code ?? undefined,
     lostReason: o.lostReason?.name ?? undefined,
     lostCompanyName: o.lostCompanyName ?? undefined,
@@ -225,6 +228,7 @@ const mapCase = (o: any, isOfferPrepared: boolean): SalesCase =>
     lostCompetitorId: o.lostCompetitor?.id ?? o.lostCompetitorId ?? undefined,
     competitor: o.lostCompetitor?.name ?? o.lostCompetitorName ?? undefined,
     lostCompetitorProductModel: o.lostCompetitorProductModel ?? undefined,
+    wonReason: o.wonReason ?? undefined,
     createdAt: (o.createdAt as string)?.slice(0, 10) ?? '',
     closedAt: o.closedAt ? (o.closedAt as string).slice(0, 10) : undefined,
   }) as SalesCase;
@@ -637,6 +641,7 @@ type Store = {
   ) => Promise<void>;
   // Mantıksal kapanış (Bitir) ve geri alma (Geri Aç) — silmez, closedAt set/sıfırlar.
   closeCase: (id: string, reason?: string) => Promise<void>;
+  postponeCase: (id: string, input: { reason: string; nextAction: string; followUpAt: string }) => Promise<void>;
   reopenCase: (id: string) => Promise<void>;
   markCaseLost: (
     id: string,
@@ -649,6 +654,8 @@ type Store = {
       competitorProductModel?: string;
     }
   ) => Promise<void>;
+  /** İptal kapanışı: kayıp analizine girmeyen terminal kapanış. */
+  cancelCase: (id: string, payload: { reasonCode: string; note?: string }) => Promise<void>;
   moveService: (id: string, to: ServiceStage) => Promise<void>;
   updateService: (id: string, patch: Partial<ServiceRequest>) => Promise<void>;
   loadServiceWarranty: (id: string) => Promise<ServiceWarrantyClaim | null>;
@@ -1617,12 +1624,9 @@ function StoreInner({ children }: { children: ReactNode }) {
         isBilling: address.isBilling,
       }));
     } else if (patch.city !== undefined || patch.district !== undefined || patch.country !== undefined || patch.address !== undefined) {
-      body.address = {
-        country: patch.country ?? undefined,
-        province: patch.city ?? undefined,
-        district: patch.district ?? undefined,
-        fullAddress: patch.address ?? undefined,
-      };
+      // Yalnız değiştirilen alanlar gönderilir; sunucu diğerlerini mevcut adres
+      // satırından korur (bkz. buildCompanyAddressPatch).
+      body.address = buildCompanyAddressPatch(patch);
     }
     await companyService.update(id, body);
     await fetchAll();
@@ -1881,6 +1885,11 @@ function StoreInner({ children }: { children: ReactNode }) {
     await fetchAll();
   };
 
+  const postponeCase: Store['postponeCase'] = async (id, input) => {
+    await opportunityService.defer(id, input);
+    await fetchAll();
+  };
+
   // Geri Aç: kapanışı geri alır, kart aktif panoya döner.
   const reopenCase: Store['reopenCase'] = async (id) => {
     await opportunityService.reopen(id);
@@ -1899,6 +1908,18 @@ function StoreInner({ children }: { children: ReactNode }) {
       lostProductName: payload.productName,
       lostUnmetConditions: payload.unmetConditions,
     });
+    await fetchAll();
+  };
+
+  // İptal: yatırım düştü, rakibe kaybedilmedi. Kart 'cancelled' aşamasına
+  // taşınır ama kayıp analizine girmez.
+  const cancelCase: Store['cancelCase'] = async (id, payload) => {
+    await opportunityService.changeStage(id, {
+      toStage: 'cancelled',
+      outcome: 'cancelled',
+      cancellationReasonCode: payload.reasonCode,
+      changeReason: payload.note?.trim() || undefined,
+    } as any);
     await fetchAll();
   };
 
@@ -2711,8 +2732,10 @@ function StoreInner({ children }: { children: ReactNode }) {
       moveQualification,
       decideCaseApproval,
       closeCase,
+      postponeCase,
       reopenCase,
       markCaseLost,
+      cancelCase,
       moveService,
       updateService,
       loadServiceWarranty,

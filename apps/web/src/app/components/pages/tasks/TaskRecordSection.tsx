@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 import { Plus } from "lucide-react";
 import type { TaskStatus } from "@haksan/shared";
@@ -18,10 +18,13 @@ import { TaskList } from "./TaskList";
 export function TaskRecordSection({
   relation,
   title = "Görevler",
+  headerActions,
   onChanged,
 }: {
   relation: TaskRelation;
   title?: string;
+  /** Kayda özgü görev üreten ek eylemler (ör. fırsatı ileri takibe alma). */
+  headerActions?: ReactNode;
   /** Üst ekran kendi geçmişini tazelemek isterse (timeline gibi). */
   onChanged?: () => void;
 }) {
@@ -93,18 +96,21 @@ export function TaskRecordSection({
           {title}
           {open.length > 0 && <span className="ml-2 text-sm font-normal text-muted-foreground">{open.length} açık</span>}
         </CardTitle>
-        {canCreate && (
-          <Button
-            size="sm"
-            className="gap-1"
-            onClick={() => {
-              setEditing(null);
-              setFormOpen(true);
-            }}
-          >
-            <Plus className="size-4" /> Görev Oluştur
-          </Button>
-        )}
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          {headerActions}
+          {canCreate && (
+            <Button
+              size="sm"
+              className="gap-1"
+              onClick={() => {
+                setEditing(null);
+                setFormOpen(true);
+              }}
+            >
+              <Plus className="size-4" /> Görev Oluştur
+            </Button>
+          )}
+        </div>
       </CardHeader>
       <CardContent className="p-0">
         <TaskList

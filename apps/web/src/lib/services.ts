@@ -526,6 +526,8 @@ export const opportunityService = {
     api.post<any>(`/opportunities/${id}/approvals/${type}`, body),
   remove: (id: string) => api.delete(`/opportunities/${id}`),
   changeStage: (id: string, body: OpportunityStageChangeInput) => api.patch<any>(`/opportunities/${id}/stage`, body),
+  defer: (id: string, body: { reason: string; nextAction: string; followUpAt: string }) =>
+    api.post<any>(`/opportunities/${id}/defer`, body),
   // Mantıksal kapanış (Bitir/Arşiv) — silmez; closedAt set eder. Yalnız terminal (delivered/cancelled).
   close: (id: string, body?: { reason?: string }) => api.post<any>(`/opportunities/${id}/close`, body ?? {}),
   // Geri Aç — kapanışı geri alır, fırsatı aktif panoya döndürür.
@@ -660,6 +662,7 @@ export interface TaskCounts {
   overdue: number;
   upcoming: number;
   completed: number;
+  history: number;
 }
 
 export interface TaskUserSummary {
@@ -730,6 +733,7 @@ export const tasksService = {
   get: (id: string) => api.get<TaskDetailDTO>(`/tasks/${id}`),
   create: (body: TaskInput) => api.post<TaskDetailDTO>('/tasks', body),
   update: (id: string, body: Partial<TaskInput>) => api.patch<TaskDetailDTO>(`/tasks/${id}`, body),
+  comment: (id: string, comment: string) => api.post<TaskDetailDTO>(`/tasks/${id}/comments`, { comment }),
   remove: (id: string) => api.delete<{ deleted: boolean }>(`/tasks/${id}`),
 };
 
@@ -1271,7 +1275,7 @@ export const reportService = {
   warrantyExpiring: (params?: Record<string, string | number>) => api.get<any[]>(`/reports/warranty-expiring${qs(params)}`),
   serviceComplaintsSummary: () => api.get<any>('/reports/service-complaints-summary'),
   yearEnd: (year: number) => api.get<YearEndReport>(`/reports/year-end?year=${year}`),
-  targetProgress: (params: { period: string; scope?: 'user' | 'department' | 'role' | 'all-users'; id?: string }) =>
+  targetProgress: (params: { period: string; scope?: 'user' | 'department' | 'division' | 'role' | 'all-users'; id?: string }) =>
     api.get<any>(`/reports/target-progress${qs(params)}`),
   myTargetProgress: (params: { period: string }) => api.get<any>(`/reports/my-target-progress${qs(params)}`),
   /**
@@ -1364,6 +1368,8 @@ export const adminService = {
   saveUserTarget: (userId: string, body: TargetUpsertInput) => api.post<any>(`/users/${userId}/targets`, body),
   departmentTargets: (params?: Record<string, string | number | undefined>) => api.get<any[]>(`/department-targets${qs(params)}`),
   saveDepartmentTarget: (departmentId: string, body: TargetUpsertInput) => api.post<any>(`/departments/${departmentId}/targets`, body),
+  divisionTargets: (params?: Record<string, string | number | undefined>) => api.get<any[]>(`/division-targets${qs(params)}`),
+  saveDivisionTarget: (divisionId: string, body: TargetUpsertInput) => api.post<any>(`/divisions/${divisionId}/targets`, body),
   saveRoleTarget: (roleId: string, body: TargetUpsertInput) => api.post<any>(`/roles/${roleId}/targets`, body),
   roleTargetMembers: (roleId: string) =>
     api.get<{ roleCode: string; roleName: string; memberCount: number; members: { userId: string; fullName: string }[] }>(

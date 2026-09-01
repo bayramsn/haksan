@@ -78,7 +78,7 @@ export class TasksService {
     const { start, end } = dayBounds();
     switch (view) {
       case 'mine':
-        return eq(tasks.assignedToUserId, actor.userId);
+        return and(eq(tasks.assignedToUserId, actor.userId), inArray(tasks.status, [...OPEN_STATUSES]));
       case 'today':
         return and(gte(tasks.dueAt, start), lt(tasks.dueAt, end), inArray(tasks.status, [...OPEN_STATUSES]));
       case 'overdue':
@@ -87,6 +87,8 @@ export class TasksService {
         return and(gte(tasks.dueAt, end), inArray(tasks.status, [...OPEN_STATUSES]));
       case 'completed':
         return eq(tasks.status, 'done');
+      case 'history':
+        return inArray(tasks.status, ['done', 'cancelled']);
       default:
         return undefined;
     }
@@ -257,11 +259,12 @@ export class TasksService {
     const [row] = await this.db
       .select({
         all: sql<number>`count(*)::int`,
-        mine: sql<number>`count(*) filter (where ${tasks.assignedToUserId} = ${actor.userId})::int`,
+        mine: sql<number>`count(*) filter (where ${tasks.assignedToUserId} = ${actor.userId} and ${tasks.status} in ${openList})::int`,
         today: sql<number>`count(*) filter (where ${tasks.dueAt} >= ${start} and ${tasks.dueAt} < ${end} and ${tasks.status} in ${openList})::int`,
         overdue: sql<number>`count(*) filter (where ${tasks.dueAt} < ${now} and ${tasks.status} in ${openList})::int`,
         upcoming: sql<number>`count(*) filter (where ${tasks.dueAt} >= ${end} and ${tasks.status} in ${openList})::int`,
         completed: sql<number>`count(*) filter (where ${tasks.status} = 'done')::int`,
+        history: sql<number>`count(*) filter (where ${tasks.status} in ('done', 'cancelled'))::int`,
       })
       .from(tasks)
       .where(and(...this.baseFilters(actor)));
@@ -502,14 +505,15 @@ export class TasksService {
       const [row] = await tx.update(tasks).set(patch).where(eq(tasks.id, id)).returning();
 
       if (patch.status !== undefined && patch.status !== current.status) {
-        const type = patch.status === 'done' ? 'completed' : current.status === 'done' ? 'reopened' : 'status';
+        const wasClosed = current.status === 'done' || current.status === 'cancelled';
+        const type = patch.status === 'done' ? 'completed' : wasClosed ? 'reopened' : 'status';
         await this.logEvent(
           tx as DbClient,
           row,
           type,
           patch.status === 'done'
             ? 'Görev tamamlandı'
-            : current.status === 'done'
+            : wasClosed
               ? 'Görev tekrar açıldı'
               : `Durum ${TASK_STATUS_LABELS[patch.status]} olarak değiştirildi`,
           actor.userId
@@ -551,6 +555,12 @@ export class TasksService {
     if (patch.assignedToUserId !== undefined && patch.assignedToUserId !== current.assignedToUserId) {
       await this.notifyAssignee(updated, actor.userId);
     }
+    return this.get(actor, id);
+  }
+
+  async addComment(actor: AuthContext, id: string, comment: string) {
+    const task = await this.findEditable(actor, id);
+    await this.logEvent(this.db, task, 'comment', comment.trim(), actor.userId);
     return this.get(actor, id);
   }
 

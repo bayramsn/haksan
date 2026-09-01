@@ -902,7 +902,7 @@ function SectionNavButton({ active, onClick, icon: Icon, label, meta, progress }
 }
 
 export type TargetScope = {
-  kind: "user" | "department" | "role";
+  kind: "user" | "department" | "division" | "role";
   id: string;
   name: string;
   subtitle?: string;
@@ -911,7 +911,7 @@ export type TargetScope = {
 };
 
 const scopeKindLabel = (kind: TargetScope["kind"]) =>
-  kind === "user" ? "Kullanıcı" : kind === "department" ? "Departman" : "Rol";
+  kind === "user" ? "Kullanıcı" : kind === "department" ? "Departman" : kind === "division" ? "Bölüm" : "Rol";
 
 export function TargetDialog({ scope, target, period, onClose, onSave }: {
   scope: TargetScope | null;

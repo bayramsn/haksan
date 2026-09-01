@@ -974,6 +974,20 @@
       "when": 1791916800000,
       "tag": "0139_tasks",
       "breakpoints": true
+    },
+    {
+      "idx": 140,
+      "version": "7",
+      "when": 1792003200000,
+      "tag": "0140_division_targets",
+      "breakpoints": true
+    },
+    {
+      "idx": 141,
+      "version": "7",
+      "when": 1792089600000,
+      "tag": "0141_cancelled_opportunity_status",
+      "breakpoints": true
     }
   ]
 }

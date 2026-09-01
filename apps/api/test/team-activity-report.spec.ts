@@ -1,6 +1,7 @@
 /** Ziyaret, arama ve diğer temaslar raporda tek Aktivite metriğinde birleşir. */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import request from 'supertest';
+import { VISIT_NOT_DONE_RESULT } from '@haksan/shared';
 import type { NestFastifyApplication } from '@nestjs/platform-fastify';
 import { createTestApp } from './setup';
 import { normalizeCompanyName } from '../src/shared/utils/text-normalization';
@@ -92,6 +93,21 @@ describe('Team activity report', () => {
     expect(after.activities - before.activities).toBe(3);
     expect(after).not.toHaveProperty('visits');
     expect(after).not.toHaveProperty('calls');
+  });
+
+  it('"Yapılmadı" kararıyla yazılan ziyareti Aktivite metriğinde saymaz', async () => {
+    const before = await totals();
+    await logActivity('customer_visit', 'Ziyaret kararı', { result: VISIT_NOT_DONE_RESULT });
+
+    const after = await totals();
+    expect(after.activities - before.activities).toBe(0);
+
+    const details = await request(app.getHttpServer())
+      .get('/api/v1/reports/team-activity/details?period=week&scope=self&metric=activities')
+      .set('Authorization', `Bearer ${token}`)
+      .expect(200);
+    const titles = (details.body.items ?? details.body.data ?? []).map((item: any) => item.title);
+    expect(titles).not.toContain('Ziyaret kararı');
   });
 
   it('legacy ziyaret formundan girilen kayıt da Aktivite metriğine eklenir', async () => {

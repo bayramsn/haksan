@@ -30,6 +30,62 @@ function indexOfFile(file: string): number {
   return m ? Number(m[1]) : -1;
 }
 
+
+/**
+ * Journal bütünlüğü. Drizzle bir migration'ı YALNIZCA `when` değeri
+ * veritabanındaki en büyük `created_at`'ten büyükse çalıştırır
+ * (drizzle-orm/pg-core dialect.migrate). Dolayısıyla:
+ *
+ *  - `when` değeri geriye giden bir kayıt üretilirse migration HİÇ çalışmaz ve
+ *    hata da vermez; şema sessizce eksik kalır. Bu depoda `when` değerleri elle
+ *    ve gerçek saatin ilerisinde ilerlediği için, `drizzle-kit`in ürettiği
+ *    `Date.now()` damgası küçük kalır — klasik tuzak budur.
+ *  - Journal kaydı ile .sql dosyası birebir eşleşmezse migrate açılışta patlar.
+ */
+function checkJournal(): number {
+  const journalPath = join(MIGRATIONS_DIR, 'meta', '_journal.json');
+  const journal = JSON.parse(readFileSync(journalPath, 'utf8')) as {
+    entries: Array<{ idx: number; tag: string; when: number }>;
+  };
+  let failures = 0;
+
+  // Finder'ın ürettiği " 2.sql" kopyaları depoda değil (.gitignore), sayılmaz.
+  const isDuplicateCopy = (name: string) => / \d+\.sql$/.test(name);
+  const files = new Set(
+    readdirSync(MIGRATIONS_DIR)
+      .filter((f) => f.endsWith('.sql') && !isDuplicateCopy(f))
+      .map((f) => f.slice(0, -4))
+  );
+  for (const entry of journal.entries) {
+    if (!files.has(entry.tag)) {
+      console.log(`[ERROR] _journal.json :: missing-file — "${entry.tag}.sql" yok; migrate açılışta patlar.`);
+      failures++;
+    }
+  }
+  const tagged = new Set(journal.entries.map((entry) => entry.tag));
+  for (const file of files) {
+    if (!tagged.has(file)) {
+      console.log(`[ERROR] ${file}.sql :: not-in-journal — journal'da kaydı yok; migration hiç çalışmaz.`);
+      failures++;
+    }
+  }
+
+  let previous = journal.entries[0];
+  for (const entry of journal.entries.slice(1)) {
+    if (entry.when <= previous.when) {
+      console.log(
+        `[ERROR] _journal.json :: when-not-increasing — "${entry.tag}" (${entry.when}) ` +
+          `"${previous.tag}" (${previous.when}) değerinden büyük değil; production'da SESSİZCE atlanır. ` +
+          'Yeni kayıtta bir öncekinin `when` değerine 86400000 ekleyin.'
+      );
+      failures++;
+    }
+    previous = entry;
+  }
+
+  return failures;
+}
+
 function main(): void {
   const files = readdirSync(MIGRATIONS_DIR)
     .filter((f) => f.endsWith('.sql'))
@@ -54,6 +110,8 @@ function main(): void {
       console.log(`[${label}] ${file} :: ${rule.id} — ${rule.hint}`);
     }
   }
+
+  errors += checkJournal();
 
   if (enforced.length === 0) {
     console.log(`[migration-lint] no migrations newer than baseline ${BASELINE_IDX}; nothing to enforce.`);

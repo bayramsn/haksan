@@ -527,3 +527,10 @@ export function pickStageCarryover<T extends Record<string, unknown>>(
   }
   return out;
 }
+
+/**
+ * Ziyaret adımında "Yapılmadı" seçilince aktivitenin `result` alanına yazılan
+ * metin. Sayımlar bu kaydı ziyaret saymaz; metin iki tarafta da aynı olsun
+ * diye tek yerde durur (web seçim ekranı ↔ API raporları).
+ */
+export const VISIT_NOT_DONE_RESULT = 'Ziyaret yapılmadı';

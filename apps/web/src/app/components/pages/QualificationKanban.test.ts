@@ -12,7 +12,7 @@ describe("QualificationKanban LOST yeniden açma akışı", () => {
     expect(source).toContain('const KANBAN_STAGES = QUALIFICATION_STAGES.filter((stage) => stage !== "lost")');
     expect(source).toContain("KANBAN_STAGES.map((stage)");
     expect(source).toContain('if (to === "lost")');
-    expect(source).toContain("<LostCaseDialog");
+    expect(source).toContain("<CloseCaseDialog");
   });
 
   it("LOST hedefini kart menüsünde erişilebilir tutar", () => {

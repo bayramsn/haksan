@@ -239,7 +239,6 @@ test("lead kartından yeni firma OSM araması üst formu göndermeden açık kal
 });
 
 test("Lead Workspace V2 akışı otomatik atamadan gerekçeli fırsat dönüşümüne ilerler", async ({ page, request }) => {
-  const simpleWorkspace = process.env.VITE_OPPORTUNITY_WORKSPACE_SIMPLE === "on";
   const suffix = Date.now().toString(36);
   const city = `V2-${suffix}`;
   const product = `HAXAN-V2-${suffix}`;
@@ -350,11 +349,11 @@ test("Lead Workspace V2 akışı otomatik atamadan gerekçeli fırsat dönüşü
       await expect(overrideDialog).toBeHidden();
     }
 
-    // "Ortak fırsat görünümü" bilinçli olarak yalnız legacy görünümde basılıyor
-    // (OpportunityWorkspace: `!simpleOpportunity && !isLead`).
-    if (!simpleWorkspace) {
-      await expect(recordDialog.getByText("Ortak fırsat görünümü", { exact: true })).toBeVisible();
-    }
+    // Dekoratif "Ortak fırsat görünümü" başlığının yerini kartın kendi özeti
+    // aldı: özet boşken bile yetkili kullanıcı "Özet ekle" ile yazabilmeli.
+    const summaryBlock = recordDialog.getByTestId("opportunity-summary");
+    await expect(summaryBlock).toBeVisible();
+    await expect(summaryBlock.getByRole("button", { name: /Özet ekle|Düzenle/ })).toBeVisible();
     // Dönüşümden sonra da sekme yok: süreç gövdesi ve aktivite akışı doğrudan görünür.
     await expect(recordDialog.getByRole("heading", { name: "Operasyon aşaması", exact: true })).toBeVisible();
     await expect(recordDialog.getByRole("heading", { name: /Aktivite akışı|Temas akışı/ })).toBeVisible();

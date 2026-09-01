@@ -15,7 +15,7 @@ export const TASK_VIEWS: { value: TaskView; label: string }[] = [
   { value: "today", label: "Bugün" },
   { value: "overdue", label: "Gecikenler" },
   { value: "upcoming", label: "Yaklaşan" },
-  { value: "completed", label: "Tamamlananlar" },
+  { value: "history", label: "Geçmiş" },
 ];
 
 /**

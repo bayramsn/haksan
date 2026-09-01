@@ -1,12 +1,13 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { toast } from "sonner";
-import { CheckCircle2, ExternalLink, Pencil, RotateCcw, Trash2, XCircle } from "lucide-react";
+import { CheckCircle2, ExternalLink, MessageSquareText, Pencil, RotateCcw, Send, Trash2, XCircle } from "lucide-react";
 import { tasksService, type TaskDetailDTO, type TaskDTO } from "../../../../lib/services";
 import { Badge } from "../../ui/badge";
 import { Button } from "../../ui/button";
 import { Separator } from "../../ui/separator";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "../../ui/sheet";
 import { Skeleton } from "../../ui/skeleton";
+import { Textarea } from "../../ui/textarea";
 import {
   PRIORITY_STYLE,
   STATUS_STYLE,
@@ -38,10 +39,12 @@ export function TaskDetailPanel({
   const [task, setTask] = useState<TaskDetailDTO | null>(null);
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [comment, setComment] = useState("");
 
   useEffect(() => {
     if (!taskId) {
       setTask(null);
+      setComment("");
       return;
     }
     let cancelled = false;
@@ -90,6 +93,22 @@ export function TaskDetailPanel({
     }
   };
 
+  const addComment = async () => {
+    if (!task || !comment.trim() || busy) return;
+    setBusy(true);
+    try {
+      const updated = await tasksService.comment(task.id, comment.trim());
+      setTask(updated);
+      setComment("");
+      onChanged(updated);
+      toast.success("Yorum eklendi");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Yorum eklenemedi");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const related = task ? relatedRecord(task) : null;
   const due = task ? dueLabel(task) : null;
 
@@ -105,7 +124,7 @@ export function TaskDetailPanel({
         ) : (
           <>
             <SheetHeader className="gap-2">
-              <SheetTitle className={task.status === "done" ? "line-through" : ""}>{task.title}</SheetTitle>
+              <SheetTitle className={task.status === "done" || task.status === "cancelled" ? "line-through" : ""}>{task.title}</SheetTitle>
               <SheetDescription className="flex flex-wrap items-center gap-2">
                 <Badge variant="outline" className={STATUS_STYLE[task.status]}>
                   {TASK_STATUS_LABELS[task.status]}
@@ -118,7 +137,7 @@ export function TaskDetailPanel({
             </SheetHeader>
 
             <div className="flex flex-wrap gap-2 px-4 pb-3">
-              {task.status === "done" ? (
+              {task.status === "done" || task.status === "cancelled" ? (
                 <Button size="sm" variant="outline" disabled={busy} onClick={() => mutate({ status: "todo" }, "Görev tekrar açıldı")}>
                   <RotateCcw className="size-4" /> Tekrar Aç
                 </Button>
@@ -184,15 +203,39 @@ export function TaskDetailPanel({
             <Separator />
 
             <div className="p-4">
+              <div className="mb-3 space-y-2">
+                <label htmlFor="task-comment" className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                  <MessageSquareText className="size-3.5" /> Göreve yorum ekle
+                </label>
+                <Textarea
+                  id="task-comment"
+                  value={comment}
+                  onChange={(event) => setComment(event.target.value.slice(0, 512))}
+                  placeholder="Görüşme sonucu, ekip notu veya sonraki adımı yazın…"
+                  className="min-h-20 resize-y"
+                  maxLength={512}
+                />
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-[10px] tabular-nums text-muted-foreground">{comment.length}/512</span>
+                  <Button size="sm" variant="outline" disabled={busy || !comment.trim()} onClick={() => void addComment()}>
+                    <Send className="size-3.5" /> Yorumu ekle
+                  </Button>
+                </div>
+              </div>
+
               <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                Hareketler
+                Yorumlar ve hareketler
               </div>
               <ol className="space-y-2 text-sm">
                 {task.events.map((event) => (
-                  <li key={event.id} className="flex gap-2">
-                    <span className="mt-1 size-1.5 shrink-0 rounded-full bg-border" aria-hidden="true" />
+                  <li key={event.id} className={`flex gap-2 rounded-md ${event.eventType === "comment" ? "bg-muted/40 p-2.5" : ""}`}>
+                    {event.eventType === "comment" ? (
+                      <MessageSquareText className="mt-0.5 size-3.5 shrink-0 text-primary" aria-hidden="true" />
+                    ) : (
+                      <span className="mt-1.5 size-1.5 shrink-0 rounded-full bg-border" aria-hidden="true" />
+                    )}
                     <div>
-                      <div>{event.summary}</div>
+                      <div className={event.eventType === "comment" ? "whitespace-pre-wrap" : ""}>{event.summary}</div>
                       <div className="text-xs text-muted-foreground">
                         {new Date(event.createdAt).toLocaleString("tr-TR")}
                         {event.actor ? ` · ${event.actor.fullName}` : ""}

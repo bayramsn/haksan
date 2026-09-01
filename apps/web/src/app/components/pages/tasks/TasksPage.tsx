@@ -27,9 +27,17 @@ const EMPTY_BY_VIEW: Record<TaskView, string> = {
   overdue: "Geciken görev yok.",
   upcoming: "Yaklaşan görev yok.",
   completed: "Tamamlanmış görev yok.",
+  history: "Henüz tamamlanan veya iptal edilen görev yok.",
 };
 
-export function TasksPage({ onOpenRecord }: { onOpenRecord?: (task: TaskDTO) => void }) {
+export function TasksPage({
+  onOpenRecord,
+  initialQuery,
+}: {
+  onOpenRecord?: (task: TaskDTO) => void;
+  /** Bildirimden gelen hedef: "task:<id>" ilgili görevin detayını açar. */
+  initialQuery?: string;
+}) {
   const { user, hasPermission } = useAuth();
   const canManage = hasPermission("tasks.manage");
   const canDelete = hasPermission("tasks.delete");
@@ -50,6 +58,13 @@ export function TasksPage({ onOpenRecord }: { onOpenRecord?: (task: TaskDTO) => 
   const [assignees, setAssignees] = useState<Array<{ id: string; fullName: string }>>([]);
   const [loading, setLoading] = useState(true);
   const [detailId, setDetailId] = useState<string | null>(null);
+
+  // Görev atama bildirimi listeyi değil doğrudan görevi açmalı.
+  useEffect(() => {
+    if (!initialQuery?.startsWith("task:")) return;
+    const taskId = initialQuery.slice("task:".length).trim();
+    if (taskId) setDetailId(taskId);
+  }, [initialQuery]);
   const [editing, setEditing] = useState<TaskDTO | null>(null);
   const [formOpen, setFormOpen] = useState(false);
 

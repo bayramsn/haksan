@@ -19,6 +19,7 @@ import {
 export type OperationNav =
   | "dashboard"
   | "calendar"
+  | "tasks"
   | "customers"
   | "contacts"
   | "sales-cases"
@@ -50,6 +51,7 @@ export type OperationNav =
   | "settings";
 
 export type OperationFocus =
+  | "targets"
   | "open"
   | "overdue"
   | "upcoming"

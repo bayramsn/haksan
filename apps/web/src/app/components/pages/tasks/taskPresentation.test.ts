@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { dueLabel, isOpen, relatedRecord } from "./taskPresentation";
+import { dueLabel, isOpen, relatedRecord, TASK_VIEWS } from "./taskPresentation";
 import type { TaskDTO } from "../../../../lib/services";
 
 function task(overrides: Partial<TaskDTO> = {}): TaskDTO {
@@ -69,6 +69,11 @@ describe("görev son tarih etiketi", () => {
 });
 
 describe("görev durumu ve ilgili kayıt", () => {
+  it("tamamlanan ve iptal edilen görevler için Geçmiş görünümünü sunar", () => {
+    expect(TASK_VIEWS).toContainEqual({ value: "history", label: "Geçmiş" });
+    expect(TASK_VIEWS.some((view) => view.value === "completed")).toBe(false);
+  });
+
   it("yalnız yapılacak ve devam eden görevler açıktır", () => {
     expect(isOpen(task({ status: "todo" }))).toBe(true);
     expect(isOpen(task({ status: "in_progress" }))).toBe(true);

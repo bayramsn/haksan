@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { toast } from "sonner";
 import {
   PIPELINE_STAGE_FLOW,
   type OpportunityProcessActionKey,
@@ -17,6 +18,7 @@ import {
   Pencil,
   Eye,
   FileSignature,
+  NotebookText,
 } from "lucide-react";
 import { opportunityService } from "../../../lib/services";
 import { useAuth } from "../../../lib/auth";
@@ -32,6 +34,10 @@ import { AddActivityDialog } from "../dialogs/CreateDialogs";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "../ui/card";
+import { Textarea } from "../ui/textarea";
+import {
+  Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
+} from "../ui/dialog";
 import { DecisionRail, LeadQualificationPanel } from "./LeadWorkspaceControls";
 import { TaskRecordSection } from "./tasks/TaskRecordSection";
 import {
@@ -206,6 +212,7 @@ export function OpportunityWorkspace({
   focusDecisionOnMount = false,
   onEditActivity,
   onDeleteActivity,
+  taskActions,
   otherActions,
   simpleMode = false,
 }: {
@@ -221,6 +228,8 @@ export function OpportunityWorkspace({
   focusDecisionOnMount?: boolean;
   onEditActivity?: (activityId: string) => void;
   onDeleteActivity?: (activityId: string) => void;
+  /** Fırsat görevleri kartında, görev oluşturmanın yanında gösterilen eylemler. */
+  taskActions?: ReactNode;
   otherActions?: ReactNode;
   simpleMode?: boolean;
 }) {
@@ -251,10 +260,6 @@ export function OpportunityWorkspace({
   const [selectedCommercialDocument, setSelectedCommercialDocument] = useState<DocumentItem | null>(null);
   const [selectedFileDocument, setSelectedFileDocument] = useState<DocumentItem | null>(null);
   const [operationsExpanded, setOperationsExpanded] = useState(() => !simpleOpportunity);
-  const [summaryEditing, setSummaryEditing] = useState(false);
-  const [summaryDraft, setSummaryDraft] = useState(sc.description ?? "");
-  const [summarySaving, setSummarySaving] = useState(false);
-  const [summaryError, setSummaryError] = useState<string | null>(null);
   const decisionSummaryRef = useRef<HTMLElement>(null);
   const detailRequestRef = useRef(0);
   const detail = detailResource.caseId === sc.id ? detailResource.data : null;
@@ -289,26 +294,6 @@ export function OpportunityWorkspace({
   useEffect(() => {
     setOperationsExpanded(!simpleOpportunity);
   }, [sc.id, simpleOpportunity]);
-
-  useEffect(() => {
-    setSummaryDraft(sc.description ?? "");
-    setSummaryEditing(false);
-    setSummaryError(null);
-  }, [sc.id]);
-
-  const saveOpportunitySummary = async () => {
-    if (summarySaving) return;
-    setSummarySaving(true);
-    setSummaryError(null);
-    try {
-      await updateCase(sc.id, { description: summaryDraft.trim() || null });
-      setSummaryEditing(false);
-    } catch (error: any) {
-      setSummaryError(error?.message ?? "Fırsat özeti kaydedilemedi.");
-    } finally {
-      setSummarySaving(false);
-    }
-  };
 
   useEffect(() => {
     // Bölüm/kayıt çapası kalmadı: URL'de yalnız hangi kaydın açık olduğu ve
@@ -624,64 +609,18 @@ export function OpportunityWorkspace({
 
   return (
     <div className="crm-page">
-      {/* Kart tıklanınca açılan çalışma alanında ilk görünen bilgi fırsatın
-          açıklamasıdır. Karar özeti ve operasyon ayrıntıları bunun altında
-          kalır; kullanıcı bağlamı okumadan aksiyon almak zorunda kalmaz. */}
-      <Card className="border-primary/15" data-testid="opportunity-summary-card">
-        <CardHeader className="flex-row items-center justify-between gap-3 pb-2">
-          <div>
-            <CardTitle className="text-base">Fırsat Açıklaması</CardTitle>
-            <p className="mt-1 text-xs text-muted-foreground">İhtiyaç, kapsam ve karar için ortak açıklama.</p>
-          </div>
-          {canUpdate && !summaryEditing && (
-            <Button type="button" variant="outline" size="sm" className="h-8 gap-1.5" onClick={() => setSummaryEditing(true)}>
-              <Pencil className="size-3.5" /> Düzenle
-            </Button>
-          )}
-        </CardHeader>
-        <CardContent>
-          {summaryEditing ? (
-            <div className="space-y-2">
-              <textarea
-                aria-label="Fırsat açıklaması"
-                value={summaryDraft}
-                onChange={(event) => setSummaryDraft(event.target.value)}
-                maxLength={4000}
-                rows={4}
-                className="flex min-h-24 w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                placeholder="Müşterinin ihtiyacını, önerilen çözümü ve kritik karar bilgisini özetleyin..."
-              />
-              {summaryError && <p role="alert" className="text-xs text-destructive">{summaryError}</p>}
-              <div className="flex justify-end gap-2">
-                <Button type="button" variant="outline" size="sm" disabled={summarySaving} onClick={() => { setSummaryDraft(sc.description ?? ""); setSummaryEditing(false); setSummaryError(null); }}>Vazgeç</Button>
-                <Button type="button" size="sm" disabled={summarySaving} onClick={() => void saveOpportunitySummary()}>
-                  {summarySaving && <Loader2 className="size-3.5 animate-spin motion-reduce:animate-none" />}
-                  {summarySaving ? "Kaydediliyor…" : "Açıklamayı Kaydet"}
-                </Button>
-              </div>
-            </div>
-          ) : (
-            <p className={`whitespace-pre-wrap text-sm leading-6 ${sc.description?.trim() ? "text-foreground" : "text-muted-foreground"}`}>
-              {sc.description?.trim() || "Henüz fırsat açıklaması girilmedi."}
-            </p>
-          )}
-        </CardContent>
-      </Card>
-      {/* Dialog başlığının hemen altında duran ikinci başlık kaldırıldı: kaydın
-          ne olduğunu ("LEAD · 8C34E28F" / firma adı) üstteki başlık zaten
-          söylüyor, bu blok yalnız yer kaplıyordu. Yalnız legacy (ortak) görünüm
-          korunuyor — orada iki farklı ekibin aynı yüzeyi paylaştığı bilgisi
-          gerçekten yeni. */}
-      {!simpleOpportunity && !isLead && (
-        <div className="border-b border-border pb-3">
-          <div className="ui-eyebrow">
-            Ortak fırsat görünümü
-          </div>
-          <div className="mt-1 text-sm text-muted-foreground">
-            Satış, ticari ve operasyon ekipleri için tek görünüm
-          </div>
-        </div>
-      )}
+      {/* Başlığın altındaki dekoratif metin ("Ortak fırsat görünümü") yerine
+          kartın kendi özeti duruyor: Trello'dan gelen kart açıklaması dahil
+          hiçbir yerde görünmüyordu. */}
+      <OpportunitySummary
+        salesCase={sc}
+        canEdit={canUpdate}
+        onSave={(description) => updateCase(sc.id, { description })}
+      />
+
+      {/* Alan rayı satış alanı kutusunun içine taşındı ve orada tıklanabilir
+          (alanlar arası gezinme). Buradaki dekoratif kopyası aynı bilgiyi
+          ikinci kez, üstelik tıklanamaz hâlde gösteriyordu. */}
       <WorkspaceDecisionSummary
         ref={decisionSummaryRef}
         model={decisionModel}
@@ -757,6 +696,7 @@ export function OpportunityWorkspace({
           <TaskRecordSection
             relation={{ opportunityId: sc.id, companyId: sc.customerId ?? null, label: sc.requestedProduct || "Fırsat" }}
             title={isLead ? "Lead Görevleri" : "Fırsat Görevleri"}
+            headerActions={taskActions}
           />
           {isLead ? (
             <>
@@ -906,6 +846,93 @@ export function OpportunityWorkspace({
         onOpenFile={(document) => setSelectedFileDocument(document)}
       />
       <DocumentPreviewDialog doc={selectedFileDocument} onClose={() => setSelectedFileDocument(null)} />
+    </div>
+  );
+}
+
+/**
+ * Kartın özeti: fırsatın kendi açıklaması (Trello aktarımında "kart
+ * açıklaması" buraya yazılıyor). Salt okunur gösterilir, yetkisi olan
+ * pop-up'ta düzenler — ekranın üstünde uzun metin akıtmadan.
+ */
+function OpportunitySummary({
+  salesCase,
+  canEdit,
+  onSave,
+}: {
+  salesCase: SalesCase;
+  canEdit: boolean;
+  onSave: (description: string | null) => Promise<void>;
+}) {
+  const [open, setOpen] = useState(false);
+  const [draft, setDraft] = useState("");
+  const [saving, setSaving] = useState(false);
+  // Kaydedilen değer, store tazelenene kadar prop'taki eski metni gölgeler.
+  const [savedSummary, setSavedSummary] = useState<string | null>(null);
+  const summary = (savedSummary ?? salesCase.description ?? "").trim();
+
+  useEffect(() => { setSavedSummary(null); }, [salesCase.description]);
+  useEffect(() => { if (open) setDraft(summary); }, [open, summary]);
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      const next = draft.trim();
+      await onSave(next || null);
+      setSavedSummary(next);
+      toast.success("Özet kaydedildi");
+      setOpen(false);
+    } catch (error: any) {
+      toast.error("Özet kaydedilemedi", { description: error?.message ?? "API isteği başarısız oldu." });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (!summary && !canEdit) return null;
+
+  return (
+    <div className="border-b border-border pb-3" data-testid="opportunity-summary">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="ui-eyebrow flex items-center gap-1.5">
+            <NotebookText className="size-3.5" /> Fırsat Açıklaması
+          </div>
+          <p className={`mt-1 whitespace-pre-wrap text-sm ${summary ? "text-foreground" : "text-muted-foreground"}`}>
+            {summary || "Bu fırsat için özet girilmemiş."}
+          </p>
+        </div>
+        {canEdit && (
+          <Button type="button" variant="outline" size="sm" className="shrink-0 gap-1" onClick={() => setOpen(true)}>
+            <Pencil className="size-3.5" /> {summary ? "Düzenle" : "Özet ekle"}
+          </Button>
+        )}
+      </div>
+
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent className="max-w-xl">
+          <DialogHeader>
+            <DialogTitle>Fırsat Açıklaması</DialogTitle>
+            <DialogDescription>{salesCase.requestedModel || salesCase.requestedProduct || "Fırsat kartı"}</DialogDescription>
+          </DialogHeader>
+          <Textarea
+            value={draft}
+            onChange={(event) => setDraft(event.target.value.slice(0, 4000))}
+            placeholder="Talebin özeti, müşterinin beklentisi, kritik notlar…"
+            className="min-h-40 resize-y"
+            maxLength={4000}
+          />
+          <DialogFooter className="items-center gap-2 sm:justify-between">
+            <span className="text-[10px] tabular-nums text-muted-foreground">{draft.length}/4000</span>
+            <div className="flex gap-2">
+              <Button type="button" variant="outline" onClick={() => setOpen(false)}>Vazgeç</Button>
+              <Button type="button" disabled={saving} onClick={() => void save()}>
+                {saving ? "Kaydediliyor…" : "Kaydet"}
+              </Button>
+            </div>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

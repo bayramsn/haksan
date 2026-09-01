@@ -7,6 +7,7 @@ describe("lead ve fırsat çalışma alanı sorumlu değişikliği", () => {
   const railSource = readFileSync(new URL("./LeadWorkspaceControls.tsx", import.meta.url), "utf8");
   const workspaceSource = readFileSync(new URL("./OpportunityWorkspace.tsx", import.meta.url), "utf8");
   const detailSource = readFileSync(new URL("./SalesCaseDetail.tsx", import.meta.url), "utf8");
+  const taskSectionSource = readFileSync(new URL("./tasks/TaskRecordSection.tsx", import.meta.url), "utf8");
   const shellSource = readFileSync(new URL("../shared/KanbanDetailDialogShell.tsx", import.meta.url), "utf8");
   const storeSource = readFileSync(new URL("../../lib/store.tsx", import.meta.url), "utf8");
   const dialogsSource = readFileSync(new URL("../dialogs/CreateDialogs.tsx", import.meta.url), "utf8");
@@ -42,6 +43,19 @@ describe("lead ve fırsat çalışma alanı sorumlu değişikliği", () => {
     expect(detailSource).toContain('hasPermission("activities.update")');
     expect(detailSource).toContain('hasPermission("activities.delete")');
     expect(detailSource).toContain("{canCreateActivity && (");
+  });
+
+  it("takibe alma eylemini fırsat görevleri kartında gösterir", () => {
+    expect(detailSource).toContain("taskActions={canFollowUp ? (");
+    expect(workspaceSource).toContain("headerActions={taskActions}");
+    expect(taskSectionSource).toContain("{headerActions}");
+    // Sağ komut panelindeki eski kopya kaldırılmalı; eylem görev kartında tek
+    // bir bağlam altında kalır.
+    const otherActions = detailSource.slice(
+      detailSource.indexOf("const workspaceOtherActions"),
+      detailSource.indexOf("const content"),
+    );
+    expect(otherActions).not.toContain("Takibe al");
   });
 
   it("satış alanı kutusunu kapının dışında tutar, yalnız operasyon kartlarını kapatır", () => {
@@ -117,15 +131,13 @@ describe("lead ve fırsat çalışma alanı sorumlu değişikliği", () => {
   });
 
   it("mevcut fırsat açıklamasını en üstte okunabilir ve düzenlenebilir tutar", () => {
-    expect(workspaceSource).toContain('data-testid="opportunity-summary-card"');
+    expect(workspaceSource).toContain('data-testid="opportunity-summary"');
     expect(workspaceSource).toContain("Fırsat Açıklaması");
-    expect(workspaceSource).toContain('updateCase(sc.id, { description: summaryDraft.trim() || null })');
-    expect(workspaceSource).toContain("Açıklamayı Kaydet");
-    const descriptionIndex = workspaceSource.indexOf('<Card className="border-primary/15" data-testid="opportunity-summary-card">');
-    const sharedViewIndex = workspaceSource.indexOf("Ortak fırsat görünümü");
+    expect(workspaceSource).toContain('onSave={(description) => updateCase(sc.id, { description })}');
+    expect(workspaceSource).toContain("<OpportunitySummary");
+    const descriptionIndex = workspaceSource.indexOf("<OpportunitySummary");
     const decisionIndex = workspaceSource.indexOf("<WorkspaceDecisionSummary");
     expect(descriptionIndex).toBeGreaterThan(-1);
-    expect(descriptionIndex).toBeLessThan(sharedViewIndex);
     expect(descriptionIndex).toBeLessThan(decisionIndex);
   });
 });

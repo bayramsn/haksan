@@ -459,6 +459,8 @@ export type SalesCase = {
   lostCompetitorId?: string;
   competitor?: string;
   lostCompetitorProductModel?: string;
+  /** WIN/kazanılan fırsat kapatılırken seçilen gerekçe. */
+  wonReason?: string;
   createdAt: string;
   closedAt?: string;
 };

@@ -3,7 +3,7 @@ import { Avatar, AvatarFallback } from "../ui/avatar";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../ui/table";
 import { Button } from "../ui/button";
 import { Badge } from "../ui/badge";
-import { Search, ArrowUpDown, Building2, MoreHorizontal, CheckCircle2, RotateCcw, AlertTriangle, CalendarClock, Cpu, Trash2 } from "lucide-react";
+import { Search, ArrowUpDown, Building2, MoreHorizontal, CheckCircle2, RotateCcw, AlertTriangle, CalendarClock, Cpu, Trash2, Trophy } from "lucide-react";
 import {
   QUALIFICATION_STAGE_LABELS,
   QUALIFICATION_STAGES,
@@ -25,6 +25,8 @@ import { EntityVisual } from "../shared/PremiumPrimitives";
 import { EmptyState } from "../shared/EmptyState";
 import { LostOpportunityDetailsDialog } from "../shared/LostOpportunityDetails";
 import { InputGroup, InputGroupAddon, InputGroupInput } from "../ui/input-group";
+import { Label } from "../ui/label";
+import { Textarea } from "../ui/textarea";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription,
   AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
@@ -76,13 +78,19 @@ export function SalesCasesPage({
   const [busyId, setBusyId] = useState<string | null>(null);
   const [pendingClose, setPendingClose] = useState<SalesCase | null>(null);
   const [pendingDelete, setPendingDelete] = useState<SalesCase | null>(null);
+  const [closeReason, setCloseReason] = useState("");
 
   const onClose = async (id: string) => {
     if (busyId) return;
+    if (pendingClose?.qualificationStage === "win" && !closeReason.trim()) {
+      toast.error("Fırsatı kapatmak için kazanma nedenini yazın.");
+      return;
+    }
     setBusyId(id);
     try {
-      await closeCase(id);
+      await closeCase(id, closeReason.trim() || pendingClose?.lostReason || undefined);
       setPendingClose(null);
+      setCloseReason("");
     } finally {
       setBusyId(null);
     }
@@ -125,6 +133,8 @@ export function SalesCasesPage({
   const [stage, setStage] = useState("all");
   const [currency, setCurrency] = useState("all");
   const [companyResolution, setCompanyResolution] = useState("all");
+  const [outcome, setOutcome] = useState("all");
+  const [outcomeReason, setOutcomeReason] = useState("all");
   const [nameSort, setNameSort] = useState<"asc" | "desc" | null>(null);
 
   const focusOpen = focus === "open" || focus === "today";
@@ -134,7 +144,18 @@ export function SalesCasesPage({
   // artık ayrı bir sayfaya değil panonun Lead kolonuna götürür.
   const focusLead =
     focus === "sla_risk" || focus === "unassigned" || focus === "no_action" || focus === "uncontacted";
-  const showLostDetails = focusLost || stage === "lost";
+  const showLostDetails = focusLost || stage === "lost" || outcome === "lost";
+  const reasonKey = (salesCase: SalesCase) => salesCase.qualificationStage === "lost"
+    ? `lost:${salesCase.lostReasonCode || salesCase.lostReason || "Belirtilmemiş"}`
+    : salesCase.qualificationStage === "win"
+      ? `won:${salesCase.wonReason || "Belirtilmemiş"}`
+      : "";
+  const isFutureFollowUp = (salesCase: SalesCase) => Boolean(
+    salesCase.nextActionAt
+    && new Date(salesCase.nextActionAt).getTime() > Date.now()
+    && salesCase.qualificationStage !== "win"
+    && salesCase.qualificationStage !== "lost"
+  );
   const filtered = salesCases.filter((s) => {
     const qualification = s.qualificationStage ?? "lead";
     if (focusOpen && (qualification === "win" || qualification === "lost")) return false;
@@ -148,6 +169,10 @@ export function SalesCasesPage({
     if (currency !== "all" && s.currency !== currency) return false;
     if (companyResolution === "pending" && s.customerId) return false;
     if (companyResolution === "resolved" && !s.customerId) return false;
+    if (outcome === "follow_up" && !isFutureFollowUp(s)) return false;
+    if (outcome === "won" && qualification !== "win") return false;
+    if (outcome === "lost" && qualification !== "lost") return false;
+    if (outcomeReason !== "all" && reasonKey(s) !== outcomeReason) return false;
     const c = customers.find((x) => x.id === s.customerId);
     const query = q.toLocaleLowerCase("tr-TR");
     return [
@@ -186,6 +211,29 @@ export function SalesCasesPage({
     label: QUALIFICATION_STAGE_LABELS[value],
   }));
   const currencyOptions = Array.from(new Set(salesCases.map((s) => s.currency))).map((v) => ({ value: v, label: v }));
+  const allCases = useMemo(() => [...salesCases, ...closedCases], [closedCases, salesCases]);
+  const reasonStats = useMemo(() => {
+    const counts = new Map<string, { value: string; label: string; count: number; outcome: "won" | "lost" }>();
+    for (const item of allCases) {
+      const key = reasonKey(item);
+      if (!key) continue;
+      const kind = item.qualificationStage === "lost" ? "lost" : "won";
+      const label = kind === "lost"
+        ? item.lostReason || item.lostReasonCode || "Belirtilmemiş"
+        : item.wonReason || "Belirtilmemiş";
+      const current = counts.get(key) ?? { value: key, label, count: 0, outcome: kind };
+      current.count += 1;
+      counts.set(key, current);
+    }
+    return [...counts.values()].sort((left, right) => right.count - left.count || left.label.localeCompare(right.label, "tr-TR"));
+  }, [allCases]);
+  const filteredClosedCases = closedCases.filter((item) => {
+    if (outcome === "follow_up") return false;
+    if (outcome === "won" && item.qualificationStage !== "win") return false;
+    if (outcome === "lost" && item.qualificationStage !== "lost") return false;
+    if (outcomeReason !== "all" && reasonKey(item) !== outcomeReason) return false;
+    return true;
+  });
   useEffect(() => {
     setView(initialView);
   }, [initialView]);
@@ -238,6 +286,8 @@ export function SalesCasesPage({
             />
           </InputGroup>
           <FilterPopover
+            contentClassName="max-h-[min(80vh,44rem)] w-[min(92vw,46rem)] overflow-y-auto"
+            filtersClassName="grid gap-3 sm:grid-cols-2"
             filters={[
               { label: "Aşama", value: stage, onChange: setStage, options: stageOptions },
               { label: "Para Birimi", value: currency, onChange: setCurrency, options: currencyOptions },
@@ -250,8 +300,62 @@ export function SalesCasesPage({
                   { value: "resolved", label: "Firma bağlı" },
                 ],
               },
+              {
+                label: "Sonuç",
+                value: outcome,
+                onChange: setOutcome,
+                options: [
+                  { value: "follow_up", label: "İleri takipte" },
+                  { value: "won", label: "Kazanılan" },
+                  { value: "lost", label: "Kaybedilen" },
+                ],
+              },
+              {
+                label: "Kapanış / kayıp nedeni",
+                value: outcomeReason,
+                onChange: setOutcomeReason,
+                options: reasonStats.map((item) => ({ value: item.value, label: `${item.label} (${item.count})` })),
+              },
             ]}
-          />
+          >
+            <section className="space-y-3 border-t border-border/60 pt-3" aria-labelledby="sales-outcome-filter-title">
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <div>
+                  <div id="sales-outcome-filter-title" className="text-sm font-semibold">Satış sonuçları ve ileri takip</div>
+                  <div className="text-xs text-muted-foreground">Kapanan fırsatları nedenine göre inceleyin; ertelenenleri kayıp saymadan takip edin.</div>
+                </div>
+                {(outcome !== "all" || outcomeReason !== "all") && (
+                  <Button variant="ghost" size="sm" className="h-8" onClick={() => { setOutcome("all"); setOutcomeReason("all"); }}>
+                    Sonuç filtresini temizle
+                  </Button>
+                )}
+              </div>
+              <div className="grid gap-2 sm:grid-cols-3">
+                <button type="button" onClick={() => { setOutcome("follow_up"); setOutcomeReason("all"); setView("list"); }} className="rounded-md border border-warning/20 bg-warning-soft/35 px-3 py-3 text-left transition-colors hover:bg-warning-soft/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                  <div className="flex items-center gap-2 text-xs font-medium text-warning"><CalendarClock className="size-4" /> İleri takipte</div>
+                  <div className="mt-1 font-display text-xl font-semibold tabular-nums">{salesCases.filter(isFutureFollowUp).length}</div>
+                </button>
+                <button type="button" onClick={() => { setOutcome("won"); setOutcomeReason("all"); }} className="rounded-md border border-success/20 bg-success-soft/35 px-3 py-3 text-left transition-colors hover:bg-success-soft/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                  <div className="flex items-center gap-2 text-xs font-medium text-success"><Trophy className="size-4" /> Kazanılan</div>
+                  <div className="mt-1 font-display text-xl font-semibold tabular-nums">{allCases.filter((item) => item.qualificationStage === "win").length}</div>
+                </button>
+                <button type="button" onClick={() => { setOutcome("lost"); setOutcomeReason("all"); }} className="rounded-md border border-destructive/20 bg-destructive-soft/35 px-3 py-3 text-left transition-colors hover:bg-destructive-soft/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                  <div className="flex items-center gap-2 text-xs font-medium text-destructive"><AlertTriangle className="size-4" /> Kaybedilen</div>
+                  <div className="mt-1 font-display text-xl font-semibold tabular-nums">{allCases.filter((item) => item.qualificationStage === "lost").length}</div>
+                </button>
+              </div>
+              {reasonStats.length > 0 && (
+                <div className="flex flex-wrap gap-2">
+                  <span className="self-center text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Nedenler</span>
+                  {reasonStats.slice(0, 8).map((item) => (
+                    <button key={item.value} type="button" onClick={() => { setOutcome(item.outcome); setOutcomeReason(item.value); }} className={`rounded-md border px-2.5 py-1 text-xs transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${outcomeReason === item.value ? "border-primary bg-primary/10 text-primary" : "border-border"}`}>
+                      {item.label} <span className="tabular-nums text-muted-foreground">{item.count}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </section>
+          </FilterPopover>
           {focusOpen && (
             <span className="inline-flex h-8 items-center rounded-md border border-primary/20 bg-primary/10 px-2.5 text-xs text-primary">
               Açık kartlar
@@ -446,10 +550,10 @@ export function SalesCasesPage({
                             size="sm"
                             className="h-8 gap-1 text-xs text-success hover:text-emerald-800 hover:bg-success-soft"
                             disabled={busyId === s.id}
-                            title="Tamamla / Arşivle (silmez, Geçmiş'te kalır)"
-                            onClick={() => setPendingClose(s)}
+                            title="Fırsatı kapat (silmez, Geçmiş'te kalır)"
+                          onClick={() => { setCloseReason(s.wonReason || ""); setPendingClose(s); }}
                           >
-                            <CheckCircle2 className="size-3.5" /> Bitir
+                            <CheckCircle2 className="size-3.5" /> Fırsatı Kapat
                           </Button>
                         )}
                         <Button variant="ghost" size="icon" className="size-8 opacity-100 sm:opacity-0 sm:group-hover:opacity-100" title="Detay" onClick={() => onSelect(s)}>
@@ -501,14 +605,14 @@ export function SalesCasesPage({
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {closedCases.length === 0 ? (
+                {filteredClosedCases.length === 0 ? (
                   <TableRow>
                     <TableCell colSpan={5} className="text-center text-sm text-muted-foreground py-10">
-                      Arşivlenmiş (tamamlanmış/iptal) kart yok. Teslim edilen veya iptal edilen bir kartta "Bitir" deyince burada birikir.
+                      Kapatılmış fırsat yok. Kazanılan veya kaybedilen bir kartta “Fırsatı Kapat” dediğinizde burada görünür.
                     </TableCell>
                   </TableRow>
                 ) : (
-                  closedCases.map((s) => {
+                  filteredClosedCases.map((s) => {
                     const c = customers.find((x) => x.id === s.customerId);
                     return (
                       <TableRow key={s.id} className="cursor-pointer group" onClick={() => onSelect(s)}>
@@ -551,6 +655,11 @@ export function SalesCasesPage({
                               />
                             </div>
                           )}
+                          {s.qualificationStage === "win" && (
+                            <div className="mt-1 max-w-[280px] text-xs text-muted-foreground">
+                              <div className="font-medium text-success">{s.wonReason || "Kapanış nedeni belirtilmedi"}</div>
+                            </div>
+                          )}
                         </TableCell>
                         <TableCell className="text-xs text-muted-foreground tabular-nums">{s.closedAt ?? "—"}</TableCell>
                         <TableCell onClick={(e) => e.stopPropagation()}>
@@ -589,14 +698,14 @@ export function SalesCasesPage({
           </div>
           <div className="flex items-center justify-between gap-3 px-4 py-3 border-t border-border/60 bg-muted/20">
             <div className="text-xs text-muted-foreground">
-              Toplam <b className="text-foreground">{closedCases.length}</b> arşiv fırsatı (WIN + LOST) · silinmedi, DB'de duruyor
+              Toplam <b className="text-foreground">{filteredClosedCases.length}</b> arşiv fırsatı (WIN + LOST) · silinmedi, DB'de duruyor
             </div>
           </div>
         </Card>
       </TabsContent>
 
       <AlertDialog open={!!pendingClose} onOpenChange={(open) => !open && !busyId && setPendingClose(null)}>
-        <AlertDialogContent className="max-w-lg"><AlertDialogHeader><AlertDialogTitle>Fırsat tamamlanıp arşivlensin mi?</AlertDialogTitle><AlertDialogDescription><span className="block font-medium text-foreground">{pendingClose ? salesCasePartyName(pendingClose, customers.find((customer) => customer.id === pendingClose.customerId)) : "Fırsat"} · {pendingClose?.requestedModel || pendingClose?.requestedProduct}</span>Kart silinmez; “Geçmiş” görünümüne taşınır. Teklif, proforma, sözleşme ve aktiviteler korunur.</AlertDialogDescription></AlertDialogHeader>{pendingClose && <div className="rounded-lg border border-primary/10 bg-brand-blue-soft/50 p-3 text-xs"><div className="font-display text-lg font-semibold text-primary">{pendingClose.estimatedAmount.toLocaleString("tr-TR")} {pendingClose.currency}</div><div className="mt-1 text-muted-foreground">Satış alanı: {QUALIFICATION_STAGE_LABELS[pendingClose.qualificationStage]}</div></div>}<AlertDialogFooter><AlertDialogCancel>Vazgeç</AlertDialogCancel><AlertDialogAction disabled={!!busyId} onClick={(event) => { event.preventDefault(); if (pendingClose) void onClose(pendingClose.id); }}>{busyId ? "Arşivleniyor…" : "Tamamla ve Arşivle"}</AlertDialogAction></AlertDialogFooter></AlertDialogContent>
+        <AlertDialogContent className="max-w-lg"><AlertDialogHeader><AlertDialogTitle>Fırsat kapatılsın mı?</AlertDialogTitle><AlertDialogDescription><span className="block font-medium text-foreground">{pendingClose ? salesCasePartyName(pendingClose, customers.find((customer) => customer.id === pendingClose.customerId)) : "Fırsat"} · {pendingClose?.requestedModel || pendingClose?.requestedProduct}</span>Kart silinmez; “Geçmiş” görünümüne taşınır. Teklif, proforma, sözleşme ve aktiviteler korunur.</AlertDialogDescription></AlertDialogHeader>{pendingClose && <div className="rounded-lg border border-primary/10 bg-brand-blue-soft/50 p-3 text-xs"><div className="font-display text-lg font-semibold text-primary">{pendingClose.estimatedAmount.toLocaleString("tr-TR")} {pendingClose.currency}</div><div className="mt-1 text-muted-foreground">Satış alanı: {QUALIFICATION_STAGE_LABELS[pendingClose.qualificationStage]}</div></div>}{pendingClose?.qualificationStage === "win" && <div className="space-y-1.5"><Label htmlFor="list-close-reason">Kazanma / kapatma nedeni *</Label><Textarea id="list-close-reason" value={closeReason} onChange={(event) => setCloseReason(event.target.value.slice(0, 255))} maxLength={255} placeholder="Müşteri neden bizi tercih etti?" className="min-h-20" /></div>}<AlertDialogFooter><AlertDialogCancel>Vazgeç</AlertDialogCancel><AlertDialogAction disabled={!!busyId || (pendingClose?.qualificationStage === "win" && !closeReason.trim())} onClick={(event) => { event.preventDefault(); if (pendingClose) void onClose(pendingClose.id); }}>{busyId ? "Kapatılıyor…" : "Fırsatı kapat"}</AlertDialogAction></AlertDialogFooter></AlertDialogContent>
       </AlertDialog>
       <AlertDialog open={Boolean(pendingDelete)} onOpenChange={(open) => !open && !busyId && setPendingDelete(null)}>
         <AlertDialogContent className="max-w-lg">
