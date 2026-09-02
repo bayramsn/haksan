@@ -21,6 +21,15 @@ function currentPeriod() {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 }
 
+function monthRange(period: string) {
+  const [year, month] = period.split("-").map(Number);
+  const nextMonth = new Date(Date.UTC(year, month, 1));
+  return {
+    from: `${period}-01`,
+    to: new Date(nextMonth.getTime() - 1).toISOString(),
+  };
+}
+
 type DeptPerfRow = {
   departmentId: string;
   departmentName: string;
@@ -55,7 +64,7 @@ export function ReportAnalyticsHub() {
   const [deptReport, setDeptReport] = useState<DeptPerfRow[]>([]);
   const [pipeline, setPipeline] = useState<any[]>([]);
   const [stock, setStock] = useState<any[]>([]);
-  const [visits, setVisits] = useState<any[]>([]);
+  const [activities, setActivities] = useState<any[]>([]);
   const [complaintSummary, setComplaintSummary] = useState<any | null>(null);
   const [warrantyExpiring, setWarrantyExpiring] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -71,7 +80,7 @@ export function ReportAnalyticsHub() {
         }),
         reportService.pipelineSummary(),
         reportService.stockSummary(),
-        reportService.monthlyVisits({ from: `${period}-01`, to: `${period}-28` }),
+        reportService.monthlyActivities(monthRange(period)),
         reportService.serviceComplaintsSummary(),
         reportService.warrantyExpiring({ days: 60 }),
       ]);
@@ -79,7 +88,7 @@ export function ReportAnalyticsHub() {
       setDeptReport((deptPerf as any)?.departments ?? []);
       setPipeline(Array.isArray(pipe) ? pipe : []);
       setStock(Array.isArray(st) ? st : []);
-      setVisits(Array.isArray(vis) ? vis : []);
+      setActivities(Array.isArray(vis) ? vis : []);
       setComplaintSummary(complaints ?? null);
       setWarrantyExpiring(Array.isArray(warranty) ? warranty : []);
     } catch (err: any) {
@@ -124,13 +133,13 @@ export function ReportAnalyticsHub() {
     [stock]
   );
 
-  const visitChart = useMemo(
+  const activityChart = useMemo(
     () =>
-      visits.map((v) => ({
+      activities.map((v) => ({
         name: v.bucket ?? "—",
-        ziyaret: Number(v.count ?? 0),
+        aktivite: Number(v.count ?? 0),
       })),
-    [visits]
+    [activities]
   );
 
   const complaintSourceChart = useMemo(
@@ -158,7 +167,7 @@ export function ReportAnalyticsHub() {
           <div>
             <CardTitle>Veri Görselleştirme & Excel Raporları</CardTitle>
             <p className="mt-1 text-sm text-muted-foreground">
-              Departman hedef/gerçekleşme, fırsat, stok ve ziyaret analitiği — sunucu verisi.
+              Departman hedef/gerçekleşme, fırsat, stok ve aktivite analitiği — sunucu verisi.
             </p>
           </div>
           <div className="flex flex-wrap items-end gap-2">
@@ -348,15 +357,15 @@ export function ReportAnalyticsHub() {
             </ResponsiveContainer>
           </ChartCard>
 
-          {visitChart.length > 0 && (
-            <ChartCard title="Aylık Ziyaret Trendi" className="lg:col-span-2">
+          {activityChart.length > 0 && (
+            <ChartCard title="Aylık Aktivite Trendi" className="lg:col-span-2">
               <ResponsiveContainer width="100%" height={260}>
-                <LineChart data={visitChart}>
+                <LineChart data={activityChart}>
                   <CartesianGrid strokeDasharray="3 3" />
                   <XAxis dataKey="name" tick={{ fontSize: 11 }} />
                   <YAxis tick={{ fontSize: 11 }} />
                   <Tooltip />
-                  <Line type="monotone" dataKey="ziyaret" name="Ziyaret" stroke="#000c69" strokeWidth={2} dot />
+                  <Line type="monotone" dataKey="aktivite" name="Aktivite" stroke="#000c69" strokeWidth={2} dot />
                 </LineChart>
               </ResponsiveContainer>
             </ChartCard>

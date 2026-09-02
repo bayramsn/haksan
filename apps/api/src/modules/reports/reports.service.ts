@@ -1,6 +1,6 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { activityTypeLabel, VISIT_NOT_DONE_RESULT } from '@haksan/shared';
-import { and, between, desc, eq, gte, inArray, isNull, lte, notInArray, sql } from 'drizzle-orm';
+import { and, between, desc, eq, gte, inArray, isNull, lte, sql } from 'drizzle-orm';
 import type { DbClient } from '../../db/client';
 import { visits as visitsTbl, calls as callsTbl, leads, salesActivities } from '../../db/schema/crm';
 import { opportunities, cancellationReasons, competitors } from '../../db/schema/crm';
@@ -32,8 +32,6 @@ export type TeamActivityPeriod = 'day' | 'week' | 'month' | 'year';
 export type TeamActivityDetailMetric =
   | 'all'
   | 'quotes'
-  | 'visits'
-  | 'calls'
   | 'activities'
   | 'opportunitiesCreated'
   | 'won';
@@ -204,21 +202,63 @@ export class ReportsService {
     }
   }
 
+  async activitiesReport(actor: AuthContext, granularity: Granularity, range: { from?: Date; to?: Date }) {
+    const countByBucket = async (source: 'activity' | 'visit' | 'call') => {
+      const spec = {
+        activity: {
+          table: salesActivities,
+          date: salesActivities.activityDate,
+          tenant: salesActivities.tenantId,
+          deleted: salesActivities.deletedAt,
+          division: salesActivities.divisionId,
+        },
+        visit: {
+          table: visitsTbl,
+          date: visitsTbl.visitDate,
+          tenant: visitsTbl.tenantId,
+          deleted: visitsTbl.deletedAt,
+          division: visitsTbl.divisionId,
+        },
+        call: {
+          table: callsTbl,
+          date: callsTbl.callDate,
+          tenant: callsTbl.tenantId,
+          deleted: callsTbl.deletedAt,
+          division: callsTbl.divisionId,
+        },
+      }[source];
+      const bucket = this.bucket(granularity, spec.date);
+      const filters = [
+        eq(spec.tenant, actor.tenantId),
+        isNull(spec.deleted),
+        this.activeDivisionFilter(actor, spec.division),
+      ];
+      if (range.from) filters.push(gte(spec.date, range.from));
+      if (range.to) filters.push(lte(spec.date, range.to));
+      return this.db
+        .select({ bucket, count: sql<number>`count(*)::int` })
+        .from(spec.table as any)
+        .where(and(...filters))
+        .groupBy(bucket)
+        .orderBy(bucket);
+    };
+    const sources = await Promise.all([
+      countByBucket('activity'),
+      countByBucket('visit'),
+      countByBucket('call'),
+    ]);
+    const merged = new Map<string, number>();
+    for (const rows of sources) {
+      for (const row of rows) merged.set(row.bucket, (merged.get(row.bucket) ?? 0) + row.count);
+    }
+    return [...merged.entries()]
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([bucket, count]) => ({ bucket, count }));
+  }
+
+  /** @deprecated Eski endpointler birleşik Aktivite serisini döndürür. */
   async visitsReport(actor: AuthContext, granularity: Granularity, range: { from?: Date; to?: Date }) {
-    const bucket = this.bucket(granularity, visitsTbl.visitDate);
-    const filters = [
-      eq(visitsTbl.tenantId, actor.tenantId),
-      isNull(visitsTbl.deletedAt),
-      this.activeDivisionFilter(actor, visitsTbl.divisionId),
-    ];
-    if (range.from) filters.push(gte(visitsTbl.visitDate, range.from));
-    if (range.to) filters.push(lte(visitsTbl.visitDate, range.to));
-    return this.db
-      .select({ bucket, count: sql<number>`count(*)::int` })
-      .from(visitsTbl)
-      .where(and(...filters))
-      .groupBy(bucket)
-      .orderBy(bucket);
+    return this.activitiesReport(actor, granularity, range);
   }
 
   async quotesByProduct(actor: AuthContext, granularity: Granularity, range: { from?: Date; to?: Date }) {
@@ -1648,32 +1688,15 @@ export class ReportsService {
    * Kullanıcı bazında aktivite sayıları. Her kaynak için tek sorgu çalışır ve
    * mevcut/önceki dönem `filter` ile aynı taramadan çıkarılır.
    */
-  /**
-   * Ziyaret ve arama iki ayrı yere kaydedilebiliyor: kendi tabloları (`visits`,
-   * `calls`) ve genel aktivite kaydının türü. Rapor ikisini birlikte saysın diye
-   * ilgili aktivite türlerinin kimlikleri burada çözülür.
-   */
-  private async visitCallActivityTypeIds() {
-    const rows = await this.db
-      .select({ id: activityTypes.id, code: activityTypes.code })
-      .from(activityTypes)
-      .where(inArray(activityTypes.code, ['customer_visit', 'incoming_call', 'outgoing_call']));
-    const idOf = (codes: string[]) => rows.filter((row) => codes.includes(row.code)).map((row) => row.id);
-    const visit = idOf(['customer_visit']);
-    const call = idOf(['incoming_call', 'outgoing_call']);
-    return { visit, call, all: [...visit, ...call] };
-  }
-
   private async activityCounts(
     table: 'quotes' | 'visits' | 'calls' | 'activities',
     tenantId: string,
     userIds: string[],
     range: { from: Date; to: Date; prevFrom: Date; prevTo: Date },
-    /** Yalnız 'activities' için: sayılacak/dışlanacak türler ve elenecek sonuç. */
-    typeFilter?: { in?: string[]; notIn?: string[]; notResult?: string }
+    /** Yalnız genel aktivite tablosunda sayılmayacak sonuç. */
+    typeFilter?: { notResult?: string }
   ) {
     if (!userIds.length) return new Map<string, { current: number; previous: number }>();
-    if (typeFilter?.in && !typeFilter.in.length) return new Map<string, { current: number; previous: number }>();
     const spec = {
       quotes: { actor: quotes.createdBy, date: quotes.quoteDate, tenant: quotes.tenantId, deleted: quotes.deletedAt, from: quotes },
       visits: { actor: visitsTbl.createdBy, date: visitsTbl.visitDate, tenant: visitsTbl.tenantId, deleted: visitsTbl.deletedAt, from: visitsTbl },
@@ -1695,8 +1718,6 @@ export class ReportsService {
           inArray(spec.actor, userIds),
           gte(spec.date, range.prevFrom),
           lte(spec.date, range.to),
-          typeFilter?.in?.length ? inArray(salesActivities.activityTypeId, typeFilter.in) : undefined,
-          typeFilter?.notIn?.length ? notInArray(salesActivities.activityTypeId, typeFilter.notIn) : undefined,
           typeFilter?.notResult ? sql`coalesce(${salesActivities.result}, '') <> ${typeFilter.notResult}` : undefined
         )
       )
@@ -1734,21 +1755,19 @@ export class ReportsService {
       scope === 'self' ? audience.filter((user) => user.id === actor.userId) : audience;
     const userIds = people.map((user) => user.id);
 
-    // Ziyaret/arama hem kendi tablosundan hem aynı türdeki aktivite kaydından
-    // sayılır; "Aktivite" ise geri kalan türlerdir. Aksi halde aktivite ekranından
-    // girilen ziyaret/arama yalnız "Aktivite" çubuğunda görünüp sayılar yanıltıyordu.
-    const activityTypeIds = await this.visitCallActivityTypeIds();
-    const [quoteCounts, visitTableCounts, callTableCounts, activityCounts, visitActivityCounts, callActivityCounts] =
+    // Tüm temas kaynakları tek Aktivite metriğinde birleşir. Legacy ziyaret ve
+    // arama tabloları geçmiş kayıtları kaybetmemek için toplamda tutulur.
+    const [quoteCounts, visitTableCounts, callTableCounts, salesActivityCounts] =
       await Promise.all([
         this.activityCounts('quotes', actor.tenantId, userIds, range),
         this.activityCounts('visits', actor.tenantId, userIds, range),
         this.activityCounts('calls', actor.tenantId, userIds, range),
-        this.activityCounts('activities', actor.tenantId, userIds, range, { notIn: activityTypeIds.all }),
-        this.activityCounts('activities', actor.tenantId, userIds, range, { in: activityTypeIds.visit, notResult: VISIT_NOT_DONE_RESULT }),
-        this.activityCounts('activities', actor.tenantId, userIds, range, { in: activityTypeIds.call }),
+        this.activityCounts('activities', actor.tenantId, userIds, range, { notResult: VISIT_NOT_DONE_RESULT }),
       ]);
-    const visitCounts = mergeCountMaps(visitTableCounts, visitActivityCounts);
-    const callCounts = mergeCountMaps(callTableCounts, callActivityCounts);
+    const activityCounts = mergeCountMaps(
+      mergeCountMaps(salesActivityCounts, visitTableCounts),
+      callTableCounts,
+    );
 
     // Fırsat: açılan (createdBy/createdAt) ve kazanılan (ownerUserId + derece WIN).
     const oppRows = userIds.length
@@ -1801,21 +1820,17 @@ export class ReportsService {
     const rows = people
       .map((user) => {
         const quote = pick(quoteCounts, user.id);
-        const visit = pick(visitCounts, user.id);
-        const call = pick(callCounts, user.id);
         const activity = pick(activityCounts, user.id);
         const opp = oppMap.get(user.id);
         const won = wonMap.get(user.id);
         const current =
-          quote.current + visit.current + call.current + activity.current + (opp?.current ?? 0);
+          quote.current + activity.current + (opp?.current ?? 0);
         const previous =
-          quote.previous + visit.previous + call.previous + activity.previous + (opp?.previous ?? 0);
+          quote.previous + activity.previous + (opp?.previous ?? 0);
         return {
           userId: user.id,
           name: user.fullName ?? user.email,
           quotes: quote,
-          visits: visit,
-          calls: call,
           activities: activity,
           opportunitiesCreated: { current: opp?.current ?? 0, previous: opp?.previous ?? 0 },
           won: { current: won?.current ?? 0, previous: won?.previous ?? 0 },
@@ -1826,13 +1841,11 @@ export class ReportsService {
       // Hareketsiz kullanıcılar listeyi şişirmesin; hiç aktivitesi olmayanlar sona.
       .sort((a, b) => b.total.current - a.total.current || a.name.localeCompare(b.name, 'tr-TR'));
 
-    const sum = (key: 'quotes' | 'visits' | 'calls' | 'activities' | 'opportunitiesCreated' | 'won', field: 'current' | 'previous') =>
+    const sum = (key: 'quotes' | 'activities' | 'opportunitiesCreated' | 'won', field: 'current' | 'previous') =>
       rows.reduce((acc, row) => acc + row[key][field], 0);
 
     const totals = {
       quotes: sum('quotes', 'current'),
-      visits: sum('visits', 'current'),
-      calls: sum('calls', 'current'),
       activities: sum('activities', 'current'),
       opportunitiesCreated: sum('opportunitiesCreated', 'current'),
       won: sum('won', 'current'),
@@ -1840,8 +1853,6 @@ export class ReportsService {
     };
     const previousTotals = {
       quotes: sum('quotes', 'previous'),
-      visits: sum('visits', 'previous'),
-      calls: sum('calls', 'previous'),
       activities: sum('activities', 'previous'),
       opportunitiesCreated: sum('opportunitiesCreated', 'previous'),
       won: sum('won', 'previous'),
@@ -2011,7 +2022,7 @@ export class ReportsService {
       name: visibleName ?? (!directCompanyId && !opportunityCompanyId ? leadCompanyTitle : null),
     });
 
-    if (metric === 'all' || metric === 'visits') {
+    if (metric === 'all' || metric === 'activities') {
       loaders.push(
         this.db
           .select({
@@ -2047,7 +2058,7 @@ export class ReportsService {
               .map((row) => ({
                 id: row.id,
                 source: 'visit' as const,
-                metric: 'visits' as const,
+                metric: 'activities' as const,
                 typeCode: 'customer_visit',
                 typeName: 'Müşteri Ziyareti',
                 title: row.title?.trim() || 'Müşteri ziyareti',
@@ -2079,7 +2090,7 @@ export class ReportsService {
       );
     }
 
-    if (metric === 'all' || metric === 'calls') {
+    if (metric === 'all' || metric === 'activities') {
       loaders.push(
         this.db
           .select({
@@ -2113,7 +2124,7 @@ export class ReportsService {
               .map((row) => ({
                 id: row.id,
                 source: 'call' as const,
-                metric: 'calls' as const,
+                metric: 'activities' as const,
                 typeCode: 'call',
                 typeName: 'Arama',
                 title: row.title?.trim() || 'Arama',
@@ -2140,19 +2151,7 @@ export class ReportsService {
       );
     }
 
-    if (metric === 'all' || metric === 'activities' || metric === 'visits' || metric === 'calls') {
-      const activityTypeIds = await this.visitCallActivityTypeIds();
-      const activityTypeFilter =
-        metric === 'visits'
-          ? and(
-              inArray(salesActivities.activityTypeId, activityTypeIds.visit),
-              sql`coalesce(${salesActivities.result}, '') <> ${VISIT_NOT_DONE_RESULT}`
-            )
-          : metric === 'calls'
-            ? inArray(salesActivities.activityTypeId, activityTypeIds.call)
-            : metric === 'activities'
-              ? notInArray(salesActivities.activityTypeId, activityTypeIds.all)
-              : undefined;
+    if (metric === 'all' || metric === 'activities') {
       loaders.push(
         this.db
           .select({
@@ -2183,7 +2182,7 @@ export class ReportsService {
               inArray(salesActivities.createdBy, userIds),
               gte(salesActivities.activityDate, range.from),
               sql`${salesActivities.activityDate} < ${range.to}`,
-              activityTypeFilter,
+              sql`coalesce(${salesActivities.result}, '') <> ${VISIT_NOT_DONE_RESULT}`,
             ),
           )
           .then((rows) =>
@@ -2192,12 +2191,7 @@ export class ReportsService {
               .map((row) => ({
                 id: row.id,
                 source: 'activity' as const,
-                metric:
-                  row.typeCode === 'customer_visit'
-                    ? ('visits' as const)
-                    : row.typeCode === 'incoming_call' || row.typeCode === 'outgoing_call'
-                      ? ('calls' as const)
-                      : ('activities' as const),
+                metric: 'activities' as const,
                 typeCode: row.typeCode,
                 typeName: activityTypeLabel(row.typeCode),
                 title: row.title,
@@ -2338,10 +2332,9 @@ export class ReportsService {
       deletedCol: any,
       actorCol: any,
       table: any,
-      /** Yalnız aktivite serisi için tür süzgeci. */
-      typeFilter?: { in?: string[]; notIn?: string[]; notResult?: string }
+      /** Yalnız genel aktivite serisinde sayılmayacak sonuç. */
+      notResult?: string,
     ) => {
-      if (typeFilter?.in && !typeFilter.in.length) return new Map<string, number>();
       const truncated = sql`date_trunc('${sql.raw(unit)}', ${dateCol})`;
       const rows = await this.db
         .select({
@@ -2356,43 +2349,34 @@ export class ReportsService {
             inArray(actorCol, userIds),
             gte(dateCol, range.from),
             lte(dateCol, range.to),
-            typeFilter?.in?.length ? inArray(salesActivities.activityTypeId, typeFilter.in) : undefined,
-            typeFilter?.notIn?.length ? notInArray(salesActivities.activityTypeId, typeFilter.notIn) : undefined,
-            typeFilter?.notResult ? sql`coalesce(${salesActivities.result}, '') <> ${typeFilter.notResult}` : undefined
+            notResult ? sql`coalesce(${salesActivities.result}, '') <> ${notResult}` : undefined,
           )
         )
         .groupBy(truncated);
       return new Map(rows.map((row) => [row.bucket, row.count]));
     };
 
-    const activityTypeIds = await this.visitCallActivityTypeIds();
-    const activitySeries = (typeFilter: { in?: string[]; notIn?: string[]; notResult?: string }) =>
+    const [q, vTable, cTable, activities] = await Promise.all([
+      series(quotes.quoteDate, quotes.tenantId, quotes.deletedAt, quotes.createdBy, quotes),
+      series(visitsTbl.visitDate, visitsTbl.tenantId, visitsTbl.deletedAt, visitsTbl.createdBy, visitsTbl),
+      series(callsTbl.callDate, callsTbl.tenantId, callsTbl.deletedAt, callsTbl.createdBy, callsTbl),
       series(
         salesActivities.activityDate,
         salesActivities.tenantId,
         salesActivities.deletedAt,
         salesActivities.createdBy,
         salesActivities,
-        typeFilter,
-      );
-    const [q, vTable, cTable, a, vActivity, cActivity] = await Promise.all([
-      series(quotes.quoteDate, quotes.tenantId, quotes.deletedAt, quotes.createdBy, quotes),
-      series(visitsTbl.visitDate, visitsTbl.tenantId, visitsTbl.deletedAt, visitsTbl.createdBy, visitsTbl),
-      series(callsTbl.callDate, callsTbl.tenantId, callsTbl.deletedAt, callsTbl.createdBy, callsTbl),
-      activitySeries({ notIn: activityTypeIds.all }),
-      activitySeries({ in: activityTypeIds.visit, notResult: VISIT_NOT_DONE_RESULT }),
-      activitySeries({ in: activityTypeIds.call }),
+        VISIT_NOT_DONE_RESULT,
+      ),
     ]);
 
     const keys = [
-      ...new Set([...q.keys(), ...vTable.keys(), ...cTable.keys(), ...a.keys(), ...vActivity.keys(), ...cActivity.keys()]),
+      ...new Set([...q.keys(), ...vTable.keys(), ...cTable.keys(), ...activities.keys()]),
     ].sort();
     return keys.map((key) => ({
       bucket: key,
       quotes: q.get(key) ?? 0,
-      visits: (vTable.get(key) ?? 0) + (vActivity.get(key) ?? 0),
-      calls: (cTable.get(key) ?? 0) + (cActivity.get(key) ?? 0),
-      activities: a.get(key) ?? 0,
+      activities: (activities.get(key) ?? 0) + (vTable.get(key) ?? 0) + (cTable.get(key) ?? 0),
     }));
   }
 }

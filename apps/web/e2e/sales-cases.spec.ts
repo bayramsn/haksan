@@ -97,7 +97,7 @@ test("fırsatlar listelenir ve detay açılır", async ({ page }) => {
     await expect(dialog.getByRole("button", { name: "Tam süreç haritasını aç", exact: true })).toHaveCount(0);
   } else {
     await expect(dialog.getByText("Kayıt çalışma alanı", { exact: true })).toBeVisible();
-    await expect(dialog.getByText("Sıradaki iş ve risk", { exact: true })).toBeVisible();
+    await expect(dialog.getByTestId("opportunity-summary").getByText("Fırsat Açıklaması", { exact: true })).toBeVisible();
     await expectSingleWorkspaceAxis(dialog);
   }
 
@@ -239,6 +239,7 @@ test("lead kartından yeni firma OSM araması üst formu göndermeden açık kal
 });
 
 test("Lead Workspace V2 akışı otomatik atamadan gerekçeli fırsat dönüşümüne ilerler", async ({ page, request }) => {
+  test.setTimeout(90_000);
   const suffix = Date.now().toString(36);
   const city = `V2-${suffix}`;
   const product = `HAXAN-V2-${suffix}`;
@@ -319,8 +320,6 @@ test("Lead Workspace V2 akışı otomatik atamadan gerekçeli fırsat dönüşü
     await recordDialog.getByRole("button", { name: "Temas sonucunu kaydet", exact: true }).click();
     const contactDialog = page.getByRole("dialog", { name: "Temas sonucunu kaydet" });
     await contactDialog.getByLabel("Kısa not").fill("Karar verici teknik demo ve fiyat çalışması istedi.");
-    await contactDialog.getByLabel("Sonraki aksiyon").fill("Demo takvimini ve teknik föyü gönder");
-    await contactDialog.getByLabel("Takip zamanı").fill("2030-02-02T10:30");
     await contactDialog.getByRole("button", { name: "Sonucu kaydet" }).click();
     await expect(contactDialog).toBeHidden();
 

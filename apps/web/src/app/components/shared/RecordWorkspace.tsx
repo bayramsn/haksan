@@ -64,7 +64,7 @@ export const WorkspaceDecisionSummary = forwardRef<HTMLElement, {
         <div className="grid gap-4 lg:grid-cols-[minmax(0,1.2fr)_minmax(220px,.9fr)_auto] lg:items-center">
           <div className="min-w-0">
             <div className="font-data text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-              {sectionLabel ?? "Sonraki iş"}
+              {sectionLabel ?? "Sonraki aktivite"}
             </div>
             <h2 id="workspace-decision-title" className="mt-1 truncate font-display text-lg font-semibold text-foreground" title={model.nextAction}>
               {model.nextAction}
@@ -130,13 +130,13 @@ export const WorkspaceDecisionSummary = forwardRef<HTMLElement, {
         <div className="min-w-0">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
-              <h2 id="workspace-decision-title" className="font-display text-xl font-semibold text-[#0b1739]">Sıradaki iş ve risk</h2>
+              <h2 id="workspace-decision-title" className="font-display text-xl font-semibold text-[#0b1739]">Sıradaki aktivite ve risk</h2>
               <p className="mt-1 text-xs text-muted-foreground">CRM verilerinden üretilen karar özeti; AI önerisi içermez.</p>
             </div>
             {model.terminalLabel && <Badge className="bg-slate-700">{model.terminalLabel}</Badge>}
           </div>
           <div className={`mt-4 rounded-r-lg border-l-[3px] px-3 py-3 ${model.nextActionOverdue ? "border-red-600 bg-red-50" : "border-[#2457D6] bg-blue-50"}`}>
-            <div className="font-data text-[9px] font-semibold uppercase tracking-[0.13em] text-muted-foreground">Sonraki aksiyon</div>
+            <div className="font-data text-[9px] font-semibold uppercase tracking-[0.13em] text-muted-foreground">Sonraki aktivite</div>
             <div className="mt-1 break-words text-sm font-semibold text-[#0b1739]">{model.nextAction}</div>
             <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
               <span className={`inline-flex items-center gap-1.5 ${model.nextActionOverdue ? "font-semibold text-red-700" : ""}`}><CalendarClock className="size-3.5" /> {model.nextActionDate}</span>

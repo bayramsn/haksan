@@ -9,6 +9,8 @@ describe("lead ve fırsat çalışma alanı sorumlu değişikliği", () => {
   const detailSource = readFileSync(new URL("./SalesCaseDetail.tsx", import.meta.url), "utf8");
   const taskSectionSource = readFileSync(new URL("./tasks/TaskRecordSection.tsx", import.meta.url), "utf8");
   const shellSource = readFileSync(new URL("../shared/KanbanDetailDialogShell.tsx", import.meta.url), "utf8");
+  const storeSource = readFileSync(new URL("../../lib/store.tsx", import.meta.url), "utf8");
+  const dialogsSource = readFileSync(new URL("../dialogs/CreateDialogs.tsx", import.meta.url), "utf8");
 
   it("nitelendirme formunu yalnız başka bir karta geçilince sunucu değeriyle ezer", () => {
     // Bağımlılık `salesCase` nesnesiyken store'un her tazelemesi yeni referans
@@ -103,16 +105,40 @@ describe("lead ve fırsat çalışma alanı sorumlu değişikliği", () => {
     expect(workspaceSource).toContain("items={processTimeline.map(");
   });
 
-  it("aktivite akışını Trello benzeri hızlı girişle yan panele verir", () => {
+  it("aktivite girişini üst karar aksiyonuna taşır ve akışı tek kopya tutar", () => {
     // Sekmeler kaldırıldıktan sonra akışın tek yeri kalıcı yan panel; buraya
     // geçirilmezse aktivite arayüzden tamamen kaybolur.
     expect(workspaceSource).toContain("activityFeed={activityFeed}");
-    // Fırsat akışı da lead gibi TAM aktivite girişi alır: `commentOnly` geri
-    // gelirse tür seçimi (ziyaret, arama, toplantı...) kaybolur ve kullanıcı
-    // yeniden yalnız yorum yazabilir.
+    // Tam aktivite formu üstteki eski aksiyon planlama yuvasındadır; akışın
+    // içinde ikinci bir ekleme düğmesi oluşmaz.
     expect(workspaceSource).not.toContain("commentOnly=");
-    expect(workspaceSource).toContain('"Aktivite gir…"');
+    expect(workspaceSource).toContain("const decisionPrimaryAction");
+    expect(workspaceSource).toContain("Aktivite Ekle</Button>");
+    expect(workspaceSource.match(/<AddActivityDialog/g)).toHaveLength(1);
+    expect(workspaceSource).not.toContain("<NextActionDialog");
     expect(workspaceSource).toContain("Bu fırsat için henüz aktivite veya yorum yok.");
+  });
+
+  it("aktivitede seçilen kişiyi ileri tarihli görev sorumlusu olarak API'ye taşır", () => {
+    expect(storeSource).toContain("assignedToUserId: a.byUserId || undefined");
+    expect(dialogsSource).toContain("İleri tarihli aktiviteler seçilen kişiye görev olarak atanır.");
+  });
+
+  it("aktivite sorumlusu listesini izinle daraltılmış genel kullanıcı store'u yerine fırsat atama listesinden alır", () => {
+    expect(dialogsSource).toContain("opportunityService\n      .assignees()");
+    expect(dialogsSource).toContain("assignableActivityUsers.map");
+    expect(dialogsSource).not.toContain("{users.map((u) => <SelectItem key={u.id} value={u.id}>{u.name}</SelectItem>)}");
+  });
+
+  it("mevcut fırsat açıklamasını en üstte okunabilir ve düzenlenebilir tutar", () => {
+    expect(workspaceSource).toContain('data-testid="opportunity-summary"');
+    expect(workspaceSource).toContain("Fırsat Açıklaması");
+    expect(workspaceSource).toContain('onSave={(description) => updateCase(sc.id, { description })}');
+    expect(workspaceSource).toContain("<OpportunitySummary");
+    const descriptionIndex = workspaceSource.indexOf("<OpportunitySummary");
+    const decisionIndex = workspaceSource.indexOf("<WorkspaceDecisionSummary");
+    expect(descriptionIndex).toBeGreaterThan(-1);
+    expect(descriptionIndex).toBeLessThan(decisionIndex);
   });
 });
 

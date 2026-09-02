@@ -3774,13 +3774,14 @@ export class OpportunitiesService {
       where: eq(opportunityStatuses.code, 'lost'),
     });
     const cancelledStage = await this.stageRowByCode('cancelled');
+    const now = new Date();
     await this.db
       .update(opportunities)
       .set({
         qualificationStage: 'lost',
         currentStageId: cancelledStage.id,
         qualificationNote: input.note?.trim() || input.lostUnmetConditions?.trim() || null,
-        qualificationUpdatedAt: new Date(),
+        qualificationUpdatedAt: now,
         lostReasonId: reason.id,
         lostCompetitorId: input.lostCompetitorId ?? null,
         lostCompetitorProductModel: input.lostCompetitorProductModel?.trim() || null,
@@ -3801,7 +3802,10 @@ export class OpportunitiesService {
           || null,
         lostUnmetConditions: input.lostUnmetConditions?.trim() || input.note?.trim() || null,
         statusId: lostStatus?.id ?? opp.statusId,
-        updatedAt: new Date(),
+        // LOST terminal karardır: kart aynı işlemde aktif panodan Geçmiş'e düşer.
+        closedAt: now,
+        closedBy: actor.userId,
+        updatedAt: now,
         updatedBy: actor.userId,
       })
       .where(eq(opportunities.id, opp.id));
@@ -4461,7 +4465,11 @@ export class OpportunitiesService {
       if (status) patch.statusId = status.id;
       if (!cancelledOutcome) patch.qualificationStage = 'lost';
       if (input.changeReason?.trim()) patch.qualificationNote = input.changeReason.trim();
-      patch.qualificationUpdatedAt = new Date();
+      const now = new Date();
+      patch.qualificationUpdatedAt = now;
+      // LOST/iptal terminal karardır: kart aynı işlemde aktif panodan Geçmiş'e düşer.
+      patch.closedAt = now;
+      patch.closedBy = actor.userId;
     } else if (movingBackward && this.qualificationStage(opp.qualificationStage) === 'win') {
       const open = await this.db.query.opportunityStatuses.findFirst({ where: eq(opportunityStatuses.code, 'open') });
       if (open) patch.statusId = open.id;

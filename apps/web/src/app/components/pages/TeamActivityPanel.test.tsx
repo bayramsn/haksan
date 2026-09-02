@@ -39,14 +39,14 @@ vi.mock("../ui/dialog", () => ({
 const details: TeamActivityDetails = {
   period: "week",
   scope: "self",
-  metric: "visits",
+  metric: "activities",
   range: { from: "2026-08-24T00:00:00.000Z", to: "2026-08-31T00:00:00.000Z" },
   user: { id: "user-1", name: "Ersin Çetinbilek" },
   items: [
     {
       id: "activity-1",
       source: "activity",
-      metric: "visits",
+      metric: "activities",
       typeCode: "customer_visit",
       typeName: "Müşteri Ziyareti",
       title: "Üretim hattı ziyareti",
@@ -69,7 +69,7 @@ describe("TeamActivityDetailsDialog", () => {
   it("aktivite satırına tıklanınca içeriği açıp kapatır", () => {
     render(
       <TeamActivityDetailsDialog
-        selection={{ metric: "visits", userId: "user-1", userName: "Ersin Çetinbilek" }}
+        selection={{ metric: "activities", userId: "user-1", userName: "Ersin Çetinbilek" }}
         data={details}
         loading={false}
         error={null}

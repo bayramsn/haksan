@@ -9,6 +9,9 @@ let salesToken = '';
 let serviceToken = '';
 let readonlyToken = '';
 let superadminToken = '';
+let adminUserId = '';
+let salesUserId = '';
+let superadminUserId = '';
 let companyId = '';
 let contactId = '';
 let opportunityId = '';
@@ -24,10 +27,13 @@ beforeAll(async () => {
     supertest(server).post('/api/v1/auth/login').send({ email: 'superadmin@haksan.local', password: 'superadmin12345' }),
   ]);
   adminToken = admin.body.accessToken;
+  adminUserId = admin.body.user.id;
   salesToken = sales.body.accessToken;
+  salesUserId = sales.body.user.id;
   serviceToken = service.body.accessToken;
   readonlyToken = readonly.body.accessToken;
   superadminToken = superadmin.body.accessToken;
+  superadminUserId = superadmin.body.user.id;
 
   // Test firmasını servis rolünün de görebildiği cari müşteri havuzundan seç.
   // Admin listesinin ilk satırı sıralamaya göre potansiyel müşteri/tedarikçi
@@ -56,6 +62,111 @@ afterAll(async () => {
 });
 
 describe('Activity mentions', () => {
+  it('lists every active tenant user as an activity assignee for opportunity readers', async () => {
+    const response = await supertest(app.getHttpServer())
+      .get('/api/v1/opportunities/assignees')
+      .set('Authorization', `Bearer ${salesToken}`);
+    expect(response.status, JSON.stringify(response.body)).toBe(200);
+    expect(response.body.map((candidate: { id: string }) => candidate.id)).toEqual(
+      expect.arrayContaining([salesUserId, adminUserId]),
+    );
+  });
+
+  it('creates a task for a future activity and assigns it to the selected user', async () => {
+    const server = app.getHttpServer();
+    const subject = `İleri tarihli aktivite görevi ${Date.now()}`;
+    const futureDate = new Date(Date.now() + 48 * 60 * 60 * 1000);
+    const activity = await supertest(server)
+      .post('/api/v1/activities')
+      .set('Authorization', `Bearer ${superadminToken}`)
+      .send({
+        opportunityId,
+        companyId,
+        contactId,
+        assignedToUserId: salesUserId,
+        activityTypeCode: 'outgoing_call',
+        subject,
+        description: 'Seçilen satış kullanıcısına görev düşmeli.',
+        activityDate: futureDate.toISOString(),
+      });
+    expect(activity.status, JSON.stringify(activity.body)).toBe(201);
+
+    const taskList = await supertest(server)
+      .get(`/api/v1/tasks?view=all&opportunityId=${opportunityId}&pageSize=200`)
+      .set('Authorization', `Bearer ${superadminToken}`);
+    expect(taskList.status, JSON.stringify(taskList.body)).toBe(200);
+    const task = taskList.body.data.find((row: { title: string }) => row.title === subject);
+    expect(task).toMatchObject({
+      title: subject,
+      status: 'todo',
+      assignedToUserId: salesUserId,
+      opportunityId,
+      companyId,
+      contactId,
+    });
+    expect(task.dueAt.slice(0, 10)).toBe(futureDate.toISOString().slice(0, 10));
+  });
+
+  it('defaults a future activity task to its creator and rejects unknown assignees', async () => {
+    const server = app.getHttpServer();
+    const futureDate = new Date(Date.now() + 72 * 60 * 60 * 1000).toISOString();
+    const subject = `Varsayılan aktivite görevi ${Date.now()}`;
+    await supertest(server)
+      .post('/api/v1/activities')
+      .set('Authorization', `Bearer ${superadminToken}`)
+      .send({
+        opportunityId,
+        companyId,
+        activityTypeCode: 'note',
+        subject,
+        activityDate: futureDate,
+      })
+      .expect(201);
+
+    const taskList = await supertest(server)
+      .get(`/api/v1/tasks?view=all&opportunityId=${opportunityId}&search=${encodeURIComponent(subject)}&pageSize=20`)
+      .set('Authorization', `Bearer ${superadminToken}`)
+      .expect(200);
+    expect(taskList.body.data[0]).toMatchObject({ assignedToUserId: superadminUserId, title: subject });
+
+    const invalidSubject = `Geçersiz sorumlu ${Date.now()}`;
+    const invalid = await supertest(server)
+      .post('/api/v1/activities')
+      .set('Authorization', `Bearer ${superadminToken}`)
+      .send({
+        opportunityId,
+        companyId,
+        assignedToUserId: '00000000-0000-4000-8000-000000000001',
+        activityTypeCode: 'note',
+        subject: invalidSubject,
+        activityDate: futureDate,
+      });
+    expect(invalid.status).toBe(404);
+  });
+
+  it('does not create a task for a same-day activity', async () => {
+    const server = app.getHttpServer();
+    const subject = `Bugünkü aktivite görev olmamalı ${Date.now()}`;
+    await supertest(server)
+      .post('/api/v1/activities')
+      .set('Authorization', `Bearer ${superadminToken}`)
+      .send({
+        opportunityId,
+        companyId,
+        assignedToUserId: salesUserId,
+        activityTypeCode: 'note',
+        subject,
+        activityDate: new Date().toISOString(),
+      })
+      .expect(201);
+
+    const taskList = await supertest(server)
+      .get(`/api/v1/tasks?view=all&opportunityId=${opportunityId}&search=${encodeURIComponent(subject)}&pageSize=20`)
+      .set('Authorization', `Bearer ${superadminToken}`)
+      .expect(200);
+    expect(taskList.body.data).toHaveLength(0);
+  });
+
   it('filters the complete activity data set by contact on the server', async () => {
     const server = app.getHttpServer();
     const activity = await supertest(server)

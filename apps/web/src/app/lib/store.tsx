@@ -1738,6 +1738,7 @@ function StoreInner({ children }: { children: ReactNode }) {
       opportunityId: a.salesCaseId || undefined,
       companyId: a.customerId || undefined,
       contactId: a.contactId || undefined,
+      assignedToUserId: a.byUserId || undefined,
       activityTypeCode,
       subject: a.title,
       description: a.note,

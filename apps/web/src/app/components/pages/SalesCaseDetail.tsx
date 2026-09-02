@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "../ui/card";
 import { Button } from "../ui/button";
 import { Badge } from "../ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../ui/tabs";
-import { AlarmClock, ArrowLeft, CalendarClock, ChevronLeft, ChevronRight, Plus, Upload, X, XCircle, Eye, FileText, CreditCard, CheckCircle2, Trash2, Wrench, Pencil, Building2, UserRound, Download, Mail, MapPin, Phone } from "lucide-react";
+import { ArrowLeft, CalendarClock, ChevronLeft, ChevronRight, Plus, Upload, X, XCircle, Eye, FileText, CreditCard, CheckCircle2, Trash2, Wrench, Pencil, Building2, UserRound, Download, Mail, MapPin, Phone } from "lucide-react";
 import {
   SalesCase,
   LEAD_FOLLOW_UP_STATUS_LABELS,
@@ -60,7 +60,6 @@ const OfferDetailDialog = lazy(() =>
 );
 import { STAGE_DOT } from "./Kanban";
 import { DialogSplitLayout, DialogSidebarSection } from "../shared/DialogSplitLayout";
-import { NextActionDialog, actionDateLabel, isActionOverdue } from "../shared/NextActionDialog";
 import { KanbanDetailDialogShell } from "../shared/KanbanDetailDialogShell";
 import { fileService, opportunityService, quoteService, salesOrderService, financeService } from "../../../lib/services";
 import { toast } from "sonner";
@@ -1183,23 +1182,9 @@ export function SalesCaseDetailPage({
                 </div>
               )}
             </DialogSidebarSection>
-            <DialogSidebarSection title="Takip Planı">
-              <div className={`rounded-r-lg border-l-[3px] px-3 py-2.5 ${isActionOverdue(sc.nextActionAt) ? "border-red-500 bg-red-50/75" : "border-primary bg-blue-50/70"}`}>
-                <div className="flex items-center justify-between gap-2">
-                  <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-primary">
-                    <AlarmClock className="size-3.5" /> Sonraki aksiyon
-                  </span>
-                  <span className={`inline-flex items-center gap-1 text-[9px] ${isActionOverdue(sc.nextActionAt) ? "font-semibold text-red-700" : "text-muted-foreground"}`}>
-                    <CalendarClock className="size-3" />
-                    {isActionOverdue(sc.nextActionAt) ? "Gecikti · " : ""}{actionDateLabel(sc.nextActionAt)}
-                  </span>
-                </div>
-                <div className={`mt-1.5 text-xs leading-5 ${sc.nextAction ? "font-medium" : "text-muted-foreground"}`}>
-                  {sc.nextAction || "Henüz bir sonraki aksiyon planlanmadı."}
-                </div>
-              </div>
-              {sc.qualificationStage === "lead" && (
-                <div className="mt-2">
+            {sc.qualificationStage === "lead" && (
+              <DialogSidebarSection title="İlk Temas Durumu">
+                <div>
                   <div className="mb-1 text-[10px] uppercase tracking-wide text-muted-foreground">İlk temas durumu</div>
                   <Select
                     value={sc.leadFollowUpStatus ?? "new"}
@@ -1218,20 +1203,8 @@ export function SalesCaseDetailPage({
                     </SelectContent>
                   </Select>
                 </div>
-              )}
-              {canUpdate && (
-                <NextActionDialog
-                  salesCase={sc}
-                  onSave={(patch) => updateCase(sc.id, patch)}
-                  trigger={
-                    <Button type="button" variant="outline" size="sm" className="mt-2 h-8 w-full gap-1.5 text-[10px]">
-                      <AlarmClock className="size-3.5" />
-                      {sc.nextAction ? "Aksiyonu düzenle" : "Aksiyon planla"}
-                    </Button>
-                  }
-                />
-              )}
-            </DialogSidebarSection>
+              </DialogSidebarSection>
+            )}
             {sc.leadContactName && (
               <DialogSidebarSection title="İlk Temas Bilgisi">
                 <div className="space-y-2 text-xs">

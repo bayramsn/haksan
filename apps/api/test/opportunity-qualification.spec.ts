@@ -700,13 +700,13 @@ describe('Opportunity qualification pipeline', () => {
     expect(lost.body.lostUnmetConditions).toBe('Teslim süresi ve ödeme şartı müşteriye uymadı');
     expect(lost.body.lostCompanyName).toBeTruthy();
     expect(lost.body.lostReason).toMatchObject({ code: 'qualification_test' });
+    expect(lost.body.closedAt).toBeTruthy();
 
-    const closed = await supertest(server)
-      .post(`/api/v1/opportunities/${opportunityId}/close`)
-      .set('Authorization', `Bearer ${token}`)
-      .send({ reason: 'Qualification testi tamamlandı' });
-    expect(closed.status, JSON.stringify(closed.body)).toBe(201);
-    expect(closed.body.closedAt).toBeTruthy();
+    const active = await supertest(server)
+      .get(`/api/v1/opportunities?search=${encodeURIComponent(`Qualification test ${suffix}`)}`)
+      .set('Authorization', `Bearer ${token}`);
+    expect(active.status).toBe(200);
+    expect(active.body.data.some((row: { id: string }) => row.id === opportunityId)).toBe(false);
 
     const archive = await supertest(server)
       .get(`/api/v1/opportunities?view=closed&qualificationStage=lost&search=${encodeURIComponent(`Qualification test ${suffix}`)}`)

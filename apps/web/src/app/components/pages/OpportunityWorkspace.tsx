@@ -40,7 +40,6 @@ import { Combobox } from "../ui/combobox";
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from "../ui/dialog";
-import { NextActionDialog, actionDateLabel, isActionOverdue } from "../shared/NextActionDialog";
 import { DecisionRail, LeadQualificationPanel } from "./LeadWorkspaceControls";
 import { TaskRecordSection } from "./tasks/TaskRecordSection";
 import {
@@ -145,6 +144,7 @@ export function buildWorkspaceDecisionModel({
   customerMissing,
   overduePaymentCount,
   nextOperationTarget,
+  nextActivity,
   processReadinessKnown = true,
 }: {
   salesCase: SalesCase;
@@ -152,6 +152,7 @@ export function buildWorkspaceDecisionModel({
   customerMissing: boolean;
   overduePaymentCount: number;
   nextOperationTarget?: OpportunityProcessReadiness["targets"][number];
+  nextActivity?: { title: string; date: string };
   processReadinessKnown?: boolean;
 }): WorkspaceDecisionModel {
   const health = salesCase.qualificationReadiness?.health;
@@ -166,8 +167,6 @@ export function buildWorkspaceDecisionModel({
           ? "Tamamlandı"
           : undefined;
   const risks = [
-    !terminalLabel && health?.actionOverdue ? { key: "action-overdue", label: "Aksiyon gecikmiş", detail: actionDateLabel(salesCase.nextActionAt), tone: "danger" as const, priority: 100 } : null,
-    !terminalLabel && (health?.actionMissing || !salesCase.nextAction) ? { key: "action-missing", label: "Aksiyon planlanmamış", detail: "Takip işi ve tarihi belirleyin", tone: "warning" as const, priority: 95 } : null,
     !terminalLabel && health?.leadSlaBreached ? { key: "lead-sla", label: "İlk temas SLA ihlali", detail: `${health.leadStatusAgeHours ?? 0} saat bekledi`, tone: "danger" as const, priority: 90 } : null,
     !terminalLabel && health?.rotting ? { key: "stage-age", label: "Aşama yaşlanıyor", detail: `${health.stageAgeDays ?? 0} gün / ${health.stageAgeLimitDays ?? "—"} gün`, tone: "warning" as const, priority: 80 } : null,
     !terminalLabel && overduePaymentCount > 0 ? { key: "payment-overdue", label: "Gecikmiş ödeme", detail: `${overduePaymentCount} ödeme kaydı`, tone: "danger" as const, priority: 75 } : null,
@@ -182,9 +181,9 @@ export function buildWorkspaceDecisionModel({
   const qualificationNext = salesCase.qualificationReadiness?.nextStage;
 
   return {
-    nextAction: terminalLabel ? "Kapanış durumunu ve kayıtları inceleyin" : salesCase.nextAction || "Aksiyon planlanmadı",
-    nextActionDate: terminalLabel ? formatDate(salesCase.closedAt, true) : actionDateLabel(salesCase.nextActionAt),
-    nextActionOverdue: !terminalLabel && Boolean(health?.actionOverdue || isActionOverdue(salesCase.nextActionAt)),
+    nextAction: terminalLabel ? "Kapanış durumunu ve kayıtları inceleyin" : nextActivity?.title || "Aktivite planlanmadı",
+    nextActionDate: terminalLabel ? formatDate(salesCase.closedAt, true) : formatDate(nextActivity?.date),
+    nextActionOverdue: false,
     ownerName: ownerName || "Sahipsiz havuz",
     currentStage: isLead
       ? QUALIFICATION_STAGE_LABELS[salesCase.qualificationStage]
@@ -249,6 +248,7 @@ export function OpportunityWorkspace({
   } = useStore();
   const { user, activeDivision, activeDepartment, hasPermission, hasRole } = useAuth();
   const canUpdate = hasPermission("opportunities.update");
+  const canCreateActivity = hasPermission("activities.create");
   const canAssignOwner = canUpdate && (hasRole("sales") || hasRole("super_admin"));
   const isLead = sc.qualificationStage === "lead";
   const simpleOpportunity = simpleMode && !isLead;
@@ -498,6 +498,13 @@ export function OpportunityWorkspace({
     () => opportunityPayments.filter((payment) => payment.status === "Overdue").length,
     [opportunityPayments],
   );
+  const nextActivity = useMemo(() => {
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    return opportunityActivities
+      .filter((activity) => new Date(activity.date).getTime() >= todayStart.getTime())
+      .sort((left, right) => new Date(left.date).getTime() - new Date(right.date).getTime())[0];
+  }, [opportunityActivities]);
   // Her render'da yeni nesne üretip `WorkspaceDecisionSummary`'ye geçiyordu.
   const decisionModel = useMemo(
     () => buildWorkspaceDecisionModel({
@@ -506,13 +513,13 @@ export function OpportunityWorkspace({
       customerMissing: !sc.customerId || (companyQuery.isError && !customer),
       overduePaymentCount,
       nextOperationTarget,
+      nextActivity,
       processReadinessKnown: !simpleOpportunity || Boolean(operationReadiness),
     }),
-    [sc, owner?.name, companyQuery.isError, customer, overduePaymentCount, nextOperationTarget, simpleOpportunity, operationReadiness],
+    [sc, owner?.name, companyQuery.isError, customer, overduePaymentCount, nextOperationTarget, nextActivity, simpleOpportunity, operationReadiness],
   );
   const terminal = Boolean(decisionModel.terminalLabel);
 
-  const processBlocked = Boolean(nextOperationTarget?.blockers.length);
   // Dönüşüm komutu eksikler varken kaybolmaz; alanlar C aşamasında tamamlanır.
   const useLeadConversionAsPrimary = !terminal && canUpdate && isLead;
   const revealProcessActions = () => {
@@ -521,30 +528,14 @@ export function OpportunityWorkspace({
   };
   // Kapanmış kayıtta yapılacak bir iş yok: sahte bir birincil eylem (eskiden
   // "Kapanış kayıtlarını gör") kaldırılan Kayıtlar bölümüne gidiyordu.
-  const decisionPrimaryAction = terminal || !canUpdate ? undefined
-    : isLead || sc.qualificationReadiness?.health?.actionMissing || decisionModel.nextActionOverdue ? (
-      <NextActionDialog
-        salesCase={sc}
-        onSave={(patch) => updateCase(sc.id, patch)}
-        trigger={(
-          <Button type="button">
-            {decisionModel.nextActionOverdue
-              ? "Aksiyonu yeniden planla"
-              : sc.nextAction
-                ? "Aksiyonu düzenle"
-                : "Aksiyon planla"}
-          </Button>
-        )}
-      />
-    ) : processBlocked ? (
-      <Button type="button" onClick={revealProcessActions}>Engelleri çöz</Button>
-    ) : (
-      <NextActionDialog
-        salesCase={sc}
-        onSave={(patch) => updateCase(sc.id, patch)}
-        trigger={<Button type="button">Aksiyonu düzenle</Button>}
-      />
-    );
+  const decisionPrimaryAction = terminal || !canCreateActivity ? undefined : (
+    <AddActivityDialog
+      salesCaseId={sc.id}
+      customerId={sc.customerId}
+      contactId={resolvedContact.primaryContact?.id}
+      trigger={<Button type="button"><ActivityIcon className="size-4" /> Aktivite Ekle</Button>}
+    />
+  );
 
   // Trello kart yorumları gibi: kalıcı olarak görünen yan panelde kronolojik
   // akış ve hemen üstünde hızlı giriş. Tek render yeri var — akış eskiden hem
@@ -562,20 +553,6 @@ export function OpportunityWorkspace({
         </h3>
       </div>
       <div className="space-y-3 p-4">
-        {hasPermission("activities.create") && (
-          <AddActivityDialog
-            salesCaseId={sc.id}
-            customerId={sc.customerId}
-            contactId={resolvedContact.primaryContact?.id}
-            /* Sade fırsat akışı da tam aktivite girişi alır: tür seçimi (ziyaret,
-               arama, toplantı...) artık burada da açık, yalnız yorum değil. */
-            trigger={
-              <Button type="button" variant="outline" className="h-11 w-full justify-start gap-2 text-muted-foreground">
-                <ActivityIcon className="size-4" /> {isLead ? "Aktivite ekle" : "Aktivite gir…"}
-              </Button>
-            }
-          />
-        )}
         {/* Sistem olayları yalnız sade fırsat akışında var ve tek kaynağı bu
             detay çağrısı; lead akışı store'dan besleniyor, beklemesi gereksiz. */}
         {simpleOpportunity && detailLoading ? (
@@ -712,7 +689,7 @@ export function OpportunityWorkspace({
         contactName={resolvedContact.name}
         contactTitle={resolvedContact.primaryContact?.title || resolvedContact.primaryContact?.department}
         otherActions={otherActions}
-        primaryAction={useLeadConversionAsPrimary ? undefined : decisionPrimaryAction}
+        primaryAction={decisionPrimaryAction}
         useLeadConversionAsPrimary={useLeadConversionAsPrimary}
         simpleMode={simpleOpportunity}
         activityFeed={activityFeed}
@@ -926,7 +903,7 @@ function OpportunitySummary({
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="ui-eyebrow flex items-center gap-1.5">
-            <NotebookText className="size-3.5" /> Özet
+            <NotebookText className="size-3.5" /> Fırsat Açıklaması
           </div>
           <p className={`mt-1 whitespace-pre-wrap text-sm ${summary ? "text-foreground" : "text-muted-foreground"}`}>
             {summary || "Bu fırsat için özet girilmemiş."}
@@ -942,7 +919,7 @@ function OpportunitySummary({
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="max-w-xl">
           <DialogHeader>
-            <DialogTitle>Fırsat özeti</DialogTitle>
+            <DialogTitle>Fırsat Açıklaması</DialogTitle>
             <DialogDescription>{salesCase.requestedModel || salesCase.requestedProduct || "Fırsat kartı"}</DialogDescription>
           </DialogHeader>
           <Textarea
