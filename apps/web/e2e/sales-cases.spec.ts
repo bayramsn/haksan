@@ -320,8 +320,6 @@ test("Lead Workspace V2 akışı otomatik atamadan gerekçeli fırsat dönüşü
     await recordDialog.getByRole("button", { name: "Temas sonucunu kaydet", exact: true }).click();
     const contactDialog = page.getByRole("dialog", { name: "Temas sonucunu kaydet" });
     await contactDialog.getByLabel("Kısa not").fill("Karar verici teknik demo ve fiyat çalışması istedi.");
-    await contactDialog.getByLabel("Sonraki aksiyon").fill("Demo takvimini ve teknik föyü gönder");
-    await contactDialog.getByLabel("Takip zamanı").fill("2030-02-02T10:30");
     await contactDialog.getByRole("button", { name: "Sonucu kaydet" }).click();
     await expect(contactDialog).toBeHidden();
 
