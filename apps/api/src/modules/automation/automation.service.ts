@@ -15,6 +15,7 @@ import type { AuthContext } from '../../shared/security/auth.types';
 import { loadEnv } from '../../config/env';
 import { logger } from '../../shared/utils/logger';
 import { tenants } from '../../db/schema/tenants';
+import { users } from '../../db/schema/users';
 import { companies, notifications } from '../../db/schema/companies';
 import { receivables } from '../../db/schema/finance';
 import { customerDevices, inventoryItems } from '../../db/schema/inventory';
@@ -56,6 +57,27 @@ export type BriefingItem = { label: string; nav: string; focus?: string; query?:
 const AUTOMATION_ACTOR_ID = '00000000-0000-0000-0000-000000000000';
 /** Tempo farkı bu kadar puanı geçmeden "geride" denmez; gürültüyü keser. */
 const TARGET_PACE_TOLERANCE = 10;
+/** Kişisel risk uyarısı eşiği: tempo bu kadar puan geride kalınca kişiye yazılır. */
+const TARGET_RISK_THRESHOLD = 15;
+
+export type TargetPaceSubject = { userId: string; name: string; average: number };
+
+/** Beklenen tempodan `threshold` puan geride kalanlar, en geriden başlayarak. */
+export function subjectsBehindPace(
+  subjects: TargetPaceSubject[],
+  expected: number,
+  threshold: number
+): Array<TargetPaceSubject & { gap: number }> {
+  return subjects
+    .filter((subject) => subject.average < expected - threshold)
+    .map((subject) => ({ ...subject, gap: expected - subject.average }))
+    .sort((left, right) => right.gap - left.gap);
+}
+
+/** Kişisel uyarı metni; hedefin kendisini değil temposunu anlatır. */
+export function targetRiskMessage(subject: { average: number; gap: number }, expected: number): string {
+  return `Ayın %${expected}'i geçti, hedef ortalaman %${subject.average}. ${subject.gap} puan geridesin.`;
+}
 
 export function buildMorningBriefingItems(counts: {
   leadBreaches: number;
@@ -233,7 +255,7 @@ export class AutomationService {
    * yazılmasın diye ReportsService'e tenant kapsamlı sentetik aktörle sorulur;
    * cron'un HTTP oturumu yoktur.
    */
-  private async targetsBehindPace(tenantId: string): Promise<{ behind: number; expected: number }> {
+  private async targetPaceStatus(tenantId: string): Promise<{ expected: number; subjects: TargetPaceSubject[] }> {
     const period = new Date().toISOString().slice(0, 7);
     const actor = {
       userId: AUTOMATION_ACTOR_ID,
@@ -254,13 +276,14 @@ export class AutomationService {
     const report = (await this.reports.targetProgress(actor, period, { kind: 'all-users' })) as {
       expectedProgressPct?: number;
       subjects?: Array<{
+        subject?: { id?: string; name?: string };
         hasTarget?: boolean;
         metrics?: Record<string, { pct: number | null }>;
         targetItems?: Array<{ pct?: number | null }>;
       }>;
     };
     const expected = Math.round(Number(report.expectedProgressPct ?? 0));
-    let behind = 0;
+    const subjects: TargetPaceSubject[] = [];
     for (const subject of report.subjects ?? []) {
       if (!subject.hasTarget) continue;
       const pcts = [
@@ -271,9 +294,9 @@ export class AutomationService {
       const average = Math.round(
         pcts.reduce((sum, pct) => sum + Math.min(100, Math.max(0, pct)), 0) / pcts.length
       );
-      if (average < expected - TARGET_PACE_TOLERANCE) behind += 1;
+      subjects.push({ userId: subject.subject?.id ?? '', name: subject.subject?.name ?? '', average });
     }
-    return { behind, expected };
+    return { expected, subjects };
   }
 
   private async overdueReceivableStats(tenantId: string) {
@@ -608,10 +631,10 @@ export class AutomationService {
           this.leadSlaBreaches(tenant.id),
           this.rottingOpportunities(tenant.id),
           this.overdueActionOpportunities(tenant.id),
-          this.targetsBehindPace(tenant.id).catch(() => ({ behind: 0, expected: 0 })),
+          this.targetPaceStatus(tenant.id).catch(() => ({ expected: 0, subjects: [] as TargetPaceSubject[] })),
         ]);
         const items = buildMorningBriefingItems({
-          targetsBehind: targets.behind,
+          targetsBehind: subjectsBehindPace(targets.subjects, targets.expected, TARGET_PACE_TOLERANCE).length,
           periodElapsedPct: targets.expected,
           leadBreaches: leadBreaches.length,
           overdueActions: overdueActions.length,
@@ -860,6 +883,76 @@ export class AutomationService {
   }
 
   /** Her gün: gönderilmiş ama cevapsız kalmış teklifler. */
+  /**
+   * Haftalık kişisel hedef uyarısı. Sabah brifingi tenant geneline "N kişi
+   * geride" derken bu iş, eşiği aşan kişinin kendisine ve yöneticisine yazar.
+   * Pazartesi koşar: gün içi tekrar tetiklenmeyi `alreadyNotified` engeller.
+   */
+  @Cron('45 9 * * 1', { timeZone: TZ })
+  async targetPaceRiskJob(): Promise<void> {
+    if (!this.active) return;
+    try {
+      for (const tenant of await this.listTenants()) {
+        if (await this.alreadyNotified(tenant.id, 'target_pace_risk')) continue;
+        const { expected, subjects } = await this.targetPaceStatus(tenant.id);
+        // Ayın ilk günlerinde herkes "geride" görünür; tempo anlam kazanmadan yazma.
+        if (expected < 20) continue;
+        const behind = subjectsBehindPace(subjects, expected, TARGET_RISK_THRESHOLD).filter((row) => row.userId);
+        if (!behind.length) continue;
+
+        const target = { kind: 'navigate' as const, nav: 'dashboard', focus: 'targets' };
+        for (const row of behind) {
+          await this.db.insert(notifications).values({
+            tenantId: tenant.id,
+            userId: row.userId,
+            divisionId: null,
+            type: 'target_pace_risk',
+            title: 'Hedef temposu geride',
+            body: targetRiskMessage(row, expected),
+            entityType: 'dashboard',
+            entityId: null,
+            items: [{ label: 'Hedeflerimi aç', ...target }],
+          });
+        }
+
+        // Yönetici, ekibindeki geride kalanları tek bildirimde görür.
+        const managerRows = await this.db
+          .select({ userId: users.id, managerId: users.managerId })
+          .from(users)
+          .where(
+            and(
+              eq(users.tenantId, tenant.id),
+              isNull(users.deletedAt),
+              inArray(users.id, behind.map((row) => row.userId))
+            )
+          );
+        const byManager = new Map<string, typeof behind>();
+        for (const link of managerRows) {
+          if (!link.managerId) continue;
+          const row = behind.find((item) => item.userId === link.userId);
+          if (!row) continue;
+          byManager.set(link.managerId, [...(byManager.get(link.managerId) ?? []), row]);
+        }
+        for (const [managerId, rows] of byManager) {
+          await this.db.insert(notifications).values({
+            tenantId: tenant.id,
+            userId: managerId,
+            divisionId: null,
+            type: 'target_pace_risk',
+            title: `Ekibinde ${rows.length} kişi hedef temposunun altında`,
+            body: rows.map((row) => `${row.name}: %${row.average} (${row.gap} puan geride)`).join('\n'),
+            entityType: 'dashboard',
+            entityId: null,
+            items: rows.map((row) => ({ label: `${row.name} · ${row.gap} puan geride`, ...target })),
+          });
+        }
+        logger.info({ action: 'automation_target_pace_risk', tenantId: tenant.id, count: behind.length }, 'target pace risk sent');
+      }
+    } catch (error) {
+      logger.error({ action: 'automation_target_pace_risk_failed' }, String(error));
+    }
+  }
+
   @Cron('45 8 * * *', { timeZone: TZ })
   async staleQuotesJob(): Promise<void> {
     if (!this.active) return;

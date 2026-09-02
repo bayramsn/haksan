@@ -23,7 +23,7 @@ const notificationListQuery = paginationSchema.extend({
 export type NotificationTarget =
   | { kind: 'company'; companyId: string }
   | { kind: 'opportunity'; opportunityId: string; activityId?: string }
-  | { kind: 'navigate'; nav: string; query?: string };
+  | { kind: 'navigate'; nav: string; query?: string; focus?: string };
 
 const pushTokenSchema = z.object({
   token: z.string().min(10).max(255),
@@ -161,6 +161,9 @@ export class NotificationsController {
           : { kind: 'navigate', nav: 'service-requests' };
       case 'calendar_event':
         return { kind: 'navigate', nav: 'calendar' };
+      // Hedef uyarısı doğrudan panonun Hedefler sekmesini açar.
+      case 'dashboard':
+        return { kind: 'navigate', nav: 'dashboard', focus: 'targets' };
       case 'signature':
         return { kind: 'navigate', nav: 'settings' };
       default:
