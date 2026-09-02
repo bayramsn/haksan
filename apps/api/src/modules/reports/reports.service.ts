@@ -155,6 +155,52 @@ const mergeCountMaps = (left: Map<string, PeriodCount>, right: Map<string, Perio
   return merged;
 };
 
+/**
+ * Ekip aktivitesi dönem aralıkları.
+ *
+ * Önceki dönem, geçen dönemin TAMAMI değil **aynı kadarlık** kısmıdır: çarşamba
+ * günü bakan biri 2 günlük veriyi 7 günlük veriyle karşılaştırmasın. Dönem
+ * tamamlandığında aralık kendiliğinden tam döneme eşitlenir.
+ */
+export function teamActivityRanges(period: TeamActivityPeriod, anchor: Date) {
+    const start = new Date(anchor);
+    start.setHours(0, 0, 0, 0);
+    let from: Date;
+    let to: Date;
+    let prevFrom: Date;
+
+    if (period === 'day') {
+      from = start;
+      to = new Date(from);
+      to.setDate(to.getDate() + 1);
+      prevFrom = new Date(from);
+      prevFrom.setDate(prevFrom.getDate() - 1);
+    } else if (period === 'week') {
+      const day = (start.getDay() + 6) % 7; // pazartesi = 0
+      from = new Date(start);
+      from.setDate(from.getDate() - day);
+      to = new Date(from);
+      to.setDate(to.getDate() + 7);
+      prevFrom = new Date(from);
+      prevFrom.setDate(prevFrom.getDate() - 7);
+    } else if (period === 'month') {
+      from = new Date(start.getFullYear(), start.getMonth(), 1);
+      to = new Date(start.getFullYear(), start.getMonth() + 1, 1);
+      prevFrom = new Date(start.getFullYear(), start.getMonth() - 1, 1);
+    } else {
+      from = new Date(start.getFullYear(), 0, 1);
+      to = new Date(start.getFullYear() + 1, 0, 1);
+      prevFrom = new Date(start.getFullYear() - 1, 0, 1);
+    }
+    // Geçen dönemde aynı noktaya kadar: kıyas adil olsun.
+    const elapsed = Math.min(
+      Math.max(anchor.getTime() - from.getTime(), 0),
+      to.getTime() - from.getTime()
+    );
+    const prevTo = elapsed > 0 ? new Date(prevFrom.getTime() + elapsed) : new Date(from);
+    return { from, to, prevFrom, prevTo };
+}
+
 @Injectable()
 export class ReportsService {
   constructor(@Inject(DB) private readonly db: DbClient, private readonly fx: FxService) {}
@@ -1645,36 +1691,7 @@ export class ReportsService {
    * Haftalar pazartesi başlar (TR iş haftası).
    */
   private activityRanges(period: TeamActivityPeriod, anchor: Date) {
-    const start = new Date(anchor);
-    start.setHours(0, 0, 0, 0);
-    let from: Date;
-    let to: Date;
-    let prevFrom: Date;
-
-    if (period === 'day') {
-      from = start;
-      to = new Date(from);
-      to.setDate(to.getDate() + 1);
-      prevFrom = new Date(from);
-      prevFrom.setDate(prevFrom.getDate() - 1);
-    } else if (period === 'week') {
-      const day = (start.getDay() + 6) % 7; // pazartesi = 0
-      from = new Date(start);
-      from.setDate(from.getDate() - day);
-      to = new Date(from);
-      to.setDate(to.getDate() + 7);
-      prevFrom = new Date(from);
-      prevFrom.setDate(prevFrom.getDate() - 7);
-    } else if (period === 'month') {
-      from = new Date(start.getFullYear(), start.getMonth(), 1);
-      to = new Date(start.getFullYear(), start.getMonth() + 1, 1);
-      prevFrom = new Date(start.getFullYear(), start.getMonth() - 1, 1);
-    } else {
-      from = new Date(start.getFullYear(), 0, 1);
-      to = new Date(start.getFullYear() + 1, 0, 1);
-      prevFrom = new Date(start.getFullYear() - 1, 0, 1);
-    }
-    return { from, to, prevFrom, prevTo: from };
+    return teamActivityRanges(period, anchor);
   }
 
   /** Zaman serisi kovası: gün→saat, hafta/ay→gün, yıl→ay. */

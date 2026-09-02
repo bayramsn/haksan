@@ -614,7 +614,8 @@ export function TeamActivityPanel() {
                   </TableBody>
                 </Table>
                 <p className="border-t border-border/60 px-3 py-2 text-[10px] text-muted-foreground">
-                  Parantez içindeki sayılar {PREVIOUS_LABELS[period].replace(" göre", "")} aynı dönemi gösterir.
+                  Parantez içindeki sayılar {PREVIOUS_LABELS[period].replace(" göre", "")} aynı ana kadarki dönemi gösterir
+                  (dönemin tamamı değil, aynı kadar süre — kıyas adil olsun diye).
                   {" "}Toplam Faaliyet = Teklif + Aktivite + Yeni fırsat; Kazanılan bir sonuç metriği olduğu için toplama katılmaz.
                 </p>
               </div>
