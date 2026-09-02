@@ -429,7 +429,8 @@ export function QuoteDialog({
     if (seedCase) {
       const def = quoteDefaultsFromCase(seedCase, products);
       setCurrency(def.currency);
-      setLines([{ ...emptyLine(), ...def.line }]);
+      // Fırsattaki her makine kendi satırını alır (fırsat firma bazlı).
+      setLines(def.lines.map((line) => ({ ...emptyLine(), ...line })));
     } else {
       setCurrency("USD");
       setLines([emptyLine()]);
@@ -716,10 +717,14 @@ export function QuoteDialog({
       const first = ls[0];
       const untouched = !first || (!first.productId && !first.description.trim() && !first.stockCode.trim());
       if (!untouched) return ls;
-      const seeded = { ...emptyLine(), ...def.line };
-      return ls.length ? [seeded, ...ls.slice(1)] : [seeded];
+      const seeded = def.lines.map((line) => ({ ...emptyLine(), ...line }));
+      return ls.length > 1 ? [...seeded, ...ls.slice(1)] : seeded;
     });
-    if (def.matchedProduct) {
+    if (def.lines.length > 1) {
+      toast.success("Fırsattaki makineler satırlara aktarıldı", {
+        description: def.lines.map((line) => line.description).filter(Boolean).join(" · "),
+      });
+    } else if (def.matchedProduct) {
       toast.success("Satış kartından aktarıldı", {
         description: `${def.matchedProduct.brand} ${def.matchedProduct.model} · ${sc.quantity} adet`,
       });

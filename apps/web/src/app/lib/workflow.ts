@@ -20,7 +20,10 @@ export type CarriedQuoteLine = {
 
 export type CaseQuoteDefaults = {
   currency: Currency;
+  /** Geriye dönük: ilk satır. Yeni çağıranlar `lines` kullanmalı. */
   line: CarriedQuoteLine;
+  /** Fırsattaki her makine için bir satır; liste boşsa tek elemanlıdır. */
+  lines: CarriedQuoteLine[];
   matchedProduct: Product | null;
 };
 
@@ -72,18 +75,34 @@ export function quoteDefaultsFromCase(sc: SalesCase, products: Product[]): CaseQ
     matched?.shortDescription?.trim() ||
     [requestedProduct, requestedModel].filter(Boolean).join(" ").trim();
 
+  const lineFor = (product: Product | null, fallbackDescription: string, lineQuantity: number): CarriedQuoteLine => ({
+    categoryCode: product?.categoryCode || "TEZGAH",
+    productId: product?.id ?? "",
+    stockCode: product?.stockCode || product?.model || "",
+    description: product?.shortDescription?.trim() || fallbackDescription,
+    quantity: String(lineQuantity),
+    unitPrice: product?.listPrice ? String(product.listPrice) : "",
+    vatRate: String(product?.vatRate ?? 20),
+  });
+
+  // Fırsat firma bazlı: kartta birden çok makine varsa her biri ayrı satır olur.
+  const machineLines = (sc.machines ?? [])
+    .filter((machine) => machine?.name?.trim())
+    .map((machine) => {
+      const product =
+        (machine.productModelId ? products.find((item) => item.id === machine.productModelId) : null)
+        ?? matchCatalogProduct(machine.name, "", products);
+      return lineFor(product ?? null, machine.name.trim(), Number(machine.quantity) || 1);
+    });
+
+  const fallbackLine = lineFor(matched, description, quantity);
+  const lines = machineLines.length ? machineLines : [fallbackLine];
+
   return {
     // Eşleşen ürün varsa birim fiyat ondan geldiği için para birimini de üründen al; yoksa kart.
     currency: (matched?.currency as Currency) ?? caseCurrency,
     matchedProduct: matched,
-    line: {
-      categoryCode: matched?.categoryCode || "TEZGAH",
-      productId: matched?.id ?? "",
-      stockCode: matched?.stockCode || matched?.model || "",
-      description,
-      quantity: String(quantity),
-      unitPrice: matched?.listPrice ? String(matched.listPrice) : "",
-      vatRate: String(matched?.vatRate ?? 20),
-    },
+    line: lines[0],
+    lines,
   };
 }
