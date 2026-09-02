@@ -32,15 +32,15 @@ export async function rowsToXlsxBuffer(rows: ExportRow[], sheetName = 'Rapor'): 
 }
 
 export async function sheetsToXlsxBuffer(
-  sheets: Array<{ name: string; rows: ExportRow[] }>
+  /** `columns` verilirse satır olmasa da başlıklar yazılır (doldurulacak şablon sayfası). */
+  sheets: Array<{ name: string; rows: ExportRow[]; columns?: string[] }>
 ): Promise<Buffer> {
   const wb = new ExcelJS.Workbook();
   for (const s of sheets) {
     const ws = wb.addWorksheet(safeSheetName(s.name));
-    if (s.rows.length) {
-      ws.columns = Object.keys(s.rows[0]).map((k) => ({ header: k, key: k, width: 22 }));
-      ws.addRows(safeRows(s.rows));
-    }
+    const columns = s.columns ?? (s.rows.length ? Object.keys(s.rows[0]) : []);
+    if (columns.length) ws.columns = columns.map((k) => ({ header: k, key: k, width: 24 }));
+    if (s.rows.length) ws.addRows(safeRows(s.rows));
   }
   const buf = await wb.xlsx.writeBuffer();
   return Buffer.from(buf);
@@ -83,3 +83,4 @@ export function isoDate(value: Date | string | null | undefined): string {
   const d = value instanceof Date ? value : new Date(value);
   return Number.isNaN(d.getTime()) ? '' : d.toISOString().slice(0, 10);
 }
+

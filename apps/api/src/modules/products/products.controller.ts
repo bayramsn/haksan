@@ -40,7 +40,7 @@ import { CurrentUser } from '../../shared/security/current-user.decorator';
 import type { AuthContext } from '../../shared/security/auth.types';
 import { ProductsService } from './products.service';
 import { ProductMediaService } from './product-media.service';
-import { rowsToXlsxBuffer, sendXlsx } from '../../shared/utils/excel-export';
+import { rowsToXlsxBuffer, sendXlsx, sheetsToXlsxBuffer } from '../../shared/utils/excel-export';
 
 const listQuery = z.object({
   search: z.string().optional(),
@@ -132,31 +132,34 @@ export class ProductsController {
     return this.svc.commitImport(body, user);
   }
 
+  /** Şablon indirilebilecek kategori → alt kategori → tip üçlüleri (ürünü olanlar). */
+  @RequirePermissions('products.create')
+  @Get('products/import/template-options')
+  importTemplateOptions(@CurrentUser() user: AuthContext) {
+    return this.svc.importTemplateOptions(user);
+  }
+
   @RequirePermissions('products.create')
   @Get('products/import/template')
-  async importTemplate(@Res({ passthrough: true }) reply: FastifyReply) {
-    const rows = [
-      {
-        Marka: 'Ecoca',
-        Seri: 'MT',
-        Model: 'MT-208/500',
-        'Ürün Adı': 'Ecoca MT-208/500 CNC Torna Tezgahı',
-        'Ürün Tipi': 'CNC Torna Tezgahı',
-        'Para Birimi': 'USD',
-        'Liste Fiyatı': 68300,
-        KDV: 20,
-        Menşei: 'Tayvan',
-        GTIP: '845811',
-        'Stok Kodu': 'ECOCA-MT208',
-        Açıklama: '8 inç aynalı CNC torna',
-        'Kontrol Ünitesi': 'FANUC 0i-TF Plus',
-        'Standart Donanım': 'Hidrolik 10 İstasyon Taret; Talaş konveyörü',
-        'Opsiyonel Donanım': 'Takım ölçme kolu; Çubuk sürücü',
-        'Ayna Ölçüsü': '8"',
-        'Fener Mili Devri': '4800 dv/dk',
-      },
+  async importTemplate(
+    @Res({ passthrough: true }) reply: FastifyReply,
+    @CurrentUser() user: AuthContext,
+    @Query('productTypeCode') productTypeCode?: string
+  ) {
+    const template = await this.svc.buildImportTemplate(user, productTypeCode);
+    // İlk sayfa doldurulmak için boş; içe aktarma "Ürünler" sayfasını okur.
+    // Örnek kayıt ayrı sayfada durur ki yüklemede tekrar işlenmesin.
+    const sheets = [
+      { name: 'Ürünler', columns: template.columns, rows: [] },
+      ...(template.exampleRows.length
+        ? [{ name: 'Örnek Kayıt', columns: template.columns, rows: template.exampleRows }]
+        : []),
     ];
-    return sendXlsx(reply, await rowsToXlsxBuffer(rows, 'Ürünler'), 'urun-import-sablonu.xlsx');
+    return sendXlsx(
+      reply,
+      await sheetsToXlsxBuffer(sheets),
+      `urun-import-sablonu-${template.fileSuffix}.xlsx`
+    );
   }
 
   @RequirePermissions('products.update')

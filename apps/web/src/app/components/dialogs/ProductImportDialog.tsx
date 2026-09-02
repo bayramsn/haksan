@@ -1,7 +1,7 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, CheckCircle2, Columns3, Download, FileCheck2, FileSpreadsheet, RefreshCw, ShieldCheck, Upload } from "lucide-react";
 import { toast } from "sonner";
-import { productService, type ProductImportPreview, type ProductImportRow } from "../../../lib/services";
+import { productService, type ProductImportPreview, type ProductImportRow, type ProductImportTemplateOption } from "../../../lib/services";
 import { exportService } from "../../../lib/downloadExport";
 import { useStore } from "../../lib/store";
 import { Badge } from "../ui/badge";
@@ -10,6 +10,8 @@ import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger,
 } from "../ui/dialog";
 import { Input } from "../ui/input";
+import { Label } from "../ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "../ui/table";
@@ -60,9 +62,9 @@ function csvEscape(value: string) {
   return `"${value.replace(/"/g, '""')}"`;
 }
 
-async function downloadTemplate() {
+async function downloadTemplate(productTypeCode?: string) {
   try {
-    await exportService.productImportTemplate();
+    await exportService.productImportTemplate(productTypeCode);
   } catch {
     const lines = [TEMPLATE_HEADERS, ...TEMPLATE_ROWS].map((row) => row.map(csvEscape).join(","));
     const blob = new Blob(["\uFEFF" + lines.join("\n")], { type: "text/csv;charset=utf-8;" });
@@ -102,6 +104,61 @@ export function ProductImportDialog({ trigger }: { trigger: React.ReactNode }) {
   const [preview, setPreview] = useState<ProductImportPreview | null>(null);
   const [loading, setLoading] = useState(false);
   const [committing, setCommitting] = useState(false);
+  const [templateOptions, setTemplateOptions] = useState<ProductImportTemplateOption[]>([]);
+  const [optionsLoading, setOptionsLoading] = useState(false);
+  const [categoryCode, setCategoryCode] = useState("");
+  const [subcategoryCode, setSubcategoryCode] = useState("");
+  const [productTypeCode, setProductTypeCode] = useState("");
+  const [downloading, setDownloading] = useState(false);
+
+  // Şablon yalnız ürünü olan tiplerden üretilebiliyor; listeyi sunucu veriyor.
+  useEffect(() => {
+    if (!open) return;
+    setOptionsLoading(true);
+    productService
+      .importTemplateOptions()
+      .then((rows) => setTemplateOptions(rows ?? []))
+      .catch(() => setTemplateOptions([]))
+      .finally(() => setOptionsLoading(false));
+  }, [open]);
+
+  const categories = useMemo(() => {
+    const byCode = new Map<string, string>();
+    for (const option of templateOptions) byCode.set(option.categoryCode ?? "", option.categoryName);
+    return [...byCode.entries()].map(([code, name]) => ({ code, name }));
+  }, [templateOptions]);
+
+  const subcategories = useMemo(() => {
+    const byCode = new Map<string, string>();
+    for (const option of templateOptions) {
+      if ((option.categoryCode ?? "") !== categoryCode) continue;
+      byCode.set(option.subcategoryCode ?? "", option.subcategoryName);
+    }
+    return [...byCode.entries()].map(([code, name]) => ({ code, name }));
+  }, [categoryCode, templateOptions]);
+
+  const productTypes = useMemo(
+    () => templateOptions.filter(
+      (option) => (option.categoryCode ?? "") === categoryCode && (option.subcategoryCode ?? "") === subcategoryCode,
+    ),
+    [categoryCode, subcategoryCode, templateOptions],
+  );
+
+  const runTemplateDownload = async () => {
+    setDownloading(true);
+    try {
+      await downloadTemplate(productTypeCode || undefined);
+      toast.success(productTypeCode ? "Şablon indirildi" : "Genel şablon indirildi", {
+        description: productTypeCode
+          ? "Örnek satır, seçilen tipteki mevcut bir üründen dolduruldu."
+          : "Ürün tipi seçerseniz şablon o tipin teknik kolonlarıyla gelir.",
+      });
+    } catch (error: any) {
+      toast.error("Şablon indirilemedi", { description: error?.message ?? "Bu tipte kayıtlı ürün olmayabilir." });
+    } finally {
+      setDownloading(false);
+    }
+  };
 
   const validRows = useMemo(
     () => preview?.rows.filter((row) => row.status !== "error" && row.status !== "skip") ?? [],
@@ -111,6 +168,9 @@ export function ProductImportDialog({ trigger }: { trigger: React.ReactNode }) {
   const reset = () => {
     setFile(null);
     setPreview(null);
+    setCategoryCode("");
+    setSubcategoryCode("");
+    setProductTypeCode("");
     setLoading(false);
     setCommitting(false);
     if (fileRef.current) fileRef.current.value = "";
@@ -183,6 +243,64 @@ export function ProductImportDialog({ trigger }: { trigger: React.ReactNode }) {
               </div>
             ))}
           </div>
+          <div className="space-y-2 rounded-lg border border-border/60 bg-muted/20 p-3">
+            <div>
+              <p className="text-xs font-semibold">Şablonu ürün tipine göre indirin</p>
+              <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">
+                Seçtiğiniz tipte kayıtlı bir üründen — markası, modeli, fiyatları, GTİP'i, teknik özellikleri ve
+                standart donanımıyla — doldurulmuş örnek satır “Örnek Kayıt” sayfasında gelir. Yeni ürünleri
+                “Ürünler” sayfasına ona bakarak yazın. Listede yalnız daha önce ürün eklenmiş tipler görünür.
+              </p>
+            </div>
+            <div className="grid gap-2 sm:grid-cols-3">
+              <div className="space-y-1">
+                <Label className="text-[11px]">Ürün Kategorisi</Label>
+                <Select
+                  value={categoryCode}
+                  onValueChange={(value) => { setCategoryCode(value); setSubcategoryCode(""); setProductTypeCode(""); }}
+                  disabled={optionsLoading || categories.length === 0}
+                >
+                  <SelectTrigger size="sm"><SelectValue placeholder={optionsLoading ? "Yükleniyor…" : "Kategori seçin"} /></SelectTrigger>
+                  <SelectContent>
+                    {categories.map((item) => <SelectItem key={item.code || "none"} value={item.code}>{item.name}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1">
+                <Label className="text-[11px]">Ürün Alt Kategorisi</Label>
+                <Select
+                  value={subcategoryCode}
+                  onValueChange={(value) => { setSubcategoryCode(value); setProductTypeCode(""); }}
+                  disabled={!categoryCode || subcategories.length === 0}
+                >
+                  <SelectTrigger size="sm"><SelectValue placeholder="Alt kategori seçin" /></SelectTrigger>
+                  <SelectContent>
+                    {subcategories.map((item) => <SelectItem key={item.code || "none"} value={item.code}>{item.name}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1">
+                <Label className="text-[11px]">Ürün Tipi</Label>
+                <Select value={productTypeCode} onValueChange={setProductTypeCode} disabled={!subcategoryCode || productTypes.length === 0}>
+                  <SelectTrigger size="sm"><SelectValue placeholder="Tip seçin" /></SelectTrigger>
+                  <SelectContent>
+                    {productTypes.map((item) => (
+                      <SelectItem key={item.productTypeCode} value={item.productTypeCode}>
+                        {item.productTypeName} ({item.productCount})
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            {!optionsLoading && templateOptions.length === 0 && (
+              <p className="text-[11px] text-amber-700">
+                Henüz hiçbir ürün tipinde kayıtlı ürün yok. Şablon örnek satırı mevcut üründen üretildiği için önce
+                tek ürün ekleyin; o zamana kadar genel şablonu indirebilirsiniz.
+              </p>
+            )}
+          </div>
+
           <div className="flex flex-col gap-3 rounded-lg border border-border/60 bg-muted/20 p-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="min-w-0">
               <div className="text-sm tracking-tight">{file?.name ?? "Dosya seçilmedi"}</div>
@@ -201,8 +319,8 @@ export function ProductImportDialog({ trigger }: { trigger: React.ReactNode }) {
                   if (selected) void previewFile(selected);
                 }}
               />
-              <Button type="button" variant="outline" size="sm" className="gap-1" onClick={downloadTemplate}>
-                <Download className="size-4" /> Şablon
+              <Button type="button" variant="outline" size="sm" className="gap-1" disabled={downloading} onClick={() => void runTemplateDownload()}>
+                <Download className="size-4" /> {productTypeCode ? "Seçili tip için şablon" : "Şablon"}
               </Button>
               <Button type="button" variant="outline" size="sm" className="gap-1" onClick={() => fileRef.current?.click()}>
                 <FileSpreadsheet className="size-4" /> Dosya Seç

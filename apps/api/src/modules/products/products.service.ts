@@ -90,6 +90,39 @@ type ParsedImportFile = {
 const PRODUCT_MEDIA_PATH_RE =
   /(?:^|\/)(?:api\/v\d+\/)?products\/media\/([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})(?:[?#].*)?$/i;
 
+/**
+ * Toplu yükleme şablonunun sabit kolonları. Sıra tek ürün formundaki akışı
+ * izler; her kolonun karşılığı BASE_IMPORT_FIELD_ALIASES içinde tanımlıdır,
+ * yani şablon olduğu gibi geri yüklenebilir.
+ */
+const TEMPLATE_BASE_COLUMNS = [
+  'Marka',
+  'Seri',
+  'Model',
+  'Model Adı',
+  'Ürün Adı',
+  'Ürün Grubu',
+  'Kategori',
+  'Alt Kategori',
+  'Ürün Tipi',
+  'Para Birimi',
+  'Liste Fiyatı',
+  'Peşin Fiyat',
+  'KDV',
+  'Menşei',
+  'Üretim Yılı',
+  'GTIP',
+  'Stok Kodu',
+  'Ürün Fotoğrafı',
+  'Açıklama',
+  'Kontrol Ünitesi',
+  'Standart Donanım',
+  'Opsiyonel Donanım',
+] as const;
+
+/** Kendi kolonu olan teknik özellik; spec kolonlarında ikinci kez çıkmasın. */
+const CONTROL_PANEL_SPEC_KEYS = new Set(['kontrol unitesi', 'kontrol paneli', 'cnc kontrol']);
+
 const BASE_IMPORT_FIELD_ALIASES: Record<string, string[]> = {
   brandName: ['marka', 'brand', 'uretici', 'üretici'],
   series: ['seri', 'urun serisi', 'ürün serisi', 'series'],
@@ -105,6 +138,7 @@ const BASE_IMPORT_FIELD_ALIASES: Record<string, string[]> = {
   cashPrice: ['pesin fiyat', 'peşin fiyat', 'cash price'],
   vatRate: ['kdv', 'kdv orani', 'kdv oranı', 'vat', 'vat rate'],
   originCountry: ['mensei', 'menşei', 'origin', 'origin country', 'ulke', 'ülke'],
+  productionYear: ['uretim yili', 'üretim yılı', 'model yili', 'model yılı', 'yil', 'yıl', 'production year'],
   hsCode: ['gtip', 'hs code', 'hscode', 'hs'],
   stockCode: ['stok kodu', 'stokkodu', 'stock code', 'stockcode'],
   imageUrl: ['urun fotografi', 'ürün fotoğrafı', 'fotograf', 'fotoğraf', 'image', 'image url', 'gorsel', 'görsel'],
@@ -1264,6 +1298,210 @@ export class ProductsService {
   }
 
   // ────────── PRODUCT IMPORT ──────────
+  /**
+   * Şablon indirilebilecek ürün tipleri: yalnız o tenant'ta EN AZ BİR ürünü
+   * olanlar. Şablon örnek satırını mevcut üründen doldurduğu için ürünü
+   * olmayan tip listelenmez.
+   */
+  async importTemplateOptions(actor: AuthContext) {
+    const rows = await this.db
+      .select({
+        categoryCode: productCategories.code,
+        categoryName: productCategories.name,
+        subcategoryCode: productSubcategories.code,
+        subcategoryName: productSubcategories.name,
+        productTypeCode: productTypes.code,
+        productTypeName: productTypes.name,
+        productCount: sql<number>`count(*)::int`,
+      })
+      .from(productModels)
+      .innerJoin(productTypes, eq(productModels.productTypeId, productTypes.id))
+      .leftJoin(productCategories, eq(productModels.categoryId, productCategories.id))
+      .leftJoin(productSubcategories, eq(productModels.subcategoryId, productSubcategories.id))
+      .where(and(eq(productModels.tenantId, actor.tenantId), isNull(productModels.deletedAt)))
+      .groupBy(
+        productCategories.code,
+        productCategories.name,
+        productSubcategories.code,
+        productSubcategories.name,
+        productTypes.code,
+        productTypes.name
+      )
+      .orderBy(asc(productCategories.name), asc(productSubcategories.name), asc(productTypes.name));
+    return rows.map((row) => ({
+      ...row,
+      categoryCode: row.categoryCode ?? null,
+      categoryName: row.categoryName ?? 'Kategorisiz',
+      subcategoryCode: row.subcategoryCode ?? null,
+      subcategoryName: row.subcategoryName ?? 'Alt kategorisiz',
+    }));
+  }
+
+  /**
+   * Toplu yükleme şablonu. Ürün tipi verilirse kolonlar o tipte kayıtlı
+   * ürünlerin teknik özellik başlıklarıyla genişler ve ikinci sayfada gerçek
+   * bir üründen doldurulmuş örnek satır döner — kullanıcı yeni ürünleri ona
+   * bakarak doldurur. Tip verilmezse genel şablon üretilir.
+   */
+  async buildImportTemplate(actor: AuthContext, productTypeCode?: string) {
+    const columns: string[] = [...TEMPLATE_BASE_COLUMNS];
+    if (!productTypeCode?.trim()) {
+      return { columns, exampleRows: [] as Array<Record<string, string | number>>, typeName: null, fileSuffix: 'genel' };
+    }
+
+    const variants = productTypeCodeVariants(productTypeCode.trim());
+    const [type] = await this.db
+      .select({ id: productTypes.id, code: productTypes.code, name: productTypes.name })
+      .from(productTypes)
+      .where(inArray(productTypes.code, variants.length ? variants : [productTypeCode.trim()]))
+      .limit(1);
+    if (!type) throw new NotFoundError('Ürün tipi');
+
+    const products = await this.db
+      .select({
+        id: productModels.id,
+        series: productModels.series,
+        modelCode: productModels.modelCode,
+        modelName: productModels.modelName,
+        fullName: productModels.fullName,
+        listPrice: productModels.listPrice,
+        cashPrice: productModels.cashPrice,
+        vatRate: productModels.vatRate,
+        originCountry: productModels.originCountry,
+        productionYear: productModels.productionYear,
+        hsCode: productModels.hsCode,
+        stockCode: productModels.stockCode,
+        imageUrl: productModels.imageUrl,
+        description: productModels.description,
+        updatedAt: productModels.updatedAt,
+        brandName: brands.name,
+        groupName: productGroups.name,
+        categoryName: productCategories.name,
+        subcategoryName: productSubcategories.name,
+        currencyCode: currencies.code,
+      })
+      .from(productModels)
+      .innerJoin(brands, eq(productModels.brandId, brands.id))
+      .leftJoin(productGroups, eq(productModels.productGroupId, productGroups.id))
+      .leftJoin(productCategories, eq(productModels.categoryId, productCategories.id))
+      .leftJoin(productSubcategories, eq(productModels.subcategoryId, productSubcategories.id))
+      .leftJoin(currencies, eq(productModels.currencyId, currencies.id))
+      .where(
+        and(
+          eq(productModels.tenantId, actor.tenantId),
+          eq(productModels.productTypeId, type.id),
+          isNull(productModels.deletedAt)
+        )
+      )
+      .orderBy(desc(productModels.updatedAt));
+
+    if (!products.length) {
+      throw new ValidationError(
+        `"${type.name}" tipinde kayıtlı ürün yok. Şablon mevcut bir üründen üretildiği için önce bu tipte tek ürün ekleyin.`,
+        { field: 'productTypeCode' }
+      );
+    }
+
+    const productIds = products.map((product) => product.id);
+    const [specRows, equipmentRows] = await Promise.all([
+      this.db
+        .select({
+          productId: productSpecs.productModelId,
+          specKey: productSpecs.specKey,
+          specValue: productSpecs.specValue,
+          specUnit: productSpecs.specUnit,
+          sortOrder: productSpecs.sortOrder,
+        })
+        .from(productSpecs)
+        .where(and(inArray(productSpecs.productModelId, productIds), isNull(productSpecs.deletedAt)))
+        .orderBy(asc(productSpecs.sortOrder)),
+      this.db
+        .select({
+          productId: productEquipmentItems.productModelId,
+          title: productEquipmentItems.title,
+          typeCode: equipmentTypes.code,
+          sortOrder: productEquipmentItems.sortOrder,
+        })
+        .from(productEquipmentItems)
+        .leftJoin(equipmentTypes, eq(productEquipmentItems.equipmentTypeId, equipmentTypes.id))
+        .where(and(inArray(productEquipmentItems.productModelId, productIds), isNull(productEquipmentItems.deletedAt)))
+        .orderBy(asc(productEquipmentItems.sortOrder)),
+    ]);
+
+    // Kolon sırası: tipteki ürünlerde hangi başlık daha erken/sık geçiyorsa önce.
+    const specOrder = new Map<string, { label: string; order: number; count: number }>();
+    for (const spec of specRows) {
+      const label = spec.specKey.trim();
+      if (!label || CONTROL_PANEL_SPEC_KEYS.has(normalizeText(label))) continue;
+      const current = specOrder.get(normalizeText(label));
+      if (current) {
+        current.count += 1;
+        current.order = Math.min(current.order, spec.sortOrder);
+      } else {
+        specOrder.set(normalizeText(label), { label, order: spec.sortOrder, count: 1 });
+      }
+    }
+    const specColumns = [...specOrder.values()]
+      .sort((left, right) => left.order - right.order || right.count - left.count || left.label.localeCompare(right.label, 'tr-TR'))
+      .map((item) => item.label);
+    columns.push(...specColumns);
+
+    // Örnek: en çok teknik özelliği olan ürün (en dolu kayıt en öğretici).
+    const specCountByProduct = new Map<string, number>();
+    for (const spec of specRows) specCountByProduct.set(spec.productId, (specCountByProduct.get(spec.productId) ?? 0) + 1);
+    const sample = [...products].sort(
+      (left, right) => (specCountByProduct.get(right.id) ?? 0) - (specCountByProduct.get(left.id) ?? 0)
+    )[0];
+
+    const sampleSpecs = specRows.filter((spec) => spec.productId === sample.id);
+    const specValue = (label: string) => {
+      const match = sampleSpecs.find((spec) => normalizeText(spec.specKey) === normalizeText(label));
+      if (!match) return '';
+      return [match.specValue, match.specUnit].filter(Boolean).join(' ').trim();
+    };
+    const equipmentText = (code: 'standart' | 'opsiyonel') =>
+      equipmentRows
+        .filter((item) => item.productId === sample.id && (item.typeCode ?? 'standart') === code)
+        .map((item) => item.title)
+        .join('; ');
+    const controlPanel = sampleSpecs.find((spec) => CONTROL_PANEL_SPEC_KEYS.has(normalizeText(spec.specKey)));
+
+    const exampleRow: Record<string, string | number> = {
+      Marka: sample.brandName ?? '',
+      Seri: sample.series ?? '',
+      Model: sample.modelCode,
+      'Model Adı': sample.modelName ?? '',
+      'Ürün Adı': sample.fullName,
+      'Ürün Grubu': sample.groupName ?? '',
+      Kategori: sample.categoryName ?? '',
+      'Alt Kategori': sample.subcategoryName ?? '',
+      'Ürün Tipi': type.name,
+      'Para Birimi': sample.currencyCode ?? 'USD',
+      'Liste Fiyatı': sample.listPrice ? Number(sample.listPrice) : '',
+      'Peşin Fiyat': sample.cashPrice ? Number(sample.cashPrice) : '',
+      KDV: sample.vatRate ? Number(sample.vatRate) : '',
+      Menşei: sample.originCountry ?? '',
+      'Üretim Yılı': sample.productionYear ?? '',
+      GTIP: sample.hsCode ?? '',
+      'Stok Kodu': sample.stockCode ?? '',
+      'Ürün Fotoğrafı': sample.imageUrl ?? '',
+      Açıklama: sample.description ?? '',
+      'Kontrol Ünitesi': controlPanel ? controlPanel.specValue : '',
+      'Standart Donanım': equipmentText('standart'),
+      'Opsiyonel Donanım': equipmentText('opsiyonel'),
+    };
+    for (const label of specColumns) exampleRow[label] = specValue(label);
+
+    return {
+      columns,
+      exampleRows: [exampleRow],
+      typeName: type.name,
+      // Dosya adı HTTP başlığına gider: Türkçe küçültme 'I' harfini 'ı' yaptığı
+      // için ASCII küçültme kullanılır, kalan her şey tireye düşer.
+      fileSuffix: compactCode(type.name).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'urun',
+    };
+  }
+
   async previewImport(input: { fileName: string; fileBase64: string }, actor: AuthContext) {
     const parsed = await this.parseImportFile(input.fileName, input.fileBase64);
     const lookups = await this.getImportLookupMaps();
@@ -1876,6 +2114,8 @@ export class ProductsService {
       cashPrice: parseNumber(raw.cashPrice),
       vatRate,
       originCountry: cellToText(raw.originCountry) || undefined,
+      // Üretim yılı tek ürün formunda var; şablondan da gelsin (proforma {{YIL}}).
+      productionYear: parseNumber(raw.productionYear),
       hsCode: cellToText(raw.hsCode) || undefined,
       stockCode: cellToText(raw.stockCode) || undefined,
       imageUrl: cellToText(raw.imageUrl) || undefined,

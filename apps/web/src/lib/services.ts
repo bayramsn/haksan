@@ -753,6 +753,16 @@ export const calendarService = {
 };
 
 // ───── Products / Brands ─────
+export type ProductImportTemplateOption = {
+  categoryCode: string | null;
+  categoryName: string;
+  subcategoryCode: string | null;
+  subcategoryName: string;
+  productTypeCode: string;
+  productTypeName: string;
+  productCount: number;
+};
+
 export const productService = {
   listBrands: (divisionId?: string) => api.get<any[]>(`/brands${qs({ divisionId })}`),
   createBrand: (body: BrandCreateInput) => api.post<any>('/brands', body),
@@ -763,6 +773,8 @@ export const productService = {
   remove: (id: string) => api.delete(`/products/${id}`),
   previewImport: (body: { fileName: string; fileBase64: string }) =>
     api.post<ProductImportPreview>('/products/import/preview', body),
+  /** Şablon indirilebilecek kategori → alt kategori → tip üçlüleri (ürünü olanlar). */
+  importTemplateOptions: () => api.get<ProductImportTemplateOption[]>('/products/import/template-options'),
   commitImport: (body: { rows: ProductImportRow[]; mode?: 'upsert' | 'create_only'; replaceDetails?: boolean }) =>
     api.post<{ rows: ProductImportRow[]; summary: ProductImportSummary }>('/products/import/commit', body),
   specs: (id: string) => api.get<any[]>(`/products/${id}/specs`),

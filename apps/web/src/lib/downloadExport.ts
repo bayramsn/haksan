@@ -130,7 +130,17 @@ export const exportService = {
     ),
   pipelineSummary: () => downloadExport('/reports/export/pipeline-summary', 'pipeline-summary.xlsx'),
   stockSummary: () => downloadExport('/reports/export/stock-summary', 'stock-summary.xlsx'),
-  productImportTemplate: () => downloadExport('/products/import/template', 'urun-import-sablonu.xlsx'),
+  /**
+   * Ürün tipi verilirse şablon o tipteki mevcut bir üründen doldurulmuş örnek
+   * satırla ve o tipin teknik özellik kolonlarıyla gelir.
+   */
+  productImportTemplate: (productTypeCode?: string) =>
+    downloadExport(
+      productTypeCode
+        ? `/products/import/template?productTypeCode=${encodeURIComponent(productTypeCode)}`
+        : '/products/import/template',
+      'urun-import-sablonu.xlsx'
+    ),
   technicalImportTemplate: (options: {
     productTypeCode: string;
     productTypeLabel?: string;
