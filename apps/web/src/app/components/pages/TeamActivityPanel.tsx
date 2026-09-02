@@ -547,7 +547,9 @@ export function TeamActivityPanel() {
                           {metric.label}
                         </TableHead>
                       ))}
-                      <TableHead className="text-right text-[10px]">Toplam</TableHead>
+                      {/* Toplam yalnız faaliyetleri sayar; Kazanılan sonuç metriği olduğu
+                          için dışarıda kalır — başlık bunu açıkça söylüyor. */}
+                      <TableHead className="text-right text-[10px]">Toplam Faaliyet</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -613,6 +615,7 @@ export function TeamActivityPanel() {
                 </Table>
                 <p className="border-t border-border/60 px-3 py-2 text-[10px] text-muted-foreground">
                   Parantez içindeki sayılar {PREVIOUS_LABELS[period].replace(" göre", "")} aynı dönemi gösterir.
+                  {" "}Toplam Faaliyet = Teklif + Aktivite + Yeni fırsat; Kazanılan bir sonuç metriği olduğu için toplama katılmaz.
                 </p>
               </div>
             )}

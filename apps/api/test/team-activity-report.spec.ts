@@ -110,6 +110,24 @@ describe('Team activity report', () => {
     expect(titles).not.toContain('Ziyaret kararı');
   });
 
+  it('kullanıcı toplamı yalnız faaliyetleri sayar; kazanılan dışarıda kalır', async () => {
+    // Tabloda "Toplam Faaliyet" başlığıyla duruyor: teklif + aktivite + yeni fırsat.
+    const response = await request(app.getHttpServer())
+      .get('/api/v1/reports/team-activity?period=week&scope=self')
+      .set('Authorization', `Bearer ${token}`)
+      .expect(200);
+
+    const row = response.body.users.find((item: any) => item.userId === userId);
+    expect(row).toBeTruthy();
+    for (const field of ['current', 'previous'] as const) {
+      expect(row.total[field]).toBe(
+        row.quotes[field] + row.activities[field] + row.opportunitiesCreated[field]
+      );
+    }
+    // Kazanılan ayrı sütun olarak durur ama toplama girmez.
+    expect(row).toHaveProperty('won');
+  });
+
   it('legacy ziyaret formundan girilen kayıt da Aktivite metriğine eklenir', async () => {
     const before = await totals();
     await request(app.getHttpServer())
