@@ -300,6 +300,7 @@ export function DecisionRail({
   whatsappNumber,
   primaryAction,
   useLeadConversionAsPrimary = false,
+  showPlanAction = true,
   simpleMode = false,
   contactName,
   contactTitle,
@@ -318,6 +319,12 @@ export function DecisionRail({
   whatsappNumber?: string;
   primaryAction?: ReactNode;
   useLeadConversionAsPrimary?: boolean;
+  /**
+   * "Aksiyon planla" düğmesi burada basılsın mı? Üst bileşen karar özetinin
+   * birincil komutunun aynı dialogu açıp açmadığını bilir; "Engelleri çöz"
+   * dalında açmıyor, o zaman düğmenin tek kapısı ray olur.
+   */
+  showPlanAction?: boolean;
   simpleMode?: boolean;
   contactName?: string;
   contactTitle?: string;
@@ -467,15 +474,13 @@ export function DecisionRail({
       {converting ? "Dönüştürülüyor…" : "Fırsata dönüştür"}
       <ArrowRight className="size-4" />
     </Button>
-  ) : primaryAction ?? (!isLead && canUpdate ? (
+  ) : (
     // NOT: aşağıdaki `primaryCommandIsSummaryCopy` bu ifadeye dayanıyor —
-    // `primaryAction` verilmişse komut karar özetinin kopyasıdır.
-    <NextActionDialog
-      salesCase={salesCase}
-      onSave={(patch) => updateCase(salesCase.id, patch)}
-      trigger={<Button type="button" className="h-11 w-full gap-1.5"><AlarmClock className="size-4" /> {salesCase.nextAction ? "Aksiyonu düzenle" : "Aksiyon planla"}</Button>}
-    />
-  ) : null);
+    // `primaryAction` verilmişse komut karar özetinin kopyasıdır. Yedek olarak
+    // aksiyon dialogu basılmıyor: aynı düğme `showPlanAction` ile aşağıda,
+    // tek bir yerden yönetiliyor.
+    primaryAction ?? null
+  );
 
   const primaryCommandIsSummaryCopy = !useLeadConversionAsPrimary && Boolean(primaryAction);
 
@@ -513,20 +518,46 @@ export function DecisionRail({
     </div>
   );
 
+  /*
+    Ray ve mobil "İşlemler" sayfası AYNI içeriği kullanır. Ayrı yazıldıkları
+    sürece kaçınılmaz biçimde ayrıştılar: "Tahmini kapanış" tarihi yalnız mobil
+    sayfada vardı — masaüstünde alanın hiçbir düzenleyicisi yoktu ve Trello'dan
+    gelen termin tarihi hiç görünmüyordu. "Ana kontak" ise yalnız pilot moda
+    bağlıydı. Tek tanım, tek davranış; ekran genişliğine göre farklı yüzeyde
+    render edilir.
+  */
   const actionContents = (
     <div className="space-y-4">
-      <div>
-        <div className="flex items-center justify-between gap-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-          <span>Sorumlu</span>
-          {assigningOwner && <span aria-live="polite">Devrediliyor…</span>}
+      <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm">
+        <UserRound className="mt-0.5 size-4 text-[#2457D6]" />
+        <div className="min-w-0 border-l-2 border-[#2457D6]/20 pl-3">
+          <div className="flex items-center justify-between gap-2">
+            <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Sorumlu</div>
+            {assigningOwner && (
+              <span className="inline-flex items-center gap-1 text-[9px] text-blue-700" aria-live="polite">
+                <Loader2 className="size-3 animate-spin motion-reduce:animate-none" /> Devrediliyor
+              </span>
+            )}
+          </div>
+          {canAssignOwner ? ownerSelect() : <div className="mt-0.5 truncate font-medium">{ownerName || "Sahipsiz havuz"}</div>}
+          <div className="mt-1 truncate text-[9px] text-muted-foreground">
+            {ownerCandidates.find((candidate) => candidate.id === salesCase.assignedUserId)?.department
+              || (salesCase.assignedUserId ? "Satış ekibi" : "Atama bekliyor")}
+          </div>
         </div>
-        {canAssignOwner ? ownerSelect() : <div className="mt-1 text-sm font-medium">{ownerName || "Sahipsiz havuz"}</div>}
       </div>
+      {/* Kimin muhatap olduğu her modda gerekli; pilot bayrağına bağlı değil. */}
+      {contactName && (
+        <div className="border-t border-border pt-3">
+          <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Ana kontak</div>
+          <div className="mt-1 truncate text-sm font-semibold" title={contactName}>{contactName}</div>
+          {contactTitle && <div className="mt-0.5 truncate text-xs text-muted-foreground" title={contactTitle}>{contactTitle}</div>}
+        </div>
+      )}
+      {quickContactActions}
       {/*
-        Tahmini kapanış tarihi düzenleyicisiz kalmıştı: "Ticari alanları kaydet"
-        formu kaldırılınca alanın tek yazarı Trello içe aktarımı kaldı ve
-        oradan gelen termin tarihi kullanıcıya hiç görünmedi. Rayda duruyor —
-        her aşamada görünür, sorumlu ve sonraki aksiyonla aynı yerde.
+        Tahmini kapanış tarihinin TEK düzenleyicisi burası: "Ticari alanları
+        kaydet" formu kaldırılınca alanın tek yazarı Trello içe aktarımı kalmıştı.
       */}
       <div>
         <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
@@ -544,15 +575,38 @@ export function DecisionRail({
           }}
         />
       </div>
-      {quickContactActions}
-      {canUpdate && !simpleMode && (
+      {/*
+        Aksiyon planlama düğmesi yalnız başka hiçbir yüzey aynı dialogu
+        basmıyorsa burada. Normal fırsatta karar özeti (masaüstü) / dock
+        (mobil) onu zaten gösteriyor; lead'de birincil komut "Fırsata
+        dönüştür", engelli fırsatta "Engelleri çöz", kapanmış kartta hiç
+        komut yok — o üç durumda planlamanın tek kapısı burası.
+      */}
+      {canUpdate && !simpleMode && showPlanAction && (
         <NextActionDialog
           salesCase={salesCase}
           onSave={(patch) => updateCase(salesCase.id, patch)}
           trigger={<Button type="button" variant="outline" className="h-11 w-full gap-1.5"><AlarmClock className="size-4" /> {salesCase.nextAction ? "Aksiyonu düzenle" : "Aksiyon planla"}</Button>}
         />
       )}
-      {otherActions && <div className="space-y-3 border-t border-slate-200 pt-4">{otherActions}</div>}
+      {/* Fırsatta ödeme vadesi, Trello kaynağı, kapanış/kayıp notu ve kartı
+          kapat/kaybet/sil düğmeleri katlanır alana indi: hepsi günde bir kez
+          bile açılmayan işler ve rayda açık dururken sık kullanılan aktivite
+          akışını ekranın altına itiyorlardı. "Kaybedildi" ve "Fırsatı kapat"
+          zaten satış alanı kutusunun altında da duruyor. Lead'de katlanmaz —
+          orada blok, günlük olarak değişen "İlk temas durumu" seçimini
+          taşıyor. */}
+      {otherActions && (isLead ? (
+        <div className="space-y-3 border-t border-slate-200 pt-4">{otherActions}</div>
+      ) : (
+        <details className="border-t border-slate-200 pt-3">
+          <summary className="flex min-h-9 cursor-pointer list-none items-center justify-between gap-2 text-xs font-semibold text-muted-foreground marker:content-none hover:text-foreground">
+            Kart işlemleri
+            <ChevronDown className="size-4 shrink-0" aria-hidden="true" />
+          </summary>
+          <div className="mt-3">{otherActions}</div>
+        </details>
+      ))}
     </div>
   );
 
@@ -567,57 +621,14 @@ export function DecisionRail({
           {!simpleMode && <span className="h-8 w-px bg-red-500" aria-hidden="true" />}
         </div>
         <div className="space-y-4 p-4">
-          <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm">
-            <UserRound className="mt-0.5 size-4 text-[#2457D6]" />
-            <div className="min-w-0 border-l-2 border-[#2457D6]/20 pl-3">
-              <div className="flex items-center justify-between gap-2">
-                <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Sorumlu</div>
-                {assigningOwner && (
-                  <span className="inline-flex items-center gap-1 text-[9px] text-blue-700" aria-live="polite">
-                    <Loader2 className="size-3 animate-spin motion-reduce:animate-none" /> Devrediliyor
-                  </span>
-                )}
-              </div>
-              {canAssignOwner ? ownerSelect() : <div className="mt-0.5 truncate font-medium">{ownerName || "Sahipsiz havuz"}</div>}
-              <div className="mt-1 truncate text-[9px] text-muted-foreground">
-                {ownerCandidates.find((candidate) => candidate.id === salesCase.assignedUserId)?.department
-                  || (salesCase.assignedUserId ? "Satış ekibi" : "Atama bekliyor")}
-              </div>
-            </div>
-          </div>
-          {simpleMode && contactName && (
-            <div className="border-t border-border pt-3">
-              <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Ana kontak</div>
-              <div className="mt-1 truncate text-sm font-semibold" title={contactName}>{contactName}</div>
-              {contactTitle && <div className="mt-0.5 truncate text-xs text-muted-foreground" title={contactTitle}>{contactTitle}</div>}
-            </div>
-          )}
-          {quickContactActions}
+          {actionContents}
           {/* Karar özeti bu düğmeyi masaüstünde zaten gösteriyor (`hidden lg:block`),
               mobilde ise gizleyip aşağıdaki dock'a bırakıyor. Ray da basınca
               masaüstünde aynı düğme ekranda iki kez çıkıyordu. Yalnız rayın
               KENDİ ürettiği komut (lead dönüştürme) burada kalır. */}
           {!simpleMode && primaryCommand && !primaryCommandIsSummaryCopy && <div className="border-t border-slate-200 pt-3">{primaryCommand}</div>}
-          {/* Fırsatta ödeme vadesi, Trello kaynağı, kapanış/kayıp notu ve kartı
-              kapat/kaybet/sil düğmeleri katlanır alana indi: hepsi günde bir kez
-              bile açılmayan işler ve rayda açık dururken sık kullanılan aktivite
-              akışını ekranın altına itiyorlardı. "Kaybedildi" ve "Fırsatı kapat"
-              zaten satış alanı kutusunun altında da duruyor. Lead'de katlanmaz —
-              orada blok, günlük olarak değişen "İlk temas durumu" seçimini
-              taşıyor. */}
-          {otherActions && (isLead ? (
-            <div className="border-t border-slate-200 pt-3">{otherActions}</div>
-          ) : (
-            <details className="border-t border-slate-200 pt-3">
-              <summary className="flex min-h-9 cursor-pointer list-none items-center justify-between gap-2 text-xs font-semibold text-muted-foreground marker:content-none hover:text-foreground">
-                Kart işlemleri
-                <ChevronDown className="size-4 shrink-0" aria-hidden="true" />
-              </summary>
-              <div className="mt-3">{otherActions}</div>
-            </details>
-          ))}
           {/* Aktivite akışı: sekmeler kaldırıldıktan sonra ayakta kalan tek
-              kalıcı yüzey burası. "Sorumlu" ve iletişim bloklarının altında
+              kalıcı yüzey burası. Sorumlu ve iletişim bloklarının altında
               duruyor ki panelin küçük ve sık kullanılan parçaları akışın
               uzunluğu yüzünden ekrandan taşmasın. */}
           {activityFeed && <div className="border-t border-slate-200 pt-3">{activityFeed}</div>}

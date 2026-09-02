@@ -114,6 +114,27 @@ describe("lead ve fırsat çalışma alanı sorumlu değişikliği", () => {
     expect(detailSource).toContain('aside={mode === "dialog" ? null : (');
   });
 
+  it("ray ile mobil işlemler sayfasını tek tanımdan besler", () => {
+    // İki yüzey ayrı yazıldığı sürece ayrışıyordu: "Tahmini kapanış" tarihi
+    // yalnız mobil sayfaya yazılmıştı, masaüstünde alanın hiçbir düzenleyicisi
+    // yoktu. Ray artık aynı `actionContents` bloğunu basıyor.
+    const railBlock = railSource.slice(railSource.indexOf("  const rail = ("), railSource.indexOf("  const mobileDock = ("));
+    expect(railBlock).toContain("{actionContents}");
+    expect(railSource).toContain("<div className=\"px-4 pb-4\">{actionContents}</div>");
+    // Tek düzenleyici; ikinci bir kopya eklenirse iki alan birbirini ezer.
+    expect(railSource.match(/aria-label="Tahmini kapanış tarihi"/g)).toHaveLength(1);
+    expect(railSource.match(/>Ana kontak</g)).toHaveLength(1);
+    // Aksiyon planlama düğmesi tek yerden yönetiliyor: karar özeti aynı
+    // dialogu basıyorsa ray basmaz, "Engelleri çöz" ya da lead dönüşümü
+    // basıyorsa (planlamayan komutlar) rayınki tek kapı olarak kalır.
+    expect(railSource).toContain("{canUpdate && !simpleMode && showPlanAction && (");
+    expect(workspaceSource).toContain("const planActionCovered = !useLeadConversionAsPrimary && decisionPrimary?.plansAction === true;");
+    expect(workspaceSource).toContain("showPlanAction={!planActionCovered}");
+    // Rayın kendi yedek aksiyon dialogu kalkmalı; yoksa kapanmış kartta iki
+    // kopya çıkar.
+    expect(railSource).not.toContain("primaryAction ?? (!isLead && canUpdate ? (");
+  });
+
   it("fırsat zaman çizelgesini doğru kaynaktan besler", () => {
     expect(workspaceSource).toContain('opportunityActivities.filter(isOpportunityTimelineActivity)');
     // Sistem olaylarını (aşama geçişi, onay, teklif, dosya) yalnız sade fırsat

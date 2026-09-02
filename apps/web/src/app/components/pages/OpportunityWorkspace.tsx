@@ -519,30 +519,47 @@ export function OpportunityWorkspace({
   };
   // Kapanmış kayıtta yapılacak bir iş yok: sahte bir birincil eylem (eskiden
   // "Kapanış kayıtlarını gör") kaldırılan Kayıtlar bölümüne gidiyordu.
-  const decisionPrimaryAction = terminal || !canUpdate ? undefined
-    : isLead || sc.qualificationReadiness?.health?.actionMissing || decisionModel.nextActionOverdue ? (
-      <NextActionDialog
-        salesCase={sc}
-        onSave={(patch) => updateCase(sc.id, patch)}
-        trigger={(
-          <Button type="button">
-            {decisionModel.nextActionOverdue
-              ? "Aksiyonu yeniden planla"
-              : sc.nextAction
-                ? "Aksiyonu düzenle"
-                : "Aksiyon planla"}
-          </Button>
-        )}
-      />
-    ) : processBlocked ? (
-      <Button type="button" onClick={revealProcessActions}>Engelleri çöz</Button>
-    ) : (
-      <NextActionDialog
-        salesCase={sc}
-        onSave={(patch) => updateCase(sc.id, patch)}
-        trigger={<Button type="button">Aksiyonu düzenle</Button>}
-      />
-    );
+  /*
+    Birincil komut, "aksiyon planlıyor mu" bilgisiyle birlikte üretiliyor:
+    dalların biri ("Engelleri çöz") planlamıyor. Ray, kendi "Aksiyon planla"
+    düğmesini yalnız bu yüzey planlamıyorsa basar — yoksa ya ekranda iki kopya
+    olur ya da engelli/kapanmış kartta düğme hiç kalmaz.
+  */
+  const decisionPrimary: { plansAction: boolean; node: ReactNode } | null = terminal || !canUpdate ? null
+    : isLead || sc.qualificationReadiness?.health?.actionMissing || decisionModel.nextActionOverdue ? {
+      plansAction: true,
+      node: (
+        <NextActionDialog
+          salesCase={sc}
+          onSave={(patch) => updateCase(sc.id, patch)}
+          trigger={(
+            <Button type="button">
+              {decisionModel.nextActionOverdue
+                ? "Aksiyonu yeniden planla"
+                : sc.nextAction
+                  ? "Aksiyonu düzenle"
+                  : "Aksiyon planla"}
+            </Button>
+          )}
+        />
+      ),
+    } : processBlocked ? {
+      plansAction: false,
+      node: <Button type="button" onClick={revealProcessActions}>Engelleri çöz</Button>,
+    } : {
+      plansAction: true,
+      node: (
+        <NextActionDialog
+          salesCase={sc}
+          onSave={(patch) => updateCase(sc.id, patch)}
+          trigger={<Button type="button">Aksiyonu düzenle</Button>}
+        />
+      ),
+    };
+  const decisionPrimaryAction = decisionPrimary?.node;
+  // Lead'de karar özeti hiçbir birincil komut basmıyor (komut rayda:
+  // "Fırsata dönüştür"), dolayısıyla planlama orada kapsanmıyor.
+  const planActionCovered = !useLeadConversionAsPrimary && decisionPrimary?.plansAction === true;
 
   // Trello kart yorumları gibi: kalıcı olarak görünen yan panelde kronolojik
   // akış ve hemen üstünde hızlı giriş. Tek render yeri var — akış eskiden hem
@@ -806,6 +823,7 @@ export function OpportunityWorkspace({
         otherActions={otherActions}
         primaryAction={useLeadConversionAsPrimary ? undefined : decisionPrimaryAction}
         useLeadConversionAsPrimary={useLeadConversionAsPrimary}
+        showPlanAction={!planActionCovered}
         simpleMode={simpleOpportunity}
         activityFeed={activityFeed}
       />}>
