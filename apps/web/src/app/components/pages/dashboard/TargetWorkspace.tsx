@@ -199,6 +199,29 @@ export const monthRange = (from: string, to: string) => {
   return periods;
 };
 
+/**
+ * Ay sonu tahmini: ayın geçen kısmına göre aynı tempo sürerse ay sonunda
+ * hedefin yüzde kaçına ulaşılır. Geçmiş dönemde tahmin yoktur (gerçekleşme
+ * kesinleşmiştir), ayın çok başında (%5 altı) tahmin anlamsız biçimde şişer.
+ */
+export const projectedPct = (averagePct: number | null, elapsedPct: number): number | null => {
+  if (averagePct == null || elapsedPct < 5 || elapsedPct >= 100) return null;
+  return Math.min(999, Math.round((averagePct / elapsedPct) * 100));
+};
+
+/** "Bu çeyrek" / "Bu yıl" kısayolları; hedefler aylık tutulduğu için ay aralığına çevrilir. */
+export const quarterRange = (period: string) => {
+  const [year, month] = period.split("-").map(Number);
+  const first = Math.floor((month - 1) / 3) * 3 + 1;
+  return { from: `${year}-${String(first).padStart(2, "0")}`, to: `${year}-${String(first + 2).padStart(2, "0")}` };
+};
+
+export const yearRange = (period: string) => {
+  const [year] = period.split("-").map(Number);
+  // 18 ay sınırı yıl aralığını kapsıyor; ocak–aralık tek raporda alınabilir.
+  return { from: `${year}-01`, to: `${year}-12` };
+};
+
 const periodLabel = (period: string) => {
   const [year, month] = period.split("-").map(Number);
   return new Intl.DateTimeFormat("tr-TR", { month: "short", year: "numeric" }).format(new Date(year, month - 1, 1));
@@ -516,6 +539,10 @@ export function TargetWorkspace() {
   }, [canManageTargets, toPeriod]);
 
   const latest = results[results.length - 1] ?? null;
+  // Tahmin yalnız içinde bulunulan ay için anlamlı; geçmiş dönem kesinleşmiştir.
+  const monthEndProjection = latest && latest.period === nowPeriod
+    ? projectedPct(latest.averagePct, latest.expectedPct)
+    : null;
   const measurablePeriods = results.filter((row) => row.averagePct != null);
   const overallAverage = measurablePeriods.length
     ? Math.round(measurablePeriods.reduce((sum, row) => sum + (row.averagePct ?? 0), 0) / measurablePeriods.length)
@@ -663,6 +690,31 @@ export function TargetWorkspace() {
             </div>
           </div>
 
+          {/* Hedefler aylık tutuluyor; kısayollar aralığı çeyreğe/yıla genişletir. */}
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="text-[11px] text-muted-foreground">Hızlı aralık:</span>
+            {([
+              { label: "Bu ay", range: { from: nowPeriod, to: nowPeriod } },
+              { label: "Son 3 ay", range: { from: shiftMonth(nowPeriod, -2), to: nowPeriod } },
+              { label: "Bu çeyrek", range: quarterRange(nowPeriod) },
+              { label: "Bu yıl", range: yearRange(nowPeriod) },
+            ]).map((preset) => {
+              const active = fromPeriod === preset.range.from && toPeriod === preset.range.to;
+              return (
+                <Button
+                  key={preset.label}
+                  type="button"
+                  size="sm"
+                  variant={active ? "default" : "outline"}
+                  className="h-7 px-2.5 text-xs"
+                  onClick={() => { setFromPeriod(preset.range.from); setToPeriod(preset.range.to); }}
+                >
+                  {preset.label}
+                </Button>
+              );
+            })}
+          </div>
+
           {error && <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">{error}</div>}
         </CardContent>
       </Card>
@@ -670,6 +722,13 @@ export function TargetWorkspace() {
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
         <SummaryCard label="Seçili kapsam" value={selectedSubject?.name ?? "—"} detail={SCOPE_META[scopeKind].label} icon={SCOPE_META[scopeKind].icon} />
         <SummaryCard label="Ortalama gerçekleşme" value={overallAverage == null ? "—" : `%${overallAverage}`} detail={`${results.length} dönem`} icon={TrendingUp} tone="blue" />
+        <SummaryCard
+          label="Ay sonu tahmini"
+          value={monthEndProjection == null ? "—" : `%${monthEndProjection}`}
+          detail={latest && latest.period === nowPeriod ? `ayın %${latest.expectedPct}'i geçti` : "içinde bulunulan ay"}
+          icon={CalendarRange}
+          tone="blue"
+        />
         <SummaryCard label="Tamamlanan" value={String(totalAchieved)} detail="hedef kalemi" icon={CheckCircle2} tone="success" />
         <SummaryCard label="Yakın takip" value={String(totalRisk)} detail="riskli / eksik" icon={AlertTriangle} tone="warning" />
         <SummaryCard label="Manuel takip" value={String(totalManual)} detail="kanıt bekleyen" icon={PenLine} tone="violet" />

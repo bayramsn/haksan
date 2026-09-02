@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildPeriodResult, buildTeamRows, monthRange, paceMeta, reportLines, sortTeamRows } from "./TargetWorkspace";
+import { buildPeriodResult, buildTeamRows, monthRange, paceMeta, projectedPct, quarterRange, reportLines, sortTeamRows, yearRange } from "./TargetWorkspace";
 
 describe("hedef raporu dönem aralığı", () => {
   it("başlangıç ve bitiş aylarını dahil eder", () => {
@@ -110,5 +110,32 @@ describe("ekip karnesi", () => {
     expect(paceMeta(-8).className).toContain("amber");
     expect(paceMeta(-40).className).toContain("red");
     expect(paceMeta(null).label).toBe("Hedef yok");
+  });
+});
+
+describe("ay sonu tahmini ve hızlı aralıklar", () => {
+  it("tempoyu ay sonuna uzatır", () => {
+    // Ayın %50'sinde hedefin %40'ındaysa, aynı hızla ay sonunda %80 olur.
+    expect(projectedPct(40, 50)).toBe(80);
+    expect(projectedPct(75, 50)).toBe(150);
+  });
+
+  it("ayın başında ve kapanmış dönemde tahmin üretmez", () => {
+    // İlk günlerde tek satış bile tahmini şişirir; kapanan ayda gerçekleşme kesindir.
+    expect(projectedPct(10, 3)).toBeNull();
+    expect(projectedPct(90, 100)).toBeNull();
+    expect(projectedPct(null, 50)).toBeNull();
+  });
+
+  it("çeyrek ve yıl aralığını doğru kurar", () => {
+    expect(quarterRange("2026-08")).toEqual({ from: "2026-07", to: "2026-09" });
+    expect(quarterRange("2026-01")).toEqual({ from: "2026-01", to: "2026-03" });
+    expect(quarterRange("2026-12")).toEqual({ from: "2026-10", to: "2026-12" });
+    expect(yearRange("2026-08")).toEqual({ from: "2026-01", to: "2026-12" });
+  });
+
+  it("yıl aralığı 18 ay sınırına takılmaz", () => {
+    const { from, to } = yearRange("2026-05");
+    expect(monthRange(from, to)).toHaveLength(12);
   });
 });
