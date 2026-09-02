@@ -7122,6 +7122,7 @@ export function LogActivityDialog({
   const [open, setOpen] = useState(false);
   const [kind, setKind] = useState<(typeof ACTIVITY_TYPE_OPTIONS)[number]["code"]>(defaultKind);
   const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [subject, setSubject] = useState("");
   const [purpose, setPurpose] = useState("");
   const [result, setResult] = useState("");
   const [nextAction, setNextAction] = useState("");
@@ -7131,6 +7132,7 @@ export function LogActivityDialog({
   const reset = () => {
     setKind(defaultKind);
     setDate(new Date().toISOString().slice(0, 10));
+    setSubject("");
     setPurpose("");
     setResult("");
     setNextAction("");
@@ -7150,7 +7152,7 @@ export function LogActivityDialog({
       await activityService.create({
         ...base,
         activityTypeCode: kind,
-        subject: label,
+        subject: subject.trim() || label,
         description: [
           kind === "customer_visit" && purpose.trim() ? `Amaç: ${purpose.trim()}` : "",
           result.trim(),
@@ -7200,6 +7202,17 @@ export function LogActivityDialog({
             </Select>
           </div>
           <Field label="Tarih *" type="date" value={date} onChange={setDate} />
+          <div>
+            <Label className="text-xs" htmlFor="log-activity-subject">Konu</Label>
+            <Input
+              id="log-activity-subject"
+              className="mt-1.5"
+              value={subject}
+              maxLength={255}
+              onChange={(e) => setSubject(e.target.value)}
+              placeholder={ACTIVITY_TYPE_OPTIONS.find((o) => o.code === kind)?.label ?? "Aktivite"}
+            />
+          </div>
           <div>
             <Label className="text-xs">Kontak</Label>
             <RemoteContactCombobox
