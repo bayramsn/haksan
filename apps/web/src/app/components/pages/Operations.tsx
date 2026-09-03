@@ -114,10 +114,21 @@ function productSeriesCode(product: Product) {
 const productDisplayModel = (product: Product) =>
   product.modelName?.trim() || product.model;
 
-/** Başlıkta ad yazıyorsa altına kod düşer; ad yoksa kod zaten başlıktadır. */
+/**
+ * Ürünün gerçek adı: API'deki "Ürün Adı" (fullName) alanı web tarafında
+ * `shortDescription`e eşleniyor (bkz. store.tsx apiProducts eşlemesi).
+ * `modelName` neredeyse her üründe `model` ile birebir aynı kalıyor (seed
+ * ve içe aktarma verisi bunu doğruluyor), o yüzden başlıkta hep kod
+ * görünüyordu. Gerçek ad boşsa (elle, eski akıştan girilmiş ürün) kod/model
+ * adına düşülür.
+ */
+const productName = (product: Product) =>
+  product.shortDescription?.trim() || productDisplayModel(product);
+
+/** Başlığın altına stok/model kodu düşer; addan farklıysa gösterilir. */
 const productModelCode = (product: Product) => {
   const code = product.model?.trim() ?? "";
-  return code && code !== productDisplayModel(product).trim() ? code : "";
+  return code && code !== productName(product).trim() ? code : "";
 };
 
 function productSeriesLabel(product: Product) {
@@ -228,12 +239,14 @@ export function ProductsPage({ initialQuery }: { initialQuery?: string }) {
   const compareProductText = (a: string, b: string) =>
     a.trim().localeCompare(b.trim(), "tr", { numeric: true, sensitivity: "base" });
   // Sıralama kartta okunan sırayı izler: marka → ürün adı → model kodu.
-  // Eskiden üçüncü anahtar kısa açıklamaydı; ekranda görünmeyen bir alana göre
-  // sıralamak listeyi rastgele gösteriyordu.
+  // İkinci anahtar önce productDisplayModel'di; o alan neredeyse her üründe
+  // model koduna eşit kaldığı için sıralama, ekranda görünen adı değil kodu
+  // izliyordu. `productName` gerçek "Ürün Adı" alanıdır — artık ekranda
+  // yazılanla sıralama birebir örtüşüyor.
   const sortedProducts = [...filtered].sort(
     (a, b) =>
       compareProductText(a.brand ?? "", b.brand ?? "") ||
-      compareProductText(productDisplayModel(a), productDisplayModel(b)) ||
+      compareProductText(productName(a), productName(b)) ||
       compareProductText(a.model ?? "", b.model ?? ""),
   );
   const grouped = Array.from(
@@ -375,17 +388,17 @@ export function ProductsPage({ initialQuery }: { initialQuery?: string }) {
                     <div className="ui-eyebrow text-operation-blue">
                       {p.brand || "Haksan ürün"}
                     </div>
+                    {/* Ürün adı büyük başlıkta, stok/model kodu altında küçük satırda. */}
                     <div className="mt-1 truncate font-display text-xl font-semibold leading-none tracking-tight text-foreground">
-                      {productDisplayModel(p)}
+                      {productName(p)}
                     </div>
-                    {/* Ad ile kod ayrı satırlarda: katalogda ad, siparişte kod konuşuluyor. */}
                     {productModelCode(p) && (
                       <div className="mt-1 truncate font-data text-[11px] text-muted-foreground">
                         {productModelCode(p)}
                       </div>
                     )}
                     <div className="mt-1.5 line-clamp-2 min-h-8 text-xs leading-4 text-muted-foreground">
-                      {p.shortDescription || productSubtitle(p) || productFamilyLabel(p)}
+                      {productSubtitle(p) || productFamilyLabel(p)}
                     </div>
                   </div>
                   <div className="flex flex-wrap items-center gap-1.5">
@@ -470,13 +483,14 @@ export function ProductsPage({ initialQuery }: { initialQuery?: string }) {
                         <div className="flex items-center gap-3 min-w-0">
                           <ProductThumb product={p} />
                           <div className="min-w-0">
+                            {/* Ürün adı üstte, stok/model kodu altındaki satırda. */}
                             <div className="text-sm leading-tight truncate group-hover:text-primary transition-colors">
-                              {p.brand} {productDisplayModel(p)}
+                              {p.brand} {productName(p)}
                             </div>
                             <div className="text-[11px] text-muted-foreground mt-0.5 truncate">
                               {productModelCode(p) && <span className="font-data">{productModelCode(p)}</span>}
-                              {productModelCode(p) && (p.shortDescription || productSubtitle(p)) ? " · " : ""}
-                              {p.shortDescription || productSubtitle(p) || (productModelCode(p) ? "" : "—")}
+                              {productModelCode(p) && productSubtitle(p) ? " · " : ""}
+                              {productSubtitle(p) || (productModelCode(p) ? "" : "—")}
                             </div>
                           </div>
                         </div>
