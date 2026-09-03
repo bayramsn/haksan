@@ -1205,6 +1205,29 @@ export class ReportsService {
       )
       .groupBy(leads.ownerUserId);
 
+    // Ziyaret ve arama iki yerden girilebiliyor: kendi formları ve aktivite
+    // ekranı. Hedef sayacı yalnız formları sayarken saha ekibi aktiviteden
+    // girdiğinde hedef ilerlemiyordu; ekip raporuyla aynı kural uygulanır.
+    const activityMetricRows = async (codes: string[]) => {
+      if (!userIds.length) return [] as Array<{ userId: string | null; count: number }>;
+      return this.db
+        .select({ userId: salesActivities.createdBy, count: sql<number>`count(*)::int` })
+        .from(salesActivities)
+        .innerJoin(activityTypes, eq(salesActivities.activityTypeId, activityTypes.id))
+        .where(
+          and(
+            eq(salesActivities.tenantId, actor.tenantId),
+            isNull(salesActivities.deletedAt),
+            gte(salesActivities.activityDate, from),
+            lte(salesActivities.activityDate, to),
+            inArray(salesActivities.createdBy, userIds),
+            inArray(activityTypes.code, codes),
+            sql`coalesce(${salesActivities.result}, '') <> ${VISIT_NOT_DONE_RESULT}`
+          )
+        )
+        .groupBy(salesActivities.createdBy);
+    };
+
     const [
       invoiceRows,
       paymentRows,
@@ -1218,6 +1241,8 @@ export class ReportsService {
       ticketRows,
       installRows,
       leadRows,
+      visitActivityRows,
+      callActivityRows,
     ] = await Promise.all([
       invoiceRowsQuery,
       paymentRowsQuery,
@@ -1231,6 +1256,8 @@ export class ReportsService {
       ticketRowsQuery,
       installRowsQuery,
       leadRowsQuery,
+      activityMetricRows(['customer_visit']),
+      activityMetricRows(['incoming_call', 'outgoing_call']),
     ]);
 
     for (const r of invoiceRows) {
@@ -1264,13 +1291,15 @@ export class ReportsService {
         this.addUsdAmount(entry, 'purchaseOrderAmount', r.total, r.currencyCode, rates, unsupportedCurrencies);
       }
     }
-    for (const r of visitRows) {
+    // Form + aktivite toplanır: aynı ziyaret iki kez girilmediği sürece
+    // sayaç sahadaki gerçeği gösterir.
+    for (const r of [...visitRows, ...visitActivityRows]) {
       const entry = get(r.userId);
-      if (entry) entry.visitTarget = r.count;
+      if (entry) entry.visitTarget += r.count;
     }
-    for (const r of callRows) {
+    for (const r of [...callRows, ...callActivityRows]) {
       const entry = get(r.userId);
-      if (entry) entry.callTarget = r.count;
+      if (entry) entry.callTarget += r.count;
     }
     for (const r of ticketRows) {
       const entry = get(r.userId);
@@ -1371,9 +1400,10 @@ export class ReportsService {
     }
     if (text.includes('KURULUM')) return 'installationCompleted';
     if (text.includes('SERVİS') || text.includes('BAKIM')) return item.unit === 'amount' ? 'serviceAmount' : 'serviceCompleted';
-    if (text.includes('TEKLİF')) return 'quoteTarget';
+    // Eylem türü konudan önce: "Teklif takip ziyareti" ziyaret sayılır.
     if (text.includes('ZİYARET')) return 'visitTarget';
     if (text.includes('ARAMA')) return 'callTarget';
+    if (text.includes('TEKLİF')) return 'quoteTarget';
     if (text.includes('YENİ MÜŞTERİ')) return 'salesNewCustomers';
     if (text.includes('DİJİTAL') || text.includes('LEAD')) return 'digitalLeadTarget';
     return null;

@@ -109,6 +109,8 @@ type ReportLine = {
   pct: number | null;
   status: TargetStatus;
   trackingMode: "automatic" | "manual";
+  /** Gerçekleşmenin hangi kayıttan sayıldığı; manuel kalemlerde boştur. */
+  source?: string;
   detail?: string;
 };
 
@@ -127,6 +129,29 @@ const SCOPE_META: Record<ScopeKind, { label: string; plural: string; icon: typeo
   user: { label: "Kişi", plural: "Kullanıcılar", icon: Users },
   department: { label: "Departman", plural: "Departmanlar", icon: Building2 },
   division: { label: "Bölüm", plural: "Bölümler", icon: Layers3 },
+};
+
+/**
+ * Her hedef kaleminin gerçekleşmesi hangi kayıttan sayılıyor. Kalem adı ile
+ * sayacın anlattığı şey farklı olabildiği için ekranda açıkça yazılır
+ * ("bu hedef ne zaman ilerler?").
+ */
+const METRIC_SOURCES: Record<string, string> = {
+  salesAmount: "satış faturası tutarından",
+  salesNewCustomers: "dönemde açılan yeni firma kaydından",
+  quoteTarget: "oluşturulan teklif sayısından",
+  visitTarget: "ziyaret formu + ziyaret aktivitelerinden",
+  callTarget: "arama formu + arama aktivitelerinden",
+  serviceCompleted: "kapatılan servis kaydından",
+  serviceAmount: "tamamlanan kurulum ücretlerinden",
+  digitalLeadTarget: "oluşturulan lead sayısından",
+  paymentsInAmount: "tahsil edilen ödemelerden",
+  purchaseInvoiceAmount: "alış faturası tutarından",
+  purchaseOrderAmount: "satınalma sipariş tutarından",
+  purchaseOrderCount: "satınalma siparişi sayısından",
+  salesOrderAmount: "satış sipariş tutarından",
+  salesOrderCount: "satış siparişi sayısından",
+  installationCompleted: "tamamlanan kurulum sayısından",
 };
 
 const METRIC_LABELS: Record<string, string> = {
@@ -265,6 +290,7 @@ export const reportLines = (subject: TargetSubject | null, period: string, expec
       pct: metric.pct,
       status: metric.status ?? targetStatus(period, metric.pct, expectedPct, manual),
       trackingMode: manual ? "manual" : "automatic",
+      source: manual ? undefined : METRIC_SOURCES[metricKey],
     });
   }
 
@@ -299,6 +325,7 @@ export const reportLines = (subject: TargetSubject | null, period: string, expec
       pct,
       status: targetStatus(period, pct, expectedPct, false),
       trackingMode: "automatic",
+      source: METRIC_SOURCES[metricKey],
       detail: group.rows.length > 1 ? "Alt kalemler aynı sistem sayacını kullandığı için tek hedef olarak değerlendirilir." : first.description,
     });
   }
@@ -877,6 +904,12 @@ function TargetDetailRow({ line }: { line: ReportLine }) {
       <div className="min-w-0">
         <div className="flex flex-wrap items-center gap-2"><span className="text-sm font-medium">{line.label}</span><Badge variant="outline" className={cn("text-[10px]", STATUS_META[line.status].className)}>{STATUS_META[line.status].label}</Badge>{line.trackingMode === "automatic" ? <span className="inline-flex items-center gap-1 text-[10px] font-medium text-emerald-700"><Zap className="size-3" /> Otomatik</span> : <span className="inline-flex items-center gap-1 text-[10px] font-medium text-violet-700"><PenLine className="size-3" /> Manuel</span>}</div>
         <div className="mt-1 text-xs text-muted-foreground">{line.category}{line.detail ? ` · ${line.detail}` : ""}</div>
+        {/* "Bu hedef ne zaman ilerler?" sorusunun cevabı satırın içinde dursun. */}
+        <div className="mt-0.5 text-[11px] text-muted-foreground/90">
+          {line.trackingMode === "automatic"
+            ? `Ölçüm: ${line.source ?? "sistem kayıtlarından otomatik"}`
+            : "Ölçüm: sistemde sayacı yok — gerçekleşmeyi yönetici değerlendirir"}
+        </div>
         {line.pct != null && <Progress value={Math.min(100, Math.max(0, line.pct))} className="mt-2 h-1.5 max-w-xl" />}
       </div>
       <MetricCell label="Hedef" value={formatValue(line.target, line.unit)} />

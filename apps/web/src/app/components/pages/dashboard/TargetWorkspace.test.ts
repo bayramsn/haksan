@@ -139,3 +139,33 @@ describe("ay sonu tahmini ve hızlı aralıklar", () => {
     expect(monthRange(from, to)).toHaveLength(12);
   });
 });
+
+describe("hedef kaleminin ölçüm kaynağı", () => {
+  it("otomatik kalemde neyin sayıldığını satıra yazar", () => {
+    const lines = reportLines({
+      subject: { kind: "user", id: "u1", name: "Ayşe Yılmaz" },
+      hasTarget: true,
+      metrics: { visitTarget: { target: 20, actual: 8, pct: 40 } },
+    }, "2026-09", 60);
+
+    expect(lines[0]).toMatchObject({
+      label: "Ziyaret",
+      trackingMode: "automatic",
+      source: "ziyaret formu + ziyaret aktivitelerinden",
+    });
+  });
+
+  it("manuel kalemde kaynak boş kalır", () => {
+    const lines = reportLines({
+      subject: { kind: "user", id: "u1", name: "Ayşe Yılmaz" },
+      hasTarget: true,
+      metrics: {},
+      targetItems: [
+        { category: "LOJİSTİK", activity: "SEVKİYAT PLANLAMA", target: "10", unit: "count", trackingMode: "manual" },
+      ],
+    }, "2026-09", 60);
+
+    expect(lines[0]).toMatchObject({ trackingMode: "manual" });
+    expect(lines[0].source).toBeUndefined();
+  });
+});

@@ -197,10 +197,15 @@ const inferTemplateMetricKey = (targetType: UserTargetType, row: Omit<TargetTemp
   if (targetType === "purchase") return row.unit === "amount" ? "purchaseOrderAmount" : "purchaseOrderCount";
   if (targetType === "operations" && text.includes("SATIŞ SİPARİŞ")) return row.unit === "amount" ? "salesOrderAmount" : "salesOrderCount";
   if (targetType === "operations" && text.includes("KURULUM")) return "installationCompleted";
-  if (text.includes("TEKLİF")) return "quoteTarget";
+  // Eylem türü konudan önce gelir: "Teklif takip ziyareti" bir ZİYARET'tir,
+  // teklif değil. Sıra tersken bu kalemler teklif sayısıyla ölçülüyordu.
   if (text.includes("ZİYARET")) return "visitTarget";
   if (text.includes("ARAMA")) return "callTarget";
+  if (text.includes("TEKLİF")) return "quoteTarget";
   if (text.includes("DİJİTAL") || text.includes("LEAD")) return "digitalLeadTarget";
+  // Tutar bazlı kalan kalemler (ör. yedek parça & aksesuar satışı) satış
+  // faturası cirosundan ölçülür; aksi halde sessizce manuel kalıyorlardı.
+  if (row.unit === "amount") return "salesAmount";
   return null;
 };
 const withTargetType = (targetType: UserTargetType, rows: Omit<TargetTemplateItem, "targetType">[]): TargetTemplateItem[] =>

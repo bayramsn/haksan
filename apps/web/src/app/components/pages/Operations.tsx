@@ -114,6 +114,12 @@ function productSeriesCode(product: Product) {
 const productDisplayModel = (product: Product) =>
   product.modelName?.trim() || product.model;
 
+/** Başlıkta ad yazıyorsa altına kod düşer; ad yoksa kod zaten başlıktadır. */
+const productModelCode = (product: Product) => {
+  const code = product.model?.trim() ?? "";
+  return code && code !== productDisplayModel(product).trim() ? code : "";
+};
+
 function productSeriesLabel(product: Product) {
   const code = productSeriesCode(product);
   return code ? `${code} Serisi` : "Serisiz";
@@ -221,11 +227,14 @@ export function ProductsPage({ initialQuery }: { initialQuery?: string }) {
   // MV-1050 başa geçiyordu.
   const compareProductText = (a: string, b: string) =>
     a.trim().localeCompare(b.trim(), "tr", { numeric: true, sensitivity: "base" });
+  // Sıralama kartta okunan sırayı izler: marka → ürün adı → model kodu.
+  // Eskiden üçüncü anahtar kısa açıklamaydı; ekranda görünmeyen bir alana göre
+  // sıralamak listeyi rastgele gösteriyordu.
   const sortedProducts = [...filtered].sort(
     (a, b) =>
       compareProductText(a.brand ?? "", b.brand ?? "") ||
       compareProductText(productDisplayModel(a), productDisplayModel(b)) ||
-      compareProductText(a.shortDescription ?? "", b.shortDescription ?? ""),
+      compareProductText(a.model ?? "", b.model ?? ""),
   );
   const grouped = Array.from(
     sortedProducts.reduce((acc, product) => {
@@ -369,6 +378,12 @@ export function ProductsPage({ initialQuery }: { initialQuery?: string }) {
                     <div className="mt-1 truncate font-display text-xl font-semibold leading-none tracking-tight text-foreground">
                       {productDisplayModel(p)}
                     </div>
+                    {/* Ad ile kod ayrı satırlarda: katalogda ad, siparişte kod konuşuluyor. */}
+                    {productModelCode(p) && (
+                      <div className="mt-1 truncate font-data text-[11px] text-muted-foreground">
+                        {productModelCode(p)}
+                      </div>
+                    )}
                     <div className="mt-1.5 line-clamp-2 min-h-8 text-xs leading-4 text-muted-foreground">
                       {p.shortDescription || productSubtitle(p) || productFamilyLabel(p)}
                     </div>
@@ -459,7 +474,9 @@ export function ProductsPage({ initialQuery }: { initialQuery?: string }) {
                               {p.brand} {productDisplayModel(p)}
                             </div>
                             <div className="text-[11px] text-muted-foreground mt-0.5 truncate">
-                              {p.shortDescription || productSubtitle(p) || "—"}
+                              {productModelCode(p) && <span className="font-data">{productModelCode(p)}</span>}
+                              {productModelCode(p) && (p.shortDescription || productSubtitle(p)) ? " · " : ""}
+                              {p.shortDescription || productSubtitle(p) || (productModelCode(p) ? "" : "—")}
                             </div>
                           </div>
                         </div>
