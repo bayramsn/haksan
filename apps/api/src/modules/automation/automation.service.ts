@@ -15,7 +15,7 @@ import type { AuthContext } from '../../shared/security/auth.types';
 import { loadEnv } from '../../config/env';
 import { logger } from '../../shared/utils/logger';
 import { tenants } from '../../db/schema/tenants';
-import { users } from '../../db/schema/users';
+import { roles, userRoles, users } from '../../db/schema/users';
 import { companies, notifications } from '../../db/schema/companies';
 import { receivables } from '../../db/schema/finance';
 import { customerDevices, inventoryItems } from '../../db/schema/inventory';
@@ -57,6 +57,8 @@ export type BriefingItem = { label: string; nav: string; focus?: string; query?:
 const AUTOMATION_ACTOR_ID = '00000000-0000-0000-0000-000000000000';
 /** Tempo farkı bu kadar puanı geçmeden "geride" denmez; gürültüyü keser. */
 const TARGET_PACE_TOLERANCE = 10;
+/** Bu kadar gündür giriş yapmayan aktif hesap raporda "uykuda" sayılır. */
+const DORMANT_LOGIN_DAYS = 30;
 /** Kişisel risk uyarısı eşiği: tempo bu kadar puan geride kalınca kişiye yazılır. */
 const TARGET_RISK_THRESHOLD = 15;
 
@@ -154,6 +156,81 @@ export function formatWeeklySalesReport(
     stats.overdueActions > 0
       ? `• ${stats.overdueActions} fırsatta takip tarihi geçti`
       : '• Gecikmiş fırsat takibi yok',
+  ].join('\n');
+}
+
+export type UserActivityRow = {
+  name: string;
+  /** Ziyaret, arama ve diğer temas kayıtlarının tamamı — ekip tablosuyla aynı sayım. */
+  activities: number;
+  quotes: number;
+  opportunities: number;
+  won: number;
+  total: number;
+  previousTotal: number;
+};
+
+export type UserAccountAudit = {
+  activeCount: number;
+  newUsers: Array<{ name: string; email: string }>;
+  dormantUsers: Array<{ name: string; lastLoginAt: Date | null }>;
+  blockedUsers: Array<{ name: string; reason: string }>;
+};
+
+/**
+ * Süper admine giden haftalık kullanıcı raporu: kim ne yaptı (performans) ve
+ * hesaplarda ne değişti (denetim). Saf fonksiyon — veri erişimi yok, testi
+ * doğrudan buradan yapılır.
+ */
+export function formatUserReport(
+  rows: UserActivityRow[],
+  audit: UserAccountAudit,
+  period: { from: Date; to: Date },
+): string {
+  const date = (value: Date) => value.toLocaleDateString('tr-TR');
+  // `to` dönemin dışına açık sınır; kullanıcıya haftanın son günü gösterilir.
+  const lastDay = new Date(period.to.getTime() - DAY_MS);
+  const trend = (row: UserActivityRow) => {
+    const diff = row.total - row.previousTotal;
+    if (diff === 0) return 'geçen haftayla aynı';
+    return `geçen haftaya göre ${diff > 0 ? '+' : ''}${diff}`;
+  };
+
+  const performance = rows.length
+    ? rows.map(
+        (row) =>
+          `• ${row.name}: ${row.total} kayıt (${trend(row)}) — ${row.activities} aktivite, ` +
+          `${row.quotes} teklif, ${row.opportunities} fırsat, ${row.won} kazanılan`,
+      )
+    : ['• Bu hafta hiçbir kullanıcının kaydı yok.'];
+
+  const account = [
+    `• ${audit.activeCount} aktif hesap`,
+    audit.newUsers.length
+      ? `• Bu hafta açılan ${audit.newUsers.length} hesap: ${audit.newUsers
+          .map((user) => `${user.name} (${user.email})`)
+          .join(', ')}`
+      : '• Bu hafta yeni hesap açılmadı',
+    audit.dormantUsers.length
+      ? `• ${DORMANT_LOGIN_DAYS}+ gündür giriş yapmayan ${audit.dormantUsers.length} hesap: ${audit.dormantUsers
+          .map((user) => `${user.name} (${user.lastLoginAt ? `son giriş ${date(user.lastLoginAt)}` : 'hiç giriş yapmamış'})`)
+          .join(', ')}`
+      : `• ${DORMANT_LOGIN_DAYS}+ gündür giriş yapmayan hesap yok`,
+    audit.blockedUsers.length
+      ? `• Erişimi kapalı ${audit.blockedUsers.length} hesap: ${audit.blockedUsers
+          .map((user) => `${user.name} (${user.reason})`)
+          .join(', ')}`
+      : '• Pasif veya kilitli hesap yok',
+  ];
+
+  return [
+    `Dönem: ${date(period.from)} – ${date(lastDay)}`,
+    '',
+    'KULLANICI PERFORMANSI',
+    ...performance,
+    '',
+    'HESAP DENETİMİ',
+    ...account,
   ].join('\n');
 }
 
@@ -255,9 +332,9 @@ export class AutomationService {
    * yazılmasın diye ReportsService'e tenant kapsamlı sentetik aktörle sorulur;
    * cron'un HTTP oturumu yoktur.
    */
-  private async targetPaceStatus(tenantId: string): Promise<{ expected: number; subjects: TargetPaceSubject[] }> {
-    const period = new Date().toISOString().slice(0, 7);
-    const actor = {
+  /** Rapor motoruna verilen tenant kapsamlı sentetik kimlik; cron'un oturumu yoktur. */
+  private automationActor(tenantId: string): AuthContext {
+    return {
       userId: AUTOMATION_ACTOR_ID,
       tenantId,
       email: 'automation@haksan.local',
@@ -272,6 +349,11 @@ export class AutomationService {
       activeDepartmentId: null,
       accessScopes: [],
     } satisfies AuthContext;
+  }
+
+  private async targetPaceStatus(tenantId: string): Promise<{ expected: number; subjects: TargetPaceSubject[] }> {
+    const period = new Date().toISOString().slice(0, 7);
+    const actor = this.automationActor(tenantId);
 
     const report = (await this.reports.targetProgress(actor, period, { kind: 'all-users' })) as {
       expectedProgressPct?: number;
@@ -528,6 +610,85 @@ export class AutomationService {
     return row?.count ?? 0;
   }
 
+  /** Raporun alıcıları: tenant'ın aktif süper adminleri. */
+  private async superAdmins(tenantId: string) {
+    return this.db
+      .select({ id: users.id, email: users.email, name: users.fullName })
+      .from(users)
+      .innerJoin(userRoles, eq(userRoles.userId, users.id))
+      .innerJoin(roles, eq(userRoles.roleId, roles.id))
+      .where(
+        and(
+          eq(users.tenantId, tenantId),
+          eq(users.status, 'active'),
+          isNull(users.deletedAt),
+          eq(roles.tenantId, tenantId),
+          eq(roles.code, 'super_admin'),
+        ),
+      );
+  }
+
+  /**
+   * Kullanıcı bazlı hafta performansı. Sayım motoru ekip aktivitesi raporunun
+   * aynısıdır (ReportsService); cron kendi sorgusunu yazmaz ki panodaki sayılarla
+   * mail birbirini tutsun.
+   */
+  private async userActivityRows(
+    tenantId: string,
+    anchor: Date,
+  ): Promise<{ rows: UserActivityRow[]; range: { from: Date; to: Date } }> {
+    const report = await this.reports.teamActivity(
+      this.automationActor(tenantId),
+      'week',
+      anchor.toISOString(),
+    );
+    const rows = report.users.map((user) => ({
+      name: user.name,
+      activities: user.activities.current,
+      quotes: user.quotes.current,
+      opportunities: user.opportunitiesCreated.current,
+      won: user.won.current,
+      total: user.total.current,
+      previousTotal: user.total.previous,
+    }));
+    return { rows, range: { from: new Date(report.range.from), to: new Date(report.range.to) } };
+  }
+
+  /** Hesap denetimi: tek okumadan yeni / uykuda / erişimi kapalı hesaplar. */
+  private async userAccountAudit(tenantId: string, since: Date): Promise<UserAccountAudit> {
+    const rows = await this.db
+      .select({
+        name: users.fullName,
+        email: users.email,
+        status: users.status,
+        lastLoginAt: users.lastLoginAt,
+        lockedUntil: users.lockedUntil,
+        createdAt: users.createdAt,
+      })
+      .from(users)
+      .where(and(eq(users.tenantId, tenantId), isNull(users.deletedAt)));
+
+    const now = Date.now();
+    const dormantBefore = now - DORMANT_LOGIN_DAYS * DAY_MS;
+    const active = rows.filter((row) => row.status === 'active');
+    return {
+      activeCount: active.length,
+      newUsers: rows
+        .filter((row) => row.createdAt >= since)
+        .map((row) => ({ name: row.name, email: row.email })),
+      dormantUsers: active
+        .filter((row) => !row.lastLoginAt || row.lastLoginAt.getTime() < dormantBefore)
+        .sort((a, b) => (a.lastLoginAt?.getTime() ?? 0) - (b.lastLoginAt?.getTime() ?? 0))
+        .map((row) => ({ name: row.name, lastLoginAt: row.lastLoginAt })),
+      blockedUsers: rows
+        .filter((row) => row.status !== 'active' || (row.lockedUntil && row.lockedUntil.getTime() > now))
+        .map((row) => ({
+          name: row.name,
+          reason: row.status !== 'active' ? `durum: ${row.status}` : 'geçici olarak kilitli',
+        })),
+    };
+  }
+
   private async weeklySalesStats(tenantId: string, from: Date, to: Date): Promise<WeeklySalesReportStats> {
     const [opportunityStats, openPipeline, quoteStats, pendingDiscountApprovals, activityStats, overdueActions] = await Promise.all([
       this.db
@@ -589,6 +750,51 @@ export class AutomationService {
   }
 
   // ---- Zamanlanmış işler -------------------------------------------------
+
+  /**
+   * Her pazartesi: süper adminlere kullanıcı bazlı hafta raporu. Diğer
+   * otomasyonların aksine bildirim tenant geneline değil, yalnız süper admin
+   * kullanıcılara yazılır — performans ve hesap denetimi herkese açık değildir.
+   */
+  @Cron('0 7 * * 1', { timeZone: TZ })
+  async weeklyUserReportJob(): Promise<void> {
+    if (!this.active) return;
+    try {
+      for (const tenant of await this.listTenants()) {
+        if (await this.alreadyNotified(tenant.id, 'weekly_user_report')) continue;
+        const admins = await this.superAdmins(tenant.id);
+        if (!admins.length) continue;
+        // Pazartesi sabahı koşuyor: demir dün (pazar) atılır ki rapor biten
+        // haftayı göstersin, yeni başlayan boş haftayı değil.
+        const { rows, range } = await this.userActivityRows(tenant.id, new Date(Date.now() - DAY_MS));
+        const audit = await this.userAccountAudit(tenant.id, range.from);
+        const body = formatUserReport(rows, audit, range);
+        await this.db.insert(notifications).values(
+          admins.map((admin) => ({
+            tenantId: tenant.id,
+            userId: admin.id,
+            type: 'weekly_user_report',
+            title: 'Haftalık kullanıcı raporu',
+            body,
+          })),
+        );
+        for (const admin of admins) {
+          try {
+            await this.mailer.sendTextEmail({
+              to: admin.email,
+              subject: `Haksan CRM haftalık kullanıcı raporu — ${tenant.name}`,
+              text: body,
+            });
+          } catch (error) {
+            logger.warn({ action: 'weekly_user_report_mail_failed', tenantId: tenant.id }, String(error));
+          }
+        }
+      }
+      logger.info({ action: 'automation_weekly_user_report' }, '[automation] weekly user report done');
+    } catch (error) {
+      logger.error({ action: 'automation_weekly_user_report_failed' }, String(error));
+    }
+  }
 
   /** Her pazartesi: önceki yedi günün satış ve teklif yönetim özeti. */
   @Cron('30 7 * * 1', { timeZone: TZ })
