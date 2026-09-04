@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Button } from "../../ui/button";
+import { Input } from "../../ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../../ui/tabs";
 import {
   AlertCircle,
@@ -19,7 +20,9 @@ import {
   MailCheck,
   RotateCcw,
   Save,
+  Send,
   Settings2,
+  Trash2,
   ShieldCheck,
   SlidersHorizontal,
   Wrench,
@@ -34,7 +37,7 @@ import { SignatureSettingsCard } from "./SignatureSettingsCard";
 import { InfoCallout, SettingsField, SettingsSection, SettingsToggle } from "./settings-controls";
 import { MailAccountSettings } from "./MailAccountSettings";
 import { LeadAssignmentRulesCard } from "./LeadAssignmentRulesCard";
-import { NAVIGATION_GROUPS, type NavigationVisibilityKey } from "@haksan/shared";
+import { NAVIGATION_GROUPS, USER_REPORT_RECIPIENTS_MAX, type NavigationVisibilityKey } from "@haksan/shared";
 
 type Preferences = {
   notifyNewCase: boolean;
@@ -96,6 +99,9 @@ export function SettingsPage() {
   const [companyBaseline, setCompanyBaseline] = useState<CompanyInfo>(companyDefaults);
   const [companyLoading, setCompanyLoading] = useState(canReadTenant);
   const [companySaving, setCompanySaving] = useState(false);
+  const [reportRecipients, setReportRecipients] = useState<string[]>([]);
+  const [reportRecipientsBaseline, setReportRecipientsBaseline] = useState<string[]>([]);
+  const [recipientDraft, setRecipientDraft] = useState("");
   const [hiddenNavigationKeys, setHiddenNavigationKeys] = useState<NavigationVisibilityKey[]>([]);
   const [hiddenNavigationBaseline, setHiddenNavigationBaseline] = useState<NavigationVisibilityKey[]>([]);
   const [navigationSaving, setNavigationSaving] = useState(false);
@@ -117,6 +123,9 @@ export function SettingsPage() {
         };
         setCompany(nextCompany);
         setCompanyBaseline(nextCompany);
+        const nextRecipients = Array.isArray(t.userReportRecipients) ? (t.userReportRecipients as string[]) : [];
+        setReportRecipients(nextRecipients);
+        setReportRecipientsBaseline(nextRecipients);
         const nextHiddenNavigationKeys = Array.isArray(t.hiddenNavigationKeys)
           ? t.hiddenNavigationKeys as NavigationVisibilityKey[]
           : [];
@@ -146,13 +155,20 @@ export function SettingsPage() {
 
   const saveCompany = async () => {
     if (!canEditTenant) return;
+    const recipients = flushRecipientDraft();
+    if (!recipients) return;
     setCompanySaving(true);
     try {
+      // Alıcı listesi yalnız değiştiyse gönderilir: aynı anda açık duran bayat
+      // bir sekme, başkasının eklediği adresleri silmesin.
+      const recipientsChanged =
+        JSON.stringify(recipients) !== JSON.stringify(reportRecipientsBaseline);
       const updated = await adminService.updateTenant({
         name: company.companyName,
         taxNumber: company.taxId || null,
         email: company.email || null,
         phone: company.phone || null,
+        ...(recipientsChanged ? { userReportRecipients: recipients } : {}),
       });
       const nextCompany = {
         companyName: updated.name ?? "",
@@ -162,12 +178,47 @@ export function SettingsPage() {
       };
       setCompany(nextCompany);
       setCompanyBaseline(nextCompany);
+      const nextRecipients = Array.isArray(updated.userReportRecipients)
+        ? (updated.userReportRecipients as string[])
+        : recipients;
+      setReportRecipients(nextRecipients);
+      setReportRecipientsBaseline(nextRecipients);
       toast.success("Şirket bilgileri kaydedildi");
     } catch (err: any) {
       toast.error("Şirket bilgileri kaydedilemedi", { description: err?.message ?? "API isteği başarısız oldu." });
     } finally {
       setCompanySaving(false);
     }
+  };
+
+  /**
+   * Kutudaki adresi listeye alır ve güncel listeyi döndürür; adres geçersizse
+   * null döner. Kaydetme de bunu çağırır — "Ekle"ye basmadan Kaydet'e giden
+   * kullanıcının yazdığı adres sessizce kaybolmasın.
+   */
+  const flushRecipientDraft = (): string[] | null => {
+    const value = recipientDraft.trim().toLowerCase();
+    if (!value) return reportRecipients;
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) {
+      toast.error("Geçerli bir e-posta adresi girin");
+      return null;
+    }
+    if (reportRecipients.includes(value)) {
+      setRecipientDraft("");
+      return reportRecipients;
+    }
+    if (reportRecipients.length >= USER_REPORT_RECIPIENTS_MAX) {
+      toast.error(`En fazla ${USER_REPORT_RECIPIENTS_MAX} alıcı eklenebilir`);
+      return null;
+    }
+    const next = [...reportRecipients, value];
+    setReportRecipients(next);
+    setRecipientDraft("");
+    return next;
+  };
+
+  const addRecipient = () => {
+    flushRecipientDraft();
   };
 
   const saveNavigation = async () => {
@@ -192,7 +243,13 @@ export function SettingsPage() {
   };
 
   const prefsDirty = useMemo(() => JSON.stringify(prefs) !== JSON.stringify(prefsBaseline), [prefs, prefsBaseline]);
-  const companyDirty = useMemo(() => JSON.stringify(company) !== JSON.stringify(companyBaseline), [company, companyBaseline]);
+  const companyDirty = useMemo(
+    () =>
+      JSON.stringify(company) !== JSON.stringify(companyBaseline) ||
+      JSON.stringify(reportRecipients) !== JSON.stringify(reportRecipientsBaseline) ||
+      recipientDraft.trim().length > 0,
+    [company, companyBaseline, recipientDraft, reportRecipients, reportRecipientsBaseline]
+  );
   const navigationDirty = useMemo(
     () => JSON.stringify([...hiddenNavigationKeys].sort()) !== JSON.stringify([...hiddenNavigationBaseline].sort()),
     [hiddenNavigationBaseline, hiddenNavigationKeys]
@@ -208,7 +265,11 @@ export function SettingsPage() {
   const pendingSaveBusy = companySaving || navigationSaving;
 
   const resetPendingChanges = () => {
-    if (tab === "sirket") setCompany(companyBaseline);
+    if (tab === "sirket") {
+      setCompany(companyBaseline);
+      setReportRecipients(reportRecipientsBaseline);
+      setRecipientDraft("");
+    }
     else if (tab === "menu") setHiddenNavigationKeys(hiddenNavigationBaseline);
     else setPrefs(prefsBaseline);
   };
@@ -342,6 +403,72 @@ export function SettingsPage() {
               </div>
             )}
           </SettingsSection>
+
+          {/* Liste kişisel adresler ve kimin hassas rapor aldığı bilgisini taşır;
+              yalnız tenant ayarlarını düzenleyebilenlere gösterilir. */}
+          {canEditTenant && (
+          <SettingsSection
+            icon={<Send />}
+            tone="info"
+            title="Haftalık Kullanıcı Raporu Alıcıları"
+            description="Pazartesi sabahı gönderilen kullanıcı performansı ve hesap denetimi raporu bu adreslere gider."
+          >
+            {companyLoading ? (
+              <p className="text-sm text-muted-foreground">Yükleniyor…</p>
+            ) : (
+              <div className="space-y-3">
+                <InfoCallout icon={<Mail />}>
+                  Liste boşsa rapor süper adminlere gider. Adres eklerseniz mail onların yerine bu adreslere
+                  çıkar; uygulama içi bildirim her hâlükârda süper adminlerde kalır.
+                </InfoCallout>
+                {reportRecipients.length > 0 && (
+                  <ul className="space-y-1.5">
+                    {reportRecipients.map((address) => (
+                      <li
+                        key={address}
+                        className="flex items-center justify-between gap-2 rounded-lg border border-border/60 bg-muted/20 px-3 py-2"
+                      >
+                        <span className="min-w-0 truncate text-sm">{address}</span>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="size-8 shrink-0"
+                          disabled={!canEditTenant}
+                          aria-label={`${address} adresini listeden çıkar`}
+                          onClick={() => setReportRecipients(reportRecipients.filter((item) => item !== address))}
+                        >
+                          <Trash2 className="size-4" />
+                        </Button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                <div className="flex gap-2">
+                  <Input
+                    type="email"
+                    value={recipientDraft}
+                    disabled={!canEditTenant}
+                    placeholder="bt@firma.com"
+                    onChange={(e) => setRecipientDraft(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        addRecipient();
+                      }
+                    }}
+                  />
+                  <Button type="button" variant="outline" disabled={!canEditTenant || !recipientDraft.trim()} onClick={addRecipient}>
+                    Ekle
+                  </Button>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  {reportRecipients.length}/{USER_REPORT_RECIPIENTS_MAX} alıcı · Değişiklik “Kaydet” ile uygulanır.
+                </p>
+              </div>
+            )}
+          </SettingsSection>
+          )}
 
           {canReadTenant && !companyLoading && (
             <SettingsSection icon={<Globe />} tone="info" title="Canlı Kurumsal Önizleme" description="Kaydetmeden önce şirket kimliğinin çalışma alanında nasıl görüneceğini kontrol edin.">

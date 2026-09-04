@@ -1058,6 +1058,11 @@ export class AdminController {
       email: tenant.email,
       phone: tenant.phone,
       hiddenNavigationKeys: tenant.hiddenNavigationKeys,
+      // Alıcı listesi kişisel e-posta adresleri taşıyor ve kimin hassas rapor
+      // aldığını gösteriyor; şirket adı gibi kurum geneline açık değil.
+      ...(user.permissions.has('tenants.update')
+        ? { userReportRecipients: tenant.userReportRecipients }
+        : {}),
     };
   }
 
@@ -1070,7 +1075,7 @@ export class AdminController {
     const tenant = await this.db.query.tenants.findFirst({ where: eq(tenants.id, user.tenantId) });
     if (!tenant) throw new NotFoundError('Tenant');
     const patch: Record<string, unknown> = {};
-    for (const k of ['name', 'taxNumber', 'email', 'phone', 'hiddenNavigationKeys'] as const) {
+    for (const k of ['name', 'taxNumber', 'email', 'phone', 'hiddenNavigationKeys', 'userReportRecipients'] as const) {
       if (body[k] !== undefined) patch[k] = body[k];
     }
     if (Object.keys(patch).length > 0) {
@@ -1087,6 +1092,7 @@ export class AdminController {
           email: tenant.email,
           phone: tenant.phone,
           hiddenNavigationKeys: tenant.hiddenNavigationKeys,
+          userReportRecipients: tenant.userReportRecipients,
         },
         newValues: patch,
       });
@@ -1100,6 +1106,7 @@ export class AdminController {
       email: updated!.email,
       phone: updated!.phone,
       hiddenNavigationKeys: updated!.hiddenNavigationKeys,
+      userReportRecipients: updated!.userReportRecipients,
     };
   }
 }

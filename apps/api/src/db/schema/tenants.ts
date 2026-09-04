@@ -12,6 +12,8 @@ export const tenants = pgTable(
     email: varchar('email', { length: 255 }),
     phone: varchar('phone', { length: 32 }),
     hiddenNavigationKeys: jsonb('hidden_navigation_keys').$type<NavigationVisibilityKey[]>().notNull().default([]),
+    /** Haftalık kullanıcı raporunun alıcıları; boşsa rapor süper adminlere gider. */
+    userReportRecipients: jsonb('user_report_recipients').$type<string[]>().notNull().default([]),
     isActive: boolean('is_active').notNull().default(true),
     ...auditColumns,
   },

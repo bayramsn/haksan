@@ -99,12 +99,24 @@ export const auditLogQuerySchema = z.object({
 });
 export type AuditLogQuery = z.infer<typeof auditLogQuerySchema>;
 
+/**
+ * Haftalık kullanıcı raporunun alıcıları. Liste boşsa rapor tenant'ın süper
+ * adminlerine gider; doluysa mail bu adreslere çıkar. Adresler küçük harfe
+ * indirilip tekilleştirilir ki aynı kişi iki kez mail almasın.
+ */
+export const USER_REPORT_RECIPIENTS_MAX = 10;
+export const userReportRecipientsSchema = z
+  .array(z.string().trim().toLowerCase().email().max(255))
+  .max(USER_REPORT_RECIPIENTS_MAX)
+  .transform((list) => [...new Set(list)]);
+
 export const tenantUpdateSchema = z.object({
   name: z.string().min(1).max(255).optional(),
   taxNumber: z.string().max(32).nullable().optional(),
   email: z.string().email().max(255).nullable().optional(),
   phone: z.string().max(32).nullable().optional(),
   hiddenNavigationKeys: z.array(z.enum(NAVIGATION_VISIBILITY_KEYS)).max(NAVIGATION_VISIBILITY_KEYS.length).optional(),
+  userReportRecipients: userReportRecipientsSchema.optional(),
 });
 export type TenantUpdateInput = z.infer<typeof tenantUpdateSchema>;
 

@@ -31,7 +31,7 @@ const DEDUPE_WINDOW_MS = 20 * 60 * 60 * 1000;
 /** Dekoratör argümanı sınıf yüklenirken değerlendirilir; env buradan okunur. */
 const TZ = loadEnv().AUTOMATION_TIMEZONE;
 
-type TenantRow = { id: string; name: string };
+type TenantRow = { id: string; name: string; userReportRecipients: string[] };
 
 export type WeeklySalesReportStats = {
   createdOpportunities: number;
@@ -234,6 +234,26 @@ export function formatUserReport(
   ].join('\n');
 }
 
+/**
+ * Haftalık kullanıcı raporunun mail alıcıları. Ayarlar'daki liste doluysa mail
+ * oraya çıkar, boşsa süper adminlere. Uygulama içi bildirim her hâlükârda süper
+ * adminlere yazıldığı için mail BT sorumlusuna yönlendirildiğinde de kimse
+ * görünürlük kaybetmez.
+ */
+export function userReportMailTargets(
+  configured: string[] | null | undefined,
+  admins: Array<{ email: string }>,
+): string[] {
+  // jsonb kolonun CHECK'i yalnız "dizi" diyor, eleman tipini değil: elle SQL ya da
+  // eski yedekten dönen bir satır string olmayan eleman taşıyabilir. Tek bozuk
+  // tenant tüm döngüyü düşürmesin diye tip burada süzülüyor.
+  const list = (configured ?? [])
+    .filter((address): address is string => typeof address === 'string')
+    .map((address) => address.trim().toLowerCase())
+    .filter(Boolean);
+  return list.length ? [...new Set(list)] : admins.map((admin) => admin.email);
+}
+
 /** Bildirim metinlerinde kullanılan lead takip durumu etiketleri. */
 const LEAD_STATUS_LABELS: Record<string, string> = {
   new: 'Yeni',
@@ -271,7 +291,9 @@ export class AutomationService {
   }
 
   private async listTenants(): Promise<TenantRow[]> {
-    return this.db.select({ id: tenants.id, name: tenants.name }).from(tenants);
+    return this.db
+      .select({ id: tenants.id, name: tenants.name, userReportRecipients: tenants.userReportRecipients })
+      .from(tenants);
   }
 
   /** Aynı tip bildirim son 20 saat içinde üretildiyse tekrar üretme. */
@@ -763,30 +785,38 @@ export class AutomationService {
       for (const tenant of await this.listTenants()) {
         if (await this.alreadyNotified(tenant.id, 'weekly_user_report')) continue;
         const admins = await this.superAdmins(tenant.id);
-        if (!admins.length) continue;
+        // Alıcı listesi tam da "süper admin olmayan biri de görsün" diye var;
+        // süper admin kalmadığında (hepsi pasif/silinmiş) mail yine de çıkmalı.
+        const mailTargets = userReportMailTargets(tenant.userReportRecipients, admins);
+        if (!admins.length && !mailTargets.length) continue;
         // Pazartesi sabahı koşuyor: demir dün (pazar) atılır ki rapor biten
         // haftayı göstersin, yeni başlayan boş haftayı değil.
         const { rows, range } = await this.userActivityRows(tenant.id, new Date(Date.now() - DAY_MS));
         const audit = await this.userAccountAudit(tenant.id, range.from);
         const body = formatUserReport(rows, audit, range);
-        await this.db.insert(notifications).values(
-          admins.map((admin) => ({
-            tenantId: tenant.id,
-            userId: admin.id,
-            type: 'weekly_user_report',
-            title: 'Haftalık kullanıcı raporu',
-            body,
-          })),
-        );
-        for (const admin of admins) {
+        // Süper admin yoksa bildirim yazılmaz; drizzle boş values() ile patlar.
+        // Bu durumda mükerrer koruması (alreadyNotified) da dayanaksız kalır —
+        // haftalık cron için kabul edilebilir, elle tetiklemede tekrar gönderir.
+        if (admins.length) {
+          await this.db.insert(notifications).values(
+            admins.map((admin) => ({
+              tenantId: tenant.id,
+              userId: admin.id,
+              type: 'weekly_user_report',
+              title: 'Haftalık kullanıcı raporu',
+              body,
+            })),
+          );
+        }
+        for (const to of mailTargets) {
           try {
             await this.mailer.sendTextEmail({
-              to: admin.email,
+              to,
               subject: `Haksan CRM haftalık kullanıcı raporu — ${tenant.name}`,
               text: body,
             });
           } catch (error) {
-            logger.warn({ action: 'weekly_user_report_mail_failed', tenantId: tenant.id }, String(error));
+            logger.warn({ action: 'weekly_user_report_mail_failed', tenantId: tenant.id, to }, String(error));
           }
         }
       }
