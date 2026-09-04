@@ -10,7 +10,7 @@ import {
 import type { DbClient } from '../../db/client';
 import { DB } from '../../shared/database/database.module';
 import { MailerService } from '../../shared/mailer/mailer.service';
-import { ReportsService } from '../reports/reports.service';
+import { ReportsService, type TeamActivityPeriod } from '../reports/reports.service';
 import type { AuthContext } from '../../shared/security/auth.types';
 import { loadEnv } from '../../config/env';
 import { logger } from '../../shared/utils/logger';
@@ -23,6 +23,7 @@ import { productModels } from '../../db/schema/products';
 import { quotes } from '../../db/schema/quotes';
 import { maintenancePlans, serviceTickets } from '../../db/schema/service';
 import { opportunities, salesActivities } from '../../db/schema/crm';
+import { tasks } from '../../db/schema/tasks';
 import { paymentStatuses, quoteStatuses, serviceTicketStatuses } from '../../db/schema/lookup';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -59,6 +60,18 @@ const AUTOMATION_ACTOR_ID = '00000000-0000-0000-0000-000000000000';
 const TARGET_PACE_TOLERANCE = 10;
 /** Bu kadar gündür giriş yapmayan aktif hesap raporda "uykuda" sayılır. */
 const DORMANT_LOGIN_DAYS = 30;
+
+/**
+ * Kullanıcı raporunun dönemleri. Sayım motoru (ReportsService.teamActivity) bu
+ * dört dönemi zaten biliyor; cron yalnız hangi pencereyi soracağını, bildirimi
+ * hangi tiple tekilleştireceğini ve başlıkta ne yazacağını seçer.
+ */
+const USER_REPORT_PERIODS = {
+  day: { notificationType: 'daily_user_report', label: 'Günlük' },
+  week: { notificationType: 'weekly_user_report', label: 'Haftalık' },
+  month: { notificationType: 'monthly_user_report', label: 'Aylık' },
+  year: { notificationType: 'yearly_user_report', label: 'Yıllık' },
+} as const satisfies Record<TeamActivityPeriod, { notificationType: string; label: string }>;
 /** Kişisel risk uyarısı eşiği: tempo bu kadar puan geride kalınca kişiye yazılır. */
 const TARGET_RISK_THRESHOLD = 15;
 
@@ -170,6 +183,13 @@ export type UserActivityRow = {
   previousTotal: number;
 };
 
+export type ReportTaskStats = {
+  open: number;
+  overdue: number;
+  created: number;
+  completed: number;
+};
+
 export type UserAccountAudit = {
   activeCount: number;
   newUsers: Array<{ name: string; email: string }>;
@@ -185,6 +205,7 @@ export type UserAccountAudit = {
 export function formatUserReport(
   rows: UserActivityRow[],
   audit: UserAccountAudit,
+  taskStats: ReportTaskStats,
   period: { from: Date; to: Date },
 ): string {
   const date = (value: Date) => value.toLocaleDateString('tr-TR');
@@ -192,8 +213,8 @@ export function formatUserReport(
   const lastDay = new Date(period.to.getTime() - DAY_MS);
   const trend = (row: UserActivityRow) => {
     const diff = row.total - row.previousTotal;
-    if (diff === 0) return 'geçen haftayla aynı';
-    return `geçen haftaya göre ${diff > 0 ? '+' : ''}${diff}`;
+    if (diff === 0) return 'önceki dönemle aynı';
+    return `önceki döneme göre ${diff > 0 ? '+' : ''}${diff}`;
   };
 
   const performance = rows.length
@@ -202,15 +223,15 @@ export function formatUserReport(
           `• ${row.name}: ${row.total} kayıt (${trend(row)}) — ${row.activities} aktivite, ` +
           `${row.quotes} teklif, ${row.opportunities} fırsat, ${row.won} kazanılan`,
       )
-    : ['• Bu hafta hiçbir kullanıcının kaydı yok.'];
+    : ['• Rapor döneminde hiçbir kullanıcının kaydı yok.'];
 
   const account = [
     `• ${audit.activeCount} aktif hesap`,
     audit.newUsers.length
-      ? `• Bu hafta açılan ${audit.newUsers.length} hesap: ${audit.newUsers
+      ? `• Rapor döneminde açılan ${audit.newUsers.length} hesap: ${audit.newUsers
           .map((user) => `${user.name} (${user.email})`)
           .join(', ')}`
-      : '• Bu hafta yeni hesap açılmadı',
+      : '• Rapor döneminde yeni hesap açılmadı',
     audit.dormantUsers.length
       ? `• ${DORMANT_LOGIN_DAYS}+ gündür giriş yapmayan ${audit.dormantUsers.length} hesap: ${audit.dormantUsers
           .map((user) => `${user.name} (${user.lastLoginAt ? `son giriş ${date(user.lastLoginAt)}` : 'hiç giriş yapmamış'})`)
@@ -223,11 +244,21 @@ export function formatUserReport(
       : '• Pasif veya kilitli hesap yok',
   ];
 
+  const taskLines = [
+    taskStats.open > 0
+      ? `• ${taskStats.open} açık görev${taskStats.overdue > 0 ? `, ${taskStats.overdue} tanesi gecikmiş` : ''}`
+      : '• Açık görev yok',
+    `• Rapor döneminde ${taskStats.created} görev açıldı, ${taskStats.completed} görev tamamlandı`,
+  ];
+
   return [
     `Dönem: ${date(period.from)} – ${date(lastDay)}`,
     '',
     'KULLANICI PERFORMANSI',
     ...performance,
+    '',
+    'GÖREVLER',
+    ...taskLines,
     '',
     'HESAP DENETİMİ',
     ...account,
@@ -658,10 +689,11 @@ export class AutomationService {
   private async userActivityRows(
     tenantId: string,
     anchor: Date,
+    period: TeamActivityPeriod,
   ): Promise<{ rows: UserActivityRow[]; range: { from: Date; to: Date } }> {
     const report = await this.reports.teamActivity(
       this.automationActor(tenantId),
-      'week',
+      period,
       anchor.toISOString(),
     );
     const rows = report.users.map((user) => ({
@@ -674,6 +706,22 @@ export class AutomationService {
       previousTotal: user.total.previous,
     }));
     return { rows, range: { from: new Date(report.range.from), to: new Date(report.range.to) } };
+  }
+
+  /** Rapor dönemindeki görev hareketi + o anki açık/gecikmiş yük. */
+  private async taskStats(tenantId: string, range: { from: Date; to: Date }): Promise<ReportTaskStats> {
+    const now = new Date();
+    const openStatuses = sql`('todo', 'in_progress')`;
+    const [row] = await this.db
+      .select({
+        open: sql<number>`count(*) filter (where ${tasks.status} in ${openStatuses})::int`,
+        overdue: sql<number>`count(*) filter (where ${tasks.status} in ${openStatuses} and ${tasks.dueAt} < ${now})::int`,
+        created: sql<number>`count(*) filter (where ${tasks.createdAt} >= ${range.from} and ${tasks.createdAt} < ${range.to})::int`,
+        completed: sql<number>`count(*) filter (where ${tasks.completedAt} >= ${range.from} and ${tasks.completedAt} < ${range.to})::int`,
+      })
+      .from(tasks)
+      .where(and(eq(tasks.tenantId, tenantId), isNull(tasks.deletedAt)));
+    return row ?? { open: 0, overdue: 0, created: 0, completed: 0 };
   }
 
   /** Hesap denetimi: tek okumadan yeni / uykuda / erişimi kapalı hesaplar. */
@@ -774,36 +822,41 @@ export class AutomationService {
   // ---- Zamanlanmış işler -------------------------------------------------
 
   /**
-   * Her pazartesi: süper adminlere kullanıcı bazlı hafta raporu. Diğer
-   * otomasyonların aksine bildirim tenant geneline değil, yalnız süper admin
-   * kullanıcılara yazılır — performans ve hesap denetimi herkese açık değildir.
+   * Kullanıcı raporunu bir dönem için üretip gönderir. Dört cron da buraya
+   * bağlanır; aralarındaki tek fark pencere, bildirim tipi ve başlık.
+   *
+   * Bildirim tenant geneline değil yalnız süper admin kullanıcılara yazılır —
+   * performans ve hesap denetimi herkese açık değildir. Mail ise Ayarlar'daki
+   * alıcı listesine (boşsa süper adminlere) gider.
    */
-  @Cron('0 7 * * 1', { timeZone: TZ })
-  async weeklyUserReportJob(): Promise<void> {
+  private async sendUserReport(period: TeamActivityPeriod): Promise<void> {
     if (!this.active) return;
+    const { notificationType, label } = USER_REPORT_PERIODS[period];
     try {
       for (const tenant of await this.listTenants()) {
-        if (await this.alreadyNotified(tenant.id, 'weekly_user_report')) continue;
+        if (await this.alreadyNotified(tenant.id, notificationType)) continue;
         const admins = await this.superAdmins(tenant.id);
         // Alıcı listesi tam da "süper admin olmayan biri de görsün" diye var;
         // süper admin kalmadığında (hepsi pasif/silinmiş) mail yine de çıkmalı.
         const mailTargets = userReportMailTargets(tenant.userReportRecipients, admins);
         if (!admins.length && !mailTargets.length) continue;
-        // Pazartesi sabahı koşuyor: demir dün (pazar) atılır ki rapor biten
-        // haftayı göstersin, yeni başlayan boş haftayı değil.
-        const { rows, range } = await this.userActivityRows(tenant.id, new Date(Date.now() - DAY_MS));
+        // Demir hep düne atılır: her cron dönemin BİTTİĞİ günün ertesinde koşar,
+        // yoksa rapor yeni başlamış boş pencereyi gösterirdi.
+        const { rows, range } = await this.userActivityRows(tenant.id, new Date(Date.now() - DAY_MS), period);
         const audit = await this.userAccountAudit(tenant.id, range.from);
-        const body = formatUserReport(rows, audit, range);
+        const taskStats = await this.taskStats(tenant.id, range);
+        const body = formatUserReport(rows, audit, taskStats, range);
+        const title = `${label} kullanıcı raporu`;
         // Süper admin yoksa bildirim yazılmaz; drizzle boş values() ile patlar.
         // Bu durumda mükerrer koruması (alreadyNotified) da dayanaksız kalır —
-        // haftalık cron için kabul edilebilir, elle tetiklemede tekrar gönderir.
+        // zamanlı cron için kabul edilebilir, elle tetiklemede tekrar gönderir.
         if (admins.length) {
           await this.db.insert(notifications).values(
             admins.map((admin) => ({
               tenantId: tenant.id,
               userId: admin.id,
-              type: 'weekly_user_report',
-              title: 'Haftalık kullanıcı raporu',
+              type: notificationType,
+              title,
               body,
             })),
           );
@@ -812,18 +865,42 @@ export class AutomationService {
           try {
             await this.mailer.sendTextEmail({
               to,
-              subject: `Haksan CRM haftalık kullanıcı raporu — ${tenant.name}`,
+              subject: `Haksan CRM ${label.toLocaleLowerCase('tr-TR')} kullanıcı raporu — ${tenant.name}`,
               text: body,
             });
           } catch (error) {
-            logger.warn({ action: 'weekly_user_report_mail_failed', tenantId: tenant.id, to }, String(error));
+            logger.warn({ action: 'user_report_mail_failed', period, tenantId: tenant.id, to }, String(error));
           }
         }
       }
-      logger.info({ action: 'automation_weekly_user_report' }, '[automation] weekly user report done');
+      logger.info({ action: 'automation_user_report', period }, '[automation] user report done');
     } catch (error) {
-      logger.error({ action: 'automation_weekly_user_report_failed' }, String(error));
+      logger.error({ action: 'automation_user_report_failed', period }, String(error));
     }
+  }
+
+  /** Hafta içi her sabah: bir önceki günün raporu. */
+  @Cron('5 7 * * 1-5', { timeZone: TZ })
+  async dailyUserReportJob(): Promise<void> {
+    await this.sendUserReport('day');
+  }
+
+  /** Her pazartesi: biten haftanın raporu. */
+  @Cron('0 7 * * 1', { timeZone: TZ })
+  async weeklyUserReportJob(): Promise<void> {
+    await this.sendUserReport('week');
+  }
+
+  /** Ayın 1'i: biten ayın raporu. */
+  @Cron('10 7 1 * *', { timeZone: TZ })
+  async monthlyUserReportJob(): Promise<void> {
+    await this.sendUserReport('month');
+  }
+
+  /** 1 Ocak: biten yılın raporu. */
+  @Cron('15 7 1 1 *', { timeZone: TZ })
+  async yearlyUserReportJob(): Promise<void> {
+    await this.sendUserReport('year');
   }
 
   /** Her pazartesi: önceki yedi günün satış ve teklif yönetim özeti. */

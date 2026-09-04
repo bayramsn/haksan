@@ -34,6 +34,7 @@ import {
 } from "../../lib/chartAggregates";
 import { reportService } from "../../../lib/services";
 import { TeamActivityPanel } from "./TeamActivityPanel";
+import { DashboardTasksPanel } from "./dashboard/DashboardTasksPanel";
 import { DashboardBriefing } from "./dashboard/DashboardBriefing";
 import { TargetWorkspace } from "./dashboard/TargetWorkspace";
 import {
@@ -382,6 +383,7 @@ export function DashboardPage({ onAction, initialSection }: {
 
           {/* Kim ne yaptı — süper adminde tüm ekip, diğerlerinde yalnız kendi verisi. */}
           <TeamActivityPanel />
+          <DashboardTasksPanel />
 
           <DashboardPrimaryGrid>
             <Card className="border-border/60 shadow-sm lg:col-span-3">

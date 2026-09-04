@@ -62,15 +62,19 @@ describe('Weekly user report data path', () => {
   });
 
   it('builds the report from real rows without throwing', async () => {
-    const { rows, range } = await automation.userActivityRows(tenantId, new Date(Date.now() - 24 * 60 * 60 * 1000));
+    const { rows, range } = await automation.userActivityRows(tenantId, new Date(Date.now() - 24 * 60 * 60 * 1000), 'week');
     expect(range.to.getTime() - range.from.getTime()).toBe(7 * 24 * 60 * 60 * 1000);
     expect(Array.isArray(rows)).toBe(true);
 
     const audit = await automation.userAccountAudit(tenantId, range.from);
     expect(audit.activeCount).toBeGreaterThan(0);
 
-    const body = formatUserReport(rows, audit, range);
+    const taskStats = await automation.taskStats(tenantId, range);
+    expect(taskStats.open).toBeGreaterThanOrEqual(0);
+
+    const body = formatUserReport(rows, audit, taskStats, range);
     expect(body).toContain('KULLANICI PERFORMANSI');
+    expect(body).toContain('GÖREVLER');
     expect(body).toContain('HESAP DENETİMİ');
     expect(body).toContain(`${audit.activeCount} aktif hesap`);
   });

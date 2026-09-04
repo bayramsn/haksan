@@ -19,30 +19,35 @@ describe('Weekly user report', () => {
         ],
         blockedUsers: [{ name: 'Pasif Kişi', reason: 'durum: inactive' }],
       },
+      { open: 9, overdue: 2, created: 4, completed: 6 },
       period,
     );
 
     // Dönem sonu dışa açık sınırın bir gün öncesi olmalı (pazar).
     expect(report).toContain('Dönem: 24.08.2026 – 30.08.2026');
-    expect(report).toContain('Ayşe Demir: 19 kayıt (geçen haftaya göre +7)');
+    expect(report).toContain('Ayşe Demir: 19 kayıt (önceki döneme göre +7)');
     expect(report).toContain('13 aktivite, 3 teklif, 2 fırsat, 1 kazanılan');
-    expect(report).toContain('Mehmet Kaya: 1 kayıt (geçen haftayla aynı)');
+    expect(report).toContain('Mehmet Kaya: 1 kayıt (önceki dönemle aynı)');
     expect(report).toContain('12 aktif hesap');
     expect(report).toContain('Yeni Kullanıcı (yeni@haksan.com)');
     expect(report).toContain('Hiç Girmeyen (hiç giriş yapmamış)');
     expect(report).toContain('Uykuda Kişi (son giriş 01.06.2026)');
     expect(report).toContain('Pasif Kişi (durum: inactive)');
+    expect(report).toContain('9 açık görev, 2 tanesi gecikmiş');
+    expect(report).toContain('Rapor döneminde 4 görev açıldı, 6 görev tamamlandı');
   });
 
   it('says so plainly when there is nothing to report', () => {
     const report = formatUserReport(
       [],
       { activeCount: 3, newUsers: [], dormantUsers: [], blockedUsers: [] },
+      { open: 0, overdue: 0, created: 0, completed: 0 },
       period,
     );
 
-    expect(report).toContain('Bu hafta hiçbir kullanıcının kaydı yok.');
-    expect(report).toContain('Bu hafta yeni hesap açılmadı');
+    expect(report).toContain('Rapor döneminde hiçbir kullanıcının kaydı yok.');
+    expect(report).toContain('Rapor döneminde yeni hesap açılmadı');
+    expect(report).toContain('Açık görev yok');
     expect(report).toContain('30+ gündür giriş yapmayan hesap yok');
     expect(report).toContain('Pasif veya kilitli hesap yok');
   });
