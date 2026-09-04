@@ -495,6 +495,10 @@ export function DashboardPage({ onAction, initialSection }: {
 
         <TabsContent value="operasyon" className="mt-0 space-y-4">
           <ManagementCommandCenter summary={management} onAction={onAction} />
+          {/* Görev kartı hem burada hem Özet'te: finance/service/stock rolleri panoyu
+              doğrudan bu sekmede açıyor (SECTION_BY_ROLE), yalnız Özet'te kalsaydı
+              görevleri asıl takip edenler kartı hiç görmezdi. */}
+          <DashboardTasksPanel />
           <TodayWorkPanel items={workItems} onAction={onAction} />
           <OpenRecordsPanel
             salesCases={salesCases}
