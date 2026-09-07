@@ -401,7 +401,10 @@ export class TasksService {
   }
 
   private completionNote(input: TaskUpdateInput) {
-    if (input.status !== 'done') return null;
+    if (input.status !== 'done') {
+      if (input.completionNote !== undefined) throw new ValidationError('Tamamlama notu yalnız görev tamamlanırken gönderilebilir');
+      return null;
+    }
     const result = taskCompletionNoteSchema.safeParse(input.completionNote);
     if (!result.success) throw new ValidationError('Görevi tamamlamak için 1–480 karakterlik tamamlama notu yazın');
     return result.data;

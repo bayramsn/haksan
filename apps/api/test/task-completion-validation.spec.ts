@@ -26,6 +26,11 @@ describe('Task completion validation', () => {
     }
   });
 
+  it.each([undefined, 'todo', 'in_progress', 'cancelled'] as const)('rejects completion notes without a completion transition (%s)', (status) => {
+    expect(taskCreateSchema.safeParse({ title: 'Ara', status, completionNote: 'Sonuç' }).success).toBe(false);
+    expect(taskUpdateSchema.safeParse({ status, completionNote: 'Sonuç' }).success).toBe(false);
+  });
+
   const actor = { userId: 'actor', tenantId: 'tenant', roles: [], permissions: new Set(['tasks.update']), divisionIds: [] } as unknown as AuthContext;
 
   function fixture() {
@@ -62,6 +67,13 @@ describe('Task completion validation', () => {
       { table: tasks, value: expect.objectContaining({ status: 'done', completedAt: expect.any(Date) }) },
       { table: taskEvents, value: expect.objectContaining({ taskId: 'task', eventType: 'completed', summary: `Görev tamamlandı: ${note}`, actorUserId: 'actor' }) },
     ]);
+  });
+
+  it('rejects service calls that would silently discard a completion note', async () => {
+    const { service, db } = fixture();
+    await expect(service.update(actor, 'task', { completionNote: 'Sonuç' })).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
+    await expect(service.create(actor, { title: 'Ara', status: 'todo', priority: 'normal', completionNote: 'Sonuç' })).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
+    expect(db.transaction).not.toHaveBeenCalled();
   });
 
   it('rejects a repeated completion instead of silently dropping the submitted note', async () => {

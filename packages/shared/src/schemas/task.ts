@@ -60,6 +60,9 @@ const requireCompletionNote = (input: { status?: TaskStatus; completionNote?: st
   if (input.status === 'done' && !input.completionNote) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['completionNote'], message: 'Görevi tamamlamak için tamamlama notu yazın' });
   }
+  if (input.status !== 'done' && input.completionNote !== undefined) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['completionNote'], message: 'Tamamlama notu yalnız görev tamamlanırken gönderilebilir' });
+  }
 };
 
 export const taskCreateSchema = taskFields.superRefine(requireCompletionNote);
