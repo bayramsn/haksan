@@ -208,6 +208,10 @@ function Column<T extends { id: string }>({
           role="separator"
           aria-orientation="vertical"
           aria-label="Kolon genişliğini ayarla"
+          aria-valuemin={MIN_COLUMN_WIDTH}
+          aria-valuemax={MAX_COLUMN_WIDTH}
+          aria-valuenow={width}
+          aria-valuetext={`${width} piksel`}
           tabIndex={0}
           title="Sürükleyerek kolon genişliğini ayarlayın"
           onPointerDown={onResizeStart}
