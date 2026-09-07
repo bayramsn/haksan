@@ -678,6 +678,7 @@ export interface TaskInput {
   title: string;
   description?: string | null;
   status?: TaskStatus;
+  completionNote?: string;
   priority?: TaskPriority;
   assignedToUserId?: string | null;
   dueAt?: string | null;

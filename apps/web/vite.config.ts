@@ -25,6 +25,8 @@ export default defineConfig({
     tailwindcss(),
   ],
   resolve: {
+    // Web ve mobil workspace'leri farklı React sürümleri kullanır.
+    dedupe: ['react', 'react-dom'],
     alias: {
       // Alias @ to the src directory
       '@': path.resolve(__dirname, './src'),

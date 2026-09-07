@@ -337,6 +337,8 @@ export function DashboardPage({ onAction, initialSection }: {
         onOpenOverdue={() => onAction?.({ kind: "navigate", nav: "payments", focus: "overdue" })}
       />
 
+      <DashboardTasksPanel onAction={onAction} />
+
       <Tabs value={section} onValueChange={(v) => setSection(v as DashboardSection)} className="gap-4">
         <TabsList className="grid h-auto w-full grid-cols-2 gap-1 bg-muted/60 p-1 sm:inline-flex sm:h-10 sm:w-auto">
           <TabsTrigger value="ozet" className="gap-1.5 px-3">
@@ -383,7 +385,6 @@ export function DashboardPage({ onAction, initialSection }: {
 
           {/* Kim ne yaptı — süper adminde tüm ekip, diğerlerinde yalnız kendi verisi. */}
           <TeamActivityPanel />
-          <DashboardTasksPanel />
 
           <DashboardPrimaryGrid>
             <Card className="border-border/60 shadow-sm lg:col-span-3">
@@ -495,10 +496,6 @@ export function DashboardPage({ onAction, initialSection }: {
 
         <TabsContent value="operasyon" className="mt-0 space-y-4">
           <ManagementCommandCenter summary={management} onAction={onAction} />
-          {/* Görev kartı hem burada hem Özet'te: finance/service/stock rolleri panoyu
-              doğrudan bu sekmede açıyor (SECTION_BY_ROLE), yalnız Özet'te kalsaydı
-              görevleri asıl takip edenler kartı hiç görmezdi. */}
-          <DashboardTasksPanel />
           <TodayWorkPanel items={workItems} onAction={onAction} />
           <OpenRecordsPanel
             salesCases={salesCases}

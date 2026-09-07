@@ -23,8 +23,8 @@ const DUE_TONE: Record<ReturnType<typeof dueLabel>["tone"], string> = {
  * Görev tablosu. Hem ana ekranda hem müşteri/lead detayındaki bölümde aynı
  * satır kullanılıyor — personel iki yerde farklı bir şey öğrenmek zorunda kalmasın.
  *
- * Satırdaki kutucuk tek tıkla tamamlar; durum değiştirmek için detaya girmek
- * gerekmiyor. Yanlışlıkla işaretlenen görev aynı kutucukla geri açılır.
+ * Satırdaki kutucuk tamamlama notu penceresini açar. Tamamlanan görev
+ * aynı kutucukla geri açılır.
  */
 export function TaskList({
   tasks,

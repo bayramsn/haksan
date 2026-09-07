@@ -12,6 +12,8 @@ export default mergeConfig(
       // DOM gerektiren bir test yazılırsa dosya başına
       // `// @vitest-environment jsdom` docblock'u yeterli.
       environment: 'node',
+      // Hoist edilen React Query de web'in React kopyasıyla çalışmalı.
+      server: { deps: { inline: ['@tanstack/react-query'] } },
       // src/** olmalı: apps/web/src/lib/apiClient.test.ts src/app dışında.
       include: ['src/**/*.test.{ts,tsx}'],
       // e2e/ Playwright'a ait; vitest oradan test toplarsa spec'ler patlar.

@@ -4,6 +4,7 @@ import {
   TASK_PRIORITIES,
   TASK_REMINDER_OPTIONS,
   TASK_STATUSES,
+  TASK_COMPLETION_NOTE_MAX_LENGTH,
   type TaskPriority,
   type TaskStatus,
 } from "@haksan/shared";
@@ -35,6 +36,7 @@ type FormState = {
   title: string;
   description: string;
   status: TaskStatus;
+  completionNote: string;
   priority: TaskPriority;
   assignedToUserId: string;
   dueAt: string;
@@ -48,6 +50,7 @@ function emptyForm(relation?: TaskRelation): FormState {
     title: "",
     description: "",
     status: "todo",
+    completionNote: "",
     priority: "normal",
     assignedToUserId: "",
     dueAt: "",
@@ -62,6 +65,7 @@ function fromTask(task: TaskDTO): FormState {
     title: task.title,
     description: task.description ?? "",
     status: task.status,
+    completionNote: "",
     priority: task.priority,
     assignedToUserId: task.assignedToUserId ?? "",
     dueAt: toLocalInput(task.dueAt),
@@ -93,6 +97,7 @@ export function TaskFormDialog({
 }) {
   const [form, setForm] = useState<FormState>(() => emptyForm(relation));
   const [saving, setSaving] = useState(false);
+  const completing = form.status === "done" && task?.status !== "done";
 
   useEffect(() => {
     if (!open) return;
@@ -114,12 +119,17 @@ export function TaskFormDialog({
       toast.error("Görev adı zorunlu");
       return;
     }
+    if (completing && !form.completionNote.trim()) {
+      toast.error("Görevi tamamlamak için tamamlama notu yazın");
+      return;
+    }
     setSaving(true);
     try {
       const payload: TaskInput = {
         title: form.title.trim(),
         description: form.description.trim() || null,
-        status: form.status,
+        status: task?.status === form.status ? undefined : form.status,
+        completionNote: completing ? form.completionNote.trim() : undefined,
         priority: form.priority,
         assignedToUserId: form.assignedToUserId || currentUserId || null,
         dueAt: form.dueAt ? new Date(form.dueAt).toISOString() : null,
@@ -254,6 +264,15 @@ export function TaskFormDialog({
               </>
             )}
 
+            {completing && (
+              <Field label="Tamamlama notu (zorunlu)" className="sm:col-span-2">
+                <Textarea required value={form.completionNote}
+                  onChange={(event) => set("completionNote", event.target.value)}
+                  maxLength={TASK_COMPLETION_NOTE_MAX_LENGTH}
+                  placeholder="Yapılan işi ve sonucunu yazın. Not, görev geçmişine kaydedilir." />
+              </Field>
+            )}
+
             <Field label="Açıklama" className="sm:col-span-2">
               <Textarea
                 rows={3}
@@ -268,7 +287,7 @@ export function TaskFormDialog({
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
               Vazgeç
             </Button>
-            <Button disabled={saving}>{saving ? "Kaydediliyor…" : "Kaydet"}</Button>
+            <Button disabled={saving || (completing && !form.completionNote.trim())}>{saving ? "Kaydediliyor…" : "Kaydet"}</Button>
           </DialogFooter>
         </form>
       </DialogContent>

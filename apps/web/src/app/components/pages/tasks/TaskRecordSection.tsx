@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 import { Plus } from "lucide-react";
-import type { TaskStatus } from "@haksan/shared";
 import { tasksService, type TaskDTO, type TaskListParams } from "../../../../lib/services";
 import { useAuth } from "../../../../lib/auth";
 import { Button } from "../../ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "../../ui/card";
 import { TaskDetailPanel } from "./TaskDetailPanel";
+import { TaskCompletionDialog } from "./TaskCompletionDialog";
 import { TaskFormDialog, type TaskRelation } from "./TaskFormDialog";
 import { TaskList } from "./TaskList";
 
@@ -36,6 +36,8 @@ export function TaskRecordSection({
   const [loading, setLoading] = useState(true);
   const [assignees, setAssignees] = useState<Array<{ id: string; fullName: string }>>([]);
   const [detailId, setDetailId] = useState<string | null>(null);
+  const [detailRevision, setDetailRevision] = useState(0);
+  const [completing, setCompleting] = useState<TaskDTO | null>(null);
   const [editing, setEditing] = useState<TaskDTO | null>(null);
   const [formOpen, setFormOpen] = useState(false);
 
@@ -73,14 +75,15 @@ export function TaskRecordSection({
   }, [canCreate]);
 
   const toggleDone = async (task: TaskDTO) => {
-    const next: TaskStatus = task.status === "done" ? "todo" : "done";
-    setTasks((prev) => prev.map((row) => (row.id === task.id ? { ...row, status: next } : row)));
+    if (task.status !== "done") {
+      setCompleting(task);
+      return;
+    }
     try {
-      const updated = await tasksService.update(task.id, { status: next });
-      setTasks((prev) => prev.map((row) => (row.id === task.id ? updated : row)));
+      await tasksService.update(task.id, { status: "todo" });
+      void load();
       onChanged?.();
     } catch (error) {
-      setTasks((prev) => prev.map((row) => (row.id === task.id ? task : row)));
       toast.error(error instanceof Error ? error.message : "Görev güncellenemedi");
     }
   };
@@ -91,6 +94,7 @@ export function TaskRecordSection({
 
   return (
     <Card>
+      <TaskCompletionDialog task={completing} onOpenChange={(open) => { if (!open) setCompleting(null); }} onCompleted={() => { void load(); onChanged?.(); }} />
       <CardHeader className="flex-row items-center justify-between gap-2 space-y-0">
         <CardTitle className="font-display text-xl font-semibold">
           {title}
@@ -125,6 +129,7 @@ export function TaskRecordSection({
 
       <TaskDetailPanel
         taskId={detailId}
+        refreshKey={detailRevision}
         onOpenChange={(next) => !next && setDetailId(null)}
         onChanged={() => {
           void load();
@@ -144,6 +149,7 @@ export function TaskRecordSection({
         assignees={assignees}
         currentUserId={user?.id}
         onSaved={() => {
+          setDetailRevision((revision) => revision + 1);
           void load();
           onChanged?.();
         }}

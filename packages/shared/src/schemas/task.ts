@@ -34,10 +34,17 @@ export const TASK_REMINDER_OPTIONS = [
 
 const optionalId = z.string().uuid().nullable().optional();
 
+// Tamamlama hareketinin başlığıyla birlikte task_events.summary sınırına sığar.
+export const TASK_COMPLETION_NOTE_MAX_LENGTH = 480;
+export const taskCompletionNoteSchema = z.string().trim()
+  .min(1, 'Görevi tamamlamak için tamamlama notu yazın')
+  .max(TASK_COMPLETION_NOTE_MAX_LENGTH, 'Tamamlama notu en fazla 480 karakter olabilir');
+
 const taskFields = z.object({
   title: z.string().trim().min(1, 'Görev adı zorunlu').max(255),
   description: z.string().trim().max(4000).nullable().optional(),
   status: taskStatusSchema.default('todo'),
+  completionNote: taskCompletionNoteSchema.optional(),
   priority: taskPrioritySchema.default('normal'),
   assignedToUserId: optionalId,
   dueAt: z.coerce.date().nullable().optional(),
@@ -49,8 +56,14 @@ const taskFields = z.object({
   serviceTicketId: optionalId,
 });
 
-export const taskCreateSchema = taskFields;
-export const taskUpdateSchema = taskFields.partial();
+const requireCompletionNote = (input: { status?: TaskStatus; completionNote?: string }, ctx: z.RefinementCtx) => {
+  if (input.status === 'done' && !input.completionNote) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['completionNote'], message: 'Görevi tamamlamak için tamamlama notu yazın' });
+  }
+};
+
+export const taskCreateSchema = taskFields.superRefine(requireCompletionNote);
+export const taskUpdateSchema = taskFields.partial().superRefine(requireCompletionNote);
 
 /** Görev detayındaki ekip yorumu; task_events akışında değişmez bir kayıt olur. */
 export const taskCommentSchema = z.object({
