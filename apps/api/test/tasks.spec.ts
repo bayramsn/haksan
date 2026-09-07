@@ -122,15 +122,38 @@ describe('Tasks module', () => {
     expect(list.body.data.some((task: { id: string }) => task.id === overdue.body.id)).toBe(true);
   });
 
-  it('lets the assignee complete and reopen the task', async () => {
+  it.each([undefined, '', '   ', '\n\t', 'x'.repeat(481)])('rejects completion with an invalid note (%s) without changing the task', async (completionNote) => {
+    const before = await request().get(`/api/v1/tasks/${assignedTaskId}`).set('Authorization', `Bearer ${salesToken}`).expect(200);
+    await request().patch(`/api/v1/tasks/${assignedTaskId}`).set('Authorization', `Bearer ${salesToken}`)
+      .send({ status: 'done', completionNote }).expect(422);
+    const after = await request().get(`/api/v1/tasks/${assignedTaskId}`).set('Authorization', `Bearer ${salesToken}`).expect(200);
+    expect(after.body.status).toBe(before.body.status);
+    expect(after.body.completedAt).toBeNull();
+    expect(after.body.events).toEqual(before.body.events);
+  });
+
+  it('does not allow creating an already completed task without a completion note', async () => {
+    await request().post('/api/v1/tasks').set('Authorization', `Bearer ${salesToken}`)
+      .send({ title: `Notsuz tamamlandı ${runId}`, status: 'done' }).expect(422);
+  });
+
+  it('lets the assignee complete with a recorded note and reopen the task', async () => {
+    const completionNote = 'Müşteri arandı, fiyat listesi gönderildi.';
     const done = await request()
       .patch(`/api/v1/tasks/${assignedTaskId}`)
       .set('Authorization', `Bearer ${salesToken}`)
-      .send({ status: 'done' });
+      .send({ status: 'done', completionNote: `  ${completionNote}  ` });
     expect(done.status).toBe(200);
     expect(done.body.completedAt).toBeTruthy();
     expect(done.body.overdue).toBe(false);
     expect(done.body.events.some((event: { eventType: string }) => event.eventType === 'completed')).toBe(true);
+    expect(done.body.events).toEqual(expect.arrayContaining([
+      expect.objectContaining({ eventType: 'completed', summary: `Görev tamamlandı: ${completionNote}`, actor: expect.objectContaining({ id: salesUserId }) }),
+    ]));
+
+    // Tamamlanmış görevin başlığını düzenlemek yeniden tamamlamak değildir.
+    await request().patch(`/api/v1/tasks/${assignedTaskId}`).set('Authorization', `Bearer ${salesToken}`)
+      .send({ title: `Tamamlanan müşteri takibi ${runId}` }).expect(200);
 
     const reopened = await request()
       .patch(`/api/v1/tasks/${assignedTaskId}`)
@@ -139,6 +162,33 @@ describe('Tasks module', () => {
     expect(reopened.status).toBe(200);
     expect(reopened.body.completedAt).toBeNull();
     expect(reopened.body.events.some((event: { eventType: string }) => event.eventType === 'reopened')).toBe(true);
+    // Önceki tamamlama notu ikinci kapanışta yeni not zorunluluğunu kaldırmaz.
+    await request().patch(`/api/v1/tasks/${assignedTaskId}`).set('Authorization', `Bearer ${salesToken}`)
+      .send({ status: 'done' }).expect(422);
+  });
+
+  it('keeps the full completion note when creating a completed task', async () => {
+    const completionNote = 'x'.repeat(480);
+    const created = await request().post('/api/v1/tasks').set('Authorization', `Bearer ${salesToken}`)
+      .send({ title: `Sonuç kaydı ${runId}`, status: 'done', completionNote: ` ${completionNote} ` }).expect(201);
+    expect(created.body.completedAt).toBeTruthy();
+    expect(created.body.events).toEqual(expect.arrayContaining([
+      expect.objectContaining({ eventType: 'completed', summary: `Görev tamamlandı: ${completionNote}` }),
+    ]));
+  });
+
+  it('accepts only one concurrent completion and preserves its note', async () => {
+    const created = await request().post('/api/v1/tasks').set('Authorization', `Bearer ${salesToken}`)
+      .send({ title: `Eşzamanlı tamamlama ${runId}` }).expect(201);
+    const results = await Promise.all(['Birinci sonuç', 'İkinci sonuç'].map((completionNote) =>
+      request().patch(`/api/v1/tasks/${created.body.id}`).set('Authorization', `Bearer ${salesToken}`)
+        .send({ status: 'done', completionNote })
+    ));
+    expect(results.map((result) => result.status).sort()).toEqual([200, 409]);
+    const latest = await request().get(`/api/v1/tasks/${created.body.id}`).set('Authorization', `Bearer ${salesToken}`).expect(200);
+    const completions = latest.body.events.filter((event: { eventType: string }) => event.eventType === 'completed');
+    expect(completions).toHaveLength(1);
+    expect(completions[0].summary).toBe(`Görev tamamlandı: ${results[0].status === 200 ? 'Birinci sonuç' : 'İkinci sonuç'}`);
   });
 
   it('adds a visible team comment to the task activity stream', async () => {

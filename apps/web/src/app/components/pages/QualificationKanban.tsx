@@ -275,12 +275,8 @@ export function QualificationKanban({
           return (
             <Card
               data-testid={`sales-kanban-card-${salesCase.id}`}
-              role="button"
-              tabIndex={0}
-              aria-label={`${partyName} fırsat detayını aç`}
               onClick={() => onSelect(salesCase)}
-              onKeyDown={openDetailsFromKeyboard}
-              className="group cursor-pointer gap-0 overflow-hidden border border-border/80 bg-card p-0 shadow-xs outline-none transition-[border-color,box-shadow,transform] hover:-translate-y-px hover:border-operation-blue/40 hover:shadow-md focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+              className="group cursor-pointer gap-0 overflow-hidden border border-border/80 bg-card p-0 shadow-xs transition-[border-color,box-shadow,transform] hover:-translate-y-px hover:border-operation-blue/40 hover:shadow-md"
             >
               <div className="h-1.5" style={{ backgroundColor: meta.color }} />
               <div className="p-3">
@@ -288,7 +284,13 @@ export function QualificationKanban({
                   <div className={`grid size-8 shrink-0 place-items-center rounded-md ${meta.surface}`} aria-hidden="true">
                     {company ? <Building2 className="size-4" /> : <UserRound className="size-4" />}
                   </div>
-                  <div className="min-w-0 flex-1">
+                  <div
+                    role="button"
+                    tabIndex={0}
+                    aria-label={`${partyName} fırsat detayını aç`}
+                    onKeyDown={openDetailsFromKeyboard}
+                    className="min-w-0 flex-1 rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                  >
                     <div className="flex flex-wrap items-center gap-x-1.5 font-data text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">
                       <span>Firma</span>
                     </div>

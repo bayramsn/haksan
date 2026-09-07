@@ -1,7 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { and, asc, desc, eq, gte, ilike, inArray, isNotNull, isNull, lt, lte, or, sql, type SQL } from 'drizzle-orm';
 import type { TaskCreateInput, TaskListQuery, TaskUpdateInput } from '@haksan/shared';
-import { TASK_PRIORITY_LABELS, TASK_STATUS_LABELS } from '@haksan/shared';
+import { TASK_PRIORITY_LABELS, TASK_STATUS_LABELS, taskCompletionNoteSchema } from '@haksan/shared';
 import type { DbClient } from '../../db/client';
 import {
   companies,
@@ -17,7 +17,7 @@ import {
 import { DB } from '../../shared/database/database.module';
 import { PushService } from '../../shared/push/push.service';
 import type { AuthContext } from '../../shared/security/auth.types';
-import { ForbiddenError, NotFoundError, ValidationError } from '../../shared/utils/errors';
+import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from '../../shared/utils/errors';
 import {
   divisionFilterWithShared,
   resolveActorDivisionScope,
@@ -400,7 +400,18 @@ export class TasksService {
     }).format(date);
   }
 
+  private completionNote(input: TaskUpdateInput) {
+    if (input.status !== 'done') {
+      if (input.completionNote !== undefined) throw new ValidationError('Tamamlama notu yalnız görev tamamlanırken gönderilebilir');
+      return null;
+    }
+    const result = taskCompletionNoteSchema.safeParse(input.completionNote);
+    if (!result.success) throw new ValidationError('Görevi tamamlamak için 1–480 karakterlik tamamlama notu yazın');
+    return result.data;
+  }
+
   async create(actor: AuthContext, input: TaskCreateInput) {
+    const completionNote = this.completionNote(input);
     await this.assertReferences(actor, input);
     // Oluştururken atanan boş bırakılırsa görev sahibine düşer; yetki kontrolü
     // bu çözülmüş değer üzerinden yapılmalı, yoksa "kendime görev aç" 403 olur.
@@ -430,6 +441,9 @@ export class TasksService {
         })
         .returning();
       await this.logEvent(tx as DbClient, created, 'created', `Görev oluşturuldu: ${created.title}`, actor.userId);
+      if (completionNote) {
+        await this.logEvent(tx as DbClient, created, 'completed', `Görev tamamlandı: ${completionNote}`, actor.userId);
+      }
       if (assignedToUserId !== actor.userId) {
         const assignee = await tx.query.users.findFirst({
           columns: { fullName: true },
@@ -466,6 +480,10 @@ export class TasksService {
 
   async update(actor: AuthContext, id: string, input: TaskUpdateInput) {
     const current = await this.findEditable(actor, id);
+    const completionNote = this.completionNote(input);
+    if (completionNote && current.status === 'done') {
+      throw new ConflictError('Görev zaten tamamlanmış. Güncel durumu görmek için görev detayını yenileyin.');
+    }
     await this.assertReferences(actor, input);
     if (input.assignedToUserId !== undefined && input.assignedToUserId !== current.assignedToUserId) {
       await this.assertAssignee(actor, input.assignedToUserId);
@@ -502,7 +520,13 @@ export class TasksService {
     if (Object.keys(patch).length === 0) return this.get(actor, id);
 
     const updated = await this.db.transaction(async (tx) => {
-      const [row] = await tx.update(tasks).set(patch).where(eq(tasks.id, id)).returning();
+      const [row] = await tx.update(tasks).set(patch).where(and(
+        eq(tasks.id, id),
+        // Eşzamanlı tamamlama eski durum üzerinden ikinci bir başarı üretmesin.
+        completionNote ? eq(tasks.status, current.status) : undefined,
+        ...this.baseFilters(actor)
+      )).returning();
+      if (!row) throw new ConflictError('Görev değişmiş. Güncel durumu görmek için görev detayını yenileyin.');
 
       if (patch.status !== undefined && patch.status !== current.status) {
         const wasClosed = current.status === 'done' || current.status === 'cancelled';
@@ -512,7 +536,7 @@ export class TasksService {
           row,
           type,
           patch.status === 'done'
-            ? 'Görev tamamlandı'
+            ? `Görev tamamlandı: ${completionNote}`
             : wasClosed
               ? 'Görev tekrar açıldı'
               : `Durum ${TASK_STATUS_LABELS[patch.status]} olarak değiştirildi`,

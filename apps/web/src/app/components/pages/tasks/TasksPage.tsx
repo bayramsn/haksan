@@ -16,6 +16,7 @@ import { Button } from "../../ui/button";
 import { Card, CardContent } from "../../ui/card";
 import { Input } from "../../ui/input";
 import { TaskDetailPanel } from "./TaskDetailPanel";
+import { TaskCompletionDialog } from "./TaskCompletionDialog";
 import { TaskFormDialog } from "./TaskFormDialog";
 import { TaskList } from "./TaskList";
 import { TASK_PRIORITY_LABELS, TASK_STATUS_LABELS, TASK_VIEWS } from "./taskPresentation";
@@ -58,9 +59,25 @@ export function TasksPage({
   const [assignees, setAssignees] = useState<Array<{ id: string; fullName: string }>>([]);
   const [loading, setLoading] = useState(true);
   const [detailId, setDetailId] = useState<string | null>(null);
+  const [detailRevision, setDetailRevision] = useState(0);
+  const [completing, setCompleting] = useState<TaskDTO | null>(null);
 
   // Görev atama bildirimi listeyi değil doğrudan görevi açmalı.
   useEffect(() => {
+    if (initialQuery?.startsWith("view:")) {
+      const next = initialQuery.slice("view:".length);
+      if (next === "completed" || TASK_VIEWS.some((item) => item.value === next)) {
+        setView(next === "completed" ? "history" : next as TaskView);
+        setSearch("");
+        setDebouncedSearch("");
+        setStatus(next === "completed" ? "done" : "");
+        setPriority("");
+        setAssignedToUserId("");
+        setCreatedBy("");
+        setDetailId(null);
+      }
+      return;
+    }
     if (!initialQuery?.startsWith("task:")) return;
     const taskId = initialQuery.slice("task:".length).trim();
     if (taskId) setDetailId(taskId);
@@ -109,16 +126,17 @@ export function TasksPage({
     if (canManage) tasksService.summary().then(setSummary).catch(() => setSummary([]));
   }, [canManage]);
 
-  /** Kutucukla tamamla/geri aç. Liste hemen güncellenir, sayımlar arkadan tazelenir. */
+  /** Tamamlama önce not ister; yeniden açma doğrudan yapılabilir. */
   const toggleDone = async (task: TaskDTO) => {
-    const next: TaskStatus = task.status === "done" ? "todo" : "done";
-    setTasks((prev) => prev.map((row) => (row.id === task.id ? { ...row, status: next } : row)));
+    if (task.status !== "done") {
+      setCompleting(task);
+      return;
+    }
     try {
-      const updated = await tasksService.update(task.id, { status: next });
-      setTasks((prev) => prev.map((row) => (row.id === task.id ? updated : row)));
-      setCounts(await tasksService.counts());
+      await tasksService.update(task.id, { status: "todo" });
+      void load();
+      if (canManage) void tasksService.summary().then(setSummary).catch(() => setSummary([]));
     } catch (error) {
-      setTasks((prev) => prev.map((row) => (row.id === task.id ? task : row)));
       toast.error(error instanceof Error ? error.message : "Görev güncellenemedi");
     }
   };
@@ -126,6 +144,7 @@ export function TasksPage({
   const applyChanged = (task: TaskDTO) => {
     setTasks((prev) => prev.map((row) => (row.id === task.id ? task : row)));
     void load();
+    if (canManage) void tasksService.summary().then(setSummary).catch(() => setSummary([]));
   };
 
   const activeFilterCount = [status, priority, assignedToUserId, createdBy].filter(Boolean).length;
@@ -160,6 +179,7 @@ export function TasksPage({
 
   return (
     <div className="space-y-4">
+      <TaskCompletionDialog task={completing} onOpenChange={(open) => { if (!open) setCompleting(null); }} onCompleted={applyChanged} />
       <div className="flex flex-wrap items-center gap-2">{viewTabs}</div>
 
       <Card>
@@ -291,6 +311,7 @@ export function TasksPage({
 
       <TaskDetailPanel
         taskId={detailId}
+        refreshKey={detailRevision}
         onOpenChange={(open) => !open && setDetailId(null)}
         onChanged={applyChanged}
         onEdit={(task) => {
@@ -307,7 +328,7 @@ export function TasksPage({
         task={editing}
         assignees={assignees}
         currentUserId={user?.id}
-        onSaved={() => void load()}
+        onSaved={(task) => { applyChanged(task); setDetailRevision((revision) => revision + 1); }}
       />
     </div>
   );

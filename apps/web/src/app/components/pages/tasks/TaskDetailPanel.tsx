@@ -8,6 +8,7 @@ import { Separator } from "../../ui/separator";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "../../ui/sheet";
 import { Skeleton } from "../../ui/skeleton";
 import { Textarea } from "../../ui/textarea";
+import { TaskCompletionDialog } from "./TaskCompletionDialog";
 import {
   PRIORITY_STYLE,
   STATUS_STYLE,
@@ -23,6 +24,7 @@ import {
  */
 export function TaskDetailPanel({
   taskId,
+  refreshKey = 0,
   onOpenChange,
   onChanged,
   onEdit,
@@ -30,6 +32,7 @@ export function TaskDetailPanel({
   canDelete,
 }: {
   taskId: string | null;
+  refreshKey?: number;
   onOpenChange: (open: boolean) => void;
   onChanged: (task: TaskDTO) => void;
   onEdit: (task: TaskDTO) => void;
@@ -40,8 +43,12 @@ export function TaskDetailPanel({
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
   const [comment, setComment] = useState("");
+  const [completing, setCompleting] = useState(false);
 
   useEffect(() => {
+    setCompleting(false);
+    setComment("");
+    setTask(null);
     if (!taskId) {
       setTask(null);
       setComment("");
@@ -61,7 +68,7 @@ export function TaskDetailPanel({
     return () => {
       cancelled = true;
     };
-  }, [taskId]);
+  }, [taskId, refreshKey]);
 
   const mutate = async (patch: Parameters<typeof tasksService.update>[1], successMessage: string) => {
     if (!task) return;
@@ -142,7 +149,7 @@ export function TaskDetailPanel({
                   <RotateCcw className="size-4" /> Tekrar Aç
                 </Button>
               ) : (
-                <Button size="sm" disabled={busy} onClick={() => mutate({ status: "done" }, "Görev tamamlandı")}>
+                <Button size="sm" disabled={busy} onClick={() => setCompleting(true)}>
                   <CheckCircle2 className="size-4" /> Tamamla
                 </Button>
               )}
@@ -165,6 +172,8 @@ export function TaskDetailPanel({
                 </Button>
               )}
             </div>
+
+            <TaskCompletionDialog task={completing ? task : null} onOpenChange={setCompleting} onCompleted={(updated) => { setTask(updated); onChanged(updated); }} />
 
             <Separator />
 
@@ -235,7 +244,7 @@ export function TaskDetailPanel({
                       <span className="mt-1.5 size-1.5 shrink-0 rounded-full bg-border" aria-hidden="true" />
                     )}
                     <div>
-                      <div className={event.eventType === "comment" ? "whitespace-pre-wrap" : ""}>{event.summary}</div>
+                      <div className="whitespace-pre-wrap">{event.summary}</div>
                       <div className="text-xs text-muted-foreground">
                         {new Date(event.createdAt).toLocaleString("tr-TR")}
                         {event.actor ? ` · ${event.actor.fullName}` : ""}
