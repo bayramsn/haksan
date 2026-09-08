@@ -7,6 +7,7 @@ import { sql } from 'drizzle-orm';
 import { getDb, closeDb, schema } from '../client';
 import { lookupRows } from './_data';
 import { PERMISSION_ACTIONS, PERMISSION_RESOURCES } from '@haksan/shared';
+import { seedLaserLookups } from './laser-lookups';
 
 const TABLE_MAP = {
   pipeline_stages: schema.pipelineStages,
@@ -82,6 +83,8 @@ export async function seedLookups(): Promise<void> {
     }
     console.log(`[lookups] seeded ${rows.length} rows into ${tableName}`);
   }
+
+  await seedLaserLookups(db);
 
   // Permission catalog
   const permRows: { code: string; name: string; resource: string; action: string }[] = [];

@@ -14,6 +14,18 @@ const product = {
 } as unknown as Product;
 
 describe("product technical print image", () => {
+  it('includes the saved laser configuration and exact units without filling unknown fields', () => {
+    const doc = productTechnicalDoc({ product: { ...product, technicalConfiguration: {
+      selection: { productTypeCode: 'BORU_LAZER_KESIM', series: 'TG', cabinType: 'closed', powerKw: 30, sourceModelCode: 'TG6012' },
+      sourceRevision: 'test', modelLabel: 'TG6012', sizeLabel: 'Ø10–120 mm', supportedPower: false, standardCabin: true, issues: [],
+      specs: [{ key: 'Konumlama Hassasiyeti', value: '0.03', unit: 'mm/m' }, { key: 'Makine Ağırlığı', value: '', unit: 'kg' }],
+    } } }, '/brand');
+    expect(doc.body).toContain('Kesim Bölgesi Koruması');
+    expect(doc.body).toContain('Kapalı');
+    expect(doc.body).toContain('TG6012');
+    expect(doc.body).toContain('mm/m');
+    expect(doc.body).not.toContain('Makine Ağırlığı');
+  });
   it("embeds a validated product image as a data URL", async () => {
     const fetcher = vi.fn(async () => new Response(
       new Uint8Array([0xff, 0xd8, 0xff, 0xd9]),

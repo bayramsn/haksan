@@ -21,6 +21,7 @@ import { ProductSpecsTable } from "../shared/ProductSpecsTable";
 import { EntityVisual } from "../shared/PremiumPrimitives";
 import { embedProductImageForPrint, printAssetBase, productTechnicalDoc } from "../../lib/print";
 import { printOrWarn } from "../../lib/pageHelpers";
+import { laserSnapshotPrintSpecs } from "../../lib/laserProductSnapshot";
 
 type MediaItem = { fileId: string; mediaType: "image" | "document"; title: string | null; mimeType: string; url: string };
 
@@ -606,7 +607,7 @@ export function ProductDetailDialog({
         {/* specs */}
         <div className="px-6 pb-4">
           <SectionTitle icon={<ListChecks className="size-3.5" />} text="Teknik Bilgiler" />
-          <ProductSpecsTable specs={product.specs ?? []} productTypeCode={product.productTypeCode} />
+          <ProductSpecsTable specs={product.technicalConfiguration ? laserSnapshotPrintSpecs(product.technicalConfiguration, product.technicalConfiguration.specs) : product.specs ?? []} productTypeCode={product.productTypeCode} />
         </div>
 
         {/* option sets */}

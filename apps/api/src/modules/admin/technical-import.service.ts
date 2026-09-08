@@ -1,4 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
+import { createHash, randomUUID } from 'node:crypto';
 import ExcelJS from 'exceljs';
 import { and, asc, eq, inArray, isNull } from 'drizzle-orm';
 import type {
@@ -7,7 +8,10 @@ import type {
   TechnicalImportMatchStatus,
   TechnicalImportPreviewRequest,
   TechnicalImportRowInput,
+  LaserTechnicalConfiguration,
+  LaserWorkbookSheet,
 } from '@haksan/shared';
+import { LASER_POWERS, LASER_MODELS, laserSelectionKey, laserTechnicalConfigurationSchema, parseLaserWorkbookSheets, resolveLaserProfile } from '@haksan/shared';
 import type { DbClient } from '../../db/client';
 import { brands, productModels, productSpecs, productSpecTemplates } from '../../db/schema/products';
 import { productSpecGroups, productTypes } from '../../db/schema/lookup';
@@ -15,6 +19,7 @@ import { DB } from '../../shared/database/database.module';
 import { AuditService } from '../../shared/database/audit.service';
 import type { AuthContext } from '../../shared/security/auth.types';
 import { NotFoundError, ValidationError } from '../../shared/utils/errors';
+import { LaserProfilesService, type LaserProfileScope } from '../products/laser-profiles.service';
 
 const MAX_FILE_BYTES = 10 * 1024 * 1024;
 const MAX_SHEETS = 25;
@@ -22,6 +27,31 @@ const MAX_ROWS_PER_SHEET = 2000;
 const MAX_COLUMNS = 250;
 const MAX_TOTAL_CELLS = 100_000;
 const MAX_IMPORT_ROWS = 5000;
+
+interface LaserImportPreviewEntry {
+  tenantId: string; userId: string; scope: LaserProfileScope;
+  profiles: LaserTechnicalConfiguration[]; expiresAt: number;
+}
+
+/** Bounded, short-lived previews keep uploaded source provenance off the client trust boundary. */
+export class LaserImportPreviewStore {
+  private readonly entries = new Map<string, LaserImportPreviewEntry>();
+  put(entry: Omit<LaserImportPreviewEntry, 'expiresAt'>, now = Date.now()) {
+    for (const [key, value] of this.entries) if (value.expiresAt <= now) this.entries.delete(key);
+    while (this.entries.size >= 20) this.entries.delete(this.entries.keys().next().value!);
+    const token = randomUUID();
+    this.entries.set(token, { ...entry, expiresAt: now + 15 * 60_000 });
+    return token;
+  }
+  read(token: string, scope: LaserProfileScope, actor: Pick<AuthContext, 'tenantId' | 'userId'>, now = Date.now()) {
+    const entry = this.entries.get(token);
+    if (!entry || entry.expiresAt <= now || entry.tenantId !== actor.tenantId || entry.userId !== actor.userId
+      || entry.scope.divisionId !== scope.divisionId || entry.scope.brandId !== scope.brandId) {
+      throw new ValidationError('Aktarım önizlemesi geçersiz veya süresi dolmuş; dosyayı yeniden önizleyin');
+    }
+    return entry.profiles;
+  }
+}
 
 const TECHNICAL_ALIASES: Record<string, string> = {
   'spindle speed': 'fener mili devri',
@@ -304,9 +334,11 @@ export function matchTechnicalField(sourceKey: string, availableFields: Technica
 
 @Injectable()
 export class TechnicalImportService {
+  private readonly laserPreviews = new LaserImportPreviewStore();
   constructor(
     @Inject(DB) private readonly db: DbClient,
-    private readonly audit: AuditService
+    private readonly audit: AuditService,
+    private readonly laserProfiles: LaserProfilesService,
   ) {}
 
   private decodeFile(body: TechnicalImportPreviewRequest): Buffer {
@@ -336,6 +368,7 @@ export class TechnicalImportService {
     rows: ReturnType<typeof rowsToTechnicalRows>;
     sheetNames: string[];
     sourceNames: string[];
+    sheets: LaserWorkbookSheet[];
   }> {
     const buffer = this.decodeFile(body);
     const extension = body.fileName.split('.').pop()?.toLocaleLowerCase('tr-TR');
@@ -348,6 +381,7 @@ export class TechnicalImportService {
         rows: rowsToTechnicalRows(rows, 'CSV'),
         sheetNames: ['CSV'],
         sourceNames: extractTechnicalSourceNames(rows),
+        sheets: [{ name: 'CSV', rows }],
       };
     }
 
@@ -362,6 +396,7 @@ export class TechnicalImportService {
     const parsed: ReturnType<typeof rowsToTechnicalRows> = [];
     const sheetNames: string[] = [];
     const sourceNames: string[] = [];
+    const sheets: LaserWorkbookSheet[] = [];
     for (const worksheet of workbook.worksheets) {
       if (worksheet.rowCount > MAX_ROWS_PER_SHEET || worksheet.columnCount > MAX_COLUMNS) {
         throw new ValidationError(`“${worksheet.name}” çalışma sayfası satır veya sütun sınırını aşıyor`);
@@ -372,14 +407,23 @@ export class TechnicalImportService {
       for (let rowNumber = 1; rowNumber <= worksheet.rowCount; rowNumber += 1) {
         const row = worksheet.getRow(rowNumber);
         const values: string[] = [];
-        for (let column = 1; column <= worksheet.columnCount; column += 1) values.push(safeCellText(row.getCell(column).value));
+        for (let column = 1; column <= worksheet.columnCount; column += 1) {
+          const cell = row.getCell(column);
+          values.push(safeCellText(cell.isMerged ? cell.master.value : cell.value));
+        }
         rows.push(values);
       }
       sheetNames.push(worksheet.name);
+      const merges = (worksheet.model.merges ?? []).map((range) => {
+        const [startAddress, endAddress = startAddress] = range.split(':');
+        const start = worksheet.getCell(startAddress); const end = worksheet.getCell(endAddress);
+        return { startRow: Number(start.row), endRow: Number(end.row), startColumn: Number(start.col), endColumn: Number(end.col) };
+      });
+      sheets.push({ name: worksheet.name, rows, merges });
       sourceNames.push(...extractTechnicalSourceNames(rows));
       parsed.push(...rowsToTechnicalRows(rows, worksheet.name));
     }
-    return { rows: parsed, sheetNames, sourceNames };
+    return { rows: parsed, sheetNames, sourceNames, sheets };
   }
 
   private async suggestedProducts(actor: AuthContext, productTypeCode: string, sourceNames: string[]) {
@@ -414,6 +458,46 @@ export class TechnicalImportService {
   }
 
   async preview(body: TechnicalImportPreviewRequest, actor: AuthContext) {
+    if (body.mode === 'laser_profiles') {
+      const scope = this.laserScope(body);
+      await this.laserProfiles.assertScope(scope, actor);
+      const parsed = await this.parseFile(body);
+      if (parsed.sheets.some((sheet) => sheet.rows.some((row) => row.some((cell) => cell.length > 4000)))) {
+        throw new ValidationError('Lazer kaynak hücreleri en fazla 4.000 karakter içerebilir');
+      }
+      const source = parseLaserWorkbookSheets(parsed.sheets, body.fileName);
+      if (!source.models.length) throw new ValidationError('Dosyada F, PG veya TG model sütunları bulunamadı');
+      if (source.models.some((model) => !LASER_MODELS.some((known) => known.code === model.code))) {
+        throw new ValidationError('Dosyada mevcut AORE kataloğunda bulunmayan model var');
+      }
+      // Standalone model exports omit the standards sheet. Restore only those series defaults,
+      // never absent model mechanics or power rows from a different machine.
+      for (const model of source.models) {
+        const standardFields = LASER_MODELS.find((known) => known.code === model.code)?.fields
+          .filter((field) => field.source.sheet === 'Standart Yapılandırma') ?? [];
+        for (const field of standardFields) if (!model.fields.some((existing) => existing.key === field.key)) model.fields.push(field);
+      }
+      const sourceRevision = `aore-upload-${createHash('sha256').update(Buffer.from(body.fileBase64, 'base64')).digest('hex').slice(0, 24)}`;
+      const laserProfiles = source.models.flatMap((model) => (['open', 'closed'] as const).flatMap((cabinType) =>
+        LASER_POWERS.map((powerKw) => {
+          const profile = resolveLaserProfile({ productTypeCode: model.productTypeCode, series: model.series, sourceModelCode: model.code, cabinType, powerKw }, source.models);
+          profile.sourceRevision = sourceRevision;
+          const catalogIssues = LASER_MODELS.find((known) => known.code === model.code)?.issues ?? [];
+          profile.issues.push(...catalogIssues.filter((issue) => !profile.issues.some((current) => current.code === issue.code && current.message === issue.message)));
+          if (!laserTechnicalConfigurationSchema.safeParse(profile).success) throw new ValidationError('Kaynak teknik profil alan veya metin sınırlarını aşıyor');
+          return profile;
+        }),
+      ));
+      if (Buffer.byteLength(JSON.stringify(laserProfiles), 'utf8') > MAX_FILE_BYTES) {
+        throw new ValidationError('Lazer profil önizlemesi 10 MB sınırını aşıyor; daha küçük bir dosya kullanın');
+      }
+      const importToken = this.laserPreviews.put({ tenantId: actor.tenantId, userId: actor.userId, scope, profiles: laserProfiles });
+      return {
+        file: { name: body.fileName, sheetNames: parsed.sheetNames, rowCount: laserProfiles.length },
+        importToken, laserProfiles, issues: source.issues, rows: [], suggestedProducts: [],
+        summary: { total: laserProfiles.length, ready: laserProfiles.length, exact: 0, normalized: 0, review: 0, unmatched: 0 },
+      };
+    }
     const parsed = await this.parseFile(body);
     if (!parsed.rows.length) throw new ValidationError('Dosyada teknik bilgi satırı bulunamadı');
     if (parsed.rows.length > MAX_IMPORT_ROWS) throw new ValidationError(`Tek seferde en fazla ${MAX_IMPORT_ROWS} teknik satır aktarılabilir`);
@@ -437,10 +521,25 @@ export class TechnicalImportService {
   }
 
   async commit(body: TechnicalImportCommitRequest, actor: AuthContext) {
+    if (body.mode === 'laser_profiles') {
+      const scope = this.laserScope(body);
+      if (!body.importToken) throw new ValidationError('Lazer aktarımı için dosya önizlemesi gereklidir');
+      const preview = this.laserPreviews.read(body.importToken, scope, actor);
+      const selectedKeys = new Set((body.laserProfiles ?? []).map((profile) => laserSelectionKey(profile.selection)));
+      const selected = preview.filter((profile) => selectedKeys.has(laserSelectionKey(profile.selection)));
+      if (!selected.length || selected.length !== selectedKeys.size) throw new ValidationError('Aktarılacak profiller önizlemeyle eşleşmiyor');
+      // Values and source metadata come exclusively from the server-retained preview.
+      return this.laserProfiles.importProfiles(scope, selected, actor);
+    }
     const rows = body.rows.filter((row) => row.include && row.targetKey);
     if (!rows.length) throw new ValidationError('Aktarılacak eşleşmiş teknik satır bulunamadı');
     if (body.mode === 'machine_data') return this.commitMachineData(body, rows, actor);
     return this.commitTemplateFields(body, rows, actor);
+  }
+
+  private laserScope(body: { divisionId?: string | null; brandId?: string | null }): LaserProfileScope {
+    if (!body.divisionId || !body.brandId) throw new ValidationError('Lazer teknik aktarımı için bölüm ve marka seçilmelidir');
+    return { divisionId: body.divisionId, brandId: body.brandId };
   }
 
   private async commitTemplateFields(body: TechnicalImportCommitRequest, rows: TechnicalImportRowInput[], actor: AuthContext) {

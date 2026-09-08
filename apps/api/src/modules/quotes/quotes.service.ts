@@ -59,8 +59,10 @@ import {
   referencePriceDiscountPercent,
   requiresDiscountApproval,
   requiresReferencePriceApproval,
+  quoteItemCompatibilitySchema,
 } from '@haksan/shared';
 import { FxService } from '../fx/fx.service';
+import { quoteLaserSnapshot } from './quote-laser-snapshot';
 import { SignaturesService } from '../signatures/signatures.service';
 import { buildPaginated, pageOffset } from '../../shared/utils/pagination';
 import { lookupIdByCode } from '../../shared/utils/lookup.helper';
@@ -1600,6 +1602,43 @@ export class QuotesService {
       });
     }
 
+    // Configured laser items carry their own immutable technical appendix. Never consult
+    // the current profile or product specs here: even draft quote items retain their saved values.
+    for (const item of items) {
+      const compatibility = quoteItemCompatibilitySchema.safeParse(item.compatibility);
+      const configuration = compatibility.success ? compatibility.data.technicalConfiguration : null;
+      if (!configuration) continue;
+      doc.addPage();
+      doc.x = 50; doc.y = 50;
+      doc.font(boldFont).fontSize(14).fillColor('#111827')
+        .text(tr(`TEKNİK BİLGİ — ${configuration.modelLabel}`), 50, doc.y, { width: 495 });
+      doc.moveDown(0.6);
+      const tube = configuration.selection.productTypeCode === 'BORU_LAZER_KESIM';
+      const cabin = configuration.selection.cabinType === 'open' ? 'Açık' : 'Kapalı';
+      const selectionLines = [
+        'Ürün kategorisi: Tezgah',
+        `Ürün alt kategorisi: ${tube ? 'Boru/Profil Lazer Kesim' : 'Sac Lazer Kesim'}`,
+        `Ürün serisi tipi: ${configuration.selection.series}`,
+        `${tube ? 'Kesim bölgesi koruması' : 'Kabin tipi'}: ${cabin}`,
+        `Rezonatör gücü: ${configuration.selection.powerKw} kW`,
+        `${tube ? 'Model ve boru kapasitesi' : 'Tabla ölçüsü'}: ${configuration.sizeLabel}`,
+      ];
+      const writeTechnicalLine = (text: string) => {
+        for (const line of wrapCellLines(tr(text), 495, regularFont, 9)) {
+          ensureSpace(15);
+          doc.font(regularFont).fontSize(9).fillColor('#111827')
+            .text(line, 50, doc.y, { width: 495, lineBreak: false });
+          doc.y += 13;
+        }
+        doc.y += 3;
+      };
+      selectionLines.forEach(writeTechnicalLine);
+      doc.y += 8;
+      for (const spec of configuration.specs) {
+        writeTechnicalLine(`${spec.key}: ${spec.value ? [spec.value, spec.unit].filter(Boolean).join(' ') : '—'}`);
+      }
+    }
+
     doc.end();
     const buffer = await done;
     const safeNo = tr(quote.documentNo).replace(/[^a-zA-Z0-9._-]/g, '_');
@@ -1795,7 +1834,7 @@ export class QuotesService {
   async addItem(quoteId: string, input: QuoteItemCreateInput, actor: AuthContext) {
     const quote = await this.get(quoteId, actor);
     this.assertQuoteMutable(quote);
-    if (input.productModelId) await this.assertProductModel(input.productModelId, actor, quote.divisionId);
+    const product = input.productModelId ? await this.assertProductModel(input.productModelId, actor, quote.divisionId) : null;
     if (input.inventoryItemId) await this.assertInventoryItem(input.inventoryItemId, actor, quote.divisionId);
     this.assertItemDiscount(input.quantity, input.unitPrice, input.discountAmount);
     const t = this.calcItem(input.quantity, input.unitPrice, input.discountAmount, input.vatRate);
@@ -1818,7 +1857,7 @@ export class QuotesService {
         vatAmount: t.vatAmount.toFixed(4),
         lineTotal: t.lineTotal.toFixed(4),
         sortOrder: input.sortOrder,
-        compatibility: input.compatibility ?? null,
+        compatibility: quoteLaserSnapshot(input.compatibility, product?.technicalConfiguration),
         nationalized: input.nationalized ?? false,
       })
       .returning();
@@ -1834,7 +1873,7 @@ export class QuotesService {
       where: and(eq(quoteItems.id, itemId), eq(quoteItems.quoteId, quoteId), eq(quoteItems.tenantId, actor.tenantId), isNull(quoteItems.deletedAt)),
     });
     if (!existing) throw new NotFoundError('Kalem');
-    if (input.productModelId) await this.assertProductModel(input.productModelId, actor, quote.divisionId);
+    const product = input.productModelId ? await this.assertProductModel(input.productModelId, actor, quote.divisionId) : null;
     if (input.inventoryItemId) await this.assertInventoryItem(input.inventoryItemId, actor, quote.divisionId);
     const patch: Record<string, unknown> = {};
     for (const k of ['productModelId', 'inventoryItemId', 'stockCode', 'description', 'sortOrder'] as const) {
@@ -1843,7 +1882,12 @@ export class QuotesService {
     for (const k of ['quantity', 'unitPrice', 'discountAmount', 'vatRate'] as const) {
       if ((input as any)[k] !== undefined) patch[k] = ((input as any)[k] as number | undefined)?.toString();
     }
-    if (input.compatibility !== undefined) patch.compatibility = input.compatibility ?? null;
+    const productChanged = input.productModelId !== undefined && input.productModelId !== existing.productModelId;
+    if (input.compatibility !== undefined || productChanged) {
+      const savedCompatibility = quoteItemCompatibilitySchema.safeParse(existing.compatibility);
+      patch.compatibility = quoteLaserSnapshot(input.compatibility,
+        productChanged ? product?.technicalConfiguration : savedCompatibility.success ? savedCompatibility.data.technicalConfiguration : null);
+    }
     if (input.nationalized !== undefined) patch.nationalized = input.nationalized;
     if (input.unitCode !== undefined) patch.unitId = await lookupIdByCode(this.db, units, input.unitCode);
 

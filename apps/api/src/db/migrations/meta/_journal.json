@@ -1002,6 +1002,13 @@
       "when": 1792262400000,
       "tag": "0143_tenant_user_report_recipients",
       "breakpoints": true
+    },
+    {
+      "idx": 144,
+      "version": "7",
+      "when": 1792348800000,
+      "tag": "0144_laser_technical_profiles",
+      "breakpoints": true
     }
   ]
 }

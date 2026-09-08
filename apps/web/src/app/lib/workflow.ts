@@ -1,5 +1,6 @@
 import { pickStageCarryover } from "@haksan/shared";
-import type { Product, SalesCase } from "./mock";
+import type { Product, ProductSpec, SalesCase } from "./mock";
+import { quoteTechnicalSpecsFromProduct } from "./laserProductSnapshot";
 
 // Departmanlar arası "bir sonraki adım önceki adıma bağlı" mantığının web tarafındaki
 // uygulama katmanı. Hangi alanların taşınacağını @haksan/shared > STAGE_CARRYOVER belirler;
@@ -10,6 +11,11 @@ type Currency = "USD" | "EUR" | "TRY";
 // Bir teklif satırının carry-over ile ön-doldurulabilen alanları (QuoteDialog LineState alt kümesi).
 export type CarriedQuoteLine = {
   categoryCode: string;
+  groupCode: string;
+  subcategoryCode: string;
+  productTypeCode: string;
+  technicalSpecs: ProductSpec[];
+  technicalConfiguration?: Product['technicalConfiguration'];
   productId: string;
   stockCode: string;
   description: string;
@@ -77,6 +83,11 @@ export function quoteDefaultsFromCase(sc: SalesCase, products: Product[]): CaseQ
 
   const lineFor = (product: Product | null, fallbackDescription: string, lineQuantity: number): CarriedQuoteLine => ({
     categoryCode: product?.categoryCode || "TEZGAH",
+    groupCode: product?.productGroupCode ?? '',
+    subcategoryCode: product?.subcategoryCode ?? '',
+    productTypeCode: product?.productTypeCode ?? '',
+    technicalSpecs: quoteTechnicalSpecsFromProduct(product),
+    technicalConfiguration: product?.technicalConfiguration ?? null,
     productId: product?.id ?? "",
     stockCode: product?.stockCode || product?.model || "",
     description: product?.shortDescription?.trim() || fallbackDescription,

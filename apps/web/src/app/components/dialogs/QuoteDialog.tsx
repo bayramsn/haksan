@@ -14,11 +14,11 @@ import { useStore } from "../../lib/store";
 import { useFx, FxRateBadge } from "../../lib/fx";
 import { useAuth } from "../../../lib/auth";
 import { lookupService, quoteService, productService, signatureService } from "../../../lib/services";
-import type { SignatureView } from "@haksan/shared";
+import type { SignatureView, LaserTechnicalConfiguration } from "@haksan/shared";
 import { toast } from "sonner";
 import { AlertTriangle, Check, Plus, Trash2, Save, BookmarkPlus, Bold, MapPin } from "lucide-react";
 import type { CompanyAddress, Customer, Product, ProductSpec } from "../../lib/mock";
-import { normalizeProductSpecKey, productSpecDefaults, specsForProductTypeStrict } from "../../lib/productSpecTemplates";
+import { normalizeProductSpecKey, productSpecDefaults } from "../../lib/productSpecTemplates";
 import {
   DISCOUNT_APPROVAL_THRESHOLD_PERCENT,
   computeCustomsCharges,
@@ -27,6 +27,7 @@ import {
   requiresDiscountApproval,
 } from "@haksan/shared";
 import { quoteDefaultsFromCase } from "../../lib/workflow";
+import { cleanSnapshotSpecs, quoteTechnicalSpecsFromProduct, withQuotedLaserSpecs } from "../../lib/laserProductSnapshot";
 import {
   calculateProductDiscountAmount,
   isProductDiscountValid,
@@ -209,6 +210,7 @@ type LineState = {
   stockCode: string;
   description: string; // ürün adı / modeli
   technicalSpecs: ProductSpec[];
+  technicalConfiguration?: LaserTechnicalConfiguration | null;
   quantity: string;
   unitPrice: string;
   discount: string;
@@ -241,8 +243,7 @@ const cleanTechnicalSpecs = (specs: ProductSpec[] = []) =>
     }))
     .filter((spec) => spec.key && spec.value);
 
-const technicalSpecsFromProduct = (product?: Product): ProductSpec[] =>
-  product ? specsForProductTypeStrict(product.productTypeCode, product.specs ?? []) : [];
+const technicalSpecsFromProduct = quoteTechnicalSpecsFromProduct;
 
 const isProductTypeTemplateSpec = (product: Product | undefined, spec: ProductSpec) =>
   productSpecDefaults(product?.productTypeCode).some((templateSpec) => normalizeProductSpecKey(templateSpec.key) === normalizeProductSpecKey(spec.key));
@@ -491,8 +492,9 @@ export function QuoteDialog({
       const optionItems = items.filter((it) => String(it.description ?? "").startsWith("↳ Opsiyon:"));
       const mapped: LineState[] = mainItems.map((it) => {
         const product = it.productModelId ? products.find((p) => p.id === it.productModelId) : undefined;
+        const technicalConfiguration: LaserTechnicalConfiguration | null = it.compatibility?.technicalConfiguration ?? null;
         const storedSpecs = Array.isArray(it.compatibility?.technicalSpecs)
-          ? cleanTechnicalSpecs(it.compatibility.technicalSpecs)
+          ? (technicalConfiguration ? cleanSnapshotSpecs : cleanTechnicalSpecs)(it.compatibility.technicalSpecs)
           : [];
         const desc = String(it.description ?? "");
         const dashIdx = desc.indexOf(" — ");
@@ -507,7 +509,8 @@ export function QuoteDialog({
           productId: it.productModelId ?? "",
           stockCode,
           description,
-          technicalSpecs: storedSpecs.length ? storedSpecs : technicalSpecsFromProduct(product),
+          technicalSpecs: technicalConfiguration ? storedSpecs : storedSpecs.length ? storedSpecs : technicalSpecsFromProduct(product),
+          technicalConfiguration,
           quantity: String(it.quantity ?? "1"),
           unitPrice: String(it.unitPrice ?? "0"),
           discount: String(it.discountAmount ?? "0"),
@@ -735,7 +738,7 @@ export function QuoteDialog({
 
   const onPickProduct = (i: number, productId: string) => {
     const p = products.find((x) => x.id === productId);
-    if (!p) return setLine(i, { productId });
+    if (!p) return setLine(i, { productId, technicalSpecs: [], technicalConfiguration: null });
     setLine(i, {
       productId,
       groupCode: p.productGroupCode || "",
@@ -745,6 +748,7 @@ export function QuoteDialog({
       stockCode: p.stockCode || p.model || "",
       description: p.shortDescription?.trim() || [p.brand, p.series, p.model].filter(Boolean).join(" "),
       technicalSpecs: technicalSpecsFromProduct(p),
+      technicalConfiguration: p.technicalConfiguration ?? null,
       unitPrice: p.listPrice ? String(p.listPrice) : "",
       vatRate: String(p.vatRate ?? 20),
     });
@@ -762,7 +766,7 @@ export function QuoteDialog({
       const keep = prod && prod.categoryCode === code;
       return keep
         ? { ...l, categoryCode: code }
-        : { ...l, categoryCode: code, subcategoryCode: "", groupCode: "", productTypeCode: "", productId: "", stockCode: "", description: "", technicalSpecs: [], options: [] };
+        : { ...l, categoryCode: code, subcategoryCode: "", groupCode: "", productTypeCode: "", productId: "", stockCode: "", description: "", technicalSpecs: [], technicalConfiguration: null, options: [] };
     }));
   };
 
@@ -773,7 +777,7 @@ export function QuoteDialog({
       const keep = prod && (prod.subcategoryCode || "") === code;
       return keep
         ? { ...l, subcategoryCode: code }
-        : { ...l, subcategoryCode: code, groupCode: "", productTypeCode: "", productId: "", stockCode: "", description: "", technicalSpecs: [], options: [] };
+        : { ...l, subcategoryCode: code, groupCode: "", productTypeCode: "", productId: "", stockCode: "", description: "", technicalSpecs: [], technicalConfiguration: null, options: [] };
     }));
   };
 
@@ -784,7 +788,7 @@ export function QuoteDialog({
       const keep = prod && (prod.productGroupCode || "") === code;
       return keep
         ? { ...l, groupCode: code }
-        : { ...l, groupCode: code, productTypeCode: "", productId: "", stockCode: "", description: "", technicalSpecs: [], options: [] };
+        : { ...l, groupCode: code, productTypeCode: "", productId: "", stockCode: "", description: "", technicalSpecs: [], technicalConfiguration: null, options: [] };
     }));
   };
 
@@ -795,7 +799,7 @@ export function QuoteDialog({
       const keep = prod && (prod.productTypeCode || "") === code;
       return keep
         ? { ...l, productTypeCode: code }
-        : { ...l, productTypeCode: code, productId: "", stockCode: "", description: "", technicalSpecs: [], options: [] };
+        : { ...l, productTypeCode: code, productId: "", stockCode: "", description: "", technicalSpecs: [], technicalConfiguration: null, options: [] };
     }));
   };
 
@@ -814,7 +818,8 @@ export function QuoteDialog({
   const resetTechnicalSpecsFromProduct = (i: number) =>
     setLines((ls) => ls.map((l, idx) => {
       if (idx !== i) return l;
-      return { ...l, technicalSpecs: technicalSpecsFromProduct(products.find((p) => p.id === l.productId)) };
+      const product = products.find((p) => p.id === l.productId);
+      return { ...l, technicalSpecs: technicalSpecsFromProduct(product), technicalConfiguration: product?.technicalConfiguration ?? null };
     }));
 
   const setOption = (i: number, j: number, patch: Partial<OptionInput>) =>
@@ -1036,11 +1041,12 @@ export function QuoteDialog({
     // Ana ürün + teklife özel opsiyonel donanımları tek kalem listesine düzleştir
     const items = valid.flatMap((l) => {
       const mainName = l.description.trim() || "Ürün";
-      const technicalSpecs = cleanTechnicalSpecs(l.technicalSpecs);
+      const technicalSpecs = l.technicalConfiguration ? cleanSnapshotSpecs(l.technicalSpecs) : cleanTechnicalSpecs(l.technicalSpecs);
       const lineCompatibility = {
         lineGroupKey: l.lineGroupKey,
         ...(COMPAT_CATEGORIES.includes(l.categoryCode) && hasCompatibility(l.compatibility) ? l.compatibility : emptyCompatibility()),
-        ...(technicalSpecs.length ? { technicalSpecs } : {}),
+        ...(technicalSpecs.length || l.technicalConfiguration ? { technicalSpecs } : {}),
+        ...(l.technicalConfiguration ? { technicalConfiguration: withQuotedLaserSpecs(l.technicalConfiguration, technicalSpecs) } : {}),
       };
       const main = {
         productModelId: l.productId || undefined,

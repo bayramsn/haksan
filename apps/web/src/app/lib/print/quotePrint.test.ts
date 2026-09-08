@@ -4,6 +4,7 @@ import { loadContractPrintData } from "./contractPrint";
 import { buildProformaPrintData } from "./proformaPrint";
 import { buildQuotePrintData } from "./quotePrint";
 import { proformaDoc, quoteDoc } from "./templates";
+import type { LaserTechnicalConfiguration } from '@haksan/shared';
 
 const offer = {
   id: "quote-1",
@@ -43,6 +44,40 @@ const build = (quote: Record<string, unknown>) => buildQuotePrintData({
   contacts: [],
   products: [],
 }, quote as never);
+
+describe('laser quote snapshot printing', () => {
+  const saved: LaserTechnicalConfiguration = {
+    selection: { productTypeCode: 'FIBER_LAZER_KESIM', series: 'F', cabinType: 'closed', powerKw: 12, sourceModelCode: 'F3015' },
+    profileId: null, sourceRevision: 'test', modelLabel: 'F3015', sizeLabel: '3050 × 1530 mm', supportedPower: true, standardCabin: false, issues: [], specs: [],
+  };
+  const liveProduct = {
+    id: 'laser-1', categoryCode: 'TEZGAH', productTypeCode: 'FIBER_LAZER_KESIM', brand: 'AORE', model: 'COMMERCIAL-SKU', type: 'Sac Lazer Kesim', shortDescription: 'AORE lazer',
+    specs: [{ key: 'Makine Ağırlığı', value: '99999', unit: 'kg' }, { key: 'Konumlama Hassasiyeti', value: '8', unit: 'mm' }, { key: 'Sonradan Eklenen Alan', value: 'live-only' }],
+  } as Product;
+  const print = (specs: Array<{ key: string; value: string; unit?: string }>) => buildQuotePrintData({ offer, customer, salesCase: null, users: [], contacts: [], products: [liveProduct] }, {
+    items: [{ productModelId: liveProduct.id, description: 'AORE lazer', quantity: 1, unitPrice: 1, compatibility: { technicalConfiguration: saved, technicalSpecs: specs } }], terms: {},
+  } as never);
+
+  it('prints the entire saved field set, exact units and cabin while suppressing empty fields', () => {
+    const result = print([{ key: 'Makine Ağırlığı', value: '', unit: 'kg' }, { key: 'Konumlama Hassasiyeti', value: '0.03', unit: 'mm/m' }]);
+    expect(result.specs).toEqual(expect.arrayContaining([
+      expect.objectContaining({ key: 'Konumlama Hassasiyeti', value: '0.03', unit: 'mm/m' }),
+      expect.objectContaining({ key: 'Kabin Tipi', value: 'Kapalı' }),
+      expect.objectContaining({ key: 'Kaynak Model', value: 'F3015' }),
+    ]));
+    expect(result.specs?.some((spec) => spec.key === 'Makine Ağırlığı' || spec.key === 'Sonradan Eklenen Alan')).toBe(false);
+    const html = quoteDoc(result, '/brand').body;
+    expect(html).toContain('mm/m');
+    expect(html).not.toContain('99999');
+    expect(html).not.toContain('live-only');
+  });
+
+  it('does not restore live technical fields when every snapshot row was removed', () => {
+    const result = print([]);
+    expect(result.specs?.some((spec) => spec.key === 'Makine Ağırlığı' || spec.key === 'Konumlama Hassasiyeti')).toBe(false);
+    expect(result.machines?.[0].specs).toEqual(result.specs);
+  });
+});
 
 describe("quote print address", () => {
   it("prints the company email before the selected contact email", () => {

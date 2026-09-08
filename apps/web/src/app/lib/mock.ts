@@ -658,6 +658,7 @@ export type Product = {
   hsCode?: string;
   stockCode?: string;
   specs: ProductSpec[];
+  technicalConfiguration?: import('@haksan/shared').LaserTechnicalConfiguration | null;
   standardEquipment: string[];
   optionalEquipment: string[];
   // Bu ürünün muadili (eşdeğer) olarak işaretlenen başka bir ürünün id'si.

@@ -13,6 +13,7 @@ import {
   currencies,
 } from './lookup';
 import { files } from './files';
+import type { LaserTechnicalConfiguration } from '@haksan/shared';
 
 export const brands = pgTable(
   'brands',
@@ -75,6 +76,7 @@ export const productModels = pgTable(
     stockCode: varchar('stock_code', { length: 64 }),
     imageUrl: varchar('image_url', { length: 512 }),
     description: text('description'),
+    technicalConfiguration: jsonb('technical_configuration').$type<LaserTechnicalConfiguration | null>(),
     // Bu ürünün muadili (eşdeğer) olarak gösterilecek başka bir ürün modeli (self-FK).
     muadilProductId: uuid('muadil_product_id'),
     isActive: boolean('is_active').notNull().default(true),
@@ -162,6 +164,31 @@ export const productSpecs = pgTable(
     productIdx: index('product_specs_product_idx').on(t.productModelId),
     groupIdx: index('product_specs_group_idx').on(t.specGroupId),
   })
+);
+
+/** Combination values are isolated from the generic, shared technical templates. */
+export const laserTechnicalProfiles = pgTable(
+  'laser_technical_profiles',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+    divisionId: uuid('division_id').notNull().references(() => divisions.id, { onDelete: 'restrict' }),
+    brandId: uuid('brand_id').notNull().references(() => brands.id, { onDelete: 'restrict' }),
+    productTypeCode: varchar('product_type_code', { length: 64 }).notNull(),
+    series: varchar('series', { length: 8 }).notNull(),
+    sourceModelCode: varchar('source_model_code', { length: 64 }).notNull(),
+    cabinType: varchar('cabin_type', { length: 16 }).notNull(),
+    powerKw: integer('power_kw').notNull(),
+    configuration: jsonb('configuration').$type<LaserTechnicalConfiguration>().notNull(),
+    updatedBy: uuid('updated_by'),
+    ...auditColumns,
+  },
+  (t) => ({
+    combinationUnique: uniqueIndex('laser_profiles_combination_unique').on(
+      t.tenantId, t.divisionId, t.brandId, t.productTypeCode, t.sourceModelCode, t.cabinType, t.powerKw,
+    ),
+    scopeIdx: index('laser_profiles_scope_idx').on(t.tenantId, t.divisionId, t.brandId),
+  }),
 );
 
 export const productSpecTemplates = pgTable(

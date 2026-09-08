@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { moneySchema, percentSchema } from './common';
+import { laserTechnicalConfigurationSchema } from '../laser';
 
 const productVatRateSchema = percentSchema.refine((rate) => rate !== 1, {
   message: 'Ürün KDV oranı %1 olamaz',
@@ -125,7 +126,7 @@ export const machineTemplateCreateSchema = z
   });
 export type MachineTemplateCreateInput = z.infer<typeof machineTemplateCreateSchema>;
 
-export const technicalImportModeSchema = z.enum(['template_fields', 'machine_data']);
+export const technicalImportModeSchema = z.enum(['template_fields', 'machine_data', 'laser_profiles']);
 export type TechnicalImportMode = z.infer<typeof technicalImportModeSchema>;
 
 export const technicalImportAvailableFieldSchema = z.object({
@@ -141,6 +142,7 @@ export const technicalImportPreviewRequestSchema = z.object({
   // 10 MB ham dosya, base64 kodlamasında yaklaşık 13,4 MB olur.
   fileBase64: z.string().min(1).max(15_000_000),
   mode: technicalImportModeSchema,
+  brandId: z.string().uuid().optional(),
   productTypeCode: z.string().trim().min(1).max(64),
   divisionId: z.string().uuid().nullish(),
   // Yeni bir teknik şablon, ilk Excel/CSV yüklemesinden oluşturulabilir.
@@ -195,7 +197,10 @@ export const technicalImportCommitRequestSchema = z
     divisionId: z.string().uuid().nullish(),
     targetProductId: z.string().uuid().nullish(),
     confirmedTarget: z.boolean().default(false),
-    rows: z.array(technicalImportRowSchema).min(1).max(5000),
+    brandId: z.string().uuid().optional(),
+    importToken: z.string().uuid().optional(),
+    laserProfiles: z.array(laserTechnicalConfigurationSchema).max(1000).optional(),
+    rows: z.array(technicalImportRowSchema).max(5000).default([]),
   })
   .superRefine((value, ctx) => {
     if (value.mode === 'machine_data' && (!value.targetProductId || !value.confirmedTarget)) {
@@ -205,7 +210,10 @@ export const technicalImportCommitRequestSchema = z
         message: 'Makine verisi aktarımında hedef makine kullanıcı tarafından onaylanmalıdır',
       });
     }
-    if (!value.rows.some((row) => row.include && row.targetKey)) {
+    if (value.mode === 'laser_profiles' && (!value.importToken || !value.brandId || !value.divisionId || !value.laserProfiles?.length)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Lazer aktarımı için marka, bölüm, önizleme ve seçili profiller gereklidir.' });
+    }
+    if (value.mode !== 'laser_profiles' && !value.rows.some((row) => row.include && row.targetKey)) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['rows'],
@@ -227,6 +235,7 @@ export type ProductEquipmentCreateInput = z.infer<typeof productEquipmentCreateS
 export const productDetailsReplaceSchema = z.object({
   specs: z.array(productSpecCreateSchema).default([]),
   equipment: z.array(productEquipmentCreateSchema).default([]),
+  technicalConfiguration: laserTechnicalConfigurationSchema.nullish(),
 });
 export type ProductDetailsReplaceInput = z.infer<typeof productDetailsReplaceSchema>;
 
