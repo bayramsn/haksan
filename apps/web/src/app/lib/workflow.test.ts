@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { quoteDefaultsFromCase } from "./workflow";
 import type { Product, SalesCase } from "./mock";
+import type { LaserTechnicalConfiguration } from '@haksan/shared';
 
 const product = (overrides: Partial<Product> = {}): Product =>
   ({
@@ -29,6 +30,16 @@ const salesCase = (overrides: Partial<SalesCase> = {}): SalesCase =>
   }) as unknown as SalesCase;
 
 describe("fırsattan teklif satırı türetme", () => {
+  it('lazer seçimlerini ve boş teknik alanları fırsattan üretilen teklif kalemine taşır', () => {
+    const configuration: LaserTechnicalConfiguration = {
+      selection: { productTypeCode: 'BORU_LAZER_KESIM', series: 'TG', cabinType: 'closed', powerKw: 30, sourceModelCode: 'TG6012' },
+      sourceRevision: 'test', modelLabel: 'TG6012', sizeLabel: 'Ø10–120 mm', specs: [{ key: 'Makine Ağırlığı', value: '', unit: 'kg' }], issues: [], supportedPower: false, standardCabin: true,
+    };
+    const defaults = quoteDefaultsFromCase(salesCase(), [product({ productTypeCode: 'BORU_LAZER_KESIM', productGroupCode: 'SAC_ISLEME', technicalConfiguration: configuration })]);
+    expect(defaults.line.technicalConfiguration).toEqual(configuration);
+    expect(defaults.line.technicalSpecs).toEqual([expect.objectContaining({ key: 'Makine Ağırlığı', value: '', unit: 'kg' })]);
+    expect(defaults.line.productTypeCode).toBe('BORU_LAZER_KESIM');
+  });
   it("makine listesi yokken tek satır üretir", () => {
     const defaults = quoteDefaultsFromCase(salesCase(), [product()]);
     expect(defaults.lines).toHaveLength(1);

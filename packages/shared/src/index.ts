@@ -27,3 +27,4 @@ export * from './schemas/calendar';
 export * from './schemas/task';
 export * from './schemas/mail';
 export * from './schemas/meta';
+export * from './laser';

@@ -39,6 +39,7 @@ import {
   productSpecGroupForTypeKey,
 } from "../../../lib/productSpecTemplates";
 import { TechnicalImportDialog } from "../../dialogs/TechnicalImportDialog";
+import { LaserProfilesPanel } from "./LaserProfilesPanel";
 import {
   WORKBOOK_COLUMNS,
   applyPastedBlock,
@@ -72,7 +73,7 @@ import { Switch } from "../../ui/switch";
 import { cn } from "../../ui/utils";
 
 type FamilyCode = "CNC" | "SAC_ISLEME" | "UNIVERSAL";
-type WorkspaceView = "library" | "editor";
+type WorkspaceView = "library" | "editor" | "laser";
 type DragEdge = "before" | "after";
 type TemplateStartMode = "blank" | "copy";
 
@@ -195,7 +196,8 @@ const canonicalTypeCode = (code?: string | null) => {
 
 const sameType = (left?: string | null, right?: string | null) => canonicalTypeCode(left) === canonicalTypeCode(right);
 const groupLabel = (code: string) => PRODUCT_SPEC_GROUPS.find((group) => group.code === code)?.label ?? code.replaceAll("_", " ");
-const localDraftKey = (typeCode: string) => `haksan:technical-workbook:${canonicalTypeCode(typeCode)}`;
+const workbookDraftKey = (typeCode: string, tenantId?: string, divisionId?: string) =>
+  `haksan:technical-workbook:${JSON.stringify([tenantId ?? "", divisionId ?? "", canonicalTypeCode(typeCode)])}`;
 function buildDraftRows(typeCode: string, specRows: SpecTemplateRow[]): DraftRow[] {
   const dbRows = specRows.filter((row) => sameType(row.productTypeCode, typeCode));
   // Liste seçili bölüm kayıtlarıyla paylaşılan kayıtları birlikte içerir. Aynı
@@ -311,10 +313,12 @@ function completionFor(typeCode: string, rows: SpecTemplateRow[]) {
 }
 
 export function ProductSpecTemplatesCard() {
-  const { user } = useAuth();
+  const { user, activeDivision } = useAuth();
   const { products } = useStore();
-  const [view, setView] = useState<WorkspaceView>("library");
-  const [familyCode, setFamilyCode] = useState<FamilyCode>("CNC");
+  const activeFamily = foldProductTypeCode(user?.divisions.find((division) => division.id === activeDivision)?.code);
+  const initialFamily: FamilyCode = activeFamily === "SAC_ISLEME" || activeFamily === "UNIVERSAL" ? activeFamily : "CNC";
+  const [view, setView] = useState<WorkspaceView>(initialFamily === "SAC_ISLEME" ? "laser" : "library");
+  const [familyCode, setFamilyCode] = useState<FamilyCode>(initialFamily);
   const [categoryCode, setCategoryCode] = useState("TEZGAH");
   const [subcategoryCode, setSubcategoryCode] = useState("ISLEME_MERKEZI");
   const [typeCode, setTypeCode] = useState("CNC_DIK_ISLEME_MERKEZ");
@@ -342,6 +346,7 @@ export function ProductSpecTemplatesCard() {
     const wanted = familyCode === "SAC_ISLEME" ? "SAC_ISLEME" : familyCode;
     return divisions.find((division) => foldProductTypeCode(division.code) === wanted)?.id;
   }, [divisions, familyCode]);
+  const localDraftKey = (nextTypeCode: string) => workbookDraftKey(nextTypeCode, user?.tenantId, familyDivisionId);
 
   useEffect(() => {
     let cancelled = false;
@@ -531,7 +536,7 @@ export function ProductSpecTemplatesCard() {
     if (view === "editor" && selectedType) prepareWorkbook(selectedType.code);
     // Only reset when the selected product type or server source changes deliberately.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [view, typeCode]);
+  }, [view, typeCode, familyDivisionId]);
 
   // Katalog alanları henüz DB kaydı değilse görsel taslak baseline ile aynı olsa
   // bile kaydedilmesi gereken yeni bir şablondur. Aksi halde "Yeni şablon"
@@ -905,7 +910,7 @@ export function ProductSpecTemplatesCard() {
             <Button size="sm" variant="ghost" className="border border-white/25 text-white hover:bg-white/10 hover:text-white" onClick={() => setView("library")}><ArrowLeft className="mr-1.5 size-4" />Kütüphaneye dön</Button>
             <Button size="sm" className="bg-blue-600 text-white hover:bg-blue-500" disabled={!dirty || busy} onClick={() => void saveWorkbook()}><Save className="mr-1.5 size-4" />{busy ? "Kaydediliyor" : "Değişiklikleri kaydet"}</Button>
           </div>
-        ) : (
+        ) : view === "library" ? (
           <Button
             size="sm"
             className="bg-blue-600 text-white hover:bg-blue-500"
@@ -915,12 +920,12 @@ export function ProductSpecTemplatesCard() {
             <ArrowRight className="mr-1.5 size-4" />
             {selectedTemplateExists ? "Seçili şablonu aç" : "Seçili taslağı aç"}
           </Button>
-        )}
+        ) : null}
       </div>
 
       <div className="flex overflow-x-auto border-b border-slate-300 bg-white" aria-label="Ürün grubu ve kategori seçimi">
         {FAMILIES.map((family) => (
-          <button key={family.code} type="button" onClick={() => { setFamilyCode(family.code); setView("library"); }} className={cn("relative flex h-12 min-w-36 shrink-0 items-center justify-center gap-2 border-r border-slate-200 px-5 text-xs font-medium transition-colors", familyCode === family.code ? "bg-blue-50 text-blue-800" : "text-slate-600 hover:bg-slate-50")}>
+          <button key={family.code} type="button" onClick={() => { setFamilyCode(family.code); setView(family.code === "SAC_ISLEME" ? "laser" : "library"); }} className={cn("relative flex h-12 min-w-36 shrink-0 items-center justify-center gap-2 border-r border-slate-200 px-5 text-xs font-medium transition-colors", familyCode === family.code ? "bg-blue-50 text-blue-800" : "text-slate-600 hover:bg-slate-50")}>
             {family.code === "CNC" ? <Settings2 className="size-4" /> : family.code === "SAC_ISLEME" ? <Sheet className="size-4" /> : <Wrench className="size-4" />}
             {family.label}
             {familyCode === family.code && <span className="absolute inset-x-0 bottom-0 h-0.5 bg-blue-600" />}
@@ -931,7 +936,7 @@ export function ProductSpecTemplatesCard() {
           <button
             key={category.code}
             type="button"
-            onClick={() => { setCategoryCode(category.code); setView("library"); }}
+            onClick={() => { setCategoryCode(category.code); setView(familyCode === "SAC_ISLEME" && category.code === "TEZGAH" ? "laser" : "library"); }}
             className={cn(
               "relative flex h-12 shrink-0 items-center justify-center gap-2 border-r border-slate-200 px-4 text-xs font-medium transition-colors",
               categoryCode === category.code ? "bg-slate-900 text-white" : "text-slate-600 hover:bg-slate-50",
@@ -943,6 +948,9 @@ export function ProductSpecTemplatesCard() {
           </button>
         ))}
       </div>
+
+      {familyCode === "SAC_ISLEME" && <div className="flex flex-wrap gap-2 border-b border-slate-200 bg-slate-50 px-4 py-3" aria-label="Teknik bilgi çalışma alanı"><Button type="button" size="sm" variant={view === "laser" ? "default" : "outline"} onClick={() => setView("laser")}>Lazer teknik profilleri</Button><Button type="button" size="sm" variant={view !== "laser" ? "default" : "outline"} onClick={() => setView("library")}>Genel alan şablonları</Button></div>}
+      {view === "laser" && familyCode === "SAC_ISLEME" && <LaserProfilesPanel key={familyDivisionId ?? "unscoped"} divisionId={familyDivisionId} />}
 
       {view === "library" ? (
         <LibraryView
@@ -966,7 +974,7 @@ export function ProductSpecTemplatesCard() {
           onImport={() => setImportOpen(true)}
           onCreateTemplate={() => setNewTemplateOpen(true)}
         />
-      ) : selectedType ? (
+      ) : view === "editor" && selectedType ? (
         <EditorView
           type={selectedType}
           search={search}

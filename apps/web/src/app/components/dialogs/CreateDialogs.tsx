@@ -70,6 +70,9 @@ import { serviceService, fileService, financeService, activityService, inventory
 import { resolveMediaUrl } from "../../../lib/apiClient";
 import { Badge } from "../ui/badge";
 import { useAuth } from "../../../lib/auth";
+import { LaserConfigurationEditor } from "../technical/LaserConfigurationEditor";
+import { laserDraftKey } from "../technical/laser-editor-state";
+import { isLaserProductType, type LaserSelection, type LaserTechnicalConfiguration } from "@haksan/shared";
 import {
   ACTIVITY_TYPE_OPTIONS,
   COMPANY_SECTOR_OPTIONS,
@@ -3303,6 +3306,7 @@ export const subcategoriesForProductCategory = (
 };
 
 type ProductFormState = {
+  technicalConfiguration: LaserTechnicalConfiguration | null;
   brand: string;
   series: string;
   productGroupCode: string; productGroup: string;
@@ -3415,6 +3419,7 @@ const parseOptionalEquipment = (value: string): OptionalEquipmentDraft => {
 };
 
 const emptyProduct = (productGroupCode = ""): ProductFormState => ({
+  technicalConfiguration: null,
   brand: "",
   series: "",
   productGroupCode, productGroup: findLabel(PRODUCT_GROUPS, productGroupCode, productGroupCode),
@@ -3438,6 +3443,7 @@ const emptyProduct = (productGroupCode = ""): ProductFormState => ({
 });
 
 const fromProduct = (p: Product): ProductFormState => ({
+  technicalConfiguration: p.technicalConfiguration ?? null,
   brand: p.brand,
   series: p.series ?? "",
   productGroupCode: p.productGroupCode || codeFromLabel(PRODUCT_GROUPS, p.productGroup ?? "", "CNC"),
@@ -3469,7 +3475,7 @@ const fromProduct = (p: Product): ProductFormState => ({
   // yeniden uygulanmaz. Uygulanırsa kullanıcının sildiği alan formda geri
   // gelir ve ilk kayıtta tekrar yazılır. Şablonun tamamı istendiğinde
   // "Sabit listeyi tamamla" düğmesiyle bilinçli olarak eklenir.
-  specs: catalogSpecs(dropForeignMachineSpecs(p.productTypeCode, p.specs ?? []), ""),
+  specs: p.technicalConfiguration ? p.technicalConfiguration.specs.map((spec) => ({ ...spec })) : catalogSpecs(dropForeignMachineSpecs(p.productTypeCode, p.specs ?? []), ""),
   standardEquipment: [...p.standardEquipment], optionalEquipment: [...p.optionalEquipment],
   muadilProductIds: p.muadilProductIds?.length ? p.muadilProductIds : (p.muadilProductId ? [p.muadilProductId] : []),
   status: p.status,
@@ -3500,6 +3506,7 @@ export function ProductDialog({
   const [form, setForm] = useState<ProductFormState>(
     mode === "edit" && product ? fromProduct(product) : emptyProduct(activeProductGroupCode)
   );
+  const [laserDraftId, setLaserDraftId] = useState(() => crypto.randomUUID());
   const selectedProductDivisionId = useMemo(() => {
     const divisionCode = form.productGroupCode === "UNIVERSAL"
       ? "universal"
@@ -3630,6 +3637,7 @@ export function ProductDialog({
     setForm(mode === "edit" && product ? fromProduct(product) : emptyProduct(activeProductGroupCode));
     setStdInput("");
     setOptionalEquipmentDraft(emptyOptionalEquipmentDraft());
+    setLaserDraftId(crypto.randomUUID());
   };
 
   const IMAGE_MIME_TO_EXT: Record<string, "png" | "jpg" | "webp"> = {
@@ -3751,6 +3759,7 @@ export function ProductDialog({
   )
     .filter((group) => group.options.length > 0);
   const isMachineProduct = form.categoryCode === "TEZGAH";
+  const isAoreLaserProduct = isMachineProduct && form.productGroupCode === "SAC_ISLEME" && isLaserProductType(canonicalProductTypeCode(form.productTypeCode)) && /\baore\b/i.test(form.brand);
   const isOptionalEquipmentProduct = form.categoryCode === OPTIONAL_EQUIPMENT_CATEGORY_CODE;
   const isLaborProduct = form.categoryCode === "ISCILIK" || form.productTypeCode === "ISCILIK";
   const compatibilityGroupOptions = productGroupOptions.map((o) => ({ value: o.code, label: o.label }));
@@ -3817,7 +3826,7 @@ export function ProductDialog({
 
   // Ürün tipi/kategori değişse de sabit teknik katalog korunur.
   const specsAfterChange = (kept: { productTypeCode: string }) =>
-    specsForSelectedProductType(form.specs, kept.productTypeCode, "", typeSpecTemplate);
+    specsForSelectedProductType(form.technicalConfiguration ? [] : form.specs, kept.productTypeCode, "", typeSpecTemplate);
 
   const onProductGroupChange = (code: string) => {
     // Ürün Kategorisi → Ürün → Ürün Alt Kategorisi → Ürün Grubu → Ürün Tipi:
@@ -3835,6 +3844,7 @@ export function ProductDialog({
     setForm({
       ...form,
       productGroupCode: code,
+      technicalConfiguration: null,
       productGroup: findLabel(productGroupOptions, code),
       subcategoryCode,
       subcategory: findLabel(productSubcategoryOptions, subcategoryCode, subcategoryOptions[0]?.label ?? ""),
@@ -3856,6 +3866,7 @@ export function ProductDialog({
     setForm({
       ...form,
       categoryCode: code,
+      technicalConfiguration: null,
       category: findLabel(productCategoryOptions, code),
       subcategoryCode,
       subcategory,
@@ -3876,6 +3887,7 @@ export function ProductDialog({
     setForm({
       ...form,
       subcategoryCode: code,
+      technicalConfiguration: null,
       subcategory: findLabel(productSubcategoryOptions, code),
       ...kept,
       brand: "",
@@ -3916,6 +3928,7 @@ export function ProductDialog({
   // Şablonu teknik bilgi listesine işler; tip seçiminde ve "Sabit listeyi
   // tamamla" düğmesinde aynı yol kullanılır.
   const applySpecTemplate = async (code: string) => {
+    if (isLaserProductType(canonicalProductTypeCode(code))) return;
     const templateSpecs = typeSpecTemplateFetch.current === code ? typeSpecTemplate : await loadSpecTemplate(code);
     if (!templateSpecs.length) return;
     setForm((current) => {
@@ -3937,6 +3950,7 @@ export function ProductDialog({
     setForm({
       ...form,
       productTypeCode: opt.code,
+      technicalConfiguration: null,
       type: opt.label,
       categoryCode,
       category: findLabel(productCategoryOptions, categoryCode, form.category),
@@ -3944,7 +3958,7 @@ export function ProductDialog({
       subcategory: findLabel(productSubcategoryOptions, subcategoryCode, form.subcategory),
       vatRate: defaultVatRateForProductType(opt.code) ?? form.vatRate,
       brand: opt.code === form.productTypeCode ? form.brand : "",
-      specs: specsForSelectedProductType(form.specs, opt.code),
+      specs: specsForSelectedProductType(form.technicalConfiguration ? [] : form.specs, opt.code),
     });
     void applySpecTemplate(opt.code);
   };
@@ -3964,11 +3978,15 @@ export function ProductDialog({
       toast.error(isLaborProduct ? "Ürün adı zorunludur" : "Marka ve ürün adı zorunludur");
       return;
     }
+    if (isAoreLaserProduct && !form.technicalConfiguration && (mode === 'create' || product?.technicalConfiguration)) {
+      toast.error('Lazer teknik bilgi seçimlerini tamamlayın', { description: 'Seri, kabin, rezonatör gücü ve model/ölçü seçilmelidir.' });
+      return;
+    }
     // Katalog şablonu kaydederken YENİDEN uygulanmaz: uygulanırsa
     // `mergeSpecsWithDefaults` şablondaki her alanı geri ekler ve kullanıcının
     // sildiği teknik bilgi satırı hiçbir zaman silinmiş olmaz. Burada yalnızca
     // başka tezgah tipine ait alanlar elenir; ekrandaki liste olduğu gibi gider.
-    const cleanSpecs = catalogSpecs(dropForeignMachineSpecs(form.productTypeCode, form.specs), "-")
+    const cleanSpecs = (form.technicalConfiguration ? form.technicalConfiguration.specs : catalogSpecs(dropForeignMachineSpecs(form.productTypeCode, form.specs), "-"))
       .filter((s) => s.key.trim());
     // Model, stok kodunun kopyası değil: önceliği kullanıcının girdiği model
     // alanı alır. Ters sırada tüm ekranlarda model yerine stok kodu görülüyordu.
@@ -4005,6 +4023,7 @@ export function ProductDialog({
       optionalCompatibilityTypeCodes: form.optionalCompatibilityTypeCodes,
       optionalCompatibilityBrandIds: form.optionalCompatibilityBrandIds,
       specs: cleanSpecs,
+      technicalConfiguration: form.technicalConfiguration,
       standardEquipment: form.standardEquipment,
       optionalEquipment: form.optionalEquipment,
       compatibleMachineTypeCode: form.compatibleMachineType || null,
@@ -4021,6 +4040,11 @@ export function ProductDialog({
       } else {
         const p = await addProduct(payload);
         toast.success("Ürün oluşturuldu", { description: `${p.brand} ${p.model}` });
+      }
+      if (form.technicalConfiguration) {
+        try {
+          localStorage.removeItem(laserDraftKey({ tenantId: user?.tenantId ?? '', divisionId: selectedProductDivisionId ?? '', brandId: selectedBrandRow?.id ?? product?.brandId ?? '', draftScope: `product:${product?.id ?? laserDraftId}` }, form.technicalConfiguration.selection));
+        } catch { /* Product is already saved; unavailable browser storage must not report an API failure. */ }
       }
       reset();
       setOpen(false);
@@ -4119,7 +4143,7 @@ export function ProductDialog({
                   <Combobox
                     options={productBrandOptions.map((brand) => ({ value: brand, label: brand }))}
                   value={form.brand}
-                    onChange={(brand) => setForm({ ...form, brand })}
+                    onChange={(brand) => setForm({ ...form, brand, technicalConfiguration: null, specs: form.technicalConfiguration ? [] : form.specs })}
                   disabled={!canSelectProductBrand}
                     placeholder={canSelectProductBrand ? "Kayıtlı marka seçin..." : "Önce ürün tipi seçin"}
                     searchPlaceholder="Marka ara..."
@@ -4133,7 +4157,7 @@ export function ProductDialog({
               </ProductSheetRow>
             )}
 
-            {isMachineProduct && (
+            {isMachineProduct && !isAoreLaserProduct && (
               <ProductSheetRow label="6. Ürün Serisi">
                 <Input
                   aria-label="Ürün serisi"
@@ -4445,7 +4469,32 @@ export function ProductDialog({
             {!isLaborProduct && (
             <ProductSheetRow label="Teknik Bilgiler" className="items-start">
               <div className="space-y-2">
-                {!form.productTypeCode ? (
+                {isAoreLaserProduct ? (
+                  <LaserConfigurationEditor
+                    divisionId={selectedProductDivisionId}
+                    brandId={selectedBrandRow?.id ?? product?.brandId}
+                    value={form.technicalConfiguration}
+                    initialProductTypeCode={canonicalProductTypeCode(form.productTypeCode) as LaserSelection['productTypeCode']}
+                    draftScope={`product:${product?.id ?? laserDraftId}`}
+                    disabled={submitting}
+                    onSelectionChange={(selection) => {
+                      if (!selection.productTypeCode) return;
+                      setForm((current) => {
+                        const meta = productTypeMeta(selection.productTypeCode);
+                        const option = productTypeOptions.find((entry) => canonicalProductTypeCode(entry.code) === selection.productTypeCode);
+                        const subcategoryCode = resolveOptionCode(productSubcategoryOptions, option?.subcategoryCode ?? meta?.subcategoryCode ?? (selection.productTypeCode === 'BORU_LAZER_KESIM' ? 'BORU_PROFIL_LAZER_KESIM' : 'LAZER_KESIM'));
+                        return { ...current, productTypeCode: option?.code ?? selection.productTypeCode!, type: option?.label ?? meta?.label ?? (selection.productTypeCode === 'BORU_LAZER_KESIM' ? 'Boru/Profil Lazer Kesim' : 'Sac Lazer Kesim'), subcategoryCode, subcategory: findLabel(productSubcategoryOptions, subcategoryCode), series: selection.series ?? '' };
+                      });
+                    }}
+                    onChange={(technicalConfiguration) => setForm((current) => ({
+                      ...current,
+                      technicalConfiguration,
+                      specs: technicalConfiguration?.specs.map((spec) => ({ ...spec })) ?? [],
+                      series: technicalConfiguration?.selection.series ?? current.series,
+                      controlPanel: technicalConfiguration?.specs.find((spec) => spec.key === 'Kontrol Ünitesi')?.value ?? '',
+                    }))}
+                  />
+                ) : !form.productTypeCode ? (
                   <div className="rounded-md border border-dashed border-border/70 bg-muted/20 px-3 py-6 text-center">
                     <div className="text-sm font-medium">Teknik bilgiler ürün tipi seçilince gelir</div>
                     <p className="mx-auto mt-1 max-w-md text-xs text-muted-foreground">

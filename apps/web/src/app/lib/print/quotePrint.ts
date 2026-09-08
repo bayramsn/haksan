@@ -6,6 +6,8 @@ import { publicProductLabel, trShortDate } from "./core";
 import { applyVatRateToNotes } from "./notes";
 import { printSignatureFromDocumentSnapshot } from "./signature";
 import { printableTechnicalSpecs } from "./technicalSpecs";
+import { laserSnapshotPrintSpecs } from "../laserProductSnapshot";
+import type { LaserTechnicalConfiguration } from "@haksan/shared";
 import type { QuoteHeaderLogoMode, QuotePrintData } from "./templates";
 
 // Seçilen tezgahın TAM teknik özellik listesi (tip şablonu + üründe girilen
@@ -121,7 +123,7 @@ const quoteItemTechnicalSpecs = (item?: { compatibility?: unknown } | null): Arr
       groupName: String((spec as { groupName?: unknown }).groupName ?? "").trim() || undefined,
       group: String((spec as { group?: unknown; groupName?: unknown; groupCode?: unknown }).group ?? (spec as { groupName?: unknown }).groupName ?? (spec as { groupCode?: unknown }).groupCode ?? "").trim() || undefined,
     }))
-    .filter((spec) => printableTechnicalSpecs([spec]).length > 0);
+    .filter((spec) => Boolean(spec.key));
 };
 
 const quoteItemLineGroupKey = (item?: { compatibility?: unknown } | null): string => {
@@ -212,6 +214,8 @@ export function buildQuotePrintData(input: QuoteBuildInput, quote: QuoteDetail):
     : primaryRows;
   const machines: NonNullable<QuotePrintData["machines"]> = machineRows.map(({ item, lineGroupKey }) => {
     const catalogProduct = products.find((candidate) => candidate.id === item.productModelId);
+    const savedConfiguration = (item.compatibility as { technicalConfiguration?: LaserTechnicalConfiguration | null } | null)?.technicalConfiguration;
+    const savedSpecs = quoteItemTechnicalSpecs(item as { compatibility?: unknown });
     const selectedOptions = groupedItems
       .filter((grouped) => grouped.isOption && grouped.lineGroupKey === lineGroupKey)
       .map((grouped) => String(grouped.item.description ?? "").trim().replace(/^↳\s*Opsiyon:\s*/, ""))
@@ -228,7 +232,9 @@ export function buildQuotePrintData(input: QuoteBuildInput, quote: QuoteDetail):
       model: quoteMachineModel(catalogProduct, item.stockCode),
       tip: catalogProduct?.type,
       imageUrl: catalogProduct?.imageUrl || undefined,
-      specs: fullProductSpecs(catalogProduct, quoteItemTechnicalSpecs(item as { compatibility?: unknown })),
+      specs: savedConfiguration
+        ? printableTechnicalSpecs(laserSnapshotPrintSpecs(savedConfiguration, savedSpecs))
+        : fullProductSpecs(catalogProduct, savedSpecs),
       standartDonanim: catalogProduct?.standardEquipment ?? [],
       opsiyonelDonanim: selectedOptions.length ? selectedOptions : (catalogProduct?.optionalEquipment ?? []),
     };

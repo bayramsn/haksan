@@ -17,6 +17,7 @@ import { and, eq } from 'drizzle-orm';
 import { getDb, closeDb, schema } from '../client';
 import { allRoles, rolePermissionMatrix } from './_data';
 import { seedLookups } from './lookups';
+import { seedLaserLookups } from './laser-lookups';
 import { PERMISSION_RESOURCES } from '@haksan/shared';
 
 const DEFAULT_SCOPE_RESOURCES = PERMISSION_RESOURCES.filter(
@@ -130,6 +131,7 @@ async function main(): Promise<void> {
     });
     if (!existing) await db.insert(schema.divisions).values({ tenantId: tenant.id, ...d });
   }
+  await seedLaserLookups(db);
 
   // 4) Tek admin kullanıcı (super_admin)
   const existingUser = await db.query.users.findFirst({

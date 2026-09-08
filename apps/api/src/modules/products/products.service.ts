@@ -50,7 +50,8 @@ import type {
   ProductOptionSetCreateInput,
   ProductOptionValueCreateInput,
 } from '@haksan/shared';
-import { productImportRowSchema } from '@haksan/shared';
+import { productImportRowSchema, laserSelectionKey, laserTechnicalConfigurationSchema } from '@haksan/shared';
+import { LaserProfilesService, applyLaserSpecEdits } from './laser-profiles.service';
 import { buildPaginated, pageOffset } from '../../shared/utils/pagination';
 import { lookupIdByCode } from '../../shared/utils/lookup.helper';
 import {
@@ -305,7 +306,8 @@ function parseCsv(text: string, delimiter = ','): string[][] {
 export class ProductsService {
   constructor(
     @Inject(DB) private readonly db: DbClient,
-    private readonly audit: AuditService
+    private readonly audit: AuditService,
+    private readonly laserProfiles: LaserProfilesService,
   ) {}
 
   private brandView(brand: { id: string | null; name: string | null; logoFileId: string | null } | null) {
@@ -1206,44 +1208,54 @@ export class ProductsService {
   }
 
   async replaceDetails(productId: string, input: ProductDetailsReplaceInput, actor: AuthContext) {
-    await this.get(productId, actor);
+    const product = await this.get(productId, actor);
+    // Older clients omit configuration; keep the selection and synchronize their edited values.
+    let technicalConfiguration = input.technicalConfiguration === undefined
+      ? product.technicalConfiguration ?? undefined : input.technicalConfiguration;
+    let specs = input.specs;
+    if (technicalConfiguration) {
+      if (product.productType?.code !== technicalConfiguration.selection.productTypeCode) {
+        throw new ValidationError('Teknik profil ürünün lazer tipiyle eşleşmiyor');
+      }
+      const group = product.productGroupId ? await this.db.query.productGroups.findFirst({ where: eq(productGroups.id, product.productGroupId) }) : null;
+      if (!group?.divisionId) throw new ValidationError('Lazer ürünü Sac İşleme bölümüne bağlı olmalıdır');
+      await this.laserProfiles.assertScope({ divisionId: group.divisionId, brandId: product.brandId }, actor);
+      const previous = product.technicalConfiguration;
+      const base = previous && laserSelectionKey(previous.selection) === laserSelectionKey(technicalConfiguration.selection)
+        ? previous
+        : await this.laserProfiles.resolve({ divisionId: group.divisionId, brandId: product.brandId }, technicalConfiguration.selection, actor);
+      // Product edits retain the product's own source snapshot, even after the admin profile changes.
+      technicalConfiguration = laserTechnicalConfigurationSchema.parse(applyLaserSpecEdits(base, input.specs.map((spec) => ({
+        key: spec.specKey, value: spec.specValue, unit: spec.specUnit ?? undefined, groupCode: spec.specGroupCode,
+      }))));
+      specs = technicalConfiguration.specs.map((spec, sortOrder) => ({
+        specKey: spec.key, specValue: spec.value, specUnit: spec.unit,
+        specGroupCode: spec.groupCode ?? 'GENEL', sortOrder,
+      }));
+    }
+    // Resolve nullable reference IDs before the transaction; no destructive writes happen on validation failure.
+    const specValues = await Promise.all(specs.map(async (spec) => ({
+      tenantId: actor.tenantId, productModelId: productId,
+      specGroupId: await lookupIdByCode(this.db, productSpecGroups, spec.specGroupCode),
+      specKey: spec.specKey, specValue: spec.specValue, specUnit: spec.specUnit ?? null, sortOrder: spec.sortOrder,
+    })));
+    const equipmentValues = await Promise.all(input.equipment.map(async (item) => ({
+      tenantId: actor.tenantId, productModelId: productId,
+      equipmentTypeId: await lookupIdByCode(this.db, equipmentTypes, item.equipmentTypeCode),
+      title: item.title, description: item.description ?? null, isPromotion: item.isPromotion, sortOrder: item.sortOrder,
+    })));
     const deletedAt = new Date();
-    await Promise.all([
-      this.db.update(productSpecs).set({ deletedAt }).where(eq(productSpecs.productModelId, productId)),
-      this.db.update(productEquipmentItems).set({ deletedAt }).where(eq(productEquipmentItems.productModelId, productId)),
-    ]);
-
-    if (input.specs.length) {
-      await this.db.insert(productSpecs).values(
-        await Promise.all(
-          input.specs.map(async (spec) => ({
-            tenantId: actor.tenantId,
-            productModelId: productId,
-            specGroupId: await lookupIdByCode(this.db, productSpecGroups, spec.specGroupCode),
-            specKey: spec.specKey,
-            specValue: spec.specValue,
-            specUnit: spec.specUnit ?? null,
-            sortOrder: spec.sortOrder,
-          }))
-        )
-      );
-    }
-
-    if (input.equipment.length) {
-      await this.db.insert(productEquipmentItems).values(
-        await Promise.all(
-          input.equipment.map(async (item) => ({
-            tenantId: actor.tenantId,
-            productModelId: productId,
-            equipmentTypeId: await lookupIdByCode(this.db, equipmentTypes, item.equipmentTypeCode),
-            title: item.title,
-            description: item.description ?? null,
-            isPromotion: item.isPromotion,
-            sortOrder: item.sortOrder,
-          }))
-        )
-      );
-    }
+    await this.db.transaction(async (tx) => {
+      // Serialize replacement for this product so concurrent saves never interleave detail rows.
+      await tx.execute(sql`select id from product_models where id = ${productId} and tenant_id = ${actor.tenantId} for update`);
+      await tx.update(productSpecs).set({ deletedAt }).where(and(eq(productSpecs.productModelId, productId), eq(productSpecs.tenantId, actor.tenantId), isNull(productSpecs.deletedAt)));
+      await tx.update(productEquipmentItems).set({ deletedAt }).where(and(eq(productEquipmentItems.productModelId, productId), eq(productEquipmentItems.tenantId, actor.tenantId), isNull(productEquipmentItems.deletedAt)));
+      if (specValues.length) await tx.insert(productSpecs).values(specValues);
+      if (equipmentValues.length) await tx.insert(productEquipmentItems).values(equipmentValues);
+      if (technicalConfiguration !== undefined) {
+        await tx.update(productModels).set({ technicalConfiguration }).where(and(eq(productModels.id, productId), eq(productModels.tenantId, actor.tenantId)));
+      }
+    });
 
     return { ok: true };
   }

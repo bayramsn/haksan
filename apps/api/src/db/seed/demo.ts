@@ -8,6 +8,7 @@ import { eq, and, isNull } from 'drizzle-orm';
 import { getDb, closeDb, schema } from '../client';
 import { allRoles, rolePermissionMatrix } from './_data';
 import { seedLookups } from './lookups';
+import { seedLaserLookups } from './laser-lookups';
 import { PERMISSION_RESOURCES } from '@haksan/shared';
 import { normalizeCompanyName } from '../../shared/utils/text-normalization';
 
@@ -138,6 +139,7 @@ export async function seedDemo(): Promise<void> {
       console.log(`[demo] division: ${d.name}`);
     }
   }
+  await seedLaserLookups(db);
   const divisionsByCode = new Map(
     (await db.query.divisions.findMany({ where: eq(schema.divisions.tenantId, tenantRow.id) })).map((d) => [d.code, d])
   );

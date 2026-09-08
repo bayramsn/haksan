@@ -36,6 +36,7 @@ import {
   type PipelineStageCode,
   type ProductCreateInput,
   type ProductUpdateInput,
+  type LaserTechnicalConfiguration,
   type StockCategoryCode,
 } from "@haksan/shared";
 import {
@@ -456,18 +457,19 @@ const productDivisionIdForGroup = (
   return divisionCode ? divisions.find((division) => division.code === divisionCode)?.id : undefined;
 };
 
-const productDetailsPayload = (p: Partial<Product>) => ({
+export const productDetailsPayload = (p: Partial<Product>) => ({
   // Yalnızca ürünün kendi tipine ait teknik alanlar saklanır; başka tezgah
   // tiplerinin şablon alanları artık DB'ye "-" ile birlikte yazılmaz.
-  specs: specsForProductTypeStrict(p.productTypeCode, p.specs ?? [])
+  specs: (p.technicalConfiguration ? p.technicalConfiguration.specs : specsForProductTypeStrict(p.productTypeCode, p.specs ?? []))
     .filter((s) => cleanString(s.key))
     .map((s, index) => ({
-      specGroupCode: productSpecGroupForTypeKey(p.productTypeCode, s).code,
+      specGroupCode: p.technicalConfiguration ? (s.groupCode ?? 'GENEL') : productSpecGroupForTypeKey(p.productTypeCode, s).code,
       specKey: s.key.trim(),
-      specValue: s.value.trim() || '-',
-      specUnit: cleanString(s.unit ?? s.specUnit),
+      specValue: p.technicalConfiguration ? s.value.trim() : s.value.trim() || '-',
+      specUnit: cleanString(s.unit ?? ('specUnit' in s ? s.specUnit : undefined)),
       sortOrder: index + 1,
     })),
+  ...(p.technicalConfiguration !== undefined ? { technicalConfiguration: p.technicalConfiguration } : {}),
   equipment: [
     ...(p.standardEquipment ?? []).filter(Boolean).map((title, index) => ({
       equipmentTypeCode: 'standart',
@@ -493,6 +495,7 @@ export type QuoteLineCompatibility = {
   controlUnits: string[];
   supplierIds: string[];
   technicalSpecs?: { key: string; value: string; unit?: string; specUnit?: string }[];
+  technicalConfiguration?: LaserTechnicalConfiguration | null;
 };
 
 export type QuoteLineInput = {
@@ -966,13 +969,14 @@ function StoreInner({ children }: { children: ReactNode }) {
           optionalCompatibilitySubcategoryCodes: p.optionalCompatibilitySubcategoryCodes ?? [],
           optionalCompatibilityTypeCodes: p.optionalCompatibilityTypeCodes ?? [],
           optionalCompatibilityBrandIds: p.optionalCompatibilityBrandIds ?? [],
-          specs: (p.specs ?? []).map((s: any) => ({
+          technicalConfiguration: p.technicalConfiguration ?? null,
+          specs: (p.technicalConfiguration?.specs ?? p.specs ?? []).map((s: any) => ({
             key: s.key ?? s.specKey ?? '',
             value: s.value ?? s.specValue ?? '',
             unit: s.unit ?? s.specUnit ?? '',
             groupCode: s.groupCode ?? s.specGroupCode ?? '',
             groupName: s.groupName ?? s.group ?? '',
-          })).filter((s: any) => s.key && s.value),
+          })).filter((s: any) => s.key && (p.technicalConfiguration || s.value)),
           standardEquipment: p.standardEquipment ?? [],
           optionalEquipment: p.optionalEquipment ?? [],
           muadilProductId: p.muadilProductId ?? undefined,
@@ -2040,6 +2044,7 @@ function StoreInner({ children }: { children: ReactNode }) {
               controlUnits: it.compatibility.controlUnits ?? [],
               supplierIds: it.compatibility.supplierIds ?? [],
               technicalSpecs: it.compatibility.technicalSpecs ?? [],
+              technicalConfiguration: it.compatibility.technicalConfiguration,
             }
           : undefined,
       });
@@ -2109,6 +2114,7 @@ function StoreInner({ children }: { children: ReactNode }) {
     await productService.update(id, productApiPayload(patch, brandId));
     await productService.replaceDetails(id, productDetailsPayload({
       productTypeCode: patch.productTypeCode ?? current?.productTypeCode,
+      technicalConfiguration: patch.technicalConfiguration !== undefined ? patch.technicalConfiguration : current?.technicalConfiguration,
       specs: patch.specs ?? current?.specs ?? [],
       standardEquipment: patch.standardEquipment ?? current?.standardEquipment ?? [],
       optionalEquipment: patch.optionalEquipment ?? current?.optionalEquipment ?? [],

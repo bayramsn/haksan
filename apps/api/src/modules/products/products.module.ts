@@ -6,8 +6,10 @@ import { ProductMediaService } from './product-media.service';
 import { BrandMediaController } from './brand-media.controller';
 import { BrandMediaService } from './brand-media.service';
 import { AuditService } from '../../shared/database/audit.service';
+import { LaserProfilesModule } from './laser-profiles.module';
 
 @Module({
+  imports: [LaserProfilesModule],
   controllers: [ProductsController, ProductMediaController, BrandMediaController],
   providers: [ProductsService, ProductMediaService, BrandMediaService, AuditService],
   exports: [ProductsService],

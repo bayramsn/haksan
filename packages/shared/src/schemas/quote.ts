@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { laserTechnicalConfigurationSchema } from '../laser';
 import { OPPORTUNITY_PAYMENT_METHODS } from '../constants';
 import { moneySchema, percentSchema } from './common';
 
@@ -77,6 +78,7 @@ export const quoteItemCompatibilitySchema = z.object({
   controlUnits: z.array(z.string()).default([]),
   supplierIds: z.array(z.string()).default([]),
   technicalSpecs: z.array(quoteItemTechnicalSpecSchema).default([]),
+  technicalConfiguration: laserTechnicalConfigurationSchema.nullish(),
 });
 export type QuoteItemCompatibility = z.infer<typeof quoteItemCompatibilitySchema>;
 
