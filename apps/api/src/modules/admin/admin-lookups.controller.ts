@@ -1,5 +1,6 @@
 import { Body, Controller, Delete, Get, Inject, Param, Patch, Post, Put, Query, Res, UseGuards } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
+import { alias } from 'drizzle-orm/pg-core';
 import type { FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { and, asc, eq, inArray, isNull, max, notInArray, or } from 'drizzle-orm';
@@ -36,6 +37,8 @@ import { rowsToCsvBuffer, rowsToXlsxBuffer, sendCsv, sendXlsx } from '../../shar
 import { TechnicalImportService, productTypeCodeVariants } from './technical-import.service';
 import { brandLogoPath } from '../products/brand-media.service';
 
+const brandSupplier = alias(schema.companies, 'brand_supplier');
+
 const lookupCreateSchema = z.object({
   code: z.string().trim().min(1).max(64).optional(),
   name: z.string().trim().min(1).max(255),
@@ -53,6 +56,8 @@ const lookupCreateSchema = z.object({
   productTypeIds: z.array(z.string().uuid()).max(200).optional(),
   // Yalnızca ürün markalarında: Haksan'a ait marka veya bağlı müşteri firma.
   companyId: z.string().uuid().nullish(),
+  supplierCompanyId: z.string().uuid().nullish(),
+  technicalCatalogCode: z.enum(['AORE_LASER']).nullish(),
   isOwned: z.boolean().optional(),
   logoFileId: z.string().uuid().nullish(),
 });
@@ -144,6 +149,7 @@ export class AdminLookupsController {
   private brandToLookupRow(
     row: typeof schema.brands.$inferSelect,
     company?: { id: string; legalTitle: string; externalCompanyNo: string | null } | null,
+    supplierCompanyName?: string | null,
   ) {
     return {
       id: row.id,
@@ -154,6 +160,9 @@ export class AdminLookupsController {
       isActive: !row.deletedAt,
       divisionId: row.divisionId ?? null,
       companyId: row.companyId ?? null,
+      supplierCompanyId: row.supplierCompanyId ?? null,
+      supplierCompanyName: supplierCompanyName ?? null,
+      technicalCatalogCode: row.technicalCatalogCode ?? null,
       companyName: row.isOwned ? 'Haksan Makina' : company?.legalTitle ?? null,
       companyNo: company?.externalCompanyNo ?? null,
       isOwned: row.isOwned,
@@ -227,6 +236,7 @@ export class AdminLookupsController {
     const [row] = await this.db
       .select({
         brand: schema.brands,
+        supplierCompanyName: brandSupplier.legalTitle,
         company: {
           id: schema.companies.id,
           legalTitle: schema.companies.legalTitle,
@@ -235,10 +245,11 @@ export class AdminLookupsController {
       })
       .from(schema.brands)
       .leftJoin(schema.companies, eq(schema.brands.companyId, schema.companies.id))
+      .leftJoin(brandSupplier, and(eq(schema.brands.supplierCompanyId, brandSupplier.id), eq(brandSupplier.tenantId, user.tenantId), isNull(brandSupplier.deletedAt)))
       .where(and(eq(schema.brands.id, id), eq(schema.brands.tenantId, user.tenantId)))
       .limit(1);
     if (!row) throw new NotFoundError('Lookup');
-    return this.brandToLookupRow(row.brand, row.company);
+    return this.brandToLookupRow(row.brand, row.company, row.supplierCompanyName);
   }
 
   private async listBrandLookups(user: AuthContext, divisionId?: string, scope?: string) {
@@ -255,6 +266,7 @@ export class AdminLookupsController {
     const rows = await this.db
       .select({
         brand: schema.brands,
+        supplierCompanyName: brandSupplier.legalTitle,
         company: {
           id: schema.companies.id,
           legalTitle: schema.companies.legalTitle,
@@ -263,9 +275,10 @@ export class AdminLookupsController {
       })
       .from(schema.brands)
       .leftJoin(schema.companies, eq(schema.brands.companyId, schema.companies.id))
+      .leftJoin(brandSupplier, and(eq(schema.brands.supplierCompanyId, brandSupplier.id), eq(brandSupplier.tenantId, user.tenantId), isNull(brandSupplier.deletedAt)))
       .where(and(...filters))
       .orderBy(asc(schema.brands.sortOrder), asc(schema.brands.name));
-    return rows.map((row) => this.brandToLookupRow(row.brand, row.company));
+    return rows.map((row) => this.brandToLookupRow(row.brand, row.company, row.supplierCompanyName));
   }
 
   private async nextLookupSortOrder(
@@ -297,6 +310,7 @@ export class AdminLookupsController {
     const isOwned = body.isOwned === true;
     const companyId = isOwned ? null : body.companyId ?? null;
     await this.assertBrandCompany(companyId, isOwned, user);
+    if (body.supplierCompanyId) await this.assertBrandCompany(body.supplierCompanyId, false, user);
     const existing = await this.db.query.brands.findFirst({
       where: and(eq(schema.brands.tenantId, user.tenantId), eq(schema.brands.name, name)),
     });
@@ -307,6 +321,8 @@ export class AdminLookupsController {
       notes: body.description?.trim() || null,
       divisionId: body.divisionId || null,
       companyId,
+      supplierCompanyId: body.supplierCompanyId ?? null,
+      technicalCatalogCode: body.technicalCatalogCode ?? null,
       isOwned,
       logoFileId: null,
       sortOrder: body.sortOrder ?? (await this.nextLookupSortOrder(BRAND_LOOKUP_NAME, schema.brands, body, user)),
@@ -340,6 +356,7 @@ export class AdminLookupsController {
     if (body.isOwned !== undefined || body.companyId !== undefined) {
       await this.assertBrandCompany(companyId, isOwned, user);
     }
+    if (body.supplierCompanyId) await this.assertBrandCompany(body.supplierCompanyId, false, user);
     if (body.logoFileId) await this.assertBrandLogoFile(body.logoFileId, id, user);
     const values: Record<string, unknown> = {};
     if (body.name != null) values.name = body.name.trim();
@@ -350,6 +367,8 @@ export class AdminLookupsController {
       values.isOwned = isOwned;
       values.companyId = companyId;
     }
+    if (body.supplierCompanyId !== undefined) values.supplierCompanyId = body.supplierCompanyId ?? null;
+    if (body.technicalCatalogCode !== undefined) values.technicalCatalogCode = body.technicalCatalogCode ?? null;
     if (body.logoFileId !== undefined) values.logoFileId = body.logoFileId ?? null;
     if (!Object.keys(values).length) return this.brandToLookupRow(existing);
     try {

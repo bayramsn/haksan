@@ -61,6 +61,7 @@ import {
 } from '../../shared/utils/division-scope';
 import { AuditService } from '../../shared/database/audit.service';
 import { brandLogoPath } from './brand-media.service';
+import { importCode, importChildren, scopeImportTaxonomy, type ImportLookupRow, type ImportTaxonomy } from './product-import-scope';
 
 type ImportStatus = 'create' | 'update' | 'error' | 'skip';
 
@@ -70,17 +71,9 @@ type ProductImportPreviewRow = ProductImportRowInput & {
   warnings: string[];
 };
 
-type LookupRow = { code: string; name: string };
+type LookupRow = ImportLookupRow;
 
-type ProductImportLookupMaps = {
-  productGroups: LookupRow[];
-  productCategories: LookupRow[];
-  productSubcategories: LookupRow[];
-  productTypes: LookupRow[];
-  productSpecGroups: LookupRow[];
-  equipmentTypes: LookupRow[];
-  currencies: LookupRow[];
-};
+type ProductImportLookupMaps = ImportTaxonomy & { divisionId: string; groupCode: string };
 
 type ParsedImportFile = {
   sheetName: string;
@@ -375,6 +368,7 @@ export class ProductsService {
         throw new ValidationError('Yalnızca Tedarikçi veya Müşteri + Tedarikçi firması seçilebilir', { field: 'companyId' });
       }
     }
+    await this.assertSupplierCompany(input.supplierCompanyId, actor.tenantId);
     if (input.logoFileId) {
       throw new ValidationError('Marka logosunu CRM Alan Ayarları üzerinden yükleyin', { field: 'logoFileId' });
     }
@@ -401,6 +395,8 @@ export class ProductsService {
         website: input.website ?? null,
         notes: input.notes ?? null,
         companyId,
+        supplierCompanyId: input.supplierCompanyId ?? null,
+        technicalCatalogCode: input.technicalCatalogCode ?? null,
         isOwned,
         divisionId: input.divisionId ?? null,
         sortOrder: Number(orderRow?.value ?? 0) + 10,
@@ -421,6 +417,7 @@ export class ProductsService {
     if (brand.divisionId && brand.divisionId !== group.divisionId) {
       throw new ValidationError('Seçilen marka bu ürün grubuna ait değil', { field: 'brandId' });
     }
+    return brand;
   }
 
   private uniqueAlternativeIds(input: Pick<ProductCreateInput, 'muadilProductId' | 'muadilProductIds'>, productId?: string) {
@@ -939,21 +936,19 @@ export class ProductsService {
     });
     if (existing) throw new ConflictError('Bu model kodu zaten kayıtlı');
 
-    const productGroupCode = input.productGroupCode ?? (await this.defaultProductGroupCodeForActor(actor));
-    const [groupId, catId, subId, typeId, compatibleMachineTypeId, currencyId] = await Promise.all([
-      lookupIdByCode(this.db, productGroups, productGroupCode),
-      lookupIdByCode(this.db, productCategories, input.categoryCode),
-      lookupIdByCode(this.db, productSubcategories, input.subcategoryCode),
-      lookupIdByCode(this.db, productTypes, input.productTypeCode),
-      input.compatibleMachineTypeCode ? lookupIdByCode(this.db, productTypes, input.compatibleMachineTypeCode) : Promise.resolve(null),
-      lookupIdByCode(this.db, currencies, input.currencyCode),
-    ]);
+    const { maps, group, category, subcategory, type } = await this.resolveProductWriteTaxonomy(input, actor);
+    const groupId = group!.id;
+    const catId = category?.id ?? null;
+    const subId = subcategory?.id ?? null;
+    const typeId = type?.id ?? null;
+    const compatibleMachineTypeId = input.compatibleMachineTypeCode ? this.importLookup(maps.productTypes, input.compatibleMachineTypeCode)?.id ?? null : null;
+    if (input.compatibleMachineTypeCode && !compatibleMachineTypeId) throw new ValidationError('Uyumlu makine tipi seçilen bölüme ait değil');
+    const currencyId = await lookupIdByCode(this.db, currencies, input.currencyCode);
     const alternativeIds = this.uniqueAlternativeIds(input);
     await this.assertAlternativeProducts('', actor.tenantId, alternativeIds);
-    await this.assertSupplierCompany(input.supplierCompanyId, actor.tenantId);
-    if (!groupId) throw new ValidationError('Ürün grubu bulunamadı', { field: 'productGroupCode' });
-    await this.assertProductGroupScope(groupId, actor);
-    await this.assertBrandMatchesProductGroup(input.brandId, groupId, actor);
+    const brand = await this.assertBrandMatchesProductGroup(input.brandId, groupId, actor);
+    const supplierCompanyId = input.supplierCompanyId === undefined ? brand.supplierCompanyId ?? null : input.supplierCompanyId;
+    await this.assertSupplierCompany(supplierCompanyId, actor.tenantId);
     await this.resolveProductImageMediaFile(actor, input.imageUrl);
 
     let row: typeof productModels.$inferSelect;
@@ -969,7 +964,7 @@ export class ProductsService {
           subcategoryId: subId,
           productTypeId: typeId,
           compatibleMachineTypeId,
-          supplierCompanyId: input.supplierCompanyId ?? null,
+          supplierCompanyId,
           modelCode: input.modelCode,
           modelName: input.modelName ?? null,
           fullName: input.fullName,
@@ -1012,19 +1007,23 @@ export class ProductsService {
     const existing = await this.get(id, actor);
     const patch: Record<string, unknown> = {};
     if (input.brandId !== undefined) patch.brandId = input.brandId;
-    if (input.productGroupCode !== undefined) {
-      const groupId = await lookupIdByCode(this.db, productGroups, input.productGroupCode);
-      await this.assertProductGroupScope(groupId, actor);
-      patch.productGroupId = groupId;
+    if (input.divisionId !== undefined || input.productGroupCode !== undefined || input.categoryCode !== undefined || input.subcategoryCode !== undefined || input.productTypeCode !== undefined || input.compatibleMachineTypeCode !== undefined) {
+      const taxonomy = await this.resolveProductWriteTaxonomy({
+        divisionId: input.divisionId,
+        productGroupCode: input.productGroupCode ?? existing.productGroup?.code ?? undefined,
+        categoryCode: input.categoryCode ?? existing.category?.code ?? undefined,
+        subcategoryCode: input.subcategoryCode ?? existing.subcategory?.code ?? undefined,
+        productTypeCode: input.productTypeCode ?? existing.productType?.code ?? undefined,
+      }, actor, existing.productGroupId);
+      patch.productGroupId = taxonomy.group!.id;
+      patch.categoryId = taxonomy.category?.id ?? null;
+      patch.subcategoryId = taxonomy.subcategory?.id ?? null;
+      patch.productTypeId = taxonomy.type?.id ?? null;
+      if (input.compatibleMachineTypeCode !== undefined) {
+        patch.compatibleMachineTypeId = input.compatibleMachineTypeCode ? this.importLookup(taxonomy.maps.productTypes, input.compatibleMachineTypeCode)?.id ?? null : null;
+        if (input.compatibleMachineTypeCode && !patch.compatibleMachineTypeId) throw new ValidationError('Uyumlu makine tipi seçilen bölüme ait değil');
+      }
     }
-    if (input.categoryCode !== undefined)
-      patch.categoryId = await lookupIdByCode(this.db, productCategories, input.categoryCode);
-    if (input.subcategoryCode !== undefined)
-      patch.subcategoryId = await lookupIdByCode(this.db, productSubcategories, input.subcategoryCode);
-    if (input.productTypeCode !== undefined)
-      patch.productTypeId = await lookupIdByCode(this.db, productTypes, input.productTypeCode);
-    if (input.compatibleMachineTypeCode !== undefined)
-      patch.compatibleMachineTypeId = input.compatibleMachineTypeCode ? await lookupIdByCode(this.db, productTypes, input.compatibleMachineTypeCode) : null;
     if (input.currencyCode !== undefined)
       patch.currencyId = await lookupIdByCode(this.db, currencies, input.currencyCode);
     if (input.supplierCompanyId !== undefined) {
@@ -1227,7 +1226,7 @@ export class ProductsService {
       // Product edits retain the product's own source snapshot, even after the admin profile changes.
       technicalConfiguration = laserTechnicalConfigurationSchema.parse(applyLaserSpecEdits(base, input.specs.map((spec) => ({
         key: spec.specKey, value: spec.specValue, unit: spec.specUnit ?? undefined, groupCode: spec.specGroupCode,
-      }))));
+      })), { replaceAll: true }));
       specs = technicalConfiguration.specs.map((spec, sortOrder) => ({
         specKey: spec.key, specValue: spec.value, specUnit: spec.unit,
         specGroupCode: spec.groupCode ?? 'GENEL', sortOrder,
@@ -1312,41 +1311,29 @@ export class ProductsService {
   // ────────── PRODUCT IMPORT ──────────
   /**
    * Şablon indirilebilecek ürün tipleri: yalnız o tenant'ta EN AZ BİR ürünü
-   * olanlar. Şablon örnek satırını mevcut üründen doldurduğu için ürünü
-   * olmayan tip listelenmez.
+   * olanlar. Henüz ürünü olmayan tipler kayıtlı teknik şablon alanlarıyla
+   * boş Excel dosyası üretebildiği için listede kalır.
    */
-  async importTemplateOptions(actor: AuthContext) {
-    const rows = await this.db
-      .select({
-        categoryCode: productCategories.code,
-        categoryName: productCategories.name,
-        subcategoryCode: productSubcategories.code,
-        subcategoryName: productSubcategories.name,
-        productTypeCode: productTypes.code,
-        productTypeName: productTypes.name,
-        productCount: sql<number>`count(*)::int`,
-      })
-      .from(productModels)
-      .innerJoin(productTypes, eq(productModels.productTypeId, productTypes.id))
-      .leftJoin(productCategories, eq(productModels.categoryId, productCategories.id))
-      .leftJoin(productSubcategories, eq(productModels.subcategoryId, productSubcategories.id))
-      .where(and(eq(productModels.tenantId, actor.tenantId), isNull(productModels.deletedAt)))
-      .groupBy(
-        productCategories.code,
-        productCategories.name,
-        productSubcategories.code,
-        productSubcategories.name,
-        productTypes.code,
-        productTypes.name
-      )
-      .orderBy(asc(productCategories.name), asc(productSubcategories.name), asc(productTypes.name));
-    return rows.map((row) => ({
-      ...row,
-      categoryCode: row.categoryCode ?? null,
-      categoryName: row.categoryName ?? 'Kategorisiz',
-      subcategoryCode: row.subcategoryCode ?? null,
-      subcategoryName: row.subcategoryName ?? 'Alt kategorisiz',
-    }));
+  async importTemplateOptions(actor: AuthContext, divisionId?: string) {
+    const maps = await this.getImportLookupMaps(actor, divisionId);
+    const products = maps.productGroups.length ? await this.db.select({ typeId: productModels.productTypeId, count: sql<number>`count(*)::int` }).from(productModels)
+      .where(and(eq(productModels.tenantId, actor.tenantId), isNull(productModels.deletedAt), inArray(productModels.productGroupId, maps.productGroups.map((row) => row.id))))
+      .groupBy(productModels.productTypeId) : [];
+    const seen = new Set<string>();
+    return maps.productTypes.filter((type) => {
+      const key = importCode(type.code); if (seen.has(key)) return false; seen.add(key); return true;
+    }).map((type) => {
+      const subcategory = maps.productSubcategories.find((row) => row.id === type.parentId);
+      const category = maps.productCategories.find((row) => row.id === subcategory?.parentId);
+      const familyTypeIds = maps.productTypes.filter((row) => importCode(row.code) === importCode(type.code)).map((row) => row.id);
+      return {
+        divisionId: maps.divisionId,
+        categoryCode: category?.code ?? null, categoryName: category?.name ?? 'Kategorisiz',
+        subcategoryCode: subcategory?.code ?? null, subcategoryName: subcategory?.name ?? 'Alt kategorisiz',
+        productTypeCode: type.code, productTypeName: type.name,
+        productCount: products.filter((product) => product.typeId && familyTypeIds.includes(product.typeId)).reduce((total, product) => total + Number(product.count), 0),
+      };
+    }).sort((a, b) => a.categoryName.localeCompare(b.categoryName, 'tr-TR') || a.subcategoryName.localeCompare(b.subcategoryName, 'tr-TR') || a.productTypeName.localeCompare(b.productTypeName, 'tr-TR'));
   }
 
   /**
@@ -1355,19 +1342,25 @@ export class ProductsService {
    * bir üründen doldurulmuş örnek satır döner — kullanıcı yeni ürünleri ona
    * bakarak doldurur. Tip verilmezse genel şablon üretilir.
    */
-  async buildImportTemplate(actor: AuthContext, productTypeCode?: string) {
+  async buildImportTemplate(actor: AuthContext, productTypeCode?: string, divisionId?: string) {
+    const maps = await this.getImportLookupMaps(actor, divisionId);
     const columns: string[] = [...TEMPLATE_BASE_COLUMNS];
     if (!productTypeCode?.trim()) {
-      return { columns, exampleRows: [] as Array<Record<string, string | number>>, typeName: null, fileSuffix: 'genel' };
+      return { columns, exampleRows: [] as Array<Record<string, string | number>>, typeName: null, fileSuffix: `${maps.groupCode.toLowerCase()}-genel` };
     }
 
     const variants = productTypeCodeVariants(productTypeCode.trim());
-    const [type] = await this.db
-      .select({ id: productTypes.id, code: productTypes.code, name: productTypes.name })
-      .from(productTypes)
-      .where(inArray(productTypes.code, variants.length ? variants : [productTypeCode.trim()]))
-      .limit(1);
-    if (!type) throw new NotFoundError('Ürün tipi');
+    const type = this.importLookup(maps.productTypes, productTypeCode);
+    if (!type) throw new ValidationError('Ürün tipi seçilen bölümün taksonomisine ait değil');
+    const typeIds = maps.productTypes.filter((row) => importCode(row.code) === importCode(type.code)).map((row) => row.id);
+    const templateRows = await this.db.select().from(productSpecTemplates).where(and(
+      inArray(productSpecTemplates.productTypeCode, variants),
+      or(eq(productSpecTemplates.divisionId, maps.divisionId), isNull(productSpecTemplates.divisionId)),
+    )).orderBy(asc(productSpecTemplates.sortOrder));
+    const templateByKey = new Map<string, typeof templateRows[number]>();
+    for (const field of templateRows.sort((a, b) => Number(a.divisionId === maps.divisionId) - Number(b.divisionId === maps.divisionId))) templateByKey.set(normalizeText(field.specKey), field);
+    const templateFields = [...templateByKey.values()].filter((field) => field.isActive && !field.isDeleted);
+    const fileSuffix = `${maps.groupCode.toLowerCase()}-${compactCode(type.name).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'urun'}`;
 
     const products = await this.db
       .select({
@@ -1401,17 +1394,16 @@ export class ProductsService {
       .where(
         and(
           eq(productModels.tenantId, actor.tenantId),
-          eq(productModels.productTypeId, type.id),
+          inArray(productModels.productTypeId, typeIds),
+          inArray(productModels.productGroupId, maps.productGroups.map((row) => row.id)),
           isNull(productModels.deletedAt)
         )
       )
       .orderBy(desc(productModels.updatedAt));
 
     if (!products.length) {
-      throw new ValidationError(
-        `"${type.name}" tipinde kayıtlı ürün yok. Şablon mevcut bir üründen üretildiği için önce bu tipte tek ürün ekleyin.`,
-        { field: 'productTypeCode' }
-      );
+      columns.push(...templateFields.map((field) => field.specKey).filter((key) => !CONTROL_PANEL_SPEC_KEYS.has(normalizeText(key))));
+      return { columns, exampleRows: [] as Array<Record<string, string | number>>, typeName: type.name, fileSuffix };
     }
 
     const productIds = products.map((product) => product.id);
@@ -1442,6 +1434,9 @@ export class ProductsService {
 
     // Kolon sırası: tipteki ürünlerde hangi başlık daha erken/sık geçiyorsa önce.
     const specOrder = new Map<string, { label: string; order: number; count: number }>();
+    for (const field of templateFields) {
+      if (!CONTROL_PANEL_SPEC_KEYS.has(normalizeText(field.specKey))) specOrder.set(normalizeText(field.specKey), { label: field.specKey, order: field.sortOrder, count: 0 });
+    }
     for (const spec of specRows) {
       const label = spec.specKey.trim();
       if (!label || CONTROL_PANEL_SPEC_KEYS.has(normalizeText(label))) continue;
@@ -1510,13 +1505,13 @@ export class ProductsService {
       typeName: type.name,
       // Dosya adı HTTP başlığına gider: Türkçe küçültme 'I' harfini 'ı' yaptığı
       // için ASCII küçültme kullanılır, kalan her şey tireye düşer.
-      fileSuffix: compactCode(type.name).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'urun',
+      fileSuffix,
     };
   }
 
-  async previewImport(input: { fileName: string; fileBase64: string }, actor: AuthContext) {
+  async previewImport(input: { fileName: string; fileBase64: string; divisionId?: string }, actor: AuthContext) {
+    const lookups = await this.getImportLookupMaps(actor, input.divisionId);
     const parsed = await this.parseImportFile(input.fileName, input.fileBase64);
-    const lookups = await this.getImportLookupMaps();
     const rows: ProductImportPreviewRow[] = [];
 
     for (const raw of parsed.rows) {
@@ -1525,6 +1520,7 @@ export class ProductsService {
     }
 
     return {
+      divisionId: lookups.divisionId,
       fileName: input.fileName,
       sheetName: parsed.sheetName,
       headerRowNumber: parsed.headerRowNumber,
@@ -1535,7 +1531,7 @@ export class ProductsService {
   }
 
   async commitImport(input: ProductImportCommitRequest, actor: AuthContext) {
-    const lookups = await this.getImportLookupMaps();
+    const lookups = await this.getImportLookupMaps(actor, input.divisionId);
     const results: Array<{ rowNumber: number; modelCode: string; status: ImportStatus; productId?: string; errors: string[] }> = [];
 
     for (const candidate of input.rows) {
@@ -1573,39 +1569,36 @@ export class ProductsService {
         continue;
       }
 
-      const brand = await this.getOrCreateBrand(normalized.brandName, actor);
-      const [groupId, catId, subId, typeId, currencyId] = await Promise.all([
-        lookupIdByCode(this.db, productGroups, normalized.productGroupCode),
-        lookupIdByCode(this.db, productCategories, normalized.categoryCode),
-        lookupIdByCode(this.db, productSubcategories, normalized.subcategoryCode),
-        lookupIdByCode(this.db, productTypes, normalized.productTypeCode),
-        lookupIdByCode(this.db, currencies, normalized.currencyCode),
-      ]);
+      const taxonomy = this.importTaxonomyForRow(normalized, lookups);
+      const groupId = taxonomy.group?.id;
+      const catId = taxonomy.category?.id ?? null;
+      const subId = taxonomy.subcategory?.id ?? null;
+      const typeId = taxonomy.type?.id ?? null;
+      const currencyId = this.importLookup(lookups.currencies, normalized.currencyCode)?.id ?? null;
       if (!groupId) {
-        results.push({
-          rowNumber: normalized.rowNumber,
-          modelCode: normalized.modelCode,
-          status: 'error',
-          errors: ['Ürün grubu zorunlu'],
-        });
+        results.push({ rowNumber: normalized.rowNumber, modelCode: normalized.modelCode, status: 'error', errors: ['Ürün grubu zorunlu'] });
         continue;
       }
+      let brand: typeof brands.$inferSelect;
+      let supplierCompanyId: string | null;
       try {
-        await this.assertProductGroupScope(groupId, actor);
-        if (existing) await this.assertProductGroupScope(existing.productGroupId, actor);
+        if (existing) await this.assertImportProductScope(existing, lookups);
         await this.resolveProductImageMediaFile(actor, normalized.imageUrl);
+        brand = await this.getOrCreateBrand(normalized.brandName, actor, lookups.divisionId);
+        supplierCompanyId = normalized.supplierCompanyId !== undefined
+          ? normalized.supplierCompanyId : existing?.supplierCompanyId ?? brand.supplierCompanyId ?? null;
+        await this.assertSupplierCompany(supplierCompanyId, actor.tenantId);
+        if (existing?.technicalConfiguration && importCode(existing.technicalConfiguration.selection.productTypeCode) !== importCode(normalized.productTypeCode ?? '')) {
+          throw new ValidationError('Lazer teknik seçimi olan ürünün tipi ürün kartından değiştirilmelidir');
+        }
       } catch (error) {
-        results.push({
-          rowNumber: normalized.rowNumber,
-          modelCode: normalized.modelCode,
-          status: 'error',
-          errors: [error instanceof Error ? error.message : 'Ürün grubu yetkiniz dışında'],
-        });
+        results.push({ rowNumber: normalized.rowNumber, modelCode: normalized.modelCode, status: 'error', errors: [error instanceof Error ? error.message : 'Ürün kapsamı doğrulanamadı'] });
         continue;
       }
 
       const values = {
         brandId: brand.id,
+        supplierCompanyId,
         series: normalized.series ?? null,
         productGroupId: groupId,
         categoryId: catId,
@@ -1626,66 +1619,53 @@ export class ProductsService {
         description: normalized.description ?? null,
       };
 
+      const status: ImportStatus = existing ? 'update' : 'create';
       let productId: string;
-      let status: ImportStatus;
-      if (existing) {
-        await this.db.update(productModels).set(values).where(eq(productModels.id, existing.id));
-        productId = existing.id;
-        status = 'update';
-      } else {
-        const [created] = await this.db
-          .insert(productModels)
-          .values({
-            tenantId: actor.tenantId,
-            ...values,
-          })
-          .returning();
-        productId = created.id;
-        status = 'create';
-      }
-      await this.attachProductImageMedia(productId, actor, normalized.imageUrl);
-
-      const hasDetails = normalized.specs.length > 0 || normalized.equipment.length > 0;
-      if (hasDetails && input.replaceDetails) {
-        await Promise.all([
-          this.db.update(productSpecs).set({ deletedAt: new Date() }).where(eq(productSpecs.productModelId, productId)),
-          this.db
-            .update(productEquipmentItems)
-            .set({ deletedAt: new Date() })
-            .where(eq(productEquipmentItems.productModelId, productId)),
-        ]);
-      }
-
-      if (normalized.specs.length) {
-        await this.db.insert(productSpecs).values(
-          await Promise.all(
-            normalized.specs.map(async (spec) => ({
-              tenantId: actor.tenantId,
-              productModelId: productId,
-              specGroupId: await lookupIdByCode(this.db, productSpecGroups, spec.specGroupCode ?? 'GENEL'),
-              specKey: spec.specKey,
-              specValue: spec.specValue,
-              specUnit: spec.specUnit ?? null,
-              sortOrder: spec.sortOrder,
-            }))
-          )
-        );
-      }
-
-      if (normalized.equipment.length) {
-        await this.db.insert(productEquipmentItems).values(
-          await Promise.all(
-            normalized.equipment.map(async (item) => ({
-              tenantId: actor.tenantId,
-              productModelId: productId,
-              equipmentTypeId: await lookupIdByCode(this.db, equipmentTypes, item.equipmentTypeCode),
-              title: item.title,
-              description: item.description ?? null,
-              isPromotion: item.isPromotion,
-              sortOrder: item.sortOrder,
-            }))
-          )
-        );
+      try {
+        productId = await this.db.transaction(async (tx) => {
+          let id: string;
+          let sourceConfiguration = existing?.technicalConfiguration;
+          if (existing) {
+            const [current] = await tx.select().from(productModels)
+              .where(and(eq(productModels.id, existing.id), eq(productModels.tenantId, actor.tenantId), isNull(productModels.deletedAt))).for('update');
+            if (!current) throw new NotFoundError('Ürün');
+            await this.assertImportProductScope(current, lookups);
+            sourceConfiguration = current.technicalConfiguration;
+            if (sourceConfiguration && importCode(sourceConfiguration.selection.productTypeCode) !== importCode(normalized.productTypeCode ?? '')) throw new ValidationError('Lazer teknik seçimi ürün tipiyle eşleşmiyor');
+            id = current.id;
+            await tx.update(productModels).set(values).where(eq(productModels.id, id));
+          } else {
+            const [created] = await tx.insert(productModels).values({ tenantId: actor.tenantId, ...values }).returning();
+            id = created.id;
+          }
+          const hasDetails = normalized.specs.length > 0 || normalized.equipment.length > 0;
+          const technicalConfiguration = sourceConfiguration && normalized.specs.length
+            ? applyLaserSpecEdits(sourceConfiguration, normalized.specs.map((spec) => ({ key: spec.specKey, value: spec.specValue, unit: spec.specUnit, groupCode: spec.specGroupCode })))
+            : sourceConfiguration;
+          const importedSpecs = technicalConfiguration && hasDetails
+            ? technicalConfiguration.specs.map((spec, sortOrder) => ({ specKey: spec.key, specValue: spec.value, specUnit: spec.unit, specGroupCode: spec.groupCode, sortOrder }))
+            : normalized.specs;
+          if (hasDetails && (input.replaceDetails || technicalConfiguration)) {
+            await tx.update(productSpecs).set({ deletedAt: new Date() }).where(and(eq(productSpecs.productModelId, id), eq(productSpecs.tenantId, actor.tenantId)));
+            await tx.update(productEquipmentItems).set({ deletedAt: new Date() }).where(and(eq(productEquipmentItems.productModelId, id), eq(productEquipmentItems.tenantId, actor.tenantId)));
+          }
+          if (importedSpecs.length) await tx.insert(productSpecs).values(importedSpecs.map((spec) => ({
+            tenantId: actor.tenantId, productModelId: id,
+            specGroupId: this.importLookup(lookups.productSpecGroups, spec.specGroupCode ?? 'GENEL')?.id ?? null,
+            specKey: spec.specKey, specValue: spec.specValue, specUnit: spec.specUnit ?? null, sortOrder: spec.sortOrder,
+          })));
+          if (normalized.equipment.length) await tx.insert(productEquipmentItems).values(normalized.equipment.map((item) => ({
+            tenantId: actor.tenantId, productModelId: id,
+            equipmentTypeId: this.importLookup(lookups.equipmentTypes, item.equipmentTypeCode)?.id ?? null,
+            title: item.title, description: item.description ?? null, isPromotion: item.isPromotion, sortOrder: item.sortOrder,
+          })));
+          if (technicalConfiguration && normalized.specs.length) await tx.update(productModels).set({ technicalConfiguration }).where(eq(productModels.id, id));
+          return id;
+        });
+        await this.attachProductImageMedia(productId, actor, normalized.imageUrl);
+      } catch (error) {
+        results.push({ rowNumber: normalized.rowNumber, modelCode: normalized.modelCode, status: 'error', errors: [error instanceof ValidationError || error instanceof NotFoundError ? error.message : 'Ürün satırı kaydedilemedi'] });
+        continue;
       }
 
       await this.audit.write({
@@ -1701,6 +1681,7 @@ export class ProductsService {
     }
 
     return {
+      divisionId: lookups.divisionId,
       rows: results,
       summary: this.summarizeImportRows(results),
     };
@@ -1895,7 +1876,7 @@ export class ProductsService {
   private async parseImportFile(fileName: string, fileBase64: string): Promise<ParsedImportFile> {
     const cleanBase64 = fileBase64.includes(',') ? fileBase64.split(',').pop()! : fileBase64;
     const buffer = Buffer.from(cleanBase64, 'base64');
-    if (!buffer.length) throw new ValidationError('Dosya okunamadı');
+    if (!buffer.length || buffer.length > 10 * 1024 * 1024) throw new ValidationError('Dosya boş veya 10 MB sınırını aşıyor');
 
     const lower = fileName.toLocaleLowerCase('tr-TR');
     let sheetName = 'Ürünler';
@@ -1909,7 +1890,9 @@ export class ProductsService {
       sheetName = 'CSV';
     } else if (lower.endsWith('.xlsx')) {
       const workbook = new ExcelJS.Workbook();
-      await workbook.xlsx.load(buffer as any);
+      if (buffer[0] !== 0x50 || buffer[1] !== 0x4b) throw new ValidationError('XLSX dosya imzası geçersiz');
+      try { await workbook.xlsx.load(buffer as any); } catch { throw new ValidationError('XLSX dosyası okunamadı'); }
+      if (workbook.worksheets.length > 25) throw new ValidationError('Dosyada en fazla 25 çalışma sayfası olabilir');
       const worksheet =
         workbook.worksheets.find((ws) => {
           const name = normalizeText(ws.name);
@@ -1917,6 +1900,7 @@ export class ProductsService {
         }) ?? workbook.worksheets[0];
 
       if (!worksheet) throw new ValidationError('Excel dosyasında çalışma sayfası bulunamadı');
+      if (worksheet.rowCount > 5000 || worksheet.columnCount > 250 || worksheet.rowCount * worksheet.columnCount > 100_000) throw new ValidationError('Ürün dosyası satır, sütun veya 100.000 hücre sınırını aşıyor');
       sheetName = worksheet.name;
       matrix = [];
       worksheet.eachRow({ includeEmpty: false }, (row, rowNumber) => {
@@ -1930,6 +1914,7 @@ export class ProductsService {
       throw new ValidationError('Sadece .xlsx ve .csv dosyaları destekleniyor');
     }
 
+    if (matrix.length > 5000 || matrix.some((row) => row.length > 250) || matrix.reduce((total, row) => total + row.length, 0) > 100_000) throw new ValidationError('Ürün dosyası satır, sütun veya 100.000 hücre sınırını aşıyor');
     const headerRowIndex = this.detectHeaderRow(matrix);
     const rows = this.matrixToImportRows(matrix, headerRowIndex);
     if (!rows.length) throw new ValidationError('Dosyada aktarılacak ürün satırı bulunamadı');
@@ -2029,34 +2014,94 @@ export class ProductsService {
     return rows;
   }
 
-  private async getImportLookupMaps(): Promise<ProductImportLookupMaps> {
-    const [
-      productGroupRows,
-      productCategoryRows,
-      productSubcategoryRows,
-      productTypeRows,
-      productSpecGroupRows,
-      equipmentTypeRows,
-      currencyRows,
-    ] = await Promise.all([
-      this.db.select({ code: productGroups.code, name: productGroups.name }).from(productGroups).where(eq(productGroups.isActive, true)),
-      this.db.select({ code: productCategories.code, name: productCategories.name }).from(productCategories).where(eq(productCategories.isActive, true)),
-      this.db.select({ code: productSubcategories.code, name: productSubcategories.name }).from(productSubcategories).where(eq(productSubcategories.isActive, true)),
-      this.db.select({ code: productTypes.code, name: productTypes.name }).from(productTypes).where(eq(productTypes.isActive, true)),
-      this.db.select({ code: productSpecGroups.code, name: productSpecGroups.name }).from(productSpecGroups).where(eq(productSpecGroups.isActive, true)),
-      this.db.select({ code: equipmentTypes.code, name: equipmentTypes.name }).from(equipmentTypes).where(eq(equipmentTypes.isActive, true)),
-      this.db.select({ code: currencies.code, name: currencies.name }).from(currencies).where(eq(currencies.isActive, true)),
-    ]);
+  private async resolveProductWriteTaxonomy(
+    input: Pick<ProductCreateInput, 'divisionId' | 'productGroupCode' | 'categoryCode' | 'subcategoryCode' | 'productTypeCode'>,
+    actor: AuthContext,
+    previousGroupId?: string | null,
+  ) {
+    let divisionId = input.divisionId;
+    if (!divisionId && previousGroupId) {
+      const previousGroup = await this.db.query.productGroups.findFirst({ where: eq(productGroups.id, previousGroupId) });
+      if (previousGroup?.divisionId && (!input.productGroupCode || importCode(input.productGroupCode) === importCode(previousGroup.code))) divisionId = previousGroup.divisionId;
+    }
+    if (!divisionId && input.productGroupCode) {
+      const code = importCode(input.productGroupCode);
+      if (['CNC', 'UNIVERSAL', 'SAC_ISLEME'].includes(code)) {
+        const division = await this.db.query.divisions.findFirst({ where: and(eq(divisions.tenantId, actor.tenantId), eq(divisions.code, code.toLowerCase()), eq(divisions.isActive, true), isNull(divisions.deletedAt)) });
+        divisionId = division?.id;
+      } else {
+        const candidates = await this.db.select({ divisionId: productGroups.divisionId }).from(productGroups)
+          .innerJoin(divisions, eq(productGroups.divisionId, divisions.id))
+          .where(and(eq(divisions.tenantId, actor.tenantId), eq(divisions.isActive, true), eq(productGroups.isActive, true), sql`upper(${productGroups.code}) = ${code}`));
+        const unique = [...new Set(candidates.flatMap((row) => row.divisionId ? [row.divisionId] : []))];
+        if (unique.length === 1) divisionId = unique[0];
+      }
+    }
+    const maps = await this.getImportLookupMaps(actor, divisionId);
+    const codes = { ...input, productGroupCode: input.productGroupCode || maps.groupCode };
+    const taxonomy = this.importTaxonomyForRow(codes, maps);
+    if (!taxonomy.group) throw new ValidationError('Ürün grubu seçilen bölüme ait değil');
+    for (const [code, row, label] of [
+      [input.categoryCode, taxonomy.category, 'Kategori'],
+      [input.subcategoryCode, taxonomy.subcategory, 'Alt kategori'],
+      [input.productTypeCode, taxonomy.type, 'Ürün tipi'],
+    ] as const) if (code && !row) throw new ValidationError(`${label} seçilen bölüm veya üst kayıtla eşleşmiyor`);
+    return { maps, ...taxonomy };
+  }
 
-    return {
-      productGroups: productGroupRows,
-      productCategories: productCategoryRows,
-      productSubcategories: productSubcategoryRows,
-      productTypes: productTypeRows,
-      productSpecGroups: productSpecGroupRows,
-      equipmentTypes: equipmentTypeRows,
-      currencies: currencyRows,
-    };
+  private async resolveImportDivision(actor: AuthContext, requestedDivisionId?: string) {
+    const divisionId = requestedDivisionId ?? resolveAssignedResourceDivision(actor, 'products', null);
+    if (!divisionId) throw new ValidationError('İçe aktarma için CNC, Sac İşleme veya Üniversal bölümü seçilmelidir');
+    const division = await this.assertActiveDivision(divisionId, actor);
+    const groupCode = importCode(division.code);
+    if (!['CNC', 'UNIVERSAL', 'SAC_ISLEME'].includes(groupCode)) throw new ValidationError('Bu bölüm ürün içe aktarmayı desteklemiyor');
+    return { divisionId, groupCode };
+  }
+
+  private async getImportLookupMaps(actor: AuthContext, requestedDivisionId?: string): Promise<ProductImportLookupMaps> {
+    const scope = await this.resolveImportDivision(actor, requestedDivisionId);
+    const [groups, categories, subcategories, types, specGroups, equipment, currencyRows, established] = await Promise.all([
+      this.db.select().from(productGroups).where(eq(productGroups.isActive, true)),
+      this.db.select().from(productCategories).where(eq(productCategories.isActive, true)),
+      this.db.select().from(productSubcategories).where(eq(productSubcategories.isActive, true)),
+      this.db.select().from(productTypes).where(eq(productTypes.isActive, true)),
+      this.db.select().from(productSpecGroups).where(eq(productSpecGroups.isActive, true)),
+      this.db.select().from(equipmentTypes).where(eq(equipmentTypes.isActive, true)),
+      this.db.select().from(currencies).where(eq(currencies.isActive, true)),
+      this.db.selectDistinct({ typeId: productModels.productTypeId }).from(productModels)
+        .innerJoin(productGroups, eq(productModels.productGroupId, productGroups.id))
+        .where(and(eq(productModels.tenantId, actor.tenantId), isNull(productModels.deletedAt),
+          or(eq(productGroups.divisionId, scope.divisionId), and(isNull(productGroups.divisionId), sql`upper(${productGroups.code}) = ${scope.groupCode}`)))),
+    ]);
+    return { ...scope, ...scopeImportTaxonomy({
+      productGroups: groups,
+      productCategories: categories.map((row) => ({ ...row, parentId: row.productGroupId })),
+      productSubcategories: subcategories.map((row) => ({ ...row, parentId: row.categoryId })),
+      productTypes: types.map((row) => ({ ...row, parentId: row.subcategoryId })),
+      productSpecGroups: specGroups, equipmentTypes: equipment, currencies: currencyRows,
+    }, scope.divisionId, scope.groupCode, new Set(established.flatMap((row) => row.typeId ? [row.typeId] : []))) };
+  }
+
+  private importLookup(rows: LookupRow[], value: string | undefined) {
+    if (!value) return undefined;
+    return rows.find((row) => importCode(row.code) === importCode(value) || normalizeText(row.name) === normalizeText(value));
+  }
+
+  private importTaxonomyForRow(row: Pick<ProductImportRowInput, 'productGroupCode' | 'categoryCode' | 'subcategoryCode' | 'productTypeCode'>, maps: ProductImportLookupMaps) {
+    const group = this.importLookup(maps.productGroups, row.productGroupCode);
+    const typeCandidate = this.importLookup(maps.productTypes, row.productTypeCode);
+    const subcategoryCandidate = row.subcategoryCode ? this.importLookup(maps.productSubcategories, row.subcategoryCode) : maps.productSubcategories.find((item) => item.id === typeCandidate?.parentId);
+    const categoryCandidate = row.categoryCode ? this.importLookup(maps.productCategories, row.categoryCode) : maps.productCategories.find((item) => item.id === subcategoryCandidate?.parentId);
+    const category = this.importLookup(importChildren(maps.productCategories, group, maps.productGroups), row.categoryCode ?? categoryCandidate?.code);
+    const subcategory = this.importLookup(importChildren(maps.productSubcategories, category, maps.productCategories), row.subcategoryCode ?? subcategoryCandidate?.code);
+    const type = this.importLookup(importChildren(maps.productTypes, subcategory, maps.productSubcategories), row.productTypeCode);
+    return { group, category, subcategory, type };
+  }
+
+  private async assertImportProductScope(product: typeof productModels.$inferSelect, maps: ProductImportLookupMaps) {
+    if (!maps.productGroups.some((group) => group.id === product.productGroupId)) {
+      throw new ValidationError('Bu model kodu başka bölümde kayıtlı; seçilen bölümden güncellenemez');
+    }
   }
 
   private async normalizeImportRow(
@@ -2079,31 +2124,19 @@ export class ProductsService {
 
     const inferredText = [raw.productTypeCode, raw.categoryCode, raw.subcategoryCode, fullName, modelName, raw.description];
     const rawProductGroupCode = cellToText(raw.productGroupCode);
-    let fallbackProductGroupCode: string | undefined;
-    if (!rawProductGroupCode) {
-      try {
-        fallbackProductGroupCode = await this.defaultProductGroupCodeForActor(actor);
-      } catch (error) {
-        errors.push(error instanceof Error ? error.message : 'Ürün grubu için bölüm seçimi zorunludur');
-      }
-    }
-    const productGroupCode = this.resolveLookupCode(lookups.productGroups, rawProductGroupCode, fallbackProductGroupCode, warnings, 'Ürün grubu');
+    const resolveTaxonomyCode = (rows: LookupRow[], value: string, fallback: string | undefined, label: string) => {
+      const match = this.importLookup(rows, value || fallback);
+      if (value && !match) errors.push(`${label} seçilen bölüm veya üst kayıtla eşleşmiyor: ${value}`);
+      return match?.code;
+    };
+    const productGroupCode = resolveTaxonomyCode(lookups.productGroups, rawProductGroupCode, lookups.groupCode, 'Ürün grubu');
     if (!productGroupCode) errors.push('Ürün grubu zorunlu');
-    const categoryCode = this.resolveLookupCode(lookups.productCategories, cellToText(raw.categoryCode), 'TEZGAH', warnings, 'Kategori');
-    const subcategoryCode = this.resolveLookupCode(
-      lookups.productSubcategories,
-      cellToText(raw.subcategoryCode) || inferSubcategoryCode(...inferredText),
-      undefined,
-      warnings,
-      'Alt kategori'
-    );
-    const productTypeCode = this.resolveLookupCode(
-      lookups.productTypes,
-      cellToText(raw.productTypeCode) || inferProductTypeCode(...inferredText),
-      undefined,
-      warnings,
-      'Ürün tipi'
-    );
+    const group = this.importLookup(lookups.productGroups, productGroupCode);
+    const categoryCode = resolveTaxonomyCode(importChildren(lookups.productCategories, group, lookups.productGroups), cellToText(raw.categoryCode), 'TEZGAH', 'Kategori');
+    const category = this.importLookup(lookups.productCategories, categoryCode);
+    const subcategoryCode = resolveTaxonomyCode(importChildren(lookups.productSubcategories, category, lookups.productCategories), cellToText(raw.subcategoryCode), inferSubcategoryCode(...inferredText), 'Alt kategori');
+    const subcategory = this.importLookup(lookups.productSubcategories, subcategoryCode);
+    const productTypeCode = resolveTaxonomyCode(importChildren(lookups.productTypes, subcategory, lookups.productSubcategories), cellToText(raw.productTypeCode), inferProductTypeCode(...inferredText), 'Ürün tipi');
     const currencyCode = this.resolveLookupCode(lookups.currencies, cellToText(raw.currencyCode), 'USD', warnings, 'Para birimi') ?? 'USD';
     const vatRate = parseNumber(raw.vatRate) ?? 20;
 
@@ -2113,6 +2146,7 @@ export class ProductsService {
     const candidate = {
       rowNumber: raw.rowNumber,
       brandName,
+      supplierCompanyId: raw.supplierCompanyId as string | null | undefined,
       series,
       modelCode,
       modelName,
@@ -2144,7 +2178,7 @@ export class ProductsService {
     const existing = modelCode ? await this.findProductByModelCode(modelCode, actor) : null;
     if (existing) {
       try {
-        await this.assertProductGroupScope(existing.productGroupId, actor);
+        await this.assertImportProductScope(existing, lookups);
       } catch {
         errors.push('Bu model kodu başka bir ürün yetki alanında kayıtlı');
       }
@@ -2241,11 +2275,14 @@ export class ProductsService {
     });
   }
 
-  private async getOrCreateBrand(name: string, actor: AuthContext) {
+  private async getOrCreateBrand(name: string, actor: AuthContext, divisionId: string) {
     const allBrands = await this.listBrands(actor);
     const existing = allBrands.find((brand) => normalizeText(brand.name) === normalizeText(name));
-    if (existing) return existing;
-    const [created] = await this.db.insert(brands).values({ tenantId: actor.tenantId, name }).returning();
+    if (existing) {
+      if (existing.divisionId && existing.divisionId !== divisionId) throw new ValidationError('Marka seçilen bölüme ait değil');
+      return existing;
+    }
+    const [created] = await this.db.insert(brands).values({ tenantId: actor.tenantId, name, divisionId }).returning();
     return created;
   }
 

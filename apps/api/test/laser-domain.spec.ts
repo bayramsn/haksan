@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  LASER_MODELS, LASER_POWERS, laserSelectionSchema, laserTechnicalConfigurationSchema,
+  LASER_MODELS, LASER_POWERS, LASER_SERIES, isSupportedLaserBrand, laserSelectionSchema, laserTechnicalConfigurationSchema,
   parseLaserWorkbookSheets, resolveLaserPowerRule, resolveLaserProfile,
   quoteItemCompatibilitySchema, productDetailsReplaceSchema,
   type LaserSelection,
@@ -9,16 +9,17 @@ import { AORE_WORKBOOK_SHEETS } from '../../../packages/shared/src/laser-source-
 
 function profile(code: string, powerKw: LaserSelection['powerKw'], cabinType?: LaserSelection['cabinType']) {
   const model = LASER_MODELS.find((entry) => entry.code === code)!;
-  return resolveLaserProfile({ sourceModelCode: code, powerKw, cabinType: cabinType ?? model.standardCabin, series: model.series, productTypeCode: model.productTypeCode });
+  return resolveLaserProfile({ sourceModelCode: code, powerKw, cabinType: cabinType ?? model.standardCabin ?? 'open', series: model.series, productTypeCode: model.productTypeCode });
 }
 function field(code: string, power: LaserSelection['powerKw'], key: string, cabin?: LaserSelection['cabinType']) {
   return profile(code, power, cabin).specs.find((spec) => spec.key === key);
 }
 
 describe('AORE source resolution', () => {
-  it('offers all 200 model/cabin/power combinations without creating products', () => {
-    expect(LASER_MODELS).toHaveLength(20);
-    expect(new Set(LASER_MODELS.map((model) => model.code)).size).toBe(20);
+  it('offers every source model/cabin/power combination without creating products', () => {
+    expect(LASER_MODELS.length).toBeGreaterThanOrEqual(100);
+    expect(new Set(LASER_MODELS.map((model) => model.code)).size).toBe(LASER_MODELS.length);
+    expect(new Set(LASER_MODELS.map((model) => model.series))).toEqual(new Set(LASER_SERIES));
     for (const model of LASER_MODELS) for (const power of LASER_POWERS) for (const cabin of ['open', 'closed'] as const) {
       const result = profile(model.code, power, cabin);
       expect(laserTechnicalConfigurationSchema.safeParse(result).success).toBe(true);
@@ -45,7 +46,7 @@ describe('AORE source resolution', () => {
   it('uses PG6020 30 kW source cells and retains PG3015 source conflict', () => {
     expect(field('PG6020', 30, 'Tabla Yük Kapasitesi')?.value).toBe('5760');
     expect(field('PG6020', 30, 'Makine Ağırlığı')?.value).toBe('11600');
-    expect(field('PG6020', 30, 'Toplam Güç Gereksinimi')).toMatchObject({ value: '155.8', unit: 'kW', source: { sheet: 'PG Serisi', cell: 'H34' } });
+    expect(field('PG6020', 30, 'Toplam Güç Gereksinimi')).toMatchObject({ value: '155.8', unit: 'kW', source: { sheet: 'PG系列', cell: 'H34' } });
     expect(field('PG6020', 30, 'Trafo Kapasitesi')?.value).toBe('200');
     expect(profile('PG3015', 30).supportedPower).toBe(false);
     expect(profile('PG3015', 30).issues.some((issue) => issue.code === 'source_conflict')).toBe(true);
@@ -99,11 +100,11 @@ describe('AORE source resolution', () => {
   });
 
   it('imports horizontal sheets once, including the duplicate standalone F sheet', () => {
-    const f = AORE_WORKBOOK_SHEETS.find((sheet) => sheet.name === 'F Serisi')!;
+    const f = AORE_WORKBOOK_SHEETS.find((sheet) => sheet.name === 'F系列')!;
     const result = parseLaserWorkbookSheets([...AORE_WORKBOOK_SHEETS, { ...f, name: 'F duplicate' }], 'uploaded.xlsx');
-    expect(result.models).toHaveLength(16);
+    expect(result.models).toHaveLength(88);
     expect(result.issues).toEqual([]);
-    expect(result.models.find((m) => m.code === 'F3015')?.fields.find((f) => f.key === 'Kesme Alanı')?.source).toMatchObject({ document: 'uploaded.xlsx', sheet: 'F Serisi', cell: 'E4' });
+    expect(result.models.find((m) => m.code === 'F3015')?.fields.find((f) => f.key === 'Kesme Alanı')?.source).toMatchObject({ document: 'uploaded.xlsx', sheet: 'F系列', cell: 'E4' });
   });
 
   it('reads merged values with the top-left cell as provenance and reports conflicting duplicates', () => {
@@ -121,6 +122,59 @@ describe('AORE source resolution', () => {
     expect(result.models[1].fields.find((f) => f.key === 'X Eksen Motor Gücü')).toMatchObject({ rawValue: '1.3kW', source: { cell: 'E4' } });
     const changed = structuredClone(sheet); changed.rows[3][4] = '2kW';
     expect(parseLaserWorkbookSheets([sheet, changed], 'merged.xlsx').issues[0].code).toBe('duplicate_model_conflict');
+  });
+
+
+  it('retains the original twenty models and every primary workbook cutting column', () => {
+    const expected = ['F3015','F4015','F6015','F4020','F6020','F6025','F6520','F6525','F8025','PG3015','PG6015','PG4020','PG6020','PG6025','PG6525','PG8025','TG6012','TG6016','TG6020','TG6035'];
+    expect(LASER_MODELS.map((model) => model.code)).toEqual(expect.arrayContaining(expected));
+    const workbook = parseLaserWorkbookSheets(AORE_WORKBOOK_SHEETS, 'AORE Technical Parameters.xlsx');
+    expect(workbook.models).toHaveLength(88);
+    expect(new Set(workbook.models.map((model) => model.series)).size).toBe(16);
+    expect(workbook.models.flatMap((model) => model.issues).filter((issue) => issue.code === 'unmapped_source_label')).toEqual([]);
+    expect(field('F3015', 12, 'Makine Ağırlığı')?.source).toMatchObject({ document: 'AORE Technical Parameters.xlsx', sheet: 'F系列', cell: 'E12', rawValue: '≤6kw：2150kg\n12-20kw：3150kg' });
+  });
+
+  it('uses S power-specific dimensions and the Chinese-only transformer row', () => {
+    expect(profile('S1530', 6).sizeLabel).toBe('3060 × 1530 mm');
+    expect(profile('S1530', 12).sizeLabel).toBe('2960 × 1430 mm');
+    expect(field('S1325', 12, 'Kesme Alanı')?.value).toBe('2460*1230');
+    expect(field('S1530', 12, 'Toplam Güç Gereksinimi')).toMatchObject({ value: '56.7', source: { sheet: 'S系列', cell: 'E31' } });
+    expect(field('S1530', 30, 'Kesme Alanı')?.value).toBe('');
+  });
+
+  it('separates GR and Pro branches and does not infer full cabin from a beam guard', () => {
+    expect(field('GR2500-6', 12, 'Y Eksen Motor Gücü')?.value).toBe('4.4*2');
+    expect(field('GR2500Pro-6', 12, 'Y Eksen Motor Gücü')?.value).toBe('5.5*2');
+    expect(field('GR2500-6', 12, 'Kontrol Ünitesi')?.value).toBe('');
+    expect(field('GR2500Pro-6', 12, 'Kontrol Ünitesi')?.value).toBe('FSCUT8000');
+    expect(LASER_MODELS.find((model) => model.code === 'GR2500-6')?.standardCabin).toBeNull();
+    expect(field('GR2500-6', 12, 'Toplam Güç Gereksinimi')?.value).toBe('');
+    expect(field('GR2500-6', 12, 'Düz Kesim X Alanı')?.value).toBe('2550');
+    expect(field('GR2500-6', 12, 'Opsiyonel Pah Düz Kesim X Alanı')?.value).toBe('2450');
+    expect(field('GR2500-6', 12, '45° Pah Kesim X Alanı')?.value).toBe('1800');
+  });
+
+  it('retains compound models and option-specific capacities without copying fields between families', () => {
+    expect(profile('F3015+T6-230', 6).selection.series).toBe('FT');
+    expect(field('F3015+T6-230', 6, 'Kontrol Ünitesi')?.value).toBe('FSCUT3000DE-M');
+    expect(field('F3015+T6-230', 6, 'Toplam Güç Gereksinimi')?.value).toBe('39.8');
+    expect(field('TH6035', 12, 'Kontrol Ünitesi')?.value).toBe('FSCUT3000DE-G');
+    expect(field('TA6035', 12, 'Kontrol Ünitesi')?.value).toBe('FSCUT5000BH');
+    const te = LASER_MODELS.find((model) => model.code === 'TE12028')!;
+    expect(te.fields.find((spec) => spec.key === 'Makine Ölçüleri (TE12035+E12)')?.source).toMatchObject({ sheet: 'TE系列', cell: 'E11', rawValue: '28650*2800*3100' });
+    expect(te.fields.find((spec) => spec.key === 'Makine Ölçüleri (TE12035+E6)')?.rawValue).toBe('22450*2800*3100');
+    expect(field('PB3015', 12, '45° Pah Kesim Alanı')?.value).toBe('3100*1550');
+    expect(field('PB3015', 12, 'Düz Kesim Çalışma Alanı')?.value).toBe('3850*2200');
+    expect(field('TZ12070', 30, 'Y Eksen Motor Gücü')?.value).toBe('');
+  });
+
+  it('accepts selling brand catalog association and legacy names independently of supplier identity', () => {
+    expect(isSupportedLaserBrand('HEXLASER')).toBe(true);
+    expect(isSupportedLaserBrand('AORE LAZER')).toBe(true);
+    expect(isSupportedLaserBrand('Yeniden adlandırılan marka', 'AORE_LASER')).toBe(true);
+    expect(isSupportedLaserBrand('AOREX')).toBe(false);
+    expect(isSupportedLaserBrand('Başka marka')).toBe(false);
   });
 
   it('validates model, series, product type, power and complete snapshot roundtrips', () => {

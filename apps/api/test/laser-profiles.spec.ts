@@ -54,6 +54,20 @@ describe('laser source provenance and imports', () => {
     expect(applyLaserSpecEdits(nowMatchingSource, [{ key: 'Makine Ağırlığı', value: '2200', unit: 'kg' }]).specs.find((field) => field.key === 'Makine Ağırlığı')?.isManual).toBe(false);
   });
 
+  it('supports full field editing and retains deletions across repeated source imports', () => {
+    const original = base();
+    const specs = original.specs.filter((spec) => spec.key !== 'Makine Ağırlığı').map((spec) => spec.key === 'Kontrol Ünitesi' ? { ...spec, groupCode: 'OZEL' } : spec);
+    specs.push({ key: 'Özel Alan', value: 'Elle', groupCode: 'OZEL' });
+    const saved = applyLaserSpecEdits(original, specs, { replaceAll: true });
+    expect(saved.hiddenSpecKeys).toContain('Makine Ağırlığı');
+    expect(saved.specs.find((spec) => spec.key === 'Kontrol Ünitesi')).toMatchObject({ groupCode: 'OZEL', isManual: true });
+    const reimport = mergeLaserReimport(base(), saved);
+    expect(reimport.specs.some((spec) => spec.key === 'Makine Ağırlığı')).toBe(false);
+    expect(reimport.specs.find((spec) => spec.key === 'Özel Alan')?.value).toBe('Elle');
+    expect(reimport.specs.find((spec) => spec.key === 'Kontrol Ünitesi')?.groupCode).toBe('OZEL');
+    expect(() => applyLaserSpecEdits(original, [], { replaceAll: true })).toThrow('silinemez');
+  });
+
   it('binds preview tokens to tenant, user, division, brand and expiry', () => {
     const store = new LaserImportPreviewStore();
     const token = store.put({ tenantId: actor.tenantId, userId: actor.userId, scope, profiles: [base()] }, 100);
@@ -81,7 +95,7 @@ describe('laser source provenance and imports', () => {
     const model = preview.laserProfiles!.find((profile) => profile.selection.sourceModelCode === 'F4015' && profile.selection.powerKw === 6 && profile.selection.cabinType === 'open')!;
     expect(model.specs.find((field) => field.key === 'Makine Ağırlığı')).toMatchObject({ value: '2150', source: { cell: 'E4' } });
     expect(model.specs.find((field) => field.key === 'Kontrol Ünitesi')?.value).toBeTruthy();
-    expect(model.specs.find((field) => field.key === 'Kontrol Ünitesi')?.source?.sheet).toBe('Standart Yapılandırma');
+    expect(model.specs.find((field) => field.key === 'Kontrol Ünitesi')?.source?.sheet).toBe(base().specs.find((field) => field.key === 'Kontrol Ünitesi')?.source?.sheet);
     expect(model.specs.find((field) => field.key === 'Tabla Yük Kapasitesi')).toBeUndefined();
     const forged = structuredClone(model);
     forged.specs.find((field) => field.key === 'Makine Ağırlığı')!.value = '99999';
@@ -118,6 +132,15 @@ describe('laser profile persistence scope', () => {
     expect(test.inserts).toHaveBeenCalledTimes(1);
     expect(test.stored()!.configuration.specs.find((field) => field.key === 'Makine Ağırlığı')?.value).toBe('2222');
     for (const filter of test.filters) expect(filter).toEqual(expect.arrayContaining([actor.tenantId, scope.divisionId, scope.brandId, selection.productTypeCode, 'F3015', 'open', 6]));
+  });
+
+  it('accepts HEXLASER, legacy AORE and an explicitly assigned catalog independently of brand ownership', async () => {
+    for (const brand of [{ name: 'HEXLASER' }, { name: 'AORE' }, { name: 'Private Label', technicalCatalogCode: 'AORE_LASER' }]) {
+      const test = fixture();
+      test.db.query.brands.findFirst.mockResolvedValueOnce({ ...brand, divisionId: scope.divisionId });
+      const service = new LaserProfilesService(test.db as never, audit as never);
+      await expect(service.resolve(scope, selection, actor)).resolves.toMatchObject({ selection });
+    }
   });
 
   it('rejects non-admin writes, wrong brand, inactive or non-sheet divisions', async () => {

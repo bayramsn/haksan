@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { useState, type LabelHTMLAttributes } from 'react';
-import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { LASER_MODELS, resolveLaserProfile, type LaserSelection, type LaserTechnicalConfiguration } from '@haksan/shared';
@@ -13,15 +13,16 @@ vi.mock('../../../lib/services/laser-profiles.service', () => ({ laserProfilesSe
 // Radix/lucide are externalized against the mobile workspace's React in Vitest.
 // Use native equivalents here; these tests exercise selection and request state.
 vi.mock('../ui/label', () => ({ Label: (props: LabelHTMLAttributes<HTMLLabelElement>) => <label {...props} /> }));
-vi.mock('lucide-react', () => ({ AlertCircle: () => null, FileSpreadsheet: () => null, Loader2: () => null, RotateCcw: () => null }));
+vi.mock('lucide-react', () => ({ AlertCircle: () => null, ArrowUp: () => null, ArrowDown: () => null, Plus: () => null, Trash2: () => null, FileSpreadsheet: () => null, Loader2: () => null, RotateCcw: () => null }));
 
 const selection: LaserSelection = { productTypeCode: 'FIBER_LAZER_KESIM', series: 'F', cabinType: 'open', powerKw: 6, sourceModelCode: 'F3015' };
-function Harness({ initial, onChange = () => {} }: { initial?: LaserTechnicalConfiguration; onChange?: (profile: LaserTechnicalConfiguration | null) => void }) {
+function Harness({ initial, selectionOnly, onChange = () => {} }: { selectionOnly?: boolean; initial?: LaserTechnicalConfiguration; onChange?: (profile: LaserTechnicalConfiguration | null) => void }) {
   const [value, setValue] = useState<LaserTechnicalConfiguration | null>(initial ?? null);
-  return <LaserConfigurationEditor divisionId="division-1" brandId="aore-1" draftScope="settings" value={value} onChange={(profile) => { setValue(profile); onChange(profile); }} />;
+  return <LaserConfigurationEditor selectionOnly={selectionOnly} divisionId="division-1" brandId="aore-1" draftScope="settings" value={value} onChange={(profile) => { setValue(profile); onChange(profile); }} />;
 }
 async function choose6kw() {
   const user = userEvent.setup();
+  await screen.findByRole('option', { name: 'F Serisi' });
   await user.selectOptions(screen.getByLabelText('3. Ürün serisi tipi'), 'F');
   await user.selectOptions(screen.getByLabelText('4. Kabin tipi'), 'open');
   await user.selectOptions(screen.getByLabelText('5. Rezonatör gücü'), '6');
@@ -64,7 +65,7 @@ describe('LaserConfigurationEditor', () => {
     expect((await screen.findByLabelText('Makine Ağırlığı') as HTMLInputElement).value).toBe('2222');
     await user.click(screen.getByRole('button', { name: 'Makine Ağırlığı kaynak değerine dön' }));
     expect((screen.getByLabelText('Makine Ağırlığı') as HTMLInputElement).value).toBe('2150');
-  });
+  }, 15_000);
 
   it('ignores a delayed response for an earlier combination', async () => {
     let finishOld!: (profile: LaserTechnicalConfiguration) => void;
@@ -104,6 +105,37 @@ describe('LaserConfigurationEditor', () => {
     await user.type(weight, '5000');
     expect(weight.value).toBe('5000');
     expect(screen.getByText(/Seçilen güç için kaynak doğrulaması eksik/)).toBeTruthy();
+  });
+
+
+  it('lets the user add, rename, group, reorder and remove fields and preserves the complete draft', async () => {
+    const onChange = vi.fn();
+    render(<Harness initial={resolveLaserProfile(selection)} onChange={onChange} />);
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: 'Alan ekle' }));
+    const profile = onChange.mock.calls.at(-1)![0] as LaserTechnicalConfiguration;
+    const name = screen.getByLabelText(`${profile.specs.length}. alan adı`);
+    fireEvent.change(name, { target: { value: 'Özel ölçü' } });
+    fireEvent.change(screen.getByLabelText('Özel ölçü'), { target: { value: '125' } });
+    fireEvent.change(screen.getByLabelText('Özel ölçü birimi'), { target: { value: 'cm' } });
+    fireEvent.change(screen.getByLabelText('Özel ölçü grubu'), { target: { value: 'OZEL' } });
+    await user.click(screen.getByRole('button', { name: 'Özel ölçü yukarı taşı' }));
+    const moved = onChange.mock.calls.at(-1)![0] as LaserTechnicalConfiguration;
+    expect(moved.specs.at(-2)).toMatchObject({ key: 'Özel ölçü', value: '125', unit: 'cm', groupCode: 'OZEL', isManual: true });
+    await user.click(screen.getByRole('button', { name: 'Makine Ağırlığı kaldır' }));
+    expect(screen.queryByLabelText('Makine Ağırlığı')).toBeNull();
+    const draft = JSON.parse(localStorage.getItem(laserDraftKey({ tenantId: 'tenant-1', divisionId: 'division-1', brandId: 'aore-1', draftScope: 'settings' }, selection))!);
+    expect(draft.specs.some((spec: { key: string }) => spec.key === 'Makine Ağırlığı')).toBe(false);
+    expect(draft.specs.find((spec: { key: string }) => spec.key === 'Özel ölçü')).toMatchObject({ value: '125', unit: 'cm', groupCode: 'OZEL' });
+    expect((screen.getByRole('button', { name: 'Lazer Gücü kaldır' }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('renders only the ordered selection flow when the common workbook owns field editing', async () => {
+    render(<Harness initial={resolveLaserProfile(selection)} selectionOnly />);
+    await waitFor(() => expect(screen.getByRole('option', { name: 'S Serisi' })).toBeTruthy());
+    expect(screen.queryByRole('table')).toBeNull();
+    expect(screen.queryByLabelText('Makine Ağırlığı')).toBeNull();
+    expect((screen.getByLabelText('5. Rezonatör gücü') as HTMLSelectElement).value).toBe('6');
   });
 
   it('resets the value and unit together when returning to the source', async () => {

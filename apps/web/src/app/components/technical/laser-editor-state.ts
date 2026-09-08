@@ -29,9 +29,9 @@ export function readLaserDraft(storage: Pick<Storage, 'getItem'>, key: string, s
 export function editLaserSpec(spec: LaserSpec, value: string): LaserSpec {
   const sourceValue = spec.sourceValue ?? (spec.isManual ? '' : spec.value);
   const sourceUnit = spec.sourceUnit ?? spec.unit;
-  return { ...spec, value, sourceValue, sourceUnit, isManual: value !== sourceValue || spec.unit !== sourceUnit };
+  return { ...spec, value, sourceValue, sourceUnit, sourceGroupCode: spec.sourceGroupCode ?? spec.groupCode, isManual: value !== sourceValue || spec.unit !== sourceUnit };
 }
 
 export function resetLaserSpec(spec: LaserSpec): LaserSpec {
-  return { ...spec, value: spec.sourceValue ?? '', unit: spec.sourceUnit ?? spec.unit, isManual: false };
+  return { ...spec, value: spec.sourceValue ?? '', unit: spec.sourceUnit ?? spec.unit, groupCode: spec.sourceGroupCode ?? spec.groupCode, isManual: false };
 }

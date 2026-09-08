@@ -1,5 +1,6 @@
-import { useMemo, useRef, useState } from "react";
-import type { TechnicalImportAvailableField, TechnicalImportMode, TechnicalImportRowInput } from "@haksan/shared";
+import { useEffect, useMemo, useRef, useState } from "react";
+import type { TechnicalImportAvailableField, TechnicalImportLayout, TechnicalImportMode, TechnicalImportRowInput } from "@haksan/shared";
+import { TechnicalLayoutEditor } from './TechnicalLayoutEditor';
 import {
   AlertTriangle,
   ArrowRight,
@@ -32,6 +33,7 @@ type TechnicalImportDialogProps = {
   productTypeLabel: string;
   hierarchyLabel: string;
   divisionId?: string;
+  familyCode?: 'CNC' | 'SAC_ISLEME' | 'UNIVERSAL';
   availableFields: TechnicalImportAvailableField[];
   machines: MachineOption[];
   onImported: (mode: TechnicalImportMode) => Promise<void> | void;
@@ -73,6 +75,7 @@ export function TechnicalImportDialog({
   productTypeLabel,
   hierarchyLabel,
   divisionId,
+  familyCode,
   availableFields,
   machines,
   onImported,
@@ -89,6 +92,16 @@ export function TechnicalImportDialog({
   const [filter, setFilter] = useState<"all" | "review" | "unmatched">("all");
   const [search, setSearch] = useState("");
   const [downloading, setDownloading] = useState(false);
+  const [layout, setLayout] = useState<TechnicalImportLayout>();
+  const [layoutDirty, setLayoutDirty] = useState(false);
+  const requestVersion = useRef(0);
+  const familyLabel = familyCode === 'SAC_ISLEME' ? 'Sac İşleme' : familyCode === 'UNIVERSAL' ? 'Üniversal' : 'CNC';
+  useEffect(() => {
+    requestVersion.current++;
+    setPreview(null); setRows([]); setLayout(undefined); setLayoutDirty(false);
+    setFile(null); setTargetProductId(''); setConfirmedTarget(false); setLoading(false);
+    return () => { requestVersion.current++; };
+  }, [divisionId, productTypeCode, open]);
 
   const downloadTemplate = async (format: "xlsx" | "csv") => {
     setDownloading(true);
@@ -111,7 +124,11 @@ export function TechnicalImportDialog({
   };
 
   const resetPreview = () => {
+    requestVersion.current++;
     setPreview(null);
+    setLayout(undefined);
+    setLayoutDirty(false);
+    setLoading(false);
     setRows([]);
     setTargetProductId("");
     setConfirmedTarget(false);
@@ -150,6 +167,8 @@ export function TechnicalImportDialog({
 
   const createPreview = async () => {
     if (!file) return toast.error("Önce bir Excel veya CSV dosyası seçin");
+    if (!divisionId) return toast.error('Önce aktarım bölümünü seçin');
+    const version = ++requestVersion.current;
     setLoading(true);
     try {
       const result = await adminService.previewTechnicalImport({
@@ -160,19 +179,26 @@ export function TechnicalImportDialog({
         productTypeCode,
         divisionId: divisionId ?? null,
         availableFields,
+        layout,
       });
+      if (version !== requestVersion.current) return;
       setPreview(result);
       setRows(result.rows);
+      setLayout(result.layout);
+      setLayoutDirty(false);
+      setConfirmedTarget(false);
+      setTargetProductId('');
       const bestSuggestion = result.suggestedProducts[0];
       if (mode === "machine_data" && bestSuggestion?.score >= 0.55) setTargetProductId(bestSuggestion.id);
       toast.success("Dosya incelendi", {
         description: `${result.summary.ready} satır hazır, ${result.summary.review + result.summary.unmatched} satır inceleme bekliyor.`,
       });
     } catch (error: any) {
+      if (version !== requestVersion.current) return;
       resetPreview();
       toast.error("Dosya incelenemedi", { description: error?.message ?? "Teknik veri önizlemesi oluşturulamadı." });
     } finally {
-      setLoading(false);
+      if (version === requestVersion.current) setLoading(false);
     }
   };
 
@@ -209,6 +235,7 @@ export function TechnicalImportDialog({
 
   const commit = async () => {
     if (!preview) return;
+    if (layoutDirty || loading) return toast.error('Önce yeni sütun eşlemesini uygulayın');
     if (mode === "machine_data" && (!targetProductId || !confirmedTarget)) {
       toast.error("Hedef makineyi seçip onaylayın");
       return;
@@ -243,7 +270,7 @@ export function TechnicalImportDialog({
           <div className="flex items-center gap-3">
             <span className="font-display text-xl font-bold tracking-wide">HAKSAN</span>
             <span className="h-5 w-px bg-white/30" />
-            <DialogTitle className="text-base font-medium text-white">Excel / CSV İçe Aktar</DialogTitle>
+            <DialogTitle className="text-base font-medium text-white">{familyLabel} · Teknik Bilgi İçe Aktar</DialogTitle>
           </div>
           <DialogDescription className="sr-only">
             Teknik bilgi satırlarını eşleştirip hedef şablona veya makineye aktarın.
@@ -319,6 +346,8 @@ export function TechnicalImportDialog({
               )}
             </div>
           </div>
+
+          {preview?.sourceSheets && layout && <TechnicalLayoutEditor sheets={preview.sourceSheets} value={layout} onChange={(next) => { requestVersion.current++; setLoading(false); setLayout(next); setLayoutDirty(true); setConfirmedTarget(false); }} disabled={loading || committing} dirty={layoutDirty} onApply={() => void createPreview()} />}
 
           {!preview ? (
             <div className="grid flex-1 place-items-center p-8">
@@ -418,7 +447,7 @@ export function TechnicalImportDialog({
           <div className="grid grid-cols-1 gap-2 min-[420px]:grid-cols-3 sm:flex sm:items-center">
             {file && <Button variant="outline" onClick={() => fileRef.current?.click()} disabled={loading || committing}><RefreshCw className="mr-1.5 size-4" />Dosyayı değiştir</Button>}
             <Button variant="outline" onClick={() => close(false)}>Vazgeç</Button>
-            <Button onClick={commit} disabled={!preview || !readyRows.length || committing || (mode === "machine_data" && (!targetProductId || !confirmedTarget))} className="w-full bg-blue-600 hover:bg-blue-700 sm:min-w-44 sm:w-auto">
+            <Button onClick={commit} disabled={!preview || !readyRows.length || committing || loading || layoutDirty || (mode === "machine_data" && (!targetProductId || !confirmedTarget))} className="w-full bg-blue-600 hover:bg-blue-700 sm:min-w-44 sm:w-auto">
               {committing ? <RefreshCw className="mr-1.5 size-4 animate-spin" /> : readyRows.length ? <CheckCircle2 className="mr-1.5 size-4" /> : <XCircle className="mr-1.5 size-4" />}{readyRows.length} satırı içe aktar
             </Button>
           </div>

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import type { LaserTechnicalConfiguration } from '@haksan/shared';
+import { isSupportedLaserBrand, type LaserTechnicalConfiguration } from '@haksan/shared';
 import { FileSpreadsheet, Save, Upload } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuth } from '../../../../lib/auth';
@@ -12,10 +12,10 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Input } from '../../ui/input';
 import { Label } from '../../ui/label';
 
-type Brand = { id: string; name: string; code?: string; isActive?: boolean };
+type Brand = { id: string; name: string; code?: string; isActive?: boolean; technicalCatalogCode?: string | null };
 const errorMessage = (error: unknown, fallback: string) => error instanceof Error ? error.message : fallback;
 
-export function LaserProfilesPanel({ divisionId }: { divisionId?: string }) {
+export function LaserProfilesPanel({ divisionId, onConfigureBrand }: { divisionId?: string; onConfigureBrand?: () => void }) {
   const { user, hasRole } = useAuth();
   const [brands, setBrands] = useState<Brand[]>([]);
   const [brandId, setBrandId] = useState('');
@@ -34,11 +34,11 @@ export function LaserProfilesPanel({ divisionId }: { divisionId?: string }) {
     void productService.listBrands(divisionId)
       .then((rows: Brand[]) => {
         if (cancelled) return;
-        const aore = rows.filter((brand) => brand.isActive !== false && /\baore\b/i.test(`${brand.code ?? ''} ${brand.name}`));
+        const aore = rows.filter((brand) => brand.isActive !== false && isSupportedLaserBrand(brand.name, brand.technicalCatalogCode));
         setBrands(aore);
         setBrandId(aore[0]?.id ?? '');
       })
-      .catch((error: unknown) => { if (!cancelled) setBrandError(errorMessage(error, 'AORE markası yüklenemedi.')); })
+      .catch((error: unknown) => { if (!cancelled) setBrandError(errorMessage(error, 'Teknik katalog markaları yüklenemedi.')); })
       .finally(() => { if (!cancelled) setLoadingBrands(false); });
     return () => { cancelled = true; };
   }, [divisionId]);
@@ -66,12 +66,12 @@ export function LaserProfilesPanel({ divisionId }: { divisionId?: string }) {
   return (
     <div className="space-y-5 p-4 sm:p-5">
       <div className="flex flex-wrap items-start justify-between gap-4">
-        <div className="max-w-2xl"><h2 className="text-base font-semibold text-slate-900">AORE lazer teknik profilleri</h2><p className="mt-1 text-sm text-slate-600">Seri, kabin, güç ve ölçü seçimine ait değerleri düzenleyin. Kaydedilen profil, aynı seçimlerle açılan ürün kartına uygulanır.</p></div>
+        <div className="max-w-2xl"><h2 className="text-base font-semibold text-slate-900">Makine teknik bilgileri</h2><p className="mt-1 text-sm text-slate-600">Seri, kabin, güç ve ölçü seçimine ait değerleri düzenleyin. Kaydedilen profil, aynı seçimlerle açılan ürün kartına uygulanır.</p></div>
         <div className="flex flex-wrap gap-2"><Button type="button" variant="outline" size="sm" disabled={!divisionId || !brandId || saving || !canEdit} onClick={() => setImportOpen(true)}><Upload className="mr-1.5 size-4" />Excel'den profil aktar</Button><Button type="button" size="sm" disabled={!configuration || !divisionId || !brandId || saving || !canEdit} onClick={() => void save()}><Save className="mr-1.5 size-4" />{saving ? 'Kaydediliyor…' : 'Profili kaydet'}</Button></div>
       </div>
-      <div className="max-w-sm space-y-1.5"><Label htmlFor="laser-profile-brand">Marka</Label><select id="laser-profile-brand" className="h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 disabled:bg-slate-100" value={brandId} disabled={loadingBrands || saving || !brands.length} onChange={(event) => { setBrandId(event.target.value); setConfiguration(null); }}><option value="">{loadingBrands ? 'Marka yükleniyor…' : 'AORE markasını seçin'}</option>{brands.map((brand) => <option key={brand.id} value={brand.id}>{brand.name}</option>)}</select></div>
+      <div className="max-w-sm space-y-1.5"><Label htmlFor="laser-profile-brand">Marka</Label><select id="laser-profile-brand" className="h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 disabled:bg-slate-100" value={brandId} disabled={loadingBrands || saving || !brands.length} onChange={(event) => { setBrandId(event.target.value); setConfiguration(null); }}><option value="">{loadingBrands ? 'Marka yükleniyor…' : 'Marka seçin'}</option>{brands.map((brand) => <option key={brand.id} value={brand.id}>{brand.name}</option>)}</select></div>
       {brandError && <p role="alert" className="text-sm text-red-700">{brandError}</p>}
-      {!loadingBrands && !brandError && divisionId && !brands.length && <p className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">Bu bölümde aktif AORE markası bulunamadı. CRM Alan Ayarları → Markalar bölümünden mevcut markanın Sac İşleme kapsamını kontrol edin.</p>}
+      {!loadingBrands && !brandError && divisionId && !brands.length && <p className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">Bu bölümde teknik kataloğu bağlı marka bulunamadı. {onConfigureBrand && <button type="button" className="underline font-medium" onClick={onConfigureBrand}>CRM Alan Ayarları → Markalar</button>} üzerinden marka kapsamını ve teknik kataloğunu düzenleyin.</p>}
       <LaserConfigurationEditor key={`editor-${divisionId}-${brandId}`} divisionId={divisionId} brandId={brandId || undefined} value={configuration} onChange={setConfiguration} draftScope="settings" disabled={saving || !canEdit} />
       {divisionId && brandId && <LaserProfileImportDialog key={`import-${divisionId}-${brandId}`} open={importOpen} onOpenChange={setImportOpen} scope={{ divisionId, brandId }} onImported={reloadSelected} />}
     </div>
@@ -87,7 +87,7 @@ function fileToBase64(file: File): Promise<string> {
   });
 }
 
-function LaserProfileImportDialog({ open, onOpenChange, scope, onImported }: { open: boolean; onOpenChange: (open: boolean) => void; scope: LaserProfileScope; onImported: () => Promise<void> }) {
+export function LaserProfileImportDialog({ open, onOpenChange, scope, onImported }: { open: boolean; onOpenChange: (open: boolean) => void; scope: LaserProfileScope; onImported: () => Promise<void> }) {
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<LaserImportPreview | null>(null);
   const [previewing, setPreviewing] = useState(false);
@@ -104,7 +104,7 @@ function LaserProfileImportDialog({ open, onOpenChange, scope, onImported }: { o
     setError('');
     setFile(null);
     if (!selected) return;
-    if (!/\.xlsx$/i.test(selected.name)) { setError('AORE çok sütunlu aktarımı için XLSX dosyası seçin.'); return; }
+    if (!/\.xlsx$/i.test(selected.name)) { setError('Çok sütunlu teknik bilgi aktarımı için XLSX dosyası seçin.'); return; }
     if (selected.size > 10 * 1024 * 1024) { setError('Dosya boyutu en fazla 10 MB olabilir.'); return; }
     setFile(selected);
   };
@@ -146,9 +146,9 @@ function LaserProfileImportDialog({ open, onOpenChange, scope, onImported }: { o
     if (!next) { request.current?.abort(); setPreviewing(false); setPreview(null); setFile(null); setError(''); }
     onOpenChange(next);
   };
-  return <Dialog open={open} onOpenChange={changeOpen}><DialogContent className="flex max-h-[90vh] flex-col overflow-hidden sm:max-w-5xl"><DialogHeader><DialogTitle>Lazer profillerini Excel'den aktar</DialogTitle><DialogDescription>Standart Yapılandırma, F, PG ve TG sayfaları birlikte okunur. Her model, kabin ve güç için teknik değerleri kaydetmeden önce inceleyin.</DialogDescription></DialogHeader>
+  return <Dialog open={open} onOpenChange={changeOpen}><DialogContent className="flex max-h-[90vh] flex-col overflow-hidden sm:max-w-5xl"><DialogHeader><DialogTitle>Model değerlerini Excel'den aktar</DialogTitle><DialogDescription>Standart Yapılandırma ve dosyadaki tüm desteklenen kesim serileri birlikte okunur. Her model, kabin ve güç için teknik değerleri kaydetmeden önce inceleyin.</DialogDescription></DialogHeader>
     <div className="min-h-0 space-y-4 overflow-y-auto pr-1">
-      <div className="flex flex-wrap items-end gap-3"><div className="min-w-0 flex-1 space-y-1.5"><Label htmlFor="laser-import-file">AORE teknik parametre dosyası (.xlsx)</Label><Input id="laser-import-file" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" disabled={previewing || committing} onChange={(event) => selectFile(event.target.files?.[0])} /></div><Button type="button" variant="outline" disabled={!file || previewing || committing} onClick={() => void makePreview()}><FileSpreadsheet className="mr-1.5 size-4" />{previewing ? 'İnceleniyor…' : 'Önizlemeyi oluştur'}</Button></div>
+      <div className="flex flex-wrap items-end gap-3"><div className="min-w-0 flex-1 space-y-1.5"><Label htmlFor="laser-import-file">Teknik parametre dosyası (.xlsx)</Label><Input id="laser-import-file" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" disabled={previewing || committing} onChange={(event) => selectFile(event.target.files?.[0])} /></div><Button type="button" variant="outline" disabled={!file || previewing || committing} onClick={() => void makePreview()}><FileSpreadsheet className="mr-1.5 size-4" />{previewing ? 'İnceleniyor…' : 'Önizlemeyi oluştur'}</Button></div>
       {error && <p role="alert" className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-800">{error}</p>}
       {preview && <>
         <p role="status" className="text-sm text-slate-600">{preview.laserProfiles.length} profil hazır. Aynı kayıtlar güncellenir, elle düzenlenen değerler korunur. Önizleme 15 dakika geçerlidir.</p>

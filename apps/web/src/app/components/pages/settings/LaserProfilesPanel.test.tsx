@@ -57,7 +57,7 @@ describe('LaserProfilesPanel', () => {
     render(<LaserProfilesPanel divisionId="division-1" />);
     await waitFor(() => expect((screen.getByLabelText('Marka') as HTMLSelectElement).value).toBe('brand-1'));
     await user.click(screen.getByRole('button', { name: "Excel'den profil aktar" }));
-    await user.upload(screen.getByLabelText('AORE teknik parametre dosyası (.xlsx)'), new File(['fake workbook content'], 'AORE.xlsx', { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
+    await user.upload(screen.getByLabelText('Teknik parametre dosyası (.xlsx)'), new File(['fake workbook content'], 'AORE.xlsx', { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
     await user.click(screen.getByRole('button', { name: 'Önizlemeyi oluştur' }));
     await screen.findByText(/1 profil hazır/);
     expect(within(screen.getByRole('dialog')).getByText('Makine Ağırlığı')).toBeTruthy();

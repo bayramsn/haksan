@@ -242,6 +242,9 @@ export interface ProductImportPreview {
 
 export interface TechnicalImportPreview {
   file: { name: string; sheetNames: string[]; rowCount: number };
+  divisionId?: string;
+  layout?: import('@haksan/shared').TechnicalImportLayout;
+  sourceSheets?: Array<{ name: string; columnCount: number; sampleRows: string[][]; suggestedLayout: import('@haksan/shared').TechnicalImportLayout }>;
   rows: TechnicalImportRowInput[];
   summary: {
     total: number;
@@ -772,11 +775,11 @@ export const productService = {
   create: (body: ProductCreateInput) => api.post<any>('/products', body),
   update: (id: string, body: ProductUpdateInput) => api.patch<any>(`/products/${id}`, body),
   remove: (id: string) => api.delete(`/products/${id}`),
-  previewImport: (body: { fileName: string; fileBase64: string }) =>
+  previewImport: (body: { fileName: string; fileBase64: string; divisionId?: string }) =>
     api.post<ProductImportPreview>('/products/import/preview', body),
-  /** Şablon indirilebilecek kategori → alt kategori → tip üçlüleri (ürünü olanlar). */
-  importTemplateOptions: () => api.get<ProductImportTemplateOption[]>('/products/import/template-options'),
-  commitImport: (body: { rows: ProductImportRow[]; mode?: 'upsert' | 'create_only'; replaceDetails?: boolean }) =>
+  /** Seçilen bölümdeki kategori → alt kategori → tip üçlüleri. */
+  importTemplateOptions: (divisionId?: string) => api.get<ProductImportTemplateOption[]>(`/products/import/template-options${qs({ divisionId })}`),
+  commitImport: (body: { rows: ProductImportRow[]; mode?: 'upsert' | 'create_only'; replaceDetails?: boolean; divisionId?: string }) =>
     api.post<{ rows: ProductImportRow[]; summary: ProductImportSummary }>('/products/import/commit', body),
   specs: (id: string) => api.get<any[]>(`/products/${id}/specs`),
   specTemplates: (productTypeCode?: string) => api.get<any[]>(`/product-spec-templates${qs({ productTypeCode })}`),
@@ -1403,12 +1406,12 @@ export const adminService = {
   lookups: () => api.get<{ available: string[] }>('/admin/lookups'),
   lookupRows: (name: string, params?: Record<string, string | number | undefined>) =>
     api.get<any[]>(`/admin/lookups/${name}${qs(params)}`),
-  createLookup: (name: string, body: { code?: string; name: string; description?: string; sortOrder?: number; isActive?: boolean; province?: string; divisionId?: string | null; parentId?: string | null; productTypeIds?: string[]; companyId?: string | null; isOwned?: boolean; logoFileId?: string | null }) =>
+  createLookup: (name: string, body: { code?: string; name: string; description?: string; sortOrder?: number; isActive?: boolean; province?: string; divisionId?: string | null; parentId?: string | null; productTypeIds?: string[]; companyId?: string | null; supplierCompanyId?: string | null; technicalCatalogCode?: 'AORE_LASER' | null; isOwned?: boolean; logoFileId?: string | null }) =>
     api.post<any>(`/admin/lookups/${name}`, body),
   updateLookup: (
     name: string,
     id: string,
-    body: { code?: string; name?: string; description?: string; sortOrder?: number; isActive?: boolean; province?: string; divisionId?: string | null; parentId?: string | null; productTypeIds?: string[]; companyId?: string | null; isOwned?: boolean; logoFileId?: string | null }
+    body: { code?: string; name?: string; description?: string; sortOrder?: number; isActive?: boolean; province?: string; divisionId?: string | null; parentId?: string | null; productTypeIds?: string[]; companyId?: string | null; supplierCompanyId?: string | null; technicalCatalogCode?: 'AORE_LASER' | null; isOwned?: boolean; logoFileId?: string | null }
   ) => api.patch<any>(`/admin/lookups/${name}/${id}`, body),
   reorderLookup: (name: string, items: Array<{ id: string; sortOrder: number }>) =>
     api.patch<{ ok: true; items: Array<{ id: string; sortOrder: number }> }>(`/admin/lookups/${name}/reorder`, { items }),

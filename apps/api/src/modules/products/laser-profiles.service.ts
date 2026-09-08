@@ -1,7 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { and, eq, isNull, sql } from 'drizzle-orm';
 import {
-  LASER_MODELS, LASER_POWERS, laserSelectionKey, laserSelectionSchema, laserTechnicalConfigurationSchema,
+  isSupportedLaserBrand, LASER_MODELS, LASER_POWERS, laserSelectionKey, laserSelectionSchema, laserTechnicalConfigurationSchema,
   resolveLaserProfile, type LaserSelection, type LaserSpec, type LaserTechnicalConfiguration,
 } from '@haksan/shared';
 import type { DbClient } from '../../db/client';
@@ -16,7 +16,7 @@ import { ForbiddenError, NotFoundError, ValidationError } from '../../shared/uti
 export interface LaserProfileScope { divisionId: string; brandId: string }
 
 /** Only explicit values/unit edits come from the client; provenance stays server-owned. */
-export function applyLaserSpecEdits(base: LaserTechnicalConfiguration, edits: LaserSpec[]): LaserTechnicalConfiguration {
+export function applyLaserSpecEdits(base: LaserTechnicalConfiguration, edits: LaserSpec[], options: { replaceAll?: boolean } = {}): LaserTechnicalConfiguration {
   const powerFields = base.specs.filter((spec) => spec.key === 'Lazer Gücü');
   if (powerFields.length !== 1 || powerFields[0].value !== String(base.selection.powerKw) || powerFields[0].unit !== 'kW') {
     throw new ValidationError('Teknik bilgi rezonatör gücü seçimiyle eşleşmiyor');
@@ -26,37 +26,44 @@ export function applyLaserSpecEdits(base: LaserTechnicalConfiguration, edits: La
     if (keys.has(spec.key)) throw new ValidationError('Teknik alan birden fazla kez kullanılamaz');
     keys.add(spec.key);
   }
-  const current = new Map(base.specs.map((spec) => [spec.key, spec]));
+  if (options.replaceAll && !keys.has('Lazer Gücü')) throw new ValidationError('Rezonatör gücü alanı silinemez');
+  const hidden = new Set(base.hiddenSpecKeys ?? []);
+  if (options.replaceAll) for (const spec of base.specs) if (!keys.has(spec.key)) hidden.add(spec.key);
+  for (const key of keys) hidden.delete(key);
+  const current = new Map(base.specs.filter((spec) => !options.replaceAll || keys.has(spec.key)).map((spec) => [spec.key, spec]));
   for (const edit of edits) {
     const existing = current.get(edit.key);
     if (edit.key === 'Lazer Gücü' && (edit.value !== String(base.selection.powerKw) || edit.unit !== 'kW')) {
       throw new ValidationError('Rezonatör gücü seçim alanından değiştirilmelidir');
     }
     const sourceValue = existing?.sourceValue ?? existing?.value ?? '';
-    const sourceUnit = existing?.sourceUnit ?? existing?.unit;
-    const isManual = !existing || edit.value !== sourceValue || (edit.unit ?? '') !== (sourceUnit ?? '');
-    if (existing && existing.value === edit.value && (existing.unit ?? '') === (edit.unit ?? '') && Boolean(existing.isManual) === isManual) continue;
+    const sourceUnit = existing?.sourceUnit ?? existing?.unit ?? '';
+    const sourceGroupCode = existing?.sourceGroupCode ?? existing?.groupCode ?? 'GENEL';
+    const groupCode = edit.groupCode ?? existing?.groupCode ?? 'GENEL';
+    const isManual = !existing || edit.value !== sourceValue || (edit.unit ?? '') !== sourceUnit || groupCode !== sourceGroupCode;
+    if (existing && existing.value === edit.value && (existing.unit ?? '') === (edit.unit ?? '') && (existing.groupCode ?? 'GENEL') === groupCode && Boolean(existing.isManual) === isManual) continue;
     current.set(edit.key, {
       key: edit.key, value: edit.value, unit: edit.unit,
-      groupCode: existing?.groupCode ?? edit.groupCode ?? 'GENEL',
-      source: existing?.source, sourceValue, sourceUnit,
+      groupCode,
+      source: existing?.source, sourceValue, sourceUnit, sourceGroupCode,
       isManual,
     });
   }
-  if (current.size > 150) throw new ValidationError('Teknik profilde en fazla 150 alan olabilir');
-  return { ...base, specs: [...current.values()] };
+  if (current.size > 150 || hidden.size > 150) throw new ValidationError('Teknik profilde en fazla 150 alan veya gizlenen alan olabilir');
+  return { ...base, ...(base.hiddenSpecKeys || hidden.size ? { hiddenSpecKeys: [...hidden] } : {}), specs: options.replaceAll ? edits.map((edit) => current.get(edit.key)!) : [...current.values()] };
 }
 
 /** Re-import refreshes source values while keeping a user's manual values, including deliberate blanks. */
 export function mergeLaserReimport(source: LaserTechnicalConfiguration, existing?: LaserTechnicalConfiguration): LaserTechnicalConfiguration {
   if (!existing) return source;
-  const incoming = new Map(source.specs.map((spec) => [spec.key, spec]));
+  const hidden = new Set(existing.hiddenSpecKeys ?? []);
+  const incoming = new Map(source.specs.filter((spec) => !hidden.has(spec.key)).map((spec) => [spec.key, spec]));
   for (const spec of existing.specs) {
-    if (!spec.isManual) continue;
+    if (!spec.isManual || hidden.has(spec.key)) continue;
     const baseline = incoming.get(spec.key);
-    incoming.set(spec.key, { ...spec, source: baseline?.source, sourceValue: baseline?.value ?? '', sourceUnit: baseline?.unit, isManual: true });
+    incoming.set(spec.key, { ...spec, source: baseline?.source, sourceValue: baseline?.value ?? '', sourceUnit: baseline?.unit ?? '', sourceGroupCode: baseline?.groupCode ?? 'GENEL', isManual: true });
   }
-  return { ...source, specs: [...incoming.values()] };
+  return { ...source, ...(existing.hiddenSpecKeys || hidden.size ? { hiddenSpecKeys: [...hidden] } : {}), specs: [...incoming.values()] };
 }
 
 @Injectable()
@@ -78,7 +85,9 @@ export class LaserProfilesService {
     ) });
     if (!brand || (brand.divisionId && brand.divisionId !== scope.divisionId)) throw new NotFoundError('Bölüm markası');
     // This source catalog belongs to AORE. Never silently attach it to another manufacturer.
-    if (!/\baore\b/i.test(brand.name)) throw new ValidationError('Bu lazer teknik kataloğu AORE markasına aittir');
+    if (brand.technicalCatalogCode !== 'AORE_LASER' && !isSupportedLaserBrand(brand.name)) {
+      throw new ValidationError('Bu marka için AORE lazer teknik kataloğu seçilmelidir');
+    }
   }
 
   async options(scope: { divisionId: string; brandId?: string }, actor: AuthContext) {
@@ -128,7 +137,7 @@ export class LaserProfilesService {
     const result = await this.db.transaction(async (tx) => {
       await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`${actor.tenantId}:${scope.divisionId}:${scope.brandId}:${laserSelectionKey(selection)}`}, 0))`);
       const existing = await tx.query.laserTechnicalProfiles.findFirst({ where: this.condition(scope, selection, actor) });
-      const configuration = laserTechnicalConfigurationSchema.parse(applyLaserSpecEdits(existing?.configuration ?? fallback, specs));
+      const configuration = laserTechnicalConfigurationSchema.parse(applyLaserSpecEdits(existing?.configuration ?? fallback, specs, { replaceAll: true }));
       const values = { configuration, updatedBy: actor.userId, updatedAt: new Date(), deletedAt: null };
       const [saved] = existing
         ? await tx.update(laserTechnicalProfiles).set(values).where(eq(laserTechnicalProfiles.id, existing.id)).returning()

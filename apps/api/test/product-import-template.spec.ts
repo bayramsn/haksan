@@ -82,7 +82,7 @@ afterAll(async () => {
 });
 
 describe('Toplu ürün yükleme şablonu', () => {
-  it('şablon seçeneklerinde yalnız ürünü olan tipleri listeler', async () => {
+  it('şablon seçeneklerinde seçilen bölümün ürün tiplerini ve ürün sayılarını listeler', async () => {
     const response = await supertest(app.getHttpServer())
       .get('/api/v1/products/import/template-options')
       .set('Authorization', `Bearer ${token}`)
@@ -160,11 +160,11 @@ describe('Toplu ürün yükleme şablonu', () => {
     expect(cell('Ayna Ölçüsü')).toBe('8"');
   });
 
-  it('o tipte ürün yoksa neden söyleyerek reddeder', async () => {
+  it('bölüme veya üst aileye bağlanmamış ortak tipe şablon üretmez', async () => {
     const response = await supertest(app.getHttpServer())
       .get('/api/v1/products/import/template?productTypeCode=DIVIZOR')
       .set('Authorization', `Bearer ${token}`);
     expect(response.status).toBe(422);
-    expect(JSON.stringify(response.body)).toContain('kayıtlı ürün yok');
+    expect(JSON.stringify(response.body)).toContain('seçilen bölümün taksonomisine');
   });
 });

@@ -26,7 +26,11 @@ import {
   X,
 } from "lucide-react";
 import { toast } from "sonner";
-import { adminService } from "../../../../lib/services";
+import { isLaserProductType, isSupportedLaserBrand, type LaserSelection, type LaserSpec, type LaserTechnicalConfiguration } from "@haksan/shared";
+import { laserProfilesService } from "../../../../lib/services/laser-profiles.service";
+import { laserWorkbookRows, laserWorkbookSpecs } from "./laser-workbook";
+import { laserSelectionKey } from "../../technical/laser-editor-state";
+import { adminService, productService } from "../../../../lib/services";
 import { exportService } from "../../../../lib/downloadExport";
 import { useAuth } from "../../../../lib/auth";
 import { useStore } from "../../../lib/store";
@@ -39,7 +43,8 @@ import {
   productSpecGroupForTypeKey,
 } from "../../../lib/productSpecTemplates";
 import { TechnicalImportDialog } from "../../dialogs/TechnicalImportDialog";
-import { LaserProfilesPanel } from "./LaserProfilesPanel";
+import { LaserProfileImportDialog } from "./LaserProfilesPanel";
+import { LaserConfigurationEditor } from "../../technical/LaserConfigurationEditor";
 import {
   WORKBOOK_COLUMNS,
   applyPastedBlock,
@@ -73,7 +78,7 @@ import { Switch } from "../../ui/switch";
 import { cn } from "../../ui/utils";
 
 type FamilyCode = "CNC" | "SAC_ISLEME" | "UNIVERSAL";
-type WorkspaceView = "library" | "editor" | "laser";
+type WorkspaceView = "library" | "editor";
 type DragEdge = "before" | "after";
 type TemplateStartMode = "blank" | "copy";
 
@@ -153,6 +158,7 @@ type DraftRow = {
    * kalıcı silme yalnız katalog dışı (kullanıcı/aktarım kaynaklı) alanlarda açıktır.
    */
   inCatalog: boolean;
+  laserSource?: LaserSpec;
 };
 
 const FAMILIES: Array<{ code: FamilyCode; label: string }> = [
@@ -312,12 +318,14 @@ function completionFor(typeCode: string, rows: SpecTemplateRow[]) {
   return { registered: registered.length, expected, percent, missing: Math.max(0, expected - registered.length) };
 }
 
-export function ProductSpecTemplatesCard() {
+export function ProductSpecTemplatesCard({ divisionId, onDivisionChange, onConfigureBrand, importRequest = 0, onImportRequestHandled }: {
+  divisionId?: string; onDivisionChange?: (id: string) => void; onConfigureBrand?: () => void; importRequest?: number; onImportRequestHandled?: () => void;
+}) {
   const { user, activeDivision } = useAuth();
   const { products } = useStore();
-  const activeFamily = foldProductTypeCode(user?.divisions.find((division) => division.id === activeDivision)?.code);
+  const activeFamily = foldProductTypeCode(user?.divisions.find((division) => division.id === (divisionId ?? activeDivision))?.code);
   const initialFamily: FamilyCode = activeFamily === "SAC_ISLEME" || activeFamily === "UNIVERSAL" ? activeFamily : "CNC";
-  const [view, setView] = useState<WorkspaceView>(initialFamily === "SAC_ISLEME" ? "laser" : "library");
+  const [view, setView] = useState<WorkspaceView>("library");
   const [familyCode, setFamilyCode] = useState<FamilyCode>(initialFamily);
   const [categoryCode, setCategoryCode] = useState("TEZGAH");
   const [subcategoryCode, setSubcategoryCode] = useState("ISLEME_MERKEZI");
@@ -340,13 +348,51 @@ export function ProductSpecTemplatesCard() {
   const [productCategoryRows, setProductCategoryRows] = useState<TaxonomyLookupRow[]>([]);
   const [productSubcategoryRows, setProductSubcategoryRows] = useState<TaxonomyLookupRow[]>([]);
   const [productTypeRows, setProductTypeRows] = useState<TaxonomyLookupRow[]>([]);
+  const [laserBrands, setLaserBrands] = useState<Array<{id: string; name: string}>>([]);
+  const [laserBrandId, setLaserBrandId] = useState("");
+  const [laserConfiguration, setLaserConfiguration] = useState<LaserTechnicalConfiguration | null>(null);
+  const [laserBrandsLoading, setLaserBrandsLoading] = useState(false);
+  const [laserImportOpen, setLaserImportOpen] = useState(false);
+  useEffect(() => { if (importRequest > 0) { setImportOpen(true); onImportRequestHandled?.(); } }, [importRequest]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const divisions = user?.divisions ?? [];
   const familyDivisionId = useMemo(() => {
     const wanted = familyCode === "SAC_ISLEME" ? "SAC_ISLEME" : familyCode;
     return divisions.find((division) => foldProductTypeCode(division.code) === wanted)?.id;
   }, [divisions, familyCode]);
-  const localDraftKey = (nextTypeCode: string) => workbookDraftKey(nextTypeCode, user?.tenantId, familyDivisionId);
+  const laserDraftStorageKey = (configuration: LaserTechnicalConfiguration) => `${workbookDraftKey(configuration.selection.productTypeCode, user?.tenantId, familyDivisionId)}:laser:${JSON.stringify([laserBrandId, laserSelectionKey(configuration.selection)])}`;
+  const localDraftKey = (nextTypeCode: string) => laserConfiguration && isLaserProductType(nextTypeCode)
+    ? laserDraftStorageKey(laserConfiguration) : workbookDraftKey(nextTypeCode, user?.tenantId, familyDivisionId);
+  useEffect(() => {
+    if (familyCode !== "SAC_ISLEME" || !familyDivisionId) return;
+    let cancelled = false;
+    setLaserBrandsLoading(true);
+    void productService.listBrands(familyDivisionId).then((brands) => {
+      if (cancelled) return;
+      const matching = brands.filter((brand) => brand.isActive !== false && isSupportedLaserBrand(brand.name, brand.technicalCatalogCode));
+      setLaserBrands(matching); setLaserBrandId((current) => matching.some((brand) => brand.id === current) ? current : matching[0]?.id ?? "");
+    }).catch(() => { if (!cancelled) toast.error("Teknik kaynak markaları yüklenemedi."); })
+      .finally(() => { if (!cancelled) setLaserBrandsLoading(false); });
+    return () => { cancelled = true; };
+  }, [familyCode, familyDivisionId]);
+  const preserveLaserWorkbook = () => {
+    if (!laserConfiguration) return;
+    try { localStorage.setItem(laserDraftStorageKey(laserConfiguration), JSON.stringify({ rows: draftRows })); } catch { /* In-memory editing remains available. */ }
+  };
+  const receiveLaserConfiguration = (configuration: LaserTechnicalConfiguration | null, restore = true) => {
+    preserveLaserWorkbook();
+    setLaserConfiguration(configuration);
+    const sourceRows = configuration ? laserWorkbookRows(configuration) : [];
+    let rows = sourceRows;
+    if (configuration && restore) {
+      try {
+        const cached = JSON.parse(localStorage.getItem(laserDraftStorageKey(configuration)) ?? "null");
+        if (Array.isArray(cached?.rows)) rows = cached.rows;
+      } catch { /* Invalid browser drafts are ignored. */ }
+    }
+    setDraftRows(rows); setBaseline(JSON.stringify(sourceRows)); setUndoStack([]); setRedoStack([]);
+    setSelectedRowId(rows[0]?.clientId ?? null); setLastDraftSave(null);
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -467,6 +513,7 @@ export function ProductSpecTemplatesCard() {
   );
   // Seçim her zaman aktif aile/kategori/alt kategori zincirinde kalmalı.
   const selectedType = scopedTypes.find((type) => sameType(type.code, typeCode)) ?? scopedTypes[0];
+  const isLaserWorkbook = familyCode === "SAC_ISLEME" && isLaserProductType(selectedType?.code ?? "");
 
   useEffect(() => {
     const nextCategory = categoryOptions.some((category) => category.code === categoryCode)
@@ -533,7 +580,11 @@ export function ProductSpecTemplatesCard() {
   };
 
   useEffect(() => {
-    if (view === "editor" && selectedType) prepareWorkbook(selectedType.code);
+    if (view !== "editor" || !selectedType) return;
+    if (isLaserWorkbook) {
+      if (laserConfiguration && laserConfiguration.selection.productTypeCode === selectedType.code) return;
+      setDraftRows([]); setBaseline("[]"); setLaserConfiguration(null);
+    } else prepareWorkbook(selectedType.code);
     // Only reset when the selected product type or server source changes deliberately.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [view, typeCode, familyDivisionId]);
@@ -541,10 +592,10 @@ export function ProductSpecTemplatesCard() {
   // Katalog alanları henüz DB kaydı değilse görsel taslak baseline ile aynı olsa
   // bile kaydedilmesi gereken yeni bir şablondur. Aksi halde "Yeni şablon"
   // ekranında Kaydet düğmesi değişiklik yapılana kadar yanlış biçimde pasif kalır.
-  const dirty = JSON.stringify(draftRows) !== baseline
+  const dirty = Boolean(isLaserWorkbook && laserConfiguration && !laserConfiguration.profileId) || JSON.stringify(draftRows) !== baseline
     || draftRows.some((row) => row.catalogOnly && !row.isDeleted);
   useEffect(() => {
-    if (view !== "editor" || !selectedType) return;
+    if (view !== "editor" || !selectedType || (isLaserWorkbook && !laserConfiguration)) return;
     if (!dirty) {
       localStorage.removeItem(localDraftKey(selectedType.code));
       setLastDraftSave(null);
@@ -584,6 +635,10 @@ export function ProductSpecTemplatesCard() {
   };
 
   const updateDraftRow = (clientId: string, patch: Partial<DraftRow>) => {
+    if (isLaserWorkbook && draftRows.find((row) => row.clientId === clientId)?.specKey === "Lazer Gücü"
+      && (patch.specKey !== undefined || patch.defaultValue !== undefined || patch.unit !== undefined || patch.isActive === false)) {
+      toast.info("Lazer gücü üstteki rezonatör gücü seçiminden değiştirilir."); return;
+    }
     applyDraft((current) => current.map((row) => (row.clientId === clientId ? { ...row, ...patch, catalogOnly: row.catalogOnly && !row.id } : row)));
   };
 
@@ -611,6 +666,7 @@ export function ProductSpecTemplatesCard() {
   const removeField = (clientId: string) => {
     const target = draftRows.find((row) => row.clientId === clientId);
     if (!target) return;
+    if (isLaserWorkbook && target.specKey === "Lazer Gücü") return toast.info("Lazer gücü seçime bağlı zorunlu alandır.");
     applyDraft((current) => (!target.id && !target.inCatalog
       ? current.filter((row) => row.clientId !== clientId)
       : current.map((row) => (row.clientId === clientId
@@ -726,7 +782,7 @@ export function ProductSpecTemplatesCard() {
   };
 
   const saveWorkbook = async () => {
-    if (!selectedType || !draftRows.length) return;
+    if (!selectedType || !draftRows.length || (isLaserWorkbook && !laserConfiguration)) return;
     const activeNames = draftRows
       .filter((row) => row.isActive && !row.isDeleted)
       .map((row) => normalizeProductSpecKey(row.specKey.trim()));
@@ -734,6 +790,14 @@ export function ProductSpecTemplatesCard() {
     if (new Set(activeNames).size !== activeNames.length) return toast.error("Aynı teknik bilgi adı birden fazla kez kullanılamaz");
     setBusy(true);
     try {
+      if (isLaserWorkbook && laserConfiguration && familyDivisionId && laserBrandId) {
+        const result = await laserProfilesService.save({ divisionId: familyDivisionId, brandId: laserBrandId }, laserConfiguration.selection, laserWorkbookSpecs(draftRows));
+        const oldKey = laserDraftStorageKey(laserConfiguration);
+        receiveLaserConfiguration(result, false);
+        localStorage.removeItem(oldKey);
+        toast.success("Teknik çalışma sayfası kaydedildi", { description: `${result.specs.length} alan bu seçime kaydedildi.` });
+        return;
+      }
       // Çalışma sayfasının tamamı tek istekte gider: kapsamda olup burada
       // bulunmayan alanları sunucu aynı transaction içinde tombstone'lar.
       // Böylece silme, tek tek DELETE isteklerine bağlı kalmadan kalıcı olur.
@@ -925,7 +989,7 @@ export function ProductSpecTemplatesCard() {
 
       <div className="flex overflow-x-auto border-b border-slate-300 bg-white" aria-label="Ürün grubu ve kategori seçimi">
         {FAMILIES.map((family) => (
-          <button key={family.code} type="button" onClick={() => { setFamilyCode(family.code); setView(family.code === "SAC_ISLEME" ? "laser" : "library"); }} className={cn("relative flex h-12 min-w-36 shrink-0 items-center justify-center gap-2 border-r border-slate-200 px-5 text-xs font-medium transition-colors", familyCode === family.code ? "bg-blue-50 text-blue-800" : "text-slate-600 hover:bg-slate-50")}>
+          <button key={family.code} type="button" onClick={() => { preserveLaserWorkbook(); const target = divisions.find((division) => foldProductTypeCode(division.code) === family.code); if (target && onDivisionChange) onDivisionChange(target.id); else setFamilyCode(family.code); setView("library"); }} disabled={busy || !divisions.some((division) => foldProductTypeCode(division.code) === family.code)} className={cn("relative flex h-12 min-w-36 shrink-0 items-center justify-center gap-2 border-r border-slate-200 px-5 text-xs font-medium transition-colors", familyCode === family.code ? "bg-blue-50 text-blue-800" : "text-slate-600 hover:bg-slate-50")}>
             {family.code === "CNC" ? <Settings2 className="size-4" /> : family.code === "SAC_ISLEME" ? <Sheet className="size-4" /> : <Wrench className="size-4" />}
             {family.label}
             {familyCode === family.code && <span className="absolute inset-x-0 bottom-0 h-0.5 bg-blue-600" />}
@@ -936,7 +1000,7 @@ export function ProductSpecTemplatesCard() {
           <button
             key={category.code}
             type="button"
-            onClick={() => { setCategoryCode(category.code); setView(familyCode === "SAC_ISLEME" && category.code === "TEZGAH" ? "laser" : "library"); }}
+            disabled={busy} onClick={() => { preserveLaserWorkbook(); setCategoryCode(category.code); setView("library"); }}
             className={cn(
               "relative flex h-12 shrink-0 items-center justify-center gap-2 border-r border-slate-200 px-4 text-xs font-medium transition-colors",
               categoryCode === category.code ? "bg-slate-900 text-white" : "text-slate-600 hover:bg-slate-50",
@@ -948,9 +1012,6 @@ export function ProductSpecTemplatesCard() {
           </button>
         ))}
       </div>
-
-      {familyCode === "SAC_ISLEME" && <div className="flex flex-wrap gap-2 border-b border-slate-200 bg-slate-50 px-4 py-3" aria-label="Teknik bilgi çalışma alanı"><Button type="button" size="sm" variant={view === "laser" ? "default" : "outline"} onClick={() => setView("laser")}>Lazer teknik profilleri</Button><Button type="button" size="sm" variant={view !== "laser" ? "default" : "outline"} onClick={() => setView("library")}>Genel alan şablonları</Button></div>}
-      {view === "laser" && familyCode === "SAC_ISLEME" && <LaserProfilesPanel key={familyDivisionId ?? "unscoped"} divisionId={familyDivisionId} />}
 
       {view === "library" ? (
         <LibraryView
@@ -975,7 +1036,27 @@ export function ProductSpecTemplatesCard() {
           onCreateTemplate={() => setNewTemplateOpen(true)}
         />
       ) : view === "editor" && selectedType ? (
-        <EditorView
+        <>
+        {isLaserWorkbook && <div className="space-y-3 border-b bg-slate-50 p-4">
+          <div className="flex flex-wrap items-end gap-3"><div className="min-w-52 space-y-1"><Label htmlFor="technical-source-brand">Ürün markası</Label>
+            <select id="technical-source-brand" value={laserBrandId} disabled={busy || laserBrandsLoading} onChange={(event) => { preserveLaserWorkbook(); setLaserBrandId(event.target.value); setLaserConfiguration(null); setDraftRows([]); setBaseline("[]"); }} className="h-9 w-full rounded-md border bg-white px-3 text-sm">
+              {!laserBrands.length && <option value="">{laserBrandsLoading ? "Yükleniyor…" : "Kaynağı bağlı marka bulunamadı"}</option>}
+              {laserBrands.map((brand) => <option key={brand.id} value={brand.id}>{brand.name}</option>)}
+            </select></div>
+            <Button size="sm" variant="outline" onClick={onConfigureBrand}>Marka ve kaynak ayarları</Button>
+            <Button size="sm" variant="outline" disabled={!laserBrandId || !familyDivisionId || busy} onClick={() => setLaserImportOpen(true)}>Model değerlerini içe aktar</Button>
+            <p className="text-xs text-muted-foreground">Seçimin teknik değerleri çalışma sayfasına gelir. Alanları, değerleri, grupları ve sıralamayı aşağıdan düzenleyin.</p>
+          </div>
+          <LaserConfigurationEditor divisionId={familyDivisionId} brandId={laserBrandId} value={laserConfiguration}
+            initialProductTypeCode={selectedType.code as LaserSelection['productTypeCode']} draftScope="settings-workbook" selectionOnly disabled={busy}
+            onChange={receiveLaserConfiguration} onSelectionChange={(selection) => {
+              if (selection.productTypeCode && !sameType(selection.productTypeCode, selectedType.code)) {
+                const next = familyTypes.find((type) => sameType(type.code, selection.productTypeCode!));
+                if (next) { setCategoryCode(next.categoryCode); setSubcategoryCode(next.subcategoryCode); setTypeCode(next.code); }
+              }
+            }} />
+        </div>}
+        {(!isLaserWorkbook || laserConfiguration) && <EditorView
           type={selectedType}
           search={search}
           setSearch={setSearch}
@@ -1005,9 +1086,17 @@ export function ProductSpecTemplatesCard() {
           busy={busy}
           save={() => void saveWorkbook()}
           openImport={() => setImportOpen(true)}
-        />
+        />}
+        </>
       ) : null}
 
+      {familyDivisionId && laserBrandId && <LaserProfileImportDialog key={`${familyDivisionId}:${laserBrandId}`} open={laserImportOpen} onOpenChange={setLaserImportOpen}
+        scope={{divisionId: familyDivisionId, brandId: laserBrandId}} onImported={async () => {
+          if (laserConfiguration) {
+            const resolved = await laserProfilesService.resolve({divisionId: familyDivisionId, brandId: laserBrandId}, laserConfiguration.selection);
+            receiveLaserConfiguration(resolved);
+          }
+        }} />}
       {selectedType && (
         <TechnicalImportDialog
           open={importOpen}
@@ -1016,6 +1105,7 @@ export function ProductSpecTemplatesCard() {
           productTypeLabel={selectedType.label}
           hierarchyLabel={hierarchyLabel}
           divisionId={familyDivisionId}
+          familyCode={familyCode}
           availableFields={visibleDraftRows.length
             ? visibleDraftRows.map((row) => ({ key: row.specKey, groupCode: row.groupCode, unit: row.unit }))
             : buildDraftRows(selectedType.code, specRows)
@@ -1025,7 +1115,7 @@ export function ProductSpecTemplatesCard() {
           onImported={async (importMode) => {
             if (importMode === "machine_data") return;
             const nextRows = await loadSpecTemplates();
-            if (view === "editor") prepareWorkbook(selectedType.code, nextRows, false);
+            if (view === "editor" && !isLaserWorkbook) prepareWorkbook(selectedType.code, nextRows, false);
           }}
         />
       )}
@@ -1716,9 +1806,9 @@ function EditorView({ type, search, setSearch, rows, displayRows, selectedRow, s
                       </div>
                     </td>
                     {rowSpan > 0 && <td rowSpan={rowSpan} className="border-r border-slate-300 bg-slate-50 p-0 text-center"><span style={{ writingMode: "vertical-rl", transform: "rotate(180deg)" }} className="inline-block py-2 font-display text-sm font-bold tracking-[0.08em] text-slate-700">{groupLabel(row.groupCode)}</span></td>}
-                    <td className="border-r border-slate-200 p-0"><input value={row.specKey} data-workbook-cell={`${index}:0`} onFocus={() => setSelectedRowId(row.clientId)} onKeyDown={(event) => cellKeyDown(event, index, 0)} onPaste={(event) => { if (pasteValues(row.clientId, "specKey", event.clipboardData.getData("text"))) event.preventDefault(); }} onChange={(event) => updateRow(row.clientId, { specKey: event.target.value })} className="h-8 w-full border-0 bg-transparent px-3 outline-none focus:bg-white focus:ring-2 focus:ring-inset focus:ring-blue-500" /></td>
-                    <td className="border-r border-slate-200 p-0"><input value={row.defaultValue} data-workbook-cell={`${index}:1`} onFocus={() => setSelectedRowId(row.clientId)} onKeyDown={(event) => cellKeyDown(event, index, 1)} onPaste={(event) => { if (pasteValues(row.clientId, "defaultValue", event.clipboardData.getData("text"))) event.preventDefault(); }} onChange={(event) => updateRow(row.clientId, { defaultValue: event.target.value })} className="h-8 w-full border-0 bg-transparent px-3 font-medium outline-none focus:bg-white focus:ring-2 focus:ring-inset focus:ring-blue-500" /></td>
-                    <td className="border-r border-slate-200 p-0"><input value={row.unit} data-workbook-cell={`${index}:2`} onFocus={() => setSelectedRowId(row.clientId)} onKeyDown={(event) => cellKeyDown(event, index, 2)} onPaste={(event) => { if (pasteValues(row.clientId, "unit", event.clipboardData.getData("text"))) event.preventDefault(); }} onChange={(event) => updateRow(row.clientId, { unit: event.target.value })} className="h-8 w-full border-0 bg-transparent px-3 outline-none focus:bg-white focus:ring-2 focus:ring-inset focus:ring-blue-500" /></td>
+                    <td className="border-r border-slate-200 p-0"><input aria-label={`${row.specKey} alan adı`} value={row.specKey} data-workbook-cell={`${index}:0`} onFocus={() => setSelectedRowId(row.clientId)} onKeyDown={(event) => cellKeyDown(event, index, 0)} onPaste={(event) => { if (pasteValues(row.clientId, "specKey", event.clipboardData.getData("text"))) event.preventDefault(); }} onChange={(event) => updateRow(row.clientId, { specKey: event.target.value })} className="h-8 w-full border-0 bg-transparent px-3 outline-none focus:bg-white focus:ring-2 focus:ring-inset focus:ring-blue-500" /></td>
+                    <td className="border-r border-slate-200 p-0"><input aria-label={`${row.specKey} başlangıç değeri`} value={row.defaultValue} data-workbook-cell={`${index}:1`} onFocus={() => setSelectedRowId(row.clientId)} onKeyDown={(event) => cellKeyDown(event, index, 1)} onPaste={(event) => { if (pasteValues(row.clientId, "defaultValue", event.clipboardData.getData("text"))) event.preventDefault(); }} onChange={(event) => updateRow(row.clientId, { defaultValue: event.target.value })} className="h-8 w-full border-0 bg-transparent px-3 font-medium outline-none focus:bg-white focus:ring-2 focus:ring-inset focus:ring-blue-500" /></td>
+                    <td className="border-r border-slate-200 p-0"><input aria-label={`${row.specKey} birimi`} value={row.unit} data-workbook-cell={`${index}:2`} onFocus={() => setSelectedRowId(row.clientId)} onKeyDown={(event) => cellKeyDown(event, index, 2)} onPaste={(event) => { if (pasteValues(row.clientId, "unit", event.clipboardData.getData("text"))) event.preventDefault(); }} onChange={(event) => updateRow(row.clientId, { unit: event.target.value })} className="h-8 w-full border-0 bg-transparent px-3 outline-none focus:bg-white focus:ring-2 focus:ring-inset focus:ring-blue-500" /></td>
                     <td className="border-r border-slate-200 p-0"><select value={row.isActive ? "active" : "inactive"} onChange={(event) => updateRow(row.clientId, { isActive: event.target.value === "active" })} className="h-8 w-full border-0 bg-transparent px-2 text-[11px] outline-none focus:ring-2 focus:ring-inset focus:ring-blue-500"><option value="active">● Aktif</option><option value="inactive">○ Pasif</option></select></td>
                     <td className="p-0 text-center">
                       <button

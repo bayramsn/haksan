@@ -72,7 +72,7 @@ import { Badge } from "../ui/badge";
 import { useAuth } from "../../../lib/auth";
 import { LaserConfigurationEditor } from "../technical/LaserConfigurationEditor";
 import { laserDraftKey } from "../technical/laser-editor-state";
-import { isLaserProductType, type LaserSelection, type LaserTechnicalConfiguration } from "@haksan/shared";
+import { isSupportedLaserBrand, isLaserProductType, type LaserSelection, type LaserTechnicalConfiguration } from "@haksan/shared";
 import {
   ACTIVITY_TYPE_OPTIONS,
   COMPANY_SECTOR_OPTIONS,
@@ -422,7 +422,7 @@ const emptyAdditionalAddress = () => ({
 const emptyCompanyForm = () => ({
   name: "",
   sector: "",
-  supplierCategoryCode: "" as "" | "transportation" | "logistics",
+  supplierCategoryCode: "" as "" | "transportation" | "logistics" | "manufacturer",
   phone: "",
   phone2: "",
   fax: "",
@@ -550,7 +550,7 @@ export function CreateCustomerDialog({
       return;
     }
     if ((firmType === "supplier" || firmType === "supplier_customer") && !form.supplierCategoryCode) {
-      toast.error("Tedarikçi türü seçiniz", { description: "Nakliye veya Lojistik seçimi zorunludur." });
+      toast.error("Tedarikçi türü seçiniz", { description: "Makine üreticisi, Nakliye veya Lojistik seçimi zorunludur." });
       return;
     }
     if (!selectedDivisionIds.length) {
@@ -758,6 +758,7 @@ export function CreateCustomerDialog({
               <Label className="text-xs">Tedarikçi Türü *</Label>
               <div className="mt-1.5 grid grid-cols-2 gap-2">
                 {([
+                  { value: "manufacturer", label: "Makine üreticisi", helper: "Makine ve ekipman üretimi" },
                   { value: "transportation", label: "Nakliye", helper: "Karayolu, deniz veya hava taşımacılığı" },
                   { value: "logistics", label: "Lojistik", helper: "Kargo, depolama ve dağıtım hizmeti" },
                 ] as const).map((option) => (
@@ -1338,7 +1339,7 @@ export function EditCustomerDialog({
     if (!customer) return;
     if (!form.name.trim()) return toast.error("Firma ünvanı zorunludur");
     if ((form.firmType === "supplier" || form.firmType === "supplier_customer") && !form.supplierCategoryCode) {
-      return toast.error("Tedarikçi türü seçiniz", { description: "Nakliye veya Lojistik seçimi zorunludur." });
+      return toast.error("Tedarikçi türü seçiniz", { description: "Makine üreticisi, Nakliye veya Lojistik seçimi zorunludur." });
     }
     if (!form.divisionIds?.length) return toast.error("Bağlı bulunduğu birimi seçiniz");
     if (editLogoFile) {
@@ -1461,7 +1462,7 @@ export function EditCustomerDialog({
             <div>
               <Label className="text-xs">Tedarikçi Türü *</Label>
               <div className="mt-1.5 grid grid-cols-2 gap-2">
-                {([{ value: "transportation", label: "Nakliye" }, { value: "logistics", label: "Lojistik" }] as const).map((option) => (
+                {([{ value: "manufacturer", label: "Makine üreticisi" }, { value: "transportation", label: "Nakliye" }, { value: "logistics", label: "Lojistik" }] as const).map((option) => (
                   <button key={option.value} type="button" onClick={() => setForm({ ...form, supplierCategoryCode: option.value })} className={`rounded-lg border px-3 py-2 text-xs ${form.supplierCategoryCode === option.value ? "border-primary bg-primary/5 text-primary" : "border-border"}`}>{option.label}</button>
                 ))}
               </div>
@@ -3506,6 +3507,7 @@ export function ProductDialog({
   const [form, setForm] = useState<ProductFormState>(
     mode === "edit" && product ? fromProduct(product) : emptyProduct(activeProductGroupCode)
   );
+  const [supplierTouched, setSupplierTouched] = useState(false);
   const [laserDraftId, setLaserDraftId] = useState(() => crypto.randomUUID());
   const selectedProductDivisionId = useMemo(() => {
     const divisionCode = form.productGroupCode === "UNIVERSAL"
@@ -3519,7 +3521,7 @@ export function ProductDialog({
   }, [form.productGroupCode, user?.divisions]);
   const [stdInput, setStdInput] = useState("");
   const [optionalEquipmentDraft, setOptionalEquipmentDraft] = useState<OptionalEquipmentDraft>(emptyOptionalEquipmentDraft);
-  const [brandRows, setBrandRows] = useState<Array<{ id: string; name: string; logoUrl?: string | null }>>([]);
+  const [brandRows, setBrandRows] = useState<Array<{ id: string; name: string; logoUrl?: string | null; technicalCatalogCode?: string | null; supplierCompanyId?: string | null }>>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploadingImage, setUploadingImage] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -3629,7 +3631,7 @@ export function ProductDialog({
   useEffect(() => {
     if (!open) return;
     void productService.listBrands(selectedProductDivisionId)
-      .then((rows) => setBrandRows((rows ?? []).map((row: any) => ({ id: row.id, name: row.name, logoUrl: row.logoUrl ?? null })).filter((row: any) => row.id && row.name)))
+      .then((rows) => setBrandRows((rows ?? []).map((row: any) => ({ id: row.id, name: row.name, logoUrl: row.logoUrl ?? null, technicalCatalogCode: row.technicalCatalogCode, supplierCompanyId: row.supplierCompanyId })).filter((row: any) => row.id && row.name)))
       .catch(() => setBrandRows([]));
   }, [open, selectedProductDivisionId]);
 
@@ -3638,6 +3640,7 @@ export function ProductDialog({
     setStdInput("");
     setOptionalEquipmentDraft(emptyOptionalEquipmentDraft());
     setLaserDraftId(crypto.randomUUID());
+    setSupplierTouched(false);
   };
 
   const IMAGE_MIME_TO_EXT: Record<string, "png" | "jpg" | "webp"> = {
@@ -3759,7 +3762,8 @@ export function ProductDialog({
   )
     .filter((group) => group.options.length > 0);
   const isMachineProduct = form.categoryCode === "TEZGAH";
-  const isAoreLaserProduct = isMachineProduct && form.productGroupCode === "SAC_ISLEME" && isLaserProductType(canonicalProductTypeCode(form.productTypeCode)) && /\baore\b/i.test(form.brand);
+  const selectedBrandRow = brandRows.find((row) => row.name === form.brand);
+  const isCatalogLaserProduct = isMachineProduct && form.productGroupCode === "SAC_ISLEME" && isLaserProductType(canonicalProductTypeCode(form.productTypeCode)) && isSupportedLaserBrand(form.brand, selectedBrandRow?.technicalCatalogCode);
   const isOptionalEquipmentProduct = form.categoryCode === OPTIONAL_EQUIPMENT_CATEGORY_CODE;
   const isLaborProduct = form.categoryCode === "ISCILIK" || form.productTypeCode === "ISCILIK";
   const compatibilityGroupOptions = productGroupOptions.map((o) => ({ value: o.code, label: o.label }));
@@ -3784,7 +3788,6 @@ export function ProductDialog({
     ...brandRows.map((row) => row.name),
     form.brand,
   ].filter(Boolean))).sort((a, b) => a.localeCompare(b, "tr-TR"));
-  const selectedBrandRow = brandRows.find((row) => row.name === form.brand);
   const canSelectProductBrand = Boolean(form.productTypeCode);
   const muadilOptions = products.filter((p) => p.id !== product?.id && p.categoryCode !== OPTIONAL_EQUIPMENT_CATEGORY_CODE);
   const validMuadilIds = new Set(muadilOptions.map((p) => p.id));
@@ -3978,7 +3981,7 @@ export function ProductDialog({
       toast.error(isLaborProduct ? "Ürün adı zorunludur" : "Marka ve ürün adı zorunludur");
       return;
     }
-    if (isAoreLaserProduct && !form.technicalConfiguration && (mode === 'create' || product?.technicalConfiguration)) {
+    if (isCatalogLaserProduct && !form.technicalConfiguration && (mode === 'create' || product?.technicalConfiguration)) {
       toast.error('Lazer teknik bilgi seçimlerini tamamlayın', { description: 'Seri, kabin, rezonatör gücü ve model/ölçü seçilmelidir.' });
       return;
     }
@@ -4016,7 +4019,7 @@ export function ProductDialog({
       productionYear: form.productionYear.trim() ? Number(form.productionYear) : undefined,
       hsCode: form.hsCode.trim(),
       stockCode: form.stockCode.trim(),
-      supplierCompanyId: form.supplierCompanyId || null,
+      supplierCompanyId: form.supplierCompanyId || (mode === "create" && !supplierTouched ? undefined : null),
       optionalCompatibilityGroupCodes: form.optionalCompatibilityGroupCodes,
       optionalCompatibilityCategoryCodes: form.optionalCompatibilityCategoryCodes,
       optionalCompatibilitySubcategoryCodes: form.optionalCompatibilitySubcategoryCodes,
@@ -4143,7 +4146,7 @@ export function ProductDialog({
                   <Combobox
                     options={productBrandOptions.map((brand) => ({ value: brand, label: brand }))}
                   value={form.brand}
-                    onChange={(brand) => setForm({ ...form, brand, technicalConfiguration: null, specs: form.technicalConfiguration ? [] : form.specs })}
+                    onChange={(brand) => setForm({ ...form, brand, supplierCompanyId: supplierTouched ? form.supplierCompanyId : (brandRows.find((row) => row.name === brand)?.supplierCompanyId ?? form.supplierCompanyId), technicalConfiguration: null, specs: form.technicalConfiguration ? [] : form.specs })}
                   disabled={!canSelectProductBrand}
                     placeholder={canSelectProductBrand ? "Kayıtlı marka seçin..." : "Önce ürün tipi seçin"}
                     searchPlaceholder="Marka ara..."
@@ -4157,7 +4160,7 @@ export function ProductDialog({
               </ProductSheetRow>
             )}
 
-            {isMachineProduct && !isAoreLaserProduct && (
+            {isMachineProduct && !isCatalogLaserProduct && (
               <ProductSheetRow label="6. Ürün Serisi">
                 <Input
                   aria-label="Ürün serisi"
@@ -4205,13 +4208,13 @@ export function ProductDialog({
                   <RemoteCompanyCombobox
                     value={form.supplierCompanyId || null}
                     relationTypeCodes={["supplier", "supplier_customer"]}
-                    onValueChange={(supplierCompanyId) => setForm({ ...form, supplierCompanyId })}
+                    onValueChange={(supplierCompanyId) => { setSupplierTouched(true); setForm({ ...form, supplierCompanyId }); }}
                     placeholder="Tedarikçi seçin"
                     searchPlaceholder="Tedarikçi firma ara..."
                     className="h-8"
                   />
                   {form.supplierCompanyId && (
-                    <Button type="button" variant="ghost" size="icon" className="size-8" title="Tedarikçiyi temizle" onClick={() => setForm({ ...form, supplierCompanyId: "" })}>
+                    <Button type="button" variant="ghost" size="icon" className="size-8" title="Tedarikçiyi temizle" onClick={() => { setSupplierTouched(true); setForm({ ...form, supplierCompanyId: "" }); }}>
                       <X className="size-3.5" />
                     </Button>
                   )}
@@ -4469,7 +4472,7 @@ export function ProductDialog({
             {!isLaborProduct && (
             <ProductSheetRow label="Teknik Bilgiler" className="items-start">
               <div className="space-y-2">
-                {isAoreLaserProduct ? (
+                {isCatalogLaserProduct ? (
                   <LaserConfigurationEditor
                     divisionId={selectedProductDivisionId}
                     brandId={selectedBrandRow?.id ?? product?.brandId}

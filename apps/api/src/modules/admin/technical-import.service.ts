@@ -1,7 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { createHash, randomUUID } from 'node:crypto';
 import ExcelJS from 'exceljs';
-import { and, asc, eq, inArray, isNull } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNull, or } from 'drizzle-orm';
 import type {
   TechnicalImportAvailableField,
   TechnicalImportCommitRequest,
@@ -10,15 +10,18 @@ import type {
   TechnicalImportRowInput,
   LaserTechnicalConfiguration,
   LaserWorkbookSheet,
+  TechnicalImportLayout,
 } from '@haksan/shared';
 import { LASER_POWERS, LASER_MODELS, laserSelectionKey, laserTechnicalConfigurationSchema, parseLaserWorkbookSheets, resolveLaserProfile } from '@haksan/shared';
 import type { DbClient } from '../../db/client';
 import { brands, productModels, productSpecs, productSpecTemplates } from '../../db/schema/products';
-import { productSpecGroups, productTypes } from '../../db/schema/lookup';
+import { productGroups, productSpecGroups, productTypes } from '../../db/schema/lookup';
+import { divisions } from '../../db/schema/tenants';
 import { DB } from '../../shared/database/database.module';
 import { AuditService } from '../../shared/database/audit.service';
 import type { AuthContext } from '../../shared/security/auth.types';
 import { NotFoundError, ValidationError } from '../../shared/utils/errors';
+import { assertCanUseResourceDivision } from '../../shared/utils/division-scope';
 import { LaserProfilesService, type LaserProfileScope } from '../products/laser-profiles.service';
 
 const MAX_FILE_BYTES = 10 * 1024 * 1024;
@@ -27,20 +30,24 @@ const MAX_ROWS_PER_SHEET = 2000;
 const MAX_COLUMNS = 250;
 const MAX_TOTAL_CELLS = 100_000;
 const MAX_IMPORT_ROWS = 5000;
+const MAX_LASER_PREVIEW_BYTES = 48 * 1024 * 1024;
+const MAX_LASER_CACHE_BYTES = 64 * 1024 * 1024;
 
 interface LaserImportPreviewEntry {
   tenantId: string; userId: string; scope: LaserProfileScope;
-  profiles: LaserTechnicalConfiguration[]; expiresAt: number;
+  profiles: LaserTechnicalConfiguration[]; expiresAt: number; bytes?: number;
 }
 
 /** Bounded, short-lived previews keep uploaded source provenance off the client trust boundary. */
 export class LaserImportPreviewStore {
   private readonly entries = new Map<string, LaserImportPreviewEntry>();
   put(entry: Omit<LaserImportPreviewEntry, 'expiresAt'>, now = Date.now()) {
+    const bytes = Buffer.byteLength(JSON.stringify(entry.profiles));
+    if (bytes > MAX_LASER_PREVIEW_BYTES) throw new ValidationError('Model önizlemesi kapasiteyi aşıyor; dosyayı seri bazında yükleyin');
     for (const [key, value] of this.entries) if (value.expiresAt <= now) this.entries.delete(key);
-    while (this.entries.size >= 20) this.entries.delete(this.entries.keys().next().value!);
+    while (this.entries.size >= 8 || [...this.entries.values()].reduce((sum, value) => sum + (value.bytes ?? 0), 0) + bytes > MAX_LASER_CACHE_BYTES) this.entries.delete(this.entries.keys().next().value!);
     const token = randomUUID();
-    this.entries.set(token, { ...entry, expiresAt: now + 15 * 60_000 });
+    this.entries.set(token, { ...entry, bytes, expiresAt: now + 15 * 60_000 });
     return token;
   }
   read(token: string, scope: LaserProfileScope, actor: Pick<AuthContext, 'tenantId' | 'userId'>, now = Date.now()) {
@@ -117,7 +124,7 @@ export function sameProductTypeCode(left: string, right: string): boolean {
 }
 
 const HEADER_WORDS = {
-  section: ['bolum', 'grup', 'section'],
+  section: ['bolum', 'grup', 'section', 'group'],
   key: ['teknik bilgi', 'alan', 'ozellik', 'specification', 'feature'],
   value: ['deger', 'value', 'veri'],
   unit: ['birim', 'unit'],
@@ -260,6 +267,44 @@ export function rowsToTechnicalRows(rows: string[][], sheetName: string): Array<
       sourceValue: split.value,
       sourceUnit: split.unit,
     });
+  }
+  return result;
+}
+
+export function suggestTechnicalLayout(rows: string[][], sheetName: string): TechnicalImportLayout {
+  const firstIndex = Math.max(0, rows.findIndex((row) => row.some((cell) => cell.trim())));
+  const headerRow = rows.slice(0, 50).findIndex((row) => headerIndex(row, HEADER_WORDS.key) >= 0
+    && (headerIndex(row, HEADER_WORDS.value) >= 0 || headerIndex(row, HEADER_WORDS.unit) >= 0));
+  const first = rows[headerRow >= 0 ? headerRow : firstIndex] ?? [];
+  const keyColumn = headerRow >= 0 ? headerIndex(first, HEADER_WORDS.key) : first.length >= 3 ? 1 : 0;
+  const unit = headerRow >= 0 ? headerIndex(first, HEADER_WORDS.unit) : first.length >= 4 ? 3 : -1;
+  const section = headerRow >= 0 ? headerIndex(first, HEADER_WORDS.section) : first.length >= 3 ? 0 : -1;
+  const value = headerRow >= 0 ? headerIndex(first, HEADER_WORDS.value) : -1;
+  const valueColumn = value >= 0 ? value : headerRow >= 0
+    ? Math.max(0, first.findIndex((cell, index) => Boolean(cell.trim()) && ![keyColumn, unit, section].includes(index)))
+    : first.length >= 3 ? 2 : 1;
+  return { sheetName, firstDataRow: headerRow >= 0 ? headerRow + 2 : firstIndex + 1, keyColumn, valueColumn,
+    sectionColumn: section >= 0 ? section : null, unitColumn: unit >= 0 ? unit : null };
+}
+
+export function rowsFromTechnicalLayout(rows: string[][], layout: TechnicalImportLayout): ReturnType<typeof rowsToTechnicalRows> {
+  const width = Math.max(0, ...rows.map((row) => row.length));
+  if ([layout.keyColumn, layout.valueColumn, layout.sectionColumn, layout.unitColumn].some((column) => column !== null && column >= width)) {
+    throw new ValidationError('Seçilen sütun çalışma sayfasında bulunamadı');
+  }
+  let section = 'GENEL';
+  const result: ReturnType<typeof rowsToTechnicalRows> = [];
+  for (let index = layout.firstDataRow - 1; index < rows.length; index++) {
+    const row = rows[index];
+    const nextSection = layout.sectionColumn === null ? '' : (row[layout.sectionColumn] ?? '').trim();
+    if (nextSection) section = nextSection;
+    const sourceKey = (row[layout.keyColumn] ?? '').trim();
+    if (!sourceKey || TECHNICAL_METADATA_KEYS.has(normalizeTechnicalLabel(sourceKey))) continue;
+    const split = splitValueAndUnit((row[layout.valueColumn] ?? '').trim(), layout.unitColumn === null ? '' : (row[layout.unitColumn] ?? '').trim());
+    if (sourceKey.length > 255 || split.value.length > 2000 || split.unit.length > 64 || section.length > 128) {
+      throw new ValidationError(`${layout.sheetName} sayfasının ${index + 1}. satırı alan uzunluğu sınırını aşıyor`);
+    }
+    result.push({ rowNumber: index + 1, sheetName: layout.sheetName, section, sourceKey, sourceValue: split.value, sourceUnit: split.unit });
   }
   return result;
 }
@@ -426,7 +471,15 @@ export class TechnicalImportService {
     return { rows: parsed, sheetNames, sourceNames, sheets };
   }
 
-  private async suggestedProducts(actor: AuthContext, productTypeCode: string, sourceNames: string[]) {
+  private async assertDivision(divisionId: string | null | undefined, actor: AuthContext) {
+    if (!divisionId) throw new ValidationError('Teknik aktarım için CNC, Sac İşleme veya Üniversal bölümü seçin');
+    assertCanUseResourceDivision(actor, 'products', divisionId);
+    const division = await this.db.query.divisions.findFirst({ where: and(eq(divisions.id, divisionId), eq(divisions.tenantId, actor.tenantId), eq(divisions.isActive, true), isNull(divisions.deletedAt)) });
+    if (!division) throw new NotFoundError('Bölüm');
+    return division;
+  }
+
+  private async suggestedProducts(actor: AuthContext, productTypeCode: string, sourceNames: string[], division: { id: string; code: string }) {
     const rows = await this.db
       .select({
         id: productModels.id,
@@ -438,8 +491,10 @@ export class TechnicalImportService {
       .from(productModels)
       .leftJoin(brands, eq(productModels.brandId, brands.id))
       .leftJoin(productTypes, eq(productModels.productTypeId, productTypes.id))
+      .leftJoin(productGroups, eq(productModels.productGroupId, productGroups.id))
       .where(and(
         eq(productModels.tenantId, actor.tenantId),
+        or(eq(productGroups.divisionId, division.id), and(isNull(productGroups.divisionId), eq(productGroups.code, division.code.toUpperCase()))),
         inArray(productTypes.code, productTypeCodeVariants(productTypeCode)),
         isNull(productModels.deletedAt),
       ))
@@ -466,7 +521,7 @@ export class TechnicalImportService {
         throw new ValidationError('Lazer kaynak hücreleri en fazla 4.000 karakter içerebilir');
       }
       const source = parseLaserWorkbookSheets(parsed.sheets, body.fileName);
-      if (!source.models.length) throw new ValidationError('Dosyada F, PG veya TG model sütunları bulunamadı');
+      if (!source.models.length) throw new ValidationError('Dosyada desteklenen kesim makinesi model sütunları bulunamadı');
       if (source.models.some((model) => !LASER_MODELS.some((known) => known.code === model.code))) {
         throw new ValidationError('Dosyada mevcut AORE kataloğunda bulunmayan model var');
       }
@@ -474,8 +529,12 @@ export class TechnicalImportService {
       // never absent model mechanics or power rows from a different machine.
       for (const model of source.models) {
         const standardFields = LASER_MODELS.find((known) => known.code === model.code)?.fields
-          .filter((field) => field.source.sheet === 'Standart Yapılandırma') ?? [];
+          .filter((field) => Boolean(field.source.page) || /standart|standard|标准/i.test(field.source.sheet ?? '')) ?? [];
         for (const field of standardFields) if (!model.fields.some((existing) => existing.key === field.key)) model.fields.push(field);
+      }
+      if (body.includeCatalogModels) {
+        for (const model of LASER_MODELS) if (!source.models.some((item) => item.code === model.code)
+          && model.fields.some((field) => field.source.page) && !model.fields.some((field) => field.source.sheet)) source.models.push(model);
       }
       const sourceRevision = `aore-upload-${createHash('sha256').update(Buffer.from(body.fileBase64, 'base64')).digest('hex').slice(0, 24)}`;
       const laserProfiles = source.models.flatMap((model) => (['open', 'closed'] as const).flatMap((cabinType) =>
@@ -488,8 +547,8 @@ export class TechnicalImportService {
           return profile;
         }),
       ));
-      if (Buffer.byteLength(JSON.stringify(laserProfiles), 'utf8') > MAX_FILE_BYTES) {
-        throw new ValidationError('Lazer profil önizlemesi 10 MB sınırını aşıyor; daha küçük bir dosya kullanın');
+      if (Buffer.byteLength(JSON.stringify(laserProfiles), 'utf8') > MAX_LASER_PREVIEW_BYTES) {
+        throw new ValidationError('Model önizlemesi kapasiteyi aşıyor; dosyayı seri bazında yükleyin');
       }
       const importToken = this.laserPreviews.put({ tenantId: actor.tenantId, userId: actor.userId, scope, profiles: laserProfiles });
       return {
@@ -498,14 +557,25 @@ export class TechnicalImportService {
         summary: { total: laserProfiles.length, ready: laserProfiles.length, exact: 0, normalized: 0, review: 0, unmatched: 0 },
       };
     }
+    const division = await this.assertDivision(body.divisionId, actor);
+    const divisionId = division.id;
     const parsed = await this.parseFile(body);
-    if (!parsed.rows.length) throw new ValidationError('Dosyada teknik bilgi satırı bulunamadı');
-    if (parsed.rows.length > MAX_IMPORT_ROWS) throw new ValidationError(`Tek seferde en fazla ${MAX_IMPORT_ROWS} teknik satır aktarılabilir`);
-    const rows = parsed.rows.map((row) => prepareTechnicalImportRow(row, body.availableFields, body.mode));
+    const sourceSheets = parsed.sheets.filter((sheet) => sheet.rows.some((row) => row.some(Boolean))).map((sheet) => ({
+      name: sheet.name, columnCount: Math.max(0, ...sheet.rows.map((row) => row.length)),
+      sampleRows: sheet.rows.slice(0, 30).map((row) => row.map((cell) => cell.slice(0, 200))),
+      suggestedLayout: suggestTechnicalLayout(sheet.rows, sheet.name),
+    }));
+    const layout = body.layout ?? sourceSheets[0]?.suggestedLayout;
+    const sheet = parsed.sheets.find((item) => item.name === layout?.sheetName);
+    if (!layout || !sheet) throw new ValidationError('Aktarılacak çalışma sayfası bulunamadı');
+    const selectedRows = rowsFromTechnicalLayout(sheet.rows, layout);
+    if (selectedRows.length > MAX_IMPORT_ROWS) throw new ValidationError(`Tek seferde en fazla ${MAX_IMPORT_ROWS} teknik satır aktarılabilir`);
+    const rows = selectedRows.map((row) => prepareTechnicalImportRow(row, body.availableFields, body.mode));
     const count = (status: TechnicalImportMatchStatus) => rows.filter((row) => row.matchStatus === status).length;
     return {
       file: { name: body.fileName, sheetNames: parsed.sheetNames, rowCount: rows.length },
       rows,
+      sourceSheets, layout, divisionId,
       summary: {
         total: rows.length,
         exact: count('exact'),
@@ -515,7 +585,7 @@ export class TechnicalImportService {
         ready: rows.filter((row) => row.include && row.targetKey).length,
       },
       suggestedProducts: body.mode === 'machine_data'
-        ? await this.suggestedProducts(actor, body.productTypeCode, [body.fileName, ...parsed.sheetNames, ...parsed.sourceNames])
+        ? await this.suggestedProducts(actor, body.productTypeCode, [body.fileName, sheet.name, sheet.rows[layout.firstDataRow - 2]?.[layout.valueColumn] ?? '', ...extractTechnicalSourceNames(sheet.rows)], division)
         : [],
     };
   }
@@ -525,14 +595,18 @@ export class TechnicalImportService {
       const scope = this.laserScope(body);
       if (!body.importToken) throw new ValidationError('Lazer aktarımı için dosya önizlemesi gereklidir');
       const preview = this.laserPreviews.read(body.importToken, scope, actor);
-      const selectedKeys = new Set((body.laserProfiles ?? []).map((profile) => laserSelectionKey(profile.selection)));
+      const selectedKeys = new Set((body.laserSelections ?? body.laserProfiles?.map((profile) => profile.selection) ?? []).map(laserSelectionKey));
       const selected = preview.filter((profile) => selectedKeys.has(laserSelectionKey(profile.selection)));
       if (!selected.length || selected.length !== selectedKeys.size) throw new ValidationError('Aktarılacak profiller önizlemeyle eşleşmiyor');
       // Values and source metadata come exclusively from the server-retained preview.
       return this.laserProfiles.importProfiles(scope, selected, actor);
     }
+    await this.assertDivision(body.divisionId, actor);
     const rows = body.rows.filter((row) => row.include && row.targetKey);
     if (!rows.length) throw new ValidationError('Aktarılacak eşleşmiş teknik satır bulunamadı');
+    if (new Set(rows.map((row) => normalizeTechnicalLabel(row.targetKey))).size !== rows.length) {
+      throw new ValidationError('Aynı teknik alana birden fazla satır eşleşiyor; her alan için tek bir model/değer sütunu seçin');
+    }
     if (body.mode === 'machine_data') return this.commitMachineData(body, rows, actor);
     return this.commitTemplateFields(body, rows, actor);
   }
@@ -589,12 +663,16 @@ export class TechnicalImportService {
   private async commitMachineData(body: TechnicalImportCommitRequest, rows: TechnicalImportRowInput[], actor: AuthContext) {
     if (!body.targetProductId || !body.confirmedTarget) throw new ValidationError('Hedef makine kullanıcı tarafından onaylanmalıdır');
     const [target] = await this.db
-      .select({ id: productModels.id, productTypeCode: productTypes.code })
+      .select({ id: productModels.id, productTypeCode: productTypes.code, divisionId: productGroups.divisionId, groupCode: productGroups.code, technicalConfiguration: productModels.technicalConfiguration })
       .from(productModels)
       .leftJoin(productTypes, eq(productModels.productTypeId, productTypes.id))
+      .leftJoin(productGroups, eq(productModels.productGroupId, productGroups.id))
       .where(and(eq(productModels.id, body.targetProductId), eq(productModels.tenantId, actor.tenantId), isNull(productModels.deletedAt)))
       .limit(1);
     if (!target) throw new NotFoundError('Hedef makine');
+    const division = await this.assertDivision(body.divisionId, actor);
+    if (target.divisionId !== division.id && !(target.divisionId === null && target.groupCode?.toUpperCase() === division.code.toUpperCase())) throw new ValidationError('Hedef makine seçilen bölümde bulunmuyor');
+    if (target.technicalConfiguration) throw new ValidationError('Bu makinenin seçimlere bağlı teknik bilgilerini ürün kartındaki teknik bilgi tablosundan düzenleyin');
     if (target.productTypeCode && !sameProductTypeCode(target.productTypeCode, body.productTypeCode)) {
       throw new ValidationError('Seçilen makine bu teknik şablonun ürün tipiyle eşleşmiyor');
     }

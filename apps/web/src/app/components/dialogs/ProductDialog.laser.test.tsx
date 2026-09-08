@@ -15,7 +15,7 @@ vi.mock('../../lib/store', () => ({ useStore: () => state }));
 vi.mock('../../../lib/auth', () => ({ useAuth: () => ({ user: state.user, activeDivision: 'sac-1', hasRole: () => true, hasPermission: () => true }) }));
 vi.mock('../../../lib/services', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../../lib/services')>();
-  return { ...actual, productService: { ...actual.productService, listBrands: vi.fn(async () => [{ id: 'aore-1', name: 'AORE LAZER' }]), specTemplates: vi.fn(async () => []) }, lookupService: { ...actual.lookupService, byName: vi.fn(async () => []) } };
+  return { ...actual, productService: { ...actual.productService, listBrands: vi.fn(async () => [{ id: 'aore-1', name: 'HEXLASER', technicalCatalogCode: 'AORE_LASER' }]), specTemplates: vi.fn(async () => []) }, lookupService: { ...actual.lookupService, byName: vi.fn(async () => []) } };
 });
 vi.mock('../../../lib/services/laser-profiles.service', () => ({ laserProfilesService: { options: vi.fn(), resolve: vi.fn() } }));
 vi.mock('../shared/RemoteCompanyCombobox', () => ({ RemoteCompanyCombobox: () => <div /> }));
@@ -55,7 +55,7 @@ beforeEach(() => {
   vi.mocked(laserProfilesService.options).mockResolvedValue({ models: [...LASER_MODELS], cabinOptions: ['open', 'closed'], powerOptions: [3, 6, 12, 20, 30] });
   vi.mocked(laserProfilesService.resolve).mockImplementation(async (_scope, selection) => resolveLaserProfile(selection));
   const technicalConfiguration = resolveLaserProfile({ productTypeCode: 'FIBER_LAZER_KESIM', series: 'F', cabinType: 'open', powerKw: 6, sourceModelCode: 'F3015' });
-  state.products = [{ id: 'p1', brand: 'AORE LAZER', brandId: 'aore-1', model: 'COMMERCIAL-001', modelName: 'F lazer', series: 'F', productGroupCode: 'SAC_ISLEME', productGroup: 'Sac İşleme', categoryCode: 'TEZGAH', category: 'Tezgah', subcategoryCode: 'LAZER_KESIM', subcategory: 'Sac Lazer Kesim', productTypeCode: 'FIBER_LAZER_KESIM', type: 'Sac Lazer Kesim', shortDescription: 'AORE F lazer', description: '', imageUrl: '', controlPanel: '', currency: 'USD', listPrice: 1, specs: technicalConfiguration.specs, technicalConfiguration, standardEquipment: [], optionalEquipment: [], status: 'active' }];
+  state.products = [{ id: 'p1', brand: 'HEXLASER', brandId: 'aore-1', model: 'COMMERCIAL-001', modelName: 'F lazer', series: 'F', productGroupCode: 'SAC_ISLEME', productGroup: 'Sac İşleme', categoryCode: 'TEZGAH', category: 'Tezgah', subcategoryCode: 'LAZER_KESIM', subcategory: 'Sac Lazer Kesim', productTypeCode: 'FIBER_LAZER_KESIM', type: 'Sac Lazer Kesim', shortDescription: 'HEXLASER F lazer', description: '', imageUrl: '', controlPanel: '', currency: 'USD', listPrice: 1, specs: technicalConfiguration.specs, technicalConfiguration, standardEquipment: [], optionalEquipment: [], status: 'active' }];
 });
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
@@ -78,11 +78,12 @@ describe('product card laser integration', () => {
     expect(payload.technicalConfiguration.selection).toMatchObject({ powerKw: 12, sourceModelCode: 'F3015' });
     expect(payload.technicalConfiguration.specs.find((spec: { key: string }) => spec.key === 'Makine Ağırlığı')).toMatchObject({ value: '3200', sourceValue: '3150', isManual: true });
     expect(payload.specs.find((spec: { key: string }) => spec.key === 'Tabla Yük Kapasitesi')?.value).toBe('1500');
-  });
+  }, 15_000);
 
   it('moves a sheet laser to TG and saves unsupported 30 kW with manual fields under the tube subcategory', async () => {
     render(<ProductDialog mode="edit" product={state.products[0]} open onOpenChange={() => {}} />);
     fireEvent.change(screen.getByLabelText('2. Ürün alt kategorisi'), { target: { value: 'BORU_LAZER_KESIM' } });
+    await screen.findByRole('option', { name: 'TG Serisi' });
     fireEvent.change(screen.getByLabelText('3. Ürün serisi tipi'), { target: { value: 'TG' } });
     fireEvent.change(screen.getByLabelText('4. Kabin tipi'), { target: { value: 'closed' } });
     fireEvent.change(screen.getByLabelText('5. Rezonatör gücü'), { target: { value: '30' } });

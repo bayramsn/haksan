@@ -31,6 +31,8 @@ export const brands = pgTable(
     // oluşturmadan açıkça işaretlenir; dış markalar gerçek firmaya bağlanır.
     isOwned: boolean('is_owned').notNull().default(false),
     companyId: uuid('company_id').references(() => companies.id, { onDelete: 'set null' }),
+    supplierCompanyId: uuid('supplier_company_id').references(() => companies.id, { onDelete: 'set null' }),
+    technicalCatalogCode: varchar('technical_catalog_code', { length: 64 }).$type<'AORE_LASER' | null>(),
     logoFileId: uuid('logo_file_id').references(() => files.id, { onDelete: 'set null' }),
     // Bölüm (departman) bazlı marka: NULL → tüm bölümlerde ("Tümü") geçerli.
     divisionId: uuid('division_id').references(() => divisions.id, { onDelete: 'set null' }),
@@ -41,6 +43,7 @@ export const brands = pgTable(
     tenantIdx: index('brands_tenant_idx').on(t.tenantId),
     divisionIdx: index('brands_division_idx').on(t.divisionId),
     companyIdx: index('brands_company_idx').on(t.companyId),
+    supplierIdx: index('brands_supplier_idx').on(t.supplierCompanyId),
     logoFileIdx: index('brands_logo_file_idx').on(t.logoFileId),
   })
 );

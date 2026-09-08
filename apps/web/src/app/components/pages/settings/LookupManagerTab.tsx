@@ -16,17 +16,17 @@ import { adminService, fileService } from "../../../../lib/services";
 import { resolveMediaUrl } from "../../../../lib/apiClient";
 import { useExplicitFullCompanyDirectory } from "../../../lib/companyServerData";
 import { DIVISION_MACHINE_TYPES, MACHINE_SPEC_TEMPLATES, PRODUCT_SPEC_GROUPS } from "../../../lib/productSpecTemplates";
-import { ALL_DIVISIONS, divisionCatalogGroupCode, isCncDivision, usePersistedSettingsDivision } from "./settings-division";
+import { ALL_DIVISIONS, divisionCatalogGroupCode, isCncDivision } from "./settings-division";
 import { SettingsField, SettingsSection, SettingsSelect } from "./settings-controls";
 import { MultiSelect } from "../../ui/multi-select";
 import { Combobox, type ComboboxOption } from "../../ui/combobox";
+import { LookupImportDialog } from "./LookupImportDialog";
 import { Label } from "../../ui/label";
 import {
   DIVISION_SCOPED_LOOKUPS,
   HIDDEN_LOOKUP_MENU_NAMES,
   LOOKUP_MENU_GROUPS,
   LOOKUP_PARENTS,
-  PRODUCT_FLOW_LOOKUPS,
   PRODUCT_FLOW_STEPS,
   PRODUCT_SETUP_START_LOOKUP,
   SPEC_GROUP_LOOKUP,
@@ -52,6 +52,9 @@ type LookupRow = {
   companyId?: string | null;
   companyName?: string | null;
   companyNo?: string | null;
+  supplierCompanyId?: string | null;
+  supplierCompanyName?: string | null;
+  technicalCatalogCode?: "AORE_LASER" | null;
   isOwned?: boolean;
   logoFileId?: string | null;
   logoUrl?: string | null;
@@ -75,6 +78,8 @@ type BrandForm = {
   description: string;
   divisionId: string;
   companyValue: string;
+  supplierCompanyId: string;
+  technicalCatalogCode: "AORE_LASER" | "";
   logoFileId: string | null;
   logoUrl: string;
 };
@@ -85,6 +90,8 @@ const emptyBrandForm: BrandForm = {
   description: "",
   divisionId: "",
   companyValue: OWN_COMPANY_VALUE,
+  supplierCompanyId: "",
+  technicalCatalogCode: "",
   logoFileId: null,
   logoUrl: "",
 };
@@ -122,53 +129,8 @@ function csvEscape(value: unknown) {
   return /[",;\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
 }
 
-function parseCsv(text: string) {
-  const rows: string[][] = [];
-  let row: string[] = [];
-  let cell = "";
-  let quoted = false;
-  const delimiter = (text.match(/;/g)?.length ?? 0) > (text.match(/,/g)?.length ?? 0) ? ";" : ",";
-
-  for (let i = 0; i < text.length; i += 1) {
-    const ch = text[i];
-    const next = text[i + 1];
-    if (quoted) {
-      if (ch === '"' && next === '"') {
-        cell += '"';
-        i += 1;
-      } else if (ch === '"') {
-        quoted = false;
-      } else {
-        cell += ch;
-      }
-      continue;
-    }
-    if (ch === '"') quoted = true;
-    else if (ch === delimiter) {
-      row.push(cell);
-      cell = "";
-    } else if (ch === "\n") {
-      row.push(cell);
-      rows.push(row);
-      row = [];
-      cell = "";
-    } else if (ch !== "\r") {
-      cell += ch;
-    }
-  }
-  row.push(cell);
-  if (row.some((item) => item.trim())) rows.push(row);
-  return rows;
-}
-
 const auditActionLabel = (action: string) =>
-  ({
-    "lookup.created": "Eklendi",
-    "lookup.updated": "Güncellendi",
-    "lookup.reordered": "Sıralandı",
-    "lookup.deleted": "Silindi",
-    "lookup.deactivated": "Pasifleştirildi",
-  }[action] ?? action);
+  ({ "lookup.created": "Eklendi", "lookup.updated": "Güncellendi", "lookup.reordered": "Sıralandı", "lookup.deleted": "Silindi", "lookup.deactivated": "Pasifleştirildi" }[action] ?? action);
 
 const emptyEditForm: EditForm = { name: "", description: "", province: "", isActive: true, code: "", divisionId: "", parentId: "", productTypeIds: [] };
 
@@ -267,20 +229,30 @@ function BrandEditorFields({
           placeholder="Örn. HAXAN"
         />
         <div>
-          <Label className="text-xs text-muted-foreground">Markanın Bağlı Olduğu Firma</Label>
+          <Label className="text-xs text-muted-foreground">Marka Sahibi</Label>
           <Combobox
             options={companyOptions}
             value={form.companyValue}
             onChange={(companyValue) => onChange({ companyValue })}
             placeholder="Firma seçin..."
             searchPlaceholder="Firma adı veya firma no ile ara..."
-            emptyText="Uygun müşteri firması bulunamadı."
+            emptyText="Uygun firma bulunamadı."
             className="mt-1"
           />
           <p className="mt-1 text-[11px] text-muted-foreground">
-            Listede yalnız Müşteri ve Müşteri + Tedarikçi firmaları gösterilir.
+            Markanın sahibi seçilir; ürünün tedarikçisi aşağıda ayrıca belirlenir.
           </p>
         </div>
+        <div>
+          <Label className="text-xs text-muted-foreground">Varsayılan Tedarikçi</Label>
+          <Combobox options={[{ value: "", label: "Tedarikçi seçilmedi" }, ...companyOptions.filter((option) => option.value !== OWN_COMPANY_VALUE)]}
+            value={form.supplierCompanyId} onChange={(supplierCompanyId) => onChange({ supplierCompanyId })}
+            placeholder="Tedarikçi firma seçin" searchPlaceholder="Tedarikçi ara..." emptyText="Tedarikçi bulunamadı." className="mt-1" />
+          <p className="mt-1 text-[11px] text-muted-foreground">Örn. HEXLASER markasının tedarikçisi AORE olabilir.</p>
+        </div>
+        <SettingsSelect label="Teknik Bilgi Kaynağı" value={form.technicalCatalogCode}
+          onChange={(technicalCatalogCode) => onChange({ technicalCatalogCode: technicalCatalogCode as BrandForm["technicalCatalogCode"] })}
+          options={[{ value: "", label: "Elle yönetilen teknik bilgiler" }, { value: "AORE_LASER", label: "AORE lazer katalog / Excel kaynağı" }]} />
         <SettingsSelect
           label="Markanın Bağlı Olduğu Bölüm"
           value={form.divisionId}
@@ -300,9 +272,13 @@ function BrandEditorFields({
   );
 }
 
-export function LookupManagerTab() {
+export function LookupManagerTab({ divisionId: lookupDivisionId, onDivisionChange: setLookupDivisionId, requestedLookup, onOpenTechnicalInformation, onOpenTechnicalImport }: {
+  divisionId: string; onDivisionChange: (id: string) => void;
+  requestedLookup?: { name: string; requestId: number };
+  onOpenTechnicalInformation?: () => void; onOpenTechnicalImport?: () => void;
+}) {
   const { user, hasRole } = useAuth();
-  const companyDirectoryQuery = useExplicitFullCompanyDirectory("lookup-manager");
+  const companyDirectoryQuery = useExplicitFullCompanyDirectory("lookup-manager", lookupDivisionId);
   const customers = companyDirectoryQuery.data ?? [];
   const canManageLookups = hasRole("super_admin");
 
@@ -336,9 +312,10 @@ export function LookupManagerTab() {
   const [lookupHistoryLoading, setLookupHistoryLoading] = useState(false);
   const [draggedRowId, setDraggedRowId] = useState<string | null>(null);
   const [dragOverRowId, setDragOverRowId] = useState<string | null>(null);
-  const importInputRef = useRef<HTMLInputElement>(null);
-  // Bölüm filtresi tek yerden yönetilir; bölüm kapsamlı tüm listelere uygulanır.
-  const [lookupDivisionId, setLookupDivisionId] = usePersistedSettingsDivision();
+  const [importOpen, setImportOpen] = useState(false);
+  const [showShared, setShowShared] = useState(false);
+  const rowsRequest = useRef(0);
+  useEffect(() => { if (requestedLookup) setSelectedLookup(requestedLookup.name); }, [requestedLookup]);
 
   const divisions = user?.divisions ?? [];
   const isBrandLookup = selectedLookup === "brands";
@@ -348,7 +325,7 @@ export function LookupManagerTab() {
   const selectedFlowIndex = PRODUCT_FLOW_STEPS.findIndex((step) => step.lookupName === selectedLookup);
   const selectedFlowStep = selectedFlowIndex >= 0 ? PRODUCT_FLOW_STEPS[selectedFlowIndex] : undefined;
   const selectedDivisionLabel = lookupDivisionId === ALL_DIVISIONS ? "Tümü" : divisionLabel(lookupDivisionId);
-  const selectedDivisionIncludesShared = isCncDivision(divisions, lookupDivisionId);
+  const selectedDivisionIncludesShared = showShared || isCncDivision(divisions, lookupDivisionId);
   // Üniversal / Sac İşleme için tek tıkla önerilen taksonomi kurulumu.
   const selectedDivisionCatalogCode = divisionCatalogGroupCode(divisions, lookupDivisionId);
   const canSeedDivisionSetup = lookupDivisionId !== ALL_DIVISIONS && (selectedDivisionCatalogCode === "UNIVERSAL" || selectedDivisionCatalogCode === "SAC_ISLEME");
@@ -419,6 +396,7 @@ export function LookupManagerTab() {
   const filteredLookupRows = useMemo(() => {
     const query = lookupRowSearch.trim().toLocaleLowerCase("tr-TR");
     return lookupRows.filter((row) => {
+      if (isDivisionScoped && !selectedDivisionIncludesShared && !row.divisionId) return false;
       if (lookupStatusFilter === "active" && row.isActive === false) return false;
       if (lookupStatusFilter === "passive" && row.isActive !== false) return false;
       // Üst bağ filtresi: seçilen üste bağlı kayıtlar + "Tümü" (bağsız) kayıtlar.
@@ -430,7 +408,7 @@ export function LookupManagerTab() {
       return [row.name, row.description ?? "", row.province ?? "", row.code, row.companyName ?? "", row.companyNo ?? ""]
         .some((value) => String(value).toLocaleLowerCase("tr-TR").includes(query));
     });
-  }, [lookupRows, lookupRowSearch, lookupStatusFilter, parentConfig, parentFilterId]);
+  }, [lookupRows, lookupRowSearch, lookupStatusFilter, parentConfig, parentFilterId, isDivisionScoped, selectedDivisionIncludesShared]);
 
   const reorderLookupRows = async (sourceId: string, targetId: string) => {
     if (sourceId === targetId || lookupBusy) return;
@@ -479,19 +457,20 @@ export function LookupManagerTab() {
   };
 
   const loadLookupRows = async (name = selectedLookup) => {
-    if (!canManageLookups) return;
+    if (!canManageLookups || (DIVISION_SCOPED_LOOKUPS.has(name) && !lookupDivisionId)) return;
+    const request = ++rowsRequest.current;
     setLookupBusy(true);
+    setLookupRows([]);
     try {
-      // CNC seçiliyse mevcut Tümü kayıtları da görünür; diğer bölümler exact çalışır.
-      const params =
-        DIVISION_SCOPED_LOOKUPS.has(name) && lookupDivisionId !== ALL_DIVISIONS
-          ? { divisionId: lookupDivisionId, scope: PRODUCT_FLOW_LOOKUPS.has(name) && !selectedDivisionIncludesShared ? "exact" : undefined }
-          : undefined;
-      setLookupRows(await adminService.lookupRows(name, params));
+      const params = DIVISION_SCOPED_LOOKUPS.has(name)
+        ? { divisionId: lookupDivisionId, scope: undefined }
+        : undefined;
+      const rows = await adminService.lookupRows(name, params);
+      if (request === rowsRequest.current) setLookupRows(rows);
     } catch (err: any) {
-      toast.error("Alan değerleri yüklenemedi", { description: err?.message ?? "API isteği başarısız oldu." });
+      if (request === rowsRequest.current) toast.error("Alan değerleri yüklenemedi", { description: err?.message ?? "API isteği başarısız oldu." });
     } finally {
-      setLookupBusy(false);
+      if (request === rowsRequest.current) setLookupBusy(false);
     }
   };
 
@@ -802,6 +781,8 @@ export function LookupManagerTab() {
           description: brandForm.description.trim() || undefined,
           divisionId: brandForm.divisionId || null,
           companyId,
+          supplierCompanyId: brandForm.supplierCompanyId || null,
+          technicalCatalogCode: brandForm.technicalCatalogCode || null,
           isOwned,
           logoFileId,
         });
@@ -812,6 +793,8 @@ export function LookupManagerTab() {
           description: brandForm.description.trim() || undefined,
           divisionId: brandForm.divisionId || null,
           companyId,
+          supplierCompanyId: brandForm.supplierCompanyId || null,
+          technicalCatalogCode: brandForm.technicalCatalogCode || null,
           isOwned,
           isActive: true,
         });
@@ -875,6 +858,8 @@ export function LookupManagerTab() {
         description: row.description ?? "",
         divisionId: row.divisionId ?? "",
         companyValue: row.isOwned ? OWN_COMPANY_VALUE : row.companyId ?? "",
+        supplierCompanyId: row.supplierCompanyId ?? "",
+        technicalCatalogCode: row.technicalCatalogCode ?? "",
         logoFileId: row.logoFileId ?? null,
         logoUrl: row.logoUrl ?? "",
       });
@@ -998,75 +983,6 @@ export function LookupManagerTab() {
     URL.revokeObjectURL(url);
   };
 
-  const resolveImportDivisionId = (value: string) => {
-    const clean = value.trim();
-    if (!clean) return lookupDivisionId === ALL_DIVISIONS ? null : lookupDivisionId;
-    const normalized = clean.toLocaleLowerCase("tr-TR");
-    return divisions.find((division) =>
-      division.id === clean ||
-      division.code.toLocaleLowerCase("tr-TR") === normalized ||
-      division.name.toLocaleLowerCase("tr-TR") === normalized
-    )?.id ?? null;
-  };
-
-  const importLookupCsv = async (file?: File | null) => {
-    if (!file) return;
-    setLookupBusy(true);
-    try {
-      const parsed = parseCsv(await file.text());
-      if (!parsed.length) {
-        toast.error("CSV dosyası boş");
-        return;
-      }
-      const headerRow = parsed[0] ?? [];
-      const dataRows = parsed.slice(1);
-      const headers = headerRow.map(normalizeHeader);
-      const indexOf = (...names: string[]) => names.map((name) => headers.indexOf(name)).find((index) => index >= 0) ?? -1;
-      const nameIdx = indexOf("ad", "name", "adi");
-      const descIdx = indexOf("aciklama", "description");
-      const statusIdx = indexOf("durum", "status", "aktif", "active");
-      const sortIdx = indexOf("sira", "sort_order", "sortorder");
-      const provinceIdx = indexOf("il", "province", "sehir");
-      const divisionIdx = indexOf("bolum", "division");
-      const codeIdx = indexOf("sistem_kodu", "kod", "code");
-      if (nameIdx < 0) {
-        toast.error("İçe aktarım için Ad kolonu zorunludur");
-        return;
-      }
-
-      let created = 0;
-      let failed = 0;
-      for (const row of dataRows) {
-        const name = row[nameIdx]?.trim();
-        if (!name) continue;
-        const status = row[statusIdx]?.trim().toLocaleLowerCase("tr-TR");
-        const isActive = status ? !["pasif", "passive", "false", "0", "hayir", "hayır"].includes(status) : true;
-        const parsedSortOrder = sortIdx >= 0 && row[sortIdx]?.trim() ? Number(row[sortIdx]) : undefined;
-        try {
-          await adminService.createLookup(selectedLookup, {
-            code: row[codeIdx]?.trim() || undefined,
-            name,
-            description: row[descIdx]?.trim() || undefined,
-            province: selectedLookup === "tax-offices" ? row[provinceIdx]?.trim() || undefined : undefined,
-            divisionId: isDivisionScoped ? resolveImportDivisionId(row[divisionIdx] ?? "") : undefined,
-            sortOrder: Number.isFinite(parsedSortOrder) ? parsedSortOrder : undefined,
-            isActive,
-          });
-          created++;
-        } catch {
-          failed++;
-        }
-      }
-      toast.success("İçe aktarım tamamlandı", { description: `${created} kayıt eklendi${failed ? `, ${failed} satır atlandı` : ""}` });
-      await refreshAfterMutation();
-    } catch (err: any) {
-      toast.error("İçe aktarım başarısız", { description: err?.message ?? "CSV dosyası okunamadı." });
-    } finally {
-      setLookupBusy(false);
-      if (importInputRef.current) importInputRef.current.value = "";
-    }
-  };
-
   const revertHistory = async (item: LookupAuditRow) => {
     setLookupBusy(true);
     try {
@@ -1112,7 +1028,7 @@ export function LookupManagerTab() {
             label="Bölüm"
             value={lookupDivisionId}
             onChange={setLookupDivisionId}
-            options={[{ value: ALL_DIVISIONS, label: "Tümü" }, ...divisions.map((d) => ({ value: d.id, label: d.name }))]}
+            options={divisions.filter((d) => divisionCatalogGroupCode(divisions, d.id)).map((d) => ({ value: d.id, label: d.name }))}
           />
         </div>
         {canSeedDivisionSetup && (
@@ -1136,6 +1052,12 @@ export function LookupManagerTab() {
         )}
       </div>
 
+      <div className="mb-4 flex flex-wrap items-center gap-2">
+        {isDivisionScoped && !isCncDivision(divisions, lookupDivisionId) && <label className="flex items-center gap-2 text-xs"><Switch checked={showShared} onCheckedChange={setShowShared} />Ortak kayıtları göster</label>}
+        <Button variant="outline" size="sm" onClick={onOpenTechnicalInformation}>Teknik alanları düzenle</Button>
+        <Button variant="outline" size="sm" onClick={onOpenTechnicalImport}>Teknik bilgileri içe aktar</Button>
+        <p className="text-xs text-muted-foreground">Seçim listelerini CSV ile aktarın. Marka, sahip ve tedarikçi bağlantıları marka formundan yönetilir.</p>
+      </div>
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-[260px_1fr]">
         <div className="space-y-2">
           <div className="relative">
@@ -1204,7 +1126,7 @@ export function LookupManagerTab() {
                 <TooltipContent className="max-w-xs">
                   <p>Kullanıldığı yerler: {selectedLookupUsage.join(", ")}.</p>
                   {isDivisionScoped && selectedDivisionIncludesShared && (
-                    <p className="mt-1">CNC seçiliyken Tümü altındaki ortak kayıtlar da listelenir.</p>
+                    <p className="mt-1">Ortak kayıtlar da listelenir; bölüm sütununda Tümü olarak görünür.</p>
                   )}
                 </TooltipContent>
               </Tooltip>
@@ -1222,7 +1144,7 @@ export function LookupManagerTab() {
                   <div>
                     <p className="text-sm font-medium">Marka kimliği oluşturun</p>
                     <p className="mt-0.5 text-xs text-muted-foreground">
-                      Firma, bölüm ve logo bağlantısı ürünlere ve teklif PDF'lerine otomatik taşınır.
+                      Marka sahibi, varsayılan tedarikçi ve teknik bilgi kaynağını bir kez tanımlayın.
                     </p>
                   </div>
                 </div>
@@ -1262,7 +1184,7 @@ export function LookupManagerTab() {
                     />
                   </div>
                 )}
-                <Button type="button" onClick={() => void quickAddLookup()} disabled={lookupBusy} className="gap-1">
+                <Button type="button" onClick={() => void quickAddLookup()} disabled={lookupBusy || (isDivisionScoped && !lookupDivisionId)} className="gap-1">
                   <Plus className="size-4" /> Ekle
                 </Button>
               </div>
@@ -1310,18 +1232,9 @@ export function LookupManagerTab() {
                   Sıralamak için satır tutamacını sürükleyin.
                 </span>
                 {!isBrandLookup && (
-                  <>
-                    <input
-                      ref={importInputRef}
-                      type="file"
-                      accept=".csv,text/csv"
-                      className="hidden"
-                      onChange={(event) => void importLookupCsv(event.target.files?.[0])}
-                    />
-                    <Button type="button" variant="outline" size="sm" className="gap-1" onClick={() => importInputRef.current?.click()} disabled={lookupBusy}>
-                      <Upload className="size-4" /> İçe Aktar
-                    </Button>
-                  </>
+                  <Button type="button" variant="outline" size="sm" className="gap-1" onClick={() => setImportOpen(true)} disabled={lookupBusy || (isDivisionScoped && !lookupDivisionId)}>
+                    <Upload className="size-4" /> CSV İçe Aktar
+                  </Button>
                 )}
                 <Button type="button" variant="outline" size="sm" className="gap-1" onClick={exportLookupCsv} disabled={lookupBusy || filteredLookupRows.length === 0}>
                   <Download className="size-4" /> Dışa Aktar
@@ -1427,9 +1340,11 @@ export function LookupManagerTab() {
                       <td className="max-w-[250px] px-3 py-2 text-xs text-muted-foreground" title={isBrandLookup ? row.companyName ?? undefined : row.description ?? undefined}>
                         {isBrandLookup ? (
                           <div>
-                            <p className="font-medium text-foreground">{row.companyName || "Firma belirtilmemiş"}</p>
+                            <p className="font-medium text-foreground">{row.isOwned ? "Haksan Makina" : row.companyName || "Firma belirtilmemiş"}</p>
+                            <p>Tedarikçi: {row.supplierCompanyName || "Belirtilmemiş"}</p>
+                            {row.technicalCatalogCode === "AORE_LASER" && <p>Teknik kaynak: AORE</p>}
                             <p className="mt-0.5">
-                              {row.isOwned ? "Kendi firmamız" : "Müşteri firma"}
+                              {row.isOwned ? "Kendi firmamız" : "Marka sahibi firma"}
                             </p>
                           </div>
                         ) : row.description || "-"}
@@ -1535,6 +1450,9 @@ export function LookupManagerTab() {
         </div>
       </div>
 
+      <LookupImportDialog key={`${selectedLookup}:${lookupDivisionId}`} open={importOpen} onOpenChange={setImportOpen}
+        lookupName={selectedLookup} title={selectedLookupLabel} divisionId={lookupDivisionId} divisions={divisions}
+        defaultParentId={quickParentId || (parentFilterId !== "all" ? parentFilterId : undefined)} onImported={refreshAfterMutation} />
       <Dialog
         open={Boolean(editRow) || brandCreateOpen}
         onOpenChange={(open) => {

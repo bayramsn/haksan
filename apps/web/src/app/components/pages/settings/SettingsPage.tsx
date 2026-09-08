@@ -31,6 +31,8 @@ import { toast } from "sonner";
 import { useAuth } from "../../../../lib/auth";
 import { adminService } from "../../../../lib/services";
 import { ProductSpecTemplatesCard } from "./ProductSpecTemplatesCard";
+import { ProductImportDialog } from "../../dialogs/ProductImportDialog";
+import { divisionCatalogGroupCode, usePersistedSettingsDivision } from "./settings-division";
 import { LookupManagerTab } from "./LookupManagerTab";
 import { DepartmentSettingsCard } from "./DepartmentSettingsCard";
 import { SignatureSettingsCard } from "./SignatureSettingsCard";
@@ -106,6 +108,17 @@ export function SettingsPage() {
   const [hiddenNavigationBaseline, setHiddenNavigationBaseline] = useState<NavigationVisibilityKey[]>([]);
   const [navigationSaving, setNavigationSaving] = useState(false);
   const [tab, setTab] = useState("genel");
+  const [settingsDivisionId, setSettingsDivisionId] = usePersistedSettingsDivision();
+  const [lookupRequest, setLookupRequest] = useState<{ name: string; requestId: number }>();
+  const [technicalImportRequest, setTechnicalImportRequest] = useState(0);
+  const openTechnical = (importFile = false) => { setTab("teknik-bilgi"); if (importFile) setTechnicalImportRequest((value) => value + 1); };
+  const openBrandSettings = () => { setLookupRequest({ name: "brands", requestId: Date.now() }); setTab("crm-alan"); };
+  const settingsScope = <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-card p-3">
+    <div><p className="mb-2 text-xs text-muted-foreground">Ayar bölümü · CRM alanları, teknik bilgiler ve içe aktarma aynı bölümü kullanır.</p>
+      <div className="flex flex-wrap gap-2" aria-label="Ayar bölümü">{(user?.divisions ?? []).filter((division) => divisionCatalogGroupCode(user?.divisions ?? [], division.id)).map((division) => <Button key={division.id} size="sm" variant={settingsDivisionId === division.id ? "default" : "outline"} aria-pressed={settingsDivisionId === division.id} onClick={() => setSettingsDivisionId(division.id)}>{division.name}</Button>)}</div>
+    </div>
+    <ProductImportDialog divisionId={settingsDivisionId} trigger={<Button variant="outline" disabled={!settingsDivisionId}>Ürünleri içe aktar</Button>} />
+  </div>;
 
   useEffect(() => {
     if (!canReadTenant) return;
@@ -617,8 +630,10 @@ export function SettingsPage() {
         {/* CRM Alan Ayarları (super_admin) */}
         {canManageLookups && (
           <TabsContent value="crm-alan" className="space-y-4">
+            {settingsScope}
+            <LookupManagerTab divisionId={settingsDivisionId} onDivisionChange={setSettingsDivisionId} requestedLookup={lookupRequest}
+              onOpenTechnicalInformation={() => openTechnical()} onOpenTechnicalImport={() => openTechnical(true)} />
             <DepartmentSettingsCard />
-            <LookupManagerTab />
           </TabsContent>
         )}
 
@@ -631,7 +646,9 @@ export function SettingsPage() {
         {/* Teknik Bilgi (super_admin) */}
         {canManageLookups && (
           <TabsContent value="teknik-bilgi" className="space-y-4">
-            <ProductSpecTemplatesCard />
+            {settingsScope}
+            <ProductSpecTemplatesCard key={settingsDivisionId} divisionId={settingsDivisionId} onDivisionChange={setSettingsDivisionId}
+              onConfigureBrand={openBrandSettings} importRequest={technicalImportRequest} onImportRequestHandled={() => setTechnicalImportRequest(0)} />
           </TabsContent>
         )}
         </main>
