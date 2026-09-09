@@ -153,6 +153,17 @@ describe('laser API database roundtrip', () => {
     expect(item.status, JSON.stringify(item.body)).toBe(201);
     quoteItemId = item.body.id;
     expect(item.body.compatibility.technicalConfiguration.selection).toEqual(selection);
+    const profile = await request().get('/api/v1/laser-profiles/resolve').query({ divisionId, brandId, ...selection }).set('Authorization', `Bearer ${token}`);
+    const profileSave = await request().put('/api/v1/admin/laser-profiles').set('Authorization', `Bearer ${token}`).send({
+      divisionId,
+      brandId,
+      selection,
+      specs: profile.body.specs,
+    });
+    expect(profileSave.status, JSON.stringify(profileSave.body)).toBe(200);
+    expect(profileSave.body.syncedProductCount).toBe(1);
+    const syncedProduct = await request().get(`/api/v1/products/${productId}`).set('Authorization', `Bearer ${token}`);
+    expect(syncedProduct.body.technicalConfiguration.specs.find((s: { key: string }) => s.key === 'Makine Ağırlığı').value).toBe('2222');
     const next = structuredClone(original); next.specs.find((s) => s.key === 'Makine Ağırlığı')!.value = '9999';
     expect((await request().put(`/api/v1/products/${productId}/details`).set('Authorization', `Bearer ${token}`).send(details(next))).status).toBe(200);
     const readQuote = await request().get(`/api/v1/quotes/${quoteId}`).set('Authorization', `Bearer ${token}`);

@@ -116,6 +116,7 @@ describe('laser profile persistence scope', () => {
         laserTechnicalProfiles: { findFirst: vi.fn(({ where }) => { filters.push(new PgDialect().sqlToQuery(where).params); return Promise.resolve(stored); }) },
       },
       execute: vi.fn().mockResolvedValue([]),
+      select: () => ({ from: () => ({ where: async () => [] }) }),
       insert: () => ({ values: inserts }),
       update: () => ({ set: (values: { configuration: LaserTechnicalConfiguration }) => ({ where: () => { stored!.configuration = values.configuration; return Promise.resolve(); } }) }),
       transaction: async (callback: (tx: unknown) => Promise<unknown>) => callback(db),
