@@ -26,7 +26,7 @@ import {
   X,
 } from "lucide-react";
 import { toast } from "sonner";
-import { isLaserProductType, isSupportedLaserBrand, type LaserSelection, type LaserSpec, type LaserTechnicalConfiguration } from "@haksan/shared";
+import { isLaserProductType, isSupportedLaserBrand, LASER_MODELS, LASER_POWERS, type LaserSelection, type LaserSpec, type LaserTechnicalConfiguration } from "@haksan/shared";
 import { laserProfilesService } from "../../../../lib/services/laser-profiles.service";
 import { laserWorkbookRows, laserWorkbookSpecs } from "./laser-workbook";
 import { laserSelectionKey } from "../../technical/laser-editor-state";
@@ -795,7 +795,7 @@ export function ProductSpecTemplatesCard({ divisionId, onDivisionChange, onConfi
         const oldKey = laserDraftStorageKey(laserConfiguration);
         receiveLaserConfiguration(result, false);
         localStorage.removeItem(oldKey);
-        toast.success("Teknik çalışma sayfası kaydedildi", { description: `${result.specs.length} alan bu seçime kaydedildi.` });
+        toast.success("Teknik profil ve ürün kartı kaydedildi", { description: `${result.specs.length} alan bu kombinasyona kaydedildi · ${result.syncedProductCount} ürün kartı güncellendi.` });
         return;
       }
       // Çalışma sayfasının tamamı tek istekte gider: kapsamda olup burada
@@ -982,7 +982,9 @@ export function ProductSpecTemplatesCard({ divisionId, onDivisionChange, onConfi
             onClick={() => selectedType && openWorkbook(selectedType.code)}
           >
             <ArrowRight className="mr-1.5 size-4" />
-            {selectedTemplateExists ? "Seçili şablonu aç" : "Seçili taslağı aç"}
+            {isLaserProductType(selectedType?.code ?? "")
+              ? "Lazer kombinasyonlarını aç"
+              : selectedTemplateExists ? "Seçili şablonu aç" : "Seçili taslağı aç"}
           </Button>
         ) : null}
       </div>
@@ -1045,7 +1047,7 @@ export function ProductSpecTemplatesCard({ divisionId, onDivisionChange, onConfi
             </select></div>
             <Button size="sm" variant="outline" onClick={onConfigureBrand}>Marka ve kaynak ayarları</Button>
             <Button size="sm" variant="outline" disabled={!laserBrandId || !familyDivisionId || busy} onClick={() => setLaserImportOpen(true)}>Model değerlerini içe aktar</Button>
-            <p className="text-xs text-muted-foreground">Seçimin teknik değerleri çalışma sayfasına gelir. Alanları, değerleri, grupları ve sıralamayı aşağıdan düzenleyin.</p>
+            <p className="text-xs text-muted-foreground">Seçimin teknik değerleri ayrı bir kombinasyon profili olarak açılır. Alanları, değerleri, grupları ve sıralamayı aşağıdan düzenleyin; kayıt eşleşen ürün kartına da uygulanır.</p>
           </div>
           <LaserConfigurationEditor divisionId={familyDivisionId} brandId={laserBrandId} value={laserConfiguration}
             initialProductTypeCode={selectedType.code as LaserSelection['productTypeCode']} draftScope="settings-workbook" selectionOnly disabled={busy}
@@ -1078,14 +1080,17 @@ export function ProductSpecTemplatesCard({ divisionId, onDivisionChange, onConfi
           redo={redo}
           canUndo={undoStack.length > 0}
           canRedo={redoStack.length > 0}
-          completion={selectedCompletion.percent}
+          completion={isLaserWorkbook
+            ? draftRows.length ? Math.round((draftRows.filter((row) => row.isActive && !row.isDeleted && row.defaultValue.trim()).length / Math.max(1, draftRows.filter((row) => row.isActive && !row.isDeleted).length)) * 100) : 0
+            : selectedCompletion.percent}
+          laserConfiguration={isLaserWorkbook ? laserConfiguration : null}
           activeCount={activeCount}
           groupCount={uniqueGroupCount}
           dirty={dirty}
           lastDraftSave={lastDraftSave}
           busy={busy}
           save={() => void saveWorkbook()}
-          openImport={() => setImportOpen(true)}
+          openImport={() => isLaserWorkbook ? setLaserImportOpen(true) : setImportOpen(true)}
         />}
         </>
       ) : null}
@@ -1552,12 +1557,15 @@ function HierarchySelect({ index, label, value, options, onChange }: { index: st
 
 function TemplateCard({ type, specRows, selected, onSelect, onOpen }: { type: MachineTypeOption; specRows: SpecTemplateRow[]; selected: boolean; onSelect: () => void; onOpen: () => void }) {
   const completion = completionFor(type.code, specRows);
+  const laserModels = isLaserProductType(type.code) ? LASER_MODELS.filter((model) => sameType(model.productTypeCode, type.code)) : [];
+  const isLaserTemplate = laserModels.length > 0;
+  const combinationCount = laserModels.length * LASER_POWERS.length * 2;
   const modelCode = type.code.replace(/^CNC_/, "HKM-").replaceAll("_", "-").slice(0, 18);
   return (
     <article onClick={onSelect} className={cn("group relative grid min-h-56 cursor-pointer grid-cols-[74px_minmax(0,1fr)] overflow-hidden rounded-lg border bg-white transition-all", selected ? "border-blue-600 shadow-[0_0_0_1px_#2563eb]" : "border-slate-300 hover:-translate-y-0.5 hover:border-slate-400 hover:shadow-md")}>
       <div className="relative flex flex-col items-center bg-[linear-gradient(180deg,#071c54,#0a2b59)] px-2 py-3 text-white">
-        <span className="text-[8px] font-semibold tracking-[0.1em] text-white/60">TAMAMLIK</span><strong className="mt-1 font-display text-2xl">{completion.percent}%</strong>
-        <div className="mt-2 flex h-24 w-3 flex-col-reverse gap-0.5">{Array.from({ length: 10 }).map((_, index) => <span key={index} className={cn("flex-1 border border-white/10", index < Math.round(completion.percent / 10) ? "bg-blue-500" : "bg-white/25")} />)}</div>
+        <span className="text-[8px] font-semibold tracking-[0.1em] text-white/60">{isLaserTemplate ? "MODEL" : "TAMAMLIK"}</span><strong className="mt-1 font-display text-2xl">{isLaserTemplate ? laserModels.length : `${completion.percent}%`}</strong>
+        <div className="mt-2 flex h-24 w-3 flex-col-reverse gap-0.5">{Array.from({ length: 10 }).map((_, index) => <span key={index} className={cn("flex-1 border border-white/10", index < (isLaserTemplate ? 10 : Math.round(completion.percent / 10)) ? "bg-blue-500" : "bg-white/25")} />)}</div>
         <span className="mt-auto grid size-7 place-items-center rounded-full border border-white/40"><Grid3X3 className="size-3.5" /></span>
       </div>
       <div className="relative flex min-w-0 flex-col p-4">
@@ -1565,10 +1573,9 @@ function TemplateCard({ type, specRows, selected, onSelect, onOpen }: { type: Ma
         <p className="pl-2 font-mono text-[9px] tracking-[0.22em] text-slate-500">{modelCode}</p>
         <h3 className="mt-3 max-w-[18rem] font-display text-[25px] font-bold uppercase leading-[0.96] tracking-tight text-[#0b1f44]">{type.label}</h3>
         <div className="mt-4 border-t border-slate-200 pt-3 text-[11px]">
-          <div className="flex items-center justify-between text-slate-600"><span>{completion.registered} teknik alan</span><span>{new Set(machineSpecTemplateEntries(type.code).map((entry) => entry.group)).size} bölüm</span></div>
-          <div className={cn("mt-2 flex items-center gap-1.5", completion.missing ? "text-rose-600" : "text-emerald-700")}>{completion.missing ? <CircleAlert className="size-3.5" /> : <CheckCircle2 className="size-3.5" />}{completion.missing ? `${completion.missing} alan eksik` : "Şablon hazır"}</div>
+          {isLaserTemplate ? <><div className="flex items-center justify-between text-slate-600"><span>{combinationCount} kombinasyon</span><span>{LASER_POWERS.length} güç × 2 kabin</span></div><div className="mt-2 flex items-center gap-1.5 text-emerald-700"><CheckCircle2 className="size-3.5" />Model, kabin ve güce göre düzenlenir</div></> : <><div className="flex items-center justify-between text-slate-600"><span>{completion.registered} teknik alan</span><span>{new Set(machineSpecTemplateEntries(type.code).map((entry) => entry.group)).size} bölüm</span></div><div className={cn("mt-2 flex items-center gap-1.5", completion.missing ? "text-rose-600" : "text-emerald-700")}>{completion.missing ? <CircleAlert className="size-3.5" /> : <CheckCircle2 className="size-3.5" />}{completion.missing ? `${completion.missing} alan eksik` : "Şablon hazır"}</div></>}
         </div>
-        <Button size="sm" className="mt-auto self-end bg-blue-600 text-white hover:bg-blue-700" onClick={(event) => { event.stopPropagation(); onOpen(); }}>Çalışma sayfasını aç<ArrowRight className="ml-1.5 size-4" /></Button>
+        <Button size="sm" className="mt-auto self-end bg-blue-600 text-white hover:bg-blue-700" onClick={(event) => { event.stopPropagation(); onOpen(); }}>{isLaserTemplate ? "Kombinasyonları aç" : "Çalışma sayfasını aç"}<ArrowRight className="ml-1.5 size-4" /></Button>
       </div>
     </article>
   );
@@ -1576,6 +1583,7 @@ function TemplateCard({ type, specRows, selected, onSelect, onOpen }: { type: Ma
 
 type EditorViewProps = {
   type: MachineTypeOption;
+  laserConfiguration?: LaserTechnicalConfiguration | null;
   search: string;
   setSearch: (value: string) => void;
   rows: DraftRow[];
@@ -1606,7 +1614,7 @@ type EditorViewProps = {
   openImport: () => void;
 };
 
-function EditorView({ type, search, setSearch, rows, displayRows, selectedRow, selectedRowId, setSelectedRowId, updateRow, changeRowGroup, addField, removeField, addSection, moveRow, moveRowToPosition, moveRowByDrag, pasteValues, undo, redo, canUndo, canRedo, completion, activeCount, groupCount, dirty, lastDraftSave, busy, save, openImport }: EditorViewProps) {
+function EditorView({ type, laserConfiguration, search, setSearch, rows, displayRows, selectedRow, selectedRowId, setSelectedRowId, updateRow, changeRowGroup, addField, removeField, addSection, moveRow, moveRowToPosition, moveRowByDrag, pasteValues, undo, redo, canUndo, canRedo, completion, activeCount, groupCount, dirty, lastDraftSave, busy, save, openImport }: EditorViewProps) {
   const [pendingDelete, setPendingDelete] = useState<DraftRow | null>(null);
   const [inspectorOpen, setInspectorOpen] = useState(false);
   const [downloading, setDownloading] = useState(false);
@@ -1620,6 +1628,10 @@ function EditorView({ type, search, setSearch, rows, displayRows, selectedRow, s
       .filter((row) => row.clientId !== draggedRowId && row.groupCode === dragTargetRow.groupCode)
       .findIndex((row) => row.clientId === dragTargetRow.clientId) + (dragTarget.edge === "after" ? 2 : 1)
     : null;
+  const isLaserProfile = Boolean(laserConfiguration);
+  const laserSelection = laserConfiguration?.selection;
+  const valueColumnLabel = isLaserProfile ? "Seçili Makine Değeri" : "Başlangıç Değeri";
+  const valueAriaLabel = (row: DraftRow) => isLaserProfile ? `${row.specKey} seçili makine değeri` : `${row.specKey} başlangıç değeri`;
 
   const focusCell = (rowIndex: number, column: number) => {
     const cell = document.querySelector<HTMLInputElement>(`[data-workbook-cell="${rowIndex}:${column}"]`);
@@ -1655,11 +1667,13 @@ function EditorView({ type, search, setSearch, rows, displayRows, selectedRow, s
     try {
       await exportService.technicalImportTemplate({
         productTypeCode: type.code,
-        productTypeLabel: type.label,
+        productTypeLabel: laserConfiguration
+          ? `${laserConfiguration.modelLabel} · ${laserConfiguration.selection.cabinType === "open" ? "Açık Kabin" : "Kapalı Kabin"} · ${laserConfiguration.selection.powerKw} kW · ${laserConfiguration.sizeLabel}`
+          : type.label,
         format,
         fields: rows.map((row) => ({ key: row.specKey, groupCode: row.groupCode, section: groupLabel(row.groupCode), unit: row.unit, value: row.defaultValue })),
       });
-      toast.success(`${format.toLocaleUpperCase("tr-TR")} şablonu indirildi`, { description: `${type.label} · ${rows.length} alan` });
+      toast.success(`${format.toLocaleUpperCase("tr-TR")} ${isLaserProfile ? "profil özeti" : "şablonu"} indirildi`, { description: `${laserConfiguration?.modelLabel ?? type.label} · ${rows.length} alan` });
     } catch (error: any) {
       toast.error("Şablon indirilemedi", { description: error?.message ?? "Sunucu isteği başarısız oldu." });
     } finally {
@@ -1670,16 +1684,26 @@ function EditorView({ type, search, setSearch, rows, displayRows, selectedRow, s
   return (
     <div className="bg-[#f8fafc]">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-white px-4 py-3">
-        <div className="min-w-0"><h2 className="truncate font-display text-2xl font-bold text-[#0b1f44]">{type.label}</h2><p className="font-mono text-[9px] tracking-[0.22em] text-slate-500">{type.code}</p></div>
+        <div className="min-w-0"><h2 className="truncate font-display text-2xl font-bold text-[#0b1f44]">{laserConfiguration?.modelLabel ?? type.label}</h2><p className="font-mono text-[9px] tracking-[0.22em] text-slate-500">{isLaserProfile ? `${laserSelection?.series} SERİSİ · ${laserSelection?.sourceModelCode}` : type.code}</p></div>
         <div className="flex flex-wrap items-center gap-2 text-[10px] text-slate-500"><Badge variant="outline" className="border-slate-300 bg-white">{type.familyCode === "SAC_ISLEME" ? "Sac İşleme" : type.familyCode === "UNIVERSAL" ? "Üniversal" : "CNC"}</Badge><ArrowRight className="size-3" /><span>{type.categoryLabel}</span><ArrowRight className="size-3" /><span>{type.subcategoryLabel}</span></div>
       </div>
+      {laserConfiguration && <div className="border-b border-blue-200 bg-blue-50 px-4 py-3">
+        <div className="flex flex-wrap items-center gap-2 text-xs">
+          <Badge variant="outline" className="border-blue-200 bg-white text-blue-800">{laserSelection?.series} Serisi</Badge>
+          <Badge variant="outline" className="border-blue-200 bg-white text-blue-800">{laserSelection?.sourceModelCode}</Badge>
+          <Badge variant="outline" className="border-blue-200 bg-white text-blue-800">{laserSelection?.cabinType === "open" ? "Açık kabin" : "Kapalı kabin"}</Badge>
+          <Badge variant="outline" className="border-blue-200 bg-white text-blue-800">{laserSelection?.powerKw} kW rezonatör</Badge>
+          <Badge variant="outline" className="border-blue-200 bg-white text-blue-800">{laserConfiguration.sizeLabel}</Badge>
+        </div>
+        <p className="mt-2 text-xs text-blue-900">Bu çalışma sayfası yalnız seçili seri, model, kabin ve güç kombinasyonuna aittir. Kaydettiğiniz alanlar eşleşen ürün kartlarına uygulanır; daha önce kaydedilmiş tekliflerin teknik bilgi kopyaları değişmez.</p>
+      </div>}
       <div className="flex flex-wrap items-center gap-2 border-b border-slate-300 bg-white px-3 py-2">
         <Button variant="outline" size="sm" onClick={() => addField()}><Plus className="mr-1.5 size-4" />Alan ekle</Button>
         <Button variant="outline" size="sm" onClick={addSection}><Plus className="mr-1.5 size-4" />Bölüm ekle</Button>
-        <Button variant="outline" size="sm" onClick={openImport}><Upload className="mr-1.5 size-4" />Excel / CSV yükle</Button>
+        <Button variant="outline" size="sm" onClick={openImport}><Upload className="mr-1.5 size-4" />{isLaserProfile ? "Model profillerini yükle" : "Excel / CSV yükle"}</Button>
         <div className="flex items-center">
           <Button variant="outline" size="sm" className="rounded-r-none" disabled={downloading} onClick={() => void downloadTemplate("xlsx")}>
-            {downloading ? <RefreshCw className="mr-1.5 size-4 animate-spin" /> : <Download className="mr-1.5 size-4" />}Şablon indir
+            {downloading ? <RefreshCw className="mr-1.5 size-4 animate-spin" /> : <Download className="mr-1.5 size-4" />}{isLaserProfile ? "Profil özeti indir" : "Şablon indir"}
           </Button>
           <Button variant="outline" size="sm" className="-ml-px rounded-l-none px-2 text-[10px] font-medium" disabled={downloading} title="Şablonu CSV olarak indir" onClick={() => void downloadTemplate("csv")}>CSV</Button>
         </div>
@@ -1702,9 +1726,9 @@ function EditorView({ type, search, setSearch, rows, displayRows, selectedRow, s
 
       <div className="grid min-h-[620px] xl:grid-cols-[104px_minmax(680px,1fr)_264px]">
         <aside className="hidden border-r border-slate-300 bg-white p-3 xl:flex xl:flex-col">
-          <p className="font-display text-[11px] font-bold tracking-wide text-slate-700">ŞABLON TAMLIĞI</p><strong className="mt-1 font-display text-3xl text-blue-700">{completion}%</strong>
+          <p className="font-display text-[11px] font-bold tracking-wide text-slate-700">{isLaserProfile ? "PROFİL TAMLIĞI" : "ŞABLON TAMLIĞI"}</p><strong className="mt-1 font-display text-3xl text-blue-700">{completion}%</strong>
           <div className="mt-3 flex h-44 w-5 flex-col-reverse gap-0.5">{Array.from({ length: 12 }).map((_, index) => <span key={index} className={cn("flex-1 border border-slate-200", index < Math.round((completion / 100) * 12) ? "bg-blue-600" : "bg-slate-200")} />)}</div>
-          <div className="mt-5 border-t border-slate-200 pt-4"><p className="font-mono text-[8px] tracking-[0.14em] text-slate-500">MODEL KODU</p><p className="mt-1 break-words font-display text-base font-bold text-[#0b1f44]">{type.code.replaceAll("_", "-")}</p></div>
+          <div className="mt-5 border-t border-slate-200 pt-4"><p className="font-mono text-[8px] tracking-[0.14em] text-slate-500">{isLaserProfile ? "KOMBİNASYON" : "MODEL KODU"}</p><p className="mt-1 break-words font-display text-base font-bold text-[#0b1f44]">{isLaserProfile ? `${laserSelection?.sourceModelCode}-${laserSelection?.cabinType === "open" ? "AÇIK" : "KAPALI"}-${laserSelection?.powerKw}KW` : type.code.replaceAll("_", "-")}</p></div>
           <div className="mt-4 space-y-2 text-[10px] text-slate-600"><div>{activeCount} teknik alan</div><div>{groupCount} bölüm</div><div className="flex items-center gap-1 text-emerald-700"><CheckCircle2 className="size-3" />Aktif</div></div>
           <Grid3X3 className="mt-auto size-7 text-slate-400" />
         </aside>
@@ -1717,7 +1741,7 @@ function EditorView({ type, search, setSearch, rows, displayRows, selectedRow, s
           <table className="w-full min-w-[760px] border-collapse text-xs">
             <thead className="sticky top-0 z-10 bg-slate-100 text-slate-600 shadow-[0_1px_0_#cbd5e1]">
               <tr className="h-6 border-b border-slate-300 text-[10px]"><th className="w-11 border-r border-slate-300">#</th>{["A", "B", "C", "D", "E"].map((letter) => <th key={letter} className="border-r border-slate-300 font-medium">{letter}</th>)}<th className="w-10" /></tr>
-              <tr className="h-8"><th className="border-r border-slate-300">#</th><th className="w-24 border-r border-slate-300">Bölüm</th><th className="border-r border-slate-300">Teknik Bilgi</th><th className="border-r border-slate-300">Başlangıç Değeri</th><th className="w-28 border-r border-slate-300">Birim</th><th className="w-32 border-r border-slate-300">Durum</th><th className="w-16"><span className="sr-only">Alan işlemleri</span></th></tr>
+              <tr className="h-8"><th className="border-r border-slate-300">#</th><th className="w-24 border-r border-slate-300">Bölüm</th><th className="border-r border-slate-300">Teknik Bilgi</th><th className="border-r border-slate-300">{valueColumnLabel}</th><th className="w-28 border-r border-slate-300">Birim</th><th className="w-32 border-r border-slate-300">Durum</th><th className="w-16"><span className="sr-only">Alan işlemleri</span></th></tr>
             </thead>
             <tbody>
               {displayRows.map(({ row, rowSpan }, index) => {
@@ -1807,7 +1831,7 @@ function EditorView({ type, search, setSearch, rows, displayRows, selectedRow, s
                     </td>
                     {rowSpan > 0 && <td rowSpan={rowSpan} className="border-r border-slate-300 bg-slate-50 p-0 text-center"><span style={{ writingMode: "vertical-rl", transform: "rotate(180deg)" }} className="inline-block py-2 font-display text-sm font-bold tracking-[0.08em] text-slate-700">{groupLabel(row.groupCode)}</span></td>}
                     <td className="border-r border-slate-200 p-0"><input aria-label={`${row.specKey} alan adı`} value={row.specKey} data-workbook-cell={`${index}:0`} onFocus={() => setSelectedRowId(row.clientId)} onKeyDown={(event) => cellKeyDown(event, index, 0)} onPaste={(event) => { if (pasteValues(row.clientId, "specKey", event.clipboardData.getData("text"))) event.preventDefault(); }} onChange={(event) => updateRow(row.clientId, { specKey: event.target.value })} className="h-8 w-full border-0 bg-transparent px-3 outline-none focus:bg-white focus:ring-2 focus:ring-inset focus:ring-blue-500" /></td>
-                    <td className="border-r border-slate-200 p-0"><input aria-label={`${row.specKey} başlangıç değeri`} value={row.defaultValue} data-workbook-cell={`${index}:1`} onFocus={() => setSelectedRowId(row.clientId)} onKeyDown={(event) => cellKeyDown(event, index, 1)} onPaste={(event) => { if (pasteValues(row.clientId, "defaultValue", event.clipboardData.getData("text"))) event.preventDefault(); }} onChange={(event) => updateRow(row.clientId, { defaultValue: event.target.value })} className="h-8 w-full border-0 bg-transparent px-3 font-medium outline-none focus:bg-white focus:ring-2 focus:ring-inset focus:ring-blue-500" /></td>
+                    <td className="border-r border-slate-200 p-0"><input aria-label={valueAriaLabel(row)} value={row.defaultValue} data-workbook-cell={`${index}:1`} onFocus={() => setSelectedRowId(row.clientId)} onKeyDown={(event) => cellKeyDown(event, index, 1)} onPaste={(event) => { if (pasteValues(row.clientId, "defaultValue", event.clipboardData.getData("text"))) event.preventDefault(); }} onChange={(event) => updateRow(row.clientId, { defaultValue: event.target.value })} className="h-8 w-full border-0 bg-transparent px-3 font-medium outline-none focus:bg-white focus:ring-2 focus:ring-inset focus:ring-blue-500" /></td>
                     <td className="border-r border-slate-200 p-0"><input aria-label={`${row.specKey} birimi`} value={row.unit} data-workbook-cell={`${index}:2`} onFocus={() => setSelectedRowId(row.clientId)} onKeyDown={(event) => cellKeyDown(event, index, 2)} onPaste={(event) => { if (pasteValues(row.clientId, "unit", event.clipboardData.getData("text"))) event.preventDefault(); }} onChange={(event) => updateRow(row.clientId, { unit: event.target.value })} className="h-8 w-full border-0 bg-transparent px-3 outline-none focus:bg-white focus:ring-2 focus:ring-inset focus:ring-blue-500" /></td>
                     <td className="border-r border-slate-200 p-0"><select value={row.isActive ? "active" : "inactive"} onChange={(event) => updateRow(row.clientId, { isActive: event.target.value === "active" })} className="h-8 w-full border-0 bg-transparent px-2 text-[11px] outline-none focus:ring-2 focus:ring-inset focus:ring-blue-500"><option value="active">● Aktif</option><option value="inactive">○ Pasif</option></select></td>
                     <td className="p-0 text-center">
@@ -1852,6 +1876,7 @@ function EditorView({ type, search, setSearch, rows, displayRows, selectedRow, s
               moveRow={moveRow}
               moveRowToPosition={moveRowToPosition}
               requestDelete={setPendingDelete}
+              allowSpecOptions={!isLaserProfile}
             />
           ) : <div className="p-6 text-center text-xs text-slate-500">Ayarlarını düzenlemek için bir satır seçin.</div>}
         </aside>
@@ -1859,7 +1884,7 @@ function EditorView({ type, search, setSearch, rows, displayRows, selectedRow, s
 
       <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-300 bg-white px-4 py-2.5 text-[11px]">
         <div className="flex w-full flex-wrap items-center gap-3 sm:w-auto sm:gap-4"><span>{rows.length} teknik alan</span><span>{groupCount} bölüm</span><span className="hidden text-slate-500 xl:inline">Enter / ↑ ↓ hücre gezer · Ctrl+V Excel bloğu · Ctrl+D üsttekini kopyalar</span>{search.trim() && <span className="text-amber-700">Sürüklemek için aramayı temizleyin</span>}<span className={cn("flex items-center gap-1", dirty ? "text-amber-700" : "text-emerald-700")}>{dirty ? <CircleAlert className="size-3.5" /> : <CheckCircle2 className="size-3.5" />}{dirty ? lastDraftSave ? `Taslak kaydedildi ${lastDraftSave.toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" })}` : "Kaydedilmemiş değişiklikler" : "Tüm değişiklikler kayıtlı"}</span></div>
-        <div className="flex w-full flex-wrap items-center sm:w-auto"><button type="button" className="min-h-11 border-b-2 border-blue-600 px-3 py-2 font-medium text-blue-700 sm:px-5">Şablon Alanları</button><button type="button" onClick={openImport} className="min-h-11 border-b-2 border-transparent px-3 py-2 text-slate-600 hover:text-slate-900 sm:px-5">Makine Verileri</button><button type="button" onClick={() => addField()} className="ml-2 grid size-11 place-items-center rounded border border-slate-200 hover:bg-slate-50"><Plus className="size-4" /></button></div>
+        <div className="flex w-full flex-wrap items-center sm:w-auto"><button type="button" className="min-h-11 border-b-2 border-blue-600 px-3 py-2 font-medium text-blue-700 sm:px-5">{isLaserProfile ? "Kombinasyon Alanları" : "Şablon Alanları"}</button><button type="button" onClick={openImport} className="min-h-11 border-b-2 border-transparent px-3 py-2 text-slate-600 hover:text-slate-900 sm:px-5">{isLaserProfile ? "Model Profilleri" : "Makine Verileri"}</button><button type="button" onClick={() => addField()} className="ml-2 grid size-11 place-items-center rounded border border-slate-200 hover:bg-slate-50"><Plus className="size-4" /></button></div>
       </div>
 
       <SideSheet open={inspectorOpen && Boolean(selectedRow)} onOpenChange={setInspectorOpen}>
@@ -1882,6 +1907,7 @@ function EditorView({ type, search, setSearch, rows, displayRows, selectedRow, s
                 setInspectorOpen(false);
                 setPendingDelete(row);
               }}
+              allowSpecOptions={!isLaserProfile}
             />
           )}
         </SideSheetContent>
@@ -1892,9 +1918,9 @@ function EditorView({ type, search, setSearch, rows, displayRows, selectedRow, s
           <AlertDialogHeader>
             <AlertDialogTitle>Teknik alan silinsin mi?</AlertDialogTitle>
             <AlertDialogDescription>
-              <b>{pendingDelete?.specKey}</b> alanı {type.label} şablonundan kaldırılacak.
-              {" "}Kaydet'e bastığınızda değişiklik kalıcı olur; mevcut makinelerde girilmiş teknik değerler korunur.
-              Yalnızca yeni makinelerde göstermemek istiyorsanız pasifleştirmeyi kullanın.
+              <b>{pendingDelete?.specKey}</b> alanı {isLaserProfile ? "seçili lazer kombinasyonu profilinden" : `${type.label} şablonundan`} kaldırılacak.
+              {" "}Kaydet'e bastığınızda değişiklik kalıcı olur; {isLaserProfile ? "eşleşen ürün kartları güncellenir" : "mevcut makinelerde girilmiş teknik değerler korunur"}.
+              {!isLaserProfile && " Yalnızca yeni makinelerde göstermemek istiyorsanız pasifleştirmeyi kullanın."}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -1936,6 +1962,7 @@ type FieldInspectorProps = {
   moveRow: (id: string, direction: -1 | 1) => void;
   moveRowToPosition: (id: string, position: number) => void;
   requestDelete: (row: DraftRow) => void;
+  allowSpecOptions: boolean;
 };
 
 /**
@@ -2016,6 +2043,7 @@ function FieldInspector({
   moveRow,
   moveRowToPosition,
   requestDelete,
+  allowSpecOptions,
 }: FieldInspectorProps) {
   const sectionRows = rows.filter((item) => item.groupCode === row.groupCode);
   const sectionPosition = Math.max(0, sectionRows.findIndex((item) => item.clientId === row.clientId));
@@ -2023,13 +2051,13 @@ function FieldInspector({
   return (
     <div className="space-y-4 p-4">
       <InspectorField label="Teknik bilgi adı" value={row.specKey} onChange={(value) => updateRow(row.clientId, { specKey: value })} />
-      <InspectorField label="Başlangıç değeri" value={row.defaultValue} onChange={(value) => updateRow(row.clientId, { defaultValue: value })} />
+      <InspectorField label={allowSpecOptions ? "Başlangıç değeri" : "Seçili makine değeri"} value={row.defaultValue} onChange={(value) => updateRow(row.clientId, { defaultValue: value })} />
 
-      <SpecOptionsEditor
+      {allowSpecOptions && <SpecOptionsEditor
         options={row.specOptions}
         defaultValue={row.defaultValue}
         onChange={(next) => updateRow(row.clientId, { specOptions: next })}
-      />
+      />}
 
       <div>
         <label className="text-[10px] font-medium text-slate-500">Bölüm</label>

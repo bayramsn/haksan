@@ -50,7 +50,7 @@ export function LaserProfilesPanel({ divisionId, onConfigureBrand }: { divisionI
       const saved = await laserProfilesService.save({ divisionId, brandId }, configuration.selection, configuration.specs);
       setConfiguration(saved);
       try { localStorage.removeItem(laserDraftKey({ tenantId: user?.tenantId ?? '', divisionId, brandId, draftScope: 'settings' }, saved.selection)); } catch { /* Browser storage may be unavailable. */ }
-      toast.success('Lazer teknik profili kaydedildi', { description: `${saved.modelLabel} · ${saved.selection.powerKw} kW · ${saved.selection.cabinType === 'open' ? 'Açık' : 'Kapalı'} kabin` });
+      toast.success('Lazer teknik profili kaydedildi', { description: `${saved.modelLabel} · ${saved.selection.powerKw} kW · ${saved.selection.cabinType === 'open' ? 'Açık' : 'Kapalı'} kabin · ${saved.syncedProductCount} ürün kartı güncellendi.` });
     } catch (error: unknown) { toast.error('Profil kaydedilemedi', { description: errorMessage(error, 'Teknik profil kaydı başarısız oldu.') }); }
     finally { setSaving(false); }
   };
@@ -131,7 +131,7 @@ export function LaserProfileImportDialog({ open, onOpenChange, scope, onImported
     setError('');
     try {
       const result = await laserProfilesService.commitImport(scope, preview);
-      toast.success('Lazer profilleri aktarıldı', { description: `${result.created} yeni, ${result.updated} güncellenen profil. Elle düzenlenen değerler korundu.` });
+      toast.success('Lazer profilleri aktarıldı', { description: `${result.created} yeni, ${result.updated} güncellenen profil · ${result.syncedProductCount} ürün kartı güncellendi. Elle düzenlenen profil değerleri korundu.` });
       setPreview(null);
       setFile(null);
       onOpenChange(false);

@@ -14,6 +14,7 @@ export type LaserImportPreview = {
   issues: LaserIssue[];
   summary: { total: number; ready: number };
 };
+export type LaserProfileSaveResult = LaserTechnicalConfiguration & { syncedProductCount: number };
 
 function query(values: Record<string, string | number | undefined>) {
   const params = new URLSearchParams();
@@ -27,13 +28,13 @@ export const laserProfilesService = {
   resolve: (scope: LaserProfileScope, selection: LaserSelection, signal?: AbortSignal) =>
     api.get<LaserTechnicalConfiguration>(`/laser-profiles/resolve${query({ ...scope, ...selection })}`, { signal }),
   save: (scope: LaserProfileScope, selection: LaserSelection, specs: LaserSpec[]) =>
-    api.put<LaserTechnicalConfiguration>('/admin/laser-profiles', { ...scope, selection, specs }),
+    api.put<LaserProfileSaveResult>('/admin/laser-profiles', { ...scope, selection, specs }),
   previewImport: (scope: LaserProfileScope, file: { fileName: string; mimeType?: string; fileBase64: string }, signal?: AbortSignal) =>
     api.post<LaserImportPreview>('/admin/technical-import/preview', {
       ...scope, ...file, mode: 'laser_profiles', productTypeCode: 'FIBER_LAZER_KESIM', availableFields: [], includeCatalogModels: true,
     }, { signal }),
   commitImport: (scope: LaserProfileScope, preview: Pick<LaserImportPreview, 'importToken' | 'laserProfiles'>) =>
-    api.post<{ ok: boolean; created: number; updated: number; imported: number }>('/admin/technical-import/commit', {
+    api.post<{ ok: boolean; created: number; updated: number; imported: number; syncedProductCount: number }>('/admin/technical-import/commit', {
       ...scope, importToken: preview.importToken, laserSelections: preview.laserProfiles.map((profile) => profile.selection),
       mode: 'laser_profiles', productTypeCode: 'FIBER_LAZER_KESIM', rows: [],
     }),

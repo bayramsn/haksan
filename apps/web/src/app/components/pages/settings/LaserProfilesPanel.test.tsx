@@ -34,7 +34,7 @@ describe('LaserProfilesPanel', () => {
   beforeEach(() => {
     vi.stubGlobal('localStorage', { removeItem: vi.fn() });
     vi.mocked(productService.listBrands).mockResolvedValue([{ id: 'brand-1', code: 'AORE', name: 'AORE' }, { id: 'brand-2', name: 'Diğer Marka' }]);
-    vi.mocked(laserProfilesService.save).mockImplementation(async (_scope, selection) => resolveLaserProfile(selection));
+    vi.mocked(laserProfilesService.save).mockImplementation(async (_scope, selection) => ({ ...resolveLaserProfile(selection), syncedProductCount: 1 }));
   });
   afterEach(() => { cleanup(); vi.clearAllMocks(); vi.unstubAllGlobals(); });
 
@@ -53,7 +53,7 @@ describe('LaserProfilesPanel', () => {
     const user = userEvent.setup();
     const profile = resolveLaserProfile({ productTypeCode: 'FIBER_LAZER_KESIM', series: 'F', cabinType: 'open', powerKw: 6, sourceModelCode: 'F3015' });
     vi.mocked(laserProfilesService.previewImport).mockResolvedValue({ importToken: 'preview-token', file: { name: 'AORE.xlsx' }, laserProfiles: [profile], summary: { total: 1, ready: 1 }, issues: [] });
-    vi.mocked(laserProfilesService.commitImport).mockResolvedValue({ ok: true, created: 1, updated: 0, imported: 1 });
+    vi.mocked(laserProfilesService.commitImport).mockResolvedValue({ ok: true, created: 1, updated: 0, imported: 1, syncedProductCount: 1 });
     render(<LaserProfilesPanel divisionId="division-1" />);
     await waitFor(() => expect((screen.getByLabelText('Marka') as HTMLSelectElement).value).toBe('brand-1'));
     await user.click(screen.getByRole('button', { name: "Excel'den profil aktar" }));
