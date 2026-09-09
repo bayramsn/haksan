@@ -3509,6 +3509,7 @@ export function ProductDialog({
   );
   const [supplierTouched, setSupplierTouched] = useState(false);
   const [laserDraftId, setLaserDraftId] = useState(() => crypto.randomUUID());
+  const [laserSelectionStarted, setLaserSelectionStarted] = useState(false);
   const selectedProductDivisionId = useMemo(() => {
     const divisionCode = form.productGroupCode === "UNIVERSAL"
       ? "universal"
@@ -3637,6 +3638,7 @@ export function ProductDialog({
 
   const reset = () => {
     setForm(mode === "edit" && product ? fromProduct(product) : emptyProduct(activeProductGroupCode));
+    setLaserSelectionStarted(false);
     setStdInput("");
     setOptionalEquipmentDraft(emptyOptionalEquipmentDraft());
     setLaserDraftId(crypto.randomUUID());
@@ -3981,7 +3983,7 @@ export function ProductDialog({
       toast.error(isLaborProduct ? "Ürün adı zorunludur" : "Marka ve ürün adı zorunludur");
       return;
     }
-    if (isCatalogLaserProduct && !form.technicalConfiguration && (mode === 'create' || product?.technicalConfiguration)) {
+    if (isCatalogLaserProduct && !form.technicalConfiguration && (mode === 'create' || product?.technicalConfiguration || laserSelectionStarted)) {
       toast.error('Lazer teknik bilgi seçimlerini tamamlayın', { description: 'Seri, kabin, rezonatör gücü ve model/ölçü seçilmelidir.' });
       return;
     }
@@ -4481,6 +4483,7 @@ export function ProductDialog({
                     draftScope={`product:${product?.id ?? laserDraftId}`}
                     disabled={submitting}
                     onSelectionChange={(selection) => {
+                      setLaserSelectionStarted(true);
                       if (!selection.productTypeCode) return;
                       setForm((current) => {
                         const meta = productTypeMeta(selection.productTypeCode);

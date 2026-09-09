@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { resolveLaserProfile, LASER_MODELS } from '@haksan/shared';
 import type { Product } from '../../lib/mock';
 import { ProductDialog } from './CreateDialogs';
+import { toast } from 'sonner';
 import { laserProfilesService } from '../../../lib/services/laser-profiles.service';
 
 const state = vi.hoisted(() => ({
@@ -99,5 +100,28 @@ describe('product card laser integration', () => {
     expect(payload.technicalConfiguration.selection).toMatchObject({ series: 'TG', powerKw: 30, sourceModelCode: 'TG6012' });
     expect(payload.technicalConfiguration.supportedPower).toBe(false);
     expect(payload.specs.find((spec: { key: string }) => spec.key === 'Makine Ağırlığı')?.value).toBe('5000');
+  });
+});
+
+
+describe('imported unconfigured laser product', () => {
+  it('preserves source specifications when saving without starting a new selection', async () => {
+    state.products[0] = { ...state.products[0], technicalConfiguration: null };
+    render(<ProductDialog mode="edit" product={state.products[0]} open onOpenChange={() => {}} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Güncelle' }));
+    await waitFor(() => expect(state.updateProduct).toHaveBeenCalledTimes(1));
+    const payload = state.updateProduct.mock.calls[0][1];
+    expect(payload.technicalConfiguration).toBeNull();
+    expect(payload.specs.find((spec: { key: string }) => spec.key === 'Makine Ağırlığı')?.value).toBe('2150');
+  });
+
+  it('blocks an incomplete selection from replacing imported specifications with an empty list', async () => {
+    state.products[0] = { ...state.products[0], technicalConfiguration: null };
+    render(<ProductDialog mode="edit" product={state.products[0]} open onOpenChange={() => {}} />);
+    await screen.findByRole('option', { name: 'F Serisi' });
+    fireEvent.change(screen.getByLabelText('3. Ürün serisi tipi'), { target: { value: 'F' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Güncelle' }));
+    expect(state.updateProduct).not.toHaveBeenCalled();
+    expect(toast.error).toHaveBeenCalledWith('Lazer teknik bilgi seçimlerini tamamlayın', expect.any(Object));
   });
 });
