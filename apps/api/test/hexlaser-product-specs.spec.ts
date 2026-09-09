@@ -6,14 +6,28 @@ describe('unconfigured imported product specifications', () => {
   it('preserves multiple power conditions and keeps electrical power separate from transformer capacity', () => {
     const specs = catalogProductSpecs(LASER_MODELS.find((model) => model.code === 'F3015')!.fields);
     const power = specs.find((spec) => spec.key === 'Toplam Güç Gereksinimi')!;
+    expect(power.value).toContain('1.5 kW: 13.9');
+    expect(power.value).toContain('2 kW: 14.6');
     expect(power.value).toContain('6 kW: 35.9');
     expect(power.value).toContain('12 kW: 55.9');
     expect(power.unit).toBe('kW');
     const transformer = specs.find((spec) => spec.key === 'Trafo Kapasitesi')!;
+    expect(transformer.value).toContain('1.5 kW: 30');
+    expect(transformer.value).toContain('2 kW: 30');
     expect(transformer.value).toContain('6 kW: 50');
     expect(transformer.value).toContain('12 kW: 80');
     expect(transformer.unit).toBe('kVA');
     expect(specs.filter((spec) => spec.key === power.key)).toHaveLength(1);
+  });
+
+  it('separates electrical tuples that include a trailing phase annotation', () => {
+    const source = { document: 'AORE Technical Parameters.xlsx', sheet: 'test', cell: 'A1' };
+    const specs = catalogProductSpecs([
+      { key: 'Toplam Güç Gereksinimi', rawValue: '20.7KW/40KVA（三相380V）', groupCode: 'GENEL', unit: 'kW', powerKw: 1.5, source },
+      { key: 'Trafo Kapasitesi', rawValue: '20.7KW/40KVA（三相380V）', groupCode: 'GENEL', unit: 'kVA', powerKw: 1.5, source },
+    ]);
+    expect(specs.find((spec) => spec.key === 'Toplam Güç Gereksinimi')).toMatchObject({ value: '1.5 kW: 20.7', unit: 'kW' });
+    expect(specs.find((spec) => spec.key === 'Trafo Kapasitesi')).toMatchObject({ value: '1.5 kW: 40', unit: 'kVA' });
   });
 
   it.each([

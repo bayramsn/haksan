@@ -1,4 +1,4 @@
-import { pgTable, uuid, varchar, text, boolean, integer, jsonb, timestamp, index, uniqueIndex } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, varchar, text, boolean, integer, numeric, jsonb, timestamp, index, uniqueIndex } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 import { auditColumns, money, percent } from './_helpers';
 import { tenants, divisions } from './tenants';
@@ -181,7 +181,7 @@ export const laserTechnicalProfiles = pgTable(
     series: varchar('series', { length: 8 }).notNull(),
     sourceModelCode: varchar('source_model_code', { length: 64 }).notNull(),
     cabinType: varchar('cabin_type', { length: 16 }).notNull(),
-    powerKw: integer('power_kw').notNull(),
+    powerKw: numeric('power_kw', { precision: 5, scale: 1, mode: 'number' }).notNull(),
     configuration: jsonb('configuration').$type<LaserTechnicalConfiguration>().notNull(),
     updatedBy: uuid('updated_by'),
     ...auditColumns,

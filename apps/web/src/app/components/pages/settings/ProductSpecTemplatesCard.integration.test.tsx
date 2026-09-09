@@ -21,7 +21,7 @@ vi.mock('../../ui/sheet',()=>({Sheet:()=>null,SheetContent:()=>null,SheetHeader:
 vi.mock('../../ui/alert-dialog',()=>({AlertDialog:({open,children}:any)=>open?<>{children}</>:null,AlertDialogContent:({children}:any)=><div>{children}</div>,AlertDialogHeader:({children}:any)=><div>{children}</div>,AlertDialogTitle:({children}:any)=><h2>{children}</h2>,AlertDialogDescription:({children}:any)=><p>{children}</p>,AlertDialogFooter:({children}:any)=><div>{children}</div>,AlertDialogAction:({children,onClick}:any)=><button onClick={onClick}>{children}</button>,AlertDialogCancel:({children}:any)=><button>{children}</button>}));
 beforeEach(()=>{
   vi.clearAllMocks();const values=new Map<string,string>();vi.stubGlobal('localStorage',{getItem:(key:string)=>values.get(key)??null,setItem:(key:string,value:string)=>values.set(key,value),removeItem:(key:string)=>values.delete(key)});
-  vi.mocked(laserProfilesService.options).mockResolvedValue({models:[...LASER_MODELS],powerOptions:[3,6,12,20,30],cabinOptions:['open','closed']});
+  vi.mocked(laserProfilesService.options).mockResolvedValue({models:[...LASER_MODELS],powerOptions:[1.5,2,3,6,12,20,30],cabinOptions:['open','closed']});
   vi.mocked(laserProfilesService.resolve).mockImplementation(async(_scope,selection)=>resolveLaserProfile(selection));
   vi.mocked(laserProfilesService.save).mockImplementation(async(_scope,selection,specs)=>({...resolveLaserProfile(selection),profileId:'saved',specs}));
 });

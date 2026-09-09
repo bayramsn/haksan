@@ -91,7 +91,7 @@ describe('laser source provenance and imports', () => {
     const profiles = { assertScope: vi.fn().mockResolvedValue(undefined), importProfiles: vi.fn().mockResolvedValue({ ok: true, imported: 1 }) };
     const service = new TechnicalImportService({} as never, audit as never, profiles as never);
     const preview = await service.preview({ ...scope, mode: 'laser_profiles', fileName: 'f.xlsx', productTypeCode: selection.productTypeCode, fileBase64: Buffer.from(await workbook.xlsx.writeBuffer()).toString('base64'), availableFields: [] }, actor);
-    expect(preview.laserProfiles).toHaveLength(20);
+    expect(preview.laserProfiles).toHaveLength(28);
     const model = preview.laserProfiles!.find((profile) => profile.selection.sourceModelCode === 'F4015' && profile.selection.powerKw === 6 && profile.selection.cabinType === 'open')!;
     expect(model.specs.find((field) => field.key === 'Makine Ağırlığı')).toMatchObject({ value: '2150', source: { cell: 'E4' } });
     expect(model.specs.find((field) => field.key === 'Kontrol Ünitesi')?.value).toBeTruthy();
@@ -131,7 +131,7 @@ describe('laser profile persistence scope', () => {
     expect(await service.importProfiles(scope, [base()], actor)).toMatchObject({ created: 0, updated: 1 });
     expect(test.inserts).toHaveBeenCalledTimes(1);
     expect(test.stored()!.configuration.specs.find((field) => field.key === 'Makine Ağırlığı')?.value).toBe('2222');
-    for (const filter of test.filters) expect(filter).toEqual(expect.arrayContaining([actor.tenantId, scope.divisionId, scope.brandId, selection.productTypeCode, 'F3015', 'open', 6]));
+    for (const filter of test.filters) expect(filter).toEqual(expect.arrayContaining([actor.tenantId, scope.divisionId, scope.brandId, selection.productTypeCode, 'F3015', 'open', '6']));
   });
 
   it('accepts HEXLASER, legacy AORE and an explicitly assigned catalog independently of brand ownership', async () => {
