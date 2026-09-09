@@ -19,7 +19,7 @@ export async function importHexlaserCatalog(db: DbClient, tenantId: string, user
   const [division] = await db.select().from(s.divisions).where(and(eq(s.divisions.tenantId, tenantId), sql`lower(${s.divisions.code}) = 'sac_isleme'`, eq(s.divisions.isActive, true), isNull(s.divisions.deletedAt)));
   if (!division) throw new Error('Sac İşleme division is missing');
   const sourceModels = [...LASER_MODELS.map((model) => ({ code: model.code, series: model.series, productTypeCode: model.productTypeCode,
-    sizeLabel: model.sizeLabel, sourceNotes: model.issues.map((issue) => issue.message), specs: catalogProductSpecs(model.fields) })),
+    sizeLabel: model.sizeLabel, sourceNotes: model.issues.map((issue) => issue.message), specs: catalogProductSpecs(model.fields, model.code) })),
     ...LASER_AUXILIARY_MODELS.map((model) => ({ code: model.code, series: model.code.match(/^[A-Z]+/)?.[0] ?? '', productTypeCode: model.kind === 'welding' ? 'FIBER_LAZER_KAYNAK' : 'LAZER_TEMIZLEME', sizeLabel: `${model.powerKw} kW`, sourceNotes: model.sourceNotes ?? [], specs: model.specs }))];
   const existing = await db.select({ code: s.productModels.modelCode, brandId: s.productModels.brandId, deletedAt: s.productModels.deletedAt }).from(s.productModels).where(eq(s.productModels.tenantId, tenantId));
   const plan = { division: division.name, brand: 'HEXLASER', supplier: 'AORE', sourceRevision: LASER_SOURCE_REVISION,
