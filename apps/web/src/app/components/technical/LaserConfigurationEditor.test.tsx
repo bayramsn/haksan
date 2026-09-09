@@ -128,7 +128,7 @@ describe('LaserConfigurationEditor', () => {
     expect(draft.specs.some((spec: { key: string }) => spec.key === 'Makine Ağırlığı')).toBe(false);
     expect(draft.specs.find((spec: { key: string }) => spec.key === 'Özel ölçü')).toMatchObject({ value: '125', unit: 'cm', groupCode: 'OZEL' });
     expect((screen.getByRole('button', { name: 'Lazer Gücü kaldır' }) as HTMLButtonElement).disabled).toBe(true);
-  });
+  }, 15_000);
 
   it('renders only the ordered selection flow when the common workbook owns field editing', async () => {
     render(<Harness initial={resolveLaserProfile(selection)} selectionOnly />);

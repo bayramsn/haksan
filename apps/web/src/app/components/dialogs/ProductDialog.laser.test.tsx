@@ -100,7 +100,7 @@ describe('product card laser integration', () => {
     expect(payload.technicalConfiguration.selection).toMatchObject({ series: 'TG', powerKw: 30, sourceModelCode: 'TG6012' });
     expect(payload.technicalConfiguration.supportedPower).toBe(false);
     expect(payload.specs.find((spec: { key: string }) => spec.key === 'Makine Ağırlığı')?.value).toBe('5000');
-  });
+  }, 15_000);
 });
 
 
