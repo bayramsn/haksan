@@ -2,13 +2,13 @@ import { z } from 'zod';
 import { LASER_PDF_MODELS } from './laser-catalog-data';
 import { AORE_WORKBOOK_SHEETS, AORE_LABEL_ALIASES } from './laser-source-data';
 
-export const LASER_POWERS = [3, 6, 12, 20, 30] as const;
+export const LASER_POWERS = [1.5, 2, 3, 6, 12, 20, 30] as const;
 export const LASER_SERIES = ['F', 'FT', 'S', 'FB', 'R', 'GR', 'PG', 'PGT', 'H', 'PB', 'TG', 'TH', 'TA', 'TS', 'TE', 'TZ', 'EG', 'EGT'] as const;
 export const LASER_TUBE_SERIES: readonly string[] = ['TG', 'TH', 'TA', 'TS', 'TE', 'TZ'];
-export const LASER_SOURCE_REVISION = 'aore-original-workbook-haksan-2025-v2';
+export const LASER_SOURCE_REVISION = 'aore-original-workbook-haksan-2025-v3';
 export const laserSeriesSchema = z.enum(LASER_SERIES);
 export const laserCabinTypeSchema = z.enum(['open', 'closed']);
-export const laserPowerSchema = z.union([z.literal(3), z.literal(6), z.literal(12), z.literal(20), z.literal(30)]);
+export const laserPowerSchema = z.union([z.literal(1.5), z.literal(2), z.literal(3), z.literal(6), z.literal(12), z.literal(20), z.literal(30)]);
 export const laserProductTypeSchema = z.enum(['FIBER_LAZER_KESIM', 'BORU_LAZER_KESIM']);
 export const laserSelectionSchema = z.object({
   productTypeCode: laserProductTypeSchema,
@@ -363,7 +363,7 @@ function resolveField(field: LaserSourceField, selection: LaserSelection): strin
   if (raw === undefined) return undefined;
   if (field.powerKw !== undefined) {
     if (field.powerKw !== selection.powerKw || isMissing(raw)) return undefined;
-    const split = raw.match(/^\s*([\d.,]+)\s*kw\s*\/\s*([\d.,]+)\s*kva\s*$/i);
+    const split = raw.match(/^\s*([\d.,]+)\s*kw\s*\/\s*([\d.,]+)\s*kva(?:\s*[(（][^()（）]*[)）])?\s*$/i);
     return split ? split[field.key === 'Trafo Kapasitesi' ? 2 : 1].replace(',', '.') : undefined;
   }
   if (['TG', 'TH', 'TA'].includes(selection.series) && field.key === 'Kontrol Ünitesi') {

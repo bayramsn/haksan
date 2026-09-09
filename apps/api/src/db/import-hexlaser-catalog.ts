@@ -113,22 +113,30 @@ export async function importHexlaserCatalog(db: DbClient, tenantId: string, user
         createdTemplateFields++;
       }
     }
-    let createdProducts = 0; let preservedProducts = 0;
+    let createdProducts = 0; let preservedProducts = 0; let repairedProductNames = 0;
     for (const model of sourceModels) {
+      const typeLabel = types.find(([code]) => code === model.productTypeCode)![1];
+      const fullName = `${model.code} ${typeLabel}`;
       const known = await tx.query.productModels.findFirst({ where: and(eq(s.productModels.tenantId, tenantId), eq(s.productModels.modelCode, model.code)) });
       if (known) {
         if (known.brandId !== brand.id || known.deletedAt) throw new Error(`Existing model code ${model.code} conflicts; import rolled back`);
+        // İlk katalog aktarımı marka adını hem full_name'e hem liste sunumuna
+        // ekledi. Yalnızca tam olarak o üretilmiş değer hâlâ duruyorsa düzelt;
+        // kullanıcı tarafından değiştirilmiş ürün adlarına dokunma.
+        if (known.fullName === `HEXLASER ${fullName}`) {
+          await tx.update(s.productModels).set({ fullName }).where(eq(s.productModels.id, known.id));
+          repairedProductNames++;
+        }
         preservedProducts++; continue;
       }
-      const typeLabel = types.find(([code]) => code === model.productTypeCode)![1];
       const product = await products.create(productCreateSchema.parse({ brandId: brand.id, divisionId: division.id, series: model.series, productGroupCode: 'SAC_ISLEME', categoryCode: 'TEZGAH', subcategoryCode: typeToSub.get(model.productTypeCode), productTypeCode: model.productTypeCode,
-        supplierCompanyId: supplier.id, modelCode: model.code, fullName: `HEXLASER ${model.code} ${typeLabel}`, description: `${model.sizeLabel}\nKaynak: AORE Technical Parameters.xlsx ve Haksan 2025 kataloğu. Güç ve kabin seçimi ürünün teknik bilgilerinden yapılır. Fiyat kaynakta belirtilmemiştir.${model.sourceNotes.length ? `\nKaynak notları: ${[...new Set(model.sourceNotes)].join(' ')}` : ''}` }), actor);
+        supplierCompanyId: supplier.id, modelCode: model.code, fullName, description: `${model.sizeLabel}\nKaynak: AORE Technical Parameters.xlsx ve Haksan 2025 kataloğu. Güç ve kabin seçimi ürünün teknik bilgilerinden yapılır. Fiyat kaynakta belirtilmemiştir.${model.sourceNotes.length ? `\nKaynak notları: ${[...new Set(model.sourceNotes)].join(' ')}` : ''}` }), actor);
       const specMap = new Map(model.specs.map((spec) => [spec.key, spec]));
       if (specMap.size) await tx.insert(s.productSpecs).values([...specMap.values()].map((spec, sortOrder) => ({ tenantId, productModelId: product.id, specKey: spec.key, specValue: spec.value, specUnit: spec.unit ?? null, sortOrder, createdBy: userId, updatedBy: userId })));
       createdProducts++;
     }
-    await audit.write({ tenantId, actorUserId: userId, action: 'catalog.hexlaser_imported', resourceType: 'brand', resourceId: brand.id, newValues: { ...plan, createdProducts, preservedProducts, supplierId: supplier.id } });
-    return { mode: 'applied', ...plan, brandId: brand.id, supplierId: supplier.id, createdProducts, preservedProducts, createdTemplateFields, profileResult };
+    await audit.write({ tenantId, actorUserId: userId, action: 'catalog.hexlaser_imported', resourceType: 'brand', resourceId: brand.id, newValues: { ...plan, createdProducts, preservedProducts, repairedProductNames, supplierId: supplier.id } });
+    return { mode: 'applied', ...plan, brandId: brand.id, supplierId: supplier.id, createdProducts, preservedProducts, repairedProductNames, createdTemplateFields, profileResult };
   });
 }
 

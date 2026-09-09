@@ -9,6 +9,7 @@ import { toast } from 'sonner';
 import { laserProfilesService } from '../../../lib/services/laser-profiles.service';
 
 const state = vi.hoisted(() => ({
+  lookupRows: {} as Record<string, any[]>,
   products: [] as Product[], updateProduct: vi.fn(), addProduct: vi.fn(),
   user: { tenantId: 'tenant-1', divisions: [{ id: 'sac-1', code: 'sac_isleme' }] },
 }));
@@ -16,7 +17,7 @@ vi.mock('../../lib/store', () => ({ useStore: () => state }));
 vi.mock('../../../lib/auth', () => ({ useAuth: () => ({ user: state.user, activeDivision: 'sac-1', hasRole: () => true, hasPermission: () => true }) }));
 vi.mock('../../../lib/services', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../../lib/services')>();
-  return { ...actual, productService: { ...actual.productService, listBrands: vi.fn(async () => [{ id: 'aore-1', name: 'HEXLASER', technicalCatalogCode: 'AORE_LASER' }]), specTemplates: vi.fn(async () => []) }, lookupService: { ...actual.lookupService, byName: vi.fn(async () => []) } };
+  return { ...actual, productService: { ...actual.productService, listBrands: vi.fn(async () => [{ id: 'aore-1', name: 'HEXLASER', technicalCatalogCode: 'AORE_LASER' }]), specTemplates: vi.fn(async () => []) }, lookupService: { ...actual.lookupService, byName: vi.fn(async (name: string) => state.lookupRows[name] ?? []) } };
 });
 vi.mock('../../../lib/services/laser-profiles.service', () => ({ laserProfilesService: { options: vi.fn(), resolve: vi.fn() } }));
 vi.mock('../shared/RemoteCompanyCombobox', () => ({ RemoteCompanyCombobox: () => <div /> }));
@@ -50,10 +51,11 @@ vi.mock('../ui/label', () => ({ Label: ({ children, ...props }: any) => <label {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  state.lookupRows = {};
   const storage = new Map<string, string>();
   vi.stubGlobal('localStorage', { getItem: (key: string) => storage.get(key) ?? null, setItem: (key: string, value: string) => { storage.set(key, value); }, removeItem: (key: string) => { storage.delete(key); } });
   state.updateProduct.mockResolvedValue(undefined);
-  vi.mocked(laserProfilesService.options).mockResolvedValue({ models: [...LASER_MODELS], cabinOptions: ['open', 'closed'], powerOptions: [3, 6, 12, 20, 30] });
+  vi.mocked(laserProfilesService.options).mockResolvedValue({ models: [...LASER_MODELS], cabinOptions: ['open', 'closed'], powerOptions: [1.5, 2, 3, 6, 12, 20, 30] });
   vi.mocked(laserProfilesService.resolve).mockImplementation(async (_scope, selection) => resolveLaserProfile(selection));
   const technicalConfiguration = resolveLaserProfile({ productTypeCode: 'FIBER_LAZER_KESIM', series: 'F', cabinType: 'open', powerKw: 6, sourceModelCode: 'F3015' });
   state.products = [{ id: 'p1', brand: 'HEXLASER', brandId: 'aore-1', model: 'COMMERCIAL-001', modelName: 'F lazer', series: 'F', productGroupCode: 'SAC_ISLEME', productGroup: 'Sac İşleme', categoryCode: 'TEZGAH', category: 'Tezgah', subcategoryCode: 'LAZER_KESIM', subcategory: 'Sac Lazer Kesim', productTypeCode: 'FIBER_LAZER_KESIM', type: 'Sac Lazer Kesim', shortDescription: 'HEXLASER F lazer', description: '', imageUrl: '', controlPanel: '', currency: 'USD', listPrice: 1, specs: technicalConfiguration.specs, technicalConfiguration, standardEquipment: [], optionalEquipment: [], status: 'active' }];
@@ -124,4 +126,29 @@ describe('imported unconfigured laser product', () => {
     expect(state.updateProduct).not.toHaveBeenCalled();
     expect(toast.error).toHaveBeenCalledWith('Lazer teknik bilgi seçimlerini tamamlayın', expect.any(Object));
   });
+});
+
+
+describe('CRM configured laser taxonomy', () => {
+  it('keeps the saved CRM parent chain through series, cabin, power and model selection', async () => {
+    state.lookupRows = {
+      'product-groups': [{ id: 'group-sac', code: 'SAC_ISLEME', name: 'Sac İşleme', divisionId: 'sac-1' }],
+      'product-categories': [{ id: 'category-machine', code: 'TEZGAH', name: 'Tezgah', divisionId: 'sac-1', productGroupId: 'group-sac' }],
+      'product-subcategories': [{ id: 'sub-laser', code: 'LAZER_KESIM', name: 'Sac Lazer Kesim', divisionId: 'sac-1', categoryId: 'category-machine' }],
+      'product-types': [{ id: 'type-laser', code: 'FIBER_LAZER_KESIM', name: 'Sac Lazer Kesim', divisionId: 'sac-1', subcategoryId: 'sub-laser' }],
+    };
+    state.products[0] = { ...state.products[0], technicalConfiguration: null };
+    render(<ProductDialog mode="edit" product={state.products[0]} open onOpenChange={() => {}} />);
+    await screen.findByRole('option', { name: 'F Serisi' });
+    fireEvent.change(screen.getByLabelText('3. Ürün serisi tipi'), { target: { value: 'F' } });
+    expect(screen.getByLabelText('4. Kabin tipi')).toBeEnabled();
+    fireEvent.change(screen.getByLabelText('4. Kabin tipi'), { target: { value: 'open' } });
+    fireEvent.change(screen.getByLabelText('5. Rezonatör gücü'), { target: { value: '6' } });
+    await waitFor(() => expect(screen.getByLabelText('6. Tabla ölçüsü')).toBeEnabled());
+    fireEvent.change(screen.getByLabelText('6. Tabla ölçüsü'), { target: { value: 'F3015' } });
+    await waitFor(() => expect(screen.getByLabelText('Makine Ağırlığı')).toHaveValue('2150'));
+    fireEvent.click(screen.getByRole('button', { name: 'Güncelle' }));
+    await waitFor(() => expect(state.updateProduct).toHaveBeenCalledTimes(1));
+    expect(state.updateProduct.mock.calls[0][1]).toMatchObject({ subcategoryCode: 'LAZER_KESIM', productTypeCode: 'FIBER_LAZER_KESIM', technicalConfiguration: { selection: { series: 'F', cabinType: 'open', powerKw: 6, sourceModelCode: 'F3015' } } });
+  }, 15_000);
 });

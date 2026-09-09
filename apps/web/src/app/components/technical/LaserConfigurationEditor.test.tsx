@@ -40,7 +40,7 @@ describe('LaserConfigurationEditor', () => {
       removeItem: (key: string) => { entries.delete(key); },
       clear: () => entries.clear(),
     });
-    vi.mocked(laserProfilesService.options).mockResolvedValue({ models: [...LASER_MODELS], cabinOptions: ['open', 'closed'], powerOptions: [3, 6, 12, 20, 30] });
+    vi.mocked(laserProfilesService.options).mockResolvedValue({ models: [...LASER_MODELS], cabinOptions: ['open', 'closed'], powerOptions: [1.5, 2, 3, 6, 12, 20, 30] });
     vi.mocked(laserProfilesService.resolve).mockImplementation(async (_scope, selected) => resolveLaserProfile(selected));
   });
   afterEach(() => { cleanup(); vi.clearAllMocks(); vi.unstubAllGlobals(); });
@@ -66,6 +66,22 @@ describe('LaserConfigurationEditor', () => {
     await user.click(screen.getByRole('button', { name: 'Makine Ağırlığı kaynak değerine dön' }));
     expect((screen.getByLabelText('Makine Ağırlığı') as HTMLInputElement).value).toBe('2150');
   }, 15_000);
+
+  it('classifies PG3015 by closed cabin, table size and 1.5 kW transformer profile', async () => {
+    render(<Harness />);
+    const user = userEvent.setup();
+    await screen.findByRole('option', { name: 'PG Serisi' });
+    await user.selectOptions(screen.getByLabelText('3. Ürün serisi tipi'), 'PG');
+    await user.selectOptions(screen.getByLabelText('4. Kabin tipi'), 'closed');
+    await user.selectOptions(screen.getByLabelText('5. Rezonatör gücü'), '1.5');
+    const modelSelect = screen.getByLabelText('6. Tabla ölçüsü') as HTMLSelectElement;
+    await waitFor(() => expect(modelSelect.disabled).toBe(false));
+    expect(screen.getByRole('option', { name: /PG3015 — 3050 × 1530 mm/ })).toBeTruthy();
+    await user.selectOptions(modelSelect, 'PG3015');
+    expect((await screen.findByLabelText('Toplam Güç Gereksinimi') as HTMLInputElement).value).toBe('17.5');
+    expect((screen.getByLabelText('Trafo Kapasitesi') as HTMLInputElement).value).toBe('30');
+    expect((screen.getByLabelText('Trafo Kapasitesi birimi') as HTMLInputElement).value).toBe('kVA');
+  });
 
   it('ignores a delayed response for an earlier combination', async () => {
     let finishOld!: (profile: LaserTechnicalConfiguration) => void;

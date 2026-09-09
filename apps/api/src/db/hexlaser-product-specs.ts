@@ -13,7 +13,7 @@ export function catalogProductSpecs(fields: readonly LaserSourceField[], modelCo
     }
     if (field.powerKw !== undefined) {
       value = value.split('\n').map((line) => {
-        const electrical = line.match(/^\s*(?:(.*?)\s*[:：]\s*)?([\d.,]+)\s*kw\s*\/\s*([\d.,]+)\s*kva\s*$/i);
+        const electrical = line.match(/^\s*(?:(.*?)\s*[:：]\s*)?([\d.,]+)\s*kw\s*\/\s*([\d.,]+)\s*kva(?:\s*[(（][^()（）]*[)）])?\s*$/i);
         // Unknown electrical text cannot safely become either a kW or kVA
         // value. Keep its power branch visible as an explicitly missing value.
         if (!electrical) return `${field.powerKw} kW: —`;

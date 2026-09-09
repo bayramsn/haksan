@@ -3595,8 +3595,11 @@ export function ProductDialog({
       put({
         code: row.code,
         label: row.name,
-        categoryCode: meta?.categoryCode ?? linkedCategoryCode ?? (linkedSubcategory ? "TEZGAH" : undefined),
-        subcategoryCode: meta?.subcategoryCode ?? linkedSubcategory?.code,
+        // CRM alan ayarlarında kurulan gerçek ebeveyn zinciri, kod içindeki
+        // eski varsayımlardan önce gelir. Aksi halde lazer editöründeki seri
+        // seçimi geçerli alt kategoriyi başka bir koda çevirip formu temizler.
+        categoryCode: linkedCategoryCode ?? meta?.categoryCode ?? (linkedSubcategory ? "TEZGAH" : undefined),
+        subcategoryCode: linkedSubcategory?.code ?? meta?.subcategoryCode,
         productGroupCode: (row.divisionId ? productGroupCodeByDivisionId.get(row.divisionId) : undefined) ?? meta?.productGroupCode,
       });
     });

@@ -43,6 +43,18 @@ describe('AORE source resolution', () => {
     expect(field('F3015', 12, 'Kontrol Ünitesi')?.value).toBe('FSCUT8000');
   });
 
+  it('keeps PG3015 power and transformer profiles separate at 1.5, 2 and 3 kW', () => {
+    for (const [power, totalPower, transformer] of [
+      [1.5, '17.5', '30'],
+      [2, '18.2', '30'],
+      [3, '25', '40'],
+    ] as const) {
+      expect(field('PG3015', power, 'Lazer Gücü')).toMatchObject({ value: String(power), unit: 'kW' });
+      expect(field('PG3015', power, 'Toplam Güç Gereksinimi')).toMatchObject({ value: totalPower, unit: 'kW' });
+      expect(field('PG3015', power, 'Trafo Kapasitesi')).toMatchObject({ value: transformer, unit: 'kVA' });
+    }
+  });
+
   it('uses PG6020 30 kW source cells and retains PG3015 source conflict', () => {
     expect(field('PG6020', 30, 'Tabla Yük Kapasitesi')?.value).toBe('5760');
     expect(field('PG6020', 30, 'Makine Ağırlığı')?.value).toBe('11600');

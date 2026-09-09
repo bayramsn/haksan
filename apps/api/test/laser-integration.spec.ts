@@ -81,7 +81,7 @@ describe('laser API database roundtrip', () => {
     const options = await request().get('/api/v1/laser-profiles/options').query({ divisionId, brandId }).set('Authorization', `Bearer ${token}`);
     expect(options.status, JSON.stringify(options.body)).toBe(200);
     expect(options.body.models).toHaveLength(114);
-    expect(options.body.powerOptions).toEqual([3, 6, 12, 20, 30]);
+    expect(options.body.powerOptions).toEqual([1.5, 2, 3, 6, 12, 20, 30]);
     expect((await request().get('/api/v1/laser-profiles/resolve').query({ divisionId, brandId, ...selection, powerKw: 40 }).set('Authorization', `Bearer ${token}`)).status).toBe(422);
     expect((await request().get('/api/v1/laser-profiles/options').query({ divisionId: randomUUID(), brandId }).set('Authorization', `Bearer ${token}`)).status).toBe(422);
     const resolved = await request().get('/api/v1/laser-profiles/resolve').query({ divisionId, brandId, ...selection }).set('Authorization', `Bearer ${token}`);
@@ -102,18 +102,29 @@ describe('laser API database roundtrip', () => {
     });
     expect(response.status, JSON.stringify(response.body).slice(0, 1000)).toBe(201);
     preview = response.body;
-    expect(preview.laserProfiles).toHaveLength(880);
+    expect(preview.laserProfiles).toHaveLength(1232);
     const imported = preview.laserProfiles.find((p) => p.selection.sourceModelCode === 'F3015' && p.selection.powerKw === 6 && p.selection.cabinType === 'open')!;
-    const commitBody = { divisionId, brandId, mode: 'laser_profiles', productTypeCode: selection.productTypeCode, importToken: preview.importToken, laserProfiles: [imported], rows: [] };
+    const decimal = preview.laserProfiles.find((p) => p.selection.sourceModelCode === 'PG3015' && p.selection.powerKw === 1.5 && p.selection.cabinType === 'closed')!;
+    const commitBody = { divisionId, brandId, mode: 'laser_profiles', productTypeCode: selection.productTypeCode, importToken: preview.importToken, laserProfiles: [imported, decimal], rows: [] };
     const commit = await request().post('/api/v1/admin/technical-import/commit').set('Authorization', `Bearer ${token}`).send(commitBody);
     expect(commit.status, JSON.stringify(commit.body)).toBe(201);
-    expect(commit.body).toMatchObject({ created: 1, imported: 1 });
+    expect(commit.body).toMatchObject({ created: 2, imported: 2 });
+    const decimalRead = await request().get('/api/v1/laser-profiles/resolve').query({ divisionId, brandId, ...decimal.selection }).set('Authorization', `Bearer ${token}`);
+    expect(decimalRead.status, JSON.stringify(decimalRead.body)).toBe(200);
+    expect(decimalRead.body).toMatchObject({
+      selection: { series: 'PG', sourceModelCode: 'PG3015', cabinType: 'closed', powerKw: 1.5 },
+      sizeLabel: '3050 × 1530 mm',
+      specs: expect.arrayContaining([
+        expect.objectContaining({ key: 'Toplam Güç Gereksinimi', value: '17.5', unit: 'kW' }),
+        expect.objectContaining({ key: 'Trafo Kapasitesi', value: '30', unit: 'kVA' }),
+      ]),
+    });
     const specs = imported.specs.map((spec) => spec.key === 'Makine Ağırlığı' ? { ...spec, value: '2222', source: { document: 'forged.pdf' } } : spec);
     const edit = await request().put('/api/v1/admin/laser-profiles').set('Authorization', `Bearer ${token}`).send({ divisionId, brandId, selection, specs });
     expect(edit.status, JSON.stringify(edit.body)).toBe(200);
     expect(edit.body.specs.find((s: { key: string }) => s.key === 'Makine Ağırlığı')).toMatchObject({ value: '2222', sourceValue: '2150', isManual: true, source: { document: 'AORE Technical Parameters.xlsx' } });
     const again = await request().post('/api/v1/admin/technical-import/commit').set('Authorization', `Bearer ${token}`).send(commitBody);
-    expect(again.body).toMatchObject({ created: 0, updated: 1 });
+    expect(again.body).toMatchObject({ created: 0, updated: 2 });
     const reread = await request().get('/api/v1/laser-profiles/resolve').query({ divisionId, brandId, ...selection }).set('Authorization', `Bearer ${token}`);
     expect(reread.body.specs.find((s: { key: string }) => s.key === 'Makine Ağırlığı').value).toBe('2222');
     expect((await request().put('/api/v1/admin/laser-profiles').set('Authorization', `Bearer ${salesToken}`).send({ divisionId, brandId, selection, specs })).status).toBe(403);
