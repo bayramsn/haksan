@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { productService, type ProductImportPreview, type ProductImportRow, type ProductImportTemplateOption } from "../../../lib/services";
 import { exportService } from "../../../lib/downloadExport";
 import { useStore } from "../../lib/store";
+import { useAuth } from '../../../lib/auth';
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import {
@@ -15,67 +16,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from ".
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "../ui/table";
-
-const TEMPLATE_HEADERS = [
-  "Marka",
-  "Seri",
-  "Model",
-  "Ürün Adı",
-  "Ürün Tipi",
-  "Para Birimi",
-  "Liste Fiyatı",
-  "KDV",
-  "Menşei",
-  "GTIP",
-  "Stok Kodu",
-  "Açıklama",
-  "Kontrol Ünitesi",
-  "Standart Donanım",
-  "Opsiyonel Donanım",
-  "Ayna Ölçüsü",
-  "Fener Mili Devri",
-];
-
-const TEMPLATE_ROWS = [
-  [
-    "Ecoca",
-    "MT",
-    "MT-208/500",
-    "Ecoca MT-208/500 CNC Torna Tezgahı",
-    "CNC Torna Tezgahı",
-    "USD",
-    "68300",
-    "20",
-    "Tayvan",
-    "845811",
-    "ECOCA-MT208",
-    "8 inç aynalı CNC torna",
-    "FANUC 0i-TF Plus",
-    "Hidrolik 10 İstasyon Taret; Talaş konveyörü",
-    "Takım ölçme kolu; Çubuk sürücü",
-    "8\"",
-    "4800 dv/dk",
-  ],
-];
-
-function csvEscape(value: string) {
-  return `"${value.replace(/"/g, '""')}"`;
-}
-
-async function downloadTemplate(productTypeCode?: string) {
-  try {
-    await exportService.productImportTemplate(productTypeCode);
-  } catch {
-    const lines = [TEMPLATE_HEADERS, ...TEMPLATE_ROWS].map((row) => row.map(csvEscape).join(","));
-    const blob = new Blob(["\uFEFF" + lines.join("\n")], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "urun-import-sablonu.csv";
-    a.click();
-    URL.revokeObjectURL(url);
-  }
-}
 
 function fileToBase64(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -96,8 +36,13 @@ function statusLabel(row: ProductImportRow) {
   return { label: "Hata", tone: "destructive" as const };
 }
 
-export function ProductImportDialog({ trigger }: { trigger: React.ReactNode }) {
+export function ProductImportDialog({ trigger, divisionId: settingsDivisionId }: { trigger: React.ReactNode; divisionId?: string }) {
   const { refresh } = useStore();
+  const { user, activeDivision } = useAuth();
+  const [selectedDivisionId, setSelectedDivisionId] = useState(settingsDivisionId || (activeDivision !== 'all' ? activeDivision : '') || '');
+  const divisionId = settingsDivisionId && settingsDivisionId !== 'all' ? settingsDivisionId : selectedDivisionId;
+  const divisionName = user?.divisions.find((division) => division.id === divisionId)?.name ?? 'Bölüm';
+  const requestVersion = useRef(0);
   const fileRef = useRef<HTMLInputElement | null>(null);
   const [open, setOpen] = useState(false);
   const [file, setFile] = useState<File | null>(null);
@@ -111,16 +56,19 @@ export function ProductImportDialog({ trigger }: { trigger: React.ReactNode }) {
   const [productTypeCode, setProductTypeCode] = useState("");
   const [downloading, setDownloading] = useState(false);
 
-  // Şablon yalnız ürünü olan tiplerden üretilebiliyor; listeyi sunucu veriyor.
+  // Liste ve dosya aynı bölümde kalır; geç yanıtlar yeni seçimin üzerine yazamaz.
   useEffect(() => {
-    if (!open) return;
+    const version = ++requestVersion.current;
+    setPreview(null); setFile(null); setCategoryCode(''); setSubcategoryCode(''); setProductTypeCode(''); setTemplateOptions([]); setLoading(false);
+    if (!open || !divisionId) { setOptionsLoading(false); return; }
     setOptionsLoading(true);
     productService
-      .importTemplateOptions()
-      .then((rows) => setTemplateOptions(rows ?? []))
-      .catch(() => setTemplateOptions([]))
-      .finally(() => setOptionsLoading(false));
-  }, [open]);
+      .importTemplateOptions(divisionId)
+      .then((rows) => { if (version === requestVersion.current) setTemplateOptions(rows ?? []); })
+      .catch((error) => { if (version === requestVersion.current) toast.error('Bölüm şablonları yüklenemedi', { description: error?.message }); })
+      .finally(() => { if (version === requestVersion.current) setOptionsLoading(false); });
+    return () => { requestVersion.current++; };
+  }, [open, divisionId]);
 
   const categories = useMemo(() => {
     const byCode = new Map<string, string>();
@@ -145,12 +93,13 @@ export function ProductImportDialog({ trigger }: { trigger: React.ReactNode }) {
   );
 
   const runTemplateDownload = async () => {
+    if (!divisionId) return toast.error('Önce aktarım bölümünü seçin');
     setDownloading(true);
     try {
-      await downloadTemplate(productTypeCode || undefined);
+      await exportService.productImportTemplate(productTypeCode || undefined, divisionId);
       toast.success(productTypeCode ? "Şablon indirildi" : "Genel şablon indirildi", {
         description: productTypeCode
-          ? "Örnek satır, seçilen tipteki mevcut bir üründen dolduruldu."
+          ? `${divisionName} bölümündeki ürün tipinin teknik alanları eklendi.`
           : "Ürün tipi seçerseniz şablon o tipin teknik kolonlarıyla gelir.",
       });
     } catch (error: any) {
@@ -177,28 +126,34 @@ export function ProductImportDialog({ trigger }: { trigger: React.ReactNode }) {
   };
 
   const handleOpen = (next: boolean) => {
+    if (committing) return;
     setOpen(next);
     if (!next) reset();
   };
 
   const previewFile = async (selectedFile = file) => {
+    if (!divisionId) return toast.error('Önce aktarım bölümünü seçin');
     if (!selectedFile) {
       toast.error("Dosya seçilmedi");
       return;
     }
+    if (!/\.(xlsx|csv)$/i.test(selectedFile.name) || selectedFile.size > 10 * 1024 * 1024) return toast.error('En fazla 10 MB boyutunda XLSX veya CSV dosyası seçin');
+    const version = ++requestVersion.current;
     setLoading(true);
     try {
       const fileBase64 = await fileToBase64(selectedFile);
-      const result = await productService.previewImport({ fileName: selectedFile.name, fileBase64 });
+      const result = await productService.previewImport({ fileName: selectedFile.name, fileBase64, divisionId });
+      if (version !== requestVersion.current) return;
       setPreview(result);
       toast.success("Dosya okundu", {
         description: `${result.summary.create} yeni, ${result.summary.update} güncelleme, ${result.summary.error} hata`,
       });
     } catch (err: any) {
+      if (version !== requestVersion.current) return;
       setPreview(null);
       toast.error("Dosya okunamadı", { description: err?.message ?? "Import ön izlemesi oluşturulamadı." });
     } finally {
-      setLoading(false);
+      if (version === requestVersion.current) setLoading(false);
     }
   };
 
@@ -206,12 +161,12 @@ export function ProductImportDialog({ trigger }: { trigger: React.ReactNode }) {
     if (!preview || validRows.length === 0) return;
     setCommitting(true);
     try {
-      const result = await productService.commitImport({ rows: validRows, mode: "upsert", replaceDetails: true });
+      const result = await productService.commitImport({ rows: validRows, mode: "upsert", replaceDetails: false, divisionId });
       await refresh();
       toast.success("Ürünler aktarıldı", {
         description: `${result.summary.create} yeni, ${result.summary.update} güncellendi, ${result.summary.error} hata`,
       });
-      handleOpen(false);
+      setOpen(false); reset();
     } catch (err: any) {
       toast.error("Aktarım tamamlanamadı", { description: err?.message ?? "API isteği başarısız oldu." });
     } finally {
@@ -224,13 +179,18 @@ export function ProductImportDialog({ trigger }: { trigger: React.ReactNode }) {
       <DialogTrigger asChild>{trigger}</DialogTrigger>
       <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Ürün İçe Aktar</DialogTitle>
+          <DialogTitle>{divisionName} · Ürün İçe Aktar</DialogTitle>
           <DialogDescription>
             Excel veya CSV dosyasındaki ürünleri okuyup veritabanına yazmadan önce ön izleme oluşturur.
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4">
+          <label className="block space-y-1 text-xs font-medium">Aktarım bölümü
+            <select className="h-10 w-full rounded-md border border-border bg-background px-3 text-sm" value={divisionId} disabled={committing || Boolean(settingsDivisionId && settingsDivisionId !== 'all')} onChange={(event) => setSelectedDivisionId(event.target.value)}>
+              <option value="">CNC, Sac İşleme veya Üniversal seçin</option>{user?.divisions.map((division) => <option key={division.id} value={division.id}>{division.name}</option>)}
+            </select>
+          </label>
           <div className="grid gap-2 sm:grid-cols-3">
             {[
               [FileSpreadsheet, "Dosya gereksinimi", "XLSX veya CSV · İlk satır kolon başlığı"],
@@ -247,9 +207,8 @@ export function ProductImportDialog({ trigger }: { trigger: React.ReactNode }) {
             <div>
               <p className="text-xs font-semibold">Şablonu ürün tipine göre indirin</p>
               <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">
-                Seçtiğiniz tipte kayıtlı bir üründen — markası, modeli, fiyatları, GTİP'i, teknik özellikleri ve
-                standart donanımıyla — doldurulmuş örnek satır “Örnek Kayıt” sayfasında gelir. Yeni ürünleri
-                “Ürünler” sayfasına ona bakarak yazın. Listede yalnız daha önce ürün eklenmiş tipler görünür.
+                Şablon seçilen bölüm ve ürün tipinin teknik alanlarıyla hazırlanır. Kayıtlı bir ürün varsa
+                “Örnek Kayıt” sayfasında gösterilir. İlk ürününüzü eklemek için de boş şablonu indirebilirsiniz.
               </p>
             </div>
             <div className="grid gap-2 sm:grid-cols-3">
@@ -295,8 +254,7 @@ export function ProductImportDialog({ trigger }: { trigger: React.ReactNode }) {
             </div>
             {!optionsLoading && templateOptions.length === 0 && (
               <p className="text-[11px] text-amber-700">
-                Henüz hiçbir ürün tipinde kayıtlı ürün yok. Şablon örnek satırı mevcut üründen üretildiği için önce
-                tek ürün ekleyin; o zamana kadar genel şablonu indirebilirsiniz.
+                Bu bölümde ürün tipi bulunamadı. CRM Alan Ayarları'ndan kategori ve ürün tiplerini ekleyebilirsiniz.
               </p>
             )}
           </div>
@@ -319,10 +277,10 @@ export function ProductImportDialog({ trigger }: { trigger: React.ReactNode }) {
                   if (selected) void previewFile(selected);
                 }}
               />
-              <Button type="button" variant="outline" size="sm" className="gap-1" disabled={downloading} onClick={() => void runTemplateDownload()}>
+              <Button type="button" variant="outline" size="sm" className="gap-1" disabled={downloading || !divisionId || committing} onClick={() => void runTemplateDownload()}>
                 <Download className="size-4" /> {productTypeCode ? "Seçili tip için şablon" : "Şablon"}
               </Button>
-              <Button type="button" variant="outline" size="sm" className="gap-1" onClick={() => fileRef.current?.click()}>
+              <Button type="button" variant="outline" size="sm" className="gap-1" disabled={!divisionId || committing} onClick={() => fileRef.current?.click()}>
                 <FileSpreadsheet className="size-4" /> Dosya Seç
               </Button>
               <Button type="button" size="sm" className="gap-1" disabled={!file || loading} onClick={() => previewFile()}>

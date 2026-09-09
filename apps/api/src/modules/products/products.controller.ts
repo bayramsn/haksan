@@ -1,6 +1,7 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Put, Query, Res, UseGuards } from '@nestjs/common';
 import type { FastifyReply } from 'fastify';
 import { z } from 'zod';
+import { Throttle } from '@nestjs/throttler';
 import {
   productCreateSchema,
   productUpdateSchema,
@@ -14,6 +15,7 @@ import {
   priceListUpdateSchema,
   productImportCommitRequestSchema,
   productImportPreviewRequestSchema,
+  productImportTemplateQuerySchema,
   productOptionSetCreateSchema,
   productOptionValueCreateSchema,
   paginationSchema,
@@ -29,6 +31,7 @@ import {
   type PriceListUpdateInput,
   type ProductImportCommitRequest,
   type ProductImportPreviewRequest,
+  type ProductImportTemplateQuery,
   type ProductOptionSetCreateInput,
   type ProductOptionValueCreateInput,
   type Pagination,
@@ -115,6 +118,7 @@ export class ProductsController {
   }
 
   @RequirePermissions('products.create')
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
   @Post('products/import/preview')
   previewImport(
     @Body(new ZodValidationPipe(productImportPreviewRequestSchema)) body: ProductImportPreviewRequest,
@@ -124,6 +128,7 @@ export class ProductsController {
   }
 
   @RequirePermissions('products.create')
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
   @Post('products/import/commit')
   commitImport(
     @Body(new ZodValidationPipe(productImportCommitRequestSchema)) body: ProductImportCommitRequest,
@@ -135,8 +140,8 @@ export class ProductsController {
   /** Şablon indirilebilecek kategori → alt kategori → tip üçlüleri (ürünü olanlar). */
   @RequirePermissions('products.create')
   @Get('products/import/template-options')
-  importTemplateOptions(@CurrentUser() user: AuthContext) {
-    return this.svc.importTemplateOptions(user);
+  importTemplateOptions(@CurrentUser() user: AuthContext, @Query(new ZodValidationPipe(productImportTemplateQuerySchema)) query: ProductImportTemplateQuery) {
+    return this.svc.importTemplateOptions(user, query.divisionId);
   }
 
   @RequirePermissions('products.create')
@@ -144,9 +149,9 @@ export class ProductsController {
   async importTemplate(
     @Res({ passthrough: true }) reply: FastifyReply,
     @CurrentUser() user: AuthContext,
-    @Query('productTypeCode') productTypeCode?: string
+    @Query(new ZodValidationPipe(productImportTemplateQuerySchema)) query: ProductImportTemplateQuery
   ) {
-    const template = await this.svc.buildImportTemplate(user, productTypeCode);
+    const template = await this.svc.buildImportTemplate(user, query.productTypeCode, query.divisionId);
     // İlk sayfa doldurulmak için boş; içe aktarma "Ürünler" sayfasını okur.
     // Örnek kayıt ayrı sayfada durur ki yüklemede tekrar işlenmesin.
     const sheets = [

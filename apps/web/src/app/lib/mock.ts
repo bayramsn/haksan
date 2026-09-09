@@ -73,7 +73,7 @@ export type Customer = {
   contactSourceText?: string;
   sector?: string;
   /** Tedarikçinin sevkiyat rolü; yalnızca tedarikçi ilişkili firmalarda kullanılır. */
-  supplierCategoryCode?: "transportation" | "logistics";
+  supplierCategoryCode?: "transportation" | "logistics" | "manufacturer";
   name: string;
   /** Resmî unvanın belge metnindeki kısa karşılığı (örn. NORM İNOX METAL). */
   shortName?: string;

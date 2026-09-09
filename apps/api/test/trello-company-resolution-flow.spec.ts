@@ -217,7 +217,7 @@ describe('Trello company resolution flow', () => {
 
     const companies = await request(app.getHttpServer())
       .get('/api/v1/companies')
-      .query({ search: `Yeni Potansiyel ${suffix}`, divisionId, pageSize: 10 })
+      .query({ ids: [opportunity.body.companyId], divisionId, pageSize: 10 })
       .set('Authorization', `Bearer ${token}`)
       .expect(200);
     const company = companies.body.data.find((item: { id: string }) => item.id === opportunity.body.companyId);

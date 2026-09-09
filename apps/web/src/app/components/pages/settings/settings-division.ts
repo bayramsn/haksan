@@ -1,4 +1,4 @@
-import { useCallback } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "../../../../lib/auth";
 
 export const ALL_DIVISIONS = "all";
@@ -42,21 +42,37 @@ export function divisionCatalogGroupCode(
   return undefined;
 }
 
-/**
- * Ayar ekranlarının bölüm filtresi = uygulama genelindeki aktif bölüm
- * (üst bardaki "Bölüm seç"). Ayrı bir ayar-bölümü saklanmaz; ayarlardan
- * bölüm değiştirmek üst barı da değiştirir, böylece "CNC'deyim ama Tümü'ne
- * ekledi" tutarsızlığı oluşmaz.
- */
+export const settingsDivisionKey = (tenantId?: string, userId?: string) =>
+  `haksan:settings-division:${JSON.stringify([tenantId ?? '', userId ?? ''])}`;
+
+export function resolveSettingsDivision(divisions: DivisionLike[], stored?: string | null, initial?: string | null) {
+  const allowed = divisions.filter((division) => divisionCatalogGroupCode(divisions, division.id));
+  return allowed.find((division) => division.id === stored)?.id
+    ?? allowed.find((division) => division.id === initial)?.id
+    ?? allowed[0]?.id ?? '';
+}
+
+/** Settings has its own scope; changing it never changes the application's global filter. */
 export function usePersistedSettingsDivision() {
-  const { activeDivision, setActiveDivision } = useAuth();
+  const { user, activeDivision } = useAuth();
+  const divisions = user?.divisions ?? [];
+  const key = settingsDivisionKey(user?.tenantId, user?.id);
+  const allowedKey = divisions.map((division) => `${division.id}:${division.code}`).join('|');
+  const read = () => {
+    try { return resolveSettingsDivision(divisions, localStorage.getItem(key), activeDivision); }
+    catch { return resolveSettingsDivision(divisions, null, activeDivision); }
+  };
+  const [divisionId, setLocalDivisionId] = useState(read);
+  useEffect(() => { setLocalDivisionId(read()); }, [key, allowedKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const setDivisionId = useCallback(
     (nextDivisionId: string) => {
-      setActiveDivision(nextDivisionId || ALL_DIVISIONS);
+      const next = resolveSettingsDivision(divisions, nextDivisionId);
+      setLocalDivisionId(next);
+      try { localStorage.setItem(key, next); } catch { /* In-memory selection still works. */ }
     },
-    [setActiveDivision],
+    [key, allowedKey], // eslint-disable-line react-hooks/exhaustive-deps
   );
 
-  return [activeDivision || ALL_DIVISIONS, setDivisionId] as const;
+  return [divisionId, setDivisionId] as const;
 }

@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { emailSchema, paginationSchema, phoneSchema, urlSchema } from './common';
 
 export const companyTypeEnum = z.enum(['person', 'company']);
-export const supplierCategoryCodeSchema = z.enum(['transportation', 'logistics']);
+export const supplierCategoryCodeSchema = z.enum(['transportation', 'logistics', 'manufacturer']);
 export type SupplierCategoryCode = z.infer<typeof supplierCategoryCodeSchema>;
 export const companyAddressTypeEnum = z.enum(['office', 'factory', 'work_area', 'shipping', 'billing', 'other']);
 

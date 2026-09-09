@@ -1,12 +1,13 @@
 import { z } from 'zod';
 import { moneySchema, percentSchema } from './common';
-import { laserTechnicalConfigurationSchema } from '../laser';
+import { laserSelectionSchema, laserTechnicalConfigurationSchema } from '../laser';
 
 const productVatRateSchema = percentSchema.refine((rate) => rate !== 1, {
   message: 'Ürün KDV oranı %1 olamaz',
 });
 
 export const productCreateSchema = z.object({
+  divisionId: z.string().uuid().optional(),
   brandId: z.string().min(1),
   series: z.string().trim().max(128).optional(),
   productGroupCode: z.string().max(64).optional(),
@@ -136,6 +137,20 @@ export const technicalImportAvailableFieldSchema = z.object({
 });
 export type TechnicalImportAvailableField = z.infer<typeof technicalImportAvailableFieldSchema>;
 
+/** One model/value column per import; Excel column indexes are zero based. */
+export const technicalImportLayoutSchema = z.object({
+  sheetName: z.string().trim().min(1).max(31),
+  firstDataRow: z.number().int().min(1).max(2000),
+  keyColumn: z.number().int().min(0).max(249),
+  valueColumn: z.number().int().min(0).max(249),
+  sectionColumn: z.number().int().min(0).max(249).nullable().default(null),
+  unitColumn: z.number().int().min(0).max(249).nullable().default(null),
+}).superRefine((layout, ctx) => {
+  const columns = [layout.keyColumn, layout.valueColumn, layout.sectionColumn, layout.unitColumn].filter((value) => value !== null);
+  if (new Set(columns).size !== columns.length) ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Her alan için farklı bir kaynak sütunu seçin' });
+});
+export type TechnicalImportLayout = z.infer<typeof technicalImportLayoutSchema>;
+
 export const technicalImportPreviewRequestSchema = z.object({
   fileName: z.string().trim().min(1).max(255),
   mimeType: z.string().trim().max(128).optional(),
@@ -147,6 +162,8 @@ export const technicalImportPreviewRequestSchema = z.object({
   divisionId: z.string().uuid().nullish(),
   // Yeni bir teknik şablon, ilk Excel/CSV yüklemesinden oluşturulabilir.
   availableFields: z.array(technicalImportAvailableFieldSchema).max(1000).default([]),
+  layout: technicalImportLayoutSchema.optional(),
+  includeCatalogModels: z.boolean().optional(),
 });
 export type TechnicalImportPreviewRequest = z.infer<typeof technicalImportPreviewRequestSchema>;
 
@@ -200,6 +217,7 @@ export const technicalImportCommitRequestSchema = z
     brandId: z.string().uuid().optional(),
     importToken: z.string().uuid().optional(),
     laserProfiles: z.array(laserTechnicalConfigurationSchema).max(1000).optional(),
+    laserSelections: z.array(laserSelectionSchema).max(2000).optional(),
     rows: z.array(technicalImportRowSchema).max(5000).default([]),
   })
   .superRefine((value, ctx) => {
@@ -210,7 +228,7 @@ export const technicalImportCommitRequestSchema = z
         message: 'Makine verisi aktarımında hedef makine kullanıcı tarafından onaylanmalıdır',
       });
     }
-    if (value.mode === 'laser_profiles' && (!value.importToken || !value.brandId || !value.divisionId || !value.laserProfiles?.length)) {
+    if (value.mode === 'laser_profiles' && (!value.importToken || !value.brandId || !value.divisionId || (!value.laserProfiles?.length && !value.laserSelections?.length))) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Lazer aktarımı için marka, bölüm, önizleme ve seçili profiller gereklidir.' });
     }
     if (value.mode !== 'laser_profiles' && !value.rows.some((row) => row.include && row.targetKey)) {
@@ -245,6 +263,8 @@ export const brandCreateSchema = z.object({
   website: z.string().url().max(512).optional(),
   notes: z.string().max(4000).optional(),
   companyId: z.string().uuid().nullish(),
+  supplierCompanyId: z.string().uuid().nullish(),
+  technicalCatalogCode: z.enum(['AORE_LASER']).nullish(),
   isOwned: z.boolean().default(false),
   logoFileId: z.string().uuid().nullish(),
   // Ürün formunda seçilen CNC / Üniversal / Sac İşleme grubunun bölümü.
@@ -322,6 +342,7 @@ export type ProductImportEquipmentInput = z.infer<typeof productImportEquipmentS
 export const productImportRowSchema = z.object({
   rowNumber: z.coerce.number().int().positive(),
   brandName: z.string().min(1).max(128),
+  supplierCompanyId: z.string().uuid().nullish(),
   series: z.string().trim().max(128).optional(),
   modelCode: z.string().min(1).max(64),
   modelName: z.string().max(255).optional(),
@@ -342,20 +363,28 @@ export const productImportRowSchema = z.object({
   stockCode: z.string().max(64).optional(),
   imageUrl: z.string().max(512).optional(),
   description: z.string().max(4000).optional(),
-  specs: z.array(productImportSpecSchema).default([]),
-  equipment: z.array(productImportEquipmentSchema).default([]),
+  specs: z.array(productImportSpecSchema).max(1000).default([]),
+  equipment: z.array(productImportEquipmentSchema).max(500).default([]),
 });
 export type ProductImportRowInput = z.infer<typeof productImportRowSchema>;
 
 export const productImportPreviewRequestSchema = z.object({
+  divisionId: z.string().uuid().optional(),
   fileName: z.string().min(1).max(255),
-  fileBase64: z.string().min(1),
+  fileBase64: z.string().min(1).max(15_000_000),
 });
 export type ProductImportPreviewRequest = z.infer<typeof productImportPreviewRequestSchema>;
 
 export const productImportCommitRequestSchema = z.object({
-  rows: z.array(productImportRowSchema).min(1),
+  divisionId: z.string().uuid().optional(),
+  rows: z.array(productImportRowSchema).min(1).max(5000),
   mode: z.enum(['upsert', 'create_only']).default('upsert'),
   replaceDetails: z.boolean().default(true),
 });
 export type ProductImportCommitRequest = z.infer<typeof productImportCommitRequestSchema>;
+
+export const productImportTemplateQuerySchema = z.object({
+  divisionId: z.string().uuid().optional(),
+  productTypeCode: z.string().trim().min(1).max(64).optional(),
+});
+export type ProductImportTemplateQuery = z.infer<typeof productImportTemplateQuerySchema>;

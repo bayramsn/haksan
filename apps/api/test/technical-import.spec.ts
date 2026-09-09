@@ -7,9 +7,29 @@ import {
   prepareTechnicalImportRow,
   rowsToTechnicalRows,
   sameProductTypeCode,
+  rowsFromTechnicalLayout,
+  suggestTechnicalLayout,
 } from '../src/modules/admin/technical-import.service';
 
 describe('technical import', () => {
+  it('selects one model column from a horizontal manufacturer sheet without mixing adjacent values', () => {
+    const sheet = [['CNC technical parameters'], ['Group', 'Specification', 'Unit', 'VM-850', 'VM-1100'], ['TABLA', 'Table load', 'kg', '500', '800'], ['', 'Table size', 'mm', '850 × 500', '1100 × 600']];
+    const suggestion = suggestTechnicalLayout(sheet, 'Milling');
+    expect(suggestion).toMatchObject({ firstDataRow: 3, keyColumn: 1, valueColumn: 3, unitColumn: 2 });
+    const rows = rowsFromTechnicalLayout(sheet, { ...suggestion, sectionColumn: 0, valueColumn: 4 });
+    expect(rows.map((row) => row.sourceValue)).toEqual(['800', '1100 × 600']);
+    expect(rows[1]).toMatchObject({ rowNumber: 4, sheetName: 'Milling', section: 'TABLA', sourceUnit: 'mm' });
+  });
+
+  it('reads a universal two-column sheet and preserves an explicit mm/m unit', () => {
+    const rows = rowsFromTechnicalLayout([['Özellik', 'Değer', 'Birim'], ['Hassasiyet', '0,02', 'mm/m']], { sheetName: 'Üniversal', firstDataRow: 2, keyColumn: 0, valueColumn: 1, sectionColumn: null, unitColumn: 2 });
+    expect(rows[0]).toMatchObject({ sourceValue: '0,02', sourceUnit: 'mm/m' });
+  });
+
+  it('rejects out-of-range or overlapping mapped columns before importing', () => {
+    expect(() => rowsFromTechnicalLayout([['Alan', '125']], { sheetName: 'Sac', firstDataRow: 1, keyColumn: 0, valueColumn: 8, sectionColumn: null, unitColumn: null })).toThrow('sütun');
+    expect(technicalImportPreviewRequestSchema.safeParse({ fileName: 'test.csv', fileBase64: 'dGVzdA==', mode: 'template_fields', productTypeCode: 'PRES', layout: { sheetName: 'CSV', firstDataRow: 1, keyColumn: 0, valueColumn: 0 } }).success).toBe(false);
+  });
   it('normalizes Turkish technical labels deterministically', () => {
     expect(normalizeTechnicalLabel('  Fener Mili Ölçüsü / Devri ')).toBe('fener mili olcusu devri');
   });

@@ -2095,7 +2095,7 @@ function StoreInner({ children }: { children: ReactNode }) {
     const brands = await productService.listBrands(divisionId);
     const brand = brands.find((b: any) => b.name?.toLocaleLowerCase('tr-TR') === p.brand.toLocaleLowerCase('tr-TR'));
     if (!brand) throw new Error('Ürün markası kayıtlı değil. Önce Ayarlar > CRM Alan Ayarları > Ürün Markaları bölümünden markayı oluşturun.');
-    const created = await productService.create(productApiPayload(p, brand.id) as ProductCreateInput);
+    const created = await productService.create({ ...productApiPayload(p, brand.id), divisionId } as ProductCreateInput);
     await productService.replaceDetails(created.id, productDetailsPayload(p));
     await fetchAll();
     return { id: created.id, ...p, status: p.status ?? 'active' } as Product;

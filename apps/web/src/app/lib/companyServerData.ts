@@ -226,16 +226,16 @@ export function useCompanyCardDetails(
  * not part of the global store, so sensitive company rows are downloaded only
  * when the user opens such a screen and are still isolated by auth identity.
  */
-export function useExplicitFullCompanyDirectory(purpose: string) {
+export function useExplicitFullCompanyDirectory(purpose: string, settingsDivisionId?: string) {
   const { user, activeDivision, activeDepartment } = useAuth();
   const scope = serverScopeKey(activeDivision, activeDepartment, user?.tenantId, user?.id);
 
   return useQuery({
-    queryKey: [...companyQueryKeys.all, "explicit-full-directory", purpose, scope],
+    queryKey: [...companyQueryKeys.all, "explicit-full-directory", purpose, scope, settingsDivisionId ?? null],
     queryFn: async ({ signal }): Promise<Customer[]> => {
       const pageSize = 200;
       const first = await companyService.list(
-        { page: 1, pageSize, sortBy: "name", sortDir: "asc" },
+        { page: 1, pageSize, sortBy: "name", sortDir: "asc", divisionId: settingsDivisionId },
         { signal },
       );
       const totalPages = Math.max(1, Number(first.meta?.totalPages ?? 1));
@@ -243,7 +243,7 @@ export function useExplicitFullCompanyDirectory(purpose: string) {
         ? await Promise.all(
             Array.from({ length: totalPages - 1 }, (_, index) =>
               companyService.list(
-                { page: index + 2, pageSize, sortBy: "name", sortDir: "asc" },
+                { page: index + 2, pageSize, sortBy: "name", sortDir: "asc", divisionId: settingsDivisionId },
                 { signal },
               ),
             ),

@@ -134,11 +134,9 @@ export const exportService = {
    * Ürün tipi verilirse şablon o tipteki mevcut bir üründen doldurulmuş örnek
    * satırla ve o tipin teknik özellik kolonlarıyla gelir.
    */
-  productImportTemplate: (productTypeCode?: string) =>
+  productImportTemplate: (productTypeCode?: string, divisionId?: string) =>
     downloadExport(
-      productTypeCode
-        ? `/products/import/template?productTypeCode=${encodeURIComponent(productTypeCode)}`
-        : '/products/import/template',
+      `/products/import/template?${new URLSearchParams({ ...(productTypeCode ? { productTypeCode } : {}), ...(divisionId ? { divisionId } : {}) }).toString()}`,
       'urun-import-sablonu.xlsx'
     ),
   technicalImportTemplate: (options: {

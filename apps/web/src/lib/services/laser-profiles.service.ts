@@ -30,11 +30,11 @@ export const laserProfilesService = {
     api.put<LaserTechnicalConfiguration>('/admin/laser-profiles', { ...scope, selection, specs }),
   previewImport: (scope: LaserProfileScope, file: { fileName: string; mimeType?: string; fileBase64: string }, signal?: AbortSignal) =>
     api.post<LaserImportPreview>('/admin/technical-import/preview', {
-      ...scope, ...file, mode: 'laser_profiles', productTypeCode: 'FIBER_LAZER_KESIM', availableFields: [],
+      ...scope, ...file, mode: 'laser_profiles', productTypeCode: 'FIBER_LAZER_KESIM', availableFields: [], includeCatalogModels: true,
     }, { signal }),
   commitImport: (scope: LaserProfileScope, preview: Pick<LaserImportPreview, 'importToken' | 'laserProfiles'>) =>
     api.post<{ ok: boolean; created: number; updated: number; imported: number }>('/admin/technical-import/commit', {
-      ...scope, importToken: preview.importToken, laserProfiles: preview.laserProfiles,
+      ...scope, importToken: preview.importToken, laserSelections: preview.laserProfiles.map((profile) => profile.selection),
       mode: 'laser_profiles', productTypeCode: 'FIBER_LAZER_KESIM', rows: [],
     }),
 };

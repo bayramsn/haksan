@@ -67,7 +67,7 @@ describe('Company status promotion on first sales order', () => {
 
     const updatedCompany = await request(app.getHttpServer())
       .get('/api/v1/companies')
-      .query({ search: suffix, divisionId, pageSize: 10 })
+      .query({ ids: [company.body.id], divisionId, pageSize: 10 })
       .set('Authorization', `Bearer ${token}`)
       .expect(200);
     const row = updatedCompany.body.data.find((item: { id: string }) => item.id === company.body.id);
