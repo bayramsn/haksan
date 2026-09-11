@@ -1,7 +1,20 @@
 import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
 import { existsSync } from 'node:fs';
-import puppeteer, { type Browser } from 'puppeteer-core';
 import { ValidationError } from '../utils/errors';
+
+// puppeteer-core 25+ yalnız ESM; CommonJS API'den tipleri bile içe aktarılamıyor (TS1479).
+// Kullandığımız yüzey küçük: yapısal tiplerle tanımlanır, paket dinamik import ile yüklenir.
+interface PdfRequest { url(): string; resourceType(): string; continue(): Promise<void>; abort(): Promise<void> }
+interface PdfPage {
+  setJavaScriptEnabled(enabled: boolean): Promise<void>;
+  setRequestInterception(enabled: boolean): Promise<void>;
+  on(event: 'request', handler: (request: PdfRequest) => void): unknown;
+  setContent(html: string, options: { waitUntil: 'load'; timeout: number }): Promise<void>;
+  emulateMediaType(type: 'print'): Promise<void>;
+  pdf(options: { format: 'A4'; printBackground: boolean; preferCSSPageSize: boolean; timeout: number }): Promise<Uint8Array>;
+  close(): Promise<void>;
+}
+interface Browser { newPage(): Promise<PdfPage>; close(): Promise<void>; on(event: 'disconnected', handler: () => void): unknown }
 
 /**
  * İstemcinin ürettiği yazdırma HTML'ini headless Chromium ile PDF'e çevirir; çıktı,
@@ -36,12 +49,13 @@ export class HtmlPdfService implements OnModuleDestroy {
     if (!this.browser) {
       const executablePath = HtmlPdfService.executablePath();
       if (!executablePath) throw new ValidationError('Sunucuda PDF üretici (Chromium) bulunamadı');
-      this.browser = puppeteer.launch({
+      // puppeteer-core 25+ yalnız ESM; CommonJS API'den dinamik import ile yüklenir.
+      this.browser = import('puppeteer-core').then(({ default: puppeteer }) => puppeteer.launch({
         executablePath,
         headless: true,
         // Konteynerde root/sandbox kısıtı; içerik zaten JS'siz ve ağsız render ediliyor.
         args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu', '--font-render-hinting=none'],
-      }).catch((error) => {
+      }) as unknown as Promise<Browser>).catch((error) => {
         this.browser = null;
         throw error;
       });
