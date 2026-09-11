@@ -940,6 +940,8 @@ export type ReferenceInput = {
 export const referenceService = {
   list: () => api.get<ReferenceDTO[]>('/references'),
   create: (body: ReferenceInput) => api.post<ReferenceDTO>('/references', body),
+  importFile: (body: { fileName: string; fileBase64: string }) =>
+    api.post<{ created: number; skipped: Array<{ row: number; reason: string }>; headerRow: number; sheetName: string }>('/references/import', body),
   update: (id: string, body: ReferenceInput) => api.patch<ReferenceDTO>(`/references/${id}`, body),
   remove: (id: string) => api.delete(`/references/${id}`),
 };

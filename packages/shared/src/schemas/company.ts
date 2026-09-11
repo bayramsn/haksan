@@ -364,3 +364,16 @@ export type CompanyReferenceCreateInput = z.infer<typeof companyReferenceCreateS
 
 export const companyReferenceUpdateSchema = companyReferenceCreateSchema.partial();
 export type CompanyReferenceUpdateInput = z.infer<typeof companyReferenceUpdateSchema>;
+
+/** Referanslar sayfası Excel/CSV toplu yükleme (Firma, İlgili, İlçe, İl, Marka, Model, Teslim Tarihi, Not). */
+export const companyReferenceImportSchema = z.object({
+  fileName: z.string().trim().min(1).max(255),
+  fileBase64: z.string().min(1).max(12_000_000),
+});
+export type CompanyReferenceImportInput = z.infer<typeof companyReferenceImportSchema>;
+export type CompanyReferenceImportResult = {
+  created: number;
+  skipped: Array<{ row: number; reason: string }>;
+  headerRow: number;
+  sheetName: string;
+};

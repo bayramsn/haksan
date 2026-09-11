@@ -1,8 +1,10 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, UseGuards } from '@nestjs/common';
 import {
   companyReferenceCreateSchema,
+  companyReferenceImportSchema,
   companyReferenceUpdateSchema,
   type CompanyReferenceCreateInput,
+  type CompanyReferenceImportInput,
   type CompanyReferenceUpdateInput,
 } from '@haksan/shared';
 import { ZodValidationPipe } from '../../shared/utils/zod-pipe';
@@ -31,6 +33,16 @@ export class CompanyReferencesController {
     @CurrentUser() user: AuthContext,
   ) {
     return this.svc.create(body, user);
+  }
+
+  /** Excel/CSV toplu yükleme; dosya base64 gövdede taşınır (ürün içe aktarmayla aynı yol). */
+  @RequirePermissions('companies.create')
+  @Post('import')
+  importFromFile(
+    @Body(new ZodValidationPipe(companyReferenceImportSchema)) body: CompanyReferenceImportInput,
+    @CurrentUser() user: AuthContext,
+  ) {
+    return this.svc.importFromFile(body, user);
   }
 
   @RequirePermissions('companies.update')

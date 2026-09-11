@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Building2, CalendarDays, Cpu, MapPin, Pencil, Plus, Search, Shapes, Trash2 } from "lucide-react";
+import { Building2, CalendarDays, Cpu, FileSpreadsheet, MapPin, Pencil, Plus, Search, Shapes, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Card, CardContent } from "../ui/card";
 import { Input } from "../ui/input";
@@ -18,12 +18,15 @@ import { EmptyState } from "../shared/EmptyState";
 import { EntityVisual, InsightStat } from "../shared/PremiumPrimitives";
 import { ViewToggle, type ListView } from "../ui/list-controls";
 import { usePersistentState } from "../../lib/persist";
+import { ReferenceImportDialog } from "../dialogs/ReferenceImportDialog";
 
-const formatDate = (value?: string) => {
+const formatDate = (value?: string, style: "long" | "short" = "long") => {
   if (!value) return "—";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleDateString("tr-TR", { day: "2-digit", month: "long", year: "numeric" });
+  return style === "short"
+    ? date.toLocaleDateString("tr-TR", { day: "2-digit", month: "2-digit", year: "numeric" })
+    : date.toLocaleDateString("tr-TR", { day: "2-digit", month: "long", year: "numeric" });
 };
 
 const emptyForm = () => ({
@@ -57,6 +60,7 @@ export function ReferencesPage() {
   const [view, setView] = usePersistentState<ListView>("references.view", "cards");
   const [records, setRecords] = useState<ReferenceDTO[]>([]);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
   const [editing, setEditing] = useState<ReferenceDTO | null>(null);
   const [form, setForm] = useState<ReferenceForm>(emptyForm);
   const [saving, setSaving] = useState(false);
@@ -178,6 +182,12 @@ export function ReferencesPage() {
     return [...manualRows, ...liveRows];
   }, [closedCases, customers, machines, products, records]);
 
+  const companyOptions = useMemo(
+    () => [...new Set(customers.map((company) => company.name?.trim()).filter((name): name is string => Boolean(name)))]
+      .sort((a, b) => a.localeCompare(b, "tr-TR")),
+    [customers],
+  );
+
   const filtered = rows.filter((row) => {
     const needle = q.toLocaleLowerCase("tr-TR");
     if (!needle) return true;
@@ -247,9 +257,14 @@ export function ReferencesPage() {
           </div>
           <ViewToggle view={view} onChange={setView} />
           {canCreate && (
-            <Button className="h-9 gap-1.5" onClick={openCreate}>
-              <Plus className="size-4" /> Yeni Referans
-            </Button>
+            <>
+              <Button variant="outline" className="h-9 gap-1.5" onClick={() => setImportOpen(true)}>
+                <FileSpreadsheet className="size-4" /> Excel ile Yükle
+              </Button>
+              <Button className="h-9 gap-1.5" onClick={openCreate}>
+                <Plus className="size-4" /> Yeni Referans
+              </Button>
+            </>
           )}
         </div>
       </div>
@@ -289,43 +304,48 @@ export function ReferencesPage() {
         </div>
       ) : (
       <Card className="surface-enter border-border/60 shadow-sm overflow-hidden">
-        <div className="overflow-x-auto">
-          <Table>
-            <TableHeader>
-              <TableRow className="bg-muted/30 hover:bg-muted/30">
-                <TableHead className="w-16">No</TableHead>
-                <TableHead className="min-w-[220px]">Firma</TableHead>
-                <TableHead>İlgili</TableHead>
-                <TableHead>İlçe</TableHead>
-                <TableHead>İl</TableHead>
-                <TableHead>Tezgah Markası</TableHead>
-                <TableHead>Tezgah Modeli</TableHead>
-                <TableHead>Teslim Tarihi</TableHead>
-                <TableHead className="w-24" />
+        {/* Yatay kaydırma yok: sabit sütun genişlikleri, uzun metin kısaltılır, dar ekranda ikincil sütunlar gizlenir. */}
+        <Table className="w-full table-fixed">
+          <TableHeader>
+            <TableRow className="bg-muted/30 hover:bg-muted/30">
+              <TableHead className="w-10 px-2">No</TableHead>
+              <TableHead className="w-[26%]">Firma</TableHead>
+              <TableHead className="hidden w-[14%] lg:table-cell">İlgili</TableHead>
+              <TableHead className="w-[16%]">Konum</TableHead>
+              <TableHead className="hidden w-[12%] md:table-cell">Marka</TableHead>
+              <TableHead className="w-[14%]">Model</TableHead>
+              <TableHead className="hidden w-[12%] md:table-cell">Teslim</TableHead>
+              <TableHead className="w-20 px-1" />
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {filtered.map((row, index) => (
+              <TableRow key={row.id}>
+                <TableCell className="px-2 tabular-nums text-muted-foreground">{index + 1}</TableCell>
+                <TableCell className="truncate font-medium" title={row.firm}>
+                  {row.firm}
+                  <div className="truncate text-[11px] font-normal text-muted-foreground lg:hidden">{row.contact !== "—" ? row.contact : ""}</div>
+                </TableCell>
+                <TableCell className="hidden truncate lg:table-cell" title={row.contact}>{row.contact}</TableCell>
+                <TableCell className="truncate text-muted-foreground" title={[row.district, row.city].filter((v) => v !== "—").join(" / ")}>
+                  {[row.district, row.city].filter((v) => v !== "—").join(" / ") || "—"}
+                </TableCell>
+                <TableCell className="hidden truncate md:table-cell" title={row.brand}>{row.brand}</TableCell>
+                <TableCell className="truncate font-data" title={row.model}>
+                  {row.model}
+                  <div className="truncate text-[11px] font-sans text-muted-foreground md:hidden">{row.brand !== "—" ? row.brand : ""}</div>
+                </TableCell>
+                <TableCell className="hidden truncate tabular-nums text-muted-foreground md:table-cell">{formatDate(row.deliveryDate, "short")}</TableCell>
+                <TableCell className="px-1">{rowActions(row, true)}</TableCell>
               </TableRow>
-            </TableHeader>
-            <TableBody>
-              {filtered.map((row, index) => (
-                <TableRow key={row.id}>
-                  <TableCell className="tabular-nums text-muted-foreground">{index + 1}</TableCell>
-                  <TableCell className="font-medium">{row.firm}</TableCell>
-                  <TableCell>{row.contact}</TableCell>
-                  <TableCell className="text-muted-foreground">{row.district}</TableCell>
-                  <TableCell className="text-muted-foreground">{row.city}</TableCell>
-                  <TableCell>{row.brand}</TableCell>
-                  <TableCell className="font-data">{row.model}</TableCell>
-                  <TableCell className="text-muted-foreground">{formatDate(row.deliveryDate)}</TableCell>
-                  <TableCell>{rowActions(row)}</TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </div>
+            ))}
+          </TableBody>
+        </Table>
       </Card>
       )}
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="max-h-[92dvh] max-w-xl overflow-y-auto">
+        <DialogContent className="max-h-[92dvh] overflow-y-auto sm:max-w-3xl">
           <DialogHeader>
             <DialogTitle>{editing ? "Referansı Düzenle" : "Yeni Referans"}</DialogTitle>
             <DialogDescription>Teslim edilmiş makineyi satış referansı olarak kaydedin.</DialogDescription>
@@ -333,7 +353,11 @@ export function ReferencesPage() {
           <form onSubmit={submit} className="space-y-4">
             <div>
               <Label className="text-xs" htmlFor="reference-firm">Firma *</Label>
-              <Input id="reference-firm" className="mt-1.5" value={form.firm} onChange={(event) => setForm({ ...form, firm: event.target.value })} />
+              {/* Kayıtlı firmalar arasında harf yazarak arama; listede olmayan ad da elle yazılabilir. */}
+              <Input id="reference-firm" className="mt-1.5" list="reference-firm-options" autoComplete="off" placeholder="Firma adı yazın veya listeden seçin" value={form.firm} onChange={(event) => setForm({ ...form, firm: event.target.value })} />
+              <datalist id="reference-firm-options">
+                {companyOptions.map((name) => <option key={name} value={name} />)}
+              </datalist>
             </div>
             <div className="grid gap-3 sm:grid-cols-3">
               <div>
@@ -374,6 +398,8 @@ export function ReferencesPage() {
           </form>
         </DialogContent>
       </Dialog>
+
+      <ReferenceImportDialog open={importOpen} onOpenChange={setImportOpen} onImported={load} />
 
       <Dialog open={!!deleting} onOpenChange={(open) => { if (!open) setDeleting(null); }}>
         <DialogContent className="max-w-md">
