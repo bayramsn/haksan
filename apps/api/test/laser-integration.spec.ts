@@ -80,7 +80,7 @@ describe('laser API database roundtrip', () => {
     expect((await request().get('/api/v1/laser-profiles/options').query({ divisionId, brandId })).status).toBe(401);
     const options = await request().get('/api/v1/laser-profiles/options').query({ divisionId, brandId }).set('Authorization', `Bearer ${token}`);
     expect(options.status, JSON.stringify(options.body)).toBe(200);
-    expect(options.body.models).toHaveLength(114);
+    expect(options.body.models).toHaveLength(101);
     expect(options.body.powerOptions).toEqual([1.5, 2, 3, 6, 12, 20, 30]);
     expect((await request().get('/api/v1/laser-profiles/resolve').query({ divisionId, brandId, ...selection, powerKw: 40 }).set('Authorization', `Bearer ${token}`)).status).toBe(422);
     expect((await request().get('/api/v1/laser-profiles/options').query({ divisionId: randomUUID(), brandId }).set('Authorization', `Bearer ${token}`)).status).toBe(422);

@@ -17,10 +17,10 @@ describe.skipIf(!runIntegration)('HEXLASER catalog product import', () => {
     expect(operator).toBeTruthy();
 
     const preview = await importHexlaserCatalog(db, operator!.tenantId, operator!.id, false);
-    expect(preview).toMatchObject({ cuttingModels: 114, cuttingVariants: 1596, profiles: 1596, createProducts: 1606 });
+    expect(preview).toMatchObject({ cuttingModels: 101, cuttingVariants: 1414, profiles: 1414, createProducts: 1424 });
 
     const applied = await importHexlaserCatalog(db, operator!.tenantId, operator!.id, true);
-    expect(applied).toMatchObject({ createdProducts: 1606, migratedBaseProducts: 0, cuttingVariants: 1596 });
+    expect(applied).toMatchObject({ createdProducts: 1424, migratedBaseProducts: 0, cuttingVariants: 1414 });
 
     const pgProducts = await db.select().from(schema.productModels).where(and(
       eq(schema.productModels.tenantId, operator!.tenantId), like(schema.productModels.modelCode, 'PG3015-%'), isNull(schema.productModels.deletedAt),
@@ -65,6 +65,6 @@ describe.skipIf(!runIntegration)('HEXLASER catalog product import', () => {
     expect(remainingAggregates.count).toBe(0);
 
     const repeat = await importHexlaserCatalog(db, operator!.tenantId, operator!.id, false);
-    expect(repeat).toMatchObject({ createProducts: 0, preserveProducts: 1606, migrateBaseProducts: 0 });
+    expect(repeat).toMatchObject({ createProducts: 0, preserveProducts: 1424, migrateBaseProducts: 0 });
   }, 180_000);
 });

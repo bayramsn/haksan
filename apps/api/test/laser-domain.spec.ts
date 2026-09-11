@@ -199,4 +199,16 @@ describe('AORE source resolution', () => {
     expect(quote.technicalSpecs.find((s) => s.key === 'Rezonatör Markası')?.value).toBe('');
     expect(productDetailsReplaceSchema.parse({ technicalConfiguration: config }).technicalConfiguration).toEqual(config);
   });
+
+  it('binds catalog-only labels to the workbook model instead of opening a second record', () => {
+    const codes = new Set(LASER_MODELS.map((model) => model.code));
+    // Katalogdaki kısa/yanlış yazımlar Excel modeline bağlandı; ayrı kayıt açmıyor.
+    for (const phantom of ['2500-6', '2500pro-12', '3200-12', 'FT3015', 'FT6020', 'TG12035']) expect(codes.has(phantom)).toBe(false);
+    // Katalog alanı Excel modeline işlendi.
+    expect(field('GR2500-6', 12, 'Konik 45° Kesim Alanı')?.value).toBe('5350 × 1750');
+    expect(field('F3015+T6-230', 6, 'Boru Kesim Hattı')?.value).toBe('6000');
+    expect(field('TS12035', 12, 'Ayna Sayısı')?.value).toBe('3');
+    // EGT açık kabin/tek tabla olduğu için PGT'den ayrı ürün kalır.
+    expect(codes.has('EGT3015') && codes.has('PG3015+T6-230')).toBe(true);
+  });
 });

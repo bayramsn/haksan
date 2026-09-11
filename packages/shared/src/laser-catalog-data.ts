@@ -7,12 +7,12 @@ const field = ([key, rawValue, unit]: Field, page: number): LaserSourceField => 
   groupCode: key.includes('Motor') ? 'MOTORLAR' : key.includes('Tabla') ? 'TABLA' : key.includes('İvme') ? 'EKSENLER' : 'KESME',
   source: { document: DOCUMENT, page, rawValue },
 });
-const model = (series: LaserSeries, code: string, page: number, area: string, powerMin: number, powerMax: number, cabin: 'open' | 'closed' | null, fields: Field[], note?: string): LaserCatalogModel => ({
+const model = (series: LaserSeries, code: string, page: number, area: string, powerMin: number, powerMax: number, cabin: 'open' | 'closed' | null, fields: Field[]): LaserCatalogModel => ({
   code, series, productTypeCode: ['TG', 'TH', 'TS', 'TZ'].includes(series) ? 'BORU_LAZER_KESIM' : 'FIBER_LAZER_KESIM',
   sizeLabel: area, workingArea: ['TG', 'TH', 'TS', 'TZ'].includes(series) ? undefined : area,
   standardCabin: cabin, powerMin, powerMax,
   fields: [['Desteklenen Lazer Gücü', `${powerMin}–${powerMax}`, 'kW'] as Field, ...fields].map((value) => field(value, page)),
-  issues: note ? [{ code: 'catalog_identity_review', message: note, sources: [{ document: DOCUMENT, page }] }] : [],
+  issues: [],
 });
 const accuracy = (position: string, repeat: string, speed: string, acceleration: string): Field[] => [
   ['Konumlama Hassasiyeti', position, 'mm'], ['Tekrarlama Hassasiyeti', repeat, 'mm'],
@@ -45,15 +45,19 @@ export const LASER_PDF_MODELS: LaserCatalogModel[] = [
     model('FB', code, 13, area, 6, 40, 'open', [...sheet(area, 'Tek tabla'), ['45° Eğimli Kesim Çalışma Alanı', bevel, 'mm'], ...accuracy('0,03', '0,02', '115', '1,2'), ...motors('1,3', '2,9 × 2', '0,75')])),
   ...[['S1530', '1,5–8 kW: 3060 × 1530; 12 kW: 2960 × 1430'], ['S1325', '1,5–8 kW: 2560 × 1330; 12 kW: 2460 × 1230'], ['S1313', '1330 × 1350'], ['S1309', '1330 × 950'], ['S1510', '1530 × 1050'], ['S0604', '650 × 450']].map(([code, area], index) =>
     model('S', code, 14, area, 1.5, index < 2 ? 12 : 6, 'closed', [...sheet(area, 'Tek tabla'), ...accuracy('0,03', '0,02', index < 2 ? '115' : '60', index < 2 ? '0,8' : '0,6').filter(([key]) => key !== 'Vidalı Mil'), ['Vidalı Mil', 'TBI/PMI'], ...motors(index < 2 ? '≤6 kW: 0,85; 8–12 kW: 1,3' : '0,75', index < 2 ? '≤6 kW: 1,3 × 2; 8–12 kW: 1,8 × 2' : '0,75 × 2', index < 2 ? '≤6 kW: 0,4; 8–12 kW: 0,75' : '0,4')])),
+  // Katalog GR etiketleri “GR” önekini yazmaz (“2500-6”, “2500pro-12”); X genişlikleri ve uzunluk
+  // kodları Excel GR sayfasıyla birebir örtüştüğü için Excel kodlarına bağlandı. Y ölçüleri iki belgede
+  // 400 mm farklı; birleştirme bunu source_comparison olarak kaydeder, Excel değeri esas kalır.
   ...[
-    ['2500-6', '6100 × 2550', '5700 × 2450', '5350 × 1750'], ['3200-6', '6100 × 3250', '5700 × 3150', '5350 × 2450'],
-    ['2500-8', '8100 × 2550', '7700 × 2450', '7350 × 1750'], ['3200-8', '8100 × 3250', '7700 × 3150', '7350 × 2450'],
-    ['2500-12', '12100 × 2550', '11700 × 2450', '11350 × 1750'], ['3200-12', '12100 × 3250', '11700 × 3150', '11350 × 2450'],
-    ['2500pro-12', '12100 × 2550', '11700 × 2450', '11350 × 1750'], ['3200pro-12', '12100 × 3250', '11700 × 3150', '11350 × 2450'],
+    ['GR2500-6', '6100 × 2550', '5700 × 2450', '5350 × 1750'], ['GR3200-6', '6100 × 3250', '5700 × 3150', '5350 × 2450'],
+    ['GR2500-8', '8100 × 2550', '7700 × 2450', '7350 × 1750'], ['GR3200-8', '8100 × 3250', '7700 × 3150', '7350 × 2450'],
+    ['GR2500-12', '12100 × 2550', '11700 × 2450', '11350 × 1750'], ['GR3200-12', '12100 × 3250', '11700 × 3150', '11350 × 2450'],
+    ['GR2500Pro-12', '12100 × 2550', '11700 × 2450', '11350 × 1750'], ['GR3200Pro-12', '12100 × 3250', '11700 × 3150', '11350 × 2450'],
   ].map(([code, area, conical, bevel]) => model('GR', code, 15, area, 6, 60, null, [
     ...sheet(area, 'Zemin raylı, bağımsız modüler tabla'), ['Konik Düz Kesim Alanı', conical, 'mm'], ['Konik 45° Kesim Alanı', bevel, 'mm'],
-    ...accuracy('0,1', '0,05', '80', '0,8'), ...motors('1,8', code.includes('pro') ? '5,5 × 2' : '4,4 × 2', '0,75'),
-  ], `Katalog model etiketi “${code}”. Excel'deki GR model kodlarıyla aynı makine olduğu doğrulanmadığı için ayrı kaynak kaydıdır.`)),
+    // Excel, standart ve Pro modelleri tek sütunda birleştirdiği için Y motorunu ayıramıyor; katalog ayırıyor.
+    ...accuracy('0,1', '0,05', '80', '0,8'), ...motors('1,8', /pro/i.test(code) ? '5,5 × 2' : '4,4 × 2', '0,75'),
+  ])),
   ...(['TG', 'TH'] as const).flatMap((series) => [
     ['6012', '10', '120', '200', '1,5', '1,8', '1,8 + 1,3'],
     ['6016', '15', '160', '120', '1,5', '2,9', '2,9 + 1,8'],
@@ -67,17 +71,21 @@ export const LASER_PDF_MODELS: LaserCatalogModel[] = [
   model('TS', 'TS6020', 20, '6300 mm · Ø15–230 mm', 3, 12, null, [
     ['Maksimum Boru İşleme Uzunluğu', '6300', 'mm'], ['Yuvarlak Boru Çapı', 'Ø15–Ø230', 'mm'], ['Kare Boru Kenar Uzunluğu', '15 × 15 – 230 × 230', 'mm'], ['Maksimum Ayna Dönüş Hızı', '120', 'dev/dk'], ['Maksimum İvme', '1,5', 'G'], ...motors('0,75', '2,9 × 3', '0,75'), ['B Eksen Motor Gücü', '2,9 × 2 + 1,8 × 1', 'kW'], ['Vidalı Mil', 'TBI'], ['Ayna Sayısı', '3'],
   ]),
-  // The printed code is retained instead of silently rewriting TG to TS.
-  model('TG', 'TG12035', 20, '12500 mm · Ø15–350 mm', 3, 12, null, [
+  // Katalog TS sayfasındaki ikinci modeli “TG-12035” diye basmış; ölçü, ayna hızı, ivme ve X/Z/B motorları
+  // Excel TS12035 ile birebir aynı, TG sayfasında böyle bir model yok. Dizgi hatası kabul edilip TS'e bağlandı.
+  model('TS', 'TS12035', 20, '12500 mm · Ø15–350 mm', 3, 12, null, [
     ['Maksimum Boru İşleme Uzunluğu', '12500', 'mm'], ['Yuvarlak Boru Çapı', 'Ø15–Ø350', 'mm'], ['Kare Boru Kenar Uzunluğu', '15 × 15 – 350 × 350', 'mm'], ['Maksimum Ayna Dönüş Hızı', '80', 'dev/dk'], ['Maksimum İvme', '0,8', 'G'], ...motors('0,75', '4,4 × 3', '0,75'), ['B Eksen Motor Gücü', '5,5 × 2 + 4,4 × 1', 'kW'], ['Vidalı Mil', 'TBI'], ['Ayna Sayısı', '3'],
-  ], 'Katalogda TS serisi sayfasındaki ikinci model TG-12035 olarak yazılmış. Excel TS12035 ile aynı model olduğu doğrulanmadı; değerler birleştirilmedi.'),
+  ]),
   model('TZ', 'TZ12055', 21, '12500 mm · Ø30–550 mm', 3, 12, null, [
     ['Maksimum Boru İşleme Uzunluğu', '12500', 'mm'], ['Yuvarlak Boru Çapı', 'Ø30–Ø550', 'mm'], ['Kare Boru Kenar Uzunluğu', '30 × 30 – 550 × 550', 'mm'], ['Maksimum Ayna Dönüş Hızı', '50', 'dev/dk'], ['Maksimum İvme', '0,3', 'G'], ...motors('1,0', '5,5 × 4', '1,0'), ['B Eksen Motor Gücü', '5,5 × 4', 'kW'], ['Vidalı Mil', 'TBI'], ['Ayna Sayısı', '4'],
   ]),
-  ...(['FT', 'EGT'] as const).flatMap((series) => [['3015', '3050 × 1530'], ['4020', '4050 × 2030'], ['6015', '6050 × 1530'], ['6020', '6050 × 2030']].map(([suffix, area]) => model(series, `${series}${suffix}`, series === 'FT' ? 22 : 23, area, 1.5, 12, 'open', [
+  // Katalog FT-3015'in üç eksen motor değeri Excel FT sayfasındaki F3015+T6-230 ile birebir aynı: aynı makine,
+  // kısa kod. EGT ise PGT ile aynı motorları taşısa da açık kabin/tek tabla olduğu için (EG–PG ayrımı gibi)
+  // ayrı ürün kaydı kalır.
+  ...(['FT', 'EGT'] as const).flatMap((series) => [['3015', '3050 × 1530'], ['4020', '4050 × 2030'], ['6015', '6050 × 1530'], ['6020', '6050 × 2030']].map(([suffix, area]) => model(series, series === 'FT' ? `F${suffix}+T6-230` : `EGT${suffix}`, series === 'FT' ? 22 : 23, area, 1.5, 12, 'open', [
     ...sheet(area, 'Tek tabla'), ['Boru Kesim Hattı', '6000', 'mm'], ...accuracy('0,05', '0,03', '115', '0,8'),
     ...motors(series === 'FT' ? '≤6 kW: 0,85; 8–12 kW: 1,3' : suffix === '3015' ? '0,85' : '1,3',
       series === 'FT' ? '≤6 kW: 0,85 × 2; 8–12 kW: 1,8 × 2' : suffix === '3015' ? '≤6 kW: 1,3 × 2; ≥8 kW: 1,8 × 2' : '6 kW: 1,8 × 2; ≥8 kW: 2,9 × 2',
       series === 'FT' ? '≤6 kW: 0,4; 8–12 kW: 0,75' : suffix === '3015' ? '≤6 kW: 0,4; ≥8 kW: 0,75' : '0,75'),
-  ], series === 'FT' ? 'Katalogdaki FT koduyla Excel’deki kombine F+T kodunun eşitliği doğrulanmadı; ayrı kaynak kaydı olarak tutuldu.' : undefined))),
+  ]))),
 ];
