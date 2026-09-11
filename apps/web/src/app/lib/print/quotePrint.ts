@@ -3,6 +3,7 @@ import { isMachiningCenterTypeCode } from "@haksan/shared";
 import { quoteService } from "../../../lib/services";
 import { specsForProductTypeStrict } from "../productSpecTemplates";
 import { publicProductLabel, trShortDate } from "./core";
+import { snapshotAddressLine } from "./core";
 import { applyVatRateToNotes } from "./notes";
 import { printSignatureFromDocumentSnapshot } from "./signature";
 import { printableTechnicalSpecs } from "./technicalSpecs";
@@ -269,8 +270,9 @@ export function buildQuotePrintData(input: QuoteBuildInput, quote: QuoteDetail):
     ?? customer?.addresses?.find((address) => address.isBilling)
     ?? customer?.addresses?.find((address) => address.isDefault)
     ?? customer?.addresses?.[0];
+  // Anlık görüntüde fullAddress yalnız sokak; ilçe/il/ülke ayrı alanlardan eklenir.
   const printableAddress = snapshotAddress
-    ? String(snapshotAddress.fullAddress ?? [snapshotAddress.street, snapshotAddress.buildingNumber, snapshotAddress.district, snapshotAddress.province, snapshotAddress.country].filter(Boolean).join(" "))
+    ? snapshotAddressLine(snapshotAddress)
     : pdfAddress
     ? [pdfAddress.address, pdfAddress.district, pdfAddress.city, pdfAddress.country].filter(Boolean).join(" ")
     : customer ? [customer.address, customer.district, customer.city, customer.country].filter(Boolean).join(" ") : "";

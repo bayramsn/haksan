@@ -358,3 +358,32 @@ export const inlinePrintAssets = async (html: string): Promise<string> => {
 /** "Yazdır / PDF Kaydet" ile aynı belge; sunucuda PDF'e çevrilmek üzere görselleri gömülü tam HTML. */
 export const buildMailDocumentHtml = (doc: PrintDocument): Promise<string> =>
   inlinePrintAssets(buildPrintHtml(doc, { autoPrint: false }));
+
+const addressField = (record: Record<string, unknown> | null | undefined, ...keys: string[]): string => {
+  for (const key of keys) {
+    const value = record?.[key];
+    if (value != null && String(value).trim()) return String(value).trim();
+  }
+  return "";
+};
+
+/**
+ * Belge anlık görüntüsündeki adresi tek satıra çevirir. `fullAddress` yalnız sokak metnini
+ * taşır; ilçe/il/ülke ayrı sütunlardadır ve tekrar etmeden sona eklenir. Hem camelCase hem
+ * snake_case anahtarlar (eski snapshot'lar) okunur.
+ */
+export const snapshotAddressLine = (
+  address: Record<string, unknown> | null | undefined,
+  opts: { separator?: string; omitCountry?: string } = {},
+): string => {
+  if (!address) return "";
+  const base = addressField(address, "fullAddress", "full_address")
+    || [addressField(address, "street"), addressField(address, "buildingNumber", "building_number")].filter(Boolean).join(" ");
+  const tail = [
+    addressField(address, "district"),
+    addressField(address, "province", "city"),
+    addressField(address, "country"),
+  ].filter((part) => part && !(opts.omitCountry && part.toLocaleLowerCase("tr-TR") === opts.omitCountry.toLocaleLowerCase("tr-TR")));
+  const lower = base.toLocaleLowerCase("tr-TR");
+  return [base, ...tail.filter((part) => !lower.includes(part.toLocaleLowerCase("tr-TR")))].filter(Boolean).join(opts.separator ?? " ");
+};

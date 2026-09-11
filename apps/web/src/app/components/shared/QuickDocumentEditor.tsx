@@ -1,3 +1,4 @@
+import { snapshotAddressLine } from "../../lib/print/core";
 import { ChevronDown, Plus, Trash2 } from "lucide-react";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
@@ -160,7 +161,7 @@ export const quickPartyFromSnapshot = (snapshot: Record<string, any> | undefined
     manualCompany: !hasCompanyRecord,
     companyId: snapshot.company?.id ?? "",
     companyName: snapshot.company?.legalTitle ?? "",
-    companyAddress: snapshot.companyAddresses?.[0]?.fullAddress ?? "",
+    companyAddress: snapshotAddressLine(snapshot.companyAddresses?.[0]),
     companyTaxOffice: snapshot.company?.taxOffice ?? "",
     companyTaxNumber: snapshot.company?.taxNumber ?? "",
     contactName: snapshot.contact?.fullName ?? "",

@@ -5,7 +5,7 @@ import type { Contact, Customer, DocumentItem, Offer, Product, SalesCase, User }
 import { isMachiningCenterTypeCode } from "@haksan/shared";
 import { quoteService } from "../../../lib/services";
 import { splitVat } from "../pageHelpers";
-import { publicProductLabel, trLongDate } from "./core";
+import { publicProductLabel, trLongDate, snapshotAddressLine } from "./core";
 import { applyVatRateToNotes, matchQuoteNoteVariantKey, resolveProformaNotes, QUOTE_VARIANT_PREFIX } from "./notes";
 import { allocateCustomsTotal } from "./quotePrint";
 import { printSignatureFromSnapshot } from "./signature";
@@ -103,13 +103,7 @@ const proformaFromSnapshot = (
   const primaryRow = rows.find((item: any) => !String(snapshotValue(item, "description") ?? "").trimStart().startsWith("↳ Opsiyon:"));
   const termsVatRate = Number(snapshotValue(primaryRow, "vatRate", "vat_rate") ?? vatRates[0] ?? 0);
   const companyName = String(snapshotValue(company, "legalTitle", "legal_title", "shortName", "short_name") ?? "");
-  const fullAddress = String(snapshotValue(address, "fullAddress", "full_address") ?? [
-    snapshotValue(address, "street"),
-    snapshotValue(address, "buildingNumber", "building_number"),
-    snapshotValue(address, "district"),
-    snapshotValue(address, "province"),
-    snapshotValue(address, "country"),
-  ].filter(Boolean).join(" "));
+  const fullAddress = snapshotAddressLine(address);
   const terms = snapshot.terms ?? {};
   const payment = String(snapshotValue(terms, "paymentTermsText", "payment_terms_text") ?? snapshotValue(quote, "paymentTerms", "payment_terms") ?? "");
   const delivery = String(snapshotValue(terms, "deliveryTermsText", "delivery_terms_text") ?? snapshotValue(quote, "deliveryTerms", "delivery_terms") ?? "");

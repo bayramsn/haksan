@@ -3,7 +3,7 @@ import { PAYMENT_METHOD_PRINT_LABELS } from "../paymentMethod";
 import { isMachiningCenterTypeCode } from "@haksan/shared";
 import { quoteService } from "../../../lib/services";
 import { specsForProductTypeStrict } from "../productSpecTemplates";
-import { publicProductLabel, trShortDate } from "./core";
+import { publicProductLabel, trShortDate, snapshotAddressLine } from "./core";
 import { allocateCustomsTotal } from "./quotePrint";
 import { printSignatureFromDocumentSnapshot } from "./signature";
 import { printableTechnicalSpecs } from "./technicalSpecs";
@@ -139,20 +139,7 @@ const printablePhone = (input: unknown): string | undefined => {
   return `${digits.slice(0, 1)} ${digits.slice(1, 4)} ${digits.slice(4, 7)} ${digits.slice(7, 9)} ${digits.slice(9)}`;
 };
 
-const completeAddress = (address: any): string => {
-  const base = String(recordValue(address, "fullAddress", "full_address") ?? [
-    recordValue(address, "street"),
-    recordValue(address, "buildingNumber", "building_number"),
-  ].filter(Boolean).join(" ")).trim();
-  const locality = [
-    recordValue(address, "district"),
-    recordValue(address, "province", "city"),
-    recordValue(address, "country"),
-  ].map((part) => String(part ?? "").trim()).filter((part) => part && !/^türkiye$/i.test(part));
-  return [base, ...locality.filter((part) => !base.toLocaleLowerCase("tr-TR").includes(part.toLocaleLowerCase("tr-TR")))]
-    .filter(Boolean)
-    .join(", ");
-};
+const completeAddress = (address: any): string => snapshotAddressLine(address, { separator: ", ", omitCountry: "Türkiye" });
 
 const resolveContractTerms = (
   value: unknown,
