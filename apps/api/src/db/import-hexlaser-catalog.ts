@@ -1,6 +1,6 @@
 /** Explicit operator-run, tenant-scoped catalog import. No automatic deploy-time business writes. */
 import 'reflect-metadata';
-import { and, eq, isNull, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 import {
   LASER_AUXILIARY_MODELS, LASER_MODELS, LASER_POWERS, LASER_SOURCE_REVISION,
   laserSelectionKey, laserTechnicalConfigurationSchema, productCreateSchema, resolveLaserProfile,
@@ -15,8 +15,7 @@ import { LaserProfilesService } from '../modules/products/laser-profiles.service
 import { ProductsService } from '../modules/products/products.service';
 import { catalogProductSpecs } from './hexlaser-product-specs';
 import {
-  canonicalLaserVariantSelection, hexlaserCuttingVariants, hexlaserVariantCode,
-  hexlaserVariantFullName, hexlaserVariantName,
+  canonicalLaserVariantSelection, hexlaserCuttingVariants, hexlaserLegacyVariantCode,
 } from './hexlaser-product-variants';
 
 const chunk = <T>(items: readonly T[], size: number) => {
@@ -30,6 +29,33 @@ const cuttingProfiles = () => LASER_MODELS.flatMap((model) => (['open', 'closed'
     sourceModelCode: model.code, series: model.series, productTypeCode: model.productTypeCode, cabinType, powerKw,
   })))));
 
+/**
+ * Kabin/güç profilleri tümüyle saklanır (teklif satırındaki güç seçicisi bunları çözer) ama
+ * ürün kartı model başına tektir: kart, modelin kanonik profilinden doğar.
+ */
+const canonicalConfigurations = (profiles: readonly LaserTechnicalConfiguration[]) => {
+  const bySelection = new Map(profiles.map((configuration) => [laserSelectionKey(configuration.selection), configuration]));
+  return LASER_MODELS.map((model) => {
+    const configuration = bySelection.get(laserSelectionKey(canonicalLaserVariantSelection(model)));
+    if (!configuration) throw new Error(`Lazer profili eksik: ${model.code}`);
+    return configuration;
+  });
+};
+
+/** Kaç varyant kartının teklif, fırsat veya stok kaydına bağlı olduğu — birleştirmenin etki alanı. */
+async function countProductLinks(db: DbClient, productIds: readonly string[]) {
+  const linked = new Set<string>();
+  for (const batch of chunk(productIds, 500)) {
+    const rows = await Promise.all([
+      db.select({ id: s.quoteItems.productModelId }).from(s.quoteItems).where(inArray(s.quoteItems.productModelId, batch)),
+      db.select({ id: s.opportunityProducts.productModelId }).from(s.opportunityProducts).where(inArray(s.opportunityProducts.productModelId, batch)),
+      db.select({ id: s.inventoryItems.productModelId }).from(s.inventoryItems).where(inArray(s.inventoryItems.productModelId, batch)),
+    ]);
+    for (const row of rows.flat()) if (row.id) linked.add(row.id);
+  }
+  return linked.size;
+}
+
 export async function importHexlaserCatalog(db: DbClient, tenantId: string, userId: string, apply = false) {
   const [operator] = await db.select({ id: s.users.id }).from(s.users)
     .innerJoin(s.userRoles, eq(s.userRoles.userId, s.users.id)).innerJoin(s.roles, eq(s.roles.id, s.userRoles.roleId))
@@ -42,7 +68,7 @@ export async function importHexlaserCatalog(db: DbClient, tenantId: string, user
   const auxiliarySources = LASER_AUXILIARY_MODELS.map((model) => ({ code: model.code, series: model.code.match(/^[A-Z]+/)?.[0] ?? '', productTypeCode: model.kind === 'welding' ? 'FIBER_LAZER_KAYNAK' : 'LAZER_TEMIZLEME', sizeLabel: `${model.powerKw} kW`, sourceNotes: model.sourceNotes ?? [], specs: model.specs }));
   const sourceModels = [...cuttingSources, ...auxiliarySources];
   const sourceProfiles = cuttingProfiles();
-  const variants = hexlaserCuttingVariants(sourceProfiles);
+  const variants = hexlaserCuttingVariants(canonicalConfigurations(sourceProfiles));
   const existing = await db.select({
     id: s.productModels.id, code: s.productModels.modelCode, fullName: s.productModels.fullName,
     modelName: s.productModels.modelName, description: s.productModels.description,
@@ -50,14 +76,20 @@ export async function importHexlaserCatalog(db: DbClient, tenantId: string, user
     deletedAt: s.productModels.deletedAt,
   }).from(s.productModels).where(eq(s.productModels.tenantId, tenantId));
   const existingCodes = new Set(existing.filter((item) => !item.deletedAt).map((item) => item.code));
-  const migratableBaseCodes = new Set(LASER_MODELS.filter((model) => existingCodes.has(model.code)).map((model) => model.code));
+  // Eski sürüm model başına 14 kabin/güç kartı açmıştı; bunlar tek karta indirilir.
+  const legacyVariants = existing.filter((item) => !item.deletedAt
+    && LASER_MODELS.some((model) => hexlaserLegacyVariantCode(model.code, item.code)));
+  const linkedLegacyVariants = legacyVariants.length ? await countProductLinks(db, legacyVariants.map((item) => item.id)) : 0;
+  // Birleşmeden doğacak model kartı "yeni kart" değildir; mevcut varyantlardan biri hayatta kalır.
+  const survivingCodes = new Set([...existingCodes,
+    ...LASER_MODELS.filter((model) => legacyVariants.some((item) => hexlaserLegacyVariantCode(model.code, item.code))).map((model) => model.code)]);
   const plan = { division: division.name, brand: 'HEXLASER', supplier: 'AORE', sourceRevision: LASER_SOURCE_REVISION,
     cuttingModels: LASER_MODELS.length, auxiliaryModels: LASER_AUXILIARY_MODELS.length,
     profiles: sourceProfiles.length, cuttingVariants: variants.length,
-    migrateBaseProducts: migratableBaseCodes.size,
-    createProducts: variants.filter((variant) => !existingCodes.has(variant.modelCode)).length - migratableBaseCodes.size
+    mergeVariantProducts: legacyVariants.length, linkedVariantProducts: linkedLegacyVariants,
+    createProducts: variants.filter((variant) => !survivingCodes.has(variant.modelCode)).length
       + auxiliarySources.filter((model) => !existingCodes.has(model.code)).length,
-    preserveProducts: variants.filter((variant) => existingCodes.has(variant.modelCode)).length
+    preserveProducts: variants.filter((variant) => survivingCodes.has(variant.modelCode)).length
       + auxiliarySources.filter((model) => existingCodes.has(model.code)).length };
   if (!apply) return { mode: 'preview', ...plan };
   return db.transaction(async (tx) => {
@@ -155,52 +187,48 @@ export async function importHexlaserCatalog(db: DbClient, tenantId: string, user
       ));
     const storedConfigurations = storedProfiles.map((row) => laserTechnicalConfigurationSchema.parse({ ...row.configuration, profileId: row.id }));
     const profileBySelection = new Map(storedConfigurations.map((configuration) => [laserSelectionKey(configuration.selection), configuration]));
-    const cuttingVariants = hexlaserCuttingVariants(storedConfigurations);
-    if (cuttingVariants.length !== sourceProfiles.length) throw new Error('Lazer profil seti eksik; ürün varyantları oluşturulmadı');
+    const cuttingVariants = hexlaserCuttingVariants(canonicalConfigurations(storedConfigurations));
+    if (storedConfigurations.length !== sourceProfiles.length) throw new Error('Lazer profil seti eksik; ürün varyantları oluşturulmadı');
 
     const currentProducts = await tx.select().from(s.productModels).where(eq(s.productModels.tenantId, tenantId));
     const currentByCode = new Map(currentProducts.map((product) => [product.modelCode, product]));
     const pendingSpecs: Array<typeof s.productSpecs.$inferInsert> = [];
-    const variantDescription = (configuration: LaserTechnicalConfiguration) => {
-      const cabin = configuration.selection.cabinType === 'open' ? 'Açık Kabin' : 'Kapalı Kabin';
-      return `${configuration.sizeLabel}\nKonfigürasyon: ${cabin}, ${configuration.selection.powerKw} kW.\nKaynak: AORE Technical Parameters.xlsx ve Haksan 2025 kataloğu. Fiyat kaynakta belirtilmemiştir.`;
-    };
+    const variantDescription = (configuration: LaserTechnicalConfiguration) =>
+      `${configuration.sizeLabel}\nKabin ve rezonatör gücü teklif satırında seçilir; güce bağlı teknik bilgiler orada yeniden çözülür.\nKaynak: AORE Technical Parameters.xlsx ve Haksan 2025 kataloğu. Fiyat kaynakta belirtilmemiştir.`;
 
-    let migratedBaseProducts = 0; let repairedProducts = 0;
-    // Preserve existing product IDs, quote links and any price/image data by turning
-    // each old model-level catalog row into one deterministic sellable variant.
+    let mergedVariantProducts = 0;
+    // Kabin/güç varyant kartlarını model başına tek karta indir. Silme YOK: teklif, sipariş,
+    // stok ve servis kayıtları bu kartlara bağlı olduğu için fazlalıklar soft-delete edilir,
+    // geçmiş belgeler okunmaya devam eder.
     for (const model of LASER_MODELS) {
-      const base = currentByCode.get(model.code);
-      if (!base) continue;
-      if (base.brandId !== brand.id || base.deletedAt) throw new Error(`Existing model code ${model.code} conflicts; import rolled back`);
-      const saved = laserTechnicalConfigurationSchema.safeParse(base.technicalConfiguration);
-      if (saved.success && saved.data.selection.sourceModelCode !== model.code) throw new Error(`Existing ${model.code} technical selection conflicts; import rolled back`);
-      const selection = saved.success ? saved.data.selection : canonicalLaserVariantSelection(model);
-      const targetCode = hexlaserVariantCode(selection);
-      const collision = currentByCode.get(targetCode);
-      if (collision && collision.id !== base.id) throw new Error(`Existing model code ${targetCode} conflicts with ${model.code}; import rolled back`);
-      const configuration = saved.success ? saved.data : profileBySelection.get(laserSelectionKey(selection));
-      if (!configuration) throw new Error(`Technical profile for ${targetCode} is missing`);
-      const oldTypeLabel = types.find(([code]) => code === model.productTypeCode)![1];
-      const oldGeneratedNames = new Set([`${model.code} ${oldTypeLabel}`, `HEXLASER ${model.code} ${oldTypeLabel}`]);
-      const fullName = oldGeneratedNames.has(base.fullName)
-        ? hexlaserVariantFullName(selection)
-        : `${base.fullName} · ${selection.cabinType === 'open' ? 'Açık Kabin' : 'Kapalı Kabin'} · ${selection.powerKw} kW`;
-      const generatedDescription = base.description?.includes('Güç ve kabin seçimi ürünün teknik bilgilerinden yapılır.');
-      await tx.update(s.productModels).set({
-        modelCode: targetCode, modelName: hexlaserVariantName(selection), fullName,
-        technicalConfiguration: configuration,
-        ...(generatedDescription ? { description: variantDescription(configuration) } : {}),
-      }).where(eq(s.productModels.id, base.id));
-      if (!saved.success) {
-        await tx.update(s.productSpecs).set({ deletedAt: new Date() }).where(and(
-          eq(s.productSpecs.tenantId, tenantId), eq(s.productSpecs.productModelId, base.id), isNull(s.productSpecs.deletedAt),
-        ));
+      const legacy = currentProducts.filter((product) => !product.deletedAt && hexlaserLegacyVariantCode(model.code, product.modelCode));
+      if (!legacy.length) continue;
+      if (legacy.some((product) => product.brandId !== brand.id)) throw new Error(`${model.code} varyant kartları başka markaya ait; içe aktarma geri alındı`);
+      const canonicalKey = laserSelectionKey(canonicalLaserVariantSelection(model));
+      const survivor = currentByCode.get(model.code)
+        ?? legacy.find((product) => {
+          const saved = laserTechnicalConfigurationSchema.safeParse(product.technicalConfiguration);
+          return saved.success && laserSelectionKey(saved.data.selection) === canonicalKey;
+        })
+        ?? legacy[0];
+      for (const product of legacy) {
+        if (product.id === survivor.id) continue;
+        await tx.update(s.productModels).set({ deletedAt: new Date() }).where(eq(s.productModels.id, product.id));
+        currentByCode.delete(product.modelCode);
+        mergedVariantProducts++;
       }
-      currentByCode.delete(model.code);
-      currentByCode.set(targetCode, { ...base, modelCode: targetCode, technicalConfiguration: configuration });
-      migratedBaseProducts++;
+      if (survivor.modelCode !== model.code) {
+        // (tenant_id, model_code) unique kısıtı silinmiş satırları da kapsıyor: kodu tutan
+        // soft-delete edilmiş bir kart varsa yeniden adlandırma patlar. Yazmadan önce söyle.
+        const holder = currentProducts.find((product) => product.modelCode === model.code && product.id !== survivor.id);
+        if (holder) throw new Error(`${model.code} kodu silinmiş bir üründe duruyor (${holder.id}); birleştirme geri alındı`);
+        currentByCode.delete(survivor.modelCode);
+        await tx.update(s.productModels).set({ modelCode: model.code }).where(eq(s.productModels.id, survivor.id));
+        currentByCode.set(model.code, { ...survivor, modelCode: model.code });
+      }
     }
+
+    let repairedProducts = 0;
 
     let createdProducts = 0; let preservedProducts = 0;
     const variantsToCreate: typeof cuttingVariants = [];
@@ -255,8 +283,8 @@ export async function importHexlaserCatalog(db: DbClient, tenantId: string, user
       createdProducts++;
     }
     for (const batch of chunk(pendingSpecs, 1000)) if (batch.length) await tx.insert(s.productSpecs).values(batch);
-    await audit.write({ tenantId, actorUserId: userId, action: 'catalog.hexlaser_imported', resourceType: 'brand', resourceId: brand.id, newValues: { ...plan, createdProducts, preservedProducts, migratedBaseProducts, repairedProducts, supplierId: supplier.id } });
-    return { mode: 'applied', ...plan, brandId: brand.id, supplierId: supplier.id, createdProducts, preservedProducts, migratedBaseProducts, repairedProducts, createdTemplateFields, profileResult };
+    await audit.write({ tenantId, actorUserId: userId, action: 'catalog.hexlaser_imported', resourceType: 'brand', resourceId: brand.id, newValues: { ...plan, createdProducts, preservedProducts, mergedVariantProducts, repairedProducts, supplierId: supplier.id } });
+    return { mode: 'applied', ...plan, brandId: brand.id, supplierId: supplier.id, createdProducts, preservedProducts, mergedVariantProducts, repairedProducts, createdTemplateFields, profileResult };
   });
 }
 

@@ -8,19 +8,23 @@ import {
   type LaserTechnicalConfiguration,
 } from '@haksan/shared';
 
-const CABINS = ['open', 'closed'] as const;
-
 export const laserCabinLabel = (cabinType: LaserSelection['cabinType']) =>
   cabinType === 'open' ? 'Açık Kabin' : 'Kapalı Kabin';
 
-export const hexlaserVariantCode = (selection: LaserSelection) =>
-  `${selection.sourceModelCode}-${selection.cabinType === 'open' ? 'ACIK' : 'KAPALI'}-${selection.powerKw}KW`;
+/**
+ * Ürün kartı model başına tektir; kabin ve güç satış anında (teklif satırında) seçilir ve
+ * güce bağlı alanlar katalogdan yeniden çözülür. Kart kodu bu yüzden modelin kendi kodudur.
+ */
+export const hexlaserVariantCode = (selection: LaserSelection) => selection.sourceModelCode;
 
-export const hexlaserVariantName = (selection: LaserSelection) =>
-  `${selection.sourceModelCode} ${laserCabinLabel(selection.cabinType)} ${selection.powerKw} kW`;
+export const hexlaserVariantName = (selection: LaserSelection) => selection.sourceModelCode;
 
 export const hexlaserVariantFullName = (selection: LaserSelection) =>
-  `${hexlaserVariantName(selection)} ${selection.productTypeCode === 'BORU_LAZER_KESIM' ? 'Boru/Profil Lazer Kesim' : 'Sac Lazer Kesim'}`;
+  `${selection.sourceModelCode} ${selection.productTypeCode === 'BORU_LAZER_KESIM' ? 'Boru/Profil Lazer Kesim' : 'Sac Lazer Kesim'}`;
+
+/** Model başına açılmış kabin/güç varyant kartlarını tanır: "PG3015-KAPALI-12KW". */
+export const hexlaserLegacyVariantCode = (modelCode: string, code: string) =>
+  new RegExp(`^${modelCode.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}-(?:ACIK|KAPALI)-[0-9.]+KW$`).test(code);
 
 export interface HexlaserCuttingVariant {
   model: LaserCatalogModel;
@@ -30,16 +34,10 @@ export interface HexlaserCuttingVariant {
   fullName: string;
 }
 
-/** One sellable product per source model, cabin and resonator power combination. */
+/** One sellable product per source model. Cabin and power are chosen on the quote line. */
 export function hexlaserCuttingVariants(
-  configurations: readonly LaserTechnicalConfiguration[] = LASER_MODELS.flatMap((model) =>
-    CABINS.flatMap((cabinType) => LASER_POWERS.map((powerKw) => resolveLaserProfile({
-      sourceModelCode: model.code,
-      series: model.series,
-      productTypeCode: model.productTypeCode,
-      cabinType,
-      powerKw,
-    }))),
+  configurations: readonly LaserTechnicalConfiguration[] = LASER_MODELS.map((model) =>
+    resolveLaserProfile(canonicalLaserVariantSelection(model)),
   ),
 ): HexlaserCuttingVariant[] {
   const models = new Map(LASER_MODELS.map((model) => [model.code, model]));

@@ -1,4 +1,4 @@
-import type { LaserTechnicalConfiguration, LaserSpec } from '@haksan/shared';
+import { LASER_MODELS, LASER_POWERS, type LaserTechnicalConfiguration, type LaserSpec } from '@haksan/shared';
 import type { Product, ProductSpec } from './mock';
 import { specsForProductTypeStrict } from './productSpecTemplates';
 
@@ -59,4 +59,22 @@ export function laserSnapshotPrintSpecs(configuration: LaserTechnicalConfigurati
     selectionSpecs.push({ key: tube ? 'Boru Modeli ve Kapasitesi' : 'Tabla Ölçüsü', value: configuration.sizeLabel, groupName: 'Ürün' });
   }
   return [...selectionSpecs.filter((spec) => !keys.has(spec.key)), ...cleanSnapshotSpecs(specs)];
+}
+
+/** Teklif satırında seçilebilecek rezonatör güçleri: katalog modelinin desteklediği aralık. */
+export function laserPowerOptions(configuration: LaserTechnicalConfiguration | null | undefined): number[] {
+  if (!configuration) return [];
+  const model = LASER_MODELS.find((entry) => entry.code === configuration.selection.sourceModelCode);
+  return model ? LASER_POWERS.filter((power) => power >= model.powerMin && power <= model.powerMax) : [...LASER_POWERS];
+}
+
+/**
+ * Kabin ve güç değişince satırın teknik bilgisi yeni profille tümüyle değişir: bunlara bağlı
+ * alanlar (ağırlık, tabla yükü, motorlar, toplam güç, trafo, kesme kafası, kontrol ünitesi)
+ * elle düzeltilmez, katalogdan yeniden çözülür.
+ */
+export function applyResolvedLaserProfile<T extends { technicalConfiguration?: LaserTechnicalConfiguration | null; technicalSpecs: ProductSpec[] }>(
+  line: T, resolved: LaserTechnicalConfiguration,
+): T {
+  return { ...line, technicalConfiguration: resolved, technicalSpecs: cleanSnapshotSpecs(resolved.specs) };
 }

@@ -17,54 +17,61 @@ describe.skipIf(!runIntegration)('HEXLASER catalog product import', () => {
     expect(operator).toBeTruthy();
 
     const preview = await importHexlaserCatalog(db, operator!.tenantId, operator!.id, false);
-    expect(preview).toMatchObject({ cuttingModels: 101, cuttingVariants: 1414, profiles: 1414, createProducts: 1424 });
+    expect(preview).toMatchObject({
+      cuttingModels: 101, cuttingVariants: 101, profiles: 1414, createProducts: 111,
+      mergeVariantProducts: 0, linkedVariantProducts: 0,
+    });
 
     const applied = await importHexlaserCatalog(db, operator!.tenantId, operator!.id, true);
-    expect(applied).toMatchObject({ createdProducts: 1424, migratedBaseProducts: 0, cuttingVariants: 1414 });
+    expect(applied).toMatchObject({ createdProducts: 111, migratedBaseProducts: 0, mergedVariantProducts: 0, cuttingVariants: 101 });
 
-    const pgProducts = await db.select().from(schema.productModels).where(and(
+    // Model başına TEK kart: kabin/güç kartı açılmaz.
+    // "PG3015%" aynı zamanda PG3015+T6-230'u da yakalar; kabin/güç kartı arayan desen "PG3015-%".
+    const pgVariants = await db.select().from(schema.productModels).where(and(
       eq(schema.productModels.tenantId, operator!.tenantId), like(schema.productModels.modelCode, 'PG3015-%'), isNull(schema.productModels.deletedAt),
     ));
-    expect(pgProducts).toHaveLength(14);
-    expect(pgProducts.some((product) => product.modelCode === 'PG3015')).toBe(false);
-    const pgThree = pgProducts.find((product) => product.modelCode === 'PG3015-KAPALI-3KW')!;
-    expect(pgThree.fullName).toBe('PG3015 Kapalı Kabin 3 kW Sac Lazer Kesim');
-    expect(pgThree.listPrice).toBeNull();
-    expect(pgThree.technicalConfiguration?.selection).toMatchObject({
-      sourceModelCode: 'PG3015', cabinType: 'closed', powerKw: 3,
-    });
-    expect(pgThree.technicalConfiguration?.specs.find((spec) => spec.key === 'Toplam Güç Gereksinimi')).toMatchObject({ value: '25', unit: 'kW' });
-    expect(pgThree.technicalConfiguration?.specs.find((spec) => spec.key === 'Trafo Kapasitesi')).toMatchObject({ value: '40', unit: 'kVA' });
+    expect(pgVariants).toHaveLength(0);
+    const pg = (await db.query.productModels.findFirst({ where: and(
+      eq(schema.productModels.tenantId, operator!.tenantId), eq(schema.productModels.modelCode, 'PG3015'),
+    ) }))!;
+    expect(pg).toBeTruthy();
+    expect(pg.fullName).toBe('PG3015 Sac Lazer Kesim');
+    expect(pg.listPrice).toBeNull();
+    expect(pg.technicalConfiguration?.selection).toMatchObject({ sourceModelCode: 'PG3015', cabinType: 'closed', powerKw: 1.5 });
 
-    const [storedSpecs] = await db.select({ count: sql<number>`count(*)::int` }).from(schema.productSpecs).where(and(
-      eq(schema.productSpecs.productModelId, pgThree.id), isNull(schema.productSpecs.deletedAt),
+    // Kabin ve güç kombinasyonları profil olarak saklanmaya devam eder; teklif satırındaki
+    // güç seçicisi bunları çözer.
+    const [storedProfiles] = await db.select({ count: sql<number>`count(*)::int` }).from(schema.laserTechnicalProfiles).where(and(
+      eq(schema.laserTechnicalProfiles.tenantId, operator!.tenantId), isNull(schema.laserTechnicalProfiles.deletedAt),
     ));
-    expect(storedSpecs.count).toBe(0);
+    expect(storedProfiles.count).toBe(1414);
 
-    // Recreate the former model-level row shape and verify that the production
-    // transition keeps its ID and commercial fields while removing aggregates.
-    const pgOne = pgProducts.find((product) => product.modelCode === 'PG3015-KAPALI-1.5KW')!;
-    await db.update(schema.productModels).set({
-      modelCode: 'PG3015', modelName: null, fullName: 'PG3015 Sac Lazer Kesim',
-      listPrice: '123', technicalConfiguration: null,
-    }).where(eq(schema.productModels.id, pgOne.id));
-    await db.insert(schema.productSpecs).values({
-      tenantId: operator!.tenantId, productModelId: pgOne.id,
-      specKey: 'Toplam Güç Gereksinimi', specValue: '1.5 kW: 17.5\n3 kW: 25', specUnit: 'kW',
-    });
-    const migrated = await importHexlaserCatalog(db, operator!.tenantId, operator!.id, true);
-    expect(migrated).toMatchObject({ createdProducts: 0, migratedBaseProducts: 1 });
-    const restored = await db.query.productModels.findFirst({ where: and(
-      eq(schema.productModels.tenantId, operator!.tenantId), eq(schema.productModels.modelCode, 'PG3015-KAPALI-1.5KW'),
+    // Eski sürümün açtığı kabin/güç kartlarını taklit et: biri teklife bağlı, biri değil.
+    await db.update(schema.productModels).set({ modelCode: 'PG3015-KAPALI-3KW', listPrice: '123' }).where(eq(schema.productModels.id, pg.id));
+    const [spare] = await db.insert(schema.productModels).values({
+      tenantId: operator!.tenantId, brandId: pg.brandId, series: pg.series,
+      productGroupId: pg.productGroupId, categoryId: pg.categoryId, subcategoryId: pg.subcategoryId,
+      productTypeId: pg.productTypeId, supplierCompanyId: pg.supplierCompanyId,
+      modelCode: 'PG3015-ACIK-6KW', modelName: 'PG3015 Açık Kabin 6 kW',
+      fullName: 'PG3015 Açık Kabin 6 kW Sac Lazer Kesim', currencyId: pg.currencyId, vatRate: '20',
+    }).returning({ id: schema.productModels.id });
+
+    const merge = await importHexlaserCatalog(db, operator!.tenantId, operator!.id, false);
+    expect(merge).toMatchObject({ mergeVariantProducts: 2 });
+
+    const merged = await importHexlaserCatalog(db, operator!.tenantId, operator!.id, true);
+    expect(merged).toMatchObject({ createdProducts: 0, mergedVariantProducts: 1 });
+
+    // Hayatta kalan kart modelin kodunu alır, kimliğini ve fiyatını korur.
+    const survivor = await db.query.productModels.findFirst({ where: and(
+      eq(schema.productModels.tenantId, operator!.tenantId), eq(schema.productModels.modelCode, 'PG3015'),
     ) });
-    expect(restored).toMatchObject({ id: pgOne.id, listPrice: '123.0000' });
-    expect(restored?.technicalConfiguration?.selection).toMatchObject({ sourceModelCode: 'PG3015', cabinType: 'closed', powerKw: 1.5 });
-    const [remainingAggregates] = await db.select({ count: sql<number>`count(*)::int` }).from(schema.productSpecs).where(and(
-      eq(schema.productSpecs.productModelId, pgOne.id), isNull(schema.productSpecs.deletedAt),
-    ));
-    expect(remainingAggregates.count).toBe(0);
+    expect(survivor).toMatchObject({ id: pg.id, listPrice: '123.0000' });
+    // Fazlalık kart SİLİNMEZ, soft-delete edilir: ona bağlı teklif/stok kayıtları kırılmaz.
+    const removed = await db.query.productModels.findFirst({ where: eq(schema.productModels.id, spare!.id) });
+    expect(removed?.deletedAt).toBeTruthy();
 
     const repeat = await importHexlaserCatalog(db, operator!.tenantId, operator!.id, false);
-    expect(repeat).toMatchObject({ createProducts: 0, preserveProducts: 1424, migrateBaseProducts: 0 });
+    expect(repeat).toMatchObject({ createProducts: 0, preserveProducts: 111, migrateBaseProducts: 0, mergeVariantProducts: 0 });
   }, 180_000);
 });

@@ -27,7 +27,8 @@ import {
   requiresDiscountApproval,
 } from "@haksan/shared";
 import { quoteDefaultsFromCase } from "../../lib/workflow";
-import { cleanSnapshotSpecs, quoteTechnicalSpecsFromProduct, withQuotedLaserSpecs } from "../../lib/laserProductSnapshot";
+import { applyResolvedLaserProfile, cleanSnapshotSpecs, laserPowerOptions, quoteTechnicalSpecsFromProduct, withQuotedLaserSpecs } from "../../lib/laserProductSnapshot";
+import { laserProfilesService } from "../../../lib/services/laser-profiles.service";
 import {
   calculateProductDiscountAmount,
   isProductDiscountValid,
@@ -821,6 +822,29 @@ export function QuoteDialog({
       const product = products.find((p) => p.id === l.productId);
       return { ...l, technicalSpecs: technicalSpecsFromProduct(product), technicalConfiguration: product?.technicalConfiguration ?? null };
     }));
+
+  // Ürün kartı model başına tektir; kabin ve rezonatör gücü teklif satırında seçilir ve
+  // bunlara bağlı teknik alanlar katalogdan yeniden çözülür.
+  const [laserBusy, setLaserBusy] = useState<number | null>(null);
+  const changeLaserSelection = async (i: number, patch: Partial<LaserTechnicalConfiguration["selection"]>) => {
+    const line = lines[i];
+    const product = products.find((p) => p.id === line?.productId);
+    if (!line?.technicalConfiguration || !product?.brandId) return;
+    const divisionId = divisions.find((division) => division.code === "sac_isleme")?.id;
+    if (!divisionId) { toast.error("Sac İşleme bölümü yetkiniz yok; seçim değiştirilemedi."); return; }
+    setLaserBusy(i);
+    try {
+      const resolved = await laserProfilesService.resolve(
+        { divisionId, brandId: product.brandId },
+        { ...line.technicalConfiguration.selection, ...patch },
+      );
+      setLines((ls) => ls.map((l, idx) => (idx === i ? applyResolvedLaserProfile(l, resolved) : l)));
+    } catch {
+      toast.error("Seçilen kabin/güç için teknik profil çözülemedi.");
+    } finally {
+      setLaserBusy(null);
+    }
+  };
 
   const setOption = (i: number, j: number, patch: Partial<OptionInput>) =>
     setLines((ls) => ls.map((l, idx) => (idx === i ? { ...l, options: l.options.map((o, k) => (k === j ? { ...o, ...patch } : o)) } : l)));
@@ -1644,7 +1668,38 @@ export function QuoteDialog({
                             <span className="text-[11px] text-muted-foreground">
                               Ürün kartındaki değerler buraya kopyalanır; burada yapılan değişiklik yalnızca bu teklife yazılır.
                             </span>
-                            <div className="flex flex-wrap gap-1.5">
+                            <div className="flex flex-wrap items-center gap-1.5">
+                              {l.technicalConfiguration && (
+                                <>
+                                  <label className="flex items-center gap-1 text-[11px] text-muted-foreground">
+                                    Kabin
+                                    <select
+                                      aria-label="Kabin"
+                                      className="h-7 rounded-md border border-border bg-background px-1.5 text-xs text-foreground"
+                                      value={l.technicalConfiguration.selection.cabinType}
+                                      disabled={laserBusy === i}
+                                      onChange={(e) => void changeLaserSelection(i, { cabinType: e.target.value as LaserTechnicalConfiguration["selection"]["cabinType"] })}
+                                    >
+                                      <option value="open">Açık Kabin</option>
+                                      <option value="closed">Kapalı Kabin</option>
+                                    </select>
+                                  </label>
+                                  <label className="flex items-center gap-1 text-[11px] text-muted-foreground">
+                                    Rezonatör gücü
+                                    <select
+                                      aria-label="Rezonatör gücü"
+                                      className="h-7 rounded-md border border-border bg-background px-1.5 text-xs text-foreground"
+                                      value={l.technicalConfiguration.selection.powerKw}
+                                      disabled={laserBusy === i}
+                                      onChange={(e) => void changeLaserSelection(i, { powerKw: Number(e.target.value) as LaserTechnicalConfiguration["selection"]["powerKw"] })}
+                                    >
+                                      {laserPowerOptions(l.technicalConfiguration).map((power) => (
+                                        <option key={power} value={power}>{power} kW</option>
+                                      ))}
+                                    </select>
+                                  </label>
+                                </>
+                              )}
                               {product && (
                                 <Button
                                   type="button"
