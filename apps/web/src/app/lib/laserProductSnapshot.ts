@@ -45,17 +45,18 @@ export function withQuotedLaserSpecs(configuration: LaserTechnicalConfiguration,
 export function laserSnapshotPrintSpecs(configuration: LaserTechnicalConfiguration, specs: ProductSpec[]): ProductSpec[] {
   const { selection } = configuration;
   const tube = selection.productTypeCode === 'BORU_LAZER_KESIM';
+  // Kimlik satırları teknik gruplardan ayrı, tablonun başında tek şerit olarak basılır.
   const selectionSpecs: ProductSpec[] = [
-    { key: 'Ürün Kategorisi', value: 'Tezgah' },
-    { key: 'Ürün Alt Kategorisi', value: tube ? 'Boru/Profil Lazer Kesim' : 'Sac Lazer Kesim' },
-    { key: 'Ürün Serisi', value: `${selection.series} Serisi` },
-    { key: tube ? 'Kesim Bölgesi Koruması' : 'Kabin Tipi', value: selection.cabinType === 'open' ? 'Açık' : 'Kapalı' },
-    { key: 'Kaynak Model', value: selection.sourceModelCode },
+    { key: 'Ürün Kategorisi', value: 'Tezgah', groupName: 'Ürün' },
+    { key: 'Ürün Alt Kategorisi', value: tube ? 'Boru/Profil Lazer Kesim' : 'Sac Lazer Kesim', groupName: 'Ürün' },
+    { key: 'Ürün Serisi', value: `${selection.series} Serisi`, groupName: 'Ürün' },
+    { key: tube ? 'Kesim Bölgesi Koruması' : 'Kabin Tipi', value: selection.cabinType === 'open' ? 'Açık' : 'Kapalı', groupName: 'Ürün' },
+    { key: 'Kaynak Model', value: selection.sourceModelCode, groupName: 'Ürün' },
   ];
   const keys = new Set(specs.map((spec) => spec.key));
-  if (!keys.has('Lazer Gücü') && !keys.has('Rezonatör Gücü')) selectionSpecs.push({ key: 'Rezonatör Gücü', value: String(selection.powerKw), unit: 'kW' });
+  if (!keys.has('Lazer Gücü') && !keys.has('Rezonatör Gücü')) selectionSpecs.push({ key: 'Rezonatör Gücü', value: String(selection.powerKw), unit: 'kW', groupName: 'Ürün' });
   if (tube || (!keys.has('Tabla Boyutu') && !keys.has('Kesme Alanı'))) {
-    selectionSpecs.push({ key: tube ? 'Boru Modeli ve Kapasitesi' : 'Tabla Ölçüsü', value: configuration.sizeLabel });
+    selectionSpecs.push({ key: tube ? 'Boru Modeli ve Kapasitesi' : 'Tabla Ölçüsü', value: configuration.sizeLabel, groupName: 'Ürün' });
   }
   return [...selectionSpecs.filter((spec) => !keys.has(spec.key)), ...cleanSnapshotSpecs(specs)];
 }

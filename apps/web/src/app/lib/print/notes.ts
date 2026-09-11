@@ -331,7 +331,9 @@ export const fillNotePlaceholders = (
  */
 export const applyVatRateToNotes = (notlar: string[], kdvOrani?: string | number): string[] => {
   const rate = Number(kdvOrani);
-  if (!Number.isFinite(rate) || rate <= 0) return notlar;
+  // KDV hesaplanmayan teklifte (oran 0) yer tutucu çıplak kalmasın: metin "KDV dahil değildir"
+  // dediği için yasal varsayılan oran yazılır; sabit %10/%20 ifadeleri değiştirilmez.
+  if (!Number.isFinite(rate) || rate <= 0) return fillNotePlaceholders(notlar, {});
   return fillNotePlaceholders(notlar, { kdvOrani: rate }).map((note) =>
     note.replace(/%(?:10|20)(?=\s*K\.?\s*D\.?\s*V\.?)/giu, `%${rate}`)
   );

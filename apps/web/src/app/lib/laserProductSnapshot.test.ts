@@ -44,8 +44,9 @@ describe('laser product and quote snapshots', () => {
   it('prints the saved cabin/model and does not fill an intentionally cleared power', () => {
     const profile = configuration();
     const specs = laserSnapshotPrintSpecs(profile, [{ key: 'Lazer Gücü', value: '', unit: 'kW' }]);
-    expect(specs).toContainEqual({ key: 'Kabin Tipi', value: 'Kapalı' });
-    expect(specs).toContainEqual({ key: 'Kaynak Model', value: 'F3015' });
+    // Kimlik satırları 'Ürün' grubunda, tablonun başında tek şerit olarak basılır.
+    expect(specs).toContainEqual({ key: 'Kabin Tipi', value: 'Kapalı', groupName: 'Ürün' });
+    expect(specs).toContainEqual({ key: 'Kaynak Model', value: 'F3015', groupName: 'Ürün' });
     expect(specs.filter((spec) => /Gücü/.test(spec.key))).toEqual([expect.objectContaining({ key: 'Lazer Gücü', value: '' })]);
   });
 
@@ -54,8 +55,8 @@ describe('laser product and quote snapshots', () => {
     profile.selection = { productTypeCode: 'BORU_LAZER_KESIM', series: 'TG', cabinType: 'closed', powerKw: 30, sourceModelCode: 'TG6012' };
     profile.sizeLabel = 'Ø10–120 mm';
     const specs = laserSnapshotPrintSpecs(profile, []);
-    expect(specs).toContainEqual({ key: 'Kesim Bölgesi Koruması', value: 'Kapalı' });
-    expect(specs).toContainEqual({ key: 'Boru Modeli ve Kapasitesi', value: 'Ø10–120 mm' });
+    expect(specs).toContainEqual({ key: 'Kesim Bölgesi Koruması', value: 'Kapalı', groupName: 'Ürün' });
+    expect(specs).toContainEqual({ key: 'Boru Modeli ve Kapasitesi', value: 'Ø10–120 mm', groupName: 'Ürün' });
     expect(specs.some((spec) => spec.key === 'Tabla Ölçüsü')).toBe(false);
   });
 });

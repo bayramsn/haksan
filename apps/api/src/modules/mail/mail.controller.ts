@@ -21,6 +21,7 @@ import { ForbiddenError, NotFoundError, ValidationError } from '../../shared/uti
 import { ZodValidationPipe } from '../../shared/utils/zod-pipe';
 import { ActivitiesService } from '../activities/activities.service';
 import { QuotesService } from '../quotes/quotes.service';
+import { HtmlPdfService } from '../../shared/pdf/html-pdf.service';
 
 const mailRecipientsQuerySchema = z.object({ companyId: z.string().uuid().optional() });
 
@@ -31,7 +32,8 @@ export class MailController {
     @Inject(DB) private readonly db: DbClient,
     private readonly accounts: UserMailAccountService,
     private readonly activities: ActivitiesService,
-    private readonly quotes: QuotesService
+    private readonly quotes: QuotesService,
+    private readonly htmlPdf: HtmlPdfService
   ) {}
 
   @Get('account')
@@ -105,6 +107,17 @@ export class MailController {
     };
   }
 
+  private async quoteAttachment(body: MailSendInput, actor: AuthContext) {
+    if (body.quoteDocument && this.htmlPdf.isAvailable()) {
+      // Belge teklife ait mi: erişim yetkisi generatePdf ile aynı süzgeçten geçer.
+      const { filename } = await this.quotes.generatePdf(body.quoteId!, actor);
+      const content = await this.htmlPdf.render(body.quoteDocument.html);
+      return { filename: body.quoteDocument.filename || filename, content, contentType: 'application/pdf' };
+    }
+    const { buffer, filename } = await this.quotes.generatePdf(body.quoteId!, actor);
+    return { filename, content: buffer, contentType: 'application/pdf' };
+  }
+
   @Post('send')
   @Throttle({ default: { limit: 10, ttl: 60_000 } })
   async send(
@@ -115,12 +128,9 @@ export class MailController {
     if (body.quoteId && !actor.permissions.has('quotes.read')) {
       throw new ForbiddenError('Teklif ekleyebilmek için quotes.read yetkisi gerekli');
     }
-    // Teklif PDF'i, indirme ucunun kullandığı üreticiyle aynı; ek olarak iliştirilir.
-    const attachments = body.quoteId
-      ? await this.quotes.generatePdf(body.quoteId, actor).then(({ buffer, filename }) => [
-          { filename, content: buffer, contentType: 'application/pdf' },
-        ])
-      : undefined;
+    // Ek PDF: istemci "Yazdır / PDF Kaydet" belgesini gönderdiyse birebir o (Chromium);
+    // göndermediyse (eski istemci / Chromium yok) sunucunun sade PDFKit şablonu.
+    const attachments = body.quoteId ? [await this.quoteAttachment(body, actor)] : undefined;
     const delivery = await this.accounts.send(
       { to: body.to, cc: body.cc, subject: body.subject, text: body.body, attachments },
       actor

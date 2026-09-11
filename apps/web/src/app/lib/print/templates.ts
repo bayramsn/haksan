@@ -591,8 +591,22 @@ export function quoteDoc(d: QuotePrintData, assetBase: string): PrintDocument {
   };
   const specGroupLabel = (spec: QuoteTechnicalSpec) =>
     (spec.groupName || spec.group || spec.groupCode || "").trim();
+  // Gruplar katalog sırasıyla değil, bir arada basılsın: bilinen gruplar sabit sırada,
+  // bilinmeyenler (ör. lazerde ÜRÜN kimlik satırları) ilk göründükleri yerde; grup içi sıra korunur.
+  const GROUP_ORDER: Record<string, number> = { KAPASITE: 10, BUKME: 11, KESME: 12, TABLA: 20, EKSENLER: 30, FENER_MILI: 40, KARSI_PUNTA: 41, KARSI_AYNA: 42, CANLI_TAKIM: 43, MOTORLAR: 50, TARET: 55, TAKIM_DEGISTIRICI: 60, GENEL: 90 };
+  const orderByGroup = (specs: QuoteTechnicalSpec[]): QuoteTechnicalSpec[] => {
+    const firstSeen = new Map<string, number>();
+    const rank = (spec: QuoteTechnicalSpec) => {
+      const label = specGroupLabel(spec) || "GENEL";
+      const code = (spec.groupCode || label).toLocaleUpperCase("tr-TR").replace(/İ/g, "I").replace(/\s+/g, "_");
+      if (code in GROUP_ORDER) return GROUP_ORDER[code];
+      if (!firstSeen.has(label)) firstSeen.set(label, firstSeen.size);
+      return firstSeen.get(label)!;
+    };
+    return specs.map((spec, index) => ({ spec, index, rank: rank(spec) })).sort((a, b) => a.rank - b.rank || a.index - b.index).map((entry) => entry.spec);
+  };
   const renderSpecs = (specs: QuoteTechnicalSpec[]) => {
-    const visibleSpecs = printableTechnicalSpecs(specs);
+    const visibleSpecs = orderByGroup(printableTechnicalSpecs(specs));
     const hasGroups = visibleSpecs.some((spec) => specGroupLabel(spec));
     if (!hasGroups) {
       return visibleSpecs.map((s) => `<tr><td class="k">${esc(s.key)}</td><td class="v">${esc(specValue(s))}</td></tr>`).join("");

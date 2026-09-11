@@ -45,6 +45,16 @@ export const mailSendSchema = z
     contactId: z.string().uuid().optional(),
     /** Verilirse teklifin PDF'i sunucuda üretilip mesaja eklenir. */
     quoteId: z.string().uuid().optional(),
+    /**
+     * Teklifin "Yazdır / PDF Kaydet" belgesi (tarayıcının ürettiği HTML, görseller gömülü).
+     * Verilirse ek PDF bu belgeden headless Chromium ile üretilir; yoksa sunucu şablonu kullanılır.
+     */
+    quoteDocument: z
+      .object({
+        html: z.string().min(1).max(8_000_000),
+        filename: z.string().trim().min(1).max(200).regex(/^[^\\/\u0000-\u001f]+\.pdf$/i, 'Dosya adı yol ayracı içeremez ve .pdf ile bitmeli'),
+      })
+      .optional(),
   })
   .strict();
 export type MailSendInput = z.infer<typeof mailSendSchema>;

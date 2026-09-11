@@ -46,7 +46,7 @@ import { fileService, salesOrderService, quoteService } from "../../../../lib/se
 import { ExportExcelButton } from "../../ui/ExportExcelButton";
 import { CreateAccountingInvoiceDialog, type AccountingInvoicePrefill } from "../finance/CreateAccountingInvoiceDialog";
 import type { OperationFocus } from "../../../lib/operations";
-import { loadQuotePrintData, printAssetBase, quoteDoc, quoteFilename } from "../../../lib/print";
+import { buildMailDocumentHtml, loadQuotePrintData, printAssetBase, quoteDoc, quoteFilename } from "../../../lib/print";
 import type { QuoteHeaderLogoMode } from "../../../lib/print";
 import { downloadPrintOrWarn, previewPrintOrWarn, printOrWarn, splitVat, formatDate, formatCurrency } from "../../../lib/pageHelpers";
 import type { QuoteWorkflowStatus } from "@haksan/shared";
@@ -1151,6 +1151,14 @@ export function OfferDetailDialog({
               body: `Merhaba ${resolvedCustomer.contactPerson || resolvedCustomer.name},\n\n${offer.quoteNo} numaralı ${productText} fiyat teklifimizi bilgilerinize sunarız.\n\nSaygılarımızla,`,
               quoteId: offer.id,
               attachmentLabel: offer.quoteNo,
+              // Mail eki = "Yazdır / PDF Kaydet" belgesi (aynı şablon, görseller gömülü).
+              document: async () => {
+                const { data, doc } = await loadQuoteDocument();
+                return {
+                  html: await buildMailDocumentHtml(doc),
+                  filename: `${quoteFilename(data, { division: offer.businessLine ?? offer.divisionCode ?? offer.divisionName, company: data.firma || resolvedCustomer?.name })}.pdf`,
+                };
+              },
             })}
           >
             <Mail className="size-4" /> Firmaya E-posta Gönder

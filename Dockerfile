@@ -50,7 +50,9 @@ ARG BUILD_TIME=unknown
 ENV API_RELEASE_ID=${API_RELEASE_ID}
 ENV IMAGE_BUILD_TIME=${BUILD_TIME}
 
-RUN apk add --no-cache font-dejavu postgresql-client \
+# chromium: teklif mail eki, tarayıcıdaki "Yazdır / PDF Kaydet" belgesinden headless render edilir.
+ENV CHROMIUM_PATH=/usr/bin/chromium-browser
+RUN apk add --no-cache font-dejavu postgresql-client chromium nss freetype harfbuzz ca-certificates ttf-liberation \
   && rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack \
   && rm -f /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack \
     /usr/local/bin/yarn /usr/local/bin/yarnpkg /usr/local/bin/pnpm /usr/local/bin/pnpx

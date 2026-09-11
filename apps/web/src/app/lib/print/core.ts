@@ -329,3 +329,32 @@ export const openPrintPreviewWindow = (doc: PrintDocument): boolean => {
   setTimeout(() => URL.revokeObjectURL(url), 60000);
   return true;
 };
+
+/**
+ * Belgedeki <img src="…/print/x.png"> görsellerini data: URL'ye çevirir. Sunucu tarafı
+ * PDF üretimi ağa çıkmadan (SSRF'e kapalı) çalıştığı için görseller belgeye gömülü gider.
+ */
+export const inlinePrintAssets = async (html: string): Promise<string> => {
+  const sources = [...new Set([...html.matchAll(/<img[^>]+src="([^"]+)"/g)].map((m) => m[1]).filter((src) => !src.startsWith("data:")))];
+  const encoded = await Promise.all(sources.map(async (src) => {
+    try {
+      const response = await fetch(src);
+      if (!response.ok) return [src, null] as const;
+      const blob = await response.blob();
+      const dataUrl = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result));
+        reader.onerror = () => reject(reader.error);
+        reader.readAsDataURL(blob);
+      });
+      return [src, dataUrl] as const;
+    } catch {
+      return [src, null] as const;
+    }
+  }));
+  return encoded.reduce((out, [src, dataUrl]) => (dataUrl ? out.split(`src="${src}"`).join(`src="${dataUrl}"`) : out), html);
+};
+
+/** "Yazdır / PDF Kaydet" ile aynı belge; sunucuda PDF'e çevrilmek üzere görselleri gömülü tam HTML. */
+export const buildMailDocumentHtml = (doc: PrintDocument): Promise<string> =>
+  inlinePrintAssets(buildPrintHtml(doc, { autoPrint: false }));

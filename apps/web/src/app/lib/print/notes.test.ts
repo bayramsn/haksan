@@ -1,6 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import { applyVatRateToNotes, matchQuoteNoteVariantKey, QUOTE_NOTE_VARIANTS, resolveProformaNotes } from './notes';
 
+describe('KDV hesaplanmayan teklifte yer tutucu', () => {
+  it('oran 0 iken {{KDV_ORANI}} çıplak kalmaz, varsayılan oran yazılır', () => {
+    const [line] = applyVatRateToNotes(["Teklifimize tezgâhın cari orandaki %{{KDV_ORANI}} K.D.V.'si dahil edilmemiştir,"], 0);
+    expect(line).not.toContain('{{');
+    expect(line).toContain('%20 K.D.V.');
+  });
+});
+
 describe('document VAT terms', () => {
   it('uses the selected lathe VAT rate in quote and proforma terms', () => {
     const quoteTerms = applyVatRateToNotes([

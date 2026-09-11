@@ -34,6 +34,11 @@ export type MailRecipient = {
   quoteId?: string;
   /** Ek satırında gösterilecek etiket (ör. teklif numarası). */
   attachmentLabel?: string;
+  /**
+   * Verilirse ek, "Yazdır / PDF Kaydet" belgesinin aynısı olur: istemci HTML'i üretir,
+   * sunucu Chromium ile PDF'e çevirir. Yoksa sunucunun sade şablonu kullanılır.
+   */
+  document?: () => Promise<{ html: string; filename: string }>;
 };
 
 const emptyRecipients: MailRecipients = { contacts: [], colleagues: [] };
@@ -144,6 +149,7 @@ export function ComposeMailDialog({
     }
     setSending(true);
     try {
+      const quoteDocument = recipient.quoteId && recipient.document ? await recipient.document() : undefined;
       await mailService.send({
         to: to.trim(),
         cc: cc.length ? cc : undefined,
@@ -152,6 +158,7 @@ export function ComposeMailDialog({
         companyId: recipient.companyId,
         contactId,
         quoteId: recipient.quoteId,
+        quoteDocument,
       });
       await onSent?.();
       toast.success("E-posta gönderildi", { description: `${account?.email ?? "Webmail hesabınız"} üzerinden teslim edildi.` });
