@@ -1,9 +1,6 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import type {
-  LeadContactChannelCode,
-  LeadContactOutcomeCode,
-} from "@haksan/shared";
+import type { LeadContactChannelCode } from "@haksan/shared";
 import {
   ArrowRight,
   Loader2,
@@ -19,7 +16,6 @@ import { toast } from "sonner";
 import { CreateContactDialog } from "../dialogs/CreateDialogs";
 import { ComposeMailDialog, type MailRecipient } from "../mail/ComposeMailDialog";
 import { ApiError } from "../../../lib/apiClient";
-import { opportunityService } from "../../../lib/services";
 import { useStore } from "../../lib/store";
 import type { SalesCase, User } from "../../lib/mock";
 import { Button } from "../ui/button";
@@ -43,139 +39,6 @@ const CHANNEL_LABELS: Record<LeadContactChannelCode, string> = {
   email: "E-posta",
   whatsapp: "WhatsApp",
 };
-
-const OUTCOME_LABELS: Record<LeadContactOutcomeCode, string> = {
-  no_answer: "Yanıt yok",
-  contacted: "Temas kuruldu",
-  callback: "Geri arama istendi",
-  requested_info: "Bilgi istendi",
-  meeting_booked: "Toplantı planlandı",
-  not_interested: "İlgilenmiyor",
-  wrong_contact: "Yanlış kontak",
-};
-
-const newIdempotencyKey = () => {
-  const cryptoApi = typeof globalThis !== "undefined" ? globalThis.crypto : undefined;
-  if (cryptoApi?.randomUUID) return cryptoApi.randomUUID();
-  const bytes = new Uint8Array(16);
-  if (cryptoApi?.getRandomValues) cryptoApi.getRandomValues(bytes);
-  else bytes.forEach((_, index) => { bytes[index] = Math.floor(Math.random() * 256); });
-  bytes[6] = (bytes[6] & 0x0f) | 0x40;
-  bytes[8] = (bytes[8] & 0x3f) | 0x80;
-  const hex = [...bytes].map((value) => value.toString(16).padStart(2, "0"));
-  return `${hex.slice(0, 4).join("")}-${hex.slice(4, 6).join("")}-${hex.slice(6, 8).join("")}-${hex.slice(8, 10).join("")}-${hex.slice(10).join("")}`;
-};
-
-function ContactResultDialog({
-  open,
-  onOpenChange,
-  salesCase,
-  initialChannel,
-}: {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  salesCase: SalesCase;
-  initialChannel: LeadContactChannelCode;
-}) {
-  const { refresh } = useStore();
-  const [channel, setChannel] = useState<LeadContactChannelCode>(initialChannel);
-  const [outcome, setOutcome] = useState<LeadContactOutcomeCode>("contacted");
-  const [note, setNote] = useState("");
-  const [saving, setSaving] = useState(false);
-  const [formError, setFormError] = useState<string | null>(null);
-  const idempotencyKeyRef = useRef(newIdempotencyKey());
-
-  useEffect(() => {
-    if (!open) return;
-    setChannel(initialChannel);
-    setOutcome("contacted");
-    setNote("");
-    setFormError(null);
-    idempotencyKeyRef.current = newIdempotencyKey();
-  }, [initialChannel, open]);
-
-  const save = async () => {
-    if (saving) return;
-    setFormError(null);
-    setSaving(true);
-    try {
-      await opportunityService.recordContact(salesCase.id, {
-        idempotencyKey: idempotencyKeyRef.current,
-        channel,
-        outcome,
-        note: note.trim() || undefined,
-      });
-      await refresh();
-      idempotencyKeyRef.current = newIdempotencyKey();
-      onOpenChange(false);
-      toast.success("Temas sonucu kaydedildi", {
-        description: `${CHANNEL_LABELS[channel]} · ${OUTCOME_LABELS[outcome]}`,
-      });
-    } catch (error: any) {
-      toast.error("Temas sonucu kaydedilemedi", {
-        description: error?.message ?? "İstek başarısız oldu.",
-      });
-      setFormError(error?.message ?? "Temas sonucu kaydedilemedi. Taslağınız korunuyor.");
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  return (
-    <Dialog open={open} onOpenChange={(next) => !saving && onOpenChange(next)}>
-      <DialogContent className="max-w-lg">
-        <DialogHeader>
-          <DialogTitle>Temas sonucunu kaydet</DialogTitle>
-          <DialogDescription>
-            Sonuç ve not tek işlemde aktiviteye kaydedilir; çift gönderim yeni kayıt oluşturmaz.
-          </DialogDescription>
-        </DialogHeader>
-        <div className="grid gap-4 sm:grid-cols-2">
-          <div>
-            <Label htmlFor="lead-contact-channel">Kanal</Label>
-            <Select value={channel} onValueChange={(value) => setChannel(value as LeadContactChannelCode)}>
-              <SelectTrigger id="lead-contact-channel" className="mt-1.5"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                {Object.entries(CHANNEL_LABELS).map(([value, label]) => (
-                  <SelectItem key={value} value={value}>{label}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div>
-            <Label htmlFor="lead-contact-outcome">Sonuç</Label>
-            <Select value={outcome} onValueChange={(value) => setOutcome(value as LeadContactOutcomeCode)}>
-              <SelectTrigger id="lead-contact-outcome" className="mt-1.5"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                {Object.entries(OUTCOME_LABELS).map(([value, label]) => (
-                  <SelectItem key={value} value={value}>{label}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        </div>
-        <div>
-          <Label htmlFor="lead-contact-note">Kısa not</Label>
-          <Textarea
-            id="lead-contact-note"
-            value={note}
-            onChange={(event) => setNote(event.target.value)}
-            maxLength={2000}
-            className="mt-1.5 min-h-20"
-            placeholder="Konuşulanlar, itiraz veya talep..."
-          />
-        </div>
-        {formError && <p id="lead-contact-error" role="alert" className="text-sm text-red-700">{formError}</p>}
-        <DialogFooter>
-          <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>Vazgeç</Button>
-          <Button type="button" onClick={() => void save()} disabled={saving}>
-            {saving ? "Kaydediliyor…" : "Sonucu kaydet"}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
 
 function ConversionOverrideDialog({
   open,
@@ -283,8 +146,6 @@ export function DecisionRail({
 }) {
   const { convertCase, refresh, updateCase } = useStore();
   const isLead = salesCase.qualificationStage === "lead";
-  const [contactOpen, setContactOpen] = useState(false);
-  const [contactChannel, setContactChannel] = useState<LeadContactChannelCode>("phone");
   const [mailRecipient, setMailRecipient] = useState<MailRecipient | null>(null);
   const [overrideOpen, setOverrideOpen] = useState(false);
   const [overrideBlockers, setOverrideBlockers] = useState<string[]>([]);
@@ -329,8 +190,6 @@ export function DecisionRail({
       });
       return;
     }
-    setContactChannel(channel);
-    if (isLead && canUpdate) setContactOpen(true);
     const uri = contactUri(channel);
     if (!uri) {
       toast.message(`${CHANNEL_LABELS[channel]} bilgisi eksik`);
@@ -454,7 +313,6 @@ export function DecisionRail({
           İletişim için önce {salesCase.customerId ? "ilgili kişi" : "firma"} bağlanmalı.
         </p>
       )}
-      {isLead && canUpdate && hasAnyContactChannel && <Button type="button" variant="ghost" size="sm" className="mt-2 min-h-11 w-full text-xs sm:min-h-8" onClick={() => setContactOpen(true)}>Temas sonucunu kaydet</Button>}
     </div>
   );
 
@@ -568,21 +426,9 @@ export function DecisionRail({
       <ComposeMailDialog
         recipient={mailRecipient}
         onOpenChange={(open) => !open && setMailRecipient(null)}
-        onSent={() => {
-          if (isLead && canUpdate) {
-            setContactChannel("email");
-            setContactOpen(true);
-          }
-        }}
       />
       {isLead && (
         <>
-          <ContactResultDialog
-            open={contactOpen}
-            onOpenChange={setContactOpen}
-            salesCase={salesCase}
-            initialChannel={contactChannel}
-          />
           <ConversionOverrideDialog
             open={overrideOpen}
             onOpenChange={setOverrideOpen}

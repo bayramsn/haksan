@@ -20,6 +20,9 @@ describe("kişisel Webmail erişimi", () => {
   it("Lead ve fırsat iletişim rayında CRM Webmail gönderimini açar", () => {
     expect(decisionRailSource).toContain("<ComposeMailDialog");
     expect(decisionRailSource).toContain('if (channel === "email")');
-    expect(decisionRailSource).toContain('setContactChannel("email")');
+    // Gönderim sonrası ayrı "temas sonucu" diyaloğu açılmıyor; temas artık
+    // aktivite kaydından geçiyor.
+    expect(decisionRailSource).not.toContain("setContactChannel");
+    expect(decisionRailSource).not.toContain("Temas sonucunu kaydet");
   });
 });
