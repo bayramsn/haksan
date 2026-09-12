@@ -93,7 +93,28 @@ export const MIGRATION_LINT_RULES: MigrationLintRule[] = [
   },
 ];
 
+/**
+ * Gerekçeli muafiyet: `-- migration-lint: allow <kural-id> — <neden>`.
+ *
+ * Bazı kurallar expand-contract'ın İKİNCİ adımını da bloke ediyor: `drop-column`
+ * "önce yazmayı durdur" diyor, ama yazma durdurulup o sürüm canlıya çıktıktan
+ * sonra geriye kalan tek iş zaten DROP'un kendisi ve kural onu da reddediyor.
+ * Muafiyet gerekçesiz kabul edilmez — satırda en az 10 karakterlik bir açıklama
+ * aranır, böylece "neden güvenli" bilgisi migration'ın içinde, incelemenin
+ * göreceği yerde kalır.
+ */
+const LINT_WAIVER = /--\s*migration-lint:\s*allow\s+([a-z-]+)\s*[—:-]\s*(.+)/gi;
+
+export function migrationLintWaivers(raw: string): Set<string> {
+  const waived = new Set<string>();
+  for (const match of raw.matchAll(LINT_WAIVER)) {
+    if (match[2].trim().length >= 10) waived.add(match[1].toLowerCase());
+  }
+  return waived;
+}
+
 export function findMigrationLintRules(raw: string): MigrationLintRule[] {
   const analysis = analyzeSql(raw);
-  return MIGRATION_LINT_RULES.filter((rule) => rule.test(analysis));
+  const waived = migrationLintWaivers(raw);
+  return MIGRATION_LINT_RULES.filter((rule) => !waived.has(rule.id) && rule.test(analysis));
 }
