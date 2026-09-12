@@ -131,34 +131,56 @@ export function ActivityLogReportCard() {
                   </div>
 
                   {user.groups.map((group) => (
-                    <div key={group.typeName} className="space-y-1.5">
+                    <div key={group.typeCode} className="space-y-1.5">
                       <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
                         {group.typeName} · {group.entries.length} kayıt
                       </div>
-                      <div className="rounded-lg border border-border/60 divide-y divide-border/60">
-                        {group.entries.map((entry) => (
-                          <div key={entry.id} className="flex flex-col gap-1 p-3 sm:flex-row sm:gap-4">
-                            <div className="shrink-0 text-xs tabular-nums text-muted-foreground sm:w-24">
-                              {trDate(entry.occurredAt)}
-                            </div>
-                            <div className="min-w-0 space-y-1">
-                              <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
-                                <span className="text-sm font-medium">{entry.companyName ?? "—"}</span>
-                                {entry.contactName && (
-                                  <span className="text-xs text-muted-foreground">· {entry.contactName}</span>
-                                )}
-                                <Badge variant="outline" className="h-4 px-1.5 text-[10px]">
-                                  {entry.inOpportunity ? "Fırsat içi" : "Fırsat dışı"}
-                                </Badge>
+                      {group.entries.length === 0 ? (
+                        <div className="rounded-lg border border-dashed border-border/60 px-3 py-2 text-xs text-muted-foreground">
+                          Bu türde kayıt yok.
+                        </div>
+                      ) : (
+                        <div className="rounded-lg border border-border/60 divide-y divide-border/60">
+                          {group.entries.map((entry) => (
+                            <div key={entry.id} className="flex flex-col gap-1 p-3 sm:flex-row sm:gap-4">
+                              <div className="shrink-0 text-xs tabular-nums text-muted-foreground sm:w-24">
+                                {trDate(entry.occurredAt)}
                               </div>
-                              {entry.subject && <div className="text-xs text-brand-blue">{entry.subject}</div>}
-                              <p className="text-sm leading-snug">
-                                {entry.note ?? <span className="italic text-muted-foreground">Not girilmemiş.</span>}
-                              </p>
+                              <div className="min-w-0 space-y-1.5">
+                                <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+                                  <span className="text-sm font-medium">{entry.companyName ?? "—"}</span>
+                                  {(entry.province || entry.district) && (
+                                    <span className="text-xs text-muted-foreground">
+                                      {[entry.province, entry.district].filter(Boolean).join(" / ")}
+                                    </span>
+                                  )}
+                                  <Badge variant="outline" className="h-4 px-1.5 text-[10px]">
+                                    {entry.inOpportunity ? "Fırsat içi" : "Fırsat dışı"}
+                                  </Badge>
+                                </div>
+                                {entry.contactName && (
+                                  <div className="text-xs text-muted-foreground">
+                                    İlgili: <span className="text-foreground">{entry.contactName}</span>
+                                    {entry.contactTitle ? ` · ${entry.contactTitle}` : ""}
+                                    {entry.contactPhone ? ` · ${entry.contactPhone}` : ""}
+                                  </div>
+                                )}
+                                {entry.subject && <div className="text-xs text-brand-blue">{entry.subject}</div>}
+                                <p className="text-sm leading-snug whitespace-pre-line">
+                                  {entry.note ?? <span className="italic text-muted-foreground">Not girilmemiş.</span>}
+                                </p>
+                                {(entry.result || entry.opportunityTitle || entry.nextFollowUpAt) && (
+                                  <div className="flex flex-wrap gap-x-4 gap-y-0.5 text-[11px] text-muted-foreground">
+                                    {entry.result && <span>Sonuç: {entry.result}</span>}
+                                    {entry.opportunityTitle && <span>Fırsat: {entry.opportunityTitle}</span>}
+                                    {entry.nextFollowUpAt && <span>Takip: {trDate(entry.nextFollowUpAt)}</span>}
+                                  </div>
+                                )}
+                              </div>
                             </div>
-                          </div>
-                        ))}
-                      </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -273,20 +295,44 @@ function buildPrintDoc(report: ActivityLogReport, range: { from: string; to: str
         ${user.groups
           .map(
             (group) => `<div class="group"><h4>${esc(group.typeName)} · ${group.entries.length} kayıt</h4>
-            ${group.entries
-              .map(
-                (entry) => `<div class="entry">
+            ${
+              group.entries.length === 0
+                ? '<div class="entry none">Bu türde kayıt yok.</div>'
+                : group.entries
+                    .map(
+                      (entry) => `<div class="entry">
                   <div class="d">${esc(trDate(entry.occurredAt))}</div>
                   <div>
                     <div class="c">${esc(entry.companyName ?? "—")}${
-                      entry.contactName ? ` · <span class="k">${esc(entry.contactName)}</span>` : ""
+                      entry.province || entry.district
+                        ? ` <span class="k">(${esc([entry.province, entry.district].filter(Boolean).join(" / "))})</span>`
+                        : ""
                     } <span class="s">${entry.inOpportunity ? "Fırsat içi" : "Fırsat dışı"}</span></div>
+                    ${
+                      entry.contactName
+                        ? `<div class="k">İlgili: ${esc(entry.contactName)}${
+                            entry.contactTitle ? ` · ${esc(entry.contactTitle)}` : ""
+                          }${entry.contactPhone ? ` · ${esc(entry.contactPhone)}` : ""}</div>`
+                        : ""
+                    }
                     ${entry.subject ? `<div class="su">${esc(entry.subject)}</div>` : ""}
                     <div class="n">${entry.note ? esc(entry.note) : "<i>Not girilmemiş.</i>"}</div>
+                    ${
+                      entry.result || entry.opportunityTitle || entry.nextFollowUpAt
+                        ? `<div class="k">${[
+                            entry.result ? `Sonuç: ${esc(entry.result)}` : "",
+                            entry.opportunityTitle ? `Fırsat: ${esc(entry.opportunityTitle)}` : "",
+                            entry.nextFollowUpAt ? `Takip: ${esc(trDate(entry.nextFollowUpAt))}` : "",
+                          ]
+                            .filter(Boolean)
+                            .join(" · ")}</div>`
+                        : ""
+                    }
                   </div>
                 </div>`,
-              )
-              .join("")}</div>`,
+                    )
+                    .join("")
+            }</div>`,
           )
           .join("")}
       </section>`,
@@ -339,7 +385,8 @@ function buildPrintDoc(report: ActivityLogReport, range: { from: string; to: str
       .entry .k{font-weight:400;color:#4b5563}
       .entry .s{font-weight:400;color:#6b7280;font-size:9px}
       .entry .su{color:#3a5a72;font-size:10px}
-      .entry .n{margin-top:1px}
+      .entry .n{margin-top:1px;white-space:pre-line}
+      .entry.none{color:#9ca3af;font-style:italic}
       table{width:100%;border-collapse:collapse;margin-top:2px}
       th,td{border:1px solid #e5e7eb;padding:4px 6px;text-align:left;vertical-align:top}
       th{background:#f3f4f6;font-size:10px}

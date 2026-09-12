@@ -8,7 +8,7 @@ const workspaceSource = readFileSync(new URL("./OpportunityWorkspace.tsx", impor
 const createDialogsSource = readFileSync(new URL("../dialogs/CreateDialogs.tsx", import.meta.url), "utf8");
 const storeSource = readFileSync(new URL("../../lib/store.tsx", import.meta.url), "utf8");
 
-describe("ziyaret ve ilk temas adımları", () => {
+describe("ziyaret adımı ve kaldırılan ilk temas adımı", () => {
   it("ziyaret kararını seçimden sonra da değiştirilebilir bırakır", () => {
     // Saha ziyareti ertelenir, iptal olur ya da yanlış işaretlenir; karar
     // kilitlenirse kart yanlış durumda takılı kalıyordu.
@@ -18,21 +18,18 @@ describe("ziyaret ve ilk temas adımları", () => {
     expect(source).toContain("Karar değiştiyse yeniden seçebilirsiniz.");
   });
 
-  it("lead alanına ilk temas adımını ekler ve contact-events ucuna bağlar", () => {
-    expect(source).toContain('record_first_contact: "first_contact"');
-    expect(source).toContain('case "first_contact":');
-    expect(source).toContain("opportunityService.recordContact(sc.id");
-    // "Ulaşılamadı" / "yanlış kişi" ilk temas saymaz — API ile aynı kural.
-    expect(source).toContain('outcome !== "no_answer" && outcome !== "wrong_contact"');
-  });
-
-  it("ilk temas adımını lead alanında ve call aşamasında zorunlu tutar", () => {
+  it("lead alanında ayrı bir ilk temas adımı bırakmaz", () => {
+    // Temas artık normal aktivite kaydından geçiyor; ayrı "temas sonucu"
+    // seçicisi lead kartında ikinci bir kayıt yolu açıyordu.
     const apiSource = readFileSync(
       new URL("../../../../../api/src/modules/opportunities/opportunities.service.ts", import.meta.url),
       "utf8",
     );
-    // Lead'den C'ye geçişi kilitlemez; B alanına ilerlemeyi kilitler.
-    expect(apiSource).toContain("check('first_contact', 'İlk temas kuruldu', Boolean(row.firstContactAt), 'record_first_contact', 'call', 'lead')");
+    expect(apiSource).not.toContain("'İlk temas kuruldu'");
+    expect(source).not.toContain('case "first_contact":');
+    expect(source).not.toContain("opportunityService.recordContact(sc.id");
+    // Aktivite kaydı yolu duruyor: arama adımı hâlâ aktivite yazıyor.
+    expect(source).toContain('activityTypeCode: "outgoing_call"');
   });
 });
 

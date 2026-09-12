@@ -1,5 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { activityTypeLabel, VISIT_NOT_DONE_RESULT } from '@haksan/shared';
+import { ACTIVITY_TYPE_OPTIONS, activityTypeLabel, VISIT_NOT_DONE_RESULT } from '@haksan/shared';
 import { and, between, desc, eq, gte, inArray, isNull, lte, sql } from 'drizzle-orm';
 import type { DbClient } from '../../db/client';
 import { visits as visitsTbl, calls as callsTbl, leads, salesActivities } from '../../db/schema/crm';
@@ -35,11 +35,19 @@ export type ActivityLogEntry = {
   id: string;
   occurredAt: string;
   companyName: string | null;
+  companyLegalTitle: string | null;
+  province: string | null;
+  district: string | null;
   contactName: string | null;
+  contactTitle: string | null;
+  contactPhone: string | null;
   subject: string;
   note: string | null;
+  result: string | null;
+  nextFollowUpAt: string | null;
   /** Fırsata bağlı mı; rapor fırsat içi/dışı ayırmadan hepsini listeler. */
   inOpportunity: boolean;
+  opportunityTitle: string | null;
 };
 
 export type ActivityLogQuoteRow = {
@@ -67,7 +75,7 @@ export type ActivityLogReport = {
     activityCount: number;
     quoteCount: number;
     quoteTotals: Array<{ currency: string; amount: number }>;
-    groups: Array<{ typeName: string; entries: ActivityLogEntry[] }>;
+    groups: Array<{ typeCode: string; typeName: string; entries: ActivityLogEntry[] }>;
   }>;
   quotes: ActivityLogQuoteRow[];
 };
@@ -2520,14 +2528,38 @@ export class ReportsService {
           occurredAt: salesActivities.activityDate,
           subject: salesActivities.subject,
           note: salesActivities.description,
+          result: salesActivities.result,
+          nextFollowUpAt: salesActivities.nextFollowUpAt,
           opportunityId: salesActivities.opportunityId,
+          opportunityTitle: opportunities.title,
           companyName: sql<string | null>`coalesce(${companies.shortName}, ${companies.legalTitle})`,
+          companyLegalTitle: companies.legalTitle,
+          province: sql<string | null>`(
+            select a.province from company_addresses a
+            where a.company_id = ${salesActivities.companyId} and a.deleted_at is null
+            order by a.is_default desc, a.created_at limit 1
+          )`,
+          district: sql<string | null>`(
+            select a.district from company_addresses a
+            where a.company_id = ${salesActivities.companyId} and a.deleted_at is null
+            order by a.is_default desc, a.created_at limit 1
+          )`,
           contactName: contacts.fullName,
+          contactTitle: contacts.title,
+          contactPhone: sql<string | null>`coalesce(nullif(${contacts.mobilePhone}, ''), nullif(${contacts.workPhone}, ''))`,
         })
         .from(salesActivities)
         .leftJoin(activityTypes, eq(activityTypes.id, salesActivities.activityTypeId))
         .leftJoin(companies, companyJoin(salesActivities.companyId))
         .leftJoin(contacts, and(eq(contacts.id, salesActivities.contactId), eq(contacts.tenantId, actor.tenantId)))
+        .leftJoin(
+          opportunities,
+          and(
+            eq(opportunities.id, salesActivities.opportunityId),
+            eq(opportunities.tenantId, actor.tenantId),
+            isNull(opportunities.deletedAt),
+          ),
+        )
         .where(
           and(
             eq(salesActivities.tenantId, actor.tenantId),
@@ -2627,29 +2659,54 @@ export class ReportsService {
     for (const row of activityRows) {
       if (!row.userId) continue;
       const byType = groupsByUser.get(row.userId) ?? new Map<string, ActivityLogEntry[]>();
-      const typeName = row.typeName ?? activityTypeLabel(row.typeCode ?? '') ?? 'Diğer';
-      const entries = byType.get(typeName) ?? [];
+      // Grup anahtarı TÜR KODU: rapor sabit tür sırasıyla basılıyor ve aynı tür
+      // kiracıya göre farklı adlandırılmış olabilir.
+      const typeKey = row.typeCode ?? row.typeName ?? 'other';
+      const entries = byType.get(typeKey) ?? [];
       entries.push({
         id: row.id,
         occurredAt: iso(row.occurredAt),
         companyName: row.companyName ?? null,
+        companyLegalTitle: row.companyLegalTitle ?? null,
+        province: row.province ?? null,
+        district: row.district ?? null,
         contactName: row.contactName ?? null,
+        contactTitle: row.contactTitle ?? null,
+        contactPhone: row.contactPhone ?? null,
         subject: row.subject,
         note: row.note?.trim() || null,
+        result: row.result?.trim() || null,
+        nextFollowUpAt: row.nextFollowUpAt ? iso(row.nextFollowUpAt) : null,
         inOpportunity: Boolean(row.opportunityId),
+        opportunityTitle: row.opportunityTitle?.trim() || null,
       });
-      byType.set(typeName, entries);
+      byType.set(typeKey, entries);
       groupsByUser.set(row.userId, byType);
     }
+    // Kayıt bulunan ama sabit listede olmayan türler (eski/özel kayıtlar) sona eklenir.
+    const typeNameByCode = new Map<string, string>();
+    for (const row of activityRows) {
+      if (row.typeCode) typeNameByCode.set(row.typeCode, activityTypeLabel(row.typeCode));
+      else if (row.typeName) typeNameByCode.set(row.typeName, row.typeName);
+    }
+    const extraTypeKeys = [...typeNameByCode.keys()]
+      .filter((code) => !ACTIVITY_TYPE_OPTIONS.some((option) => option.code === code))
+      .sort((a, b) => a.localeCompare(b, 'tr'));
+    // Rapor her kişide TÜM aktivite türlerini aynı sırayla gösterir; kaydı
+    // olmayan tür de "0 kayıt" satırıyla görünür, boşluk da bilgidir.
+    const typeOrder: Array<{ key: string; name: string }> = [
+      ...ACTIVITY_TYPE_OPTIONS.map((option) => ({ key: option.code as string, name: option.label as string })),
+      ...extraTypeKeys.map((key) => ({ key, name: typeNameByCode.get(key) ?? key })),
+    ];
 
     const users = people
       .map((person) => {
-        const byType = groupsByUser.get(person.id);
-        const groups = byType
-          ? [...byType.entries()]
-              .map(([typeName, entries]) => ({ typeName, entries }))
-              .sort((a, b) => b.entries.length - a.entries.length || a.typeName.localeCompare(b.typeName, 'tr'))
-          : [];
+        const byType = groupsByUser.get(person.id) ?? new Map<string, ActivityLogEntry[]>();
+        const groups = typeOrder.map((type) => ({
+          typeCode: type.key,
+          typeName: type.name,
+          entries: byType.get(type.key) ?? [],
+        }));
         return {
           userId: person.id,
           userName: person.fullName ?? person.email ?? 'Bilinmeyen kullanıcı',

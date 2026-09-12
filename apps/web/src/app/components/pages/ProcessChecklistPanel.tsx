@@ -7,26 +7,9 @@ import {
 import { CheckCircle2, Circle, Loader2, Pencil } from "lucide-react";
 import { toast } from "sonner";
 import {
-  LEAD_CONTACT_OUTCOMES,
-  type LeadContactOutcomeCode,
   type OpportunityProcessActionKey,
   type ProcessCheck,
 } from "@haksan/shared";
-
-/** `contact-events` ucunun başarılı saydığı sonuçlar (API: `successfulContact`). */
-const LEAD_CONTACT_SUCCESS_OUTCOMES: readonly LeadContactOutcomeCode[] = LEAD_CONTACT_OUTCOMES.filter(
-  (outcome) => outcome !== "no_answer" && outcome !== "wrong_contact",
-);
-
-const LEAD_CONTACT_OUTCOME_LABELS: Record<LeadContactOutcomeCode, string> = {
-  no_answer: "Ulaşılamadı",
-  contacted: "Görüşüldü",
-  callback: "Tekrar aranacak",
-  requested_info: "Bilgi istedi",
-  meeting_booked: "Randevu alındı",
-  not_interested: "İlgilenmiyor",
-  wrong_contact: "Yanlış kişi",
-};
 import { activityService, opportunityService } from "../../../lib/services";
 import { useAuth } from "../../../lib/auth";
 import { useStore } from "../../lib/store";
@@ -91,7 +74,6 @@ const OPPORTUNITY_CHECK_BY_ACTION: Partial<Record<OpportunityProcessActionKey, s
   link_contact: "contact",
   create_contact: "contact",
   record_call: "call",
-  record_first_contact: "first_contact",
   record_visit: "visit",
   edit_machine: "machine",
   edit_payment_method: "payment_method",
@@ -157,7 +139,6 @@ const INLINE_EDITOR_CHECK_KEYS = new Set([
   "email",
   "phone",
   "sector",
-  "first_contact",
   "call",
   "visit",
   "machine",
@@ -825,78 +806,6 @@ function CheckEditor(props: EditorProps) {
    * olarak kaydeder; böylece "Yapılmadı" seçimi de adımı bilinçli olarak atlar.
    * Tamamlanma bilgisi yine sunucudaki aktivite kaydından türetilir.
    */
-  /**
-   * Lead alanının ilk adımı: temas sonucu. `contact-events` ucu başarılı bir
-   * sonuçta `firstContactAt`'i yazar — SLA ölçümü buradan besleniyor. Sonuç
-   * "ulaşılamadı" ise deneme sayılır, adım tamamlanmaz.
-   */
-  const firstContactCheck = () => {
-    const unavailable = !props.canCreateActivity;
-    const disabled = props.disabled || props.busy || unavailable;
-
-    return wrap(
-      <div className="space-y-2 rounded-md bg-slate-50/80 p-2.5">
-        <div className="space-y-1.5">
-          <label className="text-xs font-medium" htmlFor={`qualification-first-contact-${sc.id}`}>
-            Temas sonucu
-          </label>
-          <Select
-            value=""
-            disabled={disabled}
-            onValueChange={(value) => {
-              if (!LEAD_CONTACT_OUTCOMES.includes(value as LeadContactOutcomeCode) || unavailable) return;
-              const outcome = value as LeadContactOutcomeCode;
-              void run(
-                checkKey,
-                async () => {
-                  await opportunityService.recordContact(sc.id, {
-                    idempotencyKey: crypto.randomUUID(),
-                    channel: "phone",
-                    outcome,
-                    note: draft.trim() || undefined,
-                  });
-                  setDraft("");
-                  await props.refresh();
-                },
-                LEAD_CONTACT_SUCCESS_OUTCOMES.includes(outcome)
-                  ? "İlk temas kaydedildi"
-                  : "Temas denemesi kaydedildi; ilk temas henüz kurulmadı",
-                props.canCreateActivity,
-              );
-            }}
-          >
-            <SelectTrigger
-              id={`qualification-first-contact-${sc.id}`}
-              size="sm"
-              className="h-8 w-full bg-white text-xs sm:w-64"
-              aria-label="Temas sonucu"
-            >
-              <SelectValue placeholder={props.complete ? "Yeni temas kaydet" : "Sonuç seçin"} />
-            </SelectTrigger>
-            <SelectContent>
-              {LEAD_CONTACT_OUTCOMES.map((outcome) => (
-                <SelectItem key={outcome} value={outcome}>{LEAD_CONTACT_OUTCOME_LABELS[outcome]}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-        <Input
-          className="h-8 bg-white text-xs"
-          placeholder="Temas notu (isteğe bağlı)"
-          value={draft}
-          disabled={disabled}
-          onChange={(event) => setDraft(event.target.value)}
-        />
-        <p className="text-[10px] leading-4 text-muted-foreground">
-          {!props.canCreateActivity
-            ? "Aktivite oluşturma yetkiniz bulunmuyor."
-            : props.complete
-              ? "İlk temas kuruldu. Sonraki temasları da buradan kaydedebilirsiniz."
-              : "Ulaşıldığını gösteren bir sonuç seçilince ilk temas zamanı işlenir ve lead SLA'sı durur."}
-        </p>
-      </div>,
-    );
-  };
 
   const visitStatusCheck = () => {
     const unavailable = !props.canCreateActivity || !sc.customerId;
@@ -1112,9 +1021,6 @@ function CheckEditor(props: EditorProps) {
         subject: "Giden Arama",
         successMessage: "Arama kaydedildi",
       });
-
-    case "first_contact":
-      return firstContactCheck();
 
     case "visit":
       return visitStatusCheck();

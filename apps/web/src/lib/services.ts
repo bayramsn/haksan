@@ -1280,10 +1280,18 @@ export type ActivityLogEntry = {
   id: string;
   occurredAt: string;
   companyName: string | null;
+  companyLegalTitle: string | null;
+  province: string | null;
+  district: string | null;
   contactName: string | null;
+  contactTitle: string | null;
+  contactPhone: string | null;
   subject: string;
   note: string | null;
+  result: string | null;
+  nextFollowUpAt: string | null;
   inOpportunity: boolean;
+  opportunityTitle: string | null;
 };
 
 export type ActivityLogQuoteRow = {
@@ -1310,7 +1318,7 @@ export type ActivityLogReport = {
     activityCount: number;
     quoteCount: number;
     quoteTotals: Array<{ currency: string; amount: number }>;
-    groups: Array<{ typeName: string; entries: ActivityLogEntry[] }>;
+    groups: Array<{ typeCode: string; typeName: string; entries: ActivityLogEntry[] }>;
   }>;
   quotes: ActivityLogQuoteRow[];
 };
