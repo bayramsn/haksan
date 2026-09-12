@@ -13,23 +13,35 @@ import { reportService, type ActivityLogReport } from "../../../../lib/services"
 import { printOrWarn } from "../../../lib/pageHelpers";
 import { esc } from "../../../lib/print";
 
-const isoDay = (date: Date) => {
-  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
-  return local.toISOString().slice(0, 10);
-};
+/** Bir anın İstanbul takvimindeki günü (`YYYY-MM-DD`). `en-CA` bu biçimi verir. */
+const isoDay = (date: Date) =>
+  date.toLocaleDateString("en-CA", { timeZone: "Europe/Istanbul" });
 
-/** Varsayılan aralık: içinde bulunulan haftanın pazartesi → cumartesi. */
+/**
+ * Varsayılan aralık: içinde bulunulan haftanın pazartesi → cumartesi.
+ * Hafta İstanbul takvimine göre kesilir; saat dilimi farklı bir makineden
+ * bakıldığında hafta bir gün kaymasın.
+ */
 export const defaultRange = () => {
-  const today = new Date();
+  // Gün aritmetiği UTC üzerinde yapılır: İstanbul gününü UTC gününe sabitleyip
+  // ilerletmek, yerel saat dilimine göre gün atlama riskini ortadan kaldırır.
+  const today = new Date(`${isoDay(new Date())}T00:00:00Z`);
   const monday = new Date(today);
-  // getDay(): 0 pazar … 6 cumartesi. Pazar günü bir önceki haftaya sayılır.
-  monday.setDate(today.getDate() - ((today.getDay() + 6) % 7));
+  // getUTCDay(): 0 pazar … 6 cumartesi. Pazar günü biten haftaya sayılır.
+  monday.setUTCDate(today.getUTCDate() - ((today.getUTCDay() + 6) % 7));
   const saturday = new Date(monday);
-  saturday.setDate(monday.getDate() + 5);
-  return { from: isoDay(monday), to: isoDay(saturday) };
+  saturday.setUTCDate(monday.getUTCDate() + 5);
+  const day = (d: Date) => d.toISOString().slice(0, 10);
+  return { from: day(monday), to: day(saturday) };
 };
 
-const trDate = (iso: string) => new Date(iso).toLocaleDateString("tr-TR");
+/**
+ * Rapor tarihleri her zaman İstanbul takviminde okunur — yurt dışından veya
+ * saat dilimi farklı bir makineden bakan kullanıcı, kaydın girildiği günü
+ * kaymış görmesin.
+ */
+const trDate = (iso: string) =>
+  new Date(iso).toLocaleDateString("tr-TR", { timeZone: "Europe/Istanbul" });
 
 const money = (amount: number, currency: string) =>
   `${amount.toLocaleString("tr-TR", { maximumFractionDigits: 2 })} ${currency}`;

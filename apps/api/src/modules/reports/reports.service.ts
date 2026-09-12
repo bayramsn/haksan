@@ -26,6 +26,15 @@ import { ForbiddenError } from '../../shared/utils/errors';
 import { amountToUsd, FxService, type FxRates, type FxSnapshot } from '../fx/fx.service';
 
 /**
+ * `YYYY-MM-DD` gününün İstanbul'daki başlangıcı.
+ *
+ * Türkiye 2016'dan beri kalıcı UTC+03; yaz saati uygulaması yok, bu yüzden sabit
+ * ofset doğru sonuç veriyor. Ülke yaz saatine dönerse burası IANA saat dilimiyle
+ * (`Europe/Istanbul`) hesaplanmalı.
+ */
+const istanbulDayStart = (day: string) => new Date(`${day}T00:00:00+03:00`);
+
+/**
  * Serbest tarih aralıklı aktivite + teklif dökümü. "Ekip aktivitesi" sayaç
  * raporundan farkı: sabit dönem yok, her kayıt tek tek listelenir ve kayıtlar
  * girildikleri aktivite TÜRÜNE göre gruplanır — haftalık saha raporu bu
@@ -2488,11 +2497,16 @@ export class ReportsService {
    * `to` GÜN SONU olarak yorumlanır: arayüzden "07.09 – 12.09" seçildiğinde
    * 12 Eylül'ün tamamı rapora girer. Görünürlük diğer raporlarla aynı:
    * süper admin dışındaki kullanıcı yalnız kendi kayıtlarını görür.
+   *
+   * Gün sınırları İSTANBUL takvimine göre kurulur. Konteyner UTC çalışıyor
+   * (`date` → UTC), dolayısıyla `new Date('2026-09-01T00:00')` İstanbul'da
+   * 03:00'a denk geliyordu: günün ilk üç saatindeki kayıtlar rapora girmiyor,
+   * bitiş gününün ertesi sabahı giriyordu.
    */
   async activityLog(actor: AuthContext, fromIso: string, toIso: string): Promise<ActivityLogReport> {
-    const from = new Date(`${fromIso}T00:00:00.000`);
-    const to = new Date(`${toIso}T00:00:00.000`);
-    to.setDate(to.getDate() + 1);
+    const from = istanbulDayStart(fromIso);
+    const to = istanbulDayStart(toIso);
+    to.setUTCDate(to.getUTCDate() + 1);
     if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime()) || to <= from) {
       throw new ForbiddenError('Geçersiz tarih aralığı');
     }
