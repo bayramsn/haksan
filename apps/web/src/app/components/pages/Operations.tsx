@@ -136,9 +136,16 @@ function productSeriesLabel(product: Product) {
   return code ? `${code} Serisi` : "Serisiz";
 }
 
-function productFamilyLabel(product: Product) {
+export function productFamilyLabel(product: Product) {
   const typeCode = (product.productTypeCode ?? "").toLocaleUpperCase("tr-TR");
   const series = productSeriesCode(product);
+  // Tezgah dışı kalemler kendi kategorisinde kalır. Aşağıdaki tezgah aileleri
+  // model/seri önekine de bakıyor ("C-…", "D-…"), bu yüzden opsiyonel donanım
+  // ve yedek parçalar CNC ailelerinin içine kayıyordu.
+  const categoryCode = (product.categoryCode ?? "").toLocaleUpperCase("tr-TR");
+  if (categoryCode && categoryCode !== "TEZGAH") {
+    return product.category || product.productGroup || "Genel";
+  }
   if (typeCode.includes("TORNA") || ["SL", "MT", "SJ"].includes(series)) return "CNC Torna Tezgahları";
   if (typeCode === "CNC_TAPPING_CENTER" || series === "TC") return "CNC Tapping Center";
   if (typeCode.includes("5_EKSEN") || ["D", "C"].includes(series)) return "CNC 5 Eksen İşleme Merkezleri";
@@ -577,6 +584,7 @@ export function ProductsPage({ initialQuery }: { initialQuery?: string }) {
       <ProductDetailDialog
         product={selected}
         onClose={() => setSelected(null)}
+        highlightOptional
         onEdit={
           canEditProducts
             ? (p) => {

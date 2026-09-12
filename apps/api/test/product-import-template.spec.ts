@@ -54,7 +54,6 @@ beforeAll(async () => {
       cashPrice: 118000,
       vatRate: 20,
       originCountry: 'Tayvan',
-      productionYear: 2026,
       hsCode: '845811',
       stockCode: `STK-${runId}`,
       description: 'Şablon testi için oluşturulan ürün',
@@ -115,7 +114,7 @@ describe('Toplu ürün yükleme şablonu', () => {
 
     for (const column of [
       'Marka', 'Seri', 'Model', 'Model Adı', 'Ürün Adı', 'Ürün Grubu', 'Kategori', 'Alt Kategori',
-      'Ürün Tipi', 'Para Birimi', 'Liste Fiyatı', 'Peşin Fiyat', 'KDV', 'Menşei', 'Üretim Yılı',
+      'Ürün Tipi', 'Para Birimi', 'Liste Fiyatı', 'Peşin Fiyat', 'KDV', 'Menşei',
       'GTIP', 'Stok Kodu', 'Ürün Fotoğrafı', 'Açıklama', 'Kontrol Ünitesi', 'Standart Donanım', 'Opsiyonel Donanım',
     ]) {
       expect(headers, `${column} kolonu eksik`).toContain(column);
@@ -153,7 +152,6 @@ describe('Toplu ürün yükleme şablonu', () => {
     expect(cell('Liste Fiyatı')).toContain('125000');
     expect(cell('Peşin Fiyat')).toContain('118000');
     expect(cell('GTIP')).toBe('845811');
-    expect(cell('Üretim Yılı')).toBe('2026');
     expect(cell('Kontrol Ünitesi')).toBe('FANUC 0i-TF');
     expect(cell('Standart Donanım')).toBe('Hidrolik taret');
     expect(cell('Opsiyonel Donanım')).toBe('Çubuk sürücü');

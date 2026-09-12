@@ -653,8 +653,6 @@ export type Product = {
   currency: "USD" | "EUR" | "TRY";
   vatRate?: number;
   originCountry?: string;
-  /** Tezgahın üretim yılı — belge metnindeki {{YIL}}. */
-  productionYear?: number;
   hsCode?: string;
   stockCode?: string;
   specs: ProductSpec[];

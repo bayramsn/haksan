@@ -1126,7 +1126,6 @@ export interface ContractMachinePrintData {
   muadiller?: string[];
   fiyat: number;
   kontrolUnitesiMarka?: string;
-  productionYear?: number;
 }
 
 export interface ContractPrintData {

@@ -964,7 +964,6 @@ export class QuotesService {
               modelCode: productModels.modelCode,
               modelName: productModels.modelName,
               fullName: productModels.fullName,
-              productionYear: productModels.productionYear,
               originCountry: productModels.originCountry,
               hsCode: productModels.hsCode,
               stockCode: productModels.stockCode,

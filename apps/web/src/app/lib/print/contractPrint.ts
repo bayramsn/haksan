@@ -187,8 +187,6 @@ export const contractTermsFillContext = (
     alici: buyerName
       || String(recordValue(source.company, "shortName", "short_name", "legalTitle", "legal_title") ?? "").trim()
       || undefined,
-    yil: product?.productionYear
-      ?? asOptionalNumber(recordValue(mainItems[0]?.product, "productionYear", "production_year")),
     kdvOrani: asOptionalNumber(recordValue(mainItems[0], "vatRate", "vat_rate")) ?? 20,
       kontrolMarka: inferControlUnitBrand(
         specs.length ? specs : contractSpecs(product),
@@ -322,7 +320,6 @@ const buildContractMachines = (
       muadiller: productEquivalents(product, products),
       fiyat: priceBeforeHeader * headerRatio + customsForMachine,
       kontrolUnitesiMarka: inferControlUnitBrand(specs, `${String(warrantyTerms ?? "")} ${product?.controlPanel ?? ""}`),
-      productionYear: product?.productionYear ?? asOptionalNumber(recordValue(row.item?.product, "productionYear", "production_year")),
     };
   });
   return reconcileMachinePrices(machines, contractNetPrice(quote));
@@ -381,7 +378,6 @@ async function buildContractPrintData(input: ContractBuildInput): Promise<Contra
       || inferControlUnitBrand(mappedSpecs, warrantyTerms);
     const termsContext = {
       alici: String(((!finalized && customer?.shortName) || value(company, "shortName", "short_name", "legalTitle", "legal_title")) ?? customer?.name ?? "").trim() || undefined,
-      yil: mainMachine?.productionYear,
       kdvOrani: vatRate,
       kontrolMarka: controlBrand,
     };
@@ -494,7 +490,6 @@ async function buildContractPrintData(input: ContractBuildInput): Promise<Contra
     || inferControlUnitBrand(specs, `${String(warrantyTerms ?? "")} ${product?.controlPanel ?? ""}`);
   const termsContext = {
     alici: customer?.shortName ?? customer?.name,
-    yil: mainMachine?.productionYear ?? product?.productionYear,
     kdvOrani: vatRate,
     kontrolMarka: controlBrand,
   };

@@ -270,7 +270,6 @@ describe("contract print data", () => {
       products: [{
         id: "ecoca-sl8",
         shortDescription: "ECOCA SL-8 CNC Torna Tezgahı",
-        productionYear: 2026,
         controlPanel: "FANUC 0i-TF Plus",
         standardEquipment: ["CANLI-KATALOG-SONRADAN-DEGISTI"],
       }] as never,

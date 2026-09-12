@@ -104,7 +104,6 @@ const TEMPLATE_BASE_COLUMNS = [
   'Peşin Fiyat',
   'KDV',
   'Menşei',
-  'Üretim Yılı',
   'GTIP',
   'Stok Kodu',
   'Ürün Fotoğrafı',
@@ -132,7 +131,6 @@ const BASE_IMPORT_FIELD_ALIASES: Record<string, string[]> = {
   cashPrice: ['pesin fiyat', 'peşin fiyat', 'cash price'],
   vatRate: ['kdv', 'kdv orani', 'kdv oranı', 'vat', 'vat rate'],
   originCountry: ['mensei', 'menşei', 'origin', 'origin country', 'ulke', 'ülke'],
-  productionYear: ['uretim yili', 'üretim yılı', 'model yili', 'model yılı', 'yil', 'yıl', 'production year'],
   hsCode: ['gtip', 'hs code', 'hscode', 'hs'],
   stockCode: ['stok kodu', 'stokkodu', 'stock code', 'stockcode'],
   imageUrl: ['urun fotografi', 'ürün fotoğrafı', 'fotograf', 'fotoğraf', 'image', 'image url', 'gorsel', 'görsel'],
@@ -973,7 +971,6 @@ export class ProductsService {
           cashPrice: input.cashPrice?.toString() ?? null,
           vatRate: input.vatRate.toString(),
           originCountry: input.originCountry ?? null,
-          productionYear: input.productionYear ?? null,
           hsCode: input.hsCode ?? null,
           stockCode: input.stockCode ?? null,
           imageUrl: input.imageUrl ?? null,
@@ -1039,7 +1036,7 @@ export class ProductsService {
     const alternativesProvided = input.muadilProductIds !== undefined || input.muadilProductId !== undefined;
     const alternativeIds = alternativesProvided ? this.uniqueAlternativeIds(input, id) : [];
     if (alternativesProvided) patch.muadilProductId = alternativeIds[0] ?? null;
-    for (const k of ['series', 'modelCode', 'modelName', 'fullName', 'originCountry', 'productionYear', 'hsCode', 'stockCode', 'imageUrl', 'description'] as const) {
+    for (const k of ['series', 'modelCode', 'modelName', 'fullName', 'originCountry', 'hsCode', 'stockCode', 'imageUrl', 'description'] as const) {
       if ((input as any)[k] !== undefined) patch[k] = (input as any)[k] ?? null;
     }
     for (const k of ['listPrice', 'cashPrice', 'vatRate'] as const) {
@@ -1373,7 +1370,6 @@ export class ProductsService {
         cashPrice: productModels.cashPrice,
         vatRate: productModels.vatRate,
         originCountry: productModels.originCountry,
-        productionYear: productModels.productionYear,
         hsCode: productModels.hsCode,
         stockCode: productModels.stockCode,
         imageUrl: productModels.imageUrl,
@@ -1488,7 +1484,6 @@ export class ProductsService {
       'Peşin Fiyat': sample.cashPrice ? Number(sample.cashPrice) : '',
       KDV: sample.vatRate ? Number(sample.vatRate) : '',
       Menşei: sample.originCountry ?? '',
-      'Üretim Yılı': sample.productionYear ?? '',
       GTIP: sample.hsCode ?? '',
       'Stok Kodu': sample.stockCode ?? '',
       'Ürün Fotoğrafı': sample.imageUrl ?? '',
@@ -1612,7 +1607,6 @@ export class ProductsService {
         cashPrice: normalized.cashPrice?.toString() ?? null,
         vatRate: normalized.vatRate.toString(),
         originCountry: normalized.originCountry ?? null,
-        productionYear: normalized.productionYear ?? null,
         hsCode: normalized.hsCode ?? null,
         stockCode: normalized.stockCode ?? null,
         imageUrl: normalized.imageUrl ?? null,
@@ -2160,8 +2154,6 @@ export class ProductsService {
       cashPrice: parseNumber(raw.cashPrice),
       vatRate,
       originCountry: cellToText(raw.originCountry) || undefined,
-      // Üretim yılı tek ürün formunda var; şablondan da gelsin (proforma {{YIL}}).
-      productionYear: parseNumber(raw.productionYear),
       hsCode: cellToText(raw.hsCode) || undefined,
       stockCode: cellToText(raw.stockCode) || undefined,
       imageUrl: cellToText(raw.imageUrl) || undefined,
