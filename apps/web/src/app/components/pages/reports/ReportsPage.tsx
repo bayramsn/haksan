@@ -12,6 +12,7 @@ import { ExportExcelButton } from "../../ui/ExportExcelButton";
 import { formatCurrency, printOrWarn } from "../../../lib/pageHelpers";
 import { esc, haksanHeader, printAssetBase, type PrintDocument } from "../../../lib/print";
 import { ReportAnalyticsHub } from "../../reports/ReportAnalyticsHub";
+import { ActivityLogReportCard } from "./ActivityLogReportCard";
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, PieChart, Pie, Cell, Legend } from "recharts";
 import { AlertTriangle, ArrowRight, Bookmark, Building2, CheckCircle2, Clock3, FileText, Printer, RefreshCw, Sparkles, Target, UserRound, XCircle } from "lucide-react";
 import { toast } from "sonner";
@@ -174,6 +175,8 @@ export function ReportsPage({ onAction }: { onAction?: (action: OperationAction)
 
       {mode === "operasyonel" && (
       <>
+      <ActivityLogReportCard />
+
       <div className="flex items-center gap-2 flex-wrap">
         <div className="inline-flex rounded-md border border-border bg-card p-0.5">
           <button

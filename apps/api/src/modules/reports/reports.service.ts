@@ -13,7 +13,7 @@ import { inventoryItems, customerDevices } from '../../db/schema/inventory';
 import { serviceComplaintIntakes, serviceTickets, installationJobs } from '../../db/schema/service';
 import { salesOrders, purchaseOrders } from '../../db/schema/orders';
 import { activityTypes, currencies, pipelineStages, inventoryStatuses, paymentStatuses, warrantyStatuses, quoteStatuses } from '../../db/schema/lookup';
-import { companies } from '../../db/schema/companies';
+import { companies, companyAddresses, contacts } from '../../db/schema/companies';
 import { DB } from '../../shared/database/database.module';
 import type { AuthContext } from '../../shared/security/auth.types';
 import { companyVisibilityExistsFilter, companyVisibilityFilter } from '../../shared/utils/company-visibility';
@@ -24,6 +24,53 @@ import {
 } from '../../shared/utils/division-scope';
 import { ForbiddenError } from '../../shared/utils/errors';
 import { amountToUsd, FxService, type FxRates, type FxSnapshot } from '../fx/fx.service';
+
+/**
+ * Serbest tarih aralıklı aktivite + teklif dökümü. "Ekip aktivitesi" sayaç
+ * raporundan farkı: sabit dönem yok, her kayıt tek tek listelenir ve kayıtlar
+ * girildikleri aktivite TÜRÜNE göre gruplanır — haftalık saha raporu bu
+ * kırılımla okunuyor.
+ */
+export type ActivityLogEntry = {
+  id: string;
+  occurredAt: string;
+  companyName: string | null;
+  contactName: string | null;
+  subject: string;
+  note: string | null;
+  /** Fırsata bağlı mı; rapor fırsat içi/dışı ayırmadan hepsini listeler. */
+  inOpportunity: boolean;
+};
+
+export type ActivityLogQuoteRow = {
+  id: string;
+  documentNo: string;
+  quoteDate: string;
+  userName: string;
+  companyName: string | null;
+  province: string | null;
+  district: string | null;
+  productName: string;
+  quantity: number;
+  unitPrice: number;
+  discountAmount: number;
+  /** Satır iskontosu düşülmüş net tutar (KDV hariç). */
+  lineTotal: number;
+  currency: string;
+};
+
+export type ActivityLogReport = {
+  range: { from: string; to: string };
+  users: Array<{
+    userId: string;
+    userName: string;
+    activityCount: number;
+    quoteCount: number;
+    quoteTotals: Array<{ currency: string; amount: number }>;
+    groups: Array<{ typeName: string; entries: ActivityLogEntry[] }>;
+  }>;
+  quotes: ActivityLogQuoteRow[];
+};
 
 export type Granularity = 'weekly' | 'monthly' | 'yearly';
 
@@ -2426,4 +2473,199 @@ export class ReportsService {
       activities: (activities.get(key) ?? 0) + (vTable.get(key) ?? 0) + (cTable.get(key) ?? 0),
     }));
   }
+
+  /**
+   * Serbest aralıklı aktivite + teklif dökümü (haftalık saha raporu).
+   *
+   * `to` GÜN SONU olarak yorumlanır: arayüzden "07.09 – 12.09" seçildiğinde
+   * 12 Eylül'ün tamamı rapora girer. Görünürlük diğer raporlarla aynı:
+   * süper admin dışındaki kullanıcı yalnız kendi kayıtlarını görür.
+   */
+  async activityLog(actor: AuthContext, fromIso: string, toIso: string): Promise<ActivityLogReport> {
+    const from = new Date(`${fromIso}T00:00:00.000`);
+    const to = new Date(`${toIso}T00:00:00.000`);
+    to.setDate(to.getDate() + 1);
+    if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime()) || to <= from) {
+      throw new ForbiddenError('Geçersiz tarih aralığı');
+    }
+
+    const audience = await this.reportAudience(actor);
+    const people = this.canSeeAllUsers(actor) ? audience : audience.filter((u) => u.id === actor.userId);
+    const userIds = people.map((u) => u.id);
+    const emptyReport: ActivityLogReport = {
+      range: { from: from.toISOString(), to: to.toISOString() },
+      users: [],
+      quotes: [],
+    };
+    if (!userIds.length) return emptyReport;
+
+    const visibility = await companyVisibilityFilter(this.db, actor);
+    const portfolio = resourceCompanyPortfolioFilter(actor, 'companies', companies.id);
+    const companyJoin = (companyId: any) =>
+      and(
+        eq(companies.id, companyId),
+        eq(companies.tenantId, actor.tenantId),
+        isNull(companies.deletedAt),
+        visibility,
+        portfolio,
+      );
+
+    const [activityRows, quoteRows] = await Promise.all([
+      this.db
+        .select({
+          id: salesActivities.id,
+          userId: salesActivities.createdBy,
+          typeCode: activityTypes.code,
+          typeName: activityTypes.name,
+          occurredAt: salesActivities.activityDate,
+          subject: salesActivities.subject,
+          note: salesActivities.description,
+          opportunityId: salesActivities.opportunityId,
+          companyName: sql<string | null>`coalesce(${companies.shortName}, ${companies.legalTitle})`,
+          contactName: contacts.fullName,
+        })
+        .from(salesActivities)
+        .leftJoin(activityTypes, eq(activityTypes.id, salesActivities.activityTypeId))
+        .leftJoin(companies, companyJoin(salesActivities.companyId))
+        .leftJoin(contacts, and(eq(contacts.id, salesActivities.contactId), eq(contacts.tenantId, actor.tenantId)))
+        .where(
+          and(
+            eq(salesActivities.tenantId, actor.tenantId),
+            isNull(salesActivities.deletedAt),
+            inArray(salesActivities.createdBy, userIds),
+            gte(salesActivities.activityDate, from),
+            sql`${salesActivities.activityDate} < ${to}`,
+          ),
+        )
+        .orderBy(salesActivities.activityDate),
+      this.db
+        .select({
+          id: quotes.id,
+          userId: quotes.createdBy,
+          documentNo: quotes.documentNo,
+          quoteDate: quotes.quoteDate,
+          companyName: sql<string | null>`coalesce(${companies.shortName}, ${companies.legalTitle})`,
+          province: companyAddresses.province,
+          district: companyAddresses.district,
+          currency: currencies.code,
+          productName: quoteItems.description,
+          quantity: quoteItems.quantity,
+          unitPrice: quoteItems.unitPrice,
+          discountAmount: quoteItems.discountAmount,
+          lineTotal: quoteItems.lineTotal,
+          sortOrder: quoteItems.sortOrder,
+        })
+        .from(quotes)
+        .leftJoin(quoteItems, and(eq(quoteItems.quoteId, quotes.id), isNull(quoteItems.deletedAt)))
+        .leftJoin(companies, companyJoin(quotes.companyId))
+        // Teklifin kendi adresi yoksa firmanın varsayılan adresine düşülür.
+        .leftJoin(
+          companyAddresses,
+          and(
+            eq(companyAddresses.companyId, quotes.companyId),
+            isNull(companyAddresses.deletedAt),
+            sql`${companyAddresses.id} = coalesce(${quotes.companyAddressId}, (
+              select a.id from company_addresses a
+              where a.company_id = ${quotes.companyId} and a.deleted_at is null
+              order by a.is_default desc, a.created_at
+              limit 1
+            ))`,
+          ),
+        )
+        .leftJoin(currencies, eq(currencies.id, quotes.currencyId))
+        .where(
+          and(
+            eq(quotes.tenantId, actor.tenantId),
+            isNull(quotes.deletedAt),
+            inArray(quotes.createdBy, userIds),
+            gte(quotes.quoteDate, from),
+            sql`${quotes.quoteDate} < ${to}`,
+          ),
+        )
+        .orderBy(quotes.quoteDate, quotes.documentNo, quoteItems.sortOrder),
+    ]);
+
+    const userName = (id: string) => people.find((u) => u.id === id)?.fullName
+      ?? people.find((u) => u.id === id)?.email
+      ?? 'Bilinmeyen kullanıcı';
+    const iso = (value: Date | string) => (value instanceof Date ? value : new Date(value)).toISOString();
+    const num = (value: unknown) => Number(value ?? 0) || 0;
+
+    const quoteList: ActivityLogQuoteRow[] = quoteRows
+      .filter((row): row is typeof row & { userId: string } => Boolean(row.userId))
+      .map((row) => ({
+        id: row.id,
+        documentNo: row.documentNo,
+        quoteDate: iso(row.quoteDate),
+        userName: userName(row.userId),
+        companyName: row.companyName ?? null,
+        province: row.province ?? null,
+        district: row.district ?? null,
+        productName: row.productName ?? '—',
+        quantity: num(row.quantity),
+        unitPrice: num(row.unitPrice),
+        discountAmount: num(row.discountAmount),
+        lineTotal: num(row.lineTotal),
+        currency: row.currency ?? 'USD',
+      }));
+
+    // Teklif sayısı BELGE bazlıdır; çok kalemli teklif tek teklif sayılır.
+    const quoteDocsByUser = new Map<string, Set<string>>();
+    const quoteTotalsByUser = new Map<string, Map<string, number>>();
+    for (const row of quoteRows) {
+      if (!row.userId) continue;
+      const docs = quoteDocsByUser.get(row.userId) ?? new Set<string>();
+      docs.add(row.id);
+      quoteDocsByUser.set(row.userId, docs);
+      const totals = quoteTotalsByUser.get(row.userId) ?? new Map<string, number>();
+      const currency = row.currency ?? 'USD';
+      totals.set(currency, (totals.get(currency) ?? 0) + num(row.lineTotal));
+      quoteTotalsByUser.set(row.userId, totals);
+    }
+
+    const groupsByUser = new Map<string, Map<string, ActivityLogEntry[]>>();
+    for (const row of activityRows) {
+      if (!row.userId) continue;
+      const byType = groupsByUser.get(row.userId) ?? new Map<string, ActivityLogEntry[]>();
+      const typeName = row.typeName ?? activityTypeLabel(row.typeCode ?? '') ?? 'Diğer';
+      const entries = byType.get(typeName) ?? [];
+      entries.push({
+        id: row.id,
+        occurredAt: iso(row.occurredAt),
+        companyName: row.companyName ?? null,
+        contactName: row.contactName ?? null,
+        subject: row.subject,
+        note: row.note?.trim() || null,
+        inOpportunity: Boolean(row.opportunityId),
+      });
+      byType.set(typeName, entries);
+      groupsByUser.set(row.userId, byType);
+    }
+
+    const users = people
+      .map((person) => {
+        const byType = groupsByUser.get(person.id);
+        const groups = byType
+          ? [...byType.entries()]
+              .map(([typeName, entries]) => ({ typeName, entries }))
+              .sort((a, b) => b.entries.length - a.entries.length || a.typeName.localeCompare(b.typeName, 'tr'))
+          : [];
+        return {
+          userId: person.id,
+          userName: person.fullName ?? person.email ?? 'Bilinmeyen kullanıcı',
+          activityCount: groups.reduce((sum, group) => sum + group.entries.length, 0),
+          quoteCount: quoteDocsByUser.get(person.id)?.size ?? 0,
+          quoteTotals: [...(quoteTotalsByUser.get(person.id) ?? new Map())]
+            .map(([currency, amount]) => ({ currency, amount })),
+          groups,
+        };
+      })
+      // Hiç kaydı olmayan kullanıcı da listede kalır: "kim teklif vermedi"
+      // sorusunun cevabı raporun kendisi.
+      .sort((a, b) => b.quoteCount - a.quoteCount || b.activityCount - a.activityCount
+        || a.userName.localeCompare(b.userName, 'tr'));
+
+    return { range: { from: from.toISOString(), to: to.toISOString() }, users, quotes: quoteList };
+  }
+
 }

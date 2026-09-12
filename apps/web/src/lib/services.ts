@@ -1276,6 +1276,45 @@ export interface YearEndReport {
   quotesByStatus: Array<{ code: string | null; name: string | null; count: number; totalValue: string; avgValue: string }>;
 }
 
+export type ActivityLogEntry = {
+  id: string;
+  occurredAt: string;
+  companyName: string | null;
+  contactName: string | null;
+  subject: string;
+  note: string | null;
+  inOpportunity: boolean;
+};
+
+export type ActivityLogQuoteRow = {
+  id: string;
+  documentNo: string;
+  quoteDate: string;
+  userName: string;
+  companyName: string | null;
+  province: string | null;
+  district: string | null;
+  productName: string;
+  quantity: number;
+  unitPrice: number;
+  discountAmount: number;
+  lineTotal: number;
+  currency: string;
+};
+
+export type ActivityLogReport = {
+  range: { from: string; to: string };
+  users: Array<{
+    userId: string;
+    userName: string;
+    activityCount: number;
+    quoteCount: number;
+    quoteTotals: Array<{ currency: string; amount: number }>;
+    groups: Array<{ typeName: string; entries: ActivityLogEntry[] }>;
+  }>;
+  quotes: ActivityLogQuoteRow[];
+};
+
 export const reportService = {
   weeklyVisits: (params?: Record<string, string>) => api.get<any[]>(`/reports/weekly-visits${qs(params)}`),
   monthlyVisits: (params?: Record<string, string>) => api.get<any[]>(`/reports/monthly-visits${qs(params)}`),
@@ -1309,6 +1348,9 @@ export const reportService = {
     metric?: TeamActivityMetric;
     userId?: string;
   }) => api.get<TeamActivityDetails>(`/reports/team-activity/details${qs(params)}`),
+  /** Haftalık saha raporu: kişi bazlı aktivite dökümü + verilen teklifler. */
+  activityLog: (params: { from: string; to: string }) =>
+    api.get<ActivityLogReport>(`/reports/activity-log${qs(params)}`),
   downloadYearEnd: (year: number) => exportService.yearEnd(year),
 };
 

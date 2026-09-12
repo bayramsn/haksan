@@ -11,6 +11,11 @@ import { rowsToXlsxBuffer, sendXlsx, sheetsToXlsxBuffer } from '../../shared/uti
 import { ReportsService } from './reports.service';
 
 const expiringSchema = z.object({ days: z.coerce.number().int().positive().default(60) });
+/** Aktivite dökümü gün bazlı çalışır; `to` günün tamamını kapsar. */
+const activityLogSchema = z.object({
+  from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+});
 const yearSchema = z.object({
   year: z.coerce.number().int().min(2000).max(2100).default(new Date().getFullYear()),
 });
@@ -380,6 +385,19 @@ export class ReportsController {
     @CurrentUser() u: AuthContext
   ) {
     return this.svc.teamActivityDetails(u, q.period, q.date, q.scope, q.metric, q.userId);
+  }
+
+  /**
+   * Haftalık saha raporu: seçilen aralıkta kişi bazlı aktivite dökümü
+   * (aktivite türüne göre gruplu) ve verilen teklifler.
+   */
+  @RequirePermissions('reports.read', 'companies.read')
+  @Get('activity-log')
+  activityLog(
+    @Query(new ZodValidationPipe(activityLogSchema)) q: z.infer<typeof activityLogSchema>,
+    @CurrentUser() u: AuthContext
+  ) {
+    return this.svc.activityLog(u, q.from, q.to);
   }
 
   @RequirePermissions('reports.read')
