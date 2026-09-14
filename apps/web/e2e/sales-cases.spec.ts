@@ -317,11 +317,9 @@ test("Lead Workspace V2 akışı otomatik atamadan gerekçeli fırsat dönüşü
       await expect(recordDialog.getByRole("tab", { name: goneTab, exact: true })).toHaveCount(0);
     }
 
-    await recordDialog.getByRole("button", { name: "Temas sonucunu kaydet", exact: true }).click();
-    const contactDialog = page.getByRole("dialog", { name: "Temas sonucunu kaydet" });
-    await contactDialog.getByLabel("Kısa not").fill("Karar verici teknik demo ve fiyat çalışması istedi.");
-    await contactDialog.getByRole("button", { name: "Sonucu kaydet" }).click();
-    await expect(contactDialog).toBeHidden();
+    // Ayrı "temas sonucu" akışı kaldırıldı: temas artık aktivite kaydından
+    // geçiyor, lead kartında ikinci bir kayıt yüzeyi yok.
+    await expect(recordDialog.getByRole("button", { name: "Temas sonucunu kaydet", exact: true })).toHaveCount(0);
 
     await recordDialog.getByLabel("İhtiyaç özeti").fill("Yeni kapasite yatırımı için otomasyonlu işleme merkezi gerekiyor.");
     await recordDialog.getByRole("combobox", { name: "Karar verici" }).click();
