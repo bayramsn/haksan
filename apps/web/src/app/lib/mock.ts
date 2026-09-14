@@ -463,6 +463,8 @@ export type SalesCase = {
   lostCompetitorProductModel?: string;
   /** WIN/kazanılan fırsat kapatılırken seçilen gerekçe. */
   wonReason?: string;
+  /** WIN anında satılan (onaylanmış) tekliflerin makineleri. */
+  wonProductName?: string;
   createdAt: string;
   closedAt?: string;
 };

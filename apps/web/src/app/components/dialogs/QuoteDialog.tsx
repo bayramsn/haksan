@@ -1068,8 +1068,13 @@ export function QuoteDialog({
   const totalDiscountPercent = discountPercent(totals.subtotal, totals.discount);
   const discountNeedsApproval = requiresDiscountApproval(totals.subtotal, totals.discount);
 
-  const submit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  /**
+   * `another`: teklif kaydedildikten sonra pencere kapanmaz; form sıfırlanır ama
+   * firma, ilgili kişi, bölüm ve fırsat bağı korunur. Aynı fırsata ikinci/üçüncü
+   * teklifi sayfa değiştirmeden açmanın yolu budur.
+   */
+  const submit = async (e: React.FormEvent | null, opts?: { another?: boolean }) => {
+    e?.preventDefault();
     if (!companyId) return toast.error("Firma seçiniz");
     if (!companyDetailsDirty && companyAddresses.length > 0 && !companyAddressId) return toast.error("PDF'de kullanılacak adresi seçiniz");
     if (num(validityDays) < 1) return toast.error("Geçerlilik süresini giriniz");
@@ -1212,6 +1217,19 @@ export function QuoteDialog({
           items,
         });
         toast.success("Teklif kaydedildi", { description: res.documentNo });
+        if (opts?.another) {
+          // Kart seçilmeden kaydedildiyse sunucu fırsatı kendi açar; sonraki
+          // teklif de o karta bağlansın diye dönen kimlik geri yazılır.
+          const keep = { companyId, companyAddressId, contactId, divisionId, caseId: res.opportunityId };
+          reset();
+          setCompanyId(keep.companyId);
+          setCompanyAddressId(keep.companyAddressId);
+          setContactId(keep.contactId);
+          setDivisionId(keep.divisionId);
+          setCaseId(keep.caseId);
+          setCompanyDetailsDirty(false);
+          return;
+        }
       }
       setOpen(false);
     } catch (err: any) {
@@ -1340,6 +1358,17 @@ export function QuoteDialog({
                 </div>
                 <DialogFooter className="sm:flex-col-reverse">
                   <Button type="button" variant="outline" className="w-full" onClick={() => setOpen(false)}>Vazgeç</Button>
+                  {!editing && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      disabled={saving || loadingEdit}
+                      className="w-full gap-1"
+                      onClick={() => void submit(null, { another: true })}
+                    >
+                      <Plus className="size-4" /> Kaydet ve Aynı Karta Yeni Teklif
+                    </Button>
+                  )}
                   <Button type="submit" disabled={saving || loadingEdit} className="w-full gap-1">
                     <Save className="size-4" />
                     {saving ? (editing ? "Güncelleniyor…" : "Kaydediliyor…") : editing ? "Teklifi Güncelle" : "Teklifi Kaydet"}

@@ -1030,6 +1030,13 @@
       "when": 1792608000000,
       "tag": "0147_drop_product_production_year",
       "breakpoints": true
+    },
+    {
+      "idx": 148,
+      "version": "7",
+      "when": 1792694400000,
+      "tag": "0148_opportunity_won_product",
+      "breakpoints": true
     }
   ]
 }

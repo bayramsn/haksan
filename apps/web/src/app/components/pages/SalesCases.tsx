@@ -657,7 +657,8 @@ export function SalesCasesPage({
                           )}
                           {s.qualificationStage === "win" && (
                             <div className="mt-1 max-w-[280px] text-xs text-muted-foreground">
-                              <div className="font-medium text-success">{s.wonReason || "Kapanış nedeni belirtilmedi"}</div>
+                              <div className="font-medium text-success">{s.wonProductName || "Satılan makine kaydı yok"}</div>
+                              <div>{s.wonReason || "Kapanış nedeni belirtilmedi"}</div>
                             </div>
                           )}
                         </TableCell>

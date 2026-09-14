@@ -520,7 +520,7 @@ export function ProcessChecklistPanel({
             }
             if (check.key === "quote" && opportunityOffers.length > 0) {
               return (
-                <li key={check.key} className="sm:col-span-2">
+                <li key={check.key} id="opportunity-quote-list" className="scroll-mt-24 sm:col-span-2">
                   <div className="overflow-hidden rounded-lg border border-primary/20 bg-background shadow-xs">
                     <div className="flex min-h-11 items-center gap-2 px-3 py-2">
                       <CheckCircle2 className="size-4 shrink-0 text-success" aria-hidden="true" />

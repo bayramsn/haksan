@@ -180,6 +180,9 @@ export const opportunities = pgTable(
     paymentTerms: text('payment_terms'),
     // Kazanılan fırsatlarda kabul/kazanma nedeni (yıl sonu raporu için).
     wonReason: varchar('won_reason', { length: 255 }),
+    // WIN anında satılan (onaylanmış) tekliflerin makineleri; teklif sonradan
+    // revize edilse de kayıt bozulmasın diye snapshot. `lostProductName` ikizi.
+    wonProductName: varchar('won_product_name', { length: 512 }),
     // Mantıksal kapanış (arşiv) — `deletedAt` (silme) DEĞİL. Terminal aşamadaki
     // (delivered/cancelled) fırsat "Bitir" ile kapatılınca dolar: aktif panodan
     // düşer ama kayıt; rapor/geçmiş/servis erişimi için DB'de kalır. "Geri Aç" ile sıfırlanır.

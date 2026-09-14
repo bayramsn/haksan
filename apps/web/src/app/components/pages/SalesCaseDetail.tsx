@@ -451,6 +451,9 @@ export function SalesCaseDetailPage({
   const [closeSaving, setCloseSaving] = useState(false);
   const [closeReason, setCloseReason] = useState("");
   const [selectedOfferId, setSelectedOfferId] = useState<string | null>(null);
+  // Kontrollü sekme: Radix aktif olmayan sekmeyi unmount ettiği için teklif
+  // listesine yönlendirmenin önce sekmeyi açması gerekiyor.
+  const [workspaceTab, setWorkspaceTab] = useState("timeline");
   const [editingActivity, setEditingActivity] = useState<Activity | null>(null);
   const [activityForm, setActivityForm] = useState({ type: "", title: "", note: "", result: "", date: "" });
   const [salesOrders, setSalesOrders] = useState<any[]>([]);
@@ -676,11 +679,35 @@ export function SalesCaseDetailPage({
       return;
     }
     if (actionKey === "approve_quote") {
-      const candidate = offs.find((offer) => offer.status !== "Approved") ?? offs[0];
-      if (candidate) {
-        await runQuoteAction(candidate.id, "approve");
+      // Fırsatta birden çok teklif yaşayabilir ve yalnız SATILAN teklif onaylanır.
+      // Hangisinin satıldığını CRM tahmin edemez: tek aday varsa onu onaylar,
+      // birden çok adayda kullanıcıyı teklif listesine yollar.
+      const candidates = offs.filter(
+        (offer) => offer.status !== "Approved" && offer.status !== "Rejected" && offer.status !== "Cancelled",
+      );
+      if (candidates.length === 1) {
+        await runQuoteAction(candidates[0].id, "approve");
         return;
       }
+      setWorkspaceTab("offers");
+      // Sekme içeriği bu render'da mount olur; kaydırma bir kare sonra.
+      requestAnimationFrame(() =>
+        focusWorkspaceTarget(
+          // Sade deneyimde sekmeler yok; teklif listesi görev panelinde yaşıyor.
+          document.getElementById("opportunity-quote-list") ?? document.getElementById("opportunity-quotes"),
+          { focus: false },
+        ),
+      );
+      toast.message(
+        candidates.length ? "Satılan teklifi seçin" : "Onaylanacak teklif yok",
+        {
+          description: candidates.length
+            ? "Fırsatta birden çok açık teklif var. Satılan teklifi listeden açıp Onayla deyin."
+            : "Önce teklif oluşturup gönderin.",
+        },
+      );
+      setRequestedProcessAction(null);
+      return;
     }
     if (actionKey === "complete_shipment") {
       setRequestedProcessAction("create_shipment");
@@ -940,7 +967,12 @@ export function SalesCaseDetailPage({
         </div>
       )}
       {sc.isLost && <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-xs"><div className="font-semibold text-red-900">Kaybedilme detayı</div><div className="mt-1 text-red-800">{sc.lostReason || sc.lostReasonCode || "Neden belirtilmedi"}{sc.competitor ? ` · ${sc.competitor}` : ""}</div></div>}
-      {sc.qualificationStage === "win" && sc.wonReason && <div className="rounded-lg border border-success/25 bg-success-soft p-3 text-xs"><div className="font-semibold text-success">Kapanış nedeni</div><div className="mt-1 text-foreground">{sc.wonReason}</div></div>}
+      {sc.qualificationStage === "win" && (sc.wonProductName || sc.wonReason) && (
+        <div className="rounded-lg border border-success/25 bg-success-soft p-3 text-xs">
+          {sc.wonProductName && <><div className="font-semibold text-success">Satılan makineler</div><div className="mt-1 text-foreground">{sc.wonProductName}</div></>}
+          {sc.wonReason && <><div className={`font-semibold text-success${sc.wonProductName ? " mt-2" : ""}`}>Kapanış nedeni</div><div className="mt-1 text-foreground">{sc.wonReason}</div></>}
+        </div>
+      )}
       <div className="grid gap-2">
         {canCloseOpportunity && <Button type="button" variant="outline" className="min-h-11 justify-start gap-2 border-emerald-200 text-emerald-700" onClick={() => setCloseOpen(true)} disabled={closeSaving}><CheckCircle2 className="size-4" /> Fırsatı kapat</Button>}
         {canMarkLost && <Button type="button" variant="outline" className="min-h-11 justify-start gap-2 border-red-200 text-red-700" onClick={() => setLostOpen(true)}><XCircle className="size-4" /> Fırsatı Kapat</Button>}
@@ -1310,11 +1342,21 @@ export function SalesCaseDetailPage({
                 </div>
               </DialogSidebarSection>
             )}
-            {sc.qualificationStage === "win" && sc.wonReason && (
+            {sc.qualificationStage === "win" && (sc.wonProductName || sc.wonReason) && (
               <DialogSidebarSection title="Kapanış Detayı">
-                <div className="rounded-lg border border-success/20 bg-success-soft/45 p-3 text-xs">
-                  <div className="text-[9px] font-semibold uppercase tracking-wide text-muted-foreground">Kazanma / kapatma nedeni</div>
-                  <div className="mt-1 whitespace-pre-wrap font-medium leading-5">{sc.wonReason}</div>
+                <div className="space-y-2 rounded-lg border border-success/20 bg-success-soft/45 p-3 text-xs">
+                  {sc.wonProductName && (
+                    <div>
+                      <div className="text-[9px] font-semibold uppercase tracking-wide text-muted-foreground">Satılan makineler</div>
+                      <div className="mt-1 whitespace-pre-wrap font-medium leading-5">{sc.wonProductName}</div>
+                    </div>
+                  )}
+                  {sc.wonReason && (
+                    <div>
+                      <div className="text-[9px] font-semibold uppercase tracking-wide text-muted-foreground">Kazanma / kapatma nedeni</div>
+                      <div className="mt-1 whitespace-pre-wrap font-medium leading-5">{sc.wonReason}</div>
+                    </div>
+                  )}
                 </div>
               </DialogSidebarSection>
             )}
@@ -1649,7 +1691,7 @@ export function SalesCaseDetailPage({
         </Card>
       )}
 
-      <Tabs defaultValue="timeline">
+      <Tabs value={workspaceTab} onValueChange={setWorkspaceTab}>
         <TabsList className="h-auto w-full justify-start gap-1 overflow-x-auto rounded-none border-b border-border bg-transparent p-0">
           <TabsTrigger value="timeline" className="flex-none rounded-none border-0 border-b-2 border-transparent px-3 py-2 text-[13px] data-[state=active]:border-b-primary data-[state=active]:bg-transparent data-[state=active]:text-primary data-[state=active]:shadow-none">Zaman Çizelgesi</TabsTrigger>
           <TabsTrigger value="offers" className="flex-none rounded-none border-0 border-b-2 border-transparent px-3 py-2 text-[13px] data-[state=active]:border-b-primary data-[state=active]:bg-transparent data-[state=active]:text-primary data-[state=active]:shadow-none">Teklifler ({offs.length + externalQuotes.length})</TabsTrigger>
@@ -1737,7 +1779,7 @@ export function SalesCaseDetailPage({
         </TabsContent>
 
         <TabsContent value="offers" className="mt-4">
-          <Card>
+          <Card id="opportunity-quotes" className="scroll-mt-24">
             <CardHeader className="flex flex-row items-center justify-between">
               <CardTitle>Teklifler</CardTitle>
               <div className="flex flex-wrap items-center justify-end gap-2">
