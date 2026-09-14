@@ -32,7 +32,7 @@ import {
 import { MiniKpi } from "../shared/MiniKpi";
 import { EmptyState } from "../shared/EmptyState";
 import { EntityVisual } from "../shared/PremiumPrimitives";
-import { ViewToggle, type ListView } from "../ui/list-controls";
+import { FilterPopover, ViewToggle, type ListView } from "../ui/list-controls";
 import { usePersistentState } from "../../lib/persist";
 
 type Stage = "Stokta" | "Rezerve" | "Sevkiyatta" | "Kuruldu" | "Servis" | "Hizmet Dışı";
@@ -172,6 +172,10 @@ export function ProductsPage({ initialQuery }: { initialQuery?: string }) {
   const [q, setQ] = useState("");
   const [cat, setCat] = useState<string>("all");
   const [series, setSeries] = useState<string>("all");
+  // Ürün taksonomisi filtresi: grup → kategori → alt kategori → tip.
+  // Ürün kartındaki dört alanın aynısı; firmalar sayfasındaki Filtre düğmesiyle
+  // aynı bileşende toplanır.
+  const [taxonomy, setTaxonomy] = useState({ group: "all", category: "all", subcategory: "all", type: "all" });
   const [selected, setSelected] = useState<Product | null>(null);
   const [editing, setEditing] = useState<Product | null>(null);
   const [deleting, setDeleting] = useState<Product | null>(null);
@@ -189,6 +193,7 @@ export function ProductsPage({ initialQuery }: { initialQuery?: string }) {
   useEffect(() => {
     setSeries("all");
   }, [cat]);
+
 
   // Servis departmanı katalogda yalnızca yedek parça ve işçilik kalemlerini
   // görür; tezgah/aksesuar gibi satış kalemleri gizlenir. Yöneticiler hepsini görür.
@@ -219,12 +224,44 @@ export function ProductsPage({ initialQuery }: { initialQuery?: string }) {
   }, [products, serviceScope, divisionGroupCode]);
 
   const productSubtitle = (p: Product) => [p.type, p.subcategory].filter(Boolean).join(" · ");
-  const categories = useMemo(
-    () => Array.from(new Set(visibleProducts.map(productFamilyLabel))).filter(Boolean),
-    [visibleProducts]
-  );
 
-  const categoryFiltered = visibleProducts.filter((p) => cat === "all" || productFamilyLabel(p) === cat);
+  /**
+   * Taksonomi filtresinin seçenekleri, ÜSTTEKİ filtrelerden geçmiş ürünlerden
+   * türetilir: grup seçilince yalnız o gruptaki kategoriler, kategori seçilince
+   * yalnız oradaki alt kategoriler listelenir. Böylece sonuç vermeyecek bir
+   * kombinasyon kurulamaz.
+   */
+  const taxonomyMatches = (p: Product, upTo: 0 | 1 | 2 | 3 | 4) =>
+    (upTo < 1 || taxonomy.group === "all" || (p.productGroup ?? "") === taxonomy.group) &&
+    (upTo < 2 || taxonomy.category === "all" || (p.category ?? "") === taxonomy.category) &&
+    (upTo < 3 || taxonomy.subcategory === "all" || (p.subcategory ?? "") === taxonomy.subcategory) &&
+    (upTo < 4 || taxonomy.type === "all" || (p.type ?? "") === taxonomy.type);
+
+  const distinct = (items: Product[], pick: (p: Product) => string | undefined) =>
+    Array.from(new Set(items.map((p) => (pick(p) ?? "").trim()).filter(Boolean)))
+      .sort((a, b) => a.localeCompare(b, "tr"))
+      .map((value) => ({ value, label: value }));
+
+  const taxonomyFilters = [
+    { label: "Ürün Grubu", value: taxonomy.group, onChange: (v: string) => setTaxonomy((t) => ({ ...t, group: v })),
+      options: distinct(visibleProducts, (p) => p.productGroup) },
+    { label: "Ürün Kategorisi", value: taxonomy.category, onChange: (v: string) => setTaxonomy((t) => ({ ...t, category: v })),
+      options: distinct(visibleProducts.filter((p) => taxonomyMatches(p, 1)), (p) => p.category) },
+    { label: "Ürün Alt Kategorisi", value: taxonomy.subcategory, onChange: (v: string) => setTaxonomy((t) => ({ ...t, subcategory: v })),
+      options: distinct(visibleProducts.filter((p) => taxonomyMatches(p, 2)), (p) => p.subcategory) },
+    { label: "Ürün Tipi", value: taxonomy.type, onChange: (v: string) => setTaxonomy((t) => ({ ...t, type: v })),
+      options: distinct(visibleProducts.filter((p) => taxonomyMatches(p, 3)), (p) => p.type) },
+  ];
+
+  const taxonomyFiltered = visibleProducts.filter((p) => taxonomyMatches(p, 4));
+  const categories = Array.from(new Set(taxonomyFiltered.map(productFamilyLabel))).filter(Boolean);
+
+  // Taksonomi daraldığında seçili aile sekmesi listede kalmayabilir; boş ekran
+  // yerine "Tümü"ye dönülür.
+  useEffect(() => {
+    if (cat !== "all" && !categories.includes(cat)) setCat("all");
+  }, [cat, categories]);
+  const categoryFiltered = taxonomyFiltered.filter((p) => cat === "all" || productFamilyLabel(p) === cat);
   const seriesOptions = useMemo(
     () => Array.from(new Set(categoryFiltered.map(productSeriesLabel))).filter(Boolean).sort(seriesSort),
     [categoryFiltered]
@@ -272,7 +309,7 @@ export function ProductsPage({ initialQuery }: { initialQuery?: string }) {
         <MiniKpi
           icon={<Package className="size-4" />}
           label="Toplam Ürün"
-          value={visibleProducts.length}
+          value={taxonomyFiltered.length}
           tone="violet"
           onClick={() => setCat("all")}
           active={cat === "all"}
@@ -287,7 +324,7 @@ export function ProductsPage({ initialQuery }: { initialQuery?: string }) {
         <MiniKpi
           icon={<Layers className="size-4" />}
           label="Seri"
-          value={new Set(visibleProducts.map(productSeriesLabel)).size}
+          value={new Set(taxonomyFiltered.map(productSeriesLabel)).size}
           sub="model serisi"
           tone="amber"
         />
@@ -298,11 +335,11 @@ export function ProductsPage({ initialQuery }: { initialQuery?: string }) {
           <Tabs value={cat} onValueChange={setCat} className="min-w-max">
             <TabsList className="h-10 w-max flex-nowrap bg-muted/60 p-1">
               <TabsTrigger value="all" className="gap-1.5 whitespace-nowrap px-3">
-                Tümü <CountBadge n={visibleProducts.length} />
+                Tümü <CountBadge n={taxonomyFiltered.length} />
               </TabsTrigger>
               {categories.map((c) => (
                 <TabsTrigger key={c} value={c} className="gap-1.5 whitespace-nowrap px-3">
-                  {c} <CountBadge n={visibleProducts.filter((p) => productFamilyLabel(p) === c).length} />
+                  {c} <CountBadge n={taxonomyFiltered.filter((p) => productFamilyLabel(p) === c).length} />
                 </TabsTrigger>
               ))}
             </TabsList>
@@ -320,6 +357,7 @@ export function ProductsPage({ initialQuery }: { initialQuery?: string }) {
             />
           </div>
           <div className="flex shrink-0 items-center gap-2">
+            <FilterPopover filters={taxonomyFilters} contentClassName="w-72" />
             <ViewToggle view={view} onChange={setView} />
             {canCreateProducts && (
               <ProductImportDialog
