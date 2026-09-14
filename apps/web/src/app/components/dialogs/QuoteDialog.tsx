@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger,
 } from "../ui/dialog";
@@ -7,7 +7,7 @@ import { Label } from "../ui/label";
 import { Button } from "../ui/button";
 import { NumberedLinesTextarea } from "../shared/NumberedLinesTextarea";
 import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+  Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue,
 } from "../ui/select";
 import { MultiSelect } from "../ui/multi-select";
 import { useStore } from "../../lib/store";
@@ -970,6 +970,38 @@ export function QuoteDialog({
     [scopedProducts]
   );
 
+  /**
+   * Tezgah satırıyla uyumlu opsiyonel donanımlar (tezgah ürün-id → donanım id'leri).
+   *
+   * Seçici eskiden bölümdeki TÜM opsiyonel donanımları listeliyordu; ECOCA torna
+   * satırında LK Machinery dik işleme merkezine tanımlı donanım da görünüyordu.
+   * Uyumluluk kararı sunucuda (`compatible-optional-equipment`), ürün kartındaki
+   * kuralla aynı yerde veriliyor.
+   */
+  const [compatibleOptionalIds, setCompatibleOptionalIds] = useState<Record<string, string[]>>({});
+  const compatibleRequested = useRef<Set<string>>(new Set());
+  const machineProductIds = useMemo(
+    () => [...new Set(lines.filter((l) => l.categoryCode === "TEZGAH" && l.productId).map((l) => l.productId))].sort().join(","),
+    [lines]
+  );
+
+  useEffect(() => {
+    for (const productId of machineProductIds.split(",").filter(Boolean)) {
+      // Aynı tezgah için tek istek; satır her düzenlendiğinde yeniden sormaz.
+      if (compatibleRequested.current.has(productId)) continue;
+      compatibleRequested.current.add(productId);
+      void productService
+        .compatibleOptionalEquipment(productId)
+        .then((rows: any[]) =>
+          setCompatibleOptionalIds((prev) => ({
+            ...prev,
+            [productId]: (rows ?? []).map((r: any) => r.product?.id ?? r.id).filter(Boolean),
+          }))
+        )
+        .catch(() => setCompatibleOptionalIds((prev) => ({ ...prev, [productId]: [] })));
+    }
+  }, [machineProductIds]);
+
   // Uyumluluk seçimi için kaynak listeler (çoklu seçim)
   const setCompat = (i: number, patch: Partial<LineCompatibility>) =>
     setLines((ls) => ls.map((l, idx) => (idx === i ? { ...l, compatibility: { ...l.compatibility, ...patch } } : l)));
@@ -1842,9 +1874,36 @@ export function QuoteDialog({
                               <SelectTrigger className="h-8"><SelectValue placeholder="Opsiyonel donanım ürünü / serbest" /></SelectTrigger>
                               <SelectContent>
                                 <SelectItem value="custom">Serbest opsiyon</SelectItem>
-                                {optionalProducts.map((p: Product) => (
-                                  <SelectItem key={p.id} value={p.id}>{p.brand} {p.model}</SelectItem>
-                                ))}
+                                {(() => {
+                                  // Uyumlu liste henüz gelmediyse (null) hepsi tek grupta kalır;
+                                  // geldiğinde uyumlular üste çıkar, kalanlar erişilebilir durur
+                                  // — uyumluluk tanımı eksik bir donanım seçilemez hâle gelmesin.
+                                  const compatIds = compatibleOptionalIds[l.productId];
+                                  const compatible = compatIds ? optionalProducts.filter((p: Product) => compatIds.includes(p.id)) : [];
+                                  const others = compatIds
+                                    ? optionalProducts.filter((p: Product) => !compatIds.includes(p.id))
+                                    : optionalProducts;
+                                  return (
+                                    <>
+                                      {compatible.length > 0 && (
+                                        <SelectGroup>
+                                          <SelectLabel>Bu tezgahla uyumlu</SelectLabel>
+                                          {compatible.map((p: Product) => (
+                                            <SelectItem key={p.id} value={p.id}>{p.brand} {p.model}</SelectItem>
+                                          ))}
+                                        </SelectGroup>
+                                      )}
+                                      {others.length > 0 && (
+                                        <SelectGroup>
+                                          <SelectLabel>{compatible.length ? "Diğer donanımlar" : "Opsiyonel donanımlar"}</SelectLabel>
+                                          {others.map((p: Product) => (
+                                            <SelectItem key={p.id} value={p.id}>{p.brand} {p.model}</SelectItem>
+                                          ))}
+                                        </SelectGroup>
+                                      )}
+                                    </>
+                                  );
+                                })()}
                               </SelectContent>
                             </Select>
                             <Button
