@@ -188,11 +188,16 @@ export function OpportunityProcessCenter({
     }
     setAdvancing(true);
     try {
-      await opportunityService.changeQualificationStage(salesCase.id, {
+      const updated = await opportunityService.changeQualificationStage(salesCase.id, {
         toStage: nextTarget.code as any,
       });
+      // WIN'de asıl haber hangi makinenin satıldığıdır; sunucu satılan (onaylanmış)
+      // tekliflerden türetip snapshot'lar, burada aynen gösterilir.
       toast.success("Satış alanı ilerletildi", {
-        description: `${stageLabel(nextTarget.code)} alanına geçildi`,
+        description:
+          nextTarget.code === "win" && updated?.wonProductName
+            ? `WIN · Satılan makineler: ${updated.wonProductName}`
+            : `${stageLabel(nextTarget.code)} alanına geçildi`,
       });
       await onRefresh();
       await load();

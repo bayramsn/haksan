@@ -238,6 +238,7 @@ const mapCase = (o: any, isOfferPrepared: boolean): SalesCase =>
     competitor: o.lostCompetitor?.name ?? o.lostCompetitorName ?? undefined,
     lostCompetitorProductModel: o.lostCompetitorProductModel ?? undefined,
     wonReason: o.wonReason ?? undefined,
+    wonProductName: o.wonProductName ?? undefined,
     createdAt: (o.createdAt as string)?.slice(0, 10) ?? '',
     closedAt: o.closedAt ? (o.closedAt as string).slice(0, 10) : undefined,
   }) as SalesCase;

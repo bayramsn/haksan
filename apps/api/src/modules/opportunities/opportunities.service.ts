@@ -28,7 +28,8 @@ import {
 } from '../../db/schema/companies';
 import { roles, userDivisions, userRoles, users } from '../../db/schema/users';
 import { auditLogs } from '../../db/schema/audit';
-import { quotes, proformas } from '../../db/schema/quotes';
+import { quotes, quoteItems, proformas } from '../../db/schema/quotes';
+import { productModels } from '../../db/schema/products';
 import { inventoryItems, inventoryMovements, customerDevices } from '../../db/schema/inventory';
 import { installationJobs, shipments } from '../../db/schema/service';
 import { divisions } from '../../db/schema/tenants';
@@ -642,6 +643,76 @@ export class OpportunitiesService {
     };
   }
 
+  /**
+   * Fırsatta SATILAN makineler. Bir fırsatta birden çok teklif yaşayabilir;
+   * satılan teklif onaylanmış olandır (`quotes.approvedAt`). Biri bile satılmışsa
+   * fırsat kazanılmıştır, hiçbiri satılmamışsa kaybedilmiştir.
+   *
+   * Opsiyon satırları ("↳ Opsiyon: …") makine değildir — teklif listesindeki
+   * `productName` türetmesiyle aynı kural.
+   */
+  private async soldMachineNames(opportunityId: string, actor: AuthContext): Promise<string[]> {
+    const rows = await this.db
+      .select({ description: quoteItems.description, productName: productModels.fullName })
+      .from(quoteItems)
+      .innerJoin(quotes, eq(quoteItems.quoteId, quotes.id))
+      .leftJoin(productModels, eq(quoteItems.productModelId, productModels.id))
+      .where(
+        and(
+          eq(quotes.tenantId, actor.tenantId),
+          eq(quotes.opportunityId, opportunityId),
+          isNotNull(quotes.approvedAt),
+          isNull(quotes.deletedAt),
+          isNull(quoteItems.deletedAt)
+        )
+      )
+      .orderBy(asc(quotes.quoteDate), asc(quoteItems.sortOrder));
+
+    const names: string[] = [];
+    for (const row of rows) {
+      const description = row.description.trim();
+      if (description.startsWith('↳ Opsiyon:')) continue;
+      const name = row.productName?.trim() || description;
+      if (name && !names.includes(name)) names.push(name);
+    }
+    return names;
+  }
+
+  /**
+   * `wonProductName`'in yaşam döngüsü TEK yerde. Derece WIN'e giriyorsa satılan
+   * makineler dondurulur (satılmış teklif yoksa geçiş reddedilir); WIN dışına
+   * çıkıyorsa kayıt düşer.
+   *
+   * `qualificationStage`'i yazan her yol buradan geçmeli: derece değişimi, geri
+   * açma ve operasyon rayının derece senkronu. Kural yalnız birine konursa kart
+   * öbür yoldan makinesiz WIN'e ulaşır.
+   */
+  private async applyWinSnapshot(
+    patch: Record<string, unknown>,
+    toStage: QualificationStageCode,
+    opportunityId: string,
+    actor: AuthContext
+  ) {
+    if (toStage !== 'win') {
+      patch.wonProductName = null;
+      return;
+    }
+    const sold = await this.soldMachineNames(opportunityId, actor);
+    if (!sold.length) {
+      throw new ValidationError('WIN için fırsattaki tekliflerden en az biri satılmış (onaylanmış) olmalıdır', {
+        field: 'toStage',
+      });
+    }
+    // Kolon 512 karakter: sığmayan makineler sayıyla özetlenir, ad ortadan kesilmez.
+    let shown = sold;
+    let text = shown.join(' · ');
+    while (text.length > 512 && shown.length > 1) {
+      shown = shown.slice(0, -1);
+      text = `${shown.join(' · ')} · +${sold.length - shown.length} makine`;
+    }
+    patch.wonProductName = text.slice(0, 512);
+  }
+
   private async processEvidence(opportunityId: string, actor: AuthContext): Promise<ProcessEvidence> {
     const [
       quoteRows,
@@ -918,7 +989,7 @@ export class OpportunitiesService {
         'b'
       ),
       check('quote', 'Teklif oluşturuldu', evidence.hasQuote, 'create_quote', 'quote', 'b'),
-      check('quote_approved', 'Teklif onaylandı', evidence.hasApprovedQuote, 'approve_quote', 'proforma', 'a'),
+      check('quote_approved', 'Teklif satıldı (onaylandı)', evidence.hasApprovedQuote, 'approve_quote', 'proforma', 'a'),
       check('proforma', 'Proforma oluşturuldu', evidence.hasProforma, 'create_proforma', 'proforma', 'a'),
       check('contract', 'Sözleşme oluşturuldu', evidence.hasContract, 'create_contract', 'contract', 'a'),
       check(
@@ -3794,6 +3865,7 @@ export class OpportunitiesService {
           || input.lostCompetitorName?.trim()
           || null,
         lostUnmetConditions: input.lostUnmetConditions?.trim() || input.note?.trim() || null,
+        wonProductName: null,
         statusId: lostStatus?.id ?? opp.statusId,
         // LOST terminal karardır: kart aynı işlemde aktif panodan Geçmiş'e düşer.
         closedAt: now,
@@ -3872,6 +3944,7 @@ export class OpportunitiesService {
         updatedAt: new Date(),
         updatedBy: actor.userId,
       };
+      await this.applyWinSnapshot(patch, toStage, opp.id, actor);
       if (toStage === 'win') {
         const wonStatus = await this.db.query.opportunityStatuses.findFirst({
           where: eq(opportunityStatuses.code, 'won'),
@@ -4212,6 +4285,11 @@ export class OpportunitiesService {
       reopenedStatusId = reopenedStatus?.id ?? null;
     }
 
+    // Geri açma da dereceyi yazar (LOST öncesi WIN'e dönebilir); satılan makine
+    // kaydı burada da kurulur ya da düşer.
+    const reopenWinPatch: Record<string, unknown> = {};
+    if (reopenedStage) await this.applyWinSnapshot(reopenWinPatch, reopenedStage, id, actor);
+
     const now = new Date();
     const reopenedStageLabel = reopenedStage === 'a_plus' ? 'A+' : reopenedStage?.toUpperCase();
     const reopenReason = reopeningLost
@@ -4225,6 +4303,7 @@ export class OpportunitiesService {
           closedBy: null,
           ...(reopenedStage
             ? {
+                ...reopenWinPatch,
                 qualificationStage: reopenedStage,
                 qualificationNote: reopeningLost ? opp.qualificationNote : reopenReason,
                 qualificationUpdatedAt: now,
@@ -4456,7 +4535,10 @@ export class OpportunitiesService {
         // 'cancelled' statüsü eski tenant'ta yoksa kayıt statüsüz kalmasın.
         ?? (await this.db.query.opportunityStatuses.findFirst({ where: eq(opportunityStatuses.code, 'lost') }));
       if (status) patch.statusId = status.id;
-      if (!cancelledOutcome) patch.qualificationStage = 'lost';
+      if (!cancelledOutcome) {
+        patch.qualificationStage = 'lost';
+        patch.wonProductName = null;
+      }
       if (input.changeReason?.trim()) patch.qualificationNote = input.changeReason.trim();
       const now = new Date();
       patch.qualificationUpdatedAt = now;
@@ -4575,6 +4657,9 @@ export class OpportunitiesService {
     if (syncedQualification) {
       patch.qualificationStage = syncedQualification;
       patch.qualificationUpdatedAt = new Date();
+      // Teslim edildi → WIN de bir kazanma yoludur: kapı ve satılan makine
+      // kaydı burada da işler, yoksa kart makinesiz WIN görünür.
+      await this.applyWinSnapshot(patch, syncedQualification, id, actor);
     }
     if (movingBackward) {
       await this.invalidateApprovals(
