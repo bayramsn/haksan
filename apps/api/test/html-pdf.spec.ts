@@ -20,7 +20,10 @@ describe.skipIf(!chromium)('HtmlPdfService', () => {
     // Metin katmanı Türkçe karakterleri korur; JS kapalı olduğundan içerik değişmez.
     const text = pdf.toString('latin1');
     expect(text).not.toContain('JS');
-  }, 30_000);
+    // CI runner'da Chromium'un SOĞUK başlatması tek başına 30 sn'yi aşabiliyor
+    // ve bu süre render bütçesinin (15 sn) dışında. 30 sn sınırdayken koşu
+    // yeşil/kırmızı arasında gidip geldi ve yayını iki kez durdurdu.
+  }, 120_000);
 
   it('Chromium yoksa anlaşılır hata verir', () => {
     expect(HtmlPdfService.CHROMIUM_CANDIDATES.length).toBeGreaterThan(0);

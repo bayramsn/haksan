@@ -31,6 +31,7 @@ import {
 } from '../../db/schema/lookup';
 import { productTypeCodeVariants } from '../admin/technical-import.service';
 import { DB } from '../../shared/database/database.module';
+import { matchesOptionalCompatibility } from './optional-compatibility';
 import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from '../../shared/utils/errors';
 import type { AuthContext } from '../../shared/security/auth.types';
 import type {
@@ -1175,13 +1176,7 @@ export class ProductsService {
       if (row.product.compatibleMachineTypeId && row.product.compatibleMachineTypeId === machine.productTypeId) return true;
       const compatibility = compatibilities.get(row.product.id);
       if (!compatibility) return false;
-      return compatibility.rows.some((item) =>
-        (item.productGroupId && item.productGroupId === machine.productGroupId) ||
-        (item.categoryId && item.categoryId === machine.categoryId) ||
-        (item.subcategoryId && item.subcategoryId === machine.subcategoryId) ||
-        (item.productTypeId && item.productTypeId === machine.productTypeId) ||
-        (item.brandId && item.brandId === machine.brandId)
-      );
+      return matchesOptionalCompatibility(compatibility.rows, machine);
     });
   }
 

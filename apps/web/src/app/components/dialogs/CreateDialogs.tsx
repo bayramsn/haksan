@@ -4227,6 +4227,12 @@ export function ProductDialog({
 
             {isOptionalEquipmentProduct && (
               <>
+                <ProductSheetRow label="Uyumluluk" className="items-start">
+                  <p className="max-w-md text-xs text-muted-foreground">
+                    Boş bıraktığınız alan kısıt koymaz. Doldurduğunuz alanların <b>hepsi birden</b> sağlanmalıdır;
+                    aynı alanda birden fazla seçim yaparsanız bunlardan <b>biri</b> yeterlidir.
+                  </p>
+                </ProductSheetRow>
                 <ProductSheetRow label="Uyumlu Ürün Grupları" className="items-start">
                   <MultiSelect
                     options={compatibilityGroupOptions}
