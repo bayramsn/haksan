@@ -94,6 +94,7 @@ type QuoteListFilterQuery = {
   search?: string;
   statusCode?: string;
   companyId?: string;
+  opportunityId?: string;
   businessLine?: BusinessLine;
   from?: Date;
   to?: Date;
@@ -766,6 +767,7 @@ export class QuotesService {
       );
     }
     if (query.companyId) filters.push(eq(quotes.companyId, query.companyId));
+    if (query.opportunityId) filters.push(eq(quotes.opportunityId, query.opportunityId));
     if (query.businessLine) filters.push(eq(quotes.businessLine, query.businessLine));
     if (query.from) filters.push(gte(quotes.quoteDate, query.from));
     if (query.to) filters.push(lte(quotes.quoteDate, query.to));
