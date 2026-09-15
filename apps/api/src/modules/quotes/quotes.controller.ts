@@ -30,6 +30,8 @@ const listQuery = z.object({
   search: z.string().optional(),
   statusCode: z.string().optional(),
   companyId: z.string().optional(),
+  // Fırsata bağlı teklifler: mobil, kartın tekliflerini istemcide süzemiyor.
+  opportunityId: z.string().uuid().optional(),
   businessLine: z.enum(['CNC', 'UNI', 'SACISLE']).optional(),
   from: z.coerce.date().optional(),
   to: z.coerce.date().optional(),

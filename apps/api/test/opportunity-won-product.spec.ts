@@ -104,6 +104,14 @@ describe('WIN satılan tekliften türer', () => {
     expect(move.body.wonProductName).toBe(soldMachine);
   });
 
+  it('narrows the quote list to one opportunity', async () => {
+    const list = await supertest(app.getHttpServer())
+      .get(`/api/v1/quotes?opportunityId=${opportunityId}&pageSize=50`)
+      .set('Authorization', `Bearer ${token}`);
+    expect(list.status, JSON.stringify(list.body)).toBe(200);
+    expect(list.body.data.map((row: { id: string }) => row.id)).toEqual([quoteId]);
+  });
+
   it('drops the sold machine snapshot when the card leaves WIN', async () => {
     const move = await supertest(app.getHttpServer())
       .patch(`/api/v1/opportunities/${opportunityId}/qualification-stage`)
