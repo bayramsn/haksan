@@ -55,6 +55,16 @@ describe('Mail compose', () => {
     expect(parsed.success).toBe(true);
   });
 
+  it('rapor ekini kabul eder, yol ayracı taşıyan dosya adını reddeder', () => {
+    const base = { to: 'yonetici@example.com', subject: 'Hedef Gerçekleşme Raporu', body: 'Ekte.' };
+    const withReport = (filename: string) =>
+      mailSendSchema.safeParse({ ...base, reportDocument: { html: '<main>rapor</main>', filename } }).success;
+    expect(withReport('hedef-gerceklesme-2026-09.pdf')).toBe(true);
+    // Dosya adı sunucuda ek adı olarak kullanılıyor: yol ayracı ve yanlış uzantı geçmemeli.
+    expect(withReport('../../etc/passwd.pdf')).toBe(false);
+    expect(withReport('rapor.html')).toBe(false);
+  });
+
   it('alıcı seçicisi ekip listesini döner', async () => {
     const response = await request(app.getHttpServer())
       .get('/api/v1/mail/recipients')

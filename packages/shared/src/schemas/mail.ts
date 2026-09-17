@@ -55,6 +55,16 @@ export const mailSendSchema = z
         filename: z.string().trim().min(1).max(200).regex(/^[^\\/\u0000-\u001f]+\.pdf$/i, 'Dosya adı yol ayracı içeremez ve .pdf ile bitmeli'),
       })
       .optional(),
+    /**
+     * Rapor ekranının "Yazdır / PDF Kaydet" belgesi (görseller gömülü HTML). Verilirse
+     * ek PDF bundan üretilir; `reports.export` yetkisi ister ve teklif ekinden bağımsızdır.
+     */
+    reportDocument: z
+      .object({
+        html: z.string().min(1).max(8_000_000),
+        filename: z.string().trim().min(1).max(200).regex(/^[^\\/\u0000-\u001f]+\.pdf$/i, 'Dosya adı yol ayracı içeremez ve .pdf ile bitmeli'),
+      })
+      .optional(),
   })
   .strict();
 export type MailSendInput = z.infer<typeof mailSendSchema>;

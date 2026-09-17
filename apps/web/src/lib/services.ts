@@ -1374,7 +1374,8 @@ export const reportService = {
   serviceComplaintsSummary: () => api.get<any>('/reports/service-complaints-summary'),
   yearEnd: (year: number) => api.get<YearEndReport>(`/reports/year-end?year=${year}`),
   operational: (params: OperationalReportParams) => api.get<OperationalReport>(`/reports/operational${qs(params)}`),
-  targetProgress: (params: { period: string; scope?: 'user' | 'department' | 'division' | 'role' | 'all-users'; id?: string }) =>
+  /** `contributors: 'true'` ciro hedefinin arkasındaki faturaları da getirir (ek sorgu). */
+  targetProgress: (params: { period: string; scope?: 'user' | 'department' | 'division' | 'role' | 'all-users'; id?: string; contributors?: 'true' | 'false' }) =>
     api.get<any>(`/reports/target-progress${qs(params)}`),
   myTargetProgress: (params: { period: string }) => api.get<any>(`/reports/my-target-progress${qs(params)}`),
   /**

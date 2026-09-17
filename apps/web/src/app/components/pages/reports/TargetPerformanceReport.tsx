@@ -12,8 +12,9 @@ import { ExportExcelButton } from "../../ui/ExportExcelButton";
 import { reportService } from "../../../../lib/services";
 import { useAuth } from "../../../../lib/auth";
 import { printOrWarn } from "../../../lib/pageHelpers";
-import { esc, haksanHeader, printAssetBase, type PrintDocument } from "../../../lib/print";
-import { AlertTriangle, Building2, CheckCircle2, Clock3, Printer, RefreshCw, Target, UserRound, XCircle } from "lucide-react";
+import { buildMailDocumentHtml, esc, haksanHeader, printAssetBase, type PrintDocument } from "../../../lib/print";
+import { ComposeMailDialog, type MailRecipient } from "../../mail/ComposeMailDialog";
+import { AlertTriangle, Building2, CheckCircle2, Clock3, Mail, Printer, RefreshCw, Target, TrendingUp, UserRound, XCircle } from "lucide-react";
 
 export type TargetStatus = "completed" | "on_track" | "at_risk" | "missed" | "scheduled" | "manual" | "no_target";
 
@@ -30,6 +31,8 @@ export type TargetSubjectRow = {
   };
   hasTarget: boolean;
   note?: string | null;
+  /** Ciro hedefinin arkasındaki en büyük faturalar (API `contributors=true` ile). */
+  topSales?: Array<{ label: string; amount: number; currency: string }>;
   metrics?: Record<string, { target: number | null; actual: number | null; pct: number | null }>;
   targetItems?: Array<{
     activity?: string;
@@ -165,9 +168,46 @@ export function analyzeTargetSubject(row: TargetSubjectRow, expectedPct: number,
 const formatNumber = (value: number) => value.toLocaleString("tr-TR", { maximumFractionDigits: 0 });
 const formatGoal = (value: number | string | null, unit: "USD" | "adet") =>
   typeof value === "number" ? `${formatNumber(value)}${unit === "USD" ? " USD" : ""}` : String(value ?? "");
-/** "6 / 10 (%60)" ya da "41.200 / 60.000 USD (%69)". */
-export const metricLineText = (line: MetricLine) =>
-  `${formatNumber(line.actual)} / ${formatNumber(line.target)}${line.unit === "USD" ? " USD" : ""} (%${line.pct})`;
+/** Küçük sayılarda ondalık gösterilir: "0,3/gün" ile "1.446/gün" aynı kalıpta. */
+const formatPace = (value: number) => value.toLocaleString("tr-TR", { maximumFractionDigits: value < 10 ? 1 : 0 });
+
+/**
+ * "6 / 10 (%60) · 4 eksik · 0,3/gün". Yüzde tek başına küçük hedeflerde yanıltır
+ * (2/3 = %67 ama eksik 1 adet); kalan gün verilirse gereken günlük tempo da eklenir.
+ */
+export const metricLineText = (line: MetricLine, daysLeft = 0) => {
+  const base = `${formatNumber(line.actual)} / ${formatNumber(line.target)}${line.unit === "USD" ? " USD" : ""} (%${line.pct})`;
+  const missing = line.target - line.actual;
+  if (missing <= 0) return base;
+  const pace = daysLeft > 0 ? ` · ${formatPace(missing / daysLeft)}/gün` : "";
+  return `${base} · ${formatNumber(missing)} eksik${pace}`;
+};
+
+/** Ölçütleri etiketine göre toplar: ekip/departman geneli tek satırda okunur. */
+export function sumMetrics(lists: MetricLine[][]): MetricLine[] {
+  const totals = new Map<string, MetricLine>();
+  for (const line of lists.flat()) {
+    const existing = totals.get(line.label);
+    if (existing) {
+      existing.target += line.target;
+      existing.actual += line.actual;
+    } else {
+      totals.set(line.label, { ...line });
+    }
+  }
+  return [...totals.values()].map((line) => ({ ...line, pct: line.target > 0 ? Math.round((line.actual / line.target) * 100) : 0 }));
+}
+
+/** Dönemin bitmesine kalan gün: geçmiş dönemde 0, gelecekte ayın tamamı. */
+export function daysLeftInPeriod(period: string, now = new Date()): number {
+  const [year, month] = period.split("-").map(Number);
+  if (!Number.isFinite(year) || !Number.isFinite(month)) return 0;
+  const lastDay = new Date(year, month, 0).getDate();
+  const current = currentMonth(now);
+  if (period < current) return 0;
+  if (period > current) return lastDay;
+  return Math.max(0, lastDay - now.getDate() + 1);
+}
 
 const TARGET_STATUS_META: Record<TargetStatus, { label: string; className: string; icon: typeof Target }> = {
   completed: { label: "Tamamlandı", className: "border-emerald-200 bg-emerald-50 text-emerald-700", icon: CheckCircle2 },
@@ -214,6 +254,20 @@ function TargetProgressCell({ value, expected, previous }: { value: number | nul
 /** Geçen dönemle kıyas: "%62 → %71 ▲". Geçen dönem ölçülemediyse boş. */
 const trendArrow = (current: number, previous: number) => (current > previous ? `▲ %${previous}'den` : current < previous ? `▼ %${previous}'den` : "= geçen ay");
 
+/** Seçili dönemin yılında ocaktan o aya kadarki aylar: YTD ve trend bundan çıkar. */
+export function monthsOfYearUpTo(period: string): string[] {
+  const [year, month] = period.split("-").map(Number);
+  if (!Number.isFinite(year) || !Number.isFinite(month)) return [];
+  return Array.from({ length: Math.min(12, Math.max(1, month)) }, (_, index) => `${year}-${String(index + 1).padStart(2, "0")}`);
+}
+
+/** "2026-03" → "Mar". */
+export const shortMonthLabel = (period: string) => {
+  const [year, month] = period.split("-").map(Number);
+  if (!Number.isFinite(year) || !Number.isFinite(month)) return period;
+  return new Intl.DateTimeFormat("tr-TR", { month: "short" }).format(new Date(year, month - 1, 1));
+};
+
 /** Bir önceki ay: 2026-01 → 2025-12. */
 export const previousPeriod = (period: string) => {
   const [year, month] = period.split("-").map(Number);
@@ -222,6 +276,9 @@ export const previousPeriod = (period: string) => {
 };
 
 type PersonRow = { row: TargetSubjectRow; analysis: SubjectAnalysis; previousPct: number | null; rank: number | null };
+
+/** Tek ayın kullanıcı bazlı sonucu; trend ve YTD bu aylardan türetilir. */
+type TrendMonth = { period: string; pct: Map<string, number | null>; metrics: Map<string, MetricLine[]> };
 
 type DepartmentSummary = {
   row: TargetSubjectRow;
@@ -298,6 +355,12 @@ export type TargetPrintPerson = {
   metrics: MetricLine[];
   manual: ManualLine[];
   note: string | null;
+  /** Yıl başından beri aylık gerçekleşme yüzdeleri; trend yüklenmediyse boş. */
+  trend?: (number | null)[];
+  /** Yıl başından bugüne kümülatif ölçütler; aylık hedefi kaçırıp yıllığı tutturanı gösterir. */
+  ytdMetrics?: MetricLine[];
+  /** Ciro rakamının arkasındaki en büyük faturalar. */
+  topSales?: Array<{ label: string; amount: number; currency: string }>;
 };
 
 export type TargetPrintDepartment = {
@@ -321,6 +384,16 @@ export type TargetPrintInput = {
   averagePct: number | null;
   previousAveragePct: number | null;
   targetedPeople: number;
+  /** Dönemin bitmesine kalan gün; günlük tempo ve özet cümleleri bundan çıkar. */
+  daysLeft: number;
+  /** Kapsamdaki herkesin ölçüt toplamı (süzgeçten bağımsız). */
+  teamMetrics: MetricLine[];
+  /** Bu ay hedefi hiç girilmemiş kişiler; eksik yönetim işi belgede görünsün. */
+  noTargetNames: string[];
+  /** Tek kişilik çıktı: ekip kutuları ve karşılaştırma basılmaz. */
+  focusPersonName?: string | null;
+  /** Trend sütunlarının ay etiketleri; boşsa trend sütunu basılmaz. */
+  trendPeriods: string[];
   completedCount: number;
   riskCount: number;
   missedCount: number;
@@ -356,10 +429,29 @@ export function targetPerformancePrintDoc(input: TargetPrintInput): PrintDocumen
   };
   const metricList = (lines: MetricLine[]) =>
     lines.length
-      ? `<ul class="metrics">${lines.map((line) => `<li><span class="${line.pct >= 100 ? "ok" : line.pct + 10 < input.expectedPct ? "risk" : ""}">${esc(line.label)}</span> ${esc(metricLineText(line))}</li>`).join("")}</ul>`
+      ? `<ul class="metrics">${lines.map((line) => `<li><span class="${line.pct >= 100 ? "ok" : line.pct + 10 < input.expectedPct ? "risk" : ""}">${esc(line.label)}</span> ${esc(metricLineText(line, input.daysLeft))}</li>`).join("")}</ul>`
       : `<span class="muted">—</span>`;
   const manualList = (lines: ManualLine[]) =>
     lines.length ? `<ul class="metrics manual">${lines.map((line) => `<li>${esc(line.label)}: ${esc(line.target)}</li>`).join("")}</ul>` : `<span class="muted">—</span>`;
+
+  // Aylık gerçekleşmenin mini sütun grafiği; yükseklik yüzdeye orantılı.
+  const hasTrend = input.trendPeriods.length > 0;
+  const sparkline = (values: (number | null)[] | undefined) =>
+    values?.length
+      ? `<div class="spark">${values.map((value, index) => value == null
+          ? `<span class="spark-bar empty" title="${esc(input.trendPeriods[index] ?? "")}"></span>`
+          : `<span class="spark-bar${value >= 100 ? " ok" : value + 10 < input.expectedPct ? " risk" : ""}" style="height:${Math.max(6, Math.min(100, value))}%"></span>`).join("")}</div>
+        <div class="spark-axis muted">${input.trendPeriods.map((period) => `<span>${esc(shortMonthLabel(period))}</span>`).join("")}</div>`
+      : `<span class="muted">—</span>`;
+  /** Ciro satırının altında onu oluşturan faturalar: toplantıda konuşulacak kayıt. */
+  const salesBreakdown = (rows: TargetPrintPerson["topSales"]) =>
+    rows?.length
+      ? `<div class="contributors"><b>Ciroyu oluşturan:</b> ${rows.map((row) => esc(`${row.label} — ${formatNumber(row.amount)}${row.currency ? ` ${row.currency}` : ""}`)).join(" · ")}</div>`
+      : "";
+  const ytdLine = (lines: MetricLine[] | undefined) =>
+    lines?.length
+      ? `<div class="ytd"><b>Yıl başından bugüne:</b> ${lines.map((line) => esc(`${line.label} ${metricLineText(line)}`)).join(" · ")}</div>`
+      : "";
 
   const personRows = (people: TargetPrintPerson[]) =>
     people.map((row) => `
@@ -367,13 +459,14 @@ export function targetPerformancePrintDoc(input: TargetPrintInput): PrintDocumen
         <td class="num rank">${row.rank == null ? "—" : row.rank}</td>
         <td><b>${esc(row.name)}</b>${row.departments ? `<div class="muted small">${esc(row.departments)}</div>` : ""}${row.note ? `<div class="note">${esc(row.note)}</div>` : ""}</td>
         <td><div class="pct">${esc(reportPct(row.completionPct))} ${trend(row.completionPct, row.previousPct)}</div>${bar(row.completionPct, input.expectedPct)}</td>
-        <td>${metricList(row.metrics)}</td>
+        ${hasTrend ? `<td>${sparkline(row.trend)}</td>` : ""}
+        <td>${metricList(row.metrics)}${salesBreakdown(row.topSales)}${ytdLine(row.ytdMetrics)}</td>
         <td>${manualList(row.manual)}</td>
         <td><span class="status ${statusClass(row.status)}">${esc(statusLabel(row.status))}</span></td>
       </tr>`).join("");
   const personTable = (people: TargetPrintPerson[]) =>
     `<table class="report-table people">
-      <thead><tr><th style="width:5%">#</th><th style="width:20%">Kullanıcı</th><th style="width:17%">İlerleme</th><th style="width:28%">Ölçütler (gerçekleşen / hedef)</th><th style="width:17%">Manuel hedefler</th><th style="width:13%">Durum</th></tr></thead>
+      <thead><tr><th style="width:5%">#</th><th style="width:${hasTrend ? 17 : 20}%">Kullanıcı</th><th style="width:15%">İlerleme</th>${hasTrend ? `<th style="width:13%">Aylık seyir</th>` : ""}<th style="width:${hasTrend ? 24 : 28}%">Ölçütler (gerçekleşen / hedef)</th><th style="width:${hasTrend ? 15 : 17}%">Manuel hedefler</th><th style="width:11%">Durum</th></tr></thead>
       <tbody>${personRows(people)}</tbody>
     </table>`;
 
@@ -408,13 +501,64 @@ export function targetPerformancePrintDoc(input: TargetPrintInput): PrintDocumen
   // temposuna uyan kişi bu kutuda görünmez.
   const bottom = ranked.filter((p) => p.status === "at_risk" || p.status === "missed").slice(-3).reverse();
 
+  // Ekip geneli ölçüt tablosu: hangi faaliyetin bütün ekipte aksadığı tek bakışta.
+  const teamMetricTable = input.teamMetrics.length
+    ? `<table class="report-table team-metrics">
+        <thead><tr><th style="width:34%">Ölçüt</th><th class="num">Gerçekleşen</th><th class="num">Hedef</th><th class="num">Eksik</th><th style="width:22%">İlerleme</th><th class="num" style="width:10%">%</th></tr></thead>
+        <tbody>${input.teamMetrics.map((line) => {
+          const missing = Math.max(0, line.target - line.actual);
+          const suffix = line.unit === "USD" ? " USD" : "";
+          return `<tr>
+            <td><b>${esc(line.label)}</b></td>
+            <td class="num">${esc(formatNumber(line.actual) + suffix)}</td>
+            <td class="num">${esc(formatNumber(line.target) + suffix)}</td>
+            <td class="num">${missing > 0 ? esc(formatNumber(missing) + suffix + (input.daysLeft > 0 ? ` · ${formatPace(missing / input.daysLeft)}/gün` : "")) : "—"}</td>
+            <td>${bar(line.pct, input.expectedPct)}</td>
+            <td class="num">%${line.pct}</td>
+          </tr>`;
+        }).join("")}</tbody>
+      </table>`
+    : "";
+
+  // Yatay çubuk karşılaştırma: departmanlar, sonra ölçülebilir hedefi olan kişiler.
+  const chartRow = (label: string, value: number, strong: boolean, note: string) =>
+    `<div class="chart-row${strong ? " strong" : ""}"><span class="chart-label">${esc(label)}</span>${bar(value, input.expectedPct)}<span class="chart-value">%${value}</span><span class="chart-note muted small">${esc(note)}</span></div>`;
+  const chart = [
+    ...input.departments
+      .filter((d) => d.completionPct != null)
+      .sort((a, b) => (b.completionPct ?? 0) - (a.completionPct ?? 0))
+      .map((d) => chartRow(d.name, d.completionPct ?? 0, true, `${d.memberCount} üye`)),
+    ...ranked.map((p) => chartRow(p.name, p.completionPct ?? 0, false, p.departments || "Departmansız")),
+  ].join("");
+
+  const worstDepartment = [...input.departments]
+    .filter((d) => d.completionPct != null)
+    .sort((a, b) => (a.completionPct ?? 0) - (b.completionPct ?? 0))[0];
+  // Kapak özeti: belgeyi okumadan önce bilinmesi gerekenler, veriden türetilir.
+  const executiveSummary = [
+    `Ekip ortalaması ${reportPct(input.averagePct)}${input.previousAveragePct != null ? ` (geçen ay %${input.previousAveragePct})` : ""}; dönemin beklenen temposu %${input.expectedPct}.`,
+    input.daysLeft > 0 ? `Dönemin bitmesine ${input.daysLeft} gün var.` : "Dönem kapandı; rakamlar kesinleşti.",
+    worstDepartment && worstDepartment.completionPct != null && worstDepartment.completionPct < input.expectedPct
+      ? `En geride kalan departman ${worstDepartment.name} (%${worstDepartment.completionPct}).`
+      : null,
+    input.riskCount || input.missedCount
+      ? `${input.riskCount} kişi riskte, ${input.missedCount} kişi hedefini tutturamadı.`
+      : "Riskte ya da hedefini kaçırmış kullanıcı yok.",
+    input.noTargetNames.length ? `${input.noTargetNames.length} kişiye bu dönem hedef girilmemiş.` : null,
+  ].filter(Boolean) as string[];
+
   const currencyNote = input.currencyNormalization
     ? `Parasal gerçekleşmeler ${input.currencyNormalization.base} bazında; kur tarihi ${input.currencyNormalization.rateDate}${input.currencyNormalization.unsupportedCurrencies.length ? `; çevrilemeyen: ${input.currencyNormalization.unsupportedCurrencies.join(", ")}` : ""}.`
     : "Parasal gerçekleşmeler USD bazında raporlanır.";
-  const scope = [
-    input.filter === "all" ? "Tüm kullanıcılar" : "Eksik ve riskli kullanıcılar",
-    input.departmentFilterName ? `Departman: ${input.departmentFilterName}` : null,
-  ].filter(Boolean).join(" · ");
+  const scope = input.focusPersonName
+    ? `Kişi: ${input.focusPersonName}`
+    : [
+        input.filter === "all" ? "Tüm kullanıcılar" : "Eksik ve riskli kullanıcılar",
+        input.departmentFilterName ? `Departman: ${input.departmentFilterName}` : null,
+      ].filter(Boolean).join(" · ");
+  // Tek kişilik çıktıda ekip kutuları (öne çıkanlar, karşılaştırma, ekip ölçütleri)
+  // anlamsız; belge o kişinin sayfası olur.
+  const team = !input.focusPersonName;
 
   return {
     // Tarayıcı "PDF olarak kaydet" dosya adını pencere başlığından alır; yanındaki
@@ -439,6 +583,25 @@ export function targetPerformancePrintDoc(input: TargetPrintInput): PrintDocumen
       .highlight { border:1px solid #d9deea; padding:2.5mm 3mm; font-size:8pt; }
       .highlight-title { font-weight:700; color:#000c69; margin-bottom:1.5mm; }
       .highlight ol { padding-left:5mm; } .highlight li { margin:1mm 0; }
+      .digest { margin-bottom:4mm; border:1px solid #d9deea; border-left:3px solid #000c69; padding:2.5mm 3mm; font-size:8.5pt; }
+      .digest h3 { color:#000c69; font-size:9pt; margin-bottom:1.5mm; }
+      .digest ul { padding-left:5mm; } .digest li { margin:0.8mm 0; }
+      .no-target { margin-top:2mm; padding:1.5mm 2mm; background:#fffbe6; border-left:2px solid #e7c168; font-size:8pt; color:#5b4a0c; }
+      .team-metrics td { font-size:8pt; }
+      .spark { display:flex; align-items:flex-end; gap:0.6mm; height:8mm; }
+      .spark-bar { flex:1; background:#000c69; border-radius:0.5mm 0.5mm 0 0; min-height:0.4mm; }
+      .spark-bar.ok { background:#12633a; } .spark-bar.risk { background:#c98a12; }
+      .spark-bar.empty { height:0.6mm; background:#cbd5e1; }
+      .spark-axis { display:flex; gap:0.6mm; font-size:5.5pt; margin-top:0.4mm; }
+      .spark-axis span { flex:1; text-align:center; }
+      .ytd { margin-top:1mm; padding-top:1mm; border-top:1px dotted #cbd5e1; font-size:7pt; color:#475569; }
+      .contributors { margin-top:1mm; font-size:7pt; color:#475569; }
+      .chart { break-inside: avoid; page-break-inside: avoid; border:1px solid #d9deea; padding:2.5mm 3mm; font-size:8pt; }
+      .chart-row { display:grid; grid-template-columns:38mm 1fr 10mm 30mm; align-items:center; gap:2mm; padding:0.6mm 0; }
+      .chart-row.strong .chart-label { font-weight:700; color:#000c69; }
+      .chart-label { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+      .chart-value { text-align:right; font-variant-numeric:tabular-nums; font-weight:700; }
+      .chart-note { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
       h2 { margin:5mm 0 2mm; color:#000c69; font-size:11pt; }
       .dept-block { break-inside: avoid; page-break-inside: avoid; margin-bottom:5mm; border:1px solid #d9deea; }
       .dept-head { display:flex; justify-content:space-between; gap:6mm; padding:2.5mm 3mm; background:#f4f6fb; border-bottom:1px solid #d9deea; }
@@ -487,11 +650,18 @@ export function targetPerformancePrintDoc(input: TargetPrintInput): PrintDocumen
           <div class="summary-item"><div class="summary-label">Tamamlanmadı</div><div class="summary-value">${input.missedCount}</div></div>
           <div class="summary-item"><div class="summary-label">Ortalama gerçekleşme</div><div class="summary-value">${esc(reportPct(input.averagePct))} ${trend(input.averagePct, input.previousAveragePct)}</div></div>
         </section>
-        <div class="pulse"><span>Dönem temposu: beklenen <b>%${input.expectedPct}</b></span><span>Gerçekleşen ekip ortalaması <b>${esc(reportPct(input.averagePct))}</b>${input.previousAveragePct != null ? ` · geçen ay <b>%${input.previousAveragePct}</b>` : ""}</span></div>
-        <section class="highlights">
+        <div class="pulse"><span>Dönem temposu: beklenen <b>%${input.expectedPct}</b>${input.daysLeft > 0 ? ` · kalan <b>${input.daysLeft} gün</b>` : ""}</span><span>Gerçekleşen ekip ortalaması <b>${esc(reportPct(input.averagePct))}</b>${input.previousAveragePct != null ? ` · geçen ay <b>%${input.previousAveragePct}</b>` : ""}</span></div>
+        <section class="digest avoid-break">
+          <h3>Yönetici özeti</h3>
+          <ul>${executiveSummary.map((line) => `<li>${esc(line)}</li>`).join("")}</ul>
+          ${input.noTargetNames.length ? `<div class="no-target"><b>Hedef girilmemiş (${input.noTargetNames.length}):</b> ${esc(input.noTargetNames.join(", "))}</div>` : ""}
+        </section>
+        ${team ? `<section class="highlights">
           ${highlight(top, input.filter === "all" ? "En iyi 3" : "Listedeki en iyi 3", "Ölçülebilir hedef yok.")}
           ${highlight(bottom, "En riskli 3", "Riskli kullanıcı yok.")}
-        </section>
+        </section>` : ""}
+        ${team && teamMetricTable ? `<h2>Ekip geneli ölçütler</h2>${teamMetricTable}` : ""}
+        ${team && chart ? `<h2>Gerçekleşme karşılaştırması</h2><section class="chart">${chart}</section>` : ""}
         <h2>Departman bazlı durum</h2>
         ${departmentBlocks || `<div class="empty">Departman kaydı bulunmuyor.</div>`}
         ${input.unassigned.length ? `<section class="dept-block"><div class="dept-head"><div><div class="dept-name">Departmansız</div><div class="muted small">${input.unassigned.length} kullanıcı</div></div></div>${personTable(input.unassigned)}</section>` : ""}
@@ -529,6 +699,9 @@ export function TargetPerformanceReport() {
   const [refreshKey, setRefreshKey] = useState(0);
   const [lastUpdatedAt, setLastUpdatedAt] = useState<Date | null>(null);
   const [currencyNormalization, setCurrencyNormalization] = useState<CurrencyNormalization | null>(null);
+  // Trend/YTD ayrı istek başına bir ay demek; otomatik değil, istenince yüklenir.
+  const [trendMonths, setTrendMonths] = useState<TrendMonth[]>([]);
+  const [trendState, setTrendState] = useState<"idle" | "loading" | "ready" | "error">("idle");
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -539,7 +712,7 @@ export function TargetPerformanceReport() {
     // Departman kapsamı yalnız yöneticilere açık (API `assertScopeAllowed` 403 atar).
     // O istek düşerse departman bloğu boş kalır, kişi bazlı rapor yine gösterilir.
     Promise.allSettled([
-      reportService.targetProgress({ period, scope: "all-users" }),
+      reportService.targetProgress({ period, scope: "all-users", contributors: "true" }),
       reportService.targetProgress({ period, scope: "department" }),
     ])
       .then(([usersResult, departmentsResult]) => {
@@ -597,6 +770,45 @@ export function TargetPerformanceReport() {
     return () => window.clearInterval(timer);
   }, []);
 
+  // Dönem (ve yıl) değişince eski yılın seyri geçersiz.
+  useEffect(() => {
+    setTrendMonths([]);
+    setTrendState("idle");
+  }, [period]);
+
+  /**
+   * Ocaktan seçili aya kadar her ayı sırayla çeker. Uç ağır olduğu için
+   * paralel atılmaz ve kendiliğinden başlamaz — kullanıcı düğmeye basar.
+   */
+  const loadTrend = async () => {
+    setTrendState("loading");
+    const collected: TrendMonth[] = [];
+    try {
+      for (const month of monthsOfYearUpTo(period)) {
+        const response = await reportService.targetProgress({ period: month, scope: "all-users" });
+        const rows: TargetSubjectRow[] = Array.isArray(response?.subjects) ? response.subjects : [];
+        const pct = new Map<string, number | null>();
+        const metrics = new Map<string, MetricLine[]>();
+        for (const row of rows) {
+          const analysis = analyzeTargetSubject(row, 100, month);
+          pct.set(row.subject.id, analysis.completionPct);
+          metrics.set(row.subject.id, analysis.metrics);
+        }
+        collected.push({ period: month, pct, metrics });
+      }
+      setTrendMonths(collected);
+      setTrendState("ready");
+    } catch {
+      setTrendState("error");
+    }
+  };
+
+  // Seyir sütununda son 6 ay gösterilir; YTD yılın tamamından toplanır.
+  const trendWindow = trendMonths.slice(-6);
+  const trendPeriods = trendWindow.map((month) => month.period);
+  const personTrend = (userId: string) => trendWindow.map((month) => month.pct.get(userId) ?? null);
+  const personYtd = (userId: string) => sumMetrics(trendMonths.map((month) => month.metrics.get(userId) ?? []));
+
   const previousPctByUser = useMemo(() => {
     const map = new Map<string, number | null>();
     if (previous) for (const row of previous.users) map.set(row.subject.id, analyzeTargetSubject(row, 100, previous.period).completionPct);
@@ -635,6 +847,11 @@ export function TargetPerformanceReport() {
     return measurable.length ? Math.round(measurable.reduce((sum, item) => sum + (item.analysis.completionPct ?? 0), 0) / measurable.length) : null;
   };
   const averagePct = average(scopedPeople);
+  const daysLeft = daysLeftInPeriod(period);
+  // Ekip geneli ölçütler ve hedefsizler süzgeçten bağımsız: "eksik/riskli" görünümünde
+  // de ekibin tamamının tablosu basılır, yoksa rakam eksik kalır.
+  const teamMetrics = useMemo(() => sumMetrics(scopedPeople.map((p) => p.analysis.metrics)), [scopedPeople]);
+  const noTargetNames = scopedPeople.filter(({ analysis }) => analysis.status === "no_target").map((p) => p.row.subject.name);
   // Kıyas yalnız iki ayda da ölçülebilen kişilerden hesaplanır; yoksa hedefi
   // henüz girilmemiş bir ay, geçen aya göre düşüş gibi görünür.
   const comparable = scopedPeople.filter((p) => p.analysis.completionPct != null && p.previousPct != null);
@@ -653,10 +870,17 @@ export function TargetPerformanceReport() {
     metrics: analysis.metrics,
     manual: analysis.manual,
     note: row.note?.trim() || null,
+    trend: trendMonths.length ? personTrend(row.subject.id) : undefined,
+    ytdMetrics: trendMonths.length ? personYtd(row.subject.id) : undefined,
+    topSales: row.subject.kind === "user" ? row.topSales : undefined,
   });
 
-  const handlePrintReport = () => {
-    const visibleIds = new Set(visiblePeople.map((p) => p.row.subject.id));
+  const [mailRecipient, setMailRecipient] = useState<MailRecipient | null>(null);
+
+  /** `focus` verilirse belge tek kişinin sayfasına daralır (birebir görüşme çıktısı). */
+  const buildReportDoc = (focus?: PersonRow) => {
+    const printedPeople = focus ? [focus] : visiblePeople;
+    const visibleIds = new Set(printedPeople.map((p) => p.row.subject.id));
     const assigned = new Set<string>();
     const printDepartments: TargetPrintDepartment[] = visibleDepartments
       // Üyesi ve hedefi olmayan departman kâğıtta boş blok olarak yer kaplamasın.
@@ -676,8 +900,10 @@ export function TargetPerformanceReport() {
         note: dept.row.note?.trim() || null,
         members: members.map(toPrintPerson),
       };
-    });
-    printOrWarn(targetPerformancePrintDoc({
+    })
+      // Tek kişilik çıktıda o kişinin geçmediği departman bloğu basılmaz.
+      .filter((dept) => !focus || dept.members.length > 0);
+    return targetPerformancePrintDoc({
       period,
       filter,
       departmentFilterName: departmentFilter === ALL ? null : departments.find((d) => d.row.subject.id === departmentFilter)?.row.subject.name ?? null,
@@ -685,19 +911,42 @@ export function TargetPerformanceReport() {
       averagePct,
       previousAveragePct,
       targetedPeople: targetedPeople.length,
+      daysLeft,
+      teamMetrics,
+      noTargetNames,
+      focusPersonName: focus?.row.subject.name ?? null,
+      trendPeriods,
       completedCount,
       riskCount,
       missedCount,
       currencyNormalization,
       departments: printDepartments,
-      unassigned: visiblePeople.filter((p) => !assigned.has(p.row.subject.id)).map(toPrintPerson),
+      unassigned: printedPeople.filter((p) => !assigned.has(p.row.subject.id)).map(toPrintPerson),
       preparedBy: user?.fullName ?? null,
       assetBase: printAssetBase(),
-    }));
+    });
+  };
+
+  const handlePrintReport = (focus?: PersonRow) => printOrWarn(buildReportDoc(focus));
+
+  /** Aynı belge mail eki olarak: istemci HTML'i üretir, sunucu Chromium ile PDF'e çevirir. */
+  const handleMailReport = () => {
+    const periodLabel = new Intl.DateTimeFormat("tr-TR", { month: "long", year: "numeric" }).format(new Date(`${period}-01T00:00:00`));
+    setMailRecipient({
+      email: "",
+      subject: `Hedef Gerçekleşme Raporu — ${periodLabel}`,
+      body: `Merhaba,\n\n${periodLabel} dönemi hedef gerçekleşme raporunu ekte bilgilerinize sunarım.\n\nSaygılarımla,`,
+      attachmentLabel: `hedef-gerceklesme-${period}`,
+      reportDocument: async () => {
+        const doc = buildReportDoc();
+        return { html: await buildMailDocumentHtml(doc), filename: `${doc.title}.pdf` };
+      },
+    });
   };
 
   return (
     <div className="crm-page">
+      <ComposeMailDialog recipient={mailRecipient} onOpenChange={(open) => !open && setMailRecipient(null)} />
       <Card className="overflow-hidden border-border/60 shadow-sm">
         <CardHeader className="flex flex-col gap-3 border-b border-border/60 bg-muted/15 sm:flex-row sm:items-center sm:justify-between">
           <div>
@@ -714,14 +963,31 @@ export function TargetPerformanceReport() {
               className="h-9 bg-white"
             />
             {hasPermission("reports.export") && (
-              <Button type="button" variant="outline" size="sm" className="h-9 gap-1.5 bg-white" onClick={handlePrintReport} disabled={loading || refreshing || Boolean(error)}>
+              <Button type="button" variant="outline" size="sm" className="h-9 gap-1.5 bg-white" onClick={() => handlePrintReport()} disabled={loading || refreshing || Boolean(error)}>
                 <Printer className="size-4" /> Yazdır / PDF
+              </Button>
+            )}
+            {hasPermission("reports.export") && (
+              <Button type="button" variant="outline" size="sm" className="h-9 gap-1.5 bg-white" onClick={handleMailReport} disabled={loading || refreshing || Boolean(error)}>
+                <Mail className="size-4" /> E-posta Gönder
               </Button>
             )}
             <div className="inline-flex h-9 items-center gap-2 rounded-md border border-border bg-white px-2.5 text-[11px] text-muted-foreground">
               <span className={`size-2 rounded-full ${refreshing ? "animate-pulse bg-amber-500" : "bg-emerald-500"}`} />
               {refreshing ? "Kayıtlar taranıyor" : lastUpdatedAt ? `${lastUpdatedAt.toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" })} güncel` : "Canlı takip"}
             </div>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-9 gap-1.5 bg-white"
+              onClick={loadTrend}
+              disabled={loading || trendState === "loading" || Boolean(error)}
+              title="Ocaktan bu aya kadar her ayı tek tek çeker; rapora aylık seyir ve yıl başından bugüne toplam eklenir."
+            >
+              <TrendingUp className={`size-4 ${trendState === "loading" ? "animate-pulse" : ""}`} />
+              {trendState === "loading" ? "Seyir yükleniyor…" : trendState === "ready" ? `Seyir: ${trendMonths.length} ay` : "Aylık seyir + YTD"}
+            </Button>
             <Button type="button" variant="outline" size="icon" className="size-9 bg-white" onClick={() => setRefreshKey((value) => value + 1)} disabled={refreshing} aria-label="Hedef verilerini yenile">
               <RefreshCw className={`size-4 ${refreshing ? "animate-spin" : ""}`} />
             </Button>
@@ -826,11 +1092,13 @@ export function TargetPerformanceReport() {
             </CardHeader>
             <div className="overflow-x-auto">
               <Table>
-                <TableHeader><TableRow className="bg-muted/30"><TableHead>#</TableHead><TableHead>Kullanıcı</TableHead><TableHead>Departman</TableHead><TableHead>İlerleme</TableHead><TableHead>Ölçütler</TableHead><TableHead>Manuel</TableHead><TableHead>Durum</TableHead></TableRow></TableHeader>
+                <TableHeader><TableRow className="bg-muted/30"><TableHead>#</TableHead><TableHead>Kullanıcı</TableHead><TableHead>Departman</TableHead><TableHead>İlerleme</TableHead><TableHead>Ölçütler</TableHead><TableHead>Manuel</TableHead>{trendPeriods.length > 0 && <TableHead>Aylık Seyir</TableHead>}<TableHead>Durum</TableHead><TableHead className="w-10" /></TableRow></TableHeader>
                 <TableBody>
                   {visiblePeople.length === 0 ? (
-                    <TableRow><TableCell colSpan={7} className="py-10 text-center text-sm text-muted-foreground">Bu filtrede eksik veya riskli hedef bulunmuyor.</TableCell></TableRow>
-                  ) : visiblePeople.map(({ row, analysis, previousPct, rank }) => (
+                    <TableRow><TableCell colSpan={trendPeriods.length > 0 ? 9 : 8} className="py-10 text-center text-sm text-muted-foreground">Bu filtrede eksik veya riskli hedef bulunmuyor.</TableCell></TableRow>
+                  ) : visiblePeople.map((person) => {
+                    const { row, analysis, previousPct, rank } = person;
+                    return (
                     <TableRow key={row.subject.id}>
                       <TableCell className="tabular-nums text-muted-foreground">{rank ?? "—"}</TableCell>
                       <TableCell>
@@ -841,15 +1109,26 @@ export function TargetPerformanceReport() {
                         {row.subject.departmentNames?.length ? row.subject.departmentNames.join(", ") : row.subject.departmentName || "—"}
                       </TableCell>
                       <TableCell><TargetProgressCell value={analysis.completionPct} expected={expectedPct} previous={previousPct} /></TableCell>
-                      <TableCell><MetricLines lines={analysis.metrics} expected={expectedPct} /></TableCell>
+                      <TableCell><MetricLines lines={analysis.metrics} expected={expectedPct} daysLeft={daysLeft} /></TableCell>
                       <TableCell>
                         {analysis.manual.length ? (
                           <div className="max-w-[220px] text-xs leading-relaxed text-muted-foreground">{analysis.manual.map((m) => `${m.label}: ${m.target}`).join(" · ")}</div>
                         ) : <span className="text-xs text-muted-foreground">—</span>}
                       </TableCell>
+                      {trendPeriods.length > 0 && (
+                        <TableCell><Sparkline values={personTrend(row.subject.id)} periods={trendPeriods} expected={expectedPct} /></TableCell>
+                      )}
                       <TableCell><TargetStatusBadge status={analysis.status} /></TableCell>
+                      <TableCell>
+                        {hasPermission("reports.export") && (
+                          <Button type="button" variant="ghost" size="icon" className="size-8" onClick={() => handlePrintReport(person)} aria-label={`${row.subject.name} için tek sayfalık rapor`} title="Bu kişinin sayfasını yazdır">
+                            <Printer className="size-4" />
+                          </Button>
+                        )}
+                      </TableCell>
                     </TableRow>
-                  ))}
+                    );
+                  })}
                 </TableBody>
               </Table>
             </div>
@@ -860,17 +1139,39 @@ export function TargetPerformanceReport() {
   );
 }
 
-function MetricLines({ lines, expected = 0 }: { lines: MetricLine[]; expected?: number }) {
+function MetricLines({ lines, expected = 0, daysLeft = 0 }: { lines: MetricLine[]; expected?: number; daysLeft?: number }) {
   if (!lines.length) return <span className="text-xs text-muted-foreground">—</span>;
   return (
     <ul className="max-w-[300px] space-y-0.5 text-xs leading-relaxed">
       {lines.map((line, index) => (
         <li key={`${line.label}-${index}`}>
           <span className={`font-medium ${line.pct >= 100 ? "text-emerald-700" : line.pct + 10 < expected ? "text-red-700" : ""}`}>{line.label}</span>{" "}
-          <span className="tabular-nums text-muted-foreground">{metricLineText(line)}</span>
+          <span className="tabular-nums text-muted-foreground">{metricLineText(line, daysLeft)}</span>
         </li>
       ))}
     </ul>
+  );
+}
+
+/** Aylık gerçekleşmenin mini sütun grafiği; yazdırmadaki `.spark` ile aynı okuma. */
+function Sparkline({ values, periods, expected }: { values: (number | null)[]; periods: string[]; expected: number }) {
+  if (!values.length) return <span className="text-xs text-muted-foreground">—</span>;
+  return (
+    <div className="min-w-[90px]">
+      <div className="flex h-8 items-end gap-0.5">
+        {values.map((value, index) => (
+          <div
+            key={periods[index] ?? index}
+            title={`${shortMonthLabel(periods[index] ?? "")}: ${value == null ? "veri yok" : `%${value}`}`}
+            className={`flex-1 rounded-t ${value == null ? "bg-muted" : value >= 100 ? "bg-emerald-500" : value + 10 < expected ? "bg-amber-500" : "bg-primary"}`}
+            style={{ height: value == null ? "3px" : `${Math.max(6, Math.min(100, value))}%` }}
+          />
+        ))}
+      </div>
+      <div className="mt-0.5 flex gap-0.5 text-[9px] text-muted-foreground">
+        {periods.map((period) => <span key={period} className="flex-1 text-center">{shortMonthLabel(period)}</span>)}
+      </div>
+    </div>
   );
 }
 

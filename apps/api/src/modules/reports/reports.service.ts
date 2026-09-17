@@ -1713,7 +1713,68 @@ export class ReportsService {
    * tamamlanan kurulum ücretleri. Rol hedefleri fan-out ile user_targets'a yazıldığından
    * rol kapsamı üyelerin kişisel hedef/fiilî toplamıdır.
    */
-  async targetProgress(actor: AuthContext, period: string, scope: TargetProgressScope) {
+  /**
+   * Ciro hedefinin arkasındaki en büyük satış faturaları (kişi başına ilk `limitPerUser`).
+   * Sorumlu kuralı `userActuals` içindeki fatura sorgusuyla AYNI olmak zorunda
+   * (proje sahibi → fırsat sahibi → faturayı oluşturan); ayrışırsa rapor, toplamıyla
+   * tutmayan bir kırılım basar.
+   */
+  private async topSalesInvoices(
+    actor: AuthContext,
+    userIds: string[],
+    from: Date,
+    to: Date,
+    limitPerUser = 3
+  ) {
+    const byUser = new Map<string, Array<{ label: string; amount: number; currency: string }>>();
+    if (!userIds.length) return byUser;
+    const responsible = sql<string | null>`coalesce(${quotes.projectOwnerUserId}, ${opportunities.ownerUserId}, ${accountingInvoices.createdBy})`;
+    const rows = await this.db
+      .select({
+        userId: responsible,
+        invoiceNo: accountingInvoices.invoiceNo,
+        company: companies.legalTitle,
+        total: accountingInvoices.grandTotal,
+        currencyCode: currencies.code,
+      })
+      .from(accountingInvoices)
+      .leftJoin(salesOrders, eq(accountingInvoices.salesOrderId, salesOrders.id))
+      .leftJoin(quotes, eq(accountingInvoices.quoteId, quotes.id))
+      .leftJoin(opportunities, sql`${opportunities.id} = coalesce(${salesOrders.opportunityId}, ${quotes.opportunityId})`)
+      .leftJoin(currencies, eq(accountingInvoices.currencyId, currencies.id))
+      .leftJoin(companies, eq(accountingInvoices.companyId, companies.id))
+      .where(
+        and(
+          eq(accountingInvoices.tenantId, actor.tenantId),
+          isNull(accountingInvoices.deletedAt),
+          eq(accountingInvoices.type, 'sales'),
+          gte(accountingInvoices.invoiceDate, from),
+          lte(accountingInvoices.invoiceDate, to),
+          inArray(responsible, userIds),
+          this.activeDivisionFilter(actor, accountingInvoices.divisionId)
+        )
+      )
+      .orderBy(desc(accountingInvoices.grandTotal));
+    for (const row of rows) {
+      if (!row.userId) continue;
+      const list = byUser.get(row.userId) ?? [];
+      if (list.length >= limitPerUser) continue;
+      list.push({
+        label: [row.company, row.invoiceNo].filter(Boolean).join(' · ') || 'Fatura',
+        amount: Number(row.total ?? 0),
+        currency: row.currencyCode ?? '',
+      });
+      byUser.set(row.userId, list);
+    }
+    return byUser;
+  }
+
+  async targetProgress(
+    actor: AuthContext,
+    period: string,
+    scope: TargetProgressScope,
+    options: { contributors?: boolean } = {}
+  ) {
     this.assertScopeAllowed(actor, scope);
     const [year, month] = period.split('-').map(Number);
     const from = new Date(Date.UTC(year, month - 1, 1, 0, 0, 0));
@@ -1761,6 +1822,11 @@ export class ReportsService {
           })
         : [];
       const departmentById = new Map(departmentRows.map((department) => [department.id, department]));
+      // Ciro kırılımı ek bir sorgu; yalnız istendiğinde (rapor ekranının ana isteği)
+      // çalışır, aylık seyir için atılan 12 istekte atlanır.
+      const salesContributors = options.contributors
+        ? await this.topSalesInvoices(actor, ids, from, to)
+        : new Map<string, Array<{ label: string; amount: number; currency: string }>>();
       const subjects = subjectsUsers.map((u) => {
         const targetRow = targetByUser.get(u.id) ?? null;
         const department = u.departmentId ? departmentById.get(u.departmentId) : null;
@@ -1781,6 +1847,8 @@ export class ReportsService {
           note: targetRow?.note ?? null,
           targetItems: this.buildTargetItems(targetRow?.targetItems ?? [], actualsMap.get(u.id) ?? emptyActuals()),
           metrics: this.buildMetrics(this.targetNumbers(targetRow), actualsMap.get(u.id) ?? emptyActuals()),
+          /** Ciro hedefinin arkasındaki en büyük faturalar; `contributors` istenmezse boş. */
+          topSales: salesContributors.get(u.id) ?? [],
         };
       });
       return {

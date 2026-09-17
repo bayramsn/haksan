@@ -39,6 +39,11 @@ export type MailRecipient = {
    * sunucu Chromium ile PDF'e çevirir. Yoksa sunucunun sade şablonu kullanılır.
    */
   document?: () => Promise<{ html: string; filename: string }>;
+  /**
+   * Teklif yerine bir rapor ekleniyorsa: yine "Yazdır / PDF Kaydet" belgesi, ama
+   * CRM kaydına bağlanmaz ve sunucuda `reports.export` yetkisi ister.
+   */
+  reportDocument?: () => Promise<{ html: string; filename: string }>;
 };
 
 const emptyRecipients: MailRecipients = { contacts: [], colleagues: [] };
@@ -150,6 +155,7 @@ export function ComposeMailDialog({
     setSending(true);
     try {
       const quoteDocument = recipient.quoteId && recipient.document ? await recipient.document() : undefined;
+      const reportDocument = recipient.reportDocument ? await recipient.reportDocument() : undefined;
       await mailService.send({
         to: to.trim(),
         cc: cc.length ? cc : undefined,
@@ -159,6 +165,7 @@ export function ComposeMailDialog({
         contactId,
         quoteId: recipient.quoteId,
         quoteDocument,
+        reportDocument,
       });
       await onSent?.();
       toast.success("E-posta gönderildi", { description: `${account?.email ?? "Webmail hesabınız"} üzerinden teslim edildi.` });
@@ -313,11 +320,11 @@ export function ComposeMailDialog({
             <div className="mt-1 text-right font-mono text-[10px] text-muted-foreground">{body.length.toLocaleString("tr-TR")} / 10.000</div>
           </div>
 
-          {recipient?.quoteId && (
+          {(recipient?.quoteId || recipient?.reportDocument) && (
             <div className="flex items-center gap-2 rounded-lg border border-border/60 bg-muted/30 px-3 py-2.5 text-xs">
               <Paperclip className="size-3.5 text-muted-foreground" />
-              <span className="font-medium">{recipient.attachmentLabel ?? "Teklif"}.pdf</span>
-              <span className="text-muted-foreground">teklif PDF'i ek olarak gönderilir</span>
+              <span className="font-medium">{recipient.attachmentLabel ?? (recipient.quoteId ? "Teklif" : "Rapor")}.pdf</span>
+              <span className="text-muted-foreground">{recipient.quoteId ? "teklif" : "rapor"} PDF'i ek olarak gönderilir</span>
             </div>
           )}
         </div>

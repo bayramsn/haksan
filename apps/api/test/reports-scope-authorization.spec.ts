@@ -85,6 +85,45 @@ describe('reports scope authorization', () => {
       expect(ids.length).toBeGreaterThan(1);
     });
 
+    it('ciro kırılımını yalnız istendiğinde döndürür (contributors)', async () => {
+      // Test kendi verisini üretir: taze DB'de seed faturaya güvenilmez.
+      const company = await request(app.getHttpServer())
+        .post('/api/v1/companies')
+        .set('Authorization', `Bearer ${superAdminToken}`)
+        .send({ companyType: 'company', legalTitle: `Ciro kırılımı testi ${Date.now()}`, relationTypeCode: 'customer', customerStatusCode: 'potential' })
+        .expect(201);
+      const invoiceNo = `KIRILIM-${Date.now()}`;
+      await request(app.getHttpServer())
+        .post('/api/v1/accounting-invoices')
+        .set('Authorization', `Bearer ${superAdminToken}`)
+        .send({
+          companyId: company.body.id,
+          type: 'sales',
+          invoiceNo,
+          invoiceDate: new Date().toISOString(),
+          amount: 25000,
+          vatRate: 0,
+          vatAmount: 0,
+          grandTotal: 25000,
+          currencyCode: 'USD',
+          firstDueDate: new Date().toISOString(),
+          installmentCount: 1,
+        })
+        .expect(201);
+
+      const superAdmin = await getDb().query.users.findFirst({ where: eq(users.email, 'superadmin@haksan.local') });
+      const own = (params: Record<string, string>) =>
+        targetProgress(superAdminToken, { scope: 'user', id: superAdmin!.id, ...params });
+
+      const withoutFlag = await own({}).expect(200);
+      expect(withoutFlag.body.subjects[0].topSales).toEqual([]);
+
+      const withFlag = await own({ contributors: 'true' }).expect(200);
+      const labels: string[] = withFlag.body.subjects[0].topSales.map((row: { label: string }) => row.label);
+      expect(labels.some((label) => label.includes(invoiceNo))).toBe(true);
+      expect(withFlag.body.subjects[0].topSales.length).toBeLessThanOrEqual(3);
+    });
+
     it('departman performans raporunu alabilir', async () => {
       await request(app.getHttpServer())
         .get(`/api/v1/reports/department-performance?period=${period}`)

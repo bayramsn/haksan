@@ -29,6 +29,8 @@ const targetProgressSchema = z.object({
   period: z.string().regex(/^\d{4}-\d{2}$/),
   scope: z.enum(['user', 'department', 'division', 'role', 'all-users']).default('all-users'),
   id: z.string().uuid().optional(),
+  /** Ciro hedefinin arkasındaki faturaları da döndür; ek sorgu olduğu için isteğe bağlı. */
+  contributors: z.enum(['true', 'false']).default('false'),
 }).superRefine((value, ctx) => {
   // Departman kapsamı id'siz tüm departmanları listeler (Hedef Takibi sekmesi böyle
   // çağırır); kullanıcı ve bölüm kapsamı tek özne ister.
@@ -320,7 +322,7 @@ export class ReportsController {
   @RequirePermissions('reports.read')
   @Get('target-progress')
   targetProgress(@Query(new ZodValidationPipe(targetProgressSchema)) q: z.infer<typeof targetProgressSchema>, @CurrentUser() u: AuthContext) {
-    return this.svc.targetProgress(u, q.period, { kind: q.scope, id: q.id });
+    return this.svc.targetProgress(u, q.period, { kind: q.scope, id: q.id }, { contributors: q.contributors === 'true' });
   }
 
   @RequirePermissions('reports.export', 'reports.read')

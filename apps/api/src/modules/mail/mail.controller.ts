@@ -118,6 +118,19 @@ export class MailController {
     return { filename, content: buffer, contentType: 'application/pdf' };
   }
 
+  /**
+   * Rapor eki: istemcinin ürettiği "Yazdır / PDF Kaydet" belgesi. Teklif ekinden ayrı
+   * bir yetki kapısı var (`reports.export`) ve CRM kaydına bağlanmaz — rapor bir
+   * kaydın değil, ekranın çıktısıdır.
+   */
+  private async reportAttachment(body: MailSendInput, actor: AuthContext) {
+    if (!actor.permissions.has('reports.export')) {
+      throw new ForbiddenError('Rapor ekleyebilmek için reports.export yetkisi gerekli');
+    }
+    const content = await this.htmlPdf.render(body.reportDocument!.html);
+    return { filename: body.reportDocument!.filename, content, contentType: 'application/pdf' };
+  }
+
   @Post('send')
   @Throttle({ default: { limit: 10, ttl: 60_000 } })
   async send(
@@ -130,7 +143,11 @@ export class MailController {
     }
     // Ek PDF: istemci "Yazdır / PDF Kaydet" belgesini gönderdiyse birebir o (Chromium);
     // göndermediyse (eski istemci / Chromium yok) sunucunun sade PDFKit şablonu.
-    const attachments = body.quoteId ? [await this.quoteAttachment(body, actor)] : undefined;
+    const attachments = body.quoteId
+      ? [await this.quoteAttachment(body, actor)]
+      : body.reportDocument
+        ? [await this.reportAttachment(body, actor)]
+        : undefined;
     const delivery = await this.accounts.send(
       { to: body.to, cc: body.cc, subject: body.subject, text: body.body, attachments },
       actor

@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
   analyzeTargetSubject,
+  daysLeftInPeriod,
+  metricLineText,
+  monthsOfYearUpTo,
   previousPeriod,
+  sumMetrics,
   targetPerformancePrintDoc,
   type TargetPrintPerson,
   type TargetSubjectRow,
@@ -74,6 +78,45 @@ describe("analyzeTargetSubject", () => {
   });
 });
 
+describe("metricLineText", () => {
+  it("adds the missing amount and the daily pace needed to catch up", () => {
+    const line = { label: "Teklif", target: 10, actual: 6, pct: 60, unit: "adet" as const };
+    expect(metricLineText(line)).toBe("6 / 10 (%60) · 4 eksik");
+    expect(metricLineText(line, 13)).toBe("6 / 10 (%60) · 4 eksik · 0,3/gün");
+    // Hedefi tutturana eksik/tempo yazılmaz.
+    expect(metricLineText({ ...line, actual: 12, pct: 120 }, 13)).toBe("12 / 10 (%120)");
+  });
+});
+
+describe("sumMetrics", () => {
+  it("adds up the same metric across people and recomputes the percentage", () => {
+    expect(sumMetrics([
+      [{ label: "Teklif", target: 10, actual: 6, pct: 60, unit: "adet" }],
+      [{ label: "Teklif", target: 10, actual: 9, pct: 90, unit: "adet" }, { label: "Ziyaret", target: 4, actual: 4, pct: 100, unit: "adet" }],
+    ])).toEqual([
+      { label: "Teklif", target: 20, actual: 15, pct: 75, unit: "adet" },
+      { label: "Ziyaret", target: 4, actual: 4, pct: 100, unit: "adet" },
+    ]);
+  });
+});
+
+describe("daysLeftInPeriod", () => {
+  it("counts today in, returns 0 for a closed period and the whole month for a future one", () => {
+    expect(daysLeftInPeriod("2026-09", new Date(2026, 8, 17))).toBe(14);
+    expect(daysLeftInPeriod("2026-09", new Date(2026, 8, 30))).toBe(1);
+    expect(daysLeftInPeriod("2026-08", new Date(2026, 8, 17))).toBe(0);
+    expect(daysLeftInPeriod("2026-10", new Date(2026, 8, 17))).toBe(31);
+  });
+});
+
+describe("monthsOfYearUpTo", () => {
+  it("lists january through the selected month", () => {
+    expect(monthsOfYearUpTo("2026-03")).toEqual(["2026-01", "2026-02", "2026-03"]);
+    expect(monthsOfYearUpTo("2026-12")).toHaveLength(12);
+    expect(monthsOfYearUpTo("")).toEqual([]);
+  });
+});
+
 describe("previousPeriod", () => {
   it("steps back one month across the year boundary", () => {
     expect(previousPeriod("2026-01")).toBe("2025-12");
@@ -93,6 +136,9 @@ describe("targetPerformancePrintDoc", () => {
     metrics: [{ label: "Teklif", target: 10, actual: 6, pct: 60, unit: "adet" }, { label: "Satış cirosu", target: 60000, actual: 41200, pct: 69, unit: "USD" }],
     manual: [{ label: "Fuar ziyareti", target: "2" }],
     note: "Eylül odak: sac lazer",
+    topSales: [{ label: "ACME Makina · FT-2026-118", amount: 18000, currency: "USD" }],
+    trend: [48, null, 76],
+    ytdMetrics: [{ label: "Teklif", target: 30, actual: 21, pct: 70, unit: "adet" }],
     ...overrides,
   });
 
@@ -105,6 +151,10 @@ describe("targetPerformancePrintDoc", () => {
       averagePct: 64,
       previousAveragePct: 58,
       targetedPeople: 3,
+      trendPeriods: ["2026-07", "2026-08", "2026-09"],
+      daysLeft: 13,
+      teamMetrics: [{ label: "Teklif", target: 30, actual: 18, pct: 60, unit: "adet" }],
+      noTargetNames: ["Hedefsiz Kişi"],
       completedCount: 1,
       riskCount: 1,
       missedCount: 0,
@@ -148,17 +198,54 @@ describe("targetPerformancePrintDoc", () => {
     const riskBox = doc.body.split("En riskli 3")[1].split("</section>")[0];
     expect(riskBox).toContain("Mehmet &lt;Kaya&gt;");
     expect(riskBox).not.toContain("Ayşe Demir");
-    // Değerlendirme + imza, sayfa numarası, kur notu.
+    // Yönetici özeti, hedefsizler, ekip ölçütleri ve karşılaştırma grafiği.
+    expect(doc.body).toContain("Yönetici özeti");
+    expect(doc.body).toContain("Dönemin bitmesine 13 gün var.");
+    expect(doc.body).toContain("1 kişi riskte, 0 kişi hedefini tutturamadı.");
+    expect(doc.body).toContain("Hedef girilmemiş (1):</b> Hedefsiz Kişi");
+    expect(doc.body).toContain("Ekip geneli ölçütler");
+    expect(doc.body).toContain("Gerçekleşme karşılaştırması");
+    expect(doc.body).toContain('<span class="chart-label">Satış</span>');
+    // Kişi satırındaki ölçüt: eksik miktar ve günlük tempo.
+    expect(doc.body).toContain("6 / 10 (%60) · 4 eksik · 0,3/gün");
+    // Ciro kırılımı: rakamın arkasındaki fatura.
+    expect(doc.body).toContain("Ciroyu oluşturan:</b> ACME Makina · FT-2026-118 — 18.000 USD");
+    // Aylık seyir sütunu ve YTD satırı (trend yüklenmişse).
+    expect(doc.body).toContain("Aylık seyir");
+    expect(doc.body).toContain('<span class="spark-bar empty"');
+    expect(doc.body).toContain("Yıl başından bugüne:</b> Teklif 21 / 30 (%70) · 9 eksik");
+    expect(doc.body).toMatch(/spark-axis[\s\S]*?Tem[\s\S]*?Ağu[\s\S]*?Eyl/);
+    // Değerlendirme + imza, kur notu.
     expect(doc.body).toContain("Yönetici değerlendirmesi");
     expect(doc.body).toContain("Hazırlayan<br><b>Süper Yönetici</b>");
     expect(doc.body).toContain("çevrilemeyen: GBP");
     expect(doc.body).toContain("Kapsam: Tüm kullanıcılar");
   });
 
+  it("narrows to a single person without the team boxes", () => {
+    const doc = targetPerformancePrintDoc({
+      period: "2026-09", filter: "all", departmentFilterName: null, expectedPct: 55, averagePct: 76, previousAveragePct: null,
+      targetedPeople: 1, daysLeft: 13, teamMetrics: [{ label: "Teklif", target: 30, actual: 18, pct: 60, unit: "adet" }],
+      noTargetNames: [], trendPeriods: [], focusPersonName: "Ayşe Demir", completedCount: 0, riskCount: 0, missedCount: 0,
+      departments: [{
+        name: "Satış", source: "Departman hedefi", memberCount: 2, problemCount: 0, completionPct: 70, previousPct: null,
+        status: "on_track", metrics: [], note: null, members: [person({})],
+      }],
+      unassigned: [], currencyNormalization: null, preparedBy: null, assetBase: "/print",
+    });
+    expect(doc.body).toContain("Kapsam: Kişi: Ayşe Demir");
+    expect(doc.body).not.toContain("En iyi 3");
+    expect(doc.body).not.toContain("Ekip geneli ölçütler");
+    expect(doc.body).not.toContain("Gerçekleşme karşılaştırması");
+    // Kişinin kendi tablosu ve yönetici özeti durur.
+    expect(doc.body).toContain("Ayşe Demir");
+    expect(doc.body).toContain("Yönetici özeti");
+  });
+
   it("names the department filter in the scope line", () => {
     const doc = targetPerformancePrintDoc({
       period: "2026-09", filter: "problems", departmentFilterName: "Servis", expectedPct: 55, averagePct: null, previousAveragePct: null,
-      targetedPeople: 0, completedCount: 0, riskCount: 0, missedCount: 0, departments: [], unassigned: [], currencyNormalization: null, preparedBy: null, assetBase: "/print",
+      targetedPeople: 0, daysLeft: 0, teamMetrics: [], noTargetNames: [], trendPeriods: [], completedCount: 0, riskCount: 0, missedCount: 0, departments: [], unassigned: [], currencyNormalization: null, preparedBy: null, assetBase: "/print",
     });
     expect(doc.body).toContain("Kapsam: Eksik ve riskli kullanıcılar · Departman: Servis");
     expect(doc.body).toContain("Departman kaydı bulunmuyor.");
