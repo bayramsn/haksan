@@ -13,6 +13,7 @@ import {
 } from "../../lib/mock";
 import { useEffect, useMemo, useState } from "react";
 import { useStore } from "../../lib/store";
+import { inMonth, parseMonthQuery } from "../../lib/monthQuery";
 import { useAuth } from "../../../lib/auth";
 import { toast } from "sonner";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../ui/tabs";
@@ -144,6 +145,8 @@ export function SalesCasesPage({
   // artık ayrı bir sayfaya değil panonun Lead kolonuna götürür.
   const focusLead =
     focus === "sla_risk" || focus === "unassigned" || focus === "no_action" || focus === "uncontacted";
+  // Rapor tablosundan gelen dönem (`month:2026-03`): kartın açıldığı aya göre süzer.
+  const focusMonth = parseMonthQuery(initialQuery).month;
   const showLostDetails = focusLost || stage === "lost" || outcome === "lost";
   const reasonKey = (salesCase: SalesCase) => salesCase.qualificationStage === "lost"
     ? `lost:${salesCase.lostReasonCode || salesCase.lostReason || "Belirtilmemiş"}`
@@ -162,6 +165,7 @@ export function SalesCasesPage({
     if (focusWon && qualification !== "win") return false;
     if (focusLost && qualification !== "lost") return false;
     if (focusLead && qualification !== "lead") return false;
+    if (!inMonth(s.createdAt, focusMonth)) return false;
     if (focus === "unassigned" && s.assignedUserId) return false;
     if (focus === "no_action" && s.nextActionAt) return false;
     if (focus === "uncontacted" && s.qualificationReadiness?.health?.firstContactAt) return false;
@@ -229,6 +233,7 @@ export function SalesCasesPage({
   }, [allCases]);
   const filteredClosedCases = closedCases.filter((item) => {
     if (outcome === "follow_up") return false;
+    if (!inMonth(item.createdAt, focusMonth)) return false;
     if (outcome === "won" && item.qualificationStage !== "win") return false;
     if (outcome === "lost" && item.qualificationStage !== "lost") return false;
     if (outcomeReason !== "all" && reasonKey(item) !== outcomeReason) return false;
@@ -240,6 +245,17 @@ export function SalesCasesPage({
 
   useEffect(() => {
     if (focusOpen || focusWon || focusLost) setStage("all");
+    // "Fırsatı Kapat" ile kaybedilen kart kapanır (closedAt) ve yalnız Geçmiş'te yaşar;
+    // operasyon rayından iptal+kayıp işaretlenen kart ise kapanmadan aktif listede kalır.
+    // Kanban'da "Kaybedilenler" boş kalıyordu: kayıt aktifte varsa Liste, yoksa Geçmiş.
+    if (focusWon || focusLost) {
+      setOutcome(focusWon ? "won" : "lost");
+      setOutcomeReason("all");
+      if (focusLost) {
+        const activeLost = salesCases.some((s) => s.qualificationStage === "lost" && inMonth(s.createdAt, focusMonth));
+        setView(activeLost ? "list" : "archive");
+      }
+    }
   }, [focusLost, focusOpen, focusWon]);
 
   useEffect(() => {

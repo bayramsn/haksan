@@ -15,6 +15,7 @@ import { Skeleton } from "../ui/skeleton";
 import { adminService, reportService } from "../../../lib/services";
 import { ExportExcelButton } from "../ui/ExportExcelButton";
 import { useAuth } from "../../../lib/auth";
+import { TeamActivityPanel } from "../pages/TeamActivityPanel";
 
 function currentPeriod() {
   const d = new Date();
@@ -67,35 +68,38 @@ export function ReportAnalyticsHub() {
   const [activities, setActivities] = useState<any[]>([]);
   const [complaintSummary, setComplaintSummary] = useState<any | null>(null);
   const [warrantyExpiring, setWarrantyExpiring] = useState<any[]>([]);
+  const [quotesByProduct, setQuotesByProduct] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
     setLoading(true);
-    try {
-      const [depts, deptPerf, pipe, st, vis, complaints, warranty] = await Promise.all([
-        adminService.departments(),
-        reportService.departmentPerformance({
-          period,
-          ...(departmentId !== "all" ? { departmentId } : {}),
-        }),
-        reportService.pipelineSummary(),
-        reportService.stockSummary(),
-        reportService.monthlyActivities(monthRange(period)),
-        reportService.serviceComplaintsSummary(),
-        reportService.warrantyExpiring({ days: 60 }),
-      ]);
-      setDepartments(depts as any[]);
-      setDeptReport((deptPerf as any)?.departments ?? []);
-      setPipeline(Array.isArray(pipe) ? pipe : []);
-      setStock(Array.isArray(st) ? st : []);
-      setActivities(Array.isArray(vis) ? vis : []);
-      setComplaintSummary(complaints ?? null);
-      setWarrantyExpiring(Array.isArray(warranty) ? warranty : []);
-    } catch (err: any) {
-      toast.error("Analitik veriler yüklenemedi", { description: err?.message });
-    } finally {
-      setLoading(false);
-    }
+    // Kartlar birbirinden bağımsız: departman raporu yalnız süper admine açık (403),
+    // tek kartın düşmesi sekmenin tamamını boş bırakmasın.
+    const [depts, deptPerf, pipe, st, vis, complaints, warranty, byProduct] = await Promise.allSettled([
+      adminService.departments(),
+      reportService.departmentPerformance({
+        period,
+        ...(departmentId !== "all" ? { departmentId } : {}),
+      }),
+      reportService.pipelineSummary(),
+      reportService.stockSummary(),
+      reportService.monthlyActivities(monthRange(period)),
+      reportService.serviceComplaintsSummary(),
+      reportService.warrantyExpiring({ days: 60 }),
+      reportService.monthlyQuotes(monthRange(period)),
+    ]);
+    const pick = <T,>(result: PromiseSettledResult<T>, fallback: T) => (result.status === "fulfilled" ? result.value : fallback);
+    setDepartments(pick(depts, [] as any[]));
+    setDeptReport((pick(deptPerf, null) as any)?.departments ?? []);
+    setPipeline(pick(pipe, []));
+    setStock(pick(st, []));
+    setActivities(pick(vis, []));
+    setComplaintSummary(pick(complaints, null));
+    setWarrantyExpiring(pick(warranty, []));
+    setQuotesByProduct(pick(byProduct, []));
+    const failed = [deptPerf, pipe, st, vis, complaints, warranty, byProduct].filter((r) => r.status === "rejected");
+    if (failed.length === 7) toast.error("Analitik veriler yüklenemedi", { description: (failed[0] as PromiseRejectedResult).reason?.message });
+    setLoading(false);
   }, [period, departmentId]);
 
   useEffect(() => {
@@ -141,6 +145,30 @@ export function ReportAnalyticsHub() {
       })),
     [activities]
   );
+
+  // Ürün bazlı teklif: aynı ürün ay içinde birden çok kovaya düşmez ama sunucu
+  // (kova, ürün) çifti döndürür; ürün adına göre toplanır.
+  const productRows = useMemo(() => {
+    const map = new Map<string, { name: string; brand: string; count: number; totals: Map<string, number> }>();
+    for (const r of quotesByProduct) {
+      const key = r.productId ?? r.productName ?? "—";
+      const entry = map.get(key) ?? { name: r.productName ?? "Katalog dışı kalem", brand: r.brand ?? "", count: 0, totals: new Map<string, number>() };
+      entry.count += Number(r.count ?? 0);
+      const currency = r.currency ?? "USD";
+      entry.totals.set(currency, (entry.totals.get(currency) ?? 0) + Number(r.totalValue ?? 0));
+      map.set(key, entry);
+    }
+    return [...map.values()]
+      .map((entry) => ({
+        ...entry,
+        // Para birimleri toplanmaz; "40.000 USD + 12.000 EUR" gibi yan yana yazılır.
+        totalLabel: [...entry.totals.entries()]
+          .map(([currency, amount]) => `${amount.toLocaleString("tr-TR", { maximumFractionDigits: 0 })} ${currency}`)
+          .join(" + "),
+      }))
+      .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name, "tr"))
+      .slice(0, 12);
+  }, [quotesByProduct]);
 
   const complaintSourceChart = useMemo(
     () =>
@@ -372,6 +400,38 @@ export function ReportAnalyticsHub() {
           )}
 
           <Card className="border-border/60 shadow-sm lg:col-span-2">
+            <CardHeader>
+              <CardTitle className="text-base">Ürün Bazlı Teklif</CardTitle>
+              <p className="text-xs text-muted-foreground">Seçilen ayda hangi makineye kaç teklif verildi; kalem toplamı teklif para birimine göre ayrı yazılır</p>
+            </CardHeader>
+            <CardContent className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b text-left text-xs text-muted-foreground">
+                    <th className="py-2 pr-3">Ürün</th>
+                    <th className="py-2 pr-3">Marka</th>
+                    <th className="py-2 pr-3 text-right">Teklif</th>
+                    <th className="py-2 text-right">Kalem Toplamı</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {productRows.map((r) => (
+                    <tr key={`${r.brand}-${r.name}`} className="border-b border-border/40">
+                      <td className="py-2 pr-3 font-medium">{r.name}</td>
+                      <td className="py-2 pr-3 text-muted-foreground">{r.brand || "—"}</td>
+                      <td className="py-2 pr-3 text-right tabular-nums">{r.count}</td>
+                      <td className="py-2 text-right tabular-nums">{r.totalLabel}</td>
+                    </tr>
+                  ))}
+                  {productRows.length === 0 && (
+                    <tr><td colSpan={4} className="py-6 text-center text-muted-foreground">Bu ay teklif kalemi yok.</td></tr>
+                  )}
+                </tbody>
+              </table>
+            </CardContent>
+          </Card>
+
+          <Card className="border-border/60 shadow-sm lg:col-span-2">
             <CardHeader><CardTitle className="text-base">Departman Özet Tablosu</CardTitle></CardHeader>
             <CardContent className="overflow-x-auto">
               <table className="w-full text-sm">
@@ -384,7 +444,7 @@ export function ReportAnalyticsHub() {
                     <th className="py-2 pr-3">%</th>
                     <th className="py-2 pr-3">Teklif Hedef</th>
                     <th className="py-2 pr-3">Teklif</th>
-                    <th className="py-2">Açık Fırsat Tutarı</th>
+                    <th className="py-2">Açık Fırsat (adet)</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -409,6 +469,8 @@ export function ReportAnalyticsHub() {
           </Card>
         </div>
       )}
+
+      <TeamActivityPanel />
     </div>
   );
 }

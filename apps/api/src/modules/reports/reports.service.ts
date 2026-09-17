@@ -91,6 +91,38 @@ export type ActivityLogReport = {
 
 export type Granularity = 'weekly' | 'monthly' | 'yearly';
 
+/** Operasyonel rapor süzgeçleri; bölüm kapsamı aktörün aktif bölümünden gelir. */
+export type OperationalReportQuery = {
+  year: number;
+  period: 'monthly' | 'yearly';
+  ownerUserId?: string;
+  departmentId?: string;
+};
+
+export type OperationalReportRow = {
+  /** `YYYY-MM` (aylık) ya da `YYYY` (yıllık). */
+  bucket: string;
+  quotes: number;
+  approved: number;
+  rejected: number;
+  won: number;
+  lost: number;
+  service: number;
+  /** Kazanılan fırsatların tahmini değeri, USD'ye çevrilmiş. */
+  revenueUsd: number;
+};
+
+export type OperationalReport = {
+  rows: OperationalReportRow[];
+  currencyNormalization: {
+    base: 'USD';
+    rateDate: string;
+    source: FxSnapshot['source'];
+    live: boolean;
+    unsupportedCurrencies: string[];
+  };
+};
+
 /** Gösterge panelindeki ekip aktivitesi kırılımı. */
 export type TeamActivityPeriod = 'day' | 'week' | 'month' | 'year';
 export type TeamActivityDetailMetric =
@@ -301,6 +333,24 @@ export class ReportsService {
     };
   }
 
+  /**
+   * Fırsat sonucu — tüm raporlarda TEK tanım. Kazanma/kaybetme nitelendirme
+   * aşamasından okunur (WIN satılmış tekliften türer, bkz. applyWinSnapshot);
+   * eski kayıtlarda WIN işaretlenmeden teslim edilmiş kart da kazanç sayılır.
+   * İptal (cancelled + LOST değil) yatırımdan vazgeçmedir, kayıp DEĞİLDİR —
+   * kayıp analizine girerse rakip/neden kırılımı yanlış şişer. `pipelineStages`
+   * join'i çağıranın sorumluluğunda.
+   */
+  private opportunityOutcome() {
+    // WIN sonrası iptal (outcome:'cancelled') dereceyi geri almaz; kart kazanılan
+    // VE iptal sayılıp ciroya hayalet tutar yazmasın diye iptal aşaması kazancı düşürür.
+    const won = sql`(${opportunities.qualificationStage} = 'win' and ${pipelineStages.code} is distinct from 'cancelled' or ${pipelineStages.code} = 'delivered')`;
+    const lost = sql`${opportunities.qualificationStage} = 'lost'`;
+    const cancelled = sql`(${pipelineStages.code} = 'cancelled' and ${opportunities.qualificationStage} <> 'lost')`;
+    const open = sql`not (${won} or ${lost} or ${cancelled})`;
+    return { won, lost, cancelled, open };
+  }
+
   private bucket(granularity: Granularity, col: any) {
     switch (granularity) {
       case 'weekly':
@@ -382,6 +432,8 @@ export class ReportsService {
         productId: productModels.id,
         productName: productModels.fullName,
         brand: brands.name,
+        // Tutar teklif para birimindedir; EUR ile USD tek sayıda toplanmasın.
+        currency: currencies.code,
         count: sql<number>`count(distinct ${quotes.id})::int`,
         totalValue: sql<string>`coalesce(sum(${quoteItems.lineTotal}), 0)::text`,
       })
@@ -389,8 +441,9 @@ export class ReportsService {
       .innerJoin(quoteItems, eq(quoteItems.quoteId, quotes.id))
       .leftJoin(productModels, eq(quoteItems.productModelId, productModels.id))
       .leftJoin(brands, eq(productModels.brandId, brands.id))
+      .leftJoin(currencies, eq(quotes.currencyId, currencies.id))
       .where(and(...filters))
-      .groupBy(bucket, productModels.id, productModels.fullName, brands.name)
+      .groupBy(bucket, productModels.id, productModels.fullName, brands.name, currencies.code)
       .orderBy(bucket, desc(sql<number>`count(distinct ${quotes.id})`));
   }
 
@@ -568,10 +621,7 @@ export class ReportsService {
       this.activeDivisionFilter(actor, opportunities.divisionId)
     );
 
-    // Kazanılan = sözleşme ve sonrası aşamalar; Kaybedilen = cancelled.
-    const isWon = sql`${pipelineStages.code} in ('contract','commercial_invoice','customs_approved','stock_picking','shipping','installation','delivered')`;
-    const isLost = sql`${pipelineStages.code} = 'cancelled'`;
-    const isOpen = sql`(${pipelineStages.code} is null or ${pipelineStages.code} not in ('contract','commercial_invoice','customs_approved','stock_picking','shipping','installation','delivered','cancelled'))`;
+    const { won: isWon, lost: isLost, cancelled: isCancelled, open: isOpen } = this.opportunityOutcome();
     const val = opportunities.estimatedValue;
 
     const [summary] = await this.db
@@ -579,6 +629,7 @@ export class ReportsService {
         total: sql<number>`count(*)::int`,
         won: sql<number>`count(*) filter (where ${isWon})::int`,
         lost: sql<number>`count(*) filter (where ${isLost})::int`,
+        cancelled: sql<number>`count(*) filter (where ${isCancelled})::int`,
         open: sql<number>`count(*) filter (where ${isOpen})::int`,
         wonValue: sql<string>`coalesce(sum(${val}) filter (where ${isWon}), 0)::text`,
         lostValue: sql<string>`coalesce(sum(${val}) filter (where ${isLost}), 0)::text`,
@@ -733,6 +784,138 @@ export class ReportsService {
     };
   }
 
+  /**
+   * Operasyonel rapor: dönem başına teklif (toplam/onay/ret), fırsat (kazanılan/
+   * kaybedilen), servis talebi ve USD ciro. Sayfa da Excel de buradan beslenir;
+   * tarayıcıda hesaplanan eski sürüm yalnız belleğe inen kayıtları görüyor ve
+   * kazanma tanımı diğer raporlardan sapıyordu.
+   *
+   * Kırılım kaydın AÇILDIĞI tarihe göredir (yıl sonu raporuyla aynı). Temsilci
+   * süzgeci fırsatta sahibi, teklifte oluşturanı, serviste atananı esas alır;
+   * departman süzgeci üyelerinin birleşimidir.
+   */
+  async operationalReport(actor: AuthContext, q: OperationalReportQuery): Promise<OperationalReport> {
+    const granularity: Granularity = q.period;
+    const departmentId = q.departmentId;
+    // Departman raporuyla aynı kapı: satışçı yalnız kendini süzebilir, departman kırılımı admin işi.
+    if (q.ownerUserId) this.assertScopeAllowed(actor, { kind: 'user', id: q.ownerUserId });
+    if (departmentId) this.assertScopeAllowed(actor, { kind: 'department', id: departmentId });
+    let ownerIds: string[] | null = q.ownerUserId ? [q.ownerUserId] : null;
+    if (!ownerIds && departmentId) {
+      // Geçmiş dönemler ayrılan temsilcinin kayıtlarını kaybetmesin: pasif üye de sayılır.
+      const members = await this.scopedActiveUsers(actor, { includeInactive: true });
+      const memberships = await this.departmentMembershipMap(actor, members);
+      ownerIds = members.filter((m) => memberships.get(m.id)?.has(departmentId)).map((m) => m.id);
+    }
+    const ownerFilter = (col: any) => (ownerIds ? (ownerIds.length ? inArray(col, ownerIds) : sql`1 = 0`) : sql`true`);
+    // Yıllık görünüm bütün yılları yan yana koyar; sınır yalnız aylıkta var.
+    const from = new Date(Date.UTC(q.year, 0, 1));
+    const to = new Date(Date.UTC(q.year + 1, 0, 1));
+    const inRange = (col: any) => (granularity === 'monthly' ? and(gte(col, from), sql`${col} < ${to}`) : sql`true`);
+
+    const { won, lost } = this.opportunityOutcome();
+    const oppBucket = this.bucket(granularity, opportunities.createdAt);
+    const quoteBucket = this.bucket(granularity, quotes.quoteDate);
+    const serviceBucket = this.bucket(granularity, serviceTickets.reportedAt);
+
+    const [oppRows, quoteRows, serviceRows, fxSnapshot] = await Promise.all([
+      this.db
+        .select({
+          bucket: oppBucket,
+          currency: currencies.code,
+          won: sql<number>`count(*) filter (where ${won})::int`,
+          lost: sql<number>`count(*) filter (where ${lost})::int`,
+          wonValue: sql<string>`coalesce(sum(${opportunities.estimatedValue}) filter (where ${won}), 0)::text`,
+        })
+        .from(opportunities)
+        .leftJoin(pipelineStages, eq(opportunities.currentStageId, pipelineStages.id))
+        .leftJoin(currencies, eq(opportunities.currencyId, currencies.id))
+        .where(
+          and(
+            eq(opportunities.tenantId, actor.tenantId),
+            isNull(opportunities.deletedAt),
+            this.activeDivisionFilter(actor, opportunities.divisionId),
+            inRange(opportunities.createdAt),
+            ownerFilter(opportunities.ownerUserId),
+          ),
+        )
+        .groupBy(oppBucket, currencies.code),
+      this.db
+        .select({
+          bucket: quoteBucket,
+          count: sql<number>`count(*)::int`,
+          approved: sql<number>`count(*) filter (where ${quoteStatuses.code} = 'approved')::int`,
+          rejected: sql<number>`count(*) filter (where ${quoteStatuses.code} = 'rejected')::int`,
+        })
+        .from(quotes)
+        .leftJoin(quoteStatuses, eq(quotes.statusId, quoteStatuses.id))
+        .leftJoin(opportunities, eq(quotes.opportunityId, opportunities.id))
+        .where(
+          and(
+            eq(quotes.tenantId, actor.tenantId),
+            isNull(quotes.deletedAt),
+            this.activeDivisionFilter(actor, quotes.divisionId),
+            inRange(quotes.quoteDate),
+            // Hedef Takibi ile aynı sahip tanımı: proje sahibi → fırsat sahibi → oluşturan.
+            ownerFilter(sql`coalesce(${quotes.projectOwnerUserId}, ${opportunities.ownerUserId}, ${quotes.createdBy})`),
+          ),
+        )
+        .groupBy(quoteBucket),
+      this.db
+        .select({ bucket: serviceBucket, count: sql<number>`count(*)::int` })
+        .from(serviceTickets)
+        .where(
+          and(
+            eq(serviceTickets.tenantId, actor.tenantId),
+            isNull(serviceTickets.deletedAt),
+            this.activeDivisionFilter(actor, serviceTickets.divisionId),
+            inRange(serviceTickets.reportedAt),
+            ownerFilter(serviceTickets.assignedToUserId),
+          ),
+        )
+        .groupBy(serviceBucket),
+      // ponytail: güncel kur; dönem ortalaması istenirse ay başına ratesForPeriod.
+      this.fx.rates(),
+    ]);
+
+    const rowsByBucket = new Map<string, OperationalReportRow>();
+    const row = (bucket: string) => {
+      let entry = rowsByBucket.get(bucket);
+      if (!entry) {
+        entry = { bucket, quotes: 0, approved: 0, rejected: 0, won: 0, lost: 0, service: 0, revenueUsd: 0 };
+        rowsByBucket.set(bucket, entry);
+      }
+      return entry;
+    };
+    if (granularity === 'monthly') {
+      for (let m = 1; m <= 12; m += 1) row(`${q.year}-${String(m).padStart(2, '0')}`);
+    }
+    const unsupportedCurrencies = new Set<string>();
+    for (const r of oppRows) {
+      const entry = row(r.bucket);
+      entry.won += r.won;
+      entry.lost += r.lost;
+      const wonValue = Number(r.wonValue);
+      if (wonValue === 0) continue; // yalnız kaybedilen kartı olan para birimi "çevrilemedi" sayılmasın
+      const code = (r.currency || 'USD').toUpperCase();
+      const usd = amountToUsd(wonValue, code, fxSnapshot.rates);
+      if (usd == null) unsupportedCurrencies.add(code);
+      else entry.revenueUsd += usd;
+    }
+    for (const r of quoteRows) {
+      const entry = row(r.bucket);
+      entry.quotes += r.count;
+      entry.approved += r.approved;
+      entry.rejected += r.rejected;
+    }
+    for (const r of serviceRows) row(r.bucket).service += r.count;
+
+    const rows = [...rowsByBucket.values()]
+      .sort((a, b) => a.bucket.localeCompare(b.bucket))
+      .map((entry) => ({ ...entry, revenueUsd: Math.round(entry.revenueUsd * 100) / 100 }));
+    return { rows, currencyNormalization: this.currencyNormalization(fxSnapshot, unsupportedCurrencies) };
+  }
+
   async warrantyExpiring(actor: AuthContext, days: number) {
     const cutoff = new Date(Date.now() + days * 24 * 60 * 60 * 1000);
     return this.db
@@ -767,7 +950,7 @@ export class ReportsService {
     if (departmentId) deptFilters.push(eq(departments.id, departmentId));
     const depts = await this.db.query.departments.findMany({ where: and(...deptFilters) });
 
-    const isWon = sql`${pipelineStages.code} in ('contract','commercial_invoice','customs_approved','stock_picking','shipping','installation','delivered')`;
+    const { won: isWon, open: isOpen } = this.opportunityOutcome();
     const val = opportunities.estimatedValue;
     const scopedUsers = await this.scopedActiveUsers(actor);
     const departmentMemberships = await this.departmentMembershipMap(actor, scopedUsers);
@@ -812,7 +995,7 @@ export class ReportsService {
           .select({
             won: sql<number>`count(*) filter (where ${isWon})::int`,
             wonValue: sql<string>`coalesce(sum(${val}) filter (where ${isWon}), 0)::text`,
-            open: sql<number>`count(*) filter (where ${pipelineStages.code} is null or ${pipelineStages.code} not in ('contract','commercial_invoice','customs_approved','stock_picking','shipping','installation','delivered','cancelled'))::int`,
+            open: sql<number>`count(*) filter (where ${isOpen})::int`,
           })
           .from(opportunities)
           .leftJoin(pipelineStages, eq(opportunities.currentStageId, pipelineStages.id))
@@ -946,10 +1129,14 @@ export class ReportsService {
   }
 
   /** Aktif kullanıcılar; bölüm kapsamı 'list' modundaysa yalnızca o bölümlere atanmış olanlar. */
-  private async scopedActiveUsers(actor: AuthContext) {
+  private async scopedActiveUsers(actor: AuthContext, options: { includeInactive?: boolean } = {}) {
     const scope = resolveResourceDivisionScope(actor, 'reports');
     let rows = await this.db.query.users.findMany({
-      where: and(eq(users.tenantId, actor.tenantId), isNull(users.deletedAt), eq(users.status, 'active')),
+      where: and(
+        eq(users.tenantId, actor.tenantId),
+        isNull(users.deletedAt),
+        options.includeInactive ? undefined : eq(users.status, 'active'),
+      ),
       columns: { id: true, fullName: true, email: true, departmentId: true },
     });
     if (scope.mode === 'list') {

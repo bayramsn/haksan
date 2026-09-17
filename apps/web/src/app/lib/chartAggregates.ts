@@ -161,7 +161,12 @@ export function buildSalesPerformance(
   cases: SalesCase[],
   convertToUsd: (amount: number, currency: string) => number,
 ) {
-  const isWon = (c: SalesCase) => !c.isLost && ['Completed', 'delivered'].includes(String(c.stage));
+  // WIN derecesi kazanmanın asıl işareti (satılmış tekliften türer); teslim
+  // aşaması eski kayıtlar için kalır. Raporlar sayfasıyla aynı tanım.
+  const isWon = (c: SalesCase) =>
+    !c.isLost
+    && ((c.qualificationStage === 'win' && String(c.stage) !== 'cancelled')
+      || ['Completed', 'delivered'].includes(String(c.stage)));
   const isLost = (c: SalesCase) => c.isLost || String(c.stage) === 'Lost';
   const isOpen = (c: SalesCase) => !isWon(c) && !isLost(c) && (c.qualificationStage ?? 'c') !== 'lead';
 

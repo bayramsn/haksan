@@ -10,7 +10,7 @@ import {
 import type { DbClient } from '../../db/client';
 import { DB } from '../../shared/database/database.module';
 import { MailerService } from '../../shared/mailer/mailer.service';
-import { ReportsService, type TeamActivityPeriod } from '../reports/reports.service';
+import { ReportsService, type OperationalReportRow, type TeamActivityPeriod } from '../reports/reports.service';
 import type { AuthContext } from '../../shared/security/auth.types';
 import { loadEnv } from '../../config/env';
 import { logger } from '../../shared/utils/logger';
@@ -190,6 +190,12 @@ export type ReportTaskStats = {
   completed: number;
 };
 
+/** Aylık/yıllık raporun satış bölümü: biten dönem ve bir önceki dönem. */
+export type ReportSalesSummary = {
+  current: OperationalReportRow;
+  previous: OperationalReportRow | null;
+};
+
 export type UserAccountAudit = {
   activeCount: number;
   newUsers: Array<{ name: string; email: string }>;
@@ -207,6 +213,7 @@ export function formatUserReport(
   audit: UserAccountAudit,
   taskStats: ReportTaskStats,
   period: { from: Date; to: Date },
+  sales: ReportSalesSummary | null = null,
 ): string {
   const date = (value: Date) => value.toLocaleDateString('tr-TR');
   // `to` dönemin dışına açık sınır; kullanıcıya haftanın son günü gösterilir.
@@ -251,8 +258,27 @@ export function formatUserReport(
     `• Rapor döneminde ${taskStats.created} görev açıldı, ${taskStats.completed} görev tamamlandı`,
   ];
 
+  // Günlük/haftalık raporda satış bölümü yok — o pencerede kapanış sayısı
+  // anlamlı değil; aylık ve yıllıkta operasyonel raporun aynı motorundan gelir.
+  const usd = (value: number) => `${Math.round(value).toLocaleString('tr-TR')} USD`;
+  const prev = (pick: (row: OperationalReportRow) => string) =>
+    sales?.previous ? ` (önceki dönem ${pick(sales.previous)})` : '';
+  const salesLines = sales
+    ? [
+        '',
+        'SATIŞ ÖZETİ',
+        `• ${sales.current.quotes} teklif: ${sales.current.approved} onaylandı, ${sales.current.rejected} reddedildi` +
+          prev((r) => `${r.quotes} teklif, ${r.approved} onay`),
+        `• ${sales.current.won} kazanılan, ${sales.current.lost} kaybedilen fırsat` +
+          prev((r) => `${r.won} / ${r.lost}`),
+        `• Kazanılan fırsat değeri ${usd(sales.current.revenueUsd)}` + prev((r) => usd(r.revenueUsd)),
+        `• ${sales.current.service} servis talebi` + prev((r) => String(r.service)),
+      ]
+    : [];
+
   return [
     `Dönem: ${date(period.from)} – ${date(lastDay)}`,
+    ...salesLines,
     '',
     'KULLANICI PERFORMANSI',
     ...performance,
@@ -708,6 +734,42 @@ export class AutomationService {
     return { rows, range: { from: new Date(report.range.from), to: new Date(report.range.to) } };
   }
 
+  /**
+   * Aylık/yıllık kullanıcı raporunun satış bölümü. Kırılım operasyonel raporla
+   * aynı motordan (ReportsService) gelir; mail ile Raporlar sayfası birbirini
+   * tutsun. Diğer dönemlerde null — o pencerelerde kapanış sayısı anlamsız.
+   */
+  private async salesSummary(
+    tenantId: string,
+    period: TeamActivityPeriod,
+    anchor: Date,
+  ): Promise<ReportSalesSummary | null> {
+    if (period !== 'month' && period !== 'year') return null;
+    const actor = this.automationActor(tenantId);
+    // Çapa İstanbul takviminde okunur; ayın 1'i sabahı "dün" biten ayın son günüdür.
+    const [year, month] = anchor
+      .toLocaleDateString('en-CA', { timeZone: TZ })
+      .split('-')
+      .map(Number);
+    if (period === 'year') {
+      const { rows } = await this.reports.operationalReport(actor, { year, period: 'yearly' });
+      const current = rows.find((r) => r.bucket === String(year));
+      if (!current) return null;
+      return { current, previous: rows.find((r) => r.bucket === String(year - 1)) ?? null };
+    }
+    const key = (y: number, m: number) => `${y}-${String(m).padStart(2, '0')}`;
+    const { rows } = await this.reports.operationalReport(actor, { year, period: 'monthly' });
+    const current = rows.find((r) => r.bucket === key(year, month));
+    if (!current) return null;
+    const previous =
+      month > 1
+        ? rows.find((r) => r.bucket === key(year, month - 1)) ?? null
+        : (await this.reports.operationalReport(actor, { year: year - 1, period: 'monthly' })).rows.find(
+            (r) => r.bucket === key(year - 1, 12),
+          ) ?? null;
+    return { current, previous };
+  }
+
   /** Rapor dönemindeki görev hareketi + o anki açık/gecikmiş yük. */
   private async taskStats(tenantId: string, range: { from: Date; to: Date }): Promise<ReportTaskStats> {
     const now = new Date();
@@ -842,10 +904,12 @@ export class AutomationService {
         if (!admins.length && !mailTargets.length) continue;
         // Demir hep düne atılır: her cron dönemin BİTTİĞİ günün ertesinde koşar,
         // yoksa rapor yeni başlamış boş pencereyi gösterirdi.
-        const { rows, range } = await this.userActivityRows(tenant.id, new Date(Date.now() - DAY_MS), period);
+        const anchor = new Date(Date.now() - DAY_MS);
+        const { rows, range } = await this.userActivityRows(tenant.id, anchor, period);
         const audit = await this.userAccountAudit(tenant.id, range.from);
         const taskStats = await this.taskStats(tenant.id, range);
-        const body = formatUserReport(rows, audit, taskStats, range);
+        const sales = await this.salesSummary(tenant.id, period, anchor);
+        const body = formatUserReport(rows, audit, taskStats, range, sales);
         const title = `${label} kullanıcı raporu`;
         // Süper admin yoksa bildirim yazılmaz; drizzle boş values() ile patlar.
         // Bu durumda mükerrer koruması (alreadyNotified) da dayanaksız kalır —

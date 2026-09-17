@@ -52,6 +52,25 @@ describe('Weekly user report', () => {
     expect(report).toContain('Pasif veya kilitli hesap yok');
   });
 
+  it('adds the sales summary only when the monthly/yearly engine supplies one', () => {
+    const audit = { activeCount: 3, newUsers: [], dormantUsers: [], blockedUsers: [] };
+    const tasks = { open: 0, overdue: 0, created: 0, completed: 0 };
+    const row = (bucket: string, won: number) => ({
+      bucket, quotes: 12, approved: 5, rejected: 2, won, lost: 1, service: 7, revenueUsd: 1250000.4,
+    });
+
+    const withSales = formatUserReport([], audit, tasks, period, { current: row('2026-08', 4), previous: row('2026-07', 3) });
+    expect(withSales).toContain('SATIŞ ÖZETİ');
+    expect(withSales).toContain('12 teklif: 5 onaylandı, 2 reddedildi (önceki dönem 12 teklif, 5 onay)');
+    expect(withSales).toContain('4 kazanılan, 1 kaybedilen fırsat (önceki dönem 3 / 1)');
+    expect(withSales).toContain('Kazanılan fırsat değeri 1.250.000 USD (önceki dönem 1.250.000 USD)');
+    expect(withSales).toContain('7 servis talebi (önceki dönem 7)');
+
+    // Önceki dönem yoksa parantez de yok; günlük/haftalıkta bölüm hiç basılmaz.
+    expect(formatUserReport([], audit, tasks, period, { current: row('2026-08', 4), previous: null })).toContain('4 kazanılan, 1 kaybedilen fırsat\n');
+    expect(formatUserReport([], audit, tasks, period)).not.toContain('SATIŞ ÖZETİ');
+  });
+
   it('falls back to the super admins when no recipient is configured', () => {
     const admins = [{ email: 'sa1@haksan.local' }, { email: 'sa2@haksan.local' }];
 

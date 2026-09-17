@@ -1,7 +1,7 @@
 import { Controller, Get, Query, Res, UseGuards } from '@nestjs/common';
 import type { FastifyReply } from 'fastify';
 import { z } from 'zod';
-import { dateRangeSchema, type DateRange } from '@haksan/shared';
+import { dateRangeSchema, exportOperationalQuerySchema, type DateRange, type ExportOperationalQuery } from '@haksan/shared';
 import { ZodValidationPipe } from '../../shared/utils/zod-pipe';
 import { AuthGuard } from '../../shared/security/auth.guard';
 import { PermissionsGuard, RequirePermissions } from '../../shared/security/permissions.guard';
@@ -30,7 +30,9 @@ const targetProgressSchema = z.object({
   scope: z.enum(['user', 'department', 'division', 'role', 'all-users']).default('all-users'),
   id: z.string().uuid().optional(),
 }).superRefine((value, ctx) => {
-  if (['user', 'department', 'division'].includes(value.scope) && !value.id) {
+  // Departman kapsamı id'siz tüm departmanları listeler (Hedef Takibi sekmesi böyle
+  // çağırır); kullanıcı ve bölüm kapsamı tek özne ister.
+  if (['user', 'division'].includes(value.scope) && !value.id) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       path: ['id'],
@@ -266,6 +268,12 @@ export class ReportsController {
   @Get('pipeline-summary')
   pipelineSummary(@CurrentUser() u: AuthContext) {
     return this.svc.pipelineSummary(u);
+  }
+
+  @RequirePermissions('reports.read')
+  @Get('operational')
+  operational(@Query(new ZodValidationPipe(exportOperationalQuerySchema)) q: ExportOperationalQuery, @CurrentUser() u: AuthContext) {
+    return this.svc.operationalReport(u, q);
   }
 
   @RequirePermissions('reports.read')

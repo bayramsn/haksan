@@ -845,6 +845,7 @@ function StoreInner({ children }: { children: ReactNode }) {
           roleNames: (u.roles ?? []).map((role: any) => role.name ?? role.code).filter(Boolean),
           divisionIds: (u.divisions ?? []).map((division: any) => division.id).filter(Boolean),
           department: u.department?.name ?? '',
+          departmentId: u.department?.id ?? null,
           // Ünvan (user-titles) — belge çıktılarında imza satırında kullanılır.
           title: u.title?.name ?? null,
           active: u.status !== 'passive',

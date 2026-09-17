@@ -1250,6 +1250,37 @@ export const signatureService = {
 
 // ───── Reports ─────
 
+/** `/reports/operational` — Raporlar > Operasyonel sekmesi ve Excel'i aynı motordan. */
+export interface OperationalReportRow {
+  /** `YYYY-MM` (aylık) ya da `YYYY` (yıllık). */
+  bucket: string;
+  quotes: number;
+  approved: number;
+  rejected: number;
+  won: number;
+  lost: number;
+  service: number;
+  revenueUsd: number;
+}
+
+export interface OperationalReport {
+  rows: OperationalReportRow[];
+  currencyNormalization: {
+    base: 'USD';
+    rateDate: string;
+    source: 'live' | 'period_average' | 'last_known' | 'fallback';
+    live: boolean;
+    unsupportedCurrencies: string[];
+  };
+}
+
+export type OperationalReportParams = {
+  year: number;
+  period: 'monthly' | 'yearly';
+  ownerUserId?: string;
+  departmentId?: string;
+};
+
 /** Yıl sonu / karlılık raporu (GET /reports/year-end). Tüm parasal alanlar string döner. */
 export interface YearEndReport {
   year: number;
@@ -1257,6 +1288,8 @@ export interface YearEndReport {
     total: number;
     won: number;
     lost: number;
+    /** İptal edilen (vazgeçilen) fırsatlar; kayıp sayılmaz. */
+    cancelled: number;
     open: number;
     wonValue: string;
     lostValue: string;
@@ -1340,6 +1373,7 @@ export const reportService = {
   warrantyExpiring: (params?: Record<string, string | number>) => api.get<any[]>(`/reports/warranty-expiring${qs(params)}`),
   serviceComplaintsSummary: () => api.get<any>('/reports/service-complaints-summary'),
   yearEnd: (year: number) => api.get<YearEndReport>(`/reports/year-end?year=${year}`),
+  operational: (params: OperationalReportParams) => api.get<OperationalReport>(`/reports/operational${qs(params)}`),
   targetProgress: (params: { period: string; scope?: 'user' | 'department' | 'division' | 'role' | 'all-users'; id?: string }) =>
     api.get<any>(`/reports/target-progress${qs(params)}`),
   myTargetProgress: (params: { period: string }) => api.get<any>(`/reports/my-target-progress${qs(params)}`),

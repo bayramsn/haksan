@@ -28,6 +28,7 @@ import { CreateContractDialog } from "../../dialogs/CreateContractDialog";
 import { MiniKpi } from "../../shared/MiniKpi";
 import { CommercialDocumentRail } from "../../shared/CommercialDocumentRail";
 import { salesStageLabel } from "../../../lib/mock";
+import { inMonth, parseMonthQuery } from "../../../lib/monthQuery";
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, Legend,
 } from "recharts";
@@ -210,8 +211,11 @@ export function OffersPage({
     if (focus === "lost") setTab("closed");
   }, [focus]);
 
+  // Rapor tablosundan gelen dönem (`month:2026-03`) arama kutusuna düşmez;
+  // teklif tarihine göre süzer. Serbest metin eskisi gibi kutuya yazılır.
+  const focusMonth = parseMonthQuery(initialQuery).month;
   useEffect(() => {
-    if (initialQuery !== undefined) setQ(initialQuery);
+    if (initialQuery !== undefined) setQ(parseMonthQuery(initialQuery).text);
   }, [initialQuery]);
 
   const total = divisionOffers.length;
@@ -224,9 +228,12 @@ export function OffersPage({
 
   const filtered = divisionOffers
     .filter((o) => {
+      if (!inMonth(o.date, focusMonth)) return false;
       if (focusExpired && !offerExpired(o)) return false;
       if (tab === "follow-up" && !FOLLOW_UP_OFFER_STATUSES.includes(o.status)) return false;
       if (tab === "closed" && o.status !== "Rejected" && o.status !== "Cancelled") return false;
+      // Rapordan "Reddedilen" ile gelindiğinde iptaller sayıya girmiyor; liste de göstermesin.
+      if (tab === "closed" && focus === "lost" && o.status !== "Rejected") return false;
       if (tab !== "all" && tab !== "follow-up" && tab !== "closed" && o.status !== tab) return false;
       if (q) {
         const sc = cases.find((s) => s.id === o.salesCaseId);

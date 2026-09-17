@@ -78,6 +78,13 @@ describe('reports scope authorization', () => {
       await targetProgress(superAdminToken, { scope: 'department', id: salesDepartmentId }).expect(200);
     });
 
+    it('id vermeden bütün departmanları listeler (Hedef Takibi sekmesi böyle çağırır)', async () => {
+      const response = await targetProgress(superAdminToken, { scope: 'department' }).expect(200);
+      const ids: string[] = response.body.subjects.map((row: { subject: { id: string } }) => row.subject.id);
+      expect(ids).toContain(salesDepartmentId);
+      expect(ids.length).toBeGreaterThan(1);
+    });
+
     it('departman performans raporunu alabilir', async () => {
       await request(app.getHttpServer())
         .get(`/api/v1/reports/department-performance?period=${period}`)

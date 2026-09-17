@@ -45,6 +45,8 @@ export type ExportPurchaseOrderQuery = z.infer<typeof exportPurchaseOrderQuerySc
 export const exportOperationalQuerySchema = z.object({
   year: z.coerce.number().int().min(2000).max(2100).default(new Date().getFullYear()),
   period: z.enum(['monthly', 'yearly']).default('monthly'),
+  ownerUserId: z.string().uuid().optional(),
+  departmentId: z.string().uuid().optional(),
 });
 export type ExportOperationalQuery = z.infer<typeof exportOperationalQuerySchema>;
 

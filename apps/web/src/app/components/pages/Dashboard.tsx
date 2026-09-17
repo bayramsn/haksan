@@ -1159,7 +1159,7 @@ function ManagementCommandCenter({
           <CardTitle className="tracking-tight">Yönetim Merkezi</CardTitle>
           <p className="mt-1 text-xs text-muted-foreground">Riskler, fırsatlar ve bugünkü aksiyonlar mevcut kayıtlardan otomatik hesaplanır</p>
         </div>
-        <Button size="sm" variant="outline" className="h-8" onClick={() => onAction?.({ kind: "navigate", nav: "reports" })}>
+        <Button size="sm" variant="outline" className="h-8" onClick={() => onAction?.({ kind: "navigate", nav: "reports", query: "mode:operasyonel" })}>
           Rapor Detayı <ArrowUpRight className="size-3.5" />
         </Button>
       </CardHeader>

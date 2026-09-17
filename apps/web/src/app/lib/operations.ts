@@ -255,13 +255,18 @@ const sumPaidByMonth = (data: OperationStoreSnapshot, monthKey: string) => {
 const findUser = (data: OperationStoreSnapshot, id?: string) =>
   data.users.find((u) => u.id === id)?.name ?? "Atanmadı";
 
+// WIN derecesi kazanmanın asıl işareti (satılmış tekliften türer); teslim
+// aşaması eski kayıtlar için kalır. Sunucu raporlarıyla aynı tanım.
+const isWonSalesCase = (s: SalesCase) =>
+  !s.isLost
+  && ((s.qualificationStage === "win" && String(s.stage) !== "cancelled")
+    || ["Completed", "delivered"].includes(String(s.stage)));
+
 const isOpenSalesCase = (s: SalesCase) =>
   (s.qualificationStage ?? "c") !== "lead" &&
   !s.isLost &&
-  !["Completed", "Lost", "delivered"].includes(String(s.stage));
-
-const isWonSalesCase = (s: SalesCase) =>
-  !s.isLost && ["Completed", "delivered"].includes(String(s.stage));
+  !isWonSalesCase(s) &&
+  String(s.stage) !== "Lost";
 
 const isLostSalesCase = (s: SalesCase) => s.isLost || String(s.stage) === "Lost";
 

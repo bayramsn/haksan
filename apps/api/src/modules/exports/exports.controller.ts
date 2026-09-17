@@ -180,7 +180,7 @@ export class ExportsController {
     @CurrentUser() user: AuthContext,
     @Res({ passthrough: true }) reply: FastifyReply
   ) {
-    const rows = await this.svc.exportOperational(user, q.year, q.period);
+    const rows = await this.svc.exportOperational(user, q);
     const name = q.period === 'monthly' ? `rapor-${q.year}.xlsx` : 'rapor-yillik.xlsx';
     return sendXlsx(reply, await rowsToXlsxBuffer(rows, 'Operasyonel'), name);
   }

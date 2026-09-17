@@ -47,6 +47,7 @@ const TasksPage = lazy(() => import("./components/pages/tasks/TasksPage").then((
 import { Customer, SalesCase } from "./lib/mock";
 import { StoreProvider, useStore } from "./lib/store";
 import { clearDrafts, usePersistentState } from "./lib/persist";
+import { parseReportMode } from "./components/pages/reports/reportMode";
 import { Toaster } from "./components/ui/sonner";
 import { toast } from "sonner";
 import { applyOpportunityUrlState } from "./lib/opportunityUrlState";
@@ -513,7 +514,7 @@ function AppShell() {
         content = <ServiceKanbanPage focus={focus?.nav === "service-kanban" ? focus.focus : undefined} />;
         break;
       case "service-price-list": content = <ServicePriceListPage />; break;
-      case "reports": content = <ReportsPage onAction={runOperationAction} />; break;
+      case "reports": content = <ReportsPage onAction={runOperationAction} initialMode={focus?.nav === "reports" ? parseReportMode(focus.query) : null} />; break;
       case "users": content = <UsersPage />; break;
       case "roles": content = <RolesPage />; break;
       case "departments": content = <DepartmentsPage />; break;

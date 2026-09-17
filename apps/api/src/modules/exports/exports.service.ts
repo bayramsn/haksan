@@ -51,6 +51,7 @@ import type { AuthContext } from '../../shared/security/auth.types';
 import { isoDate, type ExportRow } from '../../shared/utils/excel-export';
 import { lookupIdByCode } from '../../shared/utils/lookup.helper';
 import { FinanceService } from '../finance/finance.service';
+import { ReportsService, type OperationalReportQuery } from '../reports/reports.service';
 import type { CompanyListQuery, DateRange, ExportContactQuery } from '@haksan/shared';
 import {
   resolveResourceDivisionScope,
@@ -70,7 +71,8 @@ const EXPORT_LIMIT = 15_000;
 export class ExportsService {
   constructor(
     @Inject(DB) private readonly db: DbClient,
-    private readonly finance: FinanceService
+    private readonly finance: FinanceService,
+    private readonly reports: ReportsService
   ) {}
 
   private async visibleCompanyExportFilters(actor: AuthContext, requestedDivisionId?: string): Promise<SQL[]> {
@@ -1051,111 +1053,18 @@ export class ExportsService {
     }));
   }
 
-  /** Operasyonel özet — aylık veya yıllık teklif/satış/servis KPI'ları. */
-  async exportOperational(actor: AuthContext, year: number, period: 'monthly' | 'yearly'): Promise<ExportRow[]> {
-    const from = new Date(Date.UTC(year, 0, 1));
-    const to = new Date(Date.UTC(year, 11, 31, 23, 59, 59));
-    const tenant = eq(opportunities.tenantId, actor.tenantId);
-    const opportunityScope = resourceDivisionFilter(actor, 'opportunities', opportunities.divisionId) ?? sql`true`;
-    const quoteScope = resourceDivisionFilter(actor, 'quotes', quotes.divisionId) ?? sql`true`;
-    const serviceScope = resourceDivisionFilter(actor, 'service_tickets', serviceTickets.divisionId) ?? sql`true`;
-    const isWon = sql`${pipelineStages.code} in ('contract','commercial_invoice','customs_approved','stock_picking','shipping','installation','delivered')`;
-    const isLost = sql`${pipelineStages.code} = 'cancelled'`;
-
-    if (period === 'monthly') {
-      const months = Array.from({ length: 12 }, (_, i) => i + 1);
-      const out: ExportRow[] = [];
-      for (const m of months) {
-        const mFrom = new Date(Date.UTC(year, m - 1, 1));
-        const mTo = new Date(Date.UTC(year, m, 0, 23, 59, 59));
-        const [opp] = await this.db
-          .select({
-            won: sql<number>`count(*) filter (where ${isWon})::int`,
-            lost: sql<number>`count(*) filter (where ${isLost})::int`,
-            wonValue: sql<string>`coalesce(sum(${opportunities.estimatedValue}) filter (where ${isWon}), 0)::text`,
-          })
-          .from(opportunities)
-          .leftJoin(pipelineStages, eq(opportunities.currentStageId, pipelineStages.id))
-          .where(and(tenant, isNull(opportunities.deletedAt), opportunityScope, gte(opportunities.createdAt, mFrom), lte(opportunities.createdAt, mTo)));
-
-        const [qc] = await this.db
-          .select({ count: sql<number>`count(*)::int` })
-          .from(quotes)
-          .where(and(eq(quotes.tenantId, actor.tenantId), isNull(quotes.deletedAt), quoteScope, gte(quotes.quoteDate, mFrom), lte(quotes.quoteDate, mTo)));
-
-        const [sc] = await this.db
-          .select({ count: sql<number>`count(*)::int` })
-          .from(serviceTickets)
-          .where(
-            and(
-              eq(serviceTickets.tenantId, actor.tenantId),
-              isNull(serviceTickets.deletedAt),
-              serviceScope,
-              gte(serviceTickets.reportedAt, mFrom),
-              lte(serviceTickets.reportedAt, mTo)
-            )
-          );
-
-        out.push({
-          Dönem: `${year}-${String(m).padStart(2, '0')}`,
-          Teklif: qc?.count ?? 0,
-          Kazanılan: opp?.won ?? 0,
-          Kaybedilen: opp?.lost ?? 0,
-          Servis: sc?.count ?? 0,
-          Ciro: opp?.wonValue ?? '0',
-        });
-      }
-      return out;
-    }
-
-    const years = await this.db
-      .select({ y: sql<number>`distinct extract(year from ${opportunities.createdAt})::int` })
-      .from(opportunities)
-      .where(and(tenant, isNull(opportunities.deletedAt), opportunityScope))
-      .orderBy(sql`1`);
-
-    const yearList = years.map((r) => r.y).filter((y) => y > 0);
-    const out: ExportRow[] = [];
-    for (const y of yearList.length ? yearList : [year]) {
-      const yFrom = new Date(Date.UTC(y, 0, 1));
-      const yTo = new Date(Date.UTC(y, 11, 31, 23, 59, 59));
-      const [opp] = await this.db
-        .select({
-          won: sql<number>`count(*) filter (where ${isWon})::int`,
-          lost: sql<number>`count(*) filter (where ${isLost})::int`,
-          wonValue: sql<string>`coalesce(sum(${opportunities.estimatedValue}) filter (where ${isWon}), 0)::text`,
-        })
-        .from(opportunities)
-        .leftJoin(pipelineStages, eq(opportunities.currentStageId, pipelineStages.id))
-        .where(and(tenant, isNull(opportunities.deletedAt), opportunityScope, gte(opportunities.createdAt, yFrom), lte(opportunities.createdAt, yTo)));
-
-      const [qc] = await this.db
-        .select({ count: sql<number>`count(*)::int` })
-        .from(quotes)
-        .where(and(eq(quotes.tenantId, actor.tenantId), isNull(quotes.deletedAt), quoteScope, gte(quotes.quoteDate, yFrom), lte(quotes.quoteDate, yTo)));
-
-      const [sc] = await this.db
-        .select({ count: sql<number>`count(*)::int` })
-        .from(serviceTickets)
-        .where(
-          and(
-            eq(serviceTickets.tenantId, actor.tenantId),
-            isNull(serviceTickets.deletedAt),
-            serviceScope,
-            gte(serviceTickets.reportedAt, yFrom),
-            lte(serviceTickets.reportedAt, yTo)
-          )
-        );
-
-      out.push({
-        Yıl: y,
-        Teklif: qc?.count ?? 0,
-        Kazanılan: opp?.won ?? 0,
-        Kaybedilen: opp?.lost ?? 0,
-        Servis: sc?.count ?? 0,
-        Ciro: opp?.wonValue ?? '0',
-      });
-    }
-    return out;
+  /** Sayfadaki operasyonel raporun aynısı; motor ReportsService'te, burada yalnız sütun adları. */
+  async exportOperational(actor: AuthContext, q: OperationalReportQuery): Promise<ExportRow[]> {
+    const { rows } = await this.reports.operationalReport(actor, q);
+    return rows.map((r) => ({
+      [q.period === 'monthly' ? 'Dönem' : 'Yıl']: r.bucket,
+      Teklif: r.quotes,
+      Onaylanan: r.approved,
+      Reddedilen: r.rejected,
+      Kazanılan: r.won,
+      Kaybedilen: r.lost,
+      Servis: r.service,
+      'Ciro (USD)': r.revenueUsd,
+    }));
   }
 }
