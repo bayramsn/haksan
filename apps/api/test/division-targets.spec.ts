@@ -128,8 +128,11 @@ describe('division targets', () => {
       .expect(403);
   });
 
-  it('requires an id for explicit user, department and division scopes', async () => {
-    for (const scope of ['user', 'department', 'division']) {
+  // Departman kapsamı bilerek dışarıda: id'siz çağrı artık tüm departmanları
+  // listeler (Raporlar > Hedef Takibi sekmesi böyle çağırır, bkz.
+  // reports-scope-authorization.spec.ts). Kullanıcı ve bölüm tek özne ister.
+  it('requires an id for explicit user and division scopes', async () => {
+    for (const scope of ['user', 'division']) {
       await request(app.getHttpServer())
         .get(`/api/v1/reports/target-progress?period=${period}&scope=${scope}`)
         .set(auth(adminToken))
