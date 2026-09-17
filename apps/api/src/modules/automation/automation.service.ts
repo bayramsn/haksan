@@ -153,7 +153,7 @@ export function formatWeeklySalesReport(
   stats: WeeklySalesReportStats,
   period: { from: Date; to: Date },
 ): string {
-  const date = (value: Date) => value.toLocaleDateString('tr-TR');
+  const date = (value: Date) => value.toLocaleDateString('tr-TR', { timeZone: TZ });
   const decisions = stats.wonOpportunities + stats.lostOpportunities;
   const winRate = decisions > 0 ? Math.round((stats.wonOpportunities / decisions) * 100) : 0;
   return [
@@ -215,7 +215,9 @@ export function formatUserReport(
   period: { from: Date; to: Date },
   sales: ReportSalesSummary | null = null,
 ): string {
-  const date = (value: Date) => value.toLocaleDateString('tr-TR');
+  // Dönem İstanbul takviminde kesilir (ReportsService); konteyner UTC olduğu
+  // için sunucu yerel biçimi sınırları bir gün geri yazardı.
+  const date = (value: Date) => value.toLocaleDateString('tr-TR', { timeZone: TZ });
   // `to` dönemin dışına açık sınır; kullanıcıya haftanın son günü gösterilir.
   const lastDay = new Date(period.to.getTime() - DAY_MS);
   const trend = (row: UserActivityRow) => {
@@ -344,7 +346,7 @@ export class AutomationService {
   }
 
   private date(value: Date | null): string {
-    return value ? value.toLocaleDateString('tr-TR') : '-';
+    return value ? value.toLocaleDateString('tr-TR', { timeZone: TZ }) : '-';
   }
 
   private async listTenants(): Promise<TenantRow[]> {

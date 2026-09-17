@@ -306,7 +306,8 @@ export function QuoteDialog({
   const [savingCompanyDetails, setSavingCompanyDetails] = useState(false);
   const [loadingEdit, setLoadingEdit] = useState(false);
 
-  const today = new Date().toISOString().slice(0, 10);
+  // İstanbul günü: UTC günü 00:00–03:00 arasında "dün"ü önerirdi.
+  const today = new Date().toLocaleDateString("en-CA", { timeZone: "Europe/Istanbul" });
   const [companyId, setCompanyId] = useState(defaultCustomerId ?? "");
   const [companyAddressId, setCompanyAddressId] = useState(
     preferredPdfAddressId(customers.find((customer) => customer.id === defaultCustomerId)),

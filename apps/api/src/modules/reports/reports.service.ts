@@ -251,50 +251,54 @@ const mergeCountMaps = (left: Map<string, PeriodCount>, right: Map<string, Perio
   return merged;
 };
 
+/** İstanbul UTC+03 sabit; bkz. `istanbulDayStart`. */
+const ISTANBUL_OFFSET_MS = 3 * 60 * 60 * 1000;
+
 /**
  * Ekip aktivitesi dönem aralıkları.
+ *
+ * Takvim İSTANBUL'a göre kurulur. Konteyner UTC koşuyor; `setHours(0)` ile
+ * kurulan gün İstanbul'da 03:00'te başlıyor, "Bugün" etiketi iki gün gösteriyor
+ * ve 00:00–03:00 arası kayıtlar önceki güne/haftaya sayılıyordu. Sabit ofsetle
+ * UTC alanında hesaplanıp geri kaydırılır; sunucu saat diliminden bağımsızdır.
  *
  * Önceki dönem, geçen dönemin TAMAMI değil **aynı kadarlık** kısmıdır: çarşamba
  * günü bakan biri 2 günlük veriyi 7 günlük veriyle karşılaştırmasın. Dönem
  * tamamlandığında aralık kendiliğinden tam döneme eşitlenir.
  */
 export function teamActivityRanges(period: TeamActivityPeriod, anchor: Date) {
-    const start = new Date(anchor);
-    start.setHours(0, 0, 0, 0);
-    let from: Date;
-    let to: Date;
-    let prevFrom: Date;
+    // İstanbul duvar saati, UTC getter'larıyla okunacak şekilde kaydırılmış.
+    const local = new Date(anchor.getTime() + ISTANBUL_OFFSET_MS);
+    const y = local.getUTCFullYear();
+    const m = local.getUTCMonth();
+    const d = local.getUTCDate();
+    let from: number;
+    let to: number;
+    let prevFrom: number;
 
     if (period === 'day') {
-      from = start;
-      to = new Date(from);
-      to.setDate(to.getDate() + 1);
-      prevFrom = new Date(from);
-      prevFrom.setDate(prevFrom.getDate() - 1);
+      from = Date.UTC(y, m, d);
+      to = Date.UTC(y, m, d + 1);
+      prevFrom = Date.UTC(y, m, d - 1);
     } else if (period === 'week') {
-      const day = (start.getDay() + 6) % 7; // pazartesi = 0
-      from = new Date(start);
-      from.setDate(from.getDate() - day);
-      to = new Date(from);
-      to.setDate(to.getDate() + 7);
-      prevFrom = new Date(from);
-      prevFrom.setDate(prevFrom.getDate() - 7);
+      const day = (local.getUTCDay() + 6) % 7; // pazartesi = 0
+      from = Date.UTC(y, m, d - day);
+      to = Date.UTC(y, m, d - day + 7);
+      prevFrom = Date.UTC(y, m, d - day - 7);
     } else if (period === 'month') {
-      from = new Date(start.getFullYear(), start.getMonth(), 1);
-      to = new Date(start.getFullYear(), start.getMonth() + 1, 1);
-      prevFrom = new Date(start.getFullYear(), start.getMonth() - 1, 1);
+      from = Date.UTC(y, m, 1);
+      to = Date.UTC(y, m + 1, 1);
+      prevFrom = Date.UTC(y, m - 1, 1);
     } else {
-      from = new Date(start.getFullYear(), 0, 1);
-      to = new Date(start.getFullYear() + 1, 0, 1);
-      prevFrom = new Date(start.getFullYear() - 1, 0, 1);
+      from = Date.UTC(y, 0, 1);
+      to = Date.UTC(y + 1, 0, 1);
+      prevFrom = Date.UTC(y - 1, 0, 1);
     }
     // Geçen dönemde aynı noktaya kadar: kıyas adil olsun.
-    const elapsed = Math.min(
-      Math.max(anchor.getTime() - from.getTime(), 0),
-      to.getTime() - from.getTime()
-    );
-    const prevTo = elapsed > 0 ? new Date(prevFrom.getTime() + elapsed) : new Date(from);
-    return { from, to, prevFrom, prevTo };
+    const elapsed = Math.min(Math.max(local.getTime() - from, 0), to - from);
+    const prevTo = elapsed > 0 ? prevFrom + elapsed : from;
+    const utc = (wall: number) => new Date(wall - ISTANBUL_OFFSET_MS);
+    return { from: utc(from), to: utc(to), prevFrom: utc(prevFrom), prevTo: utc(prevTo) };
 }
 
 @Injectable()
@@ -2701,10 +2705,12 @@ export class ReportsService {
       /** Yalnız genel aktivite serisinde sayılmayacak sonuç. */
       notResult?: string,
     ) => {
-      const truncated = sql`date_trunc('${sql.raw(unit)}', ${dateCol})`;
+      // Kova İstanbul duvar saatinde kesilir (oturum UTC; aksi hâlde gün 03:00'te
+      // başlar). Anahtar ofsetli ISO döner ki tarayıcı her yerde aynı parse etsin.
+      const truncated = sql`date_trunc('${sql.raw(unit)}', ${dateCol} at time zone 'Europe/Istanbul')`;
       const rows = await this.db
         .select({
-          bucket: sql<string>`${truncated}::text`,
+          bucket: sql<string>`to_char(${truncated}, 'YYYY-MM-DD"T"HH24:MI:SS') || '+03:00'`,
           count: sql<number>`count(*)::int`,
         })
         .from(table)
@@ -2714,7 +2720,9 @@ export class ReportsService {
             isNull(deletedCol),
             inArray(actorCol, userIds),
             gte(dateCol, range.from),
-            lte(dateCol, range.to),
+            // Sayaçlarla aynı açık üst sınır: tam `to` anındaki (ör. yarına
+            // tarihlenmiş saatsiz) kayıt grafikte fazladan çubuk açmasın.
+            sql`${dateCol} < ${range.to}`,
             notResult ? sql`coalesce(${salesActivities.result}, '') <> ${notResult}` : undefined,
           )
         )

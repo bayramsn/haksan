@@ -39,9 +39,10 @@ const PREVIOUS_LABELS: Record<TeamActivityPeriod, string> = {
 function bucketLabel(bucket: string, kind: TeamActivityReport["bucket"]) {
   const date = new Date(bucket);
   if (Number.isNaN(date.getTime())) return bucket;
-  if (kind === "hour") return `${String(date.getHours()).padStart(2, "0")}:00`;
-  if (kind === "month") return date.toLocaleDateString("tr-TR", { month: "short" });
-  return date.toLocaleDateString("tr-TR", { day: "2-digit", month: "2-digit" });
+  const tz = { timeZone: "Europe/Istanbul" } as const;
+  if (kind === "hour") return `${date.toLocaleTimeString("tr-TR", { ...tz, hour: "2-digit" }).slice(0, 2)}:00`;
+  if (kind === "month") return date.toLocaleDateString("tr-TR", { ...tz, month: "short" });
+  return date.toLocaleDateString("tr-TR", { ...tz, day: "2-digit", month: "2-digit" });
 }
 
 /** Önceki döneme göre yüzde değişim; payda sıfırsa yüzde anlamsızdır. */
@@ -90,6 +91,7 @@ function detailDate(value: string) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
   return date.toLocaleDateString("tr-TR", {
+    timeZone: "Europe/Istanbul",
     day: "2-digit",
     month: "long",
     year: "numeric",
@@ -418,11 +420,11 @@ export function TeamActivityPanel() {
     [data]
   );
 
-  const rangeLabel = data
-    ? `${new Date(data.range.from).toLocaleDateString("tr-TR")} – ${new Date(
-        new Date(data.range.to).getTime() - 1
-      ).toLocaleDateString("tr-TR")}`
-    : "";
+  // Dönem sunucuda İstanbul takvimine göre kesilir; etiket de aynı takvimde
+  // okunmalı, yoksa farklı saat dilimindeki tarayıcı gün kaydırır.
+  const istDay = (iso: string, offsetMs = 0) =>
+    new Date(new Date(iso).getTime() + offsetMs).toLocaleDateString("tr-TR", { timeZone: "Europe/Istanbul" });
+  const rangeLabel = data ? `${istDay(data.range.from)} – ${istDay(data.range.to, -1)}` : "";
 
   return (
     <Card className="border-border/70">

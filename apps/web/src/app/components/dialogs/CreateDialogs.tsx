@@ -7171,7 +7171,8 @@ export function LogActivityDialog({
   const { refresh } = useStore();
   const [open, setOpen] = useState(false);
   const [kind, setKind] = useState<(typeof ACTIVITY_TYPE_OPTIONS)[number]["code"]>(defaultKind);
-  const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
+  // İstanbul günü: UTC günü 00:00–03:00 arasında "dün"ü önerirdi.
+  const [date, setDate] = useState(() => new Date().toLocaleDateString("en-CA", { timeZone: "Europe/Istanbul" }));
   const [subject, setSubject] = useState("");
   const [purpose, setPurpose] = useState("");
   const [result, setResult] = useState("");
@@ -7181,7 +7182,7 @@ export function LogActivityDialog({
 
   const reset = () => {
     setKind(defaultKind);
-    setDate(new Date().toISOString().slice(0, 10));
+    setDate(new Date().toLocaleDateString("en-CA", { timeZone: "Europe/Istanbul" }));
     setSubject("");
     setPurpose("");
     setResult("");
