@@ -11,7 +11,6 @@ import {
   leadAssignmentRules,
   leadContactEvents,
   salesActivities,
-  visits,
   calls,
   cancellationReasons,
   competitors,
@@ -170,7 +169,6 @@ type QualificationContext = {
   hasPhone: boolean;
   hasEmail: boolean;
   hasCall: boolean;
-  hasVisit: boolean;
   hasQuote: boolean;
   approvals: Partial<Record<OpportunityApprovalType, 'pending' | 'approved' | 'rejected'>>;
 };
@@ -339,7 +337,7 @@ export class OpportunitiesService {
     const companyIds = [...new Set(rows.map((row) => row.companyId).filter((id): id is string => Boolean(id)))];
     if (!opportunityIds.length) return new Map<string, QualificationContext>();
 
-    const [companyRows, addressRows, phoneRows, emailRows, callRows, visitRows, activityRows, approvalRows, quoteRows] = await Promise.all([
+    const [companyRows, addressRows, phoneRows, emailRows, callRows, activityRows, approvalRows, quoteRows] = await Promise.all([
       companyIds.length
         ? this.db
             .select({ id: companies.id, sector: companies.sector })
@@ -397,10 +395,6 @@ export class OpportunitiesService {
         .select({ opportunityId: calls.opportunityId })
         .from(calls)
         .where(and(eq(calls.tenantId, rows[0].tenantId), inArray(calls.opportunityId, opportunityIds), isNull(calls.deletedAt))),
-      this.db
-        .select({ opportunityId: visits.opportunityId })
-        .from(visits)
-        .where(and(eq(visits.tenantId, rows[0].tenantId), inArray(visits.opportunityId, opportunityIds), isNull(visits.deletedAt))),
       this.db
         .select({
           opportunityId: salesActivities.opportunityId,
@@ -465,13 +459,6 @@ export class OpportunitiesService {
         .map((row) => row.opportunityId)
         .filter(Boolean),
     ]);
-    const visitsByOpportunity = new Set([
-      ...visitRows.map((row) => row.opportunityId).filter(Boolean),
-      ...activityRows
-        .filter((row) => ['customer_visit', 'visit', 'demo'].includes(row.activityTypeCode))
-        .map((row) => row.opportunityId)
-        .filter(Boolean),
-    ]);
     const quotesByOpportunity = new Set(quoteRows.map((row) => row.opportunityId).filter(Boolean));
     const approvalsByOpportunity = new Map<
       string,
@@ -496,7 +483,6 @@ export class OpportunitiesService {
             hasPhone: Boolean(companyId && phones.has(companyId)),
             hasEmail: Boolean(companyId && emails.has(companyId)),
             hasCall: callsByOpportunity.has(row.id),
-            hasVisit: visitsByOpportunity.has(row.id),
             hasQuote: quotesByOpportunity.has(row.id),
             approvals: approvalsByOpportunity.get(row.id) ?? {},
           } satisfies QualificationContext,
@@ -608,7 +594,6 @@ export class OpportunitiesService {
     } else if (stage === 'b') {
       checks.push(
         { key: 'call', label: 'Arama yapıldı', complete: context.hasCall },
-        { key: 'visit', label: 'Ziyaret yapıldı', complete: context.hasVisit },
         { key: 'machine', label: 'İstenen makine belirlendi', complete: Boolean(row.requestedMachine?.trim()) },
         {
           key: 'payment_method',
@@ -978,7 +963,6 @@ export class OpportunitiesService {
       check('sector', 'Sektör girildi', Boolean(context.company?.sector?.trim()), 'edit_company', 'call', 'c'),
       check('phone', 'Telefon girildi', context.hasPhone, 'edit_company', 'call', 'c'),
       check('call', 'Arama kaydı oluşturuldu', context.hasCall, 'record_call', 'visit', 'b'),
-      check('visit', 'Ziyaret durumu', context.hasVisit, 'record_visit', 'quote', 'b'),
       check('machine', 'İstenen makine belirlendi', Boolean(row.requestedMachine?.trim()), 'edit_machine', 'quote', 'b'),
       check(
         'payment_method',

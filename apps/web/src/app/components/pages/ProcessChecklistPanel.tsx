@@ -43,11 +43,6 @@ import { OPPORTUNITY_OPERATION_GROUP_STEPS } from "./opportunityProcessGroups";
 import { useCompanyDetail } from "../../lib/companyServerData";
 import { districtsForCountry, provincesForCountry } from "../../lib/geoByCountry";
 import { Combobox } from "../ui/combobox";
-import {
-  OPPORTUNITY_VISIT_STATUS_RESULT,
-  resolveOpportunityVisitStatus,
-  type OpportunityVisitStatus,
-} from "./opportunityVisitStatus";
 import { OpportunityQuoteList } from "./OpportunityQuoteList";
 import { OpportunityContractList } from "./OpportunityContractList";
 
@@ -74,7 +69,6 @@ const OPPORTUNITY_CHECK_BY_ACTION: Partial<Record<OpportunityProcessActionKey, s
   link_contact: "contact",
   create_contact: "contact",
   record_call: "call",
-  record_visit: "visit",
   edit_machine: "machine",
   edit_payment_method: "payment_method",
   edit_contract_terms: "contract_terms",
@@ -98,7 +92,6 @@ const CHECK_ACTION_BY_KEY: Record<string, OpportunityProcessActionKey> = {
   sector: "edit_company",
   phone: "edit_company",
   call: "record_call",
-  visit: "record_visit",
   machine: "edit_machine",
   payment_method: "edit_payment_method",
   quote: "create_quote",
@@ -140,7 +133,6 @@ const INLINE_EDITOR_CHECK_KEYS = new Set([
   "phone",
   "sector",
   "call",
-  "visit",
   "machine",
   "payment_method",
   "contract_terms",
@@ -335,7 +327,7 @@ export function ProcessChecklistPanel({
    */
   onSaved?: () => Promise<void> | void;
 }) {
-  const { users, products, activities, documents, updateCase, updateCustomer, decideCaseApproval, refresh } =
+  const { users, products, documents, updateCase, updateCustomer, decideCaseApproval, refresh } =
     useStore();
   const { hasRole, hasPermission } = useAuth();
   const isSuperAdmin = hasRole("super_admin");
@@ -607,11 +599,6 @@ export function ProcessChecklistPanel({
                 isSuperAdmin={isSuperAdmin}
                 canCreateActivity={canCreateActivity}
                 complete={activeCheck.complete}
-                visitStatus={resolveOpportunityVisitStatus({
-                  complete: activeCheck.complete,
-                  activities,
-                  salesCaseId: sc.id,
-                })}
                 busy={busyKey !== null}
                 disabled={readOnly || !canUpdate || busyKey !== null}
                 run={run}
@@ -646,7 +633,6 @@ type EditorProps = {
   isSuperAdmin: boolean;
   canCreateActivity: boolean;
   complete: boolean;
-  visitStatus?: OpportunityVisitStatus;
   busy: boolean;
   disabled: boolean;
   run: (
@@ -809,91 +795,6 @@ function CheckEditor(props: EditorProps) {
     );
   };
 
-  /**
-   * B alanındaki ziyaret sonucu bir onay kutusu yerine açık bir durum listesi
-   * olarak seçilir. Her iki seçim de fırsata bağlı ziyaret kararını aktivite
-   * olarak kaydeder; böylece "Yapılmadı" seçimi de adımı bilinçli olarak atlar.
-   * Tamamlanma bilgisi yine sunucudaki aktivite kaydından türetilir.
-   */
-
-  const visitStatusCheck = () => {
-    const unavailable = !props.canCreateActivity || !sc.customerId;
-    // Karar kilitlenmez: saha ziyareti ertelenir, iptal olur ya da yanlış
-    // işaretlenir. `props.complete` artık seçimi engellemiyor — düzeltme yeni bir
-    // ziyaret aktivitesi yazar, eski kayıt geçmişte durur.
-    const activityDisabled = props.disabled || props.busy || unavailable;
-
-    return wrap(
-      <div className="space-y-2 rounded-md bg-slate-50/80 p-2.5">
-        <div className="space-y-1.5">
-          <label className="text-xs font-medium" htmlFor={`qualification-visit-status-${sc.id}`}>
-            Ziyaret durumu
-          </label>
-          <Select
-            value={props.visitStatus}
-            disabled={activityDisabled}
-            onValueChange={(value) => {
-              // Aynı durumu yeniden seçmek mükerrer aktivite yazmasın.
-              if ((value !== "done" && value !== "not_done") || value === props.visitStatus || unavailable) return;
-              const visitStatus = value as OpportunityVisitStatus;
-              void run(
-                checkKey,
-                async () => {
-                  await activityService.create({
-                    opportunityId: sc.id,
-                    companyId: sc.customerId!,
-                    activityTypeCode: "customer_visit",
-                    subject: "Müşteri Ziyareti",
-                    activityDate: new Date(),
-                    description: draft.trim() || undefined,
-                    result: OPPORTUNITY_VISIT_STATUS_RESULT[visitStatus],
-                  });
-                  setDraft("");
-                  await props.refresh();
-                },
-                visitStatus === "done"
-                  ? props.complete ? "Ziyaret durumu Yapıldı olarak güncellendi" : "Ziyaret yapıldı olarak kaydedildi"
-                  : props.complete ? "Ziyaret durumu Yapılmadı olarak güncellendi" : "Ziyaret yapılmadı olarak kaydedildi; adım atlandı",
-                props.canCreateActivity,
-              );
-            }}
-          >
-            <SelectTrigger
-              id={`qualification-visit-status-${sc.id}`}
-              size="sm"
-              className="h-8 w-full bg-white text-xs sm:w-64"
-              aria-label="Ziyaret durumu"
-            >
-              <SelectValue placeholder="Durum seçin" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="not_done">Yapılmadı</SelectItem>
-              <SelectItem value="done">Yapıldı</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-        {/* Not alanı kapanmıyor: kararı değiştiren kullanıcı gerekçesini de yazabilmeli. */}
-        <Input
-          className="h-8 bg-white text-xs"
-          placeholder={props.complete ? "Değişiklik notu (isteğe bağlı)" : "Ziyaret notu (isteğe bağlı)"}
-          value={draft}
-          disabled={activityDisabled}
-          onChange={(event) => setDraft(event.target.value)}
-        />
-        <p className="text-[10px] leading-4 text-muted-foreground">
-          {!props.canCreateActivity
-            ? "Aktivite oluşturma yetkiniz bulunmuyor."
-            : !sc.customerId
-              ? "Önce fırsata firma bağlanmalı."
-              : props.complete
-                ? props.visitStatus === "not_done"
-                  ? "Ziyaret yapılmadı olarak kaydedildi; bu adım atlandı. Karar değiştiyse yeniden seçebilirsiniz."
-                  : "Ziyaret aktivitesi kaydedildi; durum Yapıldı. Karar değiştiyse yeniden seçebilirsiniz."
-                : "Yapıldı veya Yapılmadı seçimi ziyaret kararını kaydeder ve adımı tamamlar."}
-        </p>
-      </div>,
-    );
-  };
 
   switch (checkKey) {
     case "subject":
@@ -1030,9 +931,6 @@ function CheckEditor(props: EditorProps) {
         subject: "Giden Arama",
         successMessage: "Arama kaydedildi",
       });
-
-    case "visit":
-      return visitStatusCheck();
 
     case "machine":
       return wrap(

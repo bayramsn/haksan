@@ -413,10 +413,11 @@ describe('Opportunity qualification pipeline', () => {
       expect.arrayContaining([
         'Kontak bağlı',
         'Arama kaydı oluşturuldu',
-        'Ziyaret durumu',
         'Teklif oluşturuldu',
       ])
     );
+    // Ziyaret ayrı bir geçiş şartı değil: görüşme kaydı zaten ziyareti yazıyordu.
+    expect(skipped.body.error?.details?.blockerLabels).not.toContain('Ziyaret durumu');
     expect(skipped.body.error?.details?.blockers).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ key: 'quote', actionKey: 'create_quote', qualificationStage: 'b' }),
