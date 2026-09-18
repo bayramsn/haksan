@@ -95,6 +95,13 @@ export type ActivityLogTargets = {
   metrics: ActivityLogTargetMetric[];
 };
 
+/**
+ * Raporda görünen ama "Aktivite" sayısına ve kullanıcı sıralamasına girmeyen
+ * türler. Not/yorum fırsat popup'ında tek tıkla yazılıyor; ziyaret ve aramayla
+ * aynı ağırlıkta sayılırsa haftalık sayı bir çalışma ölçüsü olmaktan çıkar.
+ */
+export const UNCOUNTED_ACTIVITY_TYPES: ReadonlySet<string> = new Set(["note"]);
+
 export type ActivityLogPlanKind = "followUp" | "opportunityAction" | "task" | "visit";
 export type ActivityLogPlanItem = {
   kind: ActivityLogPlanKind;
@@ -218,7 +225,10 @@ export function activityLogPrintDoc(
   const totalsLabel = activityLogTotals;
   // Kişi bloğu: kaydı, teklifi YA DA hafta hareketi (kazanç, geciken görev, kaçırılan takip)
   // olan herkes — hiç kayıt girmeyip takibi kaçıran kişi tam da yöneticinin görmek istediği.
-  const users = report.users.filter((user) => user.activityCount || user.quoteCount || weekStatsLine(user.week));
+  // `activityCount` sayılmayan türleri (not/yorum) dışarıda bıraktığı için grup
+  // uzunluğu ayrıca bakılır: yalnız not yazmış kişinin notları da okunabilmeli.
+  const hasEntries = (user: ActivityLogUser) => user.groups.some((group) => group.entries.length > 0);
+  const users = report.users.filter((user) => user.activityCount || hasEntries(user) || user.quoteCount || weekStatsLine(user.week));
   const all = report.users;
   const entries = all.flatMap((u) => u.groups.flatMap((g) => g.entries));
   const inOpp = entries.filter((e) => e.inOpportunity).length;
