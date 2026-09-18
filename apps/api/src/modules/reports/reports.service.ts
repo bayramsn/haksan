@@ -2,6 +2,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import {
   ACTIVITY_TYPE_OPTIONS,
   activityTypeLabel,
+  UNCOUNTED_ACTIVITY_TYPES,
   VISIT_NOT_DONE_RESULT,
   type ActivityLogEntry,
   type ActivityLogMissedFollowUp,
@@ -3393,7 +3394,13 @@ export class ReportsService {
         return {
           userId: person.id,
           userName: person.fullName ?? person.email ?? 'Bilinmeyen kullanıcı',
-          activityCount: groups.reduce((sum, group) => sum + group.entries.length, 0),
+          // Notlar raporda görünür ama sayılmaz: fırsat popup'ından tek tıkla
+          // yazılıyorlar, ziyaret/arama ile aynı kefeye konursa hem "Aktivite"
+          // çipi hem de kullanıcı sıralaması yanıltıcı olur.
+          activityCount: groups.reduce(
+            (sum, group) => (UNCOUNTED_ACTIVITY_TYPES.has(group.typeCode) ? sum : sum + group.entries.length),
+            0,
+          ),
           quoteCount: quoteDocsByUser.get(person.id)?.size ?? 0,
           quoteTotals: [...(quoteTotalsByUser.get(person.id) ?? new Map())]
             .map(([currency, amount]) => ({ currency, amount })),

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { activityLogPrintDoc, type ActivityLogEntry, type ActivityLogReport, type ActivityLogUser } from "@haksan/shared";
+import { activityLogPrintDoc, UNCOUNTED_ACTIVITY_TYPES, type ActivityLogEntry, type ActivityLogReport, type ActivityLogUser } from "@haksan/shared";
 
 const entry = (over: Partial<ActivityLogEntry>): ActivityLogEntry => ({
   id: "e1",
@@ -132,5 +132,30 @@ describe("activityLogPrintDoc", () => {
     // Önümüzdeki hafta
     expect(body).toContain("Önümüzdeki hafta planı · 07.09.2026 – 13.09.2026 · 2 plan");
     expect(body).toContain("Saha ziyareti");
+  });
+
+  // Fırsat popup'ında not yazmak tek tık: sayıya girerse "Aktivite" çipi ve
+  // kullanıcı sıralaması ziyaret/arama yapanı aşağı iter. Not görünür kalır,
+  // sayılmaz — bu yüzden `activityCount` 0 olan kişi de rapordan düşmemeli.
+  it("yalnız not yazmış kişiyi sayısı sıfır olsa da rapordan düşürmez", () => {
+    const onlyNotes = activityLogPrintDoc(
+      {
+        ...report,
+        users: [
+          user({
+            userId: "u9",
+            userName: "Notçu Kişi",
+            activityCount: 0,
+            groups: [{ typeCode: "note", typeName: "Yorum", entries: [entry({ id: "n1", subject: "Fırsat notu", note: "Müşteri dosya bekliyor." })] }],
+          }),
+        ],
+      },
+      { letterheadSrc: null, generatedAt: new Date("2026-09-07T06:00:00Z") },
+    ).body;
+    expect(onlyNotes).toContain("Notçu Kişi");
+    expect(onlyNotes).toContain("Müşteri dosya bekliyor.");
+    expect(onlyNotes).toContain("Aktivite <b>0</b>");
+    expect(UNCOUNTED_ACTIVITY_TYPES.has("note")).toBe(true);
+    expect(UNCOUNTED_ACTIVITY_TYPES.has("customer_visit")).toBe(false);
   });
 });
