@@ -29,7 +29,27 @@ async function getOrCreate<T extends { id: string }>(
   return creator();
 }
 
+/**
+ * Demo seed tahmin edilebilir super-admin hesabı açar (bkz. `userDefs`). Kaynakta
+ * sabit parola tutmak dev/CI için gerekli; asıl koruma ÇALIŞMA ANINDA olmalı:
+ * ortam açıkça dev/test değilse komut reddedilir. Bilinçli bir kurtarma senaryosu
+ * için `ALLOW_DEMO_SEED=true` kapısı bırakıldı.
+ */
+const DEMO_SEED_ENVIRONMENTS = new Set(['development', 'test']);
+
+export function assertDemoSeedAllowed(env: NodeJS.ProcessEnv = process.env): void {
+  if (env.ALLOW_DEMO_SEED === 'true') return;
+  const nodeEnv = env.NODE_ENV ?? '';
+  if (DEMO_SEED_ENVIRONMENTS.has(nodeEnv)) return;
+  throw new Error(
+    `[demo] seed reddedildi: NODE_ENV='${nodeEnv || '(tanımsız)'}'. ` +
+      'Demo verisi yalnız NODE_ENV=development|test ortamında yüklenir; ' +
+      'bilerek yapıyorsanız ALLOW_DEMO_SEED=true verin.'
+  );
+}
+
 export async function seedDemo(): Promise<void> {
+  assertDemoSeedAllowed();
   const db = getDb();
 
   // 1. Tenant
