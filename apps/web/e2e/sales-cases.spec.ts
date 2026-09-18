@@ -61,12 +61,21 @@ test("fırsatlar listelenir ve detay açılır", async ({ page }) => {
   // Kaldırılan katmanın parametresi URL'de kalmamalı.
   await expect(page).not.toHaveURL(/[?&]surface=/);
 
-  // Derin bağlantı (yenileme) de aynı yüzeye açılmalı.
+  // Yenileme kartı geri getirmez. Mobil tarayıcı sekmeyi en son adresiyle
+  // yüklediği için kart açıkken uygulamadan çıkan kullanıcı geri döndüğünde
+  // kart pop-up olarak kendiliğinden üstüne biniyordu; adresteki parametre
+  // artık ilk yüklemede okunmaz ve URL'den silinir.
   await page.reload();
-  await expect(dialog.getByText("Kayıt çalışma alanı", { exact: true })).toBeVisible({ timeout: 30_000 });
-  await expect(dialog.getByRole("region", { name: "Kayıt çalışma alanı içeriği" })).toBeVisible();
+  await page.getByRole("tab", { name: "Liste" }).click();
+  await expect(table).toBeVisible();
+  await expect(dialog).toBeHidden();
+  await expect(page).not.toHaveURL(/[?&]opportunity=/);
 
   // Kart tek history kaydı itiyor: geri tuşu kartı kapatır, ileri tuşu geri getirir.
+  await expect(firstRow).toBeVisible();
+  await firstRow.click();
+  await expect(dialog).toBeVisible();
+  await expect(page).toHaveURL(/[?&]opportunity=[^&]+/);
   await page.goBack();
   await expect(dialog).toBeHidden();
   await expect(page).not.toHaveURL(/[?&]opportunity=/);
