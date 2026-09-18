@@ -1,9 +1,10 @@
 import { useState, useEffect, useRef, lazy, Suspense } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "../ui/card";
 import { Button } from "../ui/button";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "../ui/dropdown-menu";
 import { Badge } from "../ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../ui/tabs";
-import { ArrowLeft, CalendarClock, ChevronLeft, ChevronRight, Plus, Upload, X, XCircle, Eye, FileText, CreditCard, CheckCircle2, Trash2, Wrench, Pencil, Building2, UserRound, Download, Mail, MapPin, Phone } from "lucide-react";
+import { ArrowLeft, CalendarClock, ChevronLeft, ChevronRight, Plus, Upload, X, XCircle, Eye, FileText, CreditCard, CheckCircle2, Trash2, Wrench, Pencil, Building2, UserRound, Download, Mail, MapPin, Phone, Maximize2, Minimize2, MoreHorizontal } from "lucide-react";
 import {
   SalesCase,
   LEAD_FOLLOW_UP_STATUS_LABELS,
@@ -58,7 +59,6 @@ import { OpportunityStockPickerDialog } from "../dialogs/OpportunityStockPickerD
 const OfferDetailDialog = lazy(() =>
   import("./offers/OffersPage").then((module) => ({ default: module.OfferDetailDialog })),
 );
-import { STAGE_DOT } from "./Kanban";
 import { DialogSplitLayout, DialogSidebarSection } from "../shared/DialogSplitLayout";
 import { KanbanDetailDialogShell } from "../shared/KanbanDetailDialogShell";
 import { fileService, opportunityService, quoteService, salesOrderService, financeService } from "../../../lib/services";
@@ -95,6 +95,7 @@ export function SalesCaseDetailDialog({
   const { cases } = useStore();
   const { user } = useAuth();
   const dialogOpenerRef = useRef<HTMLElement | null>(null);
+  const [popupExpanded, setPopupExpanded] = useState(false);
   const currentIndex = sc ? cases.findIndex((item) => item.id === sc.id) : -1;
   const previous = currentIndex > 0 ? cases[currentIndex - 1] : null;
   const next = currentIndex >= 0 && currentIndex < cases.length - 1 ? cases[currentIndex + 1] : null;
@@ -118,7 +119,7 @@ export function SalesCaseDetailDialog({
           event.preventDefault();
           focusWorkspaceTarget(dialogOpenerRef.current, { scroll: false });
         }}
-        className="left-0 top-0 h-dvh max-h-dvh w-screen max-w-none translate-x-0 translate-y-0 overflow-x-hidden overflow-y-hidden rounded-none p-0 gap-0 sm:left-1/2 sm:top-1/2 sm:h-auto sm:max-h-[90dvh] sm:w-[min(1240px,calc(100vw-2rem))] sm:max-w-none sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-lg [&>[data-slot=dialog-close]]:hidden"
+        className={`left-0 top-0 h-dvh max-h-dvh w-screen max-w-none translate-x-0 translate-y-0 overflow-hidden rounded-none p-0 gap-0 sm:left-1/2 sm:top-1/2 sm:max-w-none sm:-translate-x-1/2 sm:-translate-y-1/2 [&>[data-slot=dialog-close]]:hidden ${popupExpanded ? "sm:h-[96dvh] sm:max-h-[96dvh] sm:w-[calc(100vw-2rem)] sm:rounded-xl" : "sm:h-[90dvh] sm:max-h-[90dvh] sm:w-[min(1240px,calc(100vw-2rem))] sm:rounded-xl"}`}
       >
         <DialogHeader className="sr-only">
           {/* Tek dize: ekran okuyucu kart türünü ve konusunu tek seferde duysun. */}
@@ -138,6 +139,8 @@ export function SalesCaseDetailDialog({
             next={next}
             onNavigate={onNavigate}
             simpleMode={simpleMode}
+            popupExpanded={popupExpanded}
+            onTogglePopup={() => setPopupExpanded((value) => !value)}
           />
         )}
       </DialogContent>
@@ -421,6 +424,8 @@ export function SalesCaseDetailPage({
   onNavigate,
   onClose,
   simpleMode = false,
+  popupExpanded = false,
+  onTogglePopup,
 }: {
   sc: SalesCase;
   onBack: () => void;
@@ -430,6 +435,8 @@ export function SalesCaseDetailPage({
   onNavigate?: (opportunityId: string) => void;
   onClose?: () => void;
   simpleMode?: boolean;
+  popupExpanded?: boolean;
+  onTogglePopup?: () => void;
 }) {
   const { offers, activities, customers, contacts, users, documents, payments, installations, refresh, deleteCase, updateCase, closeCase, updateActivity, deleteActivity } = useStore();
   const { hasRole, hasPermission } = useAuth();
@@ -437,9 +444,6 @@ export function SalesCaseDetailPage({
   const canAssignOwner = isSuperAdmin || hasRole("sales");
   const canUpdate = hasPermission("opportunities.update");
   const canDelete = hasPermission("opportunities.delete");
-  const canCreateActivity = hasPermission("activities.create");
-  const canUpdateActivity = hasPermission("activities.update");
-  const canDeleteActivity = hasPermission("activities.delete");
   const [lostOpen, setLostOpen] = useState(false);
   const [followUpOpen, setFollowUpOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
@@ -691,13 +695,11 @@ export function SalesCaseDetailPage({
       }
       setWorkspaceTab("offers");
       // Sekme içeriği bu render'da mount olur; kaydırma bir kare sonra.
-      requestAnimationFrame(() =>
-        focusWorkspaceTarget(
-          // Sade deneyimde sekmeler yok; teklif listesi görev panelinde yaşıyor.
-          document.getElementById("opportunity-quote-list") ?? document.getElementById("opportunity-quotes"),
-          { focus: false },
-        ),
-      );
+      requestAnimationFrame(() => {
+        const documents = document.getElementById("opportunity-documents") as HTMLDetailsElement | null;
+        if (documents) documents.open = true;
+        focusWorkspaceTarget(documents?.querySelector("summary") ?? document.getElementById("opportunity-quote-list") ?? document.getElementById("opportunity-quotes"));
+      });
       toast.message(
         candidates.length ? "Satılan teklifi seçin" : "Onaylanacak teklif yok",
         {
@@ -798,75 +800,6 @@ export function SalesCaseDetailPage({
       ? "hidden"
       : "flex items-center justify-between gap-2";
   const bodyClass = "space-y-4";
-  const activityPanel = (
-    <div className="space-y-3">
-      {canCreateActivity && (
-        <AddActivityDialog
-          salesCaseId={sc.id}
-          customerId={sc.customerId}
-          contactId={primaryContact?.id}
-          trigger={
-            <Button variant="outline" className="h-10 w-full justify-start rounded-lg bg-white text-left text-sm text-muted-foreground">
-              <Plus className="size-4" /> Yorum / aktivite ekle...
-            </Button>
-          }
-        />
-      )}
-      <div className="space-y-3">
-        {acts.map((a) => (
-          <div key={a.id} className="flex items-start gap-3">
-            <div className="grid size-8 shrink-0 place-items-center rounded-full bg-primary text-[11px] font-semibold text-primary-foreground">
-              {(a.createdByName || users.find((u) => u.id === a.byUserId)?.name || "HS")
-                .split(" ")
-                .slice(0, 2)
-                .map((part) => part[0])
-                .join("")
-                .toLocaleUpperCase("tr-TR")}
-            </div>
-            <div className="min-w-0 flex-1">
-              <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
-                <span className="font-semibold text-foreground">{a.createdByName || users.find((u) => u.id === a.byUserId)?.name || "Haksan Cnc Satış"}</span>
-                <span className="text-muted-foreground tabular-nums">{a.date}</span>
-                {a.type && <span className="rounded bg-white px-1.5 py-0.5 text-[11px] text-muted-foreground">{a.type}</span>}
-              </div>
-              <div className="mt-1 rounded-lg border border-border/70 bg-white px-3 py-2 text-sm leading-relaxed shadow-xs">
-                <div className="font-medium">{a.title}</div>
-                {a.note && <div className="mt-1 whitespace-pre-wrap text-muted-foreground">{a.note}</div>}
-                {a.result && <div className="mt-2 rounded-md bg-muted/60 px-2 py-1 text-xs">{a.result}</div>}
-                {Array.isArray(a.files) && a.files.length > 0 && (
-                  <div className="mt-2 flex flex-wrap gap-1.5">
-                    {a.files.map((file: any) => (
-                      <button
-                        key={file.id ?? file.fileId ?? file.linkId}
-                        type="button"
-                        className="inline-flex max-w-full items-center gap-1 rounded-md border border-border/60 px-2 py-1 text-xs text-muted-foreground hover:text-primary"
-                        onClick={() => downloadDocument(file.id ?? file.fileId, file.originalFilename ?? file.filename ?? "aktivite-dosyasi")}
-                      >
-                        <FileText className="size-3.5 shrink-0" />
-                        <span className="truncate">{file.originalFilename ?? file.filename ?? "Dosya"}</span>
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-              {(canUpdateActivity || canDeleteActivity) && (
-                <div className="mt-1 flex items-center gap-2 px-1 text-[11px] text-muted-foreground">
-                  {canUpdateActivity && <button type="button" className="underline-offset-2 hover:underline" onClick={() => openActivityEdit(a)}>Düzenle</button>}
-                  {canUpdateActivity && canDeleteActivity && <span>·</span>}
-                  {canDeleteActivity && <button type="button" className="text-destructive underline-offset-2 hover:underline" onClick={() => setPendingActivityDelete(a)}>Sil</button>}
-                </div>
-              )}
-            </div>
-          </div>
-        ))}
-        {acts.length === 0 && (
-          <div className="rounded-lg border border-dashed border-border bg-white px-3 py-8 text-center text-sm text-muted-foreground">
-            Aktivite yok.
-          </div>
-        )}
-      </div>
-    </div>
-  );
 
   const companyLinkingPanel = !hasCompany ? (
     <Card className="border-warning/30 bg-warning-soft/55">
@@ -1168,7 +1101,7 @@ export function SalesCaseDetailPage({
             ? "lg:[&>aside]:top-4"
             : "lg:grid-cols-1 [&>aside]:hidden"
         }
-        aside={
+        aside={mode === "page" ? (
           <>
             <DialogSidebarSection title="Özet">
               <div className="text-2xl font-semibold tabular-nums">{sc.estimatedAmount.toLocaleString()} {sc.currency}</div>
@@ -1403,20 +1336,15 @@ export function SalesCaseDetailPage({
                 </Button>
               )}
             </DialogSidebarSection>
-            {mode === "dialog" && (
-              <DialogSidebarSection title="Yorumlar ve Aktivite">
-                {activityPanel}
-              </DialogSidebarSection>
-            )}
           </>
-        }
+        ) : null}
       >
       {mode === "dialog" ? (
         <OpportunityWorkspace
           key={sc.id}
           salesCase={sc}
           focusDecisionOnMount
-          mobilePortalId={`workspace-mobile-actions-${sc.id}`}
+          stageHeaderPortalId={`opportunity-stage-header-${sc.id}`}
           onEditActivity={(activityId) => {
             const activity = acts.find((item) => item.id === activityId);
             if (activity) openActivityEdit(activity);
@@ -1426,9 +1354,10 @@ export function SalesCaseDetailPage({
             if (activity) setPendingActivityDelete(activity);
           }}
           processCenter={null}
-          renderProcessCenter={({ detail, loading, reload }) => (
+          renderProcessCenter={({ detail, loading, reload, headerPortalId }) => (
             <OpportunityProcessCenter
               salesCase={sc}
+              headerPortalId={headerPortalId}
               canUpdate={canUpdate}
               onRefresh={refresh}
               detail={detail}
@@ -1443,6 +1372,11 @@ export function SalesCaseDetailPage({
               checklist={({ reload: reloadReadiness, checks: stageChecks, readOnly: stageReadOnly }) => (
                 <ProcessChecklistPanel
                   sc={sc}
+                  compactDocuments
+                  onViewDocuments={() => {
+                    const section = document.getElementById("opportunity-documents") as HTMLDetailsElement | null;
+                    if (section) { section.open = true; section.scrollIntoView({ block: "nearest", behavior: "auto" }); section.querySelector("summary")?.focus(); }
+                  }}
                   requestedAction={requestedProcessAction}
                   onActionHandled={() => setRequestedProcessAction(null)}
                   onAction={(actionKey) => void handleProcessAction(actionKey)}
@@ -1457,7 +1391,7 @@ export function SalesCaseDetailPage({
             />
           )}
           companyLinkingPanel={canUpdate ? companyLinkingPanel : undefined}
-          onCommercialAction={(actionKey) => void handleProcessAction(actionKey)}
+          onCommercialAction={(actionKey) => handleProcessAction(actionKey)}
           canPerformCommercialAction={canPerformProcessAction}
           onOpenOffer={setSelectedOfferId}
           taskActions={canFollowUp ? (
@@ -1465,14 +1399,13 @@ export function SalesCaseDetailPage({
               type="button"
               variant="outline"
               size="sm"
-              className="gap-1.5 border-warning/30 text-warning hover:bg-warning-soft"
+              className="gap-1.5"
               onClick={() => setFollowUpOpen(true)}
             >
-              <CalendarClock className="size-4" /> Takibe al
+              <CalendarClock className="size-4" /> Takip planla
             </Button>
           ) : undefined}
           otherActions={workspaceOtherActions}
-          simpleMode={simpleMode}
         />
       ) : (
       <>
@@ -2111,7 +2044,9 @@ export function SalesCaseDetailPage({
     return (
       <>
         <KanbanDetailDialogShell
-          accentClassName={STAGE_DOT[sc.stage] ?? "bg-primary"}
+          accentClassName="hidden"
+          eyebrow="Fırsat"
+          headerBottom={<div id={`opportunity-stage-header-${sc.id}`} />}
           title={
             <button
               type="button"
@@ -2123,27 +2058,32 @@ export function SalesCaseDetailPage({
               <Building2 className="size-4 shrink-0 text-muted-foreground transition-colors group-hover:text-primary" aria-hidden="true" />
             </button>
           }
-          subtitle={compactSubtitle}
-          className="h-dvh max-h-dvh sm:h-auto sm:max-h-[92dvh]"
+          subtitle={[compactSubtitle, sc.requestedMachine || sc.requestedModel].filter((value, index, values) => value && values.indexOf(value) === index).join(" · ")}
+          className="opportunity-popup h-full max-h-full bg-background"
           bodyClassName="lg:grid-cols-1"
           activityClassName="hidden"
           meta={
-            <>
-              <Badge variant="outline" className="border-[#0b2453]/20 bg-blue-50 text-[#0b2453]">
-                FIRSAT · {sc.id.slice(0, 8).toUpperCase()}
-              </Badge>
-              <StatusBadge status={sc.stage} />
-            </>
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
+              <span className="text-lg font-semibold tabular-nums text-foreground">{new Intl.NumberFormat("tr-TR", { style: "currency", currency: sc.currency, maximumFractionDigits: 0 }).format(sc.estimatedAmount)}</span>
+              <span>#{sc.id.slice(0, 8).toUpperCase()}</span>
+            </div>
           }
           actions={
             <>
-              {canUpdate && (
-                <Button type="button" variant="outline" size="sm" className="h-9 gap-1.5" onClick={() => setCommercialDialogOpen(true)}>
-                  <Pencil className="size-4" /> Ticari Bilgileri Düzenle
-                </Button>
-              )}
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild><Button type="button" variant="ghost" size="icon" className="size-10" aria-label="Fırsat menüsü"><MoreHorizontal className="size-5" /></Button></DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  {onNavigate && <DropdownMenuItem className="sm:hidden" disabled={!previous} onSelect={() => previous && onNavigate(previous.id)}><ChevronLeft className="size-4" /> Önceki fırsat</DropdownMenuItem>}
+                  {onNavigate && <DropdownMenuItem className="sm:hidden" disabled={!next} onSelect={() => next && onNavigate(next.id)}><ChevronRight className="size-4" /> Sonraki fırsat</DropdownMenuItem>}
+                  {canUpdate && <DropdownMenuItem onSelect={() => setCommercialDialogOpen(true)}><Pencil className="size-4" /> Ticari bilgileri düzenle</DropdownMenuItem>}
+                  <DropdownMenuItem onSelect={() => setPartyDialogOpen(true)}><Building2 className="size-4" /> Firma ve ilgili kişi</DropdownMenuItem>
+                  {canMarkLost && <DropdownMenuItem className="text-destructive" onSelect={() => setLostOpen(true)}><XCircle className="size-4" /> Kaybedildi olarak kapat</DropdownMenuItem>}
+                  {canDelete && <DropdownMenuItem className="text-destructive" onSelect={() => setDeleteOpen(true)}><Trash2 className="size-4" /> Fırsatı sil</DropdownMenuItem>}
+                </DropdownMenuContent>
+              </DropdownMenu>
+              {onTogglePopup && <Button type="button" variant="ghost" size="icon" className="hidden size-10 sm:inline-flex" onClick={onTogglePopup} aria-label={popupExpanded ? "Pencereyi küçült" : "Pencereyi büyüt"}>{popupExpanded ? <Minimize2 className="size-4" /> : <Maximize2 className="size-4" />}</Button>}
               {onNavigate && (
-                <div className="flex items-center rounded-md border border-slate-200 bg-white">
+                <div className="hidden items-center rounded-md border border-slate-200 bg-white sm:flex">
                   <Button type="button" variant="ghost" size="icon" className="size-11 rounded-r-none sm:size-9" disabled={!previous} onClick={() => previous && onNavigate(previous.id)} aria-label={`Önceki ${cardTypeLabel.toLocaleLowerCase("tr-TR")}`} title={`Önceki ${cardTypeLabel.toLocaleLowerCase("tr-TR")}`}><ChevronLeft className="size-4" /></Button>
                   <Button type="button" variant="ghost" size="icon" className="size-11 rounded-l-none border-l border-slate-200 sm:size-9" disabled={!next} onClick={() => next && onNavigate(next.id)} aria-label={`Sonraki ${cardTypeLabel.toLocaleLowerCase("tr-TR")}`} title={`Sonraki ${cardTypeLabel.toLocaleLowerCase("tr-TR")}`}><ChevronRight className="size-4" /></Button>
                 </div>
@@ -2151,8 +2091,8 @@ export function SalesCaseDetailPage({
               {onClose && <Button type="button" variant="ghost" size="icon" className="size-11 sm:size-9" onClick={onClose} aria-label="Çalışma alanını kapat"><X className="size-4" /></Button>}
             </>
           }
-          right={activityPanel}
-          mobileFooter={<div id={`workspace-mobile-actions-${sc.id}`} />}
+          right={null}
+
         >
           {content}
         </KanbanDetailDialogShell>

@@ -120,6 +120,7 @@ export function DecisionRail({
   contactName,
   contactTitle,
   activityFeed,
+  inline = false,
 }: {
   salesCase: SalesCase;
   ownerName?: string;
@@ -143,6 +144,7 @@ export function DecisionRail({
    * bloğunun altına, panelin kendisine gömüldü.
    */
   activityFeed?: ReactNode;
+  inline?: boolean;
 }) {
   const { convertCase, refresh, updateCase } = useStore();
   const isLead = salesCase.qualificationStage === "lead";
@@ -151,6 +153,11 @@ export function DecisionRail({
   const [overrideBlockers, setOverrideBlockers] = useState<string[]>([]);
   const [converting, setConverting] = useState(false);
   const [assigningOwner, setAssigningOwner] = useState(false);
+  const [savingDate, setSavingDate] = useState(false);
+  const [dateSaved, setDateSaved] = useState(false);
+  const [dateDraft, setDateDraft] = useState(salesCase.expectedCloseDate?.slice(0, 10) ?? "");
+  const [dateError, setDateError] = useState("");
+  useEffect(() => { setDateDraft(salesCase.expectedCloseDate?.slice(0, 10) ?? ""); setDateSaved(false); setDateError(""); }, [salesCase.id, salesCase.expectedCloseDate]);
   const [mobilePortalTarget, setMobilePortalTarget] = useState<HTMLElement | null>(null);
   useEffect(() => {
     setMobilePortalTarget(mobilePortalId ? document.getElementById(mobilePortalId) : null);
@@ -421,8 +428,28 @@ export function DecisionRail({
 
   return (
     <>
-      <div className="hidden lg:block">{rail}</div>
-      {mobilePortalTarget ? createPortal(mobileDock, mobilePortalTarget) : null}
+      {inline ? <div className="space-y-4 py-3" aria-label="Sorumlu ve iletişim">
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div><div className="mb-1.5 text-xs text-muted-foreground">Sorumlu</div>{canAssignOwner ? ownerSelect(true) : <div className="text-sm">{ownerName || "Sahipsiz havuz"}</div>}</div>
+          <div><label htmlFor={`close-date-${salesCase.id}`} className="mb-1.5 block text-xs text-muted-foreground">Hedef kapanış</label>
+            <Input id={`close-date-${salesCase.id}`} type="date" value={dateDraft} onChange={(event) => { setDateDraft(event.target.value); setDateSaved(false); setDateError(""); }} disabled={!canUpdate || savingDate} className="h-9 text-sm"
+              onBlur={async (event) => {
+                const value = event.target.value;
+                if (value === (salesCase.expectedCloseDate?.slice(0, 10) ?? "")) return;
+                setSavingDate(true); setDateSaved(false); setDateError("");
+                try { await updateCase(salesCase.id, { expectedCloseDate: value || null }); setDateSaved(true); }
+                catch { setDateDraft(salesCase.expectedCloseDate?.slice(0, 10) ?? ""); setDateError("Tarih kaydedilemedi. Tekrar deneyin."); }
+                finally { setSavingDate(false); }
+              }} />
+            <span role="status" className="text-xs text-muted-foreground">{savingDate ? "Kaydediliyor…" : dateSaved ? "Kaydedildi" : ""}</span>
+            {dateError && <span role="alert" className="block text-xs text-destructive">{dateError}</span>}
+          </div>
+        </div>
+        {contactName && <div className="text-sm"><span className="font-medium">{contactName}</span>{contactTitle && <span className="text-muted-foreground"> · {contactTitle}</span>}</div>}
+        {quickContactActions}
+        {useLeadConversionAsPrimary && <div hidden>{primaryCommand}</div>}
+      </div> : <div className="hidden lg:block">{rail}</div>}
+      {!inline && mobilePortalTarget ? createPortal(mobileDock, mobilePortalTarget) : null}
       <ComposeMailDialog
         recipient={mailRecipient}
         onOpenChange={(open) => !open && setMailRecipient(null)}
