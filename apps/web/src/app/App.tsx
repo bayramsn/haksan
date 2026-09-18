@@ -190,7 +190,6 @@ function AppShell() {
 
   useEffect(() => {
     const applyLocation = (fromHistory = false) => {
-      const opportunityId = new URL(window.location.href).searchParams.get("opportunity");
       // Kapatmanın tek adımlık go(-depth) sıçraması buraya döner: panel kapanır, ek geri adım atılmaz.
       if (fromHistory && closingOpportunityRef.current) {
         closingOpportunityRef.current = false;
@@ -202,12 +201,20 @@ function AppShell() {
         setDeepLinkReady(true);
         return;
       }
+      // Sayfa ilk yüklenirken URL'deki `opportunity` AÇILMAZ: mobil tarayıcı
+      // sekmeyi en son adresiyle geri yüklüyor, bu yüzden kart açıkken
+      // uygulamadan çıkan kullanıcı geri döndüğünde kart pop-up'ı kendiliğinden
+      // üstüne biniyordu. Parametreyi aşağıdaki effect URL'den siler; kart
+      // yalnız bir kayda dokununca veya geçmişte geri/ileri gidilince açılır.
+      if (!fromHistory) {
+        setDeepLinkReady(true);
+        return;
+      }
+      const opportunityId = new URL(window.location.href).searchParams.get("opportunity");
       if (opportunityId) {
         setSelectedCustomerId(null);
         setSelectedCaseId(opportunityId);
-        // Yalnız derin bağlantıyla ilk açılışta fırsatlar sayfasına geç; tarayıcı geçmişinde nav zorlanmaz.
-        if (!fromHistory) setNav("sales-cases");
-      } else if (fromHistory) {
+      } else {
         setSelectedCaseId(null);
       }
       setDeepLinkReady(true);
@@ -222,7 +229,7 @@ function AppShell() {
         closeFallbackTimerRef.current = null;
       }
     };
-  }, [setNav, setSelectedCaseId, setSelectedCustomerId]);
+  }, [setSelectedCaseId, setSelectedCustomerId]);
 
   useEffect(() => {
     if (!deepLinkReady) return;
