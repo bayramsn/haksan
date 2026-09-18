@@ -130,7 +130,10 @@ function AppShell() {
   // kimliğiyle kapsamlanır, aynı tarayıcıdaki hesaplar birbirine sızmaz.
   const [nav, setNav] = usePersistentState<NavKey>(`nav.${persistenceScope}`, defaultNav);
   const [selectedCustomerId, setSelectedCustomerId] = usePersistentState<string | null>(`selectedCustomerId.${persistenceScope}`, null);
-  const [selectedCaseId, setSelectedCaseId] = usePersistentState<string | null>(`selectedCaseId.${persistenceScope}`, null);
+  // Açık fırsat kartı kalıcı DEĞİL: localStorage'dan geri yüklendiğinde CRM'e
+  // her girişte kart gösterge panelinin üstünü kapatıyordu. Kartın tek kaynağı
+  // URL (?opportunity); yenilemede oradan, link paylaşımında da oradan gelir.
+  const [selectedCaseId, setSelectedCaseId] = useState<string | null>(null);
   const selectedCustomerFallback = selectedCustomerId
     ? customers.find((customer) => customer.id === selectedCustomerId)
     : undefined;
@@ -252,7 +255,12 @@ function AppShell() {
   }, [currentNav]);
 
   useEffect(() => {
-    if (previousAuthedRef.current && !authed) clearDrafts();
+    // Çıkışta seçim bellekte kalmasın: aynı sekmede başka hesap girdiğinde
+    // önceki kullanıcının fırsat kartı açılırdı.
+    if (previousAuthedRef.current && !authed) {
+      clearDrafts();
+      setSelectedCaseId(null);
+    }
     previousAuthedRef.current = authed;
   }, [authed]);
 
