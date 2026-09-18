@@ -1,67 +1,137 @@
-import { useState, useEffect } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
+  ActivityIndicator,
+  Alert,
+  FlatList,
+  Modal,
+  RefreshControl,
+  ScrollView,
   StyleSheet,
   Text,
-  View,
-  ScrollView,
-  TouchableOpacity,
-  Dimensions,
   TextInput,
-  Modal,
-  FlatList,
-  ActivityIndicator,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
-import { productService } from '@/src/api/services';
+import { productService, reportService } from '@/src/api/services';
 import { ListPageLayout } from '@/src/ui/ListPageLayout';
 import { colors, layout, spacing, typography } from '@/src/theme/tokens';
 import { ListRow } from '@/src/ui/ListRow';
 
 const PRIMARY = '#000c69';
 
-const revenueData = [
-  { month: 'Oca', gelir: 38000, maliyet: 22000 },
-  { month: 'Şub', gelir: 42000, maliyet: 25000 },
-  { month: 'Mar', gelir: 51000, maliyet: 29000 },
-  { month: 'Nis', gelir: 47000, maliyet: 28000 },
-  { month: 'May', gelir: 58000, maliyet: 31000 },
-  { month: 'Haz', gelir: 63000, maliyet: 34000 },
-];
-
-const pipelineData = [
-  { stage: 'Lead', count: 2 },
-  { stage: 'Arama', count: 4 },
-  { stage: 'Ziyaret', count: 6 },
-  { stage: 'Teklif', count: 5 },
-  { stage: 'Satış', count: 3 },
-];
-
-const serviceComplaintData = [
-  { month: 'Oca', sikayet: 3, cozulen: 2 },
-  { month: 'Şub', sikayet: 5, cozulen: 4 },
-  { month: 'Mar', sikayet: 2, cozulen: 2 },
-  { month: 'Nis', sikayet: 4, cozulen: 3 },
-  { month: 'May', sikayet: 6, cozulen: 5 },
-  { month: 'Haz', sikayet: 3, cozulen: 3 },
-];
-
-const deptData = [
-  { dept: 'Satış', hedef: 120000, gercek: 82000 },
-  { dept: 'Servis', hedef: 30000, gercek: 18500 },
-  { dept: 'Stok', hedef: 50000, gercek: 38000 },
-];
-
-const productQuoteData = [
-  { product: 'VMC 850', count: 8 },
-  { product: 'FC 3015', count: 6 },
-  { product: 'TC 500', count: 5 },
-  { product: 'P3000', count: 3 },
-  { product: 'R2040', count: 4 },
-];
-
 const TABS = ['Operasyonel', 'Karlılık', 'Analitik'];
+const MONTH_SHORT = ['Oca', 'Şub', 'Mar', 'Nis', 'May', 'Haz', 'Tem', 'Ağu', 'Eyl', 'Eki', 'Kas', 'Ara'];
+
+/**
+ * Raporlar ekranı SUNUCUDAN beslenir. Önceki sürüm sabit örnek seriler (gelir,
+ * maliyet, şikayet, departman, ürün) basıyordu ve bunlar canlı veri sanılıyordu.
+ * "Maliyet" ve "kâr marjı" sistemde tutulmadığı için hiç gösterilmez; uydurmak
+ * yerine gerçekten ölçülen değerler basılır.
+ */
+type Bar = { label: string; primary: number; secondary?: number };
+type Kpi = { key: string; label: string; value: string; color: string; bg: string };
+type Progress = { label: string; current: number; target: number; pct: number };
+
+type ReportData = {
+  operationalKpis: Kpi[];
+  pipeline: Bar[];
+  complaints: Bar[];
+  profitKpis: Kpi[];
+  monthlyOutcome: Bar[];
+  departments: Progress[];
+  productQuotes: Bar[];
+};
+
+const compactNumber = (value: number) =>
+  Math.abs(value) >= 1000 ? `${Math.round(value / 1000)}K` : String(Math.round(value));
+const formatUsd = (value: number) => `$${compactNumber(value)}`;
+const currentPeriod = (now = new Date()) => `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+/** 403/404 yutulur: yetkisi olmayan kart boş kalır, ekranın kalanı çalışır. */
+const settled = async <T,>(promise: Promise<T>): Promise<T | null> => promise.then((value) => value).catch(() => null);
+
+async function loadReports(): Promise<ReportData> {
+  const year = new Date().getFullYear();
+  const period = currentPeriod();
+  const from = `${year}-01-01`;
+  const to = `${year}-12-31`;
+  const [pipelineRows, operational, complaints, yearEnd, departmentPerformance, productRows] = await Promise.all([
+    settled(reportService.pipelineSummary()),
+    settled(reportService.operational({ year, period: 'monthly' })),
+    settled(reportService.serviceComplaintsSummary()),
+    settled(reportService.yearEnd(year)),
+    settled(reportService.departmentPerformance({ period })),
+    settled(reportService.monthlyQuotes({ from, to })),
+  ]);
+
+  const rows = operational?.rows ?? [];
+  const quoteTotal = rows.reduce((sum, row) => sum + Number(row.quotes ?? 0), 0);
+  const serviceTotal = rows.reduce((sum, row) => sum + Number(row.service ?? 0), 0);
+  const pipelineValue = (pipelineRows ?? []).reduce((sum: number, row: any) => sum + Number(row.totalValue ?? 0), 0);
+
+  const operationalKpis: Kpi[] = [
+    { key: 'pipeline', label: 'Pipeline Değeri', value: formatUsd(pipelineValue), color: PRIMARY, bg: '#EEF2FF' },
+    { key: 'quotes', label: `${year} Teklif`, value: String(quoteTotal), color: '#059669', bg: '#ECFDF5' },
+    { key: 'service', label: `${year} Servis`, value: String(serviceTotal), color: '#F59E0B', bg: '#FFFBEB' },
+  ];
+
+  const pipeline: Bar[] = (pipelineRows ?? []).map((row: any) => ({
+    label: String(row.stageName ?? row.stageCode ?? '—'),
+    primary: Number(row.count ?? 0),
+  }));
+
+  // Şikayet özeti durum kırılımıdır (aylık seri sunucuda yok); uydurma ay
+  // serisi yerine gerçekten dönen durumlar gösterilir.
+  const complaintBars: Bar[] = complaints
+    ? [
+        { label: 'Yeni', primary: Number(complaints.new ?? 0) },
+        { label: 'İnceleme', primary: Number(complaints.reviewing ?? 0) },
+        { label: 'Servise', primary: Number(complaints.converted ?? 0) },
+        { label: 'Ret', primary: Number(complaints.rejected ?? 0) },
+        { label: 'Garanti', primary: Number(complaints.warrantyClaim ?? 0) },
+      ]
+    : [];
+
+  const summary = yearEnd?.summary;
+  const profitKpis: Kpi[] = summary
+    ? [
+        { key: 'won', label: 'Kazanılan', value: formatUsd(Number(summary.wonValue ?? 0)), color: '#059669', bg: '#ECFDF5' },
+        { key: 'lost', label: 'Kaybedilen', value: formatUsd(Number(summary.lostValue ?? 0)), color: '#cf060c', bg: '#FEF2F2' },
+        { key: 'winRate', label: 'Kazanma Oranı', value: `%${Number(summary.winRate ?? 0)}`, color: PRIMARY, bg: '#EEF2FF' },
+      ]
+    : [];
+
+  const monthlyOutcome: Bar[] = (yearEnd?.monthly ?? []).map((row) => {
+    const monthIndex = Number(String(row.month).slice(5, 7)) - 1;
+    return {
+      label: MONTH_SHORT[monthIndex] ?? String(row.month),
+      primary: Number(row.wonValue ?? 0),
+      secondary: Number(row.lostValue ?? 0),
+    };
+  });
+
+  const departments: Progress[] = (departmentPerformance?.departments ?? []).map((dept: any) => ({
+    label: String(dept.departmentName ?? '—'),
+    current: Number(dept.actuals?.wonValue ?? 0),
+    target: Number(dept.targets?.departmentSalesAmount ?? 0),
+    pct: Number(dept.attainment?.salesPct ?? 0),
+  }));
+
+  // Ürün bazlı teklif: aynı ürün birden çok kovada/para biriminde dönebilir.
+  const byProduct = new Map<string, number>();
+  for (const row of productRows ?? []) {
+    const name = String((row as any).productName ?? 'Diğer');
+    byProduct.set(name, (byProduct.get(name) ?? 0) + Number((row as any).count ?? 0));
+  }
+  const productQuotes: Bar[] = [...byProduct.entries()]
+    .sort((left, right) => right[1] - left[1])
+    .slice(0, 8)
+    .map(([label, primary]) => ({ label, primary }));
+
+  return { operationalKpis, pipeline, complaints: complaintBars, profitKpis, monthlyOutcome, departments, productQuotes };
+}
 
 function ChartCard({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -72,9 +142,98 @@ function ChartCard({ title, children }: { title: string; children: React.ReactNo
   );
 }
 
+function KpiRow({ items }: { items: Kpi[] }) {
+  if (items.length === 0) return null;
+  return (
+    <View style={repStyles.kpiRow}>
+      {items.map((kpi) => (
+        <View key={kpi.key} style={[repStyles.kpiCard, { backgroundColor: kpi.bg }]}>
+          <Text style={[repStyles.kpiVal, { color: kpi.color }]}>{kpi.value}</Text>
+          <Text style={repStyles.kpiLabel}>{kpi.label}</Text>
+        </View>
+      ))}
+    </View>
+  );
+}
+
+function BarChart({ bars, legend }: { bars: Bar[]; legend?: [string, string] }) {
+  if (bars.length === 0) return <Text style={repStyles.emptyText}>Bu dönem için kayıt yok.</Text>;
+  const max = Math.max(1, ...bars.map((bar) => Math.max(bar.primary, bar.secondary ?? 0)));
+  const paired = bars.some((bar) => bar.secondary != null);
+  return (
+    <>
+      <View style={repStyles.barChartRow}>
+        {bars.map((bar) => (
+          <View key={bar.label} style={repStyles.barCol}>
+            <View style={[repStyles.barWrapper, paired && { flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'center', gap: 2 }]}>
+              <View style={[repStyles.barFill, paired && { width: 10 }, { height: `${Math.max(4, (bar.primary / max) * 100)}%`, backgroundColor: PRIMARY }]} />
+              {paired && (
+                <View style={[repStyles.barFill, { width: 10, height: `${Math.max(4, ((bar.secondary ?? 0) / max) * 100)}%`, backgroundColor: '#cf060c', opacity: 0.6 }]} />
+              )}
+            </View>
+            <Text style={repStyles.barLabel} numberOfLines={1}>{bar.label}</Text>
+          </View>
+        ))}
+      </View>
+      {legend && (
+        <View style={repStyles.legendRow}>
+          <View style={repStyles.legendItem}>
+            <View style={[repStyles.legendDot, { backgroundColor: PRIMARY }]} />
+            <Text style={repStyles.legendText}>{legend[0]}</Text>
+          </View>
+          <View style={repStyles.legendItem}>
+            <View style={[repStyles.legendDot, { backgroundColor: '#cf060c', opacity: 0.6 }]} />
+            <Text style={repStyles.legendText}>{legend[1]}</Text>
+          </View>
+        </View>
+      )}
+    </>
+  );
+}
+
 /** Stitch #56 Raporlar */
 export function ReportsScreen() {
   const [activeTab, setActiveTab] = useState(0);
+  const [data, setData] = useState<ReportData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [downloading, setDownloading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const year = useMemo(() => new Date().getFullYear(), []);
+
+  const load = useCallback(async () => {
+    setError(null);
+    try {
+      setData(await loadReports());
+    } catch (err: any) {
+      setError(err?.message ?? 'Rapor verisi alınamadı.');
+    }
+  }, []);
+
+  useEffect(() => {
+    void (async () => {
+      await load();
+      setLoading(false);
+    })();
+  }, [load]);
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await load();
+    setRefreshing(false);
+  }, [load]);
+
+  // Önceden hiçbir işlem yapmayan düğme: artık sunucudaki .xlsx dökümünü indirir.
+  const downloadYearEnd = useCallback(async () => {
+    setDownloading(true);
+    try {
+      await reportService.downloadYearEnd(year);
+    } catch (err: any) {
+      Alert.alert('Rapor indirilemedi', err?.message ?? 'Bu rapor için yetkiniz olmayabilir.');
+    } finally {
+      setDownloading(false);
+    }
+  }, [year]);
 
   const renderHeader = () => (
     <View style={repStyles.headerBar}>
@@ -106,173 +265,107 @@ export function ReportsScreen() {
         </View>
       </View>
 
-      <ScrollView style={repStyles.scrollArea} contentContainerStyle={repStyles.contentContainer}>
-        {activeTab === 0 && (
-          <>
-            <View style={repStyles.kpiRow}>
-              <View style={[repStyles.kpiCard, { backgroundColor: '#EEF2FF' }]}>
-                <Text style={[repStyles.kpiVal, { color: PRIMARY }]}>€252K</Text>
-                <Text style={repStyles.kpiLabel}>Pipeline Değeri</Text>
-              </View>
-              <View style={[repStyles.kpiCard, { backgroundColor: '#ECFDF5' }]}>
-                <Text style={[repStyles.kpiVal, { color: '#059669' }]}>66</Text>
-                <Text style={repStyles.kpiLabel}>Aylık Ziyaret</Text>
-              </View>
-              <View style={[repStyles.kpiCard, { backgroundColor: '#FFFBEB' }]}>
-                <Text style={[repStyles.kpiVal, { color: '#F59E0B' }]}>%87</Text>
-                <Text style={repStyles.kpiLabel}>Servis SLA</Text>
-              </View>
-            </View>
-
-            <ChartCard title="Satış Hunisi (Kart Sayısı)">
-              <View style={repStyles.barChartRow}>
-                {pipelineData.map(d => {
-                  const h = Math.max(10, (d.count / 6) * 100);
-                  return (
-                    <View key={d.stage} style={repStyles.barCol}>
-                      <View style={repStyles.barWrapper}>
-                        <View style={[repStyles.barFill, { height: `${h}%`, backgroundColor: PRIMARY }]} />
-                      </View>
-                      <Text style={repStyles.barLabel}>{d.stage}</Text>
-                    </View>
-                  );
-                })}
-              </View>
-            </ChartCard>
-
-            <ChartCard title="Servis Şikayet Özeti">
-              <View style={repStyles.barChartRow}>
-                {serviceComplaintData.map(d => {
-                  const max = 6;
-                  const sh = Math.max(5, (d.sikayet / max) * 100);
-                  const ch = Math.max(5, (d.cozulen / max) * 100);
-                  return (
-                    <View key={d.month} style={repStyles.barCol}>
-                      <View style={[repStyles.barWrapper, { flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'center', gap: 2 }]}>
-                        <View style={[repStyles.barFill, { width: 10, height: `${sh}%`, backgroundColor: '#cf060c', opacity: 0.7 }]} />
-                        <View style={[repStyles.barFill, { width: 10, height: `${ch}%`, backgroundColor: '#10B981' }]} />
-                      </View>
-                      <Text style={repStyles.barLabel}>{d.month}</Text>
-                    </View>
-                  );
-                })}
-              </View>
-              <View style={repStyles.legendRow}>
-                <View style={repStyles.legendItem}>
-                  <View style={[repStyles.legendDot, { backgroundColor: '#cf060c', opacity: 0.7 }]} />
-                  <Text style={repStyles.legendText}>Şikayet</Text>
-                </View>
-                <View style={repStyles.legendItem}>
-                  <View style={[repStyles.legendDot, { backgroundColor: '#10B981' }]} />
-                  <Text style={repStyles.legendText}>Çözülen</Text>
-                </View>
-              </View>
-            </ChartCard>
-          </>
-        )}
-
-        {activeTab === 1 && (
-          <>
-            <View style={repStyles.kpiRow}>
-              <View style={[repStyles.kpiCard, { backgroundColor: '#ECFDF5' }]}>
-                <Text style={[repStyles.kpiVal, { color: '#059669' }]}>€299K</Text>
-                <Text style={repStyles.kpiLabel}>Toplam Gelir</Text>
-              </View>
-              <View style={[repStyles.kpiCard, { backgroundColor: '#FEF2F2' }]}>
-                <Text style={[repStyles.kpiVal, { color: '#cf060c' }]}>€169K</Text>
-                <Text style={repStyles.kpiLabel}>Maliyet</Text>
-              </View>
-              <View style={[repStyles.kpiCard, { backgroundColor: '#EEF2FF' }]}>
-                <Text style={[repStyles.kpiVal, { color: PRIMARY }]}>%43</Text>
-                <Text style={repStyles.kpiLabel}>Kâr Marjı</Text>
-              </View>
-            </View>
-
-            <ChartCard title="Aylık Gelir vs Maliyet">
-              <View style={repStyles.barChartRow}>
-                {revenueData.map(d => {
-                  const max = 65000;
-                  const gh = Math.max(5, (d.gelir / max) * 100);
-                  const mh = Math.max(5, (d.maliyet / max) * 100);
-                  return (
-                    <View key={d.month} style={repStyles.barCol}>
-                      <View style={[repStyles.barWrapper, { flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'center', gap: 2 }]}>
-                        <View style={[repStyles.barFill, { width: 10, height: `${gh}%`, backgroundColor: PRIMARY }]} />
-                        <View style={[repStyles.barFill, { width: 10, height: `${mh}%`, backgroundColor: '#cf060c', opacity: 0.6 }]} />
-                      </View>
-                      <Text style={repStyles.barLabel}>{d.month}</Text>
-                    </View>
-                  );
-                })}
-              </View>
-              <View style={repStyles.legendRow}>
-                <View style={repStyles.legendItem}>
-                  <View style={[repStyles.legendDot, { backgroundColor: PRIMARY }]} />
-                  <Text style={repStyles.legendText}>Gelir</Text>
-                </View>
-                <View style={repStyles.legendItem}>
-                  <View style={[repStyles.legendDot, { backgroundColor: '#cf060c', opacity: 0.6 }]} />
-                  <Text style={repStyles.legendText}>Maliyet</Text>
-                </View>
-              </View>
-            </ChartCard>
-
-            <ChartCard title="Departman Performansı">
-              <View style={{ gap: 12 }}>
-                {deptData.map(d => {
-                  const pct = Math.min(100, Math.round((d.gercek / d.hedef) * 100));
-                  return (
-                    <View key={d.dept}>
-                      <View style={repStyles.progressHeader}>
-                        <Text style={repStyles.progressTitle}>{d.dept}</Text>
-                        <Text style={[repStyles.progressPct, { color: PRIMARY }]}>{pct}%</Text>
-                      </View>
-                      <View style={repStyles.progressTrack}>
-                        <View style={[repStyles.progressFill, { width: `${pct}%`, backgroundColor: PRIMARY }]} />
-                      </View>
-                      <Text style={repStyles.progressSub}>€{(d.gercek / 1000).toFixed(0)}K / €{(d.hedef / 1000).toFixed(0)}K</Text>
-                    </View>
-                  );
-                })}
-              </View>
-            </ChartCard>
-
-            <TouchableOpacity style={repStyles.downloadBtn} activeOpacity={0.8}>
-              <Ionicons name="download-outline" size={16} color="#ffffff" style={{ marginRight: 8 }} />
-              <Text style={repStyles.downloadBtnText}>Yıl Sonu Raporu İndir</Text>
+      <ScrollView
+        style={repStyles.scrollArea}
+        contentContainerStyle={repStyles.contentContainer}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+      >
+        {loading ? (
+          <View style={repStyles.loadingBox}>
+            <ActivityIndicator color={PRIMARY} />
+            <Text style={repStyles.emptyText}>Raporlar yükleniyor…</Text>
+          </View>
+        ) : error || !data ? (
+          <View style={repStyles.chartCard}>
+            <Text style={repStyles.emptyText}>{error ?? 'Veri alınamadı.'}</Text>
+            <TouchableOpacity style={[repStyles.actionBtnOutline, { marginTop: 12 }]} onPress={onRefresh}>
+              <Ionicons name="refresh" size={16} color="#059669" style={{ marginRight: 6 }} />
+              <Text style={repStyles.actionBtnOutlineText}>Yeniden dene</Text>
             </TouchableOpacity>
-          </>
-        )}
-
-        {activeTab === 2 && (
+          </View>
+        ) : (
           <>
-            <ChartCard title="Ürün Bazlı Teklif Sayısı">
-              <View style={{ gap: 8 }}>
-                {productQuoteData.map(d => {
-                  const pct = Math.max(10, (d.count / 8) * 100);
-                  return (
-                    <View key={d.product} style={{ flexDirection: 'row', alignItems: 'center' }}>
-                      <Text style={{ width: 60, fontSize: 10, color: '#717182' }}>{d.product}</Text>
-                      <View style={{ flex: 1, height: 16, flexDirection: 'row', alignItems: 'center' }}>
-                        <View style={{ height: 16, backgroundColor: PRIMARY, width: `${pct}%`, borderRadius: 4, marginRight: 8 }} />
-                        <Text style={{ fontSize: 10, fontWeight: '700' }}>{d.count}</Text>
-                      </View>
-                    </View>
-                  );
-                })}
-              </View>
-            </ChartCard>
+            {activeTab === 0 && (
+              <>
+                <KpiRow items={data.operationalKpis} />
+                <ChartCard title="Satış Hunisi (Kart Sayısı)">
+                  <BarChart bars={data.pipeline} />
+                </ChartCard>
+                <ChartCard title="Servis Şikayet Özeti (Durum)">
+                  <BarChart bars={data.complaints} />
+                </ChartCard>
+              </>
+            )}
 
-            <View style={repStyles.actionRow}>
-              <TouchableOpacity style={repStyles.actionBtnOutline}>
-                <Ionicons name="document-text-outline" size={16} color="#059669" style={{ marginRight: 6 }} />
-                <Text style={repStyles.actionBtnOutlineText}>Excel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={repStyles.actionBtnPrimary}>
-                <Ionicons name="stats-chart" size={16} color="#ffffff" style={{ marginRight: 6 }} />
-                <Text style={repStyles.actionBtnPrimaryText}>Rapor Oluştur</Text>
-              </TouchableOpacity>
-            </View>
+            {activeTab === 1 && (
+              <>
+                <KpiRow items={data.profitKpis} />
+                <ChartCard title={`${year} Aylık Kazanılan / Kaybedilen`}>
+                  <BarChart bars={data.monthlyOutcome} legend={['Kazanılan', 'Kaybedilen']} />
+                </ChartCard>
+                <ChartCard title="Departman Performansı (Bu Ay)">
+                  {data.departments.length === 0 ? (
+                    <Text style={repStyles.emptyText}>Departman hedefi girilmemiş ya da görme yetkiniz yok.</Text>
+                  ) : (
+                    <View style={{ gap: 12 }}>
+                      {data.departments.map((dept) => {
+                        const pct = Math.min(100, Math.max(0, Math.round(dept.pct)));
+                        return (
+                          <View key={dept.label}>
+                            <View style={repStyles.progressHeader}>
+                              <Text style={repStyles.progressTitle}>{dept.label}</Text>
+                              <Text style={[repStyles.progressPct, { color: PRIMARY }]}>{pct}%</Text>
+                            </View>
+                            <View style={repStyles.progressTrack}>
+                              <View style={[repStyles.progressFill, { width: `${pct}%`, backgroundColor: PRIMARY }]} />
+                            </View>
+                            <Text style={repStyles.progressSub}>
+                              {formatUsd(dept.current)} / {dept.target > 0 ? formatUsd(dept.target) : 'hedef yok'}
+                            </Text>
+                          </View>
+                        );
+                      })}
+                    </View>
+                  )}
+                </ChartCard>
+
+                <TouchableOpacity
+                  style={repStyles.downloadBtn}
+                  activeOpacity={0.8}
+                  onPress={downloadYearEnd}
+                  disabled={downloading}
+                >
+                  <Ionicons name="download-outline" size={16} color="#ffffff" style={{ marginRight: 8 }} />
+                  <Text style={repStyles.downloadBtnText}>
+                    {downloading ? 'İndiriliyor…' : 'Yıl Sonu Raporu İndir (Excel)'}
+                  </Text>
+                </TouchableOpacity>
+              </>
+            )}
+
+            {activeTab === 2 && (
+              <ChartCard title={`${year} Ürün Bazlı Teklif Sayısı`}>
+                {data.productQuotes.length === 0 ? (
+                  <Text style={repStyles.emptyText}>Bu yıl ürün bazlı teklif kaydı yok.</Text>
+                ) : (
+                  <View style={{ gap: 8 }}>
+                    {data.productQuotes.map((row) => {
+                      const max = Math.max(1, ...data.productQuotes.map((item) => item.primary));
+                      const pct = Math.max(10, (row.primary / max) * 100);
+                      return (
+                        <View key={row.label} style={{ flexDirection: 'row', alignItems: 'center' }}>
+                          <Text style={{ width: 90, fontSize: 10, color: '#717182' }} numberOfLines={1}>{row.label}</Text>
+                          <View style={{ flex: 1, height: 16, flexDirection: 'row', alignItems: 'center' }}>
+                            <View style={{ height: 16, backgroundColor: PRIMARY, width: `${pct}%`, borderRadius: 4, marginRight: 8 }} />
+                            <Text style={{ fontSize: 10, fontWeight: '700' }}>{row.primary}</Text>
+                          </View>
+                        </View>
+                      );
+                    })}
+                  </View>
+                )}
+              </ChartCard>
+            )}
           </>
         )}
       </ScrollView>
@@ -350,6 +443,15 @@ const repStyles = StyleSheet.create({
     paddingVertical: 14,
     borderRadius: 12,
     marginTop: 4,
+  },
+  emptyText: {
+    fontSize: 12,
+    color: '#6b7280',
+  },
+  loadingBox: {
+    paddingVertical: 48,
+    alignItems: 'center',
+    gap: 8,
   },
   downloadBtnText: { color: '#ffffff', fontSize: 14, fontWeight: '700' },
 

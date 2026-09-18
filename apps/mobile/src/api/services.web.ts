@@ -85,7 +85,7 @@ import type {
 } from '@haksan/shared';
 import { ApiError, api, getAccessToken, getActiveDepartment, getActiveDivision } from './apiClient';
 import { getApiBaseUrl } from './config';
-import { openPdfUrl } from './download';
+import { openExportUrl, openPdfUrl } from './download';
 import { qs } from './qs';
 
 export interface Paginated<T> {
@@ -617,6 +617,28 @@ export const fileService = {
 // ───── Reports ─────
 
 /** Yıl sonu / karlılık raporu (GET /reports/year-end). Tüm parasal alanlar string döner. */
+export interface OperationalReportRow {
+  bucket: string;
+  quotes: number;
+  approved: number;
+  rejected: number;
+  won: number;
+  lost: number;
+  service: number;
+  revenueUsd: number;
+}
+
+export interface OperationalReport {
+  rows: OperationalReportRow[];
+  currencyNormalization: {
+    base: 'USD';
+    rateDate: string;
+    source: string;
+    live: boolean;
+    unsupportedCurrencies: string[];
+  };
+}
+
 export interface YearEndReport {
   year: number;
   summary: {
@@ -656,7 +678,13 @@ export const reportService = {
   warrantyExpiring: (params?: Record<string, string | number>) => api.get<any[]>(`/reports/warranty-expiring${qs(params)}`),
   serviceComplaintsSummary: () => api.get<any>('/reports/service-complaints-summary'),
   yearEnd: (year: number) => api.get<YearEndReport>(`/reports/year-end?year=${year}`),
-  downloadYearEnd: async (year: number) => { await api.get(`/reports/year-end?year=${year}`); },
+  operational: (params: { year: number; period: 'monthly' | 'yearly'; ownerUserId?: string; departmentId?: string }) =>
+    api.get<OperationalReport>(`/reports/operational${qs(params)}`),
+  targetProgress: (params: { period: string; scope?: 'user' | 'department' | 'division' | 'role' | 'all-users'; id?: string; contributors?: 'true' | 'false' }) =>
+    api.get<any>(`/reports/target-progress${qs(params)}`),
+  /** Kullanıcının kendi hedef ilerlemesi; ek izin gerektirmez. */
+  myTargetProgress: (params: { period: string }) => api.get<any>(`/reports/my-target-progress${qs(params)}`),
+  downloadYearEnd: (year: number) => openExportUrl(`/reports/export/year-end?year=${year}`),
 };
 
 // ───── Admin (users, roles, departments) ─────

@@ -1,107 +1,254 @@
-import { useEffect, useState } from 'react';
-import { ScrollView, StyleSheet, Text, View, TouchableOpacity, Pressable } from 'react-native';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { ActivityIndicator, RefreshControl, ScrollView, StyleSheet, Text, View, TouchableOpacity } from 'react-native';
 import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '@/src/auth/AuthProvider';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { DivisionChip } from '@/src/ui/DivisionChip';
 import { NotificationBell } from '@/src/ui/NotificationBell';
-import { notificationService } from '@/src/api/services';
+import {
+  activityService,
+  companyService,
+  notificationService,
+  opportunityService,
+  reportService,
+  serviceService,
+} from '@/src/api/services';
 import { normalizeList } from '@/src/modules/registry';
-import { colors } from '@/src/theme/tokens';
 
 const PRIMARY = '#000c69';
 const TABS = ['Özet', 'Operasyon', 'Grafikler', 'Hedefler'];
 
-const recentActivities = [
-  { id: '1', title: 'Teklif gönderildi', description: 'TKL-2026-001 - Haksan Makina', time: '10:30', initials: 'AK', avatarColor: PRIMARY },
-  { id: '2', title: 'Ziyaret notu eklendi', description: 'Asil Çelik - Yeni proje görüşmesi', time: '09:15', initials: 'ST', avatarColor: '#10B981' },
-  { id: '3', title: 'Tahsilat alındı', description: '€12.500 - Peşinat ödemesi', time: 'Dün', initials: 'M', avatarColor: '#F59E0B' },
-];
+/**
+ * Gösterge paneli TAMAMEN sunucudan beslenir. Önceki sürüm sabit örnek rakamlar
+ * (KPI, hedef, pipeline, uyarı) gösteriyordu; kullanıcı bunları canlı veri sanıp
+ * yanlış karar verebiliyordu. Yetkisi olmayan uç 403 dönerse o kart "veri yok"
+ * der, ekranın kalanı çalışmaya devam eder.
+ */
+type KpiCard = { key: string; label: string; value: string; sub: string; icon: string; color: string; bg: string };
+type AlertCard = { key: string; icon: string; title: string; body: string; color: string; bg: string; nav: string };
+type PipelineStage = { stage: string; count: number };
+type MonthPoint = { label: string; revenue: number; quotes: number; won: number };
+type TargetLine = { label: string; current: number; target: number; unit: 'USD' | 'adet' };
+type RecentActivity = { id: string; title: string; description: string; time: string; initials: string };
 
-const weeklyData = [
-  { day: 'Pt', teklifler: 2, ziyaretler: 3 },
-  { day: 'Sa', teklifler: 1, ziyaretler: 1 },
-  { day: 'Çr', teklifler: 3, ziyaretler: 4 },
-  { day: 'Pe', teklifler: 2, ziyaretler: 2 },
-  { day: 'Cu', teklifler: 4, ziyaretler: 5 },
-];
+type DashboardData = {
+  kpis: KpiCard[];
+  alerts: AlertCard[];
+  pipeline: PipelineStage[];
+  months: MonthPoint[];
+  targets: TargetLine[];
+  recent: RecentActivity[];
+  targetPeriodLabel: string;
+};
 
-const pipelineData = [
-  { stage: 'Lead', count: 8 },
-  { stage: 'Arama', count: 6 },
-  { stage: 'Ziyaret', count: 5 },
-  { stage: 'Teklif', count: 4 },
-  { stage: 'Satış', count: 3 },
-];
-const pipelineMax = Math.max(...pipelineData.map((p) => p.count));
+const MONTH_SHORT = ['Oca', 'Şub', 'Mar', 'Nis', 'May', 'Haz', 'Tem', 'Ağu', 'Eyl', 'Eki', 'Kas', 'Ara'];
+const TARGET_METRIC_LABELS: Record<string, string> = {
+  salesAmount: 'Satış Cirosu',
+  salesNewCustomers: 'Yeni Müşteri',
+  quoteTarget: 'Teklif',
+  visitTarget: 'Ziyaret',
+  callTarget: 'Arama',
+  serviceCompleted: 'Tamamlanan Servis',
+  serviceAmount: 'Servis Cirosu',
+  digitalLeadTarget: 'Dijital Fırsat',
+  paymentsInAmount: 'Tahsilat',
+  purchaseInvoiceAmount: 'Alış Faturası',
+  purchaseOrderAmount: 'Satınalma Tutarı',
+  purchaseOrderCount: 'Satınalma Siparişi',
+  salesOrderAmount: 'Satış Siparişi Tutarı',
+  salesOrderCount: 'Satış Siparişi',
+  installationCompleted: 'Kurulum',
+  machineDeliveredCount: 'Teslim Edilen Tezgah',
+};
+const MONEY_METRIC = /amount|budget/i;
 
-const alerts = [
-  { icon: 'alert-circle', title: 'Vade Uyarısı', body: '3 firma için ödeme vadesi yaklaşıyor', color: '#F97316', bg: '#FFF7ED' },
-  { icon: 'construct', title: 'Açık Servis Talepleri', body: '2 kritik servis talebi bekliyor', color: '#EF4444', bg: '#FEF2F2' },
-  { icon: 'cube', title: 'Düşük Stok', body: 'Kontrol Kartı X1 — kritik seviye', color: '#8B5CF6', bg: '#F5F3FF' },
-  { icon: 'shield-checkmark', title: 'Garanti Bitiyor', body: '2 makine — 30 gün içinde garanti bitiyor', color: '#6366F1', bg: '#EEF2FF' },
-];
+/** Dönem yerel takvimden; `toISOString` UTC verdiği için ayın ilk saatlerinde şaşar. */
+const currentPeriod = (now = new Date()) => `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
 
-const targets = [
-  { label: 'Tezgah Satış Adedi', current: 7, target: 12, unit: 'adet', color: PRIMARY },
-  { label: 'Tahsilat Tutarı', current: 82000, target: 120000, unit: '€', color: '#10B981' },
-  { label: 'Yeni Müşteri Ziyareti', current: 14, target: 20, unit: 'ziyaret', color: '#F59E0B' },
-  { label: 'Yeni Teklif', current: 9, target: 15, unit: 'teklif', color: '#8B5CF6' },
-  { label: 'Servis Ciro Hedefi', current: 18500, target: 30000, unit: '€', color: '#EF4444' },
-];
+const compactNumber = (value: number) =>
+  Math.abs(value) >= 1000 ? `${Math.round(value / 1000)}K` : String(Math.round(value));
+const formatUsd = (value: number) => `$${compactNumber(value)}`;
+const formatCount = (value: number) => value.toLocaleString('tr-TR');
+const initialsOf = (name: string) =>
+  name.split(' ').filter(Boolean).slice(0, 2).map((part) => part[0]?.toLocaleUpperCase('tr-TR') ?? '').join('') || '•';
+const relativeTime = (iso: string) => {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return '';
+  const today = new Date();
+  const sameDay = date.toDateString() === today.toDateString();
+  if (sameDay) return date.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' });
+  const yesterday = new Date(today.getTime() - 86_400_000);
+  if (date.toDateString() === yesterday.toDateString()) return 'Dün';
+  return date.toLocaleDateString('tr-TR', { day: '2-digit', month: 'short' });
+};
 
-function OzetTab() {
-  const kpis = [
-    { label: 'Firmalar', value: '142', sub: 'aktif', icon: 'business-outline', color: PRIMARY, bg: '#EEF2FF', trend: '+3' },
-    { label: 'Satış Kartı', value: '24', sub: 'açık kart', icon: 'trending-up-outline', color: '#10B981', bg: '#ECFDF5', trend: '+2' },
-    { label: 'Gelir', value: '€84K', sub: 'kapanan', icon: 'cash-outline', color: '#F59E0B', bg: '#FFFBEB', trend: '+12%' },
-    { label: 'Servis', value: '8', sub: 'açık talep', icon: 'build-outline', color: '#EF4444', bg: '#FEF2F2', trend: '-1' },
+/** 403/404 yutulur: yetkisi olmayan kart boş kalır, ekran ayakta kalır. */
+const settled = async <T,>(promise: Promise<T>): Promise<T | null> => promise.then((value) => value).catch(() => null);
+const totalOf = (res: { meta?: { total?: number } } | null) => res?.meta?.total ?? 0;
+
+async function loadDashboard(): Promise<DashboardData> {
+  const period = currentPeriod();
+  const year = new Date().getFullYear();
+  const [companies, opportunities, tickets, pipelineRows, operational, complaints, receivables, warranty, targets, activities] =
+    await Promise.all([
+      settled(companyService.list({ pageSize: 1 })),
+      settled(opportunityService.list({ pageSize: 1 })),
+      settled(serviceService.tickets({ pageSize: 1 })),
+      settled(reportService.pipelineSummary()),
+      settled(reportService.operational({ year, period: 'monthly' })),
+      settled(reportService.serviceComplaintsSummary()),
+      settled(reportService.expectedReceivables()),
+      settled(reportService.warrantyExpiring({ days: 30 })),
+      settled(reportService.myTargetProgress({ period })),
+      settled(activityService.list({ pageSize: 5, page: 1 })),
+    ]);
+
+  const rows = operational?.rows ?? [];
+  const months: MonthPoint[] = rows.map((row) => {
+    const monthIndex = Number(String(row.bucket).slice(5, 7)) - 1;
+    return {
+      label: MONTH_SHORT[monthIndex] ?? String(row.bucket),
+      revenue: Number(row.revenueUsd ?? 0),
+      quotes: Number(row.quotes ?? 0),
+      won: Number(row.won ?? 0),
+    };
+  });
+  const revenueYtd = months.reduce((sum, month) => sum + month.revenue, 0);
+
+  const pipeline: PipelineStage[] = (pipelineRows ?? []).map((row: any) => ({
+    stage: String(row.stageName ?? row.stageCode ?? '—'),
+    count: Number(row.count ?? 0),
+  }));
+  const pipelineValue = (pipelineRows ?? []).reduce((sum: number, row: any) => sum + Number(row.totalValue ?? 0), 0);
+
+  const kpis: KpiCard[] = [
+    { key: 'companies', label: 'Firmalar', value: formatCount(totalOf(companies)), sub: 'kayıtlı', icon: 'business-outline', color: PRIMARY, bg: '#EEF2FF' },
+    { key: 'opportunities', label: 'Fırsat', value: formatCount(totalOf(opportunities)), sub: 'açık kart', icon: 'trending-up-outline', color: '#10B981', bg: '#ECFDF5' },
+    { key: 'revenue', label: 'Ciro', value: formatUsd(revenueYtd), sub: `${year} kazanılan`, icon: 'cash-outline', color: '#F59E0B', bg: '#FFFBEB' },
+    { key: 'service', label: 'Servis', value: formatCount(totalOf(tickets)), sub: 'talep', icon: 'build-outline', color: '#EF4444', bg: '#FEF2F2' },
   ];
 
+  const openComplaints = Number(complaints?.new ?? 0) + Number(complaints?.reviewing ?? 0);
+  const alerts: AlertCard[] = [];
+  if ((receivables?.length ?? 0) > 0) {
+    alerts.push({
+      key: 'receivables', icon: 'alert-circle', title: 'Vade Takibi',
+      body: `${receivables!.length} kayıtta ödeme vadesi bekliyor`,
+      color: '#F97316', bg: '#FFF7ED', nav: '/modules/due-dates',
+    });
+  }
+  if (openComplaints > 0) {
+    alerts.push({
+      key: 'complaints', icon: 'construct', title: 'Açık Şikayet / Servis Talebi',
+      body: `${openComplaints} kayıt değerlendirme bekliyor`,
+      color: '#EF4444', bg: '#FEF2F2', nav: '/modules/service-requests',
+    });
+  }
+  if ((warranty?.length ?? 0) > 0) {
+    alerts.push({
+      key: 'warranty', icon: 'shield-checkmark', title: 'Garanti Bitiyor',
+      body: `${warranty!.length} makine — 30 gün içinde garanti bitiyor`,
+      color: '#6366F1', bg: '#EEF2FF', nav: '/modules/machines',
+    });
+  }
+  if (pipelineValue > 0) {
+    alerts.push({
+      key: 'pipeline', icon: 'cube', title: 'Açık Pipeline',
+      body: `${formatUsd(pipelineValue)} değerinde açık fırsat var`,
+      color: '#8B5CF6', bg: '#F5F3FF', nav: '/modules/sales-cases',
+    });
+  }
+
+  const metrics: Record<string, { target: number | null; actual: number | null }> =
+    targets?.subjects?.[0]?.metrics ?? {};
+  const targetLines: TargetLine[] = Object.entries(metrics)
+    .filter(([, metric]) => (metric?.target ?? 0) > 0 && metric?.actual != null)
+    .map(([key, metric]) => ({
+      label: TARGET_METRIC_LABELS[key] ?? key,
+      current: Number(metric.actual ?? 0),
+      target: Number(metric.target ?? 0),
+      unit: MONEY_METRIC.test(key) ? ('USD' as const) : ('adet' as const),
+    }));
+  for (const item of targets?.subjects?.[0]?.targetItems ?? []) {
+    const target = Number(item?.target ?? 0);
+    if (!Number.isFinite(target) || target <= 0 || item?.actual == null) continue;
+    targetLines.push({
+      label: String(item.activity ?? item.description ?? 'Hedef'),
+      current: Number(item.actual ?? 0),
+      target,
+      unit: item.unit === 'amount' ? 'USD' : 'adet',
+    });
+  }
+
+  const recent: RecentActivity[] = normalizeList(activities as any)
+    .slice(0, 5)
+    .map((row: any) => ({
+      id: String(row.id),
+      title: String(row.type?.name ?? row.subject ?? 'Aktivite'),
+      description: String(row.subject ?? row.description ?? '—'),
+      time: relativeTime(String(row.activityDate ?? row.createdAt ?? '')),
+      initials: initialsOf(String(row.createdByUser?.fullName ?? '')),
+    }));
+
+  return {
+    kpis,
+    alerts,
+    pipeline,
+    months,
+    targets: targetLines,
+    recent,
+    targetPeriodLabel: new Date(`${period}-01T00:00:00`).toLocaleDateString('tr-TR', { month: 'long', year: 'numeric' }),
+  };
+}
+
+function EmptyCard({ text }: { text: string }) {
+  return (
+    <View style={styles.card}>
+      <Text style={styles.emptyText}>{text}</Text>
+    </View>
+  );
+}
+
+function OzetTab({ data }: { data: DashboardData }) {
+  const maxRevenue = Math.max(1, ...data.months.map((month) => month.revenue));
   return (
     <View style={styles.tabContent}>
-      {/* KPI Grid */}
       <View style={styles.kpiGrid}>
-        {kpis.map((kpi) => (
-          <View key={kpi.label} style={styles.kpiCard}>
+        {data.kpis.map((kpi) => (
+          <View key={kpi.key} style={styles.kpiCard}>
             <View style={styles.kpiHeader}>
               <View style={[styles.kpiIconBox, { backgroundColor: kpi.bg }]}>
                 <Ionicons name={kpi.icon as any} size={15} color={kpi.color} />
               </View>
-              <View style={[styles.kpiTrendBox, { backgroundColor: kpi.bg }]}>
-                <Text style={[styles.kpiTrendText, { color: kpi.color }]}>{kpi.trend}</Text>
-              </View>
             </View>
             <Text style={styles.kpiValue}>{kpi.value}</Text>
-            <Text style={styles.kpiSub}>{kpi.sub}</Text>
+            <Text style={styles.kpiSub}>{kpi.label} · {kpi.sub}</Text>
           </View>
         ))}
       </View>
 
-      {/* Revenue Chart Placeholder */}
       <View style={styles.card}>
         <View style={styles.cardHeader}>
           <View>
-            <Text style={styles.cardTitle}>Aylık Gelir</Text>
-            <Text style={styles.cardSubtitle}>Son 6 ay</Text>
-          </View>
-          <View style={styles.trendUp}>
-            <Ionicons name="trending-up" size={12} color="#16a34a" />
-            <Text style={styles.trendUpText}>+18%</Text>
+            <Text style={styles.cardTitle}>Aylık Ciro</Text>
+            <Text style={styles.cardSubtitle}>Kazanılan fırsat değeri · USD</Text>
           </View>
         </View>
-        <View style={styles.chartPlaceholder}>
-          <View style={[styles.chartBar, { height: '30%' }]} />
-          <View style={[styles.chartBar, { height: '50%' }]} />
-          <View style={[styles.chartBar, { height: '40%' }]} />
-          <View style={[styles.chartBar, { height: '70%' }]} />
-          <View style={[styles.chartBar, { height: '60%' }]} />
-          <View style={[styles.chartBar, { height: '90%' }]} />
-        </View>
+        {data.months.length === 0 ? (
+          <Text style={styles.emptyText}>Bu yıl için ciro verisi yok.</Text>
+        ) : (
+          <View style={styles.chartPlaceholder}>
+            {data.months.map((month) => (
+              <View key={month.label} style={styles.chartCol}>
+                <View style={[styles.chartBar, { height: `${Math.max(4, (month.revenue / maxRevenue) * 100)}%` }]} />
+                <Text style={styles.chartDay}>{month.label}</Text>
+              </View>
+            ))}
+          </View>
+        )}
       </View>
 
-      {/* Hızlı İşlem */}
       <View style={styles.card}>
         <Text style={[styles.cardTitle, { marginBottom: 12 }]}>Hızlı İşlem</Text>
         <View style={styles.quickActionGrid}>
@@ -109,133 +256,156 @@ function OzetTab() {
             { label: '+ Firma', color: PRIMARY, bg: '#EEF2FF' },
             { label: '+ Teklif', color: '#10B981', bg: '#ECFDF5' },
             { label: '+ Servis', color: '#EF4444', bg: '#FEF2F2' },
-          ].map((a) => (
-            <TouchableOpacity key={a.label} style={[styles.quickActionButton, { backgroundColor: a.bg }]} onPress={() => router.push('/quick-create')}>
-              <Text style={[styles.quickActionText, { color: a.color }]}>{a.label}</Text>
+          ].map((action) => (
+            <TouchableOpacity key={action.label} style={[styles.quickActionButton, { backgroundColor: action.bg }]} onPress={() => router.push('/quick-create')}>
+              <Text style={[styles.quickActionText, { color: action.color }]}>{action.label}</Text>
             </TouchableOpacity>
           ))}
         </View>
       </View>
 
-      {/* Son Aktiviteler */}
       <View style={styles.card}>
         <View style={styles.cardHeader}>
           <Text style={styles.cardTitle}>Son Aktiviteler</Text>
           <Ionicons name="chevron-forward" size={16} color="#9ca3af" />
         </View>
-        <View style={styles.activityList}>
-          {recentActivities.map((act) => (
-            <TouchableOpacity key={act.id} style={styles.activityRow} onPress={() => router.push('/modules/sales-cases')}>
-              <View style={[styles.activityAvatar, { backgroundColor: act.avatarColor }]}>
-                <Text style={styles.activityAvatarText}>{act.initials}</Text>
-              </View>
-              <View style={styles.activityContent}>
-                <View style={styles.activityRowHeader}>
-                  <Text style={styles.activityTitle}>{act.title}</Text>
-                  <Text style={styles.activityTime}>{act.time}</Text>
+        {data.recent.length === 0 ? (
+          <Text style={styles.emptyText}>Kayıtlı aktivite yok.</Text>
+        ) : (
+          <View style={styles.activityList}>
+            {data.recent.map((act) => (
+              <TouchableOpacity key={act.id} style={styles.activityRow} onPress={() => router.push('/modules/sales-cases')}>
+                <View style={[styles.activityAvatar, { backgroundColor: PRIMARY }]}>
+                  <Text style={styles.activityAvatarText}>{act.initials}</Text>
                 </View>
-                <Text style={styles.activityDesc} numberOfLines={1}>{act.description}</Text>
-              </View>
-            </TouchableOpacity>
-          ))}
-        </View>
+                <View style={styles.activityContent}>
+                  <View style={styles.activityRowHeader}>
+                    <Text style={styles.activityTitle}>{act.title}</Text>
+                    <Text style={styles.activityTime}>{act.time}</Text>
+                  </View>
+                  <Text style={styles.activityDesc} numberOfLines={1}>{act.description}</Text>
+                </View>
+              </TouchableOpacity>
+            ))}
+          </View>
+        )}
       </View>
     </View>
   );
 }
 
-function OperasyonTab() {
+function OperasyonTab({ data }: { data: DashboardData }) {
+  if (data.alerts.length === 0) {
+    return (
+      <View style={styles.tabContent}>
+        <EmptyCard text="Şu an dikkat gerektiren kayıt yok." />
+      </View>
+    );
+  }
   return (
     <View style={styles.tabContent}>
       <Text style={styles.sectionLead}>Dikkat Gerektiren Durumlar</Text>
-      {alerts.map((a, i) => (
-        <TouchableOpacity key={i} style={styles.alertCard} onPress={() => router.push('/(tabs)/operations')}>
-          <View style={[styles.alertIconBox, { backgroundColor: a.bg }]}>
-            <Ionicons name={a.icon as any} size={18} color={a.color} />
+      {data.alerts.map((alert) => (
+        <TouchableOpacity key={alert.key} style={styles.alertCard} onPress={() => router.push(alert.nav as any)}>
+          <View style={[styles.alertIconBox, { backgroundColor: alert.bg }]}>
+            <Ionicons name={alert.icon as any} size={18} color={alert.color} />
           </View>
           <View style={styles.alertContent}>
-            <Text style={styles.alertTitle}>{a.title}</Text>
-            <Text style={styles.alertBody}>{a.body}</Text>
+            <Text style={styles.alertTitle}>{alert.title}</Text>
+            <Text style={styles.alertBody}>{alert.body}</Text>
           </View>
-          <Ionicons name="chevron-forward" size={14} color={a.color} style={{ marginTop: 2 }} />
+          <Ionicons name="chevron-forward" size={14} color={alert.color} style={{ marginTop: 2 }} />
         </TouchableOpacity>
       ))}
     </View>
   );
 }
 
-function GrafiklerTab() {
+function GrafiklerTab({ data }: { data: DashboardData }) {
+  const maxMonthly = Math.max(1, ...data.months.map((month) => Math.max(month.quotes, month.won)));
+  const pipelineMax = Math.max(1, ...data.pipeline.map((stage) => stage.count));
   return (
     <View style={styles.tabContent}>
-      {/* Weekly Activity */}
       <View style={styles.card}>
-        <Text style={[styles.cardTitle, { marginBottom: 12 }]}>Haftalık Aktivite</Text>
-        <View style={styles.chartPlaceholder}>
-          {weeklyData.map((d) => (
-            <View key={d.day} style={styles.chartCol}>
-              <View style={styles.chartBarStack}>
-                <View style={[styles.barSlice, { height: d.teklifler * 15, backgroundColor: PRIMARY }]} />
-                <View style={[styles.barSlice, { height: d.ziyaretler * 15, backgroundColor: '#10B981' }]} />
-              </View>
-              <Text style={styles.chartDay}>{d.day}</Text>
+        <Text style={[styles.cardTitle, { marginBottom: 12 }]}>Aylık Teklif ve Kazanılan</Text>
+        {data.months.length === 0 ? (
+          <Text style={styles.emptyText}>Bu yıl için kayıt yok.</Text>
+        ) : (
+          <>
+            <View style={styles.chartPlaceholder}>
+              {data.months.map((month) => (
+                <View key={month.label} style={styles.chartCol}>
+                  <View style={styles.chartBarStack}>
+                    <View style={[styles.barSlice, { height: Math.max(3, (month.quotes / maxMonthly) * 80), backgroundColor: PRIMARY }]} />
+                    <View style={[styles.barSlice, { height: Math.max(3, (month.won / maxMonthly) * 80), backgroundColor: '#10B981' }]} />
+                  </View>
+                  <Text style={styles.chartDay}>{month.label}</Text>
+                </View>
+              ))}
             </View>
-          ))}
-        </View>
-        <View style={styles.chartLegend}>
-          <View style={styles.legendItem}>
-            <View style={[styles.legendDot, { backgroundColor: PRIMARY }]} />
-            <Text style={styles.legendText}>Teklifler</Text>
-          </View>
-          <View style={styles.legendItem}>
-            <View style={[styles.legendDot, { backgroundColor: '#10B981' }]} />
-            <Text style={styles.legendText}>Ziyaretler</Text>
-          </View>
-        </View>
+            <View style={styles.chartLegend}>
+              <View style={styles.legendItem}>
+                <View style={[styles.legendDot, { backgroundColor: PRIMARY }]} />
+                <Text style={styles.legendText}>Teklif</Text>
+              </View>
+              <View style={styles.legendItem}>
+                <View style={[styles.legendDot, { backgroundColor: '#10B981' }]} />
+                <Text style={styles.legendText}>Kazanılan</Text>
+              </View>
+            </View>
+          </>
+        )}
       </View>
 
-      {/* Satış Hunisi */}
       <View style={styles.card}>
         <Text style={[styles.cardTitle, { marginBottom: 12 }]}>Satış Hunisi</Text>
-        <View style={styles.pipelineRow}>
-          {pipelineData.map((p) => (
-            <View key={p.stage} style={styles.pipelineCol}>
-              <Text style={styles.pipelineCount}>{p.count}</Text>
-              <View style={[styles.pipelineBar, { height: Math.max(6, Math.round((p.count / pipelineMax) * 80)) }]} />
-              <Text style={styles.pipelineLabel} numberOfLines={1}>{p.stage}</Text>
-            </View>
-          ))}
-        </View>
+        {data.pipeline.length === 0 ? (
+          <Text style={styles.emptyText}>Pipeline verisi yok.</Text>
+        ) : (
+          <View style={styles.pipelineRow}>
+            {data.pipeline.map((stage) => (
+              <View key={stage.stage} style={styles.pipelineCol}>
+                <Text style={styles.pipelineCount}>{stage.count}</Text>
+                <View style={[styles.pipelineBar, { height: Math.max(6, Math.round((stage.count / pipelineMax) * 80)) }]} />
+                <Text style={styles.pipelineLabel} numberOfLines={1}>{stage.stage}</Text>
+              </View>
+            ))}
+          </View>
+        )}
       </View>
     </View>
   );
 }
 
-function HedeflerTab() {
+function HedeflerTab({ data }: { data: DashboardData }) {
   return (
     <View style={styles.tabContent}>
       <View style={styles.targetHeader}>
         <Ionicons name="analytics" size={16} color={PRIMARY} />
-        <Text style={styles.targetHeaderText}>Haziran 2026 Hedefleri</Text>
+        <Text style={styles.targetHeaderText}>{data.targetPeriodLabel} Hedefleri</Text>
       </View>
-      {targets.map((t) => {
-        const pct = Math.min(100, Math.round((t.current / t.target) * 100));
-        const display = t.unit === '€'
-          ? `€${(t.current / 1000).toFixed(0)}K / €${(t.target / 1000).toFixed(0)}K`
-          : `${t.current} / ${t.target} ${t.unit}`;
-        
-        return (
-          <View key={t.label} style={styles.card}>
-            <View style={styles.targetRowHeader}>
-              <Text style={styles.targetLabel}>{t.label}</Text>
-              <Text style={[styles.targetPct, { color: t.color }]}>{pct}%</Text>
+      {data.targets.length === 0 ? (
+        <EmptyCard text="Bu dönem için ölçülebilir hedef girilmemiş." />
+      ) : (
+        data.targets.map((target) => {
+          const pct = Math.min(100, Math.round((target.current / target.target) * 100));
+          const display = target.unit === 'USD'
+            ? `${formatUsd(target.current)} / ${formatUsd(target.target)}`
+            : `${formatCount(target.current)} / ${formatCount(target.target)} adet`;
+          return (
+            <View key={target.label} style={styles.card}>
+              <View style={styles.targetRowHeader}>
+                <Text style={styles.targetLabel}>{target.label}</Text>
+                <Text style={[styles.targetPct, { color: pct >= 100 ? '#10B981' : PRIMARY }]}>{pct}%</Text>
+              </View>
+              <View style={styles.progressTrack}>
+                <View style={[styles.progressFill, { width: `${pct}%`, backgroundColor: pct >= 100 ? '#10B981' : PRIMARY }]} />
+              </View>
+              <Text style={styles.targetDisplay}>{display}</Text>
             </View>
-            <View style={styles.progressTrack}>
-              <View style={[styles.progressFill, { width: `${pct}%`, backgroundColor: t.color }]} />
-            </View>
-            <Text style={styles.targetDisplay}>{display}</Text>
-          </View>
-        );
-      })}
+          );
+        })
+      )}
     </View>
   );
 }
@@ -244,6 +414,26 @@ export function DashboardScreen() {
   const { user } = useAuth();
   const [activeTab, setActiveTab] = useState(0);
   const [unread, setUnread] = useState(0);
+  const [data, setData] = useState<DashboardData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    setError(null);
+    try {
+      setData(await loadDashboard());
+    } catch (err: any) {
+      setError(err?.message ?? 'Gösterge paneli verisi alınamadı.');
+    }
+  }, []);
+
+  useEffect(() => {
+    void (async () => {
+      await load();
+      setLoading(false);
+    })();
+  }, [load]);
 
   useEffect(() => {
     void (async () => {
@@ -256,37 +446,36 @@ export function DashboardScreen() {
     })();
   }, []);
 
-  const getGreetingDate = () => {
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await load();
+    setRefreshing(false);
+  }, [load]);
+
+  const greetingDate = useMemo(() => {
     const now = new Date();
     const days = ['Pazar', 'Pazartesi', 'Salı', 'Çarşamba', 'Perşembe', 'Cuma', 'Cumartesi'];
-    const months = ['Ocak', 'Şubat', 'Mart', 'Nisan', 'Mayıs', 'Haziran', 'Temmuz', 'Ağustos', 'Eylül', 'Ekim', 'Kasım', 'Aralık'];
-    return `${days[now.getDay()]}, ${now.getDate()} ${months[now.getMonth()]} ${now.getFullYear()}`;
-  };
+    return `${days[now.getDay()]}, ${now.getDate()} ${MONTH_SHORT[now.getMonth()]} ${now.getFullYear()}`;
+  }, []);
 
   return (
     <SafeAreaView style={styles.root} edges={['top']}>
-      {/* Header */}
       <View style={styles.header}>
-        {/* Global controls — bölüm seçici + bildirim + profil */}
         <View style={styles.controlsRow}>
           <DivisionChip />
           <View style={styles.controlsRight}>
             <NotificationBell count={unread} onPress={() => router.push('/modules/notifications')} />
             <TouchableOpacity style={styles.avatarButton} onPress={() => router.push('/(tabs)/more')}>
-              <Text style={styles.avatarText}>
-                {(user?.fullName?.[0] ?? 'H').toUpperCase()}
-              </Text>
+              <Text style={styles.avatarText}>{(user?.fullName?.[0] ?? 'H').toUpperCase()}</Text>
             </TouchableOpacity>
           </View>
         </View>
 
-        {/* Greeting */}
         <View style={styles.greetingRow}>
-          <Text style={styles.dateText}>{getGreetingDate()}</Text>
+          <Text style={styles.dateText}>{greetingDate}</Text>
           <Text style={styles.greetingText}>Merhaba, {user?.fullName?.split(' ')[0] ?? 'Kullanıcı'} 👋</Text>
         </View>
 
-        {/* Tabs */}
         <View style={styles.tabBar}>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tabScroll}>
             {TABS.map((tab, i) => (
@@ -302,17 +491,43 @@ export function DashboardScreen() {
         </View>
       </View>
 
-      {/* Tab Content */}
-      <ScrollView style={styles.scroll} showsVerticalScrollIndicator={false}>
-        {activeTab === 0 && <OzetTab />}
-        {activeTab === 1 && <OperasyonTab />}
-        {activeTab === 2 && <GrafiklerTab />}
-        {activeTab === 3 && <HedeflerTab />}
+      <ScrollView
+        style={styles.scroll}
+        showsVerticalScrollIndicator={false}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+      >
+        {loading ? (
+          <View style={styles.loadingBox}>
+            <ActivityIndicator color={PRIMARY} />
+            <Text style={styles.emptyText}>Veriler yükleniyor…</Text>
+          </View>
+        ) : error || !data ? (
+          <View style={styles.tabContent}>
+            <View style={styles.card}>
+              <Text style={styles.emptyText}>{error ?? 'Veri alınamadı.'}</Text>
+              <TouchableOpacity style={[styles.quickActionButton, { backgroundColor: '#EEF2FF', marginTop: 12 }]} onPress={onRefresh}>
+                <Text style={[styles.quickActionText, { color: PRIMARY }]}>Yeniden dene</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        ) : (
+          <>
+            {activeTab === 0 && <OzetTab data={data} />}
+            {activeTab === 1 && <OperasyonTab data={data} />}
+            {activeTab === 2 && <GrafiklerTab data={data} />}
+            {activeTab === 3 && <HedeflerTab data={data} />}
+          </>
+        )}
         <View style={{ height: 120 }} />
       </ScrollView>
 
-      {/* FAB */}
-      <TouchableOpacity style={styles.fab} activeOpacity={0.8}>
+      {/* Hızlı kayıt: önceden hiçbir işlem yapmayan ölü bir düğmeydi. */}
+      <TouchableOpacity
+        style={styles.fab}
+        activeOpacity={0.8}
+        accessibilityLabel="Hızlı kayıt oluştur"
+        onPress={() => router.push('/quick-create')}
+      >
         <Ionicons name="add" size={24} color="#ffffff" />
       </TouchableOpacity>
     </SafeAreaView>
@@ -711,6 +926,15 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: '#9ca3af',
   },
+  emptyText: {
+    fontSize: 12,
+    color: '#6b7280',
+  },
+  loadingBox: {
+    paddingVertical: 48,
+    alignItems: 'center',
+    gap: 8,
+  },
   fab: {
     position: 'absolute',
     bottom: 88,
@@ -728,4 +952,5 @@ const styles = StyleSheet.create({
     elevation: 8,
   },
 });
+
 
