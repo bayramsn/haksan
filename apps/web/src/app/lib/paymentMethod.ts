@@ -176,3 +176,19 @@ export const PAYMENT_DUE_LABEL: Partial<Record<OpportunityPaymentMethod, string>
   leasing: "Peşinat ödeme günü",
   letter_of_credit: "Akreditif vadesi (gün)",
 };
+
+/**
+ * Ödeme koşulları metninin ne içermesi gerektiğini biçime göre söyleyen ipucu.
+ * Hem süreç görev satırı hem de fırsat popup'ındaki ödeme bölümü aynı metni
+ * yazar; ipucu tek yerde durmazsa iki ekran farklı şey ister.
+ */
+export const PAYMENT_TERMS_PLACEHOLDER: Partial<Record<OpportunityPaymentMethod, string>> = {
+  cash: "Peşin: ödeme tarihi ve varsa peşin iskontosu",
+  wire_transfer: "Havale: hesap, tutar ve transfer tarihi",
+  promissory_note: "Senet: adet, vade tarihleri ve tutarlar",
+  term: "Vadeli: vade gün sayısı ve son ödeme tarihi",
+  installment: "Taksitli: taksit adedi, tutarı ve ilk taksit tarihi",
+  leasing: "Leasing: finans kuruluşu, süre ve peşinat oranı",
+  letter_of_credit: "Akreditif: banka, vade ve açılış koşulları",
+  cheque: "Çek: adet, vade tarihleri ve keşideci",
+};

@@ -313,6 +313,44 @@ test("teklifi olmayan fırsatta da teklif oluşturma girişi durur", async ({ pa
   await expect(documents.getByRole("button", { name: "Teklif oluştur", exact: true })).toBeVisible();
 });
 
+// Ödeme biçimi, vade günü ve koşul metni üç ayrı ekrandaydı; vade günü yeni
+// yerleşimde hiç görünmüyordu. Üçü de tahsilat satırlarının üstünde olmalı.
+test("ödeme biçimi, vadesi ve koşulları ödeme bölümünden kaydedilir", async ({ page }) => {
+  const { dialog, mutations, opportunity } = await openPopup(page);
+  const payments = dialog.locator("#opportunity-payments");
+  await payments.locator("summary").click();
+  const terms = payments.getByTestId("opportunity-payment-terms");
+  await expect(terms).toBeVisible();
+  await expect(terms.getByRole("combobox").first()).toBeEnabled();
+
+  const days = terms.getByLabel("Ödeme vadesi (gün)", { exact: true });
+  await expect(days).toHaveValue("30");
+  await days.fill("45");
+  await days.blur();
+  await expect.poll(() => opportunity.paymentTermDays).toBe(45);
+
+  const text = terms.getByLabel("Ödeme koşulları", { exact: true });
+  await expect(text).toHaveValue("Siparişte %30, teslimde %70");
+  await text.fill("Siparişte %40, sevkiyatta %60; akreditif açılacak.");
+  await text.blur();
+  await expect.poll(() => opportunity.paymentTerms).toBe("Siparişte %40, sevkiyatta %60; akreditif açılacak.");
+  await expect(terms.getByText("Kaydedildi").first()).toBeVisible();
+
+  // Tahsilat satırları aynı bölümde, koşulların altında kalır.
+  await expect(payments.getByText("Tahsilat planı", { exact: true })).toBeVisible();
+  expect(mutations.every((item) => item.path === `/opportunities/${opportunityId}`)).toBe(true);
+});
+
+test("salt okunur kullanıcı ödeme koşullarını göremez değil, değiştiremez", async ({ page }) => {
+  const { dialog, mutations } = await openPopup(page, { readOnly: true });
+  const payments = dialog.locator("#opportunity-payments");
+  await payments.locator("summary").click();
+  const terms = payments.getByTestId("opportunity-payment-terms");
+  await expect(terms.getByLabel("Ödeme koşulları", { exact: true })).toBeDisabled();
+  await expect(terms.getByLabel("Ödeme vadesi (gün)", { exact: true })).toBeDisabled();
+  expect(mutations).toEqual([]);
+});
+
 test("salt okunur kullanıcıya teklif oluşturma girişi gösterilmez", async ({ page }) => {
   const { dialog } = await openPopup(page, { readOnly: true, documents: true });
   const documents = dialog.locator("#opportunity-documents");

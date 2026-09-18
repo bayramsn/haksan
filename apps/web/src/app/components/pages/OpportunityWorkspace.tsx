@@ -28,6 +28,7 @@ import { useStore } from "../../lib/store";
 import {
   QUALIFICATION_STAGE_LABELS,
   salesStageLabel,
+  type OpportunityPaymentMethod,
   type SalesCase,
 } from "../../lib/mock";
 import { resolveSalesContact } from "../../lib/salesContact";
@@ -56,6 +57,8 @@ import {
 } from "../../lib/contactServerData";
 import { useRemoteContactDetail } from "../shared/RemoteContactCombobox";
 import { OpportunityNoteComposer } from "./OpportunityNoteComposer";
+import { PaymentMethodSelect } from "../shared/PaymentMethodSelect";
+import { PAYMENT_TERMS_PLACEHOLDER } from "../../lib/paymentMethod";
 import "./opportunity-workspace.css";
 import { DocumentDetailDialog } from "../dialogs/DocumentDetailDialog";
 import { DocumentPreviewDialog } from "../dialogs/DocumentPreviewDialog";
@@ -692,7 +695,9 @@ export function OpportunityWorkspace({
               </Button>
             )}
           </WorkspaceSection>
-          <WorkspaceSection title="Ödeme bilgileri" count={opportunityPayments.length}>
+          <WorkspaceSection id="opportunity-payments" title="Ödeme bilgileri" count={opportunityPayments.length}>
+            <OpportunityPaymentTerms salesCase={sc} canEdit={canUpdate} onSave={(patch) => updateCase(sc.id, patch)} />
+            <h4 className="mb-1 mt-4 text-sm font-medium text-muted-foreground">Tahsilat planı</h4>
             {opportunityPayments.length ? <div className="divide-y divide-border/60">{opportunityPayments.map((payment) => (
               <div key={payment.id} className="flex flex-wrap items-center justify-between gap-2 py-3 text-sm">
                 <span className="font-medium tabular-nums">{formatMoney(payment.amount, payment.currency)}</span><span className="text-muted-foreground">{formatDate(payment.dueDate)}</span>
@@ -762,6 +767,94 @@ function OpportunitySummary({ salesCase, canEdit, onSave }: {
         <p className={`whitespace-pre-wrap break-words text-sm leading-6 ${expanded ? "" : "line-clamp-2"} ${summary ? "text-foreground" : "text-muted-foreground"}`}>{summary || "Henüz açıklama eklenmedi."}</p>
         {summary && (summary.length > 160 || summary.includes("\n")) && <button type="button" className="mt-1 min-h-9 text-xs font-medium text-primary hover:underline" aria-expanded={expanded} onClick={() => setExpanded(!expanded)}>{expanded ? "Daha az göster" : "Devamını göster"}</button>}
       </>}
+    </div>
+  );
+}
+
+/**
+ * Ödeme koşulları tek alan ama üç ayrı yerden yönetiliyordu: biçim B alanı
+ * görevinde, koşul metni A alanı görevinde, vade günü ise yalnız eski
+ * yerleşimdeki "Diğer kayıt işlemleri" kutusunda — yani yeni popup'ta hiç.
+ * Üçü de burada, tahsilat satırlarının hemen üstünde. Görev satırları aynı
+ * alanları yazmaya devam eder; burası ikinci bir kayıt yolu değil, aynı yol.
+ */
+function OpportunityPaymentTerms({ salesCase, canEdit, onSave }: {
+  salesCase: SalesCase;
+  canEdit: boolean;
+  onSave: (patch: { paymentMethod?: OpportunityPaymentMethod; paymentTermDays?: number | null; paymentTerms?: string | null }) => Promise<void>;
+}) {
+  const [saving, setSaving] = useState<"method" | "days" | "terms" | null>(null);
+  const [savedField, setSavedField] = useState<"method" | "days" | "terms" | null>(null);
+  const [terms, setTerms] = useState(salesCase.paymentTerms ?? "");
+  const [days, setDays] = useState(salesCase.paymentTermDays == null ? "" : String(salesCase.paymentTermDays));
+  // Başka kart açıldığında ya da sunucu değeri değiştiğinde taslak tazelenir.
+  useEffect(() => { setTerms(salesCase.paymentTerms ?? ""); }, [salesCase.id, salesCase.paymentTerms]);
+  useEffect(() => { setDays(salesCase.paymentTermDays == null ? "" : String(salesCase.paymentTermDays)); }, [salesCase.id, salesCase.paymentTermDays]);
+  useEffect(() => { if (!savedField) return; const timer = window.setTimeout(() => setSavedField(null), 3000); return () => window.clearTimeout(timer); }, [savedField]);
+
+  const save = async (field: "method" | "days" | "terms", patch: Parameters<typeof onSave>[0], revert: () => void) => {
+    setSaving(field);
+    try { await onSave(patch); setSavedField(field); }
+    catch { revert(); toast.error("Ödeme bilgisi kaydedilemedi. Tekrar deneyin."); }
+    finally { setSaving(null); }
+  };
+  const status = (field: "method" | "days" | "terms") =>
+    saving === field ? "Kaydediliyor…" : savedField === field ? "Kaydedildi" : "";
+
+  return (
+    <div className="space-y-3 py-1" data-testid="opportunity-payment-terms">
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div>
+          <span className="mb-1.5 block text-xs text-muted-foreground">Ödeme biçimi</span>
+          <PaymentMethodSelect
+            value={salesCase.paymentMethod}
+            disabled={!canEdit || saving !== null}
+            size="sm"
+            labels={false}
+            idPrefix={`payment-terms-method-${salesCase.id}`}
+            onChange={(method) => void save("method", { paymentMethod: method }, () => {})}
+          />
+          <span role="status" className="text-xs text-muted-foreground">{status("method")}</span>
+        </div>
+        <div>
+          <label htmlFor={`payment-terms-days-${salesCase.id}`} className="mb-1.5 block text-xs text-muted-foreground">Ödeme vadesi (gün)</label>
+          <Input
+            id={`payment-terms-days-${salesCase.id}`}
+            type="number" min={0} max={3650} inputMode="numeric"
+            className="h-9 text-sm" placeholder="Belirlenmedi"
+            value={days} disabled={!canEdit || saving !== null}
+            onChange={(event) => setDays(event.target.value)}
+            onBlur={() => {
+              const raw = days.trim();
+              const next = raw === "" ? null : Number(raw);
+              if (next !== null && (!Number.isFinite(next) || next < 0 || next > 3650)) {
+                setDays(salesCase.paymentTermDays == null ? "" : String(salesCase.paymentTermDays));
+                toast.error("Vade 0 ile 3650 gün arasında olmalı.");
+                return;
+              }
+              if ((next ?? null) === (salesCase.paymentTermDays ?? null)) return;
+              void save("days", { paymentTermDays: next }, () => setDays(salesCase.paymentTermDays == null ? "" : String(salesCase.paymentTermDays)));
+            }}
+          />
+          <span role="status" className="text-xs text-muted-foreground">{status("days")}</span>
+        </div>
+      </div>
+      <div>
+        <label htmlFor={`payment-terms-text-${salesCase.id}`} className="mb-1.5 block text-xs text-muted-foreground">Ödeme koşulları</label>
+        <Textarea
+          id={`payment-terms-text-${salesCase.id}`}
+          className="min-h-20 text-sm" maxLength={4000}
+          placeholder={PAYMENT_TERMS_PLACEHOLDER[salesCase.paymentMethod ?? "undecided"] ?? "Peşinat, vade ve taksit koşullarını yazın"}
+          value={terms} disabled={!canEdit || saving !== null}
+          onChange={(event) => setTerms(event.target.value)}
+          onBlur={() => {
+            const next = terms.trim();
+            if (next === (salesCase.paymentTerms?.trim() ?? "")) return;
+            void save("terms", { paymentTerms: next || null }, () => setTerms(salesCase.paymentTerms ?? ""));
+          }}
+        />
+        <span role="status" className="text-xs text-muted-foreground">{status("terms")}</span>
+      </div>
     </div>
   );
 }
