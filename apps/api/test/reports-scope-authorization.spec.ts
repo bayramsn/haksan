@@ -171,13 +171,19 @@ describe('reports scope authorization', () => {
         .expect(403);
     });
 
-    // reports.export izni olsa bile export tüm kullanıcıları dışarı sızdırmamalı:
-    // uç içeride 'all-users' + 'department' çağırıyor, ikincisi kapsam dışı.
-    it('hedef raporunu Excel olarak dışarı aktaramaz', async () => {
-      await request(app.getHttpServer())
+    // Export tüm kullanıcıları dışarı sızdırmamalı; fakat kapsam dışı departman
+    // sayfası yüzünden tüm dökümü 403'e çevirmek arayüzde ölü bir buton
+    // bırakıyordu. Döküm iner, içinde yalnız kendi verisi olur.
+    it('hedef raporunu Excel olarak yalnız kendi verisiyle indirir', async () => {
+      const response = await request(app.getHttpServer())
         .get(`/api/v1/reports/export/target-progress?period=${period}`)
         .set('Authorization', `Bearer ${salesToken}`)
-        .expect(403);
+        .expect(200);
+      expect(response.headers['content-type']).toContain('spreadsheet');
+    });
+
+    it('departman kapsamını doğrudan çağırdığında hâlâ 403 alır', async () => {
+      await targetProgress(salesToken, { scope: 'department', id: salesDepartmentId }).expect(403);
     });
 
     it('kendi hedefini izin gerektirmeden görebilir', async () => {
@@ -214,6 +220,44 @@ describe('reports scope authorization', () => {
         .expect(200);
       expect(response.body.scope).toBe('self');
       expect(response.body.items.every((item: any) => item.userId === salesId)).toBe(true);
+    });
+  });
+
+  describe('dönem ve tarih doğrulaması', () => {
+    // `\d{2}` ay alanı `2026-99`u kabul ediyor, `new Date` bunu 2034'e taşıyordu.
+    it('geçersiz ay numarasını reddeder', async () => {
+      await request(app.getHttpServer())
+        .get('/api/v1/reports/target-progress?period=2026-99&scope=all-users')
+        .set('Authorization', `Bearer ${superAdminToken}`)
+        .expect(422);
+    });
+
+    it('takvimde olmayan günü reddeder', async () => {
+      await request(app.getHttpServer())
+        .get('/api/v1/reports/activity-log?from=2026-02-01&to=2026-02-31')
+        .set('Authorization', `Bearer ${superAdminToken}`)
+        .expect(422);
+    });
+
+    it('bitiş tarihi başlangıçtan önceyse reddeder', async () => {
+      await request(app.getHttpServer())
+        .get('/api/v1/reports/activity-log?from=2026-03-10&to=2026-03-01')
+        .set('Authorization', `Bearer ${superAdminToken}`)
+        .expect(422);
+    });
+
+    it('366 günden uzun aktivite aralığını reddeder', async () => {
+      await request(app.getHttpServer())
+        .get('/api/v1/reports/activity-log?from=2020-01-01&to=2026-01-01')
+        .set('Authorization', `Bearer ${superAdminToken}`)
+        .expect(422);
+    });
+
+    it('geçerli aralığı kabul eder', async () => {
+      await request(app.getHttpServer())
+        .get('/api/v1/reports/activity-log?from=2026-02-01&to=2026-02-28')
+        .set('Authorization', `Bearer ${superAdminToken}`)
+        .expect(200);
     });
   });
 

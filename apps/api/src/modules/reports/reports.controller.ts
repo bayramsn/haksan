@@ -3,6 +3,7 @@ import type { FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { dateRangeSchema, exportOperationalQuerySchema, type DateRange, type ExportOperationalQuery } from '@haksan/shared';
 import { ZodValidationPipe } from '../../shared/utils/zod-pipe';
+import { ForbiddenError } from '../../shared/utils/errors';
 import { AuthGuard } from '../../shared/security/auth.guard';
 import { PermissionsGuard, RequirePermissions } from '../../shared/security/permissions.guard';
 import { CurrentUser } from '../../shared/security/current-user.decorator';
@@ -11,22 +12,56 @@ import { rowsToXlsxBuffer, sendXlsx, sheetsToXlsxBuffer } from '../../shared/uti
 import { ReportsService } from './reports.service';
 
 const expiringSchema = z.object({ days: z.coerce.number().int().positive().default(60) });
+
+/**
+ * `YYYY-MM`. Salt `\d{2}` ay alanı `2026-99`u kabul ediyor, `new Date` bunu
+ * normalize edip 2034'e taşıyordu; ay 01-12 ile sınırlanır.
+ */
+const periodString = z
+  .string()
+  .regex(/^\d{4}-(0[1-9]|1[0-2])$/, 'Dönem YYYY-AA biçiminde ve ay 01-12 olmalı');
+
+/** `YYYY-MM-DD` — takvimde var olmayan gün (`2026-02-31`) sessizce kaymasın. */
+const dayString = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, 'Tarih YYYY-AA-GG biçiminde olmalı')
+  .refine((value) => {
+    const [year, month, day] = value.split('-').map(Number);
+    const date = new Date(Date.UTC(year, month - 1, day));
+    return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day;
+  }, 'Geçersiz tarih');
+
 /** Aktivite dökümü gün bazlı çalışır; `to` günün tamamını kapsar. */
-const activityLogSchema = z.object({
-  from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-  to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-});
+const ACTIVITY_LOG_MAX_DAYS = 366;
+const activityLogSchema = z
+  .object({ from: dayString, to: dayString })
+  .superRefine((value, ctx) => {
+    const from = Date.parse(`${value.from}T00:00:00Z`);
+    const to = Date.parse(`${value.to}T00:00:00Z`);
+    if (to < from) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['to'], message: 'Bitiş tarihi başlangıçtan önce olamaz' });
+      return;
+    }
+    // Aralık sınırsızken tek istek bütün tenant geçmişini tarayabiliyordu.
+    if ((to - from) / 86_400_000 + 1 > ACTIVITY_LOG_MAX_DAYS) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['to'],
+        message: `Aktivite dökümü en fazla ${ACTIVITY_LOG_MAX_DAYS} günlük aralık için alınabilir`,
+      });
+    }
+  });
 const yearSchema = z.object({
   year: z.coerce.number().int().min(2000).max(2100).default(new Date().getFullYear()),
 });
 
 const periodSchema = z.object({
-  period: z.string().regex(/^\d{4}-\d{2}$/),
+  period: periodString,
   departmentId: z.string().uuid().optional(),
 });
 
 const targetProgressSchema = z.object({
-  period: z.string().regex(/^\d{4}-\d{2}$/),
+  period: periodString,
   scope: z.enum(['user', 'department', 'division', 'role', 'all-users']).default('all-users'),
   id: z.string().uuid().optional(),
   /** Ciro hedefinin arkasındaki faturaları da döndür; ek sorgu olduğu için isteğe bağlı. */
@@ -44,7 +79,7 @@ const targetProgressSchema = z.object({
 });
 
 const targetPeriodOnlySchema = z.object({
-  period: z.string().regex(/^\d{4}-\d{2}$/),
+  period: periodString,
 });
 
 const teamActivitySchema = z.object({
@@ -121,6 +156,7 @@ const TARGET_EXPORT_METRIC_LABELS: Record<string, string> = {
   salesOrderAmount: 'Satış siparişi tutarı',
   salesOrderCount: 'Satış siparişi',
   installationCompleted: 'Kurulum',
+  machineDeliveredCount: 'Teslim edilen tezgah',
 };
 
 const configuredTargetCount = (row: TargetExportSubject) =>
@@ -334,10 +370,22 @@ export class ReportsController {
   ) {
     const [users, departments] = await Promise.all([
       this.svc.targetProgress(u, q.period, { kind: 'all-users' }),
-      this.svc.targetProgress(u, q.period, { kind: 'department' }),
+      // Departman kırılımı yalnız yöneticilere açık. Eskiden yetkisi olmayan
+      // kullanıcıda TÜM döküm 403 dönüyordu: arayüzde aktif görünen buton
+      // tıklanınca başarısız oluyordu. Artık o sayfa boş kalır, kullanıcı kendi
+      // hedefini indirir; kapsam dışı veri yine dışarı çıkmaz.
+      this.svc.targetProgress(u, q.period, { kind: 'department' }).catch((error) => {
+        if (error instanceof ForbiddenError) return null;
+        throw error;
+      }),
     ]);
     const userReport = users as TargetExportReport;
-    const departmentReport = departments as TargetExportReport;
+    const departmentReport = (departments as TargetExportReport | null) ?? {
+      period: q.period,
+      expectedProgressPct: userReport.expectedProgressPct,
+      currencyNormalization: userReport.currencyNormalization,
+      subjects: [],
+    };
     const detailRows = [...targetDetailRows(departmentReport), ...targetDetailRows(userReport)];
     const normalization = userReport.currencyNormalization ?? departmentReport.currencyNormalization;
 

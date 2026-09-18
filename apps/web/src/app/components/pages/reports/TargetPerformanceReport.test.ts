@@ -72,6 +72,24 @@ describe("analyzeTargetSubject", () => {
     expect(goal("yaklaşık 10").metrics).toEqual([]);
   });
 
+  it("scores a manual goal once its actual is entered by hand", () => {
+    // Manuel hedeflerin gerçekleşmesi elle girilebiliyor; API `actual` döndürünce
+    // hedef artık ölçülebilir sayılmalı, "kanıt bekliyor" listesinde kalmamalı.
+    const analysis = analyzeTargetSubject(row({
+      metrics: {},
+      targetItems: [
+        { activity: "Cari mutabakat", target: "10", actual: 4, trackingMode: "manual", metricKey: null },
+        { activity: "Vade takibi", target: "30", trackingMode: "manual", metricKey: null },
+      ],
+    }), 50, "2099-01");
+    expect(analysis.metrics).toEqual([
+      { label: "Cari mutabakat", target: 10, actual: 4, pct: 40, unit: "adet" },
+    ]);
+    // Gerçekleşme girilmeyen hedef manuel listede kalır.
+    expect(analysis.manual).toEqual([{ label: "Vade takibi", target: "30" }]);
+    expect(analysis.completionPct).toBe(40);
+  });
+
   it("reports manual-only and no-target subjects without a percentage", () => {
     expect(analyzeTargetSubject(row({ metrics: {}, targetItems: [{ activity: "Fuar", target: "1", trackingMode: "manual" }] }), 50, "2099-01").status).toBe("manual");
     expect(analyzeTargetSubject(row({ hasTarget: false, metrics: {}, targetItems: [] }), 50, "2099-01")).toMatchObject({ status: "no_target", completionPct: null });

@@ -59,6 +59,8 @@ export type UserTargetItem = {
   metricKey?: string;
   trackingMode?: 'automatic' | 'manual';
   target: string;
+  /** Manuel takipli hedeflerde elle girilen gerçekleşme. */
+  manualActual?: string;
 };
 
 export const userTargets = pgTable(

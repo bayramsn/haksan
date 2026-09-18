@@ -579,6 +579,22 @@ export class AdminController {
     });
   }
 
+  /**
+   * Hedef gövdesi tamamen boş mu? "Tüm hedefleri temizle" + Kaydet akışı değerleri
+   * siliyor ama satırı bırakıyordu: rapor bu satırı `hedef yok` yerine `manuel takip`
+   * sayıyor, rol toplu ataması da geri alınamıyordu. Boş gövde artık ATAMAYI SİLER.
+   */
+  private targetPayloadIsEmpty(body: TargetUpsertInput) {
+    const numbers = [
+      body.salesAmount, body.salesNewCustomers, body.serviceAmount, body.serviceCompleted,
+      body.digitalLeadTarget, body.digitalConversionTarget, body.digitalBudget,
+      body.visitTarget, body.callTarget, body.quoteTarget,
+    ];
+    if (numbers.some((value) => value != null)) return false;
+    if (body.note?.trim()) return false;
+    return body.targetItems.every((item) => !item.target?.trim() && !item.manualActual?.trim());
+  }
+
   private async upsertUserTargetRow(userId: string, body: TargetUpsertInput, tenantId: string) {
     const values = {
       tenantId,
@@ -597,15 +613,27 @@ export class AdminController {
       quoteTarget: body.quoteTarget,
       targetItems: body.targetItems,
       note: body.note?.trim() || null,
+      // Silinmiş bir dönem hedefi yeniden kaydedilebilsin.
+      deletedAt: null,
     };
 
     const existing = await this.db.query.userTargets.findFirst({
       where: and(eq(userTargets.tenantId, tenantId), eq(userTargets.userId, userId), eq(userTargets.period, body.period)),
     });
+    const empty = this.targetPayloadIsEmpty(body);
     if (existing) {
+      if (empty) {
+        const [row] = await this.db
+          .update(userTargets)
+          .set({ ...values, deletedAt: new Date() })
+          .where(eq(userTargets.id, existing.id))
+          .returning();
+        return row;
+      }
       const [row] = await this.db.update(userTargets).set(values).where(eq(userTargets.id, existing.id)).returning();
       return row;
     }
+    if (empty) return null;
     const [row] = await this.db.insert(userTargets).values(values).returning();
     return row;
   }
@@ -714,14 +742,22 @@ export class AdminController {
       quoteTarget: body.quoteTarget,
       targetItems: body.targetItems,
       note: body.note?.trim() || null,
+      // Silinmiş bir dönem hedefi yeniden kaydedilebilsin.
+      deletedAt: null,
     };
     const existing = await this.db.query.departmentTargets.findFirst({
       where: and(eq(departmentTargets.tenantId, user.tenantId), eq(departmentTargets.departmentId, id), eq(departmentTargets.period, body.period)),
     });
+    const empty = this.targetPayloadIsEmpty(body);
     if (existing) {
-      const [row] = await this.db.update(departmentTargets).set(values).where(eq(departmentTargets.id, existing.id)).returning();
+      const [row] = await this.db
+        .update(departmentTargets)
+        .set(empty ? { ...values, deletedAt: new Date() } : values)
+        .where(eq(departmentTargets.id, existing.id))
+        .returning();
       return row;
     }
+    if (empty) return null;
     const [row] = await this.db.insert(departmentTargets).values(values).returning();
     return row;
   }
@@ -774,6 +810,8 @@ export class AdminController {
       quoteTarget: body.quoteTarget,
       targetItems: body.targetItems,
       note: body.note?.trim() || null,
+      // Silinmiş bir dönem hedefi yeniden kaydedilebilsin.
+      deletedAt: null,
     };
     const existing = await this.db.query.divisionTargets.findFirst({
       where: and(
@@ -782,10 +820,16 @@ export class AdminController {
         eq(divisionTargets.period, body.period)
       ),
     });
+    const empty = this.targetPayloadIsEmpty(body);
     if (existing) {
-      const [row] = await this.db.update(divisionTargets).set(values).where(eq(divisionTargets.id, existing.id)).returning();
+      const [row] = await this.db
+        .update(divisionTargets)
+        .set(empty ? { ...values, deletedAt: new Date() } : values)
+        .where(eq(divisionTargets.id, existing.id))
+        .returning();
       return row;
     }
+    if (empty) return null;
     const [row] = await this.db.insert(divisionTargets).values(values).returning();
     return row;
   }

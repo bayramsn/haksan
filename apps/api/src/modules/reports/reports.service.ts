@@ -10,7 +10,7 @@ import { quotes, quoteItems } from '../../db/schema/quotes';
 import { productModels, brands } from '../../db/schema/products';
 import { receivables, payments, accountingInvoices } from '../../db/schema/finance';
 import { inventoryItems, customerDevices } from '../../db/schema/inventory';
-import { serviceComplaintIntakes, serviceTickets, installationJobs } from '../../db/schema/service';
+import { serviceComplaintIntakes, serviceTickets, installationJobs, deliveries } from '../../db/schema/service';
 import { salesOrders, purchaseOrders } from '../../db/schema/orders';
 import { activityTypes, currencies, pipelineStages, inventoryStatuses, paymentStatuses, warrantyStatuses, quoteStatuses } from '../../db/schema/lookup';
 import { companies, companyAddresses, contacts } from '../../db/schema/companies';
@@ -187,6 +187,7 @@ const MEASURED_METRICS = [
   'salesOrderAmount',
   'salesOrderCount',
   'installationCompleted',
+  'machineDeliveredCount',
 ] as const;
 type MeasuredMetric = (typeof MEASURED_METRICS)[number];
 const MANUAL_METRICS = ['digitalConversionTarget', 'digitalBudget'] as const;
@@ -203,7 +204,12 @@ type TargetItemLike = {
   target?: string | number | null;
   metricKey?: string | null;
   trackingMode?: 'automatic' | 'manual' | string | null;
+  /** Manuel hedeflerde elle girilen gerçekleşme (sistem ölçemez). */
+  manualActual?: string | number | null;
 };
+
+/** İstanbul UTC+03 sabit; bkz. `istanbulDayStart`. */
+const ISTANBUL_OFFSET_MS = 3 * 60 * 60 * 1000;
 
 const emptyActuals = (): UserActuals => ({
   salesAmount: 0,
@@ -221,15 +227,21 @@ const emptyActuals = (): UserActuals => ({
   salesOrderAmount: 0,
   salesOrderCount: 0,
   installationCompleted: 0,
+  machineDeliveredCount: 0,
 });
 
+/**
+ * Dönem temposu İSTANBUL takviminde ölçülür. UTC ile hesaplanınca ayın ilk günü
+ * 00:00-02:59 arası hâlâ önceki ay görünüyor ve tempo %100'e sabitleniyordu.
+ */
 const expectedPeriodProgressPct = (period: string, now = new Date()) => {
-  const currentPeriod = now.toISOString().slice(0, 7);
+  const local = new Date(now.getTime() + ISTANBUL_OFFSET_MS);
+  const currentPeriod = local.toISOString().slice(0, 7);
   if (period < currentPeriod) return 100;
   if (period > currentPeriod) return 0;
   const [year, month] = period.split('-').map(Number);
   const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate();
-  return Math.min(100, Math.max(0, Math.round((now.getUTCDate() / daysInMonth) * 100)));
+  return Math.min(100, Math.max(0, Math.round((local.getUTCDate() / daysInMonth) * 100)));
 };
 
 const measuredMetricSet = new Set<string>(MEASURED_METRICS);
@@ -250,9 +262,6 @@ const mergeCountMaps = (left: Map<string, PeriodCount>, right: Map<string, Perio
   }
   return merged;
 };
-
-/** İstanbul UTC+03 sabit; bkz. `istanbulDayStart`. */
-const ISTANBUL_OFFSET_MS = 3 * 60 * 60 * 1000;
 
 /**
  * Ekip aktivitesi dönem aralıkları.
@@ -1444,6 +1453,28 @@ export class ReportsService {
       )
       .groupBy(installationJobs.assignedToUserId);
 
+    // Teslim edilen tezgah: satış hedefi "tezgah teslimi yapıldığında" gerçekleşir.
+    // Sipariş sayısıyla ölçmek teslimat olmadan hedefi tamamlanmış gösteriyordu.
+    // Sorumlu kuralı satış siparişiyle aynı: fırsat sahibi → siparişi oluşturan.
+    const deliveryResponsibleUserId = sql<string | null>`coalesce(${opportunities.ownerUserId}, ${salesOrders.createdBy})`;
+    const deliveryRowsQuery = this.db
+      .select({ userId: deliveryResponsibleUserId, count: sql<number>`count(*)::int` })
+      .from(deliveries)
+      .leftJoin(salesOrders, eq(deliveries.salesOrderId, salesOrders.id))
+      .leftJoin(opportunities, sql`${opportunities.id} = coalesce(${deliveries.opportunityId}, ${salesOrders.opportunityId})`)
+      .where(
+        and(
+          eq(deliveries.tenantId, actor.tenantId),
+          isNull(deliveries.deletedAt),
+          eq(deliveries.status, 'completed'),
+          gte(deliveries.deliveryDate, from),
+          lte(deliveries.deliveryDate, to),
+          inArray(deliveryResponsibleUserId, userIds),
+          operationDivisionFilter(deliveries.divisionId)
+        )
+      )
+      .groupBy(deliveryResponsibleUserId);
+
     // Dijital lead
     const leadRowsQuery = this.db
       .select({ userId: leads.ownerUserId, count: sql<number>`count(*)::int` })
@@ -1495,6 +1526,7 @@ export class ReportsService {
       callRows,
       ticketRows,
       installRows,
+      deliveryRows,
       leadRows,
       visitActivityRows,
       callActivityRows,
@@ -1510,6 +1542,7 @@ export class ReportsService {
       callRowsQuery,
       ticketRowsQuery,
       installRowsQuery,
+      deliveryRowsQuery,
       leadRowsQuery,
       activityMetricRows(['customer_visit']),
       activityMetricRows(['incoming_call', 'outgoing_call']),
@@ -1566,6 +1599,10 @@ export class ReportsService {
         entry.serviceAmount = Number(r.total ?? 0);
         entry.installationCompleted = r.count;
       }
+    }
+    for (const r of deliveryRows) {
+      const entry = get(r.userId);
+      if (entry) entry.machineDeliveredCount = r.count;
     }
     for (const r of leadRows) {
       const entry = get(r.userId);
@@ -1640,14 +1677,20 @@ export class ReportsService {
 
   private targetItemMetricKey(item: TargetItemLike): TargetMetricKey | null {
     if (item.trackingMode === 'manual') return null;
+    const text = `${item.targetType ?? ''} ${item.category ?? ''} ${item.activity ?? ''}`.toLocaleUpperCase('tr-TR');
+    // Dijital pazarlama kalemleri (paylaşım, çevrimiçi toplantı) sistem verisinden
+    // ölçülemez. Eski kayıtlarda lead sayacına bağlanmışlardı: paylaşım yapılmadan
+    // lead açıldığında hedef ilerliyordu. Saklanan metricKey'den ÖNCE elenir.
+    if (text.includes('DİJİTAL PAZARLAMA')) return null;
     if (item.metricKey && (measuredMetricSet.has(item.metricKey) || manualMetricSet.has(item.metricKey))) {
       return item.metricKey as TargetMetricKey;
     }
 
-    const text = `${item.targetType ?? ''} ${item.category ?? ''} ${item.activity ?? ''}`.toLocaleUpperCase('tr-TR');
     if (text.includes('TAHSİLAT')) return 'paymentsInAmount';
     if (text.includes('SATIŞ SİPARİŞ') || text.includes('SİPARİŞLEŞ')) return 'salesOrderCount';
-    if (text.includes('SATIŞ HEDEF')) return 'salesOrderCount';
+    // "Satış hedefi" TESLİMATLA gerçekleşir (şablon açıklaması böyle der);
+    // sipariş sayısıyla ölçmek teslimat olmadan başarı yazıyordu.
+    if (text.includes('SATIŞ HEDEF')) return 'machineDeliveredCount';
     if (text.includes('SATIŞ') && item.unit === 'amount') return 'salesAmount';
     if (text.includes('ALIŞ FATURA')) return 'purchaseInvoiceAmount';
     if (text.includes('SATINALMA') || text.includes('SATIN ALMA') || text.includes('TEDARİK')) {
@@ -1660,7 +1703,7 @@ export class ReportsService {
     if (text.includes('ARAMA')) return 'callTarget';
     if (text.includes('TEKLİF')) return 'quoteTarget';
     if (text.includes('YENİ MÜŞTERİ')) return 'salesNewCustomers';
-    if (text.includes('DİJİTAL') || text.includes('LEAD')) return 'digitalLeadTarget';
+    if (text.includes('LEAD')) return 'digitalLeadTarget';
     return null;
   }
 
@@ -1670,7 +1713,10 @@ export class ReportsService {
       const metricKey = this.targetItemMetricKey(item);
       const measured = metricKey && measuredMetricSet.has(metricKey);
       const target = this.parseTargetItemNumber(item.target);
-      const actual = measured && actuals ? actuals[metricKey as MeasuredMetric] : null;
+      // Sistemin ölçemediği hedeflerde gerçekleşme elle girilir; girilmemişse
+      // hedef "kanıt bekliyor" olarak kalır (actual null).
+      const manualActual = this.parseTargetItemNumber(item.manualActual);
+      const actual = measured && actuals ? actuals[metricKey as MeasuredMetric] : manualActual;
       return {
         ...item,
         metricKey,
@@ -1684,7 +1730,7 @@ export class ReportsService {
   private sumTargetItems(rows: (typeof userTargets.$inferSelect | typeof departmentTargets.$inferSelect)[], actuals: UserActuals | null) {
     const grouped = new Map<
       string,
-      TargetItemLike & { numericTarget: number | null; fallbackTarget: string }
+      TargetItemLike & { numericTarget: number | null; numericManualActual: number | null; fallbackTarget: string }
     >();
     for (const row of rows) {
       const items = Array.isArray(row.targetItems) ? (row.targetItems as TargetItemLike[]) : [];
@@ -1698,16 +1744,22 @@ export class ReportsService {
             ...item,
             metricKey,
             numericTarget: null,
+            numericManualActual: null,
             fallbackTarget: item.target === null || item.target === undefined ? '' : String(item.target),
-          } as TargetItemLike & { numericTarget: number | null; fallbackTarget: string });
+          } as TargetItemLike & { numericTarget: number | null; numericManualActual: number | null; fallbackTarget: string });
         const numeric = this.parseTargetItemNumber(item.target);
         if (numeric !== null) existing.numericTarget = (existing.numericTarget ?? 0) + numeric;
+        // Manuel gerçekleşmeler de toplanır; aksi halde ekip kırılımında yalnız
+        // ilk kişinin girdiği değer görünürdü.
+        const manual = this.parseTargetItemNumber(item.manualActual);
+        if (manual !== null) existing.numericManualActual = (existing.numericManualActual ?? 0) + manual;
         grouped.set(key, existing);
       }
     }
-    const items = [...grouped.values()].map(({ numericTarget, fallbackTarget, ...item }) => ({
+    const items = [...grouped.values()].map(({ numericTarget, numericManualActual, fallbackTarget, ...item }) => ({
       ...item,
       target: numericTarget === null ? fallbackTarget : String(numericTarget),
+      manualActual: numericManualActual,
     }));
     return this.buildTargetItems(items, actuals);
   }
@@ -2351,37 +2403,45 @@ export class ReportsService {
           .then((rows) =>
             rows
               .filter((row): row is typeof row & { userId: string } => Boolean(row.userId))
-              .map((row) => ({
-                id: row.id,
-                source: 'quote' as const,
-                metric: 'quotes' as const,
-                typeCode: 'quote',
-                typeName: 'Teklif',
-                title: `Teklif ${row.documentNo}`,
-                occurredAt: occurredAt(row.date),
-                userId: row.userId,
-                userName: userName(row.userId),
-                company: { id: row.companyId, name: row.companyName },
-                content: content(canExposeTeamActivityContent(
+              .map((row) => {
+                // Başlık da içerik kadar bilgi taşır (belge no, firma, konu);
+                // kaynak izni yokken yalnız içeriği gizlemek sızıntıyı kapatmıyordu.
+                const allowed = canExposeTeamActivityContent(
                   actor,
                   'quotes.read',
                   'quotes',
                   row.divisionId,
                   true,
                   row.companyId,
-                ), {
-                  detail: row.notes,
-                  result: row.statusNote,
-                  followUpAt: row.followUpAt,
-                }),
-              })),
+                );
+                return {
+                  id: row.id,
+                  source: 'quote' as const,
+                  metric: 'quotes' as const,
+                  typeCode: 'quote',
+                  typeName: 'Teklif',
+                  title: allowed ? `Teklif ${row.documentNo}` : 'Teklif',
+                  occurredAt: occurredAt(row.date),
+                  userId: row.userId,
+                  userName: userName(row.userId),
+                  company: { id: row.companyId, name: row.companyName },
+                  content: content(allowed, {
+                    detail: row.notes,
+                    result: row.statusNote,
+                    followUpAt: row.followUpAt,
+                  }),
+                };
+              }),
           ),
       );
     }
 
     const indirectCompanyId = (directCompanyId: any) =>
       sql<string | null>`coalesce(${directCompanyId}, ${opportunities.companyId})`;
+    // Lead firma adı `companies` tablosunda değil, dolayısıyla firma görünürlük
+    // filtresinden geçmiyor; kaynak izni yoksa o da gizlenir.
     const visibleCompany = (
+      allowed: boolean,
       directCompanyId: string | null,
       opportunityCompanyId: string | null,
       visibleId: string | null,
@@ -2389,7 +2449,7 @@ export class ReportsService {
       leadCompanyTitle: string | null,
     ) => ({
       id: visibleId,
-      name: visibleName ?? (!directCompanyId && !opportunityCompanyId ? leadCompanyTitle : null),
+      name: visibleName ?? (allowed && !directCompanyId && !opportunityCompanyId ? leadCompanyTitle : null),
     });
 
     if (metric === 'all' || metric === 'activities') {
@@ -2425,37 +2485,41 @@ export class ReportsService {
           .then((rows) =>
             rows
               .filter((row): row is typeof row & { userId: string } => Boolean(row.userId))
-              .map((row) => ({
-                id: row.id,
-                source: 'visit' as const,
-                metric: 'activities' as const,
-                typeCode: 'customer_visit',
-                typeName: 'Müşteri Ziyareti',
-                title: row.title?.trim() || 'Müşteri ziyareti',
-                occurredAt: occurredAt(row.date),
-                userId: row.userId,
-                userName: userName(row.userId),
-                company: visibleCompany(
-                  row.directCompanyId,
-                  row.opportunityCompanyId,
-                  row.companyId,
-                  row.companyName,
-                  row.leadCompanyTitle,
-                ),
-                content: content(canExposeTeamActivityContent(
+              .map((row) => {
+                const allowed = canExposeTeamActivityContent(
                   actor,
                   'activities.read',
                   'activities',
                   row.divisionId,
                   Boolean(row.directCompanyId || row.opportunityCompanyId),
                   row.companyId,
-                ), {
-                  detail: row.title,
-                  result: row.result,
-                  location: row.location,
-                  nextAction: row.nextAction,
-                }),
-              })),
+                );
+                return {
+                  id: row.id,
+                  source: 'visit' as const,
+                  metric: 'activities' as const,
+                  typeCode: 'customer_visit',
+                  typeName: 'Müşteri Ziyareti',
+                  title: (allowed && row.title?.trim()) || 'Müşteri ziyareti',
+                  occurredAt: occurredAt(row.date),
+                  userId: row.userId,
+                  userName: userName(row.userId),
+                  company: visibleCompany(
+                    allowed,
+                    row.directCompanyId,
+                    row.opportunityCompanyId,
+                    row.companyId,
+                    row.companyName,
+                    row.leadCompanyTitle,
+                  ),
+                  content: content(allowed, {
+                    detail: row.title,
+                    result: row.result,
+                    location: row.location,
+                    nextAction: row.nextAction,
+                  }),
+                };
+              }),
           ),
       );
     }
@@ -2491,32 +2555,36 @@ export class ReportsService {
           .then((rows) =>
             rows
               .filter((row): row is typeof row & { userId: string } => Boolean(row.userId))
-              .map((row) => ({
-                id: row.id,
-                source: 'call' as const,
-                metric: 'activities' as const,
-                typeCode: 'call',
-                typeName: 'Arama',
-                title: row.title?.trim() || 'Arama',
-                occurredAt: occurredAt(row.date),
-                userId: row.userId,
-                userName: userName(row.userId),
-                company: visibleCompany(
-                  row.directCompanyId,
-                  row.opportunityCompanyId,
-                  row.companyId,
-                  row.companyName,
-                  row.leadCompanyTitle,
-                ),
-                content: content(canExposeTeamActivityContent(
+              .map((row) => {
+                const allowed = canExposeTeamActivityContent(
                   actor,
                   'activities.read',
                   'activities',
                   row.divisionId,
                   Boolean(row.directCompanyId || row.opportunityCompanyId),
                   row.companyId,
-                ), { result: row.title, nextAction: row.nextAction }),
-              })),
+                );
+                return {
+                  id: row.id,
+                  source: 'call' as const,
+                  metric: 'activities' as const,
+                  typeCode: 'call',
+                  typeName: 'Arama',
+                  title: (allowed && row.title?.trim()) || 'Arama',
+                  occurredAt: occurredAt(row.date),
+                  userId: row.userId,
+                  userName: userName(row.userId),
+                  company: visibleCompany(
+                    allowed,
+                    row.directCompanyId,
+                    row.opportunityCompanyId,
+                    row.companyId,
+                    row.companyName,
+                    row.leadCompanyTitle,
+                  ),
+                  content: content(allowed, { result: row.title, nextAction: row.nextAction }),
+                };
+              }),
           ),
       );
     }
@@ -2558,36 +2626,40 @@ export class ReportsService {
           .then((rows) =>
             rows
               .filter((row): row is typeof row & { userId: string } => Boolean(row.userId))
-              .map((row) => ({
-                id: row.id,
-                source: 'activity' as const,
-                metric: 'activities' as const,
-                typeCode: row.typeCode,
-                typeName: activityTypeLabel(row.typeCode),
-                title: row.title,
-                occurredAt: occurredAt(row.date),
-                userId: row.userId,
-                userName: userName(row.userId),
-                company: visibleCompany(
-                  row.directCompanyId,
-                  row.opportunityCompanyId,
-                  row.companyId,
-                  row.companyName,
-                  row.leadCompanyTitle,
-                ),
-                content: content(canExposeTeamActivityContent(
+              .map((row) => {
+                const allowed = canExposeTeamActivityContent(
                   actor,
                   'activities.read',
                   'activities',
                   row.divisionId,
                   Boolean(row.directCompanyId || row.opportunityCompanyId),
                   row.companyId,
-                ), {
-                  detail: row.description,
-                  result: row.result,
-                  followUpAt: row.followUpAt,
-                }),
-              })),
+                );
+                return {
+                  id: row.id,
+                  source: 'activity' as const,
+                  metric: 'activities' as const,
+                  typeCode: row.typeCode,
+                  typeName: activityTypeLabel(row.typeCode),
+                  title: allowed ? row.title : activityTypeLabel(row.typeCode),
+                  occurredAt: occurredAt(row.date),
+                  userId: row.userId,
+                  userName: userName(row.userId),
+                  company: visibleCompany(
+                    allowed,
+                    row.directCompanyId,
+                    row.opportunityCompanyId,
+                    row.companyId,
+                    row.companyName,
+                    row.leadCompanyTitle,
+                  ),
+                  content: content(allowed, {
+                    detail: row.description,
+                    result: row.result,
+                    followUpAt: row.followUpAt,
+                  }),
+                };
+              }),
           ),
       );
     }
@@ -2630,34 +2702,38 @@ export class ReportsService {
               (row): row is typeof row & { userId: string; date: Date } =>
                 Boolean(row.userId && row.date),
             )
-            .map((row) => ({
-              id: row.id,
-              source: won ? ('opportunity_won' as const) : ('opportunity_created' as const),
-              metric: eventMetric,
-              typeCode: won ? 'opportunity_won' : 'opportunity_created',
-              typeName: won ? 'Kazanılan Fırsat' : 'Yeni Fırsat',
-              title: row.title,
-              occurredAt: occurredAt(row.date),
-              userId: row.userId,
-              userName: userName(row.userId),
-              company: {
-                id: row.companyId,
-                name: row.companyName ?? (!row.linkedCompanyId ? row.leadCompanyTitle : null),
-              },
-              content: content(canExposeTeamActivityContent(
+            .map((row) => {
+              const allowed = canExposeTeamActivityContent(
                 actor,
                 'opportunities.read',
                 'opportunities',
                 row.divisionId,
                 Boolean(row.linkedCompanyId),
                 row.companyId,
-              ), {
-                detail: row.description,
-                result: won ? row.result : null,
-                nextAction: row.nextAction,
-                followUpAt: row.followUpAt,
-              }),
-            })),
+              );
+              const typeName = won ? 'Kazanılan Fırsat' : 'Yeni Fırsat';
+              return {
+                id: row.id,
+                source: won ? ('opportunity_won' as const) : ('opportunity_created' as const),
+                metric: eventMetric,
+                typeCode: won ? 'opportunity_won' : 'opportunity_created',
+                typeName,
+                title: allowed ? row.title : typeName,
+                occurredAt: occurredAt(row.date),
+                userId: row.userId,
+                userName: userName(row.userId),
+                company: {
+                  id: row.companyId,
+                  name: row.companyName ?? (allowed && !row.linkedCompanyId ? row.leadCompanyTitle : null),
+                },
+                content: content(allowed, {
+                  detail: row.description,
+                  result: won ? row.result : null,
+                  nextAction: row.nextAction,
+                  followUpAt: row.followUpAt,
+                }),
+              };
+            }),
         );
     };
 
@@ -2800,6 +2876,9 @@ export class ReportsService {
         .select({
           id: salesActivities.id,
           userId: salesActivities.createdBy,
+          divisionId: salesActivities.divisionId,
+          linkedCompanyId: salesActivities.companyId,
+          visibleCompanyId: companies.id,
           typeCode: activityTypes.code,
           typeName: activityTypes.name,
           occurredAt: salesActivities.activityDate,
@@ -2813,12 +2892,12 @@ export class ReportsService {
           companyLegalTitle: companies.legalTitle,
           province: sql<string | null>`(
             select a.province from company_addresses a
-            where a.company_id = ${salesActivities.companyId} and a.deleted_at is null
+            where a.company_id = ${companies.id} and a.deleted_at is null
             order by a.is_default desc, a.created_at limit 1
           )`,
           district: sql<string | null>`(
             select a.district from company_addresses a
-            where a.company_id = ${salesActivities.companyId} and a.deleted_at is null
+            where a.company_id = ${companies.id} and a.deleted_at is null
             order by a.is_default desc, a.created_at limit 1
           )`,
           contactName: contacts.fullName,
@@ -2851,6 +2930,9 @@ export class ReportsService {
         .select({
           id: quotes.id,
           userId: quotes.createdBy,
+          divisionId: quotes.divisionId,
+          linkedCompanyId: quotes.companyId,
+          visibleCompanyId: companies.id,
           documentNo: quotes.documentNo,
           quoteDate: quotes.quoteDate,
           companyName: sql<string | null>`coalesce(${companies.shortName}, ${companies.legalTitle})`,
@@ -2900,7 +2982,17 @@ export class ReportsService {
     const iso = (value: Date | string) => (value instanceof Date ? value : new Date(value)).toISOString();
     const num = (value: unknown) => Number(value ?? 0) || 0;
 
-    const quoteList: ActivityLogQuoteRow[] = quoteRows
+    // Rapor `reports.read + companies.read` ile açılıyor; aktivite konusu/notu,
+    // kişi telefonu ve teklif kalemleri kendi kaynak izinlerine bağlanır.
+    // Aksi halde bu iki izin, üç modülün verisini tek ekrandan sızdırıyordu.
+    const canExposeActivity = (row: { divisionId: string | null; linkedCompanyId: string | null; visibleCompanyId: string | null }) =>
+      canExposeTeamActivityContent(actor, 'activities.read', 'activities', row.divisionId, Boolean(row.linkedCompanyId), row.visibleCompanyId);
+    const canExposeQuote = (row: { divisionId: string | null; linkedCompanyId: string | null; visibleCompanyId: string | null }) =>
+      canExposeTeamActivityContent(actor, 'quotes.read', 'quotes', row.divisionId, Boolean(row.linkedCompanyId), row.visibleCompanyId);
+    const canSeeContacts = actor.permissions.has('contacts.read');
+
+    const visibleQuoteRows = quoteRows.filter(canExposeQuote);
+    const quoteList: ActivityLogQuoteRow[] = visibleQuoteRows
       .filter((row): row is typeof row & { userId: string } => Boolean(row.userId))
       .map((row) => ({
         id: row.id,
@@ -2921,7 +3013,7 @@ export class ReportsService {
     // Teklif sayısı BELGE bazlıdır; çok kalemli teklif tek teklif sayılır.
     const quoteDocsByUser = new Map<string, Set<string>>();
     const quoteTotalsByUser = new Map<string, Map<string, number>>();
-    for (const row of quoteRows) {
+    for (const row of visibleQuoteRows) {
       if (!row.userId) continue;
       const docs = quoteDocsByUser.get(row.userId) ?? new Set<string>();
       docs.add(row.id);
@@ -2940,6 +3032,8 @@ export class ReportsService {
       // kiracıya göre farklı adlandırılmış olabilir.
       const typeKey = row.typeCode ?? row.typeName ?? 'other';
       const entries = byType.get(typeKey) ?? [];
+      const allowed = canExposeActivity(row);
+      const contactAllowed = allowed && canSeeContacts;
       entries.push({
         id: row.id,
         occurredAt: iso(row.occurredAt),
@@ -2947,15 +3041,15 @@ export class ReportsService {
         companyLegalTitle: row.companyLegalTitle ?? null,
         province: row.province ?? null,
         district: row.district ?? null,
-        contactName: row.contactName ?? null,
-        contactTitle: row.contactTitle ?? null,
-        contactPhone: row.contactPhone ?? null,
-        subject: row.subject,
-        note: row.note?.trim() || null,
-        result: row.result?.trim() || null,
-        nextFollowUpAt: row.nextFollowUpAt ? iso(row.nextFollowUpAt) : null,
+        contactName: contactAllowed ? row.contactName ?? null : null,
+        contactTitle: contactAllowed ? row.contactTitle ?? null : null,
+        contactPhone: contactAllowed ? row.contactPhone ?? null : null,
+        subject: allowed ? row.subject : activityTypeLabel(row.typeCode ?? '') || row.typeName || 'Aktivite',
+        note: allowed ? row.note?.trim() || null : null,
+        result: allowed ? row.result?.trim() || null : null,
+        nextFollowUpAt: allowed && row.nextFollowUpAt ? iso(row.nextFollowUpAt) : null,
         inOpportunity: Boolean(row.opportunityId),
-        opportunityTitle: row.opportunityTitle?.trim() || null,
+        opportunityTitle: allowed ? row.opportunityTitle?.trim() || null : null,
       });
       byType.set(typeKey, entries);
       groupsByUser.set(row.userId, byType);

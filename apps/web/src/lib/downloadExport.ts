@@ -30,7 +30,10 @@ export async function downloadExport(
     let message = `İndirme başarısız (HTTP ${res.status})`;
     try {
       const body = await res.json();
-      if (body?.message) message = body.message;
+      // Sunucu hata zarfı `{ error: { message } }`; yalnız `body.message`
+      // okunduğu için gerçek sebep (ör. yetki) kullanıcıya hiç gösterilmiyordu.
+      if (body?.error?.message) message = body.error.message;
+      else if (body?.message) message = body.message;
     } catch {
       // binary response
     }

@@ -70,6 +70,7 @@ const TARGET_METRIC_LABELS: Record<string, string> = {
   salesOrderAmount: "Satış siparişi tutarı",
   salesOrderCount: "Satış siparişi",
   installationCompleted: "Kurulum",
+  machineDeliveredCount: "Teslim edilen tezgah",
   digitalConversionTarget: "Dijital dönüşüm",
   digitalBudget: "Dijital bütçe",
 };
@@ -135,7 +136,9 @@ export function analyzeTargetSubject(row: TargetSubjectRow, expectedPct: number,
     if (item.metricKey && seenMetricKeys.has(item.metricKey)) continue;
     const target = parseGoalNumber(item.target);
     const label = item.activity || item.description || TARGET_METRIC_LABELS[item.metricKey ?? ""] || "Hedef";
-    if (item.trackingMode !== "automatic" || target == null || target <= 0 || item.actual == null) {
+    // Manuel hedefte gerçekleşme elle girildiyse (API `actual` döner) artık
+    // ölçülebilir; girilmemişse "kanıt bekliyor" olarak manuel listede kalır.
+    if (target == null || target <= 0 || item.actual == null) {
       const text = String(item.target ?? "").trim();
       if (text) manual.push({ label, target: item.unit === "amount" ? formatGoal(target ?? text, "USD") : text });
       continue;
@@ -959,6 +962,9 @@ export function TargetPerformanceReport() {
               filename={`hedef-gerceklesme-${period}.xlsx`}
               params={{ period }}
               label="Excel Raporu"
+              /* Uç `reports.export` + `reports.read` ister; ikisi de yoksa buton
+                 görünüp 403 dönüyordu. */
+              requires={["reports.read"]}
               disabled={loading || refreshing || Boolean(error)}
               className="h-9 bg-white"
             />

@@ -147,11 +147,13 @@ export const targetItemSchema = z.object({
   metricKey: z.string().max(64).optional(),
   trackingMode: z.enum(['automatic', 'manual']).optional(),
   target: z.string().max(64).default(''),
+  /** Manuel takipli hedeflerde elle girilen gerçekleşme; otomatiklerde yok sayılır. */
+  manualActual: z.string().max(64).default(''),
 });
 export type TargetItemInput = z.infer<typeof targetItemSchema>;
 
 export const targetUpsertSchema = z.object({
-  period: z.string().regex(/^\d{4}-\d{2}$/),
+  period: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/),
   currency: z.literal('USD').default('USD'),
   salesAmount: nullableAmount.default(null),
   salesNewCustomers: nullableCount.default(null),

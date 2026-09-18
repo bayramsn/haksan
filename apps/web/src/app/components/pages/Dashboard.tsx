@@ -125,7 +125,11 @@ const synthesizeTargetItems = (t: AssignedTarget | null): AssignedTargetItem[] =
   return out;
 };
 
-const currentPeriod = () => new Date().toISOString().slice(0, 7);
+/** Dönem yerel takvimden; `toISOString` UTC verir ve ayın ilk saatlerinde şaşar. */
+const currentPeriod = () => {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+};
 type DashboardSection = "ozet" | "operasyon" | "grafikler" | "hedefler";
 
 /**
@@ -168,7 +172,7 @@ export function DashboardPage({ onAction, initialSection }: {
 }) {
   const store = useStore();
   const { customers, cases: salesCases, service: serviceRequests, machines, users, offers } = store;
-  const { user, activeDivision } = useAuth();
+  const { user, activeDivision, hasPermission } = useAuth();
   const companySummaryQuery = useCompanySummary(activeDivision);
   const companySummary = companySummaryQuery.data;
   const totalCompanyCount = companySummary?.total ?? customers.length;
@@ -383,8 +387,10 @@ export function DashboardPage({ onAction, initialSection }: {
             onSelect={(stage) => onAction?.({ kind: "navigate", nav: "sales-cases", query: `qualification:${stage}` })}
           />
 
-          {/* Kim ne yaptı — süper adminde tüm ekip, diğerlerinde yalnız kendi verisi. */}
-          <TeamActivityPanel />
+          {/* Kim ne yaptı — süper adminde tüm ekip, diğerlerinde yalnız kendi verisi.
+              `reports.read` yoksa kart yalnız "yetki gerekli" yazan ölü bir kutu
+              olduğu için hiç çizilmez. */}
+          {hasPermission("reports.read") && <TeamActivityPanel />}
 
           <DashboardPrimaryGrid>
             <Card className="border-border/60 shadow-sm lg:col-span-3">

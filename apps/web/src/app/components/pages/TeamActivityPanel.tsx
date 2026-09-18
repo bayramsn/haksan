@@ -143,11 +143,15 @@ export function teamActivityContentRows(item: TeamActivityDetailItem) {
   return rows;
 }
 
+/** Tür başına ilk gösterim; kalanı "tümünü göster" ile açılır. */
+const DETAIL_PAGE_SIZE = 25;
+
 export function TeamActivityDetailsDialog({
   selection,
   data,
   loading,
   error,
+  scope = "team",
   onClose,
   onRetry,
 }: {
@@ -155,13 +159,17 @@ export function TeamActivityDetailsDialog({
   data: TeamActivityDetails | null;
   loading: boolean;
   error: string | null;
+  /** Kapsam sunucuda daraltılabiliyor; başlık "Ekip" derken tek kişi listeleniyordu. */
+  scope?: "team" | "self";
   onClose: () => void;
   onRetry: () => void;
 }) {
   const [expandedItemKey, setExpandedItemKey] = useState<string | null>(null);
+  const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     setExpandedItemKey(null);
+    setExpandedGroups({});
   }, [data, selection?.metric, selection?.userId]);
 
   // Kayıtlar aktivite türüne göre kümelenir: tek yığın halindeki 40+ satır
@@ -179,9 +187,10 @@ export function TeamActivityDetailsDialog({
     );
   }, [data]);
 
+  const metricLabel = METRIC_LABELS[selection?.metric ?? "all"];
   const title = selection?.userName
-    ? `${selection.userName} · ${METRIC_LABELS[selection.metric]}`
-    : `Ekip · ${METRIC_LABELS[selection?.metric ?? "all"]}`;
+    ? `${selection.userName} · ${metricLabel}`
+    : `${scope === "team" ? "Ekip" : "Kendi kayıtlarım"} · ${metricLabel}`;
 
   return (
     <Dialog open={!!selection} onOpenChange={(open) => !open && onClose()}>
@@ -226,11 +235,16 @@ export function TeamActivityDetailsDialog({
                 </span>
                 <span className="font-display text-2xl font-semibold leading-none text-foreground">
                   {data.items.length}
-                  <span className="ml-1 text-xs font-normal text-muted-foreground">kayıt</span>
+                  {/* Boşluk ekran okuyucuda "146kayıt" okunmasın diye açıkça yazılır. */}
+                  <span className="ml-1 text-xs font-normal text-muted-foreground">{" kayıt"}</span>
                 </span>
               </div>
 
-              {groups.map(([typeName, items]) => (
+              {groups.map(([typeName, items]) => {
+                const showAll = expandedGroups[typeName] ?? false;
+                const visibleItems = showAll ? items : items.slice(0, DETAIL_PAGE_SIZE);
+                const hiddenCount = items.length - visibleItems.length;
+                return (
                 <details
                   key={typeName}
                   open
@@ -244,7 +258,7 @@ export function TeamActivityDetailsDialog({
                     </span>
                   </summary>
                   <ol className="divide-y divide-border/45">
-                    {items.map((item) => {
+                    {visibleItems.map((item) => {
                       const itemKey = `${item.source}-${item.id}`;
                       const contentId = `team-activity-content-${itemKey}`;
                       const isExpanded = expandedItemKey === itemKey;
@@ -320,8 +334,18 @@ export function TeamActivityDetailsDialog({
                       );
                     })}
                   </ol>
+                  {hiddenCount > 0 && (
+                    <button
+                      type="button"
+                      className="w-full border-t border-border/45 px-3.5 py-2 text-xs font-medium text-primary hover:bg-muted/20"
+                      onClick={() => setExpandedGroups((current) => ({ ...current, [typeName]: true }))}
+                    >
+                      {hiddenCount} kayıt daha göster
+                    </button>
+                  )}
                 </details>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
@@ -630,6 +654,7 @@ export function TeamActivityPanel() {
         data={detailData}
         loading={detailLoading}
         error={detailError}
+        scope={scope}
         onClose={() => setDetailSelection(null)}
         onRetry={() => setDetailRetry((value) => value + 1)}
       />

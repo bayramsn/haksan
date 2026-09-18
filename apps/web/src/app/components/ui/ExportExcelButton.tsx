@@ -14,6 +14,8 @@ type ExportExcelButtonProps = {
   size?: 'default' | 'sm' | 'lg' | 'icon';
   variant?: 'default' | 'secondary' | 'outline' | 'ghost';
   disabled?: boolean;
+  /** Ucun `reports.export` DIŞINDA istediği izinler; eksikse buton hiç çizilmez. */
+  requires?: string[];
 };
 
 /** `reports.export` izni olan kullanıcılara backend .xlsx indirme butonu gösterir. */
@@ -26,11 +28,13 @@ export function ExportExcelButton({
   size = 'sm',
   variant = 'outline',
   disabled,
+  requires,
 }: ExportExcelButtonProps) {
   const { hasPermission } = useAuth();
   const [loading, setLoading] = useState(false);
 
   if (!hasPermission('reports.export')) return null;
+  if (requires?.some((permission) => !hasPermission(permission))) return null;
 
   const onClick = async () => {
     try {

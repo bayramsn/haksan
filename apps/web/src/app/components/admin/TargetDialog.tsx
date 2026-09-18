@@ -43,7 +43,8 @@ type TargetMetricKey =
   | "purchaseOrderCount"
   | "salesOrderAmount"
   | "salesOrderCount"
-  | "installationCompleted";
+  | "installationCompleted"
+  | "machineDeliveredCount";
 
 export type UserTargetItem = {
   targetType: UserTargetType;
@@ -55,11 +56,13 @@ export type UserTargetItem = {
   target: string;
   metricKey?: TargetMetricKey | null;
   trackingMode?: TargetTrackingMode;
+  /** Manuel takipli hedefte elle girilen gerçekleşme (sistem ölçemez). */
+  manualActual?: string;
   actual?: number | null;
   pct?: number | null;
 };
 
-type TargetTemplateItem = Omit<UserTargetItem, "target" | "actual" | "pct">;
+type TargetTemplateItem = Omit<UserTargetItem, "target" | "manualActual" | "actual" | "pct">;
 
 export type UserTarget = {
   period: string;
@@ -78,16 +81,20 @@ export type UserTarget = {
   note: string;
 };
 
-export const currentPeriod = () => new Date().toISOString().slice(0, 7);
+/**
+ * Dönem YEREL takvimden okunur. `toISOString` UTC verir: Türkiye'de ayın ilk günü
+ * 00:00-02:59 arası hâlâ önceki ayı seçiyor, kullanıcı yanlış dönemi düzenliyordu.
+ */
+export const currentPeriod = (now = new Date()) =>
+  `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
 
-const expectedPeriodPct = (period: string) => {
-  const now = new Date();
-  const current = now.toISOString().slice(0, 7);
+const expectedPeriodPct = (period: string, now = new Date()) => {
+  const current = currentPeriod(now);
   if (period < current) return 100;
   if (period > current) return 0;
   const [year, month] = period.split("-").map(Number);
-  const days = new Date(Date.UTC(year, month, 0)).getUTCDate();
-  return Math.round((now.getUTCDate() / days) * 100);
+  const days = new Date(year, month, 0).getDate();
+  return Math.round((now.getDate() / days) * 100);
 };
 
 export const TARGET_TYPE_ORDER: UserTargetType[] = ["sales", "service", "finance", "purchase", "operations", "logistics", "other"];
@@ -187,8 +194,12 @@ const sharedQuoteTargets: Omit<TargetTemplateItem, "targetType">[] = [
 ];
 const inferTemplateMetricKey = (targetType: UserTargetType, row: Omit<TargetTemplateItem, "targetType">): TargetMetricKey | null => {
   const text = `${row.category} ${row.activity}`.toLocaleUpperCase("tr-TR");
+  // Dijital pazarlama kalemleri (paylaşım, çevrimiçi toplantı) sistem verisinden
+  // ölçülemez; lead sayacına bağlıyken paylaşım yapılmadan hedef ilerliyordu.
+  if (text.includes("DİJİTAL PAZARLAMA")) return null;
   if (text.includes("TAHSİLAT")) return "paymentsInAmount";
-  if (targetType === "sales" && text.includes("SATIŞ HEDEF")) return "salesOrderCount";
+  // "Satış hedefi" TESLİMATLA gerçekleşir (kalemin kendi açıklaması böyle der).
+  if (targetType === "sales" && text.includes("SATIŞ HEDEF")) return "machineDeliveredCount";
   if (targetType === "sales" && row.unit === "amount") return "salesAmount";
   if (targetType === "service" && text.includes("KURULUM")) return "installationCompleted";
   if (targetType === "service" && (text.includes("SERVİS") || text.includes("BAKIM"))) return row.unit === "amount" ? "serviceAmount" : "serviceCompleted";
@@ -202,7 +213,7 @@ const inferTemplateMetricKey = (targetType: UserTargetType, row: Omit<TargetTemp
   if (text.includes("ZİYARET")) return "visitTarget";
   if (text.includes("ARAMA")) return "callTarget";
   if (text.includes("TEKLİF")) return "quoteTarget";
-  if (text.includes("DİJİTAL") || text.includes("LEAD")) return "digitalLeadTarget";
+  if (text.includes("LEAD")) return "digitalLeadTarget";
   // Tutar bazlı kalan kalemler (ör. yedek parça & aksesuar satışı) satış
   // faturası cirosundan ölçülür; aksi halde sessizce manuel kalıyorlardı.
   if (row.unit === "amount") return "salesAmount";
@@ -461,7 +472,13 @@ export const TARGET_TEMPLATES: Record<UserTargetType, TargetTemplateItem[]> = {
 const allTargetTemplates = () => TARGET_TYPE_ORDER.flatMap((targetType) => TARGET_TEMPLATES[targetType]);
 export const targetItemKey = (item: Pick<UserTargetItem, "targetType" | "category" | "activity">) =>
   `${item.targetType}:${item.category}:${item.activity}`;
-const defaultTargetItems = (): UserTargetItem[] => allTargetTemplates().map((item) => ({ ...item, target: item.defaultTarget }));
+/**
+ * Yeni hedef BOŞ açılır. Şablon varsayılanları otomatik yazıldığında satış
+ * kullanıcısına finans/lojistik kalemleri de fark edilmeden atanıyordu; doldurmak
+ * için açık "Şablondan doldur" aksiyonu var.
+ */
+const defaultTargetItems = (): UserTargetItem[] =>
+  allTargetTemplates().map((item) => ({ ...item, target: "", manualActual: "" }));
 export const emptyTarget = (): UserTarget => ({
   period: currentPeriod(),
   salesAmount: "",
@@ -502,9 +519,14 @@ export const mergeTargetItems = (items: unknown): UserTargetItem[] => {
     const existing = byKey.get(targetItemKey(template as UserTargetItem));
     return {
       ...template,
-      target: targetValue(existing?.target ?? template.defaultTarget),
-      metricKey: existing?.metricKey ?? template.metricKey,
-      trackingMode: existing?.trackingMode ?? template.trackingMode,
+      // Kayıtta olmayan kalem BOŞ kalır: eski bir hedefi düzenlerken şablonun
+      // tamamı sessizce eklenmemeli.
+      target: targetValue(existing?.target ?? ""),
+      manualActual: targetValue(existing?.manualActual ?? ""),
+      // Ölçüm anahtarı şablondan gelir; eski kayıtlardaki yanlış eşleme
+      // (ör. dijital paylaşımın lead sayacına bağlanması) taşınmaz.
+      metricKey: template.metricKey,
+      trackingMode: template.trackingMode,
     };
   });
 };
@@ -541,7 +563,7 @@ export const targetToApi = (target: UserTarget) => ({
   visitTarget: targetNumberOrNull(target.visitTarget),
   callTarget: targetNumberOrNull(target.callTarget),
   quoteTarget: targetNumberOrNull(target.quoteTarget),
-  targetItems: target.targetItems.map(({ targetType, category, activity, description, unit, target, metricKey, trackingMode }) => ({
+  targetItems: target.targetItems.map(({ targetType, category, activity, description, unit, target, metricKey, trackingMode, manualActual }) => ({
     targetType,
     category,
     activity,
@@ -550,6 +572,7 @@ export const targetToApi = (target: UserTarget) => ({
     target: target.trim(),
     metricKey: metricKey ?? undefined,
     trackingMode: trackingMode ?? (metricKey ? "automatic" : "manual"),
+    manualActual: (manualActual ?? "").trim(),
   })),
   note: target.note.trim() || undefined,
 });
@@ -567,7 +590,7 @@ export const hasTargetValue = (t?: UserTarget) =>
     t.callTarget,
     t.quoteTarget,
   ].some((value) => !!value?.trim()) ||
-    t.targetItems.some((item) => !!item.target.trim()));
+    t.targetItems.some((item) => !!item.target.trim() || !!item.manualActual?.trim()));
 export const targetFilledCount = (target: UserTarget, targetType: UserTargetType) =>
   target.targetItems.filter((item) => item.targetType === targetType && !!item.target.trim()).length;
 export const targetTotalCount = (targetType: UserTargetType) => TARGET_TEMPLATES[targetType].length;
@@ -580,12 +603,14 @@ export const formatPeriodLabel = (period: string) => {
 };
 const formatTargetNumber = (value: number) =>
   value.toLocaleString("tr-TR", { maximumFractionDigits: Number.isInteger(value) ? 0 : 2 });
-const isInvalidTargetItem = (item: UserTargetItem) => {
-  if (!item.target.trim()) return false;
-  const numeric = parseTargetNumber(item.target);
+const isInvalidNumberFor = (item: UserTargetItem, raw: string) => {
+  if (!raw.trim()) return false;
+  const numeric = parseTargetNumber(raw);
   if (numeric === null || numeric < 0) return true;
   return item.unit === "count" && !Number.isInteger(numeric);
 };
+const isInvalidTargetItem = (item: UserTargetItem) =>
+  isInvalidNumberFor(item, item.target) || isInvalidNumberFor(item, item.manualActual ?? "");
 const summarizeTargetItems = (items: UserTargetItem[]) => {
   return items.reduce(
     (summary, item) => {
@@ -649,7 +674,7 @@ export function TargetPill({ label, value }: { label: string; value: string }) {
 const MEASURED_METRIC_KEYS: TargetMetricKey[] = [
   "salesAmount", "salesNewCustomers", "quoteTarget", "visitTarget", "callTarget", "serviceCompleted", "serviceAmount",
   "digitalLeadTarget", "paymentsInAmount", "purchaseInvoiceAmount", "purchaseOrderAmount", "purchaseOrderCount",
-  "salesOrderAmount", "salesOrderCount", "installationCompleted",
+  "salesOrderAmount", "salesOrderCount", "installationCompleted", "machineDeliveredCount",
 ];
 const measuredMetricSet = new Set<TargetMetricKey>(MEASURED_METRIC_KEYS);
 const isAutoTracked = (item: Pick<UserTargetItem, "metricKey" | "trackingMode">) =>
@@ -790,17 +815,67 @@ function TargetValueControl({ item, onTargetChange, className }: {
   );
 }
 
-function TargetItemRow({ item, onTargetChange, actual, factor, actualLabel }: {
+/**
+ * Manuel hedeflerin gerçekleşmesi sistemden ölçülemez; buradan elle girilir.
+ * Girdi yokken bu hedefler hiçbir zaman "tamamlandı/riskte" durumuna geçemiyordu.
+ */
+function ManualActualControl({ item, onChange, disabled }: {
+  item: UserTargetItem;
+  onChange: (key: string, value: string) => void;
+  disabled?: boolean;
+}) {
+  const value = item.manualActual ?? "";
+  const invalid = isInvalidNumberFor(item, value);
+  if (disabled) {
+    return (
+      <div className="mt-1.5 text-[11px] leading-relaxed text-muted-foreground">
+        Gerçekleşme kişi bazında girilir; rol kapsamında toplu yazılmaz.
+      </div>
+    );
+  }
+  return (
+    <div className="mt-1.5">
+      <div className="flex items-center gap-2">
+        <span className="shrink-0 text-[11px] font-medium text-muted-foreground">Gerçekleşen</span>
+        <div className={cn("flex h-8 flex-1 overflow-hidden rounded-md border bg-background", invalid ? "border-destructive ring-1 ring-destructive/20" : "border-input")}>
+          <Input
+            className="h-8 rounded-none border-0 bg-transparent px-2 text-right tabular-nums shadow-none focus-visible:border-transparent focus-visible:ring-0"
+            inputMode={item.unit === "amount" ? "decimal" : "numeric"}
+            aria-label={`${item.activity} gerçekleşen değeri`}
+            aria-invalid={invalid}
+            value={value}
+            onChange={(e) => onChange(targetItemKey(item), e.target.value)}
+            placeholder={item.unit === "amount" ? "tutar" : "0"}
+          />
+          <span className="grid w-12 shrink-0 place-items-center border-l border-border/60 bg-muted/45 text-[10px] font-medium text-muted-foreground">
+            {item.unit === "amount" ? targetCurrencyLabel() : "adet"}
+          </span>
+        </div>
+      </div>
+      {invalid && (
+        <div className="mt-1 flex items-center justify-end gap-1 text-[11px] text-destructive">
+          <AlertTriangle className="size-3" /> Geçersiz değer
+        </div>
+      )}
+    </div>
+  );
+}
+
+function TargetItemRow({ item, onTargetChange, onManualActualChange, actual, factor, actualLabel, manualDisabled }: {
   item: UserTargetItem;
   onTargetChange: (key: string, value: string) => void;
+  onManualActualChange: (key: string, value: string) => void;
   actual: number | null;
   factor: number | null;
   actualLabel: string;
+  manualDisabled: boolean;
 }) {
   const auto = isAutoTracked(item);
   const typed = parseTargetNumber(item.target);
   const effectiveTarget = typed != null && factor != null ? typed * factor : null;
-  const pct = auto ? progressPct(actual, effectiveTarget) : null;
+  const manualActual = parseTargetNumber(item.manualActual ?? "");
+  const shownActual = auto ? actual : manualActual;
+  const pct = progressPct(shownActual, effectiveTarget);
   return (
     <div className={cn("grid gap-3 p-3 sm:grid-cols-[minmax(0,1fr)_190px] sm:gap-4", isInvalidTargetItem(item) && "bg-destructive/5")}>
       <div className="min-w-0">
@@ -814,7 +889,16 @@ function TargetItemRow({ item, onTargetChange, actual, factor, actualLabel }: {
       </div>
       <div className="w-full sm:justify-self-end">
         <TargetValueControl item={item} onTargetChange={onTargetChange} />
-        {auto && actual != null && <LiveProgressBar actual={actual} pct={pct} label={actualLabel} />}
+        {auto ? (
+          actual != null && <LiveProgressBar actual={actual} pct={pct} label={actualLabel} />
+        ) : (
+          <>
+            <ManualActualControl item={item} onChange={onManualActualChange} disabled={manualDisabled} />
+            {!manualDisabled && shownActual != null && (
+              <LiveProgressBar actual={shownActual} pct={pct} label={actualLabel} />
+            )}
+          </>
+        )}
       </div>
     </div>
   );
@@ -1040,6 +1124,12 @@ export function TargetDialog({ scope, target, period, onClose, onSave }: {
       targetItems: prev.targetItems.map((item) => (targetItemKey(item) === key ? { ...item, target: value } : item)),
     }));
   };
+  const updateItemManualActual = (key: string, value: string) => {
+    setForm((prev) => ({
+      ...prev,
+      targetItems: prev.targetItems.map((item) => (targetItemKey(item) === key ? { ...item, manualActual: value } : item)),
+    }));
+  };
   const applyTemplateTargets = (targetType?: UserTargetType) => {
     setForm((prev) => ({
       ...prev,
@@ -1049,7 +1139,9 @@ export function TargetDialog({ scope, target, period, onClose, onSave }: {
   const clearTargets = (targetType?: UserTargetType) => {
     setForm((prev) => ({
       ...prev,
-      targetItems: prev.targetItems.map((item) => (!targetType || item.targetType === targetType ? { ...item, target: "" } : item)),
+      targetItems: prev.targetItems.map((item) =>
+        !targetType || item.targetType === targetType ? { ...item, target: "", manualActual: "" } : item
+      ),
     }));
   };
 
@@ -1074,7 +1166,11 @@ export function TargetDialog({ scope, target, period, onClose, onSave }: {
         visitTarget: form.visitTarget.trim(),
         callTarget: form.callTarget.trim(),
         quoteTarget: form.quoteTarget.trim(),
-        targetItems: form.targetItems.map((item) => ({ ...item, target: item.target.trim() })),
+        targetItems: form.targetItems.map((item) => ({
+          ...item,
+          target: item.target.trim(),
+          manualActual: (item.manualActual ?? "").trim(),
+        })),
         note: form.note.trim(),
       });
       toast.success("Hedef kaydedildi", { description: `${scope.name} · ${period}` });
@@ -1327,9 +1423,11 @@ export function TargetDialog({ scope, target, period, onClose, onSave }: {
                               key={targetItemKey(item)}
                               item={item}
                               onTargetChange={updateItemTarget}
+                              onManualActualChange={updateItemManualActual}
                               actual={isAutoTracked(item) ? liveActualFor(item.metricKey) : null}
                               factor={factor}
                               actualLabel={actualLabel}
+                              manualDisabled={scope.kind === "role"}
                             />
                           ))}
                         </div>
