@@ -1309,52 +1309,9 @@ export interface YearEndReport {
   quotesByStatus: Array<{ code: string | null; name: string | null; count: number; totalValue: string; avgValue: string }>;
 }
 
-export type ActivityLogEntry = {
-  id: string;
-  occurredAt: string;
-  companyName: string | null;
-  companyLegalTitle: string | null;
-  province: string | null;
-  district: string | null;
-  contactName: string | null;
-  contactTitle: string | null;
-  contactPhone: string | null;
-  subject: string;
-  note: string | null;
-  result: string | null;
-  nextFollowUpAt: string | null;
-  inOpportunity: boolean;
-  opportunityTitle: string | null;
-};
-
-export type ActivityLogQuoteRow = {
-  id: string;
-  documentNo: string;
-  quoteDate: string;
-  userName: string;
-  companyName: string | null;
-  province: string | null;
-  district: string | null;
-  productName: string;
-  quantity: number;
-  unitPrice: number;
-  discountAmount: number;
-  lineTotal: number;
-  currency: string;
-};
-
-export type ActivityLogReport = {
-  range: { from: string; to: string };
-  users: Array<{
-    userId: string;
-    userName: string;
-    activityCount: number;
-    quoteCount: number;
-    quoteTotals: Array<{ currency: string; amount: number }>;
-    groups: Array<{ typeCode: string; typeName: string; entries: ActivityLogEntry[] }>;
-  }>;
-  quotes: ActivityLogQuoteRow[];
-};
+// Rapor şekli ortak pakette (API ile aynı tip; yazdırma şablonu da orada).
+import type { ActivityLogReport } from '@haksan/shared';
+export type { ActivityLogEntry, ActivityLogQuoteRow, ActivityLogReport, ActivityLogUser } from '@haksan/shared';
 
 export const reportService = {
   weeklyVisits: (params?: Record<string, string>) => api.get<any[]>(`/reports/weekly-visits${qs(params)}`),

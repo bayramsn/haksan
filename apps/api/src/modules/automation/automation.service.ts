@@ -1,5 +1,8 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
+import { existsSync, readFileSync } from 'node:fs';
+import path from 'node:path';
+import { activityLogPrintDoc, printDocumentHtml } from '@haksan/shared';
 import { and, asc, eq, gte, inArray, isNotNull, isNull, lte, or, sql } from 'drizzle-orm';
 import {
   LEAD_FOLLOW_UP_SLA_HOURS,
@@ -10,6 +13,8 @@ import {
 import type { DbClient } from '../../db/client';
 import { DB } from '../../shared/database/database.module';
 import { MailerService } from '../../shared/mailer/mailer.service';
+import type { MailAttachment } from '../../shared/mailer/user-mail-account.service';
+import { HtmlPdfService } from '../../shared/pdf/html-pdf.service';
 import { ReportsService, type OperationalReportRow, type TeamActivityPeriod } from '../reports/reports.service';
 import type { AuthContext } from '../../shared/security/auth.types';
 import { loadEnv } from '../../config/env';
@@ -58,6 +63,25 @@ export type BriefingItem = { label: string; nav: string; focus?: string; query?:
 const AUTOMATION_ACTOR_ID = '00000000-0000-0000-0000-000000000000';
 /** Tempo farkı bu kadar puanı geçmeden "geride" denmez; gürültüyü keser. */
 const TARGET_PACE_TOLERANCE = 10;
+
+/**
+ * Haftalık PDF ekinin anteti. Chromium ağa çıkmadığı için görsel data: URL olarak
+ * gömülür; dosya API imajına `apps/web/public/print` ile kopyalanıyor (Dockerfile).
+ */
+const LETTERHEAD_CANDIDATES = [
+  path.resolve(process.cwd(), 'apps/web/public/print/haksan-letterhead.png'),
+  path.resolve(process.cwd(), '../web/public/print/haksan-letterhead.png'),
+  path.resolve(__dirname, '../../../../web/public/print/haksan-letterhead.png'),
+];
+let letterheadDataUrl: string | null | undefined;
+/** Antet bulunamazsa null: belge antetsiz çıkar, rapor eki yine gider. */
+const letterheadSrc = (): string | null => {
+  if (letterheadDataUrl === undefined) {
+    const file = LETTERHEAD_CANDIDATES.find((candidate) => existsSync(candidate));
+    letterheadDataUrl = file ? `data:image/png;base64,${readFileSync(file).toString('base64')}` : null;
+  }
+  return letterheadDataUrl;
+};
 /** Bu kadar gündür giriş yapmayan aktif hesap raporda "uykuda" sayılır. */
 const DORMANT_LOGIN_DAYS = 30;
 
@@ -335,6 +359,7 @@ export class AutomationService {
     @Inject(DB) private readonly db: DbClient,
     private readonly mailer: MailerService,
     private readonly reports: ReportsService,
+    private readonly htmlPdf: HtmlPdfService,
   ) {}
 
   private get active(): boolean {
@@ -913,6 +938,9 @@ export class AutomationService {
         const sales = await this.salesSummary(tenant.id, period, anchor);
         const body = formatUserReport(rows, audit, taskStats, range, sales);
         const title = `${label} kullanıcı raporu`;
+        // Haftalık maile Raporlar sayfasındaki "Yazdır / PDF" belgesinin aynısı eklenir.
+        const attachments = period === 'week' ? await this.weeklyActivityPdf(tenant.id, range) : [];
+        const text = attachments.length ? `${body}\n\nHaftalık aktivite ve teklif raporu PDF olarak ektedir.` : body;
         // Süper admin yoksa bildirim yazılmaz; drizzle boş values() ile patlar.
         // Bu durumda mükerrer koruması (alreadyNotified) da dayanaksız kalır —
         // zamanlı cron için kabul edilebilir, elle tetiklemede tekrar gönderir.
@@ -932,7 +960,8 @@ export class AutomationService {
             await this.mailer.sendTextEmail({
               to,
               subject: `Haksan CRM ${label.toLocaleLowerCase('tr-TR')} kullanıcı raporu — ${tenant.name}`,
-              text: body,
+              text,
+              attachments,
             });
           } catch (error) {
             logger.warn({ action: 'user_report_mail_failed', period, tenantId: tenant.id, to }, String(error));
@@ -942,6 +971,33 @@ export class AutomationService {
       logger.info({ action: 'automation_user_report', period }, '[automation] user report done');
     } catch (error) {
       logger.error({ action: 'automation_user_report_failed', period }, String(error));
+    }
+  }
+
+  /**
+   * Haftalık aktivite ve teklif raporu PDF'i: web'deki şablon (@haksan/shared) +
+   * sunucu Chromium'u. Rapor motoru izin kapılı (aktivite notu, kişi telefonu, fırsat
+   * bağlamı); mail zaten süper adminlere gittiği için sentetik aktöre okuma izinleri
+   * verilir. Chromium yoksa ya da üretim düşerse ek olmadan devam edilir.
+   */
+  async weeklyActivityPdf(tenantId: string, range: { from: Date; to: Date }): Promise<MailAttachment[]> {
+    if (!this.htmlPdf.isAvailable()) return [];
+    const actor: AuthContext = {
+      ...this.automationActor(tenantId),
+      permissions: new Set(['reports.read', 'companies.read', 'contacts.read', 'activities.read', 'opportunities.read', 'quotes.read', 'tasks.read', 'calendar.read']),
+    };
+    const day = (date: Date) => date.toLocaleDateString('en-CA', { timeZone: TZ });
+    const fromDay = day(range.from);
+    // Ekip aktivitesi aralığının `to` ucu açık; rapor son günü kapsayıcı ister.
+    const toDay = day(new Date(range.to.getTime() - 1));
+    try {
+      const report = await this.reports.activityLog(actor, fromDay, toDay);
+      const html = printDocumentHtml(activityLogPrintDoc(report, { letterheadSrc: letterheadSrc() }));
+      const content = await this.htmlPdf.render(html);
+      return [{ filename: `haftalik-aktivite-raporu-${fromDay}_${toDay}.pdf`, content, contentType: 'application/pdf' }];
+    } catch (error) {
+      logger.warn({ action: 'weekly_activity_pdf_failed', tenantId }, String(error));
+      return [];
     }
   }
 

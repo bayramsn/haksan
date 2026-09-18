@@ -29,3 +29,4 @@ export * from './schemas/mail';
 export * from './schemas/meta';
 export * from './laser';
 export * from './laser-auxiliary-data';
+export * from './reports';
