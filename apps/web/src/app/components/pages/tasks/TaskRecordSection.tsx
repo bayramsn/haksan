@@ -20,9 +20,11 @@ export function TaskRecordSection({
   title = "Görevler",
   headerActions,
   onChanged,
+  quiet = false,
 }: {
   relation: TaskRelation;
   title?: string;
+  quiet?: boolean;
   /** Kayda özgü görev üreten ek eylemler (ör. fırsatı ileri takibe alma). */
   headerActions?: ReactNode;
   /** Üst ekran kendi geçmişini tazelemek isterse (timeline gibi). */
@@ -105,6 +107,7 @@ export function TaskRecordSection({
           {canCreate && (
             <Button
               size="sm"
+              variant={quiet ? "outline" : "default"}
               className="gap-1"
               onClick={() => {
                 setEditing(null);

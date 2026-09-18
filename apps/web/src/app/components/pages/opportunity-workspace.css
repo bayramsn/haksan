@@ -1,0 +1,60 @@
+.opportunity-workspace { color: var(--foreground); min-width: 0; }
+.opportunity-next-work { margin-bottom: 24px; padding: 18px 20px; border-radius: 10px; background: color-mix(in srgb, var(--primary) 5%, var(--background)); outline: none; }
+.opportunity-next-work:focus-visible { box-shadow: 0 0 0 2px var(--ring); }
+.opportunity-workspace-columns { display: grid; grid-template-columns: minmax(0, 1fr); gap: 24px; }
+.opportunity-main { min-width: 0; }
+.opportunity-main > * + * { margin-top: 22px; }
+.opportunity-information { border-top: 1px solid var(--border); padding-top: 22px; }
+.opportunity-section { border-top: 1px solid var(--border); margin-top: 0; }
+.opportunity-section summary::-webkit-details-marker { display: none; }
+.opportunity-section summary:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; border-radius: 4px; }
+.opportunity-section-content { animation: opportunity-reveal 160ms ease-out; }
+.opportunity-document-row { display: flex; align-items: center; gap: 12px; padding: 12px 4px; font-size: 14px; border-radius: 4px; }
+.opportunity-document-row:hover { background: var(--muted); }
+.opportunity-document-row:focus-visible { outline: 2px solid var(--ring); }
+.opportunity-activity-rail { min-width: 0; border-radius: 10px; background: color-mix(in srgb, var(--muted) 55%, var(--background)); align-self: start; }
+.opportunity-conversation { min-width: 0; }
+.opportunity-note-composer { border: 1px solid var(--border); border-radius: 8px; background: var(--background); }
+.opportunity-workspace [data-testid="opportunity-machines"] { border: 0; padding: 12px 0; }
+.opportunity-workspace .ui-eyebrow { font-family: inherit; font-size: 14px; font-weight: 500; text-transform: none; letter-spacing: normal; }
+.opportunity-workspace .opportunity-main > [data-slot="card"] { border: 0; border-top: 1px solid var(--border); border-radius: 0; box-shadow: none; padding-top: 16px; }
+.opportunity-workspace .opportunity-main > [data-slot="card"] > [data-slot="card-header"] { padding-inline: 0; }
+.opportunity-workspace .opportunity-main > [data-slot="card"] [data-slot="card-title"] { font-family: inherit; font-size: 16px; }
+.opportunity-workspace #opportunity-process-actions > section { padding: 12px 0; }
+.opportunity-workspace #opportunity-process-actions ul { grid-template-columns: minmax(0, 1fr); }
+.opportunity-workspace #opportunity-process-actions li { grid-column: auto; }
+.opportunity-workspace #opportunity-process-actions li > button { border-color: transparent; border-bottom-color: var(--border); border-radius: 0; box-shadow: none; padding: 12px 0; }
+.opportunity-workspace #opportunity-process-actions li > button > span:first-of-type { font-size: 14px; line-height: 1.5; }
+.opportunity-workspace #opportunity-process-actions li > button > span:last-of-type { font-size: 12px; }
+.opportunity-popup-header { background: var(--background); }
+@media (min-width: 1024px) {
+  .opportunity-workspace-columns { grid-template-columns: minmax(0, 1.65fr) minmax(320px, 1fr); gap: 28px; }
+  .opportunity-activity-rail { position: sticky; top: 0; }
+}
+@media (max-width: 639px) {
+  .opportunity-next-work { padding: 14px; margin-bottom: 20px; }
+  .opportunity-next-work [data-opportunity-primary] { width: 100%; }
+  .opportunity-next-work [data-opportunity-primary] > button { width: 100%; min-height: 44px; }
+  .opportunity-document-row { gap: 8px; flex-wrap: wrap; }
+  .opportunity-document-row > span:first-of-type { flex-basis: calc(100% - 64px); }
+}
+@keyframes opportunity-reveal { from { opacity: 0; transform: translateY(-3px); } to { opacity: 1; transform: translateY(0); } }
+@media (prefers-reduced-motion: reduce) { .opportunity-section-content { animation: none; } }
+
+@media (max-width: 1023px) {
+  .opportunity-activity-rail { order: -1; }
+  .opportunity-conversation ol { max-height: 320px; overflow-y: auto; padding-right: 8px; }
+}
+
+.opportunity-popup [data-record-dialog-header] h2 { font-family: var(--font-sans); font-size: 22px; line-height: 1.3; }
+.opportunity-workspace #workspace-decision-title,
+.opportunity-workspace #workspace-activity-title { font-family: var(--font-sans); font-size: 16px; line-height: 1.5; }
+.opportunity-document-row:disabled { cursor: default; }
+.opportunity-document-row:disabled:hover { background: transparent; }
+@media (max-width: 639px) {
+  .opportunity-popup [data-record-dialog-header] { position: relative; padding-right: 16px; }
+  .opportunity-popup [data-record-dialog-header] h2 { padding-right: 82px; font-size: 20px; }
+  .opportunity-popup [data-record-dialog-actions] { position: absolute; top: 12px; right: 12px; width: auto; gap: 2px; }
+  .opportunity-conversation ol { margin-left: 0; padding-left: 7px; border-left: 0; }
+  .opportunity-conversation ol > li { margin-left: 20px; }
+}

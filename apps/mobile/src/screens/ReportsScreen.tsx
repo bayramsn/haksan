@@ -15,7 +15,8 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
-import { productService, reportService } from '@/src/api/services';
+import { financeService, productService, reportService } from '@/src/api/services';
+import { openExportUrl } from '@/src/api/download';
 import { ListPageLayout } from '@/src/ui/ListPageLayout';
 import { colors, layout, spacing, typography } from '@/src/theme/tokens';
 import { ListRow } from '@/src/ui/ListRow';
@@ -464,56 +465,143 @@ const repStyles = StyleSheet.create({
 
 const RED = '#cf060c';
 
-interface Statement {
+/**
+ * Cari rapor SUNUCUDAN beslenir. Önceki sürüm 20 firmalık uydurma bakiye tablosu
+ * ve sabit ekstre satırları basıyordu; kullanıcı bunları canlı cari veri sanıyordu.
+ * Kaynak: `/reports/customer-balances` ve `/companies/:id/statement` — web'deki
+ * Cari Rapor sayfasıyla aynı uçlar, aynı `borç / net bakiye` anlamı.
+ */
+type BalanceRow = {
+  companyId: string;
+  companyName: string;
+  /** Müşterinin bize açık borcu. */
+  borc: number;
+  netBorc: number;
+  totalBalance?: number;
+  primaryCurrency: string | null;
+};
+
+type StatementLine = {
   id: string;
   date: string;
   description: string;
-  amount: number;
-  type: 'debit' | 'credit';
-}
-
-const MOCK_STATEMENTS: Record<string, Statement[]> = {
-  c1: [
-    { id: 's1', date: '01.06.2026', description: 'Satış faturası - TKL-2026-001', amount: 24500, type: 'debit' },
-    { id: 's2', date: '15.06.2026', description: 'Tahsilat - EFT', amount: 12250, type: 'credit' },
-  ],
-  c3: [
-    { id: 's3', date: '05.06.2026', description: 'Satış faturası - TKL-2026-002', amount: 18200, type: 'debit' },
-    { id: 's4', date: '20.06.2026', description: 'Tahsilat - Çek', amount: 18200, type: 'credit' },
-  ],
-  c8: [
-    { id: 's5', date: '08.06.2026', description: 'Satış faturası - TKL-2026-003', amount: 31000, type: 'debit' },
-  ],
+  invoiceNo: string | null;
+  debit: number;
+  credit: number;
+  balance: number;
+  currencyCode: string | null;
 };
 
-const FAKE_BALANCES: Record<string, number> = {
-  c1: 12250, c2: 0, c3: 0, c4: 5500, c5: 8900, c6: 0, c7: -2000,
-  c8: 31000, c9: 7200, c10: 0, c11: 15000, c12: 5500, c13: 11000,
-  c14: 0, c15: 8500, c16: 42000, c17: 0, c18: 19800, c19: 0, c20: 6300,
-};
+const AVATAR_COLORS = ['#000c69', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#0EA5E9'];
+const avatarColor = (seed: string) =>
+  AVATAR_COLORS[[...seed].reduce((sum, ch) => sum + ch.charCodeAt(0), 0) % AVATAR_COLORS.length];
 
-const MOCK_COMPANIES = [
-  { id: 'c1', name: 'Haksan Makine A.Ş.', city: 'İstanbul', sector: 'Makine', avatarColor: '#000c69' },
-  { id: 'c3', name: 'Kaya Metal A.Ş.', city: 'Bursa', sector: 'Metal', avatarColor: '#F59E0B' },
-  { id: 'c8', name: 'Bozkurt Makine A.Ş.', city: 'Kocaeli', sector: 'Makine', avatarColor: '#10B981' },
-  { id: 'c7', name: 'Beta Tedarik', city: 'İzmir', sector: 'Hizmet', avatarColor: '#EF4444' },
-];
+const money = (amount: number, currency?: string | null) =>
+  `${Number(amount ?? 0).toLocaleString('tr-TR', { maximumFractionDigits: 0 })}${currency ? ` ${currency}` : ''}`;
+const statementDate = (iso: string) => {
+  const date = new Date(iso);
+  return Number.isNaN(date.getTime()) ? '—' : date.toLocaleDateString('tr-TR');
+};
+/** Para birimi başına toplam; tek sayıda toplamak EUR ile USD'yi karıştırırdı. */
+const sumByCurrency = (rows: BalanceRow[], pick: (row: BalanceRow) => number) => {
+  const totals = new Map<string, number>();
+  for (const row of rows) {
+    const code = row.primaryCurrency ?? 'USD';
+    totals.set(code, (totals.get(code) ?? 0) + Number(pick(row) ?? 0));
+  }
+  return [...totals.entries()].filter(([, value]) => value !== 0);
+};
 
 /** Stitch #48 Cari / Ekstre */
 export function CustomerBalancesScreen() {
   const [search, setSearch] = useState('');
+  const [rows, setRows] = useState<BalanceRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [selectedCompany, setSelectedCompany] = useState<string | null>(null);
+  const [statements, setStatements] = useState<StatementLine[]>([]);
+  const [statementLoading, setStatementLoading] = useState(false);
+  const [exporting, setExporting] = useState(false);
 
-  const filtered = MOCK_COMPANIES.filter(c =>
-    c.name.toLowerCase().includes(search.toLowerCase()) ||
-    c.city.toLowerCase().includes(search.toLowerCase())
+  const load = useCallback(async () => {
+    setError(null);
+    try {
+      const result = await financeService.customerBalances();
+      setRows((Array.isArray(result) ? result : []) as BalanceRow[]);
+    } catch (err: any) {
+      setError(err?.message ?? 'Cari veriler alınamadı. Bu rapor için yetkiniz olmayabilir.');
+      setRows([]);
+    }
+  }, []);
+
+  useEffect(() => {
+    void (async () => {
+      await load();
+      setLoading(false);
+    })();
+  }, [load]);
+
+  // Ekstre yalnız kart açılınca çekilir; liste zaten bakiyeyi gösteriyor.
+  useEffect(() => {
+    if (!selectedCompany) {
+      setStatements([]);
+      return;
+    }
+    let alive = true;
+    setStatementLoading(true);
+    financeService
+      .companyStatement(selectedCompany)
+      .then((result) => {
+        if (alive) setStatements((Array.isArray(result) ? result : []) as StatementLine[]);
+      })
+      .catch(() => {
+        if (alive) setStatements([]);
+      })
+      .finally(() => {
+        if (alive) setStatementLoading(false);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [selectedCompany]);
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await load();
+    setRefreshing(false);
+  }, [load]);
+
+  const download = useCallback(async (path: string) => {
+    setExporting(true);
+    try {
+      await openExportUrl(path);
+    } catch (err: any) {
+      Alert.alert('Döküm indirilemedi', err?.message ?? 'Bu döküm için yetkiniz olmayabilir.');
+    } finally {
+      setExporting(false);
+    }
+  }, []);
+
+  const filtered = useMemo(() => {
+    const needle = search.trim().toLocaleLowerCase('tr-TR');
+    if (!needle) return rows;
+    return rows.filter((row) => (row.companyName ?? '').toLocaleLowerCase('tr-TR').includes(needle));
+  }, [rows, search]);
+
+  const selectedCo = rows.find((row) => row.companyId === selectedCompany) ?? null;
+  const openDebt = useMemo(() => sumByCurrency(rows, (row) => Math.max(0, Number(row.borc ?? 0))), [rows]);
+  const netBalance = useMemo(
+    () => sumByCurrency(rows, (row) => Number(row.totalBalance ?? row.netBorc ?? 0)),
+    [rows]
   );
 
-  const selectedCo = MOCK_COMPANIES.find(c => c.id === selectedCompany);
-  const statements = MOCK_STATEMENTS[selectedCompany ?? ''] ?? [];
-
-  const totalAlacak = Object.values(FAKE_BALANCES).filter(v => v > 0).reduce((s, v) => s + v, 0);
-  const totalBorc = Math.abs(Object.values(FAKE_BALANCES).filter(v => v < 0).reduce((s, v) => s + v, 0));
+  const statementTotals = useMemo(() => {
+    const debit = statements.reduce((sum, line) => sum + Number(line.debit ?? 0), 0);
+    const credit = statements.reduce((sum, line) => sum + Number(line.credit ?? 0), 0);
+    const currency = statements[0]?.currencyCode ?? selectedCo?.primaryCurrency ?? null;
+    return { debit, credit, balance: debit - credit, currency };
+  }, [statements, selectedCo]);
 
   const renderHeader = () => (
     <View style={cbStyles.headerBar}>
@@ -525,11 +613,23 @@ export function CustomerBalancesScreen() {
     </View>
   );
 
+  const SummaryCard = ({ label, color, totals }: { label: string; color: string; totals: [string, number][] }) => (
+    <View style={cbStyles.summaryCard}>
+      {totals.length === 0 ? (
+        <Text style={[cbStyles.summaryValue, { color }]}>—</Text>
+      ) : (
+        totals.map(([currency, value]) => (
+          <Text key={currency} style={[cbStyles.summaryValue, { color }]}>{money(value, currency)}</Text>
+        ))
+      )}
+      <Text style={cbStyles.summaryLabel}>{label}</Text>
+    </View>
+  );
+
   return (
     <SafeAreaView style={cbStyles.root} edges={['top', 'left', 'right']}>
       {renderHeader()}
 
-      {/* Toolbar */}
       <View style={cbStyles.toolbar}>
         <View style={cbStyles.toolbarRow}>
           <View style={cbStyles.searchInputWrapper}>
@@ -542,68 +642,75 @@ export function CustomerBalancesScreen() {
               placeholderTextColor="#9ca3af"
             />
           </View>
-          <TouchableOpacity style={cbStyles.iconBtn}>
+          <TouchableOpacity style={cbStyles.iconBtn} onPress={onRefresh} accessibilityLabel="Cari verileri yenile">
             <Ionicons name="refresh" size={16} color="#717182" />
           </TouchableOpacity>
-          <TouchableOpacity style={cbStyles.iconBtn}>
+          <TouchableOpacity
+            style={cbStyles.iconBtn}
+            disabled={exporting}
+            onPress={() => download('/exports/customer-balances')}
+            accessibilityLabel="Cari raporu Excel olarak indir"
+          >
             <Ionicons name="document-text" size={16} color="#059669" />
           </TouchableOpacity>
         </View>
 
         <View style={cbStyles.summaryRow}>
-          <View style={cbStyles.summaryCard}>
-            <Text style={[cbStyles.summaryValue, { color: '#059669' }]}>
-              €{(totalAlacak / 1000).toFixed(0)}K
-            </Text>
-            <Text style={cbStyles.summaryLabel}>Toplam Alacak</Text>
-          </View>
-          <View style={cbStyles.summaryCard}>
-            <Text style={[cbStyles.summaryValue, { color: RED }]}>
-              €{(totalBorc / 1000).toFixed(0)}K
-            </Text>
-            <Text style={cbStyles.summaryLabel}>Toplam Borç</Text>
-          </View>
+          <SummaryCard label="Açık Borç" color={RED} totals={openDebt} />
+          <SummaryCard label="Net Bakiye" color="#059669" totals={netBalance} />
         </View>
       </View>
 
-      <FlatList
-        data={filtered}
-        keyExtractor={item => item.id}
-        contentContainerStyle={{ paddingBottom: 100 }}
-        renderItem={({ item }) => {
-          const balance = FAKE_BALANCES[item.id] ?? 0;
-          return (
-            <TouchableOpacity
-              activeOpacity={0.7}
-              onPress={() => setSelectedCompany(item.id)}
-              style={cbStyles.listRow}
-            >
-              <View style={[cbStyles.avatar, { backgroundColor: item.avatarColor }]}>
-                <Text style={cbStyles.avatarText}>{item.name.charAt(0)}</Text>
-              </View>
-              <View style={cbStyles.listInfo}>
-                <Text style={cbStyles.listTitle} numberOfLines={1}>{item.name}</Text>
-                <Text style={cbStyles.listSubtitle}>{item.city} · {item.sector}</Text>
-              </View>
-              <View style={cbStyles.listRight}>
-                {balance !== 0 ? (
-                  <Text style={[cbStyles.balanceText, { color: balance > 0 ? '#059669' : RED }]}>
-                    {balance > 0 ? '+' : ''}€{Math.abs(balance).toLocaleString('tr-TR')}
+      {loading ? (
+        <View style={{ paddingVertical: 48, alignItems: 'center', gap: 8 }}>
+          <ActivityIndicator color={PRIMARY} />
+          <Text style={{ fontSize: 12, color: '#6b7280' }}>Cari veriler yükleniyor…</Text>
+        </View>
+      ) : (
+        <FlatList
+          data={filtered}
+          keyExtractor={(item) => item.companyId}
+          contentContainerStyle={{ paddingBottom: 100 }}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+          ListEmptyComponent={
+            <View style={{ padding: 32, alignItems: 'center' }}>
+              <Text style={{ color: '#717182', textAlign: 'center' }}>
+                {error ?? (search ? 'Aramayla eşleşen firma yok.' : 'Cari hareketi olan firma yok.')}
+              </Text>
+            </View>
+          }
+          renderItem={({ item }) => {
+            const balance = Number(item.totalBalance ?? item.netBorc ?? 0);
+            const currency = item.primaryCurrency;
+            return (
+              <TouchableOpacity
+                activeOpacity={0.7}
+                onPress={() => setSelectedCompany(item.companyId)}
+                style={cbStyles.listRow}
+              >
+                <View style={[cbStyles.avatar, { backgroundColor: avatarColor(item.companyId) }]}>
+                  <Text style={cbStyles.avatarText}>{(item.companyName ?? '?').charAt(0)}</Text>
+                </View>
+                <View style={cbStyles.listInfo}>
+                  <Text style={cbStyles.listTitle} numberOfLines={1}>{item.companyName}</Text>
+                  <Text style={cbStyles.listSubtitle}>Açık borç: {money(item.borc, currency)}</Text>
+                </View>
+                <View style={cbStyles.listRight}>
+                  <Text style={[cbStyles.balanceText, { color: balance > 0 ? RED : balance < 0 ? '#059669' : '#717182' }]}>
+                    {money(Math.abs(balance), currency)}
                   </Text>
-                ) : (
-                  <Text style={[cbStyles.balanceText, { color: '#717182' }]}>€0</Text>
-                )}
-                {balance !== 0 && (
-                  <Text style={[cbStyles.balanceLabel, { color: balance > 0 ? '#059669' : RED }]}>
-                    {balance > 0 ? 'Alacak' : 'Borç'}
-                  </Text>
-                )}
-              </View>
-              <Ionicons name="chevron-forward" size={16} color="#d1d5db" style={{ marginLeft: 8 }} />
-            </TouchableOpacity>
-          );
-        }}
-      />
+                  {balance !== 0 && (
+                    <Text style={[cbStyles.balanceLabel, { color: balance > 0 ? RED : '#059669' }]}>
+                      {balance > 0 ? 'Borç' : 'Alacak'}
+                    </Text>
+                  )}
+                </View>
+                <Ionicons name="chevron-forward" size={16} color="#d1d5db" style={{ marginLeft: 8 }} />
+              </TouchableOpacity>
+            );
+          }}
+        />
+      )}
 
       {/* Sheet */}
       <Modal visible={!!selectedCompany} transparent animationType="slide">
@@ -613,61 +720,79 @@ export function CustomerBalancesScreen() {
             <View style={cbStyles.sheetHandle} />
             <View style={cbStyles.sheetHeader}>
               <View style={{ flex: 1 }}>
-                <Text style={cbStyles.sheetTitle}>{selectedCo?.name}</Text>
+                <Text style={cbStyles.sheetTitle}>{selectedCo?.companyName ?? 'Firma'}</Text>
                 <Text style={cbStyles.sheetSubtitle}>Cari Hesap Ekstresi</Text>
               </View>
               <TouchableOpacity onPress={() => setSelectedCompany(null)} style={cbStyles.sheetClose}>
                 <Ionicons name="close" size={20} color="#717182" />
               </TouchableOpacity>
             </View>
-            
+
             <View style={cbStyles.sheetKpiRow}>
               <View style={[cbStyles.sheetKpiCard, { backgroundColor: '#FEF2F2' }]}>
                 <Text style={[cbStyles.sheetKpiVal, { color: RED }]}>
-                  €{((statements.filter(s => s.type === 'debit').reduce((sum, s) => sum + s.amount, 0) + (FAKE_BALANCES[selectedCompany ?? ''] ?? 0))).toLocaleString('tr-TR')}
+                  {money(statementTotals.debit, statementTotals.currency)}
                 </Text>
                 <Text style={cbStyles.sheetKpiLabel}>Borç</Text>
               </View>
               <View style={[cbStyles.sheetKpiCard, { backgroundColor: '#ECFDF5' }]}>
                 <Text style={[cbStyles.sheetKpiVal, { color: '#059669' }]}>
-                  €{statements.filter(s => s.type === 'credit').reduce((sum, s) => sum + s.amount, 0).toLocaleString('tr-TR')}
+                  {money(statementTotals.credit, statementTotals.currency)}
                 </Text>
                 <Text style={cbStyles.sheetKpiLabel}>Alacak</Text>
               </View>
               <View style={[cbStyles.sheetKpiCard, { backgroundColor: '#EEF2FF' }]}>
                 <Text style={[cbStyles.sheetKpiVal, { color: PRIMARY }]}>
-                  €{(FAKE_BALANCES[selectedCompany ?? ''] ?? 0).toLocaleString('tr-TR')}
+                  {money(statementTotals.balance, statementTotals.currency)}
                 </Text>
                 <Text style={cbStyles.sheetKpiLabel}>Bakiye</Text>
               </View>
             </View>
 
             <ScrollView style={{ flex: 1 }}>
-              {statements.length === 0 ? (
+              {statementLoading ? (
+                <View style={{ padding: 32, alignItems: 'center' }}>
+                  <ActivityIndicator color={PRIMARY} />
+                </View>
+              ) : statements.length === 0 ? (
                 <View style={{ padding: 32, alignItems: 'center' }}>
                   <Text style={{ color: '#717182' }}>Hareket bulunamadı</Text>
                 </View>
               ) : (
-                statements.map(s => (
-                  <View key={s.id} style={cbStyles.stmtRow}>
-                    <View style={{ flex: 1 }}>
-                      <Text style={cbStyles.stmtDesc}>{s.description}</Text>
-                      <Text style={cbStyles.stmtDate}>{s.date}</Text>
+                statements.map((line) => {
+                  const credit = Number(line.credit ?? 0) > 0;
+                  const amount = credit ? Number(line.credit) : Number(line.debit ?? 0);
+                  return (
+                    <View key={line.id} style={cbStyles.stmtRow}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={cbStyles.stmtDesc} numberOfLines={1}>
+                          {[line.description, line.invoiceNo].filter(Boolean).join(' · ')}
+                        </Text>
+                        <Text style={cbStyles.stmtDate}>{statementDate(line.date)}</Text>
+                      </View>
+                      <Text style={[cbStyles.stmtAmount, { color: credit ? '#059669' : RED }]}>
+                        {credit ? '+' : '-'}{money(amount, line.currencyCode ?? statementTotals.currency)}
+                      </Text>
                     </View>
-                    <Text style={[cbStyles.stmtAmount, { color: s.type === 'credit' ? '#059669' : RED }]}>
-                      {s.type === 'credit' ? '+' : '-'}€{s.amount.toLocaleString('tr-TR')}
-                    </Text>
-                  </View>
-                ))
+                  );
+                })
               )}
             </ScrollView>
 
             <View style={cbStyles.sheetActions}>
-              <TouchableOpacity style={cbStyles.actionBtnOutline}>
+              <TouchableOpacity
+                style={cbStyles.actionBtnOutline}
+                disabled={exporting || !selectedCompany}
+                onPress={() => download(`/exports/customer-statement/${selectedCompany}`)}
+              >
                 <Ionicons name="document-text" size={16} color="#059669" style={{ marginRight: 4 }} />
                 <Text style={cbStyles.actionBtnOutlineText}>Excel Ekstre</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={cbStyles.actionBtnPrimary}>
+              <TouchableOpacity
+                style={cbStyles.actionBtnPrimary}
+                disabled={exporting || !selectedCompany}
+                onPress={() => download(`/exports/customer-statement/${selectedCompany}?format=pdf`)}
+              >
                 <Text style={cbStyles.actionBtnPrimaryText}>PDF Ekstre</Text>
               </TouchableOpacity>
             </View>

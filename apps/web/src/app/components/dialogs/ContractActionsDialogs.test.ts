@@ -23,7 +23,7 @@ describe("fırsattaki sözleşme işlemleri", () => {
       readFileSync(new URL("../pages/OpportunityContractList.tsx", import.meta.url), "utf8"),
     ).toContain("<SignedContractUploadDialog");
     expect(workspaceSource).toContain("setSelectedFileDocument(document)");
-    expect(workspaceSource).toContain("onOpenOffer={(offer) => onOpenOffer?.(offer.id)}");
+    expect(workspaceSource).toContain("onClick={() => onOpenOffer?.(offer.id)}");
   });
 
   it("taslak sözleşmenin değiştirilebilir şartlarını kaydeder", () => {

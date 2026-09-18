@@ -232,7 +232,12 @@ export const trelloImportCommitRequestSchema = z.object({
 });
 export type TrelloImportCommitRequest = z.infer<typeof trelloImportCommitRequestSchema>;
 
-export const opportunityUpdateSchema = opportunityInputSchema.partial().superRefine(requireDisqualifyReason);
+export const opportunityUpdateSchema = opportunityInputSchema.partial().extend({
+  // Açık null alanı temizler; gönderilmeyen alan mevcut değerini korur.
+  // nullable dışarıda olmalı: date coercion null'u 1970-01-01'e çevirmemeli.
+  description: opportunityInputSchema.shape.description.nullable(),
+  expectedCloseDate: opportunityInputSchema.shape.expectedCloseDate.nullable(),
+}).superRefine(requireDisqualifyReason);
 export type OpportunityUpdateInput = z.infer<typeof opportunityUpdateSchema>;
 
 export const opportunityQualificationStageEnum = z.enum(QUALIFICATION_STAGES);

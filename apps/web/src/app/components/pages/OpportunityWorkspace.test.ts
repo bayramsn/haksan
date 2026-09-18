@@ -3,12 +3,10 @@ import { describe, expect, it } from "vitest";
 // Saf modülden import: bileşenin .tsx grafiğini (Radix, lucide, sonner) çekmez.
 import { isOpportunityTimelineActivity } from "../../lib/opportunityTimeline";
 
+// Popup yerleşimi, inline kayıt ve mobil davranışlar e2e/opportunity-popup.spec.ts içinde tarayıcıda doğrulanır.
 describe("lead ve fırsat çalışma alanı sorumlu değişikliği", () => {
   const railSource = readFileSync(new URL("./LeadWorkspaceControls.tsx", import.meta.url), "utf8");
   const workspaceSource = readFileSync(new URL("./OpportunityWorkspace.tsx", import.meta.url), "utf8");
-  const detailSource = readFileSync(new URL("./SalesCaseDetail.tsx", import.meta.url), "utf8");
-  const taskSectionSource = readFileSync(new URL("./tasks/TaskRecordSection.tsx", import.meta.url), "utf8");
-  const shellSource = readFileSync(new URL("../shared/KanbanDetailDialogShell.tsx", import.meta.url), "utf8");
   const storeSource = readFileSync(new URL("../../lib/store.tsx", import.meta.url), "utf8");
   const dialogsSource = readFileSync(new URL("../dialogs/CreateDialogs.tsx", import.meta.url), "utf8");
 
@@ -35,41 +33,6 @@ describe("lead ve fırsat çalışma alanı sorumlu değişikliği", () => {
     expect(readFileSync(new URL("../../lib/opportunityAudit.ts", import.meta.url), "utf8"))
       .toContain('"opportunity.owner_changed": "Sorumlu değiştirildi"');
     expect(workspaceSource).toContain('hasRole("sales") || hasRole("super_admin")');
-  });
-
-  it("tablet genişliğinde tek işlem dock'unu ve aktivite yetkilerini korur", () => {
-    expect(shellSource).toContain("lg:hidden");
-    expect(detailSource).toContain('hasPermission("activities.create")');
-    expect(detailSource).toContain('hasPermission("activities.update")');
-    expect(detailSource).toContain('hasPermission("activities.delete")');
-    expect(detailSource).toContain("{canCreateActivity && (");
-  });
-
-  it("takibe alma eylemini fırsat görevleri kartında gösterir", () => {
-    expect(detailSource).toContain("taskActions={canFollowUp ? (");
-    expect(workspaceSource).toContain("headerActions={taskActions}");
-    expect(taskSectionSource).toContain("{headerActions}");
-    // Sağ komut panelindeki eski kopya kaldırılmalı; eylem görev kartında tek
-    // bir bağlam altında kalır.
-    const otherActions = detailSource.slice(
-      detailSource.indexOf("const workspaceOtherActions"),
-      detailSource.indexOf("const content"),
-    );
-    expect(otherActions).not.toContain("Takibe al");
-  });
-
-  it("satış alanı kutusunu kapının dışında tutar, yalnız operasyon kartlarını kapatır", () => {
-    // Kutu alan görevlerini ve TEK ilerletme düğmesini taşıyor. İsteğe bağlı
-    // olursa sade modda hiç mount olmaz (kapı `!simpleOpportunity` ile kapalı
-    // başlıyor) ve kullanıcı ilerletme düğmesini hiçbir yerde göremez.
-    // İsteğe bağlı olan operasyon kartları; kutu değil.
-    expect(workspaceSource).toContain("useState(() => !simpleOpportunity)");
-    expect(workspaceSource).toContain("setOperationsExpanded(!simpleOpportunity)");
-    expect(workspaceSource).toContain("{operationsExpanded && !simpleOpportunity && <div");
-    // Sade modda düğmenin açacağı bir şey kalmadığı için gizlendi; eski
-    // etiketler geri gelirse ölü düğme de geri gelmiş demektir.
-    expect(workspaceSource).not.toContain("Tam süreç haritasını aç");
-    expect(workspaceSource).toContain("Operasyon kartlarını kapat");
   });
 
   it("fırsat zaman çizelgesini doğru kaynaktan besler", () => {
@@ -105,20 +68,6 @@ describe("lead ve fırsat çalışma alanı sorumlu değişikliği", () => {
     expect(workspaceSource).toContain("items={processTimeline.map(");
   });
 
-  it("aktivite girişini üst karar aksiyonuna taşır ve akışı tek kopya tutar", () => {
-    // Sekmeler kaldırıldıktan sonra akışın tek yeri kalıcı yan panel; buraya
-    // geçirilmezse aktivite arayüzden tamamen kaybolur.
-    expect(workspaceSource).toContain("activityFeed={activityFeed}");
-    // Tam aktivite formu üstteki eski aksiyon planlama yuvasındadır; akışın
-    // içinde ikinci bir ekleme düğmesi oluşmaz.
-    expect(workspaceSource).not.toContain("commentOnly=");
-    expect(workspaceSource).toContain("const decisionPrimaryAction");
-    expect(workspaceSource).toContain("Aktivite Ekle</Button>");
-    expect(workspaceSource.match(/<AddActivityDialog/g)).toHaveLength(1);
-    expect(workspaceSource).not.toContain("<NextActionDialog");
-    expect(workspaceSource).toContain("Bu fırsat için henüz aktivite veya yorum yok.");
-  });
-
   it("aktivitede seçilen kişiyi ileri tarihli görev sorumlusu olarak API'ye taşır", () => {
     expect(storeSource).toContain("assignedToUserId: a.byUserId || undefined");
     expect(dialogsSource).toContain("İleri tarihli aktiviteler seçilen kişiye görev olarak atanır.");
@@ -130,16 +79,6 @@ describe("lead ve fırsat çalışma alanı sorumlu değişikliği", () => {
     expect(dialogsSource).not.toContain("{users.map((u) => <SelectItem key={u.id} value={u.id}>{u.name}</SelectItem>)}");
   });
 
-  it("mevcut fırsat açıklamasını en üstte okunabilir ve düzenlenebilir tutar", () => {
-    expect(workspaceSource).toContain('data-testid="opportunity-summary"');
-    expect(workspaceSource).toContain("Fırsat Açıklaması");
-    expect(workspaceSource).toContain('onSave={(description) => updateCase(sc.id, { description })}');
-    expect(workspaceSource).toContain("<OpportunitySummary");
-    const descriptionIndex = workspaceSource.indexOf("<OpportunitySummary");
-    const decisionIndex = workspaceSource.indexOf("<WorkspaceDecisionSummary");
-    expect(descriptionIndex).toBeGreaterThan(-1);
-    expect(descriptionIndex).toBeLessThan(decisionIndex);
-  });
 });
 
 // Predicate'in kendisi saf ve export edilmiş; davranışını kaynak metni yerine

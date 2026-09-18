@@ -18,25 +18,17 @@ async function selectLeadCity(page: import("@playwright/test").Page, city: strin
 }
 
 /**
- * Çalışma alanı iki ekseni AYNI ANDA göstermez (OpportunityWorkspace: `isLead ? … : …`).
- *
- * Lead aşamasındaki kartta nitelendirme paneli, ilerlemiş kartta operasyon aşaması
- * render edilir. Test listedeki ilk kartı açtığı için hangisinin çıkacağı veriye
- * bağlıdır; sabitlenmesi gereken kural "tam olarak biri" olmasıdır. Eskiden operasyon
- * başlığı koşulsuz beklenirdi — lead, fırsatın ilk adımı olunca bu geçersizleşti.
+ * Yapılacaklar gövdesi her kartta aynı yerde: ayrı "operasyon aşaması" başlığı ve
+ * lead'e özel `#opportunity-qualification` sarmalayıcısı kalktı, iki eksen tek
+ * bölgede birleşti. Test listedeki ilk kartı açtığı için kart tipi veriye bağlı;
+ * sabitlenebilecek kural bölgenin her tipte gelmesidir.
  */
-async function expectSingleWorkspaceAxis(dialog: import("@playwright/test").Locator): Promise<"operations" | "qualification"> {
-  const operations = dialog.getByRole("heading", { name: "Operasyon aşaması", exact: true });
-  const qualification = dialog.locator("#opportunity-qualification");
-  await expect
-    .poll(async () => (await operations.count()) + (await qualification.count()))
-    .toBe(1);
-  return (await operations.count()) ? "operations" : "qualification";
+async function expectWorkspaceProcess(dialog: import("@playwright/test").Locator) {
+  await expect(dialog.getByRole("region", { name: "Fırsatın yapılacakları", exact: true })).toBeVisible();
 }
 
 test("fırsatlar listelenir ve detay açılır", async ({ page }) => {
   test.setTimeout(90_000);
-  const simpleWorkspace = process.env.VITE_OPPORTUNITY_WORKSPACE_SIMPLE === "on";
   await login(page);
   await navigateTo(page, "Fırsat");
 
@@ -53,7 +45,6 @@ test("fırsatlar listelenir ve detay açılır", async ({ page }) => {
 
   // Tek yüzey: karta tıklamak doğrudan tam çalışma alanını açar. Araya giren
   // "hızlı özet" paneli ve "Tüm detayları aç" adımı kaldırıldı.
-  await expect(dialog.getByText("Kayıt çalışma alanı", { exact: true })).toBeVisible();
   await expect(dialog.getByTestId("workspace-decision-summary")).toBeFocused();
   await expect(dialog.getByRole("region", { name: "Kayıt çalışma alanı içeriği" })).toBeVisible();
   await expect(dialog.getByRole("button", { name: /Tüm detayları aç|Tam çalışma alanını aç/ })).toHaveCount(0);
@@ -91,27 +82,17 @@ test("fırsatlar listelenir ve detay açılır", async ({ page }) => {
   }
   await expect(dialog.getByRole("button", { name: "Ticari alanları kaydet", exact: true })).toHaveCount(0);
 
-  if (simpleWorkspace) {
-    // Başlık `sr-only` bir DialogTitle; metin olarak değil, diyaloğun erişilebilir
-    // adı olarak doğrulanır ("Fırsat çalışma alanı — <ürün>").
-    await expect(page.getByRole("dialog", { name: /^Fırsat çalışma alanı — / })).toBeVisible();
-    await expect(dialog.locator('[data-opportunity-primary="true"]:visible')).toHaveCount(1);
-    // Süreç gövdesi her zaman görünür; satış alanı kutusu artık bir açma
-    // düğmesinin arkasında değil, yoksa tek ilerletme düğmesi kaybolurdu.
-    // Saha operasyonu özeti operasyon ekseninin içeriği; lead kartında o eksen
-    // hiç render edilmiyor, dolayısıyla koşulsuz beklenemez.
-    if ((await expectSingleWorkspaceAxis(dialog)) === "operations") {
-      await expect(dialog.getByLabel("Saha operasyonu özeti")).toBeVisible();
-    }
-    await expect(dialog.getByRole("button", { name: "Tam süreç haritasını aç", exact: true })).toHaveCount(0);
-  } else {
-    await expect(dialog.getByText("Kayıt çalışma alanı", { exact: true })).toBeVisible();
-    await expect(dialog.getByTestId("opportunity-summary").getByText("Fırsat Açıklaması", { exact: true })).toBeVisible();
-    await expectSingleWorkspaceAxis(dialog);
-  }
+  // Bayrak artık yüzeyi ikiye ayırmıyor: popup her kullanıcıda aynı tek gövde.
+  // Başlık `sr-only` bir DialogTitle; metin olarak değil, diyaloğun erişilebilir
+  // adı olarak doğrulanır ("Fırsat çalışma alanı — <ürün>").
+  await expect(page.getByRole("dialog", { name: /^Fırsat çalışma alanı — / })).toBeVisible();
+  await expectWorkspaceProcess(dialog);
+  // Açıklama kendi yüzeyinde okunur ve düzenlenir; ayrı pop-up'a gitmez.
+  await expect(dialog.getByTestId("opportunity-summary").getByRole("heading", { name: "Fırsat açıklaması", exact: true })).toBeVisible();
+  await expect(dialog.getByRole("button", { name: "Tam süreç haritasını aç", exact: true })).toHaveCount(0);
 
-  // Aktivite akışı kalıcı yan panele taşındı: sekme yok, her modda görünür.
-  await expect(dialog.getByRole("heading", { name: /Aktivite akışı|Temas akışı/ })).toBeVisible();
+  // Notlar ve görüşmeler kalıcı yan raydadır: sekme yok, her genişlikte görünür.
+  await expect(dialog.getByRole("heading", { name: "Notlar ve görüşmeler", exact: true })).toBeVisible();
 
   await page.setViewportSize({ width: 390, height: 844 });
   await expect.poll(async () => (await dialog.boundingBox())?.width).toBeLessThanOrEqual(390.5);
@@ -122,7 +103,10 @@ test("fırsatlar listelenir ve detay açılır", async ({ page }) => {
   // Ara katman kaldırıldı: dar ekranda da geri dönülecek bir hızlı özet yok.
   await expect(dialog.getByRole("button", { name: "Hızlı özete dön", exact: true })).toHaveCount(0);
   await expect(dialog.getByRole("button", { name: "Çalışma alanını kapat" })).toBeVisible();
-  await expect(dialog.getByTestId("workspace-mobile-dock")).toHaveCount(1);
+  // Mobil komut dock'u kalktı: eylemler gövdenin kendi içinde duruyor ve
+  // görüşme rayı dar ekranda gövdenin üstüne alınıyor.
+  await expect(dialog.getByTestId("workspace-mobile-dock")).toHaveCount(0);
+  await expect(dialog.getByRole("region", { name: "Notlar ve görüşmeler", exact: true })).toBeVisible();
   // Tek gövde kaldığı için mobil "Bölüm" listesi de kalktı: tek seçenekli bir
   // seçim kutusu kullanıcıyı hiçbir yere götürmez.
   await expect(dialog.getByRole("combobox", { name: "Bölüm" })).toHaveCount(0);
@@ -236,7 +220,7 @@ test("lead kartından yeni firma OSM araması üst formu göndermeden açık kal
 
   const opportunityDialog = page.getByRole("dialog");
   // Kart doğrudan çalışma alanına açılır; araya hızlı özet paneli girmez.
-  await expect(opportunityDialog.getByText("Kayıt çalışma alanı", { exact: true })).toBeVisible();
+  await expect(opportunityDialog.getByRole("region", { name: "Kayıt çalışma alanı içeriği" })).toBeVisible();
   await page.getByRole("button", { name: "Yeni Firma Oluştur" }).click();
   const companyDialog = page.getByRole("dialog", { name: "Yeni Firma" });
   await expect(companyDialog).toBeVisible();
@@ -318,7 +302,7 @@ test("Lead Workspace V2 akışı otomatik atamadan gerekçeli fırsat dönüşü
     const recordDialog = page.getByRole("dialog", { name: new RegExp(product) });
     await expect(recordDialog).toBeVisible();
     // Lead kartı da tek adımda çalışma alanına açılır.
-    await expect(recordDialog.getByText("Kayıt çalışma alanı", { exact: true })).toBeVisible();
+    await expect(recordDialog.getByRole("region", { name: "Kayıt çalışma alanı içeriği" })).toBeVisible();
     // Sekme çubuğu her iki modda da kalktı. Lead gövdesi doğrudan
     // nitelendirme; temas ve dönüşüm komutları kalıcı yan panelde durduğu için
     // hiçbirine ulaşmak için önce sekme tıklamak gerekmiyor.
@@ -342,12 +326,10 @@ test("Lead Workspace V2 akışı otomatik atamadan gerekçeli fırsat dönüşü
     await recordDialog.getByLabel("Teknik not").fill("Demo parçası ile çevrim süresi doğrulanacak.");
     await recordDialog.getByRole("button", { name: "Nitelendirmeyi kaydet" }).click();
 
-    // "Fırsata dönüştür" iki yerde görünür: karar özetindeki vekil düğme ve
-    // komut rayındaki gerçek komut (vekil zaten onu tıklıyor). Test gerçek
-    // komuta bağlanır, yoksa locator çift eşleşir.
-    await recordDialog.getByLabel("Çalışma alanı komutları")
-      .getByRole("button", { name: "Fırsata dönüştür" })
-      .click();
+    // Dönüşümün görünür tek komutu yapılacaklar gövdesindeki ilerletme düğmesi;
+    // gerçek komut `<div hidden>` içinde durup bu düğme tarafından tıklanıyor,
+    // bu yüzden erişilebilirlik ağacında tek eşleşme kalır.
+    await recordDialog.getByRole("button", { name: "Fırsata dönüştür", exact: true }).click();
     const overrideDialog = page.getByRole("dialog", { name: "Gerekçeli dönüşüm" });
     if (await overrideDialog.isVisible().catch(() => false)) {
       await overrideDialog.getByLabel("Dönüşüm gerekçesi").fill("Bütçe yatırım komitesinde; demo sonucu teklif sürecini başlatmak için yeterli.");
@@ -355,14 +337,13 @@ test("Lead Workspace V2 akışı otomatik atamadan gerekçeli fırsat dönüşü
       await expect(overrideDialog).toBeHidden();
     }
 
-    // Dekoratif "Ortak fırsat görünümü" başlığının yerini kartın kendi özeti
-    // aldı: özet boşken bile yetkili kullanıcı "Özet ekle" ile yazabilmeli.
+    // Açıklama boşken bile yetkili kullanıcı aynı yüzeyde yazabilmeli.
     const summaryBlock = recordDialog.getByTestId("opportunity-summary");
     await expect(summaryBlock).toBeVisible();
-    await expect(summaryBlock.getByRole("button", { name: /Özet ekle|Düzenle/ })).toBeVisible();
-    // Dönüşümden sonra da sekme yok: süreç gövdesi ve aktivite akışı doğrudan görünür.
-    await expect(recordDialog.getByRole("heading", { name: "Operasyon aşaması", exact: true })).toBeVisible();
-    await expect(recordDialog.getByRole("heading", { name: /Aktivite akışı|Temas akışı/ })).toBeVisible();
+    await expect(summaryBlock.getByRole("button", { name: "Açıklamayı düzenle", exact: true })).toBeVisible();
+    // Dönüşümden sonra da sekme yok: yapılacaklar ve görüşmeler doğrudan görünür.
+    await expectWorkspaceProcess(recordDialog);
+    await expect(recordDialog.getByRole("heading", { name: "Notlar ve görüşmeler", exact: true })).toBeVisible();
 
     // Ölçmeden önce yeniden akış beklenmeli; `boundingBox` hemen okunursa
     // eski genişlik yakalanıyor.
@@ -383,9 +364,10 @@ test("Lead Workspace V2 akışı otomatik atamadan gerekçeli fırsat dönüşü
       scrollWidth: element.scrollWidth,
     }));
     expect(overflow.scrollWidth).toBeLessThanOrEqual(overflow.clientWidth + 1);
-    const mobileDock = recordDialog.getByTestId("workspace-mobile-dock");
-    await expect(mobileDock).toHaveCount(1);
-    const mobileAction = mobileDock.getByRole("button").first();
+    // Mobil komut dock'u kalktı; dokunma hedefi ölçüsü başlıktaki kalıcı
+    // kapatma düğmesinde doğrulanır (dar ekranda 44px'e büyür).
+    await expect(recordDialog.getByTestId("workspace-mobile-dock")).toHaveCount(0);
+    const mobileAction = recordDialog.getByRole("button", { name: "Çalışma alanını kapat" });
     await expect(mobileAction).toBeVisible();
     const mobileActionBounds = await mobileAction.boundingBox();
     expect(mobileActionBounds?.height).toBeGreaterThanOrEqual(44);

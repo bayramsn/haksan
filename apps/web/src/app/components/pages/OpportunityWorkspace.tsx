@@ -16,9 +16,10 @@ import {
   Truck,
   Wrench,
   Pencil,
-  Eye,
-  FileSignature,
-  NotebookText,
+  ChevronDown,
+  ArrowUpRight,
+  FileText,
+  CalendarClock,
 } from "lucide-react";
 import { opportunityService } from "../../../lib/services";
 import { useAuth } from "../../../lib/auth";
@@ -33,7 +34,6 @@ import { focusWorkspaceTarget } from "../../lib/workspaceFocus";
 import { AddActivityDialog } from "../dialogs/CreateDialogs";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "../ui/card";
 import { Textarea } from "../ui/textarea";
 import { Input } from "../ui/input";
 import { Combobox } from "../ui/combobox";
@@ -43,10 +43,7 @@ import {
 import { DecisionRail, LeadQualificationPanel } from "./LeadWorkspaceControls";
 import { TaskRecordSection } from "./tasks/TaskRecordSection";
 import {
-  HealthStrip,
-  RecordWorkspaceShell,
   UnifiedTimeline,
-  WorkspaceDecisionSummary,
   type WorkspaceDecisionModel,
 } from "../shared/RecordWorkspace";
 import { isManualTimelineComment, isOpportunityTimelineActivity } from "../../lib/opportunityTimeline";
@@ -57,7 +54,8 @@ import {
   type ContactQueryScope,
 } from "../../lib/contactServerData";
 import { useRemoteContactDetail } from "../shared/RemoteContactCombobox";
-import { CommercialDocumentRail } from "../shared/CommercialDocumentRail";
+import { OpportunityNoteComposer } from "./OpportunityNoteComposer";
+import "./opportunity-workspace.css";
 import { DocumentDetailDialog } from "../dialogs/DocumentDetailDialog";
 import { DocumentPreviewDialog } from "../dialogs/DocumentPreviewDialog";
 import { EditContractTermsDialog, SignedContractUploadDialog } from "../dialogs/ContractActionsDialogs";
@@ -69,16 +67,7 @@ import {
   lostTimelineDetail,
 } from "../shared/LostOpportunityDetails";
 
-/**
- * Fırsat / lead çalışma alanı.
- *
- * Yüzey radikal biçimde sadeleşti: Özet, Ticari ve Kayıtlar bölümleri (ve
- * Kayıtlar'ın dört alt sekmesi: Aktiviteler, Dosyalar, Onaylar, Değişiklik
- * günlüğü) tamamen kaldırıldı. Geriye her mod için tek bir gövde kaldı —
- * lead'de nitelendirme, fırsatta süreç — bu yüzden sekme çubuğu da kalktı:
- * tek maddeli bir sekme çubuğu ve tek seçenekli mobil "Bölüm" listesi ölü
- * kontroldür. Aktivite akışı kalıcı olarak görünen yan panele taşındı.
- */
+/** Fırsat bilgileri, aşama işleri ve görüşmeler için tek çalışma alanı. */
 type OpportunityDetail = {
   history?: Array<Record<string, any>>;
   qualificationHistory?: Array<Record<string, any>>;
@@ -170,7 +159,7 @@ export function buildWorkspaceDecisionModel({
     !terminalLabel && health?.leadSlaBreached ? { key: "lead-sla", label: "İlk temas SLA ihlali", detail: `${health.leadStatusAgeHours ?? 0} saat bekledi`, tone: "danger" as const, priority: 90 } : null,
     !terminalLabel && health?.rotting ? { key: "stage-age", label: "Aşama yaşlanıyor", detail: `${health.stageAgeDays ?? 0} gün / ${health.stageAgeLimitDays ?? "—"} gün`, tone: "warning" as const, priority: 80 } : null,
     !terminalLabel && overduePaymentCount > 0 ? { key: "payment-overdue", label: "Gecikmiş ödeme", detail: `${overduePaymentCount} ödeme kaydı`, tone: "danger" as const, priority: 75 } : null,
-    !terminalLabel && (nextOperationTarget?.blockers.length ?? 0) > 0 ? { key: "process-blockers", label: "Süreç geçişi engelli", detail: `${nextOperationTarget?.blockers.length ?? 0} backend kontrolü`, tone: "warning" as const, priority: 70 } : null,
+    !terminalLabel && (nextOperationTarget?.blockers.length ?? 0) > 0 ? { key: "process-blockers", label: "Süreç geçişi engelli", detail: `${nextOperationTarget?.blockers.length ?? 0} gereklilik tamamlanmalı`, tone: "warning" as const, priority: 70 } : null,
     !terminalLabel && customerMissing ? { key: "company-missing", label: "Firma eksik", detail: "Kayıt bir firmaya bağlanmalı", tone: "warning" as const, priority: 60 } : null,
     !terminalLabel && !ownerName ? { key: "owner-missing", label: "Sorumlu atanmamış", detail: "Kayıt sahipsiz havuzda", tone: "warning" as const, priority: 50 } : null,
   ].filter((risk): risk is NonNullable<typeof risk> => Boolean(risk))
@@ -210,30 +199,28 @@ export function OpportunityWorkspace({
   onCommercialAction,
   canPerformCommercialAction,
   onOpenOffer,
-  mobilePortalId,
   focusDecisionOnMount = false,
   onEditActivity,
   onDeleteActivity,
   taskActions,
   otherActions,
-  simpleMode = false,
+  stageHeaderPortalId,
 }: {
   salesCase: SalesCase;
   processCenter: ReactNode;
-  renderProcessCenter?: (context: { detail: OpportunityDetail | null; loading: boolean; reload: () => Promise<void> }) => ReactNode;
+  renderProcessCenter?: (context: { detail: OpportunityDetail | null; loading: boolean; reload: () => Promise<void>; headerPortalId?: string }) => ReactNode;
   /** Aktif satış alanının görev listesi; süreç haritasından bağımsız gösterilir. */
   companyLinkingPanel?: ReactNode;
-  onCommercialAction?: (actionKey: OpportunityProcessActionKey) => void;
+  onCommercialAction?: (actionKey: OpportunityProcessActionKey) => void | Promise<void>;
   canPerformCommercialAction?: (actionKey: OpportunityProcessActionKey) => boolean;
   onOpenOffer?: (offerId: string) => void;
-  mobilePortalId?: string;
   focusDecisionOnMount?: boolean;
   onEditActivity?: (activityId: string) => void;
   onDeleteActivity?: (activityId: string) => void;
   /** Fırsat görevleri kartında, görev oluşturmanın yanında gösterilen eylemler. */
   taskActions?: ReactNode;
   otherActions?: ReactNode;
-  simpleMode?: boolean;
+  stageHeaderPortalId?: string;
 }) {
   const {
     users,
@@ -251,7 +238,7 @@ export function OpportunityWorkspace({
   const canCreateActivity = hasPermission("activities.create");
   const canAssignOwner = canUpdate && (hasRole("sales") || hasRole("super_admin"));
   const isLead = sc.qualificationStage === "lead";
-  const simpleOpportunity = simpleMode && !isLead;
+  const simpleOpportunity = !isLead;
   const [detailResource, setDetailResource] = useState<OpportunityDetailResource>(() => ({
     caseId: sc.id,
     status: "idle",
@@ -261,16 +248,12 @@ export function OpportunityWorkspace({
   const [focusedActivityId, setFocusedActivityId] = useState<string | null>(null);
   const [selectedCommercialDocument, setSelectedCommercialDocument] = useState<DocumentItem | null>(null);
   const [selectedFileDocument, setSelectedFileDocument] = useState<DocumentItem | null>(null);
-  const [operationsExpanded, setOperationsExpanded] = useState(() => !simpleOpportunity);
   const decisionSummaryRef = useRef<HTMLElement>(null);
+  const [openingWork, setOpeningWork] = useState(false);
   const detailRequestRef = useRef(0);
   const detail = detailResource.caseId === sc.id ? detailResource.data : null;
   const caseOffers = useMemo(() => offers.filter((item) => item.salesCaseId === sc.id), [offers, sc.id]);
   const caseDocuments = useMemo(() => documents.filter((item) => item.salesCaseId === sc.id), [documents, sc.id]);
-  const contractDocuments = useMemo(
-    () => caseDocuments.filter((item) => item.type === "Contract" && item.source === "commercial_record"),
-    [caseDocuments],
-  );
   const detailLoading = detailResource.caseId !== sc.id || detailResource.status === "idle" || detailResource.status === "loading";
   const detailError = detailResource.caseId === sc.id ? detailResource.error : null;
   const contactScope = useMemo<ContactQueryScope>(() => ({
@@ -293,9 +276,6 @@ export function OpportunityWorkspace({
     return () => window.clearTimeout(timer);
   }, [focusDecisionOnMount, sc.id]);
 
-  useEffect(() => {
-    setOperationsExpanded(!simpleOpportunity);
-  }, [sc.id, simpleOpportunity]);
 
   useEffect(() => {
     // Bölüm/kayıt çapası kalmadı: URL'de yalnız hangi kaydın açık olduğu ve
@@ -502,7 +482,7 @@ export function OpportunityWorkspace({
     const todayStart = new Date();
     todayStart.setHours(0, 0, 0, 0);
     return opportunityActivities
-      .filter((activity) => new Date(activity.date).getTime() >= todayStart.getTime())
+      .filter((activity) => !isManualTimelineComment(activity) && new Date(activity.date).getTime() >= todayStart.getTime())
       .sort((left, right) => new Date(left.date).getTime() - new Date(right.date).getTime())[0];
   }, [opportunityActivities]);
   // Her render'da yeni nesne üretip `WorkspaceDecisionSummary`'ye geçiyordu.
@@ -518,12 +498,13 @@ export function OpportunityWorkspace({
     }),
     [sc, owner?.name, companyQuery.isError, customer, overduePaymentCount, nextOperationTarget, nextActivity, simpleOpportunity, operationReadiness],
   );
-  const terminal = Boolean(decisionModel.terminalLabel);
+  const terminal = Boolean(decisionModel.terminalLabel || operationReadiness?.closed);
 
   // Dönüşüm komutu eksikler varken kaybolmaz; alanlar C aşamasında tamamlanır.
   const useLeadConversionAsPrimary = !terminal && canUpdate && isLead;
   const revealProcessActions = () => {
-    // Görev listesi her zaman mount; kullanıcıyı listeye götürmek yeterli.
+    // Açık başka bir aşamadan mevcut aşamanın işine güvenli dönüş.
+    document.querySelector<HTMLButtonElement>('[data-opportunity-stage-header] [aria-current="step"][aria-pressed="false"]')?.click();
     focusWorkspaceTarget(document.getElementById("opportunity-process-actions"), { focus: false, block: "start" });
   };
   // Kapanmış kayıtta yapılacak bir iş yok: sahte bir birincil eylem (eskiden
@@ -533,7 +514,7 @@ export function OpportunityWorkspace({
       salesCaseId={sc.id}
       customerId={sc.customerId}
       contactId={resolvedContact.primaryContact?.id}
-      trigger={<Button type="button"><ActivityIcon className="size-4" /> Aktivite Ekle</Button>}
+      trigger={<Button type="button" variant="outline" size="sm"><ActivityIcon className="size-4" /> Görüşme ekle</Button>}
     />
   );
 
@@ -545,14 +526,16 @@ export function OpportunityWorkspace({
   const activityFeed = (
     <section
       aria-labelledby="workspace-activity-title"
-      className="overflow-hidden rounded-[var(--surface-radius)] border border-border bg-card"
+      className="opportunity-conversation"
     >
       <div className="flex items-center justify-between gap-2 border-b border-border px-4 py-3">
         <h3 id="workspace-activity-title" className="font-display text-base font-semibold text-foreground">
-          {isLead ? "Temas akışı" : "Aktivite akışı"}
+          Notlar ve görüşmeler
         </h3>
       </div>
-      <div className="space-y-3 p-4">
+      <div className="space-y-4 p-4">
+        <OpportunityNoteComposer key={sc.id} opportunityId={sc.id} companyId={sc.customerId} contactId={resolvedContact.primaryContact?.id} />
+        <div className="flex flex-wrap items-center gap-2">{decisionPrimaryAction}{taskActions}</div>
         {/* Sistem olayları yalnız sade fırsat akışında var ve tek kaynağı bu
             detay çağrısı; lead akışı store'dan besleniyor, beklemesi gereksiz. */}
         {simpleOpportunity && detailLoading ? (
@@ -609,244 +592,118 @@ export function OpportunityWorkspace({
     </section>
   );
 
+  const nextCheck = operationReadiness?.checks.find((check) =>
+    check.qualificationStage === operationReadiness.currentQualificationStage && !check.complete,
+  );
+  const nextWork = terminal ? decisionModel.terminalLabel || "Kapalı"
+    : detailLoading ? "Yapılacaklar yükleniyor…"
+    : detailError ? "Fırsat bilgileri alınamadı"
+    : nextCheck?.label || (isLead ? decisionModel.nextAction : "Bu aşamanın işleri tamamlandı");
+  const canOpenNextWork = !isLead && !terminal && !detailLoading && !detailError && nextCheck
+    && onCommercialAction && canPerformCommercialAction?.(nextCheck.actionKey) !== false;
+  const nextWorkAction = canOpenNextWork ? (
+    <Button type="button" disabled={openingWork} onClick={async () => {
+      if (openingWork) return;
+      setOpeningWork(true);
+      try { revealProcessActions(); await onCommercialAction?.(nextCheck.actionKey); }
+      catch { toast.error("İşlem tamamlanamadı. Tekrar deneyin."); }
+      finally { setOpeningWork(false); }
+    }}>
+      {openingWork ? "İşleniyor…" : ({ create_quote: "Teklif hazırla", approve_quote: "Teklifi onayla", approve_payment: "Ödemeyi onayla", approve_customs: "Gümrüğü onayla", approve_invoice: "Faturayı onayla", approve_installation: "Kurulumu onayla", approve_win: "Kazanımı onayla" } as Partial<Record<OpportunityProcessActionKey, string>>)[nextCheck.actionKey] || "İşi aç"}<ArrowUpRight className="size-4" />
+    </Button>
+  ) : null;
+
   return (
-    <div className="crm-page">
-      {/* Başlığın altındaki dekoratif metin ("Ortak fırsat görünümü") yerine
-          kartın kendi özeti duruyor: Trello'dan gelen kart açıklaması dahil
-          hiçbir yerde görünmüyordu. */}
-      <OpportunitySummary
-        salesCase={sc}
-        canEdit={canUpdate}
-        onSave={(description) => updateCase(sc.id, { description })}
-      />
-      <OpportunityMachines
-        salesCase={sc}
-        canEdit={canUpdate}
-        onSave={(machines) => updateCase(sc.id, { machines })}
-      />
-
-      {/* Alan rayı satış alanı kutusunun içine taşındı ve orada tıklanabilir
-          (alanlar arası gezinme). Buradaki dekoratif kopyası aynı bilgiyi
-          ikinci kez, üstelik tıklanamaz hâlde gösteriyordu. */}
-      <WorkspaceDecisionSummary
-        ref={decisionSummaryRef}
-        model={decisionModel}
-        primaryAction={decisionPrimaryAction}
-        variant={simpleOpportunity ? "compact" : "default"}
-      />
-      {sc.isLost && <LostOpportunityDetails salesCase={sc} companyName={customer?.name} />}
-      <CommercialDocumentRail
-        offers={caseOffers}
-        documents={caseDocuments}
-        onOpenOffer={(offer) => onOpenOffer?.(offer.id)}
-        onOpenDocument={setSelectedCommercialDocument}
-        showStepActions={false}
-      />
-      {contractDocuments.length > 0 && (
-        <Card className="border-primary/15">
-          <CardHeader className="pb-2">
-            <CardTitle className="flex items-center gap-2 text-sm"><FileSignature className="size-4 text-primary" /> Sözleşmeler</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-2">
-            {contractDocuments.map((document) => (
-              <div key={document.id} className="flex flex-col gap-2 rounded-lg border border-border/60 px-3 py-2.5 sm:flex-row sm:items-center">
-                <button type="button" className="min-w-0 flex-1 text-left" onClick={() => setSelectedCommercialDocument(document)}>
-                  <div className="truncate text-sm font-medium">{document.fileName}</div>
-                  <div className="text-[10px] text-muted-foreground">{document.fileId ? "İmzalı nüsha bağlı" : "Üretilmiş sözleşme"}</div>
-                </button>
-                <div className="flex flex-wrap gap-2">
-                  <Button type="button" variant="outline" size="sm" className="h-8 gap-1" onClick={() => setSelectedCommercialDocument(document)}>
-                    <Eye className="size-3.5" /> Görüntüle
-                  </Button>
-                  {hasPermission("contracts.update") && !document.fileId && (
-                    <EditContractTermsDialog document={document} trigger={<Button type="button" variant="outline" size="sm" className="h-8">Şartları Düzenle</Button>} />
-                  )}
-                  {document.fileId ? (
-                    <Button type="button" variant="outline" size="sm" className="h-8" onClick={() => setSelectedFileDocument(document)}>İmzalı PDF</Button>
-                  ) : hasPermission("files.create") && hasPermission("contracts.update") ? (
-                    <SignedContractUploadDialog document={document} salesCase={sc} trigger={<Button type="button" size="sm" className="h-8">İmzalı Sözleşme Yükle</Button>} />
-                  ) : null}
-                </div>
-              </div>
-            ))}
-          </CardContent>
-        </Card>
-      )}
-      {detailLoading && <div className="flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-900" role="status" aria-live="polite"><Loader2 className="size-4 animate-spin motion-reduce:animate-none" /> Kayıt kontrolleri güncelleniyor…</div>}
-      {detailError && <div className="flex flex-wrap items-center justify-between gap-3 rounded-[var(--surface-radius)] border border-destructive/20 bg-destructive-soft px-3 py-2 text-sm text-destructive" role="alert"><span>{detailError}</span><Button type="button" variant="outline" size="sm" className="min-h-11 bg-card sm:min-h-8" onClick={() => void loadDetail()}><RefreshCw className="size-4" /> Tekrar dene</Button></div>}
-
-      <RecordWorkspaceShell rail={<DecisionRail
-        salesCase={sc}
-        ownerName={owner?.name}
-        users={users}
-        canUpdate={canUpdate}
-        canAssignOwner={canAssignOwner}
-        onOwnerChanged={loadDetail}
-        mobilePortalId={mobilePortalId}
-        contactPhone={resolvedContact.phone}
-        contactEmail={resolvedContact.email}
-        whatsappNumber={resolvedContact.whatsappNumber}
-        contactName={resolvedContact.name}
-        contactTitle={resolvedContact.primaryContact?.title || resolvedContact.primaryContact?.department}
-        otherActions={otherActions}
-        primaryAction={decisionPrimaryAction}
-        useLeadConversionAsPrimary={useLeadConversionAsPrimary}
-        simpleMode={simpleOpportunity}
-        activityFeed={activityFeed}
-      />}>
-        <div className="space-y-4">
-          {/* Firma bağlama uyarısı kaldırılan Özet bölümünün içindeydi; teklif
-              öncesi zorunlu bir adım olduğu için gövdenin tepesine alındı. */}
-          {companyLinkingPanel}
-          {/* Görevler kartın gövdesinde: personel lead üzerinde çalışırken
-              görevi buradan açar, görür ve kapatır — ayrı ekrana gitmeden. */}
-          <TaskRecordSection
-            relation={{ opportunityId: sc.id, companyId: sc.customerId ?? null, label: sc.requestedProduct || "Fırsat" }}
-            title={isLead ? "Lead Görevleri" : "Fırsat Görevleri"}
-            headerActions={taskActions}
-          />
-          {isLead ? (
-            <>
-              {/* "Sonraki aksiyon" sütunu kaldırıldı: hemen üstteki karar kartı
-                  aynı metni, aynı tarihi ve sorumluyu zaten gösteriyor; gecikme
-                  ise ayrıca risk rozetinde yazıyordu. Aynı cümle ekranda üç
-                  kez görünüyordu. Kalan iki ölçü lead'e özgü ve başka yerde yok. */}
-              <HealthStrip items={[
-                {
-                  label: "Temas denemesi",
-                  value: String(sc.qualificationReadiness?.health?.contactAttemptCount ?? 0),
-                  hint: "Sonuç kaydıyla güncellenir",
-                },
-                {
-                  label: "İlk temas",
-                  value: formatDate(sc.qualificationReadiness?.health?.firstContactAt, true),
-                  hint: "İlk temas hızı",
-                  tone: sc.qualificationReadiness?.health?.firstContactAt ? "good" : "neutral",
-                },
-              ]} />
-              <div id="opportunity-qualification" className="scroll-mt-24">
-                <LeadQualificationPanel salesCase={sc} canUpdate={canUpdate} />
-              </div>
-            </>
-          ) : (
-            <div className="space-y-4">
-              {/* İki ayrı eksen var ve karışıyorlardı: satış alanı (C/B/A/A+,
-                  yukarıdaki kutu) ve operasyon aşaması (sevkiyat → teslim →
-                  kurulum, bu blok). İkisi de "mevcut → sıradaki" gösterdiği ve
-                  biri "alan" diğeri "aşama" dediği için aynı şey sanılıyordu.
-                  Başlık artık hangi eksende olduğunu açıkça söylüyor. */}
-              <div>
-                <h3 className="font-display text-lg font-semibold text-foreground">Operasyon aşaması</h3>
-                <p className="text-xs text-muted-foreground">
-                  Sevkiyat, teslim ve kurulum akışı. Satış alanı (C/B/A/A+) yukarıdaki kutuda ayrıca izlenir.
-                </p>
-              </div>
-              {/* Alan görevleri artık satış alanı kutusunun kendi içeriği
-                  (`OpportunityProcessCenter`'ın `checklist` prop'u). Burada ayrı
-                  bir sarmalayıcı tutmak görevleri kutunun dışında, ikinci bir
-                  kutuda gösterirdi. */}
-              <Card className="overflow-hidden border-primary/15">
-                <div className="datum-rail h-1" />
-                <CardContent className="space-y-4 p-4 sm:p-5">
-                  {/* "Mevcut aşama → Sıradaki aşama" çifti buradan kaldırıldı:
-                      karar özeti aynı ikiliyi (`decisionModel.currentStage` /
-                      `nextStage`) zaten aynı ekranda gösteriyordu. Engel listesi
-                      kaldı çünkü özette olmayan bir şey sunuyor: engellere
-                      tıklayıp görev listesine gitmek. Engel yokken blok hiç
-                      basılmaz — "engel yok" bilgisi de özette duruyor. */}
-                  {(nextOperationTarget?.blockers.length || !operationReadiness) ? (
-                  <div>
-                    <div className="text-xs font-semibold text-foreground">Geçiş engelleri</div>
-                    <div className="mt-2 flex flex-wrap gap-2">
-                      {(nextOperationTarget?.blockers ?? []).slice(0, 6).map((blocker) => {
-                        const canOpenBlocker = Boolean(onCommercialAction) && canPerformCommercialAction?.(blocker.actionKey) !== false;
-                        return canOpenBlocker ? (
-                          // Engel eylemini tüketen görev listesi sayfada duruyor; kullanıcı
-                          // isteği tetikledikten sonra listeye kaydırılır.
-                          <Button key={blocker.key} type="button" variant="outline" size="sm" className="min-h-9 border-amber-200 bg-amber-50 text-amber-900 hover:bg-amber-100" onClick={() => { revealProcessActions(); onCommercialAction?.(blocker.actionKey); }}>
-                            {blocker.label}
-                          </Button>
-                        ) : (
-                          <Badge key={blocker.key} variant="outline" className="border-amber-200 bg-amber-50 text-amber-800">
-                            {blocker.label}
-                          </Badge>
-                        );
-                      })}
-                      {!operationReadiness && (
-                        <span className="inline-flex items-center gap-1.5 text-sm text-amber-800"><AlertTriangle className="size-4" /> Hazırlık bilgisi alınamadı; geçiş hazır varsayılmıyor.</span>
-                      )}
-                    </div>
-                  </div>
-                  ) : null}
-                  {/* Sade modda bu düğmenin açacağı bir şey kalmadı: kutu artık
-                      her zaman görünür, operasyon kartları ise yalnız tam modda
-                      render ediliyor. Ölü düğme bırakmamak için gizlendi. */}
-                  {!simpleOpportunity && (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      aria-expanded={operationsExpanded}
-                      onClick={() => setOperationsExpanded((value) => !value)}
-                    >
-                      {operationsExpanded ? "Operasyon kartlarını kapat" : "Operasyon kartlarını aç"}
-                    </Button>
-                  )}
-                </CardContent>
-              </Card>
-              {/* Saha operasyonu özeti. Üçü de başlamamışken üç ayrı kart
-                  ekranın üçte birini kaplayıp hiçbir şey söylemiyordu; o hâlde
-                  tek satıra iner. Bir tanesi bile başladıysa kartlara döner,
-                  çünkü artık gösterecek gerçek durum var. */}
-              {simpleOpportunity && (() => {
-                const fieldStages = [
-                  { key: "shipment", label: "Sevkiyat", icon: Truck, status: opportunityShipments[0]?.status },
-                  { key: "delivery", label: "Teslim", icon: FileClock, status: opportunityDeliveries[0]?.status },
-                  { key: "installation", label: "Kurulum", icon: Wrench, status: opportunityInstallations[0]?.statusName },
-                ];
-                const anyStarted = fieldStages.some((stage) => stage.status);
-                if (!anyStarted) {
-                  return (
-                    <button
-                      type="button"
-                      className="flex min-h-11 w-full items-center justify-between gap-3 rounded-[var(--surface-radius)] border border-border bg-card px-3 py-2.5 text-left transition hover:border-primary/40 hover:bg-muted/40"
-                      onClick={revealProcessActions}
-                    >
-                      <span className="inline-flex items-center gap-2 text-sm text-muted-foreground">
-                        <Truck className="size-4" /> Sevkiyat, teslim ve kurulum henüz başlamadı
-                      </span>
-                      <span className="shrink-0 text-xs font-semibold text-primary">Görevlere git</span>
-                    </button>
-                  );
-                }
-                return (
-                  <div className="grid gap-3 sm:grid-cols-3" aria-label="Saha operasyonu özeti">
-                    {fieldStages.map(({ key, label, icon: Icon, status }) => (
-                      <button key={key} type="button" className="min-h-20 rounded-[var(--surface-radius)] border border-border bg-card p-3 text-left transition hover:border-primary/40 hover:bg-muted/40" onClick={revealProcessActions}>
-                        <span className="inline-flex items-center gap-2 text-sm font-semibold text-foreground"><Icon className="size-4" /> {label}</span>
-                        <span className="mt-1 block text-xs text-muted-foreground">{status ?? "Henüz başlamadı"}</span>
-                      </button>
-                    ))}
-                  </div>
-                );
-              })()}
-              {/* Satış alanı kutusu isteğe bağlı OLAMAZ: alan görevleri ve tek
-                  ilerletme düğmesi onun içinde. Sade modda `operationsExpanded`
-                  false başladığı için kutu kapının arkasında kalıyordu, yani
-                  kullanıcı ilerletme düğmesini hiç göremiyordu. İsteğe bağlı olan
-                  operasyon kartları; kutu değil. */}
-              <div className="space-y-4">
-                {renderProcessCenter ? renderProcessCenter({ detail, loading: detailLoading, reload: loadDetail }) : processCenter}
-                {operationsExpanded && !simpleOpportunity && <div className="grid gap-4 lg:grid-cols-3">
-                    <Card><CardHeader className="pb-3"><CardTitle className="inline-flex items-center gap-2 text-sm"><Truck className="size-4" /> Sevkiyat</CardTitle></CardHeader><CardContent className="space-y-2">{opportunityShipments.map((shipment) => <div key={shipment.id} className="rounded-lg border border-slate-200 p-3 text-sm"><div className="font-medium">{shipment.trackingNo || "Takip numarası yok"}</div><div className="mt-1 text-xs text-muted-foreground">{shipment.status} · ETA {formatDate(shipment.eta)}</div></div>)}{opportunityShipments.length === 0 && <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-4 text-center"><div className="text-sm text-muted-foreground">Sevkiyat yok.</div><Button type="button" variant="outline" size="sm" className="mt-3 min-h-11 sm:min-h-8" onClick={revealProcessActions}>Sevkiyat oluştur</Button></div>}</CardContent></Card>
-                    <Card><CardHeader className="pb-3"><CardTitle className="inline-flex items-center gap-2 text-sm"><FileClock className="size-4" /> Teslim</CardTitle></CardHeader><CardContent className="space-y-2">{opportunityDeliveries.map((delivery) => <div key={delivery.id} className="rounded-lg border border-slate-200 p-3 text-sm"><div className="font-medium">{delivery.status}</div><div className="mt-1 text-xs text-muted-foreground">{formatDate(delivery.date)} · {delivery.signedBy || "İmza bekliyor"}</div></div>)}{opportunityDeliveries.length === 0 && <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-4 text-center"><div className="text-sm text-muted-foreground">Teslim kaydı yok.</div><Button type="button" variant="outline" size="sm" className="mt-3 min-h-11 sm:min-h-8" onClick={revealProcessActions}>Teslim kaydı oluştur</Button></div>}</CardContent></Card>
-                    <Card><CardHeader className="pb-3"><CardTitle className="inline-flex items-center gap-2 text-sm"><Wrench className="size-4" /> Kurulum</CardTitle></CardHeader><CardContent className="space-y-2">{opportunityInstallations.map((installation) => <div key={installation.id} className="rounded-lg border border-slate-200 p-3 text-sm"><div className="font-medium">{installation.statusName}</div><div className="mt-1 text-xs text-muted-foreground">{installation.technician || "Teknisyen atanmadı"} · {formatDate(installation.scheduledDate)}</div></div>)}{opportunityInstallations.length === 0 && <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-4 text-center"><div className="text-sm text-muted-foreground">Kurulum kaydı yok.</div><Button type="button" variant="outline" size="sm" className="mt-3 min-h-11 sm:min-h-8" onClick={revealProcessActions}>Kurulum oluştur</Button></div>}</CardContent></Card>
-                  </div>}
-              </div>
-            </div>
-          )}
+    <div className="opportunity-workspace">
+      <section ref={decisionSummaryRef} tabIndex={-1} aria-labelledby="workspace-decision-title"
+        data-testid="workspace-decision-summary" className="opportunity-next-work">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="min-w-0">
+            <div className="text-xs font-medium text-muted-foreground">{terminal ? "Fırsat durumu" : "Sıradaki iş"}</div>
+            <h2 id="workspace-decision-title" className="mt-1 text-base font-semibold text-foreground">{nextWork}</h2>
+            {!terminal && nextActivity && <p className="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground"><CalendarClock className="size-3.5" /> {nextActivity.title} · {formatDate(nextActivity.date, true)}</p>}
+          </div>
+          {nextWorkAction && <div data-opportunity-primary="true">{nextWorkAction}</div>}
         </div>
-      </RecordWorkspaceShell>
+        {decisionModel.risks.filter((risk) => risk.key !== "process-blockers" || !nextCheck).length > 0 && (
+          <ul className="mt-3 flex flex-wrap gap-x-5 gap-y-2 border-t border-primary/10 pt-3 text-xs">
+            {decisionModel.risks.filter((risk) => risk.key !== "process-blockers" || !nextCheck).map((risk) => (
+              <li key={risk.key} className={`inline-flex items-center gap-1.5 ${risk.tone === "danger" ? "text-destructive" : "text-amber-800"}`}>
+                <AlertTriangle className="size-3.5 shrink-0" /><span>{risk.label}{risk.detail ? ` · ${risk.detail}` : ""}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+      {detailError && <div className="flex flex-wrap items-center justify-between gap-3 px-1 py-3 text-sm text-destructive" role="alert"><span>Fırsat bilgileri alınamadı. Yeniden deneyin.</span><Button type="button" variant="outline" size="sm" onClick={() => void loadDetail()}><RefreshCw className="size-4" /> Tekrar dene</Button></div>}
+      <div className="opportunity-workspace-columns">
+        <div className="opportunity-main">
+          {companyLinkingPanel}
+          {sc.isLost && <LostOpportunityDetails salesCase={sc} companyName={customer?.name} />}
+          <div className="opportunity-process">
+            {renderProcessCenter ? renderProcessCenter({ detail, loading: detailLoading, reload: loadDetail, headerPortalId: stageHeaderPortalId }) : processCenter}
+          </div>
+          {isLead && <LeadQualificationPanel salesCase={sc} canUpdate={canUpdate} />}
+          <section className="opportunity-information" aria-label="Fırsat bilgileri">
+            <h3 className="text-base font-semibold">Fırsat bilgileri</h3>
+            <OpportunitySummary salesCase={sc} canEdit={canUpdate} onSave={(description) => updateCase(sc.id, { description })} />
+            <OpportunityMachines salesCase={sc} canEdit={canUpdate} onSave={(machines) => updateCase(sc.id, { machines })} />
+            <DecisionRail salesCase={sc} ownerName={owner?.name} users={users} canUpdate={canUpdate}
+              canAssignOwner={canAssignOwner} onOwnerChanged={loadDetail}
+              contactPhone={resolvedContact.phone} contactEmail={resolvedContact.email} whatsappNumber={resolvedContact.whatsappNumber}
+              contactName={resolvedContact.name} contactTitle={resolvedContact.primaryContact?.title || resolvedContact.primaryContact?.department}
+              useLeadConversionAsPrimary={useLeadConversionAsPrimary} simpleMode inline />
+          </section>
+          <TaskRecordSection relation={{ opportunityId: sc.id, companyId: sc.customerId ?? null, label: sc.requestedProduct || "Fırsat" }} title="Takip görevleri" quiet />
+          <WorkspaceSection id="opportunity-documents" title="Teklifler ve belgeler" count={caseOffers.length + caseDocuments.length}>
+            <div className="divide-y divide-border/60">
+              {caseOffers.map((offer) => (
+                <button key={offer.id} type="button" className="opportunity-document-row w-full text-left" disabled={!onOpenOffer} onClick={() => onOpenOffer?.(offer.id)}>
+                  <FileText className="size-5 shrink-0 text-muted-foreground" />
+                  <span className="min-w-0 flex-1"><span className="block truncate font-medium">{offer.quoteNo} · Rev.{offer.revision}</span><span className="text-xs text-muted-foreground">{formatDate(offer.date)} · {formatMoney(offer.amount, offer.currency)}</span></span>
+                  <span className="text-xs text-muted-foreground">{({ Draft: "Taslak", Sent: "Gönderildi", Approved: "Onaylandı", Rejected: "Reddedildi", Cancelled: "İptal", "Pending Approval": "Onay bekliyor", "Price Waiting": "Fiyat bekliyor", "Budget Waiting": "Bütçe bekliyor", "On Hold": "Beklemede", Postponed: "Ertelendi" })[offer.status]}</span><ArrowUpRight className="size-4 shrink-0" />
+                </button>
+              ))}
+              {caseDocuments.map((document) => (
+                <div key={document.id} className="py-1">
+                  <button type="button" className="opportunity-document-row w-full text-left" disabled={document.source !== "commercial_record" && !document.fileId} title={document.source === "live_form" ? "Saha formu kaydı" : document.fileName} onClick={() => document.source === "commercial_record" ? setSelectedCommercialDocument(document) : setSelectedFileDocument(document)}>
+                    <FileText className="size-5 shrink-0 text-muted-foreground" />
+                    <span className="min-w-0 flex-1"><span className="block truncate font-medium">{document.fileName}</span><span className="text-xs text-muted-foreground">{formatDate(document.uploadedAt)}{document.size ? ` · ${document.size}` : ""}</span></span>
+                    {document.type === "Contract" && <span className="text-xs text-muted-foreground">{document.fileId ? "İmzalı nüsha" : "İmza bekliyor"}</span>}<ArrowUpRight className="size-4 shrink-0" />
+                  </button>
+                  {document.type === "Contract" && document.source === "commercial_record" && (
+                    <div className="flex flex-wrap gap-2 pb-2 pl-8">
+                      {hasPermission("contracts.update") && !document.fileId && <EditContractTermsDialog document={document} trigger={<Button type="button" variant="ghost" size="sm">Şartları düzenle</Button>} />}
+                      {document.fileId ? <Button type="button" variant="ghost" size="sm" onClick={() => setSelectedFileDocument(document)}>İmzalı PDF</Button> : hasPermission("files.create") && hasPermission("contracts.update") && <SignedContractUploadDialog document={document} salesCase={sc} trigger={<Button type="button" variant="outline" size="sm">İmzalı sözleşme yükle</Button>} />}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+            {!caseOffers.length && !caseDocuments.length && <p className="py-2 text-sm text-muted-foreground">Henüz teklif veya belge yok.{onCommercialAction && canPerformCommercialAction?.("create_quote") !== false && !terminal && <Button variant="link" size="sm" onClick={() => onCommercialAction("create_quote")}>Teklif oluştur</Button>}</p>}
+          </WorkspaceSection>
+          <WorkspaceSection title="Ödeme bilgileri" count={opportunityPayments.length}>
+            {opportunityPayments.length ? <div className="divide-y divide-border/60">{opportunityPayments.map((payment) => (
+              <div key={payment.id} className="flex flex-wrap items-center justify-between gap-2 py-3 text-sm">
+                <span className="font-medium tabular-nums">{formatMoney(payment.amount, payment.currency)}</span><span className="text-muted-foreground">{formatDate(payment.dueDate)}</span>
+                <span className={payment.status === "Overdue" ? "text-destructive" : "text-muted-foreground"}>{({ Pending: "Bekliyor", Paid: "Ödendi", Overdue: "Gecikti", Cancelled: "İptal" })[payment.status]}</span>
+              </div>
+            ))}</div> : <p className="py-2 text-sm text-muted-foreground">Henüz ödeme kaydı yok.</p>}
+          </WorkspaceSection>
+          <WorkspaceSection title="Sevkiyat, teslim ve kurulum">
+            <p className="mb-3 text-sm text-muted-foreground">Mevcut operasyon: <span className="font-medium text-foreground">{salesStageLabel(sc.stage)}</span></p>
+            <div className="divide-y divide-border/60">
+              {opportunityShipments.map((item) => <div key={item.id} className="flex items-center gap-3 py-3 text-sm"><Truck className="size-4 text-muted-foreground" /><span className="flex-1">Sevkiyat · {item.trackingNo || "Takip numarası yok"}</span><span>{item.status}</span></div>)}
+              {opportunityDeliveries.map((item) => <div key={item.id} className="flex items-center gap-3 py-3 text-sm"><FileClock className="size-4 text-muted-foreground" /><span className="flex-1">Teslim · {formatDate(item.date)}</span><span>{item.status}</span></div>)}
+              {opportunityInstallations.map((item) => <div key={item.id} className="flex items-center gap-3 py-3 text-sm"><Wrench className="size-4 text-muted-foreground" /><span className="flex-1">Kurulum · {item.technician || "Teknisyen atanmadı"}</span><span>{item.statusName}</span></div>)}
+            </div>
+            {!opportunityShipments.length && !opportunityDeliveries.length && !opportunityInstallations.length && <p className="text-sm text-muted-foreground">Henüz operasyon kaydı yok.</p>}
+            <Button variant="link" className="mt-2 px-0" onClick={revealProcessActions}>İlgili işleri göster <ArrowUpRight className="size-4" /></Button>
+          </WorkspaceSection>
+          {otherActions && <WorkspaceSection title="Diğer kayıt işlemleri">{otherActions}</WorkspaceSection>}
+        </div>
+        <aside id="opportunity-conversation" className="opportunity-activity-rail" aria-label="Notlar ve görüşmeler">{activityFeed}</aside>
+      </div>
       <DocumentDetailDialog
         doc={selectedCommercialDocument}
         onClose={() => setSelectedCommercialDocument(null)}
@@ -857,91 +714,56 @@ export function OpportunityWorkspace({
   );
 }
 
-/**
- * Kartın özeti: fırsatın kendi açıklaması (Trello aktarımında "kart
- * açıklaması" buraya yazılıyor). Salt okunur gösterilir, yetkisi olan
- * pop-up'ta düzenler — ekranın üstünde uzun metin akıtmadan.
- */
-function OpportunitySummary({
-  salesCase,
-  canEdit,
-  onSave,
-}: {
-  salesCase: SalesCase;
-  canEdit: boolean;
-  onSave: (description: string | null) => Promise<void>;
+/** Açıklama aynı yüzeyde düzenlenir; hata olursa taslak korunur. */
+function OpportunitySummary({ salesCase, canEdit, onSave }: {
+  salesCase: SalesCase; canEdit: boolean; onSave: (description: string | null) => Promise<void>;
 }) {
-  const [open, setOpen] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const editButtonRef = useRef<HTMLButtonElement>(null);
+  const [expanded, setExpanded] = useState(false);
   const [draft, setDraft] = useState("");
   const [saving, setSaving] = useState(false);
-  // Kaydedilen değer, store tazelenene kadar prop'taki eski metni gölgeler.
   const [savedSummary, setSavedSummary] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
   const summary = (savedSummary ?? salesCase.description ?? "").trim();
-
   useEffect(() => { setSavedSummary(null); }, [salesCase.description]);
-  useEffect(() => { if (open) setDraft(summary); }, [open, summary]);
-
+  useEffect(() => { if (!saved) return; const timer = window.setTimeout(() => setSaved(false), 3000); return () => window.clearTimeout(timer); }, [saved]);
   const save = async () => {
+    if (saving) return;
     setSaving(true);
     try {
-      const next = draft.trim();
-      await onSave(next || null);
-      setSavedSummary(next);
-      toast.success("Özet kaydedildi");
-      setOpen(false);
-    } catch (error: any) {
-      toast.error("Özet kaydedilemedi", { description: error?.message ?? "API isteği başarısız oldu." });
-    } finally {
-      setSaving(false);
-    }
+      await onSave(draft.trim() || null);
+      setSavedSummary(draft.trim()); setEditing(false); setSaved(true);
+      requestAnimationFrame(() => editButtonRef.current?.focus());
+    } catch { toast.error("Açıklama kaydedilemedi. Tekrar deneyin."); }
+    finally { setSaving(false); }
   };
-
-  if (!summary && !canEdit) return null;
-
   return (
-    <div className="border-b border-border pb-3" data-testid="opportunity-summary">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="ui-eyebrow flex items-center gap-1.5">
-            <NotebookText className="size-3.5" /> Fırsat Açıklaması
-          </div>
-          <p className={`mt-1 whitespace-pre-wrap text-sm ${summary ? "text-foreground" : "text-muted-foreground"}`}>
-            {summary || "Bu fırsat için özet girilmemiş."}
-          </p>
-        </div>
-        {canEdit && (
-          <Button type="button" variant="outline" size="sm" className="shrink-0 gap-1" onClick={() => setOpen(true)}>
-            <Pencil className="size-3.5" /> {summary ? "Düzenle" : "Özet ekle"}
-          </Button>
-        )}
+    <div className="group py-3" data-testid="opportunity-summary">
+      <div className="mb-2 flex items-center justify-between gap-3">
+        <h4 className="text-sm font-medium text-muted-foreground">Fırsat açıklaması</h4>
+        {canEdit && !editing && <Button ref={editButtonRef} variant="ghost" size="sm" className="h-8 gap-1 text-muted-foreground" aria-label="Açıklamayı düzenle" onClick={() => { setDraft(summary); setEditing(true); setSaved(false); }}><Pencil className="size-3.5" /> Düzenle</Button>}
+        <span role="status" className="text-xs text-muted-foreground">{saved ? "Kaydedildi" : ""}</span>
       </div>
-
-      <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="max-w-xl">
-          <DialogHeader>
-            <DialogTitle>Fırsat Açıklaması</DialogTitle>
-            <DialogDescription>{salesCase.requestedModel || salesCase.requestedProduct || "Fırsat kartı"}</DialogDescription>
-          </DialogHeader>
-          <Textarea
-            value={draft}
-            onChange={(event) => setDraft(event.target.value.slice(0, 4000))}
-            placeholder="Talebin özeti, müşterinin beklentisi, kritik notlar…"
-            className="min-h-40 resize-y"
-            maxLength={4000}
-          />
-          <DialogFooter className="items-center gap-2 sm:justify-between">
-            <span className="text-[10px] tabular-nums text-muted-foreground">{draft.length}/4000</span>
-            <div className="flex gap-2">
-              <Button type="button" variant="outline" onClick={() => setOpen(false)}>Vazgeç</Button>
-              <Button type="button" disabled={saving} onClick={() => void save()}>
-                {saving ? "Kaydediliyor…" : "Kaydet"}
-              </Button>
-            </div>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {editing ? <div className="space-y-2">
+        <Textarea autoFocus onKeyDown={(event) => { if (event.key === "Escape") { event.stopPropagation(); if (!saving) { setEditing(false); requestAnimationFrame(() => editButtonRef.current?.focus()); } } }} aria-label="Fırsat açıklaması" value={draft} maxLength={4000} disabled={saving} onChange={(event) => setDraft(event.target.value)} className="min-h-28 text-sm" />
+        <div className="flex justify-end gap-2"><Button variant="ghost" size="sm" disabled={saving} onClick={() => setEditing(false)}>Vazgeç</Button><Button variant="outline" size="sm" disabled={saving} onClick={() => void save()}>{saving ? "Kaydediliyor…" : "Açıklamayı kaydet"}</Button></div>
+      </div> : <>
+        <p className={`whitespace-pre-wrap break-words text-sm leading-6 ${expanded ? "" : "line-clamp-2"} ${summary ? "text-foreground" : "text-muted-foreground"}`}>{summary || "Henüz açıklama eklenmedi."}</p>
+        {summary && (summary.length > 160 || summary.includes("\n")) && <button type="button" className="mt-1 min-h-9 text-xs font-medium text-primary hover:underline" aria-expanded={expanded} onClick={() => setExpanded(!expanded)}>{expanded ? "Daha az göster" : "Devamını göster"}</button>}
+      </>}
     </div>
   );
+}
+
+function WorkspaceSection({ title, count, id, children }: { title: string; count?: number; id?: string; children: ReactNode }) {
+  return <details id={id} className="opportunity-section group/section">
+    <summary className="flex min-h-14 cursor-pointer list-none items-center gap-3 py-3 text-sm font-semibold marker:content-none">
+      <ChevronDown className="size-4 text-muted-foreground transition-transform group-open/section:rotate-180 motion-reduce:transition-none" />
+      <span>{title}</span>{count !== undefined && <span className="ml-auto text-xs font-normal tabular-nums text-muted-foreground">{count}</span>}
+    </summary>
+    <div className="opportunity-section-content pb-4">{children}</div>
+  </details>;
 }
 
 /**

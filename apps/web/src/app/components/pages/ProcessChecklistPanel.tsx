@@ -303,6 +303,8 @@ export function ProcessChecklistPanel({
   onOpenOffer,
   checks: checksOverride,
   readOnly = false,
+  compactDocuments = false,
+  onViewDocuments,
 }: {
   sc: SalesCase;
   requestedAction?: OpportunityProcessActionKey | null;
@@ -323,6 +325,8 @@ export function ProcessChecklistPanel({
   checks?: ProcessCheck[];
   /** İleri alanların görevleri yalnız önizlemedir; düzenleme kapalıdır. */
   readOnly?: boolean;
+  compactDocuments?: boolean;
+  onViewDocuments?: () => void;
   /**
    * Kaydetmeden sonra satış alanı kutusunun hazırlık verisini tazeler.
    *
@@ -339,6 +343,7 @@ export function ProcessChecklistPanel({
   const canCreateActivity = hasPermission("activities.create");
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [activeCheckKey, setActiveCheckKey] = useState<string | null>(null);
+  const [showCompleted, setShowCompleted] = useState(false);
   const readiness = sc.qualificationReadiness;
   const companyQuery = useCompanyDetail(sc.customerId);
   const company = companyQuery.data;
@@ -433,8 +438,8 @@ export function ProcessChecklistPanel({
     <section aria-label="Mevcut satış alanının görevleri" className="space-y-3 p-4 sm:p-5">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0">
-          <h3 className="text-xs font-semibold text-foreground">Operasyon adımları</h3>
-          {areaSteps.length > 0 && (
+          {!compactDocuments && <h3 className="text-xs font-semibold text-foreground">Operasyon adımları</h3>}
+          {!compactDocuments && areaSteps.length > 0 && (
             <p className="mt-0.5 text-[11px] leading-4 text-muted-foreground">
               {grade === "a_plus"
                 ? "Lojistik akışı · Ticari Fatura ∥ Kurulum paralel kapanış"
@@ -476,7 +481,7 @@ export function ProcessChecklistPanel({
         <p className="text-xs text-muted-foreground">Bu aşamada tamamlanacak alan yok.</p>
       ) : (
         <ul className="grid gap-2 sm:grid-cols-2">
-          {checks.map((check) => {
+          {checks.filter((check) => !compactDocuments || showCompleted || !check.complete).map((check) => {
             const hasInlineEditor = INLINE_EDITOR_CHECK_KEYS.has(check.key);
             const actionAllowed = check.actionKey
               ? canPerformAction?.(check.actionKey) !== false
@@ -494,7 +499,7 @@ export function ProcessChecklistPanel({
                     : CHECK_ACTION_LABELS[check.key] ?? "Aç";
             // Sözleşme adımı da teklif gibi kanıta dönüşür: fırsata bağlı
             // sözleşmeler burada listelenir ve imzalı nüsha buraya yüklenir.
-            if (check.key === "contract" && opportunityContracts.length > 0) {
+            if (!compactDocuments && check.key === "contract" && opportunityContracts.length > 0) {
               return (
                 <li key={check.key} className="sm:col-span-2">
                   <div className="overflow-hidden rounded-lg border border-primary/20 bg-background shadow-xs">
@@ -518,7 +523,7 @@ export function ProcessChecklistPanel({
                 </li>
               );
             }
-            if (check.key === "quote" && opportunityOffers.length > 0) {
+            if (!compactDocuments && check.key === "quote" && opportunityOffers.length > 0) {
               return (
                 <li key={check.key} id="opportunity-quote-list" className="scroll-mt-24 sm:col-span-2">
                   <div className="overflow-hidden rounded-lg border border-primary/20 bg-background shadow-xs">
@@ -533,6 +538,9 @@ export function ProcessChecklistPanel({
                   </div>
                 </li>
               );
+            }
+            if (compactDocuments && check.complete && (check.key === "quote" || check.key === "contract")) {
+              return <li key={check.key}><button type="button" onClick={onViewDocuments} className="flex min-h-11 w-full items-center gap-2 text-left"><CheckCircle2 className="size-4 shrink-0 text-muted-foreground" /><span className="flex-1 text-sm">{check.label}</span><span className="text-xs text-primary">Belgeleri gör</span></button></li>;
             }
             return (
               <li key={check.key}>
@@ -573,6 +581,7 @@ export function ProcessChecklistPanel({
         </ul>
       )}
 
+      {compactDocuments && checks.some((check) => check.complete) && <Button type="button" variant="ghost" size="sm" className="text-muted-foreground" aria-expanded={showCompleted} onClick={() => setShowCompleted(!showCompleted)}>{showCompleted ? "Tamamlananları gizle" : `Tamamlananları göster (${checks.filter((check) => check.complete).length})`}</Button>}
       <Dialog
         open={Boolean(activeCheckKey && activeCheck)}
         onOpenChange={(open) => {

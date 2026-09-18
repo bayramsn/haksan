@@ -1,4 +1,9 @@
 node_modules
+# iCloud/Finder kopyaları ve .nosync bağı: izlenmeyen sayılınca `git ls-files -co`
+# milyonlarca yol dönüyor ve `npm run scan:secrets` ENOBUFS ile düşüyor.
+node_modules 2/
+node_modules.nosync/
+*.nosync/
 .pnpm-store/
 .playwright-mcp/
 dist/
