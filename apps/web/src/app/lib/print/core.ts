@@ -3,18 +3,9 @@
 // Şablonlar saf fonksiyondur (window'a dokunmaz); pencereyi yalnızca
 // openPrintWindow açar — böylece şablonlar test için node tarafında da çalışır.
 
-export interface PrintDocument {
-  title: string;
-  css: string;
-  body: string;
-}
-
-export const esc = (v: unknown): string =>
-  String(v ?? "")
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
+// Belge tipi, kaçış ve A4 iskeleti ortak pakette: sunucu (cron eki) aynı HTML'i üretir.
+import { esc, PRINT_BASE_CSS, printDocumentHtml, type PrintDocument } from "@haksan/shared";
+export { esc, printDocumentHtml, type PrintDocument };
 
 const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
@@ -144,34 +135,7 @@ export const trShortDate = (value?: string | Date | null): string => {
 
 // ── Ortak sayfa iskeleti ────────────────────────────────────────────────────
 
-export const BASE_CSS = `
-@page { size: A4; margin: 0; }
-* { box-sizing: border-box; margin: 0; padding: 0; }
-body {
-  font-family: Calibri, Carlito, "Segoe UI", Tahoma, Arial, sans-serif;
-  color: #000; margin: 0;
-  -webkit-print-color-adjust: exact; print-color-adjust: exact;
-}
-table { border-collapse: collapse; }
-.page {
-  width: 210mm; min-height: 296mm; padding: 8mm 11mm 9mm;
-  margin: 0 auto; position: relative; background: #fff;
-  display: flex; flex-direction: column; overflow: visible;
-  page-break-after: always;
-}
-.page:last-child { page-break-after: auto; }
-thead { display: table-header-group; }
-tfoot { display: table-footer-group; }
-tr, img, .avoid-break { break-inside: avoid; page-break-inside: avoid; }
-img.letterhead { width: 100%; display: block; }
-.link { color: #0563c1; text-decoration: underline; }
-.pageno { text-align: center; font-size: 10pt; margin-top: auto; padding-top: 4mm; }
-.pageno b { font-weight: bold; }
-@media screen {
-  body { background: #4a4d52; padding: 18px 0; }
-  .page { box-shadow: 0 3px 14px rgba(0,0,0,.4); margin-bottom: 18px; }
-}
-`;
+export const BASE_CSS = PRINT_BASE_CSS;
 
 /** Haksan antetli kağıt şeridi (logo + kırmızı firma bilgi bloğu). */
 export const haksanHeader = (assetBase: string): string =>

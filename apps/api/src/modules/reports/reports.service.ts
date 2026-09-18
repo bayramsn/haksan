@@ -1,8 +1,23 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { ACTIVITY_TYPE_OPTIONS, activityTypeLabel, VISIT_NOT_DONE_RESULT } from '@haksan/shared';
-import { and, between, desc, eq, gte, inArray, isNull, lte, sql } from 'drizzle-orm';
+import {
+  ACTIVITY_TYPE_OPTIONS,
+  activityTypeLabel,
+  VISIT_NOT_DONE_RESULT,
+  type ActivityLogEntry,
+  type ActivityLogMissedFollowUp,
+  type ActivityLogPlanItem,
+  type ActivityLogQuoteRow,
+  type ActivityLogReport,
+  type ActivityLogTargetMetric,
+  type ActivityLogTargets,
+  type ActivityLogUser,
+} from '@haksan/shared';
+import { and, between, desc, eq, gte, inArray, isNull, lte, or, sql } from 'drizzle-orm';
 import type { DbClient } from '../../db/client';
-import { visits as visitsTbl, calls as callsTbl, leads, salesActivities } from '../../db/schema/crm';
+import { visits as visitsTbl, calls as callsTbl, leads, salesActivities, opportunityStageHistory } from '../../db/schema/crm';
+import { tasks } from '../../db/schema/tasks';
+import { calendarEvents } from '../../db/schema/calendar';
+import { logger } from '../../shared/utils/logger';
 import { opportunities, cancellationReasons, competitors } from '../../db/schema/crm';
 import { users, userDepartmentAssignments, userDivisions, userRoles, roles, userTargets, departmentTargets, divisionTargets } from '../../db/schema/users';
 import { departments, divisions } from '../../db/schema/tenants';
@@ -12,7 +27,7 @@ import { receivables, payments, accountingInvoices } from '../../db/schema/finan
 import { inventoryItems, customerDevices } from '../../db/schema/inventory';
 import { serviceComplaintIntakes, serviceTickets, installationJobs, deliveries } from '../../db/schema/service';
 import { salesOrders, purchaseOrders } from '../../db/schema/orders';
-import { activityTypes, currencies, pipelineStages, inventoryStatuses, paymentStatuses, warrantyStatuses, quoteStatuses } from '../../db/schema/lookup';
+import { activityTypes, currencies, pipelineStages, inventoryStatuses, paymentStatuses, warrantyStatuses, quoteStatuses, companyStatuses, companyRelationTypes } from '../../db/schema/lookup';
 import { companies, companyAddresses, contacts } from '../../db/schema/companies';
 import { DB } from '../../shared/database/database.module';
 import type { AuthContext } from '../../shared/security/auth.types';
@@ -40,54 +55,15 @@ const istanbulDayStart = (day: string) => new Date(`${day}T00:00:00+03:00`);
  * girildikleri aktivite TÜRÜNE göre gruplanır — haftalık saha raporu bu
  * kırılımla okunuyor.
  */
-export type ActivityLogEntry = {
-  id: string;
-  occurredAt: string;
-  companyName: string | null;
-  companyLegalTitle: string | null;
-  province: string | null;
-  district: string | null;
-  contactName: string | null;
-  contactTitle: string | null;
-  contactPhone: string | null;
-  subject: string;
-  note: string | null;
-  result: string | null;
-  nextFollowUpAt: string | null;
-  /** Fırsata bağlı mı; rapor fırsat içi/dışı ayırmadan hepsini listeler. */
-  inOpportunity: boolean;
-  opportunityTitle: string | null;
-};
-
-export type ActivityLogQuoteRow = {
-  id: string;
-  documentNo: string;
-  quoteDate: string;
-  userName: string;
-  companyName: string | null;
-  province: string | null;
-  district: string | null;
-  productName: string;
-  quantity: number;
-  unitPrice: number;
-  discountAmount: number;
-  /** Satır iskontosu düşülmüş net tutar (KDV hariç). */
-  lineTotal: number;
-  currency: string;
-};
-
-export type ActivityLogReport = {
-  range: { from: string; to: string };
-  users: Array<{
-    userId: string;
-    userName: string;
-    activityCount: number;
-    quoteCount: number;
-    quoteTotals: Array<{ currency: string; amount: number }>;
-    groups: Array<{ typeCode: string; typeName: string; entries: ActivityLogEntry[] }>;
-  }>;
-  quotes: ActivityLogQuoteRow[];
-};
+// Rapor tipleri ortak pakette: web'deki yazdırma şablonu ve cron eki aynı şekli okur.
+export type {
+  ActivityLogEntry,
+  ActivityLogQuoteRow,
+  ActivityLogReport,
+  ActivityLogUser,
+  ActivityLogPlanItem,
+  ActivityLogTargets,
+} from '@haksan/shared';
 
 export type Granularity = 'weekly' | 'monthly' | 'yearly';
 
@@ -2849,15 +2825,16 @@ export class ReportsService {
     if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime()) || to <= from) {
       throw new ForbiddenError('Geçersiz tarih aralığı');
     }
+    // "Önümüzdeki hafta": rapor bitişini izleyen 7 gün.
+    const nextTo = new Date(to);
+    nextTo.setUTCDate(nextTo.getUTCDate() + 7);
+    const range = { from: from.toISOString(), to: to.toISOString() };
+    const nextRange = { from: to.toISOString(), to: nextTo.toISOString() };
 
     const audience = await this.reportAudience(actor);
     const people = this.canSeeAllUsers(actor) ? audience : audience.filter((u) => u.id === actor.userId);
     const userIds = people.map((u) => u.id);
-    const emptyReport: ActivityLogReport = {
-      range: { from: from.toISOString(), to: to.toISOString() },
-      users: [],
-      quotes: [],
-    };
+    const emptyReport: ActivityLogReport = { range, nextRange, users: [], quotes: [] };
     if (!userIds.length) return emptyReport;
 
     const visibility = await companyVisibilityFilter(this.db, actor);
@@ -2870,111 +2847,351 @@ export class ReportsService {
         visibility,
         portfolio,
       );
+    const companyLabel = sql<string | null>`coalesce(${companies.shortName}, ${companies.legalTitle})`;
+    const opportunityJoin = (opportunityId: any) =>
+      and(eq(opportunities.id, opportunityId), eq(opportunities.tenantId, actor.tenantId), isNull(opportunities.deletedAt));
+    const { won: isWon, lost: isLost, open: isOpen } = this.opportunityOutcome();
+    const openTask = inArray(tasks.status, ['todo', 'in_progress']);
 
-    const [activityRows, quoteRows] = await Promise.all([
-      this.db
-        .select({
-          id: salesActivities.id,
-          userId: salesActivities.createdBy,
-          divisionId: salesActivities.divisionId,
-          linkedCompanyId: salesActivities.companyId,
-          visibleCompanyId: companies.id,
-          typeCode: activityTypes.code,
-          typeName: activityTypes.name,
-          occurredAt: salesActivities.activityDate,
-          subject: salesActivities.subject,
-          note: salesActivities.description,
-          result: salesActivities.result,
-          nextFollowUpAt: salesActivities.nextFollowUpAt,
-          opportunityId: salesActivities.opportunityId,
-          opportunityTitle: opportunities.title,
-          companyName: sql<string | null>`coalesce(${companies.shortName}, ${companies.legalTitle})`,
-          companyLegalTitle: companies.legalTitle,
-          province: sql<string | null>`(
-            select a.province from company_addresses a
-            where a.company_id = ${companies.id} and a.deleted_at is null
-            order by a.is_default desc, a.created_at limit 1
-          )`,
-          district: sql<string | null>`(
-            select a.district from company_addresses a
-            where a.company_id = ${companies.id} and a.deleted_at is null
-            order by a.is_default desc, a.created_at limit 1
-          )`,
-          contactName: contacts.fullName,
-          contactTitle: contacts.title,
-          contactPhone: sql<string | null>`coalesce(nullif(${contacts.mobilePhone}, ''), nullif(${contacts.workPhone}, ''))`,
-        })
-        .from(salesActivities)
-        .leftJoin(activityTypes, eq(activityTypes.id, salesActivities.activityTypeId))
-        .leftJoin(companies, companyJoin(salesActivities.companyId))
-        .leftJoin(contacts, and(eq(contacts.id, salesActivities.contactId), eq(contacts.tenantId, actor.tenantId)))
-        .leftJoin(
-          opportunities,
-          and(
-            eq(opportunities.id, salesActivities.opportunityId),
-            eq(opportunities.tenantId, actor.tenantId),
-            isNull(opportunities.deletedAt),
+    const [activityRows, quoteRows, oppCreated, stageMoves, outcomes, taskStats, dueFollowUps, laterActivities, doneTasks, planFollowUps, planActions, planTasks, planVisits, targets] =
+      await Promise.all([
+        this.db
+          .select({
+            id: salesActivities.id,
+            userId: salesActivities.createdBy,
+            divisionId: salesActivities.divisionId,
+            linkedCompanyId: salesActivities.companyId,
+            visibleCompanyId: companies.id,
+            typeCode: activityTypes.code,
+            typeName: activityTypes.name,
+            origin: salesActivities.origin,
+            occurredAt: salesActivities.activityDate,
+            subject: salesActivities.subject,
+            note: salesActivities.description,
+            result: salesActivities.result,
+            nextFollowUpAt: salesActivities.nextFollowUpAt,
+            opportunityId: salesActivities.opportunityId,
+            opportunityTitle: opportunities.title,
+            oppStage: pipelineStages.name,
+            oppValue: opportunities.estimatedValue,
+            oppCurrency: currencies.code,
+            oppProbability: opportunities.probability,
+            oppExpectedClose: opportunities.expectedCloseDate,
+            oppMachine: opportunities.requestedMachine,
+            oppTemperature: opportunities.leadTemperature,
+            oppNextAction: opportunities.nextAction,
+            oppNextActionAt: opportunities.nextActionAt,
+            companyName: companyLabel,
+            companyLegalTitle: companies.legalTitle,
+            companySector: companies.sector,
+            companyStatus: companyStatuses.name,
+            companyRelation: companyRelationTypes.name,
+            // Firmadaki makineler: en yeni 4 teslimat, "Model (yıl)" olarak.
+            companyMachines: sql<string | null>`(
+              select string_agg(m.label, ', ' order by m.delivery_date desc nulls last)
+              from (
+                select coalesce(pm.full_name, pm.model_name, 'Makine')
+                  || case when cd.delivery_date is null then '' else ' (' || to_char(cd.delivery_date, 'YYYY') || ')' end as label,
+                  cd.delivery_date
+                from customer_devices cd
+                left join inventory_items ii on ii.id = cd.inventory_item_id
+                left join product_models pm on pm.id = ii.product_model_id
+                where cd.company_id = ${companies.id} and cd.deleted_at is null
+                order by cd.delivery_date desc nulls last
+                limit 4
+              ) m
+            )`,
+            province: sql<string | null>`(
+              select a.province from company_addresses a
+              where a.company_id = ${companies.id} and a.deleted_at is null
+              order by a.is_default desc, a.created_at limit 1
+            )`,
+            district: sql<string | null>`(
+              select a.district from company_addresses a
+              where a.company_id = ${companies.id} and a.deleted_at is null
+              order by a.is_default desc, a.created_at limit 1
+            )`,
+            contactName: contacts.fullName,
+            contactTitle: contacts.title,
+            contactPhone: sql<string | null>`coalesce(nullif(${contacts.mobilePhone}, ''), nullif(${contacts.workPhone}, ''))`,
+          })
+          .from(salesActivities)
+          .leftJoin(activityTypes, eq(activityTypes.id, salesActivities.activityTypeId))
+          .leftJoin(companies, companyJoin(salesActivities.companyId))
+          .leftJoin(companyStatuses, eq(companyStatuses.id, companies.customerStatusId))
+          .leftJoin(companyRelationTypes, eq(companyRelationTypes.id, companies.relationTypeId))
+          .leftJoin(contacts, and(eq(contacts.id, salesActivities.contactId), eq(contacts.tenantId, actor.tenantId)))
+          .leftJoin(opportunities, opportunityJoin(salesActivities.opportunityId))
+          .leftJoin(pipelineStages, eq(pipelineStages.id, opportunities.currentStageId))
+          .leftJoin(currencies, eq(currencies.id, opportunities.currencyId))
+          .where(
+            and(
+              eq(salesActivities.tenantId, actor.tenantId),
+              isNull(salesActivities.deletedAt),
+              inArray(salesActivities.createdBy, userIds),
+              gte(salesActivities.activityDate, from),
+              sql`${salesActivities.activityDate} < ${to}`,
+            ),
+          )
+          .orderBy(salesActivities.activityDate),
+        this.db
+          .select({
+            id: quotes.id,
+            userId: quotes.createdBy,
+            divisionId: quotes.divisionId,
+            linkedCompanyId: quotes.companyId,
+            visibleCompanyId: companies.id,
+            documentNo: quotes.documentNo,
+            revisionNo: quotes.revisionNo,
+            quoteDate: quotes.quoteDate,
+            statusName: quoteStatuses.name,
+            statusCode: quoteStatuses.code,
+            opportunityTitle: opportunities.title,
+            companyName: companyLabel,
+            province: companyAddresses.province,
+            district: companyAddresses.district,
+            currency: currencies.code,
+            productName: quoteItems.description,
+            quantity: quoteItems.quantity,
+            unitPrice: quoteItems.unitPrice,
+            discountAmount: quoteItems.discountAmount,
+            lineTotal: quoteItems.lineTotal,
+            sortOrder: quoteItems.sortOrder,
+          })
+          .from(quotes)
+          .leftJoin(quoteItems, and(eq(quoteItems.quoteId, quotes.id), isNull(quoteItems.deletedAt)))
+          .leftJoin(companies, companyJoin(quotes.companyId))
+          // Teklifin kendi adresi yoksa firmanın varsayılan adresine düşülür.
+          .leftJoin(
+            companyAddresses,
+            and(
+              eq(companyAddresses.companyId, quotes.companyId),
+              isNull(companyAddresses.deletedAt),
+              sql`${companyAddresses.id} = coalesce(${quotes.companyAddressId}, (
+                select a.id from company_addresses a
+                where a.company_id = ${quotes.companyId} and a.deleted_at is null
+                order by a.is_default desc, a.created_at
+                limit 1
+              ))`,
+            ),
+          )
+          .leftJoin(currencies, eq(currencies.id, quotes.currencyId))
+          .leftJoin(quoteStatuses, eq(quoteStatuses.id, quotes.statusId))
+          .leftJoin(opportunities, opportunityJoin(quotes.opportunityId))
+          .where(
+            and(
+              eq(quotes.tenantId, actor.tenantId),
+              isNull(quotes.deletedAt),
+              inArray(quotes.createdBy, userIds),
+              gte(quotes.quoteDate, from),
+              sql`${quotes.quoteDate} < ${to}`,
+            ),
+          )
+          .orderBy(quotes.quoteDate, quotes.documentNo, quoteItems.sortOrder),
+        // Haftanın CRM hareketi — sayım tanımları ekip aktivitesi raporuyla aynı:
+        // açılan createdBy/createdAt, kazanılan/kaybedilen ownerUserId + derece tarihi.
+        this.db
+          .select({ userId: opportunities.createdBy, count: sql<number>`count(*)::int` })
+          .from(opportunities)
+          .where(
+            and(
+              eq(opportunities.tenantId, actor.tenantId),
+              isNull(opportunities.deletedAt),
+              inArray(opportunities.createdBy, userIds),
+              gte(opportunities.createdAt, from),
+              sql`${opportunities.createdAt} < ${to}`,
+            ),
+          )
+          .groupBy(opportunities.createdBy),
+        this.db
+          .select({ userId: opportunityStageHistory.changedBy, count: sql<number>`count(*)::int` })
+          .from(opportunityStageHistory)
+          .where(
+            and(
+              eq(opportunityStageHistory.tenantId, actor.tenantId),
+              inArray(opportunityStageHistory.changedBy, userIds),
+              gte(opportunityStageHistory.createdAt, from),
+              sql`${opportunityStageHistory.createdAt} < ${to}`,
+            ),
+          )
+          .groupBy(opportunityStageHistory.changedBy),
+        this.db
+          .select({
+            userId: opportunities.ownerUserId,
+            won: sql<number>`count(*) filter (where ${isWon})::int`,
+            lost: sql<number>`count(*) filter (where ${isLost})::int`,
+          })
+          .from(opportunities)
+          .leftJoin(pipelineStages, eq(pipelineStages.id, opportunities.currentStageId))
+          .where(
+            and(
+              eq(opportunities.tenantId, actor.tenantId),
+              isNull(opportunities.deletedAt),
+              inArray(opportunities.ownerUserId, userIds),
+              gte(opportunities.qualificationUpdatedAt, from),
+              sql`${opportunities.qualificationUpdatedAt} < ${to}`,
+            ),
+          )
+          .groupBy(opportunities.ownerUserId),
+        this.db
+          .select({
+            userId: tasks.assignedToUserId,
+            completed: sql<number>`count(*) filter (where ${tasks.status} = 'done' and ${tasks.completedAt} >= ${from} and ${tasks.completedAt} < ${to})::int`,
+            // Gecikme rapor bitişine göre okunur: geçmiş haftanın raporu sonradan açılınca değişmesin.
+            overdue: sql<number>`count(*) filter (where ${openTask} and ${tasks.dueAt} < ${to})::int`,
+          })
+          .from(tasks)
+          .where(and(eq(tasks.tenantId, actor.tenantId), isNull(tasks.deletedAt), inArray(tasks.assignedToUserId, userIds)))
+          .groupBy(tasks.assignedToUserId),
+        // Bu hafta vadesi gelen takipler; aynı firmaya/fırsata planlayan kayıttan sonra
+        // aktivite ya da tamamlanmış görev yoksa "kaçırılan". Kapanmış fırsatın takibi düşer.
+        this.db
+          .select({
+            id: salesActivities.id,
+            userId: salesActivities.createdBy,
+            divisionId: salesActivities.divisionId,
+            linkedCompanyId: salesActivities.companyId,
+            visibleCompanyId: companies.id,
+            opportunityId: salesActivities.opportunityId,
+            occurredAt: salesActivities.activityDate,
+            dueAt: salesActivities.nextFollowUpAt,
+            subject: salesActivities.subject,
+            companyName: companyLabel,
+          })
+          .from(salesActivities)
+          .leftJoin(companies, companyJoin(salesActivities.companyId))
+          .leftJoin(opportunities, opportunityJoin(salesActivities.opportunityId))
+          .leftJoin(pipelineStages, eq(pipelineStages.id, opportunities.currentStageId))
+          .where(
+            and(
+              eq(salesActivities.tenantId, actor.tenantId),
+              isNull(salesActivities.deletedAt),
+              inArray(salesActivities.createdBy, userIds),
+              gte(salesActivities.nextFollowUpAt, from),
+              sql`${salesActivities.nextFollowUpAt} < ${to}`,
+              or(isNull(salesActivities.opportunityId), isOpen),
+            ),
+          )
+          .orderBy(salesActivities.nextFollowUpAt),
+        this.db
+          .select({
+            id: salesActivities.id,
+            userId: salesActivities.createdBy,
+            companyId: salesActivities.companyId,
+            opportunityId: salesActivities.opportunityId,
+            occurredAt: salesActivities.activityDate,
+          })
+          .from(salesActivities)
+          .where(
+            and(
+              eq(salesActivities.tenantId, actor.tenantId),
+              isNull(salesActivities.deletedAt),
+              inArray(salesActivities.createdBy, userIds),
+              gte(salesActivities.activityDate, from),
+            ),
           ),
-        )
-        .where(
-          and(
-            eq(salesActivities.tenantId, actor.tenantId),
-            isNull(salesActivities.deletedAt),
-            inArray(salesActivities.createdBy, userIds),
-            gte(salesActivities.activityDate, from),
-            sql`${salesActivities.activityDate} < ${to}`,
+        // "Fırsat ileri takibe alındı" akışı takip + görev üretir; görev kapatılınca aktivite
+        // girilmese de takip yapılmış sayılır.
+        this.db
+          .select({
+            userId: tasks.assignedToUserId,
+            companyId: tasks.companyId,
+            opportunityId: tasks.opportunityId,
+            completedAt: tasks.completedAt,
+          })
+          .from(tasks)
+          .where(
+            and(
+              eq(tasks.tenantId, actor.tenantId),
+              isNull(tasks.deletedAt),
+              inArray(tasks.assignedToUserId, userIds),
+              eq(tasks.status, 'done'),
+              gte(tasks.completedAt, from),
+            ),
           ),
-        )
-        .orderBy(salesActivities.activityDate),
-      this.db
-        .select({
-          id: quotes.id,
-          userId: quotes.createdBy,
-          divisionId: quotes.divisionId,
-          linkedCompanyId: quotes.companyId,
-          visibleCompanyId: companies.id,
-          documentNo: quotes.documentNo,
-          quoteDate: quotes.quoteDate,
-          companyName: sql<string | null>`coalesce(${companies.shortName}, ${companies.legalTitle})`,
-          province: companyAddresses.province,
-          district: companyAddresses.district,
-          currency: currencies.code,
-          productName: quoteItems.description,
-          quantity: quoteItems.quantity,
-          unitPrice: quoteItems.unitPrice,
-          discountAmount: quoteItems.discountAmount,
-          lineTotal: quoteItems.lineTotal,
-          sortOrder: quoteItems.sortOrder,
-        })
-        .from(quotes)
-        .leftJoin(quoteItems, and(eq(quoteItems.quoteId, quotes.id), isNull(quoteItems.deletedAt)))
-        .leftJoin(companies, companyJoin(quotes.companyId))
-        // Teklifin kendi adresi yoksa firmanın varsayılan adresine düşülür.
-        .leftJoin(
-          companyAddresses,
-          and(
-            eq(companyAddresses.companyId, quotes.companyId),
-            isNull(companyAddresses.deletedAt),
-            sql`${companyAddresses.id} = coalesce(${quotes.companyAddressId}, (
-              select a.id from company_addresses a
-              where a.company_id = ${quotes.companyId} and a.deleted_at is null
-              order by a.is_default desc, a.created_at
-              limit 1
-            ))`,
+        // Önümüzdeki hafta: takip tarihi, fırsat sonraki adımı, açık görev, takvim ziyareti.
+        this.db
+          .select({
+            userId: salesActivities.createdBy,
+            divisionId: salesActivities.divisionId,
+            linkedCompanyId: salesActivities.companyId,
+            visibleCompanyId: companies.id,
+            dueAt: salesActivities.nextFollowUpAt,
+            subject: salesActivities.subject,
+            companyName: companyLabel,
+          })
+          .from(salesActivities)
+          .leftJoin(companies, companyJoin(salesActivities.companyId))
+          .leftJoin(opportunities, opportunityJoin(salesActivities.opportunityId))
+          .leftJoin(pipelineStages, eq(pipelineStages.id, opportunities.currentStageId))
+          .where(
+            and(
+              eq(salesActivities.tenantId, actor.tenantId),
+              isNull(salesActivities.deletedAt),
+              inArray(salesActivities.createdBy, userIds),
+              gte(salesActivities.nextFollowUpAt, to),
+              sql`${salesActivities.nextFollowUpAt} < ${nextTo}`,
+              or(isNull(salesActivities.opportunityId), isOpen),
+            ),
           ),
-        )
-        .leftJoin(currencies, eq(currencies.id, quotes.currencyId))
-        .where(
-          and(
-            eq(quotes.tenantId, actor.tenantId),
-            isNull(quotes.deletedAt),
-            inArray(quotes.createdBy, userIds),
-            gte(quotes.quoteDate, from),
-            sql`${quotes.quoteDate} < ${to}`,
+        this.db
+          .select({
+            userId: opportunities.ownerUserId,
+            divisionId: opportunities.divisionId,
+            linkedCompanyId: opportunities.companyId,
+            visibleCompanyId: companies.id,
+            dueAt: opportunities.nextActionAt,
+            title: opportunities.title,
+            nextAction: opportunities.nextAction,
+            companyName: sql<string | null>`coalesce(${companies.shortName}, ${companies.legalTitle}, ${opportunities.leadCompanyTitle})`,
+          })
+          .from(opportunities)
+          .leftJoin(pipelineStages, eq(pipelineStages.id, opportunities.currentStageId))
+          .leftJoin(companies, companyJoin(opportunities.companyId))
+          .where(
+            and(
+              eq(opportunities.tenantId, actor.tenantId),
+              isNull(opportunities.deletedAt),
+              inArray(opportunities.ownerUserId, userIds),
+              isOpen,
+              gte(opportunities.nextActionAt, to),
+              sql`${opportunities.nextActionAt} < ${nextTo}`,
+            ),
           ),
-        )
-        .orderBy(quotes.quoteDate, quotes.documentNo, quoteItems.sortOrder),
-    ]);
+        actor.permissions.has('tasks.read')
+          ? this.db
+              .select({ userId: tasks.assignedToUserId, dueAt: tasks.dueAt, title: tasks.title, companyName: companyLabel })
+              .from(tasks)
+              .leftJoin(companies, companyJoin(tasks.companyId))
+              .where(
+                and(
+                  eq(tasks.tenantId, actor.tenantId),
+                  isNull(tasks.deletedAt),
+                  inArray(tasks.assignedToUserId, userIds),
+                  openTask,
+                  gte(tasks.dueAt, to),
+                  sql`${tasks.dueAt} < ${nextTo}`,
+                ),
+              )
+          : Promise.resolve([]),
+        actor.permissions.has('calendar.read')
+          ? this.db
+              .select({ userId: calendarEvents.ownerUserId, dueAt: calendarEvents.startsAt, title: calendarEvents.title, companyName: companyLabel })
+              .from(calendarEvents)
+              .leftJoin(companies, companyJoin(calendarEvents.companyId))
+              .where(
+                and(
+                  eq(calendarEvents.tenantId, actor.tenantId),
+                  isNull(calendarEvents.deletedAt),
+                  eq(calendarEvents.eventType, 'customer_visit'),
+                  inArray(calendarEvents.ownerUserId, userIds),
+                  gte(calendarEvents.startsAt, to),
+                  sql`${calendarEvents.startsAt} < ${nextTo}`,
+                ),
+              )
+          : Promise.resolve([]),
+        this.activityLogTargets(actor, to),
+      ]);
 
     const userName = (id: string) => people.find((u) => u.id === id)?.fullName
       ?? people.find((u) => u.id === id)?.email
@@ -2983,11 +3200,14 @@ export class ReportsService {
     const num = (value: unknown) => Number(value ?? 0) || 0;
 
     // Rapor `reports.read + companies.read` ile açılıyor; aktivite konusu/notu,
-    // kişi telefonu ve teklif kalemleri kendi kaynak izinlerine bağlanır.
-    // Aksi halde bu iki izin, üç modülün verisini tek ekrandan sızdırıyordu.
-    const canExposeActivity = (row: { divisionId: string | null; linkedCompanyId: string | null; visibleCompanyId: string | null }) =>
+    // kişi telefonu, fırsat bağlamı ve teklif kalemleri kendi kaynak izinlerine
+    // bağlanır. Aksi halde bu iki izin, dört modülün verisini tek ekrandan sızdırıyordu.
+    type ScopedRow = { divisionId: string | null; linkedCompanyId: string | null; visibleCompanyId: string | null };
+    const canExposeActivity = (row: ScopedRow) =>
       canExposeTeamActivityContent(actor, 'activities.read', 'activities', row.divisionId, Boolean(row.linkedCompanyId), row.visibleCompanyId);
-    const canExposeQuote = (row: { divisionId: string | null; linkedCompanyId: string | null; visibleCompanyId: string | null }) =>
+    const canExposeOpportunity = (row: ScopedRow) =>
+      canExposeTeamActivityContent(actor, 'opportunities.read', 'opportunities', row.divisionId, Boolean(row.linkedCompanyId), row.visibleCompanyId);
+    const canExposeQuote = (row: ScopedRow) =>
       canExposeTeamActivityContent(actor, 'quotes.read', 'quotes', row.divisionId, Boolean(row.linkedCompanyId), row.visibleCompanyId);
     const canSeeContacts = actor.permissions.has('contacts.read');
 
@@ -2997,11 +3217,15 @@ export class ReportsService {
       .map((row) => ({
         id: row.id,
         documentNo: row.documentNo,
+        revisionNo: num(row.revisionNo) || 1,
         quoteDate: iso(row.quoteDate),
         userName: userName(row.userId),
         companyName: row.companyName ?? null,
         province: row.province ?? null,
         district: row.district ?? null,
+        status: row.statusName ?? null,
+        statusCode: row.statusCode ?? null,
+        opportunityTitle: row.opportunityTitle?.trim() || null,
         productName: row.productName ?? '—',
         quantity: num(row.quantity),
         unitPrice: num(row.unitPrice),
@@ -3034,13 +3258,23 @@ export class ReportsService {
       const entries = byType.get(typeKey) ?? [];
       const allowed = canExposeActivity(row);
       const contactAllowed = allowed && canSeeContacts;
+      const oppAllowed = Boolean(row.opportunityId) && canExposeOpportunity(row);
       entries.push({
         id: row.id,
         occurredAt: iso(row.occurredAt),
+        origin: row.origin === 'system' ? 'system' : 'manual',
         companyName: row.companyName ?? null,
         companyLegalTitle: row.companyLegalTitle ?? null,
         province: row.province ?? null,
         district: row.district ?? null,
+        company: row.visibleCompanyId
+          ? {
+              sector: row.companySector?.trim() || null,
+              status: row.companyStatus ?? null,
+              relation: row.companyRelation ?? null,
+              machines: row.companyMachines || null,
+            }
+          : null,
         contactName: contactAllowed ? row.contactName ?? null : null,
         contactTitle: contactAllowed ? row.contactTitle ?? null : null,
         contactPhone: contactAllowed ? row.contactPhone ?? null : null,
@@ -3050,6 +3284,19 @@ export class ReportsService {
         nextFollowUpAt: allowed && row.nextFollowUpAt ? iso(row.nextFollowUpAt) : null,
         inOpportunity: Boolean(row.opportunityId),
         opportunityTitle: allowed ? row.opportunityTitle?.trim() || null : null,
+        opportunity: oppAllowed
+          ? {
+              stage: row.oppStage ?? null,
+              estimatedValue: row.oppValue == null ? null : num(row.oppValue),
+              currency: row.oppCurrency ?? null,
+              probability: row.oppProbability ?? null,
+              expectedCloseDate: row.oppExpectedClose ? iso(row.oppExpectedClose) : null,
+              requestedMachine: row.oppMachine?.trim() || null,
+              temperature: row.oppTemperature ?? null,
+              nextAction: row.oppNextAction?.trim() || null,
+              nextActionAt: row.oppNextActionAt ? iso(row.oppNextActionAt) : null,
+            }
+          : null,
       });
       byType.set(typeKey, entries);
       groupsByUser.set(row.userId, byType);
@@ -3070,7 +3317,70 @@ export class ReportsService {
       ...extraTypeKeys.map((key) => ({ key, name: typeNameByCode.get(key) ?? key })),
     ];
 
-    const users = people
+    const countBy = (rows: Array<{ userId: string | null; count: number }>) =>
+      new Map(rows.filter((r) => r.userId).map((r) => [r.userId!, num(r.count)]));
+    const createdMap = countBy(oppCreated);
+    const movesMap = countBy(stageMoves);
+    const outcomeMap = new Map(outcomes.filter((r) => r.userId).map((r) => [r.userId!, r]));
+    const taskMap = new Map(taskStats.filter((r) => r.userId).map((r) => [r.userId!, r]));
+
+    // Kaçırılan takip: planlayan kayıttan SONRA aynı fırsata (yoksa aynı firmaya) o kişinin
+    // aktivitesi ya da tamamladığı görevi yok. Erken yapılan takip de sayılır; firması ve
+    // fırsatı olmayan kayıt yargılanamaz, işaretlenmez.
+    const sameTarget = (a: { companyId: string | null; opportunityId: string | null }, row: { linkedCompanyId: string | null; opportunityId: string | null }) =>
+      row.opportunityId ? a.opportunityId === row.opportunityId : a.companyId === row.linkedCompanyId;
+    const followedUp = (row: (typeof dueFollowUps)[number]) =>
+      (!row.linkedCompanyId && !row.opportunityId) ||
+      laterActivities.some((a) => a.id !== row.id && a.userId === row.userId && sameTarget(a, row) && a.occurredAt > row.occurredAt) ||
+      doneTasks.some((t) => t.userId === row.userId && sameTarget(t, row) && Boolean(t.completedAt && t.completedAt > row.occurredAt));
+    const missedByUser = new Map<string, ActivityLogMissedFollowUp[]>();
+    for (const row of dueFollowUps) {
+      if (!row.userId || !row.dueAt) continue;
+      if (followedUp(row)) continue;
+      const list = missedByUser.get(row.userId) ?? [];
+      list.push({
+        companyName: row.companyName ?? null,
+        dueAt: iso(row.dueAt),
+        subject: canExposeActivity(row) ? row.subject : null,
+      });
+      missedByUser.set(row.userId, list);
+    }
+
+    const planByUser = new Map<string, ActivityLogPlanItem[]>();
+    const addPlan = (userId: string | null, item: ActivityLogPlanItem) => {
+      if (!userId) return;
+      const list = planByUser.get(userId) ?? [];
+      list.push(item);
+      planByUser.set(userId, list);
+    };
+    for (const row of planFollowUps) {
+      if (!row.dueAt) continue;
+      addPlan(row.userId, {
+        kind: 'followUp',
+        dueAt: iso(row.dueAt),
+        companyName: row.companyName ?? null,
+        title: canExposeActivity(row) ? row.subject : 'Takip',
+      });
+    }
+    for (const row of planActions) {
+      if (!row.dueAt) continue;
+      const allowed = canExposeOpportunity(row);
+      addPlan(row.userId, {
+        kind: 'opportunityAction',
+        dueAt: iso(row.dueAt),
+        companyName: allowed ? row.companyName ?? null : null,
+        title: allowed ? [row.nextAction?.trim(), row.title].filter(Boolean).join(' — ') : 'Fırsat adımı',
+      });
+    }
+    for (const row of planTasks) {
+      if (!row.dueAt) continue;
+      addPlan(row.userId, { kind: 'task', dueAt: iso(row.dueAt), companyName: row.companyName ?? null, title: row.title });
+    }
+    for (const row of planVisits) {
+      addPlan(row.userId, { kind: 'visit', dueAt: iso(row.dueAt), companyName: row.companyName ?? null, title: row.title });
+    }
+
+    const users: ActivityLogUser[] = people
       .map((person) => {
         const byType = groupsByUser.get(person.id) ?? new Map<string, ActivityLogEntry[]>();
         const groups = typeOrder.map((type) => ({
@@ -3078,6 +3388,8 @@ export class ReportsService {
           typeName: type.name,
           entries: byType.get(type.key) ?? [],
         }));
+        const outcome = outcomeMap.get(person.id);
+        const task = taskMap.get(person.id);
         return {
           userId: person.id,
           userName: person.fullName ?? person.email ?? 'Bilinmeyen kullanıcı',
@@ -3086,6 +3398,17 @@ export class ReportsService {
           quoteTotals: [...(quoteTotalsByUser.get(person.id) ?? new Map())]
             .map(([currency, amount]) => ({ currency, amount })),
           groups,
+          week: {
+            newOpportunities: createdMap.get(person.id) ?? 0,
+            stageMoves: movesMap.get(person.id) ?? 0,
+            won: num(outcome?.won),
+            lost: num(outcome?.lost),
+            tasksCompleted: num(task?.completed),
+            tasksOverdue: num(task?.overdue),
+            missedFollowUps: missedByUser.get(person.id) ?? [],
+          },
+          targets: targets.get(person.id) ?? null,
+          plan: (planByUser.get(person.id) ?? []).sort((a, b) => a.dueAt.localeCompare(b.dueAt)),
         };
       })
       // Hiç kaydı olmayan kullanıcı da listede kalır: "kim teklif vermedi"
@@ -3093,7 +3416,44 @@ export class ReportsService {
       .sort((a, b) => b.quoteCount - a.quoteCount || b.activityCount - a.activityCount
         || a.userName.localeCompare(b.userName, 'tr'));
 
-    return { range: { from: from.toISOString(), to: to.toISOString() }, users, quotes: quoteList };
+    return { range, nextRange, users, quotes: quoteList };
+  }
+
+  /**
+   * Haftalık rapordaki "ay hedefi" satırı: rapor bitiş gününün ayı için teklif /
+   * ziyaret / arama hedefine karşı gerçekleşme. Hedef motoru ağır ve dış kur
+   * servisine bağlı olabilir; başarısız olursa rapor hedefsiz döner, düşmez.
+   */
+  private async activityLogTargets(actor: AuthContext, to: Date): Promise<Map<string, ActivityLogTargets>> {
+    const result = new Map<string, ActivityLogTargets>();
+    const lastDay = new Date(to.getTime() - 1);
+    const period = lastDay.toLocaleDateString('en-CA', { timeZone: 'Europe/Istanbul' }).slice(0, 7);
+    try {
+      const scope: TargetProgressScope = this.canSeeAllUsers(actor) ? { kind: 'all-users' } : { kind: 'user', id: actor.userId };
+      const progress = (await this.targetProgress(actor, period, scope)) as {
+        expectedProgressPct?: number;
+        subjects?: Array<{ subject: { id: string }; hasTarget: boolean; metrics: Record<string, MetricProgress> }>;
+      };
+      const labels: Array<[ActivityLogTargetMetric['key'], string, string]> = [
+        ['quote', 'Teklif', 'quoteTarget'],
+        ['visit', 'Ziyaret', 'visitTarget'],
+        ['call', 'Arama', 'callTarget'],
+      ];
+      for (const subject of progress.subjects ?? []) {
+        if (!subject.hasTarget) continue;
+        const metrics = labels.flatMap(([key, label, metricKey]) => {
+          const m = subject.metrics?.[metricKey];
+          if (!m || m.target == null || m.target <= 0) return [];
+          return [{ key, label, target: m.target, actual: m.actual ?? 0, pct: m.pct }];
+        });
+        if (metrics.length) {
+          result.set(subject.subject.id, { period, expectedPct: progress.expectedProgressPct ?? null, metrics });
+        }
+      }
+    } catch (error) {
+      logger.warn({ action: 'activity_log_targets_failed', period }, String(error));
+    }
+    return result;
   }
 
 }
