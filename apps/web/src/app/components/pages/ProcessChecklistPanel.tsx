@@ -17,7 +17,6 @@ import {
   salesStageLabel,
   type Customer,
   type Offer,
-  type OpportunityPaymentMethod,
   type QualificationStage,
   type SalesCase,
 } from "../../lib/mock";
@@ -38,6 +37,7 @@ import { Textarea } from "../ui/textarea";
 import { CreateContactDialog } from "../dialogs/CreateDialogs";
 import { RequestedMachineCombobox } from "../shared/RequestedMachineCombobox";
 import { PaymentMethodSelect } from "../shared/PaymentMethodSelect";
+import { PAYMENT_TERMS_PLACEHOLDER } from "../../lib/paymentMethod";
 import { RemoteContactCombobox } from "../shared/RemoteContactCombobox";
 import { OPPORTUNITY_OPERATION_GROUP_STEPS } from "./opportunityProcessGroups";
 import { useCompanyDetail } from "../../lib/companyServerData";
@@ -45,21 +45,6 @@ import { districtsForCountry, provincesForCountry } from "../../lib/geoByCountry
 import { Combobox } from "../ui/combobox";
 import { OpportunityQuoteList } from "./OpportunityQuoteList";
 import { OpportunityContractList } from "./OpportunityContractList";
-
-/**
- * Ödeme planının ipucu metni seçilen ödeme şekline göre değişir: kullanıcı boş
- * kutuya ne yazacağını tahmin etmek zorunda kalmasın.
- */
-const PAYMENT_TERMS_PLACEHOLDER: Partial<Record<OpportunityPaymentMethod, string>> = {
-  cash: "Peşin: ödeme tarihi ve varsa peşin iskontosu",
-  wire_transfer: "Havale: hesap, tutar ve transfer tarihi",
-  promissory_note: "Senet: adet, vade tarihleri ve tutarlar",
-  term: "Vadeli: vade gün sayısı ve son ödeme tarihi",
-  installment: "Taksitli: taksit adedi, tutarı ve ilk taksit tarihi",
-  leasing: "Leasing: finans kuruluşu, süre ve peşinat oranı",
-  letter_of_credit: "Akreditif: banka, vade ve açılış koşulları",
-  cheque: "Çek: adet, vade tarihleri ve keşideci",
-};
 
 const OPPORTUNITY_CHECK_BY_ACTION: Partial<Record<OpportunityProcessActionKey, string>> = {
   assign_owner: "owner",
