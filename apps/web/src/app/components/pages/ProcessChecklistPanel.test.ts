@@ -8,14 +8,20 @@ const workspaceSource = readFileSync(new URL("./OpportunityWorkspace.tsx", impor
 const createDialogsSource = readFileSync(new URL("../dialogs/CreateDialogs.tsx", import.meta.url), "utf8");
 const storeSource = readFileSync(new URL("../../lib/store.tsx", import.meta.url), "utf8");
 
-describe("ziyaret adımı ve kaldırılan ilk temas adımı", () => {
-  it("ziyaret kararını seçimden sonra da değiştirilebilir bırakır", () => {
-    // Saha ziyareti ertelenir, iptal olur ya da yanlış işaretlenir; karar
-    // kilitlenirse kart yanlış durumda takılı kalıyordu.
-    expect(source).toContain("const activityDisabled = props.disabled || props.busy || unavailable;");
-    // Aynı durumu yeniden seçmek mükerrer aktivite yazmamalı.
-    expect(source).toContain('value === props.visitStatus');
-    expect(source).toContain("Karar değiştiyse yeniden seçebilirsiniz.");
+describe("kaldırılan ziyaret ve ilk temas adımları", () => {
+  it("ziyaret durumunu bir adım olarak hiç bırakmaz", () => {
+    // Ziyaret ayrı bir "durum" seçimi değil: görüşme/aktivite kaydı zaten
+    // ziyareti de yazıyordu, iki yol aynı işi yapıyordu. Şart da kalktı,
+    // yoksa arayüzde karşılığı olmayan bir geçiş engeli kalırdı.
+    const apiVisitSource = readFileSync(
+      new URL("../../../../../api/src/modules/opportunities/opportunities.service.ts", import.meta.url),
+      "utf8",
+    );
+    expect(apiVisitSource).not.toContain("'Ziyaret durumu'");
+    expect(apiVisitSource).not.toContain("hasVisit");
+    expect(source).not.toContain("visitStatusCheck");
+    expect(source).not.toContain("props.visitStatus");
+    expect(source).not.toContain('record_visit');
   });
 
   it("lead alanında ayrı bir ilk temas adımı bırakmaz", () => {
@@ -212,17 +218,6 @@ describe("ProcessChecklistPanel B aşaması aktiviteleri", () => {
     expect(source).toContain("props.canCreateActivity,");
   });
 
-  it("ziyaret durumunu Yapılmadı ve Yapıldı seçenekli listeden kaydeder", () => {
-    expect(source).toContain("const visitStatusCheck = () =>");
-    expect(source).toContain('<SelectItem value="not_done">Yapılmadı</SelectItem>');
-    expect(source).toContain('<SelectItem value="done">Yapıldı</SelectItem>');
-    expect(source).toContain('activityTypeCode: "customer_visit"');
-    expect(source).toContain("value={props.visitStatus}");
-    expect(source).toContain('value !== "done" && value !== "not_done"');
-    expect(source).toContain("result: OPPORTUNITY_VISIT_STATUS_RESULT[visitStatus]");
-    expect(source).toContain('<SelectValue placeholder="Durum seçin" />');
-    expect(source).toContain("Yapıldı veya Yapılmadı seçimi ziyaret kararını kaydeder ve adımı tamamlar.");
-  });
 });
 
 describe("A+ fatura ve kurulum paralel kapanışı", () => {

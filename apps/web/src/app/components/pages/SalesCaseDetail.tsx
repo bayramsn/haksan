@@ -2063,9 +2063,18 @@ export function SalesCaseDetailPage({
           bodyClassName="lg:grid-cols-1"
           activityClassName="hidden"
           meta={
-            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
-              <span className="text-lg font-semibold tabular-nums text-foreground">{new Intl.NumberFormat("tr-TR", { style: "currency", currency: sc.currency, maximumFractionDigits: 0 }).format(sc.estimatedAmount)}</span>
-              <span>#{sc.id.slice(0, 8).toUpperCase()}</span>
+            <div className="min-w-0 space-y-1">
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                <span className="text-lg font-semibold tabular-nums text-foreground">{new Intl.NumberFormat("tr-TR", { style: "currency", currency: sc.currency, maximumFractionDigits: 0 }).format(sc.estimatedAmount)}</span>
+                <span>#{sc.id.slice(0, 8).toUpperCase()}</span>
+              </div>
+              {/* Kısa brifing: kartın ne hakkında olduğunu başlıkta bir bakışta
+                  verir. Tam metin ve düzenleme "Fırsat bilgileri" bölümünde. */}
+              {sc.description?.trim() && (
+                <p className="line-clamp-2 max-w-prose whitespace-pre-wrap break-words text-xs leading-5 text-muted-foreground">
+                  {sc.description.trim()}
+                </p>
+              )}
             </div>
           }
           actions={

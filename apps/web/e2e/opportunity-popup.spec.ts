@@ -37,7 +37,7 @@ async function mockOpportunityApi(page: Page, options: FixtureOptions = {}) {
   };
   const qualificationStage = options.qualificationStage ?? "b";
   const blocker = options.documents
-    ? { key: "visit", label: "Ziyaret kararı verilmeli", complete: false, actionKey: "record_visit", qualificationStage: "b" }
+    ? { key: "machine", label: "İstenen makine belirlenmeli", complete: false, actionKey: "edit_machine", qualificationStage: "b" }
     : { key: "quote", label: "Teklif hazırlanmalı", complete: false, actionKey: "create_quote", qualificationStage: "b" };
   const checks = [blocker,
     ...(options.documents ? [{ key: "quote", label: "Teklif hazırlandı", complete: true, actionKey: "create_quote", qualificationStage: "b" }] : []),
@@ -177,7 +177,10 @@ test("sentetik fırsat popup açılır; masaüstü ve mobil görünüm taşmaz",
   const { dialog, unhandledMutations, opener } = await openPopup(page);
   await expect(dialog.getByText(companyName, { exact: true }).first()).toBeVisible();
   await expect(dialog.getByTestId("workspace-decision-summary")).toBeVisible();
-  await expect(dialog.getByText(initialDescription)).toBeVisible();
+  // Açıklama iki yerde: başlıkta fiyatın altındaki kısa brifing ve gövdedeki
+  // düzenlenebilir tam metin. İkisi de görünmeli.
+  await expect(dialog.locator("[data-record-dialog-header]").getByText(initialDescription)).toBeVisible();
+  await expect(dialog.getByTestId("opportunity-summary").getByText(initialDescription)).toBeVisible();
   await expect(dialog.getByTestId("workspace-decision-summary")).toBeFocused();
   const initialBounds = await dialog.boundingBox();
   await dialog.getByRole("button", { name: "Pencereyi büyüt", exact: true }).click();
@@ -246,14 +249,15 @@ test("açıklama ve not sentetik API'ye kaydolur, tekrar açıldığında korunu
   await expect(opener).toBeFocused();
   await opener.click();
   await expect(dialog.getByTestId("workspace-decision-summary")).toBeFocused();
-  await expect(dialog.getByText(description, { exact: true })).toBeVisible();
+  await expect(dialog.getByTestId("opportunity-summary").getByText(description, { exact: true })).toBeVisible();
+  await expect(dialog.locator("[data-record-dialog-header]").getByText(description, { exact: true })).toBeVisible();
   await expect(conversation.getByText(note, { exact: true })).toBeVisible();
   expect(unhandledMutations).toEqual([]);
 });
 
 test("salt okunur kullanıcı kaydı görebilir fakat düzenleyemez", async ({ page }) => {
   const { dialog, mutations } = await openPopup(page, { readOnly: true });
-  await expect(dialog.getByText(initialDescription)).toBeVisible();
+  await expect(dialog.getByTestId("opportunity-summary").getByText(initialDescription)).toBeVisible();
   await expect(dialog.getByRole("button", { name: "Açıklamayı düzenle", exact: true })).toHaveCount(0);
   await expect(dialog.getByRole("button", { name: "Not ekle", exact: true })).toHaveCount(0);
   const advance = dialog.getByRole("button", { name: /A (alanına|aşamasına) geç/ });
@@ -288,6 +292,32 @@ test("tamamlanan işler gizlenir ve belgeler yalnız ortak listede gösterilir",
   await process.getByRole("button", { name: "Tamamlananları gizle", exact: true }).click();
   await expect(completed).toHaveCount(0);
   expect(mutations).toEqual([]);
+});
+
+// Teklif bir kere verilip bitmiyor: revizyon, ikinci makine veya yeni fiyat
+// için aynı fırsatta tekrar açılır. Süreç adımı ilk teklifte tamamlandığı için
+// giriş belgeler bölümünde kalıcı olmalı.
+test("teklif verilmiş fırsatta yeniden teklif açılabilir", async ({ page }) => {
+  const { dialog } = await openPopup(page, { documents: true });
+  const documents = dialog.locator("#opportunity-documents");
+  await documents.locator("summary").click();
+  await expect(documents.getByRole("button", { name: new RegExp(quoteNumber) })).toHaveCount(1);
+  await expect(documents.getByRole("button", { name: "Yeni teklif oluştur", exact: true })).toBeVisible();
+});
+
+test("teklifi olmayan fırsatta da teklif oluşturma girişi durur", async ({ page }) => {
+  const { dialog } = await openPopup(page);
+  const documents = dialog.locator("#opportunity-documents");
+  await documents.locator("summary").click();
+  await expect(documents.getByText("Henüz teklif veya belge yok.", { exact: true })).toBeVisible();
+  await expect(documents.getByRole("button", { name: "Teklif oluştur", exact: true })).toBeVisible();
+});
+
+test("salt okunur kullanıcıya teklif oluşturma girişi gösterilmez", async ({ page }) => {
+  const { dialog } = await openPopup(page, { readOnly: true, documents: true });
+  const documents = dialog.locator("#opportunity-documents");
+  await documents.locator("summary").click();
+  await expect(documents.getByRole("button", { name: /teklif oluştur/i })).toHaveCount(0);
 });
 
 test("yüklenen PDF satırı imzalı indirme yoluyla önizlenir", async ({ page }) => {

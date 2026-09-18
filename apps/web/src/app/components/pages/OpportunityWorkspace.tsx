@@ -20,6 +20,7 @@ import {
   ArrowUpRight,
   FileText,
   CalendarClock,
+  Plus,
 } from "lucide-react";
 import { opportunityService } from "../../../lib/services";
 import { useAuth } from "../../../lib/auth";
@@ -499,6 +500,7 @@ export function OpportunityWorkspace({
     [sc, owner?.name, companyQuery.isError, customer, overduePaymentCount, nextOperationTarget, nextActivity, simpleOpportunity, operationReadiness],
   );
   const terminal = Boolean(decisionModel.terminalLabel || operationReadiness?.closed);
+  const canCreateQuote = !isLead && !terminal && Boolean(onCommercialAction) && canPerformCommercialAction?.("create_quote") !== false;
 
   // Dönüşüm komutu eksikler varken kaybolmaz; alanlar C aşamasında tamamlanır.
   const useLeadConversionAsPrimary = !terminal && canUpdate && isLead;
@@ -680,7 +682,15 @@ export function OpportunityWorkspace({
                 </div>
               ))}
             </div>
-            {!caseOffers.length && !caseDocuments.length && <p className="py-2 text-sm text-muted-foreground">Henüz teklif veya belge yok.{onCommercialAction && canPerformCommercialAction?.("create_quote") !== false && !terminal && <Button variant="link" size="sm" onClick={() => onCommercialAction("create_quote")}>Teklif oluştur</Button>}</p>}
+            {!caseOffers.length && !caseDocuments.length && <p className="py-2 text-sm text-muted-foreground">Henüz teklif veya belge yok.</p>}
+            {/* Teklif bir kere verilip bitmiyor: revizyon, ikinci makine ya da
+                yeni fiyat için aynı fırsatta tekrar teklif açılır. Süreç adımı
+                ilk teklifte "tamamlandı" olduğu için giriş yalnız burada kalır. */}
+            {canCreateQuote && (
+              <Button type="button" variant="outline" size="sm" className="mt-3 gap-1.5" onClick={() => void onCommercialAction?.("create_quote")}>
+                <Plus className="size-4" /> {caseOffers.length ? "Yeni teklif oluştur" : "Teklif oluştur"}
+              </Button>
+            )}
           </WorkspaceSection>
           <WorkspaceSection title="Ödeme bilgileri" count={opportunityPayments.length}>
             {opportunityPayments.length ? <div className="divide-y divide-border/60">{opportunityPayments.map((payment) => (
