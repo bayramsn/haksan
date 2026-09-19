@@ -143,6 +143,24 @@ for repository in haksan-api haksan-nginx; do
   done < <(docker image ls --filter "reference=${repository}:ecr-rollback-*" --format '{{.Repository}}:{{.Tag}}')
 done
 docker image prune --force
+
+# Disk baskısı kapısı. Aşağıdaki son temizlik `until=48h` kullanıyor: elle geri
+# dönüş için iki günlük imaj bilerek diskte tutulur. Yoğun bir günde (2026-09-18:
+# altı yayın) o günün imajlarının HEPSİ süzgecin gerisinde kalıyor, temizlik
+# 0 bayt kazandırıyor ve disk doluyor. Dolduğunda SSM belge işçisi "ipc messaging
+# received timeout" ile çöküyor — yani hata kod değil, disk olarak görünüyor.
+#
+# Bu yüzden çekmeden ÖNCE boş alan ölçülür: eşiğin altındaysa geri dönüş
+# penceresi feda edilir, çünkü diski dolmuş bir sunucuda geri dönüş de yapılamaz.
+# Çalışan container'ların imajlarına Docker zaten dokunmaz, az önce yakalanan
+# rollback çifti de etiketli olduğu için `-a` kapsamına girmez.
+available_mb="$(df -Pm /var/lib/docker 2>/dev/null || df -Pm /)"
+available_mb="$(awk 'NR==2 {print $4}' <<<"$available_mb")"
+if [[ -n "$available_mb" && "$available_mb" -lt 6144 ]]; then
+  echo "ECR_DEPLOY_DISK_PRESSURE available_mb=$available_mb — geri dönüş penceresi daraltılıyor"
+  docker image prune -a --force --filter "until=2h"
+  docker builder prune --force
+fi
 echo "ECR_DEPLOY_DISK_AFTER"
 df -h /var/lib/docker 2>/dev/null || df -h /
 
