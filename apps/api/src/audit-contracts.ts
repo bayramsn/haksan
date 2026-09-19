@@ -13,6 +13,9 @@
  * Skipped (not findings):
  *   - Property extraction like `@Body('id')` / `@Query('q')` — a primitive, not
  *     a full body/query object.
+ *   - Raw binary bodies typed as `Buffer` (e.g. the file-content upload endpoint)
+ *     — these are raw bytes, not a JSON object a Zod schema could validate; they
+ *     are checked downstream by magic-byte content validation.
  *
  * Usage:
  *   npm run audit:contracts
@@ -29,18 +32,18 @@ interface Finding {
   snippet: string;
 }
 
-/** Walk forward from the decorator's `(` and return the balanced argument text. */
-function extractArgs(src: string, openIdx: number): string {
+/** Walk forward from the decorator's `(` and return the balanced argument text + close index. */
+function extractArgs(src: string, openIdx: number): { args: string; end: number } {
   let depth = 0;
   for (let i = openIdx; i < src.length; i++) {
     const ch = src[i];
     if (ch === '(') depth++;
     else if (ch === ')') {
       depth--;
-      if (depth === 0) return src.slice(openIdx + 1, i);
+      if (depth === 0) return { args: src.slice(openIdx + 1, i), end: i };
     }
   }
-  return src.slice(openIdx + 1);
+  return { args: src.slice(openIdx + 1), end: src.length };
 }
 
 function lineOf(src: string, idx: number): number {
@@ -65,9 +68,14 @@ function auditFile(file: string): Finding[] {
   while ((m = re.exec(content)) !== null) {
     const decorator = m[1] as 'Body' | 'Query';
     const openIdx = m.index + m[0].length - 1; // index of '('
-    const inner = extractArgs(content, openIdx).trim();
+    const { args, end } = extractArgs(content, openIdx);
+    const inner = args.trim();
     if (inner.includes('ZodValidationPipe')) continue; // validated
     if (/^['"]/.test(inner)) continue; // single-property extraction, primitive
+    // Raw binary bodies (e.g. `@Body() body: Buffer` on the file-content upload)
+    // are raw bytes, not a Zod-validatable object; validated downstream by
+    // magic-byte content checks. Exempt them.
+    if (decorator === 'Body' && inner === '' && /^\s*\w+\s*:\s*Buffer\b/.test(content.slice(end + 1, end + 80))) continue;
     findings.push({
       file,
       line: lineOf(content, m.index),
