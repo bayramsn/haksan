@@ -71,9 +71,12 @@ export class HtmlPdfService implements OnModuleDestroy {
       await page.setJavaScriptEnabled(false);
       await page.setRequestInterception(true);
       page.on('request', (request) => {
-        // Yalnızca belge ve gömülü veri; dış URL'ler (SSRF, izleme) engellenir.
+        // Yalnızca gömülü veri; dış URL'ler (SSRF, izleme) engellenir. Ana belge
+        // setContent ile CDP üzerinden verilir, ağ isteği üretmez — "document" tipine
+        // izin vermek yalnız iframe / meta-refresh gezinmelerini (ör. bulut meta-veri
+        // ucu) açıyordu.
         const url = request.url();
-        if (request.resourceType() === 'document' || url.startsWith('data:') || url.startsWith('about:')) void request.continue();
+        if (url.startsWith('data:') || url.startsWith('about:')) void request.continue();
         else void request.abort();
       });
       await page.setContent(html, { waitUntil: 'load', timeout: opts.timeoutMs ?? 20_000 });

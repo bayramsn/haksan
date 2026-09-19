@@ -34,6 +34,11 @@ export const userMailAccountStatusSchema = z.object({
 });
 export type UserMailAccountStatus = z.infer<typeof userMailAccountStatusSchema>;
 
+/** Tek mailde taşınabilecek kullanıcı dosyası sayısı. */
+export const MAIL_MAX_ATTACHMENTS = 5;
+/** Eklerin toplam ham boyutu; SMTP tarafı base64 ile ~%33 büyütür. */
+export const MAIL_MAX_ATTACHMENT_BYTES = 15 * 1024 * 1024;
+
 export const mailSendSchema = z
   .object({
     to: emailSchema,
@@ -65,8 +70,20 @@ export const mailSendSchema = z
         filename: z.string().trim().min(1).max(200).regex(/^[^\\/\u0000-\u001f]+\.pdf$/i, 'Dosya adı yol ayracı içeremez ve .pdf ile bitmeli'),
       })
       .optional(),
+    /**
+     * Kullanıcının eklediği dosyalar. İçerik gövdede taşınmaz: dosya normal
+     * yükleme yolundan (MIME + uzantı + boyut + magic-byte doğrulaması) geçip
+     * kayda bağlanır, mail yalnız kimliğini taşır. Sunucu gönderirken erişim
+     * yetkisini ve toplam ek boyutunu ayrıca doğrular.
+     */
+    fileIds: z.array(z.string().uuid()).max(MAIL_MAX_ATTACHMENTS).optional(),
   })
-  .strict();
+  .strict()
+  // İki ek yolu birlikte gelirse sunucu teklif ekini seçip raporu sessizce düşürürdü.
+  .refine((value) => !(value.quoteId && value.reportDocument), {
+    path: ['reportDocument'],
+    message: 'Teklif eki ile rapor eki aynı mailde gönderilemez',
+  });
 export type MailSendInput = z.infer<typeof mailSendSchema>;
 
 /** Alıcı seçicisinin verisi: firmanın kontakları + kendi kullanıcılarımız. */

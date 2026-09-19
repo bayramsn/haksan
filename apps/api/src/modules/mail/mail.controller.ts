@@ -2,6 +2,7 @@ import { Body, Controller, Delete, Get, Inject, Post, Put, Query, UseGuards } fr
 import { Throttle } from '@nestjs/throttler';
 import { z } from 'zod';
 import {
+  MAIL_MAX_ATTACHMENT_BYTES,
   mailSendSchema,
   userMailAccountUpsertSchema,
   type MailSendInput,
@@ -17,10 +18,11 @@ import { AuthGuard } from '../../shared/security/auth.guard';
 import { CurrentUser } from '../../shared/security/current-user.decorator';
 import type { AuthContext } from '../../shared/security/auth.types';
 import { companyVisibilityFilter } from '../../shared/utils/company-visibility';
-import { ForbiddenError, NotFoundError, ValidationError } from '../../shared/utils/errors';
+import { AppError, ForbiddenError, NotFoundError, ValidationError } from '../../shared/utils/errors';
 import { ZodValidationPipe } from '../../shared/utils/zod-pipe';
 import { ActivitiesService } from '../activities/activities.service';
 import { QuotesService } from '../quotes/quotes.service';
+import { FilesService } from '../files/files.service';
 import { HtmlPdfService } from '../../shared/pdf/html-pdf.service';
 
 const mailRecipientsQuerySchema = z.object({ companyId: z.string().uuid().optional() });
@@ -33,7 +35,8 @@ export class MailController {
     private readonly accounts: UserMailAccountService,
     private readonly activities: ActivitiesService,
     private readonly quotes: QuotesService,
-    private readonly htmlPdf: HtmlPdfService
+    private readonly htmlPdf: HtmlPdfService,
+    private readonly files: FilesService
   ) {}
 
   @Get('account')
@@ -127,8 +130,34 @@ export class MailController {
     if (!actor.permissions.has('reports.export')) {
       throw new ForbiddenError('Rapor ekleyebilmek için reports.export yetkisi gerekli');
     }
+    // Teklif yolunda PDFKit yedeği var; burada yok. Chromium eksikliği istemcinin
+    // hatası değil, sunucu yapılandırması — 4xx değil 503.
+    if (!this.htmlPdf.isAvailable()) {
+      throw new AppError('PDF_UNAVAILABLE', 'Sunucuda PDF üretici (Chromium) bulunamadı', 503);
+    }
     const content = await this.htmlPdf.render(body.reportDocument!.html);
     return { filename: body.reportDocument!.filename, content, contentType: 'application/pdf' };
+  }
+
+  /**
+   * Kullanıcının eklediği dosyalar. Her biri `createSignedDownloadUrl` ile aynı
+   * erişim süzgecinden geçer; toplam boyut SMTP'yi kilitlememesi için burada
+   * kapanır — tek tek küçük, toplamı büyük ekler aksi hâlde sınırı aşıyordu.
+   */
+  private async fileAttachments(fileIds: string[], actor: AuthContext) {
+    const attachments = [];
+    let total = 0;
+    for (const fileId of fileIds) {
+      const file = await this.files.readForAttachment(fileId, actor);
+      total += file.content.byteLength;
+      if (total > MAIL_MAX_ATTACHMENT_BYTES) {
+        throw new ValidationError(
+          `Eklerin toplam boyutu ${Math.round(MAIL_MAX_ATTACHMENT_BYTES / (1024 * 1024))} MB sınırını aşıyor`
+        );
+      }
+      attachments.push({ filename: file.filename, content: file.content, contentType: file.mimeType });
+    }
+    return attachments;
   }
 
   @Post('send')
@@ -143,13 +172,14 @@ export class MailController {
     }
     // Ek PDF: istemci "Yazdır / PDF Kaydet" belgesini gönderdiyse birebir o (Chromium);
     // göndermediyse (eski istemci / Chromium yok) sunucunun sade PDFKit şablonu.
-    const attachments = body.quoteId
+    const generated = body.quoteId
       ? [await this.quoteAttachment(body, actor)]
       : body.reportDocument
         ? [await this.reportAttachment(body, actor)]
-        : undefined;
+        : [];
+    const attachments = [...generated, ...(body.fileIds?.length ? await this.fileAttachments(body.fileIds, actor) : [])];
     const delivery = await this.accounts.send(
-      { to: body.to, cc: body.cc, subject: body.subject, text: body.body, attachments },
+      { to: body.to, cc: body.cc, subject: body.subject, text: body.body, attachments: attachments.length ? attachments : undefined },
       actor
     );
     if (body.companyId && actor.permissions.has('activities.create')) {
