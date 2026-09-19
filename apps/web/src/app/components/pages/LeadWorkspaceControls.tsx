@@ -194,6 +194,9 @@ export function DecisionRail({
         name: contactName || salesCase.leadContactName,
         companyId: salesCase.customerId || undefined,
         contactId: salesCase.primaryContactId,
+        // Kayıt bağlamı: mail penceresinde dosya ekleme alanını açar ve
+        // eklenen dosyayı bu fırsatın belgelerine bağlar.
+        opportunityId: salesCase.id,
       });
       return;
     }

@@ -1,9 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
-import { AlertTriangle, BookmarkPlus, CheckCircle2, Loader2, LockKeyhole, Mail, Paperclip, Send, Settings2 } from "lucide-react";
-import type { MailRecipients } from "@haksan/shared";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { AlertTriangle, BookmarkPlus, CheckCircle2, Loader2, LockKeyhole, Mail, Paperclip, Send, Settings2, Upload, X } from "lucide-react";
+import { MAIL_MAX_ATTACHMENTS, MAIL_MAX_ATTACHMENT_BYTES, type MailRecipients } from "@haksan/shared";
 import type { UserMailAccountStatus } from "@haksan/shared";
 import { toast } from "sonner";
-import { mailService } from "../../../lib/services";
+import { fileService, mailService } from "../../../lib/services";
 import { useStore } from "../../lib/store";
 import { Button } from "../ui/button";
 import {
@@ -32,6 +32,12 @@ export type MailRecipient = {
   body?: string;
   /** Verilirse teklifin PDF'i sunucuda üretilip ek olarak gönderilir. */
   quoteId?: string;
+  /**
+   * Verilirse pencerede dosya ekleme alanı açılır. Yüklenen dosya normal
+   * yükleme yolundan geçip bu fırsata bağlanır — maile eklenen belge kayıtta
+   * da durur, "ne gönderdik" sorusu sonradan cevaplanabilsin.
+   */
+  opportunityId?: string;
   /** Ek satırında gösterilecek etiket (ör. teklif numarası). */
   attachmentLabel?: string;
   /**
@@ -47,6 +53,22 @@ export type MailRecipient = {
 };
 
 const emptyRecipients: MailRecipients = { contacts: [], colleagues: [] };
+
+/** Sunucunun kabul ettiği tiplerin ek olarak anlamlı olan alt kümesi. */
+const ATTACHMENT_EXT_TO_MIME: Record<string, string> = {
+  pdf: "application/pdf",
+  docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  png: "image/png",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  webp: "image/webp",
+};
+const ATTACHMENT_ACCEPT = Object.keys(ATTACHMENT_EXT_TO_MIME).map((ext) => `.${ext}`).join(",");
+const formatAttachmentSize = (bytes: number) =>
+  bytes < 1024 * 1024 ? `${Math.max(1, Math.round(bytes / 1024))} KB` : `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+
+type MailAttachment = { fileId: string; name: string; size: number };
 
 export function ComposeMailDialog({
   recipient,
@@ -68,6 +90,9 @@ export function ComposeMailDialog({
   const [subject, setSubject] = useState("");
   const [body, setBody] = useState("");
   const [options, setOptions] = useState<MailRecipients>(emptyRecipients);
+  const [attachments, setAttachments] = useState<MailAttachment[]>([]);
+  const [uploading, setUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [templateName, setTemplateName] = useState<string | null>(null);
 
   useEffect(() => {
@@ -79,6 +104,8 @@ export function ComposeMailDialog({
     setSubject(recipient.subject ?? "");
     setTemplateName(null);
     setBody(recipient.body ?? (recipient.name ? `Merhaba ${recipient.name},\n\n` : "Merhaba,\n\n"));
+    // Başka bir alıcıya geçilince önceki mailin ekleri taşınmamalı.
+    setAttachments([]);
     setAccountLoading(true);
     mailService.account()
       .then(setAccount)
@@ -147,6 +174,52 @@ export function ComposeMailDialog({
     }
   };
 
+  const pickAttachment = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (fileInputRef.current) fileInputRef.current.value = "";
+    if (!file || !recipient?.opportunityId) return;
+    const extension = file.name.split(".").pop()?.toLocaleLowerCase("tr-TR") ?? "";
+    const mimeType = ATTACHMENT_EXT_TO_MIME[extension];
+    if (!mimeType) {
+      toast.error("Desteklenmeyen dosya tipi", { description: "PDF, DOCX, XLSX, PNG, JPG veya WEBP ekleyebilirsiniz." });
+      return;
+    }
+    if (attachments.length >= MAIL_MAX_ATTACHMENTS) {
+      toast.error(`En fazla ${MAIL_MAX_ATTACHMENTS} dosya eklenebilir`);
+      return;
+    }
+    const total = attachments.reduce((sum, item) => sum + item.size, 0) + file.size;
+    if (total > MAIL_MAX_ATTACHMENT_BYTES) {
+      toast.error(`Eklerin toplamı ${Math.round(MAIL_MAX_ATTACHMENT_BYTES / (1024 * 1024))} MB'ı aşamaz`);
+      return;
+    }
+    setUploading(true);
+    try {
+      const upload = await fileService.signedUpload({
+        // "Diğer" fırsat belgeleriyle aynı kova (bkz. DocumentUploadDialog).
+        bucket: "erp-quote-documents",
+        entityType: "opportunity",
+        entityId: recipient.opportunityId,
+        filename: file.name,
+        mimeType: mimeType as never,
+        extension: extension as never,
+        sizeBytes: file.size,
+      });
+      await fileService.uploadBinary(upload, file, mimeType);
+      await fileService.link({
+        fileId: upload.fileId,
+        entityType: "opportunity",
+        entityId: recipient.opportunityId,
+        documentTypeCode: "other",
+      });
+      setAttachments((current) => [...current, { fileId: upload.fileId, name: file.name, size: file.size }]);
+    } catch (error: any) {
+      toast.error("Dosya eklenemedi", { description: error?.message ?? "Yükleme başarısız oldu." });
+    } finally {
+      setUploading(false);
+    }
+  };
+
   const send = async () => {
     if (!recipient || !to.trim() || !subject.trim() || !body.trim()) {
       toast.error("Alıcı, konu ve mesaj zorunludur");
@@ -166,6 +239,7 @@ export function ComposeMailDialog({
         quoteId: recipient.quoteId,
         quoteDocument,
         reportDocument,
+        fileIds: attachments.length ? attachments.map((item) => item.fileId) : undefined,
       });
       await onSent?.();
       toast.success("E-posta gönderildi", { description: `${account?.email ?? "Webmail hesabınız"} üzerinden teslim edildi.` });
@@ -325,6 +399,49 @@ export function ComposeMailDialog({
               <Paperclip className="size-3.5 text-muted-foreground" />
               <span className="font-medium">{recipient.attachmentLabel ?? (recipient.quoteId ? "Teklif" : "Rapor")}.pdf</span>
               <span className="text-muted-foreground">{recipient.quoteId ? "teklif" : "rapor"} PDF'i ek olarak gönderilir</span>
+            </div>
+          )}
+
+          {recipient?.opportunityId && (
+            <div className="space-y-2">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <Label className="text-xs">Dosya ekle</Label>
+                <input
+                  ref={fileInputRef} type="file" className="sr-only" accept={ATTACHMENT_ACCEPT}
+                  id="compose-mail-attachment" disabled={sending || uploading}
+                  onChange={(event) => void pickAttachment(event)}
+                />
+                <Button
+                  type="button" variant="outline" size="sm" className="gap-1.5"
+                  disabled={sending || uploading || attachments.length >= MAIL_MAX_ATTACHMENTS}
+                  onClick={() => fileInputRef.current?.click()}
+                >
+                  {uploading ? <Loader2 className="size-3.5 animate-spin motion-reduce:animate-none" /> : <Upload className="size-3.5" />}
+                  {uploading ? "Yükleniyor…" : "Dosya seç"}
+                </Button>
+              </div>
+              {attachments.length > 0 && (
+                <ul className="space-y-1.5">
+                  {attachments.map((item) => (
+                    <li key={item.fileId} className="flex items-center gap-2 rounded-lg border border-border/60 bg-muted/30 px-3 py-2 text-xs">
+                      <Paperclip className="size-3.5 shrink-0 text-muted-foreground" />
+                      <span className="min-w-0 flex-1 truncate font-medium">{item.name}</span>
+                      <span className="shrink-0 text-muted-foreground">{formatAttachmentSize(item.size)}</span>
+                      <Button
+                        type="button" variant="ghost" size="icon" className="size-7 shrink-0"
+                        aria-label={`${item.name} ekini kaldır`} disabled={sending || uploading}
+                        onClick={() => setAttachments((current) => current.filter((entry) => entry.fileId !== item.fileId))}
+                      >
+                        <X className="size-3.5" />
+                      </Button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <p className="text-[11px] text-muted-foreground">
+                PDF, DOCX, XLSX, PNG, JPG veya WEBP · en fazla {MAIL_MAX_ATTACHMENTS} dosya ·
+                toplam {Math.round(MAIL_MAX_ATTACHMENT_BYTES / (1024 * 1024))} MB. Eklenen dosya fırsatın belgelerine de kaydedilir.
+              </p>
             </div>
           )}
         </div>

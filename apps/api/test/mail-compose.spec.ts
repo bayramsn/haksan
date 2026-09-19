@@ -5,7 +5,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import request from 'supertest';
 import type { NestFastifyApplication } from '@nestjs/platform-fastify';
-import { mailSendSchema } from '@haksan/shared';
+import { MAIL_MAX_ATTACHMENTS, mailSendSchema } from '@haksan/shared';
 import { createTestApp } from './setup';
 
 describe('Mail compose', () => {
@@ -63,6 +63,30 @@ describe('Mail compose', () => {
     // Dosya adı sunucuda ek adı olarak kullanılıyor: yol ayracı ve yanlış uzantı geçmemeli.
     expect(withReport('../../etc/passwd.pdf')).toBe(false);
     expect(withReport('rapor.html')).toBe(false);
+    // İki ek yolu birden: sunucu teklifi seçip raporu sessizce düşürürdü.
+    expect(mailSendSchema.safeParse({
+      ...base,
+      quoteId: '00000000-0000-4000-8000-000000000000',
+      reportDocument: { html: '<main>rapor</main>', filename: 'rapor.pdf' },
+    }).success).toBe(false);
+  });
+
+  it('rapor eki reports.export ister', async () => {
+    // Servis rolü reports.export taşımaz; PDF üretimine hiç gelmeden 403 dönmeli.
+    const login = await request(app.getHttpServer())
+      .post('/api/v1/auth/login')
+      .send({ email: 'service@haksan.local', password: 'service12345' });
+    expect(login.status, JSON.stringify(login.body)).toBe(201);
+    const response = await request(app.getHttpServer())
+      .post('/api/v1/mail/send')
+      .set('Authorization', `Bearer ${login.body.accessToken}`)
+      .send({
+        to: 'yonetici@example.com',
+        subject: 'Hedef Gerçekleşme Raporu',
+        body: 'Ekte.',
+        reportDocument: { html: '<main>rapor</main>', filename: 'hedef-gerceklesme-2026-09.pdf' },
+      });
+    expect(response.status, JSON.stringify(response.body)).toBe(403);
   });
 
   it('alıcı seçicisi ekip listesini döner', async () => {
@@ -133,6 +157,24 @@ describe('Mail compose', () => {
       .delete(`/api/v1/note-templates/${created.body.id}`)
       .set('Authorization', `Bearer ${token}`)
       .expect(200);
+  });
+
+  it('kullanıcı dosyası ekini kimlikle alır, içerikle değil', () => {
+    const base = { to: 'musteri@example.com', subject: 'Teknik çizim', body: 'Ekte.' };
+    const fileId = '00000000-0000-4000-8000-000000000201';
+    expect(mailSendSchema.safeParse({ ...base, fileIds: [fileId] }).success).toBe(true);
+    // Teklif/rapor PDF'iyle birlikte gönderilebilir; birbirini dışlamazlar.
+    expect(mailSendSchema.safeParse({
+      ...base,
+      quoteId: '00000000-0000-4000-8000-000000000000',
+      fileIds: [fileId],
+    }).success).toBe(true);
+    // İçerik gövdede taşınmaz: yalnız kimlik kabul edilir.
+    expect(mailSendSchema.safeParse({ ...base, fileIds: ['dosya-adi.pdf'] }).success).toBe(false);
+    expect(mailSendSchema.safeParse({
+      ...base,
+      fileIds: Array.from({ length: MAIL_MAX_ATTACHMENTS + 1 }, () => fileId),
+    }).success).toBe(false);
   });
 
   it('teklif PDF eki üretilebiliyor', async () => {

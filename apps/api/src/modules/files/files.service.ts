@@ -366,6 +366,29 @@ export class FilesService {
     return { downloadUrl: url, filename: file.originalFilename, mimeType: file.mimeType };
   }
 
+  /**
+   * Mail eki için dosya içeriği. `createSignedDownloadUrl` ile aynı erişim
+   * süzgecinden geçer — imzalı URL üretip istemciye vermek yerine içeriği
+   * doğrudan sunucuya alır, çünkü eki SMTP'ye sunucu koyar.
+   */
+  async readForAttachment(fileId: string, actor: AuthContext) {
+    const file = await this.db.query.files.findFirst({
+      where: and(eq(files.id, fileId), eq(files.tenantId, actor.tenantId)),
+    });
+    if (!file || file.deletedAt || !['uploaded', 'linked'].includes(file.uploadStatus)) throw new NotFoundError('Dosya');
+    await this.assertFileReadable(file, actor);
+    const content = await this.storage.getObject(file.bucket, file.objectKey);
+    if (!content) throw new NotFoundError('Dosya içeriği');
+    await this.audit.write({
+      tenantId: actor.tenantId,
+      actorUserId: actor.userId,
+      action: 'file.mail_attachment',
+      resourceType: 'file',
+      resourceId: file.id,
+    });
+    return { filename: file.originalFilename, mimeType: file.mimeType, content };
+  }
+
   async linkFile(input: FileLinkInput, actor: AuthContext) {
     const file = await this.db.query.files.findFirst({
       where: and(eq(files.id, input.fileId), eq(files.tenantId, actor.tenantId)),
