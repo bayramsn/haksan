@@ -6,7 +6,6 @@ import { and, eq, isNull, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { closeDb, getDb, type DbClient } from './client';
 import * as s from './schema';
-import { AuditService } from '../shared/database/audit.service';
 
 const source = 'https://www.haksanmakina.com.tr/';
 const groups = {
@@ -103,7 +102,22 @@ async function readSnapshot(fiberOnly = false) {
   return snapshot;
 }
 
+export async function previewHaksanmakinaCatalog(fiberOnly = false) {
+  const snapshot = await readSnapshot(fiberOnly);
+  const byGroup = Object.fromEntries(Object.keys(groups).map((code) => [code, snapshot.products.filter((p) => p.group === code).length]));
+  const plannedFields = new Set(snapshot.products.flatMap((product) => {
+    const type = typeCode(product);
+    const definition = groups[product.group];
+    return [...product.specs.map((spec) => spec.key), ...product.fieldHints.map((field) => field.key),
+      ...(familyFields[type] ?? []).map(([key]) => key)].map((key) => `${definition.division}:${type}:${key.toLocaleLowerCase('tr-TR')}`);
+  }));
+  return { mode: 'preview', capturedOn: snapshot.capturedOn, products: snapshot.products.length, byGroup,
+    technicalValues: snapshot.products.reduce((total, product) => total + product.specs.length, 0),
+    technicalFields: plannedFields.size, productTypes: new Set(snapshot.products.map(typeCode)).size };
+}
+
 export async function importHaksanmakinaCatalog(db: DbClient, tenantId: string, userId: string, apply = false, fiberOnly = false) {
+  if (!apply) return previewHaksanmakinaCatalog(fiberOnly);
   const snapshot = await readSnapshot(fiberOnly);
   const byGroup = Object.fromEntries(Object.keys(groups).map((code) => [code, snapshot.products.filter((p) => p.group === code).length]));
   const brandDivisions = new Map<string, Set<string>>();
@@ -113,15 +127,6 @@ export async function importHaksanmakinaCatalog(db: DbClient, tenantId: string, 
     used.add(groups[product.group].division);
     brandDivisions.set(key, used);
   }
-  const plannedFields = new Set(snapshot.products.flatMap((product) => {
-    const type = typeCode(product);
-    const definition = groups[product.group];
-    return [...product.specs.map((spec) => spec.key), ...product.fieldHints.map((field) => field.key),
-      ...(familyFields[type] ?? []).map(([key]) => key)].map((key) => `${definition.division}:${type}:${key.toLocaleLowerCase('tr-TR')}`);
-  }));
-  if (!apply) return { mode: 'preview', capturedOn: snapshot.capturedOn, products: snapshot.products.length, byGroup,
-    technicalValues: snapshot.products.reduce((total, product) => total + product.specs.length, 0),
-    technicalFields: plannedFields.size, productTypes: new Set(snapshot.products.map(typeCode)).size };
 
   const [tenant] = await db.select({ id: s.tenants.id }).from(s.tenants).where(eq(s.tenants.id, tenantId));
   if (!tenant) throw new Error('Belirtilen tenant bulunamadı');
@@ -254,6 +259,7 @@ export async function importHaksanmakinaCatalog(db: DbClient, tenantId: string, 
         specUnit: spec.unit || null, sortOrder })));
       created++; specValues += product.specs.length;
     }
+    const { AuditService } = await import('../shared/database/audit.service.js');
     const audit = new AuditService(tx as unknown as DbClient);
     await audit.write({ tenantId, actorUserId: userId, action: 'catalog.haksanmakina_imported', resourceType: 'tenant', resourceId: tenantId,
       newValues: { capturedOn: snapshot.capturedOn, created, skipped, templates, specValues, byGroup } });
@@ -267,8 +273,11 @@ if (require.main === module) {
   const apply = process.argv.includes('--apply');
   const fiberOnly = process.argv.includes('--fiber-laser-only');
   if (apply && (!tenantId || !userId)) throw new Error('Kullanım: --tenant=<uuid> --user=<uuid> --apply');
-  importHaksanmakinaCatalog(getDb(), tenantId ?? '', userId ?? '', apply, fiberOnly)
+  const run = apply
+    ? importHaksanmakinaCatalog(getDb(), tenantId!, userId!, true, fiberOnly)
+    : previewHaksanmakinaCatalog(fiberOnly);
+  run
     .then((result) => console.log(JSON.stringify(result)))
     .catch((error: unknown) => { console.error(error instanceof Error ? error.message : 'Katalog aktarımı başarısız'); process.exitCode = 1; })
-    .finally(closeDb);
+    .finally(() => apply ? closeDb() : undefined);
 }

@@ -45,4 +45,12 @@ npm --workspace @haksan/api run db:import:haksanmakina -- --fiber-laser-only --t
 
 Aktarım mevcut `fiber_lazer_kesim` ürünlerinin CRM hiyerarşisini kullanır; boru kesim için `fiber_lazer_boru_kesim` tipini bu hiyerarşi altında oluşturur. Mevcut model varyantlarını silmez veya değiştirmez. Tekrar çalıştırıldığında kaynak ID'lerinden oluşan `HM-<ID>` kayıtları atlanır.
 
-Üretim imajı her iki JSON anlık görüntüsünü içerir. Uygulama dağıtımı veriyi kendiliğinden içeri almaz. Üretimde başarılı CI ve uygulama dağıtımından sonra, üretim veritabanı yedeği alınarak yetkili operatör açık tenant ve süper yönetici UUID'leriyle imaj içinde `npm --workspace @haksan/api run db:import:haksanmakina:prod -- --fiber-laser-only --tenant=<tenant-uuid> --user=<admin-uuid> --apply` komutunu çalıştırmalıdır. CNC dışı önceki aktarım üretimde yoksa aynı komut `--fiber-laser-only` olmadan da ayrı çalıştırılmalıdır.
+Üretim imajı her iki JSON anlık görüntüsünü içerir. Uygulama dağıtımı veriyi kendiliğinden içeri almaz. Üretimde başarılı CI ve uygulama dağıtımından sonra, üretim veritabanı yedeği alınarak yetkili operatör açık tenant ve süper yönetici UUID'leriyle sunucuda aşağıdaki komutları çalıştırmalıdır. Üretim imajında `npm` bulunmadığı için derlenmiş dosya doğrudan `node` ile çalıştırılır.
+
+```bash
+cd /opt/haksan
+docker compose --env-file .env run --rm --no-deps api node apps/api/dist/db/import-haksanmakina-catalog.js --tenant=<tenant-uuid> --user=<admin-uuid> --apply
+docker compose --env-file .env run --rm --no-deps api node apps/api/dist/db/import-haksanmakina-catalog.js --fiber-laser-only --tenant=<tenant-uuid> --user=<admin-uuid> --apply
+```
+
+İlk komut CNC dışı aktarım üretimde zaten yapılmışsa kayıtları atlar. İkinci komut fiber lazer serilerini ekler.
