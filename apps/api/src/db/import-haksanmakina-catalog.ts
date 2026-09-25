@@ -2,7 +2,7 @@
 import 'reflect-metadata';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
-import { and, eq, isNull, sql } from 'drizzle-orm';
+import { and, asc, eq, isNull, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { closeDb, getDb, type DbClient } from './client';
 import * as s from './schema';
@@ -267,14 +267,35 @@ export async function importHaksanmakinaCatalog(db: DbClient, tenantId: string, 
   });
 }
 
+async function resolveTenantOperator(db: DbClient, tenantSlug: string) {
+  const tenants = await db.select({ id: s.tenants.id }).from(s.tenants)
+    .where(and(eq(s.tenants.slug, tenantSlug), eq(s.tenants.isActive, true), isNull(s.tenants.deletedAt))).limit(1);
+  if (tenants.length !== 1) throw new Error('Otomatik aktarım için etkin tenant bulunamadı');
+  const operators = await db.select({ id: s.users.id }).from(s.users)
+    .innerJoin(s.userRoles, eq(s.userRoles.userId, s.users.id))
+    .innerJoin(s.roles, eq(s.roles.id, s.userRoles.roleId))
+    .where(and(eq(s.users.tenantId, tenants[0].id), eq(s.users.status, 'active'),
+      isNull(s.users.deletedAt), eq(s.roles.code, 'super_admin')))
+    .orderBy(asc(s.users.createdAt), asc(s.users.id)).limit(1);
+  if (operators.length !== 1) throw new Error('Otomatik aktarım için etkin süper yönetici gerekli');
+  return { tenantId: tenants[0].id, userId: operators[0].id };
+}
+
 if (require.main === module) {
   const tenantId = process.argv.find((arg) => arg.startsWith('--tenant='))?.slice(9);
   const userId = process.argv.find((arg) => arg.startsWith('--user='))?.slice(7);
   const apply = process.argv.includes('--apply');
   const fiberOnly = process.argv.includes('--fiber-laser-only');
-  if (apply && (!tenantId || !userId)) throw new Error('Kullanım: --tenant=<uuid> --user=<uuid> --apply');
+  const tenantSlug = process.argv.find((arg) => arg.startsWith('--tenant-slug='))?.slice(14);
+  if (apply && (tenantSlug ? Boolean(tenantId || userId) : !tenantId || !userId)) {
+    throw new Error('Kullanım: --apply (--tenant-slug=<slug> | --tenant=<uuid> --user=<uuid>)');
+  }
   const run = apply
-    ? importHaksanmakinaCatalog(getDb(), tenantId!, userId!, true, fiberOnly)
+    ? (async () => {
+      const db = getDb();
+      const operator = tenantSlug ? await resolveTenantOperator(db, tenantSlug) : { tenantId: tenantId!, userId: userId! };
+      return importHaksanmakinaCatalog(db, operator.tenantId, operator.userId, true, fiberOnly);
+    })()
     : previewHaksanmakinaCatalog(fiberOnly);
   run
     .then((result) => console.log(JSON.stringify(result)))
