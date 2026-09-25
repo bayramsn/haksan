@@ -1561,6 +1561,11 @@ function HierarchySelect({ index, label, value, options, onChange }: { index: st
 
 function TemplateCard({ type, specRows, selected, onSelect, onOpen }: { type: MachineTypeOption; specRows: SpecTemplateRow[]; selected: boolean; onSelect: () => void; onOpen: () => void }) {
   const completion = completionFor(type.code, specRows);
+  const sectionCount = new Set(
+    buildDraftRows(type.code, specRows)
+      .filter((row) => row.isActive && !row.isDeleted)
+      .map((row) => row.groupCode),
+  ).size;
   const laserModels = isLaserProductType(type.code) ? LASER_MODELS.filter((model) => sameType(model.productTypeCode, type.code)) : [];
   const isLaserTemplate = laserModels.length > 0;
   const combinationCount = laserModels.length * LASER_POWERS.length * 2;
@@ -1577,7 +1582,7 @@ function TemplateCard({ type, specRows, selected, onSelect, onOpen }: { type: Ma
         <p className="pl-2 font-mono text-[9px] tracking-[0.22em] text-slate-500">{modelCode}</p>
         <h3 className="mt-3 max-w-[18rem] font-display text-[25px] font-bold uppercase leading-[0.96] tracking-tight text-[#0b1f44]">{type.label}</h3>
         <div className="mt-4 border-t border-slate-200 pt-3 text-[11px]">
-          {isLaserTemplate ? <><div className="flex items-center justify-between text-slate-600"><span>{combinationCount} kombinasyon</span><span>{LASER_POWERS.length} güç × 2 kabin</span></div><div className="mt-2 flex items-center gap-1.5 text-emerald-700"><CheckCircle2 className="size-3.5" />Model, kabin ve güce göre düzenlenir</div></> : <><div className="flex items-center justify-between text-slate-600"><span>{completion.registered} teknik alan</span><span>{new Set(machineSpecTemplateEntries(type.code).map((entry) => entry.group)).size} bölüm</span></div><div className={cn("mt-2 flex items-center gap-1.5", completion.missing ? "text-rose-600" : "text-emerald-700")}>{completion.missing ? <CircleAlert className="size-3.5" /> : <CheckCircle2 className="size-3.5" />}{completion.missing ? `${completion.missing} alan eksik` : "Şablon hazır"}</div></>}
+          {isLaserTemplate ? <><div className="flex items-center justify-between text-slate-600"><span>{combinationCount} kombinasyon</span><span>{LASER_POWERS.length} güç × 2 kabin</span></div><div className="mt-2 flex items-center gap-1.5 text-emerald-700"><CheckCircle2 className="size-3.5" />Model, kabin ve güce göre düzenlenir</div></> : <><div className="flex items-center justify-between text-slate-600"><span>{completion.registered} teknik alan</span><span>{sectionCount} bölüm</span></div><div className={cn("mt-2 flex items-center gap-1.5", completion.missing ? "text-rose-600" : "text-emerald-700")}>{completion.missing ? <CircleAlert className="size-3.5" /> : <CheckCircle2 className="size-3.5" />}{completion.missing ? `${completion.missing} alan eksik` : "Şablon hazır"}</div></>}
         </div>
         <Button size="sm" className="mt-auto self-end bg-blue-600 text-white hover:bg-blue-700" onClick={(event) => { event.stopPropagation(); onOpen(); }}>{isLaserTemplate ? "Kombinasyonları aç" : "Çalışma sayfasını aç"}<ArrowRight className="ml-1.5 size-4" /></Button>
       </div>

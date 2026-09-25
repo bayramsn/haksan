@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { LASER_MODELS, resolveLaserProfile } from '@haksan/shared';
 import { ProductSpecTemplatesCard } from './ProductSpecTemplatesCard';
@@ -38,6 +38,27 @@ async function selectModel(power='6'){
   fireEvent.change(screen.getByLabelText('6. Tabla ölçüsü'),{target:{value:'F3015'}});
 }
 describe('shared technical settings workbook',()=>{
+  it('counts saved technical sections for an imported fiber tube type',async()=>{
+    const rows: Record<string, any[]> = {
+      'product-groups': [{id:'group',code:'SAC_ISLEME',name:'Sac İşleme',isActive:true}],
+      'product-categories': [{id:'category',code:'TEZGAH',name:'Tezgah',productGroupId:'group',isActive:true}],
+      'product-subcategories': [{id:'subcategory',code:'SAC_KESME',name:'Kesme',categoryId:'category',isActive:true}],
+      'product-types': [{id:'type',code:'fiber_lazer_boru_kesim',name:'CNC Fiber Lazer Boru Kesim Makinaları',subcategoryId:'subcategory',isActive:true}],
+    };
+    vi.mocked(adminService.lookupRows).mockImplementation(async(name)=>rows[name]??[]);
+    vi.mocked(adminService.productSpecTemplates).mockResolvedValue([
+      {id:'spec-1',productTypeCode:'fiber_lazer_boru_kesim',specKey:'Lazer Gücü',specGroupCode:'LAZER',isActive:true},
+      {id:'spec-2',productTypeCode:'fiber_lazer_boru_kesim',specKey:'Boru Çapı',specGroupCode:'KAPASITE',isActive:true},
+    ]);
+    render(<ProductSpecTemplatesCard divisionId="sac"/>);
+    await waitFor(()=>expect(screen.getByLabelText(/Ürün Tipi/)).not.toBeDisabled());
+    await screen.findByText('Lazer Gücü');
+    fireEvent.change(screen.getByLabelText(/Ürün Alt Kategorisi/),{target:{value:'SAC_KESME'}});
+    await screen.findByRole('option',{name:'CNC Fiber Lazer Boru Kesim Makinaları'});
+    const card=(await screen.findByText('2 teknik alan')).closest('article');
+    expect(card).not.toBeNull();
+    expect(within(card!).getByText('2 bölüm')).toBeInTheDocument();
+  });
   it('keeps legacy and imported Abkant types selectable in their own subcategories',async()=>{
     const rows: Record<string, any[]> = {
       'product-groups': [{id:'group',code:'SAC_ISLEME',name:'Sac İşleme',isActive:true}],
