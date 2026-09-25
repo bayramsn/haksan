@@ -152,9 +152,8 @@ export async function importHaksanmakinaCatalog(db: DbClient, tenantId: string, 
       .where(and(eq(s.productModels.tenantId, tenantId), eq(s.productTypes.code, 'fiber_lazer_kesim'),
         eq(s.productTypes.divisionId, divisionByCode.get('SAC_ISLEME')!.id), isNull(s.productModels.deletedAt)))
       .limit(1) : [];
-    // A fresh production tenant can have no fiber models yet. Reuse an
-    // existing type's taxonomy when available; otherwise create the regular
-    // Sac İşleme > Tezgah > sac_kesme branch below.
+    // A fresh production tenant can have no fiber models yet. Reuse the
+    // existing type or subcategory chain; create a new chain only if absent.
     const [typeFiberHierarchy] = fiberOnly && !modelFiberHierarchy?.subcategoryId ? await tx.select({
       groupId: s.productCategories.productGroupId,
       categoryId: s.productSubcategories.categoryId,
@@ -165,8 +164,20 @@ export async function importHaksanmakinaCatalog(db: DbClient, tenantId: string, 
       .where(and(eq(s.productTypes.code, 'fiber_lazer_kesim'),
         eq(s.productTypes.divisionId, divisionByCode.get('SAC_ISLEME')!.id), eq(s.productTypes.isActive, true)))
       .limit(1) : [];
-    const fiberHierarchy = [modelFiberHierarchy, typeFiberHierarchy].find(
-      (row) => row?.groupId && row.categoryId && row.subcategoryId,
+    // Production can already have sac_kesme under a different category even
+    // when it has no fiber model or type. Keep that existing taxonomy intact.
+    const [subcategoryFiberHierarchy] = fiberOnly ? await tx.select({
+      groupId: s.productCategories.productGroupId,
+      categoryId: s.productSubcategories.categoryId,
+      subcategoryId: s.productSubcategories.id,
+    }).from(s.productSubcategories)
+      .innerJoin(s.productCategories, eq(s.productCategories.id, s.productSubcategories.categoryId))
+      .where(and(eq(s.productSubcategories.code, 'sac_kesme'),
+        eq(s.productSubcategories.divisionId, divisionByCode.get('SAC_ISLEME')!.id),
+        eq(s.productSubcategories.isActive, true)))
+      .limit(1) : [];
+    const fiberHierarchy = [modelFiberHierarchy, typeFiberHierarchy, subcategoryFiberHierarchy].find(
+      (row) => row?.categoryId && row.subcategoryId,
     );
     const lookupByKey = new Map<string, { id: string }>();
     const ensureGroup = async (code: string, name: string, divisionId: string) => {
