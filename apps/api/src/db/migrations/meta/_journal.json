@@ -1037,6 +1037,13 @@
       "when": 1792694400000,
       "tag": "0148_opportunity_won_product",
       "breakpoints": true
+    },
+    {
+      "idx": 149,
+      "version": "7",
+      "when": 1793040000000,
+      "tag": "0149_calendar_visit_activity",
+      "breakpoints": true
     }
   ]
 }

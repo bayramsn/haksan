@@ -573,6 +573,8 @@ export interface CalendarEventDTO {
   contactId: string | null;
   opportunityId: string | null;
   visitId: string | null;
+  /** Müşteri ziyaretinin CRM aktivitesi; raporlar ziyareti bu kayıttan sayar. */
+  activityId: string | null;
   completedAt: string | null;
   /** Atayan kişi. owner_user_id'den farklıysa kayıt biri tarafından atanmıştır. */
   createdBy: string | null;
