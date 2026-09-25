@@ -21,6 +21,7 @@ export const FILE_UPLOAD_ENTITY_TYPES = [
   'product',
   'product_model',
   'quote',
+  'trade_fair_contact',
   'chat_conversation',
   'product_draft',
   // Belge imzası görseli. `entityId` mevcut bir imzanın kimliği ya da henüz
@@ -39,6 +40,7 @@ export const FILE_LINK_ENTITY_TYPES = [
   'customer_device',
   'product_model',
   'quote',
+  'trade_fair_contact',
 ] as const;
 export type FileLinkEntityType = (typeof FILE_LINK_ENTITY_TYPES)[number];
 

@@ -743,6 +743,43 @@ export const tasksService = {
   remove: (id: string) => api.delete<{ deleted: boolean }>(`/tasks/${id}`),
 };
 
+// ───── Fuar görüşmeleri ─────
+export type TradeFairContactDTO = {
+  id: string;
+  fairName: string;
+  companyName: string;
+  contactName: string;
+  contactTitle: string | null;
+  mobilePhone: string | null;
+  email: string | null;
+  country: string;
+  province: string | null;
+  district: string | null;
+  productCategory: string | null;
+  productType: string | null;
+  notes: string | null;
+  metByUserId: string | null;
+  metByName: string | null;
+  visitorCount: number;
+  createdBy: string | null;
+  createdAt: string;
+};
+export type TradeFairContactBody = Omit<TradeFairContactDTO, "id" | "metByName" | "createdBy" | "createdAt">;
+export type TradeFairSummary = {
+  fairs: Array<{ name: string; total: number; lastAt: string }>;
+  byUser: Array<{ userId: string | null; fullName: string | null; meetings: number; people: number }>;
+};
+
+export const tradeFairService = {
+  list: (params: { fairName?: string; q?: string; metByUserId?: string; page?: number; pageSize?: number } = {}) =>
+    api.get<Paginated<TradeFairContactDTO>>(`/trade-fairs${qs(params)}`),
+  summary: (fairName?: string) => api.get<TradeFairSummary>(`/trade-fairs/summary${qs({ fairName })}`),
+  staff: () => api.get<Array<{ id: string; fullName: string }>>('/trade-fairs/staff'),
+  create: (body: TradeFairContactBody) => api.post<TradeFairContactDTO>('/trade-fairs', body),
+  update: (id: string, body: Partial<TradeFairContactBody>) => api.patch<TradeFairContactDTO>(`/trade-fairs/${id}`, body),
+  remove: (id: string) => api.delete<{ deleted: boolean }>(`/trade-fairs/${id}`),
+};
+
 export const calendarService = {
   events: (params: { from: string; to: string; ownerUserId?: string; includeArchived?: boolean }) =>
     api.get<CalendarEventDTO[]>(`/calendar/events${qs(params)}`),

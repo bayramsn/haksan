@@ -56,6 +56,7 @@ const RESOURCE_LABEL: Record<string, string> = {
   competitors: "Rakipler",
   brands: "Markalar",
   products: "Ürünler",
+  trade_fairs: "Fuar",
   product_specs: "Ürün Özellikleri",
   price_lists: "Fiyat Listeleri",
   warehouses: "Depolar",
@@ -99,6 +100,9 @@ const sameCodes = (a: string[], b: string[]) => {
   const set = new Set(a);
   return b.every((code) => set.has(code));
 };
+
+// Fuar alanı bütün departmanlara açık; yeni rol bu izinlerle işaretli başlar.
+const NEW_ROLE_DEFAULT_CODES = ["trade_fairs.create", "trade_fairs.read", "trade_fairs.update"];
 
 const buildPermissionRows = (permissions: PermissionDto[]) => {
   const map = new Map<string, Partial<Record<PermissionAction, PermissionDto>>>();
@@ -228,7 +232,7 @@ export function RolesPage() {
   const [draftCodes, setDraftCodes] = useState<string[]>([]);
   const [createOpen, setCreateOpen] = useState(false);
   const [creating, setCreating] = useState(false);
-  const [newRole, setNewRole] = useState({ name: "", code: "", description: "", permissionCodes: [] as string[] });
+  const [newRole, setNewRole] = useState({ name: "", code: "", description: "", permissionCodes: NEW_ROLE_DEFAULT_CODES });
   const [targetPeriod, setTargetPeriod] = useState(currentPeriod());
   const [targetScope, setTargetScope] = useState<TargetScope | null>(null);
   const [targetLoading, setTargetLoading] = useState(false);
@@ -367,7 +371,7 @@ export function RolesPage() {
       });
       toast.success("Rol oluşturuldu");
       setCreateOpen(false);
-      setNewRole({ name: "", code: "", description: "", permissionCodes: [] });
+      setNewRole({ name: "", code: "", description: "", permissionCodes: NEW_ROLE_DEFAULT_CODES });
       await load(created.id);
     } catch (err: any) {
       toast.error("Rol oluşturulamadı", { description: err?.message ?? "Lütfen tekrar deneyin." });

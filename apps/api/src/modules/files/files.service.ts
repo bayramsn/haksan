@@ -13,6 +13,7 @@ import { brands, productModels } from '../../db/schema/products';
 import { quotes } from '../../db/schema/quotes';
 import { serviceComplaintIntakes, serviceTickets } from '../../db/schema/service';
 import { chatMessages, conversationMembers, conversations } from '../../db/schema/chat';
+import { tradeFairContacts } from '../../db/schema/trade-fairs';
 import { DB } from '../../shared/database/database.module';
 import { StorageService } from '../../shared/storage/storage.service';
 import { ForbiddenError, NotFoundError, ValidationError } from '../../shared/utils/errors';
@@ -200,6 +201,23 @@ export class FilesService {
         if (row) return;
         break;
       }
+      case 'trade_fair_contact': {
+        // Fuar kayıtlarında bölüm kapsamı yok; okuma yetkisi olan herkes görür.
+        if (!actor.roles.includes('super_admin') && !actor.permissions.has('trade_fairs.read')) break;
+        const [row] = await this.db
+          .select({ id: tradeFairContacts.id })
+          .from(tradeFairContacts)
+          .where(
+            and(
+              eq(tradeFairContacts.id, entityId),
+              eq(tradeFairContacts.tenantId, actor.tenantId),
+              isNull(tradeFairContacts.deletedAt)
+            )
+          )
+          .limit(1);
+        if (row) return;
+        break;
+      }
       case 'chat_message': {
         const [row] = await this.db
           .select({ id: chatMessages.id })
@@ -260,6 +278,10 @@ export class FilesService {
       throw new ForbiddenError('Bu sohbete dosya ekleme yetkiniz yok');
     }
 
+    // Fuar kaydını görmek yetmez; ek eklemek kaydı değiştirmek sayılır.
+    if (entityType === 'trade_fair_contact' && !actor.roles.includes('super_admin') && !actor.permissions.has('trade_fairs.update')) {
+      throw new ForbiddenError('Fuar kaydına dosya ekleme yetkiniz yok');
+    }
     await this.assertEntityVisible(entityType, entityId, actor);
   }
 

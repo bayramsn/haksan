@@ -62,6 +62,7 @@ const ServicePriceListPage = lazy(() => import("./components/pages/PriceLists").
 const PublicServiceComplaintPage = lazy(() =>
   import("./components/pages/PublicServiceComplaint").then((m) => ({ default: m.PublicServiceComplaintPage })),
 );
+const TradeFairsPage = lazy(() => import("./components/pages/TradeFairsPage").then((m) => ({ default: m.TradeFairsPage })));
 const ReferencesPage = lazy(() => import("./components/pages/ReferencesPage").then((m) => ({ default: m.ReferencesPage })));
 import { AuthProvider, useAuth } from "../lib/auth";
 import { FxProvider } from "./lib/fx";
@@ -79,6 +80,7 @@ const TITLES: Partial<Record<NavKey, { title: string; subtitle?: string }>> = {
   chat: { title: "Sohbet", subtitle: "Çalışanlarla özel ve grup mesajlaşma" },
   calendar: { title: "Takvim", subtitle: "Kişisel planlar, toplantılar ve müşteri ziyaretleri" },
   tasks: { title: "Görevler", subtitle: "Bugün yapılacak işler, gecikenler ve ekip görevleri" },
+  "trade-fairs": { title: "Fuar", subtitle: "Fuarda görüşülen firmalar, yetkililer ve ekip görüşmeleri" },
   customers: { title: "Firmalar", subtitle: "Müşteri, tedarikçi+müşteri ve tedarikçi kayıtları" },
   contacts: { title: "Kontaklar", subtitle: "Firmalara bağlı kişiler" },
   "sales-cases": { title: "Fırsat", subtitle: "C / B / A / A+ ana satış akışı" },
@@ -506,6 +508,7 @@ function AppShell() {
       case "due-dates": content = <DueDatesCalendarPage />; break;
       case "sales-price-list": content = <SalesPriceListPage />; break;
       case "references": content = <ReferencesPage />; break;
+      case "trade-fairs": content = <TradeFairsPage />; break;
       case "products": content = <ProductsPage initialQuery={focus?.nav === "products" ? focus.query : undefined} />; break;
       case "stock": content = <StockPage focus={focus?.nav === "stock" ? focus.focus : undefined} initialQuery={focus?.nav === "stock" ? focus.query : undefined} />; break;
       case "shipments": content = <ShipmentsPage focus={focus?.nav === "shipments" ? focus.focus : undefined} />; break;
