@@ -143,17 +143,31 @@ export async function importHaksanmakinaCatalog(db: DbClient, tenantId: string, 
     await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`${tenantId}:haksanmakina-catalog-import`}, 0))`);
     // Existing fiber models use a legacy product-group/category branch. Reuse
     // that branch so imported source series appear alongside those models.
-    const [fiberHierarchy] = fiberOnly ? await tx.select({
+    const [modelFiberHierarchy] = fiberOnly ? await tx.select({
       groupId: s.productModels.productGroupId,
       categoryId: s.productModels.categoryId,
       subcategoryId: s.productModels.subcategoryId,
     }).from(s.productModels)
       .innerJoin(s.productTypes, eq(s.productTypes.id, s.productModels.productTypeId))
-      .where(and(eq(s.productModels.tenantId, tenantId), eq(s.productTypes.code, 'fiber_lazer_kesim'), isNull(s.productModels.deletedAt)))
+      .where(and(eq(s.productModels.tenantId, tenantId), eq(s.productTypes.code, 'fiber_lazer_kesim'),
+        eq(s.productTypes.divisionId, divisionByCode.get('SAC_ISLEME')!.id), isNull(s.productModels.deletedAt)))
       .limit(1) : [];
-    if (fiberOnly && (!fiberHierarchy?.groupId || !fiberHierarchy.categoryId || !fiberHierarchy.subcategoryId)) {
-      throw new Error('Fiber lazer kesim için mevcut CRM ürün hiyerarşisi bulunamadı');
-    }
+    // A fresh production tenant can have no fiber models yet. Reuse an
+    // existing type's taxonomy when available; otherwise create the regular
+    // Sac İşleme > Tezgah > sac_kesme branch below.
+    const [typeFiberHierarchy] = fiberOnly && !modelFiberHierarchy?.subcategoryId ? await tx.select({
+      groupId: s.productCategories.productGroupId,
+      categoryId: s.productSubcategories.categoryId,
+      subcategoryId: s.productTypes.subcategoryId,
+    }).from(s.productTypes)
+      .innerJoin(s.productSubcategories, eq(s.productSubcategories.id, s.productTypes.subcategoryId))
+      .innerJoin(s.productCategories, eq(s.productCategories.id, s.productSubcategories.categoryId))
+      .where(and(eq(s.productTypes.code, 'fiber_lazer_kesim'),
+        eq(s.productTypes.divisionId, divisionByCode.get('SAC_ISLEME')!.id), eq(s.productTypes.isActive, true)))
+      .limit(1) : [];
+    const fiberHierarchy = [modelFiberHierarchy, typeFiberHierarchy].find(
+      (row) => row?.groupId && row.categoryId && row.subcategoryId,
+    );
     const lookupByKey = new Map<string, { id: string }>();
     const ensureGroup = async (code: string, name: string, divisionId: string) => {
       const key = `group:${divisionId}:${code}`;
