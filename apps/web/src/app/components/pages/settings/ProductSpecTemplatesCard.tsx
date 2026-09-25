@@ -460,9 +460,10 @@ export function ProductSpecTemplatesCard({ divisionId, onDivisionChange, onConfi
 
   const familyTypes = useMemo(() => {
     const merged = new Map<string, MachineTypeOption>();
+    const hierarchyKey = (type: MachineTypeOption) => `${type.categoryCode}:${type.subcategoryCode}:${canonicalTypeCode(type.code)}`;
     MACHINE_TYPES
       .filter((type) => type.familyCode === familyCode)
-      .forEach((type) => merged.set(canonicalTypeCode(type.code), type));
+      .forEach((type) => merged.set(hierarchyKey(type), type));
 
     const groupById = new Map(productGroupRows.map((row) => [row.id, row]));
     const categoryById = new Map(productCategoryRows.map((row) => [row.id, row]));
@@ -485,7 +486,7 @@ export function ProductSpecTemplatesCard({ divisionId, onDivisionChange, onConfi
           subcategoryCode: subcategory.code,
           subcategoryLabel: subcategory.name,
         };
-        merged.set(canonicalTypeCode(row.code), option);
+        merged.set(hierarchyKey(option), option);
       });
     return [...merged.values()];
   }, [familyCode, productCategoryRows, productGroupRows, productSubcategoryRows, productTypeRows]);
@@ -891,7 +892,10 @@ export function ProductSpecTemplatesCard({ divisionId, onDivisionChange, onConfi
     })), [products, selectedType?.code]);
 
   const openWorkbook = (nextTypeCode: string) => {
-    const type = familyTypes.find((item) => sameType(item.code, nextTypeCode))
+    const type = familyTypes.find((item) => item.code === nextTypeCode && item.categoryCode === categoryCode && item.subcategoryCode === subcategoryCode)
+      ?? familyTypes.find((item) => sameType(item.code, nextTypeCode) && item.categoryCode === categoryCode && item.subcategoryCode === subcategoryCode)
+      ?? familyTypes.find((item) => item.code === nextTypeCode)
+      ?? familyTypes.find((item) => sameType(item.code, nextTypeCode))
       ?? MACHINE_TYPES.find((item) => sameType(item.code, nextTypeCode));
     if (type) {
       setFamilyCode(type.familyCode);
