@@ -45,7 +45,9 @@ npm --workspace @haksan/api run db:import:haksanmakina -- --fiber-laser-only --t
 
 Aktarım mevcut `fiber_lazer_kesim` ürünlerinin CRM hiyerarşisini kullanır; boru kesim için `fiber_lazer_boru_kesim` tipini bu hiyerarşi altında oluşturur. Mevcut model varyantlarını silmez veya değiştirmez. Tekrar çalıştırıldığında kaynak ID'lerinden oluşan `HM-<ID>` kayıtları atlanır.
 
-Üretim imajı her iki JSON anlık görüntüsünü içerir. Uygulama dağıtımı veriyi kendiliğinden içeri almaz. Üretimde başarılı CI ve uygulama dağıtımından sonra, üretim veritabanı yedeği alınarak yetkili operatör açık tenant ve süper yönetici UUID'leriyle sunucuda aşağıdaki komutları çalıştırmalıdır. Üretim imajında `npm` bulunmadığı için derlenmiş dosya doğrudan `node` ile çalıştırılır.
+Üretim imajı her iki JSON anlık görüntüsünü içerir. AWS üretim dağıtımı doğrulanmış uzak veritabanı yedeği ve migration'lardan sonra, canlı konteynerleri değiştirmeden önce iki aktarımı da `haksan` tenantı için otomatik çalıştırır. Bu tenant veya etkin bir süper yönetici bulunmazsa aktarım hata verip dağıtımı durdurur. Tekrar yapılan dağıtımlarda mevcut `HM-<ID>` kayıtları atlanır.
+
+Operatörün gerektiğinde aynı aktarımı elle çalıştırması için, üretim imajında `npm` bulunmadığından derlenmiş dosya doğrudan `node` ile kullanılır:
 
 ```bash
 cd /opt/haksan
