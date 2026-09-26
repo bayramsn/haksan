@@ -12,7 +12,6 @@ import { Combobox } from "../ui/combobox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "../ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../ui/table";
-import { useStore } from "../../lib/store";
 import { useAuth } from "../../../lib/auth";
 import { getSignedFile } from "../../lib/signedFileCache";
 import { districtsForCountry, provincesForCountry } from "../../lib/geoByCountry";
@@ -49,16 +48,16 @@ const options = (values: readonly string[]) => values.map((v) => ({ value: v, la
 // Combobox yalnız listedeki değeri gösterir; elle yazılan (yeni) değer boş görünmesin.
 const withCurrent = (opts: Array<{ value: string; label: string }>, value?: string | null) =>
   value && !opts.some((o) => o.value === value) ? [{ value, label: value }, ...opts] : opts;
-/** Kayıttaki departman silinmişse listede yoksa da adıyla görünsün. */
-const withDepartment = (list: Array<{ id: string; name: string }>, editing: TradeFairContactDTO | null) =>
-  editing?.departmentId && !list.some((d) => d.id === editing.departmentId)
-    ? [...list, { id: editing.departmentId, name: editing.departmentName ?? "Silinmiş departman" }]
+/** Kayıttaki bölüm pasife alınmışsa listede yoksa da adıyla görünsün. */
+const withDivision = (list: Array<{ id: string; name: string }>, editing: TradeFairContactDTO | null) =>
+  editing?.divisionId && !list.some((d) => d.id === editing.divisionId)
+    ? [...list, { id: editing.divisionId, name: editing.divisionName ?? "Pasif bölüm" }]
     : list;
 const distinct = (values: Array<string | null | undefined>) =>
   [...new Set(values.map((v) => v?.trim()).filter((v): v is string => !!v))].sort((a, b) => a.localeCompare(b, "tr-TR"));
 const fileExt = (name: string) => name.split(".").pop()?.toLocaleLowerCase("tr-TR") ?? "";
 
-const emptyForm = (fairName = "", metByUserId = "", departmentId = ""): TradeFairContactBody => ({
+const emptyForm = (fairName = "", metByUserId = "", divisionId = ""): TradeFairContactBody => ({
   fairName,
   companyName: "",
   contactName: "",
@@ -73,7 +72,7 @@ const emptyForm = (fairName = "", metByUserId = "", departmentId = ""): TradeFai
   productModelIds: [],
   notes: "",
   metByUserId: metByUserId || null,
-  departmentId: departmentId || null,
+  divisionId: divisionId || null,
   visitorCount: 1,
 });
 
@@ -106,7 +105,7 @@ async function uploadAttachment(recordId: string, file: File) {
   await fileService.link({ fileId: up.fileId, entityType: ENTITY, entityId: recordId, documentTypeCode: "other" });
 }
 
-function AttachmentTile({ item, canDelete, onDelete }: { item: Attachment; canDelete: boolean; onDelete: () => void }) {
+export function AttachmentTile({ item, canDelete, onDelete }: { item: Attachment; canDelete: boolean; onDelete: () => void }) {
   const [src, setSrc] = useState<string | null>(null);
   const isImage = item.mimeType.startsWith("image/");
   useEffect(() => {
@@ -148,8 +147,7 @@ function AttachmentTile({ item, canDelete, onDelete }: { item: Attachment; canDe
 }
 
 export function TradeFairsPage({ onOpenCompany }: { onOpenCompany?: (companyId: string) => void }) {
-  const { products } = useStore();
-  const { user, hasPermission, hasRole } = useAuth();
+  const { user, activeDivision, hasPermission, hasRole } = useAuth();
   const isManager = hasRole("admin") || hasRole("super_admin");
   const canCreate = isManager || hasPermission("trade_fairs.create");
   const canUpdate = isManager || hasPermission("trade_fairs.update");
@@ -163,7 +161,9 @@ export function TradeFairsPage({ onOpenCompany }: { onOpenCompany?: (companyId: 
   const listSeq = useRef(0);
   const [summary, setSummary] = useState<TradeFairSummary>({ fairs: [], byUser: [] });
   const [staff, setStaff] = useState<Array<{ id: string; fullName: string }>>([]);
-  const [departmentList, setDepartmentList] = useState<Array<{ id: string; name: string }>>([]);
+  const [divisionList, setDivisionList] = useState<Array<{ id: string; name: string }>>([]);
+  // Seçilen bölümün (ve ortak) CRM ürünleri; bölüm değişince yeniden yüklenir.
+  const [divisionProducts, setDivisionProducts] = useState<Array<{ id: string; name: string; category: string | null }>>([]);
   const [loading, setLoading] = useState(true);
 
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -215,7 +215,7 @@ export function TradeFairsPage({ onOpenCompany }: { onOpenCompany?: (companyId: 
 
   useEffect(() => {
     tradeFairService.staff().then(setStaff).catch(() => setStaff([]));
-    tradeFairService.departments().then(setDepartmentList).catch(() => setDepartmentList([]));
+    tradeFairService.divisions().then(setDivisionList).catch(() => setDivisionList([]));
   }, []);
 
   const loadAttachments = useCallback(async (recordId: string) => {
@@ -231,25 +231,42 @@ export function TradeFairsPage({ onOpenCompany }: { onOpenCompany?: (companyId: 
     );
   }, []);
 
-  const categoryOptions = useMemo(() => options(distinct(products.map((p) => p.category))), [products]);
-  // CRM ürünleri isteğe bağlı ve birden çok. Kayıttaki ürün kullanıcının bölüm
-  // kataloğunda yoksa (başka bölümün ürünü) sunucudan gelen adıyla gösterilir.
-  const productLabel = (p: (typeof products)[number]) => [p.brand, p.modelName || p.model].filter(Boolean).join(" ");
+  useEffect(() => {
+    if (!dialogOpen || !form.divisionId) {
+      setDivisionProducts([]);
+      return;
+    }
+    let alive = true;
+    tradeFairService
+      .products(form.divisionId)
+      .then((rows) => alive && setDivisionProducts(rows))
+      .catch(() => alive && setDivisionProducts([]));
+    return () => {
+      alive = false;
+    };
+  }, [dialogOpen, form.divisionId]);
+
+  const categoryOptions = useMemo(() => options(distinct(divisionProducts.map((p) => p.category))), [divisionProducts]);
+  // CRM ürünleri isteğe bağlı ve birden çok; seçenekler kayıtta seçilen bölümden gelir.
+  // Bölüm sonradan değişse de önceden seçilen ürün adıyla görünmeye devam eder.
+  const [pickedNames, setPickedNames] = useState<Record<string, string>>({});
   const productNames = useMemo(() => {
     const names = new Map<string, string>(editing?.products.map((p) => [p.id, p.name]) ?? []);
-    for (const p of products) names.set(p.id, productLabel(p));
+    for (const [id, name] of Object.entries(pickedNames)) names.set(id, name);
+    for (const p of divisionProducts) names.set(p.id, p.name);
     return names;
-  }, [products, editing?.products]);
+  }, [divisionProducts, editing?.products, pickedNames]);
   const productOptions = useMemo(
     () =>
-      products
+      divisionProducts
         .filter((p) => !form.productModelIds.includes(p.id))
-        .map((p) => ({ value: p.id, label: productLabel(p), hint: [p.model, p.type].filter(Boolean).join(" · ") })),
-    [products, form.productModelIds],
+        .map((p) => ({ value: p.id, label: p.name, hint: p.category ?? undefined })),
+    [divisionProducts, form.productModelIds],
   );
   const addProduct = (value: string) => {
     if (!value || form.productModelIds.includes(value)) return;
-    const product = products.find((p) => p.id === value);
+    const product = divisionProducts.find((p) => p.id === value);
+    if (product) setPickedNames((cur) => ({ ...cur, [value]: product.name }));
     // Kategori boşsa ilk üründen doldurulur; elle yazılanın üstüne yazılmaz.
     setForm((f) => ({
       ...f,
@@ -275,9 +292,13 @@ export function TradeFairsPage({ onOpenCompany }: { onOpenCompany?: (companyId: 
 
   const openCreate = () => {
     setEditing(null);
-    // Departman zorunlu; kullanıcının birincil departmanı önerilir.
-    const primaryDepartment = user?.departments?.find((d) => d.isPrimary)?.id ?? user?.departments?.[0]?.id ?? "";
-    setForm(emptyForm(fairFilter ?? summary.fairs[0]?.name ?? "", user?.id ?? "", primaryDepartment));
+    // Bölüm zorunlu; üst menüde seçili bölüm, yoksa kullanıcının birincil bölümü önerilir.
+    const suggestedDivision =
+      (activeDivision && activeDivision !== "all" ? activeDivision : undefined) ??
+      user?.divisions?.find((d) => d.isPrimary)?.id ??
+      user?.divisions?.[0]?.id ??
+      "";
+    setForm(emptyForm(fairFilter ?? summary.fairs[0]?.name ?? "", user?.id ?? "", suggestedDivision));
     setPending([]);
     setAttachments([]);
     setDialogOpen(true);
@@ -491,7 +512,7 @@ export function TradeFairsPage({ onOpenCompany }: { onOpenCompany?: (companyId: 
                   </TableCell>
                   <TableCell className="hidden truncate text-[12px] sm:table-cell">
                     <div className="truncate">{row.metByName ?? "—"}</div>
-                    <div className="truncate text-[11px] text-muted-foreground">{[`${row.visitorCount} kişi`, row.departmentName].filter(Boolean).join(" · ")}</div>
+                    <div className="truncate text-[11px] text-muted-foreground">{[`${row.visitorCount} kişi`, row.divisionName].filter(Boolean).join(" · ")}</div>
                   </TableCell>
                   <TableCell className="px-1" onClick={(e) => e.stopPropagation()}>
                     <div className="flex items-center gap-1">
@@ -617,7 +638,18 @@ export function TradeFairsPage({ onOpenCompany }: { onOpenCompany?: (companyId: 
                 </div>
               </div>
               <div>
-                <Label>CRM ürünleri <span className="font-normal text-muted-foreground">(isteğe bağlı, birden çok seçilebilir)</span></Label>
+                <Label>Bölüm * <span className="font-normal text-muted-foreground">(firma hangi alan için geldi)</span></Label>
+                <Select value={form.divisionId ?? ""} onValueChange={(v) => set("divisionId", v)}>
+                  <SelectTrigger className="mt-1.5" aria-label="Bölüm" aria-invalid={issuePaths.has("divisionId")}>
+                    <SelectValue placeholder="CNC / Üniversal / Sac İşleme" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {withDivision(divisionList, editing).map((d) => <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label>CRM ürünleri <span className="font-normal text-muted-foreground">(isteğe bağlı, birden çok; seçilen bölümün ürünleri)</span></Label>
                 {form.productModelIds.length > 0 ? (
                   <div className="mt-1.5 flex flex-wrap gap-1.5">
                     {form.productModelIds.map((id) => (
@@ -636,7 +668,14 @@ export function TradeFairsPage({ onOpenCompany }: { onOpenCompany?: (companyId: 
                   options={productOptions}
                   value=""
                   onChange={addProduct}
-                  placeholder={form.productModelIds.length ? "Başka ürün ekle" : "CRM'den ürün seçin (boş bırakılabilir)"}
+                  placeholder={
+                    !form.divisionId
+                      ? "Önce bölüm seçin"
+                      : form.productModelIds.length
+                        ? "Başka ürün ekle"
+                        : "CRM'den ürün seçin (boş bırakılabilir)"
+                  }
+                  disabled={!form.divisionId}
                   searchPlaceholder="Marka, model ara…"
                   emptyText="Ürün bulunamadı"
                 />
@@ -656,18 +695,7 @@ export function TradeFairsPage({ onOpenCompany }: { onOpenCompany?: (companyId: 
                   createLabel={(v) => `"${v}" kategorisini kullan`}
                 />
               </div>
-              <div className="grid gap-3 sm:grid-cols-[1fr_1fr_120px]">
-                <div>
-                  <Label>Departman *</Label>
-                  <Select value={form.departmentId ?? ""} onValueChange={(v) => set("departmentId", v)}>
-                    <SelectTrigger className="mt-1.5" aria-label="Departman" aria-invalid={issuePaths.has("departmentId")}>
-                      <SelectValue placeholder="Departman seçin" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {withDepartment(departmentList, editing).map((d) => <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
-                </div>
+              <div className="grid gap-3 sm:grid-cols-[1fr_140px]">
                 <div>
                   <Label>Görüşen</Label>
                   <Select value={form.metByUserId ?? ""} onValueChange={(v) => set("metByUserId", v)}>
@@ -798,7 +826,7 @@ export function TradeFairsPage({ onOpenCompany }: { onOpenCompany?: (companyId: 
  * mevcut firmaya kontak olarak. Aynı ünvanlı firma varsa sunucu yeni firma
  * açmaz; diyalog o firmaya bağlamayı önerir.
  */
-function AddToCompaniesDialog({
+export function AddToCompaniesDialog({
   open,
   onOpenChange,
   record,
@@ -816,8 +844,13 @@ function AddToCompaniesDialog({
 }) {
   const { user, activeDivision } = useAuth();
   const divisions = user?.divisions ?? [];
+  // Firma, fuar kaydında seçilen bölümde açılır; kullanıcının o bölümde yetkisi yoksa kendi bölümü önerilir.
   const defaultDivision =
-    activeDivision && activeDivision !== "all" ? activeDivision : divisions.find((d) => d.isPrimary)?.id ?? divisions[0]?.id ?? "";
+    (record.divisionId && divisions.some((d) => d.id === record.divisionId) ? record.divisionId : undefined) ??
+    (activeDivision && activeDivision !== "all" ? activeDivision : undefined) ??
+    divisions.find((d) => d.isPrimary)?.id ??
+    divisions[0]?.id ??
+    "";
   const [mode, setMode] = useState<"new" | "existing">(canCreateCompany ? "new" : "existing");
   const [divisionId, setDivisionId] = useState(defaultDivision);
   const [companyId, setCompanyId] = useState("");

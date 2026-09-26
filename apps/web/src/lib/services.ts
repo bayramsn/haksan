@@ -762,9 +762,9 @@ export type TradeFairContactDTO = {
   notes: string | null;
   metByUserId: string | null;
   metByName: string | null;
-  /** Görüşmenin departmanı (yeni kayıtta zorunlu). */
-  departmentId: string | null;
-  departmentName?: string | null;
+  /** Görüşmenin bölümü (CNC / Üniversal / Sac İşleme); yeni kayıtta zorunlu. */
+  divisionId: string | null;
+  divisionName?: string | null;
   visitorCount: number;
   /** Firmalar'a eklendiyse bağlandığı firma/kontak. */
   companyId: string | null;
@@ -775,7 +775,7 @@ export type TradeFairContactDTO = {
 };
 export type TradeFairContactBody = Omit<
   TradeFairContactDTO,
-  "id" | "metByName" | "departmentName" | "products" | "companyId" | "contactId" | "linkedCompanyName" | "createdBy" | "createdAt"
+  "id" | "metByName" | "divisionName" | "products" | "companyId" | "contactId" | "linkedCompanyName" | "createdBy" | "createdAt"
 > & { productModelIds: string[] };
 export type TradeFairSummary = {
   fairs: Array<{ name: string; total: number; lastAt: string }>;
@@ -783,11 +783,14 @@ export type TradeFairSummary = {
 };
 
 export const tradeFairService = {
-  list: (params: { fairName?: string; q?: string; metByUserId?: string; page?: number; pageSize?: number } = {}) =>
+  list: (params: { fairName?: string; q?: string; metByUserId?: string; divisionId?: string; page?: number; pageSize?: number } = {}) =>
     api.get<Paginated<TradeFairContactDTO>>(`/trade-fairs${qs(params)}`),
   summary: (fairName?: string) => api.get<TradeFairSummary>(`/trade-fairs/summary${qs({ fairName })}`),
   staff: () => api.get<Array<{ id: string; fullName: string }>>('/trade-fairs/staff'),
-  departments: () => api.get<Array<{ id: string; code: string; name: string }>>('/trade-fairs/departments'),
+  divisions: () => api.get<Array<{ id: string; code: string; name: string }>>('/trade-fairs/divisions'),
+  /** Bölümün (ve ortak grupların) katalog ürünleri; bölüm kapsamı uygulanmaz. */
+  products: (divisionId: string, q?: string) =>
+    api.get<Array<{ id: string; name: string; category: string | null }>>(`/trade-fairs/products${qs({ divisionId, q })}`),
   create: (body: TradeFairContactBody) => api.post<TradeFairContactDTO>('/trade-fairs', body),
   update: (id: string, body: Partial<TradeFairContactBody>) => api.patch<TradeFairContactDTO>(`/trade-fairs/${id}`, body),
   remove: (id: string) => api.delete<{ deleted: boolean }>(`/trade-fairs/${id}`),

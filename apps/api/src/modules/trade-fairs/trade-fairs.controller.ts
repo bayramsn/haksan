@@ -4,10 +4,12 @@ import {
   tradeFairContactCreateSchema,
   tradeFairContactUpdateSchema,
   tradeFairListQuerySchema,
+  tradeFairProductQuerySchema,
   tradeFairToCompanySchema,
   type TradeFairContactInput,
   type TradeFairContactUpdateInput,
   type TradeFairListQuery,
+  type TradeFairProductQuery,
   type TradeFairToCompanyInput,
 } from '@haksan/shared';
 import { AuthGuard } from '../../shared/security/auth.guard';
@@ -49,9 +51,18 @@ export class TradeFairsController {
   }
 
   @RequirePermissions('trade_fairs.read')
-  @Get('departments')
-  departments(@CurrentUser() actor: AuthContext) {
-    return this.service.departments(actor);
+  @Get('divisions')
+  divisions(@CurrentUser() actor: AuthContext) {
+    return this.service.divisions(actor);
+  }
+
+  @RequirePermissions('trade_fairs.read')
+  @Get('products')
+  products(
+    @Query(new ZodValidationPipe(tradeFairProductQuerySchema)) query: TradeFairProductQuery,
+    @CurrentUser() actor: AuthContext
+  ) {
+    return this.service.products(actor, query);
   }
 
   @RequirePermissions('trade_fairs.create')

@@ -1,6 +1,6 @@
 import { index, integer, pgTable, primaryKey, text, timestamp, uuid, varchar } from 'drizzle-orm/pg-core';
 import { auditColumns } from './_helpers';
-import { departments, tenants } from './tenants';
+import { departments, divisions, tenants } from './tenants';
 import { users } from './users';
 import { productModels } from './products';
 import { companies, contacts } from './companies';
@@ -28,8 +28,10 @@ export const tradeFairContacts = pgTable(
     district: varchar('district', { length: 128 }),
     productCategory: varchar('product_category', { length: 128 }),
     productType: varchar('product_type', { length: 255 }),
-    /** Görüşmenin departmanı; yeni kayıtta zorunlu (şema), eski kayıtlarda boş olabilir. */
+    /** Eski alan: departman artık sorulmuyor, kolon eski kayıtlar için duruyor. */
     departmentId: uuid('department_id').references(() => departments.id, { onDelete: 'set null' }),
+    /** Görüşmenin bölümü (CNC / Üniversal / Sac İşleme); yeni kayıtta zorunlu (şema). */
+    divisionId: uuid('division_id').references(() => divisions.id, { onDelete: 'set null' }),
     /** Kayıt Firmalar'a eklendiyse bağlandığı firma ve kontak. */
     companyId: uuid('company_id').references(() => companies.id, { onDelete: 'set null' }),
     contactId: uuid('contact_id').references(() => contacts.id, { onDelete: 'set null' }),
@@ -47,6 +49,7 @@ export const tradeFairContacts = pgTable(
     metByIdx: index('trade_fair_contacts_met_by_idx').on(t.metByUserId),
     companyIdx: index('trade_fair_contacts_company_idx').on(t.companyId),
     departmentIdx: index('trade_fair_contacts_department_idx').on(t.departmentId),
+    divisionIdx: index('trade_fair_contacts_division_idx').on(t.divisionId),
   })
 );
 

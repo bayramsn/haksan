@@ -1065,6 +1065,13 @@
       "when": 1793299200000,
       "tag": "0152_trade_fair_products_company_department",
       "breakpoints": true
+    },
+    {
+      "idx": 153,
+      "version": "7",
+      "when": 1793385600000,
+      "tag": "0153_trade_fair_division",
+      "breakpoints": true
     }
   ]
 }

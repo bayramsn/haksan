@@ -7,7 +7,6 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { COUNTRY_OPTIONS, DISTRICTS_BY_PROVINCE, TRADE_FAIR_NOTE_OR_ATTACHMENT_MESSAGE, tradeFairContactCreateSchema } from '@haksan/shared';
 import {
   fileService,
-  productService,
   tradeFairService,
   type TradeFairContactBody,
   type TradeFairContactDTO,
@@ -15,7 +14,6 @@ import {
 import { ApiError } from '@/src/api/apiClient';
 import { useAuth } from '@/src/auth/AuthProvider';
 import { tradeFairCache, tradeFairDraft } from '@/src/screens/TradeFairsScreen';
-import { normalizeList } from '@/src/modules/registry';
 import { Button } from '@/src/ui/Button';
 import { CompanyPicker } from '@/src/ui/CompanyPicker';
 import { FormPageLayout } from '@/src/ui/FormPageLayout';
@@ -46,7 +44,7 @@ type Attachment = { id: string; fileId: string; filename: string; mimeType: stri
 
 const options = (values: readonly string[]): PickerOption[] => values.map((v) => ({ value: v, label: v }));
 
-const emptyForm = (fairName = '', metByUserId: string | null = null, departmentId: string | null = null): TradeFairContactBody => ({
+const emptyForm = (fairName = '', metByUserId: string | null = null, divisionId: string | null = null): TradeFairContactBody => ({
   fairName,
   companyName: '',
   contactName: '',
@@ -61,7 +59,7 @@ const emptyForm = (fairName = '', metByUserId: string | null = null, departmentI
   productModelIds: [],
   notes: '',
   metByUserId,
-  departmentId,
+  divisionId,
   visitorCount: 1,
 });
 
@@ -109,8 +107,9 @@ export function TradeFairFormScreen() {
 
   const [form, setForm] = useState<TradeFairContactBody>(() => {
     // Departman zorunlu; kullanıcının birincil departmanı önerilir.
-    const primaryDepartment = user?.departments?.find((d) => d.isPrimary)?.id ?? user?.departments?.[0]?.id ?? null;
-    if (!editing) return emptyForm(tradeFairDraft.fairName, user?.id ?? null, primaryDepartment);
+    // Bölüm zorunlu; kullanıcının birincil bölümü önerilir.
+    const primaryDivision = user?.divisions?.find((d) => d.isPrimary)?.id ?? user?.divisions?.[0]?.id ?? null;
+    if (!editing) return emptyForm(tradeFairDraft.fairName, user?.id ?? null, primaryDivision);
     const base = emptyForm();
     return {
       ...(Object.fromEntries(
@@ -137,7 +136,7 @@ export function TradeFairFormScreen() {
   const canCreateCompany = isManager || permissions.includes('companies.create');
   const [fairs, setFairs] = useState<string[]>([]);
   const [staff, setStaff] = useState<Array<{ id: string; fullName: string }>>([]);
-  const [departmentList, setDepartmentList] = useState<Array<{ id: string; name: string }>>([]);
+  const [divisionList, setDivisionList] = useState<Array<{ id: string; name: string }>>([]);
   const [photos, setPhotos] = useState<Photo[]>([]);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [saving, setSaving] = useState(false);
@@ -149,7 +148,7 @@ export function TradeFairFormScreen() {
   useEffect(() => {
     tradeFairService.summary().then((s) => setFairs(s.fairs.map((f) => f.name))).catch(() => undefined);
     tradeFairService.staff().then(setStaff).catch(() => undefined);
-    tradeFairService.departments().then(setDepartmentList).catch(() => undefined);
+    tradeFairService.divisions().then(setDivisionList).catch(() => undefined);
   }, []);
 
   useEffect(() => {
@@ -189,25 +188,30 @@ export function TradeFairFormScreen() {
     return list;
   }, [staff, editing]);
   // Kayıttaki departman silinmişse listede yoksa da adıyla görünsün.
-  const departmentOptions = useMemo(() => {
-    const list = departmentList.map((d) => ({ value: d.id, label: d.name }));
-    if (editing?.departmentId && !departmentList.some((d) => d.id === editing.departmentId)) {
-      list.push({ value: editing.departmentId, label: editing.departmentName ?? 'Silinmiş departman' });
+  const divisionOptions = useMemo(() => {
+    const list = divisionList.map((d) => ({ value: d.id, label: d.name }));
+    if (editing?.divisionId && !divisionList.some((d) => d.id === editing.divisionId)) {
+      list.push({ value: editing.divisionId, label: editing.divisionName ?? 'Pasif bölüm' });
     }
     return list;
-  }, [departmentList, editing]);
+  }, [divisionList, editing]);
   const metByLabel = staffOptions.find((s) => s.value === form.metByUserId)?.label ?? null;
 
-  const searchProducts = useCallback(async (term: string): Promise<PickerOption[]> => {
-    const res = await productService.list({ search: term || undefined, pageSize: 30 });
-    return normalizeList(res).map((p: any) => ({
-      value: String(p.id),
-      label: String(p.fullName ?? [p.brand?.name, p.modelCode].filter(Boolean).join(' ')),
-      hint: [p.category?.name, p.productType?.name].filter(Boolean).join(' · ') || undefined,
-      // Kategori boşsa doldurmak için taşınır.
-      category: p.category?.name ?? '',
-    })) as PickerOption[];
-  }, []);
+  // Ürünler kayıtta seçilen bölümden (ve ortak gruplardan) gelir.
+  const searchProducts = useCallback(
+    async (term: string): Promise<PickerOption[]> => {
+      if (!form.divisionId) return [];
+      const rows = await tradeFairService.products(form.divisionId, term || undefined);
+      return rows.map((p) => ({
+        value: p.id,
+        label: p.name,
+        hint: p.category ?? undefined,
+        // Kategori boşsa doldurmak için taşınır.
+        category: p.category ?? '',
+      })) as PickerOption[];
+    },
+    [form.divisionId],
+  );
 
   const addPhotos = async (source: 'camera' | 'library') => {
     // Galeri sistem seçicisiyle açılır, izin istemez; yalnız kamera izin ister.
@@ -427,7 +431,14 @@ export function TradeFairFormScreen() {
           onSelect={(o) => set('district', o?.value ?? '')}
         />
 
-        <SectionTitle title="Ürün" subtitle="Hepsi isteğe bağlı; birden çok CRM ürünü seçilebilir" />
+        <SectionTitle title="Bölüm ve ürün" subtitle="Firma hangi alan için geldi; ürünler bu bölümden, isteğe bağlı" />
+        <OptionPicker
+          label="Bölüm *"
+          display={divisionOptions.find((d) => d.value === form.divisionId)?.label ?? null}
+          placeholder="CNC / Üniversal / Sac İşleme"
+          options={divisionOptions}
+          onSelect={(o) => o && set('divisionId', o.value)}
+        />
         {form.productModelIds.length > 0 ? (
           <View style={styles.chips}>
             {form.productModelIds.map((id) => (
@@ -447,7 +458,9 @@ export function TradeFairFormScreen() {
         <OptionPicker
           label="CRM ürünü ekle"
           display={null}
-          placeholder={form.productModelIds.length ? 'Başka ürün ekle' : "CRM'den ürün seçin (boş bırakılabilir)"}
+          placeholder={
+            !form.divisionId ? 'Önce bölüm seçin' : form.productModelIds.length ? 'Başka ürün ekle' : "CRM'den ürün seçin (boş bırakılabilir)"
+          }
           onSearch={searchProducts}
           onSelect={(o) => {
             if (!o || form.productModelIds.includes(o.value)) return;
@@ -464,13 +477,6 @@ export function TradeFairFormScreen() {
         <Input label="Ürün kategorisi" value={form.productCategory ?? ''} onChangeText={(v) => set('productCategory', v)} maxLength={128} />
 
         <SectionTitle title="Görüşme" />
-        <OptionPicker
-          label="Departman *"
-          display={departmentOptions.find((d) => d.value === form.departmentId)?.label ?? null}
-          placeholder="Departman seçin"
-          options={departmentOptions}
-          onSelect={(o) => o && set('departmentId', o.value)}
-        />
         <OptionPicker
           label="Görüşen"
           display={metByLabel}

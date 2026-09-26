@@ -4,7 +4,7 @@ import { and, eq, inArray, isNull } from 'drizzle-orm';
 import type { NestFastifyApplication } from '@nestjs/platform-fastify';
 import { createTestApp } from './setup';
 import { getDb } from '../src/db/client';
-import { brands, companies, contacts, departments, files, productModels, tradeFairContacts, users } from '../src/db/schema';
+import { brands, companies, contacts, fileLinks, files, productModels, tradeFairContacts, users } from '../src/db/schema';
 
 /**
  * Fuar alanı bütün departmanlara açık: servis çalışanının eklediği kaydı ve
@@ -21,11 +21,12 @@ describe('Trade fairs module', () => {
   const userIds: string[] = [];
   let brandId = '';
   const productIds: string[] = [];
-  // Yeni kayıtta departman zorunlu; testler kendi departmanını üretir.
-  let required = { departmentId: '', notes: 'Fuar notu' };
+  // Yeni kayıtta bölüm zorunlu; kiracının ilk bölümü kullanılır.
+  let required = { divisionId: '', notes: 'Fuar notu' };
   const companyIds: string[] = [];
   const contactIds: string[] = [];
   let salesToken = '';
+  let salesUserId = '';
   const recordIds: string[] = [];
   const runId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const fairName = `WIN Eurasia Test ${runId}`;
@@ -55,12 +56,11 @@ describe('Trade fairs module', () => {
     // Firma açmak bölüm ister; satış kullanıcısı kiracının ilk bölümüne atanır.
     const me = await api().get('/api/v1/auth/me').set('Authorization', `Bearer ${superToken}`).expect(200);
     divisionId = me.body.user.divisions?.[0]?.id;
-    const [department] = await getDb()
-      .insert(departments)
-      .values({ tenantId: me.body.user.tenantId, code: `fuar-${runId}`, name: `Fuar Test Departmanı ${runId}` })
-      .returning({ id: departments.id });
-    required = { departmentId: department.id, notes: 'Fuar notu' };
-    salesToken = (await createUser('sales', '', divisionId ? [divisionId] : [])).token;
+    if (!divisionId) throw new Error('Test için kiracıda en az bir bölüm gerekli');
+    required = { divisionId, notes: 'Fuar notu' };
+    const sales = await createUser('sales', '', divisionId ? [divisionId] : []);
+    salesToken = sales.token;
+    salesUserId = sales.id;
     serviceToken = service.token;
     serviceUserId = service.id;
     stockToken = stock.token;
@@ -77,7 +77,6 @@ describe('Trade fairs module', () => {
     if (productIds.length) await db.delete(productModels).where(inArray(productModels.id, productIds));
     if (brandId) await db.delete(brands).where(eq(brands.id, brandId));
     for (const id of userIds) await db.delete(users).where(eq(users.id, id));
-    if (required.departmentId) await db.delete(departments).where(eq(departments.id, required.departmentId));
     await app?.close();
   });
 
@@ -201,6 +200,13 @@ describe('Trade fairs module', () => {
       .returning({ id: productModels.id });
     productIds.push(...inserted.map((p) => p.id));
 
+    // Ürün seçici bölüme göre gelir; grupsuz (ortak) ürün her bölümde görünür.
+    const picker = await api()
+      .get(`/api/v1/trade-fairs/products?divisionId=${divisionId}&q=${encodeURIComponent(`Fuar Test Torna ${runId}`)}`)
+      .set('Authorization', `Bearer ${serviceToken}`)
+      .expect(200);
+    expect(picker.body.map((p: { id: string }) => p.id)).toEqual([productIds[1]]);
+
     // Ürün seçimi zorunlu değil: ürünsüz kayıt açılır, sonra iki ürün bağlanır ve boşaltılır.
     const created = await api()
       .post('/api/v1/trade-fairs')
@@ -255,6 +261,28 @@ describe('Trade fairs module', () => {
       .expect(201);
     recordIds.push(record.body.id);
 
+    // Fuarda eklenen fotoğraf firma kartında da görünmeli.
+    const [photo] = await getDb()
+      .insert(files)
+      .values({
+        tenantId: record.body.tenantId,
+        bucket: 'erp-service-documents',
+        objectKey: `test/trade-fair/${runId}/stand.png`,
+        originalFilename: 'stand.png',
+        mimeType: 'image/png',
+        extension: 'png',
+        sizeBytes: 68,
+        uploadedBy: salesUserId,
+        uploadStatus: 'uploaded',
+        uploadedAt: new Date(),
+      })
+      .returning({ id: files.id });
+    await api()
+      .post('/api/v1/files/link')
+      .set('Authorization', `Bearer ${salesToken}`)
+      .send({ fileId: photo.id, entityType: 'trade_fair_contact', entityId: record.body.id, documentTypeCode: 'other' })
+      .expect(201);
+
     // Firma açma yetkisi olmayan rol (servis) ekleyemez.
     await api().post(`/api/v1/trade-fairs/${record.body.id}/company`).set('Authorization', `Bearer ${serviceToken}`).send({}).expect(403);
 
@@ -271,6 +299,11 @@ describe('Trade fairs module', () => {
     const company = await api().get(`/api/v1/companies/${added.body.companyId}`).set('Authorization', `Bearer ${salesToken}`).expect(200);
     // Firma servisi ünvanı büyük harfe çevirir (mevcut kural).
     expect(company.body.legalTitle).toBe(`Fuar Yeni Firma ${runId}`.toLocaleUpperCase('tr-TR'));
+    const companyFiles = await api()
+      .get(`/api/v1/files/links?entityType=company&entityId=${added.body.companyId}`)
+      .set('Authorization', `Bearer ${salesToken}`)
+      .expect(200);
+    expect(companyFiles.body.data.map((l: { file: { id: string } }) => l.file.id)).toEqual([photo.id]);
     const contact = await api().get(`/api/v1/contacts/${added.body.contactId}`).set('Authorization', `Bearer ${salesToken}`).expect(200);
     expect(contact.body.fullName).toBe('Deniz Yıldız'.toLocaleUpperCase('tr-TR'));
 
@@ -344,13 +377,13 @@ describe('Trade fairs module', () => {
     expect(sameTitle).toHaveLength(1);
   });
 
-  it('requires a department on new records', async () => {
-    const missingDepartment = await api()
+  it('requires a division on new records', async () => {
+    const missingDivision = await api()
       .post('/api/v1/trade-fairs')
       .set('Authorization', `Bearer ${serviceToken}`)
       .send({ fairName, companyName: 'X', contactName: 'Y', notes: 'Not var' })
       .expect(422);
-    expect(JSON.stringify(missingDepartment.body)).toContain('Departman seçimi zorunlu');
+    expect(JSON.stringify(missingDivision.body)).toContain('Bölüm seçimi zorunlu');
   });
 
   it('lets readonly users read but not write', async () => {

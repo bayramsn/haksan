@@ -26,7 +26,10 @@ const tradeFairContactFields = z.object({
   // kural formda (web + mobil) uygulanır, sunucuda not isteğe bağlı.
   notes: optionalText(4000),
   metByUserId: z.string().uuid().nullable().optional(),
-  departmentId: z.string({ required_error: 'Departman seçimi zorunlu' }).uuid('Departman seçimi zorunlu'),
+  /** Eski alan; arayüz artık göndermiyor. */
+  departmentId: z.string().uuid().nullable().optional(),
+  /** Görüşmenin bölümü (CNC / Üniversal / Sac İşleme); ürün seçimi bu bölüme göre. */
+  divisionId: z.string({ required_error: 'Bölüm seçimi zorunlu' }).uuid('Bölüm seçimi zorunlu'),
   /** İlgilenilen CRM ürünleri; boş liste = ürün seçilmedi. */
   productModelIds: z.array(z.string().uuid()).max(20, 'En fazla 20 ürün seçilebilir').optional(),
   visitorCount: z.coerce.number().int().min(1, 'Görüşülen kişi en az 1 olmalı').max(999, 'Görüşülen kişi en fazla 999 olabilir'),
@@ -44,7 +47,15 @@ export const tradeFairListQuerySchema = paginationSchema.extend({
   fairName: z.string().trim().max(200).optional(),
   q: z.string().trim().max(200).optional(),
   metByUserId: z.string().uuid().optional(),
+  divisionId: z.string().uuid().optional(),
 });
+
+/** Fuar formundaki ürün seçici: seçilen bölümün (ve ortak) katalog ürünleri. */
+export const tradeFairProductQuerySchema = z.object({
+  divisionId: z.string().uuid(),
+  q: z.string().trim().max(200).optional(),
+});
+export type TradeFairProductQuery = z.infer<typeof tradeFairProductQuerySchema>;
 export type TradeFairListQuery = z.infer<typeof tradeFairListQuerySchema>;
 
 /**

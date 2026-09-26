@@ -1,9 +1,15 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { and, asc, count, desc, eq, exists, ilike, inArray, isNull, or, sql, type SQL } from 'drizzle-orm';
-import type { TradeFairContactInput, TradeFairContactUpdateInput, TradeFairListQuery, TradeFairToCompanyInput } from '@haksan/shared';
+import type {
+  TradeFairContactInput,
+  TradeFairContactUpdateInput,
+  TradeFairListQuery,
+  TradeFairProductQuery,
+  TradeFairToCompanyInput,
+} from '@haksan/shared';
 import { companyCreateSchema, contactCreateSchema, emailSchema, phoneSchema } from '@haksan/shared';
 import type { DbClient } from '../../db/client';
-import { companies, contactSources, departments, productModels, tradeFairContactProducts, tradeFairContacts, users } from '../../db/schema';
+import { companies, contactSources, divisions, fileLinks, productCategories, productGroups, productModels, tradeFairContactProducts, tradeFairContacts, users } from '../../db/schema';
 import { DB } from '../../shared/database/database.module';
 import { AuditService } from '../../shared/database/audit.service';
 import type { AuthContext } from '../../shared/security/auth.types';
@@ -61,23 +67,49 @@ export class TradeFairsService {
     if (!row) throw new ValidationError('Görüşen kişi bulunamadı');
   }
 
-  private async assertTenantDepartment(actor: AuthContext, departmentId: string | null | undefined) {
-    if (!departmentId) return;
+  private async assertTenantDivision(actor: AuthContext, divisionId: string | null | undefined) {
+    if (!divisionId) return;
     const [row] = await this.db
-      .select({ id: departments.id })
-      .from(departments)
-      .where(and(eq(departments.id, departmentId), eq(departments.tenantId, actor.tenantId), isNull(departments.deletedAt)))
+      .select({ id: divisions.id })
+      .from(divisions)
+      .where(and(eq(divisions.id, divisionId), eq(divisions.tenantId, actor.tenantId), eq(divisions.isActive, true)))
       .limit(1);
-    if (!row) throw new ValidationError('Departman bulunamadı');
+    if (!row) throw new ValidationError('Bölüm bulunamadı');
   }
 
-  /** Departman seçimi için kiracının departmanları; fuar alanı herkese açık olduğundan ayrı uç. */
-  departments(actor: AuthContext) {
+  /** Bölüm seçimi için kiracının aktif bölümleri; fuar alanı herkese açık olduğundan ayrı uç. */
+  divisions(actor: AuthContext) {
     return this.db
-      .select({ id: departments.id, code: departments.code, name: departments.name })
-      .from(departments)
-      .where(and(eq(departments.tenantId, actor.tenantId), isNull(departments.deletedAt)))
-      .orderBy(asc(departments.name));
+      .select({ id: divisions.id, code: divisions.code, name: divisions.name })
+      .from(divisions)
+      .where(and(eq(divisions.tenantId, actor.tenantId), eq(divisions.isActive, true)))
+      .orderBy(asc(divisions.name));
+  }
+
+  /**
+   * Ürün seçici: seçilen bölümün ve bölümsüz (ortak) gruplardaki aktif, katalogda
+   * gizlenmemiş ürünler. Fuar herkese açık olduğu için kullanıcının bölüm kapsamı
+   * uygulanmaz; yalnız ad ve kategori döner.
+   */
+  products(actor: AuthContext, query: TradeFairProductQuery) {
+    const filters: SQL[] = [
+      eq(productModels.tenantId, actor.tenantId),
+      isNull(productModels.deletedAt),
+      eq(productModels.isActive, true),
+      eq(productModels.catalogHidden, false),
+      or(eq(productGroups.divisionId, query.divisionId), isNull(productGroups.divisionId))!,
+    ];
+    if (query.q) filters.push(ilike(productModels.fullName, `%${query.q.replace(/[\\%_]/g, (c) => `\\${c}`)}%`));
+    return this.db
+      .select({ id: productModels.id, name: productModels.fullName, category: productCategories.name })
+      .from(productModels)
+      .leftJoin(productGroups, eq(productModels.productGroupId, productGroups.id))
+      .leftJoin(productCategories, eq(productModels.categoryId, productCategories.id))
+      .where(and(...filters))
+      .orderBy(asc(productModels.fullName))
+      // ponytail: seçici bölümün kataloğunu tek seferde yükleyip istemcide süzer; bölüm başına
+      // ürün sayısı binleri aşarsa istemci aramayı q ile sunucuya taşımalı.
+      .limit(query.q ? 50 : 500);
   }
 
   /** Yeni eklenen ürünler kiracıda ve silinmemiş olmalı. */
@@ -155,6 +187,7 @@ export class TradeFairsService {
     const filters = this.baseFilters(actor);
     if (query.fairName) filters.push(eq(tradeFairContacts.fairName, query.fairName));
     if (query.metByUserId) filters.push(eq(tradeFairContacts.metByUserId, query.metByUserId));
+    if (query.divisionId) filters.push(eq(tradeFairContacts.divisionId, query.divisionId));
     if (query.q) {
       const term = `%${query.q.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
       filters.push(
@@ -185,13 +218,13 @@ export class TradeFairsService {
           row: tradeFairContacts,
           metByName: users.fullName,
           linkedCompanyName: companies.legalTitle,
-          departmentName: departments.name,
+          divisionName: divisions.name,
         })
         .from(tradeFairContacts)
         .leftJoin(users, eq(tradeFairContacts.metByUserId, users.id))
         // Firmalar yumuşak silinir (FK tetiklenmez); silinmiş firma "bağlı" görünmesin.
         .leftJoin(companies, and(eq(tradeFairContacts.companyId, companies.id), isNull(companies.deletedAt)))
-        .leftJoin(departments, eq(tradeFairContacts.departmentId, departments.id))
+        .leftJoin(divisions, eq(tradeFairContacts.divisionId, divisions.id))
         .where(where)
         .orderBy(desc(tradeFairContacts.createdAt))
         .limit(limit)
@@ -200,11 +233,11 @@ export class TradeFairsService {
     ]);
     const products = await this.productsFor(rows.map((r) => r.row.id));
     return buildPaginated(
-      rows.map(({ row, metByName, linkedCompanyName, departmentName }) => ({
+      rows.map(({ row, metByName, linkedCompanyName, divisionName }) => ({
         ...row,
         metByName,
         linkedCompanyName,
-        departmentName,
+        divisionName,
         products: products.get(row.id) ?? [],
       })),
       total,
@@ -264,7 +297,7 @@ export class TradeFairsService {
   async create(actor: AuthContext, input: TradeFairContactInput) {
     const metByUserId = input.metByUserId ?? actor.userId;
     await this.assertTenantUser(actor, metByUserId);
-    await this.assertTenantDepartment(actor, input.departmentId);
+    await this.assertTenantDivision(actor, input.divisionId);
     const productModelIds = await this.validateProducts(actor, null, input.productModelIds ?? []);
     // Kayıt ve ürünleri tek işlemde: ürün yazımı düşerse yarım kayıt kalmasın.
     const row = await this.db.transaction(async (tx) => {
@@ -290,7 +323,7 @@ export class TradeFairsService {
     // Yalnız değiştiyse doğrula: görüşen çalışan sonradan silinmiş olabilir ve
     // form bu değeri geri gönderir; kayıt yine düzenlenebilmeli.
     if (input.metByUserId !== before.metByUserId) await this.assertTenantUser(actor, input.metByUserId);
-    if (input.departmentId !== before.departmentId) await this.assertTenantDepartment(actor, input.departmentId);
+    if (input.divisionId !== before.divisionId) await this.assertTenantDivision(actor, input.divisionId);
     // Ürünler satır yazılmadan önce doğrulanır; geçersiz üründe hiçbir alan kaydedilmez.
     // Ürün listesi gönderilmediyse (kısmi PATCH) dokunulmaz.
     const productModelIds = input.productModelIds ? await this.validateProducts(actor, id, input.productModelIds) : undefined;
@@ -379,7 +412,8 @@ export class TradeFairsService {
         const hasFairSource = await lookupIdByCode(this.db, contactSources, 'fair');
         const parsed = companyCreateSchema.safeParse({
           legalTitle: record.companyName,
-          divisionIds: input.divisionIds,
+          // Firma, fuar kaydında seçilen bölümde açılır (kullanıcı başka bölüm seçmediyse).
+          divisionIds: input.divisionIds ?? (record.divisionId ? [record.divisionId] : undefined),
           relationTypeCode: 'customer',
           customerStatusCode: 'potential',
           ...(hasFairSource ? { contactSourceCode: 'fair' } : { contactSourceText: 'Fuar' }),
@@ -405,6 +439,16 @@ export class TradeFairsService {
       try {
         if (!contactInput.success) throw new ValidationError(contactInput.error.issues[0]?.message ?? 'Kontak bilgisi geçersiz');
         const contact = await this.contactsService.create(contactInput.data, actor);
+        // Fuarda eklenen fotoğraf/dosyalar firma kartında da görünsün: aynı dosyalar firmaya da bağlanır.
+        const links = await tx
+          .select({ fileId: fileLinks.fileId, documentTypeId: fileLinks.documentTypeId, description: fileLinks.description })
+          .from(fileLinks)
+          .where(and(eq(fileLinks.tenantId, actor.tenantId), eq(fileLinks.entityType, 'trade_fair_contact'), eq(fileLinks.entityId, id)));
+        if (links.length) {
+          await tx.insert(fileLinks).values(
+            links.map((link) => ({ ...link, tenantId: actor.tenantId, entityType: 'company', entityId: companyId! }))
+          );
+        }
         const [row] = await tx
           .update(tradeFairContacts)
           .set({ companyId, contactId: contact.id, updatedBy: actor.userId })

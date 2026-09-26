@@ -162,7 +162,7 @@ export function TradeFairsScreen() {
               subtitle={[item.contactName, item.products[0]?.name || item.productCategory, item.companyId ? 'Firmalar\'da' : null].filter(Boolean).join(' · ')}
               icon="storefront-outline"
               badge={fair ? undefined : item.fairName}
-              meta={[item.metByName, item.departmentName, `${item.visitorCount} kişi`, [item.district, item.province].filter(Boolean).join(' / ')]
+              meta={[item.metByName, item.divisionName, `${item.visitorCount} kişi`, [item.district, item.province].filter(Boolean).join(' / ')]
                 .filter(Boolean)
                 .join(' · ')}
               metaIcon="people-outline"
