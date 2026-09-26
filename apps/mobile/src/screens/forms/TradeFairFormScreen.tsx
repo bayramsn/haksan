@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Alert, Image, Pressable, StyleSheet, Text, View } from 'react-native';
+import * as DocumentPicker from 'expo-document-picker';
 import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
@@ -26,8 +27,21 @@ import { colors, fonts, radius, spacing, typography } from '@/src/theme/tokens';
 const ENTITY = 'trade_fair_contact' as const;
 const MAX_BYTES = 25 * 1024 * 1024;
 const IMAGE_EXT: Record<string, 'jpg' | 'png' | 'webp'> = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' };
+// Web ile aynı izin listesi; tip dosya adındaki uzantıdan türetilir (sistem seçicisinin bildirdiği
+// tip, ör. application/vnd.ms-excel, sunucunun listesine uymayabilir).
+const DOC_EXT_TO_MIME: Record<string, string> = {
+  pdf: 'application/pdf',
+  docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  png: 'image/png',
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  webp: 'image/webp',
+};
+const fileExt = (name: string) => name.split('.').pop()?.toLocaleLowerCase('tr-TR') ?? '';
 
-type Photo = { uri: string; mimeType: string; fileName: string };
+/** Kaydedince yüklenecek ek: kamera/galeri fotoğrafı ya da belge. */
+type Photo = { uri: string; mimeType: string; fileName: string; extension: string };
 type Attachment = { id: string; fileId: string; filename: string; mimeType: string; url?: string };
 
 const options = (values: readonly string[]): PickerOption[] => values.map((v) => ({ value: v, label: v }));
@@ -58,10 +72,10 @@ const RATE_LIMIT_RETRIES = 4;
 const isRateLimited = (e: unknown) =>
   (e instanceof ApiError && e.status === 429) || /\b429\b|too many/i.test(e instanceof Error ? e.message : '');
 
-/** Fotoğrafı fuar kaydına yükleyip bağlar (imzalı yükleme → içerik → bağlantı). */
+/** Fotoğrafı ya da belgeyi fuar kaydına yükleyip bağlar (imzalı yükleme → içerik → bağlantı). */
 async function uploadPhoto(recordId: string, photo: Photo) {
   const blob = await (await fetch(photo.uri)).blob();
-  if (blob.size > MAX_BYTES) throw new Error(`${photo.fileName}: fotoğraf 25 MB'ı aşamaz.`);
+  if (blob.size > MAX_BYTES) throw new Error(`${photo.fileName}: dosya 25 MB'ı aşamaz.`);
   const up = await fileService.signedUpload({
     // Web ile aynı klasör: fuar ekleri genel belge klasöründe.
     bucket: 'erp-service-documents',
@@ -69,7 +83,7 @@ async function uploadPhoto(recordId: string, photo: Photo) {
     entityId: recordId,
     filename: photo.fileName,
     mimeType: photo.mimeType as 'image/jpeg',
-    extension: IMAGE_EXT[photo.mimeType],
+    extension: photo.extension as 'jpg',
     sizeBytes: blob.size,
   });
   await fileService.uploadBinary(up, blob, photo.mimeType);
@@ -222,9 +236,39 @@ export function TradeFairFormScreen() {
         rejected += 1;
         continue;
       }
-      picked.push({ uri: asset.uri, mimeType, fileName: asset.fileName ?? `fuar-${Date.now()}.${IMAGE_EXT[mimeType]}` });
+      picked.push({
+        uri: asset.uri,
+        mimeType,
+        extension: IMAGE_EXT[mimeType],
+        fileName: asset.fileName ?? `fuar-${Date.now()}.${IMAGE_EXT[mimeType]}`,
+      });
     }
     if (rejected) Alert.alert('Desteklenmeyen fotoğraf', `${rejected} fotoğraf eklenmedi; JPG, PNG veya WEBP seçin.`);
+    setPhotos((cur) => [...cur, ...picked]);
+  };
+
+  /** PDF, Word, Excel ya da görsel; birden çok seçilebilir. */
+  const addDocuments = async () => {
+    const res = await DocumentPicker.getDocumentAsync({
+      type: [...new Set(Object.values(DOC_EXT_TO_MIME))],
+      multiple: true,
+      copyToCacheDirectory: true,
+    });
+    if (res.canceled) return;
+    const picked: Photo[] = [];
+    const rejected: string[] = [];
+    for (const asset of res.assets) {
+      const extension = fileExt(asset.name);
+      const mimeType = DOC_EXT_TO_MIME[extension];
+      if (!mimeType || (asset.size ?? 0) > MAX_BYTES) {
+        rejected.push(asset.name);
+        continue;
+      }
+      picked.push({ uri: asset.uri, mimeType, extension, fileName: asset.name });
+    }
+    if (rejected.length) {
+      Alert.alert('Eklenemeyen dosya', `${rejected.join(', ')}\nPDF, DOCX, XLSX, PNG, JPG veya WEBP; dosya başına en fazla 25 MB.`);
+    }
     setPhotos((cur) => [...cur, ...picked]);
   };
 
@@ -248,7 +292,7 @@ export function TradeFairFormScreen() {
       for (const [index, photo] of photos.entries()) {
         const step = `${index + 1}/${photos.length}`;
         for (let attempt = 0; ; attempt += 1) {
-          setUploadNote(`Fotoğraf yükleniyor ${step}…`);
+          setUploadNote(`Ek yükleniyor ${step}…`);
           try {
             await uploadPhoto(saved.id, photo);
             break;
@@ -264,7 +308,7 @@ export function TradeFairFormScreen() {
         }
       }
       setUploadNote(null);
-      if (failed.length) Alert.alert('Bazı fotoğraflar yüklenemedi', failed.join('\n'));
+      if (failed.length) Alert.alert('Bazı ekler yüklenemedi', failed.join('\n'));
       router.back();
     } catch (e) {
       Alert.alert('Kaydedilemedi', e instanceof Error ? e.message : 'İstek başarısız oldu.');
@@ -447,7 +491,7 @@ export function TradeFairFormScreen() {
           maxLength={3}
         />
         <Input
-          label={form.notes?.trim() || photos.length || attachments.length ? 'Not' : 'Not (ya da fotoğraf ekleyin)'}
+          label={form.notes?.trim() || photos.length || attachments.length ? 'Not' : 'Not (ya da fotoğraf/dosya ekleyin)'}
           value={form.notes ?? ''}
           onChangeText={(v) => set('notes', v)}
           placeholder="Görüşme notları, talep, bütçe, takip…"
@@ -457,7 +501,7 @@ export function TradeFairFormScreen() {
         />
       </View>
 
-      <SectionTitle title="Fotoğraflar" />
+      <SectionTitle title="Fotoğraf ve dosyalar" subtitle="Birden çok eklenebilir" />
       <View style={styles.photos}>
         {attachments.map((a) =>
           a.url ? (
@@ -470,11 +514,18 @@ export function TradeFairFormScreen() {
         )}
         {photos.map((p, i) => (
           <View key={`${p.uri}-${i}`}>
-            <Image source={{ uri: p.uri }} style={styles.thumb} />
+            {p.mimeType.startsWith('image/') ? (
+              <Image source={{ uri: p.uri }} style={styles.thumb} />
+            ) : (
+              <View style={[styles.thumb, styles.fileThumb]}>
+                <Ionicons name="document-text-outline" size={22} color={colors.primary} />
+                <Text style={styles.fileName} numberOfLines={2}>{p.fileName}</Text>
+              </View>
+            )}
             <Pressable
               style={styles.remove}
               onPress={() => setPhotos((cur) => cur.filter((_, j) => j !== i))}
-              accessibilityLabel="Fotoğrafı çıkar"
+              accessibilityLabel={`${p.fileName} ekini çıkar`}
               hitSlop={8}
             >
               <Ionicons name="close" size={14} color="#fff" />
@@ -486,9 +537,12 @@ export function TradeFairFormScreen() {
         <View style={styles.row}>
           <Button title="Kamera" variant="secondary" style={styles.flex} onPress={() => void addPhotos('camera')} />
           <Button title="Galeri" variant="secondary" style={styles.flex} onPress={() => void addPhotos('library')} />
+          <Button title="Dosya" variant="secondary" style={styles.flex} onPress={() => void addDocuments()} />
         </View>
       ) : null}
-      {photos.length > 0 ? <Text style={styles.hint}>Fotoğraflar Kaydet'e basınca yüklenir.</Text> : null}
+      {photos.length > 0 ? (
+        <Text style={styles.hint}>Ekler Kaydet'e basınca yüklenir · PDF, DOCX, XLSX, PNG, JPG, WEBP · dosya başına en fazla 25 MB.</Text>
+      ) : null}
 
       {editing ? (
         <View style={styles.companyBox}>
@@ -532,7 +586,8 @@ const styles = StyleSheet.create({
   notes: { minHeight: 96, textAlignVertical: 'top', paddingTop: spacing.md },
   photos: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
   thumb: { width: 80, height: 80, borderRadius: radius.sm, backgroundColor: colors.inputBg },
-  fileThumb: { alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: colors.border },
+  fileThumb: { alignItems: 'center', justifyContent: 'center', gap: 2, padding: 4, borderWidth: 1, borderColor: colors.border },
+  fileName: { ...typography.caption, fontFamily: fonts.regular, color: colors.textMuted, textAlign: 'center' },
   remove: {
     position: 'absolute',
     top: -6,
