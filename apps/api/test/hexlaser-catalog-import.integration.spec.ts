@@ -46,7 +46,16 @@ describe.skipIf(!runIntegration)('HEXLASER catalog product import', () => {
     ));
     expect(storedProfiles.count).toBe(1414);
 
-    // Eski sürümün açtığı kabin/güç kartlarını taklit et: biri teklife bağlı, biri değil.
+    // Older imports can retain extra profile rows under a legacy type code.
+    // They must not make a complete current source set look incomplete.
+    const profile = (await db.query.laserTechnicalProfiles.findFirst({ where: eq(schema.laserTechnicalProfiles.brandId, pg.brandId) }))!;
+    const [extraProfile] = await db.insert(schema.laserTechnicalProfiles).values({
+      tenantId: profile.tenantId, divisionId: profile.divisionId, brandId: profile.brandId,
+      productTypeCode: 'legacy_alias', series: profile.series, sourceModelCode: profile.sourceModelCode,
+      cabinType: profile.cabinType, powerKw: profile.powerKw, configuration: profile.configuration,
+    }).returning({ id: schema.laserTechnicalProfiles.id });
+
+    // A historical variant must retain its price and technical configuration.
     const [spare] = await db.insert(schema.productModels).values({
       tenantId: operator!.tenantId, brandId: pg.brandId, series: pg.series,
       productGroupId: pg.productGroupId, categoryId: pg.categoryId, subcategoryId: pg.subcategoryId,
@@ -73,6 +82,7 @@ describe.skipIf(!runIntegration)('HEXLASER catalog product import', () => {
     const [visible] = await db.select({ count: sql<number>`count(*)::int` }).from(schema.productModels).where(and(eq(schema.productModels.tenantId, operator!.tenantId), eq(schema.productModels.brandId, pg.brandId), isNull(schema.productModels.deletedAt), eq(schema.productModels.catalogHidden, false)));
     expect(visible.count).toBe(111);
 
+    expect(await db.query.laserTechnicalProfiles.findFirst({ where: eq(schema.laserTechnicalProfiles.id, extraProfile.id) })).toMatchObject({ deletedAt: null, configuration: profile.configuration });
     const repeat = await importHexlaserCatalog(db, operator!.tenantId, operator!.id, false);
     expect(repeat).toMatchObject({ createProducts: 0, preserveProducts: 111, mergeVariantProducts: 0 });
   }, 180_000);
