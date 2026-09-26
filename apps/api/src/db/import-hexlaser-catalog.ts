@@ -201,15 +201,19 @@ export async function importHexlaserCatalog(db: DbClient, tenantId: string, user
         createdTemplateFields++;
       }
     }
-    const storedProfiles = await tx.select({ id: s.laserTechnicalProfiles.id, configuration: s.laserTechnicalProfiles.configuration })
+    const storedProfiles = await tx.select({ id: s.laserTechnicalProfiles.id, configuration: s.laserTechnicalProfiles.configuration, productTypeCode: s.laserTechnicalProfiles.productTypeCode })
       .from(s.laserTechnicalProfiles).where(and(
         eq(s.laserTechnicalProfiles.tenantId, tenantId), eq(s.laserTechnicalProfiles.divisionId, division.id),
         eq(s.laserTechnicalProfiles.brandId, brand.id), isNull(s.laserTechnicalProfiles.deletedAt),
       ));
-    const storedConfigurations = storedProfiles.map((row) => laserTechnicalConfigurationSchema.parse({ ...row.configuration, profileId: row.id }));
+    // Legacy type aliases stay in storage but cannot shadow the current type's profile.
+    const storedConfigurations = storedProfiles.filter((row) => row.productTypeCode === row.configuration.selection.productTypeCode)
+      .map((row) => laserTechnicalConfigurationSchema.parse({ ...row.configuration, profileId: row.id }));
     const profileBySelection = new Map(storedConfigurations.map((configuration) => [laserSelectionKey(configuration.selection), configuration]));
     const cuttingVariants = hexlaserCuttingVariants(canonicalConfigurations(storedConfigurations)).map((variant) => ({ ...variant, modelCode: catalogCode(variant.modelCode) }));
-    if (storedConfigurations.length !== sourceProfiles.length) throw new Error('Lazer profil seti eksik; ürün varyantları oluşturulmadı');
+    if (sourceProfiles.some((configuration) => !profileBySelection.has(laserSelectionKey(configuration.selection)))) {
+      throw new Error('Lazer profil seti eksik; ürün varyantları oluşturulmadı');
+    }
 
     const currentProducts = await tx.select().from(s.productModels).where(eq(s.productModels.tenantId, tenantId));
     const currentByCode = new Map(currentProducts.map((product) => [product.modelCode, product]));
