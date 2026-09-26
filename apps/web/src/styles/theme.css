@@ -702,3 +702,18 @@
     animation-iteration-count: 1 !important;
   }
 }
+
+/*
+ * iOS Safari, yazı boyutu 16px'ten küçük bir alana odaklanınca sayfayı
+ * yakınlaştırıp kaydırır; açılır aramalar (combobox) açılınca kendiliğinden
+ * odaklandığı için pop-up'lar telefonda "kayıyordu". Dokunmatik ekranda bütün
+ * yazı alanları en az 16px. Katmansız kural olduğu için sayfa bazlı text-sm /
+ * text-xs sınıflarını !important olmadan ezer; geniş masaüstü görünümü değişmez.
+ */
+@media (max-width: 767px), (pointer: coarse) {
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]),
+  textarea,
+  select {
+    font-size: 16px;
+  }
+}
