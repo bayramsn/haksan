@@ -27,7 +27,6 @@ import {
   resourceDivisionFilterWithShared,
 } from '../../shared/utils/division-scope';
 import {
-  allowUnlinkedCompanyRecords,
   companyVisibilityExistsFilter,
   companyVisibilityFilter,
 } from '../../shared/utils/company-visibility';
@@ -55,7 +54,9 @@ export class FilesService {
               eq(companies.tenantId, actor.tenantId),
               isNull(companies.deletedAt),
               resourceCompanyPortfolioFilter(actor, 'companies', companies.id) ?? sql`true`,
-              allowUnlinkedCompanyRecords(opportunities.companyId, visibility)
+              // Sorgu yalnız companies üzerinde; görünürlük doğrudan firma satırına uygulanır.
+              // (Eskiden opportunities kolonuna atıf yapıp yönetici dışı kullanıcıda 500 veriyordu.)
+              visibility ?? sql`true`
             )
           )
           .limit(1);
