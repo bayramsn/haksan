@@ -81,6 +81,8 @@ export const productModels = pgTable(
     // Bu ürünün muadili (eşdeğer) olarak gösterilecek başka bir ürün modeli (self-FK).
     muadilProductId: uuid('muadil_product_id'),
     isActive: boolean('is_active').notNull().default(true),
+    // Historical variants remain available to existing documents, outside the sellable catalog.
+    catalogHidden: boolean('catalog_hidden').notNull().default(false),
     ...auditColumns,
   },
   (t) => ({

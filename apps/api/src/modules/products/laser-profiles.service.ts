@@ -143,6 +143,7 @@ export class LaserProfilesService {
     }).from(productModels).where(and(
       eq(productModels.tenantId, actor.tenantId),
       eq(productModels.brandId, scope.brandId),
+      eq(productModels.catalogHidden, false),
       isNull(productModels.deletedAt),
     ));
     const productIdsBySelection = new Map<string, string[]>();

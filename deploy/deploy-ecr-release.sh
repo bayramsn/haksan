@@ -221,6 +221,7 @@ docker compose --env-file .env run --rm --no-deps api node apps/api/dist/db/data
 echo "ECR_DEPLOY_CATALOG_IMPORT_START"
 docker compose --env-file .env run --rm --no-deps api node apps/api/dist/db/import-haksanmakina-catalog.js --tenant-slug=haksan --apply
 docker compose --env-file .env run --rm --no-deps api node apps/api/dist/db/import-haksanmakina-catalog.js --tenant-slug=haksan --fiber-laser-only --apply
+docker compose --env-file .env run --rm --no-deps api node apps/api/dist/db/import-hexlaser-catalog.js --tenant-slug=haksan --apply
 echo "ECR_DEPLOY_CATALOG_IMPORT_SUCCEEDED"
 
 SWITCH_STARTED=true

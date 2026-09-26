@@ -51,7 +51,8 @@ import type {
   ProductOptionSetCreateInput,
   ProductOptionValueCreateInput,
 } from '@haksan/shared';
-import { productImportRowSchema, laserSelectionKey, laserTechnicalConfigurationSchema } from '@haksan/shared';
+import { LASER_MODELS, productImportRowSchema, laserSelectionKey, laserTechnicalConfigurationSchema } from '@haksan/shared';
+import { hexlaserLegacyVariantCode } from '../../db/hexlaser-product-variants';
 import { LaserProfilesService, applyLaserSpecEdits } from './laser-profiles.service';
 import { buildPaginated, pageOffset } from '../../shared/utils/pagination';
 import { lookupIdByCode } from '../../shared/utils/lookup.helper';
@@ -738,7 +739,7 @@ export class ProductsService {
   // ────────── PRODUCTS ──────────
   async list(actor: AuthContext, query: { search?: string; brandId?: string; categoryCode?: string }, page: Pagination) {
     const { limit, offset } = pageOffset(page);
-    const filters = [eq(productModels.tenantId, actor.tenantId), isNull(productModels.deletedAt)];
+    const filters = [eq(productModels.tenantId, actor.tenantId), isNull(productModels.deletedAt), eq(productModels.catalogHidden, false)];
     if (query.search) filters.push(ilike(productModels.fullName, `%${query.search}%`));
     if (query.brandId) filters.push(eq(productModels.brandId, query.brandId));
     if (query.categoryCode) {
@@ -946,6 +947,9 @@ export class ProductsService {
     const alternativeIds = this.uniqueAlternativeIds(input);
     await this.assertAlternativeProducts('', actor.tenantId, alternativeIds);
     const brand = await this.assertBrandMatchesProductGroup(input.brandId, groupId, actor);
+    if (brand.technicalCatalogCode === 'AORE_LASER' && LASER_MODELS.some((model) => hexlaserLegacyVariantCode(model.code, input.modelCode))) {
+      throw new ValidationError('Kabin ve güç için ayrı ürün kartı açılamaz; model kartını kullanıp teklif satırında seçim yapın');
+    }
     const supplierCompanyId = input.supplierCompanyId === undefined ? brand.supplierCompanyId ?? null : input.supplierCompanyId;
     await this.assertSupplierCompany(supplierCompanyId, actor.tenantId);
     await this.resolveProductImageMediaFile(actor, input.imageUrl);
@@ -1575,6 +1579,9 @@ export class ProductsService {
         if (existing) await this.assertImportProductScope(existing, lookups);
         await this.resolveProductImageMediaFile(actor, normalized.imageUrl);
         brand = await this.getOrCreateBrand(normalized.brandName, actor, lookups.divisionId);
+        if (!existing && brand.technicalCatalogCode === 'AORE_LASER' && LASER_MODELS.some((model) => hexlaserLegacyVariantCode(model.code, normalized.modelCode))) {
+          throw new ValidationError('Kabin ve güç için ayrı ürün kartı açılamaz; model kartını kullanın');
+        }
         supplierCompanyId = normalized.supplierCompanyId !== undefined
           ? normalized.supplierCompanyId : existing?.supplierCompanyId ?? brand.supplierCompanyId ?? null;
         await this.assertSupplierCompany(supplierCompanyId, actor.tenantId);
