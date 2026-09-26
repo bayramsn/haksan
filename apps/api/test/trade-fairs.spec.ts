@@ -1,10 +1,10 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import request from 'supertest';
-import { eq, inArray } from 'drizzle-orm';
+import { and, eq, inArray, isNull } from 'drizzle-orm';
 import type { NestFastifyApplication } from '@nestjs/platform-fastify';
 import { createTestApp } from './setup';
 import { getDb } from '../src/db/client';
-import { files, tradeFairContacts, users } from '../src/db/schema';
+import { brands, companies, contacts, departments, files, productModels, tradeFairContacts, users } from '../src/db/schema';
 
 /**
  * Fuar alanı bütün departmanlara açık: servis çalışanının eklediği kaydı ve
@@ -19,6 +19,13 @@ describe('Trade fairs module', () => {
   let readonlyToken = '';
   let serviceUserId = '';
   const userIds: string[] = [];
+  let brandId = '';
+  const productIds: string[] = [];
+  // Yeni kayıtta departman zorunlu; testler kendi departmanını üretir.
+  let required = { departmentId: '', notes: 'Fuar notu' };
+  const companyIds: string[] = [];
+  const contactIds: string[] = [];
+  let salesToken = '';
   const recordIds: string[] = [];
   const runId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const fairName = `WIN Eurasia Test ${runId}`;
@@ -27,13 +34,14 @@ describe('Trade fairs module', () => {
   const login = async (email: string, password: string) =>
     (await api().post('/api/v1/auth/login').send({ email, password }).expect(201)).body.accessToken as string;
 
-  const createUser = async (role: string) => {
-    const username = `fuar-${role}-${runId.slice(-6)}`;
+  let divisionId: string | undefined;
+  const createUser = async (role: string, tag = '', divisionIds: string[] = []) => {
+    const username = `fuar-${role}${tag}-${runId.slice(-6)}`;
     const password = 'FuarTest!2026';
     const created = await api()
       .post('/api/v1/users')
       .set('Authorization', `Bearer ${superToken}`)
-      .send({ fullName: `Fuar ${role}`, email: `${username}@haksan.local`, username, password, roleCodes: [role] })
+      .send({ fullName: `Fuar ${role}`, email: `${username}@haksan.local`, username, password, roleCodes: [role], divisionIds })
       .expect(201);
     userIds.push(created.body.id);
     return { id: created.body.id as string, token: await login(`${username}@haksan.local`, password) };
@@ -44,6 +52,15 @@ describe('Trade fairs module', () => {
     superToken = await login('superadmin@haksan.local', 'superadmin12345');
     const service = await createUser('service');
     const stock = await createUser('stock');
+    // Firma açmak bölüm ister; satış kullanıcısı kiracının ilk bölümüne atanır.
+    const me = await api().get('/api/v1/auth/me').set('Authorization', `Bearer ${superToken}`).expect(200);
+    divisionId = me.body.user.divisions?.[0]?.id;
+    const [department] = await getDb()
+      .insert(departments)
+      .values({ tenantId: me.body.user.tenantId, code: `fuar-${runId}`, name: `Fuar Test Departmanı ${runId}` })
+      .returning({ id: departments.id });
+    required = { departmentId: department.id, notes: 'Fuar notu' };
+    salesToken = (await createUser('sales', '', divisionId ? [divisionId] : [])).token;
     serviceToken = service.token;
     serviceUserId = service.id;
     stockToken = stock.token;
@@ -54,7 +71,13 @@ describe('Trade fairs module', () => {
     const db = getDb();
     if (recordIds.length) await db.delete(tradeFairContacts).where(inArray(tradeFairContacts.id, recordIds));
     if (userIds.length) await db.delete(files).where(inArray(files.uploadedBy, userIds));
+    // Firmalar kendi servisinin bıraktığı bağlı kayıtlarla gelir; testte yumuşak silmek yeterli.
+    if (contactIds.length) await db.update(contacts).set({ deletedAt: new Date() }).where(inArray(contacts.id, contactIds));
+    if (companyIds.length) await db.update(companies).set({ deletedAt: new Date() }).where(inArray(companies.id, companyIds));
+    if (productIds.length) await db.delete(productModels).where(inArray(productModels.id, productIds));
+    if (brandId) await db.delete(brands).where(eq(brands.id, brandId));
     for (const id of userIds) await db.delete(users).where(eq(users.id, id));
+    if (required.departmentId) await db.delete(departments).where(eq(departments.id, required.departmentId));
     await app?.close();
   });
 
@@ -63,6 +86,7 @@ describe('Trade fairs module', () => {
       .post('/api/v1/trade-fairs')
       .set('Authorization', `Bearer ${serviceToken}`)
       .send({
+        ...required,
         fairName,
         companyName: 'Anadolu Kalıp',
         contactName: 'Ayşe Demir',
@@ -123,7 +147,7 @@ describe('Trade fairs module', () => {
     const second = await api()
       .post('/api/v1/trade-fairs')
       .set('Authorization', `Bearer ${stockToken}`)
-      .send({ fairName, companyName: 'Ege Metal', contactName: 'Mehmet Kaya', metByUserId: serviceUserId, visitorCount: 2 })
+      .send({ ...required, fairName, companyName: 'Ege Metal', contactName: 'Mehmet Kaya', metByUserId: serviceUserId, visitorCount: 2 })
       .expect(201);
     recordIds.push(second.body.id);
 
@@ -136,11 +160,11 @@ describe('Trade fairs module', () => {
   });
 
   it('keeps untouched fields on partial update and still edits after the met-by user is deleted', async () => {
-    const leaver = await createUser('sales');
+    const leaver = await createUser('sales', 'ayrilan');
     const created = await api()
       .post('/api/v1/trade-fairs')
       .set('Authorization', `Bearer ${serviceToken}`)
-      .send({ fairName, companyName: '100% Makina_Ltd', contactName: 'Ali Veli', country: 'Almanya', visitorCount: 4, metByUserId: leaver.id })
+      .send({ ...required, fairName, companyName: '100% Makina_Ltd', contactName: 'Ali Veli', country: 'Almanya', visitorCount: 4, metByUserId: leaver.id })
       .expect(201);
     recordIds.push(created.body.id);
     // Kullanıcı silme soft delete; kayıttaki görüşen kimliği yerinde kalır.
@@ -162,12 +186,179 @@ describe('Trade fairs module', () => {
     expect(literal.body.data.map((row: { id: string }) => row.id)).toEqual([created.body.id]);
   });
 
+  it('links several optional CRM products and lets them be cleared again', async () => {
+    const db = getDb();
+    const me = await api().get('/api/v1/auth/me').set('Authorization', `Bearer ${serviceToken}`).expect(200);
+    const tenantId = me.body.user.tenantId as string;
+    const [brand] = await db.insert(brands).values({ tenantId, name: `Fuar Marka ${runId}` }).returning({ id: brands.id });
+    brandId = brand.id;
+    const inserted = await db
+      .insert(productModels)
+      .values([
+        { tenantId, brandId, modelCode: `FUAR-A-${runId}`, fullName: `Fuar Test İşleme Merkezi ${runId}` },
+        { tenantId, brandId, modelCode: `FUAR-B-${runId}`, fullName: `Fuar Test Torna ${runId}` },
+      ])
+      .returning({ id: productModels.id });
+    productIds.push(...inserted.map((p) => p.id));
+
+    // Ürün seçimi zorunlu değil: ürünsüz kayıt açılır, sonra iki ürün bağlanır ve boşaltılır.
+    const created = await api()
+      .post('/api/v1/trade-fairs')
+      .set('Authorization', `Bearer ${serviceToken}`)
+      .send({ ...required, fairName, companyName: 'Ürünlü Firma', contactName: 'Zeynep Ak' })
+      .expect(201);
+    recordIds.push(created.body.id);
+    expect(created.body.products).toEqual([]);
+
+    await api()
+      .patch(`/api/v1/trade-fairs/${created.body.id}`)
+      .set('Authorization', `Bearer ${stockToken}`)
+      .send({ productModelIds: productIds })
+      .expect(200);
+    const listed = await api()
+      .get(`/api/v1/trade-fairs?fairName=${encodeURIComponent(fairName)}&q=${encodeURIComponent(`Fuar Test Torna ${runId}`)}`)
+      .set('Authorization', `Bearer ${stockToken}`)
+      .expect(200);
+    expect(listed.body.data.map((row: { id: string }) => row.id)).toEqual([created.body.id]);
+    expect(listed.body.data[0].products.map((p: { name: string }) => p.name).sort()).toEqual(
+      [`Fuar Test Torna ${runId}`, `Fuar Test İşleme Merkezi ${runId}`].sort()
+    );
+
+    // Kısmi güncelleme ürün listesine dokunmaz.
+    const partial = await api()
+      .patch(`/api/v1/trade-fairs/${created.body.id}`)
+      .set('Authorization', `Bearer ${stockToken}`)
+      .send({ notes: 'Ürünler kalmalı' })
+      .expect(200);
+    expect(partial.body.products).toHaveLength(2);
+
+    const cleared = await api()
+      .patch(`/api/v1/trade-fairs/${created.body.id}`)
+      .set('Authorization', `Bearer ${stockToken}`)
+      .send({ productModelIds: [] })
+      .expect(200);
+    expect(cleared.body.products).toEqual([]);
+
+    // Kiracıda bulunmayan ürün bağlanamaz (başka kiracının ürünü de aynı sorguya takılır).
+    await api()
+      .patch(`/api/v1/trade-fairs/${created.body.id}`)
+      .set('Authorization', `Bearer ${stockToken}`)
+      .send({ productModelIds: ['00000000-0000-4000-8000-000000000000'] })
+      .expect(422);
+  });
+
+  it('adds a fair record to Companies as a new company or under an existing one', async () => {
+    const record = await api()
+      .post('/api/v1/trade-fairs')
+      .set('Authorization', `Bearer ${salesToken}`)
+      .send({ ...required, fairName, companyName: `Fuar Yeni Firma ${runId}`, contactName: 'Deniz Yıldız', mobilePhone: `0532 ${runId.slice(6, 13)}`, email: `deniz-${runId}@ornek.com`, province: 'Bursa', district: 'Nilüfer' })
+      .expect(201);
+    recordIds.push(record.body.id);
+
+    // Firma açma yetkisi olmayan rol (servis) ekleyemez.
+    await api().post(`/api/v1/trade-fairs/${record.body.id}/company`).set('Authorization', `Bearer ${serviceToken}`).send({}).expect(403);
+
+    const added = await api()
+      .post(`/api/v1/trade-fairs/${record.body.id}/company`)
+      .set('Authorization', `Bearer ${salesToken}`)
+      .send({ divisionIds: divisionId ? [divisionId] : undefined })
+      .expect(201);
+    expect(added.body.companyId).toBeTruthy();
+    expect(added.body.contactId).toBeTruthy();
+    expect(added.body.linkedCompanyName).toBe(`Fuar Yeni Firma ${runId}`.toLocaleUpperCase('tr-TR'));
+    companyIds.push(added.body.companyId);
+    contactIds.push(added.body.contactId);
+    const company = await api().get(`/api/v1/companies/${added.body.companyId}`).set('Authorization', `Bearer ${salesToken}`).expect(200);
+    // Firma servisi ünvanı büyük harfe çevirir (mevcut kural).
+    expect(company.body.legalTitle).toBe(`Fuar Yeni Firma ${runId}`.toLocaleUpperCase('tr-TR'));
+    const contact = await api().get(`/api/v1/contacts/${added.body.contactId}`).set('Authorization', `Bearer ${salesToken}`).expect(200);
+    expect(contact.body.fullName).toBe('Deniz Yıldız'.toLocaleUpperCase('tr-TR'));
+
+    // İkinci kez eklenemez.
+    await api().post(`/api/v1/trade-fairs/${record.body.id}/company`).set('Authorization', `Bearer ${salesToken}`).send({}).expect(409);
+
+    // Aynı ünvanla ikinci fuar kaydı yeni firma açamaz; mevcut firmaya kontak olarak bağlanır.
+    const second = await api()
+      .post('/api/v1/trade-fairs')
+      .set('Authorization', `Bearer ${salesToken}`)
+      .send({ ...required, fairName, companyName: `Fuar Yeni Firma ${runId}`, contactName: 'Ece Kara' })
+      .expect(201);
+    recordIds.push(second.body.id);
+    await api()
+      .post(`/api/v1/trade-fairs/${second.body.id}/company`)
+      .set('Authorization', `Bearer ${salesToken}`)
+      .send({ divisionIds: divisionId ? [divisionId] : undefined })
+      .expect(409);
+    const linked = await api()
+      .post(`/api/v1/trade-fairs/${second.body.id}/company`)
+      .set('Authorization', `Bearer ${salesToken}`)
+      .send({ companyId: added.body.companyId })
+      .expect(201);
+    expect(linked.body.companyId).toBe(added.body.companyId);
+    contactIds.push(linked.body.contactId);
+
+    const listed = await api()
+      .get(`/api/v1/trade-fairs?fairName=${encodeURIComponent(fairName)}&q=${encodeURIComponent('Ece Kara')}`)
+      .set('Authorization', `Bearer ${stockToken}`)
+      .expect(200);
+    expect(listed.body.data[0].linkedCompanyName).toBe(`Fuar Yeni Firma ${runId}`.toLocaleUpperCase('tr-TR'));
+  });
+
+  it('keeps the new company link when the contact step fails and does not open a second company on retry', async () => {
+    // Kara listedeki bir kontakla aynı e-posta: firma açılır, kontak adımı 409 ile düşer.
+    const email = `kara-${runId}@ornek.com`;
+    const me = await api().get('/api/v1/auth/me').set('Authorization', `Bearer ${superToken}`).expect(200);
+    const [blocked] = await getDb()
+      .insert(contacts)
+      // Kontak bir firmaya bağlı olmak zorunda; önceki testte açılan firma kullanılır.
+      .values({ tenantId: me.body.user.tenantId, companyId: companyIds[0], externalContactNo: `KL-${runId.slice(-10)}`, fullName: 'Kara Liste', workEmail: email, isBlacklisted: true, blacklistReason: 'test' })
+      .returning({ id: contacts.id });
+    contactIds.push(blocked.id);
+    const title = `Fuar Yarım Firma ${runId}`;
+    const record = await api()
+      .post('/api/v1/trade-fairs')
+      .set('Authorization', `Bearer ${salesToken}`)
+      .send({ ...required, fairName, companyName: title, contactName: 'Yarım Kişi', email })
+      .expect(201);
+    recordIds.push(record.body.id);
+    const body = { divisionIds: divisionId ? [divisionId] : undefined };
+
+    await api().post(`/api/v1/trade-fairs/${record.body.id}/company`).set('Authorization', `Bearer ${salesToken}`).send(body).expect(409);
+    const afterFirst = await api()
+      .get(`/api/v1/trade-fairs?fairName=${encodeURIComponent(fairName)}&q=${encodeURIComponent('Yarım Kişi')}`)
+      .set('Authorization', `Bearer ${stockToken}`)
+      .expect(200);
+    expect(afterFirst.body.data[0].companyId).toBeTruthy();
+    expect(afterFirst.body.data[0].contactId).toBeNull();
+    companyIds.push(afterFirst.body.data[0].companyId);
+
+    // Tekrar deneme aynı firmayla kontak adımına döner; ikinci firma açılmaz (mükerrer ünvan 409'u da gelmez).
+    const retry = await api().post(`/api/v1/trade-fairs/${record.body.id}/company`).set('Authorization', `Bearer ${salesToken}`).send(body);
+    expect(retry.status).toBe(409);
+    // Hata yine kontak adımından gelir; firma mükerrer ünvan hatası gelmez.
+    expect(JSON.stringify(retry.body)).not.toContain('ünvanla');
+    const sameTitle = await getDb()
+      .select({ id: companies.id })
+      .from(companies)
+      .where(and(eq(companies.legalTitle, title.toLocaleUpperCase('tr-TR')), isNull(companies.deletedAt)));
+    expect(sameTitle).toHaveLength(1);
+  });
+
+  it('requires a department on new records', async () => {
+    const missingDepartment = await api()
+      .post('/api/v1/trade-fairs')
+      .set('Authorization', `Bearer ${serviceToken}`)
+      .send({ fairName, companyName: 'X', contactName: 'Y', notes: 'Not var' })
+      .expect(422);
+    expect(JSON.stringify(missingDepartment.body)).toContain('Departman seçimi zorunlu');
+  });
+
   it('lets readonly users read but not write', async () => {
     await api().get('/api/v1/trade-fairs').set('Authorization', `Bearer ${readonlyToken}`).expect(200);
     await api()
       .post('/api/v1/trade-fairs')
       .set('Authorization', `Bearer ${readonlyToken}`)
-      .send({ fairName, companyName: 'X', contactName: 'Y' })
+      .send({ ...required, fairName, companyName: 'X', contactName: 'Y' })
       .expect(403);
   });
 
@@ -175,7 +366,7 @@ describe('Trade fairs module', () => {
     await api()
       .post('/api/v1/trade-fairs')
       .set('Authorization', `Bearer ${serviceToken}`)
-      .send({ fairName, companyName: 'X', contactName: 'Y', email: 'gecersiz' })
+      .send({ ...required, fairName, companyName: 'X', contactName: 'Y', email: 'gecersiz' })
       .expect(422);
 
     await api().delete(`/api/v1/trade-fairs/${recordIds[0]}`).set('Authorization', `Bearer ${stockToken}`).expect(403);

@@ -22,8 +22,13 @@ const tradeFairContactFields = z.object({
   district: optionalText(128),
   productCategory: optionalText(128),
   productType: optionalText(255),
+  // Not ya da fotoğraf/dosya eki zorunlu; ek kayıttan sonra yüklendiği için bu
+  // kural formda (web + mobil) uygulanır, sunucuda not isteğe bağlı.
   notes: optionalText(4000),
   metByUserId: z.string().uuid().nullable().optional(),
+  departmentId: z.string({ required_error: 'Departman seçimi zorunlu' }).uuid('Departman seçimi zorunlu'),
+  /** İlgilenilen CRM ürünleri; boş liste = ürün seçilmedi. */
+  productModelIds: z.array(z.string().uuid()).max(20, 'En fazla 20 ürün seçilebilir').optional(),
   visitorCount: z.coerce.number().int().min(1, 'Görüşülen kişi en az 1 olmalı').max(999, 'Görüşülen kişi en fazla 999 olabilir'),
 });
 
@@ -41,3 +46,17 @@ export const tradeFairListQuerySchema = paginationSchema.extend({
   metByUserId: z.string().uuid().optional(),
 });
 export type TradeFairListQuery = z.infer<typeof tradeFairListQuerySchema>;
+
+/**
+ * Fuar kaydını Firmalar'a ekleme: `companyId` verilirse mevcut firmaya kontak
+ * olarak bağlanır, verilmezse kayıttaki bilgilerle yeni firma açılır.
+ */
+export const tradeFairToCompanySchema = z.object({
+  companyId: z.string().uuid().optional(),
+  /** Yeni firmanın bölümü; tek bölümlü kullanıcıda boş bırakılabilir. */
+  divisionIds: z.array(z.string().uuid()).min(1).max(16).optional(),
+});
+export type TradeFairToCompanyInput = z.infer<typeof tradeFairToCompanySchema>;
+
+/** Formlardaki "not ya da ek" kuralının ortak mesajı. */
+export const TRADE_FAIR_NOTE_OR_ATTACHMENT_MESSAGE = 'Not yazın ya da fotoğraf/dosya ekleyin';

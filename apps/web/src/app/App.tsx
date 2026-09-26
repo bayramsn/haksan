@@ -508,7 +508,7 @@ function AppShell() {
       case "due-dates": content = <DueDatesCalendarPage />; break;
       case "sales-price-list": content = <SalesPriceListPage />; break;
       case "references": content = <ReferencesPage />; break;
-      case "trade-fairs": content = <TradeFairsPage />; break;
+      case "trade-fairs": content = <TradeFairsPage onOpenCompany={(customerId) => runOperationAction({ kind: "customer", customerId })} />; break;
       case "products": content = <ProductsPage initialQuery={focus?.nav === "products" ? focus.query : undefined} />; break;
       case "stock": content = <StockPage focus={focus?.nav === "stock" ? focus.focus : undefined} initialQuery={focus?.nav === "stock" ? focus.query : undefined} />; break;
       case "shipments": content = <ShipmentsPage focus={focus?.nav === "shipments" ? focus.focus : undefined} />; break;

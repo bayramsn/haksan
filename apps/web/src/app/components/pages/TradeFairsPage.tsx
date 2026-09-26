@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Building2, Camera, FileText, Loader2, Mail, MapPin, Paperclip, Pencil, Phone, Plus, Search, Store, Trash2, Users, X } from "lucide-react";
+import { Building2, Camera, ExternalLink, FileText, Images, Loader2, Mail, MapPin, Paperclip, Pencil, Phone, Plus, Search, Store, Trash2, Users, X } from "lucide-react";
 import { toast } from "sonner";
-import { COUNTRY_OPTIONS, tradeFairContactCreateSchema } from "@haksan/shared";
+import { COUNTRY_OPTIONS, TRADE_FAIR_NOTE_OR_ATTACHMENT_MESSAGE, tradeFairContactCreateSchema } from "@haksan/shared";
 import { Card, CardContent } from "../ui/card";
 import { Input } from "../ui/input";
 import { Label } from "../ui/label";
@@ -24,6 +24,8 @@ import {
   type TradeFairSummary,
 } from "../../../lib/services";
 import { EmptyState } from "../shared/EmptyState";
+import { RemoteCompanyCombobox } from "../shared/RemoteCompanyCombobox";
+import { ApiError } from "../../../lib/apiClient";
 import { InsightStat } from "../shared/PremiumPrimitives";
 
 const ALL = "__all__";
@@ -47,11 +49,16 @@ const options = (values: readonly string[]) => values.map((v) => ({ value: v, la
 // Combobox yalnız listedeki değeri gösterir; elle yazılan (yeni) değer boş görünmesin.
 const withCurrent = (opts: Array<{ value: string; label: string }>, value?: string | null) =>
   value && !opts.some((o) => o.value === value) ? [{ value, label: value }, ...opts] : opts;
+/** Kayıttaki departman silinmişse listede yoksa da adıyla görünsün. */
+const withDepartment = (list: Array<{ id: string; name: string }>, editing: TradeFairContactDTO | null) =>
+  editing?.departmentId && !list.some((d) => d.id === editing.departmentId)
+    ? [...list, { id: editing.departmentId, name: editing.departmentName ?? "Silinmiş departman" }]
+    : list;
 const distinct = (values: Array<string | null | undefined>) =>
   [...new Set(values.map((v) => v?.trim()).filter((v): v is string => !!v))].sort((a, b) => a.localeCompare(b, "tr-TR"));
 const fileExt = (name: string) => name.split(".").pop()?.toLocaleLowerCase("tr-TR") ?? "";
 
-const emptyForm = (fairName = "", metByUserId = ""): TradeFairContactBody => ({
+const emptyForm = (fairName = "", metByUserId = "", departmentId = ""): TradeFairContactBody => ({
   fairName,
   companyName: "",
   contactName: "",
@@ -63,10 +70,19 @@ const emptyForm = (fairName = "", metByUserId = ""): TradeFairContactBody => ({
   district: "",
   productCategory: "",
   productType: "",
+  productModelIds: [],
   notes: "",
   metByUserId: metByUserId || null,
+  departmentId: departmentId || null,
   visitorCount: 1,
 });
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+/** Yükleme uçları dakikada birkaç istekle sınırlı (sunucu kuralı); sınıra takılan dosya pencere açılınca yeniden denenir. */
+const RATE_LIMIT_WAIT_MS = 20_000;
+const RATE_LIMIT_RETRIES = 4;
+const isRateLimited = (err: unknown) =>
+  (err instanceof ApiError && err.status === 429) || /\b429\b|too many/i.test(err instanceof Error ? err.message : "");
 
 /** Seçilen dosyayı fuar kaydına yükleyip bağlar (imzalı yükleme → içerik → bağlantı). */
 async function uploadAttachment(recordId: string, file: File) {
@@ -131,7 +147,7 @@ function AttachmentTile({ item, canDelete, onDelete }: { item: Attachment; canDe
   );
 }
 
-export function TradeFairsPage() {
+export function TradeFairsPage({ onOpenCompany }: { onOpenCompany?: (companyId: string) => void }) {
   const { products } = useStore();
   const { user, hasPermission, hasRole } = useAuth();
   const isManager = hasRole("admin") || hasRole("super_admin");
@@ -147,6 +163,7 @@ export function TradeFairsPage() {
   const listSeq = useRef(0);
   const [summary, setSummary] = useState<TradeFairSummary>({ fairs: [], byUser: [] });
   const [staff, setStaff] = useState<Array<{ id: string; fullName: string }>>([]);
+  const [departmentList, setDepartmentList] = useState<Array<{ id: string; name: string }>>([]);
   const [loading, setLoading] = useState(true);
 
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -155,7 +172,9 @@ export function TradeFairsPage() {
   const [pending, setPending] = useState<File[]>([]);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [saving, setSaving] = useState(false);
+  const [uploadNote, setUploadNote] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<TradeFairContactDTO | null>(null);
+  const cameraRef = useRef<HTMLInputElement>(null);
   const photoRef = useRef<HTMLInputElement>(null);
   const docRef = useRef<HTMLInputElement>(null);
 
@@ -196,6 +215,7 @@ export function TradeFairsPage() {
 
   useEffect(() => {
     tradeFairService.staff().then(setStaff).catch(() => setStaff([]));
+    tradeFairService.departments().then(setDepartmentList).catch(() => setDepartmentList([]));
   }, []);
 
   const loadAttachments = useCallback(async (recordId: string) => {
@@ -212,10 +232,34 @@ export function TradeFairsPage() {
   }, []);
 
   const categoryOptions = useMemo(() => options(distinct(products.map((p) => p.category))), [products]);
-  const typeOptions = useMemo(
-    () => options(distinct(products.filter((p) => !form.productCategory || p.category === form.productCategory).map((p) => p.type))),
-    [products, form.productCategory],
+  // CRM ürünleri isteğe bağlı ve birden çok. Kayıttaki ürün kullanıcının bölüm
+  // kataloğunda yoksa (başka bölümün ürünü) sunucudan gelen adıyla gösterilir.
+  const productLabel = (p: (typeof products)[number]) => [p.brand, p.modelName || p.model].filter(Boolean).join(" ");
+  const productNames = useMemo(() => {
+    const names = new Map<string, string>(editing?.products.map((p) => [p.id, p.name]) ?? []);
+    for (const p of products) names.set(p.id, productLabel(p));
+    return names;
+  }, [products, editing?.products]);
+  const productOptions = useMemo(
+    () =>
+      products
+        .filter((p) => !form.productModelIds.includes(p.id))
+        .map((p) => ({ value: p.id, label: productLabel(p), hint: [p.model, p.type].filter(Boolean).join(" · ") })),
+    [products, form.productModelIds],
   );
+  const addProduct = (value: string) => {
+    if (!value || form.productModelIds.includes(value)) return;
+    const product = products.find((p) => p.id === value);
+    // Kategori boşsa ilk üründen doldurulur; elle yazılanın üstüne yazılmaz.
+    setForm((f) => ({
+      ...f,
+      productModelIds: [...f.productModelIds, value],
+      productCategory: f.productCategory || product?.category || "",
+    }));
+  };
+  const removeProduct = (id: string) => setForm((f) => ({ ...f, productModelIds: f.productModelIds.filter((x) => x !== id) }));
+  const [companyDialogOpen, setCompanyDialogOpen] = useState(false);
+  const canAddToCompanies = isManager || hasPermission("contacts.create");
   const provinceOptions = useMemo(() => options(provincesForCountry(form.country)), [form.country]);
   const districtOptions = useMemo(() => options(districtsForCountry(form.country, form.province ?? "")), [form.country, form.province]);
   const fairOptions = useMemo(() => options(summary.fairs.map((f) => f.name)), [summary.fairs]);
@@ -231,7 +275,9 @@ export function TradeFairsPage() {
 
   const openCreate = () => {
     setEditing(null);
-    setForm(emptyForm(fairFilter ?? summary.fairs[0]?.name ?? "", user?.id ?? ""));
+    // Departman zorunlu; kullanıcının birincil departmanı önerilir.
+    const primaryDepartment = user?.departments?.find((d) => d.isPrimary)?.id ?? user?.departments?.[0]?.id ?? "";
+    setForm(emptyForm(fairFilter ?? summary.fairs[0]?.name ?? "", user?.id ?? "", primaryDepartment));
     setPending([]);
     setAttachments([]);
     setDialogOpen(true);
@@ -242,6 +288,7 @@ export function TradeFairsPage() {
     setForm({
       ...emptyForm(),
       ...Object.fromEntries(Object.keys(emptyForm()).map((k) => [k, (row as any)[k] ?? (emptyForm() as any)[k]])),
+      productModelIds: row.products.map((p) => p.id),
     } as TradeFairContactBody);
     setPending([]);
     setAttachments([]);
@@ -262,6 +309,8 @@ export function TradeFairsPage() {
   const issuePaths = new Set(parsed.success ? [] : parsed.error.issues.map((issue) => String(issue.path[0])));
   const phoneOk = !issuePaths.has("mobilePhone");
   const emailOk = !issuePaths.has("email");
+  // Not ya da ek (yeni seçilen veya kayıtta var olan) zorunlu; ikisi birden gerekmez.
+  const hasNoteOrAttachment = !!form.notes?.trim() || pending.length > 0 || attachments.length > 0;
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -269,18 +318,34 @@ export function TradeFairsPage() {
       toast.error("Eksik bilgi", { description: parsed.error.issues[0]?.message ?? "Formu kontrol edin." });
       return;
     }
+    if (!hasNoteOrAttachment) {
+      toast.error("Eksik bilgi", { description: TRADE_FAIR_NOTE_OR_ATTACHMENT_MESSAGE });
+      return;
+    }
     setSaving(true);
     try {
       const body = parsed.data as TradeFairContactBody;
       const saved = editing ? await tradeFairService.update(editing.id, body) : await tradeFairService.create(body);
       const failed: string[] = [];
-      for (const file of pending) {
-        try {
-          await uploadAttachment(saved.id, file);
-        } catch (err: any) {
-          failed.push(err?.message ?? file.name);
+      for (const [index, file] of pending.entries()) {
+        const step = `${index + 1}/${pending.length}`;
+        for (let attempt = 0; ; attempt += 1) {
+          setUploadNote(`Yükleniyor ${step}…`);
+          try {
+            await uploadAttachment(saved.id, file);
+            break;
+          } catch (err: any) {
+            if (isRateLimited(err) && attempt < RATE_LIMIT_RETRIES) {
+              setUploadNote(`Yükleme sınırı: ${step} için ${RATE_LIMIT_WAIT_MS / 1000} sn bekleniyor…`);
+              await sleep(RATE_LIMIT_WAIT_MS);
+              continue;
+            }
+            failed.push(err?.message ?? file.name);
+            break;
+          }
         }
       }
+      setUploadNote(null);
       if (failed.length) toast.error("Bazı dosyalar yüklenemedi", { description: failed.join("\n") });
       toast.success(editing ? "Fuar kaydı güncellendi" : "Fuar görüşmesi eklendi", { description: `${saved.companyName} · ${saved.contactName}` });
       setDialogOpen(false);
@@ -290,6 +355,7 @@ export function TradeFairsPage() {
       toast.error("Kaydedilemedi", { description: err?.message ?? "İstek başarısız oldu." });
     } finally {
       setSaving(false);
+      setUploadNote(null);
     }
   };
 
@@ -414,12 +480,18 @@ export function TradeFairsPage() {
                     <span className="inline-flex items-center gap-1"><MapPin className="size-3 shrink-0" /> {location(row)}</span>
                   </TableCell>
                   <TableCell className="truncate text-[12px]">
-                    <div className="truncate">{row.productType || "—"}</div>
-                    <div className="truncate text-[11px] text-muted-foreground">{row.productCategory}</div>
+                    <div className="truncate" title={row.products.map((p) => p.name).join(", ") || undefined}>
+                      {row.products[0]?.name || row.productCategory || "—"}
+                      {row.products.length > 1 ? <span className="text-muted-foreground"> +{row.products.length - 1}</span> : null}
+                    </div>
+                    <div className="truncate text-[11px] text-muted-foreground">{row.products.length ? row.productCategory : null}</div>
+                    {row.companyId && row.contactId ? (
+                      <Badge variant="outline" className="mt-1 h-5 gap-1 text-[9px] text-success"><Building2 className="size-3" /> Firmalar'da</Badge>
+                    ) : null}
                   </TableCell>
                   <TableCell className="hidden truncate text-[12px] sm:table-cell">
                     <div className="truncate">{row.metByName ?? "—"}</div>
-                    <div className="text-[11px] text-muted-foreground">{row.visitorCount} kişi</div>
+                    <div className="truncate text-[11px] text-muted-foreground">{[`${row.visitorCount} kişi`, row.departmentName].filter(Boolean).join(" · ")}</div>
                   </TableCell>
                   <TableCell className="px-1" onClick={(e) => e.stopPropagation()}>
                     <div className="flex items-center gap-1">
@@ -544,39 +616,58 @@ export function TradeFairsPage() {
                   />
                 </div>
               </div>
-              <div className="grid gap-3 sm:grid-cols-2">
-                <div>
-                  <Label>Ürün kategorisi</Label>
-                  <Combobox
-                    ariaLabel="Ürün kategorisi"
-                    className="mt-1.5"
-                    options={withCurrent(categoryOptions, form.productCategory)}
-                    value={form.productCategory ?? ""}
-                    onChange={(v) => set("productCategory", v)}
-                    placeholder="Kategori seçin veya yazın"
-                    searchPlaceholder="Kategori ara…"
-                    emptyText="Kategori bulunamadı"
-                    onCreate={(v) => set("productCategory", v)}
-                    createLabel={(v) => `"${v}" kategorisini kullan`}
-                  />
-                </div>
-                <div>
-                  <Label>Ürün tipi</Label>
-                  <Combobox
-                    ariaLabel="Ürün tipi"
-                    className="mt-1.5"
-                    options={withCurrent(typeOptions, form.productType)}
-                    value={form.productType ?? ""}
-                    onChange={(v) => set("productType", v)}
-                    placeholder="Tip seçin veya yazın"
-                    searchPlaceholder="Tip ara…"
-                    emptyText="Tip bulunamadı"
-                    onCreate={(v) => set("productType", v)}
-                    createLabel={(v) => `"${v}" tipini kullan`}
-                  />
-                </div>
+              <div>
+                <Label>CRM ürünleri <span className="font-normal text-muted-foreground">(isteğe bağlı, birden çok seçilebilir)</span></Label>
+                {form.productModelIds.length > 0 ? (
+                  <div className="mt-1.5 flex flex-wrap gap-1.5">
+                    {form.productModelIds.map((id) => (
+                      <Badge key={id} variant="secondary" className="h-7 max-w-full gap-1 pr-1">
+                        <span className="truncate">{productNames.get(id) ?? "Seçili ürün"}</span>
+                        <button type="button" aria-label={`${productNames.get(id) ?? "Ürün"} ürününü çıkar`} onClick={() => removeProduct(id)}>
+                          <X className="size-3" />
+                        </button>
+                      </Badge>
+                    ))}
+                  </div>
+                ) : null}
+                <Combobox
+                  ariaLabel="CRM ürünü ekle"
+                  className="mt-1.5"
+                  options={productOptions}
+                  value=""
+                  onChange={addProduct}
+                  placeholder={form.productModelIds.length ? "Başka ürün ekle" : "CRM'den ürün seçin (boş bırakılabilir)"}
+                  searchPlaceholder="Marka, model ara…"
+                  emptyText="Ürün bulunamadı"
+                />
               </div>
-              <div className="grid gap-3 sm:grid-cols-[1fr_140px]">
+              <div>
+                <Label>Ürün kategorisi</Label>
+                <Combobox
+                  ariaLabel="Ürün kategorisi"
+                  className="mt-1.5"
+                  options={withCurrent(categoryOptions, form.productCategory)}
+                  value={form.productCategory ?? ""}
+                  onChange={(v) => set("productCategory", v)}
+                  placeholder="Kategori seçin veya yazın"
+                  searchPlaceholder="Kategori ara…"
+                  emptyText="Kategori bulunamadı"
+                  onCreate={(v) => set("productCategory", v)}
+                  createLabel={(v) => `"${v}" kategorisini kullan`}
+                />
+              </div>
+              <div className="grid gap-3 sm:grid-cols-[1fr_1fr_120px]">
+                <div>
+                  <Label>Departman *</Label>
+                  <Select value={form.departmentId ?? ""} onValueChange={(v) => set("departmentId", v)}>
+                    <SelectTrigger className="mt-1.5" aria-label="Departman" aria-invalid={issuePaths.has("departmentId")}>
+                      <SelectValue placeholder="Departman seçin" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {withDepartment(departmentList, editing).map((d) => <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
                 <div>
                   <Label>Görüşen</Label>
                   <Select value={form.metByUserId ?? ""} onValueChange={(v) => set("metByUserId", v)}>
@@ -592,7 +683,9 @@ export function TradeFairsPage() {
                 </div>
               </div>
               <div>
-                <Label htmlFor="tf-notes">Not</Label>
+                <Label htmlFor="tf-notes">
+                  Not {hasNoteOrAttachment ? null : <span className="font-normal text-muted-foreground">(ya da fotoğraf/dosya ekleyin)</span>}
+                </Label>
                 <Textarea id="tf-notes" className="mt-1.5" rows={4} maxLength={4000} placeholder="Görüşme notları, talep, bütçe, takip…" value={form.notes ?? ""} onChange={(e) => set("notes", e.target.value)} />
               </div>
             </fieldset>
@@ -614,28 +707,75 @@ export function TradeFairsPage() {
               </div>
               {(!editing || canUpdate) && (
                 <div className="mt-2 flex flex-wrap gap-2">
-                  <input ref={photoRef} type="file" accept="image/png,image/jpeg,image/webp" capture="environment" multiple className="hidden" onChange={pickFiles} />
+                  {/* capture telefonda doğrudan kamerayı açar ve tek çekime izin verir; galeriden
+                      çoklu seçim için ayrı, capture'sız bir seçici var. */}
+                  <input ref={cameraRef} type="file" accept="image/png,image/jpeg,image/webp" capture="environment" className="hidden" onChange={pickFiles} />
+                  <input ref={photoRef} type="file" accept="image/png,image/jpeg,image/webp" multiple className="hidden" onChange={pickFiles} />
                   <input ref={docRef} type="file" accept={DOC_ACCEPT} multiple className="hidden" onChange={pickFiles} />
+                  <Button type="button" variant="outline" size="sm" className="gap-1.5 sm:hidden" onClick={() => cameraRef.current?.click()}>
+                    <Camera className="size-4" /> Kamera
+                  </Button>
                   <Button type="button" variant="outline" size="sm" className="gap-1.5" onClick={() => photoRef.current?.click()}>
-                    <Camera className="size-4" /> Fotoğraf
+                    <Images className="size-4" /> Fotoğraflar
                   </Button>
                   <Button type="button" variant="outline" size="sm" className="gap-1.5" onClick={() => docRef.current?.click()}>
                     <Paperclip className="size-4" /> Dosya
                   </Button>
-                  <span className="self-center text-[11px] text-muted-foreground">Kaydet'e basınca yüklenir · PDF, DOCX, XLSX, PNG, JPG, WEBP · en fazla 25 MB</span>
+                  <span className="self-center text-[11px] text-muted-foreground">Birden çok seçilebilir · Kaydet'e basınca yüklenir · PDF, DOCX, XLSX, PNG, JPG, WEBP · dosya başına en fazla 25 MB</span>
                 </div>
               )}
             </div>
 
+            {editing ? (
+              <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border/70 bg-muted/30 p-3">
+                <div className="min-w-0 text-[12px]">
+                  <div className="font-semibold">Firmalar</div>
+                  <div className="truncate text-muted-foreground">
+                    {editing.companyId && editing.contactId
+                      ? `Firmalar'a eklendi: ${editing.linkedCompanyName ?? "firma"}`
+                      : editing.companyId
+                        ? "Firma açıldı, yetkili kontak olarak eklenemedi; tekrar deneyebilirsiniz."
+                        : "Bu firma henüz Firmalar listesinde değil."}
+                  </div>
+                </div>
+                {editing.companyId && editing.contactId ? (
+                  onOpenCompany ? (
+                    <Button type="button" variant="outline" size="sm" className="gap-1.5" onClick={() => onOpenCompany(editing.companyId!)}>
+                      <ExternalLink className="size-4" /> Firmayı aç
+                    </Button>
+                  ) : null
+                ) : canAddToCompanies ? (
+                  <Button type="button" variant="outline" size="sm" className="gap-1.5" onClick={() => setCompanyDialogOpen(true)}>
+                    <Building2 className="size-4" /> Firmalara ekle
+                  </Button>
+                ) : null}
+              </div>
+            ) : null}
+
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>Kapat</Button>
               {(!editing || canUpdate) && (
-                <Button type="submit" disabled={saving}>{saving ? "Kaydediliyor..." : editing ? "Kaydet" : "Görüşmeyi Ekle"}</Button>
+                <Button type="submit" disabled={saving}>{saving ? uploadNote ?? "Kaydediliyor..." : editing ? "Kaydet" : "Görüşmeyi Ekle"}</Button>
               )}
             </DialogFooter>
           </form>
         </DialogContent>
       </Dialog>
+
+      {editing ? (
+        <AddToCompaniesDialog
+          open={companyDialogOpen}
+          onOpenChange={setCompanyDialogOpen}
+          record={editing}
+          canCreateCompany={isManager || hasPermission("companies.create")}
+          onAdded={(updated) => {
+            // Yanıtta görüşen/departman adı yok; açık kaydın geri kalanı korunur.
+            setEditing((current) => (current ? { ...current, ...updated } : updated));
+            reload();
+          }}
+          onFailed={reload}
+        />
+      ) : null}
 
       <Dialog open={!!deleting} onOpenChange={(open) => { if (!open) setDeleting(null); }}>
         <DialogContent className="max-w-md">
@@ -650,5 +790,130 @@ export function TradeFairsPage() {
         </DialogContent>
       </Dialog>
     </div>
+  );
+}
+
+/**
+ * Fuar kaydını Firmalar'a ekler: yeni firma (potansiyel, kaynak Fuar) ya da
+ * mevcut firmaya kontak olarak. Aynı ünvanlı firma varsa sunucu yeni firma
+ * açmaz; diyalog o firmaya bağlamayı önerir.
+ */
+function AddToCompaniesDialog({
+  open,
+  onOpenChange,
+  record,
+  canCreateCompany,
+  onAdded,
+  onFailed,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  record: TradeFairContactDTO;
+  canCreateCompany: boolean;
+  onAdded: (updated: TradeFairContactDTO) => void;
+  /** Hata sonrası liste tazelenir: firma açılıp kontak düştüyse kayıt artık firmaya bağlı. */
+  onFailed: () => void;
+}) {
+  const { user, activeDivision } = useAuth();
+  const divisions = user?.divisions ?? [];
+  const defaultDivision =
+    activeDivision && activeDivision !== "all" ? activeDivision : divisions.find((d) => d.isPrimary)?.id ?? divisions[0]?.id ?? "";
+  const [mode, setMode] = useState<"new" | "existing">(canCreateCompany ? "new" : "existing");
+  const [divisionId, setDivisionId] = useState(defaultDivision);
+  const [companyId, setCompanyId] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+    setMode(canCreateCompany ? "new" : "existing");
+    setDivisionId(defaultDivision);
+    setCompanyId("");
+  }, [open, canCreateCompany, defaultDivision]);
+
+  const submit = async () => {
+    if (mode === "existing" && !companyId) {
+      toast.error("Firma seçin");
+      return;
+    }
+    setBusy(true);
+    try {
+      const updated = await tradeFairService.addToCompanies(
+        record.id,
+        mode === "existing" ? { companyId } : { divisionIds: divisionId ? [divisionId] : undefined },
+      );
+      toast.success("Firmalar'a eklendi", { description: `${record.companyName} · ${record.contactName}` });
+      onAdded(updated);
+      onOpenChange(false);
+    } catch (err) {
+      const details = err instanceof ApiError ? (err.details as { duplicateCompanyId?: string; accessRequestId?: string } | undefined) : undefined;
+      // Başka bölümdeki mükerrer firmada sunucu erişim talebi açar; o firma henüz
+      // görünmediği için bağlama önerilmez, sunucunun mesajı gösterilir.
+      const duplicateId = details?.accessRequestId ? undefined : details?.duplicateCompanyId;
+      if (duplicateId) {
+        // Aynı ünvanlı firma zaten var: yeni firma yerine ona bağlamayı öner.
+        setMode("existing");
+        setCompanyId(duplicateId);
+        toast.error("Bu ünvanla firma zaten kayıtlı", { description: "Yetkiliyi mevcut firmaya kontak olarak ekleyebilirsiniz." });
+      } else {
+        toast.error("Firmalara eklenemedi", { description: err instanceof Error ? err.message : "İstek başarısız oldu." });
+      }
+      onFailed();
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-h-[92dvh] overflow-y-auto sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Firmalara ekle</DialogTitle>
+          <DialogDescription>
+            {record.companyName} ve yetkilisi {record.contactName} normal firma/kontak kaydına dönüşür.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-3">
+          <div className="grid grid-cols-2 gap-2">
+            <Button type="button" variant={mode === "new" ? "default" : "outline"} disabled={!canCreateCompany} onClick={() => setMode("new")}>
+              Yeni firma
+            </Button>
+            <Button type="button" variant={mode === "existing" ? "default" : "outline"} onClick={() => setMode("existing")}>
+              Mevcut firmaya bağla
+            </Button>
+          </div>
+          {mode === "new" ? (
+            <>
+              <p className="text-[12px] text-muted-foreground">
+                Ünvan, ülke/il/ilçe fuar kaydından alınır; firma potansiyel müşteri, kaynağı Fuar olarak açılır.
+                Yetkili bu firmanın kontağı olur.
+              </p>
+              {divisions.length > 1 ? (
+                <div>
+                  <Label>Bölüm</Label>
+                  <Select value={divisionId} onValueChange={setDivisionId}>
+                    <SelectTrigger className="mt-1.5" aria-label="Bölüm"><SelectValue placeholder="Bölüm seçin" /></SelectTrigger>
+                    <SelectContent>
+                      {divisions.map((d) => (
+                        <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              ) : null}
+            </>
+          ) : (
+            <div>
+              <Label>Firma</Label>
+              <RemoteCompanyCombobox className="mt-1.5" value={companyId} onValueChange={setCompanyId} placeholder="Kayıtlı firmayı seçin" />
+              <p className="mt-1.5 text-[11px] text-muted-foreground">Yetkili seçilen firmaya kontak olarak eklenir.</p>
+            </div>
+          )}
+        </div>
+        <DialogFooter>
+          <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={busy}>Vazgeç</Button>
+          <Button type="button" onClick={() => void submit()} disabled={busy}>{busy ? "Ekleniyor…" : "Firmalara ekle"}</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

@@ -4,9 +4,11 @@ import {
   tradeFairContactCreateSchema,
   tradeFairContactUpdateSchema,
   tradeFairListQuerySchema,
+  tradeFairToCompanySchema,
   type TradeFairContactInput,
   type TradeFairContactUpdateInput,
   type TradeFairListQuery,
+  type TradeFairToCompanyInput,
 } from '@haksan/shared';
 import { AuthGuard } from '../../shared/security/auth.guard';
 import { CurrentUser } from '../../shared/security/current-user.decorator';
@@ -46,6 +48,12 @@ export class TradeFairsController {
     return this.service.staff(actor);
   }
 
+  @RequirePermissions('trade_fairs.read')
+  @Get('departments')
+  departments(@CurrentUser() actor: AuthContext) {
+    return this.service.departments(actor);
+  }
+
   @RequirePermissions('trade_fairs.create')
   @Post()
   create(
@@ -63,6 +71,17 @@ export class TradeFairsController {
     @CurrentUser() actor: AuthContext
   ) {
     return this.service.update(actor, id, body);
+  }
+
+  /** Fuar kaydını Firmalar'a ekler (yeni firma ya da mevcut firmaya kontak). Firma/kontak yetkisi serviste. */
+  @RequirePermissions('trade_fairs.update')
+  @Post(':id/company')
+  addToCompanies(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body(new ZodValidationPipe(tradeFairToCompanySchema)) body: TradeFairToCompanyInput,
+    @CurrentUser() actor: AuthContext
+  ) {
+    return this.service.addToCompanies(actor, id, body);
   }
 
   @RequirePermissions('trade_fairs.delete')
