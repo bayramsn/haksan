@@ -7,7 +7,7 @@ let close: (() => Promise<void>) | undefined;
 describe.skipIf(!runIntegration)('HEXLASER catalog product import', () => {
   afterAll(async () => close?.());
 
-  it('creates separate product cards with one resolved profile per cabin and power', async () => {
+  it('keeps one catalog card per model and preserves hidden historical variants', async () => {
     const [{ closeDb, getDb, schema }, { importHexlaserCatalog }] = await Promise.all([
       import('../src/db/client'), import('../src/db/import-hexlaser-catalog'),
     ]);
@@ -18,12 +18,12 @@ describe.skipIf(!runIntegration)('HEXLASER catalog product import', () => {
 
     const preview = await importHexlaserCatalog(db, operator!.tenantId, operator!.id, false);
     expect(preview).toMatchObject({
-      cuttingModels: 101, cuttingVariants: 101, profiles: 1414, createProducts: 111,
+      cuttingModels: 101, cuttingVariants: 101, profiles: 1414,
       mergeVariantProducts: 0, linkedVariantProducts: 0,
     });
 
     const applied = await importHexlaserCatalog(db, operator!.tenantId, operator!.id, true);
-    expect(applied).toMatchObject({ createdProducts: 111, migratedBaseProducts: 0, mergedVariantProducts: 0, cuttingVariants: 101 });
+    expect(applied).toMatchObject({ createdProducts: preview.createProducts, mergedVariantProducts: 0, cuttingVariants: 101 });
 
     // Model başına TEK kart: kabin/güç kartı açılmaz.
     // "PG3015%" aynı zamanda PG3015+T6-230'u da yakalar; kabin/güç kartı arayan desen "PG3015-%".
@@ -32,7 +32,7 @@ describe.skipIf(!runIntegration)('HEXLASER catalog product import', () => {
     ));
     expect(pgVariants).toHaveLength(0);
     const pg = (await db.query.productModels.findFirst({ where: and(
-      eq(schema.productModels.tenantId, operator!.tenantId), eq(schema.productModels.modelCode, 'PG3015'),
+      eq(schema.productModels.tenantId, operator!.tenantId), eq(schema.productModels.brandId, applied.brandId), eq(schema.productModels.modelName, 'PG3015'),
     ) }))!;
     expect(pg).toBeTruthy();
     expect(pg.fullName).toBe('PG3015 Sac Lazer Kesim');
@@ -47,31 +47,33 @@ describe.skipIf(!runIntegration)('HEXLASER catalog product import', () => {
     expect(storedProfiles.count).toBe(1414);
 
     // Eski sürümün açtığı kabin/güç kartlarını taklit et: biri teklife bağlı, biri değil.
-    await db.update(schema.productModels).set({ modelCode: 'PG3015-KAPALI-3KW', listPrice: '123' }).where(eq(schema.productModels.id, pg.id));
     const [spare] = await db.insert(schema.productModels).values({
       tenantId: operator!.tenantId, brandId: pg.brandId, series: pg.series,
       productGroupId: pg.productGroupId, categoryId: pg.categoryId, subcategoryId: pg.subcategoryId,
       productTypeId: pg.productTypeId, supplierCompanyId: pg.supplierCompanyId,
+      listPrice: '123', technicalConfiguration: pg.technicalConfiguration,
       modelCode: 'PG3015-ACIK-6KW', modelName: 'PG3015 Açık Kabin 6 kW',
       fullName: 'PG3015 Açık Kabin 6 kW Sac Lazer Kesim', currencyId: pg.currencyId, vatRate: '20',
     }).returning({ id: schema.productModels.id });
 
     const merge = await importHexlaserCatalog(db, operator!.tenantId, operator!.id, false);
-    expect(merge).toMatchObject({ mergeVariantProducts: 2 });
+    expect(merge).toMatchObject({ mergeVariantProducts: 1 });
 
     const merged = await importHexlaserCatalog(db, operator!.tenantId, operator!.id, true);
     expect(merged).toMatchObject({ createdProducts: 0, mergedVariantProducts: 1 });
 
-    // Hayatta kalan kart modelin kodunu alır, kimliğini ve fiyatını korur.
+    // Model kartı ayrı kalır; tarihî varyant değiştirilmez.
     const survivor = await db.query.productModels.findFirst({ where: and(
-      eq(schema.productModels.tenantId, operator!.tenantId), eq(schema.productModels.modelCode, 'PG3015'),
+      eq(schema.productModels.tenantId, operator!.tenantId), eq(schema.productModels.brandId, applied.brandId), eq(schema.productModels.modelName, 'PG3015'),
     ) });
-    expect(survivor).toMatchObject({ id: pg.id, listPrice: '123.0000' });
-    // Fazlalık kart SİLİNMEZ, soft-delete edilir: ona bağlı teklif/stok kayıtları kırılmaz.
+    expect(survivor).toMatchObject({ id: pg.id, catalogHidden: false });
+    // Varyant silinmez: kimliği, fiyatı ve profili korunur; katalogda gizlenir.
     const removed = await db.query.productModels.findFirst({ where: eq(schema.productModels.id, spare!.id) });
-    expect(removed?.deletedAt).toBeTruthy();
+    expect(removed).toMatchObject({ deletedAt: null, catalogHidden: true, modelCode: 'PG3015-ACIK-6KW', listPrice: '123.0000', technicalConfiguration: pg.technicalConfiguration });
+    const [visible] = await db.select({ count: sql<number>`count(*)::int` }).from(schema.productModels).where(and(eq(schema.productModels.tenantId, operator!.tenantId), eq(schema.productModels.brandId, pg.brandId), isNull(schema.productModels.deletedAt), eq(schema.productModels.catalogHidden, false)));
+    expect(visible.count).toBe(111);
 
     const repeat = await importHexlaserCatalog(db, operator!.tenantId, operator!.id, false);
-    expect(repeat).toMatchObject({ createProducts: 0, preserveProducts: 111, migrateBaseProducts: 0, mergeVariantProducts: 0 });
+    expect(repeat).toMatchObject({ createProducts: 0, preserveProducts: 111, mergeVariantProducts: 0 });
   }, 180_000);
 });

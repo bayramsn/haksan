@@ -171,6 +171,7 @@ export function ProductsPage({ initialQuery }: { initialQuery?: string }) {
   const { hasRole, hasPermission, activeDivision, user } = useAuth();
   const [q, setQ] = useState("");
   const [cat, setCat] = useState<string>("all");
+  const [brand, setBrand] = useState<string>("all");
   const [series, setSeries] = useState<string>("all");
   // Ürün taksonomisi filtresi: grup → kategori → alt kategori → tip.
   // Ürün kartındaki dört alanın aynısı; firmalar sayfasındaki Filtre düğmesiyle
@@ -242,18 +243,21 @@ export function ProductsPage({ initialQuery }: { initialQuery?: string }) {
       .sort((a, b) => a.localeCompare(b, "tr"))
       .map((value) => ({ value, label: value }));
 
+  const brandFiltered = visibleProducts.filter((p) => brand === "all" || p.brand === brand);
   const taxonomyFilters = [
+    { label: "Marka", value: brand, onChange: (value: string) => { setBrand(value); setCat("all"); setSeries("all"); setTaxonomy({ group: "all", category: "all", subcategory: "all", type: "all" }); },
+      options: distinct(visibleProducts, (p) => p.brand) },
     { label: "Ürün Grubu", value: taxonomy.group, onChange: (v: string) => setTaxonomy((t) => ({ ...t, group: v })),
-      options: distinct(visibleProducts, (p) => p.productGroup) },
+      options: distinct(brandFiltered, (p) => p.productGroup) },
     { label: "Ürün Kategorisi", value: taxonomy.category, onChange: (v: string) => setTaxonomy((t) => ({ ...t, category: v })),
-      options: distinct(visibleProducts.filter((p) => taxonomyMatches(p, 1)), (p) => p.category) },
+      options: distinct(brandFiltered.filter((p) => taxonomyMatches(p, 1)), (p) => p.category) },
     { label: "Ürün Alt Kategorisi", value: taxonomy.subcategory, onChange: (v: string) => setTaxonomy((t) => ({ ...t, subcategory: v })),
-      options: distinct(visibleProducts.filter((p) => taxonomyMatches(p, 2)), (p) => p.subcategory) },
+      options: distinct(brandFiltered.filter((p) => taxonomyMatches(p, 2)), (p) => p.subcategory) },
     { label: "Ürün Tipi", value: taxonomy.type, onChange: (v: string) => setTaxonomy((t) => ({ ...t, type: v })),
-      options: distinct(visibleProducts.filter((p) => taxonomyMatches(p, 3)), (p) => p.type) },
+      options: distinct(brandFiltered.filter((p) => taxonomyMatches(p, 3)), (p) => p.type) },
   ];
 
-  const taxonomyFiltered = visibleProducts.filter((p) => taxonomyMatches(p, 4));
+  const taxonomyFiltered = brandFiltered.filter((p) => taxonomyMatches(p, 4));
   const categories = Array.from(new Set(taxonomyFiltered.map(productFamilyLabel))).filter(Boolean);
 
   // Taksonomi daraldığında seçili aile sekmesi listede kalmayabilir; boş ekran

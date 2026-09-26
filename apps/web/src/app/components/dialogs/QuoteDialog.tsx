@@ -10,7 +10,8 @@ import {
   Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue,
 } from "../ui/select";
 import { MultiSelect } from "../ui/multi-select";
-import { useStore } from "../../lib/store";
+import { normalizeProduct, useStore } from "../../lib/store";
+import { hydrateQuoteProductReferences, quoteLineCatalog } from "../../lib/quoteProductReferences";
 import { useFx, FxRateBadge } from "../../lib/fx";
 import { useAuth } from "../../../lib/auth";
 import { lookupService, quoteService, productService, signatureService } from "../../../lib/services";
@@ -290,6 +291,9 @@ export function QuoteDialog({
   onOpenChange?: (open: boolean) => void;
 }) {
   const { customers, products, users, cases, offers, noteTemplates, createQuoteFull, updateCustomer, addNoteTemplate, updateNoteTemplate, deleteNoteTemplate, refresh } = useStore();
+  // Existing quote products may be hidden from the catalog but remain valid references.
+  const [existingProducts, setExistingProducts] = useState<Product[]>([]);
+  const availableProducts = useMemo(() => [...products, ...existingProducts.filter((p) => !products.some((current) => current.id === p.id))], [products, existingProducts]);
   const editing = Boolean(offerId);
   const { convert } = useFx();
   const { user, activeDivision, canUseAllDivisionsForResource, scopesForResource } = useAuth();
@@ -305,6 +309,7 @@ export function QuoteDialog({
   const [saving, setSaving] = useState(false);
   const [savingCompanyDetails, setSavingCompanyDetails] = useState(false);
   const [loadingEdit, setLoadingEdit] = useState(false);
+  const [editLoadFailed, setEditLoadFailed] = useState(false);
 
   // İstanbul günü: UTC günü 00:00–03:00 arasında "dün"ü önerirdi.
   const today = new Date().toLocaleDateString("en-CA", { timeZone: "Europe/Istanbul" });
@@ -409,6 +414,7 @@ export function QuoteDialog({
   const productTypeLookupOptions = useMemo(() => toProductOptions(productLookupRows["product-types"]), [productLookupRows]);
 
   const reset = () => {
+    setExistingProducts([]);
     setCompanyId(defaultCustomerId ?? "");
     setCompanyAddressId(preferredPdfAddressId(customers.find((customer) => customer.id === defaultCustomerId)));
     setContactId("");
@@ -451,8 +457,13 @@ export function QuoteDialog({
   // Edit modunda mevcut teklifi yükle; aksi halde yeni teklif için sıfırla.
   const loadForEdit = async (id: string) => {
     setLoadingEdit(true);
+    setEditLoadFailed(true);
     try {
       const data: any = await quoteService.get(id);
+      const items: any[] = Array.isArray(data.items) ? data.items : [];
+      const referencedProducts = await hydrateQuoteProductReferences(products, items, async (productId) => normalizeProduct(await productService.get(productId)));
+      setExistingProducts(referencedProducts);
+      const editProducts = [...products, ...referencedProducts];
       setCompanyId(data.companyId ?? "");
       setCompanyAddressId(data.companyAddressId ?? "");
       setContactId(data.contactId ?? "");
@@ -485,7 +496,6 @@ export function QuoteDialog({
       setNote(data.notes ?? "");
       setNoteFontSize("14");
       setNoteBold(false);
-      const items: any[] = Array.isArray(data.items) ? data.items : [];
       setVatEnabled(
         Number(data.vatAmount ?? 0) > 0 ||
         items.some((it) => Number(it.vatRate ?? 0) > 0 || Number(it.vatAmount ?? 0) > 0)
@@ -493,7 +503,7 @@ export function QuoteDialog({
       const mainItems = items.filter((it) => !String(it.description ?? "").startsWith("↳ Opsiyon:"));
       const optionItems = items.filter((it) => String(it.description ?? "").startsWith("↳ Opsiyon:"));
       const mapped: LineState[] = mainItems.map((it) => {
-        const product = it.productModelId ? products.find((p) => p.id === it.productModelId) : undefined;
+        const product = it.productModelId ? editProducts.find((p) => p.id === it.productModelId) : undefined;
         const technicalConfiguration: LaserTechnicalConfiguration | null = it.compatibility?.technicalConfiguration ?? null;
         const storedSpecs = Array.isArray(it.compatibility?.technicalSpecs)
           ? (technicalConfiguration ? cleanSnapshotSpecs : cleanTechnicalSpecs)(it.compatibility.technicalSpecs)
@@ -555,6 +565,7 @@ export function QuoteDialog({
         }
       }
       setLines(mapped.length ? mapped : [emptyLine()]);
+      setEditLoadFailed(false);
     } catch (err: any) {
       toast.error("Teklif yüklenemedi", { description: err?.message ?? "İstek başarısız oldu." });
     } finally {
@@ -739,7 +750,7 @@ export function QuoteDialog({
   };
 
   const onPickProduct = (i: number, productId: string) => {
-    const p = products.find((x) => x.id === productId);
+    const p = availableProducts.find((x) => x.id === productId);
     if (!p) return setLine(i, { productId, technicalSpecs: [], technicalConfiguration: null });
     setLine(i, {
       productId,
@@ -763,7 +774,7 @@ export function QuoteDialog({
   const onPickCategory = (i: number, code: string) => {
     setLines((ls) => ls.map((l, idx) => {
       if (idx !== i) return l;
-      const prod = products.find((x) => x.id === l.productId);
+      const prod = availableProducts.find((x) => x.id === l.productId);
       // Seçili ürün yeni kategoriye uymuyorsa temizle
       const keep = prod && prod.categoryCode === code;
       return keep
@@ -775,7 +786,7 @@ export function QuoteDialog({
   const onPickSubcategory = (i: number, code: string) => {
     setLines((ls) => ls.map((l, idx) => {
       if (idx !== i) return l;
-      const prod = products.find((x) => x.id === l.productId);
+      const prod = availableProducts.find((x) => x.id === l.productId);
       const keep = prod && (prod.subcategoryCode || "") === code;
       return keep
         ? { ...l, subcategoryCode: code }
@@ -786,7 +797,7 @@ export function QuoteDialog({
   const onPickGroup = (i: number, code: string) => {
     setLines((ls) => ls.map((l, idx) => {
       if (idx !== i) return l;
-      const prod = products.find((x) => x.id === l.productId);
+      const prod = availableProducts.find((x) => x.id === l.productId);
       const keep = prod && (prod.productGroupCode || "") === code;
       return keep
         ? { ...l, groupCode: code }
@@ -797,7 +808,7 @@ export function QuoteDialog({
   const onPickType = (i: number, code: string) => {
     setLines((ls) => ls.map((l, idx) => {
       if (idx !== i) return l;
-      const prod = products.find((x) => x.id === l.productId);
+      const prod = availableProducts.find((x) => x.id === l.productId);
       const keep = prod && (prod.productTypeCode || "") === code;
       return keep
         ? { ...l, productTypeCode: code }
@@ -820,7 +831,7 @@ export function QuoteDialog({
   const resetTechnicalSpecsFromProduct = (i: number) =>
     setLines((ls) => ls.map((l, idx) => {
       if (idx !== i) return l;
-      const product = products.find((p) => p.id === l.productId);
+      const product = availableProducts.find((p) => p.id === l.productId);
       return { ...l, technicalSpecs: technicalSpecsFromProduct(product), technicalConfiguration: product?.technicalConfiguration ?? null };
     }));
 
@@ -829,7 +840,7 @@ export function QuoteDialog({
   const [laserBusy, setLaserBusy] = useState<number | null>(null);
   const changeLaserSelection = async (i: number, patch: Partial<LaserTechnicalConfiguration["selection"]>) => {
     const line = lines[i];
-    const product = products.find((p) => p.id === line?.productId);
+    const product = availableProducts.find((p) => p.id === line?.productId);
     if (!line?.technicalConfiguration || !product?.brandId) return;
     const divisionId = divisions.find((division) => division.code === "sac_isleme")?.id;
     if (!divisionId) { toast.error("Sac İşleme bölümü yetkiniz yok; seçim değiştirilemedi."); return; }
@@ -895,7 +906,7 @@ export function QuoteDialog({
   };
 
   const onPickOptionProduct = (i: number, j: number, productId: string) => {
-    const p = products.find((x) => x.id === productId);
+    const p = availableProducts.find((x) => x.id === productId);
     if (!p) return setOption(i, j, { productId });
 
     // Etki EDEN opsiyonel donanım: ürün tipinin şablon alanlarından, bu tezgah
@@ -1076,6 +1087,7 @@ export function QuoteDialog({
    */
   const submit = async (e: React.FormEvent | null, opts?: { another?: boolean }) => {
     e?.preventDefault();
+    if (editing && (loadingEdit || editLoadFailed)) return toast.error("Teklif ürünleri yüklenmeden kaydedilemez");
     if (!companyId) return toast.error("Firma seçiniz");
     if (!companyDetailsDirty && companyAddresses.length > 0 && !companyAddressId) return toast.error("PDF'de kullanılacak adresi seçiniz");
     if (num(validityDays) < 1) return toast.error("Geçerlilik süresini giriniz");
@@ -1363,14 +1375,14 @@ export function QuoteDialog({
                     <Button
                       type="button"
                       variant="outline"
-                      disabled={saving || loadingEdit}
+                      disabled={saving || loadingEdit || (editing && editLoadFailed)}
                       className="w-full gap-1"
                       onClick={() => void submit(null, { another: true })}
                     >
                       <Plus className="size-4" /> Kaydet ve Aynı Karta Yeni Teklif
                     </Button>
                   )}
-                  <Button type="submit" disabled={saving || loadingEdit} className="w-full gap-1">
+                  <Button type="submit" disabled={saving || loadingEdit || (editing && editLoadFailed)} className="w-full gap-1">
                     <Save className="size-4" />
                     {saving ? (editing ? "Güncelleniyor…" : "Kaydediliyor…") : editing ? "Teklifi Güncelle" : "Teklifi Kaydet"}
                   </Button>
@@ -1570,11 +1582,12 @@ export function QuoteDialog({
             <div className="divide-y divide-border/60">
               {lines.map((l, i) => {
                 const lineTotal = lineTotalNet(l);
-                const product = products.find((x) => x.id === l.productId);
+                const product = availableProducts.find((x) => x.id === l.productId);
                 const suggestions = product?.optionalEquipment ?? [];
                 // Ürün Kategorisi → Ürün → Ürün Alt Kategorisi → Ürün Grubu → Ürün Tipi sırasıyla daralt;
                 // seçenekler gerçek ürün verisinden türetilir.
-                const productsInCategory = scopedProducts.filter((p) => !l.categoryCode || p.categoryCode === l.categoryCode);
+                const lineCatalog = quoteLineCatalog(scopedProducts, product);
+                const productsInCategory = lineCatalog.filter((p) => !l.categoryCode || p.categoryCode === l.categoryCode);
                 const productsInSubcategory = productsInCategory.filter((p) => !l.subcategoryCode || (p.subcategoryCode || "") === l.subcategoryCode);
                 const productsInGroup = productsInSubcategory.filter((p) => !l.groupCode || (p.productGroupCode || "") === l.groupCode);
                 const lineProducts = productsInGroup.filter((p) => !l.productTypeCode || (p.productTypeCode || "") === l.productTypeCode);
