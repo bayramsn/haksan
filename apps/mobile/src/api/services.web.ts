@@ -815,3 +815,56 @@ export const chatService = {
     api.post<{ messageId: string; reactions: ChatReaction[] }>(`/chat/messages/${messageId}/reactions`, { emoji }),
   deleteMessage: (id: string) => api.delete(`/chat/messages/${id}`),
 };
+
+// ───── Fuar görüşmeleri ─────
+export type TradeFairContactDTO = {
+  id: string;
+  fairName: string;
+  companyName: string;
+  contactName: string;
+  contactTitle: string | null;
+  mobilePhone: string | null;
+  email: string | null;
+  country: string;
+  province: string | null;
+  district: string | null;
+  productCategory: string | null;
+  productType: string | null;
+  /** İlgilenilen CRM ürünleri (isteğe bağlı, birden çok). */
+  products: Array<{ id: string; name: string }>;
+  notes: string | null;
+  metByUserId: string | null;
+  metByName: string | null;
+  /** Görüşmenin departmanı (yeni kayıtta zorunlu). */
+  departmentId: string | null;
+  departmentName?: string | null;
+  visitorCount: number;
+  /** Firmalar'a eklendiyse bağlandığı firma/kontak. */
+  companyId: string | null;
+  contactId: string | null;
+  linkedCompanyName?: string | null;
+  createdBy: string | null;
+  createdAt: string;
+};
+export type TradeFairContactBody = Omit<
+  TradeFairContactDTO,
+  'id' | 'metByName' | 'departmentName' | 'products' | 'companyId' | 'contactId' | 'linkedCompanyName' | 'createdBy' | 'createdAt'
+> & { productModelIds: string[] };
+export type TradeFairSummary = {
+  fairs: Array<{ name: string; total: number; lastAt: string }>;
+  byUser: Array<{ userId: string | null; fullName: string | null; meetings: number; people: number }>;
+};
+
+export const tradeFairService = {
+  list: (params: { fairName?: string; q?: string; page?: number; pageSize?: number } = {}) =>
+    api.get<Paginated<TradeFairContactDTO>>(`/trade-fairs${qs(params)}`),
+  summary: (fairName?: string) => api.get<TradeFairSummary>(`/trade-fairs/summary${qs({ fairName })}`),
+  staff: () => api.get<Array<{ id: string; fullName: string }>>('/trade-fairs/staff'),
+  departments: () => api.get<Array<{ id: string; code: string; name: string }>>('/trade-fairs/departments'),
+  create: (body: TradeFairContactBody) => api.post<TradeFairContactDTO>('/trade-fairs', body),
+  update: (id: string, body: Partial<TradeFairContactBody>) => api.patch<TradeFairContactDTO>(`/trade-fairs/${id}`, body),
+  remove: (id: string) => api.delete<{ deleted: boolean }>(`/trade-fairs/${id}`),
+  /** Firmalar'a ekle: `companyId` ile mevcut firmaya kontak, yoksa yeni firma. */
+  addToCompanies: (id: string, body: { companyId?: string; divisionIds?: string[] }) =>
+    api.post<TradeFairContactDTO>(`/trade-fairs/${id}/company`, body),
+};

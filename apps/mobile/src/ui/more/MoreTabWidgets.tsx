@@ -55,6 +55,7 @@ export const MORE_MENU_SECTIONS: MoreMenuSection[] = [
     title: 'Genel',
     items: [
       { key: 'calendar', label: 'Takvim', icon: 'calendar-outline' },
+      { key: 'trade-fairs', label: 'Fuar', icon: 'storefront-outline' },
       { key: 'chat', label: 'Sohbet', icon: 'chatbubbles-outline' },
       { key: 'notifications', label: 'Bildirimler', icon: 'notifications-outline' },
       { key: 'users', label: 'Kullanıcılar', icon: 'people-outline', adminBadge: true },

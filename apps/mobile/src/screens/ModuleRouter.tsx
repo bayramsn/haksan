@@ -26,6 +26,7 @@ import { CustomerBalancesScreen, PriceListScreen, ReportsScreen } from '@/src/sc
 import { SettingsScreen } from '@/src/screens/SettingsScreen';
 import { DueDatesScreen } from '@/src/screens/DueDatesScreen';
 import { AdminListScreen } from '@/src/screens/AdminListScreen';
+import { TradeFairsScreen } from '@/src/screens/TradeFairsScreen';
 import { EmptyState } from '@/src/ui/EmptyState';
 import { Screen } from '@/src/ui/Screen';
 import { getModule } from '@/src/navigation/modules';
@@ -35,6 +36,9 @@ type Props = { navKey: string; id?: string };
 export function ModuleRouter({ navKey, id }: Props) {
   const mod = getModule(navKey);
   const config = getModuleConfig(navKey);
+
+  // Fuar kayıtları liste içinden form ekranında açılır; ayrı detay sayfası yok.
+  if (navKey === 'trade-fairs') return <TradeFairsScreen />;
 
   if (id) {
     if (navKey === 'chat') return <ChatThreadScreen conversationId={id} />;

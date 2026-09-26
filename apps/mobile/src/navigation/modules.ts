@@ -6,6 +6,7 @@ export type NavKey =
   | 'chat'
   | 'calendar'
   | 'notifications'
+  | 'trade-fairs'
   | 'customers'
   | 'contacts'
   | 'sales-cases'
@@ -53,6 +54,8 @@ export const MOBILE_MODULES: MobileModule[] = [
   { key: 'dashboard', label: 'Gösterge Paneli', group: 'home', icon: 'grid-outline', stitchScreenId: '91f83c94ae8044cb867284b3a21aaeb3' },
   { key: 'notifications', label: 'Bildirimler', group: 'home', icon: 'notifications-outline', stitchScreenId: '176b14a5f4494a1c9fda2a2e9cbbb09e' },
   { key: 'calendar', label: 'Takvim', group: 'home', icon: 'calendar-outline', stitchScreenId: '4774acd7377d466ba1375c82d3b902c3' },
+  // Fuar bütün departmanlara açık; rol kısıtı yok.
+  { key: 'trade-fairs', label: 'Fuar', group: 'home', icon: 'storefront-outline' },
   { key: 'chat', label: 'Sohbet', group: 'home', icon: 'chatbubbles-outline', stitchScreenId: '20e9867b31b94036b5d18145cbcb340d' },
   { key: 'customers', label: 'Firmalar', group: 'sales', icon: 'business-outline', stitchScreenId: '97f60630c8ea490884fbd3e5d4a8b98d', roles: ['sales', 'finance'] },
   { key: 'contacts', label: 'Kontaklar', group: 'sales', icon: 'people-outline', stitchScreenId: 'cc4d0dd86ff44d15a4d91ee39a6edcb2', roles: ['sales'] },
