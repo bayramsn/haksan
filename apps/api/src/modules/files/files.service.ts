@@ -395,17 +395,28 @@ export class FilesService {
    * doğrudan sunucuya alır, çünkü eki SMTP'ye sunucu koyar.
    */
   async readForAttachment(fileId: string, actor: AuthContext) {
+    return this.readContent(fileId, actor, false);
+  }
+
+  async readImagePreview(fileId: string, actor: AuthContext) {
+    return this.readContent(fileId, actor, true);
+  }
+
+  private async readContent(fileId: string, actor: AuthContext, imageOnly: boolean) {
     const file = await this.db.query.files.findFirst({
       where: and(eq(files.id, fileId), eq(files.tenantId, actor.tenantId)),
     });
     if (!file || file.deletedAt || !['uploaded', 'linked'].includes(file.uploadStatus)) throw new NotFoundError('Dosya');
     await this.assertFileReadable(file, actor);
+    if (imageOnly && !['image/jpeg', 'image/png', 'image/webp'].includes(file.mimeType)) {
+      throw new ValidationError('Bu dosya fotoğraf olarak görüntülenemez');
+    }
     const content = await this.storage.getObject(file.bucket, file.objectKey);
     if (!content) throw new NotFoundError('Dosya içeriği');
     await this.audit.write({
       tenantId: actor.tenantId,
       actorUserId: actor.userId,
-      action: 'file.mail_attachment',
+      action: imageOnly ? 'file.image_preview' : 'file.mail_attachment',
       resourceType: 'file',
       resourceId: file.id,
     });

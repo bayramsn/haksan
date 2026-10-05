@@ -252,6 +252,8 @@ for endpoint in / /health /health/live /health/ready /health/dependencies /healt
 done
 
 # Geçiş başarılı: eski release imajları artık kullanılmıyor.
+docker exec "$API_CONTAINER" node apps/api/dist/shared/storage/verify-trade-fair-photos.js
+
 #
 # Sade `docker image prune` BURADA YETMEZ: ECR'dan digest ile çekilen imajlar
 # etiketsiz görünse de RepoDigest referansı taşır, yani "dangling" sayılmazlar.

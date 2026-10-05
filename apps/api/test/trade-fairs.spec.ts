@@ -1,4 +1,5 @@
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { StorageService } from '../src/shared/storage/storage.service';
 import request from 'supertest';
 import { and, eq, inArray, isNull } from 'drizzle-orm';
 import type { NestFastifyApplication } from '@nestjs/platform-fastify';
@@ -197,6 +198,22 @@ describe('Trade fairs module', () => {
       .set('Authorization', `Bearer ${stockToken}`)
       .expect(200);
     expect(otherFair.body.data).toEqual([]);
+    // Real private content path: the browser no longer has to reach the signed
+    // storage origin. Only storage I/O is mocked; auth and linked entity checks run.
+    const bytes = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jE1sAAAAASUVORK5CYII=', 'base64');
+    const storageRead = vi.spyOn(app.get(StorageService), 'getObject').mockResolvedValue(bytes);
+    try {
+      const preview = await api().get(`/api/v1/files/${file.id}/preview`).set('Authorization', `Bearer ${stockToken}`).expect(200);
+      expect(preview.headers['content-type']).toBe('image/png');
+      expect(preview.headers['cache-control']).toBe('private, no-store');
+      expect(preview.body).toEqual(bytes);
+      await api().get(`/api/v1/files/${file.id}/preview`).expect(401);
+      await api().get(`/api/v1/files/${document.id}/preview`).set('Authorization', `Bearer ${stockToken}`).expect(422);
+      storageRead.mockResolvedValueOnce(null);
+      await api().get(`/api/v1/files/${secondPhoto.id}/preview`).set('Authorization', `Bearer ${stockToken}`).expect(404);
+    } finally {
+      storageRead.mockRestore();
+    }
   });
 
   it('counts who met how many people per fair', async () => {

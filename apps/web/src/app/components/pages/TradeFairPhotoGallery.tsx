@@ -2,8 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ChevronLeft, ChevronRight, Images, Loader2 } from "lucide-react";
 import { Button } from "../ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "../ui/dialog";
-import { getSignedFile } from "../../lib/signedFileCache";
-import { tradeFairService, type TradeFairPhotoDTO } from "../../../lib/services";
+import { fileService, tradeFairService, type TradeFairPhotoDTO } from "../../../lib/services";
 
 const PAGE_SIZE = 24;
 
@@ -13,12 +12,17 @@ function Photo({ fileId, alt, className }: { fileId: string; alt: string; classN
 
   useEffect(() => {
     let alive = true;
+    let objectUrl: string | undefined;
     setUrl(null);
     setFailed(false);
-    getSignedFile(fileId)
-      .then((file) => { if (alive) setUrl(file.url); })
+    fileService.imagePreview(fileId)
+      .then((blob) => {
+        if (!alive) return;
+        objectUrl = URL.createObjectURL(blob);
+        setUrl(objectUrl);
+      })
       .catch(() => { if (alive) setFailed(true); });
-    return () => { alive = false; };
+    return () => { alive = false; if (objectUrl) URL.revokeObjectURL(objectUrl); };
   }, [fileId]);
 
   if (failed) return <span className="px-4 text-center text-xs text-muted-foreground">Fotoğraf açılamadı</span>;

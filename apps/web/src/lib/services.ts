@@ -1282,6 +1282,7 @@ export const fileService = {
     await uploadViaApi(upload.fileId, file, mimeType);
   },
   signedDownload: (fileId: string) => api.post<{ downloadUrl: string; filename: string; mimeType: string }>('/files/signed-download-url', { fileId }),
+  imagePreview: (fileId: string) => api.get<Blob>(`/files/${fileId}/preview`, { responseType: 'blob' }),
   link: (body: FileLinkInput) => api.post('/files/link', body),
   links: (params?: Record<string, string | number | undefined>) => api.get<Paginated<any>>(`/files/links${qs(params)}`),
   remove: (id: string) => api.delete(`/files/${id}`),

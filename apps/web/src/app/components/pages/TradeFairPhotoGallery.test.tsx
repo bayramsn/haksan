@@ -2,18 +2,18 @@
 import '@testing-library/jest-dom/vitest';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { tradeFairService } from '../../../lib/services';
+import { fileService, tradeFairService } from '../../../lib/services';
 import { TradeFairPhotoGallery } from './TradeFairPhotoGallery';
 
-vi.mock('../../../lib/services', () => ({ tradeFairService: { photos: vi.fn() } }));
+vi.mock('../../../lib/services', () => ({
+  tradeFairService: { photos: vi.fn() },
+  fileService: { imagePreview: vi.fn(async () => new Blob(['image'], { type: 'image/png' })) },
+}));
 vi.mock('lucide-react', () => ({
   ChevronLeft: () => null,
   ChevronRight: () => null,
   Images: () => null,
   Loader2: () => null,
-}));
-vi.mock('../../lib/signedFileCache', () => ({
-  getSignedFile: vi.fn(async (fileId: string) => ({ url: `https://example.com/${fileId}.png`, filename: `${fileId}.png`, mimeType: 'image/png', fetchedAt: Date.now() })),
 }));
 vi.mock('../ui/dialog', () => ({
   Dialog: ({ open, children }: { open: boolean; children: React.ReactNode }) => open ? <div role="dialog">{children}</div> : null,
@@ -36,10 +36,23 @@ const photos = Array.from({ length: 25 }, (_, i) => ({
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.stubGlobal('URL', Object.assign(URL, {
+    createObjectURL: vi.fn(() => 'blob:https://crm.example.com/photo'),
+    revokeObjectURL: vi.fn(),
+  }));
 });
 afterEach(cleanup);
 
 describe('Fuar fotoğraf galerisi', () => {
+  it('loads private photo bytes through the API and releases browser URLs on unmount', async () => {
+    vi.mocked(tradeFairService.photos).mockResolvedValue({ data: photos.slice(0, 1), meta: { page: 1, pageSize: 24, total: 1, totalPages: 1 } });
+    const view = render(<TradeFairPhotoGallery q="" refreshKey={0} />);
+    const image = await screen.findByRole('img', { name: 'photo-1.png' });
+    expect(image).toHaveAttribute('src', 'blob:https://crm.example.com/photo');
+    expect(fileService.imagePreview).toHaveBeenCalledWith('file-1');
+    view.unmount();
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:https://crm.example.com/photo');
+  });
   it('loads the next page while browsing the last open photo', async () => {
     vi.mocked(tradeFairService.photos).mockImplementation(async (params) => ({
       data: params?.page === 2 ? photos.slice(24) : photos.slice(0, 24),

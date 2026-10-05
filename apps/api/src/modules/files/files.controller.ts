@@ -1,4 +1,5 @@
-import { Body, Controller, Delete, Get, Param, Post, Put, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Post, Put, Query, Res, UseGuards } from '@nestjs/common';
+import type { FastifyReply } from 'fastify';
 import { Throttle } from '@nestjs/throttler';
 import { z } from 'zod';
 import { paginationSchema, type Pagination } from '@haksan/shared';
@@ -53,6 +54,19 @@ export class FilesController {
   @Post('link')
   link(@Body(new ZodValidationPipe(fileLinkSchema)) body: FileLinkInput, @CurrentUser() user: AuthContext) {
     return this.svc.linkFile(body, user);
+  }
+
+  @RequirePermissions('files.read')
+  @Get(':id/preview')
+  async preview(@Param('id') id: string, @CurrentUser() user: AuthContext, @Res() reply: FastifyReply) {
+    const image = await this.svc.readImagePreview(id, user);
+    reply
+      .header('Content-Type', image.mimeType)
+      .header('Content-Length', image.content.length)
+      .header('Content-Disposition', `inline; filename="${encodeURIComponent(image.filename)}"`)
+      .header('Cache-Control', 'private, no-store')
+      .header('X-Content-Type-Options', 'nosniff')
+      .send(image.content);
   }
 
   @Throttle(UPLOAD_THROTTLE)
