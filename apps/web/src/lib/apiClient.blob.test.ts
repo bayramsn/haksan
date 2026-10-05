@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { api, ApiError, setAccessToken } from './apiClient';
+import { api, setAccessToken } from './apiClient';
 
 afterEach(() => { setAccessToken(null); vi.unstubAllGlobals(); });
 
@@ -20,6 +20,6 @@ describe('Authenticated image response', () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({ error: { code: 'FORBIDDEN', message: 'Dosyaya erişim yetkiniz yok' } }), {
       status: 403, headers: { 'content-type': 'application/json' },
     })));
-    await expect(api.get<Blob>('/files/photo/preview', { responseType: 'blob' })).rejects.toMatchObject<Partial<ApiError>>({ status: 403, code: 'FORBIDDEN' });
+    await expect(api.get<Blob>('/files/photo/preview', { responseType: 'blob' })).rejects.toMatchObject({ status: 403, code: 'FORBIDDEN' });
   });
 });
