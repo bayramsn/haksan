@@ -53,14 +53,14 @@
     "@nestjs/core": "^11.1.27",
     "@nestjs/platform-socket.io": "^11.1.27",
     "@nestjs/websockets": "^11.1.27",
-    "js-yaml": "5.2.3",
+    "js-yaml": "5.4.2",
     "uuid": "11.1.1"
   },
   "overrides": {
     "vite": "6.4.3",
     "find-my-way": "9.7.0",
     "gaxios": "7.3.0",
-    "js-yaml": "5.2.3",
+    "js-yaml": "5.4.2",
     "postcss": {
       "nanoid": "3.3.18"
     },
@@ -69,9 +69,14 @@
       "unzipper": "0.12.5",
       "uuid": "11.1.1"
     },
-    "fast-uri": "3.1.7",
+    "fast-uri": "3.1.8",
     "fast-json-stringify": {
-      "fast-uri": "4.1.4"
+      "fast-uri": "4.2.1"
+    },
+    "basic-ftp": "6.2.2",
+    "fastify": "5.12.5",
+    "@fastify/ajv-compiler": {
+      "fast-uri": "4.2.1"
     }
   }
 }
