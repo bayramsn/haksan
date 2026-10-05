@@ -50,6 +50,12 @@ export const tradeFairListQuerySchema = paginationSchema.extend({
   divisionId: z.string().uuid().optional(),
 });
 
+export const tradeFairPhotosQuerySchema = paginationSchema.extend({
+  fairName: z.string().trim().max(200).optional(),
+  q: z.string().trim().max(200).optional(),
+});
+export type TradeFairPhotosQuery = z.infer<typeof tradeFairPhotosQuerySchema>;
+
 /** Fuar formundaki ürün seçici: seçilen bölümün (ve ortak) katalog ürünleri. */
 export const tradeFairProductQuerySchema = z.object({
   divisionId: z.string().uuid(),
