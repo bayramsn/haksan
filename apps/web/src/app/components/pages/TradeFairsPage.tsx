@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Building2, Camera, ExternalLink, FileText, Images, Loader2, Mail, MapPin, Paperclip, Pencil, Phone, Plus, Search, Store, Trash2, Users, X } from "lucide-react";
+import { Building2, Camera, ExternalLink, FileText, Images, List, Loader2, Mail, MapPin, Paperclip, Pencil, Phone, Plus, Search, Store, Trash2, Users, X } from "lucide-react";
 import { toast } from "sonner";
 import { COUNTRY_OPTIONS, TRADE_FAIR_NOTE_OR_ATTACHMENT_MESSAGE, tradeFairContactCreateSchema } from "@haksan/shared";
 import { Card, CardContent } from "../ui/card";
@@ -26,6 +26,7 @@ import { EmptyState } from "../shared/EmptyState";
 import { RemoteCompanyCombobox } from "../shared/RemoteCompanyCombobox";
 import { ApiError } from "../../../lib/apiClient";
 import { InsightStat } from "../shared/PremiumPrimitives";
+import { TradeFairPhotoGallery } from "./TradeFairPhotoGallery";
 
 const ALL = "__all__";
 const PAGE_SIZE = 50;
@@ -152,9 +153,12 @@ export function TradeFairsPage({ onOpenCompany }: { onOpenCompany?: (companyId: 
   const canCreate = isManager || hasPermission("trade_fairs.create");
   const canUpdate = isManager || hasPermission("trade_fairs.update");
   const canDelete = isManager || hasPermission("trade_fairs.delete");
+  const canViewGallery = hasPermission("files.read");
 
   const [fair, setFair] = useState(ALL);
   const [q, setQ] = useState("");
+  const [view, setView] = useState<"meetings" | "photos">("meetings");
+  const [galleryRefreshKey, setGalleryRefreshKey] = useState(0);
   const [rows, setRows] = useState<TradeFairContactDTO[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -370,6 +374,7 @@ export function TradeFairsPage({ onOpenCompany }: { onOpenCompany?: (companyId: 
       if (failed.length) toast.error("Bazı dosyalar yüklenemedi", { description: failed.join("\n") });
       toast.success(editing ? "Fuar kaydı güncellendi" : "Fuar görüşmesi eklendi", { description: `${saved.companyName} · ${saved.contactName}` });
       setDialogOpen(false);
+      setGalleryRefreshKey((key) => key + 1);
       if (!fairFilter || fairFilter === saved.fairName) reload();
       else setFair(saved.fairName);
     } catch (err: any) {
@@ -384,6 +389,7 @@ export function TradeFairsPage({ onOpenCompany }: { onOpenCompany?: (companyId: 
     try {
       await fileService.remove(item.fileId);
       setAttachments((list) => list.filter((a) => a.id !== item.id));
+      setGalleryRefreshKey((key) => key + 1);
     } catch (err: any) {
       toast.error("Dosya silinemedi", { description: err?.message });
     }
@@ -395,6 +401,7 @@ export function TradeFairsPage({ onOpenCompany }: { onOpenCompany?: (companyId: 
       await tradeFairService.remove(deleting.id);
       toast.success("Fuar kaydı silindi");
       setDeleting(null);
+      setGalleryRefreshKey((key) => key + 1);
       reload();
     } catch (err: any) {
       toast.error("Silinemedi", { description: err?.message });
@@ -429,7 +436,7 @@ export function TradeFairsPage({ onOpenCompany }: { onOpenCompany?: (companyId: 
           </Select>
           <div className="relative min-w-0 flex-1 sm:w-72">
             <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-            <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Firma, yetkili, telefon, il, ürün ara..." className="h-9 bg-white pl-9" />
+            <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder={view === "photos" ? "Firma, yetkili veya dosya adı ara..." : "Firma, yetkili, telefon, il, ürün ara..."} className="h-9 bg-white pl-9" />
           </div>
         </div>
         {canCreate && (
@@ -438,6 +445,13 @@ export function TradeFairsPage({ onOpenCompany }: { onOpenCompany?: (companyId: 
           </Button>
         )}
       </div>
+
+      {canViewGallery && (
+        <div className="flex w-fit gap-1 rounded-lg border border-border/70 bg-muted/30 p-1" role="group" aria-label="Fuar görünümü">
+          <Button type="button" size="sm" variant={view === "meetings" ? "default" : "ghost"} onClick={() => setView("meetings")} aria-pressed={view === "meetings"} className="gap-1.5"><List className="size-4" /> Görüşmeler</Button>
+          <Button type="button" size="sm" variant={view === "photos" ? "default" : "ghost"} onClick={() => setView("photos")} aria-pressed={view === "photos"} className="gap-1.5"><Images className="size-4" /> Fotoğraflar</Button>
+        </div>
+      )}
 
       {summary.byUser.length > 0 && (
         <Card className="border-border/70">
@@ -458,7 +472,9 @@ export function TradeFairsPage({ onOpenCompany }: { onOpenCompany?: (companyId: 
         </Card>
       )}
 
-      {loading && rows.length === 0 ? (
+      {view === "photos" && canViewGallery ? (
+        <TradeFairPhotoGallery fairName={fairFilter} q={q} refreshKey={galleryRefreshKey} />
+      ) : loading && rows.length === 0 ? (
         <div className="grid place-items-center py-16 text-muted-foreground"><Loader2 className="size-5 animate-spin" /></div>
       ) : rows.length === 0 ? (
         <Card className="overflow-hidden border-border/70">

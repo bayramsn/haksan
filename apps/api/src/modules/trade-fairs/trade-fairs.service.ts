@@ -4,12 +4,13 @@ import type {
   TradeFairContactInput,
   TradeFairContactUpdateInput,
   TradeFairListQuery,
+  TradeFairPhotosQuery,
   TradeFairProductQuery,
   TradeFairToCompanyInput,
 } from '@haksan/shared';
 import { companyCreateSchema, contactCreateSchema, emailSchema, phoneSchema } from '@haksan/shared';
 import type { DbClient } from '../../db/client';
-import { companies, contactSources, divisions, fileLinks, productCategories, productGroups, productModels, tradeFairContactProducts, tradeFairContacts, users } from '../../db/schema';
+import { companies, contactSources, divisions, fileLinks, files, productCategories, productGroups, productModels, tradeFairContactProducts, tradeFairContacts, users } from '../../db/schema';
 import { DB } from '../../shared/database/database.module';
 import { AuditService } from '../../shared/database/audit.service';
 import type { AuthContext } from '../../shared/security/auth.types';
@@ -243,6 +244,54 @@ export class TradeFairsService {
       total,
       query
     );
+  }
+
+  /** Fuar görüşmelerine bağlı fotoğraflar; dosya içeriği imzalı URL ile ayrı alınır. */
+  async photos(actor: AuthContext, query: TradeFairPhotosQuery) {
+    const { limit, offset } = pageOffset(query);
+    const filters: SQL[] = [
+      ...this.baseFilters(actor),
+      eq(fileLinks.tenantId, actor.tenantId),
+      eq(fileLinks.entityType, 'trade_fair_contact'),
+      eq(files.tenantId, actor.tenantId),
+      eq(files.uploadStatus, 'linked'),
+      isNull(files.deletedAt),
+      inArray(files.mimeType, ['image/png', 'image/jpeg', 'image/webp']),
+    ];
+    if (query.fairName) filters.push(eq(tradeFairContacts.fairName, query.fairName));
+    if (query.q) {
+      const term = `%${query.q.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+      filters.push(or(
+        ilike(tradeFairContacts.companyName, term),
+        ilike(tradeFairContacts.contactName, term),
+        ilike(files.originalFilename, term),
+      )!);
+    }
+    const where = and(...filters);
+    const baseQuery = this.db
+      .select({
+        fileId: files.id,
+        filename: files.originalFilename,
+        mimeType: files.mimeType,
+        createdAt: files.createdAt,
+        contactId: tradeFairContacts.id,
+        fairName: tradeFairContacts.fairName,
+        companyName: tradeFairContacts.companyName,
+        contactName: tradeFairContacts.contactName,
+      })
+      .from(fileLinks)
+      .innerJoin(tradeFairContacts, eq(fileLinks.entityId, tradeFairContacts.id))
+      .innerJoin(files, eq(fileLinks.fileId, files.id))
+      .where(where);
+    const [rows, [{ total }]] = await Promise.all([
+      baseQuery.orderBy(desc(files.createdAt), desc(fileLinks.id)).limit(limit).offset(offset),
+      this.db.select({ total: count() })
+        .from(fileLinks)
+        .innerJoin(tradeFairContacts, eq(fileLinks.entityId, tradeFairContacts.id))
+        .innerJoin(files, eq(fileLinks.fileId, files.id))
+        .where(where),
+    ]);
+    return buildPaginated(rows, total, query);
   }
 
   /**

@@ -782,10 +782,23 @@ export type TradeFairSummary = {
   byUser: Array<{ userId: string | null; fullName: string | null; meetings: number; people: number }>;
 };
 
+export type TradeFairPhotoDTO = {
+  fileId: string;
+  filename: string;
+  mimeType: string;
+  createdAt: string;
+  contactId: string;
+  fairName: string;
+  companyName: string;
+  contactName: string;
+};
+
 export const tradeFairService = {
   list: (params: { fairName?: string; q?: string; metByUserId?: string; divisionId?: string; page?: number; pageSize?: number } = {}) =>
     api.get<Paginated<TradeFairContactDTO>>(`/trade-fairs${qs(params)}`),
   summary: (fairName?: string) => api.get<TradeFairSummary>(`/trade-fairs/summary${qs({ fairName })}`),
+  photos: (params: { fairName?: string; q?: string; page?: number; pageSize?: number } = {}) =>
+    api.get<Paginated<TradeFairPhotoDTO>>(`/trade-fairs/photos${qs(params)}`),
   staff: () => api.get<Array<{ id: string; fullName: string }>>('/trade-fairs/staff'),
   divisions: () => api.get<Array<{ id: string; code: string; name: string }>>('/trade-fairs/divisions'),
   /** Bölümün (ve ortak grupların) katalog ürünleri; bölüm kapsamı uygulanmaz. */

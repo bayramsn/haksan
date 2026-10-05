@@ -140,6 +140,63 @@ describe('Trade fairs module', () => {
       .set('Authorization', `Bearer ${stockToken}`)
       .expect(200);
     expect(links.body.data).toHaveLength(1);
+
+    const [secondPhoto, document] = await getDb().insert(files).values([
+      {
+        tenantId: created.body.tenantId,
+        bucket: 'erp-service-documents',
+        objectKey: `test/trade-fair/${runId}/stand.webp`,
+        originalFilename: 'stand.webp',
+        mimeType: 'image/webp',
+        extension: 'webp',
+        sizeBytes: 80,
+        uploadedBy: serviceUserId,
+        uploadStatus: 'uploaded',
+        uploadedAt: new Date(),
+      },
+      {
+        tenantId: created.body.tenantId,
+        bucket: 'erp-service-documents',
+        objectKey: `test/trade-fair/${runId}/notlar.pdf`,
+        originalFilename: 'notlar.pdf',
+        mimeType: 'application/pdf',
+        extension: 'pdf',
+        sizeBytes: 80,
+        uploadedBy: serviceUserId,
+        uploadStatus: 'uploaded',
+        uploadedAt: new Date(),
+      },
+    ]).returning({ id: files.id });
+    for (const fileId of [secondPhoto.id, document.id]) {
+      await api()
+        .post('/api/v1/files/link')
+        .set('Authorization', `Bearer ${serviceToken}`)
+        .send({ fileId, entityType: 'trade_fair_contact', entityId: created.body.id, documentTypeCode: 'other' })
+        .expect(201);
+    }
+
+    const firstPage = await api()
+      .get(`/api/v1/trade-fairs/photos?fairName=${encodeURIComponent(fairName)}&pageSize=1&page=1`)
+      .set('Authorization', `Bearer ${stockToken}`)
+      .expect(200);
+    const secondPage = await api()
+      .get(`/api/v1/trade-fairs/photos?fairName=${encodeURIComponent(fairName)}&pageSize=1&page=2`)
+      .set('Authorization', `Bearer ${stockToken}`)
+      .expect(200);
+    expect(firstPage.body.meta.total).toBe(2);
+    expect([...firstPage.body.data, ...secondPage.body.data].map((photo: { fileId: string }) => photo.fileId).sort()).toEqual([file.id, secondPhoto.id].sort());
+    expect(firstPage.body.data[0]).toMatchObject({ fairName, companyName: 'Anadolu Kalıp', contactName: 'Ayşe Demir' });
+
+    const searched = await api()
+      .get(`/api/v1/trade-fairs/photos?fairName=${encodeURIComponent(fairName)}&q=kartvizit`)
+      .set('Authorization', `Bearer ${stockToken}`)
+      .expect(200);
+    expect(searched.body.data.map((photo: { fileId: string }) => photo.fileId)).toEqual([file.id]);
+    const otherFair = await api()
+      .get('/api/v1/trade-fairs/photos?fairName=Different')
+      .set('Authorization', `Bearer ${stockToken}`)
+      .expect(200);
+    expect(otherFair.body.data).toEqual([]);
   });
 
   it('counts who met how many people per fair', async () => {

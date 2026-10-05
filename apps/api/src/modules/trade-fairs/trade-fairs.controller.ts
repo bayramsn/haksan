@@ -4,11 +4,13 @@ import {
   tradeFairContactCreateSchema,
   tradeFairContactUpdateSchema,
   tradeFairListQuerySchema,
+  tradeFairPhotosQuerySchema,
   tradeFairProductQuerySchema,
   tradeFairToCompanySchema,
   type TradeFairContactInput,
   type TradeFairContactUpdateInput,
   type TradeFairListQuery,
+  type TradeFairPhotosQuery,
   type TradeFairProductQuery,
   type TradeFairToCompanyInput,
 } from '@haksan/shared';
@@ -42,6 +44,15 @@ export class TradeFairsController {
     @CurrentUser() actor: AuthContext
   ) {
     return this.service.summary(actor, query.fairName);
+  }
+
+  @RequirePermissions('trade_fairs.read', 'files.read')
+  @Get('photos')
+  photos(
+    @Query(new ZodValidationPipe<any>(tradeFairPhotosQuerySchema)) query: TradeFairPhotosQuery,
+    @CurrentUser() actor: AuthContext
+  ) {
+    return this.service.photos(actor, query);
   }
 
   @RequirePermissions('trade_fairs.read')
