@@ -22,6 +22,7 @@ export interface RequestOpts<T = unknown> extends RequestInit {
    * uçlarda `false` yapılmalıdır.
    */
   dedupe?: boolean;
+  responseType?: 'blob';
 }
 
 export interface ApiClient {
@@ -378,7 +379,7 @@ export function buildMutationDedupeKey({
 const mutationRequests = new SingleFlightRequestStore(MUTATION_SUCCESS_RETENTION_MS);
 
 async function executeRequest<T>(method: string, path: string, body?: unknown, opts: RequestOpts<T> = {}): Promise<T> {
-  const { schema, dedupe: _dedupe, ...init } = opts;
+  const { schema, dedupe: _dedupe, responseType, ...init } = opts;
   const url = path.startsWith('http') ? path : `${BASE_URL}${path}`;
   const headers: Record<string, string> = { Accept: 'application/json', ...(init.headers as Record<string, string>) };
   if (body !== undefined && !(body instanceof FormData)) headers['Content-Type'] = 'application/json';
@@ -445,6 +446,8 @@ async function executeRequest<T>(method: string, path: string, body?: unknown, o
       res.headers.get('x-request-id') ?? undefined
     );
   }
+
+  if (responseType === 'blob') return (await res.blob()) as T;
 
   if (contentType.includes('application/json')) {
     const json = await res.json();
