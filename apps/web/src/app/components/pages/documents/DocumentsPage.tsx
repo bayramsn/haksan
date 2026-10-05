@@ -933,7 +933,7 @@ export function DocumentsPage({
                               <EditDocumentDialog
                                 document={d}
                                 trigger={
-                                  <Button variant="ghost" size="icon" className="size-7" title="Proforma fiyat ve şartlarını düzenle">
+                                  <Button variant="ghost" size="icon" className="size-7" title="Proforma fiyat ve notlarını düzenle">
                                     <BadgeDollarSign className="size-4 text-muted-foreground hover:text-primary" />
                                   </Button>
                                 }

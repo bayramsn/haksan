@@ -51,6 +51,20 @@ export const parseTermsTemplate = (template: NoteTemplate): TermsTemplate | null
   }
 };
 
+/**
+ * Proforma şart başlığı basmaz; üç kutu çıktıda tek "NOTLAR" listesine iner.
+ * Not kipinde eski üç alanlı kayıt/şablon tek metne katlanır ve tamamı
+ * `paymentTerms`'te saklanır. Yalnız ilk alan doluysa ham bırakılır ki yazarken
+ * sondaki satır sonu kırpılmasın.
+ */
+export const foldTermsToNotes = (value: TermsValue): TermsValue => ({
+  paymentTerms: value.deliveryTerms.trim() || value.warrantyTerms.trim()
+    ? [value.paymentTerms, value.deliveryTerms, value.warrantyTerms].map((text) => text.trim()).filter(Boolean).join("\n")
+    : value.paymentTerms,
+  deliveryTerms: "",
+  warrantyTerms: "",
+});
+
 const normalizeTermsText = (value: string) =>
   value.split(/\r?\n/).map((line) => line.trim()).filter(Boolean).join("\n");
 
@@ -107,6 +121,8 @@ type Props = {
    * bir öncekinin bittiği yerden devam eder.
    */
   continuousNumbering?: boolean;
+  /** Tek "Notlar" kutusu gösterir (proforma). Bkz. `foldTermsToNotes`. */
+  notesOnly?: boolean;
 };
 
 export function useTermsTemplates(noteTemplates: NoteTemplate[], templateScope: string) {
@@ -136,6 +152,7 @@ export function DocumentTermsTemplateEditor({
   onBuiltInTemplateSelected,
   markerStyle = "decimal",
   continuousNumbering = false,
+  notesOnly = false,
 }: Props) {
   const fieldId = useId();
   const [templateDialogMode, setTemplateDialogMode] = useState<"create" | "update" | "delete" | null>(null);
@@ -149,8 +166,11 @@ export function DocumentTermsTemplateEditor({
   const deliveryStart = continuousNumbering ? markedLineCount(value.paymentTerms) : 0;
   const warrantyStart = continuousNumbering ? deliveryStart + markedLineCount(value.deliveryTerms) : 0;
 
-  const updateValue = (patch: Partial<TermsValue>) => onChange({ ...value, ...patch });
-  const currentBody = () => encodeTermsTemplateBody(value);
+  const shape = (next: TermsValue) => (notesOnly ? foldTermsToNotes(next) : next);
+  const current = shape(value);
+  const noun = notesOnly ? "Notlar" : "Belge şartları";
+  const updateValue = (patch: Partial<TermsValue>) => onChange({ ...current, ...patch });
+  const currentBody = () => encodeTermsTemplateBody(current);
 
   const applyTemplate = (key: string) => {
     onSelectedTemplateKeyChange(key);
@@ -161,11 +181,11 @@ export function DocumentTermsTemplateEditor({
       const fill = (text: string) => fillContext
         ? fillNotePlaceholders(text.split(/\r?\n/), fillContext).join("\n")
         : text;
-      onChange({
+      onChange(shape({
         paymentTerms: fill(template.paymentTerms),
         deliveryTerms: fill(template.deliveryTerms),
         warrantyTerms: fill(template.warrantyTerms),
-      });
+      }));
       return;
     }
 
@@ -174,16 +194,16 @@ export function DocumentTermsTemplateEditor({
     onBuiltInTemplateSelected?.(key);
     const fill = (lines: string[]) =>
       (fillContext ? fillNotePlaceholders(lines, fillContext) : lines).join("\n");
-    onChange({
+    onChange(shape({
       paymentTerms: fill(builtIn.odeme),
       deliveryTerms: fill(builtIn.teslimat),
       warrantyTerms: fill(builtIn.garanti),
-    });
+    }));
   };
 
   const saveAsNewTemplate = () => {
-    if (!value.paymentTerms.trim() && !value.deliveryTerms.trim() && !value.warrantyTerms.trim()) {
-      return toast.error("Önce belge şartı girin");
+    if (!current.paymentTerms.trim() && !current.deliveryTerms.trim() && !current.warrantyTerms.trim()) {
+      return toast.error(notesOnly ? "Önce not girin" : "Önce belge şartı girin");
     }
     setTemplateTitle(selectedSavedTemplate ? `${selectedSavedTemplate.title} kopya` : "");
     setTemplateDialogMode("create");
@@ -208,14 +228,14 @@ export function DocumentTermsTemplateEditor({
       if (templateDialogMode === "create") {
         const created = await addNoteTemplate({ title: templateTitle.trim(), body: currentBody(), scope: templateScope });
         onSelectedTemplateKeyChange(termsTemplateKey(created.id));
-        toast.success("Belge şartları yeni şablon olarak kaydedildi");
+        toast.success(`${noun} yeni şablon olarak kaydedildi`);
       } else if (templateDialogMode === "update" && selectedSavedTemplate) {
         await updateNoteTemplate(selectedSavedTemplate.id, { title: templateTitle.trim(), body: currentBody(), scope: templateScope });
-        toast.success("Belge şartları şablonu güncellendi");
+        toast.success(`${noun} şablonu güncellendi`);
       } else if (templateDialogMode === "delete" && selectedSavedTemplate) {
         await deleteNoteTemplate(selectedSavedTemplate.id);
         onSelectedTemplateKeyChange("");
-        toast.success("Belge şartları şablonu silindi");
+        toast.success(`${noun} şablonu silindi`);
       }
       setTemplateDialogMode(null);
     } catch (err: any) {
@@ -267,6 +287,19 @@ export function DocumentTermsTemplateEditor({
 
       {/* Her satır bir maddedir ve belgede numaralanır; numara artık burada da
           görünür, böylece "kaçıncı madde" sorusu PDF basmadan yanıtlanır. */}
+      {notesOnly ? (
+        <div className="p-3">
+          <Label className="text-xs" htmlFor={`${fieldId}-notes`}>Notlar</Label>
+          <NumberedLinesTextarea
+            id={`${fieldId}-notes`}
+            className="mt-1.5 min-h-36"
+            markerStyle={markerStyle}
+            value={current.paymentTerms}
+            onChange={(event) => updateValue({ paymentTerms: event.target.value })}
+            placeholder="Her satıra bir not yazın..."
+          />
+        </div>
+      ) : (
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3 p-3">
         <div>
           <Label className="text-xs" htmlFor={`${fieldId}-payment`}>Ödeme Şartları</Label>
@@ -305,14 +338,17 @@ export function DocumentTermsTemplateEditor({
           />
         </div>
       </div>
+      )}
       <Dialog open={Boolean(templateDialogMode)} onOpenChange={(open) => !open && !templateBusy && setTemplateDialogMode(null)}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>{templateDialogMode === "delete" ? "Şablon silinsin mi?" : templateDialogMode === "update" ? "Şablonu güncelle" : "Yeni belge şartları şablonu"}</DialogTitle>
+            <DialogTitle>{templateDialogMode === "delete" ? "Şablon silinsin mi?" : templateDialogMode === "update" ? "Şablonu güncelle" : notesOnly ? "Yeni not şablonu" : "Yeni belge şartları şablonu"}</DialogTitle>
             <DialogDescription>
               {templateDialogMode === "delete"
                 ? `“${selectedSavedTemplate?.title ?? "Seçili şablon"}” kayıtlı şablonlardan kaldırılacak; mevcut belge metni değişmeyecek.`
-                : "Ödeme, teslimat ve garanti metinlerinin mevcut hali bu başlıkla kaydedilecek."}
+                : notesOnly
+                  ? "Notların mevcut hali bu başlıkla kaydedilecek."
+                  : "Ödeme, teslimat ve garanti metinlerinin mevcut hali bu başlıkla kaydedilecek."}
             </DialogDescription>
           </DialogHeader>
           {templateDialogMode !== "delete" && (

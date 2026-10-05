@@ -40,8 +40,11 @@ const KIND_CONFIG = {
     label: "Proforma",
     templateScope: "proforma_terms",
     idPrefix: "edit-proforma",
-    // Proforma çıktısı üç şart bloğunu tek kesintisiz numaralı listede basar.
-    termsProps: { continuousNumbering: true },
+    // Proforma şart basmaz, tek "NOTLAR" listesi basar; editör de tek kutu.
+    termsProps: { notesOnly: true },
+    termsTitle: "Proforma Notları",
+    termsNoun: "Notlarını",
+    termsNounLower: "notları",
     // Proformanın hazır metinleri düz "NOTLAR" listesi olarak ayrı seçiliyor;
     // şart kutularına teklif ya da sözleşme şablonu düşürmek yanlış dil basardı.
     builtInVariants: [] as QuoteNoteVariant[],
@@ -55,6 +58,9 @@ const KIND_CONFIG = {
     idPrefix: "edit-contract",
     // Sözleşme şartları madde madde numaralanmaz; çıktı kendi 2.x/3.x sırasını basar.
     termsProps: { markerStyle: "none" as const },
+    termsTitle: "Sözleşme Şartları",
+    termsNoun: "Şartlarını",
+    termsNounLower: "şartları",
     builtInVariants: CONTRACT_NOTE_VARIANTS,
     totalsNote: ({ vatIncluded }: TotalsNoteContext) => vatIncluded
       ? "K.D.V. dahil seçili: girilen nihai sözleşme tutarı değiştirilmeden basılır."
@@ -262,10 +268,10 @@ export function EditDocumentDialog({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <BadgeDollarSign className="size-5 text-primary" />
-            {config.label} Fiyat ve Şartlarını Düzenle
+            {config.label} Fiyat ve {config.termsNoun} Düzenle
           </DialogTitle>
           <DialogDescription>
-            {document.fileName} için anlaşılan brüt birim fiyatları, iskontoyu ve şartları girin.
+            {document.fileName} için anlaşılan brüt birim fiyatları, iskontoyu ve {config.termsNounLower} girin.
             Bağlı teklif değişmez; belge bundan sonra burada kayıtlı değerlerle basılır.
           </DialogDescription>
         </DialogHeader>
@@ -315,8 +321,8 @@ export function EditDocumentDialog({
               }));
               setTermsDirty(true);
             } : undefined}
-            title={`${config.label} Şartları`}
-            description={`Şablon seçin veya metni düzenleyin. Değişiklik yalnız bu ${config.label.toLocaleLowerCase("tr-TR")}ya işlenir; bağlı teklifin şartları olduğu gibi kalır.`}
+            title={config.termsTitle}
+            description={`Şablon seçin veya metni düzenleyin. Değişiklik yalnız bu ${config.label.toLocaleLowerCase("tr-TR")}ya işlenir; bağlı teklif olduğu gibi kalır.`}
             templateScope={config.templateScope}
             noteTemplates={noteTemplates}
             selectedTemplateKey={termsTemplateKey}
