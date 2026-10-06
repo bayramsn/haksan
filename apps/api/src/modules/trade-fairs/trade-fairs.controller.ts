@@ -57,7 +57,14 @@ export class TradeFairsController {
     if (format === 'pdf') {
       const buffer = await rowsToPdfBuffer({
         title: 'Fuar Görüşmeleri',
-        subtitle: filterSubtitle([['Fuar', query.fairName], ['İl', query.province], ['İlçe', query.district], ['Arama', query.q]], rows.length),
+        // Görüşen süzgeçliyse bütün satırlar aynı kişidir; adı ilk satırdan okunur.
+        subtitle: filterSubtitle([
+          ['Fuar', query.fairName],
+          ['Görüşen', query.metByUserId ? String(rows[0]?.['Görüşen Kişi'] ?? '') : undefined],
+          ['İl', query.province],
+          ['İlçe', query.district],
+          ['Arama', query.q],
+        ], rows.length),
         rows: pickColumns(rows, TRADE_FAIR_PDF_COLUMNS),
       });
       return sendPdf(reply, buffer, 'fuar-gorusmeleri.pdf');

@@ -160,6 +160,7 @@ export function TradeFairsPage({ onOpenCompany }: { onOpenCompany?: (companyId: 
   const [q, setQ] = useState("");
   const [provinceFilter, setProvinceFilter] = useState(ALL);
   const [districtFilter, setDistrictFilter] = useState(ALL);
+  const [metByFilter, setMetByFilter] = useState(ALL);
   const [view, setView] = useState<"meetings" | "photos">("meetings");
   const [galleryRefreshKey, setGalleryRefreshKey] = useState(0);
   const [rows, setRows] = useState<TradeFairContactDTO[]>([]);
@@ -188,16 +189,17 @@ export function TradeFairsPage({ onOpenCompany }: { onOpenCompany?: (companyId: 
   const fairFilter = fair === ALL ? undefined : fair;
   const province = provinceFilter === ALL ? undefined : provinceFilter;
   const district = districtFilter === ALL ? undefined : districtFilter;
+  const metByUserId = metByFilter === ALL ? undefined : metByFilter;
   const filterProvinceOptions = useMemo(() => provincesForCountry("Türkiye"), []);
   const filterDistrictOptions = useMemo(() => (province ? districtsForCountry("Türkiye", province) : []), [province]);
   // Liste ve Excel aynı süzgeçleri kullanır.
-  const listParams = { fairName: fairFilter, q: q.trim() || undefined, province, district };
+  const listParams = { fairName: fairFilter, q: q.trim() || undefined, province, district, metByUserId };
   const loadList = useCallback(async (nextPage: number) => {
     // Geç dönen eski arama yanıtı yenisinin üstüne yazmasın.
     const seq = ++listSeq.current;
     setLoading(true);
     try {
-      const list = await tradeFairService.list({ fairName: fairFilter, q: q.trim() || undefined, province, district, page: nextPage, pageSize: PAGE_SIZE });
+      const list = await tradeFairService.list({ fairName: fairFilter, q: q.trim() || undefined, province, district, metByUserId, page: nextPage, pageSize: PAGE_SIZE });
       if (seq !== listSeq.current) return;
       setRows((current) => (nextPage === 1 ? list.data : [...current, ...list.data]));
       setTotal(list.meta.total);
@@ -207,7 +209,7 @@ export function TradeFairsPage({ onOpenCompany }: { onOpenCompany?: (companyId: 
     } finally {
       if (seq === listSeq.current) setLoading(false);
     }
-  }, [fairFilter, q, province, district]);
+  }, [fairFilter, q, province, district, metByUserId]);
 
   // Özet aramadan bağımsız: seçili fuarın tamamını anlatır.
   const loadSummary = useCallback(() => {
@@ -296,6 +298,15 @@ export function TradeFairsPage({ onOpenCompany }: { onOpenCompany?: (companyId: 
   const totalPeople = summary.byUser.reduce((sum, u) => sum + u.people, 0);
   const totalMeetings = summary.byUser.reduce((sum, u) => sum + u.meetings, 0);
   // Görüşen çalışan sonradan silindiyse aktif listede yok; seçim boş görünmesin.
+  // Görüşen filtresi yalnız görüşmesi olan kişileri listeler (ayrılmış çalışanlar dahil);
+  // seçili kişi başka fuarda yoksa da seçenek kaybolmasın.
+  const metByOptions = summary.byUser
+    .filter((u): u is typeof u & { userId: string } => Boolean(u.userId))
+    .map((u) => ({ id: u.userId, name: u.fullName ?? "Belirtilmemiş" }));
+  if (metByUserId && !metByOptions.some((o) => o.id === metByUserId)) {
+    metByOptions.push({ id: metByUserId, name: staff.find((s) => s.id === metByUserId)?.fullName ?? "Seçili kişi" });
+  }
+
   const staffOptions =
     editing?.metByUserId && !staff.some((s) => s.id === editing.metByUserId)
       ? [...staff, { id: editing.metByUserId, fullName: `${editing.metByName ?? "Silinmiş kullanıcı"} (ayrıldı)` }]
@@ -465,6 +476,13 @@ export function TradeFairsPage({ onOpenCompany }: { onOpenCompany?: (companyId: 
                   </SelectContent>
                 </Select>
               )}
+              <Select value={metByFilter} onValueChange={setMetByFilter}>
+                <SelectTrigger className="h-9 w-full bg-white sm:w-44" aria-label="Görüşen kişiye göre filtrele"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={ALL}>Tüm görüşenler</SelectItem>
+                  {metByOptions.map((o) => <SelectItem key={o.id} value={o.id}>{o.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
             </>
           )}
         </div>
@@ -508,15 +526,33 @@ export function TradeFairsPage({ onOpenCompany }: { onOpenCompany?: (companyId: 
           <CardContent className="p-4">
             <div className="font-data text-[9px] font-semibold uppercase tracking-[0.15em] text-operation-blue">Kim kaç kişiyle görüştü</div>
             <div className="mt-3 flex flex-wrap gap-2">
-              {summary.byUser.map((u) => (
-                <div key={u.userId ?? "none"} className="rounded-lg border border-border/70 bg-muted/30 px-3 py-2">
-                  <div className="text-[12px] font-semibold">{u.fullName ?? "Belirtilmemiş"}</div>
-                  <div className="text-[11px] text-muted-foreground">
-                    <span className="font-semibold text-foreground tabular-nums">{u.meetings}</span> firma ·{" "}
-                    <span className="font-semibold text-foreground tabular-nums">{u.people}</span> kişi
-                  </div>
-                </div>
-              ))}
+              {summary.byUser.map((u) => {
+                const active = Boolean(u.userId) && u.userId === metByUserId;
+                const body = (
+                  <>
+                    <div className="text-[12px] font-semibold">{u.fullName ?? "Belirtilmemiş"}</div>
+                    <div className="text-[11px] text-muted-foreground">
+                      <span className="font-semibold text-foreground tabular-nums">{u.meetings}</span> firma ·{" "}
+                      <span className="font-semibold text-foreground tabular-nums">{u.people}</span> kişi
+                    </div>
+                  </>
+                );
+                // Karta tıklamak o kişinin görüşmelerini süzer; tekrar tıklamak süzgeci kaldırır.
+                return u.userId ? (
+                  <button
+                    key={u.userId}
+                    type="button"
+                    aria-pressed={active}
+                    title={active ? "Süzgeci kaldır" : "Bu kişinin görüşmelerini göster"}
+                    onClick={() => { setMetByFilter(active ? ALL : u.userId!); setView("meetings"); }}
+                    className={`rounded-lg border px-3 py-2 text-left transition-colors ${active ? "border-primary bg-primary/10" : "border-border/70 bg-muted/30 hover:bg-muted/60"}`}
+                  >
+                    {body}
+                  </button>
+                ) : (
+                  <div key="none" className="rounded-lg border border-border/70 bg-muted/30 px-3 py-2">{body}</div>
+                );
+              })}
             </div>
           </CardContent>
         </Card>
@@ -531,7 +567,7 @@ export function TradeFairsPage({ onOpenCompany }: { onOpenCompany?: (companyId: 
           <EmptyState
             scene="search"
             eyebrow="Fuar"
-            title={q || fairFilter || province ? "Eşleşen görüşme bulunamadı" : "Henüz fuar görüşmesi yok"}
+            title={q || fairFilter || province || metByUserId ? "Eşleşen görüşme bulunamadı" : "Henüz fuar görüşmesi yok"}
             description={canCreate ? "Standa gelen firmaları “Yeni Görüşme” ile kaydedin." : "Kayıt eklendiğinde burada listelenir."}
           />
         </Card>

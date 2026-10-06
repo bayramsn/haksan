@@ -273,6 +273,29 @@ describe('Trade fairs module', () => {
     expect(pdf.body.subarray(0, 4).toString()).toBe('%PDF');
 
     await api().get('/api/v1/trade-fairs/export').query({ format: 'docx' }).set(auth).expect(422);
+
+    // Görüşen kişiye göre: liste ve Excel aynı kişiyi süzer.
+    const byService = await api().get('/api/v1/trade-fairs').query({ fairName, metByUserId: serviceUserId }).set(auth).expect(200);
+    expect(byService.body.meta.total).toBeGreaterThan(0);
+    expect(new Set(byService.body.data.map((row: { metByUserId: string }) => row.metByUserId))).toEqual(new Set([serviceUserId]));
+    const bySales = await api().get('/api/v1/trade-fairs').query({ fairName, metByUserId: salesUserId }).set(auth).expect(200);
+    expect(bySales.body.meta.total).toBe(0);
+    const metByXlsx = await api()
+      .get('/api/v1/trade-fairs/export')
+      .query({ fairName, metByUserId: serviceUserId })
+      .set(auth)
+      .buffer(true)
+      .parse(binary)
+      .expect(200);
+    const metByBook = new ExcelJS.Workbook();
+    await metByBook.xlsx.load(metByXlsx.body);
+    const metBySheet = metByBook.getWorksheet('Fuar Görüşmeleri')!;
+    const metByHeader = (metBySheet.getRow(1).values as unknown[]).slice(1).map(String);
+    const metByRows = metBySheet.getRows(2, metBySheet.rowCount - 1) ?? [];
+    expect(metByRows).toHaveLength(byService.body.meta.total);
+    for (const row of metByRows) {
+      expect(String(row.getCell(metByHeader.indexOf('Görüşen Kişi') + 1).value)).toBe('Fuar service');
+    }
   });
 
   it('keeps untouched fields on partial update and still edits after the met-by user is deleted', async () => {
