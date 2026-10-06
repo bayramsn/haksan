@@ -56,3 +56,9 @@ export const exportStatementQuerySchema = z.object({
   format: z.enum(['xlsx', 'pdf']).default('xlsx'),
 });
 export type ExportStatementQuery = z.infer<typeof exportStatementQuerySchema>;
+
+/** Liste dışa aktarımlarında dosya biçimi; liste süzgeçlerinden ayrı doğrulanır. */
+export const exportFormatQuerySchema = z.object({
+  format: z.enum(['xlsx', 'pdf']).default('xlsx'),
+});
+export type ExportFormatQuery = z.infer<typeof exportFormatQuerySchema>;

@@ -48,6 +48,8 @@ export const tradeFairListQuerySchema = paginationSchema.extend({
   q: z.string().trim().max(200).optional(),
   metByUserId: z.string().uuid().optional(),
   divisionId: z.string().uuid().optional(),
+  province: z.string().trim().min(1).max(128).optional(),
+  district: z.string().trim().min(1).max(128).optional(),
 });
 
 export const tradeFairPhotosQuerySchema = paginationSchema.extend({

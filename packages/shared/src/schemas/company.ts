@@ -149,6 +149,8 @@ export const companyListQuerySchema = z.object({
   customerStatusCode: z.enum(['potential', 'active', 'passive', 'blacklist']).optional(),
   divisionId: z.string().uuid().optional(),
   city: z.string().trim().min(1).max(64).optional(),
+  /** İlçe; `city` ile birlikte verilirse ikisi aynı adreste aranır. */
+  district: z.string().trim().min(1).max(128).optional(),
   sector: z.string().trim().min(1).max(128).optional(),
   supplierCategoryCode: supplierCategoryCodeSchema.optional(),
 });

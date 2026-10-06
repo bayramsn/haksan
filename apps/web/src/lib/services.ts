@@ -794,7 +794,7 @@ export type TradeFairPhotoDTO = {
 };
 
 export const tradeFairService = {
-  list: (params: { fairName?: string; q?: string; metByUserId?: string; divisionId?: string; page?: number; pageSize?: number } = {}) =>
+  list: (params: { fairName?: string; q?: string; metByUserId?: string; divisionId?: string; province?: string; district?: string; page?: number; pageSize?: number } = {}) =>
     api.get<Paginated<TradeFairContactDTO>>(`/trade-fairs${qs(params)}`),
   summary: (fairName?: string) => api.get<TradeFairSummary>(`/trade-fairs/summary${qs({ fairName })}`),
   photos: (params: { fairName?: string; q?: string; page?: number; pageSize?: number } = {}) =>

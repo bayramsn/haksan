@@ -1,6 +1,9 @@
-import { Body, Controller, Delete, Get, Param, ParseUUIDPipe, Patch, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, ParseUUIDPipe, Patch, Post, Query, Res, UseGuards } from '@nestjs/common';
+import type { FastifyReply } from 'fastify';
 import { z } from 'zod';
 import {
+  exportFormatQuerySchema,
+  type ExportFormatQuery,
   tradeFairContactCreateSchema,
   tradeFairContactUpdateSchema,
   tradeFairListQuerySchema,
@@ -19,7 +22,11 @@ import { CurrentUser } from '../../shared/security/current-user.decorator';
 import type { AuthContext } from '../../shared/security/auth.types';
 import { PermissionsGuard, RequirePermissions } from '../../shared/security/permissions.guard';
 import { ZodValidationPipe } from '../../shared/utils/zod-pipe';
+import { rowsToXlsxBuffer, sendXlsx } from '../../shared/utils/excel-export';
+import { filterSubtitle, pickColumns, rowsToPdfBuffer, sendPdf } from '../../shared/utils/pdf-export';
 import { TradeFairsService } from './trade-fairs.service';
+
+const TRADE_FAIR_PDF_COLUMNS = ['Tarih', 'Fuar', 'Firma', 'Yetkili', 'Telefon', 'E-posta', 'İl', 'İlçe', 'Ürünler', 'Görüşen Kişi'] as const;
 
 const summaryQuerySchema = z.object({ fairName: z.string().trim().max(200).optional() });
 
@@ -35,6 +42,27 @@ export class TradeFairsController {
     @CurrentUser() actor: AuthContext
   ) {
     return this.service.list(actor, query);
+  }
+
+  /** Listedeki süzgeçlerle (fuar, arama, il, ilçe) Excel ya da `format=pdf` ile PDF; sayfalama yok sayılır. */
+  @RequirePermissions('trade_fairs.read', 'reports.export')
+  @Get('export')
+  async export(
+    @Query(new ZodValidationPipe<any>(tradeFairListQuerySchema)) query: TradeFairListQuery,
+    @CurrentUser() actor: AuthContext,
+    @Res({ passthrough: true }) reply: FastifyReply,
+    @Query(new ZodValidationPipe(exportFormatQuerySchema)) { format }: ExportFormatQuery
+  ) {
+    const rows = await this.service.exportRows(actor, query);
+    if (format === 'pdf') {
+      const buffer = await rowsToPdfBuffer({
+        title: 'Fuar Görüşmeleri',
+        subtitle: filterSubtitle([['Fuar', query.fairName], ['İl', query.province], ['İlçe', query.district], ['Arama', query.q]], rows.length),
+        rows: pickColumns(rows, TRADE_FAIR_PDF_COLUMNS),
+      });
+      return sendPdf(reply, buffer, 'fuar-gorusmeleri.pdf');
+    }
+    return sendXlsx(reply, await rowsToXlsxBuffer(rows, 'Fuar Görüşmeleri'), 'fuar-gorusmeleri.xlsx');
   }
 
   @RequirePermissions('trade_fairs.read')

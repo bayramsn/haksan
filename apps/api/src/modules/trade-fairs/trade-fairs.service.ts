@@ -15,6 +15,7 @@ import { DB } from '../../shared/database/database.module';
 import { AuditService } from '../../shared/database/audit.service';
 import type { AuthContext } from '../../shared/security/auth.types';
 import { buildPaginated, pageOffset } from '../../shared/utils/pagination';
+import { isoDate, type ExportRow } from '../../shared/utils/excel-export';
 import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from '../../shared/utils/errors';
 import { lookupIdByCode } from '../../shared/utils/lookup.helper';
 import { CompaniesService } from '../companies/companies.service';
@@ -28,6 +29,8 @@ const emptyToNull = (value: string | null | undefined) => (value?.trim() ? value
  * Fuar görüşmeleri. Kiracı içinde herkes her kaydı görür ve düzenler;
  * silme yalnız kaydı açana veya yöneticiye açık.
  */
+const TRADE_FAIR_EXPORT_LIMIT = 15_000;
+
 @Injectable()
 export class TradeFairsService {
   constructor(
@@ -183,12 +186,14 @@ export class TradeFairsService {
     };
   }
 
-  async list(actor: AuthContext, query: TradeFairListQuery) {
-    const { limit, offset } = pageOffset(query);
+  /** Liste ve Excel aynı süzgeçten geçer; ekranda görünen ne ise dosyaya o iner. */
+  private listFilters(actor: AuthContext, query: Omit<TradeFairListQuery, 'page' | 'pageSize'>): SQL[] {
     const filters = this.baseFilters(actor);
     if (query.fairName) filters.push(eq(tradeFairContacts.fairName, query.fairName));
     if (query.metByUserId) filters.push(eq(tradeFairContacts.metByUserId, query.metByUserId));
     if (query.divisionId) filters.push(eq(tradeFairContacts.divisionId, query.divisionId));
+    if (query.province) filters.push(eq(tradeFairContacts.province, query.province));
+    if (query.district) filters.push(eq(tradeFairContacts.district, query.district));
     if (query.q) {
       const term = `%${query.q.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
       filters.push(
@@ -210,7 +215,12 @@ export class TradeFairsService {
         )!
       );
     }
-    const where = and(...filters);
+    return filters;
+  }
+
+  async list(actor: AuthContext, query: TradeFairListQuery) {
+    const { limit, offset } = pageOffset(query);
+    const where = and(...this.listFilters(actor, query));
     const [rows, [{ total }]] = await Promise.all([
       this.db
         // Firma adı görünürlük süzgeci olmadan etiket olarak döner; firmaya gitmek
@@ -244,6 +254,44 @@ export class TradeFairsService {
       total,
       query
     );
+  }
+
+  async exportRows(actor: AuthContext, query: TradeFairListQuery): Promise<ExportRow[]> {
+    const rows = await this.db
+      .select({
+        row: tradeFairContacts,
+        metByName: users.fullName,
+        linkedCompanyName: companies.legalTitle,
+        divisionName: divisions.name,
+      })
+      .from(tradeFairContacts)
+      .leftJoin(users, eq(tradeFairContacts.metByUserId, users.id))
+      .leftJoin(companies, and(eq(tradeFairContacts.companyId, companies.id), isNull(companies.deletedAt)))
+      .leftJoin(divisions, eq(tradeFairContacts.divisionId, divisions.id))
+      .where(and(...this.listFilters(actor, query)))
+      .orderBy(desc(tradeFairContacts.createdAt))
+      .limit(TRADE_FAIR_EXPORT_LIMIT);
+    const products = await this.productsFor(rows.map((r) => r.row.id));
+    return rows.map(({ row, metByName, linkedCompanyName, divisionName }) => ({
+      Tarih: isoDate(row.createdAt),
+      Fuar: row.fairName,
+      Firma: row.companyName,
+      Yetkili: row.contactName,
+      Ünvan: row.contactTitle ?? '',
+      Telefon: row.mobilePhone ?? '',
+      'E-posta': row.email ?? '',
+      Ülke: row.country,
+      İl: row.province ?? '',
+      İlçe: row.district ?? '',
+      Bölüm: divisionName ?? '',
+      Ürünler: (products.get(row.id) ?? []).map((p) => p.name).join(', '),
+      'Ürün Kategorisi': row.productCategory ?? '',
+      'Ürün Tipi': row.productType ?? '',
+      'Görüşen Kişi': metByName ?? '',
+      'Ziyaretçi Sayısı': row.visitorCount,
+      'Bağlı Firma': linkedCompanyName ?? '',
+      Notlar: row.notes ?? '',
+    }));
   }
 
   /** Fuar görüşmelerine bağlı fotoğraflar; dosya içeriği imzalı URL ile ayrı alınır. */

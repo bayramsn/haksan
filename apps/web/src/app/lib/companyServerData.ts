@@ -19,6 +19,7 @@ export interface CompanyDirectoryFilters {
   salesStatus?: "all" | CustomerSalesStatus;
   divisionId?: string;
   city?: string;
+  district?: string;
   sector?: string;
   supplierCategoryCode?: "all" | "transportation" | "logistics";
   sortMode?: CompanySortMode;
@@ -32,6 +33,7 @@ export interface CompanyListParams extends Record<string, string | number | unde
   customerStatusCode?: "active" | "potential";
   divisionId?: string;
   city?: string;
+  district?: string;
   sector?: string;
   supplierCategoryCode?: "transportation" | "logistics";
   sortBy?: "name" | "createdAt";
@@ -108,6 +110,7 @@ export function buildCompanyListParams(filters: CompanyDirectoryFilters): Compan
     customerStatusCode,
     divisionId: filters.divisionId && filters.divisionId !== "all" ? filters.divisionId : undefined,
     city: filters.city && filters.city !== "all" ? filters.city : undefined,
+    district: filters.district && filters.district !== "all" ? filters.district : undefined,
     sector: filters.sector && filters.sector !== "all" ? filters.sector : undefined,
     supplierCategoryCode,
     sortBy,

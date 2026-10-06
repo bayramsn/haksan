@@ -38,6 +38,26 @@ const columnWeight = (name: string) => {
   return 1.5;
 };
 
+/**
+ * pdfkit ana iş parçacığında çizer ve sayfaları bellekte tutar: 15.000 satır ~4,6 sn
+ * ve ~565 MB sürüyordu, o sürede API başka isteğe bakamıyordu. Liste PDF'leri bu
+ * kadar satırla sınırlanır; tamamı Excel'den alınır.
+ */
+export const PDF_ROW_LIMIT = 2_000;
+
+/** Yatay A4'e sığmayan geniş Excel satırlarından PDF için ilk `PDF_ROW_LIMIT` satırın seçili kolonlarını alır. */
+export const pickColumns = (rows: ExportRow[], columns: readonly string[]): ExportRow[] =>
+  rows.slice(0, PDF_ROW_LIMIT).map((row) => Object.fromEntries(columns.map((column) => [column, row[column]])));
+
+/** Ekrandaki süzgeçleri PDF alt başlığına yazar: "İl: Bursa · İlçe: Nilüfer · 12 kayıt". */
+export const filterSubtitle = (parts: Array<[string, string | undefined | null]>, count: number) =>
+  [
+    ...parts.filter(([, value]) => value).map(([label, value]) => `${label}: ${value}`),
+    count > PDF_ROW_LIMIT
+      ? `${count} kayıt (PDF'te ilk ${PDF_ROW_LIMIT.toLocaleString('tr-TR')}; tamamı için Excel indirin)`
+      : `${count} kayıt`,
+  ].join(' · ');
+
 export async function rowsToPdfBuffer(opts: {
   title: string;
   subtitle?: string;
@@ -178,12 +198,17 @@ export async function rowsToPdfBuffer(opts: {
   const range = doc.bufferedPageRange();
   for (let pageIndex = range.start; pageIndex < range.start + range.count; pageIndex += 1) {
     doc.switchToPage(pageIndex);
+    // Altlık alt kenar boşluğunun içine düşüyor; pdfkit orada metni taşma sayıp
+    // yalnız "Sayfa 1 / 1" yazan boş bir sayfa daha açıyordu. Yazarken boşluk sıfırlanır.
+    const bottomMargin = doc.page.margins.bottom;
+    doc.page.margins.bottom = 0;
     doc.font(regular).fontSize(7).fillColor('#6b7280').text(
       `Sayfa ${pageIndex - range.start + 1} / ${range.count}`,
       x0,
       doc.page.height - 23,
       { width: pageWidth, align: 'center', lineBreak: false },
     );
+    doc.page.margins.bottom = bottomMargin;
   }
 
   doc.end();

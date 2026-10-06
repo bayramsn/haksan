@@ -27,6 +27,7 @@ import { RemoteCompanyCombobox } from "../shared/RemoteCompanyCombobox";
 import { ApiError } from "../../../lib/apiClient";
 import { InsightStat } from "../shared/PremiumPrimitives";
 import { TradeFairPhotoGallery } from "./TradeFairPhotoGallery";
+import { ExportExcelButton } from "../ui/ExportExcelButton";
 
 const ALL = "__all__";
 const PAGE_SIZE = 50;
@@ -157,6 +158,8 @@ export function TradeFairsPage({ onOpenCompany }: { onOpenCompany?: (companyId: 
 
   const [fair, setFair] = useState(ALL);
   const [q, setQ] = useState("");
+  const [provinceFilter, setProvinceFilter] = useState(ALL);
+  const [districtFilter, setDistrictFilter] = useState(ALL);
   const [view, setView] = useState<"meetings" | "photos">("meetings");
   const [galleryRefreshKey, setGalleryRefreshKey] = useState(0);
   const [rows, setRows] = useState<TradeFairContactDTO[]>([]);
@@ -183,12 +186,18 @@ export function TradeFairsPage({ onOpenCompany }: { onOpenCompany?: (companyId: 
   const docRef = useRef<HTMLInputElement>(null);
 
   const fairFilter = fair === ALL ? undefined : fair;
+  const province = provinceFilter === ALL ? undefined : provinceFilter;
+  const district = districtFilter === ALL ? undefined : districtFilter;
+  const filterProvinceOptions = useMemo(() => provincesForCountry("Türkiye"), []);
+  const filterDistrictOptions = useMemo(() => (province ? districtsForCountry("Türkiye", province) : []), [province]);
+  // Liste ve Excel aynı süzgeçleri kullanır.
+  const listParams = { fairName: fairFilter, q: q.trim() || undefined, province, district };
   const loadList = useCallback(async (nextPage: number) => {
     // Geç dönen eski arama yanıtı yenisinin üstüne yazmasın.
     const seq = ++listSeq.current;
     setLoading(true);
     try {
-      const list = await tradeFairService.list({ fairName: fairFilter, q: q.trim() || undefined, page: nextPage, pageSize: PAGE_SIZE });
+      const list = await tradeFairService.list({ fairName: fairFilter, q: q.trim() || undefined, province, district, page: nextPage, pageSize: PAGE_SIZE });
       if (seq !== listSeq.current) return;
       setRows((current) => (nextPage === 1 ? list.data : [...current, ...list.data]));
       setTotal(list.meta.total);
@@ -198,7 +207,7 @@ export function TradeFairsPage({ onOpenCompany }: { onOpenCompany?: (companyId: 
     } finally {
       if (seq === listSeq.current) setLoading(false);
     }
-  }, [fairFilter, q]);
+  }, [fairFilter, q, province, district]);
 
   // Özet aramadan bağımsız: seçili fuarın tamamını anlatır.
   const loadSummary = useCallback(() => {
@@ -434,16 +443,57 @@ export function TradeFairsPage({ onOpenCompany }: { onOpenCompany?: (companyId: 
               ))}
             </SelectContent>
           </Select>
-          <div className="relative min-w-0 flex-1 sm:w-72">
+          <div className="relative min-w-0 flex-1 sm:min-w-56 sm:w-72">
             <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
             <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder={view === "photos" ? "Firma, yetkili veya dosya adı ara..." : "Firma, yetkili, telefon, il, ürün ara..."} className="h-9 bg-white pl-9" />
           </div>
+          {view === "meetings" && (
+            <>
+              <Select value={provinceFilter} onValueChange={(v) => { setProvinceFilter(v); setDistrictFilter(ALL); }}>
+                <SelectTrigger className="h-9 w-full bg-white sm:w-40" aria-label="İle göre filtrele"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={ALL}>Tüm iller</SelectItem>
+                  {filterProvinceOptions.map((name) => <SelectItem key={name} value={name}>{name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+              {province && (
+                <Select value={districtFilter} onValueChange={setDistrictFilter}>
+                  <SelectTrigger className="h-9 w-full bg-white sm:w-40" aria-label="İlçeye göre filtrele"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={ALL}>Tüm ilçeler</SelectItem>
+                    {filterDistrictOptions.map((name) => <SelectItem key={name} value={name}>{name}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              )}
+            </>
+          )}
         </div>
-        {canCreate && (
-          <Button className="h-9 gap-1.5" onClick={openCreate}>
-            <Plus className="size-4" /> Yeni Görüşme
-          </Button>
-        )}
+        <div className="flex flex-wrap items-center gap-2">
+          {view === "meetings" && (
+            <>
+              <ExportExcelButton
+                path="/trade-fairs/export"
+                filename="fuar-gorusmeleri.xlsx"
+                params={listParams}
+                requires={["trade_fairs.read"]}
+                className="h-9"
+              />
+              <ExportExcelButton
+                path="/trade-fairs/export"
+                filename="fuar-gorusmeleri.pdf"
+                params={{ ...listParams, format: "pdf" }}
+                label="PDF İndir"
+                requires={["trade_fairs.read"]}
+                className="h-9"
+              />
+            </>
+          )}
+          {canCreate && (
+            <Button className="h-9 gap-1.5" onClick={openCreate}>
+              <Plus className="size-4" /> Yeni Görüşme
+            </Button>
+          )}
+        </div>
       </div>
 
       {canViewGallery && (
@@ -481,7 +531,7 @@ export function TradeFairsPage({ onOpenCompany }: { onOpenCompany?: (companyId: 
           <EmptyState
             scene="search"
             eyebrow="Fuar"
-            title={q || fairFilter ? "Eşleşen görüşme bulunamadı" : "Henüz fuar görüşmesi yok"}
+            title={q || fairFilter || province ? "Eşleşen görüşme bulunamadı" : "Henüz fuar görüşmesi yok"}
             description={canCreate ? "Standa gelen firmaları “Yeni Görüşme” ile kaydedin." : "Kayıt eklendiğinde burada listelenir."}
           />
         </Card>

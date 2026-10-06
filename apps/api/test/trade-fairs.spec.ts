@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { StorageService } from '../src/shared/storage/storage.service';
 import request from 'supertest';
+import ExcelJS from 'exceljs';
 import { and, eq, inArray, isNull } from 'drizzle-orm';
 import type { NestFastifyApplication } from '@nestjs/platform-fastify';
 import { createTestApp } from './setup';
@@ -230,6 +231,48 @@ describe('Trade fairs module', () => {
       .expect(200);
     expect(summary.body.byUser).toEqual([{ userId: serviceUserId, fullName: 'Fuar service', meetings: 2, people: 5 }]);
     expect(summary.body.fairs.map((fair: { name: string }) => fair.name)).toContain(fairName);
+  });
+
+  it('filters by province and district and exports the same rows to Excel and PDF', async () => {
+    const auth = { Authorization: `Bearer ${superToken}` };
+    const bursa = await api().get('/api/v1/trade-fairs').query({ fairName, province: 'Bursa' }).set(auth).expect(200);
+    expect(bursa.body.data.map((row: { companyName: string }) => row.companyName)).toEqual(['Anadolu Kalıp']);
+    const otherDistrict = await api()
+      .get('/api/v1/trade-fairs')
+      .query({ fairName, province: 'Bursa', district: 'Osmangazi' })
+      .set(auth)
+      .expect(200);
+    expect(otherDistrict.body.meta.total).toBe(0);
+
+    const binary = (response: NodeJS.ReadableStream, callback: (error: Error | null, body?: Buffer) => void) => {
+      const chunks: Buffer[] = [];
+      response.on('data', (chunk) => chunks.push(Buffer.from(chunk)));
+      response.on('end', () => callback(null, Buffer.concat(chunks)));
+    };
+    const filters = { fairName, province: 'Bursa', district: 'Nilüfer' };
+    const xlsx = await api().get('/api/v1/trade-fairs/export').query(filters).set(auth).buffer(true).parse(binary).expect(200);
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(xlsx.body);
+    const sheet = workbook.getWorksheet('Fuar Görüşmeleri')!;
+    const header = (sheet.getRow(1).values as unknown[]).slice(1).map(String);
+    const rows = sheet.getRows(2, sheet.rowCount - 1) ?? [];
+    expect(rows).toHaveLength(1);
+    const cell = (name: string) => String(rows[0].getCell(header.indexOf(name) + 1).value ?? '');
+    expect(cell('Firma')).toBe('Anadolu Kalıp');
+    expect(cell('İl')).toBe('Bursa');
+    expect(cell('İlçe')).toBe('Nilüfer');
+
+    const pdf = await api()
+      .get('/api/v1/trade-fairs/export')
+      .query({ ...filters, format: 'pdf' })
+      .set(auth)
+      .buffer(true)
+      .parse(binary)
+      .expect(200);
+    expect(pdf.headers['content-type']).toContain('application/pdf');
+    expect(pdf.body.subarray(0, 4).toString()).toBe('%PDF');
+
+    await api().get('/api/v1/trade-fairs/export').query({ format: 'docx' }).set(auth).expect(422);
   });
 
   it('keeps untouched fields on partial update and still edits after the met-by user is deleted', async () => {
