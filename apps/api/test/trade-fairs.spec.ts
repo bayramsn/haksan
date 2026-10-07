@@ -517,6 +517,50 @@ describe('Trade fairs module', () => {
     expect(sameTitle).toHaveLength(1);
   });
 
+  it('marks a meeting as called and clears it again', async () => {
+    const created = await api()
+      .post('/api/v1/trade-fairs')
+      .set('Authorization', `Bearer ${serviceToken}`)
+      .send({ ...required, fairName, companyName: 'Arandı Test Makina', contactName: 'Zeynep Ak' })
+      .expect(201);
+    recordIds.push(created.body.id);
+    expect(created.body.calledAt).toBeNull();
+
+    // Kaydı açan değil, başka bir departman işaretleyebilir.
+    const called = await api()
+      .patch(`/api/v1/trade-fairs/${created.body.id}/called`)
+      .set('Authorization', `Bearer ${stockToken}`)
+      .send({ called: true })
+      .expect(200);
+    expect(called.body.calledAt).toBeTruthy();
+    expect(called.body.calledByName).toBe('Fuar stock');
+
+    const listed = await api()
+      .get('/api/v1/trade-fairs')
+      .query({ fairName, q: 'Arandı Test' })
+      .set('Authorization', `Bearer ${serviceToken}`)
+      .expect(200);
+    expect(listed.body.data[0]).toMatchObject({ calledByName: 'Fuar stock' });
+
+    await api()
+      .patch(`/api/v1/trade-fairs/${created.body.id}/called`)
+      .set('Authorization', `Bearer ${readonlyToken}`)
+      .send({ called: false })
+      .expect(403);
+    await api()
+      .patch(`/api/v1/trade-fairs/${created.body.id}/called`)
+      .set('Authorization', `Bearer ${stockToken}`)
+      .send({ called: 'evet' })
+      .expect(422);
+
+    const cleared = await api()
+      .patch(`/api/v1/trade-fairs/${created.body.id}/called`)
+      .set('Authorization', `Bearer ${stockToken}`)
+      .send({ called: false })
+      .expect(200);
+    expect(cleared.body).toMatchObject({ calledAt: null, calledBy: null, calledByName: null });
+  });
+
   it('requires a division on new records', async () => {
     const missingDivision = await api()
       .post('/api/v1/trade-fairs')

@@ -4,6 +4,8 @@ import { z } from 'zod';
 import {
   exportFormatQuerySchema,
   type ExportFormatQuery,
+  tradeFairCalledSchema,
+  type TradeFairCalledInput,
   tradeFairContactCreateSchema,
   tradeFairContactUpdateSchema,
   tradeFairListQuerySchema,
@@ -131,6 +133,16 @@ export class TradeFairsController {
   }
 
   /** Fuar kaydını Firmalar'a ekler (yeni firma ya da mevcut firmaya kontak). Firma/kontak yetkisi serviste. */
+  @RequirePermissions('trade_fairs.update')
+  @Patch(':id/called')
+  setCalled(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body(new ZodValidationPipe(tradeFairCalledSchema)) body: TradeFairCalledInput,
+    @CurrentUser() actor: AuthContext
+  ) {
+    return this.service.setCalled(actor, id, body.called);
+  }
+
   @RequirePermissions('trade_fairs.update')
   @Post(':id/company')
   addToCompanies(

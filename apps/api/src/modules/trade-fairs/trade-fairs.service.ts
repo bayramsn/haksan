@@ -1,5 +1,6 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { and, asc, count, desc, eq, exists, ilike, inArray, isNull, or, sql, type SQL } from 'drizzle-orm';
+import { alias } from 'drizzle-orm/pg-core';
 import type {
   TradeFairContactInput,
   TradeFairContactUpdateInput,
@@ -30,6 +31,8 @@ const emptyToNull = (value: string | null | undefined) => (value?.trim() ? value
  * silme yalnız kaydı açana veya yöneticiye açık.
  */
 const TRADE_FAIR_EXPORT_LIMIT = 15_000;
+/** Arandı işaretini koyan kullanıcı; görüşen (`users`) ile aynı tabloya ikinci birleşim. */
+const calledByUsers = alias(users, 'called_by_users');
 
 @Injectable()
 export class TradeFairsService {
@@ -228,11 +231,13 @@ export class TradeFairsService {
         .select({
           row: tradeFairContacts,
           metByName: users.fullName,
+          calledByName: calledByUsers.fullName,
           linkedCompanyName: companies.legalTitle,
           divisionName: divisions.name,
         })
         .from(tradeFairContacts)
         .leftJoin(users, eq(tradeFairContacts.metByUserId, users.id))
+        .leftJoin(calledByUsers, eq(tradeFairContacts.calledBy, calledByUsers.id))
         // Firmalar yumuşak silinir (FK tetiklenmez); silinmiş firma "bağlı" görünmesin.
         .leftJoin(companies, and(eq(tradeFairContacts.companyId, companies.id), isNull(companies.deletedAt)))
         .leftJoin(divisions, eq(tradeFairContacts.divisionId, divisions.id))
@@ -244,9 +249,10 @@ export class TradeFairsService {
     ]);
     const products = await this.productsFor(rows.map((r) => r.row.id));
     return buildPaginated(
-      rows.map(({ row, metByName, linkedCompanyName, divisionName }) => ({
+      rows.map(({ row, metByName, calledByName, linkedCompanyName, divisionName }) => ({
         ...row,
         metByName,
+        calledByName,
         linkedCompanyName,
         divisionName,
         products: products.get(row.id) ?? [],
@@ -261,18 +267,20 @@ export class TradeFairsService {
       .select({
         row: tradeFairContacts,
         metByName: users.fullName,
+        calledByName: calledByUsers.fullName,
         linkedCompanyName: companies.legalTitle,
         divisionName: divisions.name,
       })
       .from(tradeFairContacts)
       .leftJoin(users, eq(tradeFairContacts.metByUserId, users.id))
+      .leftJoin(calledByUsers, eq(tradeFairContacts.calledBy, calledByUsers.id))
       .leftJoin(companies, and(eq(tradeFairContacts.companyId, companies.id), isNull(companies.deletedAt)))
       .leftJoin(divisions, eq(tradeFairContacts.divisionId, divisions.id))
       .where(and(...this.listFilters(actor, query)))
       .orderBy(desc(tradeFairContacts.createdAt))
       .limit(TRADE_FAIR_EXPORT_LIMIT);
     const products = await this.productsFor(rows.map((r) => r.row.id));
-    return rows.map(({ row, metByName, linkedCompanyName, divisionName }) => ({
+    return rows.map(({ row, metByName, calledByName, linkedCompanyName, divisionName }) => ({
       Tarih: isoDate(row.createdAt),
       Fuar: row.fairName,
       Firma: row.companyName,
@@ -289,6 +297,9 @@ export class TradeFairsService {
       'Ürün Tipi': row.productType ?? '',
       'Görüşen Kişi': metByName ?? '',
       'Ziyaretçi Sayısı': row.visitorCount,
+      Arandı: row.calledAt ? 'Evet' : '',
+      'Arama Tarihi': isoDate(row.calledAt),
+      Arayan: row.calledAt ? calledByName ?? '' : '',
       'Bağlı Firma': linkedCompanyName ?? '',
       Notlar: row.notes ?? '',
     }));
@@ -442,6 +453,21 @@ export class TradeFairsService {
       productModelIds ? { ...row, productModelIds } : row
     );
     return this.withProducts(row);
+  }
+
+  /** Arandı işaretini koyar/kaldırır; düzenleme yetkisi olan herkes (kaydı açan olması gerekmez). */
+  async setCalled(actor: AuthContext, id: string, called: boolean) {
+    const before = await this.find(actor, id);
+    const [row] = await this.db
+      .update(tradeFairContacts)
+      .set(called ? { calledAt: new Date(), calledBy: actor.userId } : { calledAt: null, calledBy: null })
+      .where(and(eq(tradeFairContacts.id, id), eq(tradeFairContacts.tenantId, actor.tenantId)))
+      .returning();
+    await this.log(actor, called ? 'called' : 'uncalled', id, before, row);
+    const [caller] = called
+      ? await this.db.select({ fullName: users.fullName }).from(users).where(eq(users.id, actor.userId)).limit(1)
+      : [];
+    return { ...(await this.withProducts(row)), calledByName: caller?.fullName ?? null };
   }
 
   async remove(actor: AuthContext, id: string) {

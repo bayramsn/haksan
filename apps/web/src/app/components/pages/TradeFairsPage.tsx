@@ -8,6 +8,7 @@ import { Label } from "../ui/label";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { Textarea } from "../ui/textarea";
+import { Checkbox } from "../ui/checkbox";
 import { Combobox } from "../ui/combobox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "../ui/dialog";
@@ -428,6 +429,24 @@ export function TradeFairsPage({ onOpenCompany }: { onOpenCompany?: (companyId: 
     }
   };
 
+  // Arandı işareti: önce ekranda işaretlenir, sunucu reddederse geri alınır.
+  const toggleCalled = async (row: TradeFairContactDTO, called: boolean) => {
+    const patch = (values: Partial<TradeFairContactDTO>) =>
+      setRows((current) => current.map((r) => (r.id === row.id ? { ...r, ...values } : r)));
+    patch({ calledAt: called ? new Date().toISOString() : null, calledByName: called ? user?.fullName ?? null : null });
+    try {
+      const saved = await tradeFairService.setCalled(row.id, called);
+      patch({ calledAt: saved.calledAt ?? null, calledBy: saved.calledBy ?? null, calledByName: saved.calledByName ?? null });
+    } catch (err: any) {
+      patch({ calledAt: row.calledAt ?? null, calledBy: row.calledBy ?? null, calledByName: row.calledByName ?? null });
+      toast.error("Arandı işareti kaydedilemedi", { description: err?.message });
+    }
+  };
+  const calledTitle = (row: TradeFairContactDTO) =>
+    row.calledAt
+      ? `Arandı · ${[row.calledByName, new Date(row.calledAt).toLocaleDateString("tr-TR")].filter(Boolean).join(" · ")}`
+      : "Arandı olarak işaretle";
+
   const canDeleteRow = (row: TradeFairContactDTO) => canDelete && (isManager || row.createdBy === user?.id);
   const location = (row: TradeFairContactDTO) =>
     [row.district, row.province, row.country !== "Türkiye" ? row.country : null].filter(Boolean).join(" / ") || "—";
@@ -581,7 +600,7 @@ export function TradeFairsPage({ onOpenCompany }: { onOpenCompany?: (companyId: 
                 <TableHead className="hidden w-[14%] lg:table-cell">Konum</TableHead>
                 <TableHead className="w-[38%] md:w-[20%]">Ürün</TableHead>
                 <TableHead className="hidden w-[14%] sm:table-cell">Görüşen</TableHead>
-                <TableHead className="w-20 px-1" />
+                <TableHead className="w-28 px-1 text-[11px]">Arandı</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -618,6 +637,14 @@ export function TradeFairsPage({ onOpenCompany }: { onOpenCompany?: (companyId: 
                   </TableCell>
                   <TableCell className="px-1" onClick={(e) => e.stopPropagation()}>
                     <div className="flex items-center gap-1">
+                      <label className="inline-flex size-7 items-center justify-center" title={calledTitle(row)}>
+                        <Checkbox
+                          checked={Boolean(row.calledAt)}
+                          disabled={!canUpdate}
+                          onCheckedChange={(v) => void toggleCalled(row, v === true)}
+                          aria-label={`${row.companyName} arandı`}
+                        />
+                      </label>
                       {canUpdate && (
                         <Button variant="ghost" size="icon" className="size-7" aria-label={`${row.companyName} kaydını düzenle`} onClick={() => openEdit(row)}>
                           <Pencil className="size-3.5" />

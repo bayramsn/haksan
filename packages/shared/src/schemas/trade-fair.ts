@@ -70,6 +70,10 @@ export type TradeFairListQuery = z.infer<typeof tradeFairListQuerySchema>;
  * Fuar kaydını Firmalar'a ekleme: `companyId` verilirse mevcut firmaya kontak
  * olarak bağlanır, verilmezse kayıttaki bilgilerle yeni firma açılır.
  */
+/** Fuar sonrası arandı işareti (tik); kaldırılınca kim/ne zaman bilgisi de silinir. */
+export const tradeFairCalledSchema = z.object({ called: z.boolean() });
+export type TradeFairCalledInput = z.infer<typeof tradeFairCalledSchema>;
+
 export const tradeFairToCompanySchema = z.object({
   companyId: z.string().uuid().optional(),
   /** Yeni firmanın bölümü; tek bölümlü kullanıcıda boş bırakılabilir. */
