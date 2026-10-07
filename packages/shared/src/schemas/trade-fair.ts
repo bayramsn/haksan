@@ -74,6 +74,18 @@ export type TradeFairListQuery = z.infer<typeof tradeFairListQuerySchema>;
 export const tradeFairCalledSchema = z.object({ called: z.boolean() });
 export type TradeFairCalledInput = z.infer<typeof tradeFairCalledSchema>;
 
+/**
+ * Fuar kaydını fırsata çevirme: fırsat panosunda hangi kolona (satış derecesi),
+ * hangi bölüme ve kime düşeceği seçilir. Bölüm/sorumlu boşsa kaydın bölümü ve
+ * görüşen kişi kullanılır. Kazanıldı/kaybedildi buradan seçilemez.
+ */
+export const tradeFairToOpportunitySchema = z.object({
+  qualificationStage: z.enum(['lead', 'c', 'b', 'a', 'a_plus']).default('lead'),
+  divisionId: z.string().uuid().optional(),
+  ownerUserId: z.string().uuid().optional(),
+});
+export type TradeFairToOpportunityInput = z.infer<typeof tradeFairToOpportunitySchema>;
+
 export const tradeFairToCompanySchema = z.object({
   companyId: z.string().uuid().optional(),
   /** Yeni firmanın bölümü; tek bölümlü kullanıcıda boş bırakılabilir. */

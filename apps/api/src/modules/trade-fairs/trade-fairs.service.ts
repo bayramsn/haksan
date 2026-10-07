@@ -8,10 +8,11 @@ import type {
   TradeFairPhotosQuery,
   TradeFairProductQuery,
   TradeFairToCompanyInput,
+  TradeFairToOpportunityInput,
 } from '@haksan/shared';
-import { companyCreateSchema, contactCreateSchema, emailSchema, phoneSchema } from '@haksan/shared';
+import { companyCreateSchema, contactCreateSchema, emailSchema, opportunityCreateSchema, phoneSchema } from '@haksan/shared';
 import type { DbClient } from '../../db/client';
-import { companies, contactSources, divisions, fileLinks, files, productCategories, productGroups, productModels, tradeFairContactProducts, tradeFairContacts, users } from '../../db/schema';
+import { companies, contactSources, divisions, opportunities, fileLinks, files, productCategories, productGroups, productModels, tradeFairContactProducts, tradeFairContacts, users } from '../../db/schema';
 import { DB } from '../../shared/database/database.module';
 import { AuditService } from '../../shared/database/audit.service';
 import type { AuthContext } from '../../shared/security/auth.types';
@@ -21,6 +22,7 @@ import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from '.
 import { lookupIdByCode } from '../../shared/utils/lookup.helper';
 import { CompaniesService } from '../companies/companies.service';
 import { ContactsService } from '../contacts/contacts.service';
+import { OpportunitiesService } from '../opportunities/opportunities.service';
 
 type DbTransaction = Parameters<Parameters<DbClient['transaction']>[0]>[0];
 
@@ -40,7 +42,8 @@ export class TradeFairsService {
     @Inject(DB) private readonly db: DbClient,
     private readonly audit: AuditService,
     private readonly companiesService: CompaniesService,
-    private readonly contactsService: ContactsService
+    private readonly contactsService: ContactsService,
+    private readonly opportunitiesService: OpportunitiesService
   ) {}
 
   /** Kayıtlar dış kişilerin iletişim bilgisini taşıyor ve herkes düzenleyebiliyor; iz kalsın. */
@@ -453,6 +456,71 @@ export class TradeFairsService {
       productModelIds ? { ...row, productModelIds } : row
     );
     return this.withProducts(row);
+  }
+
+  /**
+   * Fuar kaydından fırsat açar ve seçilen kolona taşır. Fırsat her zaman Lead'de
+   * doğar; hedef kolon fırsat ekranındaki aynı geçiş kurallarından geçer. Kural
+   * eksikse fırsat Lead'de kalır ve eksikler döner — kayıt kaybolmaz.
+   */
+  async convertToOpportunity(actor: AuthContext, id: string, input: TradeFairToOpportunityInput) {
+    const row = await this.find(actor, id);
+    // ponytail: ön kontrol; aynı anda iki tıklama iki fırsat açabilir (arayüz düğmeyi kilitliyor).
+    // Gerekirse kaydı satır kilidiyle sahiplenen bir adıma çevrilmeli.
+    if (row.opportunityId) {
+      // Fırsatlar yumuşak silinir (FK tetiklenmez); silinmiş fırsat kaydı kilitlemesin.
+      const [linked] = await this.db
+        .select({ id: opportunities.id })
+        .from(opportunities)
+        .where(and(eq(opportunities.id, row.opportunityId), isNull(opportunities.deletedAt)))
+        .limit(1);
+      if (linked) throw new ConflictError('Bu fuar kaydı zaten fırsata çevrildi', { opportunityId: linked.id });
+    }
+    const products = (await this.productsFor([id])).get(id) ?? [];
+    const opportunity = await this.opportunitiesService.create(
+      opportunityCreateSchema.parse({
+        title: `${row.companyName} · ${row.fairName}`,
+        description: row.notes ?? undefined,
+        companyId: row.companyId ?? undefined,
+        primaryContactId: row.companyId ? row.contactId ?? undefined : undefined,
+        divisionId: input.divisionId ?? row.divisionId ?? undefined,
+        ownerUserId: input.ownerUserId ?? row.metByUserId ?? undefined,
+        leadContactName: row.contactName,
+        leadCompanyTitle: row.companyName,
+        leadPhone: row.mobilePhone ?? undefined,
+        leadEmail: row.email ?? undefined,
+        leadCity: row.province ?? undefined,
+        leadDistrict: row.district ?? undefined,
+        leadNeedSummary: row.notes ?? undefined,
+        sourceCode: 'fair',
+        products: products.map((p) => ({ productModelId: p.id, machineName: p.name, quantity: 1 })),
+      }),
+      actor
+    );
+    const opportunityId = String((opportunity as { id: string }).id);
+    await this.db
+      .update(tradeFairContacts)
+      .set({ opportunityId, updatedBy: actor.userId })
+      .where(and(eq(tradeFairContacts.id, id), eq(tradeFairContacts.tenantId, actor.tenantId)));
+    await this.log(actor, 'opportunity_created', id, row, { opportunityId });
+
+    let qualificationStage: string = 'lead';
+    let blockers: string[] = [];
+    if (input.qualificationStage !== 'lead') {
+      try {
+        await this.opportunitiesService.changeQualificationStage(
+          opportunityId,
+          { toStage: input.qualificationStage, note: `Fuar kaydından açıldı (${row.fairName})` },
+          actor
+        );
+        qualificationStage = input.qualificationStage;
+      } catch (err) {
+        if (!(err instanceof ValidationError)) throw err;
+        const labels = err.details?.blockerLabels;
+        blockers = Array.isArray(labels) && labels.length ? labels.map(String) : [err.message];
+      }
+    }
+    return { opportunityId, qualificationStage, requestedStage: input.qualificationStage, blockers };
   }
 
   /** Arandı işaretini koyar/kaldırır; düzenleme yetkisi olan herkes (kaydı açan olması gerekmez). */

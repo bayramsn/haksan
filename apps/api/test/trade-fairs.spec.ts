@@ -6,7 +6,7 @@ import { and, eq, inArray, isNull } from 'drizzle-orm';
 import type { NestFastifyApplication } from '@nestjs/platform-fastify';
 import { createTestApp } from './setup';
 import { getDb } from '../src/db/client';
-import { brands, companies, contacts, fileLinks, files, productModels, tradeFairContacts, users } from '../src/db/schema';
+import { brands, companies, contacts, fileLinks, files, opportunities, productModels, tradeFairContacts, users } from '../src/db/schema';
 
 /**
  * Fuar alanı bütün departmanlara açık: servis çalışanının eklediği kaydı ve
@@ -30,6 +30,7 @@ describe('Trade fairs module', () => {
   let salesToken = '';
   let salesUserId = '';
   const recordIds: string[] = [];
+  const opportunityIds: string[] = [];
   const runId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const fairName = `WIN Eurasia Test ${runId}`;
 
@@ -71,6 +72,10 @@ describe('Trade fairs module', () => {
 
   afterAll(async () => {
     const db = getDb();
+    // Fırsat yumuşak silinir; test satışçısı silinebilsin diye sorumluluk da boşaltılır.
+    if (opportunityIds.length) {
+      await db.update(opportunities).set({ deletedAt: new Date(), ownerUserId: null }).where(inArray(opportunities.id, opportunityIds));
+    }
     if (recordIds.length) await db.delete(tradeFairContacts).where(inArray(tradeFairContacts.id, recordIds));
     if (userIds.length) await db.delete(files).where(inArray(files.uploadedBy, userIds));
     // Firmalar kendi servisinin bıraktığı bağlı kayıtlarla gelir; testte yumuşak silmek yeterli.
@@ -559,6 +564,70 @@ describe('Trade fairs module', () => {
       .send({ called: false })
       .expect(200);
     expect(cleared.body).toMatchObject({ calledAt: null, calledBy: null, calledByName: null });
+  });
+
+  it('converts a meeting into an opportunity in the chosen column, area and owner', async () => {
+    const auth = { Authorization: `Bearer ${superToken}` };
+    const created = await api()
+      .post('/api/v1/trade-fairs')
+      .set('Authorization', `Bearer ${serviceToken}`)
+      .send({
+        ...required,
+        fairName,
+        companyName: 'Fırsat Test Kalıp',
+        contactName: 'Burak Er',
+        mobilePhone: '0533 222 33 44',
+        email: 'burak@firsattest.com',
+        province: 'Kocaeli',
+        district: 'Gebze',
+        productModelIds: productIds.slice(0, 1),
+        notes: 'Fiber lazer ile ilgileniyor.',
+      })
+      .expect(201);
+    recordIds.push(created.body.id);
+
+    await api().post(`/api/v1/trade-fairs/${created.body.id}/opportunity`).set('Authorization', `Bearer ${readonlyToken}`).send({}).expect(403);
+
+    const converted = await api()
+      .post(`/api/v1/trade-fairs/${created.body.id}/opportunity`)
+      .set(auth)
+      .send({ qualificationStage: 'lead', divisionId, ownerUserId: salesUserId })
+      .expect(201);
+    opportunityIds.push(converted.body.opportunityId);
+    expect(converted.body).toMatchObject({ qualificationStage: 'lead', blockers: [] });
+
+    const [opp] = await getDb().select().from(opportunities).where(eq(opportunities.id, converted.body.opportunityId));
+    expect(opp).toMatchObject({
+      leadCompanyTitle: 'Fırsat Test Kalıp',
+      leadContactName: 'Burak Er',
+      leadCity: 'Kocaeli',
+      leadDistrict: 'Gebze',
+      divisionId,
+      ownerUserId: salesUserId,
+      qualificationStage: 'lead',
+    });
+
+    // Aynı kayıt ikinci kez fırsata çevrilmez; liste fırsat bağlantısını taşır.
+    await api().post(`/api/v1/trade-fairs/${created.body.id}/opportunity`).set(auth).send({}).expect(409);
+    const listed = await api().get('/api/v1/trade-fairs').query({ fairName, q: 'Fırsat Test Kalıp' }).set(auth).expect(200);
+    expect(listed.body.data[0].opportunityId).toBe(converted.body.opportunityId);
+
+    // Gerekliliği karşılanmayan kolon istenirse fırsat Lead'de açılır, eksikler döner.
+    const second = await api()
+      .post('/api/v1/trade-fairs')
+      .set('Authorization', `Bearer ${serviceToken}`)
+      .send({ ...required, fairName, companyName: 'Fırsat Test İki', contactName: 'Selin Ok' })
+      .expect(201);
+    recordIds.push(second.body.id);
+    const blocked = await api()
+      .post(`/api/v1/trade-fairs/${second.body.id}/opportunity`)
+      .set(auth)
+      .send({ qualificationStage: 'a_plus' })
+      .expect(201);
+    opportunityIds.push(blocked.body.opportunityId);
+    expect(blocked.body.qualificationStage).toBe('lead');
+    expect(blocked.body.requestedStage).toBe('a_plus');
+    expect(blocked.body.blockers.length).toBeGreaterThan(0);
   });
 
   it('requires a division on new records', async () => {

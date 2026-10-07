@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Building2, Camera, ExternalLink, FileText, Images, List, Loader2, Mail, MapPin, Paperclip, Pencil, Phone, Plus, Search, Store, Trash2, Users, X } from "lucide-react";
+import { Building2, Camera, ExternalLink, FileText, Handshake, Images, List, Loader2, Mail, MapPin, Paperclip, Pencil, Phone, Plus, Search, Store, Trash2, Users, X } from "lucide-react";
 import { toast } from "sonner";
 import { COUNTRY_OPTIONS, TRADE_FAIR_NOTE_OR_ATTACHMENT_MESSAGE, tradeFairContactCreateSchema } from "@haksan/shared";
 import { Card, CardContent } from "../ui/card";
@@ -29,6 +29,11 @@ import { ApiError } from "../../../lib/apiClient";
 import { InsightStat } from "../shared/PremiumPrimitives";
 import { TradeFairPhotoGallery } from "./TradeFairPhotoGallery";
 import { ExportExcelButton } from "../ui/ExportExcelButton";
+import { QUALIFICATION_STAGE_LABELS } from "../../lib/mock";
+import { useStore } from "../../lib/store";
+
+/** Fuar kaydı fırsata çevrilirken seçilebilen pano kolonları (WIN/LOST hariç). */
+const OPPORTUNITY_TARGET_STAGES = ["lead", "c", "b", "a", "a_plus"] as const;
 
 const ALL = "__all__";
 const PAGE_SIZE = 50;
@@ -149,13 +154,27 @@ export function AttachmentTile({ item, canDelete, onDelete }: { item: Attachment
   );
 }
 
-export function TradeFairsPage({ onOpenCompany }: { onOpenCompany?: (companyId: string) => void }) {
+export function TradeFairsPage({
+  onOpenCompany,
+  onOpenOpportunity,
+}: {
+  onOpenCompany?: (companyId: string) => void;
+  onOpenOpportunity?: (opportunityId: string) => void;
+}) {
   const { user, activeDivision, hasPermission, hasRole } = useAuth();
   const isManager = hasRole("admin") || hasRole("super_admin");
   const canCreate = isManager || hasPermission("trade_fairs.create");
   const canUpdate = isManager || hasPermission("trade_fairs.update");
   const canDelete = isManager || hasPermission("trade_fairs.delete");
   const canViewGallery = hasPermission("files.read");
+  const canConvert = canUpdate && hasPermission("opportunities.create") && hasPermission("opportunities.update");
+  const { refresh: refreshStore } = useStore();
+  // Fırsata çevirme penceresi: hangi kolon, hangi bölüm, kime.
+  const [converting, setConverting] = useState<TradeFairContactDTO | null>(null);
+  const [convertStage, setConvertStage] = useState<string>("lead");
+  const [convertDivision, setConvertDivision] = useState("");
+  const [convertOwner, setConvertOwner] = useState("");
+  const [convertBusy, setConvertBusy] = useState(false);
 
   const [fair, setFair] = useState(ALL);
   const [q, setQ] = useState("");
@@ -429,6 +448,43 @@ export function TradeFairsPage({ onOpenCompany }: { onOpenCompany?: (companyId: 
     }
   };
 
+  const openConvert = (row: TradeFairContactDTO) => {
+    setConvertStage("lead");
+    setConvertDivision(row.divisionId ?? "");
+    setConvertOwner(row.metByUserId ?? "");
+    setConverting(row);
+  };
+
+  const submitConvert = async () => {
+    if (!converting) return;
+    setConvertBusy(true);
+    try {
+      const result = await tradeFairService.toOpportunity(converting.id, {
+        qualificationStage: convertStage,
+        divisionId: convertDivision || undefined,
+        ownerUserId: convertOwner || undefined,
+      });
+      setRows((current) => current.map((r) => (r.id === converting.id ? { ...r, opportunityId: result.opportunityId } : r)));
+      const open = onOpenOpportunity ? { label: "Fırsata git", onClick: () => onOpenOpportunity(result.opportunityId) } : undefined;
+      if (result.blockers.length) {
+        toast.warning(`Fırsat Lead kolonunda açıldı; ${QUALIFICATION_STAGE_LABELS[result.requestedStage as keyof typeof QUALIFICATION_STAGE_LABELS] ?? result.requestedStage} için eksikler var`, {
+          description: result.blockers.join(" · "),
+          action: open,
+          duration: 10000,
+        });
+      } else {
+        toast.success(`Fırsat ${QUALIFICATION_STAGE_LABELS[result.qualificationStage as keyof typeof QUALIFICATION_STAGE_LABELS] ?? result.qualificationStage} kolonunda açıldı`, { action: open });
+      }
+      setConverting(null);
+      // Fırsat panosu mağazadan okuyor; yeni kart orada da görünsün.
+      void refreshStore();
+    } catch (err: any) {
+      toast.error("Fırsata çevrilemedi", { description: err?.message });
+    } finally {
+      setConvertBusy(false);
+    }
+  };
+
   // Arandı işareti: önce ekranda işaretlenir, sunucu reddederse geri alınır.
   const toggleCalled = async (row: TradeFairContactDTO, called: boolean) => {
     const patch = (values: Partial<TradeFairContactDTO>) =>
@@ -600,7 +656,7 @@ export function TradeFairsPage({ onOpenCompany }: { onOpenCompany?: (companyId: 
                 <TableHead className="hidden w-[14%] lg:table-cell">Konum</TableHead>
                 <TableHead className="w-[38%] md:w-[20%]">Ürün</TableHead>
                 <TableHead className="hidden w-[14%] sm:table-cell">Görüşen</TableHead>
-                <TableHead className="w-28 px-1 text-[11px]">Arandı</TableHead>
+                <TableHead className="w-36 px-1 text-[11px]">Arandı</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -630,6 +686,16 @@ export function TradeFairsPage({ onOpenCompany }: { onOpenCompany?: (companyId: 
                     {row.companyId && row.contactId ? (
                       <Badge variant="outline" className="mt-1 h-5 gap-1 text-[9px] text-success"><Building2 className="size-3" /> Firmalar'da</Badge>
                     ) : null}
+                    {row.opportunityId ? (
+                      <Badge
+                        variant="outline"
+                        className="mt-1 h-5 cursor-pointer gap-1 text-[9px] text-primary"
+                        onClick={(e) => { e.stopPropagation(); onOpenOpportunity?.(row.opportunityId!); }}
+                        title="Fırsatı aç"
+                      >
+                        <Handshake className="size-3" /> Fırsatta
+                      </Badge>
+                    ) : null}
                   </TableCell>
                   <TableCell className="hidden truncate text-[12px] sm:table-cell">
                     <div className="truncate">{row.metByName ?? "—"}</div>
@@ -645,6 +711,11 @@ export function TradeFairsPage({ onOpenCompany }: { onOpenCompany?: (companyId: 
                           aria-label={`${row.companyName} arandı`}
                         />
                       </label>
+                      {canConvert && !row.opportunityId && (
+                        <Button variant="ghost" size="icon" className="size-7" title="Fırsata çevir" aria-label={`${row.companyName} kaydını fırsata çevir`} onClick={() => openConvert(row)}>
+                          <Handshake className="size-3.5" />
+                        </Button>
+                      )}
                       {canUpdate && (
                         <Button variant="ghost" size="icon" className="size-7" aria-label={`${row.companyName} kaydını düzenle`} onClick={() => openEdit(row)}>
                           <Pencil className="size-3.5" />
@@ -671,6 +742,55 @@ export function TradeFairsPage({ onOpenCompany }: { onOpenCompany?: (companyId: 
           </div>
         </Card>
       )}
+
+      <Dialog open={Boolean(converting)} onOpenChange={(open) => !open && !convertBusy && setConverting(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Fırsata çevir</DialogTitle>
+            <DialogDescription>
+              {converting ? `${converting.companyName} · ${converting.contactName}` : ""} — firma, kişi, iletişim, konum, ürünler ve
+              notlar fırsata aktarılır. Kart seçilen kolonun gerekliliklerini karşılamıyorsa Lead'de açılır.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div>
+              <Label>Pano kolonu</Label>
+              <Select value={convertStage} onValueChange={setConvertStage}>
+                <SelectTrigger className="mt-1.5" aria-label="Pano kolonu"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {OPPORTUNITY_TARGET_STAGES.map((code) => (
+                    <SelectItem key={code} value={code}>{QUALIFICATION_STAGE_LABELS[code]}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label>Bölüm</Label>
+              <Select value={convertDivision} onValueChange={setConvertDivision}>
+                <SelectTrigger className="mt-1.5" aria-label="Bölüm"><SelectValue placeholder="Bölüm seçin" /></SelectTrigger>
+                <SelectContent>
+                  {divisionList.map((d) => <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label>Sorumlu satışçı</Label>
+              <Select value={convertOwner} onValueChange={setConvertOwner}>
+                <SelectTrigger className="mt-1.5" aria-label="Sorumlu satışçı"><SelectValue placeholder="Sorumlu seçin" /></SelectTrigger>
+                <SelectContent>
+                  {staff.map((s) => <SelectItem key={s.id} value={s.id}>{s.fullName}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" disabled={convertBusy} onClick={() => setConverting(null)}>Vazgeç</Button>
+            <Button disabled={convertBusy || (divisionList.length > 0 && !convertDivision)} onClick={() => void submitConvert()} className="gap-1.5">
+              {convertBusy ? <Loader2 className="size-4 animate-spin" /> : <Handshake className="size-4" />} Fırsata çevir
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent className="max-h-[92dvh] overflow-y-auto sm:max-w-3xl">

@@ -774,13 +774,15 @@ export type TradeFairContactDTO = {
   calledAt?: string | null;
   calledBy?: string | null;
   calledByName?: string | null;
+  /** Kayıttan açılan fırsat (varsa). */
+  opportunityId?: string | null;
   createdBy: string | null;
   createdAt: string;
 };
 export type TradeFairContactBody = Omit<
   TradeFairContactDTO,
   | "id" | "metByName" | "divisionName" | "products" | "companyId" | "contactId" | "linkedCompanyName"
-  | "calledAt" | "calledBy" | "calledByName" | "createdBy" | "createdAt"
+  | "calledAt" | "calledBy" | "calledByName" | "opportunityId" | "createdBy" | "createdAt"
 > & { productModelIds: string[] };
 export type TradeFairSummary = {
   fairs: Array<{ name: string; total: number; lastAt: string }>;
@@ -812,6 +814,15 @@ export const tradeFairService = {
   create: (body: TradeFairContactBody) => api.post<TradeFairContactDTO>('/trade-fairs', body),
   update: (id: string, body: Partial<TradeFairContactBody>) => api.patch<TradeFairContactDTO>(`/trade-fairs/${id}`, body),
   remove: (id: string) => api.delete<{ deleted: boolean }>(`/trade-fairs/${id}`),
+  /**
+   * Kayıttan fırsat açar ve seçilen kolona taşır. Kolonun gereklilikleri eksikse
+   * fırsat Lead'de kalır, `blockers` eksikleri listeler.
+   */
+  toOpportunity: (id: string, body: { qualificationStage: string; divisionId?: string; ownerUserId?: string }) =>
+    api.post<{ opportunityId: string; qualificationStage: string; requestedStage: string; blockers: string[] }>(
+      `/trade-fairs/${id}/opportunity`,
+      body,
+    ),
   /** Arandı işaretini koyar/kaldırır. */
   setCalled: (id: string, called: boolean) => api.patch<TradeFairContactDTO>(`/trade-fairs/${id}/called`, { called }),
   /** Firmalar'a ekle: `companyId` ile mevcut firmaya kontak, yoksa yeni firma. */

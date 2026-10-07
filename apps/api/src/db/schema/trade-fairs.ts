@@ -4,6 +4,7 @@ import { departments, divisions, tenants } from './tenants';
 import { users } from './users';
 import { productModels } from './products';
 import { companies, contacts } from './companies';
+import { opportunities } from './crm';
 
 /**
  * Fuarda görüşülen firma/kişi kayıtları. Fuar ayrı tablo değil, `fairName`
@@ -35,6 +36,8 @@ export const tradeFairContacts = pgTable(
     /** Kayıt Firmalar'a eklendiyse bağlandığı firma ve kontak. */
     companyId: uuid('company_id').references(() => companies.id, { onDelete: 'set null' }),
     contactId: uuid('contact_id').references(() => contacts.id, { onDelete: 'set null' }),
+    /** Kayıttan açılan fırsat; doluysa kayıt ikinci kez fırsata çevrilmez. */
+    opportunityId: uuid('opportunity_id').references(() => opportunities.id, { onDelete: 'set null' }),
     notes: text('notes'),
     /** Standda görüşmeyi yapan çalışan. */
     metByUserId: uuid('met_by_user_id').references(() => users.id, { onDelete: 'set null' }),
