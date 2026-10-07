@@ -593,9 +593,12 @@ export class ProductsService {
     return PRODUCT_MEDIA_PATH_RE.exec(clean)?.[1] ?? null;
   }
 
-  private async resolveProductImageMediaFile(actor: AuthContext, imageUrl: string | null | undefined) {
+  // currentImageUrl: ürünün kayıtlı görseli. Görsel değişmediyse yükleyen kontrolü atlanır;
+  // dosya ürüne ilk bağlanırken zaten doğrulandı.
+  private async resolveProductImageMediaFile(actor: AuthContext, imageUrl: string | null | undefined, currentImageUrl?: string | null) {
     const fileId = this.productMediaFileId(imageUrl);
     if (!fileId) return null;
+    const unchanged = fileId === this.productMediaFileId(currentImageUrl);
 
     const file = await this.db.query.files.findFirst({
       where: and(
@@ -608,13 +611,13 @@ export class ProductsService {
       ),
     });
     if (!file) throw new ValidationError('Ürün görsel dosyası bulunamadı veya public ürün görseli değil');
-    if (file.uploadedBy !== actor.userId) throw new ValidationError('Ürün görselini yalnızca yükleyen kullanıcı bağlayabilir');
+    if (!unchanged && file.uploadedBy !== actor.userId) throw new ValidationError('Ürün görselini yalnızca yükleyen kullanıcı bağlayabilir');
     if (!file.mimeType.startsWith('image/')) throw new ValidationError('Ürün görseli için yalnızca resim dosyası kullanılabilir');
     return { fileId, file };
   }
 
-  private async attachProductImageMedia(productId: string, actor: AuthContext, imageUrl: string | null | undefined) {
-    const resolved = await this.resolveProductImageMediaFile(actor, imageUrl);
+  private async attachProductImageMedia(productId: string, actor: AuthContext, imageUrl: string | null | undefined, currentImageUrl?: string | null) {
+    const resolved = await this.resolveProductImageMediaFile(actor, imageUrl, currentImageUrl);
     if (!resolved) return;
     const { fileId, file } = resolved;
 
@@ -1052,7 +1055,7 @@ export class ProductsService {
     if (targetBrandId && targetProductGroupId) {
       await this.assertBrandMatchesProductGroup(targetBrandId, targetProductGroupId, actor);
     }
-    if (input.imageUrl !== undefined) await this.resolveProductImageMediaFile(actor, input.imageUrl);
+    if (input.imageUrl !== undefined) await this.resolveProductImageMediaFile(actor, input.imageUrl, existing.imageUrl);
     const alternativesProvided = input.muadilProductIds !== undefined || input.muadilProductId !== undefined;
     const alternativeIds = alternativesProvided ? this.uniqueAlternativeIds(input, id) : [];
     if (alternativesProvided) patch.muadilProductId = alternativeIds[0] ?? null;
@@ -1070,7 +1073,7 @@ export class ProductsService {
     }
     if (alternativesProvided) await this.replaceAlternatives(id, actor.tenantId, alternativeIds);
     if (this.optionalCompatibilityProvided(input)) await this.replaceOptionalCompatibilities(id, actor.tenantId, input);
-    if (input.imageUrl !== undefined) await this.attachProductImageMedia(id, actor, input.imageUrl);
+    if (input.imageUrl !== undefined) await this.attachProductImageMedia(id, actor, input.imageUrl, existing.imageUrl);
     await this.audit.write({
       tenantId: actor.tenantId,
       actorUserId: actor.userId,
@@ -1593,7 +1596,7 @@ export class ProductsService {
       let supplierCompanyId: string | null;
       try {
         if (existing) await this.assertImportProductScope(existing, lookups);
-        await this.resolveProductImageMediaFile(actor, normalized.imageUrl);
+        await this.resolveProductImageMediaFile(actor, normalized.imageUrl, existing?.imageUrl);
         brand = await this.getOrCreateBrand(normalized.brandName, actor, lookups.divisionId);
         if (!existing && brand.technicalCatalogCode === 'AORE_LASER' && LASER_MODELS.some((model) => hexlaserLegacyVariantCode(model.code, normalized.modelCode))) {
           throw new ValidationError('Kabin ve güç için ayrı ürün kartı açılamaz; model kartını kullanın');
@@ -1674,7 +1677,7 @@ export class ProductsService {
           if (technicalConfiguration && normalized.specs.length) await tx.update(productModels).set({ technicalConfiguration }).where(eq(productModels.id, id));
           return id;
         });
-        await this.attachProductImageMedia(productId, actor, normalized.imageUrl);
+        await this.attachProductImageMedia(productId, actor, normalized.imageUrl, existing?.imageUrl);
       } catch (error) {
         results.push({ rowNumber: normalized.rowNumber, modelCode: normalized.modelCode, status: 'error', errors: [error instanceof ValidationError || error instanceof NotFoundError ? error.message : 'Ürün satırı kaydedilemedi'] });
         continue;
