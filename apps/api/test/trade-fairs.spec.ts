@@ -577,6 +577,26 @@ describe('Trade fairs module', () => {
       .send({ called: false })
       .expect(200);
     expect(cleared.body).toMatchObject({ calledAt: null, calledBy: null, calledByName: null });
+
+    // Teklif verildi işareti arandıdan bağımsız tutulur.
+    const quoted = await api()
+      .patch(`/api/v1/trade-fairs/${created.body.id}/quoted`)
+      .set('Authorization', `Bearer ${serviceToken}`)
+      .send({ quoted: true })
+      .expect(200);
+    expect(quoted.body).toMatchObject({ quotedByName: 'Fuar service', calledAt: null });
+    expect(quoted.body.quotedAt).toBeTruthy();
+    await api()
+      .patch(`/api/v1/trade-fairs/${created.body.id}/quoted`)
+      .set('Authorization', `Bearer ${readonlyToken}`)
+      .send({ quoted: false })
+      .expect(403);
+    const unquoted = await api()
+      .patch(`/api/v1/trade-fairs/${created.body.id}/quoted`)
+      .set('Authorization', `Bearer ${serviceToken}`)
+      .send({ quoted: false })
+      .expect(200);
+    expect(unquoted.body).toMatchObject({ quotedAt: null, quotedBy: null, quotedByName: null });
   });
 
   it('converts a meeting into an opportunity in the chosen column, area and owner', async () => {

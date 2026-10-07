@@ -490,29 +490,52 @@ export function TradeFairsPage({
   };
 
   // Arandı işareti: önce ekranda işaretlenir, sunucu reddederse geri alınır.
-  const toggleCalled = async (row: TradeFairContactDTO, called: boolean) => {
+  /** Arandı / Teklif verildi işaretleri: aynı akış, farklı kolonlar. */
+  const FLAG_META = {
+    called: { label: "Arandı", at: "calledAt", by: "calledBy", name: "calledByName", save: tradeFairService.setCalled },
+    quoted: { label: "Teklif verildi", at: "quotedAt", by: "quotedBy", name: "quotedByName", save: tradeFairService.setQuoted },
+  } as const;
+  type FlagKind = keyof typeof FLAG_META;
+
+  // Önce ekranda işaretlenir, sunucu reddederse geri alınır; istek sürerken kutu kilitli.
+  const toggleFlag = async (row: TradeFairContactDTO, flag: FlagKind, value: boolean) => {
+    const meta = FLAG_META[flag];
+    const pendingKey = `${row.id}:${flag}`;
     const patch = (values: Partial<TradeFairContactDTO>) =>
       setRows((current) => current.map((r) => (r.id === row.id ? { ...r, ...values } : r)));
-    patch({ calledAt: called ? new Date().toISOString() : null, calledByName: called ? user?.fullName ?? null : null });
-    setCallPending((current) => new Set(current).add(row.id));
+    patch({ [meta.at]: value ? new Date().toISOString() : null, [meta.name]: value ? user?.fullName ?? null : null });
+    setCallPending((current) => new Set(current).add(pendingKey));
     try {
-      const saved = await tradeFairService.setCalled(row.id, called);
-      patch({ calledAt: saved.calledAt ?? null, calledBy: saved.calledBy ?? null, calledByName: saved.calledByName ?? null });
+      const saved = await meta.save(row.id, value);
+      patch({ [meta.at]: saved[meta.at] ?? null, [meta.by]: saved[meta.by] ?? null, [meta.name]: saved[meta.name] ?? null });
     } catch (err: any) {
-      patch({ calledAt: row.calledAt ?? null, calledBy: row.calledBy ?? null, calledByName: row.calledByName ?? null });
-      toast.error("Arandı işareti kaydedilemedi", { description: err?.message });
+      patch({ [meta.at]: row[meta.at] ?? null, [meta.by]: row[meta.by] ?? null, [meta.name]: row[meta.name] ?? null });
+      toast.error(`${meta.label} işareti kaydedilemedi`, { description: err?.message });
     } finally {
       setCallPending((current) => {
         const next = new Set(current);
-        next.delete(row.id);
+        next.delete(pendingKey);
         return next;
       });
     }
   };
-  const calledTitle = (row: TradeFairContactDTO) =>
-    row.calledAt
-      ? `Arandı · ${[row.calledByName, new Date(row.calledAt).toLocaleDateString("tr-TR")].filter(Boolean).join(" · ")}`
-      : "Arandı olarak işaretle";
+  const flagTitle = (row: TradeFairContactDTO, flag: FlagKind) => {
+    const meta = FLAG_META[flag];
+    const at = row[meta.at];
+    return at
+      ? `${meta.label} · ${[row[meta.name], new Date(at).toLocaleDateString("tr-TR")].filter(Boolean).join(" · ")}`
+      : `${meta.label} olarak işaretle`;
+  };
+  const flagBox = (row: TradeFairContactDTO, flag: FlagKind) => (
+    <label className="inline-flex size-7 items-center justify-center" title={flagTitle(row, flag)}>
+      <Checkbox
+        checked={Boolean(row[FLAG_META[flag].at])}
+        disabled={!canUpdate || callPending.has(`${row.id}:${flag}`)}
+        onCheckedChange={(v) => void toggleFlag(row, flag, v === true)}
+        aria-label={`${row.companyName} ${FLAG_META[flag].label.toLocaleLowerCase("tr-TR")}`}
+      />
+    </label>
+  );
 
   const canDeleteRow = (row: TradeFairContactDTO) => canDelete && (isManager || row.createdBy === user?.id);
   const location = (row: TradeFairContactDTO) =>
@@ -667,7 +690,10 @@ export function TradeFairsPage({
                 <TableHead className="hidden w-[14%] lg:table-cell">Konum</TableHead>
                 <TableHead className="w-[38%] md:w-[20%]">Ürün</TableHead>
                 <TableHead className="hidden w-[14%] sm:table-cell">Görüşen</TableHead>
-                <TableHead className="w-36 px-1 text-[11px]">Arandı</TableHead>
+                <TableHead className="w-44 px-1 text-[11px]">
+                  <span className="inline-flex w-7 justify-center" title="Arandı">Ar.</span>
+                  <span className="inline-flex w-7 justify-center" title="Teklif verildi">Tkl.</span>
+                </TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -714,14 +740,8 @@ export function TradeFairsPage({
                   </TableCell>
                   <TableCell className="px-1" onClick={(e) => e.stopPropagation()}>
                     <div className="flex items-center gap-1">
-                      <label className="inline-flex size-7 items-center justify-center" title={calledTitle(row)}>
-                        <Checkbox
-                          checked={Boolean(row.calledAt)}
-                          disabled={!canUpdate || callPending.has(row.id)}
-                          onCheckedChange={(v) => void toggleCalled(row, v === true)}
-                          aria-label={`${row.companyName} arandı`}
-                        />
-                      </label>
+                      {flagBox(row, "called")}
+                      {flagBox(row, "quoted")}
                       {canConvert && !row.opportunityId && (
                         <Button variant="ghost" size="icon" className="size-7" title="Fırsata çevir" aria-label={`${row.companyName} kaydını fırsata çevir`} onClick={() => openConvert(row)}>
                           <Handshake className="size-3.5" />

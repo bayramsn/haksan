@@ -774,6 +774,10 @@ export type TradeFairContactDTO = {
   calledAt?: string | null;
   calledBy?: string | null;
   calledByName?: string | null;
+  /** Teklif verildi işareti; doluysa teklif verildi. */
+  quotedAt?: string | null;
+  quotedBy?: string | null;
+  quotedByName?: string | null;
   /** Kayıttan açılan fırsat (varsa). */
   opportunityId?: string | null;
   createdBy: string | null;
@@ -782,7 +786,7 @@ export type TradeFairContactDTO = {
 export type TradeFairContactBody = Omit<
   TradeFairContactDTO,
   | "id" | "metByName" | "divisionName" | "products" | "companyId" | "contactId" | "linkedCompanyName"
-  | "calledAt" | "calledBy" | "calledByName" | "opportunityId" | "createdBy" | "createdAt"
+  | "calledAt" | "calledBy" | "calledByName" | "quotedAt" | "quotedBy" | "quotedByName" | "opportunityId" | "createdBy" | "createdAt"
 > & { productModelIds: string[] };
 export type TradeFairSummary = {
   fairs: Array<{ name: string; total: number; lastAt: string }>;
@@ -825,6 +829,8 @@ export const tradeFairService = {
     ),
   /** Arandı işaretini koyar/kaldırır. */
   setCalled: (id: string, called: boolean) => api.patch<TradeFairContactDTO>(`/trade-fairs/${id}/called`, { called }),
+  /** Teklif verildi işaretini koyar/kaldırır. */
+  setQuoted: (id: string, quoted: boolean) => api.patch<TradeFairContactDTO>(`/trade-fairs/${id}/quoted`, { quoted }),
   /** Firmalar'a ekle: `companyId` ile mevcut firmaya kontak, yoksa yeni firma. */
   addToCompanies: (id: string, body: { companyId?: string; divisionIds?: string[] }) =>
     api.post<TradeFairContactDTO>(`/trade-fairs/${id}/company`, body),

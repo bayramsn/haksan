@@ -35,6 +35,14 @@ const emptyToNull = (value: string | null | undefined) => (value?.trim() ? value
 const TRADE_FAIR_EXPORT_LIMIT = 15_000;
 /** Arandı işaretini koyan kullanıcı; görüşen (`users`) ile aynı tabloya ikinci birleşim. */
 const calledByUsers = alias(users, 'called_by_users');
+/** Teklif verildi işaretini koyan kullanıcı. */
+const quotedByUsers = alias(users, 'quoted_by_users');
+/** Satır işaretleri: kolon çiftleri ve denetim adları. */
+const FLAG_COLUMNS = {
+  called: { at: 'calledAt', by: 'calledBy', on: 'called', off: 'uncalled' },
+  quoted: { at: 'quotedAt', by: 'quotedBy', on: 'quoted', off: 'unquoted' },
+} as const;
+type TradeFairFlag = keyof typeof FLAG_COLUMNS;
 
 @Injectable()
 export class TradeFairsService {
@@ -235,12 +243,14 @@ export class TradeFairsService {
           row: tradeFairContacts,
           metByName: users.fullName,
           calledByName: calledByUsers.fullName,
+          quotedByName: quotedByUsers.fullName,
           linkedCompanyName: companies.legalTitle,
           divisionName: divisions.name,
         })
         .from(tradeFairContacts)
         .leftJoin(users, eq(tradeFairContacts.metByUserId, users.id))
         .leftJoin(calledByUsers, eq(tradeFairContacts.calledBy, calledByUsers.id))
+        .leftJoin(quotedByUsers, eq(tradeFairContacts.quotedBy, quotedByUsers.id))
         // Firmalar yumuşak silinir (FK tetiklenmez); silinmiş firma "bağlı" görünmesin.
         .leftJoin(companies, and(eq(tradeFairContacts.companyId, companies.id), isNull(companies.deletedAt)))
         .leftJoin(divisions, eq(tradeFairContacts.divisionId, divisions.id))
@@ -252,10 +262,11 @@ export class TradeFairsService {
     ]);
     const products = await this.productsFor(rows.map((r) => r.row.id));
     return buildPaginated(
-      rows.map(({ row, metByName, calledByName, linkedCompanyName, divisionName }) => ({
+      rows.map(({ row, metByName, calledByName, quotedByName, linkedCompanyName, divisionName }) => ({
         ...row,
         metByName,
         calledByName,
+        quotedByName,
         linkedCompanyName,
         divisionName,
         products: products.get(row.id) ?? [],
@@ -271,19 +282,21 @@ export class TradeFairsService {
         row: tradeFairContacts,
         metByName: users.fullName,
         calledByName: calledByUsers.fullName,
+        quotedByName: quotedByUsers.fullName,
         linkedCompanyName: companies.legalTitle,
         divisionName: divisions.name,
       })
       .from(tradeFairContacts)
       .leftJoin(users, eq(tradeFairContacts.metByUserId, users.id))
       .leftJoin(calledByUsers, eq(tradeFairContacts.calledBy, calledByUsers.id))
+      .leftJoin(quotedByUsers, eq(tradeFairContacts.quotedBy, quotedByUsers.id))
       .leftJoin(companies, and(eq(tradeFairContacts.companyId, companies.id), isNull(companies.deletedAt)))
       .leftJoin(divisions, eq(tradeFairContacts.divisionId, divisions.id))
       .where(and(...this.listFilters(actor, query)))
       .orderBy(desc(tradeFairContacts.createdAt))
       .limit(TRADE_FAIR_EXPORT_LIMIT);
     const products = await this.productsFor(rows.map((r) => r.row.id));
-    return rows.map(({ row, metByName, calledByName, linkedCompanyName, divisionName }) => ({
+    return rows.map(({ row, metByName, calledByName, quotedByName, linkedCompanyName, divisionName }) => ({
       Tarih: isoDate(row.createdAt),
       Fuar: row.fairName,
       Firma: row.companyName,
@@ -303,6 +316,9 @@ export class TradeFairsService {
       Arandı: row.calledAt ? 'Evet' : '',
       'Arama Tarihi': isoDate(row.calledAt),
       Arayan: row.calledAt ? calledByName ?? '' : '',
+      'Teklif Verildi': row.quotedAt ? 'Evet' : '',
+      'Teklif Tarihi': isoDate(row.quotedAt),
+      'Teklifi Veren': row.quotedAt ? quotedByName ?? '' : '',
       'Bağlı Firma': linkedCompanyName ?? '',
       Notlar: row.notes ?? '',
     }));
@@ -539,26 +555,34 @@ export class TradeFairsService {
     return { opportunityId, qualificationStage, requestedStage: input.qualificationStage, blockers };
   }
 
-  /** Arandı işaretini koyar/kaldırır; düzenleme yetkisi olan herkes (kaydı açan olması gerekmez). */
-  async setCalled(actor: AuthContext, id: string, called: boolean) {
+  /**
+   * Arandı / teklif verildi işaretini koyar ya da kaldırır; düzenleme yetkisi olan herkes
+   * (kaydı açan olması gerekmez). Dönüşte iki işaretin de kişi adı bulunur.
+   */
+  async setFlag(actor: AuthContext, id: string, flag: TradeFairFlag, value: boolean) {
+    const { at, by, on, off } = FLAG_COLUMNS[flag];
     const before = await this.find(actor, id);
-    // Zaten işaretliyse (bayat sekme) ilk arayanın adı ve zamanı ezilmez.
-    if (called && before.calledAt) {
-      const [first] = before.calledBy
-        ? await this.db.select({ fullName: users.fullName }).from(users).where(eq(users.id, before.calledBy)).limit(1)
-        : [];
-      return { ...(await this.withProducts(before)), calledByName: first?.fullName ?? null };
-    }
-    const [row] = await this.db
-      .update(tradeFairContacts)
-      .set(called ? { calledAt: new Date(), calledBy: actor.userId } : { calledAt: null, calledBy: null })
-      .where(and(eq(tradeFairContacts.id, id), eq(tradeFairContacts.tenantId, actor.tenantId)))
-      .returning();
-    await this.log(actor, called ? 'called' : 'uncalled', id, before, row);
-    const [caller] = called
-      ? await this.db.select({ fullName: users.fullName }).from(users).where(eq(users.id, actor.userId)).limit(1)
-      : [];
-    return { ...(await this.withProducts(row)), calledByName: caller?.fullName ?? null };
+    // Zaten işaretliyse (bayat sekme) ilk işaretleyenin adı ve zamanı ezilmez.
+    const row =
+      value && before[at]
+        ? before
+        : (
+            await this.db
+              .update(tradeFairContacts)
+              .set(value ? { [at]: new Date(), [by]: actor.userId } : { [at]: null, [by]: null })
+              .where(and(eq(tradeFairContacts.id, id), eq(tradeFairContacts.tenantId, actor.tenantId)))
+              .returning()
+          )[0];
+    if (row !== before) await this.log(actor, value ? on : off, id, before, row);
+    const nameOf = async (userId: string | null) =>
+      userId
+        ? (await this.db.select({ fullName: users.fullName }).from(users).where(eq(users.id, userId)).limit(1))[0]?.fullName ?? null
+        : null;
+    return {
+      ...(await this.withProducts(row)),
+      calledByName: await nameOf(row.calledBy),
+      quotedByName: await nameOf(row.quotedBy),
+    };
   }
 
   async remove(actor: AuthContext, id: string) {

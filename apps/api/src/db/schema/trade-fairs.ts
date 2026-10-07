@@ -46,6 +46,9 @@ export const tradeFairContacts = pgTable(
     /** Fuar sonrası arandı işareti; doluysa kayıt arandı sayılır. */
     calledAt: timestamp('called_at', { withTimezone: true }),
     calledBy: uuid('called_by').references(() => users.id, { onDelete: 'set null' }),
+    /** Teklif verildi işareti; arandı ile aynı yapı. */
+    quotedAt: timestamp('quoted_at', { withTimezone: true }),
+    quotedBy: uuid('quoted_by').references(() => users.id, { onDelete: 'set null' }),
     createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
     updatedBy: uuid('updated_by').references(() => users.id, { onDelete: 'set null' }),
     ...auditColumns,

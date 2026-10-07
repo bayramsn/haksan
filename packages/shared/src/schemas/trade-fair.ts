@@ -74,6 +74,10 @@ export type TradeFairListQuery = z.infer<typeof tradeFairListQuerySchema>;
 export const tradeFairCalledSchema = z.object({ called: z.boolean() });
 export type TradeFairCalledInput = z.infer<typeof tradeFairCalledSchema>;
 
+/** Fuar sonrası teklif verildi işareti (tik); arandı ile aynı davranış. */
+export const tradeFairQuotedSchema = z.object({ quoted: z.boolean() });
+export type TradeFairQuotedInput = z.infer<typeof tradeFairQuotedSchema>;
+
 /**
  * Fuar kaydını fırsata çevirme: fırsat panosunda hangi kolona (satış derecesi),
  * hangi bölüme ve kime düşeceği seçilir. Bölüm/sorumlu boşsa kaydın bölümü ve

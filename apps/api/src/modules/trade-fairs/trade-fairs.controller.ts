@@ -6,6 +6,8 @@ import {
   type ExportFormatQuery,
   tradeFairCalledSchema,
   type TradeFairCalledInput,
+  tradeFairQuotedSchema,
+  type TradeFairQuotedInput,
   tradeFairToOpportunitySchema,
   type TradeFairToOpportunityInput,
   tradeFairContactCreateSchema,
@@ -142,7 +144,18 @@ export class TradeFairsController {
     @Body(new ZodValidationPipe(tradeFairCalledSchema)) body: TradeFairCalledInput,
     @CurrentUser() actor: AuthContext
   ) {
-    return this.service.setCalled(actor, id, body.called);
+    return this.service.setFlag(actor, id, 'called', body.called);
+  }
+
+  /** Teklif verildi işaretini koyar/kaldırır. */
+  @RequirePermissions('trade_fairs.update')
+  @Patch(':id/quoted')
+  setQuoted(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body(new ZodValidationPipe(tradeFairQuotedSchema)) body: TradeFairQuotedInput,
+    @CurrentUser() actor: AuthContext
+  ) {
+    return this.service.setFlag(actor, id, 'quoted', body.quoted);
   }
 
   /** Fırsat açmak ve kolonuna taşımak fırsat ekranındaki iki yetkiyi de ister. */
