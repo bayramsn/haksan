@@ -6,6 +6,7 @@ import {
   type LaserSelection,
 } from '@haksan/shared';
 import { AORE_WORKBOOK_SHEETS } from '../../../packages/shared/src/laser-source-data';
+import { retranslateConfiguration } from '../src/db/refresh-laser-translations';
 
 function profile(code: string, powerKw: LaserSelection['powerKw'], cabinType?: LaserSelection['cabinType']) {
   const model = LASER_MODELS.find((entry) => entry.code === code)!;
@@ -210,5 +211,38 @@ describe('AORE source resolution', () => {
     expect(field('TS12035', 12, 'Ayna Sayısı')?.value).toBe('3');
     // EGT açık kabin/tek tabla olduğu için PGT'den ayrı ürün kalır.
     expect(codes.has('EGT3015') && codes.has('PG3015+T6-230')).toBe(true);
+  });
+
+  it('prints no untranslated Chinese text in any model specification', () => {
+    // Teklif/PDF bu değerleri olduğu gibi basar; kaynak hücrenin Çincesi Türkçe sözlükten geçmeli.
+    const chinese = /[\u4e00-\u9fff\u3000-\u303f\uff01-\uff5e]/;
+    const leftovers = new Set<string>();
+    for (const model of LASER_MODELS) {
+      for (const cabinType of ['open', 'closed'] as const) {
+        for (const powerKw of LASER_POWERS) {
+          const profile = resolveLaserProfile({
+            productTypeCode: model.productTypeCode, series: model.series, sourceModelCode: model.code, cabinType, powerKw,
+          } as LaserSelection);
+          for (const spec of profile.specs) if (chinese.test(spec.value)) leftovers.add(`${model.code} · ${spec.key}: ${spec.value}`);
+        }
+      }
+    }
+    expect([...leftovers]).toEqual([]);
+  });
+
+  it('repairs stored Chinese values on saved cards but keeps manual edits', () => {
+    const fresh = resolveLaserProfile({ productTypeCode: 'BORU_LAZER_KESIM', series: 'TS', sourceModelCode: 'TS12035', cabinType: 'open', powerKw: 6 });
+    const stale = {
+      ...fresh,
+      specs: fresh.specs.map((spec) =>
+        spec.key === 'Boru Kesit Şekli' ? { ...spec, value: '圆管、方管 eski kayıt' }
+          : spec.key === 'Boru Gereksinimleri' ? { ...spec, value: '管径 elle yazıldı', isManual: true }
+            : spec),
+    };
+    const repaired = retranslateConfiguration(stale)!;
+    const value = (key: string) => repaired.specs.find((spec) => spec.key === key)?.value;
+    expect(value('Boru Kesit Şekli')).toBe(fresh.specs.find((spec) => spec.key === 'Boru Kesit Şekli')?.value);
+    expect(value('Boru Gereksinimleri')).toBe('管径 elle yazıldı');
+    expect(retranslateConfiguration(fresh)).toBeNull();
   });
 });

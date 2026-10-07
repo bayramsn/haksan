@@ -394,8 +394,26 @@ export function displayLaserSourceValue(raw: string): string {
     '总线控制 EtherCAT Bus control': 'EtherCAT haberleşme sistemi', '无限制±∞\nUnlimited ±∞': 'Sınırsız ±∞',
     '全气动自定心卡盘\nFull pneumatic self centering chuck': 'Tam pnömatik, kendinden merkezlemeli ayna',
     '支持 DXF、LXD、PLT、AI、Gerber等图形数据格式，\n接受 Lantek、CNCkad等软件生成的国际标准 G 代码': 'DXF, LXD, PLT, AI, Gerber; Lantek ve CNCkad tarafından üretilen standart G kodları',
+    // Rulo (R) serisi
+    '0.5-3.0mm冷轧板、镀锌板\n0.5-2.0mm不锈钢板': '0.5-3.0 mm soğuk haddelenmiş ve galvaniz sac\n0.5-2.0 mm paslanmaz sac',
+    '≤20m/min(以技术方案为准)\n≤20m/min(Subject to technical plan )': '≤20 m/dk (teknik plana göre)',
+    '≤±2mm/㎡( (以技术方案为准)\n≤±2mm/㎡(Subject to technical plan )': '≤±2 mm/m² (teknik plana göre)',
+    // Boru serileri: kesit şekli ve boru gereksinimleri
+    '圆管、方管、矩形管、椭圆管、长圆管（跑道圆）、角钢、槽钢等管材\nRound, square, rectangular, oval, rounded rectangular, Angle steel, channel steel and other tubes\n（有其他截面形状请咨询产品经理）\nFor other cross-sectional shapes, please consult the product manager':
+      'Yuvarlak, kare, dikdörtgen, oval ve yuvarlatılmış dikdörtgen boru; köşebent, U profil ve diğer profiller\nDiğer kesit şekilleri için ürün yöneticisine danışın.',
+    '圆管、方管、矩形管、槽钢、角钢、工字钢等\nRound tube, square tube, rectangular tube，angle steel, channel steel, I-beam, etc.\n（有其他截面形状请咨询产品经理）\nFor other cross-sectional shapes, please consult the product manager':
+      'Yuvarlak, kare ve dikdörtgen boru; köşebent, U profil, I profil vb.\nDiğer kesit şekilleri için ürün yöneticisine danışın.',
+    '管径Diameter<φ50mm 管材壁厚thickness≥1.2mm;\n管径Diameter≥φ50mm\n薄壁管的管壁与直径的比值不小于1/40\nWall thickness≥2.5% of Diameters of tubes':
+      'Çap < φ50 mm: et kalınlığı ≥ 1.2 mm\nÇap ≥ φ50 mm: et kalınlığı çapın en az %2,5\'i (1/40)',
+    '管径Diameter<φ50mm 管材壁厚thickness≥2mm;\n管径Diameter≥φ50mm\n薄壁管的管壁与直径的比值不小于1/40\nWall thickness≥2.5% of Diameters of tubes':
+      'Çap < φ50 mm: et kalınlığı ≥ 2 mm\nÇap ≥ φ50 mm: et kalınlığı çapın en az %2,5\'i (1/40)',
+    '管径Diameter≥φ50mm\n卡盘夹持壁厚 >5mm\n薄壁管的管壁与直径的比值不小于1/40\nWall thickness≥2.5% of Diameters of tubes':
+      'Çap ≥ φ50 mm\nAyna bağlama et kalınlığı > 5 mm\nEt kalınlığı çapın en az %2,5\'i (1/40)',
+    '离心风机\ncentrifugal fan': 'Santrifüj fan',
   };
-  if (exact[raw]) return exact[raw];
+  // Kaynak hücrelerde satır sonu boşlukları tutarsız; eşleşme satırlar kırpılarak da denenir.
+  const trimmed = raw.split('\n').map((line) => line.trim()).join('\n');
+  if (exact[raw] ?? exact[trimmed]) return exact[raw] ?? exact[trimmed];
   return raw.replace(/圆管Round tube/gi, 'Yuvarlak boru ').replace(/方管square tube/gi, 'Kare boru ')
     .replace(/其余见卡盘加持示意图\nFor the rest, please refer to the schematic diagram of chuck mounting/g, 'Diğer kesitler için ayna bağlama diyagramına bakın.')
     .replace(/(\d+)组（(\d+)个）/g, '$1 grup ($2 adet)').replace(/（可调）|\(可调\)/g, '(ayarlanabilir)')
@@ -404,7 +422,11 @@ export function displayLaserSourceValue(raw: string): string {
     .replace(/板切[：:]/g, 'Sac kesim: ').replace(/管切[：:]/g, 'Boru kesim: ').replace(/坡口直切[：:]/g, 'Düz kesim: ')
     .replace(/坡口坡口?切[：:]/g, 'Pah kesim: ').replace(/直切[：:]/g, 'Düz kesim: ').replace(/坡口[：:]/g, 'Pah kesim: ')
     .replace(/三相/g, 'Üç faz ').replace(/单相/g, 'Tek faz ').replace(/建议边长或直径/g, 'Önerilen kenar uzunluğu veya çapı ')
-    .replace(/(\d+(?:\.\d+)?)寸(?:\*(\d+))?(?:\n[\d.]+ inches(?:\*\d+)?)?/g, (_, size: string, count: string) => `${size} inç${count ? ` × ${count}` : ''}`);
+    .replace(/(\d+(?:\.\d+)?)寸(?:\*(\d+))?(?:\n[\d.]+ inches(?:\*\d+)?)?/g, (_, size: string, count: string) => `${size} inç${count ? ` × ${count}` : ''}`)
+    .replace(/管材夹持范围[:：]?/g, 'Boru bağlama aralığı: ').replace(/圆管φ/g, 'Yuvarlak boru φ').replace(/方管(?=\d)/g, 'Kare boru ')
+    .replace(/[（(]小Y[)）]/g, ' (küçük Y)')
+    // Tam genişlikli Çince noktalama: ％ 、 ， （ ）
+    .replace(/％/g, '%').replace(/[、，]/g, ', ').replace(/（/g, ' (').replace(/）/g, ')');
 }
 
 export function resolveLaserProfile(selectionInput: LaserSelection, models: readonly LaserCatalogModel[] = LASER_MODELS): LaserResolvedProfile {
