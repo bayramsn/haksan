@@ -175,6 +175,10 @@ export function TradeFairsPage({
   const [convertDivision, setConvertDivision] = useState("");
   const [convertOwner, setConvertOwner] = useState("");
   const [convertBusy, setConvertBusy] = useState(false);
+  // Sorumluyu başkasına atayabilen roller (fırsat servisindeki kural); diğerlerinde atama kuralı işler.
+  const canAssignOwner = hasRole("super_admin") || hasRole("sales");
+  // İsteği süren arandı kutuları; aynı satıra ikinci tık sırayı bozmasın.
+  const [callPending, setCallPending] = useState<Set<string>>(() => new Set());
 
   const [fair, setFair] = useState(ALL);
   const [q, setQ] = useState("");
@@ -451,7 +455,7 @@ export function TradeFairsPage({
   const openConvert = (row: TradeFairContactDTO) => {
     setConvertStage("lead");
     setConvertDivision(row.divisionId ?? "");
-    setConvertOwner(row.metByUserId ?? "");
+    setConvertOwner(canAssignOwner || row.metByUserId === user?.id ? row.metByUserId ?? "" : "");
     setConverting(row);
   };
 
@@ -490,12 +494,19 @@ export function TradeFairsPage({
     const patch = (values: Partial<TradeFairContactDTO>) =>
       setRows((current) => current.map((r) => (r.id === row.id ? { ...r, ...values } : r)));
     patch({ calledAt: called ? new Date().toISOString() : null, calledByName: called ? user?.fullName ?? null : null });
+    setCallPending((current) => new Set(current).add(row.id));
     try {
       const saved = await tradeFairService.setCalled(row.id, called);
       patch({ calledAt: saved.calledAt ?? null, calledBy: saved.calledBy ?? null, calledByName: saved.calledByName ?? null });
     } catch (err: any) {
       patch({ calledAt: row.calledAt ?? null, calledBy: row.calledBy ?? null, calledByName: row.calledByName ?? null });
       toast.error("Arandı işareti kaydedilemedi", { description: err?.message });
+    } finally {
+      setCallPending((current) => {
+        const next = new Set(current);
+        next.delete(row.id);
+        return next;
+      });
     }
   };
   const calledTitle = (row: TradeFairContactDTO) =>
@@ -706,7 +717,7 @@ export function TradeFairsPage({
                       <label className="inline-flex size-7 items-center justify-center" title={calledTitle(row)}>
                         <Checkbox
                           checked={Boolean(row.calledAt)}
-                          disabled={!canUpdate}
+                          disabled={!canUpdate || callPending.has(row.id)}
                           onCheckedChange={(v) => void toggleCalled(row, v === true)}
                           aria-label={`${row.companyName} arandı`}
                         />
@@ -776,11 +787,16 @@ export function TradeFairsPage({
             <div>
               <Label>Sorumlu satışçı</Label>
               <Select value={convertOwner} onValueChange={setConvertOwner}>
-                <SelectTrigger className="mt-1.5" aria-label="Sorumlu satışçı"><SelectValue placeholder="Sorumlu seçin" /></SelectTrigger>
+                <SelectTrigger className="mt-1.5" aria-label="Sorumlu satışçı"><SelectValue placeholder="Otomatik (atama kuralı)" /></SelectTrigger>
                 <SelectContent>
-                  {staff.map((s) => <SelectItem key={s.id} value={s.id}>{s.fullName}</SelectItem>)}
+                  {(canAssignOwner ? staff : staff.filter((s) => s.id === user?.id)).map((s) => (
+                    <SelectItem key={s.id} value={s.id}>{s.fullName}</SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
+              {!canAssignOwner && (
+                <p className="mt-1 text-[11px] text-muted-foreground">Başkasına atama yetkiniz yok; boş bırakılırsa atama kuralı uygulanır.</p>
+              )}
             </div>
           </div>
           <DialogFooter>

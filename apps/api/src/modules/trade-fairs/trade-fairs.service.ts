@@ -477,26 +477,39 @@ export class TradeFairsService {
       if (linked) throw new ConflictError('Bu fuar kaydı zaten fırsata çevrildi', { opportunityId: linked.id });
     }
     const products = (await this.productsFor([id])).get(id) ?? [];
-    const opportunity = await this.opportunitiesService.create(
+    // Fırsat alanları fuar alanlarından kısa; taşan metin 500 yerine kırpılır.
+    const cut = (value: string | null | undefined, max: number) => (value ? value.slice(0, max) : undefined);
+    // Sorumlu verilmezse görüşen kişi — yalnız başkasına atama yetkisi varsa (fırsat servisiyle aynı kural);
+    // yoksa fırsatın kendi atama kuralı işler.
+    const canAssignOthers = actor.roles.includes('super_admin') || actor.roles.includes('sales');
+    const ownerUserId =
+      input.ownerUserId ?? (row.metByUserId && (canAssignOthers || row.metByUserId === actor.userId) ? row.metByUserId : undefined);
+    const payload = (withCompany: boolean) =>
       opportunityCreateSchema.parse({
-        title: `${row.companyName} · ${row.fairName}`,
-        description: row.notes ?? undefined,
-        companyId: row.companyId ?? undefined,
-        primaryContactId: row.companyId ? row.contactId ?? undefined : undefined,
+        title: cut(`${row.companyName} · ${row.fairName}`, 255),
+        description: cut(row.notes, 4000),
+        companyId: withCompany ? row.companyId ?? undefined : undefined,
+        primaryContactId: withCompany && row.companyId ? row.contactId ?? undefined : undefined,
         divisionId: input.divisionId ?? row.divisionId ?? undefined,
-        ownerUserId: input.ownerUserId ?? row.metByUserId ?? undefined,
-        leadContactName: row.contactName,
-        leadCompanyTitle: row.companyName,
-        leadPhone: row.mobilePhone ?? undefined,
+        ownerUserId,
+        leadContactName: cut(row.contactName, 255),
+        leadCompanyTitle: cut(row.companyName, 255),
+        leadPhone: cut(row.mobilePhone, 64),
         leadEmail: row.email ?? undefined,
-        leadCity: row.province ?? undefined,
-        leadDistrict: row.district ?? undefined,
-        leadNeedSummary: row.notes ?? undefined,
+        leadCity: cut(row.province, 120),
+        leadDistrict: cut(row.district, 120),
+        leadNeedSummary: cut(row.notes, 2000),
         sourceCode: 'fair',
-        products: products.map((p) => ({ productModelId: p.id, machineName: p.name, quantity: 1 })),
-      }),
-      actor
-    );
+        products: products.slice(0, 20).map((p) => ({ productModelId: p.id, machineName: cut(p.name, 255)!, quantity: 1 })),
+      });
+    let opportunity: unknown;
+    try {
+      opportunity = await this.opportunitiesService.create(payload(Boolean(row.companyId)), actor);
+    } catch (err) {
+      // Bağlı firma silinmiş ya da bu kullanıcıya görünmüyorsa fırsat firmasız (lead bilgileriyle) açılır.
+      if (!(row.companyId && err instanceof NotFoundError)) throw err;
+      opportunity = await this.opportunitiesService.create(payload(false), actor);
+    }
     const opportunityId = String((opportunity as { id: string }).id);
     await this.db
       .update(tradeFairContacts)
@@ -515,9 +528,12 @@ export class TradeFairsService {
         );
         qualificationStage = input.qualificationStage;
       } catch (err) {
-        if (!(err instanceof ValidationError)) throw err;
-        const labels = err.details?.blockerLabels;
-        blockers = Array.isArray(labels) && labels.length ? labels.map(String) : [err.message];
+        // Fırsat açıldı ve kayda bağlandı; taşıma hangi nedenle düşerse düşsün Lead'de kalır
+        // ve sebep kullanıcıya döner (aksi halde ekran "çevrilemedi" der, tekrar deneme 409 alırdı).
+        const labels = err instanceof ValidationError ? err.details?.blockerLabels : undefined;
+        blockers = Array.isArray(labels) && labels.length
+          ? labels.map(String)
+          : [err instanceof Error ? err.message : 'Kolon taşıması yapılamadı'];
       }
     }
     return { opportunityId, qualificationStage, requestedStage: input.qualificationStage, blockers };
@@ -526,6 +542,13 @@ export class TradeFairsService {
   /** Arandı işaretini koyar/kaldırır; düzenleme yetkisi olan herkes (kaydı açan olması gerekmez). */
   async setCalled(actor: AuthContext, id: string, called: boolean) {
     const before = await this.find(actor, id);
+    // Zaten işaretliyse (bayat sekme) ilk arayanın adı ve zamanı ezilmez.
+    if (called && before.calledAt) {
+      const [first] = before.calledBy
+        ? await this.db.select({ fullName: users.fullName }).from(users).where(eq(users.id, before.calledBy)).limit(1)
+        : [];
+      return { ...(await this.withProducts(before)), calledByName: first?.fullName ?? null };
+    }
     const [row] = await this.db
       .update(tradeFairContacts)
       .set(called ? { calledAt: new Date(), calledBy: actor.userId } : { calledAt: null, calledBy: null })

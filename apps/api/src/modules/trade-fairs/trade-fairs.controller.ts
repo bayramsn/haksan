@@ -134,7 +134,7 @@ export class TradeFairsController {
     return this.service.update(actor, id, body);
   }
 
-  /** Fuar kaydını Firmalar'a ekler (yeni firma ya da mevcut firmaya kontak). Firma/kontak yetkisi serviste. */
+  /** Arandı işaretini koyar/kaldırır. */
   @RequirePermissions('trade_fairs.update')
   @Patch(':id/called')
   setCalled(
@@ -156,6 +156,7 @@ export class TradeFairsController {
     return this.service.convertToOpportunity(actor, id, body);
   }
 
+  /** Fuar kaydını Firmalar'a ekler (yeni firma ya da mevcut firmaya kontak). Firma/kontak yetkisi serviste. */
   @RequirePermissions('trade_fairs.update')
   @Post(':id/company')
   addToCompanies(

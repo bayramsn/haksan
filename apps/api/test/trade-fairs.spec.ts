@@ -83,7 +83,12 @@ describe('Trade fairs module', () => {
     if (companyIds.length) await db.update(companies).set({ deletedAt: new Date() }).where(inArray(companies.id, companyIds));
     if (productIds.length) await db.delete(productModels).where(inArray(productModels.id, productIds));
     if (brandId) await db.delete(brands).where(eq(brands.id, brandId));
-    for (const id of userIds) await db.delete(users).where(eq(users.id, id));
+    for (const id of userIds) {
+      // Fırsat geçmişine yazan (aşama değiştiren) test kullanıcısı silinemez; pasife alınır.
+      await db.delete(users).where(eq(users.id, id)).catch(() =>
+        db.update(users).set({ status: 'inactive', deletedAt: new Date() }).where(eq(users.id, id))
+      );
+    }
     await app?.close();
   });
 
@@ -547,6 +552,14 @@ describe('Trade fairs module', () => {
       .expect(200);
     expect(listed.body.data[0]).toMatchObject({ calledByName: 'Fuar stock' });
 
+    // Bayat sekmeden ikinci işaret ilk arayanı ezmez.
+    const again = await api()
+      .patch(`/api/v1/trade-fairs/${created.body.id}/called`)
+      .set('Authorization', `Bearer ${serviceToken}`)
+      .send({ called: true })
+      .expect(200);
+    expect(again.body).toMatchObject({ calledAt: called.body.calledAt, calledByName: 'Fuar stock' });
+
     await api()
       .patch(`/api/v1/trade-fairs/${created.body.id}/called`)
       .set('Authorization', `Bearer ${readonlyToken}`)
@@ -628,6 +641,31 @@ describe('Trade fairs module', () => {
     expect(blocked.body.qualificationStage).toBe('lead');
     expect(blocked.body.requestedStage).toBe('a_plus');
     expect(blocked.body.blockers.length).toBeGreaterThan(0);
+
+    // Uzun ama geçerli fuar verisi fırsat sınırlarına kırpılır (500 değil).
+    const long = await api()
+      .post('/api/v1/trade-fairs')
+      .set('Authorization', `Bearer ${serviceToken}`)
+      .send({ ...required, fairName: `${fairName} ${'U'.repeat(120)}`.slice(0, 200), companyName: 'K'.repeat(250), contactName: 'Uzun Not', notes: 'n'.repeat(3500) })
+      .expect(201);
+    recordIds.push(long.body.id);
+    const longConverted = await api().post(`/api/v1/trade-fairs/${long.body.id}/opportunity`).set(auth).send({}).expect(201);
+    opportunityIds.push(longConverted.body.opportunityId);
+
+    // Başkasına atama yetkisi olmayan yönetici: görüşen kişi başkası olsa da 403 almaz.
+    const admin = await createUser('admin', '', divisionId ? [divisionId] : []);
+    const third = await api()
+      .post('/api/v1/trade-fairs')
+      .set('Authorization', `Bearer ${serviceToken}`)
+      .send({ ...required, fairName, companyName: 'Fırsat Test Üç', contactName: 'Ali Can' })
+      .expect(201);
+    recordIds.push(third.body.id);
+    const byAdmin = await api()
+      .post(`/api/v1/trade-fairs/${third.body.id}/opportunity`)
+      .set('Authorization', `Bearer ${admin.token}`)
+      .send({})
+      .expect(201);
+    opportunityIds.push(byAdmin.body.opportunityId);
   });
 
   it('requires a division on new records', async () => {
