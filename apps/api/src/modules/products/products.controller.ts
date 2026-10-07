@@ -154,10 +154,12 @@ export class ProductsController {
     const template = await this.svc.buildImportTemplate(user, query.productTypeCode, query.divisionId);
     // İlk sayfa doldurulmak için boş; içe aktarma "Ürünler" sayfasını okur.
     // Örnek kayıt ayrı sayfada durur ki yüklemede tekrar işlenmesin.
+    // Donanım kalemleri hücrede alt alta (1. … 2. …) durur; satırların görünmesi için kaydırmalı.
+    const wrapColumns = ['Standart Donanım', 'Opsiyonel Donanım', 'Açıklama'];
     const sheets = [
-      { name: 'Ürünler', columns: template.columns, rows: [] },
+      { name: 'Ürünler', columns: template.columns, rows: [], wrapColumns },
       ...(template.exampleRows.length
-        ? [{ name: 'Örnek Kayıt', columns: template.columns, rows: template.exampleRows }]
+        ? [{ name: 'Örnek Kayıt', columns: template.columns, rows: template.exampleRows, wrapColumns }]
         : []),
     ];
     return sendXlsx(

@@ -9,6 +9,7 @@ import supertest from 'supertest';
 import ExcelJS from 'exceljs';
 import type { NestFastifyApplication } from '@nestjs/platform-fastify';
 import { createTestApp } from './setup';
+import { formatEquipmentList, splitEquipmentList } from '../src/modules/products/products.service';
 
 async function login(server: any, email: string, password: string) {
   const r = await supertest(server).post('/api/v1/auth/login').send({ email, password });
@@ -64,6 +65,7 @@ beforeAll(async () => {
       ],
       equipment: [
         { equipmentTypeCode: 'standart', title: 'Hidrolik taret', sortOrder: 0, isPromotion: false },
+        { equipmentTypeCode: 'standart', title: 'FANUC 0i-TF CNC kontrol ünitesi', sortOrder: 1, isPromotion: false },
         { equipmentTypeCode: 'opsiyonel', title: 'Çubuk sürücü', sortOrder: 0, isPromotion: false },
       ],
     },
@@ -153,8 +155,10 @@ describe('Toplu ürün yükleme şablonu', () => {
     expect(cell('Peşin Fiyat')).toContain('118000');
     expect(cell('GTIP')).toBe('845811');
     expect(cell('Kontrol Ünitesi')).toBe('FANUC 0i-TF');
-    expect(cell('Standart Donanım')).toBe('Hidrolik taret');
-    expect(cell('Opsiyonel Donanım')).toBe('Çubuk sürücü');
+    // Her donanım kalemi hücrede kendi satırında, numaralı; kolon kaydırmalı ki satırlar görünsün.
+    expect(cell('Standart Donanım')).toBe('1. Hidrolik taret\n2. FANUC 0i-TF CNC kontrol ünitesi');
+    expect(cell('Opsiyonel Donanım')).toBe('1. Çubuk sürücü');
+    expect(example.getRow(2).getCell(headers.indexOf('Standart Donanım') + 1).alignment?.wrapText).toBe(true);
     expect(cell('Ayna Ölçüsü')).toBe('8"');
   });
 
@@ -164,5 +168,13 @@ describe('Toplu ürün yükleme şablonu', () => {
       .set('Authorization', `Bearer ${token}`);
     expect(response.status).toBe(422);
     expect(JSON.stringify(response.body)).toContain('seçilen bölümün taksonomisine');
+  });
+
+  it('numaralı/madde işaretli donanım hücresini kalemlere ayırır', () => {
+    expect(splitEquipmentList('1. Hidrolik taret\n2. FANUC 0i-TF CNC kontrol ünitesi')).toEqual(['Hidrolik taret', 'FANUC 0i-TF CNC kontrol ünitesi']);
+    expect(splitEquipmentList('- Taret\n• Konveyör; 3) Soğutma')).toEqual(['Taret', 'Konveyör', 'Soğutma']);
+    // Kalem adının parçası olan rakam silinmez.
+    expect(splitEquipmentList('3 eksen dijital okuma\n12" ayna')).toEqual(['3 eksen dijital okuma', '12" ayna']);
+    expect(splitEquipmentList(formatEquipmentList(['A', 'B']))).toEqual(['A', 'B']);
   });
 });

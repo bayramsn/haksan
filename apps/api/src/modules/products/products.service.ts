@@ -213,6 +213,21 @@ function splitList(value: unknown): string[] {
     .filter(Boolean);
 }
 
+/**
+ * Donanım hücresi: şablon her kalemi ayrı satırda "1. …" diye yazar; kullanıcı da madde
+ * işaretiyle (1. / 2) / - / •) yazabilir. Başlıktaki sıra numarası/işaret kalem adına girmez.
+ */
+export function splitEquipmentList(value: unknown): string[] {
+  return splitList(value)
+    .map((item) => item.replace(/^(?:\d{1,3}\s*[.)]|[-•*·])\s+/, '').trim())
+    .filter(Boolean);
+}
+
+/** Şablon/dışa aktarma: her donanım kalemi hücrede kendi satırında, numaralı. */
+export function formatEquipmentList(titles: string[]): string {
+  return titles.map((title, index) => `${index + 1}. ${title}`).join('\n');
+}
+
 function parseSpecsText(value: unknown, startOrder: number): ProductImportRowInput['specs'] {
   const specs: ProductImportRowInput['specs'] = [];
   splitList(value).forEach((line, idx) => {
@@ -1462,10 +1477,11 @@ export class ProductsService {
       return [match.specValue, match.specUnit].filter(Boolean).join(' ').trim();
     };
     const equipmentText = (code: 'standart' | 'opsiyonel') =>
-      equipmentRows
-        .filter((item) => item.productId === sample.id && (item.typeCode ?? 'standart') === code)
-        .map((item) => item.title)
-        .join('; ');
+      formatEquipmentList(
+        equipmentRows
+          .filter((item) => item.productId === sample.id && (item.typeCode ?? 'standart') === code)
+          .map((item) => item.title)
+      );
     const controlPanel = sampleSpecs.find((spec) => CONTROL_PANEL_SPEC_KEYS.has(normalizeText(spec.specKey)));
 
     const exampleRow: Record<string, string | number> = {
@@ -1990,13 +2006,13 @@ export class ProductsService {
 
       row.specs = specs;
       row.equipment = [
-        ...splitList(row.standardEquipmentText).map((title, idx) => ({
+        ...splitEquipmentList(row.standardEquipmentText).map((title, idx) => ({
           equipmentTypeCode: 'standart',
           title,
           sortOrder: idx,
           isPromotion: false,
         })),
-        ...splitList(row.optionalEquipmentText).map((title, idx) => ({
+        ...splitEquipmentList(row.optionalEquipmentText).map((title, idx) => ({
           equipmentTypeCode: 'opsiyonel',
           title,
           sortOrder: idx,
