@@ -525,6 +525,10 @@ export class QuotesService {
     return user;
   }
 
+  /**
+   * Teklif kalemi teklifin bölümünden olmalı; süper admin her grubun ürününü ekleyebilir
+   * (ör. CNC teklifine Aydınlatma/Hırdavat aksesuarı).
+   */
   private async assertProductModel(productModelId: string, actor: AuthContext, quoteDivisionId?: string | null) {
     const [row] = await this.db
       .select({ product: productModels, groupDivisionId: productGroups.divisionId })
@@ -540,7 +544,7 @@ export class QuotesService {
       )
       .limit(1);
     if (!row?.product) throw new NotFoundError('Ürün');
-    if (quoteDivisionId && row.groupDivisionId && row.groupDivisionId !== quoteDivisionId) {
+    if (!this.isSuperAdmin(actor) && quoteDivisionId && row.groupDivisionId && row.groupDivisionId !== quoteDivisionId) {
       throw new ValidationError('Ürün seçilen teklif bölümüne ait değil');
     }
     return row.product;
@@ -608,7 +612,7 @@ export class QuotesService {
       )
       .limit(1);
     if (!item) throw new NotFoundError('Stok kalemi');
-    if (quoteDivisionId && item.divisionId && item.divisionId !== quoteDivisionId) {
+    if (!this.isSuperAdmin(actor) && quoteDivisionId && item.divisionId && item.divisionId !== quoteDivisionId) {
       throw new ValidationError('Stok kalemi seçilen teklif bölümüne ait değil');
     }
     return item;

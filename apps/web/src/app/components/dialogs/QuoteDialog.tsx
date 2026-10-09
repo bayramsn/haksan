@@ -10,6 +10,8 @@ import {
   Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue,
 } from "../ui/select";
 import { MultiSelect } from "../ui/multi-select";
+import { Combobox } from "../ui/combobox";
+import { foldTr } from "../../lib/trSearch";
 import { normalizeProduct, useStore } from "../../lib/store";
 import { hydrateQuoteProductReferences, quoteLineCatalog } from "../../lib/quoteProductReferences";
 import { useFx, FxRateBadge } from "../../lib/fx";
@@ -296,7 +298,9 @@ export function QuoteDialog({
   const availableProducts = useMemo(() => [...products, ...existingProducts.filter((p) => !products.some((current) => current.id === p.id))], [products, existingProducts]);
   const editing = Boolean(offerId);
   const { convert } = useFx();
-  const { user, activeDivision, canUseAllDivisionsForResource, scopesForResource } = useAuth();
+  const { user, activeDivision, canUseAllDivisionsForResource, scopesForResource, hasRole } = useAuth();
+  // Süper admin teklife her grubun ürününü ekleyebilir (sunucu da aynı kuralla doğrular).
+  const canQuoteAnyGroup = hasRole("super_admin");
   const divisions = user?.divisions ?? [];
   const quoteScopes = scopesForResource("quotes");
   const canPickAllQuotes = quoteScopes.length === 0 ? (user?.canViewAllDivisions ?? false) : canUseAllDivisionsForResource("quotes");
@@ -360,13 +364,13 @@ export function QuoteDialog({
   const quoteDivisionGroupCode = divisionGroupCode(quoteDivision?.code);
   const scopedProducts = useMemo(
     () =>
-      quoteDivisionGroupCode
+      quoteDivisionGroupCode && !canQuoteAnyGroup
         ? products.filter((product) => {
             const groupCode = product.productGroupCode || "";
             return !PRIMARY_PRODUCT_GROUP_CODES.has(groupCode) || groupCode === quoteDivisionGroupCode;
           })
         : products,
-    [products, quoteDivisionGroupCode]
+    [products, quoteDivisionGroupCode, canQuoteAnyGroup]
   );
   // İmza listesi teklifin zorunlu parçası değil: yüklenemezse seçici gizli
   // kalır ve çıktı eski davranışıyla proje ilgilisinin adına düşer.
@@ -402,13 +406,30 @@ export function QuoteDialog({
       alive = false;
     };
   }, [open, quoteDivisionId]);
-  const productCategoryOptions = useMemo(() => {
+  // Kategoriler ürün grubu başına ayrı kodla tutulur ("Aksesuar" Aydınlatma ve Hırdavat'ta
+  // ayrı kod); listede aynı ad tek seçenektir, filtre de koda değil ada göre eşleşir.
+  const { productCategoryOptions, categoryKey } = useMemo(() => {
     const byCode = new Map<string, string>();
     for (const row of productLookupRows["product-categories"]) byCode.set(row.code, row.name);
     for (const product of scopedProducts) if (product.categoryCode) byCode.set(product.categoryCode, product.category || byCode.get(product.categoryCode) || product.categoryCode);
     if (byCode.size === 0) for (const fallback of PRODUCT_CATEGORIES) byCode.set(fallback.code, fallback.label);
-    return Array.from(byCode, ([code, label]) => ({ code, label })).sort((a, b) => a.label.localeCompare(b.label, "tr-TR"));
+    const keyByCode = new Map<string, string>();
+    const canonical = new Map<string, { code: string; label: string }>();
+    for (const [code, label] of byCode) {
+      const key = foldTr(label).trim();
+      keyByCode.set(code, key);
+      const current = canonical.get(key);
+      // En kısa kod genel kategoridir (AKSESUAR, TEZGAH); grup kodları önekli gelir.
+      if (!current || code.length < current.code.length) canonical.set(key, { code, label });
+    }
+    return {
+      productCategoryOptions: Array.from(canonical.values()).sort((a, b) => a.label.localeCompare(b.label, "tr-TR")),
+      categoryKey: (code?: string | null) => (code ? keyByCode.get(code) ?? code : ""),
+    };
   }, [productLookupRows, scopedProducts]);
+  const sameCategory = (a?: string | null, b?: string | null) => categoryKey(a) === categoryKey(b);
+  const categorySelectValue = (code: string) =>
+    productCategoryOptions.find((option) => sameCategory(option.code, code))?.code ?? code;
   const productSubcategoryLookupOptions = useMemo(() => toProductOptions(productLookupRows["product-subcategories"]), [productLookupRows]);
   const productGroupLookupOptions = useMemo(() => toProductOptions(productLookupRows["product-groups"]), [productLookupRows]);
   const productTypeLookupOptions = useMemo(() => toProductOptions(productLookupRows["product-types"]), [productLookupRows]);
@@ -776,7 +797,7 @@ export function QuoteDialog({
       if (idx !== i) return l;
       const prod = availableProducts.find((x) => x.id === l.productId);
       // Seçili ürün yeni kategoriye uymuyorsa temizle
-      const keep = prod && prod.categoryCode === code;
+      const keep = prod && sameCategory(prod.categoryCode, code);
       return keep
         ? { ...l, categoryCode: code }
         : { ...l, categoryCode: code, subcategoryCode: "", groupCode: "", productTypeCode: "", productId: "", stockCode: "", description: "", technicalSpecs: [], technicalConfiguration: null, options: [] };
@@ -1587,7 +1608,7 @@ export function QuoteDialog({
                 // Ürün Kategorisi → Ürün → Ürün Alt Kategorisi → Ürün Grubu → Ürün Tipi sırasıyla daralt;
                 // seçenekler gerçek ürün verisinden türetilir.
                 const lineCatalog = quoteLineCatalog(scopedProducts, product);
-                const productsInCategory = lineCatalog.filter((p) => !l.categoryCode || p.categoryCode === l.categoryCode);
+                const productsInCategory = lineCatalog.filter((p) => !l.categoryCode || sameCategory(p.categoryCode, l.categoryCode));
                 const productsInSubcategory = productsInCategory.filter((p) => !l.subcategoryCode || (p.subcategoryCode || "") === l.subcategoryCode);
                 const productsInGroup = productsInSubcategory.filter((p) => !l.groupCode || (p.productGroupCode || "") === l.groupCode);
                 const lineProducts = productsInGroup.filter((p) => !l.productTypeCode || (p.productTypeCode || "") === l.productTypeCode);
@@ -1623,22 +1644,32 @@ export function QuoteDialog({
                       <span className="inline-flex h-8 shrink-0 items-center rounded-md border border-primary/15 bg-primary/[0.04] px-2 text-[10px] font-semibold uppercase tracking-wide text-primary">
                         {i + 1}. ürün
                       </span>
-                      <Select value={l.categoryCode || "all"} onValueChange={(v) => onPickCategory(i, v === "all" ? "" : v)}>
+                      <Select value={l.categoryCode ? categorySelectValue(l.categoryCode) : "all"} onValueChange={(v) => onPickCategory(i, v === "all" ? "" : v)}>
                         <SelectTrigger className="h-8 w-full sm:w-36"><SelectValue placeholder="Kategori" /></SelectTrigger>
                         <SelectContent>
                           <SelectItem value="all">Tüm kategoriler</SelectItem>
                           {productCategoryOptions.map((c) => <SelectItem key={c.code} value={c.code}>{c.label}</SelectItem>)}
                         </SelectContent>
                       </Select>
-                      <Select value={l.productId || "custom"} onValueChange={(v) => onPickProduct(i, v === "custom" ? "" : v)}>
-                        <SelectTrigger className="h-8 flex-1 min-w-[180px]"><SelectValue placeholder="Ürün seçin" /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="custom">Serbest kalem</SelectItem>
-                          {lineProducts.map((p: Product) => (
-                            <SelectItem key={p.id} value={p.id}>{p.shortDescription?.trim() || [p.brand, p.series, p.model].filter(Boolean).join(" ")}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                      <div className="flex-1 min-w-[180px]">
+                        <Combobox
+                          className="h-8"
+                          ariaLabel={`${i + 1}. ürün seçimi`}
+                          value={l.productId || "custom"}
+                          onChange={(v) => onPickProduct(i, v === "custom" ? "" : v)}
+                          placeholder="Ürün seçin"
+                          searchPlaceholder="Marka, model veya stok kodu yazın…"
+                          emptyText="Eşleşen ürün yok."
+                          options={[
+                            { value: "custom", label: "Serbest kalem" },
+                            ...lineProducts.map((p: Product) => ({
+                              value: p.id,
+                              label: p.shortDescription?.trim() || [p.brand, p.series, p.model].filter(Boolean).join(" "),
+                              hint: [...new Set([p.model, p.stockCode].filter(Boolean))].join(" · ") || undefined,
+                            })),
+                          ]}
+                        />
+                      </div>
                       {subcategoryOptions.length > 0 && (
                         <Select value={l.subcategoryCode || "all"} onValueChange={(v) => onPickSubcategory(i, v === "all" ? "" : v)}>
                           <SelectTrigger className="h-8 w-full sm:w-36"><SelectValue placeholder="Alt Kategori" /></SelectTrigger>
