@@ -57,6 +57,7 @@ describe('Bölümler arası teklif kalemi', () => {
     const db = getDb();
     if (quoteId) await api().delete(`/api/v1/quotes/${quoteId}`).set('Authorization', `Bearer ${superToken}`);
     if (productId) await db.update(productModels).set({ deletedAt: new Date() }).where(eq(productModels.id, productId));
+    if (groupId) await db.update(productGroups).set({ isActive: false }).where(eq(productGroups.id, groupId));
     await app.close();
   });
 
@@ -66,10 +67,31 @@ describe('Bölümler arası teklif kalemi', () => {
     expect(item.status, JSON.stringify(item.body)).toBe(201);
   });
 
-  it('süper admin olmayan kullanıcı başka bölümün ürününü ekleyemez', async () => {
-    const item = await api().post(`/api/v1/quotes/${quoteId}/items`).set('Authorization', `Bearer ${adminToken}`)
-      .send({ productModelId: productId, description: 'Aydınlatma lambası', quantity: 1, unitPrice: 2500, vatRate: 20, sortOrder: 1 });
-    // Ürün admin'e görünmüyorsa 404, görünüyorsa bölüm kuralı 422 döner; ikisinde de eklenmez.
-    expect([404, 422], JSON.stringify(item.body)).toContain(item.status);
+  it('süper adminin eklediği kalem, başka kullanıcı düzenleyip kaydedince kaybolmaz', async () => {
+    // Teklif düzenleme kalemleri silip yeniden yazar (QuoteDialog); aynı akış.
+    const before = await api().get(`/api/v1/quotes/${quoteId}`).set('Authorization', `Bearer ${adminToken}`).expect(200);
+    const item = before.body.items.find((row: any) => row.productModelId === productId);
+    expect(item, 'süper adminin kalemi teklifte olmalı').toBeTruthy();
+    await api().delete(`/api/v1/quotes/${quoteId}/items/${item.id}`).set('Authorization', `Bearer ${adminToken}`).expect(200);
+    const readded = await api().post(`/api/v1/quotes/${quoteId}/items`).set('Authorization', `Bearer ${adminToken}`)
+      .send({ productModelId: productId, description: 'Aydınlatma lambası', quantity: 2, unitPrice: 2500, vatRate: 20, sortOrder: 0 });
+    expect(readded.status, JSON.stringify(readded.body)).toBe(201);
+  });
+
+  it('süper admin olmayan kullanıcı başka bölümün yeni ürününü ekleyemez', async () => {
+    const db = getDb();
+    const [other] = await db.select({ tenantId: productModels.tenantId }).from(productModels).where(eq(productModels.id, productId));
+    const [fresh] = await db.insert(productModels).values({
+      tenantId: other.tenantId, brandId, productGroupId: groupId,
+      modelCode: `LAMBA2-${runId}`, fullName: `İkinci lamba ${runId}`,
+    }).returning({ id: productModels.id });
+    try {
+      const item = await api().post(`/api/v1/quotes/${quoteId}/items`).set('Authorization', `Bearer ${adminToken}`)
+        .send({ productModelId: fresh.id, description: 'İkinci lamba', quantity: 1, unitPrice: 2500, vatRate: 20, sortOrder: 1 });
+      // Ürün admin'e görünmüyorsa 404, görünüyorsa bölüm kuralı 422; ikisinde de eklenmez.
+      expect([404, 422], JSON.stringify(item.body)).toContain(item.status);
+    } finally {
+      await db.update(productModels).set({ deletedAt: new Date() }).where(eq(productModels.id, fresh.id));
+    }
   });
 });

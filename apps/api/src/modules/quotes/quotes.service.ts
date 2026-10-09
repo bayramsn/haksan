@@ -527,9 +527,19 @@ export class QuotesService {
 
   /**
    * Teklif kalemi teklifin bölümünden olmalı; süper admin her grubun ürününü ekleyebilir
-   * (ör. CNC teklifine Aydınlatma/Hırdavat aksesuarı).
+   * (ör. CNC teklifine Aydınlatma/Hırdavat aksesuarı). `quoteId` verilirse ve ürün bu
+   * teklifte daha önce bulunduysa (silinmiş kalem dahil) bölüm ve görünürlük aranmaz:
+   * düzenleme kalemleri silip yeniden yazar, süper adminin eklediği kalem başka
+   * kullanıcının kaydında kaybolmamalı.
    */
-  private async assertProductModel(productModelId: string, actor: AuthContext, quoteDivisionId?: string | null) {
+  private async assertProductModel(productModelId: string, actor: AuthContext, quoteDivisionId?: string | null, quoteId?: string) {
+    if (quoteId && (await this.wasOnQuote(quoteId, actor, { productModelId }))) {
+      const product = await this.db.query.productModels.findFirst({
+        where: and(eq(productModels.id, productModelId), eq(productModels.tenantId, actor.tenantId), isNull(productModels.deletedAt)),
+      });
+      if (!product) throw new NotFoundError('Ürün');
+      return product;
+    }
     const [row] = await this.db
       .select({ product: productModels, groupDivisionId: productGroups.divisionId })
       .from(productModels)
@@ -598,7 +608,22 @@ export class QuotesService {
     return previews;
   }
 
-  private async assertInventoryItem(inventoryItemId: string, actor: AuthContext, quoteDivisionId?: string | null) {
+  /** Kalemin ürünü / stok kalemi bu teklifte daha önce kullanıldı mı (silinmiş kalemler dahil). */
+  private async wasOnQuote(quoteId: string, actor: AuthContext, ref: { productModelId?: string; inventoryItemId?: string }) {
+    const [row] = await this.db
+      .select({ id: quoteItems.id })
+      .from(quoteItems)
+      .where(and(
+        eq(quoteItems.quoteId, quoteId),
+        eq(quoteItems.tenantId, actor.tenantId),
+        ref.productModelId ? eq(quoteItems.productModelId, ref.productModelId) : eq(quoteItems.inventoryItemId, ref.inventoryItemId!)
+      ))
+      .limit(1);
+    return Boolean(row);
+  }
+
+  private async assertInventoryItem(inventoryItemId: string, actor: AuthContext, quoteDivisionId?: string | null, quoteId?: string) {
+    if (quoteId && (await this.wasOnQuote(quoteId, actor, { inventoryItemId }))) return;
     const [item] = await this.db
       .select()
       .from(inventoryItems)
@@ -1839,8 +1864,8 @@ export class QuotesService {
   async addItem(quoteId: string, input: QuoteItemCreateInput, actor: AuthContext) {
     const quote = await this.get(quoteId, actor);
     this.assertQuoteMutable(quote);
-    const product = input.productModelId ? await this.assertProductModel(input.productModelId, actor, quote.divisionId) : null;
-    if (input.inventoryItemId) await this.assertInventoryItem(input.inventoryItemId, actor, quote.divisionId);
+    const product = input.productModelId ? await this.assertProductModel(input.productModelId, actor, quote.divisionId, quote.id) : null;
+    if (input.inventoryItemId) await this.assertInventoryItem(input.inventoryItemId, actor, quote.divisionId, quote.id);
     this.assertItemDiscount(input.quantity, input.unitPrice, input.discountAmount);
     const t = this.calcItem(input.quantity, input.unitPrice, input.discountAmount, input.vatRate);
     const unitId = await lookupIdByCode(this.db, units, input.unitCode);
@@ -1878,8 +1903,8 @@ export class QuotesService {
       where: and(eq(quoteItems.id, itemId), eq(quoteItems.quoteId, quoteId), eq(quoteItems.tenantId, actor.tenantId), isNull(quoteItems.deletedAt)),
     });
     if (!existing) throw new NotFoundError('Kalem');
-    const product = input.productModelId ? await this.assertProductModel(input.productModelId, actor, quote.divisionId) : null;
-    if (input.inventoryItemId) await this.assertInventoryItem(input.inventoryItemId, actor, quote.divisionId);
+    const product = input.productModelId ? await this.assertProductModel(input.productModelId, actor, quote.divisionId, quote.id) : null;
+    if (input.inventoryItemId) await this.assertInventoryItem(input.inventoryItemId, actor, quote.divisionId, quote.id);
     const patch: Record<string, unknown> = {};
     for (const k of ['productModelId', 'inventoryItemId', 'stockCode', 'description', 'sortOrder'] as const) {
       if ((input as any)[k] !== undefined) patch[k] = (input as any)[k] ?? null;
