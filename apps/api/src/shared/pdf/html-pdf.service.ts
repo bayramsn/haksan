@@ -1,6 +1,6 @@
 import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
 import { existsSync } from 'node:fs';
-import { ValidationError } from '../utils/errors';
+import { AppError, ValidationError } from '../utils/errors';
 
 // puppeteer-core 25+ yalnız ESM; CommonJS API'den tipleri bile içe aktarılamıyor (TS1479).
 // Kullandığımız yüzey küçük: yapısal tiplerle tanımlanır, paket dinamik import ile yüklenir.
@@ -11,9 +11,15 @@ interface PdfPage {
   on(event: 'request', handler: (request: PdfRequest) => void): unknown;
   setContent(html: string, options: { waitUntil: 'load'; timeout: number }): Promise<void>;
   emulateMediaType(type: 'print'): Promise<void>;
-  pdf(options: { format: 'A4'; printBackground: boolean; preferCSSPageSize: boolean; timeout: number }): Promise<Uint8Array>;
+  pdf(options: { format: 'A4'; printBackground: boolean; preferCSSPageSize: boolean; timeout: number; pageRanges: string }): Promise<Uint8Array>;
   close(): Promise<void>;
 }
+/** Aynı anda çizilen belge; fazlası sıraya girer, sıra da doluysa istek reddedilir. */
+const MAX_CONCURRENT_RENDERS = 2;
+const MAX_QUEUED_RENDERS = 8;
+/** Belgelerimizin en uzunu (çok makineli sözleşme) bunun çok altında; tavan Chromium'u korur. */
+const MAX_PDF_PAGES = 100;
+
 interface Browser { newPage(): Promise<PdfPage>; close(): Promise<void>; on(event: 'disconnected', handler: () => void): unknown }
 
 /**
@@ -27,6 +33,8 @@ interface Browser { newPage(): Promise<PdfPage>; close(): Promise<void>; on(even
 export class HtmlPdfService implements OnModuleDestroy {
   private readonly logger = new Logger(HtmlPdfService.name);
   private browser: Promise<Browser> | null = null;
+  private activeRenders = 0;
+  private readonly waiting: Array<() => void> = [];
 
   static readonly CHROMIUM_CANDIDATES = [
     process.env.CHROMIUM_PATH,
@@ -54,7 +62,12 @@ export class HtmlPdfService implements OnModuleDestroy {
         executablePath,
         headless: true,
         // Konteynerde root/sandbox kısıtı; içerik zaten JS'siz ve ağsız render ediliyor.
-        args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu', '--font-render-hinting=none'],
+        // Proxy: <link rel=prefetch|prerender> gibi istekler sayfa interception'ını
+        // atlıyor (kör SSRF); tüm trafik loopback dahil kapalı bir porta yönlenir.
+        args: [
+          '--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu', '--font-render-hinting=none',
+          '--proxy-server=http://127.0.0.1:9', '--proxy-bypass-list=<-loopback>',
+        ],
       }) as unknown as Promise<Browser>).catch((error) => {
         this.browser = null;
         throw error;
@@ -65,6 +78,29 @@ export class HtmlPdfService implements OnModuleDestroy {
   }
 
   async render(html: string, opts: { timeoutMs?: number } = {}): Promise<Buffer> {
+    await this.acquireSlot();
+    try {
+      return await this.renderPage(html, opts);
+    } finally {
+      // Yer sıradakine doğrudan devredilir; sayaç düşüp araya yeni istek girmez.
+      const next = this.waiting.shift();
+      if (next) next();
+      else this.activeRenders -= 1;
+    }
+  }
+
+  private async acquireSlot(): Promise<void> {
+    if (this.activeRenders < MAX_CONCURRENT_RENDERS) {
+      this.activeRenders += 1;
+      return;
+    }
+    if (this.waiting.length >= MAX_QUEUED_RENDERS) {
+      throw new AppError('PDF_BUSY', 'PDF üretici şu an yoğun; birkaç saniye sonra tekrar deneyin', 503);
+    }
+    await new Promise<void>((resolve) => this.waiting.push(resolve));
+  }
+
+  private async renderPage(html: string, opts: { timeoutMs?: number }): Promise<Buffer> {
     const browser = await this.getBrowser();
     const page = await browser.newPage();
     try {
@@ -86,6 +122,7 @@ export class HtmlPdfService implements OnModuleDestroy {
         printBackground: true,
         preferCSSPageSize: true,
         timeout: opts.timeoutMs ?? 20_000,
+        pageRanges: `1-${MAX_PDF_PAGES}`,
       });
       return Buffer.from(pdf);
     } finally {

@@ -465,6 +465,8 @@ export const mailService = {
   account: () => api.get<UserMailAccountStatus>('/mail/account'),
   connect: (body: UserMailAccountUpsertInput) => api.put<UserMailAccountStatus>('/mail/account', body),
   disconnect: () => api.delete<{ ok: true }>('/mail/account'),
+  /** Mailin altına eklenen imza; null profilden üretilen varsayılana döner. */
+  signature: (signature: string | null) => api.put<UserMailAccountStatus>('/mail/signature', { signature }),
   send: (body: MailSendInput) => api.post<MailSendResult>('/mail/send', body),
   /** Alıcı seçicisi: firmanın kontakları + kendi kullanıcılarımız. */
   recipients: (companyId?: string) =>

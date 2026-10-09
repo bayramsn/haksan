@@ -1093,6 +1093,13 @@
       "when": 1793644800000,
       "tag": "0156_trade_fair_quoted",
       "breakpoints": true
+    },
+    {
+      "idx": 157,
+      "version": "7",
+      "when": 1793731200000,
+      "tag": "0157_user_mail_signature",
+      "breakpoints": true
     }
   ]
 }

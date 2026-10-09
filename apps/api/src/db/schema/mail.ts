@@ -26,6 +26,8 @@ export const userMailAccounts = pgTable(
     lastUsedAt: timestamp('last_used_at', { withTimezone: true }),
     lastErrorAt: timestamp('last_error_at', { withTimezone: true }),
     lastErrorCode: varchar('last_error_code', { length: 64 }),
+    /** Giden maile eklenen düz metin imza; NULL = profilden üretilen varsayılan, '' = imzasız. */
+    signature: text('signature'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true })
       .notNull()

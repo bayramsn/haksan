@@ -5,8 +5,10 @@ import {
   MAIL_MAX_ATTACHMENT_BYTES,
   mailSendSchema,
   userMailAccountUpsertSchema,
+  userMailSignatureSchema,
   type MailSendInput,
   type UserMailAccountUpsertInput,
+  type UserMailSignatureInput,
 } from '@haksan/shared';
 import { and, asc, eq, isNull, ne, sql } from 'drizzle-orm';
 import type { DbClient } from '../../db/client';
@@ -51,6 +53,15 @@ export class MailController {
     @CurrentUser() actor: AuthContext
   ) {
     return this.accounts.configure(body, actor);
+  }
+
+  @Put('signature')
+  @Throttle({ default: { limit: 20, ttl: 60_000 } })
+  signature(
+    @Body(new ZodValidationPipe(userMailSignatureSchema)) body: UserMailSignatureInput,
+    @CurrentUser() actor: AuthContext
+  ) {
+    return this.accounts.updateSignature(body, actor);
   }
 
   @Delete('account')
@@ -140,13 +151,31 @@ export class MailController {
   }
 
   /**
+   * Proforma / sözleşme eki: istemcinin "Yazdır / PDF Kaydet" belgesi. Kayıt, okuma
+   * yetkisi ve görünürlük süzgecinden (getProforma / getContract) geçmeden PDF üretilmez.
+   */
+  private async documentAttachment(document: NonNullable<MailSendInput['document']>, actor: AuthContext) {
+    const permission = document.kind === 'proforma' ? 'proformas.read' : 'contracts.read';
+    if (!actor.permissions.has(permission)) {
+      throw new ForbiddenError(`Belge ekleyebilmek için ${permission} yetkisi gerekli`);
+    }
+    if (document.kind === 'proforma') await this.quotes.getProforma(document.id, actor);
+    else await this.quotes.getContract(document.id, actor);
+    if (!this.htmlPdf.isAvailable()) {
+      throw new AppError('PDF_UNAVAILABLE', 'Sunucuda PDF üretici (Chromium) bulunamadı', 503);
+    }
+    const content = await this.htmlPdf.render(document.pdf.html);
+    return { filename: document.pdf.filename, content, contentType: 'application/pdf' };
+  }
+
+  /**
    * Kullanıcının eklediği dosyalar. Her biri `createSignedDownloadUrl` ile aynı
    * erişim süzgecinden geçer; toplam boyut SMTP'yi kilitlememesi için burada
    * kapanır — tek tek küçük, toplamı büyük ekler aksi hâlde sınırı aşıyordu.
    */
-  private async fileAttachments(fileIds: string[], actor: AuthContext) {
+  private async fileAttachments(fileIds: string[], actor: AuthContext, alreadyAttachedBytes = 0) {
     const attachments = [];
-    let total = 0;
+    let total = alreadyAttachedBytes;
     for (const fileId of fileIds) {
       const file = await this.files.readForAttachment(fileId, actor);
       total += file.content.byteLength;
@@ -176,8 +205,15 @@ export class MailController {
       ? [await this.quoteAttachment(body, actor)]
       : body.reportDocument
         ? [await this.reportAttachment(body, actor)]
-        : [];
-    const attachments = [...generated, ...(body.fileIds?.length ? await this.fileAttachments(body.fileIds, actor) : [])];
+        : body.document
+          ? [await this.documentAttachment(body.document, actor)]
+          : [];
+    // Üretilen PDF de SMTP boyut sınırına sayılır.
+    const generatedBytes = generated.reduce((sum, item) => sum + item.content.byteLength, 0);
+    if (generatedBytes > MAIL_MAX_ATTACHMENT_BYTES) {
+      throw new ValidationError(`Eklerin toplam boyutu ${Math.round(MAIL_MAX_ATTACHMENT_BYTES / (1024 * 1024))} MB sınırını aşıyor`);
+    }
+    const attachments = [...generated, ...(body.fileIds?.length ? await this.fileAttachments(body.fileIds, actor, generatedBytes) : [])];
     const delivery = await this.accounts.send(
       { to: body.to, cc: body.cc, subject: body.subject, text: body.body, attachments: attachments.length ? attachments : undefined },
       actor

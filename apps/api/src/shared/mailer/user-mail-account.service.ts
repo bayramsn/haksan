@@ -1,10 +1,15 @@
 import { Inject, Injectable } from '@nestjs/common';
+import { existsSync, readFileSync } from 'node:fs';
+import path from 'node:path';
 import { and, eq } from 'drizzle-orm';
 import nodemailer, { type Transporter } from 'nodemailer';
-import type { UserMailAccountStatus, UserMailAccountUpsertInput } from '@haksan/shared';
+import { esc, type UserMailAccountStatus, type UserMailAccountUpsertInput, type UserMailSignatureInput } from '@haksan/shared';
 import { loadEnv } from '../../config/env';
 import type { DbClient } from '../../db/client';
+import { userTitles } from '../../db/schema/lookup';
 import { userMailAccounts } from '../../db/schema/mail';
+import { tenants } from '../../db/schema/tenants';
+import { users } from '../../db/schema/users';
 import { DB } from '../database/database.module';
 import { AuditService } from '../database/audit.service';
 import type { AuthContext } from '../security/auth.types';
@@ -23,6 +28,43 @@ export type PersonalMailDelivery = {
   sentAt: Date;
   fromEmail: string;
   fromName: string;
+};
+
+const SIGNATURE_LOGO_CID = 'haksan-signature-logo';
+const SIGNATURE_LOGO_CANDIDATES = [
+  path.resolve(process.cwd(), 'apps/web/public/print/haksan-mini.png'),
+  path.resolve(process.cwd(), '../web/public/print/haksan-mini.png'),
+  path.resolve(__dirname, '../../../../web/public/print/haksan-mini.png'),
+];
+let signatureLogo: Buffer | null | undefined;
+/** İmza logosu bulunamazsa null: imza yine gider, yalnız logosuz. */
+const signatureLogoContent = (): Buffer | null => {
+  if (signatureLogo === undefined) {
+    const file = SIGNATURE_LOGO_CANDIDATES.find((candidate) => existsSync(candidate));
+    signatureLogo = file ? readFileSync(file) : null;
+  }
+  return signatureLogo;
+};
+
+/**
+ * Mesajın düz metin ve HTML hâlleri. İmza düz metinde standart "-- " ayracıyla,
+ * HTML'de logolu blok olarak eklenir; kullanıcı metni her iki hâlde de kaçışlanır.
+ */
+export const signedMailBody = (body: string, signature: string, withLogo: boolean): { text: string; html: string } => {
+  const htmlLines = (value: string) => esc(value).replace(/\r?\n/g, '<br>');
+  const signatureLines = signature.split('\n');
+  const signatureHtml = signature
+    ? `<div style="margin-top:18px;padding-top:10px;border-top:1px solid #dddddd;font-family:Arial,Helvetica,sans-serif;font-size:13px;line-height:1.45;color:#333333">`
+      + (withLogo ? `<img src="cid:${SIGNATURE_LOGO_CID}" width="143" height="56" alt="HAKSAN" style="display:block;margin-bottom:6px;border:0">` : '')
+      + `<strong>${esc(signatureLines[0])}</strong>`
+      + (signatureLines.length > 1 ? `<br>${htmlLines(signatureLines.slice(1).join('\n'))}` : '')
+      + `</div>`
+    : '';
+  return {
+    text: signature ? `${body}\n\n-- \n${signature}` : body,
+    // pre-wrap: düz metindeki girinti ve art arda boşluklar HTML'de de korunur.
+    html: `<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.5;color:#222222;white-space:pre-wrap">${esc(body)}</div>${signatureHtml}`,
+  };
 };
 
 @Injectable()
@@ -45,7 +87,28 @@ export class UserMailAccountService {
       serverLabel: this.serverLabel(),
       lastVerifiedAt: account?.lastVerifiedAt?.toISOString() ?? null,
       lastUsedAt: account?.lastUsedAt?.toISOString() ?? null,
+      signature: account?.signature ?? null,
+      defaultSignature: await this.defaultSignature(actor, account?.email),
     };
+  }
+
+  async updateSignature(input: UserMailSignatureInput, actor: AuthContext): Promise<UserMailAccountStatus> {
+    this.assertFeatureEnabled();
+    if (!(await this.find(actor))) throw new ValidationError('Önce Ayarlar > Webmail bölümünden posta hesabınızı bağlayın');
+    const signature = input.signature === null ? null : input.signature.replace(/\r\n?/g, '\n').trim();
+    await this.db
+      .update(userMailAccounts)
+      .set({ signature, updatedAt: new Date() })
+      .where(and(eq(userMailAccounts.tenantId, actor.tenantId), eq(userMailAccounts.userId, actor.userId)));
+    await this.audit.write({
+      tenantId: actor.tenantId,
+      actorUserId: actor.userId,
+      action: 'user_mail_account.signature_updated',
+      resourceType: 'user_mail_account',
+      resourceId: actor.userId,
+      newValues: { signature: signature === null ? 'default' : signature ? 'custom' : 'none' },
+    });
+    return this.status(actor);
   }
 
   async hasActiveAccount(actor: Pick<AuthContext, 'tenantId' | 'userId'>): Promise<boolean> {
@@ -131,6 +194,14 @@ export class UserMailAccountService {
       throw new ValidationError('Webmail hesabı yeniden bağlanmalı');
     }
 
+    const signature = account.signature ?? (await this.defaultSignature(actor, account.email));
+    const logo = signature ? signatureLogoContent() : null;
+    const message = signedMailBody(input.text, signature, Boolean(logo));
+    const attachments = [
+      ...(input.attachments ?? []),
+      ...(logo ? [{ filename: 'haksan-logo.png', content: logo, contentType: 'image/png', cid: SIGNATURE_LOGO_CID, contentDisposition: 'inline' as const }] : []),
+    ];
+
     const transporter = this.createTransport(account.email, password);
     let messageId: string | null = null;
     try {
@@ -140,8 +211,9 @@ export class UserMailAccountService {
         to: input.to,
         cc: input.cc?.length ? input.cc : undefined,
         subject: input.subject,
-        text: input.text,
-        attachments: input.attachments,
+        text: message.text,
+        html: message.html,
+        attachments: attachments.length ? attachments : undefined,
         disableFileAccess: true,
         disableUrlAccess: true,
       });
@@ -202,6 +274,36 @@ export class UserMailAccountService {
       disableFileAccess: true,
       disableUrlAccess: true,
     });
+  }
+
+  /** Profilden imza: ad, ünvan, firma, telefonlar ve gönderen adres. */
+  private async defaultSignature(actor: Pick<AuthContext, 'tenantId' | 'userId'>, accountEmail?: string | null): Promise<string> {
+    const [row] = await this.db
+      .select({
+        fullName: users.fullName,
+        phone: users.phone,
+        email: users.email,
+        title: userTitles.name,
+        company: tenants.name,
+        companyPhone: tenants.phone,
+      })
+      .from(users)
+      .innerJoin(tenants, eq(tenants.id, users.tenantId))
+      .leftJoin(userTitles, eq(userTitles.id, users.titleId))
+      .where(and(eq(users.id, actor.userId), eq(users.tenantId, actor.tenantId)))
+      .limit(1);
+    if (!row) return '';
+    return [
+      row.fullName,
+      row.title,
+      row.company,
+      row.phone ? `Mobil: ${row.phone}` : null,
+      row.companyPhone ? `Tel: ${row.companyPhone}` : null,
+      accountEmail ?? row.email,
+    ]
+      .map((line) => line?.trim())
+      .filter(Boolean)
+      .join('\n');
   }
 
   private async find(actor: Pick<AuthContext, 'tenantId' | 'userId'>) {

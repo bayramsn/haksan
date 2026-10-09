@@ -943,7 +943,7 @@ export function OfferDetailDialog({
       if (mode === "print") printOrWarn(doc);
       else if (mode === "preview") previewPrintOrWarn(doc);
       // Dosya adı: Teklif_<bölüm-belge no>_<firma>_<makine>
-      else downloadPrintOrWarn(doc, quoteFilename(data, {
+      else await downloadPrintOrWarn(doc, quoteFilename(data, {
         division: offer.businessLine ?? offer.divisionCode ?? offer.divisionName,
         company: data.firma || resolvedCustomer?.name,
       }), "Teklif");
@@ -962,7 +962,7 @@ export function OfferDetailDialog({
   const documentActionLabel = documentAction === "preview"
     ? "Önizlemeyi Aç"
     : documentAction === "download"
-      ? "HTML İndir"
+      ? "PDF İndir"
       : "Yazdır / PDF Kaydet";
 
   return (
@@ -1139,7 +1139,7 @@ export function OfferDetailDialog({
                 <Eye className="size-4" /> Önizle
               </DropdownMenuItem>
               <DropdownMenuItem onClick={handleDownload}>
-                <Download className="size-4" /> HTML İndir
+                <Download className="size-4" /> PDF İndir
               </DropdownMenuItem>
               {onDeleteOffer && <><DropdownMenuSeparator /><DropdownMenuItem className="text-destructive focus:text-destructive" onClick={() => void onDeleteOffer(offer)}><Trash2 className="size-4" /> Teklifi Sil</DropdownMenuItem></>}
             </DropdownMenuContent>

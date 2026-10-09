@@ -50,7 +50,18 @@ export type MailRecipient = {
    * CRM kaydına bağlanmaz ve sunucuda `reports.export` yetkisi ister.
    */
   reportDocument?: () => Promise<{ html: string; filename: string }>;
+  /**
+   * Proforma / sözleşme kaydının "Yazdır / PDF Kaydet" belgesi. Sunucu kaydı görebildiğini
+   * doğrulayıp HTML'i PDF'e çevirir ve ek olarak gönderir.
+   */
+  recordDocument?: {
+    id: string;
+    kind: "proforma" | "contract";
+    pdf: () => Promise<{ html: string; filename: string }>;
+  };
 };
+
+const RECORD_DOCUMENT_LABELS = { proforma: "Proforma", contract: "Sözleşme" } as const;
 
 const emptyRecipients: MailRecipients = { contacts: [], colleagues: [] };
 
@@ -229,6 +240,9 @@ export function ComposeMailDialog({
     try {
       const quoteDocument = recipient.quoteId && recipient.document ? await recipient.document() : undefined;
       const reportDocument = recipient.reportDocument ? await recipient.reportDocument() : undefined;
+      const recordDocument = recipient.recordDocument
+        ? { id: recipient.recordDocument.id, kind: recipient.recordDocument.kind, pdf: await recipient.recordDocument.pdf() }
+        : undefined;
       await mailService.send({
         to: to.trim(),
         cc: cc.length ? cc : undefined,
@@ -239,6 +253,7 @@ export function ComposeMailDialog({
         quoteId: recipient.quoteId,
         quoteDocument,
         reportDocument,
+        document: recordDocument,
         fileIds: attachments.length ? attachments.map((item) => item.fileId) : undefined,
       });
       await onSent?.();
@@ -252,6 +267,13 @@ export function ComposeMailDialog({
   };
 
   const ready = account?.featureEnabled && account.configured && account.status === "active";
+  // Sunucu maile bunu ekler: kayıtlı imza, yoksa profilden üretilen varsayılan ('' = imzasız).
+  const signature = account ? (account.signature ?? account.defaultSignature) : "";
+  const attachmentKind = recipient?.quoteId
+    ? "Teklif"
+    : recipient?.recordDocument
+      ? RECORD_DOCUMENT_LABELS[recipient.recordDocument.kind]
+      : recipient?.reportDocument ? "Rapor" : null;
 
   return (
     <Dialog open={Boolean(recipient)} onOpenChange={(open) => !open && close()}>
@@ -394,11 +416,21 @@ export function ComposeMailDialog({
             <div className="mt-1 text-right font-mono text-[10px] text-muted-foreground">{body.length.toLocaleString("tr-TR")} / 10.000</div>
           </div>
 
-          {(recipient?.quoteId || recipient?.reportDocument) && (
+          {ready && signature && (
+            <div className="rounded-lg border border-border/60 bg-muted/20 px-3 py-2.5">
+              <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2 text-[11px] text-muted-foreground">
+                <span className="font-medium">İmza · mesajın altına otomatik eklenir</span>
+                <span>Ayarlar &gt; Webmail'den değiştirilebilir</span>
+              </div>
+              <p className="whitespace-pre-line text-xs leading-relaxed text-foreground/80">{signature}</p>
+            </div>
+          )}
+
+          {recipient && attachmentKind && (
             <div className="flex items-center gap-2 rounded-lg border border-border/60 bg-muted/30 px-3 py-2.5 text-xs">
               <Paperclip className="size-3.5 text-muted-foreground" />
-              <span className="font-medium">{recipient.attachmentLabel ?? (recipient.quoteId ? "Teklif" : "Rapor")}.pdf</span>
-              <span className="text-muted-foreground">{recipient.quoteId ? "teklif" : "rapor"} PDF'i ek olarak gönderilir</span>
+              <span className="font-medium">{recipient.attachmentLabel ?? attachmentKind}.pdf</span>
+              <span className="text-muted-foreground">{attachmentKind.toLocaleLowerCase("tr-TR")} PDF'i ek olarak gönderilir</span>
             </div>
           )}
 
