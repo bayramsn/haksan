@@ -72,3 +72,8 @@ openapitools.json
 # Finder/kopyala-yapıştır artıkları: "foo 2.ts", "bar 3.json".
 # Asla kaynak değiller ve drizzle-kit snapshot çakışması üretiyorlar.
 * [0-9].*
+
+# mobile-v2: ios/ Expo prebuild ile app.config.ts'ten yeniden üretilir; Archive 3 yerel mockup arşivi.
+apps/mobile-v2/ios/
+apps/mobile-v2/Archive 3/
+apps/mobile-v2/graphify-out/
