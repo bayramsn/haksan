@@ -7,6 +7,8 @@ export function quoteLaserSnapshot(
   compatibility: QuoteItemCompatibility | null | undefined,
   defaultConfiguration: LaserTechnicalConfiguration | null | undefined,
 ): QuoteItemCompatibility | null {
+  // A custom table/power choice has manual specs, not an inherited source profile.
+  if (compatibility?.technicalConfiguration === null) return compatibility;
   const selected = compatibility?.technicalConfiguration ?? defaultConfiguration;
   if (!selected) return compatibility ?? null;
   if (defaultConfiguration && selected.selection.productTypeCode !== defaultConfiguration.selection.productTypeCode) {

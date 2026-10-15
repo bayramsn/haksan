@@ -1,3 +1,4 @@
+import { displayProductCategoryOptions } from "./productCategories";
 /**
  * StoreProvider — backwards-compatible interface used by all existing pages,
  * but it now talks to the NestJS backend instead of holding mock data.
@@ -25,7 +26,6 @@ import {
   financeService,
   noteTemplateService,
   fileService,
-  type Paginated,
 } from '../../lib/services';
 import { useAuth } from '../../lib/auth';
 import { resolveMediaUrl } from '../../lib/apiClient';
@@ -65,6 +65,7 @@ import { productSpecGroupForTypeKey, specsForProductTypeStrict } from './product
 import { isServiceQuoteComplete, serviceQuoteMissingFields } from './serviceQuote';
 import { normalizeCompany } from './companyNormalizer';
 import { buildCompanyAddressPatch } from './companyAddressPatch';
+import { loadAllPaginated } from './loadAllPaginated';
 
 const SERVICE_STAGES: ServiceStage[] = [
   'Request Opened',
@@ -81,30 +82,6 @@ const SERVICE_STAGES: ServiceStage[] = [
 
 const persistedServiceStage = (value: unknown): ServiceStage | null =>
   typeof value === 'string' && SERVICE_STAGES.includes(value as ServiceStage) ? value as ServiceStage : null;
-
-const loadAllPaginated = async <T,>(
-  fetchPage: (page: number, pageSize: number) => Promise<Paginated<T>>,
-  pageSize = 200
-): Promise<Paginated<T>> => {
-  const first = await fetchPage(1, pageSize);
-  const totalPages = Math.max(1, Number(first.meta?.totalPages ?? 1));
-  if (totalPages <= 1) return first;
-
-  const rest = await Promise.all(
-    Array.from({ length: totalPages - 1 }, (_, index) => fetchPage(index + 2, pageSize))
-  );
-  const data = [first, ...rest].flatMap((page) => page.data);
-  return {
-    data,
-    meta: {
-      ...first.meta,
-      page: 1,
-      pageSize: data.length,
-      total: first.meta?.total ?? data.length,
-      totalPages: 1,
-    },
-  };
-};
 
 // pipeline stage code → UI stage key. Legacy names are still accepted for old mock rows.
 const STAGE_BY_CODE: Record<string, SalesStage> = {
@@ -395,6 +372,7 @@ const normalizeWarrantyClaim = (claim: any): ServiceWarrantyClaim | null => {
 
 export const normalizeProduct = (p: any) => ({
   id: p.id,
+  divisionId: p.divisionId ?? p.division?.id ?? undefined,
   brand: p.brand?.name ?? '',
   brandId: p.brand?.id ?? undefined,
   brandLogoFileId: p.brand?.logoFileId ?? null,
@@ -416,14 +394,14 @@ export const normalizeProduct = (p: any) => ({
     )?.specValue
     ?? (p.standardEquipment ?? []).find((title: string) => /kontrol\s*(ünitesi|unitesi|paneli)|cnc\s*kontrol/i.test(title))
     ?? '',
-  category: p.category?.name ?? '',
+  category: displayProductCategoryOptions([{ code: p.category?.code ?? '', label: p.category?.name ?? '' }], p.productGroup?.code)[0].label,
   categoryCode: p.category?.code ?? '',
   subcategory: p.subcategory?.name ?? '',
   subcategoryCode: p.subcategory?.code ?? '',
   imageUrl: resolveMediaUrl(p.imageUrl),
   shortDescription: p.fullName ?? '',
   description: p.description ?? '',
-  listPrice: Number(p.listPrice ?? 0),
+  listPrice: p.listPrice == null ? undefined : Number(p.listPrice),
   cashPrice: p.cashPrice === null || p.cashPrice === undefined ? undefined : Number(p.cashPrice),
   currency: (p.currency?.code as 'USD' | 'EUR' | 'TRY') ?? 'USD',
   vatRate: normalizeProductVatRate(p.vatRate),
@@ -436,6 +414,8 @@ export const normalizeProduct = (p: any) => ({
   optionalCompatibilitySubcategoryCodes: p.optionalCompatibilitySubcategoryCodes ?? [],
   optionalCompatibilityTypeCodes: p.optionalCompatibilityTypeCodes ?? [],
   optionalCompatibilityBrandIds: p.optionalCompatibilityBrandIds ?? [],
+  laserBaseConfiguration: p.laserBaseConfiguration ?? null,
+  baseModelConfiguration: p.baseModelConfiguration ?? null,
   technicalConfiguration: p.technicalConfiguration ?? null,
   specs: (p.technicalConfiguration?.specs ?? p.specs ?? []).map((s: any) => ({
     key: s.key ?? s.specKey ?? '',
@@ -566,10 +546,12 @@ export type QuoteLineCompatibility = {
   supplierIds: string[];
   technicalSpecs?: { key: string; value: string; unit?: string; specUnit?: string }[];
   technicalConfiguration?: LaserTechnicalConfiguration | null;
+  selectedProductOptions?: import("@haksan/shared").QuoteSelectedProductOption[];
+  configurationOptionSetId?: string;
 };
 
 export type QuoteLineInput = {
-  productModelId?: string;
+  productModelId?: string | null;
   stockCode?: string;
   description: string;
   quantity: number;
@@ -648,6 +630,7 @@ type Store = {
   deleteActivity: (id: string) => Promise<void>;
   addProduct: (p: Omit<Product, 'id' | 'status'> & { status?: 'active' | 'passive' }) => Promise<Product>;
   updateProduct: (id: string, patch: Partial<Omit<Product, 'id'>>) => Promise<void>;
+  updateProductStandardEquipment: (id: string, standardEquipment: string[], supplierCompanyId: string | null) => Promise<void>;
   /**
    * Ürünün yalnızca verilen alanlarını günceller (fiyat, KDV, stok kodu vb.).
    * `updateProduct`'tan farkı: specs/donanımı yeniden yazmaz, bu yüzden
@@ -767,7 +750,7 @@ type Store = {
   rejectServiceWarranty: (id: string, decisionNote?: string) => Promise<ServiceWarrantyClaim | null>;
   addService: (s: Omit<ServiceRequest, 'id' | 'createdAt' | 'stage'> & { stage?: ServiceStage; createdAt?: string }) => Promise<ServiceRequest>;
   addMachine: (m: Omit<Machine, 'id' | 'status'> & { status?: Machine['status'] }) => Promise<Machine>;
-  updateMachineCustomer: (id: string, customerId: string) => Promise<void>;
+  updateMachineCustomer: (id: string, customerId: string, contactId?: string | null) => Promise<void>;
   addDocument: (
     d: Omit<DocumentItem, 'id' | 'uploadedAt' | 'uploadedBy'> &
       Partial<Pick<DocumentItem, 'id' | 'uploadedAt' | 'uploadedBy'>>
@@ -864,7 +847,7 @@ function StoreInner({ children }: { children: ReactNode }) {
       const empty = { data: [] as any[], meta: { total: 0, page: 1, pageSize: 0, totalPages: 0 } };
       const [opps, prods, inv, qts, svcTickets, acts, usersR, devicesR, receivablesR, paymentsR, proformasR, contractsR, invoicesR, noteTemplatesR, shipmentsR, deliveriesR, installationsR, fileLinksR, closedOpps] = await Promise.all([
         load('Satış kartları', () => loadAllPaginated((page, pageSize) => opportunityService.list({ page, pageSize })), empty, 'opportunities.read'),
-        load('Ürünler', () => loadAllPaginated((page, pageSize) => productService.list({ page, pageSize })), empty, 'products.read'),
+        load('Ürünler', () => loadAllPaginated((page, pageSize) => productService.list({ page, pageSize }), 200, (product) => product.id), empty, 'products.read'),
         load('Stok', () => loadAllPaginated((page, pageSize) => inventoryService.list({ page, pageSize })), empty, 'inventory.read'),
         load('Teklifler', () => loadAllPaginated((page, pageSize) => quoteService.list({ page, pageSize })), empty, 'quotes.read'),
         load('Servis', () => loadAllPaginated((page, pageSize) => serviceService.tickets({ page, pageSize })), empty, 'service_tickets.read'),
@@ -1013,6 +996,7 @@ function StoreInner({ children }: { children: ReactNode }) {
             counterModel: s.product?.modelCode ?? '',
             serialNumber: s.serialNumber ?? '',
             controlPanel: s.controlUnit ?? '',
+            controlUnitSerialNumber: s.controlUnitSerialNumber ?? '',
             stockCode: s.product?.stockCode ?? s.product?.modelCode ?? '',
             itemCondition: STOCK_CONDITION_CODES.includes(s.itemCondition) ? s.itemCondition : 'new',
             warehouseId: s.warehouse?.id ?? s.warehouseId ?? undefined,
@@ -1184,6 +1168,7 @@ function StoreInner({ children }: { children: ReactNode }) {
         (devicesR.data ?? []).map((d: any) => ({
           id: d.id,
           initialCustomerId: d.initialCompanyId ?? d.companyId ?? '',
+          contactId: d.contactId ?? undefined,
           userCompanyId: d.companyId ?? '',
           customerId: d.companyId ?? '',
           salesCaseId: d.opportunityId ?? '',
@@ -2103,6 +2088,11 @@ function StoreInner({ children }: { children: ReactNode }) {
     return { id: created.id, ...p, status: p.status ?? 'active' } as Product;
   };
 
+  const updateProductStandardEquipment: Store['updateProductStandardEquipment'] = async (id, standardEquipment, supplierCompanyId) => {
+    await productService.updateStandardEquipment(id, { standardEquipment, supplierCompanyId });
+    await fetchAll();
+  };
+
   const updateProduct: Store['updateProduct'] = async (id, patch) => {
     const current = products.find((item) => item.id === id);
     let brandId: string | undefined;
@@ -2195,6 +2185,7 @@ function StoreInner({ children }: { children: ReactNode }) {
       serialNumber: s.serialNumber,
       itemCondition: s.itemCondition ?? 'new',
       controlUnit: s.controlPanel,
+      controlUnitSerialNumber: s.controlUnitSerialNumber,
       loadingDate: toOptionalDate(s.loadingDate),
       receivedDate: toOptionalDate(s.receivedDate),
       arrivalDate: toOptionalDate(s.arrivalDate),
@@ -2218,6 +2209,7 @@ function StoreInner({ children }: { children: ReactNode }) {
       ...(patch.serialNumber !== undefined ? { serialNumber: patch.serialNumber } : {}),
       ...(patch.itemCondition !== undefined ? { itemCondition: patch.itemCondition } : {}),
       ...(patch.controlPanel !== undefined ? { controlUnit: patch.controlPanel } : {}),
+      ...(patch.controlUnitSerialNumber !== undefined ? { controlUnitSerialNumber: patch.controlUnitSerialNumber } : {}),
       ...(patch.warehouseId !== undefined ? { warehouseId: patch.warehouseId || undefined } : {}),
       ...(patch.loadingDate !== undefined ? { loadingDate: toOptionalDate(patch.loadingDate) } : {}),
       ...(patch.receivedDate !== undefined ? { receivedDate: toOptionalDate(patch.receivedDate) } : {}),
@@ -2486,6 +2478,7 @@ function StoreInner({ children }: { children: ReactNode }) {
   const addMachine: Store['addMachine'] = async (m) => {
     const created = await inventoryService.createCustomerDevice({
       companyId: m.customerId,
+      contactId: m.contactId || undefined,
       initialCompanyId: m.initialCustomerId || m.customerId,
       inventoryItemId: m.stockItemId || undefined,
       opportunityId: m.salesCaseId || undefined,
@@ -2497,6 +2490,7 @@ function StoreInner({ children }: { children: ReactNode }) {
     await fetchAll();
     const mapped: Machine = {
       id: created.id,
+      contactId: created.contactId ?? m.contactId,
       initialCustomerId: created.initialCompanyId ?? m.initialCustomerId ?? m.customerId,
       userCompanyId: created.companyId ?? m.customerId,
       customerId: m.customerId,
@@ -2512,8 +2506,8 @@ function StoreInner({ children }: { children: ReactNode }) {
     return mapped;
   };
 
-  const updateMachineCustomer: Store['updateMachineCustomer'] = async (id, customerId) => {
-    await inventoryService.updateCustomerDevice(id, { companyId: customerId });
+  const updateMachineCustomer: Store['updateMachineCustomer'] = async (id, customerId, contactId) => {
+    await inventoryService.updateCustomerDevice(id, { companyId: customerId, ...(contactId !== undefined ? { contactId } : {}) });
     await fetchAll();
   };
 
@@ -2742,6 +2736,7 @@ function StoreInner({ children }: { children: ReactNode }) {
       addProduct,
       updateProduct,
       patchProduct,
+      updateProductStandardEquipment,
       deleteProduct,
       addCustomer,
       updateCustomer,

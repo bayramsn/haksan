@@ -6,7 +6,7 @@ const product = (values: Partial<Product>): Product => ({
   id: '1', brand: 'MANFORD', model: 'VU-620', type: '5 Eksen İşleme Merkezi',
   productTypeCode: 'FIVE_AXIS', productGroup: 'CNC', productGroupCode: 'CNC', category: 'CNC Tezgahları', categoryCode: 'TEZGAH',
   subcategory: 'İşleme Merkezi', subcategoryCode: 'ISLEME', stockCode: '0000620', controlPanel: '', imageUrl: '', shortDescription: '',
-  description: '', currency: 'USD', listPrice: 0, specs: [], standardEquipment: [], optionalEquipment: [], status: 'active', ...values,
+  description: '', currency: 'USD', specs: [], standardEquipment: [], optionalEquipment: [], status: 'active', ...values,
 });
 
 describe('sales machine price list filters', () => {
@@ -18,11 +18,11 @@ describe('sales machine price list filters', () => {
     expect(filterSalesPrices([cnc, universal], { category: salesPriceFilterValue(cnc, 'category') })).toEqual([cnc]);
   });
   it('combines hierarchy, brand and Turkish word searches without changing price values', () => {
-    const priced = product({ listPrice: 0, cashPrice: undefined });
+    const priced = product({ listPrice: 0, cashPrice: null });
     const filters = { ...emptySalesPriceFilters(), brand: salesPriceFilterValue(priced, 'brand'), type: salesPriceFilterValue(priced, 'type') };
     expect(filterSalesPrices([priced, universal], filters, 'manford isleme 0000620')).toEqual([priced]);
     expect(priced.listPrice).toBe(0);
-    expect(priced.cashPrice).toBeUndefined();
+    expect(priced.cashPrice).toBeNull();
     expect(filterSalesPrices([priced], filters, 'olmayan')).toEqual([]);
   });
   it('clears descendant selections when parent changes and retains independent brand', () => {

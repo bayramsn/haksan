@@ -12,3 +12,9 @@ export const printableTechnicalSpecs = <T extends { key?: unknown; value?: unkno
 ): T[] => (specs ?? []).filter((spec) =>
   Boolean(String(spec.key ?? "").trim()) && hasPrintableTechnicalSpecValue(spec.value),
 );
+
+/** Undefined means legacy fallback; an explicit empty source list must stay empty. */
+export function snapshotStandardEquipment(specs: readonly { key?: unknown; value?: unknown }[] | null | undefined): string[] | undefined {
+  const source = specs?.find(spec => String(spec.key ?? '').trim().toLocaleLowerCase('tr-TR') === 'standart donanım');
+  return source ? String(source.value ?? '').split(/\r?\n/).map(value => value.trim()).filter(Boolean) : undefined;
+}

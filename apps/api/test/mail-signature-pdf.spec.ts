@@ -26,7 +26,8 @@ describe('signedMailBody', () => {
   it('imzayı düz metne ayraçla, HTML\'e kaçışlanmış ve logolu ekler', () => {
     const { text, html } = signedMailBody('Merhaba <b>Ali</b>,\nEkte.', 'Ayşe Yılmaz\nSatış & Pazarlama', true);
     expect(text).toBe('Merhaba <b>Ali</b>,\nEkte.\n\n-- \nAyşe Yılmaz\nSatış & Pazarlama');
-    expect(html).toContain('white-space:pre-wrap">Merhaba &lt;b&gt;Ali&lt;/b&gt;,\nEkte.');
+    // Gövde zengin HTML'e (yalnız **kalın** işareti yorumlanır) çevrilir; HTML her zaman düz metin kalır.
+    expect(html).toContain('Merhaba &lt;b&gt;Ali&lt;/b&gt;,<br>Ekte.');
     expect(html).toContain('<strong>Ayşe Yılmaz</strong><br>Satış &amp; Pazarlama');
     expect(html).toContain('src="cid:haksan-signature-logo"');
   });

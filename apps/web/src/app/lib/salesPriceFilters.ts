@@ -23,7 +23,7 @@ export function salesPriceFilterLabel(product: Product, field: SalesPriceFilterF
 }
 
 export function salesPriceFilterValue(product: Product, field: SalesPriceFilterField): string {
-  const group = product.productGroupCode || product.productGroup || '';
+  const group = product.productGroupCode || product.productGroup || product.divisionId || '';
   const category = product.categoryCode || product.category || '';
   const subcategory = product.subcategoryCode || product.subcategory || '';
   switch (field) {

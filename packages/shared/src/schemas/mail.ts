@@ -23,6 +23,12 @@ export const userMailAccountUpsertSchema = z
   .strict();
 export type UserMailAccountUpsertInput = z.infer<typeof userMailAccountUpsertSchema>;
 
+export const mailSignatureSchema = z.object({
+  image: z.string().max(2_800_000).regex(/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/]+={0,2}$/).nullable(),
+  filename: z.string().max(200).regex(/^[^\\/\u0000-\u001f]+\.(png|jpe?g|webp)$/i).nullable(),
+}).strict().refine((value) => Boolean(value.image) === Boolean(value.filename), 'Görsel ve dosya adı birlikte verilmelidir');
+export type MailSignatureInput = z.infer<typeof mailSignatureSchema>;
+
 export const MAIL_SIGNATURE_MAX = 2000;
 
 /** Mailin sonuna eklenen düz metin imza; null varsayılana döner, boş metin imzayı kapatır. */
@@ -50,6 +56,8 @@ export const userMailAccountStatusSchema = z.object({
   serverLabel: z.string().max(255).nullable(),
   lastVerifiedAt: z.string().datetime().nullable(),
   lastUsedAt: z.string().datetime().nullable(),
+  signatureImage: z.string().nullable().optional(),
+  signatureFilename: z.string().nullable().optional(),
   /** Kullanıcının kaydettiği imza; null = profilden üretilen varsayılan, '' = imzasız. */
   signature: z.string().max(MAIL_SIGNATURE_MAX).nullable(),
   /** Kayıtlı imza yoksa maile eklenen, profilden (ad, ünvan, telefon, e-posta) üretilen imza. */
@@ -83,6 +91,8 @@ export const mailSendSchema = z
      * ek PDF bundan üretilir; `reports.export` yetkisi ister ve teklif ekinden bağımsızdır.
      */
     reportDocument: printDocumentPdfSchema.optional(),
+    /** Ürünün teknik föyü; sunucu ürün okuma ve bölüm erişimini doğrular. */
+    productDocument: z.object({ id: z.string().uuid(), pdf: printDocumentPdfSchema }).strict().optional(),
     /**
      * Proforma / sözleşme gibi belge kayıtlarının "Yazdır / PDF Kaydet" çıktısı. `documentId`
      * ile birlikte gelir; sunucu kaydı görebildiğini doğrulayıp HTML'i PDF'e çevirir.
@@ -105,9 +115,13 @@ export const mailSendSchema = z
   .strict()
   // İki ek yolu birlikte gelirse sunucu teklif ekini seçip raporu sessizce düşürürdü.
   // Birden çok üretilen ek gelirse sunucu birini seçip ötekileri sessizce düşürürdü.
-  .refine((value) => [value.quoteId, value.reportDocument, value.document].filter(Boolean).length <= 1, {
+  .refine((value) => [value.quoteId, value.reportDocument, value.document, value.productDocument].filter(Boolean).length <= 1, {
     path: ['reportDocument'],
-    message: 'Teklif, rapor ve belge eki aynı mailde gönderilemez',
+    message: 'Teklif, rapor, belge ve ürün teknik eki aynı mailde gönderilemez',
+  })
+  .refine((value) => !value.quoteDocument || Boolean(value.quoteId), {
+    path: ['quoteId'],
+    message: 'Teklif belgesi için teklif kimliği gereklidir',
   });
 export type MailSendInput = z.infer<typeof mailSendSchema>;
 

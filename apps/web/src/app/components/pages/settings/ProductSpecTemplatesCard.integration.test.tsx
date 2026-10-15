@@ -84,7 +84,7 @@ describe('shared technical settings workbook',()=>{
   it('edits the exact laser profile, preserves combination drafts, and uses profile save',async()=>{
     render(<ProductSpecTemplatesCard divisionId="sac"/>);
     await waitFor(()=>expect(screen.getByRole('button',{name:'Seçili taslağı aç'})).not.toBeDisabled());
-    fireEvent.change(await screen.findByLabelText(/Ürün Alt Kategorisi/),{target:{value:'SAC_KESME'}});
+    fireEvent.change(await screen.findByLabelText(/Ürün Alt Kategorisi/),{target:{value:'SAC_LAZER_KESIM'}});
     await screen.findByRole('option',{name:'Fiber Lazer Kesim'});
     fireEvent.change(screen.getByLabelText(/Ürün Tipi/),{target:{value:'FIBER_LAZER_KESIM'}});
     await openSheet();await selectModel();
@@ -116,5 +116,38 @@ describe('shared technical settings workbook',()=>{
     await waitFor(()=>expect(adminService.batchSaveProductSpecTemplates).toHaveBeenCalled());
     expect(vi.mocked(adminService.batchSaveProductSpecTemplates).mock.calls[0][0]).toMatchObject({divisionId,pruneMissing:true});
     expect(laserProfilesService.save).not.toHaveBeenCalled();
+  });
+  it('shows each category once and preserves legacy template parent IDs', async()=>{
+    const rows: Record<string, any[]> = {
+      'product-groups': [{id:'group',code:'UNIVERSAL',name:'Üniversal',isActive:true}],
+      'product-categories': [
+        {id:'common-category',code:'TEZGAH',name:'Tezgah',productGroupId:'group',isActive:true},
+        {id:'legacy-category',code:'universal_machine',name:'Tezgah',productGroupId:'group',isActive:true},
+      ],
+      'product-subcategories': [
+        {id:'common-sub',code:'CUSTOM_FREZE',name:'Özel Freze',categoryId:'common-category',isActive:true},
+        {id:'legacy-sub',code:'CUSTOM_TORNA',name:'Özel Torna',categoryId:'legacy-category',isActive:true},
+      ],
+      'product-types': [
+        {id:'common-type',code:'CUSTOM_FREZE_TYPE',name:'Özel Freze Tipi',subcategoryId:'common-sub',isActive:true},
+        {id:'legacy-type',code:'CUSTOM_TORNA_TYPE',name:'Özel Torna Tipi',subcategoryId:'legacy-sub',isActive:true},
+      ],
+    };
+    vi.mocked(adminService.lookupRows).mockImplementation(async(name)=>rows[name]??[]);
+    vi.mocked(adminService.productSpecTemplates).mockResolvedValue([]);
+    render(<ProductSpecTemplatesCard divisionId="universal"/>);
+    await screen.findByRole('option',{name:'Özel Torna'});
+    const category=screen.getByLabelText(/Ürün Kategorisi/);
+    expect(within(category).getAllByRole('option',{name:'Üniversal Tezgahlar'})).toHaveLength(1);
+    fireEvent.change(screen.getByLabelText(/Ürün Alt Kategorisi/),{target:{value:'CUSTOM_TORNA'}});
+    await waitFor(()=>expect(screen.getByLabelText(/Ürün Tipi/)).toHaveValue('CUSTOM_TORNA_TYPE'));
+    fireEvent.click(screen.getByRole('button',{name:'Yeni şablon aç'}));
+    await screen.findByText('Ürün şablonu aç');
+    const parent=screen.getByLabelText('Ürün kategorisi');
+    expect(within(parent).getAllByRole('option',{name:'Üniversal Tezgahlar'})).toHaveLength(1);
+    expect(parent).toHaveValue('legacy-category');
+    expect(screen.getByLabelText('Ürün alt kategorisi')).toHaveValue('legacy-sub');
+    expect(screen.getByLabelText('Ürün tipi')).toHaveValue('CUSTOM_TORNA_TYPE');
+    expect(adminService.batchSaveProductSpecTemplates).not.toHaveBeenCalled();
   });
 });

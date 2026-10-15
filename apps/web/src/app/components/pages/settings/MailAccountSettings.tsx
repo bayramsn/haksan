@@ -31,8 +31,10 @@ function formatDate(value: string | null) {
   });
 }
 
+import { AdminMailSignatureSettings } from "./AdminMailSignatureSettings";
+
 export function MailAccountSettings() {
-  const { user } = useAuth();
+  const { user, hasRole } = useAuth();
   const [status, setStatus] = useState<UserMailAccountStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -43,6 +45,28 @@ export function MailAccountSettings() {
   const [password, setPassword] = useState("");
   const [signature, setSignature] = useState("");
   const [savingSignature, setSavingSignature] = useState(false);
+
+  const [signatureSaving, setSignatureSaving] = useState(false);
+
+  const saveImageSignature = async (file: File | null) => {
+    if (file && (!/\.(png|jpe?g|webp)$/i.test(file.name) || !['image/png', 'image/jpeg', 'image/webp'].includes(file.type) || !file.size || file.size > 2 * 1024 * 1024)) {
+      toast.error('PNG, JPG veya WEBP seçin; imza görseli en fazla 2 MB olabilir.');
+      return;
+    }
+    setSignatureSaving(true);
+    try {
+      const image = file ? await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result));
+        reader.onerror = () => reject(new Error('Görsel okunamadı'));
+        reader.readAsDataURL(file);
+      }) : null;
+      setStatus(await mailService.saveSignature({ image, filename: file?.name ?? null }));
+      toast.success(file ? 'Mail imzası kaydedildi' : 'Mail imzası kaldırıldı');
+    } catch (error: any) {
+      toast.error('Mail imzası kaydedilemedi', { description: error?.message });
+    } finally { setSignatureSaving(false); }
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -257,6 +281,18 @@ export function MailAccountSettings() {
           </div>
         </SettingsSection>
       )}
+
+      <SettingsSection icon={<MailCheck />} title="Görsel mail imzası" description="Yüklediğiniz imza tüm CRM e-postalarınıza otomatik eklenir. PNG, JPG veya WEBP · en fazla 2 MB.">
+        {status?.signatureImage && <img src={status.signatureImage} alt="Kayıtlı mail imzası" className="mb-4 h-auto w-[480px] max-w-full rounded border bg-white" />}
+        <Label htmlFor="webmail-signature-image" className="text-xs">İmza görseli</Label>
+        <Input id="webmail-signature-image" type="file" accept=".png,.jpg,.jpeg,.webp" className="mt-2" disabled={saving || signatureSaving}
+          onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ''; if (file) void saveImageSignature(file); }} />
+        {!status?.configured && <p className="mt-2 text-xs text-muted-foreground">İmzanızı şimdi yükleyebilirsiniz; webmail hesabınızı bağladığınızda maillere otomatik eklenir.</p>}
+        {signatureSaving && <p className="mt-2 text-xs">İmza kaydediliyor…</p>}
+        {status?.signatureImage && <Button type="button" variant="outline" size="sm" className="mt-3" disabled={saving || signatureSaving} onClick={() => void saveImageSignature(null)}>İmzayı kaldır</Button>}
+      </SettingsSection>
+
+      {hasRole("super_admin") && <AdminMailSignatureSettings />}
 
       <AlertDialog open={disconnectOpen} onOpenChange={setDisconnectOpen}>
         <AlertDialogContent>

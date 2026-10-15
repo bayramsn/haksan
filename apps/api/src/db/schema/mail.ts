@@ -3,6 +3,16 @@ import { companies, contacts } from './companies';
 import { tenants } from './tenants';
 import { users } from './users';
 
+/** Independent of SMTP credentials: admins can prepare signatures before users connect. */
+export const userMailSignatures = pgTable('user_mail_signatures', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  image: text('image'),
+  filename: varchar('filename', { length: 200 }),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({ tenantUserUnique: uniqueIndex('user_mail_signatures_tenant_user_unique').on(t.tenantId, t.userId) }));
+
 /**
  * Kullanıcıya ait SMTP parolası burada yalnız AES-256-GCM şifreli zarf olarak
  * tutulur. Anahtar hiçbir zaman veritabanına yazılmaz; deployment secret'ından

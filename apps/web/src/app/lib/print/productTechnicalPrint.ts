@@ -111,7 +111,7 @@ export const productTechnicalDoc = (
   const { product } = input;
   const specs = printableTechnicalSpecs(product.technicalConfiguration ? laserSnapshotPrintSpecs(product.technicalConfiguration, product.technicalConfiguration.specs) : product.specs);
   const specPages = chunk(specs, 25);
-  const standardEquipment = (input.standardEquipment ?? product.standardEquipment ?? []).filter(Boolean);
+  const standardEquipment = (input.standardEquipment ?? product.standardEquipment ?? []).filter((item) => item.trim());
   const optionalEquipment: Array<{ title: string; description?: string | null }> =
     (input.optionalEquipment ?? (product.optionalEquipment ?? []).map((title) => ({ title })))
     .filter((item) => item.title?.trim());
@@ -187,23 +187,19 @@ export const productTechnicalDoc = (
     <section class="page">
       ${technicalHeader(assetBase, "DONANIM BİLGİLERİ", productName)}
       <div class="equipment-grid">
-        <div class="equipment-panel">
+        ${standardEquipment.length ? `<div class="equipment-panel">
           <h2>Standart Donanım</h2>
-          ${standardEquipment.length
-            ? `<ul>${standardEquipment.map((item) => `<li>${esc(item)}</li>`).join("")}</ul>`
-            : `<p class="empty">Standart donanım bilgisi girilmemiş.</p>`}
-        </div>
-        <div class="equipment-panel optional">
+          <ul>${standardEquipment.map((item) => `<li>${esc(item)}</li>`).join("")}</ul>
+        </div>` : ""}
+        ${optionalEquipment.length ? `<div class="equipment-panel optional">
           <h2>Uyumlu Opsiyonel Donanım</h2>
-          ${optionalEquipment.length
-            ? `<ul>${optionalEquipment.map((item) => `
+          <ul>${optionalEquipment.map((item) => `
                 <li>
                   <b>${esc(item.title)}</b>
                   ${item.description ? `<span>${esc(item.description)}</span>` : ""}
                 </li>
-              `).join("")}</ul>`
-            : `<p class="empty">Opsiyonel donanım bilgisi girilmemiş.</p>`}
-        </div>
+              `).join("")}</ul>
+        </div>` : ""}
       </div>
       ${pageNumber(page++, totalPages)}
     </section>
@@ -246,6 +242,7 @@ export const productTechnicalDoc = (
       .spec-group td { padding: 2mm 3mm; background: #eef2f8; color: #d51d2f !important; font-size: 8pt; font-weight: 800 !important; letter-spacing: .55px; text-transform: uppercase; }
       .equipment-grid { margin-top: 7mm; display: grid; grid-template-columns: 1fr 1fr; gap: 5mm; }
       .equipment-panel { border: 1px solid #d8dee9; border-top: 3px solid #081b49; padding: 4mm; }
+      .equipment-panel:only-child { grid-column: 1 / -1; }
       .equipment-panel.optional { border-top-color: #d51d2f; }
       .equipment-panel ul { list-style: none; }
       .equipment-panel li { position: relative; padding: 2.3mm 1mm 2.3mm 5mm; border-bottom: 1px solid #e7eaf0; color: #2e394d; font-size: 9pt; line-height: 1.35; }

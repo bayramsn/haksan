@@ -75,6 +75,7 @@ import type {
   ProductCreateInput,
   ProductDetailsReplaceInput,
   ProductEquipmentCreateInput,
+  ProductStandardEquipmentUpdateInput,
   ProductSpecCreateInput,
   ProductSpecTemplateCreateInput,
   ProductSpecTemplateUpdateInput,
@@ -465,6 +466,10 @@ export const notificationService = {
 };
 
 export const mailService = {
+  signatureUsers: () => api.get<{ id: string; name: string; email: string; hasMailAccount: boolean }[]>('/mail/signature/users'),
+  userSignature: (id: string) => api.get<{ image: string | null; filename: string | null }>(`/mail/signature/users/${id}`),
+  saveUserSignature: (id: string, body: { image: string | null; filename: string | null }) => api.put<{ image: string | null; filename: string | null }>(`/mail/signature/users/${id}`, body),
+  saveSignature: (body: { image: string | null; filename: string | null }) => api.put<UserMailAccountStatus>('/mail/signature/image', body),
   account: () => api.get<UserMailAccountStatus>('/mail/account'),
   connect: (body: UserMailAccountUpsertInput) => api.put<UserMailAccountStatus>('/mail/account', body),
   disconnect: () => api.delete<{ ok: true }>('/mail/account'),
@@ -906,8 +911,14 @@ export const productService = {
   commitImport: (body: { rows: ProductImportRow[]; mode?: 'upsert' | 'create_only'; replaceDetails?: boolean; divisionId?: string }) =>
     api.post<{ rows: ProductImportRow[]; summary: ProductImportSummary }>('/products/import/commit', body),
   specs: (id: string) => api.get<any[]>(`/products/${id}/specs`),
-  specTemplates: (productTypeCode?: string) => api.get<any[]>(`/product-spec-templates${qs({ productTypeCode })}`),
+  specTemplates: (productTypeCode?: string, divisionId?: string) => api.get<any[]>(`/product-spec-templates${qs({ productTypeCode, divisionId })}`),
   options: (id: string) => api.get<any[]>(`/products/${id}/options`),
+  addOptionSet: (id: string, body: unknown) => api.post<any>(`/products/${id}/options`, body),
+  updateOptionSet: (id: string, body: unknown) => api.patch<any>(`/products/options/${id}`, body),
+  archiveOptionSet: (id: string) => api.delete<any>(`/products/options/${id}`),
+  addOptionValue: (id: string, body: unknown) => api.post<any>(`/products/options/${id}/values`, body),
+  updateOptionValue: (id: string, body: unknown) => api.patch<any>(`/products/options/values/${id}`, body),
+  archiveOptionValue: (id: string) => api.delete<any>(`/products/options/values/${id}`),
   addSpec: (id: string, body: ProductSpecCreateInput) => api.post<any>(`/products/${id}/specs`, body),
   equipment: (id: string) => api.get<any[]>(`/products/${id}/equipment`),
   compatibleOptionalEquipment: (id: string) => api.get<any[]>(`/products/${id}/compatible-optional-equipment`),
@@ -917,6 +928,7 @@ export const productService = {
     ),
   addEquipment: (id: string, body: ProductEquipmentCreateInput) => api.post<any>(`/products/${id}/equipment`, body),
   replaceDetails: (id: string, body: ProductDetailsReplaceInput) => api.put<any>(`/products/${id}/details`, body),
+  updateStandardEquipment: (id: string, body: ProductStandardEquipmentUpdateInput) => api.put<{ ok: boolean }>(`/products/${id}/standard-equipment`, body),
   listPriceLists: (params?: Record<string, string | number | undefined>) => api.get<Paginated<any>>(`/price-lists${qs(params)}`),
   createPriceList: (body: PriceListCreateInput) => api.post<any>('/price-lists', body),
   updatePriceList: (id: string, body: PriceListUpdateInput) => api.patch<any>(`/price-lists/${id}`, body),

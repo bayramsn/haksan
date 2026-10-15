@@ -1,19 +1,19 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, isNull } from 'drizzle-orm';
 import nodemailer, { type Transporter } from 'nodemailer';
-import { esc, type UserMailAccountStatus, type UserMailAccountUpsertInput, type UserMailSignatureInput } from '@haksan/shared';
+import { mailBodyHtml, mailPlainText, MAIL_TEXT_COLOR, type MailSignatureInput, type UserMailAccountStatus, type UserMailAccountUpsertInput, type UserMailSignatureInput } from '@haksan/shared';
 import { loadEnv } from '../../config/env';
 import type { DbClient } from '../../db/client';
 import { userTitles } from '../../db/schema/lookup';
-import { userMailAccounts } from '../../db/schema/mail';
+import { userMailAccounts, userMailSignatures } from '../../db/schema/mail';
 import { tenants } from '../../db/schema/tenants';
 import { users } from '../../db/schema/users';
 import { DB } from '../database/database.module';
 import { AuditService } from '../database/audit.service';
 import type { AuthContext } from '../security/auth.types';
-import { ValidationError } from '../utils/errors';
+import { ForbiddenError, NotFoundError, ValidationError } from '../utils/errors';
 import { logger } from '../utils/logger';
 import { decryptCredential, encryptCredential } from './credential-crypto';
 
@@ -21,6 +21,7 @@ export type MailAttachment = {
   filename: string;
   content: Buffer;
   contentType: string;
+  cid?: string;
 };
 
 export type PersonalMailDelivery = {
@@ -29,6 +30,8 @@ export type PersonalMailDelivery = {
   fromEmail: string;
   fromName: string;
 };
+
+const esc = (value: string) => value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 
 const SIGNATURE_LOGO_CID = 'haksan-signature-logo';
 const SIGNATURE_LOGO_CANDIDATES = [
@@ -54,16 +57,16 @@ export const signedMailBody = (body: string, signature: string, withLogo: boolea
   const htmlLines = (value: string) => esc(value).replace(/\r?\n/g, '<br>');
   const signatureLines = signature.split('\n');
   const signatureHtml = signature
-    ? `<div style="margin-top:18px;padding-top:10px;border-top:1px solid #dddddd;font-family:Arial,Helvetica,sans-serif;font-size:13px;line-height:1.45;color:#333333">`
+    ? `<div style="margin-top:18px;padding-top:10px;border-top:1px solid #dddddd;font-family:Arial,Helvetica,sans-serif;font-size:13px;line-height:1.45;color:${MAIL_TEXT_COLOR}">`
       + (withLogo ? `<img src="cid:${SIGNATURE_LOGO_CID}" width="143" height="56" alt="HAKSAN" style="display:block;margin-bottom:6px;border:0">` : '')
       + `<strong>${esc(signatureLines[0])}</strong>`
       + (signatureLines.length > 1 ? `<br>${htmlLines(signatureLines.slice(1).join('\n'))}` : '')
       + `</div>`
     : '';
   return {
-    text: signature ? `${body}\n\n-- \n${signature}` : body,
+    text: signature ? `${mailPlainText(body)}\n\n-- \n${signature}` : mailPlainText(body),
     // pre-wrap: düz metindeki girinti ve art arda boşluklar HTML'de de korunur.
-    html: `<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.5;color:#222222;white-space:pre-wrap">${esc(body)}</div>${signatureHtml}`,
+    html: mailBodyHtml(body).replace('</body>', `${signatureHtml}</body>`),
   };
 };
 
@@ -78,6 +81,7 @@ export class UserMailAccountService {
 
   async status(actor: Pick<AuthContext, 'tenantId' | 'userId'>): Promise<UserMailAccountStatus> {
     const account = await this.find(actor);
+    const image = await this.imageSignature(actor);
     return {
       featureEnabled: this.env.USER_MAIL_ENABLED,
       configured: Boolean(account),
@@ -89,7 +93,32 @@ export class UserMailAccountService {
       lastUsedAt: account?.lastUsedAt?.toISOString() ?? null,
       signature: account?.signature ?? null,
       defaultSignature: await this.defaultSignature(actor, account?.email),
+      signatureImage: image.image,
+      signatureFilename: image.filename,
     };
+  }
+
+  async imageSignature(actor: Pick<AuthContext, 'tenantId' | 'userId'>): Promise<MailSignatureInput> {
+    const row = await this.db.query.userMailSignatures.findFirst({ where: and(eq(userMailSignatures.tenantId, actor.tenantId), eq(userMailSignatures.userId, actor.userId)) });
+    return { image: row?.image ?? null, filename: row?.filename ?? null };
+  }
+
+  async saveSignature(input: MailSignatureInput, actor: AuthContext, targetUserId = actor.userId): Promise<MailSignatureInput> {
+    if (targetUserId !== actor.userId && !actor.roles.includes('super_admin')) throw new ForbiddenError('Diğer kullanıcıların imzasını yalnız süper admin düzenleyebilir');
+    const target = await this.db.query.users.findFirst({ where: and(eq(users.id, targetUserId), eq(users.tenantId, actor.tenantId), isNull(users.deletedAt)) });
+    if (!target) throw new NotFoundError('Kullanıcı');
+    if (input.image) {
+      const content = Buffer.from(input.image.split(',')[1], 'base64');
+      if (!content.length || content.length > 2 * 1024 * 1024) throw new ValidationError('İmza görseli 2 MB sınırını aşamaz');
+      const { fileTypeFromBuffer } = await import('file-type');
+      const detected = await fileTypeFromBuffer(content);
+      const extension = input.filename!.split('.').pop()!.toLowerCase().replace('jpg', 'jpeg');
+      if (!detected || !['image/png', 'image/jpeg', 'image/webp'].includes(detected.mime) || !input.image.startsWith(`data:${detected.mime};base64,`) || `image/${extension}` !== detected.mime) throw new ValidationError('İmza görselinin içeriği ve dosya türü eşleşmiyor');
+    }
+    await this.db.insert(userMailSignatures).values({ tenantId: actor.tenantId, userId: targetUserId, ...input })
+      .onConflictDoUpdate({ target: [userMailSignatures.tenantId, userMailSignatures.userId], set: { ...input, updatedAt: new Date() } });
+    await this.audit.write({ tenantId: actor.tenantId, actorUserId: actor.userId, action: 'user_mail_signature.updated', resourceType: 'user_mail_signature', resourceId: targetUserId, newValues: { hasImage: Boolean(input.image) } });
+    return input;
   }
 
   async updateSignature(input: UserMailSignatureInput, actor: AuthContext): Promise<UserMailAccountStatus> {
@@ -194,17 +223,20 @@ export class UserMailAccountService {
       throw new ValidationError('Webmail hesabı yeniden bağlanmalı');
     }
 
-    const signature = account.signature ?? (await this.defaultSignature(actor, account.email));
+    const imageSignature = await this.imageSignature(actor);
+    const signature = imageSignature.image ? '' : account.signature ?? (await this.defaultSignature(actor, account.email));
     const logo = signature ? signatureLogoContent() : null;
-    const message = signedMailBody(input.text, signature, Boolean(logo));
+    const message = imageSignature.image ? { text: mailPlainText(input.text), html: mailBodyHtml(input.text, 'mail-signature@haksan') } : signedMailBody(input.text, signature, Boolean(logo));
     if (input.unsubscribe) {
       // Toplu mail: ticari iletide ret yolu + RFC 8058 tek tıkla çıkış başlığı (Gmail/Outlook "Abonelikten çık" düğmesi).
+      const footer = `<p style="margin-top:18px;font-family:Arial,Helvetica,sans-serif;font-size:11px;color:#888888">Bu e-postaları almak istemiyorsanız <a href="${esc(input.unsubscribe.pageUrl)}" style="color:#888888">abonelikten çıkın</a>.</p>`;
       message.text += `\n\n—\nBu e-postaları almak istemiyorsanız: ${input.unsubscribe.pageUrl}`;
-      message.html += `<p style="margin-top:18px;font-family:Arial,Helvetica,sans-serif;font-size:11px;color:#888888">Bu e-postaları almak istemiyorsanız <a href="${esc(input.unsubscribe.pageUrl)}" style="color:#888888">abonelikten çıkın</a>.</p>`;
+      message.html = message.html.includes('</body>') ? message.html.replace('</body>', `${footer}</body>`) : message.html + footer;
     }
     const attachments = [
       ...(input.attachments ?? []),
       ...(logo ? [{ filename: 'haksan-logo.png', content: logo, contentType: 'image/png', cid: SIGNATURE_LOGO_CID, contentDisposition: 'inline' as const }] : []),
+      ...(imageSignature.image ? [{ filename: imageSignature.filename ?? 'signature.png', content: Buffer.from(imageSignature.image.split(',')[1], 'base64'), contentType: imageSignature.image.slice(5, imageSignature.image.indexOf(';')), cid: 'mail-signature@haksan', contentDisposition: 'inline' as const }] : []),
     ];
 
     const transporter = this.createTransport(account.email, password);

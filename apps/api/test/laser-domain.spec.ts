@@ -17,10 +17,42 @@ function field(code: string, power: LaserSelection['powerKw'], key: string, cabi
 }
 
 describe('AORE source resolution', () => {
+  it('preserves laser head model suffixes while separating measurement units', () => {
+    for (const code of ['TG6012', 'TH6012']) for (const power of [1.5, 2, 3] as const) {
+      expect(field(code, power, 'Kesme Kafası')).toMatchObject({ value: 'BLT310T' });
+      expect(field(code, power, 'Kesme Kafası')?.unit ?? '').toBe('');
+    }
+    for (const [code, value] of [['H3015', '6-40'], ['H4020', '6-40'], ['H6020', '6-40'], ['TG6035', '3-12'], ['TH6035', '3-12'], ['TA6035', '3-12']]) {
+      expect(field(code, 3, 'Kaynakta Desteklenen Güç')).toMatchObject({ value, unit: 'kW' });
+    }
+    const base = LASER_MODELS.find((model) => model.code === 'F3015')!;
+    for (const [rawValue, value, unit] of [
+      ['12t', '12', 't'], ['1.5G', '1.5', 'G'],
+      ['±0.03mm', '±0.03', 'mm'], ['8270*2280*2150mm', '8270*2280*2150', 'mm'],
+      ['1.8kw+1.3kw', '1.8+1.3', 'kW'], ['MODEL310G', 'MODEL310G', undefined], ['KW310T', 'KW310T', undefined],
+    ] as const) {
+      const model = { ...base, fields: [{ key: 'Test Ölçümü', rawValue, groupCode: 'GENEL', source: { document: 'test', rawValue } }] };
+      const spec = resolveLaserProfile({ sourceModelCode: base.code, powerKw: 3, cabinType: 'open', series: base.series, productTypeCode: base.productTypeCode }, [model]).specs.find((entry) => entry.key === 'Test Ölçümü');
+      expect(spec).toMatchObject({ value });
+      expect(spec?.unit).toBe(unit);
+    }
+  });
+
+  it('separates documented units from explanatory tube dimensions', () => {
+    for (const [code, diameter] of [['TE12028', '280'], ['TE12035', '350'], ['TZ12055', '530'], ['TZ12070', '700']]) {
+      const spec = field(code, 3, 'Önerilen Maksimum Boru Ölçüsü');
+      expect(spec?.value).toBe(`Önerilen kenar uzunluğu veya çapı ≤${diameter}`);
+      expect(spec?.unit).toBe('mm');
+    }
+    const base = LASER_MODELS.find((model) => model.code === 'F3015')!;
+    const model = { ...base, fields: [{ key: 'Test Motor', rawValue: '1.8kW+1.3kW', unit: 'kW', groupCode: 'MOTORLAR', source: { document: 'test', rawValue: '1.8kW+1.3kW' } }] };
+    expect(resolveLaserProfile({ sourceModelCode: base.code, powerKw: 3, cabinType: 'open', series: base.series, productTypeCode: base.productTypeCode }, [model]).specs.find((spec) => spec.key === 'Test Motor')).toMatchObject({ value: '1.8+1.3', unit: 'kW' });
+  });
+
   it('offers every source model/cabin/power combination without creating products', () => {
     expect(LASER_MODELS.length).toBeGreaterThanOrEqual(100);
     expect(new Set(LASER_MODELS.map((model) => model.code)).size).toBe(LASER_MODELS.length);
-    expect(new Set(LASER_MODELS.map((model) => model.series))).toEqual(new Set(LASER_SERIES));
+    expect(new Set(LASER_MODELS.map((model) => model.series))).toEqual(new Set(LASER_SERIES.filter(series => !['T', 'CELL', 'HW', 'PU'].includes(series))));
     for (const model of LASER_MODELS) for (const power of LASER_POWERS) for (const cabin of ['open', 'closed'] as const) {
       const result = profile(model.code, power, cabin);
       expect(laserTechnicalConfigurationSchema.safeParse(result).success).toBe(true);

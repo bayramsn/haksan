@@ -60,7 +60,7 @@ const companyCreateBaseSchema = z.object({
   contactSourceText: optionalTrimmedText(255),
   sector: optionalText(128),
   supplierCategoryCode: supplierCategoryCodeSchema.optional(),
-  legalTitle: z.string().min(1).max(255),
+  legalTitle: z.string().trim().min(1).max(255),
   shortName: optionalText(128),
   taxOffice: optionalText(128),
   taxNumber: optionalText(32),

@@ -1,28 +1,23 @@
 /** Operator-run import of the public Haksan Makina product snapshots. */
 import 'reflect-metadata';
+import { beginCatalogJournal, finishCatalogJournal } from './catalog-import-journal';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
-import { and, asc, eq, isNull, sql } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNull, or, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { closeDb, getDb, type DbClient } from './client';
 import * as s from './schema';
+import { isMainMachineCategory, machineCategoryLabel, machineFamilyForType, machineGroupCode } from '@haksan/shared';
 
 const source = 'https://www.haksanmakina.com.tr/';
-const groups = {
-  UNIVERSAL: { name: 'Talaşlı İmalat Makinaları', division: 'UNIVERSAL', category: 'TEZGAH' },
-  SAC_ISLEME: { name: 'Sac İşleme Makinaları', division: 'SAC_ISLEME', category: 'TEZGAH' },
-  KAYNAK: { name: 'Kaynak Teknolojileri', division: 'SAC_ISLEME', category: 'TEZGAH' },
-  HAVA: { name: 'Hava Üretim Teknolojileri', division: 'SAC_ISLEME', category: 'TEZGAH' },
-  TASIMA: { name: 'Taşıma ve Kaldırma Ekipmanları', division: 'SAC_ISLEME', category: 'TEZGAH' },
-  AYDINLATMA: { name: 'Endüstriyel Aydınlatma', division: 'SAC_ISLEME', category: 'AKSESUAR' },
-  HIRDAVAT: { name: 'Hırdavat ve Makina Ekipmanları', division: 'SAC_ISLEME', category: 'AKSESUAR' },
-  YEDEK_PARCA: { name: 'Makina Yedek Parçaları', division: 'SAC_ISLEME', category: 'YEDEK_PARCA' },
-} as const;
+import { SPEC_GROUP_NAMES, canonicalSpecs, specTemplateFor, type SpecField } from './haksan-spec-templates';
+import { matchSourceCard, resolveMatch, type ExistingProduct, type MatchDecision } from './catalog-matching';
+import { haksanGroups as groups, haksanNormal as normal, haksanTypeCode as typeCode, haksanSubcategoryCode as subcategoryCode, haksanDivision as divisionOf, haksanExclusion, isCanonicalLaserSource } from './haksan-catalog-classification';
 
 const productSchema = z.object({
   sourceId: z.string().regex(/^\d+$/),
   sourceUrl: z.string().url().startsWith(source),
-  group: z.enum(['UNIVERSAL', 'SAC_ISLEME', 'KAYNAK', 'HAVA', 'TASIMA', 'AYDINLATMA', 'HIRDAVAT', 'YEDEK_PARCA']),
+  group: z.enum(['CNC', 'UNIVERSAL', 'SAC_ISLEME', 'KAYNAK', 'HAVA', 'TASIMA', 'AYDINLATMA', 'HIRDAVAT', 'YEDEK_PARCA']),
   sourceCategory: z.string().trim().min(2).max(255),
   title: z.string().trim().min(2).max(512),
   model: z.string().trim().max(128).default(''),
@@ -39,25 +34,7 @@ const snapshotSchema = z.object({
 });
 type Product = z.infer<typeof productSchema>;
 
-const normal = (value: string) => value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/ı/g, 'i').replace(/İ/g, 'I').toUpperCase().replace(/[^A-Z0-9]+/g, '_').replace(/^_|_$/g, '');
 const productCode = (product: Product) => `HM-${product.sourceId}`;
-const typeCode = (product: Product) => {
-  if (product.group === 'SAC_ISLEME') {
-    if (/fiber/i.test(product.title) && /boru kesim/i.test(product.sourceCategory)) return 'fiber_lazer_boru_kesim';
-    if (/fiber/i.test(product.title)) return 'fiber_lazer_kesim';
-    if (/abkant/i.test(product.sourceCategory)) return 'ABKANT_PRES';
-    if (/giyotin/i.test(product.sourceCategory)) return 'GIYOTIN_MAKAS';
-    if (/silindir kıvırma/i.test(product.sourceCategory)) return 'SILINDIR_MAKINESI';
-  }
-  return `HM_${product.group}_${normal(product.sourceCategory)}`.slice(0, 64);
-};
-const subcategoryCode = (product: Product) => {
-  const type = typeCode(product);
-  if (type === 'fiber_lazer_kesim' || type === 'fiber_lazer_boru_kesim') return 'sac_kesme';
-  if (type === 'ABKANT_PRES' || type === 'SILINDIR_MAKINESI') return 'SAC_BUKME';
-  if (type === 'GIYOTIN_MAKAS') return 'SAC_KESME';
-  return `HM_${product.group}_${normal(product.sourceCategory)}`.slice(0, 64);
-};
 const specGroupCode = (key: string) => {
   const text = normal(key);
   if (/BUKME|SILINDIR|TOP_CAP|BOGAZ/.test(text)) return 'BUKME';
@@ -85,21 +62,44 @@ const familyFields: Record<string, Array<[string, string]>> = {
   HM_UNIVERSAL_ELEKTRO_EREZYON_TEZGAHLARI: [['İşleme Kapasitesi', 'mm'], ['Tabla Ölçüsü', 'mm'], ['Jeneratör Gücü', 'A']],
   HM_UNIVERSAL_SERIT_TESTERE_TEZGAHLARI_SUTUNLU: [['Kesme Kapasitesi', 'mm'], ['Testere Ölçüsü', 'mm'], ['Kesme Hızı', 'm/dk'], ['Motor Gücü', 'kW']],
 };
+// Laser templates come from the laser catalog; CNC templates are never written here.
+const laserType = /^(FIBER_LAZER_KESIM|FIBER_LAZER_BORU_KESIM|SAC_BORU_LAZER_KESIM)$/i;
+export const templateFieldsFor = (type: string): SpecField[] => laserType.test(type) ? []
+  : specTemplateFor(type) ?? (familyFields[type] ?? []).map(([key, unit]) => ({ group: specGroupCode(key), key, unit }));
 const snapshotPath = path.join(__dirname, 'seed', 'data', 'haksanmakina', 'products.json');
+const decisionsPath = path.join(__dirname, 'seed', 'data', 'haksanmakina', 'match-decisions.json');
+const decisionSchema = z.record(z.string().regex(/^\d+$/), z.union([z.enum(['new', 'skip']), z.object({ modelCode: z.string().min(1).max(64) })]));
+/** Operator answers for near matches the report could not settle; absent file = no decisions. */
+export async function readMatchDecisions(): Promise<Record<string, MatchDecision>> {
+  try { return decisionSchema.parse(JSON.parse(await readFile(decisionsPath, 'utf8'))); }
+  catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return {}; throw error; }
+}
+export async function loadExistingProducts(db: DbClient, tenantId: string): Promise<ExistingProduct[]> {
+  const rows = await db.select({ id: s.productModels.id, modelCode: s.productModels.modelCode, modelName: s.productModels.modelName,
+    catalogSources: s.productModels.catalogSources, brand: s.brands.name, division: s.divisions.code, typeCode: s.productTypes.code }).from(s.productModels)
+    .leftJoin(s.brands, eq(s.brands.id, s.productModels.brandId))
+    .leftJoin(s.productTypes, eq(s.productTypes.id, s.productModels.productTypeId))
+    .leftJoin(s.divisions, eq(s.divisions.id, sql`coalesce(${s.productTypes.divisionId}, ${s.brands.divisionId})`))
+    .where(and(eq(s.productModels.tenantId, tenantId), isNull(s.productModels.deletedAt)));
+  return rows.map(row => ({ ...row, division: row.division ? normal(row.division) : null }));
+}
 const fiberSnapshotPath = path.join(__dirname, 'seed', 'data', 'haksanmakina', 'fiber-laser-products.json');
 
-async function readSnapshot(fiberOnly = false) {
+export async function readSnapshot(fiberOnly = false) {
   const snapshot = snapshotSchema.parse(JSON.parse(await readFile(fiberOnly ? fiberSnapshotPath : snapshotPath, 'utf8')));
   if (snapshot.errors.length) throw new Error(`Kaynak taramasında ${snapshot.errors.length} hata var; eksik katalog aktarılmadı`);
   const ids = new Set<string>();
   for (const product of snapshot.products) {
+    if (!isCanonicalLaserSource(product) && !haksanExclusion(product)) subcategoryCode(product); // Validate before writes.
     if (ids.has(product.sourceId)) throw new Error(`Yinelenen kaynak kimliği: ${product.sourceId}`);
     ids.add(product.sourceId);
     if (fiberOnly) {
       if (product.group !== 'SAC_ISLEME' || !/fiber/i.test(product.title)) throw new Error(`Fiber lazer kesim dışında ürün: ${product.sourceUrl}`);
-    } else if (/\bCNC\b/i.test(`${product.title} ${product.model} ${product.sourceCategory}`)) throw new Error(`CNC ürün aktarım dışında: ${product.sourceUrl}`);
+    }
   }
-  return snapshot;
+  return { ...snapshot, deferredLasers: snapshot.products.filter(isCanonicalLaserSource),
+    excluded: snapshot.products.flatMap(p => { const reason = haksanExclusion(p); return reason ? [{ sourceId: p.sourceId, sourceUrl: p.sourceUrl, reason }] : []; }),
+    products: snapshot.products.filter(product => !isCanonicalLaserSource(product) && !haksanExclusion(product)) };
 }
 
 export async function previewHaksanmakinaCatalog(fiberOnly = false) {
@@ -107,16 +107,18 @@ export async function previewHaksanmakinaCatalog(fiberOnly = false) {
   const byGroup = Object.fromEntries(Object.keys(groups).map((code) => [code, snapshot.products.filter((p) => p.group === code).length]));
   const plannedFields = new Set(snapshot.products.flatMap((product) => {
     const type = typeCode(product);
-    const definition = groups[product.group];
-    return [...product.specs.map((spec) => spec.key), ...product.fieldHints.map((field) => field.key),
-      ...(familyFields[type] ?? []).map(([key]) => key)].map((key) => `${definition.division}:${type}:${key.toLocaleLowerCase('tr-TR')}`);
+    const division = divisionOf(product);
+    return (division === 'CNC' && !type.startsWith('HM_') ? [] : templateFieldsFor(type)).map(({ key }) => `${division}:${type}:${key.toLocaleLowerCase('tr-TR')}`);
   }));
   return { mode: 'preview', capturedOn: snapshot.capturedOn, products: snapshot.products.length, byGroup,
-    technicalValues: snapshot.products.reduce((total, product) => total + product.specs.length, 0),
+    technicalValues: snapshot.products.reduce((total, product) => total + canonicalSpecs(typeCode(product), product.specs).filter(spec => !spec.layout).length, 0),
+    deferredLasers: snapshot.deferredLasers.map(p => ({ sourceId: p.sourceId, sourceUrl: p.sourceUrl, reason: 'canonical_hex_aore_pipeline' })),
+    excluded: snapshot.excluded,
+    byDivision: snapshot.products.reduce<Record<string, number>>((acc, p) => ({ ...acc, [divisionOf(p)]: (acc[divisionOf(p)] ?? 0) + 1 }), {}),
     technicalFields: plannedFields.size, productTypes: new Set(snapshot.products.map(typeCode)).size };
 }
 
-export async function importHaksanmakinaCatalog(db: DbClient, tenantId: string, userId: string, apply = false, fiberOnly = false) {
+export async function importHaksanmakinaCatalog(db: DbClient, tenantId: string, userId: string, apply = false, fiberOnly = false, refreshTemplates = false, matchDecisions?: Record<string, MatchDecision>) {
   if (!apply) return previewHaksanmakinaCatalog(fiberOnly);
   const snapshot = await readSnapshot(fiberOnly);
   const byGroup = Object.fromEntries(Object.keys(groups).map((code) => [code, snapshot.products.filter((p) => p.group === code).length]));
@@ -124,7 +126,7 @@ export async function importHaksanmakinaCatalog(db: DbClient, tenantId: string, 
   for (const product of snapshot.products) {
     const key = product.brand.toLocaleLowerCase('tr-TR');
     const used = brandDivisions.get(key) ?? new Set<string>();
-    used.add(groups[product.group].division);
+    used.add(divisionOf(product));
     brandDivisions.set(key, used);
   }
 
@@ -137,10 +139,11 @@ export async function importHaksanmakinaCatalog(db: DbClient, tenantId: string, 
   if (!operator) throw new Error('Aktarım için etkin bir süper yönetici gerekli');
   const divisions = await db.select().from(s.divisions).where(and(eq(s.divisions.tenantId, tenantId), eq(s.divisions.isActive, true), isNull(s.divisions.deletedAt)));
   const divisionByCode = new Map(divisions.map((row) => [normal(row.code), row]));
-  for (const code of ['UNIVERSAL', 'SAC_ISLEME']) if (!divisionByCode.has(code)) throw new Error(`${code} bölümü bulunamadı`);
+  for (const code of [...new Set(snapshot.products.map(divisionOf))]) if (!divisionByCode.has(code)) throw new Error(`${code} bölümü bulunamadı`);
 
   return db.transaction(async (tx) => {
     await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`${tenantId}:haksanmakina-catalog-import`}, 0))`);
+    const beforeCatalog = await beginCatalogJournal(tx as unknown as DbClient);
     // Existing fiber models use a legacy product-group/category branch. Reuse
     // that branch so imported source series appear alongside those models.
     const [modelFiberHierarchy] = fiberOnly ? await tx.select({
@@ -164,21 +167,39 @@ export async function importHaksanmakinaCatalog(db: DbClient, tenantId: string, 
       .where(and(eq(s.productTypes.code, 'fiber_lazer_kesim'),
         eq(s.productTypes.divisionId, divisionByCode.get('SAC_ISLEME')!.id), eq(s.productTypes.isActive, true)))
       .limit(1) : [];
-    // Production can already have sac_kesme under a different category even
-    // when it has no fiber model or type. Keep that existing taxonomy intact.
+    // Reuse an established laser category branch, preserving its UUID/code.
     const [subcategoryFiberHierarchy] = fiberOnly ? await tx.select({
       groupId: s.productCategories.productGroupId,
       categoryId: s.productSubcategories.categoryId,
       subcategoryId: s.productSubcategories.id,
     }).from(s.productSubcategories)
       .innerJoin(s.productCategories, eq(s.productCategories.id, s.productSubcategories.categoryId))
-      .where(and(eq(s.productSubcategories.code, 'sac_kesme'),
+      .where(and(sql`upper(${s.productSubcategories.code}) = 'SAC_LAZER_KESIM'`,
         eq(s.productSubcategories.divisionId, divisionByCode.get('SAC_ISLEME')!.id),
         eq(s.productSubcategories.isActive, true)))
       .limit(1) : [];
     const fiberHierarchy = [modelFiberHierarchy, typeFiberHierarchy, subcategoryFiberHierarchy].find(
       (row) => row?.categoryId && row.subcategoryId,
     );
+    // The consolidation preserves legacy category codes/UUIDs. Re-import into
+    // that established branch instead of creating a competing TEZGAH parent.
+    const machineCategories = await tx.select({
+      categoryId: s.productCategories.id, categoryCode: s.productCategories.code,
+      divisionId: s.productCategories.divisionId, groupId: s.productCategories.productGroupId,
+      groupCode: s.productGroups.code, isActive: s.productCategories.isActive,
+    }).from(s.productCategories).leftJoin(s.productGroups, eq(s.productCategories.productGroupId, s.productGroups.id));
+    const establishedBranches = new Map<string, { categoryId: string; groupId: string | null }>();
+    for (const group of ['CNC', 'UNIVERSAL', 'SAC_ISLEME'] as const) {
+      const divisionId = divisionByCode.get(group)?.id;
+      if (!divisionId) continue;
+      const candidates = machineCategories.filter(row => row.isActive && isMainMachineCategory(row.categoryCode)
+        && (!row.divisionId || row.divisionId === divisionId) && (!row.groupCode || normal(row.groupCode) === group));
+      const scoped = candidates.filter(row => row.divisionId === divisionId);
+      const preferred = scoped.length ? scoped : candidates;
+      if (preferred.length > 1) throw new Error(`${group} için birden fazla ana makine kategorisi var; aktarım durduruldu`);
+      if (preferred[0]) establishedBranches.set(group, preferred[0]);
+    }
+    const hierarchyMoves: Array<Record<string, unknown>> = [];
     const lookupByKey = new Map<string, { id: string }>();
     const ensureGroup = async (code: string, name: string, divisionId: string) => {
       const key = `group:${divisionId}:${code}`;
@@ -199,12 +220,28 @@ export async function importHaksanmakinaCatalog(db: DbClient, tenantId: string, 
       lookupByKey.set(key, row);
       return row.id;
     };
+    // Accessories and spares go under the division's existing "Aksesuar" / "Yedek Parça" category
+    // (or the shared one) as subcategories, never under an import-made copy.
+    const ensureStandardCategory = async (code: 'AKSESUAR' | 'YEDEK_PARCA', divisionId: string) => {
+      const key = `standard:${divisionId}:${code}`;
+      if (lookupByKey.has(key)) return lookupByKey.get(key)!.id;
+      const rows = await tx.select().from(s.productCategories).where(and(sql`upper(${s.productCategories.code}) = ${code}`,
+        eq(s.productCategories.isActive, true), or(eq(s.productCategories.divisionId, divisionId), isNull(s.productCategories.divisionId))));
+      const row = rows.find(r => r.divisionId === divisionId) ?? rows.find(r => !r.divisionId)
+        ?? (await tx.insert(s.productCategories).values({ code, name: code === 'AKSESUAR' ? 'Aksesuar' : 'Yedek Parça', divisionId }).returning())[0]!;
+      lookupByKey.set(key, row);
+      return row.id;
+    };
     const ensureSubcategory = async (code: string, name: string, divisionId: string, categoryId: string) => {
       const key = `subcategory:${divisionId}:${code}`;
       if (lookupByKey.has(key)) return lookupByKey.get(key)!.id;
-      let [row] = await tx.select().from(s.productSubcategories).where(and(eq(s.productSubcategories.code, code), eq(s.productSubcategories.divisionId, divisionId)));
+      let [row] = await tx.select().from(s.productSubcategories).where(and(sql`upper(${s.productSubcategories.code}) = ${code.toUpperCase()}`, eq(s.productSubcategories.divisionId, divisionId), eq(s.productSubcategories.isActive, true)));
       if (!row) [row] = await tx.insert(s.productSubcategories).values({ code, name, divisionId, categoryId }).returning();
-      else if (row.categoryId && row.categoryId !== categoryId) throw new Error(`${code} alt kategorisi başka kategoriye bağlı`);
+      else if (row.categoryId && row.categoryId !== categoryId) {
+        if (!code.startsWith('HM_')) throw new Error(`${code} alt kategorisi başka kategoriye bağlı`);
+        hierarchyMoves.push({ kind: 'subcategory', id: row.id, before: row.categoryId, after: categoryId });
+        [row] = await tx.update(s.productSubcategories).set({ categoryId }).where(eq(s.productSubcategories.id, row.id)).returning();
+      }
       if (!row.isActive) throw new Error(`Pasif ürün alt kategorisi: ${code}`);
       lookupByKey.set(key, row);
       return row.id;
@@ -212,46 +249,89 @@ export async function importHaksanmakinaCatalog(db: DbClient, tenantId: string, 
     const ensureType = async (code: string, name: string, divisionId: string, subcategoryId: string) => {
       const key = `type:${divisionId}:${code}`;
       if (lookupByKey.has(key)) return lookupByKey.get(key)!.id;
-      let [row] = await tx.select().from(s.productTypes).where(and(eq(s.productTypes.code, code), eq(s.productTypes.divisionId, divisionId)));
+      let [row] = await tx.select().from(s.productTypes).where(and(sql`upper(${s.productTypes.code}) = ${code.toUpperCase()}`, eq(s.productTypes.divisionId, divisionId)));
       if (!row) [row] = await tx.insert(s.productTypes).values({ code, name, divisionId, subcategoryId }).returning();
-      else if (row.subcategoryId && row.subcategoryId !== subcategoryId) throw new Error(`${code} tipi başka alt kategoriye bağlı`);
+      else if (row.subcategoryId && row.subcategoryId !== subcategoryId) {
+        if (!code.startsWith('HM_')) throw new Error(`${code} tipi başka alt kategoriye bağlı`);
+        hierarchyMoves.push({ kind: 'type', id: row.id, before: row.subcategoryId, after: subcategoryId });
+        [row] = await tx.update(s.productTypes).set({ subcategoryId }).where(eq(s.productTypes.id, row.id)).returning();
+      }
       if (!row.isActive) throw new Error(`Pasif ürün tipi: ${code}`);
       lookupByKey.set(key, row);
       return row.id;
     };
     const specGroupIds = new Map<string, string>();
-    for (const division of [divisionByCode.get('UNIVERSAL')!, divisionByCode.get('SAC_ISLEME')!]) {
-      for (const code of ['GENEL', 'BUKME', 'KESME', 'MOTORLAR', 'TABLA', 'KAPASITE']) {
-        let [row] = await tx.select().from(s.productSpecGroups).where(and(eq(s.productSpecGroups.code, code), eq(s.productSpecGroups.divisionId, division.id)));
-        if (!row) [row] = await tx.insert(s.productSpecGroups).values({ code, name: code, divisionId: division.id }).returning();
-        specGroupIds.set(`${division.id}:${code}`, row.id);
+    for (const division of divisions) {
+      for (const [code, name] of Object.entries(SPEC_GROUP_NAMES)) {
+        // CNC gets no new rows: it reads the shared (division-less) groups.
+        const cnc = normal(division.code) === 'CNC';
+        let [row] = await tx.select().from(s.productSpecGroups).where(and(eq(s.productSpecGroups.code, code),
+          cnc ? isNull(s.productSpecGroups.divisionId) : eq(s.productSpecGroups.divisionId, division.id)));
+        if (!row && !cnc) [row] = await tx.insert(s.productSpecGroups).values({ code, name, divisionId: division.id }).returning();
+        if (row) specGroupIds.set(`${division.id}:${code}`, row.id);
       }
     }
+    const refreshedTypes = new Map<string, { divisionId: string; type: string }>();
     const existing = await tx.select({ id: s.productModels.id, modelCode: s.productModels.modelCode, stockCode: s.productModels.stockCode,
-      description: s.productModels.description, deletedAt: s.productModels.deletedAt }).from(s.productModels).where(eq(s.productModels.tenantId, tenantId));
+      description: s.productModels.description, productGroupId: s.productModels.productGroupId, categoryId: s.productModels.categoryId, subcategoryId: s.productModels.subcategoryId, productTypeId: s.productModels.productTypeId, deletedAt: s.productModels.deletedAt }).from(s.productModels).where(eq(s.productModels.tenantId, tenantId));
     const existingByCode = new Map(existing.map((row) => [row.modelCode, row]));
     const brandIds = new Map<string, string>();
     const templateKeys = new Set((await tx.select({ type: s.productSpecTemplates.productTypeCode, key: s.productSpecTemplates.specKey, divisionId: s.productSpecTemplates.divisionId }).from(s.productSpecTemplates))
       .map((row) => `${row.divisionId}:${row.type}:${row.key.toLocaleLowerCase('tr-TR')}`));
-    let created = 0; let skipped = 0; let templates = 0; let specValues = 0;
+    let created = 0; let skipped = 0; const moved: Array<Record<string, unknown>> = []; let templates = 0; let specValues = 0;
+    const existingProducts = await loadExistingProducts(tx as unknown as DbClient, tenantId);
+    const decisions = matchDecisions ?? await readMatchDecisions();
+    const plans = new Map(snapshot.products.map(product => [product.sourceId,
+      resolveMatch(matchSourceCard(product, existingProducts), divisionOf(product), decisions[product.sourceId], existingProducts)]));
+    const blocked = [...plans].filter(([, plan]) => plan.action === 'blocked');
+    if (blocked.length) throw new Error(`${blocked.length} ürün belirsiz eşleşti; önce raporu çözün (match-decisions.json): ${blocked.slice(0, 5).map(([id, plan]) => `${id} ${(plan as { reason: string }).reason}`).join('; ')}`);
+    const matched: Array<{ sourceId: string; modelCode: string }> = []; const protectedSkips: string[] = [];
+    // Existing CNC types keep their current hierarchy and templates untouched.
+    // Lookup rows can hang off another tenant's CNC division (shared lookups); prefer this tenant's.
+    const ownCnc = divisionByCode.get('CNC')?.id;
+    const cncTypeRows = await tx.select({ code: s.productTypes.code, typeId: s.productTypes.id, subId: s.productTypes.subcategoryId,
+      divisionId: s.productTypes.divisionId, categoryId: s.productSubcategories.categoryId, groupId: s.productCategories.productGroupId }).from(s.productTypes)
+      .innerJoin(s.divisions, eq(s.divisions.id, s.productTypes.divisionId))
+      .leftJoin(s.productSubcategories, eq(s.productSubcategories.id, s.productTypes.subcategoryId))
+      .leftJoin(s.productCategories, eq(s.productCategories.id, s.productSubcategories.categoryId))
+      .where(and(sql`upper(${s.divisions.code}) = 'CNC'`, eq(s.productTypes.isActive, true)));
+    const existingCncTypes = new Map<string, (typeof cncTypeRows)[number]>();
+    for (const row of [...cncTypeRows].sort((a, b) => Number(b.divisionId === ownCnc) - Number(a.divisionId === ownCnc))) {
+      if (!existingCncTypes.has(row.code.toUpperCase())) existingCncTypes.set(row.code.toUpperCase(), row);
+    }
     for (const product of snapshot.products) {
+      const plan = plans.get(product.sourceId)!;
+      if (plan.action === 'skip') { protectedSkips.push(product.sourceId); skipped++; continue; }
+      if (plan.action === 'link' && !plan.existing.modelCode.startsWith('HM-')) {
+        const [owned] = await tx.select().from(s.productModels).where(eq(s.productModels.id, plan.existing.id));
+        if (!owned.catalogSources.some(row => row.sourceId === product.sourceId)) await tx.update(s.productModels).set({ catalogSources: [...owned.catalogSources, { sourceId: product.sourceId, url: product.sourceUrl, capturedOn: snapshot.capturedOn, group: product.group, typeCode: typeCode(product) }], updatedAt: sql`${s.productModels.updatedAt}` }).where(eq(s.productModels.id, owned.id));
+        matched.push({ sourceId: product.sourceId, modelCode: plan.existing.modelCode }); skipped++; continue; }
       const definition = groups[product.group];
-      const division = divisionByCode.get(definition.division)!;
-      const groupId = fiberHierarchy?.groupId ?? await ensureGroup(product.group, definition.name, division.id);
-      const categoryCode = product.group === 'UNIVERSAL' || product.group === 'SAC_ISLEME'
-        ? definition.category : `HM_${product.group}_${definition.category}`;
-      const categoryId = fiberHierarchy?.categoryId ?? await ensureCategory(categoryCode, definition.category === 'TEZGAH' ? 'Tezgah' : definition.category === 'AKSESUAR' ? 'Aksesuar' : 'Yedek Parça', division.id, groupId);
-      const subCode = subcategoryCode(product);
-      const subId = fiberHierarchy?.subcategoryId ?? await ensureSubcategory(subCode, product.sourceCategory, division.id, categoryId);
+      const division = divisionByCode.get(divisionOf(product))!;
+      const branch = establishedBranches.get(product.group);
       const type = typeCode(product);
-      const typeId = await ensureType(type, product.sourceCategory, division.id, subId);
-      const templateFields = [...product.specs.map((spec) => [spec.key, spec.unit] as [string, string]),
-        ...product.fieldHints.map((field) => [field.key, field.unit] as [string, string]), ...(familyFields[type] ?? [])];
-      for (const [index, [key, unit]] of templateFields.entries()) {
+      const cncChain = product.group === 'CNC' ? existingCncTypes.get(type.toUpperCase()) : undefined;
+      if (product.group === 'CNC' && !cncChain) throw new Error(`${type} CNC tipi bulunamadı; CNC'de yeni makine tipi açılmaz`);
+      if (cncChain && (!cncChain.subId || !cncChain.categoryId)) throw new Error(`${type} CNC tipinin hiyerarşisi eksik; CNC'ye dokunulmadı`);
+      // CNC machines reuse the existing chain; nothing is ensured (created) on the CNC side for them.
+      const groupId = cncChain ? (cncChain.groupId ?? branch?.groupId ?? null) : fiberHierarchy?.groupId ?? branch?.groupId ?? await ensureGroup(machineGroupCode(product.group) ? product.group : definition.division, machineGroupCode(product.group) ? definition.name : groups[definition.division].name, division.id);
+      const categoryCode = machineGroupCode(product.group)
+        ? definition.category : `HM_${product.group}_${definition.category}`;
+      const standardCategory = definition.category === 'AKSESUAR' || definition.category === 'YEDEK_PARCA' ? definition.category : null;
+      const categoryId = cncChain ? cncChain.categoryId! : fiberHierarchy?.categoryId ?? branch?.categoryId
+        ?? (standardCategory ? await ensureStandardCategory(standardCategory, division.id) : undefined) ?? await ensureCategory(categoryCode, definition.category === 'TEZGAH' ? machineCategoryLabel(product.group) : definition.category === 'AKSESUAR' ? 'Aksesuar' : definition.category === 'YEDEK_PARCA' ? 'Yedek Parça' : definition.name, division.id, groupId!);
+      const family = machineFamilyForType(product.group, type);
+      const subId = cncChain?.subId ?? await ensureSubcategory(subcategoryCode(product), family?.label ?? product.sourceCategory, division.id, categoryId);
+      const typeId = cncChain?.typeId ?? await ensureType(type, product.sourceCategory, division.id, subId);
+      const placement = cncChain ? { groupId: cncChain.groupId ?? groupId, categoryId: cncChain.categoryId!, subId } : { groupId, categoryId, subId };
+      const templateFields = cncChain ? [] : templateFieldsFor(type);
+      // Only HM_ types are created by this import; pre-existing types (ABKANT_PRES…) only gain missing fields.
+      if (templateFields.length && specTemplateFor(type) && type.startsWith('HM_')) refreshedTypes.set(`${division.id}:${type}`, { divisionId: division.id, type });
+      for (const [index, { key, unit, group }] of templateFields.entries()) {
         const templateKey = `${division.id}:${type}:${key.toLocaleLowerCase('tr-TR')}`;
         if (!templateKeys.has(templateKey)) {
           await tx.insert(s.productSpecTemplates).values({ productTypeCode: type, divisionId: division.id, specKey: key,
-            specGroupCode: specGroupCode(key), specUnit: unit || null, defaultValue: null, sortOrder: index });
+            specGroupCode: group, specUnit: unit || null, defaultValue: null, sortOrder: index });
           templateKeys.add(templateKey); templates++;
         }
       }
@@ -259,6 +339,12 @@ export async function importHaksanmakinaCatalog(db: DbClient, tenantId: string, 
       const known = existingByCode.get(code);
       if (known) {
         if (known.stockCode !== code || !known.description?.includes(source) || known.deletedAt) throw new Error(`${code} kodu başka bir ürüne ait veya silinmiş`);
+        const currentDivision = existingProducts.find(row => row.id === known.id)?.division;
+        const protectedCard = product.group === 'CNC' || (currentDivision === 'CNC' && divisionOf(product) !== 'CNC');
+        if (!protectedCard && (known.productGroupId !== groupId || known.categoryId !== categoryId || known.subcategoryId !== subId || known.productTypeId !== typeId)) {
+          moved.push({ id: known.id, modelCode: code, before: { productGroupId: known.productGroupId, categoryId: known.categoryId, subcategoryId: known.subcategoryId, productTypeId: known.productTypeId }, after: { productGroupId: groupId, categoryId, subcategoryId: subId, productTypeId: typeId } });
+          await tx.update(s.productModels).set({ productGroupId: groupId, categoryId, subcategoryId: subId, productTypeId: typeId }).where(eq(s.productModels.id, known.id));
+        }
         skipped++;
         continue;
       }
@@ -268,27 +354,106 @@ export async function importHaksanmakinaCatalog(db: DbClient, tenantId: string, 
         let [brand] = await tx.select().from(s.brands).where(and(eq(s.brands.tenantId, tenantId), sql`lower(${s.brands.name}) = lower(${product.brand})`, isNull(s.brands.deletedAt)));
         const shared = (brandDivisions.get(brandKey)?.size ?? 0) > 1;
         if (!brand) [brand] = await tx.insert(s.brands).values({ tenantId, name: product.brand, divisionId: shared ? null : division.id }).returning();
-        if (brand.divisionId && (brand.divisionId !== division.id || shared)) {
-          [brand] = await tx.update(s.brands).set({ divisionId: null }).where(eq(s.brands.id, brand.id)).returning();
-        }
         brandId = brand.id;
         brandIds.set(brandKey, brandId);
       }
       const fullName = [product.brand, product.model, product.title].filter(Boolean).join(' ').slice(0, 512);
       const description = `${product.summary}\nKaynak: ${product.sourceUrl}${product.technicalText ? `\nTeknik bilgi: ${product.technicalText}` : ''}`.slice(0, 4000);
-      const [inserted] = await tx.insert(s.productModels).values({ tenantId, brandId, productGroupId: groupId, categoryId,
-        subcategoryId: subId, productTypeId: typeId, modelCode: code, modelName: (product.model || product.title).slice(0, 255),
-        fullName, stockCode: code, imageUrl: product.imageUrl || null, description, isActive: true }).returning({ id: s.productModels.id });
-      if (product.specs.length) await tx.insert(s.productSpecs).values(product.specs.map((spec, sortOrder) => ({ tenantId, productModelId: inserted.id,
-        specGroupId: specGroupIds.get(`${division.id}:${specGroupCode(spec.key)}`) ?? specGroupIds.get(`${division.id}:GENEL`), specKey: spec.key, specValue: spec.value,
+      const [inserted] = await tx.insert(s.productModels).values({ tenantId, brandId, productGroupId: placement.groupId, categoryId: placement.categoryId,
+        subcategoryId: placement.subId, productTypeId: typeId, modelCode: code, modelName: (product.model || product.title).slice(0, 255),
+        catalogSources: [{ sourceId: product.sourceId, url: product.sourceUrl, capturedOn: snapshot.capturedOn, group: product.group, typeCode: type }], fullName, stockCode: code, imageUrl: product.imageUrl || null, description, isActive: true }).returning({ id: s.productModels.id });
+      const specs = canonicalSpecs(type, product.specs).filter(spec => !spec.layout);
+      if (specs.length) await tx.insert(s.productSpecs).values(specs.map((spec, sortOrder) => ({ tenantId, productModelId: inserted.id,
+        specGroupId: specGroupIds.get(`${division.id}:${spec.group}`) ?? specGroupIds.get(`${division.id}:GENEL`), specKey: spec.key, specValue: spec.value,
         specUnit: spec.unit || null, sortOrder })));
-      created++; specValues += product.specs.length;
+      created++; specValues += specs.length;
     }
+    const tombstoned: string[] = []; const specRewrites: Array<Record<string, unknown>> = []; const retiredTypes: string[] = []; const retiredTaxonomy: string[] = [];
+    if (refreshTemplates) {
+      // Settings only: retire scraped field names the canonical template replaced (tombstone, reversible).
+      for (const { divisionId, type } of refreshedTypes.values()) {
+        const fields = templateFieldsFor(type);
+        const keep = new Map(fields.map((field, sortOrder) => [field.key.toLocaleLowerCase('tr-TR'), { ...field, sortOrder }]));
+        const all = await tx.select().from(s.productSpecTemplates)
+          .where(and(eq(s.productSpecTemplates.divisionId, divisionId), eq(s.productSpecTemplates.productTypeCode, type)));
+        // Rows an admin added (keys never seen on the source pages) are left alone.
+        const scraped = new Set(snapshot.products.filter(product => typeCode(product) === type)
+          .flatMap(product => [...product.specs.map(spec => spec.key), ...product.fieldHints.map(hint => hint.key)])
+          .concat((familyFields[type] ?? []).map(([key]) => key)).map(key => key.toLocaleLowerCase('tr-TR')));
+        const rows = all.filter(row => !row.isDeleted && (scraped.has(row.specKey.toLocaleLowerCase('tr-TR')) || keep.has(row.specKey.toLocaleLowerCase('tr-TR'))));
+        // A scraped row that differs only by case ("MAKS. İŞ PARÇASI AĞIRLIĞI") takes the canonical spelling, group, unit and order.
+        for (const row of rows) {
+          const field = keep.get(row.specKey.toLocaleLowerCase('tr-TR'));
+          if (!field) continue;
+          const next = { specKey: field.key, specGroupCode: field.group, specUnit: field.unit || null, sortOrder: field.sortOrder };
+          if (row.specKey === next.specKey && row.specGroupCode === next.specGroupCode && row.specUnit === next.specUnit && row.sortOrder === next.sortOrder) continue;
+          if (row.specKey !== next.specKey && all.some(other => other.id !== row.id && other.specKey === next.specKey)) continue; // unique (division,type,key)
+          await tx.update(s.productSpecTemplates).set(next).where(eq(s.productSpecTemplates.id, row.id));
+          specRewrites.push({ templateId: row.id, before: { specKey: row.specKey, specGroupCode: row.specGroupCode, specUnit: row.specUnit, sortOrder: row.sortOrder } });
+        }
+        const drop = rows.filter(row => !keep.has(row.specKey.toLocaleLowerCase('tr-TR')) || (row.specKey !== keep.get(row.specKey.toLocaleLowerCase('tr-TR'))!.key
+          && all.some(other => other.id !== row.id && !other.isDeleted && other.specKey === keep.get(row.specKey.toLocaleLowerCase('tr-TR'))!.key))).map(row => row.id);
+        if (drop.length) await tx.update(s.productSpecTemplates).set({ isDeleted: true }).where(inArray(s.productSpecTemplates.id, drop));
+        tombstoned.push(...drop);
+      }
+      // Types left empty after accessories moved division (e.g. Mengeneler: Sac İşleme → Üniversal) are retired, never deleted.
+      const placed = new Set(snapshot.products.map(product => `${divisionByCode.get(divisionOf(product))!.id}:${typeCode(product).toUpperCase()}`));
+      const sourceTypes = new Set(snapshot.products.map(product => typeCode(product).toUpperCase()));
+      const stale = (await tx.select({ id: s.productTypes.id, code: s.productTypes.code, divisionId: s.productTypes.divisionId }).from(s.productTypes)
+        .where(and(sql`${s.productTypes.code} LIKE 'HM\_%'`, eq(s.productTypes.isActive, true),
+          sql`NOT EXISTS (SELECT 1 FROM product_models m WHERE m.product_type_id = ${s.productTypes.id} AND m.deleted_at IS NULL)`)))
+        .filter(row => row.divisionId && divisions.some(d => d.id === row.divisionId && normal(d.code) !== 'CNC')
+          && sourceTypes.has(row.code.toUpperCase()) && !placed.has(`${row.divisionId}:${row.code.toUpperCase()}`));
+      for (const row of stale) {
+        await tx.update(s.productTypes).set({ isActive: false }).where(eq(s.productTypes.id, row.id));
+        const drop = await tx.update(s.productSpecTemplates).set({ isDeleted: true }).where(and(eq(s.productSpecTemplates.divisionId, row.divisionId!),
+          eq(s.productSpecTemplates.productTypeCode, row.code), eq(s.productSpecTemplates.isDeleted, false))).returning({ id: s.productSpecTemplates.id });
+        tombstoned.push(...drop.map(r => r.id));
+      }
+      retiredTypes.push(...stale.map(row => row.id));
+      // Imported values are renamed only while they still equal what was scraped; edited rows are left alone.
+      for (const product of snapshot.products) {
+        const known = existingByCode.get(productCode(product));
+        if (!known || divisionOf(product) === 'CNC' || !specTemplateFor(typeCode(product))) continue;
+        const divisionId = divisionByCode.get(divisionOf(product))!.id;
+        const rows = await tx.select().from(s.productSpecs).where(and(eq(s.productSpecs.productModelId, known.id), isNull(s.productSpecs.deletedAt)));
+        const mapped = canonicalSpecs(typeCode(product), product.specs);
+        const consumed = new Set<string>();
+        for (const [index, raw] of product.specs.entries()) {
+          const row = rows.find(r => !consumed.has(r.id) && r.specKey === raw.key && r.specValue === raw.value);
+          if (row) consumed.add(row.id);
+          const next = mapped[index]!;
+          if (!row || (!next.layout && !next.canonical)) continue;
+          const groupId = specGroupIds.get(`${divisionId}:${next.group}`) ?? row.specGroupId;
+          if (!next.layout && row.specKey === next.key && row.specValue === next.value && (row.specUnit ?? '') === next.unit && row.specGroupId === groupId) continue;
+          specRewrites.push({ id: row.id, before: { specKey: row.specKey, specValue: row.specValue, specUnit: row.specUnit, specGroupId: row.specGroupId }, layout: next.layout });
+          if (next.layout) await tx.update(s.productSpecs).set({ deletedAt: new Date() }).where(eq(s.productSpecs.id, row.id));
+          else await tx.update(s.productSpecs).set({ specKey: next.key, specValue: next.value, specUnit: next.unit || null,
+            specGroupId: groupId }).where(eq(s.productSpecs.id, row.id));
+        }
+      }
+    }
+    {
+      // Import-made (HM_) subcategories/categories left empty by the moves above are deactivated, never deleted.
+      const tenantDivisions = divisions.map(division => division.id);
+      const subs = await tx.update(s.productSubcategories).set({ isActive: false }).where(and(sql`${s.productSubcategories.code} LIKE 'HM\_%'`,
+        eq(s.productSubcategories.isActive, true), inArray(s.productSubcategories.divisionId, tenantDivisions),
+        sql`NOT EXISTS (SELECT 1 FROM product_types t WHERE t.subcategory_id = ${s.productSubcategories.id} AND t.is_active)`,
+        sql`NOT EXISTS (SELECT 1 FROM product_models m WHERE m.subcategory_id = ${s.productSubcategories.id} AND m.deleted_at IS NULL)`))
+        .returning({ id: s.productSubcategories.id });
+      const cats = await tx.update(s.productCategories).set({ isActive: false }).where(and(sql`${s.productCategories.code} LIKE 'HM\_%'`,
+        eq(s.productCategories.isActive, true), inArray(s.productCategories.divisionId, tenantDivisions),
+        sql`NOT EXISTS (SELECT 1 FROM product_subcategories x WHERE x.category_id = ${s.productCategories.id} AND x.is_active)`,
+        sql`NOT EXISTS (SELECT 1 FROM product_models m WHERE m.category_id = ${s.productCategories.id} AND m.deleted_at IS NULL)`))
+        .returning({ id: s.productCategories.id });
+      retiredTaxonomy.push(...subs.map(row => row.id), ...cats.map(row => row.id));
+    }
+    await finishCatalogJournal(tx as unknown as DbClient, tenantId, beforeCatalog);
     const { AuditService } = await import('../shared/database/audit.service.js');
     const audit = new AuditService(tx as unknown as DbClient);
     await audit.write({ tenantId, actorUserId: userId, action: 'catalog.haksanmakina_imported', resourceType: 'tenant', resourceId: tenantId,
-      newValues: { capturedOn: snapshot.capturedOn, created, skipped, templates, specValues, byGroup } });
-    return { mode: 'applied', capturedOn: snapshot.capturedOn, created, skipped, templates, specValues, byGroup };
+      newValues: { capturedOn: snapshot.capturedOn, created, skipped, templates, specValues, byGroup, moved, hierarchyMoves, matched, protectedSkips, excluded: snapshot.excluded, deferredLasers: snapshot.deferredLasers.length, tombstoned, specRewrites, retiredTypes, retiredTaxonomy } });
+    return { mode: 'applied', capturedOn: snapshot.capturedOn, created, skipped, templates, specValues, byGroup, moved, hierarchyMoves, matched, protectedSkips, excluded: snapshot.excluded.length, deferredLasers: snapshot.deferredLasers.length, tombstonedTemplates: tombstoned.length, rewrittenSpecs: specRewrites.length, retiredTypes: retiredTypes.length, retiredTaxonomy: retiredTaxonomy.length };
   });
 }
 
@@ -319,7 +484,7 @@ if (require.main === module) {
     ? (async () => {
       const db = getDb();
       const operator = tenantSlug ? await resolveTenantOperator(db, tenantSlug) : { tenantId: tenantId!, userId: userId! };
-      return importHaksanmakinaCatalog(db, operator.tenantId, operator.userId, true, fiberOnly);
+      return importHaksanmakinaCatalog(db, operator.tenantId, operator.userId, true, fiberOnly, process.argv.includes('--refresh-templates'));
     })()
     : previewHaksanmakinaCatalog(fiberOnly);
   run

@@ -1,3 +1,4 @@
+import { machineFamilyForType } from "@haksan/shared";
 import type { ProductSpec } from "./mock";
 
 // ---------------------------------------------------------------------------
@@ -17,6 +18,10 @@ export type ProductSpecGroupCode =
   | "MOTORLAR"
   | "TARET"
   | "TAKIM_DEGISTIRICI"
+  | "HIZLAR"
+  | "VIDA"
+  | "ELEKTRIK"
+  | "KAYNAK"
   | "GENEL";
 
 export type ProductSpecGroup = {
@@ -38,11 +43,15 @@ export const PRODUCT_SPEC_GROUPS: readonly ProductSpecGroup[] = [
   { code: "KESME", label: "KESME", order: 7 },
   { code: "TABLA", label: "TABLA", order: 10 },
   { code: "EKSENLER", label: "EKSENLER", order: 20 },
+  { code: "HIZLAR", label: "HIZLAR", order: 22 },
   { code: "FENER_MILI", label: "FENER MİLİ", order: 30 },
   { code: "KARSI_PUNTA", label: "KARŞI PUNTA", order: 32 },
+  { code: "VIDA", label: "VİDA AÇMA", order: 33 },
   { code: "KARSI_AYNA", label: "KARŞI AYNA", order: 34 },
   { code: "CANLI_TAKIM", label: "CANLI TAKIM", order: 36 },
   { code: "MOTORLAR", label: "MOTORLAR", order: 40 },
+  { code: "ELEKTRIK", label: "ELEKTRİK", order: 42 },
+  { code: "KAYNAK", label: "KAYNAK", order: 43 },
   { code: "TARET", label: "TARET", order: 45 },
   { code: "TAKIM_DEGISTIRICI", label: "TAKIM DEĞİŞTİRİCİ", order: 50 },
   { code: "GENEL", label: "GENEL", order: 60 },
@@ -482,7 +491,7 @@ export type MachineTypeTemplate = {
   subcategoryLabel: string;
 };
 
-export const DIVISION_MACHINE_TYPES: readonly MachineTypeTemplate[] = [
+const DIVISION_MACHINE_TYPE_DEFAULTS: readonly MachineTypeTemplate[] = [
   { code: "UNIVERSAL_TORNA", label: "Üniversal Torna", productGroupCode: "UNIVERSAL", subcategoryCode: "TORNA", subcategoryLabel: "Torna" },
   { code: "UNIVERSAL_FREZE", label: "Üniversal Freze", productGroupCode: "UNIVERSAL", subcategoryCode: "FREZE", subcategoryLabel: "Freze" },
   { code: "RADYAL_MATKAP", label: "Radyal Matkap", productGroupCode: "UNIVERSAL", subcategoryCode: "MATKAP", subcategoryLabel: "Matkap" },
@@ -490,9 +499,23 @@ export const DIVISION_MACHINE_TYPES: readonly MachineTypeTemplate[] = [
   { code: "ABKANT_PRES", label: "Abkant Pres", productGroupCode: "SAC_ISLEME", subcategoryCode: "SAC_BUKME", subcategoryLabel: "Bükme" },
   { code: "SILINDIR_MAKINESI", label: "Silindir Makinesi", productGroupCode: "SAC_ISLEME", subcategoryCode: "SAC_BUKME", subcategoryLabel: "Bükme" },
   { code: "GIYOTIN_MAKAS", label: "Giyotin Makas", productGroupCode: "SAC_ISLEME", subcategoryCode: "SAC_KESME", subcategoryLabel: "Kesme" },
-  { code: "FIBER_LAZER_KESIM", label: "Fiber Lazer Kesim", productGroupCode: "SAC_ISLEME", subcategoryCode: "SAC_KESME", subcategoryLabel: "Kesme" },
+  { code: "FIBER_LAZER_KESIM", label: "Fiber Lazer Kesim", productGroupCode: "SAC_ISLEME", subcategoryCode: "SAC_LAZER_KESIM", subcategoryLabel: "Lazer Kesim" },
+  { code: "BORU_LAZER_KESIM", label: "Boru/Profil Lazer Kesim", productGroupCode: "SAC_ISLEME", subcategoryCode: "SAC_LAZER_KESIM", subcategoryLabel: "Lazer Kesim" },
   { code: "PLAZMA_KESIM", label: "Plazma Kesim", productGroupCode: "SAC_ISLEME", subcategoryCode: "SAC_KESME", subcategoryLabel: "Kesme" },
 ];
+
+export const CNC_MACHINE_TYPES: readonly MachineTypeTemplate[] = [
+  { code: "CNC_DIK_ISLEME_MERKEZ", label: "CNC Dik İşleme Merkezi", productGroupCode: "CNC", subcategoryCode: "ISLEME_MERKEZI", subcategoryLabel: "İşleme Merkezi" },
+  { code: "CNC_KOPRU_TIPI_ISLEME_MERKEZI", label: "CNC Köprü Tipi İşleme Merkezi", productGroupCode: "CNC", subcategoryCode: "ISLEME_MERKEZI", subcategoryLabel: "İşleme Merkezi" },
+  { code: "CNC_5_EKSEN_ISLEME_MERKEZI", label: "5 Eksen İşleme Merkezi", productGroupCode: "CNC", subcategoryCode: "ISLEME_MERKEZI", subcategoryLabel: "İşleme Merkezi" },
+  { code: "CNC_TAPPING_CENTER", label: "CNC Tapping Center", productGroupCode: "CNC", subcategoryCode: "ISLEME_MERKEZI", subcategoryLabel: "İşleme Merkezi" },
+  { code: "CNC_YATAY_TORNA_TEZGAHI", label: "CNC Yatay Torna", productGroupCode: "CNC", subcategoryCode: "TORNA", subcategoryLabel: "Torna" },
+  { code: "CNC_DIK_TORNA_TEZGAHI", label: "CNC Dik Torna", productGroupCode: "CNC", subcategoryCode: "TORNA", subcategoryLabel: "Torna" },
+];
+export const DIVISION_MACHINE_TYPES: readonly MachineTypeTemplate[] = DIVISION_MACHINE_TYPE_DEFAULTS.map((type) => {
+  const family = machineFamilyForType(type.productGroupCode, type.code);
+  return family ? { ...type, subcategoryCode: family.code, subcategoryLabel: family.label } : type;
+});
 
 // Eski verilerde geçen ürün tipi kodları güncel kodlara eşlenir.
 const MACHINE_TYPE_ALIASES: Record<string, string> = {
@@ -870,7 +893,7 @@ function expandLegacyMachiningCenterSpecs(specs: ProductSpec[]): ProductSpec[] {
 // ---------------------------------------------------------------------------
 
 export function productSpecDefaults(typeCode?: string | null): readonly ProductSpec[] {
-  return SPEC_DEFAULTS[canonicalMachineTypeCode(typeCode)] ?? [];
+  return (SPEC_DEFAULTS[canonicalMachineTypeCode(typeCode)] ?? []).map(spec => ({ ...spec, value: "" }));
 }
 
 export function productSpecTemplate(typeCode?: string | null): readonly string[] {

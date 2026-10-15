@@ -148,6 +148,10 @@ export function productFamilyLabel(product: Product) {
   if (categoryCode && categoryCode !== "TEZGAH") {
     return product.category || product.productGroup || "Genel";
   }
+  const groupCode = (product.productGroupCode ?? "").toLocaleUpperCase("tr-TR");
+  if (groupCode && groupCode !== "CNC") {
+    return product.type || product.category || product.productGroup || "Genel";
+  }
   if (typeCode.includes("TORNA") || ["SL", "MT", "SJ"].includes(series)) return "CNC Torna Tezgahları";
   if (typeCode === "CNC_TAPPING_CENTER" || series === "TC") return "CNC Tapping Center";
   if (typeCode.includes("5_EKSEN") || ["D", "C"].includes(series)) return "CNC 5 Eksen İşleme Merkezleri";

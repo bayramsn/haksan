@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, BookmarkPlus, CheckCircle2, Loader2, LockKeyhole, Mail, Paperclip, Send, Settings2, Upload, X } from "lucide-react";
+import { AlertTriangle, BookmarkPlus, CheckCircle2, Loader2, LockKeyhole, Mail, Paperclip, Pencil, Send, Settings2, Trash2, Upload, X } from "lucide-react";
 import { MAIL_MAX_ATTACHMENTS, MAIL_MAX_ATTACHMENT_BYTES, type MailRecipients } from "@haksan/shared";
 import type { UserMailAccountStatus } from "@haksan/shared";
 import { toast } from "sonner";
@@ -14,12 +14,13 @@ import {
   DialogHeader,
   DialogTitle,
 } from "../ui/dialog";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "../ui/alert-dialog";
 import { Input } from "../ui/input";
 import { Label } from "../ui/label";
 import { MultiSelect, type MultiSelectOption } from "../ui/multi-select";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
-import { Textarea } from "../ui/textarea";
-import { CatalogLibraryDialog, type CatalogAttachment } from "./CatalogLibraryDialog";
+import { CatalogLibraryDialog, type CatalogAttachment } from './CatalogLibraryDialog';
+import { MailBodyEditor } from './MailBodyEditor';
 
 /** Mail gövdesi şablonları not şablonlarıyla aynı tabloda, bu kapsam altında tutulur. */
 export const MAIL_TEMPLATE_SCOPE = "mail";
@@ -51,6 +52,8 @@ export type MailRecipient = {
    * CRM kaydına bağlanmaz ve sunucuda `reports.export` yetkisi ister.
    */
   reportDocument?: () => Promise<{ html: string; filename: string }>;
+  productDocument?: { id: string; pdf: () => Promise<{ html: string; filename: string }> };
+  initialAttachments?: CatalogAttachment[];
   /**
    * Proforma / sözleşme kaydının "Yazdır / PDF Kaydet" belgesi. Sunucu kaydı görebildiğini
    * doğrulayıp HTML'i PDF'e çevirir ve ek olarak gönderir.
@@ -60,8 +63,6 @@ export type MailRecipient = {
     kind: "proforma" | "contract";
     pdf: () => Promise<{ html: string; filename: string }>;
   };
-  /** Pencere açılırken hazır gelen ekler (ör. genel katalog kütüphanesinden). */
-  initialAttachments?: CatalogAttachment[];
 };
 
 const RECORD_DOCUMENT_LABELS = { proforma: "Proforma", contract: "Sözleşme" } as const;
@@ -93,7 +94,7 @@ export function ComposeMailDialog({
   onOpenChange: (open: boolean) => void;
   onSent?: () => Promise<void> | void;
 }) {
-  const { noteTemplates, addNoteTemplate } = useStore();
+  const { noteTemplates, addNoteTemplate, updateNoteTemplate, deleteNoteTemplate } = useStore();
   const [account, setAccount] = useState<UserMailAccountStatus | null>(null);
   const [accountLoading, setAccountLoading] = useState(false);
   const [sending, setSending] = useState(false);
@@ -109,6 +110,10 @@ export function ComposeMailDialog({
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [templateName, setTemplateName] = useState<string | null>(null);
+  const [selectedTemplateId, setSelectedTemplateId] = useState("");
+  const [templateMode, setTemplateMode] = useState<"create" | "update">("create");
+  const [templateBusy, setTemplateBusy] = useState(false);
+  const [deleteTemplateOpen, setDeleteTemplateOpen] = useState(false);
 
   useEffect(() => {
     if (!recipient) return;
@@ -118,6 +123,8 @@ export function ComposeMailDialog({
     setCcManual("");
     setSubject(recipient.subject ?? "");
     setTemplateName(null);
+    setSelectedTemplateId("");
+    setDeleteTemplateOpen(false);
     setBody(recipient.body ?? (recipient.name ? `Merhaba ${recipient.name},\n\n` : "Merhaba,\n\n"));
     // Başka bir alıcıya geçilince önceki mailin ekleri taşınmamalı.
     setAttachments(recipient.initialAttachments ?? []);
@@ -136,6 +143,8 @@ export function ComposeMailDialog({
     () => noteTemplates.filter((template) => template.scope === MAIL_TEMPLATE_SCOPE),
     [noteTemplates],
   );
+
+  const selectedTemplate = mailTemplates.find((template) => template.id === selectedTemplateId);
 
   // Kendi ekibimiz ve müşteri kontakları tek listede; hangisi olduğu etikette yazar.
   const ccOptions: MultiSelectOption[] = useMemo(() => {
@@ -156,7 +165,7 @@ export function ComposeMailDialog({
   }, [cc, options]);
 
   const close = () => {
-    if (sending || uploading || catalogOpen) return;
+    if (sending || uploading || templateBusy || catalogOpen) return;
     onOpenChange(false);
   };
 
@@ -177,16 +186,41 @@ export function ComposeMailDialog({
   };
 
   const saveTemplate = async () => {
+    if (templateBusy) return;
     const text = body.trim();
     const title = (templateName ?? "").trim();
     if (!text) return toast.error("Şablon olarak kaydedilecek bir mesaj yok");
     if (!title) return toast.error("Şablona bir ad verin");
+    if (text.length > 10_000) return toast.error("Mesaj en fazla 10.000 karakter olabilir");
+    if (templateMode === "update" && !selectedTemplate) return toast.error("Düzenlenecek şablonu seçin");
+    setTemplateBusy(true);
     try {
-      await addNoteTemplate({ title, body: text, scope: MAIL_TEMPLATE_SCOPE });
-      toast.success("Mail şablonu kaydedildi", { description: title });
+      const saved = templateMode === "update"
+        ? await updateNoteTemplate(selectedTemplate!.id, { title, body: text })
+        : await addNoteTemplate({ title, body: text, scope: MAIL_TEMPLATE_SCOPE });
+      setSelectedTemplateId(saved.id);
+      toast.success(templateMode === "update" ? "Mail şablonu güncellendi" : "Mail şablonu kaydedildi", { description: title });
       setTemplateName(null);
     } catch (error: any) {
       toast.error("Şablon kaydedilemedi", { description: error?.message ?? "API isteği başarısız oldu." });
+    } finally {
+      setTemplateBusy(false);
+    }
+  };
+
+  const removeTemplate = async () => {
+    if (!selectedTemplate || templateBusy) return;
+    setTemplateBusy(true);
+    try {
+      await deleteNoteTemplate(selectedTemplate.id);
+      toast.success("Mail şablonu silindi", { description: selectedTemplate.title });
+      setSelectedTemplateId("");
+      setTemplateName(null);
+      setDeleteTemplateOpen(false);
+    } catch (error: any) {
+      toast.error("Şablon silinemedi", { description: error?.message ?? "API isteği başarısız oldu." });
+    } finally {
+      setTemplateBusy(false);
     }
   };
 
@@ -237,6 +271,7 @@ export function ComposeMailDialog({
   };
 
   const send = async () => {
+    if (sending || uploading || templateBusy) return;
     if (!recipient || !to.trim() || !subject.trim() || !body.trim()) {
       toast.error("Alıcı, konu ve mesaj zorunludur");
       return;
@@ -247,6 +282,9 @@ export function ComposeMailDialog({
       const reportDocument = recipient.reportDocument ? await recipient.reportDocument() : undefined;
       const recordDocument = recipient.recordDocument
         ? { id: recipient.recordDocument.id, kind: recipient.recordDocument.kind, pdf: await recipient.recordDocument.pdf() }
+        : undefined;
+      const productDocument = recipient.productDocument
+        ? { id: recipient.productDocument.id, pdf: await recipient.productDocument.pdf() }
         : undefined;
       await mailService.send({
         to: to.trim(),
@@ -259,6 +297,7 @@ export function ComposeMailDialog({
         quoteDocument,
         reportDocument,
         document: recordDocument,
+        productDocument,
         fileIds: attachments.length ? attachments.map((item) => item.fileId) : undefined,
       });
       await onSent?.();
@@ -278,16 +317,15 @@ export function ComposeMailDialog({
     ? "Teklif"
     : recipient?.recordDocument
       ? RECORD_DOCUMENT_LABELS[recipient.recordDocument.kind]
-      : recipient?.reportDocument ? "Rapor" : null;
+      : recipient?.productDocument ? "Ürün Teknik Bilgisi" : recipient?.reportDocument ? "Rapor" : null;
 
   return (
+    <>
     <Dialog open={Boolean(recipient)} onOpenChange={(open) => !open && close()}>
-      <CatalogLibraryDialog open={catalogOpen} onOpenChange={setCatalogOpen} onSelect={(file) => {
-        if (attachments.some((item) => item.fileId === file.fileId)) { toast.message("Bu katalog zaten eklendi"); return; }
-        if (attachments.length >= MAIL_MAX_ATTACHMENTS || attachments.reduce((sum, item) => sum + item.size, 0) + file.size > MAIL_MAX_ATTACHMENT_BYTES) {
-          toast.error("Ek sayısı veya toplam 15 MB sınırı aşılıyor"); return;
-        }
-        setAttachments((current) => [...current, file]);
+      <CatalogLibraryDialog open={catalogOpen} onOpenChange={setCatalogOpen} onSelect={file => {
+        if (attachments.some(item => item.fileId === file.fileId)) { toast.message('Bu katalog zaten eklendi'); return; }
+        if (attachments.length >= MAIL_MAX_ATTACHMENTS || attachments.reduce((sum, item) => sum + item.size, 0) + file.size > MAIL_MAX_ATTACHMENT_BYTES) { toast.error('Ek sayısı veya toplam 15 MB sınırı aşılıyor'); return; }
+        setAttachments(current => [...current, file]);
       }} />
       <DialogContent className="max-h-[92dvh] max-w-2xl overflow-y-auto p-0">
         <div className="border-b border-border/70 bg-[linear-gradient(135deg,#07142b,#102652)] px-6 py-5 text-white">
@@ -379,14 +417,18 @@ export function ComposeMailDialog({
           <div>
             <div className="flex flex-wrap items-center justify-between gap-2">
               <Label htmlFor="compose-mail-body" className="text-xs text-muted-foreground">Mesaj</Label>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <Select
-                  value={undefined}
+                  value={selectedTemplateId}
                   onValueChange={(id) => {
                     const template = mailTemplates.find((item) => item.id === id);
-                    if (template) setBody(template.body);
+                    if (template) {
+                      setSelectedTemplateId(id);
+                      setBody(template.body);
+                      setTemplateName(null);
+                    }
                   }}
-                  disabled={sending || mailTemplates.length === 0}
+                  disabled={sending || templateBusy || mailTemplates.length === 0}
                 >
                   <SelectTrigger className="h-8 w-56" aria-label="Mail şablonu seç">
                     <SelectValue placeholder={mailTemplates.length ? "Şablon seç" : "Kayıtlı şablon yok"} />
@@ -402,10 +444,16 @@ export function ComposeMailDialog({
                   variant="outline"
                   size="sm"
                   className="h-8 gap-1.5"
-                  onClick={() => setTemplateName((current) => (current === null ? subject.trim() : null))}
-                  disabled={sending}
+                  onClick={() => { setTemplateMode("create"); setTemplateName(subject.trim()); }}
+                  disabled={sending || templateBusy}
                 >
-                  <BookmarkPlus className="size-3.5" /> Şablon kaydet
+                  <BookmarkPlus className="size-3.5" /> Şablon ekle
+                </Button>
+                <Button type="button" variant="outline" size="sm" className="h-8 gap-1.5" disabled={sending || templateBusy || !selectedTemplate} onClick={() => { setTemplateMode("update"); setTemplateName(selectedTemplate!.title); }}>
+                  <Pencil className="size-3.5" /> Düzenle
+                </Button>
+                <Button type="button" variant="outline" size="sm" className="h-8 gap-1.5" disabled={sending || templateBusy || !selectedTemplate} onClick={() => setDeleteTemplateOpen(true)}>
+                  <Trash2 className="size-3.5" /> Sil
                 </Button>
               </div>
             </div>
@@ -417,18 +465,21 @@ export function ComposeMailDialog({
                   placeholder="Şablon adı (ör. Standart teklif maili)"
                   maxLength={200}
                   value={templateName}
+                  disabled={templateBusy || sending}
                   onChange={(event) => setTemplateName(event.target.value)}
                   onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); void saveTemplate(); } }}
                 />
-                <Button type="button" size="sm" className="h-8" onClick={() => void saveTemplate()}>Kaydet</Button>
-                <Button type="button" size="sm" variant="ghost" className="h-8" onClick={() => setTemplateName(null)}>Vazgeç</Button>
+                <Button type="button" size="sm" className="h-8" disabled={templateBusy || sending} onClick={() => void saveTemplate()}>{templateBusy ? "Kaydediliyor…" : templateMode === "update" ? "Güncelle" : "Kaydet"}</Button>
+                <Button type="button" size="sm" variant="ghost" className="h-8" disabled={templateBusy} onClick={() => setTemplateName(null)}>Vazgeç</Button>
               </div>
             )}
-            <Textarea id="compose-mail-body" className="mt-1 min-h-52 resize-y leading-relaxed" value={body} maxLength={10_000} onChange={(event) => setBody(event.target.value)} disabled={sending} />
+            <MailBodyEditor value={body} onChange={setBody} disabled={sending || templateBusy} />
             <div className="mt-1 text-right font-mono text-[10px] text-muted-foreground">{body.length.toLocaleString("tr-TR")} / 10.000</div>
           </div>
 
-          {ready && signature && (
+          {account?.signatureImage && <div className="border-t pt-3"><p className="mb-2 text-xs text-muted-foreground">İmzanız gönderime otomatik eklenir.</p><img src={account.signatureImage} alt="E-posta imzanız" className="h-auto w-[480px] max-w-full" /></div>}
+
+          {ready && signature && !account?.signatureImage && (
             <div className="rounded-lg border border-border/60 bg-muted/20 px-3 py-2.5">
               <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2 text-[11px] text-muted-foreground">
                 <span className="font-medium">İmza · mesajın altına otomatik eklenir</span>
@@ -455,19 +506,15 @@ export function ComposeMailDialog({
                   id="compose-mail-attachment" disabled={sending || uploading}
                   onChange={(event) => void pickAttachment(event)}
                 />
-                <div className="flex flex-wrap gap-2">
-                  {recipient.opportunityId && <Button
-                    type="button" variant="outline" size="sm" className="gap-1.5"
-                    disabled={sending || uploading || attachments.length >= MAIL_MAX_ATTACHMENTS}
-                    onClick={() => fileInputRef.current?.click()}
-                  >
-                    {uploading ? <Loader2 className="size-3.5 animate-spin motion-reduce:animate-none" /> : <Upload className="size-3.5" />}
-                    {uploading ? "Yükleniyor…" : "Dosya seç"}
-                  </Button>}
-                  <Button type="button" variant="outline" size="sm" className="gap-1.5" disabled={sending || uploading || attachments.length >= MAIL_MAX_ATTACHMENTS} onClick={() => setCatalogOpen(true)}>
-                    <Paperclip className="size-3.5" />Katalog ekle
-                  </Button>
-                </div>
+                {recipient.opportunityId && <Button
+                  type="button" variant="outline" size="sm" className="gap-1.5"
+                  disabled={sending || uploading || attachments.length >= MAIL_MAX_ATTACHMENTS}
+                  onClick={() => fileInputRef.current?.click()}
+                >
+                  {uploading ? <Loader2 className="size-3.5 animate-spin motion-reduce:animate-none" /> : <Upload className="size-3.5" />}
+                  {uploading ? "Yükleniyor…" : "Dosya seç"}
+                </Button>}
+                <Button type="button" variant="outline" size="sm" disabled={sending || uploading || attachments.length >= MAIL_MAX_ATTACHMENTS} onClick={() => setCatalogOpen(true)}><Paperclip className="mr-1 size-3.5" />Katalog Ekle</Button>
               </div>
               {attachments.length > 0 && (
                 <ul className="space-y-1.5">
@@ -497,13 +544,26 @@ export function ComposeMailDialog({
 
         <DialogFooter className="mx-6 mb-5">
           <div className="mr-auto hidden items-center gap-1.5 text-[11px] text-muted-foreground sm:flex"><LockKeyhole className="size-3.5" />TLS ile güvenli gönderim</div>
-          <Button variant="outline" onClick={close} disabled={sending}>Vazgeç</Button>
-          <Button className="gap-2" disabled={!ready || sending || !to.trim() || !subject.trim() || !body.trim()} onClick={() => void send()}>
+          <Button variant="outline" onClick={close} disabled={sending || templateBusy}>Vazgeç</Button>
+          <Button className="gap-2" disabled={!ready || sending || uploading || templateBusy || !to.trim() || !subject.trim() || !body.trim() || body.length > 10_000} onClick={() => void send()}>
             {sending ? <Loader2 className="size-4 animate-spin" /> : <Send className="size-4" />}
             {sending ? "Gönderiliyor" : "E-postayı gönder"}
           </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
+    <AlertDialog open={deleteTemplateOpen} onOpenChange={(open) => { if (!templateBusy) setDeleteTemplateOpen(open); }}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Mail şablonu silinsin mi?</AlertDialogTitle>
+          <AlertDialogDescription>“{selectedTemplate?.title}” kayıtlı şablonlardan kaldırılacak. Yazdığınız mesaj korunur.</AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={templateBusy}>Vazgeç</AlertDialogCancel>
+          <AlertDialogAction disabled={templateBusy} onClick={(event) => { event.preventDefault(); void removeTemplate(); }}>{templateBusy ? "Siliniyor…" : "Şablonu sil"}</AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+    </>
   );
 }

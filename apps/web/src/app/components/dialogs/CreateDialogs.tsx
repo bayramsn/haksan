@@ -1,3 +1,6 @@
+import { defaultVatRateForProductType } from "../../lib/productVat";
+import { displayProductCategoryOptions, PRODUCT_CATEGORIES, sameProductCategory, uniqueProductCategoryOptions, preserveProductCategorySelection, productCategoriesForGroup, productCategoryCodeForGroup } from "../../lib/productCategories";
+export { sameProductCategory, uniqueProductCategoryOptions, preserveProductCategorySelection } from "../../lib/productCategories";
 import { cloneElement, isValidElement, useEffect, useId, useMemo, useRef, useState } from "react";
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger,
@@ -70,6 +73,7 @@ import { serviceService, fileService, financeService, activityService, inventory
 import { resolveMediaUrl } from "../../../lib/apiClient";
 import { Badge } from "../ui/badge";
 import { useAuth } from "../../../lib/auth";
+import { ProductConfigurationOptionsEditor, isConfigurableProduct, isConfigurableLaserProduct } from "../technical/ProductConfigurationOptions";
 import { LaserConfigurationEditor } from "../technical/LaserConfigurationEditor";
 import { laserDraftKey } from "../technical/laser-editor-state";
 import { isSupportedLaserBrand, isLaserProductType, type LaserSelection, type LaserTechnicalConfiguration } from "@haksan/shared";
@@ -93,7 +97,6 @@ import { districtsForCountry, provincesForCountry } from "../../lib/geoByCountry
 import {
   DIVISION_MACHINE_TYPES,
   allCatalogProductSpecs,
-  dropForeignMachineSpecs,
   foldProductTypeCode,
   groupProductSpecsForType,
   mergeSpecsWithDefaults,
@@ -2258,6 +2261,7 @@ const emptyStockForm = () => ({
   counterModel: "",
   serialNumber: "",
   controlPanel: "",
+  controlUnitSerialNumber: "",
   stockCode: "",
   itemCondition: "new" as StockConditionCode,
   warehouseId: "",
@@ -2277,6 +2281,7 @@ const stockEditForm = (item: StockItem | null) => ({
   productId: item?.productId ?? "",
   serialNumber: item?.serialNumber ?? "",
   controlPanel: item?.controlPanel ?? "",
+  controlUnitSerialNumber: item?.controlUnitSerialNumber ?? "",
   itemCondition: (item?.itemCondition ?? "new") as StockConditionCode,
   warehouseId: item?.warehouseId ?? "",
   loadingDate: item?.loadingDate ?? "",
@@ -2293,7 +2298,7 @@ export function CreateStockDialog({ trigger }: { trigger: React.ReactNode }) {
   const [productId, setProductId] = useState("");
   const [quantity, setQuantity] = useState("5");
   const [saving, setSaving] = useState(false);
-  const [warehouses, setWarehouses] = useState<Array<{ id: string; name: string }>>([]);
+  const [warehouses, setWarehouses] = useState<Array<{ id: string; name: string; type?: string }>>([]);
   const [form, setForm] = useState(emptyStockForm);
   const [linkedOptionalIds, setLinkedOptionalIds] = useState<string[]>([]);
 
@@ -2302,7 +2307,7 @@ export function CreateStockDialog({ trigger }: { trigger: React.ReactNode }) {
     inventoryService.listWarehouses()
       .then((rows) => setWarehouses(
         rows
-          .map((warehouse: { id?: string; name?: string }) => ({ id: warehouse.id ?? "", name: warehouse.name ?? "" }))
+          .map((warehouse: { id?: string; name?: string; type?: string }) => ({ id: warehouse.id ?? "", name: warehouse.name ?? "", type: warehouse.type }))
           .filter((warehouse) => warehouse.id && warehouse.name),
       ))
       .catch(() => setWarehouses([]));
@@ -2357,6 +2362,7 @@ export function CreateStockDialog({ trigger }: { trigger: React.ReactNode }) {
         const qty = parseInt(quantity || "0", 10) || 0;
         if (qty < 1) { setSaving(false); return toast.error("Adet en az 1 olmalı"); }
         if (qty > 100) { setSaving(false); return toast.error("Tek seferde en fazla 100 kalem"); }
+        if (qty > 1 && form.controlUnitSerialNumber.trim()) { setSaving(false); return toast.error("Her kontrol ünitesinin seri numarası ayrıdır. Seri numaralarını tek tek stok kaydı açarak girin."); }
         const used = new Set(stock.map((s) => s.serialNumber));
         let seq = 1;
         let created = 0;
@@ -2534,6 +2540,7 @@ export function CreateStockDialog({ trigger }: { trigger: React.ReactNode }) {
                 placeholder="Kontrol ünitesi seç veya yaz..."
               />
             </div>
+            <Field label="Kontrol Ünitesi Seri No" name="stock-control-unit-serial" value={form.controlUnitSerialNumber} onChange={(value) => setForm({ ...form, controlUnitSerialNumber: value })} placeholder="Ünitenin seri numarası" />
             <div>
               <Label className="text-xs">Kondisyon</Label>
               <Select value={form.itemCondition} onValueChange={(value: StockConditionCode) => setForm({ ...form, itemCondition: value })}>
@@ -2546,7 +2553,7 @@ export function CreateStockDialog({ trigger }: { trigger: React.ReactNode }) {
               </Select>
             </div>
             <div>
-              <Label className="text-xs">Depo</Label>
+              <Label className="text-xs">Fiziksel Konum / Depo</Label>
               <Select
                 value={form.warehouseId || undefined}
                 onValueChange={(warehouseId) => setForm({
@@ -2557,7 +2564,7 @@ export function CreateStockDialog({ trigger }: { trigger: React.ReactNode }) {
               >
                 <SelectTrigger className="mt-1.5"><SelectValue placeholder="Depo seçin" /></SelectTrigger>
                 <SelectContent>
-                  {warehouses.map((warehouse) => <SelectItem key={warehouse.id} value={warehouse.id}>{warehouse.name}</SelectItem>)}
+                  {warehouses.map((warehouse) => <SelectItem key={warehouse.id} value={warehouse.id}>{warehouse.name}{warehouse.type ? ` · ${warehouse.type}` : ""}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
@@ -2566,7 +2573,7 @@ export function CreateStockDialog({ trigger }: { trigger: React.ReactNode }) {
               <Select value={form.status} onValueChange={(v: any) => setForm({ ...form, status: v })}>
                 <SelectTrigger className="mt-1.5"><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  {STATUSES.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+                  {STATUSES.map((s) => <SelectItem key={s} value={s}>{s === "Available" ? "Bekliyor (satışa hazır)" : s === "InTransit" ? "Yolda" : "Pasif"}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
@@ -2601,7 +2608,7 @@ export function CreateStockDialog({ trigger }: { trigger: React.ReactNode }) {
 export function EditStockDialog({ item, onClose }: { item: StockItem | null; onClose: () => void }) {
   const { updateStock, stock, products } = useStore();
   const [saving, setSaving] = useState(false);
-  const [warehouses, setWarehouses] = useState<Array<{ id: string; name: string }>>([]);
+  const [warehouses, setWarehouses] = useState<Array<{ id: string; name: string; type?: string }>>([]);
   const [form, setForm] = useState(() => stockEditForm(item));
 
   useEffect(() => {
@@ -2609,7 +2616,7 @@ export function EditStockDialog({ item, onClose }: { item: StockItem | null; onC
     inventoryService.listWarehouses()
       .then((rows) => setWarehouses(
         rows
-          .map((warehouse: { id?: string; name?: string }) => ({ id: warehouse.id ?? "", name: warehouse.name ?? "" }))
+          .map((warehouse: { id?: string; name?: string; type?: string }) => ({ id: warehouse.id ?? "", name: warehouse.name ?? "", type: warehouse.type }))
           .filter((warehouse) => warehouse.id && warehouse.name),
       ))
       .catch(() => setWarehouses([]));
@@ -2644,6 +2651,7 @@ export function EditStockDialog({ item, onClose }: { item: StockItem | null; onC
         productId: form.productId || undefined,
         serialNumber: form.serialNumber.trim(),
         controlPanel: form.controlPanel.trim(),
+        controlUnitSerialNumber: form.controlUnitSerialNumber.trim(),
         itemCondition: form.itemCondition,
         warehouseId: form.warehouseId,
         loadingDate: form.loadingDate,
@@ -2695,6 +2703,7 @@ export function EditStockDialog({ item, onClose }: { item: StockItem | null; onC
                 placeholder="Kontrol ünitesi seç veya yaz..."
               />
             </div>
+            <Field label="Kontrol Ünitesi Seri No" name="stock-control-unit-serial" value={form.controlUnitSerialNumber} onChange={(value) => setForm({ ...form, controlUnitSerialNumber: value })} placeholder="Ünitenin seri numarası" />
             <div>
               <Label className="text-xs">Kondisyon</Label>
               <Select value={form.itemCondition} onValueChange={(value: StockConditionCode) => setForm({ ...form, itemCondition: value })}>
@@ -2707,14 +2716,14 @@ export function EditStockDialog({ item, onClose }: { item: StockItem | null; onC
               </Select>
             </div>
             <div>
-              <Label className="text-xs">Depo</Label>
+              <Label className="text-xs">Fiziksel Konum / Depo</Label>
               <Select
                 value={form.warehouseId || undefined}
                 onValueChange={(warehouseId) => setForm({ ...form, warehouseId })}
               >
                 <SelectTrigger className="mt-1.5"><SelectValue placeholder="Depo seçin" /></SelectTrigger>
                 <SelectContent>
-                  {warehouses.map((warehouse) => <SelectItem key={warehouse.id} value={warehouse.id}>{warehouse.name}</SelectItem>)}
+                  {warehouses.map((warehouse) => <SelectItem key={warehouse.id} value={warehouse.id}>{warehouse.name}{warehouse.type ? ` · ${warehouse.type}` : ""}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
@@ -3053,13 +3062,7 @@ const PRODUCT_GROUPS: ProductOption[] = [
   { code: "UNIVERSAL", label: "Üniversal" },
   { code: "SAC_ISLEME", label: "Sac İşleme" },
 ];
-const PRODUCT_CATEGORIES: ProductOption[] = [
-  { code: "TEZGAH", label: "Tezgah" },
-  { code: "YEDEK_PARCA", label: "Yedek Parça" },
-  { code: "OPSIYONEL_DONANIM", label: "Opsiyonel Donanım" },
-  { code: "ISCILIK", label: "İşçilik" },
-  { code: "AKSESUAR", label: "Aksesuar" },
-];
+
 const PRODUCT_SUBCATEGORIES: ProductOption[] = [
   { code: "ISLEME_MERKEZI", label: "İşleme Merkezi" },
   { code: "TORNA", label: "Torna" },
@@ -3156,12 +3159,7 @@ const PRODUCT_CURRENCIES: Array<{ code: "USD" | "TRY" | "EUR"; label: string }> 
 ];
 const PRODUCT_VAT_RATES = ["10", "20"];
 const DEFAULT_PRODUCT_VAT_RATE = "20";
-const defaultVatRateForProductType = (productTypeCode: string): string | null => {
-  const code = productTypeCode.toLocaleUpperCase("tr-TR");
-  if (code.includes("TORNA")) return "10";
-  if (code.includes("ISLEME_MERKEZ")) return "20";
-  return null;
-};
+
 
 const normalizeProductVatRate = (value: string | number | null | undefined) => {
   const rate = String(value ?? DEFAULT_PRODUCT_VAT_RATE);
@@ -3261,6 +3259,7 @@ export const subcategoriesForProductCategory = (
   productTypeOptions: ProductTypeOption[],
   productSubcategoryOptions: ProductSubcategoryOption[],
   productGroupCode = "",
+  categoryOptions: ProductOption[] = [],
 ) => {
   const scopeToProductGroup = (candidates: ProductSubcategoryOption[]) => {
     if (!productGroupCode) return [];
@@ -3290,14 +3289,14 @@ export const subcategoriesForProductCategory = (
   if (!categoryCode) return scopeToProductGroup(productSubcategoryOptions);
 
   const linked = productSubcategoryOptions.filter(
-    (subcategory) => subcategory.categoryCode && sameProductCode(subcategory.categoryCode, categoryCode),
+    (subcategory) => subcategory.categoryCode && sameProductCategory(categoryOptions, subcategory.categoryCode, categoryCode),
   );
   if (linked.length > 0) return scopeToProductGroup(linked);
 
   const inferred = productSubcategoryOptions.filter((subcategory) =>
     productTypeOptions.some(
       (type) =>
-        (!type.categoryCode || sameProductCode(type.categoryCode, categoryCode)) &&
+        (!type.categoryCode || sameProductCategory(categoryOptions, type.categoryCode, categoryCode)) &&
         sameProductCode(type.subcategoryCode, subcategory.code),
     ),
   );
@@ -3346,7 +3345,7 @@ const compactProductCode = (value: string) =>
     .replace(/^-+|-+$/g, "")
     .slice(0, 64);
 
-const moneyNumber = (value: string) => Number(value.replace(",", ".")) || 0;
+export const moneyNumber = (value: string) => value.trim() === "" ? null : Number(value.replace(",", "."));
 const OPTIONAL_EQUIPMENT_CATEGORY_CODE = "OPSIYONEL_DONANIM";
 type OptionalEquipmentDraft = { machine: string; product: string; serial: string; type: string; category: string };
 const emptyOptionalEquipmentDraft = (): OptionalEquipmentDraft => ({ machine: "", product: "", serial: "", type: "", category: "" });
@@ -3443,7 +3442,7 @@ const emptyProduct = (productGroupCode = ""): ProductFormState => ({
   status: "active",
 });
 
-const fromProduct = (p: Product): ProductFormState => ({
+export const fromProduct = (p: Product): ProductFormState => ({
   technicalConfiguration: p.technicalConfiguration ?? null,
   brand: p.brand,
   series: p.series ?? "",
@@ -3466,8 +3465,8 @@ const fromProduct = (p: Product): ProductFormState => ({
   modelName: p.modelName ?? "",
   controlPanel: p.controlPanel,
   imageUrl: p.imageUrl, shortDescription: p.shortDescription, description: p.description,
-  listPrice: String(p.listPrice || ""), cashPrice: p.cashPrice ? String(p.cashPrice) : "", currency: p.currency,
-  vatRate: normalizeProductVatRate(p.vatRate),
+  listPrice: p.listPrice == null ? "" : String(p.listPrice), cashPrice: p.cashPrice == null ? "" : String(p.cashPrice), currency: p.currency,
+  vatRate: defaultVatRateForProductType(p.productTypeCode ?? "", p.type, sameProductCategory([{ code: p.categoryCode ?? "TEZGAH", label: p.category ?? "Tezgah" }], p.categoryCode ?? "TEZGAH", "TEZGAH")) === "10" ? "10" : normalizeProductVatRate(p.vatRate),
   originCountry: p.originCountry ?? "",
   hsCode: p.hsCode ?? "",
   stockCode: p.stockCode || p.model,
@@ -3475,11 +3474,14 @@ const fromProduct = (p: Product): ProductFormState => ({
   // yeniden uygulanmaz. Uygulanırsa kullanıcının sildiği alan formda geri
   // gelir ve ilk kayıtta tekrar yazılır. Şablonun tamamı istendiğinde
   // "Sabit listeyi tamamla" düğmesiyle bilinçli olarak eklenir.
-  specs: p.technicalConfiguration ? p.technicalConfiguration.specs.map((spec) => ({ ...spec })) : catalogSpecs(dropForeignMachineSpecs(p.productTypeCode, p.specs ?? []), ""),
+  specs: p.technicalConfiguration ? p.technicalConfiguration.specs.map((spec) => ({ ...spec })) : catalogSpecs(p.specs ?? [], ""),
   standardEquipment: [...p.standardEquipment], optionalEquipment: [...p.optionalEquipment],
   muadilProductIds: p.muadilProductIds?.length ? p.muadilProductIds : (p.muadilProductId ? [p.muadilProductId] : []),
   status: p.status,
 });
+
+export const isNewLaserBaseCard = (mode: string, productTypeCode?: string) =>
+  mode === 'create' && isConfigurableLaserProduct({ productTypeCode: canonicalProductTypeCode(productTypeCode) });
 
 export function ProductDialog({
   trigger, mode = "create", product, open: controlledOpen, onOpenChange,
@@ -3490,7 +3492,7 @@ export function ProductDialog({
   open?: boolean;
   onOpenChange?: (o: boolean) => void;
 }) {
-  const { addProduct, updateProduct, products } = useStore();
+  const { addProduct, updateProduct, updateProductStandardEquipment, products } = useStore();
   const { activeDivision, user } = useAuth();
   const activeProductGroupCode = useMemo(() => {
     if (!activeDivision || activeDivision === "all") return "";
@@ -3547,13 +3549,32 @@ export function ProductDialog({
     }
     return byCode.size ? Array.from(byCode.values()) : PRODUCT_GROUPS;
   }, [DIVISION_GROUP_CODES, productGroupRows]);
-  const productCategoryOptions = lookupCodeOptions(productCategoryRows);
+  const allProductCategoryOptions = lookupCodeOptions(productCategoryRows);
+  const categoryMatches = (a?: string | null, b?: string | null) => sameProductCategory(allProductCategoryOptions, a, b);
   const productGroupCodeByDivisionId = useMemo(() => new Map(
     (user?.divisions ?? []).map((division) => [
       division.id,
       division.code === "universal" ? "UNIVERSAL" : division.code === "sac_isleme" ? "SAC_ISLEME" : "CNC",
     ]),
   ), [user?.divisions]);
+  const scopedCategoryOptions = productCategoryRows.map((row) => {
+    const parent = productGroupRows.find((group) => group.id && group.id === row.productGroupId);
+    const divisionId = row.divisionId ?? parent?.divisionId;
+    return {
+      code: row.code,
+      label: row.name,
+      productGroupCode: (divisionId ? productGroupCodeByDivisionId.get(divisionId) : undefined)
+        ?? (parent && DIVISION_GROUP_CODES.has(parent.code) ? parent.code : undefined),
+    };
+  });
+  const productCategoryOptions = displayProductCategoryOptions(uniqueProductCategoryOptions(productCategoriesForGroup(scopedCategoryOptions, form.productGroupCode), form.categoryCode), form.productGroupCode);
+  useEffect(() => {
+    if (!open || !form.productGroupCode || !productCategoryRows.length) return;
+    const categoryCode = productCategoryCodeForGroup(scopedCategoryOptions, form.productGroupCode, form.categoryCode);
+    if (categoryCode && categoryCode !== form.categoryCode) {
+      setForm((current) => ({ ...current, categoryCode, category: findLabel(scopedCategoryOptions, categoryCode) }));
+    }
+  }, [open, form.productGroupCode, form.categoryCode, productCategoryRows, productGroupRows, productGroupCodeByDivisionId]);
   // Alt kategori seçenekleri kendi kategori kodlarını taşır; filtre böylece
   // ürün tipi bağına muhtaç kalmadan doğrudan çalışır.
   const productSubcategoryOptions = useMemo<ProductSubcategoryOption[]>(() => {
@@ -3564,9 +3585,14 @@ export function ProductDialog({
       code: row.code,
       label: row.name,
       categoryCode: row.categoryId ? categoryCodeById.get(row.categoryId) : undefined,
-      productGroupCode: row.divisionId ? productGroupCodeByDivisionId.get(row.divisionId) : undefined,
+      productGroupCode: row.divisionId ? productGroupCodeByDivisionId.get(row.divisionId)
+        : (() => {
+          const category = productCategoryRows.find((item) => item.id === row.categoryId);
+          const group = productGroupRows.find((item) => item.id === category?.productGroupId);
+          return (category?.divisionId ? productGroupCodeByDivisionId.get(category.divisionId) : undefined) ?? group?.code;
+        })(),
     }));
-  }, [productSubcategoryRows, productCategoryRows, productGroupCodeByDivisionId]);
+  }, [productSubcategoryRows, productCategoryRows, productGroupRows, productGroupCodeByDivisionId]);
   const productTypeOptions = useMemo<ProductTypeOption[]>(() => {
     const labelByCode = new Map(productTypeRows.map((row) => [row.code, row.name]));
     // DB taksonomi bağları: tipin alt kategorisi ve alt kategorinin kategorisi.
@@ -3576,7 +3602,7 @@ export function ProductDialog({
     // kopyalar tek seçeneğe katlanır ("hepsinden birer tane").
     const byCode = new Map<string, ProductTypeOption>();
     const put = (option: ProductTypeOption) => {
-      if (!option.code) return;
+      if (!option.code || (form.productGroupCode && option.productGroupCode && !sameProductCode(form.productGroupCode, option.productGroupCode))) return;
       const key = canonicalProductTypeCode(option.code);
       const current = byCode.get(key);
       byCode.set(key, {
@@ -3591,6 +3617,9 @@ export function ProductDialog({
       const meta = productTypeMeta(row.code);
       const linkedSubcategory = row.subcategoryId ? subcategoryById.get(row.subcategoryId) : undefined;
       const linkedCategoryCode = linkedSubcategory?.categoryId ? categoryCodeById.get(linkedSubcategory.categoryId) : undefined;
+      const linkedCategory = productCategoryRows.find((category) => category.id && category.id === linkedSubcategory?.categoryId);
+      const linkedGroup = productGroupRows.find((group) => group.id && group.id === linkedCategory?.productGroupId);
+      const divisionId = row.divisionId ?? linkedSubcategory?.divisionId ?? linkedCategory?.divisionId ?? linkedGroup?.divisionId;
       put({
         code: row.code,
         label: row.name,
@@ -3599,7 +3628,9 @@ export function ProductDialog({
         // seçimi geçerli alt kategoriyi başka bir koda çevirip formu temizler.
         categoryCode: linkedCategoryCode ?? meta?.categoryCode ?? (linkedSubcategory ? "TEZGAH" : undefined),
         subcategoryCode: linkedSubcategory?.code ?? meta?.subcategoryCode,
-        productGroupCode: (row.divisionId ? productGroupCodeByDivisionId.get(row.divisionId) : undefined) ?? meta?.productGroupCode,
+        productGroupCode: (divisionId ? productGroupCodeByDivisionId.get(divisionId) : undefined)
+          ?? (linkedGroup && DIVISION_GROUP_CODES.has(linkedGroup.code) ? linkedGroup.code : undefined)
+          ?? meta?.productGroupCode,
       });
     });
     products.forEach((product) => {
@@ -3629,7 +3660,7 @@ export function ProductDialog({
       if (entry && entry.code !== form.productTypeCode) byCode.set(key, { ...entry, code: form.productTypeCode });
     }
     return Array.from(byCode.values());
-  }, [form.categoryCode, form.productGroupCode, form.productTypeCode, form.subcategoryCode, form.type, productCategoryRows, productGroupCodeByDivisionId, productSubcategoryRows, productTypeRows, products]);
+  }, [form.categoryCode, form.productGroupCode, form.productTypeCode, form.subcategoryCode, form.type, productCategoryRows, productGroupRows, productGroupCodeByDivisionId, productSubcategoryRows, productTypeRows, products]);
 
   useEffect(() => {
     if (!open) return;
@@ -3692,7 +3723,7 @@ export function ProductDialog({
 
   const handleOpen = (o: boolean) => {
     setOpen(o);
-    if (o && mode === "edit") reset();
+    if (o) reset();
   };
 
   const updSpec = (i: number, patch: Partial<ProductSpec>) => {
@@ -3727,14 +3758,21 @@ export function ProductDialog({
     productTypeOptions,
     productSubcategoryOptions,
     form.productGroupCode,
+    allProductCategoryOptions,
   );
   const categoryUsesSubcategory = availableProductSubcategories.length > 0;
+  useEffect(() => {
+    if (!open || mode !== "create" || form.productTypeCode || !availableProductSubcategories.length) return;
+    if (availableProductSubcategories.some((option) => sameProductCode(option.code, form.subcategoryCode))) return;
+    const first = availableProductSubcategories[0];
+    setForm((current) => ({ ...current, subcategoryCode: first.code, subcategory: first.label }));
+  }, [open, mode, form.productTypeCode, form.productGroupCode, form.categoryCode, form.subcategoryCode, productSubcategoryRows, productTypeRows]);
 
   // Ürün tipini seçili gruba, kategoriye ve (tezgahsa) alt kategoriye göre filtrele
   const typeMatches = (o: ProductTypeOption, categoryCode: string, subcategoryCode: string, groupCode?: string) => {
     if (!typeMatchesGroup(o, groupCode)) return false;
-    if (o.categoryCode && !sameProductCode(o.categoryCode, categoryCode)) return false;
-    if (subcategoriesForProductCategory(categoryCode, productTypeOptions, productSubcategoryOptions, groupCode).length > 0) {
+    if (o.categoryCode && !categoryMatches(o.categoryCode, categoryCode)) return false;
+    if (subcategoriesForProductCategory(categoryCode, productTypeOptions, productSubcategoryOptions, groupCode, allProductCategoryOptions).length > 0) {
       return !o.subcategoryCode || sameProductCode(o.subcategoryCode, subcategoryCode);
     }
     return true;
@@ -3757,33 +3795,44 @@ export function ProductDialog({
         const label =
           productTypeGroupLabel(option.code) ??
           (foldedOptionLabel(productSubcategoryOptions, option.subcategoryCode) ||
-            foldedOptionLabel(productCategoryOptions, option.categoryCode) ||
-            "CNC");
+            foldedOptionLabel(allProductCategoryOptions, option.categoryCode) ||
+            findLabel(PRODUCT_GROUPS, option.productGroupCode ?? form.productGroupCode, "Ürün Tipleri"));
         groups.set(label, [...(groups.get(label) ?? []), option]);
         return groups;
       }, new Map<string, ProductTypeOption[]>()),
     ([label, options]) => ({ label, options }),
   )
     .filter((group) => group.options.length > 0);
-  const isMachineProduct = form.categoryCode === "TEZGAH";
+  const isMachineProduct = categoryMatches(form.categoryCode, "TEZGAH");
   const selectedBrandRow = brandRows.find((row) => row.name === form.brand);
+  const isCreatingLaserBase = isMachineProduct && isNewLaserBaseCard(mode, form.productTypeCode);
+  const isExistingBaseCard = Boolean(product?.laserBaseConfiguration || product?.baseModelConfiguration);
   const isCatalogLaserProduct = isMachineProduct && form.productGroupCode === "SAC_ISLEME" && isLaserProductType(canonicalProductTypeCode(form.productTypeCode)) && isSupportedLaserBrand(form.brand, selectedBrandRow?.technicalCatalogCode);
-  const isOptionalEquipmentProduct = form.categoryCode === OPTIONAL_EQUIPMENT_CATEGORY_CODE;
-  const isLaborProduct = form.categoryCode === "ISCILIK" || form.productTypeCode === "ISCILIK";
+  const isOptionalEquipmentProduct = categoryMatches(form.categoryCode, OPTIONAL_EQUIPMENT_CATEGORY_CODE);
+  const isLaborProduct = categoryMatches(form.categoryCode, "ISCILIK") || sameProductCode(form.productTypeCode, "ISCILIK");
   const compatibilityGroupOptions = productGroupOptions.map((o) => ({ value: o.code, label: o.label }));
-  const compatibilityCategoryOptions = productCategoryOptions
-    .filter((o) => o.code !== OPTIONAL_EQUIPMENT_CATEGORY_CODE)
+  const compatibilityCategoryOptions = uniqueProductCategoryOptions([
+    ...allProductCategoryOptions,
+    // Başka bölümdeki/kaldırılmış lookup kodları mevcut seçimden sessizce düşmesin.
+    ...form.optionalCompatibilityCategoryCodes
+      .filter((code) => !allProductCategoryOptions.some((option) => categoryMatches(option.code, code)))
+      .map((code) => ({ code, label: code })),
+  ], form.optionalCompatibilityCategoryCodes)
+    .filter((o) => !categoryMatches(o.code, OPTIONAL_EQUIPMENT_CATEGORY_CODE))
     .map((o) => ({ value: o.code, label: o.label }));
+  const compatibilityCategorySelection = compatibilityCategoryOptions
+    .filter((option) => form.optionalCompatibilityCategoryCodes.some((code) => categoryMatches(code, option.value)))
+    .map((option) => option.value);
   const compatibilitySubcategoryOptions = productSubcategoryOptions.map((o) => ({ value: o.code, label: o.label }));
   const compatibilityTypeOptions = productTypeOptions
-    .filter((o) => o.categoryCode === "TEZGAH")
+    .filter((o) => categoryMatches(o.categoryCode, "TEZGAH"))
     .map((o) => ({ value: o.code, label: o.label }));
   const compatibilityBrandOptions = brandRows.map((row) => ({ value: row.id, label: row.name }));
   const productBrandOptions = Array.from(new Set([
     ...products
       .filter((p) => {
         if (form.productGroupCode && p.productGroupCode && p.productGroupCode !== form.productGroupCode) return false;
-        if (form.categoryCode && p.categoryCode && p.categoryCode !== form.categoryCode) return false;
+        if (form.categoryCode && p.categoryCode && !categoryMatches(p.categoryCode, form.categoryCode)) return false;
         if (form.subcategoryCode && p.subcategoryCode && p.subcategoryCode !== form.subcategoryCode) return false;
         if (form.productTypeCode && p.productTypeCode && p.productTypeCode !== form.productTypeCode) return false;
         return true;
@@ -3793,7 +3842,7 @@ export function ProductDialog({
     form.brand,
   ].filter(Boolean))).sort((a, b) => a.localeCompare(b, "tr-TR"));
   const canSelectProductBrand = Boolean(form.productTypeCode);
-  const muadilOptions = products.filter((p) => p.id !== product?.id && p.categoryCode !== OPTIONAL_EQUIPMENT_CATEGORY_CODE);
+  const muadilOptions = products.filter((p) => p.id !== product?.id && !categoryMatches(p.categoryCode, OPTIONAL_EQUIPMENT_CATEGORY_CODE));
   const validMuadilIds = new Set(muadilOptions.map((p) => p.id));
   const selectedMuadilIds = form.muadilProductIds.filter((id) => validMuadilIds.has(id));
   const selectedMuadils = muadilOptions.filter((p) => selectedMuadilIds.includes(p.id));
@@ -3833,24 +3882,28 @@ export function ProductDialog({
 
   // Ürün tipi/kategori değişse de sabit teknik katalog korunur.
   const specsAfterChange = (kept: { productTypeCode: string }) =>
-    specsForSelectedProductType(form.technicalConfiguration ? [] : form.specs, kept.productTypeCode, "", typeSpecTemplate);
+    mode === "edit" ? catalogSpecs(form.specs, "") : specsForSelectedProductType(form.technicalConfiguration ? [] : form.specs, kept.productTypeCode, "", typeSpecTemplate);
 
   const onProductGroupChange = (code: string) => {
+    const categoryCode = productCategoryCodeForGroup(scopedCategoryOptions, code, form.categoryCode);
     // Ürün Kategorisi → Ürün → Ürün Alt Kategorisi → Ürün Grubu → Ürün Tipi:
     // grup değişince katalogdaki ürün tipi seçili gruba artık uymuyorsa sıfırlanır.
     const subcategoryOptions = subcategoriesForProductCategory(
-      form.categoryCode,
+      categoryCode,
       productTypeOptions,
       productSubcategoryOptions,
       code,
+      allProductCategoryOptions,
     );
     const subcategoryCode = subcategoryOptions.some((option) => sameProductCode(option.code, form.subcategoryCode))
       ? resolveOptionCode(subcategoryOptions, form.subcategoryCode)
       : subcategoryOptions[0]?.code ?? "";
-    const kept = keepTypeIfValid(form.categoryCode, subcategoryCode, code);
+    const kept = keepTypeIfValid(categoryCode, subcategoryCode, code);
     setForm({
       ...form,
       productGroupCode: code,
+      categoryCode,
+      category: findLabel(scopedCategoryOptions, categoryCode),
       technicalConfiguration: null,
       productGroup: findLabel(productGroupOptions, code),
       subcategoryCode,
@@ -3862,13 +3915,14 @@ export function ProductDialog({
   };
 
   const onCategoryChange = (code: string) => {
-    const subcategoryOptions = subcategoriesForProductCategory(code, productTypeOptions, productSubcategoryOptions, form.productGroupCode);
+    const subcategoryOptions = subcategoriesForProductCategory(code, productTypeOptions, productSubcategoryOptions, form.productGroupCode, allProductCategoryOptions);
     const usesSubcategory = subcategoryOptions.length > 0;
     const subcategoryCode = usesSubcategory && subcategoryOptions.some((option) => option.code === form.subcategoryCode)
       ? form.subcategoryCode
       : subcategoryOptions[0]?.code ?? "";
     const subcategory = usesSubcategory ? findLabel(productSubcategoryOptions, subcategoryCode, subcategoryOptions[0]?.label ?? "") : "";
-    const machineType = code === "OPSIYONEL_DONANIM" ? form.compatibleMachineType : "";
+    const isOptionalEquipment = categoryMatches(code, OPTIONAL_EQUIPMENT_CATEGORY_CODE);
+    const machineType = isOptionalEquipment ? form.compatibleMachineType : "";
     const kept = keepTypeIfValid(code, subcategoryCode, form.productGroupCode);
     setForm({
       ...form,
@@ -3878,11 +3932,11 @@ export function ProductDialog({
       subcategoryCode,
       subcategory,
       compatibleMachineType: machineType,
-      optionalCompatibilityGroupCodes: code === OPTIONAL_EQUIPMENT_CATEGORY_CODE ? form.optionalCompatibilityGroupCodes : [],
-      optionalCompatibilityCategoryCodes: code === OPTIONAL_EQUIPMENT_CATEGORY_CODE ? form.optionalCompatibilityCategoryCodes : [],
-      optionalCompatibilitySubcategoryCodes: code === OPTIONAL_EQUIPMENT_CATEGORY_CODE ? form.optionalCompatibilitySubcategoryCodes : [],
-      optionalCompatibilityTypeCodes: code === OPTIONAL_EQUIPMENT_CATEGORY_CODE ? form.optionalCompatibilityTypeCodes : [],
-      optionalCompatibilityBrandIds: code === OPTIONAL_EQUIPMENT_CATEGORY_CODE ? form.optionalCompatibilityBrandIds : [],
+      optionalCompatibilityGroupCodes: isOptionalEquipment ? form.optionalCompatibilityGroupCodes : [],
+      optionalCompatibilityCategoryCodes: isOptionalEquipment ? form.optionalCompatibilityCategoryCodes : [],
+      optionalCompatibilitySubcategoryCodes: isOptionalEquipment ? form.optionalCompatibilitySubcategoryCodes : [],
+      optionalCompatibilityTypeCodes: isOptionalEquipment ? form.optionalCompatibilityTypeCodes : [],
+      optionalCompatibilityBrandIds: isOptionalEquipment ? form.optionalCompatibilityBrandIds : [],
       ...kept,
       brand: "",
       specs: specsAfterChange(kept),
@@ -3893,6 +3947,7 @@ export function ProductDialog({
     const kept = keepTypeIfValid(form.categoryCode, code, form.productGroupCode);
     setForm({
       ...form,
+      vatRate: defaultVatRateForProductType(code, findLabel(productSubcategoryOptions, code), isMachineProduct) ?? form.vatRate,
       subcategoryCode: code,
       technicalConfiguration: null,
       subcategory: findLabel(productSubcategoryOptions, code),
@@ -3904,14 +3959,16 @@ export function ProductDialog({
 
   // Tipin DB teknik bilgi şablonunu çeker ve aklında tutar; forma dokunmaz.
   const loadSpecTemplate = async (code: string): Promise<ProductSpec[]> => {
-    typeSpecTemplateFetch.current = code;
+    const requestKey = `${selectedProductDivisionId ?? ""}:${code}`;
+    typeSpecTemplateFetch.current = requestKey;
     try {
-      const rows = await productService.specTemplates(code);
+      const rows = await productService.specTemplates(code, selectedProductDivisionId);
+      if (typeSpecTemplateFetch.current !== requestKey) return [];
       const templateSpecs: ProductSpec[] = (rows ?? [])
         .filter((row: any) => row.isActive !== false && row.specKey)
         .map((row: any) => ({
           key: row.specKey,
-          value: row.defaultValue ?? "",
+          value: "",
           unit: row.specUnit ?? "",
           specUnit: row.specUnit ?? "",
           groupCode: row.specGroupCode ?? undefined,
@@ -3927,22 +3984,22 @@ export function ProductDialog({
   // Ürün düzenlerken de şablon bilinmeli: yoksa "Sabit listeyi tamamla" katalog
   // dışı tiplerde elinde liste olmadan çalışır.
   useEffect(() => {
-    if (!form.productTypeCode || typeSpecTemplateFetch.current === form.productTypeCode) return;
+    if (!form.productTypeCode || typeSpecTemplateFetch.current === `${selectedProductDivisionId ?? ""}:${form.productTypeCode}`) return;
     void loadSpecTemplate(form.productTypeCode);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [form.productTypeCode]);
+  }, [form.productTypeCode, selectedProductDivisionId]);
 
   // Şablonu teknik bilgi listesine işler; tip seçiminde ve "Sabit listeyi
   // tamamla" düğmesinde aynı yol kullanılır.
   const applySpecTemplate = async (code: string) => {
     if (isLaserProductType(canonicalProductTypeCode(code))) return;
-    const templateSpecs = typeSpecTemplateFetch.current === code ? typeSpecTemplate : await loadSpecTemplate(code);
+    const templateSpecs = typeSpecTemplateFetch.current === `${selectedProductDivisionId ?? ""}:${code}` ? typeSpecTemplate : await loadSpecTemplate(code);
     if (!templateSpecs.length) return;
     setForm((current) => {
       if (current.productTypeCode !== code) return current;
       return {
         ...current,
-        specs: specsForSelectedProductType([...current.specs, ...templateSpecs], code, "", templateSpecs),
+        specs: mode === "edit" ? catalogSpecs(mergeSpecsWithDefaults(current.specs, templateSpecs), "") : specsForSelectedProductType([...current.specs, ...templateSpecs], code, "", templateSpecs),
       };
     });
   };
@@ -3952,7 +4009,7 @@ export function ProductDialog({
     if (!opt) return;
     // Şablon meta kodları (BÜYÜK) DB lookup kodlarıyla birebir eşleşmeyebilir;
     // Select value TAM eşitlik istediği için gerçek seçenek koduna çöz.
-    const categoryCode = resolveOptionCode(productCategoryOptions, opt.categoryCode ?? form.categoryCode);
+    const categoryCode = resolveOptionCode(allProductCategoryOptions, opt.categoryCode ?? form.categoryCode);
     const subcategoryCode = resolveOptionCode(productSubcategoryOptions, opt.subcategoryCode ?? form.subcategoryCode);
     setForm({
       ...form,
@@ -3960,12 +4017,12 @@ export function ProductDialog({
       technicalConfiguration: null,
       type: opt.label,
       categoryCode,
-      category: findLabel(productCategoryOptions, categoryCode, form.category),
+      category: findLabel(allProductCategoryOptions, categoryCode, form.category),
       subcategoryCode,
       subcategory: findLabel(productSubcategoryOptions, subcategoryCode, form.subcategory),
-      vatRate: defaultVatRateForProductType(opt.code) ?? form.vatRate,
+      vatRate: defaultVatRateForProductType(opt.code, opt.label, sameProductCategory(productCategoryOptions, categoryCode, "TEZGAH")) ?? form.vatRate,
       brand: opt.code === form.productTypeCode ? form.brand : "",
-      specs: specsForSelectedProductType(form.technicalConfiguration ? [] : form.specs, opt.code),
+      specs: mode === "edit" ? catalogSpecs(form.specs, "") : specsForSelectedProductType(form.technicalConfiguration ? [] : form.specs, opt.code),
     });
     void applySpecTemplate(opt.code);
   };
@@ -3985,7 +4042,7 @@ export function ProductDialog({
       toast.error(isLaborProduct ? "Ürün adı zorunludur" : "Marka ve ürün adı zorunludur");
       return;
     }
-    if (isCatalogLaserProduct && !form.technicalConfiguration && (mode === 'create' || product?.technicalConfiguration || laserSelectionStarted)) {
+    if (isCatalogLaserProduct && !isCreatingLaserBase && !product?.laserBaseConfiguration && !form.technicalConfiguration && (mode === 'create' || product?.technicalConfiguration || laserSelectionStarted)) {
       toast.error('Lazer teknik bilgi seçimlerini tamamlayın', { description: 'Seri, kabin, rezonatör gücü ve model/ölçü seçilmelidir.' });
       return;
     }
@@ -3993,7 +4050,7 @@ export function ProductDialog({
     // `mergeSpecsWithDefaults` şablondaki her alanı geri ekler ve kullanıcının
     // sildiği teknik bilgi satırı hiçbir zaman silinmiş olmaz. Burada yalnızca
     // başka tezgah tipine ait alanlar elenir; ekrandaki liste olduğu gibi gider.
-    const cleanSpecs = (form.technicalConfiguration ? form.technicalConfiguration.specs : catalogSpecs(dropForeignMachineSpecs(form.productTypeCode, form.specs), "-"))
+    const cleanSpecs = (isCreatingLaserBase ? [] : form.technicalConfiguration ? form.technicalConfiguration.specs : catalogSpecs(form.specs, ""))
       .filter((s) => s.key.trim());
     // Model, stok kodunun kopyası değil: önceliği kullanıcının girdiği model
     // alanı alır. Ters sırada tüm ekranlarda model yerine stok kodu görülüyordu.
@@ -4016,7 +4073,7 @@ export function ProductDialog({
       shortDescription: form.shortDescription.trim(),
       description: form.description.trim(),
       listPrice: moneyNumber(form.listPrice),
-      cashPrice: form.cashPrice ? moneyNumber(form.cashPrice) : undefined,
+      cashPrice: moneyNumber(form.cashPrice),
       currency: form.currency,
       vatRate: Number(normalizeProductVatRate(form.vatRate)),
       originCountry: form.originCountry.trim(),
@@ -4029,7 +4086,7 @@ export function ProductDialog({
       optionalCompatibilityTypeCodes: form.optionalCompatibilityTypeCodes,
       optionalCompatibilityBrandIds: form.optionalCompatibilityBrandIds,
       specs: cleanSpecs,
-      technicalConfiguration: form.technicalConfiguration,
+      technicalConfiguration: isCreatingLaserBase ? null : form.technicalConfiguration,
       standardEquipment: form.standardEquipment,
       optionalEquipment: form.optionalEquipment,
       compatibleMachineTypeCode: form.compatibleMachineType || null,
@@ -4090,7 +4147,7 @@ export function ProductDialog({
               {/* Eski kayıtlar/şablon varsayılanları farklı yazımda kod taşıyabilir;
                   value'yu listedeki birebir koda çöz ki seçim kaybolmasın. */}
               <Select value={resolveOptionCode(productCategoryOptions, form.categoryCode)} onValueChange={onCategoryChange}>
-                <SelectTrigger className="h-8 max-w-xs"><SelectValue placeholder="Kategori seçin" /></SelectTrigger>
+                <SelectTrigger className="h-8 max-w-xs"><SelectValue placeholder="Kategori seçin">{findLabel(productCategoryOptions, form.categoryCode, form.category)}</SelectValue></SelectTrigger>
                 <SelectContent>
                   {productCategoryOptions.map((o) => <SelectItem key={o.code} value={o.code}>{o.label}</SelectItem>)}
                 </SelectContent>
@@ -4163,7 +4220,7 @@ export function ProductDialog({
               </ProductSheetRow>
             )}
 
-            {isMachineProduct && !isCatalogLaserProduct && (
+            {isMachineProduct && (!isCatalogLaserProduct || isCreatingLaserBase) && (
               <ProductSheetRow label="6. Ürün Serisi">
                 <Input
                   aria-label="Ürün serisi"
@@ -4244,8 +4301,8 @@ export function ProductDialog({
                 <ProductSheetRow label="Uyumlu Ürün Kategorileri" className="items-start">
                   <MultiSelect
                     options={compatibilityCategoryOptions}
-                    selected={form.optionalCompatibilityCategoryCodes}
-                    onChange={(next) => setForm({ ...form, optionalCompatibilityCategoryCodes: next })}
+                    selected={compatibilityCategorySelection}
+                    onChange={(next) => setForm({ ...form, optionalCompatibilityCategoryCodes: preserveProductCategorySelection(allProductCategoryOptions, form.optionalCompatibilityCategoryCodes, next) })}
                     placeholder="Kategori seçin"
                   />
                 </ProductSheetRow>
@@ -4469,7 +4526,13 @@ export function ProductDialog({
             {!isLaborProduct && (
             <ProductSheetRow label="Teknik Bilgiler" className="items-start">
               <div className="space-y-2">
-                {isCatalogLaserProduct ? (
+                {product && isConfigurableProduct(product) && (
+                  <ProductConfigurationOptionsEditor productId={product.id} base={product.laserBaseConfiguration} genericBase={product.baseModelConfiguration} currency={form.currency} />
+                )}
+                {isExistingBaseCard && <p className="text-xs text-muted-foreground">Sabit teknik bilgiler aşağıdadır. Ölçü, güç ve kapasiteye göre değişen değerler seçilen opsiyondan gelir.</p>}
+                {isCreatingLaserBase ? (
+                  <p className="rounded-md border border-dashed bg-muted/20 p-3 text-sm text-muted-foreground">Baz modeli kaydedin; tabla, güç ve kabin seçeneklerini ardından bu karttan ekleyin. Her seçeneğin ek fiyatını ayrı belirleyebilirsiniz.</p>
+                ) : product && isConfigurableProduct(product) && !isExistingBaseCard ? null : isCatalogLaserProduct && !isExistingBaseCard ? (
                   <LaserConfigurationEditor
                     divisionId={selectedProductDivisionId}
                     brandId={selectedBrandRow?.id ?? product?.brandId}
@@ -4483,7 +4546,7 @@ export function ProductDialog({
                       setForm((current) => {
                         const meta = productTypeMeta(selection.productTypeCode);
                         const option = productTypeOptions.find((entry) => canonicalProductTypeCode(entry.code) === selection.productTypeCode);
-                        const subcategoryCode = resolveOptionCode(productSubcategoryOptions, option?.subcategoryCode ?? meta?.subcategoryCode ?? (selection.productTypeCode === 'BORU_LAZER_KESIM' ? 'BORU_PROFIL_LAZER_KESIM' : 'LAZER_KESIM'));
+                        const subcategoryCode = resolveOptionCode(productSubcategoryOptions, option?.subcategoryCode ?? meta?.subcategoryCode ?? 'SAC_LAZER_KESIM');
                         return { ...current, productTypeCode: option?.code ?? selection.productTypeCode!, type: option?.label ?? meta?.label ?? (selection.productTypeCode === 'BORU_LAZER_KESIM' ? 'Boru/Profil Lazer Kesim' : 'Sac Lazer Kesim'), subcategoryCode, subcategory: findLabel(productSubcategoryOptions, subcategoryCode), series: selection.series ?? '' };
                       });
                     }}
@@ -4521,7 +4584,7 @@ export function ProductDialog({
                             )
                           }
                         />
-                        <Button
+                        {!isExistingBaseCard && <Button
                           type="button"
                           variant="outline"
                           size="sm"
@@ -4535,7 +4598,7 @@ export function ProductDialog({
                           }}
                         >
                           Sabit listeyi tamamla
-                        </Button>
+                        </Button>}
                       </div>
                     </div>
                     {technicalSpecGroups.length ? (
@@ -4633,7 +4696,7 @@ export function ProductDialog({
             />
           )}
 
-          {mode === "edit" && form.categoryCode === "TEZGAH" && (
+          {mode === "edit" && isMachineProduct && (
             <OptionalEquipmentField
               chips={form.optionalEquipment}
               draft={optionalEquipmentDraft}
@@ -4658,6 +4721,20 @@ export function ProductDialog({
 
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => setOpen(false)} disabled={submitting}>İptal</Button>
+            {mode === "edit" && product && !isLaborProduct && (
+              <Button type="button" variant="outline" disabled={submitting} onClick={async () => {
+                setSubmitting(true);
+                try {
+                  await updateProductStandardEquipment(product.id, form.standardEquipment, form.supplierCompanyId || null);
+                  toast.success("Donanım ve tedarikçi kaydedildi");
+                  setOpen(false);
+                } catch {
+                  toast.error("Donanım ve tedarikçi kaydedilemedi");
+                } finally {
+                  setSubmitting(false);
+                }
+              }}>Donanım ve tedarikçiyi kaydet</Button>
+            )}
             <Button type="submit" disabled={submitting}>{submitting ? "Kaydediliyor..." : mode === "edit" ? "Güncelle" : "Oluştur"}</Button>
           </DialogFooter>
         </form>
@@ -6942,6 +7019,7 @@ export function CreateMachineDialog({ children }: { children: React.ReactNode })
   const { stock, machines, products, addMachine } = useStore();
   const [form, setForm] = useState({
     customerId: "",
+    contactId: "",
     stockItemId: "",
     model: "",
     serialNumber: "",
@@ -6994,6 +7072,7 @@ export function CreateMachineDialog({ children }: { children: React.ReactNode })
     setWarrantyTouched({ start: false, end: false });
     setForm({
       customerId: "",
+    contactId: "",
       stockItemId: "",
       serialNumber: "",
       model: "",
@@ -7009,6 +7088,7 @@ export function CreateMachineDialog({ children }: { children: React.ReactNode })
     const next = {
       ...form,
       customerId,
+      contactId: "",
       stockItemId: "",
       model: "",
       serialNumber: "",
@@ -7074,6 +7154,10 @@ export function CreateMachineDialog({ children }: { children: React.ReactNode })
                 onValueChange={selectCustomer}
                 placeholder="Firma seçin"
               />
+            </div>
+            <div className="sm:col-span-2">
+              <Label className="text-xs">Kontak</Label>
+              <RemoteContactCombobox className="mt-1.5" companyId={form.customerId} value={form.contactId} onValueChange={(contactId) => setForm((current) => ({ ...current, contactId }))} />
             </div>
             {form.customerId && companyStockCandidates.length > 0 && (
               <div className="sm:col-span-2">

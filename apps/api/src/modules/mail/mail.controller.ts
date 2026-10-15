@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Inject, Post, Put, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Inject, Param, Post, Put, Query, UseGuards } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { z } from 'zod';
 import {
@@ -6,14 +6,20 @@ import {
   mailSendSchema,
   userMailAccountUpsertSchema,
   userMailSignatureSchema,
+  mailSignatureSchema,
+  type MailSignatureInput,
   type MailSendInput,
   type UserMailAccountUpsertInput,
   type UserMailSignatureInput,
 } from '@haksan/shared';
 import { and, asc, eq, isNull, ne, sql } from 'drizzle-orm';
 import type { DbClient } from '../../db/client';
+import { productModels } from '../../db/schema/products';
+import { productGroups } from '../../db/schema/lookup';
+import { resourceDivisionFilterWithShared } from '../../shared/utils/division-scope';
 import { companies, contacts } from '../../db/schema/companies';
 import { users } from '../../db/schema/users';
+import { userMailAccounts } from '../../db/schema/mail';
 import { DB } from '../../shared/database/database.module';
 import { UserMailAccountService } from '../../shared/mailer/user-mail-account.service';
 import { AuthGuard } from '../../shared/security/auth.guard';
@@ -67,6 +73,42 @@ export class MailController {
   @Delete('account')
   disconnect(@CurrentUser() actor: AuthContext) {
     return this.accounts.remove(actor);
+  }
+
+  @Put('signature/image')
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  async signatureImage(@Body(new ZodValidationPipe(mailSignatureSchema)) body: MailSignatureInput, @CurrentUser() actor: AuthContext) {
+    await this.accounts.saveSignature(body, actor);
+    return this.accounts.status(actor);
+  }
+
+  @Get('signature/users')
+  async signatureUsers(@CurrentUser() actor: AuthContext) {
+    this.requireSignatureAdmin(actor);
+    const rows = await this.db.select({ id: users.id, name: users.fullName, email: users.email, accountId: userMailAccounts.id }).from(users)
+      .leftJoin(userMailAccounts, and(eq(userMailAccounts.userId, users.id), eq(userMailAccounts.tenantId, actor.tenantId)))
+      .where(and(eq(users.tenantId, actor.tenantId), isNull(users.deletedAt))).orderBy(asc(users.fullName));
+    return rows.map(({ accountId, ...row }) => ({ ...row, hasMailAccount: Boolean(accountId) }));
+  }
+
+  private requireSignatureAdmin(actor: AuthContext) {
+    if (!actor.roles.includes('super_admin')) throw new ForbiddenError('İmza yönetimi süper admin yetkisi gerektirir');
+  }
+
+  @Get('signature/users/:userId')
+  async userSignature(@Param('userId', new ZodValidationPipe(z.string().uuid())) userId: string, @CurrentUser() actor: AuthContext) {
+    this.requireSignatureAdmin(actor);
+    const target = await this.db.query.users.findFirst({ where: and(eq(users.id, userId), eq(users.tenantId, actor.tenantId), isNull(users.deletedAt)) });
+    if (!target) throw new NotFoundError('Kullanıcı');
+    return this.accounts.imageSignature({ tenantId: actor.tenantId, userId });
+  }
+
+  @Put('signature/users/:userId')
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  saveUserSignature(@Param('userId', new ZodValidationPipe(z.string().uuid())) userId: string,
+    @Body(new ZodValidationPipe(mailSignatureSchema)) body: MailSignatureInput, @CurrentUser() actor: AuthContext) {
+    this.requireSignatureAdmin(actor);
+    return this.accounts.saveSignature(body, actor, userId);
   }
 
   /**
@@ -168,6 +210,28 @@ export class MailController {
     return { filename: document.pdf.filename, content, contentType: 'application/pdf' };
   }
 
+  /** Teknik föy, ürün detay ekranıyla aynı tenant/bölüm görünürlüğünü kullanır. */
+  private async productAttachment(document: NonNullable<MailSendInput['productDocument']>, actor: AuthContext) {
+    if (!actor.permissions.has('products.read')) {
+      throw new ForbiddenError('Teknik föy ekleyebilmek için products.read yetkisi gerekli');
+    }
+    const [product] = await this.db.select({ id: productModels.id })
+      .from(productModels)
+      .leftJoin(productGroups, eq(productModels.productGroupId, productGroups.id))
+      .where(and(
+        eq(productModels.id, document.id),
+        eq(productModels.tenantId, actor.tenantId),
+        isNull(productModels.deletedAt),
+        resourceDivisionFilterWithShared(actor, 'products', productGroups.divisionId) ?? sql`true`
+      )).limit(1);
+    if (!product) throw new NotFoundError('Ürün');
+    if (!this.htmlPdf.isAvailable()) {
+      throw new AppError('PDF_UNAVAILABLE', 'Sunucuda PDF üretici (Chromium) bulunamadı', 503);
+    }
+    const content = await this.htmlPdf.render(document.pdf.html);
+    return { filename: document.pdf.filename, content, contentType: 'application/pdf' };
+  }
+
   /**
    * Kullanıcının eklediği dosyalar. Her biri `createSignedDownloadUrl` ile aynı
    * erişim süzgecinden geçer; toplam boyut SMTP'yi kilitlememesi için burada
@@ -207,7 +271,9 @@ export class MailController {
         ? [await this.reportAttachment(body, actor)]
         : body.document
           ? [await this.documentAttachment(body.document, actor)]
-          : [];
+          : body.productDocument
+            ? [await this.productAttachment(body.productDocument, actor)]
+            : [];
     // Üretilen PDF de SMTP boyut sınırına sayılır.
     const generatedBytes = generated.reduce((sum, item) => sum + item.content.byteLength, 0);
     if (generatedBytes > MAIL_MAX_ATTACHMENT_BYTES) {

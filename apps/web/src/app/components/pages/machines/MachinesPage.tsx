@@ -25,6 +25,7 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "../../ui/alert-dialog";
+import { RemoteContactCombobox } from "../../shared/RemoteContactCombobox";
 import { RemoteCompanyCombobox } from "../../shared/RemoteCompanyCombobox";
 import { useCompanyDetail } from "../../../lib/companyServerData";
 
@@ -199,6 +200,7 @@ export function MachinesPage() {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [editingCustomerMachine, setEditingCustomerMachine] = useState<Machine | null>(null);
   const [editCustomerId, setEditCustomerId] = useState("");
+  const [editContactId, setEditContactId] = useState("");
   const [updatingCustomer, setUpdatingCustomer] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<Machine | null>(null);
   const [qrMachine, setQrMachine] = useState<Machine | null>(null);
@@ -215,6 +217,7 @@ export function MachinesPage() {
     event?.stopPropagation();
     setEditingCustomerMachine(machine);
     setEditCustomerId(machine.userCompanyId ?? machine.customerId);
+    setEditContactId(machine.contactId ?? "");
   };
 
   const requestDeleteMachine = (machine: Machine, event?: MouseEvent) => {
@@ -241,10 +244,10 @@ export function MachinesPage() {
     if (!editingCustomerMachine || !editCustomerId) return;
     setUpdatingCustomer(true);
     try {
-      await updateMachineCustomer(editingCustomerMachine.id, editCustomerId);
+      await updateMachineCustomer(editingCustomerMachine.id, editCustomerId, editContactId || null);
       toast.success("Kullanıcı firma güncellendi");
       setEditingCustomerMachine(null);
-      setSelected((current) => current?.id === editingCustomerMachine.id ? { ...current, customerId: editCustomerId, userCompanyId: editCustomerId } : current);
+      setSelected((current) => current?.id === editingCustomerMachine.id ? { ...current, customerId: editCustomerId, userCompanyId: editCustomerId, contactId: editContactId || undefined } : current);
     } catch (err: any) {
       toast.error("Kullanıcı firma güncellenemedi", { description: err?.message ?? "İstek başarısız oldu." });
     } finally {
@@ -515,9 +518,10 @@ export function MachinesPage() {
             </div>
             <RemoteCompanyCombobox
               value={editCustomerId}
-              onValueChange={setEditCustomerId}
+              onValueChange={(companyId) => { setEditCustomerId(companyId); setEditContactId(""); }}
               placeholder="Kullanıcı firma seçin"
             />
+            <RemoteContactCombobox companyId={editCustomerId} value={editContactId} onValueChange={setEditContactId} />
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setEditingCustomerMachine(null)} disabled={updatingCustomer}>Vazgeç</Button>

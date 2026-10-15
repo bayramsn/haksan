@@ -9,6 +9,9 @@
       { "include": "db/migrations/**/*.sql", "outDir": "dist", "watchAssets": false },
       { "include": "db/migrations/**/*.json", "outDir": "dist", "watchAssets": false },
       { "include": "db/seed/data/haksanmakina/*.json", "outDir": "dist", "watchAssets": false },
+      { "include": "db/seed/data/aore-site/*.json", "outDir": "dist", "watchAssets": false },
+      { "include": "db/seed/data/hexlaser-2026/*.json", "outDir": "dist", "watchAssets": false },
+      { "include": "db/seed/data/hexlaser-2026/images/*", "outDir": "dist", "watchAssets": false },
       { "include": "db/seed/data/haksancnc/images/haksan-cnc-mmt-1170.jpg", "outDir": "dist", "watchAssets": false }
     ]
   }

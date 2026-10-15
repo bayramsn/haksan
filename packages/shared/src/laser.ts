@@ -1,22 +1,30 @@
 import { z } from 'zod';
 import { LASER_PDF_MODELS } from './laser-catalog-data';
+import { HEX2026_REVISION, HEX2026_SERIES, findHex2026Configuration, hex2026PowerBounds, hex2026PowerBranch, hex2026ProductType } from './hexlaser-2026';
 import { AORE_WORKBOOK_SHEETS, AORE_LABEL_ALIASES } from './laser-source-data';
 
 export const LASER_POWERS = [1.5, 2, 3, 6, 12, 20, 30] as const;
-export const LASER_SERIES = ['F', 'FT', 'S', 'FB', 'R', 'GR', 'PG', 'PGT', 'H', 'PB', 'TG', 'TH', 'TA', 'TS', 'TE', 'TZ', 'EG', 'EGT'] as const;
-export const LASER_TUBE_SERIES: readonly string[] = ['TG', 'TH', 'TA', 'TS', 'TE', 'TZ'];
+export const LASER_SERIES = ['F', 'FT', 'S', 'FB', 'R', 'GR', 'PG', 'PGT', 'H', 'PB', 'TG', 'TH', 'TA', 'TS', 'TE', 'TZ', 'EG', 'EGT', 'T', 'CELL', 'HW', 'PU'] as const;
+export const LASER_TUBE_SERIES: readonly string[] = ['TG', 'TH', 'TA', 'TS', 'TE', 'TZ', 'T'];
 export const LASER_SOURCE_REVISION = 'aore-original-workbook-haksan-2025-v3';
 export const laserSeriesSchema = z.enum(LASER_SERIES);
 export const laserCabinTypeSchema = z.enum(['open', 'closed']);
-export const laserPowerSchema = z.union([z.literal(1.5), z.literal(2), z.literal(3), z.literal(6), z.literal(12), z.literal(20), z.literal(30)]);
-export const laserProductTypeSchema = z.enum(['FIBER_LAZER_KESIM', 'BORU_LAZER_KESIM']);
+export const laserPowerSchema = z.number().finite().positive().max(1000);
+export const laserProductTypeSchema = z.enum(['FIBER_LAZER_KESIM', 'BORU_LAZER_KESIM', 'FIBER_LAZER_3D_KESIM', 'FIBER_LAZER_KAYNAK']);
 export const laserSelectionSchema = z.object({
+  sourceRevision: z.string().max(128).optional(),
   productTypeCode: laserProductTypeSchema,
   series: laserSeriesSchema,
   cabinType: laserCabinTypeSchema,
   powerKw: laserPowerSchema,
   sourceModelCode: z.string().trim().regex(/^[A-Z0-9][A-Za-z0-9+\/-]{1,63}$/).max(64),
 }).superRefine((value, ctx) => {
+  if (value.sourceRevision === HEX2026_REVISION) {
+    const row = HEX2026_SERIES.find(row => row.series === value.series);
+    if (!row || hex2026ProductType(row) !== value.productTypeCode || !findHex2026Configuration(value.series, value.sourceModelCode)) ctx.addIssue({ code: 'custom', message: 'HEX 2026 seri, model ve ürün tipi eşleşmiyor.' });
+    return;
+  }
+  if (!(LASER_POWERS as readonly number[]).includes(value.powerKw)) ctx.addIssue({ code: 'custom', message: 'Eski kaynak revizyonunda güç seçeneği tanımlı değil.' });
   const modelPatterns: Partial<Record<typeof value.series, RegExp>> = {
     FT: /^(?:FT-?\d{4,5}|F\d{4,5}\+T\d+-\d+)$/,
     PGT: /^(?:PGT-?\d{4,5}|PG\d{4,5}\+T\d+-\d+)$/,
@@ -30,6 +38,7 @@ export const laserSelectionSchema = z.object({
 export type LaserSelection = z.infer<typeof laserSelectionSchema>;
 export const laserFieldSourceSchema = z.object({
   document: z.string().max(512), sheet: z.string().max(128).optional(), cell: z.string().max(32).optional(),
+  capturedAt: z.string().max(64).optional(), sourceModelCode: z.string().max(64).optional(), verification: z.string().max(32).optional(),
   page: z.number().int().positive().optional(), url: z.string().url().max(2048).optional(), rawValue: z.string().max(4000).optional(),
 });
 export type LaserFieldSource = z.infer<typeof laserFieldSourceSchema>;
@@ -55,6 +64,18 @@ export type LaserTechnicalConfiguration = z.infer<typeof laserTechnicalConfigura
 export type LaserResolvedProfile = LaserTechnicalConfiguration;
 export type LaserSeries = LaserSelection['series'];
 export type LaserCabinType = LaserSelection['cabinType'];
+
+/** Commercial series cards deliberately carry no default dimensional/power profile. */
+export const laserBaseConfigurationSchema = z.object({
+  sourceRevision: z.string().max(128).optional(),
+  familyCode: z.string().trim().min(1).max(32),
+  series: laserSeriesSchema,
+  productTypeCode: laserProductTypeSchema,
+  sourceModelCodes: z.array(z.string().trim().min(1).max(64)).min(1).max(150),
+}).strict();
+export type LaserBaseConfiguration = z.infer<typeof laserBaseConfigurationSchema>;
+export const laserBaseFamilyCode = (model: Pick<LaserCatalogModel, 'series' | 'code'>): string =>
+  model.series === 'GR' && /Pro/i.test(model.code) ? 'GR_PRO' : model.series;
 
 export interface LaserSourceField { key: string; rawValue: string; groupCode: string; unit?: string; powerKw?: number; source: LaserFieldSource }
 export interface LaserCatalogModel {
@@ -341,11 +362,16 @@ function splitUnit(raw: string, defaultUnit?: string): { value: string; unit?: s
   if (value === '○') return { value: 'Opsiyonel' };
   if (value === '×') return { value: 'Yok' };
   const match = value.match(/^(.*?)(mm\/m|m\/min|r\/min|mm\/s|m²\/h|kg|mm|kw|kva|mpa|bar|nm|t|G)\s*$/i);
-  if (match && /\d\s*$/.test(match[1])) {
+  // Unit suffixes belong to measurements, not equipment codes such as BLT310T.
+  const numericPrefix = match?.[1].replace(/(?<=\d)\s*kw/gi, '');
+  if (match && defaultUnit === match[2] && /\d\s*$/.test(match[1])) {
+    return { value: numericPrefix!.trim(), unit: defaultUnit };
+  }
+  if (match && numericPrefix && /\d\s*$/.test(numericPrefix) && /^[\s\d.,±+\-–—×*x/()≥≤]+$/i.test(numericPrefix)) {
     const found = match[2].toLowerCase();
     const unit = ({ 'm/min': 'm/dk', 'r/min': 'dev/dk', kw: 'kW', kva: 'kVA', mpa: 'MPa', g: 'G' } as Record<string, string>)[found] ?? found;
-    value = match[1].trim();
-    return { value: value.replace(/kw(?=\s*[*+])/gi, ''), unit };
+    value = numericPrefix.trim();
+    return { value, unit };
   }
   if (defaultUnit === 'kW') value = value.replace(/kw/gi, '').trim();
   if (defaultUnit === 'sn') value = value.replace(/s(?=\s*\()/i, '');
@@ -431,6 +457,7 @@ export function displayLaserSourceValue(raw: string): string {
 
 export function resolveLaserProfile(selectionInput: LaserSelection, models: readonly LaserCatalogModel[] = LASER_MODELS): LaserResolvedProfile {
   const selection = laserSelectionSchema.parse(selectionInput);
+  if (selection.sourceRevision === HEX2026_REVISION) return resolveHex2026Profile(selection);
   const model = models.find((m) => m.code === selection.sourceModelCode && m.series === selection.series);
   if (!model) throw new Error('Lazer modeli katalogda bulunamadı.');
   const supportedPower = selection.powerKw >= model.powerMin && selection.powerKw <= model.powerMax;
@@ -546,7 +573,34 @@ noteConflict('TG6035', 'Y Eksen Motor Gücü', 'Katalog 2,9 kW; Excel 4,4 kW. Ex
 noteConflict('TG6035', 'B Eksen Motor Gücü', 'Katalog 2,9+2,9 kW; Excel 4,4+2,9 kW. Excel esas alındı.', 18, 'G20');
 
 export const isLaserProductType = (code?: string | null) => code === 'FIBER_LAZER_KESIM' || code === 'BORU_LAZER_KESIM';
-export const laserSelectionKey = (selection: LaserSelection) => [selection.productTypeCode, selection.series, selection.sourceModelCode, selection.cabinType, selection.powerKw].join(':');
+export const laserSelectionKey = (selection: LaserSelection) => [selection.sourceRevision ?? LASER_SOURCE_REVISION, selection.productTypeCode, selection.series, selection.sourceModelCode, selection.cabinType, selection.powerKw].join(':');
 
 /** Catalog association survives renamed selling brands; names support existing installations. */
-export const isSupportedLaserBrand = (name?: string | null, technicalCatalogCode?: string | null) => technicalCatalogCode === 'AORE_LASER' || /\b(?:hexlaser|aore)\b/i.test(name ?? '');
+export const isSupportedLaserBrand = (name?: string | null, technicalCatalogCode?: string | null) => technicalCatalogCode === 'AORE_LASER' || /\b(?:hex\s*laser|aore)\b/i.test(name ?? '');
+
+/** Resolve the exact 2026 PDF column; never borrow data from a nearby model or old workbook. */
+export function resolveHex2026Profile(selection: LaserSelection): LaserResolvedProfile {
+  const row = HEX2026_SERIES.find(row => row.series === selection.series)!;
+  const configuration = findHex2026Configuration(selection.series, selection.sourceModelCode)!;
+  const bounds = hex2026PowerBounds(configuration);
+  const supportedPower = Boolean(bounds && selection.powerKw >= bounds.min && selection.powerKw <= bounds.max);
+  const standardCabin = row.standardCabin !== null && row.standardCabin === selection.cabinType;
+  const issues: LaserIssue[] = [];
+  const specs: LaserSpec[] = [{ key: 'Lazer Gücü', value: String(selection.powerKw), unit: 'kW', groupCode: 'KESME', isManual: !row.powerOptions.includes(selection.powerKw) }];
+  if (!supportedPower) issues.push({ code: 'unsupported_power', message: 'Seçilen güç HEX 2026 modelinin kaynak aralığı dışında.' });
+  if (!standardCabin) issues.push({ code: 'unverified_cabin', message: 'Seçilen kabin bu seride doğrulanmadı; kabine bağlı teknik değerler elle doğrulanmalı.' });
+  if (!row.powerOptions.includes(selection.powerKw)) issues.push({ code: 'manual_power_review', message: 'Kaynak yalnız güç aralığı veriyor; bu özel güç konfigürasyonu teknik doğrulama gerektirir.' });
+  for (const field of configuration.fields) {
+    if (field.key === 'Lazer Gücü') continue;
+    const sensitive = /Motor|Güç|Trafo/.test(field.key);
+    const cabinSensitive = /Ekipman Boyutu|Ağırlık/.test(field.key);
+    const branch = hex2026PowerBranch(field, selection.powerKw);
+    const reviewed = field.powerBranches?.length ? Boolean(branch) : field.verification === 'verified';
+    const blocked = !reviewed || (!supportedPower && (sensitive || Boolean(field.powerBranches?.length))) || (!standardCabin && cabinSensitive);
+    const split = blocked ? { value: '', unit: '' } : branch ? { value: branch.value, unit: branch.unit } : splitUnit(field.rawValue, /Alanı|Uzunluğu|Çapı|Boyutu|Hassasiyeti/.test(field.key) ? 'mm' : undefined);
+    specs.push({ key: field.key, ...split, source: { ...field.source, verification: reviewed ? 'verified' : field.verification }, sourceValue: split.value, groupCode: sensitive ? 'MOTORLAR' : 'GENEL', isManual: false });
+    if (blocked) issues.push({ code: 'needs_review', field: field.key, message: 'Bu alanın kaynak koşulu doğrulanmadan otomatik değer atanmaz.', sources: [field.source] });
+  }
+  const area = specs.find(field => /^Çalışma Alanı/.test(field.key));
+  return { selection, profileId: null, sourceRevision: HEX2026_REVISION, modelLabel: configuration.sourceModelCode, sizeLabel: area?.value ? `${area.value} ${area.unit ?? ''}`.trim() : configuration.sourceModelCode, supportedPower, standardCabin, specs, issues };
+}
