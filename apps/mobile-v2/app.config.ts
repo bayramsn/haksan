@@ -69,11 +69,13 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       NSRemindersUsageDescription:
         'Haksan, oluşturduğunuz randevuya hatırlatma kurabilmeniz için hatırlatıcılarınıza erişim ister.',
       NSCameraUsageDescription:
-        'Haksan, makine sicil kartlarını bulabilmeniz için QR kod tarama işleminde kameranızı kullanır.',
+        'Haksan, çektiğiniz fotoğrafı kayıtlara ek olarak yüklemek ve makine QR kodunu taramak için kameranızı kullanır.',
       NSLocationWhenInUseUsageDescription:
         'Haksan, yakın firmaları haritada göstermek ve ziyaret kaydınızı müşteri adresiyle eşleştirmek için yalnız uygulama açıkken konumunuzu okur.',
       // Uygulama kapalıyken sessiz veri güncellemesi (bkz. §10.2).
       UIBackgroundModes: ['remote-notification', 'fetch'],
+      // Yalnız standart HTTPS/TLS kullanılıyor; TestFlight her build'de beyan sormasın.
+      ITSAppUsesNonExemptEncryption: false,
     },
   },
   android: {
@@ -112,8 +114,10 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     [
       'expo-image-picker',
       {
-        photosPermission: 'Haksan, yalnız seçtiğiniz görselleri sohbet eki olarak yükler.',
-        cameraPermission: 'Haksan, yalnız çektiğiniz fotoğrafı sohbet eki olarak yüklemek için kameranızı kullanır.',
+        photosPermission:
+          'Haksan, yalnız seçtiğiniz görselleri sohbet, servis, fuar ve belge kayıtlarına ek olarak yükler.',
+        cameraPermission:
+          'Haksan, çektiğiniz fotoğrafı kayıtlara ek olarak yüklemek ve makine QR kodunu taramak için kameranızı kullanır.',
         microphonePermission: false,
       },
     ],
