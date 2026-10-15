@@ -1,10 +1,14 @@
 import type { Href } from 'expo-router';
 import type { NotificationTarget } from '@/src/api/endpoints';
 
+/** Doğrulanmış yol metnini Href'e çevirir; rota birleşimi doğrudan `as` için fazla büyük. */
+const toHref = (path: string) => path as unknown as Href;
+
 const navRoutes: Record<string, string> = {
   dashboard: '/(tabs)',
   chat: '/(tabs)/chat',
   calendar: '/(tabs)/modules/calendar',
+  tasks: '/(tabs)/modules/tasks',
   customers: '/(tabs)/modules/companies',
   'sales-map': '/(tabs)/modules/company-map',
   contacts: '/(tabs)/modules/contacts',
@@ -33,6 +37,7 @@ const navRoutes: Record<string, string> = {
   'sales-orders': '/(tabs)/modules/sales-orders',
   'purchase-orders': '/(tabs)/modules/purchase-orders',
   installations: '/(tabs)/modules/installations',
+  deliveries: '/(tabs)/modules/deliveries',
   machines: '/(tabs)/modules/customer-devices',
   'service-requests': '/(tabs)/modules/service-tickets',
   'service-kanban': '/(tabs)/modules/service-kanban',
@@ -44,10 +49,12 @@ export function routeForNavigation(nav: string, query?: string): Href | null {
   if (nav === 'service-requests' && query?.startsWith('complaint:')) {
     const complaintId = query.slice('complaint:'.length);
     const safeComplaintId = safeRouteValue(complaintId);
-    return safeComplaintId ? (`/(tabs)/modules/service-complaints/${safeComplaintId}`) as Href : null;
+    if (!safeComplaintId) return null;
+    return toHref(`/(tabs)/modules/service-complaints/${safeComplaintId}`);
   }
   const route = navRoutes[nav];
-  return route ? (route as Href) : null;
+  if (!route) return null;
+  return toHref(route);
 }
 
 /** Sunucunun çözdüğü bildirim hedefini gerçek native rotaya çevirir. */
@@ -56,14 +63,15 @@ export function routeForTarget(target: NotificationTarget | null): Href | null {
   switch (target.kind) {
     case 'company': {
       const companyId = safeRouteValue(target.companyId);
-      return companyId ? (`/(tabs)/modules/companies/${companyId}` as Href) : null;
+      if (!companyId) return null;
+      return toHref(`/(tabs)/modules/companies/${companyId}`);
     }
     case 'opportunity': {
       const opportunityId = safeRouteValue(target.opportunityId);
       if (!opportunityId) return null;
       const activityId = target.activityId ? safeRouteValue(target.activityId) : null;
       const activity = activityId ? `?activityId=${activityId}` : '';
-      return `/(tabs)/modules/opportunities/${opportunityId}${activity}` as Href;
+      return toHref(`/(tabs)/modules/opportunities/${opportunityId}${activity}`);
     }
     case 'navigate':
       return routeForNavigation(target.nav, target.query);
@@ -138,7 +146,7 @@ function resetPasswordRoute(path: string): Href | null {
   if (keys.some((key) => key !== 'token' && key !== 'resetToken') || new Set(keys).size !== 1 || tokens.length !== 1) return null;
   const token = tokens[0];
   if (!token || token.length > 2048 || /[\u0000-\u001f\u007f\s]/.test(token)) return null;
-  return (`/(auth)/reset-password?token=${encodeURIComponent(token)}`) as Href;
+  return toHref(`/(auth)/reset-password?token=${encodeURIComponent(token)}`);
 }
 
 /** Push veya dış bağlantıdan gelen yolu allowlist ile uygulama rotasına çevirir. */
@@ -168,22 +176,23 @@ export function routeForIncomingHref(
   }
 
   if (path.startsWith('/app/')) path = path.slice('/app'.length);
-  if (path === '/' || path === '/app') return '/(tabs)' as Href;
+  if (path === '/' || path === '/app') return toHref('/(tabs)');
   if (RESET_PASSWORD_PATHS.has(path.split(/[?#]/, 1)[0] ?? '')) return resetPasswordRoute(path);
   const cleanPath = path.split(/[?#]/, 1)[0] ?? '';
   const entityMatch = cleanPath.match(/^\/([^/]+)\/([^/]+)\/?$/);
   if (entityMatch) {
     const target = entityDetailRoutes[entityMatch[1] ?? ''];
     const id = safePathSegment(entityMatch[2]);
-    if (target && id) return `${target}/${id}` as Href;
+    if (target && id) return toHref(`${target}/${id}`);
   }
   if (allowedNativePrefixes.some((prefix) => path === prefix || path.startsWith(prefix))) {
     // Serbest query/hash değerleri dış kaynaklardan native navigation state'ine
     // taşınmaz. Bildirimlerin izinli query'leri routeForTarget içinde üretilir.
-    return path.split(/[?#]/, 1)[0] as Href;
+    return toHref(path.split(/[?#]/, 1)[0] ?? path);
   }
   const nav = path.replace(/^\/+/, '').split(/[/?#]/)[0];
-  return nav ? routeForNavigation(nav) : null;
+  if (!nav) return null;
+  return routeForNavigation(nav);
 }
 
 /** Expo push `data` alanının iki sunucu kontratını da güvenle çözer. */

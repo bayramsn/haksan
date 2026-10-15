@@ -76,15 +76,26 @@ function normalizeLocalUpload(input: { uri: string; name?: string | null; mimeTy
   };
 }
 
-export async function pickDocument(): Promise<LocalUpload | null> {
+/** CSV seçimleri shared ALLOWED_MIME listesinde yok; import ekranları `acceptCsv` ile açar. */
+const CSV_MIME_TYPES = ['text/csv', 'text/comma-separated-values', 'application/csv'] as const;
+
+export async function pickDocument(options?: { acceptCsv?: boolean }): Promise<LocalUpload | null> {
   const result = await DocumentPicker.getDocumentAsync({
-    type: [...ALLOWED_MIME_TYPES],
+    type: options?.acceptCsv ? [...ALLOWED_MIME_TYPES, ...CSV_MIME_TYPES] : [...ALLOWED_MIME_TYPES],
     copyToCacheDirectory: true,
     multiple: false,
   });
   if (result.canceled) return null;
   const asset = result.assets[0];
   if (!asset) return null;
+  if (options?.acceptCsv && /\.csv$/i.test(asset.name ?? '')) {
+    const name = safeName(asset.name ?? `dosya-${Date.now()}.csv`);
+    const sizeBytes = asset.size ?? new File(asset.uri).size;
+    if (!Number.isFinite(sizeBytes) || sizeBytes <= 0) throw new Error('Dosya boş veya okunamıyor.');
+    if (sizeBytes > MAX_DOCUMENT_BYTES) throw new Error('Dosya 25 MB sınırını aşıyor.');
+    // CSV signed-upload şemasında yok; yalnız içe aktarma ekranları `acceptCsv` kullanır.
+    return { uri: asset.uri, name, mimeType: 'text/csv', extension: 'csv', sizeBytes } as unknown as LocalUpload;
+  }
   return normalizeLocalUpload({ uri: asset.uri, name: asset.name, mimeType: asset.mimeType, size: asset.size });
 }
 
@@ -110,9 +121,14 @@ export async function pickImage(source: 'library' | 'camera'): Promise<LocalUplo
   });
 }
 
+/** Sunucu URL'leri `/api/v1/...` ile, uygulama yolları (`/exports/...`) öneksiz gelir. */
 function absoluteApiUrl(value: string): string {
   if (/^https?:\/\//i.test(value)) return value;
-  return new URL(value, new URL(apiBaseUrl()).origin).toString();
+  const base = new URL(apiBaseUrl());
+  const prefix = base.pathname.replace(/\/+$/, '');
+  const path = value.startsWith('/') ? value : `/${value}`;
+  if (prefix && (path === prefix || path.startsWith(`${prefix}/`))) return `${base.origin}${path}`;
+  return `${base.origin}${prefix}${path}`;
 }
 
 function authHeaders(mimeType?: string): Record<string, string> {
@@ -151,7 +167,16 @@ export async function uploadChatAttachment(conversationId: string, local: LocalU
 }
 
 export async function uploadEntityAttachment(input: {
-  bucket: 'erp-quote-documents' | 'erp-proforma-documents' | 'erp-contract-documents' | 'erp-invoice-documents' | 'erp-stock-documents' | 'erp-service-documents';
+  bucket:
+    | 'erp-quote-documents'
+    | 'erp-proforma-documents'
+    | 'erp-contract-documents'
+    | 'erp-invoice-documents'
+    | 'erp-stock-documents'
+    | 'erp-service-documents'
+    | 'erp-company-logos'
+    | 'erp-signatures'
+    | 'erp-brand-logos';
   entityType: FileLinkEntityType;
   entityId: string;
   documentTypeCode: FileDocumentTypeCode;

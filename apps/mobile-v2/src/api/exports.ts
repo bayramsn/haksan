@@ -36,4 +36,7 @@ export const exportService = {
     }),
   pipelineSummary: () => downloadAndShare('/reports/export/pipeline-summary', 'pipeline-summary.xlsx'),
   stockSummary: () => downloadAndShare('/reports/export/stock-summary', 'stock-summary.xlsx'),
+  /** Ürün içe aktarma şablonu (opsiyonel kategori/tip daraltması). */
+  productImportTemplate: (query?: { categoryId?: string; productTypeId?: string; subcategoryId?: string }) =>
+    downloadAndShare('/exports/product-import-template', 'urun-ice-aktarma-sablonu.xlsx', { query }),
 };

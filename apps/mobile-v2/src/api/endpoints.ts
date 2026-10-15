@@ -110,6 +110,8 @@ export type CompanyListQuery = {
   sector?: string;
   sortBy?: 'name' | 'createdAt';
   sortDir?: 'asc' | 'desc';
+  divisionId?: string;
+  supplierCategoryCode?: 'transportation' | 'logistics' | 'manufacturer';
 };
 
 export type CompanySummary = {
@@ -173,6 +175,9 @@ export type CompanyDetail = {
   website: string | null;
   logoUrl: string | null;
   notes: string | null;
+  supplierCategoryCode?: 'transportation' | 'logistics' | 'manufacturer' | null;
+  contactSourceCode?: string | null;
+  contactSource?: { code: string | null; name: string | null } | null;
   createdAt: string;
   updatedAt: string;
   createdByUser: { id: string; fullName: string; email: string } | null;
@@ -325,7 +330,17 @@ export type ChatMessage = {
   editedAt: string | null;
   kind: 'text' | 'system' | string;
   location: { latitude: string; longitude: string; label: string | null } | null;
-  attachments: { id: string; fileName: string; sizeBytes: number | null; url?: string | null }[];
+  /** Sunucu `filename` / `fileId` / `isImage` döner; eski `fileName`/`id` alanları normalize edilir. */
+  attachments: {
+    fileId?: string;
+    id?: string;
+    filename?: string;
+    fileName?: string;
+    mimeType?: string | null;
+    sizeBytes: number | null;
+    url?: string | null;
+    isImage?: boolean;
+  }[];
   reactions: { emoji: string; count: number; mine: boolean }[];
   replyTo: { id: string; senderName: string; preview: string } | null;
   refCard: unknown | null;
@@ -668,12 +683,18 @@ export const opportunities = {
       leadContactName?: string;
       leadCompanyTitle?: string;
       leadPhone?: string;
+      leadEmail?: string;
+      leadContactValue?: string;
       leadCity?: string;
+      leadDistrict?: string;
+      leadFollowUpStatus?: 'new';
+      divisionId?: string;
       estimatedValue?: number | string;
       currencyCode?: string;
       probability?: number;
       expectedCloseDate?: string;
       requestedMachine?: string;
+      products?: { productModelId?: string; machineName: string; quantity: number }[];
       nextAction?: string;
       nextActionAt?: string;
       sourceCode?: string;
@@ -687,7 +708,7 @@ export const opportunities = {
       estimatedValue: number | string;
       currencyCode: string;
       probability: number;
-      expectedCloseDate: string;
+      expectedCloseDate: string | null;
       requestedMachine: string;
       nextAction: string;
       nextActionAt: string;
@@ -853,7 +874,7 @@ export const quotes = {
   changeWorkflowStatus: (id: string, body: QuoteWorkflowInput) =>
     request<QuoteDetail>(`/quotes/${id}/status`, { method: 'POST', body }),
   priceApproval: (id: string, decision: 'approved' | 'rejected', note?: string) =>
-    request<QuoteDetail>(`/quotes/${id}/price-approval/${decision}`, {
+    request<QuoteDetail>(`/quotes/${id}/price-approval/${decision === 'approved' ? 'approve' : 'reject'}`, {
       method: 'POST',
       body: note ? { note } : {},
     }),
@@ -866,7 +887,14 @@ export type MailRecipientOption = { email: string; name: string; detail: string 
 
 export const mail = {
   /** Gönderen hesabı bağlı mı — bağlı değilken "gönder" ekranı açılmamalı. */
-  account: () => request<{ connected: boolean; email?: string | null }>('/mail/account'),
+  account: () =>
+    request<{
+      connected: boolean;
+      email?: string | null;
+      displayName?: string | null;
+      provider?: string | null;
+      signatureHtml?: string | null;
+    }>('/mail/account'),
   recipients: (companyId?: string) =>
     request<{ contacts: MailRecipientOption[]; colleagues: MailRecipientOption[] }>('/mail/recipients', {
       query: companyId ? { companyId } : undefined,
@@ -947,11 +975,16 @@ export type WarrantyClaim = {
   technicianAssessment: string | null;
   rmaNo: string | null;
   supplierName: string | null;
+  supplierCompanyId?: string | null;
   supplierRmaStatus: string | null;
   costAmount: string | null;
   costCurrency: string | null;
   customerChargeAmount: string | null;
   customerChargeCurrency: string | null;
+  decisionNote?: string | null;
+  submittedAt?: string | null;
+  decidedAt?: string | null;
+  closedAt?: string | null;
   parts: {
     id: string;
     description: string;
@@ -1107,13 +1140,22 @@ export type Shipment = {
   shippedAt: string | null;
   arrivedAt: string | null;
   notes: string | null;
+  senderName?: string | null;
+  incoterm?: string | null;
+  deliveryAddressSnapshot?: string | null;
   createdAt: string;
   status: { id: string; code: string; name: string } | null;
   company: { id: string; legalTitle: string; shortName: string | null } | null;
   senderCompany: { id: string; legalTitle: string } | null;
   carrierCompany: { id: string; legalTitle: string } | null;
   destinationWarehouse: { id: string; name: string; type: string | null } | null;
-  items: { id: string; description: string | null; quantity: string | null }[];
+  items: {
+    id: string;
+    description: string | null;
+    quantity: string | null;
+    serialNumber?: string | null;
+    unit?: { code: string; name: string } | null;
+  }[];
 };
 
 export type MaintenancePlan = {
@@ -1137,6 +1179,8 @@ export type MaintenancePlan = {
 export type CustomerDevice = {
   id: string;
   companyId: string;
+  contactId?: string | null;
+  initialCompanyId?: string | null;
   inventoryItemId?: string | null;
   opportunityId?: string | null;
   quoteId?: string | null;
@@ -1190,6 +1234,9 @@ export const service = {
       severity?: 'low' | 'normal' | 'high' | 'critical';
       ticketType?: 'complaint' | 'request' | 'warranty_claim' | 'question';
       assignedToUserId?: string | null;
+      metadata?: Record<string, unknown> | null;
+      contactId?: string | null;
+      customerDeviceId?: string | null;
     },
   ) => request<ServiceTicket>(`/service-tickets/${id}`, { method: 'PATCH', body }),
   setTicketStatus: (id: string, statusCode: string) =>
@@ -1300,6 +1347,7 @@ export const devices = {
     id: string,
     body: {
       companyId?: string;
+      contactId?: string | null;
       warrantyStartDate?: string | null;
       warrantyEndDate?: string | null;
       installationDate?: string | null;
@@ -1369,6 +1417,9 @@ export type ProductModel = {
   hsCode: string | null;
   description: string | null;
   isActive: boolean;
+  divisionId?: string | null;
+  compatibleMachineType?: { id: string; code: string; name: string } | null;
+  muadilProductIds?: string[];
   brand: { id: string; name: string } | null;
   currency: { id: string; code: string } | null;
   productGroup: { id: string; code: string; name: string } | null;
@@ -1839,6 +1890,9 @@ export type CalendarEvent = {
   allDay: boolean;
   companyId: string | null;
   opportunityId: string | null;
+  ownerUserId?: string | null;
+  createdBy?: string | null;
+  deletedAt?: string | null;
   /** Dolu ise görev kapanmış demektir. */
   completedAt: string | null;
   owner: { id: string; fullName: string; email: string } | null;
@@ -1869,6 +1923,7 @@ export type CalendarEventInput = {
   companyId?: string | null;
   contactId?: string | null;
   opportunityId?: string | null;
+  ownerUserId?: string;
 };
 
 export type CalendarEventPatch = Partial<CalendarEventInput> & { completedAt?: string | null };
@@ -1930,6 +1985,7 @@ export type TaskInput = {
   opportunityId?: string | null;
   quoteId?: string | null;
   serviceTicketId?: string | null;
+  completionNote?: string;
 };
 
 export const tasks = {
