@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Alert, Linking, ScrollView, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Constants from 'expo-constants';
-import { useRouter } from 'expo-router';
+import { useRouter, type Href } from 'expo-router';
 import { apiBaseUrl, setApiBaseUrl } from '@/src/api/config';
 import { clearFailedQueue, failedCount, flushQueue, pendingCount, subscribeQueue } from '@/src/offline/queue';
 import { useAuth } from '@/src/auth/AuthProvider';
@@ -16,6 +16,7 @@ import {
 import { Button, DetailHeader, Field, FilterChips } from '@/src/ui';
 import { SettingsGroup, SettingsRow } from '@/src/ui/settings';
 import { useBiometricLock } from '@/src/security/BiometricLockProvider';
+import { useAdminAccess } from '@/src/ui/admin/access';
 
 const SUPPORT_EMAIL = 'destek@haksanmakina.com.tr';
 
@@ -23,6 +24,12 @@ export default function SettingsScreen() {
   const router = useRouter();
   const { signOut } = useAuth();
   const biometric = useBiometricLock();
+  const access = useAdminAccess();
+  const canEditTenant = access.has('tenants.update');
+  const canManageLookups = access.isSuperAdmin;
+  const canManageLeadRules = access.has('lead_assignment_rules.manage');
+  const canDecideAccess = access.has('companies.update');
+  const open = (path: string) => router.push(`/(tabs)/more/settings/${path}` as Href);
   const [theme, setTheme] = useState<ThemePreference>(loadThemePreference);
   const [pending, setPending] = useState(pendingCount);
   const [failed, setFailed] = useState(failedCount);
@@ -173,6 +180,114 @@ export default function SettingsScreen() {
             onPress={clearCache}
           />
         </SettingsGroup>
+
+        <SettingsGroup title="Şirket ve Hesap">
+          <SettingsRow
+            first
+            icon="business-outline"
+            tone="info"
+            title="Şirket"
+            subtitle={canEditTenant ? 'Şirket profili ve haftalık rapor alıcıları' : 'Tüm kullanıcıların gördüğü şirket bilgileri'}
+            onPress={() => open('company')}
+          />
+          {canEditTenant ? (
+            <SettingsRow
+              icon="create-outline"
+              tone="info"
+              title="Belge İmzaları"
+              subtitle="Teklif, proforma ve sözleşme altına basılan imzalar"
+              onPress={() => open('signatures')}
+            />
+          ) : null}
+          {canEditTenant ? (
+            <SettingsRow
+              icon="eye-outline"
+              tone="info"
+              title="Menü & Akış"
+              subtitle="Kullanıcıların kullanacağı sayfaları yönetin"
+              onPress={() => open('menu')}
+            />
+          ) : null}
+          <SettingsRow
+            icon="mail-outline"
+            tone="info"
+            title="Webmail"
+            subtitle="CRM e-postalarını kendi kurumsal adresinizden gönderin"
+            onPress={() => open('webmail')}
+          />
+          {canManageLookups ? (
+            <SettingsRow
+              icon="images-outline"
+              tone="info"
+              title="Kullanıcı Mail İmzaları"
+              subtitle="Kullanıcıların görsel mail imzalarını yönetin"
+              onPress={() => open('mail-signatures')}
+            />
+          ) : null}
+        </SettingsGroup>
+
+        {canManageLookups || canManageLeadRules || canDecideAccess ? (
+          <SettingsGroup title="Yönetim">
+            {canManageLookups ? (
+              <SettingsRow
+                first
+                icon="options-outline"
+                tone="info"
+                title="CRM Alan Ayarları"
+                subtitle="Kayıt formlarının alan yapısı ve seçim sözlükleri"
+                onPress={() => open('lookups')}
+              />
+            ) : null}
+            {canManageLookups ? (
+              <SettingsRow
+                first={!canManageLookups}
+                icon="people-outline"
+                tone="info"
+                title="Kullanıcı Departmanları"
+                subtitle="Kullanıcı eklerken ve düzenlerken seçilebilen departman listesini yönetin."
+                onPress={() => open('departments')}
+              />
+            ) : null}
+            {canManageLeadRules ? (
+              <SettingsRow
+                first={!canManageLookups}
+                icon="git-branch-outline"
+                tone="info"
+                title="Fırsat Atama"
+                subtitle="Yeni fırsatları bölüm ve ticari kriterlere göre sırayla yönlendirin."
+                onPress={() => open('lead-rules')}
+              />
+            ) : null}
+            {canManageLookups ? (
+              <SettingsRow
+                icon="layers-outline"
+                tone="info"
+                title="Teknik Bilgi"
+                subtitle="Ürün ailelerine göre teknik bilgi kapsamı"
+                onPress={() => open('spec-templates')}
+              />
+            ) : null}
+            {canManageLookups ? (
+              <SettingsRow
+                icon="flash-outline"
+                tone="info"
+                title="Makine teknik bilgileri"
+                subtitle="Lazer seri, kabin, güç ve ölçü profilleri"
+                onPress={() => open('laser-profiles')}
+              />
+            ) : null}
+            {canDecideAccess ? (
+              <SettingsRow
+                first={!canManageLookups && !canManageLeadRules}
+                icon="checkmark-done-outline"
+                tone="warning"
+                title="Onay Bekleyen Firma Talepleri"
+                subtitle="Başka bölümün firmasına erişim talepleri"
+                onPress={() => open('access-requests')}
+              />
+            ) : null}
+          </SettingsGroup>
+        ) : null}
 
         {__DEV__ ? <SettingsGroup title="Geliştirici Sunucusu">
           {editingApi ? (

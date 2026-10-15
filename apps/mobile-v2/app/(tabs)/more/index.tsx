@@ -55,8 +55,8 @@ export default function MoreScreen() {
             first
             icon="grid-outline"
             tone="info"
-            title="Tüm Modüller"
-            subtitle="Yetkiniz olan iş modüllerini açın."
+            title="Modüller"
+            subtitle="Satış, operasyon, servis ve yönetim alanları."
             onPress={() => router.push('/(tabs)/modules')}
           />
           <SettingsRow
@@ -98,15 +98,8 @@ export default function MoreScreen() {
             icon="settings-outline"
             tone="neutral"
             title="Ayarlar"
-            subtitle="Uygulama tercihlerinizi yönetin."
+            subtitle="Tercihler, şirket ayarları, destek ve sürüm bilgisi."
             onPress={() => router.push('/(tabs)/more/settings')}
-          />
-          <SettingsRow
-            icon="information-circle-outline"
-            tone="neutral"
-            title="Hakkında"
-            subtitle="Sürüm ve lisans bilgileri."
-            onPress={() => router.push('/(tabs)/more/about')}
           />
         </SettingsGroup>
 
