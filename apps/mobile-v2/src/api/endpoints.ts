@@ -1215,10 +1215,15 @@ export const service = {
   submitWarranty: (id: string, note?: string) =>
     request<WarrantyClaim>(`/service-tickets/${id}/warranty/submit`, { method: 'POST', body: note ? { note } : {} }),
   decideWarranty: (id: string, decision: 'approved' | 'rejected', decisionNote?: string) =>
-    request<WarrantyClaim>(`/service-tickets/${id}/warranty/${decision}`, {
-      method: 'POST',
-      body: decisionNote ? { decisionNote } : {},
-    }),
+    decision === 'approved'
+      ? request<WarrantyClaim>(`/service-tickets/${id}/warranty/approve`, {
+          method: 'POST',
+          body: decisionNote ? { decisionNote } : {},
+        })
+      : request<WarrantyClaim>(`/service-tickets/${id}/warranty/reject`, {
+          method: 'POST',
+          body: decisionNote ? { decisionNote } : {},
+        }),
   complaints: (query: { page: number; pageSize: number; search?: string; status?: string; source?: string; companyId?: string }) =>
     request<Paginated<ServiceComplaint>>('/service-complaints', { query }),
   complaint: (id: string) => request<ServiceComplaint>(`/service-complaints/${id}`),

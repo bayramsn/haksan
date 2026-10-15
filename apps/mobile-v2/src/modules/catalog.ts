@@ -8,7 +8,7 @@ import type { AuthTenant, AuthUser } from '@/src/api/endpoints';
  * Fazla" listesi ve komut paleti. Bir modül BURAYA ancak ekranı yazıldığında
  * eklenir — ızgarada tıklanınca boş açılan kart olmasın.
  */
-export type ModuleGroup = 'sales' | 'operations' | 'inventory' | 'finance' | 'insight';
+export type ModuleGroup = 'sales' | 'operations' | 'inventory' | 'finance' | 'insight' | 'admin';
 
 export const groupTitles: Record<ModuleGroup, string> = {
   sales: 'Satış & CRM',
@@ -16,6 +16,7 @@ export const groupTitles: Record<ModuleGroup, string> = {
   inventory: 'Stok & Ürün',
   finance: 'Finans',
   insight: 'Analiz & Belge',
+  admin: 'Yönetim',
 };
 
 export type ModuleEntry = {
@@ -31,6 +32,8 @@ export type ModuleEntry = {
   permissionsAny?: string[];
   /** Web tenant ayarlarındaki görünürlük anahtarı. */
   navKey?: string;
+  /** Web `MGMT_KEYS`: izinden bağımsız yalnız admin/super_admin görür. */
+  adminOnly?: boolean;
 };
 
 export const modules: ModuleEntry[] = [
@@ -75,6 +78,24 @@ export const modules: ModuleEntry[] = [
     navKey: 'sales-cases',
   },
   {
+    key: 'kanban',
+    title: 'Fırsat Kanbanı',
+    icon: 'albums-outline',
+    tone: 'stage',
+    group: 'sales',
+    route: '/(tabs)/modules/kanban' as Href,
+    permission: 'opportunities.read',
+    navKey: 'kanban',
+  },
+  {
+    key: 'targets',
+    title: 'Hedefler',
+    icon: 'flag-outline',
+    tone: 'success',
+    group: 'sales',
+    route: '/(tabs)/modules/targets' as Href,
+  },
+  {
     key: 'quotes',
     title: 'Teklifler',
     icon: 'document-text-outline',
@@ -103,6 +124,36 @@ export const modules: ModuleEntry[] = [
     route: '/(tabs)/modules/activities' as Href,
     permission: 'activities.read',
   },
+  {
+    key: 'trade-fairs',
+    title: 'Fuar',
+    icon: 'storefront-outline',
+    tone: 'info',
+    group: 'sales',
+    route: '/(tabs)/modules/trade-fairs' as Href,
+    permission: 'trade_fairs.read',
+    navKey: 'trade-fairs',
+  },
+  {
+    key: 'references',
+    title: 'Referanslar',
+    icon: 'ribbon-outline',
+    tone: 'stage',
+    group: 'sales',
+    route: '/(tabs)/modules/references' as Href,
+    permission: 'brands.read',
+    navKey: 'references',
+  },
+  {
+    key: 'meta',
+    title: 'Meta Merkezi',
+    icon: 'megaphone-outline',
+    tone: 'info',
+    group: 'sales',
+    route: '/(tabs)/modules/meta' as Href,
+    permissionsAny: ['meta.read', 'meta_campaigns.read', 'meta_messages.read'],
+    navKey: 'meta',
+  },
 
   {
     key: 'service-tickets',
@@ -113,6 +164,26 @@ export const modules: ModuleEntry[] = [
     route: '/(tabs)/modules/service-tickets' as Href,
     permission: 'service_tickets.read',
     navKey: 'service-requests',
+  },
+  {
+    key: 'service-kanban',
+    title: 'Servis Kanbanı',
+    icon: 'grid-outline',
+    tone: 'destructive',
+    group: 'operations',
+    route: '/(tabs)/modules/service-kanban' as Href,
+    permission: 'service_tickets.read',
+    navKey: 'service-kanban',
+  },
+  {
+    key: 'service-price-list',
+    title: 'Servis Fiyat Listesi',
+    icon: 'receipt-outline',
+    tone: 'warning',
+    group: 'operations',
+    route: '/(tabs)/modules/service-price-list' as Href,
+    permission: 'price_lists.read',
+    navKey: 'service-price-list',
   },
   {
     key: 'service-complaints',
@@ -293,6 +364,58 @@ export const modules: ModuleEntry[] = [
     permissionsAny: ['proformas.read', 'contracts.read', 'commercial_invoices.read', 'files.read'],
     navKey: 'documents',
   },
+  {
+    key: 'proformas',
+    title: 'Proformalar',
+    icon: 'document-attach-outline',
+    tone: 'info',
+    group: 'insight',
+    route: '/(tabs)/modules/proformas' as Href,
+    permission: 'proformas.read',
+  },
+  {
+    key: 'contracts',
+    title: 'Sözleşmeler',
+    icon: 'document-lock-outline',
+    tone: 'stage',
+    group: 'insight',
+    route: '/(tabs)/modules/contracts' as Href,
+    permission: 'contracts.read',
+  },
+
+  {
+    key: 'users',
+    title: 'Kullanıcılar',
+    icon: 'person-circle-outline',
+    tone: 'info',
+    group: 'admin',
+    route: '/(tabs)/modules/users' as Href,
+    permission: 'users.read',
+    navKey: 'users',
+    adminOnly: true,
+  },
+  {
+    key: 'roles',
+    title: 'Roller & Yetkiler',
+    icon: 'shield-checkmark-outline',
+    tone: 'stage',
+    group: 'admin',
+    route: '/(tabs)/modules/roles' as Href,
+    permission: 'roles.read',
+    navKey: 'roles',
+    adminOnly: true,
+  },
+  {
+    key: 'departments',
+    title: 'Departmanlar',
+    icon: 'git-network-outline',
+    tone: 'neutral',
+    group: 'admin',
+    route: '/(tabs)/modules/departments' as Href,
+    permission: 'departments.read',
+    navKey: 'departments',
+    adminOnly: true,
+  },
 ];
 
 function hasPermission(user: AuthUser | null, permission: string): boolean {
@@ -301,17 +424,27 @@ function hasPermission(user: AuthUser | null, permission: string): boolean {
   return user.permissions?.includes(permission) ?? false;
 }
 
-/** Kart görünürlüğü ile doğrudan deep-link erişimini aynı kurala bağlar. */
+function isAdmin(user: AuthUser | null): boolean {
+  return Boolean(user?.roles.some((role) => role === 'admin' || role === 'super_admin'));
+}
+
+/**
+ * Kart görünürlüğü ile doğrudan deep-link erişimini aynı kurala bağlar.
+ * Web `canAccessNavKey` ile aynı: admin her modülü görür, yönetim modülleri yalnız admine.
+ */
 export function canAccessModule(
   user: AuthUser | null,
   tenant: AuthTenant | null,
   entry: ModuleEntry
 ): boolean {
-  const permitted = entry.permissionsAny?.length
-    ? entry.permissionsAny.some((permission) => hasPermission(user, permission))
-    : entry.permission
-      ? hasPermission(user, entry.permission)
-      : Boolean(user);
+  if (entry.adminOnly && !isAdmin(user)) return false;
+  const permitted =
+    isAdmin(user) ||
+    (entry.permissionsAny?.length
+      ? entry.permissionsAny.some((permission) => hasPermission(user, permission))
+      : entry.permission
+        ? hasPermission(user, entry.permission)
+        : Boolean(user));
   if (!permitted) return false;
   return !entry.navKey || !tenant?.hiddenNavigationKeys.includes(entry.navKey);
 }
@@ -324,7 +457,7 @@ export function moduleForPath(pathname: string): ModuleEntry | null {
 }
 
 export function modulesByGroup(entries: ModuleEntry[] = modules): [ModuleGroup, ModuleEntry[]][] {
-  const order: ModuleGroup[] = ['sales', 'operations', 'inventory', 'finance', 'insight'];
+  const order: ModuleGroup[] = ['sales', 'operations', 'inventory', 'finance', 'insight', 'admin'];
   return order
     .map((group) => [group, entries.filter((m) => m.group === group)] as [ModuleGroup, ModuleEntry[]])
     .filter(([, list]) => list.length > 0);

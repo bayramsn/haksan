@@ -227,18 +227,62 @@ export async function postPdfAndShare(path: string, filename: string): Promise<v
 }
 
 async function pdfAndShare(path: string, filename: string, method: 'GET' | 'POST'): Promise<void> {
-  const response = await expoFetch(absoluteApiUrl(path), { method, headers: authHeaders() });
-  if (!response.ok || !response.body) throw new Error('PDF oluşturulamadı.');
+  return downloadAndShare(path, filename, { method });
+}
+
+function withQuery(path: string, query?: Record<string, string | number | boolean | null | undefined>): string {
+  if (!query) return path;
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(query)) {
+    if (value !== undefined && value !== null && value !== '') params.set(key, String(value));
+  }
+  const qs = params.toString();
+  return qs ? `${path}${path.includes('?') ? '&' : '?'}${qs}` : path;
+}
+
+async function serverErrorMessage(response: Response, fallback: string): Promise<string> {
+  try {
+    const body = (await response.json()) as { error?: { message?: string }; message?: string };
+    return body?.error?.message ?? body?.message ?? fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+/**
+ * Sunucunun ürettiği dosyayı (Excel dışa aktarma, PDF, şablon) cache'e stream
+ * edip paylaşım sayfasını açar. MIME verilmezse dosya uzantısından çıkarılır.
+ */
+export async function downloadAndShare(
+  path: string,
+  filename: string,
+  options: {
+    method?: 'GET' | 'POST';
+    query?: Record<string, string | number | boolean | null | undefined>;
+    body?: unknown;
+    mimeType?: string;
+  } = {},
+): Promise<void> {
+  const method = options.method ?? 'GET';
+  const mimeType = options.mimeType ?? mimeForExtension(extensionOf(filename)) ?? 'application/octet-stream';
+  const response = await expoFetch(absoluteApiUrl(withQuery(path, options.query)), {
+    method,
+    headers: options.body === undefined ? authHeaders() : authHeaders('application/json'),
+    body: options.body === undefined ? undefined : JSON.stringify(options.body),
+  });
+  if (!response.ok || !response.body) {
+    throw new Error(await serverErrorMessage(response as unknown as Response, 'Dosya indirilemedi.'));
+  }
   const declaredSize = Number(response.headers.get('content-length') ?? 0);
-  if (declaredSize > MAX_DOCUMENT_BYTES) throw new Error('PDF 25 MB güvenli paylaşım sınırını aşıyor.');
+  if (declaredSize > MAX_DOCUMENT_BYTES) throw new Error('Dosya 25 MB güvenli paylaşım sınırını aşıyor.');
   const target = new File(Paths.cache, safeName(filename));
   target.create({ overwrite: true, intermediates: true });
   try {
     await response.body.pipeTo(target.writableStream());
     if (target.size <= 0 || target.size > MAX_DOCUMENT_BYTES) {
-      throw new Error(target.size > MAX_DOCUMENT_BYTES ? 'PDF 25 MB sınırını aşıyor.' : 'PDF boş döndü.');
+      throw new Error(target.size > MAX_DOCUMENT_BYTES ? 'Dosya 25 MB sınırını aşıyor.' : 'Dosya boş döndü.');
     }
-    await shareLocalFile(target, 'application/pdf', filename);
+    await shareLocalFile(target, mimeType, filename);
   } catch (error) {
     if (target.exists) target.delete();
     throw error;
