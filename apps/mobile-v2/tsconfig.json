@@ -3,7 +3,12 @@
   "compilerOptions": {
     "strict": true,
     "noUncheckedIndexedAccess": true,
-    "paths": { "@/*": ["./*"] }
+    "paths": {
+      "@/*": ["./*"],
+      "react-native/Libraries/Types/CodegenTypes": [
+        "../../node_modules/react-native/Libraries/Types/CodegenTypesNamespace.d.ts"
+      ]
+    }
   },
   "include": ["**/*.ts", "**/*.tsx", ".expo/types/**/*.ts", "expo-env.d.ts", "nativewind-env.d.ts"]
 }

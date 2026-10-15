@@ -24,9 +24,9 @@ export const exportService = {
   purchaseOrders: (query?: Query) =>
     downloadAndShare('/exports/purchase-orders', 'satinalma-siparisleri.xlsx', { query }),
   documents: () => downloadAndShare('/exports/documents', 'dokumanlar.xlsx'),
-  operational: (year: number, period: 'monthly' | 'yearly') =>
+  operational: (year: number, period: 'monthly' | 'yearly', filters?: { ownerUserId?: string; departmentId?: string }) =>
     downloadAndShare('/exports/operational', period === 'monthly' ? `rapor-${year}.xlsx` : 'rapor-yillik.xlsx', {
-      query: { year, period },
+      query: { year, period, ...filters },
     }),
   yearEnd: (year: number) =>
     downloadAndShare('/reports/export/year-end', `karlilik-raporu-${year}.xlsx`, { query: { year } }),
