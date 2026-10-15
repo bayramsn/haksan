@@ -49,7 +49,7 @@ Kodla doğrulandı (2026-10-15):
 - **due-dates:** web `payments.read`, mobil `receivables.read`; web admin olmayanlardan "Ödeme" kayıtlarını gizliyor, mobil göstermiyor.
 - **purchase-orders:** onay için mobil ek olarak `purchase_orders.approve` istiyor.
 - **service-price-list:** mobil modül servis yerine `sales-price-list` navKey'ine bağlı.
-- Mobil modül görünürlüğünde departman filtresi yok (yalnız izin + `hiddenNavigationKeys`); web `NAV_ROLES` departman kısıtı uygular.
+- Modül görünürlüğü: web `canAccessNavKey` admin rolüne tüm menüyü açar, kullanıcı/rol/departman sayfalarını yalnız admine gösterir; mobil yalnız super_admin'i muaf tutuyordu (76d861412 ile düzeltildi). Web `NAV_ROLES` menü öğesine yazılıyor ama filtrelemede kullanılmıyor; departman kısıtı yok.
 
 ## Program genelinde tekrar eden eksikler
 

@@ -96,6 +96,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       : [],
   },
   plugins: [
+    './plugins/with-ios-build-fixes',
     'expo-router',
     'expo-updates',
     'expo-secure-store',
