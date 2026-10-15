@@ -1,4 +1,7 @@
-import { useColorScheme } from 'nativewind';
+import { createContext, createElement, useContext, type ReactNode } from 'react';
+import { View } from 'react-native';
+import { StatusBar } from 'expo-status-bar';
+import { useColorScheme, vars } from 'nativewind';
 
 /**
  * apps/web/src/styles/theme.css ile aynı token adları. Web'de bir rengi
@@ -63,8 +66,35 @@ export function useTheme(): { colors: ThemeColors; scheme: 'light' | 'dark' } {
   // NativeWind'in şeması tek kaynak: Ayarlar'dan gelen elle seçim hem CSS
   // değişkenlerini hem buradan okunan ham renkleri aynı anda değiştirir.
   const { colorScheme } = useColorScheme();
-  const scheme = colorScheme === 'dark' ? 'dark' : 'light';
+  const fixed = useContext(FixedSchemeContext);
+  const scheme = fixed ?? (colorScheme === 'dark' ? 'dark' : 'light');
   return { colors: themes[scheme], scheme };
+}
+
+type Scheme = 'light' | 'dark';
+
+const FixedSchemeContext = createContext<Scheme | null>(null);
+
+const kebab = (key: string) => key.replace(/[A-Z0-9]/g, (c) => `-${c.toLowerCase()}`);
+const schemeVars = Object.fromEntries(
+  (['light', 'dark'] as const).map((scheme) => [
+    scheme,
+    vars(Object.fromEntries(Object.entries(themes[scheme]).map(([k, v]) => [`--c-${kebab(k)}`, v]))),
+  ]),
+) as Record<Scheme, ReturnType<typeof vars>>;
+
+/**
+ * Zemini sabit tonlu ekranlar (auth kâğıdı, illüstrasyonlu onboarding) sistem
+ * teması koyuyken de tek şemada kalmalı; yoksa koyu tema metni açık zemine düşer.
+ * Hem sınıfların CSS değişkenlerini hem `useTheme()` renklerini sabitler.
+ */
+export function FixedScheme({ scheme, children }: { scheme: Scheme; children: ReactNode }) {
+  return createElement(
+    FixedSchemeContext.Provider,
+    { value: scheme },
+    createElement(StatusBar, { style: scheme === 'light' ? 'dark' : 'light' }),
+    createElement(View, { style: [{ flex: 1 }, schemeVars[scheme]] }, children),
+  );
 }
 
 /** Web'deki .chip-* sınıflarının karşılığı. */

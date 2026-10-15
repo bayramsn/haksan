@@ -22,7 +22,7 @@ import Animated, {
   type SharedValue,
 } from 'react-native-reanimated';
 import { kv } from '@/src/offline/storage';
-import { authPaper, useTheme } from '@/src/theme/theme';
+import { authPaper, FixedScheme, useTheme } from '@/src/theme/theme';
 import { Logo } from '@/src/ui/Logo';
 
 export const ONBOARDING_KEY = 'onboarding_seen';
@@ -208,6 +208,14 @@ function Dot({ active }: { active: boolean }) {
 }
 
 export default function OnboardingScreen() {
+  return (
+    <FixedScheme scheme="light">
+      <Onboarding />
+    </FixedScheme>
+  );
+}
+
+function Onboarding() {
   const router = useRouter();
   const { width } = useWindowDimensions();
   const reduce = useReducedMotion();
