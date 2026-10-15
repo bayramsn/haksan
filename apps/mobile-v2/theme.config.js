@@ -13,7 +13,7 @@ function alpha(hex, a) {
 }
 
 const light = {
-  canvas: '#ffffff',
+  canvas: '#f4f6f8',
   card: '#ffffff',
   cardSubtle: '#f8f9fb',
   border: 'rgba(13, 20, 68, 0.11)',
@@ -27,10 +27,10 @@ const light = {
   brandRed: '#cf060c',
   operationBlue: '#2457d6',
 
-  primary: '#cf060c',
+  primary: '#000c69',
   primaryForeground: '#ffffff',
-  secondary: '#fdecec',
-  secondaryForeground: '#b71c1c',
+  secondary: '#eef1ff',
+  secondaryForeground: '#000c69',
 
   destructive: '#cf060c',
   destructiveSoft: '#fef2f2',
@@ -44,7 +44,7 @@ const light = {
   stageSoft: '#eef2ff',
   neutralSoft: '#f4f4f5',
 
-  chart1: '#d32f2f',
+  chart1: '#2a3aa0',
   chart2: '#4e8df5',
   chart3: '#14b8a6',
   chart4: '#f59e0b',
@@ -68,10 +68,10 @@ const dark = {
   brandRed: '#ef5350',
   operationBlue: '#6ea0ff',
 
-  primary: '#ef5350',
-  primaryForeground: '#2a0a0a',
-  secondary: 'rgba(239, 83, 80, 0.16)',
-  secondaryForeground: '#ffcdd2',
+  primary: '#8fa2ff',
+  primaryForeground: '#0a1030',
+  secondary: 'rgba(125, 143, 251, 0.16)',
+  secondaryForeground: '#c7d2ff',
 
   destructive: '#f0565b',
   destructiveSoft: 'rgba(240, 86, 91, 0.14)',
@@ -85,7 +85,7 @@ const dark = {
   stageSoft: 'rgba(165, 180, 252, 0.14)',
   neutralSoft: 'rgba(148, 163, 214, 0.12)',
 
-  chart1: '#ef5350',
+  chart1: '#8fa2ff',
   chart2: '#6ea0ff',
   chart3: '#2dd4bf',
   chart4: '#fbbf24',

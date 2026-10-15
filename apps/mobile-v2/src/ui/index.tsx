@@ -821,7 +821,7 @@ export function Fab({
         onPress();
       }}
       style={{
-        shadowColor: '#d32f2f',
+        shadowColor: colors.primary,
         shadowOffset: { width: 0, height: 4 },
         shadowOpacity: 0.32,
         shadowRadius: 12,

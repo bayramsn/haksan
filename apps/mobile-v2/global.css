@@ -5,7 +5,7 @@
 /* ÜRETİLMİŞ DOSYA — elle düzenleme. Kaynak: theme.config.js
    Yeniden üretmek için: npm run gen:css */
 :root {
-  --c-canvas: #ffffff;
+  --c-canvas: #f4f6f8;
   --c-card: #ffffff;
   --c-card-subtle: #f8f9fb;
   --c-border: rgba(13, 20, 68, 0.11);
@@ -17,10 +17,10 @@
   --c-brand-blue: #000c69;
   --c-brand-red: #cf060c;
   --c-operation-blue: #2457d6;
-  --c-primary: #cf060c;
+  --c-primary: #000c69;
   --c-primary-foreground: #ffffff;
-  --c-secondary: #fdecec;
-  --c-secondary-foreground: #b71c1c;
+  --c-secondary: #eef1ff;
+  --c-secondary-foreground: #000c69;
   --c-destructive: #cf060c;
   --c-destructive-soft: #fef2f2;
   --c-success: #087f5b;
@@ -32,7 +32,7 @@
   --c-stage: #4f46e5;
   --c-stage-soft: #eef2ff;
   --c-neutral-soft: #f4f4f5;
-  --c-chart-1: #d32f2f;
+  --c-chart-1: #2a3aa0;
   --c-chart-2: #4e8df5;
   --c-chart-3: #14b8a6;
   --c-chart-4: #f59e0b;
@@ -61,10 +61,10 @@
     --c-brand-blue: #7d8ffb;
     --c-brand-red: #ef5350;
     --c-operation-blue: #6ea0ff;
-    --c-primary: #ef5350;
-    --c-primary-foreground: #2a0a0a;
-    --c-secondary: rgba(239, 83, 80, 0.16);
-    --c-secondary-foreground: #ffcdd2;
+    --c-primary: #8fa2ff;
+    --c-primary-foreground: #0a1030;
+    --c-secondary: rgba(125, 143, 251, 0.16);
+    --c-secondary-foreground: #c7d2ff;
     --c-destructive: #f0565b;
     --c-destructive-soft: rgba(240, 86, 91, 0.14);
     --c-success: #34d399;
@@ -76,7 +76,7 @@
     --c-stage: #a5b4fc;
     --c-stage-soft: rgba(165, 180, 252, 0.14);
     --c-neutral-soft: rgba(148, 163, 214, 0.12);
-    --c-chart-1: #ef5350;
+    --c-chart-1: #8fa2ff;
     --c-chart-2: #6ea0ff;
     --c-chart-3: #2dd4bf;
     --c-chart-4: #fbbf24;
@@ -105,10 +105,10 @@
   --c-brand-blue: #7d8ffb;
   --c-brand-red: #ef5350;
   --c-operation-blue: #6ea0ff;
-  --c-primary: #ef5350;
-  --c-primary-foreground: #2a0a0a;
-  --c-secondary: rgba(239, 83, 80, 0.16);
-  --c-secondary-foreground: #ffcdd2;
+  --c-primary: #8fa2ff;
+  --c-primary-foreground: #0a1030;
+  --c-secondary: rgba(125, 143, 251, 0.16);
+  --c-secondary-foreground: #c7d2ff;
   --c-destructive: #f0565b;
   --c-destructive-soft: rgba(240, 86, 91, 0.14);
   --c-success: #34d399;
@@ -120,7 +120,7 @@
   --c-stage: #a5b4fc;
   --c-stage-soft: rgba(165, 180, 252, 0.14);
   --c-neutral-soft: rgba(148, 163, 214, 0.12);
-  --c-chart-1: #ef5350;
+  --c-chart-1: #8fa2ff;
   --c-chart-2: #6ea0ff;
   --c-chart-3: #2dd4bf;
   --c-chart-4: #fbbf24;
