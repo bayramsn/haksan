@@ -106,7 +106,12 @@ export function PanelCard({
           {hint ? <Text className="font-inter text-[13px] text-muted-foreground"> {hint}</Text> : null}
         </Text>
         {onMore ? (
-          <Pressable accessibilityRole="button" accessibilityLabel={`${title} — tümü`} hitSlop={8} onPress={onMore}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`${title} — tümü`}
+            onPress={onMore}
+            className="-mr-2 -mt-3 h-11 w-11 items-center justify-center active:opacity-60"
+          >
             <Ionicons name="ellipsis-horizontal" size={16} color={colors.mutedForeground} />
           </Pressable>
         ) : null}

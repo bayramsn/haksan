@@ -1,5 +1,5 @@
-import { useRef, useState } from 'react';
-import { Image, Linking, Pressable, ScrollView, Text, View } from 'react-native';
+import { useMemo, useRef, useState } from 'react';
+import { Image, Linking, Pressable, RefreshControl, ScrollView, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import { useQuery } from '@tanstack/react-query';
@@ -17,7 +17,12 @@ import { mediaUrl } from '@/src/api/config';
 import { useActivityList, useContactList, useLookup, useOpportunityList, useQuoteList } from '@/src/api/crm.hooks';
 import { useCommercialDocuments } from '@/src/api/documents.hooks';
 import { useTaskList } from '@/src/api/tasks.hooks';
+import { useTaskRecordEvents } from '@/src/api/crm-general.hooks';
+import { exportService } from '@/src/api/exports';
 import { pickDocument, uploadEntityAttachment } from '@/src/native/files';
+import { mailComposeHref } from '@/src/ui/crm/mail-logic';
+import { buildCompanyTimeline } from '@/src/ui/crm/timeline-logic';
+import type { DocumentKind } from '@/src/api/documents.hooks';
 import { toast } from '@/src/ui/toast';
 import { Alert } from 'react-native';
 import {
@@ -88,10 +93,12 @@ const CONTACT_TYPE_LABELS: Record<string, string> = {
   other: 'Diğer',
 };
 
-type CompanyTab = 'genel' | 'aktivite' | 'teklifler' | 'gorevler' | 'cari' | 'belgeler';
+type CompanyTab = 'genel' | 'gecmis' | 'kartlar' | 'aktivite' | 'teklifler' | 'gorevler' | 'cari' | 'belgeler';
 
 const COMPANY_TABS: { value: CompanyTab; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
   { value: 'genel', label: 'Genel', icon: 'grid-outline' },
+  { value: 'gecmis', label: 'Geçmiş', icon: 'time-outline' },
+  { value: 'kartlar', label: 'Satış Kartları', icon: 'briefcase-outline' },
   { value: 'aktivite', label: 'Aktivite', icon: 'pulse-outline' },
   { value: 'teklifler', label: 'Teklifler', icon: 'document-text-outline' },
   { value: 'gorevler', label: 'Görevler', icon: 'checkbox-outline' },
@@ -134,7 +141,7 @@ function CompanyTabs({
               {item.label}
             </Text>
             {count > 0 ? (
-              <View className={`min-w-[18px] items-center rounded-full px-1 ${selected ? 'bg-primary-foreground/20' : 'bg-primary/10'}`}>
+              <View className={`min-w-[18px] items-center rounded-full px-1 ${selected ? 'bg-white/20' : 'bg-secondary'}`}>
                 <Text className={`font-inter-semibold text-[10px] ${selected ? 'text-primary-foreground' : 'text-primary'}`}>{count}</Text>
               </View>
             ) : null}
@@ -228,7 +235,16 @@ export default function CompanyDetailScreen() {
   const canDelete = useCan('companies.delete');
   const companyTasks = useTaskList({ companyId: id });
   const [uploading, setUploading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [exporting, setExporting] = useState<'xlsx' | 'pdf' | null>(null);
   const canUpdate = useCan('companies.update');
+  const canLogActivity = useCan('activities.create');
+  const canCreateTask = useCan('tasks.create');
+  const canCreateOpportunity = useCan('opportunities.create');
+  const canExportReports = useCan('reports.export');
+  const canReadReceivables = useCan('receivables.read');
+  const canExportStatement = canExportReports && canReadReceivables;
+  const taskEvents = useTaskRecordEvents({ companyId: id });
 
   const { data, isPending, error, refetch } = useCompany(id);
 
@@ -276,6 +292,56 @@ export default function CompanyDetailScreen() {
 
   const updateStatus = useUpdateCompanyStatus({});
 
+  const timeline = useMemo(
+    () =>
+      buildCompanyTimeline({
+        activities: activitiesQuery.data?.items,
+        taskEvents: taskEvents.data,
+        quotes: quotesQuery.data?.items,
+        opportunities: opportunitiesQuery.data?.items,
+      }),
+    [activitiesQuery.data, taskEvents.data, quotesQuery.data, opportunitiesQuery.data],
+  );
+
+  async function onRefresh() {
+    setRefreshing(true);
+    try {
+      await Promise.all([
+        refetch(),
+        activitiesQuery.refetch(),
+        taskEvents.refetch(),
+        quotesQuery.refetch(),
+        opportunitiesQuery.refetch(),
+        contactsQuery.refetch(),
+        companyTasks.refetch(),
+        financeSummary.refetch(),
+        devicesQuery.refetch(),
+        crossDebt.refetch(),
+      ]);
+    } finally {
+      setRefreshing(false);
+    }
+  }
+
+  async function downloadStatement(format: 'xlsx' | 'pdf') {
+    if (exporting) return;
+    setExporting(format);
+    try {
+      if (format === 'pdf') {
+        await exportService.customerStatementPdf(id);
+        toast.success('Cari ekstre PDF indirildi');
+      } else {
+        await exportService.customerStatement(id);
+        toast.success('Cari ekstre indirildi');
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : '';
+      toast.error(`${format === 'pdf' ? 'PDF indirilemedi' : 'Ekstre indirilemedi'}${message ? ` · ${message}` : ''}`);
+    } finally {
+      setExporting(null);
+    }
+  }
+
   if (isPending || error || !data) {
     return (
       <SafeAreaView className="flex-1 bg-canvas" edges={['top', 'left', 'right']}>
@@ -304,7 +370,17 @@ export default function CompanyDetailScreen() {
     .filter((q) => !CLOSED_QUOTE_STATUS.has(q.status?.code ?? ''))
     .reduce((sum, q) => sum + Number(q.grandTotal || 0), 0);
   const ownedDevices = devicesQuery.data?.data ?? [];
-  const documents = [...(proformas.data?.items ?? []), ...(contracts.data?.items ?? []), ...(invoices.data?.items ?? [])];
+  const documents = [
+    ...(proformas.data?.items ?? []).map((doc) => ({ ...doc, kind: 'proforma' as DocumentKind })),
+    ...(contracts.data?.items ?? []).map((doc) => ({ ...doc, kind: 'contract' as DocumentKind })),
+    ...(invoices.data?.items ?? []).map((doc) => ({ ...doc, kind: 'invoice' as DocumentKind })),
+  ];
+  const companyName = data.shortName || data.legalTitle;
+  const companyParams = `companyId=${encodeURIComponent(id)}&companyName=${encodeURIComponent(companyName)}`;
+  const openVisit = canLogActivity ? () => router.push(`/modal/visit-new?${companyParams}` as Href) : undefined;
+  const openCall = canLogActivity ? () => router.push(`/modal/call-new?${companyParams}` as Href) : undefined;
+  const openTask = canCreateTask ? () => router.push(`/modal/task?companyId=${encodeURIComponent(id)}` as Href) : undefined;
+  const openNewCard = canCreateOpportunity ? () => router.push(`/modal/new-opportunity?${companyParams}` as Href) : undefined;
   const documentTotal = (proformas.data?.total ?? 0) + (contracts.data?.total ?? 0) + (invoices.data?.total ?? 0);
   const documentsHaveMore = proformas.hasNextPage || contracts.hasNextPage || invoices.hasNextPage;
   const documentsFetchingMore =
@@ -318,6 +394,22 @@ export default function CompanyDetailScreen() {
     sheetRef.current?.dismiss();
     updateStatus.mutate({ id, customerStatusCode: code, operationId: Crypto.randomUUID() });
   };
+
+  function renderOpportunity(opp: NonNullable<typeof opportunitiesQuery.data>['items'][number]) {
+    const stage = QUALIFICATION_STAGES.includes(opp.qualificationStage as QualificationStage)
+      ? (opp.qualificationStage as QualificationStage)
+      : 'lead';
+    return (
+      <ListRow
+        key={opp.id}
+        title={opp.title}
+        lines={[opp.requestedMachine, opp.stage?.name ?? null]}
+        icon="briefcase-outline"
+        chip={{ label: qualificationStageLabels[stage], tone: 'info' }}
+        onPress={() => router.push(`/(tabs)/modules/opportunities/${opp.id}`)}
+      />
+    );
+  }
 
   /** Web DocumentUploadDialog "Dış teklif" seçeneğiyle aynı kova/tip. */
   async function handleUploadDocument() {
@@ -345,11 +437,7 @@ export default function CompanyDetailScreen() {
       <DetailHeader
         title="Firma Detayı"
         subtitle={data.externalCompanyNo ?? undefined}
-        actions={
-          canUpdate || data.website
-            ? [{ icon: 'ellipsis-horizontal', label: 'Firma işlemleri', onPress: () => sheetRef.current?.present() }]
-            : []
-        }
+        actions={[{ icon: 'ellipsis-horizontal', label: 'Firma işlemleri', onPress: () => sheetRef.current?.present() }]}
       />
 
       {/* Mockup s16: kimlik bilgisi ve künye TEK kart içinde, eylem pilleri de
@@ -389,15 +477,26 @@ export default function CompanyDetailScreen() {
 
           <View className="flex-row gap-2">
             <QuickAction icon="call-outline" label="Ara" onPress={phone ? () => void Linking.openURL(`tel:${phone}`) : undefined} />
-            <QuickAction icon="mail-outline" label="E-posta" onPress={email ? () => void Linking.openURL(`mailto:${email}`) : undefined} />
-            <QuickAction icon="location-outline" label="Haritada Gör" onPress={mapsUrl ? () => void Linking.openURL(mapsUrl) : undefined} />
+            <QuickAction
+              icon="mail-outline"
+              label="E-posta"
+              onPress={
+                email
+                  ? () =>
+                      router.push(
+                        mailComposeHref({ to: email, name: companyName, companyId: id }) as Href,
+                      )
+                  : undefined
+              }
+            />
+            <QuickAction icon="walk-outline" label="Ziyaret" onPress={openVisit} />
             <QuickAction
               icon="ellipsis-horizontal"
               label="Diğer"
-              onPress={canUpdate || data.website ? () => {
+              onPress={() => {
                 void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
                 sheetRef.current?.present();
-              } : undefined}
+              }}
             />
           </View>
         </Card>
@@ -407,15 +506,26 @@ export default function CompanyDetailScreen() {
         <CompanyTabs
           value={tab}
           onChange={setTab}
-          counts={{ aktivite: activitiesQuery.data?.total ?? 0, teklifler: quoteTotal, gorevler: companyTasks.data?.meta.total ?? 0, belgeler: documentTotal }}
+          counts={{
+            gecmis: timeline.length,
+            kartlar: opportunitiesQuery.data?.total ?? 0,
+            aktivite: activitiesQuery.data?.total ?? 0,
+            teklifler: quoteTotal,
+            gorevler: companyTasks.data?.meta.total ?? 0,
+            belgeler: documentTotal,
+          }}
         />
       </View>
 
-      <ScrollView className="flex-1" contentContainerStyle={{ gap: 16, paddingHorizontal: SCREEN_PAD, paddingBottom: 40, paddingTop: 16 }}>
+      <ScrollView
+        className="flex-1"
+        contentContainerStyle={{ gap: 16, paddingHorizontal: SCREEN_PAD, paddingBottom: 40, paddingTop: 16 }}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void onRefresh()} tintColor={colors.primary} />}
+      >
         {tab === 'genel' ? (
           <>
             {crossDebt.data?.hasDebt ? (
-              <Card className="gap-1.5 border-destructive/40 bg-destructive/5">
+              <Card className="gap-1.5 border-destructive-border bg-destructive-soft">
                 <View className="flex-row items-center gap-2">
                   <Ionicons name="warning-outline" size={18} color={colors.destructive} />
                   <Text className="flex-1 font-inter-semibold text-[14px] text-destructive">
@@ -445,12 +555,25 @@ export default function CompanyDetailScreen() {
               />
             </Card>
 
-            {data.notes ? (
-              <Card className="gap-1.5">
-                <Eyebrow>Not</Eyebrow>
-                <Text className="font-inter text-sm text-foreground">{data.notes}</Text>
-              </Card>
-            ) : null}
+            <Card className="gap-1.5">
+              <View className="flex-row items-center justify-between">
+                <Eyebrow>Firma Notları</Eyebrow>
+                {canUpdate ? (
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel="Firma notunu düzenle"
+                    hitSlop={12}
+                    onPress={() => router.push(`/modal/company-note?id=${encodeURIComponent(id)}` as Href)}
+                    className="h-11 w-11 items-center justify-center rounded-full active:bg-muted"
+                  >
+                    <Ionicons name="create-outline" size={18} color={colors.primary} />
+                  </Pressable>
+                ) : null}
+              </View>
+              <Text className={`font-inter text-sm ${data.notes?.trim() ? 'text-foreground' : 'text-muted-foreground'}`}>
+                {data.notes?.trim() || 'Bu firma için henüz not eklenmemiş.'}
+              </Text>
+            </Card>
 
             {data.phones.length + data.emails.length > 1 ? (
               <Card className="gap-1.5">
@@ -493,21 +616,10 @@ export default function CompanyDetailScreen() {
                 <View className="px-1">
                   <Eyebrow>Satış Kartları ({opportunitiesQuery.data.total})</Eyebrow>
                 </View>
-                {opportunitiesQuery.data.items.slice(0, 5).map((opp) => {
-                  const stage = QUALIFICATION_STAGES.includes(opp.qualificationStage as QualificationStage)
-                    ? (opp.qualificationStage as QualificationStage)
-                    : 'lead';
-                  return (
-                    <ListRow
-                      key={opp.id}
-                      title={opp.title}
-                      lines={[opp.requestedMachine]}
-                      icon="briefcase-outline"
-                      chip={{ label: qualificationStageLabels[stage], tone: 'info' }}
-                      onPress={() => router.push(`/(tabs)/modules/opportunities/${opp.id}`)}
-                    />
-                  );
-                })}
+                {opportunitiesQuery.data.items.slice(0, 3).map(renderOpportunity)}
+                {opportunitiesQuery.data.total > 3 ? (
+                  <Button label={`Tümünü gör (${opportunitiesQuery.data.total})`} variant="ghost" onPress={() => setTab('kartlar')} />
+                ) : null}
               </View>
             ) : null}
 
@@ -606,6 +718,7 @@ export default function CompanyDetailScreen() {
                     lines={[
                       device.serialNumber ? `S/N ${device.serialNumber}` : null,
                       device.brandName,
+                      device.installationDate ? `Kurulum: ${formatDate(device.installationDate)}` : null,
                       device.warrantyEndDate ? `Garanti bitiş: ${formatDate(device.warrantyEndDate)}` : null,
                     ]}
                     icon="hardware-chip-outline"
@@ -617,23 +730,83 @@ export default function CompanyDetailScreen() {
           </>
         ) : null}
 
+        {tab === 'gecmis' ? (
+          <>
+            <Eyebrow>Kayıt Geçmişi</Eyebrow>
+            {activitiesQuery.isPending || taskEvents.isPending ? (
+              <Loading />
+            ) : timeline.length === 0 ? (
+              <EmptyState title="Bu firma için geçmiş kaydı yok." icon="time-outline" />
+            ) : (
+              timeline.map((item) => (
+                <ListRow
+                  key={item.id}
+                  title={item.title}
+                  lines={[item.description, [formatDateTime(item.date), item.meta].filter(Boolean).join(' · ')]}
+                  icon="time-outline"
+                  chip={{ label: item.type, tone: 'neutral' }}
+                  onPress={item.route ? () => router.push(item.route as Href) : undefined}
+                />
+              ))
+            )}
+          </>
+        ) : null}
+
+        {tab === 'kartlar' ? (
+          <>
+            {openNewCard ? <Button label="Yeni Kart" trailingIcon="add" onPress={openNewCard} /> : null}
+            {opportunitiesQuery.isPending ? (
+              <Loading />
+            ) : opportunitiesQuery.error ? (
+              <ErrorState message={opportunitiesQuery.error.message} onRetry={() => void opportunitiesQuery.refetch()} />
+            ) : (opportunitiesQuery.data?.items ?? []).length === 0 ? (
+              <EmptyState title="Satış kartı yok" hint="Bu firmaya bağlı satış kartı bulunmuyor." icon="briefcase-outline" />
+            ) : (
+              <>
+                {(opportunitiesQuery.data?.items ?? []).map(renderOpportunity)}
+                {opportunitiesQuery.hasNextPage ? (
+                  <Button
+                    label="Daha fazla yükle"
+                    variant="ghost"
+                    loading={opportunitiesQuery.isFetchingNextPage}
+                    onPress={() => void opportunitiesQuery.fetchNextPage()}
+                  />
+                ) : null}
+              </>
+            )}
+          </>
+        ) : null}
+
         {tab === 'aktivite' ? (
-          activitiesQuery.isPending ? (
-            <Loading />
-          ) : (activitiesQuery.data?.items ?? []).length === 0 ? (
-            <EmptyState title="Aktivite bulunamadı" />
-          ) : (
-            (activitiesQuery.data?.items ?? []).map((activity) => (
-              <ListRow
-                key={activity.id}
-                title={activity.subject}
-                lines={[activity.type?.name, formatDateTime(activity.activityDate), activity.result]}
-                icon="pulse-outline"
-                iconTone={activity.origin === 'system' ? 'neutral' : 'info'}
-                chip={!activity.opportunityId ? { label: 'Fırsat Dışı', tone: 'warning' } : undefined}
-              />
-            ))
-          )
+          <>
+            {canLogActivity ? (
+              <View className="flex-row gap-2">
+                <View className="flex-1">
+                  <Button label="Müşteri Ziyareti" variant="ghost" trailingIcon="walk-outline" onPress={openVisit} />
+                </View>
+                <View className="flex-1">
+                  <Button label="Giden Arama" variant="ghost" trailingIcon="call-outline" onPress={openCall} />
+                </View>
+              </View>
+            ) : null}
+            {activitiesQuery.isPending ? (
+              <Loading />
+            ) : (activitiesQuery.data?.items ?? []).length === 0 ? (
+              <EmptyState title="Aktivite bulunamadı" />
+            ) : (
+              (activitiesQuery.data?.items ?? []).map((activity) => (
+                <ListRow
+                  key={activity.id}
+                  title={activity.subject}
+                  lines={[activity.type?.name, formatDateTime(activity.activityDate), activity.result]}
+                  icon="pulse-outline"
+                  iconTone={activity.origin === 'system' ? 'neutral' : 'info'}
+                  chip={!activity.opportunityId ? { label: 'Fırsat Dışı', tone: 'warning' } : undefined}
+                  onPress={() => router.push(`/(tabs)/modules/activities/${activity.id}` as Href)}
+                />
+              ))
+            )}
+          </>
         ) : null}
 
         {tab === 'teklifler' ? (
@@ -663,6 +836,37 @@ export default function CompanyDetailScreen() {
 
         {tab === 'cari' ? (
           <>
+            {canExportStatement ? (
+              <View className="flex-row gap-2">
+                <View className="flex-1">
+                  <Button
+                    label="Excel"
+                    variant="ghost"
+                    trailingIcon="download-outline"
+                    loading={exporting === 'xlsx'}
+                    disabled={exporting !== null}
+                    accessibilityLabel="Cari ekstre Excel indir"
+                    onPress={() => void downloadStatement('xlsx')}
+                  />
+                </View>
+                <View className="flex-1">
+                  <Button
+                    label="PDF"
+                    variant="ghost"
+                    trailingIcon="document-text-outline"
+                    loading={exporting === 'pdf'}
+                    disabled={exporting !== null}
+                    accessibilityLabel="Cari ekstre PDF indir"
+                    onPress={() => void downloadStatement('pdf')}
+                  />
+                </View>
+              </View>
+            ) : null}
+            {financeSummary.data && financeSummary.data.byCurrency.length === 0 ? (
+              <Card>
+                <Text className="text-center font-inter text-sm text-muted-foreground">Cari bakiye kaydı yok</Text>
+              </Card>
+            ) : null}
             {financeSummary.data ? (
               <StatGrid columns={2}>
                 <StatCard icon="trending-up-outline" tone="info" label="Toplam Ciro" value={formatAmount(primaryBalance?.salesTotal ?? 0, currencyCode)} />
@@ -738,6 +942,8 @@ export default function CompanyDetailScreen() {
           </>
         ) : null}
 
+        {tab === 'gorevler' && openTask ? <Button label="Görev Oluştur" variant="ghost" trailingIcon="add" onPress={openTask} /> : null}
+
         {tab === 'gorevler' ? (
           companyTasks.isPending ? (
             <Loading />
@@ -777,9 +983,10 @@ export default function CompanyDetailScreen() {
             <View className="gap-2">
               {documents.map((doc) => (
                 <ListRow
-                  key={doc.id}
+                  key={`${doc.kind}-${doc.id}`}
                   title={doc.no}
                   lines={[doc.date ? formatDate(doc.date) : null]}
+                  onPress={() => router.push(`/(tabs)/modules/documents/${doc.kind}/${doc.id}` as Href)}
                   icon="document-text-outline"
                   iconTone={doc.finalized ? 'success' : 'neutral'}
                   chip={doc.statusName ? { label: doc.statusName, tone: doc.finalized ? 'success' : 'neutral' } : undefined}
@@ -812,6 +1019,28 @@ export default function CompanyDetailScreen() {
       >
         <BottomSheetView className="gap-2 px-5 pb-10 pt-2">
           <Text className="mb-1 font-inter-semibold text-base text-foreground">Diğer İşlemler</Text>
+          {[
+            { key: 'call', label: 'Giden Arama Kaydet', onPress: openCall },
+            { key: 'task', label: 'Görev Oluştur', onPress: openTask },
+            { key: 'card', label: 'Yeni Satış Kartı', onPress: openNewCard },
+            {
+              key: 'map',
+              label: 'Haritada Gör',
+              onPress: mapsUrl ? () => void Linking.openURL(mapsUrl) : undefined,
+            },
+          ]
+            .filter((action) => action.onPress)
+            .map((action) => (
+              <Button
+                key={action.key}
+                label={action.label}
+                variant="ghost"
+                onPress={() => {
+                  sheetRef.current?.dismiss();
+                  action.onPress?.();
+                }}
+              />
+            ))}
           {canUpdate ? (
             <>
               <Text className="font-inter mb-1 text-xs text-muted-foreground">Müşteri durumunu değiştir</Text>

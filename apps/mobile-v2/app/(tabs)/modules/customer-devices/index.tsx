@@ -1,47 +1,63 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { FlashList } from '@shopify/flash-list';
 import { useRouter, type Href } from 'expo-router';
 import { useCustomerDevices } from '@/src/api/operations.hooks';
+import { useCompanyNames, useDeviceWarrantyTotals } from '@/src/api/service.hooks';
 import type { CustomerDevice } from '@/src/api/endpoints';
-import { dueLabel, formatDate } from '@/src/lib/format';
-import type { Tone } from '@/src/theme/theme';
-import { EmptyState, ErrorState, FilterChips, ListRow, ListSkeleton, Loading, SCREEN_PAD, ScreenHeader, SearchBar } from '@/src/ui';
-import { SyncStatus } from '@/src/ui/SyncStatus';
+import { useCan } from '@/src/auth/AuthProvider';
+import { formatAmount, formatDate } from '@/src/lib/format';
 import { useDebouncedValue } from '@/src/lib/useDebouncedValue';
+import { EmptyState, ErrorState, Fab, FilterChips, ListRow, ListSkeleton, Loading, SCREEN_PAD, ScreenHeader, SearchBar, StatStrip } from '@/src/ui';
+import { SyncStatus } from '@/src/ui/SyncStatus';
+import { machineStatusLabel, WARRANTY_TONE, warrantyInfo, warrantyShortLabel, warrantyStats } from '@/src/ui/service/machines';
 
 type Preset = 'warranty' | 'expired';
+type DeviceRow = CustomerDevice & { initialCompanyId?: string | null };
 
 const PRESETS: { value: Preset; label: string }[] = [
   { value: 'warranty', label: 'Garantide' },
   { value: 'expired', label: 'Garanti Bitti' },
 ];
 
-/** Garanti bitiş tarihine göre; tarih yoksa durum bilinmiyor sayılır. */
-function warrantyOf(device: CustomerDevice): { label: string; tone: Tone; active: boolean | null } {
-  if (!device.warrantyEndDate) return { label: 'Garanti yok', tone: 'neutral', active: null };
-  const due = dueLabel(device.warrantyEndDate);
-  if (due?.overdue) return { label: 'Garanti bitti', tone: 'neutral', active: false };
-  return { label: 'Garantide', tone: 'success', active: true };
-}
-
 export default function CustomerDevicesScreen() {
   const router = useRouter();
+  const canCreate = useCan('customer_devices.update');
   const [search, setSearch] = useState('');
   const [preset, setPreset] = useState<Preset | null>(null);
   const serverSearch = useDebouncedValue(search.trim());
 
   const list = useCustomerDevices({ search: serverSearch || undefined, preset: preset ?? undefined });
-  const items = list.data?.items ?? [];
+  const items = useMemo(() => (list.data?.items ?? []) as DeviceRow[], [list.data]);
+  const totals = useDeviceWarrantyTotals(serverSearch || undefined);
+  const [now] = useState(() => Date.now());
+  const loadedStats = useMemo(() => warrantyStats(items, now), [items, now]);
+  const fullyLoaded = !!list.data && !list.hasNextPage && !preset;
+  const initialNames = useCompanyNames(items.filter((item) => item.initialCompanyId && item.initialCompanyId !== item.companyId).map((item) => item.initialCompanyId!));
+
+  // Liste tamamen yüklüyse kesin sayım; değilse sunucu toplamları + yüklenen satırlardaki 60 gün içindekiler.
+  const stats = fullyLoaded || !totals
+    ? loadedStats
+    : { active: Math.max(0, totals.warranty - loadedStats.expiring), expiring: loadedStats.expiring, expired: totals.expired, unknown: totals.unknown };
 
   return (
     <SafeAreaView className="flex-1 bg-canvas" edges={['top', 'left', 'right']}>
       <SyncStatus />
-      <ScreenHeader title="Makine Parkı" subtitle="Sahadaki makine ve seri no kayıtlarını izleyin." />
+      <ScreenHeader title="Makineler" subtitle="Makine kimliği, garanti, kullanıcı firma ve servis geçmişi aynı bağlamda." />
 
       <View className="gap-2 pb-2">
-        <SearchBar value={search} onChange={setSearch} placeholder="Seri no, model veya firma" />
+        {items.length || totals?.all ? (
+          <StatStrip
+            items={[
+              { label: 'Garanti aktif', value: String(stats.active), tone: 'success' },
+              { label: 'Yaklaşıyor', value: String(stats.expiring), tone: stats.expiring ? 'warning' : undefined },
+              { label: 'Süresi doldu', value: String(stats.expired), tone: stats.expired ? 'destructive' : undefined },
+              { label: 'Bilgi yok', value: String(stats.unknown) },
+            ]}
+          />
+        ) : null}
+        <SearchBar value={search} onChange={setSearch} placeholder="Model, seri no veya firma ara..." />
         <FilterChips options={PRESETS} value={preset} onChange={setPreset} />
       </View>
 
@@ -51,38 +67,33 @@ export default function CustomerDevicesScreen() {
         <ErrorState message={list.error.message} onRetry={() => void list.refetch()} />
       ) : (
         <FlashList
-          // v2'de bu özellik varsayılan AÇIK ve sayfalama/yeniden ölçüm sonrası
-          // içeriği çapalayıp listenin başında boşluk bırakıyor. Bunlar sohbet
-          // değil, tepeden akan listeler — kapalı olmalı.
           maintainVisibleContentPosition={{ disabled: true }}
-          // FlashList v2 kendi başına esnemiyor; sınırlanmamış sütun içinde
-          // içerik aşağı kayıyor ve filtrelerin altında boşluk kalıyor.
           style={{ flex: 1 }}
           data={items}
           keyExtractor={(item) => item.id}
-          contentContainerStyle={{ paddingHorizontal: SCREEN_PAD, paddingBottom: 32 }}
+          contentContainerStyle={{ paddingHorizontal: SCREEN_PAD, paddingBottom: 96 }}
           renderItem={({ item }) => {
-            const warranty = warrantyOf(item);
-            // Tasarım üç tarihi yan yana istiyor (Kurulum/Garanti/Sonraki Bakım); "Sonraki
-            // Bakım" bu uçta yok — maintenance-plans ayrı tablo, burada join edilmiyor.
-            const dates = [
-              item.installationDate ? `Kurulum: ${formatDate(item.installationDate)}` : null,
-              item.warrantyEndDate ? `Garanti: ${formatDate(item.warrantyEndDate)}` : null,
-            ]
-              .filter(Boolean)
-              .join('   ·   ') || null;
+            const info = warrantyInfo(item.warrantyEndDate, now);
+            const tone = WARRANTY_TONE[info.state];
+            const user = item.company?.shortName ?? item.company?.legalTitle ?? null;
+            const initial = item.initialCompanyId && item.initialCompanyId !== item.companyId ? initialNames.get(item.initialCompanyId) ?? '…' : null;
+            const price = item.cashPrice ? formatAmount(item.cashPrice, item.currencyCode ?? 'TRY') : null;
             return (
               <ListRow
-                title={item.productModelName ?? item.model ?? 'Makine'}
+                title={[item.brandName, item.productModelName ?? item.model].filter(Boolean).join(' ') || 'Makine'}
                 lines={[
-                  item.serialNumber ? `SN: ${item.serialNumber}` : null,
-                  item.company?.shortName ?? item.company?.legalTitle ?? null,
-                  [item.brandName, item.productTypeName].filter(Boolean).join(' · ') || null,
-                  dates,
+                  item.serialNumber ? `SN · ${item.serialNumber}` : null,
+                  user ? `Kullanıcı firma: ${user}` : null,
+                  initial ? `İlk müşteri: ${initial}` : null,
+                  [item.controlUnit ? `Kontrol paneli: ${item.controlUnit}` : null, price ? `Peşin: ${price}` : null].filter(Boolean).join(' · ') || null,
+                  item.installationDate ? `Kurulum · ${formatDate(item.installationDate)}` : null,
                 ]}
                 icon="hardware-chip-outline"
-                iconTone={warranty.tone}
-                chip={{ label: warranty.label, tone: warranty.tone }}
+                iconTone={tone}
+                chips={[
+                  { label: warrantyShortLabel(info), tone },
+                  { label: machineStatusLabel(item.warrantyEndDate, now), tone: info.state === 'expired' ? 'neutral' : 'success' },
+                ]}
                 onPress={() => router.push(`/(tabs)/modules/customer-devices/${item.id}` as Href)}
               />
             );
@@ -93,10 +104,24 @@ export default function CustomerDevicesScreen() {
           }}
           refreshing={list.isRefetching}
           onRefresh={() => void list.refetch()}
-          ListEmptyComponent={<EmptyState title="Makine kaydı yok" />}
+          ListEmptyComponent={
+            search.trim() || preset ? (
+              <EmptyState title="Eşleşen makine bulunamadı" hint="Model, seri numarası veya firma bilgisini değiştirerek tekrar deneyin." icon="search-outline" />
+            ) : (
+              <EmptyState
+                title="Kayıtlı makine yok"
+                hint="Yeni bir makine/varlık ekleyerek garanti ve servis süreçlerini tek kayıttan izleyin."
+                icon="hardware-chip-outline"
+                actionLabel={canCreate ? 'Yeni Makine' : undefined}
+                onAction={canCreate ? () => router.push('/modal/device-new' as Href) : undefined}
+              />
+            )
+          }
           ListFooterComponent={list.isFetchingNextPage ? <Loading /> : null}
         />
       )}
+
+      {canCreate ? <Fab label="Yeni Makine" extended onPress={() => router.push('/modal/device-new' as Href)} /> : null}
     </SafeAreaView>
   );
 }

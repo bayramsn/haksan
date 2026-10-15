@@ -107,7 +107,7 @@ export function createPendingTargetQueue(storage: PendingTargetStorage, now: () 
   }
 
   function consume(): Promise<Href | null> {
-    return locked(async () => {
+    return locked(async (): Promise<Href | null> => {
       let record = memoryRecord;
       if (!record) {
         try {
@@ -117,7 +117,7 @@ export function createPendingTargetQueue(storage: PendingTargetStorage, now: () 
         }
       }
 
-      const route = record ? canonicalPendingRoute(record.route) : null;
+      const route = canonicalPendingRoute(record?.route);
       const fresh = Boolean(record && now() - record.createdAt <= MAX_AGE_MS);
       try {
         // At-most-once: kalıcı kayıt başarıyla silinmeden navigation yapılmaz.
@@ -126,7 +126,8 @@ export function createPendingTargetQueue(storage: PendingTargetStorage, now: () 
         return null;
       }
       memoryRecord = null;
-      return fresh ? route : null;
+      if (!fresh) return null;
+      return route;
     });
   }
 

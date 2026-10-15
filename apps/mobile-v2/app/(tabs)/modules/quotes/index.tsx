@@ -4,14 +4,28 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { FlashList } from '@shopify/flash-list';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { LineChart } from 'react-native-gifted-charts';
-import { useLookup, useQuoteList, useQuoteSummary } from '@/src/api/crm.hooks';
+import { useQueryClient } from '@tanstack/react-query';
+import { useFileLinks } from '@/src/api/commercial-docs.hooks';
+import { useQuoteList } from '@/src/api/crm.hooks';
 import type { QuoteListItem, QuoteListQuery } from '@/src/api/endpoints';
+import { exportService } from '@/src/api/exports';
+import { useSalesOrders } from '@/src/api/inventory.hooks';
+import { useGroupedQuoteList } from '@/src/api/quotes.hooks';
+import type { SalesOrderListRow } from '@/src/api/sales-orders.api';
+import { useAuth, useCan } from '@/src/auth/AuthProvider';
 import { formatAmount, formatDate } from '@/src/lib/format';
-import { toneColor, useTheme, type Tone } from '@/src/theme/theme';
 import { useDebouncedValue } from '@/src/lib/useDebouncedValue';
-import { Card, Chip, EmptyState, ErrorState, FilterChips, ListSkeleton, Loading, SCREEN_PAD, ScreenHeader, SearchBar } from '@/src/ui';
+import { downloadAndShareFile } from '@/src/native/files';
+import { useTheme, type Tone } from '@/src/theme/theme';
+import { Card, Chip, EmptyState, ErrorState, Fab, ListSkeleton, Loading, SCREEN_PAD, ScreenHeader, SearchBar, SectionHeader } from '@/src/ui';
+import { Tabs } from '@/src/ui/data';
 import { SyncStatus } from '@/src/ui/SyncStatus';
+import { toast } from '@/src/ui/toast';
+import { filterLinksForFolder } from '@/src/ui/documents/document-logic';
+import { ChoiceChips } from '@/src/ui/documents/pickers';
+import { QuoteDistributionCard, QuoteKpis, QuoteTrendCard } from '@/src/ui/documents/QuoteOverview';
+import { businessLineForDivision, exportQueryForTab, QUOTE_TABS, statusCodesForTab, type BusinessLine, type QuoteTabKey } from '@/src/ui/documents/quote-logic';
+import { FileLinkCard, SalesOrderRow } from '@/src/ui/documents/rows';
 
 /**
  * Durum kodu -> ton. Kodlar `quote_statuses` seed'iyle birebir (draft/sent/
@@ -33,13 +47,13 @@ const STATUS_TONE: Record<string, Tone> = {
   postponed: 'warning',
 };
 
-/**
- * Mockup s19'un teklif satırı: solda gri belge karesi, ortada belge no + firma,
- * sağda tutar / durum çipi / takvim ikonlu tarih.
- */
-function QuoteRow({ item, tone, onPress }: { item: QuoteListItem; tone: Tone; onPress: () => void }) {
+const PREVIEW_ROWS = 3;
+
+/** Teklif satırı: belge no + ürün + firma, sağda tutar / durum / takip tarihi. */
+function QuoteRow({ item, onPress }: { item: QuoteListItem; onPress: () => void }) {
   const { colors } = useTheme();
   const company = item.company?.shortName ?? item.company?.legalTitle ?? null;
+  const tone = STATUS_TONE[item.status?.code ?? ''] ?? 'neutral';
   return (
     <Pressable
       onPress={onPress}
@@ -48,10 +62,7 @@ function QuoteRow({ item, tone, onPress }: { item: QuoteListItem; tone: Tone; on
       className="my-[5px] flex-row items-center gap-3 rounded-[16px] border border-border bg-card px-3 py-3.5 active:opacity-70"
       style={{ borderCurve: 'continuous' }}
     >
-      <View
-        className="h-[42px] w-[42px] items-center justify-center rounded-[12px]"
-        style={{ backgroundColor: colors.muted, borderCurve: 'continuous' }}
-      >
+      <View className="h-[42px] w-[42px] items-center justify-center rounded-[12px] bg-muted" style={{ borderCurve: 'continuous' }}>
         <Ionicons name="document-text-outline" size={20} color={colors.mutedForeground} />
       </View>
 
@@ -59,6 +70,11 @@ function QuoteRow({ item, tone, onPress }: { item: QuoteListItem; tone: Tone; on
         <Text className="font-inter-semibold text-[15px] leading-[20px] text-foreground" numberOfLines={1}>
           {item.revisionNo > 1 ? `${item.documentNo} · R${item.revisionNo}` : item.documentNo}
         </Text>
+        {item.productName ? (
+          <Text className="font-inter text-[13px] text-foreground" numberOfLines={1}>
+            {item.productName}
+          </Text>
+        ) : null}
         {company ? (
           <Text className="font-inter text-[13px] text-muted-foreground" numberOfLines={1}>
             {company}
@@ -66,14 +82,9 @@ function QuoteRow({ item, tone, onPress }: { item: QuoteListItem; tone: Tone; on
         ) : null}
       </View>
 
-      {/* Sabit genişlik: "Süper Admin Onayı Bekliyor" gibi uzun durum adları
-          sınırlanmazsa belge no ve firma sütununu tamamen yutuyor. */}
+      {/* Sabit genişlik: uzun durum adları belge no sütununu yutmasın. */}
       <View className="w-[132px] items-end gap-1">
-        <Text
-          className="font-inter-bold text-[15px] text-foreground"
-          numberOfLines={1}
-          style={{ fontVariant: ['tabular-nums'] }}
-        >
+        <Text className="font-inter-bold text-[15px] text-foreground" numberOfLines={1} style={{ fontVariant: ['tabular-nums'] }}>
           {formatAmount(item.grandTotal, item.currency?.code ?? 'TRY')}
         </Text>
         {item.status ? (
@@ -82,8 +93,10 @@ function QuoteRow({ item, tone, onPress }: { item: QuoteListItem; tone: Tone; on
           </View>
         ) : null}
         <View className="flex-row items-center gap-1">
-          <Ionicons name="calendar-outline" size={12} color={colors.mutedForeground} />
-          <Text className="font-inter text-[12px] text-muted-foreground">{formatDate(item.quoteDate)}</Text>
+          <Ionicons name={item.followUpAt ? 'alarm-outline' : 'calendar-outline'} size={12} color={colors.mutedForeground} />
+          <Text className="font-inter text-[12px] text-muted-foreground">
+            {item.followUpAt ? `Takip ${formatDate(item.followUpAt)}` : formatDate(item.quoteDate)}
+          </Text>
         </View>
       </View>
 
@@ -92,204 +105,231 @@ function QuoteRow({ item, tone, onPress }: { item: QuoteListItem; tone: Tone; on
   );
 }
 
+function ExternalQuotesSection({ search }: { search: string }) {
+  const router = useRouter();
+  const { colors } = useTheme();
+  const canUpload = useCan('files.create');
+  const links = useFileLinks();
+  const term = search.trim().toLocaleLowerCase('tr-TR');
+  const rows = filterLinksForFolder(links.data?.items ?? [], 'external_quote', new Set()).filter(
+    (link) => !term || link.file.originalFilename.toLocaleLowerCase('tr-TR').includes(term)
+  );
+  return (
+    <View className="gap-1">
+      <SectionHeader
+        title={`Dış Teklifler · ${rows.length} dosya`}
+        action={{ label: 'Tümü', onPress: () => router.push('/(tabs)/modules/documents?folder=external_quote') }}
+      />
+      {links.isPending ? (
+        <Loading />
+      ) : links.error ? (
+        <ErrorState message={links.error.message} onRetry={() => void links.refetch()} />
+      ) : rows.length === 0 ? (
+        <Text className="py-2 font-inter text-[13px] text-muted-foreground">
+          {term ? 'Aramayla eşleşen dış teklif yok.' : 'Henüz dış teklif yüklenmedi.'}
+        </Text>
+      ) : (
+        rows.slice(0, PREVIEW_ROWS).map((link) => (
+          <FileLinkCard
+            key={link.id}
+            link={link}
+            onOpen={() => void downloadAndShareFile(link.fileId).catch((error: Error) => toast.error(error.message))}
+          />
+        ))
+      )}
+      {canUpload ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Dış Teklif Yükle"
+          onPress={() => router.push('/modal/quote-document-upload?type=external_quote')}
+          className="min-h-[44px] flex-row items-center justify-center gap-1.5 rounded-control border border-dashed border-border active:opacity-70"
+        >
+          <Ionicons name="cloud-upload-outline" size={17} color={colors.primary} />
+          <Text className="font-inter-semibold text-[13px] text-primary">Dış Teklif Yükle</Text>
+        </Pressable>
+      ) : null}
+    </View>
+  );
+}
+
+function SalesOrdersSection() {
+  const router = useRouter();
+  const canInvoice = useCan('accounting_invoices.create');
+  const orders = useSalesOrders({});
+  const rows = (orders.data?.items ?? []) as SalesOrderListRow[];
+  return (
+    <View className="gap-1">
+      <SectionHeader
+        title={`Satış Siparişleri · ${orders.data?.total ?? 0} kayıt`}
+        action={{ label: 'Tümü', onPress: () => router.push('/(tabs)/modules/sales-orders') }}
+      />
+      {orders.isPending ? (
+        <Loading />
+      ) : orders.error ? (
+        <ErrorState message={orders.error.message} onRetry={() => void orders.refetch()} />
+      ) : rows.length === 0 ? (
+        <Text className="py-2 font-inter text-[13px] text-muted-foreground">Henüz satış siparişi yok.</Text>
+      ) : (
+        rows.slice(0, PREVIEW_ROWS).map((order) => (
+          <SalesOrderRow
+            key={order.id}
+            order={order}
+            onPress={() => router.push(`/(tabs)/modules/sales-orders/${order.id}`)}
+            onInvoice={canInvoice ? () => router.push(`/modal/sales-order-accounting-invoice?orderId=${order.id}`) : undefined}
+          />
+        ))
+      )}
+    </View>
+  );
+}
+
 export default function QuotesScreen() {
   const router = useRouter();
+  const qc = useQueryClient();
+  const { user } = useAuth();
+  const canCreate = useCan('quotes.create');
+  const canReadFiles = useCan('files.read');
+  const canReadOrders = useCan('sales_orders.read');
   const [search, setSearch] = useState('');
-  const [statusCode, setStatusCode] = useState<string | null>(null);
+  const [tab, setTab] = useState<QuoteTabKey>('all');
+  const [businessLine, setBusinessLine] = useState<BusinessLine | null>(null);
+  const [exporting, setExporting] = useState(false);
   const serverSearch = useDebouncedValue(search.trim());
 
-  const statuses = useLookup('quote-statuses');
+  const divisionOptions = useMemo(() => {
+    const seen = new Set<string>();
+    const options: { value: string; label: string }[] = [];
+    for (const division of user?.divisions ?? []) {
+      const line = businessLineForDivision(division.code);
+      if (line && !seen.has(line)) {
+        seen.add(line);
+        options.push({ value: line, label: division.name });
+      }
+    }
+    return options;
+  }, [user?.divisions]);
 
-  const query = useMemo<QuoteListQuery>(
-    () => ({ search: serverSearch || undefined, statusCode: statusCode ?? undefined }),
-    [serverSearch, statusCode]
+  const codes = statusCodesForTab(tab);
+  const baseQuery = useMemo<QuoteListQuery>(
+    () => ({ search: serverSearch || undefined, ...(businessLine ? { businessLine } : {}) }),
+    [businessLine, serverSearch]
   );
-
-  const list = useQuoteList(query);
+  const singleQuery = useMemo<QuoteListQuery>(
+    () => ({ ...baseQuery, ...(codes.length === 1 ? { statusCode: codes[0] } : {}) }),
+    [baseQuery, codes]
+  );
+  const grouped = codes.length > 1;
+  const single = useQuoteList(singleQuery, !grouped);
+  const group = useGroupedQuoteList(baseQuery, codes, grouped);
+  const list = grouped ? group : single;
   const items = list.data?.items ?? [];
-  const { colors } = useTheme();
 
-  const summaryRange = useMemo(() => {
-    const to = new Date();
-    const from = new Date(to.getFullYear(), to.getMonth() - 5, 1);
-    return { from: from.toISOString(), to: to.toISOString() };
-  }, []);
-  const summaryQuery = useMemo<QuoteListQuery>(
-    () => ({ ...query, ...summaryRange }),
-    [query, summaryRange],
-  );
-  const summary = useQuoteSummary(summaryQuery);
-
-  function toneFor(item: QuoteListItem): Tone {
-    return STATUS_TONE[item.status?.code ?? ''] ?? 'neutral';
+  async function exportExcel() {
+    setExporting(true);
+    try {
+      await exportService.quotes(exportQueryForTab(tab, search));
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Dışa aktarma başarısız.');
+    } finally {
+      setExporting(false);
+    }
   }
 
-  // Sunucu özeti tüm filtrelenmiş veri kümesini para birimi bazında toplar;
-  // burada yalnız grafikte boş ayların 0 kovaları tamamlanır.
-  const monthlySummaries = useMemo(() => {
-    const now = new Date();
-    const monthKeys = Array.from({ length: 6 }, (_, index) => {
-      const date = new Date(now.getFullYear(), now.getMonth() - (5 - index), 1);
-      return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
-    });
-    return (summary.data?.byCurrency ?? []).map((group) => {
-      const totals = new Map(group.months.map((month) => [month.month, Number(month.total || 0)]));
-      const chart = monthKeys.map((key) => ({ value: totals.get(key) ?? 0 }));
-      const total = chart[chart.length - 1]?.value ?? 0;
-      const previous = chart[chart.length - 2]?.value ?? 0;
-      return {
-        currencyCode: group.currencyCode,
-        total,
-        trendPct: previous > 0 ? ((total - previous) / previous) * 100 : null,
-        chart,
-      };
-    });
-  }, [summary.data]);
+  const filtered = Boolean(search) || tab !== 'all';
 
   return (
     <SafeAreaView className="flex-1 bg-canvas" edges={['top', 'left', 'right']}>
       <SyncStatus />
-      <ScreenHeader title="Teklifler" subtitle="Tüm tekliflerinizi görüntüleyin ve yönetin." />
+      <ScreenHeader
+        title="Teklifler"
+        subtitle="Tüm tekliflerinizi görüntüleyin ve yönetin."
+        actions={[
+          {
+            icon: exporting ? 'hourglass-outline' : 'download-outline',
+            label: 'Excel olarak dışa aktar',
+            onPress: () => {
+              if (!exporting) void exportExcel();
+            },
+          },
+        ]}
+      />
 
-      <View className="gap-2 pb-2">
-        <SearchBar value={search} onChange={setSearch} placeholder="Teklif no veya firma ara" />
-        <FilterChips
-          options={(statuses.data ?? []).map((status) => ({ value: status.code, label: status.name }))}
-          value={statusCode}
-          onChange={setStatusCode}
-        />
-      </View>
-
-      {list.isPending ? (
-        <ListSkeleton />
-      ) : list.error ? (
-        <ErrorState message={list.error.message} onRetry={() => void list.refetch()} />
-      ) : (
-        <FlashList
-          // v2'de bu özellik varsayılan AÇIK ve sayfalama/yeniden ölçüm sonrası
-          // içeriği çapalayıp listenin başında boşluk bırakıyor. Bunlar sohbet
-          // değil, tepeden akan listeler — kapalı olmalı.
-          maintainVisibleContentPosition={{ disabled: true }}
-          // FlashList v2 kendi başına esnemiyor; sınırlanmamış sütun içinde
-          // içerik aşağı kayıyor ve filtrelerin altında boşluk kalıyor.
-          style={{ flex: 1 }}
-          data={items}
-          keyExtractor={(item) => item.id}
-          contentContainerStyle={{ paddingHorizontal: SCREEN_PAD, paddingBottom: 32 }}
-          renderItem={({ item }) => (
-            <QuoteRow item={item} tone={toneFor(item)} onPress={() => router.push(`/(tabs)/modules/quotes/${item.id}`)} />
-          )}
-          onEndReachedThreshold={0.5}
-          onEndReached={() => {
-            if (list.hasNextPage && !list.isFetchingNextPage) void list.fetchNextPage();
-          }}
-          refreshing={list.isRefetching}
-          onRefresh={() => void list.refetch()}
-          ListHeaderComponent={
-            monthlySummaries.length > 0 ? (
-              <View className="gap-3 pb-3">
-                {monthlySummaries.map((monthlySummary) => (
-                  <Card key={monthlySummary.currencyCode} className="gap-3">
-                    <View className="flex-row items-center justify-between pb-3">
-                      <View className="flex-row items-center gap-1 rounded-full px-1 py-1">
-                        <Text className="font-inter-medium text-[13px] text-foreground">Bu Ay (Mayıs)</Text>
-                        <Ionicons name="chevron-down" size={14} color={colors.foreground} />
-                      </View>
-                      <View className="flex-row items-center gap-1 rounded-[8px] border border-border bg-card px-2 py-1.5">
-                        <Text className="font-inter-medium text-[12px] text-foreground">30 Gün</Text>
-                        <Ionicons name="chevron-down" size={14} color={colors.foreground} />
-                      </View>
-                    </View>
-                    <View className="flex-row items-end justify-between gap-3">
-                      <View className="gap-1">
-                        <Text className="font-inter text-[13px] text-muted-foreground">
-                          Toplam Teklif Tutarı · {monthlySummary.currencyCode}
-                        </Text>
-                        <Text className="text-[21px] font-inter-bold text-foreground" numberOfLines={1} adjustsFontSizeToFit>
-                          {formatAmount(monthlySummary.total, monthlySummary.currencyCode)}
-                        </Text>
-                      </View>
-                      {monthlySummary.trendPct !== null ? (
-                        <View className="flex-row items-center gap-1 pb-1">
-                          <Ionicons
-                            name={monthlySummary.trendPct >= 0 ? 'arrow-up' : 'arrow-down'}
-                            size={13}
-                            color={toneColor(colors, monthlySummary.trendPct >= 0 ? 'success' : 'destructive')}
-                          />
-                          <Text
-                            className="font-inter-semibold text-[13px]"
-                            style={{ color: toneColor(colors, monthlySummary.trendPct >= 0 ? 'success' : 'destructive') }}
-                          >
-                            %{Math.abs(monthlySummary.trendPct).toFixed(1)}
-                          </Text>
-                          <Text className="font-inter text-[12px] text-muted-foreground">geçen aya göre</Text>
-                        </View>
-                      ) : null}
-                    </View>
-                    <LineChart
-                      data={monthlySummary.chart}
-                      areaChart
-                      curved
-                      height={56}
-                      hideDataPoints
-                      hideRules
-                      hideYAxisText
-                      xAxisThickness={0}
-                      yAxisThickness={0}
-                      color={colors.chart1}
-                      startFillColor={colors.chart1}
-                      endFillColor={colors.chart1}
-                      startOpacity={0.25}
-                      endOpacity={0.02}
-                      thickness={2}
-                      spacing={38}
-                      initialSpacing={6}
-                      endSpacing={0}
-                      maxValue={Math.max(...monthlySummary.chart.map((d) => d.value)) * 1.2 || 1}
-                    />
-                    <View className="flex-row justify-between px-2 pt-1">
-                      <Text className="font-inter text-[10px] text-muted-foreground">1 May</Text>
-                      <Text className="font-inter text-[10px] text-muted-foreground">15 May</Text>
-                      <Text className="font-inter text-[10px] text-muted-foreground">31 May</Text>
-                    </View>
-                  </Card>
-                ))}
-              </View>
-            ) : null
-          }
-          ListEmptyComponent={
+      {/* Liste her zaman bağlı kalır: arama kutusu başlıkta, sorgu anahtarı değişince klavye kapanmasın. */}
+      <FlashList
+        maintainVisibleContentPosition={{ disabled: true }}
+        style={{ flex: 1 }}
+        data={list.error ? [] : items}
+        keyExtractor={(item) => item.id}
+        contentContainerStyle={{ paddingHorizontal: SCREEN_PAD, paddingBottom: 96 }}
+        renderItem={({ item }) => <QuoteRow item={item} onPress={() => router.push(`/(tabs)/modules/quotes/${item.id}`)} />}
+        onEndReachedThreshold={0.5}
+        onEndReached={() => {
+          if (list.hasNextPage && !list.isFetchingNextPage) void list.fetchNextPage();
+        }}
+        refreshing={list.isRefetching}
+        onRefresh={() => {
+          void qc.invalidateQueries({ queryKey: ['quotes'] });
+          void qc.invalidateQueries({ queryKey: ['files', 'links'] });
+          void qc.invalidateQueries({ queryKey: ['sales-orders'] });
+        }}
+        ListHeaderComponent={
+          <View className="gap-3 pb-3 pt-2">
+            {divisionOptions.length > 1 ? (
+              <ChoiceChips
+                label="İş alanı:"
+                options={[{ value: '', label: 'Tümü' }, ...divisionOptions]}
+                value={businessLine ?? ''}
+                onChange={(next) => setBusinessLine((next || null) as BusinessLine | null)}
+              />
+            ) : null}
+            <QuoteKpis businessLine={businessLine ?? undefined} />
+            <QuoteTrendCard businessLine={businessLine ?? undefined} />
+            <QuoteDistributionCard businessLine={businessLine ?? undefined} />
+            {canReadFiles ? (
+              <Card className="gap-1">
+                <ExternalQuotesSection search={search} />
+              </Card>
+            ) : null}
+            {canReadOrders ? (
+              <Card className="gap-1">
+                <SalesOrdersSection />
+              </Card>
+            ) : null}
+            <View className="gap-2 pt-1" style={{ marginHorizontal: -SCREEN_PAD }}>
+              <SearchBar value={search} onChange={setSearch} placeholder="Teklif no, firma veya ürün ara" />
+              <Tabs tabs={QUOTE_TABS.map((entry) => ({ value: entry.value, label: entry.label }))} value={tab} onChange={setTab} />
+            </View>
+            {list.error ? <ErrorState message={list.error.message} onRetry={() => void list.refetch()} /> : null}
+          </View>
+        }
+        ListEmptyComponent={
+          list.error ? null : list.isPending ? (
+            <View style={{ marginHorizontal: -SCREEN_PAD }}>
+              <ListSkeleton />
+            </View>
+          ) : (
             <EmptyState
               title="Teklif bulunamadı"
-              hint={search || statusCode ? 'Arama veya durum filtresi sonuç döndürmedi.' : 'Henüz teklif kaydı yok.'}
+              hint={filtered ? 'Arama veya sekme filtresi sonuç döndürmedi.' : 'Henüz teklif kaydı yok.'}
               icon="document-text-outline"
-              actionLabel={search || statusCode ? 'Filtreleri Temizle' : undefined}
+              actionLabel={filtered ? 'Filtreleri Temizle' : canCreate ? 'Yeni Teklif' : undefined}
               onAction={
-                search || statusCode
+                filtered
                   ? () => {
                       setSearch('');
-                      setStatusCode(null);
+                      setTab('all');
                     }
-                  : undefined
+                  : canCreate
+                    ? () => router.push('/modal/quote-form')
+                    : undefined
               }
             />
-          }
-          ListFooterComponent={list.isFetchingNextPage ? <Loading /> : null}
-        />
-      )}
+          )
+        }
+        ListFooterComponent={list.isFetchingNextPage ? <Loading /> : null}
+      />
 
-      {/* Mockup s19'da sağ altta "＋ Yeni Teklif" butonu var */}
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel="Yeni Teklif"
-        onPress={() => {}}
-        className="absolute bottom-5 right-5 h-12 flex-row items-center justify-center gap-2 rounded-full bg-primary px-4 active:opacity-80"
-        style={{ boxShadow: '0 7px 18px rgba(214, 24, 31, 0.28)' }}
-      >
-        <View className="h-6 w-6 items-center justify-center rounded-full bg-canvas">
-          <Ionicons name="add" size={18} color={colors.primary} />
-        </View>
-        <Text className="font-inter-semibold text-[14px] text-primary-foreground">Yeni Teklif</Text>
-      </Pressable>
+      {canCreate ? <Fab label="Yeni Teklif" extended onPress={() => router.push('/modal/quote-form')} /> : null}
     </SafeAreaView>
   );
 }

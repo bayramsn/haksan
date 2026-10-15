@@ -13,6 +13,7 @@ import {
 import { useCompanyList } from '@/src/api/companies.hooks';
 import {
   useContact,
+  useContactSummary,
   useCreateContact,
   useLookup,
   useUpdateContact,
@@ -20,6 +21,8 @@ import {
 import type { CompanyListItem } from '@/src/api/endpoints';
 import { useCan } from '@/src/auth/AuthProvider';
 import { useTheme } from '@/src/theme/theme';
+import { DateTextField } from '@/src/ui/select/DateTextField';
+import { SearchSelect } from '@/src/ui/select/SearchSelect';
 import { Button, Card, EmptyState, ErrorState, Eyebrow, Field, FilterChips, Loading, SearchBar } from '@/src/ui';
 
 type FormState = {
@@ -144,6 +147,11 @@ export function ContactFormScreen() {
   const { colors } = useTheme();
   const detail = useContact(id);
   const decisionRoles = useLookup('decision-roles');
+  const contactSummary = useContactSummary();
+  const departmentOptions = useMemo(
+    () => (contactSummary.data?.departments ?? []).map((name) => ({ id: name, label: name })),
+    [contactSummary.data]
+  );
   const create = useCreateContact();
   const update = useUpdateContact();
   const [form, setForm] = useState<FormState>({
@@ -318,7 +326,20 @@ export function ContactFormScreen() {
             <Field label="Ad soyad *" value={form.fullName} onChangeText={(value) => set('fullName', value)} maxLength={255} error={errors.fullName} autoFocus={!editing} />
             <Field label="Harici kontak no" value={form.externalContactNo} onChangeText={(value) => set('externalContactNo', value)} maxLength={32} error={errors.externalContactNo} />
             <Field label="Unvan" value={form.title} onChangeText={(value) => set('title', value)} maxLength={128} error={errors.title} />
-            <Field label="Departman" value={form.department} onChangeText={(value) => set('department', value)} maxLength={128} error={errors.department} />
+            <SearchSelect
+              label="Departman"
+              placeholder="Departman seçin veya yazın"
+              icon="people-outline"
+              value={form.department}
+              onSelect={(item) => set('department', item?.label ?? '')}
+              options={departmentOptions}
+              optionsLoading={contactSummary.isPending}
+              allowCustom
+              clearable
+              searchPlaceholder="Departman ara"
+              emptyTitle="Kayıtlı departman yok"
+              error={errors.department}
+            />
             {decisionRoles.data?.length ? (
               <View className="gap-1.5">
                 <Text className="font-inter-medium text-[13px] text-muted-foreground">Karar rolü</Text>
@@ -349,7 +370,7 @@ export function ContactFormScreen() {
               <Text className="font-inter-medium text-[13px] text-muted-foreground">Cinsiyet</Text>
               <FilterChips options={[...GENDERS]} value={form.gender || null} onChange={(value) => set('gender', value ?? '')} allLabel="Belirtilmedi" />
             </View>
-            <Field label="Doğum tarihi" value={form.birthDate} onChangeText={(value) => set('birthDate', value)} placeholder="YYYY-AA-GG" keyboardType="numbers-and-punctuation" maxLength={10} error={errors.birthDate} />
+            <DateTextField label="Doğum tarihi" value={form.birthDate} onChangeText={(value) => set('birthDate', value)} error={errors.birthDate} />
             <Field label="Memleket" value={form.hometown} onChangeText={(value) => set('hometown', value)} maxLength={64} error={errors.hometown} />
             <Field label="Mezun olduğu okul" value={form.graduatedSchool} onChangeText={(value) => set('graduatedSchool', value)} maxLength={128} error={errors.graduatedSchool} />
             <Field label="Sevdiği takım" value={form.favoriteTeam} onChangeText={(value) => set('favoriteTeam', value)} maxLength={64} error={errors.favoriteTeam} />

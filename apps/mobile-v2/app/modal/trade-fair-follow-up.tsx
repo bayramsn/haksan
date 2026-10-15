@@ -11,6 +11,7 @@ import { EmptyState, Field } from '@/src/ui';
 import { ChoiceChips, ModalForm } from '@/src/ui/documents/pickers';
 import { toast } from '@/src/ui/toast';
 import { CONTACT_METHODS, emptyFollowUp, followUpDraft } from '@/src/ui/trade-fairs/tradeFairLogic';
+import { DateTextField } from '@/src/ui/select/DateTextField';
 
 function CheckRow({ label, value, onChange }: { label: string; value: boolean; onChange: (next: boolean) => void }) {
   const { colors } = useTheme();
@@ -86,13 +87,10 @@ export default function TradeFairFollowUpModal() {
         onChange={(contactMethod) => setForm((f) => ({ ...f, contactMethod }))}
       />
       {err('contactMethod') ? <Text className="font-inter text-xs text-destructive">{err('contactMethod')}</Text> : null}
-      <Field
+      <DateTextField
         label={`Görüşme tarihi${star}`}
         value={form.contactDate ?? ''}
         onChangeText={(v) => setForm((f) => ({ ...f, contactDate: v || null }))}
-        placeholder="YYYY-AA-GG"
-        maxLength={10}
-        keyboardType="numbers-and-punctuation"
         error={err('contactDate')}
       />
       <Field

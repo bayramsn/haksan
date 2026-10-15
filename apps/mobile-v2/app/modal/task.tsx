@@ -1,14 +1,18 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { KeyboardAvoidingView, Platform, Pressable, ScrollView, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Redirect, Stack, useLocalSearchParams, useRouter } from 'expo-router';
-import { useCreateTask, useTaskAssignees, useTaskDetail, useUpdateTask } from '@/src/api/tasks.hooks';
+import { useCreateTask, useTaskAssignees, useTaskDetail } from '@/src/api/tasks.hooks';
+import { usePatchTask } from '@/src/api/crm-general.hooks';
 import type { TaskInput, TaskPriority, TaskStatus } from '@/src/api/endpoints';
 import { useAuth, useCan } from '@/src/auth/AuthProvider';
-import { formatLocalDateTime, parseLocalDateTime } from '@/src/lib/format';
 import { chipClass, chipTextClass, type Tone } from '@/src/theme/theme';
 import { Button, Eyebrow, Field } from '@/src/ui';
 import { toast } from '@/src/ui/toast';
+import { CompanyPicker, ContactPicker, type PickedRecord } from '@/src/ui/pickers/CompanyPicker';
+import { DateTimeField } from '@/src/ui/pickers/DateTimeField';
+import { OptionPicker } from '@/src/ui/pickers/OptionPicker';
+import { TASK_COMPLETION_NOTE_MAX_LENGTH } from '@/src/ui/crm/task-logic';
 
 const PRIORITIES: { value: TaskPriority; label: string; tone: Tone }[] = [
   { value: 'low', label: 'Düşük', tone: 'neutral' },
@@ -24,13 +28,14 @@ const STATUSES: { value: TaskStatus; label: string }[] = [
   { value: 'cancelled', label: 'İptal Edildi' },
 ];
 
-const REMINDERS: { value: number | null; label: string }[] = [
-  { value: null, label: 'Yok' },
-  { value: 0, label: 'Saatinde' },
-  { value: 15, label: '15 dk önce' },
-  { value: 30, label: '30 dk önce' },
-  { value: 60, label: '1 saat önce' },
-  { value: 1440, label: '1 gün önce' },
+/** Web TASK_REMINDER_OPTIONS (packages/shared). */
+const REMINDERS = [
+  { value: '', label: 'Hatırlatma yok' },
+  { value: '0', label: 'Görev saatinde' },
+  { value: '15', label: '15 dakika önce' },
+  { value: '30', label: '30 dakika önce' },
+  { value: '60', label: '1 saat önce' },
+  { value: '1440', label: '1 gün önce' },
 ];
 
 /** Seçim satırı: mobilde açılır liste yerine tek dokunuşluk çip dizisi. */
@@ -64,32 +69,42 @@ function ChipRow<T>({
   );
 }
 
+/** Web TaskFormDialog. */
 export default function TaskFormScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{
     id?: string;
     companyId?: string;
+    companyName?: string;
     contactId?: string;
     opportunityId?: string;
     quoteId?: string;
     serviceTicketId?: string;
+    label?: string;
   }>();
   const editing = Boolean(params.id);
   const { user } = useAuth();
   const canCreate = useCan('tasks.create');
+  const canUpdate = useCan('tasks.update');
 
   const detail = useTaskDetail(params.id ?? '');
   const assignees = useTaskAssignees();
   const create = useCreateTask();
-  const update = useUpdateTask();
+  const update = usePatchTask();
+
+  // İlgili kayıt üst ekrandan geldiyse firma/kontak seçicileri gizlenir (web lockedRelation).
+  const lockedRelation = Boolean(params.opportunityId || params.quoteId || params.serviceTicketId || params.companyId);
 
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [priority, setPriority] = useState<TaskPriority>('normal');
   const [status, setStatus] = useState<TaskStatus>('todo');
-  const [assignedToUserId, setAssignedToUserId] = useState<string>('');
-  const [dueAt, setDueAt] = useState('');
-  const [remind, setRemind] = useState<number | null>(null);
+  const [assignedToUserId, setAssignedToUserId] = useState('');
+  const [dueAt, setDueAt] = useState<Date | null>(null);
+  const [remind, setRemind] = useState('');
+  const [company, setCompany] = useState<PickedRecord | null>(null);
+  const [contact, setContact] = useState<PickedRecord | null>(null);
+  const [completionNote, setCompletionNote] = useState('');
   const [error, setError] = useState<string | undefined>();
 
   useEffect(() => {
@@ -99,21 +114,34 @@ export default function TaskFormScreen() {
     setDescription(task.description ?? '');
     setPriority(task.priority);
     setStatus(task.status);
-    setAssignedToUserId(task.assignedToUserId ?? '');
-    setDueAt(task.dueAt ? formatLocalDateTime(task.dueAt) : '');
-    setRemind(task.remindBeforeMinutes);
+    setAssignedToUserId(task.assignedToUserId && task.assignedToUserId !== user?.id ? task.assignedToUserId : '');
+    setDueAt(task.dueAt ? new Date(task.dueAt) : null);
+    setRemind(task.remindBeforeMinutes === null ? '' : String(task.remindBeforeMinutes));
+    setCompany(task.company ? { id: task.company.id, name: task.company.shortName || task.company.legalTitle } : null);
+    setContact(task.contact ? { id: task.contact.id, name: task.contact.fullName } : null);
   }, [detail.data?.id]);
 
+  const assigneeOptions = useMemo(
+    () => [
+      { value: '', label: 'Kendim' },
+      ...(assignees.data ?? []).filter((person) => person.id !== user?.id).map((person) => ({ value: person.id, label: person.fullName })),
+    ],
+    [assignees.data, user?.id],
+  );
+
   if (!editing && !canCreate) return <Redirect href="/(tabs)/modules/tasks" />;
+  if (editing && !canUpdate) return <Redirect href="/(tabs)/modules/tasks" />;
+
+  const completing = status === 'done' && detail.data?.status !== 'done';
 
   const submit = () => {
     if (!title.trim()) {
-      setError('Görev adı zorunludur.');
+      setError('Görev adı zorunlu');
+      toast.error('Görev adı zorunlu');
       return;
     }
-    const due = dueAt.trim() ? parseLocalDateTime(dueAt) : null;
-    if (dueAt.trim() && !due) {
-      setError('Son tarihi YYYY-AA-GG SS:DD biçiminde girin.');
+    if (completing && !completionNote.trim()) {
+      toast.error('Görevi tamamlamak için tamamlama notu yazın');
       return;
     }
     setError(undefined);
@@ -122,12 +150,11 @@ export default function TaskFormScreen() {
       title: title.trim(),
       description: description.trim() || null,
       priority,
-      status,
       assignedToUserId: assignedToUserId || user?.id || null,
-      dueAt: due ? due.toISOString() : null,
-      remindBeforeMinutes: remind,
-      companyId: params.companyId ?? detail.data?.companyId ?? null,
-      contactId: params.contactId ?? detail.data?.contactId ?? null,
+      dueAt: dueAt ? dueAt.toISOString() : null,
+      remindBeforeMinutes: dueAt && remind !== '' ? Number(remind) : null,
+      companyId: params.companyId ?? company?.id ?? null,
+      contactId: params.contactId ?? contact?.id ?? null,
       opportunityId: params.opportunityId ?? detail.data?.opportunityId ?? null,
       quoteId: params.quoteId ?? detail.data?.quoteId ?? null,
       serviceTicketId: params.serviceTicketId ?? detail.data?.serviceTicketId ?? null,
@@ -135,41 +162,68 @@ export default function TaskFormScreen() {
 
     if (editing && params.id) {
       update.mutate(
-        { id: params.id, body },
+        {
+          id: params.id,
+          patch: {
+            ...body,
+            ...(detail.data?.status !== status ? { status } : {}),
+            ...(completing ? { completionNote: completionNote.trim() } : {}),
+          },
+        },
         {
           onSuccess: () => {
             toast.success('Görev güncellendi');
             router.back();
           },
-          onError: (err) => toast.error(err.message),
-        }
+          onError: (err) => toast.error(err.message || 'Görev kaydedilemedi'),
+        },
       );
       return;
     }
-    create.mutate(body, {
-      onSuccess: () => {
-        toast.success('Görev oluşturuldu');
-        router.back();
+    create.mutate(
+      { ...body, status: 'todo' },
+      {
+        onSuccess: () => {
+          toast.success('Görev oluşturuldu');
+          router.back();
+        },
+        onError: (err) => toast.error(err.message || 'Görev kaydedilemedi'),
       },
-      onError: (err) => toast.error(err.message),
-    });
+    );
   };
 
   const busy = create.isPending || update.isPending;
-  const people = assignees.data ?? [];
+  const relationLabel = params.label || params.companyName;
 
   return (
-    <SafeAreaView className="flex-1 bg-canvas" edges={['top', 'bottom', 'left', 'right']}>
-      <Stack.Screen options={{ title: editing ? 'Görevi Düzenle' : 'Yeni Görev', headerShown: true }} />
+    <SafeAreaView className="flex-1 bg-canvas" edges={['bottom', 'left', 'right']}>
+      <Stack.Screen options={{ title: editing ? 'Görevi düzenle' : 'Yeni görev', headerShown: true }} />
       <KeyboardAvoidingView className="flex-1" behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <ScrollView contentContainerClassName="gap-4 p-4 pb-8" keyboardShouldPersistTaps="handled">
+          <Text className="font-inter text-sm text-muted-foreground">
+            {relationLabel ? `${relationLabel} kaydına bağlı görev.` : 'Kısa bir başlık, sorumlu ve son tarih yeterli.'}
+          </Text>
+
           <Field
-            label="Görev adı"
+            label="Görev adı *"
             value={title}
-            onChangeText={setTitle}
-            placeholder="Örn. Müşteriyi ara"
+            onChangeText={(value) => {
+              setTitle(value);
+              if (error) setError(undefined);
+            }}
+            placeholder="Örn. Teklif için geri dönüş yap"
             maxLength={255}
+            autoFocus={!editing}
             error={error}
+          />
+
+          <OptionPicker
+            label="Atanacak kullanıcı"
+            icon="person-outline"
+            value={assignedToUserId}
+            options={assigneeOptions}
+            searchable
+            onChange={(value) => setAssignedToUserId(value ?? '')}
           />
 
           <View className="gap-2">
@@ -177,45 +231,54 @@ export default function TaskFormScreen() {
             <ChipRow options={PRIORITIES} value={priority} onChange={setPriority} />
           </View>
 
-          {people.length > 1 ? (
-            <View className="gap-2">
-              <Eyebrow>Atanan</Eyebrow>
-              <ChipRow
-                options={people.map((person) => ({
-                  value: person.id,
-                  label: person.id === user?.id ? 'Kendim' : person.fullName,
-                }))}
-                value={assignedToUserId || user?.id || ''}
-                onChange={setAssignedToUserId}
-              />
-            </View>
-          ) : null}
+          <DateTimeField label="Son tarih ve saat" value={dueAt} onChange={setDueAt} clearable />
 
-          <Field
-            label="Son tarih ve saat"
-            value={dueAt}
-            onChangeText={setDueAt}
-            placeholder="YYYY-AA-GG SS:DD"
-            keyboardType="numbers-and-punctuation"
-            maxLength={16}
+          <OptionPicker
+            label="Hatırlatma"
+            icon="notifications-outline"
+            value={remind}
+            options={REMINDERS}
+            disabled={!dueAt}
+            onChange={(value) => setRemind(value ?? '')}
           />
-
-          {dueAt.trim() ? (
-            <View className="gap-2">
-              <Eyebrow>Hatırlatma</Eyebrow>
-              <ChipRow
-                options={REMINDERS.map((option) => ({ value: option.value ?? -1, label: option.label }))}
-                value={remind ?? -1}
-                onChange={(next) => setRemind(next === -1 ? null : next)}
-              />
-            </View>
-          ) : null}
 
           {editing ? (
             <View className="gap-2">
               <Eyebrow>Durum</Eyebrow>
               <ChipRow options={STATUSES} value={status} onChange={setStatus} />
             </View>
+          ) : null}
+
+          {!lockedRelation ? (
+            <>
+              <CompanyPicker
+                label="İlgili firma"
+                value={company}
+                onChange={(next) => {
+                  setCompany(next);
+                  setContact(null);
+                }}
+              />
+              <ContactPicker
+                label="İlgili kontak"
+                companyId={company?.id ?? null}
+                value={contact}
+                onChange={setContact}
+                placeholder="Kontak seçin…"
+              />
+            </>
+          ) : null}
+
+          {completing ? (
+            <Field
+              label="Tamamlama notu (zorunlu)"
+              value={completionNote}
+              onChangeText={setCompletionNote}
+              maxLength={TASK_COMPLETION_NOTE_MAX_LENGTH}
+              multiline
+              placeholder="Yapılan işi ve sonucunu yazın. Not, görev geçmişine kaydedilir."
+              style={{ minHeight: 88, paddingTop: 12 }}
+            />
           ) : null}
 
           <Field
@@ -227,9 +290,20 @@ export default function TaskFormScreen() {
             numberOfLines={3}
             style={{ minHeight: 88, paddingTop: 12 }}
           />
-
-          <Button label={editing ? 'Kaydet' : 'Görevi Oluştur'} loading={busy} onPress={submit} />
         </ScrollView>
+        <View className="flex-row gap-3 border-t border-border bg-card px-4 py-3">
+          <View className="flex-1">
+            <Button label="Vazgeç" variant="ghost" disabled={busy} onPress={() => router.back()} />
+          </View>
+          <View className="flex-[2]">
+            <Button
+              label={busy ? 'Kaydediliyor…' : 'Kaydet'}
+              loading={busy}
+              disabled={busy || (completing && !completionNote.trim())}
+              onPress={submit}
+            />
+          </View>
+        </View>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );

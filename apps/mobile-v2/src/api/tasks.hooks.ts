@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient, type QueryKey } from '@tanstack/react-query';
 import { tasks, type TaskInput, type TaskStatus, type TaskView } from './endpoints';
+import { tasksExt } from './crm-general.api';
 
 export const taskKeys = {
   all: ['tasks'] as const,
@@ -62,11 +63,15 @@ export function useAddTaskComment() {
   });
 }
 
-/** Listeden tek dokunuşla tamamla/geri aç. */
+/**
+ * Durum değişikliği. Sunucu `done` için 1..480 karakterlik tamamlama notu
+ * ister; not olmadan gönderilen `done` 400 döner.
+ */
 export function useToggleTaskDone() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, status }: { id: string; status: TaskStatus }) => tasks.update(id, { status }),
+    mutationFn: ({ id, status, completionNote }: { id: string; status: TaskStatus; completionNote?: string }) =>
+      tasksExt.update(id, status === 'done' ? { status, completionNote } : { status }),
     onSuccess: settleTasks(qc),
   });
 }

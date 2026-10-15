@@ -1,218 +1,160 @@
-import { useMemo, useRef, useState } from 'react';
-import { KeyboardAvoidingView, Platform, Pressable, ScrollView, Text, View } from 'react-native';
+import { useState } from 'react';
+import { KeyboardAvoidingView, Platform, ScrollView, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { BottomSheetBackdrop, BottomSheetFlatList, BottomSheetModal, BottomSheetView } from '@gorhom/bottom-sheet';
 import { Redirect, Stack, useLocalSearchParams, useRouter } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
-import {
-  useCompanyList,
-} from '@/src/api/companies.hooks';
-import { useCreateServiceTicket } from '@/src/api/operations.hooks';
-import type { CompanyListItem } from '@/src/api/endpoints';
-import { useCan } from '@/src/auth/AuthProvider';
-import { chipClass, chipTextClass, toneColor, useTheme, type Tone } from '@/src/theme/theme';
-import { Button, EmptyState, ErrorState, Eyebrow, Field, FilterChips, Loading, SearchBar } from '@/src/ui';
+import { useCreateTicketWithMeta } from '@/src/api/service.hooks';
+import { useAuth, useCan } from '@/src/auth/AuthProvider';
+import { Button, Field } from '@/src/ui';
+import { CompanyPicker, ContactPicker, type PickedRecord } from '@/src/ui/pickers/CompanyPicker';
 import { toast } from '@/src/ui/toast';
+import { ChoiceChips, DevicePicker, FormSection, UserPicker, type DeviceChoice } from '@/src/ui/service/fields';
+import { historyTimestamp, SEVERITY_LABELS, TICKET_TYPE_LABELS } from '@/src/ui/service/serviceStage';
 
-const SEVERITIES: { value: 'low' | 'normal' | 'high' | 'critical'; label: string; tone: Tone }[] = [
-  { value: 'low', label: 'Düşük', tone: 'neutral' },
-  { value: 'normal', label: 'Normal', tone: 'info' },
-  { value: 'high', label: 'Yüksek', tone: 'warning' },
-  { value: 'critical', label: 'Kritik', tone: 'destructive' },
-];
+type Severity = 'low' | 'normal' | 'high' | 'critical';
+type TicketType = 'complaint' | 'request' | 'warranty_claim' | 'question';
 
-const TICKET_TYPES: { value: 'complaint' | 'request' | 'warranty_claim' | 'question'; label: string }[] = [
-  { value: 'complaint', label: 'Şikayet' },
-  { value: 'request', label: 'Talep' },
-  { value: 'warranty_claim', label: 'Garanti' },
-  { value: 'question', label: 'Soru' },
-];
+const SEVERITIES = (['low', 'normal', 'high', 'critical'] as Severity[]).map((value) => ({ value, label: SEVERITY_LABELS[value]! }));
+const TICKET_TYPES = (['complaint', 'request', 'warranty_claim', 'question'] as TicketType[]).map((value) => ({ value, label: TICKET_TYPE_LABELS[value]! }));
 
-function clean(v: string): string | undefined {
-  const trimmed = v.trim();
-  return trimmed || undefined;
+function first(value: string | string[] | undefined): string {
+  return Array.isArray(value) ? value[0] ?? '' : value ?? '';
 }
 
+/** Web CreateServiceDialog + store.addService metadata'sı. */
 export default function NewTicketScreen() {
   const router = useRouter();
-  const { colors } = useTheme();
+  const { user } = useAuth();
   const canCreate = useCan('service_tickets.create');
-  const params = useLocalSearchParams<{ companyId?: string; companyName?: string }>();
+  const params = useLocalSearchParams<{ companyId?: string; companyName?: string; customerDeviceId?: string }>();
+  const create = useCreateTicketWithMeta();
 
-  const create = useCreateServiceTicket();
-  const [companyId, setCompanyId] = useState(first(params.companyId));
-  const [companyName, setCompanyName] = useState(first(params.companyName));
-  const [subject, setSubject] = useState('');
-  const [description, setDescription] = useState('');
-  const [severity, setSeverity] = useState<'low' | 'normal' | 'high' | 'critical'>('normal');
-  const [ticketType, setTicketType] = useState<'complaint' | 'request' | 'warranty_claim' | 'question'>('complaint');
-  const [errors, setErrors] = useState<{ companyId?: string; subject?: string }>({});
-  const [search, setSearch] = useState('');
-  const companySheet = useRef<BottomSheetModal>(null);
-
-  const companyList = useCompanyList(
-    useMemo(() => ({ search: clean(search), sortBy: 'name' as const, sortDir: 'asc' as const }), [search])
+  const initialCompanyId = first(params.companyId);
+  const [company, setCompany] = useState<PickedRecord | null>(
+    initialCompanyId ? { id: initialCompanyId, name: first(params.companyName) || 'Seçili firma' } : null,
   );
+  const [deviceId, setDeviceId] = useState<string | null>(first(params.customerDeviceId) || null);
+  const [device, setDevice] = useState<DeviceChoice | null>(null);
+  const [contact, setContact] = useState<PickedRecord | null>(null);
+  const [assignee, setAssignee] = useState<string | null>(null);
+  const [ticketType, setTicketType] = useState<TicketType>('complaint');
+  const [severity, setSeverity] = useState<Severity>('normal');
+  const [subject, setSubject] = useState('');
+  const [diagnosis, setDiagnosis] = useState('');
+  const [serviceNote, setServiceNote] = useState('');
+  const [companyError, setCompanyError] = useState<string>();
 
   if (!canCreate) return <Redirect href="/(tabs)/modules/service-tickets" />;
 
-  function chooseCompany(company: CompanyListItem) {
-    setCompanyId(company.id);
-    setCompanyName(company.shortName ?? company.legalTitle);
-    setErrors((prev) => ({ ...prev, companyId: undefined }));
-    companySheet.current?.dismiss();
-  }
-
-  function submit() {
-    const nextErrors: typeof errors = {};
-    if (!companyId) nextErrors.companyId = 'Firma seçin.';
-    if (!subject.trim()) nextErrors.subject = 'Konu zorunludur.';
-    if (nextErrors.companyId || nextErrors.subject) {
-      setErrors(nextErrors);
+  const submit = () => {
+    if (!company) {
+      setCompanyError('Firma seçimi zorunludur.');
       return;
     }
+    const createdAt = historyTimestamp(new Date());
+    const stamp = Date.now();
+    const by = assignee ?? user?.id;
+    const derivedSubject =
+      subject.trim() || (device ? [device.model, device.serialNumber].filter(Boolean).join(' · ') : '') || 'Servis talebi';
+    const description = [diagnosis, serviceNote].map((value) => value.trim()).filter(Boolean).join('\n\n') || derivedSubject;
     create.mutate(
       {
-        companyId,
-        subject: subject.trim(),
-        description: clean(description),
+        companyId: company.id,
+        contactId: contact?.id,
+        customerDeviceId: deviceId ?? undefined,
+        subject: derivedSubject.slice(0, 255),
+        description: description.slice(0, 4000),
         severity,
         ticketType,
         source: 'manual',
+        assignedToUserId: assignee ?? undefined,
+        metadata: {
+          quoteRequired: false,
+          serviceStage: 'Request Opened',
+          serviceQuote: null,
+          noteHistory: serviceNote.trim() ? [{ id: `srv-note-${stamp}`, text: serviceNote.trim(), createdAt, byUserId: by }] : [],
+          complaints: diagnosis.trim() ? [{ id: `srv-complaint-${stamp}`, text: diagnosis.trim(), createdAt, byUserId: by }] : [],
+          activityHistory: [{ id: `srv-act-${stamp}`, text: 'Servis talebi açıldı.', createdAt, byUserId: by }],
+          operations: [],
+          timerStatus: 'idle',
+          timerElapsedSeconds: 0,
+          serviceHourlyRate: 120,
+          serviceCurrency: 'USD',
+        },
       },
       {
-        onSuccess: () => {
-          toast.success('Servis talebi oluşturuldu');
+        onSuccess: (created) => {
+          toast.success(`Servis talebi oluşturuldu · ${created.ticketNo}`);
           router.back();
         },
-        onError: (error) => toast.error(error.message),
-      }
+        onError: (error) => toast.error(`Servis talebi oluşturulamadı: ${error.message}`),
+      },
     );
-  }
-
-  const sheetProps = {
-    snapPoints: ['80%'],
-    enableDynamicSizing: false,
-    backgroundStyle: { backgroundColor: colors.card },
-    handleIndicatorStyle: { backgroundColor: colors.mutedForeground },
-    backdropComponent: (props: Parameters<typeof BottomSheetBackdrop>[0]) => (
-      <BottomSheetBackdrop {...props} appearsOnIndex={0} disappearsOnIndex={-1} />
-    ),
   };
 
   return (
-    <SafeAreaView className="flex-1 bg-canvas" edges={['top', 'bottom', 'left', 'right']}>
+    <SafeAreaView className="flex-1 bg-canvas" edges={['bottom', 'left', 'right']}>
       <Stack.Screen options={{ title: 'Yeni Servis Talebi', headerShown: true }} />
       <KeyboardAvoidingView className="flex-1" behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <ScrollView contentContainerClassName="gap-5 p-4 pb-10" keyboardShouldPersistTaps="handled">
-          <View className="gap-3">
-            <Eyebrow>Firma</Eyebrow>
-            <Pressable
-              accessibilityRole="button"
-              onPress={() => companySheet.current?.present()}
-              className={`min-h-12 flex-row items-center gap-3 rounded-control border bg-card px-3 py-2 ${errors.companyId ? 'border-destructive' : 'border-border'} active:opacity-70`}
-            >
-              <Ionicons name="business-outline" size={19} color={colors.primary} />
-              <View className="flex-1 gap-0.5">
-                <Text className="font-inter-medium text-xs text-muted-foreground">Firma *</Text>
-                <Text className="font-inter text-base text-foreground" numberOfLines={1}>
-                  {companyName || 'Firma seçin'}
-                </Text>
-              </View>
-              <Ionicons name="chevron-forward" size={18} color={colors.mutedForeground} />
-            </Pressable>
-            {errors.companyId ? <Text className="font-inter text-xs text-destructive">{errors.companyId}</Text> : null}
-          </View>
+        <ScrollView contentContainerClassName="gap-4 p-4 pb-10" keyboardShouldPersistTaps="handled">
+          <FormSection title="Müşteri ve makine">
+            <CompanyPicker
+              label="Firma *"
+              value={company}
+              error={companyError}
+              onChange={(next) => {
+                setCompany(next);
+                setCompanyError(undefined);
+                setContact(null);
+                setDeviceId(null);
+                setDevice(null);
+              }}
+            />
+            <DevicePicker
+              label="Makine (opsiyonel)"
+              companyId={company?.id ?? null}
+              value={deviceId}
+              onChange={(next) => {
+                setDeviceId(next?.id ?? null);
+                setDevice(next);
+              }}
+            />
+            <ContactPicker label="İlgili Kişi" companyId={company?.id ?? null} value={contact} onChange={setContact} placeholder="Firma genel iletişimi" />
+            <UserPicker label="Atanan Servis Personeli" value={assignee} onChange={setAssignee} placeholder="Personel seçin" />
+          </FormSection>
 
-          <View className="gap-3">
-            <Eyebrow>Talep</Eyebrow>
-            <View className="gap-1.5">
-              <Text className="font-inter-medium text-[13px] text-muted-foreground">Tür</Text>
-              <FilterChips
-                options={TICKET_TYPES}
-                value={ticketType}
-                onChange={(value) => value && setTicketType(value)}
-                allLabel=""
-              />
-            </View>
-            <View className="gap-1.5">
-              <Text className="font-inter-medium text-[13px] text-muted-foreground">Ciddiyet</Text>
-              <View className="flex-row flex-wrap gap-2">
-                {SEVERITIES.map((item) => {
-                  const active = severity === item.value;
-                  return (
-                    <Pressable
-                      key={item.value}
-                      accessibilityRole="radio"
-                      accessibilityState={{ selected: active }}
-                      onPress={() => setSeverity(item.value)}
-                      className={`self-start rounded-full border px-3 py-2 ${active ? chipClass[item.tone] : 'border-border bg-card'}`}
-                    >
-                      <Text className={`font-inter-medium text-xs ${active ? chipTextClass[item.tone] : 'text-foreground'}`}>
-                        {item.label}
-                      </Text>
-                    </Pressable>
-                  );
-                })}
-              </View>
-            </View>
-            <Field label="Konu *" value={subject} onChangeText={(v) => { setSubject(v); setErrors((p) => ({ ...p, subject: undefined })); }} maxLength={255} autoFocus error={errors.subject} />
+          <FormSection title="Talep">
+            <ChoiceChips label="Kayıt Tipi *" value={ticketType} options={TICKET_TYPES} onChange={setTicketType} />
+            <ChoiceChips label="Öncelik" value={severity} options={SEVERITIES} onChange={setSeverity} />
+            <Field label="Konu" value={subject} onChangeText={setSubject} maxLength={255} placeholder="Boş bırakılırsa makine bilgisinden üretilir" />
             <Field
-              label="Arıza / talep açıklaması"
-              value={description}
-              onChangeText={setDescription}
+              label="Arıza / Talep Açıklaması"
+              value={diagnosis}
+              onChangeText={setDiagnosis}
+              placeholder="Müşterinin bildirdiği problem..."
               multiline
               maxLength={4000}
-              className="min-h-24 rounded-control border border-border bg-input-background px-3 py-2 font-inter text-base text-foreground"
+              style={{ minHeight: 100, textAlignVertical: 'top', paddingTop: 12 }}
             />
-          </View>
+            <Field
+              label="Servis Notu"
+              value={serviceNote}
+              onChangeText={setServiceNote}
+              placeholder="İç not / planlama..."
+              multiline
+              maxLength={4000}
+              style={{ minHeight: 90, textAlignVertical: 'top', paddingTop: 12 }}
+            />
+          </FormSection>
 
           <Text className="font-inter text-xs text-muted-foreground">
             Talep numarası sunucuda otomatik üretilir; firma ve bölüm erişimi yeniden doğrulanır.
           </Text>
         </ScrollView>
         <View className="flex-row gap-3 border-t border-border bg-card px-4 py-3">
-          <View className="flex-1"><Button label="Vazgeç" variant="ghost" onPress={() => router.back()} /></View>
-          <View className="flex-[2]"><Button label="Talebi Oluştur" loading={create.isPending} onPress={submit} /></View>
+          <Button className="flex-1" label="Vazgeç" variant="ghost" onPress={() => router.back()} />
+          <Button className="flex-[2]" label="Talebi Oluştur" loading={create.isPending} disabled={create.isPending} onPress={submit} />
         </View>
       </KeyboardAvoidingView>
-
-      <BottomSheetModal ref={companySheet} {...sheetProps}>
-        <BottomSheetView className="gap-3 px-4 pb-2">
-          <Text className="font-inter-semibold text-base text-foreground">Firma seçin</Text>
-          <SearchBar value={search} onChange={setSearch} placeholder="Firma ara" />
-        </BottomSheetView>
-        <BottomSheetFlatList
-          data={companyList.data?.items ?? []}
-          keyExtractor={(item: CompanyListItem) => item.id}
-          contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 32 }}
-          renderItem={({ item }: { item: CompanyListItem }) => (
-            <Pressable
-              accessibilityRole="button"
-              accessibilityState={{ selected: item.id === companyId }}
-              onPress={() => chooseCompany(item)}
-              className="min-h-[56px] flex-row items-center gap-3 border-b border-border py-2 active:opacity-70"
-            >
-              <Ionicons name="business-outline" size={19} color={item.id === companyId ? colors.primary : colors.mutedForeground} />
-              <View className="flex-1">
-                <Text className="font-inter-semibold text-sm text-foreground" numberOfLines={1}>{item.shortName ?? item.legalTitle}</Text>
-                {item.shortName ? <Text className="font-inter text-xs text-muted-foreground" numberOfLines={1}>{item.legalTitle}</Text> : null}
-              </View>
-              {item.id === companyId ? <Ionicons name="checkmark" size={19} color={colors.primary} /> : null}
-            </Pressable>
-          )}
-          onEndReachedThreshold={0.5}
-          onEndReached={() => { if (companyList.hasNextPage && !companyList.isFetchingNextPage) void companyList.fetchNextPage(); }}
-          ListEmptyComponent={
-            companyList.isPending ? <Loading /> : companyList.error ? <ErrorState message={companyList.error.message} onRetry={() => void companyList.refetch()} /> : <EmptyState title="Firma bulunamadı" />
-          }
-          ListFooterComponent={companyList.isFetchingNextPage ? <Loading /> : null}
-        />
-      </BottomSheetModal>
     </SafeAreaView>
   );
-}
-
-function first(value: string | string[] | undefined): string {
-  return Array.isArray(value) ? value[0] ?? '' : value ?? '';
 }

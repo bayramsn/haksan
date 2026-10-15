@@ -143,6 +143,8 @@ export function useUpdateOpportunity() {
       nextAction?: string;
       nextActionAt?: string;
       wonReason?: string;
+      contractTerms?: string;
+      paymentTerms?: string;
       ownerUserId?: string | null;
       paymentTermDays?: number | null;
       leadFollowUpStatus?: LeadFollowUpStatus;

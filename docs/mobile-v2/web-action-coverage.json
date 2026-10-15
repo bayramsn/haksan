@@ -1,10 +1,10 @@
 {
-  "generatedAt": "2026-10-15T12:29:12.711Z",
+  "generatedAt": "2026-10-15T14:54:46.442Z",
   "counts": {
     "webActions": 345,
-    "covered": 138,
-    "missing": 207,
-    "mobileCalls": 166
+    "covered": 329,
+    "missing": 16,
+    "mobileCalls": 414
   },
   "rows": [
     {
@@ -54,7 +54,7 @@
       "verb": "POST",
       "path": "/companies/imports/company-contacts/preview",
       "permission": null,
-      "inMobile": false,
+      "inMobile": true,
       "pages": []
     },
     {
@@ -62,7 +62,7 @@
       "verb": "POST",
       "path": "/companies/imports/company-contacts/commit",
       "permission": null,
-      "inMobile": false,
+      "inMobile": true,
       "pages": []
     },
     {
@@ -70,7 +70,7 @@
       "verb": "GET",
       "path": "/companies/osm-search",
       "permission": "companies.read",
-      "inMobile": false,
+      "inMobile": true,
       "pages": []
     },
     {
@@ -78,7 +78,7 @@
       "verb": "POST",
       "path": "/companies/website-lookup",
       "permission": "companies.create",
-      "inMobile": false,
+      "inMobile": true,
       "pages": []
     },
     {
@@ -94,7 +94,7 @@
       "verb": "GET",
       "path": "/access-requests",
       "permission": "companies.read",
-      "inMobile": false,
+      "inMobile": true,
       "pages": []
     },
     {
@@ -102,7 +102,7 @@
       "verb": "POST",
       "path": "/access-requests/:param/approve",
       "permission": "companies.update",
-      "inMobile": false,
+      "inMobile": true,
       "pages": []
     },
     {
@@ -110,7 +110,7 @@
       "verb": "POST",
       "path": "/access-requests/:param/reject",
       "permission": "companies.update",
-      "inMobile": false,
+      "inMobile": true,
       "pages": []
     },
     {
@@ -142,7 +142,7 @@
       "verb": "GET",
       "path": "/mail/signature/users",
       "permission": null,
-      "inMobile": false,
+      "inMobile": true,
       "pages": [
         "apps/web/src/app/components/pages/settings/AdminMailSignatureSettings.tsx"
       ]
@@ -152,7 +152,7 @@
       "verb": "GET",
       "path": "/mail/signature/users/:param",
       "permission": null,
-      "inMobile": false,
+      "inMobile": true,
       "pages": [
         "apps/web/src/app/components/pages/settings/AdminMailSignatureSettings.tsx"
       ]
@@ -162,7 +162,7 @@
       "verb": "PUT",
       "path": "/mail/signature/users/:param",
       "permission": null,
-      "inMobile": false,
+      "inMobile": true,
       "pages": [
         "apps/web/src/app/components/pages/settings/AdminMailSignatureSettings.tsx"
       ]
@@ -172,7 +172,7 @@
       "verb": "PUT",
       "path": "/mail/signature",
       "permission": null,
-      "inMobile": false,
+      "inMobile": true,
       "pages": [
         "apps/web/src/app/components/pages/settings/MailAccountSettings.tsx"
       ]
@@ -182,7 +182,7 @@
       "verb": "PUT",
       "path": "/mail/signature/image",
       "permission": null,
-      "inMobile": false,
+      "inMobile": true,
       "pages": [
         "apps/web/src/app/components/pages/settings/MailAccountSettings.tsx"
       ]
@@ -202,7 +202,7 @@
       "verb": "PUT",
       "path": "/mail/account",
       "permission": null,
-      "inMobile": false,
+      "inMobile": true,
       "pages": [
         "apps/web/src/app/components/pages/settings/MailAccountSettings.tsx"
       ]
@@ -212,7 +212,7 @@
       "verb": "DELETE",
       "path": "/mail/account",
       "permission": null,
-      "inMobile": false,
+      "inMobile": true,
       "pages": [
         "apps/web/src/app/components/pages/settings/MailAccountSettings.tsx"
       ]
@@ -319,7 +319,7 @@
       "verb": "POST",
       "path": "/opportunities/from-activity/:param",
       "permission": "activities.convert",
-      "inMobile": false,
+      "inMobile": true,
       "pages": []
     },
     {
@@ -327,7 +327,7 @@
       "verb": "POST",
       "path": "/opportunities/imports/trello/preview",
       "permission": "opportunities.create",
-      "inMobile": false,
+      "inMobile": true,
       "pages": []
     },
     {
@@ -335,7 +335,7 @@
       "verb": "POST",
       "path": "/opportunities/imports/trello/commit",
       "permission": "opportunities.create",
-      "inMobile": false,
+      "inMobile": true,
       "pages": []
     },
     {
@@ -351,7 +351,7 @@
       "verb": "POST",
       "path": "/opportunities/:param/company",
       "permission": null,
-      "inMobile": false,
+      "inMobile": true,
       "pages": [
         "apps/web/src/app/components/pages/SalesCaseDetail.tsx"
       ]
@@ -369,7 +369,7 @@
       "verb": "POST",
       "path": "/opportunities/:param/contact-events",
       "permission": "opportunities.update",
-      "inMobile": false,
+      "inMobile": true,
       "pages": []
     },
     {
@@ -377,7 +377,7 @@
       "verb": "GET",
       "path": "/opportunities/lead-summary",
       "permission": "opportunities.read",
-      "inMobile": false,
+      "inMobile": true,
       "pages": []
     },
     {
@@ -413,7 +413,7 @@
       "verb": "PATCH",
       "path": "/opportunities/:param/stage",
       "permission": "opportunities.update",
-      "inMobile": false,
+      "inMobile": true,
       "pages": []
     },
     {
@@ -429,7 +429,7 @@
       "verb": "GET",
       "path": "/lead-assignment-rules",
       "permission": null,
-      "inMobile": false,
+      "inMobile": true,
       "pages": [
         "apps/web/src/app/components/pages/settings/LeadAssignmentRulesCard.tsx"
       ]
@@ -439,7 +439,7 @@
       "verb": "POST",
       "path": "/lead-assignment-rules",
       "permission": null,
-      "inMobile": false,
+      "inMobile": true,
       "pages": [
         "apps/web/src/app/components/pages/settings/LeadAssignmentRulesCard.tsx"
       ]
@@ -449,7 +449,7 @@
       "verb": "PATCH",
       "path": "/lead-assignment-rules/:param",
       "permission": null,
-      "inMobile": false,
+      "inMobile": true,
       "pages": [
         "apps/web/src/app/components/pages/settings/LeadAssignmentRulesCard.tsx"
       ]
@@ -459,7 +459,7 @@
       "verb": "DELETE",
       "path": "/lead-assignment-rules/:param",
       "permission": null,
-      "inMobile": false,
+      "inMobile": true,
       "pages": [
         "apps/web/src/app/components/pages/settings/LeadAssignmentRulesCard.tsx"
       ]
@@ -503,7 +503,7 @@
       "verb": "POST",
       "path": "/visits",
       "permission": "activities.create",
-      "inMobile": false,
+      "inMobile": true,
       "pages": []
     },
     {
@@ -511,7 +511,7 @@
       "verb": "POST",
       "path": "/calls",
       "permission": "activities.create",
-      "inMobile": false,
+      "inMobile": true,
       "pages": []
     },
     {
@@ -542,7 +542,7 @@
       "verb": "GET",
       "path": "/tasks/events",
       "permission": "tasks.read",
-      "inMobile": false,
+      "inMobile": true,
       "pages": []
     },
     {
@@ -550,7 +550,7 @@
       "verb": "GET",
       "path": "/tasks/summary",
       "permission": null,
-      "inMobile": false,
+      "inMobile": true,
       "pages": [
         "apps/web/src/app/components/pages/dashboard/DashboardTasksPanel.tsx",
         "apps/web/src/app/components/pages/tasks/TasksPage.tsx"
@@ -614,7 +614,7 @@
       "verb": "DELETE",
       "path": "/tasks/:param",
       "permission": "tasks.delete",
-      "inMobile": false,
+      "inMobile": true,
       "pages": [
         "apps/web/src/app/components/pages/tasks/TaskDetailPanel.tsx"
       ]
@@ -624,7 +624,7 @@
       "verb": "GET",
       "path": "/trade-fairs",
       "permission": "trade_fairs.read",
-      "inMobile": false,
+      "inMobile": true,
       "pages": [
         "apps/web/src/app/components/pages/TradeFairsPage.tsx"
       ]
@@ -634,7 +634,7 @@
       "verb": "GET",
       "path": "/trade-fairs/summary",
       "permission": "trade_fairs.read",
-      "inMobile": false,
+      "inMobile": true,
       "pages": [
         "apps/web/src/app/components/pages/TradeFairsPage.tsx"
       ]
@@ -644,7 +644,7 @@
       "verb": "GET",
       "path": "/trade-fairs/staff",
       "permission": "trade_fairs.read",
-      "inMobile": false,
+      "inMobile": true,
       "pages": [
         "apps/web/src/app/components/pages/TradeFairsPage.tsx"
       ]
@@ -654,7 +654,7 @@
       "verb": "POST",
       "path": "/trade-fairs",
       "permission": "trade_fairs.create",
-      "inMobile": false,
+      "inMobile": true,
       "pages": [
         "apps/web/src/app/components/pages/TradeFairsPage.tsx"
       ]
@@ -664,7 +664,7 @@
       "verb": "PATCH",
       "path": "/trade-fairs/:param",
       "permission": "trade_fairs.update",
-      "inMobile": false,
+      "inMobile": true,
       "pages": [
         "apps/web/src/app/components/pages/TradeFairsPage.tsx"
       ]
@@ -674,7 +674,7 @@
       "verb": "DELETE",
       "path": "/trade-fairs/:param",
       "permission": "trade_fairs.delete",
-      "inMobile": false,
+      "inMobile": true,
       "pages": [
         "apps/web/src/app/components/pages/TradeFairsPage.tsx"
       ]
@@ -724,7 +724,7 @@
       "verb": "POST",
       "path": "/calendar/events/:param/restore",
       "permission": "calendar.update",
-      "inMobile": false,
+      "inMobile": true,
       "pages": [
         "apps/web/src/app/components/pages/CalendarPage.tsx"
       ]
@@ -744,7 +744,7 @@
       "verb": "POST",
       "path": "/calendar/import/preview",
       "permission": "calendar.create",
-      "inMobile": false,
+      "inMobile": true,
       "pages": [
         "apps/web/src/app/components/pages/CalendarPage.tsx"
       ]
@@ -754,7 +754,7 @@
       "verb": "POST",
       "path": "/calendar/import/commit",
       "permission": "calendar.create",
-      "inMobile": false,
+      "inMobile": true,
       "pages": [
         "apps/web/src/app/components/pages/CalendarPage.tsx"
       ]
@@ -764,7 +764,7 @@
       "verb": "GET",
       "path": "/brands",
       "permission": "brands.read",
-      "inMobile": false,
+      "inMobile": true,
       "pages": [
         "apps/web/src/app/components/pages/settings/LaserProfilesPanel.tsx",
         "apps/web/src/app/components/pages/settings/ProductSpecTemplatesCard.tsx"
@@ -775,7 +775,7 @@
       "verb": "POST",
       "path": "/brands",
       "permission": "brands.create",
-      "inMobile": false,
+      "inMobile": true,
       "pages": []
     },
     {
@@ -801,7 +801,7 @@
       "verb": "POST",
       "path": "/products",
       "permission": "products.create",
-      "inMobile": false,
+      "inMobile": true,
       "pages": []
     },
     {
@@ -817,7 +817,7 @@
       "verb": "DELETE",
       "path": "/products/:param",
       "permission": "products.delete",
-      "inMobile": false,
+      "inMobile": true,
       "pages": []
     },
     {
@@ -825,7 +825,7 @@
       "verb": "POST",
       "path": "/products/import/preview",
       "permission": "products.create",
-      "inMobile": false,
+      "inMobile": true,
       "pages": []
     },
     {
@@ -833,7 +833,7 @@
       "verb": "POST",
       "path": "/products/import/commit",
       "permission": "products.create",
-      "inMobile": false,
+      "inMobile": true,
       "pages": []
     },
     {
@@ -841,7 +841,7 @@
       "verb": "GET",
       "path": "/products/:param/specs",
       "permission": "product_specs.read",
-      "inMobile": false,
+      "inMobile": true,
       "pages": []
     },
     {
@@ -849,7 +849,7 @@
       "verb": "GET",
       "path": "/product-spec-templates",
       "permission": "products.read",
-      "inMobile": false,
+      "inMobile": true,
       "pages": []
     },
     {
@@ -865,7 +865,7 @@
       "verb": "POST",
       "path": "/products/:param/options",
       "permission": "products.update",
-      "inMobile": false,
+      "inMobile": true,
       "pages": []
     },
     {
@@ -873,7 +873,7 @@
       "verb": "PATCH",
       "path": "/products/options/:param",
       "permission": "products.update",
-      "inMobile": false,
+      "inMobile": true,
       "pages": []
     },
     {
@@ -881,7 +881,7 @@
       "verb": "DELETE",
       "path": "/products/options/:param",
       "permission": "products.update",
-      "inMobile": false,
+      "inMobile": true,
       "pages": []
     },
     {
@@ -889,7 +889,7 @@
       "verb": "POST",
       "path": "/products/options/:param/values",
       "permission": "products.update",
-      "inMobile": false,
+      "inMobile": true,
       "pages": []
     },
     {
@@ -897,7 +897,7 @@
       "verb": "PATCH",
       "path": "/products/options/values/:param",
       "permission": "products.update",
-      "inMobile": false,
+      "inMobile": true,
       "pages": []
     },
     {
@@ -905,7 +905,7 @@
       "verb": "DELETE",
       "path": "/products/options/values/:param",
       "permission": "products.update",
-      "inMobile": false,
+      "inMobile": true,
       "pages": []
     },
     {
@@ -913,7 +913,7 @@
       "verb": "POST",
       "path": "/products/:param/specs",
       "permission": "product_specs.create",
-      "inMobile": false,
+      "inMobile": true,
       "pages": []
     },
     {
@@ -921,7 +921,7 @@
       "verb": "GET",
       "path": "/products/:param/equipment",
       "permission": "products.read",
-      "inMobile": false,
+      "inMobile": true,
       "pages": []
     },
     {
@@ -945,7 +945,7 @@
       "verb": "POST",
       "path": "/products/:param/equipment",
       "permission": "products.update",
-      "inMobile": false,
+      "inMobile": true,
       "pages": []
     },
     {
@@ -953,7 +953,7 @@
       "verb": "PUT",
       "path": "/products/:param/details",
       "permission": "products.update",
-      "inMobile": false,
+      "inMobile": true,
       "pages": []
     },
     {
@@ -961,7 +961,7 @@
       "verb": "PUT",
       "path": "/products/:param/standard-equipment",
       "permission": "products.update",
-      "inMobile": false,
+      "inMobile": true,
       "pages": []
     },
     {
@@ -977,7 +977,7 @@
       "verb": "POST",
       "path": "/price-lists",
       "permission": "price_lists.create",
-      "inMobile": false,
+      "inMobile": true,
       "pages": []
     },
     {
@@ -985,7 +985,7 @@
       "verb": "PATCH",
       "path": "/price-lists/:param",
       "permission": "price_lists.update",
-      "inMobile": false,
+      "inMobile": true,
       "pages": []
     },
     {
@@ -1001,7 +1001,7 @@
       "verb": "POST",
       "path": "/price-lists/:param/items",
       "permission": "price_lists.create",
-      "inMobile": false,
+      "inMobile": true,
       "pages": [
         "apps/web/src/app/components/pages/PriceLists.tsx"
       ]
@@ -1069,7 +1069,7 @@
       "verb": "POST",
       "path": "/warehouses",
       "permission": "warehouses.create",
-      "inMobile": false,
+      "inMobile": true,
       "pages": []
     },
     {
@@ -1093,7 +1093,7 @@
       "verb": "POST",
       "path": "/inventory",
       "permission": "inventory.create",
-      "inMobile": false,
+      "inMobile": true,
       "pages": []
     },
     {
@@ -1125,7 +1125,7 @@
       "verb": "PATCH",
       "path": "/inventory/:param/sell",
       "permission": "inventory.update",
-      "inMobile": false,
+      "inMobile": true,
       "pages": []
     },
     {
@@ -1143,7 +1143,7 @@
       "verb": "POST",
       "path": "/customer-devices",
       "permission": "customer_devices.update",
-      "inMobile": false,
+      "inMobile": true,
       "pages": []
     },
     {
@@ -1169,7 +1169,7 @@
       "verb": "POST",
       "path": "/inventory/consume-service-parts",
       "permission": "inventory.update",
-      "inMobile": false,
+      "inMobile": true,
       "pages": [
         "apps/web/src/app/components/pages/service/ServicePages.tsx"
       ]
@@ -1197,7 +1197,7 @@
       "verb": "POST",
       "path": "/quotes",
       "permission": "quotes.create",
-      "inMobile": false,
+      "inMobile": true,
       "pages": []
     },
     {
@@ -1205,7 +1205,7 @@
       "verb": "PATCH",
       "path": "/quotes/:param",
       "permission": "quotes.update",
-      "inMobile": false,
+      "inMobile": true,
       "pages": []
     },
     {
@@ -1223,7 +1223,7 @@
       "verb": "POST",
       "path": "/quotes/:param/items",
       "permission": "quotes.update",
-      "inMobile": false,
+      "inMobile": true,
       "pages": []
     },
     {
@@ -1231,7 +1231,7 @@
       "verb": "PATCH",
       "path": "/quotes/:param/items/:param",
       "permission": "quotes.update",
-      "inMobile": false,
+      "inMobile": true,
       "pages": []
     },
     {
@@ -1239,7 +1239,7 @@
       "verb": "DELETE",
       "path": "/quotes/:param/items/:param",
       "permission": "quotes.update",
-      "inMobile": false,
+      "inMobile": true,
       "pages": []
     },
     {
@@ -1247,7 +1247,7 @@
       "verb": "PUT",
       "path": "/quotes/:param/terms",
       "permission": "quotes.update",
-      "inMobile": false,
+      "inMobile": true,
       "pages": []
     },
     {
@@ -1266,7 +1266,7 @@
       "verb": "POST",
       "path": "/quotes/:param/price-approval/approve",
       "permission": "quotes.approve",
-      "inMobile": false,
+      "inMobile": true,
       "pages": [
         "apps/web/src/app/components/pages/SalesCaseDetail.tsx",
         "apps/web/src/app/components/pages/offers/OffersPage.tsx"
@@ -1277,7 +1277,7 @@
       "verb": "POST",
       "path": "/quotes/:param/price-approval/reject",
       "permission": "quotes.reject",
-      "inMobile": false,
+      "inMobile": true,
       "pages": [
         "apps/web/src/app/components/pages/SalesCaseDetail.tsx",
         "apps/web/src/app/components/pages/offers/OffersPage.tsx"
@@ -1352,7 +1352,7 @@
       "verb": "GET",
       "path": "/references",
       "permission": "companies.read",
-      "inMobile": false,
+      "inMobile": true,
       "pages": [
         "apps/web/src/app/components/pages/ReferencesPage.tsx"
       ]
@@ -1362,7 +1362,7 @@
       "verb": "POST",
       "path": "/references",
       "permission": "companies.create",
-      "inMobile": false,
+      "inMobile": true,
       "pages": [
         "apps/web/src/app/components/pages/ReferencesPage.tsx"
       ]
@@ -1372,7 +1372,7 @@
       "verb": "POST",
       "path": "/references/import",
       "permission": "companies.create",
-      "inMobile": false,
+      "inMobile": true,
       "pages": []
     },
     {
@@ -1380,7 +1380,7 @@
       "verb": "PATCH",
       "path": "/references/:param",
       "permission": "companies.update",
-      "inMobile": false,
+      "inMobile": true,
       "pages": [
         "apps/web/src/app/components/pages/ReferencesPage.tsx"
       ]
@@ -1390,7 +1390,7 @@
       "verb": "DELETE",
       "path": "/references/:param",
       "permission": "companies.delete",
-      "inMobile": false,
+      "inMobile": true,
       "pages": [
         "apps/web/src/app/components/pages/ReferencesPage.tsx"
       ]
@@ -1418,7 +1418,7 @@
       "verb": "POST",
       "path": "/sales-orders",
       "permission": "sales_orders.create",
-      "inMobile": false,
+      "inMobile": true,
       "pages": []
     },
     {
@@ -1436,7 +1436,7 @@
       "verb": "PATCH",
       "path": "/sales-orders/:param",
       "permission": "sales_orders.update",
-      "inMobile": false,
+      "inMobile": true,
       "pages": []
     },
     {
@@ -1444,7 +1444,7 @@
       "verb": "DELETE",
       "path": "/sales-orders/:param",
       "permission": "sales_orders.delete",
-      "inMobile": false,
+      "inMobile": true,
       "pages": []
     },
     {
@@ -1452,7 +1452,7 @@
       "verb": "POST",
       "path": "/sales-orders/:param/items",
       "permission": "sales_orders.update",
-      "inMobile": false,
+      "inMobile": true,
       "pages": []
     },
     {
@@ -1502,7 +1502,7 @@
       "verb": "POST",
       "path": "/purchase-orders",
       "permission": "purchase_orders.create",
-      "inMobile": false,
+      "inMobile": true,
       "pages": [
         "apps/web/src/app/components/pages/purchase/PurchaseOrdersPage.tsx"
       ]
@@ -1512,7 +1512,7 @@
       "verb": "PATCH",
       "path": "/purchase-orders/:param",
       "permission": "purchase_orders.update",
-      "inMobile": false,
+      "inMobile": true,
       "pages": []
     },
     {
@@ -1520,7 +1520,7 @@
       "verb": "DELETE",
       "path": "/purchase-orders/:param",
       "permission": "purchase_orders.delete",
-      "inMobile": false,
+      "inMobile": true,
       "pages": [
         "apps/web/src/app/components/pages/purchase/PurchaseOrdersPage.tsx"
       ]
@@ -1530,7 +1530,7 @@
       "verb": "POST",
       "path": "/purchase-orders/:param/items",
       "permission": "purchase_orders.update",
-      "inMobile": false,
+      "inMobile": true,
       "pages": [
         "apps/web/src/app/components/pages/purchase/PurchaseOrdersPage.tsx"
       ]
@@ -1598,7 +1598,7 @@
       "verb": "POST",
       "path": "/proformas",
       "permission": "proformas.create",
-      "inMobile": false,
+      "inMobile": true,
       "pages": []
     },
     {
@@ -1606,7 +1606,7 @@
       "verb": "PATCH",
       "path": "/proformas/:param",
       "permission": "proformas.update",
-      "inMobile": false,
+      "inMobile": true,
       "pages": []
     },
     {
@@ -1614,7 +1614,7 @@
       "verb": "PATCH",
       "path": "/proformas/standalone/:param",
       "permission": "proformas.update",
-      "inMobile": false,
+      "inMobile": true,
       "pages": []
     },
     {
@@ -1622,7 +1622,7 @@
       "verb": "DELETE",
       "path": "/proformas/:param",
       "permission": "proformas.delete",
-      "inMobile": false,
+      "inMobile": true,
       "pages": [
         "apps/web/src/app/components/pages/documents/DocumentsPage.tsx"
       ]
@@ -1640,7 +1640,7 @@
       "verb": "POST",
       "path": "/contracts",
       "permission": "contracts.create",
-      "inMobile": false,
+      "inMobile": true,
       "pages": []
     },
     {
@@ -1648,7 +1648,7 @@
       "verb": "PATCH",
       "path": "/contracts/:param",
       "permission": "contracts.update",
-      "inMobile": false,
+      "inMobile": true,
       "pages": []
     },
     {
@@ -1656,7 +1656,7 @@
       "verb": "PATCH",
       "path": "/contracts/standalone/:param",
       "permission": "contracts.update",
-      "inMobile": false,
+      "inMobile": true,
       "pages": []
     },
     {
@@ -1664,7 +1664,7 @@
       "verb": "DELETE",
       "path": "/contracts/:param",
       "permission": "contracts.delete",
-      "inMobile": false,
+      "inMobile": true,
       "pages": [
         "apps/web/src/app/components/pages/documents/DocumentsPage.tsx"
       ]
@@ -1682,7 +1682,7 @@
       "verb": "POST",
       "path": "/commercial-invoices",
       "permission": "commercial_invoices.create",
-      "inMobile": false,
+      "inMobile": true,
       "pages": []
     },
     {
@@ -1690,7 +1690,7 @@
       "verb": "PATCH",
       "path": "/commercial-invoices/:param",
       "permission": "commercial_invoices.update",
-      "inMobile": false,
+      "inMobile": true,
       "pages": []
     },
     {
@@ -1698,7 +1698,7 @@
       "verb": "DELETE",
       "path": "/commercial-invoices/:param",
       "permission": "commercial_invoices.delete",
-      "inMobile": false,
+      "inMobile": true,
       "pages": [
         "apps/web/src/app/components/pages/documents/DocumentsPage.tsx"
       ]
@@ -1742,7 +1742,7 @@
       "verb": "PATCH",
       "path": "/payments/:param",
       "permission": "payments.update",
-      "inMobile": false,
+      "inMobile": true,
       "pages": [
         "apps/web/src/app/components/pages/payments/PaymentsPage.tsx"
       ]
@@ -1752,7 +1752,7 @@
       "verb": "DELETE",
       "path": "/payments/:param",
       "permission": "payments.delete",
-      "inMobile": false,
+      "inMobile": true,
       "pages": [
         "apps/web/src/app/components/pages/payments/PaymentsPage.tsx"
       ]
@@ -1790,7 +1790,7 @@
       "verb": "GET",
       "path": "/companies/:param/statement",
       "permission": "receivables.read",
-      "inMobile": false,
+      "inMobile": true,
       "pages": [
         "apps/web/src/app/components/pages/finance/CustomerBalancesPage.tsx"
       ]
@@ -1836,7 +1836,7 @@
       "verb": "GET",
       "path": "/accounting-invoices/payment-term-suggestion",
       "permission": "accounting_invoices.read",
-      "inMobile": false,
+      "inMobile": true,
       "pages": []
     },
     {
@@ -1844,7 +1844,7 @@
       "verb": "POST",
       "path": "/accounting-invoices",
       "permission": "accounting_invoices.create",
-      "inMobile": false,
+      "inMobile": true,
       "pages": [
         "apps/web/src/app/components/pages/finance/CreateAccountingInvoiceDialog.tsx"
       ]
@@ -1854,7 +1854,7 @@
       "verb": "PATCH",
       "path": "/accounting-invoices/:param",
       "permission": "accounting_invoices.update",
-      "inMobile": false,
+      "inMobile": true,
       "pages": [
         "apps/web/src/app/components/pages/finance/CreateAccountingInvoiceDialog.tsx"
       ]
@@ -1864,7 +1864,7 @@
       "verb": "DELETE",
       "path": "/accounting-invoices/:param",
       "permission": "accounting_invoices.delete",
-      "inMobile": false,
+      "inMobile": true,
       "pages": [
         "apps/web/src/app/components/pages/finance/AccountingInvoicesPage.tsx"
       ]
@@ -1938,7 +1938,7 @@
       "verb": "POST",
       "path": "/service-complaints",
       "permission": "service_tickets.create",
-      "inMobile": false,
+      "inMobile": true,
       "pages": [
         "apps/web/src/app/components/pages/service/ServicePages.tsx"
       ]
@@ -2016,7 +2016,7 @@
       "verb": "DELETE",
       "path": "/maintenance-plans/:param",
       "permission": "service_tickets.delete",
-      "inMobile": false,
+      "inMobile": true,
       "pages": [
         "apps/web/src/app/components/pages/machines/MaintenancePlanPanel.tsx"
       ]
@@ -2026,7 +2026,7 @@
       "verb": "GET",
       "path": "/service-complaint-links",
       "permission": "service_tickets.read",
-      "inMobile": false,
+      "inMobile": true,
       "pages": [
         "apps/web/src/app/components/pages/service/ServicePages.tsx"
       ]
@@ -2036,7 +2036,7 @@
       "verb": "POST",
       "path": "/service-complaint-links",
       "permission": "service_tickets.create",
-      "inMobile": false,
+      "inMobile": true,
       "pages": [
         "apps/web/src/app/components/pages/service/ServicePages.tsx"
       ]
@@ -2046,7 +2046,7 @@
       "verb": "PATCH",
       "path": "/service-complaint-links/:param/rotate",
       "permission": "service_tickets.update",
-      "inMobile": false,
+      "inMobile": true,
       "pages": [
         "apps/web/src/app/components/pages/service/ServicePages.tsx"
       ]
@@ -2056,7 +2056,7 @@
       "verb": "PATCH",
       "path": "/service-complaint-links/:param/revoke",
       "permission": "service_tickets.update",
-      "inMobile": false,
+      "inMobile": true,
       "pages": [
         "apps/web/src/app/components/pages/service/ServicePages.tsx"
       ]
@@ -2098,7 +2098,7 @@
       "verb": "POST",
       "path": "/service-tickets/:param/warranty/approve",
       "permission": "service_tickets.approve",
-      "inMobile": false,
+      "inMobile": true,
       "pages": []
     },
     {
@@ -2106,7 +2106,7 @@
       "verb": "POST",
       "path": "/service-tickets/:param/warranty/reject",
       "permission": "service_tickets.reject",
-      "inMobile": false,
+      "inMobile": true,
       "pages": []
     },
     {
@@ -2125,7 +2125,7 @@
       "verb": "POST",
       "path": "/installations",
       "permission": "installations.create",
-      "inMobile": false,
+      "inMobile": true,
       "pages": []
     },
     {
@@ -2133,7 +2133,7 @@
       "verb": "PATCH",
       "path": "/installations/:param",
       "permission": "installations.update",
-      "inMobile": false,
+      "inMobile": true,
       "pages": [
         "apps/web/src/app/components/pages/logistics/InstallationsPage.tsx"
       ]
@@ -2143,7 +2143,7 @@
       "verb": "DELETE",
       "path": "/installations/:param",
       "permission": "installations.delete",
-      "inMobile": false,
+      "inMobile": true,
       "pages": [
         "apps/web/src/app/components/pages/logistics/InstallationsPage.tsx"
       ]
@@ -2181,7 +2181,7 @@
       "verb": "GET",
       "path": "/shipments/company-options",
       "permission": "shipments.read",
-      "inMobile": false,
+      "inMobile": true,
       "pages": []
     },
     {
@@ -2189,7 +2189,7 @@
       "verb": "POST",
       "path": "/shipments",
       "permission": "shipments.create",
-      "inMobile": false,
+      "inMobile": true,
       "pages": []
     },
     {
@@ -2213,7 +2213,7 @@
       "verb": "DELETE",
       "path": "/shipments/:param",
       "permission": "shipments.update",
-      "inMobile": false,
+      "inMobile": true,
       "pages": []
     },
     {
@@ -2221,7 +2221,7 @@
       "verb": "GET",
       "path": "/deliveries",
       "permission": "shipments.read",
-      "inMobile": false,
+      "inMobile": true,
       "pages": []
     },
     {
@@ -2229,7 +2229,7 @@
       "verb": "POST",
       "path": "/deliveries",
       "permission": "shipments.create",
-      "inMobile": false,
+      "inMobile": true,
       "pages": []
     },
     {
@@ -2237,7 +2237,7 @@
       "verb": "PATCH",
       "path": "/deliveries/:param",
       "permission": "shipments.update",
-      "inMobile": false,
+      "inMobile": true,
       "pages": []
     },
     {
@@ -2245,7 +2245,7 @@
       "verb": "PATCH",
       "path": "/deliveries/:param/status",
       "permission": "shipments.update",
-      "inMobile": false,
+      "inMobile": true,
       "pages": []
     },
     {
@@ -2253,7 +2253,7 @@
       "verb": "DELETE",
       "path": "/deliveries/:param",
       "permission": "shipments.update",
-      "inMobile": false,
+      "inMobile": true,
       "pages": []
     },
     {
@@ -2355,7 +2355,7 @@
       "verb": "GET",
       "path": "/files/links",
       "permission": "files.read",
-      "inMobile": false,
+      "inMobile": true,
       "pages": [
         "apps/web/src/app/components/pages/TradeFairsPage.tsx"
       ]
@@ -2377,7 +2377,7 @@
       "verb": "POST",
       "path": "/signatures",
       "permission": null,
-      "inMobile": false,
+      "inMobile": true,
       "pages": [
         "apps/web/src/app/components/pages/settings/SignatureSettingsCard.tsx"
       ]
@@ -2387,7 +2387,7 @@
       "verb": "PATCH",
       "path": "/signatures/:param",
       "permission": null,
-      "inMobile": false,
+      "inMobile": true,
       "pages": [
         "apps/web/src/app/components/pages/settings/SignatureSettingsCard.tsx"
       ]
@@ -2397,7 +2397,7 @@
       "verb": "DELETE",
       "path": "/signatures/:param",
       "permission": null,
-      "inMobile": false,
+      "inMobile": true,
       "pages": [
         "apps/web/src/app/components/pages/settings/SignatureSettingsCard.tsx"
       ]
@@ -2407,7 +2407,7 @@
       "verb": "GET",
       "path": "/reports/weekly-visits",
       "permission": "reports.read",
-      "inMobile": false,
+      "inMobile": true,
       "pages": []
     },
     {
@@ -2415,7 +2415,7 @@
       "verb": "GET",
       "path": "/reports/monthly-visits",
       "permission": "reports.read",
-      "inMobile": false,
+      "inMobile": true,
       "pages": []
     },
     {
@@ -2423,7 +2423,7 @@
       "verb": "GET",
       "path": "/reports/yearly-visits",
       "permission": "reports.read",
-      "inMobile": false,
+      "inMobile": true,
       "pages": []
     },
     {
@@ -2431,7 +2431,7 @@
       "verb": "GET",
       "path": "/reports/weekly-activities",
       "permission": "reports.read",
-      "inMobile": false,
+      "inMobile": true,
       "pages": []
     },
     {
@@ -2439,7 +2439,7 @@
       "verb": "GET",
       "path": "/reports/monthly-activities",
       "permission": "reports.read",
-      "inMobile": false,
+      "inMobile": true,
       "pages": []
     },
     {
@@ -2447,7 +2447,7 @@
       "verb": "GET",
       "path": "/reports/yearly-activities",
       "permission": "reports.read",
-      "inMobile": false,
+      "inMobile": true,
       "pages": []
     },
     {
@@ -2455,7 +2455,7 @@
       "verb": "GET",
       "path": "/reports/weekly-quotes-by-product",
       "permission": "reports.read",
-      "inMobile": false,
+      "inMobile": true,
       "pages": []
     },
     {
@@ -2463,7 +2463,7 @@
       "verb": "GET",
       "path": "/reports/monthly-quotes-by-product",
       "permission": "reports.read",
-      "inMobile": false,
+      "inMobile": true,
       "pages": []
     },
     {
@@ -2487,7 +2487,7 @@
       "verb": "GET",
       "path": "/reports/department-performance",
       "permission": "reports.read",
-      "inMobile": false,
+      "inMobile": true,
       "pages": []
     },
     {
@@ -2511,7 +2511,7 @@
       "verb": "GET",
       "path": "/reports/warranty-expiring",
       "permission": "reports.read",
-      "inMobile": false,
+      "inMobile": true,
       "pages": []
     },
     {
@@ -2527,7 +2527,7 @@
       "verb": "GET",
       "path": "/reports/year-end",
       "permission": "reports.read",
-      "inMobile": false,
+      "inMobile": true,
       "pages": []
     },
     {
@@ -2535,7 +2535,7 @@
       "verb": "GET",
       "path": "/reports/operational",
       "permission": "reports.read",
-      "inMobile": false,
+      "inMobile": true,
       "pages": [
         "apps/web/src/app/components/pages/reports/OperationalReport.tsx"
       ]
@@ -2545,7 +2545,7 @@
       "verb": "GET",
       "path": "/reports/my-target-progress",
       "permission": null,
-      "inMobile": false,
+      "inMobile": true,
       "pages": [
         "apps/web/src/app/components/pages/Dashboard.tsx",
         "apps/web/src/app/components/pages/dashboard/TargetWorkspace.tsx"
@@ -2556,7 +2556,7 @@
       "verb": "GET",
       "path": "/reports/team-activity/details",
       "permission": null,
-      "inMobile": false,
+      "inMobile": true,
       "pages": []
     },
     {
@@ -2572,7 +2572,7 @@
       "verb": "GET",
       "path": "/users",
       "permission": "users.read",
-      "inMobile": false,
+      "inMobile": true,
       "pages": [
         "apps/web/src/app/components/pages/admin/UsersPage.tsx",
         "apps/web/src/app/components/pages/dashboard/TargetWorkspace.tsx"
@@ -2583,7 +2583,7 @@
       "verb": "POST",
       "path": "/users",
       "permission": "users.create",
-      "inMobile": false,
+      "inMobile": true,
       "pages": []
     },
     {
@@ -2591,7 +2591,7 @@
       "verb": "PATCH",
       "path": "/users/:param",
       "permission": "users.update",
-      "inMobile": false,
+      "inMobile": true,
       "pages": [
         "apps/web/src/app/components/pages/admin/UsersPage.tsx"
       ]
@@ -2601,7 +2601,7 @@
       "verb": "POST",
       "path": "/users/:param/unlock",
       "permission": "users.update",
-      "inMobile": false,
+      "inMobile": true,
       "pages": [
         "apps/web/src/app/components/pages/admin/UsersPage.tsx"
       ]
@@ -2611,7 +2611,7 @@
       "verb": "DELETE",
       "path": "/users/:param",
       "permission": "users.delete",
-      "inMobile": false,
+      "inMobile": true,
       "pages": [
         "apps/web/src/app/components/pages/admin/UsersPage.tsx"
       ]
@@ -2621,7 +2621,7 @@
       "verb": "GET",
       "path": "/user-targets",
       "permission": "users.read",
-      "inMobile": false,
+      "inMobile": true,
       "pages": [
         "apps/web/src/app/components/pages/admin/UsersPage.tsx",
         "apps/web/src/app/components/pages/dashboard/TargetWorkspace.tsx"
@@ -2632,7 +2632,7 @@
       "verb": "GET",
       "path": "/me/targets",
       "permission": null,
-      "inMobile": false,
+      "inMobile": true,
       "pages": []
     },
     {
@@ -2640,7 +2640,7 @@
       "verb": "POST",
       "path": "/users/:param/targets",
       "permission": "users.update",
-      "inMobile": false,
+      "inMobile": true,
       "pages": [
         "apps/web/src/app/components/pages/admin/UsersPage.tsx",
         "apps/web/src/app/components/pages/dashboard/TargetWorkspace.tsx"
@@ -2651,7 +2651,7 @@
       "verb": "GET",
       "path": "/department-targets",
       "permission": "users.read",
-      "inMobile": false,
+      "inMobile": true,
       "pages": [
         "apps/web/src/app/components/pages/admin/DepartmentsPage.tsx",
         "apps/web/src/app/components/pages/dashboard/TargetWorkspace.tsx"
@@ -2662,7 +2662,7 @@
       "verb": "POST",
       "path": "/departments/:param/targets",
       "permission": "departments.update",
-      "inMobile": false,
+      "inMobile": true,
       "pages": [
         "apps/web/src/app/components/pages/admin/DepartmentsPage.tsx",
         "apps/web/src/app/components/pages/dashboard/TargetWorkspace.tsx"
@@ -2673,7 +2673,7 @@
       "verb": "GET",
       "path": "/division-targets",
       "permission": "users.read",
-      "inMobile": false,
+      "inMobile": true,
       "pages": [
         "apps/web/src/app/components/pages/dashboard/TargetWorkspace.tsx"
       ]
@@ -2683,7 +2683,7 @@
       "verb": "POST",
       "path": "/divisions/:param/targets",
       "permission": "divisions.update",
-      "inMobile": false,
+      "inMobile": true,
       "pages": [
         "apps/web/src/app/components/pages/dashboard/TargetWorkspace.tsx"
       ]
@@ -2693,7 +2693,7 @@
       "verb": "POST",
       "path": "/roles/:param/targets",
       "permission": "roles.update",
-      "inMobile": false,
+      "inMobile": true,
       "pages": [
         "apps/web/src/app/components/pages/admin/RolesPage.tsx"
       ]
@@ -2703,7 +2703,7 @@
       "verb": "GET",
       "path": "/roles/:param/target-members",
       "permission": "roles.read",
-      "inMobile": false,
+      "inMobile": true,
       "pages": [
         "apps/web/src/app/components/pages/admin/RolesPage.tsx"
       ]
@@ -2713,7 +2713,7 @@
       "verb": "PATCH",
       "path": "/departments/:param",
       "permission": "departments.update",
-      "inMobile": false,
+      "inMobile": true,
       "pages": [
         "apps/web/src/app/components/pages/settings/DepartmentSettingsCard.tsx"
       ]
@@ -2723,7 +2723,7 @@
       "verb": "GET",
       "path": "/roles",
       "permission": "roles.read",
-      "inMobile": false,
+      "inMobile": true,
       "pages": [
         "apps/web/src/app/components/pages/admin/RolesPage.tsx",
         "apps/web/src/app/components/pages/admin/UsersPage.tsx"
@@ -2734,7 +2734,7 @@
       "verb": "POST",
       "path": "/roles",
       "permission": "roles.create",
-      "inMobile": false,
+      "inMobile": true,
       "pages": [
         "apps/web/src/app/components/pages/admin/RolesPage.tsx"
       ]
@@ -2744,7 +2744,7 @@
       "verb": "PATCH",
       "path": "/roles/:param",
       "permission": "roles.update",
-      "inMobile": false,
+      "inMobile": true,
       "pages": [
         "apps/web/src/app/components/pages/admin/RolesPage.tsx"
       ]
@@ -2754,7 +2754,7 @@
       "verb": "GET",
       "path": "/permissions",
       "permission": "roles.read",
-      "inMobile": false,
+      "inMobile": true,
       "pages": [
         "apps/web/src/app/components/pages/admin/RolesPage.tsx"
       ]
@@ -2764,7 +2764,7 @@
       "verb": "GET",
       "path": "/departments",
       "permission": "departments.read",
-      "inMobile": false,
+      "inMobile": true,
       "pages": [
         "apps/web/src/app/components/pages/admin/DepartmentsPage.tsx",
         "apps/web/src/app/components/pages/admin/UsersPage.tsx",
@@ -2777,7 +2777,7 @@
       "verb": "GET",
       "path": "/divisions",
       "permission": "users.read",
-      "inMobile": false,
+      "inMobile": true,
       "pages": [
         "apps/web/src/app/components/pages/admin/UsersPage.tsx",
         "apps/web/src/app/components/pages/dashboard/TargetWorkspace.tsx"
@@ -2788,7 +2788,7 @@
       "verb": "POST",
       "path": "/departments",
       "permission": "departments.create",
-      "inMobile": false,
+      "inMobile": true,
       "pages": [
         "apps/web/src/app/components/pages/admin/DepartmentsPage.tsx",
         "apps/web/src/app/components/pages/settings/DepartmentSettingsCard.tsx"
@@ -2799,7 +2799,7 @@
       "verb": "DELETE",
       "path": "/departments/:param",
       "permission": "departments.delete",
-      "inMobile": false,
+      "inMobile": true,
       "pages": [
         "apps/web/src/app/components/pages/settings/DepartmentSettingsCard.tsx"
       ]
@@ -2809,7 +2809,7 @@
       "verb": "GET",
       "path": "/audit-logs",
       "permission": "audit.read",
-      "inMobile": false,
+      "inMobile": true,
       "pages": [
         "apps/web/src/app/components/pages/settings/LookupManagerTab.tsx"
       ]
@@ -2819,7 +2819,7 @@
       "verb": "GET",
       "path": "/tenant",
       "permission": null,
-      "inMobile": false,
+      "inMobile": true,
       "pages": []
     },
     {
@@ -2827,7 +2827,7 @@
       "verb": "PATCH",
       "path": "/tenant",
       "permission": "tenants.update",
-      "inMobile": false,
+      "inMobile": true,
       "pages": [
         "apps/web/src/app/components/pages/settings/SettingsPage.tsx"
       ]
@@ -2837,7 +2837,7 @@
       "verb": "GET",
       "path": "/admin/lookups",
       "permission": null,
-      "inMobile": false,
+      "inMobile": true,
       "pages": []
     },
     {
@@ -2845,7 +2845,7 @@
       "verb": "GET",
       "path": "/admin/lookups/:param",
       "permission": null,
-      "inMobile": false,
+      "inMobile": true,
       "pages": [
         "apps/web/src/app/components/pages/settings/LookupImportDialog.tsx",
         "apps/web/src/app/components/pages/settings/LookupManagerTab.tsx",
@@ -2857,7 +2857,7 @@
       "verb": "POST",
       "path": "/admin/lookups/:param",
       "permission": null,
-      "inMobile": false,
+      "inMobile": true,
       "pages": [
         "apps/web/src/app/components/pages/settings/LookupImportDialog.tsx",
         "apps/web/src/app/components/pages/settings/LookupManagerTab.tsx"
@@ -2868,7 +2868,7 @@
       "verb": "PATCH",
       "path": "/admin/lookups/:param/:param",
       "permission": null,
-      "inMobile": false,
+      "inMobile": true,
       "pages": [
         "apps/web/src/app/components/pages/settings/LookupImportDialog.tsx",
         "apps/web/src/app/components/pages/settings/LookupManagerTab.tsx"
@@ -2879,7 +2879,7 @@
       "verb": "PATCH",
       "path": "/admin/lookups/:param/reorder",
       "permission": null,
-      "inMobile": false,
+      "inMobile": true,
       "pages": [
         "apps/web/src/app/components/pages/settings/LookupManagerTab.tsx"
       ]
@@ -2889,7 +2889,7 @@
       "verb": "DELETE",
       "path": "/admin/lookups/:param/:param",
       "permission": null,
-      "inMobile": false,
+      "inMobile": true,
       "pages": [
         "apps/web/src/app/components/pages/settings/LookupManagerTab.tsx"
       ]
@@ -2899,7 +2899,7 @@
       "verb": "GET",
       "path": "/admin/product-spec-templates",
       "permission": null,
-      "inMobile": false,
+      "inMobile": true,
       "pages": [
         "apps/web/src/app/components/pages/settings/ProductSpecTemplatesCard.tsx"
       ]
@@ -2909,7 +2909,7 @@
       "verb": "POST",
       "path": "/admin/product-spec-templates",
       "permission": null,
-      "inMobile": false,
+      "inMobile": true,
       "pages": []
     },
     {
@@ -2917,7 +2917,7 @@
       "verb": "POST",
       "path": "/admin/product-spec-templates/bulk",
       "permission": null,
-      "inMobile": false,
+      "inMobile": true,
       "pages": [
         "apps/web/src/app/components/pages/settings/ProductSpecTemplatesCard.tsx"
       ]
@@ -2927,7 +2927,7 @@
       "verb": "PUT",
       "path": "/admin/product-spec-templates/batch",
       "permission": null,
-      "inMobile": false,
+      "inMobile": true,
       "pages": [
         "apps/web/src/app/components/pages/settings/ProductSpecTemplatesCard.tsx"
       ]
@@ -2937,7 +2937,7 @@
       "verb": "POST",
       "path": "/admin/machine-templates",
       "permission": null,
-      "inMobile": false,
+      "inMobile": true,
       "pages": []
     },
     {
@@ -2945,7 +2945,7 @@
       "verb": "PATCH",
       "path": "/admin/product-spec-templates/:param",
       "permission": null,
-      "inMobile": false,
+      "inMobile": true,
       "pages": []
     },
     {
@@ -2953,7 +2953,7 @@
       "verb": "DELETE",
       "path": "/admin/product-spec-templates/:param",
       "permission": null,
-      "inMobile": false,
+      "inMobile": true,
       "pages": []
     },
     {
@@ -2961,7 +2961,7 @@
       "verb": "POST",
       "path": "/admin/technical-import/preview",
       "permission": null,
-      "inMobile": false,
+      "inMobile": true,
       "pages": []
     },
     {
@@ -2969,7 +2969,7 @@
       "verb": "POST",
       "path": "/admin/technical-import/commit",
       "permission": null,
-      "inMobile": false,
+      "inMobile": true,
       "pages": []
     },
     {
@@ -2977,7 +2977,7 @@
       "verb": "GET",
       "path": "/lookups",
       "permission": null,
-      "inMobile": false,
+      "inMobile": true,
       "pages": []
     },
     {
@@ -2995,7 +2995,7 @@
       "verb": "GET",
       "path": "/lookups/tax-offices",
       "permission": null,
-      "inMobile": false,
+      "inMobile": true,
       "pages": []
     },
     {
@@ -3013,7 +3013,7 @@
       "verb": "GET",
       "path": "/chat/webrtc-config",
       "permission": null,
-      "inMobile": false,
+      "inMobile": true,
       "pages": []
     },
     {
@@ -3051,7 +3051,7 @@
       "verb": "GET",
       "path": "/chat/conversations/:param",
       "permission": null,
-      "inMobile": false,
+      "inMobile": true,
       "pages": [
         "apps/web/src/app/components/pages/chat/ChatPage.tsx"
       ]
@@ -3061,7 +3061,7 @@
       "verb": "PATCH",
       "path": "/chat/conversations/:param",
       "permission": null,
-      "inMobile": false,
+      "inMobile": true,
       "pages": [
         "apps/web/src/app/components/pages/chat/GroupDialogs.tsx"
       ]
@@ -3071,7 +3071,7 @@
       "verb": "POST",
       "path": "/chat/conversations/:param/members",
       "permission": null,
-      "inMobile": false,
+      "inMobile": true,
       "pages": [
         "apps/web/src/app/components/pages/chat/GroupDialogs.tsx"
       ]
@@ -3081,7 +3081,7 @@
       "verb": "DELETE",
       "path": "/chat/conversations/:param/members/:param",
       "permission": null,
-      "inMobile": false,
+      "inMobile": true,
       "pages": [
         "apps/web/src/app/components/pages/chat/GroupDialogs.tsx"
       ]
@@ -3091,7 +3091,7 @@
       "verb": "PATCH",
       "path": "/chat/conversations/:param/members/:param/role",
       "permission": null,
-      "inMobile": false,
+      "inMobile": true,
       "pages": [
         "apps/web/src/app/components/pages/chat/GroupDialogs.tsx"
       ]

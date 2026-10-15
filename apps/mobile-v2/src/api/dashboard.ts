@@ -15,9 +15,12 @@ export type DashboardData = {
     count: number;
     byCurrency: { currencyCode: string; amount: number }[];
   } | null;
+  /** Tüm alacak kayıtları (departman performansı payda). */
+  receivableTotal: number | null;
   openServices: number | null;
+  serviceTotal: number | null;
   activeMachines: number | null;
-  stages: { label: string; value: number }[];
+  stages: { code: string; label: string; value: number }[];
 };
 
 /** Başarısız uç noktayı `null`a düşürür; biri patlayınca panel tamamen ölmesin. */
@@ -59,9 +62,11 @@ export function useDashboard() {
                 .map((row) => ({ currencyCode: row.currencyCode, amount: row.overdueAmount })),
             }
           : null,
+        receivableTotal: receivables?.total ?? null,
         openServices: service ? service.new + service.reviewing : null,
+        serviceTotal: service?.total ?? null,
         activeMachines: machines?.meta.total ?? null,
-        stages: (pipeline ?? []).map((s) => ({ label: s.stageName, value: s.count })),
+        stages: (pipeline ?? []).map((s) => ({ code: s.stageCode, label: s.stageName, value: s.count })),
       };
     },
   });

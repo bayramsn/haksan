@@ -35,13 +35,7 @@ export default function AboutScreen() {
             subtitle={SITE.replace('https://', '')}
             onPress={() => void Linking.openURL(SITE)}
           />
-          <SettingsRow
-            icon="server-outline"
-            tone="neutral"
-            title="Bağlı Sunucu"
-            subtitle={apiBaseUrl()}
-            onPress={() => {}}
-          />
+          <SettingsRow kind="info" icon="server-outline" tone="neutral" title="Bağlı Sunucu" subtitle={apiBaseUrl()} />
         </SettingsGroup>
 
         <View className="items-center pt-2">

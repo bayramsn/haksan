@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { Image, Linking, Pressable, ScrollView, Text, View } from 'react-native';
+import { useMemo, useState } from 'react';
+import { Alert, Image, Linking, Pressable, ScrollView, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -15,7 +15,10 @@ import { formatAmount } from '@/src/lib/format';
 import { Button, Card, Chip, DetailHeader, EmptyState, ErrorState, DetailSkeleton, ListRow } from '@/src/ui';
 import { Tabs } from '@/src/ui/data';
 import { useTheme, type Tone } from '@/src/theme/theme';
-import { useCan } from '@/src/auth/AuthProvider';
+import { useAuth } from '@/src/auth/AuthProvider';
+import { useDeleteProduct } from '@/src/api/products.hooks';
+import { toast } from '@/src/ui/toast';
+import { optionalEquipmentTotals } from '@/src/ui/products/catalog-logic';
 
 type ProductTab = 'general' | 'stocks' | 'specs' | 'suppliers';
 
@@ -96,11 +99,31 @@ export default function ProductDetailScreen() {
   const router = useRouter();
   const { data, isPending, error, refetch } = useProduct(id);
   const { colors } = useTheme();
-  const canUpdate = useCan('products.update');
+  const { user } = useAuth();
+  const roles = user?.roles ?? [];
+  const isAdmin = roles.includes('super_admin') || roles.includes('admin');
+  const canUpdate = isAdmin || (user?.permissions ?? []).includes('products.update');
+  const canDelete = isAdmin || (user?.permissions ?? []).includes('products.delete');
+  const remove = useDeleteProduct();
   const [tab, setTab] = useState<ProductTab>('general');
+  const [deselected, setDeselected] = useState<ReadonlySet<string>>(new Set());
   const media = useProductMedia(id);
   const optionSets = useProductOptions(id);
   const compatibleOptional = useCompatibleOptionalEquipment(id);
+  const optionalRows = useMemo(
+    () =>
+      (compatibleOptional.data ?? []).map((row) => ({
+        id: row.product.id,
+        listPrice: row.product.listPrice,
+        currencyCode: row.currency?.code ?? data?.currency?.code ?? 'USD',
+      })),
+    [compatibleOptional.data, data?.currency?.code],
+  );
+  const selectedIds = useMemo(
+    () => new Set(optionalRows.map((row) => row.id).filter((rowId) => !deselected.has(rowId))),
+    [optionalRows, deselected],
+  );
+  const optionalTotals = useMemo(() => optionalEquipmentTotals(optionalRows, selectedIds), [optionalRows, selectedIds]);
   // Bu modele ait seri numaralı stoklar; envanter ucu model koduyla aranabiliyor.
   const stocks = useInventoryList({ search: data?.modelCode }, Boolean(data?.modelCode));
 
@@ -124,6 +147,28 @@ export default function ProductDetailScreen() {
   const optionalEquipment = data.optionalEquipment ?? [];
   // Arama modelin ötesine taşabildiği için istemcide bu modele daraltılıyor.
   const productStocks = (stocks.data?.items ?? []).filter((item) => item.product?.id === data.id);
+  const sameCurrencyOptional = optionalTotals.find((total) => total.currencyCode === currency)?.amount ?? 0;
+  const otherCurrencyOptional = optionalTotals.filter((total) => total.currencyCode !== currency);
+  const machineList = Number(data.listPrice ?? 0) || 0;
+
+  function confirmDelete() {
+    const label = [data!.brand?.name, data!.modelCode].filter(Boolean).join(' ');
+    Alert.alert('Ürünü sil?', `${label} arşive alınacak. Bağlı kayıtlarda kullanılıyorsa işlem reddedilebilir.`, [
+      { text: 'Vazgeç', style: 'cancel' },
+      {
+        text: 'Sil',
+        style: 'destructive',
+        onPress: () =>
+          remove.mutate(id, {
+            onSuccess: () => {
+              toast.success(`Ürün silindi · ${label}`);
+              router.back();
+            },
+            onError: (err) => toast.error(`Ürün silinemedi: ${err.message || 'Bağlı kayıtlar olabilir.'}`),
+          }),
+      },
+    ]);
+  }
 
   return (
     <SafeAreaView className="flex-1 bg-canvas" edges={['top', 'left', 'right']}>
@@ -275,8 +320,7 @@ export default function ProductDetailScreen() {
                 <ProductRow icon="git-branch-outline" label="Alt kategori" value={data.subcategory?.name} />
                 <ProductRow icon="earth-outline" label="Menşe" value={data.originCountry} />
                 <ProductRow icon="document-outline" label="GTIP" value={data.hsCode} />
-                <ProductRow icon="construct-outline" label="Model adı" value={data.modelName} />
-                <ProductRow icon="calendar-outline" label="Üretim yılı" value={data.productionYear ? String(data.productionYear) : null} last />
+                <ProductRow icon="construct-outline" label="Model adı" value={data.modelName} last />
               </Card>
             </>
           ) : null}
@@ -334,12 +378,53 @@ export default function ProductDetailScreen() {
                   <Text className="font-inter-semibold text-[15px] text-foreground" style={{ letterSpacing: 0 }}>
                     Uyumlu Opsiyonel Donanım
                   </Text>
+                  <View className="flex-row gap-2 rounded-control border border-border bg-card-subtle p-3">
+                    <View className="flex-1 gap-0.5">
+                      <Text className="font-inter text-[10px] uppercase text-muted-foreground">Makine Liste</Text>
+                      <Text className="font-inter-medium text-[13px] text-foreground">{formatAmount(machineList, currency)}</Text>
+                    </View>
+                    <View className="flex-1 gap-0.5">
+                      <Text className="font-inter text-[10px] uppercase text-muted-foreground">Seçili Opsiyon</Text>
+                      <Text className="font-inter-medium text-[13px] text-foreground">{formatAmount(sameCurrencyOptional, currency)}</Text>
+                      {otherCurrencyOptional.map((total) => (
+                        <Text key={total.currencyCode} className="font-inter text-[11px] text-muted-foreground">
+                          + {formatAmount(total.amount, total.currencyCode)}
+                        </Text>
+                      ))}
+                    </View>
+                    <View className="flex-1 gap-0.5">
+                      <Text className="font-inter text-[10px] uppercase text-muted-foreground">Toplam Liste</Text>
+                      <Text className="font-inter-semibold text-[13px] text-primary">
+                        {formatAmount(machineList + sameCurrencyOptional, currency)}
+                      </Text>
+                    </View>
+                  </View>
                   {(compatibleOptional.data ?? []).map((row) => (
+                    <View key={row.product.id} className="flex-row items-center gap-1">
                     <Pressable
-                      key={row.product.id}
+                      accessibilityRole="checkbox"
+                      accessibilityLabel={`${row.product.fullName} opsiyon seçimi`}
+                      accessibilityState={{ checked: selectedIds.has(row.product.id) }}
+                      onPress={() =>
+                        setDeselected((current) => {
+                          const next = new Set(current);
+                          if (next.has(row.product.id)) next.delete(row.product.id);
+                          else next.add(row.product.id);
+                          return next;
+                        })
+                      }
+                      className="h-11 w-11 items-center justify-center active:opacity-60"
+                    >
+                      <Ionicons
+                        name={selectedIds.has(row.product.id) ? 'checkbox' : 'square-outline'}
+                        size={22}
+                        color={selectedIds.has(row.product.id) ? colors.primary : colors.mutedForeground}
+                      />
+                    </Pressable>
+                    <Pressable
                       accessibilityRole="button"
                       onPress={() => router.push(`/(tabs)/modules/products/${row.product.id}`)}
-                      className="flex-row items-center justify-between gap-3 py-1 active:opacity-60"
+                      className="min-h-11 flex-1 flex-row items-center justify-between gap-3 py-1 active:opacity-60"
                     >
                       <View className="min-w-0 flex-1">
                         <Text className="font-inter text-[13px] text-foreground" numberOfLines={2}>
@@ -353,6 +438,7 @@ export default function ProductDetailScreen() {
                         </Text>
                       ) : null}
                     </Pressable>
+                    </View>
                   ))}
                 </Card>
               ) : null}
@@ -431,6 +517,11 @@ export default function ProductDetailScreen() {
               variant="ghost"
               onPress={() => router.push({ pathname: '/modal/edit-product', params: { id } } as unknown as Href)}
             />
+          </View>
+        ) : null}
+        {canDelete ? (
+          <View className="flex-1">
+            <Button label="Sil" variant="destructive" loading={remove.isPending} disabled={remove.isPending} onPress={confirmDelete} />
           </View>
         ) : null}
         <View className="flex-1">

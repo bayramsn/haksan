@@ -57,7 +57,7 @@ Aşamalarda ortak bileşen olarak bir kez çözülmeli:
 
 - **Excel dışa aktarma** (`/exports/*`): firmalar, kontaklar, fırsatlar, teklifler, belgeler, finans, cari, stok, sevkiyat, satın alma, servis. Mobilde dosyayı indirip paylaşım sayfasıyla açan tek bir yardımcı.
 - **Uygulama içi e-posta** (`mail.send`): firma, kontak, fırsat ve teklifte web uygulama içi mail atıyor, mobil `mailto` açıyor.
-- **Seçici bileşenler:** firma, kontak ve tarih/saat seçici. Takvim, görev, servis ve satın alma formlarında elle metin girişi var.
+- **Seçici bileşenler:** `src/ui/select/*` (SearchSelect, Company/Contact/Product/Province/District/Lookup/Assignee/TokenSelect, DateTextField) formlarda DB varlıkları ve tarihler için kullanılıyor; kalan boşluklar çoğunlukla serbest metin alanları (teslim şartları, notlar) veya bilerek özel akışlar (Trello içe aktarma aday metinleri, fuar kartvizit alanları).
 - **Dosya ekleri:** kayda bağlı belge listesi, önizleme ve sonradan yükleme (ödeme, fırsat, servis talebi, şikayet, kurulum).
 - **KPI şeritleri:** web sayfalarının çoğunda olan özet kartları mobilde eksik.
 - **Yazdır/PDF:** sunucu PDF'i olan belgeler (cari ekstre, kurulum tutanağı, kargo etiketi, irsaliye, sözleşme, proforma) mobilde açılıp paylaşılmalı.

@@ -2,30 +2,21 @@ import { useMemo, useState } from 'react';
 import { View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { FlashList } from '@shopify/flash-list';
-import { useRouter, type Href } from 'expo-router';
+import { useRouter } from 'expo-router';
 import { useSalesOrders } from '@/src/api/inventory.hooks';
-import { formatAmount, formatDate } from '@/src/lib/format';
-import type { Tone } from '@/src/theme/theme';
-import { EmptyState, ErrorState, FilterChips, ListRow, ListSkeleton, Loading, SCREEN_PAD, ScreenHeader, SearchBar } from '@/src/ui';
+import { useCan } from '@/src/auth/AuthProvider';
+import { EmptyState, ErrorState, Fab, FilterChips, ListSkeleton, Loading, SCREEN_PAD, ScreenHeader, SearchBar } from '@/src/ui';
+import { SalesOrderRow } from '@/src/ui/documents/rows';
 import { SyncStatus } from '@/src/ui/SyncStatus';
 import { useDebouncedValue } from '@/src/lib/useDebouncedValue';
-
-// Kodlar sales_order_statuses seed'iyle birebir (draft/pending_super_admin_approval/
-// confirmed/reserved/fulfilled/cancelled) — eşleşmeyen kod nötr renge düşer.
-const STATUS_TONE: Record<string, Tone> = {
-  draft: 'neutral',
-  pending_super_admin_approval: 'warning',
-  confirmed: 'success',
-  reserved: 'info',
-  fulfilled: 'success',
-  cancelled: 'destructive',
-};
 
 export default function SalesOrdersScreen() {
   const router = useRouter();
   const [search, setSearch] = useState('');
   const [statusCode, setStatusCode] = useState<string | null>(null);
   const serverSearch = useDebouncedValue(search.trim());
+  const canCreate = useCan('sales_orders.create');
+  const canInvoice = useCan('accounting_invoices.create');
 
   const query = useMemo(
     () => ({ search: serverSearch || undefined, statusCode: statusCode ?? undefined }),
@@ -72,27 +63,14 @@ export default function SalesOrdersScreen() {
           style={{ flex: 1 }}
           data={items}
           keyExtractor={(item) => item.id}
-          contentContainerStyle={{ paddingHorizontal: SCREEN_PAD, paddingBottom: 32 }}
-          renderItem={({ item }) => {
-            const tone = STATUS_TONE[item.status?.code ?? ''] ?? 'neutral';
-            return (
-              <ListRow
-                title={item.orderNo}
-                lines={[
-                  item.company?.shortName ?? item.company?.legalTitle ?? null,
-                  // İkinci bir rozet için ayrı bir slot yok (ListRow tek chip alıyor,
-                  // src/ui'a dokunulamıyor) — stok durumu bu yüzden ikinci satırda.
-                  item.reservedAt ? 'Rezervasyonlu' : 'Stoktan',
-                  formatDate(item.orderDate),
-                ]}
-                icon="receipt-outline"
-                iconTone={tone}
-                chip={item.status ? { label: item.status.name, tone } : undefined}
-                trailing={formatAmount(item.grandTotal, item.currency?.code ?? 'TRY')}
-                onPress={() => router.push(`/(tabs)/modules/sales-orders/${item.id}` as Href)}
-              />
-            );
-          }}
+          contentContainerStyle={{ paddingHorizontal: SCREEN_PAD, paddingBottom: 96 }}
+          renderItem={({ item }) => (
+            <SalesOrderRow
+              order={item}
+              onPress={() => router.push(`/(tabs)/modules/sales-orders/${item.id}`)}
+              onInvoice={canInvoice ? () => router.push(`/modal/sales-order-accounting-invoice?orderId=${item.id}`) : undefined}
+            />
+          )}
           onEndReachedThreshold={0.5}
           onEndReached={() => {
             if (list.hasNextPage && !list.isFetchingNextPage) void list.fetchNextPage();
@@ -103,6 +81,7 @@ export default function SalesOrdersScreen() {
           ListFooterComponent={list.isFetchingNextPage ? <Loading /> : null}
         />
       )}
+      {canCreate ? <Fab icon="add" label="Yeni satış siparişi" onPress={() => router.push('/modal/sales-order-form')} /> : null}
     </SafeAreaView>
   );
 }

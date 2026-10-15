@@ -1,6 +1,6 @@
 import { Alert, ScrollView, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
+import { useRouter, type Href } from 'expo-router';
 import { useCompany } from '@/src/api/companies.hooks';
 import { useLookup } from '@/src/api/crm.hooks';
 import { useOrderAction } from '@/src/api/inventory.hooks';
@@ -9,7 +9,23 @@ import { useAuth, useCan } from '@/src/auth/AuthProvider';
 import { formatAmount, formatDate, formatDateTime } from '@/src/lib/format';
 import type { Tone } from '@/src/theme/theme';
 import { Button, Card, Chip, DetailHeader, EmptyState, ErrorState, Eyebrow, Loading } from '@/src/ui';
-import { InfoRows, type InfoItem } from '@/src/ui/data';
+import { InfoRows, StepTrack, type InfoItem } from '@/src/ui/data';
+import { toast } from '@/src/ui/toast';
+import { PURCHASE_STEPS, etaState, purchaseStep } from '@/src/ui/finance/purchase-logic';
+
+const ETA_TONE: Record<ReturnType<typeof etaState>['tone'], Tone> = {
+  neutral: 'neutral',
+  danger: 'destructive',
+  warning: 'warning',
+  success: 'success',
+};
+
+const PURCHASE_TOAST: Partial<Record<OrderAction, string>> = {
+  send: 'Satın alma gönderildi',
+  approve: 'Satın alma onaylandı',
+  received: 'Teslim alındı',
+  cancelled: 'Satın alma iptal edildi',
+};
 
 type CommonProps = {
   id: string;
@@ -66,7 +82,11 @@ export function OrderDetailScreen(props: Props) {
   const statusLookup = useLookup(props.kind === 'sales' ? 'sales-order-statuses' : 'purchase-order-statuses');
   const currencyLookup = useLookup('currencies');
   const canUpdate = useCan(props.kind === 'sales' ? 'sales_orders.update' : 'purchase_orders.update');
-  const canApprove = useCan(props.kind === 'sales' ? 'sales_orders.approve' : 'purchase_orders.approve');
+  const canApproveSales = useCan('sales_orders.approve');
+  const canCreateInvoice = useCan('accounting_invoices.create');
+  const isSuperAdmin = user?.roles?.includes('super_admin') ?? false;
+  // Web PurchaseOrdersPage: satın alma onayı yalnız Süper Admin.
+  const canApprove = props.kind === 'sales' ? canApproveSales : isSuperAdmin;
   const action = useOrderAction(props.kind, props.id);
 
   if (props.isPending || props.error || !props.data) {
@@ -89,12 +109,18 @@ export function OrderDetailScreen(props: Props) {
   const hasResolvedStatus = Boolean(statusCode);
   const tone = STATUS_TONE[statusCode ?? ''] ?? 'neutral';
   const isTerminal = statusCode === 'fulfilled' || statusCode === 'received' || statusCode === 'cancelled';
-  const isSuperAdmin = user?.roles?.includes('super_admin') ?? false;
 
   const run = (next: OrderAction, label: string, destructive = false) => {
     const execute = () =>
       action.mutate(next, {
-        onError: (error) => Alert.alert('İşlem tamamlanamadı', error.message),
+        onSuccess: () => {
+          const message = props.kind === 'purchase' ? PURCHASE_TOAST[next] : undefined;
+          if (message) toast.success(message);
+        },
+        onError: (error) =>
+          props.kind === 'purchase'
+            ? toast.error(error.message ? `İşlem başarısız: ${error.message}` : 'İşlem başarısız')
+            : Alert.alert('İşlem tamamlanamadı', error.message),
       });
     if (!destructive) return execute();
     Alert.alert(
@@ -116,8 +142,10 @@ export function OrderDetailScreen(props: Props) {
       || (canUpdate && ['confirmed', 'reserved'].includes(statusCode ?? ''))
       || (canUpdate && !isTerminal)
     : (canUpdate && ['draft', 'approved', 'in_transit'].includes(statusCode ?? ''))
-      || (canApprove && isSuperAdmin && statusCode === 'pending_manager_approval')
+      || (canApprove && statusCode === 'pending_manager_approval')
       || (canUpdate && !isTerminal));
+  const eta = purchase ? etaState(purchase.expectedDate) : null;
+  const step = purchase ? purchaseStep(statusCode) : 0;
 
   return (
     <SafeAreaView className="flex-1 bg-canvas" edges={['top', 'left', 'right']}>
@@ -161,6 +189,22 @@ export function OrderDetailScreen(props: Props) {
                 { label: 'Tamamlanma', value: sales.fulfilledAt ? formatDateTime(sales.fulfilledAt) : null },
                 { label: 'İptal', value: sales.cancelledAt ? formatDateTime(sales.cancelledAt) : null, tone: 'destructive' },
               ] satisfies InfoItem[]}
+            />
+          </Card>
+        ) : null}
+
+        {purchase && statusCode !== 'cancelled' ? (
+          <Card className="gap-3">
+            <View className="flex-row items-center justify-between">
+              <Eyebrow>Durum Yolculuğu</Eyebrow>
+              {eta ? <Chip tone={ETA_TONE[eta.tone]} label={eta.label} /> : null}
+            </View>
+            <StepTrack
+              steps={PURCHASE_STEPS.map((label, index) => ({
+                label,
+                done: index < step || (index === step && statusCode === 'received'),
+                current: index === step,
+              }))}
             />
           </Card>
         ) : null}
@@ -239,7 +283,7 @@ export function OrderDetailScreen(props: Props) {
             {purchase && canUpdate && statusCode === 'draft' ? (
               <Button label="Tedarikçiye Gönder" loading={action.isPending} onPress={() => run('send', 'Gönder')} />
             ) : null}
-            {purchase && canApprove && isSuperAdmin && statusCode === 'pending_manager_approval' ? (
+            {purchase && canApprove && statusCode === 'pending_manager_approval' ? (
               <Button label="Siparişi Onayla" loading={action.isPending} onPress={() => run('approve', 'Onayla')} />
             ) : null}
             {purchase && canUpdate && statusCode === 'approved' ? (
@@ -254,6 +298,21 @@ export function OrderDetailScreen(props: Props) {
           </View>
         ) : null}
 
+        {purchase && canUpdate && statusCode === 'draft' ? (
+          <Button
+            label="Taslağı Düzenle"
+            variant="ghost"
+            onPress={() => router.push(`/modal/purchase-order?id=${props.id}` as Href)}
+          />
+        ) : null}
+        {purchase && canCreateInvoice ? (
+          <Button
+            label="Alış Faturası"
+            variant="ghost"
+            disabled={!purchase.supplierCompanyId}
+            onPress={() => router.push(`/modal/invoice-form?purchaseOrderId=${props.id}` as Href)}
+          />
+        ) : null}
         {companyId ? (
           <Button label="Firma Kartı" variant="ghost" onPress={() => router.push(`/(tabs)/modules/companies/${companyId}`)} />
         ) : null}

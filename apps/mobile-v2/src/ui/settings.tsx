@@ -28,12 +28,14 @@ type BaseRow = {
 
 type RowProps =
   | (BaseRow & { kind?: 'link'; value?: string; onPress: () => void; danger?: boolean })
-  | (BaseRow & { kind: 'switch'; value: boolean; onValueChange: (next: boolean) => void });
+  | (BaseRow & { kind: 'switch'; value: boolean; onValueChange: (next: boolean) => void; disabled?: boolean })
+  /** Salt okunur bilgi satırı: basılamaz, chevron yok. */
+  | (BaseRow & { kind: 'info'; value?: string });
 
 export function SettingsRow(props: RowProps) {
   const { colors } = useTheme();
   const tone: Tone = props.tone ?? 'neutral';
-  const danger = props.kind !== 'switch' && props.danger === true;
+  const danger = (props.kind === undefined || props.kind === 'link') && props.danger === true;
 
   const content = (
     <View className={`flex-row items-center gap-3 px-3.5 py-3 ${props.first ? '' : 'border-t border-border'}`}>
@@ -56,9 +58,16 @@ export function SettingsRow(props: RowProps) {
         <Switch
           value={props.value}
           onValueChange={props.onValueChange}
+          disabled={props.disabled}
           trackColor={{ true: colors.primary, false: colors.lineStrong }}
           accessibilityLabel={props.title}
         />
+      ) : props.kind === 'info' ? (
+        props.value ? (
+          <Text selectable className="max-w-[55%] font-inter text-[13px] text-muted-foreground" numberOfLines={2}>
+            {props.value}
+          </Text>
+        ) : null
       ) : (
         <View className="flex-row items-center gap-1.5">
           {props.value ? <Text className="font-inter text-[13px] text-muted-foreground">{props.value}</Text> : null}
@@ -69,6 +78,13 @@ export function SettingsRow(props: RowProps) {
   );
 
   if (props.kind === 'switch') return content;
+  if (props.kind === 'info') {
+    return (
+      <View accessible accessibilityLabel={props.value ? `${props.title}: ${props.value}` : props.title}>
+        {content}
+      </View>
+    );
+  }
   return (
     <Pressable accessibilityRole="button" accessibilityLabel={props.title} onPress={props.onPress} className="active:opacity-70">
       {content}

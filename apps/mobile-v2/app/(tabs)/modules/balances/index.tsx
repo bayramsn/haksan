@@ -1,47 +1,82 @@
 import { useMemo, useState } from 'react';
-import { View } from 'react-native';
+import { Pressable, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { FlashList } from '@shopify/flash-list';
-import { useRouter } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
+import { useRouter, type Href } from 'expo-router';
 import { useCustomerBalances } from '@/src/api/finance.hooks';
-import type { AgingBucketCode, CustomerBalance, CustomerBalanceCurrencyAging } from '@/src/api/endpoints';
+import { exportService } from '@/src/api/exports';
+import type { AgingBucketCode, CustomerBalance } from '@/src/api/endpoints';
 import { formatAmount, formatDate } from '@/src/lib/format';
-import type { Tone } from '@/src/theme/theme';
-import { EmptyState, ErrorState, FilterChips, ListRow, ListSkeleton, Loading, SCREEN_PAD, ScreenHeader, SearchBar, StatStrip } from '@/src/ui';
+import { toneColor, useTheme } from '@/src/theme/theme';
+import { EmptyState, ErrorState, FilterChips, ListSkeleton, SCREEN_PAD, ScreenHeader, SearchBar, StatStrip } from '@/src/ui';
 import { SyncStatus } from '@/src/ui/SyncStatus';
+import { AgingHeatmap } from '@/src/ui/finance/AgingHeatmap';
+import { KpiGrid, KpiTile, runExport } from '@/src/ui/finance/kit';
+import { balanceKpis } from '@/src/ui/finance/balances-logic';
 
 type Preset = 'debtor' | 'creditor' | 'risky';
 
-// "current" vadesi gelmemiş demek, gecikme değil — yaşlandırma satırında gösterilmez.
-const OVERDUE_BUCKETS: Exclude<AgingBucketCode, 'current'>[] = ['d1_30', 'd31_60', 'd61_90', 'd90_plus'];
-const BUCKET_LABEL: Record<Exclude<AgingBucketCode, 'current'>, string> = {
-  d1_30: '1-30g',
-  d31_60: '31-60g',
-  d61_90: '61-90g',
-  d90_plus: '90g+',
-};
-// "Riskli": en kötü kovası 61 günden fazla gecikmiş cariler.
 const RISKY_BUCKETS = new Set<AgingBucketCode>(['d61_90', 'd90_plus']);
+const isRisky = (row: CustomerBalance) => (row.aging ? RISKY_BUCKETS.has(row.aging.worstBucket) : false);
 
-/** Satırdaki yaşlandırma kovaları özeti: "Gecikme: 1-30g ₺12.450 · 61-90g ₺3.000". */
-function agingLine(row: CustomerBalance): string | null {
-  const parts = (row.aging?.byCurrency ?? []).flatMap((cur: CustomerBalanceCurrencyAging) =>
-    OVERDUE_BUCKETS.filter((key) => cur[key] > 0).map(
-      (key) => `${BUCKET_LABEL[key]} ${formatAmount(cur[key], cur.currencyCode)}`,
-    ),
+function BalanceRow({ row, onPress }: { row: CustomerBalance; onPress: () => void }) {
+  const { colors } = useTheme();
+  const nonZero = row.currencies.filter((item) => item.salesTotal || item.collections || item.borc || item.net);
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={`${row.companyName} cari ekstre`}
+      onPress={onPress}
+      className="mb-2 gap-2 rounded-surface border border-border bg-card p-3 active:opacity-70"
+      style={{ borderCurve: 'continuous' }}
+    >
+      <View className="flex-row items-center gap-2">
+        <Ionicons name="business-outline" size={17} color={colors.primary} />
+        <Text className="flex-1 font-inter-semibold text-[15px] text-foreground" numberOfLines={1}>
+          {row.companyName}
+        </Text>
+        <Ionicons name="chevron-forward" size={16} color={colors.mutedForeground} />
+      </View>
+      {nonZero.map((item) => (
+        <View key={item.currencyCode} className="gap-0.5">
+          <Text className="font-inter-semibold text-[11px] text-muted-foreground">{item.currencyCode}</Text>
+          <View className="flex-row flex-wrap gap-x-3 gap-y-0.5">
+            <Text className="font-inter text-xs text-muted-foreground">Satış {formatAmount(item.salesTotal, item.currencyCode)}</Text>
+            <Text className="font-inter text-xs text-muted-foreground">Tahsilat {formatAmount(item.collections, item.currencyCode)}</Text>
+            <Text className="font-inter-medium text-xs" style={{ color: toneColor(colors, item.borc > 0 ? 'warning' : 'neutral') }}>
+              Açık Borç {formatAmount(item.borc, item.currencyCode)}
+            </Text>
+            <Text
+              className="font-inter-semibold text-xs"
+              style={{ color: toneColor(colors, item.net > 0 ? 'success' : item.net < 0 ? 'destructive' : 'neutral') }}
+            >
+              Net {formatAmount(item.net, item.currencyCode)}
+            </Text>
+          </View>
+        </View>
+      ))}
+      <View className="flex-row items-end justify-between gap-3">
+        <View className="flex-1">
+          <AgingHeatmap row={row} />
+        </View>
+        {row.nearestDueDate ? (
+          <Text className="font-inter text-[11px] text-muted-foreground">
+            En yakın vade: {formatDate(row.nearestDueDate)}
+            {row.nearestDueAmount != null && row.nearestDueCurrency ? ` · ${formatAmount(row.nearestDueAmount, row.nearestDueCurrency)}` : ''}
+          </Text>
+        ) : null}
+      </View>
+    </Pressable>
   );
-  return parts.length ? `Gecikme: ${parts.join(' · ')}` : null;
 }
 
-function isRisky(row: CustomerBalance): boolean {
-  return row.aging ? RISKY_BUCKETS.has(row.aging.worstBucket) : false;
-}
-
+/** Web `CustomerBalancesPage` (Cari Rapor). */
 export default function BalancesScreen() {
   const router = useRouter();
   const [search, setSearch] = useState('');
   const [preset, setPreset] = useState<Preset | null>(null);
-
+  const [exporting, setExporting] = useState(false);
   const { data, isPending, isRefetching, error, refetch } = useCustomerBalances();
 
   const rows = useMemo(() => {
@@ -53,106 +88,102 @@ export default function BalancesScreen() {
         if (preset === 'risky' && !isRisky(row)) return false;
         return !term || row.companyName.toLocaleLowerCase('tr').includes(term);
       })
-      // Farklı para birimlerinin mutlak tutarlarını karşılaştırmak anlamlı değildir.
       .sort((a, b) => a.companyName.localeCompare(b.companyName, 'tr'));
   }, [data, preset, search]);
+  const kpis = useMemo(() => balanceKpis(rows), [rows]);
+  const [firstDebt] = kpis.openDebt;
+  const [firstOverdue] = kpis.overdueTotals;
 
-  const totals = useMemo(() => {
-    const byCurrency = new Map<string, { debt: number; credit: number }>();
-    for (const row of data ?? []) {
-      for (const currency of row.currencies) {
-        const total = byCurrency.get(currency.currencyCode) ?? { debt: 0, credit: 0 };
-        if (currency.totalBalance > 0) total.debt += currency.totalBalance;
-        if (currency.totalBalance < 0) total.credit += Math.abs(currency.totalBalance);
-        byCurrency.set(currency.currencyCode, total);
-      }
-    }
-    return [...byCurrency.entries()].sort(([a], [b]) => (a === 'TRY' ? -1 : b === 'TRY' ? 1 : a.localeCompare(b)));
-  }, [data]);
+  async function exportExcel() {
+    setExporting(true);
+    await runExport(() => exportService.customerBalances());
+    setExporting(false);
+  }
+
+  const header = (
+    <View className="gap-3 pb-2">
+      <ScreenHeader
+        title="Cari Rapor"
+        subtitle="Müşteri ve tedarikçi bakiyelerini analiz edin."
+        actions={[{ icon: exporting ? 'hourglass-outline' : 'download-outline', label: 'Excel', onPress: () => void exportExcel() }]}
+      />
+      <KpiGrid>
+        {[
+          <KpiTile key="companies" icon="business-outline" tone="stage" label="Kayıtlı Firma" value={String(kpis.companies)} sub="açık cari" />,
+          <KpiTile
+            key="debt"
+            icon="trending-up-outline"
+            tone="success"
+            label="Açık Borç"
+            value={firstDebt ? formatAmount(firstDebt.amount, firstDebt.currencyCode) : '—'}
+            sub={kpis.openDebt.length > 1 ? `+${kpis.openDebt.length - 1} para birimi` : 'tahsilat sonrası'}
+          />,
+          <KpiTile
+            key="overdue"
+            icon="alert-circle-outline"
+            tone="destructive"
+            label="Gecikmiş"
+            value={String(kpis.overdueCount)}
+            sub={firstOverdue ? `${formatAmount(firstOverdue.amount, firstOverdue.currencyCode)} vadesi geçti` : 'aksiyon gerekli'}
+            selected={preset === 'risky'}
+            onPress={() => setPreset(preset === 'risky' ? null : 'risky')}
+          />,
+          <KpiTile key="soon" icon="calendar-outline" tone="info" label="7 Gün İçinde" value={String(kpis.dueSoonCount)} sub="yaklaşan vade" />,
+        ]}
+      </KpiGrid>
+      {kpis.netByCurrency.length ? (
+        <StatStrip
+          items={kpis.netByCurrency.slice(0, 3).map((item) => ({
+            label: `${item.currencyCode} net bakiye`,
+            value: formatAmount(item.amount, item.currencyCode),
+            tone: item.amount > 0 ? ('success' as const) : item.amount < 0 ? ('destructive' as const) : ('neutral' as const),
+          }))}
+        />
+      ) : null}
+      <View style={{ paddingHorizontal: SCREEN_PAD }}>
+        <SearchBar value={search} onChange={setSearch} placeholder="Firma ara..." />
+      </View>
+      <FilterChips
+        options={[
+          { value: 'debtor' as const, label: 'Alacaklı' },
+          { value: 'creditor' as const, label: 'Borçlu' },
+          { value: 'risky' as const, label: 'Riskli' },
+        ]}
+        value={preset}
+        onChange={setPreset}
+      />
+    </View>
+  );
 
   return (
     <SafeAreaView className="flex-1 bg-canvas" edges={['top', 'left', 'right']}>
       <SyncStatus />
-      <ScreenHeader title="Cari Rapor" subtitle="Müşteri ve tedarikçi bakiyelerini analiz edin." />
-
-      {totals.map(([currencyCode, total]) => (
-        <StatStrip
-          key={currencyCode}
-          items={[
-            { label: `${currencyCode} alacak`, value: formatAmount(total.debt, currencyCode), tone: 'success' },
-            { label: `${currencyCode} borç`, value: formatAmount(total.credit, currencyCode), tone: 'destructive' },
-            {
-              label: `${currencyCode} net`,
-              value: formatAmount(total.debt - total.credit, currencyCode),
-              tone: total.debt >= total.credit ? 'success' : 'destructive',
-            },
-          ]}
-        />
-      ))}
-
-      <View className="gap-2 py-2">
-        <SearchBar value={search} onChange={setSearch} placeholder="Cari adı ara" />
-        <FilterChips
-          options={[
-            { value: 'debtor' as const, label: 'Alacaklı' },
-            { value: 'creditor' as const, label: 'Borçlu' },
-            { value: 'risky' as const, label: 'Riskli' },
-          ]}
-          value={preset}
-          onChange={setPreset}
-        />
-      </View>
-
       {isPending ? (
-        <ListSkeleton />
+        <>
+          <ScreenHeader title="Cari Rapor" />
+          <ListSkeleton />
+        </>
       ) : error ? (
-        <ErrorState message={error.message} onRetry={() => void refetch()} />
+        <>
+          <ScreenHeader title="Cari Rapor" />
+          <ErrorState message={error.message} onRetry={() => void refetch()} />
+        </>
       ) : (
         <FlashList
-          // v2'de bu özellik varsayılan AÇIK ve sayfalama/yeniden ölçüm sonrası
-          // içeriği çapalayıp listenin başında boşluk bırakıyor. Bunlar sohbet
-          // değil, tepeden akan listeler — kapalı olmalı.
           maintainVisibleContentPosition={{ disabled: true }}
-          // FlashList v2 kendi başına esnemiyor; sınırlanmamış sütun içinde
-          // içerik aşağı kayıyor ve filtrelerin altında boşluk kalıyor.
           style={{ flex: 1 }}
           data={rows}
           keyExtractor={(row) => row.companyId}
-          contentContainerStyle={{ paddingHorizontal: SCREEN_PAD, paddingBottom: 32 }}
-          renderItem={({ item }) => {
-            const positive = item.currencies.some((currency) => currency.totalBalance > 0);
-            const negative = item.currencies.some((currency) => currency.totalBalance < 0);
-            const tone: Tone = positive && negative ? 'warning' : positive ? 'success' : 'destructive';
-            const balanceLabel = item.currencies
-              .filter((currency) => currency.totalBalance !== 0)
-              .map((currency) => formatAmount(currency.totalBalance, currency.currencyCode))
-              .join(' · ') || formatAmount(0, item.primaryCurrency ?? 'TRY');
-            const salesLine = item.currencies
-              .map(
-                (currency) =>
-                  `${currency.currencyCode}: Satış ${formatAmount(currency.salesTotal, currency.currencyCode)} · Tahsilat ${formatAmount(currency.collections, currency.currencyCode)}`,
-              )
-              .join(' | ');
-            return (
-              <ListRow
-                title={item.companyName}
-                lines={[
-                  item.nearestDueDate ? `En yakın vade: ${formatDate(item.nearestDueDate)}` : null,
-                  agingLine(item),
-                  salesLine || null,
-                ]}
-                icon="business-outline"
-                iconTone={tone}
-                chip={{ label: positive && negative ? 'Karma' : positive ? 'Alacaklı' : 'Borçlu', tone }}
-                trailing={balanceLabel}
-                trailingTone={tone}
-                onPress={() => router.push(`/(tabs)/modules/companies/${item.companyId}`)}
-              />
-            );
-          }}
+          ListHeaderComponent={header}
+          contentContainerStyle={{ paddingBottom: 32 }}
+          renderItem={({ item }) => (
+            <View style={{ paddingHorizontal: SCREEN_PAD }}>
+              <BalanceRow row={item} onPress={() => router.push(`/(tabs)/modules/balances/${item.companyId}` as Href)} />
+            </View>
+          )}
           refreshing={isRefetching}
           onRefresh={() => void refetch()}
-          ListEmptyComponent={<EmptyState title="Cari kaydı bulunamadı" hint="Aramayı veya filtreyi değiştirin." />}
+          ListEmptyComponent={<EmptyState title="Kayıt bulunamadı" hint="Aramayı veya filtreyi değiştirin." />}
         />
       )}
     </SafeAreaView>

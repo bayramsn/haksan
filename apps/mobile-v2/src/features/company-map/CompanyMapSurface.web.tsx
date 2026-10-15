@@ -1,47 +1,52 @@
-import { useEffect, useRef, useState } from 'react';
-import { Alert, Pressable, Text, View } from 'react-native';
+import { useEffect, useRef } from 'react';
+import { Pressable, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as L from 'leaflet';
 import './leaflet-web.css';
-import type { CompanyMapPoint } from '@/src/api/endpoints';
-import { useTheme } from '@/src/theme/theme';
+import { toneColor, useTheme } from '@/src/theme/theme';
+import type { CompanyMapSurfaceProps } from './map-style';
 
 const TURKEY_CENTER: L.LatLngExpression = [39, 35];
 
-function locationLabel(point: CompanyMapPoint): string {
-  return [point.district, point.province].filter(Boolean).join(', ') || 'Konum bilgisi yok';
-}
-
 export function CompanyMapSurface({
-  points,
+  pins,
   truncated,
-  onCompanyPress,
-}: {
-  points: CompanyMapPoint[];
-  truncated?: boolean;
-  onCompanyPress: (point: CompanyMapPoint) => void;
-}) {
+  userPos,
+  routeLine,
+  focusId,
+  pickMode,
+  onPinPress,
+  onMapPick,
+  onLocate,
+}: CompanyMapSurfaceProps) {
   const { colors } = useTheme();
   const elementRef = useRef<HTMLElement | null>(null);
   const mapRef = useRef<L.Map | null>(null);
   const markerLayerRef = useRef<L.LayerGroup | null>(null);
-  const [selectedPoint, setSelectedPoint] = useState<CompanyMapPoint | null>(null);
+  const overlayLayerRef = useRef<L.LayerGroup | null>(null);
+  const pickRef = useRef({ pickMode, onMapPick });
+  pickRef.current = { pickMode, onMapPick };
+  const pinKey = pins.map((pin) => `${pin.id}:${pin.latitude}:${pin.longitude}:${pin.tone}`).join('|');
 
   useEffect(() => {
     const element = elementRef.current;
     if (!element || mapRef.current) return;
-
     const map = L.map(element, { attributionControl: false, zoomControl: false }).setView(TURKEY_CENTER, 6);
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       attribution: '&copy; OpenStreetMap contributors',
       maxZoom: 19,
     }).addTo(map);
     markerLayerRef.current = L.layerGroup().addTo(map);
+    overlayLayerRef.current = L.layerGroup().addTo(map);
+    map.on('click', (event: L.LeafletMouseEvent) => {
+      if (!pickRef.current.pickMode) return;
+      pickRef.current.onMapPick?.({ lat: event.latlng.lat, lng: event.latlng.lng });
+    });
     mapRef.current = map;
-
     return () => {
       map.remove();
       markerLayerRef.current = null;
+      overlayLayerRef.current = null;
       mapRef.current = null;
     };
   }, []);
@@ -51,41 +56,50 @@ export function CompanyMapSurface({
     const layer = markerLayerRef.current;
     if (!map || !layer) return;
     layer.clearLayers();
-
     const coordinates: L.LatLngExpression[] = [];
-    for (const point of points) {
-      const coordinate: L.LatLngExpression = [point.latitude, point.longitude];
+    for (const pin of pins) {
+      const coordinate: L.LatLngExpression = [pin.latitude, pin.longitude];
       coordinates.push(coordinate);
       const marker = L.marker(coordinate, {
         icon: L.divIcon({
           className: '',
-          html: `<span aria-hidden="true" class="haksan-map-marker${
-            point.statusCode === 'active' ? ' haksan-map-marker--active' : ''
-          }"></span>`,
+          html: `<span aria-hidden="true" class="haksan-map-marker" style="background:${toneColor(colors, pin.tone)}"></span>`,
           iconSize: [18, 18],
           iconAnchor: [9, 9],
         }),
-        title: point.shortName || point.legalTitle,
+        title: pin.title,
       });
-      marker.on('click', () => setSelectedPoint(point));
+      marker.on('click', () => onPinPress(pin.id));
       marker.addTo(layer);
     }
-
     if (coordinates.length === 1) map.setView(coordinates[0]!, 13, { animate: true });
     else if (coordinates.length > 1) map.fitBounds(L.latLngBounds(coordinates), { padding: [40, 40], animate: true });
-  }, [points]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pinKey, colors]);
 
-  function centerOnUser() {
-    if (!navigator.geolocation) {
-      Alert.alert('Konum desteklenmiyor', 'Bu tarayıcı konum hizmetini desteklemiyor.');
-      return;
+  useEffect(() => {
+    const layer = overlayLayerRef.current;
+    if (!layer) return;
+    layer.clearLayers();
+    if (userPos) {
+      L.circleMarker([userPos.lat, userPos.lng], { radius: 8, color: colors.primary, fillColor: colors.primary, fillOpacity: 0.9 })
+        .bindTooltip('Konumum')
+        .addTo(layer);
     }
-    navigator.geolocation.getCurrentPosition(
-      ({ coords }) => mapRef.current?.setView([coords.latitude, coords.longitude], 13, { animate: true }),
-      () => Alert.alert('Konum alınamadı', 'Tarayıcı konum iznini kontrol edin.'),
-      { enableHighAccuracy: false, timeout: 10_000, maximumAge: 60_000 }
-    );
-  }
+    if (routeLine && routeLine.length > 1) {
+      L.polyline(routeLine.map((point) => [point.lat, point.lng] as L.LatLngTuple), { color: colors.primary, weight: 3, dashArray: '8 6' }).addTo(layer);
+    }
+  }, [userPos, routeLine, colors]);
+
+  useEffect(() => {
+    const pin = focusId ? pins.find((row) => row.id === focusId) : null;
+    if (pin) mapRef.current?.setView([pin.latitude, pin.longitude], 13, { animate: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusId]);
+
+  useEffect(() => {
+    if (userPos) mapRef.current?.setView([userPos.lat, userPos.lng], 10, { animate: true });
+  }, [userPos?.lat, userPos?.lng]);
 
   return (
     <View className="flex-1">
@@ -114,38 +128,26 @@ export function CompanyMapSurface({
           <Ionicons name="remove" size={22} color={colors.foreground} />
         </Pressable>
       </View>
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel="Konumuma git"
-        onPress={centerOnUser}
-        className="absolute bottom-6 right-4 h-12 w-12 items-center justify-center rounded-full border border-border bg-card shadow-lg active:opacity-70"
-      >
-        <Ionicons name="locate-outline" size={22} color={colors.foreground} />
-      </Pressable>
-      {selectedPoint ? (
+      {onLocate ? (
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel={`${selectedPoint.legalTitle} firma kartını aç`}
-          onPress={() => onCompanyPress(selectedPoint)}
-          className="absolute bottom-6 left-4 right-20 gap-1 rounded-surface border border-border bg-card px-4 py-3 shadow-lg active:opacity-90"
+          accessibilityLabel="Konumuma git"
+          onPress={onLocate}
+          className="absolute bottom-6 right-4 h-12 w-12 items-center justify-center rounded-full border border-border bg-card shadow-lg active:opacity-70"
         >
-          <Text className="font-inter-semibold text-sm text-foreground" numberOfLines={1}>
-            {selectedPoint.legalTitle}
-          </Text>
-          <Text className="font-inter text-xs text-muted-foreground" numberOfLines={1}>
-            {locationLabel(selectedPoint)}
-          </Text>
-          <Text className="pt-1 font-inter-semibold text-xs text-primary">Firma kartını aç</Text>
+          <Ionicons name="locate-outline" size={22} color={colors.foreground} />
         </Pressable>
       ) : null}
-      <View className="absolute bottom-1 left-2 rounded bg-card/90 px-1.5 py-0.5">
+      <View className="absolute bottom-1 left-2 rounded bg-card px-1.5 py-0.5">
         <Text className="font-inter text-[9px] text-muted-foreground">© OpenStreetMap</Text>
       </View>
-      {truncated ? (
-        <View className="absolute left-4 right-20 top-3 rounded-control bg-card/95 px-3 py-2">
-          <Text className="font-inter text-xs text-muted-foreground">
-            İlk 2.000 firma gösteriliyor; aramayla daraltın.
-          </Text>
+      {pickMode ? (
+        <View className="absolute left-4 right-4 top-3 rounded-control border border-primary bg-card px-3 py-2">
+          <Text className="font-inter text-xs text-primary">Haritada doğru noktaya dokunun; koordinat kaydedilir.</Text>
+        </View>
+      ) : truncated ? (
+        <View className="absolute left-4 right-20 top-3 rounded-control bg-card px-3 py-2">
+          <Text className="font-inter text-xs text-muted-foreground">Firma listesi kısaltıldı; aramayla daraltın.</Text>
         </View>
       ) : null}
     </View>

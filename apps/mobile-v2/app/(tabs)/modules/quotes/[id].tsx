@@ -10,24 +10,25 @@ import {
   useDeleteQuote,
   useLookup,
   useMailAccount,
-  useQuote,
+  useOpportunity,
   useQuoteList,
-  useQuotePriceApproval,
   useQuoteWorkflowStatus,
   useRejectQuote,
   useSendMail,
   useSendQuote,
 } from '@/src/api/crm.hooks';
 import { useCreateSalesOrderFromQuote, useSalesOrders } from '@/src/api/inventory.hooks';
-import { useCommercialDocuments } from '@/src/api/documents.hooks';
+import { useCommercialDocuments, type DocumentKind } from '@/src/api/documents.hooks';
 import { QUOTE_WORKFLOW_STATUSES, type QuoteWorkflowStatus } from '@/src/api/endpoints';
+import { useMoveOpportunityToSales, useQuoteDetail, useQuotePriceDecision } from '@/src/api/quotes.hooks';
 import { formatAmount, formatDate, formatLocalDateTime, parseLocalDateTime } from '@/src/lib/format';
-import { useCan } from '@/src/auth/AuthProvider';
+import { useAuth, useCan } from '@/src/auth/AuthProvider';
 import { Button, Card, Chip, DetailHeader, EmptyState, ErrorState, Eyebrow, Field, ListRow, DetailSkeleton } from '@/src/ui';
 import { toast } from '@/src/ui/toast';
 import { InfoRows, Tabs } from '@/src/ui/data';
 import { useTheme } from '@/src/theme/theme';
 import { postPdfAndShare } from '@/src/native/files';
+import { DateTextField } from '@/src/ui/select/DateTextField';
 
 function TotalRow({ label, value, strong }: { label: string; value: string; strong?: boolean }) {
   return (
@@ -71,11 +72,21 @@ export default function QuoteDetailScreen() {
   const [workflowError, setWorkflowError] = useState<string | null>(null);
 
   // Yetkiler: butonları kullanıcıya göre gizle; sunucu yine de yeniden doğrular.
+  const { user } = useAuth();
   const canUpdate = useCan('quotes.update');
   const canApprove = useCan('quotes.approve');
   const canReject = useCan('quotes.reject');
+  // Web OffersPage: fiyat onayı yalnız `hasRole("super_admin")`.
+  const isSuperAdmin = user?.roles?.includes('super_admin') ?? false;
+  const canCreateProforma = useCan('proformas.create');
+  const canCreateContract = useCan('contracts.create');
+  const canCreateCommercialInvoice = useCan('commercial_invoices.create');
+  const canCreateAccountingInvoice = useCan('accounting_invoices.create');
+  const canMoveOpportunity = useCan('opportunities.update');
 
-  const { data, isPending, error, refetch } = useQuote(id);
+  const { data, isPending, error, refetch } = useQuoteDetail(id);
+  const opportunity = useOpportunity(data?.opportunityId ?? '');
+  const moveToSales = useMoveOpportunityToSales();
   // Detay ucu join yapmıyor; firma adı ve durum adı ayrıca çözülüyor.
   const company = useCompany(data?.companyId ?? '');
   const statuses = useLookup('quote-statuses', Boolean(data?.statusId));
@@ -85,7 +96,7 @@ export default function QuoteDetailScreen() {
   const approve = useApproveQuote();
   const reject = useRejectQuote();
   const changeWorkflow = useQuoteWorkflowStatus();
-  const priceApproval = useQuotePriceApproval();
+  const priceApproval = useQuotePriceDecision();
   const createOrder = useCreateSalesOrderFromQuote();
   const removeQuote = useDeleteQuote();
   // Bu tekliften üretilmiş sipariş (sales_orders.quote_id tenant içinde tekil).
@@ -109,13 +120,15 @@ export default function QuoteDetailScreen() {
   const proformas = useCommercialDocuments('proforma', { quoteId: id });
   const contracts = useCommercialDocuments('contract', { quoteId: id });
   const invoices = useCommercialDocuments('invoice', { quoteId: id });
-  const linkedDocs = useMemo(
-    () =>
-      [...(proformas.data?.items ?? []), ...(contracts.data?.items ?? []), ...(invoices.data?.items ?? [])].filter(
-        (doc) => doc.quoteId === data?.id
-      ),
-    [proformas.data, contracts.data, invoices.data, data?.id]
-  );
+  const linkedDocs = useMemo(() => {
+    const withKind = (kind: DocumentKind, rows: NonNullable<typeof proformas.data>['items'] | undefined) =>
+      (rows ?? []).filter((doc) => doc.quoteId === data?.id).map((doc) => ({ ...doc, kind }));
+    return [
+      ...withKind('proforma', proformas.data?.items),
+      ...withKind('contract', contracts.data?.items),
+      ...withKind('invoice', invoices.data?.items),
+    ];
+  }, [proformas.data, contracts.data, invoices.data, data?.id]);
   /** Aynı belge numarasının diğer revizyonları; en yeni önce. */
   const otherRevisions = useMemo(
     () =>
@@ -159,7 +172,12 @@ export default function QuoteDetailScreen() {
   const statusCode = status?.code ?? '';
   const isDraft = statusCode === 'draft';
   const canDecide = DECIDABLE_STATUSES.has(statusCode);
-  const isPricePending = data.priceApprovalStatus === 'pending' || statusCode === 'pending_super_admin_approval';
+  const canDecidePrice = isSuperAdmin && statusCode === 'pending_super_admin_approval';
+  const isApproved = statusCode === 'approved';
+  const isLostCase = opportunity.data?.qualificationStage === 'lost';
+  const invoiceHref = linkedOrder
+    ? (`/modal/sales-order-accounting-invoice?quoteId=${data.id}&orderId=${linkedOrder.id}` as const)
+    : (`/modal/sales-order-accounting-invoice?quoteId=${data.id}` as const);
 
   function fail(err: Error) {
     Alert.alert('İşlem tamamlanamadı', err.message);
@@ -181,20 +199,29 @@ export default function QuoteDetailScreen() {
     );
   }
 
-  function handlePriceApproval(decision: 'approved' | 'rejected') {
-    if (decision === 'approved') void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+  function handlePriceApproval(decision: 'approve' | 'reject') {
+    if (decision === 'approve') void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     confirmAction(
-      decision === 'approved' ? 'Fiyatı Onayla' : 'Fiyatı Reddet',
+      decision === 'approve' ? 'Fiyatı Onayla' : 'Fiyatı Reddet',
       'İndirimli fiyat kararı kaydedilecek.',
       () =>
         priceApproval.mutate(
           { id, decision },
           {
-            onSuccess: () => toast.success(decision === 'approved' ? 'Fiyat onaylandı' : 'Fiyat reddedildi'),
+            onSuccess: () => toast.success(decision === 'approve' ? 'Fiyat onaylandı' : 'Fiyat reddedildi'),
             onError: fail,
           }
         )
     );
+  }
+
+  function handleMoveToSales() {
+    const opportunityId = data!.opportunityId;
+    if (!opportunityId) return;
+    moveToSales.mutate(opportunityId, {
+      onSuccess: () => toast.success('Satış kartı satışa geri alındı'),
+      onError: fail,
+    });
   }
 
   /** Geri alınamaz kararlar için tek tip onay penceresi. */
@@ -278,7 +305,15 @@ export default function QuoteDetailScreen() {
 
   return (
     <SafeAreaView className="flex-1 bg-canvas" edges={['top', 'left', 'right']}>
-      <DetailHeader title="Teklif Detayı" subtitle={data.documentNo} />
+      <DetailHeader
+        title="Teklif Detayı"
+        subtitle={data.documentNo}
+        actions={
+          canUpdate
+            ? [{ icon: 'create-outline', label: 'Teklifi Düzenle', onPress: () => router.push(`/modal/quote-form?id=${data.id}`) }]
+            : []
+        }
+      />
 
       <View className="px-4 pt-4">
         <Card className="gap-2">
@@ -301,12 +336,12 @@ export default function QuoteDetailScreen() {
           </View>
 
           {/* Eylem satırı: web OffersPage teklif iletişim kutusuyla aynı görünürlük kuralları. */}
-          {(isDraft || canDecide || isPricePending || (canUpdate && !isDraft)) ? (
+          {(isDraft || canDecide || canDecidePrice || isApproved || isLostCase || (canUpdate && !isDraft)) ? (
             <View className="gap-2 border-t border-border pt-3">
               {canUpdate && isDraft ? (
                 <Button label="Gönderildi İşaretle" onPress={handleSend} loading={send.isPending} disabled={send.isPending} />
               ) : null}
-              {statusCode === 'approved' && canUpdate ? (
+              {isApproved && canUpdate && !linkedOrder ? (
                 <Button
                   label="Satış Siparişi Oluştur"
                   onPress={handleCreateOrder}
@@ -314,19 +349,32 @@ export default function QuoteDetailScreen() {
                   disabled={createOrder.isPending || send.isPending || approve.isPending || reject.isPending || priceApproval.isPending}
                 />
               ) : null}
+              {isApproved && canCreateAccountingInvoice ? (
+                <Button label="Muhasebe Faturası" variant="ghost" trailingIcon="receipt-outline" onPress={() => router.push(invoiceHref)} />
+              ) : null}
               {canApprove && canDecide ? (
                 <Button label="Onayla" onPress={handleApprove} loading={approve.isPending} disabled={approve.isPending} />
               ) : null}
               {canReject && canDecide ? (
                 <Button label="Reddet" variant="ghost" onPress={handleReject} loading={reject.isPending} disabled={reject.isPending} />
               ) : null}
-              {isPricePending && canApprove ? (
-                <Button label="Fiyatı Onayla" onPress={() => handlePriceApproval('approved')} loading={priceApproval.isPending} disabled={priceApproval.isPending} />
+              {canDecidePrice ? (
+                <Button label="Fiyatı Onayla" onPress={() => handlePriceApproval('approve')} loading={priceApproval.isPending} disabled={priceApproval.isPending} />
               ) : null}
-              {isPricePending && canReject ? (
-                <Button label="Fiyatı Reddet" variant="ghost" onPress={() => handlePriceApproval('rejected')} loading={priceApproval.isPending} disabled={priceApproval.isPending} />
+              {canDecidePrice ? (
+                <Button label="Fiyatı Reddet" variant="ghost" onPress={() => handlePriceApproval('reject')} loading={priceApproval.isPending} disabled={priceApproval.isPending} />
               ) : null}
-              {canUpdate && !isDraft ? (
+              {isLostCase && canMoveOpportunity ? (
+                <Button
+                  label="Satışa Al"
+                  variant="ghost"
+                  trailingIcon="refresh-outline"
+                  onPress={handleMoveToSales}
+                  loading={moveToSales.isPending}
+                  disabled={moveToSales.isPending}
+                />
+              ) : null}
+              {canUpdate && !isDraft && !['approved', 'rejected', 'cancelled'].includes(statusCode) ? (
                 <Button
                   label="Durum Güncelle"
                   variant="ghost"
@@ -367,6 +415,16 @@ export default function QuoteDetailScreen() {
                 { label: 'Takip', value: data.followUpAt ? formatDate(data.followUpAt) : null },
               ]}
             />
+          </Card>
+        ) : null}
+
+        {tab === 'general' && (data.followUpAt || data.statusNote) ? (
+          <Card className="gap-1.5">
+            <Eyebrow>Teklif takibi</Eyebrow>
+            {data.followUpAt ? (
+              <Text className="font-inter text-sm text-foreground">Hatırlatma: {formatDate(data.followUpAt)}</Text>
+            ) : null}
+            {data.statusNote ? <Text className="font-inter text-sm text-muted-foreground">{data.statusNote}</Text> : null}
           </Card>
         ) : null}
 
@@ -501,18 +559,42 @@ export default function QuoteDetailScreen() {
           )
         ) : null}
 
+        {tab === 'documents' && (canCreateProforma || canCreateContract || canCreateCommercialInvoice) ? (
+          <Card className="gap-2">
+            <Eyebrow>Ticari belge rotası</Eyebrow>
+            <Text className="font-inter text-xs text-muted-foreground">Teklif → Proforma → Sözleşme → Ticari fatura</Text>
+            {canCreateProforma ? (
+              <Button label="Proforma Oluştur" variant="ghost" trailingIcon="add" onPress={() => router.push(`/modal/proforma-form?quoteId=${data.id}`)} />
+            ) : null}
+            {canCreateContract ? (
+              <Button label="Sözleşme Oluştur" variant="ghost" trailingIcon="add" onPress={() => router.push(`/modal/contract-form?quoteId=${data.id}`)} />
+            ) : null}
+            {canCreateCommercialInvoice ? (
+              <Button
+                label="Ticari Fatura Oluştur"
+                variant="ghost"
+                trailingIcon="add"
+                onPress={() => router.push(`/modal/commercial-invoice-form?quoteId=${data.id}`)}
+              />
+            ) : null}
+          </Card>
+        ) : null}
+
         {tab === 'documents' ? (
           linkedDocs.length > 0 ? (
             <View className="gap-0">
               {linkedDocs.map((doc) => (
                 <ListRow
-                  key={doc.id}
+                  key={`${doc.kind}-${doc.id}`}
                   title={doc.no}
-                  lines={[doc.date ? formatDate(doc.date) : null]}
+                  lines={[
+                    doc.kind === 'proforma' ? 'Proforma' : doc.kind === 'contract' ? 'Sözleşme' : 'Ticari fatura',
+                    doc.date ? formatDate(doc.date) : null,
+                  ]}
                   icon="document-text-outline"
                   iconTone={doc.finalized ? 'success' : 'neutral'}
                   chip={doc.statusName ? { label: doc.statusName, tone: doc.finalized ? 'success' : 'neutral' } : undefined}
-                  onPress={doc.companyId ? () => router.push(`/(tabs)/modules/companies/${doc.companyId}`) : undefined}
+                  onPress={() => router.push(`/(tabs)/modules/documents/${doc.kind}/${doc.id}`)}
                 />
               ))}
               {linkedDocumentsHaveMore ? (
@@ -577,21 +659,25 @@ export default function QuoteDetailScreen() {
             loading={removeQuote.isPending}
             disabled={removeQuote.isPending}
             onPress={() =>
-              Alert.alert('Teklifi sil', `${data.documentNo} kalıcı olarak silinecek.`, [
-                { text: 'Vazgeç', style: 'cancel' },
-                {
-                  text: 'Sil',
-                  style: 'destructive',
-                  onPress: () =>
-                    removeQuote.mutate(id, {
-                      onSuccess: () => {
-                        toast.success('Teklif silindi');
-                        router.back();
-                      },
-                      onError: (err) => Alert.alert('Silinemedi', err.message),
-                    }),
-                },
-              ])
+              Alert.alert(
+                'Teklif kaydı silinsin mi?',
+                `${data.documentNo} · R${data.revisionNo}\nTeklif revizyonu silinir. Bağlı proforma, sözleşme, satış siparişi veya fatura varsa sistem işlemi güvenli biçimde engeller.`,
+                [
+                  { text: 'Vazgeç', style: 'cancel' },
+                  {
+                    text: 'Teklifi Sil',
+                    style: 'destructive',
+                    onPress: () =>
+                      removeQuote.mutate(id, {
+                        onSuccess: () => {
+                          toast.success('Teklif silindi');
+                          router.back();
+                        },
+                        onError: (err) => Alert.alert('Silinemedi', err.message),
+                      }),
+                  },
+                ]
+              )
             }
           />
         ) : null}
@@ -669,15 +755,15 @@ export default function QuoteDetailScreen() {
             />
           ))}
           {workflowStatus && workflowStatus !== 'cancelled' ? (
-            <Field
+            <DateTextField
               label="Hatırlatma tarihi *"
               value={followUpText}
               onChangeText={(v) => {
                 setFollowUpText(v);
                 setWorkflowError(null);
               }}
-              placeholder="YYYY-AA-GG SS:DD"
               error={workflowError ?? undefined}
+              mode="datetime"
             />
           ) : null}
           {workflowStatus ? (

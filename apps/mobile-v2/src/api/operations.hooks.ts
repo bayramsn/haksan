@@ -9,7 +9,7 @@ const REFERENCE_STALE_TIME = 60 * 60 * 1000;
 const PAGE_SIZE = 50;
 
 /** Sayfalı listeyi sonsuz kaydırmaya çeviren ortak sarmalayıcı. */
-function infinite<T>(key: QueryKey, fetchPage: (page: number, pageSize: number) => Promise<{ data: T[]; meta: { page: number; totalPages: number; total: number } }>) {
+export function infinite<T>(key: QueryKey, fetchPage: (page: number, pageSize: number) => Promise<{ data: T[]; meta: { page: number; totalPages: number; total: number } }>) {
   return {
     queryKey: key,
     initialPageParam: 1,
@@ -25,13 +25,15 @@ function infinite<T>(key: QueryKey, fetchPage: (page: number, pageSize: number) 
 
 /* ------------------------------------------------------- servis talebi ---- */
 
+export type ComplaintScope = { search?: string; status?: string; source?: string; companyId?: string };
+
 export const serviceKeys = {
   tickets: (query: ServiceTicketListQuery = {}): QueryKey => ['service', 'tickets', query],
   ticketSummary: (query: Omit<ServiceTicketListQuery, 'sortDir'> = {}): QueryKey =>
     ['service', 'tickets', 'summary', query],
   ticket: (id: string): QueryKey => ['service', 'ticket', id],
   warranty: (ticketId: string): QueryKey => ['service', 'warranty', ticketId],
-  complaints: (scope: { search?: string; status?: string }): QueryKey => ['service', 'complaints', scope],
+  complaints: (scope: ComplaintScope): QueryKey => ['service', 'complaints', scope],
   complaint: (id: string): QueryKey => ['service', 'complaint', id],
   installations: (scope: { search?: string; phase?: 'planned' | 'ongoing' | 'done' }): QueryKey =>
     ['service', 'installations', scope],
@@ -45,10 +47,11 @@ export const serviceKeys = {
   device: (id: string): QueryKey => ['inventory', 'customer-devices', 'detail', id],
 };
 
-export function useServiceTickets(query: ServiceTicketListQuery = {}) {
-  return useInfiniteQuery(
-    infinite(serviceKeys.tickets(query), (page, pageSize) => service.tickets({ ...query, page, pageSize }))
-  );
+export function useServiceTickets(query: ServiceTicketListQuery = {}, enabled = true) {
+  return useInfiniteQuery({
+    ...infinite(serviceKeys.tickets(query), (page, pageSize) => service.tickets({ ...query, page, pageSize })),
+    enabled,
+  });
 }
 
 export function useServiceTicketSummary(query: Omit<ServiceTicketListQuery, 'sortDir'> = {}) {
@@ -78,8 +81,9 @@ export function useSetTicketStatus() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ id, statusCode }: { id: string; statusCode: string }) => service.setTicketStatus(id, statusCode),
-    onSuccess: (updated) => {
-      qc.setQueryData(serviceKeys.ticket(updated.id), updated);
+    // Sunucu `{ ok: true }` döner; önbelleğe yazmak detayı bozardı.
+    onSuccess: (_result, { id }) => {
+      void qc.invalidateQueries({ queryKey: serviceKeys.ticket(id) });
       void qc.invalidateQueries({ queryKey: ['service', 'tickets'] });
     },
   });
@@ -106,8 +110,9 @@ export function useUpdateServiceTicket(id: string) {
     mutationFn: (
       body: Parameters<typeof service.updateTicket>[1],
     ) => service.updateTicket(id, body),
-    onSuccess: (updated) => {
-      qc.setQueryData(serviceKeys.ticket(updated.id), updated);
+    // Yanıt ilişkisiz ham satırdır (firma/durum yok); detayı yeniden çek.
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: serviceKeys.ticket(id) });
       void qc.invalidateQueries({ queryKey: ['service', 'tickets'] });
     },
   });
@@ -166,7 +171,7 @@ export function useDecideWarranty(ticketId: string) {
   });
 }
 
-export function useServiceComplaints(query: { search?: string; status?: string } = {}) {
+export function useServiceComplaints(query: ComplaintScope = {}) {
   return useInfiniteQuery(
     infinite(serviceKeys.complaints(query), (page, pageSize) =>
       service.complaints({ page, pageSize, ...query })
@@ -249,13 +254,13 @@ export function useShipment(id: string) {
   return useQuery({ queryKey: serviceKeys.shipment(id), queryFn: () => service.shipment(id), enabled: Boolean(id) });
 }
 
-/** Sevkiyat mutasyonları: detayı sunucu yanıtıyla değiştirir, listeleri tazeler. */
-async function settleShipment(
-  qc: ReturnType<typeof useQueryClient>,
-  updated: Shipment
-) {
-  qc.setQueryData(serviceKeys.shipment(updated.id), updated);
-  await Promise.all([qc.invalidateQueries({ queryKey: ['service', 'shipments'] })]);
+/** Sevkiyat mutasyonları: durum ucu `{ ok: true }` döndüğü için detay yeniden çekilir. */
+async function settleShipment(qc: ReturnType<typeof useQueryClient>, id: string) {
+  await Promise.all([
+    qc.invalidateQueries({ queryKey: serviceKeys.shipment(id) }),
+    qc.invalidateQueries({ queryKey: ['service', 'shipments'] }),
+    qc.invalidateQueries({ queryKey: ['inventory'] }),
+  ]);
 }
 
 export type ShipmentStatusCodeInput = 'preparing' | 'in_transit' | 'at_customs' | 'cleared' | 'delivered';
@@ -265,7 +270,7 @@ export function useStartShipment() {
   return useMutation({
     mutationFn: ({ id, loadingDate }: { id: string; loadingDate?: string }) =>
       service.startShipment(id, loadingDate),
-    onSuccess: (updated) => void settleShipment(qc, updated),
+    onSuccess: (_updated, { id }) => void settleShipment(qc, id),
   });
 }
 
@@ -281,7 +286,7 @@ export function useUpdateShipmentStatus() {
       loadingDate?: string;
       arrivedAt?: string;
     }) => service.updateShipmentStatus(id, body),
-    onSuccess: (updated) => void settleShipment(qc, updated),
+    onSuccess: (_updated, { id }) => void settleShipment(qc, id),
   });
 }
 

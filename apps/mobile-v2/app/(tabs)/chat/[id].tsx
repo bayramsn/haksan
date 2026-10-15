@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, FlatList, KeyboardAvoidingView, Linking, Platform, Pressable, Text, TextInput, View } from 'react-native';
+import { Alert, FlatList, Image, KeyboardAvoidingView, Linking, Platform, Pressable, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useLocalSearchParams, router } from 'expo-router';
+import { useLocalSearchParams, router, type Href } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { BottomSheetBackdrop, BottomSheetModal, BottomSheetView } from '@gorhom/bottom-sheet';
 import {
@@ -13,12 +13,28 @@ import {
   useSendMessage,
   useToggleReaction,
 } from '@/src/api/chat.hooks';
+import { useChatConversation, useChatSearch, useChatWebRtcConfig } from '@/src/api/crm-general.hooks';
+import type { ChatConversationDetail } from '@/src/api/crm-general.api';
 import type { ChatMessage } from '@/src/api/endpoints';
+import { mediaUrl } from '@/src/api/config';
 import { useAuth } from '@/src/auth/AuthProvider';
 import { useCan } from '@/src/auth/AuthProvider';
 import { dayLabel, formatTime } from '@/src/lib/format';
 import { useTheme } from '@/src/theme/theme';
-import { DetailHeader, ErrorState, Loading } from '@/src/ui';
+import { EmptyState, ErrorState, Loading } from '@/src/ui';
+import {
+  CHAT_EMOJIS,
+  REF_TYPE_LABELS,
+  canManageGroup,
+  canSearchMessages,
+  conversationDisplayName,
+  isSeenByOther,
+  memberSubtitle,
+  normalizeAttachment,
+  parseRefCard,
+  refCardRoute,
+  type NormalizedAttachment,
+} from '@/src/ui/crm/chat-logic';
 import { useConversationRealtime } from '@/src/realtime/chat';
 import { files } from '@/src/api/endpoints';
 import { downloadAndShareFile, pickDocument, pickImage, uploadChatAttachment, type LocalUpload, type UploadedAttachment } from '@/src/native/files';
@@ -28,6 +44,7 @@ function Bubble({
   message,
   mine,
   showSender,
+  seen,
   onLongPress,
   onReaction,
   onOpenAttachment,
@@ -36,11 +53,20 @@ function Bubble({
   message: ChatMessage;
   mine: boolean;
   showSender: boolean;
+  seen: boolean;
   onLongPress: () => void;
   onReaction: (emoji: string) => void;
-  onOpenAttachment: (file: ChatMessage['attachments'][number]) => void;
+  onOpenAttachment: (file: NormalizedAttachment) => void;
   onOpenLocation: (location: NonNullable<ChatMessage['location']>) => void;
 }) {
+  const { colors } = useTheme();
+  const attachments = useMemo(
+    () => (message.attachments as unknown[]).map(normalizeAttachment).filter((item): item is NormalizedAttachment => Boolean(item)),
+    [message.attachments],
+  );
+  const refCard = parseRefCard(message.refCard);
+  const refRoute = refCard ? refCardRoute(refCard) : null;
+
   if (message.kind === 'system') {
     return (
       <View className="items-center py-2">
@@ -54,7 +80,7 @@ function Bubble({
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={`${message.senderName}: ${message.body ?? 'Ek mesajı'}`}
+      accessibilityLabel={`${message.senderName}: ${message.body ?? refCard?.title ?? 'Ek mesajı'}`}
       accessibilityHint="Mesaj işlemleri için basılı tutun"
       onLongPress={onLongPress}
       className={`my-1 max-w-[82%] ${mine ? 'self-end' : 'self-start'}`}
@@ -77,24 +103,58 @@ function Bubble({
         ) : null}
 
         {message.body ? (
-          <Text className="font-inter text-[15px] leading-[1.35] text-foreground">{message.body}</Text>
+          <Text selectable className="font-inter text-[15px] leading-[1.35] text-foreground">{message.body}</Text>
         ) : null}
 
-        {message.attachments.map((file) => (
+        {refCard ? (
           <Pressable
-            key={file.id}
-            accessibilityRole="button"
-            accessibilityLabel={`${file.fileName} dosyasını aç`}
-            onPress={() => onOpenAttachment(file)}
-            className="mt-1.5 min-h-11 flex-row items-center gap-2 rounded-control active:bg-muted"
+            accessibilityRole="link"
+            accessibilityLabel={`${REF_TYPE_LABELS[refCard.type] ?? 'Kayıt'}: ${refCard.title}`}
+            accessibilityState={{ disabled: !refRoute }}
+            disabled={!refRoute}
+            onPress={() => refRoute && router.push(refRoute as Href)}
+            className="mt-1.5 min-h-11 flex-row items-center gap-2 rounded-control border border-border bg-card px-2.5 py-2 active:opacity-70"
           >
-            <Ionicons name="document-outline" size={15} color="#5f697a" />
-            <Text className="flex-1 font-inter text-[13px] text-foreground" numberOfLines={1}>
-              {file.fileName}
-            </Text>
-            <Ionicons name="share-outline" size={15} color="#5f697a" />
+            <Ionicons name={refCard.missing ? 'alert-circle-outline' : 'link-outline'} size={16} color={refCard.missing ? colors.mutedForeground : colors.primary} />
+            <View className="flex-1">
+              <Text className="font-inter-medium text-[11px] uppercase text-muted-foreground">{REF_TYPE_LABELS[refCard.type] ?? 'Kayıt'}</Text>
+              <Text className="font-inter-semibold text-[13px] text-foreground" numberOfLines={2}>{refCard.title}</Text>
+              {refCard.subtitle ? (
+                <Text className="font-inter text-[11px] text-muted-foreground" numberOfLines={1}>{refCard.subtitle}</Text>
+              ) : null}
+            </View>
+            {refRoute ? <Ionicons name="chevron-forward" size={15} color={colors.mutedForeground} /> : null}
           </Pressable>
-        ))}
+        ) : null}
+
+        {attachments.map((file) => {
+          const imageUri = file.isImage ? mediaUrl(file.url) : null;
+          return imageUri ? (
+            <Pressable
+              key={file.fileId}
+              accessibilityRole="imagebutton"
+              accessibilityLabel={`${file.filename} görselini aç`}
+              onPress={() => onOpenAttachment(file)}
+              className="mt-1.5 overflow-hidden rounded-control active:opacity-80"
+            >
+              <Image source={{ uri: imageUri }} style={{ width: 220, height: 160 }} resizeMode="cover" accessibilityIgnoresInvertColors />
+            </Pressable>
+          ) : (
+            <Pressable
+              key={file.fileId}
+              accessibilityRole="button"
+              accessibilityLabel={`${file.filename} dosyasını aç`}
+              onPress={() => onOpenAttachment(file)}
+              className="mt-1.5 min-h-11 flex-row items-center gap-2 rounded-control active:bg-muted"
+            >
+              <Ionicons name="document-outline" size={15} color={colors.mutedForeground} />
+              <Text className="flex-1 font-inter text-[13px] text-foreground" numberOfLines={1}>
+                {file.filename}
+              </Text>
+              <Ionicons name="share-outline" size={15} color={colors.mutedForeground} />
+            </Pressable>
+          );
+        })}
 
         {message.location ? (
           <Pressable
@@ -103,9 +163,9 @@ function Bubble({
             onPress={() => onOpenLocation(message.location!)}
             className="mt-1.5 min-h-11 flex-row items-center gap-2 rounded-control active:bg-muted"
           >
-            <Ionicons name="location-outline" size={15} color="#5f697a" />
+            <Ionicons name="location-outline" size={15} color={colors.mutedForeground} />
             <Text className="flex-1 font-inter text-[13px] text-foreground">{message.location.label ?? 'Konum'}</Text>
-            <Ionicons name="open-outline" size={15} color="#5f697a" />
+            <Ionicons name="open-outline" size={15} color={colors.mutedForeground} />
           </Pressable>
         ) : null}
 
@@ -114,7 +174,14 @@ function Bubble({
             {formatTime(message.createdAt)}
             {message.editedAt ? ' · düzenlendi' : ''}
           </Text>
-          {mine ? <Ionicons name="checkmark-done" size={14} color="#ef4444" /> : null}
+          {mine ? (
+            <Ionicons
+              accessibilityLabel={seen ? 'Okundu' : 'Gönderildi'}
+              name={seen ? 'checkmark-done' : 'checkmark'}
+              size={14}
+              color={seen ? colors.info : colors.mutedForeground}
+            />
+          ) : null}
         </View>
       </View>
       {message.reactions.length > 0 ? (
@@ -140,6 +207,34 @@ function Bubble({
 
 const QUICK_REACTIONS = ['👍', '❤️', '🎉', '👀', '✅'] as const;
 
+function HeaderIconButton({
+  icon,
+  label,
+  onPress,
+  active,
+  busy,
+}: {
+  icon: keyof typeof Ionicons.glyphMap;
+  label: string;
+  onPress: () => void;
+  active?: boolean;
+  busy?: boolean;
+}) {
+  const { colors } = useTheme();
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      accessibilityState={{ busy, selected: active }}
+      disabled={busy}
+      onPress={onPress}
+      className={`h-11 w-11 items-center justify-center rounded-[12px] border active:bg-muted ${active ? 'border-primary bg-primary-soft' : 'border-border bg-card'} ${busy ? 'opacity-50' : ''}`}
+    >
+      <Ionicons name={icon} size={19} color={active ? colors.primary : colors.foreground} />
+    </Pressable>
+  );
+}
+
 export default function ConversationScreen() {
   const { id, title } = useLocalSearchParams<{ id: string; title?: string }>();
   const { user } = useAuth();
@@ -153,6 +248,10 @@ export default function ConversationScreen() {
   const [pendingAttachments, setPendingAttachments] = useState<UploadedAttachment[]>([]);
   const [pendingLocation, setPendingLocation] = useState<{ latitude: number; longitude: number; label?: string } | null>(null);
   const [attachmentBusy, setAttachmentBusy] = useState(false);
+  const [showSearch, setShowSearch] = useState(false);
+  const [searchDraft, setSearchDraft] = useState('');
+  const [searchTerm, setSearchTerm] = useState('');
+  const [showEmoji, setShowEmoji] = useState(false);
   const actionSheetRef = useRef<BottomSheetModal>(null);
   const addSheetRef = useRef<BottomSheetModal>(null);
   const pendingAttachmentsRef = useRef<UploadedAttachment[]>([]);
@@ -171,6 +270,9 @@ export default function ConversationScreen() {
 
   const { data, isPending, error, refetch, hasNextPage, isFetchingNextPage, fetchNextPage } = useMessages(id);
   const conversations = useConversations();
+  const detailQuery = useChatConversation(id);
+  const search = useChatSearch(id, showSearch ? searchTerm : '');
+  const webrtc = useChatWebRtcConfig();
   const send = useSendMessage(id);
   const edit = useEditMessage(id);
   const toggleReaction = useToggleReaction(id);
@@ -184,9 +286,11 @@ export default function ConversationScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
+  const searching = showSearch && canSearchMessages(searchTerm);
+
   /** `inverted` liste en yeni mesajı altta tutar; ters sıralı veri ister. */
   const rows = useMemo(() => {
-    const messages = data?.messages ?? [];
+    const messages = searching ? search.data ?? [] : data?.messages ?? [];
     return messages
       .map((message, index) => ({
         message,
@@ -199,11 +303,17 @@ export default function ConversationScreen() {
             : null,
       }))
       .reverse();
-  }, [data]);
+  }, [data, search.data, searching]);
 
+  const detail: ChatConversationDetail | undefined = detailQuery.data;
   const conversation = conversations.data?.find((item) => item.id === id);
   const isSuperAdmin = user?.roles.includes('super_admin') ?? false;
-  const canPost = !conversation?.onlyAdminsCanPost || conversation.myRole === 'admin' || isSuperAdmin;
+  const myRole = detail?.myRole ?? conversation?.myRole;
+  const onlyAdmins = detail?.onlyAdminsCanPost ?? conversation?.onlyAdminsCanPost ?? false;
+  const canPost = !onlyAdmins || myRole === 'admin' || isSuperAdmin;
+  const isGroup = (detail?.type ?? conversation?.type) === 'group';
+  const headerTitle = detail ? conversationDisplayName(detail, user?.id, title ?? 'Sohbet') : title ?? 'Sohbet';
+  const headerSubtitle = memberSubtitle(detail, user?.id);
   const composerEnabled = Boolean(editing) || canPost;
   const composerBusy = send.isPending || edit.isPending || attachmentBusy;
   const hasComposerContent = editing
@@ -214,6 +324,7 @@ export default function ConversationScreen() {
     const body = draft.trim();
     if (!hasComposerContent || composerBusy) return;
     setDraft('');
+    setShowEmoji(false);
     if (editing) {
       edit.mutate(
         { messageId: editing.id, body },
@@ -299,17 +410,13 @@ export default function ConversationScreen() {
     }
   }
 
-  function openAddMenu() {
-    addSheetRef.current?.present();
-  }
-
-  async function openAttachment(file: ChatMessage['attachments'][number]) {
+  async function openAttachment(file: NormalizedAttachment) {
     if (!canReadFiles) {
       Alert.alert('Yetki gerekli', 'Bu dosyayı açma yetkiniz yok.');
       return;
     }
     try {
-      await downloadAndShareFile(file.id);
+      await downloadAndShareFile(file.fileId);
     } catch (error) {
       Alert.alert('Dosya açılamadı', error instanceof Error ? error.message : 'Dosya indirilemedi.');
     }
@@ -325,6 +432,31 @@ export default function ConversationScreen() {
     });
     if (url && (await Linking.canOpenURL(url))) await Linking.openURL(url);
     else await Linking.openURL(`https://www.google.com/maps/search/?api=1&query=${latitude},${longitude}`);
+  }
+
+  /**
+   * Web sesli/görüntülü arama WebRTC kullanır. Sunucu ICE yapılandırması
+   * okunur; mobil derlemede WebRTC yerel modülü olmadığından arama başlatılamaz.
+   */
+  async function startCall() {
+    const result = await webrtc.refetch();
+    if (result.error) {
+      Alert.alert('Arama başlatılamadı', result.error.message);
+      return;
+    }
+    Alert.alert(
+      'Arama bu cihazda desteklenmiyor',
+      'Sesli ve görüntülü arama şimdilik yalnız web uygulamasında kullanılabilir. Mobil uygulamaya arama modülü eklendiğinde bu düğme doğrudan aramayı başlatacak.',
+    );
+  }
+
+  function toggleSearch() {
+    const next = !showSearch;
+    setShowSearch(next);
+    if (!next) {
+      setSearchDraft('');
+      setSearchTerm('');
+    }
   }
 
   function openActions(message: ChatMessage) {
@@ -366,49 +498,97 @@ export default function ConversationScreen() {
     ]);
   }
 
+  const listError = searching ? search.error : error;
+  const listPending = searching ? search.isPending : isPending;
+
   return (
     <SafeAreaView className="flex-1 bg-canvas" edges={['top', 'left', 'right']}>
-      <View className="flex-row items-center gap-3 border-b border-border bg-card px-4 py-3">
+      <View className="flex-row items-center gap-2.5 border-b border-border bg-card px-4 py-3">
         <Pressable
           accessibilityRole="button"
+          accessibilityLabel="Sohbet listesine dön"
           onPress={() => router.back()}
           className="h-11 w-11 items-center justify-center rounded-full active:opacity-60 -ml-2"
         >
           <Ionicons name="arrow-back" size={22} color={colors.foreground} />
         </Pressable>
         <View className="h-11 w-11 items-center justify-center rounded-full bg-secondary">
-          <Ionicons name="people" size={20} color={colors.secondaryForeground} />
+          <Ionicons name={isGroup ? 'people' : 'person'} size={20} color={colors.secondaryForeground} />
         </View>
         <View className="flex-1 justify-center gap-0.5">
-          <Text className="font-inter-semibold text-[16px] text-foreground" numberOfLines={1}>
-            {title ?? 'Sohbet'}
+          <Text accessibilityRole="header" className="font-inter-semibold text-[16px] text-foreground" numberOfLines={1}>
+            {headerTitle}
           </Text>
-          <View className="flex-row items-center gap-1">
-            <View className="h-2 w-2 rounded-full bg-success" />
+          {headerSubtitle ? (
             <Text className="font-inter text-[13px] text-muted-foreground" numberOfLines={1}>
-              6 üye, 2 çevrimiçi
+              {headerSubtitle}
             </Text>
-          </View>
+          ) : null}
         </View>
         <View className="flex-row items-center gap-1">
-          <Pressable className="h-10 w-10 items-center justify-center rounded-[12px] border border-border bg-card active:bg-muted">
-            <Ionicons name="call-outline" size={18} color={colors.foreground} />
-          </Pressable>
-          <Pressable className="h-10 w-10 items-center justify-center rounded-[12px] border border-border bg-card active:bg-muted">
-            <Ionicons name="videocam-outline" size={20} color={colors.foreground} />
-          </Pressable>
+          <HeaderIconButton icon="search-outline" label="Mesajlarda ara" active={showSearch} onPress={toggleSearch} />
+          {detail?.type === 'dm' ? (
+            <HeaderIconButton icon="call-outline" label="Sesli arama başlat" busy={webrtc.isFetching} onPress={() => void startCall()} />
+          ) : null}
+          {detail?.type === 'group' ? (
+            <HeaderIconButton
+              icon="settings-outline"
+              label="Grup ayarları"
+              onPress={() => router.push(`/modal/chat-group-settings?id=${encodeURIComponent(id)}` as Href)}
+            />
+          ) : null}
         </View>
       </View>
+
+      {showSearch ? (
+        <View className="flex-row items-center gap-2 border-b border-border bg-card px-4 py-2">
+          <View className="min-h-11 flex-1 flex-row items-center gap-2 rounded-control bg-input-background px-3">
+            <Ionicons name="search-outline" size={16} color={colors.mutedForeground} />
+            <TextInput
+              autoFocus
+              accessibilityLabel="Bu sohbette ara"
+              value={searchDraft}
+              onChangeText={setSearchDraft}
+              onSubmitEditing={() => setSearchTerm(searchDraft)}
+              returnKeyType="search"
+              placeholder="Bu sohbette en az 2 karakterle ara…"
+              placeholderTextColor={colors.mutedForeground}
+              className="min-h-11 flex-1 font-inter text-sm text-foreground"
+            />
+          </View>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Ara"
+            accessibilityState={{ disabled: !canSearchMessages(searchDraft) }}
+            disabled={!canSearchMessages(searchDraft)}
+            onPress={() => setSearchTerm(searchDraft)}
+            className={`h-11 items-center justify-center rounded-control bg-primary px-4 ${canSearchMessages(searchDraft) ? 'active:opacity-80' : 'opacity-40'}`}
+          >
+            <Text className="font-inter-semibold text-sm text-primary-foreground">Ara</Text>
+          </Pressable>
+          {searching && search.data ? (
+            <Text className="font-inter text-xs text-muted-foreground">{search.data.length} sonuç</Text>
+          ) : null}
+        </View>
+      ) : null}
 
       <KeyboardAvoidingView
         className="flex-1"
         behavior={process.env.EXPO_OS === 'ios' ? 'padding' : undefined}
         keyboardVerticalOffset={process.env.EXPO_OS === 'ios' ? 8 : 0}
       >
-        {isPending ? (
+        {listPending ? (
           <Loading />
-        ) : error ? (
-          <ErrorState message={error.message} onRetry={() => void refetch()} />
+        ) : listError ? (
+          <ErrorState message={listError.message} onRetry={() => void (searching ? search.refetch() : refetch())} />
+        ) : rows.length === 0 ? (
+          <View className="flex-1 justify-center">
+            <EmptyState
+              icon="chatbubbles-outline"
+              title={searching ? 'Eşleşen mesaj bulunamadı' : 'Sohbet hazır'}
+              hint={searching ? 'Başka bir kelimeyle tekrar arayın.' : 'İlk mesajı gönderin veya firma, teklif ve servis kaydı paylaşın.'}
+            />
+          </View>
         ) : (
           <FlatList
             inverted
@@ -419,15 +599,16 @@ export default function ConversationScreen() {
             keyboardShouldPersistTaps="handled"
             onEndReachedThreshold={0.3}
             onEndReached={() => {
-              if (hasNextPage && !isFetchingNextPage) void fetchNextPage();
+              if (!searching && hasNextPage && !isFetchingNextPage) void fetchNextPage();
             }}
-            ListFooterComponent={isFetchingNextPage ? <Loading /> : null}
+            ListFooterComponent={isFetchingNextPage && !searching ? <Loading /> : null}
             renderItem={({ item }) => (
               <View>
                 <Bubble
                   message={item.message}
                   mine={item.message.senderId === user?.id}
-                  showSender={item.showSender}
+                  showSender={item.showSender && isGroup}
+                  seen={isSeenByOther(item.message, detail, user?.id)}
                   onLongPress={() => openActions(item.message)}
                   onReaction={(emoji) => react(item.message.id, emoji)}
                   onOpenAttachment={(file) => void openAttachment(file)}
@@ -500,44 +681,68 @@ export default function ConversationScreen() {
               </Pressable>
             </View>
           ) : null}
+          {showEmoji && composerEnabled ? (
+            <View className="mb-2 flex-row flex-wrap justify-between gap-y-1">
+              {CHAT_EMOJIS.map((emoji) => (
+                <Pressable
+                  key={emoji}
+                  accessibilityRole="button"
+                  accessibilityLabel={`${emoji} ekle`}
+                  onPress={() => setDraft((value) => `${value}${emoji}`)}
+                  className="h-11 w-11 items-center justify-center rounded-full active:bg-muted"
+                >
+                  <Text className="text-xl">{emoji}</Text>
+                </Pressable>
+              ))}
+            </View>
+          ) : null}
           <View className="flex-row items-end gap-2 pb-2">
             {!editing ? (
               <Pressable
                 accessibilityRole="button"
-                accessibilityLabel={canCreateFiles ? 'Mesaja dosya, fotoğraf veya konum ekle' : 'Mesaja konum ekle'}
+                accessibilityLabel={canCreateFiles ? 'Mesaja dosya, fotoğraf, konum veya kayıt ekle' : 'Mesaja konum veya kayıt ekle'}
                 accessibilityState={{ disabled: !composerEnabled || attachmentBusy }}
                 disabled={!composerEnabled || attachmentBusy}
-                onPress={openAddMenu}
+                onPress={() => addSheetRef.current?.present()}
                 className="h-11 w-11 items-center justify-center active:opacity-60"
               >
                 <Ionicons name={attachmentBusy ? 'hourglass-outline' : 'attach-outline'} size={24} color={colors.mutedForeground} />
               </Pressable>
             ) : null}
-            <View className="flex-1 flex-row items-center rounded-[20px] border border-border bg-card px-3">
+            <View className="flex-1 flex-row items-center rounded-[20px] border border-border bg-card pl-3">
               <TextInput
                 accessibilityLabel={editing ? 'Mesajı düzenle' : 'Mesaj'}
                 value={draft}
                 onChangeText={setDraft}
-                placeholder={composerEnabled ? 'Mesajınızı yazın...' : 'Yalnız grup yöneticileri mesaj gönderebilir'}
+                placeholder={composerEnabled ? (editing ? 'Mesajı düzenleyin…' : 'Mesaj yazın…') : 'Yalnız grup yöneticileri mesaj gönderebilir'}
                 placeholderTextColor={colors.mutedForeground}
                 multiline
                 editable={composerEnabled}
                 maxLength={4000}
                 className="max-h-28 min-h-[44px] flex-1 py-3 font-inter text-base text-foreground"
               />
-              <Ionicons name="happy-outline" size={22} color={colors.mutedForeground} />
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Emoji ekle"
+                accessibilityState={{ selected: showEmoji, disabled: !composerEnabled }}
+                disabled={!composerEnabled}
+                onPress={() => setShowEmoji((value) => !value)}
+                className="h-11 w-11 items-center justify-center active:opacity-60"
+              >
+                <Ionicons name={showEmoji ? 'happy' : 'happy-outline'} size={22} color={showEmoji ? colors.primary : colors.mutedForeground} />
+              </Pressable>
             </View>
             <Pressable
               accessibilityRole="button"
               accessibilityLabel={editing ? 'Değişikliği kaydet' : 'Gönder'}
-              accessibilityState={{ disabled: !composerEnabled || (!hasComposerContent && draft.length === 0) || composerBusy }}
-              disabled={!composerEnabled || composerBusy}
-              onPress={draft.length > 0 || hasComposerContent ? submit : undefined}
+              accessibilityState={{ disabled: !composerEnabled || !hasComposerContent || composerBusy }}
+              disabled={!composerEnabled || !hasComposerContent || composerBusy}
+              onPress={submit}
               className={`h-11 w-11 items-center justify-center rounded-full bg-primary ${
-                !composerEnabled || composerBusy ? 'opacity-40' : 'active:opacity-80'
+                !composerEnabled || !hasComposerContent || composerBusy ? 'opacity-40' : 'active:opacity-80'
               }`}
             >
-              <Ionicons name={editing ? 'checkmark' : (draft.length > 0 || hasComposerContent ? 'send' : 'mic')} size={18} color={colors.primaryForeground} />
+              <Ionicons name={editing ? 'checkmark' : 'send'} size={18} color={colors.primaryForeground} />
             </Pressable>
           </View>
         </View>
@@ -604,6 +809,17 @@ export default function ConversationScreen() {
             <Ionicons name="location-outline" size={21} color={colors.foreground} />
             <Text className="font-inter-medium text-base text-foreground">Mevcut konum</Text>
           </Pressable>
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => {
+              addSheetRef.current?.dismiss();
+              router.push(`/modal/chat-share-record?conversationId=${encodeURIComponent(id)}` as Href);
+            }}
+            className="min-h-12 flex-row items-center gap-3 rounded-control px-2 active:bg-muted"
+          >
+            <Ionicons name="link-outline" size={21} color={colors.foreground} />
+            <Text className="font-inter-medium text-base text-foreground">Kayıt paylaş</Text>
+          </Pressable>
         </BottomSheetView>
       </BottomSheetModal>
 
@@ -654,14 +870,14 @@ export default function ConversationScreen() {
                   <Text className="font-inter-medium text-base text-foreground">Düzenle</Text>
                 </Pressable>
               ) : null}
-              {selectedMessage.senderId === user?.id || isSuperAdmin || conversation?.myRole === 'admin' ? (
+              {selectedMessage.senderId === user?.id || isSuperAdmin || canManageGroup(detail, isSuperAdmin) || myRole === 'admin' ? (
                 <Pressable
                   accessibilityRole="button"
                   onPress={() => confirmDelete(selectedMessage)}
                   className="min-h-11 flex-row items-center gap-3 rounded-control px-2 active:bg-destructive-soft"
                 >
                   <Ionicons name="trash-outline" size={20} color={colors.destructive} />
-                  <Text className="font-inter-medium text-base text-destructive">Sil</Text>
+                  <Text className="font-inter-medium text-base text-destructive">Herkesten sil</Text>
                 </Pressable>
               ) : null}
             </>

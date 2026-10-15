@@ -156,7 +156,7 @@ export default function TradeFairsScreen() {
   return (
     <SafeAreaView className="flex-1 bg-canvas" edges={['top', 'left', 'right']}>
       <SyncStatus />
-      <ScreenHeader title="Fuar Görüşmeleri" subtitle="Standa gelen firmalar, yetkilileri ve takip durumu." />
+      <ScreenHeader title="Fuar" subtitle="Standa gelen firmalar, yetkilileri ve takip durumu." />
       <View className="gap-2 pb-2">
         <StatStrip
           items={[

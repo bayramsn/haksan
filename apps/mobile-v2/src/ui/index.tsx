@@ -12,12 +12,13 @@ import {
 } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
+import { usePathname, useRouter, type Href } from 'expo-router';
 import Animated, { useAnimatedStyle, useReducedMotion, useSharedValue, withTiming } from 'react-native-reanimated';
 import { chipClass, chipTextClass, SCREEN_PAD, toneColor, useTheme, type Tone } from '@/src/theme/theme';
 import { Enter } from '@/src/ui/motion';
 import { Logo } from '@/src/ui/Logo';
 import { useUnreadCount } from '@/src/api/notifications.hooks';
+import { isTabRootPath, parentPath } from '@/src/modules/hierarchy';
 
 // Yerleşim sabiti tema modülünde yaşıyor; ekranlar alışkanlıkla buradan da
 // alabilsin diye yeniden dışa veriliyor.
@@ -399,9 +400,36 @@ function ActionButton({ action }: { action: HeaderAction }) {
   );
 }
 
+function useHierarchyBack() {
+  const router = useRouter();
+  const pathname = usePathname();
+  return {
+    isTabRoot: isTabRootPath(pathname),
+    goBack: () => {
+      if (router.canGoBack()) router.back();
+      else router.replace(parentPath(pathname) as unknown as Href);
+    },
+  };
+}
+
+function BackButton({ onPress }: { onPress: () => void }) {
+  const { colors } = useTheme();
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel="Geri"
+      onPress={onPress}
+      hitSlop={8}
+      className="h-11 w-11 items-center justify-center rounded-full active:opacity-60"
+    >
+      <Ionicons name="arrow-back" size={22} color={colors.foreground} />
+    </Pressable>
+  );
+}
+
 /**
  * Mockup'ların modül başlığı: üstte marka kilidi + eylem ikonları, altında
- * büyük KIRMIZI başlık ve gri açıklama. 30'dan fazla liste ekranında aynı blok.
+ * büyük başlık ve gri açıklama. Sekme kökünde marka, alt seviyelerde geri oku.
  */
 export function ScreenHeader({
   title,
@@ -418,10 +446,17 @@ export function ScreenHeader({
   const { colors } = useTheme();
   const router = useRouter();
   const unread = useUnreadCount();
+  const nav = useHierarchyBack();
   return (
     <View style={{ paddingHorizontal: SCREEN_PAD }} className="pb-1 pt-1">
       <View className="h-11 flex-row items-center justify-between">
-        <Logo width={148} />
+        {nav.isTabRoot ? (
+          <Logo width={148} />
+        ) : (
+          <View className="-ml-3">
+            <BackButton onPress={nav.goBack} />
+          </View>
+        )}
         <View className="flex-row items-center">
           {actions.map((action) => (
             <ActionButton key={action.label} action={action} />
@@ -469,18 +504,10 @@ export function DetailHeader({
   subtitle?: string;
   actions?: HeaderAction[];
 }) {
-  const router = useRouter();
-  const { colors } = useTheme();
+  const nav = useHierarchyBack();
   return (
     <View className="flex-row items-center gap-2 border-b border-border bg-card px-2 py-2">
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel="Geri"
-        onPress={() => router.back()}
-        className="h-11 w-11 items-center justify-center rounded-full active:opacity-60"
-      >
-        <Ionicons name="arrow-back" size={22} color={colors.foreground} />
-      </Pressable>
+      <BackButton onPress={nav.goBack} />
       <View className="flex-1">
         <Text className="text-center font-display-semibold text-[20px] text-foreground" numberOfLines={1}>
           {title}

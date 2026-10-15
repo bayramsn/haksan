@@ -2,10 +2,10 @@ import { useMemo, useRef, useState } from 'react';
 import { Alert, Pressable, ScrollView, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { BottomSheetBackdrop, BottomSheetFlatList, BottomSheetModal, BottomSheetView } from '@gorhom/bottom-sheet';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useCompanyList } from '@/src/api/companies.hooks';
-import { useInventoryItem, useReserveInventoryItem, useUpdateInventoryItemStatus } from '@/src/api/inventory.hooks';
+import { useAllInventory, useInventoryItem, useReserveInventoryItem, useUpdateInventoryItemStatus } from '@/src/api/inventory.hooks';
 import { formatDate } from '@/src/lib/format';
 import { chipClass, chipTextClass, useTheme, type Tone } from '@/src/theme/theme';
 import { Button, Card, Chip, DetailHeader, EmptyState, ErrorState, DetailSkeleton, Loading, SearchBar } from '@/src/ui';
@@ -13,15 +13,18 @@ import { Tabs } from '@/src/ui/data';
 import type { CompanyListItem } from '@/src/api/endpoints';
 import { useCan } from '@/src/auth/AuthProvider';
 import { toast } from '@/src/ui/toast';
+import { STOCK_STATUS_ACTIONS, stockConditionLabel, stockStatusLabel } from '@/src/ui/products/stock-logic';
 
-/** INVENTORY_STATUSES (packages/shared) — etiketler web StockPage ile aynı. */
-const STATUS_OPTIONS: { code: string; label: string; tone: Tone }[] = [
-  { code: 'available', label: 'Hazır', tone: 'success' },
-  { code: 'reserved', label: 'Rezerve', tone: 'warning' },
-  { code: 'in_transit', label: 'Yolda', tone: 'info' },
-  { code: 'sold', label: 'Satıldı', tone: 'neutral' },
-  { code: 'damaged', label: 'Hasarlı', tone: 'destructive' },
-];
+const STATUS_TONE: Record<string, Tone> = {
+  available: 'success',
+  reserved: 'warning',
+  in_transit: 'info',
+  sold: 'stage',
+  damaged: 'destructive',
+};
+
+/** Web `STOCK_STATUS_ACTIONS`: "Satıldı" elle seçilemez, yalnız fatura ile. */
+const STATUS_OPTIONS = STOCK_STATUS_ACTIONS.map((code) => ({ code, label: stockStatusLabel(code), tone: STATUS_TONE[code] }));
 
 type InventoryTab = 'general' | 'reservation';
 
@@ -85,6 +88,15 @@ export default function InventoryItemScreen() {
   const { data, isPending, error, refetch } = useInventoryItem(id);
   const reserve = useReserveInventoryItem(id);
   const updateStatus = useUpdateInventoryItemStatus(id);
+  const allStock = useAllInventory();
+  const linkedOptions = useMemo(
+    () => (allStock.data ?? []).filter((row) => row.parentInventoryItemId === id),
+    [allStock.data, id],
+  );
+  const parentMachine = useMemo(() => {
+    const parentId = (allStock.data ?? []).find((row) => row.id === id)?.parentInventoryItemId;
+    return parentId ? (allStock.data ?? []).find((row) => row.id === parentId) : undefined;
+  }, [allStock.data, id]);
 
   const companyList = useCompanyList(
     useMemo(() => ({ search: search.trim() || undefined, sortBy: 'name' as const, sortDir: 'asc' as const }), [search])
@@ -104,7 +116,8 @@ export default function InventoryItemScreen() {
   }
 
   const statusCode = data.status?.code ?? 'available';
-  const statusMeta = STATUS_OPTIONS.find((option) => option.code === statusCode);
+  const statusMeta = { tone: STATUS_TONE[statusCode] ?? 'neutral' };
+  const statusName = stockStatusLabel(statusCode, data.status?.name);
 
   function openStatusSheet() {
     setSelectedStatus(statusCode);
@@ -121,12 +134,16 @@ export default function InventoryItemScreen() {
 
   function submitStatus() {
     if (!selectedStatus) return;
+    if (selectedStatus === 'reserved') {
+      openReserveSheet();
+      return;
+    }
     sheetRef.current?.dismiss();
     updateStatus.mutate(
       { stockStatusCode: selectedStatus },
       {
-        onSuccess: () => toast.success(`Durum güncellendi: ${STATUS_OPTIONS.find((s) => s.code === selectedStatus)?.label ?? ''}`),
-        onError: (err) => toast.error(err.message),
+        onSuccess: () => toast.success(`Durum güncellendi: ${stockStatusLabel(selectedStatus)}`),
+        onError: (err) => toast.error(`Durum güncellenemedi: ${err.message}`),
       }
     );
   }
@@ -141,15 +158,22 @@ export default function InventoryItemScreen() {
     reserve.mutate(
       { companyId: target },
       {
-        onSuccess: () => toast.success('Stok firmaya rezerve edildi'),
-        onError: (err) => toast.error(err.message),
+        onSuccess: () => toast.success(`Rezerve edildi · ${data?.serialNumber ?? ''}`),
+        onError: (err) => toast.error(`Rezervasyon başarısız: ${err.message}`),
       }
     );
   }
 
   return (
     <SafeAreaView className="flex-1 bg-canvas" edges={['top', 'left', 'right']}>
-      <DetailHeader title="Stok Detayı" />
+      <DetailHeader
+        title="Stok Detayı"
+        actions={
+          canUpdate
+            ? [{ icon: 'create-outline', label: 'Düzenle', onPress: () => router.push(`/modal/stock-item?id=${id}` as Href) }]
+            : []
+        }
+      />
 
       <ScrollView contentContainerClassName="pb-6" showsVerticalScrollIndicator={false}>
         <View className="px-[18px] pt-4">
@@ -168,7 +192,7 @@ export default function InventoryItemScreen() {
                 {data.product?.fullName ?? data.product?.modelCode ?? 'Stok kalemi'}
               </Text>
               <View className="flex-row flex-wrap gap-1.5">
-                {data.status ? <Chip tone={statusMeta?.tone ?? 'info'} label={data.status.name} /> : null}
+                {data.status ? <Chip tone={statusMeta.tone} label={statusName} /> : null}
                 {data.reservedCompany ? <Chip tone="warning" label="Rezerve" /> : null}
               </View>
               <View className="gap-1">
@@ -211,11 +235,54 @@ export default function InventoryItemScreen() {
                 <InventoryRow
                   icon="shield-checkmark-outline"
                   label="Kondisyon"
-                  value={data.itemCondition === 'new' ? 'Sıfır' : data.itemCondition}
+                  value={stockConditionLabel(data.itemCondition)}
                 />
                 <InventoryRow icon="location-outline" label="Konum durumu" value={data.locationStatus?.name} />
-                <InventoryRow icon="information-circle-outline" label="Stok durumu" value={data.status?.name} tone={statusMeta?.tone} last />
+                <InventoryRow icon="information-circle-outline" label="Stok durumu" value={statusName} tone={statusMeta.tone} last />
               </Card>
+
+              {statusCode === 'sold' ? (
+                <Text className="px-1 font-inter text-xs text-muted-foreground">Satıldı — yalnızca fatura ile</Text>
+              ) : null}
+
+              {parentMachine ? (
+                <Card className="gap-2">
+                  <Text className="font-inter-semibold text-[15px] text-foreground">Bağlı Tezgah</Text>
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={`${parentMachine.product?.fullName ?? 'Tezgah'} stok kartını aç`}
+                    onPress={() => router.push(`/(tabs)/modules/inventory/${parentMachine.id}` as Href)}
+                    className="min-h-11 flex-row items-center gap-2 active:opacity-70"
+                  >
+                    <Text className="flex-1 font-inter text-sm text-foreground" numberOfLines={1}>
+                      {parentMachine.product?.fullName ?? parentMachine.product?.modelCode ?? 'Tezgah'}
+                    </Text>
+                    <Text className="font-inter text-xs text-muted-foreground">{parentMachine.serialNumber}</Text>
+                    <Ionicons name="chevron-forward" size={16} color={colors.mutedForeground} />
+                  </Pressable>
+                </Card>
+              ) : null}
+
+              {linkedOptions.length ? (
+                <Card className="gap-1">
+                  <Text className="font-inter-semibold text-[15px] text-foreground">Bağlı Opsiyonel Donanımlar</Text>
+                  {linkedOptions.map((option) => (
+                    <Pressable
+                      key={option.id}
+                      accessibilityRole="button"
+                      accessibilityLabel={`${option.product?.fullName ?? 'Opsiyonel donanım'} stok kartını aç`}
+                      onPress={() => router.push(`/(tabs)/modules/inventory/${option.id}` as Href)}
+                      className="min-h-11 flex-row items-center gap-2 border-t border-border active:opacity-70"
+                    >
+                      <Text className="flex-1 font-inter text-sm text-foreground" numberOfLines={1}>
+                        {option.product?.fullName ?? option.product?.modelCode ?? 'Opsiyonel donanım'}
+                      </Text>
+                      <Text className="font-inter text-xs text-muted-foreground">{option.serialNumber}</Text>
+                      <Ionicons name="chevron-forward" size={16} color={colors.mutedForeground} />
+                    </Pressable>
+                  ))}
+                </Card>
+              ) : null}
 
               {(data.controlUnit || data.controlUnitSerialNumber || data.arrivalDate || data.receivedDate || data.loadingDate) ? (
                 <Card className="gap-0 px-4 py-1">
@@ -289,8 +356,8 @@ export default function InventoryItemScreen() {
       </ScrollView>
 
       {canUpdate ? (
-        <View className="flex-row gap-3 border-t border-border bg-card px-[18px] py-3">
-          <View className="flex-1">
+        <View className="flex-row flex-wrap gap-3 border-t border-border bg-card px-[18px] py-3">
+          <View className="min-w-[45%] flex-1">
             <Button
               label="Durum Değiştir"
               variant="ghost"
@@ -299,10 +366,10 @@ export default function InventoryItemScreen() {
               disabled={updateStatus.isPending}
             />
           </View>
-          {statusCode === 'available' ? (
-            <View className="flex-1">
+          {statusCode !== 'sold' ? (
+            <View className="min-w-[45%] flex-1">
               <Button
-                label="Firmaya Rezerve Et"
+                label={statusCode === 'reserved' ? 'Firma bilgisini düzenle' : 'Firmaya rezerve et'}
                 onPress={openReserveSheet}
                 loading={reserve.isPending}
                 disabled={reserve.isPending}
@@ -311,7 +378,7 @@ export default function InventoryItemScreen() {
           ) : null}
           {/* Web StockPage'de ayrı menü öğesi; mobilde önce durum değiştirmek gerekiyordu. */}
           {statusCode === 'reserved' ? (
-            <View className="flex-1">
+            <View className="min-w-[45%] flex-1">
               <Button
                 label="Rezervasyonu Kaldır"
                 variant="ghost"

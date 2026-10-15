@@ -12,6 +12,7 @@ import { useTheme } from '@/src/theme/theme';
 import { parseLocalDateTime } from '@/src/lib/format';
 import { Button, EmptyState, ErrorState, Eyebrow, Field, Loading, SearchBar } from '@/src/ui';
 import { toast } from '@/src/ui/toast';
+import { DateTextField } from '@/src/ui/select/DateTextField';
 
 const CURRENCIES = ['TRY', 'USD', 'EUR'] as const;
 
@@ -122,7 +123,7 @@ export default function NewReceivableScreen() {
                   accessibilityRole="radio"
                   accessibilityState={{ selected: currencyCode === code }}
                   onPress={() => setCurrencyCode(code)}
-                  className={`flex-1 items-center rounded-control border py-2 ${currencyCode === code ? 'border-primary bg-primary/10' : 'border-border bg-card'}`}
+                  className={`flex-1 items-center rounded-control border py-2 ${currencyCode === code ? 'border-primary bg-secondary' : 'border-border bg-card'}`}
                 >
                   <Text className={`font-inter-semibold text-xs ${currencyCode === code ? 'text-primary' : 'text-foreground'}`}>{code}</Text>
                 </Pressable>
@@ -130,13 +131,10 @@ export default function NewReceivableScreen() {
             </View>
           </View>
 
-          <Field
+          <DateTextField
             label="Vade tarihi *"
             value={dueDate}
             onChangeText={(v) => { setDueDate(v); setErrors((p) => ({ ...p, dueDate: undefined })); }}
-            placeholder="YYYY-AA-GG"
-            keyboardType="numbers-and-punctuation"
-            maxLength={10}
             error={errors.dueDate}
           />
           <Field label="Fatura no" value={invoiceNo} onChangeText={setInvoiceNo} maxLength={64} />

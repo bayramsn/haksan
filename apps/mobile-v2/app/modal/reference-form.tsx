@@ -1,21 +1,19 @@
-import { useRef, useState } from 'react';
-import { Pressable, Text, View } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
-import type { BottomSheetModal } from '@gorhom/bottom-sheet';
+import { useState } from 'react';
+import { Text } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useQueryClient } from '@tanstack/react-query';
 import { useCan } from '@/src/auth/AuthProvider';
 import type { ReferenceRecord } from '@/src/api/references.api';
 import { referenceKeys, useSaveReference } from '@/src/api/references.hooks';
-import { useTheme } from '@/src/theme/theme';
 import { EmptyState, Field } from '@/src/ui';
-import { CompanyPickerSheet, ModalForm } from '@/src/ui/documents/pickers';
+import { ModalForm } from '@/src/ui/documents/pickers';
 import { toast } from '@/src/ui/toast';
 import { emptyReferenceForm, referenceFormFromRecord, referencePayload, type ReferenceForm } from '@/src/ui/references/referenceLogic';
+import { DateTextField } from '@/src/ui/select/DateTextField';
+import { BrandSelect, CompanySelect, ContactSelect, DistrictSelect, ProductSelect, ProvinceSelect, companyLabel } from '@/src/ui/select/fields';
 
 export default function ReferenceFormModal() {
   const router = useRouter();
-  const { colors } = useTheme();
   const queryClient = useQueryClient();
   const params = useLocalSearchParams<{ id?: string }>();
   const editing = params.id ? (queryClient.getQueryData<ReferenceRecord[]>(referenceKeys.list) ?? []).find((r) => r.id === params.id) ?? null : null;
@@ -23,7 +21,7 @@ export default function ReferenceFormModal() {
   const canPickCompany = useCan('companies.read');
   const [form, setForm] = useState<ReferenceForm>(() => (editing ? referenceFormFromRecord(editing) : emptyReferenceForm()));
   const [error, setError] = useState<string | null>(null);
-  const companySheet = useRef<BottomSheetModal>(null);
+  const [companyId, setCompanyId] = useState<string | null>(null);
   const save = useSaveReference();
 
   const set = (key: keyof ReferenceForm) => (value: string) => setForm((f) => ({ ...f, [key]: value }));
@@ -65,56 +63,76 @@ export default function ReferenceFormModal() {
       disabled={!canSave}
     >
       <Text className="font-inter text-sm text-muted-foreground">Teslim edilmiş makineyi satış referansı olarak kaydedin.</Text>
-      <View className="gap-1.5">
+      {canPickCompany ? (
+        <CompanySelect
+          label="Firma *"
+          placeholder="Kayıtlı firmadan seçin veya yazın"
+          value={form.firm}
+          selectedId={companyId}
+          onSelect={(item) => {
+            const company = item?.data;
+            setCompanyId(company?.id ?? null);
+            if (!company) return setForm((f) => ({ ...f, firm: item?.label.slice(0, 255) ?? '' }));
+            setForm((f) => ({
+              ...f,
+              firm: companyLabel(company),
+              city: f.city || company.primaryAddress?.province || '',
+              district: f.district || company.primaryAddress?.district || '',
+            }));
+          }}
+          allowCustom
+          clearable
+          error={error === 'Firma adı zorunludur' ? error : undefined}
+        />
+      ) : (
         <Field
           label="Firma *"
           value={form.firm}
           onChangeText={set('firm')}
-          placeholder="Firma adı yazın veya listeden seçin"
+          placeholder="Firma adı"
           maxLength={255}
           autoComplete="off"
           error={error === 'Firma adı zorunludur' ? error : undefined}
         />
-        {canPickCompany ? (
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Kayıtlı firmalardan seç"
-            onPress={() => companySheet.current?.present()}
-            className="min-h-[44px] flex-row items-center gap-1.5 self-start active:opacity-60"
-          >
-            <Ionicons name="business-outline" size={16} color={colors.primary} />
-            <Text className="font-inter-medium text-sm text-primary">Kayıtlı firmalardan seç</Text>
-          </Pressable>
-        ) : null}
-      </View>
-      <Field label="İlgili" value={form.contact} onChangeText={set('contact')} maxLength={255} />
-      <Field label="İlçe" value={form.district} onChangeText={set('district')} maxLength={128} />
-      <Field label="İl" value={form.city} onChangeText={set('city')} maxLength={128} />
-      <Field label="Tezgah Markası" value={form.brand} onChangeText={set('brand')} maxLength={128} />
-      <Field label="Tezgah Modeli" value={form.model} onChangeText={set('model')} maxLength={128} />
-      <Field
+      )}
+      {canPickCompany ? (
+        <ContactSelect
+          label="İlgili"
+          placeholder={companyId ? 'Firmanın kontağını seçin veya yazın' : 'İlgili kişiyi yazın'}
+          companyId={companyId}
+          value={form.contact}
+          onSelect={(item) => set('contact')(item?.label.slice(0, 255) ?? '')}
+          allowCustom
+          clearable
+        />
+      ) : (
+        <Field label="İlgili" value={form.contact} onChangeText={set('contact')} maxLength={255} />
+      )}
+      <ProvinceSelect value={form.city} onChange={set('city')} />
+      <DistrictSelect province={form.city} value={form.district} onChange={set('district')} />
+      <BrandSelect label="Tezgah Markası" value={form.brand} onSelect={(item) => set('brand')(item?.label.slice(0, 128) ?? '')} />
+      <ProductSelect
+        label="Tezgah Modeli"
+        placeholder="Katalogdan model seçin veya yazın"
+        value={form.model}
+        onSelect={(item) => {
+          const product = item?.data;
+          if (!product) return set('model')(item?.label.slice(0, 128) ?? '');
+          setForm((f) => ({
+            ...f,
+            model: (product.modelName ?? product.modelCode ?? product.fullName).slice(0, 128),
+            brand: f.brand || product.brand?.name || '',
+          }));
+        }}
+        clearable
+      />
+      <DateTextField
         label="Teslim Tarihi"
         value={form.deliveryDate}
         onChangeText={set('deliveryDate')}
-        placeholder="YYYY-AA-GG"
-        maxLength={10}
-        keyboardType="numbers-and-punctuation"
         error={error && error !== 'Firma adı zorunludur' ? error : undefined}
       />
       <Field label="Notlar" value={form.notes} onChangeText={set('notes')} maxLength={4000} multiline numberOfLines={3} style={{ minHeight: 80, textAlignVertical: 'top' }} />
-      {canPickCompany ? (
-        <CompanyPickerSheet
-          sheetRef={companySheet}
-          onSelect={(company) =>
-            setForm((f) => ({
-              ...f,
-              firm: company.shortName ?? company.legalTitle,
-              city: f.city || company.primaryAddress?.province || '',
-              district: f.district || company.primaryAddress?.district || '',
-            }))
-          }
-        />
-      ) : null}
     </ModalForm>
   );
 }

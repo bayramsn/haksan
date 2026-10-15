@@ -30,6 +30,7 @@ import {
   productTypeOptions,
   staffOptions,
 } from '@/src/ui/trade-fairs/tradeFairLogic';
+import { CompanySelect } from '@/src/ui/select/fields';
 
 type SheetKind = 'fair' | 'country' | 'province' | 'district' | 'category' | 'type' | 'staff';
 
@@ -228,7 +229,18 @@ export default function TradeFairFormModal() {
     >
       <Text className="font-inter text-sm text-muted-foreground">Standa gelen firmayı, yetkilisini ve ilgilendiği ürünü kaydedin.</Text>
       <PickerField label="Fuar adı *" value={form.fairName || null} placeholder="Fuar seçin veya yeni ad yazın" icon="storefront-outline" onPress={() => openSheet('fair')} error={err('fairName')} disabled={readOnly} />
-      <Field label="Firma adı *" value={form.companyName} onChangeText={(v) => set('companyName', v)} maxLength={255} editable={!readOnly} error={err('companyName')} />
+      <CompanySelect
+        label="Firma adı *"
+        value={form.companyName}
+        allowCustom
+        placeholder="Kayıtlı firmadan seçin veya yazın"
+        disabled={readOnly}
+        error={err('companyName')}
+        onSelect={(item) => {
+          const company = item?.data;
+          set('companyName', company ? company.legalTitle : item?.label ?? '');
+        }}
+      />
       <Field label="Firma yetkilisi ad soyad *" value={form.contactName} onChangeText={(v) => set('contactName', v)} maxLength={200} editable={!readOnly} error={err('contactName')} />
       <Field label="Görevi" value={form.contactTitle ?? ''} onChangeText={(v) => set('contactTitle', v)} maxLength={120} placeholder="Satın alma müdürü" editable={!readOnly} />
       <Field label="Cep telefonu" value={form.mobilePhone ?? ''} onChangeText={(v) => set('mobilePhone', v)} maxLength={32} placeholder="05xx xxx xx xx" keyboardType="phone-pad" editable={!readOnly} error={err('mobilePhone')} />

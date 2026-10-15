@@ -23,7 +23,7 @@ export function SyncStatus() {
 
   if (online && pending === 0) return null;
 
-  const tone = failed > 0 ? 'bg-destructive-soft' : online ? 'bg-info/15' : 'bg-warning/15';
+  const tone = failed > 0 ? 'bg-destructive-soft' : online ? 'bg-info-soft' : 'bg-warning-soft';
   const text = failed > 0 ? 'text-destructive' : online ? 'text-info' : 'text-warning';
   const label = failed > 0
     ? `${failed} işlem çözümlenemedi — Ayarlar > Senkronizasyon bölümünü açın`

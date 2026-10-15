@@ -1,23 +1,35 @@
-import { useMemo, useState } from 'react';
-import { Alert, FlatList, Pressable, Text, View } from 'react-native';
+import { useMemo, useRef, useState } from 'react';
+import { FlatList, Pressable, ScrollView, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, type Href } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { useTaskCounts, useTaskList, useToggleTaskDone } from '@/src/api/tasks.hooks';
-import type { Task, TaskView } from '@/src/api/endpoints';
+import { BottomSheetBackdrop, BottomSheetModal, BottomSheetScrollView } from '@gorhom/bottom-sheet';
+import { useTaskAssignees, useTaskCounts, useToggleTaskDone } from '@/src/api/tasks.hooks';
+import { useTaskListExt, useTaskSummary } from '@/src/api/crm-general.hooks';
+import type { TaskListQueryExt } from '@/src/api/crm-general.api';
+import type { Task } from '@/src/api/endpoints';
 import { useCan } from '@/src/auth/AuthProvider';
+import { useDebouncedValue } from '@/src/lib/useDebouncedValue';
 import { chipClass, chipTextClass, toneColor, useTheme, type Tone } from '@/src/theme/theme';
-import { EmptyState, ErrorState, FilterChips, ListSkeleton, ScreenHeader } from '@/src/ui';
+import { EmptyState, ErrorState, Eyebrow, ListSkeleton, SCREEN_PAD, ScreenHeader, SearchBar } from '@/src/ui';
 import { SyncStatus } from '@/src/ui/SyncStatus';
-
-/** Bir "Tümü" çipi zaten var; kalan görünümler onun yanına dizilir. */
-const VIEWS: { value: Exclude<TaskView, 'all'>; label: string }[] = [
-  { value: 'mine', label: 'Bana Atananlar' },
-  { value: 'today', label: 'Bugün' },
-  { value: 'overdue', label: 'Gecikenler' },
-  { value: 'upcoming', label: 'Yaklaşan' },
-  { value: 'history', label: 'Geçmiş' },
-];
+import { toast } from '@/src/ui/toast';
+import { SheetMenu } from '@/src/ui/crm/SheetMenu';
+import { OptionPicker } from '@/src/ui/pickers/OptionPicker';
+import {
+  EMPTY_TASK_FILTERS,
+  TASK_EMPTY_BY_VIEW,
+  TASK_PRIORITY_OPTIONS,
+  TASK_SORT_OPTIONS,
+  TASK_STATUS_OPTIONS,
+  TASK_VIEWS,
+  activeTaskFilterCount,
+  buildTaskListQuery,
+  taskSummaryLine,
+  type TaskFilterState,
+  type TaskSortValue,
+  type TaskViewValue,
+} from '@/src/ui/crm/task-logic';
 
 const PRIORITY: Record<Task['priority'], { label: string; tone: Tone }> = {
   urgent: { label: 'Acil', tone: 'destructive' },
@@ -67,28 +79,91 @@ export default function TasksScreen() {
   const router = useRouter();
   const { colors } = useTheme();
   const canCreate = useCan('tasks.create');
-  const [view, setView] = useState<Exclude<TaskView, 'all'> | null>('mine');
+  const canUpdate = useCan('tasks.update');
+  const canManage = useCan('tasks.manage');
+  const filterSheet = useRef<BottomSheetModal>(null);
+  const sortSheet = useRef<BottomSheetModal>(null);
 
-  const list = useTaskList({ view: view ?? 'all' });
+  const [view, setView] = useState<TaskViewValue>('mine');
+  const [search, setSearch] = useState('');
+  const debouncedSearch = useDebouncedValue(search, 300);
+  const [filters, setFilters] = useState<TaskFilterState>(EMPTY_TASK_FILTERS);
+  const [sortBy, setSortBy] = useState<TaskSortValue>('dueAt');
+
+  const query = useMemo(
+    () => buildTaskListQuery({ view, search: debouncedSearch, filters, sortBy }) as TaskListQueryExt,
+    [view, debouncedSearch, filters, sortBy],
+  );
+  const list = useTaskListExt(query);
   const counts = useTaskCounts();
+  const assignees = useTaskAssignees();
+  const summary = useTaskSummary(canManage);
   const toggle = useToggleTaskDone();
 
-  const options = useMemo(
-    () => VIEWS.map((item) => ({ value: item.value, label: item.label, count: counts.data?.[item.value] })),
-    [counts.data]
+  const items = list.data?.data ?? [];
+  const filterCount = activeTaskFilterCount(filters);
+  const peopleOptions = useMemo(
+    () => [{ value: '', label: 'Tümü' }, ...(assignees.data ?? []).map((person) => ({ value: person.id, label: person.fullName }))],
+    [assignees.data],
   );
 
-  const items = list.data?.data ?? [];
+  function setFilter<K extends keyof TaskFilterState>(key: K, value: string | null) {
+    setFilters((prev) => ({ ...prev, [key]: value ?? '' }));
+  }
 
-  // İyimser güncelleme yok; yavaş bağlantıda kullanıcı ikinci kez dokununca
-  // ikinci PATCH görevi geri açıyordu. İstek uçarken kutucuk kilitli.
-  const onToggle = (task: Task) => {
+  // Tamamlama önce not ister (web TaskCompletionDialog); yeniden açma doğrudan.
+  function onToggle(task: Task) {
+    if (task.status !== 'done') {
+      router.push(`/modal/task-complete?id=${encodeURIComponent(task.id)}&title=${encodeURIComponent(task.title)}` as Href);
+      return;
+    }
     if (toggle.isPending) return;
     toggle.mutate(
-      { id: task.id, status: task.status === 'done' ? 'todo' : 'done' },
-      { onError: (error) => Alert.alert('Güncellenemedi', error.message) }
+      { id: task.id, status: 'todo' },
+      {
+        onSuccess: () => toast.success('Görev tekrar açıldı'),
+        onError: (error) => toast.error(error.message || 'Görev güncellenemedi'),
+      },
     );
-  };
+  }
+
+  function refresh() {
+    void list.refetch();
+    void counts.refetch();
+    if (canManage) void summary.refetch();
+  }
+
+  const header = (
+    <View className="gap-3 pb-2">
+      {canManage && (summary.data?.length ?? 0) > 0 ? (
+        <View className="gap-2">
+          <View className="flex-row items-center gap-1.5">
+            <Ionicons name="people-outline" size={14} color={colors.mutedForeground} />
+            <Eyebrow>Ekip görev durumu</Eyebrow>
+          </View>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
+            {(summary.data ?? []).map((row) => (
+              <Pressable
+                key={row.userId}
+                accessibilityRole="button"
+                accessibilityLabel={`${row.fullName} görevlerini filtrele`}
+                onPress={() => {
+                  setFilter('assignedToUserId', row.userId);
+                  setView('all');
+                }}
+                className="min-h-11 justify-center rounded-control border border-border bg-card px-3 py-2 active:bg-muted"
+              >
+                <Text className="font-inter-medium text-sm text-foreground">{row.fullName}</Text>
+                <Text className={`font-inter text-xs ${row.overdue > 0 ? 'text-destructive' : 'text-muted-foreground'}`}>
+                  {taskSummaryLine(row)}
+                </Text>
+              </Pressable>
+            ))}
+          </ScrollView>
+        </View>
+      ) : null}
+    </View>
+  );
 
   return (
     <SafeAreaView className="flex-1 bg-canvas" edges={['top', 'left', 'right']}>
@@ -96,31 +171,67 @@ export default function TasksScreen() {
       <ScreenHeader
         title="Görevler"
         subtitle="Bugün yapılacak işler, gecikenler ve size atananlar."
-        actions={
-          canCreate
-            ? [{ icon: 'add' as const, label: 'Yeni görev', onPress: () => router.push('/modal/task' as Href) }]
-            : []
-        }
+        actions={[
+          { icon: 'swap-vertical-outline' as const, label: 'Sıralama', onPress: () => sortSheet.current?.present() },
+          ...(canCreate ? [{ icon: 'add' as const, label: 'Yeni Görev', onPress: () => router.push('/modal/task' as Href) }] : []),
+        ]}
       />
 
-      <View className="px-4 pb-1">
-        <FilterChips options={options} value={view} onChange={setView} allLabel="Tüm Görevler" />
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        style={{ height: 52, flexGrow: 0, flexShrink: 0 }}
+        contentContainerStyle={{ paddingHorizontal: SCREEN_PAD, gap: 8, alignItems: 'center' }}
+      >
+        {TASK_VIEWS.map((item) => {
+          const active = view === item.value;
+          const count = counts.data?.[item.value] ?? 0;
+          const alert = item.value === 'overdue' && count > 0 && !active;
+          return (
+            <Pressable
+              key={item.value}
+              accessibilityRole="tab"
+              accessibilityState={{ selected: active }}
+              accessibilityLabel={`${item.label}, ${count}`}
+              onPress={() => setView(item.value)}
+              className={`min-h-11 flex-row items-center gap-2 rounded-full border px-3 ${active ? 'border-primary bg-primary' : 'border-border bg-card'}`}
+            >
+              <Text className={`font-inter-medium text-sm ${active ? 'text-primary-foreground' : 'text-foreground'}`}>{item.label}</Text>
+              <View className={`rounded-full px-1.5 ${alert ? 'bg-destructive-soft' : active ? '' : 'bg-muted'}`}>
+                <Text
+                  className={`font-inter-medium text-xs ${alert ? 'text-destructive' : active ? 'text-primary-foreground' : 'text-muted-foreground'}`}
+                >
+                  {count}
+                </Text>
+              </View>
+            </Pressable>
+          );
+        })}
+      </ScrollView>
+
+      <View className="pb-2">
+        <SearchBar
+          value={search}
+          onChange={setSearch}
+          placeholder="Görev, müşteri, firma, lead veya teklif ara…"
+          onFilterPress={() => filterSheet.current?.present()}
+          filterActive={filterCount > 0}
+        />
       </View>
 
       {list.isPending ? (
         <ListSkeleton />
       ) : list.error ? (
-        <ErrorState message={list.error.message} onRetry={() => void list.refetch()} />
+        <ErrorState message={list.error.message || 'Görevler yüklenemedi'} onRetry={() => void list.refetch()} />
       ) : (
         <FlatList
           data={items}
           keyExtractor={(item) => item.id}
-          contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 32 }}
+          contentContainerStyle={{ paddingHorizontal: SCREEN_PAD, paddingBottom: 32 }}
           refreshing={list.isRefetching}
-          onRefresh={() => void list.refetch()}
-          ListEmptyComponent={
-            <EmptyState title="Görev yok" hint="Bu görünümde yapılacak bir iş görünmüyor." />
-          }
+          onRefresh={refresh}
+          ListHeaderComponent={header}
+          ListEmptyComponent={<EmptyState title="Görev yok" hint={TASK_EMPTY_BY_VIEW[view]} icon="checkbox-outline" />}
           renderItem={({ item }) => {
             const due = dueText(item);
             const related = relatedText(item);
@@ -130,17 +241,16 @@ export default function TasksScreen() {
             return (
               <View
                 className="my-[5px] flex-row items-center gap-3 rounded-[16px] border border-border bg-card px-3.5 py-3.5"
-                style={{ borderCurve: 'continuous', boxShadow: '0 1px 4px rgba(15, 23, 42, 0.05)' }}
+                style={{ borderCurve: 'continuous' }}
               >
-                {/* Tek dokunuşla kapatma: durum değiştirmek için detaya girmek gerekmiyor. */}
                 <Pressable
                   accessibilityRole="checkbox"
-                  accessibilityState={{ checked: done, disabled: cancelled }}
+                  accessibilityState={{ checked: done, disabled: cancelled || !canUpdate }}
                   accessibilityLabel={cancelled ? 'İptal edilmiş görev' : done ? 'Görevi tekrar aç' : 'Görevi tamamla'}
                   hitSlop={10}
-                  disabled={toggle.isPending || cancelled}
+                  disabled={toggle.isPending || cancelled || !canUpdate}
                   onPress={() => onToggle(item)}
-                  className={`h-11 w-11 items-center justify-center active:opacity-60 ${toggle.isPending || cancelled ? 'opacity-50' : ''}`}
+                  className={`h-11 w-11 items-center justify-center active:opacity-60 ${toggle.isPending || cancelled || !canUpdate ? 'opacity-50' : ''}`}
                 >
                   <Ionicons
                     name={cancelled ? 'close-circle-outline' : done ? 'checkmark-circle' : 'ellipse-outline'}
@@ -150,6 +260,8 @@ export default function TasksScreen() {
                 </Pressable>
 
                 <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={`${item.title} görev detayı`}
                   className="flex-1 gap-0.5 active:opacity-60"
                   onPress={() => router.push(`/(tabs)/modules/tasks/${item.id}` as Href)}
                 >
@@ -166,15 +278,11 @@ export default function TasksScreen() {
                   ) : null}
                   <View className="mt-1 flex-row flex-wrap items-center gap-1.5">
                     <View className={`self-start rounded-full border px-2 py-0.5 ${chipClass[due.tone]}`}>
-                      <Text className={`font-inter-medium text-xs leading-[1.35] ${chipTextClass[due.tone]}`}>
-                        {due.text}
-                      </Text>
+                      <Text className={`font-inter-medium text-xs leading-[1.35] ${chipTextClass[due.tone]}`}>{due.text}</Text>
                     </View>
                     {item.priority !== 'normal' && item.priority !== 'low' ? (
                       <View className={`self-start rounded-full border px-2 py-0.5 ${chipClass[PRIORITY[item.priority].tone]}`}>
-                        <Text
-                          className={`font-inter-medium text-xs leading-[1.35] ${chipTextClass[PRIORITY[item.priority].tone]}`}
-                        >
+                        <Text className={`font-inter-medium text-xs leading-[1.35] ${chipTextClass[PRIORITY[item.priority].tone]}`}>
                           {PRIORITY[item.priority].label}
                         </Text>
                       </View>
@@ -184,7 +292,7 @@ export default function TasksScreen() {
                         {item.assignee.fullName}
                       </Text>
                     ) : null}
-                    {closed ? (
+                    {closed || item.status === 'in_progress' ? (
                       <Text className="font-inter text-xs text-muted-foreground">{STATUS_LABEL[item.status]}</Text>
                     ) : null}
                   </View>
@@ -194,6 +302,67 @@ export default function TasksScreen() {
           }}
         />
       )}
+
+      <SheetMenu
+        ref={sortSheet}
+        title="Sıralama"
+        items={TASK_SORT_OPTIONS.map((option) => ({
+          key: option.value,
+          label: option.label,
+          selected: option.value === sortBy,
+          onPress: () => setSortBy(option.value),
+        }))}
+      />
+
+      <BottomSheetModal
+        ref={filterSheet}
+        snapPoints={['70%']}
+        enableDynamicSizing={false}
+        backgroundStyle={{ backgroundColor: colors.card }}
+        handleIndicatorStyle={{ backgroundColor: colors.mutedForeground }}
+        backdropComponent={(props) => <BottomSheetBackdrop {...props} appearsOnIndex={0} disappearsOnIndex={-1} />}
+      >
+        <BottomSheetScrollView contentContainerStyle={{ gap: 12, paddingBottom: 40, paddingTop: 4, paddingHorizontal: SCREEN_PAD }}>
+          <Text className="font-inter-semibold text-base text-foreground">Filtreler</Text>
+          <OptionPicker
+            label="Durum"
+            value={filters.status}
+            options={[{ value: '', label: 'Tümü' }, ...TASK_STATUS_OPTIONS.map((option) => ({ ...option }))]}
+            onChange={(value) => setFilter('status', value)}
+          />
+          <OptionPicker
+            label="Öncelik"
+            value={filters.priority}
+            options={[{ value: '', label: 'Tümü' }, ...TASK_PRIORITY_OPTIONS.map((option) => ({ ...option }))]}
+            onChange={(value) => setFilter('priority', value)}
+          />
+          <OptionPicker
+            label="Atanan"
+            icon="person-outline"
+            value={filters.assignedToUserId}
+            options={peopleOptions}
+            searchable
+            onChange={(value) => setFilter('assignedToUserId', value)}
+          />
+          <OptionPicker
+            label="Oluşturan"
+            icon="create-outline"
+            value={filters.createdBy}
+            options={peopleOptions}
+            searchable
+            onChange={(value) => setFilter('createdBy', value)}
+          />
+          {filterCount > 0 ? (
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => setFilters(EMPTY_TASK_FILTERS)}
+              className="min-h-11 items-center justify-center rounded-control border border-border active:bg-muted"
+            >
+              <Text className="font-inter-medium text-sm text-foreground">Filtreleri temizle</Text>
+            </Pressable>
+          ) : null}
+        </BottomSheetScrollView>
+      </BottomSheetModal>
     </SafeAreaView>
   );
 }

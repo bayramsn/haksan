@@ -1,9 +1,9 @@
 import { useRef, useState } from 'react';
-import { Alert, ScrollView, Text, View } from 'react-native';
+import { Alert, RefreshControl, ScrollView, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { BottomSheetBackdrop, BottomSheetModal, BottomSheetView } from '@gorhom/bottom-sheet';
 import * as Haptics from 'expo-haptics';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useShipment, useStartShipment, useUpdateShipmentStatus, type ShipmentStatusCodeInput } from '@/src/api/operations.hooks';
 import { formatDateTime } from '@/src/lib/format';
@@ -12,6 +12,13 @@ import { Button, Card, Chip, DetailHeader, ErrorState, Eyebrow, DetailSkeleton }
 import { toast } from '@/src/ui/toast';
 import { InfoRows, type InfoItem } from '@/src/ui/data';
 import { useCan } from '@/src/auth/AuthProvider';
+import { useCompany } from '@/src/api/companies.hooks';
+import type { ShipmentDetail } from '@/src/api/logistics.api';
+import { useDeleteShipment } from '@/src/api/logistics.hooks';
+import { FormSection } from '@/src/ui/service/fields';
+import { JourneySteps } from '@/src/ui/service/JourneySteps';
+import { companyUserInfo, etaState, ROUTE_STEPS, routeStep, TRANSPORT_MODE_LABELS } from '@/src/ui/service/logistics';
+import { DispatchNoteDocument } from '@/src/ui/service/ShipmentDocuments';
 
 /** Sunucudaki shipmentStatusCodeSchema ile birebir; etiketler web ShipmentsPage ile aynı. */
 const STATUS_LABELS: Record<ShipmentStatusCodeInput, string> = {
@@ -73,9 +80,12 @@ export default function ShipmentDetailScreen() {
   const { colors } = useTheme();
   const sheetRef = useRef<BottomSheetModal>(null);
   const canUpdate = useCan('shipments.update');
-  const { data, isPending, error, refetch } = useShipment(id);
+  const { data, isPending, isRefetching, error, refetch } = useShipment(id);
   const start = useStartShipment();
   const updateStatus = useUpdateShipmentStatus();
+  const remove = useDeleteShipment();
+  const company = useCompany(data?.companyId ?? '');
+  const [now] = useState(() => Date.now());
 
   if (isPending || error || !data) {
     return (
@@ -123,12 +133,40 @@ export default function ShipmentDetailScreen() {
   }
 
   const tone = data.arrivedAt ? 'success' : data.shippedAt ? 'info' : 'warning';
+  const eta = etaState(data.eta, now);
+  const full = data as ShipmentDetail;
+  const firm = company.data;
+
+  function confirmDelete() {
+    Alert.alert(
+      'Sevkiyat kaydı silinsin mi?',
+      `${data!.trackingNo || 'Sevkiyat'} · ${data!.carrier ?? ''}\nRota ve takip kaydı listeden kaldırılır; stok veya satış kartı kayıtları silinmez.`,
+      [
+        { text: 'Vazgeç', style: 'cancel' },
+        {
+          text: 'Sevkiyatı Sil',
+          style: 'destructive',
+          onPress: () =>
+            remove.mutate(id, {
+              onSuccess: () => {
+                toast.success('Sevkiyat silindi');
+                router.back();
+              },
+              onError: (err) => toast.error(`Sevkiyat silinemedi: ${err.message}`),
+            }),
+        },
+      ],
+    );
+  }
 
   return (
     <SafeAreaView className="flex-1 bg-canvas" edges={['top', 'left', 'right']}>
       <DetailHeader title="Sevkiyat Detayı" subtitle={data.shipmentNo ?? undefined} />
 
-      <ScrollView contentContainerClassName="gap-4 px-4 pb-10 pt-4">
+      <ScrollView
+        contentContainerClassName="gap-4 px-4 pb-10 pt-4"
+        refreshControl={<RefreshControl refreshing={isRefetching} onRefresh={() => void refetch()} />}
+      >
         <Card className="gap-2">
           <Chip tone={tone} label={data.status?.name ?? (data.arrivedAt ? 'Teslim edildi' : data.shippedAt ? 'Yolda' : 'Hazırlanıyor')} />
           <Text className="text-[19px] font-inter-semibold text-foreground">
@@ -145,6 +183,13 @@ export default function ShipmentDetailScreen() {
               </Text>
             </View>
           ) : null}
+          <View className="pt-2">
+            <JourneySteps steps={ROUTE_STEPS} current={routeStep(statusCode)} />
+          </View>
+          <View className="flex-row items-center justify-between gap-2 pt-1">
+            <Text className="font-inter text-xs text-muted-foreground">{data.direction === 'incoming' ? '↓ Gelen Sevkiyat' : '↑ Giden Sevkiyat'}</Text>
+            <Chip tone={eta.tone} label={eta.label} />
+          </View>
         </Card>
 
         <Card className="gap-0">
@@ -168,7 +213,7 @@ export default function ShipmentDetailScreen() {
               { label: 'Taşıyıcı', value: data.carrierCompany?.legalTitle ?? data.carrier },
               { label: 'Gönderen', value: data.senderCompany?.legalTitle },
               { label: 'Takip no', value: data.trackingNo },
-              { label: 'Taşıma şekli', value: data.transportMode },
+              { label: 'Taşıma şekli', value: data.transportMode ? TRANSPORT_MODE_LABELS[data.transportMode] ?? data.transportMode : null },
               { label: 'Varış deposu', value: data.destinationWarehouse?.name },
               { label: 'Tahmini varış', value: data.eta ? formatDateTime(data.eta) : null },
             ] satisfies InfoItem[]}
@@ -222,12 +267,55 @@ export default function ShipmentDetailScreen() {
           </Card>
         ) : null}
 
+        <FormSection title="Sevk İrsaliyesi">
+          <DispatchNoteDocument
+            data={{
+              irsaliyeNo: data.shipmentNo || data.trackingNo || data.id.slice(0, 8),
+              tarih: data.shippedAt ?? data.createdAt,
+              carrier: data.carrierCompany?.legalTitle ?? data.carrier,
+              trackingNo: data.trackingNo,
+              origin: data.origin,
+              destination: data.destination,
+              incoterm: full.incoterm ?? null,
+              eta: data.eta,
+              firma: data.company?.legalTitle ?? data.company?.shortName ?? null,
+              adres: full.deliveryAddressSnapshot || companyUserInfo(firm).adres || null,
+              vergi: [firm?.taxOffice, firm?.taxNumber].filter(Boolean).join(' / ') || null,
+              items: full.items.map((item) => ({
+                description: item.description,
+                serialNumber: item.serialNumber,
+                quantity: item.quantity,
+                unit: item.unit?.code ?? item.unit?.name ?? null,
+              })),
+              notlar: data.notes,
+            }}
+          />
+        </FormSection>
+
+        {data.company?.id ? (
+          <Button
+            label="Kargo Etiketi Yazdır"
+            variant="ghost"
+            trailingIcon="pricetag-outline"
+            onPress={() =>
+              router.push({
+                pathname: '/modal/shipment-label',
+                params: { companyId: data.company!.id, companyName: data.company!.legalTitle },
+              } as unknown as Href)
+            }
+          />
+        ) : null}
+
         {data.company?.id ? (
           <Button
             label="Firma Kartı"
             variant="ghost"
             onPress={() => router.push(`/(tabs)/modules/companies/${data.company!.id}`)}
           />
+        ) : null}
+
+        {canUpdate ? (
+          <Button label="Sevkiyatı Sil" variant="destructive" trailingIcon="trash-outline" loading={remove.isPending} onPress={confirmDelete} />
         ) : null}
       </ScrollView>
 

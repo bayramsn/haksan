@@ -23,6 +23,7 @@ import type { CompanyListItem, ContactListItem, OpportunityListItem } from '@/sr
 import { useCan } from '@/src/auth/AuthProvider';
 import { formatLocalDateTime, parseLocalDateTime } from '@/src/lib/format';
 import { useTheme } from '@/src/theme/theme';
+import { DateTextField } from '@/src/ui/select/DateTextField';
 import { Button, EmptyState, ErrorState, Eyebrow, Field, FilterChips, Loading, SearchBar } from '@/src/ui';
 
 type FormState = {
@@ -331,8 +332,8 @@ export function ActivityFormScreen() {
             </View>
             <Field label="Konu *" value={form.subject} onChangeText={(value) => set('subject', value)} maxLength={255} error={errors.subject} autoFocus={!editing} />
             <Field label="Açıklama" value={form.description} onChangeText={(value) => set('description', value)} multiline maxLength={4000} error={errors.description} className="min-h-24 rounded-control border border-border bg-input-background px-3 py-2 font-inter text-base text-foreground" />
-            <Field label="Aktivite tarihi ve saati *" value={form.activityDate} onChangeText={(value) => set('activityDate', value)} placeholder="YYYY-AA-GG SS:DD" keyboardType="numbers-and-punctuation" maxLength={16} error={errors.activityDate} />
-            <Field label="Sonraki takip tarihi ve saati" value={form.nextFollowUpAt} onChangeText={(value) => set('nextFollowUpAt', value)} placeholder="YYYY-AA-GG SS:DD" keyboardType="numbers-and-punctuation" maxLength={16} error={errors.nextFollowUpAt} />
+            <DateTextField label="Aktivite tarihi ve saati *" mode="datetime" value={form.activityDate} onChangeText={(value) => set('activityDate', value)} clearable={false} error={errors.activityDate} />
+            <DateTextField label="Sonraki takip tarihi ve saati" mode="datetime" value={form.nextFollowUpAt} onChangeText={(value) => set('nextFollowUpAt', value)} error={errors.nextFollowUpAt} />
             <Field label="Sonuç" value={form.result} onChangeText={(value) => set('result', value)} multiline maxLength={2000} error={errors.result} className="min-h-20 rounded-control border border-border bg-input-background px-3 py-2 font-inter text-base text-foreground" />
           </View>
 

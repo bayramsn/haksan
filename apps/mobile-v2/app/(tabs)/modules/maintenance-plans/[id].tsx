@@ -2,11 +2,13 @@ import { Alert, ScrollView, Text } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import { useCompleteMaintenancePlan, useMaintenancePlan } from '@/src/api/operations.hooks';
+import { useDeleteMaintenancePlan } from '@/src/api/service.hooks';
 import { useCan } from '@/src/auth/AuthProvider';
 import { dueLabel, formatDate, formatDateTime } from '@/src/lib/format';
 import type { Tone } from '@/src/theme/theme';
 import { Button, Card, Chip, DetailHeader, ErrorState, Eyebrow, Loading } from '@/src/ui';
 import { InfoRows, type InfoItem } from '@/src/ui/data';
+import { toast } from '@/src/ui/toast';
 
 export default function MaintenancePlanDetailScreen() {
   const { id = '' } = useLocalSearchParams<{ id: string }>();
@@ -14,6 +16,8 @@ export default function MaintenancePlanDetailScreen() {
   const query = useMaintenancePlan(id);
   const canUpdate = useCan('service_tickets.update');
   const complete = useCompleteMaintenancePlan(id);
+  const canDelete = useCan('service_tickets.delete');
+  const remove = useDeleteMaintenancePlan();
 
   if (query.isPending || query.error || !query.data) {
     return (
@@ -34,9 +38,32 @@ export default function MaintenancePlanDetailScreen() {
     `Son bakım bugün olarak kaydedilecek ve sonraki tarih ${data.intervalDays} gün ileri alınacak.`,
     [
       { text: 'Vazgeç', style: 'cancel' },
-      { text: 'Tamamlandı', onPress: () => complete.mutate(undefined, { onError: (error) => Alert.alert('Bakım güncellenemedi', error.message) }) },
+      {
+        text: 'Tamamlandı',
+        onPress: () =>
+          complete.mutate(undefined, {
+            onSuccess: () => toast.success('Bakım tamamlandı olarak işaretlendi'),
+            onError: (error) => Alert.alert('Bakım güncellenemedi', error.message),
+          }),
+      },
     ],
   );
+
+  const confirmDelete = () => Alert.alert('Bakım planı kaldırılsın mı?', `"${data.title}" planı ve hatırlatmaları kaldırılacak.`, [
+    { text: 'Vazgeç', style: 'cancel' },
+    {
+      text: 'Kaldır',
+      style: 'destructive',
+      onPress: () =>
+        remove.mutate(id, {
+          onSuccess: () => {
+            toast.success('Bakım planı kaldırıldı');
+            router.back();
+          },
+          onError: (error) => toast.error(`Plan kaldırılamadı: ${error.message}`),
+        }),
+    },
+  ]);
 
   return (
     <SafeAreaView className="flex-1 bg-canvas" edges={['top', 'left', 'right']}>
@@ -62,6 +89,7 @@ export default function MaintenancePlanDetailScreen() {
         {canUpdate && data.isActive ? <Button label="Bakım Yapıldı" loading={complete.isPending} onPress={markComplete} /> : null}
         <Button label="Makine Kartı" variant="ghost" onPress={() => router.push(`/(tabs)/modules/customer-devices/${data.customerDeviceId}` as Href)} />
         <Button label="Firma Kartı" variant="ghost" onPress={() => router.push(`/(tabs)/modules/companies/${data.companyId}` as Href)} />
+        {canDelete ? <Button label="Planı Kaldır" variant="destructive" loading={remove.isPending} onPress={confirmDelete} /> : null}
       </ScrollView>
     </SafeAreaView>
   );

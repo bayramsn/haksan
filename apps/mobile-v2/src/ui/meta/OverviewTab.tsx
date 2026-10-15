@@ -16,6 +16,7 @@ import {
   type MetaLead,
 } from '@/src/ui/meta/metaNormalize';
 import { ConnectionChip, MetaButton, MetaSection, MetaStatusChip, Metric } from '@/src/ui/meta/parts';
+import { DateTextField } from '@/src/ui/select/DateTextField';
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -73,10 +74,18 @@ export function OverviewTab({ canOpenOpportunity }: { canOpenOpportunity: boolea
       >
         <View className="flex-row gap-2">
           <View className="flex-1">
-            <Field label="Başlangıç tarihi" value={from} onChangeText={setFrom} placeholder="YYYY-AA-GG" autoCapitalize="none" maxLength={10} />
+            <DateTextField
+              label="Başlangıç tarihi"
+              value={from}
+              onChangeText={setFrom}
+            />
           </View>
           <View className="flex-1">
-            <Field label="Bitiş tarihi" value={to} onChangeText={setTo} placeholder="YYYY-AA-GG" autoCapitalize="none" maxLength={10} />
+            <DateTextField
+              label="Bitiş tarihi"
+              value={to}
+              onChangeText={setTo}
+            />
           </View>
         </View>
         {!rangeValid ? <Text className="font-inter text-xs text-destructive">Tarih aralığı geçersiz; son 30 gün gösteriliyor.</Text> : null}

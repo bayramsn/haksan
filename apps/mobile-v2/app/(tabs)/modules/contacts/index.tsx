@@ -1,26 +1,46 @@
-import { useMemo, useState } from 'react';
-import { Pressable, Text, View } from 'react-native';
+import { useMemo, useRef, useState } from 'react';
+import { Alert, Linking, Pressable, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { FlashList } from '@shopify/flash-list';
-import { useRouter } from 'expo-router';
+import { useRouter, type Href } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { useContactList } from '@/src/api/crm.hooks';
-import type { ContactListItem, ContactListQuery } from '@/src/api/endpoints';
-import { useCan } from '@/src/auth/AuthProvider';
-import { Chip, EmptyState, ErrorState, FilterChips, ListSkeleton, Loading, SCREEN_PAD, ScreenHeader, SearchBar } from '@/src/ui';
+import { BottomSheetBackdrop, BottomSheetModal, BottomSheetScrollView } from '@gorhom/bottom-sheet';
+import { useDeleteContact } from '@/src/api/crm.hooks';
+import { useContactListExt, useContactSummaryExt } from '@/src/api/crm-general.hooks';
+import type { ContactListRow } from '@/src/api/crm-general.api';
+import { exportService } from '@/src/api/exports';
+import { useAuth, useCan } from '@/src/auth/AuthProvider';
+import {
+  Chip,
+  EmptyState,
+  ErrorState,
+  Fab,
+  FilterChips,
+  ListSkeleton,
+  Loading,
+  SCREEN_PAD,
+  ScreenHeader,
+  SearchBar,
+  StatStrip,
+} from '@/src/ui';
 import { initials } from '@/src/ui/Avatar';
 import { useTheme } from '@/src/theme/theme';
 import { SyncStatus } from '@/src/ui/SyncStatus';
+import { toast } from '@/src/ui/toast';
 import { useDebouncedValue } from '@/src/lib/useDebouncedValue';
+import { formatDate } from '@/src/lib/format';
+import { SheetMenu } from '@/src/ui/crm/SheetMenu';
+import { mailComposeHref } from '@/src/ui/crm/mail-logic';
+import { CompanyPicker, type PickedRecord } from '@/src/ui/pickers/CompanyPicker';
+import {
+  CONTACT_SORT_OPTIONS,
+  activeContactFilterCount,
+  buildContactExportParams,
+  buildContactQuery,
+  type ContactSortValue,
+  type ContactTab,
+} from '@/src/features/contacts/contact-list-logic';
 
-type Preset = 'primary' | 'blacklist';
-
-const PRESETS: { value: Preset; label: string }[] = [
-  { value: 'primary', label: 'Birincil' },
-  { value: 'blacklist', label: 'Kara liste' },
-];
-
-/** Küçük gri ikon + metin; mockup'ta satırın alt iki bilgi sırası bu kalıpta. */
 function MetaBit({ icon, text }: { icon: keyof typeof Ionicons.glyphMap; text: string }) {
   const { colors } = useTheme();
   return (
@@ -33,97 +53,179 @@ function MetaBit({ icon, text }: { icon: keyof typeof Ionicons.glyphMap; text: s
   );
 }
 
-/**
- * Mockup s34'ün kontak satırı: soldaki baş harf dairesi, adın yanında karar
- * rolü çipi, sağda durum noktası, altında firma ve iki satır künye.
- */
-function ContactRow({ item, onPress }: { item: ContactListItem; onPress: () => void }) {
+function RowAction({
+  icon,
+  label,
+  onPress,
+  destructive,
+}: {
+  icon: keyof typeof Ionicons.glyphMap;
+  label: string;
+  onPress?: () => void;
+  destructive?: boolean;
+}) {
+  const { colors } = useTheme();
+  const disabled = !onPress;
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      accessibilityState={{ disabled }}
+      disabled={disabled}
+      onPress={onPress}
+      hitSlop={4}
+      className="h-11 w-11 items-center justify-center rounded-full active:bg-muted"
+      style={disabled ? { opacity: 0.35 } : undefined}
+    >
+      <Ionicons name={icon} size={18} color={destructive ? colors.destructive : colors.mutedForeground} />
+    </Pressable>
+  );
+}
+
+function ContactRow({
+  item,
+  onPress,
+  onCall,
+  onMail,
+  onEdit,
+  onDelete,
+}: {
+  item: ContactListRow;
+  onPress: () => void;
+  onCall?: () => void;
+  onMail?: () => void;
+  onEdit?: () => void;
+  onDelete?: () => void;
+}) {
   const { colors } = useTheme();
   const company = item.company?.shortName ?? item.company?.legalTitle ?? null;
   const phone = item.mobilePhone ?? item.workPhone;
-  // Sunucuda "Pasif" diye bir kontak durumu yok; gerçek ikili alan kara liste.
-  const status = item.isBlacklisted
-    ? { label: 'Kara liste', color: colors.destructive }
-    : { label: 'Aktif', color: colors.success };
+  const email = item.workEmail ?? item.personalEmail;
+  const creator = item.createdByUser?.fullName || item.createdByUser?.email || null;
 
   return (
-    <Pressable
-      onPress={onPress}
-      accessibilityRole="button"
-      accessibilityLabel={item.fullName}
-      className="my-[5px] flex-row gap-3 rounded-[16px] border border-border bg-card px-3 py-3.5 active:opacity-70"
-      style={{ borderCurve: 'continuous' }}
-    >
-      <View
-        className="h-[42px] w-[42px] items-center justify-center rounded-full"
-        style={{ backgroundColor: colors.muted }}
+    <View className="my-[5px] rounded-[16px] border border-border bg-card" style={{ borderCurve: 'continuous' }}>
+      <Pressable
+        onPress={onPress}
+        accessibilityRole="button"
+        accessibilityLabel={item.fullName}
+        className="flex-row gap-3 px-3 pb-2 pt-3.5 active:opacity-70"
       >
-        <Text className="font-inter-semibold text-[14px] text-foreground">{initials(item.fullName)}</Text>
-      </View>
-
-      <View className="flex-1 gap-1">
-        <View className="flex-row items-center gap-2">
-          <Text className="shrink font-inter-semibold text-[16px] leading-[21px] text-foreground" numberOfLines={1}>
-            {item.fullName}
-          </Text>
-          {item.decisionRole ? <Chip tone="info" label={item.decisionRole.name} shrink /> : null}
-          <View className="ml-auto flex-row items-center gap-1">
-            <View className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: status.color }} />
-            <Text className="font-inter text-[12px]" style={{ color: status.color }}>
-              {status.label}
-            </Text>
-            <Ionicons name="chevron-forward" size={16} color={colors.mutedForeground} />
-          </View>
+        <View className="h-[42px] w-[42px] items-center justify-center rounded-full bg-muted">
+          <Text className="font-inter-semibold text-[14px] text-foreground">{initials(item.fullName)}</Text>
         </View>
-
-        {company ? (
-          <Text className="font-inter text-[13px] text-muted-foreground" numberOfLines={1}>
-            {company}
-          </Text>
-        ) : null}
-
-        {item.company?.city || item.title ? (
-          <View className="flex-row items-center gap-3">
-            {item.company?.city ? <MetaBit icon="location-outline" text={item.company.city} /> : null}
-            {item.title ? (
-              <Text className="shrink font-inter text-[12px] text-muted-foreground" numberOfLines={1}>
-                {item.title}
-              </Text>
-            ) : null}
+        <View className="flex-1 gap-1">
+          <View className="flex-row items-center gap-2">
+            <Text className="shrink font-inter-semibold text-[16px] leading-[21px] text-foreground" numberOfLines={1}>
+              {item.fullName}
+            </Text>
+            {item.isPrimary ? <Chip tone="warning" label="Birincil" shrink /> : null}
+            {item.isBlacklisted ? <Chip tone="destructive" label="Kara liste" shrink /> : null}
           </View>
-        ) : null}
-
-        {phone || item.workEmail ? (
-          <View className="flex-row items-center gap-3">
-            {phone ? <MetaBit icon="call-outline" text={phone} /> : null}
-            {item.workEmail ? <MetaBit icon="mail-outline" text={item.workEmail} /> : null}
-          </View>
-        ) : null}
+          {company ? (
+            <Text className="font-inter text-[13px] text-muted-foreground" numberOfLines={1}>
+              {company}
+              {item.company?.city ? ` · ${item.company.city}` : ''}
+            </Text>
+          ) : null}
+          {item.title || item.department || item.decisionRole ? (
+            <Text className="font-inter text-[12px] text-muted-foreground" numberOfLines={1}>
+              {[item.title, item.department, item.decisionRole?.name].filter(Boolean).join(' · ')}
+            </Text>
+          ) : null}
+          {phone || email ? (
+            <View className="flex-row items-center gap-3">
+              {phone ? <MetaBit icon="call-outline" text={phone} /> : null}
+              {email ? <MetaBit icon="mail-outline" text={email} /> : null}
+            </View>
+          ) : null}
+          {item.notes ? (
+            <Text className="font-inter text-[12px] italic text-muted-foreground" numberOfLines={1}>
+              {item.notes}
+            </Text>
+          ) : null}
+        </View>
+        <Ionicons name="chevron-forward" size={16} color={colors.mutedForeground} />
+      </Pressable>
+      <View className="flex-row items-center border-t border-border px-2">
+        <Text className="flex-1 px-1 font-inter text-[11px] text-muted-foreground" numberOfLines={1}>
+          {formatDate(item.createdAt)}
+          {creator ? ` · ${creator}` : ''}
+        </Text>
+        <RowAction icon="call-outline" label="Ara" onPress={onCall} />
+        <RowAction icon="mail-outline" label="E-posta" onPress={onMail} />
+        {onEdit ? <RowAction icon="create-outline" label="Düzenle" onPress={onEdit} /> : null}
+        {onDelete ? <RowAction icon="trash-outline" label="Sil" destructive onPress={onDelete} /> : null}
       </View>
-    </Pressable>
+    </View>
   );
 }
 
 export default function ContactsScreen() {
   const router = useRouter();
+  const { colors } = useTheme();
+  const { user, scope } = useAuth();
   const canCreate = useCan('contacts.create');
+  const canUpdate = useCan('contacts.update');
+  const canDelete = useCan('contacts.delete');
+  const canExport = useCan('reports.export');
+  const deleteContact = useDeleteContact();
+
   const [search, setSearch] = useState('');
-  const [preset, setPreset] = useState<Preset | null>(null);
-  const serverSearch = useDebouncedValue(search.trim());
+  const serverSearch = useDebouncedValue(search.trim(), 275);
+  const [tab, setTab] = useState<ContactTab>('all');
+  const [blacklistOnly, setBlacklistOnly] = useState(false);
+  const [divisionId, setDivisionId] = useState<string>(() => scope.divisionId ?? 'all');
+  const [department, setDepartment] = useState<string | null>(null);
+  const [company, setCompany] = useState<PickedRecord | null>(null);
+  const [sort, setSort] = useState<ContactSortValue>('all');
+  const [exporting, setExporting] = useState(false);
+  const filterSheetRef = useRef<BottomSheetModal>(null);
+  const sortSheetRef = useRef<BottomSheetModal>(null);
 
-  const query = useMemo<ContactListQuery>(
-    () => ({
-      search: serverSearch || undefined,
-      isPrimary: preset === 'primary' ? true : undefined,
-      isBlacklisted: preset === 'blacklist' ? true : undefined,
-      sortBy: 'name',
-      sortDir: 'asc',
-    }),
-    [serverSearch, preset]
+  const filters = useMemo(
+    () => ({ search: serverSearch, tab, blacklistOnly, divisionId, department, companyId: company?.id ?? null, sort }),
+    [serverSearch, tab, blacklistOnly, divisionId, department, company, sort],
   );
-
-  const list = useContactList(query);
+  const query = useMemo(() => buildContactQuery(filters), [filters]);
+  const list = useContactListExt(query);
+  const summary = useContactSummaryExt(divisionId);
   const items = list.data?.items ?? [];
+  const filterCount = activeContactFilterCount(filters);
+
+  async function exportExcel() {
+    if (exporting) return;
+    setExporting(true);
+    try {
+      await exportService.contacts(buildContactExportParams(filters));
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Excel indirilemedi');
+    } finally {
+      setExporting(false);
+    }
+  }
+
+  function confirmDelete(item: ContactListRow) {
+    const firm = item.company?.shortName ?? item.company?.legalTitle ?? 'Firma bağlantısı yok';
+    Alert.alert(
+      'Kontağı sil?',
+      `${item.fullName}\n\n${firm} kişisi kalıcı olarak silinir. Aktivite, teklif veya servis ilişkisi varsa sistem işlemi güvenli biçimde engelleyebilir.`,
+      [
+        { text: 'Vazgeç', style: 'cancel' },
+        {
+          text: 'Sil',
+          style: 'destructive',
+          onPress: () =>
+            deleteContact.mutate(item.id, {
+              onSuccess: () => toast.success('Kontak silindi'),
+              onError: (error) => toast.error(`Kontak silinemedi · ${error.message || 'API isteği başarısız oldu.'}`),
+            }),
+        },
+      ],
+    );
+  }
+
+  const blacklisted = summary.data?.blacklisted ?? 0;
 
   return (
     <SafeAreaView className="flex-1 bg-canvas" edges={['top', 'left', 'right']}>
@@ -131,17 +233,62 @@ export default function ContactsScreen() {
       <ScreenHeader
         title="Kontaklar"
         subtitle="Tüm kişi kayıtlarını görüntüleyin ve yönetin."
-        actions={
-          canCreate
-            ? [{ icon: 'add', label: 'Yeni kontak', onPress: () => router.push('/modal/contact') }]
-            : []
-        }
+        actions={[
+          { icon: 'swap-vertical-outline', label: 'Kontakları sırala', onPress: () => sortSheetRef.current?.present() },
+          ...(canExport
+            ? [{ icon: exporting ? ('hourglass-outline' as const) : ('download-outline' as const), label: 'Excel indir', onPress: () => void exportExcel() }]
+            : []),
+        ]}
       />
 
+      {summary.data ? (
+        <View className="pb-2">
+          <StatStrip
+            items={[
+              { label: 'Toplam Kontak', value: String(summary.data.total), icon: 'people-outline' },
+              { label: 'Birincil', value: String(summary.data.primary), icon: 'star-outline', tone: 'warning' },
+              { label: 'Firma Sayısı', value: String(summary.data.firmCount), icon: 'business-outline', tone: 'info' },
+              { label: 'Kara Liste', value: String(blacklisted), icon: 'ban-outline', tone: blacklisted > 0 ? 'destructive' : 'success' },
+            ]}
+          />
+        </View>
+      ) : null}
 
       <View className="gap-2 pb-2">
-        <SearchBar value={search} onChange={setSearch} placeholder="Kişi, firma veya e-posta ara" />
-        <FilterChips options={PRESETS} value={preset} onChange={setPreset} />
+        {(user?.divisions?.length ?? 0) > 0 ? (
+          <FilterChips
+            options={(user?.divisions ?? []).map((division) => ({ value: division.id, label: division.name }))}
+            value={divisionId === 'all' ? null : divisionId}
+            onChange={(next) => setDivisionId(next ?? 'all')}
+            allLabel="Tümü"
+          />
+        ) : null}
+        <FilterChips
+          options={[{ value: 'primary' as const, label: 'Birincil', count: summary.data?.primary }]}
+          value={tab === 'primary' ? 'primary' : null}
+          onChange={(next) => setTab(next ?? 'all')}
+          allLabel="Tümü"
+        />
+        <SearchBar
+          value={search}
+          onChange={setSearch}
+          placeholder="Kişi, firma, e-posta ara..."
+          onFilterPress={() => filterSheetRef.current?.present()}
+          filterActive={filterCount > 0}
+        />
+        {company ? (
+          <View style={{ paddingHorizontal: SCREEN_PAD }} className="flex-row items-center gap-2">
+            <Chip tone="info" label={`Firma: ${company.name}`} shrink />
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Firma filtresini temizle"
+              onPress={() => setCompany(null)}
+              className="h-11 w-11 items-center justify-center rounded-full active:bg-muted"
+            >
+              <Ionicons name="close" size={16} color={colors.mutedForeground} />
+            </Pressable>
+          </View>
+        ) : null}
       </View>
 
       {list.isPending ? (
@@ -150,31 +297,117 @@ export default function ContactsScreen() {
         <ErrorState message={list.error.message} onRetry={() => void list.refetch()} />
       ) : (
         <FlashList
-          // v2'de bu özellik varsayılan AÇIK ve sayfalama/yeniden ölçüm sonrası
-          // içeriği çapalayıp listenin başında boşluk bırakıyor. Bunlar sohbet
-          // değil, tepeden akan listeler — kapalı olmalı.
           maintainVisibleContentPosition={{ disabled: true }}
-          // FlashList v2 kendi başına esnemiyor; sınırlanmamış sütun içinde
-          // içerik aşağı kayıyor ve filtrelerin altında boşluk kalıyor.
           style={{ flex: 1 }}
           data={items}
           keyExtractor={(item) => item.id}
-          contentContainerStyle={{ paddingHorizontal: SCREEN_PAD, paddingBottom: 32 }}
-          renderItem={({ item }) => (
-            <ContactRow item={item} onPress={() => router.push(`/(tabs)/modules/contacts/${item.id}`)} />
-          )}
+          contentContainerStyle={{ paddingHorizontal: SCREEN_PAD, paddingBottom: 96 }}
+          renderItem={({ item }) => {
+            const phone = (item.mobilePhone ?? item.workPhone ?? '').replace(/\s/g, '');
+            const email = item.workEmail ?? item.personalEmail;
+            return (
+              <ContactRow
+                item={item}
+                onPress={() => router.push(`/(tabs)/modules/contacts/${item.id}`)}
+                onCall={phone ? () => void Linking.openURL(`tel:${phone}`) : undefined}
+                onMail={
+                  email
+                    ? () =>
+                        router.push(
+                          mailComposeHref({
+                            to: email,
+                            name: item.fullName,
+                            companyId: item.companyId ?? undefined,
+                            contactId: item.id,
+                          }) as Href,
+                        )
+                    : undefined
+                }
+                onEdit={canUpdate ? () => router.push(`/modal/contact?id=${encodeURIComponent(item.id)}` as Href) : undefined}
+                onDelete={canDelete ? () => confirmDelete(item) : undefined}
+              />
+            );
+          }}
           onEndReachedThreshold={0.5}
           onEndReached={() => {
             if (list.hasNextPage && !list.isFetchingNextPage) void list.fetchNextPage();
           }}
           refreshing={list.isRefetching}
-          onRefresh={() => void list.refetch()}
+          onRefresh={() => {
+            void list.refetch();
+            void summary.refetch();
+          }}
           ListEmptyComponent={
-            <EmptyState title="Kontak bulunamadı" hint="Aramayı veya filtreyi değiştirin." />
+            <EmptyState
+              title="Bu filtreye uyan kontak bulunamadı"
+              hint="Arama terimini veya filtreleri değiştirerek tekrar deneyin."
+              icon="people-outline"
+            />
           }
           ListFooterComponent={list.isFetchingNextPage ? <Loading /> : null}
         />
       )}
+
+      {canCreate ? <Fab label="Yeni Kontak" onPress={() => router.push('/modal/contact')} /> : null}
+
+      <SheetMenu
+        ref={sortSheetRef}
+        title="Sıralama"
+        items={CONTACT_SORT_OPTIONS.map((option) => ({
+          key: option.value,
+          label: option.label,
+          selected: option.value === sort,
+          onPress: () => setSort(option.value),
+        }))}
+      />
+
+      <BottomSheetModal
+        ref={filterSheetRef}
+        snapPoints={['70%']}
+        enableDynamicSizing={false}
+        backgroundStyle={{ backgroundColor: colors.card }}
+        handleIndicatorStyle={{ backgroundColor: colors.mutedForeground }}
+        backdropComponent={(props) => <BottomSheetBackdrop {...props} appearsOnIndex={0} disappearsOnIndex={-1} />}
+      >
+        <BottomSheetScrollView contentContainerStyle={{ gap: 12, paddingBottom: 40, paddingTop: 4 }}>
+          <Text style={{ paddingHorizontal: SCREEN_PAD }} className="font-inter-semibold text-base text-foreground">
+            Departman
+          </Text>
+          <FilterChips
+            options={(summary.data?.departments ?? []).map((value) => ({ value, label: value }))}
+            value={department}
+            onChange={setDepartment}
+            allLabel="Tümü"
+          />
+          <View style={{ paddingHorizontal: SCREEN_PAD }}>
+            <CompanyPicker label="Firma" value={company} onChange={setCompany} placeholder="Firma" />
+          </View>
+          <Text style={{ paddingHorizontal: SCREEN_PAD }} className="font-inter-semibold text-base text-foreground">
+            Durum
+          </Text>
+          <FilterChips
+            options={[{ value: 'blacklist' as const, label: 'Kara liste', count: summary.data?.blacklisted }]}
+            value={blacklistOnly ? 'blacklist' : null}
+            onChange={(next) => setBlacklistOnly(next === 'blacklist')}
+            allLabel="Tümü"
+          />
+          {filterCount > 0 ? (
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => {
+                setDepartment(null);
+                setCompany(null);
+                setSort('all');
+                setBlacklistOnly(false);
+              }}
+              style={{ marginHorizontal: SCREEN_PAD }}
+              className="min-h-11 items-center justify-center rounded-control border border-border active:bg-muted"
+            >
+              <Text className="font-inter-medium text-sm text-foreground">Filtreleri temizle</Text>
+            </Pressable>
+          ) : null}
+        </BottomSheetScrollView>
+      </BottomSheetModal>
     </SafeAreaView>
   );
 }

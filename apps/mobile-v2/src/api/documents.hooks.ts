@@ -28,6 +28,16 @@ export type DocumentRow = {
   finalized: boolean;
   /** Belgenin bağlı olduğu teklif; teklif detayındaki "Belgeler" sekmesi bununla süzer. */
   quoteId: string | null;
+  quoteNo: string | null;
+  opportunityId: string | null;
+  statusCode: string | null;
+  /** Yüklenmiş PDF; belge merkezinde aynı dosya ayrıca listelenmez. */
+  fileId: string | null;
+  /** Teklifsiz hızlı belge (anlık görüntüde `standalone: true`). */
+  standalone: boolean;
+  currencyCode: string | null;
+  grandTotal: string | null;
+  createdAt: string | null;
 };
 
 /** Sayfa zarfını türden bağımsız okumak için; alanlar zaten aynı. */
@@ -36,7 +46,12 @@ type Envelope = Paginated<Record<string, unknown>>;
 function toRow(raw: Record<string, unknown>): DocumentRow {
   const str = (value: unknown): string | null => (typeof value === 'string' && value ? value : null);
   const company = raw.company as { id?: string; legalTitle?: string; shortName?: string | null } | null | undefined;
-  const status = raw.status as { name?: string } | null | undefined;
+  const status = raw.status as { name?: string; code?: string } | null | undefined;
+  const quote = raw.quote as { documentNo?: string; opportunityId?: string | null; grandTotal?: string | null } | null | undefined;
+  const currency = raw.currency as { code?: string } | null | undefined;
+  const snapshot = raw.documentSnapshot as Record<string, unknown> | null | undefined;
+  const snapshotQuote = snapshot?.quote as { grandTotal?: unknown } | null | undefined;
+  const snapshotTotal = snapshotQuote?.grandTotal;
 
   return {
     id: String(raw.id),
@@ -47,6 +62,15 @@ function toRow(raw: Record<string, unknown>): DocumentRow {
     statusName: status?.name ?? null,
     finalized: Boolean(raw.finalizedAt),
     quoteId: str(raw.quoteId),
+    quoteNo: str(quote?.documentNo),
+    opportunityId: str(quote?.opportunityId),
+    statusCode: str(status?.code),
+    fileId: str(raw.fileId),
+    standalone: snapshot?.standalone === true,
+    currencyCode: str(currency?.code),
+    grandTotal:
+      typeof snapshotTotal === 'string' || typeof snapshotTotal === 'number' ? String(snapshotTotal) : str(quote?.grandTotal),
+    createdAt: str(raw.createdAt),
   };
 }
 
@@ -57,9 +81,10 @@ async function fetchPage(kind: DocumentKind, page: number, scope: DocumentScope)
   return commercialDocs.invoices(query) as unknown as Promise<Envelope>;
 }
 
-export function useCommercialDocuments(kind: DocumentKind, scope: DocumentScope = {}) {
+export function useCommercialDocuments(kind: DocumentKind, scope: DocumentScope = {}, enabled = true) {
   return useInfiniteQuery({
     queryKey: documentKeys.list(kind, scope),
+    enabled,
     initialPageParam: 1,
     queryFn: ({ pageParam }) => fetchPage(kind, pageParam, scope),
     getNextPageParam: (last) => (last.meta.page < last.meta.totalPages ? last.meta.page + 1 : undefined),

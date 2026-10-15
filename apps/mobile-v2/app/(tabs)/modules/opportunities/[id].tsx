@@ -3,7 +3,7 @@ import { Alert, Linking, Pressable, ScrollView, Text, View } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { BottomSheetBackdrop, BottomSheetModal, BottomSheetView } from '@gorhom/bottom-sheet';
 import * as Haptics from 'expo-haptics';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import {
   useActivityList,
@@ -38,11 +38,19 @@ import { Logo } from '@/src/ui/Logo';
 import { Button, Card, Chip, DetailHeader, ErrorState, Eyebrow, Field, ListRow, Loading, SCREEN_PAD } from '@/src/ui';
 import { InfoRows, ProgressBar } from '@/src/ui/data';
 import { useCan } from '@/src/auth/AuthProvider';
+import { LOST_REASONS, neighborIds, qualificationRank } from '@/src/ui/sales/sales-logic';
+import { getOpportunityOrder } from '@/src/ui/sales/opportunity-order';
+import {
+  CompanyLinkCard,
+  LeadConversionCard,
+  OperationStageCard,
+  OpportunityActivityFeed,
+  OpportunityDocuments,
+  QuickContactRow,
+  useCheckNoteSheet,
+} from '@/src/ui/sales/OpportunityWorkspace';
+import { DateTextField } from '@/src/ui/select/DateTextField';
 
-/**
- * Kayıp nedeni sabit listesi — web LostCaseDialog ile aynı kodlar (seed
- * cancellation_reasons). Sunucu kodu bulamazsa otomatik oluşturur.
- */
 /**
  * Teklif durumu → rozet rengi. `approved` = SATILDI: fırsatın WIN'e geçmesinin
  * tek kanıtı budur (sunucu `quotes.approved_at` arar).
@@ -63,15 +71,6 @@ const QUOTE_STATUS_TONE: Record<string, 'neutral' | 'info' | 'success' | 'warnin
 
 /** Satılan teklif = onaylanmış teklif. Web'deki `evidence.hasApprovedQuote` ile aynı kural. */
 const isSoldQuote = (quote: QuoteListItem) => quote.status?.code === 'approved';
-
-const LOST_REASONS: { code: string; name: string }[] = [
-  { code: 'price', name: 'Fiyat / Bütçe Yetersiz' },
-  { code: 'competitor', name: 'Rakip Tercih Edildi' },
-  { code: 'timing', name: 'Yatırım İptal Edildi / Zamanlama Uymadı' },
-  { code: 'spec', name: 'Teknik Şartname Karşılanamadı' },
-  { code: 'no_budget', name: 'Bütçe Onayı Çıkmadı' },
-  { code: 'other', name: 'Diğer' },
-];
 
 /**
  * Modül ızgarası: sunucuda modül başına gerçek SAYI (kaç teklif/sevkiyat...)
@@ -196,6 +195,10 @@ export default function OpportunityDetailScreen() {
   const canApprove = useCan('opportunities.approve');
   const canReadAssignees = useCan('opportunities.create');
   const canDelete = useCan('opportunities.delete');
+  const canReadCompanies = useCan('companies.read');
+  const canCreateQuote = useCan('quotes.create');
+  const checkNote = useCheckNoteSheet(id);
+  const neighbors = useMemo(() => neighborIds(getOpportunityOrder(), id), [id]);
 
   // Aşama sayfası: hedef aşama + LOST için zorunlu kayıp alanları
   const [targetStage, setTargetStage] = useState<QualificationStage | null>(null);
@@ -346,7 +349,6 @@ export default function OpportunityDetailScreen() {
   const contactName = data.primaryContact?.fullName ?? data.leadContactName ?? null;
   const phone = data.leadPhone;
   const ownerName = data.ownerUserId ? assignees.data?.find((a) => a.id === data.ownerUserId)?.name ?? null : null;
-  const activities = activityList.data?.items ?? [];
   const opportunityQuotes = quoteList.data?.items ?? [];
   const soldQuotes = opportunityQuotes.filter(isSoldQuote);
   const followUpStatus = (LEAD_FOLLOW_UP_STATUSES as readonly string[]).includes(data.leadFollowUpStatus ?? '')
@@ -368,11 +370,10 @@ export default function OpportunityDetailScreen() {
   const settledApprovals = OPPORTUNITY_APPROVAL_TYPES.filter((type) => approvals[type] && approvals[type] !== 'pending');
 
   /** Geriye geçiş web'de zorunlu gerekçe ister; aynı kural istemcide uygulanır. */
-  const ACTIVE_ORDER: QualificationStage[] = ['lead', 'c', 'b', 'a', 'a_plus'];
   const isBackwardMove =
     targetStage !== null &&
     !['win', 'lost'].includes(targetStage) &&
-    ACTIVE_ORDER.indexOf(targetStage) < ACTIVE_ORDER.indexOf(stage);
+    qualificationRank(targetStage) < qualificationRank(stage);
 
   function toggleCheck(key: string, complete: boolean) {
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -475,6 +476,32 @@ export default function OpportunityDetailScreen() {
       <ScrollView
         contentContainerStyle={{ gap: 16, paddingHorizontal: SCREEN_PAD, paddingBottom: 40, paddingTop: 16 }}
       >
+        {neighbors.previous || neighbors.next ? (
+          <View className="flex-row justify-between gap-3">
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Önceki fırsat"
+              accessibilityState={{ disabled: !neighbors.previous }}
+              disabled={!neighbors.previous}
+              onPress={() => neighbors.previous && router.replace(`/(tabs)/modules/opportunities/${neighbors.previous}` as Href)}
+              className={`min-h-11 flex-row items-center gap-1 rounded-control border border-border bg-card px-3 active:opacity-70 ${neighbors.previous ? '' : 'opacity-40'}`}
+            >
+              <Ionicons name="chevron-back" size={16} color={colors.primary} />
+              <Text className="font-inter-medium text-xs text-foreground">Önceki</Text>
+            </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Sonraki fırsat"
+              accessibilityState={{ disabled: !neighbors.next }}
+              disabled={!neighbors.next}
+              onPress={() => neighbors.next && router.replace(`/(tabs)/modules/opportunities/${neighbors.next}` as Href)}
+              className={`min-h-11 flex-row items-center gap-1 rounded-control border border-border bg-card px-3 active:opacity-70 ${neighbors.next ? '' : 'opacity-40'}`}
+            >
+              <Text className="font-inter-medium text-xs text-foreground">Sonraki</Text>
+              <Ionicons name="chevron-forward" size={16} color={colors.primary} />
+            </Pressable>
+          </View>
+        ) : null}
         <View className="gap-3">
           <View className="flex-row items-start justify-between gap-3">
             <View className="min-w-0 flex-1 gap-2">
@@ -489,7 +516,7 @@ export default function OpportunityDetailScreen() {
                 }}
                 className="self-start active:opacity-70"
               >
-                <View className="flex-row items-center gap-1.5 rounded-[10px] border border-stage/25 bg-stage/10 px-3 py-1.5">
+                <View className="flex-row items-center gap-1.5 rounded-[10px] border border-stage-border bg-stage-soft px-3 py-1.5">
                   <View className="h-2 w-2 rounded-full" style={{ backgroundColor: colors.stage }} />
                   <Text className="font-inter-medium text-[13px] text-stage">{qualificationStageLabels[stage]}</Text>
                   {canUpdate ? <Ionicons name="chevron-down" size={15} color={colors.stage} /> : null}
@@ -552,6 +579,23 @@ export default function OpportunityDetailScreen() {
           <OpportunityFact icon="call-outline" label="Telefon" value={phone} onPress={phone ? () => void Linking.openURL(`tel:${phone}`) : undefined} />
         </Card>
 
+        <Card className="gap-2">
+          <Eyebrow>Hızlı temas</Eyebrow>
+          <QuickContactRow phone={phone ?? data.leadContactValue as string | null | undefined} email={data.leadEmail} />
+        </Card>
+
+        {!data.company && canUpdate && canReadCompanies && !isClosed ? (
+          <CompanyLinkCard opportunityId={id} leadCompanyTitle={data.leadCompanyTitle ?? null} />
+        ) : null}
+
+        {stage === 'lead' && canUpdate && !isClosed ? (
+          <LeadConversionCard opportunityId={id} title={data.title} disqualified={data.leadFollowUpStatus === 'disqualified'} />
+        ) : null}
+
+        {canUpdate && !isClosed && stage !== 'lead' ? (
+          <OperationStageCard opportunityId={id} stageCode={data.stage?.code ?? null} stageName={data.stage?.name ?? null} />
+        ) : null}
+
         {!isClosed && stage !== 'win' && stage !== 'lost' && canUpdate ? (
           <Button
             label="Takibe Al / İleri Tarihe Ertele"
@@ -589,6 +633,18 @@ export default function OpportunityDetailScreen() {
           <Card className="gap-1.5">
             <Eyebrow>Açıklama</Eyebrow>
             <Text className="font-inter text-sm text-foreground">{data.description}</Text>
+          </Card>
+        ) : null}
+
+        {data.paymentTerms || data.contractTerms ? (
+          <Card className="gap-1.5">
+            <Eyebrow>Ticari şartlar</Eyebrow>
+            <InfoRows
+              items={[
+                { label: 'Ödeme şartları', value: data.paymentTerms },
+                { label: 'Sözleşme şartları', value: data.contractTerms },
+              ]}
+            />
           </Card>
         ) : null}
 
@@ -644,14 +700,21 @@ export default function OpportunityDetailScreen() {
                 );
                 // Yalnızca A+ alanı adımları elle işaretlenebilir (sunucu kuralı).
                 if (!check.manualEditable || !canUpdate) {
-                  return <View key={check.key} className="w-[47%]">{row}</View>;
+                  return (
+                    <View key={check.key} className="w-[47%]">
+                      {row}
+                      {check.note ? <Text className="pl-6 font-inter text-[11px] text-muted-foreground">{check.note}</Text> : null}
+                    </View>
+                  );
                 }
                 return (
                   <Pressable
                     key={check.key}
                     accessibilityRole="checkbox"
                     accessibilityState={{ checked: check.complete }}
+                    accessibilityHint="Uzun basarak adım notu ekleyebilirsiniz"
                     onPress={() => toggleCheck(check.key, check.complete)}
+                    onLongPress={() => checkNote.open(check)}
                     className="w-[47%] opacity-100 active:opacity-60"
                   >
                     {row}
@@ -663,7 +726,7 @@ export default function OpportunityDetailScreen() {
               })}
             </View>
             <Text className="font-inter text-[11px] text-muted-foreground">
-              Dokunarak "yapıldı / yapılmadı" işaretleyebilirsin — yalnız A+ alanındaki adımlarda.
+              Dokunarak "yapıldı / yapılmadı" işaretleyebilir, uzun basarak not ekleyebilirsin — yalnız A+ alanındaki adımlarda.
             </Text>
           </Card>
         ) : null}
@@ -714,7 +777,7 @@ export default function OpportunityDetailScreen() {
           <Card className="gap-3">
             <Eyebrow>Sonraki Aksiyon</Eyebrow>
             <View className="flex-row items-center gap-3">
-              <View className="h-12 w-12 items-center justify-center rounded-[12px] bg-primary/10">
+              <View className="h-12 w-12 items-center justify-center rounded-[12px] bg-secondary">
                 <Ionicons name="calendar-outline" size={24} color={colors.primary} />
               </View>
               <View className="min-w-0 flex-1 gap-0.5">
@@ -832,7 +895,26 @@ export default function OpportunityDetailScreen() {
               ) : null}
             </>
           )}
+          {canCreateQuote && !isClosed ? (
+            data.company ? (
+              <Button
+                label="Teklif oluştur"
+                variant="ghost"
+                trailingIcon="add"
+                onPress={() =>
+                  router.push({
+                    pathname: '/modal/quote-form',
+                    params: { opportunityId: id, companyId: data.company!.id },
+                  } as unknown as Href)
+                }
+              />
+            ) : (
+              <Text className="font-inter text-[12px] text-muted-foreground">Teklif oluşturmak için önce firma bağlayın.</Text>
+            )
+          ) : null}
         </Card>
+
+        <OpportunityDocuments opportunityId={id} />
 
         {stage === 'lost' && (data.lostReason || data.lostCompetitor || data.lostProductName) ? (
           <Card className="gap-1.5">
@@ -861,30 +943,7 @@ export default function OpportunityDetailScreen() {
           </Card>
         ) : null}
 
-        <View className="gap-1.5">
-          <View className="px-1">
-            <Eyebrow>Aktiviteler ({activityCount})</Eyebrow>
-          </View>
-          {activityList.isPending ? (
-            <Loading />
-          ) : activities.length === 0 ? (
-            <Card>
-              <Text className="text-center font-inter text-sm text-muted-foreground">Henüz aktivite yok.</Text>
-            </Card>
-          ) : (
-            activities
-              .slice(0, 10)
-              .map((activity) => (
-                <ListRow
-                  key={activity.id}
-                  title={activity.subject}
-                  lines={[activity.type?.name, formatDateTime(activity.activityDate), activity.result]}
-                  icon="pulse-outline"
-                  iconTone={activity.origin === 'system' ? 'neutral' : 'info'}
-                />
-              ))
-          )}
-        </View>
+        <OpportunityActivityFeed opportunityId={id} companyId={data.company?.id ?? null} title={data.title} />
       </ScrollView>
 
       {canUpdate ? <BottomSheetModal
@@ -922,7 +981,7 @@ export default function OpportunityDetailScreen() {
                       accessibilityRole="radio"
                       accessibilityState={{ selected: active }}
                       onPress={() => setLostReasonCode(active ? null : reason.code)}
-                      className={`self-start rounded-full border px-3 py-1.5 ${active ? 'border-destructive bg-destructive/10' : 'border-border bg-card'}`}
+                      className={`self-start rounded-full border px-3 py-1.5 ${active ? 'border-destructive bg-destructive-soft' : 'border-border bg-card'}`}
                     >
                       <Text className={`font-inter-medium text-xs ${active ? 'text-destructive' : 'text-foreground'}`}>
                         {reason.name}
@@ -976,7 +1035,8 @@ export default function OpportunityDetailScreen() {
                 variant="ghost"
                 onPress={() => {
                   sheetRef.current?.dismiss();
-                  if (opportunityQuotes.length === 1) router.push(`/(tabs)/modules/quotes/${opportunityQuotes[0].id}`);
+                  const onlyQuote = opportunityQuotes.length === 1 ? opportunityQuotes[0] : undefined;
+                  if (onlyQuote) router.push(`/(tabs)/modules/quotes/${onlyQuote.id}`);
                 }}
               />
             </View>
@@ -1007,6 +1067,14 @@ export default function OpportunityDetailScreen() {
           <Text className="font-inter-semibold text-base text-foreground" numberOfLines={1}>{data.title}</Text>
           {canUpdate ? (
             <>
+              <Button
+                label="Kartı düzenle"
+                variant="ghost"
+                onPress={() => {
+                  moreSheetRef.current?.dismiss();
+                  router.push({ pathname: '/modal/opportunity-edit', params: { id } } as unknown as Href);
+                }}
+              />
               <Button
                 label="Sonraki aksiyonu düzenle"
                 variant="ghost"
@@ -1186,13 +1254,11 @@ export default function OpportunityDetailScreen() {
             multiline
             numberOfLines={2}
           />
-          <Field
+          <DateTextField
             label="Zaman"
             value={actionAt}
             onChangeText={setActionAt}
-            placeholder="YYYY-AA-GG SS:DD"
-            keyboardType="numbers-and-punctuation"
-            maxLength={16}
+            mode="datetime"
           />
           <Button
             label="Kaydet"
@@ -1234,13 +1300,11 @@ export default function OpportunityDetailScreen() {
             numberOfLines={2}
             maxLength={1000}
           />
-          <Field
+          <DateTextField
             label="Takip tarihi *"
             value={deferAt}
             onChangeText={setDeferAt}
-            placeholder="YYYY-AA-GG SS:DD"
-            keyboardType="numbers-and-punctuation"
-            maxLength={16}
+            mode="datetime"
           />
           <Button
             label="Takibe Al ve Görev Oluştur"
@@ -1277,6 +1341,7 @@ export default function OpportunityDetailScreen() {
           />
         </BottomSheetView>
       </BottomSheetModal>
+      {checkNote.sheet}
     </SafeAreaView>
   );
 }

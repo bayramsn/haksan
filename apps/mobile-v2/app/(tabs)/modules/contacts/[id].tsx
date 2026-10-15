@@ -1,9 +1,12 @@
 import { useState } from 'react';
-import { Alert, Linking, Pressable, ScrollView, Text, View } from 'react-native';
+import { Alert, Linking, Pressable, RefreshControl, ScrollView, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { useActivityList, useContact, useDeleteContact, useLookup } from '@/src/api/crm.hooks';
+import { useActivityList, useContact, useContactList, useDeleteContact, useLookup } from '@/src/api/crm.hooks';
+import { toast } from '@/src/ui/toast';
+import { useContactCompanyLink } from '@/src/api/crm-general.hooks';
+import { mailComposeHref } from '@/src/ui/crm/mail-logic';
 import { useCan } from '@/src/auth/AuthProvider';
 import { formatDate, formatDateTime } from '@/src/lib/format';
 import { Avatar } from '@/src/ui/Avatar';
@@ -68,7 +71,7 @@ function ContactTabs({ value, onChange, activityCount }: { value: ContactTab; on
             <Ionicons name={item.icon} size={17} color={selected ? colors.primaryForeground : colors.mutedForeground} />
             <Text className={`font-inter-medium text-[13px] ${selected ? 'text-primary-foreground' : 'text-muted-foreground'}`}>{item.label}</Text>
             {item.value === 'aktiviteler' && activityCount > 0 ? (
-              <View className={`min-w-[18px] items-center rounded-full px-1 ${selected ? 'bg-primary-foreground/20' : 'bg-primary/10'}`}>
+              <View className={`min-w-[18px] items-center rounded-full px-1 ${selected ? 'bg-white/20' : 'bg-secondary'}`}>
                 <Text className={`font-inter-semibold text-[10px] ${selected ? 'text-primary-foreground' : 'text-primary'}`}>{activityCount}</Text>
               </View>
             ) : null}
@@ -93,6 +96,18 @@ export default function ContactDetailScreen() {
   // Sunucu tarafı contact filtresi sayesinde sonuç, firmanın yüklenen ilk
   // sayfasına bağlı değildir; tüm kontak geçmişi sayfalanır.
   const activities = useActivityList({ contactId: data?.id }, Boolean(data?.id));
+  const siblings = useContactList({ companyId: data?.companyId ?? undefined, sortBy: 'name', sortDir: 'asc' }, Boolean(data?.companyId));
+  const [refreshing, setRefreshing] = useState(false);
+  const companyLink = useContactCompanyLink();
+
+  async function onRefresh() {
+    setRefreshing(true);
+    try {
+      await Promise.all([refetch(), activities.refetch(), siblings.refetch()]);
+    } finally {
+      setRefreshing(false);
+    }
+  }
 
   if (isPending || error || !data) {
     return (
@@ -107,11 +122,13 @@ export default function ContactDetailScreen() {
   const phone = data.mobilePhone ?? data.workPhone;
   const email = data.workEmail ?? data.personalEmail;
   const contactActivities = activities.data?.items ?? [];
+  const otherContacts = (siblings.data?.items ?? []).filter((item) => item.id !== data.id);
+  const primaryCompany = data.companyLinks.find((item) => item.isPrimary) ?? data.companyLinks[0] ?? null;
 
   function confirmDelete(contactId: string, fullName: string) {
     Alert.alert(
-      'Kontağı sil',
-      `${fullName} kaydını silmek istediğinize emin misiniz? Bu işlem geri alınamaz.`,
+      'Kontağı sil?',
+      `${fullName}\n\n${primaryCompany?.legalTitle ?? 'Firma bağlantısı yok'} kişisi kalıcı olarak silinir. Aktivite, teklif veya servis ilişkisi varsa sistem işlemi güvenli biçimde engelleyebilir.`,
       [
         { text: 'Vazgeç', style: 'cancel' },
         {
@@ -119,8 +136,11 @@ export default function ContactDetailScreen() {
           style: 'destructive',
           onPress: () => {
             remove.mutate(contactId, {
-              onSuccess: () => router.replace('/(tabs)/modules/contacts'),
-              onError: (deleteError) => Alert.alert('Kontak silinemedi', deleteError.message),
+              onSuccess: () => {
+                toast.success('Kontak silindi');
+                router.replace('/(tabs)/modules/contacts');
+              },
+              onError: (deleteError) => toast.error(`Kontak silinemedi · ${deleteError.message || 'API isteği başarısız oldu.'}`),
             });
           },
         },
@@ -161,7 +181,15 @@ export default function ContactDetailScreen() {
 
           <View className="flex-row gap-2">
             <ContactQuickAction icon="call-outline" label="Ara" onPress={phone ? () => void Linking.openURL(`tel:${phone}`) : undefined} />
-            <ContactQuickAction icon="mail-outline" label="E-posta" onPress={email ? () => void Linking.openURL(`mailto:${email}`) : undefined} />
+            <ContactQuickAction icon="mail-outline" label="E-posta" onPress={
+                email
+                  ? () =>
+                      router.push(
+                        mailComposeHref({ to: email, name: data.fullName, companyId: data.companyId ?? undefined, contactId: data.id }) as Href,
+                      )
+                  : undefined
+              }
+            />
             <ContactQuickAction
               icon="business-outline"
               label="Firma"
@@ -187,6 +215,7 @@ export default function ContactDetailScreen() {
       <ScrollView
         className="flex-1"
         contentContainerStyle={{ gap: 16, paddingHorizontal: SCREEN_PAD, paddingBottom: 40, paddingTop: 16 }}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void onRefresh()} />}
       >
         {tab === 'iletisim' ? (
           <Card>
@@ -218,6 +247,7 @@ export default function ContactDetailScreen() {
                   { label: 'Sevdiği takım', value: data.favoriteTeam },
                   { label: 'Sevdiği renk', value: data.favoriteColor },
                   { label: 'Kayıt', value: formatDate(data.createdAt) },
+                  { label: 'Oluşturan', value: data.createdByUser?.fullName || data.createdByUser?.email || null },
                 ]}
               />
             </Card>
@@ -225,19 +255,94 @@ export default function ContactDetailScreen() {
             {data.companyLinks?.length ? (
               <View className="gap-1.5">
                 <View className="px-1">
-                  <Eyebrow>Bağlı firmalar ({data.companyLinks.length})</Eyebrow>
+                  <Eyebrow>Bağlı Firmalar ({data.companyLinks.length})</Eyebrow>
                 </View>
                 {data.companyLinks.map((company) => (
-                  <ListRow
-                    key={company.id}
-                    title={company.legalTitle}
-                    lines={[company.city]}
-                    icon="business-outline"
-                    iconTone="info"
-                    chip={company.isPrimary ? { label: 'Birincil', tone: 'success' } : undefined}
-                    onPress={() => router.push(`/(tabs)/modules/companies/${company.id}`)}
-                  />
+                  <View key={company.id} className="gap-1">
+                    <ListRow
+                      title={company.legalTitle}
+                      lines={[company.city]}
+                      icon="business-outline"
+                      iconTone="info"
+                      chip={company.isPrimary ? { label: 'Birincil', tone: 'success' } : undefined}
+                      onPress={() => router.push(`/(tabs)/modules/companies/${company.id}`)}
+                    />
+                    {canUpdate && data.companyLinks.length > 1 ? (
+                      <View className="flex-row justify-end gap-2">
+                        {!company.isPrimary ? (
+                          <Button
+                            label="Birincil yap"
+                            variant="ghost"
+                            disabled={companyLink.isPending}
+                            onPress={() =>
+                              companyLink.mutate(
+                                { id: data.id, companyId: company.id, action: 'primary' },
+                                {
+                                  onSuccess: () => toast.success('Birincil firma güncellendi'),
+                                  onError: (err) => toast.error(`Güncellenemedi · ${err.message || 'İşlem başarısız.'}`),
+                                },
+                              )
+                            }
+                          />
+                        ) : null}
+                        <Button
+                          label="Firmadan ayır"
+                          variant="destructive"
+                          disabled={companyLink.isPending}
+                          onPress={() =>
+                            Alert.alert('Firmadan ayır', `${data.fullName} ile ${company.legalTitle} arasındaki bağ kaldırılsın mı?`, [
+                              { text: 'Vazgeç', style: 'cancel' },
+                              {
+                                text: 'Ayır',
+                                style: 'destructive',
+                                onPress: () =>
+                                  companyLink.mutate(
+                                    { id: data.id, companyId: company.id, action: 'unlink' },
+                                    {
+                                      onSuccess: () => toast.success('Firma bağı kaldırıldı'),
+                                      onError: (err) => toast.error(`Kaldırılamadı · ${err.message || 'İşlem başarısız.'}`),
+                                    },
+                                  ),
+                              },
+                            ])
+                          }
+                        />
+                      </View>
+                    ) : null}
+                  </View>
                 ))}
+                {canUpdate ? (
+                  <Text className="px-1 font-inter text-[11px] text-muted-foreground">
+                    Aynı kişi birden çok firmada yetkili olabilir. "Birincil yap" ile varsayılan firmayı değiştir, "Firmadan ayır" ile bağı kaldır.
+                  </Text>
+                ) : null}
+              </View>
+            ) : null}
+
+            {data.companyId ? (
+              <View className="gap-1.5">
+                <View className="px-1">
+                  <Eyebrow>Aynı firmadaki diğer kontaklar ({otherContacts.length})</Eyebrow>
+                </View>
+                {siblings.isPending ? (
+                  <Loading />
+                ) : otherContacts.length === 0 ? (
+                  <Card>
+                    <Text className="text-center font-inter text-sm text-muted-foreground">Bu firmada başka kontak yok.</Text>
+                  </Card>
+                ) : (
+                  otherContacts.slice(0, 10).map((contact) => (
+                    <ListRow
+                      key={contact.id}
+                      title={contact.fullName}
+                      lines={[[contact.title, contact.department].filter(Boolean).join(' · ') || null, contact.mobilePhone ?? contact.workPhone]}
+                      icon="person-outline"
+                      iconTone={contact.isPrimary ? 'success' : 'neutral'}
+                      chip={contact.isPrimary ? { label: 'Birincil', tone: 'success' } : undefined}
+                      onPress={() => router.push(`/(tabs)/modules/contacts/${contact.id}` as Href)}
+                    />
+                  ))
+                )}
               </View>
             ) : null}
           </>
@@ -278,6 +383,7 @@ export default function ContactDetailScreen() {
                   lines={[activity.type?.name, formatDateTime(activity.activityDate), activity.result]}
                   icon="pulse-outline"
                   iconTone={activity.origin === 'system' ? 'neutral' : 'info'}
+                  onPress={() => router.push(`/(tabs)/modules/activities/${activity.id}` as Href)}
                 />
               ))}
               {activities.hasNextPage ? (

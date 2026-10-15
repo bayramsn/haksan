@@ -27,6 +27,7 @@ export default function ActivityDetailScreen() {
   const canUpdate = useCan('activities.update');
   const canDelete = useCan('activities.delete');
   const canReadFiles = useCan('files.read');
+  const canConvert = useCan('activities.convert');
 
   if (query.isPending || query.error || !query.data) {
     return (
@@ -113,6 +114,9 @@ export default function ActivityDetailScreen() {
 
         {data.companyId ? <Button label="Firmaya Git" variant="ghost" onPress={() => router.push(`/(tabs)/modules/companies/${data.companyId}` as Href)} /> : null}
         {data.opportunityId ? <Button label="Satış Kartına Git" variant="ghost" onPress={() => router.push(`/(tabs)/modules/opportunities/${data.opportunityId}` as Href)} /> : null}
+        {!data.opportunityId && canConvert ? (
+          <Button label="Fırsat Oluştur" variant="ghost" onPress={() => router.push({ pathname: '/modal/new-opportunity', params: { activityId: data.id } })} />
+        ) : null}
         {data.contactId ? <Button label="Kontağa Git" variant="ghost" onPress={() => router.push(`/(tabs)/modules/contacts/${data.contactId}` as Href)} /> : null}
         {canDelete ? <Button label="Aktiviteyi Sil" variant="destructive" loading={remove.isPending} onPress={confirmDelete} /> : null}
       </ScrollView>

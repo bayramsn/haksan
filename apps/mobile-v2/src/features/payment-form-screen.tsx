@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, KeyboardAvoidingView, Pressable, ScrollView, Text, View } from 'react-native';
 import { Redirect, Stack, useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -7,12 +7,14 @@ import { BottomSheetBackdrop, BottomSheetFlatList, BottomSheetModal, BottomSheet
 import { paymentCreateSchema, type FileDocumentTypeCode, type PaymentCreateInput } from '@haksan/shared';
 import { useCompanyList } from '@/src/api/companies.hooks';
 import { useLookup } from '@/src/api/crm.hooks';
-import { useCreatePayment } from '@/src/api/finance.hooks';
+import { useCreatePayment, usePayment, useUpdatePayment } from '@/src/api/finance.hooks';
+import { toast } from '@/src/ui/toast';
 import type { CompanyListItem } from '@/src/api/endpoints';
 import { useCan } from '@/src/auth/AuthProvider';
 import { pickDocument, uploadEntityAttachment, type LocalUpload } from '@/src/native/files';
 import { useTheme } from '@/src/theme/theme';
 import { Button, EmptyState, ErrorState, Eyebrow, Field, FilterChips, Loading, SearchBar } from '@/src/ui';
+import { DateTextField } from '@/src/ui/select/DateTextField';
 
 type FormState = {
   direction: 'in' | 'out';
@@ -67,10 +69,20 @@ function parseDate(value: string): Date | null {
 }
 
 export function PaymentFormScreen() {
-  const params = useLocalSearchParams<{ direction?: string | string[]; companyId?: string | string[]; companyName?: string | string[] }>();
+  const params = useLocalSearchParams<{
+    id?: string | string[];
+    direction?: string | string[];
+    companyId?: string | string[];
+    companyName?: string | string[];
+  }>();
   const router = useRouter();
   const { colors } = useTheme();
-  const allowed = useCan('payments.create');
+  const editId = first(params.id);
+  const editing = Boolean(editId);
+  const allowed = useCan(editing ? 'payments.update' : 'payments.create');
+  const existing = usePayment(editId);
+  const update = useUpdatePayment(editId);
+  const [hydrated, setHydrated] = useState(!editing);
   const canUploadFiles = useCan('files.create');
   const requestedDirection = first(params.direction) === 'out' ? 'out' : 'in';
   const requestedCompanyId = first(params.companyId);
@@ -99,7 +111,34 @@ export function PaymentFormScreen() {
     sortDir: 'asc' as const,
   }), [companySearch]));
 
+  useEffect(() => {
+    const row = existing.data;
+    if (hydrated || !row) return;
+    const method = PAYMENT_METHODS.find((item) => item.value === row.paymentMethod)?.value ?? 'other';
+    setForm((previous) => ({
+      ...previous,
+      direction: row.direction === 'out' ? 'out' : 'in',
+      companyId: row.companyId,
+      amount: String(Number(row.amount)),
+      currencyCode: row.currency?.code ?? previous.currencyCode,
+      paymentDate: row.paymentDate.slice(0, 10),
+      paymentMethod: method,
+      invoiceNo: row.invoiceNo ?? '',
+      notes: row.notes ?? '',
+    }));
+    setCompanyName(row.company?.shortName ?? row.company?.legalTitle ?? '');
+    setHydrated(true);
+  }, [existing.data, hydrated]);
+
   if (!allowed) return <Redirect href="/(tabs)/modules/payments" />;
+  if (editing && !hydrated) {
+    return (
+      <SafeAreaView className="flex-1 bg-canvas" edges={['top', 'bottom', 'left', 'right']}>
+        <Stack.Screen options={{ title: 'Kasa hareketini düzenle', headerShown: true }} />
+        {existing.error ? <ErrorState message={existing.error.message} onRetry={() => void existing.refetch()} /> : <Loading />}
+      </SafeAreaView>
+    );
+  }
 
   const set = <K extends keyof FormState>(key: K, value: FormState[K]) => {
     setForm((previous) => ({ ...previous, [key]: value }));
@@ -136,10 +175,33 @@ export function PaymentFormScreen() {
     if (!form.companyId) nextErrors.companyId = 'Firma seçin.';
     if (!Number.isFinite(amount) || amount <= 0) nextErrors.amount = 'Sıfırdan büyük geçerli bir tutar girin.';
     if (!paymentDate) nextErrors.paymentDate = 'Tarihi YYYY-AA-GG biçiminde girin.';
-    if (canUploadFiles && !attachment) nextErrors.attachment = 'Fatura veya fiş dosyası seçin.';
+    if (!editing && canUploadFiles && !attachment) nextErrors.attachment = 'Fatura veya fiş dosyası seçin.';
     if (Object.keys(nextErrors).length) {
       setErrors(nextErrors);
       setFormError('Zorunlu veya biçimi hatalı alanları kontrol edin.');
+      return;
+    }
+    if (editing) {
+      update.mutate(
+        {
+          amount,
+          currencyCode: form.currencyCode,
+          paymentDate: paymentDate!.toISOString(),
+          paymentMethod: form.paymentMethod,
+          invoiceNo: form.invoiceNo.trim(),
+          notes: form.notes.trim(),
+        },
+        {
+          onSuccess: () => {
+            toast.success('Kasa hareketi güncellendi');
+            router.back();
+          },
+          onError: (error) => {
+            setFormError(error.message);
+            toast.error(`Kasa hareketi güncellenemedi: ${error.message}`);
+          },
+        },
+      );
       return;
     }
     const candidate = {
@@ -186,13 +248,13 @@ export function PaymentFormScreen() {
 
   return (
     <SafeAreaView className="flex-1 bg-canvas" edges={['top', 'bottom', 'left', 'right']}>
-      <Stack.Screen options={{ title: 'Yeni kasa hareketi', headerShown: true }} />
+      <Stack.Screen options={{ title: editing ? 'Kasa hareketini düzenle' : 'Yeni kasa hareketi', headerShown: true }} />
       <KeyboardAvoidingView className="flex-1" behavior={process.env.EXPO_OS === 'ios' ? 'padding' : undefined}>
         <ScrollView contentContainerClassName="gap-5 p-4 pb-10" keyboardShouldPersistTaps="handled">
           <View className="gap-3">
             <Eyebrow>Hareket</Eyebrow>
-            <FilterChips options={[{ value: 'in', label: 'Tahsilat / Giren' }, { value: 'out', label: 'Ödeme / Çıkan' }]} value={form.direction} onChange={(value) => value && set('direction', value)} allLabel="" />
-            <Pressable accessibilityRole="button" accessibilityLabel="Firma seç" onPress={() => companySheet.current?.present()} className={`min-h-12 flex-row items-center gap-3 rounded-control border bg-card px-3 py-2 ${errors.companyId ? 'border-destructive' : 'border-border'} active:opacity-70`}>
+            {editing ? null : <FilterChips options={[{ value: 'in', label: 'Tahsilat / Giren' }, { value: 'out', label: 'Ödeme / Çıkan' }]} value={form.direction} onChange={(value) => value && set('direction', value)} allLabel="" />}
+            <Pressable accessibilityRole="button" accessibilityLabel="Firma seç" disabled={editing} onPress={() => companySheet.current?.present()} className={`min-h-12 flex-row items-center gap-3 rounded-control border bg-card px-3 py-2 ${errors.companyId ? 'border-destructive' : 'border-border'} active:opacity-70`}>
               <Ionicons name="business-outline" size={19} color={colors.primary} />
               <View className="flex-1 gap-0.5"><Text className="font-inter-medium text-xs text-muted-foreground">Firma *</Text><Text className="font-inter text-base text-foreground" numberOfLines={1}>{companyName || 'Firma seçin'}</Text></View>
               <Ionicons name="chevron-forward" size={18} color={colors.mutedForeground} />
@@ -200,13 +262,18 @@ export function PaymentFormScreen() {
             {errors.companyId ? <Text className="font-inter text-xs text-destructive">{errors.companyId}</Text> : null}
             <Field label="Tutar *" value={form.amount} onChangeText={(value) => set('amount', value)} keyboardType="decimal-pad" placeholder="0,00" error={errors.amount} />
             <View className="gap-1.5"><Text className="font-inter-medium text-[13px] text-muted-foreground">Para birimi *</Text>{currencies.isPending ? <Loading /> : currencies.error ? <ErrorState message={currencies.error.message} onRetry={() => void currencies.refetch()} /> : <FilterChips options={(currencies.data ?? []).map((item) => ({ value: item.code, label: item.code }))} value={form.currencyCode} onChange={(value) => value && set('currencyCode', value)} allLabel="" />}</View>
-            <Field label="Ödeme tarihi *" value={form.paymentDate} onChangeText={(value) => set('paymentDate', value)} placeholder="YYYY-AA-GG" keyboardType="numbers-and-punctuation" maxLength={10} error={errors.paymentDate} />
+            <DateTextField
+              label="Ödeme tarihi *"
+              value={form.paymentDate}
+              onChangeText={(value) => set('paymentDate', value)}
+              error={errors.paymentDate}
+            />
             <View className="gap-1.5"><Text className="font-inter-medium text-[13px] text-muted-foreground">Ödeme yöntemi *</Text><FilterChips options={[...PAYMENT_METHODS]} value={form.paymentMethod} onChange={(value) => value && set('paymentMethod', value)} allLabel="" /></View>
             <Field label="Fatura / belge no" value={form.invoiceNo} onChangeText={(value) => set('invoiceNo', value)} maxLength={64} error={errors.invoiceNo} />
             <Field label="Notlar" value={form.notes} onChangeText={(value) => set('notes', value)} multiline maxLength={2000} error={errors.notes} className="min-h-20 rounded-control border border-border bg-input-background px-3 py-2 font-inter text-base text-foreground" />
           </View>
 
-          <View className="gap-3">
+          {editing ? null : <View className="gap-3">
             <Eyebrow>Fatura / Fiş</Eyebrow>
             {canUploadFiles ? (
               <>
@@ -216,12 +283,12 @@ export function PaymentFormScreen() {
                 {errors.attachment ? <Text className="font-inter text-xs text-destructive">{errors.attachment}</Text> : null}
               </>
             ) : <Text className="font-inter text-xs text-warning">Dosya yükleme yetkiniz olmadığı için hareket dosyasız kaydedilecek.</Text>}
-          </View>
+          </View>}
 
           <Text className="font-inter text-xs text-muted-foreground">Kasa hareketi çevrimiçi kaydedilir; firma görünürlüğü, bölüm ve para birimi sunucuda yeniden doğrulanır.</Text>
           {formError ? <Text selectable accessibilityLiveRegion="assertive" className="font-inter text-sm text-destructive">{formError}</Text> : null}
         </ScrollView>
-        <View className="flex-row gap-3 border-t border-border bg-card px-4 py-3"><View className="flex-1"><Button label="Vazgeç" variant="ghost" onPress={() => router.back()} /></View><View className="flex-[2]"><Button label={form.direction === 'in' ? 'Tahsilatı Kaydet' : 'Ödemeyi Kaydet'} loading={create.isPending} onPress={submit} /></View></View>
+        <View className="flex-row gap-3 border-t border-border bg-card px-4 py-3"><View className="flex-1"><Button label="Vazgeç" variant="ghost" onPress={() => router.back()} /></View><View className="flex-[2]"><Button label={editing ? 'Kaydet' : form.direction === 'in' ? 'Tahsilatı Kaydet' : 'Ödemeyi Kaydet'} loading={create.isPending || update.isPending} onPress={submit} /></View></View>
       </KeyboardAvoidingView>
 
       <BottomSheetModal ref={companySheet} snapPoints={['80%']} enableDynamicSizing={false} backgroundStyle={{ backgroundColor: colors.card }} handleIndicatorStyle={{ backgroundColor: colors.mutedForeground }} backdropComponent={(props) => <BottomSheetBackdrop {...props} appearsOnIndex={0} disappearsOnIndex={-1} />}>

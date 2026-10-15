@@ -15,6 +15,7 @@ import { useCan } from '@/src/auth/AuthProvider';
 import { Button, Card, Chip, ErrorState, Field, Loading } from '@/src/ui';
 import { ActionButton } from './parts';
 import { defaultActivityRange, validateActivityRange } from './reportMath';
+import { DateTextField } from '@/src/ui/select/DateTextField';
 
 function reportText(report: ActivityLogReport): string {
   const lines = [`Haftalık Aktivite ve Teklif Raporu — ${activityLogDate(report.range.from)} / ${activityLogDate(new Date(new Date(report.range.to).getTime() - 1).toISOString())}`];
@@ -62,10 +63,18 @@ export function ActivityLogSection() {
       </Text>
       <View className="flex-row gap-2">
         <View className="flex-1">
-          <Field label="Başlangıç tarihi" value={draft.from} onChangeText={(from) => setDraft((r) => ({ ...r, from }))} placeholder="YYYY-AA-GG" maxLength={10} keyboardType="numbers-and-punctuation" />
+          <DateTextField
+            label="Başlangıç tarihi"
+            value={draft.from}
+            onChangeText={(from) => setDraft((r) => ({ ...r, from }))}
+          />
         </View>
         <View className="flex-1">
-          <Field label="Bitiş tarihi" value={draft.to} onChangeText={(to) => setDraft((r) => ({ ...r, to }))} placeholder="YYYY-AA-GG" maxLength={10} keyboardType="numbers-and-punctuation" />
+          <DateTextField
+            label="Bitiş tarihi"
+            value={draft.to}
+            onChangeText={(to) => setDraft((r) => ({ ...r, to }))}
+          />
         </View>
       </View>
       {error ? <Text className="font-inter text-xs text-destructive">{error}</Text> : null}

@@ -2,13 +2,15 @@ import { Alert, ScrollView, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import { useLookup } from '@/src/api/crm.hooks';
-import { useAccountingInvoice, useCancelAccountingInvoice } from '@/src/api/finance.hooks';
+import { useAccountingInvoice, useCancelAccountingInvoice, useDeleteAccountingInvoice } from '@/src/api/finance.hooks';
 import { useCan } from '@/src/auth/AuthProvider';
 import { formatAmount, formatDate, formatDateTime } from '@/src/lib/format';
 import { downloadAndShareFile } from '@/src/native/files';
 import type { Tone } from '@/src/theme/theme';
 import { Button, Card, Chip, DetailHeader, EmptyState, ErrorState, Eyebrow, Loading } from '@/src/ui';
 import { InfoRows, type InfoItem } from '@/src/ui/data';
+import { toast } from '@/src/ui/toast';
+import { dueState } from '@/src/ui/finance/invoice-logic';
 
 const STATUS_TONE: Record<string, Tone> = {
   draft: 'neutral',
@@ -16,6 +18,8 @@ const STATUS_TONE: Record<string, Tone> = {
   paid: 'success',
   cancelled: 'destructive',
 };
+
+const DUE_TONE = { danger: 'destructive', warning: 'warning', success: 'success', neutral: 'neutral' } as const;
 
 const PAYMENT_TYPE: Record<string, string> = {
   cash: 'Peşin',
@@ -30,8 +34,10 @@ export default function AccountingInvoiceDetailScreen() {
   const invoiceStatuses = useLookup('invoice-statuses');
   const paymentStatuses = useLookup('payment-statuses');
   const canUpdate = useCan('accounting_invoices.update');
+  const canDelete = useCan('accounting_invoices.delete');
   const canReadFiles = useCan('files.read');
   const cancel = useCancelAccountingInvoice(id);
+  const remove = useDeleteAccountingInvoice();
 
   if (query.isPending || query.error || !query.data) {
     return (
@@ -69,6 +75,31 @@ export default function AccountingInvoiceDetailScreen() {
     );
   };
 
+  const companyLabel = data.company?.shortName ?? data.company?.legalTitle ?? '';
+  const handleDelete = () => {
+    Alert.alert(
+      'Fatura arşivlensin mi?',
+      `${data.invoiceNo} · ${companyLabel}\n${money(data.grandTotal)} · ${formatDate(data.invoiceDate)} tarihli ${data.type === 'sales' ? 'satış' : 'alış'} faturası\n\nBu belge listeden kaldırılır. Aktif ödeme veya cari hareket bağlantısı varsa sistem işlemi güvenli biçimde engeller.`,
+      [
+        { text: 'Vazgeç', style: 'cancel' },
+        {
+          text: 'Faturayı Arşivle',
+          style: 'destructive',
+          onPress: () =>
+            remove.mutate(id, {
+              onSuccess: () => {
+                toast.success('Fatura silindi');
+                router.back();
+              },
+              onError: (error) =>
+                toast.error(`Fatura silinemedi: ${error.message || 'Aktif ödeme veya yetki kontrolü nedeniyle işlem tamamlanamadı.'}`),
+            }),
+        },
+      ],
+    );
+  };
+  const due = dueState(data);
+
   const handleFile = async () => {
     if (!data.fileId) return;
     try {
@@ -90,7 +121,19 @@ export default function AccountingInvoiceDetailScreen() {
                 <Chip tone={tone} label={status?.name ?? (invoiceStatuses.isPending ? 'Durum yükleniyor' : 'Durum bilinmiyor')} />
               </View>
               <Text className="text-[20px] font-inter-semibold text-foreground">{data.invoiceNo}</Text>
-              <Text className="font-inter text-[13px] text-muted-foreground">{data.company?.shortName ?? data.company?.legalTitle ?? 'Firma bağlanmadı'}</Text>
+              <Text className="font-inter text-[11px] uppercase tracking-wide text-muted-foreground">
+                {data.type === 'sales' ? 'Müşteri / Firma' : 'Tedarikçi / Firma'}
+              </Text>
+              <Text className="font-inter-medium text-[14px] text-foreground">{companyLabel || 'Firma bağlanmadı'}</Text>
+              {data.company?.shortName && data.company.legalTitle !== data.company.shortName ? (
+                <Text className="font-inter text-[12px] text-muted-foreground">{data.company.legalTitle}</Text>
+              ) : null}
+              {data.company?.taxOffice || data.company?.taxNumber ? (
+                <Text className="font-inter text-[12px] text-muted-foreground">
+                  {[data.company.taxOffice, data.company.taxNumber ? `Vergi No: ${data.company.taxNumber}` : null].filter(Boolean).join(' ')}
+                </Text>
+              ) : null}
+              <View className="flex-row"><Chip label={due.label} tone={DUE_TONE[due.tone]} /></View>
             </View>
             <Text className="font-inter-bold text-[19px] text-foreground">{money(data.grandTotal)}</Text>
           </View>
@@ -109,7 +152,7 @@ export default function AccountingInvoiceDetailScreen() {
               { label: 'Sipariş no', value: data.orderNo },
               { label: 'Beklenen tarih', value: data.expectedDate ? formatDate(data.expectedDate) : null },
               { label: 'Incoterm', value: data.incoterm },
-              { label: 'Sevkiyat referansı', value: data.shipmentReference },
+              { label: 'Referans', value: data.shipmentReference },
             ] satisfies InfoItem[]}
           />
         </Card>
@@ -117,9 +160,9 @@ export default function AccountingInvoiceDetailScreen() {
         <Card>
           <InfoRows
             items={[
-              { label: 'Tutar', value: money(data.amount) },
+              { label: 'Matrah', value: money(data.amount) },
               { label: 'KDV', value: money(data.vatAmount) },
-              { label: 'Genel toplam', value: money(data.grandTotal) },
+              { label: 'Toplam', value: money(data.grandTotal) },
             ] satisfies InfoItem[]}
           />
         </Card>
@@ -167,13 +210,16 @@ export default function AccountingInvoiceDetailScreen() {
         </View>
 
         {data.termChangeReason ? (
-          <Card className="gap-1.5"><Eyebrow>Vade değişikliği</Eyebrow><Text className="font-inter text-sm text-warning">{data.termChangeReason}</Text></Card>
+          <Card className="gap-1.5"><Eyebrow>Vade Notu</Eyebrow><Text className="font-inter text-sm text-warning">{data.termChangeReason}</Text></Card>
         ) : null}
         {data.notes ? (
           <Card className="gap-1.5"><Eyebrow>Not</Eyebrow><Text className="font-inter text-sm text-foreground">{data.notes}</Text></Card>
         ) : null}
 
         {data.fileId && canReadFiles ? <Button label="Fatura Dosyasını Aç / Paylaş" onPress={() => void handleFile()} /> : null}
+        {canUpdate && status?.code !== 'cancelled' ? (
+          <Button label="Düzenle" variant="ghost" onPress={() => router.push(`/modal/invoice-form?id=${data.id}` as Href)} />
+        ) : null}
         {canUpdate && status && status.code !== 'cancelled' ? (
           <Button label="Faturayı İptal Et" variant="destructive" loading={cancel.isPending} onPress={handleCancel} />
         ) : null}
@@ -184,6 +230,7 @@ export default function AccountingInvoiceDetailScreen() {
           <Button label="Teklif" variant="ghost" onPress={() => router.push(`/(tabs)/modules/quotes/${data.quoteId}` as Href)} />
         ) : null}
         <Button label="Firma Kartı" variant="ghost" onPress={() => router.push(`/(tabs)/modules/companies/${data.companyId}` as Href)} />
+        {canDelete ? <Button label="Faturayı Arşivle" variant="destructive" loading={remove.isPending} onPress={handleDelete} /> : null}
 
         <Text className="text-center font-inter text-[11px] text-muted-foreground">Son güncelleme: {formatDateTime(data.updatedAt)}</Text>
       </ScrollView>

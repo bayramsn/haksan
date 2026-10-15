@@ -1,6 +1,7 @@
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient, type QueryKey } from '@tanstack/react-query';
 import { inventoryApi, orders, productsApi, reportsExtra } from './endpoints';
 import type { ProductUpdateInput } from '@haksan/shared';
+import { stockApi, type InventoryItemBody, type StockRow } from './products.api';
 
 const PAGE_SIZE = 50;
 
@@ -228,6 +229,50 @@ export function useOrderAction(kind: 'sales' | 'purchase', id: string) {
         qc.invalidateQueries({ queryKey: [kind === 'sales' ? 'sales-orders' : 'purchase-orders'] }),
       ]);
     },
+  });
+}
+
+/**
+ * Web Stok sayfası KPI, depo/marka dağılımı, kritik stok ve bağlı opsiyonel
+ * donanımı tüm stok kalemleri üzerinden hesaplar; mobil de hepsini yükler.
+ */
+export function useAllInventory() {
+  return useQuery({
+    queryKey: ['inventory', 'all'],
+    queryFn: async () => {
+      const rows: StockRow[] = [];
+      for (let page = 1; ; page += 1) {
+        const result = await stockApi.listPage({ page, pageSize: 200 });
+        rows.push(...result.data);
+        if (page >= result.meta.totalPages) break;
+      }
+      return rows;
+    },
+  });
+}
+
+export function useCreateWarehouse() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: stockApi.createWarehouse,
+    onSuccess: () => qc.invalidateQueries({ queryKey: inventoryKeys.warehouses }),
+  });
+}
+
+export function useCreateInventoryItem() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: InventoryItemBody) => stockApi.create(body),
+    onSuccess: () => settleInventory(qc)(),
+  });
+}
+
+/** `EditStockDialog` alan düzenlemesi. */
+export function useUpdateInventoryFields(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: Partial<InventoryItemBody>) => stockApi.updateFields(id, body),
+    onSuccess: () => settleInventory(qc)(),
   });
 }
 

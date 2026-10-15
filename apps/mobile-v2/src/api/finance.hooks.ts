@@ -1,6 +1,9 @@
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient, type QueryKey } from '@tanstack/react-query';
 import type { PaymentCreateInput } from '@haksan/shared';
-import { finance, reports } from './endpoints';
+import type { Paginated } from './client';
+import { finance, reports, type AccountingInvoice } from './endpoints';
+import { financeApi, type AccountingInvoiceBody, type PaymentUpdateBody } from './finance.api';
+import { mergeCashMovements } from '@/src/ui/finance/cash-movements';
 
 export {
   monthlyTotals,
@@ -149,5 +152,132 @@ export function useCompletedPayments(range: { from?: string; to?: string }) {
   return useQuery({
     queryKey: financeKeys.completedPayments(range),
     queryFn: () => reports.completedPayments(range),
+  });
+}
+
+const LOAD_ALL_PAGE_SIZE = 200;
+
+async function loadAll<T>(fetchPage: (page: number) => Promise<Paginated<T>>): Promise<T[]> {
+  const rows: T[] = [];
+  for (let page = 1; ; page += 1) {
+    const result = await fetchPage(page);
+    rows.push(...result.data);
+    if (page >= result.meta.totalPages) break;
+  }
+  return rows;
+}
+
+/**
+ * Web "Kasa Hareketleri" alacak + ödemeleri tek listede gösterir ve tüm KPI'ları
+ * bu birleşik listeden hesaplar; aynı sonuç için iki kaynak da tamamen yüklenir.
+ */
+export function useCashMovements() {
+  return useQuery({
+    queryKey: [...financeKeys.receivables, 'cash-movements'],
+    queryFn: async () => {
+      const [receivables, payments] = await Promise.all([
+        loadAll((page) => finance.receivables({ page, pageSize: LOAD_ALL_PAGE_SIZE })),
+        loadAll((page) => finance.payments({ page, pageSize: LOAD_ALL_PAGE_SIZE })),
+      ]);
+      return mergeCashMovements(receivables, payments);
+    },
+  });
+}
+
+function useFinanceInvalidation() {
+  const qc = useQueryClient();
+  return () =>
+    Promise.all([
+      qc.invalidateQueries({ queryKey: ['finance'] }),
+      qc.invalidateQueries({ queryKey: ['dashboard'] }),
+    ]);
+}
+
+export function useUpdatePayment(id: string) {
+  const invalidate = useFinanceInvalidation();
+  return useMutation({
+    mutationFn: (body: PaymentUpdateBody) => financeApi.updatePayment(id, body),
+    onSuccess: () => invalidate(),
+  });
+}
+
+export function useDeletePayment() {
+  const invalidate = useFinanceInvalidation();
+  return useMutation({
+    mutationFn: (id: string) => financeApi.deletePayment(id),
+    onSuccess: () => invalidate(),
+  });
+}
+
+export function useCompanyStatement(companyId: string, range: { from?: string; to?: string } = {}) {
+  return useQuery({
+    queryKey: ['finance', 'statement', companyId, range],
+    queryFn: () => financeApi.companyStatement(companyId, range),
+    enabled: Boolean(companyId),
+  });
+}
+
+export function usePaymentTermSuggestion(companyId: string, quoteId?: string) {
+  return useQuery({
+    queryKey: ['finance', 'payment-term-suggestion', companyId, quoteId ?? null],
+    queryFn: () => financeApi.paymentTermSuggestion({ companyId, quoteId }),
+    enabled: Boolean(companyId),
+    staleTime: 60_000,
+  });
+}
+
+/** Web: kategori sunucu filtresi, tür ve arama istemci tarafı; KPI tüm satırlardan. */
+export function useAllAccountingInvoices(invoiceCategory: 'commercial' | 'administrative') {
+  return useQuery({
+    queryKey: ['finance', 'invoices', 'all', invoiceCategory],
+    queryFn: async () => {
+      const rows: AccountingInvoice[] = [];
+      for (let page = 1; ; page += 1) {
+        const result = await financeApi.invoicesPage({ page, pageSize: LOAD_ALL_PAGE_SIZE, invoiceCategory });
+        rows.push(...result.data);
+        if (page * result.pageSize >= result.total || result.data.length === 0) break;
+      }
+      return rows;
+    },
+  });
+}
+
+export function useCreateAccountingInvoice() {
+  const invalidate = useFinanceInvalidation();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: AccountingInvoiceBody) => financeApi.createAccountingInvoice(body),
+    onSuccess: async () => {
+      await Promise.all([invalidate(), qc.invalidateQueries({ queryKey: ['inventory'] })]);
+    },
+  });
+}
+
+export function useUpdateAccountingInvoice(id: string) {
+  const invalidate = useFinanceInvalidation();
+  return useMutation({
+    mutationFn: (body: Partial<AccountingInvoiceBody>) => financeApi.updateAccountingInvoice(id, body),
+    onSuccess: () => invalidate(),
+  });
+}
+
+export function useDeleteAccountingInvoice() {
+  const invalidate = useFinanceInvalidation();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => financeApi.deleteAccountingInvoice(id),
+    onSuccess: async () => {
+      await Promise.all([invalidate(), qc.invalidateQueries({ queryKey: ['inventory'] })]);
+    },
+  });
+}
+
+/** Ödeme detayındaki "Fiş / Fatura" listesi: firmaya bağlı dosyalar. */
+export function useCompanyFiles(companyId: string) {
+  return useQuery({
+    queryKey: ['finance', 'company-files', companyId],
+    queryFn: () => financeApi.companyFiles(companyId, { page: 1, pageSize: 50 }),
+    enabled: Boolean(companyId),
+    select: (page) => page.data,
   });
 }
