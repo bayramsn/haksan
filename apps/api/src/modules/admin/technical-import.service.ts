@@ -13,6 +13,7 @@ import type {
   TechnicalImportLayout,
 } from '@haksan/shared';
 import { LASER_POWERS, LASER_MODELS, laserSelectionKey, laserTechnicalConfigurationSchema, parseLaserWorkbookSheets, resolveLaserProfile } from '@haksan/shared';
+import { loadXlsxWorkbook } from '../../shared/utils/spreadsheet-import';
 import type { DbClient } from '../../db/client';
 import { brands, productModels, productSpecs, productSpecTemplates } from '../../db/schema/products';
 import { productGroups, productSpecGroups, productTypes } from '../../db/schema/lookup';
@@ -430,12 +431,7 @@ export class TechnicalImportService {
       };
     }
 
-    const workbook = new ExcelJS.Workbook();
-    try {
-      await workbook.xlsx.load(buffer as any);
-    } catch {
-      throw new ValidationError('XLSX dosyasının yapısı geçersiz veya bozuk');
-    }
+    const workbook = await loadXlsxWorkbook(buffer);
     if (workbook.worksheets.length > MAX_SHEETS) throw new ValidationError(`Dosyada en fazla ${MAX_SHEETS} çalışma sayfası olabilir`);
     let totalCells = 0;
     const parsed: ReturnType<typeof rowsToTechnicalRows> = [];

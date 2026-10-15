@@ -43,6 +43,13 @@ export class FilesService {
 
   private async assertEntityVisible(entityType: string, entityId: string, actor: AuthContext): Promise<void> {
     switch (entityType) {
+      case 'catalog': {
+        if (entityId !== actor.tenantId || (!actor.roles.includes('super_admin') && !actor.permissions.has('products.read'))) {
+          throw new ForbiddenError('Genel katalog kütüphanesine erişim yetkiniz yok');
+        }
+        return;
+      }
+
       case 'company': {
         const visibility = await companyVisibilityFilter(this.db, actor);
         const [row] = await this.db
@@ -246,6 +253,9 @@ export class FilesService {
   }
 
   private async assertUploadTargetAccessible(entityType: string, entityId: string, actor: AuthContext): Promise<void> {
+    if (entityType === 'catalog' && !actor.roles.includes('super_admin') && !actor.permissions.has('products.update')) {
+      throw new ForbiddenError('Katalog yüklemek için ürün düzenleme yetkisi gerekli');
+    }
     if (entityType === 'product_draft') {
       if (entityId === 'new' && actor.permissions.has('products.create')) return;
       throw new ForbiddenError('Yeni ürün görseli yükleme yetkiniz yok');
@@ -447,6 +457,12 @@ export class FilesService {
         || file.sizeBytes > 25 * 1024 * 1024
       ) {
         throw new ValidationError('Dış teklif PDF, DOCX veya XLSX olmalı ve 25 MB sınırını aşmamalıdır');
+      }
+    }
+    if (input.entityType === 'catalog') {
+      await this.assertUploadTargetAccessible(input.entityType, input.entityId, actor);
+      if (file.bucket !== 'erp-quote-documents' || file.mimeType !== 'application/pdf' || file.extension !== 'pdf' || file.sizeBytes > 15 * 1024 * 1024) {
+        throw new ValidationError('Genel katalog PDF olmalı ve 15 MB sınırını aşmamalıdır');
       }
     }
     await this.assertEntityVisible(input.entityType, input.entityId, actor);

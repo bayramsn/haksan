@@ -126,6 +126,9 @@ import type {
   UserUpdateInput,
   VisitCreateInput,
   WarehouseCreateInput,
+  MailCampaignCreateInput,
+  MailCampaignRecipientStatus,
+  MailCampaignStatus,
   MailRecipients,
   MailSendInput,
   MailSendResult,
@@ -471,6 +474,30 @@ export const mailService = {
   /** Alıcı seçicisi: firmanın kontakları + kendi kullanıcılarımız. */
   recipients: (companyId?: string) =>
     api.get<MailRecipients>(`/mail/recipients${qs(companyId ? { companyId } : undefined)}`),
+};
+
+// ───── Toplu mail ─────
+export type MailCampaignSummary = {
+  id: string; subject: string; status: MailCampaignStatus; error: string | null; createdAt: string; completedAt: string | null;
+  createdBy: string; createdByName: string | null; total: number; sent: number; failed: number; skipped: number;
+};
+export type MailCampaignDetail = Omit<MailCampaignSummary, 'total' | 'sent' | 'failed' | 'skipped' | 'createdByName'> & {
+  body: string; fileIds: string[];
+  recipients: Array<{ id: string; email: string; name: string | null; companyName: string | null; companyId: string | null; status: MailCampaignRecipientStatus; error: string | null; sentAt: string | null }>;
+};
+export const mailCampaignService = {
+  list: () => api.get<MailCampaignSummary[]>('/mail/campaigns'),
+  get: (id: string) => api.get<MailCampaignDetail>(`/mail/campaigns/${id}`),
+  create: (body: MailCampaignCreateInput) => api.post<MailCampaignDetail>('/mail/campaigns', body),
+  cancel: (id: string) => api.post<MailCampaignDetail>(`/mail/campaigns/${id}/cancel`, {}),
+  resume: (id: string) => api.post<MailCampaignDetail>(`/mail/campaigns/${id}/resume`, {}),
+  candidates: (params: Record<string, string | undefined>, opts?: QueryRequestOptions) =>
+    api.get<{ rows: Array<{ email: string; name: string | null; companyName: string; companyId: string; contactId: string | null; detail: string | null }>; truncated: boolean }>(`/mail/campaigns/candidates${qs(params)}`, opts),
+  parseList: (body: { fileName: string; fileBase64: string }) =>
+    api.post<{ rows: Array<{ email: string; name?: string; companyName?: string }>; invalid: number }>('/mail/campaigns/parse-list', body),
+  suppressions: () => api.get<Array<{ id: string; email: string; reason: string | null; createdAt: string }>>('/mail/campaigns/suppressions'),
+  addSuppression: (body: { email: string; reason?: string }) => api.post<{ email: string }>('/mail/campaigns/suppressions', body),
+  removeSuppression: (id: string) => api.delete<{ deleted: boolean }>(`/mail/campaigns/suppressions/${id}`),
 };
 
 // ───── Contacts ─────
@@ -1222,6 +1249,10 @@ export const serviceService = {
 };
 
 // ───── Public complaint intake ─────
+export const publicMailService = {
+  unsubscribe: (token: string) => api.post<{ email: string }>(`/public/mail-unsubscribe/${encodeURIComponent(token)}`, {}),
+};
+
 export const publicComplaintService = {
   form: (slug: string, token: string) =>
     api.get<any>(`/public/service-complaints/${encodeURIComponent(slug)}/${encodeURIComponent(token)}`),

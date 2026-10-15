@@ -34,6 +34,7 @@ export type OperationNav =
   | "accounting-invoices"
   | "customer-balances"
   | "sales-price-list"
+  | "bulk-mail"
   | "products"
   | "stock"
   | "purchase-orders"

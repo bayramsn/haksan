@@ -8,6 +8,7 @@ import type {
   CompanyContactImportPreview,
   CompanyContactImportPreviewInput,
 } from '@haksan/shared';
+import { loadXlsxWorkbook } from '../../shared/utils/spreadsheet-import';
 import type { DbClient } from '../../db/client';
 import {
   companies,
@@ -241,8 +242,7 @@ export class CompanyContactImportService {
   }
 
   private async workbookRows(file: ImportFile, requiredHeaders: string[]): Promise<Array<{ rowNumber: number; row: RawRow }>> {
-    const workbook = new ExcelJS.Workbook();
-    await workbook.xlsx.load(this.decodeFile(file) as any);
+    const workbook = await loadXlsxWorkbook(this.decodeFile(file));
     if (!workbook.worksheets.length || workbook.worksheets.length > MAX_SHEETS) throw new ValidationError('Excel çalışma sayfası sayısı geçersiz');
     const sheet = workbook.worksheets[0];
     if (sheet.rowCount > MAX_ROWS + 1 || sheet.columnCount > MAX_COLUMNS) throw new ValidationError('Excel satır veya sütun sınırını aşıyor');
