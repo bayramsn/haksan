@@ -199,6 +199,8 @@ export const lookupRows = {
     { code: 'KARSI_AYNA', name: 'Karşı Ayna', sortOrder: 82 },
     { code: 'CANLI_TAKIM', name: 'Canlı Takım', sortOrder: 84 },
     { code: 'GENEL', name: 'Genel', sortOrder: 90 },
+    // Lazer teknik alanları (laser.ts) KESME grubunu kullanır; taze kurulumda eksik kalmasın.
+    { code: 'KESME', name: 'Kesme', sortOrder: 95 },
   ],
   equipment_types: [
     { code: 'standart', name: 'Standart Donanım', sortOrder: 10 },
