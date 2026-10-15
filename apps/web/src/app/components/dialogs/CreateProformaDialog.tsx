@@ -316,7 +316,7 @@ export function CreateProformaDialog({
             Yeni Proforma
           </DialogTitle>
           <DialogDescription>
-            Teklife bağlı proformayı tek ekranda hazırlayın: kalemler, toplamlar ve şartlar. Dosya yüklemek gerekmez.
+            Teklife bağlı proformayı tek ekranda hazırlayın: kalemler, toplamlar ve notlar. Dosya yüklemek gerekmez.
           </DialogDescription>
         </DialogHeader>
 
@@ -340,7 +340,7 @@ export function CreateProformaDialog({
                         <SummaryRow label="Teklif Tutarı" value={`${selectedOffer.amount.toLocaleString("tr-TR")} ${selectedOffer.currency}`} />
                       </dl>
                       {(paymentTerms || deliveryTerms || warrantyTerms) && (
-                        <p className="text-[11px] text-muted-foreground">Şartlar bağlı tekliften otomatik dolduruldu.</p>
+                        <p className="text-[11px] text-muted-foreground">Notlar bağlı teklifin şartlarından dolduruldu.</p>
                       )}
                     </div>
                   ) : (
@@ -444,9 +444,9 @@ export function CreateProformaDialog({
           />
 
           <DocumentTermsTemplateEditor
-            continuousNumbering
-            title="Proforma Şartları"
-            description="Şablon seçin veya metni düzenleyin. Değişiklik yalnız bu proformaye işlenir; bağlı teklifin şartları olduğu gibi kalır."
+            notesOnly
+            title="Proforma Notları"
+            description="Şablon seçin veya notları düzenleyin. Değişiklik yalnız bu proformaya işlenir; bağlı teklif olduğu gibi kalır."
             templateScope={PROFORMA_TERMS_TEMPLATE_SCOPE}
             noteTemplates={noteTemplates}
             selectedTemplateKey={termsTemplateKey}

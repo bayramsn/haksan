@@ -1,3 +1,5 @@
+import { MACHINE_FAMILIES, machineCategoryLabel } from "@haksan/shared";
+import { displayProductCategoryOptions, sameProductCategory, uniqueProductCategoryOptions } from "../../../lib/productCategories";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "../../ui/button";
 import { Input } from "../../ui/input";
@@ -15,7 +17,7 @@ import { useAuth } from "../../../../lib/auth";
 import { adminService, fileService } from "../../../../lib/services";
 import { resolveMediaUrl } from "../../../../lib/apiClient";
 import { useExplicitFullCompanyDirectory } from "../../../lib/companyServerData";
-import { DIVISION_MACHINE_TYPES, MACHINE_SPEC_TEMPLATES, PRODUCT_SPEC_GROUPS } from "../../../lib/productSpecTemplates";
+import { CNC_MACHINE_TYPES, DIVISION_MACHINE_TYPES, MACHINE_SPEC_TEMPLATES, PRODUCT_SPEC_GROUPS } from "../../../lib/productSpecTemplates";
 import { ALL_DIVISIONS, divisionCatalogGroupCode, isCncDivision } from "./settings-division";
 import { SettingsField, SettingsSection, SettingsSelect } from "./settings-controls";
 import { MultiSelect } from "../../ui/multi-select";
@@ -272,6 +274,8 @@ function BrandEditorFields({
   );
 }
 
+type SeedPlanItem = { lookup: string; code: string; name: string };
+
 export function LookupManagerTab({ divisionId: lookupDivisionId, onDivisionChange: setLookupDivisionId, requestedLookup, onOpenTechnicalInformation, onOpenTechnicalImport }: {
   divisionId: string; onDivisionChange: (id: string) => void;
   requestedLookup?: { name: string; requestId: number };
@@ -286,6 +290,7 @@ export function LookupManagerTab({ divisionId: lookupDivisionId, onDivisionChang
   const [selectedLookup, setSelectedLookup] = useState(PRODUCT_SETUP_START_LOOKUP);
   const [lookupRows, setLookupRows] = useState<LookupRow[]>([]);
   const [lookupBusy, setLookupBusy] = useState(false);
+  const [seedPreview, setSeedPreview] = useState<SeedPlanItem[] | null>(null);
   const [lookupSearch, setLookupSearch] = useState("");
   const [lookupRowSearch, setLookupRowSearch] = useState("");
   const [lookupStatusFilter, setLookupStatusFilter] = useState<LookupStatusFilter>("active");
@@ -328,7 +333,7 @@ export function LookupManagerTab({ divisionId: lookupDivisionId, onDivisionChang
   const selectedDivisionIncludesShared = showShared || isCncDivision(divisions, lookupDivisionId);
   // Üniversal / Sac İşleme için tek tıkla önerilen taksonomi kurulumu.
   const selectedDivisionCatalogCode = divisionCatalogGroupCode(divisions, lookupDivisionId);
-  const canSeedDivisionSetup = lookupDivisionId !== ALL_DIVISIONS && (selectedDivisionCatalogCode === "UNIVERSAL" || selectedDivisionCatalogCode === "SAC_ISLEME");
+  const canSeedDivisionSetup = lookupDivisionId !== ALL_DIVISIONS && Boolean(selectedDivisionCatalogCode);
   const selectedLookupUsage = lookupUsage[selectedLookup] ?? ["İlgili CRM formları"];
   const brandCompanyOptions = useMemo<ComboboxOption[]>(() => {
     const eligible = customers
@@ -359,12 +364,20 @@ export function LookupManagerTab({ divisionId: lookupDivisionId, onDivisionChang
   // Seçili listenin üst bağ tanımı (kategori→grup, alt kategori→kategori, tip→alt kategori).
   const parentConfig = LOOKUP_PARENTS[selectedLookup];
   const isSpecGroupLookup = selectedLookup === SPEC_GROUP_LOOKUP;
-  const parentNameById = useMemo(() => new Map(parentRows.map((row) => [row.id, row.name])), [parentRows]);
+  const categoryDisplayName = (row: LookupRow) => displayProductCategoryOptions([{ code: row.code, label: row.name }],
+    divisionCatalogGroupCode(divisions, row.divisionId ?? (lookupDivisionId !== ALL_DIVISIONS ? lookupDivisionId : undefined)))[0].label;
+  const parentNameById = new Map(parentRows.map((row) => [row.id,
+    parentConfig?.lookup === "product-categories" ? categoryDisplayName(row) : row.name]));
   const productTypeNameById = useMemo(() => new Map(productTypeRows.map((row) => [row.id, row.name])), [productTypeRows]);
   const parentValueOf = (row: LookupRow) => (parentConfig ? row[parentConfig.field] ?? null : null);
+  const parentOptions = (rows: LookupRow[], selectedId?: string) => {
+    const options = rows.map((row) => ({ code: row.id, label: parentConfig?.lookup === "product-categories" ? categoryDisplayName(row) : row.name, identityLabel: row.name, productGroupCode: row.divisionId ?? row.productGroupId ?? undefined }));
+    return (parentConfig?.lookup === "product-categories" ? uniqueProductCategoryOptions(options, selectedId) : options)
+      .map((option) => ({ value: option.code, label: option.label }));
+  };
   const parentOptionList = (emptyLabel: string) => [
     { value: "", label: emptyLabel },
-    ...parentRows.map((row) => ({ value: row.id, label: row.name })),
+    ...parentOptions(parentRows, quickParentId || (parentFilterId !== "all" ? parentFilterId : "")),
   ];
   const specGroupTypeSummary = (row: LookupRow) => {
     const ids = row.productTypeIds ?? [];
@@ -402,13 +415,20 @@ export function LookupManagerTab({ divisionId: lookupDivisionId, onDivisionChang
       // Üst bağ filtresi: seçilen üste bağlı kayıtlar + "Tümü" (bağsız) kayıtlar.
       if (parentConfig && parentFilterId !== "all") {
         const parentId = row[parentConfig.field] ?? null;
-        if (parentId != null && parentId !== parentFilterId) return false;
+        if (parentId != null && parentConfig.lookup === "product-categories") {
+          const currentParent = parentRows.find((parent) => parent.id === parentId);
+          const selectedParent = parentRows.find((parent) => parent.id === parentFilterId);
+          if ((currentParent?.divisionId ?? currentParent?.productGroupId) !== (selectedParent?.divisionId ?? selectedParent?.productGroupId)) return false;
+        }
+        if (parentId != null && (parentConfig.lookup === "product-categories"
+          ? !sameProductCategory(parentRows.map((parent) => ({ code: parent.id, label: parent.name })), parentId, parentFilterId)
+          : parentId !== parentFilterId)) return false;
       }
       if (!query) return true;
       return [row.name, row.description ?? "", row.province ?? "", row.code, row.companyName ?? "", row.companyNo ?? ""]
         .some((value) => String(value).toLocaleLowerCase("tr-TR").includes(query));
     });
-  }, [lookupRows, lookupRowSearch, lookupStatusFilter, parentConfig, parentFilterId, isDivisionScoped, selectedDivisionIncludesShared]);
+  }, [lookupRows, lookupRowSearch, lookupStatusFilter, parentConfig, parentFilterId, parentRows, isDivisionScoped, selectedDivisionIncludesShared]);
 
   const reorderLookupRows = async (sourceId: string, targetId: string) => {
     if (sourceId === targetId || lookupBusy) return;
@@ -496,12 +516,17 @@ export function LookupManagerTab({ divisionId: lookupDivisionId, onDivisionChang
   // Bölümde veya Tümü'nde aynı kod/ad zaten varsa o kayıt atlanır; hiçbir mevcut kayda dokunulmaz.
   // Kayıtlar zincire bağlı kurulur: kategori→grup, alt kategori→kategori, tip→alt kategori;
   // teknik bilgi grupları da katalog şablonuna göre ilgili tezgah tiplerine atanır.
-  const seedDivisionSetup = async () => {
+  // dryRun: nothing is written; the planned rows are returned for the confirmation dialog.
+  const seedDivisionSetup = async (dryRun: boolean): Promise<SeedPlanItem[] | undefined> => {
     const groupCode = selectedDivisionCatalogCode;
-    if (!canSeedDivisionSetup || !groupCode || groupCode === "CNC") return;
+    if (!canSeedDivisionSetup || !groupCode) return;
+    const planned: SeedPlanItem[] = [];
+    // CNC machine types may hang off another division row (shared lookups); any copy outside
+    // this tenant's Üniversal/Sac İşleme divisions counts as existing, so no duplicate type is opened.
+    const otherOwnDivisions = new Set(divisions.filter((d) => divisionCatalogGroupCode(divisions, d.id) !== "CNC").map((d) => d.id));
     const divisionName = divisionLabel(lookupDivisionId);
-    const machineTypes = DIVISION_MACHINE_TYPES.filter((item) => item.productGroupCode === groupCode);
-    const subcategoryByCode = new Map(machineTypes.map((item) => [item.subcategoryCode, item.subcategoryLabel]));
+    const machineTypes = [...CNC_MACHINE_TYPES, ...DIVISION_MACHINE_TYPES].filter((item) => item.productGroupCode === groupCode);
+    const subcategoryByCode = new Map(MACHINE_FAMILIES[groupCode].map((item) => [item.code, item.label]));
     const specGroupCodes = new Set(
       machineTypes.flatMap((item) => (MACHINE_SPEC_TEMPLATES[item.code] ?? []).map((entryItem) => entryItem.group)),
     );
@@ -511,7 +536,7 @@ export function LookupManagerTab({ divisionId: lookupDivisionId, onDivisionChang
       {
         lookup: "product-categories",
         rows: [
-          { code: "TEZGAH", name: "Tezgah" },
+          { code: "TEZGAH", name: machineCategoryLabel(groupCode) ?? "Tezgah" },
           { code: "YEDEK_PARCA", name: "Yedek Parça" },
           { code: "OPSIYONEL_DONANIM", name: "Opsiyonel Donanım" },
           { code: "AKSESUAR", name: "Aksesuar" },
@@ -558,7 +583,12 @@ export function LookupManagerTab({ divisionId: lookupDivisionId, onDivisionChang
         const idByCode = new Map<string, string>();
         idsByLookup.set(lookup, idByCode);
         try {
-          const existing = await adminService.lookupRows(lookup, { divisionId: lookupDivisionId });
+          const crossDivisionTypes = groupCode === "CNC" && lookup === "product-types";
+          const loaded = await adminService.lookupRows(lookup, crossDivisionTypes ? undefined : { divisionId: lookupDivisionId });
+          const existing = (loaded ?? []).filter((row: any) =>
+            lookup === "product-spec-groups" || row.divisionId === lookupDivisionId ||
+            (!row.divisionId && (lookup === "product-groups" || groupCode === "CNC")) ||
+            (crossDivisionTypes && row.divisionId && !otherOwnDivisions.has(row.divisionId)));
           existingKeys = new Set(
             (existing ?? []).flatMap((row: any) => [normalizeHeader(String(row.code ?? "")), normalizeHeader(String(row.name ?? ""))]),
           );
@@ -566,7 +596,8 @@ export function LookupManagerTab({ divisionId: lookupDivisionId, onDivisionChang
             if (row?.code && row?.id) idByCode.set(normalizeHeader(String(row.code)), String(row.id));
           }
         } catch {
-          // Liste alınamazsa güvenli taraf: eklemeyi dene, mükerrer 409'da atlanır.
+          failures.push(`${lookupLabels[lookup] ?? lookup}: mevcut kayıtlar yüklenemedi`);
+          continue;
         }
         let order = 0;
         for (const row of rows) {
@@ -579,6 +610,15 @@ export function LookupManagerTab({ divisionId: lookupDivisionId, onDivisionChang
             row.parentLookup && row.parentCode
               ? idsByLookup.get(row.parentLookup)?.get(normalizeHeader(row.parentCode)) ?? null
               : undefined;
+          if (row.parentLookup && !parentId) {
+            failures.push(`${lookupLabels[lookup] ?? lookup}: ${row.name} için üst kayıt bulunamadı`);
+            continue;
+          }
+          if (dryRun) {
+            planned.push({ lookup, code: row.code, name: row.name });
+            idByCode.set(normalizeHeader(row.code), `planned:${row.code}`);
+            continue;
+          }
           const productTypeIds = row.specGroupTypeCodes
             ?.map((typeCode) => idsByLookup.get("product-types")?.get(normalizeHeader(typeCode)))
             .filter((id): id is string => Boolean(id));
@@ -599,6 +639,10 @@ export function LookupManagerTab({ divisionId: lookupDivisionId, onDivisionChang
             else failures.push(`${lookupLabels[lookup] ?? lookup}: ${row.name}`);
           }
         }
+      }
+      if (dryRun) {
+        if (failures.length) toast.error(`${failures.length} kayıt planlanamadı`, { description: failures.slice(0, 3).join(", ") });
+        return planned;
       }
       if (failures.length) {
         toast.error(`${failures.length} kayıt eklenemedi`, { description: failures.slice(0, 3).join(", ") });
@@ -1039,17 +1083,42 @@ export function LookupManagerTab({ divisionId: lookupDivisionId, onDivisionChang
                 variant="outline"
                 className="gap-1 whitespace-nowrap"
                 disabled={lookupBusy}
-                onClick={() => void seedDivisionSetup()}
+                onClick={() => void seedDivisionSetup(true).then((items) => items && setSeedPreview(items))}
               >
                 <Sparkles className="size-4" /> Önerilen {selectedDivisionLabel} kurulumunu yükle
               </Button>
             </TooltipTrigger>
             <TooltipContent className="max-w-xs">
-              Tezgah tiplerini, kategori/alt kategori yapısını ve teknik bilgi gruplarını hazır ekler. Mevcut kayıtlara dokunulmaz;
-              aynı ad/kod varsa atlanır.
+              Önce eklenecek kayıtları listeler; onaydan sonra ekler. Mevcut kayıtlara dokunulmaz, aynı ad/kod varsa atlanır.
+              CNC'de başka bölüme bağlı aynı kodlu tip de mevcut sayılır.
             </TooltipContent>
           </Tooltip>
         )}
+        <Dialog open={seedPreview !== null} onOpenChange={(open) => !open && setSeedPreview(null)}>
+          <DialogContent className="max-w-lg">
+            <DialogHeader>
+              <DialogTitle>Önerilen {selectedDivisionLabel} kurulumu</DialogTitle>
+              <DialogDescription>
+                {seedPreview?.length ? `${seedPreview.length} kayıt eklenecek. Mevcut kayıtlar değişmez.` : "Eklenecek kayıt yok; kurulum zaten tamam."}
+              </DialogDescription>
+            </DialogHeader>
+            {!!seedPreview?.length && (
+              <ul className="max-h-72 space-y-1 overflow-y-auto text-sm">
+                {seedPreview.map((item) => (
+                  <li key={`${item.lookup}:${item.code}`} className="flex justify-between gap-3 border-b border-border/60 py-1">
+                    <span>{item.name}</span>
+                    <span className="text-xs text-muted-foreground">{lookupLabels[item.lookup] ?? item.lookup}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setSeedPreview(null)}>Vazgeç</Button>
+              <Button type="button" disabled={!seedPreview?.length || lookupBusy}
+                onClick={() => { setSeedPreview(null); void seedDivisionSetup(false); }}>Ekle</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
 
       <div className="mb-4 flex flex-wrap items-center gap-2">
@@ -1223,7 +1292,7 @@ export function LookupManagerTab({ divisionId: lookupDivisionId, onDivisionChang
                     label={parentConfig.label}
                     value={parentFilterId}
                     onChange={setParentFilterId}
-                    options={[{ value: "all", label: "Tümü" }, ...parentRows.map((row) => ({ value: row.id, label: row.name }))]}
+                    options={[{ value: "all", label: "Tümü" }, ...parentOptions(parentRows, parentFilterId)]}
                   />
                 )}
               </div>
@@ -1335,7 +1404,7 @@ export function LookupManagerTab({ divisionId: lookupDivisionId, onDivisionChang
                               </p>
                             </div>
                           </div>
-                        ) : row.name}
+                        ) : selectedLookup === "product-categories" ? categoryDisplayName(row) : row.name}
                       </td>
                       <td className="max-w-[250px] px-3 py-2 text-xs text-muted-foreground" title={isBrandLookup ? row.companyName ?? undefined : row.description ?? undefined}>
                         {isBrandLookup ? (
@@ -1534,7 +1603,7 @@ export function LookupManagerTab({ divisionId: lookupDivisionId, onDivisionChang
                 onChange={(v) => setEditForm({ ...editForm, parentId: v })}
                 options={[
                   { value: "", label: "Tümü (bağımsız)" },
-                  ...editParentRows.map((row) => ({ value: row.id, label: row.name })),
+                  ...parentOptions(editParentRows, editForm.parentId),
                   // Farklı bölümdeki üst kayıt listede yoksa mevcut değeri koru.
                   ...(editForm.parentId && !editParentRows.some((row) => row.id === editForm.parentId)
                     ? [{ value: editForm.parentId, label: "Mevcut üst kayıt (başka bölümde)" }]

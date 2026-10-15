@@ -337,6 +337,7 @@ export const rolePermissionMatrix: Record<string, Record<string, string[] | '*'>
     activities: '*',
     calendar: '*',
     tasks: '*',
+    trade_fairs: '*',
     competitors: '*',
     brands: '*',
     products: '*',
@@ -369,6 +370,8 @@ export const rolePermissionMatrix: Record<string, Record<string, string[] | '*'>
   sales: {
     calendar: '*',
     tasks: ['read', 'create', 'update'],
+    // Fuar alanı bütün departmanlara açık; silme kuralı serviste.
+    trade_fairs: ['read', 'create', 'update', 'delete'],
     companies: '*',
     contacts: '*',
     leads: '*',
@@ -408,6 +411,8 @@ export const rolePermissionMatrix: Record<string, Record<string, string[] | '*'>
   service: {
     calendar: '*',
     tasks: ['read', 'create', 'update'],
+    // Fuar alanı bütün departmanlara açık; silme kuralı serviste.
+    trade_fairs: ['read', 'create', 'update', 'delete'],
     companies: ['read'],
     contacts: ['read'],
     activities: ['read', 'convert'],
@@ -422,6 +427,8 @@ export const rolePermissionMatrix: Record<string, Record<string, string[] | '*'>
   finance: {
     calendar: '*',
     tasks: ['read', 'create', 'update'],
+    // Fuar alanı bütün departmanlara açık; silme kuralı serviste.
+    trade_fairs: ['read', 'create', 'update', 'delete'],
     companies: ['read'],
     contacts: ['read'],
     quotes: ['read', 'approve', 'reject'],
@@ -445,6 +452,8 @@ export const rolePermissionMatrix: Record<string, Record<string, string[] | '*'>
   stock: {
     calendar: '*',
     tasks: ['read', 'create', 'update'],
+    // Fuar alanı bütün departmanlara açık; silme kuralı serviste.
+    trade_fairs: ['read', 'create', 'update', 'delete'],
     // Sevkiyat/teslimat için hedef firma ve ilgili kişiyi okuyabilmeli.
     companies: ['read'],
     contacts: ['read'],

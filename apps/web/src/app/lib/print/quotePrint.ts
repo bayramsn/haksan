@@ -6,7 +6,7 @@ import { publicProductLabel, trShortDate } from "./core";
 import { snapshotAddressLine } from "./core";
 import { applyVatRateToNotes } from "./notes";
 import { printSignatureFromDocumentSnapshot } from "./signature";
-import { printableTechnicalSpecs } from "./technicalSpecs";
+import { printableTechnicalSpecs, snapshotStandardEquipment } from "./technicalSpecs";
 import { laserSnapshotPrintSpecs } from "../laserProductSnapshot";
 import type { LaserTechnicalConfiguration } from "@haksan/shared";
 import type { QuoteHeaderLogoMode, QuotePrintData } from "./templates";
@@ -236,7 +236,7 @@ export function buildQuotePrintData(input: QuoteBuildInput, quote: QuoteDetail):
       specs: savedConfiguration
         ? printableTechnicalSpecs(laserSnapshotPrintSpecs(savedConfiguration, savedSpecs))
         : fullProductSpecs(catalogProduct, savedSpecs),
-      standartDonanim: catalogProduct?.standardEquipment ?? [],
+      standartDonanim: snapshotStandardEquipment(savedSpecs) ?? catalogProduct?.standardEquipment ?? [],
       opsiyonelDonanim: selectedOptions.length ? selectedOptions : (catalogProduct?.optionalEquipment ?? []),
     };
   });

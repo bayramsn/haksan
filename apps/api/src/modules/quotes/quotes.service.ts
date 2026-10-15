@@ -8,7 +8,7 @@ import { companies, companyAddresses, companyEmails, companyPhones, contactCompa
 import { opportunities, opportunityApprovals, salesActivities } from '../../db/schema/crm';
 import { receivables } from '../../db/schema/finance';
 import { inventoryItems } from '../../db/schema/inventory';
-import { brands, productEquipmentItems, productModels } from '../../db/schema/products';
+import { brands, productEquipmentItems, productModels, productOptionSets, productOptionValues } from '../../db/schema/products';
 import { departments, divisions } from '../../db/schema/tenants';
 import { users } from '../../db/schema/users';
 import { files, fileLinks } from '../../db/schema/files';
@@ -42,6 +42,7 @@ import type {
   QuoteCreateInput,
   QuoteItemCreateInput,
   QuoteItemUpdateInput,
+  QuoteItemCompatibility,
   QuoteStatusChangeInput,
   QuoteTermsUpsertInput,
   QuoteUpdateInput,
@@ -60,9 +61,11 @@ import {
   requiresDiscountApproval,
   requiresReferencePriceApproval,
   quoteItemCompatibilitySchema,
+  laserSelectionKey,
 } from '@haksan/shared';
 import { FxService } from '../fx/fx.service';
 import { quoteLaserSnapshot } from './quote-laser-snapshot';
+import { sameOptionSelection, snapshotProductOptions } from './quote-product-options';
 import { SignaturesService } from '../signatures/signatures.service';
 import { buildPaginated, pageOffset } from '../../shared/utils/pagination';
 import { lookupIdByCode } from '../../shared/utils/lookup.helper';
@@ -1832,10 +1835,54 @@ export class QuotesService {
   }
 
   // ────────── ITEMS ──────────
+  private async productOptionSnapshot(
+    compatibility: QuoteItemCompatibility | null | undefined,
+    product: typeof productModels.$inferSelect | null,
+    actor: AuthContext,
+    saved?: QuoteItemCompatibility | null,
+  ): Promise<QuoteItemCompatibility | null | undefined> {
+    const unchangedOptions = saved && sameOptionSelection(compatibility?.selectedProductOptions, saved.selectedProductOptions);
+    const changedProfile = unchangedOptions && saved.selectedProductOptions?.length && compatibility?.technicalConfiguration
+      && (!saved.technicalConfiguration || laserSelectionKey(compatibility.technicalConfiguration.selection) !== laserSelectionKey(saved.technicalConfiguration.selection));
+    if (unchangedOptions && !changedProfile) {
+      const variableKeys = new Set(product?.baseModelConfiguration?.variableSpecKeys ?? []);
+      return { ...compatibility!,
+        ...(variableKeys.size ? { technicalSpecs: [
+          ...(compatibility?.technicalSpecs ?? []).filter(spec => !variableKeys.has(spec.key)),
+          ...saved.technicalSpecs.filter(spec => variableKeys.has(spec.key)),
+        ] } : {}),
+        selectedProductOptions: saved.selectedProductOptions ? structuredClone(saved.selectedProductOptions) : undefined };
+    }
+    const base = product?.laserBaseConfiguration;
+    if (!product) {
+      if (compatibility?.selectedProductOptions?.length) throw new ValidationError('Opsiyonel donanım için baz model seçin');
+      return compatibility;
+    }
+    const sets = await this.db.query.productOptionSets.findMany({
+      where: and(eq(productOptionSets.productModelId, product.id), eq(productOptionSets.tenantId, actor.tenantId), isNull(productOptionSets.deletedAt)),
+    });
+    if (!base && !product.baseModelConfiguration && !compatibility?.selectedProductOptions?.length && !sets.some(set => set.configurationKind)) return compatibility;
+    const rows = sets.length ? await this.db.select({
+      optionSetId: productOptionSets.id, optionValueId: productOptionValues.id,
+      name: productOptionSets.name, value: productOptionValues.value,
+      priceDelta: productOptionValues.priceDelta, currencyCode: currencies.code,
+      configurationKind: productOptionSets.configurationKind,
+      sourceModelCode: productOptionValues.sourceModelCode, powerKw: productOptionValues.powerKw, cabinType: productOptionValues.cabinType,
+    }).from(productOptionValues)
+      .innerJoin(productOptionSets, eq(productOptionValues.optionSetId, productOptionSets.id))
+      .leftJoin(currencies, eq(productOptionValues.currencyId, currencies.id))
+      .where(and(inArray(productOptionValues.optionSetId, sets.map((set) => set.id)), eq(productOptionValues.tenantId, actor.tenantId), isNull(productOptionValues.deletedAt))) : [];
+    return snapshotProductOptions(compatibility ?? {
+      machineIds: [], brands: [], controlUnits: [], supplierIds: [], technicalSpecs: [],
+    }, rows, sets.filter((set) => set.configurationKind || (product.baseModelConfiguration && product.baseModelConfiguration.configurations.length > 1 && rows.some(row => row.optionSetId === set.id && row.sourceModelCode))).map((set) => set.id), base, product.baseModelConfiguration);
+  }
+
   async addItem(quoteId: string, input: QuoteItemCreateInput, actor: AuthContext) {
     const quote = await this.get(quoteId, actor);
     this.assertQuoteMutable(quote);
     const product = input.productModelId ? await this.assertProductModel(input.productModelId, actor, quote.divisionId) : null;
+    if (product?.catalogHidden) throw new ValidationError('Bu kaynak model arşivlendi; teklif için seri baz modelini seçin');
+    const compatibility = await this.productOptionSnapshot(input.compatibility, product, actor);
     if (input.inventoryItemId) await this.assertInventoryItem(input.inventoryItemId, actor, quote.divisionId);
     this.assertItemDiscount(input.quantity, input.unitPrice, input.discountAmount);
     const t = this.calcItem(input.quantity, input.unitPrice, input.discountAmount, input.vatRate);
@@ -1858,7 +1905,7 @@ export class QuotesService {
         vatAmount: t.vatAmount.toFixed(4),
         lineTotal: t.lineTotal.toFixed(4),
         sortOrder: input.sortOrder,
-        compatibility: quoteLaserSnapshot(input.compatibility, product?.technicalConfiguration),
+        compatibility: quoteLaserSnapshot(compatibility, product?.technicalConfiguration),
         nationalized: input.nationalized ?? false,
       })
       .returning();
@@ -1884,9 +1931,16 @@ export class QuotesService {
       if ((input as any)[k] !== undefined) patch[k] = ((input as any)[k] as number | undefined)?.toString();
     }
     const productChanged = input.productModelId !== undefined && input.productModelId !== existing.productModelId;
+    if (productChanged && product?.catalogHidden) throw new ValidationError('Bu kaynak model arşivlendi; teklif için seri baz modelini seçin');
     if (input.compatibility !== undefined || productChanged) {
       const savedCompatibility = quoteItemCompatibilitySchema.safeParse(existing.compatibility);
-      patch.compatibility = quoteLaserSnapshot(input.compatibility,
+      const profileChanged = savedCompatibility.success && savedCompatibility.data.selectedProductOptions?.length && input.compatibility?.technicalConfiguration
+        && (!savedCompatibility.data.technicalConfiguration || laserSelectionKey(input.compatibility.technicalConfiguration.selection) !== laserSelectionKey(savedCompatibility.data.technicalConfiguration.selection));
+      const optionProduct = product ?? (existing.productModelId && !productChanged && (profileChanged || !sameOptionSelection(input.compatibility?.selectedProductOptions, savedCompatibility.success ? savedCompatibility.data.selectedProductOptions : undefined))
+        ? await this.assertProductModel(existing.productModelId, actor, quote.divisionId) : null);
+      const compatibility = await this.productOptionSnapshot(input.compatibility, optionProduct, actor,
+        !productChanged && savedCompatibility.success ? savedCompatibility.data : null);
+      patch.compatibility = quoteLaserSnapshot(compatibility,
         productChanged ? product?.technicalConfiguration : savedCompatibility.success ? savedCompatibility.data.technicalConfiguration : null);
     }
     if (input.nationalized !== undefined) patch.nationalized = input.nationalized;

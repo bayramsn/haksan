@@ -75,6 +75,7 @@ import type {
   ProductCreateInput,
   ProductDetailsReplaceInput,
   ProductEquipmentCreateInput,
+  ProductStandardEquipmentUpdateInput,
   ProductSpecCreateInput,
   ProductSpecTemplateCreateInput,
   ProductSpecTemplateUpdateInput,
@@ -462,6 +463,11 @@ export const notificationService = {
 };
 
 export const mailService = {
+  signatureUsers: () => api.get<{ id: string; name: string; email: string; hasMailAccount: boolean }[]>('/mail/signature/users'),
+  userSignature: (id: string) => api.get<{ image: string | null; filename: string | null }>(`/mail/signature/users/${id}`),
+  saveUserSignature: (id: string, body: { image: string | null; filename: string | null }) => api.put<{ image: string | null; filename: string | null }>(`/mail/signature/users/${id}`, body),
+  signature: (signature: string | null) => api.put<UserMailAccountStatus>('/mail/signature', { signature }),
+  saveSignature: (body: { image: string | null; filename: string | null }) => api.put<UserMailAccountStatus>('/mail/signature/image', body),
   account: () => api.get<UserMailAccountStatus>('/mail/account'),
   connect: (body: UserMailAccountUpsertInput) => api.put<UserMailAccountStatus>('/mail/account', body),
   disconnect: () => api.delete<{ ok: true }>('/mail/account'),
@@ -573,6 +579,8 @@ export interface CalendarEventDTO {
   contactId: string | null;
   opportunityId: string | null;
   visitId: string | null;
+  /** Müşteri ziyaretinin CRM aktivitesi; raporlar ziyareti bu kayıttan sayar. */
+  activityId: string | null;
   completedAt: string | null;
   /** Atayan kişi. owner_user_id'den farklıysa kayıt biri tarafından atanmıştır. */
   createdBy: string | null;
@@ -741,6 +749,51 @@ export const tasksService = {
   remove: (id: string) => api.delete<{ deleted: boolean }>(`/tasks/${id}`),
 };
 
+// ───── Fuar görüşmeleri ─────
+export type TradeFairFollowUp = {
+  contacted: boolean;
+  contactMethod: 'phone' | 'whatsapp' | 'email' | 'in_person' | 'other' | null;
+  contactDate: string | null;
+  contactNotes: string | null;
+  offerSent: boolean;
+  customerConverted: boolean;
+};
+export type TradeFairContactDTO = TradeFairFollowUp & {
+  id: string;
+  fairName: string;
+  companyName: string;
+  contactName: string;
+  contactTitle: string | null;
+  mobilePhone: string | null;
+  email: string | null;
+  country: string;
+  province: string | null;
+  district: string | null;
+  productCategory: string | null;
+  productType: string | null;
+  notes: string | null;
+  metByUserId: string | null;
+  metByName: string | null;
+  visitorCount: number;
+  createdBy: string | null;
+  createdAt: string;
+};
+export type TradeFairContactBody = Omit<TradeFairContactDTO, "id" | "metByName" | "createdBy" | "createdAt">;
+export type TradeFairSummary = {
+  fairs: Array<{ name: string; total: number; lastAt: string }>;
+  byUser: Array<{ userId: string | null; fullName: string | null; meetings: number; people: number }>;
+};
+
+export const tradeFairService = {
+  list: (params: { fairName?: string; q?: string; metByUserId?: string; page?: number; pageSize?: number } = {}) =>
+    api.get<Paginated<TradeFairContactDTO>>(`/trade-fairs${qs(params)}`),
+  summary: (fairName?: string) => api.get<TradeFairSummary>(`/trade-fairs/summary${qs({ fairName })}`),
+  staff: () => api.get<Array<{ id: string; fullName: string }>>('/trade-fairs/staff'),
+  create: (body: TradeFairContactBody) => api.post<TradeFairContactDTO>('/trade-fairs', body),
+  update: (id: string, body: Partial<TradeFairContactBody>) => api.patch<TradeFairContactDTO>(`/trade-fairs/${id}`, body),
+  remove: (id: string) => api.delete<{ deleted: boolean }>(`/trade-fairs/${id}`),
+};
+
 export const calendarService = {
   events: (params: { from: string; to: string; ownerUserId?: string; includeArchived?: boolean }) =>
     api.get<CalendarEventDTO[]>(`/calendar/events${qs(params)}`),
@@ -782,8 +835,14 @@ export const productService = {
   commitImport: (body: { rows: ProductImportRow[]; mode?: 'upsert' | 'create_only'; replaceDetails?: boolean; divisionId?: string }) =>
     api.post<{ rows: ProductImportRow[]; summary: ProductImportSummary }>('/products/import/commit', body),
   specs: (id: string) => api.get<any[]>(`/products/${id}/specs`),
-  specTemplates: (productTypeCode?: string) => api.get<any[]>(`/product-spec-templates${qs({ productTypeCode })}`),
+  specTemplates: (productTypeCode?: string, divisionId?: string) => api.get<any[]>(`/product-spec-templates${qs({ productTypeCode, divisionId })}`),
   options: (id: string) => api.get<any[]>(`/products/${id}/options`),
+  addOptionSet: (id: string, body: unknown) => api.post<any>(`/products/${id}/options`, body),
+  updateOptionSet: (id: string, body: unknown) => api.patch<any>(`/products/options/${id}`, body),
+  archiveOptionSet: (id: string) => api.delete<any>(`/products/options/${id}`),
+  addOptionValue: (id: string, body: unknown) => api.post<any>(`/products/options/${id}/values`, body),
+  updateOptionValue: (id: string, body: unknown) => api.patch<any>(`/products/options/values/${id}`, body),
+  archiveOptionValue: (id: string) => api.delete<any>(`/products/options/values/${id}`),
   addSpec: (id: string, body: ProductSpecCreateInput) => api.post<any>(`/products/${id}/specs`, body),
   equipment: (id: string) => api.get<any[]>(`/products/${id}/equipment`),
   compatibleOptionalEquipment: (id: string) => api.get<any[]>(`/products/${id}/compatible-optional-equipment`),
@@ -793,6 +852,7 @@ export const productService = {
     ),
   addEquipment: (id: string, body: ProductEquipmentCreateInput) => api.post<any>(`/products/${id}/equipment`, body),
   replaceDetails: (id: string, body: ProductDetailsReplaceInput) => api.put<any>(`/products/${id}/details`, body),
+  updateStandardEquipment: (id: string, body: ProductStandardEquipmentUpdateInput) => api.put<{ ok: boolean }>(`/products/${id}/standard-equipment`, body),
   listPriceLists: (params?: Record<string, string | number | undefined>) => api.get<Paginated<any>>(`/price-lists${qs(params)}`),
   createPriceList: (body: PriceListCreateInput) => api.post<any>('/price-lists', body),
   updatePriceList: (id: string, body: PriceListUpdateInput) => api.patch<any>(`/price-lists/${id}`, body),

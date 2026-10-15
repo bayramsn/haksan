@@ -111,8 +111,8 @@ describe('ERP flow', () => {
         productModelId,
         description: `CNC-${'UZUNOZELLIK'.repeat(175)}`,
         quantity: 1,
-        unitPrice: 100000,
-        discountAmount: 5000,
+        unitPrice: productBasePrice,
+        discountAmount: 0,
         vatRate: 20,
         sortOrder: 0,
     });
@@ -123,10 +123,10 @@ describe('ERP flow', () => {
       .get(`/api/v1/quotes/${quoteId}`)
       .set('Authorization', `Bearer ${adminToken}`);
     expect(got.status).toBe(200);
-    // subtotal = 100000 - 5000 = 95000; vat = 19000; grand = 114000
-    expect(Number(got.body.subtotal)).toBe(95000);
-    expect(Number(got.body.vatAmount)).toBe(19000);
-    expect(Number(got.body.grandTotal)).toBe(114000);
+    // The seeded price can change; keep this flow above the approval threshold.
+    expect(Number(got.body.subtotal)).toBe(productBasePrice);
+    expect(Number(got.body.vatAmount)).toBe(productBasePrice * 0.2);
+    expect(Number(got.body.grandTotal)).toBe(productBasePrice * 1.2);
   });
 
   it('creates proforma, contract and commercial invoice in the quote business line series', async () => {

@@ -21,6 +21,7 @@ import {
   resourceDivisionFilter,
   resolveAssignedResourceDivision,
 } from '../../shared/utils/division-scope';
+import { assertDeviceCompanyContact, lockDeviceInventory, upsertInventoryCustomerDevice, type DeviceTransaction } from '../../shared/utils/customer-device-upsert';
 import { companyVisibilityExistsFilter } from '../../shared/utils/company-visibility';
 
 function addWarrantyYears(date: Date, years: number): Date {
@@ -69,9 +70,10 @@ export class InventoryService {
       referenceId: string;
       referenceType: 'accounting_invoice' | 'service_ticket';
       notes: string;
-    }
+    },
+    db: DbClient | DeviceTransaction = this.db,
   ) {
-    return this.db.transaction(async (tx) => {
+    return db.transaction(async (tx) => {
       const claimedItems: Array<typeof inventoryItems.$inferSelect> = [];
       for (const candidate of candidates) {
         const filters = [
@@ -421,107 +423,172 @@ export class InventoryService {
     },
     actor: AuthContext
   ) {
-    const sold = await this.db.query.inventoryStatuses.findFirst({ where: eq(inventoryStatuses.code, 'sold') });
-    const available = await this.db.query.inventoryStatuses.findFirst({ where: eq(inventoryStatuses.code, 'available') });
-    const reserved = await this.db.query.inventoryStatuses.findFirst({ where: eq(inventoryStatuses.code, 'reserved') });
-    const scheduled = await this.db.query.installationStatuses.findFirst({ where: eq(installationStatuses.code, 'scheduled') });
-    if (!sold) return;
-    const invoiceDivisionId = params.divisionId ?? resolveAssignedResourceDivision(actor, 'inventory', null);
-
-    for (const line of params.lines) {
-      const isTezgah = line.saleType === 'tezgah' || line.categoryCode === 'TEZGAH';
-      if (isTezgah && !line.inventoryItemId) {
-        throw new ValidationError('Tezgah satışı için seri numarası (stok kalemi) zorunludur');
+    return this.db.transaction(async (tx) => {
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`invoice-stock:${actor.tenantId}:${params.invoiceId}`}, 0))`);
+      for (const id of [...new Set(params.lines.flatMap((line) => line.inventoryItemId ? [line.inventoryItemId] : []))].sort()) {
+        await lockDeviceInventory(tx, actor, id);
       }
-      if (!line.inventoryItemId) {
-        const isQuantityProduct =
-          line.saleType === 'product' ||
-          line.categoryCode === 'YEDEK_PARCA' ||
-          line.categoryCode === 'AKSESUAR';
+      const sold = await tx.query.inventoryStatuses.findFirst({ where: eq(inventoryStatuses.code, 'sold') });
+      const available = await tx.query.inventoryStatuses.findFirst({ where: eq(inventoryStatuses.code, 'available') });
+      const reserved = await tx.query.inventoryStatuses.findFirst({ where: eq(inventoryStatuses.code, 'reserved') });
+      const scheduled = await tx.query.installationStatuses.findFirst({ where: eq(installationStatuses.code, 'scheduled') });
+      if (!sold) return;
+      const invoiceDivisionId = params.divisionId ?? resolveAssignedResourceDivision(actor, 'inventory', null);
 
-        if (!isQuantityProduct) continue;
-        if (!line.productModelId) throw new ValidationError('Ürün kalemi için ürün modeli zorunludur');
+      for (const line of params.lines) {
+        const isTezgah = line.saleType === 'tezgah' || line.categoryCode === 'TEZGAH';
+        if (isTezgah && !line.inventoryItemId) {
+          throw new ValidationError('Tezgah satışı için seri numarası (stok kalemi) zorunludur');
+        }
+        if (!line.inventoryItemId) {
+          const isQuantityProduct =
+            line.saleType === 'product' ||
+            line.categoryCode === 'YEDEK_PARCA' ||
+            line.categoryCode === 'AKSESUAR';
 
-        const qtyRaw = line.quantity ?? 1;
-        const qty = typeof qtyRaw === 'number' ? qtyRaw : Number(qtyRaw);
-        if (!Number.isFinite(qty) || qty <= 0) throw new ValidationError('Geçersiz adet');
-        const qtyInt = Math.trunc(qty);
-        if (qtyInt !== qty) throw new ValidationError('Adet tam sayı olmalı');
+          if (!isQuantityProduct) continue;
+          if (!line.productModelId) throw new ValidationError('Ürün kalemi için ürün modeli zorunludur');
 
-        if (!available) throw new ValidationError('Stok durumu bulunamadı (available)');
+          const qtyRaw = line.quantity ?? 1;
+          const qty = typeof qtyRaw === 'number' ? qtyRaw : Number(qtyRaw);
+          if (!Number.isFinite(qty) || qty <= 0) throw new ValidationError('Geçersiz adet');
+          const qtyInt = Math.trunc(qty);
+          if (qtyInt !== qty) throw new ValidationError('Adet tam sayı olmalı');
 
-        const reservedItems =
-          reserved
-            ? await this.db
-                .select({ id: inventoryItems.id })
-                .from(inventoryItems)
-                .where(
-                  and(
-                    eq(inventoryItems.tenantId, actor.tenantId),
-                    eq(inventoryItems.productModelId, line.productModelId),
-                    isNull(inventoryItems.deletedAt),
-                    eq(inventoryItems.stockStatusId, reserved.id),
-                    eq(inventoryItems.reservedCompanyId, params.companyId),
-                    ...this.inventoryScopeFilters(actor, invoiceDivisionId)
-                  ),
-                )
-                .orderBy(asc(inventoryItems.createdAt))
-                .limit(qtyInt)
-            : [];
+          if (!available) throw new ValidationError('Stok durumu bulunamadı (available)');
 
-        const remaining = qtyInt - reservedItems.length;
-        const availableItems =
-          remaining > 0
-            ? await this.db
-                .select({ id: inventoryItems.id })
-                .from(inventoryItems)
-                .where(
-                  and(
-                    eq(inventoryItems.tenantId, actor.tenantId),
-                    eq(inventoryItems.productModelId, line.productModelId),
-                    isNull(inventoryItems.deletedAt),
-                    eq(inventoryItems.stockStatusId, available.id),
-                    ...this.inventoryScopeFilters(actor, invoiceDivisionId)
-                  ),
-                )
-                .orderBy(asc(inventoryItems.createdAt))
-                .limit(remaining)
-            : [];
+          const reservedItems =
+            reserved
+              ? await tx
+                  .select({ id: inventoryItems.id })
+                  .from(inventoryItems)
+                  .where(
+                    and(
+                      eq(inventoryItems.tenantId, actor.tenantId),
+                      eq(inventoryItems.productModelId, line.productModelId),
+                      isNull(inventoryItems.deletedAt),
+                      eq(inventoryItems.stockStatusId, reserved.id),
+                      eq(inventoryItems.reservedCompanyId, params.companyId),
+                      ...this.inventoryScopeFilters(actor, invoiceDivisionId)
+                    ),
+                  )
+                  .orderBy(asc(inventoryItems.createdAt))
+                  .limit(qtyInt)
+              : [];
 
-        const itemsToSell = [...reservedItems, ...availableItems];
-        if (itemsToSell.length < qtyInt) {
-          throw new ValidationError(`Yetersiz stok: ${line.description ?? 'ürün'} (istenen: ${qtyInt}, hazır: ${itemsToSell.length})`);
+          const remaining = qtyInt - reservedItems.length;
+          const availableItems =
+            remaining > 0
+              ? await tx
+                  .select({ id: inventoryItems.id })
+                  .from(inventoryItems)
+                  .where(
+                    and(
+                      eq(inventoryItems.tenantId, actor.tenantId),
+                      eq(inventoryItems.productModelId, line.productModelId),
+                      isNull(inventoryItems.deletedAt),
+                      eq(inventoryItems.stockStatusId, available.id),
+                      ...this.inventoryScopeFilters(actor, invoiceDivisionId)
+                    ),
+                  )
+                  .orderBy(asc(inventoryItems.createdAt))
+                  .limit(remaining)
+              : [];
+
+          const itemsToSell = [...reservedItems, ...availableItems];
+          if (itemsToSell.length < qtyInt) {
+            throw new ValidationError(`Yetersiz stok: ${line.description ?? 'ürün'} (istenen: ${qtyInt}, hazır: ${itemsToSell.length})`);
+          }
+
+          const soldItems = await this.markInventoryItemsSold(
+            [
+              ...reservedItems.map((item) => ({
+                id: item.id,
+                expectedStatusId: reserved!.id,
+                expectedReservedCompanyId: params.companyId,
+              })),
+              ...availableItems.map((item) => ({ id: item.id, expectedStatusId: available.id })),
+            ],
+            {
+              actor,
+              soldStatusId: sold.id,
+              divisionId: invoiceDivisionId ?? null,
+              movementDate: params.invoiceDate,
+              referenceType: 'accounting_invoice',
+              referenceId: params.invoiceId,
+              notes: line.description ?? 'Satış faturası',
+            }, tx
+          );
+          for (const it of soldItems) {
+            await this.audit.write({
+              tenantId: actor.tenantId,
+              actorUserId: actor.userId,
+              action: 'inventory.sold',
+              resourceType: 'inventory_item',
+              resourceId: it.id,
+              newValues: { stockStatusCode: 'sold', referenceType: 'accounting_invoice', referenceId: params.invoiceId },
+            });
+          }
+
+          await this.audit.write({
+            tenantId: actor.tenantId,
+            actorUserId: actor.userId,
+            action: 'inventory.sold_from_invoice',
+            resourceType: 'accounting_invoice',
+            resourceId: params.invoiceId,
+            newValues: {
+              companyId: params.companyId,
+              productModelId: line.productModelId,
+              quantity: qtyInt,
+              description: line.description ?? null,
+              saleType: line.saleType ?? null,
+            },
+          });
+
+          continue;
         }
 
-        const soldItems = await this.markInventoryItemsSold(
+        const item = await this.get(line.inventoryItemId, actor);
+        if (invoiceDivisionId && item.divisionId && item.divisionId !== invoiceDivisionId) {
+          throw new ValidationError(`Stok kalemi fatura bölümüne ait değil: ${item.serialNumber}`);
+        }
+        const priorSale = await tx.query.inventoryMovements.findFirst({ where: and(
+          eq(inventoryMovements.tenantId, actor.tenantId), eq(inventoryMovements.inventoryItemId, item.id),
+          eq(inventoryMovements.referenceType, 'accounting_invoice'), eq(inventoryMovements.referenceId, params.invoiceId),
+          eq(inventoryMovements.movementType, 'sell'),
+        ) });
+        if (priorSale && item.stockStatusId === sold.id) continue;
+        const canSell =
+          (available && item.stockStatusId === available.id) ||
+          (reserved && item.stockStatusId === reserved.id && item.reservedCompanyId === params.companyId);
+        if (!canSell) {
+          throw new ValidationError(`Stok kalemi satılamaz: ${item.serialNumber}`);
+        }
+
+        const [soldItem] = await this.markInventoryItemsSold(
           [
-            ...reservedItems.map((item) => ({
-              id: item.id,
-              expectedStatusId: reserved!.id,
-              expectedReservedCompanyId: params.companyId,
-            })),
-            ...availableItems.map((item) => ({ id: item.id, expectedStatusId: available.id })),
+            available && item.stockStatusId === available.id
+              ? { id: item.id, expectedStatusId: available.id }
+              : { id: item.id, expectedStatusId: reserved!.id, expectedReservedCompanyId: params.companyId },
           ],
           {
             actor,
             soldStatusId: sold.id,
-            divisionId: invoiceDivisionId ?? null,
+            divisionId: invoiceDivisionId ?? item.divisionId,
             movementDate: params.invoiceDate,
             referenceType: 'accounting_invoice',
             referenceId: params.invoiceId,
             notes: line.description ?? 'Satış faturası',
-          }
+          }, tx
         );
-        for (const it of soldItems) {
-          await this.audit.write({
-            tenantId: actor.tenantId,
-            actorUserId: actor.userId,
-            action: 'inventory.sold',
-            resourceType: 'inventory_item',
-            resourceId: it.id,
-            newValues: { stockStatusCode: 'sold', referenceType: 'accounting_invoice', referenceId: params.invoiceId },
-          });
-        }
+        await this.audit.write({
+          tenantId: actor.tenantId,
+          actorUserId: actor.userId,
+          action: 'inventory.sold',
+          resourceType: 'inventory_item',
+          resourceId: soldItem.id,
+          newValues: { stockStatusCode: 'sold', referenceType: 'accounting_invoice', referenceId: params.invoiceId },
+        });
 
         await this.audit.write({
           tenantId: actor.tenantId,
@@ -531,118 +598,35 @@ export class InventoryService {
           resourceId: params.invoiceId,
           newValues: {
             companyId: params.companyId,
-            productModelId: line.productModelId,
-            quantity: qtyInt,
+            inventoryItemId: soldItem.id,
+            serialNumber: soldItem.serialNumber,
+            productModelId: line.productModelId ?? soldItem.productModelId,
+            quantity: 1,
             description: line.description ?? null,
             saleType: line.saleType ?? null,
           },
         });
 
-        continue;
-      }
-
-      const item = await this.get(line.inventoryItemId, actor);
-      if (invoiceDivisionId && item.divisionId && item.divisionId !== invoiceDivisionId) {
-        throw new ValidationError(`Stok kalemi fatura bölümüne ait değil: ${item.serialNumber}`);
-      }
-      const canSell =
-        (available && item.stockStatusId === available.id) ||
-        (reserved && item.stockStatusId === reserved.id && item.reservedCompanyId === params.companyId);
-      if (!canSell) {
-        throw new ValidationError(`Stok kalemi satılamaz: ${item.serialNumber}`);
-      }
-
-      const [soldItem] = await this.markInventoryItemsSold(
-        [
-          available && item.stockStatusId === available.id
-            ? { id: item.id, expectedStatusId: available.id }
-            : { id: item.id, expectedStatusId: reserved!.id, expectedReservedCompanyId: params.companyId },
-        ],
-        {
-          actor,
-          soldStatusId: sold.id,
-          divisionId: invoiceDivisionId ?? item.divisionId,
-          movementDate: params.invoiceDate,
-          referenceType: 'accounting_invoice',
-          referenceId: params.invoiceId,
-          notes: line.description ?? 'Satış faturası',
-        }
-      );
-      await this.audit.write({
-        tenantId: actor.tenantId,
-        actorUserId: actor.userId,
-        action: 'inventory.sold',
-        resourceType: 'inventory_item',
-        resourceId: soldItem.id,
-        newValues: { stockStatusCode: 'sold', referenceType: 'accounting_invoice', referenceId: params.invoiceId },
-      });
-
-      await this.audit.write({
-        tenantId: actor.tenantId,
-        actorUserId: actor.userId,
-        action: 'inventory.sold_from_invoice',
-        resourceType: 'accounting_invoice',
-        resourceId: params.invoiceId,
-        newValues: {
-          companyId: params.companyId,
-          inventoryItemId: soldItem.id,
-          serialNumber: soldItem.serialNumber,
-          productModelId: line.productModelId ?? soldItem.productModelId,
-          quantity: 1,
-          description: line.description ?? null,
-          saleType: line.saleType ?? null,
-        },
-      });
-
-      if (isTezgah) {
-        const existingDevice = await this.db.query.customerDevices.findFirst({
-          where: and(eq(customerDevices.inventoryItemId, soldItem.id), eq(customerDevices.tenantId, actor.tenantId), isNull(customerDevices.deletedAt)),
-        });
-        let deviceId = existingDevice?.id;
-        if (!existingDevice) {
-          const [device] = await this.db
-            .insert(customerDevices)
-            .values({
-              tenantId: actor.tenantId,
-              divisionId: invoiceDivisionId ?? soldItem.divisionId,
-              companyId: params.companyId,
-              initialCompanyId: params.companyId,
-              inventoryItemId: soldItem.id,
-              saleDate: params.invoiceDate,
-            })
-            .returning();
-          deviceId = device.id;
-        } else {
-          await this.db
-            .update(customerDevices)
-            .set({ divisionId: invoiceDivisionId ?? soldItem.divisionId, saleDate: params.invoiceDate, companyId: params.companyId })
-            .where(eq(customerDevices.id, existingDevice.id));
-        }
-        await this.db.insert(installationJobs).values({
-          tenantId: actor.tenantId,
-          divisionId: invoiceDivisionId ?? soldItem.divisionId,
-          companyId: params.companyId,
-          customerDeviceId: deviceId ?? null,
-          scheduledDate: params.invoiceDate,
-          statusId: scheduled?.id ?? null,
-          notes: `Satış faturası kurulumu (${params.invoiceId.slice(0, 8)})`,
-        });
-      } else if (line.inventoryItemId) {
-        const existingDevice = await this.db.query.customerDevices.findFirst({
-          where: and(eq(customerDevices.inventoryItemId, soldItem.id), eq(customerDevices.tenantId, actor.tenantId), isNull(customerDevices.deletedAt)),
-        });
-        if (!existingDevice) {
-          await this.db.insert(customerDevices).values({
-            tenantId: actor.tenantId,
-            divisionId: invoiceDivisionId ?? soldItem.divisionId,
-            companyId: params.companyId,
-            initialCompanyId: params.companyId,
-            inventoryItemId: soldItem.id,
-            saleDate: params.invoiceDate,
+        await tx.transaction(async (tx) => {
+          const device = await upsertInventoryCustomerDevice(tx, actor, {
+            tenantId: actor.tenantId, divisionId: invoiceDivisionId ?? soldItem.divisionId,
+            companyId: params.companyId, inventoryItemId: soldItem.id, saleDate: params.invoiceDate,
           });
-        }
+          if (isTezgah) {
+            const notes = `Satış faturası kurulumu (${params.invoiceId})`;
+            const installation = await tx.query.installationJobs.findFirst({ where: and(
+              eq(installationJobs.tenantId, actor.tenantId), eq(installationJobs.customerDeviceId, device.id),
+              eq(installationJobs.notes, notes), isNull(installationJobs.deletedAt),
+            ) });
+            if (!installation) await tx.insert(installationJobs).values({
+              tenantId: actor.tenantId, divisionId: invoiceDivisionId ?? soldItem.divisionId,
+              companyId: params.companyId, customerDeviceId: device.id,
+              scheduledDate: params.invoiceDate, statusId: scheduled?.id ?? null, notes,
+            });
+          }
+        });
       }
-    }
+    });
   }
 
   /**
@@ -1012,12 +996,14 @@ export class InventoryService {
     // görünümünde (servis talebi makine seçici dahil) filtrelenip kaybolur.
     const activeDivisionId =
       actor.activeDivisionId && actor.activeDivisionId !== 'all' ? actor.activeDivisionId : null;
-    const [device] = await this.db
-      .insert(customerDevices)
-      .values({
+    return this.db.transaction(async (tx) => {
+      await assertDeviceCompanyContact(tx, actor, input.companyId, input.contactId);
+      if (input.initialCompanyId) await assertDeviceCompanyContact(tx, actor, input.initialCompanyId);
+      const values = {
         tenantId: actor.tenantId,
         divisionId: resolveAssignedResourceDivision(actor, 'customer_devices', input.divisionId ?? activeDivisionId),
         companyId: input.companyId,
+        contactId: input.contactId ?? null,
         initialCompanyId: input.initialCompanyId ?? input.companyId,
         inventoryItemId: input.inventoryItemId ?? null,
         opportunityId: input.opportunityId ?? null,
@@ -1028,39 +1014,56 @@ export class InventoryService {
         deliveryDate: input.deliveryDate ?? null,
         statusId: activeWarranty?.id ?? null,
         notes: input.notes ?? null,
-      })
-      .returning();
-    return device;
+      };
+      if (input.inventoryItemId) return upsertInventoryCustomerDevice(tx, actor, values);
+      const [device] = await tx.insert(customerDevices).values(values).returning();
+      return device;
+    });
   }
 
   async updateCustomerDevice(id: string, input: CustomerDeviceUpdateInput, actor: AuthContext) {
-    const device = await this.db.query.customerDevices.findFirst({
-      where: and(
-        eq(customerDevices.id, id),
-        eq(customerDevices.tenantId, actor.tenantId),
-        isNull(customerDevices.deletedAt),
-        resourceDivisionFilter(actor, 'customer_devices', customerDevices.divisionId) ?? sql`true`,
-      ),
-    });
-    if (!device) throw new NotFoundError('Makine kaydı bulunamadı');
+    return this.db.transaction(async (tx) => {
+      const device = await tx.query.customerDevices.findFirst({
+        where: and(
+          eq(customerDevices.id, id),
+          eq(customerDevices.tenantId, actor.tenantId),
+          isNull(customerDevices.deletedAt),
+          resourceDivisionFilter(actor, 'customer_devices', customerDevices.divisionId) ?? sql`true`,
+        ),
+      });
+      if (!device) throw new NotFoundError('Makine kaydı bulunamadı');
 
-    const patch: Record<string, unknown> = {};
-    if (input.companyId !== undefined) patch.companyId = input.companyId;
-    if (input.initialCompanyId !== undefined) patch.initialCompanyId = input.initialCompanyId ?? null;
-    if (input.divisionId !== undefined) patch.divisionId = resolveAssignedResourceDivision(actor, 'customer_devices', input.divisionId ?? null);
-    if (input.inventoryItemId !== undefined) patch.inventoryItemId = input.inventoryItemId ?? null;
-    if (input.opportunityId !== undefined) patch.opportunityId = input.opportunityId ?? null;
-    if (input.quoteId !== undefined) patch.quoteId = input.quoteId ?? null;
-    if (input.installationDate !== undefined) patch.installationDate = input.installationDate ?? null;
-    if (input.warrantyStartDate !== undefined) patch.warrantyStartDate = input.warrantyStartDate ?? null;
-    if (input.warrantyEndDate !== undefined) patch.warrantyEndDate = input.warrantyEndDate ?? null;
-    if (input.deliveryDate !== undefined) patch.deliveryDate = input.deliveryDate ?? null;
-    if (input.notes !== undefined) patch.notes = input.notes ?? null;
+      const companyId = input.companyId ?? device.companyId;
+      const contactId = input.contactId !== undefined ? input.contactId : device.contactId;
+      await assertDeviceCompanyContact(tx, actor, companyId, contactId);
+      if (input.initialCompanyId) await assertDeviceCompanyContact(tx, actor, input.initialCompanyId);
+      const inventoryId = input.inventoryItemId ?? device.inventoryItemId;
+      if (inventoryId) {
+        await lockDeviceInventory(tx, actor, inventoryId);
+        const linked = await tx.query.customerDevices.findMany({ where: and(
+          eq(customerDevices.tenantId, actor.tenantId), eq(customerDevices.inventoryItemId, inventoryId), isNull(customerDevices.deletedAt),
+        ) });
+        if (linked.some((row) => row.id !== id)) throw new ConflictError('Seçilen seri no başka bir müşteri cihazına bağlı');
+      }
+      const patch: Record<string, unknown> = {};
+      if (input.contactId !== undefined) patch.contactId = input.contactId;
+      if (input.companyId !== undefined) patch.companyId = input.companyId;
+      if (input.initialCompanyId !== undefined) patch.initialCompanyId = input.initialCompanyId ?? null;
+      if (input.divisionId !== undefined) patch.divisionId = resolveAssignedResourceDivision(actor, 'customer_devices', input.divisionId ?? null);
+      if (input.inventoryItemId !== undefined) patch.inventoryItemId = input.inventoryItemId ?? null;
+      if (input.opportunityId !== undefined) patch.opportunityId = input.opportunityId ?? null;
+      if (input.quoteId !== undefined) patch.quoteId = input.quoteId ?? null;
+      if (input.installationDate !== undefined) patch.installationDate = input.installationDate ?? null;
+      if (input.warrantyStartDate !== undefined) patch.warrantyStartDate = input.warrantyStartDate ?? null;
+      if (input.warrantyEndDate !== undefined) patch.warrantyEndDate = input.warrantyEndDate ?? null;
+      if (input.deliveryDate !== undefined) patch.deliveryDate = input.deliveryDate ?? null;
+      if (input.notes !== undefined) patch.notes = input.notes ?? null;
 
-    if (Object.keys(patch).length === 0) return device;
-    await this.db.update(customerDevices).set(patch).where(eq(customerDevices.id, id));
-    return this.db.query.customerDevices.findFirst({
-      where: and(eq(customerDevices.id, id), eq(customerDevices.tenantId, actor.tenantId)),
+      if (Object.keys(patch).length === 0) return device;
+      await tx.update(customerDevices).set(patch).where(and(eq(customerDevices.id, id), eq(customerDevices.tenantId, actor.tenantId)));
+      return tx.query.customerDevices.findFirst({
+        where: and(eq(customerDevices.id, id), eq(customerDevices.tenantId, actor.tenantId)),
+      });
     });
   }
 

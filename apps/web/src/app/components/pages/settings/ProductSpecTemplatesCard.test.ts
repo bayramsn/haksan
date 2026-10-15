@@ -13,12 +13,12 @@ describe("teknik bilgi yeni şablon akışı", () => {
   it("CRM ürün kategorilerini sabit Tezgah seçimi yerine bağlı hiyerarşide gösterir", () => {
     expect(source).toContain("familyCategories");
     expect(source).toContain('label="Ürün Kategorisi" value={categoryCode} options={categories}');
-    expect(source).toContain("type.categoryCode === categoryCode && type.subcategoryCode === subcategoryCode");
+    expect(source).toContain("categoryMatches(type.categoryCode, categoryCode) && type.subcategoryCode === subcategoryCode");
     expect(source).not.toContain('value="TEZGAH" options={[{ code: "TEZGAH", label: "Tezgah" }]}');
   });
 
   it("yeni şablonda alt kaydı olmasa da bütün aktif kategorileri listeler", () => {
-    expect(source).toContain("categories={familyCategories}");
+    expect(source).toContain("categories={displayedFamilyCategories}");
     expect(source).not.toContain("categories={creatableCategories}");
   });
 

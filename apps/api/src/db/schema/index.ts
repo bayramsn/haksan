@@ -21,3 +21,4 @@ export * from './calendar';
 export * from './tasks';
 export * from './mail';
 export * from './meta';
+export * from './trade-fairs';

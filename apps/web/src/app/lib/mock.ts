@@ -591,6 +591,7 @@ export type StockItem = {
   counterModel: string;
   serialNumber: string;
   controlPanel: string;
+  controlUnitSerialNumber?: string;
   stockCode: string;
   itemCondition?: StockConditionCode;
   warehouseId?: string;
@@ -623,12 +624,17 @@ export type ProductAlternative = {
   category: string;
   categoryCode?: string;
   type?: string;
-  listPrice?: number;
+  listPrice?: number | null;
   currency?: "USD" | "EUR" | "TRY";
 };
 
+export type LaserBaseConfiguration = import('@haksan/shared').LaserBaseConfiguration;
+export type BaseModelConfiguration = import('@haksan/shared').BaseModelConfiguration;
 export type Product = {
+  baseModelConfiguration?: BaseModelConfiguration | null;
+  laserBaseConfiguration?: LaserBaseConfiguration | null;
   id: string;
+  divisionId?: string;
   brand: string;
   brandId?: string;
   brandLogoFileId?: string | null;
@@ -650,8 +656,8 @@ export type Product = {
   imageUrl: string;
   shortDescription: string;
   description: string;
-  listPrice: number;
-  cashPrice?: number;
+  listPrice?: number | null;
+  cashPrice?: number | null;
   currency: "USD" | "EUR" | "TRY";
   vatRate?: number;
   originCountry?: string;
@@ -676,6 +682,7 @@ export type Product = {
 
 export type Machine = {
   id: string;
+  contactId?: string;
   /** Cihazın satıştaki ilk müşterisi. Firma el değiştirse de referans için korunur. */
   initialCustomerId?: string;
   /** Cihazı bugün kullanan firma. Varsayılan olarak ilk müşteriyle aynıdır. */
@@ -692,7 +699,7 @@ export type Machine = {
   controlUnitSerial?: string;
   productModelId?: string;
   technicalSpecs?: ProductSpec[];
-  cashPrice?: number;
+  cashPrice?: number | null;
   currency?: "USD" | "EUR" | "TRY";
   deliveryDate?: string;
   installationDate: string;

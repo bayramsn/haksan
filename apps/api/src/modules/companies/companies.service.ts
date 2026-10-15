@@ -1057,7 +1057,7 @@ export class CompaniesService {
     }
     if (input.taxNumber) {
       await this.rejectDuplicateCompany(
-        eq(companies.taxNumber, input.taxNumber),
+        sql`upper(regexp_replace(coalesce(${companies.taxNumber}, ''), '[^0-9A-Za-z]', '', 'g')) = ${input.taxNumber.replace(/[^0-9A-Za-z]/g, '').toUpperCase()}`,
         'Bu vergi numarası ile bir firma zaten kayıtlı',
         'Bu vergi numarası başka bir bölüm portföyünde kayıtlı; erişim talebi oluşturuldu',
         primaryDivisionId,
@@ -1300,7 +1300,7 @@ export class CompaniesService {
       const duplicate = await this.db.query.companies.findFirst({
         where: and(
           eq(companies.tenantId, actor.tenantId),
-          eq(companies.taxNumber, input.taxNumber),
+          sql`upper(regexp_replace(coalesce(${companies.taxNumber}, ''), '[^0-9A-Za-z]', '', 'g')) = ${input.taxNumber.replace(/[^0-9A-Za-z]/g, '').toUpperCase()}`,
           isNull(companies.deletedAt),
           ne(companies.id, id)
         ),
@@ -1372,6 +1372,23 @@ export class CompaniesService {
     }
 
     await this.db.transaction(async (tx) => {
+      if (input.legalTitle !== undefined) {
+        const nameKey = companyNameKey(input.legalTitle);
+        await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${actor.tenantId + ':' + nameKey}, 0))`);
+        const duplicate = await tx.query.companies.findFirst({
+          where: and(
+            eq(companies.tenantId, actor.tenantId),
+            isNull(companies.deletedAt),
+            ne(companies.id, id),
+            sql`${companyNameKeySql(companies.legalTitle)} = ${nameKey}`,
+          ),
+        });
+        if (duplicate) {
+          throw new ConflictError(`Bu ünvanla bir firma zaten kayıtlı: ${duplicate.legalTitle}`, {
+            duplicateCompanyId: duplicate.id,
+          });
+        }
+      }
       await tx.update(companies).set(patch).where(eq(companies.id, id));
 
       const competitorRecord = await tx.query.competitors.findFirst({

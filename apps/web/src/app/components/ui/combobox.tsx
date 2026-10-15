@@ -8,7 +8,7 @@ import {
   Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList,
 } from "./command";
 
-export type ComboboxOption = { value: string; label: string; hint?: string };
+export type ComboboxOption = { value: string; label: string; hint?: string; searchTerms?: string };
 
 /**
  * Aramalı seçim kutusu (Popover + cmdk Command).
@@ -80,7 +80,7 @@ export function Combobox({
               {options.map((o) => (
                 <CommandItem
                   key={o.value}
-                  value={`${o.label} ${o.hint ?? ""} ${o.value}`}
+                  value={`${o.label} ${o.hint ?? ""} ${o.searchTerms ?? ""} ${o.value}`}
                   onSelect={() => {
                     onChange(o.value);
                     setOpen(false);

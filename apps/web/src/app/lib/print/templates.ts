@@ -488,6 +488,16 @@ table.q-meta td.lbl, table.q-meta td.val { font-weight: normal; }
 .q-type { margin-top: 1.2mm; }
 .q-photo { display: block; max-width: 155mm; max-height: 138mm; object-fit: contain; margin: 9mm auto 0; }
 .q-photo-placeholder { height: 120mm; }
+/* The cover owns one A4 sheet; photos consume only its remaining space. */
+.page.q-cover-page { height: 296mm; min-height: 296mm; max-height: 296mm; }
+.q-cover-page > .letterhead, .q-cover-page > .q-title, .q-cover-page > .q-top { flex: 0 0 auto; }
+.q-cover-page .q-machine { display: flex; flex-direction: column; align-items: center; flex: 1 1 0; min-height: 0; }
+.q-cover-page .q-brand-logo { width: 67mm; height: 30mm; flex: 0 0 30mm; }
+.q-cover-page .q-brand, .q-cover-page .q-model, .q-cover-page .q-type { flex: 0 0 auto; }
+.q-cover-page .q-photo { width: 155mm; height: 0; min-height: 0; flex: 1 1 0; max-height: 138mm; }
+.q-cover-page .q-photo-placeholder { height: 0; min-height: 0; flex: 1 1 0; max-height: 120mm; }
+.q-cover-page > .pageno { flex: 0 0 auto; margin-top: 0; }
+
 .q-h1 { margin: 2.8mm 0 6mm; }
 table.q-specs td { border-width: .75pt; font-size: 9.5pt; padding: .92mm 1.5mm; line-height: 1.08; }
 table.q-specs td.g { width: 19mm; }
@@ -500,6 +510,8 @@ table.q-specs td.k { width: 55%; }
 .q-spec-page-ultra table.q-specs td { font-size: 5.8pt; padding: .12mm .55mm; line-height: .96; }
 .q-spec-page { height: 296mm; min-height: 296mm; max-height: 296mm; overflow: hidden; }
 .q-spec-fit { zoom: var(--q-spec-scale, 1); }
+.q-spec-page-fill table.q-specs { height: 235mm; }
+.q-spec-page-fill table.q-specs td { font-size: 9.5pt; line-height: 1.08; }
 .q-empty { text-align: center; color: #555; font-style: italic; padding: 8mm !important; }
 .q-eq-h { font-size: 10.5pt; margin: 5mm 0 1.5mm 1mm; }
 ul.q-eq { margin-left: 7mm; font-size: 10.35pt; line-height: 1.22; }
@@ -641,7 +653,7 @@ export function quoteDoc(d: QuotePrintData, assetBase: string): PrintDocument {
     // sığdırır. 64 tahmini satır referans yoğunluğudur; yalnız daha uzun
     // tablolarda tüm blok oransal küçülür ve fiziksel ikinci sayfa açılmaz.
     const scale = Math.min(1, 64 / Math.max(estimatedRows, 1));
-    return { className, scale: Number(scale.toFixed(4)) };
+    return { className: `${className}${estimatedRows > 0 && estimatedRows <= 48 ? " q-spec-page-fill" : ""}`.trim(), scale: Number(scale.toFixed(4)) };
   };
   const machineSections = machines.map((machine) => {
     const printableSpecs = printableTechnicalSpecs(machine.specs);
@@ -650,12 +662,12 @@ export function quoteDoc(d: QuotePrintData, assetBase: string): PrintDocument {
     // her makine için tek teknik bilgi sayfasında kalır.
     const specChunks = [printableSpecs];
     const equipmentRows = [
-      ...(machine.standartDonanim ?? []).map((value) => ({ kind: "standard" as const, value })),
-      ...(machine.opsiyonelDonanim ?? []).map((value) => ({ kind: "optional" as const, value })),
+      ...(machine.standartDonanim ?? []).filter((value) => value.trim()).map((value) => ({ kind: "standard" as const, value })),
+      ...(machine.opsiyonelDonanim ?? []).filter((value) => value.trim()).map((value) => ({ kind: "optional" as const, value })),
     ];
     const equipmentChunks = equipmentRows.length
       ? chunkByWeight(equipmentRows, 32, (entry) => Math.max(1, entry.value.length / 115))
-      : [[]];
+      : [];
     return { machine, specChunks, equipmentChunks };
   });
   // Beş satırlık fiyat kutusunda 4. satır daima özel iskonto, son satır boş kalır.
@@ -726,14 +738,14 @@ export function quoteDoc(d: QuotePrintData, assetBase: string): PrintDocument {
     </table>
   </div>`;
 
-  // Her seçili makine, mevcut kapak + teknik bilgiler + donanım üçlüsünü
+  // Her seçili makine, mevcut kapak + teknik bilgiler + varsa donanım sayfalarını
   // aynen kullanır. Böylece ikinci ürün ilk makinenin altında sıkışmaz ve
   // referans PDF şablonunun ölçüleri korunur.
   machineSections.forEach(({ machine, specChunks, equipmentChunks }, machineIndex) => {
     const machineImageUrl = safeImageUrl(machine.imageUrl);
     const machineLabel = machine.urun || [machine.marka, machine.model, machine.tip].filter(Boolean).join(" ");
     pages.push(`
-<div class="page">
+<div class="page q-cover-page">
   ${quoteHeader()}
   <div class="q-title">FİYAT TEKLİFİ${machines.length > 1 ? `<div class="q-machine-index">MAKİNE ${machineIndex + 1} / ${machines.length}</div>` : ""}</div>
   ${machineIndex === 0 ? customerMetaBlock : ""}
@@ -772,10 +784,10 @@ export function quoteDoc(d: QuotePrintData, assetBase: string): PrintDocument {
   ${machines.length > 1 ? `<div class="q-machine-ref">${esc(machineLabel)}</div>` : ""}
   ${standard.length > 0 ? `
   <div class="q-eq-h">STANDART DONANIM</div>
-  <ul class="q-eq">${standard.map((entry) => `<li>${esc(entry.value)}</li>`).join("")}</ul>` : chunkIndex === 0 ? `<div class="q-eq-h">STANDART DONANIM</div>` : ""}
+  <ul class="q-eq">${standard.map((entry) => `<li>${esc(entry.value)}</li>`).join("")}</ul>` : ""}
   ${optional.length > 0 ? `
   <div class="q-eq-h">OPSİYONEL DONANIM</div>
-  <ul class="q-eq opt">${optional.map((entry) => `<li>${esc(entry.value)}</li>`).join("")}</ul>` : chunkIndex === equipmentChunks.length - 1 ? `<div class="q-eq-h">OPSİYONEL DONANIM</div>` : ""}
+  <ul class="q-eq opt">${optional.map((entry) => `<li>${esc(entry.value)}</li>`).join("")}</ul>` : ""}
   ${pn()}
 </div>`);
     });

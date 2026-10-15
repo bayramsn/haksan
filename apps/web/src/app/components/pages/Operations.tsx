@@ -33,6 +33,7 @@ import { MiniKpi } from "../shared/MiniKpi";
 import { EmptyState } from "../shared/EmptyState";
 import { EntityVisual } from "../shared/PremiumPrimitives";
 import { FilterPopover, ViewToggle, type ListView } from "../ui/list-controls";
+import { CatalogMailButton } from "../mail/CatalogMailButton";
 import { usePersistentState } from "../../lib/persist";
 
 type Stage = "Stokta" | "Rezerve" | "Sevkiyatta" | "Kuruldu" | "Servis" | "Hizmet Dışı";
@@ -145,6 +146,10 @@ export function productFamilyLabel(product: Product) {
   const categoryCode = (product.categoryCode ?? "").toLocaleUpperCase("tr-TR");
   if (categoryCode && categoryCode !== "TEZGAH") {
     return product.category || product.productGroup || "Genel";
+  }
+  const groupCode = (product.productGroupCode ?? "").toLocaleUpperCase("tr-TR");
+  if (groupCode && groupCode !== "CNC") {
+    return product.type || product.category || product.productGroup || "Genel";
   }
   if (typeCode.includes("TORNA") || ["SL", "MT", "SJ"].includes(series)) return "CNC Torna Tezgahları";
   if (typeCode === "CNC_TAPPING_CENTER" || series === "TC") return "CNC Tapping Center";
@@ -358,6 +363,7 @@ export function ProductsPage({ initialQuery }: { initialQuery?: string }) {
           </div>
           <div className="flex shrink-0 items-center gap-2">
             <FilterPopover filters={taxonomyFilters} contentClassName="w-72" />
+            <CatalogMailButton />
             <ViewToggle view={view} onChange={setView} />
             {canCreateProducts && (
               <ProductImportDialog

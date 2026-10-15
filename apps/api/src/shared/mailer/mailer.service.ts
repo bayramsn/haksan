@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { mailBodyHtml, mailPlainText } from '@haksan/shared';
 import nodemailer, { type Transporter } from 'nodemailer';
 import { loadEnv } from '../../config/env';
 import type { AuthContext } from '../security/auth.types';
@@ -61,7 +62,8 @@ export class MailerService {
       from: this.env.SMTP_FROM,
       to: input.to,
       subject: input.subject,
-      text: input.text,
+      text: mailPlainText(input.text),
+      html: mailBodyHtml(input.text),
       attachments: input.attachments,
     });
     logger.info(

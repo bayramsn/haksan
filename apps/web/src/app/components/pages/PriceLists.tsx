@@ -1,3 +1,7 @@
+import { parsePriceInput, formatPrice } from "../../lib/priceListValues";
+import { productMatchesQuoteDivision } from "../../lib/quoteCatalogScope";
+import { changeSalesPriceFilter, emptySalesPriceFilters, filterSalesPrices, salesPriceFilterOptions } from "../../lib/salesPriceFilters";
+import { isMainMachineCategory } from "@haksan/shared";
 import { useState, useMemo, useEffect } from "react";
 import { Card } from "../ui/card";
 import { Button } from "../ui/button";
@@ -15,9 +19,8 @@ import { ProductDialog } from "../dialogs/CreateDialogs";
 import { productService } from "../../../lib/services";
 import { InsightStat } from "../shared/PremiumPrimitives";
 
-const CURRENCY_LABEL: Record<string, string> = { USD: "USD", EUR: "EUR", TRY: "TL" };
 const fmtMoney = (n?: number | null, cur = "USD") =>
-  n === undefined || n === null || Number.isNaN(n) || n === 0 ? "—" : `${n.toLocaleString("tr-TR")} ${CURRENCY_LABEL[cur] ?? cur}`;
+  formatPrice(n, cur);
 const dateInput = (value?: string | null) => value ? String(value).slice(0, 10) : "";
 type PriceOverride = {
   itemId?: string;
@@ -96,8 +99,8 @@ function EditablePriceCell({
   };
 
   const commit = async () => {
-    const next = Number(text.replace(/\./g, "").replace(",", "."));
-    if (text.trim() === "" || Number.isNaN(next)) {
+    const next = parsePriceInput(text);
+    if (next === null) {
       setEditing(false);
       return;
     }
@@ -264,13 +267,14 @@ function SearchBox({ q, setQ, placeholder }: { q: string; setQ: (v: string) => v
    ========================================================================= */
 export function SalesPriceListPage() {
   const { products } = useStore();
-  const { hasPermission, hasRole } = useAuth();
+  const { hasPermission, hasRole, activeDivision, user } = useAuth();
   const canEditProduct = hasRole("super_admin") || hasRole("admin") || hasPermission("products.update");
   const canManageCampaign = hasRole("super_admin") && (hasPermission("price_lists.update") || hasPermission("price_lists.create"));
   const [q, setQ] = useState("");
+  const [filters, setFilters] = useState(emptySalesPriceFilters);
   const [selected, setSelected] = useState<Product | null>(null);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
-  const [priceLists, setPriceLists] = useState<Array<{ id: string; name: string; code: string; isActive?: boolean; currency?: { code?: string } }>>([]);
+  const [priceLists, setPriceLists] = useState<Array<{ id: string; name: string; code: string; divisionId?: string | null; isActive?: boolean; currency?: { code?: string } }>>([]);
   const [selectedListId, setSelectedListId] = useState("");
   const [priceOverrides, setPriceOverrides] = useState<Record<string, PriceOverride>>({});
   const [campaignManagementOpen, setCampaignManagementOpen] = useState(false);
@@ -318,9 +322,27 @@ export function SalesPriceListPage() {
   const selectedList = priceLists.find((p) => p.id === selectedListId);
   const listCurrency = selectedList?.currency?.code;
 
-  const machines = useMemo(() => sortProductsByName(products.filter((p) => p.categoryCode === "TEZGAH")), [products]);
-  const filtered = machines.filter((p) => matches(p, q));
-  const pricedMachineCount = machines.filter((product) => (priceOverrides[product.id]?.listPrice ?? product.listPrice) > 0).length;
+  const priceDivisionId = selectedList?.divisionId ?? (activeDivision === "all" ? undefined : activeDivision);
+  const priceDivisionCode = user?.divisions.find(division => division.id === priceDivisionId)?.code.toUpperCase() ?? "";
+  const machines = useMemo(() => sortProductsByName(products.filter((p) => isMainMachineCategory(p.categoryCode ?? "")
+    && (!priceDivisionId || productMatchesQuoteDivision(p, priceDivisionCode, priceDivisionId)))), [products, priceDivisionId, priceDivisionCode]);
+  useEffect(() => {
+    setFilters(emptySalesPriceFilters());
+    setQ("");
+  }, [priceDivisionId]);
+  const groupProducts = filterSalesPrices(machines, { group: filters.group });
+  const categoryProducts = filterSalesPrices(groupProducts, { category: filters.category });
+  const subcategoryProducts = filterSalesPrices(categoryProducts, { subcategory: filters.subcategory });
+  const filterFields = [
+    { field: 'group', label: 'Grup', products: machines },
+    { field: 'category', label: 'Kategori', products: groupProducts },
+    { field: 'subcategory', label: 'Alt kategori', products: categoryProducts },
+    { field: 'type', label: 'Ürün tipi', products: subcategoryProducts },
+    { field: 'brand', label: 'Marka', products: machines },
+  ] as const;
+  const filtered = filterSalesPrices(machines, filters, q);
+  const hasFilters = Boolean(q.trim() || Object.values(filters).some(Boolean));
+  const pricedMachineCount = machines.filter((product) => (priceOverrides[product.id]?.listPrice ?? product.listPrice ?? 0) > 0).length;
   const campaignMachineCount = machines.filter((product) => priceOverrides[product.id]?.campaignIsActive && priceOverrides[product.id]?.campaignPrice != null).length;
   const campaignColumnVisible = campaignMachineCount > 0 || (canManageCampaign && campaignManagementOpen);
 
@@ -422,6 +444,27 @@ export function SalesPriceListPage() {
         </div>
       </div>
 
+      <div className="rounded-xl border border-border/60 bg-card p-3 shadow-sm">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-5">
+          {filterFields.map(({ field, label, products: choices }) => (
+            <div key={field} className="space-y-1.5">
+              <label htmlFor={`sales-price-${field}`} className="text-xs font-medium text-muted-foreground">{label}</label>
+              <Select value={filters[field] || '__all__'} onValueChange={value => setFilters(current => changeSalesPriceFilter(current, field, value === '__all__' ? '' : value))}>
+                <SelectTrigger id={`sales-price-${field}`} className="h-9 w-full bg-card"><SelectValue placeholder="Tümü" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__all__">Tümü</SelectItem>
+                  {salesPriceFilterOptions(choices, field).map(option => <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+          ))}
+        </div>
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground" aria-live="polite">
+          <span><b className="text-foreground">{filtered.length}</b> / {machines.length} tezgah gösteriliyor</span>
+          <Button type="button" variant="ghost" size="sm" className="h-8 gap-1.5" disabled={!hasFilters} onClick={() => { setFilters(emptySalesPriceFilters()); setQ(''); }}><X className="size-3.5" />Filtreleri temizle</Button>
+        </div>
+      </div>
+
       <Card className="border-border/60 shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
           <Table>
@@ -439,8 +482,9 @@ export function SalesPriceListPage() {
             <TableBody>
               {filtered.map((p) => {
                 const override = priceOverrides[p.id];
-                const cash = override?.cashPrice ?? p.cashPrice;
-                const list = override?.listPrice ?? p.listPrice;
+                const currencyMatches = !listCurrency || listCurrency === p.currency;
+                const cash = override?.cashPrice ?? (currencyMatches ? p.cashPrice : undefined);
+                const list = override?.listPrice ?? (currencyMatches ? p.listPrice : undefined);
                 const cur = listCurrency ?? p.currency;
                 return (
                 <TableRow key={p.id} className="cursor-pointer group" onClick={() => setSelected(p)}>
@@ -521,7 +565,7 @@ export function ServicePriceListPage() {
   const [q, setQ] = useState("");
   const [selected, setSelected] = useState<Product | null>(null);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
-  const [priceLists, setPriceLists] = useState<Array<{ id: string; name: string; code: string; isActive?: boolean; currency?: { code?: string } }>>([]);
+  const [priceLists, setPriceLists] = useState<Array<{ id: string; name: string; code: string; divisionId?: string | null; isActive?: boolean; currency?: { code?: string } }>>([]);
   const [selectedListId, setSelectedListId] = useState("");
   const [priceOverrides, setPriceOverrides] = useState<Record<string, PriceOverride>>({});
 

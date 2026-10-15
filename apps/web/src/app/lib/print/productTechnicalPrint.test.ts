@@ -13,6 +13,52 @@ const product = {
   optionalEquipment: [],
 } as unknown as Product;
 
+describe("product technical print equipment", () => {
+  it.each([
+    { label: "empty lists", standard: [], optional: [], totalPages: 2 },
+    { label: "blank rows", standard: ["", " \n "], optional: ["\t"], totalPages: 2 },
+    { label: "standard only", standard: ["Fanuc kontrol ünitesi"], optional: [" "], totalPages: 3 },
+    { label: "optional only", standard: [" "], optional: ["Takım ölçme probu"], totalPages: 3 },
+    { label: "both populated", standard: ["Fanuc kontrol ünitesi"], optional: ["Takım ölçme probu"], totalPages: 3 },
+  ])("hides empty panels and preserves technical pages: $label", ({ standard, optional, totalPages }) => {
+    const doc = productTechnicalDoc({
+      product: {
+        ...product,
+        specs: [{ key: "X Ekseni", value: "800", unit: "mm" }],
+        standardEquipment: standard,
+        optionalEquipment: optional,
+      },
+    }, "https://example.test/print");
+
+    expect(doc.body.match(/<section class="page">/g)).toHaveLength(totalPages);
+    expect(doc.body.includes("<h2>Standart Donanım</h2>")).toBe(standard.some((row) => row.trim()));
+    expect(doc.body.includes("<h2>Uyumlu Opsiyonel Donanım</h2>")).toBe(optional.some((row) => row.trim()));
+    expect(doc.body.includes("DONANIM BİLGİLERİ")).toBe(totalPages === 3);
+    expect(doc.body).not.toContain("donanım bilgisi girilmemiş");
+    expect(doc.body).toContain("X Ekseni");
+    expect(doc.body).toContain("800");
+    expect([...doc.body.matchAll(/Sayfa <b>(\d+)<\/b> \/ <b>(\d+)<\/b>/g)].map((match) => [Number(match[1]), Number(match[2])]))
+      .toEqual(Array.from({ length: totalPages }, (_, index) => [index + 1, totalPages]));
+    for (const row of [...standard, ...optional].filter((value) => value.trim())) {
+      expect(doc.body).toContain(row);
+    }
+  });
+
+  it("honors explicitly empty equipment overrides even when catalog lists are populated", () => {
+    const doc = productTechnicalDoc({
+      product: { ...product, standardEquipment: ["Standart paket"], optionalEquipment: ["Takım ölçme probu"] },
+      standardEquipment: [],
+      optionalEquipment: [],
+    }, "https://example.test/print");
+
+    expect(doc.body.match(/<section class="page">/g)).toHaveLength(1);
+    expect(doc.body).not.toContain("DONANIM BİLGİLERİ");
+    expect(doc.body).not.toContain("Standart paket");
+    expect(doc.body).not.toContain("Takım ölçme probu");
+    expect(doc.body).toContain("Sayfa <b>1</b> / <b>1</b>");
+  });
+});
+
 describe("product technical print image", () => {
   it('includes the saved laser configuration and exact units without filling unknown fields', () => {
     const doc = productTechnicalDoc({ product: { ...product, technicalConfiguration: {

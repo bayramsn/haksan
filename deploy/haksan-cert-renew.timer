@@ -1,0 +1,11 @@
+[Unit]
+Description=Check Haksan Let's Encrypt renewal twice daily
+
+[Timer]
+OnCalendar=*-*-* 03,15:17:00 UTC
+RandomizedDelaySec=10m
+Persistent=true
+Unit=haksan-cert-renew.service
+
+[Install]
+WantedBy=timers.target
