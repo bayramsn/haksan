@@ -177,7 +177,7 @@ export class UserMailAccountService {
   }
 
   async send(
-    input: { to: string; cc?: string[]; subject: string; text: string; attachments?: MailAttachment[] },
+    input: { to: string; cc?: string[]; subject: string; text: string; attachments?: MailAttachment[]; unsubscribe?: { pageUrl: string; oneClickUrl: string } },
     actor: Pick<AuthContext, 'tenantId' | 'userId'>
   ): Promise<PersonalMailDelivery> {
     this.assertFeatureEnabled();
@@ -197,6 +197,11 @@ export class UserMailAccountService {
     const signature = account.signature ?? (await this.defaultSignature(actor, account.email));
     const logo = signature ? signatureLogoContent() : null;
     const message = signedMailBody(input.text, signature, Boolean(logo));
+    if (input.unsubscribe) {
+      // Toplu mail: ticari iletide ret yolu + RFC 8058 tek tıkla çıkış başlığı (Gmail/Outlook "Abonelikten çık" düğmesi).
+      message.text += `\n\n—\nBu e-postaları almak istemiyorsanız: ${input.unsubscribe.pageUrl}`;
+      message.html += `<p style="margin-top:18px;font-family:Arial,Helvetica,sans-serif;font-size:11px;color:#888888">Bu e-postaları almak istemiyorsanız <a href="${esc(input.unsubscribe.pageUrl)}" style="color:#888888">abonelikten çıkın</a>.</p>`;
+    }
     const attachments = [
       ...(input.attachments ?? []),
       ...(logo ? [{ filename: 'haksan-logo.png', content: logo, contentType: 'image/png', cid: SIGNATURE_LOGO_CID, contentDisposition: 'inline' as const }] : []),
@@ -214,6 +219,9 @@ export class UserMailAccountService {
         text: message.text,
         html: message.html,
         attachments: attachments.length ? attachments : undefined,
+        headers: input.unsubscribe
+          ? { 'List-Unsubscribe': `<${input.unsubscribe.oneClickUrl}>`, 'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click' }
+          : undefined,
         disableFileAccess: true,
         disableUrlAccess: true,
       });

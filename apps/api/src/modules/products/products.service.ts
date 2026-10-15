@@ -1,6 +1,6 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { and, asc, desc, eq, ilike, inArray, isNull, max, or, sql } from 'drizzle-orm';
-import ExcelJS from 'exceljs';
+import { loadXlsxWorkbook } from '../../shared/utils/spreadsheet-import';
 import type { DbClient } from '../../db/client';
 import {
   brands,
@@ -1904,9 +1904,7 @@ export class ProductsService {
       matrix = parseCsv(text, delimiter);
       sheetName = 'CSV';
     } else if (lower.endsWith('.xlsx')) {
-      const workbook = new ExcelJS.Workbook();
-      if (buffer[0] !== 0x50 || buffer[1] !== 0x4b) throw new ValidationError('XLSX dosya imzası geçersiz');
-      try { await workbook.xlsx.load(buffer as any); } catch { throw new ValidationError('XLSX dosyası okunamadı'); }
+      const workbook = await loadXlsxWorkbook(buffer);
       if (workbook.worksheets.length > 25) throw new ValidationError('Dosyada en fazla 25 çalışma sayfası olabilir');
       const worksheet =
         workbook.worksheets.find((ws) => {

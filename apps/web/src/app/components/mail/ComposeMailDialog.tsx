@@ -19,6 +19,7 @@ import { Label } from "../ui/label";
 import { MultiSelect, type MultiSelectOption } from "../ui/multi-select";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
 import { Textarea } from "../ui/textarea";
+import { CatalogLibraryDialog, type CatalogAttachment } from "./CatalogLibraryDialog";
 
 /** Mail gövdesi şablonları not şablonlarıyla aynı tabloda, bu kapsam altında tutulur. */
 export const MAIL_TEMPLATE_SCOPE = "mail";
@@ -59,6 +60,8 @@ export type MailRecipient = {
     kind: "proforma" | "contract";
     pdf: () => Promise<{ html: string; filename: string }>;
   };
+  /** Pencere açılırken hazır gelen ekler (ör. genel katalog kütüphanesinden). */
+  initialAttachments?: CatalogAttachment[];
 };
 
 const RECORD_DOCUMENT_LABELS = { proforma: "Proforma", contract: "Sözleşme" } as const;
@@ -102,6 +105,7 @@ export function ComposeMailDialog({
   const [body, setBody] = useState("");
   const [options, setOptions] = useState<MailRecipients>(emptyRecipients);
   const [attachments, setAttachments] = useState<MailAttachment[]>([]);
+  const [catalogOpen, setCatalogOpen] = useState(false);
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [templateName, setTemplateName] = useState<string | null>(null);
@@ -116,7 +120,8 @@ export function ComposeMailDialog({
     setTemplateName(null);
     setBody(recipient.body ?? (recipient.name ? `Merhaba ${recipient.name},\n\n` : "Merhaba,\n\n"));
     // Başka bir alıcıya geçilince önceki mailin ekleri taşınmamalı.
-    setAttachments([]);
+    setAttachments(recipient.initialAttachments ?? []);
+    setCatalogOpen(false);
     setAccountLoading(true);
     mailService.account()
       .then(setAccount)
@@ -151,7 +156,7 @@ export function ComposeMailDialog({
   }, [cc, options]);
 
   const close = () => {
-    if (sending) return;
+    if (sending || uploading || catalogOpen) return;
     onOpenChange(false);
   };
 
@@ -277,6 +282,13 @@ export function ComposeMailDialog({
 
   return (
     <Dialog open={Boolean(recipient)} onOpenChange={(open) => !open && close()}>
+      <CatalogLibraryDialog open={catalogOpen} onOpenChange={setCatalogOpen} onSelect={(file) => {
+        if (attachments.some((item) => item.fileId === file.fileId)) { toast.message("Bu katalog zaten eklendi"); return; }
+        if (attachments.length >= MAIL_MAX_ATTACHMENTS || attachments.reduce((sum, item) => sum + item.size, 0) + file.size > MAIL_MAX_ATTACHMENT_BYTES) {
+          toast.error("Ek sayısı veya toplam 15 MB sınırı aşılıyor"); return;
+        }
+        setAttachments((current) => [...current, file]);
+      }} />
       <DialogContent className="max-h-[92dvh] max-w-2xl overflow-y-auto p-0">
         <div className="border-b border-border/70 bg-[linear-gradient(135deg,#07142b,#102652)] px-6 py-5 text-white">
           <DialogHeader>
@@ -434,7 +446,7 @@ export function ComposeMailDialog({
             </div>
           )}
 
-          {recipient?.opportunityId && (
+          {recipient && (
             <div className="space-y-2">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <Label className="text-xs">Dosya ekle</Label>
@@ -443,14 +455,19 @@ export function ComposeMailDialog({
                   id="compose-mail-attachment" disabled={sending || uploading}
                   onChange={(event) => void pickAttachment(event)}
                 />
-                <Button
-                  type="button" variant="outline" size="sm" className="gap-1.5"
-                  disabled={sending || uploading || attachments.length >= MAIL_MAX_ATTACHMENTS}
-                  onClick={() => fileInputRef.current?.click()}
-                >
-                  {uploading ? <Loader2 className="size-3.5 animate-spin motion-reduce:animate-none" /> : <Upload className="size-3.5" />}
-                  {uploading ? "Yükleniyor…" : "Dosya seç"}
-                </Button>
+                <div className="flex flex-wrap gap-2">
+                  {recipient.opportunityId && <Button
+                    type="button" variant="outline" size="sm" className="gap-1.5"
+                    disabled={sending || uploading || attachments.length >= MAIL_MAX_ATTACHMENTS}
+                    onClick={() => fileInputRef.current?.click()}
+                  >
+                    {uploading ? <Loader2 className="size-3.5 animate-spin motion-reduce:animate-none" /> : <Upload className="size-3.5" />}
+                    {uploading ? "Yükleniyor…" : "Dosya seç"}
+                  </Button>}
+                  <Button type="button" variant="outline" size="sm" className="gap-1.5" disabled={sending || uploading || attachments.length >= MAIL_MAX_ATTACHMENTS} onClick={() => setCatalogOpen(true)}>
+                    <Paperclip className="size-3.5" />Katalog ekle
+                  </Button>
+                </div>
               </div>
               {attachments.length > 0 && (
                 <ul className="space-y-1.5">
@@ -472,7 +489,7 @@ export function ComposeMailDialog({
               )}
               <p className="text-[11px] text-muted-foreground">
                 PDF, DOCX, XLSX, PNG, JPG veya WEBP · en fazla {MAIL_MAX_ATTACHMENTS} dosya ·
-                toplam {Math.round(MAIL_MAX_ATTACHMENT_BYTES / (1024 * 1024))} MB. Eklenen dosya fırsatın belgelerine de kaydedilir.
+                toplam {Math.round(MAIL_MAX_ATTACHMENT_BYTES / (1024 * 1024))} MB.{recipient.opportunityId ? " Yüklenen dosya fırsatın belgelerine de kaydedilir." : " Kataloglar ortak kütüphaneden seçilir."}
               </p>
             </div>
           )}

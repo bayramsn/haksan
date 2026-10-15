@@ -1,4 +1,6 @@
 import { Fragment, useEffect, useState, useMemo } from "react";
+import { CatalogMailButton } from "../mail/CatalogMailButton";
+import { ProductTreeButton } from "../dialogs/ProductTreeDialog";
 import { Card, CardContent, CardHeader, CardTitle } from "../ui/card";
 import { Input } from "../ui/input";
 import { Button } from "../ui/button";
@@ -350,8 +352,8 @@ export function ProductsPage({ initialQuery }: { initialQuery?: string }) {
           </Tabs>
         </div>
 
-        <div className="flex w-full flex-col gap-2 sm:flex-row sm:items-center sm:justify-end">
-          <div className="relative w-full sm:w-72 lg:w-80">
+        <div className="flex w-full flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-end">
+          <div className="relative w-full sm:w-72 sm:min-w-56 lg:w-80">
             <Search className="size-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
             <Input
               placeholder="Marka, model, ürün ara..."
@@ -362,6 +364,8 @@ export function ProductsPage({ initialQuery }: { initialQuery?: string }) {
           </div>
           <div className="flex shrink-0 items-center gap-2">
             <FilterPopover filters={taxonomyFilters} contentClassName="w-72" />
+            <ProductTreeButton />
+            <CatalogMailButton />
             <ViewToggle view={view} onChange={setView} />
             {canCreateProducts && (
               <ProductImportDialog

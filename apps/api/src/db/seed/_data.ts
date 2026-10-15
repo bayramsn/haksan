@@ -338,6 +338,7 @@ export const rolePermissionMatrix: Record<string, Record<string, string[] | '*'>
     calendar: '*',
     tasks: '*',
     trade_fairs: '*',
+    mail_campaigns: '*',
     competitors: '*',
     brands: '*',
     products: '*',
@@ -370,6 +371,8 @@ export const rolePermissionMatrix: Record<string, Record<string, string[] | '*'>
   sales: {
     calendar: '*',
     tasks: ['read', 'create', 'update'],
+    // Toplu mail kendi webmail hesabından gider; gönderen itibarını etkiler.
+    mail_campaigns: ['read', 'create'],
     // Fuar alanı bütün departmanlara açık; silme kuralı serviste.
     trade_fairs: ['read', 'create', 'update', 'delete'],
     companies: '*',

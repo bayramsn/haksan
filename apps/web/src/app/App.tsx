@@ -62,6 +62,8 @@ const ServicePriceListPage = lazy(() => import("./components/pages/PriceLists").
 const PublicServiceComplaintPage = lazy(() =>
   import("./components/pages/PublicServiceComplaint").then((m) => ({ default: m.PublicServiceComplaintPage })),
 );
+const BulkMailPage = lazy(() => import("./components/pages/BulkMailPage").then((m) => ({ default: m.BulkMailPage })));
+const PublicUnsubscribePage = lazy(() => import("./components/pages/PublicUnsubscribe").then((m) => ({ default: m.PublicUnsubscribePage })));
 const TradeFairsPage = lazy(() => import("./components/pages/TradeFairsPage").then((m) => ({ default: m.TradeFairsPage })));
 const ReferencesPage = lazy(() => import("./components/pages/ReferencesPage").then((m) => ({ default: m.ReferencesPage })));
 import { AuthProvider, useAuth } from "../lib/auth";
@@ -96,6 +98,7 @@ const TITLES: Partial<Record<NavKey, { title: string; subtitle?: string }>> = {
   "customer-balances": { title: "Cari Rapor", subtitle: "Firma borç/alacak özeti ve ekstre" },
   "due-dates": { title: "Vade Takvimi", subtitle: "Tahsil ve ödeme vadeleri" },
   "sales-price-list": { title: "Satış Fiyat Listesi", subtitle: "Tezgahlar ve uyumlu opsiyonel donanım fiyatları" },
+  "bulk-mail": { title: "Toplu Mail", subtitle: "Kontaklara, fuar görüşmelerine ve listelere kendi hesabınızdan katalog ve duyuru" },
   references: { title: "Referanslar", subtitle: "Satış için firma ve teslim edilen tezgah referansları" },
   products: { title: "Ürünler", subtitle: "Makine modeline göre ürün kataloğu" },
   stock: { title: "Stok", subtitle: "Seri numarası bazlı stok yönetimi" },
@@ -507,6 +510,7 @@ function AppShell() {
       case "customer-balances": content = <CustomerBalancesPage />; break;
       case "due-dates": content = <DueDatesCalendarPage />; break;
       case "sales-price-list": content = <SalesPriceListPage />; break;
+      case "bulk-mail": content = <BulkMailPage />; break;
       case "references": content = <ReferencesPage />; break;
       case "trade-fairs": content = (
         <TradeFairsPage
@@ -588,6 +592,14 @@ function AppShell() {
 }
 
 export default function App() {
+  const unsubscribeMatch = typeof window !== "undefined" ? window.location.pathname.match(/^\/public\/unsubscribe\/([^/?#]+)/) : null;
+  if (unsubscribeMatch) {
+    return (
+      <Suspense fallback={<PageLoadingSkeleton />}>
+        <PublicUnsubscribePage token={decodeURIComponent(unsubscribeMatch[1])} />
+      </Suspense>
+    );
+  }
   const publicMatch = typeof window !== "undefined" ? window.location.pathname.match(/^\/public\/service-complaints\/([^/]+)\/([^/?#]+)/) : null;
   if (publicMatch) {
     return (

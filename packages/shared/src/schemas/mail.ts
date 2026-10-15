@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { emailSchema } from './common';
+import { companyListQuerySchema } from './company';
 
 const safeMailSubjectSchema = z
   .string()
@@ -131,3 +132,55 @@ export const mailSendResultSchema = z.object({
   sentAt: z.string().datetime(),
 });
 export type MailSendResult = z.infer<typeof mailSendResultSchema>;
+
+/**
+ * Toplu mail: kullanıcının kendi webmail hesabından, her alıcıya ayrı ileti.
+ * Kişisel SMTP günlük kotalarını zorlamamak için tek gönderim 300 alıcıyla sınırlı.
+ */
+export const MAIL_CAMPAIGN_MAX_RECIPIENTS = 300;
+/** Gövde ve konuda alıcıya göre doldurulan alanlar. */
+export const MAIL_CAMPAIGN_PLACEHOLDERS = ['{{ad}}', '{{firma}}'] as const;
+
+export const mailCampaignRecipientSchema = z
+  .object({
+    email: emailSchema,
+    name: z.string().trim().max(255).optional(),
+    companyName: z.string().trim().max(255).optional(),
+    companyId: z.string().uuid().optional(),
+    contactId: z.string().uuid().optional(),
+  })
+  .strict();
+export type MailCampaignRecipientInput = z.infer<typeof mailCampaignRecipientSchema>;
+
+export const mailCampaignCreateSchema = z
+  .object({
+    subject: safeMailSubjectSchema,
+    body: z.string().trim().min(1, 'Mesaj zorunludur').max(10_000),
+    /** Yalnız genel katalog kütüphanesindeki dosyalar eklenebilir. */
+    fileIds: z.array(z.string().uuid()).max(MAIL_MAX_ATTACHMENTS).optional(),
+    recipients: z.array(mailCampaignRecipientSchema).min(1, 'En az bir alıcı seçin').max(MAIL_CAMPAIGN_MAX_RECIPIENTS),
+  })
+  .strict();
+export type MailCampaignCreateInput = z.infer<typeof mailCampaignCreateSchema>;
+
+/** CRM alıcı adayları: Firmalar listesinin süzgeçleri + firma genel e-postalarını dahil etme. */
+export const mailCampaignCandidatesQuerySchema = companyListQuerySchema.extend({
+  includeCompanyEmails: z.enum(['true', 'false']).optional().transform((value) => value === 'true'),
+});
+export type MailCampaignCandidatesQuery = z.infer<typeof mailCampaignCandidatesQuerySchema>;
+export const MAIL_CAMPAIGN_MAX_CANDIDATES = 2000;
+
+/** Dışarıdan alıcı listesi (.xlsx / .csv); sunucu e-posta, ad ve firma sütunlarını sezer. */
+export const mailRecipientListParseSchema = z
+  .object({ fileName: z.string().trim().min(1).max(255), fileBase64: z.string().min(1).max(3_000_000) })
+  .strict();
+export type MailRecipientListParseInput = z.infer<typeof mailRecipientListParseSchema>;
+
+/** Toplu mail almak istemeyen adres; sonraki gönderimlerde atlanır. */
+export const mailSuppressionSchema = z
+  .object({ email: emailSchema, reason: z.string().trim().max(255).optional() })
+  .strict();
+export type MailSuppressionInput = z.infer<typeof mailSuppressionSchema>;
+
+export type MailCampaignStatus = 'sending' | 'completed' | 'cancelled' | 'failed';
+export type MailCampaignRecipientStatus = 'pending' | 'sending' | 'sent' | 'failed' | 'skipped';

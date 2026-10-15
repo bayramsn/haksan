@@ -1,3 +1,4 @@
+import { changeSalesPriceFilter, emptySalesPriceFilters, filterSalesPrices, salesPriceFilterOptions } from "../../lib/salesPriceFilters";
 import { useState, useMemo, useEffect } from "react";
 import { Card } from "../ui/card";
 import { Button } from "../ui/button";
@@ -268,6 +269,7 @@ export function SalesPriceListPage() {
   const canEditProduct = hasRole("super_admin") || hasRole("admin") || hasPermission("products.update");
   const canManageCampaign = hasRole("super_admin") && (hasPermission("price_lists.update") || hasPermission("price_lists.create"));
   const [q, setQ] = useState("");
+  const [filters, setFilters] = useState(emptySalesPriceFilters);
   const [selected, setSelected] = useState<Product | null>(null);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [priceLists, setPriceLists] = useState<Array<{ id: string; name: string; code: string; isActive?: boolean; currency?: { code?: string } }>>([]);
@@ -319,7 +321,19 @@ export function SalesPriceListPage() {
   const listCurrency = selectedList?.currency?.code;
 
   const machines = useMemo(() => sortProductsByName(products.filter((p) => p.categoryCode === "TEZGAH")), [products]);
-  const filtered = machines.filter((p) => matches(p, q));
+  // Kademeli seçenekler: alt süzgeç yalnız üstteki seçimde var olan değerleri gösterir.
+  const groupProducts = filterSalesPrices(machines, { group: filters.group });
+  const categoryProducts = filterSalesPrices(groupProducts, { category: filters.category });
+  const subcategoryProducts = filterSalesPrices(categoryProducts, { subcategory: filters.subcategory });
+  const filterFields = [
+    { field: "group", label: "Grup", products: machines },
+    { field: "category", label: "Kategori", products: groupProducts },
+    { field: "subcategory", label: "Alt kategori", products: categoryProducts },
+    { field: "type", label: "Ürün tipi", products: subcategoryProducts },
+    { field: "brand", label: "Marka", products: machines },
+  ] as const;
+  const filtered = filterSalesPrices(machines, filters, q);
+  const hasFilters = Boolean(q.trim() || Object.values(filters).some(Boolean));
   const pricedMachineCount = machines.filter((product) => (priceOverrides[product.id]?.listPrice ?? product.listPrice) > 0).length;
   const campaignMachineCount = machines.filter((product) => priceOverrides[product.id]?.campaignIsActive && priceOverrides[product.id]?.campaignPrice != null).length;
   const campaignColumnVisible = campaignMachineCount > 0 || (canManageCampaign && campaignManagementOpen);
@@ -419,6 +433,27 @@ export function SalesPriceListPage() {
             </Select>
           )}
           <SearchBox q={q} setQ={setQ} placeholder="Tezgah, marka, model ara..." />
+        </div>
+      </div>
+
+      <div className="rounded-xl border border-border/60 bg-card p-3 shadow-sm">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-5">
+          {filterFields.map(({ field, label, products: choices }) => (
+            <div key={field} className="space-y-1.5">
+              <label htmlFor={`sales-price-${field}`} className="text-xs font-medium text-muted-foreground">{label}</label>
+              <Select value={filters[field] || "__all__"} onValueChange={(value) => setFilters((current) => changeSalesPriceFilter(current, field, value === "__all__" ? "" : value))}>
+                <SelectTrigger id={`sales-price-${field}`} className="h-9 w-full bg-card"><SelectValue placeholder="Tümü" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__all__">Tümü</SelectItem>
+                  {salesPriceFilterOptions(choices, field).map((option) => <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+          ))}
+        </div>
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground" aria-live="polite">
+          <span><b className="text-foreground">{filtered.length}</b> / {machines.length} tezgah gösteriliyor</span>
+          <Button type="button" variant="ghost" size="sm" className="h-8 gap-1.5" disabled={!hasFilters} onClick={() => { setFilters(emptySalesPriceFilters()); setQ(""); }}><X className="size-3.5" />Filtreleri temizle</Button>
         </div>
       </div>
 

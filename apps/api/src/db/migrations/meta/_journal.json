@@ -1100,6 +1100,13 @@
       "when": 1793731200000,
       "tag": "0157_user_mail_signature",
       "breakpoints": true
+    },
+    {
+      "idx": 158,
+      "version": "7",
+      "when": 1793817600000,
+      "tag": "0158_mail_campaigns",
+      "breakpoints": true
     }
   ]
 }
