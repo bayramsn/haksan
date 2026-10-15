@@ -24,11 +24,15 @@
  * Kullanım:
  *   node scripts/audit-action-parity.mjs
  *   node scripts/audit-action-parity.mjs --check   # CI: parite eksiği varsa exit 1
+ *   node scripts/audit-action-parity.mjs --target=mobile-v2
+ *     apps/mobile-v2/src/api içindeki `request(path, { method })` çağrılarını HTTP metodu + yol
+ *     olarak okur ve web aksiyonlarıyla eşler → docs/mobile-v2/web-action-coverage.{json,md}.
+ *     Bu modda eski apps/mobile raporları yazılmaz.
  */
 
 import { readFileSync, writeFileSync, readdirSync, statSync, mkdirSync } from 'node:fs';
 import { join, relative, resolve, basename, dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, '..');
@@ -38,8 +42,11 @@ const MOBILE_SERVICES = join(ROOT, 'apps/mobile/src/api/services.ts');
 const MOBILE_SERVICES_WEB = join(ROOT, 'apps/mobile/src/api/services.web.ts');
 const WEB_PAGES = join(ROOT, 'apps/web/src/app/components/pages');
 const DOCS = join(ROOT, 'docs');
+const MOBILE_V2_API = join(ROOT, 'apps/mobile-v2/src/api');
+const MOBILE_V2_DOCS = join(DOCS, 'mobile-v2');
 
 const CHECK_MODE = process.argv.includes('--check');
+const TARGET = process.argv.find((a) => a.startsWith('--target='))?.slice('--target='.length) ?? 'mobile';
 
 // ───────── helpers ─────────
 
@@ -94,7 +101,7 @@ function stripBalancedInterpolations(input, predicate) {
   return out;
 }
 
-function normalizePath(p) {
+export function normalizePath(p) {
   let out = p ?? '';
   out = stripBalancedInterpolations(out, (inner) => {
     const trimmed = inner.trim();
@@ -228,6 +235,51 @@ function parseServices(file) {
     }
   }
   return actions;
+}
+
+// ───────── 2b. mobile-v2: request(path, { method }) çağrıları ─────────
+
+/**
+ * `request<T>('/x', { method: 'POST' })` ve `request(\`/x/${id}\`)` çağrılarını okur.
+ * Metot verilmemişse GET. Yol, ilk argümandaki string/template literal'dır.
+ */
+export function parseRequestCalls(src) {
+  const calls = [];
+  const re = /\brequest\s*(?:<(?:[^<>()]|<(?:[^<>()]|<[^<>()]*>)*>)*>)?\s*\(\s*([`'"])((?:(?!\1)[\s\S])*)\1/g;
+  let m;
+  while ((m = re.exec(src)) !== null) {
+    // Argüman listesini parantez dengesine göre sonuna kadar al; iç içe çağrılar ayrı tutulur.
+    let depth = 1;
+    let braces = 0;
+    let i = re.lastIndex;
+    let topLevel = '';
+    while (i < src.length && depth > 0) {
+      const c = src[i];
+      if (c === '(') depth++;
+      else if (c === ')') depth--;
+      if (depth === 1) {
+        if (c === '{') braces++;
+        else if (c === '}') braces--;
+        if (braces <= 1 && c !== '(' && c !== ')') topLevel += c;
+      }
+      i++;
+    }
+    const verb = topLevel.match(/\bmethod\s*:\s*['"`](GET|POST|PATCH|PUT|DELETE)['"`]/i)?.[1]?.toUpperCase() ?? 'GET';
+    calls.push({ verb, path: normalizePath(m[2]) });
+  }
+  return calls;
+}
+
+function parseMobileV2Actions() {
+  const files = walk(MOBILE_V2_API, (f) => f.endsWith('.ts') && !/\.test\./.test(f) && !basename(f).includes(' '));
+  const seen = new Map();
+  for (const file of files) {
+    for (const c of parseRequestCalls(read(file))) {
+      const key = `${c.verb} ${c.path}`;
+      if (!seen.has(key)) seen.set(key, { ...c, file: relative(ROOT, file) });
+    }
+  }
+  return [...seen.values()];
 }
 
 function dedupeActions(actions) {
@@ -410,9 +462,84 @@ function buildGapsReport({ webActions, mobileActions, missingInMobile }) {
   return lines.join('\n') + '\n';
 }
 
+function buildCoverage({ webActions, mobileCalls, pageUsage }) {
+  const mobileKeys = new Set(mobileCalls.map((c) => `${c.verb} ${c.path}`));
+  const pagesByAction = {};
+  for (const [file, keys] of Object.entries(pageUsage)) {
+    for (const k of keys) (pagesByAction[k] ??= []).push(file);
+  }
+  const rows = webActions.map((a) => ({
+    key: a.key,
+    verb: a.verb,
+    path: a.path,
+    permission: a.permission,
+    inMobile: Boolean(a.verb && a.path && mobileKeys.has(`${a.verb} ${a.path}`)),
+    pages: (pagesByAction[a.key] ?? []).sort(),
+  }));
+  const covered = rows.filter((r) => r.inMobile).length;
+  return {
+    generatedAt: new Date().toISOString(),
+    counts: { webActions: rows.length, covered, missing: rows.length - covered, mobileCalls: mobileCalls.length },
+    rows,
+  };
+}
+
+function buildCoverageMarkdown(cov) {
+  const pct = cov.counts.webActions ? Math.round((cov.counts.covered / cov.counts.webActions) * 100) : 0;
+  const lines = [
+    '# mobile-v2 Web Aksiyon Kapsamı',
+    '',
+    '> Otomatik üretildi — `node scripts/audit-action-parity.mjs --target=mobile-v2`.',
+    '> Eşleşme: web servis aksiyonunun HTTP metodu + yolu, `apps/mobile-v2/src/api` içindeki `request()` çağrılarında var mı.',
+    '',
+    `- Web aksiyonu: **${cov.counts.webActions}**`,
+    `- Mobilde karşılığı olan: **${cov.counts.covered}** (%${pct})`,
+    `- Eksik: **${cov.counts.missing}**`,
+    '',
+  ];
+  const byNs = new Map();
+  for (const r of cov.rows.filter((x) => !x.inMobile)) {
+    const ns = r.key.split('.')[0];
+    if (!byNs.has(ns)) byNs.set(ns, []);
+    byNs.get(ns).push(r);
+  }
+  lines.push('## Eksikler (namespace bazında)', '');
+  for (const [ns, arr] of [...byNs.entries()].sort(([a], [b]) => a.localeCompare(b))) {
+    lines.push(`### \`${ns}\` — ${arr.length} eksik`, '', '| Aksiyon | HTTP | Yol | İzin | Web sayfaları |', '|---|---|---|---|---|');
+    for (const r of arr.sort((x, y) => x.key.localeCompare(y.key))) {
+      const pages = r.pages.map((p) => basename(p).replace(/\.tsx?$/, '')).join(', ') || '—';
+      lines.push(`| \`${r.key}\` | ${r.verb ?? '?'} | \`${r.path ?? '?'}\` | ${r.permission ? '`' + r.permission + '`' : '—'} | ${pages} |`);
+    }
+    lines.push('');
+  }
+  return lines.join('\n') + '\n';
+}
+
+function mainMobileV2() {
+  const endpoints = parseControllers();
+  const webActions = enrichActions(parseServices(WEB_SERVICES), indexEndpoints(endpoints));
+  const pageUsage = parsePageUsage(webActions);
+  const mobileCalls = parseMobileV2Actions();
+  console.log(`▸ ${endpoints.length} endpoint, ${webActions.length} web aksiyonu, ${mobileCalls.length} mobile-v2 çağrısı.`);
+
+  const cov = buildCoverage({ webActions, mobileCalls, pageUsage });
+  mkdirSync(MOBILE_V2_DOCS, { recursive: true });
+  writeFileSync(join(MOBILE_V2_DOCS, 'web-action-coverage.json'), JSON.stringify(cov, null, 2) + '\n');
+  writeFileSync(join(MOBILE_V2_DOCS, 'web-action-coverage.md'), buildCoverageMarkdown(cov));
+  console.log(`▸ Kapsam: ${cov.counts.covered}/${cov.counts.webActions}, eksik ${cov.counts.missing}.`);
+  console.log('Yazılan dosyalar:\n  docs/mobile-v2/web-action-coverage.json\n  docs/mobile-v2/web-action-coverage.md');
+
+  if (CHECK_MODE && cov.counts.missing > 0) {
+    console.error(`\n✖ Parite hatası: mobile-v2'de ${cov.counts.missing} aksiyon eksik (--check modu).`);
+    process.exit(1);
+  }
+}
+
 // ───────── main ─────────
 
 function main() {
+  if (TARGET === 'mobile-v2') return mainMobileV2();
+
   console.log('▸ API controller\'ları taranıyor…');
   const endpoints = parseControllers();
   console.log(`  ${endpoints.length} endpoint bulundu.`);
@@ -466,4 +593,4 @@ function main() {
   }
 }
 
-main();
+if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) main();
