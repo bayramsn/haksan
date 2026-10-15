@@ -15,24 +15,26 @@ function Tile({ entry, index }: { entry: ModuleEntry; index: number }) {
   const router = useRouter();
   const { colors } = useTheme();
   return (
-    <Enter delay={Math.min(index * 35, 280)} distance={16} className="w-1/3 p-1.5">
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel={entry.title}
-        onPress={() => {
-          void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-          router.push(entry.route);
-        }}
-        className="min-h-[92px] items-center justify-center gap-2 rounded-surface border border-border bg-card px-2 py-3 active:opacity-70"
-      >
-        <View className={`h-11 w-11 items-center justify-center rounded-control border ${chipClass[entry.tone]}`}>
-          <Ionicons name={entry.icon} size={21} color={toneColor(colors, entry.tone)} />
-        </View>
-        <Text className="text-center font-inter-medium text-[12px] leading-[1.25] text-foreground" numberOfLines={2}>
-          {entry.title}
-        </Text>
-      </Pressable>
-    </Enter>
+    <View style={{ width: '33.333%' }} className="p-1.5">
+      <Enter delay={Math.min(index * 35, 280)} distance={16}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={entry.title}
+          onPress={() => {
+            void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            router.push(entry.route);
+          }}
+          className="min-h-[92px] items-center justify-center gap-2 rounded-surface border border-border bg-card px-2 py-3 active:opacity-70"
+        >
+          <View className={`h-11 w-11 items-center justify-center rounded-control border ${chipClass[entry.tone]}`}>
+            <Ionicons name={entry.icon} size={21} color={toneColor(colors, entry.tone)} />
+          </View>
+          <Text className="text-center font-inter-medium text-[12px] leading-[1.25] text-foreground" numberOfLines={2}>
+            {entry.title}
+          </Text>
+        </Pressable>
+      </Enter>
+    </View>
   );
 }
 
