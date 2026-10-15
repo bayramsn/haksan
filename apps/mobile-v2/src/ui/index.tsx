@@ -67,19 +67,19 @@ export function Chip({ tone = 'neutral', label, shrink }: { tone?: Tone; label: 
 
 /* --------------------------------------------------------------- başlık ---- */
 
-/** Mockup başlıkları: geniş, kalın, koyu — sıkıştırılmış değil. */
+/** Web h1 gibi Barlow Condensed; dar aile olduğu için punto Inter karşılığından bir kademe büyük. */
 export function H1({ children, className = '' }: { children: React.ReactNode; className?: string }) {
   return (
-    <Text accessibilityRole="header" className={`font-inter-bold text-[28px] leading-[1.12] text-foreground ${className}`}>
+    <Text accessibilityRole="header" className={`font-display text-[32px] leading-[1.1] text-foreground ${className}`}>
       {children}
     </Text>
   );
 }
 
-/** Mockup bölüm başlıkları: Inter Bold 22. */
+/** Web h2 gibi Barlow Condensed. */
 export function H2({ children, className = '' }: { children: React.ReactNode; className?: string }) {
   return (
-    <Text accessibilityRole="header" className={`font-inter-bold text-[22px] leading-[1.2] text-foreground ${className}`}>{children}</Text>
+    <Text accessibilityRole="header" className={`font-display text-[24px] leading-[1.2] text-foreground ${className}`}>{children}</Text>
   );
 }
 
@@ -283,8 +283,8 @@ export const IconField = forwardRef<TextInput, IconFieldProps>(function IconFiel
 /* ----------------------------------------------------------- hero başlık ---- */
 
 /**
- * Mockup'ların ekran başlığı: kırmızı ilk satır, koyu ikinci satır. Tek satırlı
- * ekranlarda (Giriş Yap, Hazırsınız) yalnız kırmızı satır çizilir.
+ * Ekran başlığı: marka renkli ilk satır, koyu ikinci satır. Tek satırlı
+ * ekranlarda (Giriş Yap, Hazırsınız) yalnız ilk satır çizilir.
  */
 export function HeroTitle({
   lead,
@@ -301,11 +301,11 @@ export function HeroTitle({
   const line = { fontSize: size, lineHeight: Math.round(size * 1.14), letterSpacing: 0 };
   return (
     <View>
-      <Text accessibilityRole="header" className="font-inter-bold" style={{ ...line, color: colors.primary }}>
+      <Text accessibilityRole="header" className="font-display" style={{ ...line, color: colors.primary }}>
         {lead}
       </Text>
       {tail ? (
-        <Text className="font-inter-bold" style={{ ...line, color: colors.foreground }}>
+        <Text className="font-display" style={{ ...line, color: colors.foreground }}>
           {tail}
         </Text>
       ) : null}
@@ -441,8 +441,8 @@ export function ScreenHeader({
       </View>
       <Text
         accessibilityRole="header"
-        className="font-inter-bold"
-        style={{ fontSize: 30, lineHeight: 36, letterSpacing: 0, color: colors.primary, marginTop: 10 }}
+        className="font-display"
+        style={{ fontSize: 34, lineHeight: 38, letterSpacing: 0, color: colors.primary, marginTop: 10 }}
       >
         {title}
       </Text>
@@ -482,7 +482,7 @@ export function DetailHeader({
         <Ionicons name="arrow-back" size={22} color={colors.foreground} />
       </Pressable>
       <View className="flex-1">
-        <Text className="text-center font-inter-semibold text-[17px] text-foreground" numberOfLines={1}>
+        <Text className="text-center font-display-semibold text-[20px] text-foreground" numberOfLines={1}>
           {title}
         </Text>
         {subtitle ? (
@@ -674,7 +674,7 @@ export function SectionHeader({
   const { colors } = useTheme();
   return (
     <View className="flex-row items-center justify-between px-4 pb-1 pt-4">
-      <Text className="font-inter-semibold text-[15px] text-foreground">{title}</Text>
+      <Text className="font-display-semibold text-[18px] text-foreground">{title}</Text>
       {action ? (
         <Pressable
           accessibilityRole="button"
