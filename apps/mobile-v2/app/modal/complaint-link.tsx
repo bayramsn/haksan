@@ -11,6 +11,7 @@ import { Button, Card, Field } from '@/src/ui';
 import { CompanyPicker, type PickedRecord } from '@/src/ui/pickers/CompanyPicker';
 import { toast } from '@/src/ui/toast';
 import { DevicePicker, FormSection, type DeviceChoice } from '@/src/ui/service/fields';
+import { ComplaintQr } from '@/src/ui/service/ComplaintQr';
 import { complaintFormUrl, openComplaintUrl, shareComplaintUrl } from '@/src/ui/service/complaintShare';
 
 function first(value: string | string[] | undefined): string {
@@ -119,6 +120,7 @@ export default function ComplaintLinkScreen() {
                 <Ionicons name="checkmark-circle" size={18} color={colors.success} />
                 <Text className="font-inter-semibold text-[13px] text-success">Link kullanıma hazır</Text>
               </View>
+              <ComplaintQr value={result.url} size={180} />
               <Text selectable className="font-inter text-xs text-foreground">{result.url}</Text>
               {result.expiresAt ? (
                 <Text className="font-inter text-[11px] text-muted-foreground">Son geçerlilik: {formatDateTime(result.expiresAt)}</Text>
@@ -133,9 +135,6 @@ export default function ComplaintLinkScreen() {
                   onPress={() => void openComplaintUrl(result.url).catch(() => toast.error('Link açılamadı.'))}
                 />
               </View>
-              <Text className="font-inter text-[11px] text-muted-foreground">
-                QR kod için linki paylaşıp bir QR oluşturucuda açın; mobilde QR üretimi henüz yok.
-              </Text>
             </Card>
           ) : null}
         </ScrollView>

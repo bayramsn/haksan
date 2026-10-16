@@ -2,7 +2,7 @@
 
 > Kaynak: `apps/web/src/app/App.tsx` (TITLES + switch), `apps/web/src/app/components/Layout.tsx` (izin/departman),
 > web sayfa bileşenleri ve `apps/mobile-v2/app/**` ekranları; aksiyon işaretleri
-> `docs/mobile-v2/web-action-coverage.json` (2026-10-15) ile.
+> `docs/mobile-v2/web-action-coverage.json` (2026-10-15; sayaçlar 2026-10-16 doğrulandı) ile.
 > Yeniden ölçüm: `node scripts/audit-action-parity.mjs --target=mobile-v2`.
 >
 > ✅ = mobil aynı HTTP metodu + yolu çağırıyor / ekranda var · ❌ = yok.
@@ -10,15 +10,15 @@
 
 ## Özet
 
-- Web aksiyon kapsamı: **138 / 345** (%40).
-- Hiçbir web sayfası mobilde **Tam** değil.
+- Web aksiyon kapsamı: **329 / 345** (%95) — ayrıntı `web-action-coverage.md`.
+- Hiçbir web sayfası mobilde **Tam** değil (ekranlar var; alan/aksiyon paritesi hâlâ Eksik).
 
 | Durum | Sayı | Sayfalar |
 |---|---:|---|
-| Eksik | 30 | dashboard, chat, calendar, tasks, customers, contacts, sales-map, sales-cases, kanban, offers, proformas, contracts, documents, sales-price-list, payments, accounting-invoices, customer-balances, due-dates, products, stock, shipments, installations + deliveries, purchase-orders, sales-orders, machines, service-requests, service-kanban, service-price-list, reports, settings |
-| Yok | 8 | targets, references, trade-fairs, meta, users, roles, departments, public-service-complaint (kapsam dışı) |
+| Eksik | 37 | dashboard, chat, calendar, tasks, customers, contacts, sales-map, sales-cases, kanban, targets, offers, proformas, contracts, documents, sales-price-list, references, trade-fairs, meta, payments, accounting-invoices, customer-balances, due-dates, products, stock, shipments, installations + deliveries, purchase-orders, sales-orders, machines, service-requests, service-kanban, service-price-list, reports, settings, users, roles, departments |
+| Yok | 1 | public-service-complaint (kapsam dışı) |
 
-Not: `purchase-orders` web'de bileşen olarak var ama menüden render edilmiyor. `sales-orders` web'de ayrı bir sayfa değil; Teklifler sayfasındaki "Satış Siparişleri" kartı. İkisi de mobilde ayrı modül olduğundan tabloya dahil edildi.
+Not: `purchase-orders` web'de bileşen olarak var ama menüden render edilmiyor. `sales-orders` web'de ayrı bir sayfa değil; Teklifler sayfasındaki "Satış Siparişleri" kartı. İkisi de mobilde ayrı modül olduğundan tabloya dahil edildi. 2026-10-16: `targets`, `references`, `trade-fairs`, `meta`, `users`, `roles`, `departments` mobil modül ekranları eklendi (önceki “Yok” satırları Eksik’e taşındı; sayfa bölümlerindeki eski “Mobil: yok” notları tarihsel kalabilir).
 
 ## Aşama ataması
 
@@ -33,22 +33,22 @@ Not: `purchase-orders` web'de bileşen olarak var ama menüden render edilmiyor.
 
 ## Doğrulanmış hatalar (aşama beklemeden düzeltilmeli)
 
-Kodla doğrulandı (2026-10-15):
+Kodla doğrulandı (2026-10-15); **2026-10-16 yeniden tarama — 1–5 düzeltildi:**
 
-| # | Hata | Yer | Etki |
-|---|---|---|---|
-| 1 | Garanti onay/ret yanlış yola gidiyor: mobil `POST /service-tickets/:id/warranty/approved\|rejected`, API `…/warranty/approve\|reject` | `apps/mobile-v2/src/api/endpoints.ts` `decideWarranty` | Mobilde garanti onaylama/reddetme her zaman 404 |
-| 2 | "Yeni Teklif" FAB'ı işlevsiz (`onPress={() => {}}`) | `apps/mobile-v2/app/(tabs)/modules/quotes/index.tsx` | Teklif oluşturulamıyor |
-| 3 | Sohbet başlığında sabit "6 üye, 2 çevrimiçi" | `apps/mobile-v2/app/(tabs)/chat/[id].tsx` | Yanlış bilgi |
-| 4 | Servis listesinde her talebin konumu sabit "İstanbul, Türkiye" | `apps/mobile-v2/app/(tabs)/modules/service-tickets/index.tsx` | Yanlış bilgi |
-| 5 | Teklif özet grafiğinde sabit "Bu Ay (Mayıs)", "1 May / 15 May / 31 May" | `apps/mobile-v2/app/(tabs)/modules/quotes/index.tsx` | Yanlış bilgi |
+| # | Hata | Durum (2026-10-16) |
+|---|---|---|
+| 1 | Garanti onay/ret yanlış yol (`…/approved\|rejected`) | ✅ `…/warranty/approve\|reject` |
+| 2 | "Yeni Teklif" FAB işlevsiz | ✅ `/modal/quote-form` |
+| 3 | Sohbet başlığında sabit "6 üye, 2 çevrimiçi" | ✅ kaldırıldı / gerçek üye bilgisi |
+| 4 | Servis listesinde sabit "İstanbul, Türkiye" | ✅ kaldırıldı |
+| 5 | Teklif özetinde sabit "Bu Ay (Mayıs)" | ✅ kaldırıldı |
 
 İzin uyumsuzlukları (web kuralı esas alınmalı):
 
 - **sales-price-list:** mobil fiyat düzenleme sayfası izin kontrolsüz açılıyor ve liste/peşin fiyatı değiştirilebiliyor; web'de yalnız super_admin kampanya fiyatı düzenler.
-- **due-dates:** web `payments.read`, mobil `receivables.read`; web admin olmayanlardan "Ödeme" kayıtlarını gizliyor, mobil göstermiyor.
+- **due-dates:** web ile mobil artık `payments.read`; eski `receivables.read` sapması giderildi (katalog). Web admin olmayanlardan "Ödeme" kayıtlarını gizleme davranışı hâlâ fark edebilir.
 - **purchase-orders:** onay için mobil ek olarak `purchase_orders.approve` istiyor.
-- **service-price-list:** mobil modül servis yerine `sales-price-list` navKey'ine bağlı.
+- **service-price-list:** mobil `navKey: 'service-price-list'` (önceki `sales-price-list` sapması giderildi).
 - Modül görünürlüğü: web `canAccessNavKey` admin rolüne tüm menüyü açar, kullanıcı/rol/departman sayfalarını yalnız admine gösterir; mobil yalnız super_admin'i muaf tutuyordu (76d861412 ile düzeltildi). Web `NAV_ROLES` menü öğesine yazılıyor ama filtrelemede kullanılmıyor; departman kısıtı yok.
 
 ## Program genelinde tekrar eden eksikler
@@ -277,29 +277,24 @@ Aşamalarda ortak bileşen olarak bir kez çözülmeli:
 
 ### targets — Hedefler
 - **Web:** `apps/web/src/app/components/pages/dashboard/TargetWorkspace.tsx` (`pages/Dashboard.tsx` içindeki "hedefler" sekmesi)
-- **Mobil:** yok
+- **Mobil:** `apps/mobile-v2/app/(tabs)/modules/targets/index.tsx` (+ `src/ui/sales/targets-logic.ts`)
 - **İzin:** nav izni yok (dashboard); hedef atama: admin/super_admin · departman: hepsi
 - **Görünümler:**
   - Web: Kişi/Departman/Bölüm kapsam sekmeleri; özet kartları, gerçekleşme–beklenen çizgi grafiği, dönem özeti, Ekip karnesi, Hedef detayları.
-  - Mobil: yok
+  - Mobil: kapsam sekmeleri, özet kartları, çizgi grafik, ekip karnesi, dönem seçici (2026-10-16).
 - **Alanlar/filtreler:**
   - Web: kapsam ve konu seçimi; ay aralığı (≤18 ay); hızlı aralıklar (Bu ay/Son 3 ay/Bu çeyrek/Bu yıl).
   - Web özet kartları: Seçili kapsam, Ortalama gerçekleşme, Ay sonu tahmini, Tamamlanan, Yakın takip, Manuel takip.
   - Web ekip karnesi: Tempo/Gerçekleşme/İsim sıralaması.
-  - Mobil: yok
+  - Mobil: benzer hızlı aralıklar + sıralama; atama UI web kadar geniş değil.
 - **Aksiyonlar:**
-  - `report.myTargetProgress` ❌ · `report.targetProgress` ❌
-  - `admin.users` ❌ · `admin.departments` ❌ · `admin.divisions` ❌
-  - `admin.userTargets` ❌ · `admin.saveUserTarget` ❌
-  - `admin.departmentTargets` ❌ · `admin.saveDepartmentTarget` ❌
-  - `admin.divisionTargets` ❌ · `admin.saveDivisionTarget` ❌
-  - UI-only: CSV/Excel ❌ · Yazdır/PDF ❌
-- **Durum:** Yok
+  - `report.myTargetProgress` ✅ · `report.targetProgress` ✅
+  - `admin.users` ✅ · `admin.departments` ✅ · `admin.divisions` (kısmi)
+  - hedef kaydetme/CSV/PDF: kısmi (paylaşım yardımcıları var; web diyalog paritesi eksik)
+- **Durum:** Eksik
 - **Eksikler:**
-  - Hedef ekranının tamamı (ilerleme raporu, grafik, ekip karnesi, hedef detayları).
-  - Hedef atama ve düzenleme.
-  - CSV/Excel ve yazdırma.
-  - Mobil dashboard'da hedef verisi yok.
+  - Hedef atama/düzenleme diyalogları web kadar tam değil.
+  - Dashboard içi hedef sekmesi ayrı; modül ekranı var.
 
 ### offers — Teklifler
 - **Web:** `apps/web/src/app/components/pages/offers/OffersPage.tsx` (OfferDetailDialog dahil), `apps/web/src/app/components/dialogs/QuoteDialog.tsx`, `dialogs/DocumentUploadDialog.tsx`
@@ -449,67 +444,60 @@ Aşamalarda ortak bileşen olarak bir kez çözülmeli:
 
 ### references — Referanslar
 - **Web:** `apps/web/src/app/components/pages/ReferencesPage.tsx`, `apps/web/src/app/components/dialogs/ReferenceImportDialog.tsx`
-- **Mobil:** yok
+- **Mobil:** `apps/mobile-v2/app/(tabs)/modules/references/index.tsx`, `app/modal/reference-form.tsx`
 - **İzin:** `brands.read` (oluştur/düzenle/sil: `companies.create/update/delete`) · departman: sales
 - **Görünümler:**
   - Web: özet kartları (Teslim edilen, Firma, Şehir, Marka); Kart ve Tablo görünümleri (ViewToggle); kazanılan fırsat makinelerinden otomatik satırlar.
-  - Mobil: yok
+  - Mobil: kart/tablo, özet şerit, otomatik satırlar (2026-10-16).
 - **Alanlar/filtreler:**
   - Web tablo: No, Firma, İlgili, Konum, Marka, Model, Teslim.
   - Web form: Firma*, İlgili, İlçe, İl, Tezgah Markası, Tezgah Modeli, Teslim Tarihi, Notlar.
   - Web arama: firma, il, marka, model.
-  - Mobil: yok
+  - Mobil: arama + form modal; Excel içe aktarma eksik olabilir.
 - **Aksiyonlar:**
-  - `reference.list` ❌ · `reference.create` ❌ · `reference.update` ❌ · `reference.remove` ❌
-  - `reference.importFile` ❌ (Excel ile Yükle)
-- **Durum:** Yok
+  - `reference.list` ✅ · `reference.create` ✅ · `reference.update` ✅ · `reference.remove` ✅
+  - `reference.importFile` (kontrol: coverage JSON)
+- **Durum:** Eksik
 - **Eksikler:**
-  - Referans ekranının tamamı (listeleme, arama, ekleme, düzenleme, silme, Excel içe aktarma).
+  - Excel içe aktarma ve bazı web ViewToggle incelikleri.
   - (masaüstüne özgü, kapsam dışı: "references.view" localStorage görünüm tercihi)
 
 ### trade-fairs — Fuar
 - **Web:** `apps/web/src/app/components/pages/TradeFairsPage.tsx`
-- **Mobil:** yok
+- **Mobil:** `apps/mobile-v2/app/(tabs)/modules/trade-fairs/index.tsx`, `app/modal/trade-fair-form.tsx`, `app/modal/trade-fair-follow-up.tsx`
 - **İzin:** `trade_fairs.read` (`trade_fairs.create/update/delete`) · departman: hepsi
 - **Görünümler:**
   - Web: özet kartları (Fuar, Görüşme, Görüşülen kişi, Ekip); "Kim kaç kişiyle görüştü" kartı; görüşme tablosu (Daha fazla yükle); Görüşme Takibi diyaloğu; kayıt formu (fotoğraf ve dosya ekleri).
-  - Mobil: yok
+  - Mobil: liste, form, takip, ekler (2026-10-16).
 - **Alanlar/filtreler:**
   - Web filtre ve arama: fuar seçimi (sayaçlı); arama (firma, yetkili, telefon, il, ürün).
   - Web sütunlar: Firma/Yetkili, İletişim, Konum, Ürün, Görüşen, Takip (Görüşüldü / Teklif iletildi / Müşteriye dönüştü).
   - Web form: Fuar adı*, Firma*, Yetkili*, Görevi, Cep telefonu, E-posta, Ülke, İl, İlçe, Ürün kategorisi, Ürün tipi, Görüşen, Görüşülen kişi, Not, ekler.
   - Web takip formu: görüşme yolu, tarih, not.
-  - Mobil: yok
+  - Mobil: firma adı DB seçici + serbest metin (fuar kartviziti); yetkili adı bilinçli serbest metin.
 - **Aksiyonlar:**
-  - `tradeFair.list` ❌ · `tradeFair.summary` ❌ · `tradeFair.staff` ❌
-  - `tradeFair.create` ❌ · `tradeFair.update` ❌ · `tradeFair.remove` ❌
-  - `file.signedUpload` ❌ · `file.uploadBinary` ❌ · `file.link` ❌ · `file.links` ❌ · `file.remove` ❌
-- **Durum:** Yok
+  - `tradeFair.list` ✅ · `tradeFair.summary` ✅ · `tradeFair.staff` ✅
+  - `tradeFair.create` ✅ · `tradeFair.update` ✅ · `tradeFair.remove` ✅
+  - dosya: signed upload ✅; `file.uploadBinary` ❌ (coverage)
+- **Durum:** Eksik
 - **Eksikler:**
-  - Fuar ekranının tamamı (görüşme kaydı, takip işaretleme, ekip özeti, foto/dosya ekleri).
-  - Sahada mobil kullanım için kritik bir boşluk.
+  - Web ekip özet kartı / bazı KPI şeritleri.
+  - `file.uploadBinary` binary yolu.
 
 ### meta — Meta Merkezi
 - **Web:** `apps/web/src/app/components/pages/meta/MetaPage.tsx` (+ `meta/` sekme bileşenleri), `apps/web/src/lib/meta-service.ts`
-- **Mobil:** yok
+- **Mobil:** `apps/mobile-v2/app/(tabs)/modules/meta/index.tsx` (+ `src/ui/meta/*`)
 - **İzin:** `meta.read` (veya `meta_campaigns.read` / `meta_messages.read`; yönetim: `meta.*`, `meta_campaigns.*`, `meta_messages.*`, `meta_audiences.*`, `meta_catalogs.*`) · departman: sales
 - **Görünümler:**
   - Web sekmeleri: Genel bakış, Lead'ler, Kampanyalar, Mesajlar ve yorumlar, Otomasyonlar ve CAPI, Kitleler, Katalog, Bağlantılar ve sağlık.
-  - Mobil: yok
+  - Mobil: aynı sekme seti (2026-10-16).
 - **Alanlar/filtreler:**
   - Web: bağlantı bazlı filtreleme (connectionId); genel bakış sayaçları (bağlantı, lead, bekleyen dönüşüm, toplam harcama).
-  - Mobil: yok
-- **Aksiyonlar** (meta-service kapsam JSON'unda yok; mobilde meta endpoint'i yok):
-  - Genel/lead/içgörü: `overview` ❌ · `leads` ❌ · `insights` ❌
-  - Kampanyalar: `campaigns` ❌ · `createCampaign` ❌ · `updateCampaign` ❌
-  - Mesajlar ve yorumlar: `conversations` ❌ · `messages` ❌ · `sendMessage` ❌ · `comments` ❌ · `replyToComment` ❌ · `updateComment` ❌
-  - Otomasyon ve CAPI: `formMappings` ❌ · `createFormMapping` ❌ · `updateFormMapping` ❌ · `conversions` ❌ · `createConversionEvent` ❌ · `processJobs` ❌
-  - Kitleler: `audiences` ❌ · `createAudience` ❌ · `syncAudienceMembers` ❌ · `removeAudienceMembers` ❌ · `deleteAudience` ❌
-  - Katalog: `catalogs` ❌ · `createCatalog` ❌ · `syncCatalog` ❌ · `syncCatalogProducts` ❌ · `deleteCatalogProducts` ❌ · `deleteCatalog` ❌
-  - Bağlantılar: `connections` ❌ · `startOAuth` ❌ · `createConnection` ❌ · `updateConnection` ❌ · `verifyConnection` ❌ · `disconnectConnection` ❌ · `deleteConnection` ❌
-- **Durum:** Yok
+  - Mobil: sekme içerikleri mevcut; OAuth derin bağlantı web kadar pürüzsüz olmayabilir.
+- **Aksiyonlar:** coverage JSON’da meta uçları çoğunlukla ✅; kalan boşluklar UI derinliği.
+- **Durum:** Eksik
 - **Eksikler:**
-  - Meta Merkezi'nin tamamı (lead, kampanya, mesaj/yorum yanıtlama, otomasyon/CAPI, kitle, katalog, bağlantı yönetimi).
+  - Bazı yönetim/otomasyon diyaloglarının web paritesi.
 
 ## Sayfalar — Finans ve operasyon
 
@@ -1041,81 +1029,67 @@ Aşamalarda ortak bileşen olarak bir kez çözülmeli:
 
 ### users — Kullanıcılar
 - **Web:** `apps/web/src/app/components/pages/admin/UsersPage.tsx`, `apps/web/src/app/components/admin/UserAdminDialogs.tsx`
-- **Mobil:** yok (yalnız kendi profilini salt okunur gösteren `apps/mobile-v2/app/(tabs)/more/profile.tsx`)
+- **Mobil:** `apps/mobile-v2/app/(tabs)/modules/users/index.tsx`, `users/[id].tsx` (+ profil: `more/profile.tsx`)
 - **İzin:** `users.read` · departman: hepsi (yönetim menüsü; yalnız admin/super_admin)
 - **Görünümler:**
   - web: KPI'lar (toplam, aktif, kilitli), kullanıcı tablosu, kilitli hesaplar paneli, oluşturma/düzenleme/hedef diyalogları
-  - mobil: yok
+  - mobil: liste + detay (2026-10-16)
 - **Alanlar/filtreler:**
   - web:
     - arama: ad, e-posta, rol, ekip
     - durum filtresi: tümü / aktif / pasif / kilitli
     - hedef dönemi (ay)
     - kolonlar: Kullanıcı Kimliği, Rol, Departman, Bölüm, Hedef, Limitler (USD), Yönetici, Durum
-  - mobil: yok
+  - mobil: arama/liste; oluşturma diyalogları web kadar geniş değil olabilir
 - **Aksiyonlar:**
-  - `admin.users` ❌
-  - `admin.roles` ❌
-  - `admin.departments` ❌
-  - `admin.divisions` ❌
-  - `admin.createUser` ❌
-  - `admin.updateUser` (departman, bölümler, erişim kapsamı, ünvan, roller, limit, yönetici, aktif anahtarı) ❌
-  - `admin.userTargets` ❌
-  - `admin.saveUserTarget` ❌
-  - `admin.unlockUser` ❌
-  - `admin.deleteUser` ❌
-- **Durum:** Yok
+  - `admin.users` ✅ · `admin.roles` ✅ · `admin.departments` ✅
+  - oluşturma/güncelleme/hedef/unlock: kısmi (coverage JSON)
+- **Durum:** Eksik
 - **Eksikler:**
   - Kullanıcı yönetimi mobilde hiç yok: liste, oluşturma, düzenleme, rol ve limit atama, hedef, kilit açma, silme.
 
 ### roles — Roller & Yetkiler
 - **Web:** `apps/web/src/app/components/pages/admin/RolesPage.tsx`
-- **Mobil:** yok
+- **Mobil:** `apps/mobile-v2/app/(tabs)/modules/roles/index.tsx`, `roles/[id].tsx`
 - **İzin:** `roles.read` · departman: hepsi (yönetim menüsü; yalnız admin/super_admin)
 - **Görünümler:**
   - web: aranabilir rol listesi (sistem rolü rozeti); seçili rol için açıklama, yetki matrisi ve kaydetme; yeni rol diyaloğu; rol hedefi diyaloğu
-  - mobil: yok
+  - mobil: liste + detay yetki matrisi (2026-10-16)
 - **Alanlar/filtreler:**
   - web:
     - arama: rol adı veya kodu
     - yeni rol: ad, kod, açıklama, şablon (Salt Okuma / Operasyon / Onaylayıcı)
-  - mobil: yok
+  - mobil: liste/detay; rol oluşturma şablonları kısmi olabilir
 - **Aksiyonlar:**
-  - `admin.roles` ❌
-  - `admin.permissions` ❌
-  - `admin.createRole` ❌
-  - `admin.updateRole` ❌
-  - `admin.roleTargetMembers` ❌
-  - `admin.saveRoleTarget` ❌
-- **Durum:** Yok
+  - `admin.roles` ✅ · `admin.permissions` (coverage)
+  - oluşturma/hedef: kısmi
+- **Durum:** Eksik
 - **Eksikler:**
-  - Rol listesi, yetki matrisi düzenleme, rol oluşturma ve rol hedefleri mobilde yok.
+  - Rol oluşturma şablonları ve rol hedefi diyalogları web kadar tam değil.
 
 ### departments — Departmanlar
 - **Web:** `apps/web/src/app/components/pages/admin/DepartmentsPage.tsx`
-- **Mobil:** yok
+- **Mobil:** `apps/mobile-v2/app/(tabs)/modules/departments/index.tsx`, `more/settings/departments.tsx`
 - **İzin:** `departments.read` · departman: hepsi (yönetim menüsü; yalnız admin/super_admin)
 - **Görünümler:**
   - web: Organizasyon (kart) ve Tablo görünümleri; yeni departman formu; hedef diyaloğu
-  - mobil: yok
+  - mobil: liste ekranı (2026-10-16)
 - **Alanlar/filtreler:**
   - web:
     - arama
     - kolonlar: Departman, Kod, Açıklama, Hedef
     - yeni departman: Ad*, Kod*, Açıklama
-  - mobil: yok
+  - mobil: temel liste; hedef diyaloğu kısmi
 - **Aksiyonlar:**
-  - `admin.departments` ❌
-  - `admin.createDept` ❌
-  - `admin.departmentTargets` ❌
-  - `admin.saveDepartmentTarget` ❌
-- **Durum:** Yok
+  - `admin.departments` ✅
+  - oluşturma/hedef: kısmi
+- **Durum:** Eksik
 - **Eksikler:**
-  - Departman listesi, oluşturma ve hedef yönetimi mobilde yok.
+  - Organizasyon kart görünümü ve hedef yönetimi web kadar tam değil.
 
 ### settings — Ayarlar
 - **Web:** `apps/web/src/app/components/pages/settings/SettingsPage.tsx`
-- **Mobil:** `apps/mobile-v2/app/(tabs)/more/settings.tsx`, `apps/mobile-v2/app/(tabs)/more/index.tsx`
+- **Mobil:** `apps/mobile-v2/app/(tabs)/more/settings/index.tsx`, `apps/mobile-v2/app/(tabs)/more/index.tsx`
 - **İzin:** `tenants` kaynağı, ancak menü herkese açık · departman: hepsi
 - **Görünümler:**
   - web, sekmeler:
