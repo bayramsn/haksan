@@ -1,9 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, BookmarkPlus, CheckCircle2, Loader2, LockKeyhole, Mail, Paperclip, Pencil, Send, Settings2, Trash2, Upload, X } from "lucide-react";
-import { MAIL_MAX_ATTACHMENTS, MAIL_MAX_ATTACHMENT_BYTES, type MailRecipients } from "@haksan/shared";
+import { MAIL_MAX_ATTACHMENTS, MAIL_MAX_ATTACHMENT_BYTES, MAIL_MAX_QUOTES, PRINT_DOCUMENT_MAX_CHARS, type MailRecipients } from "@haksan/shared";
 import type { UserMailAccountStatus } from "@haksan/shared";
 import { toast } from "sonner";
-import { fileService, mailService } from "../../../lib/services";
+import { companyService, fileService, mailService } from "../../../lib/services";
+import { normalizeCompany } from "../../lib/companyNormalizer";
+import { loadAllCompanyContacts } from "../../lib/contactServerData";
+import { buildMailDocumentHtml, loadQuotePrintData, printAssetBase, quoteDoc, quoteFilename } from "../../lib/print";
 import { useStore } from "../../lib/store";
 import { Button } from "../ui/button";
 import {
@@ -32,7 +35,10 @@ export type MailRecipient = {
   contactId?: string;
   subject?: string;
   body?: string;
-  /** Verilirse teklifin PDF'i sunucuda üretilip ek olarak gönderilir. */
+  /**
+   * Verilirse bu teklif ekte seçili gelir. Firmanın diğer teklifleri de pencerede
+   * listelenir; seçilenlerin hepsi aynı maile PDF olarak eklenir.
+   */
   quoteId?: string;
   /**
    * Verilirse pencerede dosya ekleme alanı açılır. Yüklenen dosya normal
@@ -94,7 +100,7 @@ export function ComposeMailDialog({
   onOpenChange: (open: boolean) => void;
   onSent?: () => Promise<void> | void;
 }) {
-  const { noteTemplates, addNoteTemplate, updateNoteTemplate, deleteNoteTemplate } = useStore();
+  const { noteTemplates, addNoteTemplate, updateNoteTemplate, deleteNoteTemplate, offers, cases, closedCases, customers, users, contacts, products } = useStore();
   const [account, setAccount] = useState<UserMailAccountStatus | null>(null);
   const [accountLoading, setAccountLoading] = useState(false);
   const [sending, setSending] = useState(false);
@@ -106,6 +112,7 @@ export function ComposeMailDialog({
   const [body, setBody] = useState("");
   const [options, setOptions] = useState<MailRecipients>(emptyRecipients);
   const [attachments, setAttachments] = useState<MailAttachment[]>([]);
+  const [quoteIds, setQuoteIds] = useState<string[]>([]);
   const [catalogOpen, setCatalogOpen] = useState(false);
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -128,6 +135,7 @@ export function ComposeMailDialog({
     setBody(recipient.body ?? (recipient.name ? `Merhaba ${recipient.name},\n\n` : "Merhaba,\n\n"));
     // Başka bir alıcıya geçilince önceki mailin ekleri taşınmamalı.
     setAttachments(recipient.initialAttachments ?? []);
+    setQuoteIds(recipient.quoteId ? [recipient.quoteId] : []);
     setCatalogOpen(false);
     setAccountLoading(true);
     mailService.account()
@@ -145,6 +153,67 @@ export function ComposeMailDialog({
   );
 
   const selectedTemplate = mailTemplates.find((template) => template.id === selectedTemplateId);
+
+  // Rapor / belge / teknik föy ekleri teklifle aynı maile giremez (sunucu şeması da reddeder).
+  const quotePicker = Boolean(recipient?.companyId && !recipient.reportDocument && !recipient.recordDocument && !recipient.productDocument);
+  const salesCaseById = useMemo(() => new Map([...cases, ...closedCases].map((item) => [item.id, item])), [cases, closedCases]);
+  const companyQuotes = useMemo(() => {
+    if (!quotePicker) return [];
+    return offers
+      .filter((offer) => offer.id === recipient?.quoteId
+        || (offer.status !== "Cancelled" && (offer.companyId || salesCaseById.get(offer.salesCaseId)?.customerId) === recipient?.companyId))
+      .sort((a, b) => b.date.localeCompare(a.date));
+  }, [offers, quotePicker, recipient, salesCaseById]);
+
+  const toggleQuote = (id: string) => {
+    if (quoteIds.includes(id)) setQuoteIds(quoteIds.filter((item) => item !== id));
+    else if (quoteIds.length >= MAIL_MAX_QUOTES) toast.error(`Bir maile en fazla ${MAIL_MAX_QUOTES} teklif eklenebilir`);
+    else setQuoteIds([...quoteIds, id]);
+  };
+
+  /**
+   * Ek = teklifin "Yazdır / PDF Kaydet" belgesi. Açılan teklifin kendi üreticisi (logo seçimiyle)
+   * önceliklidir; diğerleri teklif ekranının yaptığı gibi güncel firma ve kontak verisiyle basılır.
+   */
+  const buildQuoteDocuments = async (ids: string[]) => {
+    if (!recipient?.companyId) return ids.map((id) => ({ id }));
+    let context: Promise<{ customer: (typeof customers)[number] | null; contacts: typeof contacts }> | undefined;
+    const loadContext = () => (context ??= (async () => {
+      const [detail, remote] = await Promise.all([
+        companyService.get(recipient.companyId!),
+        loadAllCompanyContacts(recipient.companyId!),
+      ]);
+      const remoteIds = new Set(remote.data.map((contact) => contact.id));
+      return {
+        customer: normalizeCompany(detail, customers.find((item) => item.id === recipient.companyId)),
+        contacts: [...remote.data, ...contacts.filter((contact) => !remoteIds.has(contact.id))],
+      };
+    })());
+    return Promise.all(ids.map(async (id) => {
+      if (id === recipient.quoteId && recipient.document) return { id, document: await recipient.document() };
+      const offer = offers.find((item) => item.id === id);
+      if (!offer) return { id };
+      const { customer, contacts: printContacts } = await loadContext();
+      const data = await loadQuotePrintData({
+        offer,
+        customer,
+        salesCase: salesCaseById.get(offer.salesCaseId) ?? null,
+        users,
+        contacts: printContacts,
+        products,
+      });
+      const html = await buildMailDocumentHtml(quoteDoc(data, printAssetBase()));
+      // Gömülü görseller belgeyi şema sınırının üstüne çıkarırsa tüm mail reddedilmesin: sunucu şablonu.
+      if (html.length > PRINT_DOCUMENT_MAX_CHARS) return { id };
+      return {
+        id,
+        document: {
+          html,
+          filename: `${quoteFilename(data, { division: offer.businessLine ?? offer.divisionCode ?? offer.divisionName, company: data.firma || customer?.name })}.pdf`,
+        },
+      };
+    }));
+  };
 
   // Kendi ekibimiz ve müşteri kontakları tek listede; hangisi olduğu etikette yazar.
   const ccOptions: MultiSelectOption[] = useMemo(() => {
@@ -224,10 +293,15 @@ export function ComposeMailDialog({
     }
   };
 
+  // Yüklenen dosya kayıtta da durur: fırsattan açıldıysa fırsata, yoksa firmaya bağlanır.
+  const uploadTarget = recipient?.opportunityId
+    ? { entityType: "opportunity" as const, entityId: recipient.opportunityId }
+    : recipient?.companyId ? { entityType: "company" as const, entityId: recipient.companyId } : null;
+
   const pickAttachment = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (fileInputRef.current) fileInputRef.current.value = "";
-    if (!file || !recipient?.opportunityId) return;
+    if (!file || !uploadTarget) return;
     const extension = file.name.split(".").pop()?.toLocaleLowerCase("tr-TR") ?? "";
     const mimeType = ATTACHMENT_EXT_TO_MIME[extension];
     if (!mimeType) {
@@ -248,20 +322,14 @@ export function ComposeMailDialog({
       const upload = await fileService.signedUpload({
         // "Diğer" fırsat belgeleriyle aynı kova (bkz. DocumentUploadDialog).
         bucket: "erp-quote-documents",
-        entityType: "opportunity",
-        entityId: recipient.opportunityId,
+        ...uploadTarget,
         filename: file.name,
         mimeType: mimeType as never,
         extension: extension as never,
         sizeBytes: file.size,
       });
       await fileService.uploadBinary(upload, file, mimeType);
-      await fileService.link({
-        fileId: upload.fileId,
-        entityType: "opportunity",
-        entityId: recipient.opportunityId,
-        documentTypeCode: "other",
-      });
+      await fileService.link({ fileId: upload.fileId, ...uploadTarget, documentTypeCode: "other" });
       setAttachments((current) => [...current, { fileId: upload.fileId, name: file.name, size: file.size }]);
     } catch (error: any) {
       toast.error("Dosya eklenemedi", { description: error?.message ?? "Yükleme başarısız oldu." });
@@ -278,7 +346,7 @@ export function ComposeMailDialog({
     }
     setSending(true);
     try {
-      const quoteDocument = recipient.quoteId && recipient.document ? await recipient.document() : undefined;
+      const quotes = quoteIds.length ? await buildQuoteDocuments(quoteIds) : undefined;
       const reportDocument = recipient.reportDocument ? await recipient.reportDocument() : undefined;
       const recordDocument = recipient.recordDocument
         ? { id: recipient.recordDocument.id, kind: recipient.recordDocument.kind, pdf: await recipient.recordDocument.pdf() }
@@ -293,8 +361,7 @@ export function ComposeMailDialog({
         body: body.trim(),
         companyId: recipient.companyId,
         contactId,
-        quoteId: recipient.quoteId,
-        quoteDocument,
+        quotes,
         reportDocument,
         document: recordDocument,
         productDocument,
@@ -313,7 +380,10 @@ export function ComposeMailDialog({
   const ready = account?.featureEnabled && account.configured && account.status === "active";
   // Sunucu maile bunu ekler: kayıtlı imza, yoksa profilden üretilen varsayılan ('' = imzasız).
   const signature = account ? (account.signature ?? account.defaultSignature) : "";
-  const attachmentKind = recipient?.quoteId
+  // Açılan teklif listede yoksa (mağazada değil) seçimi kaldırılamaz olurdu; o durumda tek teklif satırı gösterilir.
+  const showQuotePicker = quotePicker && companyQuotes.length > 0
+    && (!recipient?.quoteId || companyQuotes.some((offer) => offer.id === recipient.quoteId));
+  const attachmentKind = recipient?.quoteId && !showQuotePicker
     ? "Teklif"
     : recipient?.recordDocument
       ? RECORD_DOCUMENT_LABELS[recipient.recordDocument.kind]
@@ -324,7 +394,7 @@ export function ComposeMailDialog({
     <Dialog open={Boolean(recipient)} onOpenChange={(open) => !open && close()}>
       <CatalogLibraryDialog open={catalogOpen} onOpenChange={setCatalogOpen} onSelect={file => {
         if (attachments.some(item => item.fileId === file.fileId)) { toast.message('Bu katalog zaten eklendi'); return; }
-        if (attachments.length >= MAIL_MAX_ATTACHMENTS || attachments.reduce((sum, item) => sum + item.size, 0) + file.size > MAIL_MAX_ATTACHMENT_BYTES) { toast.error('Ek sayısı veya toplam 15 MB sınırı aşılıyor'); return; }
+        if (attachments.length >= MAIL_MAX_ATTACHMENTS || attachments.reduce((sum, item) => sum + item.size, 0) + file.size > MAIL_MAX_ATTACHMENT_BYTES) { toast.error(`Ek sayısı veya toplam ${MAIL_MAX_ATTACHMENT_BYTES / (1024 * 1024)} MB sınırı aşılıyor`); return; }
         setAttachments(current => [...current, file]);
       }} />
       <DialogContent className="max-h-[92dvh] max-w-2xl overflow-y-auto p-0">
@@ -497,6 +567,32 @@ export function ComposeMailDialog({
             </div>
           )}
 
+          {showQuotePicker && (
+            <fieldset className="space-y-2">
+              <legend className="flex w-full flex-wrap items-center justify-between gap-2 text-xs">
+                <span className="font-medium">Teklifler</span>
+                <span className="text-[11px] text-muted-foreground">{quoteIds.length} seçili · en fazla {MAIL_MAX_QUOTES} · her biri PDF olarak eklenir</span>
+              </legend>
+              <ul className="max-h-48 space-y-1.5 overflow-y-auto">
+                {companyQuotes.map((offer) => (
+                  <li key={offer.id}>
+                    <label className="flex cursor-pointer items-center gap-2.5 rounded-lg border border-border/60 bg-muted/30 px-3 py-2 text-xs has-[:checked]:border-primary/40 has-[:checked]:bg-primary/5">
+                      <input
+                        type="checkbox" className="size-4 shrink-0 accent-primary"
+                        checked={quoteIds.includes(offer.id)} disabled={sending}
+                        onChange={() => toggleQuote(offer.id)}
+                      />
+                      <span className="shrink-0 font-mono font-semibold">{offer.quoteNo}</span>
+                      <span className="shrink-0 rounded bg-muted px-1 text-[10px] text-muted-foreground">R{offer.revision}</span>
+                      <span className="min-w-0 flex-1 truncate text-muted-foreground">{offer.productName || "Ürün bilgisi yok"}</span>
+                      <span className="shrink-0 tabular-nums">{offer.amount.toLocaleString("tr-TR", { maximumFractionDigits: 2 })} {offer.currency}</span>
+                    </label>
+                  </li>
+                ))}
+              </ul>
+            </fieldset>
+          )}
+
           {recipient && (
             <div className="space-y-2">
               <div className="flex flex-wrap items-center justify-between gap-2">
@@ -506,7 +602,7 @@ export function ComposeMailDialog({
                   id="compose-mail-attachment" disabled={sending || uploading}
                   onChange={(event) => void pickAttachment(event)}
                 />
-                {recipient.opportunityId && <Button
+                {uploadTarget && <Button
                   type="button" variant="outline" size="sm" className="gap-1.5"
                   disabled={sending || uploading || attachments.length >= MAIL_MAX_ATTACHMENTS}
                   onClick={() => fileInputRef.current?.click()}
@@ -536,7 +632,7 @@ export function ComposeMailDialog({
               )}
               <p className="text-[11px] text-muted-foreground">
                 PDF, DOCX, XLSX, PNG, JPG veya WEBP · en fazla {MAIL_MAX_ATTACHMENTS} dosya ·
-                toplam {Math.round(MAIL_MAX_ATTACHMENT_BYTES / (1024 * 1024))} MB.{recipient.opportunityId ? " Yüklenen dosya fırsatın belgelerine de kaydedilir." : " Kataloglar ortak kütüphaneden seçilir."}
+                toplam {Math.round(MAIL_MAX_ATTACHMENT_BYTES / (1024 * 1024))} MB.{recipient.opportunityId ? " Yüklenen dosya fırsatın belgelerine de kaydedilir." : recipient.companyId ? " Yüklenen dosya firmanın belgelerine de kaydedilir." : " Kataloglar ortak kütüphaneden seçilir."}
               </p>
             </div>
           )}

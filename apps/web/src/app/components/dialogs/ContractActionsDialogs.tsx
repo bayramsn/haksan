@@ -1,3 +1,4 @@
+import { FILE_UPLOAD_MAX_BYTES, FILE_UPLOAD_MAX_MB } from "@haksan/shared";
 import { useMemo, useRef, useState } from "react";
 import { FileSignature, Save, Upload } from "lucide-react";
 import { toast } from "sonner";
@@ -19,7 +20,7 @@ import { CONTRACT_NOTE_VARIANTS, contractTermsFillContext } from "../../lib/prin
 const CONTRACT_TERMS_TEMPLATE_SCOPE = "contract_terms";
 
 /** İmzalı sözleşme yalnız PDF olarak kabul edilir (API: assertContractFile). */
-const MAX_SIGNED_CONTRACT_BYTES = 25 * 1024 * 1024;
+const MAX_SIGNED_CONTRACT_BYTES = FILE_UPLOAD_MAX_BYTES;
 
 /**
  * Yükleme öncesi dosya kontrolü — kurallar API'deki `assertContractFile` ile
@@ -32,7 +33,7 @@ const MAX_SIGNED_CONTRACT_BYTES = 25 * 1024 * 1024;
 export function signedContractFileError(file: { name: string; type: string; size: number }): string | null {
   const isPdf = file.type === "application/pdf" || file.name.toLocaleLowerCase("tr-TR").endsWith(".pdf");
   if (!isPdf) return "İmzalı sözleşme PDF formatında olmalıdır";
-  if (file.size > MAX_SIGNED_CONTRACT_BYTES) return "Dosya boyutu 25 MB'ı aşamaz";
+  if (file.size > MAX_SIGNED_CONTRACT_BYTES) return `Dosya boyutu ${FILE_UPLOAD_MAX_MB} MB'ı aşamaz`;
   return null;
 }
 

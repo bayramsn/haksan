@@ -8,9 +8,27 @@ const mocks = vi.hoisted(() => ({
   create: vi.fn(), update: vi.fn(), remove: vi.fn(), error: vi.fn(), success: vi.fn(),
   send: vi.fn(), ready: false,
   templates: [{ id: 'mail-1', title: 'Teklif', body: 'Merhaba **teklif**', scope: 'mail' }],
+  offers: [
+    { id: 'q1', quoteNo: 'CNC-001', revision: 1, companyId: 'c1', salesCaseId: 's1', productName: 'Torna', amount: 100, currency: 'EUR', status: 'Sent', date: '2026-10-01' },
+    { id: 'q2', quoteNo: 'CNC-002', revision: 1, salesCaseId: 's1', productName: 'Freze', amount: 200, currency: 'EUR', status: 'Draft', date: '2026-10-05' },
+    { id: 'q3', quoteNo: 'CNC-003', revision: 1, companyId: 'other', salesCaseId: 's2', amount: 300, currency: 'EUR', status: 'Sent', date: '2026-10-06' },
+    { id: 'q4', quoteNo: 'CNC-004', revision: 1, companyId: 'c1', salesCaseId: 's1', amount: 400, currency: 'EUR', status: 'Cancelled', date: '2026-10-07' },
+  ],
 }));
-vi.mock('../../lib/store', () => ({ useStore: () => ({ noteTemplates: mocks.templates, addNoteTemplate: mocks.create, updateNoteTemplate: mocks.update, deleteNoteTemplate: mocks.remove }) }));
-vi.mock('../../../lib/services', () => ({ fileService: {}, mailService: { send: mocks.send, account: async () => ({ featureEnabled: true, configured: mocks.ready, status: 'active', email: 'sales@example.com', signature: '' }), recipients: async () => ({ contacts: [], colleagues: [] }) } }));
+vi.mock('../../lib/store', () => ({ useStore: () => ({
+  noteTemplates: mocks.templates, addNoteTemplate: mocks.create, updateNoteTemplate: mocks.update, deleteNoteTemplate: mocks.remove,
+  offers: mocks.offers, cases: [{ id: 's1', customerId: 'c1' }], closedCases: [], customers: [], users: [], contacts: [], products: [],
+}) }));
+vi.mock('../../lib/print', () => ({
+  loadQuotePrintData: async ({ offer }: any) => ({ firma: 'Acme', quoteNo: offer.quoteNo }),
+  quoteDoc: (data: any) => data,
+  printAssetBase: () => '',
+  buildMailDocumentHtml: async (doc: any) => `<p>${doc.quoteNo}</p>`,
+  quoteFilename: (data: any) => data.quoteNo,
+}));
+vi.mock('../../lib/companyNormalizer', () => ({ normalizeCompany: (company: any) => company }));
+vi.mock('../../lib/contactServerData', () => ({ loadAllCompanyContacts: async () => ({ data: [], total: 0 }) }));
+vi.mock('../../../lib/services', () => ({ companyService: { get: async (id: string) => ({ id, name: 'Acme' }) }, fileService: {}, mailService: { send: mocks.send, account: async () => ({ featureEnabled: true, configured: mocks.ready, status: 'active', email: 'sales@example.com', signature: '' }), recipients: async () => ({ contacts: [], colleagues: [] }) } }));
 vi.mock('./CatalogLibraryDialog', () => ({ CatalogLibraryDialog: () => null }));
 vi.mock('sonner', () => ({ toast: { error: mocks.error, success: mocks.success } }));
 vi.mock('lucide-react', () => ({ AlertTriangle: () => null, BookmarkPlus: () => null, CheckCircle2: () => null, Loader2: () => null, LockKeyhole: () => null, Mail: () => null, Paperclip: () => null, Pencil: () => null, Send: () => null, Settings2: () => null, Trash2: () => null, Upload: () => null, X: () => null }));
@@ -63,6 +81,28 @@ describe('Mail template CRUD', () => {
     expect(pdf).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole('button', { name: 'E-postayı gönder' }));
     await waitFor(() => expect(mocks.send).toHaveBeenCalledWith(expect.objectContaining({ productDocument: { id: 'product-1', pdf: { html: '<p>Teknik bilgiler</p>', filename: 'teknik.pdf' } }, fileIds: ['catalog-1'] })));
+  });
+  it('lists the company quotes and sends every selected quote in one mail', async () => {
+    mocks.ready = true;
+    mocks.send.mockResolvedValue({});
+    const document = vi.fn().mockResolvedValue({ html: '<p>logolu</p>', filename: 'CNC-001.pdf' });
+    render(<ComposeMailDialog recipient={{ ...recipient, companyId: 'c1', quoteId: 'q1', document }} onOpenChange={() => {}} />);
+    await waitFor(() => expect((screen.getByRole('button', { name: 'E-postayı gönder' }) as HTMLButtonElement).disabled).toBe(false));
+    // q2 firmaya fırsat üzerinden bağlı; başka firmanın ve iptal edilmiş teklif listelenmez.
+    expect(screen.queryByText('CNC-003')).toBeNull();
+    expect(screen.queryByText('CNC-004')).toBeNull();
+    const boxes = screen.getAllByRole('checkbox') as HTMLInputElement[];
+    expect(boxes.map((box) => box.checked)).toEqual([false, true]); // tarihe göre yeni üstte: CNC-002, CNC-001
+    fireEvent.click(boxes[0]);
+    fireEvent.click(screen.getByRole('button', { name: 'E-postayı gönder' }));
+    await waitFor(() => expect(mocks.send).toHaveBeenCalledTimes(1));
+    expect(mocks.send.mock.calls[0][0]).toMatchObject({
+      quotes: [
+        { id: 'q1', document: { html: '<p>logolu</p>', filename: 'CNC-001.pdf' } },
+        { id: 'q2', document: { html: '<p>CNC-002</p>', filename: 'CNC-002.pdf' } },
+      ],
+    });
+    expect(mocks.send.mock.calls[0][0].quoteId).toBeUndefined();
   });
   it('creates a reusable template and keeps bold markers', async () => {
     mocks.create.mockResolvedValue({ id: 'mail-2' });

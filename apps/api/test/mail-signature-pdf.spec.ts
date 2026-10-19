@@ -154,6 +154,13 @@ describe('Mail signature and document PDF API', () => {
     expect(response.status, JSON.stringify(response.body)).toBe(403);
   });
 
+  it('teklif listesi quotes.read ister', async () => {
+    const stock = await createUser('stock');
+    const response = await api().post('/api/v1/mail/send').set('Authorization', `Bearer ${stock.token}`)
+      .send({ to: 'musteri@example.com', subject: 'Teklifler', body: 'Ekte.', quotes: [{ id: '00000000-0000-4000-8000-000000000001' }] });
+    expect(response.status, JSON.stringify(response.body)).toBe(403);
+  });
+
   it('PDF ucu belge okuma yetkisi olmayan role kapalıdır', async () => {
     const user = await createUser('stock');
     const me = await api().get('/api/v1/auth/me').set('Authorization', `Bearer ${user.token}`).expect(200);

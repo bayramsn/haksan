@@ -1,6 +1,6 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { and, desc, eq, isNull, or, sql } from 'drizzle-orm';
-import type { Pagination } from '@haksan/shared';
+import { FILE_UPLOAD_MAX_BYTES, MAIL_MAX_ATTACHMENT_BYTES, type Pagination } from '@haksan/shared';
 import { buildPaginated, pageOffset } from '../../shared/utils/pagination';
 import { users } from '../../db/schema/users';
 import type { DbClient } from '../../db/client';
@@ -454,15 +454,15 @@ export class FilesService {
         file.bucket !== 'erp-quote-documents'
         || !allowedMimeTypes.includes(file.mimeType)
         || !['pdf', 'docx', 'xlsx'].includes(file.extension)
-        || file.sizeBytes > 25 * 1024 * 1024
+        || file.sizeBytes > FILE_UPLOAD_MAX_BYTES
       ) {
-        throw new ValidationError('Dış teklif PDF, DOCX veya XLSX olmalı ve 25 MB sınırını aşmamalıdır');
+        throw new ValidationError(`Dış teklif PDF, DOCX veya XLSX olmalı ve ${FILE_UPLOAD_MAX_BYTES / (1024 * 1024)} MB sınırını aşmamalıdır`);
       }
     }
     if (input.entityType === 'catalog') {
       await this.assertUploadTargetAccessible(input.entityType, input.entityId, actor);
-      if (file.bucket !== 'erp-quote-documents' || file.mimeType !== 'application/pdf' || file.extension !== 'pdf' || file.sizeBytes > 15 * 1024 * 1024) {
-        throw new ValidationError('Genel katalog PDF olmalı ve 15 MB sınırını aşmamalıdır');
+      if (file.bucket !== 'erp-quote-documents' || file.mimeType !== 'application/pdf' || file.extension !== 'pdf' || file.sizeBytes > MAIL_MAX_ATTACHMENT_BYTES) {
+        throw new ValidationError(`Genel katalog PDF olmalı ve ${MAIL_MAX_ATTACHMENT_BYTES / (1024 * 1024)} MB sınırını aşmamalıdır`);
       }
     }
     await this.assertEntityVisible(input.entityType, input.entityId, actor);

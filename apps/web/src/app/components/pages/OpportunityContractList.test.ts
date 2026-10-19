@@ -40,9 +40,9 @@ describe("imzalı sözleşme dosyası doğrulaması", () => {
     expect(signedContractFileError({ name: "SOZLESME.PDF", type: "", size: 1000 })).toBeNull();
   });
 
-  it("25 MB üstünü reddeder", () => {
-    expect(signedContractFileError({ name: "a.pdf", type: "application/pdf", size: 26 * 1024 * 1024 }))
-      .toBe("Dosya boyutu 25 MB'ı aşamaz");
-    expect(signedContractFileError({ name: "a.pdf", type: "application/pdf", size: 25 * 1024 * 1024 })).toBeNull();
+  it("50 MB üstünü reddeder", () => {
+    expect(signedContractFileError({ name: "a.pdf", type: "application/pdf", size: 50 * 1024 * 1024 + 1 }))
+      .toBe("Dosya boyutu 50 MB'ı aşamaz");
+    expect(signedContractFileError({ name: "a.pdf", type: "application/pdf", size: 50 * 1024 * 1024 })).toBeNull();
   });
 });

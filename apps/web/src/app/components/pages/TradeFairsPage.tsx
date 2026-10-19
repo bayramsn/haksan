@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Building2, Camera, ExternalLink, FileText, Handshake, Images, List, Loader2, Mail, MapPin, Paperclip, Pencil, Phone, Plus, Search, Store, Trash2, Users, X } from "lucide-react";
 import { toast } from "sonner";
-import { COUNTRY_OPTIONS, TRADE_FAIR_NOTE_OR_ATTACHMENT_MESSAGE, tradeFairContactCreateSchema } from "@haksan/shared";
+import { COUNTRY_OPTIONS, FILE_UPLOAD_MAX_BYTES, FILE_UPLOAD_MAX_MB, TRADE_FAIR_NOTE_OR_ATTACHMENT_MESSAGE, tradeFairContactCreateSchema } from "@haksan/shared";
 import { Card, CardContent } from "../ui/card";
 import { Input } from "../ui/input";
 import { Label } from "../ui/label";
@@ -38,7 +38,7 @@ const OPPORTUNITY_TARGET_STAGES = ["lead", "c", "b", "a", "a_plus"] as const;
 const ALL = "__all__";
 const PAGE_SIZE = 50;
 const ENTITY = "trade_fair_contact" as const;
-const MAX_BYTES = 25 * 1024 * 1024;
+const MAX_BYTES = FILE_UPLOAD_MAX_BYTES;
 const EXT_TO_MIME: Record<string, string> = {
   pdf: "application/pdf",
   docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -98,7 +98,7 @@ async function uploadAttachment(recordId: string, file: File) {
   // izin listesine uymayabilir; uzantı zaten doğrulandığı için tip ondan türetilir.
   const mime = EXT_TO_MIME[ext];
   if (!mime) throw new Error(`${file.name}: PDF, DOCX, XLSX, PNG, JPG veya WEBP yükleyebilirsiniz.`);
-  if (file.size > MAX_BYTES) throw new Error(`${file.name}: dosya 25 MB'ı aşamaz.`);
+  if (file.size > MAX_BYTES) throw new Error(`${file.name}: dosya ${FILE_UPLOAD_MAX_MB} MB'ı aşamaz.`);
   // ponytail: fuar ekleri genel belge klasörüne gider; ayrı bucket gerekirse setup-buckets'a ekleyin.
   const up = await fileService.signedUpload({
     bucket: "erp-service-documents",
@@ -369,7 +369,7 @@ export function TradeFairsPage({
     const files = Array.from(event.target.files ?? []);
     event.target.value = "";
     const bad = files.find((f) => !EXT_TO_MIME[fileExt(f.name)] || f.size > MAX_BYTES);
-    if (bad) toast.error("Dosya eklenemedi", { description: `${bad.name}: PDF, DOCX, XLSX, PNG, JPG veya WEBP; en fazla 25 MB.` });
+    if (bad) toast.error("Dosya eklenemedi", { description: `${bad.name}: PDF, DOCX, XLSX, PNG, JPG veya WEBP; en fazla ${FILE_UPLOAD_MAX_MB} MB.` });
     setPending((list) => [...list, ...files.filter((f) => f !== bad && EXT_TO_MIME[fileExt(f.name)] && f.size <= MAX_BYTES)]);
   };
 
@@ -1034,7 +1034,7 @@ export function TradeFairsPage({
                   <Button type="button" variant="outline" size="sm" className="gap-1.5" onClick={() => docRef.current?.click()}>
                     <Paperclip className="size-4" /> Dosya
                   </Button>
-                  <span className="self-center text-[11px] text-muted-foreground">Birden çok seçilebilir · Kaydet'e basınca yüklenir · PDF, DOCX, XLSX, PNG, JPG, WEBP · dosya başına en fazla 25 MB</span>
+                  <span className="self-center text-[11px] text-muted-foreground">Birden çok seçilebilir · Kaydet'e basınca yüklenir · PDF, DOCX, XLSX, PNG, JPG, WEBP · dosya başına en fazla {FILE_UPLOAD_MAX_MB} MB</span>
                 </div>
               )}
             </div>

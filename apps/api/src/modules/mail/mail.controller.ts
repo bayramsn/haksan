@@ -33,6 +33,15 @@ import { QuotesService } from '../quotes/quotes.service';
 import { FilesService } from '../files/files.service';
 import { HtmlPdfService } from '../../shared/pdf/html-pdf.service';
 
+/**
+ * Zaman çizelgesi "ne gönderdik" sorusunu da cevaplasın: ek adları mesajın sonunda.
+ * Uzun mesaj kesilirken ek satırı korunur (alan 4000 karakter).
+ */
+export function activityDescription(body: string, filenames: string[]): string {
+  const note = filenames.length ? `\n\nEkler: ${filenames.join(', ')}`.slice(0, 1000) : '';
+  return body.slice(0, 4000 - note.length) + note;
+}
+
 const mailRecipientsQuerySchema = z.object({ companyId: z.string().uuid().optional() });
 
 @UseGuards(AuthGuard)
@@ -163,14 +172,14 @@ export class MailController {
     };
   }
 
-  private async quoteAttachment(body: MailSendInput, actor: AuthContext) {
-    if (body.quoteDocument && this.htmlPdf.isAvailable()) {
-      // Belge teklife ait mi: erişim yetkisi generatePdf ile aynı süzgeçten geçer.
-      const { filename } = await this.quotes.generatePdf(body.quoteId!, actor);
-      const content = await this.htmlPdf.render(body.quoteDocument.html);
-      return { filename: body.quoteDocument.filename || filename, content, contentType: 'application/pdf' };
+  private async quoteAttachment(quote: { id: string; document?: { html: string; filename: string } }, actor: AuthContext) {
+    if (quote.document && this.htmlPdf.isAvailable()) {
+      // Erişim kontrolü: get, generatePdf ile aynı tenant/bölüm/firma süzgeci; atılacak PDFKit çıktısı üretilmez.
+      await this.quotes.get(quote.id, actor);
+      const content = await this.htmlPdf.render(quote.document.html);
+      return { filename: quote.document.filename, content, contentType: 'application/pdf' };
     }
-    const { buffer, filename } = await this.quotes.generatePdf(body.quoteId!, actor);
+    const { buffer, filename } = await this.quotes.generatePdf(quote.id, actor);
     return { filename, content: buffer, contentType: 'application/pdf' };
   }
 
@@ -260,13 +269,18 @@ export class MailController {
     @CurrentUser() actor: AuthContext
   ) {
     await this.assertCrmLinks(body, actor);
-    if (body.quoteId && !actor.permissions.has('quotes.read')) {
+    // Eski istemciler tek teklifi `quoteId` ile yollar; ikisi şemada birlikte gelemez.
+    const quotes = body.quotes ?? (body.quoteId ? [{ id: body.quoteId, document: body.quoteDocument }] : []);
+    if (quotes.length && !actor.permissions.has('quotes.read')) {
       throw new ForbiddenError('Teklif ekleyebilmek için quotes.read yetkisi gerekli');
     }
     // Ek PDF: istemci "Yazdır / PDF Kaydet" belgesini gönderdiyse birebir o (Chromium);
     // göndermediyse (eski istemci / Chromium yok) sunucunun sade PDFKit şablonu.
-    const generated = body.quoteId
-      ? [await this.quoteAttachment(body, actor)]
+    // Sırayla: paralel üretim tek mailin Chromium kuyruğunun tamamını kaplayıp başkalarına PDF_BUSY döndürürdü.
+    const quoteAttachments = [];
+    for (const quote of quotes) quoteAttachments.push(await this.quoteAttachment(quote, actor));
+    const generated = quoteAttachments.length
+      ? quoteAttachments
       : body.reportDocument
         ? [await this.reportAttachment(body, actor)]
         : body.document
@@ -291,7 +305,7 @@ export class MailController {
           contactId: body.contactId,
           activityTypeCode: 'email',
           subject: body.subject,
-          description: body.body.slice(0, 4000),
+          description: activityDescription(body.body, attachments.map((item) => item.filename)),
           activityDate: delivery.sentAt,
         },
         actor

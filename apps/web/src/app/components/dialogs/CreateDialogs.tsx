@@ -76,7 +76,7 @@ import { useAuth } from "../../../lib/auth";
 import { ProductConfigurationOptionsEditor, isConfigurableProduct, isConfigurableLaserProduct } from "../technical/ProductConfigurationOptions";
 import { LaserConfigurationEditor } from "../technical/LaserConfigurationEditor";
 import { laserDraftKey } from "../technical/laser-editor-state";
-import { isSupportedLaserBrand, isLaserProductType, type LaserSelection, type LaserTechnicalConfiguration } from "@haksan/shared";
+import { FILE_UPLOAD_MAX_BYTES, FILE_UPLOAD_MAX_MB, isSupportedLaserBrand, isLaserProductType, type LaserSelection, type LaserTechnicalConfiguration } from "@haksan/shared";
 import {
   ACTIVITY_TYPE_OPTIONS,
   COMPANY_SECTOR_OPTIONS,
@@ -2859,7 +2859,7 @@ export function AddActivityDialog({
     for (const file of pendingFiles) {
       const meta = activityFileExt(file);
       if (!meta) throw new Error(`${file.name}: desteklenmeyen dosya tipi`);
-      if (file.size > 25 * 1024 * 1024) throw new Error(`${file.name}: dosya boyutu 25 MB'ı aşamaz`);
+      if (file.size > FILE_UPLOAD_MAX_BYTES) throw new Error(`${file.name}: dosya boyutu ${FILE_UPLOAD_MAX_MB} MB'ı aşamaz`);
       const upload = await fileService.signedUpload({
         bucket: "erp-service-documents",
         entityType: "sales_activity",
@@ -3691,8 +3691,8 @@ export function ProductDialog({
       toast.error("Sadece PNG, JPG veya WEBP yükleyebilirsiniz");
       return;
     }
-    if (file.size > 25 * 1024 * 1024) {
-      toast.error("Dosya boyutu 25 MB'ı aşamaz");
+    if (file.size > FILE_UPLOAD_MAX_BYTES) {
+      toast.error(`Dosya boyutu ${FILE_UPLOAD_MAX_MB} MB'ı aşamaz`);
       return;
     }
     setUploadingImage(true);
@@ -4417,7 +4417,7 @@ export function ProductDialog({
                       </Button>
                     )}
                   </div>
-                  <p className="text-[11px] text-muted-foreground">PNG, JPG veya WEBP · en fazla 25 MB</p>
+                  <p className="text-[11px] text-muted-foreground">PNG, JPG veya WEBP · en fazla {FILE_UPLOAD_MAX_MB} MB</p>
                 </div>
                 <div className="h-20 overflow-hidden rounded-md border border-border/70 bg-muted/30 grid place-items-center">
                   {form.imageUrl ? (
@@ -6172,7 +6172,7 @@ export function CreatePaymentDialog({
     const amount = Number(form.amount);
     if (!Number.isFinite(amount) || amount <= 0) return toast.error("Geçerli bir tutar giriniz");
     if (!file) return toast.error("Fatura veya fiş dosyası seçiniz");
-    if (file.size > 25 * 1024 * 1024) return toast.error("Dosya boyutu 25 MB'ı aşamaz");
+    if (file.size > FILE_UPLOAD_MAX_BYTES) return toast.error(`Dosya boyutu ${FILE_UPLOAD_MAX_MB} MB'ı aşamaz`);
     const meta = paymentDocMeta(file);
     if (!meta) {
       return toast.error("Desteklenmeyen dosya tipi", { description: "PDF, PNG, JPG, WEBP, DOCX veya XLSX" });

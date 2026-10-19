@@ -5,6 +5,7 @@ import {
   SIGNATURE_IMAGE_MAX_BYTES,
   SIGNATURE_IMAGE_MIME_TYPES,
 } from './signature';
+import { MAIL_MAX_ATTACHMENT_BYTES } from './mail';
 
 // Files are polymorphically attached, so accepted targets must be explicit.
 // Upload-only targets are intentionally separate from targets that callers can
@@ -73,8 +74,9 @@ export const signedUploadUrlBaseSchema = z.object({
 });
 
 export const signedUploadUrlSchema = signedUploadUrlBaseSchema.superRefine((input, ctx) => {
-  if (input.entityType === 'catalog' && (input.bucket !== 'erp-quote-documents' || input.mimeType !== 'application/pdf' || input.extension !== 'pdf' || input.sizeBytes > 15 * 1024 * 1024)) {
-    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['entityType'], message: 'Genel katalog PDF olmalı ve 15 MB sınırını aşmamalıdır' });
+  if (input.entityType === 'catalog' && (input.bucket !== 'erp-quote-documents' || input.mimeType !== 'application/pdf' || input.extension !== 'pdf' || input.sizeBytes > MAIL_MAX_ATTACHMENT_BYTES)) {
+    // Katalog yalnız mail eki olarak kullanılır; mailin ek sınırından büyüğü gönderilemezdi.
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['entityType'], message: `Genel katalog PDF olmalı ve ${MAIL_MAX_ATTACHMENT_BYTES / (1024 * 1024)} MB sınırını aşmamalıdır` });
   }
   if (input.bucket === 'erp-company-logos') {
     if (input.entityType !== 'company') {

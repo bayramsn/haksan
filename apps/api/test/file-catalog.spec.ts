@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { PgDialect } from 'drizzle-orm/pg-core';
 import { signedUploadUrlSchema } from '../../../packages/shared/src/schemas/file';
+import { MAIL_MAX_ATTACHMENT_BYTES } from '../../../packages/shared/src/schemas/mail';
 import { FilesService } from '../src/modules/files/files.service';
 import type { AuthContext } from '../src/shared/security/auth.types';
 
@@ -9,7 +10,8 @@ const tenant = '00000000-0000-4000-8000-000000000001';
 const user = '00000000-0000-4000-8000-000000000002';
 const fileId = '00000000-0000-4000-8000-000000000003';
 const foreignTenant = '00000000-0000-4000-8000-000000000004';
-const maxBytes = 15 * 1024 * 1024;
+// Katalog yalnız mail eki olarak gider; sınırı mailin toplam ek sınırıdır.
+const maxBytes = MAIL_MAX_ATTACHMENT_BYTES;
 const upload = { entityType: 'catalog' as const, entityId: tenant, bucket: 'erp-quote-documents' as const, filename: 'Genel Katalog.pdf', mimeType: 'application/pdf' as const, extension: 'pdf' as const, sizeBytes: maxBytes };
 const actor = { tenantId: tenant, userId: user, roles: [], permissions: new Set(['products.read', 'products.update']) } as unknown as AuthContext;
 const catalogFile = { id: fileId, tenantId: tenant, uploadedBy: user, deletedAt: null, uploadStatus: 'uploaded', visibility: 'private', bucket: upload.bucket, originalFilename: upload.filename, objectKey: 'private/catalog.pdf', mimeType: upload.mimeType, extension: upload.extension, sizeBytes: 1000 };
@@ -24,7 +26,7 @@ function fixture(file: object = catalogFile, linkTenant = tenant) {
 }
 
 describe('General catalog file boundary', () => {
-  it('accepts PDF at the 15 MB boundary', () => {
+  it('accepts PDF at the mail attachment boundary', () => {
     expect(signedUploadUrlSchema.safeParse(upload).success).toBe(true);
   });
   it.each([

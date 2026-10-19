@@ -56,7 +56,7 @@ import { ExportExcelButton } from "../../ui/ExportExcelButton";
 import { KanbanDetailDialogShell } from "../../shared/KanbanDetailDialogShell";
 import { EntityVisual, InsightStat, RecordIdentity } from "../../shared/PremiumPrimitives";
 import type { OperationFocus } from "../../../lib/operations";
-import type { SignatureView } from "@haksan/shared";
+import { FILE_UPLOAD_MAX_BYTES, FILE_UPLOAD_MAX_MB, type SignatureView } from "@haksan/shared";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
 } from "../../ui/dropdown-menu";
@@ -1848,8 +1848,8 @@ function ComplaintDetailDialog({
       toast.error("Desteklenmeyen dosya tipi", { description: "PDF, DOCX, XLSX, PNG, JPG veya WEBP yükleyebilirsiniz." });
       return;
     }
-    if (file.size > 25 * 1024 * 1024) {
-      toast.error("Dosya boyutu 25 MB'ı aşamaz");
+    if (file.size > FILE_UPLOAD_MAX_BYTES) {
+      toast.error(`Dosya boyutu ${FILE_UPLOAD_MAX_MB} MB'ı aşamaz`);
       return;
     }
     setUploading(true);

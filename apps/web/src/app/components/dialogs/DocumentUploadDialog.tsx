@@ -1,3 +1,4 @@
+import { FILE_UPLOAD_MAX_BYTES, FILE_UPLOAD_MAX_MB } from "@haksan/shared";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { FileCheck2, Upload, FileText, Link as LinkIcon, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
@@ -175,8 +176,8 @@ export function DocumentUploadDialog({
       toast.error("Bağlı teklif seçin", { description: "Proforma, sözleşme ve ticari fatura PDF'leri bir teklif revizyonuna bağlı olmalıdır." });
       return;
     }
-    if (file.size > 25 * 1024 * 1024) {
-      toast.error("Dosya boyutu 25 MB'ı aşamaz");
+    if (file.size > FILE_UPLOAD_MAX_BYTES) {
+      toast.error(`Dosya boyutu ${FILE_UPLOAD_MAX_MB} MB'ı aşamaz`);
       return;
     }
     const rawExtension = extensionFromName(file.name);
@@ -386,7 +387,7 @@ export function DocumentUploadDialog({
                   <div className="text-xs text-muted-foreground mt-1">
                     {file
                       ? `${formatFileSize(file.size)} · ${file.type || extensionFromName(file.name).toLocaleUpperCase("tr-TR")}`
-                      : `${externalQuoteMode ? "PDF, DOCX, XLSX" : "PDF, DOCX, XLSX, PNG, JPG, WEBP"} · en fazla 25 MB`}
+                      : `${externalQuoteMode ? "PDF, DOCX, XLSX" : "PDF, DOCX, XLSX, PNG, JPG, WEBP"} · en fazla ${FILE_UPLOAD_MAX_MB} MB`}
                   </div>
                   {file && <div className="mt-1.5 inline-flex items-center gap-1 text-[11px] font-medium text-emerald-700"><FileCheck2 className="size-3.5" /> Güvenli yükleme için hazır</div>}
                 </div>

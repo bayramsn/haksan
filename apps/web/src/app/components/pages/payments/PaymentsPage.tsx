@@ -1,3 +1,4 @@
+import { FILE_UPLOAD_MAX_BYTES, FILE_UPLOAD_MAX_MB } from "@haksan/shared";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "../../ui/card";
 import { Button } from "../../ui/button";
@@ -861,7 +862,7 @@ function PaymentDetailDialog({
 
   const upload = async () => {
     if (!payment || !file) return toast.error("Dosya seçin");
-    if (file.size > 25 * 1024 * 1024) return toast.error("Dosya boyutu 25 MB'ı aşamaz");
+    if (file.size > FILE_UPLOAD_MAX_BYTES) return toast.error(`Dosya boyutu ${FILE_UPLOAD_MAX_MB} MB'ı aşamaz`);
     const rawExt = file.name.split(".").pop()?.toLocaleLowerCase("tr-TR") ?? "";
     const ext = rawExt in PAYMENT_EXT_TO_MIME ? (rawExt as PaymentUploadExt) : null;
     if (!ext) {

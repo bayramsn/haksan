@@ -255,7 +255,7 @@ function Composer({ onCancel, onCreated }: { onCancel: () => void; onCreated: (i
         ))}
         <CatalogLibraryDialog open={catalogOpen} onOpenChange={setCatalogOpen} onSelect={(file) => {
           if (attachments.some((a) => a.fileId === file.fileId)) return;
-          if (attachments.reduce((sum, a) => sum + a.size, 0) + file.size > MAIL_MAX_ATTACHMENT_BYTES) { toast.error("Eklerin toplamı 15 MB sınırını aşıyor"); return; }
+          if (attachments.reduce((sum, a) => sum + a.size, 0) + file.size > MAIL_MAX_ATTACHMENT_BYTES) { toast.error(`Eklerin toplamı ${MAIL_MAX_ATTACHMENT_BYTES / (1024 * 1024)} MB sınırını aşıyor`); return; }
           setAttachments((cur) => [...cur, file]);
         }} />
       </section>

@@ -450,6 +450,10 @@ export const ALLOWED_MIME_TYPES = [
 ] as const;
 export type AllowedMimeType = (typeof ALLOWED_MIME_TYPES)[number];
 
+/** Belge yüklemelerinin istemci sınırı; API'nin MAX_UPLOAD_SIZE_MB varsayılanı ve nginx client_max_body_size ile aynı. */
+export const FILE_UPLOAD_MAX_BYTES = 50 * 1024 * 1024;
+export const FILE_UPLOAD_MAX_MB = FILE_UPLOAD_MAX_BYTES / (1024 * 1024);
+
 export const ALLOWED_FILE_EXTENSIONS = ['pdf', 'docx', 'xlsx', 'png', 'jpg', 'jpeg', 'webp', 'gif', 'webm', 'mp3', 'ogg', 'm4a', 'wav'] as const;
 export type AllowedFileExtension = (typeof ALLOWED_FILE_EXTENSIONS)[number];
 
