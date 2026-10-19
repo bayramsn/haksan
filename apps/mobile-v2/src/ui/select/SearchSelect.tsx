@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { createContext, useContext, useMemo, useRef, useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { BottomSheetFlatList, BottomSheetModal, BottomSheetView } from '@gorhom/bottom-sheet';
@@ -21,6 +21,15 @@ export type RemoteOptions<T> = {
   fetchNextPage?: () => void;
 };
 
+/**
+ * BottomSheetModal portal içinde yaşar; firma/kategori gibi bağımlılıklar
+ * dış ağaç context’iyle gelmez. `remoteBag` bu context ile sheet’e taşınır.
+ */
+export const SearchRemoteBagCtx = createContext<unknown>(null);
+export function useSearchRemoteBag<T = unknown>(): T {
+  return useContext(SearchRemoteBagCtx) as T;
+}
+
 type Props<T> = {
   label: string;
   placeholder: string;
@@ -32,8 +41,10 @@ type Props<T> = {
   /** Sabit liste: arama istemcide yapılır. */
   options?: SelectItem<T>[];
   optionsLoading?: boolean;
-  /** Veritabanı araması: sheet açıkken çağrılır, arama terimi gecikmeli gelir. */
+  /** Veritabanı araması (modül düzeyinde kanca; bağımlılık için `remoteBag`). */
   useRemote?: (search: string) => RemoteOptions<T>;
+  /** Portal içine taşınan bağımlılık (ör. companyId). */
+  remoteBag?: unknown;
   /** Listede yoksa aranan metni değer olarak kullanma satırı (id boş döner). */
   allowCustom?: boolean;
   searchPlaceholder?: string;
@@ -46,7 +57,6 @@ type Props<T> = {
 export function SearchSelect<T>(props: Props<T>) {
   const sheet = useRef<BottomSheetModal>(null);
   const sheetProps = useSheetProps('70%');
-  const [open, setOpen] = useState(false);
   return (
     <>
       <PickerField
@@ -65,9 +75,9 @@ export function SearchSelect<T>(props: Props<T>) {
         enablePanDownToClose
         keyboardBehavior="extend"
         keyboardBlurBehavior="restore"
-        onChange={(index) => setOpen(index >= 0)}
       >
-        {open ? (
+        {/* Provider sheet çocuklarında olmalı — portal dış context’i taşımaz. */}
+        <SearchRemoteBagCtx.Provider value={props.remoteBag ?? null}>
           <SheetBody
             {...props}
             onPick={(item) => {
@@ -75,11 +85,7 @@ export function SearchSelect<T>(props: Props<T>) {
               sheet.current?.dismiss();
             }}
           />
-        ) : (
-          <BottomSheetView className="h-16">
-            <View />
-          </BottomSheetView>
-        )}
+        </SearchRemoteBagCtx.Provider>
       </BottomSheetModal>
     </>
   );
@@ -87,7 +93,6 @@ export function SearchSelect<T>(props: Props<T>) {
 
 const NO_REMOTE = () => null;
 
-/** Sheet içeriği yalnız açıkken bağlanır; uzak sorgu da ancak o zaman çalışır. */
 function SheetBody<T>({
   label,
   options,

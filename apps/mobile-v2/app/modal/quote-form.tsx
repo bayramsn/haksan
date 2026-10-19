@@ -247,10 +247,13 @@ export default function QuoteFormScreen() {
             error={errors.companyId}
             disabled={isEdit}
           />
-          {companyId && contactOptions.length > 0 ? (
+          {companyId ? (
             <ChoiceChips
               label="Kontak"
-              options={[{ value: '', label: 'Seçilmedi' }, ...contactOptions.map((contact) => ({ value: contact.id, label: contact.fullName }))]}
+              options={[
+                { value: '', label: contactOptions.length ? 'Seçilmedi' : 'Kontak yok / sonra ekle' },
+                ...contactOptions.map((contact) => ({ value: contact.id, label: contact.fullName })),
+              ]}
               value={contactId ?? ''}
               onChange={(next) => setContactId(next || null)}
             />

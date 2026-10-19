@@ -1,4 +1,4 @@
-import { createContext, useContext, useMemo } from 'react';
+import { useMemo } from 'react';
 import { COUNTRY_OPTIONS, DISTRICTS_BY_PROVINCE } from '@haksan/shared';
 import { useCompany, useCompanyList } from '@/src/api/companies.hooks';
 import { useTaxOffices } from '@/src/api/crm-general.hooks';
@@ -8,13 +8,8 @@ import { useDirectory } from '@/src/api/operations.hooks';
 import { useBrands } from '@/src/api/products.hooks';
 import type { Brand } from '@/src/api/products.api';
 import type { CompanyListItem, ContactListItem, InventoryItem, ProductModel } from '@/src/api/endpoints';
-import { SearchSelect, type RemoteOptions, type SelectItem } from './SearchSelect';
+import { SearchSelect, useSearchRemoteBag, type RemoteOptions, type SelectItem } from './SearchSelect';
 import { INCOTERMS, addressText, distinctValues, matchesStockLine, provinceOptions } from './select-logic';
-
-/** SearchSelect uzak kancaları modül düzeyinde tutmak için (Rules of Hooks). */
-const ContactCompanyCtx = createContext<string | null>(null);
-const ContactEmailCompanyCtx = createContext<string | null>(null);
-const InventorySerialCtx = createContext<{ categoryCode?: string | null; productModelId?: string | null }>({});
 
 type Common = { label?: string; placeholder?: string; error?: string; disabled?: boolean; clearable?: boolean };
 
@@ -77,7 +72,7 @@ export const contactPhone = (c: ContactListItem) => c.mobilePhone || c.workPhone
 export const contactEmail = (c: ContactListItem) => c.workEmail || c.personalEmail || '';
 
 function useContactOptions(search: string): RemoteOptions<ContactListItem> {
-  const companyId = useContext(ContactCompanyCtx);
+  const companyId = useSearchRemoteBag<string | null>();
   const list = useContactList(
     useMemo(
       () => ({ companyId: companyId ?? undefined, search: search || undefined, sortBy: 'name' as const, sortDir: 'asc' as const }),
@@ -117,23 +112,22 @@ export function ContactSelect({
   allowCustom?: boolean;
 }) {
   return (
-    <ContactCompanyCtx.Provider value={companyId}>
-      <SearchSelect
-        label={rest.label ?? 'Kontak'}
-        placeholder={rest.placeholder ?? (companyId ? 'Firmanın kontağını seçin' : 'Önce firma seçin')}
-        icon="person-outline"
-        value={value}
-        selectedId={selectedId}
-        onSelect={onSelect}
-        useRemote={useContactOptions}
-        allowCustom={allowCustom}
-        searchPlaceholder="Ad, unvan veya telefon"
-        emptyTitle={companyId ? 'Kontak bulunamadı' : 'Önce firma seçin'}
-        error={rest.error}
-        disabled={rest.disabled || (!companyId && !allowCustom)}
-        clearable={rest.clearable}
-      />
-    </ContactCompanyCtx.Provider>
+    <SearchSelect
+      label={rest.label ?? 'Kontak'}
+      placeholder={rest.placeholder ?? (companyId ? 'Firmanın kontağını seçin' : 'Önce firma seçin')}
+      icon="person-outline"
+      value={value}
+      selectedId={selectedId}
+      onSelect={onSelect}
+      useRemote={useContactOptions}
+      remoteBag={companyId}
+      allowCustom={allowCustom}
+      searchPlaceholder="Ad, unvan veya telefon"
+      emptyTitle={companyId ? 'Kontak bulunamadı' : 'Önce firma seçin'}
+      error={rest.error}
+      disabled={rest.disabled || (!companyId && !allowCustom)}
+      clearable={rest.clearable}
+    />
   );
 }
 
@@ -513,7 +507,10 @@ export function CompanyAddressSelect({
 
 /** Stok kalemleri (`/inventory`) arasında seri no araması; kategori/ürün filtresi istemcide uygulanır. */
 function useSerialOptions(search: string): RemoteOptions<InventoryItem> {
-  const { categoryCode, productModelId } = useContext(InventorySerialCtx);
+  const { categoryCode, productModelId } = useSearchRemoteBag<{
+    categoryCode?: string | null;
+    productModelId?: string | null;
+  }>() ?? {};
   const list = useInventoryList(
     useMemo(() => ({ search: search || undefined, categoryCode: categoryCode || undefined }), [search, categoryCode])
   );
@@ -549,30 +546,29 @@ export function InventorySerialSelect({
   selectedId?: string | null;
   onSelect: (item: SelectItem<InventoryItem> | null) => void;
 }) {
-  const ctx = useMemo(() => ({ categoryCode, productModelId }), [categoryCode, productModelId]);
+  const remoteBag = useMemo(() => ({ categoryCode, productModelId }), [categoryCode, productModelId]);
   return (
-    <InventorySerialCtx.Provider value={ctx}>
-      <SearchSelect
-        label={rest.label ?? 'Seri No'}
-        placeholder={rest.placeholder ?? 'Stoktan seri no seçin veya yazın'}
-        icon="barcode-outline"
-        value={value}
-        selectedId={selectedId}
-        onSelect={onSelect}
-        useRemote={useSerialOptions}
-        allowCustom
-        searchPlaceholder="Seri no, model veya marka"
-        emptyTitle="Stok kalemi bulunamadı"
-        error={rest.error}
-        disabled={rest.disabled}
-        clearable={rest.clearable ?? true}
-      />
-    </InventorySerialCtx.Provider>
+    <SearchSelect
+      label={rest.label ?? 'Seri No'}
+      placeholder={rest.placeholder ?? 'Stoktan seri no seçin veya yazın'}
+      icon="barcode-outline"
+      value={value}
+      selectedId={selectedId}
+      onSelect={onSelect}
+      useRemote={useSerialOptions}
+      remoteBag={remoteBag}
+      allowCustom
+      searchPlaceholder="Seri no, model veya marka"
+      emptyTitle="Stok kalemi bulunamadı"
+      error={rest.error}
+      disabled={rest.disabled}
+      clearable={rest.clearable ?? true}
+    />
   );
 }
 
 function useEmailOptions(search: string): RemoteOptions<ContactListItem> {
-  const companyId = useContext(ContactEmailCompanyCtx);
+  const companyId = useSearchRemoteBag<string | null>();
   const list = useContactList(
     useMemo(
       () => ({ companyId: companyId ?? undefined, search: search || undefined, sortBy: 'name' as const, sortDir: 'asc' as const }),
@@ -605,22 +601,21 @@ export function ContactEmailSelect({
   ...rest
 }: Common & { companyId?: string | null; value: string; onChange: (email: string, contact: ContactListItem | null) => void }) {
   return (
-    <ContactEmailCompanyCtx.Provider value={companyId ?? null}>
-      <SearchSelect
-        label={rest.label ?? 'Alıcı'}
-        placeholder={rest.placeholder ?? 'Kontak seçin veya e-posta yazın'}
-        icon="mail-outline"
-        value={value}
-        onSelect={(item) => onChange(item?.label.trim() ?? '', item?.data ?? null)}
-        useRemote={useEmailOptions}
-        allowCustom
-        searchPlaceholder="Ad, firma veya e-posta"
-        emptyTitle="E-postası olan kontak yok"
-        error={rest.error}
-        disabled={rest.disabled}
-        clearable={rest.clearable ?? true}
-      />
-    </ContactEmailCompanyCtx.Provider>
+    <SearchSelect
+      label={rest.label ?? 'Alıcı'}
+      placeholder={rest.placeholder ?? 'Kontak seçin veya e-posta yazın'}
+      icon="mail-outline"
+      value={value}
+      onSelect={(item) => onChange(item?.label.trim() ?? '', item?.data ?? null)}
+      useRemote={useEmailOptions}
+      remoteBag={companyId ?? null}
+      allowCustom
+      searchPlaceholder="Ad, firma veya e-posta"
+      emptyTitle="E-postası olan kontak yok"
+      error={rest.error}
+      disabled={rest.disabled}
+      clearable={rest.clearable ?? true}
+    />
   );
 }
 
