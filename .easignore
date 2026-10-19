@@ -1,0 +1,14 @@
+# Legacy Expo 57 app — conflicts with mobile-v2 (Expo 54) on EAS installs.
+apps/mobile/**
+
+# Local / editor noise (also covered by .gitignore; listed for explicit upload trim)
+**/.DS_Store
+**/node_modules/**
+**/.expo/**
+**/ios/Pods/**
+**/android/.gradle/**
+**/coverage/**
+**/dist/**
+**/graphify-out/**
+tmp/**
+*.log

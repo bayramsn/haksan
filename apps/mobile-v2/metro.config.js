@@ -17,6 +17,20 @@ config.resolver.nodeModulesPaths = [
   path.resolve(projectRoot, 'node_modules'),
   path.resolve(workspaceRoot, 'node_modules'),
 ];
+// Monorepoda eski apps/mobile (Expo 57 / RN 0.86) hoist edilmiş olsa bile
+// Metro'nun mobile-v2'nin kendi RN/Expo ağacına bağlanması gerekir; aksi halde
+// EAS eager bundle codegen hatası verir (VirtualViewExperimentalNativeComponent).
+const pin = (name) => {
+  const local = path.resolve(projectRoot, 'node_modules', name);
+  return require('fs').existsSync(local) ? local : path.resolve(workspaceRoot, 'node_modules', name);
+};
+config.resolver.extraNodeModules = {
+  ...(config.resolver.extraNodeModules ?? {}),
+  'react-native': pin('react-native'),
+  react: pin('react'),
+  'react-dom': pin('react-dom'),
+  expo: pin('expo'),
+};
 // disableHierarchicalLookup KAPALI kalmalı: npm bazı paketleri (expo-asset,
 // expo-file-system) node_modules/expo/node_modules altına yuvalıyor ve
 // kapatıldığında Metro onları göremiyor.
