@@ -73,10 +73,13 @@ export function useSheetProps(snap: string = '80%') {
   return {
     snapPoints: [snap],
     enableDynamicSizing: false,
+    enablePanDownToClose: true,
+    keyboardBehavior: 'extend' as const,
+    keyboardBlurBehavior: 'restore' as const,
     backgroundStyle: { backgroundColor: colors.card },
     handleIndicatorStyle: { backgroundColor: colors.mutedForeground },
     backdropComponent: (props: Parameters<typeof BottomSheetBackdrop>[0]) => (
-      <BottomSheetBackdrop {...props} appearsOnIndex={0} disappearsOnIndex={-1} />
+      <BottomSheetBackdrop {...props} appearsOnIndex={0} disappearsOnIndex={-1} opacity={0.5} />
     ),
   };
 }

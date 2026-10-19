@@ -93,8 +93,9 @@ export function OptionPicker({
         </BottomSheetView>
         <BottomSheetFlatList
           data={filtered}
+          style={{ flex: 1 }}
           keyExtractor={(item: PickerOption) => item.value}
-          contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 32 }}
+          contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 32, flexGrow: 1 }}
           keyboardShouldPersistTaps="handled"
           renderItem={({ item }: { item: PickerOption }) => {
             const selected = item.value === value;

@@ -10,7 +10,7 @@ import { useTheme } from '@/src/theme/theme';
 import { Button, EmptyState, ErrorState, Loading, SearchBar } from '@/src/ui';
 import { PickerField, useSheetProps } from './PickerField';
 
-export type PickedRecord = { id: string; name: string };
+export type PickedRecord = { id: string; name: string; phone?: string; email?: string };
 
 /** Uzaktan aramalı firma seçici (web RemoteCompanyCombobox). */
 export function CompanyPicker({
@@ -70,8 +70,9 @@ export function CompanyPicker({
         </BottomSheetView>
         <BottomSheetFlatList
           data={rows}
+          style={{ flex: 1 }}
           keyExtractor={(item: CompanyListItem) => item.id}
-          contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 32 }}
+          contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 32, flexGrow: 1 }}
           keyboardShouldPersistTaps="handled"
           renderItem={({ item }: { item: CompanyListItem }) => {
             const selected = item.id === value?.id;
@@ -135,7 +136,16 @@ export function ContactPicker({
   const list = useContactList(query, Boolean(companyId));
 
   function choose(contact: ContactListItem | null) {
-    onChange(contact ? { id: contact.id, name: contact.fullName } : null);
+    onChange(
+      contact
+        ? {
+            id: contact.id,
+            name: contact.fullName,
+            phone: contact.mobilePhone || contact.workPhone || undefined,
+            email: contact.workEmail || contact.personalEmail || undefined,
+          }
+        : null
+    );
     sheet.current?.dismiss();
   }
 
@@ -159,8 +169,9 @@ export function ContactPicker({
         </BottomSheetView>
         <BottomSheetFlatList
           data={list.data?.items ?? []}
+          style={{ flex: 1 }}
           keyExtractor={(item: ContactListItem) => item.id}
-          contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 32 }}
+          contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 32, flexGrow: 1 }}
           keyboardShouldPersistTaps="handled"
           renderItem={({ item }: { item: ContactListItem }) => {
             const selected = item.id === value?.id;

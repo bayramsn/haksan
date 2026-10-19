@@ -76,10 +76,13 @@ export default function NewCompanyScreen() {
   }
 
   return (
-    <SafeAreaView className="flex-1 bg-canvas" edges={['top', 'bottom', 'left', 'right']}>
+    <SafeAreaView className="flex-1 bg-canvas" edges={['bottom', 'left', 'right']}>
       <Stack.Screen options={{ title: 'Yeni Firma', headerShown: true }} />
       <KeyboardAvoidingView className="flex-1" behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <ScrollView contentContainerClassName="gap-4 p-4 pb-8" keyboardShouldPersistTaps="handled">
+        <ScrollView contentContainerClassName="gap-3 p-4 pb-8" keyboardShouldPersistTaps="handled">
+          <Text className="font-inter text-[13px] text-muted-foreground">
+            CRM ile aynı alanlar · seçiciler listeden açılır, listede yoksa yazabilirsiniz.
+          </Text>
           <CompanyFormFields mode="create" form={form} onChange={change} errors={errors} />
           <Text className="font-inter text-xs text-muted-foreground">
             Yeni firma kaydı çevrimiçi bağlantı gerektirir. Böylece aynı kaydın iki kez oluşması engellenir.

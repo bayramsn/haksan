@@ -7,19 +7,15 @@ import { useCreateOpportunity } from '@/src/api/crm.hooks';
 import { useCreateOpportunityFromActivity } from '@/src/api/sales.hooks';
 import { useAuth, useCan } from '@/src/auth/AuthProvider';
 import { Button, Card, Eyebrow, Field } from '@/src/ui';
+import { CompanyPicker, ContactPicker } from '@/src/ui/pickers/CompanyPicker';
 import { DateTimeField } from '@/src/ui/pickers/DateTimeField';
 import { SearchSelect } from '@/src/ui/select/SearchSelect';
 import {
   AssigneeSelect,
-  CompanySelect,
-  ContactSelect,
   DistrictSelect,
   LookupSelect,
   ProductSelect,
   ProvinceSelect,
-  companyLabel,
-  contactEmail,
-  contactPhone,
 } from '@/src/ui/select/fields';
 import {
   buildQuickOpportunityBody,
@@ -36,11 +32,9 @@ function param(value: string | string[] | undefined): string {
   return typeof value === 'string' ? value : '';
 }
 
-const emptyContact = { contactId: '', contactName: '', phone: '', email: '' } as const;
-
 /**
- * Hızlı fırsat (web LeadCaptureDialog). Firma → kontak → adres zinciri CRM’den;
- * listede olmayan firma/kontak/ürün yazılabilir.
+ * Hızlı fırsat — web LeadCaptureDialog.
+ * Firma/kontak: kanıtlanmış CompanyPicker/ContactPicker + elle yazılabilir alanlar.
  */
 export default function NewOpportunityScreen() {
   const router = useRouter();
@@ -97,26 +91,28 @@ export default function NewOpportunityScreen() {
     });
   }
 
-  const routeCompany = useCompany(param(params.companyId));
+  const selectedCompany = useCompany(form.companyId || '');
   useEffect(() => {
-    const company = routeCompany.data;
-    if (!company) return;
+    const company = selectedCompany.data;
+    if (!company || !form.companyId || company.id !== form.companyId) return;
     const address = company.addresses.find((a) => a.isDefault) ?? company.addresses[0];
     const phone = company.phones.find((p) => p.isDefault) ?? company.phones[0];
     const email = company.emails.find((e) => e.isDefault) ?? company.emails[0];
     setForm((prev) => ({
       ...prev,
-      companyTitle: prev.companyTitle || (company.shortName ?? company.legalTitle),
-      city: prev.city || address?.province || '',
-      district: prev.district || address?.district || '',
-      phone: prev.phone || phone?.phone || '',
-      email: prev.email || email?.email || '',
+      companyTitle: company.shortName ?? company.legalTitle,
+      city: prev.city.trim() ? prev.city : address?.province || '',
+      district: prev.district.trim() ? prev.district : address?.district || '',
+      phone: prev.phone.trim() ? prev.phone : phone?.phone || '',
+      email: prev.email.trim() ? prev.email : email?.email || '',
     }));
-  }, [routeCompany.data]);
+  }, [form.companyId, selectedCompany.data]);
 
   if (activityId ? !canConvertActivity : !canCreate) return <Redirect href={'/(tabs)/modules/opportunities' as Href} />;
 
   const pending = create.isPending || createFromActivity.isPending;
+  const companyPick = form.companyId ? { id: form.companyId, name: form.companyTitle || 'Firma' } : null;
+  const contactPick = form.contactId ? { id: form.contactId, name: form.contactName || 'Kontak' } : null;
 
   function submit() {
     const nextErrors = validateQuickOpportunity(form, divisions.length > 0);
@@ -152,64 +148,80 @@ export default function NewOpportunityScreen() {
     <SafeAreaView className="flex-1 bg-canvas" edges={['bottom', 'left', 'right']}>
       <Stack.Screen options={{ title: activityId ? 'Aktiviteden Fırsat' : 'Hızlı Fırsat', headerShown: true }} />
       <KeyboardAvoidingView className="flex-1" behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <ScrollView contentContainerClassName="gap-4 p-4 pb-10" keyboardShouldPersistTaps="handled">
+        <ScrollView contentContainerClassName="gap-3 p-4 pb-10" keyboardShouldPersistTaps="handled">
           <Text className="font-inter text-[13px] leading-[18px] text-muted-foreground">
-            Firma seçince kontak ve adres CRM’den bağlanır. Kayıtta yoksa alanlara yazabilirsiniz.
+            Kayıtlı firma/kontak seçin veya yazın. Telefon veya e-postadan en az biri zorunlu.
           </Text>
 
           <Card className="gap-3">
             <Eyebrow>1 · Firma ve kontak</Eyebrow>
-            <CompanySelect
-              label="Firma *"
-              value={form.companyTitle}
-              selectedId={form.companyId}
-              allowCustom
+            <CompanyPicker
+              label="Firma (kayıtlı)"
+              value={companyPick}
+              placeholder="CRM’den firma seçin"
               clearable
-              placeholder="Kayıtlı firmadan seçin veya yazın"
-              onSelect={(item) => {
-                const company = item?.data;
-                if (!item) {
-                  return patch({ companyId: '', companyTitle: '', ...emptyContact, city: '', district: '' });
-                }
-                if (!company) {
-                  return patch({ companyId: '', companyTitle: item.label, ...emptyContact });
+              onChange={(next) => {
+                if (!next) {
+                  return patch({
+                    companyId: '',
+                    contactId: '',
+                    contactName: '',
+                    phone: '',
+                    email: '',
+                    city: '',
+                    district: '',
+                  });
                 }
                 patch({
-                  companyId: company.id,
-                  companyTitle: companyLabel(company),
-                  ...emptyContact,
-                  city: company.primaryAddress?.province || '',
-                  district: company.primaryAddress?.district || '',
-                  phone: company.primaryPhone || '',
-                  email: company.primaryEmail || '',
+                  companyId: next.id,
+                  companyTitle: next.name,
+                  contactId: '',
+                  contactName: '',
                 });
               }}
             />
-            <ContactSelect
-              label={form.companyId ? 'Kontak' : 'Kontak ismi *'}
-              companyId={form.companyId || null}
+            {!form.companyId ? (
+              <Field
+                label="veya firma ünvanı yazın"
+                value={form.companyTitle}
+                onChangeText={(companyTitle) => patch({ companyTitle, companyId: '', contactId: '' })}
+                placeholder="Kayıtsız firma ünvanı"
+                maxLength={255}
+              />
+            ) : (
+              <Text className="font-inter text-[11px] text-muted-foreground">Kayıtlı firma bağlandı: {form.companyTitle}</Text>
+            )}
+
+            {form.companyId ? (
+              <ContactPicker
+                label="Kontak (kayıtlı)"
+                companyId={form.companyId}
+                value={contactPick}
+                placeholder="Firmanın kontağını seçin"
+                onChange={(next) => {
+                  if (!next) return patch({ contactId: '', contactName: '' });
+                  patch({
+                    contactId: next.id,
+                    contactName: next.name,
+                    phone: next.phone || form.phone,
+                    email: next.email || form.email,
+                  });
+                }}
+              />
+            ) : null}
+            <Field
+              label={form.companyId ? 'Kontak ismi (opsiyonel / elle)' : 'Kontak ismi *'}
               value={form.contactName}
-              selectedId={form.contactId}
-              allowCustom
-              clearable
-              placeholder={form.companyId ? 'Firmanın kontağını seçin' : 'Firma yoksa kontak adını yazın'}
+              onChangeText={(contactName) => patch({ contactName, contactId: contactName !== form.contactName ? '' : form.contactId })}
+              placeholder={form.companyId ? 'veya isim yazın' : 'Ahmet Yılmaz'}
               error={errors.contactName}
-              onSelect={(item) => {
-                const contact = item?.data;
-                if (!item) return patch({ ...emptyContact });
-                if (!contact) return patch({ contactId: '', contactName: item.label });
-                patch({
-                  contactId: contact.id,
-                  contactName: contact.fullName,
-                  phone: contactPhone(contact) || form.phone,
-                  email: contactEmail(contact) || form.email,
-                });
-              }}
+              maxLength={200}
             />
+
             <View className="flex-row gap-2">
               <View className="flex-1">
                 <Field
-                  label="Telefon"
+                  label="Telefon *"
                   value={form.phone}
                   onChangeText={(phone) => patch({ phone })}
                   keyboardType="phone-pad"
@@ -220,7 +232,7 @@ export default function NewOpportunityScreen() {
               </View>
               <View className="flex-1">
                 <Field
-                  label="E-posta"
+                  label="E-posta *"
                   value={form.email}
                   onChangeText={(email) => patch({ email })}
                   keyboardType="email-address"
@@ -232,6 +244,8 @@ export default function NewOpportunityScreen() {
                 />
               </View>
             </View>
+            <Text className="font-inter text-[11px] text-muted-foreground">Telefon veya e-postadan en az biri yeterlidir.</Text>
+
             <View className="flex-row gap-2">
               <View className="flex-1">
                 <ProvinceSelect
@@ -300,7 +314,7 @@ export default function NewOpportunityScreen() {
                   error={errors.estimatedValue}
                 />
               </View>
-              <View className="flex-1 justify-end gap-1 pb-0.5">
+              <View className="flex-1 justify-end gap-1">
                 <Text className="font-inter-medium text-[13px] text-muted-foreground">Para birimi</Text>
                 <View className="min-h-12 flex-row gap-1">
                   {CURRENCIES.map((code) => (
