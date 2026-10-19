@@ -14,6 +14,7 @@ import {
 import { useEffect, useMemo, useState } from "react";
 import { useStore } from "../../lib/store";
 import { inMonth, parseMonthQuery } from "../../lib/monthQuery";
+import { isManualTimelineComment } from "../../lib/opportunityTimeline";
 import { useAuth } from "../../../lib/auth";
 import { toast } from "sonner";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../ui/tabs";
@@ -69,7 +70,7 @@ export function SalesCasesPage({
   initialQuery?: string;
   onAction?: (action: OperationAction) => void;
 }) {
-  const { cases: salesCases, closedCases, customers, users, activities, products, closeCase, deleteCase, reopenCase, updateCase } = useStore();
+  const { cases: salesCases, closedCases, customers, users, activities, offers, products, closeCase, deleteCase, reopenCase, updateCase } = useStore();
   const { hasPermission, hasRole } = useAuth();
   const canDelete = hasPermission("opportunities.delete");
   const canUpdate = hasPermission("opportunities.update");
@@ -137,6 +138,13 @@ export function SalesCasesPage({
   const [outcome, setOutcome] = useState("all");
   const [outcomeReason, setOutcomeReason] = useState("all");
   const [nameSort, setNameSort] = useState<"asc" | "desc" | null>(null);
+  const [activityPresence, setActivityPresence] = useState("all");
+  const [offerPresence, setOfferPresence] = useState("all");
+  // Not/yorum ve sistem olayları aktivite sayılmaz (haftalık raporla aynı tanım).
+  const casesWithActivity = useMemo(() => new Set(activities
+    .filter((activity) => activity.salesCaseId && activity.origin !== "system" && !isManualTimelineComment(activity))
+    .map((activity) => activity.salesCaseId)), [activities]);
+  const casesWithOffer = useMemo(() => new Set(offers.map((offer) => offer.salesCaseId).filter(Boolean)), [offers]);
 
   const focusOpen = focus === "open" || focus === "today";
   const focusWon = focus === "won";
@@ -177,6 +185,8 @@ export function SalesCasesPage({
     if (outcome === "won" && qualification !== "win") return false;
     if (outcome === "lost" && qualification !== "lost") return false;
     if (outcomeReason !== "all" && reasonKey(s) !== outcomeReason) return false;
+    if (activityPresence !== "all" && casesWithActivity.has(s.id) !== (activityPresence === "yes")) return false;
+    if (offerPresence !== "all" && casesWithOffer.has(s.id) !== (offerPresence === "yes")) return false;
     const c = customers.find((x) => x.id === s.customerId);
     const query = q.toLocaleLowerCase("tr-TR");
     return [
@@ -314,6 +324,24 @@ export function SalesCasesPage({
                 options: [
                   { value: "pending", label: "Firma kararı bekliyor" },
                   { value: "resolved", label: "Firma bağlı" },
+                ],
+              },
+              {
+                label: "Aktivite",
+                value: activityPresence,
+                onChange: setActivityPresence,
+                options: [
+                  { value: "yes", label: "Aktivite var" },
+                  { value: "no", label: "Aktivite yok" },
+                ],
+              },
+              {
+                label: "Teklif",
+                value: offerPresence,
+                onChange: setOfferPresence,
+                options: [
+                  { value: "yes", label: "Teklif var" },
+                  { value: "no", label: "Teklif yok" },
                 ],
               },
               {
