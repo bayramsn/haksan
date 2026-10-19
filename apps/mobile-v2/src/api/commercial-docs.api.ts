@@ -85,6 +85,24 @@ export type StandaloneProformaInput = StandalonePartyInput & {
   notes?: string;
 };
 
+/** Web QuickContractDialog vade satırı — shared `standaloneContractInstallmentSchema`. */
+export type ContractInstallmentInput = {
+  label?: string;
+  amount: number;
+  dueDate?: string;
+  promissoryNote?: boolean;
+  paymentMethod?:
+    | 'undecided'
+    | 'cash'
+    | 'wire_transfer'
+    | 'promissory_note'
+    | 'term'
+    | 'installment'
+    | 'leasing'
+    | 'letter_of_credit'
+    | 'cheque';
+};
+
 export type StandaloneContractInput = StandalonePartyInput & {
   divisionId?: string;
   contractNo?: string;
@@ -104,6 +122,7 @@ export type StandaloneContractInput = StandalonePartyInput & {
   importCostsExcluded?: boolean;
   vatIncluded?: boolean;
   freightPaidBySeller?: boolean;
+  installments?: ContractInstallmentInput[];
 };
 
 export type CommercialInvoiceInput = {

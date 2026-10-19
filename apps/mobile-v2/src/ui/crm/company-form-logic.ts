@@ -78,10 +78,80 @@ export type CompanyFormState = {
   address: string;
   latitude: number | null;
   longitude: number | null;
+  /** Web CreateCustomerDialog adres rolleri (birincil adres). */
+  addressIsDefault: boolean;
+  addressIsShipping: boolean;
+  addressIsBilling: boolean;
+  /** Web `additionalAddresses` — birincil dışındaki adresler. */
+  additionalAddresses: AdditionalAddressDraft[];
   taxOffice: string;
   taxNumber: string;
   notes: string;
 };
+
+export type AddressRoleKey = 'isDefault' | 'isShipping' | 'isBilling';
+
+export type AdditionalAddressDraft = {
+  key: string;
+  id?: string;
+  addressType: AddressTypeCode;
+  country: string;
+  city: string;
+  district: string;
+  address: string;
+  latitude: number | null;
+  longitude: number | null;
+  isDefault: boolean;
+  isShipping: boolean;
+  isBilling: boolean;
+};
+
+let addressKey = 0;
+export function emptyAdditionalAddress(): AdditionalAddressDraft {
+  addressKey += 1;
+  return {
+    key: `addr-${Date.now()}-${addressKey}`,
+    addressType: 'factory',
+    country: 'Türkiye',
+    city: '',
+    district: '',
+    address: '',
+    latitude: null,
+    longitude: null,
+    isDefault: false,
+    isShipping: false,
+    isBilling: false,
+  };
+}
+
+/** Web `normalizeAddressRoles` — her rol en fazla bir adreste. */
+export function normalizeAddressRoles<T extends { isDefault?: boolean; isShipping?: boolean; isBilling?: boolean }>(
+  addresses: T[]
+): T[] {
+  const claimed = new Set<AddressRoleKey>();
+  return addresses.map((address) => {
+    const next = { ...address };
+    for (const role of ['isDefault', 'isShipping', 'isBilling'] as const) {
+      const selected = Boolean(address[role]) && !claimed.has(role);
+      next[role] = selected;
+      if (selected) claimed.add(role);
+    }
+    return next;
+  });
+}
+
+/** Web `toggleAddressRole` — seçilen adrese verir, diğerlerinden alır. */
+export function toggleAddressRole<T extends { isDefault?: boolean; isShipping?: boolean; isBilling?: boolean }>(
+  addresses: T[],
+  role: AddressRoleKey,
+  selectedIndex: number
+): T[] {
+  const shouldSelect = !addresses[selectedIndex]?.[role];
+  return addresses.map((address, index) => ({
+    ...address,
+    [role]: shouldSelect && index === selectedIndex,
+  }));
+}
 
 export const EMPTY_COMPANY_FORM: CompanyFormState = {
   companyType: 'company',
@@ -108,6 +178,10 @@ export const EMPTY_COMPANY_FORM: CompanyFormState = {
   address: '',
   latitude: null,
   longitude: null,
+  addressIsDefault: true,
+  addressIsShipping: true,
+  addressIsBilling: true,
+  additionalAddresses: [],
   taxOffice: '',
   taxNumber: '',
   notes: '',
@@ -128,6 +202,72 @@ export function validateCompanyForm(form: CompanyFormState): CompanyFormErrors {
 
 const text = (value: string) => value.trim() || undefined;
 
+function addressHasContent(row: { city: string; district: string; address: string }) {
+  return Boolean(row.city.trim() || row.district.trim() || row.address.trim());
+}
+
+function toApiAddress(row: {
+  id?: string;
+  addressType: AddressTypeCode;
+  country: string;
+  city: string;
+  district: string;
+  address: string;
+  latitude: number | null;
+  longitude: number | null;
+  isDefault: boolean;
+  isShipping: boolean;
+  isBilling: boolean;
+}) {
+  return {
+    ...(row.id ? { id: row.id } : {}),
+    addressType: row.addressType,
+    country: text(row.country) ?? 'Türkiye',
+    province: text(row.city),
+    district: text(row.district),
+    fullAddress: text(row.address),
+    latitude: row.latitude != null && row.longitude != null ? row.latitude : undefined,
+    longitude: row.latitude != null && row.longitude != null ? row.longitude : undefined,
+    isDefault: row.isDefault,
+    isShipping: row.isShipping,
+    isBilling: row.isBilling,
+  };
+}
+
+/** Birincil + ek adresler → API `addresses[]` (rol normalize edilmiş). */
+export function collectCompanyAddresses(form: CompanyFormState) {
+  const primary = {
+    addressType: form.addressType,
+    country: form.country,
+    city: form.city,
+    district: form.district,
+    address: form.address,
+    latitude: form.latitude,
+    longitude: form.longitude,
+    isDefault: form.addressIsDefault,
+    isShipping: form.addressIsShipping,
+    isBilling: form.addressIsBilling,
+  };
+  const rows = [
+    ...(addressHasContent(primary) ? [primary] : []),
+    ...form.additionalAddresses.filter(addressHasContent).map((row) => ({
+      id: row.id,
+      addressType: row.addressType,
+      country: row.country,
+      city: row.city,
+      district: row.district,
+      address: row.address,
+      latitude: row.latitude,
+      longitude: row.longitude,
+      isDefault: row.isDefault,
+      isShipping: row.isShipping,
+      isBilling: row.isBilling,
+    })),
+  ];
+  if (!rows.length) return undefined;
+  return normalizeAddressRoles(rows).map(toApiAddress);
+}
+
 /** İrtibat şekli: serbest metin yazıldıysa kod gönderilmez (sunucu ikisini birden reddeder). */
 function contactSource(form: CompanyFormState) {
   const contactSourceText = text(form.contactSourceText);
@@ -136,8 +276,6 @@ function contactSource(form: CompanyFormState) {
 
 /** Web store.addCustomer gövdesi. */
 export function buildCompanyCreateBody(form: CompanyFormState) {
-  const hasAddress = Boolean(form.address.trim() || form.city.trim() || form.district.trim());
-  const hasCoordinates = form.latitude != null && form.longitude != null;
   const name = form.legalTitle.trim();
   return {
     companyType: form.companyType,
@@ -153,22 +291,7 @@ export function buildCompanyCreateBody(form: CompanyFormState) {
     fax: text(form.fax),
     primaryEmail: text(form.email),
     secondaryEmail: text(form.email2),
-    addresses: hasAddress
-      ? [
-          {
-            addressType: form.addressType,
-            country: text(form.country) ?? 'Türkiye',
-            province: text(form.city),
-            district: text(form.district),
-            fullAddress: text(form.address),
-            latitude: hasCoordinates ? form.latitude! : undefined,
-            longitude: hasCoordinates ? form.longitude! : undefined,
-            isDefault: true,
-            isShipping: true,
-            isBilling: true,
-          },
-        ]
-      : undefined,
+    addresses: collectCompanyAddresses(form),
     notes: text(form.notes),
     relationTypeCode: form.firmType,
     customerStatusCode: form.salesStatus === 'active_customer' ? ('active' as const) : ('potential' as const),
@@ -181,10 +304,50 @@ export function buildCompanyCreateBody(form: CompanyFormState) {
 const nullable = (value: string) => value.trim() || null;
 const sameList = (a: string[], b: string[]) => a.length === b.length && a.every((item) => b.includes(item));
 
+function addressesChanged(initial: CompanyFormState, form: CompanyFormState) {
+  if (
+    changedPrimaryAddress(initial, form) ||
+    initial.additionalAddresses.length !== form.additionalAddresses.length
+  ) {
+    return true;
+  }
+  return form.additionalAddresses.some((row, index) => {
+    const prev = initial.additionalAddresses[index];
+    if (!prev) return true;
+    return (
+      prev.id !== row.id ||
+      prev.addressType !== row.addressType ||
+      prev.country !== row.country ||
+      prev.city !== row.city ||
+      prev.district !== row.district ||
+      prev.address !== row.address ||
+      prev.latitude !== row.latitude ||
+      prev.longitude !== row.longitude ||
+      prev.isDefault !== row.isDefault ||
+      prev.isShipping !== row.isShipping ||
+      prev.isBilling !== row.isBilling
+    );
+  });
+}
+
+function changedPrimaryAddress(initial: CompanyFormState, form: CompanyFormState) {
+  return (
+    initial.addressType !== form.addressType ||
+    initial.country !== form.country ||
+    initial.city !== form.city ||
+    initial.district !== form.district ||
+    initial.address !== form.address ||
+    initial.latitude !== form.latitude ||
+    initial.longitude !== form.longitude ||
+    initial.addressIsDefault !== form.addressIsDefault ||
+    initial.addressIsShipping !== form.addressIsShipping ||
+    initial.addressIsBilling !== form.addressIsBilling
+  );
+}
+
 /**
- * Düzenleme: yalnız değişen alanlar gönderilir; başka kullanıcının aynı anda
- * yaptığı değişiklik ezilmez. Adres değişikliği tek satır `address` yamasıdır
- * (sunucu gönderilmeyen adres alanlarını korur).
+ * Düzenleme: yalnız değişen alanlar gönderilir. Adres listesi değiştiyse web
+ * gibi tam `addresses[]` replace (ek adres ekle/sil/rol).
  */
 export function buildCompanyUpdatePatch(initial: CompanyFormState, form: CompanyFormState): Record<string, unknown> {
   const patch: Record<string, unknown> = {};
@@ -218,19 +381,8 @@ export function buildCompanyUpdatePatch(initial: CompanyFormState, form: Company
   if (changed('taxNumber')) patch.taxNumber = nullable(form.taxNumber);
   if (changed('notes')) patch.notes = nullable(form.notes);
 
-  const address: Record<string, unknown> = {};
-  if (changed('city')) address.province = form.city.trim() || undefined;
-  if (changed('district')) address.district = form.district.trim() || undefined;
-  if (changed('address')) address.fullAddress = form.address.trim() || undefined;
-  if (changed('latitude') || changed('longitude')) {
-    if (form.latitude != null && form.longitude != null) {
-      address.latitude = form.latitude;
-      address.longitude = form.longitude;
-    }
-  }
-  if (Object.keys(address).length > 0 || changed('country')) {
-    // Şemadaki `country` varsayılanı ('Türkiye') mevcut ülkeyi ezmesin diye her zaman gönderilir.
-    patch.address = { ...address, country: form.country.trim() || 'Türkiye' };
+  if (addressesChanged(initial, form)) {
+    patch.addresses = collectCompanyAddresses(form) ?? [];
   }
   return patch;
 }
@@ -250,6 +402,7 @@ type DetailLike = {
   website: string | null;
   notes: string | null;
   addresses: {
+    id?: string;
     addressType: string;
     country: string | null;
     province: string | null;
@@ -258,6 +411,8 @@ type DetailLike = {
     latitude: string | number | null;
     longitude: string | number | null;
     isDefault: boolean;
+    isShipping?: boolean;
+    isBilling?: boolean;
   }[];
   phones: { phoneType: string; phone: string; isDefault?: boolean }[];
   emails: { emailType: string; email: string; isDefault?: boolean }[];
@@ -283,7 +438,33 @@ export function companyFormFromDetail(
 ): CompanyFormState {
   const relation = codeOf(lookups.relationTypes, detail.relationTypeId);
   const status = codeOf(lookups.statuses, detail.customerStatusId);
-  const address = detail.addresses.find((row) => row.isDefault) ?? detail.addresses[0];
+  const ordered = [...detail.addresses];
+  const primaryIndex = Math.max(
+    0,
+    ordered.findIndex((row) => row.isDefault),
+  );
+  const address = ordered[primaryIndex] ?? ordered[0];
+  const additionalAddresses = ordered
+    .filter((_, index) => index !== primaryIndex)
+    .map((row) => {
+      const draft = emptyAdditionalAddress();
+      return {
+        ...draft,
+        id: row.id,
+        addressType: (ADDRESS_TYPE_OPTIONS.some((option) => option.value === row.addressType)
+          ? row.addressType
+          : 'factory') as AddressTypeCode,
+        country: row.country || 'Türkiye',
+        city: row.province ?? '',
+        district: row.district ?? '',
+        address: row.fullAddress ?? '',
+        latitude: toNumber(row.latitude),
+        longitude: toNumber(row.longitude),
+        isDefault: row.isDefault,
+        isShipping: row.isShipping ?? false,
+        isBilling: row.isBilling ?? false,
+      };
+    });
   const phone = (type: string) => detail.phones.find((row) => row.phoneType === type)?.phone ?? '';
   const email = (type: string) => detail.emails.find((row) => row.emailType === type)?.email ?? '';
   const supplier = detail.supplierCategoryCode;
@@ -316,6 +497,10 @@ export function companyFormFromDetail(
     address: address?.fullAddress ?? '',
     latitude: toNumber(address?.latitude),
     longitude: toNumber(address?.longitude),
+    addressIsDefault: address?.isDefault ?? true,
+    addressIsShipping: address?.isShipping ?? true,
+    addressIsBilling: address?.isBilling ?? true,
+    additionalAddresses,
     taxOffice: detail.taxOffice ?? '',
     taxNumber: detail.taxNumber ?? '',
     notes: detail.notes ?? '',

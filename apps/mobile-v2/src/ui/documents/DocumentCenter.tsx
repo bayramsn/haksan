@@ -48,15 +48,15 @@ const RECORD_META: Record<RecordFolder, { icon: keyof typeof Ionicons.glyphMap; 
 const HERO: Record<'all' | 'proforma' | 'contract', { title: string; subtitle: string }> = {
   all: {
     title: 'Ticari belge merkezi',
-    subtitle: 'Tekliften faturaya uzanan belge rotasını; satış kartı, firma ve saha kayıtlarından koparmadan yönetin.',
+    subtitle: 'Kayıtlar web CRM API ile oluşur; PDF mobilde basılmaz — CRM’deki dosyalar açılır ve paylaşılır.',
   },
   proforma: {
     title: 'Proforma kontrol merkezi',
-    subtitle: 'Revizyon, teklif durumu ve geçerlilik bağlamını izleyin.',
+    subtitle: 'CRM’de oluşturulan proformalar; PDF yalnızca web CRM’den gelen dosyadan açılır.',
   },
   contract: {
     title: 'Sözleşme kontrol merkezi',
-    subtitle: 'İmza, revizyon ve bağlı satış kaydını tek belge akışında takip edin.',
+    subtitle: 'CRM’de oluşturulan sözleşmeler; imzalı PDF web CRM yüklemesinden gelir.',
   },
 };
 
@@ -237,11 +237,18 @@ export function DocumentCenter({ fixedFolder }: { fixedFolder?: 'proforma' | 'co
         lines={[
           row.companyName ?? 'Firma bilgisi yok',
           [relation, row.quoteNo].filter(Boolean).join(' · '),
-          [row.date ? formatDate(row.date) : null, row.statusName ?? (row.finalized ? 'Kesinleşti' : 'Taslak'), row.fileId ? 'PDF yüklü' : null]
+          [
+            row.date ? formatDate(row.date) : null,
+            row.statusName ?? (row.finalized ? 'Kesinleşti' : 'Taslak'),
+            row.fileId ? 'CRM PDF hazır' : 'CRM PDF yok',
+          ]
             .filter(Boolean)
             .join(' · '),
         ]}
-        chip={{ label: recordFolderLabel(kind), tone: meta.tone }}
+        chips={[
+          { label: recordFolderLabel(kind), tone: meta.tone },
+          ...(row.fileId ? [{ label: 'CRM PDF', tone: 'info' as const }] : []),
+        ]}
         trailing={row.grandTotal ? formatAmount(row.grandTotal, row.currencyCode ?? 'USD') : undefined}
         trailingTone="neutral"
         onPress={() => router.push(`/(tabs)/modules/documents/${kind}/${row.id}`)}
@@ -251,15 +258,17 @@ export function DocumentCenter({ fixedFolder }: { fixedFolder?: 'proforma' | 'co
 
   const createActions: { label: string; icon: keyof typeof Ionicons.glyphMap; onPress: () => void }[] = [];
   if ((folder === 'proforma' || (folder === 'all' && !fixedFolder)) && canCreateProforma) {
-    createActions.push({ label: 'Hızlı Proforma', icon: 'flash-outline', onPress: () => router.push('/modal/proforma-quick') });
-    if (folder === 'proforma') createActions.push({ label: 'Tekliften Proforma', icon: 'document-text-outline', onPress: () => router.push('/modal/proforma-form') });
+    createActions.push({ label: "CRM'de Hızlı Proforma", icon: 'flash-outline', onPress: () => router.push('/modal/proforma-quick') });
+    if (folder === 'proforma')
+      createActions.push({ label: "CRM'de Tekliften Proforma", icon: 'document-text-outline', onPress: () => router.push('/modal/proforma-form') });
   }
   if ((folder === 'contract' || (folder === 'all' && !fixedFolder)) && canCreateContract) {
-    createActions.push({ label: 'Hızlı Sözleşme', icon: 'flash-outline', onPress: () => router.push('/modal/contract-quick') });
-    if (folder === 'contract') createActions.push({ label: 'Tekliften Sözleşme', icon: 'reader-outline', onPress: () => router.push('/modal/contract-form') });
+    createActions.push({ label: "CRM'de Hızlı Sözleşme", icon: 'flash-outline', onPress: () => router.push('/modal/contract-quick') });
+    if (folder === 'contract')
+      createActions.push({ label: "CRM'de Tekliften Sözleşme", icon: 'reader-outline', onPress: () => router.push('/modal/contract-form') });
   }
   if (folder === 'invoice' && canCreateInvoice) {
-    createActions.push({ label: 'Ticari Fatura', icon: 'receipt-outline', onPress: () => router.push('/modal/commercial-invoice-form') });
+    createActions.push({ label: "CRM'de Ticari Fatura", icon: 'receipt-outline', onPress: () => router.push('/modal/commercial-invoice-form') });
   }
 
   const routeSteps: { label: string; count: number; folder?: RecordFolder }[] = [

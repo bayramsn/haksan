@@ -292,12 +292,13 @@ export default function QuoteDetailScreen() {
     }
   }
 
+  /** Web CRM ile aynı sunucu PDF ucu — mobilde yerel şablon/yeniden üretim yok. */
   async function handleDownloadPdf() {
     setPdfBusy(true);
     try {
       await postPdfAndShare(`/quotes/${data!.id}/generate-pdf`, `${data!.documentNo}.pdf`);
     } catch (e) {
-      Alert.alert('Hata', e instanceof Error ? e.message : 'PDF indirilemedi.');
+      Alert.alert('Hata', e instanceof Error ? e.message : 'CRM PDF indirilemedi.');
     } finally {
       setPdfBusy(false);
     }
@@ -562,16 +563,28 @@ export default function QuoteDetailScreen() {
         {tab === 'documents' && (canCreateProforma || canCreateContract || canCreateCommercialInvoice) ? (
           <Card className="gap-2">
             <Eyebrow>Ticari belge rotası</Eyebrow>
-            <Text className="font-inter text-xs text-muted-foreground">Teklif → Proforma → Sözleşme → Ticari fatura</Text>
+            <Text className="font-inter text-xs text-muted-foreground">
+              Kayıtlar web CRM API üzerinden oluşturulur. PDF mobilde yeniden basılmaz; CRM’deki dosya açılır.
+            </Text>
             {canCreateProforma ? (
-              <Button label="Proforma Oluştur" variant="ghost" trailingIcon="add" onPress={() => router.push(`/modal/proforma-form?quoteId=${data.id}`)} />
+              <Button
+                label="CRM'de Proforma Oluştur"
+                variant="ghost"
+                trailingIcon="add"
+                onPress={() => router.push(`/modal/proforma-form?quoteId=${data.id}`)}
+              />
             ) : null}
             {canCreateContract ? (
-              <Button label="Sözleşme Oluştur" variant="ghost" trailingIcon="add" onPress={() => router.push(`/modal/contract-form?quoteId=${data.id}`)} />
+              <Button
+                label="CRM'de Sözleşme Oluştur"
+                variant="ghost"
+                trailingIcon="add"
+                onPress={() => router.push(`/modal/contract-form?quoteId=${data.id}`)}
+              />
             ) : null}
             {canCreateCommercialInvoice ? (
               <Button
-                label="Ticari Fatura Oluştur"
+                label="CRM'de Ticari Fatura Oluştur"
                 variant="ghost"
                 trailingIcon="add"
                 onPress={() => router.push(`/modal/commercial-invoice-form?quoteId=${data.id}`)}
@@ -590,10 +603,16 @@ export default function QuoteDetailScreen() {
                   lines={[
                     doc.kind === 'proforma' ? 'Proforma' : doc.kind === 'contract' ? 'Sözleşme' : 'Ticari fatura',
                     doc.date ? formatDate(doc.date) : null,
+                    doc.fileId ? 'CRM PDF hazır' : 'CRM PDF yok',
                   ]}
                   icon="document-text-outline"
                   iconTone={doc.finalized ? 'success' : 'neutral'}
-                  chip={doc.statusName ? { label: doc.statusName, tone: doc.finalized ? 'success' : 'neutral' } : undefined}
+                  chips={[
+                    ...(doc.statusName
+                      ? [{ label: doc.statusName, tone: doc.finalized ? ('success' as const) : ('neutral' as const) }]
+                      : []),
+                    ...(doc.fileId ? [{ label: 'CRM PDF', tone: 'info' as const }] : []),
+                  ]}
                   onPress={() => router.push(`/(tabs)/modules/documents/${doc.kind}/${doc.id}`)}
                 />
               ))}
@@ -614,7 +633,7 @@ export default function QuoteDetailScreen() {
           ) : (
             <EmptyState
               title="Belge bulunamadı"
-              hint="Bu teklife bağlı proforma, sözleşme veya fatura yok."
+              hint="Bu teklife bağlı proforma, sözleşme veya fatura yok. CRM'den oluşturun."
             />
           )
         ) : null}
@@ -644,7 +663,7 @@ export default function QuoteDetailScreen() {
         <View className="flex-row gap-3">
           <Button label="Paylaş" variant="ghost" className="flex-1" onPress={() => void handleShare()} />
           <Button
-            label="PDF İndir"
+            label="CRM PDF İndir"
             variant="primary"
             className="flex-1"
             loading={pdfBusy}

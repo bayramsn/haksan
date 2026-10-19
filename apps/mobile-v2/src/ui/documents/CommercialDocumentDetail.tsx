@@ -282,7 +282,10 @@ export function CommercialDocumentDetail({ kind, id }: { kind: DocumentKind; id:
         ) : null}
 
         <Card className="gap-2">
-          <Eyebrow>Dosya</Eyebrow>
+          <Eyebrow>CRM belgesi</Eyebrow>
+          <Text className="font-inter text-xs leading-5 text-muted-foreground">
+            PDF mobil uygulamada yeniden üretilmez. Web CRM’de oluşturulan veya yüklenen dosya burada açılır ve paylaşılır.
+          </Text>
           {fileId ? (
             <>
               <InfoRows
@@ -295,11 +298,13 @@ export function CommercialDocumentDetail({ kind, id }: { kind: DocumentKind; id:
                   ] satisfies InfoItem[]
                 }
               />
-              {canReadFiles ? <Button label="Yüklü Dosyayı Aç / Paylaş" trailingIcon="download-outline" onPress={() => void openFile()} /> : null}
+              {canReadFiles ? (
+                <Button label="CRM PDF'ini Aç / Paylaş" trailingIcon="download-outline" onPress={() => void openFile()} />
+              ) : null}
             </>
           ) : (
             <Text className="font-inter text-xs text-muted-foreground">
-              Bu kayda yüklenmiş bir PDF bağlı değil. Belge içeriği yukarıdaki güvenli anlık görüntüden gösteriliyor.
+              Bu kayda bağlı CRM PDF yok. Web CRM’den yükleyin veya imzalı nüsha ekleyin; kayıt özeti yukarıdaki anlık görüntüden okunur.
             </Text>
           )}
         </Card>

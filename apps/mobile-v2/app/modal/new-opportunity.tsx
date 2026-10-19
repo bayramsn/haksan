@@ -19,6 +19,7 @@ import {
 } from '@/src/ui/select/fields';
 import {
   buildQuickOpportunityBody,
+  emptyExtraMachine,
   quickOpportunityTitle,
   validateQuickOpportunity,
   type QuickOpportunityErrors,
@@ -67,6 +68,7 @@ export default function NewOpportunityScreen() {
     productModelId: '',
     product: '',
     quantity: '1',
+    extraMachines: [],
     title: param(params.title),
     estimatedValue: '',
     currencyCode: 'USD',
@@ -77,6 +79,7 @@ export default function NewOpportunityScreen() {
     description: '',
     divisionId: defaultDivision,
     ownerUserId: '',
+    paymentTermDays: '',
   }));
   const [errors, setErrors] = useState<QuickOpportunityErrors>({});
 
@@ -277,10 +280,26 @@ export default function NewOpportunityScreen() {
                   label="İstenen ürün *"
                   value={form.product}
                   selectedId={form.productModelId}
+                  categoryCode="TEZGAH"
                   clearable
                   placeholder="Katalogdan seçin veya yazın"
                   error={errors.product}
-                  onSelect={(item) => patch({ productModelId: item?.id ?? '', product: item?.label ?? '' })}
+                  onSelect={(item) => {
+                    const product = item?.data;
+                    const price = product?.cashPrice ?? product?.listPrice;
+                    const amount =
+                      price != null && Number.isFinite(Number(price)) ? String(Number(price)) : form.estimatedValue;
+                    const currency =
+                      product?.currency?.code && (CURRENCIES as readonly string[]).includes(product.currency.code)
+                        ? (product.currency.code as (typeof CURRENCIES)[number])
+                        : form.currencyCode;
+                    patch({
+                      productModelId: item?.id ?? '',
+                      product: item?.label ?? '',
+                      estimatedValue: form.estimatedValue.trim() ? form.estimatedValue : amount,
+                      currencyCode: form.estimatedValue.trim() ? form.currencyCode : currency,
+                    });
+                  }}
                 />
               </View>
               <View className="w-[72px]">
@@ -293,6 +312,65 @@ export default function NewOpportunityScreen() {
                 />
               </View>
             </View>
+            {form.extraMachines.map((machine, index) => (
+              <View key={machine.key} className="gap-2 rounded-control border border-border bg-muted/40 p-3">
+                <View className="flex-row items-center justify-between">
+                  <Text className="font-inter-medium text-xs text-muted-foreground">Ek makine {index + 1}</Text>
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={`Ek makine ${index + 1} kaldır`}
+                    onPress={() =>
+                      patch({ extraMachines: form.extraMachines.filter((row) => row.key !== machine.key) })
+                    }
+                    className="min-h-11 px-2"
+                  >
+                    <Text className="font-inter-semibold text-xs text-destructive">Kaldır</Text>
+                  </Pressable>
+                </View>
+                <View className="flex-row gap-2">
+                  <View className="flex-[3]">
+                    <ProductSelect
+                      label="Makine"
+                      value={machine.product}
+                      selectedId={machine.productModelId}
+                      categoryCode="TEZGAH"
+                      clearable
+                      placeholder="Katalogdan seçin veya yazın"
+                      onSelect={(item) =>
+                        patch({
+                          extraMachines: form.extraMachines.map((row) =>
+                            row.key === machine.key
+                              ? { ...row, productModelId: item?.id ?? '', product: item?.label ?? '' }
+                              : row
+                          ),
+                        })
+                      }
+                    />
+                  </View>
+                  <View className="w-[72px]">
+                    <Field
+                      label="Adet"
+                      value={machine.quantity}
+                      onChangeText={(quantity) =>
+                        patch({
+                          extraMachines: form.extraMachines.map((row) =>
+                            row.key === machine.key ? { ...row, quantity: quantity.replace(/\D/g, '') } : row
+                          ),
+                        })
+                      }
+                      keyboardType="number-pad"
+                      maxLength={3}
+                    />
+                  </View>
+                </View>
+              </View>
+            ))}
+            <Button
+              label="Makine Ekle"
+              variant="ghost"
+              trailingIcon="add"
+              onPress={() => patch({ extraMachines: [...form.extraMachines, emptyExtraMachine()] })}
+            />
             <Field
               label="Kart başlığı"
               value={form.title}
@@ -331,6 +409,15 @@ export default function NewOpportunityScreen() {
                 </View>
               </View>
             </View>
+            <Field
+              label="Ödeme vadesi (gün)"
+              value={form.paymentTermDays}
+              onChangeText={(paymentTermDays) => patch({ paymentTermDays: paymentTermDays.replace(/\D/g, '') })}
+              keyboardType="number-pad"
+              placeholder="Örn. 60"
+              maxLength={4}
+              error={errors.paymentTermDays}
+            />
             <View className="flex-row gap-2">
               <View className="w-[88px]">
                 <Field

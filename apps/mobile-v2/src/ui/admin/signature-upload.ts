@@ -81,7 +81,11 @@ function absoluteApiUrl(value: string): string {
 }
 
 async function uploadImage(
-  target: { bucket: 'erp-signatures' | 'erp-brand-logos'; entityType: 'signature' | 'brand'; entityId: string },
+  target: {
+    bucket: 'erp-signatures' | 'erp-brand-logos' | 'erp-company-logos';
+    entityType: 'signature' | 'brand' | 'company';
+    entityId: string;
+  },
   image: PickedSignatureImage,
   errors: { tooLarge: string; failed: string }
 ): Promise<string> {
@@ -129,4 +133,32 @@ export async function uploadBrandLogo(brandId: string, image: PickedSignatureIma
   });
   await files.link({ fileId, entityType: 'brand', entityId: brandId, documentTypeCode: 'brand_logo', description: 'Marka logosu' });
   return fileId;
+}
+
+/** Firma logosunu `erp-company-logos` bucket'ına yükler (web CreateCustomerDialog logoFileId). */
+export async function uploadCompanyLogo(companyId: string | 'new', image: PickedSignatureImage): Promise<string> {
+  const fileId = await uploadImage({ bucket: 'erp-company-logos', entityType: 'company', entityId: companyId }, image, {
+    tooLarge: "Logo dosyası 5 MB'ı aşamaz.",
+    failed: 'Firma logosu yüklenemedi.',
+  });
+  if (companyId !== 'new') {
+    await files.link({
+      fileId,
+      entityType: 'company',
+      entityId: companyId,
+      documentTypeCode: 'company_logo',
+      description: 'Firma logosu',
+    });
+  }
+  return fileId;
+}
+
+export function pickCompanyLogo(): Promise<PickedSignatureImage | null> {
+  return pickImage({
+    maxBytes: BRAND_LOGO_MAX_BYTES,
+    fallbackName: 'company-logo.png',
+    typeError: 'Logo PNG, JPG veya WEBP olmalı.',
+    emptyError: 'Logo dosyası boş.',
+    sizeError: "Logo dosyası 5 MB'ı aşamaz.",
+  });
 }

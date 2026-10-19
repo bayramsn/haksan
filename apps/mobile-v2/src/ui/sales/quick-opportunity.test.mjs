@@ -15,6 +15,7 @@ const base = {
   productModelId: '',
   product: '',
   quantity: '1',
+  extraMachines: [],
   title: '',
   estimatedValue: '',
   currencyCode: 'USD',
@@ -25,6 +26,7 @@ const base = {
   description: '',
   divisionId: '',
   ownerUserId: '',
+  paymentTermDays: '',
 };
 
 test('web ile aynı zorunlu alanlar', () => {

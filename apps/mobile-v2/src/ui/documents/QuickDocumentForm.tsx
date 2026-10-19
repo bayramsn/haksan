@@ -3,7 +3,7 @@ import { Pressable, Text, View } from 'react-native';
 import type { BottomSheetModal } from '@gorhom/bottom-sheet';
 import { Ionicons } from '@expo/vector-icons';
 import { Redirect, useRouter } from 'expo-router';
-import type { FreeItemInput } from '@/src/api/commercial-docs.api';
+import type { ContractInstallmentInput, FreeItemInput } from '@/src/api/commercial-docs.api';
 import {
   useCreateStandaloneContract,
   useCreateStandaloneProforma,
@@ -68,6 +68,35 @@ type FreeItemDraft = {
 };
 
 const CURRENCIES = ['USD', 'EUR', 'TRY'] as const;
+
+const INSTALLMENT_METHODS = [
+  { value: 'cash', label: 'Nakit' },
+  { value: 'wire_transfer', label: 'Havale' },
+  { value: 'cheque', label: 'Çek' },
+  { value: 'promissory_note', label: 'Senet' },
+  { value: 'leasing', label: 'Leasing' },
+  { value: 'letter_of_credit', label: 'Akreditif' },
+] as const;
+
+type InstallmentDraft = {
+  key: string;
+  label: string;
+  amount: string;
+  dueDate: string;
+  paymentMethod: (typeof INSTALLMENT_METHODS)[number]['value'];
+};
+
+let installmentCounter = 0;
+function emptyInstallment(): InstallmentDraft {
+  installmentCounter += 1;
+  return {
+    key: `installment-${Date.now()}-${installmentCounter}`,
+    label: '',
+    amount: '',
+    dueDate: '',
+    paymentMethod: 'cash',
+  };
+}
 
 let counter = 0;
 function emptyFreeItem(): FreeItemDraft {
@@ -144,6 +173,7 @@ export function QuickDocumentForm({ kind, documentId }: { kind: Kind; documentId
   const [delivery, setDelivery] = useState('');
   const [warranty, setWarranty] = useState('');
   const [meta, setMeta] = useState<ContractTermsMeta>(emptyContractTermsMeta());
+  const [installments, setInstallments] = useState<InstallmentDraft[]>([]);
   const [hydrated, setHydrated] = useState(!isEdit);
   const companySheet = useRef<BottomSheetModal>(null);
 
@@ -192,6 +222,23 @@ export function QuickDocumentForm({ kind, documentId }: { kind: Kind; documentId
       estimatedDeliveryDaysMin: typeof terms.estimatedDeliveryDaysMin === 'number' ? String(terms.estimatedDeliveryDaysMin) : '',
       estimatedDeliveryDaysMax: typeof terms.estimatedDeliveryDaysMax === 'number' ? String(terms.estimatedDeliveryDaysMax) : '',
     });
+    const rawInstallments = Array.isArray(snapshot?.installments) ? snapshot.installments : [];
+    setInstallments(
+      rawInstallments
+        .map((row) => record(row))
+        .filter((row): row is Record<string, unknown> => Boolean(row))
+        .map((row) => {
+          const method = str(row.paymentMethod);
+          const allowed = INSTALLMENT_METHODS.some((entry) => entry.value === method);
+          return {
+            ...emptyInstallment(),
+            label: str(row.label),
+            amount: row.amount != null ? String(row.amount) : '',
+            dueDate: str(row.dueDate).slice(0, 10),
+            paymentMethod: (allowed ? method : 'cash') as InstallmentDraft['paymentMethod'],
+          };
+        })
+    );
     setHydrated(true);
   }, [defaultDivisionId, doc, hydrated, isEdit, kind]);
 
@@ -285,6 +332,27 @@ export function QuickDocumentForm({ kind, documentId }: { kind: Kind; documentId
     const fail = (error: Error) => toast.error(error.message);
 
     if (kind === 'contract') {
+      const installmentPayload: ContractInstallmentInput[] = [];
+      for (const row of installments) {
+        if (!row.amount.trim() && !row.label.trim() && !row.dueDate.trim()) continue;
+        const amount = amountOrZero(row.amount);
+        if (!(amount > 0)) {
+          toast.error('Ödeme planı satırında tutar sıfırdan büyük olmalı.');
+          return;
+        }
+        const due = row.dueDate.trim() ? parseDay(row.dueDate) : null;
+        if (row.dueDate.trim() && !due) {
+          toast.error('Ödeme planı tarihi YYYY-AA-GG olmalı.');
+          return;
+        }
+        installmentPayload.push({
+          label: row.label.trim() || undefined,
+          amount,
+          ...(due ? { dueDate: due.toISOString() } : {}),
+          promissoryNote: row.paymentMethod === 'promissory_note',
+          paymentMethod: row.paymentMethod,
+        });
+      }
       const body = {
         ...common,
         contractNo: documentNo.trim() || undefined,
@@ -296,14 +364,23 @@ export function QuickDocumentForm({ kind, documentId }: { kind: Kind; documentId
         importCostsExcluded: meta.importCostsExcluded,
         vatIncluded: meta.vatIncluded,
         freightPaidBySeller: meta.freightPaidBySeller,
+        ...(installmentPayload.length ? { installments: installmentPayload } : {}),
       };
-      if (isEdit && documentId) updateContract.mutate({ id: documentId, body }, { onSuccess: done('Sözleşme güncellendi'), onError: fail });
-      else createContract.mutate(body, { onSuccess: done('Sözleşme oluşturuldu'), onError: fail });
+      if (isEdit && documentId) updateContract.mutate({ id: documentId, body }, { onSuccess: done('CRM sözleşmesi güncellendi'), onError: fail });
+      else
+        createContract.mutate(body, {
+          onSuccess: done('CRM sözleşmesi oluşturuldu. PDF web CRM’den yüklenir.'),
+          onError: fail,
+        });
       return;
     }
     const body = { ...common, documentNo: documentNo.trim() || undefined, issueDate: day.toISOString() };
-    if (isEdit && documentId) updateProforma.mutate({ id: documentId, body }, { onSuccess: done('Proforma güncellendi'), onError: fail });
-    else createProforma.mutate(body, { onSuccess: done('Proforma oluşturuldu'), onError: fail });
+    if (isEdit && documentId) updateProforma.mutate({ id: documentId, body }, { onSuccess: done('CRM proforması güncellendi'), onError: fail });
+    else
+      createProforma.mutate(body, {
+        onSuccess: done('CRM proforması oluşturuldu. PDF web CRM’den yüklenir.'),
+        onError: fail,
+      });
   }
 
   if (isEdit && (existing.isPending || existing.error)) {
@@ -318,15 +395,15 @@ export function QuickDocumentForm({ kind, documentId }: { kind: Kind; documentId
     <>
       <ModalForm
         title={title}
-        submitLabel={isEdit ? `${label}${kind === 'proforma' ? 'yı' : 'yi'} Güncelle` : `${label} Oluştur`}
+        submitLabel={isEdit ? `${label}${kind === 'proforma' ? 'yı' : 'yi'} Güncelle` : `CRM'de ${label} Oluştur`}
         onSubmit={submit}
         loading={busy}
         disabled={!hydrated}
       >
         <Text className="font-inter text-sm text-muted-foreground">
           {isEdit
-            ? 'Belgenin firma bilgisi, kalemleri ve şartlarını güncelleyin.'
-            : `Teklif açmadan ${kind === 'proforma' ? 'proforma' : 'sözleşme'} kesin. Kalemleri doğrudan yazarsınız; bu belge hiçbir teklife bağlanmaz.`}
+            ? 'Belgenin firma bilgisi, kalemleri ve şartlarını güncelleyin. PDF mobilde basılmaz; CRM dosyası belge detayından açılır.'
+            : `Teklif açmadan CRM'de ${kind === 'proforma' ? 'proforma' : 'sözleşme'} oluşturun. Kalemleri doğrudan yazarsınız; PDF web CRM'den yüklenir, mobilde yeniden üretilmez.`}
         </Text>
 
         <View className="gap-3">
@@ -548,6 +625,75 @@ export function QuickDocumentForm({ kind, documentId }: { kind: Kind; documentId
           currencyCode={currencyCode}
         />
         <DocumentTotalsCard totals={totals} currencyCode={currencyCode} />
+
+        {kind === 'contract' ? (
+          <View className="gap-3">
+            <Eyebrow>Ödeme planı (web QuickContract)</Eyebrow>
+            <Text className="font-inter text-xs text-muted-foreground">
+              Vade satırları CRM sözleşmesine yazılır; PDF web çıktısından gelir.
+            </Text>
+            {installments.map((row, index) => (
+              <SubtleCard key={row.key} className="gap-2.5 p-3">
+                <View className="flex-row items-center justify-between">
+                  <Text className="font-inter-semibold text-[13px] text-muted-foreground">{index + 1}. vade</Text>
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={`${index + 1}. vadeyi kaldır`}
+                    onPress={() => setInstallments((prev) => prev.filter((entry) => entry.key !== row.key))}
+                    className="h-11 w-11 items-center justify-center"
+                  >
+                    <Ionicons name="trash-outline" size={19} color={colors.destructive} />
+                  </Pressable>
+                </View>
+                <Field
+                  label="Açıklama"
+                  value={row.label}
+                  onChangeText={(label) =>
+                    setInstallments((prev) => prev.map((entry) => (entry.key === row.key ? { ...entry, label } : entry)))
+                  }
+                  placeholder="Peşinat / 1. taksit"
+                  maxLength={255}
+                />
+                <View className="flex-row gap-2">
+                  <View className="flex-1">
+                    <Field
+                      label={`Tutar (${currencyCode})`}
+                      value={row.amount}
+                      onChangeText={(amount) =>
+                        setInstallments((prev) => prev.map((entry) => (entry.key === row.key ? { ...entry, amount } : entry)))
+                      }
+                      keyboardType="decimal-pad"
+                    />
+                  </View>
+                  <View className="flex-1">
+                    <DateTextField
+                      label="Vade tarihi"
+                      value={row.dueDate}
+                      onChangeText={(dueDate) =>
+                        setInstallments((prev) => prev.map((entry) => (entry.key === row.key ? { ...entry, dueDate } : entry)))
+                      }
+                    />
+                  </View>
+                </View>
+                <ChoiceChips
+                  label="Tahsilat yöntemi"
+                  options={INSTALLMENT_METHODS.map((entry) => ({ value: entry.value, label: entry.label }))}
+                  value={row.paymentMethod}
+                  onChange={(paymentMethod) =>
+                    setInstallments((prev) =>
+                      prev.map((entry) =>
+                        entry.key === row.key
+                          ? { ...entry, paymentMethod: paymentMethod as InstallmentDraft['paymentMethod'] }
+                          : entry
+                      )
+                    )
+                  }
+                />
+              </SubtleCard>
+            ))}
+            <Button label="Vade Ekle" variant="ghost" trailingIcon="add" onPress={() => setInstallments((prev) => [...prev, emptyInstallment()])} />
+          </View>
+        ) : null}
 
         <DocumentTermsFields
           title={kind === 'contract' ? 'Sözleşme Şartları' : 'Proforma Notları'}

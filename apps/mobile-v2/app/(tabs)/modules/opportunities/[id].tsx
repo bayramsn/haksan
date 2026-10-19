@@ -560,7 +560,17 @@ export default function OpportunityDetailScreen() {
           <OpportunityFact icon="location-outline" label="Şehir" value={data.leadCity} />
           <OpportunityFact icon="git-branch-outline" label="Operasyon" value={data.stage?.name} />
           <OpportunityFact icon="megaphone-outline" label="Kaynak" value={data.source?.name} />
-          <OpportunityFact icon="cube-outline" label="İstenen makine" value={data.requestedMachine} />
+          <OpportunityFact
+            icon="cube-outline"
+            label="İstenen makine"
+            value={
+              Array.isArray(data.products) && data.products.length
+                ? data.products
+                    .map((row) => `${row.machineName}${Number(row.quantity) > 1 ? ` ×${row.quantity}` : ''}`)
+                    .join(', ')
+                : data.requestedMachine
+            }
+          />
           <OpportunityFact
             icon="card-outline"
             label="Ödeme vadesi"

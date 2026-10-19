@@ -77,10 +77,22 @@ const EMPTY_FORM: FormState = {
   isPrimary: false,
 };
 
+/** Web CreateContactDialog — Türkçe değerler API’ye aynen gider. */
 const GENDERS = [
-  { value: 'male', label: 'Erkek' },
-  { value: 'female', label: 'Kadın' },
+  { value: 'Erkek', label: 'Erkek' },
+  { value: 'Kadın', label: 'Kadın' },
+  { value: 'Diğer', label: 'Diğer' },
 ] as const;
+
+function normalizeGender(value: string | null | undefined): string {
+  const raw = (value ?? '').trim();
+  if (!raw) return '';
+  const lower = raw.toLocaleLowerCase('tr');
+  if (lower === 'male' || lower === 'erkek') return 'Erkek';
+  if (lower === 'female' || lower === 'kadın' || lower === 'kadin') return 'Kadın';
+  if (lower === 'other' || lower === 'diğer' || lower === 'diger') return 'Diğer';
+  return raw;
+}
 
 function first(value: string | string[] | undefined): string {
   return Array.isArray(value) ? value[0] ?? '' : value ?? '';
@@ -190,7 +202,7 @@ export function ContactFormScreen() {
       workEmail: detail.data.workEmail ?? '',
       personalEmail: detail.data.personalEmail ?? '',
       otherEmail: detail.data.otherEmail ?? '',
-      gender: detail.data.gender ?? '',
+      gender: normalizeGender(detail.data.gender),
       birthDate: displayDate(detail.data.birthDate),
       hometown: detail.data.hometown ?? '',
       favoriteTeam: detail.data.favoriteTeam ?? '',

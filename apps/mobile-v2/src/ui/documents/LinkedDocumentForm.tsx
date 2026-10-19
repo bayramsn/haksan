@@ -229,8 +229,8 @@ export function LinkedDocumentForm({ kind, quoteId: initialQuoteId, documentId }
         headerDiscountPercent: documentDiscount.percent,
         ...(terms ? { terms } : {}),
       };
-      if (kind === 'contract') updateContract.mutate({ id: documentId, body }, { onSuccess: done('Sözleşme güncellendi'), onError: fail });
-      else updateProforma.mutate({ id: documentId, body }, { onSuccess: done('Proforma güncellendi'), onError: fail });
+      if (kind === 'contract') updateContract.mutate({ id: documentId, body }, { onSuccess: done('CRM sözleşmesi güncellendi'), onError: fail });
+      else updateProforma.mutate({ id: documentId, body }, { onSuccess: done('CRM proforması güncellendi'), onError: fail });
       return;
     }
 
@@ -245,7 +245,10 @@ export function LinkedDocumentForm({ kind, quoteId: initialQuoteId, documentId }
         ...discountFields,
         terms,
       };
-      createContract.mutate(body, { onSuccess: done('Sözleşme oluşturuldu'), onError: fail });
+      createContract.mutate(body, {
+        onSuccess: done('CRM sözleşmesi oluşturuldu. PDF web CRM’den yüklenir.'),
+        onError: fail,
+      });
       return;
     }
     const body: ProformaInput = {
@@ -257,7 +260,10 @@ export function LinkedDocumentForm({ kind, quoteId: initialQuoteId, documentId }
       ...discountFields,
       terms,
     };
-    createProforma.mutate(body, { onSuccess: done('Proforma oluşturuldu'), onError: fail });
+    createProforma.mutate(body, {
+      onSuccess: done('CRM proforması oluşturuldu. PDF web CRM’den yüklenir.'),
+      onError: fail,
+    });
   }
 
   const quoteSummary = quote.data
@@ -268,11 +274,16 @@ export function LinkedDocumentForm({ kind, quoteId: initialQuoteId, documentId }
     <>
       <ModalForm
         title={title}
-        submitLabel={isEdit ? 'Kaydet' : `${LABEL[kind]} Oluştur`}
+        submitLabel={isEdit ? 'Kaydet' : `CRM'de ${LABEL[kind]} Oluştur`}
         onSubmit={submit}
         loading={busy}
         disabled={loading || Boolean(loadError) || !quoteId}
       >
+        {!isEdit ? (
+          <Text className="font-inter text-xs leading-5 text-muted-foreground">
+            Kayıt web CRM API ile oluşur. PDF mobilde basılmaz; web CRM’de yüklenen dosya belge detayından açılır.
+          </Text>
+        ) : null}
         <PickerField
           label="Bağlı Teklif *"
           value={quoteSummary}

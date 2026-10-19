@@ -149,6 +149,8 @@ export type CompanyAddress = {
   latitude: string | null;
   longitude: string | null;
   isDefault: boolean;
+  isShipping?: boolean;
+  isBilling?: boolean;
 };
 
 export type CompanyPhone = { id: string; phoneType: string; phone: string; extension: string | null; isDefault: boolean };
@@ -587,6 +589,8 @@ export type OpportunityDetail = OpportunityListItem &
     leadDistrict: string | null;
     contractTerms: string | null;
     paymentTerms: string | null;
+    /** Çoklu makine listesi (opportunity_products). */
+    products?: { id?: string; productModelId?: string | null; machineName: string; quantity: number }[];
     qualificationNote: string | null;
     /** Trello aktarımı: pano/liste/üye bilgisi `externalMetadata` içinde serbest jsonb. */
     externalSource: string | null;
@@ -710,6 +714,7 @@ export const opportunities = {
       probability: number;
       expectedCloseDate: string | null;
       requestedMachine: string;
+      products?: { productModelId?: string; machineName: string; quantity: number }[];
       nextAction: string;
       nextActionAt: string;
       wonReason: string;
@@ -795,6 +800,7 @@ export type QuoteSummary = {
 
 export type QuoteItem = {
   id: string;
+  productModelId?: string | null;
   stockCode: string | null;
   description: string;
   quantity: string;
@@ -803,6 +809,26 @@ export type QuoteItem = {
   vatRate: string;
   lineTotal: string;
   sortOrder: number;
+  nationalized?: boolean;
+  /** jsonb — opsiyon / lazer / uyumluluk (web QuoteDialog). */
+  compatibility?: {
+    lineGroupKey?: string;
+    configurationOptionSetId?: string;
+    machineIds?: string[];
+    brands?: string[];
+    controlUnits?: string[];
+    supplierIds?: string[];
+    technicalSpecs?: { key: string; value: string; unit?: string | null }[];
+    technicalConfiguration?: unknown | null;
+    selectedProductOptions?: {
+      optionSetId: string;
+      optionValueId: string;
+      name: string;
+      value: string;
+      priceDelta: number | string;
+      currencyCode: string;
+    }[];
+  } | null;
 };
 
 /**
@@ -812,9 +838,12 @@ export type QuoteItem = {
  */
 export type QuoteDetail = Omit<QuoteListItem, 'company' | 'contact' | 'status' | 'currency' | 'productName'> & {
   companyId: string;
+  companyAddressId: string | null;
   contactId: string | null;
   statusId: string | null;
   currencyId: string | null;
+  projectOwnerUserId: string | null;
+  signatureId: string | null;
   paymentTerms: string | null;
   deliveryTerms: string | null;
   warrantyTerms: string | null;

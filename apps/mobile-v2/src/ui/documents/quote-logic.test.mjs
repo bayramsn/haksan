@@ -98,10 +98,26 @@ test('ondalık girdi tr-TR ve düz biçimi okur', () => {
 });
 
 test('kalem doğrulaması sunucu şemasıyla aynı kuralları uygular', () => {
-  const base = { key: 'k', description: 'Makine', quantity: '2', unitPrice: '100', discountAmount: '', vatRate: '' };
+  const base = {
+    key: 'k',
+    description: 'Makine',
+    quantity: '2',
+    unitPrice: '100',
+    discount: '',
+    discountType: 'amount',
+    vatRate: '',
+    nationalized: false,
+    lineGroupKey: 'lg-1',
+    selectedProductOptions: [],
+    technicalSpecs: [],
+    technicalConfiguration: null,
+    compatibilityFilters: { machineIds: [], brands: [], controlUnits: [], supplierIds: [] },
+    optionChildren: [],
+    configurationChanged: false,
+  };
   assert.equal(parseQuoteItems([]).error, 'En az bir kalem girin.');
   assert.match(parseQuoteItems([{ ...base, quantity: '0' }]).error, /adet/);
-  assert.match(parseQuoteItems([{ ...base, discountAmount: '500' }]).error, /iskontosu/);
+  assert.match(parseQuoteItems([{ ...base, discount: '500' }]).error, /iskontosu/);
   assert.match(parseQuoteItems([{ ...base, vatRate: '120' }]).error, /KDV/);
   assert.match(parseQuoteItems([{ ...base, quantity: '1,0001' }]).error, /ondalık/);
   const ok = parseQuoteItems([
@@ -109,10 +125,54 @@ test('kalem doğrulaması sunucu şemasıyla aynı kuralları uygular', () => {
     { ...base, itemId: 'i1', productModelId: 'p1' },
   ]);
   assert.equal(ok.error, null);
-  assert.deepEqual(ok.items, [
-    { itemId: 'i1', productModelId: 'p1', description: 'Makine', quantity: 2, unitCode: 'adet', unitPrice: 100, discountAmount: 0, vatRate: 20, sortOrder: 0 },
-  ]);
+  assert.equal(ok.items.length, 1);
+  assert.equal(ok.items[0].itemId, 'i1');
+  assert.equal(ok.items[0].productModelId, 'p1');
+  assert.equal(ok.items[0].quantity, 2);
+  assert.equal(ok.items[0].unitPrice, 100);
+  assert.equal(ok.items[0].compatibility?.lineGroupKey, 'lg-1');
   assert.equal(itemsNetTotal([{ quantity: 2, unitPrice: 100, discountAmount: 15 }]), 185);
+});
+
+test('opsiyon çocuk satırları lineGroupKey ile düzleştirilir', () => {
+  const parsed = parseQuoteItems([
+    {
+      key: 'main',
+      description: 'Lazer',
+      quantity: '1',
+      unitPrice: '1000',
+      discount: '',
+      discountType: 'amount',
+      vatRate: '20',
+      nationalized: false,
+      lineGroupKey: 'lg-x',
+      selectedProductOptions: [
+        { optionSetId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', optionValueId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', name: 'Güç', value: '6 kW', priceDelta: 50, currencyCode: 'USD' },
+      ],
+      technicalSpecs: [],
+      technicalConfiguration: null,
+      compatibilityFilters: { machineIds: [], brands: [], controlUnits: [], supplierIds: [] },
+      optionChildren: [
+        {
+          key: 'opt',
+          optionSetId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+          description: 'Güç: 6 kW',
+          quantity: '1',
+          unitPrice: '50',
+          discount: '',
+          discountType: 'amount',
+          vatRate: '20',
+        },
+      ],
+      configurationChanged: true,
+    },
+  ]);
+  assert.equal(parsed.error, null);
+  assert.equal(parsed.items.length, 2);
+  assert.equal(parsed.items[0].compatibility.selectedProductOptions.length, 1);
+  assert.equal(parsed.items[1].description, '↳ Opsiyon: Güç: 6 kW');
+  assert.equal(parsed.items[1].compatibility.lineGroupKey, 'lg-x');
+  assert.equal(parsed.items[1].compatibility.configurationOptionSetId, 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa');
 });
 
 test('kalem planı güncelle/ekle/sil ayrımını yapar', () => {

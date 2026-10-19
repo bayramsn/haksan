@@ -135,7 +135,13 @@ export const productLabel = (p: Pick<ProductModel, 'fullName' | 'modelName' | 'm
   p.fullName || p.modelName || p.modelCode;
 
 function useProductOptions(search: string): RemoteOptions<ProductModel> {
-  const list = useProductList(useMemo(() => ({ search: search || undefined }), [search]));
+  const categoryCode = useSearchRemoteBag<string | null>();
+  const list = useProductList(
+    useMemo(
+      () => ({ search: search || undefined, ...(categoryCode ? { categoryCode } : {}) }),
+      [search, categoryCode]
+    )
+  );
   return {
     items: (list.data?.items ?? []).map((product) => ({
       id: product.id,
@@ -158,12 +164,15 @@ export function ProductSelect({
   selectedId,
   onSelect,
   allowCustom = true,
+  categoryCode,
   ...rest
 }: Common & {
   value: string;
   selectedId?: string | null;
   onSelect: (item: SelectItem<ProductModel> | null) => void;
   allowCustom?: boolean;
+  /** Web CreateCaseDialog — örn. yalnız TEZGAH. */
+  categoryCode?: string | null;
 }) {
   return (
     <SearchSelect
@@ -174,6 +183,7 @@ export function ProductSelect({
       selectedId={selectedId}
       onSelect={onSelect}
       useRemote={useProductOptions}
+      remoteBag={categoryCode ?? null}
       allowCustom={allowCustom}
       searchPlaceholder="Model adı, kodu veya marka"
       emptyTitle="Ürün bulunamadı"

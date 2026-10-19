@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { Pressable, Text, View } from 'react-native';
+import { Image, Pressable, Text, View } from 'react-native';
 import {
   COMPANY_SECTOR_OPTIONS,
   COUNTRY_OPTIONS,
@@ -23,7 +23,11 @@ import {
   SALES_STATUS_OPTIONS,
   SUPPLIER_CATEGORY_OPTIONS,
   applyWebsiteSuggestion,
+  emptyAdditionalAddress,
   needsSupplierCategory,
+  toggleAddressRole,
+  type AddressRoleKey,
+  type AdditionalAddressDraft,
   type CompanyFormErrors,
   type CompanyFormState,
 } from './company-form-logic';
@@ -34,6 +38,43 @@ const toOptions = (values: readonly string[]): PickerOption[] => values.map((val
 /** Değer listede yoksa (serbest metin) seçicide yine görünsün. */
 const withCurrent = (options: PickerOption[], value: string) =>
   value && !options.some((option) => option.value === value) ? [{ value, label: value }, ...options] : options;
+
+function AddressRoleChips({
+  isDefault,
+  isBilling,
+  isShipping,
+  onToggle,
+}: {
+  isDefault: boolean;
+  isBilling: boolean;
+  isShipping: boolean;
+  onToggle: (role: AddressRoleKey) => void;
+}) {
+  const roles: { key: AddressRoleKey; label: string; active: boolean }[] = [
+    { key: 'isDefault', label: 'Varsayılan', active: isDefault },
+    { key: 'isBilling', label: 'Fatura', active: isBilling },
+    { key: 'isShipping', label: 'Sevkiyat', active: isShipping },
+  ];
+  return (
+    <View className="gap-2">
+      <Text className="font-inter-medium text-sm text-foreground">Adres rolleri</Text>
+      <View className="flex-row flex-wrap gap-2">
+        {roles.map((role) => (
+          <Pressable
+            key={role.key}
+            accessibilityRole="checkbox"
+            accessibilityState={{ checked: role.active }}
+            accessibilityLabel={role.label}
+            onPress={() => onToggle(role.key)}
+            className={`min-h-11 justify-center rounded-control border px-3 py-1.5 ${role.active ? 'border-primary bg-secondary' : 'border-border bg-card'}`}
+          >
+            <Text className={`font-inter-medium text-sm ${role.active ? 'text-primary' : 'text-foreground'}`}>{role.label}</Text>
+          </Pressable>
+        ))}
+      </View>
+    </View>
+  );
+}
 
 function ChoiceChips<T extends string>({
   label,
@@ -83,11 +124,18 @@ export function CompanyFormFields({
   form,
   onChange,
   errors,
+  logoUri,
+  onPickLogo,
+  onClearLogo,
 }: {
   mode: 'create' | 'edit';
   form: CompanyFormState;
   onChange: (next: Partial<CompanyFormState>) => void;
   errors: CompanyFormErrors;
+  /** Seçilen veya mevcut logo önizlemesi (web logoFileId). */
+  logoUri?: string | null;
+  onPickLogo?: () => void;
+  onClearLogo?: () => void;
 }) {
   const { user } = useAuth();
   const lookups = useCompanyFormLookups();
@@ -138,8 +186,81 @@ export function CompanyFormFields({
       divisionIds: form.divisionIds.includes(id) ? form.divisionIds.filter((item) => item !== id) : [...form.divisionIds, id],
     });
 
+  /** Birincil (index 0) + ek adresler — rol tek adreste tutulur. */
+  function applyAddressRole(role: AddressRoleKey, selectedIndex: number) {
+    const rows: { isDefault: boolean; isShipping: boolean; isBilling: boolean }[] = [
+      {
+        isDefault: form.addressIsDefault,
+        isShipping: form.addressIsShipping,
+        isBilling: form.addressIsBilling,
+      },
+      ...form.additionalAddresses.map((row) => ({
+        isDefault: row.isDefault,
+        isShipping: row.isShipping,
+        isBilling: row.isBilling,
+      })),
+    ];
+    const next = toggleAddressRole(rows, role, selectedIndex);
+    const [primary, ...rest] = next;
+    onChange({
+      addressIsDefault: primary?.isDefault ?? false,
+      addressIsShipping: primary?.isShipping ?? false,
+      addressIsBilling: primary?.isBilling ?? false,
+      additionalAddresses: form.additionalAddresses.map((row, index) => ({
+        ...row,
+        isDefault: rest[index]?.isDefault ?? false,
+        isShipping: rest[index]?.isShipping ?? false,
+        isBilling: rest[index]?.isBilling ?? false,
+      })),
+    });
+  }
+
+  function patchAdditional(key: string, patch: Partial<AdditionalAddressDraft>) {
+    onChange({
+      additionalAddresses: form.additionalAddresses.map((row) => (row.key === key ? { ...row, ...patch } : row)),
+    });
+  }
+
   return (
     <View className="gap-3">
+      {onPickLogo ? (
+        <Card className="gap-3">
+          <Eyebrow>Logo</Eyebrow>
+          <Text className="font-inter text-xs text-muted-foreground">Web CRM ile aynı: firma logosunu yükleyin (PNG/JPG, max 5 MB).</Text>
+          {logoUri ? (
+            <View className="h-20 w-20 overflow-hidden rounded-control border border-border bg-muted">
+              <Image source={{ uri: logoUri }} style={{ width: 80, height: 80 }} resizeMode="contain" />
+            </View>
+          ) : (
+            <Text className="font-inter text-xs text-muted-foreground">Logo seçilmedi.</Text>
+          )}
+          <View className="flex-row gap-2">
+            <View className="flex-1">
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Logo seç"
+                onPress={onPickLogo}
+                className="min-h-11 items-center justify-center rounded-control border border-border bg-card"
+              >
+                <Text className="font-inter-semibold text-sm text-primary">Logo Seç</Text>
+              </Pressable>
+            </View>
+            {logoUri && onClearLogo ? (
+              <View className="flex-1">
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Logoyu kaldır"
+                  onPress={onClearLogo}
+                  className="min-h-11 items-center justify-center rounded-control border border-border bg-card"
+                >
+                  <Text className="font-inter-semibold text-sm text-destructive">Kaldır</Text>
+                </Pressable>
+              </View>
+            ) : null}
+          </View>
+        </Card>
+      ) : null}
+
       <Card className="gap-3">
         <Eyebrow>1 · Sınıflandırma</Eyebrow>
         <ChoiceChips
@@ -283,15 +404,13 @@ export function CompanyFormFields({
 
       <Card className="gap-3">
         <Eyebrow>3 · Adres</Eyebrow>
-        {mode === 'create' ? (
-          <OptionPicker
-            label="Adres Türü"
-            icon="home-outline"
-            value={form.addressType}
-            options={ADDRESS_TYPE_OPTIONS}
-            onChange={(value) => onChange({ addressType: (value ?? 'office') as CompanyFormState['addressType'] })}
-          />
-        ) : null}
+        <OptionPicker
+          label="Adres Türü"
+          icon="home-outline"
+          value={form.addressType}
+          options={ADDRESS_TYPE_OPTIONS}
+          onChange={(value) => onChange({ addressType: (value ?? 'office') as CompanyFormState['addressType'] })}
+        />
         <Field
           label="Açık Adres"
           value={form.address}
@@ -299,6 +418,12 @@ export function CompanyFormFields({
           multiline
           maxLength={1000}
           className="min-h-[72px] rounded-control border border-border bg-card px-3.5 py-3 text-base text-foreground"
+        />
+        <AddressRoleChips
+          isDefault={form.addressIsDefault}
+          isBilling={form.addressIsBilling}
+          isShipping={form.addressIsShipping}
+          onToggle={(role) => applyAddressRole(role, 0)}
         />
         <OptionPicker
           label="Ülke"
@@ -356,6 +481,94 @@ export function CompanyFormFields({
             </Text>
           </View>
         ) : null}
+
+        {form.additionalAddresses.map((row, index) => {
+          const rowTurkey = !row.country || row.country === 'Türkiye';
+          const rowDistricts = withCurrent(toOptions(rowTurkey ? DISTRICTS_BY_PROVINCE[row.city] ?? [] : []), row.district);
+          return (
+            <View key={row.key} className="gap-3 rounded-control border border-border bg-muted/30 p-3">
+              <View className="flex-row items-center justify-between">
+                <Text className="font-inter-semibold text-sm text-foreground">Ek adres {index + 1}</Text>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={`Ek adresi kaldır`}
+                  onPress={() =>
+                    onChange({ additionalAddresses: form.additionalAddresses.filter((item) => item.key !== row.key) })
+                  }
+                  className="min-h-11 justify-center px-2"
+                >
+                  <Text className="font-inter-semibold text-sm text-destructive">Kaldır</Text>
+                </Pressable>
+              </View>
+              <OptionPicker
+                label="Adres Türü"
+                icon="home-outline"
+                value={row.addressType}
+                options={ADDRESS_TYPE_OPTIONS}
+                onChange={(value) =>
+                  patchAdditional(row.key, { addressType: (value ?? 'factory') as AdditionalAddressDraft['addressType'] })
+                }
+              />
+              <Field
+                label="Açık Adres"
+                value={row.address}
+                onChangeText={(address) => patchAdditional(row.key, { address })}
+                multiline
+                maxLength={1000}
+                className="min-h-[72px] rounded-control border border-border bg-card px-3.5 py-3 text-base text-foreground"
+              />
+              <AddressRoleChips
+                isDefault={row.isDefault}
+                isBilling={row.isBilling}
+                isShipping={row.isShipping}
+                onToggle={(role) => applyAddressRole(role, index + 1)}
+              />
+              <OptionPicker
+                label="Ülke"
+                icon="earth-outline"
+                value={row.country || null}
+                options={withCurrent(toOptions(COUNTRY_OPTIONS), row.country)}
+                searchable
+                allowFreeText
+                onChange={(value) => patchAdditional(row.key, { country: value ?? 'Türkiye', city: '', district: '' })}
+                onFreeText={(country) => patchAdditional(row.key, { country, city: '', district: '' })}
+              />
+              <OptionPicker
+                label="İl"
+                icon="map-outline"
+                placeholder={rowTurkey ? 'İl seçin veya yazın...' : 'İl yazın...'}
+                value={row.city || null}
+                options={withCurrent(toOptions(rowTurkey ? PROVINCES : []), row.city)}
+                searchable
+                allowFreeText
+                clearable
+                onChange={(value) => patchAdditional(row.key, { city: value ?? '', district: '' })}
+                onFreeText={(city) => patchAdditional(row.key, { city, district: '' })}
+              />
+              <OptionPicker
+                label="İlçe"
+                icon="navigate-outline"
+                placeholder={!row.city ? 'Önce il seçin...' : rowDistricts.length ? 'İlçe seçin veya yazın...' : 'İlçe yazın...'}
+                value={row.district || null}
+                options={rowDistricts}
+                searchable
+                allowFreeText
+                clearable
+                onChange={(value) => patchAdditional(row.key, { district: value ?? '' })}
+                onFreeText={(district) => patchAdditional(row.key, { district })}
+              />
+            </View>
+          );
+        })}
+
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Ek adres ekle"
+          onPress={() => onChange({ additionalAddresses: [...form.additionalAddresses, emptyAdditionalAddress()] })}
+          className="min-h-11 items-center justify-center rounded-control border border-dashed border-border bg-card"
+        >
+          <Text className="font-inter-semibold text-sm text-primary">+ Ek adres ekle</Text>
+        </Pressable>
       </Card>
 
       <Card className="gap-3">

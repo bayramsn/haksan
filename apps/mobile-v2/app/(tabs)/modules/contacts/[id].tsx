@@ -16,7 +16,14 @@ import { InfoRows } from '@/src/ui/data';
 
 type ContactTab = 'iletisim' | 'genel' | 'notlar' | 'aktiviteler';
 
-const GENDER_LABELS: Record<string, string> = { male: 'Erkek', female: 'Kadın' };
+const GENDER_LABELS: Record<string, string> = {
+  male: 'Erkek',
+  female: 'Kadın',
+  Erkek: 'Erkek',
+  Kadın: 'Kadın',
+  Diğer: 'Diğer',
+  other: 'Diğer',
+};
 
 const CONTACT_TABS: { value: ContactTab; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
   { value: 'iletisim', label: 'İletişim', icon: 'call-outline' },

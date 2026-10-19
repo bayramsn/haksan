@@ -182,6 +182,31 @@ export function parseDecimal(raw: string): number {
   return Number.isFinite(parsed) ? parsed : Number.NaN;
 }
 
+export type QuoteDiscountType = 'percent' | 'amount';
+
+export type QuoteSelectedOptionDraft = {
+  optionSetId: string;
+  optionValueId: string;
+  name: string;
+  value: string;
+  priceDelta: number;
+  currencyCode: string;
+};
+
+export type QuoteOptionChildDraft = {
+  key: string;
+  itemId?: string;
+  optionSetId?: string;
+  description: string;
+  quantity: string;
+  unitPrice: string;
+  discount: string;
+  discountType: QuoteDiscountType;
+  vatRate: string;
+};
+
+export type QuoteTechnicalSpecDraft = { key: string; value: string; unit?: string };
+
 export type EditableQuoteItem = {
   key: string;
   /** Kayıtlı kalem kimliği; yeni satırlarda yok. */
@@ -191,8 +216,31 @@ export type EditableQuoteItem = {
   description: string;
   quantity: string;
   unitPrice: string;
-  discountAmount: string;
+  /** Web gibi % veya tutar; API’ye her zaman tutar (`discountAmount`) gider. */
+  discount: string;
+  discountType: QuoteDiscountType;
   vatRate: string;
+  productTypeCode?: string;
+  categoryCode?: string;
+  /** Lazer resolve için ürün markası. */
+  brandId?: string;
+  nationalized: boolean;
+  /** Web `lineGroupKey` — ana ürün + opsiyon satırlarını bağlar. */
+  lineGroupKey: string;
+  selectedProductOptions: QuoteSelectedOptionDraft[];
+  technicalSpecs: QuoteTechnicalSpecDraft[];
+  technicalConfiguration: unknown | null;
+  /** CNC uyumluluk çoklu seçimleri. */
+  compatibilityFilters: {
+    machineIds: string[];
+    brands: string[];
+    controlUnits: string[];
+    supplierIds: string[];
+  };
+  /** TEZGAH altındaki manuel opsiyon satırları (↳ Opsiyon: …). */
+  optionChildren: QuoteOptionChildDraft[];
+  /** Düzenlemede seçenek değiştiyse zorunlu doğrulama tetiklenir. */
+  configurationChanged: boolean;
 };
 
 export type ParsedQuoteItem = {
@@ -206,48 +254,165 @@ export type ParsedQuoteItem = {
   discountAmount: number;
   vatRate: number;
   sortOrder: number;
+  nationalized?: boolean;
+  compatibility?: {
+    lineGroupKey?: string;
+    configurationOptionSetId?: string;
+    machineIds?: string[];
+    brands?: string[];
+    controlUnits?: string[];
+    supplierIds?: string[];
+    technicalSpecs?: QuoteTechnicalSpecDraft[];
+    technicalConfiguration?: unknown | null;
+    selectedProductOptions?: QuoteSelectedOptionDraft[];
+  } | null;
 };
+
+let lineGroupCounter = 0;
+export function newLineGroupKey(): string {
+  lineGroupCounter += 1;
+  return `lg-${Date.now()}-${lineGroupCounter}`;
+}
+
+export function emptyCompatibilityFilters() {
+  return { machineIds: [] as string[], brands: [] as string[], controlUnits: [] as string[], supplierIds: [] as string[] };
+}
+
+/** Web QuoteDialog DELIVERY_TERMS — seçince metin + ithalat bayrağı dolar. */
+export const QUOTE_DELIVERY_PRESETS = [
+  { code: 'cif_istanbul', label: 'Tezgah CİF İstanbul', importCostsExcluded: true },
+  { code: 'export_address', label: 'İhracat Adrese Teslim', importCostsExcluded: true },
+  { code: 'nationalized', label: 'Millileştirilmiş Teklif', importCostsExcluded: false },
+  { code: 'customs', label: 'Gümrük Teklif', importCostsExcluded: true },
+  { code: 'ex_works', label: 'İşletme Teslim', importCostsExcluded: false },
+  { code: 'fob', label: 'F.O.B Teslim', importCostsExcluded: true },
+] as const;
+
+function parseLineMoney(
+  label: string,
+  quantityRaw: string,
+  unitPriceRaw: string,
+  discountRawStr: string,
+  discountType: QuoteDiscountType,
+  vatRateRaw: string,
+): { quantity: number; unitPrice: number; discountAmount: number; vatRate: number; error: string | null } {
+  const quantity = parseDecimal(quantityRaw);
+  if (!(quantity > 0)) return { quantity: 0, unitPrice: 0, discountAmount: 0, vatRate: 0, error: `${label}: adet sıfırdan büyük olmalı.` };
+  if (Math.abs(Math.round(quantity * 1000) - quantity * 1000) > 1e-6) {
+    return { quantity: 0, unitPrice: 0, discountAmount: 0, vatRate: 0, error: `${label}: adet en fazla 3 ondalık olabilir.` };
+  }
+  const unitPrice = parseDecimal(unitPriceRaw);
+  if (!(unitPrice >= 0)) return { quantity: 0, unitPrice: 0, discountAmount: 0, vatRate: 0, error: `${label}: geçerli bir birim fiyat girin.` };
+  const discountRaw = discountRawStr.trim() ? parseDecimal(discountRawStr) : 0;
+  if (!(discountRaw >= 0)) return { quantity: 0, unitPrice: 0, discountAmount: 0, vatRate: 0, error: `${label}: geçerli bir iskonto girin.` };
+  if (discountType === 'percent' && discountRaw > 100) {
+    return { quantity: 0, unitPrice: 0, discountAmount: 0, vatRate: 0, error: `${label}: iskonto oranı 0–100 arasında olmalı.` };
+  }
+  const gross = quantity * unitPrice;
+  const discountAmount = discountType === 'percent' ? Number(((gross * discountRaw) / 100).toFixed(4)) : discountRaw;
+  if (discountAmount > gross + 0.0001) {
+    return { quantity: 0, unitPrice: 0, discountAmount: 0, vatRate: 0, error: `${label}: satır iskontosu brüt tutarı aşamaz.` };
+  }
+  const vatRate = vatRateRaw.trim() ? parseDecimal(vatRateRaw) : 20;
+  if (!(vatRate >= 0 && vatRate <= 100)) {
+    return { quantity: 0, unitPrice: 0, discountAmount: 0, vatRate: 0, error: `${label}: KDV 0–100 arasında olmalı.` };
+  }
+  return { quantity, unitPrice, discountAmount, vatRate, error: null };
+}
 
 /**
  * Kalemleri doğrular ve API gövdesine çevirir. Kurallar
- * `quoteItemCreateSchema` ile aynı: açıklama 1–2000, adet > 0 ve 0,001 katı,
- * fiyat ≥ 0, iskonto brüt tutarı aşamaz, KDV 0–100.
+ * `quoteItemCreateSchema` ile aynı. Ana ürün + opsiyon çocuk satırları düzleştirilir;
+ * `compatibility` web QuoteDialog ile aynı yapıda gider.
  */
 export function parseQuoteItems(items: EditableQuoteItem[]): { items: ParsedQuoteItem[]; error: string | null } {
   const filled = items.filter((item) => item.description.trim() || item.unitPrice.trim());
   if (filled.length === 0) return { items: [], error: 'En az bir kalem girin.' };
   const parsed: ParsedQuoteItem[] = [];
+  let sortOrder = 0;
   for (const [index, item] of filled.entries()) {
     const label = `${index + 1}. kalem`;
     const description = item.description.trim();
     if (!description) return { items: [], error: `${label}: açıklama zorunludur.` };
     if (description.length > 2000) return { items: [], error: `${label}: açıklama 2000 karakteri aşamaz.` };
-    const quantity = parseDecimal(item.quantity);
-    if (!(quantity > 0)) return { items: [], error: `${label}: adet sıfırdan büyük olmalı.` };
-    if (Math.abs(Math.round(quantity * 1000) - quantity * 1000) > 1e-6) {
-      return { items: [], error: `${label}: adet en fazla 3 ondalık olabilir.` };
-    }
-    const unitPrice = parseDecimal(item.unitPrice);
-    if (!(unitPrice >= 0)) return { items: [], error: `${label}: geçerli bir birim fiyat girin.` };
-    const discountAmount = item.discountAmount.trim() ? parseDecimal(item.discountAmount) : 0;
-    if (!(discountAmount >= 0)) return { items: [], error: `${label}: geçerli bir iskonto girin.` };
-    if (discountAmount > quantity * unitPrice + 0.0001) {
-      return { items: [], error: `${label}: satır iskontosu brüt tutarı aşamaz.` };
-    }
-    const vatRate = item.vatRate.trim() ? parseDecimal(item.vatRate) : 20;
-    if (!(vatRate >= 0 && vatRate <= 100)) return { items: [], error: `${label}: KDV 0–100 arasında olmalı.` };
+    const money = parseLineMoney(label, item.quantity, item.unitPrice, item.discount, item.discountType, item.vatRate);
+    if (money.error) return { items: [], error: money.error };
+
+    const filters = item.compatibilityFilters;
+    const hasFilters =
+      filters.machineIds.length + filters.brands.length + filters.controlUnits.length + filters.supplierIds.length > 0;
+    const technicalSpecs = item.technicalSpecs.filter((spec) => spec.key.trim() && spec.value.trim());
+    const selectedProductOptions = item.selectedProductOptions.map((option) => ({
+      ...option,
+      priceDelta: Number(option.priceDelta) || 0,
+      currencyCode: option.currencyCode || '',
+    }));
+    const lineGroupKey = item.lineGroupKey || newLineGroupKey();
+    const compatibility = {
+      lineGroupKey,
+      selectedProductOptions,
+      ...(hasFilters
+        ? {
+            machineIds: filters.machineIds,
+            brands: filters.brands,
+            controlUnits: filters.controlUnits,
+            supplierIds: filters.supplierIds,
+          }
+        : { machineIds: [], brands: [], controlUnits: [], supplierIds: [] }),
+      ...(technicalSpecs.length || item.technicalConfiguration ? { technicalSpecs } : {}),
+      technicalConfiguration: item.technicalConfiguration ?? null,
+    };
+
     parsed.push({
       ...(item.itemId ? { itemId: item.itemId } : {}),
       ...(item.productModelId ? { productModelId: item.productModelId } : {}),
-      ...(item.stockCode ? { stockCode: item.stockCode } : {}),
+      ...(item.stockCode?.trim() ? { stockCode: item.stockCode.trim() } : {}),
       description,
-      quantity,
+      quantity: money.quantity,
       unitCode: 'adet',
-      unitPrice,
-      discountAmount,
-      vatRate,
-      sortOrder: index,
+      unitPrice: money.unitPrice,
+      discountAmount: money.discountAmount,
+      vatRate: money.vatRate,
+      sortOrder: sortOrder++,
+      ...(item.nationalized ? { nationalized: true } : {}),
+      compatibility,
     });
+
+    for (const [optIndex, child] of item.optionChildren.entries()) {
+      if (!child.description.trim() && !child.unitPrice.trim()) continue;
+      const optLabel = `${label} opsiyon ${optIndex + 1}`;
+      const optDescription = child.description.trim().startsWith('↳')
+        ? child.description.trim()
+        : `↳ Opsiyon: ${child.description.trim() || 'Opsiyonel donanım'}`;
+      if (optDescription.length > 2000) return { items: [], error: `${optLabel}: açıklama 2000 karakteri aşamaz.` };
+      const optMoney = parseLineMoney(
+        optLabel,
+        child.quantity || '1',
+        child.unitPrice || '0',
+        child.discount,
+        child.discountType,
+        child.vatRate || item.vatRate,
+      );
+      if (optMoney.error) return { items: [], error: optMoney.error };
+      parsed.push({
+        ...(child.itemId ? { itemId: child.itemId } : {}),
+        description: optDescription,
+        quantity: optMoney.quantity,
+        unitCode: 'adet',
+        unitPrice: optMoney.unitPrice,
+        discountAmount: optMoney.discountAmount,
+        vatRate: optMoney.vatRate,
+        sortOrder: sortOrder++,
+        compatibility: {
+          lineGroupKey,
+          ...(child.optionSetId ? { configurationOptionSetId: child.optionSetId } : {}),
+          machineIds: [],
+          brands: [],
+          controlUnits: [],
+          supplierIds: [],
+        },
+      });
+    }
   }
   return { items: parsed, error: null };
 }

@@ -8,14 +8,19 @@ import type { OpportunityListItem, QuoteDetail, QuoteItem, QuoteListItem, QuoteL
  * okur.
  */
 
+/** `packages/shared` quoteCreateSchema ile birebir — web QuoteDialog gövdesi. */
 export type QuoteCreateInput = {
   opportunityId?: string;
   companyId: string;
+  /** PDF’de kullanılacak firma adresi (web `companyAddressId`). */
+  companyAddressId?: string;
   divisionId?: string;
   contactId?: string;
   documentNo?: string;
   quoteDate: string;
   validityDays: number;
+  /** Teklifi gönderen / proje sahibi (web `projectOwnerUserId`). */
+  projectOwnerUserId?: string;
   currencyCode: string;
   headerDiscountAmount: number;
   headerDiscountPercent: number;
@@ -23,9 +28,43 @@ export type QuoteCreateInput = {
   deliveryTerms?: string;
   warrantyTerms?: string;
   notes?: string;
+  /** Ayarlar → İmzalar; `null` = imzasız. */
+  signatureId?: string | null;
 };
 
 export type QuoteUpdateInput = Partial<QuoteCreateInput>;
+
+/** Web `quoteItemCompatibilitySchema` — satır grubu, opsiyon, lazer profili. */
+export type QuoteSelectedProductOption = {
+  optionSetId: string;
+  optionValueId: string;
+  name: string;
+  value: string;
+  priceDelta: number;
+  currencyCode: string;
+};
+
+export type QuoteItemTechnicalSpec = {
+  key: string;
+  value: string;
+  unit?: string;
+  specUnit?: string;
+  groupCode?: string;
+  groupName?: string;
+  group?: string;
+};
+
+export type QuoteItemCompatibility = {
+  lineGroupKey?: string;
+  configurationOptionSetId?: string;
+  machineIds?: string[];
+  brands?: string[];
+  controlUnits?: string[];
+  supplierIds?: string[];
+  technicalSpecs?: QuoteItemTechnicalSpec[];
+  technicalConfiguration?: unknown | null;
+  selectedProductOptions?: QuoteSelectedProductOption[];
+};
 
 export type QuoteItemInput = {
   productModelId?: string;
@@ -37,6 +76,9 @@ export type QuoteItemInput = {
   discountAmount: number;
   vatRate: number;
   sortOrder: number;
+  /** Millileştirilmiş ithal işleme merkezi (web QuoteDialog). */
+  nationalized?: boolean;
+  compatibility?: QuoteItemCompatibility | null;
 };
 
 export type QuoteTermsInput = {

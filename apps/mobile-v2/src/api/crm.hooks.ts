@@ -140,6 +140,7 @@ export function useUpdateOpportunity() {
       probability?: number;
       expectedCloseDate?: string;
       requestedMachine?: string;
+      products?: { productModelId?: string; machineName: string; quantity: number }[];
       nextAction?: string;
       nextActionAt?: string;
       wonReason?: string;
