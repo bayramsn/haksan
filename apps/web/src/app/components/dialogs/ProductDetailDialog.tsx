@@ -104,6 +104,7 @@ export function ProductDetailDialog({
   const [loading, setLoading] = useState(false);
   const [selectedOptionalIds, setSelectedOptionalIds] = useState<string[] | null>(null);
   const [printImageUrl, setPrintImageUrl] = useState<string | undefined>();
+  const [printBrandLogoUrl, setPrintBrandLogoUrl] = useState<string | undefined>();
   const [preparingPrintImage, setPreparingPrintImage] = useState(false);
 
   const { patchProduct, products } = useStore();
@@ -164,33 +165,35 @@ export function ProductDetailDialog({
     };
   }, [product]);
 
+  // Ürün görseli ve marka logosu belgeye gömülür: yazdırma penceresi (blob:) ve
+  // sunucudaki mail PDF'i bu adreslere oturumla erişemez.
   useEffect(() => {
-    const imageUrl = product?.imageUrl?.trim();
     let alive = true;
-    setPrintImageUrl(imageUrl || undefined);
-    if (!imageUrl || imageUrl.startsWith("data:image/")) {
-      setPreparingPrintImage(false);
-      return () => {
-        alive = false;
-      };
-    }
+    const embed = (url: string | undefined, set: (value: string | undefined) => void) => {
+      const clean = url?.trim();
+      set(clean || undefined);
+      if (!clean || clean.startsWith("data:image/")) return Promise.resolve();
+      return embedProductImageForPrint(clean)
+        .then((embedded) => {
+          if (alive) set(embedded);
+        })
+        .catch(() => {
+          // Harici kaynak CORS izni vermiyorsa özgün URL ile yazdırmayı deneriz.
+        });
+    };
 
     setPreparingPrintImage(true);
-    embedProductImageForPrint(imageUrl)
-      .then((embedded) => {
-        if (alive) setPrintImageUrl(embedded);
-      })
-      .catch(() => {
-        // Harici kaynak CORS izni vermiyorsa özgün URL ile yazdırmayı deneriz.
-      })
-      .finally(() => {
-        if (alive) setPreparingPrintImage(false);
-      });
+    Promise.all([
+      embed(product?.imageUrl, setPrintImageUrl),
+      embed(product?.brandLogoUrl, setPrintBrandLogoUrl),
+    ]).finally(() => {
+      if (alive) setPreparingPrintImage(false);
+    });
 
     return () => {
       alive = false;
     };
-  }, [product?.id, product?.imageUrl]);
+  }, [product?.id, product?.imageUrl, product?.brandLogoUrl]);
 
   if (!product) return null;
 
@@ -330,7 +333,7 @@ export function ProductDetailDialog({
   }, {});
   const muadilCount = Object.values(muadilGroups).reduce((sum, items) => sum + items.length, 0);
   const technicalDocument = () => productTechnicalDoc({
-      product: { ...view, imageUrl: printImageUrl || view.imageUrl },
+      product: { ...view, imageUrl: printImageUrl || view.imageUrl, brandLogoUrl: printBrandLogoUrl || view.brandLogoUrl },
       standardEquipment: standardTitles,
       optionalEquipment: optional.map((item) => ({
         title: item.item.title,
