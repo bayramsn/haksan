@@ -17,6 +17,7 @@ import { useTheme, type Tone } from '@/src/theme/theme';
 import { Button, Card, Chip, DetailHeader, ErrorState, Eyebrow, Field, Loading } from '@/src/ui';
 import { InfoRows, type InfoItem } from '@/src/ui/data';
 import { CompanyPicker, type PickedRecord } from '@/src/ui/pickers/CompanyPicker';
+import { mailComposeHref } from '@/src/ui/crm/mail-logic';
 import { toast } from '@/src/ui/toast';
 import { AttachmentsPanel } from '@/src/ui/service/AttachmentsPanel';
 import { ChoiceChips, DevicePicker, FormSection } from '@/src/ui/service/fields';
@@ -259,7 +260,21 @@ function ComplaintDetail({ data, refreshing, onRefresh }: { data: ServiceComplai
         </FormSection>
 
         {phoneUrl ? <Button label="Müşteriyi Ara" variant="ghost" onPress={() => void Linking.openURL(phoneUrl)} /> : null}
-        {data.contactEmail ? <Button label="E-posta Gönder" variant="ghost" onPress={() => void Linking.openURL(`mailto:${encodeURIComponent(data.contactEmail!)}`)} /> : null}
+        {data.contactEmail ? (
+          <Button
+            label="E-posta Gönder"
+            variant="ghost"
+            onPress={() =>
+              router.push(
+                mailComposeHref({
+                  to: data.contactEmail!,
+                  name: data.contactName ?? data.company?.shortName ?? data.company?.legalTitle,
+                  companyId: data.companyId ?? data.company?.id ?? undefined,
+                }) as Href,
+              )
+            }
+          />
+        ) : null}
         {data.companyId ? <Button label="Firmaya Git" variant="ghost" onPress={() => router.push(`/(tabs)/modules/companies/${data.companyId}` as Href)} /> : null}
         {data.serviceTicket ? (
           <Button label={`${data.serviceTicket.ticketNo} Servis Talebine Git`} onPress={() => router.push(`/(tabs)/modules/service-tickets/${data.serviceTicket!.id}` as Href)} />

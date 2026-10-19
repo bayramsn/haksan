@@ -581,7 +581,12 @@ export default function OpportunityDetailScreen() {
 
         <Card className="gap-2">
           <Eyebrow>Hızlı temas</Eyebrow>
-          <QuickContactRow phone={phone ?? data.leadContactValue as string | null | undefined} email={data.leadEmail} />
+          <QuickContactRow
+            phone={phone ?? (data.leadContactValue as string | null | undefined)}
+            email={data.leadEmail}
+            companyId={data.company?.id ?? data.companyId}
+            name={data.leadContactName ?? data.title}
+          />
         </Card>
 
         {!data.company && canUpdate && canReadCompanies && !isClosed ? (

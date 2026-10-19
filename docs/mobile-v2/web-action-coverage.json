@@ -1,9 +1,9 @@
 {
-  "generatedAt": "2026-10-15T14:54:46.442Z",
+  "generatedAt": "2026-10-19T10:09:11.272Z",
   "counts": {
     "webActions": 345,
-    "covered": 329,
-    "missing": 16,
+    "covered": 332,
+    "missing": 13,
     "mobileCalls": 414
   },
   "rows": [
@@ -1918,7 +1918,7 @@
       "verb": null,
       "path": null,
       "permission": null,
-      "inMobile": false,
+      "inMobile": true,
       "pages": [
         "apps/web/src/app/components/pages/service/ServicePages.tsx"
       ]
@@ -2313,7 +2313,7 @@
       "verb": null,
       "path": null,
       "permission": null,
-      "inMobile": false,
+      "inMobile": true,
       "pages": [
         "apps/web/src/app/components/pages/TradeFairsPage.tsx",
         "apps/web/src/app/components/pages/chat/ChatPage.tsx",
@@ -2564,7 +2564,7 @@
       "verb": null,
       "path": null,
       "permission": null,
-      "inMobile": false,
+      "inMobile": true,
       "pages": []
     },
     {

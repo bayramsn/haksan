@@ -2,7 +2,7 @@
 
 > Kaynak: `apps/web/src/app/App.tsx` (TITLES + switch), `apps/web/src/app/components/Layout.tsx` (izin/departman),
 > web sayfa bileşenleri ve `apps/mobile-v2/app/**` ekranları; aksiyon işaretleri
-> `docs/mobile-v2/web-action-coverage.json` (2026-10-15; sayaçlar 2026-10-16 doğrulandı) ile.
+> `docs/mobile-v2/web-action-coverage.json` (2026-10-19 yeniden ölçüm) ile.
 > Yeniden ölçüm: `node scripts/audit-action-parity.mjs --target=mobile-v2`.
 >
 > ✅ = mobil aynı HTTP metodu + yolu çağırıyor / ekranda var · ❌ = yok.
@@ -10,15 +10,16 @@
 
 ## Özet
 
-- Web aksiyon kapsamı: **329 / 345** (%95) — ayrıntı `web-action-coverage.md`.
-- Hiçbir web sayfası mobilde **Tam** değil (ekranlar var; alan/aksiyon paritesi hâlâ Eksik).
+- Web aksiyon kapsamı: **332 / 345** (%96) — ayrıntı `web-action-coverage.md`.
+- Kalan **13** aksiyon bilinçli kapsam dışı: `competitor.*` (5), `noteTemplate.*` (4), `publicComplaint.*` (4).
+- Web’deki menü sayfalarının mobil karşılığı var (modül kataloğu + `more/settings`); alan/KPI derinliği sayfa bazında hâlâ **Eksik** olabilir.
 
 | Durum | Sayı | Sayfalar |
 |---|---:|---|
 | Eksik | 37 | dashboard, chat, calendar, tasks, customers, contacts, sales-map, sales-cases, kanban, targets, offers, proformas, contracts, documents, sales-price-list, references, trade-fairs, meta, payments, accounting-invoices, customer-balances, due-dates, products, stock, shipments, installations + deliveries, purchase-orders, sales-orders, machines, service-requests, service-kanban, service-price-list, reports, settings, users, roles, departments |
-| Yok | 1 | public-service-complaint (kapsam dışı) |
+| Yok | 1 | public-service-complaint (kapsam dışı — oturumsuz müşteri formu) |
 
-Not: `purchase-orders` web'de bileşen olarak var ama menüden render edilmiyor. `sales-orders` web'de ayrı bir sayfa değil; Teklifler sayfasındaki "Satış Siparişleri" kartı. İkisi de mobilde ayrı modül olduğundan tabloya dahil edildi. 2026-10-16: `targets`, `references`, `trade-fairs`, `meta`, `users`, `roles`, `departments` mobil modül ekranları eklendi (önceki “Yok” satırları Eksik’e taşındı; sayfa bölümlerindeki eski “Mobil: yok” notları tarihsel kalabilir).
+Not: `purchase-orders` web'de bileşen olarak var ama menüden render edilmiyor. `sales-orders` web'de ayrı bir sayfa değil; Teklifler sayfasındaki "Satış Siparişleri" kartı. İkisi de mobilde ayrı modül. 2026-10-19: fırsat / fuar / şikayet e-postası `mailto` yerine CRM `mail-compose` modalına bağlandı; PDF/yükleme yardımcıları denetimde sayılır.
 
 ## Aşama ataması
 
@@ -53,14 +54,15 @@ Kodla doğrulandı (2026-10-15); **2026-10-16 yeniden tarama — 1–5 düzeltil
 
 ## Program genelinde tekrar eden eksikler
 
-Aşamalarda ortak bileşen olarak bir kez çözülmeli:
+2026-10-19 durumu — çoğu ortak bileşen kapatıldı; kalanlar:
 
-- **Excel dışa aktarma** (`/exports/*`): firmalar, kontaklar, fırsatlar, teklifler, belgeler, finans, cari, stok, sevkiyat, satın alma, servis. Mobilde dosyayı indirip paylaşım sayfasıyla açan tek bir yardımcı.
-- **Uygulama içi e-posta** (`mail.send`): firma, kontak, fırsat ve teklifte web uygulama içi mail atıyor, mobil `mailto` açıyor.
-- **Seçici bileşenler:** `src/ui/select/*` (SearchSelect, Company/Contact/Product/Province/District/Lookup/Assignee/TokenSelect, DateTextField) formlarda DB varlıkları ve tarihler için kullanılıyor; kalan boşluklar çoğunlukla serbest metin alanları (teslim şartları, notlar) veya bilerek özel akışlar (Trello içe aktarma aday metinleri, fuar kartvizit alanları).
-- **Dosya ekleri:** kayda bağlı belge listesi, önizleme ve sonradan yükleme (ödeme, fırsat, servis talebi, şikayet, kurulum).
-- **KPI şeritleri:** web sayfalarının çoğunda olan özet kartları mobilde eksik.
-- **Yazdır/PDF:** sunucu PDF'i olan belgeler (cari ekstre, kurulum tutanağı, kargo etiketi, irsaliye, sözleşme, proforma) mobilde açılıp paylaşılmalı.
+- **Excel dışa aktarma** ✅ `src/api/exports.ts` + `downloadAndShare` (liste ekranlarından).
+- **Uygulama içi e-posta** ✅ `mail-compose` + `mail.send` (firma, kontak, teklif, fırsat hızlı temas, fuar, şikayet).
+- **Seçici bileşenler** ✅ `src/ui/select/*` / DateTextField / DateTimeField; kalan serbest metin bilinçli (notlar, Trello adayları, fuar kartvizit alanları).
+- **Dosya ekleri** ✅ signed upload + link (sohbet, şikayet, fırsat, servis, belgeler).
+- **KPI şeritleri:** bazı sayfalarda web kadar zengin değil (dashboard / listeler) — mobil UX tercihi.
+- **Yazdır/PDF** ✅ servis formu, cari ekstre, yıl sonu vb. paylaşım; WebRTC/GIF/sesli arama ve oturumsuz şikayet formu bilinçli olarak yok.
+- **Bilinçli aksiyon boşlukları:** `competitor.*`, `noteTemplate.*`, `publicComplaint.*` (masaüstü/API veya oturumsuz akış).
 
 ---
 

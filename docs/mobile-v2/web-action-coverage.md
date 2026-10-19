@@ -4,8 +4,8 @@
 > Eşleşme: web servis aksiyonunun HTTP metodu + yolu, `apps/mobile-v2/src/api` içindeki `request()` çağrılarında var mı.
 
 - Web aksiyonu: **345**
-- Mobilde karşılığı olan: **329** (%95)
-- Eksik: **16**
+- Mobilde karşılığı olan: **332** (%96)
+- Eksik: **13**
 
 ## Eksikler (namespace bazında)
 
@@ -18,12 +18,6 @@
 | `competitor.list` | GET | `/competitors` | `competitors.read` | — |
 | `competitor.products` | GET | `/competitors/:param/products` | `competitors.read` | — |
 | `competitor.update` | PATCH | `/competitors/:param` | `competitors.update` | — |
-
-### `file` — 1 eksik
-
-| Aksiyon | HTTP | Yol | İzin | Web sayfaları |
-|---|---|---|---|---|
-| `file.uploadBinary` | ? | `?` | — | TradeFairsPage, ChatPage, PaymentsPage, ServicePages, LookupManagerTab |
 
 ### `noteTemplate` — 4 eksik
 
@@ -42,16 +36,4 @@
 | `publicComplaint.signedUpload` | POST | `/public/service-complaints/:param/:param/files/signed-upload-url` | — | PublicServiceComplaint |
 | `publicComplaint.submit` | POST | `/public/service-complaints/:param/:param` | — | PublicServiceComplaint |
 | `publicComplaint.uploadBinary` | ? | `?` | — | PublicServiceComplaint |
-
-### `report` — 1 eksik
-
-| Aksiyon | HTTP | Yol | İzin | Web sayfaları |
-|---|---|---|---|---|
-| `report.downloadYearEnd` | ? | `?` | — | — |
-
-### `service` — 1 eksik
-
-| Aksiyon | HTTP | Yol | İzin | Web sayfaları |
-|---|---|---|---|---|
-| `service.openServiceFormPdf` | ? | `?` | — | ServicePages |
 

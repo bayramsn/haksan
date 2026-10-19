@@ -12,6 +12,7 @@ import { toneColor, useTheme } from '@/src/theme/theme';
 import { Chip, EmptyState, ErrorState, Fab, FilterChips, ListSkeleton, Loading, SCREEN_PAD, ScreenHeader, SearchBar, StatStrip } from '@/src/ui';
 import { SyncStatus } from '@/src/ui/SyncStatus';
 import { toast } from '@/src/ui/toast';
+import { mailComposeHref } from '@/src/ui/crm/mail-logic';
 import { canDeleteTradeFair, summaryTotals, tradeFairLocation, tradeFairRowTone } from '@/src/ui/trade-fairs/tradeFairLogic';
 
 function IconAction({ icon, label, onPress, tone }: { icon: keyof typeof Ionicons.glyphMap; label: string; onPress: () => void; tone?: 'destructive' }) {
@@ -40,6 +41,7 @@ function TradeFairRow({
   onFollowUp: (markContacted: boolean) => void;
   onDelete: () => void;
 }) {
+  const router = useRouter();
   const { colors } = useTheme();
   const tone = tradeFairRowTone(row);
   const accent = tone ? toneColor(colors, tone) : colors.border;
@@ -78,7 +80,15 @@ function TradeFairRow({
           <IconAction icon="create-outline" label="Takibi düzenle" onPress={() => onFollowUp(false)} />
         ) : null}
         {row.mobilePhone ? <IconAction icon="call-outline" label={`${row.mobilePhone} ara`} onPress={() => void Linking.openURL(`tel:${row.mobilePhone!.replace(/[^\d+]/g, '')}`)} /> : null}
-        {row.email ? <IconAction icon="mail-outline" label={`${row.email} adresine e-posta`} onPress={() => void Linking.openURL(`mailto:${row.email}`)} /> : null}
+        {row.email ? (
+          <IconAction
+            icon="mail-outline"
+            label={`${row.email} adresine e-posta`}
+            onPress={() =>
+              router.push(mailComposeHref({ to: row.email!, name: row.contactName || row.companyName }) as Href)
+            }
+          />
+        ) : null}
         {canDelete ? <IconAction icon="trash-outline" label={`${row.companyName} kaydını sil`} tone="destructive" onPress={onDelete} /> : null}
       </View>
     </View>

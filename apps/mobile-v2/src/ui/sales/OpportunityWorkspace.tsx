@@ -18,6 +18,7 @@ import { formatDateTime } from '@/src/lib/format';
 import { downloadAndShareFile, pickDocument } from '@/src/native/files';
 import { useTheme } from '@/src/theme/theme';
 import { Button, Card, Eyebrow, Field, ListRow, Loading } from '@/src/ui';
+import { mailComposeHref } from '@/src/ui/crm/mail-logic';
 import { toast } from '@/src/ui/toast';
 import { CompanyPickerSheet } from './CompanyPickerSheet';
 import { PillGroup, SalesSheet, SheetOption } from './Sheet';
@@ -29,14 +30,56 @@ function digitsOf(value: string | null | undefined): string {
   return (value ?? '').replace(/\D/g, '');
 }
 
-/** Web DecisionRail "Hızlı temas": Ara / E-posta / WhatsApp. */
-export function QuickContactRow({ phone, email }: { phone: string | null | undefined; email: string | null | undefined }) {
+/** Web DecisionRail "Hızlı temas": Ara / E-posta / WhatsApp. E-posta CRM mail modalına gider. */
+export function QuickContactRow({
+  phone,
+  email,
+  companyId,
+  name,
+}: {
+  phone: string | null | undefined;
+  email: string | null | undefined;
+  companyId?: string | null;
+  name?: string | null;
+}) {
+  const router = useRouter();
   const { colors } = useTheme();
   const digits = digitsOf(phone);
-  const actions: { key: string; label: string; icon: keyof typeof Ionicons.glyphMap; uri: string | null; missing: string }[] = [
-    { key: 'phone', label: 'Ara', icon: 'call-outline', uri: digits ? `tel:${digits}` : null, missing: 'Telefon bilgisi eksik' },
-    { key: 'email', label: 'E-posta', icon: 'mail-outline', uri: email ? `mailto:${email}` : null, missing: 'E-posta bilgisi eksik' },
-    { key: 'whatsapp', label: 'WhatsApp', icon: 'logo-whatsapp', uri: digits ? `https://wa.me/${digits}` : null, missing: 'WhatsApp bilgisi eksik' },
+  const actions: {
+    key: string;
+    label: string;
+    icon: keyof typeof Ionicons.glyphMap;
+    ready: boolean;
+    missing: string;
+    run: () => void;
+  }[] = [
+    {
+      key: 'phone',
+      label: 'Ara',
+      icon: 'call-outline',
+      ready: Boolean(digits),
+      missing: 'Telefon bilgisi eksik',
+      run: () => void Linking.openURL(`tel:${digits}`).catch(() => toast.error('Ara açılamadı')),
+    },
+    {
+      key: 'email',
+      label: 'E-posta',
+      icon: 'mail-outline',
+      ready: Boolean(email),
+      missing: 'E-posta bilgisi eksik',
+      run: () =>
+        router.push(
+          mailComposeHref({ to: email!, name: name ?? undefined, companyId: companyId ?? undefined }) as Href,
+        ),
+    },
+    {
+      key: 'whatsapp',
+      label: 'WhatsApp',
+      icon: 'logo-whatsapp',
+      ready: Boolean(digits),
+      missing: 'WhatsApp bilgisi eksik',
+      run: () => void Linking.openURL(`https://wa.me/${digits}`).catch(() => toast.error('WhatsApp açılamadı')),
+    },
   ];
   if (!digits && !email) {
     return <Text className="font-inter text-xs text-muted-foreground">İletişim için önce firma veya ilgili kişi bilgisi girilmeli.</Text>;
@@ -49,16 +92,16 @@ export function QuickContactRow({ phone, email }: { phone: string | null | undef
           accessibilityRole="button"
           accessibilityLabel={action.label}
           onPress={() => {
-            if (!action.uri) {
+            if (!action.ready) {
               toast.info(action.missing);
               return;
             }
-            void Linking.openURL(action.uri).catch(() => toast.error(`${action.label} açılamadı`));
+            action.run();
           }}
           className="min-h-11 flex-1 flex-row items-center justify-center gap-1.5 rounded-control border border-border bg-card px-2 active:opacity-70"
         >
-          <Ionicons name={action.icon} size={17} color={action.uri ? colors.primary : colors.mutedForeground} />
-          <Text className={`font-inter-medium text-xs ${action.uri ? 'text-foreground' : 'text-muted-foreground'}`}>{action.label}</Text>
+          <Ionicons name={action.icon} size={17} color={action.ready ? colors.primary : colors.mutedForeground} />
+          <Text className={`font-inter-medium text-xs ${action.ready ? 'text-foreground' : 'text-muted-foreground'}`}>{action.label}</Text>
         </Pressable>
       ))}
     </View>

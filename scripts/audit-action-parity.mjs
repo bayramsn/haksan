@@ -30,7 +30,7 @@
  *     Bu modda eski apps/mobile raporları yazılmaz.
  */
 
-import { readFileSync, writeFileSync, readdirSync, statSync, mkdirSync } from 'node:fs';
+import { readFileSync, writeFileSync, readdirSync, statSync, mkdirSync, existsSync } from 'node:fs';
 import { join, relative, resolve, basename, dirname } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
@@ -462,8 +462,24 @@ function buildGapsReport({ webActions, mobileActions, missingInMobile }) {
   return lines.join('\n') + '\n';
 }
 
+/**
+ * Web'de yolu olmayan (blob/PDF/PUT signed-upload) yardımcılar `request()` ile
+ * eşleşmez. Mobilde karşılıkları varsa kapsamda sayılır.
+ */
+function mobileHelperCoverage() {
+  const apiTree = walk(MOBILE_V2_API, (f) => f.endsWith('.ts') && !/\.test\./.test(f) && !basename(f).includes(' '));
+  const nativeFiles = join(ROOT, 'apps/mobile-v2/src/native/files.ts');
+  const blob = apiTree.map(read).join('\n') + (existsSync(nativeFiles) ? read(nativeFiles) : '');
+  return {
+    'service.openServiceFormPdf': /\bopenServiceFormPdf\b/.test(blob),
+    'report.downloadYearEnd': /yearEnd\s*:\s*\(year/.test(blob) || /\/reports\/export\/year-end/.test(blob),
+    'file.uploadBinary': /uploadAsync|uploadEntityAttachment|uploadChatAttachment/.test(blob),
+  };
+}
+
 function buildCoverage({ webActions, mobileCalls, pageUsage }) {
   const mobileKeys = new Set(mobileCalls.map((c) => `${c.verb} ${c.path}`));
+  const helpers = mobileHelperCoverage();
   const pagesByAction = {};
   for (const [file, keys] of Object.entries(pageUsage)) {
     for (const k of keys) (pagesByAction[k] ??= []).push(file);
@@ -473,7 +489,8 @@ function buildCoverage({ webActions, mobileCalls, pageUsage }) {
     verb: a.verb,
     path: a.path,
     permission: a.permission,
-    inMobile: Boolean(a.verb && a.path && mobileKeys.has(`${a.verb} ${a.path}`)),
+    inMobile:
+      Boolean(a.verb && a.path && mobileKeys.has(`${a.verb} ${a.path}`)) || Boolean(helpers[a.key]),
     pages: (pagesByAction[a.key] ?? []).sort(),
   }));
   const covered = rows.filter((r) => r.inMobile).length;
