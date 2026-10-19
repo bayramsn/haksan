@@ -30,7 +30,9 @@ describe('product technical print', () => {
       optionalEquipment: [{ title: 'Takım ölçme probu', description: 'Otomatik takım ölçümü' }],
     }, 'https://example.test/print');
 
-    expect(doc.body).toContain('ÜRÜN TEKNİK BİLGİ FORMU');
+    expect(doc.body).toContain('TEKNİK BİLGİLER');
+    expect(doc.body).not.toContain('FİYAT TEKLİFİ');
+    expect(doc.body).not.toContain('FİYAT ve KOŞULLAR');
     expect(doc.body).toContain('X eksen hareketi');
     expect(doc.body).toContain('Talaş konveyörü');
     expect(doc.body).toContain('Takım ölçme probu');

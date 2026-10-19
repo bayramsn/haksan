@@ -549,7 +549,12 @@ table.q-tot tr.kdv td { font-weight: normal; }
 .q-empty-letterhead { height: 11mm; }
 `;
 
-export function quoteDoc(d: QuotePrintData, assetBase: string): PrintDocument {
+/**
+ * `technicalOnly`: ürün kartındaki "PDF Oluştur" / "Teknik Bilgileri Mail Gönder"
+ * için aynı şablon; teklif başlığı, müşteri kutusu ve fiyat/koşul sayfaları basılmaz.
+ */
+export function quoteDoc(d: QuotePrintData, assetBase: string, options: { technicalOnly?: boolean } = {}): PrintDocument {
+  const { technicalOnly = false } = options;
   const pages: string[] = [];
   const safeImageUrl = (value?: string) => {
     const imageUrl = value?.trim();
@@ -714,7 +719,7 @@ export function quoteDoc(d: QuotePrintData, assetBase: string): PrintDocument {
   const referencePricePage = itemChunks.length === 1
     && (itemChunks[0]?.length ?? 0) <= 3
     && referenceNoteWeight <= 27;
-  const pricePageCount = referencePricePage ? 1 : itemChunks.length + 1 + notePages.length;
+  const pricePageCount = technicalOnly ? 0 : referencePricePage ? 1 : itemChunks.length + 1 + notePages.length;
   const machinePageCount = machineSections.reduce(
     (total, section) => total + 1 + section.specChunks.length + section.equipmentChunks.length,
     0,
@@ -747,8 +752,8 @@ export function quoteDoc(d: QuotePrintData, assetBase: string): PrintDocument {
     pages.push(`
 <div class="page q-cover-page">
   ${quoteHeader()}
-  <div class="q-title">FİYAT TEKLİFİ${machines.length > 1 ? `<div class="q-machine-index">MAKİNE ${machineIndex + 1} / ${machines.length}</div>` : ""}</div>
-  ${machineIndex === 0 ? customerMetaBlock : ""}
+  ${technicalOnly ? "" : `<div class="q-title">FİYAT TEKLİFİ${machines.length > 1 ? `<div class="q-machine-index">MAKİNE ${machineIndex + 1} / ${machines.length}</div>` : ""}</div>`}
+  ${machineIndex === 0 && !technicalOnly ? customerMetaBlock : ""}
   <div class="q-machine">
     ${machineBrand(machine.marka, machine.brandLogoUrl)}
     ${machine.model ? `<div class="q-model">${esc(machine.model)}</div>` : ""}
@@ -792,6 +797,8 @@ export function quoteDoc(d: QuotePrintData, assetBase: string): PrintDocument {
 </div>`);
     });
   });
+
+  if (technicalOnly) return { title: "Teknik Bilgiler", css: QUOTE_CSS, body: pages.join("\n") };
 
   // Referans hacimde tablo, toplamlar ve koşullar aynı dördüncü sayfadadır;
   // yalnızca gerçek taşma halinde devam ve toplam özeti sayfaları açılır.

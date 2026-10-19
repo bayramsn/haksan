@@ -336,7 +336,6 @@ export function ProductDetailDialog({
         title: item.item.title,
         description: item.item.description,
       })),
-      documents: documents.map((document) => ({ title: document.title })),
     }, printAssetBase());
   const createTechnicalPdf = () => printOrWarn(technicalDocument());
   const sendTechnicalMail = () => setMailRecipient({

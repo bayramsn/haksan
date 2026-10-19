@@ -20,7 +20,7 @@ describe("product technical print equipment", () => {
     { label: "standard only", standard: ["Fanuc kontrol ünitesi"], optional: [" "], totalPages: 3 },
     { label: "optional only", standard: [" "], optional: ["Takım ölçme probu"], totalPages: 3 },
     { label: "both populated", standard: ["Fanuc kontrol ünitesi"], optional: ["Takım ölçme probu"], totalPages: 3 },
-  ])("hides empty panels and preserves technical pages: $label", ({ standard, optional, totalPages }) => {
+  ])("uses the quote template without quote header and price pages: $label", ({ standard, optional, totalPages }) => {
     const doc = productTechnicalDoc({
       product: {
         ...product,
@@ -30,11 +30,13 @@ describe("product technical print equipment", () => {
       },
     }, "https://example.test/print");
 
-    expect(doc.body.match(/<section class="page">/g)).toHaveLength(totalPages);
-    expect(doc.body.includes("<h2>Standart Donanım</h2>")).toBe(standard.some((row) => row.trim()));
-    expect(doc.body.includes("<h2>Uyumlu Opsiyonel Donanım</h2>")).toBe(optional.some((row) => row.trim()));
-    expect(doc.body.includes("DONANIM BİLGİLERİ")).toBe(totalPages === 3);
-    expect(doc.body).not.toContain("donanım bilgisi girilmemiş");
+    expect(doc.body).toContain("TEKNİK BİLGİLER");
+    expect(doc.body.includes("TEZGAH DONANIMI")).toBe(totalPages === 3);
+    expect(doc.body.includes("STANDART DONANIM")).toBe(standard.some((row) => row.trim()));
+    expect(doc.body.includes("OPSİYONEL DONANIM")).toBe(optional.some((row) => row.trim()));
+    for (const hidden of ["FİYAT TEKLİFİ", "FİYAT ve KOŞULLAR", "BELGE NO", "PROJE İLGİLİSİ", "GENEL TOPLAM"]) {
+      expect(doc.body).not.toContain(hidden);
+    }
     expect(doc.body).toContain("X Ekseni");
     expect(doc.body).toContain("800");
     expect([...doc.body.matchAll(/Sayfa <b>(\d+)<\/b> \/ <b>(\d+)<\/b>/g)].map((match) => [Number(match[1]), Number(match[2])]))
@@ -51,11 +53,10 @@ describe("product technical print equipment", () => {
       optionalEquipment: [],
     }, "https://example.test/print");
 
-    expect(doc.body.match(/<section class="page">/g)).toHaveLength(1);
-    expect(doc.body).not.toContain("DONANIM BİLGİLERİ");
+    expect(doc.body).not.toContain("TEZGAH DONANIMI");
     expect(doc.body).not.toContain("Standart paket");
     expect(doc.body).not.toContain("Takım ölçme probu");
-    expect(doc.body).toContain("Sayfa <b>1</b> / <b>1</b>");
+    expect(doc.body).toContain("Sayfa <b>2</b> / <b>2</b>");
   });
 });
 
@@ -101,7 +102,7 @@ describe("product technical print image", () => {
     );
 
     expect(doc.body).not.toContain("javascript:");
-    expect(doc.body).toContain("Ürün görseli bulunmuyor");
+    expect(doc.body).toContain("q-photo-placeholder");
   });
 
   it("never renders the internal stock code", () => {
