@@ -23,7 +23,7 @@ import {
   type MetaFormMappingUpdateInput,
   type MetaListQuery,
 } from '@haksan/shared';
-import { and, desc, eq, gte, inArray, isNull, lte, or, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, ilike, inArray, isNull, lte, or, sql } from 'drizzle-orm';
 import { loadEnv } from '../../config/env';
 import { z } from 'zod';
 import type { DbClient } from '../../db/client';
@@ -53,6 +53,31 @@ type ConnectionRow = typeof metaConnections.$inferSelect;
 
 export interface GraphList<T> { data: T[]; paging?: { next?: string } }
 export interface GraphId { id: string; success?: boolean }
+
+/** Graph sayfalamasında güvenlik sınırı: kaçak bir imleç döngüsü işçiyi kilitlemesin. */
+const MAX_GRAPH_PAGES = 20;
+export const INSIGHTS_SYNC_FAILED = 'META_INSIGHTS_SYNC_FAILED';
+
+/** Web'deki lead durum rozetiyle aynı sıra: kazanıldı > kaybedildi > nitelikli > temas > atanmış > yeni. */
+const metaLeadStatusSql = sql`case
+  when ${opportunities.qualificationStage} = 'win' then 'converted'
+  when ${opportunities.qualificationStage} = 'lost' or ${opportunities.leadFollowUpStatus} = 'disqualified' then 'rejected'
+  when ${opportunities.qualificationStage} in ('a', 'a_plus') then 'qualified'
+  when ${opportunities.firstContactAt} is not null or ${opportunities.leadFollowUpStatus} = 'contacted' then 'contacted'
+  when ${opportunities.ownerUserId} is not null then 'assigned'
+  else 'new' end`;
+
+/**
+ * Meta eşleştirmesi E.164 rakamları ister (ülke koduyla, + olmadan). Türkiye'de kayıtlar çoğunlukla
+ * "0532…" ya da "532…" biçiminde; ülke kodsuz hash Meta'da hiçbir kişiyle eşleşmez.
+ */
+export function normalizePhoneForMeta(raw: string): string {
+  let digits = raw.replace(/\D/g, '');
+  if (digits.startsWith('00')) digits = digits.slice(2);
+  if (digits.length === 11 && digits.startsWith('0')) return `90${digits.slice(1)}`;
+  if (digits.length === 10 && digits.startsWith('5')) return `90${digits}`;
+  return digits;
+}
 
 const oauthStateSchema = z.object({
   tenantId: z.string().uuid(),
@@ -119,7 +144,7 @@ export class MetaService {
 
   async completeOauth(code: string, state: string) {
     const identity = this.verifyOauthState(state);
-    const userToken = await this.graph.exchangeAuthorizationCode(code);
+    const userToken = await this.graph.exchangeLongLivedToken(await this.graph.exchangeAuthorizationCode(code));
     const [accounts, adAccounts, businesses] = await Promise.all([
       this.graph.get<GraphList<{ id: string; name?: string; access_token?: string; instagram_business_account?: { id: string } }>>(userToken, 'me/accounts', { fields: 'id,name,access_token,instagram_business_account{id}', limit: 100 }),
       this.graph.get<GraphList<{ id: string }>>(userToken, 'me/adaccounts', { fields: 'id', limit: 100 }),
@@ -175,7 +200,8 @@ export class MetaService {
       updatedBy: actor.userId,
     }).returning(connectionPublicColumns);
     await this.audit.write({ tenantId: actor.tenantId, actorUserId: actor.userId, action: 'meta.connection.created', resourceType: 'meta_connection', resourceId: created.id, newValues: created });
-    return created;
+    const lastError = await this.subscribeWebhooks(input.accessToken, input, created.id, actor.userId);
+    return { ...created, lastError };
   }
 
   async updateConnection(actor: AuthContext, id: string, input: MetaConnectionUpdateInput) {
@@ -212,8 +238,29 @@ export class MetaService {
   async verifyConnection(actor: AuthContext, id: string) {
     const { row, token } = await this.authorizedConnection(actor, id);
     const remote = await this.graph.get<{ id: string; name?: string }>(token, 'me', { fields: 'id,name' });
-    await this.db.update(metaConnections).set({ lastVerifiedAt: new Date(), lastError: null, status: 'active', updatedAt: new Date(), updatedBy: actor.userId }).where(eq(metaConnections.id, row.id));
-    return { ok: true, remote };
+    // Doğrulama aboneliği de yeniler: eski bağlantılar abone edilmeden kurulmuştu.
+    const lastError = await this.subscribeWebhooks(token, row, row.id, actor.userId);
+    return { ok: !lastError, remote, lastError };
+  }
+
+  /**
+   * Sayfa (leadgen, Messenger) ve WhatsApp hesabı uygulamaya abone edilmeden Meta webhook
+   * göndermez. Başarısızlık bağlantıyı bozmaz; nedeni `lastError`'da görünür, "Doğrula" yeniden dener.
+   */
+  private async subscribeWebhooks(token: string, assets: { pageId?: string | null; whatsappBusinessAccountId?: string | null }, connectionId: string, userId: string): Promise<string | null> {
+    const failures: string[] = [];
+    if (assets.pageId) {
+      await this.graph.post<GraphId>(token, `${assets.pageId}/subscribed_apps`, { subscribed_fields: 'leadgen,messages,messaging_postbacks' })
+        .catch(() => failures.push('sayfa'));
+    }
+    if (assets.whatsappBusinessAccountId) {
+      await this.graph.post<GraphId>(token, `${assets.whatsappBusinessAccountId}/subscribed_apps`, {})
+        .catch(() => failures.push('WhatsApp'));
+    }
+    const lastError = failures.length ? `META_WEBHOOK_SUBSCRIBE_FAILED: ${failures.join(', ')}` : null;
+    // Durum 'active' kalır: 'error' bağlantıyı kilitler ve "Doğrula" ile yeniden denemek de mümkün olmazdı.
+    await this.db.update(metaConnections).set({ lastVerifiedAt: new Date(), lastError, updatedAt: new Date(), updatedBy: userId }).where(eq(metaConnections.id, connectionId));
+    return lastError;
   }
 
   listFormMappings(actor: AuthContext) {
@@ -242,7 +289,16 @@ export class MetaService {
   }
 
   async listLeads(actor: AuthContext, query: MetaListQuery) {
-    const where = and(eq(opportunities.tenantId, actor.tenantId), eq(opportunities.externalSource, 'meta_lead_ads'), isNull(opportunities.deletedAt), resourceDivisionFilter(actor, 'opportunities', opportunities.divisionId) ?? sql`true`);
+    const search = query.search ? `%${query.search.replace(/[\\%_]/g, (char) => `\\${char}`)}%` : undefined;
+    const where = and(
+      eq(opportunities.tenantId, actor.tenantId),
+      eq(opportunities.externalSource, 'meta_lead_ads'),
+      isNull(opportunities.deletedAt),
+      resourceDivisionFilter(actor, 'opportunities', opportunities.divisionId) ?? sql`true`,
+      search ? or(ilike(opportunities.title, search), ilike(opportunities.leadContactName, search), ilike(opportunities.leadCompanyTitle, search), ilike(opportunities.leadEmail, search), ilike(opportunities.leadPhone, search)) : undefined,
+      query.status ? sql`${metaLeadStatusSql} = ${query.status}` : undefined,
+      query.platform ? sql`coalesce(${opportunities.externalMetadata}->>'platform', 'facebook') = ${query.platform}` : undefined,
+    );
     const [data, count] = await Promise.all([
       this.db.select().from(opportunities).where(where).orderBy(desc(opportunities.createdAt)).limit(query.pageSize).offset((query.page - 1) * query.pageSize),
       this.db.select({ value: sql<number>`count(*)::int` }).from(opportunities).where(where),
@@ -258,19 +314,33 @@ export class MetaService {
   async syncInsights(actor: AuthContext, connectionId: string, from: Date, to: Date) {
     const { row, token } = await this.authorizedConnection(actor, connectionId);
     if (!row.adAccountId) throw new ValidationError('Bağlantıda reklam hesabı tanımlı değil');
-    const account = row.adAccountId.startsWith('act_') ? row.adAccountId : `act_${row.adAccountId}`;
-    const response = await this.graph.get<GraphList<Record<string, unknown>>>(token, `${account}/insights`, {
-      fields: 'date_start,campaign_id,campaign_name,spend,impressions,clicks,actions',
-      level: 'campaign',
-      time_increment: 1,
-      time_range: JSON.stringify({ since: this.dateOnly(from), until: this.dateOnly(to) }),
-      limit: 500,
-    });
-    for (const insight of response.data) {
+    const result = await this.syncConnectionInsights(row, token, from, to);
+    await this.audit.write({ tenantId: actor.tenantId, actorUserId: actor.userId, action: 'meta.insights.synced', resourceType: 'meta_connection', resourceId: row.id, newValues: { from: this.dateOnly(from), to: this.dateOnly(to), ...result } });
+    return result;
+  }
+
+  /** Zamanlanmış iş ve elle senkron aynı yolu kullanır; Graph sayfaları `after` imleciyle sonuna kadar okunur. */
+  async syncConnectionInsights(row: ConnectionRow, token: string, from: Date, to: Date) {
+    const insights: Array<Record<string, unknown>> = [];
+    let after: string | undefined;
+    for (let page = 0; page < MAX_GRAPH_PAGES; page += 1) {
+      const response = await this.graph.get<GraphList<Record<string, unknown>> & { paging?: { cursors?: { after?: string }; next?: string } }>(token, `${this.adAccount(row)}/insights`, {
+        fields: 'date_start,campaign_id,campaign_name,spend,impressions,clicks,actions,account_currency',
+        level: 'campaign',
+        time_increment: 1,
+        time_range: JSON.stringify({ since: this.dateOnly(from), until: this.dateOnly(to) }),
+        limit: 500,
+        after,
+      });
+      insights.push(...response.data);
+      after = response.paging?.next ? response.paging.cursors?.after : undefined;
+      if (!after) break;
+    }
+    for (const insight of insights) {
       const actions = Array.isArray(insight.actions) ? insight.actions as Array<{ action_type?: string; value?: string }> : [];
       const leads = actions.filter((action) => ['lead', 'onsite_conversion.lead_grouped'].includes(action.action_type ?? '')).reduce((sum, action) => sum + Number(action.value ?? 0), 0);
       const values = {
-        tenantId: actor.tenantId,
+        tenantId: row.tenantId,
         connectionId: row.id,
         insightDate: new Date(`${String(insight.date_start)}T00:00:00.000Z`),
         campaignId: String(insight.campaign_id ?? ''),
@@ -284,8 +354,11 @@ export class MetaService {
       };
       await this.db.insert(metaDailyInsights).values(values).onConflictDoUpdate({ target: [metaDailyInsights.connectionId, metaDailyInsights.insightDate, metaDailyInsights.campaignId], set: values });
     }
-    await this.db.update(metaConnections).set({ lastSyncAt: new Date(), lastError: null, updatedAt: new Date() }).where(eq(metaConnections.id, row.id));
-    return { imported: response.data.length };
+    // Yalnız kendi hatasını temizler; abonelik hatası gibi başka bir uyarıyı silmez.
+    await this.db.update(metaConnections)
+      .set({ lastSyncAt: new Date(), updatedAt: new Date(), lastError: sql`case when ${metaConnections.lastError} = ${INSIGHTS_SYNC_FAILED} then null else ${metaConnections.lastError} end` })
+      .where(eq(metaConnections.id, row.id));
+    return { imported: insights.length };
   }
 
   async listCampaigns(actor: AuthContext, connectionId: string) {
@@ -342,7 +415,7 @@ export class MetaService {
 
   async sendMessage(actor: AuthContext, conversationId: string, input: MetaConversationMessageCreateInput) {
     const { row, token } = await this.authorizedConnection(actor, input.connectionId);
-    let remote: GraphId & { messages?: Array<{ id: string }> };
+    let remote: Partial<GraphId> & { message_id?: string; messages?: Array<{ id: string }> };
     let recipientId: string;
     if (input.channel === 'whatsapp') {
       if (!row.phoneNumberId) throw new ValidationError('Bağlantıda WhatsApp telefon numarası tanımlı değil');
@@ -353,28 +426,50 @@ export class MetaService {
       recipientId = conversationId;
       remote = await this.graph.post(token, `${row.pageId}/messages`, { recipient: { id: conversationId }, messaging_type: 'RESPONSE', message: { text: input.text } });
     }
-    const remoteId = remote.messages?.[0]?.id ?? remote.id;
-    if (!remoteId) throw new ConflictError('Meta mesaj kimliği döndürmedi');
+    // Messenger/Instagram Send API {recipient_id, message_id}, WhatsApp {messages:[{id}]} döner.
+    // Kimlik okunamasa bile mesaj gitmiştir: hata fırlatmak kullanıcıyı tekrar göndermeye iterdi.
+    const remoteId = remote.message_id ?? remote.messages?.[0]?.id ?? remote.id ?? `local-${randomUUID()}`;
     const [stored] = await this.db.insert(metaMessages).values({ tenantId: actor.tenantId, connectionId: row.id, channel: input.channel, conversationExternalId: conversationId, remoteId, direction: 'outbound', recipientExternalId: recipientId, text: input.text, status: 'sent', sentAt: new Date(), rawMetadata: {} }).onConflictDoNothing().returning();
     return stored ?? { remoteId, status: 'sent' };
   }
 
+  /**
+   * Instagram medyası ile Facebook gönderisinin alan adları farklı (caption/timestamp/text/hidden ↔
+   * message/created_time/is_hidden); tek `fields` dizesinde birleştirmek Graph'ın #100 hatasını alır.
+   * İki kaynak ayrı çekilir, her gönderi `platform` ile işaretlenir; biri başarısızsa diğeri yine görünür.
+   */
   async listComments(actor: AuthContext, connectionId: string) {
     const { row, token } = await this.authorizedConnection(actor, connectionId);
-    const sourceId = row.instagramAccountId ?? row.pageId;
-    if (!sourceId) throw new ValidationError('Bağlantıda yorum kaynağı tanımlı değil');
-    const collection = row.instagramAccountId ? 'media' : 'feed';
-    return this.graph.get<GraphList<Record<string, unknown>>>(token, `${sourceId}/${collection}`, { fields: 'id,caption,message,timestamp,created_time,comments.limit(50){id,text,message,username,from,timestamp,created_time,like_count,hidden}', limit: 50 });
+    if (!row.instagramAccountId && !row.pageId) throw new ValidationError('Bağlantıda yorum kaynağı tanımlı değil');
+    const sources = [
+      row.instagramAccountId ? { platform: 'instagram' as const, path: `${row.instagramAccountId}/media`, fields: 'id,caption,timestamp,comments.limit(50){id,text,username,timestamp,like_count,hidden}' } : null,
+      row.pageId ? { platform: 'facebook' as const, path: `${row.pageId}/feed`, fields: 'id,message,created_time,comments.limit(50){id,message,from,created_time,like_count,is_hidden}' } : null,
+    ].filter((source) => source !== null);
+    const results = await Promise.allSettled(sources.map(async (source) => {
+      const response = await this.graph.get<GraphList<Record<string, unknown>>>(token, source.path, { fields: source.fields, limit: 50 });
+      return response.data.map((post) => ({ ...post, platform: source.platform }));
+    }));
+    const fulfilled = results.flatMap((result) => (result.status === 'fulfilled' ? [result.value] : []));
+    if (!fulfilled.length) throw (results[0] as PromiseRejectedResult).reason;
+    return { data: fulfilled.flat() };
   }
 
+  /** Instagram yanıtı `/{id}/replies`, Facebook yanıtı `/{id}/comments` ucundan verilir. */
   async replyComment(actor: AuthContext, commentId: string, input: MetaCommentReplyCreateInput) {
-    const { token } = await this.authorizedConnection(actor, input.connectionId);
-    return this.graph.post<GraphId>(token, `${commentId}/replies`, { message: input.message });
+    const { row, token } = await this.authorizedConnection(actor, input.connectionId);
+    const platform = this.commentPlatform(row, input.platform);
+    return this.graph.post<GraphId>(token, `${commentId}/${platform === 'instagram' ? 'replies' : 'comments'}`, { message: input.message });
   }
 
+  /** Gizleme alanı Instagram'da `hide`, Facebook'ta `is_hidden`. */
   async updateComment(actor: AuthContext, commentId: string, input: MetaCommentUpdateInput) {
-    const { token } = await this.authorizedConnection(actor, input.connectionId);
-    return this.graph.post<GraphId>(token, commentId, { hide: input.hidden });
+    const { row, token } = await this.authorizedConnection(actor, input.connectionId);
+    const platform = this.commentPlatform(row, input.platform);
+    return this.graph.post<GraphId>(token, commentId, platform === 'instagram' ? { hide: input.hidden } : { is_hidden: input.hidden });
+  }
+
+  private commentPlatform(row: ConnectionRow, requested?: 'facebook' | 'instagram') {
+    return requested ?? (row.instagramAccountId ? 'instagram' : 'facebook');
   }
 
   listAudiences(actor: AuthContext) {
@@ -563,7 +658,7 @@ export class MetaService {
     if (leads.length !== new Set(input.opportunityIds).size) throw new ValidationError('Audience üyelerinden biri bu tenant içinde bulunamadı');
     const data = leads.flatMap((lead) => {
       const email = lead.email?.trim().toLowerCase();
-      const phone = lead.phone?.replace(/\D/g, '');
+      const phone = lead.phone ? normalizePhoneForMeta(lead.phone) : '';
       if (!email && !phone) return [];
       return [[email ? this.sha256(email) : '', phone ? this.sha256(phone) : '']];
     });

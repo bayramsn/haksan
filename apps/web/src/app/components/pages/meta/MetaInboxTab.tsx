@@ -218,7 +218,7 @@ function CommentsPanel({ canManage, connectionId }: { canManage: boolean; connec
     staleTime: 15_000,
   });
   const replyMutation = useMutation({
-    mutationFn: () => metaService.replyToComment(replying!.id, { connectionId: replying!.connectionId, message: reply.trim() }),
+    mutationFn: () => metaService.replyToComment(replying!.id, { connectionId: replying!.connectionId, message: reply.trim(), platform: replying!.platform }),
     onSuccess: async () => {
       toast.success("Yanıt yayınlandı");
       setReplying(null);
@@ -228,7 +228,7 @@ function CommentsPanel({ canManage, connectionId }: { canManage: boolean; connec
     onError: (error) => toast.error("Yorum yanıtlanamadı", { description: getMetaErrorMessage(error) }),
   });
   const visibilityMutation = useMutation({
-    mutationFn: (comment: MetaComment) => metaService.updateComment(comment.id, { connectionId: comment.connectionId, isHidden: !comment.isHidden }),
+    mutationFn: (comment: MetaComment) => metaService.updateComment(comment.id, { connectionId: comment.connectionId, isHidden: !comment.isHidden, platform: comment.platform }),
     onSuccess: async () => {
       toast.success("Yorum görünürlüğü güncellendi");
       setVisibilityChange(null);

@@ -39,6 +39,16 @@ import {
 
 const PAGE_SIZE = 20;
 
+const WEBHOOK_EVENT_LABELS: Record<string, string> = { leadgen: "Lead formu", messaging: "Messenger / Instagram mesajı", messages: "WhatsApp mesajı" };
+const WEBHOOK_ERROR_LABELS: Record<string, string> = {
+  META_UPSTREAM_ERROR: "Meta isteği reddetti (token veya izin sorunu olabilir)",
+  META_NOT_CONFIGURED: "Meta entegrasyonu sunucuda yapılandırılmamış",
+  VALIDATION_ERROR: "Lead verisi eksik veya geçersiz",
+  INVALID_WEBHOOK_PAYLOAD: "Webhook içeriği okunamadı",
+  META_EVENT_PROCESSING_FAILED: "Beklenmeyen hata",
+  STALE_PROCESSING_RECLAIMED: "İşlem yarıda kaldı",
+};
+
 export function MetaAutomationTab({ canManage }: { canManage: boolean }) {
   const queryClient = useQueryClient();
   const [eventPage, setEventPage] = useState(1);
@@ -53,6 +63,16 @@ export function MetaAutomationTab({ canManage }: { canManage: boolean }) {
   const mappingsQuery = useQuery({ queryKey: metaQueryKeys.mappings, queryFn: metaService.formMappings, staleTime: 30_000 });
   const eventParams = { page: eventPage, pageSize: PAGE_SIZE };
   const eventsQuery = useQuery({ queryKey: metaQueryKeys.conversions(eventParams), queryFn: () => metaService.conversionEvents(eventParams), staleTime: 20_000 });
+
+  const failedQuery = useQuery({ queryKey: metaQueryKeys.failedWebhookEvents, queryFn: metaService.failedWebhookEvents, staleTime: 20_000 });
+  const requeueMutation = useMutation({
+    mutationFn: (id: string) => metaService.requeueWebhookEvent(id),
+    onSuccess: async () => {
+      toast.success("Olay yeniden kuyruğa alındı", { description: "En geç 30 saniye içinde yeniden işlenir." });
+      await queryClient.invalidateQueries({ queryKey: metaQueryKeys.failedWebhookEvents });
+    },
+    onError: (error) => toast.error("Olay yeniden denenemedi", { description: getMetaErrorMessage(error) }),
+  });
 
   const mappingMutation = useMutation({
     mutationFn: metaService.createFormMapping,
@@ -86,7 +106,9 @@ export function MetaAutomationTab({ canManage }: { canManage: boolean }) {
   const processMutation = useMutation({
     mutationFn: metaService.processJobs,
     onSuccess: async (result) => {
-      toast.success("Meta işleri işlendi", { description: `${result.processed} işlendi, ${result.failed} başarısız.` });
+      const processed = result.webhooks.processed + result.conversions.processed;
+      const failed = result.webhooks.failed + result.conversions.failed;
+      toast.success("Meta işleri işlendi", { description: `${processed} işlendi, ${failed} başarısız.` });
       setProcessConfirm(false);
       await queryClient.invalidateQueries({ queryKey: metaQueryKeys.root });
     },
@@ -161,6 +183,34 @@ export function MetaAutomationTab({ canManage }: { canManage: boolean }) {
           </div>
         )}
       </MetaSurface>
+
+      {(failedQuery.data?.length ?? 0) > 0 && (
+        <MetaSurface>
+          <MetaSectionHeader
+            title="İşlenemeyen Meta olayları"
+            description="Lead veya mesaj olayı birkaç denemeye rağmen işlenemedi. Nedeni giderdikten sonra (ör. token yenileme) yeniden deneyin."
+          />
+          <div className="overflow-x-auto">
+            <Table className="min-w-[720px]">
+              <TableHeader><TableRow><TableHead>Olay</TableHead><TableHead>Durum</TableHead><TableHead>Deneme</TableHead><TableHead>Neden</TableHead><TableHead>Son deneme</TableHead><TableHead className="text-right">İşlem</TableHead></TableRow></TableHeader>
+              <TableBody>
+                {failedQuery.data?.map((event) => (
+                  <TableRow key={event.id}>
+                    <TableCell className="text-sm font-semibold">{WEBHOOK_EVENT_LABELS[event.eventType] ?? event.eventType}</TableCell>
+                    <TableCell><MetaStatusBadge status={event.status} /></TableCell>
+                    <TableCell className="text-center font-data text-xs">{event.attemptCount}</TableCell>
+                    <TableCell><p className="max-w-[260px] truncate text-xs text-destructive">{WEBHOOK_ERROR_LABELS[event.lastError ?? ""] ?? event.lastError ?? "-"}</p></TableCell>
+                    <TableCell className="text-xs text-muted-foreground">{formatMetaDate(event.updatedAt)}</TableCell>
+                    <TableCell className="text-right">
+                      <Button type="button" size="sm" variant="outline" disabled={!canManage || !event.requeueable || requeueMutation.isPending} title={event.requeueable ? undefined : "İçeriği gizlilik gereği silinmiş mesaj olayı yeniden işlenemez"} onClick={() => requeueMutation.mutate(event.id)}><RefreshCw className="size-3.5" /> Yeniden dene</Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        </MetaSurface>
+      )}
 
       <MetaSurface>
         <MetaSectionHeader

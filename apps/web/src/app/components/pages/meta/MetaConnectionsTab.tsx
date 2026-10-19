@@ -54,6 +54,9 @@ function HealthLine({ icon, label, value }: { icon: React.ReactNode; label: stri
   return <div className="flex items-center gap-2 text-xs"><span className="text-primary">{icon}</span><span className="text-muted-foreground">{label}</span><span className="ml-auto max-w-[190px] truncate font-data text-[10px] text-foreground">{value}</span></div>;
 }
 
+/** subscribed_apps reddedilirse lead ve mesaj webhook'u gelmez; çoğunlukla izin eksikliğidir. */
+const WEBHOOK_SUBSCRIBE_HINT = "Sayfa için pages_manage_metadata izni gerekli. İzni verip \"Doğrula\" ile yeniden deneyin; o zamana kadar lead ve mesajlar gelmez.";
+
 export function MetaConnectionsTab({ canManage }: { canManage: boolean }) {
   const queryClient = useQueryClient();
   const [createOpen, setCreateOpen] = useState(false);
@@ -66,8 +69,9 @@ export function MetaConnectionsTab({ canManage }: { canManage: boolean }) {
 
   const verifyMutation = useMutation({
     mutationFn: (id: string) => metaService.verifyConnection(id),
-    onSuccess: async () => {
-      toast.success("Meta bağlantısı doğrulandı");
+    onSuccess: async (result) => {
+      if (result.lastError) toast.warning("Bağlantı doğrulandı, webhook aboneliği yapılamadı", { description: WEBHOOK_SUBSCRIBE_HINT });
+      else toast.success("Meta bağlantısı doğrulandı", { description: "Sayfa lead ve mesaj bildirimlerine abone." });
       await queryClient.invalidateQueries({ queryKey: metaQueryKeys.root });
     },
     onError: (error) => toast.error("Bağlantı doğrulanamadı", { description: getMetaErrorMessage(error) }),
@@ -114,8 +118,9 @@ export function MetaConnectionsTab({ canManage }: { canManage: boolean }) {
     setDraft((current) => ({ ...current, accessToken: "" }));
     setCreating(true);
     try {
-      await metaService.createConnection(payload);
-      toast.success("Meta bağlantısı oluşturuldu");
+      const created = await metaService.createConnection(payload);
+      if (created.lastError) toast.warning("Bağlantı oluşturuldu, webhook aboneliği yapılamadı", { description: WEBHOOK_SUBSCRIBE_HINT });
+      else toast.success("Meta bağlantısı oluşturuldu");
       setCreateOpen(false);
       setCredentialConfirmed(false);
       setDraft(EMPTY_DRAFT);

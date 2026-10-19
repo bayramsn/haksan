@@ -190,6 +190,23 @@ export interface MetaCatalog {
   lastError?: string | null;
 }
 
+export interface MetaJobResult {
+  processed: number;
+  failed: number;
+}
+
+export interface MetaFailedWebhookEvent {
+  id: string;
+  connectionId: string;
+  eventType: string;
+  status: "retry" | "dead";
+  attemptCount: number;
+  lastError?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  requeueable: boolean;
+}
+
 export interface MetaPageResult<T> {
   items: T[];
   total: number;
@@ -234,6 +251,7 @@ const META_PATHS = {
   catalogs: "/meta/catalogs",
   conversionEvents: "/meta/conversion-events",
   processJobs: "/meta/jobs/process",
+  webhookEvents: "/meta/webhook-events",
 } as const;
 
 type RawMetaConnection = Omit<MetaConnection, "status"> & { status: string };
@@ -302,7 +320,7 @@ function normalizeLeadStatus(raw: Record<string, unknown>): MetaLeadStatus {
   const followUp = String(raw.leadFollowUpStatus ?? "").toLowerCase();
   if (["win", "won", "converted"].includes(qualification)) return "converted";
   if (["lost", "rejected", "disqualified"].includes(qualification) || followUp === "disqualified") return "rejected";
-  if (["a", "a+", "qualified"].includes(qualification)) return "qualified";
+  if (["a", "a_plus", "qualified"].includes(qualification)) return "qualified";
   if (raw.firstContactAt || followUp === "contacted") return "contacted";
   if (raw.ownerUserId) return "assigned";
   return "new";
@@ -385,6 +403,7 @@ export const metaQueryKeys = {
   conversions: (params: MetaListParams) => ["meta", "conversion-events", params] as const,
   audiences: (params: MetaListParams) => ["meta", "audiences", params] as const,
   catalogs: (params: MetaListParams) => ["meta", "catalogs", params] as const,
+  failedWebhookEvents: ["meta", "webhook-events", "failed"] as const,
 };
 
 export const metaService = {
@@ -437,7 +456,7 @@ export const metaService = {
   updateConnection: (id: string, body: Partial<Pick<MetaConnection, "name" | "status">>) =>
     api.patch<MetaConnection>(`${META_PATHS.connections}/${id}`, body),
   verifyConnection: (id: string) =>
-    api.post<{ ok: true; remote: { id: string; name?: string } }>(`${META_PATHS.connections}/${id}/verify`, {}),
+    api.post<{ ok: boolean; remote: { id: string; name?: string }; lastError?: string | null }>(`${META_PATHS.connections}/${id}/verify`, {}),
   disconnectConnection: (id: string) =>
     api.patch<MetaConnection>(`${META_PATHS.connections}/${id}`, { status: "disabled" }),
   deleteConnection: (id: string) => api.delete<MetaConnection>(`${META_PATHS.connections}/${id}`),
@@ -531,12 +550,12 @@ export const metaService = {
         return {
           id: String(raw.id ?? ""),
           connectionId: params.connectionId!,
-          platform: raw.username ? "instagram" : "facebook",
+          platform: media.platform === "instagram" || (!media.platform && raw.username) ? "instagram" : "facebook",
           authorName: String(raw.username ?? from.name ?? "Meta kullanıcısı"),
           authorHandle: asString(raw.username),
           message: String(raw.text ?? raw.message ?? ""),
-          postName: asString(media.caption),
-          isHidden: Boolean(raw.hidden),
+          postName: asString(media.caption ?? media.message),
+          isHidden: Boolean(raw.hidden ?? raw.is_hidden),
           canReply: true,
           createdAt: String(raw.timestamp ?? raw.created_time ?? new Date().toISOString()),
         };
@@ -544,10 +563,10 @@ export const metaService = {
     });
     return slicePage(items, params.page, params.pageSize);
   },
-  replyToComment: (commentId: string, body: { connectionId: string; message: string }) =>
+  replyToComment: (commentId: string, body: { connectionId: string; message: string; platform: MetaComment["platform"] }) =>
     api.post<{ id: string; message: string; createdAt: string }>(`${META_PATHS.comments}/${commentId}/replies`, body),
-  updateComment: (commentId: string, body: { connectionId: string; isHidden: boolean }) =>
-    api.patch<MetaComment>(`${META_PATHS.comments}/${commentId}`, { connectionId: body.connectionId, hidden: body.isHidden }),
+  updateComment: (commentId: string, body: { connectionId: string; isHidden: boolean; platform: MetaComment["platform"] }) =>
+    api.patch<MetaComment>(`${META_PATHS.comments}/${commentId}`, { connectionId: body.connectionId, hidden: body.isHidden, platform: body.platform }),
 
   formMappings: async () => (await api.get<RawMetaFormMapping[]>(META_PATHS.formMappings)).map(normalizeMapping),
   createFormMapping: (body: Omit<MetaFormMapping, "id" | "lastLeadAt" | "updatedAt">) =>
@@ -583,7 +602,11 @@ export const metaService = {
     currency?: string;
     eventId: string;
   }) => api.post<MetaConversionEvent>(META_PATHS.conversionEvents, { ...body, userData: {} }),
-  processJobs: () => api.post<{ processed: number; failed: number }>(META_PATHS.processJobs, {}),
+  processJobs: () => api.post<{ webhooks: MetaJobResult; conversions: MetaJobResult }>(META_PATHS.processJobs, {}),
+  failedWebhookEvents: () => api.get<MetaFailedWebhookEvent[]>(`${META_PATHS.webhookEvents}/failed`),
+  requeueWebhookEvent: (id: string) => api.post<{ id: string; status: string }>(`${META_PATHS.webhookEvents}/${id}/requeue`, {}),
+  syncInsights: (body: { connectionId: string; from: string; to: string }) =>
+    api.post<{ imported: number }>(`${META_PATHS.insights}/sync`, body),
 
   audiences: async (params: MetaListParams) => {
     const response = await api.get<Array<Record<string, unknown>>>(META_PATHS.audiences);

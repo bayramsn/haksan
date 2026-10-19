@@ -65,7 +65,7 @@ const remoteIdSchema = z.string().min(1).max(128).regex(/^[A-Za-z0-9_.:+-]+$/);
 @Throttle({ default: { limit: 60, ttl: 60_000 } })
 @Controller('meta')
 export class MetaController {
-  constructor(private readonly service: MetaService, private readonly jobs: MetaJobsService) {}
+  constructor(private readonly service: MetaService, private readonly jobs: MetaJobsService, private readonly webhooks: MetaWebhookService) {}
 
   @Get('overview')
   @RequirePermissions('meta.read')
@@ -232,6 +232,14 @@ export class MetaController {
   @Post('jobs/process')
   @RequirePermissions('meta.update')
   processJobs(@CurrentUser() actor: AuthContext) { return this.jobs.processNow(actor.tenantId); }
+
+  @Get('webhook-events/failed')
+  @RequirePermissions('meta.read')
+  failedWebhookEvents(@CurrentUser() actor: AuthContext) { return this.webhooks.listFailed(actor.tenantId); }
+
+  @Post('webhook-events/:id/requeue')
+  @RequirePermissions('meta.update')
+  requeueWebhookEvent(@Param('id', new ParseUUIDPipe()) id: string, @CurrentUser() actor: AuthContext) { return this.webhooks.requeue(actor.tenantId, id); }
 }
 
 @Controller('meta/webhooks')

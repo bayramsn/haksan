@@ -50,12 +50,18 @@ export const metaFormMappingUpdateSchema = metaFormMappingCreateSchema
   .partial()
   .refine((value) => Object.keys(value).length > 0, 'En az bir alan gönderilmelidir');
 
+export const metaLeadStatusSchema = z.enum(['new', 'assigned', 'contacted', 'qualified', 'converted', 'rejected']);
 export const metaListQuerySchema = z.object({
   connectionId: z.string().uuid().optional(),
+  search: z.string().trim().min(1).max(120).optional(),
+  status: metaLeadStatusSchema.optional(),
+  platform: z.enum(['facebook', 'instagram', 'messenger', 'whatsapp']).optional(),
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(25),
 });
 export const metaDateRangeQuerySchema = metaListQuerySchema.extend({
+  // Günlük × kampanya satırı: 30 gün ve 30 kampanya 900 satır eder; 100'lük sayfa toplamları eksik bırakırdı.
+  pageSize: z.coerce.number().int().min(1).max(2000).default(100),
   from: z.coerce.date(),
   to: z.coerce.date(),
 }).refine((value) => value.to >= value.from, { message: 'to, from tarihinden önce olamaz', path: ['to'] });
@@ -65,13 +71,17 @@ export const metaConversationMessageCreateSchema = z.object({
   channel: z.enum(['messenger', 'instagram', 'whatsapp']),
   text: trimmed(2000),
 });
+const metaCommentPlatformSchema = z.enum(['facebook', 'instagram']);
 export const metaCommentReplyCreateSchema = z.object({
   connectionId: z.string().uuid(),
   message: trimmed(2000),
+  /** Yanıt ve gizleme uçları platforma göre değişir; eski istemci göndermezse bağlantıdan çıkarılır. */
+  platform: metaCommentPlatformSchema.optional(),
 });
 export const metaCommentUpdateSchema = z.object({
   connectionId: z.string().uuid(),
   hidden: z.boolean(),
+  platform: metaCommentPlatformSchema.optional(),
 });
 
 export const metaCampaignUpdateSchema = z.object({
