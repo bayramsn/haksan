@@ -71,10 +71,10 @@ function CompanyLogo({ uri }: { uri: string }) {
   const source = { uri: mediaUrl(uri) ?? uri };
   return (
     <View
-      className="h-[46px] w-[46px] items-center justify-center overflow-hidden rounded-[12px] border border-border bg-card"
+      className="h-10 w-10 items-center justify-center overflow-hidden rounded-[10px] border border-border bg-card"
       style={{ borderCurve: 'continuous' }}
     >
-      <Image source={source} className="h-9 w-9" resizeMode="contain" accessibilityIgnoresInvertColors />
+      <Image source={source} className="h-8 w-8" resizeMode="contain" accessibilityIgnoresInvertColors />
     </View>
   );
 }
@@ -96,6 +96,15 @@ function CompanyRow({
   const supplierLabel = supplierCategoryLabel(item.supplierCategoryCode);
   const isActiveCustomer = item.customerStatus?.code === 'active';
   const creator = item.createdByUser?.fullName || item.createdByUser?.email || '—';
+  const meta = [
+    item.companyType === 'individual' ? 'Bireysel' : 'Kurumsal',
+    item.taxNumber || null,
+    item.primaryPhone?.replace('+90 ', '') || null,
+    `Oluşturan ${creator}`,
+    formatDate(item.createdAt),
+  ]
+    .filter(Boolean)
+    .join(' · ');
 
   return (
     <Pressable
@@ -105,17 +114,16 @@ function CompanyRow({
       accessibilityRole="button"
       accessibilityLabel={item.legalTitle}
       accessibilityHint="İşlemler için basılı tutun"
-      className="my-[5px] gap-2 rounded-[16px] border border-border bg-card px-3 py-3 active:opacity-70"
+      className="my-1 min-h-[52px] gap-1.5 rounded-[14px] border border-border bg-card px-3 py-2.5 active:opacity-70"
     >
-      <View className="flex-row items-start gap-3">
-        {item.logoUrl ? <CompanyLogo uri={item.logoUrl} /> : <Avatar name={item.legalTitle} size={46} square />}
-        <View className="flex-1 gap-0.5">
-          <Text className="font-inter-semibold text-[16px] leading-[21px] text-foreground" numberOfLines={2}>
+      <View className="flex-row items-center gap-2.5">
+        {item.logoUrl ? <CompanyLogo uri={item.logoUrl} /> : <Avatar name={item.legalTitle} size={40} square />}
+        <View className="min-w-0 flex-1 gap-0.5">
+          <Text className="font-inter-semibold text-[15px] leading-[20px] text-foreground" numberOfLines={1}>
             {item.legalTitle}
           </Text>
-          <Text className="font-inter text-[13px] text-muted-foreground" numberOfLines={1}>{location}</Text>
           <Text className="font-inter text-[12px] text-muted-foreground" numberOfLines={1}>
-            {item.companyType === 'individual' ? 'Bireysel' : 'Kurumsal'} · {item.taxNumber || 'Kimlik yok'}
+            {location}
           </Text>
         </View>
         {onCreateOpportunity ? (
@@ -137,22 +145,17 @@ function CompanyRow({
           <Ionicons name="ellipsis-horizontal" size={19} color={colors.mutedForeground} />
         </Pressable>
       </View>
-      <View className="flex-row flex-wrap items-center gap-1.5">
+      <View className="flex-row flex-wrap items-center gap-1">
         <Chip tone={FIRM_TONE[firmType]} label={FIRM_TYPE_LABELS[firmType]} />
         {supplierLabel ? <Chip tone="info" label={supplierLabel} /> : null}
         <Chip tone={isActiveCustomer ? 'success' : 'neutral'} label={isActiveCustomer ? 'Cari Satış' : 'Potansiyel'} />
-        {(item.divisions ?? []).map((division) => (
+        {(item.divisions ?? []).slice(0, 2).map((division) => (
           <Chip key={division.id} tone="stage" label={division.name} />
         ))}
+        {(item.divisions ?? []).length > 2 ? <Chip tone="neutral" label={`+${(item.divisions ?? []).length - 2}`} /> : null}
       </View>
-      {item.primaryPhone ? (
-        <View className="flex-row items-center gap-1.5">
-          <Ionicons name="call-outline" size={13} color={colors.mutedForeground} />
-          <Text className="font-inter text-[12px] text-muted-foreground">{item.primaryPhone.replace('+90 ', '')}</Text>
-        </View>
-      ) : null}
-      <Text className="border-t border-border pt-2 font-inter text-[12px] text-muted-foreground" numberOfLines={1}>
-        Oluşturan: {creator} · {formatDate(item.createdAt)}
+      <Text className="font-inter text-[11px] text-muted-foreground" numberOfLines={1}>
+        {meta}
       </Text>
     </Pressable>
   );

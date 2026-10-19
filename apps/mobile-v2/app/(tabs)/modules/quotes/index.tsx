@@ -49,58 +49,40 @@ const STATUS_TONE: Record<string, Tone> = {
 
 const PREVIEW_ROWS = 3;
 
-/** Teklif satırı: belge no + ürün + firma, sağda tutar / durum / takip tarihi. */
+/** Teklif satırı: belge no + ürün/firma tek satır, sağda tutar + durum chip. */
 function QuoteRow({ item, onPress }: { item: QuoteListItem; onPress: () => void }) {
   const { colors } = useTheme();
   const company = item.company?.shortName ?? item.company?.legalTitle ?? null;
   const tone = STATUS_TONE[item.status?.code ?? ''] ?? 'neutral';
+  const subtitle = [item.productName, company, item.followUpAt ? `Takip ${formatDate(item.followUpAt)}` : formatDate(item.quoteDate)]
+    .filter(Boolean)
+    .join(' · ');
   return (
     <Pressable
       onPress={onPress}
       accessibilityRole="button"
       accessibilityLabel={item.documentNo}
-      className="my-[5px] flex-row items-center gap-3 rounded-[16px] border border-border bg-card px-3 py-3.5 active:opacity-70"
+      className="my-1 min-h-[52px] flex-row items-center gap-2.5 rounded-[14px] border border-border bg-card px-3 py-2.5 active:opacity-70"
       style={{ borderCurve: 'continuous' }}
     >
-      <View className="h-[42px] w-[42px] items-center justify-center rounded-[12px] bg-muted" style={{ borderCurve: 'continuous' }}>
-        <Ionicons name="document-text-outline" size={20} color={colors.mutedForeground} />
+      <View className="h-9 w-9 items-center justify-center rounded-[10px] bg-muted" style={{ borderCurve: 'continuous' }}>
+        <Ionicons name="document-text-outline" size={18} color={colors.mutedForeground} />
       </View>
 
-      <View className="flex-1 gap-1">
-        <Text className="font-inter-semibold text-[15px] leading-[20px] text-foreground" numberOfLines={1}>
+      <View className="min-w-0 flex-1 gap-0.5">
+        <Text className="font-inter-semibold text-[14px] leading-[19px] text-foreground" numberOfLines={1}>
           {item.revisionNo > 1 ? `${item.documentNo} · R${item.revisionNo}` : item.documentNo}
         </Text>
-        {item.productName ? (
-          <Text className="font-inter text-[13px] text-foreground" numberOfLines={1}>
-            {item.productName}
-          </Text>
-        ) : null}
-        {company ? (
-          <Text className="font-inter text-[13px] text-muted-foreground" numberOfLines={1}>
-            {company}
-          </Text>
-        ) : null}
-      </View>
-
-      {/* Sabit genişlik: uzun durum adları belge no sütununu yutmasın. */}
-      <View className="w-[132px] items-end gap-1">
-        <Text className="font-inter-bold text-[15px] text-foreground" numberOfLines={1} style={{ fontVariant: ['tabular-nums'] }}>
-          {formatAmount(item.grandTotal, item.currency?.code ?? 'TRY')}
+        <Text className="font-inter text-[12px] text-muted-foreground" numberOfLines={1}>
+          {subtitle}
         </Text>
-        {item.status ? (
-          <View className="max-w-full flex-row justify-end">
-            <Chip tone={tone} label={item.status.name} shrink />
-          </View>
-        ) : null}
-        <View className="flex-row items-center gap-1">
-          <Ionicons name={item.followUpAt ? 'alarm-outline' : 'calendar-outline'} size={12} color={colors.mutedForeground} />
-          <Text className="font-inter text-[12px] text-muted-foreground">
-            {item.followUpAt ? `Takip ${formatDate(item.followUpAt)}` : formatDate(item.quoteDate)}
-          </Text>
-        </View>
+        {item.status ? <Chip tone={tone} label={item.status.name} shrink /> : null}
       </View>
 
-      <Ionicons name="chevron-forward" size={18} color={colors.mutedForeground} />
+      <Text className="font-inter-bold text-[14px] text-foreground" numberOfLines={1} style={{ fontVariant: ['tabular-nums'] }}>
+        {formatAmount(item.grandTotal, item.currency?.code ?? 'TRY')}
+      </Text>
+      <Ionicons name="chevron-forward" size={16} color={colors.mutedForeground} />
     </Pressable>
   );
 }

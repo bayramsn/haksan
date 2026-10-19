@@ -98,55 +98,57 @@ function SalesRow({
   const contact = contactLine(item);
   const amount = amountText(item);
   const machine = (stage === 'win' ? item.wonProductName : null) ?? item.requestedMachine ?? item.title;
+  const nextLine = item.nextAction
+    ? `${item.nextAction}${item.nextActionAt ? ` · ${formatDate(item.nextActionAt)}` : ''}`
+    : 'Sonraki aktivite planlanmamış';
+  const detailLine = [
+    machine,
+    contact || null,
+    item.stage ? `Operasyon: ${item.stage.name}` : null,
+    `Atanan: ${ownerName ?? 'Atanmadı'}`,
+    formatDate(item.createdAt),
+  ]
+    .filter(Boolean)
+    .join(' · ');
+
   return (
     <View className="my-1 flex-row rounded-overlay border border-border bg-card">
       <Pressable
         accessibilityRole="button"
         accessibilityLabel={`${party} fırsat detayını aç`}
         onPress={onOpen}
-        className="min-h-[44px] flex-1 gap-1 px-3.5 py-3 active:opacity-70"
+        className="min-h-[52px] flex-1 gap-1 px-3.5 py-2.5 active:opacity-70"
       >
         <View className="flex-row items-center gap-1.5">
-          <Text className="shrink font-inter-semibold text-[15px] text-foreground" numberOfLines={1}>
+          <Text className="min-w-0 flex-1 font-inter-semibold text-[15px] text-foreground" numberOfLines={1}>
             {party}
           </Text>
-          {!item.company ? <Chip tone="warning" label="Firma bekliyor" /> : null}
+          {amount ? <Text className="font-inter-semibold text-[13px] text-primary">{amount}</Text> : null}
         </View>
-        <Text className="font-inter text-xs text-muted-foreground" numberOfLines={1}>
-          {machine}
+        <Text className="font-inter text-[12px] text-muted-foreground" numberOfLines={1}>
+          {detailLine}
         </Text>
-        {contact ? (
-          <Text className="font-inter text-xs text-muted-foreground" numberOfLines={1}>
-            {contact}
-          </Text>
-        ) : null}
-        <View className="mt-1 flex-row flex-wrap items-center gap-1">
+        <View className="flex-row flex-wrap items-center gap-1">
           <Chip tone={STAGE_TONE[stage]} label={QUALIFICATION_LABELS[stage]} />
           <Chip tone={risk.tone} label={risk.label} />
-          {amount ? <Text className="ml-1 font-inter-semibold text-[13px] text-primary">{amount}</Text> : null}
+          {!item.company ? <Chip tone="warning" label="Firma bekliyor" /> : null}
         </View>
-        {item.stage ? <Text className="font-inter text-[11px] text-muted-foreground">Operasyon: {item.stage.name}</Text> : null}
         <Text className="font-inter text-[11px] text-muted-foreground" numberOfLines={1}>
-          {item.nextAction
-            ? `${item.nextAction}${item.nextActionAt ? ` · ${formatDate(item.nextActionAt)}` : ''}`
-            : 'Sonraki aktivite planlanmamış'}
+          {nextLine}
         </Text>
         {stage === 'lost'
           ? lostDetail(item).map((line, index) => (
-              <Text key={index} className={`font-inter text-[11px] ${index === 0 ? 'text-destructive' : 'text-muted-foreground'}`} numberOfLines={2}>
+              <Text key={index} className={`font-inter text-[11px] ${index === 0 ? 'text-destructive' : 'text-muted-foreground'}`} numberOfLines={1}>
                 {line}
               </Text>
             ))
           : null}
-        <Text className="font-inter text-[11px] text-muted-foreground" numberOfLines={1}>
-          {`Atanan: ${ownerName ?? 'Atanmadı'} · Açılış: ${formatDate(item.createdAt)}`}
-        </Text>
       </Pressable>
       <Pressable
         accessibilityRole="button"
         accessibilityLabel={`${party} hızlı işlemleri`}
         onPress={onMenu}
-        className="w-11 items-center justify-center active:opacity-60"
+        className="min-w-[44px] items-center justify-center active:opacity-60"
       >
         <Ionicons name="ellipsis-vertical" size={18} color={colors.foreground} />
       </Pressable>

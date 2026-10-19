@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react';
-import { Pressable, RefreshControl, ScrollView, Text, View } from 'react-native';
+import { Children, useMemo, useState, type ReactNode } from 'react';
+import { LayoutAnimation, Platform, Pressable, RefreshControl, ScrollView, Text, UIManager, useWindowDimensions, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, type Href } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -58,17 +58,81 @@ const GAP = 10;
 /** Rota birleşimi doğrudan `as Href` için fazla büyük (TS2590). */
 const toHref = (path: string) => path as unknown as Href;
 const DASHBOARD_HREF = toHref('/(tabs)');
-type Section = 'ozet' | 'operasyon' | 'grafikler' | 'hedefler';
+type Section = 'bugun' | 'rapor';
+type ReportPane = 'ozet' | 'grafikler' | 'hedefler';
+
+if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
+  UIManager.setLayoutAnimationEnabledExperimental(true);
+}
+
+/** KPI ızgarası: dar telefonda 2 sütun, tablette 3 — özellik silinmez, sarılır. */
+function KpiGrid({ children }: { children: ReactNode }) {
+  const { width } = useWindowDimensions();
+  const cols = width >= 720 ? 3 : 2;
+  const cellWidth = Math.max(140, Math.floor((width - SCREEN_PAD * 2 - GAP * (cols - 1)) / cols));
+  return (
+    <View className="flex-row flex-wrap" style={{ gap: GAP }}>
+      {Children.toArray(children).map((child, index) => (
+        <View key={index} style={{ width: width < 360 ? '100%' : cellWidth, flexGrow: 1, maxWidth: width < 360 ? '100%' : undefined }}>
+          {child}
+        </View>
+      ))}
+    </View>
+  );
+}
+
+function ReportSection({
+  title,
+  hint,
+  open,
+  onToggle,
+  children,
+}: {
+  title: string;
+  hint: string;
+  open: boolean;
+  onToggle: () => void;
+  children: ReactNode;
+}) {
+  const { colors } = useTheme();
+  return (
+    <View className="overflow-hidden rounded-surface border border-border bg-card">
+      <Pressable
+        accessibilityRole="button"
+        accessibilityState={{ expanded: open }}
+        accessibilityLabel={title}
+        onPress={() => {
+          LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+          onToggle();
+        }}
+        className="min-h-[52px] flex-row items-center gap-2 px-3.5 py-3 active:opacity-80"
+      >
+        <View className="min-w-0 flex-1">
+          <Text className="font-display-semibold text-[16px] text-foreground">{title}</Text>
+          <Text className="font-inter text-[12px] text-muted-foreground" numberOfLines={1}>
+            {hint}
+          </Text>
+        </View>
+        <Ionicons name={open ? 'chevron-up' : 'chevron-down'} size={18} color={colors.mutedForeground} />
+      </Pressable>
+      {open ? <View className="gap-3 border-t border-border px-3 pb-3.5 pt-3">{children}</View> : null}
+    </View>
+  );
+}
 
 export default function DashboardScreen() {
   const router = useRouter();
   const qc = useQueryClient();
   const { colors } = useTheme();
+  const { width } = useWindowDimensions();
+  const wide = width >= 720;
   const { user } = useAuth();
   const canReadOpps = useCan('opportunities.read');
   const canReadTasks = useCan('tasks.read');
   const canReadService = useCan('service_tickets.read');
-  const [section, setSection] = useState<Section>('ozet');
+  const [section, setSection] = useState<Section>('bugun');
+  const [reportPane, setReportPane] = useState<ReportPane>('ozet');
+  const [openReport, setOpenReport] = useState({ ozet: true, grafikler: true, hedefler: true });
   const { data, isPending, isRefetching, error, refetch } = useDashboard();
   const unreadNotifications = useUnreadCount();
 
@@ -103,7 +167,7 @@ export default function DashboardScreen() {
   }, []);
 
   const completedPayments = useCompletedPayments(salesTrendRange);
-  const quoteList = useQuoteList(thisMonthRange);
+  const quoteList = useQuoteList(thisMonthRange, section === 'rapor');
   const shipmentList = useShipments('active');
   const stockSummary = useStockSummary();
   const todayEvents = useCalendarEvents(todayRange);
@@ -113,7 +177,7 @@ export default function DashboardScreen() {
   const taskCounts = useTaskCounts();
   const quotesAll = useQuoteSummary({ from: yearFrom });
   const quotesApproved = useQuoteSummary({ from: yearFrom, statusCode: 'approved' });
-  const openTickets = useServiceTickets({ phase: 'open' }, canReadService && section === 'operasyon');
+  const openTickets = useServiceTickets({ phase: 'open' }, canReadService && section === 'bugun');
 
   const rows = useMemo(() => analytics.data?.rows ?? [], [analytics.data]);
   const performance = useMemo(() => salesPerformance(rows), [rows]);
@@ -251,7 +315,7 @@ export default function DashboardScreen() {
     totalStock: stockTotal,
   });
   const radarHref: Record<string, Href> = {
-    Satış: opportunitiesHref({ focus: 'open' }),
+    Satış: toHref(String(opportunitiesHref({ focus: 'open' }))),
     Teklif: toHref('/(tabs)/modules/quotes'),
     Tahsilat: toHref('/(tabs)/modules/receivables'),
     Servis: toHref('/(tabs)/modules/service-tickets'),
@@ -267,6 +331,8 @@ export default function DashboardScreen() {
     setOpportunityOrder(openSalesCards.map((row) => row.id));
     go(toHref(`/(tabs)/modules/opportunities/${id}`));
   };
+
+  const toggleReport = (key: keyof typeof openReport) => setOpenReport((prev) => ({ ...prev, [key]: !prev[key] }));
 
   return (
     <SafeAreaView className="flex-1 bg-canvas" edges={['top', 'left', 'right']}>
@@ -303,7 +369,7 @@ export default function DashboardScreen() {
         <DashboardBriefing
           firstName={user?.fullName?.split(' ')[0] ?? 'ekip'}
           counts={counts}
-          onToday={() => setSection('operasyon')}
+          onToday={() => setSection('bugun')}
           onOverdue={() => go(toHref('/(tabs)/modules/receivables'))}
         />
 
@@ -311,138 +377,106 @@ export default function DashboardScreen() {
 
         <Tabs<Section>
           tabs={[
-            { value: 'ozet', label: 'Özet', icon: 'grid-outline' },
-            { value: 'operasyon', label: 'Operasyon', icon: 'list-outline', badge: counts.total || undefined },
-            { value: 'grafikler', label: 'Grafikler', icon: 'stats-chart-outline' },
-            { value: 'hedefler', label: 'Hedefler', icon: 'flag-outline' },
+            { value: 'bugun', label: 'Bugün', icon: 'today-outline', badge: counts.total || undefined },
+            { value: 'rapor', label: 'Rapor', icon: 'stats-chart-outline' },
           ]}
           value={section}
           onChange={setSection}
         />
 
-        {section === 'ozet' ? (
+        {section === 'bugun' ? (
           <>
             <Enter>
-              <View className="gap-2.5">
-                <View className="flex-row" style={{ gap: GAP }}>
-                  <KpiCard icon="people-outline" label="Aktif Müşteri" value={num(data.activeCustomers)} onPress={() => go('/(tabs)/modules/companies')} />
-                  <KpiCard icon="wallet-outline" label="Kazanılan ciro" value={money(wonTotal)} onPress={() => go(opportunitiesHref({ focus: 'won' }))} />
-                  <KpiCard icon="briefcase-outline" label="Fırsat (açık)" value={money(openTotal)} onPress={() => go(opportunitiesHref({ focus: 'open' }))} />
-                </View>
-                <View className="flex-row" style={{ gap: GAP }}>
-                  <KpiCard icon="alert-circle-outline" label="Geciken ödeme" value={overdueValue} onPress={() => go(toHref('/(tabs)/modules/receivables'))} />
-                  <KpiCard icon="construct-outline" label="Açık servis" value={num(data.openServices)} onPress={() => go(toHref('/(tabs)/modules/service-tickets'))} />
-                  <KpiCard icon="hardware-chip-outline" label="Aktif Makine" value={num(data.activeMachines)} onPress={() => go(toHref('/(tabs)/modules/customer-devices'))} />
-                </View>
-                <View className="flex-row" style={{ gap: GAP }}>
-                  <KpiCard icon="document-text-outline" label="Bu Ay Teklifler" value={num(quotesThisMonth)} onPress={() => go('/(tabs)/modules/quotes')} />
-                  <KpiCard
-                    icon="cash-outline"
-                    label="Tahsilat"
-                    value={collectionsThisMonth ?? '—'}
-                    delta={collectionsDelta}
-                    deltaNote={collectionsDelta ? '(Geçen aya göre)' : undefined}
-                    onPress={() => go('/(tabs)/modules/payments')}
-                  />
-                  <KpiCard icon="car-outline" label="Sevkiyat" value={num(activeShipments)} onPress={() => go('/(tabs)/modules/shipments')} />
-                </View>
-              </View>
+              <KpiGrid>
+                <KpiCard icon="alert-circle-outline" label="Geciken ödeme" value={overdueValue} onPress={() => go(toHref('/(tabs)/modules/receivables'))} />
+                <KpiCard icon="construct-outline" label="Açık servis" value={num(data.openServices)} onPress={() => go(toHref('/(tabs)/modules/service-tickets'))} />
+                <KpiCard icon="briefcase-outline" label="Açık fırsat" value={money(openTotal)} onPress={() => go(opportunitiesHref({ focus: 'open' }))} />
+              </KpiGrid>
             </Enter>
-
-            {canReadOpps ? (
-              analytics.error ? (
-                <ErrorState message={analytics.error.message} onRetry={() => void analytics.refetch()} />
-              ) : (
-                <>
-                  <SalesPerformancePanel performance={performance} truncated={analytics.data?.truncated ?? false} />
-                  <QualificationPanel rows={rows} />
-                </>
-              )
-            ) : null}
-
-            <TeamActivityPanel />
-
-            <View className="flex-row items-stretch" style={{ gap: GAP }}>
-              <PanelCard title="Satış Trendi" hint={trend ? '(Son 6 Ay)' : undefined} onMore={() => setSection('grafikler')}>
-                {trend ? (
-                  <View className="gap-1.5">
-                    <View className="flex-row items-center gap-1.5">
-                      <View className="h-2 w-2 rounded-full" style={{ backgroundColor: colors.primary }} />
-                      <Text className="font-inter text-[11px] text-muted-foreground">Tahsilat ({trend.currencyCode})</Text>
-                    </View>
-                    <LineChart
-                      data={trendMonths.map((b) => ({ value: b.total, label: b.label }))}
-                      areaChart
-                      curved
-                      width={112}
-                      height={110}
-                      initialSpacing={8}
-                      spacing={20}
-                      color={colors.chart1}
-                      startFillColor={colors.chart1}
-                      endFillColor={colors.chart1}
-                      startOpacity={0.25}
-                      endOpacity={0.02}
-                      thickness={2}
-                      dataPointsRadius={3}
-                      dataPointsColor={colors.chart1}
-                      noOfSections={4}
-                      yAxisTextStyle={{ color: colors.chartAxis, fontSize: 8 }}
-                      xAxisLabelTextStyle={{ color: colors.chartAxis, fontSize: 8 }}
-                      yAxisLabelWidth={30}
-                      yAxisColor={colors.chartGrid}
-                      xAxisColor={colors.chartGrid}
-                      isAnimated
-                    />
-                  </View>
-                ) : (
-                  <Text className="py-6 text-center font-inter text-[12px] text-muted-foreground">Son 6 ayda tahsilat kaydı yok.</Text>
-                )}
-              </PanelCard>
-
-              <PanelCard title="Fırsat Aşama Özeti" onMore={() => go('/(tabs)/modules/opportunities')}>
-                {data.stages.length > 0 ? (
-                  <View className="gap-2.5">
-                    <View className="flex-row items-center gap-2.5">
-                      <Funnel steps={funnelStages.map((s) => s.value)} width={46} height={22 * funnelStages.length} />
-                      <View className="flex-1">
-                        {funnelStages.map((stage) => (
-                          <View key={stage.label} className="h-[22px] flex-row items-center justify-between gap-1">
-                            <Text className="flex-1 font-inter text-[12px] text-foreground" numberOfLines={1}>
-                              {stage.label}
-                            </Text>
-                            <Text className="font-inter-semibold text-[13px] text-foreground" style={{ fontVariant: ['tabular-nums'] }}>
-                              {stage.value}
-                            </Text>
-                          </View>
-                        ))}
-                      </View>
-                    </View>
-                    {conversionRate !== null ? (
-                      <View className="border-t border-border pt-2">
-                        <Text className="font-inter text-[12px] text-foreground">Dönüşüm Oranı</Text>
-                        <Text className="font-inter-bold text-[20px]" style={{ color: colors.primary }}>
-                          %{conversionRate}
-                        </Text>
-                      </View>
-                    ) : null}
-                  </View>
-                ) : (
-                  <Text className="py-6 text-center font-inter text-[12px] text-muted-foreground">Açık fırsat yok.</Text>
-                )}
-              </PanelCard>
-            </View>
 
             <SignalList
               title="Öncelikli İşler"
-              hint="Kritik ve yakın takip gerektiren işler"
+              hint="Kritik ve yakın takip · dokunarak listeye inin"
               signals={signals}
               limit={5}
               empty="Bugün öncelikli iş görünmüyor."
             />
 
-            <View className="flex-row items-stretch" style={{ gap: GAP }}>
-              <PanelCard title="Üretim & Stok Durumu" onMore={() => go('/(tabs)/modules/inventory')}>
+            {canReadOpps ? (
+              <Card className="gap-2">
+                <Text accessibilityRole="header" className="font-display-semibold text-[17px] text-foreground">
+                  Açık Satış Kartları
+                </Text>
+                <Text className="font-inter text-[12px] text-muted-foreground">Sıradaki aksiyon tarihine göre</Text>
+                {analytics.isPending ? null : openSalesCards.length === 0 ? (
+                  <Text className="font-inter text-[13px] text-muted-foreground">Açık satış kartı yok</Text>
+                ) : (
+                  openSalesCards.map((row) => {
+                    const stage = asQualification(row.qualificationStage);
+                    return (
+                      <Pressable
+                        key={row.id}
+                        accessibilityRole="button"
+                        accessibilityLabel={`${partyName(row)} fırsat detayını aç`}
+                        onPress={() => openCard(row.id)}
+                        className="min-h-[52px] flex-row items-center gap-2 border-t border-border py-2 active:opacity-70"
+                      >
+                        <View className="min-w-0 flex-1">
+                          <Text className="font-inter-semibold text-[14px] text-foreground" numberOfLines={1}>
+                            {partyName(row)}
+                          </Text>
+                          <Text className="font-inter text-[12px] text-muted-foreground" numberOfLines={1}>
+                            {row.nextAction ? `${row.nextAction}${row.nextActionAt ? ` · ${formatDate(row.nextActionAt)}` : ''}` : 'Sonraki aktivite planlanmamış'}
+                          </Text>
+                        </View>
+                        <View className="items-end gap-1">
+                          <Chip tone={STAGE_TONE[stage]} label={QUALIFICATION_LABELS[stage]} />
+                          {Number(row.estimatedValue ?? 0) ? (
+                            <Text className="font-inter-semibold text-[12px] text-primary">{formatAmount(row.estimatedValue, row.currency?.code ?? 'TRY')}</Text>
+                          ) : null}
+                        </View>
+                      </Pressable>
+                    );
+                  })
+                )}
+              </Card>
+            ) : null}
+
+            {canReadService ? (
+              <Card className="gap-2">
+                <Text accessibilityRole="header" className="font-display-semibold text-[17px] text-foreground">
+                  Açık Servis Talepleri
+                </Text>
+                {openTickets.isPending ? null : openTickets.error ? (
+                  <ErrorState message={openTickets.error.message} onRetry={() => void openTickets.refetch()} />
+                ) : (openTickets.data?.items ?? []).length === 0 ? (
+                  <Text className="font-inter text-[13px] text-muted-foreground">Açık servis talebi yok</Text>
+                ) : (
+                  (openTickets.data?.items ?? []).slice(0, 6).map((ticket) => (
+                    <Pressable
+                      key={ticket.id}
+                      accessibilityRole="button"
+                      accessibilityLabel={`${ticket.ticketNo} ${ticket.subject}`}
+                      onPress={() => go(toHref(`/(tabs)/modules/service-tickets/${ticket.id}`))}
+                      className="min-h-[52px] flex-row items-center gap-2 border-t border-border py-2 active:opacity-70"
+                    >
+                      <View className="min-w-0 flex-1">
+                        <Text className="font-inter-semibold text-[14px] text-foreground" numberOfLines={1}>
+                          {ticket.subject}
+                        </Text>
+                        <Text className="font-inter text-[12px] text-muted-foreground" numberOfLines={1}>
+                          {`${ticket.ticketNo} · ${ticket.company?.shortName ?? ticket.company?.legalTitle ?? 'Firma yok'} · ${formatDate(ticket.reportedAt)}`}
+                        </Text>
+                      </View>
+                      {ticket.status ? <Chip tone={ticket.severity === 'critical' || ticket.severity === 'high' ? 'destructive' : 'neutral'} label={ticket.status.name} /> : null}
+                    </Pressable>
+                  ))
+                )}
+              </Card>
+            ) : null}
+
+            <View className={wide ? 'flex-row items-stretch' : 'gap-3'} style={wide ? { gap: GAP } : undefined}>
+              <PanelCard title="Üretim & Stok" onMore={() => go('/(tabs)/modules/inventory')}>
                 <PanelRow icon="cube-outline" label="Stokta" value={stockSummary.data ? String(stockCount('available')) : '—'} onPress={() => go('/(tabs)/modules/inventory')} />
                 <PanelRow
                   icon="lock-closed-outline"
@@ -456,7 +490,7 @@ export default function DashboardScreen() {
 
               <PanelCard title="Bugünkü Etkinlikler" onMore={() => go('/(tabs)/modules/calendar')}>
                 {todayEvents.isPending ? null : (todayEvents.data ?? []).length === 0 ? (
-                  <Text className="py-6 text-center font-inter text-[12px] text-muted-foreground">Bugün için planlanmış etkinlik yok.</Text>
+                  <Text className="py-4 text-center font-inter text-[12px] text-muted-foreground">Bugün planlanmış etkinlik yok.</Text>
                 ) : (
                   (todayEvents.data ?? []).slice(0, 4).map((event, index) => (
                     <View key={event.id} className="flex-row items-center gap-2 py-2">
@@ -500,125 +534,164 @@ export default function DashboardScreen() {
           </>
         ) : null}
 
-        {section === 'operasyon' ? (
+        {section === 'rapor' ? (
           <>
-            <SignalList
-              title="Yönetim Merkezi"
-              hint="Riskler, takip işleri ve bilgi sinyalleri · dokunarak ilgili listeye inin"
-              signals={signals}
-              empty="Aktif yönetim riski yok"
+            <Tabs<ReportPane>
+              tabs={[
+                { value: 'ozet', label: 'Özet', icon: 'grid-outline' },
+                { value: 'grafikler', label: 'Grafikler', icon: 'stats-chart-outline' },
+                { value: 'hedefler', label: 'Hedefler', icon: 'flag-outline' },
+              ]}
+              value={reportPane}
+              onChange={setReportPane}
             />
-            {canReadOpps ? (
-              <Card className="gap-2">
-                <Text accessibilityRole="header" className="font-display-semibold text-[17px] text-foreground">
-                  Açık Satış Kartları
-                </Text>
-                <Text className="font-inter text-[12px] text-muted-foreground">Sıradaki aksiyon tarihine göre</Text>
-                {analytics.isPending ? null : openSalesCards.length === 0 ? (
-                  <Text className="font-inter text-[13px] text-muted-foreground">Açık satış kartı yok</Text>
-                ) : (
-                  openSalesCards.map((row) => {
-                    const stage = asQualification(row.qualificationStage);
-                    return (
-                      <Pressable
-                        key={row.id}
-                        accessibilityRole="button"
-                        accessibilityLabel={`${partyName(row)} fırsat detayını aç`}
-                        onPress={() => openCard(row.id)}
-                        className="min-h-[52px] flex-row items-center gap-2 border-t border-border py-2 active:opacity-70"
-                      >
-                        <View className="min-w-0 flex-1">
-                          <Text className="font-inter-semibold text-[14px] text-foreground" numberOfLines={1}>
-                            {partyName(row)}
-                          </Text>
-                          <Text className="font-inter text-[12px] text-muted-foreground" numberOfLines={1}>
-                            {row.nextAction ? `${row.nextAction}${row.nextActionAt ? ` · ${formatDate(row.nextActionAt)}` : ''}` : 'Sonraki aktivite planlanmamış'}
-                          </Text>
+
+            {reportPane === 'ozet' ? (
+              <ReportSection title="KPI Özeti" hint="Müşteri, ciro, teklif ve operasyon" open={openReport.ozet} onToggle={() => toggleReport('ozet')}>
+                <KpiGrid>
+                  <KpiCard icon="people-outline" label="Aktif Müşteri" value={num(data.activeCustomers)} onPress={() => go('/(tabs)/modules/companies')} />
+                  <KpiCard icon="wallet-outline" label="Kazanılan ciro" value={money(wonTotal)} onPress={() => go(opportunitiesHref({ focus: 'won' }))} />
+                  <KpiCard icon="briefcase-outline" label="Fırsat (açık)" value={money(openTotal)} onPress={() => go(opportunitiesHref({ focus: 'open' }))} />
+                  <KpiCard icon="alert-circle-outline" label="Geciken ödeme" value={overdueValue} onPress={() => go(toHref('/(tabs)/modules/receivables'))} />
+                  <KpiCard icon="construct-outline" label="Açık servis" value={num(data.openServices)} onPress={() => go(toHref('/(tabs)/modules/service-tickets'))} />
+                  <KpiCard icon="hardware-chip-outline" label="Aktif Makine" value={num(data.activeMachines)} onPress={() => go(toHref('/(tabs)/modules/customer-devices'))} />
+                  <KpiCard icon="document-text-outline" label="Bu Ay Teklifler" value={num(quotesThisMonth)} onPress={() => go('/(tabs)/modules/quotes')} />
+                  <KpiCard
+                    icon="cash-outline"
+                    label="Tahsilat"
+                    value={collectionsThisMonth ?? '—'}
+                    delta={collectionsDelta}
+                    deltaNote={collectionsDelta ? '(Geçen aya göre)' : undefined}
+                    onPress={() => go('/(tabs)/modules/payments')}
+                  />
+                  <KpiCard icon="car-outline" label="Sevkiyat" value={num(activeShipments)} onPress={() => go('/(tabs)/modules/shipments')} />
+                </KpiGrid>
+
+                {canReadOpps ? (
+                  analytics.error ? (
+                    <ErrorState message={analytics.error.message} onRetry={() => void analytics.refetch()} />
+                  ) : (
+                    <>
+                      <SalesPerformancePanel performance={performance} truncated={analytics.data?.truncated ?? false} />
+                      <QualificationPanel rows={rows} />
+                    </>
+                  )
+                ) : null}
+
+                <TeamActivityPanel />
+
+                <View className={wide ? 'flex-row items-stretch' : 'gap-3'} style={wide ? { gap: GAP } : undefined}>
+                  <PanelCard title="Satış Trendi" hint={trend ? '(Son 6 Ay)' : undefined} onMore={() => setReportPane('grafikler')}>
+                    {trend ? (
+                      <View className="gap-1.5">
+                        <View className="flex-row items-center gap-1.5">
+                          <View className="h-2 w-2 rounded-full" style={{ backgroundColor: colors.primary }} />
+                          <Text className="font-inter text-[11px] text-muted-foreground">Tahsilat ({trend.currencyCode})</Text>
                         </View>
-                        <View className="items-end gap-1">
-                          <Chip tone={STAGE_TONE[stage]} label={QUALIFICATION_LABELS[stage]} />
-                          {Number(row.estimatedValue ?? 0) ? (
-                            <Text className="font-inter-semibold text-[12px] text-primary">{formatAmount(row.estimatedValue, row.currency?.code ?? 'TRY')}</Text>
-                          ) : null}
-                        </View>
-                      </Pressable>
-                    );
-                  })
-                )}
-              </Card>
-            ) : null}
-            {canReadService ? (
-              <Card className="gap-2">
-                <Text accessibilityRole="header" className="font-display-semibold text-[17px] text-foreground">
-                  Açık Servis Talepleri
-                </Text>
-                {openTickets.isPending ? null : openTickets.error ? (
-                  <ErrorState message={openTickets.error.message} onRetry={() => void openTickets.refetch()} />
-                ) : (openTickets.data?.items ?? []).length === 0 ? (
-                  <Text className="font-inter text-[13px] text-muted-foreground">Açık servis talebi yok</Text>
-                ) : (
-                  (openTickets.data?.items ?? []).slice(0, 6).map((ticket) => (
-                    <Pressable
-                      key={ticket.id}
-                      accessibilityRole="button"
-                      accessibilityLabel={`${ticket.ticketNo} ${ticket.subject}`}
-                      onPress={() => go(toHref(`/(tabs)/modules/service-tickets/${ticket.id}`))}
-                      className="min-h-[52px] flex-row items-center gap-2 border-t border-border py-2 active:opacity-70"
-                    >
-                      <View className="min-w-0 flex-1">
-                        <Text className="font-inter-semibold text-[14px] text-foreground" numberOfLines={1}>
-                          {ticket.subject}
-                        </Text>
-                        <Text className="font-inter text-[12px] text-muted-foreground" numberOfLines={1}>
-                          {`${ticket.ticketNo} · ${ticket.company?.shortName ?? ticket.company?.legalTitle ?? 'Firma yok'} · ${formatDate(ticket.reportedAt)}`}
-                        </Text>
+                        <LineChart
+                          data={trendMonths.map((b) => ({ value: b.total, label: b.label }))}
+                          areaChart
+                          curved
+                          width={wide ? 112 : Math.min(220, width - 96)}
+                          height={110}
+                          initialSpacing={8}
+                          spacing={20}
+                          color={colors.chart1}
+                          startFillColor={colors.chart1}
+                          endFillColor={colors.chart1}
+                          startOpacity={0.25}
+                          endOpacity={0.02}
+                          thickness={2}
+                          dataPointsRadius={3}
+                          dataPointsColor={colors.chart1}
+                          noOfSections={4}
+                          yAxisTextStyle={{ color: colors.chartAxis, fontSize: 8 }}
+                          xAxisLabelTextStyle={{ color: colors.chartAxis, fontSize: 8 }}
+                          yAxisLabelWidth={30}
+                          yAxisColor={colors.chartGrid}
+                          xAxisColor={colors.chartGrid}
+                          isAnimated
+                        />
                       </View>
-                      {ticket.status ? <Chip tone={ticket.severity === 'critical' || ticket.severity === 'high' ? 'destructive' : 'neutral'} label={ticket.status.name} /> : null}
-                    </Pressable>
-                  ))
-                )}
-              </Card>
+                    ) : (
+                      <Text className="py-6 text-center font-inter text-[12px] text-muted-foreground">Son 6 ayda tahsilat kaydı yok.</Text>
+                    )}
+                  </PanelCard>
+
+                  <PanelCard title="Fırsat Aşama Özeti" onMore={() => go('/(tabs)/modules/opportunities')}>
+                    {data.stages.length > 0 ? (
+                      <View className="gap-2.5">
+                        <View className="flex-row items-center gap-2.5">
+                          <Funnel steps={funnelStages.map((s) => s.value)} width={46} height={22 * funnelStages.length} />
+                          <View className="flex-1">
+                            {funnelStages.map((stage) => (
+                              <View key={stage.label} className="h-[22px] flex-row items-center justify-between gap-1">
+                                <Text className="flex-1 font-inter text-[12px] text-foreground" numberOfLines={1}>
+                                  {stage.label}
+                                </Text>
+                                <Text className="font-inter-semibold text-[13px] text-foreground" style={{ fontVariant: ['tabular-nums'] }}>
+                                  {stage.value}
+                                </Text>
+                              </View>
+                            ))}
+                          </View>
+                        </View>
+                        {conversionRate !== null ? (
+                          <View className="border-t border-border pt-2">
+                            <Text className="font-inter text-[12px] text-foreground">Dönüşüm Oranı</Text>
+                            <Text className="font-inter-bold text-[20px]" style={{ color: colors.primary }}>
+                              %{conversionRate}
+                            </Text>
+                          </View>
+                        ) : null}
+                      </View>
+                    ) : (
+                      <Text className="py-6 text-center font-inter text-[12px] text-muted-foreground">Açık fırsat yok.</Text>
+                    )}
+                  </PanelCard>
+                </View>
+              </ReportSection>
+            ) : null}
+
+            {reportPane === 'grafikler' ? (
+              <ReportSection title="Grafikler & Huniler" hint="Aylık satış, aşama ve departman" open={openReport.grafikler} onToggle={() => toggleReport('grafikler')}>
+                <KpiGrid>
+                  <KpiCard icon="document-text-outline" label="Teklif dönüşümü" value={quoteConversion == null ? '—' : `%${quoteConversion}`} onPress={() => go('/(tabs)/modules/quotes')} />
+                  <KpiCard icon="construct-outline" label="Açık servis" value={num(data.openServices)} onPress={() => go(toHref('/(tabs)/modules/service-tickets'))} />
+                  <KpiCard icon="cube-outline" label="Stok riski" value={num(stockRisk)} onPress={() => go('/(tabs)/modules/inventory')} />
+                  <KpiCard icon="car-outline" label="Bekleyen sevkiyat" value={num(activeShipments)} onPress={() => go('/(tabs)/modules/shipments')} />
+                  <KpiCard icon="hardware-chip-outline" label="Aktif Makine" value={num(data.activeMachines)} onPress={() => go(toHref('/(tabs)/modules/customer-devices'))} />
+                </KpiGrid>
+                <MonthlySalesChart buckets={monthly} title="Aylık Satış Performansı" hint="Teklif vs kazanılan (onaylanan teklif)" />
+                <StageDistribution stages={data.stages} />
+                <BarList
+                  title="Satış Hunisi"
+                  hint="Operasyon aşamalarına göre açık kart · satıra dokunun"
+                  rows={data.stages.map((stage) => ({
+                    key: stage.code,
+                    label: stage.label,
+                    value: stage.value,
+                    href: opportunitiesHref({ stageCode: stage.code, stageName: stage.label }),
+                  }))}
+                />
+                <BarList
+                  title="Departman Performansı"
+                  hint="KPI · 0–100 endeks · ölçülemeyen eksen “—”"
+                  max={100}
+                  rows={radar.map((axis) => ({ key: axis.label, label: axis.label, value: axis.value, href: radarHrefFor(axis.label) }))}
+                />
+                <RevenueChart buckets={monthly} currency={revenueCurrency} />
+                <WonLostChart buckets={monthly} />
+              </ReportSection>
+            ) : null}
+
+            {reportPane === 'hedefler' ? (
+              <ReportSection title="Hedefler" hint="Kişisel ve ekip hedefleri" open={openReport.hedefler} onToggle={() => toggleReport('hedefler')}>
+                <MyTargetsPanel />
+              </ReportSection>
             ) : null}
           </>
         ) : null}
-
-        {section === 'grafikler' ? (
-          <>
-            <View className="gap-2.5">
-              <View className="flex-row" style={{ gap: GAP }}>
-                <KpiCard icon="document-text-outline" label="Teklif dönüşümü" value={quoteConversion == null ? '—' : `%${quoteConversion}`} onPress={() => go('/(tabs)/modules/quotes')} />
-                <KpiCard icon="construct-outline" label="Açık servis" value={num(data.openServices)} onPress={() => go(toHref('/(tabs)/modules/service-tickets'))} />
-                <KpiCard icon="cube-outline" label="Stok riski" value={num(stockRisk)} onPress={() => go('/(tabs)/modules/inventory')} />
-              </View>
-              <View className="flex-row" style={{ gap: GAP }}>
-                <KpiCard icon="car-outline" label="Bekleyen sevkiyat" value={num(activeShipments)} onPress={() => go('/(tabs)/modules/shipments')} />
-                <KpiCard icon="hardware-chip-outline" label="Aktif Makine" value={num(data.activeMachines)} onPress={() => go(toHref('/(tabs)/modules/customer-devices'))} />
-              </View>
-            </View>
-            <MonthlySalesChart buckets={monthly} title="Aylık Satış Performansı" hint="Teklif vs kazanılan (onaylanan teklif)" />
-            <StageDistribution stages={data.stages} />
-            <BarList
-              title="Satış Hunisi"
-              hint="Operasyon aşamalarına göre açık kart · satıra dokunun"
-              rows={data.stages.map((stage) => ({
-                key: stage.code,
-                label: stage.label,
-                value: stage.value,
-                href: opportunitiesHref({ stageCode: stage.code, stageName: stage.label }),
-              }))}
-            />
-            <BarList
-              title="Departman Performansı"
-              hint="KPI · 0–100 endeks · ölçülemeyen eksen “—”"
-              max={100}
-              rows={radar.map((axis) => ({ key: axis.label, label: axis.label, value: axis.value, href: radarHrefFor(axis.label) }))}
-            />
-            <RevenueChart buckets={monthly} currency={revenueCurrency} />
-            <WonLostChart buckets={monthly} />
-          </>
-        ) : null}
-
-        {section === 'hedefler' ? <MyTargetsPanel /> : null}
       </ScrollView>
     </SafeAreaView>
   );

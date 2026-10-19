@@ -1,41 +1,78 @@
-import { useRef, useState, type ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import { Text, View } from 'react-native';
-import * as Sharing from 'expo-sharing';
-import { captureRef } from 'react-native-view-shot';
+import { downloadAndShareFile, getPdfAndShare, postPdfAndShare } from '@/src/native/files';
 import { Button } from '@/src/ui';
 import { toast } from '@/src/ui/toast';
 
 /**
- * Web'deki "Yazdır" çıktılarının mobil karşılığı: belge görünümü PNG olarak
- * yakalanır ve paylaşım sayfası açılır (yazıcı, PDF'e kaydet, e-posta…).
+ * Belgeler CRM'den gelir. Yerel PNG/PDF üretimi yok —
+ * ya kayıtlı dosya (`fileId`) ya da sunucu PDF ucu paylaşılır.
  */
-export function DocumentCapture({ title, fileName, children }: { title: string; fileName: string; children: ReactNode }) {
-  const ref = useRef<View>(null);
+export function CrmDocumentShare({
+  fileId,
+  pdfPath,
+  pdfMethod = 'GET',
+  filename,
+  label = "CRM'den PDF indir",
+}: {
+  fileId?: string | null;
+  pdfPath?: string | null;
+  pdfMethod?: 'GET' | 'POST';
+  filename: string;
+  label?: string;
+}) {
   const [busy, setBusy] = useState(false);
+  const canShare = Boolean(fileId || pdfPath);
 
   const share = async () => {
-    if (!ref.current || busy) return;
+    if (!canShare || busy) return;
     setBusy(true);
     try {
-      if (!(await Sharing.isAvailableAsync())) throw new Error('Bu cihazda paylaşım kullanılamıyor.');
-      const uri = await captureRef(ref, { format: 'png', quality: 1, result: 'tmpfile', fileName });
-      await Sharing.shareAsync(uri, { mimeType: 'image/png', UTI: 'public.png', dialogTitle: title });
+      if (fileId) await downloadAndShareFile(fileId);
+      else if (pdfPath) {
+        if (pdfMethod === 'POST') await postPdfAndShare(pdfPath, filename);
+        else await getPdfAndShare(pdfPath, filename);
+      }
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Belge paylaşılamadı.');
+      toast.error(error instanceof Error ? error.message : 'Belge indirilemedi.');
     } finally {
       setBusy(false);
     }
   };
 
+  if (!canShare) {
+    return (
+      <Text className="font-inter text-xs leading-5 text-muted-foreground">
+        Bu belge mobil uygulamada üretilmez. CRM web üzerinden oluşturulan PDF veya yüklenen dosya burada paylaşılır.
+      </Text>
+    );
+  }
+
+  return (
+    <Button label={label} onPress={() => void share()} loading={busy} trailingIcon="download-outline" />
+  );
+}
+
+/** @deprecated Yerel PNG üretimi kaldırıldı; CrmDocumentShare kullanın. */
+export function DocumentCapture({
+  title: _title,
+  fileName,
+  children,
+  fileId,
+  pdfPath,
+  pdfMethod,
+}: {
+  title: string;
+  fileName: string;
+  children: ReactNode;
+  fileId?: string | null;
+  pdfPath?: string | null;
+  pdfMethod?: 'GET' | 'POST';
+}) {
   return (
     <View className="gap-3">
-      <View ref={ref} collapsable={false} className="rounded-surface border border-border bg-card p-4">
-        {children}
-      </View>
-      <Button label="Yazdır / Paylaş" onPress={() => void share()} loading={busy} trailingIcon="print-outline" />
-      <Text className="font-inter text-xs text-muted-foreground">
-        Belge görsel olarak paylaşılır; paylaşım menüsünden yazdırabilir veya PDF olarak kaydedebilirsiniz.
-      </Text>
+      <View className="rounded-surface border border-border bg-card p-4">{children}</View>
+      <CrmDocumentShare fileId={fileId} pdfPath={pdfPath} pdfMethod={pdfMethod} filename={fileName.endsWith('.pdf') ? fileName : `${fileName}.pdf`} />
     </View>
   );
 }

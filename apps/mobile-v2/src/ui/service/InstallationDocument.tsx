@@ -1,5 +1,5 @@
 import { Text, View } from 'react-native';
-import { DocRow, DocTitle, DocumentCapture } from './DocumentCapture';
+import { CrmDocumentShare, DocRow, DocTitle } from './DocumentCapture';
 import type { InstallationFormDraft } from './logistics';
 
 function trDay(value: string): string {
@@ -9,23 +9,27 @@ function trDay(value: string): string {
 
 const CHECK_LABEL: Record<string, string> = { done: 'Tamamlandı', not_done: 'Tamamlanmadı' };
 
-/** Web installationFormDoc ("DR.MAK Kurulum Tutanağı") düzeninin paylaşılabilir mobil karşılığı. */
+/** Kurulum tutanağı önizlemesi; PDF CRM'den indirilir (yerel üretim yok). */
 export function InstallationDocument({
   form,
   fileName,
   location,
   duration,
   notes,
+  fileId,
 }: {
   form: InstallationFormDraft;
   fileName: string;
   location?: string | null;
   duration?: string | null;
   notes?: string | null;
+  fileId?: string | null;
 }) {
   const problem = form.problemHasProblem === 'yes' ? 'Evet' : form.problemHasProblem === 'no' ? 'Hayır' : '';
+  const pdfName = fileName.endsWith('.pdf') ? fileName : `${fileName}.pdf`;
   return (
-    <DocumentCapture title="Kurulum Tutanağı" fileName={fileName}>
+    <View className="gap-3">
+      <View className="rounded-surface border border-border bg-card p-4">
       <Text className="font-display-semibold text-lg text-foreground">Kurulum Tutanağı</Text>
       <DocRow label="Form No" value={form.formNo} />
       <DocRow label="Tezgah Teslim Tarihi" value={trDay(form.teslimTarihi)} />
@@ -90,7 +94,9 @@ export function InstallationDocument({
         <SignatureBox label="Kurulumu Yapan" name={form.kurulumuYapan} />
         <SignatureBox label="Tezgahı Teslim Alan" name={form.teslimAlan} />
       </View>
-    </DocumentCapture>
+      </View>
+      <CrmDocumentShare fileId={fileId} filename={pdfName} label="CRM'den tutanak PDF indir" />
+    </View>
   );
 }
 

@@ -8,7 +8,7 @@ import { useTheme } from '@/src/theme/theme';
 import { Button, Field } from '@/src/ui';
 import { toast } from '@/src/ui/toast';
 import { CompanySelect, ContactSelect, SuggestionSelect, UserSelect, contactEmail } from '@/src/ui/select/fields';
-import { DocRow, DocTitle, DocumentCapture } from './DocumentCapture';
+import { CrmDocumentShare } from './DocumentCapture';
 import { ChoiceChips, DayField, FormSection, ProductPicker } from './fields';
 import {
   CURRENCIES,
@@ -28,47 +28,7 @@ import { useTicketWriter } from './TicketPanels';
 const SERVICE_PRODUCT_CATEGORIES = ['YEDEK_PARCA', 'AKSESUAR', 'OPSIYONEL_DONANIM', 'ISCILIK'];
 const num = (value: string) => Math.max(0, Number(value.replace(',', '.')) || 0);
 
-function QuoteDocument({ quote }: { quote: ServiceQuote }) {
-  const totals = quoteTotals(quote);
-  return (
-    <View className="gap-0.5">
-      <Text className="font-display text-[18px] text-foreground">Servis Teklifi</Text>
-      <DocRow label="Teklif No" value={quote.quoteNo} />
-      <DocRow label="Tarih" value={quote.date} />
-      <DocRow label="Geçerlilik Süresi" value={quote.validity} />
-      <DocTitle>Müşteri</DocTitle>
-      <DocRow label="Firma" value={quote.company} />
-      <DocRow label="İlgili" value={quote.contact} />
-      <DocRow label="Mobil" value={quote.mobile} />
-      <DocRow label="Telefon" value={quote.phone} />
-      <DocRow label="E-Posta" value={quote.email} />
-      <DocRow label="Adres" value={quote.address} />
-      <DocTitle>Teklif Kapsamı</DocTitle>
-      <Text className="font-inter text-[12px] leading-5 text-foreground">{quote.subject}</Text>
-      <DocTitle>Ürün / hizmet kalemleri</DocTitle>
-      {quote.items.map((item, index) => (
-        <View key={item.id} className="flex-row gap-2 border-b border-border py-1.5">
-          <Text className="w-5 font-inter text-[12px] text-muted-foreground">{index + 1}</Text>
-          <Text className="flex-1 font-inter text-[12px] text-foreground">
-            {[item.stockCode, item.description].filter(Boolean).join(' · ')} — {item.quantity} {item.unit} × {formatAmount(item.unitPrice, quote.currency)}
-          </Text>
-          <Text className="font-inter-semibold text-[12px] text-foreground">{formatAmount(item.quantity * item.unitPrice, quote.currency)}</Text>
-        </View>
-      ))}
-      <DocRow label="Ara Toplam" value={formatAmount(totals.subtotal, quote.currency)} />
-      <DocRow label={`K.D.V. (%${quote.vatRate})`} value={formatAmount(totals.vat, quote.currency)} />
-      <DocRow label="Toplam" value={formatAmount(totals.total, quote.currency)} />
-      {quote.notes.length ? <DocTitle>Notlar</DocTitle> : null}
-      {quote.notes.map((note, index) => (
-        <Text key={index} className="font-inter text-[11px] leading-4 text-foreground">• {note}</Text>
-      ))}
-      <DocTitle>Teklifi Hazırlayan</DocTitle>
-      <Text className="font-inter text-[12px] text-foreground">{[quote.writerName, quote.writerTitle, quote.writerEmail].filter(Boolean).join(' · ')}</Text>
-    </View>
-  );
-}
-
-/** Web ServiceQuoteEditor: servis teklif formu (metadata.serviceQuote) + yazdır. */
+/** Web ServiceQuoteEditor: servis teklif formu (metadata.serviceQuote); PDF CRM’den paylaşılır. */
 export function ServiceQuoteEditor({ ticket, context, canUpdate }: { ticket: ServiceTicket; context: QuoteContext; canUpdate: boolean }) {
   const { colors } = useTheme();
   const { write, busy } = useTicketWriter(ticket);
@@ -280,10 +240,8 @@ export function ServiceQuoteEditor({ ticket, context, canUpdate }: { ticket: Ser
       {canUpdate ? <Button label="Servis teklifini kaydet" loading={busy} disabled={busy} onPress={save} /> : null}
 
       {preview ? (
-        <FormSection title="Servis Teklifi yazdır" hint="Kayıtlı teklif">
-          <DocumentCapture title="Servis Teklifi" fileName={`servis-teklifi-${ticket.ticketNo}`}>
-            <QuoteDocument quote={preview} />
-          </DocumentCapture>
+        <FormSection title="Servis teklifi belgesi" hint="CRM üzerinden">
+          <CrmDocumentShare filename={`servis-teklifi-${ticket.ticketNo}.pdf`} />
         </FormSection>
       ) : null}
     </>

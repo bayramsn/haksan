@@ -295,7 +295,7 @@ export default function QuoteDetailScreen() {
   async function handleDownloadPdf() {
     setPdfBusy(true);
     try {
-      await postPdfAndShare(`/api/v1/quotes/${data!.id}/generate-pdf`, `${data!.documentNo}.pdf`);
+      await postPdfAndShare(`/quotes/${data!.id}/generate-pdf`, `${data!.documentNo}.pdf`);
     } catch (e) {
       Alert.alert('Hata', e instanceof Error ? e.message : 'PDF indirilemedi.');
     } finally {
