@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { createContext, useContext, useMemo } from 'react';
 import { COUNTRY_OPTIONS, DISTRICTS_BY_PROVINCE } from '@haksan/shared';
 import { useCompany, useCompanyList } from '@/src/api/companies.hooks';
 import { useTaxOffices } from '@/src/api/crm-general.hooks';
@@ -10,6 +10,11 @@ import type { Brand } from '@/src/api/products.api';
 import type { CompanyListItem, ContactListItem, InventoryItem, ProductModel } from '@/src/api/endpoints';
 import { SearchSelect, type RemoteOptions, type SelectItem } from './SearchSelect';
 import { INCOTERMS, addressText, distinctValues, matchesStockLine, provinceOptions } from './select-logic';
+
+/** SearchSelect uzak kancaları modül düzeyinde tutmak için (Rules of Hooks). */
+const ContactCompanyCtx = createContext<string | null>(null);
+const ContactEmailCompanyCtx = createContext<string | null>(null);
+const InventorySerialCtx = createContext<{ categoryCode?: string | null; productModelId?: string | null }>({});
 
 type Common = { label?: string; placeholder?: string; error?: string; disabled?: boolean; clearable?: boolean };
 
@@ -71,7 +76,32 @@ export function CompanySelect({
 export const contactPhone = (c: ContactListItem) => c.mobilePhone || c.workPhone || '';
 export const contactEmail = (c: ContactListItem) => c.workEmail || c.personalEmail || '';
 
-/** Seçili firmanın kontakları; firma yoksa alan pasif kalır. */
+function useContactOptions(search: string): RemoteOptions<ContactListItem> {
+  const companyId = useContext(ContactCompanyCtx);
+  const list = useContactList(
+    useMemo(
+      () => ({ companyId: companyId ?? undefined, search: search || undefined, sortBy: 'name' as const, sortDir: 'asc' as const }),
+      [companyId, search]
+    ),
+    Boolean(companyId)
+  );
+  return {
+    items: (list.data?.items ?? []).map((contact) => ({
+      id: contact.id,
+      label: contact.fullName,
+      hint: [contact.title, contactPhone(contact) || contactEmail(contact)].filter(Boolean).join(' · ') || null,
+      data: contact,
+    })),
+    isPending: Boolean(companyId) && list.isPending,
+    error: list.error,
+    refetch: () => void list.refetch(),
+    hasNextPage: list.hasNextPage,
+    isFetchingNextPage: list.isFetchingNextPage,
+    fetchNextPage: () => void list.fetchNextPage(),
+  };
+}
+
+/** Seçili firmanın kontakları; firma yoksa yalnız özel metin (allowCustom) veya pasif. */
 export function ContactSelect({
   companyId,
   value,
@@ -86,39 +116,24 @@ export function ContactSelect({
   onSelect: (item: SelectItem<ContactListItem> | null) => void;
   allowCustom?: boolean;
 }) {
-  const useContactOptions = (search: string): RemoteOptions<ContactListItem> => {
-    const list = useContactList({ companyId: companyId ?? undefined, search: search || undefined, sortBy: 'name', sortDir: 'asc' }, Boolean(companyId));
-    return {
-      items: (list.data?.items ?? []).map((contact) => ({
-        id: contact.id,
-        label: contact.fullName,
-        hint: [contact.title, contactPhone(contact) || contactEmail(contact)].filter(Boolean).join(' · ') || null,
-        data: contact,
-      })),
-      isPending: Boolean(companyId) && list.isPending,
-      error: list.error,
-      refetch: () => void list.refetch(),
-      hasNextPage: list.hasNextPage,
-      isFetchingNextPage: list.isFetchingNextPage,
-      fetchNextPage: () => void list.fetchNextPage(),
-    };
-  };
   return (
-    <SearchSelect
-      label={rest.label ?? 'Kontak'}
-      placeholder={rest.placeholder ?? (companyId ? 'Firmanın kontağını seçin' : 'Önce firma seçin')}
-      icon="person-outline"
-      value={value}
-      selectedId={selectedId}
-      onSelect={onSelect}
-      useRemote={useContactOptions}
-      allowCustom={allowCustom}
-      searchPlaceholder="Ad, unvan veya telefon"
-      emptyTitle="Kontak bulunamadı"
-      error={rest.error}
-      disabled={rest.disabled || (!companyId && !allowCustom)}
-      clearable={rest.clearable}
-    />
+    <ContactCompanyCtx.Provider value={companyId}>
+      <SearchSelect
+        label={rest.label ?? 'Kontak'}
+        placeholder={rest.placeholder ?? (companyId ? 'Firmanın kontağını seçin' : 'Önce firma seçin')}
+        icon="person-outline"
+        value={value}
+        selectedId={selectedId}
+        onSelect={onSelect}
+        useRemote={useContactOptions}
+        allowCustom={allowCustom}
+        searchPlaceholder="Ad, unvan veya telefon"
+        emptyTitle={companyId ? 'Kontak bulunamadı' : 'Önce firma seçin'}
+        error={rest.error}
+        disabled={rest.disabled || (!companyId && !allowCustom)}
+        clearable={rest.clearable}
+      />
+    </ContactCompanyCtx.Provider>
   );
 }
 
@@ -497,6 +512,29 @@ export function CompanyAddressSelect({
 }
 
 /** Stok kalemleri (`/inventory`) arasında seri no araması; kategori/ürün filtresi istemcide uygulanır. */
+function useSerialOptions(search: string): RemoteOptions<InventoryItem> {
+  const { categoryCode, productModelId } = useContext(InventorySerialCtx);
+  const list = useInventoryList(
+    useMemo(() => ({ search: search || undefined, categoryCode: categoryCode || undefined }), [search, categoryCode])
+  );
+  return {
+    items: (list.data?.items ?? [])
+      .filter((item) => matchesStockLine(item, { categoryCode, productModelId }))
+      .map((item) => ({
+        id: item.id,
+        label: item.serialNumber,
+        hint: [item.brand?.name, item.product?.fullName ?? item.product?.modelCode, item.status?.name].filter(Boolean).join(' · ') || null,
+        data: item,
+      })),
+    isPending: list.isPending,
+    error: list.error,
+    refetch: () => void list.refetch(),
+    hasNextPage: list.hasNextPage,
+    isFetchingNextPage: list.isFetchingNextPage,
+    fetchNextPage: () => void list.fetchNextPage(),
+  };
+}
+
 export function InventorySerialSelect({
   categoryCode,
   productModelId,
@@ -511,42 +549,52 @@ export function InventorySerialSelect({
   selectedId?: string | null;
   onSelect: (item: SelectItem<InventoryItem> | null) => void;
 }) {
-  const useSerialOptions = (search: string): RemoteOptions<InventoryItem> => {
-    const list = useInventoryList({ search: search || undefined, categoryCode: categoryCode || undefined });
-    return {
-      items: (list.data?.items ?? [])
-        .filter((item) => matchesStockLine(item, { categoryCode, productModelId }))
-        .map((item) => ({
-          id: item.id,
-          label: item.serialNumber,
-          hint: [item.brand?.name, item.product?.fullName ?? item.product?.modelCode, item.status?.name].filter(Boolean).join(' · ') || null,
-          data: item,
-        })),
-      isPending: list.isPending,
-      error: list.error,
-      refetch: () => void list.refetch(),
-      hasNextPage: list.hasNextPage,
-      isFetchingNextPage: list.isFetchingNextPage,
-      fetchNextPage: () => void list.fetchNextPage(),
-    };
-  };
+  const ctx = useMemo(() => ({ categoryCode, productModelId }), [categoryCode, productModelId]);
   return (
-    <SearchSelect
-      label={rest.label ?? 'Seri No'}
-      placeholder={rest.placeholder ?? 'Stoktan seri no seçin veya yazın'}
-      icon="barcode-outline"
-      value={value}
-      selectedId={selectedId}
-      onSelect={onSelect}
-      useRemote={useSerialOptions}
-      allowCustom
-      searchPlaceholder="Seri no, model veya marka"
-      emptyTitle="Stok kalemi bulunamadı"
-      error={rest.error}
-      disabled={rest.disabled}
-      clearable={rest.clearable ?? true}
-    />
+    <InventorySerialCtx.Provider value={ctx}>
+      <SearchSelect
+        label={rest.label ?? 'Seri No'}
+        placeholder={rest.placeholder ?? 'Stoktan seri no seçin veya yazın'}
+        icon="barcode-outline"
+        value={value}
+        selectedId={selectedId}
+        onSelect={onSelect}
+        useRemote={useSerialOptions}
+        allowCustom
+        searchPlaceholder="Seri no, model veya marka"
+        emptyTitle="Stok kalemi bulunamadı"
+        error={rest.error}
+        disabled={rest.disabled}
+        clearable={rest.clearable ?? true}
+      />
+    </InventorySerialCtx.Provider>
   );
+}
+
+function useEmailOptions(search: string): RemoteOptions<ContactListItem> {
+  const companyId = useContext(ContactEmailCompanyCtx);
+  const list = useContactList(
+    useMemo(
+      () => ({ companyId: companyId ?? undefined, search: search || undefined, sortBy: 'name' as const, sortDir: 'asc' as const }),
+      [companyId, search]
+    )
+  );
+  return {
+    items: (list.data?.items ?? [])
+      .filter((contact) => contactEmail(contact))
+      .map((contact) => ({
+        id: contact.id,
+        label: contactEmail(contact),
+        hint: [contact.fullName, contact.company ? companyLabel(contact.company) : null].filter(Boolean).join(' · ') || null,
+        data: contact,
+      })),
+    isPending: list.isPending,
+    error: list.error,
+    refetch: () => void list.refetch(),
+    hasNextPage: list.hasNextPage,
+    isFetchingNextPage: list.isFetchingNextPage,
+    fetchNextPage: () => void list.fetchNextPage(),
+  };
 }
 
 /** Tüm kontaklar arasında e-posta adresi olanlar; listede olmayan adres yazılabilir. */
@@ -556,40 +604,23 @@ export function ContactEmailSelect({
   onChange,
   ...rest
 }: Common & { companyId?: string | null; value: string; onChange: (email: string, contact: ContactListItem | null) => void }) {
-  const useEmailOptions = (search: string): RemoteOptions<ContactListItem> => {
-    const list = useContactList({ companyId: companyId ?? undefined, search: search || undefined, sortBy: 'name', sortDir: 'asc' });
-    return {
-      items: (list.data?.items ?? [])
-        .filter((contact) => contactEmail(contact))
-        .map((contact) => ({
-          id: contact.id,
-          label: contactEmail(contact),
-          hint: [contact.fullName, contact.company ? companyLabel(contact.company) : null].filter(Boolean).join(' · ') || null,
-          data: contact,
-        })),
-      isPending: list.isPending,
-      error: list.error,
-      refetch: () => void list.refetch(),
-      hasNextPage: list.hasNextPage,
-      isFetchingNextPage: list.isFetchingNextPage,
-      fetchNextPage: () => void list.fetchNextPage(),
-    };
-  };
   return (
-    <SearchSelect
-      label={rest.label ?? 'Alıcı'}
-      placeholder={rest.placeholder ?? 'Kontak seçin veya e-posta yazın'}
-      icon="mail-outline"
-      value={value}
-      onSelect={(item) => onChange(item?.label.trim() ?? '', item?.data ?? null)}
-      useRemote={useEmailOptions}
-      allowCustom
-      searchPlaceholder="Ad, firma veya e-posta"
-      emptyTitle="E-postası olan kontak yok"
-      error={rest.error}
-      disabled={rest.disabled}
-      clearable={rest.clearable ?? true}
-    />
+    <ContactEmailCompanyCtx.Provider value={companyId ?? null}>
+      <SearchSelect
+        label={rest.label ?? 'Alıcı'}
+        placeholder={rest.placeholder ?? 'Kontak seçin veya e-posta yazın'}
+        icon="mail-outline"
+        value={value}
+        onSelect={(item) => onChange(item?.label.trim() ?? '', item?.data ?? null)}
+        useRemote={useEmailOptions}
+        allowCustom
+        searchPlaceholder="Ad, firma veya e-posta"
+        emptyTitle="E-postası olan kontak yok"
+        error={rest.error}
+        disabled={rest.disabled}
+        clearable={rest.clearable ?? true}
+      />
+    </ContactEmailCompanyCtx.Provider>
   );
 }
 

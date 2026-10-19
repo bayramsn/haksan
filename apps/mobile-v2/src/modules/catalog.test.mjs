@@ -10,7 +10,7 @@ const entries = [...seedBlock.matchAll(/key: '([^']+)',\s*title: '([^']+)'[\s\S]
 const groupOrder = [...source.matchAll(/\{ key: '([^']+)', title: '[^']+', hint:/g)].map(([, key]) => key);
 
 test('katalog web menü gruplarını aynı sırayla izler', () => {
-  assert.deepEqual(groupOrder, ['general', 'sales', 'sales-ops', 'operations', 'service', 'admin']);
+  assert.deepEqual(groupOrder, ['general', 'sales', 'sales-ops', 'catalog', 'finance', 'logistics', 'service', 'admin']);
   for (const entry of entries) assert.ok(groupOrder.includes(entry.group), `${entry.key} bilinmeyen grupta`);
   const firstIndex = entries.map((entry) => groupOrder.indexOf(entry.group));
   assert.deepEqual(firstIndex, [...firstIndex].sort((a, b) => a - b), 'girişler grup sırasına göre dizilmeli');

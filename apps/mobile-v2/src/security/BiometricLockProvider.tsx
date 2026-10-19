@@ -7,6 +7,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '@/src/auth/AuthProvider';
 import { useTheme } from '@/src/theme/theme';
 import { Button } from '@/src/ui';
+import { Logo } from '@/src/ui/Logo';
 
 const ENABLED_KEY = 'haksan_biometric_lock_enabled';
 const BACKGROUND_LOCK_DELAY_MS = 30_000;
@@ -147,11 +148,12 @@ export function BiometricLockProvider({ children }: { children: ReactNode }) {
       {locked && user ? (
         <SafeAreaView className="flex-1 bg-canvas" edges={['top', 'bottom', 'left', 'right']}>
           <View className="flex-1 items-center justify-center gap-5 px-8">
-            <View className="h-20 w-20 items-center justify-center rounded-full bg-primary-soft">
-              <Ionicons name="lock-closed-outline" size={38} color={colors.primary} />
+            <Logo width={140} />
+            <View className="h-11 w-11 items-center justify-center rounded-full bg-primary-soft">
+              <Ionicons name="lock-closed-outline" size={20} color={colors.primary} />
             </View>
             <View className="gap-2">
-              <Text accessibilityRole="header" className="text-center font-display text-[30px] text-foreground">Haksan Kilitli</Text>
+              <Text accessibilityRole="header" className="text-center font-display text-[24px] text-foreground">Kilitli</Text>
               <Text className="text-center font-inter text-sm leading-5 text-muted-foreground">
                 CRM ve finans verilerini görmek için Face ID, parmak izi veya cihaz parolanızla doğrulayın.
               </Text>

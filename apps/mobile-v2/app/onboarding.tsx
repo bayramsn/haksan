@@ -251,7 +251,7 @@ function Onboarding() {
   return (
     <SafeAreaView className="flex-1" style={{ backgroundColor: authPaper }} edges={['top', 'left', 'right']}>
       <View style={{ paddingHorizontal: 28, paddingTop: 8 }}>
-        <Logo width={205} />
+        <Logo width={156} />
       </View>
 
       <ScrollView

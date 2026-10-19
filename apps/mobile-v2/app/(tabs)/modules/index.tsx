@@ -8,7 +8,6 @@ import { useAuth } from '@/src/auth/AuthProvider';
 import {
   canAccessModule,
   matchesModuleSearch,
-  moduleGroups,
   modules,
   modulesByGroup,
   type ModuleEntry,
@@ -35,15 +34,15 @@ function ModuleRow({ entry, index }: { entry: ModuleEntry; index: number }) {
           void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
           router.push(entry.route);
         }}
-        className="min-h-[52px] flex-row items-center gap-3 border-t border-border px-3 py-2.5 active:opacity-70"
+        className="min-h-[48px] flex-row items-center gap-2.5 border-t border-border px-3 py-2 active:opacity-70"
       >
-        <View className={`h-9 w-9 items-center justify-center rounded-control border ${chipClass[entry.tone]}`}>
-          <Ionicons name={entry.icon} size={18} color={toneColor(colors, entry.tone)} />
+        <View className={`h-8 w-8 items-center justify-center rounded-control border ${chipClass[entry.tone]}`}>
+          <Ionicons name={entry.icon} size={16} color={toneColor(colors, entry.tone)} />
         </View>
-        <Text className="flex-1 font-inter-medium text-[14px] text-foreground" numberOfLines={1}>
+        <Text className="flex-1 font-inter-medium text-[13px] text-foreground" numberOfLines={1}>
           {entry.title}
         </Text>
-        <Ionicons name="chevron-forward" size={16} color={colors.mutedForeground} />
+        <Ionicons name="chevron-forward" size={14} color={colors.mutedForeground} />
       </Pressable>
     </Enter>
   );
@@ -68,27 +67,27 @@ function AccordionGroup({
 }) {
   const { colors } = useTheme();
   return (
-    <View className="mb-2 overflow-hidden rounded-surface border border-border bg-card">
+    <View className="overflow-hidden rounded-surface border border-border bg-card">
       <Pressable
         accessibilityRole="button"
         accessibilityState={{ expanded: open }}
         accessibilityLabel={`${title}, ${count} modül`}
         onPress={onToggle}
-        className="min-h-[56px] flex-row items-center gap-2.5 px-3 py-2.5 active:opacity-80"
+        className="min-h-[52px] flex-row items-center gap-2.5 px-3 py-2 active:opacity-80"
       >
-        <View className="h-9 w-9 items-center justify-center rounded-control border border-border bg-canvas">
-          <Ionicons name={icon} size={18} color={colors.primary} />
+        <View className="h-8 w-8 items-center justify-center rounded-control border border-border bg-canvas">
+          <Ionicons name={icon} size={16} color={colors.primary} />
         </View>
         <View className="min-w-0 flex-1">
-          <Text className="font-display-semibold text-[16px] text-foreground">{title}</Text>
-          <Text className="font-inter text-[12px] text-muted-foreground" numberOfLines={1}>
+          <Text className="font-display-semibold text-[15px] text-foreground">{title}</Text>
+          <Text className="font-inter text-[11px] text-muted-foreground" numberOfLines={1}>
             {hint}
           </Text>
         </View>
-        <View className="min-w-[28px] items-center rounded-full border border-border bg-canvas px-2 py-0.5">
-          <Text className="font-inter-semibold text-[12px] text-foreground">{count}</Text>
+        <View className="min-w-[26px] items-center rounded-full border border-border bg-canvas px-1.5 py-0.5">
+          <Text className="font-inter-semibold text-[11px] text-foreground">{count}</Text>
         </View>
-        <Ionicons name={open ? 'chevron-up' : 'chevron-down'} size={18} color={colors.mutedForeground} />
+        <Ionicons name={open ? 'chevron-up' : 'chevron-down'} size={16} color={colors.mutedForeground} />
       </Pressable>
       {open
         ? entries.map((entry, index) => <ModuleRow key={entry.key} entry={entry} index={index} />)
@@ -123,13 +122,13 @@ export default function ModulesScreen() {
   return (
     <SafeAreaView className="flex-1 bg-canvas" edges={['top', 'left', 'right']}>
       <SyncStatus />
-      <ScreenHeader title="Modüller" subtitle={`${permitted.length} modül · iş alanına göre gruplu`} />
+      <ScreenHeader title="Modüller" subtitle={`${groups.length} kategori · ${permitted.length} modül`} />
 
       <View className="pb-1 pt-2">
-        <SearchBar value={search} onChange={setSearch} placeholder="Modül veya alan ara..." />
+        <SearchBar value={search} onChange={setSearch} placeholder="Kategori veya modül ara…" />
       </View>
 
-      <ScrollView contentContainerClassName="px-3 pb-10 pt-2" keyboardShouldPersistTaps="handled">
+      <ScrollView contentContainerClassName="gap-1 px-3 pb-10 pt-2" keyboardShouldPersistTaps="handled">
         {groups.length === 0 ? (
           <EmptyState
             icon="grid-outline"
@@ -152,11 +151,6 @@ export default function ModulesScreen() {
             />
           ))
         )}
-        {!searching && groups.length > 0 ? (
-          <Text className="px-1 pt-1 font-inter text-[12px] text-muted-foreground">
-            {moduleGroups.length} alan · grubu açarak tüm modüllere ulaşın
-          </Text>
-        ) : null}
       </ScrollView>
     </SafeAreaView>
   );

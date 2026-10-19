@@ -76,7 +76,7 @@ export default function LoginScreen() {
         <ScrollView contentContainerClassName="flex-grow pb-6" keyboardShouldPersistTaps="handled">
           <Enter>
             <View className="px-6 pt-2">
-              <Logo width={205} />
+              <Logo width={156} />
               <View className="pt-5">
                 <HeroTitle lead="Giriş Yap" subtitle="Hesabınıza güvenle erişin." />
               </View>

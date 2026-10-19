@@ -348,7 +348,7 @@ export default function DashboardScreen() {
         }
       >
         <View className="h-11 flex-row items-center justify-between">
-          <Logo width={168} />
+          <Logo width={120} />
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="Bildirimler"

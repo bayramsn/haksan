@@ -337,14 +337,14 @@ export function EmptyState({
 }) {
   const { colors } = useTheme();
   return (
-    <View className="items-center gap-3 px-8 py-14">
+    <View className="items-center gap-2.5 px-6 py-8">
       <Enter>
-        <View className="h-16 w-16 items-center justify-center rounded-full border border-border bg-card-subtle">
-          <Ionicons name={icon} size={30} color={colors.mutedForeground} />
+        <View className="h-10 w-10 items-center justify-center rounded-full border border-border bg-card-subtle">
+          <Ionicons name={icon} size={20} color={colors.mutedForeground} />
         </View>
       </Enter>
-      <Text className="text-center font-inter-semibold text-base text-foreground">{title}</Text>
-      {hint ? <Text className="text-center font-inter text-sm leading-[1.45] text-muted-foreground">{hint}</Text> : null}
+      <Text className="text-center font-inter-semibold text-[15px] text-foreground">{title}</Text>
+      {hint ? <Text className="text-center font-inter text-[13px] leading-[1.4] text-muted-foreground">{hint}</Text> : null}
       {actionLabel && onAction ? (
         <Enter delay={120} className="pt-2">
           <Button label={actionLabel} variant="ghost" onPress={onAction} />
@@ -392,7 +392,7 @@ function ActionButton({ action }: { action: HeaderAction }) {
       hitSlop={8}
       className="h-11 w-11 items-center justify-center active:opacity-60"
     >
-      <Ionicons name={action.icon} size={23} color={colors.foreground} />
+      <Ionicons name={action.icon} size={20} color={colors.foreground} />
       {action.dot ? (
         <View className="absolute right-2.5 top-2.5 h-2.5 w-2.5 rounded-full border-2 border-card bg-primary" />
       ) : null}
@@ -422,7 +422,7 @@ function BackButton({ onPress }: { onPress: () => void }) {
       hitSlop={8}
       className="h-11 w-11 items-center justify-center rounded-full active:opacity-60"
     >
-      <Ionicons name="arrow-back" size={22} color={colors.foreground} />
+      <Ionicons name="arrow-back" size={20} color={colors.foreground} />
     </Pressable>
   );
 }
@@ -451,7 +451,7 @@ export function ScreenHeader({
     <View style={{ paddingHorizontal: SCREEN_PAD }} className="pb-1 pt-1">
       <View className="h-11 flex-row items-center justify-between">
         {nav.isTabRoot ? (
-          <Logo width={148} />
+          <Logo width={118} />
         ) : (
           <View className="-ml-3">
             <BackButton onPress={nav.goBack} />
@@ -672,9 +672,9 @@ export function StatStrip({
           key={item.label}
           className={`flex-1 items-center gap-1 px-1 py-3.5 ${index > 0 ? 'border-l border-border' : ''}`}
         >
-          {item.icon ? <Ionicons name={item.icon} size={22} color={colors.primary} /> : null}
+          {item.icon ? <Ionicons name={item.icon} size={16} color={colors.primary} /> : null}
           <Text
-            className="font-inter-bold text-[22px] leading-[26px]"
+            className="font-inter-bold text-[18px] leading-[22px]"
             numberOfLines={1}
             adjustsFontSizeToFit
             style={{ color: item.tone ? toneColor(colors, item.tone) : colors.foreground }}
@@ -763,8 +763,8 @@ export function ListRow({
       style={{ borderCurve: 'continuous', boxShadow: '0 1px 4px rgba(15, 23, 42, 0.05)' }}
     >
       {icon ? (
-        <View className={`h-[46px] w-[46px] items-center justify-center rounded-[12px] border ${chipClass[iconTone]}`}>
-          <Ionicons name={icon} size={22} color={toneColor(colors, iconTone)} />
+        <View className={`h-9 w-9 items-center justify-center rounded-[10px] border ${chipClass[iconTone]}`}>
+          <Ionicons name={icon} size={18} color={toneColor(colors, iconTone)} />
         </View>
       ) : null}
 
@@ -854,11 +854,11 @@ export function Fab({
         shadowRadius: 12,
         elevation: 6,
       }}
-      className={`absolute bottom-5 right-5 h-14 flex-row items-center justify-center gap-2 bg-primary active:opacity-80 ${
-        extended ? 'rounded-full px-5' : 'w-14 rounded-full'
+      className={`absolute bottom-5 right-5 h-12 flex-row items-center justify-center gap-2 bg-primary active:opacity-80 ${
+        extended ? 'rounded-full px-4' : 'w-12 rounded-full'
       }`}
     >
-      <Ionicons name={icon} size={24} color={colors.primaryForeground} />
+      <Ionicons name={icon} size={22} color={colors.primaryForeground} />
       {extended ? <Text className="font-inter-semibold text-base text-primary-foreground">{label}</Text> : null}
     </Pressable>
   );

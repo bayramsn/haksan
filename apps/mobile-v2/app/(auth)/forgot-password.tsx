@@ -66,7 +66,7 @@ export default function ForgotPasswordScreen() {
         <ScrollView contentContainerClassName="flex-grow pb-6" keyboardShouldPersistTaps="handled">
           <Enter>
             <View className="px-6 pt-2">
-              <Logo width={205} />
+              <Logo width={156} />
               <View className="pt-5">
                 <HeroTitle lead="Şifremi" tail="Unuttum" subtitle="Şifre sıfırlama bağlantısını alın." />
               </View>

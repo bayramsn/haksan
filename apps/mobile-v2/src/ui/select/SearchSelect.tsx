@@ -45,7 +45,8 @@ type Props<T> = {
 
 export function SearchSelect<T>(props: Props<T>) {
   const sheet = useRef<BottomSheetModal>(null);
-  const sheetProps = useSheetProps('85%');
+  const sheetProps = useSheetProps('70%');
+  const [open, setOpen] = useState(false);
   return (
     <>
       <PickerField
@@ -58,14 +59,27 @@ export function SearchSelect<T>(props: Props<T>) {
         onPress={() => sheet.current?.present()}
         onClear={props.clearable ? () => props.onSelect(null) : undefined}
       />
-      <BottomSheetModal ref={sheet} {...sheetProps} keyboardBehavior="extend" keyboardBlurBehavior="restore">
-        <SheetBody
-          {...props}
-          onPick={(item) => {
-            props.onSelect(item);
-            sheet.current?.dismiss();
-          }}
-        />
+      <BottomSheetModal
+        ref={sheet}
+        {...sheetProps}
+        enablePanDownToClose
+        keyboardBehavior="extend"
+        keyboardBlurBehavior="restore"
+        onChange={(index) => setOpen(index >= 0)}
+      >
+        {open ? (
+          <SheetBody
+            {...props}
+            onPick={(item) => {
+              props.onSelect(item);
+              sheet.current?.dismiss();
+            }}
+          />
+        ) : (
+          <BottomSheetView className="h-16">
+            <View />
+          </BottomSheetView>
+        )}
       </BottomSheetModal>
     </>
   );
@@ -99,17 +113,17 @@ function SheetBody<T>({
 
   return (
     <>
-      <BottomSheetView className="gap-3 px-4 pb-2">
-        <Text className="font-display text-xl text-foreground">{label}</Text>
+      <BottomSheetView className="gap-2.5 px-4 pb-2">
+        <Text className="font-display-semibold text-[17px] text-foreground">{label}</Text>
         <SearchBar value={search} onChange={setSearch} placeholder={searchPlaceholder ?? 'Ara...'} />
         {showCustom ? (
           <Pressable
             accessibilityRole="button"
             onPress={() => onPick({ id: '', label: custom })}
-            className="min-h-12 flex-row items-center gap-3 rounded-control border border-dashed border-primary px-3 active:opacity-70"
+            className="min-h-11 flex-row items-center gap-2.5 rounded-control border border-dashed border-primary px-3 active:opacity-70"
           >
-            <Ionicons name="create-outline" size={18} color={colors.primary} />
-            <Text className="flex-1 font-inter-medium text-sm text-primary" numberOfLines={1}>
+            <Ionicons name="create-outline" size={16} color={colors.primary} />
+            <Text className="flex-1 font-inter-medium text-[13px] text-primary" numberOfLines={1}>
               “{custom}” olarak kullan
             </Text>
           </Pressable>
@@ -119,7 +133,7 @@ function SheetBody<T>({
         data={items}
         keyExtractor={(item: SelectItem<T>) => item.id || item.label}
         keyboardShouldPersistTaps="handled"
-        contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 40 }}
+        contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 36 }}
         renderItem={({ item }: { item: SelectItem<T> }) => {
           const selected = Boolean(selectedId) && item.id === selectedId;
           return (
@@ -127,19 +141,19 @@ function SheetBody<T>({
               accessibilityRole="button"
               accessibilityState={{ selected }}
               onPress={() => onPick(item)}
-              className="min-h-[52px] flex-row items-center gap-3 border-b border-border py-2 active:opacity-70"
+              className="min-h-[48px] flex-row items-center gap-2.5 border-b border-border py-2 active:opacity-70"
             >
               <View className="flex-1">
-                <Text className="font-inter-semibold text-sm text-foreground" numberOfLines={1}>
+                <Text className="font-inter-semibold text-[14px] text-foreground" numberOfLines={1}>
                   {item.label}
                 </Text>
                 {item.hint ? (
-                  <Text className="font-inter text-xs text-muted-foreground" numberOfLines={1}>
+                  <Text className="font-inter text-[12px] text-muted-foreground" numberOfLines={1}>
                     {item.hint}
                   </Text>
                 ) : null}
               </View>
-              {selected ? <Ionicons name="checkmark" size={19} color={colors.primary} /> : null}
+              {selected ? <Ionicons name="checkmark" size={18} color={colors.primary} /> : null}
             </Pressable>
           );
         }}

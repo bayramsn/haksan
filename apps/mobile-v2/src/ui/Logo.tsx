@@ -8,7 +8,7 @@ import { Image } from 'react-native';
 const LOGO = require('../../assets/brand/logo.png');
 const RATIO = 411 / 97;
 
-export function Logo({ width = 150 }: { width?: number }) {
+export function Logo({ width = 120 }: { width?: number }) {
   return (
     <Image
       source={LOGO}

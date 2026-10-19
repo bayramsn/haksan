@@ -97,7 +97,7 @@ export default function ResetPasswordScreen() {
         >
           <Enter>
             <View className="px-6 pt-2">
-              <Logo width={205} />
+              <Logo width={156} />
               <View className="pt-5">
                 <HeroTitle lead="Yeni" tail="Şifre" subtitle="Hesabınız için yeni parolanızı belirleyin." />
               </View>

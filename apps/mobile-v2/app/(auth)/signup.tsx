@@ -90,7 +90,7 @@ export default function SignupScreen() {
         <ScrollView contentContainerClassName="flex-grow pb-6" keyboardShouldPersistTaps="handled">
           <Enter>
             <View className="px-6 pt-2">
-              <Logo width={205} />
+              <Logo width={156} />
               <View className="pt-5">
                 <HeroTitle lead="Kayıt Ol" subtitle="ERP deneyimine hemen başlayın." />
               </View>

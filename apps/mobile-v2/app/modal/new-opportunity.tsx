@@ -6,7 +6,7 @@ import { useCompany } from '@/src/api/companies.hooks';
 import { useCreateOpportunity } from '@/src/api/crm.hooks';
 import { useCreateOpportunityFromActivity } from '@/src/api/sales.hooks';
 import { useAuth, useCan } from '@/src/auth/AuthProvider';
-import { Button, Eyebrow, Field } from '@/src/ui';
+import { Button, Card, Eyebrow, Field } from '@/src/ui';
 import { DateTimeField } from '@/src/ui/pickers/DateTimeField';
 import { SearchSelect } from '@/src/ui/select/SearchSelect';
 import {
@@ -36,10 +36,11 @@ function param(value: string | string[] | undefined): string {
   return typeof value === 'string' ? value : '';
 }
 
+const emptyContact = { contactId: '', contactName: '', phone: '', email: '' } as const;
+
 /**
- * Hızlı fırsat (web LeadCaptureDialog karşılığı). Firma, kontak, ürün, il/ilçe,
- * irtibat şekli, bölüm ve sorumlu veritabanındaki listelerden aranarak seçilir;
- * listede olmayan firma/kontak/ürün yine yazılabilir ve lead alanlarında kalır.
+ * Hızlı fırsat (web LeadCaptureDialog). Firma → kontak → adres zinciri CRM’den;
+ * listede olmayan firma/kontak/ürün yazılabilir.
  */
 export default function NewOpportunityScreen() {
   const router = useRouter();
@@ -91,12 +92,11 @@ export default function NewOpportunityScreen() {
       const cleared = { ...prev };
       for (const key of Object.keys(next) as (keyof QuickOpportunityForm)[]) delete cleared[key];
       if ('email' in next) delete cleared.phone;
-      if ('companyId' in next) delete cleared.contactName;
+      if ('companyId' in next || 'contactName' in next) delete cleared.contactName;
       return cleared;
     });
   }
 
-  // Firma rotadan geldiyse (firma detayı → yeni fırsat) iletişim alanlarını kayıttan doldur.
   const routeCompany = useCompany(param(params.companyId));
   useEffect(() => {
     const company = routeCompany.data;
@@ -152,15 +152,15 @@ export default function NewOpportunityScreen() {
     <SafeAreaView className="flex-1 bg-canvas" edges={['bottom', 'left', 'right']}>
       <Stack.Screen options={{ title: activityId ? 'Aktiviteden Fırsat' : 'Hızlı Fırsat', headerShown: true }} />
       <KeyboardAvoidingView className="flex-1" behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <ScrollView contentContainerClassName="gap-6 p-4 pb-10" keyboardShouldPersistTaps="handled">
-          <Text className="font-inter text-sm text-muted-foreground">
-            Talebi fırsatın ilk C alanına kaydedin. Firma ve kontak kayıtlı listeden seçilebilir; listede yoksa yazabilirsiniz.
+        <ScrollView contentContainerClassName="gap-4 p-4 pb-10" keyboardShouldPersistTaps="handled">
+          <Text className="font-inter text-[13px] leading-[18px] text-muted-foreground">
+            Firma seçince kontak ve adres CRM’den bağlanır. Kayıtta yoksa alanlara yazabilirsiniz.
           </Text>
 
-          <View className="gap-3">
-            <Eyebrow>Firma ve kontak</Eyebrow>
+          <Card className="gap-3">
+            <Eyebrow>1 · Firma ve kontak</Eyebrow>
             <CompanySelect
-              label="Firma"
+              label="Firma *"
               value={form.companyTitle}
               selectedId={form.companyId}
               allowCustom
@@ -168,16 +168,20 @@ export default function NewOpportunityScreen() {
               placeholder="Kayıtlı firmadan seçin veya yazın"
               onSelect={(item) => {
                 const company = item?.data;
-                if (!item) return patch({ companyId: '', companyTitle: '', contactId: '' });
-                if (!company) return patch({ companyId: '', companyTitle: item.label, contactId: '' });
+                if (!item) {
+                  return patch({ companyId: '', companyTitle: '', ...emptyContact, city: '', district: '' });
+                }
+                if (!company) {
+                  return patch({ companyId: '', companyTitle: item.label, ...emptyContact });
+                }
                 patch({
                   companyId: company.id,
                   companyTitle: companyLabel(company),
-                  contactId: '',
-                  city: form.city || company.primaryAddress?.province || '',
-                  district: form.district || company.primaryAddress?.district || '',
-                  phone: form.phone || company.primaryPhone || '',
-                  email: form.email || company.primaryEmail || '',
+                  ...emptyContact,
+                  city: company.primaryAddress?.province || '',
+                  district: company.primaryAddress?.district || '',
+                  phone: company.primaryPhone || '',
+                  email: company.primaryEmail || '',
                 });
               }}
             />
@@ -188,11 +192,11 @@ export default function NewOpportunityScreen() {
               selectedId={form.contactId}
               allowCustom
               clearable
-              placeholder={form.companyId ? 'Firmanın kontağını seçin veya yazın' : 'Kontak ismini yazın'}
+              placeholder={form.companyId ? 'Firmanın kontağını seçin' : 'Firma yoksa kontak adını yazın'}
               error={errors.contactName}
               onSelect={(item) => {
                 const contact = item?.data;
-                if (!item) return patch({ contactId: '', contactName: '' });
+                if (!item) return patch({ ...emptyContact });
                 if (!contact) return patch({ contactId: '', contactName: item.label });
                 patch({
                   contactId: contact.id,
@@ -209,7 +213,7 @@ export default function NewOpportunityScreen() {
                   value={form.phone}
                   onChangeText={(phone) => patch({ phone })}
                   keyboardType="phone-pad"
-                  placeholder="05xx xxx xx xx"
+                  placeholder="05xx…"
                   maxLength={64}
                   error={errors.phone}
                 />
@@ -222,31 +226,37 @@ export default function NewOpportunityScreen() {
                   keyboardType="email-address"
                   autoCapitalize="none"
                   autoCorrect={false}
-                  placeholder="ornek@firma.com"
+                  placeholder="ornek@…"
                   maxLength={254}
                   error={errors.email}
                 />
               </View>
             </View>
-            <ProvinceSelect
-              label="İl *"
-              value={form.city}
-              onChange={(city) => patch({ city, district: city === form.city ? form.district : '' })}
-              error={errors.city}
-            />
-            <DistrictSelect label="İlçe" province={form.city} value={form.district} onChange={(district) => patch({ district })} />
+            <View className="flex-row gap-2">
+              <View className="flex-1">
+                <ProvinceSelect
+                  label="İl *"
+                  value={form.city}
+                  onChange={(city) => patch({ city, district: city === form.city ? form.district : '' })}
+                  error={errors.city}
+                />
+              </View>
+              <View className="flex-1">
+                <DistrictSelect label="İlçe" province={form.city} value={form.district} onChange={(district) => patch({ district })} />
+              </View>
+            </View>
             <LookupSelect
               name="contact-sources"
               label="İrtibat şekli"
-              placeholder="Seçim zorunlu değil"
+              placeholder="Opsiyonel"
               icon="call-outline"
               value={form.contactMethod}
               onChange={(contactMethod) => patch({ contactMethod })}
             />
-          </View>
+          </Card>
 
-          <View className="gap-3">
-            <Eyebrow>Talep</Eyebrow>
+          <Card className="gap-3">
+            <Eyebrow>2 · Talep</Eyebrow>
             <View className="flex-row gap-2">
               <View className="flex-[3]">
                 <ProductSelect
@@ -254,12 +264,12 @@ export default function NewOpportunityScreen() {
                   value={form.product}
                   selectedId={form.productModelId}
                   clearable
-                  placeholder="Katalogdan arayın veya yazın"
+                  placeholder="Katalogdan seçin veya yazın"
                   error={errors.product}
                   onSelect={(item) => patch({ productModelId: item?.id ?? '', product: item?.label ?? '' })}
                 />
               </View>
-              <View className="flex-1">
+              <View className="w-[72px]">
                 <Field
                   label="Adet"
                   value={form.quantity}
@@ -273,13 +283,13 @@ export default function NewOpportunityScreen() {
               label="Kart başlığı"
               value={form.title}
               onChangeText={(title) => patch({ title })}
-              placeholder={quickOpportunityTitle({ ...form, title: '' }) || 'Boş bırakılırsa ürün ve adetten oluşur'}
+              placeholder={quickOpportunityTitle({ ...form, title: '' }) || 'Boşsa ürün + adetten oluşur'}
               maxLength={255}
             />
-          </View>
+          </Card>
 
-          <View className="gap-3">
-            <Eyebrow>Ticari (opsiyonel)</Eyebrow>
+          <Card className="gap-3">
+            <Eyebrow>3 · Ticari (opsiyonel)</Eyebrow>
             <View className="flex-row gap-2">
               <View className="flex-[2]">
                 <Field
@@ -290,24 +300,27 @@ export default function NewOpportunityScreen() {
                   error={errors.estimatedValue}
                 />
               </View>
-              <View className="flex-1 flex-row gap-1 pt-6">
-                {CURRENCIES.map((code) => (
-                  <Pressable
-                    key={code}
-                    accessibilityRole="radio"
-                    accessibilityState={{ selected: form.currencyCode === code }}
-                    onPress={() => patch({ currencyCode: code })}
-                    className={`flex-1 items-center justify-center rounded-control border ${form.currencyCode === code ? 'border-primary bg-secondary' : 'border-border bg-card'}`}
-                  >
-                    <Text className={`font-inter-semibold text-xs ${form.currencyCode === code ? 'text-primary' : 'text-foreground'}`}>{code}</Text>
-                  </Pressable>
-                ))}
+              <View className="flex-1 justify-end gap-1 pb-0.5">
+                <Text className="font-inter-medium text-[13px] text-muted-foreground">Para birimi</Text>
+                <View className="min-h-12 flex-row gap-1">
+                  {CURRENCIES.map((code) => (
+                    <Pressable
+                      key={code}
+                      accessibilityRole="radio"
+                      accessibilityState={{ selected: form.currencyCode === code }}
+                      onPress={() => patch({ currencyCode: code })}
+                      className={`flex-1 items-center justify-center rounded-control border ${form.currencyCode === code ? 'border-primary bg-secondary' : 'border-border bg-card'}`}
+                    >
+                      <Text className={`font-inter-semibold text-[11px] ${form.currencyCode === code ? 'text-primary' : 'text-foreground'}`}>{code}</Text>
+                    </Pressable>
+                  ))}
+                </View>
               </View>
             </View>
             <View className="flex-row gap-2">
-              <View className="flex-1">
+              <View className="w-[88px]">
                 <Field
-                  label="Olasılık (%)"
+                  label="Olasılık %"
                   value={form.probability}
                   onChangeText={(probability) => patch({ probability: probability.replace(/\D/g, '') })}
                   keyboardType="number-pad"
@@ -315,26 +328,26 @@ export default function NewOpportunityScreen() {
                   error={errors.probability}
                 />
               </View>
-              <View className="flex-[2]">
+              <View className="flex-1">
                 <DateTimeField
                   label="Beklenen kapanış"
                   mode="date"
                   value={form.expectedCloseDate}
                   onChange={(expectedCloseDate) => patch({ expectedCloseDate })}
-                  placeholder="Tarih seçin"
+                  placeholder="Tarih"
                   clearable
                 />
               </View>
             </View>
-          </View>
+          </Card>
 
-          <View className="gap-3">
-            <Eyebrow>Takip</Eyebrow>
+          <Card className="gap-3">
+            <Eyebrow>4 · Takip ve atama</Eyebrow>
             <Field
               label="İlk takip aksiyonu"
               value={form.nextAction}
               onChangeText={(nextAction) => patch({ nextAction })}
-              placeholder="Örn. Teknik ihtiyaç için satın alma müdürünü ara"
+              placeholder="Örn. Satın alma müdürünü ara"
               maxLength={1000}
               error={errors.nextAction}
             />
@@ -342,7 +355,7 @@ export default function NewOpportunityScreen() {
               label="Takip zamanı"
               value={form.nextActionAt}
               onChange={(nextActionAt) => patch({ nextActionAt })}
-              placeholder="Tarih ve saat seçin"
+              placeholder="Tarih ve saat"
               clearable
             />
             <Field
@@ -352,12 +365,8 @@ export default function NewOpportunityScreen() {
               multiline
               numberOfLines={3}
               maxLength={3000}
-              className="min-h-[88px] rounded-control border border-transparent bg-input-background px-3.5 py-3 font-inter text-base text-foreground"
+              className="min-h-[72px] rounded-control border border-transparent bg-input-background px-3.5 py-2.5 font-inter text-base text-foreground"
             />
-          </View>
-
-          <View className="gap-3">
-            <Eyebrow>Atama</Eyebrow>
             {divisions.length > 1 ? (
               <SearchSelect
                 label="Bölüm *"
@@ -376,7 +385,7 @@ export default function NewOpportunityScreen() {
               divisionId={form.divisionId || null}
               onlyUserId={canAssignOthers ? null : user?.id ?? null}
             />
-          </View>
+          </Card>
         </ScrollView>
         <View className="flex-row gap-3 border-t border-border bg-card px-4 py-3">
           <View className="flex-1">

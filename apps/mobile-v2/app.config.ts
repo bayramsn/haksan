@@ -81,7 +81,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   android: {
     package: 'com.haksan.mobileapp',
     versionCode: 1,
-    adaptiveIcon: { foregroundImage: './assets/adaptive-icon.png', backgroundColor: '#e31e24' },
+    adaptiveIcon: { foregroundImage: './assets/adaptive-icon.png', backgroundColor: '#0b1f3a' },
     // Sadece gerçekten kullanılan izinler; fazlası Play incelemesinde gerekçe ister.
     permissions: ['CAMERA', 'ACCESS_FINE_LOCATION', 'POST_NOTIFICATIONS', 'ACCESS_NETWORK_STATE'],
     edgeToEdgeEnabled: true,
@@ -137,10 +137,10 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       'expo-splash-screen',
       {
         image: './assets/splash-icon.png',
-        imageWidth: 200,
+        imageWidth: 220,
         resizeMode: 'contain',
-        backgroundColor: '#f4f6f8',
-        dark: { backgroundColor: '#070b18' },
+        backgroundColor: '#0b1f3a',
+        dark: { backgroundColor: '#0b1f3a' },
       },
     ],
     [

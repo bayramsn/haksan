@@ -101,10 +101,10 @@ function OpportunityHeader({ onMore }: { onMore?: () => void }) {
         onPress={() => router.back()}
         className="h-11 w-11 items-center justify-center active:opacity-60"
       >
-        <Ionicons name="arrow-back" size={27} color={colors.foreground} />
+        <Ionicons name="arrow-back" size={22} color={colors.foreground} />
       </Pressable>
       <View className="flex-1 items-center">
-        <Logo width={154} />
+        <Logo width={112} />
       </View>
       <Pressable
         accessibilityRole="button"
@@ -114,7 +114,7 @@ function OpportunityHeader({ onMore }: { onMore?: () => void }) {
         onPress={onMore}
         className="h-11 w-11 items-center justify-center active:opacity-60"
       >
-        <Ionicons name="ellipsis-vertical" size={24} color={onMore ? colors.primary : colors.mutedForeground} />
+        <Ionicons name="ellipsis-vertical" size={20} color={onMore ? colors.primary : colors.mutedForeground} />
       </Pressable>
     </View>
   );
@@ -168,20 +168,20 @@ function OpportunityModuleTile({
       accessibilityRole="button"
       accessibilityLabel={count ? `${label} (${count})` : label}
       onPress={onPress}
-      className="h-[106px] flex-1 items-center justify-center gap-2 rounded-[14px] border border-border bg-card px-1 active:opacity-70"
-      style={{ borderCurve: 'continuous', boxShadow: '0 2px 8px rgba(15, 23, 42, 0.06)' }}
+      className="h-[76px] flex-1 items-center justify-center gap-1.5 rounded-[12px] border border-border bg-card px-1 active:opacity-70"
+      style={{ borderCurve: 'continuous' }}
     >
       <View className="relative">
-        <Ionicons name={icon} size={31} color={colors.primary} />
+        <Ionicons name={icon} size={20} color={colors.primary} />
         {count !== undefined && count > 0 ? (
-          <View className="absolute -right-3 -top-2 min-w-[21px] items-center rounded-full bg-primary px-1 py-0.5">
-            <Text className="font-inter-bold text-[11px] text-primary-foreground">{count}</Text>
+          <View className="absolute -right-2.5 -top-1.5 min-w-[18px] items-center rounded-full bg-primary px-1 py-0.5">
+            <Text className="font-inter-bold text-[10px] text-primary-foreground">{count}</Text>
           </View>
         ) : available ? (
-          <View className="absolute -right-2 -top-1 h-2.5 w-2.5 rounded-full border-2 border-card bg-primary" />
+          <View className="absolute -right-1.5 -top-1 h-2 w-2 rounded-full border-2 border-card bg-primary" />
         ) : null}
       </View>
-      <Text className="text-center font-inter-medium text-[13px] text-foreground" numberOfLines={1}>{label}</Text>
+      <Text className="text-center font-inter-medium text-[12px] text-foreground" numberOfLines={1}>{label}</Text>
     </Pressable>
   );
 }

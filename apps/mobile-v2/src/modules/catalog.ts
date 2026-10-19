@@ -9,7 +9,15 @@ import type { AuthTenant, AuthUser } from '@/src/api/endpoints';
  * buradan beslenir. Bir modül BURAYA ancak ekranı yazıldığında eklenir;
  * `key` aynı zamanda `app/(tabs)/modules/<key>` klasörüdür.
  */
-export type ModuleGroup = 'general' | 'sales' | 'sales-ops' | 'operations' | 'service' | 'admin';
+export type ModuleGroup =
+  | 'general'
+  | 'sales'
+  | 'sales-ops'
+  | 'catalog'
+  | 'finance'
+  | 'logistics'
+  | 'service'
+  | 'admin';
 
 type ModuleGroupMeta = {
   key: ModuleGroup;
@@ -18,14 +26,16 @@ type ModuleGroupMeta = {
   icon: keyof typeof Ionicons.glyphMap;
 };
 
-/** Web kenar menüsü (`NAVIGATION_GROUPS`) sırası; son grup web kullanıcı menüsündeki yönetim sayfaları. */
+/** Web kenar menüsü sırasına yakın; operasyon kalemleri katalog / finans / lojistik diye ayrıldı. */
 export const moduleGroups: ModuleGroupMeta[] = [
-  { key: 'general', title: 'Genel', hint: 'Takvim, görev ve saha planı', icon: 'today-outline' },
-  { key: 'sales', title: 'Satış', hint: 'Firma, fırsat ve hedefler', icon: 'trending-up-outline' },
-  { key: 'sales-ops', title: 'Satış Operasyonu', hint: 'Kontak, teklif ve ticari belgeler', icon: 'document-text-outline' },
-  { key: 'operations', title: 'Operasyon', hint: 'Ürün, stok, finans ve sevkiyat', icon: 'layers-outline' },
-  { key: 'service', title: 'Servis', hint: 'Makine, kurulum ve servis süreçleri', icon: 'construct-outline' },
-  { key: 'admin', title: 'Rapor & Yönetim', hint: 'Raporlar, kullanıcılar ve yetkiler', icon: 'shield-checkmark-outline' },
+  { key: 'general', title: 'Genel', hint: 'Takvim, görev, aktivite, fuar', icon: 'today-outline' },
+  { key: 'sales', title: 'Satış', hint: 'Firma, fırsat, kanban, hedef', icon: 'trending-up-outline' },
+  { key: 'sales-ops', title: 'Teklif & Belgeler', hint: 'Kontak, teklif, sözleşme, sipariş', icon: 'document-text-outline' },
+  { key: 'catalog', title: 'Ürün & Stok', hint: 'Katalog, stok, satın alma', icon: 'cube-outline' },
+  { key: 'finance', title: 'Finans', hint: 'Ödeme, tahsilat, fatura, cari', icon: 'wallet-outline' },
+  { key: 'logistics', title: 'Lojistik', hint: 'Sevkiyat ve teslimat', icon: 'car-outline' },
+  { key: 'service', title: 'Servis', hint: 'Makine, kurulum, talep, bakım', icon: 'construct-outline' },
+  { key: 'admin', title: 'Rapor & Yönetim', hint: 'Raporlar, kullanıcı, yetki', icon: 'shield-checkmark-outline' },
 ];
 
 export const groupTitles = Object.fromEntries(moduleGroups.map((group) => [group.key, group.title])) as Record<ModuleGroup, string>;
@@ -87,27 +97,27 @@ const seeds: ModuleSeed[] = [
   { key: 'price-lists', title: 'Satış Fiyat Listesi', icon: 'list-outline', tone: 'warning', group: 'sales-ops', permission: 'price_lists.read', navKey: 'sales-price-list' },
   { key: 'sales-orders', title: 'Satış Siparişleri', icon: 'receipt-outline', tone: 'success', group: 'sales-ops', permission: 'sales_orders.read' },
 
-  { key: 'products', title: 'Ürünler', icon: 'pricetag-outline', tone: 'stage', group: 'operations', permission: 'products.read', navKey: 'products' },
-  { key: 'inventory', title: 'Stoklar', icon: 'cube-outline', tone: 'info', group: 'operations', permission: 'inventory.read', navKey: 'stock' },
-  { key: 'purchase-orders', title: 'Satın Alma', icon: 'cart-outline', tone: 'neutral', group: 'operations', permission: 'purchase_orders.read' },
-  { key: 'payments', title: 'Ödemeler & Kasa', icon: 'swap-vertical-outline', tone: 'info', group: 'operations', permission: 'payments.read', navKey: 'payments' },
-  { key: 'receivables', title: 'Tahsilatlar', icon: 'wallet-outline', tone: 'success', group: 'operations', permission: 'receivables.read' },
+  { key: 'products', title: 'Ürünler', icon: 'pricetag-outline', tone: 'stage', group: 'catalog', permission: 'products.read', navKey: 'products' },
+  { key: 'inventory', title: 'Stoklar', icon: 'cube-outline', tone: 'info', group: 'catalog', permission: 'inventory.read', navKey: 'stock' },
+  { key: 'purchase-orders', title: 'Satın Alma', icon: 'cart-outline', tone: 'neutral', group: 'catalog', permission: 'purchase_orders.read' },
+  { key: 'payments', title: 'Ödemeler & Kasa', icon: 'swap-vertical-outline', tone: 'info', group: 'finance', permission: 'payments.read', navKey: 'payments' },
+  { key: 'receivables', title: 'Tahsilatlar', icon: 'wallet-outline', tone: 'success', group: 'finance', permission: 'receivables.read' },
   {
     key: 'invoices',
     title: 'Muhasebe Faturaları',
     icon: 'document-outline',
     tone: 'warning',
-    group: 'operations',
+    group: 'finance',
     permission: 'accounting_invoices.read',
     navKey: 'accounting-invoices',
   },
-  { key: 'balances', title: 'Cari Rapor', icon: 'scale-outline', tone: 'stage', group: 'operations', permission: 'receivables.read', navKey: 'customer-balances' },
-  { key: 'due-dates', title: 'Vade Takvimi', icon: 'calendar-outline', tone: 'destructive', group: 'operations', permission: 'payments.read', navKey: 'due-dates' },
-  { key: 'shipments', title: 'Sevkiyat', icon: 'car-outline', tone: 'info', group: 'operations', permission: 'shipments.read', navKey: 'shipments' },
+  { key: 'balances', title: 'Cari Rapor', icon: 'scale-outline', tone: 'stage', group: 'finance', permission: 'receivables.read', navKey: 'customer-balances' },
+  { key: 'due-dates', title: 'Vade Takvimi', icon: 'calendar-outline', tone: 'destructive', group: 'finance', permission: 'payments.read', navKey: 'due-dates' },
+  { key: 'shipments', title: 'Sevkiyat', icon: 'car-outline', tone: 'info', group: 'logistics', permission: 'shipments.read', navKey: 'shipments' },
+  { key: 'deliveries', title: 'Teslimat Kayıtları', icon: 'clipboard-outline', tone: 'info', group: 'logistics', permission: 'shipments.read', navKey: 'deliveries' },
 
   { key: 'customer-devices', title: 'Makineler', icon: 'hardware-chip-outline', tone: 'neutral', group: 'service', permission: 'customer_devices.read', navKey: 'machines' },
   { key: 'installations', title: 'Kurulumlar', icon: 'hammer-outline', tone: 'info', group: 'service', permission: 'installations.read', navKey: 'installations' },
-  { key: 'deliveries', title: 'Teslimat Kayıtları', icon: 'clipboard-outline', tone: 'info', group: 'service', permission: 'shipments.read', navKey: 'deliveries' },
   {
     key: 'service-tickets',
     title: 'Servis Talepleri',

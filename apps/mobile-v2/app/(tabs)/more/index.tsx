@@ -5,6 +5,7 @@ import { useRouter } from 'expo-router';
 import { useAuth } from '@/src/auth/AuthProvider';
 import { Avatar } from '@/src/ui/Avatar';
 import { Card, ScreenHeader } from '@/src/ui';
+import { Logo } from '@/src/ui/Logo';
 import { SettingsGroup, SettingsRow } from '@/src/ui/settings';
 import { SyncStatus } from '@/src/ui/SyncStatus';
 
@@ -32,18 +33,22 @@ export default function MoreScreen() {
       <SyncStatus />
       <ScreenHeader title="Daha Fazla" />
 
-      <ScrollView contentContainerClassName="gap-4 px-4 pb-10 pt-1">
+      <ScrollView contentContainerClassName="gap-3 px-4 pb-10 pt-1">
+        <View className="items-center py-1">
+          <Logo width={132} />
+        </View>
+
         <Card className="flex-row items-center gap-3">
-          <Avatar name={user?.fullName ?? '?'} size={52} />
+          <Avatar name={user?.fullName ?? '?'} size={44} />
           <View className="flex-1 gap-0.5">
-            <Text className="text-[17px] font-inter-semibold text-foreground" numberOfLines={1}>
+            <Text className="text-[16px] font-inter-semibold text-foreground" numberOfLines={1}>
               {user?.fullName ?? '—'}
             </Text>
-            <Text className="font-inter text-[13px] text-muted-foreground" numberOfLines={1}>
+            <Text className="font-inter text-[12px] text-muted-foreground" numberOfLines={1}>
               {user?.email ?? '—'}
             </Text>
             {user?.roles?.length ? (
-              <Text className="font-inter text-[12px] text-muted-foreground" numberOfLines={1}>
+              <Text className="font-inter text-[11px] text-muted-foreground" numberOfLines={1}>
                 {user.roles.join(' · ')}
               </Text>
             ) : null}
@@ -56,7 +61,7 @@ export default function MoreScreen() {
             icon="grid-outline"
             tone="info"
             title="Modüller"
-            subtitle="Satış, operasyon, servis ve yönetim alanları."
+            subtitle="Satış, stok, finans, servis — kategorili."
             onPress={() => router.push('/(tabs)/modules')}
           />
           <SettingsRow
