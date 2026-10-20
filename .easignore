@@ -1,14 +1,43 @@
 # Legacy Expo 57 app — conflicts with mobile-v2 (Expo 54) on EAS installs.
 apps/mobile/**
 
-# Local / editor noise (also covered by .gitignore; listed for explicit upload trim)
+# Web / API / reports are not needed for the mobile EAS image (shared is built via post-install).
+apps/web/**
+apps/api/**
+reports/**
+screenshots/**
+seed/**
+docs/**
+.tmp/**
+tmp/**
+
+# Local / editor noise
 **/.DS_Store
 **/node_modules/**
+**/node_modules.nosync/**
 **/.expo/**
-**/ios/Pods/**
-**/android/.gradle/**
 **/coverage/**
 **/dist/**
 **/graphify-out/**
-tmp/**
+**/.git/**
 *.log
+
+# Native build artifacts (Pods reinstall on EAS; local build/ archives must not upload)
+**/ios/Pods/**
+**/ios/build/**
+**/ios/DerivedData/**
+**/android/.gradle/**
+**/android/app/build/**
+**/android/build/**
+apps/mobile-v2/Archive*/**
+apps/mobile-v2/.expo/**
+
+# Large binary / media noise outside the app
+**/*.ipa
+**/*.app
+**/*.dSYM
+**/*.xcarchive
+**/*.pdf
+**/*.docx
+**/*.webp
+apps/api/src/db/seed/data/**
