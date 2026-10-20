@@ -42,6 +42,8 @@ type Props<T> = {
   useRemote?: (search: string) => RemoteOptions<T>;
   remoteBag?: unknown;
   allowCustom?: boolean;
+  /** Web Combobox `createLabel` — örn. `"X" firmasını fırsata yaz`. */
+  createLabel?: (query: string) => string;
   searchPlaceholder?: string;
   emptyTitle?: string;
   error?: string;
@@ -86,6 +88,7 @@ function SheetBody<T>({
   optionsLoading,
   useRemote,
   allowCustom,
+  createLabel,
   searchPlaceholder,
   emptyTitle,
   selectedId,
@@ -102,6 +105,7 @@ function SheetBody<T>({
   const custom = search.trim();
   const showCustom = Boolean(allowCustom && custom && !hasExactOption(items, custom));
   const loading = remote ? remote.isPending : Boolean(optionsLoading);
+  const customRowLabel = createLabel?.(custom) ?? `“${custom}” olarak kullan`;
 
   return (
     <View className="min-h-0 flex-1">
@@ -115,8 +119,8 @@ function SheetBody<T>({
             className="min-h-11 flex-row items-center gap-2.5 rounded-control border border-dashed border-primary px-3 active:opacity-70"
           >
             <Ionicons name="create-outline" size={16} color={colors.primary} />
-            <Text className="flex-1 font-inter-medium text-[13px] text-primary" numberOfLines={1}>
-              “{custom}” olarak kullan
+            <Text className="flex-1 font-inter-medium text-[13px] text-primary" numberOfLines={2}>
+              {customRowLabel}
             </Text>
           </Pressable>
         ) : null}

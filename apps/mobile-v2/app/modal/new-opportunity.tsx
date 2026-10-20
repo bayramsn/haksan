@@ -39,8 +39,8 @@ function param(value: string | string[] | undefined): string {
 }
 
 /**
- * Hızlı fırsat — web LeadCaptureDialog.
- * Firma/kontak: SearchSelect (CompanySelect/ContactSelect) + allowCustom.
+ * Hızlı fırsat — web LeadCaptureDialog alanları + CreateCaseDialog ekleri
+ * (ek makine / ticari). Seçiciler HostedSheet (RN Modal) ile web Combobox gibi.
  */
 export default function NewOpportunityScreen() {
   const router = useRouter();
@@ -93,7 +93,10 @@ export default function NewOpportunityScreen() {
     setErrors((prev) => {
       const cleared = { ...prev };
       for (const key of Object.keys(next) as (keyof QuickOpportunityForm)[]) delete cleared[key];
-      if ('email' in next) delete cleared.phone;
+      if ('email' in next || 'phone' in next) {
+        delete cleared.phone;
+        delete cleared.email;
+      }
       if ('companyId' in next || 'contactName' in next) delete cleared.contactName;
       return cleared;
     });
@@ -119,6 +122,12 @@ export default function NewOpportunityScreen() {
   if (activityId ? !canConvertActivity : !canCreate) return <Redirect href={'/(tabs)/modules/opportunities' as Href} />;
 
   const pending = create.isPending || createFromActivity.isPending;
+  const phoneFilled = form.phone.trim().length > 0;
+  const emailFilled = form.email.trim().length > 0;
+  // Web: biri doluysa diğeri opsiyonel; ikisi de boşsa ikisi de zorunlu görünür.
+  const phoneLabel = phoneFilled || !emailFilled ? 'Telefon *' : 'Telefon';
+  const emailLabel = emailFilled || !phoneFilled ? 'E-posta *' : 'E-posta';
+  const contactLabel = form.companyId ? 'Kontak ismi' : 'Kontak ismi *';
 
   function submit() {
     const nextErrors = validateQuickOpportunity(form, divisions.length > 0);
@@ -156,18 +165,20 @@ export default function NewOpportunityScreen() {
       <KeyboardAvoidingView className="flex-1" behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <ScrollView contentContainerClassName="gap-3 p-4 pb-10" keyboardShouldPersistTaps="handled">
           <Text className="font-inter text-[13px] leading-[18px] text-muted-foreground">
-            Kayıtlı firma/kontak seçin veya yazın. Telefon veya e-postadan en az biri zorunlu.
+            Talebi Fırsat’ın ilk C alanına kaydedin. Firma veya kontak ana kaydı daha sonra bağlanabilir.
           </Text>
 
           <Card className="gap-3">
-            <Eyebrow>1 · Firma ve kontak</Eyebrow>
+            <Eyebrow>Firma ve kontak</Eyebrow>
             <CompanySelect
-              label="Firma *"
+              label="Firma"
               value={form.companyTitle}
               selectedId={form.companyId || null}
               allowCustom
               clearable
               placeholder="Kayıtlı firmadan seçin veya yazın"
+              searchPlaceholder="Firma ara…"
+              createLabel={(q) => `“${q}” firmasını fırsata yaz`}
               onSelect={(item) => {
                 const company = item?.data;
                 if (!item) {
@@ -187,14 +198,28 @@ export default function NewOpportunityScreen() {
                 });
               }}
             />
+            {form.companyId ? (
+              <Text className="font-inter text-[11px] text-muted-foreground">
+                Kayıtlı firma bağlandı; kart doğrudan C aşamasına hazır açılır.
+              </Text>
+            ) : form.companyTitle.trim() ? (
+              <Text className="font-inter text-[11px] text-muted-foreground">
+                Elle giriş: “{form.companyTitle.trim()}” yalnız fırsata yazılır, firma kaydı oluşturulmaz.
+              </Text>
+            ) : (
+              <Text className="font-inter text-[11px] text-muted-foreground">
+                Kayıtlıysa seçin, değilse yazın — firma ana kaydı açılmaz.
+              </Text>
+            )}
+
             <ContactSelect
-              label={form.companyId ? 'Kontak' : 'Kontak ismi *'}
+              label={contactLabel}
               companyId={form.companyId || null}
               value={form.contactName}
               selectedId={form.contactId || null}
               allowCustom
               clearable
-              placeholder={form.companyId ? 'Firmanın kontağını seçin' : 'Firma yoksa kontak adını yazın'}
+              placeholder={form.companyId ? 'Firmanın kontağını seçin veya yazın' : 'Ahmet Yılmaz'}
               error={errors.contactName}
               onSelect={(item) => {
                 const contact = item?.data;
@@ -208,60 +233,75 @@ export default function NewOpportunityScreen() {
                 });
               }}
             />
+            {form.companyId ? (
+              <Text className="font-inter text-[11px] text-muted-foreground">Kontak opsiyonel; listeden seçin veya ismi yazın.</Text>
+            ) : null}
 
             <View className="flex-row gap-2">
               <View className="flex-1">
                 <Field
-                  label="Telefon *"
+                  label={phoneLabel}
                   value={form.phone}
                   onChangeText={(phone) => patch({ phone })}
                   keyboardType="phone-pad"
-                  placeholder="05xx…"
+                  placeholder="05xx xxx xx xx"
                   maxLength={64}
                   error={errors.phone}
                 />
               </View>
               <View className="flex-1">
                 <Field
-                  label="E-posta *"
+                  label={emailLabel}
                   value={form.email}
                   onChangeText={(email) => patch({ email })}
                   keyboardType="email-address"
                   autoCapitalize="none"
                   autoCorrect={false}
-                  placeholder="ornek@…"
+                  placeholder="ornek@firma.com"
                   maxLength={254}
                   error={errors.email}
                 />
               </View>
             </View>
-            <Text className="font-inter text-[11px] text-muted-foreground">Telefon veya e-postadan en az biri yeterlidir.</Text>
+            <Text
+              className={`font-inter text-[11px] ${phoneFilled || emailFilled ? 'text-muted-foreground' : 'text-destructive'}`}
+            >
+              Telefon veya e-postadan en az biri zorunludur; birini yazınca diğeri opsiyonel olur.
+            </Text>
 
             <View className="flex-row gap-2">
               <View className="flex-1">
                 <ProvinceSelect
                   label="İl *"
                   value={form.city}
+                  placeholder="İl seçin veya yazın"
                   onChange={(city) => patch({ city, district: city === form.city ? form.district : '' })}
                   error={errors.city}
                 />
               </View>
               <View className="flex-1">
-                <DistrictSelect label="İlçe" province={form.city} value={form.district} onChange={(district) => patch({ district })} />
+                <DistrictSelect
+                  label="İlçe"
+                  province={form.city}
+                  value={form.district}
+                  placeholder={form.city ? 'İlçe seçin veya yazın' : 'Önce il seçin'}
+                  onChange={(district) => patch({ district })}
+                />
               </View>
             </View>
             <LookupSelect
               name="contact-sources"
               label="İrtibat şekli"
-              placeholder="Opsiyonel"
+              placeholder="Seçim zorunlu değil"
               icon="call-outline"
               value={form.contactMethod}
               onChange={(contactMethod) => patch({ contactMethod })}
+              clearable
             />
           </Card>
 
           <Card className="gap-3">
-            <Eyebrow>2 · Talep</Eyebrow>
+            <Eyebrow>Talep</Eyebrow>
             <View className="flex-row gap-2">
               <View className="flex-[3]">
                 <ProductSelect
@@ -269,6 +309,7 @@ export default function NewOpportunityScreen() {
                   value={form.product}
                   selectedId={form.productModelId}
                   categoryCode="TEZGAH"
+                  allowCustom
                   clearable
                   placeholder="Katalogdan seçin veya yazın"
                   error={errors.product}
@@ -307,9 +348,7 @@ export default function NewOpportunityScreen() {
                   <Pressable
                     accessibilityRole="button"
                     accessibilityLabel={`Ek makine ${index + 1} kaldır`}
-                    onPress={() =>
-                      patch({ extraMachines: form.extraMachines.filter((row) => row.key !== machine.key) })
-                    }
+                    onPress={() => patch({ extraMachines: form.extraMachines.filter((row) => row.key !== machine.key) })}
                     className="min-h-11 px-2"
                   >
                     <Text className="font-inter-semibold text-xs text-destructive">Kaldır</Text>
@@ -322,6 +361,7 @@ export default function NewOpportunityScreen() {
                       value={machine.product}
                       selectedId={machine.productModelId}
                       categoryCode="TEZGAH"
+                      allowCustom
                       clearable
                       placeholder="Katalogdan seçin veya yazın"
                       onSelect={(item) =>
@@ -368,8 +408,33 @@ export default function NewOpportunityScreen() {
             />
           </Card>
 
+          <Card className="gap-3 border-primary/20 bg-primary/5">
+            <Eyebrow>İlk takip</Eyebrow>
+            <Field
+              label="İlk takip aksiyonu"
+              value={form.nextAction}
+              onChangeText={(nextAction) => patch({ nextAction })}
+              placeholder="Örn. Teknik ihtiyaç için satın alma müdürünü ara"
+              maxLength={1000}
+              error={errors.nextAction}
+              multiline
+              numberOfLines={3}
+              className="min-h-[64px] rounded-control border border-transparent bg-card px-3.5 py-2.5 font-inter text-base text-foreground"
+            />
+            <DateTimeField
+              label="Takip zamanı"
+              value={form.nextActionAt}
+              onChange={(nextActionAt) => patch({ nextActionAt })}
+              placeholder="Tarih ve saat"
+              clearable
+            />
+            <Text className="font-inter text-[10px] leading-4 text-muted-foreground">
+              Kart, zamanı gelince aksiyon listesinde öne çıkar.
+            </Text>
+          </Card>
+
           <Card className="gap-3">
-            <Eyebrow>3 · Ticari (opsiyonel)</Eyebrow>
+            <Eyebrow>Ticari (opsiyonel)</Eyebrow>
             <View className="flex-row gap-2">
               <View className="flex-[2]">
                 <Field
@@ -391,7 +456,9 @@ export default function NewOpportunityScreen() {
                       onPress={() => patch({ currencyCode: code })}
                       className={`flex-1 items-center justify-center rounded-control border ${form.currencyCode === code ? 'border-primary bg-secondary' : 'border-border bg-card'}`}
                     >
-                      <Text className={`font-inter-semibold text-[11px] ${form.currencyCode === code ? 'text-primary' : 'text-foreground'}`}>{code}</Text>
+                      <Text className={`font-inter-semibold text-[11px] ${form.currencyCode === code ? 'text-primary' : 'text-foreground'}`}>
+                        {code}
+                      </Text>
                     </Pressable>
                   ))}
                 </View>
@@ -428,25 +495,6 @@ export default function NewOpportunityScreen() {
                 />
               </View>
             </View>
-          </Card>
-
-          <Card className="gap-3">
-            <Eyebrow>4 · Takip ve atama</Eyebrow>
-            <Field
-              label="İlk takip aksiyonu"
-              value={form.nextAction}
-              onChangeText={(nextAction) => patch({ nextAction })}
-              placeholder="Örn. Satın alma müdürünü ara"
-              maxLength={1000}
-              error={errors.nextAction}
-            />
-            <DateTimeField
-              label="Takip zamanı"
-              value={form.nextActionAt}
-              onChange={(nextActionAt) => patch({ nextActionAt })}
-              placeholder="Tarih ve saat"
-              clearable
-            />
             <Field
               label="Not"
               value={form.description}
@@ -456,6 +504,10 @@ export default function NewOpportunityScreen() {
               maxLength={3000}
               className="min-h-[72px] rounded-control border border-transparent bg-input-background px-3.5 py-2.5 font-inter text-base text-foreground"
             />
+          </Card>
+
+          <Card className="gap-3">
+            <Eyebrow>Atama</Eyebrow>
             {divisions.length > 1 ? (
               <SearchSelect
                 label="Bölüm *"
@@ -469,19 +521,25 @@ export default function NewOpportunityScreen() {
               />
             ) : null}
             <AssigneeSelect
+              label="Sorumlu"
               value={form.ownerUserId}
               onChange={(ownerUserId) => patch({ ownerUserId })}
               divisionId={form.divisionId || null}
               onlyUserId={canAssignOthers ? null : user?.id ?? null}
+              placeholder="Atama kuralına bırak"
+              clearable
             />
+            <Text className="font-inter text-[11px] text-muted-foreground">
+              Seçim yapmazsanız mevcut fırsat atama kuralları uygulanır; uygun kural yoksa kayıt sahipsiz açılır.
+            </Text>
           </Card>
         </ScrollView>
         <View className="flex-row gap-3 border-t border-border bg-card px-4 py-3">
           <View className="flex-1">
-            <Button label="Vazgeç" variant="ghost" onPress={() => router.back()} />
+            <Button label="Vazgeç" variant="ghost" onPress={() => router.back()} disabled={pending} />
           </View>
           <View className="flex-[2]">
-            <Button label="Fırsatı Oluştur" loading={pending} onPress={submit} />
+            <Button label={pending ? 'Oluşturuluyor…' : 'Fırsat Oluştur'} loading={pending} onPress={submit} />
           </View>
         </View>
       </KeyboardAvoidingView>

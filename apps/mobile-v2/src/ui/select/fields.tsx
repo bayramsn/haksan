@@ -11,7 +11,14 @@ import type { CompanyListItem, ContactListItem, InventoryItem, ProductModel } fr
 import { SearchSelect, useSearchRemoteBag, type RemoteOptions, type SelectItem } from './SearchSelect';
 import { INCOTERMS, addressText, distinctValues, matchesStockLine, provinceOptions } from './select-logic';
 
-type Common = { label?: string; placeholder?: string; error?: string; disabled?: boolean; clearable?: boolean };
+type Common = {
+  label?: string;
+  placeholder?: string;
+  searchPlaceholder?: string;
+  error?: string;
+  disabled?: boolean;
+  clearable?: boolean;
+};
 
 export const companyLabel = (company: Pick<CompanyListItem, 'shortName' | 'legalTitle'>) =>
   company.shortName ?? company.legalTitle;
@@ -42,24 +49,27 @@ export function CompanySelect({
   selectedId,
   onSelect,
   allowCustom,
+  createLabel,
   ...rest
 }: Common & {
   value: string;
   selectedId?: string | null;
   onSelect: (item: SelectItem<CompanyListItem> | null) => void;
   allowCustom?: boolean;
+  createLabel?: (query: string) => string;
 }) {
   return (
     <SearchSelect
       label={rest.label ?? 'Firma'}
-      placeholder={rest.placeholder ?? 'Kayıtlı firmadan seçin'}
+      placeholder={rest.placeholder ?? 'Kayıtlı firmadan seçin veya yazın'}
       icon="business-outline"
       value={value}
       selectedId={selectedId}
       onSelect={onSelect}
       useRemote={useCompanyOptions}
       allowCustom={allowCustom}
-      searchPlaceholder="Unvan, kısa ad veya şehir"
+      createLabel={createLabel}
+      searchPlaceholder={rest.searchPlaceholder ?? 'Firma ara…'}
       emptyTitle="Firma bulunamadı"
       error={rest.error}
       disabled={rest.disabled}
@@ -200,14 +210,14 @@ export function ProvinceSelect({ value, onChange, ...rest }: Common & { value: s
   return (
     <SearchSelect
       label={rest.label ?? 'İl'}
-      placeholder={rest.placeholder ?? 'İl seçin'}
+      placeholder={rest.placeholder ?? 'İl seçin veya yazın'}
       icon="location-outline"
       value={value}
       selectedId={value}
       onSelect={(item) => onChange(item?.label ?? '')}
       options={PROVINCES}
       allowCustom
-      searchPlaceholder="İl ara"
+      searchPlaceholder={rest.searchPlaceholder ?? 'İl ara…'}
       error={rest.error}
       disabled={rest.disabled}
       clearable={rest.clearable ?? true}
@@ -228,14 +238,14 @@ export function DistrictSelect({
   return (
     <SearchSelect
       label={rest.label ?? 'İlçe'}
-      placeholder={rest.placeholder ?? (province ? 'İlçe seçin' : 'Önce il seçin')}
+      placeholder={rest.placeholder ?? (province ? 'İlçe seçin veya yazın' : 'Önce il seçin')}
       icon="navigate-outline"
       value={value}
       selectedId={value}
       onSelect={(item) => onChange(item?.label ?? '')}
       options={options}
       allowCustom
-      searchPlaceholder="İlçe ara"
+      searchPlaceholder={rest.searchPlaceholder ?? 'İlçe ara…'}
       error={rest.error}
       disabled={rest.disabled || !province}
       clearable={rest.clearable ?? true}
