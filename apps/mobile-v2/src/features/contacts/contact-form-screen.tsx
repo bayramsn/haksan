@@ -1,16 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, KeyboardAvoidingView, Pressable, ScrollView, Switch, Text, View } from 'react-native';
+import { Alert, KeyboardAvoidingView, ScrollView, Switch, Text, View } from 'react-native';
 import { Redirect, Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Ionicons } from '@expo/vector-icons';
-import { BottomSheetBackdrop, BottomSheetFlatList, BottomSheetModal, BottomSheetView } from '@gorhom/bottom-sheet';
 import {
   contactCreateSchema,
   contactUpdateSchema,
   type ContactCreateInput,
   type ContactUpdateInput,
 } from '@haksan/shared';
-import { useCompanyList } from '@/src/api/companies.hooks';
 import {
   useContact,
   useContactSummary,
@@ -18,12 +15,12 @@ import {
   useLookup,
   useUpdateContact,
 } from '@/src/api/crm.hooks';
-import type { CompanyListItem } from '@/src/api/endpoints';
 import { useCan } from '@/src/auth/AuthProvider';
 import { useTheme } from '@/src/theme/theme';
 import { DateTextField } from '@/src/ui/select/DateTextField';
+import { CompanySelect, companyLabel } from '@/src/ui/select/fields';
 import { SearchSelect } from '@/src/ui/select/SearchSelect';
-import { Button, Card, EmptyState, ErrorState, Eyebrow, Field, FilterChips, Loading, SearchBar } from '@/src/ui';
+import { Button, Card, ErrorState, Eyebrow, Field, FilterChips, Loading } from '@/src/ui';
 
 type FormState = {
   companyId: string;
@@ -179,17 +176,8 @@ export function ContactFormScreen() {
   const initialRef = useRef<FormState | null>(editing ? null : { ...EMPTY_FORM, companyId: requestedCompanyId });
   const initializedId = useRef<string | null>(null);
   const [selectedCompanyName, setSelectedCompanyName] = useState(requestedCompanyName);
-  const [companySearch, setCompanySearch] = useState('');
   const [errors, setErrors] = useState<Partial<Record<keyof FormState, string>>>({});
   const [formError, setFormError] = useState<string | null>(null);
-  const companySheetRef = useRef<BottomSheetModal>(null);
-
-  const companyQuery = useMemo(
-    () => ({ search: companySearch.trim() || undefined, sortBy: 'name' as const, sortDir: 'asc' as const }),
-    [companySearch]
-  );
-  const companyList = useCompanyList(companyQuery);
-  const companies = companyList.data?.items ?? [];
 
   useEffect(() => {
     if (!editing || !detail.data || initializedId.current === detail.data.id) return;
@@ -302,16 +290,10 @@ export function ContactFormScreen() {
     });
   }
 
-  function chooseCompany(company: CompanyListItem) {
-    set('companyId', company.id);
-    setSelectedCompanyName(company.shortName ?? company.legalTitle);
-    companySheetRef.current?.dismiss();
-  }
-
   if (editing && detail.isPending) {
     return (
       <SafeAreaView className="flex-1 bg-canvas" edges={['top', 'bottom', 'left', 'right']}>
-        <Stack.Screen options={{ title: 'Kontağı düzenle', headerShown: true }} />
+        <Stack.Screen options={{ title: 'Kontak Düzenle', headerShown: true }} />
         <Loading />
       </SafeAreaView>
     );
@@ -319,7 +301,7 @@ export function ContactFormScreen() {
   if (editing && (detail.error || !detail.data)) {
     return (
       <SafeAreaView className="flex-1 bg-canvas" edges={['top', 'bottom', 'left', 'right']}>
-        <Stack.Screen options={{ title: 'Kontağı düzenle', headerShown: true }} />
+        <Stack.Screen options={{ title: 'Kontak Düzenle', headerShown: true }} />
         <ErrorState message={detail.error?.message ?? 'Kontak yüklenemedi.'} onRetry={() => void detail.refetch()} />
       </SafeAreaView>
     );
@@ -329,34 +311,40 @@ export function ContactFormScreen() {
 
   return (
     <SafeAreaView className="flex-1 bg-canvas" edges={['top', 'bottom', 'left', 'right']}>
-      <Stack.Screen options={{ title: editing ? 'Kontağı düzenle' : 'Yeni kontak', headerShown: true }} />
+      <Stack.Screen options={{ title: editing ? 'Kontak Düzenle' : 'Yeni Kontak', headerShown: true }} />
       <KeyboardAvoidingView className="flex-1" behavior={process.env.EXPO_OS === 'ios' ? 'padding' : undefined}>
         <ScrollView
           contentContainerClassName="gap-5 p-4 pb-10"
           contentInsetAdjustmentBehavior="automatic"
           keyboardShouldPersistTaps="handled"
         >
+          <Text className="font-inter text-[13px] leading-[18px] text-muted-foreground">
+            Firmaya bağlı kişi kaydı oluşturun.
+          </Text>
+
           <View className="gap-3">
             <Eyebrow>Firma ve kimlik</Eyebrow>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Firma seç"
-              onPress={() => companySheetRef.current?.present()}
-              className={`min-h-11 flex-row items-center gap-3 rounded-control border bg-card px-3 py-2 ${errors.companyId ? 'border-destructive' : 'border-border'}`}
-            >
-              <Ionicons name="business-outline" size={19} color={colors.primary} />
-              <View className="flex-1 gap-0.5">
-                <Text className="font-inter-medium text-xs text-muted-foreground">Firma *</Text>
-                <Text className="font-inter text-base text-foreground" numberOfLines={1}>
-                  {selectedCompanyName || 'Firma seçin'}
-                </Text>
-              </View>
-              <Ionicons name="chevron-forward" size={18} color={colors.mutedForeground} />
-            </Pressable>
-            {errors.companyId ? <Text className="font-inter text-xs text-destructive">{errors.companyId}</Text> : null}
-            <Field label="Ad soyad *" value={form.fullName} onChangeText={(value) => set('fullName', value)} maxLength={255} error={errors.fullName} autoFocus={!editing} />
-            <Field label="Harici kontak no" value={form.externalContactNo} onChangeText={(value) => set('externalContactNo', value)} maxLength={32} error={errors.externalContactNo} />
-            <Field label="Unvan" value={form.title} onChangeText={(value) => set('title', value)} maxLength={128} error={errors.title} />
+            <CompanySelect
+              label="Firma *"
+              value={selectedCompanyName}
+              selectedId={form.companyId || null}
+              clearable={!editing}
+              placeholder="Firma seçin veya adını yazın..."
+              searchPlaceholder="Firma adı / şehir ara..."
+              error={errors.companyId}
+              onSelect={(item) => {
+                const company = item?.data;
+                if (!item || !company) {
+                  set('companyId', '');
+                  setSelectedCompanyName('');
+                  return;
+                }
+                set('companyId', company.id);
+                setSelectedCompanyName(companyLabel(company));
+              }}
+            />
+            <Field label="Adı Soyadı *" value={form.fullName} onChangeText={(value) => set('fullName', value)} maxLength={255} error={errors.fullName} autoFocus={!editing} />
+            <Field label="Ünvan" value={form.title} onChangeText={(value) => set('title', value)} maxLength={128} error={errors.title} />
             <SearchSelect
               label="Departman"
               placeholder="Departman seçin veya yazın"
@@ -373,7 +361,7 @@ export function ContactFormScreen() {
             />
             {decisionRoles.data?.length ? (
               <View className="gap-1.5">
-                <Text className="font-inter-medium text-[13px] text-muted-foreground">Karar rolü</Text>
+                <Text className="font-inter-medium text-[13px] text-muted-foreground">Karar Yetkisi</Text>
                 <FilterChips
                   options={decisionRoles.data.map((item) => ({ value: item.code, label: item.name }))}
                   value={form.decisionRoleCode || null}
@@ -386,13 +374,13 @@ export function ContactFormScreen() {
 
           <View className="gap-3">
             <Eyebrow>İletişim</Eyebrow>
-            <Field label="Cep telefonu" value={form.mobilePhone} onChangeText={(value) => set('mobilePhone', value)} keyboardType="phone-pad" maxLength={32} error={errors.mobilePhone} />
-            <Field label="İş telefonu" value={form.workPhone} onChangeText={(value) => set('workPhone', value)} keyboardType="phone-pad" maxLength={32} error={errors.workPhone} />
-            <Field label="Dahili" value={form.phoneExtension} onChangeText={(value) => set('phoneExtension', value)} keyboardType="number-pad" maxLength={16} error={errors.phoneExtension} />
-            <Field label="Diğer telefon" value={form.otherPhone} onChangeText={(value) => set('otherPhone', value)} keyboardType="phone-pad" maxLength={32} error={errors.otherPhone} />
-            <Field label="İş e-postası" value={form.workEmail} onChangeText={(value) => set('workEmail', value)} keyboardType="email-address" autoCapitalize="none" maxLength={255} error={errors.workEmail} />
-            <Field label="Kişisel e-posta" value={form.personalEmail} onChangeText={(value) => set('personalEmail', value)} keyboardType="email-address" autoCapitalize="none" maxLength={255} error={errors.personalEmail} />
-            <Field label="Diğer e-posta" value={form.otherEmail} onChangeText={(value) => set('otherEmail', value)} keyboardType="email-address" autoCapitalize="none" maxLength={255} error={errors.otherEmail} />
+            <Field label="İş Telefonu" value={form.workPhone} onChangeText={(value) => set('workPhone', value)} keyboardType="phone-pad" maxLength={32} error={errors.workPhone} placeholder="+90 ..." />
+            <Field label="Dahili Numarası" value={form.phoneExtension} onChangeText={(value) => set('phoneExtension', value)} keyboardType="number-pad" maxLength={16} error={errors.phoneExtension} placeholder="Örn: 112" />
+            <Field label="Cep Telefonu" value={form.mobilePhone} onChangeText={(value) => set('mobilePhone', value)} keyboardType="phone-pad" maxLength={32} error={errors.mobilePhone} placeholder="+90 ..." />
+            <Field label="Diğer Telefon" value={form.otherPhone} onChangeText={(value) => set('otherPhone', value)} keyboardType="phone-pad" maxLength={32} error={errors.otherPhone} placeholder="+90 ..." />
+            <Field label="İş E-posta" value={form.workEmail} onChangeText={(value) => set('workEmail', value)} keyboardType="email-address" autoCapitalize="none" maxLength={255} error={errors.workEmail} />
+            <Field label="Kişisel E-posta" value={form.personalEmail} onChangeText={(value) => set('personalEmail', value)} keyboardType="email-address" autoCapitalize="none" maxLength={255} error={errors.personalEmail} />
+            <Field label="Diğer E-posta" value={form.otherEmail} onChangeText={(value) => set('otherEmail', value)} keyboardType="email-address" autoCapitalize="none" maxLength={255} error={errors.otherEmail} />
           </View>
 
           <View className="gap-3">
@@ -401,80 +389,35 @@ export function ContactFormScreen() {
               <Text className="font-inter-medium text-[13px] text-muted-foreground">Cinsiyet</Text>
               <FilterChips options={[...GENDERS]} value={form.gender || null} onChange={(value) => set('gender', value ?? '')} allLabel="Belirtilmedi" />
             </View>
-            <DateTextField label="Doğum tarihi" value={form.birthDate} onChangeText={(value) => set('birthDate', value)} error={errors.birthDate} />
-            <Field label="Memleket" value={form.hometown} onChangeText={(value) => set('hometown', value)} maxLength={64} error={errors.hometown} />
-            <Field label="Mezun olduğu okul" value={form.graduatedSchool} onChangeText={(value) => set('graduatedSchool', value)} maxLength={128} error={errors.graduatedSchool} />
-            <Field label="Sevdiği takım" value={form.favoriteTeam} onChangeText={(value) => set('favoriteTeam', value)} maxLength={64} error={errors.favoriteTeam} />
-            <Field label="Sevdiği renk" value={form.favoriteColor} onChangeText={(value) => set('favoriteColor', value)} maxLength={32} error={errors.favoriteColor} />
-          </View>
-
-          <View className="gap-3">
-            <Eyebrow>Durum ve notlar</Eyebrow>
+            <DateTextField label="Doğum Tarihi" value={form.birthDate} onChangeText={(value) => set('birthDate', value)} error={errors.birthDate} />
+            <Field label="Tuttuğu Takım" value={form.favoriteTeam} onChangeText={(value) => set('favoriteTeam', value)} maxLength={64} error={errors.favoriteTeam} />
+            <Field label="Memleketi" value={form.hometown} onChangeText={(value) => set('hometown', value)} maxLength={64} error={errors.hometown} />
+            <Field label="Sevdiği Renk" value={form.favoriteColor} onChangeText={(value) => set('favoriteColor', value)} maxLength={32} error={errors.favoriteColor} />
+            <Field label="Mezun Olduğu Okul" value={form.graduatedSchool} onChangeText={(value) => set('graduatedSchool', value)} maxLength={128} error={errors.graduatedSchool} />
+            <Field label="Not" value={form.notes} onChangeText={(value) => set('notes', value)} multiline maxLength={4000} error={errors.notes} className="min-h-24 rounded-control border border-border bg-input-background px-3 py-2 font-inter text-base text-foreground" />
             <Card className="gap-3">
               <View className="min-h-11 flex-row items-center justify-between gap-4">
                 <Text className="flex-1 font-inter-medium text-sm text-foreground">Birincil kontak</Text>
                 <Switch accessibilityLabel="Birincil kontak" value={form.isPrimary} onValueChange={(value) => set('isPrimary', value)} trackColor={{ false: colors.muted, true: colors.primary }} />
               </View>
               <View className="min-h-11 flex-row items-center justify-between gap-4">
-                <Text className="flex-1 font-inter-medium text-sm text-foreground">Kara liste</Text>
-                <Switch accessibilityLabel="Kara liste" value={form.isBlacklisted} onValueChange={(value) => set('isBlacklisted', value)} trackColor={{ false: colors.muted, true: colors.destructive }} />
+                <Text className="flex-1 font-inter-medium text-sm text-destructive">Kara listeye al</Text>
+                <Switch accessibilityLabel="Kara listeye al" value={form.isBlacklisted} onValueChange={(value) => set('isBlacklisted', value)} trackColor={{ false: colors.muted, true: colors.destructive }} />
               </View>
             </Card>
             {form.isBlacklisted ? (
-              <Field label="Kara liste gerekçesi" value={form.blacklistReason} onChangeText={(value) => set('blacklistReason', value)} multiline maxLength={2000} error={errors.blacklistReason} className="min-h-20 rounded-control border border-border bg-input-background px-3 py-2 font-inter text-base text-foreground" />
+              <Field label="Kara Liste Sebebi" value={form.blacklistReason} onChangeText={(value) => set('blacklistReason', value)} multiline maxLength={2000} error={errors.blacklistReason} placeholder="Neden kara listeye alındığını yazın" className="min-h-20 rounded-control border border-border bg-input-background px-3 py-2 font-inter text-base text-foreground" />
             ) : null}
-            <Field label="Notlar" value={form.notes} onChangeText={(value) => set('notes', value)} multiline maxLength={4000} error={errors.notes} className="min-h-24 rounded-control border border-border bg-input-background px-3 py-2 font-inter text-base text-foreground" />
           </View>
 
-          <Text className="font-inter text-xs text-muted-foreground">Kontak kaydı çevrimiçi bağlantı gerektirir; sunucu firma görünürlüğünü ve tüm alanları yeniden doğrular.</Text>
           {formError ? <Text selectable accessibilityLiveRegion="assertive" className="font-inter text-sm text-destructive">{formError}</Text> : null}
         </ScrollView>
 
         <View className="flex-row gap-3 border-t border-border bg-card px-4 py-3">
           <View className="flex-1"><Button label="Vazgeç" variant="ghost" onPress={() => router.back()} /></View>
-          <View className="flex-[2]"><Button label={editing ? 'Değişiklikleri Kaydet' : 'Kontağı Oluştur'} loading={saving} onPress={submit} /></View>
+          <View className="flex-[2]"><Button label={editing ? 'Değişiklikleri Kaydet' : 'Kontak Oluştur'} loading={saving} onPress={submit} /></View>
         </View>
       </KeyboardAvoidingView>
-
-      <BottomSheetModal
-        ref={companySheetRef}
-        snapPoints={['80%']}
-        enableDynamicSizing={false}
-        backgroundStyle={{ backgroundColor: colors.card }}
-        handleIndicatorStyle={{ backgroundColor: colors.mutedForeground }}
-        backdropComponent={(props) => <BottomSheetBackdrop {...props} appearsOnIndex={0} disappearsOnIndex={-1} />}
-      >
-        <BottomSheetView className="gap-3 px-4 pb-2">
-          <Text className="font-inter-semibold text-base text-foreground">Firma seçin</Text>
-          <SearchBar value={companySearch} onChange={setCompanySearch} placeholder="Firma ara" />
-        </BottomSheetView>
-        <BottomSheetFlatList
-          data={companies}
-          keyExtractor={(item: CompanyListItem) => item.id}
-          contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 32 }}
-          renderItem={({ item }: { item: CompanyListItem }) => (
-            <Pressable
-              accessibilityRole="button"
-              accessibilityState={{ selected: item.id === form.companyId }}
-              onPress={() => chooseCompany(item)}
-              className="min-h-[56px] flex-row items-center gap-3 border-b border-border py-2 active:opacity-70"
-            >
-              <Ionicons name="business-outline" size={19} color={item.id === form.companyId ? colors.primary : colors.mutedForeground} />
-              <View className="flex-1">
-                <Text className="font-inter-semibold text-sm text-foreground" numberOfLines={1}>{item.shortName ?? item.legalTitle}</Text>
-                {item.shortName ? <Text className="font-inter text-xs text-muted-foreground" numberOfLines={1}>{item.legalTitle}</Text> : null}
-              </View>
-              {item.id === form.companyId ? <Ionicons name="checkmark" size={19} color={colors.primary} /> : null}
-            </Pressable>
-          )}
-          onEndReachedThreshold={0.5}
-          onEndReached={() => {
-            if (companyList.hasNextPage && !companyList.isFetchingNextPage) void companyList.fetchNextPage();
-          }}
-          ListEmptyComponent={companyList.isPending ? <Loading /> : companyList.error ? <ErrorState message={companyList.error.message} onRetry={() => void companyList.refetch()} /> : <EmptyState title="Firma bulunamadı" />}
-          ListFooterComponent={companyList.isFetchingNextPage ? <Loading /> : null}
-        />
-      </BottomSheetModal>
     </SafeAreaView>
   );
 }

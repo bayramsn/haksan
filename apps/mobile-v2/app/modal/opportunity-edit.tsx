@@ -10,7 +10,7 @@ import { AssigneeSelect, ProductSelect } from '@/src/ui/select/fields';
 import { emptyExtraMachine, quantityOf } from '@/src/ui/sales/quick-opportunity';
 import { toast } from '@/src/ui/toast';
 
-const CURRENCIES = ['TRY', 'USD', 'EUR', 'GBP'] as const;
+const CURRENCIES = ['USD', 'EUR', 'TRY'] as const;
 type Currency = (typeof CURRENCIES)[number];
 
 type MachineRow = { key: string; productModelId: string; product: string; quantity: string };
@@ -130,7 +130,7 @@ export default function OpportunityEditScreen() {
   function submit() {
     if (!form) return;
     const next: Partial<Record<keyof Form | 'machines', string>> = {};
-    if (!form.title.trim()) next.title = 'Başlık zorunludur.';
+    if (!form.title.trim()) next.title = 'Fırsat adı zorunludur.';
     const filledMachines = form.machines.filter((row) => row.product.trim());
     if (!filledMachines.length) next.machines = 'En az bir makine girin.';
     const value = form.estimatedValue.trim() ? Number(form.estimatedValue.replace(',', '.')) : null;
@@ -188,12 +188,12 @@ export default function OpportunityEditScreen() {
         <KeyboardAvoidingView className="flex-1" behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
           <ScrollView contentContainerClassName="gap-5 p-4 pb-10" keyboardShouldPersistTaps="handled">
             <View className="gap-3">
-              <Eyebrow>Kart</Eyebrow>
-              <Field label="Başlık *" value={form.title} onChangeText={(v) => set('title', v)} maxLength={255} error={errors.title} />
+              <Eyebrow>Fırsat ticari bilgileri</Eyebrow>
+              <Field label="Fırsat adı *" value={form.title} onChangeText={(v) => set('title', v)} maxLength={255} error={errors.title} />
               <Field label="Açıklama" value={form.description} onChangeText={(v) => set('description', v)} maxLength={4000} multiline numberOfLines={4} />
             </View>
             <View className="gap-3">
-              <Eyebrow>Makineler</Eyebrow>
+              <Eyebrow>Talep edilen makineler</Eyebrow>
               {errors.machines ? <Text className="font-inter text-xs text-destructive">{errors.machines}</Text> : null}
               {form.machines.map((machine, index) => (
                 <View key={machine.key} className="gap-2 rounded-control border border-border bg-card p-3">
@@ -278,14 +278,14 @@ export default function OpportunityEditScreen() {
                 </View>
               </View>
               <Field
-                label="Olasılık (%)"
+                label="Kazanma olasılığı (%)"
                 value={form.probability}
                 onChangeText={(v) => set('probability', v)}
                 keyboardType="number-pad"
                 error={errors.probability}
               />
               <DateTimeField
-                label="Beklenen kapanış"
+                label="Hedef kapanış tarihi"
                 mode="date"
                 value={form.expectedCloseDate}
                 onChange={(v) => set('expectedCloseDate', v)}
@@ -293,25 +293,22 @@ export default function OpportunityEditScreen() {
                 clearable
               />
               <Field
-                label="Ödeme vadesi (gün)"
+                label="Vade (gün)"
                 value={form.paymentTermDays}
                 onChangeText={(v) => set('paymentTermDays', v.replace(/\D/g, ''))}
                 keyboardType="number-pad"
-                placeholder="Örn. 60"
+                placeholder="Örn. 90"
                 maxLength={4}
                 error={errors.paymentTermDays}
               />
               <AssigneeSelect
-                label="Sorumlu"
+                label="Atanan Kullanıcı"
                 value={form.ownerUserId}
                 onChange={(ownerUserId) => set('ownerUserId', ownerUserId)}
                 divisionId={typeof detail.data?.divisionId === 'string' ? detail.data.divisionId : null}
                 onlyUserId={canAssignOthers ? null : user?.id}
                 clearable
               />
-            </View>
-            <View className="gap-3">
-              <Eyebrow>Şartlar</Eyebrow>
               <Field label="Ödeme şartları" value={form.paymentTerms} onChangeText={(v) => set('paymentTerms', v)} maxLength={2000} multiline numberOfLines={3} />
               <Field label="Sözleşme şartları" value={form.contractTerms} onChangeText={(v) => set('contractTerms', v)} maxLength={4000} multiline numberOfLines={3} />
             </View>

@@ -27,7 +27,7 @@ export default function KanbanScreen() {
         <SearchBar value={search} onChange={setSearch} placeholder="Firma / kontak / ürün ara..." />
       </View>
       <QualificationBoard query={query} onOpen={(id) => router.push(`/(tabs)/modules/opportunities/${id}`)} />
-      {canCreate ? <Fab label="Yeni Kart" onPress={() => router.push('/modal/new-opportunity' as Href)} /> : null}
+      {canCreate ? <Fab label="Yeni Kart" onPress={() => router.push('/modal/create-case' as Href)} /> : null}
     </SafeAreaView>
   );
 }

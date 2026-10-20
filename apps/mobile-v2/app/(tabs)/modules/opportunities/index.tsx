@@ -682,7 +682,7 @@ export default function OpportunitiesScreen() {
         />
       )}
 
-      {canCreate ? <Fab label="Yeni Kart" onPress={() => router.push('/modal/new-opportunity' as Href)} /> : null}
+      {canCreate ? <Fab label="Yeni Kart" onPress={() => router.push('/modal/create-case' as Href)} /> : null}
 
       <SalesSheet ref={filterRef} title="Filtreler" subtitle="Aşama, para birimi, firma kararı ve sonuç">
         <PillGroup<Qualification>
@@ -760,6 +760,17 @@ export default function OpportunitiesScreen() {
       </SalesSheet>
 
       <SalesSheet ref={moreRef} title="Fırsat işlemleri">
+        {canCreate ? (
+          <SheetOption
+            icon="flash-outline"
+            label="Hızlı Fırsat"
+            hint="LeadCapture — firma/kontak ana kaydı olmadan C alanı"
+            onPress={() => {
+              moreRef.current?.dismiss();
+              router.push('/modal/new-opportunity' as Href);
+            }}
+          />
+        ) : null}
         <SheetOption
           icon="stats-chart-outline"
           label="Lead performansı"

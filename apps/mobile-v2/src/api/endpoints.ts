@@ -702,6 +702,8 @@ export const opportunities = {
       nextAction?: string;
       nextActionAt?: string;
       sourceCode?: string;
+      paymentTermDays?: number;
+      sourceActivityId?: string;
     },
   ) => request<OpportunityDetail>('/opportunities', { method: 'POST', body }),
   update: (

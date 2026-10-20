@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { KeyboardAvoidingView, Platform, Pressable, ScrollView, Text, View } from 'react-native';
+import { KeyboardAvoidingView, Platform, ScrollView, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Redirect, Stack, useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import { useCompany } from '@/src/api/companies.hooks';
@@ -15,7 +15,6 @@ import {
   ContactSelect,
   DistrictSelect,
   LookupSelect,
-  ProductSelect,
   ProvinceSelect,
   companyLabel,
   contactEmail,
@@ -23,15 +22,12 @@ import {
 } from '@/src/ui/select/fields';
 import {
   buildQuickOpportunityBody,
-  emptyExtraMachine,
-  quickOpportunityTitle,
   validateQuickOpportunity,
   type QuickOpportunityErrors,
   type QuickOpportunityForm,
 } from '@/src/ui/sales/quick-opportunity';
 import { toast } from '@/src/ui/toast';
 
-const CURRENCIES = ['TRY', 'USD', 'EUR'] as const;
 const emptyContact = { contactId: '', contactName: '', phone: '', email: '' } as const;
 
 function param(value: string | string[] | undefined): string {
@@ -39,8 +35,8 @@ function param(value: string | string[] | undefined): string {
 }
 
 /**
- * Hızlı fırsat — web LeadCaptureDialog alanları + CreateCaseDialog ekleri
- * (ek makine / ticari). Seçiciler HostedSheet (RN Modal) ile web Combobox gibi.
+ * Hızlı fırsat — web LeadCaptureDialog ile aynı alanlar.
+ * Yeni Kart / çoklu makine için `create-case` modalına bakın.
  */
 export default function NewOpportunityScreen() {
   const router = useRouter();
@@ -304,31 +300,13 @@ export default function NewOpportunityScreen() {
             <Eyebrow>Talep</Eyebrow>
             <View className="flex-row gap-2">
               <View className="flex-[3]">
-                <ProductSelect
+                <Field
                   label="İstenen ürün *"
                   value={form.product}
-                  selectedId={form.productModelId}
-                  categoryCode="TEZGAH"
-                  allowCustom
-                  clearable
-                  placeholder="Katalogdan seçin veya yazın"
+                  onChangeText={(product) => patch({ product, productModelId: '' })}
+                  placeholder="İşleme Merkezi"
+                  maxLength={255}
                   error={errors.product}
-                  onSelect={(item) => {
-                    const product = item?.data;
-                    const price = product?.cashPrice ?? product?.listPrice;
-                    const amount =
-                      price != null && Number.isFinite(Number(price)) ? String(Number(price)) : form.estimatedValue;
-                    const currency =
-                      product?.currency?.code && (CURRENCIES as readonly string[]).includes(product.currency.code)
-                        ? (product.currency.code as (typeof CURRENCIES)[number])
-                        : form.currencyCode;
-                    patch({
-                      productModelId: item?.id ?? '',
-                      product: item?.label ?? '',
-                      estimatedValue: form.estimatedValue.trim() ? form.estimatedValue : amount,
-                      currencyCode: form.estimatedValue.trim() ? form.currencyCode : currency,
-                    });
-                  }}
                 />
               </View>
               <View className="w-[72px]">
@@ -341,71 +319,6 @@ export default function NewOpportunityScreen() {
                 />
               </View>
             </View>
-            {form.extraMachines.map((machine, index) => (
-              <View key={machine.key} className="gap-2 rounded-control border border-border bg-muted/40 p-3">
-                <View className="flex-row items-center justify-between">
-                  <Text className="font-inter-medium text-xs text-muted-foreground">Ek makine {index + 1}</Text>
-                  <Pressable
-                    accessibilityRole="button"
-                    accessibilityLabel={`Ek makine ${index + 1} kaldır`}
-                    onPress={() => patch({ extraMachines: form.extraMachines.filter((row) => row.key !== machine.key) })}
-                    className="min-h-11 px-2"
-                  >
-                    <Text className="font-inter-semibold text-xs text-destructive">Kaldır</Text>
-                  </Pressable>
-                </View>
-                <View className="flex-row gap-2">
-                  <View className="flex-[3]">
-                    <ProductSelect
-                      label="Makine"
-                      value={machine.product}
-                      selectedId={machine.productModelId}
-                      categoryCode="TEZGAH"
-                      allowCustom
-                      clearable
-                      placeholder="Katalogdan seçin veya yazın"
-                      onSelect={(item) =>
-                        patch({
-                          extraMachines: form.extraMachines.map((row) =>
-                            row.key === machine.key
-                              ? { ...row, productModelId: item?.id ?? '', product: item?.label ?? '' }
-                              : row
-                          ),
-                        })
-                      }
-                    />
-                  </View>
-                  <View className="w-[72px]">
-                    <Field
-                      label="Adet"
-                      value={machine.quantity}
-                      onChangeText={(quantity) =>
-                        patch({
-                          extraMachines: form.extraMachines.map((row) =>
-                            row.key === machine.key ? { ...row, quantity: quantity.replace(/\D/g, '') } : row
-                          ),
-                        })
-                      }
-                      keyboardType="number-pad"
-                      maxLength={3}
-                    />
-                  </View>
-                </View>
-              </View>
-            ))}
-            <Button
-              label="Makine Ekle"
-              variant="ghost"
-              trailingIcon="add"
-              onPress={() => patch({ extraMachines: [...form.extraMachines, emptyExtraMachine()] })}
-            />
-            <Field
-              label="Kart başlığı"
-              value={form.title}
-              onChangeText={(title) => patch({ title })}
-              placeholder={quickOpportunityTitle({ ...form, title: '' }) || 'Boşsa ürün + adetten oluşur'}
-              maxLength={255}
-            />
           </Card>
 
           <Card className="gap-3 border-primary/20 bg-primary/5">
@@ -431,79 +344,6 @@ export default function NewOpportunityScreen() {
             <Text className="font-inter text-[10px] leading-4 text-muted-foreground">
               Kart, zamanı gelince aksiyon listesinde öne çıkar.
             </Text>
-          </Card>
-
-          <Card className="gap-3">
-            <Eyebrow>Ticari (opsiyonel)</Eyebrow>
-            <View className="flex-row gap-2">
-              <View className="flex-[2]">
-                <Field
-                  label="Tahmini tutar"
-                  value={form.estimatedValue}
-                  onChangeText={(estimatedValue) => patch({ estimatedValue })}
-                  keyboardType="decimal-pad"
-                  error={errors.estimatedValue}
-                />
-              </View>
-              <View className="flex-1 justify-end gap-1">
-                <Text className="font-inter-medium text-[13px] text-muted-foreground">Para birimi</Text>
-                <View className="min-h-12 flex-row gap-1">
-                  {CURRENCIES.map((code) => (
-                    <Pressable
-                      key={code}
-                      accessibilityRole="radio"
-                      accessibilityState={{ selected: form.currencyCode === code }}
-                      onPress={() => patch({ currencyCode: code })}
-                      className={`flex-1 items-center justify-center rounded-control border ${form.currencyCode === code ? 'border-primary bg-secondary' : 'border-border bg-card'}`}
-                    >
-                      <Text className={`font-inter-semibold text-[11px] ${form.currencyCode === code ? 'text-primary' : 'text-foreground'}`}>
-                        {code}
-                      </Text>
-                    </Pressable>
-                  ))}
-                </View>
-              </View>
-            </View>
-            <Field
-              label="Ödeme vadesi (gün)"
-              value={form.paymentTermDays}
-              onChangeText={(paymentTermDays) => patch({ paymentTermDays: paymentTermDays.replace(/\D/g, '') })}
-              keyboardType="number-pad"
-              placeholder="Örn. 60"
-              maxLength={4}
-              error={errors.paymentTermDays}
-            />
-            <View className="flex-row gap-2">
-              <View className="w-[88px]">
-                <Field
-                  label="Olasılık %"
-                  value={form.probability}
-                  onChangeText={(probability) => patch({ probability: probability.replace(/\D/g, '') })}
-                  keyboardType="number-pad"
-                  maxLength={3}
-                  error={errors.probability}
-                />
-              </View>
-              <View className="flex-1">
-                <DateTimeField
-                  label="Beklenen kapanış"
-                  mode="date"
-                  value={form.expectedCloseDate}
-                  onChange={(expectedCloseDate) => patch({ expectedCloseDate })}
-                  placeholder="Tarih"
-                  clearable
-                />
-              </View>
-            </View>
-            <Field
-              label="Not"
-              value={form.description}
-              onChangeText={(description) => patch({ description })}
-              multiline
-              numberOfLines={3}
-              maxLength={3000}
-              className="min-h-[72px] rounded-control border border-transparent bg-input-background px-3.5 py-2.5 font-inter text-base text-foreground"
-            />
           </Card>
 
           <Card className="gap-3">

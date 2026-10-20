@@ -380,7 +380,7 @@ export default function CompanyDetailScreen() {
   const openVisit = canLogActivity ? () => router.push(`/modal/visit-new?${companyParams}` as Href) : undefined;
   const openCall = canLogActivity ? () => router.push(`/modal/call-new?${companyParams}` as Href) : undefined;
   const openTask = canCreateTask ? () => router.push(`/modal/task?companyId=${encodeURIComponent(id)}` as Href) : undefined;
-  const openNewCard = canCreateOpportunity ? () => router.push(`/modal/new-opportunity?${companyParams}` as Href) : undefined;
+  const openNewCard = canCreateOpportunity ? () => router.push(`/modal/create-case?${companyParams}` as Href) : undefined;
   const documentTotal = (proformas.data?.total ?? 0) + (contracts.data?.total ?? 0) + (invoices.data?.total ?? 0);
   const documentsHaveMore = proformas.hasNextPage || contracts.hasNextPage || invoices.hasNextPage;
   const documentsFetchingMore =
