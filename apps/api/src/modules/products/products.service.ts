@@ -15,6 +15,7 @@ import {
   productEquipmentItems,
   productOptionSets,
   productOptionValues,
+  productConfigurationPrices,
   productMedia,
 } from '../../db/schema/products';
 import { files } from '../../db/schema/files';
@@ -1396,6 +1397,31 @@ export class ProductsService {
       ...s,
       values: values.filter((v: any) => v.optionSetId === s.id).map((v: any) => ({ ...v, currencyCode: currencyRows.find(c => c.id === v.currencyId)?.code ?? null })),
     }));
+  }
+
+  /** Baz kartın alt model × güç fiyat matrisi; alış maliyeti yalnız `product_costs.view` ile döner. */
+  async listConfigurationPrices(productId: string, actor: AuthContext) {
+    await this.get(productId, actor);
+    const rows = await this.db.select().from(productConfigurationPrices)
+      .where(and(eq(productConfigurationPrices.productModelId, productId), eq(productConfigurationPrices.tenantId, actor.tenantId), isNull(productConfigurationPrices.deletedAt)))
+      .orderBy(asc(productConfigurationPrices.sourceModelCode), asc(productConfigurationPrices.powerKw));
+    const currencyRows = await this.db.select({ id: currencies.id, code: currencies.code }).from(currencies);
+    const currencyCode = (id: string | null) => currencyRows.find((row) => row.id === id)?.code ?? null;
+    const amount = (value: string | null) => (value === null ? null : Number(value));
+    const canViewCost = actor.roles.includes('super_admin') || actor.permissions.has('product_costs.view');
+    return {
+      canViewCost,
+      rows: rows.map((row) => ({
+        id: row.id,
+        sourceModelCode: row.sourceModelCode,
+        powerKw: Number(row.powerKw),
+        salePrice: amount(row.salePrice),
+        saleCurrencyCode: currencyCode(row.saleCurrencyId),
+        container: row.container,
+        leadTimeDays: row.leadTimeDays,
+        ...(canViewCost ? { costPrice: amount(row.costPrice), costCurrencyCode: currencyCode(row.costCurrencyId) } : {}),
+      })),
+    };
   }
 
   async addOptionSet(productId: string, input: ProductOptionSetCreateInput, actor: AuthContext) {

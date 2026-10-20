@@ -15,7 +15,7 @@ import { TargetDialog, currentPeriod, targetToApi, type TargetScope, type UserTa
 import { BookOpenCheck, Plus, Search, ShieldCheck, Lock, Save, X, RotateCcw, AlertTriangle, TrendingUp, Workflow } from "lucide-react";
 import { toast } from "sonner";
 
-type PermissionAction = "read" | "create" | "update" | "delete" | "approve" | "reject" | "export";
+type PermissionAction = "read" | "create" | "update" | "delete" | "approve" | "reject" | "export" | "view";
 type PermissionDto = {
   id: string;
   code: string;
@@ -33,7 +33,7 @@ type RoleDto = {
   permissions: Array<{ code: string; name: string }>;
 };
 
-const PERMISSION_ACTIONS: PermissionAction[] = ["read", "create", "update", "delete", "approve", "reject", "export"];
+const PERMISSION_ACTIONS: PermissionAction[] = ["read", "create", "update", "delete", "approve", "reject", "export", "view"];
 const ACTION_LABEL: Record<PermissionAction, string> = {
   read: "Oku",
   create: "Ekle",
@@ -42,6 +42,8 @@ const ACTION_LABEL: Record<PermissionAction, string> = {
   approve: "Onay",
   reject: "Ret",
   export: "Dışa Aktar",
+  // Yalnız hassas görünürlük izinleri (ör. ürün alış maliyeti) bu eylemi kullanır.
+  view: "Görüntüle",
 };
 const RESOURCE_LABEL: Record<string, string> = {
   tenants: "Tenant",
@@ -59,6 +61,7 @@ const RESOURCE_LABEL: Record<string, string> = {
   trade_fairs: "Fuar",
   product_specs: "Ürün Özellikleri",
   price_lists: "Fiyat Listeleri",
+  product_costs: "Ürün Maliyetleri",
   warehouses: "Depolar",
   inventory: "Stok",
   customer_devices: "Müşteri Cihazları",

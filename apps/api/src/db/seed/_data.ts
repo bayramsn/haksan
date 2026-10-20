@@ -344,6 +344,7 @@ export const rolePermissionMatrix: Record<string, Record<string, string[] | '*'>
     competitors: '*',
     brands: '*',
     products: '*',
+    product_costs: ['view'],
     product_specs: '*',
     price_lists: '*',
     warehouses: '*',
@@ -453,6 +454,7 @@ export const rolePermissionMatrix: Record<string, Record<string, string[] | '*'>
     inventory: ['read'],
     customer_devices: ['read'],
     products: ['read'],
+    product_costs: ['view'],
   },
   stock: {
     calendar: '*',

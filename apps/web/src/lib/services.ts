@@ -915,6 +915,10 @@ export const productService = {
   specs: (id: string) => api.get<any[]>(`/products/${id}/specs`),
   specTemplates: (productTypeCode?: string, divisionId?: string) => api.get<any[]>(`/product-spec-templates${qs({ productTypeCode, divisionId })}`),
   options: (id: string) => api.get<any[]>(`/products/${id}/options`),
+  configurationPrices: (id: string) => api.get<{
+    canViewCost: boolean;
+    rows: Array<{ id: string; sourceModelCode: string; powerKw: number; salePrice: number | null; saleCurrencyCode: string | null; container: string | null; leadTimeDays: number | null; costPrice?: number | null; costCurrencyCode?: string | null }>;
+  }>(`/products/${id}/configuration-prices`),
   addOptionSet: (id: string, body: unknown) => api.post<any>(`/products/${id}/options`, body),
   updateOptionSet: (id: string, body: unknown) => api.patch<any>(`/products/options/${id}`, body),
   archiveOptionSet: (id: string) => api.delete<any>(`/products/options/${id}`),

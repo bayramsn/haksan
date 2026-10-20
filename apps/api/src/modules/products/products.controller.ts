@@ -255,6 +255,12 @@ export class ProductsController {
     return this.svc.listOptionSets(id, user);
   }
 
+  @RequirePermissions('products.read')
+  @Get('products/:id/configuration-prices')
+  listConfigurationPrices(@Param('id') id: string, @CurrentUser() user: AuthContext) {
+    return this.svc.listConfigurationPrices(id, user);
+  }
+
   @RequirePermissions('products.update')
   @Post('products/:id/options')
   addOptionSet(
