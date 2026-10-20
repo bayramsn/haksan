@@ -466,15 +466,17 @@ export const notificationService = {
 };
 
 export const mailService = {
-  signatureUsers: () => api.get<{ id: string; name: string; email: string; hasMailAccount: boolean }[]>('/mail/signature/users'),
-  userSignature: (id: string) => api.get<{ image: string | null; filename: string | null }>(`/mail/signature/users/${id}`),
-  saveUserSignature: (id: string, body: { image: string | null; filename: string | null }) => api.put<{ image: string | null; filename: string | null }>(`/mail/signature/users/${id}`, body),
-  saveSignature: (body: { image: string | null; filename: string | null }) => api.put<UserMailAccountStatus>('/mail/signature/image', body),
-  account: () => api.get<UserMailAccountStatus>('/mail/account'),
-  connect: (body: UserMailAccountUpsertInput) => api.put<UserMailAccountStatus>('/mail/account', body),
-  disconnect: () => api.delete<{ ok: true }>('/mail/account'),
-  /** Mailin altına eklenen imza; null profilden üretilen varsayılana döner. */
-  signature: (signature: string | null) => api.put<UserMailAccountStatus>('/mail/signature', { signature }),
+  /** Süper admin: webmail ayarı yapılabilecek kullanıcılar. */
+  accountUsers: () => api.get<{ id: string; name: string; email: string; hasMailAccount: boolean }[]>('/mail/account/users'),
+  // `userId` verilirse o kullanıcının hesabı (yalnız süper admin); verilmezse kendi hesabın.
+  signature: (signature: string | null, userId?: string) =>
+    api.put<UserMailAccountStatus>(userId ? `/mail/account/users/${userId}/signature` : '/mail/signature', { signature }),
+  saveSignature: (body: { image: string | null; filename: string | null }, userId?: string) =>
+    api.put<UserMailAccountStatus>(userId ? `/mail/account/users/${userId}/signature/image` : '/mail/signature/image', body),
+  account: (userId?: string) => api.get<UserMailAccountStatus>(userId ? `/mail/account/users/${userId}` : '/mail/account'),
+  connect: (body: UserMailAccountUpsertInput, userId?: string) =>
+    api.put<UserMailAccountStatus>(userId ? `/mail/account/users/${userId}` : '/mail/account', body),
+  disconnect: (userId?: string) => api.delete<{ ok: true }>(userId ? `/mail/account/users/${userId}` : '/mail/account'),
   send: (body: MailSendInput) => api.post<MailSendResult>('/mail/send', body),
   /** Alıcı seçicisi: firmanın kontakları + kendi kullanıcılarımız. */
   recipients: (companyId?: string) =>

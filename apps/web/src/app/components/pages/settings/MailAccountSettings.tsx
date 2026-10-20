@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { AlertTriangle, Check, Eye, EyeOff, Loader2, LockKeyhole, MailCheck, PenLine, Power, RotateCcw, Server, ShieldCheck } from "lucide-react";
+import { AlertTriangle, Check, Eye, EyeOff, Loader2, LockKeyhole, MailCheck, PenLine, Power, RotateCcw, Server, ShieldCheck, UserCog } from "lucide-react";
 import { MAIL_SIGNATURE_MAX, type UserMailAccountStatus } from "@haksan/shared";
 import { toast } from "sonner";
 import { mailService } from "../../../../lib/services";
@@ -8,6 +8,7 @@ import { Button } from "../../ui/button";
 import { Input } from "../../ui/input";
 import { Label } from "../../ui/label";
 import { Textarea } from "../../ui/textarea";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../ui/select";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -31,10 +32,18 @@ function formatDate(value: string | null) {
   });
 }
 
-import { AdminMailSignatureSettings } from "./AdminMailSignatureSettings";
+type AccountUser = { id: string; name: string; email: string; hasMailAccount: boolean };
+const SELF = "self";
 
 export function MailAccountSettings() {
   const { user, hasRole } = useAuth();
+  const isSuperAdmin = hasRole("super_admin");
+  // Herkes kendi hesabını yönetir; süper admin seçiciyle başka kullanıcınınkini de.
+  const [accountUsers, setAccountUsers] = useState<AccountUser[]>([]);
+  const [owner, setOwner] = useState(SELF);
+  const target = owner === SELF ? undefined : owner;
+  const targetUser = accountUsers.find((item) => item.id === target);
+  const ownerName = targetUser?.name ?? user?.fullName ?? "";
   const [status, setStatus] = useState<UserMailAccountStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -61,7 +70,7 @@ export function MailAccountSettings() {
         reader.onerror = () => reject(new Error('Görsel okunamadı'));
         reader.readAsDataURL(file);
       }) : null;
-      setStatus(await mailService.saveSignature({ image, filename: file?.name ?? null }));
+      setStatus(await mailService.saveSignature({ image, filename: file?.name ?? null }, target));
       toast.success(file ? 'Mail imzası kaydedildi' : 'Mail imzası kaldırıldı');
     } catch (error: any) {
       toast.error('Mail imzası kaydedilemedi', { description: error?.message });
@@ -69,14 +78,24 @@ export function MailAccountSettings() {
   };
 
   useEffect(() => {
+    if (!isSuperAdmin) return;
+    let cancelled = false;
+    mailService.accountUsers()
+      .then((next) => { if (!cancelled) setAccountUsers(next.filter((item) => item.id !== user?.id)); })
+      .catch((error: any) => { if (!cancelled) toast.error("Kullanıcılar alınamadı", { description: error?.message }); });
+    return () => { cancelled = true; };
+  }, [isSuperAdmin, user?.id]);
+
+  useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    mailService.account()
+    setPassword("");
+    mailService.account(target)
       .then((next) => {
         if (cancelled) return;
         setStatus(next);
         setEmail(next.email ?? "");
-        setDisplayName(next.displayName ?? user?.fullName ?? "");
+        setDisplayName(next.displayName ?? ownerName);
         setSignature(next.signature ?? next.defaultSignature);
       })
       .catch((error: any) => {
@@ -86,7 +105,7 @@ export function MailAccountSettings() {
         if (!cancelled) setLoading(false);
       });
     return () => { cancelled = true; };
-  }, [user?.fullName]);
+  }, [target, ownerName]);
 
   const connect = async () => {
     if (!email.trim() || !displayName.trim() || !password) {
@@ -99,7 +118,7 @@ export function MailAccountSettings() {
         email: email.trim(),
         displayName: displayName.trim(),
         password,
-      });
+      }, target);
       setStatus(next);
       setPassword("");
       setSignature(next.signature ?? next.defaultSignature);
@@ -115,7 +134,7 @@ export function MailAccountSettings() {
   const saveSignature = async (value: string | null) => {
     setSavingSignature(true);
     try {
-      const next = await mailService.signature(value);
+      const next = await mailService.signature(value, target);
       setStatus(next);
       setSignature(next.signature ?? next.defaultSignature);
       toast.success(value === null ? "Varsayılan imzaya dönüldü" : value.trim() ? "İmza kaydedildi" : "İmza kapatıldı", {
@@ -131,10 +150,10 @@ export function MailAccountSettings() {
   const disconnect = async () => {
     setSaving(true);
     try {
-      await mailService.disconnect();
+      await mailService.disconnect(target);
       setStatus((current) => current ? { ...current, configured: false, email: null, displayName: null, status: null, lastVerifiedAt: null, lastUsedAt: null } : current);
       setEmail("");
-      setDisplayName(user?.fullName ?? "");
+      setDisplayName(ownerName);
       setPassword("");
       setDisconnectOpen(false);
       toast.success("Webmail bağlantısı kaldırıldı");
@@ -145,8 +164,23 @@ export function MailAccountSettings() {
     }
   };
 
+  const ownerPicker = isSuperAdmin && (
+    <SettingsSection icon={<UserCog />} title="Hesap sahibi" description="Süper admin olarak başka bir kullanıcının webmail bağlantısını ve imzasını da ayarlayabilirsiniz.">
+      <Label htmlFor="webmail-owner" className="text-xs text-muted-foreground">Kullanıcı</Label>
+      <Select value={owner} disabled={saving} onValueChange={setOwner}>
+        <SelectTrigger id="webmail-owner" className="mt-1"><SelectValue /></SelectTrigger>
+        <SelectContent>
+          <SelectItem value={SELF}>Kendi hesabım{user?.fullName ? ` · ${user.fullName}` : ""}</SelectItem>
+          {accountUsers.map((item) => (
+            <SelectItem key={item.id} value={item.id}>{item.name} · {item.email}{item.hasMailAccount ? " · bağlı" : ""}</SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </SettingsSection>
+  );
+
   if (loading) {
-    return <div className="grid min-h-52 place-items-center text-sm text-muted-foreground"><Loader2 className="mr-2 inline size-4 animate-spin" />Webmail ayarları hazırlanıyor</div>;
+    return <div className="space-y-4">{ownerPicker}<div className="grid min-h-52 place-items-center text-sm text-muted-foreground"><Loader2 className="mr-2 inline size-4 animate-spin" />Webmail ayarları hazırlanıyor</div></div>;
   }
 
   const connected = Boolean(status?.configured && status.status === "active");
@@ -154,6 +188,7 @@ export function MailAccountSettings() {
 
   return (
     <div className="space-y-4">
+      {ownerPicker}
       {!status?.featureEnabled && (
         <InfoCallout icon={<AlertTriangle />} tone="warning">
           Kişisel webmail bağlantısı sunucuda henüz açılmamış. Sistem yöneticisi SMTP sunucusunu ve izin verilen kurumsal alan adlarını tanımladıktan sonra bu ekran aktif olur.
@@ -171,7 +206,7 @@ export function MailAccountSettings() {
             <div className="min-w-0">
               <p className="font-mono text-[10px] font-semibold tracking-[0.18em] text-sky-300">KİŞİSEL GÖNDERİCİ</p>
               <h3 className="mt-1 truncate font-display text-xl font-semibold">
-                {connected ? status?.email : connectionError ? "Hesabı yeniden doğrulayın" : "Webmail hesabınızı bağlayın"}
+                {connected ? status?.email : connectionError ? "Hesabı yeniden doğrulayın" : targetUser ? `${targetUser.name} için webmail bağlayın` : "Webmail hesabınızı bağlayın"}
               </h3>
               <p className="mt-1 max-w-xl text-xs leading-relaxed text-white/60">
                 {connected
@@ -291,8 +326,6 @@ export function MailAccountSettings() {
         {signatureSaving && <p className="mt-2 text-xs">İmza kaydediliyor…</p>}
         {status?.signatureImage && <Button type="button" variant="outline" size="sm" className="mt-3" disabled={saving || signatureSaving} onClick={() => void saveImageSignature(null)}>İmzayı kaldır</Button>}
       </SettingsSection>
-
-      {hasRole("super_admin") && <AdminMailSignatureSettings />}
 
       <AlertDialog open={disconnectOpen} onOpenChange={setDisconnectOpen}>
         <AlertDialogContent>

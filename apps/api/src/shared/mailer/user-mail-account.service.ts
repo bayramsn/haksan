@@ -98,15 +98,26 @@ export class UserMailAccountService {
     };
   }
 
+  /**
+   * Webmail ayarı yapılacak hesap sahibi: herkes kendisi için, yalnız süper admin
+   * kiracıdaki başka bir kullanıcı için. Şifreleme AAD'si sahibe bağlı olduğu için
+   * tüm okuma/yazmalar bu sahiple yapılır; denetim kaydının aktörü yine istek sahibidir.
+   */
+  async owner(actor: AuthContext, userId = actor.userId): Promise<Pick<AuthContext, 'tenantId' | 'userId'>> {
+    if (userId === actor.userId) return actor;
+    if (!actor.roles.includes('super_admin')) throw new ForbiddenError('Diğer kullanıcıların webmail ayarlarını yalnız süper admin yönetebilir');
+    const target = await this.db.query.users.findFirst({ where: and(eq(users.id, userId), eq(users.tenantId, actor.tenantId), isNull(users.deletedAt)) });
+    if (!target) throw new NotFoundError('Kullanıcı');
+    return { tenantId: actor.tenantId, userId };
+  }
+
   async imageSignature(actor: Pick<AuthContext, 'tenantId' | 'userId'>): Promise<MailSignatureInput> {
     const row = await this.db.query.userMailSignatures.findFirst({ where: and(eq(userMailSignatures.tenantId, actor.tenantId), eq(userMailSignatures.userId, actor.userId)) });
     return { image: row?.image ?? null, filename: row?.filename ?? null };
   }
 
   async saveSignature(input: MailSignatureInput, actor: AuthContext, targetUserId = actor.userId): Promise<MailSignatureInput> {
-    if (targetUserId !== actor.userId && !actor.roles.includes('super_admin')) throw new ForbiddenError('Diğer kullanıcıların imzasını yalnız süper admin düzenleyebilir');
-    const target = await this.db.query.users.findFirst({ where: and(eq(users.id, targetUserId), eq(users.tenantId, actor.tenantId), isNull(users.deletedAt)) });
-    if (!target) throw new NotFoundError('Kullanıcı');
+    await this.owner(actor, targetUserId);
     if (input.image) {
       const content = Buffer.from(input.image.split(',')[1], 'base64');
       if (!content.length || content.length > 2 * 1024 * 1024) throw new ValidationError('İmza görseli 2 MB sınırını aşamaz');
@@ -121,23 +132,24 @@ export class UserMailAccountService {
     return input;
   }
 
-  async updateSignature(input: UserMailSignatureInput, actor: AuthContext): Promise<UserMailAccountStatus> {
+  async updateSignature(input: UserMailSignatureInput, actor: AuthContext, targetUserId = actor.userId): Promise<UserMailAccountStatus> {
+    const owner = await this.owner(actor, targetUserId);
     this.assertFeatureEnabled();
-    if (!(await this.find(actor))) throw new ValidationError('Önce Ayarlar > Webmail bölümünden posta hesabınızı bağlayın');
+    if (!(await this.find(owner))) throw new ValidationError('Önce Ayarlar > Webmail bölümünden posta hesabını bağlayın');
     const signature = input.signature === null ? null : input.signature.replace(/\r\n?/g, '\n').trim();
     await this.db
       .update(userMailAccounts)
       .set({ signature, updatedAt: new Date() })
-      .where(and(eq(userMailAccounts.tenantId, actor.tenantId), eq(userMailAccounts.userId, actor.userId)));
+      .where(and(eq(userMailAccounts.tenantId, owner.tenantId), eq(userMailAccounts.userId, owner.userId)));
     await this.audit.write({
       tenantId: actor.tenantId,
       actorUserId: actor.userId,
       action: 'user_mail_account.signature_updated',
       resourceType: 'user_mail_account',
-      resourceId: actor.userId,
+      resourceId: owner.userId,
       newValues: { signature: signature === null ? 'default' : signature ? 'custom' : 'none' },
     });
-    return this.status(actor);
+    return this.status(owner);
   }
 
   async hasActiveAccount(actor: Pick<AuthContext, 'tenantId' | 'userId'>): Promise<boolean> {
@@ -146,19 +158,20 @@ export class UserMailAccountService {
     return account?.status === 'active';
   }
 
-  async configure(input: UserMailAccountUpsertInput, actor: AuthContext): Promise<UserMailAccountStatus> {
+  async configure(input: UserMailAccountUpsertInput, actor: AuthContext, targetUserId = actor.userId): Promise<UserMailAccountStatus> {
+    const owner = await this.owner(actor, targetUserId);
     this.assertFeatureEnabled();
     const email = input.email.trim().toLowerCase();
     this.assertAllowedDomain(email);
     await this.verifyCredentials(email, input.password);
 
     const now = new Date();
-    const encryptedPassword = encryptCredential(input.password, this.encryptionKey(), this.aad(actor));
+    const encryptedPassword = encryptCredential(input.password, this.encryptionKey(), this.aad(owner));
     await this.db
       .insert(userMailAccounts)
       .values({
-        tenantId: actor.tenantId,
-        userId: actor.userId,
+        tenantId: owner.tenantId,
+        userId: owner.userId,
         email,
         displayName: input.displayName.trim(),
         encryptedPassword,
@@ -185,22 +198,23 @@ export class UserMailAccountService {
       actorUserId: actor.userId,
       action: 'user_mail_account.connected',
       resourceType: 'user_mail_account',
-      resourceId: actor.userId,
+      resourceId: owner.userId,
       newValues: { email, displayName: input.displayName.trim(), status: 'active' },
     });
-    return this.status(actor);
+    return this.status(owner);
   }
 
-  async remove(actor: AuthContext): Promise<{ ok: true }> {
+  async remove(actor: AuthContext, targetUserId = actor.userId): Promise<{ ok: true }> {
+    const owner = await this.owner(actor, targetUserId);
     await this.db
       .delete(userMailAccounts)
-      .where(and(eq(userMailAccounts.tenantId, actor.tenantId), eq(userMailAccounts.userId, actor.userId)));
+      .where(and(eq(userMailAccounts.tenantId, owner.tenantId), eq(userMailAccounts.userId, owner.userId)));
     await this.audit.write({
       tenantId: actor.tenantId,
       actorUserId: actor.userId,
       action: 'user_mail_account.disconnected',
       resourceType: 'user_mail_account',
-      resourceId: actor.userId,
+      resourceId: owner.userId,
     });
     return { ok: true };
   }

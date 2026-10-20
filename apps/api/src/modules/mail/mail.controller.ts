@@ -91,33 +91,56 @@ export class MailController {
     return this.accounts.status(actor);
   }
 
-  @Get('signature/users')
-  async signatureUsers(@CurrentUser() actor: AuthContext) {
-    this.requireSignatureAdmin(actor);
+  /** Süper admin: webmail ayarı yapılabilecek kullanıcılar (hesabı bağlı mı bilgisiyle). */
+  @Get('account/users')
+  async accountUsers(@CurrentUser() actor: AuthContext) {
+    if (!actor.roles.includes('super_admin')) throw new ForbiddenError('Kullanıcıların webmail ayarları süper admin yetkisi gerektirir');
     const rows = await this.db.select({ id: users.id, name: users.fullName, email: users.email, accountId: userMailAccounts.id }).from(users)
       .leftJoin(userMailAccounts, and(eq(userMailAccounts.userId, users.id), eq(userMailAccounts.tenantId, actor.tenantId)))
       .where(and(eq(users.tenantId, actor.tenantId), isNull(users.deletedAt))).orderBy(asc(users.fullName));
     return rows.map(({ accountId, ...row }) => ({ ...row, hasMailAccount: Boolean(accountId) }));
   }
 
-  private requireSignatureAdmin(actor: AuthContext) {
-    if (!actor.roles.includes('super_admin')) throw new ForbiddenError('İmza yönetimi süper admin yetkisi gerektirir');
+  // Kullanıcı bazlı uçlar: kendi id'si herkes için, başkasınınki yalnız süper admin (owner()).
+  @Get('account/users/:userId')
+  async userAccount(@Param('userId', new ZodValidationPipe(z.string().uuid())) userId: string, @CurrentUser() actor: AuthContext) {
+    return this.accounts.status(await this.accounts.owner(actor, userId));
   }
 
-  @Get('signature/users/:userId')
-  async userSignature(@Param('userId', new ZodValidationPipe(z.string().uuid())) userId: string, @CurrentUser() actor: AuthContext) {
-    this.requireSignatureAdmin(actor);
-    const target = await this.db.query.users.findFirst({ where: and(eq(users.id, userId), eq(users.tenantId, actor.tenantId), isNull(users.deletedAt)) });
-    if (!target) throw new NotFoundError('Kullanıcı');
-    return this.accounts.imageSignature({ tenantId: actor.tenantId, userId });
+  @Put('account/users/:userId')
+  @Throttle({ default: { limit: 5, ttl: 15 * 60_000 } })
+  connectUser(
+    @Param('userId', new ZodValidationPipe(z.string().uuid())) userId: string,
+    @Body(new ZodValidationPipe(userMailAccountUpsertSchema)) body: UserMailAccountUpsertInput,
+    @CurrentUser() actor: AuthContext
+  ) {
+    return this.accounts.configure(body, actor, userId);
   }
 
-  @Put('signature/users/:userId')
+  @Delete('account/users/:userId')
+  disconnectUser(@Param('userId', new ZodValidationPipe(z.string().uuid())) userId: string, @CurrentUser() actor: AuthContext) {
+    return this.accounts.remove(actor, userId);
+  }
+
+  @Put('account/users/:userId/signature')
+  @Throttle({ default: { limit: 20, ttl: 60_000 } })
+  userTextSignature(
+    @Param('userId', new ZodValidationPipe(z.string().uuid())) userId: string,
+    @Body(new ZodValidationPipe(userMailSignatureSchema)) body: UserMailSignatureInput,
+    @CurrentUser() actor: AuthContext
+  ) {
+    return this.accounts.updateSignature(body, actor, userId);
+  }
+
+  @Put('account/users/:userId/signature/image')
   @Throttle({ default: { limit: 5, ttl: 60_000 } })
-  saveUserSignature(@Param('userId', new ZodValidationPipe(z.string().uuid())) userId: string,
-    @Body(new ZodValidationPipe(mailSignatureSchema)) body: MailSignatureInput, @CurrentUser() actor: AuthContext) {
-    this.requireSignatureAdmin(actor);
-    return this.accounts.saveSignature(body, actor, userId);
+  async userSignatureImage(
+    @Param('userId', new ZodValidationPipe(z.string().uuid())) userId: string,
+    @Body(new ZodValidationPipe(mailSignatureSchema)) body: MailSignatureInput,
+    @CurrentUser() actor: AuthContext
+  ) {
+    await this.accounts.saveSignature(body, actor, userId);
+    return this.accounts.status(await this.accounts.owner(actor, userId));
   }
 
   /**
