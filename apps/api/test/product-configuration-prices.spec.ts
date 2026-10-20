@@ -60,6 +60,27 @@ describe('base card model × power prices', () => {
     }
   });
 
+  it('lists every base row and lets only price editors set sale prices', async () => {
+    const list = await request().get('/api/v1/product-configuration-prices').set('Authorization', `Bearer ${salesToken}`);
+    expect(list.status, JSON.stringify(list.body)).toBe(200);
+    const row = list.body.rows.find((entry: { sourceModelCode: string; powerKw: number }) => entry.sourceModelCode === 'TEST-6020' && entry.powerKw === 3);
+    expect(row).toBeTruthy();
+    expect(row).not.toHaveProperty('costPrice');
+
+    const body = { rows: [{ id: row.id, salePrice: 26500, saleCurrencyCode: 'USD' }] };
+    expect((await request().patch('/api/v1/product-configuration-prices').set('Authorization', `Bearer ${salesToken}`).send(body)).status).toBe(403);
+    const saved = await request().patch('/api/v1/product-configuration-prices').set('Authorization', `Bearer ${adminToken}`).send(body);
+    expect(saved.status, JSON.stringify(saved.body)).toBe(200);
+    expect(saved.body).toEqual({ updated: 1 });
+    const reread = await request().get(`/api/v1/products/${productId}/configuration-prices`).set('Authorization', `Bearer ${adminToken}`);
+    expect(reread.body.rows.find((entry: { powerKw: number }) => entry.powerKw === 3)).toMatchObject({ salePrice: 26500, saleCurrencyCode: 'USD', costPrice: 21000 });
+
+    const cleared = await request().patch('/api/v1/product-configuration-prices').set('Authorization', `Bearer ${adminToken}`).send({ rows: [{ id: row.id, salePrice: null, saleCurrencyCode: 'USD' }] });
+    expect(cleared.status).toBe(200);
+    expect((await request().patch('/api/v1/product-configuration-prices').set('Authorization', `Bearer ${adminToken}`).send({ rows: [{ id: row.id, salePrice: -1, saleCurrencyCode: 'USD' }] })).status).toBe(422);
+    expect((await request().patch('/api/v1/product-configuration-prices').set('Authorization', `Bearer ${adminToken}`).send({ rows: [{ id: '00000000-0000-4000-8000-000000000000', salePrice: 1, saleCurrencyCode: 'USD' }] })).status).toBe(404);
+  });
+
   it('requires authentication', async () => {
     expect((await request().get(`/api/v1/products/${productId}/configuration-prices`)).status).toBe(401);
   });

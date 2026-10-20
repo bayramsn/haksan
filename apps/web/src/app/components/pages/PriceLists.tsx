@@ -18,6 +18,7 @@ import { ProductDetailDialog, ProductThumb } from "../dialogs/ProductDetailDialo
 import { ProductDialog } from "../dialogs/CreateDialogs";
 import { productService } from "../../../lib/services";
 import { InsightStat } from "../shared/PremiumPrimitives";
+import { ConfigurationPriceEditor } from "./ConfigurationPriceEditor";
 
 const fmtMoney = (n?: number | null, cur = "USD") =>
   formatPrice(n, cur);
@@ -525,6 +526,8 @@ export function SalesPriceListPage() {
           Toplam <b className="text-foreground">{filtered.length}</b> tezgah
         </div>
       </Card>
+
+      <ConfigurationPriceEditor />
 
       <ProductDetailDialog
         product={selected}

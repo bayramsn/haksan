@@ -398,3 +398,13 @@ export const productImportTemplateQuerySchema = z.object({
   productTypeCode: z.string().trim().min(1).max(64).optional(),
 });
 export type ProductImportTemplateQuery = z.infer<typeof productImportTemplateQuerySchema>;
+
+/** Baz kart model × güç satırlarına satış fiyatı (toplu). Fiyatı boşaltmak için `salePrice: null`. */
+export const productConfigurationPriceUpdateSchema = z.object({
+  rows: z.array(z.object({
+    id: z.string().uuid(),
+    salePrice: moneySchema.nullable(),
+    saleCurrencyCode: z.enum(['USD', 'EUR', 'TRY']),
+  }).strict()).min(1).max(500),
+}).strict();
+export type ProductConfigurationPriceUpdateInput = z.infer<typeof productConfigurationPriceUpdateSchema>;

@@ -21,6 +21,8 @@ import {
   productOptionValueCreateSchema,
   productOptionSetUpdateSchema,
   productOptionValueUpdateSchema,
+  productConfigurationPriceUpdateSchema,
+  type ProductConfigurationPriceUpdateInput,
   paginationSchema,
   type ProductCreateInput,
   type ProductUpdateInput,
@@ -303,6 +305,18 @@ export class ProductsController {
   @Delete('products/options/values/:valueId')
   deleteOptionValue(@Param('valueId') id: string, @CurrentUser() user: AuthContext) {
     return this.svc.deleteOptionValue(id, user);
+  }
+
+  @RequirePermissions('price_lists.read')
+  @Get('product-configuration-prices')
+  listAllConfigurationPrices(@CurrentUser() user: AuthContext) {
+    return this.svc.listAllConfigurationPrices(user);
+  }
+
+  @RequirePermissions('price_lists.update')
+  @Patch('product-configuration-prices')
+  updateConfigurationPrices(@Body(new ZodValidationPipe(productConfigurationPriceUpdateSchema)) body: ProductConfigurationPriceUpdateInput, @CurrentUser() user: AuthContext) {
+    return this.svc.updateConfigurationPrices(body, user);
   }
 
   @RequirePermissions('price_lists.read')

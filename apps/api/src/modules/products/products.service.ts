@@ -55,6 +55,7 @@ import type {
   ProductOptionValueCreateInput,
   ProductOptionSetUpdateInput,
   ProductOptionValueUpdateInput,
+  ProductConfigurationPriceUpdateInput,
 } from '@haksan/shared';
 import { LASER_MODELS, productImportRowSchema, laserSelectionKey, laserTechnicalConfigurationSchema, isMainMachineCategory, machineCategoryLabel, machineGroupCode } from '@haksan/shared';
 import { hexlaserLegacyVariantCode } from '../../db/hexlaser-product-variants';
@@ -1397,6 +1398,60 @@ export class ProductsService {
       ...s,
       values: values.filter((v: any) => v.optionSetId === s.id).map((v: any) => ({ ...v, currencyCode: currencyRows.find(c => c.id === v.currencyId)?.code ?? null })),
     }));
+  }
+
+  /** Fiyat Listeleri ekranı: tüm baz kartların model × güç satırları (maliyet yalnız `product_costs.view`). */
+  async listAllConfigurationPrices(actor: AuthContext) {
+    const rows = await this.db.select({
+      id: productConfigurationPrices.id,
+      productModelId: productConfigurationPrices.productModelId,
+      baseName: productModels.fullName,
+      series: productModels.series,
+      sourceModelCode: productConfigurationPrices.sourceModelCode,
+      powerKw: productConfigurationPrices.powerKw,
+      costPrice: productConfigurationPrices.costPrice,
+      costCurrencyId: productConfigurationPrices.costCurrencyId,
+      salePrice: productConfigurationPrices.salePrice,
+      saleCurrencyId: productConfigurationPrices.saleCurrencyId,
+      container: productConfigurationPrices.container,
+      leadTimeDays: productConfigurationPrices.leadTimeDays,
+    }).from(productConfigurationPrices)
+      .innerJoin(productModels, eq(productModels.id, productConfigurationPrices.productModelId))
+      .where(and(eq(productConfigurationPrices.tenantId, actor.tenantId), isNull(productConfigurationPrices.deletedAt), isNull(productModels.deletedAt)))
+      .orderBy(asc(productModels.series), asc(productConfigurationPrices.sourceModelCode), asc(productConfigurationPrices.powerKw));
+    const currencyRows = await this.db.select({ id: currencies.id, code: currencies.code }).from(currencies);
+    const currencyCode = (id: string | null) => currencyRows.find((row) => row.id === id)?.code ?? null;
+    const amount = (value: string | null) => (value === null ? null : Number(value));
+    const canViewCost = actor.roles.includes('super_admin') || actor.permissions.has('product_costs.view');
+    return {
+      canViewCost,
+      rows: rows.map(({ costPrice, costCurrencyId, saleCurrencyId, ...row }) => ({
+        ...row,
+        powerKw: Number(row.powerKw),
+        salePrice: amount(row.salePrice),
+        saleCurrencyCode: currencyCode(saleCurrencyId),
+        ...(canViewCost ? { costPrice: amount(costPrice), costCurrencyCode: currencyCode(costCurrencyId) } : {}),
+      })),
+    };
+  }
+
+  async updateConfigurationPrices(input: ProductConfigurationPriceUpdateInput, actor: AuthContext) {
+    const ids = [...new Set(input.rows.map((row) => row.id))];
+    if (ids.length !== input.rows.length) throw new ValidationError('Aynı satır birden fazla kez gönderildi');
+    const owned = await this.db.select({ id: productConfigurationPrices.id }).from(productConfigurationPrices)
+      .where(and(inArray(productConfigurationPrices.id, ids), eq(productConfigurationPrices.tenantId, actor.tenantId), isNull(productConfigurationPrices.deletedAt)));
+    if (owned.length !== ids.length) throw new NotFoundError('Fiyat satırı');
+    const currencyRows = await this.db.select({ id: currencies.id, code: currencies.code }).from(currencies);
+    await this.db.transaction(async (tx) => {
+      for (const row of input.rows) {
+        const saleCurrencyId = row.salePrice === null ? null : currencyRows.find((currency) => currency.code === row.saleCurrencyCode)?.id;
+        if (saleCurrencyId === undefined) throw new ValidationError('Para birimi tanımlı değil');
+        await tx.update(productConfigurationPrices)
+          .set({ salePrice: row.salePrice === null ? null : String(row.salePrice), saleCurrencyId, updatedAt: new Date() })
+          .where(and(eq(productConfigurationPrices.id, row.id), eq(productConfigurationPrices.tenantId, actor.tenantId)));
+      }
+    });
+    return { updated: input.rows.length };
   }
 
   /** Baz kartın alt model × güç fiyat matrisi; alış maliyeti yalnız `product_costs.view` ile döner. */
