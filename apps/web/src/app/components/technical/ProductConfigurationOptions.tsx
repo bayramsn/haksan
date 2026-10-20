@@ -12,6 +12,21 @@ export const isConfigurableProduct = (product?: Pick<Product, "productTypeCode" 
 export type ConfigurationValue = { id: string; value: string; priceDelta: string | null; currencyCode: string | null; sourceModelCode?: string | null; powerKw?: number | null; cabinType?: 'open' | 'closed' | null };
 export type ConfigurationSet = { id: string; name: string; configurationKind: 'table' | 'power' | 'cabin' | null; values: ConfigurationValue[] };
 export type SelectedProductOption = { optionSetId: string; optionValueId: string; name: string; value: string; priceDelta: string | null; currencyCode: string | null };
+export type ConfigurationPriceRow = Awaited<ReturnType<typeof productService.configurationPrices>>['rows'][number];
+export type QuoteConfigurationPrice = { sourceModelCode: string; powerKw: number; salePrice: number; currencyCode: string };
+
+/** Seçili tabla (model) ve güç için matris satırı; matrisli baz kartta fiyat buradan gelir. */
+export function matrixPriceRow(sets: ConfigurationSet[], selected: SelectedProductOption[], matrix: ConfigurationPriceRow[]): { sourceModelCode?: string; powerKw?: number; row?: ConfigurationPriceRow } {
+  const valueOf = (kind: 'table' | 'power') => {
+    const set = sets.find(entry => entry.configurationKind === kind);
+    const choice = set && selected.find(option => option.optionSetId === set.id);
+    return choice ? set!.values.find(value => value.id === choice.optionValueId) : undefined;
+  };
+  const sourceModelCode = valueOf('table')?.sourceModelCode ?? undefined;
+  const powerKw = valueOf('power')?.powerKw ?? undefined;
+  const row = sourceModelCode && powerKw != null ? matrix.find(entry => entry.sourceModelCode === sourceModelCode && entry.powerKw === Number(powerKw)) : undefined;
+  return { sourceModelCode, powerKw: powerKw == null ? undefined : Number(powerKw), row };
+}
 export function optionSnapshot(set: ConfigurationSet, value: ConfigurationValue): SelectedProductOption {
   return { optionSetId: set.id, optionValueId: value.id, name: set.name, value: value.value, priceDelta: value.priceDelta, currencyCode: value.currencyCode };
 }
@@ -87,11 +102,30 @@ function OptionValueRow({ set, value, base, genericBase, currency, save, archive
   </div>;
 }
 
-export function QuoteConfigurationOptions({ productId, selected, disabled, onChange, refreshKey = 0 }: { refreshKey?: number; productId: string; selected: SelectedProductOption[]; disabled: boolean; onChange: (sets: ConfigurationSet[], snapshots: SelectedProductOption[]) => Promise<void> }) {
+export function QuoteConfigurationOptions({ productId, selected, disabled, onChange, refreshKey = 0 }: { refreshKey?: number; productId: string; selected: SelectedProductOption[]; disabled: boolean; onChange: (sets: ConfigurationSet[], snapshots: SelectedProductOption[], matrix: ConfigurationPriceRow[]) => Promise<void> }) {
   const [sets, setSets] = useState<ConfigurationSet[]>([]);
-  useEffect(() => { let current = true; productService.options(productId).then(rows => { if (current) setSets(rows); }).catch(() => toast.error('Donanım seçenekleri yüklenemedi')); return () => { current = false; }; }, [productId, refreshKey]);
-  return <fieldset disabled={disabled} className="flex flex-wrap gap-3 rounded-md border p-3"><legend className="px-1 text-xs font-medium">Makine konfigürasyonu · baz fiyat + seçilen donanım</legend>{sets.map(set => <label className="flex min-w-44 flex-col gap-1 text-xs" key={set.id}>{set.name}<select className="h-9 rounded-md border bg-background px-2" aria-label={set.name} value={selected.find(s => s.optionSetId === set.id)?.optionValueId ?? ''} onChange={e => { const value = set.values.find(v => v.id === e.target.value); const next = selected.filter(s => s.optionSetId !== set.id); if (value) next.push(optionSnapshot(set, value));
+  const [matrix, setMatrix] = useState<ConfigurationPriceRow[]>([]);
+  useEffect(() => {
+    let current = true;
+    productService.options(productId).then(rows => { if (current) setSets(rows); }).catch(() => toast.error('Donanım seçenekleri yüklenemedi'));
+    productService.configurationPrices(productId).then(result => { if (current) setMatrix(result.rows); }).catch(() => { if (current) setMatrix([]); });
+    return () => { current = false; };
+  }, [productId, refreshKey]);
+  // Matrisli baz kartta güç listesi seçili modelin matristeki güçleriyle sınırlanır ve fiyat matristen gösterilir.
+  const { sourceModelCode } = matrixPriceRow(sets, selected, matrix);
+  const visibleValues = (set: ConfigurationSet) => !matrix.length || set.configurationKind !== 'power' || !sourceModelCode
+    ? set.values
+    : set.values.filter(value => matrix.some(row => row.sourceModelCode === sourceModelCode && row.powerKw === Number(value.powerKw)));
+  const valueLabel = (set: ConfigurationSet, value: ConfigurationValue) => {
+    if (matrix.length && set.configurationKind) {
+      if (set.configurationKind !== 'power' || !sourceModelCode) return value.value;
+      const row = matrix.find(entry => entry.sourceModelCode === sourceModelCode && entry.powerKw === Number(value.powerKw));
+      return `${value.value} · ${row?.salePrice == null ? 'satış fiyatı girilmemiş' : `${row.salePrice.toLocaleString('tr-TR')} ${row.saleCurrencyCode ?? ''}`}`;
+    }
+    return `${value.value} · ${value.priceDelta == null ? 'Fiyat girilmemiş' : `+${value.priceDelta} ${value.currencyCode ?? ''}`}`;
+  };
+  return <fieldset disabled={disabled} className="flex flex-wrap gap-3 rounded-md border p-3"><legend className="px-1 text-xs font-medium">{matrix.length ? 'Makine konfigürasyonu · model ve güç fiyatı + seçilen donanım' : 'Makine konfigürasyonu · baz fiyat + seçilen donanım'}</legend>{sets.map(set => <label className="flex min-w-44 flex-col gap-1 text-xs" key={set.id}>{set.name}<select className="h-9 rounded-md border bg-background px-2" aria-label={set.name} value={selected.find(s => s.optionSetId === set.id)?.optionValueId ?? ''} onChange={e => { const value = set.values.find(v => v.id === e.target.value); const next = selected.filter(s => s.optionSetId !== set.id); if (value) next.push(optionSnapshot(set, value));
       const canonical = next.map(snapshot => { const currentSet = sets.find(entry => entry.id === snapshot.optionSetId); const currentValue = currentSet?.values.find(entry => entry.id === snapshot.optionValueId); return currentSet && currentValue ? optionSnapshot(currentSet, currentValue) : null; });
       if (canonical.some(snapshot => !snapshot)) { toast.error('Pasif donanım seçimini aktif bir seçenekle değiştirin.'); return; }
-      void onChange(sets, canonical.filter((snapshot): snapshot is SelectedProductOption => Boolean(snapshot))); }}><option value="">Seçiniz</option>{selected.filter(snapshot => snapshot.optionSetId === set.id && !set.values.some(value => value.id === snapshot.optionValueId)).map(snapshot => <option key={snapshot.optionValueId} value={snapshot.optionValueId}>{snapshot.value} · kayıtlı teklif seçimi</option>)}{set.values.map(value => <option key={value.id} value={value.id}>{value.value} · {value.priceDelta == null ? 'Fiyat girilmemiş' : `+${value.priceDelta} ${value.currencyCode ?? ''}`}</option>)}</select></label>)}</fieldset>;
+      void onChange(sets, canonical.filter((snapshot): snapshot is SelectedProductOption => Boolean(snapshot)), matrix); }}><option value="">Seçiniz</option>{selected.filter(snapshot => snapshot.optionSetId === set.id && !set.values.some(value => value.id === snapshot.optionValueId)).map(snapshot => <option key={snapshot.optionValueId} value={snapshot.optionValueId}>{snapshot.value} · kayıtlı teklif seçimi</option>)}{visibleValues(set).map(value => <option key={value.id} value={value.id}>{valueLabel(set, value)}</option>)}</select></label>)}</fieldset>;
 }

@@ -3,17 +3,17 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, cleanup } from '@testing-library/react';
 import { baseModelOptionSpecs, isRequiredConfigurationSet, isConfigurableProduct, selectedOptionsMatchCatalog, optionSnapshot, ProductConfigurationOptionsEditor, QuoteConfigurationOptions } from './ProductConfigurationOptions';
 import { productService } from '../../../lib/services';
-vi.mock('../../../lib/services', () => ({ productService: { options: vi.fn(), addOptionSet: vi.fn(), updateOptionSet: vi.fn(), archiveOptionSet: vi.fn(), addOptionValue: vi.fn(), updateOptionValue: vi.fn(), archiveOptionValue: vi.fn() } }));
+vi.mock('../../../lib/services', () => ({ productService: { options: vi.fn(), configurationPrices: vi.fn(), addOptionSet: vi.fn(), updateOptionSet: vi.fn(), archiveOptionSet: vi.fn(), addOptionValue: vi.fn(), updateOptionValue: vi.fn(), archiveOptionValue: vi.fn() } }));
 const sets = [{ id: 'table-set', name: 'Tabla ölçüsü', configurationKind: 'table' as const, values: [{ id: 'f4020', value: '4000 × 2000 mm', sourceModelCode: 'F4020', priceDelta: '1500', currencyCode: 'USD' }] }];
 const base = { familyCode: 'F', series: 'F' as const, productTypeCode: 'FIBER_LAZER_KESIM' as const, sourceModelCodes: ['F3015', 'F4020'] };
-beforeEach(() => { cleanup(); vi.clearAllMocks(); vi.mocked(productService.options).mockResolvedValue(sets); });
+beforeEach(() => { cleanup(); vi.clearAllMocks(); vi.mocked(productService.options).mockResolvedValue(sets); vi.mocked(productService.configurationPrices).mockResolvedValue({ canViewCost: false, rows: [] }); });
 describe('lazer baz model seçenekleri', () => {
   it('seçilen ölçünün kimlik, etiket ve fiyatını teklif anlık kaydına aktarır', async () => {
     const onChange = vi.fn().mockResolvedValue(undefined);
     render(<QuoteConfigurationOptions productId="base" selected={[]} disabled={false} onChange={onChange} />);
     const select = await screen.findByLabelText('Tabla ölçüsü');
     fireEvent.change(select, { target: { value: 'f4020' } });
-    expect(onChange).toHaveBeenCalledWith(sets, [{ optionSetId: 'table-set', optionValueId: 'f4020', name: 'Tabla ölçüsü', value: '4000 × 2000 mm', priceDelta: '1500', currencyCode: 'USD' }]);
+    expect(onChange).toHaveBeenCalledWith(sets, [{ optionSetId: 'table-set', optionValueId: 'f4020', name: 'Tabla ölçüsü', value: '4000 × 2000 mm', priceDelta: '1500', currencyCode: 'USD' }], []);
   });
   it('kullanıcı özel ölçüyü ve ek fiyatını baz karta ekleyebilir', async () => {
     render(<ProductConfigurationOptionsEditor productId="base" base={base} currency="USD" />);

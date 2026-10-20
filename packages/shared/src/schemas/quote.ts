@@ -91,6 +91,13 @@ export const quoteItemCompatibilitySchema = z.object({
   technicalSpecs: z.array(quoteItemTechnicalSpecSchema).default([]),
   technicalConfiguration: laserTechnicalConfigurationSchema.nullish(),
   selectedProductOptions: z.array(quoteSelectedProductOptionSchema).max(100).optional(),
+  // Baz kartın model × güç matrisinden gelen satış fiyatı; sunucu matristen doğrular ve yazar.
+  configurationPrice: z.object({
+    sourceModelCode: z.string().trim().min(1).max(64),
+    powerKw: z.number().finite().positive().max(1000),
+    salePrice: moneySchema,
+    currencyCode: z.string().min(3).max(8),
+  }).nullish(),
 });
 export type QuoteItemCompatibility = z.infer<typeof quoteItemCompatibilitySchema>;
 

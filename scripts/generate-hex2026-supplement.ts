@@ -56,7 +56,12 @@ function hexFields(model: LaserCatalogModel) {
     if (!value) continue;
     const key = HEX_KEYS[field.key] ?? field.key;
     if (key === 'Çalışma Alanı (mm)') add(key, value.replace(/\s*mm$/i, '').replace(/\s*[×x*]\s*/g, 'x'), field.rawValue);
-    else add(key, field.powerKw !== undefined ? `${decimal(field.powerKw)} kW: ${value}` : value, field.rawValue);
+    else if (field.powerKw !== undefined) {
+      // Kaynak hücre "26.8kW/40kVA": toplam güç kW, trafo kVA olarak ayrılır.
+      const electrical = value.match(/([\d.,]+)\s*kw\s*\/\s*([\d.,]+)\s*kva/i);
+      const single = electrical ? (key === 'Trafo Kapasitesi' ? `${electrical[2]} kVA` : `${electrical[1]} kW`) : value;
+      add(key, `${decimal(field.powerKw)} kW: ${single}`, field.rawValue);
+    } else add(key, value, field.rawValue);
   }
   return fields;
 }

@@ -77,6 +77,7 @@ export async function importLaserPriceList(db: DbClient, tenantId: string, buffe
   };
   if (!apply || !rows.length) return summary;
 
+  const options = { pricedConfigurationValues: 0, createdPowerValues: 0 };
   await db.transaction(async (tx) => {
     for (const row of rows) {
       await tx.insert(s.productConfigurationPrices).values(row).onConflictDoUpdate({
@@ -88,8 +89,29 @@ export async function importLaserPriceList(db: DbClient, tenantId: string, buffe
         },
       });
     }
+    // Teklifte model/güç/kabin seçilebilsin: bu seçeneklerin ek fiyatı 0'dır (fiyat matristen gelir)
+    // ve güç seçenekleri matristeki güçlerden oluşur. Elle girilmiş ek fiyatlara dokunulmaz.
+    for (const productModelId of new Set(rows.map((row) => row.productModelId))) {
+      const sets = await tx.select().from(s.productOptionSets).where(and(eq(s.productOptionSets.productModelId, productModelId), eq(s.productOptionSets.tenantId, tenantId), isNull(s.productOptionSets.deletedAt)));
+      for (const set of sets.filter((entry) => entry.configurationKind)) {
+        const priced = await tx.update(s.productOptionValues).set({ priceDelta: '0', currencyId: usd.id, updatedAt: new Date() })
+          .where(and(eq(s.productOptionValues.optionSetId, set.id), isNull(s.productOptionValues.priceDelta), isNull(s.productOptionValues.deletedAt)))
+          .returning({ id: s.productOptionValues.id });
+        options.pricedConfigurationValues += priced.length;
+      }
+      const powerSet = sets.find((entry) => entry.configurationKind === 'power');
+      if (!powerSet) continue;
+      const existingPowers = await tx.select({ powerKw: s.productOptionValues.powerKw }).from(s.productOptionValues)
+        .where(and(eq(s.productOptionValues.optionSetId, powerSet.id), isNull(s.productOptionValues.deletedAt)));
+      const powers = [...new Set(rows.filter((row) => row.productModelId === productModelId).map((row) => row.powerKw))].sort((a, b) => a - b);
+      for (const [sortOrder, powerKw] of powers.entries()) {
+        if (existingPowers.some((value) => Number(value.powerKw) === powerKw)) continue;
+        await tx.insert(s.productOptionValues).values({ tenantId, optionSetId: powerSet.id, value: `${String(powerKw).replace('.', ',')} kW`, powerKw, priceDelta: '0', currencyId: usd.id, sortOrder });
+        options.createdPowerValues++;
+      }
+    }
   });
-  return { ...summary, applied: true };
+  return { ...summary, ...options, applied: true };
 }
 
 if (require.main === module) {

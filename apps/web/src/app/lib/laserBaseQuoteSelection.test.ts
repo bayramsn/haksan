@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { HEX2026_REVISION, HEX2026_SERIES } from '@haksan/shared';
-import { laserBaseQuoteContext } from './laserBaseQuoteSelection';
+import { hexConfigurationQuoteSpecs, laserBaseQuoteContext } from './laserBaseQuoteSelection';
 import type { LaserBaseConfiguration } from './mock';
 import type { ConfigurationSet, SelectedProductOption } from '../components/technical/ProductConfigurationOptions';
 const sourceModelCode = HEX2026_SERIES.find(row => row.series === 'F')!.configurations[0]!.sourceModelCode;
@@ -26,5 +26,22 @@ describe('HEX source quote routing', () => {
   });
   it('does not invent cabin data for legacy bases', () => {
     expect(laserBaseQuoteContext({ ...base, sourceRevision: undefined }, sets, selected).cabinType).toBeNull();
+  });
+});
+
+describe("hexConfigurationQuoteSpecs", () => {
+  const configuration = { fields: [
+    { key: "Lazer Gücü", rawValue: "1,5-12 kW", verification: "aore_excel" },
+    { key: "Maksimum Boru İşleme Uzunluğu", rawValue: "6500mm", verification: "aore_excel" },
+    { key: "Toplam Güç Gereksinimi", rawValue: "1,5 kW: 12.85kW/20kVA\n3 kW: 15.75kW/20kVA", verification: "aore_excel" },
+    { key: "Trafo Kapasitesi", rawValue: "6 kW: 50kVA", verification: "aore_excel" },
+    { key: "Taslak Alan", rawValue: "x", verification: "needs_review" },
+  ] };
+  it("seçilen gücün satırını alır, başka gücün değerini ve doğrulanmamış alanı basmaz", () => {
+    expect(hexConfigurationQuoteSpecs(configuration, 3)).toEqual([
+      { key: "Maksimum Boru İşleme Uzunluğu", value: "6500mm" },
+      { key: "Toplam Güç Gereksinimi", value: "15.75kW/20kVA" },
+      { key: "Lazer Gücü", value: "3 kW" },
+    ]);
   });
 });

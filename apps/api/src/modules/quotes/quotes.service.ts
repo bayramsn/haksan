@@ -8,7 +8,7 @@ import { companies, companyAddresses, companyEmails, companyPhones, contactCompa
 import { opportunities, opportunityApprovals, salesActivities } from '../../db/schema/crm';
 import { receivables } from '../../db/schema/finance';
 import { inventoryItems } from '../../db/schema/inventory';
-import { brands, productEquipmentItems, productModels, productOptionSets, productOptionValues } from '../../db/schema/products';
+import { brands, productConfigurationPrices, productEquipmentItems, productModels, productOptionSets, productOptionValues } from '../../db/schema/products';
 import { departments, divisions } from '../../db/schema/tenants';
 import { users } from '../../db/schema/users';
 import { files, fileLinks } from '../../db/schema/files';
@@ -65,7 +65,7 @@ import {
 } from '@haksan/shared';
 import { FxService } from '../fx/fx.service';
 import { quoteLaserSnapshot } from './quote-laser-snapshot';
-import { sameOptionSelection, snapshotProductOptions } from './quote-product-options';
+import { sameOptionSelection, snapshotProductOptions, validateConfigurationPrice } from './quote-product-options';
 import { SignaturesService } from '../signatures/signatures.service';
 import { buildPaginated, pageOffset } from '../../shared/utils/pagination';
 import { lookupIdByCode } from '../../shared/utils/lookup.helper';
@@ -1880,11 +1880,14 @@ export class QuotesService {
           ...(compatibility?.technicalSpecs ?? []).filter(spec => !variableKeys.has(spec.key)),
           ...saved.technicalSpecs.filter(spec => variableKeys.has(spec.key)),
         ] } : {}),
-        selectedProductOptions: saved.selectedProductOptions ? structuredClone(saved.selectedProductOptions) : undefined };
+        selectedProductOptions: saved.selectedProductOptions ? structuredClone(saved.selectedProductOptions) : undefined,
+        // Seçim değişmediyse kayıtlı fiyat korunur; istemcinin gönderdiği fiyata güvenilmez.
+        configurationPrice: saved.configurationPrice ?? undefined };
     }
     const base = product?.laserBaseConfiguration;
     if (!product) {
       if (compatibility?.selectedProductOptions?.length) throw new ValidationError('Opsiyonel donanım için baz model seçin');
+      if (compatibility?.configurationPrice) throw new ValidationError('Model fiyatı için baz model seçin');
       return compatibility;
     }
     const sets = await this.db.query.productOptionSets.findMany({
@@ -1901,9 +1904,18 @@ export class QuotesService {
       .innerJoin(productOptionSets, eq(productOptionValues.optionSetId, productOptionSets.id))
       .leftJoin(currencies, eq(productOptionValues.currencyId, currencies.id))
       .where(and(inArray(productOptionValues.optionSetId, sets.map((set) => set.id)), eq(productOptionValues.tenantId, actor.tenantId), isNull(productOptionValues.deletedAt))) : [];
-    return snapshotProductOptions(compatibility ?? {
+    const snapshot = snapshotProductOptions(compatibility ?? {
       machineIds: [], brands: [], controlUnits: [], supplierIds: [], technicalSpecs: [],
     }, rows, sets.filter((set) => set.configurationKind || (product.baseModelConfiguration && product.baseModelConfiguration.configurations.length > 1 && rows.some(row => row.optionSetId === set.id && row.sourceModelCode))).map((set) => set.id), base, product.baseModelConfiguration);
+    if (!compatibility?.configurationPrice) return { ...snapshot, configurationPrice: null };
+    const matrix = await this.db.select({
+      sourceModelCode: productConfigurationPrices.sourceModelCode, powerKw: productConfigurationPrices.powerKw,
+      salePrice: productConfigurationPrices.salePrice, currencyCode: currencies.code,
+    }).from(productConfigurationPrices)
+      .leftJoin(currencies, eq(productConfigurationPrices.saleCurrencyId, currencies.id))
+      .where(and(eq(productConfigurationPrices.productModelId, product.id), eq(productConfigurationPrices.tenantId, actor.tenantId), isNull(productConfigurationPrices.deletedAt)));
+    const chosen = (snapshot.selectedProductOptions ?? []).map((option) => rows.find((row) => row.optionValueId === option.optionValueId)).filter((row): row is NonNullable<typeof row> => Boolean(row));
+    return validateConfigurationPrice({ ...snapshot, configurationPrice: compatibility.configurationPrice }, matrix, chosen);
   }
 
   async addItem(quoteId: string, input: QuoteItemCreateInput, actor: AuthContext) {

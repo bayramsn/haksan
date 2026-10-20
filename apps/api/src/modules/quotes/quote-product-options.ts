@@ -93,3 +93,35 @@ export function snapshotProductOptions(
     })),
   };
 }
+
+export interface ConfigurationPriceRow { sourceModelCode: string; powerKw: number; salePrice: string | number | null; currencyCode: string | null }
+
+/**
+ * Matrisli baz kartta model + güç fiyatı istemciden yalnız seçim olarak gelir:
+ * satır matriste olmalı, satış fiyatı ve para birimi kayıtlı değerle aynı olmalı,
+ * seçilen tabla/güç seçenekleriyle çelişmemeli. Fiyat girilmemişse seçim elle fiyatlanır.
+ */
+export function validateConfigurationPrice(
+  compatibility: QuoteItemCompatibility,
+  matrix: ConfigurationPriceRow[],
+  chosen: Array<{ configurationKind: string | null; sourceModelCode: string | null; powerKw: string | number | null }>,
+): QuoteItemCompatibility {
+  const requested = compatibility.configurationPrice;
+  if (!requested) return { ...compatibility, configurationPrice: null };
+  if (!matrix.length) throw new ValidationError('Bu ürün için model × güç fiyatı tanımlı değil');
+  const row = matrix.find((entry) => entry.sourceModelCode === requested.sourceModelCode && Number(entry.powerKw) === requested.powerKw);
+  if (!row || row.salePrice === null || !row.currencyCode) throw new ValidationError('Seçilen model ve güç için satış fiyatı tanımlı değil');
+  if (Number(row.salePrice) !== Number(requested.salePrice) || row.currencyCode !== requested.currencyCode) {
+    throw new ValidationError('Model fiyatı değişti; model ve gücü yeniden seçin');
+  }
+  const table = chosen.find((option) => option.configurationKind === 'table');
+  const power = chosen.find((option) => option.configurationKind === 'power');
+  if ((table && table.sourceModelCode !== row.sourceModelCode) || (power && Number(power.powerKw) !== Number(row.powerKw))) {
+    throw new ValidationError('Fiyat seçilen model ve güçle eşleşmiyor');
+  }
+  const selection = compatibility.technicalConfiguration?.selection;
+  if (selection && (selection.sourceModelCode !== row.sourceModelCode || selection.powerKw !== Number(row.powerKw))) {
+    throw new ValidationError('Teknik bilgiler seçilen model ve güçle eşleşmiyor');
+  }
+  return { ...compatibility, configurationPrice: { sourceModelCode: row.sourceModelCode, powerKw: Number(row.powerKw), salePrice: Number(row.salePrice), currencyCode: row.currencyCode } };
+}
