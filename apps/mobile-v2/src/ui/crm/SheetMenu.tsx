@@ -3,6 +3,7 @@ import { Pressable, Text } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { BottomSheetBackdrop, BottomSheetModal, BottomSheetView } from '@gorhom/bottom-sheet';
 import { useTheme } from '@/src/theme/theme';
+import { sheetContainerComponent } from '@/src/ui/pickers/sheetContainer';
 
 export type SheetMenuItem = {
   key: string;
@@ -24,6 +25,7 @@ export const SheetMenu = forwardRef<BottomSheetModal, { title: string; subtitle?
       <BottomSheetModal
         ref={ref}
         enableDynamicSizing
+        containerComponent={sheetContainerComponent}
         backgroundStyle={{ backgroundColor: colors.card }}
         handleIndicatorStyle={{ backgroundColor: colors.mutedForeground }}
         backdropComponent={(props) => <BottomSheetBackdrop {...props} appearsOnIndex={0} disappearsOnIndex={-1} />}

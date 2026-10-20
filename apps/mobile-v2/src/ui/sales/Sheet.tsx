@@ -3,6 +3,7 @@ import { Pressable, Text, useWindowDimensions, View } from 'react-native';
 import { BottomSheetBackdrop, BottomSheetModal, BottomSheetScrollView } from '@gorhom/bottom-sheet';
 import { Ionicons } from '@expo/vector-icons';
 import { toneColor, useTheme, type Tone } from '@/src/theme/theme';
+import { sheetContainerComponent } from '@/src/ui/pickers/sheetContainer';
 
 /** Satış ekranlarının ortak alt sayfası: içerik kadar uzar, ekranın %88'ini aşınca kayar. */
 export const SalesSheet = forwardRef<
@@ -17,6 +18,7 @@ export const SalesSheet = forwardRef<
       enableDynamicSizing
       maxDynamicContentSize={Math.round(height * 0.88)}
       onDismiss={onDismiss}
+      containerComponent={sheetContainerComponent}
       backgroundStyle={{ backgroundColor: colors.card }}
       handleIndicatorStyle={{ backgroundColor: colors.mutedForeground }}
       backdropComponent={(props) => <BottomSheetBackdrop {...props} appearsOnIndex={0} disappearsOnIndex={-1} />}

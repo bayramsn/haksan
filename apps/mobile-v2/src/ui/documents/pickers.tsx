@@ -12,11 +12,13 @@ import { formatAmount, formatDate } from '@/src/lib/format';
 import { useDebouncedValue } from '@/src/lib/useDebouncedValue';
 import { useTheme, type ThemeColors } from '@/src/theme/theme';
 import { Button, EmptyState, ErrorState, Loading, SearchBar } from '@/src/ui';
+import { sheetContainerComponent } from '@/src/ui/pickers/sheetContainer';
 
 export function sheetProps(colors: ThemeColors) {
   return {
     snapPoints: ['80%'],
     enableDynamicSizing: false,
+    containerComponent: sheetContainerComponent,
     backgroundStyle: { backgroundColor: colors.card },
     handleIndicatorStyle: { backgroundColor: colors.mutedForeground },
     backdropComponent: (props: Parameters<typeof BottomSheetBackdrop>[0]) => (

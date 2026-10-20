@@ -15,6 +15,7 @@ import { pickDocument, uploadEntityAttachment, type LocalUpload } from '@/src/na
 import { useTheme } from '@/src/theme/theme';
 import { Button, EmptyState, ErrorState, Eyebrow, Field, FilterChips, Loading, SearchBar } from '@/src/ui';
 import { DateTextField } from '@/src/ui/select/DateTextField';
+import { sheetContainerComponent } from '@/src/ui/pickers/sheetContainer';
 
 type FormState = {
   direction: 'in' | 'out';
@@ -291,7 +292,7 @@ export function PaymentFormScreen() {
         <View className="flex-row gap-3 border-t border-border bg-card px-4 py-3"><View className="flex-1"><Button label="Vazgeç" variant="ghost" onPress={() => router.back()} /></View><View className="flex-[2]"><Button label={editing ? 'Kaydet' : form.direction === 'in' ? 'Tahsilatı Kaydet' : 'Ödemeyi Kaydet'} loading={create.isPending || update.isPending} onPress={submit} /></View></View>
       </KeyboardAvoidingView>
 
-      <BottomSheetModal ref={companySheet} snapPoints={['80%']} enableDynamicSizing={false} backgroundStyle={{ backgroundColor: colors.card }} handleIndicatorStyle={{ backgroundColor: colors.mutedForeground }} backdropComponent={(props) => <BottomSheetBackdrop {...props} appearsOnIndex={0} disappearsOnIndex={-1} />}>
+      <BottomSheetModal ref={companySheet} snapPoints={['80%']} enableDynamicSizing={false} containerComponent={sheetContainerComponent} backgroundStyle={{ backgroundColor: colors.card }} handleIndicatorStyle={{ backgroundColor: colors.mutedForeground }} backdropComponent={(props) => <BottomSheetBackdrop {...props} appearsOnIndex={0} disappearsOnIndex={-1} />}>
         <BottomSheetView className="gap-3 px-4 pb-2"><Text className="font-inter-semibold text-base text-foreground">Firma seçin</Text><SearchBar value={companySearch} onChange={setCompanySearch} placeholder="Firma ara" /></BottomSheetView>
         <BottomSheetFlatList
           data={companyList.data?.items ?? []}

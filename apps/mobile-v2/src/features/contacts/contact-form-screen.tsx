@@ -23,6 +23,7 @@ import { useCan } from '@/src/auth/AuthProvider';
 import { useTheme } from '@/src/theme/theme';
 import { DateTextField } from '@/src/ui/select/DateTextField';
 import { SearchSelect } from '@/src/ui/select/SearchSelect';
+import { sheetContainerComponent } from '@/src/ui/pickers/sheetContainer';
 import { Button, Card, EmptyState, ErrorState, Eyebrow, Field, FilterChips, Loading, SearchBar } from '@/src/ui';
 
 type FormState = {
@@ -440,6 +441,7 @@ export function ContactFormScreen() {
         ref={companySheetRef}
         snapPoints={['80%']}
         enableDynamicSizing={false}
+        containerComponent={sheetContainerComponent}
         backgroundStyle={{ backgroundColor: colors.card }}
         handleIndicatorStyle={{ backgroundColor: colors.mutedForeground }}
         backdropComponent={(props) => <BottomSheetBackdrop {...props} appearsOnIndex={0} disappearsOnIndex={-1} />}

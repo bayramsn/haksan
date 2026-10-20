@@ -7,6 +7,7 @@ import type { CompanyListItem } from '@/src/api/endpoints';
 import { useDebouncedValue } from '@/src/lib/useDebouncedValue';
 import { useTheme } from '@/src/theme/theme';
 import { EmptyState, ErrorState, Loading, SearchBar } from '@/src/ui';
+import { sheetContainerComponent } from '@/src/ui/pickers/sheetContainer';
 
 /** Firma seçici alt sayfası; arama sunucuda yapılır, sonsuz kaydırır. */
 export const CompanyPickerSheet = forwardRef<
@@ -25,6 +26,7 @@ export const CompanyPickerSheet = forwardRef<
       ref={ref}
       snapPoints={['85%']}
       enableDynamicSizing={false}
+      containerComponent={sheetContainerComponent}
       backgroundStyle={{ backgroundColor: colors.card }}
       handleIndicatorStyle={{ backgroundColor: colors.mutedForeground }}
       backdropComponent={(props) => <BottomSheetBackdrop {...props} appearsOnIndex={0} disappearsOnIndex={-1} />}
