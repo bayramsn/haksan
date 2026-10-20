@@ -38,7 +38,7 @@ import { Logo } from '@/src/ui/Logo';
 import { Button, Card, Chip, DetailHeader, ErrorState, Eyebrow, Field, ListRow, Loading, SCREEN_PAD } from '@/src/ui';
 import { InfoRows, ProgressBar } from '@/src/ui/data';
 import { useCan } from '@/src/auth/AuthProvider';
-import { LOST_REASONS, neighborIds, qualificationRank } from '@/src/ui/sales/sales-logic';
+import { LOST_REASONS, canMarkOpportunityClosed, neighborIds, qualificationRank } from '@/src/ui/sales/sales-logic';
 import { getOpportunityOrder } from '@/src/ui/sales/opportunity-order';
 import {
   CompanyLinkCard,
@@ -49,6 +49,7 @@ import {
   QuickContactRow,
   useCheckNoteSheet,
 } from '@/src/ui/sales/OpportunityWorkspace';
+import { CloseCaseSheet, type CloseCaseSheetHandle } from '@/src/ui/sales/CloseCaseSheet';
 import { DateTextField } from '@/src/ui/select/DateTextField';
 
 /**
@@ -229,6 +230,7 @@ export default function OpportunityDetailScreen() {
   const actionSheetRef = useRef<BottomSheetModal>(null);
   const deferSheetRef = useRef<BottomSheetModal>(null);
   const closeSheetRef = useRef<BottomSheetModal>(null);
+  const markClosedSheetRef = useRef<CloseCaseSheetHandle>(null);
   const [actionText, setActionText] = useState('');
   const [actionAt, setActionAt] = useState('');
   const [deferReason, setDeferReason] = useState('');
@@ -624,13 +626,32 @@ export default function OpportunityDetailScreen() {
           />
         ) : null}
 
-        {/* Fırsatı kapat / yeniden aç — web Geçmiş görünümüyle aynı akış. */}
+        {/* Web CloseCaseDialog: iptal vs kayıp — açık kartlarda. */}
+        {canMarkOpportunityClosed({
+          canUpdate,
+          closedAt: data.closedAt,
+          qualificationStage: stage,
+          pipelineStageCode: data.stage?.code,
+        }) ? (
+          <Button
+            label="Fırsatı Kapat (İptal / Kayıp)"
+            variant="ghost"
+            onPress={() => {
+              void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              markClosedSheetRef.current?.present({
+                productName: data.requestedMachine ?? data.wonProductName ?? null,
+              });
+            }}
+          />
+        ) : null}
+
+        {/* Fırsatı arşive al / yeniden aç — web Geçmiş görünümüyle aynı akış. */}
         {(stage === 'win' || stage === 'lost') && canUpdate ? (
           isClosed ? (
             <Button label="Yeniden Aç" variant="ghost" loading={reopenCase.isPending} disabled={reopenCase.isPending} onPress={handleReopenCase} />
           ) : (
             <Button
-              label="Fırsatı Kapat"
+              label="Geçmişe Al"
               variant="ghost"
               loading={closeCase.isPending}
               disabled={closeCase.isPending}
@@ -640,9 +661,9 @@ export default function OpportunityDetailScreen() {
                   closeSheetRef.current?.present();
                   return;
                 }
-                Alert.alert('Fırsatı Kapat', 'Kayıp nedeni korunarak kart geçmişe alınacak.', [
+                Alert.alert('Geçmişe Al', 'Kayıp nedeni korunarak kart geçmişe alınacak.', [
                   { text: 'Vazgeç', style: 'cancel' },
-                  { text: 'Fırsatı Kapat', style: 'destructive', onPress: () => handleCloseCase(data.lostReason?.name) },
+                  { text: 'Geçmişe Al', style: 'destructive', onPress: () => handleCloseCase(data.lostReason?.name) },
                 ]);
               }}
             />
@@ -1343,7 +1364,7 @@ export default function OpportunityDetailScreen() {
         backdropComponent={(props) => <BottomSheetBackdrop {...props} appearsOnIndex={0} disappearsOnIndex={-1} />}
       >
         <BottomSheetView className="gap-3 px-5 pb-10 pt-2">
-          <Text className="font-inter-semibold text-base text-foreground">Fırsatı Kapat</Text>
+          <Text className="font-inter-semibold text-base text-foreground">Geçmişe Al</Text>
           <Field
             label="Kazanma / kapatma nedeni *"
             value={closeReason}
@@ -1361,6 +1382,13 @@ export default function OpportunityDetailScreen() {
           />
         </BottomSheetView>
       </BottomSheetModal>
+
+      <CloseCaseSheet
+        ref={markClosedSheetRef}
+        opportunityId={id}
+        caseName={company ?? data.title}
+        onClosed={() => void refetch()}
+      />
       {checkNote.sheet}
     </SafeAreaView>
   );

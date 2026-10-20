@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, Pressable, RefreshControl, ScrollView, Text, useWindowDimensions, View } from 'react-native';
 import type { BottomSheetModal } from '@gorhom/bottom-sheet';
 import * as Haptics from 'expo-haptics';
@@ -13,12 +13,14 @@ import { Button, ErrorState, Field, Loading } from '@/src/ui';
 import { InfoRows } from '@/src/ui/data';
 import { toast } from '@/src/ui/toast';
 import { EMPTY_LOST_INPUT, LostCaseFields } from '@/src/ui/sales/LostCaseFields';
+import { CloseCaseSheet, type CloseCaseSheetHandle } from '@/src/ui/sales/CloseCaseSheet';
 import { SalesSheet, SheetOption } from '@/src/ui/sales/Sheet';
 import { setOpportunityOrder } from '@/src/ui/sales/opportunity-order';
 import {
   addressOf,
   asQualification,
   BOARD_STAGES,
+  canMarkOpportunityClosed,
   contactNameOf,
   kanbanMoveOptions,
   lostStageBody,
@@ -154,12 +156,26 @@ export function QualificationBoard({
   const reasonRef = useRef<BottomSheetModal>(null);
   const lostRef = useRef<BottomSheetModal>(null);
   const lostDetailsRef = useRef<BottomSheetModal>(null);
+  const markClosedRef = useRef<CloseCaseSheetHandle>(null);
   const [menuItem, setMenuItem] = useState<SalesOpportunityRow | null>(null);
   const [pending, setPending] = useState<PendingMove | null>(null);
   const [reason, setReason] = useState('');
   const [lostInput, setLostInput] = useState<LostInput>(EMPTY_LOST_INPUT);
   const [lostError, setLostError] = useState<string | null>(null);
   const [detailsItem, setDetailsItem] = useState<SalesOpportunityRow | null>(null);
+  const [markClosedTarget, setMarkClosedTarget] = useState<{
+    id: string;
+    name: string;
+    product: string | null;
+  } | null>(null);
+
+  useEffect(() => {
+    if (!markClosedTarget) return;
+    const handle = requestAnimationFrame(() => {
+      markClosedRef.current?.present({ productName: markClosedTarget.product });
+    });
+    return () => cancelAnimationFrame(handle);
+  }, [markClosedTarget]);
 
   const columnWidth = Math.min(300, Math.round(width * 0.8));
   const menuStage = menuItem ? asQualification(menuItem.qualificationStage) : null;
@@ -336,8 +352,29 @@ export function QualificationBoard({
                 ))}
               </View>
             ) : null}
+            {canMarkOpportunityClosed({
+              canUpdate,
+              closedAt: menuItem.closedAt,
+              qualificationStage: menuItem.qualificationStage,
+              pipelineStageCode: menuItem.stage?.code,
+            }) ? (
+              <SheetOption
+                icon="close-circle-outline"
+                label="Fırsatı Kapat (İptal / Kayıp)"
+                hint="İptal veya kayıp olarak işaretle"
+                tone="destructive"
+                onPress={() => {
+                  menuRef.current?.dismiss();
+                  setMarkClosedTarget({
+                    id: menuItem.id,
+                    name: partyName(menuItem),
+                    product: menuItem.requestedMachine ?? null,
+                  });
+                }}
+              />
+            ) : null}
             {(menuStage === 'win' || menuStage === 'lost') && canUpdate ? (
-              <SheetOption icon="checkmark-done-outline" label="Fırsatı kapat / nedeni gir" onPress={() => { menuRef.current?.dismiss(); onOpen(menuItem.id); }} />
+              <SheetOption icon="checkmark-done-outline" label="Geçmişe al / nedeni gir" onPress={() => { menuRef.current?.dismiss(); onOpen(menuItem.id); }} />
             ) : null}
             {canDelete ? (
               <SheetOption icon="trash-outline" tone="destructive" label="Fırsat kartını sil" disabled={deleteOpp.isPending} onPress={() => confirmDelete(menuItem)} />
@@ -400,6 +437,19 @@ export function QualificationBoard({
           </>
         ) : null}
       </SalesSheet>
+
+      {markClosedTarget ? (
+        <CloseCaseSheet
+          key={markClosedTarget.id}
+          ref={markClosedRef}
+          opportunityId={markClosedTarget.id}
+          caseName={markClosedTarget.name}
+          onClosed={() => {
+            setMarkClosedTarget(null);
+            void board.refetch();
+          }}
+        />
+      ) : null}
     </View>
   );
 }

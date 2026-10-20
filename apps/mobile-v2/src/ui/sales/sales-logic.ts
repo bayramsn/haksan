@@ -71,13 +71,14 @@ export function kanbanMoveOptions(stage: Qualification): MoveOption[] {
   });
 }
 
-/** Web LostCaseDialog kodları (seed cancellation_reasons). */
+/** Web CloseCaseDialog kayıp kodları (seed cancellation_reasons). */
 export const LOST_REASONS: { code: string; name: string }[] = [
   { code: 'price', name: 'Fiyat / Bütçe Yetersiz' },
   { code: 'competitor', name: 'Rakip Tercih Edildi' },
-  { code: 'timing', name: 'Yatırım İptal Edildi / Zamanlama Uymadı' },
   { code: 'spec', name: 'Teknik Şartname Karşılanamadı' },
-  { code: 'no_budget', name: 'Bütçe Onayı Çıkmadı' },
+  { code: 'delivery', name: 'Teslim Süresi Uymadı' },
+  { code: 'payment_terms', name: 'Ödeme Şartları Uymadı' },
+  { code: 'service', name: 'Servis / Garanti Şartları' },
   { code: 'other', name: 'Diğer' },
 ];
 
@@ -93,12 +94,50 @@ export const CANCEL_REASONS: { code: string; name: string }[] = [
   { code: 'cancel_other', name: 'Diğer' },
 ];
 
-export type LostInput = { reasonCode: string | null; productName: string; unmetConditions: string; competitorName: string; competitorModel: string };
+export type CloseOutcome = 'cancelled' | 'lost';
+
+export type LostInput = {
+  reasonCode: string | null;
+  productName: string;
+  unmetConditions: string;
+  competitorName: string;
+  competitorModel: string;
+  competitorId?: string | null;
+};
+
+export type CloseCaseInput = {
+  outcome: CloseOutcome | '';
+  reasonCode: string | null;
+  cancelNote: string;
+  lost: LostInput;
+};
+
+export const EMPTY_LOST_INPUT: LostInput = {
+  reasonCode: null,
+  productName: '',
+  unmetConditions: '',
+  competitorName: '',
+  competitorModel: '',
+  competitorId: null,
+};
 
 export function validateLostInput(input: LostInput): string | null {
   if (!input.reasonCode || !input.productName.trim() || !input.unmetConditions.trim()) {
     return 'Kayıp nedeni, kaybedilen ürün ve karşılanamayan şartlar zorunludur.';
   }
+  return null;
+}
+
+/** Web CloseCaseDialog: önce tür, sonra neden; kayıpta ürün/şart zorunlu. */
+export function validateCloseCaseInput(input: CloseCaseInput): string | null {
+  if (!input.outcome) return 'Kapanış türünü seçin.';
+  if (!input.reasonCode) {
+    return input.outcome === 'lost' ? 'Kaybetme nedenini seçin.' : 'İptal nedenini seçin.';
+  }
+  if (input.outcome === 'lost') {
+    return validateLostInput({ ...input.lost, reasonCode: input.reasonCode });
+  }
+  if (input.cancelNote.length > 1000) return 'Açıklama en fazla 1000 karakter olabilir.';
   return null;
 }
 
@@ -109,9 +148,33 @@ export function lostStageBody(input: LostInput) {
     cancellationReasonCode: input.reasonCode ?? '',
     lostProductName: input.productName.trim(),
     lostUnmetConditions: input.unmetConditions.trim(),
+    ...(input.competitorId?.trim() ? { lostCompetitorId: input.competitorId.trim() } : {}),
     ...(input.competitorName.trim() ? { lostCompetitorName: input.competitorName.trim() } : {}),
     ...(input.competitorModel.trim() ? { lostCompetitorProductModel: input.competitorModel.trim() } : {}),
   };
+}
+
+/** İptal kapanışı: pipeline `cancelled` + outcome cancelled (kayıp analizine girmez). */
+export function cancelStageBody(input: { reasonCode: string; note?: string }) {
+  return {
+    toStage: 'cancelled' as const,
+    outcome: 'cancelled' as const,
+    cancellationReasonCode: input.reasonCode,
+    ...(input.note?.trim() ? { changeReason: input.note.trim() } : {}),
+  };
+}
+
+/** Web SalesCaseDetail canMarkLost ile aynı görünürlük. */
+export function canMarkOpportunityClosed(input: {
+  canUpdate: boolean;
+  closedAt?: string | null;
+  qualificationStage?: string | null;
+  pipelineStageCode?: string | null;
+}): boolean {
+  if (!input.canUpdate || input.closedAt) return false;
+  if (input.qualificationStage === 'lost' || input.qualificationStage === 'win') return false;
+  if (input.pipelineStageCode === 'cancelled' || input.pipelineStageCode === 'delivered') return false;
+  return true;
 }
 
 /** `back` ve `fromLost` geçişleri gerekçe ister; `lost` kapanış formunu açar. */

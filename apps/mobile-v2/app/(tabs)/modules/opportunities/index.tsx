@@ -27,6 +27,7 @@ import { PillGroup, SalesSheet, SheetOption } from '@/src/ui/sales/Sheet';
 import { setOpportunityOrder } from '@/src/ui/sales/opportunity-order';
 import {
   asQualification,
+  canMarkOpportunityClosed,
   COMPANY_DECISION_LABELS,
   currencyOptions,
   filterAndSortRows,
@@ -44,6 +45,7 @@ import {
   type Qualification,
   type ReasonStat,
 } from '@/src/ui/sales/sales-logic';
+import { CloseCaseSheet, type CloseCaseSheetHandle } from '@/src/ui/sales/CloseCaseSheet';
 
 type View3 = 'list' | 'kanban' | 'archive';
 type ResultFilter = 'follow_up' | 'won' | 'lost';
@@ -362,6 +364,20 @@ export default function OpportunitiesScreen() {
   const menuRef = useRef<BottomSheetModal>(null);
   const ownerRef = useRef<BottomSheetModal>(null);
   const closeRef = useRef<BottomSheetModal>(null);
+  const markClosedRef = useRef<CloseCaseSheetHandle>(null);
+  const [markClosedTarget, setMarkClosedTarget] = useState<{
+    id: string;
+    name: string;
+    product: string | null;
+  } | null>(null);
+
+  useEffect(() => {
+    if (!markClosedTarget) return;
+    const handle = requestAnimationFrame(() => {
+      markClosedRef.current?.present({ productName: markClosedTarget.product });
+    });
+    return () => cancelAnimationFrame(handle);
+  }, [markClosedTarget]);
 
   const focusQuery = focus ? focusServerQuery(focus) : null;
   const resultStage = result === 'won' ? 'win' : result === 'lost' ? 'lost' : undefined;
@@ -806,10 +822,32 @@ export default function OpportunitiesScreen() {
                 }}
               />
             ) : null}
+            {menuItem &&
+            canMarkOpportunityClosed({
+              canUpdate,
+              closedAt: menuItem.closedAt,
+              qualificationStage: menuItem.qualificationStage,
+              pipelineStageCode: menuItem.stage?.code,
+            }) ? (
+              <SheetOption
+                icon="close-circle-outline"
+                label="Fırsatı Kapat (İptal / Kayıp)"
+                hint="İptal veya kayıp olarak işaretle"
+                tone="destructive"
+                onPress={() => {
+                  menuRef.current?.dismiss();
+                  setMarkClosedTarget({
+                    id: menuItem.id,
+                    name: partyName(menuItem),
+                    product: menuItem.requestedMachine ?? null,
+                  });
+                }}
+              />
+            ) : null}
             {(menuStage === 'win' || menuStage === 'lost') && canUpdate ? (
               <SheetOption
                 icon="checkmark-done-outline"
-                label="Fırsatı Kapat"
+                label="Geçmişe Al"
                 hint="Silmez, Geçmiş'te kalır"
                 tone="success"
                 onPress={() => startClose(menuItem)}
@@ -837,7 +875,7 @@ export default function OpportunitiesScreen() {
 
       <SalesSheet
         ref={closeRef}
-        title="Fırsat kapatılsın mı?"
+        title="Geçmişe alınsın mı?"
         subtitle="Kart silinmez; “Geçmiş” görünümüne taşınır. Teklif, proforma, sözleşme ve aktiviteler korunur."
       >
         {closeItem ? (
@@ -858,7 +896,7 @@ export default function OpportunitiesScreen() {
               />
             ) : null}
             <Button
-              label={closeOpp.isPending ? 'Kapatılıyor…' : 'Fırsatı kapat'}
+              label={closeOpp.isPending ? 'Kapatılıyor…' : 'Geçmişe al'}
               loading={closeOpp.isPending}
               disabled={closeItem.qualificationStage === 'win' && !closeReason.trim()}
               onPress={confirmClose}
@@ -866,6 +904,19 @@ export default function OpportunitiesScreen() {
           </>
         ) : null}
       </SalesSheet>
+
+      {markClosedTarget ? (
+        <CloseCaseSheet
+          key={markClosedTarget.id}
+          ref={markClosedRef}
+          opportunityId={markClosedTarget.id}
+          caseName={markClosedTarget.name}
+          onClosed={() => {
+            setMarkClosedTarget(null);
+            void list.refetch();
+          }}
+        />
+      ) : null}
     </SafeAreaView>
   );
 }

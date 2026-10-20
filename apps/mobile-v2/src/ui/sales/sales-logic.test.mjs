@@ -19,7 +19,10 @@ import {
   QUALIFICATION_ORDER,
   qualificationRank,
   sortByQualification,
+  cancelStageBody,
+  canMarkOpportunityClosed,
   lostStageBody,
+  validateCloseCaseInput,
   validateLostInput,
   monthlySales,
   moveKind,
@@ -240,6 +243,46 @@ test('LOST geçişi zorunlu alanları ister ve opsiyonel rakip alanlarını yaln
     lostCompetitorProductModel: 'X1',
   });
 });
+
+test('CloseCase: iptal vs kayıp doğrulama ve gövdeler', () => {
+  assert.match(validateCloseCaseInput({ outcome: '', reasonCode: null, cancelNote: '', lost: emptyLost() }) ?? '', /tür/);
+  assert.match(
+    validateCloseCaseInput({ outcome: 'cancelled', reasonCode: null, cancelNote: '', lost: emptyLost() }) ?? '',
+    /İptal nedeni/
+  );
+  assert.equal(
+    validateCloseCaseInput({
+      outcome: 'cancelled',
+      reasonCode: 'cancel_no_budget',
+      cancelNote: ' erteledi ',
+      lost: emptyLost(),
+    }),
+    null
+  );
+  assert.deepEqual(cancelStageBody({ reasonCode: 'cancel_no_budget', note: ' erteledi ' }), {
+    toStage: 'cancelled',
+    outcome: 'cancelled',
+    cancellationReasonCode: 'cancel_no_budget',
+    changeReason: 'erteledi',
+  });
+  assert.match(
+    validateCloseCaseInput({
+      outcome: 'lost',
+      reasonCode: 'price',
+      cancelNote: '',
+      lost: { ...emptyLost(), productName: '', unmetConditions: '' },
+    }) ?? '',
+    /zorunludur/
+  );
+  assert.equal(canMarkOpportunityClosed({ canUpdate: true, qualificationStage: 'a' }), true);
+  assert.equal(canMarkOpportunityClosed({ canUpdate: true, qualificationStage: 'win' }), false);
+  assert.equal(canMarkOpportunityClosed({ canUpdate: true, qualificationStage: 'a', pipelineStageCode: 'cancelled' }), false);
+  assert.equal(canMarkOpportunityClosed({ canUpdate: true, closedAt: '2026-01-01', qualificationStage: 'a' }), false);
+});
+
+function emptyLost() {
+  return { reasonCode: null, productName: '', unmetConditions: '', competitorName: '', competitorModel: '' };
+}
 
 test('gösterge paneli odak filtreleri', () => {
   assert.equal(isSalesFocus('no_action'), true);

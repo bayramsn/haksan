@@ -3,30 +3,35 @@ import { Field } from '@/src/ui';
 import { PillGroup } from '@/src/ui/sales/Sheet';
 import { LOST_REASONS, type LostInput } from '@/src/ui/sales/sales-logic';
 
-export const EMPTY_LOST_INPUT: LostInput = { reasonCode: null, productName: '', unmetConditions: '', competitorName: '', competitorModel: '' };
+export { EMPTY_LOST_INPUT } from '@/src/ui/sales/sales-logic';
 
 /** Web LostCaseDialog'unun zorunlu alanları (kayıp nedeni, ürün, karşılanamayan şartlar). */
 export function LostCaseFields({
   value,
   onChange,
   productPlaceholder,
+  hideReason,
 }: {
   value: LostInput;
   onChange: (next: LostInput) => void;
   productPlaceholder?: string | null;
+  /** CloseCase sheet zaten neden seçtiriyorsa tekrar göstermeyin. */
+  hideReason?: boolean;
 }) {
   return (
     <View className="gap-3">
       <Text className="font-inter text-xs text-muted-foreground">
         Müşteri yalnızca ileri bir tarih verdiyse kayıp seçmeyin; karttaki “Takibe Al” işlemi fırsatı açık tutar ve görev oluşturur.
       </Text>
-      <PillGroup
-        label="Kayıp Nedeni *"
-        tone="destructive"
-        options={LOST_REASONS.map((reason) => ({ value: reason.code, label: reason.name }))}
-        value={value.reasonCode}
-        onChange={(reasonCode) => onChange({ ...value, reasonCode })}
-      />
+      {hideReason ? null : (
+        <PillGroup
+          label="Kayıp Nedeni *"
+          tone="destructive"
+          options={LOST_REASONS.map((reason) => ({ value: reason.code, label: reason.name }))}
+          value={value.reasonCode}
+          onChange={(reasonCode) => onChange({ ...value, reasonCode })}
+        />
+      )}
       <Field
         label="Kaybedilen ürün *"
         value={value.productName}
@@ -46,7 +51,7 @@ export function LostCaseFields({
       <Field
         label="Rakip firma (opsiyonel)"
         value={value.competitorName}
-        onChangeText={(competitorName) => onChange({ ...value, competitorName })}
+        onChangeText={(competitorName) => onChange({ ...value, competitorName, competitorId: null })}
         placeholder="Örn. Şahintek Makina"
         maxLength={255}
       />
