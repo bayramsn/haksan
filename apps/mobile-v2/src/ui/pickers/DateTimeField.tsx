@@ -1,10 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Pressable, ScrollView, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { BottomSheetModal, BottomSheetScrollView } from '@gorhom/bottom-sheet';
 import { useTheme } from '@/src/theme/theme';
 import { Button } from '@/src/ui';
-import { PickerField, useSheetProps } from './PickerField';
+import { HostedSheet } from './HostedSheet';
+import { PickerField } from './PickerField';
 import {
   HOURS,
   MONTH_NAMES,
@@ -42,8 +42,7 @@ export function DateTimeField({
   disabled?: boolean;
 }) {
   const { colors } = useTheme();
-  const sheet = useRef<BottomSheetModal>(null);
-  const sheetProps = useSheetProps(mode === 'date' ? '62%' : '88%');
+  const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState<Date>(() => value ?? roundToStep(new Date(), minuteStep));
   const [view, setView] = useState(() => ({ year: draft.getFullYear(), month: draft.getMonth() }));
   const grid = useMemo(() => monthGrid(view.year, view.month), [view]);
@@ -54,16 +53,16 @@ export function DateTimeField({
     if (value) setDraft(value);
   }, [value]);
 
-  function open() {
+  function openSheet() {
     const start = value ?? roundToStep(new Date(), minuteStep);
     setDraft(start);
     setView({ year: start.getFullYear(), month: start.getMonth() });
-    sheet.current?.present();
+    setOpen(true);
   }
 
   function confirm() {
     onChange(mode === 'date' ? withTime(draft, 0, 0) : draft);
-    sheet.current?.dismiss();
+    setOpen(false);
   }
 
   return (
@@ -75,12 +74,14 @@ export function DateTimeField({
         icon={mode === 'date' ? 'calendar-outline' : 'time-outline'}
         error={error}
         disabled={disabled}
-        onPress={open}
+        onPress={openSheet}
         onClear={clearable ? () => onChange(null) : undefined}
       />
-      <BottomSheetModal ref={sheet} {...sheetProps}>
-        <BottomSheetScrollView contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 32, gap: 12 }}>
-          <Text accessibilityRole="header" className="font-inter-semibold text-base text-foreground">{label}</Text>
+      <HostedSheet open={open} onClose={() => setOpen(false)} heightRatio={mode === 'date' ? 0.62 : 0.88}>
+        <ScrollView contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 32, gap: 12 }} keyboardShouldPersistTaps="handled">
+          <Text accessibilityRole="header" className="font-inter-semibold text-base text-foreground">
+            {label}
+          </Text>
           <View className="flex-row items-center justify-between">
             <Pressable
               accessibilityRole="button"
@@ -104,7 +105,9 @@ export function DateTimeField({
           </View>
           <View className="flex-row">
             {WEEKDAY_SHORT.map((day) => (
-              <Text key={day} className="flex-1 text-center font-inter-medium text-[11px] text-muted-foreground">{day}</Text>
+              <Text key={day} className="flex-1 text-center font-inter-medium text-[11px] text-muted-foreground">
+                {day}
+              </Text>
             ))}
           </View>
           <View className="flex-row flex-wrap">
@@ -121,9 +124,7 @@ export function DateTimeField({
                   style={{ width: `${100 / 7}%` }}
                   className="h-11 items-center justify-center"
                 >
-                  <View
-                    className={`h-10 w-10 items-center justify-center rounded-full ${selected ? 'bg-primary' : isToday ? 'border border-primary' : ''}`}
-                  >
+                  <View className={`h-10 w-10 items-center justify-center rounded-full ${selected ? 'bg-primary' : isToday ? 'border border-primary' : ''}`}>
                     <Text
                       className={`font-inter text-sm ${selected ? 'font-inter-semibold text-primary-foreground' : day.inMonth ? 'text-foreground' : 'text-muted-foreground'}`}
                     >
@@ -149,7 +150,9 @@ export function DateTimeField({
                       onPress={() => setDraft((current) => withTime(current, hour, current.getMinutes()))}
                       className={`h-11 min-w-11 items-center justify-center rounded-control border px-2 ${selected ? 'border-primary bg-primary' : 'border-border bg-card'}`}
                     >
-                      <Text className={`font-inter-medium text-sm ${selected ? 'text-primary-foreground' : 'text-foreground'}`}>{String(hour).padStart(2, '0')}</Text>
+                      <Text className={`font-inter-medium text-sm ${selected ? 'text-primary-foreground' : 'text-foreground'}`}>
+                        {String(hour).padStart(2, '0')}
+                      </Text>
                     </Pressable>
                   );
                 })}
@@ -167,7 +170,9 @@ export function DateTimeField({
                       onPress={() => setDraft((current) => withTime(current, current.getHours(), minute))}
                       className={`h-11 min-w-11 items-center justify-center rounded-control border px-2 ${selected ? 'border-primary bg-primary' : 'border-border bg-card'}`}
                     >
-                      <Text className={`font-inter-medium text-sm ${selected ? 'text-primary-foreground' : 'text-foreground'}`}>{String(minute).padStart(2, '0')}</Text>
+                      <Text className={`font-inter-medium text-sm ${selected ? 'text-primary-foreground' : 'text-foreground'}`}>
+                        {String(minute).padStart(2, '0')}
+                      </Text>
                     </Pressable>
                   );
                 })}
@@ -176,11 +181,15 @@ export function DateTimeField({
           ) : null}
           <Text className="font-inter text-sm text-foreground">Seçilen: {formatPickerValue(draft, mode)}</Text>
           <View className="flex-row gap-3">
-            <View className="flex-1"><Button label="Vazgeç" variant="ghost" onPress={() => sheet.current?.dismiss()} /></View>
-            <View className="flex-[2]"><Button label="Seç" onPress={confirm} /></View>
+            <View className="flex-1">
+              <Button label="Vazgeç" variant="ghost" onPress={() => setOpen(false)} />
+            </View>
+            <View className="flex-[2]">
+              <Button label="Seç" onPress={confirm} />
+            </View>
           </View>
-        </BottomSheetScrollView>
-      </BottomSheetModal>
+        </ScrollView>
+      </HostedSheet>
     </>
   );
 }

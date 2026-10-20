@@ -1,7 +1,6 @@
 import { useMemo, useState, type ReactNode, type RefObject } from 'react';
-import { KeyboardAvoidingView, Platform, Pressable, ScrollView, Text, View } from 'react-native';
+import { FlatList, KeyboardAvoidingView, Platform, Pressable, ScrollView, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { BottomSheetBackdrop, BottomSheetFlatList, BottomSheetModal } from '@gorhom/bottom-sheet';
 import { Stack, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useCompanyList } from '@/src/api/companies.hooks';
@@ -10,20 +9,10 @@ import { useProductList } from '@/src/api/inventory.hooks';
 import type { CompanyListItem, OpportunityListItem, ProductModel, QuoteListItem } from '@/src/api/endpoints';
 import { formatAmount, formatDate } from '@/src/lib/format';
 import { useDebouncedValue } from '@/src/lib/useDebouncedValue';
-import { useTheme, type ThemeColors } from '@/src/theme/theme';
+import { useTheme } from '@/src/theme/theme';
 import { Button, EmptyState, ErrorState, Loading, SearchBar } from '@/src/ui';
+import { HostedSheet, useSheetHandle, type SheetHandle } from '@/src/ui/pickers/HostedSheet';
 
-export function sheetProps(colors: ThemeColors) {
-  return {
-    snapPoints: ['80%'],
-    enableDynamicSizing: false,
-    backgroundStyle: { backgroundColor: colors.card },
-    handleIndicatorStyle: { backgroundColor: colors.mutedForeground },
-    backdropComponent: (props: Parameters<typeof BottomSheetBackdrop>[0]) => (
-      <BottomSheetBackdrop {...props} appearsOnIndex={0} disappearsOnIndex={-1} />
-    ),
-  };
-}
 
 /** Modal formların ortak iskeleti: başlık, kaydırılabilir gövde, alt eylem çubuğu. */
 export function ModalForm({
@@ -226,56 +215,57 @@ export function CompanyPickerSheet({
   selectedId,
   onSelect,
 }: {
-  sheetRef: RefObject<BottomSheetModal | null>;
+  sheetRef: RefObject<SheetHandle | null>;
   selectedId?: string;
   onSelect: (company: CompanyListItem) => void;
 }) {
-  const { colors } = useTheme();
   const [search, setSearch] = useState('');
+  const { open, close } = useSheetHandle(sheetRef, () => setSearch(''));
   const debounced = useDebouncedValue(search.trim());
   const list = useCompanyList(
     useMemo(() => ({ search: debounced || undefined, sortBy: 'name' as const, sortDir: 'asc' as const }), [debounced])
   );
   return (
-    <BottomSheetModal ref={sheetRef} {...sheetProps(colors)}>
-      <BottomSheetFlatList
-        data={list.data?.items ?? []}
-        keyExtractor={(item: CompanyListItem) => item.id}
-        ListHeaderComponent={
-          <View className="gap-3 bg-card pb-2">
-            <Text className="font-display text-base text-foreground">Firma seçin</Text>
-            <SearchBar value={search} onChange={setSearch} placeholder="Firma ara" />
-          </View>
-        }
-        contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 32 }}
-        renderItem={({ item }: { item: CompanyListItem }) => (
-          <SheetRow
-            title={item.shortName ?? item.legalTitle}
-            subtitle={item.shortName ? item.legalTitle : null}
-            icon="business-outline"
-            selected={item.id === selectedId}
-            onPress={() => {
-              onSelect(item);
-              sheetRef.current?.dismiss();
-            }}
-          />
-        )}
-        onEndReachedThreshold={0.5}
-        onEndReached={() => {
-          if (list.hasNextPage && !list.isFetchingNextPage) void list.fetchNextPage();
-        }}
-        ListEmptyComponent={
-          list.isPending ? (
-            <Loading />
-          ) : list.error ? (
-            <ErrorState message={list.error.message} onRetry={() => void list.refetch()} />
-          ) : (
-            <EmptyState title="Firma bulunamadı" />
-          )
-        }
-        ListFooterComponent={list.isFetchingNextPage ? <Loading /> : null}
-      />
-    </BottomSheetModal>
+    <HostedSheet open={open} onClose={close} heightRatio={0.8}>
+      <View className="min-h-0 flex-1">
+        <View className="gap-3 border-b border-border px-4 pb-3">
+          <Text className="font-display text-base text-foreground">Firma seçin</Text>
+          <SearchBar value={search} onChange={setSearch} placeholder="Firma ara" />
+        </View>
+        <FlatList
+          className="flex-1"
+          data={list.data?.items ?? []}
+          keyExtractor={(item) => item.id}
+          contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 32, flexGrow: 1 }}
+          renderItem={({ item }) => (
+            <SheetRow
+              title={item.shortName ?? item.legalTitle}
+              subtitle={item.shortName ? item.legalTitle : null}
+              icon="business-outline"
+              selected={item.id === selectedId}
+              onPress={() => {
+                onSelect(item);
+                close();
+              }}
+            />
+          )}
+          onEndReachedThreshold={0.5}
+          onEndReached={() => {
+            if (list.hasNextPage && !list.isFetchingNextPage) void list.fetchNextPage();
+          }}
+          ListEmptyComponent={
+            list.isPending ? (
+              <Loading />
+            ) : list.error ? (
+              <ErrorState message={list.error.message} onRetry={() => void list.refetch()} />
+            ) : (
+              <EmptyState title="Firma bulunamadı" />
+            )
+          }
+          ListFooterComponent={list.isFetchingNextPage ? <Loading /> : null}
+        />
+      </View>
+    </HostedSheet>
   );
 }
 
@@ -284,53 +274,54 @@ export function ProductPickerSheet({
   sheetRef,
   onSelect,
 }: {
-  sheetRef: RefObject<BottomSheetModal | null>;
+  sheetRef: RefObject<SheetHandle | null>;
   onSelect: (product: ProductModel) => void;
 }) {
-  const { colors } = useTheme();
   const [search, setSearch] = useState('');
+  const { open, close } = useSheetHandle(sheetRef, () => setSearch(''));
   const debounced = useDebouncedValue(search.trim());
   const list = useProductList(useMemo(() => ({ search: debounced || undefined }), [debounced]));
   return (
-    <BottomSheetModal ref={sheetRef} {...sheetProps(colors)}>
-      <BottomSheetFlatList
-        data={list.data?.items ?? []}
-        keyExtractor={(item: ProductModel) => item.id}
-        ListHeaderComponent={
-          <View className="gap-3 bg-card pb-2">
-            <Text className="font-display text-base text-foreground">Ürün seçin</Text>
-            <SearchBar value={search} onChange={setSearch} placeholder="Model kodu veya ürün adı" />
-          </View>
-        }
-        contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 32 }}
-        renderItem={({ item }: { item: ProductModel }) => (
-          <SheetRow
-            title={item.fullName}
-            subtitle={[item.brand?.name, item.modelCode].filter(Boolean).join(' · ')}
-            meta={item.listPrice ? formatAmount(item.listPrice, item.currency?.code ?? 'USD') : null}
-            icon="cube-outline"
-            onPress={() => {
-              onSelect(item);
-              sheetRef.current?.dismiss();
-            }}
-          />
-        )}
-        onEndReachedThreshold={0.5}
-        onEndReached={() => {
-          if (list.hasNextPage && !list.isFetchingNextPage) void list.fetchNextPage();
-        }}
-        ListEmptyComponent={
-          list.isPending ? (
-            <Loading />
-          ) : list.error ? (
-            <ErrorState message={list.error.message} onRetry={() => void list.refetch()} />
-          ) : (
-            <EmptyState title="Ürün bulunamadı" />
-          )
-        }
-        ListFooterComponent={list.isFetchingNextPage ? <Loading /> : null}
-      />
-    </BottomSheetModal>
+    <HostedSheet open={open} onClose={close} heightRatio={0.8}>
+      <View className="min-h-0 flex-1">
+        <View className="gap-3 border-b border-border px-4 pb-3">
+          <Text className="font-display text-base text-foreground">Ürün seçin</Text>
+          <SearchBar value={search} onChange={setSearch} placeholder="Model kodu veya ürün adı" />
+        </View>
+        <FlatList
+          className="flex-1"
+          data={list.data?.items ?? []}
+          keyExtractor={(item) => item.id}
+          contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 32, flexGrow: 1 }}
+          renderItem={({ item }) => (
+            <SheetRow
+              title={item.fullName}
+              subtitle={[item.brand?.name, item.modelCode].filter(Boolean).join(' · ')}
+              meta={item.listPrice ? formatAmount(item.listPrice, item.currency?.code ?? 'USD') : null}
+              icon="cube-outline"
+              onPress={() => {
+                onSelect(item);
+                close();
+              }}
+            />
+          )}
+          onEndReachedThreshold={0.5}
+          onEndReached={() => {
+            if (list.hasNextPage && !list.isFetchingNextPage) void list.fetchNextPage();
+          }}
+          ListEmptyComponent={
+            list.isPending ? (
+              <Loading />
+            ) : list.error ? (
+              <ErrorState message={list.error.message} onRetry={() => void list.refetch()} />
+            ) : (
+              <EmptyState title="Ürün bulunamadı" />
+            )
+          }
+          ListFooterComponent={list.isFetchingNextPage ? <Loading /> : null}
+        />
+      </View>
+    </HostedSheet>
   );
 }
 
@@ -341,58 +332,59 @@ export function QuotePickerSheet({
   companyId,
   onSelect,
 }: {
-  sheetRef: RefObject<BottomSheetModal | null>;
+  sheetRef: RefObject<SheetHandle | null>;
   selectedId?: string;
   companyId?: string;
   onSelect: (quote: QuoteListItem) => void;
 }) {
-  const { colors } = useTheme();
   const [search, setSearch] = useState('');
+  const { open, close } = useSheetHandle(sheetRef, () => setSearch(''));
   const debounced = useDebouncedValue(search.trim());
   const list = useQuoteList(
     useMemo(() => ({ search: debounced || undefined, ...(companyId ? { companyId } : {}) }), [debounced, companyId])
   );
   return (
-    <BottomSheetModal ref={sheetRef} {...sheetProps(colors)}>
-      <BottomSheetFlatList
-        data={list.data?.items ?? []}
-        keyExtractor={(item: QuoteListItem) => item.id}
-        ListHeaderComponent={
-          <View className="gap-3 bg-card pb-2">
-            <Text className="font-display text-base text-foreground">Teklif seçin</Text>
-            <SearchBar value={search} onChange={setSearch} placeholder="Teklif no veya firma" />
-          </View>
-        }
-        contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 32 }}
-        renderItem={({ item }: { item: QuoteListItem }) => (
-          <SheetRow
-            title={`${item.documentNo} · R${item.revisionNo}`}
-            subtitle={[item.company?.shortName ?? item.company?.legalTitle, formatDate(item.quoteDate)].filter(Boolean).join(' · ')}
-            meta={formatAmount(item.grandTotal, item.currency?.code ?? 'USD')}
-            icon="document-text-outline"
-            selected={item.id === selectedId}
-            onPress={() => {
-              onSelect(item);
-              sheetRef.current?.dismiss();
-            }}
-          />
-        )}
-        onEndReachedThreshold={0.5}
-        onEndReached={() => {
-          if (list.hasNextPage && !list.isFetchingNextPage) void list.fetchNextPage();
-        }}
-        ListEmptyComponent={
-          list.isPending ? (
-            <Loading />
-          ) : list.error ? (
-            <ErrorState message={list.error.message} onRetry={() => void list.refetch()} />
-          ) : (
-            <EmptyState title="Teklif bulunamadı" />
-          )
-        }
-        ListFooterComponent={list.isFetchingNextPage ? <Loading /> : null}
-      />
-    </BottomSheetModal>
+    <HostedSheet open={open} onClose={close} heightRatio={0.8}>
+      <View className="min-h-0 flex-1">
+        <View className="gap-3 border-b border-border px-4 pb-3">
+          <Text className="font-display text-base text-foreground">Teklif seçin</Text>
+          <SearchBar value={search} onChange={setSearch} placeholder="Teklif no veya firma" />
+        </View>
+        <FlatList
+          className="flex-1"
+          data={list.data?.items ?? []}
+          keyExtractor={(item) => item.id}
+          contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 32, flexGrow: 1 }}
+          renderItem={({ item }) => (
+            <SheetRow
+              title={`${item.documentNo} · R${item.revisionNo}`}
+              subtitle={[item.company?.shortName ?? item.company?.legalTitle, formatDate(item.quoteDate)].filter(Boolean).join(' · ')}
+              meta={formatAmount(item.grandTotal, item.currency?.code ?? 'USD')}
+              icon="document-text-outline"
+              selected={item.id === selectedId}
+              onPress={() => {
+                onSelect(item);
+                close();
+              }}
+            />
+          )}
+          onEndReachedThreshold={0.5}
+          onEndReached={() => {
+            if (list.hasNextPage && !list.isFetchingNextPage) void list.fetchNextPage();
+          }}
+          ListEmptyComponent={
+            list.isPending ? (
+              <Loading />
+            ) : list.error ? (
+              <ErrorState message={list.error.message} onRetry={() => void list.refetch()} />
+            ) : (
+              <EmptyState title="Teklif bulunamadı" />
+            )
+          }
+          ListFooterComponent={list.isFetchingNextPage ? <Loading /> : null}
+        />
+      </View>
+    </HostedSheet>
   );
 }
 
@@ -402,55 +394,56 @@ export function OpportunityPickerSheet({
   selectedId,
   onSelect,
 }: {
-  sheetRef: RefObject<BottomSheetModal | null>;
+  sheetRef: RefObject<SheetHandle | null>;
   selectedId?: string;
   onSelect: (opportunity: OpportunityListItem) => void;
 }) {
-  const { colors } = useTheme();
   const [search, setSearch] = useState('');
+  const { open, close } = useSheetHandle(sheetRef, () => setSearch(''));
   const debounced = useDebouncedValue(search.trim());
   const list = useOpportunityList(useMemo(() => ({ search: debounced || undefined, view: 'all' as const }), [debounced]));
   return (
-    <BottomSheetModal ref={sheetRef} {...sheetProps(colors)}>
-      <BottomSheetFlatList
-        data={list.data?.items ?? []}
-        keyExtractor={(item: OpportunityListItem) => item.id}
-        ListHeaderComponent={
-          <View className="gap-3 bg-card pb-2">
-            <Text className="font-display text-base text-foreground">Satış kartı seçin</Text>
-            <SearchBar value={search} onChange={setSearch} placeholder="Firma veya kart ara" />
-          </View>
-        }
-        contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 32 }}
-        renderItem={({ item }: { item: OpportunityListItem }) => (
-          <SheetRow
-            title={item.company?.shortName ?? item.company?.legalTitle ?? item.leadCompanyTitle ?? item.title}
-            subtitle={item.title}
-            meta={item.stage?.name ?? null}
-            icon="briefcase-outline"
-            selected={item.id === selectedId}
-            onPress={() => {
-              onSelect(item);
-              sheetRef.current?.dismiss();
-            }}
-          />
-        )}
-        onEndReachedThreshold={0.5}
-        onEndReached={() => {
-          if (list.hasNextPage && !list.isFetchingNextPage) void list.fetchNextPage();
-        }}
-        ListEmptyComponent={
-          list.isPending ? (
-            <Loading />
-          ) : list.error ? (
-            <ErrorState message={list.error.message} onRetry={() => void list.refetch()} />
-          ) : (
-            <EmptyState title="Satış kartı bulunamadı" />
-          )
-        }
-        ListFooterComponent={list.isFetchingNextPage ? <Loading /> : null}
-      />
-    </BottomSheetModal>
+    <HostedSheet open={open} onClose={close} heightRatio={0.8}>
+      <View className="min-h-0 flex-1">
+        <View className="gap-3 border-b border-border px-4 pb-3">
+          <Text className="font-display text-base text-foreground">Satış kartı seçin</Text>
+          <SearchBar value={search} onChange={setSearch} placeholder="Firma veya kart ara" />
+        </View>
+        <FlatList
+          className="flex-1"
+          data={list.data?.items ?? []}
+          keyExtractor={(item) => item.id}
+          contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 32, flexGrow: 1 }}
+          renderItem={({ item }) => (
+            <SheetRow
+              title={item.company?.shortName ?? item.company?.legalTitle ?? item.leadCompanyTitle ?? item.title}
+              subtitle={item.title}
+              meta={item.stage?.name ?? null}
+              icon="briefcase-outline"
+              selected={item.id === selectedId}
+              onPress={() => {
+                onSelect(item);
+                close();
+              }}
+            />
+          )}
+          onEndReachedThreshold={0.5}
+          onEndReached={() => {
+            if (list.hasNextPage && !list.isFetchingNextPage) void list.fetchNextPage();
+          }}
+          ListEmptyComponent={
+            list.isPending ? (
+              <Loading />
+            ) : list.error ? (
+              <ErrorState message={list.error.message} onRetry={() => void list.refetch()} />
+            ) : (
+              <EmptyState title="Satış kartı bulunamadı" />
+            )
+          }
+          ListFooterComponent={list.isFetchingNextPage ? <Loading /> : null}
+        />
+      </View>
+    </HostedSheet>
   );
 }
 

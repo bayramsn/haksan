@@ -1,10 +1,10 @@
-import { createContext, useContext, useMemo, useRef, useState } from 'react';
-import { Pressable, Text, View } from 'react-native';
+import { createContext, useContext, useMemo, useState } from 'react';
+import { FlatList, Pressable, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { BottomSheetFlatList, BottomSheetModal } from '@gorhom/bottom-sheet';
 import { useTheme } from '@/src/theme/theme';
 import { EmptyState, ErrorState, Loading, SearchBar } from '@/src/ui';
-import { PickerField, useSheetProps } from '@/src/ui/pickers/PickerField';
+import { HostedSheet } from '@/src/ui/pickers/HostedSheet';
+import { PickerField } from '@/src/ui/pickers/PickerField';
 import { useDebouncedValue } from '@/src/lib/useDebouncedValue';
 import { filterOptions, hasExactOption } from './select-logic';
 
@@ -22,8 +22,8 @@ export type RemoteOptions<T> = {
 };
 
 /**
- * BottomSheetModal portal içinde yaşar; firma/kategori gibi bağımlılıklar
- * dış ağaç context’iyle gelmez. `remoteBag` bu context ile sheet’e taşınır.
+ * Sheet RN Modal içinde; firma/kategori gibi bağımlılıklar dış ağaç
+ * context’iyle gelmez. `remoteBag` bu context ile sheet’e taşınır.
  */
 export const SearchRemoteBagCtx = createContext<unknown>(null);
 export function useSearchRemoteBag<T = unknown>(): T {
@@ -34,18 +34,13 @@ type Props<T> = {
   label: string;
   placeholder: string;
   icon: React.ComponentProps<typeof Ionicons>['name'];
-  /** Alanda görünen seçili metin (kayıtlı seçim ya da elle yazılan değer). */
   value: string;
   selectedId?: string | null;
   onSelect: (item: SelectItem<T> | null) => void;
-  /** Sabit liste: arama istemcide yapılır. */
   options?: SelectItem<T>[];
   optionsLoading?: boolean;
-  /** Veritabanı araması (modül düzeyinde kanca; bağımlılık için `remoteBag`). */
   useRemote?: (search: string) => RemoteOptions<T>;
-  /** Portal içine taşınan bağımlılık (ör. companyId). */
   remoteBag?: unknown;
-  /** Listede yoksa aranan metni değer olarak kullanma satırı (id boş döner). */
   allowCustom?: boolean;
   searchPlaceholder?: string;
   emptyTitle?: string;
@@ -55,8 +50,7 @@ type Props<T> = {
 };
 
 export function SearchSelect<T>(props: Props<T>) {
-  const sheet = useRef<BottomSheetModal>(null);
-  const sheetProps = useSheetProps('70%');
+  const [open, setOpen] = useState(false);
   return (
     <>
       <PickerField
@@ -66,21 +60,20 @@ export function SearchSelect<T>(props: Props<T>) {
         icon={props.icon}
         error={props.error}
         disabled={props.disabled}
-        onPress={() => sheet.current?.present()}
+        onPress={() => setOpen(true)}
         onClear={props.clearable ? () => props.onSelect(null) : undefined}
       />
-      <BottomSheetModal ref={sheet} {...sheetProps}>
-        {/* Provider sheet çocuklarında olmalı — portal dış context’i taşımaz. */}
+      <HostedSheet open={open} onClose={() => setOpen(false)} heightRatio={0.72}>
         <SearchRemoteBagCtx.Provider value={props.remoteBag ?? null}>
           <SheetBody
             {...props}
             onPick={(item) => {
               props.onSelect(item);
-              sheet.current?.dismiss();
+              setOpen(false);
             }}
           />
         </SearchRemoteBagCtx.Provider>
-      </BottomSheetModal>
+      </HostedSheet>
     </>
   );
 }
@@ -110,75 +103,72 @@ function SheetBody<T>({
   const showCustom = Boolean(allowCustom && custom && !hasExactOption(items, custom));
   const loading = remote ? remote.isPending : Boolean(optionsLoading);
 
-  // Başlık + arama ListHeaderComponent'te: FlatList kardeş BottomSheetView'ın
-  // üzerine binmesin (FullWindowOverlay / mutlak konum).
-  const header = (
-    <View className="gap-2.5 bg-card pb-2">
-      <Text className="font-display-semibold text-[17px] text-foreground">{label}</Text>
-      <SearchBar value={search} onChange={setSearch} placeholder={searchPlaceholder ?? 'Ara...'} />
-      {showCustom ? (
-        <Pressable
-          accessibilityRole="button"
-          onPress={() => onPick({ id: '', label: custom })}
-          className="min-h-11 flex-row items-center gap-2.5 rounded-control border border-dashed border-primary px-3 active:opacity-70"
-        >
-          <Ionicons name="create-outline" size={16} color={colors.primary} />
-          <Text className="flex-1 font-inter-medium text-[13px] text-primary" numberOfLines={1}>
-            “{custom}” olarak kullan
-          </Text>
-        </Pressable>
-      ) : null}
-    </View>
-  );
-
   return (
-    <BottomSheetFlatList
-      data={items}
-      keyExtractor={(item: SelectItem<T>) => item.id || item.label}
-      keyboardShouldPersistTaps="handled"
-      keyboardDismissMode="on-drag"
-      ListHeaderComponent={header}
-      contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 36 }}
-      renderItem={({ item }: { item: SelectItem<T> }) => {
-        const selected = Boolean(selectedId) && item.id === selectedId;
-        return (
+    <View className="min-h-0 flex-1">
+      <View className="gap-2.5 border-b border-border px-4 pb-3">
+        <Text className="font-display-semibold text-[17px] text-foreground">{label}</Text>
+        <SearchBar value={search} onChange={setSearch} placeholder={searchPlaceholder ?? 'Ara...'} />
+        {showCustom ? (
           <Pressable
             accessibilityRole="button"
-            accessibilityState={{ selected }}
-            onPress={() => onPick(item)}
-            className="min-h-[48px] flex-row items-center gap-2.5 border-b border-border py-2 active:opacity-70"
+            onPress={() => onPick({ id: '', label: custom })}
+            className="min-h-11 flex-row items-center gap-2.5 rounded-control border border-dashed border-primary px-3 active:opacity-70"
           >
-            <View className="flex-1">
-              <Text className="font-inter-semibold text-[14px] text-foreground" numberOfLines={1}>
-                {item.label}
-              </Text>
-              {item.hint ? (
-                <Text className="font-inter text-[12px] text-muted-foreground" numberOfLines={1}>
-                  {item.hint}
-                </Text>
-              ) : null}
-            </View>
-            {selected ? <Ionicons name="checkmark" size={18} color={colors.primary} /> : null}
+            <Ionicons name="create-outline" size={16} color={colors.primary} />
+            <Text className="flex-1 font-inter-medium text-[13px] text-primary" numberOfLines={1}>
+              “{custom}” olarak kullan
+            </Text>
           </Pressable>
-        );
-      }}
-      onEndReachedThreshold={0.5}
-      onEndReached={() => {
-        if (remote?.hasNextPage && !remote.isFetchingNextPage) remote.fetchNextPage?.();
-      }}
-      ListEmptyComponent={
-        loading ? (
-          <Loading />
-        ) : remote?.error ? (
-          <ErrorState message={remote.error.message} onRetry={remote.refetch} />
-        ) : (
-          <EmptyState
-            title={emptyTitle ?? 'Kayıt bulunamadı'}
-            hint={allowCustom ? 'Listede yoksa aradığınız metni değer olarak kullanabilirsiniz.' : 'Aramayı değiştirin.'}
-          />
-        )
-      }
-      ListFooterComponent={remote?.isFetchingNextPage ? <Loading /> : null}
-    />
+        ) : null}
+      </View>
+      <FlatList
+        className="flex-1"
+        data={items}
+        keyExtractor={(item) => item.id || item.label}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
+        contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 36, flexGrow: 1 }}
+        renderItem={({ item }) => {
+          const selected = Boolean(selectedId) && item.id === selectedId;
+          return (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityState={{ selected }}
+              onPress={() => onPick(item)}
+              className="min-h-[48px] flex-row items-center gap-2.5 border-b border-border py-2 active:opacity-70"
+            >
+              <View className="flex-1">
+                <Text className="font-inter-semibold text-[14px] text-foreground" numberOfLines={1}>
+                  {item.label}
+                </Text>
+                {item.hint ? (
+                  <Text className="font-inter text-[12px] text-muted-foreground" numberOfLines={1}>
+                    {item.hint}
+                  </Text>
+                ) : null}
+              </View>
+              {selected ? <Ionicons name="checkmark" size={18} color={colors.primary} /> : null}
+            </Pressable>
+          );
+        }}
+        onEndReachedThreshold={0.5}
+        onEndReached={() => {
+          if (remote?.hasNextPage && !remote.isFetchingNextPage) remote.fetchNextPage?.();
+        }}
+        ListEmptyComponent={
+          loading ? (
+            <Loading />
+          ) : remote?.error ? (
+            <ErrorState message={remote.error.message} onRetry={remote.refetch} />
+          ) : (
+            <EmptyState
+              title={emptyTitle ?? 'Kayıt bulunamadı'}
+              hint={allowCustom ? 'Listede yoksa aradığınız metni değer olarak kullanabilirsiniz.' : 'Aramayı değiştirin.'}
+            />
+          )
+        }
+        ListFooterComponent={remote?.isFetchingNextPage ? <Loading /> : null}
+      />
+    </View>
   );
 }

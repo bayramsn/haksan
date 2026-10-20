@@ -1,10 +1,10 @@
-import { useMemo, useRef, useState } from 'react';
-import { Pressable, Text, View } from 'react-native';
+import { useMemo, useState } from 'react';
+import { FlatList, Pressable, ScrollView, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { BottomSheetFlatList, BottomSheetModal, BottomSheetView } from '@gorhom/bottom-sheet';
 import { useTheme } from '@/src/theme/theme';
 import { EmptyState, SearchBar } from '@/src/ui';
-import { PickerField, useSheetProps } from './PickerField';
+import { HostedSheet } from './HostedSheet';
+import { PickerField } from './PickerField';
 
 export type PickerOption = { value: string; label: string; hint?: string | null };
 
@@ -42,8 +42,7 @@ export function OptionPicker({
   displayValue?: string;
 }) {
   const { colors } = useTheme();
-  const sheet = useRef<BottomSheetModal>(null);
-  const sheetProps = useSheetProps(options.length > 8 || searchable ? '80%' : '50%');
+  const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
   const term = search.trim().toLocaleLowerCase('tr');
   const filtered = useMemo(
@@ -55,35 +54,8 @@ export function OptionPicker({
   function choose(next: string | null) {
     onChange(next);
     setSearch('');
-    sheet.current?.dismiss();
+    setOpen(false);
   }
-
-  const header = (
-    <View className="gap-3 bg-card pb-2">
-      <Text accessibilityRole="header" className="font-inter-semibold text-base text-foreground">
-        {label}
-      </Text>
-      {searchable || allowFreeText ? (
-        <SearchBar value={search} onChange={setSearch} placeholder={allowFreeText ? 'Seçin veya yazın…' : 'Ara'} />
-      ) : null}
-      {allowFreeText && search.trim() && !options.some((option) => option.label.toLocaleLowerCase('tr') === term) ? (
-        <Pressable
-          accessibilityRole="button"
-          onPress={() => {
-            onFreeText?.(search.trim());
-            setSearch('');
-            sheet.current?.dismiss();
-          }}
-          className="min-h-12 flex-row items-center gap-3 rounded-control bg-primary-soft px-3 active:opacity-70"
-        >
-          <Ionicons name="create-outline" size={18} color={colors.primary} />
-          <Text className="flex-1 font-inter-medium text-sm text-primary" numberOfLines={1}>
-            “{search.trim()}” kullan
-          </Text>
-        </Pressable>
-      ) : null}
-    </View>
-  );
 
   return (
     <>
@@ -94,39 +66,72 @@ export function OptionPicker({
         icon={icon}
         error={error}
         disabled={disabled}
-        onPress={() => sheet.current?.present()}
+        onPress={() => setOpen(true)}
         onClear={clearable ? () => onChange(null) : undefined}
       />
-      <BottomSheetModal ref={sheet} {...sheetProps}>
-        <BottomSheetFlatList
-          data={filtered}
-          keyExtractor={(item: PickerOption) => item.value}
-          ListHeaderComponent={header}
-          contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 32 }}
-          keyboardShouldPersistTaps="handled"
-          keyboardDismissMode="on-drag"
-          renderItem={({ item }: { item: PickerOption }) => {
-            const selected = item.value === value;
-            return (
+      <HostedSheet
+        open={open}
+        onClose={() => {
+          setSearch('');
+          setOpen(false);
+        }}
+        heightRatio={options.length > 8 || searchable ? 0.8 : 0.5}
+      >
+        <View className="min-h-0 flex-1">
+          <View className="gap-3 border-b border-border px-4 pb-3">
+            <Text accessibilityRole="header" className="font-inter-semibold text-base text-foreground">
+              {label}
+            </Text>
+            {searchable || allowFreeText ? (
+              <SearchBar value={search} onChange={setSearch} placeholder={allowFreeText ? 'Seçin veya yazın…' : 'Ara'} />
+            ) : null}
+            {allowFreeText && search.trim() && !options.some((option) => option.label.toLocaleLowerCase('tr') === term) ? (
               <Pressable
                 accessibilityRole="button"
-                accessibilityState={{ selected }}
-                onPress={() => choose(item.value)}
-                className="min-h-[52px] flex-row items-center gap-3 border-b border-border py-2 active:opacity-70"
+                onPress={() => {
+                  onFreeText?.(search.trim());
+                  setSearch('');
+                  setOpen(false);
+                }}
+                className="min-h-12 flex-row items-center gap-3 rounded-control bg-primary-soft px-3 active:opacity-70"
               >
-                <View className="flex-1">
-                  <Text className={`font-inter text-[15px] ${selected ? 'font-inter-semibold text-primary' : 'text-foreground'}`}>
-                    {item.label}
-                  </Text>
-                  {item.hint ? <Text className="font-inter text-xs text-muted-foreground">{item.hint}</Text> : null}
-                </View>
-                {selected ? <Ionicons name="checkmark" size={19} color={colors.primary} /> : null}
+                <Ionicons name="create-outline" size={18} color={colors.primary} />
+                <Text className="flex-1 font-inter-medium text-sm text-primary" numberOfLines={1}>
+                  “{search.trim()}” kullan
+                </Text>
               </Pressable>
-            );
-          }}
-          ListEmptyComponent={<EmptyState title="Seçenek bulunamadı" />}
-        />
-      </BottomSheetModal>
+            ) : null}
+          </View>
+          <FlatList
+            className="flex-1"
+            data={filtered}
+            keyExtractor={(item) => item.value}
+            contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 32, flexGrow: 1 }}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="on-drag"
+            renderItem={({ item }) => {
+              const selected = item.value === value;
+              return (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityState={{ selected }}
+                  onPress={() => choose(item.value)}
+                  className="min-h-[52px] flex-row items-center gap-3 border-b border-border py-2 active:opacity-70"
+                >
+                  <View className="flex-1">
+                    <Text className={`font-inter text-[15px] ${selected ? 'font-inter-semibold text-primary' : 'text-foreground'}`}>
+                      {item.label}
+                    </Text>
+                    {item.hint ? <Text className="font-inter text-xs text-muted-foreground">{item.hint}</Text> : null}
+                  </View>
+                  {selected ? <Ionicons name="checkmark" size={19} color={colors.primary} /> : null}
+                </Pressable>
+              );
+            }}
+            ListEmptyComponent={<EmptyState title="Seçenek bulunamadı" />}
+          />
+        </View>
+      </HostedSheet>
     </>
   );
 }
@@ -150,15 +155,14 @@ export function MultiOptionPicker({
   onChange: (values: string[]) => void;
 }) {
   const { colors } = useTheme();
-  const sheet = useRef<BottomSheetModal>(null);
-  const sheetProps = useSheetProps('60%');
+  const [open, setOpen] = useState(false);
   const summary = options.filter((option) => values.includes(option.value)).map((option) => option.label).join(', ');
 
   return (
     <>
-      <PickerField label={label} value={summary} placeholder={placeholder} icon={icon} error={error} onPress={() => sheet.current?.present()} />
-      <BottomSheetModal ref={sheet} {...sheetProps}>
-        <BottomSheetView className="gap-1 px-4 pb-10">
+      <PickerField label={label} value={summary} placeholder={placeholder} icon={icon} error={error} onPress={() => setOpen(true)} />
+      <HostedSheet open={open} onClose={() => setOpen(false)} heightRatio={0.6}>
+        <ScrollView contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 40 }} keyboardShouldPersistTaps="handled">
           <Text accessibilityRole="header" className="pb-2 font-inter-semibold text-base text-foreground">
             {label}
           </Text>
@@ -178,8 +182,8 @@ export function MultiOptionPicker({
               </Pressable>
             );
           })}
-        </BottomSheetView>
-      </BottomSheetModal>
+        </ScrollView>
+      </HostedSheet>
     </>
   );
 }

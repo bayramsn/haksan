@@ -1,7 +1,6 @@
-import { useMemo, useRef, useState, type ReactNode } from 'react';
-import { Pressable, Text, View } from 'react-native';
+import { useMemo, useState, type ReactNode } from 'react';
+import { FlatList, Pressable, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { BottomSheetFlatList, BottomSheetModal } from '@gorhom/bottom-sheet';
 import { useCustomerDevicesByCompany, useDirectory } from '@/src/api/operations.hooks';
 import { useProductList, useWarehouses } from '@/src/api/inventory.hooks';
 import type { ProductModel } from '@/src/api/endpoints';
@@ -10,8 +9,9 @@ import { useDebouncedValue } from '@/src/lib/useDebouncedValue';
 import { useTheme } from '@/src/theme/theme';
 import { EmptyState, ErrorState, Loading, SearchBar } from '@/src/ui';
 import { DateTimeField } from '@/src/ui/pickers/DateTimeField';
+import { HostedSheet } from '@/src/ui/pickers/HostedSheet';
 import { OptionPicker } from '@/src/ui/pickers/OptionPicker';
-import { PickerField, useSheetProps } from '@/src/ui/pickers/PickerField';
+import { PickerField } from '@/src/ui/pickers/PickerField';
 import { dayInput } from './logistics';
 
 /** Form bölüm başlığı + kart gövdesi. */
@@ -218,8 +218,7 @@ export function ProductPicker({
   error?: string;
 }) {
   const { colors } = useTheme();
-  const sheet = useRef<BottomSheetModal>(null);
-  const sheetProps = useSheetProps();
+  const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
   const [category, setCategory] = useState(categoryCodes?.[0]);
   const debounced = useDebouncedValue(search, 275);
@@ -234,62 +233,81 @@ export function ProductPicker({
         placeholder={placeholder}
         icon="pricetag-outline"
         error={error}
-        onPress={() => sheet.current?.present()}
+        onPress={() => setOpen(true)}
         onClear={() => onChange(null)}
       />
-      <BottomSheetModal ref={sheet} {...sheetProps} onDismiss={() => setSearch('')}>
-        <BottomSheetFlatList
-          data={rows}
-          keyExtractor={(item: ProductModel) => item.id}
-          ListHeaderComponent={
-            <View className="gap-3 bg-card pb-2">
-              <Text accessibilityRole="header" className="font-inter-semibold text-base text-foreground">{label}</Text>
-              {categoryCodes && categoryCodes.length > 1 ? (
-                <ChoiceChips
-                  value={category ?? ''}
-                  options={categoryCodes.map((code) => ({ value: code, label: code === 'YEDEK_PARCA' ? 'Yedek Parça' : code === 'AKSESUAR' ? 'Aksesuar' : code }))}
-                  onChange={setCategory}
-                />
-              ) : null}
-              <SearchBar value={search} onChange={setSearch} placeholder="Model, stok kodu ara" />
-            </View>
-          }
-          contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 32 }}
-          keyboardShouldPersistTaps="handled"
-          keyboardDismissMode="on-drag"
-          renderItem={({ item }: { item: ProductModel }) => {
-            const selected = item.id === value?.id;
-            return (
-              <Pressable
-                accessibilityRole="button"
-                accessibilityState={{ selected }}
-                onPress={() => {
-                  onChange(item);
-                  sheet.current?.dismiss();
-                }}
-                className="min-h-[56px] flex-row items-center gap-3 border-b border-border py-2 active:opacity-70"
-              >
-                <Ionicons name="pricetag-outline" size={19} color={selected ? colors.primary : colors.mutedForeground} />
-                <View className="flex-1">
-                  <Text className="font-inter-semibold text-sm text-foreground" numberOfLines={1}>{item.fullName || item.modelCode}</Text>
-                  <Text className="font-inter text-xs text-muted-foreground" numberOfLines={1}>
-                    {[item.stockCode, item.brand?.name, item.category?.name].filter(Boolean).join(' · ') || item.modelCode}
-                  </Text>
-                </View>
-                {selected ? <Ionicons name="checkmark" size={19} color={colors.primary} /> : null}
-              </Pressable>
-            );
-          }}
-          onEndReachedThreshold={0.5}
-          onEndReached={() => {
-            if (list.hasNextPage && !list.isFetchingNextPage) void list.fetchNextPage();
-          }}
-          ListEmptyComponent={
-            list.isPending ? <Loading /> : list.error ? <ErrorState message={list.error.message} onRetry={() => void list.refetch()} /> : <EmptyState title="Ürün bulunamadı" />
-          }
-          ListFooterComponent={list.isFetchingNextPage ? <Loading /> : null}
-        />
-      </BottomSheetModal>
+      <HostedSheet
+        open={open}
+        onClose={() => {
+          setSearch('');
+          setOpen(false);
+        }}
+        heightRatio={0.8}
+      >
+        <View className="min-h-0 flex-1">
+          <View className="gap-3 border-b border-border px-4 pb-3">
+            <Text accessibilityRole="header" className="font-inter-semibold text-base text-foreground">{label}</Text>
+            {categoryCodes && categoryCodes.length > 1 ? (
+              <ChoiceChips
+                value={category ?? ''}
+                options={categoryCodes.map((code) => ({
+                  value: code,
+                  label: code === 'YEDEK_PARCA' ? 'Yedek Parça' : code === 'AKSESUAR' ? 'Aksesuar' : code,
+                }))}
+                onChange={setCategory}
+              />
+            ) : null}
+            <SearchBar value={search} onChange={setSearch} placeholder="Model, stok kodu ara" />
+          </View>
+          <FlatList
+            className="flex-1"
+            data={rows}
+            keyExtractor={(item) => item.id}
+            contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 32, flexGrow: 1 }}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="on-drag"
+            renderItem={({ item }) => {
+              const selected = item.id === value?.id;
+              return (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityState={{ selected }}
+                  onPress={() => {
+                    onChange(item);
+                    setOpen(false);
+                  }}
+                  className="min-h-[56px] flex-row items-center gap-3 border-b border-border py-2 active:opacity-70"
+                >
+                  <Ionicons name="pricetag-outline" size={19} color={selected ? colors.primary : colors.mutedForeground} />
+                  <View className="flex-1">
+                    <Text className="font-inter-semibold text-sm text-foreground" numberOfLines={1}>
+                      {item.fullName || item.modelCode}
+                    </Text>
+                    <Text className="font-inter text-xs text-muted-foreground" numberOfLines={1}>
+                      {[item.stockCode, item.brand?.name, item.category?.name].filter(Boolean).join(' · ') || item.modelCode}
+                    </Text>
+                  </View>
+                  {selected ? <Ionicons name="checkmark" size={19} color={colors.primary} /> : null}
+                </Pressable>
+              );
+            }}
+            onEndReachedThreshold={0.5}
+            onEndReached={() => {
+              if (list.hasNextPage && !list.isFetchingNextPage) void list.fetchNextPage();
+            }}
+            ListEmptyComponent={
+              list.isPending ? (
+                <Loading />
+              ) : list.error ? (
+                <ErrorState message={list.error.message} onRetry={() => void list.refetch()} />
+              ) : (
+                <EmptyState title="Ürün bulunamadı" />
+              )
+            }
+            ListFooterComponent={list.isFetchingNextPage ? <Loading /> : null}
+          />
+        </View>
+      </HostedSheet>
     </>
   );
 }
