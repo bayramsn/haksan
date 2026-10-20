@@ -374,7 +374,7 @@ export function QuickDocumentForm({ kind, documentId }: { kind: Kind; documentId
       if (isEdit && documentId) updateContract.mutate({ id: documentId, body }, { onSuccess: done('CRM sözleşmesi güncellendi'), onError: fail });
       else
         createContract.mutate(body, {
-          onSuccess: done('CRM sözleşmesi oluşturuldu. PDF web CRM’den yüklenir.'),
+          onSuccess: done('CRM sözleşmesi oluşturuldu. PDF yüklendikten sonra detaydan açılır.'),
           onError: fail,
         });
       return;
@@ -383,7 +383,7 @@ export function QuickDocumentForm({ kind, documentId }: { kind: Kind; documentId
     if (isEdit && documentId) updateProforma.mutate({ id: documentId, body }, { onSuccess: done('CRM proforması güncellendi'), onError: fail });
     else
       createProforma.mutate(body, {
-        onSuccess: done('CRM proforması oluşturuldu. PDF web CRM’den yüklenir.'),
+        onSuccess: done('CRM proforması oluşturuldu. PDF yüklendikten sonra detaydan açılır.'),
         onError: fail,
       });
   }
