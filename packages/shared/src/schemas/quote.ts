@@ -69,21 +69,33 @@ export const quoteItemTechnicalSpecSchema = z.object({
   group: z.string().max(255).optional(),
 });
 
+export const quoteSelectedProductOptionSchema = z.object({
+  optionSetId: z.string().uuid(),
+  optionValueId: z.string().uuid(),
+  name: z.string().trim().max(128).default(''),
+  value: z.string().trim().max(255).default(''),
+  priceDelta: moneySchema.default(0),
+  currencyCode: z.string().max(8).default(''),
+});
+export type QuoteSelectedProductOption = z.infer<typeof quoteSelectedProductOptionSchema>;
+
 export const quoteItemCompatibilitySchema = z.object({
   // Aynı teklif içindeki ana ürün ile ona bağlı opsiyonları PDF çıktılarında
   // güvenilir biçimde eşleştirmek için kullanılan, kullanıcıya gösterilmeyen anahtar.
   lineGroupKey: z.string().min(1).max(64).optional(),
+  configurationOptionSetId: z.string().uuid().optional(),
   machineIds: z.array(z.string()).default([]),
   brands: z.array(z.string()).default([]),
   controlUnits: z.array(z.string()).default([]),
   supplierIds: z.array(z.string()).default([]),
   technicalSpecs: z.array(quoteItemTechnicalSpecSchema).default([]),
   technicalConfiguration: laserTechnicalConfigurationSchema.nullish(),
+  selectedProductOptions: z.array(quoteSelectedProductOptionSchema).max(100).optional(),
 });
 export type QuoteItemCompatibility = z.infer<typeof quoteItemCompatibilitySchema>;
 
 export const quoteItemCreateSchema = z.object({
-  productModelId: z.string().optional(),
+  productModelId: z.string().nullish(),
   inventoryItemId: z.string().optional(),
   stockCode: z.string().max(64).optional(),
   description: z.string().min(1).max(2000),
@@ -392,7 +404,8 @@ export type ContractUpdateInput = z.infer<typeof contractUpdateSchema>;
 
 export const commercialInvoiceCreateSchema = z.object({
   quoteId: z.string().min(1),
-  invoiceNo: z.string().trim().min(1).max(64).optional(),
+  /** `null` → fatura no temizlenir (PATCH). */
+  invoiceNo: z.string().trim().min(1).max(64).nullish(),
   invoiceDate: z.coerce.date(),
   statusCode: z.string().max(64).default('draft'),
   fileId: z.string().optional(),

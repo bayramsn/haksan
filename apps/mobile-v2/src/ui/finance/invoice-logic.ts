@@ -320,6 +320,17 @@ export function buildInvoicePayload(input: {
     const trimmed = value.trim();
     return isEditing ? trimmed : trimmed || undefined;
   };
+  /** Düzenlemede boş tarih/not temizlensin; oluşturmada alanı hiç gönderme. */
+  const clearableIso = (value: string) => {
+    const iso = toIso(value);
+    if (isEditing) return iso ?? null;
+    return iso;
+  };
+  const clearableNotes = (value: string) => {
+    const trimmed = value.trim();
+    if (isEditing) return trimmed || null;
+    return trimmed || undefined;
+  };
   const clean = input.gridVisible
     ? input.lines
         .map((line) => ({ ...line, description: line.description.trim(), categoryCode: line.categoryCode.trim() }))
@@ -360,13 +371,13 @@ export function buildInvoicePayload(input: {
     incoterm: isAdministrative ? (isEditing ? '' : undefined) : text(form.incoterm),
     shipmentReference: text(form.shipmentReference),
     orderNo: text(form.orderNo),
-    expectedDate: toIso(form.expectedDate),
+    expectedDate: clearableIso(form.expectedDate),
     quoteId: input.quoteId,
     salesOrderId: input.salesOrderId,
-    firstDueDate: toIso(form.firstDueDate),
-    lastDueDate: toIso(form.lastDueDate),
+    firstDueDate: clearableIso(form.firstDueDate),
+    lastDueDate: clearableIso(form.lastDueDate),
     installmentCount: Number(form.installmentCount) || 1,
-    notes: form.notes || undefined,
+    notes: clearableNotes(form.notes),
     installments: sendInstallments
       ? input.installments.map((row) => ({
           installmentNo: row.installmentNo,

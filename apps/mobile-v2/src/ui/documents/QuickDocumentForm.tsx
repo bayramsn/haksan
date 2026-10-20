@@ -318,12 +318,17 @@ export function QuickDocumentForm({ kind, documentId }: { kind: Kind; documentId
       statusCode: 'draft',
       currencyCode,
       items: freeItems,
-      ...(hasDocumentDiscount(documentDiscount)
+      // Edit’te iskonto/şart temizliği web Quick*Dialog gibi explicit 0 / boş metin gönderir.
+      ...(isEdit || hasDocumentDiscount(documentDiscount)
         ? { headerDiscountAmount: documentDiscount.amount, headerDiscountPercent: documentDiscount.percent }
         : {}),
-      paymentTerms: payment || undefined,
-      deliveryTerms: delivery || undefined,
-      warrantyTerms: warranty || undefined,
+      ...(isEdit
+        ? { paymentTerms: payment, deliveryTerms: delivery, warrantyTerms: warranty }
+        : {
+            ...(payment ? { paymentTerms: payment } : {}),
+            ...(delivery ? { deliveryTerms: delivery } : {}),
+            ...(warranty ? { warrantyTerms: warranty } : {}),
+          }),
     };
     const done = (message: string) => () => {
       toast.success(message);
@@ -462,7 +467,8 @@ export function QuickDocumentForm({ kind, documentId }: { kind: Kind; documentId
                     setParty((p) => ({
                       ...p,
                       contactName: picked?.label ?? '',
-                      contactPhone: contact ? contactPhone(contact) || p.contactPhone : p.contactPhone,
+                      // Temizlemede eski telefon kalmasın; seçimde kontak telefonunu yaz.
+                      contactPhone: contact ? contactPhone(contact) || '' : '',
                     }));
                   }}
                 />

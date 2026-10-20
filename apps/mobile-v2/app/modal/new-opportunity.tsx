@@ -7,15 +7,19 @@ import { useCreateOpportunity } from '@/src/api/crm.hooks';
 import { useCreateOpportunityFromActivity } from '@/src/api/sales.hooks';
 import { useAuth, useCan } from '@/src/auth/AuthProvider';
 import { Button, Card, Eyebrow, Field } from '@/src/ui';
-import { CompanyPicker, ContactPicker } from '@/src/ui/pickers/CompanyPicker';
 import { DateTimeField } from '@/src/ui/pickers/DateTimeField';
 import { SearchSelect } from '@/src/ui/select/SearchSelect';
 import {
   AssigneeSelect,
+  CompanySelect,
+  ContactSelect,
   DistrictSelect,
   LookupSelect,
   ProductSelect,
   ProvinceSelect,
+  companyLabel,
+  contactEmail,
+  contactPhone,
 } from '@/src/ui/select/fields';
 import {
   buildQuickOpportunityBody,
@@ -28,6 +32,7 @@ import {
 import { toast } from '@/src/ui/toast';
 
 const CURRENCIES = ['TRY', 'USD', 'EUR'] as const;
+const emptyContact = { contactId: '', contactName: '', phone: '', email: '' } as const;
 
 function param(value: string | string[] | undefined): string {
   return typeof value === 'string' ? value : '';
@@ -35,7 +40,7 @@ function param(value: string | string[] | undefined): string {
 
 /**
  * Hızlı fırsat — web LeadCaptureDialog.
- * Firma/kontak: kanıtlanmış CompanyPicker/ContactPicker + elle yazılabilir alanlar.
+ * Firma/kontak: SearchSelect (CompanySelect/ContactSelect) + allowCustom.
  */
 export default function NewOpportunityScreen() {
   const router = useRouter();
@@ -114,8 +119,6 @@ export default function NewOpportunityScreen() {
   if (activityId ? !canConvertActivity : !canCreate) return <Redirect href={'/(tabs)/modules/opportunities' as Href} />;
 
   const pending = create.isPending || createFromActivity.isPending;
-  const companyPick = form.companyId ? { id: form.companyId, name: form.companyTitle || 'Firma' } : null;
-  const contactPick = form.contactId ? { id: form.contactId, name: form.contactName || 'Kontak' } : null;
 
   function submit() {
     const nextErrors = validateQuickOpportunity(form, divisions.length > 0);
@@ -158,67 +161,52 @@ export default function NewOpportunityScreen() {
 
           <Card className="gap-3">
             <Eyebrow>1 · Firma ve kontak</Eyebrow>
-            <CompanyPicker
-              label="Firma (kayıtlı)"
-              value={companyPick}
-              placeholder="CRM’den firma seçin"
+            <CompanySelect
+              label="Firma *"
+              value={form.companyTitle}
+              selectedId={form.companyId || null}
+              allowCustom
               clearable
-              onChange={(next) => {
-                if (!next) {
-                  return patch({
-                    companyId: '',
-                    contactId: '',
-                    contactName: '',
-                    phone: '',
-                    email: '',
-                    city: '',
-                    district: '',
-                  });
+              placeholder="Kayıtlı firmadan seçin veya yazın"
+              onSelect={(item) => {
+                const company = item?.data;
+                if (!item) {
+                  return patch({ companyId: '', companyTitle: '', ...emptyContact, city: '', district: '' });
+                }
+                if (!company) {
+                  return patch({ companyId: '', companyTitle: item.label, ...emptyContact });
                 }
                 patch({
-                  companyId: next.id,
-                  companyTitle: next.name,
-                  contactId: '',
-                  contactName: '',
+                  companyId: company.id,
+                  companyTitle: companyLabel(company),
+                  ...emptyContact,
+                  city: company.primaryAddress?.province || '',
+                  district: company.primaryAddress?.district || '',
+                  phone: company.primaryPhone || '',
+                  email: company.primaryEmail || '',
                 });
               }}
             />
-            {!form.companyId ? (
-              <Field
-                label="veya firma ünvanı yazın"
-                value={form.companyTitle}
-                onChangeText={(companyTitle) => patch({ companyTitle, companyId: '', contactId: '' })}
-                placeholder="Kayıtsız firma ünvanı"
-                maxLength={255}
-              />
-            ) : (
-              <Text className="font-inter text-[11px] text-muted-foreground">Kayıtlı firma bağlandı: {form.companyTitle}</Text>
-            )}
-
-            {form.companyId ? (
-              <ContactPicker
-                label="Kontak (kayıtlı)"
-                companyId={form.companyId}
-                value={contactPick}
-                placeholder="Firmanın kontağını seçin"
-                onChange={(next) => {
-                  if (!next) return patch({ contactId: '', contactName: '' });
-                  patch({
-                    contactId: next.id,
-                    contactName: next.name,
-                    phone: next.phone || form.phone,
-                    email: next.email || form.email,
-                  });
-                }}
-              />
-            ) : null}
-            <Field
-              label={form.companyId ? 'Kontak ismi (opsiyonel / elle)' : 'Kontak ismi *'}
+            <ContactSelect
+              label={form.companyId ? 'Kontak' : 'Kontak ismi *'}
+              companyId={form.companyId || null}
               value={form.contactName}
-              onChangeText={(contactName) => patch({ contactName, contactId: contactName !== form.contactName ? '' : form.contactId })}
-              placeholder={form.companyId ? 'veya isim yazın' : 'Ahmet Yılmaz'}
+              selectedId={form.contactId || null}
+              allowCustom
+              clearable
+              placeholder={form.companyId ? 'Firmanın kontağını seçin' : 'Firma yoksa kontak adını yazın'}
               error={errors.contactName}
-              maxLength={200}
+              onSelect={(item) => {
+                const contact = item?.data;
+                if (!item) return patch({ ...emptyContact });
+                if (!contact) return patch({ contactId: '', contactName: item.label });
+                patch({
+                  contactId: contact.id,
+                  contactName: contact.fullName,
+                  phone: contactPhone(contact) || form.phone,
+                  email: contactEmail(contact) || form.email,
+                });
+              }}
             />
 
             <View className="flex-row gap-2">

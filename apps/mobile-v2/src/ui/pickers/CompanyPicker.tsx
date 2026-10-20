@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { BottomSheetFlatList, BottomSheetModal, BottomSheetView } from '@gorhom/bottom-sheet';
@@ -12,7 +12,12 @@ import { PickerField, useSheetProps } from './PickerField';
 
 export type PickedRecord = { id: string; name: string; phone?: string; email?: string };
 
-/** Uzaktan aramalı firma seçici (web RemoteCompanyCombobox). */
+/**
+ * Uzaktan aramalı firma seçici (web RemoteCompanyCombobox).
+ *
+ * Kritik: liste verisi `opened` ile gizlenmez; çalışan quote `CompanyPickerSheet`
+ * ile aynı düzen (üst arama + FlatList, flex:1 / flexGrow yok).
+ */
 export function CompanyPicker({
   label = 'Firma',
   value,
@@ -35,18 +40,21 @@ export function CompanyPicker({
   const sheetProps = useSheetProps();
   const [search, setSearch] = useState('');
   const debounced = useDebouncedValue(search, 275);
-  const [opened, setOpened] = useState(false);
   const query = useMemo(
     () => ({ search: debounced.trim() || undefined, sortBy: 'name' as const, sortDir: 'asc' as const }),
     [debounced],
   );
   const list = useCompanyList(query);
-  const rows = opened ? list.data?.items ?? [] : [];
+  const rows = list.data?.items ?? [];
 
-  function choose(company: CompanyListItem) {
-    onChange({ id: company.id, name: company.shortName || company.legalTitle });
-    sheet.current?.dismiss();
-  }
+  const choose = useCallback(
+    (company: CompanyListItem) => {
+      onChange({ id: company.id, name: company.shortName || company.legalTitle });
+      setSearch('');
+      sheet.current?.dismiss();
+    },
+    [onChange],
+  );
 
   return (
     <>
@@ -57,23 +65,22 @@ export function CompanyPicker({
         icon="business-outline"
         error={error}
         disabled={disabled}
-        onPress={() => {
-          setOpened(true);
-          sheet.current?.present();
-        }}
+        onPress={() => sheet.current?.present()}
         onClear={clearable ? () => onChange(null) : undefined}
       />
-      <BottomSheetModal ref={sheet} {...sheetProps}>
-        <BottomSheetView className="gap-3 px-4 pb-2">
-          <Text accessibilityRole="header" className="font-inter-semibold text-base text-foreground">{label} seçin</Text>
+      <BottomSheetModal ref={sheet} {...sheetProps} onDismiss={() => setSearch('')}>
+        <BottomSheetView className="gap-3 pb-2">
+          <Text accessibilityRole="header" className="px-4 font-inter-semibold text-base text-foreground">
+            {label} seçin
+          </Text>
           <SearchBar value={search} onChange={setSearch} placeholder="Firma ara" />
         </BottomSheetView>
         <BottomSheetFlatList
           data={rows}
-          style={{ flex: 1 }}
           keyExtractor={(item: CompanyListItem) => item.id}
-          contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 32, flexGrow: 1 }}
+          contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 32 }}
           keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
           renderItem={({ item }: { item: CompanyListItem }) => {
             const selected = item.id === value?.id;
             return (
@@ -85,7 +92,9 @@ export function CompanyPicker({
               >
                 <Ionicons name="business-outline" size={19} color={selected ? colors.primary : colors.mutedForeground} />
                 <View className="flex-1">
-                  <Text className="font-inter-semibold text-sm text-foreground" numberOfLines={1}>{item.shortName ?? item.legalTitle}</Text>
+                  <Text className="font-inter-semibold text-sm text-foreground" numberOfLines={1}>
+                    {item.shortName ?? item.legalTitle}
+                  </Text>
                   <Text className="font-inter text-xs text-muted-foreground" numberOfLines={1}>
                     {[item.shortName ? item.legalTitle : null, item.primaryAddress?.province].filter(Boolean).join(' · ') || 'Firma'}
                   </Text>
@@ -99,7 +108,13 @@ export function CompanyPicker({
             if (list.hasNextPage && !list.isFetchingNextPage) void list.fetchNextPage();
           }}
           ListEmptyComponent={
-            list.isPending ? <Loading /> : list.error ? <ErrorState message={list.error.message} onRetry={() => void list.refetch()} /> : <EmptyState title="Firma bulunamadı" />
+            list.isPending ? (
+              <Loading />
+            ) : list.error ? (
+              <ErrorState message={list.error.message} onRetry={() => void list.refetch()} />
+            ) : (
+              <EmptyState title="Firma bulunamadı" />
+            )
           }
           ListFooterComponent={list.isFetchingNextPage ? <Loading /> : null}
         />
@@ -134,20 +149,25 @@ export function ContactPicker({
     [companyId, debounced],
   );
   const list = useContactList(query, Boolean(companyId));
+  const rows = list.data?.items ?? [];
 
-  function choose(contact: ContactListItem | null) {
-    onChange(
-      contact
-        ? {
-            id: contact.id,
-            name: contact.fullName,
-            phone: contact.mobilePhone || contact.workPhone || undefined,
-            email: contact.workEmail || contact.personalEmail || undefined,
-          }
-        : null
-    );
-    sheet.current?.dismiss();
-  }
+  const choose = useCallback(
+    (contact: ContactListItem | null) => {
+      onChange(
+        contact
+          ? {
+              id: contact.id,
+              name: contact.fullName,
+              phone: contact.mobilePhone || contact.workPhone || undefined,
+              email: contact.workEmail || contact.personalEmail || undefined,
+            }
+          : null,
+      );
+      setSearch('');
+      sheet.current?.dismiss();
+    },
+    [onChange],
+  );
 
   return (
     <>
@@ -161,18 +181,20 @@ export function ContactPicker({
         onPress={() => sheet.current?.present()}
         onClear={() => onChange(null)}
       />
-      <BottomSheetModal ref={sheet} {...sheetProps}>
+      <BottomSheetModal ref={sheet} {...sheetProps} onDismiss={() => setSearch('')}>
         <BottomSheetView className="gap-3 px-4 pb-2">
-          <Text accessibilityRole="header" className="font-inter-semibold text-base text-foreground">{label} seçin</Text>
+          <Text accessibilityRole="header" className="font-inter-semibold text-base text-foreground">
+            {label} seçin
+          </Text>
           {value ? <Button label="Bağlantıyı Kaldır" variant="ghost" onPress={() => choose(null)} /> : null}
           <SearchBar value={search} onChange={setSearch} placeholder="Kontak ara" />
         </BottomSheetView>
         <BottomSheetFlatList
-          data={list.data?.items ?? []}
-          style={{ flex: 1 }}
+          data={rows}
           keyExtractor={(item: ContactListItem) => item.id}
-          contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 32, flexGrow: 1 }}
+          contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 32 }}
           keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
           renderItem={({ item }: { item: ContactListItem }) => {
             const selected = item.id === value?.id;
             return (
@@ -184,7 +206,9 @@ export function ContactPicker({
               >
                 <Ionicons name="person-outline" size={19} color={selected ? colors.primary : colors.mutedForeground} />
                 <View className="flex-1">
-                  <Text className="font-inter-semibold text-sm text-foreground" numberOfLines={1}>{item.fullName}</Text>
+                  <Text className="font-inter-semibold text-sm text-foreground" numberOfLines={1}>
+                    {item.fullName}
+                  </Text>
                   <Text className="font-inter text-xs text-muted-foreground" numberOfLines={1}>
                     {[item.title, item.department].filter(Boolean).join(' · ') || 'Kontak'}
                   </Text>
@@ -198,7 +222,13 @@ export function ContactPicker({
             if (list.hasNextPage && !list.isFetchingNextPage) void list.fetchNextPage();
           }}
           ListEmptyComponent={
-            list.isPending ? <Loading /> : list.error ? <ErrorState message={list.error.message} onRetry={() => void list.refetch()} /> : <EmptyState title="Kontak bulunamadı" />
+            list.isPending ? (
+              <Loading />
+            ) : list.error ? (
+              <ErrorState message={list.error.message} onRetry={() => void list.refetch()} />
+            ) : (
+              <EmptyState title="Kontak bulunamadı" />
+            )
           }
           ListFooterComponent={list.isFetchingNextPage ? <Loading /> : null}
         />

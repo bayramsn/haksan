@@ -130,10 +130,10 @@ function SheetBody<T>({
       </BottomSheetView>
       <BottomSheetFlatList
         data={items}
-        style={{ flex: 1 }}
         keyExtractor={(item: SelectItem<T>) => item.id || item.label}
         keyboardShouldPersistTaps="handled"
-        contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 36, flexGrow: 1 }}
+        keyboardDismissMode="on-drag"
+        contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 36 }}
         renderItem={({ item }: { item: SelectItem<T> }) => {
           const selected = Boolean(selectedId) && item.id === selectedId;
           return (

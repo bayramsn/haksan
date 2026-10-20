@@ -10,12 +10,13 @@ import type { OpportunityListItem, QuoteDetail, QuoteItem, QuoteListItem, QuoteL
 
 /** `packages/shared` quoteCreateSchema ile birebir — web QuoteDialog gövdesi. */
 export type QuoteCreateInput = {
-  opportunityId?: string;
+  /** Güncellemede `null` bağlantıyı koparır (API `?? null`). */
+  opportunityId?: string | null;
   companyId: string;
   /** PDF’de kullanılacak firma adresi (web `companyAddressId`). */
   companyAddressId?: string;
   divisionId?: string;
-  contactId?: string;
+  contactId?: string | null;
   documentNo?: string;
   quoteDate: string;
   validityDays: number;

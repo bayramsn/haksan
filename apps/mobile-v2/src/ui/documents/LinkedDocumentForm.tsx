@@ -98,6 +98,30 @@ export function LinkedDocumentForm({ kind, quoteId: initialQuoteId, documentId }
     if (isEdit && doc?.quoteId && !quoteId) setQuoteId(doc.quoteId);
   }, [doc?.quoteId, isEdit, quoteId]);
 
+  function hydrateFromSnapshot(key: string) {
+    const loaded = snapshotToPriceRows(snapshot);
+    setRows(loaded);
+    setInitialRows(loaded);
+    setDrafts(draftsFromRows(loaded));
+    const discount = snapshotDiscount(snapshot);
+    setDiscountAmount(discount.amount > 0 ? String(discount.amount) : '');
+    setDiscountPercent(discount.percent > 0 ? String(discount.percent) : '');
+    const terms = record(snapshot?.terms ?? doc?.terms) ?? {};
+    setPayment(str(terms.paymentTermsText));
+    setDelivery(str(terms.deliveryTermsText));
+    setWarranty(str(terms.warrantyTermsText));
+    setMeta({
+      importCostsExcluded: typeof terms.importCostsExcluded === 'boolean' ? terms.importCostsExcluded : true,
+      vatIncluded: terms.vatIncluded === true,
+      freightPaidBySeller: terms.freightPaidBySeller === true,
+      deliveryLocation: str(terms.deliveryLocation),
+      estimatedDeliveryDaysMin: optionalDays(terms.estimatedDeliveryDaysMin),
+      estimatedDeliveryDaysMax: optionalDays(terms.estimatedDeliveryDaysMax),
+    });
+    setTermsDirty(false);
+    setHydratedFor(key);
+  }
+
   useEffect(() => {
     const data = quote.data;
     if (!data || hydratedFor === data.id) return;
@@ -126,6 +150,14 @@ export function LinkedDocumentForm({ kind, quoteId: initialQuoteId, documentId }
     setHydratedFor(data.id);
   }, [doc, hydratedFor, isEdit, quote.data, snapshot]);
 
+  // Teklif 404/hata verse bile edit’te belge snapshot’ından formu aç (kaydet kırılmasın).
+  useEffect(() => {
+    if (!isEdit || !doc || !quoteId || hydratedFor === quoteId || hydratedFor === `snapshot:${quoteId}`) return;
+    if (!quote.isError) return;
+    hydrateFromSnapshot(`snapshot:${quoteId}`);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- snapshot hydrate only when quote fails
+  }, [doc, hydratedFor, isEdit, quote.isError, quoteId, snapshot]);
+
   const currencyCode = currencies.data?.find((item) => item.id === quote.data?.currencyId)?.code ?? 'USD';
   const editedRows = useMemo(() => applyDrafts(rows, drafts), [drafts, rows]);
   const documentDiscount = {
@@ -148,8 +180,10 @@ export function LinkedDocumentForm({ kind, quoteId: initialQuoteId, documentId }
   }
 
   const title = isEdit ? `${LABEL[kind]} Düzenle` : `Yeni ${LABEL[kind]}`;
-  const loadError = existing.error ?? quote.error;
-  const loading = (isEdit && existing.isPending) || (Boolean(quoteId) && hydratedFor !== quoteId);
+  const loadError = existing.error ?? (quote.error && hydratedFor == null ? quote.error : null);
+  const loading =
+    (isEdit && existing.isPending) ||
+    (Boolean(quoteId) && hydratedFor !== quoteId && hydratedFor !== `snapshot:${quoteId}` && !quote.isError);
 
   function markTerms(next: { payment?: string; delivery?: string; warranty?: string }) {
     if (next.payment !== undefined) setPayment(next.payment);

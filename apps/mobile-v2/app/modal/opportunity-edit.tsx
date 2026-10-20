@@ -159,7 +159,8 @@ export default function OpportunityEditScreen() {
         ...(value !== null ? { estimatedValue: value } : {}),
         currencyCode: form.currencyCode,
         probability,
-        ...(form.expectedCloseDate ? { expectedCloseDate: dayString(form.expectedCloseDate) } : {}),
+        // Web ile aynı: temizlenince null gitmeli; alan atlanırsa eski tarih kalır.
+        expectedCloseDate: form.expectedCloseDate ? dayString(form.expectedCloseDate) : null,
         description: form.description.trim(),
         paymentTerms: form.paymentTerms.trim(),
         contractTerms: form.contractTerms.trim(),

@@ -199,8 +199,9 @@ export default function QuoteFormScreen() {
 
   useEffect(() => {
     const quote = existing.data;
-    if (!isEdit || hydrated || !quote || !currencies.data) return;
-    const code = currencies.data.find((item) => item.id === quote.currencyId)?.code;
+    // Para birimi lookup gecikse/hata verse bile formu kilitleme; kod yoksa USD.
+    if (!isEdit || hydrated || !quote) return;
+    const code = currencies.data?.find((item) => item.id === quote.currencyId)?.code;
     setCompanyId(quote.companyId);
     setCompanyAddressId(quote.companyAddressId ?? '');
     setContactId(quote.contactId);
@@ -244,6 +245,13 @@ export default function QuoteFormScreen() {
     setItems(hydrateQuoteItems(quote.items));
     setHydrated(true);
   }, [currencies.data, existing.data, hydrated, isEdit, user?.id]);
+
+  // Hydrate para birimi lookup’sız olduysa kod gelince düzelt.
+  useEffect(() => {
+    if (!isEdit || !hydrated || !existing.data?.currencyId || !currencies.data) return;
+    const code = currencies.data.find((item) => item.id === existing.data?.currencyId)?.code;
+    if (code === 'TRY' || code === 'USD' || code === 'EUR') setCurrencyCode(code);
+  }, [currencies.data, existing.data?.currencyId, hydrated, isEdit]);
 
   if (isEdit ? !canUpdate : !canCreate) return <Redirect href="/(tabs)/modules/quotes" />;
 
@@ -310,9 +318,14 @@ export default function QuoteFormScreen() {
     const quote: QuoteCreateInput = {
       companyId,
       ...(companyAddressId ? { companyAddressId } : {}),
-      ...(opportunityId ? { opportunityId } : {}),
+      // Edit’te bağlantı kaldırma için null gönder; create’te yalnız doluysa bağla.
+      ...(isEdit
+        ? { opportunityId: opportunityId || null, contactId: contactId || null }
+        : {
+            ...(opportunityId ? { opportunityId } : {}),
+            ...(contactId ? { contactId } : {}),
+          }),
       ...(divisionId ? { divisionId } : {}),
-      ...(contactId ? { contactId } : {}),
       ...(projectOwnerUserId ? { projectOwnerUserId } : {}),
       signatureId: signatureId || null,
       ...(clean(documentNo) ? { documentNo: clean(documentNo) } : {}),

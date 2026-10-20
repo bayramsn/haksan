@@ -22,7 +22,7 @@ import { mailComposeHref } from '@/src/ui/crm/mail-logic';
 import { toast } from '@/src/ui/toast';
 import { CompanyPickerSheet } from './CompanyPickerSheet';
 import { PillGroup, SalesSheet, SheetOption } from './Sheet';
-import { LOST_REASONS, operationStageOptions, validateStageChange, type PipelineStage } from './sales-logic';
+import { CANCEL_REASONS, operationStageOptions, validateStageChange, type PipelineStage } from './sales-logic';
 
 /* -------------------------------------------------------------- hızlı temas ---- */
 
@@ -269,7 +269,9 @@ export function OperationStageCard({
         id: opportunityId,
         body: {
           toStage: target,
-          ...(target === 'cancelled' ? { outcome: 'cancelled' as const, cancellationReasonCode: reasonCode ?? 'other' } : {}),
+          ...(target === 'cancelled'
+            ? { outcome: 'cancelled' as const, cancellationReasonCode: reasonCode ?? 'cancel_other' }
+            : {}),
           ...(changeReason.trim() ? { changeReason: changeReason.trim() } : {}),
         },
       },
@@ -315,7 +317,13 @@ export function OperationStageCard({
           />
         ))}
         {target === 'cancelled' ? (
-          <PillGroup label="İptal nedeni *" options={LOST_REASONS.map((r) => ({ value: r.code, label: r.name }))} value={reasonCode} onChange={setReasonCode} tone="destructive" />
+          <PillGroup
+            label="İptal nedeni *"
+            options={CANCEL_REASONS.map((r) => ({ value: r.code, label: r.name }))}
+            value={reasonCode}
+            onChange={setReasonCode}
+            tone="destructive"
+          />
         ) : null}
         {target ? (
           <Field label="Gerekçe" value={changeReason} onChangeText={setChangeReason} maxLength={1000} multiline numberOfLines={2} />

@@ -144,7 +144,13 @@ function changedCandidate(form: FormState, initial: FormState): Record<string, u
   return Object.fromEntries(
     (Object.keys(current) as (keyof FormState)[])
       .filter((key) => form[key] !== initial[key])
-      .map((key) => [key, current[key] ?? (typeof before[key] === 'boolean' ? false : '')])
+      .map((key) => {
+        const value = current[key];
+        if (value !== undefined) return [key, value];
+        // Temizlenen opsiyonel alanlar: Zod clearable* boşu null’a çevirir.
+        if (typeof before[key] === 'boolean') return [key, false];
+        return [key, null];
+      })
   );
 }
 
@@ -187,14 +193,16 @@ export function ContactFormScreen() {
 
   useEffect(() => {
     if (!editing || !detail.data || initializedId.current === detail.data.id) return;
-    if (detail.data.decisionRoleId && !decisionRoles.data) return;
+    // Karar rolü lookup’ı gecikse/hata verse bile formu aç; kod sonra dolar.
+    const roleCode =
+      decisionRoles.data?.find((item) => item.id === detail.data?.decisionRoleId)?.code ?? '';
     const next: FormState = {
       companyId: detail.data.companyId ?? detail.data.companyLinks.find((item) => item.isPrimary)?.id ?? '',
       externalContactNo: detail.data.externalContactNo ?? '',
       fullName: detail.data.fullName,
       title: detail.data.title ?? '',
       department: detail.data.department ?? '',
-      decisionRoleCode: decisionRoles.data?.find((item) => item.id === detail.data?.decisionRoleId)?.code ?? '',
+      decisionRoleCode: roleCode,
       workPhone: detail.data.workPhone ?? '',
       phoneExtension: detail.data.phoneExtension ?? '',
       mobilePhone: detail.data.mobilePhone ?? '',
@@ -223,6 +231,17 @@ export function ContactFormScreen() {
     );
     initializedId.current = detail.data.id;
   }, [decisionRoles.data, detail.data, editing]);
+
+  // İlk hydrate lookup’sız olduysa rol kodunu sonradan yaz (kullanıcı dokunmadıysa).
+  useEffect(() => {
+    if (!editing || !detail.data?.decisionRoleId || !decisionRoles.data) return;
+    const roleCode = decisionRoles.data.find((item) => item.id === detail.data?.decisionRoleId)?.code ?? '';
+    if (!roleCode) return;
+    setForm((prev) => (prev.decisionRoleCode ? prev : { ...prev, decisionRoleCode: roleCode }));
+    if (initialRef.current && !initialRef.current.decisionRoleCode) {
+      initialRef.current = { ...initialRef.current, decisionRoleCode: roleCode };
+    }
+  }, [decisionRoles.data, detail.data?.decisionRoleId, editing]);
 
   if (!allowed) return <Redirect href="/(tabs)/modules/contacts" />;
 
@@ -289,7 +308,7 @@ export function ContactFormScreen() {
     companySheetRef.current?.dismiss();
   }
 
-  if (editing && (detail.isPending || (detail.data?.decisionRoleId && decisionRoles.isPending))) {
+  if (editing && detail.isPending) {
     return (
       <SafeAreaView className="flex-1 bg-canvas" edges={['top', 'bottom', 'left', 'right']}>
         <Stack.Screen options={{ title: 'Kontağı düzenle', headerShown: true }} />

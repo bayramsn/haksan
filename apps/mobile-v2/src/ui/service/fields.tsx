@@ -222,10 +222,9 @@ export function ProductPicker({
   const sheetProps = useSheetProps();
   const [search, setSearch] = useState('');
   const [category, setCategory] = useState(categoryCodes?.[0]);
-  const [opened, setOpened] = useState(false);
   const debounced = useDebouncedValue(search, 275);
   const list = useProductList({ search: debounced.trim() || undefined, categoryCode: category });
-  const rows = opened ? list.data?.items ?? [] : [];
+  const rows = list.data?.items ?? [];
 
   return (
     <>
@@ -235,21 +234,20 @@ export function ProductPicker({
         placeholder={placeholder}
         icon="pricetag-outline"
         error={error}
-        onPress={() => {
-          setOpened(true);
-          sheet.current?.present();
-        }}
+        onPress={() => sheet.current?.present()}
         onClear={() => onChange(null)}
       />
-      <BottomSheetModal ref={sheet} {...sheetProps}>
-        <BottomSheetView className="gap-3 px-4 pb-2">
-          <Text accessibilityRole="header" className="font-inter-semibold text-base text-foreground">{label}</Text>
+      <BottomSheetModal ref={sheet} {...sheetProps} onDismiss={() => setSearch('')}>
+        <BottomSheetView className="gap-3 pb-2">
+          <Text accessibilityRole="header" className="px-4 font-inter-semibold text-base text-foreground">{label}</Text>
           {categoryCodes && categoryCodes.length > 1 ? (
-            <ChoiceChips
-              value={category ?? ''}
-              options={categoryCodes.map((code) => ({ value: code, label: code === 'YEDEK_PARCA' ? 'Yedek Parça' : code === 'AKSESUAR' ? 'Aksesuar' : code }))}
-              onChange={setCategory}
-            />
+            <View className="px-4">
+              <ChoiceChips
+                value={category ?? ''}
+                options={categoryCodes.map((code) => ({ value: code, label: code === 'YEDEK_PARCA' ? 'Yedek Parça' : code === 'AKSESUAR' ? 'Aksesuar' : code }))}
+                onChange={setCategory}
+              />
+            </View>
           ) : null}
           <SearchBar value={search} onChange={setSearch} placeholder="Model, stok kodu ara" />
         </BottomSheetView>
@@ -258,6 +256,7 @@ export function ProductPicker({
           keyExtractor={(item: ProductModel) => item.id}
           contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 32 }}
           keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
           renderItem={({ item }: { item: ProductModel }) => {
             const selected = item.id === value?.id;
             return (

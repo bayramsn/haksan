@@ -94,17 +94,18 @@ export const accountingInvoiceCreateSchema = z.object({
   paymentType: z.enum(['cash', 'leasing', 'term']).default('cash'),
   paymentTermDays: z.coerce.number().int().min(0).max(3650).optional(),
   previousPaymentTermDays: z.coerce.number().int().min(0).max(3650).optional(),
-  termChangeReason: z.string().max(500).optional(),
-  incoterm: z.string().max(64).optional(),
-  shipmentReference: z.string().max(128).optional(),
-  orderNo: z.string().max(64).optional(),
-  expectedDate: z.coerce.date().optional(),
+  termChangeReason: z.string().max(500).nullish(),
+  incoterm: z.string().max(64).nullish(),
+  shipmentReference: z.string().max(128).nullish(),
+  orderNo: z.string().max(64).nullish(),
+  /** `null` → tarih/not temizlenir (PATCH). */
+  expectedDate: z.coerce.date().nullish(),
   quoteId: z.string().optional(),
   salesOrderId: z.string().optional(),
-  firstDueDate: z.coerce.date().optional(),
-  lastDueDate: z.coerce.date().optional(),
+  firstDueDate: z.coerce.date().nullish(),
+  lastDueDate: z.coerce.date().nullish(),
   installmentCount: z.coerce.number().int().min(1).max(120).default(1),
-  notes: z.string().max(2000).optional(),
+  notes: z.string().max(2000).nullish(),
   installments: z
     .array(
       z.object({

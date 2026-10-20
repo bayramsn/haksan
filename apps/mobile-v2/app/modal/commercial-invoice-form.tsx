@@ -61,7 +61,11 @@ export default function CommercialInvoiceFormScreen() {
     const fail = (error: Error) => toast.error(error.message);
     if (isEdit) {
       update.mutate(
-        { id: documentId, body: { ...(no ? { invoiceNo: no } : {}), invoiceDate: day.toISOString(), statusCode } },
+        {
+          id: documentId,
+          // Boş no → null; Zod min(1) optional olduğu için yalnızca dolu veya null gönder.
+          body: { invoiceNo: no || null, invoiceDate: day.toISOString(), statusCode },
+        },
         {
           onSuccess: () => {
             toast.success('Ticari fatura güncellendi');

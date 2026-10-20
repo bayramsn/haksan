@@ -18,11 +18,12 @@ export const salesOrderCreateSchema = z.object({
   opportunityId: z.string().optional(),
   companyId: z.string().min(1),
   divisionId: z.string().uuid().optional(),
-  contactId: z.string().optional(),
-  orderNo: z.string().max(64).optional(),
+  /** `null` → kontak / no / not temizlenir (PATCH). */
+  contactId: z.string().nullish(),
+  orderNo: z.string().max(64).nullish(),
   orderDate: z.coerce.date(),
   currencyCode: z.string().max(8).default('USD'),
-  notes: z.string().max(4000).optional(),
+  notes: z.string().max(4000).nullish(),
 });
 export type SalesOrderCreateInput = z.infer<typeof salesOrderCreateSchema>;
 

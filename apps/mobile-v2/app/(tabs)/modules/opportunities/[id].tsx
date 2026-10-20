@@ -276,7 +276,8 @@ export default function OpportunityDetailScreen() {
       {
         id,
         nextAction: actionText.trim(),
-        ...(at ? { nextActionAt: at.toISOString() } : {}),
+        // Web NextActionDialog: tarih temizlenince null gönderilir.
+        nextActionAt: at ? at.toISOString() : null,
       },
       {
         onSuccess: () => {
@@ -302,10 +303,14 @@ export default function OpportunityDetailScreen() {
   }, []);
 
   const applyStage = useCallback(
-    (stage: QualificationStage) => {
-      // Web ile aynı zorunluluklar (LostCaseDialog submit doğrulaması).
+    (stage: QualificationStage, backward: boolean) => {
+      // Web ile aynı zorunluluklar (LostCaseDialog + geriye geçiş gerekçesi).
       if (stage === 'lost' && (!lostReasonCode || !lostProductName.trim() || !lostUnmetConditions.trim())) {
         setStageError('Kayıp nedeni, kaybedilen ürün ve karşılanamayan şartlar zorunludur.');
+        return;
+      }
+      if (backward && !stageNote.trim()) {
+        setStageError('Geriye geçiş için gerekçe zorunludur.');
         return;
       }
       sheetRef.current?.dismiss();
@@ -1062,7 +1067,7 @@ export default function OpportunityDetailScreen() {
           {targetStage && targetStage !== stage && !(targetStage === 'win' && soldQuotes.length === 0) ? (
             <Button
               label={`${qualificationStageLabels[targetStage]} Yap`}
-              onPress={() => applyStage(targetStage)}
+              onPress={() => applyStage(targetStage, isBackwardMove)}
               loading={setStage.isPending}
               disabled={setStage.isPending}
             />

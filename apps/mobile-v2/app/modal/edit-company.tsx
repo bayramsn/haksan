@@ -42,15 +42,23 @@ export default function EditCompanyScreen() {
   const [logo, setLogo] = useState<PickedSignatureImage | null>(null);
   const [removeLogo, setRemoveLogo] = useState(false);
   const [logoBusy, setLogoBusy] = useState(false);
+  const [lookupWaitExpired, setLookupWaitExpired] = useState(false);
   const existingLogoUri = mediaUrl(detail.data?.logoUrl);
 
-  // Detay ve kod eşleme listeleri geldiğinde formu bir kez doldur; kullanıcı düzenlemesi ezilmesin.
+  // Lookup takılırsa sonsuz Loading olmasın; 8 sn sonra detaydan yine de aç.
   useEffect(() => {
-    if (!detail.data || lookups.isPending || initial) return;
+    if (!detail.data || initial || !lookups.isPending) return;
+    const timer = setTimeout(() => setLookupWaitExpired(true), 8000);
+    return () => clearTimeout(timer);
+  }, [detail.data, initial, lookups.isPending]);
+
+  useEffect(() => {
+    if (!detail.data || initial) return;
+    if (lookups.isPending && !lookupWaitExpired) return;
     const next = companyFormFromDetail(detail.data as CompanyDetailRaw, lookups);
     setInitial(next);
     setForm(next);
-  }, [detail.data, lookups, initial]);
+  }, [detail.data, lookups, initial, lookupWaitExpired]);
 
   if (!canUpdate) return <Redirect href="/(tabs)/modules/companies" />;
 

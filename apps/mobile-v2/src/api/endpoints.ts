@@ -715,8 +715,8 @@ export const opportunities = {
       expectedCloseDate: string | null;
       requestedMachine: string;
       products?: { productModelId?: string; machineName: string; quantity: number }[];
-      nextAction: string;
-      nextActionAt: string;
+      nextAction: string | null;
+      nextActionAt: string | null;
       wonReason: string;
       contractTerms: string;
       paymentTerms: string;

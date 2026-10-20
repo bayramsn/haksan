@@ -81,6 +81,18 @@ export const LOST_REASONS: { code: string; name: string }[] = [
   { code: 'other', name: 'Diğer' },
 ];
 
+/** Web CloseCaseDialog iptal nedenleri — kayıp listesinden ayrı tutulur. */
+export const CANCEL_REASONS: { code: string; name: string }[] = [
+  { code: 'cancel_no_budget', name: 'Bütçe Yok / Bütçe Ayrılmadı' },
+  { code: 'cancel_other_investment', name: 'Başka Yere Yatırım Yaptı' },
+  { code: 'cancel_second_hand', name: '2. El Makine Aldı' },
+  { code: 'cancel_postponed', name: 'Yatırım Ertelendi' },
+  { code: 'cancel_no_need', name: 'İhtiyaç Ortadan Kalktı' },
+  { code: 'cancel_company_closed', name: 'Firma / Proje Kapandı' },
+  { code: 'cancel_duplicate', name: 'Mükerrer Kayıt' },
+  { code: 'cancel_other', name: 'Diğer' },
+];
+
 export type LostInput = { reasonCode: string | null; productName: string; unmetConditions: string; competitorName: string; competitorModel: string };
 
 export function validateLostInput(input: LostInput): string | null {

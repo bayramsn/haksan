@@ -14,11 +14,12 @@ export type SalesOrderInput = {
   opportunityId?: string;
   companyId: string;
   divisionId?: string;
-  contactId?: string;
-  orderNo?: string;
+  /** Edit’te temizleme için `null` (API `?? null` yazar). */
+  contactId?: string | null;
+  orderNo?: string | null;
   orderDate: string;
   currencyCode: string;
-  notes?: string;
+  notes?: string | null;
 };
 
 export type SalesOrderItemInput = {

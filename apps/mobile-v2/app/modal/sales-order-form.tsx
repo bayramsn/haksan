@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { View } from 'react-native';
 import type { BottomSheetModal } from '@gorhom/bottom-sheet';
 import { Redirect, useLocalSearchParams, useRouter } from 'expo-router';
-import { useContactList, useLookup } from '@/src/api/crm.hooks';
+import { useLookup } from '@/src/api/crm.hooks';
 import type { CompanyListItem } from '@/src/api/endpoints';
 import { useSalesOrder } from '@/src/api/inventory.hooks';
 import type { SalesOrderInput } from '@/src/api/sales-orders.api';
@@ -13,6 +13,7 @@ import { toast } from '@/src/ui/toast';
 import { ChoiceChips, CompanyPickerSheet, ModalForm, PickerField } from '@/src/ui/documents/pickers';
 import { formatDay, parseDay } from '@/src/ui/documents/quote-logic';
 import { DateTextField } from '@/src/ui/select/DateTextField';
+import { ContactSelect } from '@/src/ui/select/fields';
 
 const CURRENCIES = ['USD', 'EUR', 'TRY'] as const;
 
@@ -32,6 +33,7 @@ export default function SalesOrderFormScreen() {
   const [companyId, setCompanyId] = useState(typeof params.companyId === 'string' ? params.companyId : '');
   const [companyName, setCompanyName] = useState<string | null>(null);
   const [contactId, setContactId] = useState('');
+  const [contactName, setContactName] = useState('');
   const [divisionId, setDivisionId] = useState(scope.divisionId ?? divisions.find((d) => d.isPrimary)?.id ?? divisions[0]?.id ?? '');
   const [orderNo, setOrderNo] = useState('');
   const [orderDate, setOrderDate] = useState(formatDay(new Date()));
@@ -39,24 +41,29 @@ export default function SalesOrderFormScreen() {
   const [notes, setNotes] = useState('');
   const [hydrated, setHydrated] = useState(!isEdit);
   const companySheet = useRef<BottomSheetModal>(null);
-  const contacts = useContactList(
-    useMemo(() => ({ companyId, sortBy: 'name' as const, sortDir: 'asc' as const }), [companyId]),
-    Boolean(companyId)
-  );
   const create = useCreateSalesOrder();
   const update = useUpdateSalesOrder();
 
+  // Para birimi lookup gecikse/hata verse bile formu kilitleme; kod sonra düzeltilir.
   useEffect(() => {
     const order = existing.data;
-    if (!isEdit || hydrated || !order || !currencies.data) return;
+    if (!isEdit || hydrated || !order) return;
     setCompanyId(order.companyId);
     setContactId(order.contactId ?? '');
+    setContactName('');
     setOrderNo(order.orderNo);
     setOrderDate(order.orderDate.slice(0, 10));
-    setCurrencyCode(currencies.data.find((c) => c.id === order.currencyId)?.code ?? 'USD');
+    const code = currencies.data?.find((c) => c.id === order.currencyId)?.code;
+    setCurrencyCode(code === 'TRY' || code === 'USD' || code === 'EUR' ? code : 'USD');
     setNotes(order.notes ?? '');
     setHydrated(true);
   }, [currencies.data, existing.data, hydrated, isEdit]);
+
+  useEffect(() => {
+    if (!isEdit || !hydrated || !existing.data?.currencyId || !currencies.data) return;
+    const code = currencies.data.find((c) => c.id === existing.data?.currencyId)?.code;
+    if (code === 'TRY' || code === 'USD' || code === 'EUR') setCurrencyCode(code);
+  }, [currencies.data, existing.data?.currencyId, hydrated, isEdit]);
 
   if (isEdit ? !canUpdate : !canCreate) return <Redirect href="/(tabs)/modules/sales-orders" />;
 
@@ -67,11 +74,15 @@ export default function SalesOrderFormScreen() {
     if (!day) return toast.error('Tarih biçimi: YYYY-AA-GG');
     const body: SalesOrderInput = {
       companyId,
-      contactId: contactId || undefined,
-      orderNo: orderNo.trim() || undefined,
+      ...(isEdit
+        ? { contactId: contactId || null, notes: notes.trim() || null, orderNo: orderNo.trim() || null }
+        : {
+            ...(contactId ? { contactId } : {}),
+            ...(notes.trim() ? { notes: notes.trim() } : {}),
+            ...(orderNo.trim() ? { orderNo: orderNo.trim() } : {}),
+          }),
       orderDate: day.toISOString(),
       currencyCode,
-      notes: notes.trim() || undefined,
       ...(isEdit ? {} : { divisionId: divisionId || undefined }),
     };
     const fail = (error: Error) => toast.error(error.message);
@@ -79,7 +90,13 @@ export default function SalesOrderFormScreen() {
       update.mutate(
         {
           id: orderId,
-          body: { contactId: body.contactId, orderNo: body.orderNo, orderDate: body.orderDate, currencyCode, notes: body.notes },
+          body: {
+            contactId: body.contactId,
+            orderNo: body.orderNo,
+            orderDate: body.orderDate,
+            currencyCode,
+            notes: body.notes,
+          },
         },
         {
           onSuccess: () => {
@@ -100,7 +117,6 @@ export default function SalesOrderFormScreen() {
     });
   }
 
-  const contactOptions = (contacts.data?.items ?? []).slice(0, 12);
   const loadError = isEdit ? existing.error : null;
 
   return (
@@ -128,12 +144,18 @@ export default function SalesOrderFormScreen() {
                 onPress={() => companySheet.current?.present()}
                 disabled={isEdit}
               />
-              {companyId && contactOptions.length > 0 ? (
-                <ChoiceChips
+              {companyId ? (
+                <ContactSelect
                   label="Kontak"
-                  options={[{ value: '', label: 'Seçilmedi' }, ...contactOptions.map((contact) => ({ value: contact.id, label: contact.fullName }))]}
-                  value={contactId}
-                  onChange={setContactId}
+                  companyId={companyId}
+                  value={contactName}
+                  selectedId={contactId || null}
+                  clearable
+                  placeholder="Kontak seçin"
+                  onSelect={(picked) => {
+                    setContactId(picked?.id ?? '');
+                    setContactName(picked?.label ?? '');
+                  }}
                 />
               ) : null}
             </View>
@@ -166,6 +188,7 @@ export default function SalesOrderFormScreen() {
           setCompanyId(company.id);
           setCompanyName(company.shortName ?? company.legalTitle);
           setContactId('');
+          setContactName('');
         }}
       />
     </>

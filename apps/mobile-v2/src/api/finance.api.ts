@@ -66,17 +66,17 @@ export type AccountingInvoiceBody = {
   paymentType: 'cash' | 'leasing' | 'term';
   paymentTermDays?: number;
   previousPaymentTermDays?: number;
-  termChangeReason?: string;
-  incoterm?: string;
-  shipmentReference?: string;
-  orderNo?: string;
-  expectedDate?: string;
+  termChangeReason?: string | null;
+  incoterm?: string | null;
+  shipmentReference?: string | null;
+  orderNo?: string | null;
+  expectedDate?: string | null;
   quoteId?: string;
   salesOrderId?: string;
-  firstDueDate?: string;
-  lastDueDate?: string;
+  firstDueDate?: string | null;
+  lastDueDate?: string | null;
   installmentCount: number;
-  notes?: string;
+  notes?: string | null;
   installments?: { installmentNo: number; dueDate: string; amount: number }[];
   lineItems?: {
     saleType?: 'tezgah' | 'product';

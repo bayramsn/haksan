@@ -127,7 +127,8 @@ export type StandaloneContractInput = StandalonePartyInput & {
 
 export type CommercialInvoiceInput = {
   quoteId: string;
-  invoiceNo?: string;
+  /** Edit’te temizleme için `null`. */
+  invoiceNo?: string | null;
   invoiceDate: string;
   statusCode: string;
   fileId?: string;
