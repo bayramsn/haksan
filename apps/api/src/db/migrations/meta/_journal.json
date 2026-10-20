@@ -1142,6 +1142,13 @@
       "when": 1794249600000,
       "tag": "0163_mail_campaigns",
       "breakpoints": true
+    },
+    {
+      "idx": 164,
+      "version": "7",
+      "when": 1794336000000,
+      "tag": "0164_product_configuration_prices",
+      "breakpoints": true
     }
   ]
 }

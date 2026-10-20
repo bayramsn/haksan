@@ -366,3 +366,37 @@ export const productOptionValues = pgTable(
     optionSetIdx: index('product_option_values_set_idx').on(t.optionSetId),
   })
 );
+
+/**
+ * Baz kartın alt modeli × lazer gücü fiyat matrisi. Tedarikçi fiyat listesi
+ * toplanabilir fark (model farkı + güç farkı) olarak yazılamadığı için her
+ * hücre ayrı satırdır. `costPrice` alış maliyetidir; `salePrice` CRM'de belirlenir.
+ */
+export const productConfigurationPrices = pgTable(
+  'product_configuration_prices',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id')
+      .notNull()
+      .references(() => tenants.id, { onDelete: 'cascade' }),
+    productModelId: uuid('product_model_id')
+      .notNull()
+      .references(() => productModels.id, { onDelete: 'cascade' }),
+    sourceModelCode: varchar('source_model_code', { length: 64 }).notNull(),
+    priceModelCode: varchar('price_model_code', { length: 64 }),
+    powerKw: numeric('power_kw', { precision: 5, scale: 1, mode: 'number' }).notNull(),
+    costPrice: money('cost_price'),
+    costCurrencyId: uuid('cost_currency_id').references(() => currencies.id),
+    salePrice: money('sale_price'),
+    saleCurrencyId: uuid('sale_currency_id').references(() => currencies.id),
+    container: varchar('container', { length: 64 }),
+    leadTimeDays: integer('lead_time_days'),
+    sourceRevision: varchar('source_revision', { length: 128 }),
+    sourceCell: varchar('source_cell', { length: 64 }),
+    ...auditColumns,
+  },
+  (t) => ({
+    productConfigurationUnique: uniqueIndex('product_configuration_prices_unique').on(t.productModelId, t.sourceModelCode, t.powerKw),
+    tenantIdx: index('product_configuration_prices_tenant_idx').on(t.tenantId),
+  })
+);
