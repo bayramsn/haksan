@@ -238,22 +238,22 @@ export function ProductPicker({
         onClear={() => onChange(null)}
       />
       <BottomSheetModal ref={sheet} {...sheetProps} onDismiss={() => setSearch('')}>
-        <BottomSheetView className="gap-3 pb-2">
-          <Text accessibilityRole="header" className="px-4 font-inter-semibold text-base text-foreground">{label}</Text>
-          {categoryCodes && categoryCodes.length > 1 ? (
-            <View className="px-4">
-              <ChoiceChips
-                value={category ?? ''}
-                options={categoryCodes.map((code) => ({ value: code, label: code === 'YEDEK_PARCA' ? 'Yedek Parça' : code === 'AKSESUAR' ? 'Aksesuar' : code }))}
-                onChange={setCategory}
-              />
-            </View>
-          ) : null}
-          <SearchBar value={search} onChange={setSearch} placeholder="Model, stok kodu ara" />
-        </BottomSheetView>
         <BottomSheetFlatList
           data={rows}
           keyExtractor={(item: ProductModel) => item.id}
+          ListHeaderComponent={
+            <View className="gap-3 bg-card pb-2">
+              <Text accessibilityRole="header" className="font-inter-semibold text-base text-foreground">{label}</Text>
+              {categoryCodes && categoryCodes.length > 1 ? (
+                <ChoiceChips
+                  value={category ?? ''}
+                  options={categoryCodes.map((code) => ({ value: code, label: code === 'YEDEK_PARCA' ? 'Yedek Parça' : code === 'AKSESUAR' ? 'Aksesuar' : code }))}
+                  onChange={setCategory}
+                />
+              ) : null}
+              <SearchBar value={search} onChange={setSearch} placeholder="Model, stok kodu ara" />
+            </View>
+          }
           contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 32 }}
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="on-drag"

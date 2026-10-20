@@ -2,7 +2,6 @@ import { Pressable, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { BottomSheetBackdrop } from '@gorhom/bottom-sheet';
 import { useTheme } from '@/src/theme/theme';
-import { sheetContainerComponent } from './sheetContainer';
 
 /** Açılır seçici alanı: formlarda elle metin girişi yerine dokunulur. */
 export function PickerField({
@@ -77,8 +76,6 @@ export function useSheetProps(snap: string = '80%') {
     enablePanDownToClose: true,
     keyboardBehavior: 'extend' as const,
     keyboardBlurBehavior: 'restore' as const,
-    // Native modal (Expo Router) üstünde açılsın — iOS FullWindowOverlay.
-    containerComponent: sheetContainerComponent,
     backgroundStyle: { backgroundColor: colors.card },
     handleIndicatorStyle: { backgroundColor: colors.mutedForeground },
     backdropComponent: (props: Parameters<typeof BottomSheetBackdrop>[0]) => (

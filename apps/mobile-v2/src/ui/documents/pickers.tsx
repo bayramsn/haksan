@@ -12,13 +12,11 @@ import { formatAmount, formatDate } from '@/src/lib/format';
 import { useDebouncedValue } from '@/src/lib/useDebouncedValue';
 import { useTheme, type ThemeColors } from '@/src/theme/theme';
 import { Button, EmptyState, ErrorState, Loading, SearchBar } from '@/src/ui';
-import { sheetContainerComponent } from '@/src/ui/pickers/sheetContainer';
 
 export function sheetProps(colors: ThemeColors) {
   return {
     snapPoints: ['80%'],
     enableDynamicSizing: false,
-    containerComponent: sheetContainerComponent,
     backgroundStyle: { backgroundColor: colors.card },
     handleIndicatorStyle: { backgroundColor: colors.mutedForeground },
     backdropComponent: (props: Parameters<typeof BottomSheetBackdrop>[0]) => (
@@ -240,13 +238,15 @@ export function CompanyPickerSheet({
   );
   return (
     <BottomSheetModal ref={sheetRef} {...sheetProps(colors)}>
-      <BottomSheetView className="gap-3 px-4 pb-2">
-        <Text className="font-display text-base text-foreground">Firma seçin</Text>
-        <SearchBar value={search} onChange={setSearch} placeholder="Firma ara" />
-      </BottomSheetView>
       <BottomSheetFlatList
         data={list.data?.items ?? []}
         keyExtractor={(item: CompanyListItem) => item.id}
+        ListHeaderComponent={
+          <View className="gap-3 bg-card pb-2">
+            <Text className="font-display text-base text-foreground">Firma seçin</Text>
+            <SearchBar value={search} onChange={setSearch} placeholder="Firma ara" />
+          </View>
+        }
         contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 32 }}
         renderItem={({ item }: { item: CompanyListItem }) => (
           <SheetRow
@@ -293,13 +293,15 @@ export function ProductPickerSheet({
   const list = useProductList(useMemo(() => ({ search: debounced || undefined }), [debounced]));
   return (
     <BottomSheetModal ref={sheetRef} {...sheetProps(colors)}>
-      <BottomSheetView className="gap-3 px-4 pb-2">
-        <Text className="font-display text-base text-foreground">Ürün seçin</Text>
-        <SearchBar value={search} onChange={setSearch} placeholder="Model kodu veya ürün adı" />
-      </BottomSheetView>
       <BottomSheetFlatList
         data={list.data?.items ?? []}
         keyExtractor={(item: ProductModel) => item.id}
+        ListHeaderComponent={
+          <View className="gap-3 bg-card pb-2">
+            <Text className="font-display text-base text-foreground">Ürün seçin</Text>
+            <SearchBar value={search} onChange={setSearch} placeholder="Model kodu veya ürün adı" />
+          </View>
+        }
         contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 32 }}
         renderItem={({ item }: { item: ProductModel }) => (
           <SheetRow
@@ -352,13 +354,15 @@ export function QuotePickerSheet({
   );
   return (
     <BottomSheetModal ref={sheetRef} {...sheetProps(colors)}>
-      <BottomSheetView className="gap-3 px-4 pb-2">
-        <Text className="font-display text-base text-foreground">Teklif seçin</Text>
-        <SearchBar value={search} onChange={setSearch} placeholder="Teklif no veya firma" />
-      </BottomSheetView>
       <BottomSheetFlatList
         data={list.data?.items ?? []}
         keyExtractor={(item: QuoteListItem) => item.id}
+        ListHeaderComponent={
+          <View className="gap-3 bg-card pb-2">
+            <Text className="font-display text-base text-foreground">Teklif seçin</Text>
+            <SearchBar value={search} onChange={setSearch} placeholder="Teklif no veya firma" />
+          </View>
+        }
         contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 32 }}
         renderItem={({ item }: { item: QuoteListItem }) => (
           <SheetRow
@@ -408,13 +412,15 @@ export function OpportunityPickerSheet({
   const list = useOpportunityList(useMemo(() => ({ search: debounced || undefined, view: 'all' as const }), [debounced]));
   return (
     <BottomSheetModal ref={sheetRef} {...sheetProps(colors)}>
-      <BottomSheetView className="gap-3 px-4 pb-2">
-        <Text className="font-display text-base text-foreground">Satış kartı seçin</Text>
-        <SearchBar value={search} onChange={setSearch} placeholder="Firma veya kart ara" />
-      </BottomSheetView>
       <BottomSheetFlatList
         data={list.data?.items ?? []}
         keyExtractor={(item: OpportunityListItem) => item.id}
+        ListHeaderComponent={
+          <View className="gap-3 bg-card pb-2">
+            <Text className="font-display text-base text-foreground">Satış kartı seçin</Text>
+            <SearchBar value={search} onChange={setSearch} placeholder="Firma veya kart ara" />
+          </View>
+        }
         contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 32 }}
         renderItem={({ item }: { item: OpportunityListItem }) => (
           <SheetRow

@@ -1,6 +1,6 @@
 import { useMemo, useState, type RefObject } from 'react';
 import { Pressable, Text, View } from 'react-native';
-import { BottomSheetFlatList, BottomSheetModal, BottomSheetView } from '@gorhom/bottom-sheet';
+import { BottomSheetFlatList, BottomSheetModal } from '@gorhom/bottom-sheet';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '@/src/theme/theme';
 import { EmptyState, SearchBar } from '@/src/ui';
@@ -48,26 +48,32 @@ export function OptionSheet({
     sheetRef.current?.dismiss();
   };
 
+  const header = (
+    <View className="gap-3 bg-card pb-2">
+      <Text className="font-display text-base text-foreground">{title}</Text>
+      {options.length > 6 || createLabel ? <SearchBar value={search} onChange={setSearch} placeholder={searchPlaceholder} /> : null}
+      {canCreate ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={createLabel!(typed)}
+          onPress={() => choose(typed)}
+          className="min-h-[48px] flex-row items-center gap-3 rounded-control border border-dashed border-primary px-3 active:opacity-70"
+        >
+          <Ionicons name="add-circle-outline" size={19} color={colors.primary} />
+          <Text className="flex-1 font-inter-semibold text-sm text-primary" numberOfLines={2}>
+            {createLabel!(typed)}
+          </Text>
+        </Pressable>
+      ) : null}
+    </View>
+  );
+
   return (
     <BottomSheetModal ref={sheetRef} {...sheetProps(colors)} onDismiss={() => setSearch('')}>
-      <BottomSheetView className="gap-3 px-4 pb-2">
-        <Text className="font-display text-base text-foreground">{title}</Text>
-        {options.length > 6 || createLabel ? <SearchBar value={search} onChange={setSearch} placeholder={searchPlaceholder} /> : null}
-        {canCreate ? (
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={createLabel!(typed)}
-            onPress={() => choose(typed)}
-            className="min-h-[48px] flex-row items-center gap-3 rounded-control border border-dashed border-primary px-3 active:opacity-70"
-          >
-            <Ionicons name="add-circle-outline" size={19} color={colors.primary} />
-            <Text className="flex-1 font-inter-semibold text-sm text-primary" numberOfLines={2}>{createLabel!(typed)}</Text>
-          </Pressable>
-        ) : null}
-      </BottomSheetView>
       <BottomSheetFlatList
         data={filtered}
         keyExtractor={(item: SheetOption) => item.value}
+        ListHeaderComponent={header}
         keyboardShouldPersistTaps="handled"
         contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 32 }}
         renderItem={({ item }: { item: SheetOption }) => {
@@ -81,8 +87,14 @@ export function OptionSheet({
               className="min-h-[52px] flex-row items-center gap-3 border-b border-border py-2 active:opacity-70"
             >
               <View className="flex-1">
-                <Text className="font-inter-semibold text-sm text-foreground" numberOfLines={2}>{item.label}</Text>
-                {item.subtitle ? <Text className="font-inter text-xs text-muted-foreground" numberOfLines={1}>{item.subtitle}</Text> : null}
+                <Text className="font-inter-semibold text-sm text-foreground" numberOfLines={2}>
+                  {item.label}
+                </Text>
+                {item.subtitle ? (
+                  <Text className="font-inter text-xs text-muted-foreground" numberOfLines={1}>
+                    {item.subtitle}
+                  </Text>
+                ) : null}
               </View>
               {isSelected ? <Ionicons name="checkmark" size={19} color={colors.primary} /> : null}
             </Pressable>

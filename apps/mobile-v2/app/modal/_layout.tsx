@@ -5,11 +5,9 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { useTheme } from '@/src/theme/theme';
 
 /**
- * Expo Router `presentation: 'modal'` native katmanı, kök
- * BottomSheetModalProvider'ın ÜSTÜNDE çizilir. Sheet'ler için:
- * 1) Bu layout kendi provider + GestureHandlerRootView taşır
- * 2) Pickers `sheetContainerComponent` (iOS FullWindowOverlay) kullanır
- * Böylece SearchSelect / OptionPicker modalın üstünde açılır.
+ * Form stack: kök layout `containedModal` ile aynı UIWindow'da açılır.
+ * Yine de yerel BottomSheetModalProvider + GestureHandlerRootView taşırız;
+ * sheet'ler (SearchSelect / OptionPicker) formun üstünde kalır.
  */
 export default function ModalLayout() {
   const { colors } = useTheme();

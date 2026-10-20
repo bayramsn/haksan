@@ -58,6 +58,33 @@ export function OptionPicker({
     sheet.current?.dismiss();
   }
 
+  const header = (
+    <View className="gap-3 bg-card pb-2">
+      <Text accessibilityRole="header" className="font-inter-semibold text-base text-foreground">
+        {label}
+      </Text>
+      {searchable || allowFreeText ? (
+        <SearchBar value={search} onChange={setSearch} placeholder={allowFreeText ? 'Seçin veya yazın…' : 'Ara'} />
+      ) : null}
+      {allowFreeText && search.trim() && !options.some((option) => option.label.toLocaleLowerCase('tr') === term) ? (
+        <Pressable
+          accessibilityRole="button"
+          onPress={() => {
+            onFreeText?.(search.trim());
+            setSearch('');
+            sheet.current?.dismiss();
+          }}
+          className="min-h-12 flex-row items-center gap-3 rounded-control bg-primary-soft px-3 active:opacity-70"
+        >
+          <Ionicons name="create-outline" size={18} color={colors.primary} />
+          <Text className="flex-1 font-inter-medium text-sm text-primary" numberOfLines={1}>
+            “{search.trim()}” kullan
+          </Text>
+        </Pressable>
+      ) : null}
+    </View>
+  );
+
   return (
     <>
       <PickerField
@@ -71,29 +98,10 @@ export function OptionPicker({
         onClear={clearable ? () => onChange(null) : undefined}
       />
       <BottomSheetModal ref={sheet} {...sheetProps}>
-        <BottomSheetView className="gap-3 px-4 pb-2">
-          <Text accessibilityRole="header" className="font-inter-semibold text-base text-foreground">{label}</Text>
-          {searchable || allowFreeText ? (
-            <SearchBar value={search} onChange={setSearch} placeholder={allowFreeText ? 'Seçin veya yazın…' : 'Ara'} />
-          ) : null}
-          {allowFreeText && search.trim() && !options.some((option) => option.label.toLocaleLowerCase('tr') === term) ? (
-            <Pressable
-              accessibilityRole="button"
-              onPress={() => {
-                onFreeText?.(search.trim());
-                setSearch('');
-                sheet.current?.dismiss();
-              }}
-              className="min-h-12 flex-row items-center gap-3 rounded-control bg-primary-soft px-3 active:opacity-70"
-            >
-              <Ionicons name="create-outline" size={18} color={colors.primary} />
-              <Text className="flex-1 font-inter-medium text-sm text-primary" numberOfLines={1}>“{search.trim()}” kullan</Text>
-            </Pressable>
-          ) : null}
-        </BottomSheetView>
         <BottomSheetFlatList
           data={filtered}
           keyExtractor={(item: PickerOption) => item.value}
+          ListHeaderComponent={header}
           contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 32 }}
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="on-drag"
@@ -107,7 +115,9 @@ export function OptionPicker({
                 className="min-h-[52px] flex-row items-center gap-3 border-b border-border py-2 active:opacity-70"
               >
                 <View className="flex-1">
-                  <Text className={`font-inter text-[15px] ${selected ? 'font-inter-semibold text-primary' : 'text-foreground'}`}>{item.label}</Text>
+                  <Text className={`font-inter text-[15px] ${selected ? 'font-inter-semibold text-primary' : 'text-foreground'}`}>
+                    {item.label}
+                  </Text>
                   {item.hint ? <Text className="font-inter text-xs text-muted-foreground">{item.hint}</Text> : null}
                 </View>
                 {selected ? <Ionicons name="checkmark" size={19} color={colors.primary} /> : null}
@@ -149,7 +159,9 @@ export function MultiOptionPicker({
       <PickerField label={label} value={summary} placeholder={placeholder} icon={icon} error={error} onPress={() => sheet.current?.present()} />
       <BottomSheetModal ref={sheet} {...sheetProps}>
         <BottomSheetView className="gap-1 px-4 pb-10">
-          <Text accessibilityRole="header" className="pb-2 font-inter-semibold text-base text-foreground">{label}</Text>
+          <Text accessibilityRole="header" className="pb-2 font-inter-semibold text-base text-foreground">
+            {label}
+          </Text>
           {options.length === 0 ? <EmptyState title="Seçenek bulunamadı" /> : null}
           {options.map((option) => {
             const selected = values.includes(option.value);

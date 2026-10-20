@@ -1,13 +1,12 @@
 import { forwardRef, useMemo, useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
-import { BottomSheetBackdrop, BottomSheetFlatList, BottomSheetModal, BottomSheetView } from '@gorhom/bottom-sheet';
+import { BottomSheetBackdrop, BottomSheetFlatList, BottomSheetModal } from '@gorhom/bottom-sheet';
 import { Ionicons } from '@expo/vector-icons';
 import { useCompanyList } from '@/src/api/companies.hooks';
 import type { CompanyListItem } from '@/src/api/endpoints';
 import { useDebouncedValue } from '@/src/lib/useDebouncedValue';
 import { useTheme } from '@/src/theme/theme';
 import { EmptyState, ErrorState, Loading, SearchBar } from '@/src/ui';
-import { sheetContainerComponent } from '@/src/ui/pickers/sheetContainer';
 
 /** Firma seçici alt sayfası; arama sunucuda yapılır, sonsuz kaydırır. */
 export const CompanyPickerSheet = forwardRef<
@@ -21,23 +20,26 @@ export const CompanyPickerSheet = forwardRef<
     useMemo(() => ({ search: debounced || undefined, sortBy: 'name' as const, sortDir: 'asc' as const }), [debounced])
   );
 
+  const header = (
+    <View className="gap-3 bg-card pb-2">
+      <Text className="font-display-semibold text-[18px] text-foreground">{title}</Text>
+      <SearchBar value={search} onChange={setSearch} placeholder="Firma ara" />
+    </View>
+  );
+
   return (
     <BottomSheetModal
       ref={ref}
       snapPoints={['85%']}
       enableDynamicSizing={false}
-      containerComponent={sheetContainerComponent}
       backgroundStyle={{ backgroundColor: colors.card }}
       handleIndicatorStyle={{ backgroundColor: colors.mutedForeground }}
       backdropComponent={(props) => <BottomSheetBackdrop {...props} appearsOnIndex={0} disappearsOnIndex={-1} />}
     >
-      <BottomSheetView className="gap-3 pb-2">
-        <Text className="px-4 font-display-semibold text-[18px] text-foreground">{title}</Text>
-        <SearchBar value={search} onChange={setSearch} placeholder="Firma ara" />
-      </BottomSheetView>
       <BottomSheetFlatList
         data={companyList.data?.items ?? []}
         keyExtractor={(item: CompanyListItem) => item.id}
+        ListHeaderComponent={header}
         keyboardShouldPersistTaps="handled"
         contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 32 }}
         renderItem={({ item }: { item: CompanyListItem }) => {

@@ -62,8 +62,9 @@ function Navigator() {
       <Stack.Screen name="(tabs)" />
       <Stack.Screen name="(auth)" />
       <Stack.Screen name="onboarding" />
-      {/* §2.3: karmaşık formlar alttan kayan tam ekran modal. */}
-      <Stack.Screen name="modal" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
+      {/* containedModal: aynı UIWindow — BottomSheetModal formun arkasında kalmaz.
+          (presentation:'modal' ayrı pencere açıp sheet'leri arkaya düşürüyordu) */}
+      <Stack.Screen name="modal" options={{ presentation: 'containedModal', animation: 'slide_from_bottom' }} />
     </Stack>
   );
 }

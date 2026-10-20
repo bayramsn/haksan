@@ -24,7 +24,6 @@ import { useCan } from '@/src/auth/AuthProvider';
 import { formatLocalDateTime, parseLocalDateTime } from '@/src/lib/format';
 import { useTheme } from '@/src/theme/theme';
 import { DateTextField } from '@/src/ui/select/DateTextField';
-import { sheetContainerComponent } from '@/src/ui/pickers/sheetContainer';
 import { Button, EmptyState, ErrorState, Eyebrow, Field, FilterChips, Loading, SearchBar } from '@/src/ui';
 
 type FormState = {
@@ -300,7 +299,6 @@ export function ActivityFormScreen() {
   const sheetProps = {
     snapPoints: ['80%'],
     enableDynamicSizing: false,
-    containerComponent: sheetContainerComponent,
     backgroundStyle: { backgroundColor: colors.card },
     handleIndicatorStyle: { backgroundColor: colors.mutedForeground },
     backdropComponent: (props: Parameters<typeof BottomSheetBackdrop>[0]) => <BottomSheetBackdrop {...props} appearsOnIndex={0} disappearsOnIndex={-1} />,

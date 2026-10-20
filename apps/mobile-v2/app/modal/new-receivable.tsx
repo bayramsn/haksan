@@ -13,8 +13,6 @@ import { parseLocalDateTime } from '@/src/lib/format';
 import { Button, EmptyState, ErrorState, Eyebrow, Field, Loading, SearchBar } from '@/src/ui';
 import { toast } from '@/src/ui/toast';
 import { DateTextField } from '@/src/ui/select/DateTextField';
-import { sheetContainerComponent } from '@/src/ui/pickers/sheetContainer';
-
 const CURRENCIES = ['TRY', 'USD', 'EUR'] as const;
 
 function first(value: string | string[] | undefined): string {
@@ -79,7 +77,6 @@ export default function NewReceivableScreen() {
   const sheetProps = {
     snapPoints: ['80%'],
     enableDynamicSizing: false,
-    containerComponent: sheetContainerComponent,
     backgroundStyle: { backgroundColor: colors.card },
     handleIndicatorStyle: { backgroundColor: colors.mutedForeground },
     backdropComponent: (props: Parameters<typeof BottomSheetBackdrop>[0]) => (

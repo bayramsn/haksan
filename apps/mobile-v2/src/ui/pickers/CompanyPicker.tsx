@@ -1,7 +1,7 @@
 import { useCallback, useMemo, useRef, useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { BottomSheetFlatList, BottomSheetModal, BottomSheetView } from '@gorhom/bottom-sheet';
+import { BottomSheetFlatList, BottomSheetModal } from '@gorhom/bottom-sheet';
 import { useCompanyList } from '@/src/api/companies.hooks';
 import { useContactList } from '@/src/api/crm.hooks';
 import type { CompanyListItem, ContactListItem } from '@/src/api/endpoints';
@@ -14,9 +14,7 @@ export type PickedRecord = { id: string; name: string; phone?: string; email?: s
 
 /**
  * Uzaktan aramalı firma seçici (web RemoteCompanyCombobox).
- *
- * Kritik: liste verisi `opened` ile gizlenmez; çalışan quote `CompanyPickerSheet`
- * ile aynı düzen (üst arama + FlatList, flex:1 / flexGrow yok).
+ * Başlık + arama ListHeaderComponent'te — FlatList kardeş View üzerine binmesin.
  */
 export function CompanyPicker({
   label = 'Firma',
@@ -56,6 +54,15 @@ export function CompanyPicker({
     [onChange],
   );
 
+  const header = (
+    <View className="gap-3 bg-card pb-2">
+      <Text accessibilityRole="header" className="font-inter-semibold text-base text-foreground">
+        {label} seçin
+      </Text>
+      <SearchBar value={search} onChange={setSearch} placeholder="Firma ara" />
+    </View>
+  );
+
   return (
     <>
       <PickerField
@@ -69,15 +76,10 @@ export function CompanyPicker({
         onClear={clearable ? () => onChange(null) : undefined}
       />
       <BottomSheetModal ref={sheet} {...sheetProps} onDismiss={() => setSearch('')}>
-        <BottomSheetView className="gap-3 pb-2">
-          <Text accessibilityRole="header" className="px-4 font-inter-semibold text-base text-foreground">
-            {label} seçin
-          </Text>
-          <SearchBar value={search} onChange={setSearch} placeholder="Firma ara" />
-        </BottomSheetView>
         <BottomSheetFlatList
           data={rows}
           keyExtractor={(item: CompanyListItem) => item.id}
+          ListHeaderComponent={header}
           contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 32 }}
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="on-drag"
@@ -169,6 +171,16 @@ export function ContactPicker({
     [onChange],
   );
 
+  const header = (
+    <View className="gap-3 bg-card pb-2">
+      <Text accessibilityRole="header" className="font-inter-semibold text-base text-foreground">
+        {label} seçin
+      </Text>
+      {value ? <Button label="Bağlantıyı Kaldır" variant="ghost" onPress={() => choose(null)} /> : null}
+      <SearchBar value={search} onChange={setSearch} placeholder="Kontak ara" />
+    </View>
+  );
+
   return (
     <>
       <PickerField
@@ -182,16 +194,10 @@ export function ContactPicker({
         onClear={() => onChange(null)}
       />
       <BottomSheetModal ref={sheet} {...sheetProps} onDismiss={() => setSearch('')}>
-        <BottomSheetView className="gap-3 px-4 pb-2">
-          <Text accessibilityRole="header" className="font-inter-semibold text-base text-foreground">
-            {label} seçin
-          </Text>
-          {value ? <Button label="Bağlantıyı Kaldır" variant="ghost" onPress={() => choose(null)} /> : null}
-          <SearchBar value={search} onChange={setSearch} placeholder="Kontak ara" />
-        </BottomSheetView>
         <BottomSheetFlatList
           data={rows}
           keyExtractor={(item: ContactListItem) => item.id}
+          ListHeaderComponent={header}
           contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 32 }}
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="on-drag"
