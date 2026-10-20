@@ -82,7 +82,11 @@ describe("lazer fiyat listesi", () => {
     expect(hexConfigurationForPriceModel("TS6020+S6", 3)).toEqual({ series: "TS", sourceModelCode: "TS-6020" });
     expect(hexConfigurationForPriceModel("PU3015", 3)).toEqual({ series: "PU", sourceModelCode: "PU3015" });
     expect(hexConfigurationForPriceModel("HW", 2)).toEqual({ series: "HW", sourceModelCode: "HW-2000W" });
-    expect(hexConfigurationForPriceModel("F6015", 3)).toBeNull();
-    expect(hexConfigurationForPriceModel("V12-65", 3)).toBeNull();
+    // AORE 2026 kitabından eklenen alt modeller ve seriler de eşleşir; teknik verisi olmayan TC uydurulmaz.
+    expect(hexConfigurationForPriceModel("F6015", 3)).toEqual({ series: "F", sourceModelCode: "F-6015" });
+    expect(hexConfigurationForPriceModel("PG6020+T6", 3)).toEqual({ series: "PGT", sourceModelCode: "PGT6020" });
+    expect(hexConfigurationForPriceModel("V12-65", 3)).toEqual({ series: "V", sourceModelCode: "V12-65" });
+    expect(hexConfigurationForPriceModel("M28-120-65", 6)).toEqual({ series: "M", sourceModelCode: "M28-120-65" });
+    expect(hexConfigurationForPriceModel("TC12-65", 3)).toBeNull();
   });
 });

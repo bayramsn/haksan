@@ -25,7 +25,7 @@ describe('laser source provenance and imports', () => {
     const original = base();
     const result = applyLaserSpecEdits(original, [{ key: 'Makine Ağırlığı', value: '2222', unit: 'kg', source: { document: 'forged.pdf' }, sourceValue: 'forged', isManual: false }]);
     const spec = result.specs.find((field) => field.key === 'Makine Ağırlığı')!;
-    expect(spec).toMatchObject({ value: '2222', sourceValue: '2150', isManual: true });
+    expect(spec).toMatchObject({ value: '2222', sourceValue: '2420', isManual: true });
     expect(spec.source).toEqual(original.specs.find((field) => field.key === spec.key)!.source);
     expect(() => applyLaserSpecEdits(original, [{ key: 'Lazer Gücü', value: '30', unit: 'kW' }])).toThrow('seçim');
   });
@@ -45,8 +45,8 @@ describe('laser source provenance and imports', () => {
 
   it('restores source ownership after resetting a manual value and unit', () => {
     const edited = applyLaserSpecEdits(base(), [{ key: 'Makine Ağırlığı', value: '2.2', unit: 't' }]);
-    const reset = applyLaserSpecEdits(edited, [{ key: 'Makine Ağırlığı', value: '2150', unit: 'kg', isManual: true }]);
-    expect(reset.specs.find((field) => field.key === 'Makine Ağırlığı')).toMatchObject({ value: '2150', unit: 'kg', isManual: false });
+    const reset = applyLaserSpecEdits(edited, [{ key: 'Makine Ağırlığı', value: '2420', unit: 'kg', isManual: true }]);
+    expect(reset.specs.find((field) => field.key === 'Makine Ağırlığı')).toMatchObject({ value: '2420', unit: 'kg', isManual: false });
     const incoming = base();
     incoming.specs.find((field) => field.key === 'Makine Ağırlığı')!.value = '2200';
     expect(mergeLaserReimport(incoming, reset).specs.find((field) => field.key === 'Makine Ağırlığı')?.value).toBe('2200');
@@ -186,7 +186,7 @@ describe('quote laser snapshots', () => {
     expect(snapshot.technicalConfiguration).toEqual(product);
     expect(snapshot.technicalSpecs).toHaveLength(product.specs.length);
     product.specs.find((field) => field.key === 'Makine Ağırlığı')!.value = '9999';
-    expect(snapshot.technicalConfiguration?.specs.find((field) => field.key === 'Makine Ağırlığı')?.value).toBe('2150');
+    expect(snapshot.technicalConfiguration?.specs.find((field) => field.key === 'Makine Ağırlığı')?.value).toBe('2420');
   });
 
   it('retains an explicit historic snapshot after the live product profile changes', () => {
@@ -195,12 +195,12 @@ describe('quote laser snapshots', () => {
     current.specs.find((field) => field.key === 'Makine Ağırlığı')!.value = '9999';
     const saved = quoteLaserSnapshot(original, current)!;
     expect(saved).toEqual(original);
-    expect(saved.technicalSpecs.find((field) => field.key === 'Makine Ağırlığı')?.value).toBe('2150');
+    expect(saved.technicalSpecs.find((field) => field.key === 'Makine Ağırlığı')?.value).toBe('2420');
   });
 
   it('keeps manual per-quote edits synchronized with the saved configuration', () => {
     const snapshot = quoteLaserSnapshot({ machineIds: [], brands: [], controlUnits: [], supplierIds: [], technicalSpecs: [{ key: 'Makine Ağırlığı', value: '2200', unit: 'kg' }] }, base())!;
-    expect(snapshot.technicalConfiguration?.specs.find((field) => field.key === 'Makine Ağırlığı')).toMatchObject({ value: '2200', sourceValue: '2150', isManual: true });
+    expect(snapshot.technicalConfiguration?.specs.find((field) => field.key === 'Makine Ağırlığı')).toMatchObject({ value: '2200', sourceValue: '2420', isManual: true });
     expect(snapshot.technicalSpecs.find((field) => field.key === 'Makine Ağırlığı')?.value).toBe('2200');
     expect(quoteLaserSnapshot(null, null)).toBeNull();
   });

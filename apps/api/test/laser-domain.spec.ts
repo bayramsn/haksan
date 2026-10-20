@@ -18,11 +18,12 @@ function field(code: string, power: LaserSelection['powerKw'], key: string, cabi
 
 describe('AORE source resolution', () => {
   it('preserves laser head model suffixes while separating measurement units', () => {
-    for (const code of ['TG6012', 'TH6012']) for (const power of [1.5, 2, 3] as const) {
-      expect(field(code, power, 'Kesme Kafası')).toMatchObject({ value: 'BLT310T' });
+    // TG6012 2026 kitabından (BLT311T), TH6012 yalnız eski kitapta (BLT310T); ikisinde de T soneki birim değildir.
+    for (const [code, head] of [['TG6012', 'BLT311T'], ['TH6012', 'BLT310T']]) for (const power of [1.5, 2, 3] as const) {
+      expect(field(code, power, 'Kesme Kafası')).toMatchObject({ value: head });
       expect(field(code, power, 'Kesme Kafası')?.unit ?? '').toBe('');
     }
-    for (const [code, value] of [['H3015', '6-40'], ['H4020', '6-40'], ['H6020', '6-40'], ['TG6035', '3-12'], ['TH6035', '3-12'], ['TA6035', '3-12']]) {
+    for (const [code, value] of [['H3015', '6-40'], ['H4020', '6-40'], ['H6020', '6-40'], ['TG6035', '3/6/12'], ['TH6035', '3/6/12'], ['TA6035', '3-12']]) {
       expect(field(code, 3, 'Kaynakta Desteklenen Güç')).toMatchObject({ value, unit: 'kW' });
     }
     const base = LASER_MODELS.find((model) => model.code === 'F3015')!;
@@ -39,7 +40,8 @@ describe('AORE source resolution', () => {
   });
 
   it('separates documented units from explanatory tube dimensions', () => {
-    for (const [code, diameter] of [['TE12028', '280'], ['TE12035', '350'], ['TZ12055', '530'], ['TZ12070', '700']]) {
+    // TZ12070 2026 kitabında aralık olarak yazılır ("Boru Ölçü Aralığı"); diğerleri eski kitaptan.
+    for (const [code, diameter] of [['TE12028', '280'], ['TE12035', '350'], ['TZ12055', '530']]) {
       const spec = field(code, 3, 'Önerilen Maksimum Boru Ölçüsü');
       expect(spec?.value).toBe(`Önerilen kenar uzunluğu veya çapı ≤${diameter}`);
       expect(spec?.unit).toBe('mm');
@@ -52,7 +54,7 @@ describe('AORE source resolution', () => {
   it('offers every source model/cabin/power combination without creating products', () => {
     expect(LASER_MODELS.length).toBeGreaterThanOrEqual(100);
     expect(new Set(LASER_MODELS.map((model) => model.code)).size).toBe(LASER_MODELS.length);
-    expect(new Set(LASER_MODELS.map((model) => model.series))).toEqual(new Set(LASER_SERIES.filter(series => !['T', 'CELL', 'HW', 'PU'].includes(series))));
+    expect(new Set(LASER_MODELS.map((model) => model.series))).toEqual(new Set(LASER_SERIES.filter(series => !['T', 'CELL', 'HW', 'TC'].includes(series))));
     for (const model of LASER_MODELS) for (const power of LASER_POWERS) for (const cabin of ['open', 'closed'] as const) {
       const result = profile(model.code, power, cabin);
       expect(laserTechnicalConfigurationSchema.safeParse(result).success).toBe(true);
@@ -63,24 +65,26 @@ describe('AORE source resolution', () => {
 
   it('changes F3015 mechanical and electrical fields independently at 6 and 12 kW', () => {
     for (const [key, six, twelve, unit] of [
-      ['Tabla Yük Kapasitesi', '950', '1500', 'kg'],
-      ['Makine Ağırlığı', '2150', '3150', 'kg'],
-      ['Toplam Güç Gereksinimi', '35.9', '55.9', 'kW'],
-      ['Trafo Kapasitesi', '50', '80', 'kVA'],
+      ['Tabla Yük Kapasitesi', '915', '1835', 'kg'],
+      ['Makine Ağırlığı', '2420', '3260', 'kg'],
+      ['Toplam Güç Gereksinimi', '36.45', '67.15', 'kW'],
+      ['Trafo Kapasitesi', '50', '100', 'kVA'],
       ['Y Eksen Motor Gücü', '0.85*2', '1.8*2', 'kW'],
     ]) {
       expect(field('F3015', 6, key)).toMatchObject({ value: six, unit });
       expect(field('F3015', 12, key)).toMatchObject({ value: twelve, unit });
     }
     expect(field('F3015', 6, 'Kontrol Ünitesi')).toMatchObject({ value: 'FSCUT4000E', source: { sheet: 'Standart Yapılandırma' } });
-    expect(field('F3015', 12, 'Kontrol Ünitesi')?.value).toBe('FSCUT8000');
+    // "12kW/20kW: FSCUT6000" iki ayrı güç koşuludur.
+    expect(field('F3015', 12, 'Kontrol Ünitesi')?.value).toBe('FSCUT6000');
+    expect(field('F3015', 20, 'Kontrol Ünitesi')?.value).toBe('FSCUT6000');
   });
 
   it('keeps PG3015 power and transformer profiles separate at 1.5, 2 and 3 kW', () => {
     for (const [power, totalPower, transformer] of [
-      [1.5, '17.5', '30'],
-      [2, '18.2', '30'],
-      [3, '25', '40'],
+      [1.5, '19.15', '30'],
+      [2, '22.05', '30'],
+      [3, '25.45', '40'],
     ] as const) {
       expect(field('PG3015', power, 'Lazer Gücü')).toMatchObject({ value: String(power), unit: 'kW' });
       expect(field('PG3015', power, 'Toplam Güç Gereksinimi')).toMatchObject({ value: totalPower, unit: 'kW' });
@@ -89,9 +93,9 @@ describe('AORE source resolution', () => {
   });
 
   it('uses PG6020 30 kW source cells and retains PG3015 source conflict', () => {
-    expect(field('PG6020', 30, 'Tabla Yük Kapasitesi')?.value).toBe('5760');
-    expect(field('PG6020', 30, 'Makine Ağırlığı')?.value).toBe('11600');
-    expect(field('PG6020', 30, 'Toplam Güç Gereksinimi')).toMatchObject({ value: '155.8', unit: 'kW', source: { sheet: 'PG系列', cell: 'H34' } });
+    expect(field('PG6020', 30, 'Tabla Yük Kapasitesi')?.value).toBe('4750');
+    expect(field('PG6020', 30, 'Makine Ağırlığı')?.value).toBe('14385');
+    expect(field('PG6020', 30, 'Toplam Güç Gereksinimi')).toMatchObject({ value: '154.35', unit: 'kW', source: { sheet: 'PG系列', cell: 'J33' } });
     expect(field('PG6020', 30, 'Trafo Kapasitesi')?.value).toBe('200');
     expect(profile('PG3015', 30).supportedPower).toBe(false);
     expect(profile('PG3015', 30).issues.some((issue) => issue.code === 'source_conflict')).toBe(true);
@@ -119,8 +123,9 @@ describe('AORE source resolution', () => {
     }
     expect(profile('F6520', 6).sizeLabel).toBe('6550 × 2030 mm');
     expect(profile('F6525', 6).sizeLabel).toBe('6550 × 2530 mm');
-    expect(profile('F6020', 6).sizeLabel).toBe('6050 × 2030 mm');
-    expect(field('PG6020', 3, 'Y Eksen Motor Gücü')?.value).toBe('');
+    expect(profile('F6020', 6).sizeLabel).toBe('6150 × 2030 mm');
+    // 2026 kitabı PG6020 için ≤6 kW motor koşulunu yazıyor; değer kaynaktan gelir.
+    expect(field('PG6020', 3, 'Y Eksen Motor Gücü')?.value).toBe('1.8*2');
     expect(field('F8025', 3, 'X Eksen Motor Gücü')?.value).toBe('');
     expect(field('TG6016', 3, 'Kontrol Ünitesi')?.value).toBe('');
     expect(field('TG6035', 6, 'B Eksen Motor Gücü')?.value).toBe('4.4+2.9');
@@ -147,9 +152,9 @@ describe('AORE source resolution', () => {
   it('imports horizontal sheets once, including the duplicate standalone F sheet', () => {
     const f = AORE_WORKBOOK_SHEETS.find((sheet) => sheet.name === 'F系列')!;
     const result = parseLaserWorkbookSheets([...AORE_WORKBOOK_SHEETS, { ...f, name: 'F duplicate' }], 'uploaded.xlsx');
-    expect(result.models).toHaveLength(88);
+    expect(result.models).toHaveLength(71);
     expect(result.issues).toEqual([]);
-    expect(result.models.find((m) => m.code === 'F3015')?.fields.find((f) => f.key === 'Kesme Alanı')?.source).toMatchObject({ document: 'uploaded.xlsx', sheet: 'F系列', cell: 'E4' });
+    expect(result.models.find((m) => m.code === 'F3015')?.fields.find((f) => f.key === 'Kesme Alanı')?.source).toMatchObject({ document: 'uploaded.xlsx', sheet: 'F系列', cell: 'D2' });
   });
 
   it('reads merged values with the top-left cell as provenance and reports conflicting duplicates', () => {
@@ -174,43 +179,51 @@ describe('AORE source resolution', () => {
     const expected = ['F3015','F4015','F6015','F4020','F6020','F6025','F6520','F6525','F8025','PG3015','PG6015','PG4020','PG6020','PG6025','PG6525','PG8025','TG6012','TG6016','TG6020','TG6035'];
     expect(LASER_MODELS.map((model) => model.code)).toEqual(expect.arrayContaining(expected));
     const workbook = parseLaserWorkbookSheets(AORE_WORKBOOK_SHEETS, 'AORE Technical Parameters.xlsx');
-    expect(workbook.models).toHaveLength(88);
-    expect(new Set(workbook.models.map((model) => model.series)).size).toBe(16);
+    // 2026.9.14 kitabı: 71 model / 17 seri; kaldırılan modeller (F6525, GR 14–20 kW, GR4000, TZ12055, R, TE) eski kitaptan gelir.
+    expect(workbook.models).toHaveLength(71);
+    expect(new Set(workbook.models.map((model) => model.series)).size).toBe(17);
     expect(workbook.models.flatMap((model) => model.issues).filter((issue) => issue.code === 'unmapped_source_label')).toEqual([]);
-    expect(field('F3015', 12, 'Makine Ağırlığı')?.source).toMatchObject({ document: 'AORE Technical Parameters.xlsx', sheet: 'F系列', cell: 'E12', rawValue: '≤6kw：2150kg\n12-20kw：3150kg' });
+    expect(field('F3015', 12, 'Makine Ağırlığı')?.source).toMatchObject({ document: 'AORE Technical Parameters.xlsx', sheet: 'F系列', cell: 'D10', rawValue: '≤6kW：2420kg\n12-20kW：3260kg' });
+    for (const code of ['F6525', 'GR2500-14', 'GR4000Pro-20', 'TZ12055', 'R3015', 'TE12028']) {
+      expect(LASER_MODELS.find((model) => model.code === code)?.fields[0]?.source.document).toBe('AORE Technical Parameters 2025.03.18.xlsx');
+    }
   });
 
-  it('uses S power-specific dimensions and the Chinese-only transformer row', () => {
+  it('uses S dimensions and the motor-branded transformer row', () => {
+    // 2026 kitabı S kesme alanını güce göre ayırmıyor; transformatör hücresi "汇川电机\n68.65kW/100kVA".
     expect(profile('S1530', 6).sizeLabel).toBe('3060 × 1530 mm');
-    expect(profile('S1530', 12).sizeLabel).toBe('2960 × 1430 mm');
-    expect(field('S1325', 12, 'Kesme Alanı')?.value).toBe('2460*1230');
-    expect(field('S1530', 12, 'Toplam Güç Gereksinimi')).toMatchObject({ value: '56.7', source: { sheet: 'S系列', cell: 'E31' } });
-    expect(field('S1530', 30, 'Kesme Alanı')?.value).toBe('');
+    expect(profile('S1530', 12).sizeLabel).toBe('3060 × 1530 mm');
+    expect(field('S1325', 12, 'Kesme Alanı')?.value).toBe('2560*1330');
+    expect(field('S1530', 12, 'Toplam Güç Gereksinimi')).toMatchObject({ value: '68.65', source: { sheet: 'S系列', cell: 'D30' } });
+    expect(field('S1530', 12, 'Trafo Kapasitesi')?.value).toBe('100');
   });
 
   it('separates GR and Pro branches and does not infer full cabin from a beam guard', () => {
     expect(field('GR2500-6', 12, 'Y Eksen Motor Gücü')?.value).toBe('4.4*2');
     expect(field('GR2500Pro-6', 12, 'Y Eksen Motor Gücü')?.value).toBe('5.5*2');
-    expect(field('GR2500-6', 12, 'Kontrol Ünitesi')?.value).toBe('');
-    expect(field('GR2500Pro-6', 12, 'Kontrol Ünitesi')?.value).toBe('FSCUT8000');
+    // 2026 kitabında tek GR sütunu iki varyantı da kapsar.
+    expect(field('GR2500-6', 12, 'Kontrol Ünitesi')?.value).toBe('FSCUT6000');
+    expect(field('GR2500Pro-6', 12, 'Kontrol Ünitesi')?.value).toBe('FSCUT6000');
     expect(LASER_MODELS.find((model) => model.code === 'GR2500-6')?.standardCabin).toBeNull();
     expect(field('GR2500-6', 12, 'Toplam Güç Gereksinimi')?.value).toBe('');
     expect(field('GR2500-6', 12, 'Düz Kesim X Alanı')?.value).toBe('2550');
-    expect(field('GR2500-6', 12, 'Opsiyonel Pah Düz Kesim X Alanı')?.value).toBe('2450');
-    expect(field('GR2500-6', 12, '45° Pah Kesim X Alanı')?.value).toBe('1800');
+    expect(field('GR2500-6', 12, 'Opsiyonel Pah Düz Kesim X Alanı')?.value).toBe('2550');
+    expect(field('GR2500-6', 12, '45° Pah Kesim X Alanı')?.value).toBe('2000');
   });
 
   it('retains compound models and option-specific capacities without copying fields between families', () => {
     expect(profile('F3015+T6-230', 6).selection.series).toBe('FT');
     expect(field('F3015+T6-230', 6, 'Kontrol Ünitesi')?.value).toBe('FSCUT3000DE-M');
-    expect(field('F3015+T6-230', 6, 'Toplam Güç Gereksinimi')?.value).toBe('39.8');
+    expect(field('F3015+T6-230', 6, 'Toplam Güç Gereksinimi')?.value).toBe('40.35');
     expect(field('TH6035', 12, 'Kontrol Ünitesi')?.value).toBe('FSCUT3000DE-G');
-    expect(field('TA6035', 12, 'Kontrol Ünitesi')?.value).toBe('FSCUT5000BH');
+    expect(field('TH6020', 3, 'Kontrol Ünitesi')?.value).toBe('FSCUT3000DE-M');
+    // 2026 standart sayfasında TA sütunu yok; kontrol ünitesi uydurulmaz.
+    expect(field('TA6035', 12, 'Kontrol Ünitesi')?.value).toBe('');
     const te = LASER_MODELS.find((model) => model.code === 'TE12028')!;
     expect(te.fields.find((spec) => spec.key === 'Makine Ölçüleri (TE12035+E12)')?.source).toMatchObject({ sheet: 'TE系列', cell: 'E11', rawValue: '28650*2800*3100' });
     expect(te.fields.find((spec) => spec.key === 'Makine Ölçüleri (TE12035+E6)')?.rawValue).toBe('22450*2800*3100');
     expect(field('PB3015', 12, '45° Pah Kesim Alanı')?.value).toBe('3100*1550');
-    expect(field('PB3015', 12, 'Düz Kesim Çalışma Alanı')?.value).toBe('3850*2200');
+    expect(field('PB3015', 12, 'Düz Kesim Çalışma Alanı')?.value).toBe('3650*2100');
     expect(field('TZ12070', 30, 'Y Eksen Motor Gücü')?.value).toBe('');
   });
 
@@ -263,7 +276,7 @@ describe('AORE source resolution', () => {
   });
 
   it('repairs stored Chinese values on saved cards but keeps manual edits', () => {
-    const fresh = resolveLaserProfile({ productTypeCode: 'BORU_LAZER_KESIM', series: 'TS', sourceModelCode: 'TS12035', cabinType: 'open', powerKw: 6 });
+    const fresh = resolveLaserProfile({ productTypeCode: 'BORU_LAZER_KESIM', series: 'TE', sourceModelCode: 'TE12035', cabinType: 'open', powerKw: 6 });
     const stale = {
       ...fresh,
       specs: fresh.specs.map((spec) =>

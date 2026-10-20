@@ -181,6 +181,8 @@ export function hexConfigurationForPriceModel(priceModelCode: string, powerKw: n
   } else if ((match = code.match(/^([A-Z]{1,3})(\d{4,5})$/))) {
     candidates.push({ series: match[1]!, codes: [`${match[1]}-${match[2]}`, `${match[1]}${match[2]}`] });
   }
+  // V12-65, M28-120-65 gibi kodlar seri önekiyle birebir yazılır.
+  if ((match = code.match(/^([A-Z]{1,3})\d/))) candidates.push({ series: match[1]!, codes: [code] });
   for (const candidate of candidates) {
     const series = HEX2026_SERIES.find((row) => row.series === candidate.series);
     const configuration = series?.configurations.find((row) => candidate.codes.some((c) => row.sourceModelCode.toLowerCase() === c.toLowerCase()));

@@ -63,8 +63,8 @@ describe('HEXLASER sellable product variants', () => {
   });
 
   it.each([
-    [6, '35.9', '50'],
-    [12, '55.9', '80'],
+    [6, '36.45', '50'],
+    [12, '67.15', '100'],
   ] as const)('stores F3015 %s kW electrical values as single values', (powerKw, totalPower, transformer) => {
     const [variant] = hexlaserCuttingVariants([resolveLaserProfile({
       productTypeCode: 'FIBER_LAZER_KESIM', series: 'F', sourceModelCode: 'F3015', cabinType: 'open', powerKw,
