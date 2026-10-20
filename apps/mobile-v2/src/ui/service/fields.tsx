@@ -1,7 +1,7 @@
 import { useMemo, useRef, useState, type ReactNode } from 'react';
 import { Pressable, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { BottomSheetFlatList, BottomSheetModal, BottomSheetView } from '@gorhom/bottom-sheet';
+import { BottomSheetFlatList, BottomSheetModal } from '@gorhom/bottom-sheet';
 import { useCustomerDevicesByCompany, useDirectory } from '@/src/api/operations.hooks';
 import { useProductList, useWarehouses } from '@/src/api/inventory.hooks';
 import type { ProductModel } from '@/src/api/endpoints';
