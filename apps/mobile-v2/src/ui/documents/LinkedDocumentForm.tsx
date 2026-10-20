@@ -280,7 +280,7 @@ export function LinkedDocumentForm({ kind, quoteId: initialQuoteId, documentId }
         terms,
       };
       createContract.mutate(body, {
-        onSuccess: done('CRM sözleşmesi oluşturuldu. PDF web CRM’den yüklenir.'),
+        onSuccess: done('CRM sözleşmesi oluşturuldu. PDF yüklendikten sonra detaydan açılır.'),
         onError: fail,
       });
       return;
@@ -295,7 +295,7 @@ export function LinkedDocumentForm({ kind, quoteId: initialQuoteId, documentId }
       terms,
     };
     createProforma.mutate(body, {
-      onSuccess: done('CRM proforması oluşturuldu. PDF web CRM’den yüklenir.'),
+      onSuccess: done('CRM proforması oluşturuldu. PDF yüklendikten sonra detaydan açılır.'),
       onError: fail,
     });
   }
@@ -315,7 +315,7 @@ export function LinkedDocumentForm({ kind, quoteId: initialQuoteId, documentId }
       >
         {!isEdit ? (
           <Text className="font-inter text-xs leading-5 text-muted-foreground">
-            Kayıt web CRM API ile oluşur. PDF mobilde basılmaz; web CRM’de yüklenen dosya belge detayından açılır.
+            Kayıt CRM’e yazılır. PDF dosyası yüklendikten sonra belge detayından açılır ve paylaşılır.
           </Text>
         ) : null}
         <PickerField

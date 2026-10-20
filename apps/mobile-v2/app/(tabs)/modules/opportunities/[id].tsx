@@ -37,6 +37,7 @@ import { useTheme } from '@/src/theme/theme';
 import { Logo } from '@/src/ui/Logo';
 import { Button, Card, Chip, DetailHeader, ErrorState, Eyebrow, Field, ListRow, Loading, SCREEN_PAD } from '@/src/ui';
 import { InfoRows, ProgressBar } from '@/src/ui/data';
+import { Segmented } from '@/src/ui/finance/kit';
 import { useCan } from '@/src/auth/AuthProvider';
 import { LOST_REASONS, canMarkOpportunityClosed, neighborIds, qualificationRank } from '@/src/ui/sales/sales-logic';
 import { getOpportunityOrder } from '@/src/ui/sales/opportunity-order';
@@ -73,22 +74,32 @@ const QUOTE_STATUS_TONE: Record<string, 'neutral' | 'info' | 'success' | 'warnin
 /** Satılan teklif = onaylanmış teklif. Web'deki `evidence.hasApprovedQuote` ile aynı kural. */
 const isSoldQuote = (quote: QuoteListItem) => quote.status?.code === 'approved';
 
+type WorkspaceTab = 'ozet' | 'teklifler' | 'belgeler' | 'odemeler' | 'aktivite';
+
+const WORKSPACE_TABS: { value: WorkspaceTab; label: string }[] = [
+  { value: 'ozet', label: 'Özet' },
+  { value: 'teklifler', label: 'Teklifler' },
+  { value: 'belgeler', label: 'Belgeler' },
+  { value: 'odemeler', label: 'Ödemeler' },
+  { value: 'aktivite', label: 'Aktivite' },
+];
+
 /**
- * Modül ızgarası: sunucuda modül başına gerçek SAYI (kaç teklif/sevkiyat...)
- * döndüren bir uç yok — yalnızca `processReadiness.checks` üzerinden var/yok
- * kanıtı var (opportunities.service.ts `processEvidence`). Bu yüzden rozet sayı
- * değil nokta; Aktiviteler tek gerçek sayaçtır (activities.list total).
- * Kutular ilgili modül ekranını açar ve liste fırsata daraltılmaz — teklif
- * dışındaki uçlar `opportunityId` ile süzülemiyor. Teklifler ayrıca yukarıdaki
- * "Teklifler" kartında fırsata daraltılmış olarak listelenir.
+ * Süreç kutuları: web ProcessChecklistPanel create aksiyonlarına köprü.
+ * Kanıt noktası processReadiness’den; oluşturma ilgili modal/modüle gider.
  */
-const MODULE_TILES: { key: string; label: string; icon: keyof typeof Ionicons.glyphMap; route: string }[] = [
-  { key: 'quote', label: 'Teklifler', icon: 'document-text-outline', route: '/(tabs)/modules/quotes' },
-  { key: 'proforma', label: 'Proforma', icon: 'receipt-outline', route: '/(tabs)/modules/documents' },
-  { key: 'stock', label: 'Stok', icon: 'cube-outline', route: '/(tabs)/modules/inventory' },
-  { key: 'commercial_invoice', label: 'Finans', icon: 'stats-chart', route: '/(tabs)/modules/invoices' },
-  { key: 'shipment', label: 'Sevkiyat', icon: 'car-outline', route: '/(tabs)/modules/shipments' },
-  { key: 'installation', label: 'Kurulum', icon: 'build-outline', route: '/(tabs)/modules/installations' },
+const MODULE_TILES: {
+  key: string;
+  label: string;
+  icon: keyof typeof Ionicons.glyphMap;
+  listRoute: string;
+}[] = [
+  { key: 'quote', label: 'Teklifler', icon: 'document-text-outline', listRoute: '/(tabs)/modules/quotes' },
+  { key: 'proforma', label: 'Proforma', icon: 'receipt-outline', listRoute: '/(tabs)/modules/proformas' },
+  { key: 'stock', label: 'Stok', icon: 'cube-outline', listRoute: '/(tabs)/modules/inventory' },
+  { key: 'commercial_invoice', label: 'Fatura', icon: 'stats-chart', listRoute: '/(tabs)/modules/invoices' },
+  { key: 'shipment', label: 'Sevkiyat', icon: 'car-outline', listRoute: '/(tabs)/modules/shipments' },
+  { key: 'installation', label: 'Kurulum', icon: 'build-outline', listRoute: '/(tabs)/modules/installations' },
 ];
 
 function OpportunityHeader({ onMore }: { onMore?: () => void }) {
@@ -192,15 +203,22 @@ export default function OpportunityDetailScreen() {
   const router = useRouter();
   const { colors } = useTheme();
   const sheetRef = useRef<BottomSheetModal>(null);
+  const docsSheetRef = useRef<BottomSheetModal>(null);
   const canUpdate = useCan('opportunities.update');
   const canApprove = useCan('opportunities.approve');
   const canReadAssignees = useCan('opportunities.create');
   const canDelete = useCan('opportunities.delete');
   const canReadCompanies = useCan('companies.read');
   const canCreateQuote = useCan('quotes.create');
+  const canCreateProforma = useCan('proformas.create');
+  const canCreateContract = useCan('contracts.create');
+  const canCreateInvoice = useCan('commercial_invoices.create');
+  const canCreateShipment = useCan('shipments.create');
+  const canCreateReceivable = useCan('receivables.create');
   const checkNote = useCheckNoteSheet(id);
   const neighbors = useMemo(() => neighborIds(getOpportunityOrder(), id), [id]);
 
+  const [workspaceTab, setWorkspaceTab] = useState<WorkspaceTab>('ozet');
   // Aşama sayfası: hedef aşama + LOST için zorunlu kayıp alanları
   const [targetStage, setTargetStage] = useState<QualificationStage | null>(null);
   const [lostReasonCode, setLostReasonCode] = useState<string | null>(null);
@@ -358,6 +376,94 @@ export default function OpportunityDetailScreen() {
   const ownerName = data.ownerUserId ? assignees.data?.find((a) => a.id === data.ownerUserId)?.name ?? null : null;
   const opportunityQuotes = quoteList.data?.items ?? [];
   const soldQuotes = opportunityQuotes.filter(isSoldQuote);
+  const isClosed = Boolean(data.closedAt);
+  const preferredQuote =
+    soldQuotes[0] ??
+    opportunityQuotes.find((quote) => quote.status?.code === 'sent') ??
+    opportunityQuotes[0] ??
+    null;
+  const preferredQuoteId = preferredQuote?.id ?? '';
+  const companyIdForDocs = data.company?.id ?? '';
+  const companyNameForDocs = company ?? '';
+
+  function openQuoteCreate() {
+    if (!companyIdForDocs) {
+      toast.error('Önce firma bağlayın');
+      return;
+    }
+    router.push({
+      pathname: '/modal/quote-form',
+      params: { opportunityId: id, companyId: companyIdForDocs },
+    } as unknown as Href);
+  }
+
+  function openLinkedDoc(kind: 'proforma' | 'contract' | 'invoice') {
+    if (!preferredQuoteId) {
+      toast.error('Önce bu fırsat için teklif oluşturun');
+      setWorkspaceTab('teklifler');
+      return;
+    }
+    const pathname =
+      kind === 'proforma'
+        ? '/modal/proforma-form'
+        : kind === 'contract'
+          ? '/modal/contract-form'
+          : '/modal/commercial-invoice-form';
+    router.push({ pathname, params: { quoteId: preferredQuoteId } } as unknown as Href);
+  }
+
+  function openPaymentPlan() {
+    if (!companyIdForDocs) {
+      toast.error('Önce firma bağlayın');
+      return;
+    }
+    router.push({
+      pathname: '/modal/payment-plan',
+      params: {
+        opportunityId: id,
+        companyId: companyIdForDocs,
+        companyName: companyNameForDocs,
+        ...(preferredQuoteId ? { quoteId: preferredQuoteId } : {}),
+      },
+    } as unknown as Href);
+  }
+
+  function openShipmentCreate() {
+    if (!companyIdForDocs) {
+      toast.error('Önce firma bağlayın');
+      return;
+    }
+    router.push({
+      pathname: '/modal/shipment-new',
+      params: { companyId: companyIdForDocs, companyName: companyNameForDocs },
+    } as unknown as Href);
+  }
+
+  function handleModuleTile(key: string, listRoute: string) {
+    if (key === 'quote') {
+      if (opportunityQuotes.length) setWorkspaceTab('teklifler');
+      else if (canCreateQuote && !isClosed) openQuoteCreate();
+      else router.push(listRoute as Href);
+      return;
+    }
+    if (key === 'proforma') {
+      if (canCreateProforma && !isClosed) openLinkedDoc('proforma');
+      else router.push(listRoute as Href);
+      return;
+    }
+    if (key === 'commercial_invoice') {
+      if (canCreateInvoice && !isClosed) openLinkedDoc('invoice');
+      else router.push(listRoute as Href);
+      return;
+    }
+    if (key === 'shipment') {
+      if (canCreateShipment && !isClosed) openShipmentCreate();
+      else router.push(listRoute as Href);
+      return;
+    }
+    router.push(listRoute as Href);
+  }
+
   const followUpStatus = (LEAD_FOLLOW_UP_STATUSES as readonly string[]).includes(data.leadFollowUpStatus ?? '')
     ? (data.leadFollowUpStatus as LeadFollowUpStatus)
     : null;
@@ -370,8 +476,7 @@ export default function OpportunityDetailScreen() {
   const evidenceByKey = new Map(data.processReadiness?.checks.map((c) => [c.key, c.complete]) ?? []);
   const activityCount = activityList.data?.total ?? 0;
 
-  // Arşiv durumu + onay haritası (web SalesCaseDetail ile aynı kaynaklar)
-  const isClosed = Boolean(data.closedAt);
+  // Onay haritası (web SalesCaseDetail ile aynı kaynaklar)
   const approvals = data.approvals ?? {};
   const pendingApprovals = OPPORTUNITY_APPROVAL_TYPES.filter((type) => approvals[type] === 'pending');
   const settledApprovals = OPPORTUNITY_APPROVAL_TYPES.filter((type) => approvals[type] && approvals[type] !== 'pending');
@@ -689,13 +794,16 @@ export default function OpportunityDetailScreen() {
           </Card>
         ) : null}
 
+        <Segmented value={workspaceTab} options={WORKSPACE_TABS} onChange={setWorkspaceTab} />
+
+        {workspaceTab === 'ozet' ? (
         <View className="gap-3">
           <View className="flex-row gap-3">
             <OpportunityModuleTile
               icon="calendar-outline"
               label="Aktiviteler"
               count={activityCount}
-              onPress={() => router.push('/(tabs)/modules/activities')}
+              onPress={() => setWorkspaceTab('aktivite')}
             />
             {MODULE_TILES.slice(0, 3).map((tile) => (
               <OpportunityModuleTile
@@ -703,7 +811,7 @@ export default function OpportunityDetailScreen() {
                 icon={tile.icon}
                 label={tile.label}
                 available={evidenceByKey.get(tile.key) ?? false}
-                onPress={() => router.push(tile.route as Parameters<typeof router.push>[0])}
+                onPress={() => handleModuleTile(tile.key, tile.listRoute)}
               />
             ))}
           </View>
@@ -714,15 +822,19 @@ export default function OpportunityDetailScreen() {
                 icon={tile.icon}
                 label={tile.label}
                 available={evidenceByKey.get(tile.key) ?? false}
-                onPress={() => router.push(tile.route as Parameters<typeof router.push>[0])}
+                onPress={() => handleModuleTile(tile.key, tile.listRoute)}
               />
             ))}
-            {/* 6 modül + Aktiviteler = 7 kutu; ikinci sıranın son yuvası boş kalır. */}
-            <View className="flex-1" />
+            <OpportunityModuleTile
+              icon="add-circle-outline"
+              label="Belge oluştur"
+              onPress={() => docsSheetRef.current?.present()}
+            />
           </View>
         </View>
+        ) : null}
 
-        {checks.length > 0 ? (
+        {workspaceTab === 'ozet' && checks.length > 0 ? (
           <Card className="gap-3">
             <ProgressBar done={checklistDone} total={checks.length} label="Fırsat Kontrol Listesi" />
             <View className="flex-row flex-wrap gap-x-3 gap-y-2">
@@ -772,7 +884,7 @@ export default function OpportunityDetailScreen() {
           </Card>
         ) : null}
 
-        {(pendingApprovals.length > 0 || settledApprovals.length > 0) && canApprove ? (
+        {workspaceTab === 'ozet' && (pendingApprovals.length > 0 || settledApprovals.length > 0) && canApprove ? (
           <Card className="gap-2">
             <Eyebrow>Onaylar</Eyebrow>
             {OPPORTUNITY_APPROVAL_TYPES.map((type) => {
@@ -814,7 +926,7 @@ export default function OpportunityDetailScreen() {
           </Card>
         ) : null}
 
-        {data.nextAction || canUpdate ? (
+        {workspaceTab === 'ozet' && (data.nextAction || canUpdate) ? (
           <Card className="gap-3">
             <Eyebrow>Sonraki Aksiyon</Eyebrow>
             <View className="flex-row items-center gap-3">
@@ -843,7 +955,7 @@ export default function OpportunityDetailScreen() {
           </Card>
         ) : null}
 
-        {data.externalSource ? (
+        {workspaceTab === 'ozet' && data.externalSource ? (
           <Card className="gap-1.5">
             <Eyebrow>Dış Kaynak</Eyebrow>
             <InfoRows
@@ -865,7 +977,7 @@ export default function OpportunityDetailScreen() {
           </Card>
         ) : null}
 
-        {data.qualificationHistory?.length || data.history?.length ? (
+        {workspaceTab === 'ozet' && (data.qualificationHistory?.length || data.history?.length) ? (
           <Card className="gap-2">
             <Eyebrow>Zaman Çizelgesi</Eyebrow>
             {(data.qualificationHistory ?? []).slice(0, 8).map((row) => (
@@ -901,6 +1013,7 @@ export default function OpportunityDetailScreen() {
         {/* Fırsata bağlı teklifler. Bir fırsatta birden çok teklif yaşar ve WIN'in
             tek kanıtı bunlardan birinin SATILMIŞ (onaylanmış) olmasıdır; hangisinin
             satıldığı buradan işaretlenir (teklif detayında Onayla/Reddet). */}
+        {workspaceTab === 'teklifler' ? (
         <Card className="gap-1.5">
           <Eyebrow>Teklifler ({opportunityQuotes.length})</Eyebrow>
           {quoteList.isPending ? (
@@ -942,22 +1055,80 @@ export default function OpportunityDetailScreen() {
                 label="Teklif oluştur"
                 variant="ghost"
                 trailingIcon="add"
-                onPress={() =>
-                  router.push({
-                    pathname: '/modal/quote-form',
-                    params: { opportunityId: id, companyId: data.company!.id },
-                  } as unknown as Href)
-                }
+                onPress={openQuoteCreate}
               />
             ) : (
               <Text className="font-inter text-[12px] text-muted-foreground">Teklif oluşturmak için önce firma bağlayın.</Text>
             )
           ) : null}
         </Card>
+        ) : null}
 
-        <OpportunityDocuments opportunityId={id} />
+        {workspaceTab === 'belgeler' ? (
+          <View className="gap-3">
+            <Card className="gap-2">
+              <Eyebrow>Belge oluştur</Eyebrow>
+              <Text className="font-inter text-[12px] text-muted-foreground">
+                Web süreç merkeziyle aynı: tekliften proforma, sözleşme ve ticari fatura.
+              </Text>
+              {canCreateProforma && !isClosed ? (
+                <Button label="Proforma oluştur" variant="ghost" trailingIcon="add" onPress={() => openLinkedDoc('proforma')} />
+              ) : null}
+              {canCreateContract && !isClosed ? (
+                <Button label="Sözleşme oluştur" variant="ghost" trailingIcon="add" onPress={() => openLinkedDoc('contract')} />
+              ) : null}
+              {canCreateInvoice && !isClosed ? (
+                <Button label="Ticari fatura oluştur" variant="ghost" trailingIcon="add" onPress={() => openLinkedDoc('invoice')} />
+              ) : null}
+              {canCreateShipment && !isClosed ? (
+                <Button label="Sevkiyat oluştur" variant="ghost" trailingIcon="add" onPress={openShipmentCreate} />
+              ) : null}
+              <Button
+                label="Dosya yükle / dış teklif"
+                variant="ghost"
+                trailingIcon="cloud-upload-outline"
+                onPress={() => docsSheetRef.current?.present()}
+              />
+            </Card>
+            <OpportunityDocuments opportunityId={id} />
+          </View>
+        ) : null}
 
-        {stage === 'lost' && (data.lostReason || data.lostCompetitor || data.lostProductName) ? (
+        {workspaceTab === 'odemeler' ? (
+          <Card className="gap-2">
+            <Eyebrow>Ödeme planı</Eyebrow>
+            <Text className="font-inter text-[12px] text-muted-foreground">
+              Vadeli satışlarda taksit alacaklarını oluşturun; peşin ve leasingde yalnız yöntem kaydedilir.
+            </Text>
+            {canCreateReceivable && !isClosed ? (
+              <Button label="Ödeme planı oluştur" trailingIcon="add" onPress={openPaymentPlan} />
+            ) : null}
+            <Button
+              label="Alacak listesine git"
+              variant="ghost"
+              onPress={() =>
+                router.push(
+                  (companyIdForDocs
+                    ? `/(tabs)/modules/receivables?companyId=${encodeURIComponent(companyIdForDocs)}`
+                    : '/(tabs)/modules/receivables') as Href,
+                )
+              }
+            />
+            <Button
+              label="Ödeme kaydet"
+              variant="ghost"
+              onPress={() =>
+                router.push(
+                  (companyIdForDocs
+                    ? `/modal/payment?companyId=${encodeURIComponent(companyIdForDocs)}`
+                    : '/modal/payment') as Href,
+                )
+              }
+            />
+          </Card>
+        ) : null}
+
+        {workspaceTab === 'ozet' && stage === 'lost' && (data.lostReason || data.lostCompetitor || data.lostProductName) ? (
           <Card className="gap-1.5">
             <Eyebrow>Kayıp Bilgileri</Eyebrow>
             <InfoRows
@@ -972,7 +1143,7 @@ export default function OpportunityDetailScreen() {
           </Card>
         ) : null}
 
-        {stage === 'win' && (data.wonProductName || data.wonReason) ? (
+        {workspaceTab === 'ozet' && stage === 'win' && (data.wonProductName || data.wonReason) ? (
           <Card className="gap-1.5">
             <Eyebrow>Kazanım</Eyebrow>
             <InfoRows
@@ -984,7 +1155,9 @@ export default function OpportunityDetailScreen() {
           </Card>
         ) : null}
 
-        <OpportunityActivityFeed opportunityId={id} companyId={data.company?.id ?? null} title={data.title} />
+        {workspaceTab === 'aktivite' ? (
+          <OpportunityActivityFeed opportunityId={id} companyId={data.company?.id ?? null} title={data.title} />
+        ) : null}
       </ScrollView>
 
       {canUpdate ? <BottomSheetModal
@@ -1096,6 +1269,89 @@ export default function OpportunityDetailScreen() {
         </BottomSheetView>
       </BottomSheetModal> : null}
     
+      <BottomSheetModal
+        ref={docsSheetRef}
+        enableDynamicSizing
+        backgroundStyle={{ backgroundColor: colors.card }}
+        handleIndicatorStyle={{ backgroundColor: colors.mutedForeground }}
+        backdropComponent={(props) => <BottomSheetBackdrop {...props} appearsOnIndex={0} disappearsOnIndex={-1} />}
+      >
+        <BottomSheetView className="gap-2 px-5 pb-10 pt-2">
+          <Text className="font-inter-semibold text-base text-foreground">Belge ve süreç</Text>
+          <Text className="mb-1 font-inter text-xs text-muted-foreground">
+            Web kontrol listesindeki oluşturma adımları — teklif seçiliyse ona bağlanır.
+          </Text>
+          {canCreateQuote && !isClosed ? (
+            <Button
+              label="Teklif oluştur"
+              variant="ghost"
+              onPress={() => {
+                docsSheetRef.current?.dismiss();
+                openQuoteCreate();
+              }}
+            />
+          ) : null}
+          {canCreateProforma && !isClosed ? (
+            <Button
+              label="Proforma oluştur"
+              variant="ghost"
+              onPress={() => {
+                docsSheetRef.current?.dismiss();
+                openLinkedDoc('proforma');
+              }}
+            />
+          ) : null}
+          {canCreateContract && !isClosed ? (
+            <Button
+              label="Sözleşme oluştur"
+              variant="ghost"
+              onPress={() => {
+                docsSheetRef.current?.dismiss();
+                openLinkedDoc('contract');
+              }}
+            />
+          ) : null}
+          {canCreateInvoice && !isClosed ? (
+            <Button
+              label="Ticari fatura oluştur"
+              variant="ghost"
+              onPress={() => {
+                docsSheetRef.current?.dismiss();
+                openLinkedDoc('invoice');
+              }}
+            />
+          ) : null}
+          {canCreateReceivable && !isClosed ? (
+            <Button
+              label="Ödeme planı oluştur"
+              variant="ghost"
+              onPress={() => {
+                docsSheetRef.current?.dismiss();
+                openPaymentPlan();
+              }}
+            />
+          ) : null}
+          {canCreateShipment && !isClosed ? (
+            <Button
+              label="Sevkiyat oluştur"
+              variant="ghost"
+              onPress={() => {
+                docsSheetRef.current?.dismiss();
+                openShipmentCreate();
+              }}
+            />
+          ) : null}
+          <Button
+            label="Belgeler sekmesine git"
+            variant="ghost"
+            onPress={() => {
+              docsSheetRef.current?.dismiss();
+              setWorkspaceTab('belgeler');
+            }}
+          />
+        </BottomSheetView>
+      </BottomSheetModal>
+
       {/* ⋮ menüsü: web SalesCaseDetail'deki kart işlemlerinin mobil karşılığı. */}
       <BottomSheetModal
         ref={moreSheetRef}
@@ -1114,6 +1370,14 @@ export default function OpportunityDetailScreen() {
                 onPress={() => {
                   moreSheetRef.current?.dismiss();
                   router.push({ pathname: '/modal/opportunity-edit', params: { id } } as unknown as Href);
+                }}
+              />
+              <Button
+                label="Belge / süreç oluştur"
+                variant="ghost"
+                onPress={() => {
+                  moreSheetRef.current?.dismiss();
+                  docsSheetRef.current?.present();
                 }}
               />
               <Button

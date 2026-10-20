@@ -241,6 +241,8 @@ export default function CompanyDetailScreen() {
   const canLogActivity = useCan('activities.create');
   const canCreateTask = useCan('tasks.create');
   const canCreateOpportunity = useCan('opportunities.create');
+  const canCreateContact = useCan('contacts.create');
+  const canCreateDevice = useCan('customer_devices.update');
   const canExportReports = useCan('reports.export');
   const canReadReceivables = useCan('receivables.read');
   const canExportStatement = canExportReports && canReadReceivables;
@@ -624,8 +626,20 @@ export default function CompanyDetailScreen() {
             ) : null}
 
             <View className="gap-1.5">
-              <View className="px-1">
+              <View className="flex-row items-center justify-between px-1">
                 <Eyebrow>İletişim Kişileri ({contactsQuery.data?.total ?? 0})</Eyebrow>
+                {canCreateContact ? (
+                  <Button
+                    label="Yeni kontak"
+                    variant="ghost"
+                    trailingIcon="add"
+                    onPress={() =>
+                      router.push(
+                        `/modal/contact?companyId=${encodeURIComponent(id)}&companyName=${encodeURIComponent(companyName)}` as Href,
+                      )
+                    }
+                  />
+                ) : null}
               </View>
               {contactsQuery.isPending ? (
                 <Loading />
@@ -699,10 +713,22 @@ export default function CompanyDetailScreen() {
             </View>
 
             <View className="gap-1.5">
-              <View className="px-1">
+              <View className="flex-row items-center justify-between px-1">
                 <Eyebrow>Makineler ({devicesQuery.data?.meta.total ?? 0})</Eyebrow>
+                {canCreateDevice ? (
+                  <Button
+                    label="Makine ekle"
+                    variant="ghost"
+                    trailingIcon="add"
+                    onPress={() =>
+                      router.push(
+                        `/modal/device-new?companyId=${encodeURIComponent(id)}&companyName=${encodeURIComponent(companyName)}` as Href,
+                      )
+                    }
+                  />
+                ) : null}
               </View>
-              {/* "İlgi Alanı" sunucuda yok — bkz. rapor. web CustomerDetail "Makineler": Model / Seri No / Garanti Bitiş. */}
+              {/* web CustomerDetail "Makineler": Model / Seri No / Garanti Bitiş. */}
               {devicesQuery.isPending ? (
                 <Loading />
               ) : ownedDevices.length === 0 ? (
@@ -710,7 +736,6 @@ export default function CompanyDetailScreen() {
                   <Text className="text-center font-inter text-sm text-muted-foreground">Kayıtlı makine yok.</Text>
                 </Card>
               ) : (
-                // customer-devices modülünde detay ekranı yok (yalnızca liste) — satır tıklanamaz.
                 ownedDevices.map((device) => (
                   <ListRow
                     key={device.id}
@@ -723,6 +748,7 @@ export default function CompanyDetailScreen() {
                     ]}
                     icon="hardware-chip-outline"
                     iconTone="neutral"
+                    onPress={() => router.push(`/(tabs)/modules/customer-devices/${device.id}` as Href)}
                   />
                 ))
               )}

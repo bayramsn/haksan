@@ -722,6 +722,7 @@ export const opportunities = {
       wonReason: string;
       contractTerms: string;
       paymentTerms: string;
+      paymentMethod: string | null;
       ownerUserId: string | null;
       primaryContactId: string | null;
       paymentTermDays: number | null;
@@ -1878,6 +1879,7 @@ export const finance = {
       paymentMethod?: string;
       documentRef?: string;
       notes?: string;
+      quoteId?: string;
     },
   ) => request<{ id: string }>('/receivables', { method: 'POST', body }),
   updateReceivableStatus: (id: string, status: string) =>

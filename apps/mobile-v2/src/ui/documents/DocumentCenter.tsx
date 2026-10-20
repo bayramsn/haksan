@@ -48,15 +48,15 @@ const RECORD_META: Record<RecordFolder, { icon: keyof typeof Ionicons.glyphMap; 
 const HERO: Record<'all' | 'proforma' | 'contract', { title: string; subtitle: string }> = {
   all: {
     title: 'Ticari belge merkezi',
-    subtitle: 'Kayıtlar web CRM API ile oluşur; PDF mobilde basılmaz — CRM’deki dosyalar açılır ve paylaşılır.',
+    subtitle: 'Belge kaydı mobilde oluşur; PDF yüklendikten sonra buradan açılır ve paylaşılır.',
   },
   proforma: {
     title: 'Proforma kontrol merkezi',
-    subtitle: 'CRM’de oluşturulan proformalar; PDF yalnızca web CRM’den gelen dosyadan açılır.',
+    subtitle: 'Proforma kayıtları; yüklenen PDF dosyası detaydan açılır ve paylaşılır.',
   },
   contract: {
     title: 'Sözleşme kontrol merkezi',
-    subtitle: 'CRM’de oluşturulan sözleşmeler; imzalı PDF web CRM yüklemesinden gelir.',
+    subtitle: 'Sözleşme kayıtları; imzalı PDF yüklendikten sonra detaydan açılır.',
   },
 };
 
