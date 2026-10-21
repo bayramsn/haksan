@@ -43,6 +43,8 @@ export function BaseModelPriceMatrix({ productId, modelOrder }: { productId: str
   if (!matrix.rows.length) return <p className="text-xs text-muted-foreground">Bu baz kart için model × güç fiyatı tanımlı değil.</p>;
 
   const groups = groupPriceRows(matrix.rows, modelOrder);
+  // Lazer CIF / millileştirilmiş listeleri varsa her biri ayrı sütun (liste · son fiyat).
+  const lists = [...new Map(matrix.rows.flatMap((row) => row.listPrices ?? []).map((price) => [price.code, price.name])).entries()];
   return (
     <div className="overflow-x-auto rounded-lg border border-border/60">
       <table className="w-full min-w-[34rem] text-xs">
@@ -52,7 +54,8 @@ export function BaseModelPriceMatrix({ productId, modelOrder }: { productId: str
             <th scope="col" className="px-3 py-1.5 font-semibold">Model</th>
             <th scope="col" className="px-3 py-1.5 font-semibold">Güç</th>
             {matrix.canViewCost && <th scope="col" className="px-3 py-1.5 text-right font-semibold">Alış maliyeti</th>}
-            <th scope="col" className="px-3 py-1.5 text-right font-semibold">Satış fiyatı</th>
+            {lists.map(([code, name]) => <th key={code} scope="col" className="px-3 py-1.5 text-right font-semibold">{name.replace(/^Fiber Lazer Kesim – /, "")}</th>)}
+            {!lists.length && <th scope="col" className="px-3 py-1.5 text-right font-semibold">Satış fiyatı</th>}
             <th scope="col" className="px-3 py-1.5 text-right font-semibold">Üretim süresi</th>
             <th scope="col" className="px-3 py-1.5 font-semibold">Konteyner</th>
           </tr>
@@ -68,7 +71,16 @@ export function BaseModelPriceMatrix({ productId, modelOrder }: { productId: str
                 )}
                 <td className="px-3 py-1.5 tabular-nums">{power(row.powerKw)}</td>
                 {matrix.canViewCost && <td className="px-3 py-1.5 text-right tabular-nums text-muted-foreground">{money(row.costPrice, row.costCurrencyCode)}</td>}
-                <td className="px-3 py-1.5 text-right tabular-nums font-medium">{money(row.salePrice, row.saleCurrencyCode)}</td>
+                {lists.map(([code]) => {
+                  const price = row.listPrices?.find((entry) => entry.code === code);
+                  return (
+                    <td key={code} className="px-3 py-1.5 text-right tabular-nums font-medium">
+                      {money(price?.listPrice, "USD")}
+                      {price && <div className="text-[11px] font-normal text-muted-foreground">son {money(price.cashPrice, "USD")}</div>}
+                    </td>
+                  );
+                })}
+                {!lists.length && <td className="px-3 py-1.5 text-right tabular-nums font-medium">{money(row.salePrice, row.saleCurrencyCode)}</td>}
                 <td className="px-3 py-1.5 text-right tabular-nums">{row.leadTimeDays == null ? "—" : `${row.leadTimeDays} gün`}</td>
                 <td className="px-3 py-1.5">{row.container ?? "—"}</td>
               </tr>

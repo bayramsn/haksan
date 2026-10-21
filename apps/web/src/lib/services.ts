@@ -929,8 +929,23 @@ export const productService = {
     api.patch<{ updated: number }>('/product-cost-prices/sale', { rows }),
   configurationPrices: (id: string) => api.get<{
     canViewCost: boolean;
-    rows: Array<{ id: string; sourceModelCode: string; powerKw: number; salePrice: number | null; saleCurrencyCode: string | null; container: string | null; leadTimeDays: number | null; costPrice?: number | null; costCurrencyCode?: string | null }>;
+    rows: Array<{
+      id: string; sourceModelCode: string; powerKw: number; salePrice: number | null; saleCurrencyCode: string | null; container: string | null; leadTimeDays: number | null; costPrice?: number | null; costCurrencyCode?: string | null;
+      listPrices?: Array<{ code: LaserPriceListCode; name: string; listPrice: number; cashPrice: number }>;
+    }>;
   }>(`/products/${id}/configuration-prices`),
+  laserPriceLists: () => api.get<{
+    canViewCost: boolean;
+    lists: Array<{
+      code: LaserPriceListCode; name: string; updatedAt: string | null; formula?: LaserCostFormula;
+      rows: Array<{ configurationPriceId: string; productModelId: string; productName: string; sourceModelCode: string; powerKw: number; listPrice: number | null; cashPrice: number | null; container?: string | null; fob?: number | null; cost?: number | null }>;
+    }>;
+  }>('/laser-price-lists'),
+  recalculateLaserPriceList: (body: { code: LaserPriceListCode; formula: LaserCostFormula; apply: boolean }) => api.post<{
+    code: LaserPriceListCode; applied: boolean;
+    rows: Array<{ configurationPriceId: string; productName: string; sourceModelCode: string; powerKw: number; container: string | null; fob: number | null; freight: number; duty: number; cost: number; listPrice: number; cashPrice: number; previousListPrice: number | null; previousCashPrice: number | null }>;
+    skipped: Array<{ configurationPriceId: string; productName: string; sourceModelCode: string; powerKw: number; reason: string }>;
+  }>('/laser-price-lists/recalculate', body),
   addOptionSet: (id: string, body: unknown) => api.post<any>(`/products/${id}/options`, body),
   updateOptionSet: (id: string, body: unknown) => api.patch<any>(`/products/options/${id}`, body),
   archiveOptionSet: (id: string) => api.delete<any>(`/products/options/${id}`),
@@ -1470,6 +1485,7 @@ export interface YearEndReport {
 
 // Rapor şekli ortak pakette (API ile aynı tip; yazdırma şablonu da orada).
 import type { ActivityLogReport } from '@haksan/shared';
+import type { LaserCostFormula, LaserPriceListCode } from '@haksan/shared';
 export type { ActivityLogEntry, ActivityLogQuoteRow, ActivityLogReport, ActivityLogUser } from '@haksan/shared';
 
 export const reportService = {

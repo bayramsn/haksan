@@ -97,6 +97,8 @@ export const quoteItemCompatibilitySchema = z.object({
     powerKw: z.number().finite().positive().max(1000),
     salePrice: moneySchema,
     currencyCode: z.string().min(3).max(8),
+    /** Lazer CIF / millileştirilmiş liste seçildiyse fiyat o listenin liste fiyatıdır. */
+    priceListCode: z.enum(['LAZER-CIF-IST', 'LAZER-MILLI-IST']).nullish(),
   }).nullish(),
 });
 export type QuoteItemCompatibility = z.infer<typeof quoteItemCompatibilitySchema>;

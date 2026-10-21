@@ -8,7 +8,7 @@ import { companies, companyAddresses, companyEmails, companyPhones, contactCompa
 import { opportunities, opportunityApprovals, salesActivities } from '../../db/schema/crm';
 import { receivables } from '../../db/schema/finance';
 import { inventoryItems } from '../../db/schema/inventory';
-import { brands, productConfigurationPrices, productEquipmentItems, productModels, productOptionSets, productOptionValues } from '../../db/schema/products';
+import { brands, priceListConfigurationItems, priceLists, productConfigurationPrices, productEquipmentItems, productModels, productOptionSets, productOptionValues } from '../../db/schema/products';
 import { departments, divisions } from '../../db/schema/tenants';
 import { users } from '../../db/schema/users';
 import { files, fileLinks } from '../../db/schema/files';
@@ -1908,12 +1908,23 @@ export class QuotesService {
       machineIds: [], brands: [], controlUnits: [], supplierIds: [], technicalSpecs: [],
     }, rows, sets.filter((set) => set.configurationKind || (product.baseModelConfiguration && product.baseModelConfiguration.configurations.length > 1 && rows.some(row => row.optionSetId === set.id && row.sourceModelCode))).map((set) => set.id), base, product.baseModelConfiguration);
     if (!compatibility?.configurationPrice) return { ...snapshot, configurationPrice: null };
-    const matrix = await this.db.select({
-      sourceModelCode: productConfigurationPrices.sourceModelCode, powerKw: productConfigurationPrices.powerKw,
-      salePrice: productConfigurationPrices.salePrice, currencyCode: currencies.code,
-    }).from(productConfigurationPrices)
-      .leftJoin(currencies, eq(productConfigurationPrices.saleCurrencyId, currencies.id))
-      .where(and(eq(productConfigurationPrices.productModelId, product.id), eq(productConfigurationPrices.tenantId, actor.tenantId), isNull(productConfigurationPrices.deletedAt)));
+    const configurationScope = and(eq(productConfigurationPrices.productModelId, product.id), eq(productConfigurationPrices.tenantId, actor.tenantId), isNull(productConfigurationPrices.deletedAt));
+    const priceListCode = compatibility.configurationPrice.priceListCode;
+    const matrix = priceListCode
+      ? await this.db.select({
+        sourceModelCode: productConfigurationPrices.sourceModelCode, powerKw: productConfigurationPrices.powerKw,
+        salePrice: priceListConfigurationItems.listPrice, currencyCode: currencies.code,
+      }).from(priceListConfigurationItems)
+        .innerJoin(priceLists, eq(priceLists.id, priceListConfigurationItems.priceListId))
+        .innerJoin(productConfigurationPrices, eq(productConfigurationPrices.id, priceListConfigurationItems.configurationPriceId))
+        .leftJoin(currencies, eq(priceLists.currencyId, currencies.id))
+        .where(and(configurationScope, eq(priceLists.code, priceListCode), eq(priceLists.tenantId, actor.tenantId), isNull(priceLists.deletedAt), eq(priceLists.isActive, true)))
+      : await this.db.select({
+        sourceModelCode: productConfigurationPrices.sourceModelCode, powerKw: productConfigurationPrices.powerKw,
+        salePrice: productConfigurationPrices.salePrice, currencyCode: currencies.code,
+      }).from(productConfigurationPrices)
+        .leftJoin(currencies, eq(productConfigurationPrices.saleCurrencyId, currencies.id))
+        .where(configurationScope);
     const chosen = (snapshot.selectedProductOptions ?? []).map((option) => rows.find((row) => row.optionValueId === option.optionValueId)).filter((row): row is NonNullable<typeof row> => Boolean(row));
     return validateConfigurationPrice({ ...snapshot, configurationPrice: compatibility.configurationPrice }, matrix, chosen);
   }

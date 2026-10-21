@@ -13,7 +13,7 @@ import {
   currencies,
 } from './lookup';
 import { files } from './files';
-import type { LaserTechnicalConfiguration, LaserBaseConfiguration, BaseModelConfiguration } from '@haksan/shared';
+import type { LaserTechnicalConfiguration, LaserBaseConfiguration, BaseModelConfiguration, LaserCostFormula } from '@haksan/shared';
 
 export const brands = pgTable(
   'brands',
@@ -288,6 +288,7 @@ export const priceLists = pgTable(
     validFrom: timestamp('valid_from', { withTimezone: true }),
     validUntil: timestamp('valid_until', { withTimezone: true }),
     isActive: boolean('is_active').notNull().default(true),
+    costFormula: jsonb('cost_formula').$type<LaserCostFormula>(),
     ...auditColumns,
   },
   (t) => ({
@@ -398,6 +399,25 @@ export const productConfigurationPrices = pgTable(
   (t) => ({
     productConfigurationUnique: uniqueIndex('product_configuration_prices_unique').on(t.productModelId, t.sourceModelCode, t.powerKw),
     tenantIdx: index('product_configuration_prices_tenant_idx').on(t.tenantId),
+  })
+);
+
+/** Fiyat listesinin baz kart model × güç satırı; liste ve son (nakit) fiyat listenin para biriminde. */
+export const priceListConfigurationItems = pgTable(
+  'price_list_configuration_items',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+    priceListId: uuid('price_list_id').notNull().references(() => priceLists.id, { onDelete: 'cascade' }),
+    configurationPriceId: uuid('configuration_price_id').notNull().references(() => productConfigurationPrices.id, { onDelete: 'cascade' }),
+    listPrice: money('list_price').notNull(),
+    cashPrice: money('cash_price').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    listConfigurationUnique: uniqueIndex('price_list_configuration_items_unique').on(t.priceListId, t.configurationPriceId),
+    configurationIdx: index('price_list_configuration_items_configuration_idx').on(t.configurationPriceId),
   })
 );
 

@@ -23,6 +23,8 @@ import {
   productOptionValueUpdateSchema,
   productConfigurationPriceUpdateSchema,
   type ProductConfigurationPriceUpdateInput,
+  laserPriceListRecalculateSchema,
+  type LaserPriceListRecalculateInput,
   paginationSchema,
   type ProductCreateInput,
   type ProductUpdateInput,
@@ -51,6 +53,7 @@ import { CurrentUser } from '../../shared/security/current-user.decorator';
 import type { AuthContext } from '../../shared/security/auth.types';
 import { ProductsService } from './products.service';
 import { ProductMediaService } from './product-media.service';
+import { LaserPriceListsService } from './laser-price-lists.service';
 import { rowsToXlsxBuffer, sendXlsx, sheetsToXlsxBuffer } from '../../shared/utils/excel-export';
 
 const listQuery = z.object({
@@ -68,7 +71,8 @@ const brandListQuery = z.object({
 export class ProductsController {
   constructor(
     private readonly svc: ProductsService,
-    private readonly media: ProductMediaService
+    private readonly media: ProductMediaService,
+    private readonly laserPriceLists: LaserPriceListsService,
   ) {}
 
   @RequirePermissions('brands.read')
@@ -259,8 +263,16 @@ export class ProductsController {
 
   @RequirePermissions('products.read')
   @Get('products/:id/configuration-prices')
-  listConfigurationPrices(@Param('id') id: string, @CurrentUser() user: AuthContext) {
-    return this.svc.listConfigurationPrices(id, user);
+  async listConfigurationPrices(@Param('id') id: string, @CurrentUser() user: AuthContext) {
+    const matrix = await this.svc.listConfigurationPrices(id, user);
+    const listPrices = await this.laserPriceLists.pricesForProduct(id, user.tenantId);
+    return {
+      ...matrix,
+      rows: matrix.rows.map((row) => ({
+        ...row,
+        listPrices: listPrices.filter((price) => price.configurationPriceId === row.id).map(({ configurationPriceId: _id, ...price }) => price),
+      })),
+    };
   }
 
   @RequirePermissions('products.update')
@@ -317,6 +329,25 @@ export class ProductsController {
   @Patch('product-configuration-prices')
   updateConfigurationPrices(@Body(new ZodValidationPipe(productConfigurationPriceUpdateSchema)) body: ProductConfigurationPriceUpdateInput, @CurrentUser() user: AuthContext) {
     return this.svc.updateConfigurationPrices(body, user);
+  }
+
+  @RequirePermissions('price_lists.read')
+  @Get('laser-price-lists')
+  listLaserPriceLists(@CurrentUser() user: AuthContext) {
+    return this.laserPriceLists.list(user);
+  }
+
+  @RequirePermissions('price_lists.update')
+  @Post('laser-price-lists/recalculate')
+  recalculateLaserPriceList(@Body(new ZodValidationPipe(laserPriceListRecalculateSchema)) body: LaserPriceListRecalculateInput, @CurrentUser() user: AuthContext) {
+    return this.laserPriceLists.recalculate(body, user);
+  }
+
+  @RequirePermissions('price_lists.read')
+  @Get('laser-price-lists/:code/export')
+  async exportLaserPriceList(@Param('code') code: string, @CurrentUser() user: AuthContext, @Res({ passthrough: true }) reply: FastifyReply) {
+    const { name, rows } = await this.laserPriceLists.exportRows(code, user);
+    return sendXlsx(reply, await rowsToXlsxBuffer(rows, name), `${code.toLowerCase()}.xlsx`);
   }
 
   @RequirePermissions('price_lists.read')

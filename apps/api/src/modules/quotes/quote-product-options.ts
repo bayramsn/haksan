@@ -100,6 +100,7 @@ export interface ConfigurationPriceRow { sourceModelCode: string; powerKw: numbe
  * Matrisli baz kartta model + güç fiyatı istemciden yalnız seçim olarak gelir:
  * satır matriste olmalı, satış fiyatı ve para birimi kayıtlı değerle aynı olmalı,
  * seçilen tabla/güç seçenekleriyle çelişmemeli. Fiyat girilmemişse seçim elle fiyatlanır.
+ * Lazer fiyat listesi seçildiyse `matrix` o listenin liste fiyatlarıdır (USD).
  */
 export function validateConfigurationPrice(
   compatibility: QuoteItemCompatibility,
@@ -123,5 +124,11 @@ export function validateConfigurationPrice(
   if (selection && (selection.sourceModelCode !== row.sourceModelCode || selection.powerKw !== Number(row.powerKw))) {
     throw new ValidationError('Teknik bilgiler seçilen model ve güçle eşleşmiyor');
   }
-  return { ...compatibility, configurationPrice: { sourceModelCode: row.sourceModelCode, powerKw: Number(row.powerKw), salePrice: Number(row.salePrice), currencyCode: row.currencyCode } };
+  return {
+    ...compatibility,
+    configurationPrice: {
+      sourceModelCode: row.sourceModelCode, powerKw: Number(row.powerKw), salePrice: Number(row.salePrice), currencyCode: row.currencyCode,
+      ...(requested.priceListCode ? { priceListCode: requested.priceListCode } : {}),
+    },
+  };
 }

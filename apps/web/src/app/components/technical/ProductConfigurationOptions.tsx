@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import type { LaserPriceListCode } from '@haksan/shared';
 import { productService } from '../../../lib/services';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
@@ -13,7 +14,15 @@ export type ConfigurationValue = { id: string; value: string; priceDelta: string
 export type ConfigurationSet = { id: string; name: string; configurationKind: 'table' | 'power' | 'cabin' | null; values: ConfigurationValue[] };
 export type SelectedProductOption = { optionSetId: string; optionValueId: string; name: string; value: string; priceDelta: string | null; currencyCode: string | null };
 export type ConfigurationPriceRow = Awaited<ReturnType<typeof productService.configurationPrices>>['rows'][number];
-export type QuoteConfigurationPrice = { sourceModelCode: string; powerKw: number; salePrice: number; currencyCode: string };
+export type QuoteConfigurationPrice = { sourceModelCode: string; powerKw: number; salePrice: number; currencyCode: string; priceListCode?: LaserPriceListCode | null };
+
+/** Teklifin teslim şekli bir lazer fiyat listesine karşılık geliyorsa o listenin liste fiyatı, yoksa kartın satış fiyatı. */
+export function configurationPriceFor(row: ConfigurationPriceRow | undefined, priceListCode: LaserPriceListCode | null): { salePrice: number; currencyCode: string; cashPrice?: number; priceListCode?: LaserPriceListCode } | null {
+  if (!row) return null;
+  const listed = priceListCode ? row.listPrices?.find(price => price.code === priceListCode) : undefined;
+  if (listed) return { salePrice: listed.listPrice, currencyCode: 'USD', cashPrice: listed.cashPrice, priceListCode: listed.code };
+  return row.salePrice == null || !row.saleCurrencyCode ? null : { salePrice: row.salePrice, currencyCode: row.saleCurrencyCode };
+}
 
 /** Seçili tabla (model) ve güç için matris satırı; matrisli baz kartta fiyat buradan gelir. */
 export function matrixPriceRow(sets: ConfigurationSet[], selected: SelectedProductOption[], matrix: ConfigurationPriceRow[]): { sourceModelCode?: string; powerKw?: number; row?: ConfigurationPriceRow } {
@@ -102,7 +111,7 @@ function OptionValueRow({ set, value, base, genericBase, currency, save, archive
   </div>;
 }
 
-export function QuoteConfigurationOptions({ productId, selected, disabled, onChange, refreshKey = 0 }: { refreshKey?: number; productId: string; selected: SelectedProductOption[]; disabled: boolean; onChange: (sets: ConfigurationSet[], snapshots: SelectedProductOption[], matrix: ConfigurationPriceRow[]) => Promise<void> }) {
+export function QuoteConfigurationOptions({ productId, selected, disabled, onChange, refreshKey = 0, priceListCode = null }: { refreshKey?: number; productId: string; selected: SelectedProductOption[]; disabled: boolean; priceListCode?: LaserPriceListCode | null; onChange: (sets: ConfigurationSet[], snapshots: SelectedProductOption[], matrix: ConfigurationPriceRow[]) => Promise<void> }) {
   const [sets, setSets] = useState<ConfigurationSet[]>([]);
   const [matrix, setMatrix] = useState<ConfigurationPriceRow[]>([]);
   useEffect(() => {
@@ -111,6 +120,13 @@ export function QuoteConfigurationOptions({ productId, selected, disabled, onCha
     productService.configurationPrices(productId).then(result => { if (current) setMatrix(result.rows); }).catch(() => { if (current) setMatrix([]); });
     return () => { current = false; };
   }, [productId, refreshKey]);
+  // Teslim şekli (CIF / millileştirilmiş) değişince seçili model + güç yeni listeden fiyatlanır.
+  const pricedList = useRef(priceListCode);
+  useEffect(() => {
+    if (pricedList.current === priceListCode) return;
+    pricedList.current = priceListCode;
+    if (matrix.length && selected.length) void onChange(sets, selected, matrix);
+  }, [priceListCode]);
   // Matrisli baz kartta güç listesi seçili modelin matristeki güçleriyle sınırlanır ve fiyat matristen gösterilir.
   const { sourceModelCode } = matrixPriceRow(sets, selected, matrix);
   const visibleValues = (set: ConfigurationSet) => !matrix.length || set.configurationKind !== 'power' || !sourceModelCode
@@ -120,7 +136,9 @@ export function QuoteConfigurationOptions({ productId, selected, disabled, onCha
     if (matrix.length && set.configurationKind) {
       if (set.configurationKind !== 'power' || !sourceModelCode) return value.value;
       const row = matrix.find(entry => entry.sourceModelCode === sourceModelCode && entry.powerKw === Number(value.powerKw));
-      return `${value.value} · ${row?.salePrice == null ? 'satış fiyatı girilmemiş' : `${row.salePrice.toLocaleString('tr-TR')} ${row.saleCurrencyCode ?? ''}`}`;
+      const price = configurationPriceFor(row, priceListCode);
+      if (!price) return `${value.value} · satış fiyatı girilmemiş`;
+      return `${value.value} · ${price.salePrice.toLocaleString('tr-TR')} ${price.currencyCode}${price.cashPrice != null ? ` (son ${price.cashPrice.toLocaleString('tr-TR')})` : ''}`;
     }
     return `${value.value} · ${value.priceDelta == null ? 'Fiyat girilmemiş' : `+${value.priceDelta} ${value.currencyCode ?? ''}`}`;
   };

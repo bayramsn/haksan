@@ -1163,6 +1163,13 @@
       "when": 1794508800000,
       "tag": "0166_product_cost_prices",
       "breakpoints": true
+    },
+    {
+      "idx": 167,
+      "version": "7",
+      "when": 1794595200000,
+      "tag": "0167_price_list_configuration_items",
+      "breakpoints": true
     }
   ]
 }

@@ -15,6 +15,11 @@ describe('quote model × power price', () => {
     expect(validateConfigurationPrice(request(), matrix, chosen).configurationPrice).toEqual({ sourceModelCode: 'V12-65', powerKw: 3, salePrice: 30000, currencyCode: 'USD' });
   });
 
+  it('keeps the chosen laser price list on the snapshot', () => {
+    const chosenList = { ...base, configurationPrice: { sourceModelCode: 'V12-65', powerKw: 3, salePrice: 30000, currencyCode: 'USD', priceListCode: 'LAZER-CIF-IST' as const } };
+    expect(validateConfigurationPrice(chosenList, matrix, chosen).configurationPrice).toMatchObject({ salePrice: 30000, priceListCode: 'LAZER-CIF-IST' });
+  });
+
   it('leaves manually priced lines without a configuration price', () => {
     expect(validateConfigurationPrice(base, matrix, chosen).configurationPrice).toBeNull();
   });

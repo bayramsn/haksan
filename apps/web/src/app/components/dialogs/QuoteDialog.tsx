@@ -32,7 +32,7 @@ import {
 } from "@haksan/shared";
 import { quoteDefaultsFromCase } from "../../lib/workflow";
 import { applyResolvedLaserProfile, cleanSnapshotSpecs, laserPowerOptions, quoteTechnicalSpecsFromProduct, withQuotedLaserSpecs } from "../../lib/laserProductSnapshot";
-import { selectedOptionsMatchCatalog, isConfigurableProduct, baseModelOptionSpecs, isRequiredConfigurationSet, matrixPriceRow, QuoteConfigurationOptions, type ConfigurationPriceRow, type ConfigurationSet, type QuoteConfigurationPrice, type SelectedProductOption } from "../technical/ProductConfigurationOptions";
+import { selectedOptionsMatchCatalog, isConfigurableProduct, baseModelOptionSpecs, isRequiredConfigurationSet, matrixPriceRow, configurationPriceFor, QuoteConfigurationOptions, type ConfigurationPriceRow, type ConfigurationSet, type QuoteConfigurationPrice, type SelectedProductOption } from "../technical/ProductConfigurationOptions";
 import { laserProfilesService } from "../../../lib/services/laser-profiles.service";
 import {
   calculateProductDiscountAmount,
@@ -339,6 +339,8 @@ export function QuoteDialog({
   const [currency, setCurrency] = useState<Currency>("USD");
   const [vatEnabled, setVatEnabled] = useState(false);
   const [deliveryCode, setDeliveryCode] = useState<string>("");
+  // Lazer baz kartlarında teslim şekli fiyat listesini belirler.
+  const laserPriceListCode = deliveryCode === "cif_istanbul" ? "LAZER-CIF-IST" as const : deliveryCode === "nationalized" ? "LAZER-MILLI-IST" as const : null;
   const [noteVariantKey, setNoteVariantKey] = useState<string>("");
   const [paymentTerms, setPaymentTerms] = useState("");
   const [deliveryTerms, setDeliveryTerms] = useState("");
@@ -858,11 +860,13 @@ export function QuoteDialog({
     nextOptions.push(...selected.filter(choice => !configurationSetIds.has(choice.optionSetId)).map(choice => ({ ...emptyOption(line.vatRate), itemId: line.options.find(option => option.optionSetId === choice.optionSetId)?.itemId, optionSetId: choice.optionSetId, description: `${choice.name}: ${choice.value}`, unitPrice: String(choice.priceDelta ?? 0), quantity: line.quantity })));
     const priced = matrix.length ? matrixPriceRow(sets, selected, matrix) : {};
     const row = priced.row;
-    const configurationPrice: QuoteConfigurationPrice | null = row && row.salePrice != null && row.saleCurrencyCode === currency
-      ? { sourceModelCode: row.sourceModelCode, powerKw: row.powerKw, salePrice: row.salePrice, currencyCode: row.saleCurrencyCode }
+    const price = configurationPriceFor(row, laserPriceListCode);
+    const configurationPrice: QuoteConfigurationPrice | null = row && price && price.currencyCode === currency
+      ? { sourceModelCode: row.sourceModelCode, powerKw: row.powerKw, salePrice: price.salePrice, currencyCode: price.currencyCode, ...(price.priceListCode ? { priceListCode: price.priceListCode } : {}) }
       : null;
-    if (row && row.salePrice == null) toast.message("Bu model ve güç için satış fiyatı girilmemiş; birim fiyatı elle girin.");
-    else if (row && row.saleCurrencyCode !== currency) toast.error(`Model fiyatı ${row.saleCurrencyCode} cinsinden; teklif para birimini ${row.saleCurrencyCode} yapın ya da fiyatı elle girin.`);
+    if (row && !price) toast.message("Bu model ve güç için satış fiyatı girilmemiş; birim fiyatı elle girin.");
+    else if (row && price && price.currencyCode !== currency) toast.error(`Model fiyatı ${price.currencyCode} cinsinden; teklif para birimini ${price.currencyCode} yapın ya da fiyatı elle girin.`);
+    else if (price?.cashPrice != null) toast.message(`Liste fiyatı ${price.salePrice.toLocaleString("tr-TR")} USD · son fiyat ${price.cashPrice.toLocaleString("tr-TR")} USD`);
     const next = { ...line, configurationChanged: true, selectedProductOptions: selected, options: nextOptions, technicalConfiguration: null,
       configurationPrice, ...(configurationPrice ? { unitPrice: String(configurationPrice.salePrice) } : {}),
       technicalSpecs: choices.map(c => ({ key: c.set?.name ?? '', value: c.value?.value ?? '' })).filter(s => s.key) };
@@ -1795,7 +1799,7 @@ export function QuoteDialog({
                       </label>
                     )}
 
-                    {product && isConfigurableProduct(product) && <QuoteConfigurationOptions refreshKey={optionsCatalogRevision} productId={product.id} selected={l.selectedProductOptions ?? []} disabled={laserBusy === i} onChange={(sets, selected, matrix) => changeBaseOptions(i, sets, selected, matrix)} />}
+                    {product && isConfigurableProduct(product) && <QuoteConfigurationOptions refreshKey={optionsCatalogRevision} priceListCode={laserPriceListCode} productId={product.id} selected={l.selectedProductOptions ?? []} disabled={laserBusy === i} onChange={(sets, selected, matrix) => changeBaseOptions(i, sets, selected, matrix)} />}
 
                     {categoryMatches(l.categoryCode, "TEZGAH") && (
                       <details className="rounded-md border border-dashed border-border/70 bg-muted/20 p-2">
