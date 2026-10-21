@@ -548,6 +548,7 @@ export type QuoteLineCompatibility = {
   technicalConfiguration?: LaserTechnicalConfiguration | null;
   selectedProductOptions?: import("@haksan/shared").QuoteSelectedProductOption[];
   configurationOptionSetId?: string;
+  configurationPrice?: import("@haksan/shared").QuoteItemCompatibility["configurationPrice"];
 };
 
 export type QuoteLineInput = {
@@ -559,6 +560,7 @@ export type QuoteLineInput = {
   discountAmount: number;
   vatRate: number;
   compatibility?: QuoteLineCompatibility;
+  nationalized?: boolean;
 };
 
 export type CreateQuotePayload = {
@@ -2023,17 +2025,18 @@ function StoreInner({ children }: { children: ReactNode }) {
         discountAmount: it.discountAmount,
         vatRate: it.vatRate,
         sortOrder: i,
+        // Baz kart seçenekleri ve model × güç fiyatı da gider; düzenleme yolu (persistQuoteItems) ile aynı.
         compatibility: it.compatibility
           ? {
-              lineGroupKey: it.compatibility.lineGroupKey,
+              ...it.compatibility,
               machineIds: it.compatibility.machineIds ?? [],
               brands: it.compatibility.brands ?? [],
               controlUnits: it.compatibility.controlUnits ?? [],
               supplierIds: it.compatibility.supplierIds ?? [],
               technicalSpecs: it.compatibility.technicalSpecs ?? [],
-              technicalConfiguration: it.compatibility.technicalConfiguration,
             }
           : undefined,
+        ...(it.nationalized !== undefined ? { nationalized: it.nationalized } : {}),
       });
     }
 
