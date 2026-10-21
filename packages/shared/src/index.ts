@@ -35,6 +35,7 @@ export * from './reports';
 export * from './machine-taxonomy';
 
 export * from './hexlaser-2026';
+export * from './hexlaser-2026-aore';
 export * from './laser-price-list';
 export * from './laser-price-formula';
 export { HEX2026_SUPPLEMENT_DOCUMENT } from './hexlaser-2026-supplement-data';

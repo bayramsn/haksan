@@ -23,6 +23,7 @@ import { embedProductImageForPrint, printAssetBase, productTechnicalDoc } from "
 import { printOrWarn } from "../../lib/pageHelpers";
 import { ComposeMailDialog, type MailRecipient } from "../mail/ComposeMailDialog";
 import { BaseModelPriceMatrix } from "./BaseModelPriceMatrix";
+import { BaseModelTechnicalTable } from "./BaseModelTechnicalTable";
 import { printDocumentHtml } from "@haksan/shared";
 import { laserSnapshotPrintSpecs } from "../../lib/laserProductSnapshot";
 
@@ -627,7 +628,9 @@ export function ProductDetailDialog({
         {/* specs */}
         <div className="px-6 pb-4">
           <SectionTitle icon={<ListChecks className="size-3.5" />} text="Teknik Bilgiler" />
-          <ProductSpecsTable specs={product.technicalConfiguration ? laserSnapshotPrintSpecs(product.technicalConfiguration, product.technicalConfiguration.specs) : product.specs ?? []} productTypeCode={product.productTypeCode} />
+          {product.laserBaseConfiguration && !product.specs?.length && !product.technicalConfiguration
+            ? <BaseModelTechnicalTable base={product.laserBaseConfiguration} />
+            : <ProductSpecsTable specs={product.technicalConfiguration ? laserSnapshotPrintSpecs(product.technicalConfiguration, product.technicalConfiguration.specs) : product.specs ?? []} productTypeCode={product.productTypeCode} />}
         </div>
 
         {/* base card: sub-model × power prices */}

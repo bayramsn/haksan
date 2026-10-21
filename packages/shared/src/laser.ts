@@ -81,7 +81,21 @@ export type LaserBaseConfiguration = z.infer<typeof laserBaseConfigurationSchema
 export const laserBaseFamilyCode = (model: Pick<LaserCatalogModel, 'series' | 'code'>): string =>
   model.series === 'GR' && /Pro/i.test(model.code) ? 'GR_PRO' : model.series;
 
-export interface LaserSourceField { key: string; rawValue: string; groupCode: string; unit?: string; powerKw?: number; source: LaserFieldSource }
+/** `sourceGroup`: AORE kitabındaki bölüm (Temel Parametreler, Performans, Mekanik Sistem…); ürün kartında bu gruplarla gösterilir. */
+export interface LaserSourceField { key: string; rawValue: string; groupCode: string; unit?: string; powerKw?: number; source: LaserFieldSource; sourceGroup?: string }
+
+/** AORE kitabının bölümleri, kitaptaki sırayla. Alt bölüm (Konfigürasyon altındakiler) önce eşlenir. */
+const WORKBOOK_GROUPS: Array<[RegExp, string]> = [
+  [/机械系统|mechanical system/i, 'Mekanik Sistem'],
+  [/外设系统|peripheral system/i, 'Çevre Birimleri'],
+  [/电气系统|electrical system/i, 'Elektrik Sistemi'],
+  [/其他参数|other parameters/i, 'Diğer Parametreler'],
+  [/基本参数|basic parameter/i, 'Temel Parametreler'],
+  [/性能|performance/i, 'Performans'],
+];
+export const LASER_WORKBOOK_GROUPS = ['Temel Parametreler', 'Performans', 'Mekanik Sistem', 'Çevre Birimleri', 'Elektrik Sistemi', 'Diğer Parametreler', 'Standart Yapılandırma'] as const;
+const workbookGroup = (item: string, section: string) =>
+  WORKBOOK_GROUPS.find(([pattern]) => pattern.test(section))?.[1] ?? WORKBOOK_GROUPS.find(([pattern]) => pattern.test(item))?.[1];
 export interface LaserCatalogModel {
   code: string; series: LaserSeries; productTypeCode: LaserSelection['productTypeCode']; sizeLabel: string;
   workingArea?: string; standardCabin: LaserCabinType | null; powerMin: number; powerMax: number;
@@ -281,8 +295,10 @@ export function parseLaserWorkbookSheets(sheets: LaserWorkbookSheet[], fileName:
       const fields: LaserSourceField[] = [];
       const modelIssues: LaserIssue[] = [];
       let powerMin = 0; let powerMax = 0; let workingArea: string | undefined; let sizeLabel = '';
-      const add = (definition: { key: string; groupCode: string; unit?: string }, rawValue: string, source: LaserFieldSource) => fields.push({ ...definition, rawValue, source });
+      let sourceGroup: string | undefined;
+      const add = (definition: { key: string; groupCode: string; unit?: string }, rawValue: string, source: LaserFieldSource) => fields.push({ ...definition, rawValue, source, sourceGroup });
       for (let index = headerIndex + 1; index < sheet.rows.length; index++) {
+        sourceGroup = workbookGroup(sourceCell(sheet, index, labelCol - 2).value, sourceCell(sheet, index, labelCol - 1).value);
         const rawLabel = sourceCell(sheet, index, labelCol).value || sourceCell(sheet, index, labelCol - 1).value;
         const label = canonicalLabel(rawLabel);
         if (/^子项/.test(rawLabel)) continue;
@@ -299,8 +315,8 @@ export function parseLaserWorkbookSheets(sheets: LaserWorkbookSheet[], fileName:
         const powerLabel = label.match(/^(\d+(?:[.,]\d+)?)\s*kW lazer kaynağı/i) ?? label.match(/with\s*(\d+(?:[.,]\d+)?)\s*kw\s*source/i) ?? rawLabel.match(/配(\d+(?:[.,]\d+)?)\s*kw激光器/i);
         if (powerLabel) {
           const powerKw = Number(powerLabel[1].replace(',', '.'));
-          fields.push({ key: 'Toplam Güç Gereksinimi', groupCode: 'GENEL', unit: 'kW', rawValue, source, powerKw });
-          fields.push({ key: 'Trafo Kapasitesi', groupCode: 'GENEL', unit: 'kVA', rawValue, source, powerKw });
+          fields.push({ key: 'Toplam Güç Gereksinimi', groupCode: 'GENEL', unit: 'kW', rawValue, source, powerKw, sourceGroup });
+          fields.push({ key: 'Trafo Kapasitesi', groupCode: 'GENEL', unit: 'kVA', rawValue, source, powerKw, sourceGroup });
           continue;
         }
         const definition = fieldDefinition(rawLabel, sourceCell(sheet, index, labelCol - 1).value);
@@ -334,10 +350,12 @@ export function parseLaserWorkbookSheets(sheets: LaserWorkbookSheet[], fileName:
         const x = fields.find((f) => f.key === 'Düz Kesim X Alanı'); const y = fields.find((f) => f.key === 'Düz Kesim Y Alanı');
         if (x && y) { workingArea = `${formatArea(x.rawValue)} × ${formatArea(y.rawValue)}`; sizeLabel = `${workingArea} mm`; }
       }
+      sourceGroup = 'Temel Parametreler';
       if (series === 'S') {
         const rawValue = header[col].includes('推拉台面') || /Sliding table/i.test(header[col]) ? 'Sürgülü tek tabla' : header[col].includes('固定台面') || /Fixed table/i.test(header[col]) ? 'Sabit tek tabla' : '';
         if (rawValue) add({ key: 'Tabla Değişim Tipi', groupCode: 'TABLA' }, rawValue, { document: fileName, sheet: sheet.name, cell: `${columnName(col)}${headerIndex + 1}`, rawValue: header[col] });
       }
+      sourceGroup = 'Standart Yapılandırma';
       if (standards) {
         const seriesRow = standards.rows.findIndex((row) => row.includes('F') && row.includes('PG') && row.includes('TG'));
         // The GR-Pro column does not authorize assigning Pro components to standard GR models.
@@ -643,6 +661,33 @@ export function mergeLaserCatalogModels(primary: readonly LaserCatalogModel[], s
   return merged;
 }
 export const LASER_MODELS: readonly LaserCatalogModel[] = mergeLaserCatalogModels([...importedModels, ...catalogExtras(importedModels)], LASER_PDF_MODELS);
+
+/** AORE alan adı → HEX 2026 baz kart alan adı (ek veri üretici ve gruplama ortak kullanır). */
+export const HEX2026_AORE_KEYS: Readonly<Record<string, string>> = {
+  'Kesme Alanı': 'Çalışma Alanı (mm)',
+  'Konumlama Hassasiyeti': 'Pozisyonlama Hassasiyeti',
+  'Maks. Eksen Hızı': 'Maksimum Hareket Hızı',
+  'Maksimum İvme': 'Maksimum Hızlanma',
+  'Kaynakta Desteklenen Güç': 'Lazer Gücü',
+};
+/** Yalnız HEX PDF'inde olan alanlar; kitaptaki karşılıklarının bölümüne konur. */
+const PDF_ONLY_GROUPS: Record<string, string> = Object.fromEntries([
+  ...['Eğimli Kesim Çalışma Alanı (mm)', 'Çalışma Alanı (kW)-(mm)', 'Konvansiyonel Düz Kesim (mm)', 'Konik Düz Kesim (mm)', 'Konik 45° Kesim (mm)',
+    'Yuvarlak Boru Çapı', 'Kare Boru Kenar Uzunluğu', 'Minimum Artık Parça Miktarı (Fire)', 'Parça Başına Maksimum Yük Kapasitesi'].map((key) => [key, 'Temel Parametreler']),
+  ...['A Eksen Hareketi', 'C Eksen Hareketi', 'Kesim Hassasiyeti'].map((key) => [key, 'Performans']),
+]);
+let fieldGroups: Map<string, string> | undefined;
+/** Alanın AORE kitabındaki bölümü (ilk görüldüğü yer); hiçbir bölüme oturmayan alan için undefined. */
+export function laserFieldWorkbookGroup(key: string): string | undefined {
+  if (!fieldGroups) {
+    fieldGroups = new Map(Object.entries(PDF_ONLY_GROUPS));
+    for (const model of LASER_MODELS) for (const field of model.fields) {
+      if (!field.sourceGroup) continue;
+      for (const name of [field.key, HEX2026_AORE_KEYS[field.key]]) if (name && !fieldGroups.has(name)) fieldGroups.set(name, field.sourceGroup);
+    }
+  }
+  return fieldGroups.get(key);
+}
 
 function noteConflict(code: string, field: string, message: string, page: number, cell?: string) {
   const model = LASER_MODELS.find((model) => model.code === code);
