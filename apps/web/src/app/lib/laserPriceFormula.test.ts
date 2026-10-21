@@ -4,12 +4,12 @@ import { LASER_PRICE_LIST_PRESETS, isLaserCuttingConfiguration, laserContainerFr
 const [cif, milli] = LASER_PRICE_LIST_PRESETS.map((preset) => preset.formula);
 
 describe("lazer fiyat listesi formülü", () => {
-  it("CIF: FOB + görünüm + navlun + kurulum + antrepo; liste %30, son %25", () => {
-    expect(laserListPrice(16000, "20GP", cif!)).toEqual({ freight: 4000, duty: 0, cost: 22600, listPrice: 29380, cashPrice: 28250 });
+  it("CIF: FOB + görünüm + navlun + kurulum + antrepo + ek 1.000; liste %30, son %25", () => {
+    expect(laserListPrice(16000, "20GP", cif!)).toEqual({ freight: 4000, duty: 0, cost: 23600, listPrice: 30680, cashPrice: 29500 });
   });
 
-  it("Millileştirilmiş: gümrük %25 FOB + görünüm + navlun üzerinden, sonra TSE + kurulum + antrepo", () => {
-    expect(laserListPrice(53000, "40HC", milli!)).toEqual({ freight: 7000, duty: 15150, cost: 78750, listPrice: 102375, cashPrice: 98438 });
+  it("Millileştirilmiş: gümrük %25 FOB + görünüm + navlun üzerinden, sonra TSE + kurulum + antrepo + ek 1.000", () => {
+    expect(laserListPrice(53000, "40HC", milli!)).toEqual({ freight: 7000, duty: 15150, cost: 79750, listPrice: 103675, cashPrice: 99688 });
   });
 
   it("çoklu konteyner navlunu toplanır, tanınmayan ya da boş konteyner fiyatlanmaz", () => {

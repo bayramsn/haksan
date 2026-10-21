@@ -82,7 +82,7 @@ describe('laser CIF / nationalised price lists', () => {
     expect(preview.status, JSON.stringify(preview.body)).toBe(201);
     expect(preview.body.applied).toBe(false);
     expect(ownRows(preview.body.rows).map((row: { powerKw: number; cost: number; listPrice: number; cashPrice: number }) => [row.powerKw, row.cost, row.listPrice, row.cashPrice]))
-      .toEqual([[6, 28600, 37180, 35750], [12, 51600, 67080, 64500]]);
+      .toEqual([[6, 29600, 38480, 37000], [12, 52600, 68380, 65750]]);
     expect(ownRows(preview.body.skipped)).toEqual([expect.objectContaining({ powerKw: 20, reason: expect.stringContaining('Konteyner') })]);
     expect(JSON.stringify(preview.body)).not.toContain('HW-9999W');
     const before = await request().get('/api/v1/laser-price-lists').set('Authorization', `Bearer ${adminToken}`);
@@ -93,14 +93,14 @@ describe('laser CIF / nationalised price lists', () => {
     expect(applied.status, JSON.stringify(applied.body)).toBe(201);
     const after = await request().get('/api/v1/laser-price-lists').set('Authorization', `Bearer ${salesToken}`);
     const milliRows = ownRows(after.body.lists.find((list: { code: string }) => list.code === milli!.code).rows);
-    // 22000 + 600 + 4000 = 26600 × 1,25 + 3000 = 36250 → liste 47125, son 45313
+    // 22000 + 600 + 4000 = 26600 × 1,25 + 4000 = 37250 → liste 48425, son 46563
     expect(milliRows.map((row: { powerKw: number; listPrice: number | null; cashPrice: number | null }) => [row.powerKw, row.listPrice, row.cashPrice]))
-      .toEqual([[6, 47125, 45313], [12, 84500, 81250], [20, null, null]]);
+      .toEqual([[6, 48425, 46563], [12, 85800, 82500], [20, null, null]]);
 
     const matrix = await request().get(`/api/v1/products/${productId}/configuration-prices`).set('Authorization', `Bearer ${salesToken}`);
     expect(matrix.status, JSON.stringify(matrix.body)).toBe(200);
     expect(matrix.body.rows.find((row: { sourceModelCode: string; powerKw: number }) => row.sourceModelCode === 'TLZ-3015' && row.powerKw === 6).listPrices)
-      .toEqual([{ code: milli!.code, name: milli!.name, listPrice: 47125, cashPrice: 45313 }]);
+      .toEqual([{ code: milli!.code, name: milli!.name, listPrice: 48425, cashPrice: 46563 }]);
 
     // Genel fiyat listesi uçları formülü döndürmez (liste fiyatı + formülden FOB geri hesaplanır).
     const generic = await request().get('/api/v1/price-lists?pageSize=100').set('Authorization', `Bearer ${adminToken}`);

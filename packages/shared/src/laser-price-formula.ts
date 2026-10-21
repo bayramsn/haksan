@@ -21,14 +21,14 @@ export const LASER_PRICE_LIST_PRESETS = [
   {
     code: 'LAZER-CIF-IST',
     name: 'Fiber Lazer Kesim – CIF İstanbul Gümrük Teslim',
-    // sabit: kurulum 1.000 + antrepo/vinç 1.000
-    formula: { appearanceUsd: 600, freight20Usd: 4000, freight40Usd: 7000, dutyRate: 0, fixedUsd: 2000, listMarkup: 0.3, cashMarkup: 0.25 },
+    // sabit: kurulum 1.000 + antrepo/vinç 1.000 + ek 1.000
+    formula: { appearanceUsd: 600, freight20Usd: 4000, freight40Usd: 7000, dutyRate: 0, fixedUsd: 3000, listMarkup: 0.3, cashMarkup: 0.25 },
   },
   {
     code: 'LAZER-MILLI-IST',
     name: 'Fiber Lazer Kesim – Millileştirilmiş Antrepo Teslim İstanbul',
-    // sabit: TSE/TAREKS 500 + kurulum 1.000 + antrepo/vinç 1.500
-    formula: { appearanceUsd: 600, freight20Usd: 4000, freight40Usd: 7000, dutyRate: 0.25, fixedUsd: 3000, listMarkup: 0.3, cashMarkup: 0.25 },
+    // sabit: TSE/TAREKS 500 + kurulum 1.000 + antrepo/vinç 1.500 + ek 1.000
+    formula: { appearanceUsd: 600, freight20Usd: 4000, freight40Usd: 7000, dutyRate: 0.25, fixedUsd: 4000, listMarkup: 0.3, cashMarkup: 0.25 },
   },
 ] as const satisfies ReadonlyArray<{ code: string; name: string; formula: LaserCostFormula }>;
 export type LaserPriceListCode = (typeof LASER_PRICE_LIST_PRESETS)[number]['code'];
