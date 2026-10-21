@@ -24,6 +24,7 @@ import { printOrWarn } from "../../lib/pageHelpers";
 import { ComposeMailDialog, type MailRecipient } from "../mail/ComposeMailDialog";
 import { BaseModelPriceMatrix } from "./BaseModelPriceMatrix";
 import { BaseModelTechnicalTable } from "./BaseModelTechnicalTable";
+import { baseModelTechnicalData } from "../../lib/baseModelTechnical";
 import { printDocumentHtml } from "@haksan/shared";
 import { laserSnapshotPrintSpecs } from "../../lib/laserProductSnapshot";
 
@@ -341,6 +342,7 @@ export function ProductDetailDialog({
         title: item.item.title,
         description: item.item.description,
       })),
+      modelTable: product.laserBaseConfiguration && !product.specs?.length && !product.technicalConfiguration ? baseModelTechnicalData(product.laserBaseConfiguration) : null,
     }, printAssetBase());
   const createTechnicalPdf = () => printOrWarn(technicalDocument());
   const sendTechnicalMail = () => setMailRecipient({

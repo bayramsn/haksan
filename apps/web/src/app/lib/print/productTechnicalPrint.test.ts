@@ -143,3 +143,37 @@ describe("product technical print image", () => {
     expect(doc.body).toContain("Canlı Takım Devri");
   });
 });
+
+describe("base card model table", () => {
+  const models = ["F-3015", "F-4020", "F-6020", "F-6520", "F-6025", "F-8025", "F-4015", "F-6015"];
+  const modelTable = {
+    models,
+    groups: [
+      { group: "Temel Parametreler", rows: [{ key: "Çalışma Alanı (mm)", values: models.map((model) => `${model}-alan`) }] },
+      { group: "Diğer Parametreler", rows: [{ key: "Trafo Kapasitesi", values: models.map((_, index) => (index < 4 ? "" : "1,5 kW: 40 kVA\n3 kW: 50 kVA")) }] },
+    ],
+  };
+
+  it("prints models as columns, split into blocks of at most four per page", () => {
+    const doc = productTechnicalDoc({ product, modelTable }, "https://example.test/print");
+    expect(doc.body).toContain("TEKNİK BİLGİLER (1/2)");
+    expect(doc.body).toContain("TEKNİK BİLGİLER (2/2)");
+    for (const model of models) expect(doc.body).toContain(`<td class="mh">${model}</td>`);
+    expect(doc.body).toContain("TEMEL PARAMETRELER");
+    // İlk blokta değeri olmayan satır basılmaz; ikinci blokta çok satırlı değer satır sonuyla.
+    const [first, second] = doc.body.split("TEKNİK BİLGİLER (2/2)");
+    expect(first).not.toContain("Trafo Kapasitesi");
+    expect(second).toContain("1,5 kW: 40 kVA<br>3 kW: 50 kVA");
+    expect(doc.body).not.toContain("FİYAT TEKLİFİ");
+    // Kapak + iki model tablosu sayfası.
+    expect(doc.body).toContain("Sayfa <b>3</b> / <b>3</b>");
+    expect(doc.body).not.toContain("/ <b>2</b>");
+  });
+
+  it("keeps the single-column spec page when no model table is given", () => {
+    const doc = productTechnicalDoc({ product: { ...product, specs: [{ key: "X Ekseni", value: "800", unit: "mm" }] }, modelTable: null }, "https://example.test/print");
+    expect(doc.body).not.toContain("q-models");
+    expect(doc.body).toContain("X Ekseni");
+  });
+});
+

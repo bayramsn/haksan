@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { hex2026TechnicalFields, laserFieldWorkbookGroup } from "@haksan/shared";
-import { formatSpecValue, groupBaseModelSpecs } from "./BaseModelTechnicalTable";
+import { formatSpecValue, groupBaseModelSpecs } from "./baseModelTechnical";
 
 describe("baz kart teknik bilgileri AORE kitabının bölümleriyle", () => {
   it("alanları kitaptaki bölüme koyar (PDF adı da eşlenir)", () => {

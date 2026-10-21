@@ -2,12 +2,14 @@ import type { Product } from "../mock";
 import { publicProductLabel, type PrintDocument } from "./core";
 import { fullProductSpecs, printableTechnicalSpecs, quoteMachineModel } from "./technicalSpecs";
 import { laserSnapshotPrintSpecs } from "../laserProductSnapshot";
-import { quoteDoc } from "./templates";
+import { quoteDoc, type QuoteModelTable } from "./templates";
 
 export type ProductTechnicalPrintInput = {
   product: Product;
   standardEquipment?: string[];
   optionalEquipment?: Array<{ title: string; description?: string | null }>;
+  /** Baz kart: alt modeller sütun, kitap bölümleri satır (ürün pop-up'ındaki tablo). */
+  modelTable?: QuoteModelTable | null;
 };
 
 const MAX_EMBEDDED_PRODUCT_IMAGE_BYTES = 10 * 1024 * 1024;
@@ -84,6 +86,7 @@ export const productTechnicalDoc = (
     specs: product.technicalConfiguration
       ? printableTechnicalSpecs(laserSnapshotPrintSpecs(product.technicalConfiguration, product.technicalConfiguration.specs))
       : fullProductSpecs(product, []),
+    ...(input.modelTable?.groups.length ? { modelTable: input.modelTable } : {}),
     standartDonanim: input.standardEquipment ?? product.standardEquipment ?? [],
     opsiyonelDonanim: (input.optionalEquipment ?? (product.optionalEquipment ?? []).map((title) => ({ title })))
       .map((item) => item.title),

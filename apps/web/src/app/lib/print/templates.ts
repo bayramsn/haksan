@@ -374,8 +374,15 @@ export interface QuoteMachinePrintData {
   tip?: string;
   imageUrl?: string;
   specs?: QuoteTechnicalSpec[];
+  /** Baz kart: alt modeller sütun, satırlar gruplu; verilirse teknik sayfa bundan basılır. */
+  modelTable?: QuoteModelTable;
   standartDonanim?: string[];
   opsiyonelDonanim?: string[];
+}
+
+export interface QuoteModelTable {
+  models: string[];
+  groups: Array<{ group: string; rows: Array<{ key: string; values: string[] }> }>;
 }
 
 export type QuoteHeaderLogoMode = "haksan" | "company" | "none";
@@ -513,6 +520,9 @@ table.q-specs td.k { width: 55%; }
 .q-spec-page-fill table.q-specs { height: 235mm; }
 .q-spec-page-fill table.q-specs td { font-size: 9.5pt; line-height: 1.08; }
 .q-empty { text-align: center; color: #555; font-style: italic; padding: 8mm !important; }
+table.q-specs.q-models td.k { width: auto; }
+table.q-specs.q-models td.v { width: var(--q-model-col); }
+table.q-specs.q-models td.mh { text-align: center; font-weight: bold; background: #f0f0f0; }
 .q-eq-h { font-size: 10.5pt; margin: 5mm 0 1.5mm 1mm; }
 ul.q-eq { margin-left: 7mm; font-size: 10.35pt; line-height: 1.22; }
 ul.q-eq li { margin-bottom: .68mm; }
@@ -660,6 +670,32 @@ export function quoteDoc(d: QuotePrintData, assetBase: string, options: { techni
     const scale = Math.min(1, 64 / Math.max(estimatedRows, 1));
     return { className: `${className}${estimatedRows > 0 && estimatedRows <= 48 ? " q-spec-page-fill" : ""}`.trim(), scale: Number(scale.toFixed(4)) };
   };
+  // Baz kart tablosu: sayfa başına en çok 4 model sütunu; daha fazlası sütun bloklarına bölünür,
+  // her blok kendi sayfasında tam (satırlar bölünmez) ve yoğunluğa göre küçülür.
+  const MODEL_COLUMNS_PER_PAGE = 4;
+  const modelTablePages = (table: QuoteModelTable) => {
+    const pageCount = Math.ceil(table.models.length / MODEL_COLUMNS_PER_PAGE);
+    const perPage = Math.ceil(table.models.length / pageCount);
+    return Array.from({ length: pageCount }, (_, page) => {
+      const from = page * perPage;
+      const models = table.models.slice(from, from + perPage);
+      const groups = table.groups
+        .map((group) => ({ group: group.group, rows: group.rows.map((row) => ({ key: row.key, values: row.values.slice(from, from + perPage) })).filter((row) => row.values.some((value) => value.trim())) }))
+        .filter((group) => group.rows.length);
+      const lineCount = (text: string, width: number) => text.split("\n").reduce((total, line) => total + Math.max(1, Math.ceil(line.length / width)), 0);
+      const lines = 1 + groups.reduce((total, group) => total + group.rows.reduce((sum, row) =>
+        sum + Math.max(lineCount(row.key, 34), ...row.values.map((value) => lineCount(value, 26))), 0), 0);
+      const className = lines > 70 ? "q-spec-page-ultra" : lines > 48 ? "q-spec-page-dense" : lines > 32 ? "q-spec-page-compact" : "";
+      const cell = (value: string) => (value.trim() ? esc(value).replace(/\n/g, "<br>") : "-");
+      const body = groups.map((group) => group.rows.map((row, index) =>
+        `<tr>${index === 0 ? `<td class="g" rowspan="${group.rows.length}">${esc(group.group.toLocaleUpperCase("tr-TR"))}</td>` : ""}<td class="k">${esc(row.key)}</td>${row.values.map((value) => `<td class="v">${cell(value)}</td>`).join("")}</tr>`).join("")).join("");
+      return {
+        className, scale: Number(Math.min(1, 64 / Math.max(lines, 1)).toFixed(4)), part: pageCount > 1 ? ` (${page + 1}/${pageCount})` : "",
+        html: `<tr><td class="mh" colspan="2">MODEL</td>${models.map((model) => `<td class="mh">${esc(model)}</td>`).join("")}</tr>${body}`,
+        columnWidth: `${Math.floor(60 / models.length)}%`,
+      };
+    });
+  };
   const machineSections = machines.map((machine) => {
     const printableSpecs = printableTechnicalSpecs(machine.specs);
     // Teknik bilgiler teklif PDF'inde hiçbir zaman "DEVAM" sayfasına bölünmez.
@@ -673,7 +709,8 @@ export function quoteDoc(d: QuotePrintData, assetBase: string, options: { techni
     const equipmentChunks = equipmentRows.length
       ? chunkByWeight(equipmentRows, 32, (entry) => Math.max(1, entry.value.length / 115))
       : [];
-    return { machine, specChunks, equipmentChunks };
+    const modelPages = machine.modelTable?.groups.length ? modelTablePages(machine.modelTable) : null;
+    return { machine, specChunks, modelPages, equipmentChunks };
   });
   // Beş satırlık fiyat kutusunda 4. satır daima özel iskonto, son satır boş kalır.
   const itemChunks = chunkByWeight(d.items, 3, (item) => Math.max(1, item.urun.length / 180));
@@ -721,7 +758,7 @@ export function quoteDoc(d: QuotePrintData, assetBase: string, options: { techni
     && referenceNoteWeight <= 27;
   const pricePageCount = technicalOnly ? 0 : referencePricePage ? 1 : itemChunks.length + 1 + notePages.length;
   const machinePageCount = machineSections.reduce(
-    (total, section) => total + 1 + section.specChunks.length + section.equipmentChunks.length,
+    (total, section) => total + 1 + (section.modelPages?.length ?? section.specChunks.length) + section.equipmentChunks.length,
     0,
   );
   const pageCount = machinePageCount + pricePageCount;
@@ -746,7 +783,7 @@ export function quoteDoc(d: QuotePrintData, assetBase: string, options: { techni
   // Her seçili makine, mevcut kapak + teknik bilgiler + varsa donanım sayfalarını
   // aynen kullanır. Böylece ikinci ürün ilk makinenin altında sıkışmaz ve
   // referans PDF şablonunun ölçüleri korunur.
-  machineSections.forEach(({ machine, specChunks, equipmentChunks }, machineIndex) => {
+  machineSections.forEach(({ machine, specChunks, modelPages, equipmentChunks }, machineIndex) => {
     const machineImageUrl = safeImageUrl(machine.imageUrl);
     const machineLabel = machine.urun || [machine.marka, machine.model, machine.tip].filter(Boolean).join(" ");
     pages.push(`
@@ -763,7 +800,18 @@ export function quoteDoc(d: QuotePrintData, assetBase: string, options: { techni
   ${pn()}
 </div>`);
 
-    specChunks.forEach((specChunk) => {
+    if (modelPages) {
+      modelPages.forEach((tablePage) => pages.push(`
+<div class="page q-spec-page ${tablePage.className}" style="--q-spec-scale:${tablePage.scale};--q-model-col:${tablePage.columnWidth}">
+  ${quoteHeader()}
+  <div class="q-spec-fit">
+  <div class="q-h1">TEKNİK BİLGİLER${tablePage.part}</div>
+  ${machines.length > 1 ? `<div class="q-machine-ref">${esc(machineLabel)}</div>` : ""}
+  <table class="q-specs q-models">${tablePage.html}</table>
+  </div>
+  ${pn()}
+</div>`));
+    } else specChunks.forEach((specChunk) => {
       const specLayout = specPageLayout(specChunk);
       pages.push(`
 <div class="page q-spec-page ${specLayout.className}" style="--q-spec-scale:${specLayout.scale}">
