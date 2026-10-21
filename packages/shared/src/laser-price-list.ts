@@ -156,7 +156,8 @@ export function parseLaserPriceList(sheets: LaserPriceListSheet[]): LaserPriceLi
   return {
     prices: [...firstPrice.values()],
     accessories: unique(accessories, (row) => `${row.name}|${row.costUsd}`),
-    optionNotes: unique(optionNotes, (row) => `${row.label}|${row.rawValue}`),
+    // M, TS ve TZ aynı not metnini taşır; seri (sütunun modeli) anahtarın parçasıdır.
+    optionNotes: unique(optionNotes, (row) => `${row.priceModelCode.match(/^[A-Z]+/)?.[0] ?? ''}|${row.label}|${row.rawValue}`),
     issues,
   };
 }
@@ -189,4 +190,63 @@ export function hexConfigurationForPriceModel(priceModelCode: string, powerKw: n
     if (series && configuration) return { series: series.series, sourceModelCode: configuration.sourceModelCode };
   }
   return null;
+}
+
+export interface LaserOptionCost {
+  /** "Pah (bevel) kesim", "Yarı otomatik yükleme" … */
+  label: string;
+  /** Fiyat listesindeki model yazımı (ör. `TG6020`, `V24-65`, `M28-65-65`). */
+  priceModelCode: string;
+  /** Güç koşulu yoksa tüm güçler için geçerlidir. */
+  power?: { operator: '<=' | '='; kw: number };
+  costUsd: number;
+  sheet: string;
+  cell: string;
+}
+
+const optionModelMatches = (code: string, priceModelCodes: readonly string[]) =>
+  priceModelCodes.filter((model) => model === code || model.startsWith(`${code}-`) || model.startsWith(`${code}+`));
+
+/**
+ * Opsiyon maliyetleri: "Bevel kesim opsiyonu" notları (model ve güce göre) ve açıklamadaki
+ * yükleme/otomasyon dipnotu ("Yarı otomatik yükleme：V12:900$；V24:1500$"). Model yazılmamış
+ * notlar sütundaki serinin tüm modellerine uygulanır. Eşlenemeyen satır sessizce atlanmaz, issues'a düşer.
+ */
+export function laserOptionCosts(sheets: LaserPriceListSheet[], parsed: LaserPriceListParseResult): { costs: LaserOptionCost[]; issues: string[] } {
+  const costs: LaserOptionCost[] = [];
+  const issues: string[] = [];
+  const models = [...new Set(parsed.prices.map((price) => price.priceModelCode))];
+  for (const note of parsed.optionNotes) {
+    const label = /bevel|pah/i.test(note.label) ? 'Pah (bevel) kesim' : note.label;
+    let current: string | undefined;
+    const seriesPrefix = note.priceModelCode.match(/^[A-Z]+/)?.[0] ?? '';
+    for (const line of note.rawValue.split('\n')) {
+      const match = line.trim().match(/^(?:([A-Z]{1,3}\d{2,5})\s*:*\s*)?(≤|<=)?\s*(\d+(?:[.,]\d+)?)\s*kw\s*(\d+(?:[.,]\d+)?)\s*\$?$/i);
+      if (!match) { if (line.trim()) issues.push(`${note.cell}: "${line.trim()}" okunamadı`); continue; }
+      current = match[1] ?? current;
+      const targets = current ? optionModelMatches(current, models) : models.filter((model) => model.match(/^[A-Z]+/)?.[0] === seriesPrefix);
+      if (!targets.length) issues.push(`${note.cell}: ${current ?? seriesPrefix} için fiyat listesinde model yok`);
+      for (const priceModelCode of targets) {
+        costs.push({ label, priceModelCode, power: { operator: match[2] ? '<=' : '=', kw: Number(match[3]!.replace(',', '.')) }, costUsd: Number(match[4]!.replace(',', '.')), sheet: note.sheet, cell: note.cell });
+      }
+    }
+  }
+  for (const sheet of sheets) {
+    sheet.rows.forEach((row, rowIndex) => {
+      row.forEach((cell, col) => {
+        for (const line of cell.split('\n')) {
+          const head = line.replace(/^[①-⑩]\s*/, '').match(/^([^:：$]+?)\s*[:：]\s*((?:[A-Z]{1,3}\d{2,5}\s*:\s*\d+\s*\$[\s;；,]*)+)$/);
+          if (!head) continue;
+          for (const entry of head[2].matchAll(/([A-Z]{1,3}\d{2,5})\s*:\s*(\d+)\s*\$/g)) {
+            const targets = optionModelMatches(entry[1]!, models);
+            if (!targets.length) issues.push(`${sheet.name}: ${head[1].trim()} / ${entry[1]} için fiyat listesinde model yok`);
+            for (const priceModelCode of targets) costs.push({ label: head[1].trim(), priceModelCode, costUsd: Number(entry[2]), sheet: sheet.name, cell: `${columnName(col)}${rowIndex + 1}` });
+          }
+        }
+      });
+    });
+  }
+  const unique = costs.filter((cost, index) => costs.findIndex((other) => other.label === cost.label && other.priceModelCode === cost.priceModelCode
+    && other.power?.operator === cost.power?.operator && other.power?.kw === cost.power?.kw) === index);
+  return { costs: unique, issues: [...new Set(issues)] };
 }

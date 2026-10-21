@@ -921,6 +921,12 @@ export const productService = {
   }>('/product-configuration-prices'),
   updateConfigurationPrices: (rows: Array<{ id: string; salePrice: number | null; saleCurrencyCode: 'USD' | 'EUR' | 'TRY' }>) =>
     api.patch<{ updated: number }>('/product-configuration-prices', { rows }),
+  listCostPricedItems: () => api.get<{
+    canViewCost: boolean;
+    rows: Array<{ id: string; kind: 'product' | 'option'; group: string; name: string; salePrice: number | null; saleCurrencyCode: string | null; costPrice?: number | null; costCurrencyCode?: string | null }>;
+  }>('/product-cost-prices'),
+  updateCostPricedSales: (rows: Array<{ id: string; salePrice: number | null; saleCurrencyCode: 'USD' | 'EUR' | 'TRY' }>) =>
+    api.patch<{ updated: number }>('/product-cost-prices/sale', { rows }),
   configurationPrices: (id: string) => api.get<{
     canViewCost: boolean;
     rows: Array<{ id: string; sourceModelCode: string; powerKw: number; salePrice: number | null; saleCurrencyCode: string | null; container: string | null; leadTimeDays: number | null; costPrice?: number | null; costCurrencyCode?: string | null }>;

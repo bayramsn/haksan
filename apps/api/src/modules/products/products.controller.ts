@@ -320,6 +320,18 @@ export class ProductsController {
   }
 
   @RequirePermissions('price_lists.read')
+  @Get('product-cost-prices')
+  listCostPricedItems(@CurrentUser() user: AuthContext) {
+    return this.svc.listCostPricedItems(user);
+  }
+
+  @RequirePermissions('price_lists.update')
+  @Patch('product-cost-prices/sale')
+  updateCostPricedSales(@Body(new ZodValidationPipe(productConfigurationPriceUpdateSchema)) body: ProductConfigurationPriceUpdateInput, @CurrentUser() user: AuthContext) {
+    return this.svc.updateCostPricedSales(body, user);
+  }
+
+  @RequirePermissions('price_lists.read')
   @Get('price-lists')
   listPriceLists(@Query(new ZodValidationPipe(paginationSchema)) qp: Pagination, @CurrentUser() user: AuthContext) {
     return this.svc.listPriceLists(user, qp);

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { hexConfigurationForPriceModel, leadTimeModelCodes, parseLaserPriceList } from "@haksan/shared";
+import { hexConfigurationForPriceModel, laserOptionCosts, leadTimeModelCodes, parseLaserPriceList } from "@haksan/shared";
 
 const sheets = [
   {
@@ -88,5 +88,39 @@ describe("lazer fiyat listesi", () => {
     expect(hexConfigurationForPriceModel("V12-65", 3)).toEqual({ series: "V", sourceModelCode: "V12-65" });
     expect(hexConfigurationForPriceModel("M28-120-65", 6)).toEqual({ series: "M", sourceModelCode: "M28-120-65" });
     expect(hexConfigurationForPriceModel("TC12-65", 3)).toBeNull();
+  });
+});
+
+describe("lazer opsiyon maliyetleri", () => {
+  const optionSheets = [
+    {
+      name: "BORU",
+      rows: [
+        ["Model", "TG6020", "TG6035", "M28-65-65", "M36-65-65", "V12-65", "V24-65"],
+        ["6KW", "28000", "35300", "76000", "89000", "24000", "41000"],
+        ["Bevel kesim opsiyonu", "TG6020:≤3KW 15000$\n   6KW 15800$\nTG6035:≤3KW 15400$", "", "6kw 7200$\n12kw 11000$", "", "", ""],
+        ["Açıklama", "①Yukarıdaki fiyatlar FOB bazındadır.\n⑤Yarı otomatik yükleme：V12:900$；V24:1500$\nSıfır fire：V12:600$", "", "", "", "", ""],
+      ],
+    },
+  ];
+  const parsed = parseLaserPriceList(optionSheets);
+  const { costs, issues } = laserOptionCosts(optionSheets, parsed);
+  const find = (label: string, model: string, kw?: number) => costs.find((cost) => cost.label === label && cost.priceModelCode === model && cost.power?.kw === kw);
+
+  it("pah kesim notunu model ve güce, modelsiz notu serinin tüm modellerine dağıtır", () => {
+    expect(find("Pah (bevel) kesim", "TG6020", 3)).toMatchObject({ power: { operator: "<=", kw: 3 }, costUsd: 15000 });
+    expect(find("Pah (bevel) kesim", "TG6020", 6)).toMatchObject({ power: { operator: "=", kw: 6 }, costUsd: 15800 });
+    expect(find("Pah (bevel) kesim", "TG6035", 3)?.costUsd).toBe(15400);
+    expect(find("Pah (bevel) kesim", "M28-65-65", 12)?.costUsd).toBe(11000);
+    expect(find("Pah (bevel) kesim", "M36-65-65", 6)?.costUsd).toBe(7200);
+    expect(costs.some((cost) => cost.label === "Pah (bevel) kesim" && cost.priceModelCode.startsWith("V"))).toBe(false);
+  });
+
+  it("yükleme dipnotunu model koduna göre opsiyona çevirir", () => {
+    expect(find("Yarı otomatik yükleme", "V12-65")?.costUsd).toBe(900);
+    expect(find("Yarı otomatik yükleme", "V12-65")?.power).toBeUndefined();
+    expect(find("Yarı otomatik yükleme", "V24-65")?.costUsd).toBe(1500);
+    expect(find("Sıfır fire", "V12-65")?.costUsd).toBe(600);
+    expect(issues).toEqual([]);
   });
 });

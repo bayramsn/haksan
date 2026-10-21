@@ -400,3 +400,30 @@ export const productConfigurationPrices = pgTable(
     tenantIdx: index('product_configuration_prices_tenant_idx').on(t.tenantId),
   })
 );
+
+/**
+ * Aksesuar kartı ya da baz kart opsiyonunun tedarikçi alış maliyeti. Ürün ve opsiyon
+ * tabloları birçok uçtan olduğu gibi döndüğü için maliyet ayrı tutulur; yalnız
+ * `product_costs.view` izniyle okunur. Satış fiyatı ürünün liste fiyatı / opsiyonun ek fiyatıdır.
+ */
+export const productCostPrices = pgTable(
+  'product_cost_prices',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id')
+      .notNull()
+      .references(() => tenants.id, { onDelete: 'cascade' }),
+    productModelId: uuid('product_model_id').references(() => productModels.id, { onDelete: 'cascade' }),
+    optionValueId: uuid('option_value_id').references(() => productOptionValues.id, { onDelete: 'cascade' }),
+    costPrice: money('cost_price').notNull(),
+    costCurrencyId: uuid('cost_currency_id').notNull().references(() => currencies.id),
+    sourceRevision: varchar('source_revision', { length: 128 }),
+    sourceCell: varchar('source_cell', { length: 64 }),
+    ...auditColumns,
+  },
+  (t) => ({
+    productUnique: uniqueIndex('product_cost_prices_product_unique').on(t.productModelId),
+    optionValueUnique: uniqueIndex('product_cost_prices_option_value_unique').on(t.optionValueId),
+    tenantIdx: index('product_cost_prices_tenant_idx').on(t.tenantId),
+  })
+);

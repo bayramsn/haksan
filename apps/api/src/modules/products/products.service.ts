@@ -16,6 +16,7 @@ import {
   productOptionSets,
   productOptionValues,
   productConfigurationPrices,
+  productCostPrices,
   productMedia,
 } from '../../db/schema/products';
 import { files } from '../../db/schema/files';
@@ -1433,6 +1434,63 @@ export class ProductsService {
         ...(canViewCost ? { costPrice: amount(costPrice), costCurrencyCode: currencyCode(costCurrencyId) } : {}),
       })),
     };
+  }
+
+  /** Fiyat Listeleri: maliyeti kayıtlı aksesuar kartları ve baz kart opsiyonları (maliyet yalnız `product_costs.view`). */
+  async listCostPricedItems(actor: AuthContext) {
+    const canViewCost = actor.roles.includes('super_admin') || actor.permissions.has('product_costs.view');
+    const currencyRows = await this.db.select({ id: currencies.id, code: currencies.code }).from(currencies);
+    const currencyCode = (id: string | null) => currencyRows.find((row) => row.id === id)?.code ?? null;
+    const amount = (value: string | null) => (value === null ? null : Number(value));
+    const cost = (row: { costPrice: string; costCurrencyId: string }) => (canViewCost ? { costPrice: Number(row.costPrice), costCurrencyCode: currencyCode(row.costCurrencyId) } : {});
+    const products = await this.db.select({
+      id: productCostPrices.id, name: productModels.fullName, salePrice: productModels.listPrice, saleCurrencyId: productModels.currencyId,
+      costPrice: productCostPrices.costPrice, costCurrencyId: productCostPrices.costCurrencyId,
+    }).from(productCostPrices).innerJoin(productModels, eq(productModels.id, productCostPrices.productModelId))
+      .where(and(eq(productCostPrices.tenantId, actor.tenantId), isNull(productCostPrices.deletedAt), isNull(productModels.deletedAt)))
+      .orderBy(asc(productModels.fullName));
+    const options = await this.db.select({
+      id: productCostPrices.id, name: productOptionValues.value, group: productOptionSets.name, baseName: productModels.fullName,
+      salePrice: productOptionValues.priceDelta, saleCurrencyId: productOptionValues.currencyId,
+      costPrice: productCostPrices.costPrice, costCurrencyId: productCostPrices.costCurrencyId,
+    }).from(productCostPrices)
+      .innerJoin(productOptionValues, eq(productOptionValues.id, productCostPrices.optionValueId))
+      .innerJoin(productOptionSets, eq(productOptionSets.id, productOptionValues.optionSetId))
+      .innerJoin(productModels, eq(productModels.id, productOptionSets.productModelId))
+      .where(and(eq(productCostPrices.tenantId, actor.tenantId), isNull(productCostPrices.deletedAt), isNull(productOptionValues.deletedAt), isNull(productOptionSets.deletedAt), isNull(productModels.deletedAt)))
+      .orderBy(asc(productModels.fullName), asc(productOptionSets.name), asc(productOptionValues.value));
+    return {
+      canViewCost,
+      rows: [
+        ...products.map((row) => ({ id: row.id, kind: 'product' as const, group: 'Aksesuar', name: row.name, salePrice: amount(row.salePrice), saleCurrencyCode: currencyCode(row.saleCurrencyId), ...cost(row) })),
+        ...options.map((row) => ({ id: row.id, kind: 'option' as const, group: `${row.baseName} · ${row.group}`, name: row.name, salePrice: amount(row.salePrice), saleCurrencyCode: currencyCode(row.saleCurrencyId), ...cost(row) })),
+      ],
+    };
+  }
+
+  async updateCostPricedSales(input: ProductConfigurationPriceUpdateInput, actor: AuthContext) {
+    const ids = [...new Set(input.rows.map((row) => row.id))];
+    if (ids.length !== input.rows.length) throw new ValidationError('Aynı satır birden fazla kez gönderildi');
+    const targets = await this.db.select({ id: productCostPrices.id, productModelId: productCostPrices.productModelId, optionValueId: productCostPrices.optionValueId })
+      .from(productCostPrices).where(and(inArray(productCostPrices.id, ids), eq(productCostPrices.tenantId, actor.tenantId), isNull(productCostPrices.deletedAt)));
+    if (targets.length !== ids.length) throw new NotFoundError('Fiyat satırı');
+    const currencyRows = await this.db.select({ id: currencies.id, code: currencies.code }).from(currencies);
+    await this.db.transaction(async (tx) => {
+      for (const row of input.rows) {
+        const target = targets.find((entry) => entry.id === row.id)!;
+        const currencyId = currencyRows.find((currency) => currency.code === row.saleCurrencyCode)?.id;
+        if (!currencyId) throw new ValidationError('Para birimi tanımlı değil');
+        const price = row.salePrice === null ? null : String(row.salePrice);
+        if (target.productModelId) {
+          await tx.update(productModels).set({ listPrice: price, currencyId, updatedAt: new Date() })
+            .where(and(eq(productModels.id, target.productModelId), eq(productModels.tenantId, actor.tenantId)));
+        } else if (target.optionValueId) {
+          await tx.update(productOptionValues).set({ priceDelta: price, currencyId, updatedAt: new Date() })
+            .where(and(eq(productOptionValues.id, target.optionValueId), eq(productOptionValues.tenantId, actor.tenantId)));
+        }
+      }
+    });
+    return { updated: input.rows.length };
   }
 
   async updateConfigurationPrices(input: ProductConfigurationPriceUpdateInput, actor: AuthContext) {
