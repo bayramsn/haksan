@@ -58,7 +58,7 @@ import type {
   ProductOptionValueUpdateInput,
   ProductConfigurationPriceUpdateInput,
 } from '@haksan/shared';
-import { LASER_MODELS, productImportRowSchema, laserSelectionKey, laserTechnicalConfigurationSchema, isMainMachineCategory, machineCategoryLabel, machineGroupCode } from '@haksan/shared';
+import { LASER_MODELS, LASER_PRICE_LIST_PRESETS, productImportRowSchema, laserSelectionKey, laserTechnicalConfigurationSchema, isMainMachineCategory, machineCategoryLabel, machineGroupCode } from '@haksan/shared';
 import { hexlaserLegacyVariantCode } from '../../db/hexlaser-product-variants';
 import { LaserProfilesService, applyLaserSpecEdits } from './laser-profiles.service';
 import { buildPaginated, pageOffset } from '../../shared/utils/pagination';
@@ -316,6 +316,10 @@ function parseCsv(text: string, delimiter = ','): string[][] {
   if (row.some((cell) => cell.trim())) rows.push(row);
   return rows;
 }
+
+/** Lazer listelerinin maliyet formülü FOB'u geri hesaplatır; genel fiyat listesi uçlarından dönmez. */
+const withoutCostFormula = <T extends { costFormula?: unknown }>({ costFormula: _formula, ...row }: T) => row;
+const isLaserPriceListCode = (code: string) => LASER_PRICE_LIST_PRESETS.some((preset) => preset.code === code);
 
 @Injectable()
 export class ProductsService {
@@ -2032,7 +2036,7 @@ export class ProductsService {
       .orderBy(asc(priceLists.name), asc(priceLists.code), asc(priceLists.id))
       .limit(limit)
       .offset(offset);
-    return buildPaginated(rows.map((r) => ({ ...r.priceList, currency: r.currency })), count, page);
+    return buildPaginated(rows.map((r) => ({ ...withoutCostFormula(r.priceList), currency: r.currency })), count, page);
   }
 
   async createPriceList(input: PriceListCreateInput, actor: AuthContext) {
@@ -2070,6 +2074,9 @@ export class ProductsService {
 
   async updatePriceList(id: string, input: PriceListUpdateInput, actor: AuthContext) {
     const existing = await this.getPriceList(id, actor);
+    if (input.code !== undefined && input.code !== existing.code && isLaserPriceListCode(existing.code)) {
+      throw new ValidationError('Lazer fiyat listesinin kodu değiştirilemez', { field: 'code' });
+    }
     const patch: Record<string, unknown> = {};
     if (input.currencyCode !== undefined) patch.currencyId = await lookupIdByCode(this.db, currencies, input.currencyCode);
     if (input.divisionId !== undefined) patch.divisionId = resolveAssignedResourceDivision(actor, 'price_lists', input.divisionId);
@@ -2195,7 +2202,7 @@ export class ProductsService {
       ),
     });
     if (!row) throw new NotFoundError('Fiyat listesi');
-    return row;
+    return withoutCostFormula(row);
   }
 
   private async parseImportFile(fileName: string, fileBase64: string): Promise<ParsedImportFile> {

@@ -49,7 +49,7 @@ export class LaserPriceListsService {
 
   private async savedLists(tenantId: string) {
     const lists = await this.db.select().from(priceLists)
-      .where(and(eq(priceLists.tenantId, tenantId), inArray(priceLists.code, PRESET_CODES), isNull(priceLists.deletedAt)));
+      .where(and(eq(priceLists.tenantId, tenantId), inArray(priceLists.code, PRESET_CODES), isNull(priceLists.deletedAt), eq(priceLists.isActive, true)));
     const items = lists.length
       ? await this.db.select().from(priceListConfigurationItems).where(and(eq(priceListConfigurationItems.tenantId, tenantId), inArray(priceListConfigurationItems.priceListId, lists.map((list) => list.id))))
       : [];
@@ -110,10 +110,10 @@ export class LaserPriceListsService {
 
     const [usd] = await this.db.select({ id: currencies.id }).from(currencies).where(eq(currencies.code, 'USD')).limit(1);
     if (!usd) throw new NotFoundError('USD para birimi');
-    await this.db.transaction(async (tx) => {
+    const listId = await this.db.transaction(async (tx) => {
       const [list] = await tx.insert(priceLists)
         .values({ tenantId: actor.tenantId, code: preset.code, name: preset.name, currencyId: usd.id, costFormula: input.formula })
-        .onConflictDoUpdate({ target: [priceLists.tenantId, priceLists.code], set: { costFormula: input.formula, currencyId: usd.id, deletedAt: null, isActive: true, updatedAt: new Date() } })
+        .onConflictDoUpdate({ target: [priceLists.tenantId, priceLists.code], set: { name: preset.name, costFormula: input.formula, currencyId: usd.id, deletedAt: null, isActive: true, updatedAt: new Date() } })
         .returning({ id: priceLists.id });
       await tx.delete(priceListConfigurationItems).where(and(eq(priceListConfigurationItems.priceListId, list!.id), eq(priceListConfigurationItems.tenantId, actor.tenantId)));
       if (priced.length) {
@@ -122,13 +122,14 @@ export class LaserPriceListsService {
           listPrice: String(row.listPrice), cashPrice: String(row.cashPrice),
         })));
       }
+      return list!.id;
     });
     await this.audit.write({
       tenantId: actor.tenantId,
       actorUserId: actor.userId,
       action: 'price_list.laser.recalculated',
       resourceType: 'price_list',
-      resourceId: saved?.id ?? null,
+      resourceId: listId,
       oldValues: saved?.costFormula ? { formula: saved.costFormula } : undefined,
       newValues: { code: preset.code, formula: input.formula, priced: priced.length, skipped: skipped.length },
     });

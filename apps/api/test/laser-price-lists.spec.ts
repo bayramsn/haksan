@@ -69,7 +69,7 @@ describe('laser CIF / nationalised price lists', () => {
     expect(sales.body.lists.map((list: { code: string }) => list.code)).toEqual(codes);
     for (const list of sales.body.lists) {
       expect(list.formula).toBeUndefined();
-      for (const row of list.rows) expect(Object.keys(row)).not.toEqual(expect.arrayContaining(['fob', 'cost', 'container']));
+      for (const row of list.rows) for (const key of ['fob', 'cost', 'container']) expect(row).not.toHaveProperty(key);
     }
     const recalc = await request().post('/api/v1/laser-price-lists/recalculate').set('Authorization', `Bearer ${salesToken}`)
       .send({ code: cif!.code, formula: cif!.formula, apply: true });
@@ -101,6 +101,18 @@ describe('laser CIF / nationalised price lists', () => {
     expect(matrix.status, JSON.stringify(matrix.body)).toBe(200);
     expect(matrix.body.rows.find((row: { sourceModelCode: string; powerKw: number }) => row.sourceModelCode === 'TLZ-3015' && row.powerKw === 6).listPrices)
       .toEqual([{ code: milli!.code, name: milli!.name, listPrice: 47125, cashPrice: 45313 }]);
+
+    // Genel fiyat listesi uçları formülü döndürmez (liste fiyatı + formülden FOB geri hesaplanır).
+    const generic = await request().get('/api/v1/price-lists?pageSize=100').set('Authorization', `Bearer ${adminToken}`);
+    expect(generic.status, JSON.stringify(generic.body)).toBe(200);
+    const genericMilli = generic.body.data.find((list: { code: string }) => list.code === milli!.code);
+    expect(genericMilli).toBeDefined();
+    expect(genericMilli).not.toHaveProperty('costFormula');
+    const renamed = await request().patch(`/api/v1/price-lists/${genericMilli.id}`).set('Authorization', `Bearer ${adminToken}`).send({ code: 'BASKA-KOD' });
+    expect(renamed.status).toBe(422);
+    const patched = await request().patch(`/api/v1/price-lists/${genericMilli.id}`).set('Authorization', `Bearer ${adminToken}`).send({ description: 'test' });
+    expect(patched.status, JSON.stringify(patched.body)).toBe(200);
+    expect(patched.body).not.toHaveProperty('costFormula');
 
     const exported = await request().get(`/api/v1/laser-price-lists/${milli!.code}/export`).set('Authorization', `Bearer ${salesToken}`);
     expect(exported.status).toBe(200);

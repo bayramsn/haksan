@@ -475,7 +475,9 @@ export function QuoteDialog({
       const offer = offers.find((o) => o.id === id);
       const currencyCode = (offer?.currency ?? "USD") as Currency;
       setCurrency(currencyCode);
-      setDeliveryCode("");
+      // Teslim şekli kaydedilmiyor; lazer liste fiyatlı kalem varsa o listeden geri çıkarılır.
+      const savedPriceList = (Array.isArray(data.items) ? data.items : []).map((it: any) => it.compatibility?.configurationPrice?.priceListCode).find(Boolean);
+      setDeliveryCode(savedPriceList === "LAZER-CIF-IST" ? "cif_istanbul" : savedPriceList === "LAZER-MILLI-IST" ? "nationalized" : "");
       const loadedPayment = data.terms?.paymentTermsText ?? data.paymentTerms ?? "";
       const loadedDelivery = data.terms?.deliveryTermsText ?? data.deliveryTerms ?? "";
       const loadedWarranty = data.terms?.warrantyTermsText ?? data.warrantyTerms ?? "";
