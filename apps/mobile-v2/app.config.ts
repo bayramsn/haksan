@@ -38,7 +38,8 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   orientation: 'default',
   userInterfaceStyle: 'automatic',
   newArchEnabled: true,
-  runtimeVersion: { policy: 'appVersion' },
+  // Bare workflow: policy objesi EAS'te reddedilir; sürümle hizalı sabit string.
+  runtimeVersion: VERSION,
   updates,
   assetBundlePatterns: ['**/*'],
   icon: './assets/icon.png',
