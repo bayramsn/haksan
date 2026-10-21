@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { hex2026TechnicalFields, laserFieldWorkbookGroup } from "@haksan/shared";
-import { groupBaseModelSpecs } from "./BaseModelTechnicalTable";
+import { formatSpecValue, groupBaseModelSpecs } from "./BaseModelTechnicalTable";
 
 describe("baz kart teknik bilgileri AORE kitabının bölümleriyle", () => {
   it("alanları kitaptaki bölüme koyar (PDF adı da eşlenir)", () => {
@@ -36,5 +36,17 @@ describe("baz kart teknik bilgileri AORE kitabının bölümleriyle", () => {
       { key: "Kaynak Hızı", rawValue: "  ", verification: "verified" },
     ] }]);
     expect(groups).toEqual([{ group: "Mekanik Sistem", rows: [{ key: "Gövde", values: ["Kaynaklı"] }] }]);
+  });
+
+  it("kitap değerlerini Türkçe yazımla gösterir", () => {
+    expect(formatSpecValue("115m/min")).toBe("115 m/dk");
+    expect(formatSpecValue("±0.05mm/m")).toBe("±0,05 mm/m");
+    expect(formatSpecValue("≤6kW：915kg\n12-20kW：1835kg")).toBe("≤6 kW: 915 kg\n12-20 kW: 1835 kg");
+    expect(formatSpecValue("4600*2600*2100mm")).toBe("4600 × 2600 × 2100 mm");
+    expect(formatSpecValue("4 Sets (8 unit)")).toBe("4 set (8 adet)");
+    expect(formatSpecValue("20-30s(ayarlanabilir)")).toBe("20-30 sn (ayarlanabilir)");
+    expect(formatSpecValue("1,5 kW: 28.15 kW")).toBe("1,5 kW: 28,15 kW");
+    expect(formatSpecValue("BOCHU FSCUT8000A")).toBe("BOCHU FSCUT8000A");
+    expect(formatSpecValue("0.8G")).toBe("0,8 G");
   });
 });

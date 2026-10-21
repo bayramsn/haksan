@@ -6,6 +6,18 @@ export type TechnicalGroup = { group: string; rows: Array<{ key: string; values:
 
 const OTHER = "Diğer";
 
+/** Kitaptan gelen değerleri PDF'teki Türkçe yazımla aynı gösterir: ondalık virgül, "m/dk", birim boşluğu. Yalnız ekran. */
+export const formatSpecValue = (value: string) => value
+  .replace(/\s*：\s*/g, ": ")
+  .replace(/m\/min/gi, "m/dk")
+  .replace(/(\d+)\s*sets?\s*\((\d+)\s*units?\)/gi, "$1 set ($2 adet)")
+  .replace(/Bevel cutting\s*[–-]\s*straight edge/gi, "Pah kesim – düz kenar")
+  .replace(/Bevel cutting\s*[–-]\s*bevel edge/gi, "Pah kesim – pah kenarı")
+  .replace(/(\d)\s*\*\s*(?=\d)/g, "$1 × ")
+  .replace(/(\d)\.(\d)/g, "$1,$2")
+  .replace(/(\d)[sS]\s*\(/g, "$1 sn (")
+  .replace(/(\d)\s*(mm\/m|mm|kg|kVA|kW|m\/dk|G)(?![A-Za-zçğıöşü])/g, "$1 $2");
+
 /**
  * Baz kartın alt modellerini AORE kitabındaki bölümlere (Temel Parametreler, Performans, Mekanik
  * Sistem…) göre satır, modelleri sütun yapar. Yalnız doğrulanmış (PDF) ve kitaptan gelen alanlar;
@@ -57,7 +69,7 @@ export function BaseModelTechnicalTable({ base }: { base: LaserBaseConfiguration
             {entry.rows.map((row) => (
               <tr key={row.key} className="border-t border-border/40 align-top">
                 <th scope="row" className="sticky left-0 bg-card px-3 py-1.5 text-left font-medium text-muted-foreground">{row.key}</th>
-                {row.values.map((value, index) => <td key={configurations[index]!.sourceModelCode} className="whitespace-pre-line px-3 py-1.5 tabular-nums">{value || "—"}</td>)}
+                {row.values.map((value, index) => <td key={configurations[index]!.sourceModelCode} className="whitespace-pre-line px-3 py-1.5 tabular-nums">{value ? formatSpecValue(value) : "—"}</td>)}
               </tr>
             ))}
           </tbody>
