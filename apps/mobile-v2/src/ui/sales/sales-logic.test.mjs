@@ -242,6 +242,9 @@ test('LOST geçişi zorunlu alanları ister ve opsiyonel rakip alanlarını yaln
     lostUnmetConditions: 'Teslim süresi',
     lostCompetitorProductModel: 'X1',
   });
+  const picked = lostStageBody({ ...filled, competitorId: 'cmp-1', competitorName: 'Şahintek' });
+  assert.equal(picked.lostCompetitorId, 'cmp-1');
+  assert.equal(picked.lostCompetitorName, 'Şahintek');
 });
 
 test('CloseCase: iptal vs kayıp doğrulama ve gövdeler', () => {
