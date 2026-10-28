@@ -440,3 +440,24 @@ describe("quote print address", () => {
     expect(contract.machines?.[0]?.fiyat).toBe(115_570);
   });
 });
+
+describe('universal configuration standard equipment snapshots', () => {
+  const product = { id: 'universal-base', categoryCode: 'TEZGAH', shortDescription: 'CD6241 baz model', standardEquipment: ['Canlı baz paketi'], specs: [] } as unknown as Product;
+  for (const [label, value, expected] of [['selected source', 'Ayna\nDöner punta', ['Ayna', 'Döner punta']], ['empty source', '', []]] as const) {
+    it(`prints ${label} equipment in quote and contract without falling back to live catalog`, async () => {
+      const item = { productModelId: product.id, description: 'CD6241 baz model', quantity: 1, unitPrice: 100, lineTotal: 100, compatibility: { technicalSpecs: [{ key: 'Standart Donanım', value }] } };
+      const result = buildQuotePrintData({ offer, customer, salesCase: null, users: [], contacts: [], products: [product] }, { items: [item], terms: {} } as never);
+      expect(result.machines?.[0].standartDonanim).toEqual(expected);
+      expect(result.standartDonanim).toEqual(expected);
+      const contract = await loadContractPrintData({ customer: null, salesCase: null, products: [product], payments: [], contractDate: '2026-10-13', contractNo: 'TEST', documentSnapshot: { document: { finalizedAt: '2026-10-13' }, quote: {}, items: [item], terms: {}, company: {}, currency: { code: 'USD' } } });
+      expect(contract.machines?.[0].aksesuarlar).toEqual(expected);
+    });
+  }
+});
+
+it('uses selected universal dimensions in draft contract instead of live base defaults', async () => {
+  const product = { id: 'universal-draft', categoryCode: 'TEZGAH', shortDescription: 'CD6241', standardEquipment: [], specs: [{key:'Puntalar arası mesafe',value:'9999',unit:'mm'}], baseModelConfiguration: {variableSpecKeys:['Puntalar arası mesafe']} } as unknown as Product;
+  const item = {productModelId:product.id,description:'CD6241',quantity:1,unitPrice:100,lineTotal:100,compatibility:{technicalSpecs:[{key:'Puntalar arası mesafe',value:'1500',unit:'mm'}]}};
+  const contract = await loadContractPrintData({customer:null,salesCase:null,products:[product],payments:[],contractDate:'2026-10-13',contractNo:'TEST',documentSnapshot:{quote:{},items:[item],terms:{},company:{},currency:{code:'USD'}}});
+  expect(contract.machines?.[0].ozellikler).toEqual(expect.arrayContaining([{key:'Puntalar arası mesafe',value:'1500 mm'}]));
+});

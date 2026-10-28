@@ -1,4 +1,7 @@
-import { useEffect, useState, type MouseEvent } from "react";
+import { useEffect, useRef, useState, type MouseEvent } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { useAuth } from "../../../../lib/auth";
+import { invoiceListQuery } from "../../../lib/financeQueries";
 import { Card, CardContent, CardHeader, CardTitle } from "../../ui/card";
 import { Button } from "../../ui/button";
 import { Input } from "../../ui/input";
@@ -160,32 +163,27 @@ function invoicePrefill(invoice: InvoiceDetail) {
 }
 
 export function AccountingInvoicesPage({ initialQuery }: { initialQuery?: string }) {
-  const [rows, setRows] = useState<InvoiceRow[]>([]);
+  const { user, activeDivision, activeDepartment } = useAuth();
   const [q, setQ] = useState("");
   const [categoryFilter, setCategoryFilter] = useState<InvoiceCategory>("commercial");
   const [typeFilter, setTypeFilter] = useState<"all" | "sales" | "purchase">("sales");
-  const [loading, setLoading] = useState(true);
   const [detail, setDetail] = useState<InvoiceDetail | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [pendingDelete, setPendingDelete] = useState<InvoiceRow | null>(null);
+  const detailGeneration = useRef(0);
+  const scopeKey = JSON.stringify([user?.tenantId, user?.id, activeDivision, activeDepartment]);
+  const previousScope = useRef(scopeKey);
+  if (previousScope.current !== scopeKey) {
+    previousScope.current = scopeKey;
+    detailGeneration.current++;
+    setDetail(null);
+    setPendingDelete(null);
+  }
 
-  const load = () => {
-    setLoading(true);
-    financeService
-      .accountingInvoices({
-        page: 1,
-        pageSize: 200,
-        invoiceCategory: categoryFilter,
-        ...(typeFilter !== "all" ? { type: typeFilter } : {}),
-      })
-      .then((res) => setRows(res?.data ?? []))
-      .catch(() => setRows([]))
-      .finally(() => setLoading(false));
-  };
-
-  useEffect(() => {
-    load();
-  }, [categoryFilter, typeFilter]);
+  const list = useQuery(invoiceListQuery([user?.tenantId, user?.id, activeDivision, activeDepartment], categoryFilter, typeFilter));
+  const rows: InvoiceRow[] = list.data ?? [];
+  const loading = list.isPending;
+  const load = () => { void list.refetch(); };
 
   useEffect(() => {
     if (initialQuery !== undefined) setQ(initialQuery);
@@ -210,12 +208,13 @@ export function AccountingInvoicesPage({ initialQuery }: { initialQuery?: string
     .join(" · ");
 
   const openDetail = async (row: InvoiceRow) => {
+    const generation = ++detailGeneration.current;
     setDetail(row);
     try {
       const data = await financeService.accountingInvoice(row.id);
-      setDetail({ ...row, ...data, company: data.company ?? row.company, currency: data.currency ?? row.currency });
+      if (generation === detailGeneration.current) setDetail({ ...row, ...data, company: data.company ?? row.company, currency: data.currency ?? row.currency });
     } catch {
-      setDetail(row);
+      if (generation === detailGeneration.current) setDetail(row);
     }
   };
 
@@ -247,6 +246,9 @@ export function AccountingInvoicesPage({ initialQuery }: { initialQuery?: string
 
   return (
     <div className="crm-page">
+      {list.isError ? <div role="alert" className="flex items-center justify-between gap-3 rounded-lg border border-destructive/30 p-4 text-sm text-destructive">
+        <span>Faturalar yüklenemedi. Lütfen tekrar deneyin.</span><Button variant="outline" onClick={load}>Tekrar dene</Button>
+      </div> : null}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <MiniKpi tone="violet" icon={<Receipt className="size-[18px]" />} label="Fatura" value={filtered.length} sub={invoiceCategoryLabel(categoryFilter).toLocaleLowerCase("tr-TR")} />
         <MiniKpi tone="emerald" icon={<ArrowUpRight className="size-[18px]" />} label="Toplam Tutar" value={primaryTotal ?? "—"} sub={otherTotals.join(" · ") || undefined} />
@@ -393,7 +395,7 @@ export function AccountingInvoicesPage({ initialQuery }: { initialQuery?: string
                   </TableCell>
                 </TableRow>
               ))}
-              {!loading && filtered.length === 0 && (
+              {!loading && !list.isError && filtered.length === 0 && (
                 <TableRow>
                   <TableCell colSpan={typeFilter === "all" ? 9 : 8} className="py-4">
                     <EmptyState

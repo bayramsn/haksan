@@ -6,6 +6,7 @@ import {
 } from "./ui/dialog";
 import { Button } from "./ui/button";
 import { accessRequestService, type AccessRequestRow } from "../../lib/services";
+import { loadAllPaginated } from "../lib/loadAllPaginated";
 
 /**
  * Mükerrer firma erişim taleplerinin onay kutusu. Bölüm sahibi / yetkili
@@ -27,7 +28,7 @@ export function ApprovalsDialog({
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await accessRequestService.list({ status: "pending", pageSize: 100 });
+      const res = await loadAllPaginated((page, pageSize) => accessRequestService.list({ status: "pending", page, pageSize }), 100, (row) => row.id);
       setRows(res.data);
       onChange?.(res.meta?.total ?? res.data.length);
     } catch (err: any) {

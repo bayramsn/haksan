@@ -1,12 +1,13 @@
 import { useEffect, useState } from "react";
-import { AlertTriangle, Check, Eye, EyeOff, Loader2, LockKeyhole, MailCheck, Power, Server, ShieldCheck } from "lucide-react";
-import type { UserMailAccountStatus } from "@haksan/shared";
+import { AlertTriangle, Check, Eye, EyeOff, Loader2, LockKeyhole, MailCheck, PenLine, Power, RotateCcw, Server, ShieldCheck } from "lucide-react";
+import { MAIL_SIGNATURE_MAX, type UserMailAccountStatus } from "@haksan/shared";
 import { toast } from "sonner";
 import { mailService } from "../../../../lib/services";
 import { useAuth } from "../../../../lib/auth";
 import { Button } from "../../ui/button";
 import { Input } from "../../ui/input";
 import { Label } from "../../ui/label";
+import { Textarea } from "../../ui/textarea";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -30,8 +31,10 @@ function formatDate(value: string | null) {
   });
 }
 
+import { AdminMailSignatureSettings } from "./AdminMailSignatureSettings";
+
 export function MailAccountSettings() {
-  const { user } = useAuth();
+  const { user, hasRole } = useAuth();
   const [status, setStatus] = useState<UserMailAccountStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -40,6 +43,30 @@ export function MailAccountSettings() {
   const [email, setEmail] = useState("");
   const [displayName, setDisplayName] = useState(user?.fullName ?? "");
   const [password, setPassword] = useState("");
+  const [signature, setSignature] = useState("");
+  const [savingSignature, setSavingSignature] = useState(false);
+
+  const [signatureSaving, setSignatureSaving] = useState(false);
+
+  const saveImageSignature = async (file: File | null) => {
+    if (file && (!/\.(png|jpe?g|webp)$/i.test(file.name) || !['image/png', 'image/jpeg', 'image/webp'].includes(file.type) || !file.size || file.size > 2 * 1024 * 1024)) {
+      toast.error('PNG, JPG veya WEBP seçin; imza görseli en fazla 2 MB olabilir.');
+      return;
+    }
+    setSignatureSaving(true);
+    try {
+      const image = file ? await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result));
+        reader.onerror = () => reject(new Error('Görsel okunamadı'));
+        reader.readAsDataURL(file);
+      }) : null;
+      setStatus(await mailService.saveSignature({ image, filename: file?.name ?? null }));
+      toast.success(file ? 'Mail imzası kaydedildi' : 'Mail imzası kaldırıldı');
+    } catch (error: any) {
+      toast.error('Mail imzası kaydedilemedi', { description: error?.message });
+    } finally { setSignatureSaving(false); }
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -50,6 +77,7 @@ export function MailAccountSettings() {
         setStatus(next);
         setEmail(next.email ?? "");
         setDisplayName(next.displayName ?? user?.fullName ?? "");
+        setSignature(next.signature ?? next.defaultSignature);
       })
       .catch((error: any) => {
         if (!cancelled) toast.error("Webmail ayarları alınamadı", { description: error?.message });
@@ -74,11 +102,29 @@ export function MailAccountSettings() {
       });
       setStatus(next);
       setPassword("");
+      setSignature(next.signature ?? next.defaultSignature);
       toast.success("Webmail hesabı bağlandı", { description: "SMTP bağlantısı doğrulandı ve gönderime hazır." });
     } catch (error: any) {
       toast.error("Webmail hesabı bağlanamadı", { description: error?.message ?? "Bilgileri kontrol edip tekrar deneyin." });
     } finally {
       setSaving(false);
+    }
+  };
+
+  /** `null` kayıtlı imzayı siler; maile yine profilden üretilen varsayılan eklenir. */
+  const saveSignature = async (value: string | null) => {
+    setSavingSignature(true);
+    try {
+      const next = await mailService.signature(value);
+      setStatus(next);
+      setSignature(next.signature ?? next.defaultSignature);
+      toast.success(value === null ? "Varsayılan imzaya dönüldü" : value.trim() ? "İmza kaydedildi" : "İmza kapatıldı", {
+        description: value === null || value.trim() ? "Bundan sonraki maillerin altına eklenir." : "Mailler imzasız gönderilecek.",
+      });
+    } catch (error: any) {
+      toast.error("İmza kaydedilemedi", { description: error?.message });
+    } finally {
+      setSavingSignature(false);
     }
   };
 
@@ -195,6 +241,58 @@ export function MailAccountSettings() {
           </Button>
         </div>
       </SettingsSection>
+
+      {status?.configured && (
+        <SettingsSection
+          icon={<PenLine />}
+          tone="primary"
+          title="E-posta imzası"
+          description="CRM'den gönderdiğiniz her mailin altına logoyla birlikte eklenir. Boş bırakırsanız mailler imzasız gider."
+          action={status.signature !== null ? (
+            <Button variant="outline" size="sm" className="gap-1.5" disabled={savingSignature} onClick={() => void saveSignature(null)}>
+              <RotateCcw className="size-3.5" /> Profilden üret
+            </Button>
+          ) : undefined}
+        >
+          <Label htmlFor="webmail-signature" className="text-xs text-muted-foreground">İmza metni</Label>
+          <Textarea
+            id="webmail-signature"
+            className="mt-1 min-h-36 resize-y leading-relaxed"
+            value={signature}
+            maxLength={MAIL_SIGNATURE_MAX}
+            disabled={savingSignature}
+            onChange={(event) => setSignature(event.target.value)}
+            placeholder={"Ad Soyad\nÜnvan\nFirma\nTelefon"}
+          />
+          <div className="mt-4 flex flex-col-reverse gap-3 border-t border-border/60 pt-4 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-xs text-muted-foreground">
+              {status.signature === null
+                ? "Şu an profilinizden (ad, ünvan, telefon, e-posta) üretilen imza kullanılıyor."
+                : "Kendi kaydettiğiniz imza kullanılıyor."}
+            </p>
+            <Button
+              className="min-w-36 gap-2"
+              disabled={savingSignature || signature === (status.signature ?? status.defaultSignature)}
+              onClick={() => void saveSignature(signature)}
+            >
+              {savingSignature ? <Loader2 className="size-4 animate-spin" /> : <Check className="size-4" />}
+              İmzayı kaydet
+            </Button>
+          </div>
+        </SettingsSection>
+      )}
+
+      <SettingsSection icon={<MailCheck />} title="Görsel mail imzası" description="Yüklediğiniz imza tüm CRM e-postalarınıza otomatik eklenir. PNG, JPG veya WEBP · en fazla 2 MB.">
+        {status?.signatureImage && <img src={status.signatureImage} alt="Kayıtlı mail imzası" className="mb-4 h-auto w-[480px] max-w-full rounded border bg-white" />}
+        <Label htmlFor="webmail-signature-image" className="text-xs">İmza görseli</Label>
+        <Input id="webmail-signature-image" type="file" accept=".png,.jpg,.jpeg,.webp" className="mt-2" disabled={saving || signatureSaving}
+          onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ''; if (file) void saveImageSignature(file); }} />
+        {!status?.configured && <p className="mt-2 text-xs text-muted-foreground">İmzanızı şimdi yükleyebilirsiniz; webmail hesabınızı bağladığınızda maillere otomatik eklenir.</p>}
+        {signatureSaving && <p className="mt-2 text-xs">İmza kaydediliyor…</p>}
+        {status?.signatureImage && <Button type="button" variant="outline" size="sm" className="mt-3" disabled={saving || signatureSaving} onClick={() => void saveImageSignature(null)}>İmzayı kaldır</Button>}
+      </SettingsSection>
+
+      {hasRole("super_admin") && <AdminMailSignatureSettings />}
 
       <AlertDialog open={disconnectOpen} onOpenChange={setDisconnectOpen}>
         <AlertDialogContent>

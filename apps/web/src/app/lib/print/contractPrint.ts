@@ -6,7 +6,7 @@ import { specsForProductTypeStrict } from "../productSpecTemplates";
 import { publicProductLabel, trShortDate, snapshotAddressLine } from "./core";
 import { allocateCustomsTotal } from "./quotePrint";
 import { printSignatureFromDocumentSnapshot } from "./signature";
-import { printableTechnicalSpecs } from "./technicalSpecs";
+import { printableTechnicalSpecs, snapshotStandardEquipment } from "./technicalSpecs";
 import { fillNotePlaceholders } from "./notes";
 import type { ContractMachinePrintData, ContractPrintData } from "./templates";
 
@@ -288,18 +288,24 @@ const buildContractMachines = (
     const currentProductSpecs = contractSpecs(product);
     // Taslak belge, ürün kartında düzeltilmiş teknik veriyi izler. Kesinleşmiş
     // belge ise imzalandığı andaki quote snapshot'ını korur.
-    const specs = preferLiveProduct && currentProductSpecs.length
+    const variableKeys = new Set(product?.baseModelConfiguration?.variableSpecKeys ?? []);
+    const fixedOrLegacySpecs = preferLiveProduct && currentProductSpecs.length
       ? currentProductSpecs
       : snapshotSpecs.length ? snapshotSpecs : currentProductSpecs;
+    const specs = variableKeys.size ? [
+      ...fixedOrLegacySpecs.filter(spec => !variableKeys.has(spec.key)),
+      ...snapshotSpecs.filter(spec => variableKeys.has(spec.key)),
+    ] : fixedOrLegacySpecs;
     const options = grouped.filter((candidate) => candidate.isOption && candidate.lineGroupKey === row.lineGroupKey);
     const snapshotProduct = recordValue(row.item, "product") as { standardEquipment?: unknown } | undefined;
-    const snapshotStandardEquipment = Array.isArray(snapshotProduct?.standardEquipment)
+    const productSnapshotEquipment = Array.isArray(snapshotProduct?.standardEquipment)
       ? snapshotProduct.standardEquipment.map((item) => String(item ?? "").trim()).filter(Boolean)
       : [];
+    const configuredEquipment = snapshotStandardEquipment(compatibility?.technicalSpecs);
     const accessories = [
-      ...(preferLiveProduct || snapshotStandardEquipment.length === 0
+      ...(configuredEquipment ?? (preferLiveProduct || productSnapshotEquipment.length === 0
         ? product?.standardEquipment ?? []
-        : snapshotStandardEquipment),
+        : productSnapshotEquipment)),
       ...options.map((option) => String(recordValue(option.item, "description") ?? "").trim())
         .filter(Boolean)
         .map((description) => description.replace(/^↳\s*Opsiyon:\s*/, "")),

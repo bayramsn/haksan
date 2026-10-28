@@ -208,6 +208,7 @@ export function formatMetaDate(value?: string | null): string {
 }
 
 export function formatMetaMoney(minor: number | null | undefined, currency = "TRY"): string {
+  if (minor == null || !Number.isFinite(minor)) return "—";
   return new Intl.NumberFormat("tr-TR", {
     style: "currency",
     currency,
@@ -216,6 +217,7 @@ export function formatMetaMoney(minor: number | null | undefined, currency = "TR
 }
 
 export function formatMetaNumber(value: number | null | undefined): string {
+  if (value == null || !Number.isFinite(value)) return "—";
   return new Intl.NumberFormat("tr-TR", { maximumFractionDigits: 1 }).format(Number(value ?? 0));
 }
 

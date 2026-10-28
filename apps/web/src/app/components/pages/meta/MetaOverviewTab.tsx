@@ -129,6 +129,8 @@ export function MetaOverviewTab({ onOpenOpportunity }: { onOpenOpportunity?: (id
           <MetaSectionHeader title="Son Meta lead'leri" description="Lead kaynağı, kampanya ve CRM ataması birlikte görünür." />
           {overviewQuery.isLoading ? (
             <div className="space-y-3 p-4">{Array.from({ length: 5 }, (_, index) => <Skeleton key={index} className="h-14 rounded-lg" />)}</div>
+          ) : overviewQuery.isError ? (
+            <MetaErrorState error={getMetaErrorMessage(overviewQuery.error)} onRetry={() => void overviewQuery.refetch()} />
           ) : (overviewQuery.data?.recentLeads?.length ?? 0) === 0 ? (
             <MetaEmpty title="Henüz Meta lead'i yok" description="Bağlı formlardan lead geldiğinde burada CRM atamasıyla birlikte görünecek." />
           ) : (
@@ -161,6 +163,8 @@ export function MetaOverviewTab({ onOpenOpportunity }: { onOpenOpportunity?: (id
           <MetaSectionHeader title="Bağlantı sağlığı" description="Yetki, senkron ve webhook durumlarının kısa özeti." />
           {overviewQuery.isLoading ? (
             <div className="space-y-3 p-4">{Array.from({ length: 3 }, (_, index) => <Skeleton key={index} className="h-20 rounded-lg" />)}</div>
+          ) : overviewQuery.isError ? (
+            <MetaErrorState error={getMetaErrorMessage(overviewQuery.error)} onRetry={() => void overviewQuery.refetch()} />
           ) : (overviewQuery.data?.connectionHealth?.length ?? 0) === 0 ? (
             <MetaEmpty title="Bağlantı bulunamadı" description="Bağlantılar sekmesinden bir Meta işletme hesabı ekleyin." />
           ) : (

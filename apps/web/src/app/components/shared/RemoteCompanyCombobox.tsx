@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { keepPreviousData, useQuery } from "@tanstack/react-query";
+import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { Building2, Check, ChevronsUpDown, Loader2, Plus } from "lucide-react";
 import { useAuth } from "../../../lib/auth";
 import { companyService, type CompanyDTO } from "../../../lib/services";
@@ -16,6 +16,7 @@ import {
 } from "../ui/command";
 import { Popover, PopoverContent, PopoverTrigger } from "../ui/popover";
 import { cn } from "../ui/utils";
+import { canCreateRemoteOption, remoteOptionHasNext } from "./remoteOptionPagination";
 
 export const REMOTE_COMPANY_PAGE_SIZE = 25;
 
@@ -51,7 +52,7 @@ export function mergeRemoteCompanyOptions(
 
 /**
  * Server-backed company selector for forms that cannot depend on the global
- * store's truncated snapshot. It searches the first 25 matches and separately
+ * store's truncated snapshot. It searches in pages of 25 matches and separately
  * hydrates the selected id when that record is outside the current result set.
  */
 export function RemoteCompanyCombobox({
@@ -88,17 +89,19 @@ export function RemoteCompanyCombobox({
     [relationTypeCodes?.join("|")],
   );
 
-  const listQuery = useQuery({
+  const initialTypes: Array<(typeof relationTypes)[number] | undefined> = relationTypes.length ? relationTypes : [undefined];
+  const listQuery = useInfiniteQuery({
     queryKey: [
       ...companyQueryKeys.all,
       "remote-options",
       scope,
       { page: 1, pageSize: REMOTE_COMPANY_PAGE_SIZE, search: debouncedQuery, relationTypes },
     ],
-    queryFn: async ({ signal }) => {
-      const requestedTypes = relationTypes.length ? relationTypes : [undefined];
+    initialPageParam: { page: 1, types: initialTypes },
+    queryFn: async ({ signal, pageParam }) => {
+      const requestedTypes = pageParam.types;
       const pages = await Promise.all(requestedTypes.map((relationTypeCode) => companyService.list({
-        page: 1,
+        page: pageParam.page,
         pageSize: REMOTE_COMPANY_PAGE_SIZE,
         search: debouncedQuery || undefined,
         relationTypeCode,
@@ -113,20 +116,14 @@ export function RemoteCompanyCombobox({
           "tr-TR",
         ),
       );
-      return {
-        data: companies,
-        meta: {
-          page: 1,
-          pageSize: companies.length,
-          total: pages.reduce((sum, page) => sum + Number(page.meta?.total ?? page.data.length), 0),
-          totalPages: 1,
-        },
-      };
+      const nextTypes = requestedTypes.filter((_type, index) => remoteOptionHasNext(pages[index], pageParam.page));
+      return { data: companies, page: pageParam.page, nextTypes };
     },
-    placeholderData: keepPreviousData,
+    getNextPageParam: (lastPage) => lastPage.nextTypes.length ? { page: lastPage.page + 1, types: lastPage.nextTypes } : undefined,
   });
+  const companies = listQuery.data?.pages.flatMap((page) => page.data) ?? [];
 
-  const selectedIsOnPage = Boolean(value && listQuery.data?.data.some((company) => company.id === value));
+  const selectedIsOnPage = Boolean(value && companies.some((company) => company.id === value));
   const selectedQuery = useQuery({
     queryKey: value ? companyQueryKeys.detail(scope, value) : [...companyQueryKeys.details(), scope, "none"],
     queryFn: ({ signal }) => companyService.get(value as string, { signal }),
@@ -134,17 +131,16 @@ export function RemoteCompanyCombobox({
   });
 
   const options = useMemo(
-    () => mergeRemoteCompanyOptions(listQuery.data?.data ?? [], selectedQuery.data),
-    [listQuery.data?.data, selectedQuery.data],
+    () => mergeRemoteCompanyOptions(companies, selectedQuery.data),
+    [listQuery.data, selectedQuery.data],
   );
   const selected = options.find((option) => option.value === value);
   const loading = listQuery.isPending || listQuery.isFetching || selectedQuery.isFetching;
   const cleanQuery = query.trim();
-  const showCreate = Boolean(
-    onCreate
-    && cleanQuery
-    && !options.some((option) => option.label.toLocaleLowerCase("tr-TR") === cleanQuery.toLocaleLowerCase("tr-TR")),
-  );
+  const showCreate = Boolean(onCreate && canCreateRemoteOption({
+    query, debouncedQuery, success: listQuery.isSuccess, fetching: loading,
+    error: listQuery.isError || selectedQuery.isError, hasNext: Boolean(listQuery.hasNextPage), labels: options.map((option) => option.label),
+  }));
 
   return (
     <Popover
@@ -176,7 +172,7 @@ export function RemoteCompanyCombobox({
           )}
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
+      <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
         <Command shouldFilter={false}>
           <CommandInput
             placeholder={searchPlaceholder}
@@ -184,6 +180,10 @@ export function RemoteCompanyCombobox({
             onValueChange={setQuery}
           />
           <CommandList aria-busy={loading}>
+            {(listQuery.isError || selectedQuery.isError) && <div role="alert" className="p-3 text-sm text-destructive">
+              {listQuery.isError ? 'Firma listesi alınamadı.' : 'Seçili firma alınamadı.'}
+              <Button type="button" variant="ghost" onClick={() => { void (listQuery.isError ? listQuery.refetch() : selectedQuery.refetch()); }}>Yeniden dene</Button>
+            </div>}
             <CommandEmpty>
               {listQuery.isError ? "Firma listesi alınamadı." : loading ? "Firmalar aranıyor…" : "Eşleşen firma yok."}
             </CommandEmpty>
@@ -199,8 +199,8 @@ export function RemoteCompanyCombobox({
                   }}
                 >
                   <Check className={cn("mr-1 size-4", value === option.value ? "opacity-100" : "opacity-0")} />
-                  <span className="min-w-0 flex-1 truncate">{option.label}</span>
-                  {option.hint && <span className="max-w-[45%] truncate text-xs text-muted-foreground">{option.hint}</span>}
+                  <span className="flex min-w-0 flex-1 flex-col gap-0.5"><span className="break-words">{option.label}</span>
+                  {option.hint && <span className="break-words text-xs text-muted-foreground">{option.hint}</span>}</span>
                 </CommandItem>
               ))}
               {showCreate && (
@@ -218,6 +218,7 @@ export function RemoteCompanyCombobox({
                 </CommandItem>
               )}
             </CommandGroup>
+            {listQuery.hasNextPage && <Button type="button" variant="ghost" className="w-full" disabled={listQuery.isFetching} onClick={() => void listQuery.fetchNextPage()}>Daha fazla firma yükle</Button>}
           </CommandList>
         </Command>
       </PopoverContent>

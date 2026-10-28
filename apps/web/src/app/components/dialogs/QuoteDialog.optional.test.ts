@@ -8,7 +8,7 @@ describe("teklifte opsiyonel donanım seçicisi", () => {
     // Seçici eskiden bölümdeki tüm opsiyonel donanımları listeliyordu; ECOCA
     // torna satırında LK Machinery donanımı da çıkıyordu.
     expect(source).toContain("productService\n        .compatibleOptionalEquipment(productId)");
-    expect(source).toContain('l.categoryCode === "TEZGAH" && l.productId');
+    expect(source).toContain('categoryMatches(l.categoryCode, "TEZGAH") && l.productId');
     expect(source).toContain("compatibleOptionalIds[l.productId]");
   });
 

@@ -22,6 +22,7 @@ import {
   getMetaErrorMessage,
   metaQueryKeys,
   metaService,
+  summarizeMetaInsights,
   type MetaCampaign,
   type MetaCampaignStatus,
 } from "../../../../lib/meta-service";
@@ -83,16 +84,7 @@ export function MetaCampaignsTab({ canManage }: { canManage: boolean }) {
     staleTime: 30_000,
   });
 
-  const totals = useMemo(() => (insightsQuery.data?.items ?? []).reduce(
-    (result, item) => ({
-      spendMinor: result.spendMinor + item.spendMinor,
-      impressions: result.impressions + item.impressions,
-      clicks: result.clicks + item.clicks,
-      leads: result.leads + item.leads,
-      currency: result.currency || item.currency,
-    }),
-    { spendMinor: 0, impressions: 0, clicks: 0, leads: 0, currency: "TRY" },
-  ), [insightsQuery.data]);
+  const totals = useMemo(() => summarizeMetaInsights(insightsQuery.data?.items ?? []), [insightsQuery.data]);
 
   const updateMutation = useMutation({
     mutationFn: ({ id, patch }: { id: string; patch: { connectionId: string; status?: MetaCampaignStatus; dailyBudgetMinor?: number } }) =>
@@ -177,12 +169,16 @@ export function MetaCampaignsTab({ canManage }: { canManage: boolean }) {
             </>
           }
         />
-        <div className="grid divide-y divide-border/70 sm:grid-cols-2 sm:divide-x sm:divide-y-0 xl:grid-cols-4">
+        {insightsQuery.isError ? (
+          <MetaErrorState error={getMetaErrorMessage(insightsQuery.error)} onRetry={() => void insightsQuery.refetch()} />
+        ) : insightsQuery.isLoading ? (
+          <MetaTableSkeleton columns={4} />
+        ) : <div className="grid divide-y divide-border/70 sm:grid-cols-2 sm:divide-x sm:divide-y-0 xl:grid-cols-4">
           <CampaignMetric label="Toplam harcama" value={formatMetaMoney(totals.spendMinor, totals.currency)} icon={<Coins className="size-4" />} />
           <CampaignMetric label="Gösterim" value={formatMetaNumber(totals.impressions)} icon={<UsersRound className="size-4" />} />
           <CampaignMetric label="Tıklama" value={formatMetaNumber(totals.clicks)} icon={<MousePointerClick className="size-4" />} />
           <CampaignMetric label="Lead" value={formatMetaNumber(totals.leads)} icon={<UsersRound className="size-4" />} />
-        </div>
+        </div>}
       </MetaSurface>
 
       <MetaSurface>

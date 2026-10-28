@@ -99,6 +99,14 @@ let activeDepartment: string | null = readStoredActiveDepartment();
 let refreshing: Promise<string | null> | null = null;
 let onSessionExpired: (() => void) | null = null;
 let sessionGeneration = 0;
+export class RequestScopeChangedError extends Error {
+  constructor() { super('Çalışma alanı değişti; işlemi yeni alanda tekrar başlatın.'); this.name = 'RequestScopeChangedError'; }
+}
+export function invalidateRequestContext(): void { sessionGeneration += 1; }
+export function requestContextKey(): string { return JSON.stringify([sessionGeneration, activeDivision, activeDepartment]); }
+function assertRequestContext(context: string): void {
+  if (context !== requestContextKey()) throw new RequestScopeChangedError();
+}
 
 /**
  * İstemci tarafı eşzamanlılık tavanı.
@@ -151,8 +159,9 @@ export function scheduleApiRequest<T>(task: () => Promise<T>): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     requestQueue.push(() => {
       activeScheduledRequests += 1;
-      task()
-        .then(resolve, reject)
+      let pending: Promise<T>;
+      try { pending = task(); } catch (error) { pending = Promise.reject(error); }
+      pending.then(resolve, reject)
         .finally(() => {
           activeScheduledRequests -= 1;
           drainRequestQueue();
@@ -175,9 +184,10 @@ function retryAfterMs(res: Response, attempt: number): number {
 
 // Her deneme kuyruğa ayrı girer: 429 sonrası bekleme slot tutmaz, diğer
 // istekler retry beklemesi sırasında akmaya devam eder.
-async function fetchWithRateLimitRetry(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+async function fetchWithRateLimitRetry(input: RequestInfo | URL, init?: RequestInit, context = requestContextKey()): Promise<Response> {
   for (let attempt = 0; ; attempt += 1) {
-    const res = await scheduleApiRequest(() => fetch(input, init));
+    const res = await scheduleApiRequest(() => { assertRequestContext(context); return fetch(input, init); });
+    assertRequestContext(context);
     if (res.status !== 429 || attempt >= API_RATE_LIMIT_RETRIES) return res;
     await sleep(retryAfterMs(res, attempt));
   }
@@ -204,6 +214,7 @@ function readStoredActiveDepartment(): string | null {
  * X-Active-Division olarak gider; localStorage'da kalıcıdır.
  */
 export function setActiveDivision(value: string | null): void {
+  if (activeDivision !== value) invalidateRequestContext();
   activeDivision = value;
   try {
     if (value) localStorage.setItem(ACTIVE_DIVISION_STORAGE_KEY, value);
@@ -218,6 +229,7 @@ export function getActiveDivision(): string | null {
 }
 
 export function setActiveDepartment(value: string | null): void {
+  if (activeDepartment !== value) invalidateRequestContext();
   activeDepartment = value;
   try {
     if (value) localStorage.setItem(ACTIVE_DEPARTMENT_STORAGE_KEY, value);
@@ -250,6 +262,7 @@ export function getAccessToken(): string | null {
 
 async function tryRefresh(): Promise<string | null> {
   if (refreshing) return refreshing;
+  const context = requestContextKey();
   refreshing = (async () => {
     try {
       const res = await fetch(`${BASE_URL}/auth/refresh`, { method: 'POST', credentials: 'include' });
@@ -258,9 +271,11 @@ async function tryRefresh(): Promise<string | null> {
       const t = json.accessToken ?? null;
       // Only adopt a newly minted token — never wipe an in-memory token when refresh
       // fails (e.g. missing cookie) so authed UI doesn't fire unauthenticated API calls.
-      if (t) setAccessToken(t);
+      assertRequestContext(context);
+      if (t) accessToken = t;
       return t;
-    } catch {
+    } catch (error) {
+      if (error instanceof RequestScopeChangedError) throw error;
       return null;
     } finally {
       refreshing = null;
@@ -378,6 +393,7 @@ export function buildMutationDedupeKey({
 const mutationRequests = new SingleFlightRequestStore(MUTATION_SUCCESS_RETENTION_MS);
 
 async function executeRequest<T>(method: string, path: string, body?: unknown, opts: RequestOpts<T> = {}): Promise<T> {
+  const context = requestContextKey();
   const { schema, dedupe: _dedupe, ...init } = opts;
   const url = path.startsWith('http') ? path : `${BASE_URL}${path}`;
   const headers: Record<string, string> = { Accept: 'application/json', ...(init.headers as Record<string, string>) };
@@ -398,8 +414,10 @@ async function executeRequest<T>(method: string, path: string, body?: unknown, o
       headers,
       credentials: 'include',
       body: body === undefined ? undefined : body instanceof FormData ? body : JSON.stringify(body),
-    });
+    }, context);
   } catch (cause) {
+    assertRequestContext(context);
+    if (cause instanceof RequestScopeChangedError) throw cause;
     const error = new ApiError(0, 'NETWORK_ERROR', 'Sunucuya ulaşılamadı. İnternet bağlantınızı kontrol edip tekrar deneyin.');
     error.cause = cause;
     throw error;
@@ -412,6 +430,7 @@ async function executeRequest<T>(method: string, path: string, body?: unknown, o
   // instead of failing with "Token gerekli".
   if (res.status === 401 && !path.startsWith('/auth/')) {
     const newToken = await tryRefresh();
+    assertRequestContext(context);
     if (newToken) {
       const retryHeaders = { ...headers, Authorization: `Bearer ${newToken}` };
       res = await fetchWithRateLimitRetry(url, {
@@ -420,18 +439,20 @@ async function executeRequest<T>(method: string, path: string, body?: unknown, o
         headers: retryHeaders,
         credentials: 'include',
         body: body === undefined ? undefined : body instanceof FormData ? body : JSON.stringify(body),
-      });
+      }, context);
     } else if (!accessToken) {
       onSessionExpired?.();
     }
   }
 
+  assertRequestContext(context);
   if (res.status === 204) return undefined as T;
 
   const contentType = res.headers.get('content-type') ?? '';
   if (!res.ok) {
     if (contentType.includes('application/json')) {
       const json = (await res.json().catch(() => null)) as { error?: { code?: string; message?: string; details?: unknown; requestId?: string } } | null;
+      assertRequestContext(context);
       const code = json?.error?.code ?? `HTTP_${res.status}`;
       const message = json?.error?.message ?? `Hata ${res.status}`;
       const requestId = json?.error?.requestId ?? res.headers.get('x-request-id') ?? undefined;
@@ -448,6 +469,7 @@ async function executeRequest<T>(method: string, path: string, body?: unknown, o
 
   if (contentType.includes('application/json')) {
     const json = await res.json();
+    assertRequestContext(context);
     if (!schema) return json as T;
     const parsed = schema.safeParse(json);
     if (parsed.success) return parsed.data;
@@ -456,7 +478,9 @@ async function executeRequest<T>(method: string, path: string, body?: unknown, o
     console.error(`[apiClient] response contract violation for ${method} ${path}`, parsed.error.issues);
     throw new ApiError(res.status, 'CONTRACT_VIOLATION', 'Sunucu yanıtı beklenen biçimde değil', parsed.error.issues);
   }
-  return (await res.text()) as T;
+  const text = await res.text();
+  assertRequestContext(context);
+  return text as T;
 }
 
 function request<T>(method: string, path: string, body?: unknown, opts: RequestOpts<T> = {}): Promise<T> {

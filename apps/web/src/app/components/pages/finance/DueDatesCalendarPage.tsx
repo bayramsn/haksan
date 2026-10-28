@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { dueDatesQuery } from "../../../lib/financeQueries";
 import { Card, CardContent, CardHeader, CardTitle } from "../../ui/card";
 import { Button } from "../../ui/button";
 import { Badge } from "../../ui/badge";
-import { financeService } from "../../../../lib/services";
 import { useAuth } from "../../../../lib/auth";
 import { MiniKpi } from "../../shared/MiniKpi";
 import { EmptyState } from "../../shared/EmptyState";
@@ -29,13 +30,12 @@ function startWeekday(year: number, month: number) {
 }
 
 export function DueDatesCalendarPage() {
-  const { hasRole } = useAuth();
+  const { user, activeDivision, activeDepartment, hasRole } = useAuth();
   const isAdmin = hasRole("admin") || hasRole("super_admin");
   const [cursor, setCursor] = useState(() => {
     const n = new Date();
     return { year: n.getFullYear(), month: n.getMonth() };
   });
-  const [items, setItems] = useState<DueItem[]>([]);
   const [selectedDay, setSelectedDay] = useState<number | null>(() => new Date().getDate());
 
   const range = useMemo(() => {
@@ -44,9 +44,8 @@ export function DueDatesCalendarPage() {
     return { from: from.toISOString(), to: to.toISOString() };
   }, [cursor]);
 
-  useEffect(() => {
-    financeService.dueDates(range).then((rows) => setItems(rows ?? [])).catch(() => setItems([]));
-  }, [range.from, range.to]);
+  const query = useQuery(dueDatesQuery([user?.tenantId, user?.id, activeDivision, activeDepartment], range));
+  const items: DueItem[] = query.data ?? [];
 
   const byDay = useMemo(() => {
     const map = new Map<number, DueItem[]>();
@@ -106,6 +105,11 @@ export function DueDatesCalendarPage() {
 
   return (
     <div className="crm-page">
+      {query.isPending ? <p role="status" className="p-4 text-sm text-muted-foreground">Vadeler yükleniyor…</p> : query.isError ? (
+        <div role="alert" className="flex items-center justify-between gap-3 rounded-lg border border-destructive/30 p-4 text-sm text-destructive">
+          <span>Vadeler yüklenemedi. Lütfen tekrar deneyin.</span><Button variant="outline" onClick={() => void query.refetch()}>Tekrar dene</Button>
+        </div>
+      ) : null}
       <div className={`grid grid-cols-2 gap-3 ${isAdmin ? "lg:grid-cols-4" : "lg:grid-cols-3"}`}>
         <MiniKpi tone="violet" icon={<Calendar className="size-[18px]" />} label="Bu Ay Vade" value={visibleItems.length} sub={monthLabel} />
         <MiniKpi tone="amber" icon={<Clock className="size-[18px]" />} label="Önümüzdeki 7 Gün" value={next7.length} sub={sumByCurrency(next7) || "vade yok"} />
@@ -213,7 +217,7 @@ export function DueDatesCalendarPage() {
                     </div>
                   );
                 })}
-                {agendaItems.length === 0 && <EmptyState scene="calendar" title="Bu gün için vade yok" description="Başka bir gün seçin veya ay görünümünden planı inceleyin." compact />}
+                {!query.isPending && !query.isError && agendaItems.length === 0 && <EmptyState scene="calendar" title="Bu gün için vade yok" description="Başka bir gün seçin veya ay görünümünden planı inceleyin." compact />}
               </div>
             </aside>
           </div>

@@ -1,7 +1,11 @@
-import { createContext, ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { clearDrafts } from '../app/lib/persist';
+import { Fragment, createContext, ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { meResponseSchema, type NavigationVisibilityKey } from '@haksan/shared';
 import {
   api,
+  invalidateRequestContext,
+  requestContextKey,
+  RequestScopeChangedError,
   ApiError,
   getAccessToken,
   getActiveDepartment,
@@ -104,26 +108,34 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [user, setUser] = useState<MeUser | null>(null);
   const [tenant, setTenant] = useState<MeTenant | null>(null);
+  const authorizationRef = useRef<string | null>(null);
   const authenticatedIdentityRef = useRef<string | null>(null);
   const [activeDivision, setActiveDivisionState] = useState<ActiveDivision>(() => getActiveDivision() ?? 'all');
   const [activeDepartment, setActiveDepartmentState] = useState<string | null>(() => getActiveDepartment());
 
   const applyActiveDivision = useCallback((value: ActiveDivision) => {
+    if (getActiveDivision() !== value) { clearDrafts(); queryClient.clear(); }
     setClientActiveDivision(value);
     setActiveDivisionState(value);
   }, []);
 
   const applyActiveDepartment = useCallback((value: string | null) => {
+    if (getActiveDepartment() !== value) { clearDrafts(); queryClient.clear(); }
     setClientActiveDepartment(value);
     setActiveDepartmentState(value);
   }, []);
 
   const fetchMe = useCallback(async () => {
+    const context = requestContextKey();
     try {
       const res = await api.get('/auth/me', { schema: meResponseSchema });
       const nextUser = res.user as MeUser;
+      const authorization = JSON.stringify([nextUser.tenantId, nextUser.id, nextUser.roles, nextUser.permissions, nextUser.canViewAllDivisions, nextUser.departmentId, nextUser.divisions, nextUser.departments, nextUser.accessScopes]);
+      if (authorizationRef.current !== authorization) { queryClient.clear(); invalidateRequestContext(); }
+      authorizationRef.current = authorization;
       const nextIdentity = `${nextUser.tenantId}:${nextUser.id}`;
       if (authenticatedIdentityRef.current && authenticatedIdentityRef.current !== nextIdentity) {
+        clearDrafts();
         queryClient.clear();
       }
       authenticatedIdentityRef.current = nextIdentity;
@@ -135,6 +147,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       applyActiveDivision(pickActiveDivision(res.user as MeUser, getActiveDivision()));
       applyActiveDepartment(pickActiveDepartment(res.user as MeUser, getActiveDepartment()));
     } catch (err) {
+      if (err instanceof RequestScopeChangedError || context !== requestContextKey()) return;
       authenticatedIdentityRef.current = null;
       queryClient.clear();
       setUser(null);
@@ -174,6 +187,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 
   const logout = useCallback(async () => {
+    clearDrafts();
     try {
       await api.post('/auth/logout');
     } catch {
@@ -192,6 +206,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const clearSession = useCallback(() => {
+    clearDrafts();
     disconnectChatSocket();
     authenticatedIdentityRef.current = null;
     queryClient.clear();
@@ -281,7 +296,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     ]
   );
 
-  return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
+  const boundary = JSON.stringify([user?.tenantId, user?.id, activeDivision, activeDepartment, user?.roles, user?.permissions, user?.canViewAllDivisions, user?.departmentId, user?.divisions, user?.departments, user?.accessScopes]);
+  // Cache clear alone leaves mounted same-key QueryObservers detached. Remount
+  // account-owned screens and StoreInner so queries and local forms start clean.
+  return <Ctx.Provider value={value}><Fragment key={boundary}>{children}</Fragment></Ctx.Provider>;
 }
 
 export function useAuth(): AuthState {

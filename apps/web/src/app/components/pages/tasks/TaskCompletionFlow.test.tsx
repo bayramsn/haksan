@@ -100,3 +100,15 @@ it("opens completed dashboard tasks as filtered history", async () => {
   render(<TasksPage initialQuery="view:completed" />);
   await waitFor(() => expect(tasksService.list).toHaveBeenLastCalledWith(expect.objectContaining({ view: "history", status: "done" })));
 });
+
+it.each(["list", "record"])("%s task surface includes a matching task after the first page", async (surface) => {
+  vi.mocked(tasksService.list).mockImplementation(async (query) => ({
+    data: [{ ...task, id: `task-${query?.page}`, title: query?.page === 2 ? "Sonraki sayfadaki takip" : "İlk sayfadaki takip" }],
+    meta: { page: query?.page ?? 1, pageSize: 100, total: 2, totalPages: 2 },
+  }));
+  render(surface === "list" ? <TasksPage initialQuery="view:overdue" /> : <TaskRecordSection relation={{ companyId: "company-2" }} />);
+  expect(await screen.findByText("Sonraki sayfadaki takip")).toBeInTheDocument();
+  expect(tasksService.list).toHaveBeenCalledWith(expect.objectContaining({ page: 2, pageSize: 100,
+    ...(surface === "list" ? { view: "overdue" } : { companyId: "company-2" }),
+  }));
+});

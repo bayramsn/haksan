@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from ".
 import { Checkbox } from "../ui/checkbox";
 import {
   ImageIcon, ListChecks, CheckCircle2, Sparkles, Tag, Cpu, Package, Wrench, Settings2, FileText,
-  Pencil, Save, X, FileDown, Loader2, Lock,
+  Pencil, Save, X, FileDown, Loader2, Lock, Mail,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Product } from "../../lib/mock";
@@ -21,6 +21,8 @@ import { ProductSpecsTable } from "../shared/ProductSpecsTable";
 import { EntityVisual } from "../shared/PremiumPrimitives";
 import { embedProductImageForPrint, printAssetBase, productTechnicalDoc } from "../../lib/print";
 import { printOrWarn } from "../../lib/pageHelpers";
+import { ComposeMailDialog, type MailRecipient } from "../mail/ComposeMailDialog";
+import { printDocumentHtml } from "@haksan/shared";
 import { laserSnapshotPrintSpecs } from "../../lib/laserProductSnapshot";
 
 type MediaItem = { fileId: string; mediaType: "image" | "document"; title: string | null; mimeType: string; url: string };
@@ -94,6 +96,7 @@ export function ProductDetailDialog({
   /** Fiyat listesi gibi salt-okunur bağlamlarda ürün düzenleme eylemlerini gizler. */
   readOnly?: boolean;
 }) {
+  const [mailRecipient, setMailRecipient] = useState<MailRecipient | null>(null);
   const [equipment, setEquipment] = useState<EquipmentRow[]>([]);
   const [compatibleOptionalEquipment, setCompatibleOptionalEquipment] = useState<CompatibleOptionalRow[]>([]);
   const [options, setOptions] = useState<any[]>([]);
@@ -115,6 +118,7 @@ export function ProductDetailDialog({
 
   // Ürün değişince düzenleme/override durumunu sıfırla.
   useEffect(() => {
+    setMailRecipient(null);
     setEditing(false);
     setOverrides({});
     setDraft({});
@@ -325,8 +329,7 @@ export function ProductDetailDialog({
     return acc;
   }, {});
   const muadilCount = Object.values(muadilGroups).reduce((sum, items) => sum + items.length, 0);
-  const createTechnicalPdf = () => {
-    printOrWarn(productTechnicalDoc({
+  const technicalDocument = () => productTechnicalDoc({
       product: { ...view, imageUrl: printImageUrl || view.imageUrl },
       standardEquipment: standardTitles,
       optionalEquipment: optional.map((item) => ({
@@ -334,11 +337,22 @@ export function ProductDetailDialog({
         description: item.item.description,
       })),
       documents: documents.map((document) => ({ title: document.title })),
-    }, printAssetBase()));
-  };
+    }, printAssetBase());
+  const createTechnicalPdf = () => printOrWarn(technicalDocument());
+  const sendTechnicalMail = () => setMailRecipient({
+    email: '', subject: `${view.shortDescription || [view.brand, view.model].filter(Boolean).join(' ')} — Teknik Bilgiler`,
+    body: 'Merhaba,\n\nTalep ettiğiniz ürünün teknik bilgilerini ekte bilgilerinize sunarız.\n\nİyi çalışmalar.',
+    attachmentLabel: 'Ürün Teknik Bilgileri',
+    productDocument: { id: product.id, pdf: async () => {
+      const doc = technicalDocument();
+      const filename = (view.model || 'urun').replace(/[\\/\u0000-\u001f"]/g, '-').slice(0, 160);
+      return { html: printDocumentHtml(doc), filename: `${filename}-teknik-bilgiler.pdf` };
+    } },
+  });
 
   return (
-    <Dialog open={!!product} onOpenChange={(o) => !o && onClose()}>
+    <Dialog open={!!product} onOpenChange={(o) => !o && !mailRecipient && onClose()}>
+      <ComposeMailDialog recipient={mailRecipient} onOpenChange={open => !open && setMailRecipient(null)} />
       <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto p-0 gap-0">
         {/* header */}
         <DialogHeader className="sticky top-0 z-20 border-b border-border/60 bg-background/95 px-4 pt-5 pb-4 backdrop-blur-sm sm:px-6 sm:pt-6">
@@ -365,6 +379,9 @@ export function ProductDetailDialog({
                   ? <Loader2 className="size-3.5 animate-spin" />
                   : <FileDown className="size-3.5" />}
                 {preparingPrintImage ? "PDF hazırlanıyor…" : "PDF Oluştur"}
+              </Button>
+              <Button size="sm" variant="outline" className="h-8 gap-1.5" onClick={sendTechnicalMail} disabled={loading || preparingPrintImage}>
+                <Mail className="size-3.5" />Teknik Bilgileri Mail Gönder
               </Button>
               {!readOnly && (
                 <>

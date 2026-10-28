@@ -1,3 +1,7 @@
+import { displayProductCategoryOptions, PRODUCT_CATEGORIES, sameProductCategory, uniqueProductCategoryOptions } from "../../lib/productCategories";
+import { persistQuoteItems } from "../../lib/quoteItemEditing";
+import { productMatchesQuoteDivision } from "../../lib/quoteCatalogScope";
+import { laserBaseQuoteContext } from "../../lib/laserBaseQuoteSelection";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger,
@@ -28,6 +32,7 @@ import {
 } from "@haksan/shared";
 import { quoteDefaultsFromCase } from "../../lib/workflow";
 import { applyResolvedLaserProfile, cleanSnapshotSpecs, laserPowerOptions, quoteTechnicalSpecsFromProduct, withQuotedLaserSpecs } from "../../lib/laserProductSnapshot";
+import { selectedOptionsMatchCatalog, isConfigurableProduct, baseModelOptionSpecs, isRequiredConfigurationSet, QuoteConfigurationOptions, type ConfigurationSet, type SelectedProductOption } from "../technical/ProductConfigurationOptions";
 import { laserProfilesService } from "../../../lib/services/laser-profiles.service";
 import {
   calculateProductDiscountAmount,
@@ -36,6 +41,7 @@ import {
 } from "../../lib/quoteDiscount";
 import { fillNotePlaceholders, matchQuoteNoteVariantKey, QUOTE_NOTE_VARIANTS } from "../../lib/print";
 import { DialogSplitLayout, DialogSidebarSection } from "../shared/DialogSplitLayout";
+import { Combobox } from "../ui/combobox";
 import { RemoteCompanyCombobox } from "../shared/RemoteCompanyCombobox";
 import { RemoteContactCombobox } from "../shared/RemoteContactCombobox";
 import { useCompanyDetail } from "../../lib/companyServerData";
@@ -134,13 +140,7 @@ type ProductLookupName = "product-categories" | "product-subcategories" | "produ
 type LookupRow = { code: string; name: string; sortOrder?: number; divisionId?: string | null };
 
 // Ürün ekle ekranındakiyle aynı güvenli yedek kategoriler.
-const PRODUCT_CATEGORIES: ProductOption[] = [
-  { code: "TEZGAH", label: "Tezgah" },
-  { code: "YEDEK_PARCA", label: "Yedek Parça" },
-  { code: "OPSIYONEL_DONANIM", label: "Opsiyonel Donanım" },
-  { code: "ISCILIK", label: "İşçilik" },
-  { code: "AKSESUAR", label: "Aksesuar" },
-];
+
 const PRODUCT_LOOKUP_NAMES: ProductLookupName[] = ["product-categories", "product-subcategories", "product-groups", "product-types"];
 const FALLBACK_PRODUCT_LOOKUPS: Record<ProductLookupName, LookupRow[]> = {
   "product-categories": PRODUCT_CATEGORIES.map((option) => ({ code: option.code, name: option.label })),
@@ -166,7 +166,6 @@ const divisionGroupCode = (code?: string | null) => {
   if (code === "sac_isleme") return "SAC_ISLEME";
   return code.toLocaleUpperCase("tr-TR");
 };
-const PRIMARY_PRODUCT_GROUP_CODES = new Set(["CNC", "UNIVERSAL", "SAC_ISLEME"]);
 const NOTE_FONT_SIZES = [
   { code: "12", label: "Küçük" },
   { code: "14", label: "Normal" },
@@ -185,6 +184,8 @@ type PricedRow = { quantity: string; unitPrice: string; discount: string; discou
 
 // Teklife özel opsiyonel donanım — açıklaması (teknik bilgi) yalnızca bu teklif için düzenlenir
 type OptionInput = {
+  itemId?: string;
+  optionSetId?: string;
   productId: string;
   description: string;
   quantity: string;
@@ -202,6 +203,8 @@ type LineCompatibility = {
 };
 
 type LineState = {
+  itemId?: string;
+  configurationChanged?: boolean;
   lineGroupKey: string;
   groupCode: string;
   categoryCode: string;
@@ -212,6 +215,7 @@ type LineState = {
   description: string; // ürün adı / modeli
   technicalSpecs: ProductSpec[];
   technicalConfiguration?: LaserTechnicalConfiguration | null;
+  selectedProductOptions?: SelectedProductOption[];
   quantity: string;
   unitPrice: string;
   discount: string;
@@ -289,7 +293,9 @@ export function QuoteDialog({
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
 }) {
-  const { customers, products, users, cases, offers, noteTemplates, createQuoteFull, updateCustomer, addNoteTemplate, updateNoteTemplate, deleteNoteTemplate, refresh } = useStore();
+  const { customers, products: catalogProducts, users, cases, offers, noteTemplates, createQuoteFull, updateCustomer, addNoteTemplate, updateNoteTemplate, deleteNoteTemplate, refresh } = useStore();
+  const [historicalProducts, setHistoricalProducts] = useState<Product[]>([]);
+  const products = useMemo(() => [...catalogProducts, ...historicalProducts.filter(product => !catalogProducts.some(current => current.id === product.id))], [catalogProducts, historicalProducts]);
   const editing = Boolean(offerId);
   const { convert } = useFx();
   const { user, activeDivision, canUseAllDivisionsForResource, scopesForResource } = useAuth();
@@ -356,12 +362,9 @@ export function QuoteDialog({
   const scopedProducts = useMemo(
     () =>
       quoteDivisionGroupCode
-        ? products.filter((product) => {
-            const groupCode = product.productGroupCode || "";
-            return !PRIMARY_PRODUCT_GROUP_CODES.has(groupCode) || groupCode === quoteDivisionGroupCode;
-          })
-        : products,
-    [products, quoteDivisionGroupCode]
+        ? catalogProducts.filter(product => productMatchesQuoteDivision(product, quoteDivisionGroupCode, quoteDivisionId))
+        : catalogProducts,
+    [catalogProducts, quoteDivisionGroupCode, quoteDivisionId]
   );
   // İmza listesi teklifin zorunlu parçası değil: yüklenemezse seçici gizli
   // kalır ve çıktı eski davranışıyla proje ilgilisinin adına düşer.
@@ -397,18 +400,20 @@ export function QuoteDialog({
       alive = false;
     };
   }, [open, quoteDivisionId]);
-  const productCategoryOptions = useMemo(() => {
+  const allProductCategoryOptions = useMemo(() => {
     const byCode = new Map<string, string>();
     for (const row of productLookupRows["product-categories"]) byCode.set(row.code, row.name);
-    for (const product of scopedProducts) if (product.categoryCode) byCode.set(product.categoryCode, product.category || byCode.get(product.categoryCode) || product.categoryCode);
+    for (const product of products) if (product.categoryCode && !byCode.has(product.categoryCode)) byCode.set(product.categoryCode, product.category || product.categoryCode);
     if (byCode.size === 0) for (const fallback of PRODUCT_CATEGORIES) byCode.set(fallback.code, fallback.label);
     return Array.from(byCode, ([code, label]) => ({ code, label })).sort((a, b) => a.label.localeCompare(b.label, "tr-TR"));
-  }, [productLookupRows, scopedProducts]);
+  }, [productLookupRows, products]);
+  const categoryMatches = (a?: string | null, b?: string | null) => sameProductCategory(allProductCategoryOptions, a, b);
   const productSubcategoryLookupOptions = useMemo(() => toProductOptions(productLookupRows["product-subcategories"]), [productLookupRows]);
   const productGroupLookupOptions = useMemo(() => toProductOptions(productLookupRows["product-groups"]), [productLookupRows]);
   const productTypeLookupOptions = useMemo(() => toProductOptions(productLookupRows["product-types"]), [productLookupRows]);
 
   const reset = () => {
+    setHistoricalProducts([]);
     setCompanyId(defaultCustomerId ?? "");
     setCompanyAddressId(preferredPdfAddressId(customers.find((customer) => customer.id === defaultCustomerId)));
     setContactId("");
@@ -486,14 +491,24 @@ export function QuoteDialog({
       setNoteFontSize("14");
       setNoteBold(false);
       const items: any[] = Array.isArray(data.items) ? data.items : [];
+      const missingIds = [...new Set(items.map(item => item.productModelId).filter((id): id is string => Boolean(id) && !catalogProducts.some(product => product.id === id)))];
+      const historical = await Promise.all(missingIds.map(async id => {
+        const raw: any = await productService.get(id);
+        return { ...raw, id: raw.id, brand: raw.brand?.name ?? '', brandId: raw.brand?.id ?? raw.brandId, series: raw.series?.name ?? '', model: raw.code ?? '', type: raw.productType?.name ?? '', productTypeCode: raw.productType?.code ?? '', productGroup: raw.productGroup?.name ?? '', productGroupCode: raw.productGroup?.code ?? '', category: raw.category?.name ?? '', categoryCode: raw.category?.code ?? '', subcategory: raw.subcategory?.name ?? '', subcategoryCode: raw.subcategory?.code ?? '', shortDescription: raw.fullName ?? '', description: raw.description ?? '', stockCode: raw.stockCode ?? '', listPrice: Number(raw.listPrice ?? 0), currency: raw.currency?.code ?? 'USD', controlPanel: '', imageUrl: '', specs: raw.specs ?? [], standardEquipment: raw.standardEquipment ?? [], optionalEquipment: raw.optionalEquipment ?? [] } as Product;
+      }));
+      setHistoricalProducts(historical);
+      const editProducts = [...catalogProducts, ...historical];
       setVatEnabled(
         Number(data.vatAmount ?? 0) > 0 ||
         items.some((it) => Number(it.vatRate ?? 0) > 0 || Number(it.vatAmount ?? 0) > 0)
       );
+      const editCategoryOptions = [...allProductCategoryOptions, ...products
+        .filter((product) => product.categoryCode)
+        .map((product) => ({ code: product.categoryCode!, label: product.category || product.categoryCode! }))];
       const mainItems = items.filter((it) => !String(it.description ?? "").startsWith("↳ Opsiyon:"));
       const optionItems = items.filter((it) => String(it.description ?? "").startsWith("↳ Opsiyon:"));
       const mapped: LineState[] = mainItems.map((it) => {
-        const product = it.productModelId ? products.find((p) => p.id === it.productModelId) : undefined;
+        const product = it.productModelId ? editProducts.find((p) => p.id === it.productModelId) : undefined;
         const technicalConfiguration: LaserTechnicalConfiguration | null = it.compatibility?.technicalConfiguration ?? null;
         const storedSpecs = Array.isArray(it.compatibility?.technicalSpecs)
           ? (technicalConfiguration ? cleanSnapshotSpecs : cleanTechnicalSpecs)(it.compatibility.technicalSpecs)
@@ -503,6 +518,7 @@ export function QuoteDialog({
         const stockCode = it.stockCode ?? (dashIdx > -1 ? desc.slice(0, dashIdx) : product?.stockCode ?? "");
         const description = it.stockCode ? desc : dashIdx > -1 ? desc.slice(dashIdx + 3) : desc;
         return {
+          itemId: it.id,
           lineGroupKey: String(it.compatibility?.lineGroupKey ?? newLineGroupKey()),
           groupCode: product?.productGroupCode ?? "",
           categoryCode: product?.categoryCode ?? "",
@@ -513,6 +529,7 @@ export function QuoteDialog({
           description,
           technicalSpecs: technicalConfiguration ? storedSpecs : storedSpecs.length ? storedSpecs : technicalSpecsFromProduct(product),
           technicalConfiguration,
+          selectedProductOptions: it.compatibility?.selectedProductOptions ?? [],
           quantity: String(it.quantity ?? "1"),
           unitPrice: String(it.unitPrice ?? "0"),
           discount: String(it.discountAmount ?? "0"),
@@ -538,11 +555,13 @@ export function QuoteDialog({
           const groupedTarget = lineGroupKey
             ? mapped.findIndex((line) => line.lineGroupKey === lineGroupKey)
             : -1;
-          const legacyTarget = mapped.findIndex((line) => line.categoryCode === "TEZGAH");
+          const legacyTarget = mapped.findIndex((line) => sameProductCategory(editCategoryOptions, line.categoryCode, "TEZGAH"));
           const idx = groupedTarget >= 0 ? groupedTarget : legacyTarget >= 0 ? legacyTarget : 0;
           mapped[idx] = {
             ...mapped[idx],
             options: [...mapped[idx].options, {
+            itemId: it.id,
+            optionSetId: it.compatibility?.configurationOptionSetId ?? mapped[idx].selectedProductOptions?.find(option => `${option.name}: ${option.value}` === String(it.description ?? "").replace(/^↳ Opsiyon:\s*/, ""))?.optionSetId,
             productId: it.productModelId ?? "",
             description: String(it.description ?? "").replace(/^↳ Opsiyon:\s*/, ""),
             quantity: String(it.quantity ?? "1"),
@@ -706,7 +725,7 @@ export function QuoteDialog({
   };
 
   const setLine = (i: number, patch: Partial<LineState>) =>
-    setLines((ls) => ls.map((l, idx) => (idx === i ? { ...l, ...patch } : l)));
+    setLines((ls) => ls.map((l, idx) => (idx === i ? { ...l, ...patch, ...(patch.quantity !== undefined ? { options: l.options.map(o => o.optionSetId ? { ...o, quantity: patch.quantity! } : o) } : {}) } : l)));
   const addLine = () => setLines((ls) => [...ls, emptyLine()]);
   const rmLine = (i: number) => setLines((ls) => (ls.length > 1 ? ls.filter((_, idx) => idx !== i) : ls));
 
@@ -740,7 +759,7 @@ export function QuoteDialog({
 
   const onPickProduct = (i: number, productId: string) => {
     const p = products.find((x) => x.id === productId);
-    if (!p) return setLine(i, { productId, technicalSpecs: [], technicalConfiguration: null });
+    if (!p) return setLine(i, { productId, technicalSpecs: [], technicalConfiguration: null, selectedProductOptions: [], configurationChanged: true, options: [] });
     setLine(i, {
       productId,
       groupCode: p.productGroupCode || "",
@@ -751,6 +770,9 @@ export function QuoteDialog({
       description: p.shortDescription?.trim() || [p.brand, p.series, p.model].filter(Boolean).join(" "),
       technicalSpecs: technicalSpecsFromProduct(p),
       technicalConfiguration: p.technicalConfiguration ?? null,
+      selectedProductOptions: [],
+      configurationChanged: true,
+      options: [],
       unitPrice: p.listPrice ? String(p.listPrice) : "",
       vatRate: String(p.vatRate ?? 20),
     });
@@ -758,52 +780,21 @@ export function QuoteDialog({
     if (i === 0 && p.currency) setCurrency(p.currency as Currency);
   };
 
-  // Ürün Kategorisi → Ürün → Ürün Alt Kategorisi → Ürün Grubu → Ürün Tipi sırasıyla daraltılır.
-  // Bir üst seviye değişince alttaki seçim ve seçili ürün artık uymuyorsa sıfırlanır.
-  const onPickCategory = (i: number, code: string) => {
+  // Grup → kategori → alt kategori → ürün tipi → ürün.
+  const pickLineScope = (i: number, field: "groupCode" | "categoryCode" | "subcategoryCode" | "productTypeCode", code: string) => {
+    const fields = ["groupCode", "categoryCode", "subcategoryCode", "productTypeCode"] as const;
     setLines((ls) => ls.map((l, idx) => {
-      if (idx !== i) return l;
-      const prod = products.find((x) => x.id === l.productId);
-      // Seçili ürün yeni kategoriye uymuyorsa temizle
-      const keep = prod && prod.categoryCode === code;
-      return keep
-        ? { ...l, categoryCode: code }
-        : { ...l, categoryCode: code, subcategoryCode: "", groupCode: "", productTypeCode: "", productId: "", stockCode: "", description: "", technicalSpecs: [], technicalConfiguration: null, options: [] };
+      if (idx !== i || l[field] === code) return l;
+      const scope = { groupCode: l.groupCode, categoryCode: l.categoryCode, subcategoryCode: l.subcategoryCode, productTypeCode: l.productTypeCode };
+      for (const child of fields.slice(fields.indexOf(field) + 1)) scope[child] = "";
+      scope[field] = code;
+      return { ...l, ...scope, productId: "", unitPrice: "", stockCode: "", description: "", technicalSpecs: [], technicalConfiguration: null, selectedProductOptions: [], configurationChanged: true, options: [], nationalized: false };
     }));
   };
-
-  const onPickSubcategory = (i: number, code: string) => {
-    setLines((ls) => ls.map((l, idx) => {
-      if (idx !== i) return l;
-      const prod = products.find((x) => x.id === l.productId);
-      const keep = prod && (prod.subcategoryCode || "") === code;
-      return keep
-        ? { ...l, subcategoryCode: code }
-        : { ...l, subcategoryCode: code, groupCode: "", productTypeCode: "", productId: "", stockCode: "", description: "", technicalSpecs: [], technicalConfiguration: null, options: [] };
-    }));
-  };
-
-  const onPickGroup = (i: number, code: string) => {
-    setLines((ls) => ls.map((l, idx) => {
-      if (idx !== i) return l;
-      const prod = products.find((x) => x.id === l.productId);
-      const keep = prod && (prod.productGroupCode || "") === code;
-      return keep
-        ? { ...l, groupCode: code }
-        : { ...l, groupCode: code, productTypeCode: "", productId: "", stockCode: "", description: "", technicalSpecs: [], technicalConfiguration: null, options: [] };
-    }));
-  };
-
-  const onPickType = (i: number, code: string) => {
-    setLines((ls) => ls.map((l, idx) => {
-      if (idx !== i) return l;
-      const prod = products.find((x) => x.id === l.productId);
-      const keep = prod && (prod.productTypeCode || "") === code;
-      return keep
-        ? { ...l, productTypeCode: code }
-        : { ...l, productTypeCode: code, productId: "", stockCode: "", description: "", technicalSpecs: [], technicalConfiguration: null, options: [] };
-    }));
-  };
+  const onPickGroup = (i: number, code: string) => pickLineScope(i, "groupCode", code);
+  const onPickCategory = (i: number, code: string) => pickLineScope(i, "categoryCode", code);
+  const onPickSubcategory = (i: number, code: string) => pickLineScope(i, "subcategoryCode", code);
+  const onPickType = (i: number, code: string) => pickLineScope(i, "productTypeCode", code);
 
   const setTechnicalSpec = (i: number, j: number, patch: Partial<ProductSpec>) =>
     setLines((ls) => ls.map((l, idx) => (
@@ -827,6 +818,7 @@ export function QuoteDialog({
   // Ürün kartı model başına tektir; kabin ve rezonatör gücü teklif satırında seçilir ve
   // bunlara bağlı teknik alanlar katalogdan yeniden çözülür.
   const [laserBusy, setLaserBusy] = useState<number | null>(null);
+  const [optionsCatalogRevision, setOptionsCatalogRevision] = useState(0);
   const changeLaserSelection = async (i: number, patch: Partial<LaserTechnicalConfiguration["selection"]>) => {
     const line = lines[i];
     const product = products.find((p) => p.id === line?.productId);
@@ -847,12 +839,53 @@ export function QuoteDialog({
     }
   };
 
+  const changeBaseOptions = async (i: number, sets: ConfigurationSet[], selected: SelectedProductOption[]) => {
+    const line = lines[i];
+    const product = products.find(p => p.id === line?.productId);
+    const base = product?.laserBaseConfiguration;
+    if (!line || !product) return;
+    if (selected.some(option => option.priceDelta == null)) { toast.error("Seçeneğin ek fiyatını önce ürün kartından girin."); return; }
+    if (selected.some(option => !option.currencyCode || option.currencyCode !== currency)) { toast.error("Donanım fiyatının para birimi teklif ile aynı olmalı."); return; }
+    const choices = selected.map(option => ({ set: sets.find(s => s.id === option.optionSetId), value: sets.find(s => s.id === option.optionSetId)?.values.find(v => v.id === option.optionValueId) }));
+    const nextOptions = line.options.filter(option => !option.optionSetId && !selected.some(choice => option.description === `${choice.name}: ${choice.value}`) && !(line.selectedProductOptions ?? []).some(choice => option.description === `${choice.name}: ${choice.value}`));
+    nextOptions.push(...selected.map(choice => ({ ...emptyOption(line.vatRate), itemId: line.options.find(option => option.optionSetId === choice.optionSetId)?.itemId, optionSetId: choice.optionSetId, description: `${choice.name}: ${choice.value}`, unitPrice: String(choice.priceDelta ?? 0), quantity: line.quantity })));
+    const next = { ...line, configurationChanged: true, selectedProductOptions: selected, options: nextOptions, technicalConfiguration: null, technicalSpecs: choices.map(c => ({ key: c.set?.name ?? '', value: c.value?.value ?? '' })).filter(s => s.key) };
+    setLaserBusy(i);
+    try {
+      if (product.baseModelConfiguration) {
+        const technicalSpecs = baseModelOptionSpecs(product.baseModelConfiguration, sets, selected, product.specs ?? []);
+        setLines(ls => ls.map((l, idx) => idx === i ? { ...next, technicalSpecs } : l));
+        return;
+      }
+      const context = base ? laserBaseQuoteContext(base, sets, selected) : null;
+      if (base && product.brandId && context?.table?.sourceModelCode && context.power?.powerKw && context.cabinType) {
+        const divisionId = divisions.find(d => d.code.toLowerCase() === 'sac_isleme')?.id;
+        if (!divisionId) throw new Error('Bölüm erişimi yok');
+        const resolved = await laserProfilesService.resolve({ divisionId, brandId: product.brandId }, { productTypeCode: base.productTypeCode, series: base.series, sourceRevision: base.sourceRevision, sourceModelCode: context.table.sourceModelCode, powerKw: context.power.powerKw as LaserTechnicalConfiguration['selection']['powerKw'], cabinType: context.cabinType });
+        if (!resolved.supportedPower) throw new Error('Bu ölçü ve güç birleşimi kaynakta doğrulanmıyor.');
+        setLines(ls => ls.map((l, idx) => idx === i ? applyResolvedLaserProfile(next, resolved) : l));
+      } else {
+        const technicalSpecs = context?.configuration
+          ? [...next.technicalSpecs, ...context.configuration.fields.filter(field => field.verification === 'verified' && field.key !== 'Lazer Gücü').map(field => ({ key: field.key, value: field.rawValue }))]
+          : next.technicalSpecs;
+        setLines(ls => ls.map((l, idx) => idx === i ? { ...next, technicalSpecs } : l));
+        if (base && selected.length) toast.message('Bu konfigürasyonun teknik bilgileri elle tamamlanmalı ve doğrulanmalıdır.');
+      }
+    } catch {
+      toast.error('Seçenekler uygulanamadı. Makine konfigürasyonu ve donanım uyumluluğunu kontrol edin.');
+    } finally { setLaserBusy(null); }
+  };
+
   const setOption = (i: number, j: number, patch: Partial<OptionInput>) =>
     setLines((ls) => ls.map((l, idx) => (idx === i ? { ...l, options: l.options.map((o, k) => (k === j ? { ...o, ...patch } : o)) } : l)));
   const addOption = (i: number, seed?: Partial<OptionInput>) =>
     setLines((ls) => ls.map((l, idx) => (idx === i ? { ...l, options: [...l.options, { ...emptyOption(l.vatRate), ...seed }] } : l)));
   const rmOption = (i: number, j: number) =>
-    setLines((ls) => ls.map((l, idx) => (idx === i ? { ...l, options: l.options.filter((_, k) => k !== j) } : l)));
+    setLines((ls) => ls.map((l, idx) => {
+      if (idx !== i) return l;
+      const setId = l.options[j]?.optionSetId;
+      return { ...l, options: l.options.filter((_, k) => k !== j), ...(setId ? { configurationChanged: true, selectedProductOptions: l.selectedProductOptions?.filter(option => option.optionSetId !== setId), technicalConfiguration: null } : {}) };
+    }));
 
   /**
    * Ayarlar → Teknik Bilgi'de alana tanımlanan alternatif değer teklifte seçilince
@@ -967,8 +1000,8 @@ export function QuoteDialog({
   };
 
   const optionalProducts = useMemo(
-    () => scopedProducts.filter((p) => p.categoryCode === "OPSIYONEL_DONANIM"),
-    [scopedProducts]
+    () => scopedProducts.filter((p) => categoryMatches(p.categoryCode, "OPSIYONEL_DONANIM")),
+    [scopedProducts, allProductCategoryOptions]
   );
 
   /**
@@ -982,8 +1015,8 @@ export function QuoteDialog({
   const [compatibleOptionalIds, setCompatibleOptionalIds] = useState<Record<string, string[]>>({});
   const compatibleRequested = useRef<Set<string>>(new Set());
   const machineProductIds = useMemo(
-    () => [...new Set(lines.filter((l) => l.categoryCode === "TEZGAH" && l.productId).map((l) => l.productId))].sort().join(","),
-    [lines]
+    () => [...new Set(lines.filter((l) => categoryMatches(l.categoryCode, "TEZGAH") && l.productId).map((l) => l.productId))].sort().join(","),
+    [lines, allProductCategoryOptions]
   );
 
   useEffect(() => {
@@ -1008,8 +1041,8 @@ export function QuoteDialog({
     setLines((ls) => ls.map((l, idx) => (idx === i ? { ...l, compatibility: { ...l.compatibility, ...patch } } : l)));
 
   const machineOptions = useMemo(
-    () => scopedProducts.filter((p) => p.categoryCode === "TEZGAH").map((p) => ({ value: p.id, label: `${p.brand} ${p.model}`.trim() })),
-    [scopedProducts]
+    () => scopedProducts.filter((p) => categoryMatches(p.categoryCode, "TEZGAH")).map((p) => ({ value: p.id, label: `${p.brand} ${p.model}`.trim() })),
+    [scopedProducts, allProductCategoryOptions]
   );
   const brandOptions = useMemo(
     () => Array.from(new Set(scopedProducts.map((p) => p.brand).filter(Boolean))).sort().map((b) => ({ value: b, label: b })),
@@ -1082,6 +1115,23 @@ export function QuoteDialog({
     if (canPickDivision && !divisionId) return toast.error("Bölüm seçiniz", { description: "Teklifi CNC / Üniversal / Sac bölümlerinden birine atayın." });
     const valid = lines.filter((l) => (l.productId || l.description.trim() || l.stockCode.trim()) && num(l.quantity) > 0);
     if (valid.length === 0) return toast.error("En az bir ürün satırı ekleyin");
+    if (laserBusy !== null) return toast.error("Makine teknik bilgilerinin yüklenmesini bekleyin.");
+    try {
+      for (const line of valid) {
+        const product = products.find(p => p.id === line.productId);
+        if (!isConfigurableProduct(product) || !product) continue;
+        const selected = line.selectedProductOptions ?? [];
+        // Eski tekliflerin kayıtlı teknik ve fiyat bilgileri seçim yapılmadıkça korunur.
+        if (editing && line.itemId && !line.configurationChanged) continue;
+        const sets: ConfigurationSet[] = await productService.options(product.id);
+        if (sets.some(set => isRequiredConfigurationSet(set, product.baseModelConfiguration) && !selected.some(option => option.optionSetId === set.id))) return toast.error("Makinenin zorunlu konfigürasyon seçeneklerini tamamlayın.");
+        if (!selectedOptionsMatchCatalog(sets, selected)) {
+          setOptionsCatalogRevision(revision => revision + 1);
+          return toast.error("Donanım fiyatı veya güncel seçenek değişti; yeniden seçin.");
+        }
+        if (selected.some(option => option.priceDelta == null || (!option.currencyCode || option.currencyCode !== currency))) return toast.error("Seçeneklerin ek fiyatı ve para birimini kontrol edin.");
+      }
+    } catch { return toast.error("Donanım seçenekleri doğrulanamadı; yeniden deneyin."); }
     const invalidDiscount = valid.flatMap((line) => [line, ...line.options]).find((row) => !isProductDiscountValid({
       quantity: num(row.quantity),
       unitPrice: num(row.unitPrice),
@@ -1106,12 +1156,14 @@ export function QuoteDialog({
       const technicalSpecs = l.technicalConfiguration ? cleanSnapshotSpecs(l.technicalSpecs) : cleanTechnicalSpecs(l.technicalSpecs);
       const lineCompatibility = {
         lineGroupKey: l.lineGroupKey,
-        ...(COMPAT_CATEGORIES.includes(l.categoryCode) && hasCompatibility(l.compatibility) ? l.compatibility : emptyCompatibility()),
+        selectedProductOptions: (l.selectedProductOptions ?? []).map(option => ({ ...option, priceDelta: Number(option.priceDelta), currencyCode: option.currencyCode ?? currency })),
+        ...(COMPAT_CATEGORIES.some((code) => categoryMatches(l.categoryCode, code)) && hasCompatibility(l.compatibility) ? l.compatibility : emptyCompatibility()),
         ...(technicalSpecs.length || l.technicalConfiguration ? { technicalSpecs } : {}),
-        ...(l.technicalConfiguration ? { technicalConfiguration: withQuotedLaserSpecs(l.technicalConfiguration, technicalSpecs) } : {}),
+        technicalConfiguration: l.technicalConfiguration ? withQuotedLaserSpecs(l.technicalConfiguration, technicalSpecs) : null,
       };
       const main = {
-        productModelId: l.productId || undefined,
+        itemId: l.itemId,
+        productModelId: l.productId || null,
         stockCode: l.stockCode.trim() || undefined,
         description: mainName,
         quantity: num(l.quantity),
@@ -1121,10 +1173,11 @@ export function QuoteDialog({
         compatibility: lineCompatibility,
         nationalized: isMachiningCenterTypeCode(l.productTypeCode) ? l.nationalized : false,
       };
-      const opts = (l.categoryCode === "TEZGAH" ? l.options : [])
+      const opts = (categoryMatches(l.categoryCode, "TEZGAH") ? l.options : [])
         .filter((o) => o.productId || o.description.trim())
         .map((o) => ({
-          productModelId: o.productId || undefined,
+          itemId: o.itemId,
+          productModelId: o.productId || null,
           description: `↳ Opsiyon: ${o.description.trim() || "Opsiyonel donanım"}`,
           quantity: num(o.quantity) || 1,
           unitPrice: Number(netUnitPrice(o).toFixed(4)),
@@ -1132,6 +1185,7 @@ export function QuoteDialog({
           vatRate: effVatRate(o),
           compatibility: {
             lineGroupKey: l.lineGroupKey,
+            ...(o.optionSetId ? { configurationOptionSetId: o.optionSetId } : {}),
             ...emptyCompatibility(),
           },
         }));
@@ -1184,14 +1238,7 @@ export function QuoteDialog({
           warrantyTermsText: warrantyTerms.trim() || undefined,
           importCostsExcluded: preset?.importCostsExcluded ?? true,
         } as any);
-        // Kalemleri tamamen yeniden yaz: önce eskileri sil, sonra yenilerini ekle.
-        const existing: any = await quoteService.get(offerId);
-        for (const it of existing.items ?? []) {
-          await quoteService.deleteItem(offerId, it.id);
-        }
-        for (let i = 0; i < items.length; i++) {
-          await quoteService.addItem(offerId, { ...items[i], sortOrder: i } as any);
-        }
+        await persistQuoteItems(offerId, items, quoteService);
         toast.success("Teklif güncellendi", { description: documentNo });
         await refresh();
       } else {
@@ -1569,16 +1616,19 @@ export function QuoteDialog({
 
             <div className="divide-y divide-border/60">
               {lines.map((l, i) => {
+                const productsInGroup = scopedProducts.filter((p) => !l.groupCode || (p.productGroupCode || "") === l.groupCode);
+                const productCategoryOptions = displayProductCategoryOptions(uniqueProductCategoryOptions(allProductCategoryOptions, l.categoryCode), l.groupCode || quoteDivisionGroupCode)
+                  .filter((option) => productsInGroup.some((p) => categoryMatches(p.categoryCode, option.code)) || categoryMatches(option.code, l.categoryCode));
+                const categoryValue = productCategoryOptions.find((option) => categoryMatches(option.code, l.categoryCode))?.code ?? l.categoryCode;
                 const lineTotal = lineTotalNet(l);
                 const product = products.find((x) => x.id === l.productId);
                 const suggestions = product?.optionalEquipment ?? [];
-                // Ürün Kategorisi → Ürün → Ürün Alt Kategorisi → Ürün Grubu → Ürün Tipi sırasıyla daralt;
-                // seçenekler gerçek ürün verisinden türetilir.
-                const productsInCategory = scopedProducts.filter((p) => !l.categoryCode || p.categoryCode === l.categoryCode);
+                // Her seçenek yalnız üst seçimlerin kapsamından türetilir.
+                const productsInCategory = productsInGroup.filter((p) => !l.categoryCode || categoryMatches(p.categoryCode, l.categoryCode));
                 const productsInSubcategory = productsInCategory.filter((p) => !l.subcategoryCode || (p.subcategoryCode || "") === l.subcategoryCode);
-                const productsInGroup = productsInSubcategory.filter((p) => !l.groupCode || (p.productGroupCode || "") === l.groupCode);
-                const lineProducts = productsInGroup.filter((p) => !l.productTypeCode || (p.productTypeCode || "") === l.productTypeCode);
-                const productsForSubcategories = productsInCategory.filter((p) => !l.groupCode || (p.productGroupCode || "") === l.groupCode);
+                const selectableLineProducts = productsInSubcategory.filter((p) => !l.productTypeCode || (p.productTypeCode || "") === l.productTypeCode);
+                const lineProducts = product && l.itemId && !selectableLineProducts.some(p => p.id === product.id) ? [product, ...selectableLineProducts] : selectableLineProducts;
+                const productsForSubcategories = productsInCategory;
                 const availableSubcategoryCodes = new Set(productsForSubcategories.map((p) => p.subcategoryCode).filter(Boolean));
                 const subcategoryOptionsMap = new Map<string, string>(
                   productSubcategoryLookupOptions
@@ -1587,43 +1637,43 @@ export function QuoteDialog({
                 );
                 for (const p of productsForSubcategories) if (p.subcategoryCode) subcategoryOptionsMap.set(p.subcategoryCode, p.subcategory || p.subcategoryCode);
                 const subcategoryOptions = Array.from(subcategoryOptionsMap, ([code, label]) => ({ code, label }));
-                const availableGroupCodes = new Set(productsInSubcategory.map((p) => p.productGroupCode).filter(Boolean));
+                const availableGroupCodes = new Set(scopedProducts.map((p) => p.productGroupCode).filter(Boolean));
                 const groupOptionsMap = new Map<string, string>(
                   productGroupLookupOptions
                     .filter((option) => availableGroupCodes.has(option.code))
                     .map((option) => [option.code, option.label]),
                 );
-                for (const p of productsInSubcategory) if (p.productGroupCode) groupOptionsMap.set(p.productGroupCode, p.productGroup || p.productGroupCode);
+                for (const p of scopedProducts) if (p.productGroupCode) groupOptionsMap.set(p.productGroupCode, p.productGroup || p.productGroupCode);
                 const groupOptions = Array.from(groupOptionsMap, ([code, label]) => ({ code, label }));
-                const availableTypeCodes = new Set(productsInGroup.map((p) => p.productTypeCode).filter(Boolean));
+                const availableTypeCodes = new Set(productsInSubcategory.map((p) => p.productTypeCode).filter(Boolean));
                 const typeOptionsMap = new Map<string, string>(
                   productTypeLookupOptions
                     .filter((option) => availableTypeCodes.has(option.code))
                     .map((option) => [option.code, option.label]),
                 );
-                for (const p of productsInGroup) if (p.productTypeCode) typeOptionsMap.set(p.productTypeCode, p.type || p.productTypeCode);
+                for (const p of productsInSubcategory) if (p.productTypeCode) typeOptionsMap.set(p.productTypeCode, p.type || p.productTypeCode);
                 const typeOptions = Array.from(typeOptionsMap, ([code, label]) => ({ code, label }));
-                const isLaborLine = l.categoryCode === "ISCILIK";
+                const isLaborLine = categoryMatches(l.categoryCode, "ISCILIK");
                 return (
                   <div key={i} className="p-3 space-y-2">
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="inline-flex h-8 shrink-0 items-center rounded-md border border-primary/15 bg-primary/[0.04] px-2 text-[10px] font-semibold uppercase tracking-wide text-primary">
                         {i + 1}. ürün
                       </span>
-                      <Select value={l.categoryCode || "all"} onValueChange={(v) => onPickCategory(i, v === "all" ? "" : v)}>
+                      {groupOptions.length > 0 && (
+                        <Select value={l.groupCode || "all"} onValueChange={(v) => onPickGroup(i, v === "all" ? "" : v)}>
+                          <SelectTrigger className="h-8 w-full sm:w-36"><SelectValue placeholder="Ürün Grubu" /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="all">Tüm gruplar</SelectItem>
+                            {groupOptions.map((g) => <SelectItem key={g.code} value={g.code}>{g.label}</SelectItem>)}
+                          </SelectContent>
+                        </Select>
+                      )}
+                      <Select value={categoryValue || "all"} onValueChange={(v) => onPickCategory(i, v === "all" ? "" : v)}>
                         <SelectTrigger className="h-8 w-full sm:w-36"><SelectValue placeholder="Kategori" /></SelectTrigger>
                         <SelectContent>
                           <SelectItem value="all">Tüm kategoriler</SelectItem>
                           {productCategoryOptions.map((c) => <SelectItem key={c.code} value={c.code}>{c.label}</SelectItem>)}
-                        </SelectContent>
-                      </Select>
-                      <Select value={l.productId || "custom"} onValueChange={(v) => onPickProduct(i, v === "custom" ? "" : v)}>
-                        <SelectTrigger className="h-8 flex-1 min-w-[180px]"><SelectValue placeholder="Ürün seçin" /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="custom">Serbest kalem</SelectItem>
-                          {lineProducts.map((p: Product) => (
-                            <SelectItem key={p.id} value={p.id}>{p.shortDescription?.trim() || [p.brand, p.series, p.model].filter(Boolean).join(" ")}</SelectItem>
-                          ))}
                         </SelectContent>
                       </Select>
                       {subcategoryOptions.length > 0 && (
@@ -1632,15 +1682,6 @@ export function QuoteDialog({
                           <SelectContent>
                             <SelectItem value="all">Tüm alt kategoriler</SelectItem>
                             {subcategoryOptions.map((s) => <SelectItem key={s.code} value={s.code}>{s.label}</SelectItem>)}
-                          </SelectContent>
-                        </Select>
-                      )}
-                      {groupOptions.length > 0 && (
-                        <Select value={l.groupCode || "all"} onValueChange={(v) => onPickGroup(i, v === "all" ? "" : v)}>
-                          <SelectTrigger className="h-8 w-full sm:w-36"><SelectValue placeholder="Ürün Grubu" /></SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="all">Tüm gruplar</SelectItem>
-                            {groupOptions.map((g) => <SelectItem key={g.code} value={g.code}>{g.label}</SelectItem>)}
                           </SelectContent>
                         </Select>
                       )}
@@ -1653,6 +1694,23 @@ export function QuoteDialog({
                           </SelectContent>
                         </Select>
                       )}
+                      <Combobox
+                        value={l.productId || "custom"}
+                        onChange={(v) => onPickProduct(i, v === "custom" ? "" : v)}
+                        ariaLabel={`Teklif satırı ${i + 1} makine seçimi`}
+                        placeholder="Ürün seçin"
+                        searchPlaceholder="Marka, model veya ürün adı ara..."
+                        emptyText="Bu filtrelere uygun ürün bulunamadı."
+                        className="h-8 flex-1 min-w-[180px]"
+                        options={[
+                          { value: "custom", label: "Serbest kalem" },
+                          ...lineProducts.map((p: Product) => ({
+                            value: p.id,
+                            label: p.shortDescription?.trim() || [p.brand, p.series, p.model].filter(Boolean).join(" "),
+                            searchTerms: [p.brand, p.model, p.series, p.stockCode].filter(Boolean).join(" "),
+                          })),
+                        ]}
+                      />
                       <Button
                         type="button"
                         variant="ghost"
@@ -1720,7 +1778,9 @@ export function QuoteDialog({
                       </label>
                     )}
 
-                    {l.categoryCode === "TEZGAH" && (
+                    {product && isConfigurableProduct(product) && <QuoteConfigurationOptions refreshKey={optionsCatalogRevision} productId={product.id} selected={l.selectedProductOptions ?? []} disabled={laserBusy === i} onChange={(sets, selected) => changeBaseOptions(i, sets, selected)} />}
+
+                    {categoryMatches(l.categoryCode, "TEZGAH") && (
                       <details className="rounded-md border border-dashed border-border/70 bg-muted/20 p-2">
                         <summary className="cursor-pointer select-none text-[11px] font-medium text-muted-foreground">
                           Teknik Bilgiler · bu teklife özel ({cleanTechnicalSpecs(l.technicalSpecs).length || l.technicalSpecs.length})
@@ -1731,7 +1791,7 @@ export function QuoteDialog({
                               Ürün kartındaki değerler buraya kopyalanır; burada yapılan değişiklik yalnızca bu teklife yazılır.
                             </span>
                             <div className="flex flex-wrap items-center gap-1.5">
-                              {l.technicalConfiguration && (
+                              {l.technicalConfiguration && !isConfigurableProduct(product) && (
                                 <>
                                   <label className="flex items-center gap-1 text-[11px] text-muted-foreground">
                                     Kabin
@@ -1762,7 +1822,7 @@ export function QuoteDialog({
                                   </label>
                                 </>
                               )}
-                              {product && (
+                              {product && !isConfigurableProduct(product) && (
                                 <Button
                                   type="button"
                                   variant="outline"
@@ -1834,7 +1894,7 @@ export function QuoteDialog({
                     )}
 
                     {/* Teklife özel opsiyonel donanım — yalnızca Tezgah kategorisinde */}
-                    {l.categoryCode === "TEZGAH" && (
+                    {categoryMatches(l.categoryCode, "TEZGAH") && (
                     <div className="mt-1 rounded-md border border-dashed border-border/70 bg-muted/20 p-2 space-y-2">
                       <div className="flex items-center justify-between gap-2">
                         <span className="text-[11px] font-medium text-muted-foreground">Opsiyonel Donanım · bu teklife özel</span>
@@ -1989,7 +2049,7 @@ export function QuoteDialog({
                     )}
 
                     {/* Uyumluluk — yalnızca opsiyonel donanım & yedek parça satırlarında (çoklu seçim) */}
-                    {COMPAT_CATEGORIES.includes(l.categoryCode) && (
+                    {COMPAT_CATEGORIES.some((code) => categoryMatches(l.categoryCode, code)) && (
                     <div className="mt-1 rounded-md border border-dashed border-blue-200 bg-brand-blue-soft p-2 space-y-2">
                       <span className="text-[11px] font-medium text-brand-blue">Uyumluluk · çoklu seçim</span>
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-2">

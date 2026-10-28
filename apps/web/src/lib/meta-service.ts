@@ -29,16 +29,16 @@ export interface MetaConnection {
 export interface MetaOverview {
   period: { from: string; to: string };
   summary: {
-    spendMinor: number;
+    spendMinor: number | null;
     currency: string;
-    impressions: number;
-    clicks: number;
-    leads: number;
-    qualifiedLeads: number;
-    conversions: number;
-    costPerLeadMinor: number;
-    qualificationRate: number;
-    conversionRate: number;
+    impressions: number | null;
+    clicks: number | null;
+    leads: number | null;
+    qualifiedLeads: number | null;
+    conversions: number | null;
+    costPerLeadMinor: number | null;
+    qualificationRate: number | null;
+    conversionRate: number | null;
     firstResponseMinutes?: number | null;
   };
   connectionHealth: Array<{
@@ -94,13 +94,13 @@ export interface MetaCampaign {
   effectiveStatus?: string | null;
   dailyBudgetMinor?: number | null;
   lifetimeBudgetMinor?: number | null;
-  spendMinor?: number;
+  spendMinor?: number | null;
   currency: string;
-  impressions?: number;
-  clicks?: number;
-  leads?: number;
-  qualifiedLeads?: number;
-  conversions?: number;
+  impressions?: number | null;
+  clicks?: number | null;
+  leads?: number | null;
+  qualifiedLeads?: number | null;
+  conversions?: number | null;
   updatedAt?: string | null;
 }
 
@@ -254,6 +254,24 @@ function queryString(params?: object): string {
   return encoded ? `?${encoded}` : "";
 }
 
+/** Array-only endpoints have no total; keep requesting until a short page.
+ * Fail on repeated/invalid pages instead of publishing partial history or KPIs. */
+async function collectMetaArrayPages<T>(fetchPage: (page: number, pageSize: number) => Promise<T[]>): Promise<T[]> {
+  const rows: T[] = [];
+  let previous: string | undefined;
+  for (let page = 1; page <= 10_000; page++) {
+    const result = await fetchPage(page, 100);
+    if (!Array.isArray(result) || result.length > 100) throw new Error("Meta liste sayfaları doğrulanamadı. Lütfen yeniden deneyin.");
+    if (result.length === 0) return rows;
+    const fingerprint = JSON.stringify(result);
+    if (fingerprint === previous) throw new Error("Meta liste sayfası tekrarlandı. Lütfen yeniden deneyin.");
+    rows.push(...result);
+    if (result.length < 100) return rows;
+    previous = fingerprint;
+  }
+  throw new Error("Meta listesi tamamlanamadı. Lütfen filtreleri daraltıp yeniden deneyin.");
+}
+
 function normalizePage<T>(response: ListEnvelope<T>, requestedPage = 1, requestedPageSize = 25): MetaPageResult<T> {
   if (Array.isArray(response)) {
     const hasNext = response.length >= requestedPageSize;
@@ -292,6 +310,8 @@ function slicePage<T>(items: T[], requestedPage = 1, requestedPageSize = 25): Me
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" ? value as Record<string, unknown> : {};
 }
+
+function nullableNumber(value: unknown): number | null { return typeof value === 'number' && Number.isFinite(value) ? value : null; }
 
 function asString(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value : null;
@@ -332,6 +352,18 @@ function normalizeLead(raw: Record<string, unknown>): MetaLead {
   };
 }
 
+export function summarizeMetaInsights(items: MetaInsightPoint[]) {
+  const currencies = new Set(items.map((item) => item.currency));
+  const validCurrency = currencies.size === 1 && /^[A-Z]{3}$/.test(items[0]?.currency ?? '');
+  return {
+    spendMinor: validCurrency ? items.reduce((sum, item) => sum + item.spendMinor, 0) : null,
+    impressions: items.reduce((sum, item) => sum + item.impressions, 0),
+    clicks: items.reduce((sum, item) => sum + item.clicks, 0),
+    leads: items.reduce((sum, item) => sum + item.leads, 0),
+    currency: validCurrency ? items[0]!.currency : 'TRY',
+  };
+}
+
 function normalizeCampaign(raw: Record<string, unknown>, connectionId: string): MetaCampaign {
   return {
     id: String(raw.id ?? ""),
@@ -342,13 +374,13 @@ function normalizeCampaign(raw: Record<string, unknown>, connectionId: string): 
     effectiveStatus: asString(raw.effective_status ?? raw.effectiveStatus),
     dailyBudgetMinor: raw.daily_budget == null && raw.dailyBudgetMinor == null ? null : Number(raw.daily_budget ?? raw.dailyBudgetMinor),
     lifetimeBudgetMinor: raw.lifetime_budget == null && raw.lifetimeBudgetMinor == null ? null : Number(raw.lifetime_budget ?? raw.lifetimeBudgetMinor),
-    spendMinor: Number(raw.spendMinor ?? 0),
+    spendMinor: typeof raw.spendMinor === 'number' && Number.isFinite(raw.spendMinor) ? raw.spendMinor : null,
     currency: String(raw.currency ?? "TRY"),
-    impressions: Number(raw.impressions ?? 0),
-    clicks: Number(raw.clicks ?? 0),
-    leads: Number(raw.leads ?? 0),
-    qualifiedLeads: Number(raw.qualifiedLeads ?? 0),
-    conversions: Number(raw.conversions ?? 0),
+    impressions: typeof raw.impressions === 'number' && Number.isFinite(raw.impressions) ? raw.impressions : null,
+    clicks: typeof raw.clicks === 'number' && Number.isFinite(raw.clicks) ? raw.clicks : null,
+    leads: typeof raw.leads === 'number' && Number.isFinite(raw.leads) ? raw.leads : null,
+    qualifiedLeads: typeof raw.qualifiedLeads === 'number' && Number.isFinite(raw.qualifiedLeads) ? raw.qualifiedLeads : null,
+    conversions: typeof raw.conversions === 'number' && Number.isFinite(raw.conversions) ? raw.conversions : null,
     updatedAt: asString(raw.updated_time ?? raw.updatedAt),
   };
 }
@@ -390,25 +422,21 @@ export const metaQueryKeys = {
 export const metaService = {
   overview: async (params: { from?: string; to?: string; connectionId?: string } = {}): Promise<MetaOverview> => {
     const [rawSummary, rawConnections, rawLeads] = await Promise.all([
-      api.get<{ connections?: number; leads?: number; pendingConversions?: number; totalSpend?: number }>(`${META_PATHS.overview}${queryString(params)}`),
+      api.get<Record<string, unknown>>(`${META_PATHS.overview}${queryString(params)}`),
       api.get<RawMetaConnection[]>(META_PATHS.connections),
-      api.get<ListEnvelope<Record<string, unknown>>>(`${META_PATHS.leads}${queryString({ page: 1, pageSize: 5, connectionId: params.connectionId })}`),
+      api.get<ListEnvelope<Record<string, unknown>>>(`${META_PATHS.leads}${queryString({ ...params, page: 1, pageSize: 5 })}`),
     ]);
     const leadPage = normalizePage(rawLeads, 1, 5);
     return {
       period: { from: params.from ?? "", to: params.to ?? "" },
       summary: {
-        spendMinor: Math.round(Number(rawSummary.totalSpend ?? 0) * 100),
-        currency: "TRY",
-        impressions: 0,
-        clicks: 0,
-        leads: Number(rawSummary.leads ?? leadPage.total),
-        qualifiedLeads: 0,
-        conversions: 0,
-        costPerLeadMinor: 0,
-        qualificationRate: 0,
-        conversionRate: 0,
-        firstResponseMinutes: null,
+        spendMinor: nullableNumber(rawSummary.totalSpend) === null ? null : Math.round(Number(rawSummary.totalSpend) * 100),
+        currency: asString(rawSummary.currency) ?? 'TRY',
+        impressions: nullableNumber(rawSummary.impressions), clicks: nullableNumber(rawSummary.clicks),
+        leads: nullableNumber(rawSummary.leads), qualifiedLeads: nullableNumber(rawSummary.qualifiedLeads),
+        conversions: nullableNumber(rawSummary.conversions), costPerLeadMinor: nullableNumber(rawSummary.costPerLeadMinor),
+        qualificationRate: nullableNumber(rawSummary.qualificationRate), conversionRate: nullableNumber(rawSummary.conversionRate),
+        firstResponseMinutes: nullableNumber(rawSummary.firstResponseMinutes),
       },
       connectionHealth: rawConnections.map((item) => ({
         connectionId: item.id,
@@ -448,18 +476,18 @@ export const metaService = {
     return { ...page, items: page.items.map(normalizeLead) };
   },
   insights: async (params: MetaListParams) => {
-    const response = await api.get<Array<Record<string, unknown>>>(`${META_PATHS.insights}${queryString(params)}`);
+    const response = await collectMetaArrayPages((page, pageSize) => api.get<Array<Record<string, unknown>>>(`${META_PATHS.insights}${queryString({ ...params, page, pageSize })}`));
     const items: MetaInsightPoint[] = response.map((raw) => ({
       date: String(raw.insightDate ?? raw.date ?? ""),
       campaignId: asString(raw.campaignId),
       campaignName: asString(raw.campaignName),
       spendMinor: Math.round(Number(raw.spend ?? 0) * 100),
-      currency: String(asRecord(raw.rawMetrics).account_currency ?? "TRY"),
+      currency: String(asRecord(raw.rawMetrics).account_currency ?? ""),
       impressions: Number(raw.impressions ?? 0),
       clicks: Number(raw.clicks ?? 0),
       leads: Number(raw.leads ?? 0),
     }));
-    return normalizePage(items, params.page, params.pageSize);
+    return { items, total: items.length, page: 1, pageSize: items.length, hasNext: false };
   },
   campaigns: async (params: MetaListParams) => {
     if (!params.connectionId) return normalizePage<MetaCampaign>([], params.page, params.pageSize);
@@ -508,7 +536,7 @@ export const metaService = {
     return normalizePage(items, params.page, params.pageSize);
   },
   messages: async (conversationId: string, params: { connectionId: string }) => {
-    const response = await api.get<Array<Record<string, unknown>>>(`${META_PATHS.conversations}/${conversationId}/messages${queryString({ ...params, page: 1, pageSize: 100 })}`);
+    const response = await collectMetaArrayPages((page, pageSize) => api.get<Array<Record<string, unknown>>>(`${META_PATHS.conversations}/${encodeURIComponent(conversationId)}/messages${queryString({ ...params, page, pageSize })}`));
     return response.map((raw): MetaMessage => ({
       id: String(raw.id ?? raw.remoteId ?? ""),
       direction: String(raw.direction ?? "inbound") as "inbound" | "outbound",

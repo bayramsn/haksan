@@ -73,7 +73,7 @@ const stockRowClass = (status: StockItem["status"]) => {
 };
 
 const STOCK_STATUS_LABELS: Record<StockItem["status"], string> = {
-  Available: "Hazır",
+  Available: "Bekliyor (satışa hazır)",
   Reserved: "Rezerve",
   InTransit: "Yolda",
   Sold: "Satıldı",
@@ -559,7 +559,7 @@ export function StockPage({ focus, initialQuery }: { focus?: OperationFocus; ini
                     </div>
                   </TableCell>
                   <TableCell className="text-sm tabular-nums">{s.serialNumber}</TableCell>
-                  <TableCell className="text-sm text-muted-foreground">{s.controlPanel || "—"}</TableCell>
+                  <TableCell className="text-sm text-muted-foreground">{s.controlPanel || "—"}{s.controlUnitSerialNumber && <span className="block text-xs">Seri: {s.controlUnitSerialNumber}</span>}</TableCell>
                   <TableCell className="text-xs text-muted-foreground">{specValue(product, ["fener mili devri", "spindle speed"])}</TableCell>
                   <TableCell className="text-xs text-muted-foreground">{specValue(product, ["takım adeti", "takim adeti", "takım kapasitesi", "takim kapasitesi", "takım yuvası sayısı", "takim yuvasi sayisi", "tool count", "tool capacity"])}</TableCell>
                   <TableCell className="text-xs text-muted-foreground">{specValue(product, ["fener mili motor gücü", "fener mili motor gucu", "spindle motor power"])}</TableCell>

@@ -30,3 +30,20 @@ describe("RemoteCompanyCombobox", () => {
     expect(options[0]?.label).toBe("Güncel Ünvan");
   });
 });
+
+describe('remote option completion guards', () => {
+  it('rejects invalid pagination rather than silently hiding later matches', async () => {
+    const { remoteOptionHasNext } = await import('./remoteOptionPagination');
+    expect(remoteOptionHasNext({ data: [], meta: { page: 1, pageSize: 25, total: 0, totalPages: 0 } }, 1)).toBe(false);
+    expect(() => remoteOptionHasNext({ data: [], meta: { page: 1, pageSize: 25, total: 50, totalPages: 2 } }, 1)).toThrow('doğrulanamadı');
+    expect(() => remoteOptionHasNext({ data: [], meta: { page: 1, pageSize: 25, total: 0, totalPages: 1 } }, 2)).toThrow('doğrulanamadı');
+  });
+  it('allows creation only after a successful exhaustive settled search', async () => {
+    const { canCreateRemoteOption } = await import('./remoteOptionPagination');
+    const ready = { query: 'Yeni', debouncedQuery: 'Yeni', success: true, fetching: false, error: false, hasNext: false, labels: [] };
+    expect(canCreateRemoteOption(ready)).toBe(true);
+    for (const change of [{ debouncedQuery: '' }, { success: false }, { fetching: true }, { error: true }, { hasNext: true }, { labels: ['YENİ'] }]) {
+      expect(canCreateRemoteOption({ ...ready, ...change })).toBe(false);
+    }
+  });
+});
