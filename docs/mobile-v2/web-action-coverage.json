@@ -1,10 +1,10 @@
 {
-  "generatedAt": "2026-10-19T10:09:11.272Z",
+  "generatedAt": "2026-10-27T12:51:13.141Z",
   "counts": {
     "webActions": 345,
-    "covered": 332,
-    "missing": 13,
-    "mobileCalls": 414
+    "covered": 336,
+    "missing": 9,
+    "mobileCalls": 418
   },
   "rows": [
     {
@@ -1021,7 +1021,7 @@
       "verb": "GET",
       "path": "/competitors",
       "permission": "competitors.read",
-      "inMobile": false,
+      "inMobile": true,
       "pages": []
     },
     {
@@ -1029,7 +1029,7 @@
       "verb": "POST",
       "path": "/competitors",
       "permission": "competitors.create",
-      "inMobile": false,
+      "inMobile": true,
       "pages": []
     },
     {
@@ -1320,7 +1320,7 @@
       "verb": "GET",
       "path": "/note-templates",
       "permission": null,
-      "inMobile": false,
+      "inMobile": true,
       "pages": []
     },
     {
@@ -1344,7 +1344,7 @@
       "verb": "DELETE",
       "path": "/note-templates/:param",
       "permission": null,
-      "inMobile": false,
+      "inMobile": true,
       "pages": []
     },
     {

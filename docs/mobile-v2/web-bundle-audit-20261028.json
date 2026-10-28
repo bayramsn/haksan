@@ -1,0 +1,96 @@
+{
+  "generatedAt": "2026-10-28T11:16:25.956Z",
+  "method": "Production Rollup initial entry plus recursive static imports; dynamic imports excluded; no runtime timing claims.",
+  "initialJsBytes": 594879,
+  "initialGzipBytes": 183043,
+  "chunks": [
+    {
+      "file": "assets/index-mVvQ0h01.js",
+      "bytes": 594879
+    }
+  ],
+  "deferredModuleChecks": [
+    {
+      "module": "/app/WorkspaceApp.tsx",
+      "deferred": true
+    },
+    {
+      "module": "/dialogs/CreateDialogs.tsx",
+      "deferred": true
+    },
+    {
+      "module": "/dialogs/QuoteDialog.tsx",
+      "deferred": true
+    },
+    {
+      "module": "/hexlaser-2026-data.ts",
+      "deferred": true
+    },
+    {
+      "module": "/laser-source-data.ts",
+      "deferred": true
+    }
+  ],
+  "largestInitialModules": [
+    {
+      "file": "node_modules/zod/lib/index.mjs",
+      "bytes": 147307
+    },
+    {
+      "file": "apps/web/node_modules/react-dom/cjs/react-dom.production.min.js",
+      "bytes": 133838
+    },
+    {
+      "file": "node_modules/tailwind-merge/dist/bundle-mjs.mjs",
+      "bytes": 90215
+    },
+    {
+      "file": "node_modules/motion-dom/dist/es/projection/node/create-projection-node.mjs",
+      "bytes": 72048
+    },
+    {
+      "file": "node_modules/sonner/dist/index.mjs",
+      "bytes": 63766
+    },
+    {
+      "file": "apps/web/src/lib/services.ts",
+      "bytes": 34611
+    },
+    {
+      "file": "apps/web/src/app/components/pages/Onboarding.tsx",
+      "bytes": 29115
+    },
+    {
+      "file": "node_modules/socket.io-client/build/esm/socket.js",
+      "bytes": 25385
+    },
+    {
+      "file": "apps/web/src/app/components/pages/Login.tsx",
+      "bytes": 24751
+    },
+    {
+      "file": "node_modules/framer-motion/dist/es/gestures/drag/VisualElementDragControls.mjs",
+      "bytes": 24012
+    },
+    {
+      "file": "node_modules/engine.io-client/build/esm/socket.js",
+      "bytes": 22877
+    },
+    {
+      "file": "node_modules/motion-dom/dist/es/render/utils/animation-state.mjs",
+      "bytes": 16831
+    },
+    {
+      "file": "node_modules/motion-dom/dist/es/render/VisualElement.mjs",
+      "bytes": 13545
+    },
+    {
+      "file": "node_modules/motion-dom/dist/es/animation/generators/spring.mjs",
+      "bytes": 13039
+    },
+    {
+      "file": "apps/web/src/lib/apiClient.ts",
+      "bytes": 12437
+    }
+  ]
+}

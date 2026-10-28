@@ -1,0 +1,7016 @@
+{
+  "generatedAt": "2026-10-28T11:18:06.677Z",
+  "method": "Static TSX inventory; excludes numbered copy files and tests; no API or device requests. Counts are source callsites, not rendered fields or verified flows.",
+  "summary": {
+    "mobile": {
+      "sourceFiles": 299,
+      "filesWithFields": 133,
+      "fieldCallsites": 635,
+      "byControl": {
+        "Field": 367,
+        "IconField": 10,
+        "TextInput": 24,
+        "OptionPicker": 88,
+        "MultiOptionPicker": 7,
+        "SearchSelect": 22,
+        "TokenSelect": 2,
+        "CompanyPicker": 22,
+        "CompanyPickerSheet": 6,
+        "ContactPicker": 10,
+        "CompanySelect": 6,
+        "ContactSelect": 6,
+        "ProductSelect": 5,
+        "LookupSelect": 4,
+        "AssigneeSelect": 4,
+        "UserSelect": 2,
+        "BrandSelect": 3,
+        "TaxOfficeSelect": 1,
+        "DateTimeField": 10,
+        "Switch": 16,
+        "SwitchRow": 10,
+        "CheckRow": 10
+      }
+    },
+    "web": {
+      "sourceFiles": 225,
+      "filesWithFields": 118,
+      "fieldCallsites": 1068,
+      "byControl": {
+        "Field": 165,
+        "Input": 413,
+        "Textarea": 90,
+        "textarea": 1,
+        "input": 36,
+        "select": 40,
+        "Combobox": 23,
+        "RemoteCompanyCombobox": 31,
+        "RemoteContactCombobox": 9,
+        "RequestedMachineCombobox": 1,
+        "Select": 195,
+        "Switch": 29,
+        "Checkbox": 35
+      }
+    }
+  },
+  "files": [
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/(auth)/_layout.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/(auth)/forgot-password.tsx",
+      "fields": {
+        "IconField": 1
+      },
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/(auth)/login.tsx",
+      "fields": {
+        "IconField": 2
+      },
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/(auth)/reset-password.tsx",
+      "fields": {
+        "IconField": 2
+      },
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/(auth)/signup.tsx",
+      "fields": {
+        "IconField": 5
+      },
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/(tabs)/(home,companies,opportunities,calendar,modules)/_layout.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/(tabs)/(home,companies,opportunities,calendar,modules)/calendar.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/(tabs)/(home,companies,opportunities,calendar,modules)/chat/[id].tsx",
+      "fields": {
+        "TextInput": 2
+      },
+      "apiHookImports": [
+        "useChatConversation",
+        "useChatSearch",
+        "useChatWebRtcConfig",
+        "useConversations",
+        "useDeleteMessage",
+        "useEditMessage",
+        "useMarkConversationRead",
+        "useMessages",
+        "useSendMessage",
+        "useToggleReaction"
+      ],
+      "localFeedback": {
+        "Loading": 2,
+        "ErrorState": 1,
+        "EmptyState": 1
+      },
+      "literalPermissionCalls": [
+        "files.create",
+        "files.read"
+      ]
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/(tabs)/(home,companies,opportunities,calendar,modules)/chat/_layout.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/(tabs)/(home,companies,opportunities,calendar,modules)/chat/index.tsx",
+      "fields": {},
+      "apiHookImports": [
+        "useConversations"
+      ],
+      "localFeedback": {
+        "SyncStatus": 1,
+        "Loading": 1,
+        "ErrorState": 1,
+        "EmptyState": 1
+      },
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/(tabs)/(home,companies,opportunities,calendar,modules)/chat/new-group.tsx",
+      "fields": {
+        "Field": 2,
+        "Switch": 1
+      },
+      "apiHookImports": [
+        "useCreateGroup",
+        "useDirectory"
+      ],
+      "localFeedback": {
+        "Loading": 1,
+        "ErrorState": 1,
+        "EmptyState": 1
+      },
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/(tabs)/(home,companies,opportunities,calendar,modules)/chat/new.tsx",
+      "fields": {},
+      "apiHookImports": [
+        "useDirectory",
+        "useStartDm"
+      ],
+      "localFeedback": {
+        "Loading": 1,
+        "ErrorState": 1,
+        "EmptyState": 1
+      },
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/(tabs)/(home,companies,opportunities,calendar,modules)/companies.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/(tabs)/(home,companies,opportunities,calendar,modules)/index.tsx",
+      "fields": {},
+      "apiHookImports": [
+        "useCalendarEvents",
+        "useCompletedPayments",
+        "useDashboard",
+        "useLeadSummary",
+        "useQuoteList",
+        "useQuoteSummary",
+        "useSalesAnalytics",
+        "useServiceTickets",
+        "useShipments",
+        "useStockSummary",
+        "useTaskCounts",
+        "useUnreadCount"
+      ],
+      "localFeedback": {
+        "SyncStatus": 2,
+        "ErrorState": 3
+      },
+      "literalPermissionCalls": [
+        "opportunities",
+        "service-tickets",
+        "tasks"
+      ]
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/(tabs)/(home,companies,opportunities,calendar,modules)/modules/_layout.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/(tabs)/(home,companies,opportunities,calendar,modules)/modules/activities/[id].tsx",
+      "fields": {},
+      "apiHookImports": [
+        "useActivity",
+        "useCompany",
+        "useContact",
+        "useDeleteActivity",
+        "useOpportunity"
+      ],
+      "localFeedback": {
+        "Loading": 1,
+        "ErrorState": 1
+      },
+      "literalPermissionCalls": [
+        "activities.convert",
+        "activities.delete",
+        "activities.update",
+        "files.read"
+      ]
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/(tabs)/(home,companies,opportunities,calendar,modules)/modules/activities/index.tsx",
+      "fields": {},
+      "apiHookImports": [
+        "useActivityList"
+      ],
+      "localFeedback": {
+        "SyncStatus": 1,
+        "ListSkeleton": 1,
+        "ErrorState": 1,
+        "EmptyState": 1,
+        "Loading": 1
+      },
+      "literalPermissionCalls": [
+        "activities.create"
+      ]
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/(tabs)/(home,companies,opportunities,calendar,modules)/modules/balances/[companyId].tsx",
+      "fields": {},
+      "apiHookImports": [
+        "useCompanyStatement",
+        "useCustomerBalances"
+      ],
+      "localFeedback": {
+        "Loading": 1,
+        "ErrorState": 1,
+        "EmptyState": 1
+      },
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/(tabs)/(home,companies,opportunities,calendar,modules)/modules/balances/index.tsx",
+      "fields": {},
+      "apiHookImports": [
+        "useCustomerBalances"
+      ],
+      "localFeedback": {
+        "SyncStatus": 1,
+        "ListSkeleton": 1,
+        "ErrorState": 1,
+        "EmptyState": 1
+      },
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/(tabs)/(home,companies,opportunities,calendar,modules)/modules/calendar/index.tsx",
+      "fields": {
+        "OptionPicker": 1,
+        "Switch": 1
+      },
+      "apiHookImports": [
+        "useCalendarEventsExt",
+        "useCalendarOwners",
+        "useUpdateCalendarEventExt"
+      ],
+      "localFeedback": {
+        "SyncStatus": 1,
+        "Loading": 1,
+        "ErrorState": 1,
+        "EmptyState": 2
+      },
+      "literalPermissionCalls": [
+        "calendar.create",
+        "calendar.update"
+      ]
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/(tabs)/(home,companies,opportunities,calendar,modules)/modules/call-assistant/[id].tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/(tabs)/(home,companies,opportunities,calendar,modules)/modules/call-assistant/index.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/(tabs)/(home,companies,opportunities,calendar,modules)/modules/companies/[id].tsx",
+      "fields": {},
+      "apiHookImports": [
+        "useActivityList",
+        "useAllQuoteList",
+        "useCommercialDocuments",
+        "useCompany",
+        "useCompanyCrossDivisionDebt",
+        "useContactList",
+        "useDeleteCompany",
+        "useLookup",
+        "useOpportunityList",
+        "useQuoteList",
+        "useTaskList",
+        "useTaskRecordEvents",
+        "useUpdateCompanyStatus"
+      ],
+      "localFeedback": {
+        "Loading": 13,
+        "ErrorState": 10,
+        "EmptyState": 6
+      },
+      "literalPermissionCalls": [
+        "activities.create",
+        "companies.delete",
+        "companies.update",
+        "contacts.create",
+        "customer_devices.update",
+        "files.read",
+        "opportunities.create",
+        "receivables.read",
+        "reports.export",
+        "tasks.create"
+      ]
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/(tabs)/(home,companies,opportunities,calendar,modules)/modules/companies/index.tsx",
+      "fields": {
+        "OptionPicker": 3
+      },
+      "apiHookImports": [
+        "useCompanyListExt",
+        "useCompanySummaryExt",
+        "useDeleteCompany",
+        "useUpdateCompanyStatus"
+      ],
+      "localFeedback": {
+        "SyncStatus": 1,
+        "ListSkeleton": 1,
+        "ErrorState": 1,
+        "EmptyState": 1,
+        "Loading": 1
+      },
+      "literalPermissionCalls": [
+        "companies.create",
+        "companies.delete",
+        "companies.update",
+        "opportunities",
+        "opportunities.create",
+        "reports.export"
+      ]
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/(tabs)/(home,companies,opportunities,calendar,modules)/modules/company-map/index.tsx",
+      "fields": {
+        "OptionPicker": 1
+      },
+      "apiHookImports": [
+        "useCompanyDirectory",
+        "useNearbyStaleVisits",
+        "useSetCompanyLocation"
+      ],
+      "localFeedback": {
+        "Loading": 1,
+        "ErrorState": 1,
+        "EmptyState": 1
+      },
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/(tabs)/(home,companies,opportunities,calendar,modules)/modules/contacts/[id].tsx",
+      "fields": {},
+      "apiHookImports": [
+        "useActivityList",
+        "useContact",
+        "useContactCompanyLink",
+        "useContactList",
+        "useDeleteContact",
+        "useLookup"
+      ],
+      "localFeedback": {
+        "Loading": 3,
+        "ErrorState": 1,
+        "EmptyState": 2
+      },
+      "literalPermissionCalls": [
+        "contacts.delete",
+        "contacts.update"
+      ]
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/(tabs)/(home,companies,opportunities,calendar,modules)/modules/contacts/index.tsx",
+      "fields": {
+        "OptionPicker": 1,
+        "CompanyPicker": 1
+      },
+      "apiHookImports": [
+        "useContactListExt",
+        "useContactSummaryExt",
+        "useDeleteContact"
+      ],
+      "localFeedback": {
+        "SyncStatus": 1,
+        "ListSkeleton": 1,
+        "ErrorState": 1,
+        "EmptyState": 1,
+        "Loading": 1
+      },
+      "literalPermissionCalls": [
+        "contacts.create",
+        "contacts.delete",
+        "contacts.update",
+        "reports.export"
+      ]
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/(tabs)/(home,companies,opportunities,calendar,modules)/modules/contracts/[id].tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/(tabs)/(home,companies,opportunities,calendar,modules)/modules/contracts/index.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/(tabs)/(home,companies,opportunities,calendar,modules)/modules/customer-devices/[id].tsx",
+      "fields": {
+        "Field": 2
+      },
+      "apiHookImports": [
+        "useCompany",
+        "useComplaintLinkMutations",
+        "useCreateMaintenancePlan",
+        "useCustomerDevice",
+        "useDeviceMaintenancePlans",
+        "useRemoveCustomerDevice"
+      ],
+      "localFeedback": {
+        "Loading": 2,
+        "ErrorState": 3,
+        "EmptyState": 1
+      },
+      "literalPermissionCalls": [
+        "customer_devices.delete",
+        "customer_devices.update",
+        "service_tickets.create",
+        "service_tickets.update"
+      ]
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/(tabs)/(home,companies,opportunities,calendar,modules)/modules/customer-devices/index.tsx",
+      "fields": {},
+      "apiHookImports": [
+        "useCompanyNames",
+        "useCustomerDevices",
+        "useDeviceWarrantyTotals"
+      ],
+      "localFeedback": {
+        "SyncStatus": 1,
+        "ListSkeleton": 1,
+        "ErrorState": 1,
+        "EmptyState": 2,
+        "Loading": 1
+      },
+      "literalPermissionCalls": [
+        "customer_devices.update"
+      ]
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/(tabs)/(home,companies,opportunities,calendar,modules)/modules/deliveries/[id].tsx",
+      "fields": {},
+      "apiHookImports": [
+        "useCompany",
+        "useDeleteDelivery",
+        "useDeliveryFromList",
+        "useUpdateDelivery",
+        "useUpdateDeliveryStatus"
+      ],
+      "localFeedback": {
+        "Loading": 1,
+        "ErrorState": 1,
+        "EmptyState": 2
+      },
+      "literalPermissionCalls": [
+        "shipments.update"
+      ]
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/(tabs)/(home,companies,opportunities,calendar,modules)/modules/deliveries/index.tsx",
+      "fields": {},
+      "apiHookImports": [
+        "useDeliveries"
+      ],
+      "localFeedback": {
+        "SyncStatus": 1,
+        "ListSkeleton": 1,
+        "ErrorState": 1,
+        "EmptyState": 1,
+        "Loading": 1
+      },
+      "literalPermissionCalls": [
+        "shipments.create",
+        "shipments.read"
+      ]
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/(tabs)/(home,companies,opportunities,calendar,modules)/modules/departments/index.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {
+        "SyncStatus": 1
+      },
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/(tabs)/(home,companies,opportunities,calendar,modules)/modules/documents/[kind]/[id].tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/(tabs)/(home,companies,opportunities,calendar,modules)/modules/documents/index.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/(tabs)/(home,companies,opportunities,calendar,modules)/modules/due-dates/index.tsx",
+      "fields": {},
+      "apiHookImports": [
+        "useDueDates"
+      ],
+      "localFeedback": {
+        "EmptyState": 2,
+        "SyncStatus": 1,
+        "ListSkeleton": 1,
+        "ErrorState": 1
+      },
+      "literalPermissionCalls": [
+        "payments.read"
+      ]
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/(tabs)/(home,companies,opportunities,calendar,modules)/modules/index.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {
+        "SyncStatus": 1,
+        "EmptyState": 1
+      },
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/(tabs)/(home,companies,opportunities,calendar,modules)/modules/installations/[id].tsx",
+      "fields": {},
+      "apiHookImports": [
+        "useDeleteInstallation",
+        "useInstallation",
+        "useSetInstallationStatus"
+      ],
+      "localFeedback": {
+        "Loading": 1,
+        "ErrorState": 1
+      },
+      "literalPermissionCalls": [
+        "installations.delete",
+        "installations.update"
+      ]
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/(tabs)/(home,companies,opportunities,calendar,modules)/modules/installations/index.tsx",
+      "fields": {},
+      "apiHookImports": [
+        "useDeliveries",
+        "useInstallations"
+      ],
+      "localFeedback": {
+        "SyncStatus": 1,
+        "ListSkeleton": 1,
+        "ErrorState": 2,
+        "EmptyState": 1,
+        "Loading": 2
+      },
+      "literalPermissionCalls": [
+        "installations.create",
+        "shipments.read"
+      ]
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/(tabs)/(home,companies,opportunities,calendar,modules)/modules/inventory/[id].tsx",
+      "fields": {},
+      "apiHookImports": [
+        "useAllInventory",
+        "useCompanyList",
+        "useInventoryItem",
+        "useReserveInventoryItem",
+        "useUpdateInventoryItemStatus"
+      ],
+      "localFeedback": {
+        "DetailSkeleton": 1,
+        "ErrorState": 2,
+        "Loading": 2,
+        "EmptyState": 1
+      },
+      "literalPermissionCalls": [
+        "inventory.update"
+      ]
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/(tabs)/(home,companies,opportunities,calendar,modules)/modules/inventory/index.tsx",
+      "fields": {},
+      "apiHookImports": [
+        "useAllInventory",
+        "useAllProducts"
+      ],
+      "localFeedback": {
+        "SyncStatus": 1,
+        "ListSkeleton": 1,
+        "ErrorState": 1,
+        "EmptyState": 1
+      },
+      "literalPermissionCalls": [
+        "inventory.create"
+      ]
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/(tabs)/(home,companies,opportunities,calendar,modules)/modules/inventory/scan.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {
+        "Loading": 1
+      },
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/(tabs)/(home,companies,opportunities,calendar,modules)/modules/invoices/[id].tsx",
+      "fields": {},
+      "apiHookImports": [
+        "useAccountingInvoice",
+        "useCancelAccountingInvoice",
+        "useDeleteAccountingInvoice",
+        "useLookup"
+      ],
+      "localFeedback": {
+        "Loading": 1,
+        "ErrorState": 1,
+        "EmptyState": 2
+      },
+      "literalPermissionCalls": [
+        "accounting_invoices.delete",
+        "accounting_invoices.update",
+        "files.read"
+      ]
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/(tabs)/(home,companies,opportunities,calendar,modules)/modules/invoices/index.tsx",
+      "fields": {},
+      "apiHookImports": [
+        "useAllAccountingInvoices"
+      ],
+      "localFeedback": {
+        "SyncStatus": 1,
+        "ListSkeleton": 1,
+        "ErrorState": 1,
+        "EmptyState": 1
+      },
+      "literalPermissionCalls": [
+        "accounting_invoices.create"
+      ]
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/(tabs)/(home,companies,opportunities,calendar,modules)/modules/kanban/index.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {
+        "SyncStatus": 1
+      },
+      "literalPermissionCalls": [
+        "opportunities.create"
+      ]
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/(tabs)/(home,companies,opportunities,calendar,modules)/modules/maintenance-plans/[id].tsx",
+      "fields": {},
+      "apiHookImports": [
+        "useCompleteMaintenancePlan",
+        "useDeleteMaintenancePlan",
+        "useMaintenancePlan"
+      ],
+      "localFeedback": {
+        "Loading": 1,
+        "ErrorState": 1
+      },
+      "literalPermissionCalls": [
+        "service_tickets.delete",
+        "service_tickets.update"
+      ]
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/(tabs)/(home,companies,opportunities,calendar,modules)/modules/maintenance-plans/index.tsx",
+      "fields": {},
+      "apiHookImports": [
+        "useMaintenancePlans"
+      ],
+      "localFeedback": {
+        "SyncStatus": 1,
+        "ListSkeleton": 1,
+        "ErrorState": 1,
+        "EmptyState": 1,
+        "Loading": 1
+      },
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/(tabs)/(home,companies,opportunities,calendar,modules)/modules/meta/index.tsx",
+      "fields": {},
+      "apiHookImports": [
+        "useMetaConnections",
+        "useMetaPermissions"
+      ],
+      "localFeedback": {
+        "EmptyState": 1,
+        "SyncStatus": 1
+      },
+      "literalPermissionCalls": [
+        "opportunities.read"
+      ]
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/(tabs)/(home,companies,opportunities,calendar,modules)/modules/opportunities/[id].tsx",
+      "fields": {
+        "Field": 10
+      },
+      "apiHookImports": [
+        "useActivityList",
+        "useAllQuoteList",
+        "useCloseOpportunity",
+        "useConvertLead",
+        "useDecideOpportunityApproval",
+        "useDeferOpportunity",
+        "useDeleteOpportunity",
+        "useOpportunity",
+        "useOpportunityAssignees",
+        "useReopenOpportunity",
+        "useSetProcessCheck",
+        "useSetQualificationStage",
+        "useUpdateOpportunity"
+      ],
+      "localFeedback": {
+        "Loading": 3,
+        "ErrorState": 2
+      },
+      "literalPermissionCalls": [
+        "activities",
+        "companies.read",
+        "documents",
+        "installations",
+        "inventory",
+        "opportunities.approve",
+        "opportunities.delete",
+        "opportunities.read",
+        "opportunities.update",
+        "payments",
+        "payments.create",
+        "proformas",
+        "quotes",
+        "receivables",
+        "shipments"
+      ]
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/(tabs)/(home,companies,opportunities,calendar,modules)/modules/opportunities/index.tsx",
+      "fields": {
+        "Field": 1
+      },
+      "apiHookImports": [
+        "useCloseOpportunity",
+        "useDeleteOpportunity",
+        "useLeadSummary",
+        "useOpportunityAssignees",
+        "useReopenOpportunity",
+        "useSalesAnalytics",
+        "useSalesCounts",
+        "useSalesList",
+        "useUpdateOpportunity"
+      ],
+      "localFeedback": {
+        "Loading": 4,
+        "ErrorState": 3,
+        "ListSkeleton": 2,
+        "EmptyState": 2
+      },
+      "literalPermissionCalls": [
+        "opportunities.create",
+        "opportunities.delete",
+        "opportunities.update",
+        "reports.export"
+      ]
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/(tabs)/(home,companies,opportunities,calendar,modules)/modules/payments/[id].tsx",
+      "fields": {},
+      "apiHookImports": [
+        "usePayment"
+      ],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/(tabs)/(home,companies,opportunities,calendar,modules)/modules/payments/index.tsx",
+      "fields": {},
+      "apiHookImports": [
+        "useCashMovements"
+      ],
+      "localFeedback": {
+        "SyncStatus": 1,
+        "ListSkeleton": 1,
+        "ErrorState": 1,
+        "EmptyState": 1
+      },
+      "literalPermissionCalls": [
+        "accounting_invoices.create",
+        "payments.create"
+      ]
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/(tabs)/(home,companies,opportunities,calendar,modules)/modules/price-lists/index.tsx",
+      "fields": {
+        "OptionPicker": 2
+      },
+      "apiHookImports": [
+        "useAllProducts",
+        "usePriceListItemsFull",
+        "useScopedPriceLists"
+      ],
+      "localFeedback": {
+        "SyncStatus": 1,
+        "ListSkeleton": 1,
+        "ErrorState": 1,
+        "EmptyState": 1
+      },
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/(tabs)/(home,companies,opportunities,calendar,modules)/modules/products/[id].tsx",
+      "fields": {},
+      "apiHookImports": [
+        "useCompatibleOptionalEquipment",
+        "useDeleteProduct",
+        "useProduct",
+        "useProductMedia",
+        "useProductOptions"
+      ],
+      "localFeedback": {
+        "DetailSkeleton": 1,
+        "ErrorState": 2,
+        "EmptyState": 1
+      },
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/(tabs)/(home,companies,opportunities,calendar,modules)/modules/products/index.tsx",
+      "fields": {
+        "OptionPicker": 1
+      },
+      "apiHookImports": [
+        "useAllProducts"
+      ],
+      "localFeedback": {
+        "SyncStatus": 1,
+        "ListSkeleton": 1,
+        "ErrorState": 1,
+        "EmptyState": 1
+      },
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/(tabs)/(home,companies,opportunities,calendar,modules)/modules/proformas/[id].tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/(tabs)/(home,companies,opportunities,calendar,modules)/modules/proformas/index.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/(tabs)/(home,companies,opportunities,calendar,modules)/modules/purchase-orders/[id].tsx",
+      "fields": {},
+      "apiHookImports": [
+        "usePurchaseOrder"
+      ],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/(tabs)/(home,companies,opportunities,calendar,modules)/modules/purchase-orders/index.tsx",
+      "fields": {},
+      "apiHookImports": [
+        "useAllPurchaseOrders"
+      ],
+      "localFeedback": {
+        "SyncStatus": 1,
+        "ListSkeleton": 1,
+        "ErrorState": 1,
+        "EmptyState": 1
+      },
+      "literalPermissionCalls": [
+        "purchase_orders.create"
+      ]
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/(tabs)/(home,companies,opportunities,calendar,modules)/modules/quotes/[id].tsx",
+      "fields": {
+        "Field": 4
+      },
+      "apiHookImports": [
+        "useAllQuoteList",
+        "useApproveQuote",
+        "useCommercialDocuments",
+        "useCompany",
+        "useCreateSalesOrderFromQuote",
+        "useDeleteQuote",
+        "useLookup",
+        "useMailAccount",
+        "useMoveOpportunityToSales",
+        "useOpportunity",
+        "useQuoteDetail",
+        "useQuotePriceDecision",
+        "useQuoteWorkflowStatus",
+        "useRejectQuote",
+        "useSalesOrders",
+        "useSendMail",
+        "useSendQuote"
+      ],
+      "localFeedback": {
+        "DetailSkeleton": 1,
+        "ErrorState": 2,
+        "EmptyState": 2
+      },
+      "literalPermissionCalls": [
+        "accounting_invoices.create",
+        "commercial_invoices.create",
+        "contracts.create",
+        "opportunities.update",
+        "proformas.create",
+        "quotes.approve",
+        "quotes.delete",
+        "quotes.reject",
+        "quotes.update"
+      ]
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/(tabs)/(home,companies,opportunities,calendar,modules)/modules/quotes/index.tsx",
+      "fields": {},
+      "apiHookImports": [
+        "useFileLinks",
+        "useGroupedQuoteList",
+        "useQuoteList",
+        "useSalesOrders"
+      ],
+      "localFeedback": {
+        "Loading": 3,
+        "ErrorState": 3,
+        "SyncStatus": 1,
+        "ListSkeleton": 1,
+        "EmptyState": 1
+      },
+      "literalPermissionCalls": [
+        "accounting_invoices.create",
+        "files.create",
+        "files.read",
+        "quotes.create",
+        "sales_orders.read"
+      ]
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/(tabs)/(home,companies,opportunities,calendar,modules)/modules/receivables/[id].tsx",
+      "fields": {},
+      "apiHookImports": [
+        "useReceivable"
+      ],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/(tabs)/(home,companies,opportunities,calendar,modules)/modules/receivables/index.tsx",
+      "fields": {},
+      "apiHookImports": [
+        "useCompletedPayments",
+        "useReceivableSummary",
+        "useReceivables"
+      ],
+      "localFeedback": {
+        "SyncStatus": 1,
+        "ListSkeleton": 1,
+        "ErrorState": 1,
+        "EmptyState": 1
+      },
+      "literalPermissionCalls": [
+        "receivables.create"
+      ]
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/(tabs)/(home,companies,opportunities,calendar,modules)/modules/references/index.tsx",
+      "fields": {},
+      "apiHookImports": [
+        "useDeleteReference",
+        "useReferenceDevices",
+        "useReferences",
+        "useWonOpportunityIds"
+      ],
+      "localFeedback": {
+        "EmptyState": 1,
+        "SyncStatus": 1,
+        "ListSkeleton": 1,
+        "ErrorState": 1
+      },
+      "literalPermissionCalls": [
+        "companies.create",
+        "companies.delete",
+        "companies.update"
+      ]
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/(tabs)/(home,companies,opportunities,calendar,modules)/modules/reports/index.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {
+        "SyncStatus": 1
+      },
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/(tabs)/(home,companies,opportunities,calendar,modules)/modules/roles/[id].tsx",
+      "fields": {
+        "Field": 2
+      },
+      "apiHookImports": [
+        "useAdminPermissions",
+        "useAdminRoles",
+        "useUpdateRole"
+      ],
+      "localFeedback": {
+        "DetailSkeleton": 1,
+        "ErrorState": 1,
+        "EmptyState": 1,
+        "Notice": 1
+      },
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/(tabs)/(home,companies,opportunities,calendar,modules)/modules/roles/index.tsx",
+      "fields": {},
+      "apiHookImports": [
+        "useAdminPermissions",
+        "useAdminRoles"
+      ],
+      "localFeedback": {
+        "SyncStatus": 1,
+        "ListSkeleton": 1,
+        "ErrorState": 1,
+        "EmptyState": 1
+      },
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/(tabs)/(home,companies,opportunities,calendar,modules)/modules/sales-orders/[id].tsx",
+      "fields": {},
+      "apiHookImports": [
+        "useDeleteSalesOrder",
+        "useLookup",
+        "useSalesOrder"
+      ],
+      "localFeedback": {},
+      "literalPermissionCalls": [
+        "accounting_invoices.create",
+        "sales_orders.delete",
+        "sales_orders.update"
+      ]
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/(tabs)/(home,companies,opportunities,calendar,modules)/modules/sales-orders/index.tsx",
+      "fields": {},
+      "apiHookImports": [
+        "useSalesOrders"
+      ],
+      "localFeedback": {
+        "SyncStatus": 1,
+        "ListSkeleton": 1,
+        "ErrorState": 1,
+        "EmptyState": 1,
+        "Loading": 1
+      },
+      "literalPermissionCalls": [
+        "accounting_invoices.create",
+        "sales_orders.create"
+      ]
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/(tabs)/(home,companies,opportunities,calendar,modules)/modules/service-complaints/[id].tsx",
+      "fields": {
+        "CompanyPicker": 1,
+        "Field": 3
+      },
+      "apiHookImports": [
+        "useConvertServiceComplaint",
+        "useRejectServiceComplaint",
+        "useServiceComplaint",
+        "useUpdateServiceComplaint"
+      ],
+      "localFeedback": {
+        "Loading": 1,
+        "ErrorState": 1
+      },
+      "literalPermissionCalls": [
+        "service_tickets.create",
+        "service_tickets.update"
+      ]
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/(tabs)/(home,companies,opportunities,calendar,modules)/modules/service-complaints/index.tsx",
+      "fields": {
+        "OptionPicker": 2
+      },
+      "apiHookImports": [
+        "useServiceComplaints"
+      ],
+      "localFeedback": {
+        "SyncStatus": 1,
+        "ListSkeleton": 1,
+        "ErrorState": 1,
+        "EmptyState": 1,
+        "Loading": 1
+      },
+      "literalPermissionCalls": [
+        "service_tickets.create"
+      ]
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/(tabs)/(home,companies,opportunities,calendar,modules)/modules/service-complaints/links.tsx",
+      "fields": {},
+      "apiHookImports": [
+        "useComplaintLinkMutations",
+        "useComplaintLinks"
+      ],
+      "localFeedback": {
+        "ListSkeleton": 1,
+        "ErrorState": 1,
+        "EmptyState": 1,
+        "Loading": 1
+      },
+      "literalPermissionCalls": [
+        "service_tickets.create",
+        "service_tickets.update"
+      ]
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/(tabs)/(home,companies,opportunities,calendar,modules)/modules/service-kanban/index.tsx",
+      "fields": {},
+      "apiHookImports": [
+        "useServiceTickets",
+        "useSetTicketStage"
+      ],
+      "localFeedback": {
+        "ListSkeleton": 1,
+        "ErrorState": 1,
+        "EmptyState": 1
+      },
+      "literalPermissionCalls": [
+        "service_tickets.create",
+        "service_tickets.update"
+      ]
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/(tabs)/(home,companies,opportunities,calendar,modules)/modules/service-price-list/index.tsx",
+      "fields": {
+        "OptionPicker": 1
+      },
+      "apiHookImports": [
+        "useAllProducts",
+        "usePriceListItems",
+        "usePriceLists"
+      ],
+      "localFeedback": {
+        "ErrorState": 2,
+        "SyncStatus": 1,
+        "ListSkeleton": 1,
+        "EmptyState": 1
+      },
+      "literalPermissionCalls": [
+        "price_lists.create",
+        "price_lists.read",
+        "price_lists.update"
+      ]
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/(tabs)/(home,companies,opportunities,calendar,modules)/modules/service-tickets/[id].tsx",
+      "fields": {},
+      "apiHookImports": [
+        "useCompany",
+        "useContact",
+        "useCustomerDevice",
+        "useDeleteServiceTicket",
+        "useDirectory",
+        "useServiceTicket",
+        "useSetTicketStage",
+        "useUpdateServiceTicket"
+      ],
+      "localFeedback": {
+        "Loading": 3,
+        "ErrorState": 1
+      },
+      "literalPermissionCalls": [
+        "calendar.create",
+        "inventory.update",
+        "service_tickets.delete",
+        "service_tickets.update"
+      ]
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/(tabs)/(home,companies,opportunities,calendar,modules)/modules/service-tickets/index.tsx",
+      "fields": {
+        "OptionPicker": 4
+      },
+      "apiHookImports": [
+        "useServiceTicketSummary",
+        "useServiceTickets"
+      ],
+      "localFeedback": {
+        "SyncStatus": 1,
+        "ListSkeleton": 1,
+        "ErrorState": 1,
+        "EmptyState": 1,
+        "Loading": 1
+      },
+      "literalPermissionCalls": [
+        "service_tickets.create"
+      ]
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/(tabs)/(home,companies,opportunities,calendar,modules)/modules/shipments/[id].tsx",
+      "fields": {},
+      "apiHookImports": [
+        "useCompany",
+        "useDeleteShipment",
+        "useShipment",
+        "useStartShipment",
+        "useUpdateShipmentStatus"
+      ],
+      "localFeedback": {
+        "DetailSkeleton": 1,
+        "ErrorState": 1
+      },
+      "literalPermissionCalls": [
+        "shipments.update"
+      ]
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/(tabs)/(home,companies,opportunities,calendar,modules)/modules/shipments/index.tsx",
+      "fields": {},
+      "apiHookImports": [
+        "useShipments"
+      ],
+      "localFeedback": {
+        "SyncStatus": 1,
+        "ListSkeleton": 1,
+        "ErrorState": 1,
+        "EmptyState": 1,
+        "Loading": 1
+      },
+      "literalPermissionCalls": [
+        "shipments.create"
+      ]
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/(tabs)/(home,companies,opportunities,calendar,modules)/modules/targets/index.tsx",
+      "fields": {
+        "TextInput": 1
+      },
+      "apiHookImports": [
+        "useTargetDirectories",
+        "useTargetReport",
+        "useTeamScorecard"
+      ],
+      "localFeedback": {
+        "Loading": 3,
+        "ErrorState": 2,
+        "EmptyState": 1
+      },
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/(tabs)/(home,companies,opportunities,calendar,modules)/modules/tasks/[id].tsx",
+      "fields": {
+        "Field": 1
+      },
+      "apiHookImports": [
+        "useAddTaskComment",
+        "useDeleteTask",
+        "useTaskDetail",
+        "useToggleTaskDone"
+      ],
+      "localFeedback": {
+        "Loading": 1,
+        "ErrorState": 1
+      },
+      "literalPermissionCalls": [
+        "tasks.delete",
+        "tasks.update"
+      ]
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/(tabs)/(home,companies,opportunities,calendar,modules)/modules/tasks/index.tsx",
+      "fields": {
+        "OptionPicker": 4
+      },
+      "apiHookImports": [
+        "useTaskAssignees",
+        "useTaskCounts",
+        "useTaskListExt",
+        "useTaskSummary",
+        "useToggleTaskDone"
+      ],
+      "localFeedback": {
+        "ErrorState": 2,
+        "SyncStatus": 1,
+        "ListSkeleton": 1,
+        "EmptyState": 1
+      },
+      "literalPermissionCalls": [
+        "tasks.create",
+        "tasks.manage",
+        "tasks.update"
+      ]
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/(tabs)/(home,companies,opportunities,calendar,modules)/modules/trade-fairs/index.tsx",
+      "fields": {},
+      "apiHookImports": [
+        "useDeleteTradeFair",
+        "useTradeFairList",
+        "useTradeFairSummary"
+      ],
+      "localFeedback": {
+        "SyncStatus": 1,
+        "ListSkeleton": 1,
+        "ErrorState": 1,
+        "EmptyState": 1,
+        "Loading": 1
+      },
+      "literalPermissionCalls": [
+        "trade_fairs.create",
+        "trade_fairs.delete",
+        "trade_fairs.update"
+      ]
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/(tabs)/(home,companies,opportunities,calendar,modules)/modules/users/[id].tsx",
+      "fields": {
+        "SwitchRow": 1
+      },
+      "apiHookImports": [
+        "useAdminUsers",
+        "useDeleteUser",
+        "useUnlockUser",
+        "useUpdateUser",
+        "useUserTargets"
+      ],
+      "localFeedback": {
+        "DetailSkeleton": 1,
+        "ErrorState": 2,
+        "EmptyState": 1,
+        "Notice": 1
+      },
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/(tabs)/(home,companies,opportunities,calendar,modules)/modules/users/index.tsx",
+      "fields": {},
+      "apiHookImports": [
+        "useAdminUsers",
+        "useUnlockUser",
+        "useUserTargets"
+      ],
+      "localFeedback": {
+        "Notice": 1,
+        "SyncStatus": 1,
+        "ListSkeleton": 1,
+        "ErrorState": 1,
+        "EmptyState": 1
+      },
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/(tabs)/(home,companies,opportunities,calendar,modules)/more/_layout.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/(tabs)/(home,companies,opportunities,calendar,modules)/more/about.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/(tabs)/(home,companies,opportunities,calendar,modules)/more/index.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {
+        "SyncStatus": 1
+      },
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/(tabs)/(home,companies,opportunities,calendar,modules)/more/profile.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/(tabs)/(home,companies,opportunities,calendar,modules)/more/scope.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/(tabs)/(home,companies,opportunities,calendar,modules)/more/settings/access-requests.tsx",
+      "fields": {},
+      "apiHookImports": [
+        "useAccessRequests",
+        "useDecideAccessRequest"
+      ],
+      "localFeedback": {
+        "Notice": 1,
+        "ListSkeleton": 1,
+        "ErrorState": 1,
+        "EmptyState": 1
+      },
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/(tabs)/(home,companies,opportunities,calendar,modules)/more/settings/calendar-sync.tsx",
+      "fields": {
+        "CheckRow": 1,
+        "SwitchRow": 1
+      },
+      "apiHookImports": [
+        "useCalendarSyncSettings",
+        "useRunCalendarSync",
+        "useSaveCalendarSyncSettings"
+      ],
+      "localFeedback": {
+        "Notice": 3
+      },
+      "literalPermissionCalls": [
+        "calendar.update"
+      ]
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/(tabs)/(home,companies,opportunities,calendar,modules)/more/settings/company.tsx",
+      "fields": {
+        "Field": 5
+      },
+      "apiHookImports": [
+        "useTenantSettings",
+        "useUpdateTenant"
+      ],
+      "localFeedback": {
+        "Notice": 2
+      },
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/(tabs)/(home,companies,opportunities,calendar,modules)/more/settings/departments.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/(tabs)/(home,companies,opportunities,calendar,modules)/more/settings/index.tsx",
+      "fields": {
+        "Field": 1
+      },
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/(tabs)/(home,companies,opportunities,calendar,modules)/more/settings/laser-profiles.tsx",
+      "fields": {
+        "OptionPicker": 4,
+        "TextInput": 4
+      },
+      "apiHookImports": [
+        "useCatalogBrands",
+        "useLaserCommitImport",
+        "useLaserOptions",
+        "useLaserPreviewImport",
+        "useLaserResolve",
+        "useLaserSave"
+      ],
+      "localFeedback": {
+        "Notice": 4,
+        "ErrorState": 2
+      },
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/(tabs)/(home,companies,opportunities,calendar,modules)/more/settings/lead-rules.tsx",
+      "fields": {},
+      "apiHookImports": [
+        "useAdminUsers",
+        "useLeadRules",
+        "useRemoveLeadRule",
+        "useUpdateLeadRule"
+      ],
+      "localFeedback": {
+        "ListSkeleton": 1,
+        "ErrorState": 1,
+        "EmptyState": 1
+      },
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/(tabs)/(home,companies,opportunities,calendar,modules)/more/settings/lookups/[name].tsx",
+      "fields": {
+        "Field": 1,
+        "OptionPicker": 2,
+        "SwitchRow": 1,
+        "Switch": 1
+      },
+      "apiHookImports": [
+        "useAuditLogs",
+        "useCreateLookup",
+        "useDeleteLookup",
+        "useLookupRows",
+        "useReorderLookup",
+        "useUpdateLookup"
+      ],
+      "localFeedback": {
+        "ErrorState": 2,
+        "Notice": 1,
+        "ListSkeleton": 1,
+        "EmptyState": 1
+      },
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/(tabs)/(home,companies,opportunities,calendar,modules)/more/settings/lookups/index.tsx",
+      "fields": {},
+      "apiHookImports": [
+        "useAdminLookupNames"
+      ],
+      "localFeedback": {
+        "EmptyState": 1
+      },
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/(tabs)/(home,companies,opportunities,calendar,modules)/more/settings/mail-signatures.tsx",
+      "fields": {},
+      "apiHookImports": [
+        "useMailSignatureUsers"
+      ],
+      "localFeedback": {
+        "ListSkeleton": 1,
+        "ErrorState": 1,
+        "EmptyState": 1
+      },
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/(tabs)/(home,companies,opportunities,calendar,modules)/more/settings/menu.tsx",
+      "fields": {},
+      "apiHookImports": [
+        "useTenantSettings",
+        "useUpdateTenant"
+      ],
+      "localFeedback": {
+        "Notice": 2
+      },
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/(tabs)/(home,companies,opportunities,calendar,modules)/more/settings/signatures.tsx",
+      "fields": {},
+      "apiHookImports": [
+        "useRemoveSignature",
+        "useSignatures"
+      ],
+      "localFeedback": {
+        "EmptyState": 1
+      },
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/(tabs)/(home,companies,opportunities,calendar,modules)/more/settings/spec-templates/[type].tsx",
+      "fields": {
+        "TextInput": 5,
+        "Switch": 1
+      },
+      "apiHookImports": [
+        "useBatchSaveSpecTemplates",
+        "useSpecTemplates"
+      ],
+      "localFeedback": {
+        "EmptyState": 2
+      },
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/(tabs)/(home,companies,opportunities,calendar,modules)/more/settings/spec-templates/index.tsx",
+      "fields": {},
+      "apiHookImports": [
+        "useLookupRows",
+        "useSpecTemplates"
+      ],
+      "localFeedback": {
+        "ListSkeleton": 1,
+        "ErrorState": 1,
+        "EmptyState": 1
+      },
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/(tabs)/(home,companies,opportunities,calendar,modules)/more/settings/webmail.tsx",
+      "fields": {
+        "Field": 4
+      },
+      "apiHookImports": [
+        "useMailAccount",
+        "useMailConnect",
+        "useMailDisconnect",
+        "useMailImageSignature",
+        "useMailTextSignature"
+      ],
+      "localFeedback": {
+        "Notice": 2
+      },
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/(tabs)/(home,companies,opportunities,calendar,modules)/notifications.tsx",
+      "fields": {
+        "TextInput": 1
+      },
+      "apiHookImports": [
+        "useMarkAllRead",
+        "useMarkNotificationRead",
+        "useNotifications",
+        "useRespondNotification"
+      ],
+      "localFeedback": {
+        "SyncStatus": 1,
+        "Loading": 2,
+        "ErrorState": 1,
+        "EmptyState": 1
+      },
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/(tabs)/(home,companies,opportunities,calendar,modules)/opportunities.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/(tabs)/_layout.tsx",
+      "fields": {},
+      "apiHookImports": [
+        "useChatUnreadCount",
+        "useUnreadCount"
+      ],
+      "localFeedback": {},
+      "literalPermissionCalls": [
+        "calendar",
+        "companies",
+        "opportunities"
+      ]
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/+native-intent.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/+not-found.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/_layout.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/index.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/modal/_layout.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/modal/activity.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/modal/calendar-event.tsx",
+      "fields": {
+        "OptionPicker": 1,
+        "CompanyPicker": 1,
+        "Field": 2,
+        "DateTimeField": 2,
+        "Switch": 2
+      },
+      "apiHookImports": [
+        "useArchiveCalendarEvent",
+        "useCalendarOwners",
+        "useCreateCalendarEventExt",
+        "useRestoreCalendarEvent",
+        "useUpdateCalendarEventExt"
+      ],
+      "localFeedback": {},
+      "literalPermissionCalls": [
+        "calendar.create",
+        "calendar.delete",
+        "calendar.update"
+      ]
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/modal/calendar-import.tsx",
+      "fields": {
+        "Switch": 1,
+        "OptionPicker": 1
+      },
+      "apiHookImports": [
+        "useCalendarImportCommit",
+        "useCalendarImportPreview"
+      ],
+      "localFeedback": {},
+      "literalPermissionCalls": [
+        "calendar.create"
+      ]
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/modal/call-new.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/modal/chat-group-settings.tsx",
+      "fields": {
+        "Switch": 1
+      },
+      "apiHookImports": [
+        "useAddChatMembers",
+        "useChatConversation",
+        "useDirectory",
+        "useRemoveChatMember",
+        "useSetChatMemberRole",
+        "useUpdateChatGroup"
+      ],
+      "localFeedback": {
+        "Loading": 2,
+        "ErrorState": 2,
+        "EmptyState": 1
+      },
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/modal/chat-share-record.tsx",
+      "fields": {
+        "CompanyPicker": 1
+      },
+      "apiHookImports": [
+        "useSendMessage",
+        "useShareableRecords"
+      ],
+      "localFeedback": {
+        "Loading": 2,
+        "ErrorState": 2,
+        "EmptyState": 1
+      },
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/modal/commercial-invoice-form.tsx",
+      "fields": {
+        "Field": 1
+      },
+      "apiHookImports": [
+        "useCommercialDocument",
+        "useCreateCommercialInvoice",
+        "useLookup",
+        "useQuoteDetail",
+        "useUpdateCommercialInvoice"
+      ],
+      "localFeedback": {
+        "ErrorState": 1,
+        "DetailSkeleton": 1
+      },
+      "literalPermissionCalls": [
+        "commercial_invoices.create",
+        "commercial_invoices.update"
+      ]
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/modal/company-import.tsx",
+      "fields": {
+        "Switch": 1
+      },
+      "apiHookImports": [
+        "useCommitCompanyContactImport",
+        "usePreviewCompanyContactImport"
+      ],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/modal/company-note.tsx",
+      "fields": {
+        "Field": 1
+      },
+      "apiHookImports": [
+        "useCompany",
+        "useUpdateCompanyFields"
+      ],
+      "localFeedback": {
+        "Loading": 1,
+        "ErrorState": 1
+      },
+      "literalPermissionCalls": [
+        "companies.update"
+      ]
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/modal/complaint-link.tsx",
+      "fields": {
+        "CompanyPicker": 1,
+        "Field": 1
+      },
+      "apiHookImports": [
+        "useComplaintLinkMutations"
+      ],
+      "localFeedback": {},
+      "literalPermissionCalls": [
+        "service_tickets.create"
+      ]
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/modal/complaint-new.tsx",
+      "fields": {
+        "CompanyPicker": 1,
+        "Field": 5,
+        "ContactPicker": 1
+      },
+      "apiHookImports": [
+        "useCompany",
+        "useContact",
+        "useCreateComplaint"
+      ],
+      "localFeedback": {},
+      "literalPermissionCalls": [
+        "service_tickets.create"
+      ]
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/modal/contact.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/modal/contract-form.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/modal/contract-quick.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/modal/contract-signed-upload.tsx",
+      "fields": {},
+      "apiHookImports": [
+        "useCommercialDocument",
+        "useQuoteDetail",
+        "useUpdateContract"
+      ],
+      "localFeedback": {
+        "ErrorState": 1,
+        "DetailSkeleton": 1
+      },
+      "literalPermissionCalls": [
+        "contracts.update",
+        "files.create"
+      ]
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/modal/create-case.tsx",
+      "fields": {
+        "CompanySelect": 1,
+        "ProductSelect": 1,
+        "Field": 7,
+        "DateTimeField": 1,
+        "AssigneeSelect": 1,
+        "SearchSelect": 1
+      },
+      "apiHookImports": [
+        "useCompany",
+        "useCreateOpportunity"
+      ],
+      "localFeedback": {},
+      "literalPermissionCalls": [
+        "opportunities.create"
+      ]
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/modal/delivery-form.tsx",
+      "fields": {},
+      "apiHookImports": [
+        "useCreateDelivery"
+      ],
+      "localFeedback": {},
+      "literalPermissionCalls": [
+        "shipments.create"
+      ]
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/modal/department-edit.tsx",
+      "fields": {
+        "Field": 3
+      },
+      "apiHookImports": [
+        "useAdminDepartments",
+        "useCreateDepartment",
+        "useUpdateDepartment"
+      ],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/modal/department-target.tsx",
+      "fields": {},
+      "apiHookImports": [
+        "useAdminDepartments",
+        "useDepartmentTargets",
+        "useSaveDepartmentTarget"
+      ],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/modal/device-new.tsx",
+      "fields": {
+        "CompanyPicker": 1,
+        "ContactPicker": 1,
+        "ProductSelect": 1,
+        "Field": 1
+      },
+      "apiHookImports": [
+        "useCreateCustomerDevice",
+        "useCustomerDevicesByCompany",
+        "useReservedMachineStock"
+      ],
+      "localFeedback": {},
+      "literalPermissionCalls": [
+        "customer_devices.update"
+      ]
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/modal/device-owner.tsx",
+      "fields": {
+        "CompanyPicker": 1,
+        "ContactPicker": 1
+      },
+      "apiHookImports": [
+        "useContact",
+        "useUpdateCustomerDevice"
+      ],
+      "localFeedback": {},
+      "literalPermissionCalls": [
+        "customer_devices.update"
+      ]
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/modal/edit-company.tsx",
+      "fields": {},
+      "apiHookImports": [
+        "useCompany",
+        "useCompanyFormLookups",
+        "useUpdateCompanyFields"
+      ],
+      "localFeedback": {
+        "ErrorState": 1,
+        "Loading": 1
+      },
+      "literalPermissionCalls": [
+        "companies.update"
+      ]
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/modal/edit-product.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/modal/installation-completion.tsx",
+      "fields": {
+        "Field": 2
+      },
+      "apiHookImports": [
+        "useCompany",
+        "useInstallation",
+        "useSetInstallationStatus",
+        "useUpdateInstallation"
+      ],
+      "localFeedback": {
+        "ErrorState": 1,
+        "Loading": 1
+      },
+      "literalPermissionCalls": [
+        "installations.update"
+      ]
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/modal/installation-form.tsx",
+      "fields": {
+        "CompanyPicker": 1,
+        "ContactPicker": 1,
+        "Field": 3
+      },
+      "apiHookImports": [
+        "useCreateInstallation",
+        "useCustomerDevicesByCompany",
+        "useInstallation",
+        "useUpdateInstallation"
+      ],
+      "localFeedback": {
+        "ErrorState": 1,
+        "Loading": 1
+      },
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/modal/invoice-form.tsx",
+      "fields": {
+        "CompanyPicker": 1,
+        "Field": 16,
+        "OptionPicker": 1
+      },
+      "apiHookImports": [
+        "useAccountingInvoice",
+        "useAllInventory",
+        "useAllProducts",
+        "useCompany",
+        "useCreateAccountingInvoice",
+        "useLookup",
+        "usePaymentTermSuggestion",
+        "usePurchaseOrder",
+        "useUpdateAccountingInvoice"
+      ],
+      "localFeedback": {
+        "ErrorState": 1,
+        "Loading": 1
+      },
+      "literalPermissionCalls": [
+        "accounting_invoices.create",
+        "accounting_invoices.update"
+      ]
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/modal/lead-rule-edit.tsx",
+      "fields": {
+        "Field": 3,
+        "TokenSelect": 2,
+        "CheckRow": 1
+      },
+      "apiHookImports": [
+        "useAdminUsers",
+        "useCreateLeadRule",
+        "useLeadRules",
+        "useLookup",
+        "useUpdateLeadRule"
+      ],
+      "localFeedback": {
+        "Notice": 2
+      },
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/modal/lookup-brand.tsx",
+      "fields": {
+        "Field": 2,
+        "SwitchRow": 1,
+        "CompanyPicker": 2
+      },
+      "apiHookImports": [
+        "useLookupRows"
+      ],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/modal/lookup-edit.tsx",
+      "fields": {
+        "Field": 3,
+        "OptionPicker": 2,
+        "MultiOptionPicker": 1,
+        "SwitchRow": 1
+      },
+      "apiHookImports": [
+        "useLookupRows",
+        "useUpdateLookup"
+      ],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/modal/lookup-import.tsx",
+      "fields": {
+        "Field": 5
+      },
+      "apiHookImports": [
+        "useLookupRows"
+      ],
+      "localFeedback": {
+        "Notice": 1
+      },
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/modal/mail-compose.tsx",
+      "fields": {
+        "Field": 3,
+        "OptionPicker": 1,
+        "MultiOptionPicker": 1,
+        "TextInput": 1
+      },
+      "apiHookImports": [
+        "useMailAccountStatus",
+        "useMailRecipients",
+        "useSendMail"
+      ],
+      "localFeedback": {
+        "Loading": 1
+      },
+      "literalPermissionCalls": [
+        "files.create"
+      ]
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/modal/mail-user-signature.tsx",
+      "fields": {},
+      "apiHookImports": [
+        "useMailSaveUserSignature",
+        "useMailSignatureUsers",
+        "useMailUserSignature"
+      ],
+      "localFeedback": {
+        "Notice": 1
+      },
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/modal/meta-audience-members.tsx",
+      "fields": {
+        "Field": 1
+      },
+      "apiHookImports": [
+        "useMetaAudienceMembers",
+        "useMetaPermissions"
+      ],
+      "localFeedback": {
+        "EmptyState": 1
+      },
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/modal/meta-audience.tsx",
+      "fields": {
+        "Field": 2
+      },
+      "apiHookImports": [
+        "useCreateMetaAudience",
+        "useMetaConnections",
+        "useMetaPermissions"
+      ],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/modal/meta-campaign-budget.tsx",
+      "fields": {
+        "Field": 1
+      },
+      "apiHookImports": [
+        "useMetaPermissions",
+        "useUpdateMetaCampaign"
+      ],
+      "localFeedback": {
+        "EmptyState": 1
+      },
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/modal/meta-campaign-create.tsx",
+      "fields": {
+        "Field": 2
+      },
+      "apiHookImports": [
+        "useCreateMetaCampaign",
+        "useMetaConnections",
+        "useMetaPermissions"
+      ],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/modal/meta-catalog-products.tsx",
+      "fields": {
+        "Field": 1
+      },
+      "apiHookImports": [
+        "useMetaCatalogProducts",
+        "useMetaPermissions"
+      ],
+      "localFeedback": {
+        "EmptyState": 1
+      },
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/modal/meta-catalog.tsx",
+      "fields": {
+        "Field": 1
+      },
+      "apiHookImports": [
+        "useCreateMetaCatalog",
+        "useMetaConnections",
+        "useMetaPermissions"
+      ],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/modal/meta-comment-reply.tsx",
+      "fields": {
+        "Field": 1
+      },
+      "apiHookImports": [
+        "useMetaPermissions",
+        "useReplyMetaComment"
+      ],
+      "localFeedback": {
+        "EmptyState": 1
+      },
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/modal/meta-connection.tsx",
+      "fields": {
+        "Field": 3
+      },
+      "apiHookImports": [
+        "useCreateMetaConnection",
+        "useMetaPermissions"
+      ],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/modal/meta-conversation.tsx",
+      "fields": {
+        "TextInput": 1
+      },
+      "apiHookImports": [
+        "useMetaMessages",
+        "useSendMetaMessage"
+      ],
+      "localFeedback": {
+        "EmptyState": 2,
+        "ListSkeleton": 1,
+        "ErrorState": 1,
+        "Notice": 1
+      },
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/modal/meta-conversion.tsx",
+      "fields": {
+        "Field": 2
+      },
+      "apiHookImports": [
+        "useCreateMetaConversion",
+        "useMetaConnections",
+        "useMetaPermissions"
+      ],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/modal/meta-mapping.tsx",
+      "fields": {
+        "Field": 2
+      },
+      "apiHookImports": [
+        "useCreateMetaMapping",
+        "useMetaConnections",
+        "useMetaPermissions"
+      ],
+      "localFeedback": {
+        "Notice": 1
+      },
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/modal/new-company.tsx",
+      "fields": {},
+      "apiHookImports": [
+        "useCreateCompany"
+      ],
+      "localFeedback": {},
+      "literalPermissionCalls": [
+        "companies.create"
+      ]
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/modal/new-opportunity.tsx",
+      "fields": {
+        "CompanySelect": 1,
+        "ContactSelect": 1,
+        "Field": 5,
+        "LookupSelect": 1,
+        "DateTimeField": 1,
+        "SearchSelect": 1,
+        "AssigneeSelect": 1
+      },
+      "apiHookImports": [
+        "useCompany",
+        "useCreateOpportunity",
+        "useCreateOpportunityFromActivity"
+      ],
+      "localFeedback": {},
+      "literalPermissionCalls": [
+        "activities.convert",
+        "opportunities.create"
+      ]
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/modal/new-receivable.tsx",
+      "fields": {
+        "CompanyPicker": 1,
+        "Field": 4,
+        "LookupSelect": 1,
+        "OptionPicker": 1
+      },
+      "apiHookImports": [
+        "useCreateReceivable"
+      ],
+      "localFeedback": {},
+      "literalPermissionCalls": [
+        "receivables.create"
+      ]
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/modal/new-ticket.tsx",
+      "fields": {
+        "CompanyPicker": 1,
+        "ContactPicker": 1,
+        "Field": 5,
+        "Switch": 1
+      },
+      "apiHookImports": [
+        "useCompany",
+        "useContact",
+        "useCreateTicketWithMeta",
+        "useCustomerDevice"
+      ],
+      "localFeedback": {},
+      "literalPermissionCalls": [
+        "service_tickets.create"
+      ]
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/modal/opportunity-contact.tsx",
+      "fields": {
+        "Field": 2
+      },
+      "apiHookImports": [
+        "useRecordLeadContact"
+      ],
+      "localFeedback": {},
+      "literalPermissionCalls": [
+        "opportunities.update"
+      ]
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/modal/opportunity-edit.tsx",
+      "fields": {
+        "Field": 10,
+        "OptionPicker": 6,
+        "ProductSelect": 1,
+        "DateTimeField": 1,
+        "AssigneeSelect": 1
+      },
+      "apiHookImports": [
+        "useOpportunity",
+        "useUpdateOpportunity"
+      ],
+      "localFeedback": {
+        "Loading": 1,
+        "ErrorState": 1
+      },
+      "literalPermissionCalls": [
+        "opportunities.update"
+      ]
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/modal/opportunity-operations.tsx",
+      "fields": {},
+      "apiHookImports": [
+        "useOpportunity"
+      ],
+      "localFeedback": {
+        "Loading": 1,
+        "ErrorState": 2,
+        "EmptyState": 1
+      },
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/modal/opportunity-relations.tsx",
+      "fields": {
+        "CompanyPicker": 1,
+        "ContactPicker": 1
+      },
+      "apiHookImports": [
+        "useLinkOpportunityCompany",
+        "useOpportunity",
+        "useUpdateOpportunity"
+      ],
+      "localFeedback": {
+        "Loading": 1,
+        "ErrorState": 1
+      },
+      "literalPermissionCalls": [
+        "contacts.create",
+        "opportunities.update"
+      ]
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/modal/opportunity-stock.tsx",
+      "fields": {},
+      "apiHookImports": [
+        "useChangeOpportunityStage",
+        "useInventoryList",
+        "useOpportunity"
+      ],
+      "localFeedback": {
+        "EmptyState": 3,
+        "Loading": 2,
+        "ErrorState": 3
+      },
+      "literalPermissionCalls": [
+        "inventory",
+        "inventory.update",
+        "opportunities",
+        "opportunities.read",
+        "opportunities.update"
+      ]
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/modal/opportunity-trello-import.tsx",
+      "fields": {
+        "Field": 4,
+        "CompanyPickerSheet": 1
+      },
+      "apiHookImports": [
+        "useCommitTrelloImport",
+        "usePreviewTrelloImport"
+      ],
+      "localFeedback": {},
+      "literalPermissionCalls": [
+        "opportunities.create"
+      ]
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/modal/payment-plan.tsx",
+      "fields": {
+        "Field": 9
+      },
+      "apiHookImports": [
+        "useAllQuoteList",
+        "useCreateReceivable",
+        "useLookup",
+        "useOpportunity",
+        "useQuote",
+        "useUpdateOpportunity"
+      ],
+      "localFeedback": {
+        "Loading": 1
+      },
+      "literalPermissionCalls": [
+        "opportunities.update",
+        "receivables.create"
+      ]
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/modal/payment.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/modal/price-campaign.tsx",
+      "fields": {
+        "Field": 1,
+        "SwitchRow": 1
+      },
+      "apiHookImports": [
+        "useAllProducts",
+        "usePriceListItemsFull",
+        "useSaveCampaign",
+        "useScopedPriceLists"
+      ],
+      "localFeedback": {
+        "Loading": 1,
+        "ErrorState": 1
+      },
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/modal/product-catalog-mail.tsx",
+      "fields": {
+        "Field": 3
+      },
+      "apiHookImports": [
+        "useCatalogFiles",
+        "useSendCatalogMail"
+      ],
+      "localFeedback": {
+        "Loading": 1,
+        "ErrorState": 1,
+        "EmptyState": 1
+      },
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/modal/product-import.tsx",
+      "fields": {
+        "OptionPicker": 4
+      },
+      "apiHookImports": [
+        "useCommitProductImport",
+        "useImportTemplateOptions",
+        "usePreviewProductImport"
+      ],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/modal/product-new.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/modal/proforma-form.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/modal/proforma-quick.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/modal/purchase-order.tsx",
+      "fields": {
+        "CompanyPicker": 1,
+        "Field": 14,
+        "OptionPicker": 1
+      },
+      "apiHookImports": [
+        "useAddPurchaseOrderItem",
+        "useAllProducts",
+        "useCompany",
+        "useCreatePurchaseOrder",
+        "useLookup",
+        "usePurchaseOrder",
+        "useUpdatePurchaseOrder"
+      ],
+      "localFeedback": {
+        "ErrorState": 1,
+        "Loading": 1
+      },
+      "literalPermissionCalls": [
+        "purchase_orders.create",
+        "purchase_orders.update"
+      ]
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/modal/quote-document-link.tsx",
+      "fields": {},
+      "apiHookImports": [
+        "useCreateCommercialInvoice",
+        "useCreateContract",
+        "useCreateProforma"
+      ],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/modal/quote-document-upload.tsx",
+      "fields": {
+        "Field": 1,
+        "CompanyPickerSheet": 1
+      },
+      "apiHookImports": [
+        "useCreateCommercialInvoice",
+        "useCreateContract",
+        "useCreateProforma",
+        "useInvalidateDocuments",
+        "useQuoteDetail"
+      ],
+      "localFeedback": {},
+      "literalPermissionCalls": [
+        "files.create"
+      ]
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/modal/quote-form.tsx",
+      "fields": {
+        "ContactPicker": 1,
+        "Field": 12,
+        "AssigneeSelect": 1,
+        "CompanyPickerSheet": 1
+      },
+      "apiHookImports": [
+        "useCompany",
+        "useContact",
+        "useCreateQuoteFull",
+        "useLookup",
+        "useOpportunity",
+        "useQuoteDetail",
+        "useSignatures",
+        "useUpdateCompanyFields",
+        "useUpdateQuoteFull"
+      ],
+      "localFeedback": {
+        "ErrorState": 1,
+        "DetailSkeleton": 1
+      },
+      "literalPermissionCalls": [
+        "companies.update",
+        "quotes.create",
+        "quotes.update"
+      ]
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/modal/reference-form.tsx",
+      "fields": {
+        "CompanySelect": 1,
+        "Field": 3,
+        "ContactSelect": 1,
+        "BrandSelect": 1,
+        "ProductSelect": 1
+      },
+      "apiHookImports": [
+        "useSaveReference"
+      ],
+      "localFeedback": {
+        "EmptyState": 1
+      },
+      "literalPermissionCalls": [
+        "companies.read"
+      ]
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/modal/reference-import.tsx",
+      "fields": {},
+      "apiHookImports": [
+        "useImportReferences"
+      ],
+      "localFeedback": {},
+      "literalPermissionCalls": [
+        "companies.create"
+      ]
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/modal/role-create.tsx",
+      "fields": {
+        "Field": 3
+      },
+      "apiHookImports": [
+        "useAdminPermissions",
+        "useCreateRole"
+      ],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/modal/role-target.tsx",
+      "fields": {},
+      "apiHookImports": [
+        "useAdminRoles",
+        "useRoleTargetMembers",
+        "useSaveRoleTarget"
+      ],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/modal/sales-order-accounting-invoice.tsx",
+      "fields": {
+        "Field": 5
+      },
+      "apiHookImports": [
+        "useCreateAccountingInvoice",
+        "useLookup",
+        "useQuoteDetail",
+        "useSalesOrder"
+      ],
+      "localFeedback": {
+        "ErrorState": 1,
+        "DetailSkeleton": 1
+      },
+      "literalPermissionCalls": [
+        "accounting_invoices.create"
+      ]
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/modal/sales-order-form.tsx",
+      "fields": {
+        "ContactPicker": 1,
+        "Field": 2,
+        "CompanyPickerSheet": 1
+      },
+      "apiHookImports": [
+        "useCompany",
+        "useContact",
+        "useCreateSalesOrder",
+        "useLookup",
+        "useSalesOrder",
+        "useUpdateSalesOrder"
+      ],
+      "localFeedback": {
+        "ErrorState": 1,
+        "DetailSkeleton": 1
+      },
+      "literalPermissionCalls": [
+        "sales_orders.create",
+        "sales_orders.update"
+      ]
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/modal/sales-order-item.tsx",
+      "fields": {
+        "Field": 5,
+        "LookupSelect": 1
+      },
+      "apiHookImports": [
+        "useAddSalesOrderItem",
+        "useLookup",
+        "useSalesOrder"
+      ],
+      "localFeedback": {},
+      "literalPermissionCalls": [
+        "sales_orders.update"
+      ]
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/modal/service-price-edit.tsx",
+      "fields": {
+        "Field": 2
+      },
+      "apiHookImports": [
+        "useAllProducts",
+        "usePriceListItems",
+        "usePriceLists",
+        "useSavePriceListPrice"
+      ],
+      "localFeedback": {
+        "DetailSkeleton": 1,
+        "ErrorState": 2
+      },
+      "literalPermissionCalls": [
+        "price_lists.create",
+        "price_lists.update"
+      ]
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/modal/shipment-label.tsx",
+      "fields": {
+        "CompanyPicker": 1,
+        "Field": 1
+      },
+      "apiHookImports": [
+        "useCompany"
+      ],
+      "localFeedback": {
+        "Loading": 1,
+        "ErrorState": 1
+      },
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/modal/shipment-new.tsx",
+      "fields": {
+        "CompanyPicker": 1,
+        "OptionPicker": 7,
+        "Field": 10
+      },
+      "apiHookImports": [
+        "useCompany",
+        "useCreateShipment",
+        "useShipmentCompanyOptions",
+        "useWarehouses"
+      ],
+      "localFeedback": {},
+      "literalPermissionCalls": [
+        "shipments.create"
+      ]
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/modal/signature-edit.tsx",
+      "fields": {
+        "Field": 2,
+        "SwitchRow": 1
+      },
+      "apiHookImports": [
+        "useCreateSignature",
+        "useSignatures",
+        "useUpdateSignature"
+      ],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/modal/spec-template-import.tsx",
+      "fields": {
+        "OptionPicker": 3,
+        "SwitchRow": 1,
+        "TextInput": 2,
+        "Switch": 1
+      },
+      "apiHookImports": [
+        "useCommitTechnicalImport",
+        "useLookupRows",
+        "usePreviewTechnicalImport",
+        "useSpecTemplates"
+      ],
+      "localFeedback": {
+        "Notice": 2
+      },
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/modal/spec-template-new.tsx",
+      "fields": {
+        "OptionPicker": 4,
+        "Field": 1,
+        "CheckRow": 2
+      },
+      "apiHookImports": [
+        "useBulkCreateSpecTemplates",
+        "useCreateMachineTemplate",
+        "useLookupRows",
+        "useSpecTemplates"
+      ],
+      "localFeedback": {
+        "Notice": 1
+      },
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/modal/stock-item.tsx",
+      "fields": {
+        "OptionPicker": 5,
+        "MultiOptionPicker": 1,
+        "Field": 6
+      },
+      "apiHookImports": [
+        "useAllInventory",
+        "useAllProducts",
+        "useCreateInventoryItem",
+        "useInventoryItem",
+        "useUpdateInventoryFields",
+        "useWarehouses"
+      ],
+      "localFeedback": {
+        "Loading": 2,
+        "ErrorState": 1
+      },
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/modal/target-edit.tsx",
+      "fields": {
+        "TextInput": 2,
+        "Field": 2
+      },
+      "apiHookImports": [
+        "useSaveTarget",
+        "useSubjectProgress",
+        "useTargetRow"
+      ],
+      "localFeedback": {
+        "Loading": 1,
+        "ErrorState": 1
+      },
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/modal/task-complete.tsx",
+      "fields": {
+        "Field": 1
+      },
+      "apiHookImports": [
+        "useToggleTaskDone"
+      ],
+      "localFeedback": {},
+      "literalPermissionCalls": [
+        "tasks.update"
+      ]
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/modal/task.tsx",
+      "fields": {
+        "Field": 3,
+        "OptionPicker": 2,
+        "DateTimeField": 1,
+        "CompanyPicker": 1,
+        "ContactPicker": 1
+      },
+      "apiHookImports": [
+        "useCreateTask",
+        "usePatchTask",
+        "useTaskAssignees",
+        "useTaskDetail"
+      ],
+      "localFeedback": {},
+      "literalPermissionCalls": [
+        "tasks.create",
+        "tasks.update"
+      ]
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/modal/trade-fair-follow-up.tsx",
+      "fields": {
+        "CheckRow": 3,
+        "Field": 1
+      },
+      "apiHookImports": [
+        "useCachedTradeFair",
+        "useUpdateTradeFair"
+      ],
+      "localFeedback": {
+        "EmptyState": 1
+      },
+      "literalPermissionCalls": [
+        "trade_fairs.update"
+      ]
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/modal/trade-fair-form.tsx",
+      "fields": {
+        "CompanySelect": 1,
+        "Field": 6
+      },
+      "apiHookImports": [
+        "useCachedTradeFair",
+        "useRemoveTradeFairAttachment",
+        "useSaveTradeFair",
+        "useTradeFairAttachments",
+        "useTradeFairProductOptions",
+        "useTradeFairStaff",
+        "useTradeFairSummary"
+      ],
+      "localFeedback": {
+        "EmptyState": 1
+      },
+      "literalPermissionCalls": [
+        "trade_fairs.update"
+      ]
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/modal/user-create.tsx",
+      "fields": {
+        "Field": 5
+      },
+      "apiHookImports": [
+        "useAdminDepartments",
+        "useAdminDivisions",
+        "useAdminRoles",
+        "useCreateUser",
+        "useLookup"
+      ],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/modal/user-department.tsx",
+      "fields": {
+        "SwitchRow": 2
+      },
+      "apiHookImports": [
+        "useAdminDepartments",
+        "useAdminDivisions",
+        "useAdminUsers",
+        "useLookup",
+        "useUpdateUser"
+      ],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/modal/user-edit.tsx",
+      "fields": {
+        "Field": 6
+      },
+      "apiHookImports": [
+        "useAdminUsers",
+        "useUpdateUser"
+      ],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/modal/user-limit.tsx",
+      "fields": {
+        "Field": 1,
+        "CheckRow": 2
+      },
+      "apiHookImports": [
+        "useAdminUsers",
+        "useUpdateUser"
+      ],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/modal/user-roles.tsx",
+      "fields": {
+        "CheckRow": 1
+      },
+      "apiHookImports": [
+        "useAdminRoles",
+        "useAdminUsers",
+        "useUpdateUser"
+      ],
+      "localFeedback": {
+        "EmptyState": 1
+      },
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/modal/user-target.tsx",
+      "fields": {},
+      "apiHookImports": [
+        "useAdminUsers",
+        "useSaveUserTarget",
+        "useUserTargets"
+      ],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/modal/visit-new.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/app/onboarding.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/src/ui/AppErrorBoundary.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/src/ui/Avatar.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/src/ui/HomeChatBubble.tsx",
+      "fields": {},
+      "apiHookImports": [
+        "useChatUnreadCount"
+      ],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/src/ui/LiquidGlassTabBarBackground.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/src/ui/Logo.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/src/ui/NavigationGlass.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/src/ui/ProfileButton.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/src/ui/SyncStatus.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/src/ui/admin/DepartmentManager.tsx",
+      "fields": {},
+      "apiHookImports": [
+        "useAdminDepartments",
+        "useDeleteDepartment",
+        "useDepartmentTargets"
+      ],
+      "localFeedback": {
+        "ListSkeleton": 1,
+        "ErrorState": 1,
+        "EmptyState": 1
+      },
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/src/ui/admin/ModalShell.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {
+        "DetailSkeleton": 1,
+        "ErrorState": 1
+      },
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/src/ui/admin/PermissionMatrix.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {
+        "EmptyState": 1
+      },
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/src/ui/admin/SettingsSubpage.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {
+        "DetailSkeleton": 1,
+        "ErrorState": 1
+      },
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/src/ui/admin/TargetEditor.tsx",
+      "fields": {
+        "TextInput": 1,
+        "Field": 1
+      },
+      "apiHookImports": [
+        "useTargetProgress"
+      ],
+      "localFeedback": {
+        "Notice": 2
+      },
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/src/ui/admin/controls.tsx",
+      "fields": {
+        "Switch": 1
+      },
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/src/ui/collapsing-detail.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/src/ui/crm/CompanyFormFields.tsx",
+      "fields": {
+        "OptionPicker": 12,
+        "Field": 12
+      },
+      "apiHookImports": [
+        "useCompanyFormLookups",
+        "useTaxOffices"
+      ],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/src/ui/crm/OsmSearchPanel.tsx",
+      "fields": {
+        "TextInput": 1
+      },
+      "apiHookImports": [
+        "useCompanyOsmSearch"
+      ],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/src/ui/crm/SheetMenu.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/src/ui/crm/VisitCallFormScreen.tsx",
+      "fields": {
+        "CompanyPicker": 1,
+        "DateTimeField": 1,
+        "Field": 4,
+        "ContactPicker": 1
+      },
+      "apiHookImports": [
+        "useCreateActivity",
+        "useCreateCall",
+        "useCreateVisit"
+      ],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/src/ui/crm/WebsiteLookupPanel.tsx",
+      "fields": {},
+      "apiHookImports": [
+        "useCompanyWebsiteLookup"
+      ],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/src/ui/dashboard.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/src/ui/data.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/src/ui/documents/CommercialDocumentDetail.tsx",
+      "fields": {},
+      "apiHookImports": [
+        "useCommercialDocument",
+        "useCompany",
+        "useDeleteCommercialInvoice",
+        "useDeleteContract",
+        "useDeleteProforma",
+        "useLinkedFile",
+        "useLookup",
+        "useQuoteDetail"
+      ],
+      "localFeedback": {
+        "DetailSkeleton": 1,
+        "ErrorState": 2,
+        "EmptyState": 1
+      },
+      "literalPermissionCalls": [
+        "files.create",
+        "files.read"
+      ]
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/src/ui/documents/DocumentCenter.tsx",
+      "fields": {},
+      "apiHookImports": [
+        "useCommercialDocuments",
+        "useDeleteFile",
+        "useFileLinks",
+        "useQuoteStatusCounts"
+      ],
+      "localFeedback": {
+        "ErrorState": 1,
+        "SyncStatus": 1,
+        "ListSkeleton": 1,
+        "EmptyState": 1,
+        "Loading": 1
+      },
+      "literalPermissionCalls": [
+        "commercial_invoices.create",
+        "commercial_invoices.read",
+        "contracts.create",
+        "contracts.read",
+        "files.create",
+        "files.delete",
+        "files.read",
+        "proformas.create",
+        "proformas.read"
+      ]
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/src/ui/documents/DocumentFormParts.tsx",
+      "fields": {
+        "Field": 10
+      },
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/src/ui/documents/LinkedDocumentForm.tsx",
+      "fields": {
+        "Field": 2
+      },
+      "apiHookImports": [
+        "useCommercialDocument",
+        "useCreateContract",
+        "useCreateProforma",
+        "useLookup",
+        "useQuoteDetail",
+        "useUpdateContract",
+        "useUpdateProforma"
+      ],
+      "localFeedback": {
+        "ErrorState": 1,
+        "DetailSkeleton": 1
+      },
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/src/ui/documents/ProformaPrintVariant.tsx",
+      "fields": {
+        "SearchSelect": 1
+      },
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/src/ui/documents/QuickDocumentForm.tsx",
+      "fields": {
+        "Field": 16,
+        "TaxOfficeSelect": 1,
+        "ContactSelect": 1,
+        "ProductSelect": 1,
+        "LookupSelect": 1,
+        "BrandSelect": 1,
+        "CompanyPickerSheet": 1
+      },
+      "apiHookImports": [
+        "useCommercialDocument",
+        "useCreateStandaloneContract",
+        "useCreateStandaloneProforma",
+        "useUpdateStandaloneContract",
+        "useUpdateStandaloneProforma"
+      ],
+      "localFeedback": {
+        "ErrorState": 1,
+        "DetailSkeleton": 1
+      },
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/src/ui/documents/QuoteItemDetails.tsx",
+      "fields": {
+        "Field": 7,
+        "MultiOptionPicker": 3,
+        "SearchSelect": 1
+      },
+      "apiHookImports": [
+        "useAllProducts",
+        "useCompany",
+        "useCompanyList",
+        "useSpecTemplates"
+      ],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/src/ui/documents/QuoteItemsEditor.tsx",
+      "fields": {
+        "Field": 6
+      },
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/src/ui/documents/QuoteLineConfig.tsx",
+      "fields": {
+        "OptionPicker": 1
+      },
+      "apiHookImports": [
+        "useOptionSets",
+        "useProduct"
+      ],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/src/ui/documents/QuoteOverview.tsx",
+      "fields": {},
+      "apiHookImports": [
+        "useLostOpportunitiesForQuotes",
+        "useQuoteStatusCounts",
+        "useQuoteTrend"
+      ],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/src/ui/documents/TermsTemplatePicker.tsx",
+      "fields": {
+        "OptionPicker": 1,
+        "Field": 1
+      },
+      "apiHookImports": [
+        "useDeleteNoteTemplate",
+        "useNoteTemplates",
+        "useSaveNoteTemplate"
+      ],
+      "localFeedback": {},
+      "literalPermissionCalls": [
+        "quotes.create",
+        "quotes.read"
+      ]
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/src/ui/documents/pickers.tsx",
+      "fields": {},
+      "apiHookImports": [
+        "useCompanyList",
+        "useOpportunityList",
+        "useProductList",
+        "useQuoteList"
+      ],
+      "localFeedback": {
+        "Loading": 4,
+        "ErrorState": 4,
+        "EmptyState": 4
+      },
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/src/ui/documents/rows.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/src/ui/finance/AgingHeatmap.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/src/ui/finance/CashPanels.tsx",
+      "fields": {},
+      "apiHookImports": [
+        "useCompany"
+      ],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/src/ui/finance/kit.tsx",
+      "fields": {
+        "Switch": 1,
+        "DateTimeField": 1
+      },
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/src/ui/index.tsx",
+      "fields": {
+        "TextInput": 3
+      },
+      "apiHookImports": [
+        "useUnreadCount"
+      ],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/src/ui/meta/AudiencesTab.tsx",
+      "fields": {},
+      "apiHookImports": [
+        "useDeleteMetaAudience",
+        "useMetaAudiences"
+      ],
+      "localFeedback": {
+        "Notice": 1
+      },
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/src/ui/meta/AutomationTab.tsx",
+      "fields": {
+        "Switch": 1
+      },
+      "apiHookImports": [
+        "useMetaConversionEvents",
+        "useMetaMappings",
+        "useProcessMetaJobs",
+        "useToggleMetaMapping"
+      ],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/src/ui/meta/CampaignsTab.tsx",
+      "fields": {},
+      "apiHookImports": [
+        "useMetaCampaigns",
+        "useMetaConnections",
+        "useMetaInsights",
+        "useUpdateMetaCampaign"
+      ],
+      "localFeedback": {
+        "Notice": 1
+      },
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/src/ui/meta/CatalogsTab.tsx",
+      "fields": {},
+      "apiHookImports": [
+        "useDeleteMetaCatalog",
+        "useMetaCatalogs"
+      ],
+      "localFeedback": {
+        "Notice": 1
+      },
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/src/ui/meta/ConnectionsTab.tsx",
+      "fields": {},
+      "apiHookImports": [
+        "useDeleteMetaConnection",
+        "useMetaConnections",
+        "useStartMetaOAuth",
+        "useVerifyMetaConnection"
+      ],
+      "localFeedback": {
+        "Notice": 2
+      },
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/src/ui/meta/InboxTab.tsx",
+      "fields": {},
+      "apiHookImports": [
+        "useMetaComments",
+        "useMetaConversations",
+        "useSetMetaCommentHidden"
+      ],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/src/ui/meta/LeadsTab.tsx",
+      "fields": {},
+      "apiHookImports": [
+        "useMetaLeads"
+      ],
+      "localFeedback": {
+        "ListSkeleton": 1,
+        "ErrorState": 1,
+        "EmptyState": 1
+      },
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/src/ui/meta/OptionSheet.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {
+        "EmptyState": 1
+      },
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/src/ui/meta/OverviewTab.tsx",
+      "fields": {},
+      "apiHookImports": [
+        "useMetaConnections",
+        "useMetaOverview"
+      ],
+      "localFeedback": {
+        "ListSkeleton": 3,
+        "ErrorState": 1,
+        "EmptyState": 2
+      },
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/src/ui/meta/parts.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {
+        "Notice": 1,
+        "ListSkeleton": 1,
+        "ErrorState": 1,
+        "EmptyState": 1
+      },
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/src/ui/motion.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/src/ui/pickers/CompanyPicker.tsx",
+      "fields": {},
+      "apiHookImports": [
+        "useCompanyList",
+        "useContactList"
+      ],
+      "localFeedback": {
+        "SelectionStatus": 2,
+        "Loading": 2,
+        "ErrorState": 2,
+        "EmptyState": 2
+      },
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/src/ui/pickers/DateTimeField.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/src/ui/pickers/HostedSheet.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/src/ui/pickers/OptionPicker.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {
+        "SelectionStatus": 2,
+        "Loading": 1,
+        "ErrorState": 1,
+        "EmptyState": 2
+      },
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/src/ui/pickers/PickerField.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/src/ui/pickers/SelectionListFooter.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/src/ui/pickers/SelectionRow.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/src/ui/pickers/SelectionStatus.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/src/ui/products/ProductForm.tsx",
+      "fields": {
+        "OptionPicker": 6,
+        "Field": 14,
+        "CompanyPicker": 1,
+        "MultiOptionPicker": 1
+      },
+      "apiHookImports": [
+        "useAllProducts",
+        "useBrands",
+        "useCreateProduct",
+        "useLookup",
+        "useProduct",
+        "useProductEquipment",
+        "useProductSpecs",
+        "useProductTaxonomy",
+        "useReplaceProductDetails",
+        "useSpecTemplates",
+        "useUpdateProduct"
+      ],
+      "localFeedback": {
+        "ErrorState": 3,
+        "Loading": 3
+      },
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/src/ui/products/ProductThumb.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/src/ui/reports/ActivityLogSection.tsx",
+      "fields": {},
+      "apiHookImports": [
+        "useActivityLog"
+      ],
+      "localFeedback": {
+        "Loading": 1,
+        "ErrorState": 1
+      },
+      "literalPermissionCalls": [
+        "companies.read"
+      ]
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/src/ui/reports/AnalyticsSection.tsx",
+      "fields": {},
+      "apiHookImports": [
+        "useActivityTrend",
+        "useComplaintsSummary",
+        "useDepartmentPerformance",
+        "usePipelineSummary",
+        "useQuotesByProduct",
+        "useReportDepartments",
+        "useReportStockSummary",
+        "useVisitTrend",
+        "useWarrantyExpiring"
+      ],
+      "localFeedback": {
+        "Loading": 7,
+        "ErrorState": 7
+      },
+      "literalPermissionCalls": [
+        "reports.export"
+      ]
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/src/ui/reports/OperationalSection.tsx",
+      "fields": {},
+      "apiHookImports": [
+        "useOperationalReport",
+        "usePreviousOperationalReport",
+        "useReportDepartments",
+        "useReportUsers"
+      ],
+      "localFeedback": {
+        "Loading": 1,
+        "ErrorState": 1
+      },
+      "literalPermissionCalls": [
+        "reports.export"
+      ]
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/src/ui/reports/OverviewSection.tsx",
+      "fields": {},
+      "apiHookImports": [
+        "useComplaintsSummary",
+        "useCompletedPayments",
+        "useCustomerBalances",
+        "useOperationalReport",
+        "usePipelineSummary",
+        "usePreviousOperationalReport",
+        "useStockSummary",
+        "useWarrantyExpiring"
+      ],
+      "localFeedback": {
+        "ListSkeleton": 1
+      },
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/src/ui/reports/TargetSection.tsx",
+      "fields": {},
+      "apiHookImports": [
+        "usePreviousTargetProgress",
+        "useTargetProgress"
+      ],
+      "localFeedback": {
+        "Loading": 1,
+        "ErrorState": 1,
+        "EmptyState": 1
+      },
+      "literalPermissionCalls": [
+        "reports.export"
+      ]
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/src/ui/reports/YearEndSection.tsx",
+      "fields": {},
+      "apiHookImports": [
+        "useYearEndReport"
+      ],
+      "localFeedback": {
+        "Loading": 1,
+        "ErrorState": 1
+      },
+      "literalPermissionCalls": [
+        "reports.export"
+      ]
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/src/ui/reports/parts.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/src/ui/sales/CloseCaseSheet.tsx",
+      "fields": {
+        "Field": 1
+      },
+      "apiHookImports": [
+        "useChangeOpportunityStage",
+        "useSetQualificationStage"
+      ],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/src/ui/sales/CompanyPickerSheet.tsx",
+      "fields": {},
+      "apiHookImports": [
+        "useCompanyList"
+      ],
+      "localFeedback": {
+        "SelectionStatus": 1,
+        "Loading": 1,
+        "ErrorState": 1,
+        "EmptyState": 1
+      },
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/src/ui/sales/DashboardPanels.tsx",
+      "fields": {},
+      "apiHookImports": [
+        "useMyTargetProgress",
+        "useTaskCounts",
+        "useTaskList",
+        "useTasksSummary",
+        "useTeamActivity",
+        "useTeamActivityDetails"
+      ],
+      "localFeedback": {
+        "Loading": 5,
+        "ErrorState": 5
+      },
+      "literalPermissionCalls": [
+        "reports.read",
+        "tasks",
+        "tasks.manage",
+        "tasks.read"
+      ]
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/src/ui/sales/LostCaseFields.tsx",
+      "fields": {
+        "Field": 4
+      },
+      "apiHookImports": [
+        "useCompetitors",
+        "useCreateCompetitor"
+      ],
+      "localFeedback": {},
+      "literalPermissionCalls": [
+        "competitors.create"
+      ]
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/src/ui/sales/OpportunityInfoPanels.tsx",
+      "fields": {
+        "OptionPicker": 1,
+        "Field": 2
+      },
+      "apiHookImports": [
+        "useTaskList",
+        "useUpdateOpportunity"
+      ],
+      "localFeedback": {
+        "Loading": 1,
+        "ErrorState": 1,
+        "EmptyState": 1
+      },
+      "literalPermissionCalls": [
+        "opportunities.update",
+        "tasks",
+        "tasks.create"
+      ]
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/src/ui/sales/OpportunityWorkspace.tsx",
+      "fields": {
+        "Field": 4,
+        "CompanyPickerSheet": 1
+      },
+      "apiHookImports": [
+        "useActivityList",
+        "useChangeOpportunityStage",
+        "useConvertLead",
+        "useCreateActivity",
+        "useDeleteActivity",
+        "useDeleteOpportunityFile",
+        "useLinkOpportunityCompany",
+        "useOpportunityFiles",
+        "useSetProcessCheck",
+        "useUploadOpportunityFile"
+      ],
+      "localFeedback": {
+        "Loading": 2
+      },
+      "literalPermissionCalls": [
+        "activities.create",
+        "activities.delete",
+        "activities.update",
+        "companies.create",
+        "files.create",
+        "files.delete",
+        "files.read",
+        "tasks.create"
+      ]
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/src/ui/sales/QualificationBoard.tsx",
+      "fields": {
+        "Field": 1
+      },
+      "apiHookImports": [
+        "useDeleteOpportunity",
+        "useKanbanColumns",
+        "useSetQualificationStage"
+      ],
+      "localFeedback": {
+        "ErrorState": 1,
+        "EmptyState": 1
+      },
+      "literalPermissionCalls": [
+        "opportunities.delete",
+        "opportunities.update"
+      ]
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/src/ui/sales/Sheet.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/src/ui/select/DateTextField.tsx",
+      "fields": {
+        "DateTimeField": 1
+      },
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/src/ui/select/SearchSelect.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {
+        "SelectionStatus": 1,
+        "Loading": 1,
+        "ErrorState": 1,
+        "EmptyState": 1
+      },
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/src/ui/select/TokenSelect.tsx",
+      "fields": {
+        "SearchSelect": 1
+      },
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/src/ui/select/fields.tsx",
+      "fields": {
+        "SearchSelect": 16
+      },
+      "apiHookImports": [
+        "useBrands",
+        "useCompany",
+        "useCompanyList",
+        "useContactList",
+        "useDirectory",
+        "useInventoryList",
+        "useLookup",
+        "useOpportunityAssignees",
+        "useProductList",
+        "useTaxOffices"
+      ],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/src/ui/service/AttachmentsPanel.tsx",
+      "fields": {},
+      "apiHookImports": [
+        "useServiceAttachments",
+        "useUploadServiceAttachment"
+      ],
+      "localFeedback": {
+        "Loading": 1,
+        "ErrorState": 1
+      },
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/src/ui/service/ComplaintQr.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/src/ui/service/CompletionEditor.tsx",
+      "fields": {
+        "Field": 1
+      },
+      "apiHookImports": [
+        "useSetTicketStage"
+      ],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/src/ui/service/DeliveryForm.tsx",
+      "fields": {
+        "Field": 3,
+        "CompanyPicker": 1,
+        "BrandSelect": 1,
+        "ContactSelect": 2,
+        "UserSelect": 1
+      },
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/src/ui/service/DocumentCapture.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/src/ui/service/InstallationDocument.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/src/ui/service/JourneySteps.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/src/ui/service/ServiceQuoteEditor.tsx",
+      "fields": {
+        "Field": 15,
+        "CompanySelect": 1,
+        "ContactSelect": 1,
+        "UserSelect": 1
+      },
+      "apiHookImports": [
+        "useLookup"
+      ],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/src/ui/service/ShipmentDocuments.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/src/ui/service/TicketCard.tsx",
+      "fields": {},
+      "apiHookImports": [
+        "useCompanyMapPoints",
+        "useDirectory"
+      ],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/src/ui/service/TicketPanels.tsx",
+      "fields": {
+        "Field": 9
+      },
+      "apiHookImports": [
+        "useConsumeServiceParts",
+        "useServiceTickets",
+        "useUpdateTicketMeta"
+      ],
+      "localFeedback": {
+        "Loading": 1,
+        "ErrorState": 1,
+        "EmptyState": 1
+      },
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/src/ui/service/WarrantyEditor.tsx",
+      "fields": {
+        "Field": 9,
+        "CompanySelect": 1,
+        "Switch": 1
+      },
+      "apiHookImports": [
+        "useDecideWarranty",
+        "useServiceWarranty",
+        "useSetWarrantyParts",
+        "useSubmitWarranty",
+        "useUpdateWarrantyAssessment"
+      ],
+      "localFeedback": {
+        "Loading": 1,
+        "ErrorState": 1
+      },
+      "literalPermissionCalls": [
+        "service_tickets.approve",
+        "service_tickets.reject"
+      ]
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/src/ui/service/fields.tsx",
+      "fields": {
+        "DateTimeField": 1,
+        "OptionPicker": 2,
+        "SearchSelect": 1
+      },
+      "apiHookImports": [
+        "useCustomerDevice",
+        "useCustomerDevicesByCompany",
+        "useDirectory",
+        "useProductList",
+        "useReservedMachineStock",
+        "useWarehouses"
+      ],
+      "localFeedback": {
+        "Loading": 3,
+        "ErrorState": 3,
+        "EmptyState": 2
+      },
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/src/ui/settings.tsx",
+      "fields": {
+        "Switch": 1
+      },
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "mobile",
+      "file": "apps/mobile-v2/src/ui/toast.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/ApprovalsDialog.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/ErrorBoundary.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/HelpCenterDialog.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/KanbanBoard.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/KanbanCardAttachments.tsx",
+      "fields": {
+        "input": 1
+      },
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/Layout.tsx",
+      "fields": {
+        "Textarea": 1
+      },
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": [
+        "companies.create",
+        "companies.update",
+        "contacts.create",
+        "opportunities.create",
+        "reports.read"
+      ]
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/ReadinessBanner.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/admin/TargetDialog.tsx",
+      "fields": {
+        "Input": 3,
+        "Textarea": 1
+      },
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/admin/UserAdminDialogs.tsx",
+      "fields": {
+        "Input": 11,
+        "Select": 7,
+        "Checkbox": 4,
+        "Switch": 1
+      },
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/brand/BrandIllustration.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/brand/BrandMark.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/brand/GearPattern.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/brand/GearSpinner.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/company/CompanyWebsiteLookup.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/company/OsmCompanySearch.tsx",
+      "fields": {
+        "Input": 1
+      },
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/dialogs/CargoLabelDialog.tsx",
+      "fields": {
+        "RemoteCompanyCombobox": 1,
+        "Input": 1
+      },
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/dialogs/CloseCaseDialog.tsx",
+      "fields": {
+        "Select": 1,
+        "Textarea": 2,
+        "Input": 3,
+        "Combobox": 1
+      },
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/dialogs/CompanyContactImportDialog.tsx",
+      "fields": {
+        "Input": 2,
+        "Checkbox": 1
+      },
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/dialogs/ContractActionsDialogs.tsx",
+      "fields": {
+        "Input": 2,
+        "Switch": 2
+      },
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/dialogs/CreateContractDialog.tsx",
+      "fields": {
+        "Combobox": 1,
+        "Input": 6,
+        "Switch": 3
+      },
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/dialogs/CreateDialogs.tsx",
+      "fields": {
+        "Combobox": 5,
+        "input": 9,
+        "Select": 49,
+        "Field": 108,
+        "Textarea": 17,
+        "RemoteCompanyCombobox": 10,
+        "Input": 29,
+        "Checkbox": 2,
+        "RemoteContactCombobox": 4
+      },
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/dialogs/CreateProformaDialog.tsx",
+      "fields": {
+        "Combobox": 1,
+        "Input": 2,
+        "Select": 1
+      },
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/dialogs/DeferredCreateDialogs.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/dialogs/DetailDialogs.tsx",
+      "fields": {
+        "Field": 19
+      },
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": [
+        "activities.create",
+        "activities.read",
+        "companies.update",
+        "contracts.create",
+        "opportunities.create",
+        "proformas.create",
+        "quotes.create"
+      ]
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/dialogs/DocumentDetailDialog.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/dialogs/DocumentPreviewDialog.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/dialogs/DocumentTermsTemplateEditor.tsx",
+      "fields": {
+        "Select": 1,
+        "Input": 1
+      },
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/dialogs/DocumentUploadDialog.tsx",
+      "fields": {
+        "Select": 3,
+        "RemoteCompanyCombobox": 1,
+        "input": 1,
+        "Textarea": 1
+      },
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/dialogs/EditDocumentDialog.tsx",
+      "fields": {
+        "Input": 3,
+        "Switch": 3
+      },
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/dialogs/LeadCaptureDialog.tsx",
+      "fields": {
+        "RemoteCompanyCombobox": 1,
+        "RemoteContactCombobox": 1,
+        "Input": 6,
+        "Combobox": 2,
+        "Select": 3,
+        "Textarea": 1
+      },
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/dialogs/LeadDisqualifyDialog.tsx",
+      "fields": {
+        "Select": 1,
+        "Textarea": 1
+      },
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/dialogs/LinkCommercialDocumentDialog.tsx",
+      "fields": {
+        "Select": 1
+      },
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/dialogs/MachineQrDialog.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/dialogs/OpportunityFollowUpDialog.tsx",
+      "fields": {
+        "Textarea": 1,
+        "Input": 2
+      },
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/dialogs/OpportunityStockPickerDialog.tsx",
+      "fields": {
+        "Checkbox": 1
+      },
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/dialogs/ProductDetailDialog.tsx",
+      "fields": {
+        "Input": 7,
+        "Select": 2,
+        "Textarea": 1,
+        "Checkbox": 2
+      },
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": [
+        "products.update"
+      ]
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/dialogs/ProductImportDialog.tsx",
+      "fields": {
+        "select": 1,
+        "Select": 3,
+        "Input": 1
+      },
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/dialogs/ProductSpecGroupManagerDialog.tsx",
+      "fields": {
+        "Input": 3,
+        "Select": 1,
+        "Textarea": 1,
+        "Switch": 1
+      },
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/dialogs/QuickContractDialog.tsx",
+      "fields": {
+        "Select": 3,
+        "Input": 9,
+        "Switch": 3
+      },
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/dialogs/QuickProformaDialog.tsx",
+      "fields": {
+        "Select": 3,
+        "Input": 2
+      },
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/dialogs/QuoteDialog.tsx",
+      "fields": {
+        "RemoteCompanyCombobox": 3,
+        "Select": 17,
+        "Input": 22,
+        "RemoteContactCombobox": 1,
+        "input": 2,
+        "Combobox": 1,
+        "select": 2
+      },
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/dialogs/ReferenceImportDialog.tsx",
+      "fields": {
+        "input": 1
+      },
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/dialogs/TechnicalImportDialog.tsx",
+      "fields": {
+        "input": 3,
+        "select": 2,
+        "Checkbox": 2,
+        "Input": 1
+      },
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/dialogs/TechnicalLayoutEditor.tsx",
+      "fields": {
+        "select": 2,
+        "Input": 1
+      },
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/dialogs/TrelloCsvImportDialog.tsx",
+      "fields": {
+        "RemoteCompanyCombobox": 1,
+        "Checkbox": 4,
+        "Input": 2,
+        "Select": 3
+      },
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": [
+        "opportunities.create"
+      ]
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/figma/ImageWithFallback.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/mail/CatalogLibraryDialog.tsx",
+      "fields": {
+        "Input": 1,
+        "input": 1
+      },
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": [
+        "files.create",
+        "products.update"
+      ]
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/mail/CatalogMailButton.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/mail/ComposeMailDialog.tsx",
+      "fields": {
+        "Input": 4,
+        "Select": 2,
+        "input": 1
+      },
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/mail/MailBodyEditor.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/operations/CommandPalette.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/pages/CalendarPage.tsx",
+      "fields": {
+        "select": 4,
+        "Switch": 4,
+        "Field": 9,
+        "RemoteCompanyCombobox": 1,
+        "Input": 4,
+        "Textarea": 1,
+        "input": 1
+      },
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/pages/CompanyMap.tsx",
+      "fields": {
+        "Input": 1
+      },
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/pages/Contacts.tsx",
+      "fields": {
+        "Input": 1,
+        "RemoteCompanyCombobox": 1
+      },
+      "apiHookImports": [],
+      "localFeedback": {
+        "EmptyState": 1
+      },
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/pages/CustomerDetail.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": [
+        "files.create"
+      ]
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/pages/Customers.tsx",
+      "fields": {
+        "Input": 1,
+        "Select": 1
+      },
+      "apiHookImports": [],
+      "localFeedback": {
+        "EmptyState": 2
+      },
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/pages/Dashboard.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": [
+        "reports.read"
+      ]
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/pages/Kanban.tsx",
+      "fields": {
+        "Textarea": 1,
+        "Checkbox": 1
+      },
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": [
+        "commercial_invoices.create",
+        "contracts.create",
+        "proformas.create",
+        "quotes.create"
+      ]
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/pages/LeadWorkspaceControls.tsx",
+      "fields": {
+        "Textarea": 3,
+        "Select": 2,
+        "Input": 2
+      },
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/pages/Login.tsx",
+      "fields": {
+        "Input": 5,
+        "input": 1
+      },
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/pages/Onboarding.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/pages/Operations.tsx",
+      "fields": {
+        "Input": 2
+      },
+      "apiHookImports": [],
+      "localFeedback": {
+        "EmptyState": 2
+      },
+      "literalPermissionCalls": [
+        "products.create",
+        "products.delete",
+        "products.update"
+      ]
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/pages/OpportunityContractList.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/pages/OpportunityNoteComposer.tsx",
+      "fields": {
+        "Textarea": 1
+      },
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": [
+        "activities.create"
+      ]
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/pages/OpportunityProcessCenter.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/pages/OpportunityQuoteList.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/pages/OpportunityWorkspace.tsx",
+      "fields": {
+        "Textarea": 2,
+        "Input": 2,
+        "Combobox": 1
+      },
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": [
+        "activities.create",
+        "activities.delete",
+        "activities.update",
+        "contracts.update",
+        "files.create",
+        "opportunities.update"
+      ]
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/pages/PriceLists.tsx",
+      "fields": {
+        "Input": 5,
+        "input": 1,
+        "Select": 3
+      },
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": [
+        "price_lists.create",
+        "price_lists.update",
+        "products.update"
+      ]
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/pages/ProcessChecklistPanel.tsx",
+      "fields": {
+        "Textarea": 3,
+        "Input": 2,
+        "Checkbox": 1,
+        "Select": 1,
+        "RemoteContactCombobox": 1,
+        "Combobox": 2,
+        "RequestedMachineCombobox": 1
+      },
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": [
+        "activities.create",
+        "opportunities.update"
+      ]
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/pages/PublicServiceComplaint.tsx",
+      "fields": {
+        "Input": 5,
+        "Select": 1,
+        "Checkbox": 1,
+        "Textarea": 1
+      },
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/pages/QualificationKanban.tsx",
+      "fields": {
+        "Textarea": 1
+      },
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": [
+        "opportunities.update"
+      ]
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/pages/ReferencesPage.tsx",
+      "fields": {
+        "Input": 8,
+        "Textarea": 1
+      },
+      "apiHookImports": [],
+      "localFeedback": {
+        "EmptyState": 1
+      },
+      "literalPermissionCalls": [
+        "companies.create",
+        "companies.delete",
+        "companies.update"
+      ]
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/pages/SalesCaseDetail.tsx",
+      "fields": {
+        "Input": 19,
+        "Textarea": 4,
+        "Select": 7,
+        "RemoteCompanyCombobox": 2,
+        "input": 1
+      },
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": [
+        "activities.create",
+        "commercial_invoices.create",
+        "contracts.create",
+        "files.create",
+        "files.delete",
+        "installations.create",
+        "installations.update",
+        "inventory.update",
+        "opportunities.approve",
+        "opportunities.delete",
+        "opportunities.update",
+        "proformas.create",
+        "quotes.approve",
+        "quotes.create",
+        "shipments.create",
+        "shipments.update"
+      ]
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/pages/SalesCases.tsx",
+      "fields": {
+        "Select": 1,
+        "Textarea": 1
+      },
+      "apiHookImports": [],
+      "localFeedback": {
+        "EmptyState": 1
+      },
+      "literalPermissionCalls": [
+        "opportunities.delete",
+        "opportunities.update"
+      ]
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/pages/SalesMap.tsx",
+      "fields": {
+        "Input": 1,
+        "Select": 3
+      },
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/pages/SimplePages.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/pages/TeamActivityPanel.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/pages/TradeFairsPage.tsx",
+      "fields": {
+        "Select": 3,
+        "Input": 8,
+        "Checkbox": 4,
+        "Textarea": 2,
+        "Combobox": 6,
+        "input": 2
+      },
+      "apiHookImports": [],
+      "localFeedback": {
+        "EmptyState": 1
+      },
+      "literalPermissionCalls": [
+        "trade_fairs.create",
+        "trade_fairs.delete",
+        "trade_fairs.update"
+      ]
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/pages/admin/DepartmentsPage.tsx",
+      "fields": {
+        "Input": 4,
+        "Textarea": 1
+      },
+      "apiHookImports": [],
+      "localFeedback": {
+        "EmptyState": 1
+      },
+      "literalPermissionCalls": [
+        "departments.create"
+      ]
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/pages/admin/RolesPage.tsx",
+      "fields": {
+        "Checkbox": 4,
+        "Input": 5,
+        "Textarea": 2
+      },
+      "apiHookImports": [],
+      "localFeedback": {
+        "Alert": 2
+      },
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/pages/admin/UsersPage.tsx",
+      "fields": {
+        "Input": 3,
+        "Select": 2,
+        "Switch": 1,
+        "Checkbox": 1
+      },
+      "apiHookImports": [],
+      "localFeedback": {
+        "Alert": 1
+      },
+      "literalPermissionCalls": [
+        "users.create",
+        "users.delete",
+        "users.update"
+      ]
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/pages/chat/ChatPage.tsx",
+      "fields": {
+        "Input": 2,
+        "input": 2,
+        "Textarea": 1
+      },
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/pages/chat/GroupDialogs.tsx",
+      "fields": {
+        "Input": 1,
+        "Textarea": 1,
+        "Switch": 2
+      },
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/pages/chat/ShareRecordDialog.tsx",
+      "fields": {
+        "RemoteCompanyCombobox": 1,
+        "Input": 1
+      },
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/pages/dashboard/DashboardBriefing.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/pages/dashboard/DashboardLayout.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/pages/dashboard/DashboardTasksPanel.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": [
+        "tasks.manage",
+        "tasks.read"
+      ]
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/pages/dashboard/SalesQualificationPanel.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/pages/dashboard/TargetWorkspace.tsx",
+      "fields": {
+        "Select": 1,
+        "Input": 2
+      },
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/pages/documents/DocumentsPage.tsx",
+      "fields": {
+        "Input": 1
+      },
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/pages/finance/AccountingInvoicesPage.tsx",
+      "fields": {
+        "Input": 1
+      },
+      "apiHookImports": [],
+      "localFeedback": {
+        "EmptyState": 1
+      },
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/pages/finance/CreateAccountingInvoiceDialog.tsx",
+      "fields": {
+        "RemoteCompanyCombobox": 1,
+        "Select": 5,
+        "Input": 21,
+        "Textarea": 1
+      },
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/pages/finance/CustomerBalancesPage.tsx",
+      "fields": {
+        "Input": 1
+      },
+      "apiHookImports": [],
+      "localFeedback": {
+        "EmptyState": 1
+      },
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/pages/finance/DueDatesCalendarPage.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {
+        "EmptyState": 1
+      },
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/pages/logistics/DeliveriesPage.tsx",
+      "fields": {
+        "Select": 1
+      },
+      "apiHookImports": [],
+      "localFeedback": {
+        "EmptyState": 1
+      },
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/pages/logistics/InstallationsPage.tsx",
+      "fields": {
+        "Field": 19,
+        "Textarea": 3,
+        "Select": 2,
+        "Input": 2
+      },
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/pages/logistics/ShipmentsPage.tsx",
+      "fields": {
+        "Select": 2
+      },
+      "apiHookImports": [],
+      "localFeedback": {
+        "EmptyState": 1
+      },
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/pages/machines/MachinesPage.tsx",
+      "fields": {
+        "Input": 1,
+        "RemoteCompanyCombobox": 1,
+        "RemoteContactCombobox": 1
+      },
+      "apiHookImports": [],
+      "localFeedback": {
+        "EmptyState": 3
+      },
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/pages/machines/MaintenancePlanPanel.tsx",
+      "fields": {
+        "Switch": 1,
+        "Input": 1
+      },
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": [
+        "service_tickets.create"
+      ]
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/pages/meta/MetaAudiencesTab.tsx",
+      "fields": {
+        "Select": 1,
+        "Input": 1,
+        "Textarea": 2,
+        "Checkbox": 1
+      },
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/pages/meta/MetaAutomationTab.tsx",
+      "fields": {
+        "Switch": 1,
+        "Select": 4,
+        "Input": 4,
+        "Checkbox": 1
+      },
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/pages/meta/MetaCampaignsTab.tsx",
+      "fields": {
+        "Select": 3,
+        "Input": 3,
+        "Checkbox": 1
+      },
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/pages/meta/MetaCatalogsTab.tsx",
+      "fields": {
+        "Select": 2,
+        "Input": 1,
+        "Textarea": 1
+      },
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/pages/meta/MetaConnectionsTab.tsx",
+      "fields": {
+        "Input": 3,
+        "Checkbox": 1
+      },
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/pages/meta/MetaInboxTab.tsx",
+      "fields": {
+        "Select": 1,
+        "Input": 1,
+        "Textarea": 2
+      },
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/pages/meta/MetaLeadsTab.tsx",
+      "fields": {
+        "Input": 1,
+        "Select": 2
+      },
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/pages/meta/MetaOverviewTab.tsx",
+      "fields": {
+        "Input": 2,
+        "Select": 1
+      },
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/pages/meta/MetaPage.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": [
+        "meta.create",
+        "meta.delete",
+        "meta.read",
+        "meta.update",
+        "meta_audiences.create",
+        "meta_audiences.delete",
+        "meta_audiences.update",
+        "meta_campaigns.approve",
+        "meta_campaigns.create",
+        "meta_campaigns.read",
+        "meta_campaigns.update",
+        "meta_catalogs.create",
+        "meta_catalogs.delete",
+        "meta_catalogs.update",
+        "meta_messages.create",
+        "meta_messages.read",
+        "meta_messages.update"
+      ]
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/pages/meta/meta-shared.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/pages/offers/OffersPage.tsx",
+      "fields": {
+        "Input": 2,
+        "Select": 1,
+        "Textarea": 1
+      },
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": [
+        "files.create"
+      ]
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/pages/payments/PaymentsPage.tsx",
+      "fields": {
+        "Input": 4,
+        "Select": 3,
+        "Textarea": 1,
+        "input": 1
+      },
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/pages/purchase/PurchaseOrdersPage.tsx",
+      "fields": {
+        "Input": 16,
+        "RemoteCompanyCombobox": 1,
+        "Select": 4,
+        "Textarea": 1
+      },
+      "apiHookImports": [],
+      "localFeedback": {
+        "EmptyState": 1
+      },
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/pages/reports/ActivityLogReportCard.tsx",
+      "fields": {
+        "Input": 2
+      },
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/pages/reports/OperationalReport.tsx",
+      "fields": {
+        "Select": 2
+      },
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/pages/reports/ReportsPage.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/pages/reports/TargetPerformanceReport.tsx",
+      "fields": {
+        "Input": 1,
+        "Select": 1
+      },
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": [
+        "reports.export"
+      ]
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/pages/service/ServicePages.tsx",
+      "fields": {
+        "RemoteCompanyCombobox": 3,
+        "Select": 25,
+        "Input": 66,
+        "Textarea": 15,
+        "Checkbox": 1
+      },
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": [
+        "service_tickets.create"
+      ]
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/pages/settings/AdminMailSignatureSettings.tsx",
+      "fields": {
+        "Select": 1,
+        "Input": 1
+      },
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/pages/settings/DepartmentSettingsCard.tsx",
+      "fields": {
+        "Input": 3,
+        "Textarea": 1
+      },
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": [
+        "departments.create",
+        "departments.delete",
+        "departments.update"
+      ]
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/pages/settings/LaserProfilesPanel.tsx",
+      "fields": {
+        "select": 1,
+        "Input": 1
+      },
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/pages/settings/LeadAssignmentRulesCard.tsx",
+      "fields": {
+        "Input": 5,
+        "Select": 1,
+        "Checkbox": 1
+      },
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/pages/settings/LookupImportDialog.tsx",
+      "fields": {
+        "Input": 6,
+        "select": 1
+      },
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/pages/settings/LookupManagerTab.tsx",
+      "fields": {
+        "input": 1,
+        "Combobox": 2,
+        "Switch": 3,
+        "Input": 4
+      },
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/pages/settings/MailAccountSettings.tsx",
+      "fields": {
+        "Input": 4,
+        "Textarea": 1
+      },
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/pages/settings/ProductSpecTemplatesCard.tsx",
+      "fields": {
+        "select": 9,
+        "Input": 3,
+        "input": 4,
+        "Switch": 1
+      },
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/pages/settings/SettingsPage.tsx",
+      "fields": {
+        "Input": 1
+      },
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": [
+        "lead_assignment_rules.manage",
+        "tenants.update"
+      ]
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/pages/settings/SignatureSettingsCard.tsx",
+      "fields": {
+        "Input": 2,
+        "Select": 1,
+        "input": 1,
+        "Switch": 1
+      },
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": [
+        "tenants.update"
+      ]
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/pages/settings/settings-controls.tsx",
+      "fields": {
+        "Input": 1,
+        "select": 1,
+        "Switch": 1
+      },
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/pages/shared/formFields.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/pages/stock/StockPage.tsx",
+      "fields": {
+        "Input": 1,
+        "RemoteCompanyCombobox": 1
+      },
+      "apiHookImports": [],
+      "localFeedback": {
+        "EmptyState": 2
+      },
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/pages/tasks/TaskCompletionDialog.tsx",
+      "fields": {
+        "Textarea": 1
+      },
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/pages/tasks/TaskDetailPanel.tsx",
+      "fields": {
+        "Textarea": 1
+      },
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/pages/tasks/TaskFormDialog.tsx",
+      "fields": {
+        "Field": 10,
+        "Input": 2,
+        "select": 4,
+        "RemoteCompanyCombobox": 1,
+        "RemoteContactCombobox": 1,
+        "Textarea": 2
+      },
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/pages/tasks/TaskList.tsx",
+      "fields": {
+        "Checkbox": 1
+      },
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/pages/tasks/TaskRecordSection.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": [
+        "tasks.create",
+        "tasks.read"
+      ]
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/pages/tasks/TasksPage.tsx",
+      "fields": {
+        "Input": 1,
+        "select": 2
+      },
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": [
+        "tasks.delete",
+        "tasks.manage"
+      ]
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/reports/ReportAnalyticsHub.tsx",
+      "fields": {
+        "Input": 1,
+        "Select": 1
+      },
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": [
+        "reports.export"
+      ]
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/shared/CommercialDocumentRail.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/shared/CompanyFinancePanel.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/shared/CompanyNotesCard.tsx",
+      "fields": {
+        "Textarea": 1
+      },
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": [
+        "companies.update"
+      ]
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/shared/DialogSplitLayout.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/shared/EmptyState.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/shared/KanbanDetailDialogShell.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/shared/LostOpportunityDetails.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/shared/MentionTextarea.tsx",
+      "fields": {
+        "Textarea": 1
+      },
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/shared/MiniKpi.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/shared/NextActionDialog.tsx",
+      "fields": {
+        "Textarea": 1,
+        "Input": 1
+      },
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/shared/NumberedLinesTextarea.tsx",
+      "fields": {
+        "Textarea": 1
+      },
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/shared/PageHeader.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/shared/PageLoadingSkeleton.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/shared/PageShell.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/shared/PaymentMethodSelect.tsx",
+      "fields": {
+        "Select": 2
+      },
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/shared/PremiumPrimitives.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/shared/ProductSpecsTable.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/shared/ProformaItemsEditor.tsx",
+      "fields": {
+        "Input": 5
+      },
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/shared/QuickDocumentEditor.tsx",
+      "fields": {
+        "Switch": 1,
+        "Input": 16,
+        "RemoteCompanyCombobox": 1,
+        "Select": 1
+      },
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/shared/RecordWorkspace.tsx",
+      "fields": {
+        "Select": 1
+      },
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/shared/RemoteCompanyCombobox.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/shared/RemoteContactCombobox.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/shared/RequestedMachineCombobox.tsx",
+      "fields": {
+        "Combobox": 1
+      },
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": [
+        "products.read"
+      ]
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/shared/StandaloneActivity.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": [
+        "activities.convert"
+      ]
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/shared/StatusBadge.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/shared/StoreLoadBanner.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/shared/StoreTruncatedBanner.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/shared/VisualStates.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/shared/WorkspacePrimitives.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/shell/ShellParts.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/technical/LaserConfigurationEditor.tsx",
+      "fields": {
+        "select": 6,
+        "Input": 4
+      },
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/technical/ProductConfigurationOptions.tsx",
+      "fields": {
+        "Input": 5,
+        "select": 5
+      },
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/ui/ExportExcelButton.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": [
+        "reports.export"
+      ]
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/ui/accordion.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/ui/alert-dialog.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/ui/alert.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/ui/aspect-ratio.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/ui/avatar.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/ui/badge.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/ui/breadcrumb.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/ui/button-group.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/ui/button.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/ui/calendar.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/ui/card.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/ui/carousel.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/ui/chart.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/ui/checkbox.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/ui/collapsible.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/ui/combobox.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/ui/command.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/ui/context-menu.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/ui/dialog.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/ui/drawer.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/ui/dropdown-menu.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/ui/field.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/ui/form.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/ui/hover-card.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/ui/input-group.tsx",
+      "fields": {
+        "input": 1
+      },
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/ui/input-otp.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/ui/input.tsx",
+      "fields": {
+        "input": 1
+      },
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/ui/item.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/ui/kbd.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/ui/label.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/ui/list-controls.tsx",
+      "fields": {
+        "Select": 1
+      },
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/ui/menubar.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/ui/multi-select.tsx",
+      "fields": {
+        "Input": 1
+      },
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/ui/navigation-menu.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/ui/pagination.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/ui/popover.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/ui/progress.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/ui/radio-group.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/ui/resizable.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/ui/scroll-area.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/ui/select.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/ui/separator.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/ui/sheet.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/ui/sidebar.tsx",
+      "fields": {
+        "Input": 1
+      },
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/ui/skeleton.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/ui/slider.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/ui/sonner.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/ui/spinner.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/ui/switch.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/ui/table.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/ui/tabs.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/ui/textarea.tsx",
+      "fields": {
+        "textarea": 1
+      },
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/ui/toggle-group.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/ui/toggle.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    },
+    {
+      "platform": "web",
+      "file": "apps/web/src/app/components/ui/tooltip.tsx",
+      "fields": {},
+      "apiHookImports": [],
+      "localFeedback": {},
+      "literalPermissionCalls": []
+    }
+  ]
+}

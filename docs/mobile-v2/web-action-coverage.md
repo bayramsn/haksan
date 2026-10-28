@@ -4,28 +4,24 @@
 > Eşleşme: web servis aksiyonunun HTTP metodu + yolu, `apps/mobile-v2/src/api` içindeki `request()` çağrılarında var mı.
 
 - Web aksiyonu: **345**
-- Mobilde karşılığı olan: **332** (%96)
-- Eksik: **13**
+- Mobilde karşılığı olan: **336** (%97)
+- Eksik: **9**
 
 ## Eksikler (namespace bazında)
 
-### `competitor` — 5 eksik
+### `competitor` — 3 eksik
 
 | Aksiyon | HTTP | Yol | İzin | Web sayfaları |
 |---|---|---|---|---|
-| `competitor.create` | POST | `/competitors` | `competitors.create` | — |
 | `competitor.createProduct` | POST | `/competitors/:param/products` | `competitors.create` | — |
-| `competitor.list` | GET | `/competitors` | `competitors.read` | — |
 | `competitor.products` | GET | `/competitors/:param/products` | `competitors.read` | — |
 | `competitor.update` | PATCH | `/competitors/:param` | `competitors.update` | — |
 
-### `noteTemplate` — 4 eksik
+### `noteTemplate` — 2 eksik
 
 | Aksiyon | HTTP | Yol | İzin | Web sayfaları |
 |---|---|---|---|---|
 | `noteTemplate.create` | POST | `/note-templates` | — | — |
-| `noteTemplate.list` | GET | `/note-templates` | — | — |
-| `noteTemplate.remove` | DELETE | `/note-templates/:param` | — | — |
 | `noteTemplate.update` | PATCH | `/note-templates/:param` | — | — |
 
 ### `publicComplaint` — 4 eksik
