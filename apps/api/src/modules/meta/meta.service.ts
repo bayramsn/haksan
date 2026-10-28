@@ -22,8 +22,11 @@ import {
   type MetaFormMappingCreateInput,
   type MetaFormMappingUpdateInput,
   type MetaListQuery,
+  type MetaOverviewQuery,
+  type MetaConversationListQuery,
+  type MetaLeadListQuery,
 } from '@haksan/shared';
-import { and, desc, eq, gte, inArray, isNull, lte, or, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, inArray, isNull, lt, lte, or, sql } from 'drizzle-orm';
 import { loadEnv } from '../../config/env';
 import { z } from 'zod';
 import type { DbClient } from '../../db/client';
@@ -48,10 +51,11 @@ import { ConflictError, NotFoundError, ValidationError } from '../../shared/util
 import { resourceDivisionFilter } from '../../shared/utils/division-scope';
 import { MetaCredentialService } from './meta-credential.service';
 import { MetaGraphClient } from './meta-graph.client';
+import { MetaUpstreamError } from './meta.errors';
 
 type ConnectionRow = typeof metaConnections.$inferSelect;
 
-export interface GraphList<T> { data: T[]; paging?: { next?: string } }
+export interface GraphList<T> { data: T[]; paging?: { next?: string; cursors?: { after?: string } } }
 export interface GraphId { id: string; success?: boolean }
 
 const oauthStateSchema = z.object({
@@ -92,18 +96,44 @@ export class MetaService {
     private readonly audit: AuditService
   ) {}
 
-  async overview(actor: AuthContext) {
-    const [connectionCount, leadCount, pendingConversions, spend] = await Promise.all([
-      this.db.select({ value: sql<number>`count(*)::int` }).from(metaConnections).where(and(eq(metaConnections.tenantId, actor.tenantId), isNull(metaConnections.deletedAt))),
-      this.db.select({ value: sql<number>`count(*)::int` }).from(opportunities).where(and(eq(opportunities.tenantId, actor.tenantId), eq(opportunities.externalSource, 'meta_lead_ads'), isNull(opportunities.deletedAt), resourceDivisionFilter(actor, 'opportunities', opportunities.divisionId) ?? sql`true`)),
-      this.db.select({ value: sql<number>`count(*)::int` }).from(metaConversionEvents).where(and(eq(metaConversionEvents.tenantId, actor.tenantId), eq(metaConversionEvents.status, 'pending'))),
-      this.db.select({ value: sql<string>`coalesce(sum(${metaDailyInsights.spend}), 0)` }).from(metaDailyInsights).where(eq(metaDailyInsights.tenantId, actor.tenantId)),
+  async overview(actor: AuthContext, query: MetaOverviewQuery = {}) {
+    const from = query.from ? new Date(`${query.from}T00:00:00.000Z`) : undefined;
+    const until = query.to ? new Date(new Date(`${query.to}T00:00:00.000Z`).getTime() + 86_400_000) : undefined;
+    const leadWhere = and(
+      eq(opportunities.tenantId, actor.tenantId), eq(opportunities.externalSource, 'meta_lead_ads'), isNull(opportunities.deletedAt),
+      resourceDivisionFilter(actor, 'opportunities', opportunities.divisionId) ?? sql`true`,
+      query.connectionId ? sql`${opportunities.externalMetadata}->>'connectionId' = ${query.connectionId}` : undefined,
+      from ? gte(opportunities.createdAt, from) : undefined, until ? lt(opportunities.createdAt, until) : undefined,
+    );
+    const [connectionCount, leadCounts, insightRows] = await Promise.all([
+      this.db.select({ value: sql<number>`count(*)::int` }).from(metaConnections).where(and(eq(metaConnections.tenantId, actor.tenantId), isNull(metaConnections.deletedAt), query.connectionId ? eq(metaConnections.id, query.connectionId) : undefined)),
+      this.db.select({
+        leads: sql<number>`count(*)::int`,
+        qualified: sql<number>`count(*) filter (where lower(${opportunities.qualificationStage}) in ('a', 'a+', 'qualified') and lower(coalesce(${opportunities.leadFollowUpStatus}, '')) <> 'disqualified')::int`,
+        converted: sql<number>`count(*) filter (where lower(${opportunities.qualificationStage}) in ('win', 'won', 'converted'))::int`,
+      }).from(opportunities).where(leadWhere),
+      this.db.select({
+        currency: sql<string | null>`${metaDailyInsights.rawMetrics}->>'account_currency'`,
+        spend: sql<string>`sum(${metaDailyInsights.spend})`,
+        impressions: sql<number>`sum(${metaDailyInsights.impressions})::int`, clicks: sql<number>`sum(${metaDailyInsights.clicks})::int`,
+      }).from(metaDailyInsights).where(and(eq(metaDailyInsights.tenantId, actor.tenantId),
+        query.connectionId ? eq(metaDailyInsights.connectionId, query.connectionId) : undefined,
+        from ? gte(metaDailyInsights.insightDate, from) : undefined, until ? lt(metaDailyInsights.insightDate, until) : undefined,
+      )).groupBy(sql`${metaDailyInsights.rawMetrics}->>'account_currency'`),
     ]);
+    const counts = leadCounts[0];
+    const leads = counts?.leads ?? 0, qualifiedLeads = counts?.qualified ?? 0, conversions = counts?.converted ?? 0;
+    const singleCurrency = insightRows.length === 1 && /^[A-Z]{3}$/.test(insightRows[0]!.currency ?? '');
+    const totalSpend = singleCurrency ? Number(insightRows[0]!.spend) : null;
     return {
-      connections: connectionCount[0]?.value ?? 0,
-      leads: leadCount[0]?.value ?? 0,
-      pendingConversions: pendingConversions[0]?.value ?? 0,
-      totalSpend: Number(spend[0]?.value ?? 0),
+      connections: connectionCount[0]?.value ?? 0, leads, qualifiedLeads, conversions,
+      totalSpend, currency: singleCurrency ? insightRows[0]!.currency : null,
+      impressions: insightRows.length ? insightRows.reduce((sum, row) => sum + Number(row.impressions), 0) : null,
+      clicks: insightRows.length ? insightRows.reduce((sum, row) => sum + Number(row.clicks), 0) : null,
+      costPerLeadMinor: totalSpend !== null && leads > 0 ? Math.round(totalSpend * 100 / leads) : null,
+      qualificationRate: leads > 0 ? qualifiedLeads / leads * 100 : null,
+      conversionRate: leads > 0 ? conversions / leads * 100 : null,
+      firstResponseMinutes: null,
     };
   }
 
@@ -241,8 +271,38 @@ export class MetaService {
     return removed;
   }
 
-  async listLeads(actor: AuthContext, query: MetaListQuery) {
-    const where = and(eq(opportunities.tenantId, actor.tenantId), eq(opportunities.externalSource, 'meta_lead_ads'), isNull(opportunities.deletedAt), resourceDivisionFilter(actor, 'opportunities', opportunities.divisionId) ?? sql`true`);
+  async listLeads(actor: AuthContext, query: MetaLeadListQuery) {
+    // Keep the same precedence as the web and mobile lead status badges.
+    const status = sql<string>`case
+      when lower(coalesce(${opportunities.qualificationStage}, '')) in ('win', 'won', 'converted') then 'converted'
+      when lower(coalesce(${opportunities.qualificationStage}, '')) in ('lost', 'rejected', 'disqualified')
+        or lower(coalesce(${opportunities.leadFollowUpStatus}, '')) = 'disqualified' then 'rejected'
+      when lower(coalesce(${opportunities.qualificationStage}, '')) in ('a', 'a+', 'qualified') then 'qualified'
+      when ${opportunities.firstContactAt} is not null
+        or lower(coalesce(${opportunities.leadFollowUpStatus}, '')) = 'contacted' then 'contacted'
+      when ${opportunities.ownerUserId} is not null then 'assigned'
+      else 'new' end`;
+    // Webhook leads without a recorded platform are displayed as Facebook leads.
+    const platform = sql<string>`coalesce(${opportunities.externalMetadata}->>'platform', ${opportunities.externalMetadata}->>'source', 'facebook')`;
+    const search = query.search
+      ? `%${query.search.replace(/[\\%_]/g, '\\$&')}%`
+      : undefined;
+    const where = and(
+      eq(opportunities.tenantId, actor.tenantId),
+      eq(opportunities.externalSource, 'meta_lead_ads'),
+      isNull(opportunities.deletedAt),
+      resourceDivisionFilter(actor, 'opportunities', opportunities.divisionId) ?? sql`true`,
+      query.connectionId ? sql`${opportunities.externalMetadata}->>'connectionId' = ${query.connectionId}` : undefined,
+      query.from ? gte(opportunities.createdAt, new Date(`${query.from}T00:00:00.000Z`)) : undefined,
+      query.to ? lt(opportunities.createdAt, new Date(new Date(`${query.to}T00:00:00.000Z`).getTime() + 86_400_000)) : undefined,
+      query.status ? eq(status, query.status) : undefined,
+      query.platform ? eq(platform, query.platform) : undefined,
+      search ? or(...[
+        opportunities.title, opportunities.leadContactName, opportunities.leadCompanyTitle,
+        opportunities.leadPhone, opportunities.leadEmail,
+        sql<string>`${opportunities.externalMetadata}->>'campaignName'`,
+      ].map((field) => sql`${field} ilike ${search}`)) : undefined,
+    );
     const [data, count] = await Promise.all([
       this.db.select().from(opportunities).where(where).orderBy(desc(opportunities.createdAt)).limit(query.pageSize).offset((query.page - 1) * query.pageSize),
       this.db.select({ value: sql<number>`count(*)::int` }).from(opportunities).where(where),
@@ -260,7 +320,7 @@ export class MetaService {
     if (!row.adAccountId) throw new ValidationError('Bağlantıda reklam hesabı tanımlı değil');
     const account = row.adAccountId.startsWith('act_') ? row.adAccountId : `act_${row.adAccountId}`;
     const response = await this.graph.get<GraphList<Record<string, unknown>>>(token, `${account}/insights`, {
-      fields: 'date_start,campaign_id,campaign_name,spend,impressions,clicks,actions',
+      fields: 'date_start,campaign_id,campaign_name,spend,impressions,clicks,actions,account_currency',
       level: 'campaign',
       time_increment: 1,
       time_range: JSON.stringify({ since: this.dateOnly(from), until: this.dateOnly(to) }),
@@ -288,10 +348,32 @@ export class MetaService {
     return { imported: response.data.length };
   }
 
+  private graphBudget() { return { remaining: 50, deadline: Date.now() + 15_000 }; }
+
+  private async graphPages<T>(token: string, path: string, query: Record<string, string | number>, budget: { remaining: number; deadline: number }, initial?: GraphList<T>): Promise<T[]> {
+    const data: T[] = [];
+    const seen = new Set<string>();
+    let after: string | undefined;
+    let page = initial;
+    while (true) {
+      if (!page) {
+        if (budget.remaining-- <= 0 || Date.now() >= budget.deadline) throw new MetaUpstreamError('Meta listesi tamamlanamadı. Daha dar bir kaynakla yeniden deneyin.');
+        page = await this.graph.get<GraphList<T>>(token, path, { ...query, after });
+      }
+      if (!page || !Array.isArray(page.data)) throw new MetaUpstreamError('Meta liste yanıtı doğrulanamadı');
+      data.push(...page.data);
+      if (!page.paging?.next) return data;
+      const cursor = page.paging.cursors?.after;
+      if (typeof cursor !== 'string' || !cursor || cursor.length > 2048 || seen.has(cursor)) throw new MetaUpstreamError('Meta sayfalama imleci doğrulanamadı');
+      seen.add(cursor); after = cursor; page = undefined;
+    }
+  }
+
   async listCampaigns(actor: AuthContext, connectionId: string) {
     const { row, token } = await this.authorizedConnection(actor, connectionId);
     if (!row.adAccountId) throw new ValidationError('Bağlantıda reklam hesabı tanımlı değil');
-    return this.graph.get<GraphList<Record<string, unknown>>>(token, `${this.adAccount(row)}/campaigns`, { fields: 'id,name,status,effective_status,objective,buying_type,daily_budget,lifetime_budget,created_time,updated_time', limit: 100 });
+    const data = await this.graphPages<Record<string, unknown>>(token, `${this.adAccount(row)}/campaigns`, { fields: 'id,name,status,effective_status,objective,buying_type,daily_budget,lifetime_budget,created_time,updated_time', limit: 100 }, this.graphBudget());
+    return { data };
   }
 
   async createCampaign(actor: AuthContext, input: MetaCampaignCreateInput) {
@@ -325,15 +407,16 @@ export class MetaService {
     return result;
   }
 
-  async listConversations(actor: AuthContext, query: MetaListQuery) {
+  async listConversations(actor: AuthContext, query: MetaConversationListQuery) {
     const where = and(eq(metaMessages.tenantId, actor.tenantId), query.connectionId ? eq(metaMessages.connectionId, query.connectionId) : undefined);
+    const search = query.search ? `%${query.search.replace(/[\\%_]/g, '\\$&')}%` : undefined;
     return this.db.select({
       connectionId: metaMessages.connectionId,
       conversationExternalId: metaMessages.conversationExternalId,
       channel: metaMessages.channel,
       lastMessageAt: sql<Date>`max(${metaMessages.sentAt})`,
       messageCount: sql<number>`count(*)::int`,
-    }).from(metaMessages).where(where).groupBy(metaMessages.connectionId, metaMessages.conversationExternalId, metaMessages.channel).orderBy(desc(sql`max(${metaMessages.sentAt})`)).limit(query.pageSize).offset((query.page - 1) * query.pageSize);
+    }).from(metaMessages).where(where).groupBy(metaMessages.connectionId, metaMessages.conversationExternalId, metaMessages.channel).having(search ? sql`bool_or(${metaMessages.conversationExternalId} ilike ${search} or ${metaMessages.text} ilike ${search})` : undefined).orderBy(desc(sql`max(${metaMessages.sentAt})`)).limit(query.pageSize).offset((query.page - 1) * query.pageSize);
   }
 
   listMessages(actor: AuthContext, conversationId: string, query: MetaListQuery) {
@@ -364,7 +447,16 @@ export class MetaService {
     const sourceId = row.instagramAccountId ?? row.pageId;
     if (!sourceId) throw new ValidationError('Bağlantıda yorum kaynağı tanımlı değil');
     const collection = row.instagramAccountId ? 'media' : 'feed';
-    return this.graph.get<GraphList<Record<string, unknown>>>(token, `${sourceId}/${collection}`, { fields: 'id,caption,message,timestamp,created_time,comments.limit(50){id,text,message,username,from,timestamp,created_time,like_count,hidden}', limit: 50 });
+    const budget = this.graphBudget();
+    const fields = 'id,text,message,username,from,timestamp,created_time,like_count,hidden';
+    const data = await this.graphPages<Record<string, unknown>>(token, `${sourceId}/${collection}`, { fields: `id,caption,message,timestamp,created_time,comments.limit(50){${fields}}`, limit: 50 }, budget);
+    for (const media of data) {
+      const comments = media.comments as GraphList<Record<string, unknown>> | undefined;
+      if (!comments?.paging?.next) continue;
+      if (typeof media.id !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(media.id)) throw new MetaUpstreamError('Meta gönderi kimliği doğrulanamadı');
+      media.comments = { data: await this.graphPages(token, `${media.id}/comments`, { fields, limit: 50 }, budget, comments) };
+    }
+    return { data };
   }
 
   async replyComment(actor: AuthContext, commentId: string, input: MetaCommentReplyCreateInput) {

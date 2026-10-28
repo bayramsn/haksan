@@ -13,7 +13,8 @@ import {
   currencies,
 } from './lookup';
 import { files } from './files';
-import type { LaserTechnicalConfiguration } from '@haksan/shared';
+import { users } from './users';
+import type { LaserTechnicalConfiguration, LaserBaseConfiguration, BaseModelConfiguration } from '@haksan/shared';
 
 export const brands = pgTable(
   'brands',
@@ -78,6 +79,10 @@ export const productModels = pgTable(
     imageUrl: varchar('image_url', { length: 512 }),
     description: text('description'),
     technicalConfiguration: jsonb('technical_configuration').$type<LaserTechnicalConfiguration | null>(),
+    laserBaseConfiguration: jsonb('laser_base_configuration').$type<LaserBaseConfiguration | null>(),
+    baseModelConfiguration: jsonb('base_model_configuration').$type<BaseModelConfiguration | null>(),
+    catalogHidden: boolean('catalog_hidden').notNull().default(false),
+    catalogSources: jsonb('catalog_sources').$type<Array<{ sourceId: string; url: string; capturedOn: string; group: string; typeCode: string }>>().notNull().default([]),
     // Bu ürünün muadili (eşdeğer) olarak gösterilecek başka bir ürün modeli (self-FK).
     muadilProductId: uuid('muadil_product_id'),
     isActive: boolean('is_active').notNull().default(true),
@@ -330,6 +335,7 @@ export const productOptionSets = pgTable(
       .notNull()
       .references(() => productModels.id, { onDelete: 'cascade' }),
     name: varchar('name', { length: 128 }).notNull(),
+    configurationKind: varchar('configuration_kind', { length: 16 }).$type<'table' | 'power' | 'cabin' | null>(),
     sortOrder: integer('sort_order').notNull().default(0),
     ...auditColumns,
   },
@@ -350,6 +356,9 @@ export const productOptionValues = pgTable(
       .references(() => productOptionSets.id, { onDelete: 'cascade' }),
     value: varchar('value', { length: 255 }).notNull(),
     priceDelta: money('price_delta'),
+    sourceModelCode: varchar('source_model_code', { length: 64 }),
+    powerKw: numeric('power_kw', { precision: 5, scale: 1, mode: 'number' }),
+    cabinType: varchar('cabin_type', { length: 16 }).$type<'open' | 'closed' | null>(),
     currencyId: uuid('currency_id').references(() => currencies.id),
     sortOrder: integer('sort_order').notNull().default(0),
     ...auditColumns,
@@ -358,3 +367,14 @@ export const productOptionValues = pgTable(
     optionSetIdx: index('product_option_values_set_idx').on(t.optionSetId),
   })
 );
+
+/** Owner-scoped product create receipts contain no request payload or credentials. */
+export const productCreateOperations = pgTable('product_create_operations', {
+  tenantId: uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  operationId: uuid('operation_id').notNull(),
+  fingerprint: varchar('fingerprint', { length: 64 }).notNull(),
+  scopeFingerprint: varchar('scope_fingerprint', { length: 64 }).notNull(),
+  productId: uuid('product_id').references(() => productModels.id, { onDelete: 'restrict' }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, t => ({ ownerOperation: uniqueIndex('product_create_operations_owner_unique').on(t.tenantId, t.userId, t.operationId) }));

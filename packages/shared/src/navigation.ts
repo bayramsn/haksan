@@ -3,6 +3,7 @@ export const NAVIGATION_VISIBILITY_KEYS = [
   'chat',
   'calendar',
   'tasks',
+  'trade-fairs',
   'customers',
   'sales-cases',
   'meta',
@@ -63,6 +64,7 @@ export const NAVIGATION_GROUPS = [
       { key: 'chat', label: 'Sohbet' },
       { key: 'calendar', label: 'Takvim' },
       { key: 'tasks', label: 'Görevler' },
+      { key: 'trade-fairs', label: 'Fuar' },
     ],
   },
   {

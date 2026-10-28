@@ -24,6 +24,7 @@ const envSchema = z.object({
   DEPLOYMENT_PROFILE: z.enum(['local', 'staging', 'production']).default('local'),
   PORT: z.coerce.number().int().positive().default(3000),
   API_PREFIX: z.string().default('/api/v1'),
+  CALL_ASSISTANT_ENABLED: envBoolean.default(false),
 
   // Database
   DB_PROVIDER: z.enum(['postgres', 'mysql', 'sqlite', 'sqlserver']).default('postgres'),

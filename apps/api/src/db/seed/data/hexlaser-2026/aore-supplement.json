@@ -1,0 +1,1311 @@
+{
+  "schemaVersion": 1,
+  "source": "https://tr.aorelaser.com/",
+  "capturedAt": "2026-10-13T08:39:45.590384+00:00",
+  "products": [
+    {
+      "series": "PU",
+      "brand": "AORE",
+      "url": "https://tr.aorelaser.com/product/Tam-Korumalı-Yüksek-Hızlı-Sac-Lazer-Kesim-Makinesi-PU-466.html",
+      "capturedAt": "2026-10-13T08:39:45.590384+00:00",
+      "sha256": "ebb279d9ea34a97ec6663761d6b9276c7ab67f19b82377e81aa0a552e916fcfa",
+      "saleStatus": "draft",
+      "hexEquivalence": "unconfirmed",
+      "tables": [
+        [
+          "Model",
+          "PU3015",
+          "PU3216"
+        ],
+        [
+          "Güç",
+          "3-12kW",
+          "3-12kW"
+        ],
+        [
+          "İşlem Formatı",
+          "3100*1550mm",
+          "3200*1600mm"
+        ],
+        [
+          "Maksimum Hız",
+          "180m/min",
+          "180m/min"
+        ],
+        [
+          "Maksimum İvme",
+          "2G",
+          "2G"
+        ],
+        [
+          "Konumlandırma Doğruluğu",
+          "±0.03mm",
+          "±0.03mm"
+        ]
+      ],
+      "verification": "needs_review"
+    },
+    {
+      "series": "GR-H",
+      "brand": "AORE",
+      "url": "https://tr.aorelaser.com/product/Hepsi-Bir-Arada-Lazer-Kesim-Makinesi-GR-H-354.html",
+      "capturedAt": "2026-10-13T08:39:45.590384+00:00",
+      "sha256": "d7f56252da45f32dd9125c94b2a009bb7cd4d4849fdaabc52ad0e6b990611447",
+      "saleStatus": "draft",
+      "hexEquivalence": "unconfirmed",
+      "tables": [
+        [
+          "Model",
+          "GR1500H"
+        ],
+        [
+          "Güç",
+          "12-40kW"
+        ],
+        [
+          "Maksimum Profil Uzunluğu",
+          "12300mm"
+        ],
+        [
+          "Profil İşleme Aralığı",
+          "200*100mm-1500*500mm"
+        ],
+        [
+          "Sac İşleme Aralığı",
+          "3200*13000mm(Straight Cutting)2500*12300mm(Bevel Cutting)"
+        ],
+        [
+          "Boru İşleme Aralığı",
+          "Φ15-1200mm 口15-600mm"
+        ],
+        [
+          "Konumlandırma doğruluğu",
+          "0.1mm"
+        ],
+        [
+          "Maksimum çalışma hızı",
+          "80m/min"
+        ],
+        [
+          "Maksimum ivmelenme",
+          "0.8G"
+        ]
+      ],
+      "verification": "needs_review"
+    },
+    {
+      "series": "PG",
+      "brand": "AORE",
+      "url": "https://tr.aorelaser.com/product/Tam-Korumalı-Sac-Lazer-Kesim-Makinesi-PG-306.html",
+      "capturedAt": "2026-10-13T08:39:45.590384+00:00",
+      "sha256": "551e7588e6ff4b41a3f217b5b65b5c2491d91e6f30128318e44673f86bd94c01",
+      "saleStatus": "draft",
+      "hexEquivalence": "unconfirmed",
+      "tables": [
+        [
+          "Model",
+          "PG3015",
+          "PG4020",
+          "PG6020",
+          "PG6525"
+        ],
+        [
+          "Güç",
+          "1.5-20KW",
+          "1.5-40kW",
+          "1.5-40kW",
+          "1.5-40kW"
+        ],
+        [
+          "İşlem Formatı",
+          "3050*1530mm",
+          "4050*2030mm",
+          "6050*2030mm",
+          "6550*2530mm"
+        ],
+        [
+          "Maksimum Hız",
+          "120m/min",
+          "120m/min",
+          "120m/min",
+          "120m/min"
+        ],
+        [
+          "Maksimum İvme",
+          "1.5G",
+          "1.5G",
+          "1.5G",
+          "1.5G"
+        ],
+        [
+          "Konumlandırma Doğruluğu",
+          "±0.03mm",
+          "±0.03mm",
+          "±0.03mm",
+          "±0.03mm"
+        ]
+      ],
+      "verification": "needs_review"
+    },
+    {
+      "series": "GR",
+      "brand": "AORE",
+      "url": "https://tr.aorelaser.com/product/Lineer-Ray-Sac-Lazer-Kesim-Makinesi-GR-189.html",
+      "capturedAt": "2026-10-13T08:39:45.590384+00:00",
+      "sha256": "4a9a42ec5224534da7d88e455eadc34461ab1ec630d28c2d3ab38f3e261020fb",
+      "saleStatus": "draft",
+      "hexEquivalence": "unconfirmed",
+      "tables": [
+        [
+          "Model",
+          "GR2500",
+          "GR3200",
+          "GR4000"
+        ],
+        [
+          "Güç",
+          "6-60kW",
+          "6-60kW",
+          "6-60kW"
+        ],
+        [
+          "İşlem Formatı",
+          "2550mm*12500mm",
+          "3250mm*12500mm",
+          "4050mm*12500mm"
+        ],
+        [
+          "Maksimum Hız",
+          "80m/min",
+          "80m/min",
+          "80m/min"
+        ],
+        [
+          "Maksimum İvme",
+          "0.8G",
+          "0.8G",
+          "0.8G"
+        ],
+        [
+          "Konumlandırma Doğruluğu",
+          "±0.1mm",
+          "±0.1mm",
+          "±0.1mm"
+        ]
+      ],
+      "verification": "needs_review"
+    },
+    {
+      "series": "H",
+      "brand": "AORE",
+      "url": "https://tr.aorelaser.com/product/Yüksek-Hızlı-Sac-Lazer-Kesim-Makinesi-H-308.html",
+      "capturedAt": "2026-10-13T08:39:45.590384+00:00",
+      "sha256": "45124d297ea090378b0a0ac3c801470744533a4ac664bb7c22ae30012b39b6a4",
+      "saleStatus": "draft",
+      "hexEquivalence": "unconfirmed",
+      "tables": [
+        [
+          "Model",
+          "H3015",
+          "H4020",
+          "H6020"
+        ],
+        [
+          "Güç",
+          "6-40kW",
+          "6-40kW",
+          "6-40kW"
+        ],
+        [
+          "İşlem Formatı",
+          "3060*1550mm",
+          "4060*2050mm",
+          "6150*2050mm"
+        ],
+        [
+          "Maksimum Hız",
+          "200m/min",
+          "200m/min",
+          "200m/min"
+        ],
+        [
+          "Maksimum İvme",
+          "4G",
+          "2.8G",
+          "2.8G"
+        ],
+        [
+          "Konumlandırma Doğruluğu",
+          "±0.03mm",
+          "±0.03mm",
+          "±0.03mm"
+        ]
+      ],
+      "verification": "needs_review"
+    },
+    {
+      "series": "PB",
+      "brand": "AORE",
+      "url": "https://tr.aorelaser.com/product/Tam-Kapalı-Açılı-Lazer-Kesim-Makinesi-PB-307.html",
+      "capturedAt": "2026-10-13T08:39:45.590384+00:00",
+      "sha256": "4ec4f446c67ba623a48dc57e2bc9cc284cdc6ddd1276277424a0460b45a0f306",
+      "saleStatus": "draft",
+      "hexEquivalence": "unconfirmed",
+      "tables": [
+        [
+          "Model",
+          "PB3015",
+          "PB6020",
+          "PB8025"
+        ],
+        [
+          "Güç",
+          "8-40kW",
+          "8-40kW",
+          "8-40kW"
+        ],
+        [
+          "İşlem Formatı",
+          "3850*2200mm",
+          "6850*2700mm",
+          "8850*3200mm"
+        ],
+        [
+          "Maksimum Hız",
+          "115m/min",
+          "115m/min",
+          "115m/min"
+        ],
+        [
+          "Maksimum İvme",
+          "1.2G",
+          "1.2G",
+          "1.2G"
+        ],
+        [
+          "Konumlandırma Doğruluğu",
+          "±0.3mm",
+          "±0.3mm",
+          "±0.3mm"
+        ]
+      ],
+      "verification": "needs_review"
+    },
+    {
+      "series": "S",
+      "brand": "AORE",
+      "url": "https://tr.aorelaser.com/product/Yüksek-Hassasiyetli-Sac-Lazer-Kesim-Makinesi-S-305.html",
+      "capturedAt": "2026-10-13T08:39:45.590384+00:00",
+      "sha256": "d0ed634e77184aea65b2d6ed15bbf12fbff130c97cdda681b8ddddad11367e06",
+      "saleStatus": "draft",
+      "hexEquivalence": "unconfirmed",
+      "tables": [
+        [
+          "Model",
+          "S1530"
+        ],
+        [
+          "Güç",
+          "1.5-12kW"
+        ],
+        [
+          "İşlem Formatı",
+          "3060*1530mm"
+        ],
+        [
+          "Maksimum Hız",
+          "115m/min"
+        ],
+        [
+          "Maksimum İvme",
+          "0.8G"
+        ],
+        [
+          "Konumlandırma Doğruluğu",
+          "±0.03mm"
+        ]
+      ],
+      "verification": "needs_review"
+    },
+    {
+      "series": "F",
+      "brand": "AORE",
+      "url": "https://tr.aorelaser.com/product/Yüksek-Verimli-Sac-Lazer-Kesim-Makinesi-F-310.html",
+      "capturedAt": "2026-10-13T08:39:45.590384+00:00",
+      "sha256": "8350205e48f3a4693c1d8e73d4ff28529c46b069a1d48c8d18da7bd098ca9500",
+      "saleStatus": "draft",
+      "hexEquivalence": "unconfirmed",
+      "tables": [
+        [
+          "Model",
+          "F3015",
+          "F4020",
+          "F6020",
+          "F6525"
+        ],
+        [
+          "Güç",
+          "1.5-20kW",
+          "1.5-20kW",
+          "1.5-20kW",
+          "1.5-20kW"
+        ],
+        [
+          "Çalışma alanı",
+          "3050*1530mm",
+          "4050*2030mm",
+          "6150*2030mm",
+          "6550*2530mm"
+        ],
+        [
+          "Konumlandırma doğruluğu",
+          "115m/min",
+          "115m/min",
+          "115m/min",
+          "115m/min"
+        ],
+        [
+          "Maksimum koşu hızı",
+          "0.8G",
+          "0.8G",
+          "0.8G",
+          "0.8G"
+        ],
+        [
+          "Maksimum ivmelenme",
+          "±0.05mm",
+          "±0.05mm",
+          "±0.05mm",
+          "±0.05mm"
+        ]
+      ],
+      "verification": "needs_review"
+    },
+    {
+      "series": "V",
+      "brand": "AORE",
+      "url": "https://tr.aorelaser.com/product/Yüksek-Hızlı-Boru-Lazer-Kesim-Makinesi-V-436.html",
+      "capturedAt": "2026-10-13T08:39:45.590384+00:00",
+      "sha256": "4b357777a843701b326b7b12076eed20523b57d0eec0954518779e8e284790f5",
+      "saleStatus": "draft",
+      "hexEquivalence": "unconfirmed",
+      "tables": [
+        [
+          "Model",
+          "V12",
+          "V12 Pro",
+          "V24",
+          "V36"
+        ],
+        [
+          "Güç",
+          "1.5-3kW",
+          "1.5-3kW",
+          "1.5-6kW",
+          "1.5-12kW"
+        ],
+        [
+          "İşleme Çapı",
+          "Φ8-Φ120mm □8*8-□120*120mm",
+          "Φ20-Φ120mm □20*20-□120*120mm",
+          "Φ15-Φ240mm □15*15-□240*240mm",
+          "Φ20-Φ360mm □20*20-□360*360mm"
+        ],
+        [
+          "Parça Başına Maksimum Yük Kapasitesi",
+          "80kg",
+          "80kg",
+          "300kg",
+          "1200kg"
+        ],
+        [
+          "İşleme Uzunluğu",
+          "6500mm",
+          "6500mm",
+          "6500mm",
+          "6500mm"
+        ],
+        [
+          "Maksimum Hızlanma",
+          "2G",
+          "2G",
+          "1.5G",
+          "0.8G"
+        ]
+      ],
+      "verification": "needs_review"
+    },
+    {
+      "series": "Z",
+      "brand": "AORE",
+      "url": "https://tr.aorelaser.com/product/Dört-Mandrenli-Tamamen-Yüzer-Fiber-Lazer-Boru-Kesme-Makinesi-Z-320.html",
+      "capturedAt": "2026-10-13T08:39:45.590384+00:00",
+      "sha256": "4888bc1d013fc521db8f0425214827e50280ed655277fe1673e03a4fd885b335",
+      "saleStatus": "draft",
+      "hexEquivalence": "unconfirmed",
+      "tables": [
+        [
+          "Model",
+          "Z36",
+          "Z56",
+          "Z65",
+          "TZ12070"
+        ],
+        [
+          "Güç",
+          "6-20kW",
+          "6-20kW",
+          "6-20kW",
+          "6-20kW"
+        ],
+        [
+          "Yuvarlak Boru Çapı",
+          "Φ20-Φ360mm □20*20-□360*360mm",
+          "Φ50-Φ550mm □50*50-□550*550mm",
+          "Φ60-Φ630mm □60*60-□630*630mm",
+          "Φ50-Φ730mm □50*50-□520*520mm"
+        ],
+        [
+          "Maksimum Hammadde Uzunluğu",
+          "1200kg",
+          "3000kg",
+          "4000kg",
+          "3300kg"
+        ],
+        [
+          "Kare Boru Yan Uzunluğu",
+          "12300mm",
+          "12500mm",
+          "15000mm",
+          "12000mm"
+        ],
+        [
+          "Maksimum İvmelenme",
+          "0.8G",
+          "0.5G",
+          "0.3G",
+          "0.3G"
+        ]
+      ],
+      "verification": "needs_review"
+    },
+    {
+      "series": "M",
+      "brand": "AORE",
+      "url": "https://tr.aorelaser.com/product/Üç-Aynalı-Ağır-Hizmet-Tipi-Boru-Lazer-Kesim-Makinesi-M-319.html",
+      "capturedAt": "2026-10-13T08:39:45.590384+00:00",
+      "sha256": "7a5adc86031b51660a82f4c80a8893d69253597dbf5ca7c3b5ca6197d1bdaca8",
+      "saleStatus": "draft",
+      "hexEquivalence": "unconfirmed",
+      "tables": [
+        [
+          "Model",
+          "M28",
+          "M36",
+          "M52"
+        ],
+        [
+          "Güç",
+          "6-12kW",
+          "6-12kW",
+          "6-12kW"
+        ],
+        [
+          "İşleme Çapı",
+          "Φ20-Φ280mm □20*20-□280*280mm",
+          "Φ20-Φ360mm □20*20-□360*360mm",
+          "Φ50-Φ510mm □50*50-□510*510mm"
+        ],
+        [
+          "Parça Başına Maksimum Yük Kapasitesi",
+          "500kg",
+          "1200kg",
+          "2500kg"
+        ],
+        [
+          "İşleme Uzunluğu",
+          "12000mm",
+          "12000mm",
+          "12000mm"
+        ],
+        [
+          "Maksimum Hızlanma",
+          "1G",
+          "0.8G",
+          "0.3G"
+        ]
+      ],
+      "verification": "needs_review"
+    },
+    {
+      "series": "TS",
+      "brand": "AORE",
+      "url": "https://tr.aorelaser.com/product/Üç-Aynalı-Boru-Lazer-Kesim-Makinesi-TS-318.html",
+      "capturedAt": "2026-10-13T08:39:45.590384+00:00",
+      "sha256": "5ee6a01cfc7221fbb00786141e0e0b1973fa2fc56ca9b7e274e72779850dc7c0",
+      "saleStatus": "draft",
+      "hexEquivalence": "unconfirmed",
+      "tables": [
+        [
+          "Model",
+          "TS6020",
+          "TS12035"
+        ],
+        [
+          "Güç",
+          "3-12kW",
+          "3-12kW"
+        ],
+        [
+          "İşleme Çapı",
+          "Φ15-Φ230mm □15*15-□230*230mm",
+          "Φ20-Φ350mm □20*20-□350*350mm"
+        ],
+        [
+          "Parça Başına Maksimum Yük Kapasitesi",
+          "300kg",
+          "900kg"
+        ],
+        [
+          "İşleme Uzunluğu",
+          "6300mm",
+          "12000mm"
+        ],
+        [
+          "Maksimum Hızlanma",
+          "1.5G",
+          "0.8G"
+        ]
+      ],
+      "verification": "needs_review"
+    },
+    {
+      "series": "TH",
+      "brand": "AORE",
+      "url": "https://tr.aorelaser.com/product/Yüksek-Hızlı-Boru-Lazer-Kesim-Makinesi-TH-317.html",
+      "capturedAt": "2026-10-13T08:39:45.590384+00:00",
+      "sha256": "2645a27ac6798efcb7732fa5e8e50487c1d3631696d20919ef0d9ee027aa0d99",
+      "saleStatus": "draft",
+      "hexEquivalence": "unconfirmed",
+      "tables": [
+        [
+          "Model",
+          "TH6020",
+          "TH6035"
+        ],
+        [
+          "Güç",
+          "1.5-6kW",
+          "3-12kW"
+        ],
+        [
+          "İşleme Çapı",
+          "Φ15-Φ230mm □15*15-□230*230mm",
+          "Φ20-Φ350mm □20*20-□350*350mm"
+        ],
+        [
+          "Parça Başına Maksimum Yük Kapasitesi",
+          "300kg",
+          "900kg"
+        ],
+        [
+          "İşleme Uzunluğu",
+          "6300mm",
+          "6300mm"
+        ],
+        [
+          "Maksimum Hızlanma",
+          "1.5G",
+          "0.8G"
+        ]
+      ],
+      "verification": "needs_review"
+    },
+    {
+      "series": "TG",
+      "brand": "AORE",
+      "url": "https://tr.aorelaser.com/product/Yüksek-Verimli-Tüp-Lazer-Kesim-Makinesi-TG-315.html",
+      "capturedAt": "2026-10-13T08:39:45.590384+00:00",
+      "sha256": "12d85e31454002059dc81c90a3b9c81db35cdf65722dea2c66a1fdb9ffd2be5c",
+      "saleStatus": "draft",
+      "hexEquivalence": "unconfirmed",
+      "tables": [
+        [
+          "Model",
+          "TG6012",
+          "TG6020",
+          "TG6035"
+        ],
+        [
+          "Güç",
+          "1.5-3kW",
+          "1.5-6kW",
+          "3-12kW"
+        ],
+        [
+          "İşleme Çapı",
+          "Φ10-Φ120mm □10*10-□120*120mm",
+          "Φ15-Φ230mm □15*15-□230*230mm",
+          "Φ20-Φ350mm □20*20-□350*350mm"
+        ],
+        [
+          "Parça Başına Maksimum Yük Kapasitesi",
+          "100kg",
+          "300kg",
+          "900kg"
+        ],
+        [
+          "İşleme Uzunluğu",
+          "6300mm",
+          "6300mm",
+          "6300mm"
+        ],
+        [
+          "Maksimum Hızlanma",
+          "1.5G",
+          "1.5G",
+          "0.8G"
+        ]
+      ],
+      "verification": "needs_review"
+    },
+    {
+      "series": "PGT",
+      "brand": "AORE",
+      "url": "https://tr.aorelaser.com/product/Tam-Korumalı-Sac-ve-Boru-Fiber-Lazer-Kesim-Makinesi-PGT-323.html",
+      "capturedAt": "2026-10-13T08:39:45.590384+00:00",
+      "sha256": "bd5c071981477de793ddfb3eaa7470869f556ceb1366ce7c7a91a7f21c958544",
+      "saleStatus": "draft",
+      "hexEquivalence": "unconfirmed",
+      "tables": [
+        [
+          "Model",
+          "PG3015T",
+          "PG4020T",
+          "PG6015T"
+        ],
+        [
+          "Güç",
+          "1.5-20KW",
+          "1.5-40kW",
+          "1.5-40kW"
+        ],
+        [
+          "Çalışma alanı",
+          "3050*1530mm",
+          "4050*2030mm",
+          "6050*1530mm"
+        ],
+        [
+          "Konumlandırma doğruluğu",
+          "0.03mm",
+          "0.03mm",
+          "0.03mm"
+        ],
+        [
+          "Maksimum koşu hızı",
+          "115m/min",
+          "120m/min",
+          "120m/min"
+        ],
+        [
+          "Maksimum ivmelenme",
+          "1.2G",
+          "1.2G",
+          "1.2G"
+        ]
+      ],
+      "verification": "needs_review"
+    },
+    {
+      "series": "FT",
+      "brand": "AORE",
+      "url": "https://tr.aorelaser.com/product/Yüksek-Verimli-Sac-ve-Boru-Lazer-Kesim-Makinesi-FT-321.html",
+      "capturedAt": "2026-10-13T08:39:45.590384+00:00",
+      "sha256": "46c210a35f0145d2278105cba7e30a07280f8a388e631c9a826b784414ff9114",
+      "saleStatus": "draft",
+      "hexEquivalence": "unconfirmed",
+      "tables": [
+        [
+          "Model",
+          "F3015T",
+          "F4020T",
+          "F6015T",
+          "F6020T"
+        ],
+        [
+          "Güç",
+          "1.5-20KW",
+          "1.5-20kW",
+          "1.5-20kW",
+          "1.5-20kW"
+        ],
+        [
+          "Çalışma alanı",
+          "3050*1530mm",
+          "4050*2030mm",
+          "6050*1530mm",
+          "6550*2030mm"
+        ],
+        [
+          "Konumlandırma doğruluğu",
+          "0.05mm",
+          "0.05mm",
+          "0.05mm",
+          "0.05mm"
+        ],
+        [
+          "Maksimum koşu hızı",
+          "115m/min",
+          "115m/min",
+          "115m/min",
+          "115m/min"
+        ],
+        [
+          "Maksimum ivmelenme",
+          "0.8G",
+          "0.8G",
+          "0.8G",
+          "0.8G"
+        ]
+      ],
+      "verification": "needs_review"
+    },
+    {
+      "series": "CELL",
+      "brand": "AORE",
+      "url": "https://tr.aorelaser.com/product/3D-Beş-Eksenli-CELL-382.html",
+      "capturedAt": "2026-10-13T08:39:45.590384+00:00",
+      "sha256": "9eafd110de05a37ba505f059d382d92100fd7bd9acc54b122ed76237972a1373",
+      "saleStatus": "draft",
+      "hexEquivalence": "unconfirmed",
+      "tables": [
+        [
+          "Model",
+          "CELL3122"
+        ],
+        [
+          "Seyahat (Uzunluk * Genişlik * Yükseklik)",
+          "3100mmx2200mmx680mm"
+        ],
+        [
+          "Konumlandırma doğruluğu",
+          "±0.03mm"
+        ],
+        [
+          "A ekseni Seyahati",
+          "±135°"
+        ],
+        [
+          "C ekseni Seyahati",
+          "Nx360°"
+        ],
+        [
+          "Maksimum çalışma hızı",
+          "140m/min"
+        ],
+        [
+          "Maksimum ivmelenme",
+          "1G"
+        ]
+      ],
+      "verification": "needs_review"
+    },
+    {
+      "series": "H-ALS",
+      "brand": "AORE",
+      "url": "https://tr.aorelaser.com/product/Otomatik-Profil-Yükleme-ve-Boşaltma-Sistemi-H-ALS-492.html",
+      "capturedAt": "2026-10-13T08:39:45.590384+00:00",
+      "sha256": "c5a0bd619c09910f64ad8f72c5e4fc5c53f9daa9c12f19c9a865e3083e28f823",
+      "saleStatus": "draft",
+      "hexEquivalence": "unconfirmed",
+      "tables": [
+        [
+          "Model",
+          "H-ALS"
+        ],
+        [
+          "Güç",
+          "12-40kW"
+        ],
+        [
+          "Profil İşleme için Kesit Boyutu",
+          "300*150mm-800*500mm(İstek üzerine özelleştirme mevcuttur)"
+        ],
+        [
+          "Maksimum Profil Uzunluğu",
+          "12000mm"
+        ],
+        [
+          "Maksimum Yükleme Kapasitesi",
+          "5T"
+        ],
+        [
+          "Maksimum X/Y Eksen Bağlantı Konumlandırma Hızı",
+          "80m/min"
+        ],
+        [
+          "Maksimum X/Y Eksen Bağlantı Konumlandırma İvmesi",
+          "0.8G"
+        ]
+      ],
+      "verification": "needs_review"
+    },
+    {
+      "series": "R",
+      "brand": "AORE",
+      "url": "https://tr.aorelaser.com/product/Bobin-Beslemeli-Lazer-Kesim-Makinesi-R-467.html",
+      "capturedAt": "2026-10-13T08:39:45.590384+00:00",
+      "sha256": "33502837b7b34c208ed5c146c28aa873a86abafe45152fddde8ec8daec3bac16",
+      "saleStatus": "draft",
+      "hexEquivalence": "unconfirmed",
+      "tables": [
+        [
+          "Model",
+          "R3015",
+          "R4015"
+        ],
+        [
+          "Reklam tabelaları",
+          "1.5-6kW",
+          "1.5-6kW"
+        ],
+        [
+          "şasi dolapları",
+          "3050*1530mm",
+          "4050*1530mm"
+        ],
+        [
+          "mutfak ve mutfak eşyaları",
+          "0.03mm",
+          "0.03mm"
+        ],
+        [
+          "HVAC ekipmanları ve diğer endüstrilere uygulanabilir",
+          "0.02mm",
+          "0.02mm"
+        ]
+      ],
+      "verification": "needs_review"
+    },
+    {
+      "series": "LGD+RW",
+      "brand": "AORE",
+      "url": "https://tr.aorelaser.com/product/Otomatik-Sac-Depolama-ve-Yükleme-Sistemi-LGD+RW-377.html",
+      "capturedAt": "2026-10-13T08:39:45.590384+00:00",
+      "sha256": "314e0a2b3a7e7ef24eff3902ffde944ff2e7abb5393996706dc5beb80fbb4bf9",
+      "saleStatus": "draft",
+      "hexEquivalence": "unconfirmed",
+      "tables": [
+        [
+          "Model",
+          "LGD+RW3015",
+          "LGD+RW4020",
+          "LGD+RW6025"
+        ],
+        [
+          "Uygulanabilir Levha Malzemeleri",
+          "Carbon steel/Stainless steel",
+          "Carbon steel/Stainless steel",
+          "Carbon steel/Stainless steel"
+        ],
+        [
+          "Maksimum Yükleme/Boşaltma Levha Boyutu",
+          "3000mmx1500mm",
+          "4000mmx2000mm",
+          "6000mmx2500mm"
+        ],
+        [
+          "Minimum Yükleme/Boşaltma Levha Boyutu",
+          "1200mmx1000mm",
+          "1200mmx1000mm",
+          "2000mmx1000mm"
+        ],
+        [
+          "Maksimum Yükleme/Boşaltma Levha Ağırlığı",
+          "1000KG/2000KG",
+          "1000KG/2000KG",
+          "1000KG/2000KG"
+        ],
+        [
+          "Malzeme Depolama Katman Sayısı",
+          "6/8/10/12/13 Layers",
+          "6/8/10/12/13 Layers",
+          "6/8/10/12/13 Layers"
+        ],
+        [
+          "Değişim Malzeme Arabası İçin Tek Katlı Yükleme Yüksekliği",
+          "280mm",
+          "280mm",
+          "280mm"
+        ]
+      ],
+      "verification": "needs_review"
+    },
+    {
+      "series": "LGS",
+      "brand": "AORE",
+      "url": "https://tr.aorelaser.com/product/Tam-Otomatik-Levha-Yükleme-ve-Boşaltma-Sistemi-LGS-378.html",
+      "capturedAt": "2026-10-13T08:39:45.590384+00:00",
+      "sha256": "1f4e89444e866d71a6396160a56d141f6e51f47f31c7d32ad2a466aa64758033",
+      "saleStatus": "draft",
+      "hexEquivalence": "unconfirmed",
+      "tables": [
+        [
+          "Model",
+          "LGS 3015",
+          "LGS 4020"
+        ],
+        [
+          "Uygulanabilir Sac Malzemesi",
+          "Carbon Steel/Stainless Steel",
+          "Carbon Steel/Stainless Steel"
+        ],
+        [
+          "Maksimum Besleme Sac Boyutu",
+          "3000mmx1500mm",
+          "4000mmx2000mm"
+        ],
+        [
+          "Minimum Besleme Sac Boyutu",
+          "1200mmx1000mm",
+          "1200mmx1000mm"
+        ],
+        [
+          "Maksimum Besleme Sac Ağırlığı",
+          "500kg",
+          "500kg"
+        ],
+        [
+          "Değişim Malzeme Arabasının Tek Katlı Yükleme Yüksekliği",
+          "3T",
+          "3T"
+        ]
+      ],
+      "verification": "needs_review"
+    },
+    {
+      "series": "LCS",
+      "brand": "AORE",
+      "url": "https://tr.aorelaser.com/product/Servo-Konsollu-Sac-Yükleme-Sistemi-LCS-380.html",
+      "capturedAt": "2026-10-13T08:39:45.590384+00:00",
+      "sha256": "d2b3fbc1419c961ef9acd397083bf638d80b491b965be0bd03a4f4641d527a48",
+      "saleStatus": "draft",
+      "hexEquivalence": "unconfirmed",
+      "tables": [
+        [
+          "Model",
+          "LCS 3015",
+          "LCS 4020"
+        ],
+        [
+          "Uygulanabilir Sac Malzemesi",
+          "Carbon Steel/Stainless Steel",
+          "Carbon Steel/Stainless Steel"
+        ],
+        [
+          "Maksimum Besleme Sac Boyutu",
+          "3000mmx1500mm",
+          "4000mmx2000mm"
+        ],
+        [
+          "Minimum Besleme Sac Boyutu",
+          "1200mmx1000mm",
+          "1200mmx1000mm"
+        ],
+        [
+          "Maksimum Besleme Sac Ağırlığı",
+          "500kg",
+          "500kg"
+        ],
+        [
+          "Dönme Açısı",
+          "120°",
+          "120°"
+        ]
+      ],
+      "verification": "needs_review"
+    },
+    {
+      "series": "LCA",
+      "brand": "AORE",
+      "url": "https://tr.aorelaser.com/product/Pnömatik-Konsol-Levha-Yükleme-Sistemi-LCA-379.html",
+      "capturedAt": "2026-10-13T08:39:45.590384+00:00",
+      "sha256": "0ca1cc55ae5fe27caf57cbff8f3bf28a136b4feed0e5ede602906d88291c6e85",
+      "saleStatus": "draft",
+      "hexEquivalence": "unconfirmed",
+      "tables": [
+        [
+          "Model",
+          "LCA 3015",
+          "LCA 4020"
+        ],
+        [
+          "Uygulanabilir Sac Malzemesi",
+          "Carbon Steel/Stainless Steel/aluminum plate",
+          "Carbon Steel/Stainless Steel/aluminum plate"
+        ],
+        [
+          "Maksimum Besleme Sac Boyutu",
+          "3000mmx1500mm",
+          "4000mmx2000mm"
+        ],
+        [
+          "Minimum Besleme Sac Boyutu",
+          "1200mmx1000mm",
+          "1200mmx1000mm"
+        ],
+        [
+          "Maksimum Besleme Sac Ağırlığı",
+          "500kg",
+          "500kg"
+        ],
+        [
+          "Dönme Açısı",
+          "220°",
+          "220°"
+        ]
+      ],
+      "verification": "needs_review"
+    },
+    {
+      "series": "ATL",
+      "brand": "AORE",
+      "url": "https://tr.aorelaser.com/product/Akıllı-Sac-Metal-Üretim-Hattı-ATL-381.html",
+      "capturedAt": "2026-10-13T08:39:45.590384+00:00",
+      "sha256": "b534fe00694e6b3fbf2fecb0223f54cdc4f6f4e15a1b0e9c8c99a71f2d2eccdd",
+      "saleStatus": "draft",
+      "hexEquivalence": "unconfirmed",
+      "tables": [],
+      "verification": "needs_review"
+    },
+    {
+      "series": "A-W7",
+      "brand": "AORE",
+      "url": "https://tr.aorelaser.com/product/Akıllı-Kaynak-İş-İstasyonu-A-W7-521.html",
+      "capturedAt": "2026-10-13T08:39:45.590384+00:00",
+      "sha256": "d2f8e19e00db8c5640411882ff680457bb373db57da35c3c6fc1f61cc8bc5ed7",
+      "saleStatus": "draft",
+      "hexEquivalence": "unconfirmed",
+      "tables": [
+        [
+          "Model",
+          "A-W7"
+        ],
+        [
+          "X Ekseni Ray Uzunluğu",
+          "10000mm"
+        ],
+        [
+          "Zemin Ray Boyutları",
+          "1050X11600mm"
+        ],
+        [
+          "Maksimum Erişim",
+          "2014mm"
+        ],
+        [
+          "Maksimum Hareket Hızı",
+          "40m/dak"
+        ],
+        [
+          "Konumlandırma Doğruluğu",
+          "±0.05mm"
+        ],
+        [
+          "Kaynak Bağlantı Tipleri",
+          "Düz/ Düz Köşe Kaynak/ Yatay/ Dikey Yukarı/ Dikey Aşağı"
+        ],
+        [
+          "Kaynaklanabilir Malzemeler",
+          "Karbon Çelik/ Düşük Alaşımlı Çelik/ Paslanmaz Çelik (Aynasız Yüzey)"
+        ]
+      ],
+      "verification": "needs_review"
+    },
+    {
+      "series": "A-Bend",
+      "brand": "AORE",
+      "url": "https://tr.aorelaser.com/product/Elektro-Hidrolik-Servo-Pres-Freni-A-Bend-523.html",
+      "capturedAt": "2026-10-13T08:39:45.590384+00:00",
+      "sha256": "7a41148457ddaefadfc2b17e06a9fc99a4b75662eafaacd1de5ff74953b43202",
+      "saleStatus": "draft",
+      "hexEquivalence": "unconfirmed",
+      "tables": [
+        [
+          "Model",
+          "A-Bend 10032",
+          "A-Bend 13032",
+          "A-Bend 17032",
+          "A-Bend 20032",
+          "A-Bend 25032",
+          "A-Bend 32032"
+        ],
+        [
+          "Basınç kuvveti",
+          "1000KN",
+          "1300KN",
+          "1700KN",
+          "2000KN",
+          "2500KN",
+          "3200KN"
+        ],
+        [
+          "Bükme uzunluğu",
+          "3200mm",
+          "3200mm",
+          "3200mm",
+          "3200mm",
+          "3200mm",
+          "3200mm"
+        ],
+        [
+          "Kolonlar arası genişlik",
+          "2600mm",
+          "2600mm",
+          "2600mm",
+          "2600mm",
+          "2600mm",
+          "2600mm"
+        ],
+        [
+          "Boğaz derinliği",
+          "400mm",
+          "400mm",
+          "400mm",
+          "400mm",
+          "400mm",
+          "400mm"
+        ],
+        [
+          "Sürgü hareketi",
+          "200mm",
+          "200mm",
+          "200mm",
+          "200mm",
+          "250mm",
+          "250mm"
+        ],
+        [
+          "Açılma yüksekliği (D)",
+          "480mm",
+          "480mm",
+          "480mm",
+          "480mm",
+          "500mm",
+          "500mm"
+        ]
+      ],
+      "verification": "needs_review"
+    },
+    {
+      "series": "HW",
+      "brand": "AORE",
+      "url": "https://tr.aorelaser.com/product/El-Tipi-Lazer-Kaynak-Makinesi-HW-324.html",
+      "capturedAt": "2026-10-13T08:39:45.590384+00:00",
+      "sha256": "253c40bc5a3599ab221f195f6f54a799b17a7f429a0c5bcd15184ce6a2f53801",
+      "saleStatus": "draft",
+      "hexEquivalence": "unconfirmed",
+      "tables": [
+        [
+          "Model",
+          "HW-1500W",
+          "HW-2000W",
+          "HW-3000W"
+        ],
+        [
+          "Güç",
+          "1500W",
+          "2000W",
+          "3000W"
+        ],
+        [
+          "Ekipman boyutu",
+          "950*660*930mm",
+          "950*660*930mm",
+          "1100*660*970mm"
+        ],
+        [
+          "Kaynak dikişi gereksinimleri",
+          "≤0.5mm",
+          "≤0.5mm",
+          "≤0.5mm"
+        ],
+        [
+          "Kaynak hızı",
+          "0-120mm/s",
+          "0-120mm/s",
+          "0-120mm/s"
+        ],
+        [
+          "Soğutma yöntemi",
+          "dual temperature dual control intelligent refrigerator",
+          "dual temperature dual control intelligent refrigerator",
+          "dual temperature dual control intelligent refrigerator"
+        ],
+        [
+          "Çalışma sıcaklığı aralığı",
+          "5-40℃",
+          "5-40℃",
+          "5-40℃"
+        ]
+      ],
+      "verification": "needs_review"
+    },
+    {
+      "series": "LC",
+      "brand": "AORE",
+      "url": "https://tr.aorelaser.com/product/El-Tipi-Lazer-Temizleme-Makinesi-LC-325.html",
+      "capturedAt": "2026-10-13T08:39:45.590384+00:00",
+      "sha256": "7d3ca8aeedf83dbcede5b9b1132b9af1a751cabdf63d5009fd7248c3cceeb91f",
+      "saleStatus": "draft",
+      "hexEquivalence": "unconfirmed",
+      "tables": [
+        [
+          "Model",
+          "LC-1500W",
+          "LC-2000W",
+          "LC-3000W"
+        ],
+        [
+          "Güç",
+          "1500W",
+          "2000W",
+          "3000W"
+        ],
+        [
+          "Ekipman boyutu",
+          "950*660*930mm",
+          "950*660*930mm",
+          "1100*660*970mm"
+        ],
+        [
+          "Kaynak dikişi gereksinimleri",
+          "1080±10 nm",
+          "1080±10 nm",
+          "1080±10 nm"
+        ],
+        [
+          "Kaynak hızı",
+          "8-40m²/h",
+          "10-60m²/h",
+          "20-80m²/h"
+        ],
+        [
+          "Soğutma yöntemi",
+          "Intelligent Dual-temperature and Dual-control Chiller",
+          "Intelligent Dual-temperature and Dual-control Chiller",
+          "Intelligent Dual-temperature and Dual-control Chiller"
+        ],
+        [
+          "Çalışma sıcaklığı aralığı",
+          "5-40℃",
+          "5-40℃",
+          "5-40℃"
+        ]
+      ],
+      "verification": "needs_review"
+    }
+  ],
+  "errors": []
+}

@@ -1,5 +1,4 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { existsSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { and, desc, eq, gte, ilike, inArray, isNull, lte, or, sql, type SQL } from 'drizzle-orm';
 import type { DbClient } from '../../db/client';
@@ -8,7 +7,7 @@ import { companies, companyAddresses, companyEmails, companyPhones, contactCompa
 import { opportunities, opportunityApprovals, salesActivities } from '../../db/schema/crm';
 import { receivables } from '../../db/schema/finance';
 import { inventoryItems } from '../../db/schema/inventory';
-import { brands, productEquipmentItems, productModels } from '../../db/schema/products';
+import { brands, productEquipmentItems, productModels, productOptionSets, productOptionValues, productSpecs } from '../../db/schema/products';
 import { departments, divisions } from '../../db/schema/tenants';
 import { users } from '../../db/schema/users';
 import { files, fileLinks } from '../../db/schema/files';
@@ -23,6 +22,7 @@ import {
   invoiceStatuses,
   productGroups,
   productTypes,
+  productSpecGroups,
   userTitles,
 } from '../../db/schema/lookup';
 import { DB } from '../../shared/database/database.module';
@@ -42,6 +42,7 @@ import type {
   QuoteCreateInput,
   QuoteItemCreateInput,
   QuoteItemUpdateInput,
+  QuoteItemCompatibility,
   QuoteStatusChangeInput,
   QuoteTermsUpsertInput,
   QuoteUpdateInput,
@@ -60,14 +61,18 @@ import {
   requiresDiscountApproval,
   requiresReferencePriceApproval,
   quoteItemCompatibilitySchema,
+  laserSelectionKey,
 } from '@haksan/shared';
 import { FxService } from '../fx/fx.service';
 import { quoteLaserSnapshot } from './quote-laser-snapshot';
+import { sameOptionSelection, snapshotProductOptions } from './quote-product-options';
 import { SignaturesService } from '../signatures/signatures.service';
 import { buildPaginated, pageOffset } from '../../shared/utils/pagination';
 import { lookupIdByCode } from '../../shared/utils/lookup.helper';
 import { AuditService } from '../../shared/database/audit.service';
-import PDFDocument from 'pdfkit';
+import { CommercialPdfMediaService } from './commercial-pdf-media.service';
+import { HtmlPdfService } from '../../shared/pdf/html-pdf.service';
+import { commercialDocumentPdfHtml, commercialPdfFilename, quoteSnapshotPdfHtml } from './commercial-document-pdf';
 import {
   resourceCompanyPortfolioFilter,
   resourceDivisionFilter,
@@ -117,19 +122,6 @@ export type CatalogQuoteItemPreview = {
   vatRate: number;
 };
 
-const PDF_REGULAR_FONT_CANDIDATES = [
-  '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',
-  '/System/Library/Fonts/Supplemental/Arial.ttf',
-  `${process.cwd()}/node_modules/@expo-google-fonts/plus-jakarta-sans/400Regular/PlusJakartaSans_400Regular.ttf`,
-];
-
-const PDF_BOLD_FONT_CANDIDATES = [
-  '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf',
-  '/System/Library/Fonts/Supplemental/Arial Bold.ttf',
-  `${process.cwd()}/node_modules/@expo-google-fonts/plus-jakarta-sans/700Bold/PlusJakartaSans_700Bold.ttf`,
-];
-
-const firstExistingPath = (paths: string[]) => paths.find((p) => existsSync(p));
 const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 /**
  * Anlık görüntüye gömülecek belge başlığı — kendi `documentSnapshot` sütunu
@@ -238,7 +230,9 @@ export class QuotesService {
     @Inject(DB) private readonly db: DbClient,
     private readonly audit: AuditService,
     private readonly fx: FxService,
-    private readonly signatures: SignaturesService
+    private readonly signatures: SignaturesService,
+    private readonly htmlPdf: HtmlPdfService,
+    private readonly pdfMedia: CommercialPdfMediaService
   ) {}
 
   /**
@@ -950,7 +944,7 @@ export class QuotesService {
     const { items, terms, projectOwner, documentSnapshot: _documentSnapshot, ...quoteHeader } = quote;
     const productModelIds = [...new Set(items.map((item) => item.productModelId).filter((id): id is string => Boolean(id)))];
     const unitIds = [...new Set(items.map((item) => item.unitId).filter((id): id is string => Boolean(id)))];
-    const [company, contact, currency, addresses, phones, emails, quoteReceivables, productRows, unitRows, equipmentRows] = await Promise.all([
+    const [company, contact, currency, addresses, phones, emails, quoteReceivables, productRows, unitRows, equipmentRows, specRows] = await Promise.all([
       this.db.query.companies.findFirst({ where: eq(companies.id, quote.companyId) }),
       quote.contactId ? this.db.query.contacts.findFirst({ where: eq(contacts.id, quote.contactId) }) : null,
       quote.currencyId ? this.db.query.currencies.findFirst({ where: eq(currencies.id, quote.currencyId) }) : null,
@@ -969,9 +963,13 @@ export class QuotesService {
               originCountry: productModels.originCountry,
               hsCode: productModels.hsCode,
               stockCode: productModels.stockCode,
+              imageUrl: productModels.imageUrl,
+              brandLogoFileId: brands.logoFileId,
+              productTypeName: productTypes.name,
             })
             .from(productModels)
             .leftJoin(brands, eq(productModels.brandId, brands.id))
+            .leftJoin(productTypes, eq(productModels.productTypeId, productTypes.id))
             .where(and(eq(productModels.tenantId, actor.tenantId), inArray(productModels.id, productModelIds)))
         : Promise.resolve([]),
       unitIds.length
@@ -993,6 +991,10 @@ export class QuotesService {
             ))
             .orderBy(productEquipmentItems.sortOrder, productEquipmentItems.createdAt)
         : Promise.resolve([]),
+      productModelIds.length ? this.db.select({ productModelId: productSpecs.productModelId, key: productSpecs.specKey, value: productSpecs.specValue, unit: productSpecs.specUnit, groupCode: productSpecGroups.code, groupName: productSpecGroups.name })
+        .from(productSpecs).leftJoin(productSpecGroups, eq(productSpecs.specGroupId, productSpecGroups.id))
+        .where(and(eq(productSpecs.tenantId, actor.tenantId), inArray(productSpecs.productModelId, productModelIds), isNull(productSpecs.deletedAt)))
+        .orderBy(productSpecs.sortOrder, productSpecs.createdAt) : Promise.resolve([]),
     ]);
     const standardEquipmentByProduct = new Map<string, string[]>();
     for (const equipment of equipmentRows) {
@@ -1001,11 +1003,13 @@ export class QuotesService {
       list.push(equipment.title);
       standardEquipmentByProduct.set(equipment.productModelId, list);
     }
+    const snapshotSpecs = specRows as Array<{ productModelId: string; key: string; value: string; unit: string | null; groupCode: string | null; groupName: string | null }>;
     const productsById = new Map(productRows.map((product) => [product.id, {
       ...product,
       // İmzalı sözleşmenin standart aksesuarları katalog sonradan değişse de
       // teknik özellikler gibi aynı anlık görüntüde kalır.
       standardEquipment: standardEquipmentByProduct.get(product.id) ?? [],
+      specs: snapshotSpecs.filter((spec) => spec.productModelId === product.id),
     }]));
     const unitsById = new Map(unitRows.map((unit) => [unit.id, unit.code]));
     const orderedAddresses = quote.companyAddressId
@@ -1231,418 +1235,12 @@ export class QuotesService {
     }
   }
 
-  /**
-   * Teklifi PDF olarak üretir (tenant-scope). Buffer + dosya adı döner; controller
-   * stream eder. Not: PDFKit gömülü Helvetica fontu ç/ö/ü taşır ama ş/ğ/ı/İ
-   * taşımaz; bu glyph'ler tr() ile sadeleştirilir. Tam diakritik için ileride
-   * bir Unicode TTF (örn. DejaVuSans) gömülebilir.
-   */
+  /** Browser and server use the same canonical quote template and stored commercial values. */
   async generatePdf(id: string, actor: AuthContext): Promise<{ buffer: Buffer; filename: string }> {
-    const visibility = await companyVisibilityExistsFilter(this.db, actor, quotes.companyId);
-    const storedQuote = await this.db.query.quotes.findFirst({
-      where: and(
-        eq(quotes.id, id),
-        eq(quotes.tenantId, actor.tenantId),
-        isNull(quotes.deletedAt),
-        resourceDivisionFilter(actor, 'quotes', quotes.divisionId) ?? sql`true`,
-        visibility ?? sql`true`
-      ),
-    });
-    if (!storedQuote) throw new NotFoundError('Teklif');
-    const snapshot = storedQuote.documentSnapshot as undefined | {
-      quote?: typeof storedQuote;
-      items?: Array<typeof quoteItems.$inferSelect & { product?: { fullName?: string | null } | null }>;
-      terms?: typeof quoteTerms.$inferSelect | null;
-      company?: typeof companies.$inferSelect | null;
-      companyAddresses?: Array<typeof companyAddresses.$inferSelect>;
-      contact?: typeof contacts.$inferSelect | null;
-      currency?: typeof currencies.$inferSelect | null;
-    };
-    const quote = snapshot?.quote ? { ...storedQuote, ...snapshot.quote } : storedQuote;
-    const items = snapshot?.items ?? await this.db
-      .select()
-      .from(quoteItems)
-      .where(and(eq(quoteItems.quoteId, id), isNull(quoteItems.deletedAt)))
-      .orderBy(quoteItems.sortOrder);
-    const itemProductIds = [...new Set(items.map((item) => item.productModelId).filter((value): value is string => Boolean(value)))];
-    const itemProducts = itemProductIds.length
-      ? await this.db
-          .select({ id: productModels.id, fullName: productModels.fullName, typeCode: productTypes.code })
-          .from(productModels)
-          .leftJoin(productTypes, eq(productModels.productTypeId, productTypes.id))
-          .where(and(eq(productModels.tenantId, actor.tenantId), inArray(productModels.id, itemProductIds), isNull(productModels.deletedAt)))
-      : [];
-    const itemProductNames = new Map(itemProducts.map((product) => [product.id, product.fullName]));
-    const itemProductTypes = new Map(itemProducts.map((product) => [product.id, product.typeCode]));
-    const customsTotal = Math.max(0, Number(quote.customsTotal ?? 0));
-    const nationalizedIndexes = items
-      .map((item, index) => item.nationalized ? index : -1)
-      .filter((index) => index >= 0);
-    const machiningIndexes = items
-      .map((item, index) => item.productModelId && isMachiningCenterTypeCode(itemProductTypes.get(item.productModelId)) ? index : -1)
-      .filter((index) => index >= 0);
-    const eligibleIndexes = nationalizedIndexes.filter((index) => {
-      const productModelId = items[index].productModelId;
-      const typeCode = productModelId ? itemProductTypes.get(productModelId) : null;
-      return !typeCode || isMachiningCenterTypeCode(typeCode);
-    });
-    const allocationIndexes = eligibleIndexes.length
-      ? eligibleIndexes
-      : nationalizedIndexes.length
-        ? nationalizedIndexes
-        : machiningIndexes;
-    const customsAllocations = items.map(() => 0);
-    const allocationGross = allocationIndexes.reduce(
-      (sum, index) => sum + Math.max(0, Number(items[index].quantity) * Number(items[index].unitPrice)),
-      0,
-    );
-    let allocatedCustoms = 0;
-    allocationIndexes.forEach((index, allocationIndex) => {
-      const weight = allocationGross > 0
-        ? Math.max(0, Number(items[index].quantity) * Number(items[index].unitPrice)) / allocationGross
-        : 1 / allocationIndexes.length;
-      const allocation = allocationIndex === allocationIndexes.length - 1
-        ? customsTotal - allocatedCustoms
-        : Number((customsTotal * weight).toFixed(4));
-      customsAllocations[index] = allocation;
-      allocatedCustoms += allocation;
-    });
-    const terms = snapshot ? (snapshot.terms ?? null) : await this.db.query.quoteTerms.findFirst({ where: eq(quoteTerms.quoteId, id) });
-    const company = snapshot ? (snapshot.company ?? null) : await this.db.query.companies.findFirst({ where: eq(companies.id, quote.companyId) });
-    const liveCompanyAddresses = snapshot
-      ? []
-      : await this.db.select().from(companyAddresses)
-          .where(and(eq(companyAddresses.companyId, quote.companyId), isNull(companyAddresses.deletedAt)))
-          .orderBy(desc(companyAddresses.isBilling), desc(companyAddresses.isDefault), companyAddresses.createdAt);
-    const companyAddress = snapshot
-      ? (snapshot.companyAddresses?.[0] ?? null)
-      : liveCompanyAddresses.find((address) => address.id === quote.companyAddressId) ?? liveCompanyAddresses[0] ?? null;
-    const contact = snapshot ? (snapshot.contact ?? null) : (quote.contactId
-      ? await this.db.query.contacts.findFirst({ where: eq(contacts.id, quote.contactId) })
-      : null);
-    const currency = snapshot ? (snapshot.currency ?? null) : (quote.currencyId
-      ? await this.db.query.currencies.findFirst({ where: eq(currencies.id, quote.currencyId) })
-      : null);
-    const status = storedQuote.statusId
-      ? await this.db.query.quoteStatuses.findFirst({ where: eq(quoteStatuses.id, storedQuote.statusId) })
-      : null;
-    const cur = currency?.code ?? '';
-
-    const money = (v: string | number | null | undefined) =>
-      `${Number(v ?? 0).toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${cur}`.trim();
-
-    const doc = new PDFDocument({ size: 'A4', margin: 50 });
-    const chunks: Buffer[] = [];
-    doc.on('data', (c: Buffer) => chunks.push(c));
-    const done = new Promise<Buffer>((resolve, reject) => {
-      doc.on('end', () => resolve(Buffer.concat(chunks)));
-      doc.on('error', reject);
-    });
-
-    const regularFontPath = firstExistingPath(PDF_REGULAR_FONT_CANDIDATES);
-    const boldFontPath = firstExistingPath(PDF_BOLD_FONT_CANDIDATES);
-    const regularFont = regularFontPath ? 'HaksanRegular' : 'Helvetica';
-    const boldFont = boldFontPath ? 'HaksanBold' : 'Helvetica-Bold';
-    if (regularFontPath) doc.registerFont(regularFont, regularFontPath);
-    if (boldFontPath) doc.registerFont(boldFont, boldFontPath);
-
-    const drawDraftWatermark = () => {
-      doc.save();
-      doc.opacity(0.08);
-      doc.fillColor('#6b7280');
-      doc.font(boldFont).fontSize(72);
-      doc.rotate(-35, { origin: [doc.page.width / 2, doc.page.height / 2] });
-      doc.text('TASLAK', 95, doc.page.height / 2 - 35, { width: 405, align: 'center' });
-      doc.restore();
-    };
-    const isFinalDocument = !!storedQuote.finalizedAt || status?.code === 'sent' || status?.code === 'approved';
-    if (!isFinalDocument) {
-      drawDraftWatermark();
-      doc.on('pageAdded', drawDraftWatermark);
-    }
-
-    const supportsTurkish = !!regularFontPath;
-    const tr = (s: string | null | undefined): string => {
-      const value = s ?? '';
-      if (supportsTurkish) return value;
-      return value
-        .replace(/ş/g, 's').replace(/Ş/g, 'S')
-        .replace(/ğ/g, 'g').replace(/Ğ/g, 'G')
-        .replace(/ı/g, 'i').replace(/İ/g, 'I');
-    };
-
-    const ensureSpace = (height: number) => {
-      if (doc.y + height <= 790) return;
-      doc.addPage();
-      doc.y = 50;
-    };
-
-    const splitTermLines = (value: string | null | undefined) =>
-      tr(value)
-        .split(/\r?\n/)
-        .map((line) => line.trim())
-        .filter(Boolean);
-
-    // Başlık
-    doc.fontSize(22).font(boldFont).text(tr('FİYAT TEKLİFİ'), { align: 'right' });
-    doc.font(regularFont).fontSize(10)
-      .text(`No: ${tr(quote.documentNo)}`, { align: 'right' })
-      .text(`Tarih: ${new Date(quote.quoteDate).toLocaleDateString('tr-TR')}`, { align: 'right' })
-      .text(`Geçerlilik: ${quote.validityDays} gün`, { align: 'right' });
-
-    // Müşteri
-    doc.moveDown(1.5);
-    doc.fontSize(11).font(boldFont).text('Müşteri', 50);
-    doc.font(regularFont).fontSize(11).text(tr(company?.legalTitle ?? '-'), 50);
-    if (companyAddress) {
-      const addressText = companyAddress.fullAddress || [
-        companyAddress.street,
-        companyAddress.buildingNumber,
-        companyAddress.district,
-        companyAddress.province,
-        companyAddress.country,
-      ].filter(Boolean).join(' ');
-      if (addressText) doc.text(`Adres: ${tr(addressText)}`, 50);
-    }
-    if (contact?.fullName) doc.text(`İlgili: ${tr(contact.fullName)}`, 50);
-    if (contact?.workPhone || contact?.mobilePhone) {
-      doc.text(`Tel: ${tr([contact.workPhone, contact.mobilePhone].filter(Boolean).join(' / '))}`, 50);
-    }
-    if (contact?.workEmail) doc.text(`E-posta: ${tr(contact.workEmail)}`, 50);
-    if (company?.taxNumber || company?.taxOffice) {
-      doc.text(`Vergi: ${tr([company.taxOffice, company.taxNumber].filter(Boolean).join(' / '))}`, 50);
-    }
-
-    // Kalemler tablosu
-    doc.moveDown(1.5);
-    const x = { no: 50, stock: 75, desc: 240, qty: 340, price: 400, total: 480 };
-    const colW = { stock: 160, desc: 95, qty: 55, price: 75, total: 65 };
-
-    // Tek satırlık parasal alanları kolona sığdırır. Açıklama alanları aşağıda
-    // satırlara bölünerek eksiksiz yazılır; belge verisi hiçbir zaman kesilmez.
-    const fitCell = (
-      value: string,
-      cx: number,
-      cy: number,
-      width: number,
-      opts: { size?: number; minSize?: number; align?: 'left' | 'right'; bold?: boolean } = {},
-    ) => {
-      if (!value) return;
-      let size = opts.size ?? 9;
-      const minSize = opts.minSize ?? 6.5;
-      doc.font(opts.bold ? boldFont : regularFont).fontSize(size);
-      while (size > minSize && doc.widthOfString(value) > width) {
-        size -= 0.25;
-        doc.fontSize(size);
-      }
-      let shown = value;
-      while (shown.length > 1 && doc.widthOfString(`${shown}...`) > width && doc.widthOfString(shown) > width) {
-        shown = shown.slice(0, -1);
-      }
-      if (shown !== value) shown = `${shown.trimEnd()}...`;
-      doc.text(shown, cx, cy, { width, align: opts.align ?? 'left', lineBreak: false });
-    };
-
-    const wrapCellLines = (value: string, width: number, font = regularFont, size = 9): string[] => {
-      doc.font(font).fontSize(size);
-      const lines: string[] = [];
-      const paragraphs = value.replace(/\r\n?/g, '\n').split('\n');
-      const splitLongToken = (token: string) => {
-        const parts: string[] = [];
-        let current = '';
-        for (const char of token) {
-          if (current && doc.widthOfString(current + char) > width) {
-            parts.push(current);
-            current = char;
-          } else {
-            current += char;
-          }
-        }
-        if (current) parts.push(current);
-        return parts;
-      };
-      paragraphs.forEach((paragraph) => {
-        if (!paragraph.trim()) {
-          lines.push('');
-          return;
-        }
-        let current = '';
-        const tokens = paragraph.trim().split(/\s+/).flatMap((token) =>
-          doc.widthOfString(token) <= width ? [token] : splitLongToken(token));
-        tokens.forEach((token) => {
-          const candidate = current ? `${current} ${token}` : token;
-          if (current && doc.widthOfString(candidate) > width) {
-            lines.push(current);
-            current = token;
-          } else {
-            current = candidate;
-          }
-        });
-        lines.push(current);
-      });
-      return lines.length ? lines : [''];
-    };
-
-    // Tablo başlığı her sayfada yeniden çizilir.
-    const drawTableHeader = (headerY: number) => {
-      doc.fontSize(9).font(boldFont);
-      doc.text('#', x.no, headerY, { lineBreak: false });
-      doc.text(tr('Ürün Adı'), x.stock, headerY, { lineBreak: false });
-      doc.text(tr('Açıklama'), x.desc, headerY, { lineBreak: false });
-      doc.text('Miktar', x.qty, headerY, { width: colW.qty, align: 'right', lineBreak: false });
-      doc.text('B.Fiyat', x.price, headerY, { width: colW.price, align: 'right', lineBreak: false });
-      doc.text('Tutar', x.total, headerY, { width: colW.total, align: 'right', lineBreak: false });
-      doc.moveTo(50, headerY + 14).lineTo(545, headerY + 14).stroke();
-      return headerY + 20;
-    };
-
-    let y = drawTableHeader(doc.y);
-    const lineHeight = 10.5;
-    for (let i = 0; i < items.length; i++) {
-      const it = items[i];
-      const productName = publicProductLabel(
-        (it as typeof it & { product?: { fullName?: string | null } | null }).product?.fullName
-          ?? (it.productModelId ? itemProductNames.get(it.productModelId) : undefined),
-        it.description,
-        it.stockCode,
-      );
-      const description = String(it.description ?? '').trim() === String(productName ?? '').trim()
-        ? ''
-        : it.description;
-      const stockLines = wrapCellLines(tr(productName), colW.stock);
-      const descriptionLines = wrapCellLines(tr(description), colW.desc);
-      const totalLines = Math.max(stockLines.length, descriptionLines.length, 1);
-      let lineOffset = 0;
-      while (lineOffset < totalLines) {
-        if (y > 760) {
-          doc.addPage();
-          y = drawTableHeader(50);
-        }
-        const availableLines = Math.max(1, Math.floor((770 - y - 4) / lineHeight));
-        const linesOnPage = Math.min(totalLines - lineOffset, availableLines);
-        const rowHeight = Math.max(18, linesOnPage * lineHeight + 4);
-        const stockFragment = stockLines.slice(lineOffset, lineOffset + linesOnPage).join('\n');
-        const descriptionFragment = descriptionLines.slice(lineOffset, lineOffset + linesOnPage).join('\n');
-        doc.font(regularFont).fontSize(9);
-        doc.text(lineOffset === 0 ? String(i + 1) : '', x.no, y + 2, { lineBreak: false });
-        doc.text(stockFragment, x.stock, y + 2, { width: colW.stock, lineGap: 0 });
-        doc.text(descriptionFragment, x.desc, y + 2, { width: colW.desc, lineGap: 0 });
-        if (lineOffset === 0) {
-          const quantity = Number(it.quantity);
-          const displayGross = quantity * Number(it.unitPrice) + (customsAllocations[i] ?? 0);
-          const displayUnitPrice = quantity > 0 ? displayGross / quantity : Number(it.unitPrice);
-          fitCell(Number(it.quantity).toLocaleString('tr-TR'), x.qty, y + 2, colW.qty, { align: 'right' });
-          fitCell(money(displayUnitPrice), x.price, y + 2, colW.price, { align: 'right' });
-          fitCell(money(displayGross), x.total, y + 2, colW.total, { align: 'right' });
-        }
-        y += rowHeight;
-        doc.moveTo(50, y).lineTo(545, y).lineWidth(0.35).strokeColor('#d1d5db').stroke();
-        lineOffset += linesOnPage;
-      }
-    }
-    doc.moveTo(50, y).lineTo(545, y).stroke();
-
-    // Toplamlar
-    y += 12;
-    const totalLine = (label: string, val: string, bold = false) => {
-      if (y + (bold ? 20 : 15) > 780) {
-        doc.addPage();
-        y = 50;
-      }
-      doc.font(bold ? boldFont : regularFont).fontSize(bold ? 11 : 9);
-      doc.text(label, 340, y, { width: 110, align: 'right', lineBreak: false });
-      fitCell(val, 455, y, 90, { align: 'right', bold, size: bold ? 11 : 9, minSize: 7.5 });
-      y += bold ? 20 : 15;
-    };
-    const grossTotal = items.reduce((sum, item) => sum + Number(item.quantity) * Number(item.unitPrice), customsTotal);
-    const lineDiscountTotal = items.reduce((sum, item) => sum + Number(item.discountAmount ?? 0), 0);
-    const headerDiscountTotal = Math.max(Number(quote.discountTotal ?? 0) - lineDiscountTotal, 0);
-    const primaryItem = items.find((item) => !String(item.description ?? '').trimStart().startsWith('↳ Opsiyon:'));
-    const documentVatRate = Number(primaryItem?.vatRate ?? 0);
-    const applyDocumentVatRate = (value: unknown) => {
-      const text = String(value ?? '');
-      if (!Number.isFinite(documentVatRate) || documentVatRate <= 0) return text;
-      return text
-        .replace(/\{\{KDV_ORANI\}\}/g, String(documentVatRate))
-        .replace(/%(?:10|20)(?=\s*K\.?\s*D\.?\s*V\.?)/giu, `%${documentVatRate}`);
-    };
-    totalLine('Brüt Toplam', money(grossTotal));
-    if (lineDiscountTotal > 0) totalLine('Kalem İndirimi', `-${money(lineDiscountTotal)}`);
-    totalLine('Özel İskonto', headerDiscountTotal > 0 ? `-${money(headerDiscountTotal)}` : money(0));
-    totalLine('Net Ara Toplam', money(Number(quote.subtotal ?? 0) + customsTotal));
-    totalLine(documentVatRate > 0 ? `KDV (%${documentVatRate})` : 'KDV', money(quote.vatAmount));
-    totalLine('GENEL TOPLAM', money(quote.grandTotal), true);
-    doc.y = y;
-
-    // Şartlar — örnek formdaki gibi 1/2/3 ve a/b/c maddeleri.
-    const termSections = ([
-      ['ÖDEME ŞARTLARI', splitTermLines(applyDocumentVatRate(terms?.paymentTermsText ?? quote.paymentTerms))],
-      ['TESLİMAT ŞARTLARI', splitTermLines(applyDocumentVatRate(terms?.deliveryTermsText ?? quote.deliveryTerms))],
-      ['GARANTİ ŞARTLARI', splitTermLines(applyDocumentVatRate(terms?.warrantyTermsText ?? quote.warrantyTerms))],
-      ['NOTLAR', splitTermLines(quote.notes)],
-    ] as Array<[string, string[]]>).filter(([, lines]) => lines.length > 0);
-
-    if (termSections.length) {
-      doc.x = 50;
-      doc.y = y + 24;
-      termSections.forEach(([title, lines], sectionIndex) => {
-        ensureSpace(24);
-        doc.font(boldFont).fontSize(10).text(`${sectionIndex + 1}. ${title}`, 50, doc.y, { width: 495 });
-        doc.moveDown(0.3);
-        lines.forEach((line, lineIndex) => {
-          const label = `${String.fromCharCode(97 + lineIndex)}.`;
-          const textWidth = 465;
-          const textHeight = doc.font(regularFont).fontSize(9).heightOfString(line, { width: textWidth, align: 'left' });
-          ensureSpace(textHeight + 8);
-          const rowY = doc.y;
-          doc.font(boldFont).fontSize(9).text(label, 62, rowY, { width: 14, lineBreak: false });
-          doc.font(regularFont).fontSize(9).text(line, 82, rowY, { width: textWidth, align: 'left' });
-          doc.y = rowY + textHeight + 4;
-        });
-        doc.moveDown(0.35);
-      });
-    }
-
-    // Configured laser items carry their own immutable technical appendix. Never consult
-    // the current profile or product specs here: even draft quote items retain their saved values.
-    for (const item of items) {
-      const compatibility = quoteItemCompatibilitySchema.safeParse(item.compatibility);
-      const configuration = compatibility.success ? compatibility.data.technicalConfiguration : null;
-      if (!configuration) continue;
-      doc.addPage();
-      doc.x = 50; doc.y = 50;
-      doc.font(boldFont).fontSize(14).fillColor('#111827')
-        .text(tr(`TEKNİK BİLGİ — ${configuration.modelLabel}`), 50, doc.y, { width: 495 });
-      doc.moveDown(0.6);
-      const tube = configuration.selection.productTypeCode === 'BORU_LAZER_KESIM';
-      const cabin = configuration.selection.cabinType === 'open' ? 'Açık' : 'Kapalı';
-      const selectionLines = [
-        'Ürün kategorisi: Tezgah',
-        `Ürün alt kategorisi: ${tube ? 'Boru/Profil Lazer Kesim' : 'Sac Lazer Kesim'}`,
-        `Ürün serisi tipi: ${configuration.selection.series}`,
-        `${tube ? 'Kesim bölgesi koruması' : 'Kabin tipi'}: ${cabin}`,
-        `Rezonatör gücü: ${configuration.selection.powerKw} kW`,
-        `${tube ? 'Model ve boru kapasitesi' : 'Tabla ölçüsü'}: ${configuration.sizeLabel}`,
-      ];
-      const writeTechnicalLine = (text: string) => {
-        for (const line of wrapCellLines(tr(text), 495, regularFont, 9)) {
-          ensureSpace(15);
-          doc.font(regularFont).fontSize(9).fillColor('#111827')
-            .text(line, 50, doc.y, { width: 495, lineBreak: false });
-          doc.y += 13;
-        }
-        doc.y += 3;
-      };
-      selectionLines.forEach(writeTechnicalLine);
-      doc.y += 8;
-      for (const spec of configuration.specs) {
-        writeTechnicalLine(`${spec.key}: ${spec.value ? [spec.value, spec.unit].filter(Boolean).join(' ') : '—'}`);
-      }
-    }
-
-    doc.end();
-    const buffer = await done;
-    const safeNo = tr(quote.documentNo).replace(/[^a-zA-Z0-9._-]/g, '_');
+    const document = await this.get(id, actor);
+    const snapshot = document.documentSnapshot ?? await this.buildDocumentSnapshot(id, actor);
+    const buffer = await this.htmlPdf.render(quoteSnapshotPdfHtml(document, await this.pdfMedia.embed(snapshot as Record<string, unknown>, actor.tenantId)));
+    const safeNo = document.documentNo.replace(/[^A-Za-z0-9._-]/g, '_').slice(0, 100);
     return { buffer, filename: `teklif-${safeNo}.pdf` };
   }
 
@@ -1832,10 +1430,54 @@ export class QuotesService {
   }
 
   // ────────── ITEMS ──────────
+  private async productOptionSnapshot(
+    compatibility: QuoteItemCompatibility | null | undefined,
+    product: typeof productModels.$inferSelect | null,
+    actor: AuthContext,
+    saved?: QuoteItemCompatibility | null,
+  ): Promise<QuoteItemCompatibility | null | undefined> {
+    const unchangedOptions = saved && sameOptionSelection(compatibility?.selectedProductOptions, saved.selectedProductOptions);
+    const changedProfile = unchangedOptions && saved.selectedProductOptions?.length && compatibility?.technicalConfiguration
+      && (!saved.technicalConfiguration || laserSelectionKey(compatibility.technicalConfiguration.selection) !== laserSelectionKey(saved.technicalConfiguration.selection));
+    if (unchangedOptions && !changedProfile) {
+      const variableKeys = new Set(product?.baseModelConfiguration?.variableSpecKeys ?? []);
+      return { ...compatibility!,
+        ...(variableKeys.size ? { technicalSpecs: [
+          ...(compatibility?.technicalSpecs ?? []).filter(spec => !variableKeys.has(spec.key)),
+          ...saved.technicalSpecs.filter(spec => variableKeys.has(spec.key)),
+        ] } : {}),
+        selectedProductOptions: saved.selectedProductOptions ? structuredClone(saved.selectedProductOptions) : undefined };
+    }
+    const base = product?.laserBaseConfiguration;
+    if (!product) {
+      if (compatibility?.selectedProductOptions?.length) throw new ValidationError('Opsiyonel donanım için baz model seçin');
+      return compatibility;
+    }
+    const sets = await this.db.query.productOptionSets.findMany({
+      where: and(eq(productOptionSets.productModelId, product.id), eq(productOptionSets.tenantId, actor.tenantId), isNull(productOptionSets.deletedAt)),
+    });
+    if (!base && !product.baseModelConfiguration && !compatibility?.selectedProductOptions?.length && !sets.some(set => set.configurationKind)) return compatibility;
+    const rows = sets.length ? await this.db.select({
+      optionSetId: productOptionSets.id, optionValueId: productOptionValues.id,
+      name: productOptionSets.name, value: productOptionValues.value,
+      priceDelta: productOptionValues.priceDelta, currencyCode: currencies.code,
+      configurationKind: productOptionSets.configurationKind,
+      sourceModelCode: productOptionValues.sourceModelCode, powerKw: productOptionValues.powerKw, cabinType: productOptionValues.cabinType,
+    }).from(productOptionValues)
+      .innerJoin(productOptionSets, eq(productOptionValues.optionSetId, productOptionSets.id))
+      .leftJoin(currencies, eq(productOptionValues.currencyId, currencies.id))
+      .where(and(inArray(productOptionValues.optionSetId, sets.map((set) => set.id)), eq(productOptionValues.tenantId, actor.tenantId), isNull(productOptionValues.deletedAt))) : [];
+    return snapshotProductOptions(compatibility ?? {
+      machineIds: [], brands: [], controlUnits: [], supplierIds: [], technicalSpecs: [],
+    }, rows, sets.filter((set) => set.configurationKind || (product.baseModelConfiguration && product.baseModelConfiguration.configurations.length > 1 && rows.some(row => row.optionSetId === set.id && row.sourceModelCode))).map((set) => set.id), base, product.baseModelConfiguration);
+  }
+
   async addItem(quoteId: string, input: QuoteItemCreateInput, actor: AuthContext) {
     const quote = await this.get(quoteId, actor);
     this.assertQuoteMutable(quote);
     const product = input.productModelId ? await this.assertProductModel(input.productModelId, actor, quote.divisionId) : null;
+    if (product?.catalogHidden) throw new ValidationError('Bu kaynak model arşivlendi; teklif için seri baz modelini seçin');
+    const compatibility = await this.productOptionSnapshot(input.compatibility, product, actor);
     if (input.inventoryItemId) await this.assertInventoryItem(input.inventoryItemId, actor, quote.divisionId);
     this.assertItemDiscount(input.quantity, input.unitPrice, input.discountAmount);
     const t = this.calcItem(input.quantity, input.unitPrice, input.discountAmount, input.vatRate);
@@ -1858,7 +1500,7 @@ export class QuotesService {
         vatAmount: t.vatAmount.toFixed(4),
         lineTotal: t.lineTotal.toFixed(4),
         sortOrder: input.sortOrder,
-        compatibility: quoteLaserSnapshot(input.compatibility, product?.technicalConfiguration),
+        compatibility: quoteLaserSnapshot(compatibility, product?.technicalConfiguration),
         nationalized: input.nationalized ?? false,
       })
       .returning();
@@ -1884,9 +1526,16 @@ export class QuotesService {
       if ((input as any)[k] !== undefined) patch[k] = ((input as any)[k] as number | undefined)?.toString();
     }
     const productChanged = input.productModelId !== undefined && input.productModelId !== existing.productModelId;
+    if (productChanged && product?.catalogHidden) throw new ValidationError('Bu kaynak model arşivlendi; teklif için seri baz modelini seçin');
     if (input.compatibility !== undefined || productChanged) {
       const savedCompatibility = quoteItemCompatibilitySchema.safeParse(existing.compatibility);
-      patch.compatibility = quoteLaserSnapshot(input.compatibility,
+      const profileChanged = savedCompatibility.success && savedCompatibility.data.selectedProductOptions?.length && input.compatibility?.technicalConfiguration
+        && (!savedCompatibility.data.technicalConfiguration || laserSelectionKey(input.compatibility.technicalConfiguration.selection) !== laserSelectionKey(savedCompatibility.data.technicalConfiguration.selection));
+      const optionProduct = product ?? (existing.productModelId && !productChanged && (profileChanged || !sameOptionSelection(input.compatibility?.selectedProductOptions, savedCompatibility.success ? savedCompatibility.data.selectedProductOptions : undefined))
+        ? await this.assertProductModel(existing.productModelId, actor, quote.divisionId) : null);
+      const compatibility = await this.productOptionSnapshot(input.compatibility, optionProduct, actor,
+        !productChanged && savedCompatibility.success ? savedCompatibility.data : null);
+      patch.compatibility = quoteLaserSnapshot(compatibility,
         productChanged ? product?.technicalConfiguration : savedCompatibility.success ? savedCompatibility.data.technicalConfiguration : null);
     }
     if (input.nationalized !== undefined) patch.nationalized = input.nationalized;
@@ -3428,6 +3077,22 @@ export class QuotesService {
       oldValues: existing,
     });
     return { ok: true };
+  }
+
+  /** Generate from an authorized stored snapshot; never mutate document state on download. */
+  async generateCommercialPdf(kind: 'proforma' | 'contract', id: string, actor: AuthContext, options: { variantKey?: string } = {}) {
+    const document = kind === 'proforma'
+      ? await this.getProforma(id, actor)
+      : await this.getContract(id, actor);
+    const snapshot = document.documentSnapshot
+      ?? (document.quoteId
+        ? await this.buildCommercialDocumentSnapshot(document as unknown as Record<string, unknown>, document.quoteId, actor)
+        : null);
+    if (!snapshot) throw new ValidationError('Belge anlık görüntüsü bulunamadı. Belgeyi düzenleyip kaydedin.');
+    const html = commercialDocumentPdfHtml(kind, document, await this.pdfMedia.embed(snapshot as Record<string, unknown>, actor.tenantId), options);
+    const buffer = await this.htmlPdf.render(html);
+    const documentNo = 'documentNo' in document ? document.documentNo : document.contractNo;
+    return { buffer, filename: commercialPdfFilename(kind, documentNo) };
   }
 
   async getProforma(id: string, actor: AuthContext) {

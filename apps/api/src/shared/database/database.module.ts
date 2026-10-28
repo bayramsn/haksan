@@ -1,5 +1,6 @@
 import { Global, Module } from '@nestjs/common';
 import { getDb } from '../../db/client';
+import { createContextualDatabase } from '../../db/transaction-context';
 
 export const DB = 'DB_CLIENT';
 
@@ -8,7 +9,7 @@ export const DB = 'DB_CLIENT';
   providers: [
     {
       provide: DB,
-      useFactory: () => getDb(),
+      useFactory: () => createContextualDatabase(getDb()),
     },
   ],
   exports: [DB],

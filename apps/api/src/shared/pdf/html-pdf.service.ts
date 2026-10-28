@@ -1,6 +1,6 @@
 import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
 import { existsSync } from 'node:fs';
-import { ValidationError } from '../utils/errors';
+import { AppError, RateLimitedError, ValidationError } from '../utils/errors';
 
 // puppeteer-core 25+ yalnız ESM; CommonJS API'den tipleri bile içe aktarılamıyor (TS1479).
 // Kullandığımız yüzey küçük: yapısal tiplerle tanımlanır, paket dinamik import ile yüklenir.
@@ -14,7 +14,7 @@ interface PdfPage {
   pdf(options: { format: 'A4'; printBackground: boolean; preferCSSPageSize: boolean; timeout: number }): Promise<Uint8Array>;
   close(): Promise<void>;
 }
-interface Browser { newPage(): Promise<PdfPage>; close(): Promise<void>; on(event: 'disconnected', handler: () => void): unknown }
+interface Browser { newPage(): Promise<PdfPage>; close(): Promise<void>; on(event: 'disconnected', handler: () => void): unknown; process?(): { kill(signal: string): boolean } | null }
 
 /**
  * İstemcinin ürettiği yazdırma HTML'ini headless Chromium ile PDF'e çevirir; çıktı,
@@ -27,6 +27,10 @@ interface Browser { newPage(): Promise<PdfPage>; close(): Promise<void>; on(even
 export class HtmlPdfService implements OnModuleDestroy {
   private readonly logger = new Logger(HtmlPdfService.name);
   private browser: Promise<Browser> | null = null;
+  private activeRenders = 0;
+  static readonly MAX_CONCURRENT_RENDERS = 2;
+  // Matches the existing web/mail HTML contract, including embedded image data.
+  static readonly MAX_HTML_BYTES = 8_000_000;
 
   static readonly CHROMIUM_CANDIDATES = [
     process.env.CHROMIUM_PATH,
@@ -59,37 +63,75 @@ export class HtmlPdfService implements OnModuleDestroy {
         this.browser = null;
         throw error;
       });
-      void this.browser.then((browser) => browser.on('disconnected', () => { this.browser = null; }));
+      void this.browser.then((browser) => browser.on('disconnected', () => { this.browser = null; })).catch(() => undefined);
     }
     return this.browser;
   }
 
   async render(html: string, opts: { timeoutMs?: number } = {}): Promise<Buffer> {
-    const browser = await this.getBrowser();
-    const page = await browser.newPage();
-    try {
+    if (Buffer.byteLength(html, 'utf8') > HtmlPdfService.MAX_HTML_BYTES) {
+      throw new ValidationError('PDF içeriği izin verilen boyutu aşıyor');
+    }
+    if (this.activeRenders >= HtmlPdfService.MAX_CONCURRENT_RENDERS) {
+      throw new RateLimitedError('PDF üretici meşgul, lütfen kısa süre sonra tekrar deneyin');
+    }
+    this.activeRenders += 1;
+    const timeoutMs = Math.min(Math.max(opts.timeoutMs ?? 30_000, 1), 60_000);
+    let page: PdfPage | undefined;
+    let renderBrowser: Browser | undefined;
+    let expired = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeoutError = () => new AppError('PDF_TIMEOUT', 'PDF üretimi zaman aşımına uğradı, lütfen tekrar deneyin', 503);
+    const work = async (): Promise<Buffer> => {
+      const browser = await this.getBrowser();
+      renderBrowser = browser;
+      if (expired) throw timeoutError();
+      page = await browser.newPage();
+      // newPage itself may finish after the deadline; never leave that page alive.
+      if (expired) {
+        void page.close().catch(() => undefined);
+        try { browser.process?.()?.kill('SIGKILL'); } catch { /* already exited */ }
+        this.browser = null;
+        throw timeoutError();
+      }
       await page.setJavaScriptEnabled(false);
       await page.setRequestInterception(true);
       page.on('request', (request) => {
-        // Yalnızca gömülü veri; dış URL'ler (SSRF, izleme) engellenir. Ana belge
-        // setContent ile CDP üzerinden verilir, ağ isteği üretmez — "document" tipine
-        // izin vermek yalnız iframe / meta-refresh gezinmelerini (ör. bulut meta-veri
-        // ucu) açıyordu.
+        // Only embedded data: block iframe navigation, file reads and SSRF too.
         const url = request.url();
-        if (url.startsWith('data:') || url.startsWith('about:')) void request.continue();
-        else void request.abort();
+        const action = url.startsWith('data:') || url.startsWith('about:') ? request.continue() : request.abort();
+        void action.catch(() => undefined);
       });
-      await page.setContent(html, { waitUntil: 'load', timeout: opts.timeoutMs ?? 20_000 });
+      await page.setContent(html, { waitUntil: 'load', timeout: timeoutMs });
       await page.emulateMediaType('print');
-      const pdf = await page.pdf({
-        format: 'A4',
-        printBackground: true,
-        preferCSSPageSize: true,
-        timeout: opts.timeoutMs ?? 20_000,
-      });
+      const pdf = await page.pdf({ format: 'A4', printBackground: true, preferCSSPageSize: true, timeout: timeoutMs });
       return Buffer.from(pdf);
+    };
+    try {
+      return await Promise.race([work(), new Promise<never>((_, reject) => {
+        timer = setTimeout(() => { expired = true; reject(timeoutError()); }, timeoutMs);
+      })]);
     } finally {
-      await page.close().catch(() => undefined);
+      if (timer) clearTimeout(timer);
+      expired = true;
+      // Cleanup cannot keep the caller/slot hanging if Chromium stops responding.
+      if (page) {
+        let cleanupTimer: ReturnType<typeof setTimeout> | undefined;
+        const discardBrowser = () => {
+          try { renderBrowser?.process?.()?.kill('SIGKILL'); } catch { /* already exited */ }
+          this.browser = null;
+        };
+        await Promise.race([page.close().catch(discardBrowser), new Promise<void>((resolve) => {
+          cleanupTimer = setTimeout(() => {
+            // A hung renderer must not survive slot release and accumulate pages.
+            // This process belongs to our launch (never an external browser).
+            discardBrowser();
+            resolve();
+          }, 1000);
+        })]);
+        if (cleanupTimer) clearTimeout(cleanupTimer);
+      }
+      this.activeRenders -= 1;
     }
   }
 

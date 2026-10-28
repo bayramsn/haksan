@@ -1,8 +1,10 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 import type { DbClient } from '../../db/client';
+import { afterDatabaseCommit } from '../../db/transaction-context';
 import { DB } from '../database/database.module';
 import { pushTokens } from '../../db/schema/users';
+import { notifications } from '../../db/schema/companies';
 import { logger } from '../utils/logger';
 
 const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send';
@@ -36,18 +38,29 @@ export class PushService {
 
   /** Bir kullanıcının tüm cihazlarına push gönderir. Hata halinde yutulur. */
   async sendToUser(userId: string, message: PushMessage): Promise<void> {
+    // Avoid ghost notifications if an assistant CRM/idempotency transaction rolls back.
+    await afterDatabaseCommit(() => this.sendCommitted(userId, message));
+  }
+
+  private async sendCommitted(userId: string, message: PushMessage): Promise<void> {
     try {
       const rows = await this.db
         .select({ token: pushTokens.token })
         .from(pushTokens)
         .where(eq(pushTokens.userId, userId));
-      await this.dispatch(rows.map((r) => r.token), message);
+      if (rows.length === 0) return;
+      // Uygulama simgesi rozeti: kişiye özel okunmamış bildirimler. Uygulama açılınca listeyle eşitlenir.
+      const [{ unread }] = await this.db
+        .select({ unread: sql<number>`count(*)::int` })
+        .from(notifications)
+        .where(and(eq(notifications.userId, userId), isNull(notifications.readAt)));
+      await this.dispatch(rows.map((r) => r.token), message, unread);
     } catch (error) {
       logger.warn({ action: 'push_send_failed', userId }, String(error));
     }
   }
 
-  private async dispatch(tokens: string[], message: PushMessage): Promise<void> {
+  private async dispatch(tokens: string[], message: PushMessage, badge?: number): Promise<void> {
     if (tokens.length === 0) return;
     const payload = tokens.map((to) => ({
       to,
@@ -55,6 +68,8 @@ export class PushService {
       body: message.body,
       data: message.data ?? {},
       sound: 'default',
+      channelId: 'default',
+      ...(badge !== undefined ? { badge } : {}),
     }));
     const res = await fetch(EXPO_PUSH_URL, {
       method: 'POST',

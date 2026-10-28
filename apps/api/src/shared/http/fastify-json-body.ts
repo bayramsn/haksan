@@ -1,5 +1,6 @@
 import type { NestFastifyApplication } from '@nestjs/platform-fastify';
 import { ALLOWED_MIME_TYPES } from '@haksan/shared';
+import { assertJsonComplexity } from '../validation/json-complexity';
 
 /** Fastify varsayılan JSON ayrıştırıcısı boş gövdeyi reddeder; refresh gibi body-less POST'lar için gevşet. */
 export function registerLenientJsonBodyParser(app: NestFastifyApplication): void {
@@ -16,7 +17,9 @@ export function registerLenientJsonBodyParser(app: NestFastifyApplication): void
       return;
     }
     try {
-      done(null, JSON.parse(body as string));
+      const parsed: unknown = JSON.parse(body as string);
+      assertJsonComplexity(parsed);
+      done(null, parsed);
     } catch (err) {
       done(err as Error, undefined);
     }

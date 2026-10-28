@@ -77,3 +77,6 @@ openapitools.json
 apps/mobile-v2/ios/
 apps/mobile-v2/Archive 3/
 apps/mobile-v2/graphify-out/
+
+# Locally signed Android distribution artifacts
+/artifacts/*.apk

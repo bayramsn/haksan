@@ -720,7 +720,7 @@ export class FinanceService {
       grandTotal: totals.grandTotal,
       installmentCount: body.installmentCount,
       firstDueDate: firstDueDate ?? body.invoiceDate,
-      lastDueDate: body.lastDueDate,
+      lastDueDate: body.lastDueDate ?? undefined,
       installments: body.installments,
     });
 

@@ -28,9 +28,11 @@ import { ChatModule } from './modules/chat/chat.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
 import { CalendarModule } from './modules/calendar/calendar.module';
 import { TasksModule } from './modules/tasks/tasks.module';
+import { TradeFairsModule } from './modules/trade-fairs/trade-fairs.module';
 import { AutomationModule } from './modules/automation/automation.module';
 import { MailModule } from './modules/mail/mail.module';
 import { MetaModule } from './modules/meta/meta.module';
+import { CallAssistantModule } from './modules/call-assistant/call-assistant.module';
 import { loadEnv } from './config/env';
 
 const env = loadEnv();
@@ -77,9 +79,11 @@ const env = loadEnv();
     NotificationsModule,
     CalendarModule,
     TasksModule,
+    TradeFairsModule,
     AutomationModule,
     MailModule,
     MetaModule,
+    CallAssistantModule,
   ],
   providers: [
     // Rate limiting'i tüm route'lara uygular. Bu guard global bağlanmadan

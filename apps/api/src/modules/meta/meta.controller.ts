@@ -24,6 +24,9 @@ import {
   metaFormMappingCreateSchema,
   metaFormMappingUpdateSchema,
   metaListQuerySchema,
+  metaOverviewQuerySchema,
+  metaConversationListQuerySchema,
+  metaLeadListQuerySchema,
   type MetaAudienceCreateInput,
   type MetaAudienceMembersInput,
   type MetaAudienceMembersRemoveInput,
@@ -45,6 +48,9 @@ import {
   type MetaFormMappingCreateInput,
   type MetaFormMappingUpdateInput,
   type MetaListQuery,
+  type MetaOverviewQuery,
+  type MetaConversationListQuery,
+  type MetaLeadListQuery,
 } from '@haksan/shared';
 import { loadEnv } from '../../config/env';
 import { AuthGuard } from '../../shared/security/auth.guard';
@@ -69,7 +75,7 @@ export class MetaController {
 
   @Get('overview')
   @RequirePermissions('meta.read')
-  overview(@CurrentUser() actor: AuthContext) { return this.service.overview(actor); }
+  overview(@Query(new ZodValidationPipe(metaOverviewQuerySchema)) query: MetaOverviewQuery, @CurrentUser() actor: AuthContext) { return this.service.overview(actor, query); }
 
   @Get('connections')
   @RequirePermissions('meta.read')
@@ -113,7 +119,7 @@ export class MetaController {
 
   @Get('leads')
   @RequirePermissions('meta.read')
-  leads(@Query(new ZodValidationPipe(metaListQuerySchema)) query: MetaListQuery, @CurrentUser() actor: AuthContext) { return this.service.listLeads(actor, query); }
+  leads(@Query(new ZodValidationPipe(metaLeadListQuerySchema)) query: MetaLeadListQuery, @CurrentUser() actor: AuthContext) { return this.service.listLeads(actor, query); }
 
   @Get('insights')
   @RequirePermissions('meta.read')
@@ -147,7 +153,7 @@ export class MetaController {
 
   @Get('conversations')
   @RequirePermissions('meta_messages.read')
-  conversations(@Query(new ZodValidationPipe(metaListQuerySchema)) query: MetaListQuery, @CurrentUser() actor: AuthContext) { return this.service.listConversations(actor, query); }
+  conversations(@Query(new ZodValidationPipe(metaConversationListQuerySchema)) query: MetaConversationListQuery, @CurrentUser() actor: AuthContext) { return this.service.listConversations(actor, query); }
 
   @Get('conversations/:id/messages')
   @RequirePermissions('meta_messages.read')

@@ -1,0 +1,143 @@
+{
+  "document": "HEX LASER - FİBER LAZER TEKNOLOJİLERİ ÜRÜN KATALOĞU - 2026 -pdf.pdf",
+  "sha256": "5959df79f5e44207c1647d505780fe6b73be099132008a5d9fe151c7f5b1b26e",
+  "revision": "hexlaser-2026-v1",
+  "images": [
+    {
+      "series": "H",
+      "page": 6,
+      "file": "H.webp",
+      "mimeType": "image/webp",
+      "sizeBytes": 57180,
+      "sha256": "3d1330042b82a048b55c68d9810f7af421582f87ced03020a2c01c1501e53b7b"
+    },
+    {
+      "series": "PB",
+      "page": 7,
+      "file": "PB.webp",
+      "mimeType": "image/webp",
+      "sizeBytes": 46180,
+      "sha256": "a83d6ae2ae101ac81bd6186071cfada486a4f184b5fb5e72f2d445a55670fe34"
+    },
+    {
+      "series": "PG",
+      "page": 8,
+      "file": "PG.webp",
+      "mimeType": "image/webp",
+      "sizeBytes": 60510,
+      "sha256": "6702e58c265b9ddceb14899d29d0c33996edf46c279c79f06e76500a92427776"
+    },
+    {
+      "series": "F",
+      "page": 10,
+      "file": "F.webp",
+      "mimeType": "image/webp",
+      "sizeBytes": 146526,
+      "sha256": "4661ea95f0217b676b4f4ffd4b3c5e8d926f0bdd668fd3aa0614afa4970c1b21"
+    },
+    {
+      "series": "PU",
+      "page": 12,
+      "file": "PU.webp",
+      "mimeType": "image/webp",
+      "sizeBytes": 58720,
+      "sha256": "4a060b6e2c03b54964c414cf3b61f060330cb41432bd527fdcd6684b826b4c8a"
+    },
+    {
+      "series": "EG",
+      "page": 13,
+      "file": "EG.webp",
+      "mimeType": "image/webp",
+      "sizeBytes": 84984,
+      "sha256": "962afebbf6028fa284c108ea84a43cf7823cbbb236a8b2c9d27cb66052fdeab7"
+    },
+    {
+      "series": "S",
+      "page": 14,
+      "file": "S.webp",
+      "mimeType": "image/webp",
+      "sizeBytes": 57266,
+      "sha256": "506b560234c383eaef47c837237f9701aba973fafd649c06716092f06a1bcc2f"
+    },
+    {
+      "series": "GR",
+      "page": 15,
+      "file": "GR.webp",
+      "mimeType": "image/webp",
+      "sizeBytes": 111532,
+      "sha256": "215fbff34921d12c741953421abfd069b49c1219abd5e54a5af6efc3ef709a06"
+    },
+    {
+      "series": "CELL",
+      "page": 16,
+      "file": "CELL.webp",
+      "mimeType": "image/webp",
+      "sizeBytes": 76020,
+      "sha256": "f9f284ece2ac919952ee4365d126e372a37d461c0064f214ed3064ede18c6ad6"
+    },
+    {
+      "series": "T",
+      "page": 20,
+      "file": "T.webp",
+      "mimeType": "image/webp",
+      "sizeBytes": 86360,
+      "sha256": "192022213558dc47cdc297499f6cdb8a38f995a311507f7d899dcc67a954bb72"
+    },
+    {
+      "series": "TG",
+      "page": 21,
+      "file": "TG.webp",
+      "mimeType": "image/webp",
+      "sizeBytes": 65362,
+      "sha256": "4330a7d59a86a547e93c1b5f14cc4748b9a7209e120c19a6d413838a13fadda7"
+    },
+    {
+      "series": "TH",
+      "page": 22,
+      "file": "TH.webp",
+      "mimeType": "image/webp",
+      "sizeBytes": 79306,
+      "sha256": "c65e0701667d8ca9fb212f6c951791a4e73137a2cb6f8ff283f35c3e77f7169b"
+    },
+    {
+      "series": "TS",
+      "page": 24,
+      "file": "TS.webp",
+      "mimeType": "image/webp",
+      "sizeBytes": 40446,
+      "sha256": "f42d1a2b1e521dba9083eb207b62549cf29a9e92f538001e068d2c9a1538a519"
+    },
+    {
+      "series": "TZ",
+      "page": 25,
+      "file": "TZ.webp",
+      "mimeType": "image/webp",
+      "sizeBytes": 53752,
+      "sha256": "93beb247bdf686b7c7759f91dca4e5e6d7131cf26ec7e2e044e7d9184693b7fe"
+    },
+    {
+      "series": "FT",
+      "page": 26,
+      "file": "FT.webp",
+      "mimeType": "image/webp",
+      "sizeBytes": 73882,
+      "sha256": "ddcc4ecd9a89c3770c7d902359fc8ca49dec05fd2d43ebebbea72b19ef8cd6a2"
+    },
+    {
+      "series": "PGT",
+      "page": 27,
+      "file": "PGT.webp",
+      "mimeType": "image/webp",
+      "sizeBytes": 41826,
+      "sha256": "926dcb3ed16e86e45848adae292954eaf2dc72d898da81e2afb4b3e055a8b43e"
+    },
+    {
+      "series": "HW",
+      "page": 30,
+      "file": "HW.webp",
+      "mimeType": "image/webp",
+      "sizeBytes": 25790,
+      "sha256": "81aeec2bdee3f4ca68cf0968ca754a65fcbef6c5c5ef9a88b423fc31676ad156"
+    }
+  ]
+}

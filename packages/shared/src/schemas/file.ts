@@ -11,6 +11,7 @@ import {
 // link directly; chat messages and product drafts are bound by their owning
 // domain services to preserve their transaction and ownership invariants.
 export const FILE_UPLOAD_ENTITY_TYPES = [
+  'catalog',
   'company',
   'brand',
   'opportunity',
@@ -21,6 +22,7 @@ export const FILE_UPLOAD_ENTITY_TYPES = [
   'product',
   'product_model',
   'quote',
+  'trade_fair_contact',
   'chat_conversation',
   'product_draft',
   // Belge imzası görseli. `entityId` mevcut bir imzanın kimliği ya da henüz
@@ -30,6 +32,7 @@ export const FILE_UPLOAD_ENTITY_TYPES = [
 export type FileUploadEntityType = (typeof FILE_UPLOAD_ENTITY_TYPES)[number];
 
 export const FILE_LINK_ENTITY_TYPES = [
+  'catalog',
   'company',
   'brand',
   'opportunity',
@@ -39,6 +42,7 @@ export const FILE_LINK_ENTITY_TYPES = [
   'customer_device',
   'product_model',
   'quote',
+  'trade_fair_contact',
 ] as const;
 export type FileLinkEntityType = (typeof FILE_LINK_ENTITY_TYPES)[number];
 
@@ -69,6 +73,9 @@ export const signedUploadUrlBaseSchema = z.object({
 });
 
 export const signedUploadUrlSchema = signedUploadUrlBaseSchema.superRefine((input, ctx) => {
+  if (input.entityType === 'catalog' && (input.bucket !== 'erp-quote-documents' || input.mimeType !== 'application/pdf' || input.extension !== 'pdf' || input.sizeBytes > 15 * 1024 * 1024)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['entityType'], message: 'Genel katalog PDF olmalı ve 15 MB sınırını aşmamalıdır' });
+  }
   if (input.bucket === 'erp-company-logos') {
     if (input.entityType !== 'company') {
       ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['entityType'], message: 'Firma logosu yalnızca bir firmaya bağlanabilir' });

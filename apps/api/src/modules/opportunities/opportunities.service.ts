@@ -1,4 +1,6 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { upsertInventoryCustomerDevice } from '../../shared/utils/customer-device-upsert';
+import { Inject, Injectable, Optional } from '@nestjs/common';
+import { PushService } from '../../shared/push/push.service';
 import { and, asc, desc, eq, ilike, inArray, isNotNull, isNull, or, sql } from 'drizzle-orm';
 import type { DbClient } from '../../db/client';
 import {
@@ -317,7 +319,8 @@ export class OpportunitiesService {
   constructor(
     @Inject(DB) private readonly db: DbClient,
     private readonly audit: AuditService,
-    private readonly contactsService: ContactsService
+    private readonly contactsService: ContactsService,
+    @Optional() private readonly push?: PushService
   ) {}
 
   private async stageRowByCode(code: string) {
@@ -3295,6 +3298,7 @@ export class OpportunitiesService {
         ? ['payment', 'win']
         : [];
 
+    let assignmentPush: { userId: string; title: string } | null = null;
     await this.db.transaction(async (tx) => {
       await tx.update(opportunities).set(patch).where(eq(opportunities.id, id));
       // Liste gönderildiyse tümüyle değişir; ilk satır tek alanlı okuyucular
@@ -3336,8 +3340,14 @@ export class OpportunitiesService {
           entityType: 'opportunity',
           entityId: id,
         });
+        assignmentPush = { userId: assignedOwner.id, title: isLead ? 'Yeni lead size atandı' : 'Yeni fırsat size atandı' };
       }
     });
+    // Uygulama içi bildirimle birlikte telefona da düşsün (transaction tamamlandıktan sonra).
+    const pushTarget = assignmentPush as { userId: string; title: string } | null;
+    if (pushTarget) {
+      await this.push?.sendToUser(pushTarget.userId, { title: pushTarget.title, body: existing.title, data: { kind: 'opportunity', opportunityId: id } });
+    }
     if (invalidatedApprovalTypes.length) {
       await this.audit.write({
         tenantId: actor.tenantId,
@@ -4102,7 +4112,7 @@ export class OpportunitiesService {
     if (!qualificationTerminal && !legacyTerminal) {
       throw new ValidationError('Yalnız WIN veya LOST durumundaki fırsatlar kapatılabilir');
     }
-    if (qualificationStage === 'win' || stage?.code === 'delivered') {
+    if (stage?.code === 'delivered') {
       // Cihaz/garanti kayıtları teslim aşamasında oluşmuş olmalı; oluşmadıysa (stok yok vb.)
       // kapanışı bloke etme — kurulu cihaz envanteri ayrıca düzeltilebilir.
       try {
@@ -4615,16 +4625,11 @@ export class OpportunitiesService {
       }
     }
     if (movingForward && input.toStage === 'installation') {
-      // Garanti, tezgâhın kurulumuyla başlar: rezerve stok kalemlerinden
-      // müşteri cihazı / garanti kayıtları oluşturulur (idempotent).
-      await this.ensureWarrantyDevices(opp, actor, input.inventoryItemIds);
-      // Satıştan servise devir: servis ekibi Kurulum listesinde görebilsin diye
-      // bir kurulum kaydı oluşturulur (idempotent).
+      // Schedule the installation; customer-device identity is created after a completed sale/delivery.
       await this.ensureInstallationJob(opp, actor);
     }
     if (movingForward && input.toStage === 'delivered') {
-      // Cihaz/garanti kayıtları kurulumda oluşturulmuş olabilir; tekrar çağırmak
-      // güvenlidir (idempotent). Kurulum atlandıysa burada oluşturulur.
+      // Completed delivery reuses the invoice device, or creates one if not yet present.
       await this.ensureWarrantyDevices(opp, actor, input.inventoryItemIds);
       const won = await this.db.query.opportunityStatuses.findFirst({ where: eq(opportunityStatuses.code, 'won') });
       if (won) patch.statusId = won.id;
@@ -4759,7 +4764,7 @@ export class OpportunitiesService {
    * kayıt oluşmaz.
    */
   private async ensureWarrantyDevices(
-    opp: { id: string; companyId: string | null; divisionId: string | null },
+    opp: { id: string; companyId: string | null; divisionId: string | null; primaryContactId?: string | null },
     actor: AuthContext,
     inventoryItemIds?: string[],
   ) {
@@ -4770,18 +4775,6 @@ export class OpportunitiesService {
     const soldStatus = await this.db.query.inventoryStatuses.findFirst({ where: eq(inventoryStatuses.code, 'sold') });
     const activeWarranty = await this.db.query.warrantyStatuses.findFirst({ where: eq(warrantyStatuses.code, 'active') });
     let ids = [...new Set(inventoryItemIds ?? [])];
-    if (!ids.length) {
-      const existingDevices = await this.db
-        .select({ id: customerDevices.id })
-        .from(customerDevices)
-        .where(and(
-          eq(customerDevices.tenantId, actor.tenantId),
-          eq(customerDevices.opportunityId, opp.id),
-          isNull(customerDevices.deletedAt),
-        ))
-        .limit(1);
-      if (existingDevices.length) return;
-    }
     if (!ids.length) {
       const reservationRows = await this.db
         .select({ inventoryItemId: inventoryMovements.inventoryItemId })
@@ -4808,6 +4801,18 @@ export class OpportunitiesService {
       ids = reservedRows.map((row) => row.id);
     }
     if (!ids.length) {
+      const existingDevices = await this.db
+        .select({ id: customerDevices.id })
+        .from(customerDevices)
+        .where(and(
+          eq(customerDevices.tenantId, actor.tenantId),
+          eq(customerDevices.opportunityId, opp.id),
+          isNull(customerDevices.deletedAt),
+        ))
+        .limit(1);
+      if (existingDevices.length) return;
+    }
+    if (!ids.length) {
       throw new ValidationError('Kurulum için bu karta bağlı stok seçimi bulunamadı');
     }
     const selected = await this.db.query.inventoryItems.findMany({
@@ -4825,35 +4830,18 @@ export class OpportunitiesService {
       if (item.reservedCompanyId && item.reservedCompanyId !== opp.companyId) {
         throw new ValidationError('Seçilen stok kalemi bu firmaya rezerve edilmemiş');
       }
-      const existing = await this.db
-        .select({ id: customerDevices.id, opportunityId: customerDevices.opportunityId })
-        .from(customerDevices)
-        .where(and(
-          eq(customerDevices.tenantId, actor.tenantId),
-          eq(customerDevices.inventoryItemId, item.id),
-          isNull(customerDevices.deletedAt),
-        ))
-        .limit(1);
-      if (existing.length) {
-        if (existing[0].opportunityId === opp.id) continue;
-        throw new ValidationError('Seçilen seri no başka bir müşteri cihazına bağlı');
-      }
-      await this.db.insert(customerDevices).values({
-        tenantId: actor.tenantId,
-        divisionId: opp.divisionId,
-        companyId: opp.companyId,
-        initialCompanyId: opp.companyId,
-        inventoryItemId: item.id,
-        opportunityId: opp.id,
-        saleDate: new Date(),
-        deliveryDate: new Date(),
-        warrantyStartDate: new Date(),
-        warrantyEndDate: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
-        statusId: activeWarranty?.id ?? null,
+      await this.db.transaction(async (tx) => {
+        const now = new Date();
+        await upsertInventoryCustomerDevice(tx, actor, {
+          tenantId: actor.tenantId, divisionId: opp.divisionId, companyId: opp.companyId!,
+          contactId: opp.primaryContactId ?? null, inventoryItemId: item.id, opportunityId: opp.id,
+          saleDate: now, deliveryDate: now, warrantyStartDate: now,
+          warrantyEndDate: new Date(now.getTime() + 365 * 24 * 60 * 60 * 1000), statusId: activeWarranty?.id ?? null,
+        });
+        if (soldStatus) await tx.update(inventoryItems).set({ stockStatusId: soldStatus.id }).where(and(
+          eq(inventoryItems.id, item.id), eq(inventoryItems.tenantId, actor.tenantId),
+        ));
       });
-      if (soldStatus) {
-        await this.db.update(inventoryItems).set({ stockStatusId: soldStatus.id }).where(eq(inventoryItems.id, item.id));
-      }
     }
   }
 
