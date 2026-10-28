@@ -1,14 +1,21 @@
 const fs = require('fs');
 const path = require('path');
-const { withDangerousMod } = require('expo/config-plugins');
+const { withDangerousMod, withXcodeProject } = require('expo/config-plugins');
 
 const MARKER = '# haksan: ios-build-fixes';
 
 /**
  * - Expo Constants ve Expo Updates betikleri genişletilmiş yolu `bash -c` içinde
  *   tırnaksız veriyor; repo yolunda boşluk varsa ("haksan local") derleme kırılıyor.
+ * - Uygulamanın "Bundle React Native code and images" fazı da react-native-xcode.sh
+ *   yolunu backtick ile tırnaksız çalıştırıyor; aynı boşluk sorunu.
  * - Xcode 27 iOS 15.0 altındaki pod deployment target'larını reddediyor.
  */
+const BUNDLE_CALL = /^`("\$NODE_BINARY" --print "[^"\n]*react-native-xcode\.sh'")`$/m;
+
+function fixBundleScript(script) {
+  return script.replace(BUNDLE_CALL, 'RN_XCODE_SCRIPT=$($1)\n"$RN_XCODE_SCRIPT"');
+}
 const SNIPPET = `
     ${MARKER}
     {
@@ -41,6 +48,15 @@ function applyFix(podfile) {
 }
 
 module.exports = function withIosBuildFixes(config) {
+  config = withXcodeProject(config, (cfg) => {
+    const phases = cfg.modResults.hash.project.objects.PBXShellScriptBuildPhase ?? {};
+    for (const phase of Object.values(phases)) {
+      // pbxproj betiği JSON uyumlu tırnaklı dize olarak tutuyor (\n, \").
+      if (typeof phase !== 'object' || !phase.shellScript?.includes('react-native-xcode.sh')) continue;
+      phase.shellScript = JSON.stringify(fixBundleScript(JSON.parse(phase.shellScript)));
+    }
+    return cfg;
+  });
   return withDangerousMod(config, [
     'ios',
     async (cfg) => {
@@ -53,3 +69,4 @@ module.exports = function withIosBuildFixes(config) {
 };
 
 module.exports.applyFix = applyFix;
+module.exports.fixBundleScript = fixBundleScript;

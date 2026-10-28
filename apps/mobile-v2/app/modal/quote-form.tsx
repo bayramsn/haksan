@@ -1,18 +1,30 @@
+import { useQuery } from '@tanstack/react-query';
+import { request } from '@/src/api/client';
+import { quoteTotalsPreview } from '@/src/ui/documents/quote-preview';
+import { validateQuoteConfigurations } from '@/src/ui/documents/quote-configuration';
+import { postPdfAndShare } from '@/src/native/files';
+import { shareSavedDocument } from '@/src/ui/documents/document-pdf';
+import { DISCOUNT_APPROVAL_THRESHOLD_PERCENT, companyUpdateSchema, discountPercent, requiresDiscountApproval } from '@haksan/shared';
+import { quoteCompanyDraft, quoteCompanyPatch, type QuoteCompanyDraft } from '@/src/ui/documents/quote-company-details';
+import { quoteLinesUntouched, quoteOpportunityDefaults } from '@/src/ui/documents/quote-opportunity-defaults';
+import { productsApi } from '@/src/api/endpoints';
+import { productsExtraApi } from '@/src/api/products.api';
+import { TermsTemplatePicker } from '@/src/ui/documents/TermsTemplatePicker';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Text, View } from 'react-native';
 import type { BottomSheetModal } from '@gorhom/bottom-sheet';
 import { Redirect, useLocalSearchParams, useRouter } from 'expo-router';
-import { useCompany } from '@/src/api/companies.hooks';
-import { useContactList, useLookup, useOpportunityList } from '@/src/api/crm.hooks';
+import { useCompany, useUpdateCompanyFields } from '@/src/api/companies.hooks';
+import { useContact, useLookup, useOpportunity } from '@/src/api/crm.hooks';
 import type { CompanyAddress, CompanyListItem } from '@/src/api/endpoints';
 import { useCreateQuoteFull, useQuoteDetail, useUpdateQuoteFull } from '@/src/api/quotes.hooks';
 import type { QuoteCreateInput, QuoteTermsInput } from '@/src/api/quotes.api';
 import { useSignatures } from '@/src/api/settings.hooks';
 import { useAuth, useCan } from '@/src/auth/AuthProvider';
 import { formatAmount } from '@/src/lib/format';
-import { DetailSkeleton, ErrorState, Eyebrow, Field, SubtleCard } from '@/src/ui';
+import { Button, DetailSkeleton, ErrorState, Eyebrow, Field, SubtleCard } from '@/src/ui';
 import { toast } from '@/src/ui/toast';
-import { ChoiceChips, CompanyPickerSheet, ModalForm, PickerField, ToggleRow, TotalLine } from '@/src/ui/documents/pickers';
+import { ChoiceChips, CompanyPickerSheet, OpportunityPickerSheet, ModalForm, PickerField, ToggleRow, TotalLine } from '@/src/ui/documents/pickers';
 import { emptyQuoteItem, QuoteItemsEditor } from '@/src/ui/documents/QuoteItemsEditor';
 import {
   formatDay,
@@ -26,6 +38,9 @@ import {
 } from '@/src/ui/documents/quote-logic';
 import { DateTextField } from '@/src/ui/select/DateTextField';
 import { AssigneeSelect } from '@/src/ui/select/fields';
+import { effectiveQuoteVat } from '@/src/ui/documents/quote-vat';
+import { ContactPicker } from '@/src/ui/pickers/CompanyPicker';
+import { PickerField as RecordPickerField } from '@/src/ui/pickers/PickerField';
 
 function addressLabel(address: CompanyAddress): string {
   const line =
@@ -69,6 +84,7 @@ function hydrateQuoteItems(rawItems: import('@/src/api/endpoints').QuoteItem[]):
       const child = {
         key: item.id,
         itemId: item.id,
+        productModelId: item.productModelId ?? undefined,
         optionSetId: compat?.configurationOptionSetId,
         description: item.description.replace(/^↳\s*Opsiyon:\s*/i, ''),
         quantity: String(Number(item.quantity)),
@@ -133,11 +149,17 @@ export default function QuoteFormScreen() {
   const { user, scope } = useAuth();
   const canCreate = useCan('quotes.create');
   const canUpdate = useCan('quotes.update');
+  const canEditCompany = useCan('companies.update');
   const existing = useQuoteDetail(editId);
   const currencies = useLookup('currencies');
   const signatures = useSignatures();
   const create = useCreateQuoteFull();
   const update = useUpdateQuoteFull();
+  const [pdfBusy, setPdfBusy] = useState(false);
+  const [validating, setValidating] = useState(false);
+  const [configurationBusy, setConfigurationBusy] = useState<Set<string>>(new Set());
+  const submissionLock = useRef(false);
+  const fx = useQuery({ queryKey: ['fx','rates'], queryFn: () => request<{ rates: Record<string,number>; date?: string; live?: boolean }>('/fx/rates'), staleTime: 60 * 60 * 1000 });
 
   const divisions = user?.divisions ?? [];
   const defaultDivision =
@@ -167,18 +189,56 @@ export default function QuoteFormScreen() {
   const [warrantyTerms, setWarrantyTerms] = useState('');
   const [importCostsExcluded, setImportCostsExcluded] = useState(true);
   const [vatIncluded, setVatIncluded] = useState(false);
+  const [vatEnabled, setVatEnabled] = useState(false);
   const [freightPaidBySeller, setFreightPaidBySeller] = useState(false);
   const [deliveryLocation, setDeliveryLocation] = useState('');
   const [deliveryDaysMin, setDeliveryDaysMin] = useState('');
   const [deliveryDaysMax, setDeliveryDaysMax] = useState('');
   const [notes, setNotes] = useState('');
   const [items, setItems] = useState<EditableQuoteItem[]>([emptyQuoteItem()]);
+  const itemsRef = useRef(items);
+  itemsRef.current = items;
   const [productCurrencies, setProductCurrencies] = useState<Record<string, string>>({});
   const [errors, setErrors] = useState<Record<string, string | undefined>>({});
   const [hydrated, setHydrated] = useState(!isEdit);
   const companySheet = useRef<BottomSheetModal>(null);
+  const opportunitySheet = useRef<BottomSheetModal>(null);
+  const [pickedContactName, setPickedContactName] = useState('');
+  const [pickedOpportunityTitle, setPickedOpportunityTitle] = useState('');
+  const selectedContact = useContact(contactId ?? '');
+  const selectedOpportunity = useOpportunity(opportunityId ?? '');
 
   const company = useCompany(companyId);
+  const updateCompany = useUpdateCompanyFields(companyId);
+  const [companyDraft, setCompanyDraft] = useState<QuoteCompanyDraft | null>(null);
+  const [savingCompany, setSavingCompany] = useState(false);
+  useEffect(() => { setCompanyDraft(null); }, [companyId, companyAddressId]);
+  useEffect(() => {
+    if (isEdit || !selectedOpportunity.data || !quoteLinesUntouched(items)) return;
+    let cancelled = false;
+    const opportunity = selectedOpportunity.data;
+    const ids = [...new Set((opportunity.products ?? []).map((row) => row.productModelId).filter((id): id is string => Boolean(id)))];
+    void Promise.all(ids.map(async (id) => [id, await productsApi.get(id)] as const)).then((records) => {
+      if (cancelled || !quoteLinesUntouched(itemsRef.current)) return;
+      const defaults = quoteOpportunityDefaults(opportunity, Object.fromEntries(records));
+      const rows = defaults.lines.map((line) => ({ ...emptyQuoteItem(), ...line }));
+      setItems((current) => quoteLinesUntouched(current) ? rows : current);
+      if (['USD', 'EUR', 'TRY'].includes(defaults.currencyCode)) setCurrencyCode(defaults.currencyCode as Currency);
+      setProductCurrencies(Object.fromEntries(rows.flatMap((row, index) => defaults.productCurrencies[index] ? [[row.key, defaults.productCurrencies[index]!]] : [])));
+    }).catch(() => { if (!cancelled) toast.error('Fırsatın ürün bilgileri yüklenemedi; kalemleri elle seçebilirsiniz.'); });
+    return () => { cancelled = true; };
+  }, [selectedOpportunity.data?.id, isEdit]);
+  async function saveCompanyDraft() {
+    if (!companyDraft || !company.data || !canEditCompany || savingCompany) return;
+    if (!companyDraft.name.trim()) return toast.error('Firma unvanı zorunludur.');
+    const parsed = companyUpdateSchema.safeParse(quoteCompanyPatch(company.data.addresses, companyAddressId, companyDraft));
+    if (!parsed.success) return toast.error(parsed.error.issues[0]?.message ?? 'Firma bilgilerini kontrol edin.');
+    setSavingCompany(true);
+    try { await updateCompany.mutateAsync(parsed.data); setCompanyName(companyDraft.name.trim()); setCompanyDraft(null); toast.success('Firma ve PDF adresi kaydedildi'); }
+    catch (error) { toast.error(error instanceof Error ? error.message : 'Firma kaydedilemedi'); }
+    finally { setSavingCompany(false); }
+  }
+
   const companyAddresses = company.data?.addresses ?? [];
   useEffect(() => {
     if (company.data && !companyName) setCompanyName(company.data.shortName ?? company.data.legalTitle);
@@ -194,8 +254,6 @@ export default function QuoteFormScreen() {
     if (preferred) setCompanyAddressId(preferred.id);
   }, [companyAddressId, companyAddresses, companyId]);
 
-  const contacts = useContactList(useMemo(() => ({ companyId, sortBy: 'name' as const, sortDir: 'asc' as const }), [companyId]), Boolean(companyId));
-  const opportunities = useOpportunityList(useMemo(() => ({ companyId, view: 'active' as const }), [companyId]), Boolean(companyId));
 
   useEffect(() => {
     const quote = existing.data;
@@ -243,6 +301,7 @@ export default function QuoteFormScreen() {
     );
     setNotes(quote.notes ?? '');
     setItems(hydrateQuoteItems(quote.items));
+    setVatEnabled(quote.items.some((item) => Number(item.vatRate ?? 0) > 0));
     setHydrated(true);
   }, [currencies.data, existing.data, hydrated, isEdit, user?.id]);
 
@@ -253,7 +312,7 @@ export default function QuoteFormScreen() {
     if (code === 'TRY' || code === 'USD' || code === 'EUR') setCurrencyCode(code);
   }, [currencies.data, existing.data?.currencyId, hydrated, isEdit]);
 
-  if (isEdit ? !canUpdate : !canCreate) return <Redirect href="/(tabs)/modules/quotes" />;
+  if (isEdit ? !canUpdate : !canCreate) return <Redirect href="/modules/quotes" />;
 
   if (isEdit && !hydrated) {
     return (
@@ -267,14 +326,18 @@ export default function QuoteFormScreen() {
     );
   }
 
-  const parsedPreview = parseQuoteItems(items);
-  const netPreview = parsedPreview.error ? null : itemsNetTotal(parsedPreview.items);
-  const busy = create.isPending || update.isPending;
+  const parsedPreview = parseQuoteItems(effectiveQuoteVat(items, vatEnabled));
+  const preview = parsedPreview.error ? null : quoteTotalsPreview(parsedPreview.items, items,
+    { amount: headerDiscountMode === 'amount' ? parseDecimal(headerDiscountAmount) || 0 : 0, percent: headerDiscountMode === 'percent' ? parseDecimal(headerDiscountPercent) || 0 : 0 },
+    currencyCode === 'USD' ? 1 : fx.data?.rates[currencyCode] ?? null);
+  const busy = pdfBusy || validating || configurationBusy.size > 0 || create.isPending || update.isPending || savingCompany;
 
   function chooseCompany(next: CompanyListItem) {
     if (next.id !== companyId) {
       setContactId(null);
+      setPickedContactName('');
       setOpportunityId(null);
+      setPickedOpportunityTitle('');
       setCompanyAddressId('');
     }
     setCompanyId(next.id);
@@ -282,7 +345,9 @@ export default function QuoteFormScreen() {
     setErrors((prev) => ({ ...prev, companyId: undefined, companyAddressId: undefined }));
   }
 
-  function submit() {
+  async function submit(thenPdf = false) {
+    if (busy || submissionLock.current) return;
+    if (companyDraft) return toast.error('Önce firma/PDF adresi düzenlemesini kaydedin veya vazgeçin.');
     const nextErrors: Record<string, string | undefined> = {};
     if (!companyId) nextErrors.companyId = 'Firma seçimi zorunludur.';
     if (divisions.length > 0 && !divisionId) nextErrors.divisionId = 'İş alanı seçin.';
@@ -301,19 +366,32 @@ export default function QuoteFormScreen() {
     if (headerDiscountMode === 'percent' && !(discountPercent >= 0 && discountPercent <= 100)) {
       nextErrors.headerDiscountPercent = '0–100 arası girin.';
     }
+    if ([paymentTerms, deliveryTerms, warrantyTerms].some(value => value.length > 2000)) nextErrors.terms = 'Ödeme, teslim ve garanti şartları en fazla 2000 karakter olabilir.';
     if (documentNo.trim().length > 64) nextErrors.documentNo = 'En fazla 64 karakter.';
     const daysMin = deliveryDaysMin.trim() ? Number(deliveryDaysMin) : null;
     const daysMax = deliveryDaysMax.trim() ? Number(deliveryDaysMax) : null;
     if (daysMin !== null && (!Number.isInteger(daysMin) || daysMin < 0)) nextErrors.deliveryDaysMin = 'Geçerli gün girin.';
     if (daysMax !== null && (!Number.isInteger(daysMax) || daysMax < 0)) nextErrors.deliveryDaysMax = 'Geçerli gün girin.';
     if (daysMin !== null && daysMax !== null && daysMax < daysMin) nextErrors.deliveryDaysMax = 'Max ≥ min olmalı.';
-    const parsed = parseQuoteItems(items);
+    const parsed = parseQuoteItems(effectiveQuoteVat(items, vatEnabled));
     if (parsed.error) nextErrors.items = parsed.error;
     if (Object.values(nextErrors).some(Boolean) || !date) {
       setErrors(nextErrors);
       toast.error(Object.values(nextErrors).find(Boolean) ?? 'Formu kontrol edin.');
       return;
     }
+
+    submissionLock.current = true;
+    setValidating(true);
+    try {
+      await validateQuoteConfigurations(items, currencyCode, async (id) => {
+        const [sets, product] = await Promise.all([productsExtraApi.optionSets(id), productsApi.get(id)]);
+        return { sets, baseModelConfiguration: (product as typeof product & { baseModelConfiguration?: { configurations: unknown[] } | null }).baseModelConfiguration };
+      });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Makine konfigürasyonu doğrulanamadı.');
+      return;
+    } finally { setValidating(false); submissionLock.current = false; }
 
     const quote: QuoteCreateInput = {
       companyId,
@@ -351,14 +429,21 @@ export default function QuoteFormScreen() {
       ...(daysMax !== null ? { estimatedDeliveryDaysMax: daysMax } : {}),
     };
 
+    const saved = async (savedId: string, message: string) => {
+      toast.success(message);
+      if (thenPdf) {
+        setPdfBusy(true);
+        try { await shareSavedDocument('quote', savedId, documentNo, postPdfAndShare); }
+        catch (error) { toast.error(`Teklif kaydedildi; PDF alınamadı. Detaydan tekrar deneyin. ${error instanceof Error ? error.message : ''}`); }
+        finally { setPdfBusy(false); }
+      }
+      router.replace(`/modules/quotes/${savedId}`);
+    };
     if (isEdit) {
       update.mutate(
         { id: editId, quote, items: parsed.items, terms },
         {
-          onSuccess: () => {
-            toast.success('Teklif güncellendi');
-            router.back();
-          },
+          onSuccess: () => void saved(editId, 'Teklif güncellendi'),
           onError: (error) => toast.error(error.message),
         }
       );
@@ -367,24 +452,21 @@ export default function QuoteFormScreen() {
     create.mutate(
       { quote, items: parsed.items, terms },
       {
-        onSuccess: (created) => {
-          toast.success(opportunityId ? 'Teklif oluşturuldu' : 'Teklif ve satış kartı oluşturuldu');
-          router.replace(`/(tabs)/modules/quotes/${created.id}`);
-        },
+        onSuccess: (created) => void saved(created.id, opportunityId ? 'Teklif oluşturuldu' : 'Teklif ve satış kartı oluşturuldu'),
         onError: (error) => toast.error(error.message),
       }
     );
   }
 
-  const contactOptions = (contacts.data?.items ?? []).slice(0, 12);
-  const opportunityOptions = (opportunities.data?.items ?? []).slice(0, 12);
 
   return (
     <>
       <ModalForm
         title={isEdit ? 'Teklifi Düzenle' : 'Yeni Teklif'}
         submitLabel={isEdit ? 'Kaydet' : 'Teklifi Oluştur'}
-        onSubmit={submit}
+        onSubmit={() => submit(false)}
+        secondaryLabel="Kaydet ve PDF al"
+        onSecondarySubmit={() => submit(true)}
         loading={busy}
       >
         <View className="gap-3">
@@ -396,17 +478,14 @@ export default function QuoteFormScreen() {
             icon="business-outline"
             onPress={() => companySheet.current?.present()}
             error={errors.companyId}
-            disabled={isEdit}
           />
           {companyId ? (
-            <ChoiceChips
+            <ContactPicker
               label="Kontak"
-              options={[
-                { value: '', label: contactOptions.length ? 'Seçilmedi' : 'Kontak yok / sonra ekle' },
-                ...contactOptions.map((contact) => ({ value: contact.id, label: contact.fullName })),
-              ]}
-              value={contactId ?? ''}
-              onChange={(next) => setContactId(next || null)}
+              companyId={companyId}
+              value={contactId ? { id: contactId, name: pickedContactName || selectedContact.data?.fullName || 'Seçili kontak' } : null}
+              onChange={(next) => { setContactId(next?.id ?? null); setPickedContactName(next?.name ?? ''); }}
+              placeholder="Firmanın kontaklarından seçin"
             />
           ) : null}
           {companyId && companyAddresses.length > 0 ? (
@@ -428,15 +507,22 @@ export default function QuoteFormScreen() {
               ) : null}
             </View>
           ) : null}
+          {canEditCompany && company.data ? <View className="gap-2">
+            <Button variant="ghost" label={companyDraft ? 'Firma / adres düzenlemesini kapat' : 'Firma adı ve PDF adresini düzenle'} onPress={() => setCompanyDraft((current) => current ? null : quoteCompanyDraft(company.data!.legalTitle, companyAddresses.find((item) => item.id === companyAddressId)))} disabled={busy} />
+            {companyDraft ? <SubtleCard className="gap-3">
+              <Text className="font-inter text-xs text-muted-foreground">Kaydettiğiniz bilgiler CRM firma kaydını da günceller.</Text>
+              {([['name', 'Firma unvanı'], ['country', 'Ülke'], ['city', 'İl'], ['district', 'İlçe'], ['address', 'PDF açık adresi']] as const).map(([key, label]) => <Field key={key} label={label} value={companyDraft[key]} onChangeText={(value) => setCompanyDraft((current) => current ? { ...current, [key]: value } : null)} multiline={key === 'address'} editable={!busy} />)}
+              <Button label="Firma ve adresi kaydet" onPress={() => void saveCompanyDraft()} loading={savingCompany} />
+            </SubtleCard> : null}
+          </View> : null}
           {companyId ? (
-            <ChoiceChips
+            <RecordPickerField
               label="Satış kartı"
-              options={[
-                { value: '', label: isEdit ? 'Bağlı değil' : 'Yeni kart aç' },
-                ...opportunityOptions.map((opportunity) => ({ value: opportunity.id, label: opportunity.title })),
-              ]}
-              value={opportunityId ?? ''}
-              onChange={(next) => setOpportunityId(next || null)}
+              value={opportunityId ? pickedOpportunityTitle || selectedOpportunity.data?.title || 'Seçili satış kartı' : ''}
+              placeholder={isEdit ? 'Bağlı değil' : 'Yeni kart aç'}
+              icon="briefcase-outline"
+              onPress={() => opportunitySheet.current?.present()}
+              onClear={() => { setOpportunityId(null); setPickedOpportunityTitle(''); }}
             />
           ) : null}
           {!opportunityId && !isEdit ? (
@@ -523,8 +609,13 @@ export default function QuoteFormScreen() {
           />
         </View>
 
-        <QuoteItemsEditor
+        <View className="gap-1">
+          <ToggleRow label="KDV hesapla" value={vatEnabled} onChange={setVatEnabled} />
+          <Text className="font-inter text-xs text-muted-foreground">{vatEnabled ? 'Kalemlerin KDV oranları teklif toplamına uygulanır.' : 'Teklif kalemleri KDV hesaplanmadan kaydedilir. KDV’nin fiyata dahil olması ayrı bir şarttır.'}</Text>
+        </View>
+        <QuoteItemsEditor onConfigurationBusyChange={(key, pending) => setConfigurationBusy(current => { const next = new Set(current); if (pending) next.add(key); else next.delete(key); return next; })}
           items={items}
+          vatEnabled={vatEnabled}
           onChange={(next) => {
             setItems(next);
             setErrors((prev) => ({ ...prev, items: undefined }));
@@ -577,16 +668,30 @@ export default function QuoteFormScreen() {
               error={errors.headerDiscountPercent}
             />
           )}
-          {netPreview !== null ? (
+          {preview !== null ? (
             <SubtleCard className="px-3 py-1.5">
-              <TotalLine label="Kalem net toplamı" value={formatAmount(netPreview, currencyCode)} strong />
+              <TotalLine label="Kalem toplamı" value={formatAmount(preview.gross, currencyCode)} />
+              <TotalLine label="Kalem iskontosu" value={formatAmount(preview.lineDiscount, currencyCode)} />
+              <TotalLine label="Genel iskonto" value={formatAmount(preview.headerDiscount, currencyCode)} />
+              <TotalLine label="KDV" value={formatAmount(preview.vat, currencyCode)} />
+              <TotalLine label="Gümrük ve vergiler" value={preview.customs === null ? 'Kur bekleniyor' : formatAmount(preview.customs, currencyCode)} />
+              <TotalLine label="Genel toplam" value={preview.grand === null ? 'Kur bekleniyor' : formatAmount(preview.grand, currencyCode)} strong />
+              {preview.customs === null ? <Button label="Döviz kurunu yeniden yükle" variant="ghost" onPress={() => void fx.refetch()} /> : null}
+              {/* Web QuoteDialog: sunucu aynı eşikle teklifi onaya düşürür; önceden söyle. */}
+              {requiresDiscountApproval(preview.gross, preview.lineDiscount + preview.headerDiscount) ? (
+                <Text accessibilityRole="alert" className="mt-1.5 rounded-md bg-warning-soft px-2 py-1.5 font-inter text-xs text-warning">
+                  Toplam indirim %{discountPercent(preview.gross, preview.lineDiscount + preview.headerDiscount).toFixed(2)}. %{DISCOUNT_APPROVAL_THRESHOLD_PERCENT} üzeri teklifler kaydedildiğinde otomatik onaya düşer.
+                </Text>
+              ) : null}
             </SubtleCard>
           ) : null}
         </View>
 
         <View className="gap-3">
           <Eyebrow>Şartlar</Eyebrow>
-          <Field label="Ödeme şartları" value={paymentTerms} onChangeText={setPaymentTerms} multiline maxLength={4000} />
+          <TermsTemplatePicker scope="quote_terms" value={{ payment: paymentTerms, delivery: deliveryTerms, warranty: warrantyTerms }}
+            onApply={(next) => { setPaymentTerms(next.payment); setDeliveryTerms(next.delivery); setWarrantyTerms(next.warranty); }} />
+          <Field label="Ödeme şartları" value={paymentTerms} onChangeText={setPaymentTerms} multiline maxLength={2000} />
           <ChoiceChips
             label="Teslim ön ayarı"
             options={[
@@ -603,8 +708,8 @@ export default function QuoteFormScreen() {
               }
             }}
           />
-          <Field label="Teslim şartları" value={deliveryTerms} onChangeText={setDeliveryTerms} multiline maxLength={4000} />
-          <Field label="Garanti şartları" value={warrantyTerms} onChangeText={setWarrantyTerms} multiline maxLength={4000} />
+          <Field label="Teslim şartları" value={deliveryTerms} onChangeText={setDeliveryTerms} multiline maxLength={2000} />
+          <Field label="Garanti şartları" value={warrantyTerms} onChangeText={setWarrantyTerms} multiline maxLength={2000} />
           <Field
             label="Teslim yeri"
             value={deliveryLocation}
@@ -647,6 +752,7 @@ export default function QuoteFormScreen() {
         </View>
       </ModalForm>
       <CompanyPickerSheet sheetRef={companySheet} selectedId={companyId} onSelect={chooseCompany} />
+      {companyId ? <OpportunityPickerSheet sheetRef={opportunitySheet} companyId={companyId} view="active" selectedId={opportunityId ?? undefined} onSelect={(next) => { setOpportunityId(next.id); setPickedOpportunityTitle(next.title); }} /> : null}
     </>
   );
 }

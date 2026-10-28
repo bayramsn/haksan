@@ -2,6 +2,7 @@ import { request, type Paginated } from '@/src/api/client';
 import { apiBaseUrl } from '@/src/api/config';
 import type { CustomerDevice, Installation, ServiceComplaint, ServiceTicket } from '@/src/api/endpoints';
 import { getPdfAndShare } from '@/src/native/files';
+import { collectPaginated } from './pagination';
 
 type Severity = 'low' | 'normal' | 'high' | 'critical';
 type TicketType = 'complaint' | 'request' | 'warranty_claim' | 'question';
@@ -111,7 +112,7 @@ export type EntityFileLink = {
 
 export const serviceApi = {
   attachments: (entityType: 'service_ticket' | 'service_complaint_intake', entityId: string) =>
-    request<Paginated<EntityFileLink>>('/files/links', { query: { entityType, entityId, page: 1, pageSize: 100 } }),
+    collectPaginated((page) => request<Paginated<EntityFileLink>>('/files/links', { query: { entityType, entityId, page, pageSize: 100 } })),
 
   createTicket: (body: TicketCreateBody) => request<ServiceTicket>('/service-tickets', { method: 'POST', body }),
   updateTicket: (id: string, body: TicketUpdateBody) =>

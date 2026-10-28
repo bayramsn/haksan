@@ -1,3 +1,5 @@
+// @ts-ignore -- explicit extension lets the pure navigation policy run in node:test; Metro also resolves it.
+import { createNavigationContext, supportsNavigationContext } from './navigationContext.ts';
 import type { Href } from 'expo-router';
 import type { NotificationTarget } from '@/src/api/endpoints';
 
@@ -5,55 +7,77 @@ import type { NotificationTarget } from '@/src/api/endpoints';
 const toHref = (path: string) => path as unknown as Href;
 
 const navRoutes: Record<string, string> = {
-  dashboard: '/(tabs)',
-  chat: '/(tabs)/chat',
-  calendar: '/(tabs)/modules/calendar',
-  tasks: '/(tabs)/modules/tasks',
-  customers: '/(tabs)/modules/companies',
-  'sales-map': '/(tabs)/modules/company-map',
-  contacts: '/(tabs)/modules/contacts',
-  'sales-cases': '/(tabs)/modules/opportunities',
-  kanban: '/(tabs)/modules/kanban',
-  targets: '/(tabs)/modules/targets',
-  'trade-fairs': '/(tabs)/modules/trade-fairs',
-  references: '/(tabs)/modules/references',
-  meta: '/(tabs)/modules/meta',
-  offers: '/(tabs)/modules/quotes',
-  proformas: '/(tabs)/modules/proformas',
-  contracts: '/(tabs)/modules/contracts',
-  documents: '/(tabs)/modules/documents',
-  users: '/(tabs)/modules/users',
-  roles: '/(tabs)/modules/roles',
-  departments: '/(tabs)/modules/departments',
-  payments: '/(tabs)/modules/payments',
-  'accounting-invoices': '/(tabs)/modules/invoices',
-  'customer-balances': '/(tabs)/modules/balances',
-  'due-dates': '/(tabs)/modules/due-dates',
-  'sales-price-list': '/(tabs)/modules/price-lists',
-  'service-price-list': '/(tabs)/modules/service-price-list',
-  products: '/(tabs)/modules/products',
-  stock: '/(tabs)/modules/inventory',
-  shipments: '/(tabs)/modules/shipments',
-  'sales-orders': '/(tabs)/modules/sales-orders',
-  'purchase-orders': '/(tabs)/modules/purchase-orders',
-  installations: '/(tabs)/modules/installations',
-  deliveries: '/(tabs)/modules/deliveries',
-  machines: '/(tabs)/modules/customer-devices',
-  'service-requests': '/(tabs)/modules/service-tickets',
-  'service-kanban': '/(tabs)/modules/service-kanban',
-  reports: '/(tabs)/modules/reports',
-  settings: '/(tabs)/more/settings',
+  dashboard: '/(tabs)/(home)',
+  chat: '/chat',
+  calendar: '/modules/calendar',
+  tasks: '/modules/tasks',
+  activities: '/modules/activities',
+  customers: '/modules/companies',
+  'sales-map': '/modules/company-map',
+  contacts: '/modules/contacts',
+  'sales-cases': '/modules/opportunities',
+  kanban: '/modules/kanban',
+  targets: '/modules/targets',
+  'trade-fairs': '/modules/trade-fairs',
+  references: '/modules/references',
+  meta: '/modules/meta',
+  offers: '/modules/quotes',
+  proformas: '/modules/proformas',
+  contracts: '/modules/contracts',
+  documents: '/modules/documents',
+  users: '/modules/users',
+  roles: '/modules/roles',
+  departments: '/modules/departments',
+  payments: '/modules/payments',
+  'accounting-invoices': '/modules/invoices',
+  'customer-balances': '/modules/balances',
+  'due-dates': '/modules/due-dates',
+  'sales-price-list': '/modules/price-lists',
+  'service-price-list': '/modules/service-price-list',
+  products: '/modules/products',
+  stock: '/modules/inventory',
+  shipments: '/modules/shipments',
+  'sales-orders': '/modules/sales-orders',
+  'purchase-orders': '/modules/purchase-orders',
+  installations: '/modules/installations',
+  deliveries: '/modules/deliveries',
+  machines: '/modules/customer-devices',
+  'service-requests': '/modules/service-tickets',
+  'service-kanban': '/modules/service-kanban',
+  reports: '/modules/reports',
+  settings: '/more/settings',
 };
 
-export function routeForNavigation(nav: string, query?: string): Href | null {
-  if (nav === 'service-requests' && query?.startsWith('complaint:')) {
-    const complaintId = query.slice('complaint:'.length);
-    const safeComplaintId = safeRouteValue(complaintId);
-    if (!safeComplaintId) return null;
-    return toHref(`/(tabs)/modules/service-complaints/${safeComplaintId}`);
+/** `önek:<id>` sorgusunu kayıt detayına çevirir (notifications.controller hedefleri). */
+const recordRoutes: Record<string, { prefix: string; path: string }[]> = {
+  'service-requests': [
+    { prefix: 'complaint:', path: '/modules/service-complaints/' },
+    { prefix: 'ticket:', path: '/modules/service-tickets/' },
+  ],
+  tasks: [{ prefix: 'task:', path: '/modules/tasks/' }],
+  activities: [{ prefix: 'activity:', path: '/modules/activities/' }],
+};
+
+/** API push verisinin eski biçimi `{ nav, entityId }`: kayıt kimliğini detay sorgusuna çevirir. */
+const pushRecordPrefix: Record<string, string> = { tasks: 'task:', 'service-requests': 'ticket:', activities: 'activity:' };
+
+export function routeForNavigation(nav: string, query?: string, focus?: string): Href | null {
+  const record = query ? recordRoutes[nav]?.find((entry) => query.startsWith(entry.prefix)) : undefined;
+  if (record && query) {
+    const safeId = safeRouteValue(query.slice(record.prefix.length));
+    if (!safeId) return null;
+    return toHref(`${record.path}${safeId}`);
   }
+  // Haftalık satış/aktivite raporu mobilde Analitik sekmesinde.
+  if (nav === 'reports' && query === 'weekly-sales') return toHref('/modules/reports?mode=analytics');
+  if (nav === 'dashboard' && focus === 'targets') return toHref('/(tabs)/(home)?section=rapor&pane=hedefler');
   const route = navRoutes[nav];
   if (!route) return null;
+  if (supportsNavigationContext(nav) && (query !== undefined || focus !== undefined)) {
+    const action = createNavigationContext(nav, query, focus);
+    if (!action) return toHref(route);
+    return toHref(`${route}?navigationAction=${action}`);
+  }
   return toHref(route);
 }
 
@@ -64,17 +88,17 @@ export function routeForTarget(target: NotificationTarget | null): Href | null {
     case 'company': {
       const companyId = safeRouteValue(target.companyId);
       if (!companyId) return null;
-      return toHref(`/(tabs)/modules/companies/${companyId}`);
+      return toHref(`/modules/companies/${companyId}`);
     }
     case 'opportunity': {
       const opportunityId = safeRouteValue(target.opportunityId);
       if (!opportunityId) return null;
       const activityId = target.activityId ? safeRouteValue(target.activityId) : null;
       const activity = activityId ? `?activityId=${activityId}` : '';
-      return toHref(`/(tabs)/modules/opportunities/${opportunityId}${activity}`);
+      return toHref(`/modules/opportunities/${opportunityId}${activity}`);
     }
     case 'navigate':
-      return routeForNavigation(target.nav, target.query);
+      return routeForNavigation(target.nav, target.query, target.focus);
     default:
       return null;
   }
@@ -98,37 +122,37 @@ function safePathSegment(value: string | undefined): string | null {
 }
 
 const entityDetailRoutes: Record<string, string> = {
-  companies: '/(tabs)/modules/companies',
-  contacts: '/(tabs)/modules/contacts',
-  opportunities: '/(tabs)/modules/opportunities',
-  quotes: '/(tabs)/modules/quotes',
-  offers: '/(tabs)/modules/quotes',
-  products: '/(tabs)/modules/products',
-  inventory: '/(tabs)/modules/inventory',
-  stock: '/(tabs)/modules/inventory',
-  'service-tickets': '/(tabs)/modules/service-tickets',
-  shipments: '/(tabs)/modules/shipments',
-  'sales-orders': '/(tabs)/modules/sales-orders',
-  'purchase-orders': '/(tabs)/modules/purchase-orders',
-  payments: '/(tabs)/modules/payments',
-  receivables: '/(tabs)/modules/receivables',
-  invoices: '/(tabs)/modules/invoices',
-  'accounting-invoices': '/(tabs)/modules/invoices',
-  installations: '/(tabs)/modules/installations',
-  'customer-devices': '/(tabs)/modules/customer-devices',
-  machines: '/(tabs)/modules/customer-devices',
-  'maintenance-plans': '/(tabs)/modules/maintenance-plans',
-  activities: '/(tabs)/modules/activities',
-  tasks: '/(tabs)/modules/tasks',
-  'service-complaints': '/(tabs)/modules/service-complaints',
-  proformas: '/(tabs)/modules/documents/proforma',
-  contracts: '/(tabs)/modules/documents/contract',
-  'commercial-invoices': '/(tabs)/modules/documents/invoice',
-  chat: '/(tabs)/chat',
-  conversations: '/(tabs)/chat',
+  companies: '/modules/companies',
+  contacts: '/modules/contacts',
+  opportunities: '/modules/opportunities',
+  quotes: '/modules/quotes',
+  offers: '/modules/quotes',
+  products: '/modules/products',
+  inventory: '/modules/inventory',
+  stock: '/modules/inventory',
+  'service-tickets': '/modules/service-tickets',
+  shipments: '/modules/shipments',
+  'sales-orders': '/modules/sales-orders',
+  'purchase-orders': '/modules/purchase-orders',
+  payments: '/modules/payments',
+  receivables: '/modules/receivables',
+  invoices: '/modules/invoices',
+  'accounting-invoices': '/modules/invoices',
+  installations: '/modules/installations',
+  'customer-devices': '/modules/customer-devices',
+  machines: '/modules/customer-devices',
+  'maintenance-plans': '/modules/maintenance-plans',
+  activities: '/modules/activities',
+  tasks: '/modules/tasks',
+  'service-complaints': '/modules/service-complaints',
+  proformas: '/modules/documents/proforma',
+  contracts: '/modules/documents/contract',
+  'commercial-invoices': '/modules/documents/invoice',
+  chat: '/chat',
+  conversations: '/chat',
 };
 
-const allowedNativePrefixes = ['/(tabs)', '/modules/', '/chat/', '/notifications', '/more/'];
+const allowedNativePrefixes = ['/(tabs)', '/modules', '/chat', '/notifications', '/more', '/companies', '/opportunities', '/calendar'];
 
 const RESET_PASSWORD_PATHS = new Set(['/reset-password', '/(auth)/reset-password']);
 
@@ -175,17 +199,20 @@ export function routeForIncomingHref(
     return null;
   }
 
+  path = path.replace(/^\/\(tabs\)(?=\/|$)/, '').replace(/^\/\((?:home|companies|opportunities|calendar|modules)\)(?=\/|$)/, '');
+  if (!path) path = '/';
   if (path.startsWith('/app/')) path = path.slice('/app'.length);
-  if (path === '/' || path === '/app') return toHref('/(tabs)');
+  if (path === '/' || path === '/app') return toHref('/(tabs)/(home)');
   if (RESET_PASSWORD_PATHS.has(path.split(/[?#]/, 1)[0] ?? '')) return resetPasswordRoute(path);
   const cleanPath = path.split(/[?#]/, 1)[0] ?? '';
   const entityMatch = cleanPath.match(/^\/([^/]+)\/([^/]+)\/?$/);
   if (entityMatch) {
     const target = entityDetailRoutes[entityMatch[1] ?? ''];
     const id = safePathSegment(entityMatch[2]);
+    if (target && !id) return null;
     if (target && id) return toHref(`${target}/${id}`);
   }
-  if (allowedNativePrefixes.some((prefix) => path === prefix || path.startsWith(prefix))) {
+  if (allowedNativePrefixes.some((prefix) => path === prefix || path.startsWith(`${prefix}/`))) {
     // Serbest query/hash değerleri dış kaynaklardan native navigation state'ine
     // taşınmaz. Bildirimlerin izinli query'leri routeForTarget içinde üretilir.
     return toHref(path.split(/[?#]/, 1)[0] ?? path);
@@ -215,7 +242,14 @@ export function routeForPushData(data: unknown, allowedHosts: readonly string[] 
       kind: 'navigate',
       nav: value.nav,
       query: typeof value.query === 'string' ? value.query : undefined,
+      focus: typeof value.focus === 'string' ? value.focus : undefined,
     });
+  }
+  // Görev, takvim ve aktivite hatırlatmaları `kind` göndermiyor; eskiden dokununca hiçbir yere gitmiyordu.
+  if (value.kind === undefined && typeof value.nav === 'string') {
+    const prefix = pushRecordPrefix[value.nav];
+    const entityId = typeof value.entityId === 'string' ? value.entityId : undefined;
+    return routeForNavigation(value.nav, prefix && entityId ? `${prefix}${entityId}` : undefined);
   }
   return null;
 }

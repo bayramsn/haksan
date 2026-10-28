@@ -1,27 +1,14 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Text, View } from 'react-native';
 import { LASER_POWERS, type LaserTechnicalConfiguration } from '@haksan/shared';
 import { adminApi } from '@/src/api/admin.api';
 import { useProduct } from '@/src/api/inventory.hooks';
 import { useOptionSets } from '@/src/api/products.hooks';
-import type { OptionSet } from '@/src/api/products.api';
+import { quoteOptionSnapshot } from './quote-configuration';
 import { ChoiceChips } from './pickers';
 import { OptionPicker } from '@/src/ui/pickers/OptionPicker';
 import { toast } from '@/src/ui/toast';
 import type { EditableQuoteItem, QuoteSelectedOptionDraft } from './quote-logic';
-
-function optionSnapshot(set: OptionSet, valueId: string): QuoteSelectedOptionDraft | null {
-  const value = set.values.find((row) => row.id === valueId);
-  if (!value) return null;
-  return {
-    optionSetId: set.id,
-    optionValueId: value.id,
-    name: set.name,
-    value: value.value,
-    priceDelta: Number(value.priceDelta ?? 0) || 0,
-    currencyCode: value.currencyCode ?? '',
-  };
-}
 
 function asLaserConfig(value: unknown): LaserTechnicalConfiguration | null {
   if (!value || typeof value !== 'object') return null;
@@ -38,14 +25,20 @@ function QuoteLaserConfig({
   brandId,
   divisionId,
   onChange,
+  onBusyChange,
 }: {
   item: EditableQuoteItem;
   brandId?: string | null;
   divisionId?: string | null;
   onChange: (patch: Partial<EditableQuoteItem>) => void;
+  onBusyChange?: (busy: boolean) => void;
 }) {
   const config = asLaserConfig(item.technicalConfiguration);
   const [busy, setBusy] = useState(false);
+  const mounted = useRef(true);
+  const busyCallback = useRef(onBusyChange);
+  busyCallback.current = onBusyChange;
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; busyCallback.current?.(false); }; }, []);
   if (!config) return null;
 
   async function resolve(patch: Partial<LaserTechnicalConfiguration['selection']>) {
@@ -54,11 +47,13 @@ function QuoteLaserConfig({
       return;
     }
     setBusy(true);
+    onBusyChange?.(true);
     try {
       const resolved = await adminApi.laserResolve(
         { divisionId, brandId },
         { ...config!.selection, ...patch }
       );
+      if (!mounted.current) return;
       onChange({
         technicalConfiguration: resolved,
         technicalSpecs: resolved.specs.map((spec) => ({
@@ -71,7 +66,7 @@ function QuoteLaserConfig({
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Lazer profili çözülemedi');
     } finally {
-      setBusy(false);
+      if (mounted.current) { setBusy(false); busyCallback.current?.(false); }
     }
   }
 
@@ -115,12 +110,14 @@ export function QuoteLineConfig({
   brandId,
   divisionId,
   onChange,
+  onBusyChange,
 }: {
   item: EditableQuoteItem;
   currencyCode: string;
   brandId?: string | null;
   divisionId?: string | null;
   onChange: (patch: Partial<EditableQuoteItem>) => void;
+  onBusyChange?: (busy: boolean) => void;
 }) {
   const productId = item.productModelId ?? '';
   const options = useOptionSets(productId, Boolean(productId));
@@ -156,7 +153,7 @@ export function QuoteLineConfig({
 
   function applySelection(nextSelected: QuoteSelectedOptionDraft[]) {
     const children = nextSelected
-      .filter((row) => row.priceDelta > 0)
+      .filter((row) => row.priceDelta >= 0)
       .map((row) => {
         const existing = item.optionChildren.find((child) => child.optionSetId === row.optionSetId);
         return {
@@ -189,7 +186,7 @@ export function QuoteLineConfig({
           Baz fiyat + seçilen donanım. Ek fiyatlı seçenekler alt satır olarak eklenir.
         </Text>
       ) : null}
-      <QuoteLaserConfig item={item} brandId={resolvedBrandId} divisionId={divisionId} onChange={onChange} />
+      <QuoteLaserConfig item={item} brandId={resolvedBrandId} divisionId={divisionId} onChange={onChange} onBusyChange={onBusyChange} />
       {sets.map((set) => {
         const selected = item.selectedProductOptions.find((row) => row.optionSetId === set.id);
         const pickerOptions = set.values.map((value) => ({
@@ -217,9 +214,10 @@ export function QuoteLineConfig({
                 applySelection(without);
                 return;
               }
-              const snapshot = optionSnapshot(set, valueId);
-              if (!snapshot) return;
-              applySelection([...without, { ...snapshot, currencyCode: snapshot.currencyCode || currencyCode }]);
+              try {
+                const snapshot = quoteOptionSnapshot(set, valueId, currencyCode);
+                applySelection([...without, snapshot]);
+              } catch (error) { toast.error(error instanceof Error ? error.message : 'Seçenek doğrulanamadı'); }
             }}
           />
         );

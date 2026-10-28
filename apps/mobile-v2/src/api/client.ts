@@ -1,5 +1,5 @@
 import type { ZodType } from 'zod';
-import { activeScope } from '@/src/auth/scope';
+import { activeScope, scopeRevision } from '@/src/auth/scope';
 import { serverMessage } from '@/src/lib/serverMessage';
 import { authRefreshResponseSchema } from './auth-schemas';
 import { apiBaseUrl } from './config';
@@ -42,6 +42,18 @@ export class RequestTimeoutError extends Error {
   }
 }
 
+export class RequestScopeChangedError extends Error {
+  constructor() { super('Çalışma alanı değişti; işlemi yeni alanda tekrar başlatın.'); this.name = 'RequestScopeChangedError'; }
+}
+let sessionGeneration = 0;
+export function invalidateRequestContext(): void { sessionGeneration += 1; }
+export function requestContextKey(): string {
+  const scope = activeScope();
+  return JSON.stringify([sessionGeneration, scopeRevision(), apiBaseUrl(), scope.divisionId, scope.departmentId]);
+}
+function assertRequestContext(key: string): void {
+  if (requestContextKey() !== key) throw new RequestScopeChangedError();
+}
 let accessToken: string | null = null;
 const accessTokenListeners = new Set<(token: string | null) => void>();
 
@@ -61,6 +73,11 @@ export function subscribeAccessToken(listener: (token: string | null) => void): 
 }
 
 export async function setAccessToken(token: string | null): Promise<void> {
+  if (accessToken === token) return;
+  sessionGeneration += 1;
+  await installAccessToken(token);
+}
+async function installAccessToken(token: string | null): Promise<void> {
   if (accessToken === token) return;
   accessToken = token;
   for (const listener of accessTokenListeners) listener(token);
@@ -121,7 +138,8 @@ function wait(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function rawRequest(path: string, opts: RequestOptions): Promise<Response> {
+async function rawRequest(path: string, opts: RequestOptions, context = requestContextKey()): Promise<Response> {
+  assertRequestContext(context);
   const token = await loadAccessToken();
   const scope = activeScope();
   const controller = new AbortController();
@@ -130,7 +148,8 @@ async function rawRequest(path: string, opts: RequestOptions): Promise<Response>
   opts.signal?.addEventListener('abort', abortFromCaller, { once: true });
   const release = await acquireRequestSlot();
   try {
-    return await fetch(buildUrl(path, opts.query), {
+    assertRequestContext(context);
+    const response = await fetch(buildUrl(path, opts.query), {
       method: opts.method ?? 'GET',
       credentials: 'include',
       headers: {
@@ -146,7 +165,11 @@ async function rawRequest(path: string, opts: RequestOptions): Promise<Response>
       body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
       signal: controller.signal,
     });
+    assertRequestContext(context);
+    return response;
   } catch (error) {
+    if (error instanceof RequestScopeChangedError) throw error;
+    assertRequestContext(context);
     if (opts.signal?.aborted) throw error;
     if (controller.signal.aborted) throw new RequestTimeoutError();
     // fetch yalnızca ağ katmanı hatasında throw eder; HTTP hataları throw etmez.
@@ -166,6 +189,7 @@ async function rawRequest(path: string, opts: RequestOptions): Promise<Response>
 let refreshPromise: Promise<boolean> | null = null;
 
 async function performRefresh(): Promise<boolean> {
+  const context = requestContextKey();
   try {
     const res = await rawRequest('/auth/refresh', { method: 'POST', skipRefresh: true });
     if (!res.ok) return false;
@@ -174,10 +198,11 @@ async function performRefresh(): Promise<boolean> {
     // Bunun dışındaki wire drift'i fail-closed ele alınır; bilinmeyen veriden
     // oturum üretmeyiz ve credential içeriğini loglamayız.
     if (!parsed.success || !parsed.data.accessToken) return false;
-    await setAccessToken(parsed.data.accessToken);
+    assertRequestContext(context);
+    await installAccessToken(parsed.data.accessToken);
     return true;
   } catch (error) {
-    if (error instanceof OfflineError || error instanceof RequestTimeoutError) throw error;
+    if (error instanceof OfflineError || error instanceof RequestTimeoutError || error instanceof RequestScopeChangedError) throw error;
     return false;
   }
 }
@@ -189,24 +214,27 @@ export async function refreshSession(): Promise<boolean> {
   return refreshPromise;
 }
 
-async function requestWithRateLimit(path: string, opts: RequestOptions): Promise<Response> {
-  let response = await rawRequest(path, opts);
+async function requestWithRateLimit(path: string, opts: RequestOptions, context: string): Promise<Response> {
+  let response = await rawRequest(path, opts, context);
   const retryable = (opts.method ?? 'GET') === 'GET';
   for (let attempt = 0; retryable && response.status === 429 && attempt < MAX_RATE_LIMIT_RETRIES; attempt += 1) {
     const delay = retryAfterMs(response) ?? Math.min(4_000, 500 * 2 ** attempt + Math.random() * 250);
     await wait(delay);
-    response = await rawRequest(path, opts);
+    response = await rawRequest(path, opts, context);
   }
   return response;
 }
 
 export async function request<T>(path: string, opts: RequestOptions<T> = {}): Promise<T> {
-  let res = await requestWithRateLimit(path, opts);
+  const context = requestContextKey();
+  let res = await requestWithRateLimit(path, opts, context);
 
   if (res.status === 401 && !opts.skipRefresh) {
     if (await refreshSession()) {
-      res = await requestWithRateLimit(path, { ...opts, skipRefresh: true });
+      assertRequestContext(context);
+      res = await requestWithRateLimit(path, { ...opts, skipRefresh: true }, context);
     } else {
+      assertRequestContext(context);
       await setAccessToken(null);
       onSessionLost?.();
     }
@@ -215,6 +243,7 @@ export async function request<T>(path: string, opts: RequestOptions<T> = {}): Pr
   if (res.status === 204) return undefined as T;
 
   const text = await res.text();
+  assertRequestContext(context);
   const parsed = text ? safeJson(text) : undefined;
 
   if (!res.ok) {

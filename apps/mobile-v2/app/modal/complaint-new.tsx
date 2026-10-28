@@ -63,7 +63,7 @@ export default function NewComplaintScreen() {
     setContactEmail(person.workEmail || person.personalEmail || firmEmail || '');
   }, [companyDetail.data, contact, contactDetail.data]);
 
-  if (!canCreate) return <Redirect href={'/(tabs)/modules/service-complaints' as Href} />;
+  if (!canCreate) return <Redirect href={'/modules/service-complaints' as Href} />;
 
   const submit = () => {
     const nextErrors: typeof errors = {};

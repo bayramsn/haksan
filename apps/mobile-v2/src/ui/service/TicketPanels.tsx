@@ -1,3 +1,4 @@
+import { syncServiceTimerActivity } from '@/src/native/live-activity';
 import { useEffect, useMemo, useState } from 'react';
 import { Alert, Pressable, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
@@ -9,7 +10,7 @@ import type { TicketUpdateBody } from '@/src/api/service.api';
 import { useAuth } from '@/src/auth/AuthProvider';
 import { formatAmount, formatDate } from '@/src/lib/format';
 import { useTheme } from '@/src/theme/theme';
-import { Button, Card, Chip, EmptyState, Field, Loading } from '@/src/ui';
+import { Button, Card, Chip, EmptyState, ErrorState, Field, Loading } from '@/src/ui';
 import { toast } from '@/src/ui/toast';
 import { ChoiceChips, FormSection, MetaCell, ProductPicker } from './fields';
 import { CURRENCIES, joinedNotes, type Currency } from './serviceForms';
@@ -75,6 +76,13 @@ export function TimerCard({ ticket, canUpdate }: { ticket: ServiceTicket; canUpd
     const id = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(id);
   }, [timer.status]);
+
+  // Sayaç çalışırken/beklemedeyken Dynamic Island ve kilit ekranında görünür; durunca kapanır.
+  const companyName = ticket.company?.shortName ?? ticket.company?.legalTitle ?? null;
+  useEffect(() => {
+    syncServiceTimerActivity({ id: ticket.id, ticketNo: ticket.ticketNo, companyName }, timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- yalnız sayaç değişince
+  }, [ticket.id, ticket.ticketNo, companyName, timer.status, timer.startedAt, timer.elapsedSeconds]);
 
   const run = (action: 'start' | 'pause' | 'stop') => {
     const label = action === 'start' ? 'Sayaç başlatıldı.' : action === 'pause' ? 'Sayaç beklemeye alındı.' : 'Sayaç durduruldu.';
@@ -483,7 +491,7 @@ export function MachineFilePanel({
           <Text className="font-inter text-sm text-muted-foreground">Bu servis kaydı henüz bir makineyle eşleşmemiş.</Text>
         )}
         {device ? (
-          <Button label="Makine Kartı" variant="ghost" trailingIcon="arrow-forward" onPress={() => router.push(`/(tabs)/modules/customer-devices/${device.id}`)} />
+          <Button label="Makine Kartı" variant="ghost" trailingIcon="arrow-forward" onPress={() => router.push(`/modules/customer-devices/${device.id}`)} />
         ) : null}
       </FormSection>
 
@@ -519,7 +527,7 @@ export function DeviceServiceHistory({
   title?: string;
 }) {
   const router = useRouter();
-  const related = useServiceTickets({ search: companyName }, Boolean(deviceId && companyName));
+  const related = useServiceTickets({ search: companyName.slice(0, 128) }, Boolean(deviceId && companyName));
   const machineTickets = useMemo(
     () =>
       (related.data?.items ?? [])
@@ -530,17 +538,22 @@ export function DeviceServiceHistory({
   const openCount = machineTickets.filter((item) => serviceStageOf(item) !== 'Closed').length;
 
   return (
-    <FormSection title={title} hint={`${machineTickets.length} geçmiş kayıt · ${openCount} açık`}>
+    <FormSection title={title} hint={`${related.hasNextPage ? 'Yüklenen kayıtlarda: ' : ''}${machineTickets.length} geçmiş kayıt · ${openCount} açık`}>
       {related.isLoading ? <Loading /> : null}
-      {!related.isLoading && machineTickets.length === 0 ? (
-        <Text className="font-inter text-sm text-muted-foreground">Bu makine için önceki servis kaydı yok.</Text>
+      {related.error ? (
+        <ErrorState message="Makinenin servis geçmişi yüklenemedi." onRetry={() => {
+          if (related.isFetchNextPageError) void related.fetchNextPage();
+          else void related.refetch();
+        }} />
+      ) : !related.isLoading && machineTickets.length === 0 ? (
+        <Text className="font-inter text-sm text-muted-foreground">{related.hasNextPage ? 'Yüklenen kayıtlarda bu makineye ait servis bulunamadı. Diğer kayıtları yükleyebilirsiniz.' : 'Bu makine için önceki servis kaydı yok.'}</Text>
       ) : null}
       {machineTickets.map((item) => (
         <Pressable
           key={item.id}
           accessibilityRole="button"
           accessibilityLabel={`${item.ticketNo} servis kaydını aç`}
-          onPress={() => router.push(`/(tabs)/modules/service-tickets/${item.id}`)}
+          onPress={() => router.push(`/modules/service-tickets/${item.id}`)}
           className="min-h-[56px] justify-center gap-0.5 border-b border-border py-2 active:opacity-60"
         >
           <View className="flex-row items-center justify-between gap-2">
@@ -553,7 +566,7 @@ export function DeviceServiceHistory({
         </Pressable>
       ))}
       {related.hasNextPage ? (
-        <Button label="Daha fazla yükle" variant="ghost" loading={related.isFetchingNextPage} onPress={() => void related.fetchNextPage()} />
+        <Button label="Daha fazla yükle" variant="ghost" loading={related.isFetchingNextPage} disabled={related.isFetchingNextPage} onPress={() => void related.fetchNextPage()} />
       ) : null}
     </FormSection>
   );

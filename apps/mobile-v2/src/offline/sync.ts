@@ -3,6 +3,7 @@ import * as TaskManager from 'expo-task-manager';
 import NetInfo from '@react-native-community/netinfo';
 import { flushQueue, pendingCount } from './queue';
 import { queryClient } from '@/src/query/client';
+import { captureException } from '@/src/observability/sentry';
 
 const BACKGROUND_SYNC_TASK = 'haksan-background-sync';
 
@@ -49,6 +50,6 @@ export function startConnectivitySync(): () => void {
     if (!reconnected || pendingCount() === 0) return;
     void flushQueue().then((result) => {
       if (result.sent > 0) void queryClient.invalidateQueries();
-    });
+    }).catch(error => captureException(error, { operation: 'connectivity_queue_sync' }));
   });
 }

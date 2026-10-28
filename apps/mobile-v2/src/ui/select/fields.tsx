@@ -1,3 +1,4 @@
+import { productPriceLabel } from '@/src/ui/products/product-price';
 import { useMemo } from 'react';
 import { COUNTRY_OPTIONS, DISTRICTS_BY_PROVINCE } from '@haksan/shared';
 import { useCompany, useCompanyList } from '@/src/api/companies.hooks';
@@ -35,6 +36,7 @@ function useCompanyOptions(search: string): RemoteOptions<CompanyListItem> {
       data: company,
     })),
     isPending: list.isPending,
+    isFetching: list.isFetching && !list.isFetchingNextPage,
     error: list.error,
     refetch: () => void list.refetch(),
     hasNextPage: list.hasNextPage,
@@ -87,8 +89,7 @@ function useContactOptions(search: string): RemoteOptions<ContactListItem> {
     useMemo(
       () => ({ companyId: companyId ?? undefined, search: search || undefined, sortBy: 'name' as const, sortDir: 'asc' as const }),
       [companyId, search]
-    ),
-    Boolean(companyId)
+    )
   );
   return {
     items: (list.data?.items ?? []).map((contact) => ({
@@ -97,7 +98,8 @@ function useContactOptions(search: string): RemoteOptions<ContactListItem> {
       hint: [contact.title, contactPhone(contact) || contactEmail(contact)].filter(Boolean).join(' · ') || null,
       data: contact,
     })),
-    isPending: Boolean(companyId) && list.isPending,
+    isPending: list.isPending,
+    isFetching: list.isFetching && !list.isFetchingNextPage,
     error: list.error,
     refetch: () => void list.refetch(),
     hasNextPage: list.hasNextPage,
@@ -106,7 +108,7 @@ function useContactOptions(search: string): RemoteOptions<ContactListItem> {
   };
 }
 
-/** Seçili firmanın kontakları; firma yoksa yalnız özel metin (allowCustom) veya pasif. */
+/** Firmaya bağlı kontaklar; serbest metin akışında firma yoksa CRM rehberinin tamamı aranır. */
 export function ContactSelect({
   companyId,
   value,
@@ -133,7 +135,7 @@ export function ContactSelect({
       remoteBag={companyId}
       allowCustom={allowCustom}
       searchPlaceholder="Ad, unvan veya telefon"
-      emptyTitle={companyId ? 'Kontak bulunamadı' : 'Önce firma seçin'}
+      emptyTitle="Kontak bulunamadı"
       error={rest.error}
       disabled={rest.disabled || (!companyId && !allowCustom)}
       clearable={rest.clearable}
@@ -156,10 +158,11 @@ function useProductOptions(search: string): RemoteOptions<ProductModel> {
     items: (list.data?.items ?? []).map((product) => ({
       id: product.id,
       label: productLabel(product),
-      hint: [product.modelCode, product.brand?.name, product.category?.name].filter(Boolean).join(' · ') || null,
+      hint: [product.modelCode, product.brand?.name, product.category?.name, `Liste: ${productPriceLabel(product.listPrice, product.currency?.code)}`, `Peşin: ${productPriceLabel(product.cashPrice, product.currency?.code)}`].filter(Boolean).join(' · ') || null,
       data: product,
     })),
     isPending: list.isPending,
+    isFetching: list.isFetching && !list.isFetchingNextPage,
     error: list.error,
     refetch: () => void list.refetch(),
     hasNextPage: list.hasNextPage,
@@ -279,6 +282,8 @@ export function LookupSelect({
       onSelect={(item) => onChange(item?.id ?? '')}
       options={options}
       optionsLoading={lookup.isPending}
+      optionsError={lookup.error}
+      onOptionsRetry={() => void lookup.refetch()}
       error={rest.error}
       disabled={rest.disabled}
       clearable={rest.clearable ?? true}
@@ -321,6 +326,8 @@ export function AssigneeSelect({
       onSelect={(item) => onChange(item?.id ?? '')}
       options={options}
       optionsLoading={assignees.isPending}
+      optionsError={assignees.error}
+      onOptionsRetry={() => void assignees.refetch()}
       searchPlaceholder="Kişi ara"
       emptyTitle="Uygun kişi yok"
       error={rest.error}
@@ -363,6 +370,8 @@ export function UserSelect({
       onSelect={onSelect}
       options={options}
       optionsLoading={directory.isPending}
+      optionsError={directory.error}
+      onOptionsRetry={() => void directory.refetch()}
       allowCustom={allowCustom}
       searchPlaceholder="Ad veya e-posta"
       emptyTitle="Kullanıcı bulunamadı"
@@ -404,6 +413,8 @@ export function BrandSelect({
       onSelect={onSelect}
       options={options}
       optionsLoading={brands.isPending}
+      optionsError={brands.error}
+      onOptionsRetry={() => void brands.refetch()}
       allowCustom={allowCustom}
       searchPlaceholder="Marka ara"
       emptyTitle="Marka bulunamadı"
@@ -439,6 +450,8 @@ export function TaxOfficeSelect({
       onSelect={(item) => onChange(item?.label ?? '')}
       options={options}
       optionsLoading={offices.isPending}
+      optionsError={offices.error}
+      onOptionsRetry={() => void offices.refetch()}
       allowCustom
       searchPlaceholder="Daire adı veya il"
       error={rest.error}
@@ -515,6 +528,8 @@ export function CompanyAddressSelect({
       onSelect={(item) => onChange(item?.label ?? '')}
       options={options}
       optionsLoading={Boolean(companyId) && company.isPending}
+      optionsError={company.error}
+      onOptionsRetry={() => void company.refetch()}
       allowCustom
       searchPlaceholder="Adres ara veya yazın"
       emptyTitle={companyId ? 'Kayıtlı adres yok' : 'Firma seçilmedi'}
@@ -544,6 +559,7 @@ function useSerialOptions(search: string): RemoteOptions<InventoryItem> {
         data: item,
       })),
     isPending: list.isPending,
+    isFetching: list.isFetching && !list.isFetchingNextPage,
     error: list.error,
     refetch: () => void list.refetch(),
     hasNextPage: list.hasNextPage,
@@ -605,6 +621,7 @@ function useEmailOptions(search: string): RemoteOptions<ContactListItem> {
         data: contact,
       })),
     isPending: list.isPending,
+    isFetching: list.isFetching && !list.isFetchingNextPage,
     error: list.error,
     refetch: () => void list.refetch(),
     hasNextPage: list.hasNextPage,

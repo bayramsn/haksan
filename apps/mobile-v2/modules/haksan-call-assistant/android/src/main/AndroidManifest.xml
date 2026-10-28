@@ -1,0 +1,14 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+  <uses-permission android:name="android.permission.RECORD_AUDIO" />
+  <uses-permission android:name="android.permission.READ_CONTACTS" />
+  <queries><intent><action android:name="android.speech.RecognitionService" /></intent></queries>
+  <application>
+    <service android:name=".HaksanCallScreeningService" android:permission="android.permission.BIND_SCREENING_SERVICE" android:exported="true">
+      <intent-filter><action android:name="android.telecom.CallScreeningService" /></intent-filter>
+    </service>
+    <activity android:name=".HaksanPostCallActivity" android:permission="android.permission.BIND_SCREENING_SERVICE" android:exported="true" android:excludeFromRecents="true" android:noHistory="true" android:theme="@android:style/Theme.NoDisplay">
+      <intent-filter><action android:name="android.telecom.action.POST_CALL" /><category android:name="android.intent.category.DEFAULT" /></intent-filter>
+    </activity>
+    <activity android:name=".HaksanShortcutActivity" android:exported="false" android:excludeFromRecents="true" android:noHistory="true" android:theme="@android:style/Theme.NoDisplay" />
+  </application>
+</manifest>

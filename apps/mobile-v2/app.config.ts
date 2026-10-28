@@ -2,7 +2,7 @@ import type { ExpoConfig, ConfigContext } from 'expo/config';
 
 // Yayın numaraları: `version` kullanıcıya görünür, build numaraları her mağaza
 // yüklemesinde artırılır (EAS `autoIncrement` açıksa elle dokunmaya gerek yok).
-const VERSION = '1.0.0';
+const VERSION = '1.2.0';
 
 const apiUrl = process.env.EXPO_PUBLIC_API_URL?.trim();
 const appLinkHost = process.env.EXPO_PUBLIC_APP_LINK_HOST?.trim();
@@ -53,18 +53,22 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   },
   ios: {
     bundleIdentifier: 'com.haksan.mobileapp',
+    // Same application-only keychain group as Apple's default; retain access across upgrades.
+    entitlements: { 'keychain-access-groups': ['$(AppIdentifierPrefix)com.haksan.mobileapp'] },
     buildNumber: '1',
     supportsTablet: true,
     associatedDomains: appLinkHost ? [`applinks:${appLinkHost}`] : [],
     infoPlist: {
+      // Saha sayacı Dynamic Island / kilit ekranında Live Activity olarak görünür (targets/live-activity).
+      NSSupportsLiveActivities: true,
       // Guideline 5.1.1: izin metni "neden" sorusunu cevaplamalı, jenerik olmamalı.
       // expo-calendar modülü açılışta hem takvim hem hatırlatıcı iznini yokluyor
       // (CalendarModule.initializePermittedEntities); dördü de yoksa uygulama
       // EXFatal ile daha ilk ekranda düşer.
       NSCalendarsFullAccessUsageDescription:
-        'Haksan, seçtiğiniz ziyaret veya servis randevusunu cihaz takviminize eklemek için takviminize erişir.',
+        'Haksan, seçtiğiniz ziyaret veya servis randevusunu takviminize eklemek ve Takvim Senkronu açıksa seçtiğiniz takvimleri CRM takviminizle eşitlemek için takviminize erişir.',
       NSCalendarsUsageDescription:
-        'Haksan, seçtiğiniz ziyaret veya servis randevusunu cihaz takviminize eklemek için takviminize erişir.',
+        'Haksan, seçtiğiniz ziyaret veya servis randevusunu takviminize eklemek ve Takvim Senkronu açıksa seçtiğiniz takvimleri CRM takviminizle eşitlemek için takviminize erişir.',
       NSRemindersFullAccessUsageDescription:
         'Haksan, oluşturduğunuz randevuya hatırlatma kurabilmeniz için hatırlatıcılarınıza erişim ister.',
       NSRemindersUsageDescription:
@@ -100,6 +104,10 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   },
   plugins: [
     './plugins/with-ios-build-fixes',
+    './plugins/with-ios-scene-delegate',
+    // targets/* altındaki Apple hedeflerini (Live Activity widget'ı) prebuild'e ekler.
+    '@bacons/apple-targets',
+    './plugins/with-android-worklets-prefab',
     'expo-router',
     'expo-updates',
     'expo-secure-store',
@@ -119,9 +127,12 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
           'Haksan, yalnız seçtiğiniz görselleri sohbet, servis, fuar ve belge kayıtlarına ek olarak yükler.',
         cameraPermission:
           'Haksan, çektiğiniz fotoğrafı kayıtlara ek olarak yüklemek ve makine QR kodunu taramak için kameranızı kullanır.',
-        microphonePermission: false,
+        // false blocks RECORD_AUDIO from every merged native module, including speech.
+        microphonePermission: 'Haksan, yalnız siz sesli giriş başlattığınızda mikrofonu kullanır; telefon görüşmelerini kaydetmez.',
       },
     ],
+    // Run after media plugins so non-clean prebuilds also clear old microphone blocks.
+    './plugins/with-call-assistant',
     [
       'expo-local-authentication',
       {

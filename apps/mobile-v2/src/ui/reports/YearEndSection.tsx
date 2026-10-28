@@ -95,13 +95,14 @@ export function YearEndSection() {
           <GroupedBars
             title="Aylık Kazanılan / Kaybedilen"
             caption={String(data.year)}
-            buckets={data.monthly.map((m) => ({ key: String(m.month), label: TR_MONTHS[m.month - 1] ?? String(m.month) }))}
+            // Web ReportsPage gibi 12 ayın hepsi; kaydı olmayan ay sıfır.
+            buckets={TR_MONTHS.map((label, index) => ({ key: `${data.year}-${String(index + 1).padStart(2, '0')}`, label }))}
             series={[
               { key: 'won', label: 'Kazanılan', color: colors.success },
               { key: 'lost', label: 'Kaybedilen', color: colors.destructive },
             ]}
             valueOf={(bucket, key) => {
-              const month = data.monthly.find((m) => String(m.month) === bucket);
+              const month = data.monthly.find((m) => m.month === bucket);
               return month ? (key === 'won' ? month.won : month.lost) : 0;
             }}
           />

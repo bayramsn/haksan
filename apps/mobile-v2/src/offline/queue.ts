@@ -42,6 +42,8 @@ export type QueuedMutation = {
 const records = new Map<string, QueuedMutation>();
 const listeners = new Set<(pending: number) => void>();
 let currentScope: QueueScope | null = null;
+let scopeGeneration = 0;
+export function queueScopeSnapshot(): QueueScope | null { return currentScope ? { ...currentScope } : null; }
 let hydrated = false;
 let flushing: Promise<FlushResult> | null = null;
 
@@ -138,13 +140,14 @@ export async function hydrateQueue(): Promise<void> {
       }
     }
     await persistIndex();
-  } finally {
     hydrated = true;
+  } finally {
     notify();
   }
 }
 
 export function setQueueScope(scope: QueueScope | null): void {
+  if (JSON.stringify(currentScope) !== JSON.stringify(scope)) scopeGeneration += 1;
   currentScope = scope;
   notify();
 }
@@ -163,21 +166,29 @@ export function failedCount(): number {
   return visibleRecords().filter((item) => item.state === 'failed').length;
 }
 
-export async function enqueue(kind: MutationKind, payload: CompanyStatusQueuePayload): Promise<QueuedMutation> {
+export async function enqueue(kind: MutationKind, payload: CompanyStatusQueuePayload, expectedScope = queueScopeSnapshot()): Promise<QueuedMutation> {
+  const generation = scopeGeneration;
+  const assertScope = () => {
+    if (generation !== scopeGeneration || !expectedScope || !currentScope || JSON.stringify(expectedScope) !== JSON.stringify(currentScope)) throw new Error('Çalışma alanı değişti; işlem kuyruğa alınmadı.');
+  };
   await hydrateQueue();
+  assertScope();
   if (!currentScope) throw new Error('Çevrimdışı işlem için güvenli kullanıcı kapsamı bulunamadı.');
   if (kind !== 'company.status' || !UUID_PATTERN.test(payload.id) || !UUID_PATTERN.test(payload.operationId) || !STATUS_CODES.has(payload.customerStatusCode)) {
     throw new Error('Çevrimdışı işlem güvenli biçimde doğrulanamadı.');
   }
   const existing = records.get(payload.operationId);
-  if (existing) return existing;
+  if (existing) {
+    if (!sameOwner(existing.scope, currentScope)) throw new Error('İşlem farklı hesaba ait.');
+    return existing;
+  }
   if (records.size >= MAX_ITEMS) throw new Error('Güvenli çevrimdışı işlem kuyruğu dolu; önce bekleyen işlemleri eşitleyin.');
 
   const item: QueuedMutation = {
     id: payload.operationId,
     kind,
     payload,
-    scope: { ...currentScope },
+    scope: { ...expectedScope! },
     createdAt: new Date().toISOString(),
     retryCount: 0,
     nextAttemptAt: Date.now(),
@@ -186,6 +197,7 @@ export async function enqueue(kind: MutationKind, payload: CompanyStatusQueuePay
   // Önce şifreli record, sonra yalnız UUID içeren index yazılır. Index yazımı
   // yarıda kalırsa record silinir; kullanıcıya kaydedildi yalanı söylenmez.
   await persistRecord(item);
+  try { assertScope(); } catch (error) { await SecureStore.deleteItemAsync(recordKey(item.id)); throw error; }
   records.set(item.id, item);
   try {
     await persistIndex();
@@ -217,6 +229,8 @@ async function replay(item: QueuedMutation): Promise<void> {
 async function performFlush(): Promise<FlushResult> {
   await hydrateQueue();
   if (!currentScope) return { sent: 0, failed: 0, remaining: 0 };
+  const generation = scopeGeneration;
+  const owner = { ...currentScope };
   let sent = 0;
   let failed = 0;
   const candidates = visibleRecords()
@@ -224,12 +238,14 @@ async function performFlush(): Promise<FlushResult> {
     .sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt));
 
   for (const item of candidates) {
+    if (generation !== scopeGeneration || !currentScope || !sameOwner(owner, currentScope)) break;
     if (item.nextAttemptAt > Date.now()) continue;
     try {
       await replay(item);
       await removeRecord(item.id);
       sent += 1;
     } catch (error) {
+      if (generation !== scopeGeneration) break;
       const action = classifyFailure({
         offline: error instanceof OfflineError,
         status: error instanceof ApiError ? error.status : undefined,

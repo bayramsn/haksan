@@ -28,15 +28,15 @@ export function ModalShell({
   /** false: içerik kendi kaydırma alanını yönetir (TargetEditor gibi). */
   scroll?: boolean;
 }) {
-  if (!allowed) return <Redirect href="/(tabs)/more" />;
+  if (!allowed) return <Redirect href="/more" />;
   const body = loading ? (
     <DetailSkeleton />
   ) : error ? (
     <ErrorState message={error} onRetry={onRetry} />
   ) : scroll ? (
     <KeyboardAvoidingView className="flex-1" behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-      <ScrollView contentContainerClassName="gap-4 p-4 pb-10" keyboardShouldPersistTaps="handled">
-        {description ? <Text className="font-inter text-[13px] leading-[19px] text-muted-foreground">{description}</Text> : null}
+      <ScrollView contentContainerClassName="gap-4 p-4 pb-10" contentContainerStyle={{ width: '100%', maxWidth: 720, alignSelf: 'center' }} keyboardShouldPersistTaps="handled">
+        {description ? <View className="rounded-surface border border-border bg-card p-4"><Text className="font-inter text-sm leading-5 text-muted-foreground">{description}</Text></View> : null}
         {children}
       </ScrollView>
     </KeyboardAvoidingView>

@@ -21,7 +21,7 @@ import { DateTextField } from '@/src/ui/select/DateTextField';
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 export function openOpportunity(router: ReturnType<typeof useRouter>, id: string) {
-  router.push(`/(tabs)/modules/opportunities/${id}` as Href);
+  router.push(`/modules/opportunities/${id}` as Href);
 }
 
 export function LeadLine({ lead, onOpen, detail }: { lead: MetaLead; onOpen?: () => void; detail: string }) {

@@ -13,6 +13,7 @@ type CodeRef = { code: string } | null;
 export type ReceivableLike = {
   id: string;
   companyId: string;
+  quoteId?: string | null;
   invoiceNo: string | null;
   amount: string;
   dueDate: string;
@@ -67,6 +68,19 @@ const amountOf = (value: string) => {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : 0;
 };
+
+/**
+ * Web PaymentsPage: teslim edilmemiş satış kartına bağlı beklenen tahsilat Kasa'da
+ * gösterilmez. `stageByQuote` teklif → bağlı fırsatın aşama kodu; eşleme yoksa
+ * (fırsatsız teklif ya da okunamadı) satır görünür kalır.
+ */
+export function hideUndeliveredExpected<T extends ReceivableLike>(receivables: readonly T[], stageByQuote: ReadonlyMap<string, string | null>): T[] {
+  return receivables.filter((row) => {
+    // Eşleşen fırsat varsa yalnız teslim edildiyse görünür; aşamasız fırsat web'de "lead" sayılır.
+    if (!row.quoteId || !stageByQuote.has(row.quoteId)) return true;
+    return stageByQuote.get(row.quoteId) === 'delivered';
+  });
+}
 
 /** Web store: alacaklar "giren" + vade; ödemeler kendi yönü + ödeme tarihi. */
 export function mergeCashMovements(receivables: readonly ReceivableLike[], payments: readonly PaymentLike[]): CashMovement[] {

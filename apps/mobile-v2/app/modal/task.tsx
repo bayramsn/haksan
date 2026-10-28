@@ -1,3 +1,4 @@
+import { useAssistantFormDraft } from '@/src/call-assistant/useAssistantFormDraft';
 import { useEffect, useMemo, useState } from 'react';
 import { KeyboardAvoidingView, Platform, Pressable, ScrollView, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -73,6 +74,7 @@ function ChipRow<T>({
 export default function TaskFormScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{
+    assistantDraftId?: string;
     id?: string;
     companyId?: string;
     companyName?: string;
@@ -82,18 +84,19 @@ export default function TaskFormScreen() {
     serviceTicketId?: string;
     label?: string;
   }>();
-  const editing = Boolean(params.id);
+  const assistantDraftId = typeof params.assistantDraftId === 'string' ? params.assistantDraftId : '';
+  const editing = !assistantDraftId && Boolean(params.id);
   const { user } = useAuth();
   const canCreate = useCan('tasks.create');
   const canUpdate = useCan('tasks.update');
 
-  const detail = useTaskDetail(params.id ?? '');
+  const detail = useTaskDetail(editing ? params.id ?? '' : '');
   const assignees = useTaskAssignees();
   const create = useCreateTask();
   const update = usePatchTask();
 
   // İlgili kayıt üst ekrandan geldiyse firma/kontak seçicileri gizlenir (web lockedRelation).
-  const lockedRelation = Boolean(params.opportunityId || params.quoteId || params.serviceTicketId || params.companyId);
+  const lockedRelation = !assistantDraftId && Boolean(params.opportunityId || params.quoteId || params.serviceTicketId || params.companyId);
 
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
@@ -106,6 +109,9 @@ export default function TaskFormScreen() {
   const [contact, setContact] = useState<PickedRecord | null>(null);
   const [completionNote, setCompletionNote] = useState('');
   const [error, setError] = useState<string | undefined>();
+  const assistant = useAssistantFormDraft(assistantDraftId, 'task', (draft) => {
+    setCompany(draft.company); setContact(draft.contact ? { id: draft.contact.id, name: draft.contact.name, phone: draft.contact.phone ?? undefined, email: draft.contact.email ?? undefined } : null); setTitle(draft.title ?? ''); setDescription(draft.text ?? ''); setDueAt(draft.dueAt ? new Date(draft.dueAt) : null);
+  });
 
   useEffect(() => {
     const task = detail.data;
@@ -129,12 +135,13 @@ export default function TaskFormScreen() {
     [assignees.data, user?.id],
   );
 
-  if (!editing && !canCreate) return <Redirect href="/(tabs)/modules/tasks" />;
-  if (editing && !canUpdate) return <Redirect href="/(tabs)/modules/tasks" />;
+  if (!editing && !canCreate) return <Redirect href="/modules/tasks" />;
+  if (editing && !canUpdate) return <Redirect href="/modules/tasks" />;
 
   const completing = status === 'done' && detail.data?.status !== 'done';
 
-  const submit = () => {
+  const submit = async () => {
+    if (assistant.blocked || assistant.saving || create.isPending || update.isPending) return;
     if (!title.trim()) {
       setError('Görev adı zorunlu');
       toast.error('Görev adı zorunlu');
@@ -153,13 +160,18 @@ export default function TaskFormScreen() {
       assignedToUserId: assignedToUserId || user?.id || null,
       dueAt: dueAt ? dueAt.toISOString() : null,
       remindBeforeMinutes: dueAt && remind !== '' ? Number(remind) : null,
-      companyId: params.companyId ?? company?.id ?? null,
-      contactId: params.contactId ?? contact?.id ?? null,
-      opportunityId: params.opportunityId ?? detail.data?.opportunityId ?? null,
-      quoteId: params.quoteId ?? detail.data?.quoteId ?? null,
-      serviceTicketId: params.serviceTicketId ?? detail.data?.serviceTicketId ?? null,
+      companyId: assistant.active ? company?.id ?? null : params.companyId ?? company?.id ?? null,
+      contactId: assistant.active ? contact?.id ?? null : params.contactId ?? contact?.id ?? null,
+      opportunityId: assistant.active ? null : params.opportunityId ?? detail.data?.opportunityId ?? null,
+      quoteId: assistant.active ? null : params.quoteId ?? detail.data?.quoteId ?? null,
+      serviceTicketId: assistant.active ? null : params.serviceTicketId ?? detail.data?.serviceTicketId ?? null,
     };
 
+    if (assistant.active) {
+      try { await assistant.save({ ...body, status: 'todo' }); toast.success('Görev oluşturuldu'); router.back(); }
+      catch (err) { toast.error(err instanceof Error ? err.message : 'Görev kaydedilemedi'); }
+      return;
+    }
     if (editing && params.id) {
       update.mutate(
         {
@@ -192,8 +204,8 @@ export default function TaskFormScreen() {
     );
   };
 
-  const busy = create.isPending || update.isPending;
-  const relationLabel = params.label || params.companyName;
+  const busy = create.isPending || update.isPending || assistant.saving;
+  const relationLabel = assistant.active ? company?.name : params.label || params.companyName;
 
   return (
     <SafeAreaView className="flex-1 bg-canvas" edges={['bottom', 'left', 'right']}>
@@ -204,6 +216,7 @@ export default function TaskFormScreen() {
             {relationLabel ? `${relationLabel} kaydına bağlı görev.` : 'Kısa bir başlık, sorumlu ve son tarih yeterli.'}
           </Text>
 
+          {assistant.error ? <View className="gap-2"><Text className="text-destructive">{assistant.error}</Text><Button label="Taslağı tekrar yükle" variant="ghost" onPress={() => void assistant.retry()} /></View> : null}
           <Field
             label="Görev adı *"
             value={title}
@@ -256,10 +269,11 @@ export default function TaskFormScreen() {
                 value={company}
                 onChange={(next) => {
                   setCompany(next);
-                  setContact(null);
+                  if (next?.id !== company?.id) setContact(null);
                 }}
               />
               <ContactPicker
+                requireCompany={false}
                 label="İlgili kontak"
                 companyId={company?.id ?? null}
                 value={contact}
@@ -298,8 +312,8 @@ export default function TaskFormScreen() {
           <View className="flex-[2]">
             <Button
               label={busy ? 'Kaydediliyor…' : 'Kaydet'}
-              loading={busy}
-              disabled={busy || (completing && !completionNote.trim())}
+              loading={busy || assistant.loading}
+              disabled={busy || assistant.blocked || (completing && !completionNote.trim())}
               onPress={submit}
             />
           </View>

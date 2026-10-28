@@ -336,6 +336,7 @@ export const calendarExt = {
 export type TaskSortBy = 'dueAt' | 'priority' | 'createdAt' | 'status';
 
 export type TaskListQueryExt = {
+  page?: number;
   view?: TaskView;
   search?: string;
   status?: TaskStatus;
@@ -373,7 +374,7 @@ export type TaskRecordFilter = {
 export type TaskPatch = Partial<TaskInput> & { completionNote?: string };
 
 export const tasksExt = {
-  list: (query: TaskListQueryExt) => request<{ data: Task[]; meta: { total: number } }>('/tasks', { query }),
+  list: (query: TaskListQueryExt) => request<Paginated<Task>>('/tasks', { query }),
   summary: () => request<TaskUserSummary[]>('/tasks/summary'),
   events: (query: TaskRecordFilter) => request<TaskRecordEvent[]>('/tasks/events', { query }),
   update: (id: string, body: TaskPatch) => request<TaskDetail>(`/tasks/${id}`, { method: 'PATCH', body }),

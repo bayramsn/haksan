@@ -6,6 +6,7 @@ import {
   cashCounts,
   collectionTrend,
   filterCashMovements,
+  hideUndeliveredExpected,
   mergeCashMovements,
   overdueDays,
   topDebtors,
@@ -107,4 +108,15 @@ test('tahsilat trendi son 6 ayı tek para biriminde döner', () => {
   assert.equal(trend.length, 6);
   assert.equal(trend[5].pending, 80);
   assert.equal(trend[4].collected, 50);
+});
+
+test('teslim edilmemiş fırsatın beklenen tahsilatı gizlenir; fırsatsız ya da teslim edilmiş olan kalır', () => {
+  const rows = [
+    { id: 'a', quoteId: 'q-open' },
+    { id: 'b', quoteId: 'q-done' },
+    { id: 'c', quoteId: 'q-free' },
+    { id: 'd', quoteId: null },
+  ];
+  const stages = new Map([['q-open', 'contract'], ['q-done', 'delivered']]);
+  assert.deepEqual(hideUndeliveredExpected(rows, stages).map((row) => row.id), ['b', 'c', 'd']);
 });

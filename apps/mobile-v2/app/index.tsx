@@ -5,7 +5,7 @@ import { ONBOARDING_KEY } from './onboarding';
 
 export default function Index() {
   const { user } = useAuth();
-  if (user) return <Redirect href="/(tabs)" />;
+  if (user) return <Redirect href="/(tabs)/(home)" />;
   // Tanıtım yalnızca ilk açılışta; depolama hydrate edildikten sonra okunuyor
   // (RootLayout hydrate bitmeden hiçbir şey render etmiyor).
   if (!kv.getString(ONBOARDING_KEY)) return <Redirect href="/onboarding" />;

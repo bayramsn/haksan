@@ -81,7 +81,7 @@ export default function TrelloImportScreen() {
     return Array.from(map.values());
   }, [importRows]);
 
-  if (!canImport) return <Redirect href={'/(tabs)/modules/opportunities' as Href} />;
+  if (!canImport) return <Redirect href={'/modules/opportunities' as Href} />;
 
   async function pickFile() {
     try {

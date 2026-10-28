@@ -29,7 +29,7 @@ test('geçmiş: kaynakları birleştirir ve yeniden eskiye sıralar', () => {
     ['task-event:e1', 'opportunity:o1', 'activity:a1', 'quote:q1'],
   );
   assert.equal(items[0].type, 'Görev');
-  assert.equal(items[0].route, '/(tabs)/modules/tasks/t1');
+  assert.equal(items[0].route, '/modules/tasks/t1');
   assert.equal(items[2].description, 'açıklama');
   assert.equal(items[2].meta, 'Ali');
 });

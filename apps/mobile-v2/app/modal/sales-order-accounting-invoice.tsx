@@ -61,7 +61,7 @@ export default function SalesOrderAccountingInvoiceScreen() {
     setHydrated(true);
   }, [hydrated, prefill]);
 
-  if (!canCreate || (!orderId && !quoteId)) return <Redirect href="/(tabs)/modules/sales-orders" />;
+  if (!canCreate || (!orderId && !quoteId)) return <Redirect href="/modules/sales-orders" />;
 
   const loadError = order.error ?? quote.error;
   const net = parseDecimal(amount);
@@ -103,7 +103,7 @@ export default function SalesOrderAccountingInvoiceScreen() {
       {
         onSuccess: (created) => {
           toast.success(`Muhasebe faturası oluşturuldu · ${created.invoiceNo}`);
-          router.replace(`/(tabs)/modules/invoices/${created.id}`);
+          router.replace(`/modules/invoices/${created.id}`);
         },
         onError: (error) => toast.error(error.message),
       }

@@ -130,12 +130,12 @@ export function useActivityLog(range: { from: string; to: string } | null) {
 }
 
 /** Temsilci süzgeci: kullanıcı listesi `users.read` ister; yoksa süzgeç gizlenir. */
-export function useReportUsers() {
+export function useReportUsers(enabled = true) {
   const canRead = useCan('users.read');
   return useQuery({
     queryKey: reportKeys.users,
     queryFn: () => reportsApi.users(),
-    enabled: canRead,
+    enabled: canRead && enabled,
     staleTime: 10 * 60_000,
     select: (rows) =>
       rows.filter((u) => u.status !== 'inactive' && u.status !== 'disabled').sort((a, b) => a.fullName.localeCompare(b.fullName, 'tr')),

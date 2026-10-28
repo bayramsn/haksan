@@ -6,6 +6,7 @@ import { KeyboardAvoidingView, Platform, Pressable, ScrollView, Text, View } fro
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Redirect, Stack, useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import { useCreateOpportunity } from '@/src/api/crm.hooks';
+import { useCompany } from '@/src/api/companies.hooks';
 import { useAuth, useCan } from '@/src/auth/AuthProvider';
 import { Button, Card, Eyebrow, Field } from '@/src/ui';
 import { DateTimeField } from '@/src/ui/pickers/DateTimeField';
@@ -83,6 +84,7 @@ export default function CreateCaseScreen() {
     ownerUserId: user?.id ?? '',
   }));
   const [errors, setErrors] = useState<Partial<Record<keyof Form | 'machines', string>>>({});
+  const selectedCompany = useCompany(form.companyId);
 
   useEffect(() => {
     if (!isSuperAdmin && user?.id && form.ownerUserId !== user.id) {
@@ -90,7 +92,7 @@ export default function CreateCaseScreen() {
     }
   }, [user?.id, isSuperAdmin, form.ownerUserId]);
 
-  if (!canCreate) return <Redirect href={'/(tabs)/modules/opportunities' as Href} />;
+  if (!canCreate) return <Redirect href={'/modules/opportunities' as Href} />;
 
   const set = <K extends keyof Form>(key: K, value: Form[K]) => {
     setForm((current) => ({ ...current, [key]: value }));
@@ -197,7 +199,7 @@ export default function CreateCaseScreen() {
       {
         onSuccess: (created) => {
           toast.success('Fırsat oluşturuldu');
-          router.replace(`/(tabs)/modules/opportunities/${created.id}` as Href);
+          router.replace(`/modules/opportunities/${created.id}` as Href);
         },
         onError: (error) => toast.error(`Satış kartı oluşturulamadı: ${error.message}`),
       }
@@ -217,7 +219,7 @@ export default function CreateCaseScreen() {
             <Eyebrow>Müşteri ve makineler</Eyebrow>
             <CompanySelect
               label="Müşteri *"
-              value={form.companyTitle}
+              value={form.companyTitle || (selectedCompany.data ? companyLabel(selectedCompany.data) : form.companyId ? 'Seçili firma' : '')}
               selectedId={form.companyId || null}
               clearable
               placeholder="Firma seçin veya adını yazın..."

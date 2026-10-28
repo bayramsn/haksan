@@ -93,7 +93,7 @@ export default function PurchaseOrderFormScreen() {
   );
   const totals = purchaseTotals(lines);
 
-  if (editing ? !canUpdate : !canCreate) return <Redirect href={'/(tabs)/modules/purchase-orders' as Href} />;
+  if (editing ? !canUpdate : !canCreate) return <Redirect href={'/modules/purchase-orders' as Href} />;
 
   const set = <K extends keyof PurchaseForm>(key: K, value: PurchaseForm[K]) => setForm((current) => ({ ...current, [key]: value }));
   const updateLine = (key: string, patch: Partial<PurchaseLineForm>) =>
@@ -143,7 +143,7 @@ export default function PurchaseOrderFormScreen() {
       } else {
         const created = await create.mutateAsync({ header, items });
         toast.success(`Satın alma siparişi oluşturuldu · ${created.orderNo}`);
-        router.replace(`/(tabs)/modules/purchase-orders/${created.id}` as Href);
+        router.replace(`/modules/purchase-orders/${created.id}` as Href);
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : '';

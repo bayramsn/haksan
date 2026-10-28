@@ -1,3 +1,4 @@
+import { useNavigationBottomInset } from '@/src/ui/LiquidGlassTabBarBackground';
 import { useMemo, useState } from 'react';
 import { Text, View } from 'react-native';
 import { FlashList } from '@shopify/flash-list';
@@ -16,6 +17,7 @@ import { currentPeriod, formatPeriodLabel, hasTargetValue, targetFromApi } from 
  * kartları), `settings` web Ayarlar › Kullanıcı Departmanları kartı (düzenle/çıkar).
  */
 export function DepartmentManager({ mode }: { mode: 'module' | 'settings' }) {
+  const GLASS_TAB_BAR_HEIGHT = useNavigationBottomInset();
   const router = useRouter();
   const access = useAdminAccess();
   const canCreate = access.isAdmin || access.has('departments.create');
@@ -76,7 +78,7 @@ export function DepartmentManager({ mode }: { mode: 'module' | 'settings' }) {
           {mode === 'module' ? `${visible.length} / ${rows.length} departman gösteriliyor` : `${rows.length} departman`}
         </Text>
         {canCreate ? (
-          <ActionPill icon="add" tone="info" label={mode === 'module' ? 'Departman' : 'Departman Ekle'} onPress={() => router.push(editHref())} />
+          <ActionPill icon="add" tone="info" label="Departman ekle" onPress={() => router.push(editHref())} />
         ) : null}
       </View>
     </View>
@@ -91,7 +93,7 @@ export function DepartmentManager({ mode }: { mode: 'module' | 'settings' }) {
       style={{ flex: 1 }}
       data={visible}
       keyExtractor={(item) => item.id}
-      contentContainerStyle={{ paddingHorizontal: SCREEN_PAD, paddingTop: 8, paddingBottom: 32 }}
+      contentContainerStyle={{ paddingHorizontal: SCREEN_PAD, paddingTop: 8, paddingBottom: GLASS_TAB_BAR_HEIGHT + 32 }}
       ListHeaderComponent={header}
       renderItem={({ item }) => {
         const targetExists = targetSet.has(item.id);
@@ -99,7 +101,7 @@ export function DepartmentManager({ mode }: { mode: 'module' | 'settings' }) {
           <Card className="my-1.5 gap-2 p-3.5">
             <View className="flex-row items-start justify-between gap-2">
               <View className="flex-1">
-                <Text className="font-inter-semibold text-[15px] text-foreground" numberOfLines={1}>{item.name}</Text>
+                <Text className="font-inter-semibold text-[15px] text-foreground" numberOfLines={2}>{item.name}</Text>
                 <Text className="font-inter-medium text-[11px] uppercase tracking-[1px] text-operation-blue">{item.code || 'KOD YOK'}</Text>
               </View>
               {mode === 'module' ? <Chip tone={targetExists ? 'success' : 'neutral'} label={targetExists ? 'Hedefli' : 'Taslak'} /> : null}

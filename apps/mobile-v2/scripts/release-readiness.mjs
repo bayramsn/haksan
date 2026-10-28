@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { isIP } from 'node:net';
 import { dirname, resolve, sep } from 'node:path';
-import { spawnSync } from 'node:child_process';
+import { runtimeVersionErrors, nativeBoundaryErrors, releaseAssetErrors } from './lib/release-config.mjs';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 
@@ -23,7 +23,8 @@ const placeholderHashes = new Map([
 const expectedPngDimensions = new Map([
   ['assets/icon.png', [1024, 1024]],
   ['assets/adaptive-icon.png', [1024, 1024]],
-  ['assets/splash-icon.png', [512, 512]],
+  // Expo scales this source using imageWidth/resizeMode; square pixels are not mandatory.
+  ['assets/splash-icon.png', null],
   ['assets/notification-icon.png', [96, 96]],
 ]);
 
@@ -42,12 +43,6 @@ function readJson(relativePath) {
 
 function sha256(path) {
   return createHash('sha256').update(readFileSync(path)).digest('hex');
-}
-
-function pngDimensions(path) {
-  const buffer = readFileSync(path);
-  if (buffer.length < 24 || buffer.subarray(1, 4).toString('ascii') !== 'PNG') return null;
-  return [buffer.readUInt32BE(16), buffer.readUInt32BE(20)];
 }
 
 function isPrivateOrReservedHost(hostname) {
@@ -114,16 +109,7 @@ function verifyStoreScreenshots(paths, label, minimum) {
 }
 
 function verifyCngBoundary() {
-  const ignore = readFileSync(resolve(projectRoot, '.gitignore'), 'utf8').split(/\r?\n/).map((line) => line.trim());
-  if (!ignore.includes('ios/')) fail('CNG requires apps/mobile-v2/ios/ to stay ignored');
-  if (!ignore.includes('android/')) fail('CNG requires apps/mobile-v2/android/ to stay ignored');
-
-  const tracked = spawnSync('git', ['ls-files', '--', 'apps/mobile-v2/ios', 'apps/mobile-v2/android'], {
-    cwd: repoRoot,
-    encoding: 'utf8',
-  });
-  if (tracked.status !== 0) fail('could not verify the CNG tracked-native-files boundary');
-  else if (tracked.stdout.trim()) fail('CNG release is blocked because generated ios/ or android/ files are tracked');
+  nativeBoundaryErrors(repoRoot).forEach(fail);
 }
 
 function verifyAssets() {
@@ -133,10 +119,7 @@ function verifyAssets() {
       fail(`required release asset is missing: ${relativePath}`);
       continue;
     }
-    const actualDimensions = pngDimensions(absolutePath);
-    if (!actualDimensions || actualDimensions[0] !== dimensions[0] || actualDimensions[1] !== dimensions[1]) {
-      fail(`${relativePath} must be a ${dimensions[0]}x${dimensions[1]} PNG`);
-    }
+    releaseAssetErrors(readFileSync(absolutePath), dimensions).forEach(error => fail(`${relativePath} ${error}`));
     if (sha256(absolutePath) === placeholderHashes.get(relativePath)) {
       fail(`${relativePath} is still the generated placeholder asset`);
     }
@@ -176,7 +159,7 @@ function main() {
   }
 
   if (!process.env.MOBILE_LEGAL_ENTITY?.trim()) fail('MOBILE_LEGAL_ENTITY is required');
-  if (exp.runtimeVersion?.policy !== 'appVersion') fail('runtimeVersion.policy must be appVersion');
+  runtimeVersionErrors(exp).forEach(fail);
   if (exp.updates?.enabled !== true) fail('OTA updates must be enabled for a configured production project');
   if (projectId && exp.updates?.url !== `https://u.expo.dev/${projectId}`) fail('OTA update URL must match EAS_PROJECT_ID');
   if (projectId && exp.extra?.eas?.projectId !== projectId) fail('extra.eas.projectId must match EAS_PROJECT_ID');

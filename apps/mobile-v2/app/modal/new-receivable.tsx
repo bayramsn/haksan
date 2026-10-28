@@ -1,28 +1,25 @@
-import { useMemo, useRef, useState } from 'react';
-import { KeyboardAvoidingView, Platform, Pressable, ScrollView, Text, View } from 'react-native';
+import { useState } from 'react';
+import { KeyboardAvoidingView, Platform, ScrollView, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { BottomSheetBackdrop, BottomSheetFlatList, BottomSheetModal, BottomSheetView } from '@gorhom/bottom-sheet';
 import { Redirect, Stack, useLocalSearchParams, useRouter } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
-import { useCompanyList } from '@/src/api/companies.hooks';
 import { useCreateReceivable } from '@/src/api/finance.hooks';
-import type { CompanyListItem } from '@/src/api/endpoints';
 import { useCan } from '@/src/auth/AuthProvider';
-import { useTheme } from '@/src/theme/theme';
-import { parseLocalDateTime } from '@/src/lib/format';
-import { Button, EmptyState, ErrorState, Eyebrow, Field, Loading, SearchBar } from '@/src/ui';
+import type { OpportunityPaymentMethodCode } from '@haksan/shared';
+import { buildReceivableDraft, RECEIVABLE_METHOD_OPTIONS } from '@/src/features/receivable-form';
+import { OptionPicker } from '@/src/ui/pickers/OptionPicker';
+import { Button, Field } from '@/src/ui';
+import { CompanyPicker } from '@/src/ui/pickers/CompanyPicker';
 import { toast } from '@/src/ui/toast';
 import { DateTextField } from '@/src/ui/select/DateTextField';
-const CURRENCIES = ['TRY', 'USD', 'EUR'] as const;
+import { LookupSelect } from '@/src/ui/select/fields';
 
 function first(value: string | string[] | undefined): string {
   return Array.isArray(value) ? value[0] ?? '' : value ?? '';
 }
 
-/** Yeni alacak kaydı — web CreatePaymentPlanDialog'un tek taksit hali. */
+/** Bağımsız tek alacak kaydı; fırsatın toplu plan akışı payment-plan ekranındadır. */
 export default function NewReceivableScreen() {
   const router = useRouter();
-  const { colors } = useTheme();
   const canCreate = useCan('receivables.create');
   const params = useLocalSearchParams<{ companyId?: string; companyName?: string }>();
   const create = useCreateReceivable();
@@ -30,40 +27,22 @@ export default function NewReceivableScreen() {
   const [companyId, setCompanyId] = useState(first(params.companyId));
   const [companyName, setCompanyName] = useState(first(params.companyName));
   const [amount, setAmount] = useState('');
-  const [currencyCode, setCurrencyCode] = useState<'TRY' | 'USD' | 'EUR'>('TRY');
+  const [currencyCode, setCurrencyCode] = useState('TRY');
   const [dueDate, setDueDate] = useState('');
   const [invoiceNo, setInvoiceNo] = useState('');
+  const [paymentMethod, setPaymentMethod] = useState<OpportunityPaymentMethodCode>('undecided');
+  const [documentRef, setDocumentRef] = useState('');
   const [notes, setNotes] = useState('');
   const [errors, setErrors] = useState<Record<string, string | undefined>>({});
-  const [search, setSearch] = useState('');
-  const companySheet = useRef<BottomSheetModal>(null);
 
-  const companyList = useCompanyList(
-    useMemo(() => ({ search: search.trim() || undefined, sortBy: 'name' as const, sortDir: 'asc' as const }), [search])
-  );
-
-  if (!canCreate) return <Redirect href="/(tabs)/modules/receivables" />;
+  if (!canCreate) return <Redirect href="/modules/receivables" />;
 
   function submit() {
-    const nextErrors: Record<string, string | undefined> = {};
-    if (!companyId) nextErrors.companyId = 'Firma seçin.';
-    const valueNumber = Number(amount.replace(',', '.'));
-    if (!amount.trim() || Number.isNaN(valueNumber) || valueNumber <= 0) nextErrors.amount = 'Geçerli bir tutar girin.';
-    const due = parseLocalDateTime(`${dueDate.trim()} 00:00`.slice(0, 16));
-    if (!dueDate.trim() || !due) nextErrors.dueDate = 'Vade tarihi zorunludur (YYYY-AA-GG).';
-    if (Object.values(nextErrors).some(Boolean)) {
-      setErrors(nextErrors);
-      return;
-    }
+    if (create.isPending) return;
+    const result = buildReceivableDraft({ companyId, amount, currencyCode, dueDate, invoiceNo, paymentMethod, documentRef, notes });
+    if (!result.ok) { setErrors(result.errors); return; }
     create.mutate(
-      {
-        companyId,
-        amount: valueNumber,
-        currencyCode,
-        dueDate: due!.toISOString(),
-        invoiceNo: invoiceNo.trim() || undefined,
-        notes: notes.trim() || undefined,
-      },
+      { ...result.body, dueDate: result.body.dueDate.toISOString() },
       {
         onSuccess: () => {
           toast.success('Alacak kaydı oluşturuldu');
@@ -74,61 +53,18 @@ export default function NewReceivableScreen() {
     );
   }
 
-  const sheetProps = {
-    snapPoints: ['80%'],
-    enableDynamicSizing: false,
-    backgroundStyle: { backgroundColor: colors.card },
-    handleIndicatorStyle: { backgroundColor: colors.mutedForeground },
-    backdropComponent: (props: Parameters<typeof BottomSheetBackdrop>[0]) => (
-      <BottomSheetBackdrop {...props} appearsOnIndex={0} disappearsOnIndex={-1} />
-    ),
-  };
 
   return (
     <SafeAreaView className="flex-1 bg-canvas" edges={['top', 'bottom', 'left', 'right']}>
       <Stack.Screen options={{ title: 'Yeni Alacak', headerShown: true }} />
       <KeyboardAvoidingView className="flex-1" behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <ScrollView contentContainerClassName="gap-4 p-4 pb-8" keyboardShouldPersistTaps="handled">
-          <Pressable
-            accessibilityRole="button"
-            onPress={() => companySheet.current?.present()}
-            className={`min-h-12 flex-row items-center gap-3 rounded-control border bg-card px-3 py-2 ${errors.companyId ? 'border-destructive' : 'border-border'} active:opacity-70`}
-          >
-            <Ionicons name="business-outline" size={19} color={colors.primary} />
-            <View className="flex-1 gap-0.5">
-              <Text className="font-inter-medium text-xs text-muted-foreground">Firma *</Text>
-              <Text className="font-inter text-base text-foreground" numberOfLines={1}>
-                {companyName || 'Firma seçin'}
-              </Text>
-            </View>
-            <Ionicons name="chevron-forward" size={18} color={colors.mutedForeground} />
-          </Pressable>
-          {errors.companyId ? <Text className="font-inter text-xs text-destructive">{errors.companyId}</Text> : null}
+          <CompanyPicker label="Firma *" value={companyId ? { id: companyId, name: companyName || 'Seçili firma' } : null} error={errors.companyId}
+            onChange={(next) => { setCompanyId(next?.id ?? ''); setCompanyName(next?.name ?? ''); setErrors((current) => ({ ...current, companyId: undefined })); }} />
 
-          <View className="flex-row gap-2">
-            <View className="flex-[2]">
-              <Field
-                label="Tutar *"
-                value={amount}
-                onChangeText={(v) => { setAmount(v); setErrors((p) => ({ ...p, amount: undefined })); }}
-                keyboardType="decimal-pad"
-                error={errors.amount}
-              />
-            </View>
-            <View className="flex-1 flex-row gap-1 pt-6">
-              {CURRENCIES.map((code) => (
-                <Pressable
-                  key={code}
-                  accessibilityRole="radio"
-                  accessibilityState={{ selected: currencyCode === code }}
-                  onPress={() => setCurrencyCode(code)}
-                  className={`flex-1 items-center rounded-control border py-2 ${currencyCode === code ? 'border-primary bg-secondary' : 'border-border bg-card'}`}
-                >
-                  <Text className={`font-inter-semibold text-xs ${currencyCode === code ? 'text-primary' : 'text-foreground'}`}>{code}</Text>
-                </Pressable>
-              ))}
-            </View>
-          </View>
+          <Field label="Tutar *" value={amount} keyboardType="decimal-pad" error={errors.amount}
+            onChangeText={(value) => { setAmount(value); setErrors((current) => ({ ...current, amount: undefined })); }} />
+          <LookupSelect name="currencies" label="Para birimi *" value={currencyCode} onChange={setCurrencyCode} clearable={false} error={errors.currencyCode} />
 
           <DateTextField
             label="Vade tarihi *"
@@ -136,11 +72,16 @@ export default function NewReceivableScreen() {
             onChangeText={(v) => { setDueDate(v); setErrors((p) => ({ ...p, dueDate: undefined })); }}
             error={errors.dueDate}
           />
-          <Field label="Fatura no" value={invoiceNo} onChangeText={setInvoiceNo} maxLength={64} />
+          <OptionPicker label="Ödeme yöntemi" value={paymentMethod} options={RECEIVABLE_METHOD_OPTIONS}
+            onChange={(value) => setPaymentMethod(value as OpportunityPaymentMethodCode)} searchable error={errors.paymentMethod} />
+          <Field label="Belge referansı / çek-senet no" value={documentRef} onChangeText={setDocumentRef} maxLength={128} error={errors.documentRef} />
+          <Field label="Fatura no" value={invoiceNo} onChangeText={setInvoiceNo} maxLength={64} error={errors.invoiceNo} />
           <Field
             label="Not"
             value={notes}
             onChangeText={setNotes}
+            maxLength={2000}
+            error={errors.notes}
             multiline
             numberOfLines={3}
             className="min-h-[80px] rounded-control border border-border bg-card px-3.5 py-3 text-base text-foreground"
@@ -152,41 +93,6 @@ export default function NewReceivableScreen() {
         </View>
       </KeyboardAvoidingView>
 
-      <BottomSheetModal ref={companySheet} {...sheetProps}>
-        <BottomSheetView className="gap-3 px-4 pb-2">
-          <Eyebrow>Firma seçin</Eyebrow>
-          <SearchBar value={search} onChange={setSearch} placeholder="Firma ara" />
-        </BottomSheetView>
-        <BottomSheetFlatList
-          data={companyList.data?.items ?? []}
-          keyExtractor={(item: CompanyListItem) => item.id}
-          contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 32 }}
-          renderItem={({ item }: { item: CompanyListItem }) => (
-            <Pressable
-              accessibilityRole="button"
-              onPress={() => {
-                setCompanyId(item.id);
-                setCompanyName(item.shortName ?? item.legalTitle);
-                setErrors((prev) => ({ ...prev, companyId: undefined }));
-                companySheet.current?.dismiss();
-              }}
-              className="min-h-[56px] flex-row items-center gap-3 border-b border-border py-2 active:opacity-70"
-            >
-              <Ionicons name="business-outline" size={19} color={colors.mutedForeground} />
-              <View className="flex-1">
-                <Text className="font-inter-semibold text-sm text-foreground" numberOfLines={1}>{item.shortName ?? item.legalTitle}</Text>
-                {item.shortName ? <Text className="font-inter text-xs text-muted-foreground" numberOfLines={1}>{item.legalTitle}</Text> : null}
-              </View>
-            </Pressable>
-          )}
-          onEndReachedThreshold={0.5}
-          onEndReached={() => { if (companyList.hasNextPage && !companyList.isFetchingNextPage) void companyList.fetchNextPage(); }}
-          ListEmptyComponent={
-            companyList.isPending ? <Loading /> : companyList.error ? <ErrorState message={companyList.error.message} onRetry={() => void companyList.refetch()} /> : <EmptyState title="Firma bulunamadı" />
-          }
-          ListFooterComponent={companyList.isFetchingNextPage ? <Loading /> : null}
-        />
-      </BottomSheetModal>
     </SafeAreaView>
   );
 }

@@ -8,6 +8,7 @@ import type {
   UserMailAccountUpsertInput,
 } from '@haksan/shared';
 import { settingsApi, type AccessRequestStatus } from './settings.api';
+import { collectPaginated } from './pagination';
 
 export const settingsKeys = {
   all: ['settings'] as const,
@@ -143,7 +144,7 @@ export function useRemoveLeadRule() {
 export function useAccessRequests(status: AccessRequestStatus) {
   return useQuery({
     queryKey: settingsKeys.accessRequests(status),
-    queryFn: () => settingsApi.accessRequests({ status, page: 1, pageSize: 100 }),
+    queryFn: () => collectPaginated((page) => settingsApi.accessRequests({ status, page, pageSize: 100 })),
     staleTime: 30 * 1000,
   });
 }

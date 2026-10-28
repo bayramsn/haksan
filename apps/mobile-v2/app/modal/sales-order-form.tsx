@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { View } from 'react-native';
 import type { BottomSheetModal } from '@gorhom/bottom-sheet';
 import { Redirect, useLocalSearchParams, useRouter } from 'expo-router';
-import { useLookup } from '@/src/api/crm.hooks';
+import { useContact, useLookup } from '@/src/api/crm.hooks';
 import type { CompanyListItem } from '@/src/api/endpoints';
 import { useSalesOrder } from '@/src/api/inventory.hooks';
 import type { SalesOrderInput } from '@/src/api/sales-orders.api';
@@ -13,7 +13,8 @@ import { toast } from '@/src/ui/toast';
 import { ChoiceChips, CompanyPickerSheet, ModalForm, PickerField } from '@/src/ui/documents/pickers';
 import { formatDay, parseDay } from '@/src/ui/documents/quote-logic';
 import { DateTextField } from '@/src/ui/select/DateTextField';
-import { ContactSelect } from '@/src/ui/select/fields';
+import { ContactPicker } from '@/src/ui/pickers/CompanyPicker';
+import { useCompany } from '@/src/api/companies.hooks';
 
 const CURRENCIES = ['USD', 'EUR', 'TRY'] as const;
 
@@ -41,6 +42,8 @@ export default function SalesOrderFormScreen() {
   const [notes, setNotes] = useState('');
   const [hydrated, setHydrated] = useState(!isEdit);
   const companySheet = useRef<BottomSheetModal>(null);
+  const selectedCompany = useCompany(companyId);
+  const selectedContact = useContact(contactId);
   const create = useCreateSalesOrder();
   const update = useUpdateSalesOrder();
 
@@ -65,7 +68,7 @@ export default function SalesOrderFormScreen() {
     if (code === 'TRY' || code === 'USD' || code === 'EUR') setCurrencyCode(code);
   }, [currencies.data, existing.data?.currencyId, hydrated, isEdit]);
 
-  if (isEdit ? !canUpdate : !canCreate) return <Redirect href="/(tabs)/modules/sales-orders" />;
+  if (isEdit ? !canUpdate : !canCreate) return <Redirect href="/modules/sales-orders" />;
 
   function submit() {
     if (!companyId) return toast.error('Firma seçin');
@@ -111,7 +114,7 @@ export default function SalesOrderFormScreen() {
     create.mutate(body, {
       onSuccess: (created) => {
         toast.success('Satış siparişi oluşturuldu');
-        router.replace(`/(tabs)/modules/sales-orders/${created.id}`);
+        router.replace(`/modules/sales-orders/${created.id}`);
       },
       onError: fail,
     });
@@ -138,24 +141,19 @@ export default function SalesOrderFormScreen() {
               <Eyebrow>Müşteri</Eyebrow>
               <PickerField
                 label="Firma *"
-                value={companyName ?? (companyId ? 'Seçili firma' : null)}
+                value={companyName || selectedCompany.data?.shortName || selectedCompany.data?.legalTitle || (companyId ? 'Seçili firma' : null)}
                 placeholder="Firma seçin"
                 icon="business-outline"
                 onPress={() => companySheet.current?.present()}
                 disabled={isEdit}
               />
               {companyId ? (
-                <ContactSelect
+                <ContactPicker
                   label="Kontak"
                   companyId={companyId}
-                  value={contactName}
-                  selectedId={contactId || null}
-                  clearable
+                  value={contactId ? { id: contactId, name: contactName || selectedContact.data?.fullName || 'Seçili kontak' } : null}
                   placeholder="Kontak seçin"
-                  onSelect={(picked) => {
-                    setContactId(picked?.id ?? '');
-                    setContactName(picked?.label ?? '');
-                  }}
+                  onChange={(picked) => { setContactId(picked?.id ?? ''); setContactName(picked?.name ?? ''); }}
                 />
               ) : null}
             </View>
@@ -187,8 +185,10 @@ export default function SalesOrderFormScreen() {
         onSelect={(company: CompanyListItem) => {
           setCompanyId(company.id);
           setCompanyName(company.shortName ?? company.legalTitle);
-          setContactId('');
-          setContactName('');
+          if (company.id !== companyId) {
+            setContactId('');
+            setContactName('');
+          }
         }}
       />
     </>

@@ -1,7 +1,11 @@
 node_modules/
 .expo/
 dist/
-ios/
-android/
+/ios/
+/android/
 *.log
 expo-env.d.ts
+
+# Local Expo modules are source; only their generated output is ignored.
+modules/**/build/
+modules/**/.gradle/

@@ -4,7 +4,7 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { isTabRootPath, parentPath } from './hierarchy.ts';
 
 const source = readFileSync(new URL('./catalog.ts', import.meta.url), 'utf8');
-const modulesDir = new URL('../../app/(tabs)/modules/', import.meta.url);
+const modulesDir = new URL('../../app/(tabs)/(home,companies,opportunities,calendar,modules)/modules/', import.meta.url);
 const seedBlock = source.slice(source.indexOf('const seeds'), source.indexOf('/** Rota anahtardan'));
 const entries = [...seedBlock.matchAll(/key: '([^']+)',\s*title: '([^']+)'[\s\S]*?group: '([^']+)'/g)].map(([, key, title, group]) => ({ key, title, group }));
 const groupOrder = [...source.matchAll(/\{ key: '([^']+)', title: '[^']+', hint:/g)].map(([, key]) => key);
@@ -40,8 +40,8 @@ test('liste başlığı katalog adıyla aynı', () => {
 });
 
 test('hiyerarşi: sekme kökünde geri yok, geçmiş yoksa bir üst seviye', () => {
-  for (const root of ['/', '/companies', '/opportunities', '/calendar', '/more']) assert.equal(isTabRootPath(root), true);
-  for (const nested of ['/modules', '/modules/companies', '/chat', '/notifications', '/more/settings']) assert.equal(isTabRootPath(nested), false);
+  for (const root of ['/', '/companies', '/opportunities', '/calendar', '/modules']) assert.equal(isTabRootPath(root), true);
+  for (const nested of ['/more', '/modules/companies', '/chat', '/notifications', '/more/settings']) assert.equal(isTabRootPath(nested), false);
   assert.equal(parentPath('/modules/companies/42'), '/modules/companies');
   assert.equal(parentPath('/modules/documents/proforma/42'), '/modules/documents');
   assert.equal(parentPath('/modules/balances/c-1'), '/modules/balances');

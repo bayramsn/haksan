@@ -25,6 +25,9 @@ import {
   type QuoteWorkflowInput,
 } from './endpoints';
 
+import { opportunityKeys } from './crm-query-keys';
+export { opportunityKeys } from './crm-query-keys';
+
 const PAGE_SIZE = 50; // §4.2
 
 /* ------------------------------------------------------------ kontaklar ---- */
@@ -38,6 +41,7 @@ export const contactKeys = {
 
 export function useContactList(query: ContactListQuery, enabled = true) {
   return useInfiniteQuery({
+    refetchOnMount: 'always',
     queryKey: contactKeys.list(query),
     initialPageParam: 1,
     queryFn: ({ pageParam }) => contacts.list({ ...query, page: pageParam, pageSize: PAGE_SIZE }),
@@ -87,12 +91,6 @@ export function useDeleteContact() {
 }
 
 /* -------------------------------------------------------------- fırsat ---- */
-
-export const opportunityKeys = {
-  all: ['opportunities'] as const,
-  list: (query: OpportunityListQuery): QueryKey => ['opportunities', 'list', query],
-  detail: (id: string): QueryKey => ['opportunities', 'detail', id],
-};
 
 export function useOpportunityList(query: OpportunityListQuery, enabled = true) {
   return useInfiniteQuery({
@@ -147,6 +145,13 @@ export function useUpdateOpportunity() {
       contractTerms?: string;
       paymentTerms?: string;
       paymentMethod?: string | null;
+      primaryContactId?: string | null;
+      leadNeedSummary?: string | null;
+      leadAuthorityStatus?: string;
+      leadBudgetStatus?: string;
+      leadPurchaseTimeframe?: string;
+      leadTechnicalFit?: string;
+      leadTechnicalNote?: string | null;
       ownerUserId?: string | null;
       paymentTermDays?: number | null;
       leadFollowUpStatus?: LeadFollowUpStatus;
@@ -447,7 +452,7 @@ export const BOARD_COLUMN_SIZE = 20;
 export function useOpportunityBoard(base: OpportunityListQuery, stages: readonly QualificationStage[]) {
   return useQueries({
     queries: stages.map((stage) => ({
-      queryKey: opportunityKeys.list({ ...base, qualificationStage: stage }),
+      queryKey: opportunityKeys.board({ ...base, qualificationStage: stage }),
       queryFn: () =>
         opportunities.list({ ...base, qualificationStage: stage, page: 1, pageSize: BOARD_COLUMN_SIZE }),
     })),

@@ -1,8 +1,11 @@
+import { startCrmCall } from '@/src/call-assistant/call';
 import { useRef, useState } from 'react';
-import { Alert, Linking, Pressable, Text, View } from 'react-native';
+import { Alert, Linking, Pressable, ScrollView, Text, View } from 'react-native';
 import type { BottomSheetModal } from '@gorhom/bottom-sheet';
 import { useRouter, type Href } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import type { OpportunityProcessReadiness, ProcessCheck } from '@haksan/shared';
+import { qualificationStageLabels, type QualificationStage } from '@/src/api/endpoints';
 import { useActivityList, useCreateActivity, useDeleteActivity, useSetProcessCheck } from '@/src/api/crm.hooks';
 import type { ActivityListItem, QualificationCheck } from '@/src/api/endpoints';
 import {
@@ -36,10 +39,12 @@ export function QuickContactRow({
   email,
   companyId,
   name,
+  opportunityId,
 }: {
   phone: string | null | undefined;
   email: string | null | undefined;
   companyId?: string | null;
+  opportunityId?: string | null;
   name?: string | null;
 }) {
   const router = useRouter();
@@ -59,7 +64,7 @@ export function QuickContactRow({
       icon: 'call-outline',
       ready: Boolean(digits),
       missing: 'Telefon bilgisi eksik',
-      run: () => void Linking.openURL(`tel:${digits}`).catch(() => toast.error('Ara açılamadı')),
+      run: () => void startCrmCall(phone!, { companyId: companyId ?? undefined }).catch(() => toast.error('Ara açılamadı')),
     },
     {
       key: 'email',
@@ -69,7 +74,7 @@ export function QuickContactRow({
       missing: 'E-posta bilgisi eksik',
       run: () =>
         router.push(
-          mailComposeHref({ to: email!, name: name ?? undefined, companyId: companyId ?? undefined }) as Href,
+          mailComposeHref({ to: email!, name: name ?? undefined, companyId: companyId ?? undefined, opportunityId }) as Href,
         ),
     },
     {
@@ -342,6 +347,229 @@ export function OperationStageCard({
   );
 }
 
+/* ------------------------------------------------ satış alanı ilerletme kutusu ---- */
+
+const STAGE_HINT: Record<string, string> = {
+  lead: 'Yeni kayıt · ilk temas',
+  c: 'Yeni müşteri',
+  b: 'Ara sıcak · satışa hazır',
+  a: 'Bitmeye yakın · takipte',
+  a_plus: 'Bitmiş · WIN bekliyor',
+  win: 'Kazanılmış',
+  lost: 'Kaybedildi',
+};
+
+const TASK_ACTION_LABEL: Record<string, string> = {
+  assign_owner: 'Sorumlu ata',
+  edit_subject: 'Konuyu yaz',
+  link_company: 'Firma bağla',
+  edit_company: 'Firmayı tamamla',
+  link_contact: 'Kontak bağla',
+  create_contact: 'Kontak oluştur',
+  record_call: 'Aramayı kaydet',
+  edit_machine: 'Makine seç',
+  edit_payment_method: 'Ödeme şekli',
+  edit_contract_terms: 'Sözleşme şartı',
+  edit_payment_terms: 'Ödeme şartı',
+  create_quote: 'Teklif oluştur',
+  approve_quote: 'Teklifi onayla',
+  create_proforma: 'Proforma oluştur',
+  create_contract: 'Sözleşme oluştur',
+  create_payment_plan: 'Ödeme planı',
+  create_commercial_invoice: 'Fatura oluştur',
+  reserve_stock: 'Stok ayır',
+  create_shipment: 'Sevkiyat oluştur',
+  complete_shipment: 'Sevkiyatı tamamla',
+  open_installation: 'Kurulum aç',
+  complete_installation: 'Kurulumu tamamla',
+  approve_payment: 'Ödeme onayı',
+  approve_customs: 'Gümrük onayı',
+  approve_invoice: 'Fatura onayı',
+  approve_installation: 'Kurulum onayı',
+  approve_win: 'WIN onayı',
+};
+
+function stageName(code: string | undefined): string {
+  if (!code) return '';
+  return qualificationStageLabels[code as QualificationStage] ?? code;
+}
+
+/**
+ * Web OpportunityProcessCenter: satış alanı rayı, o alanın görevleri ve TEK
+ * ilerletme düğmesi. İleri alanlar yalnız önizlenir; atlama yoktur.
+ */
+export function ProcessAdvanceCard({
+  readiness,
+  canUpdate,
+  disqualified,
+  advancing,
+  onAdvance,
+  onOpenTask,
+  onToggleManual,
+  onEditNote,
+  canPerformAction,
+}: {
+  readiness: OpportunityProcessReadiness;
+  canUpdate: boolean;
+  disqualified: boolean;
+  advancing: boolean;
+  onAdvance: () => void;
+  onOpenTask: (check: ProcessCheck) => void;
+  onToggleManual: (check: ProcessCheck) => void;
+  onEditNote: (check: ProcessCheck) => void;
+  /** Web: izni olmayan görev durur ve “Yetki yok” yazar. */
+  canPerformAction?: (actionKey: string) => boolean;
+}) {
+  const { colors } = useTheme();
+  const [selected, setSelected] = useState<string | null>(null);
+  const current = readiness.currentQualificationStage;
+  const closed = readiness.closed;
+  const isLost = current === 'lost';
+  const targets = readiness.targets.filter((target) => target.axis === 'qualification' && target.code !== 'lost');
+  const next = readiness.targets.find((target) => target.axis === 'qualification' && target.direction === 'forward') ?? null;
+  const blockers = next?.blockers ?? [];
+  const viewed = selected ?? current;
+  const viewedTarget = targets.find((target) => target.code === viewed);
+  const viewedIsFuture = viewedTarget?.direction === 'forward';
+  const viewedIsCurrent = viewed === current;
+  const checks = readiness.checks.filter((check) => check.qualificationStage === viewed);
+  const blocked = current !== 'lead' && blockers.length > 0;
+  const advanceDisabled = !canUpdate || advancing || closed || disqualified || blocked || !next;
+  const advanceLabel = current === 'lead' ? 'Fırsata dönüştür' : `${stageName(next?.code)} alanına geç`;
+  const readOnly = viewedIsFuture || closed || isLost || disqualified || !canUpdate;
+
+  return (
+    <Card className="gap-3">
+      <View className="gap-0.5">
+        <Eyebrow>Satış aşaması</Eyebrow>
+        <Text className="font-inter-semibold text-sm text-foreground">
+          {stageName(current)}
+          {STAGE_HINT[current] ? <Text className="font-inter text-muted-foreground"> · {STAGE_HINT[current]}</Text> : null}
+        </Text>
+      </View>
+
+      {!isLost && targets.length > 0 ? (
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerClassName="gap-1.5">
+          {targets.map((target) => {
+            const isCurrent = target.code === current;
+            const isViewed = target.code === viewed;
+            const done = target.direction === 'backward';
+            return (
+              <Pressable
+                key={target.code}
+                accessibilityRole="button"
+                accessibilityState={{ selected: isViewed }}
+                onPress={() => setSelected(isCurrent ? null : target.code)}
+                className={`min-h-11 items-center justify-center rounded-md px-3 ${
+                  isCurrent ? 'bg-primary' : done ? 'bg-muted' : 'bg-muted/40'
+                } ${isViewed && !isCurrent ? 'border border-primary' : ''}`}
+              >
+                <Text className={`font-inter-semibold text-xs ${isCurrent ? 'text-primary-foreground' : 'text-foreground'}`}>
+                  {done ? '✓ ' : ''}
+                  {stageName(target.code)}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </ScrollView>
+      ) : null}
+
+      {!viewedIsCurrent ? (
+        <View className="flex-row items-center justify-between gap-2 rounded-md bg-muted/50 px-3 py-2">
+          <Text className="min-w-0 flex-1 font-inter text-xs text-muted-foreground">
+            {stageName(viewed)} alanına bakıyorsun
+            {viewedIsFuture ? ' — sırası gelmedi, yalnız önizleme.' : ' — tamamlanmış alan.'}
+          </Text>
+          <Pressable accessibilityRole="button" onPress={() => setSelected(null)} className="min-h-11 justify-center px-1">
+            <Text className="font-inter-medium text-xs text-primary">Şu anki alana dön</Text>
+          </Pressable>
+        </View>
+      ) : null}
+
+      {isLost ? (
+        <Text className="font-inter text-sm text-destructive">Kart kaybedildi; alan ilerletilemez.</Text>
+      ) : closed ? (
+        <Text className="font-inter text-sm text-muted-foreground">Kart kapalı. Düzenlemek için önce geri açın.</Text>
+      ) : !next ? (
+        <Text className="font-inter text-sm text-muted-foreground">Fırsat son satış alanında; ilerletilecek alan kalmadı.</Text>
+      ) : null}
+
+      <Text className="font-inter-semibold text-base text-foreground">Yapılacaklar</Text>
+      {checks.length === 0 ? (
+        <Text className="font-inter text-sm text-muted-foreground">Bu alanda açık görev yok.</Text>
+      ) : (
+        <View className="gap-2">
+          {checks.map((check) => {
+            const actionLabel = TASK_ACTION_LABEL[check.actionKey] ?? (check.complete ? 'Görüntüle' : 'Tamamla');
+            const allowed = canPerformAction ? canPerformAction(check.actionKey) : true;
+            const previewOnly = viewedIsFuture || closed || isLost || disqualified;
+            const denied = !allowed && !previewOnly;
+            return (
+              <View key={check.key} className="gap-1">
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={denied ? `${check.label}: Yetki yok` : `${check.label}: ${actionLabel}`}
+                  accessibilityState={{ disabled: previewOnly || denied }}
+                  disabled={previewOnly || denied}
+                  onPress={() => onOpenTask(check)}
+                  className="min-h-11 flex-row items-center gap-2 rounded-lg border border-border bg-background px-3 py-2 active:opacity-70"
+                >
+                  <Ionicons
+                    name={check.complete ? 'checkmark-circle' : 'ellipse-outline'}
+                    size={18}
+                    color={check.complete ? colors.success : colors.mutedForeground}
+                  />
+                  <Text className="min-w-0 flex-1 font-inter-medium text-xs text-foreground" numberOfLines={2}>
+                    {check.label}
+                  </Text>
+                  {denied ? (
+                    <Text className="font-inter-semibold text-[10px] text-muted-foreground">Yetki yok</Text>
+                  ) : !readOnly ? (
+                    <Text className="font-inter-semibold text-[10px] text-muted-foreground">{actionLabel}</Text>
+                  ) : null}
+                </Pressable>
+                {check.manualEditable && canUpdate && !readOnly ? (
+                  <Pressable accessibilityRole="button" onPress={() => onToggleManual(check)} className="min-h-11 justify-center pl-8">
+                    <Text className="font-inter text-xs text-primary">{check.complete ? 'İşareti kaldır' : 'Yapıldı olarak işaretle'}</Text>
+                  </Pressable>
+                ) : null}
+                {check.manualEditable && canUpdate && !readOnly ? (
+                  <Pressable accessibilityRole="button" onPress={() => onEditNote(check)} className="min-h-11 justify-center pl-8">
+                    <Text className="font-inter text-xs text-primary">Not / gerekçe düzenle</Text>
+                  </Pressable>
+                ) : null}
+                {check.note ? <Text className="pl-8 font-inter text-[11px] text-muted-foreground">{check.note}</Text> : null}
+              </View>
+            );
+          })}
+        </View>
+      )}
+
+      {next && !isLost ? (
+        <View className="gap-2 border-t border-border pt-3">
+          <Text className="font-inter text-xs text-muted-foreground">
+            {closed
+              ? 'Kapalı kartta alan değiştirilemez.'
+              : disqualified
+                ? 'Aday elendi; fırsata dönüştürülemez.'
+                : current === 'lead'
+                  ? 'Eksik lead bilgilerini fırsat içinde tamamlayabilirsiniz.'
+                  : blockers.length
+                    ? `Eksik: ${blockers.map((item) => item.label).join(' · ')}`
+                    : 'Bu alanın gereklilikleri tamam; ilerletebilirsiniz.'}
+          </Text>
+          <Button
+            label={advancing ? 'İlerletiliyor…' : advanceLabel}
+            loading={advancing}
+            disabled={advanceDisabled}
+            onPress={onAdvance}
+          />
+        </View>
+      ) : null}
+    </Card>
+  );
+}
+
 /* ------------------------------------------------------ kontrol listesi notu ---- */
 
 export function useCheckNoteSheet(opportunityId: string) {
@@ -349,15 +577,22 @@ export function useCheckNoteSheet(opportunityId: string) {
   const setCheck = useSetProcessCheck();
   const [check, setCurrent] = useState<QualificationCheck | null>(null);
   const [note, setNote] = useState('');
+  const [status, setStatus] = useState<'done' | 'not_done' | null>(null);
 
-  function open(next: QualificationCheck) {
+  function open(next: QualificationCheck & { manualStatus?: 'done' | 'not_done' | null }) {
     setCurrent(next);
     setNote(next.note ?? '');
+    setStatus(next.manualStatus ?? null);
     sheetRef.current?.present();
   }
 
   const sheet = (
     <SalesSheet ref={sheetRef} title="Adım notu" subtitle={check?.label}>
+      <View className="flex-row flex-wrap gap-2">
+        {([{ value: 'done', label: 'Yapıldı' }, { value: 'not_done', label: 'Yapılmadı' }, { value: null, label: 'Otomatik' }] as const).map((item) => (
+          <Button key={item.label} label={item.label} variant={status === item.value ? 'primary' : 'ghost'} onPress={() => setStatus(item.value)} />
+        ))}
+      </View>
       <Field label="Not" value={note} onChangeText={setNote} maxLength={1000} multiline numberOfLines={3} />
       <Button
         label="Notu kaydet"
@@ -365,7 +600,7 @@ export function useCheckNoteSheet(opportunityId: string) {
         onPress={() => {
           if (!check) return;
           setCheck.mutate(
-            { id: opportunityId, key: check.key, body: { status: check.complete ? 'done' : 'not_done', note: note.trim() || null } },
+            { id: opportunityId, key: check.key, body: { status, note: note.trim() || null } },
             {
               onSuccess: () => {
                 sheetRef.current?.dismiss();
@@ -547,7 +782,7 @@ export function OpportunityActivityFeed({
   function openActivity(activity: ActivityListItem) {
     const editable = activity.origin !== 'system';
     const actions: { text: string; style?: 'cancel' | 'destructive'; onPress?: () => void }[] = [
-      { text: 'Detayı aç', onPress: () => router.push(`/(tabs)/modules/activities/${activity.id}` as Href) },
+      { text: 'Detayı aç', onPress: () => router.push(`/modules/activities/${activity.id}` as Href) },
     ];
     if (editable && canUpdate) {
       actions.push({

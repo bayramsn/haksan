@@ -2,7 +2,7 @@ import { Alert } from 'react-native';
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient, type QueryKey } from '@tanstack/react-query';
 import type { CompanyCreateInput, CompanyUpdateInput } from '@haksan/shared';
 import { companies, type CompanyListItem, type CompanyListQuery } from './endpoints';
-import type { Paginated } from './client';
+import { RequestScopeChangedError, requestContextKey, type Paginated } from './client';
 import { dashboardKeys } from './dashboard';
 import { useOfflineMutation } from '@/src/offline/useOfflineMutation';
 
@@ -15,9 +15,11 @@ export const companyKeys = {
   map: ['companies', 'map'] as const,
 };
 
-export function useCompanyList(query: CompanyListQuery) {
+export function useCompanyList(query: CompanyListQuery, enabled = true) {
   return useInfiniteQuery({
     queryKey: companyKeys.list(query),
+    enabled,
+    refetchOnMount: 'always',
     initialPageParam: 1,
     queryFn: ({ pageParam }) => companies.list({ ...query, page: pageParam, pageSize: PAGE_SIZE }),
     getNextPageParam: (last) => (last.meta.page < last.meta.totalPages ? last.meta.page + 1 : undefined),
@@ -138,7 +140,9 @@ export function useUpdateCompany(listQuery: CompanyListQuery) {
   return useMutation<CompanyListItem, Error, UpdateVars, { previous: unknown }>({
     mutationFn: ({ id, patch }) => companies.update(id, patch),
     onMutate: async ({ id, patch }) => {
+      const context = requestContextKey();
       await qc.cancelQueries({ queryKey: listKey });
+      if (context !== requestContextKey()) throw new RequestScopeChangedError();
       const previous = qc.getQueryData(listKey);
       const page = previous as { pages: Paginated<CompanyListItem>[] } | undefined;
       if (page) {
@@ -153,6 +157,7 @@ export function useUpdateCompany(listQuery: CompanyListQuery) {
       return { previous };
     },
     onError: (error, _vars, context) => {
+      if (error instanceof RequestScopeChangedError) return;
       qc.setQueryData(listKey, context?.previous);
       Alert.alert('Güncelleme yapılamadı', error.message);
     },

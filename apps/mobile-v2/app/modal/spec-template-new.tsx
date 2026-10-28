@@ -78,7 +78,7 @@ export default function SpecTemplateNewModal() {
 
   const openEditor = (code: string, label: string) =>
     router.replace(
-      `/(tabs)/more/settings/spec-templates/${encodeURIComponent(code)}?name=${encodeURIComponent(label)}&divisionId=${divisionId}` as Href
+      `/more/settings/spec-templates/${encodeURIComponent(code)}?name=${encodeURIComponent(label)}&divisionId=${divisionId}` as Href
     );
 
   const submit = async () => {

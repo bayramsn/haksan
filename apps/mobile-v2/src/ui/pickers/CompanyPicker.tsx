@@ -1,16 +1,41 @@
+import { SelectionListFooter } from './SelectionListFooter';
 import { useCallback, useMemo, useState } from 'react';
-import { FlatList, Pressable, Text, View } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import { FlatList, Text, View } from 'react-native';
 import { useCompanyList } from '@/src/api/companies.hooks';
+import { useAuth } from '@/src/auth/AuthProvider';
+import { companyVisibility, isCompanyVisible } from '@/src/ui/crm/company-logic';
 import { useContactList } from '@/src/api/crm.hooks';
-import type { CompanyListItem, ContactListItem } from '@/src/api/endpoints';
+import type { CompanyListItem, CompanyListQuery, ContactListItem } from '@/src/api/endpoints';
 import { useDebouncedValue } from '@/src/lib/useDebouncedValue';
-import { useTheme } from '@/src/theme/theme';
 import { Button, EmptyState, ErrorState, Loading, SearchBar } from '@/src/ui';
 import { HostedSheet } from './HostedSheet';
 import { PickerField } from './PickerField';
+import { SelectionRow } from './SelectionRow';
+import { SelectionStatus } from './SelectionStatus';
 
 export type PickedRecord = { id: string; name: string; phone?: string; email?: string };
+
+type CompanyList = ReturnType<typeof useCompanyList>;
+
+/**
+ * İki ilişki türünün sayfalı listelerini tek liste gibi sunar. API tek
+ * `relationTypeCode` alıyor; web RemoteCompanyCombobox da tür başına istek atıyor.
+ * ponytail: sayfalar ad sırasıyla birleşmez; sonraki sayfa yüklenince ikinci türün satırları aşağı kayar.
+ * Aramayla daraltılınca sorun olmuyor; rahatsız ederse API'ye çoklu `relationTypeCode` ekleyin.
+ */
+function mergeCompanyLists(a: CompanyList, b: CompanyList) {
+  return {
+    items: [...(a.data?.items ?? []), ...(b.data?.items ?? [])],
+    isPending: a.isPending || b.isPending,
+    isFetching: a.isFetching || b.isFetching,
+    isFetchingNextPage: a.isFetchingNextPage || b.isFetchingNextPage,
+    isFetchNextPageError: a.isFetchNextPageError || b.isFetchNextPageError,
+    error: a.error ?? b.error,
+    hasNextPage: a.hasNextPage || b.hasNextPage,
+    fetchNextPage: () => Promise.all([a.hasNextPage ? a.fetchNextPage() : null, b.hasNextPage ? b.fetchNextPage() : null]),
+    refetch: () => Promise.all([a.refetch(), b.refetch()]),
+  };
+}
 
 /** Uzaktan aramalı firma seçici (web RemoteCompanyCombobox) — RN Modal. */
 export function CompanyPicker({
@@ -21,6 +46,7 @@ export function CompanyPicker({
   error,
   disabled,
   clearable = true,
+  relationTypeCodes,
 }: {
   label?: string;
   value: PickedRecord | null;
@@ -29,17 +55,23 @@ export function CompanyPicker({
   error?: string;
   disabled?: boolean;
   clearable?: boolean;
+  /** En çok iki ilişki türü; verilmezse tüm firmalar. */
+  relationTypeCodes?: readonly [NonNullable<CompanyListQuery['relationTypeCode']>, NonNullable<CompanyListQuery['relationTypeCode']>?];
 }) {
-  const { colors } = useTheme();
+  const [primaryType, secondaryType] = relationTypeCodes ?? [];
+  const { user } = useAuth();
+  const visibility = companyVisibility(user?.roles ?? []);
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
   const debounced = useDebouncedValue(search, 275);
   const query = useMemo(
-    () => ({ search: debounced.trim() || undefined, sortBy: 'name' as const, sortDir: 'asc' as const }),
-    [debounced],
+    () => ({ search: debounced.trim() || undefined, sortBy: 'name' as const, sortDir: 'asc' as const, relationTypeCode: primaryType }),
+    [debounced, primaryType],
   );
-  const list = useCompanyList(query);
-  const rows = list.data?.items ?? [];
+  const primary = useCompanyList(query);
+  const secondary = useCompanyList({ ...query, relationTypeCode: secondaryType }, Boolean(secondaryType));
+  const list = secondaryType ? mergeCompanyLists(primary, secondary) : { ...primary, items: primary.data?.items ?? [] };
+  const rows = list.items.filter((item) => isCompanyVisible(item, visibility));
 
   const choose = useCallback(
     (company: CompanyListItem) => {
@@ -72,14 +104,15 @@ export function CompanyPicker({
       >
         <View className="min-h-0 flex-1">
           <View className="gap-3 border-b border-border px-4 pb-3">
-            <Text accessibilityRole="header" className="font-inter-semibold text-base text-foreground">
+            <Text accessibilityRole="header" className="font-display-semibold text-[22px] text-foreground">
               {label} seçin
             </Text>
             <SearchBar value={search} onChange={setSearch} placeholder="Firma ara" />
+            <SelectionStatus loading={search.trim() !== debounced.trim() || (list.isFetching && !list.isFetchingNextPage)} error={list.error} onRetry={() => void list.refetch()} />
           </View>
           <FlatList
             className="flex-1"
-            data={rows}
+            data={search.trim() !== debounced.trim() ? [] : rows}
             keyExtractor={(item) => item.id}
             contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 32, flexGrow: 1 }}
             keyboardShouldPersistTaps="handled"
@@ -87,23 +120,7 @@ export function CompanyPicker({
             renderItem={({ item }) => {
               const selected = item.id === value?.id;
               return (
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityState={{ selected }}
-                  onPress={() => choose(item)}
-                  className="min-h-[56px] flex-row items-center gap-3 border-b border-border py-2 active:opacity-70"
-                >
-                  <Ionicons name="business-outline" size={19} color={selected ? colors.primary : colors.mutedForeground} />
-                  <View className="flex-1">
-                    <Text className="font-inter-semibold text-sm text-foreground" numberOfLines={1}>
-                      {item.shortName ?? item.legalTitle}
-                    </Text>
-                    <Text className="font-inter text-xs text-muted-foreground" numberOfLines={1}>
-                      {[item.shortName ? item.legalTitle : null, item.primaryAddress?.province].filter(Boolean).join(' · ') || 'Firma'}
-                    </Text>
-                  </View>
-                  {selected ? <Ionicons name="checkmark" size={19} color={colors.primary} /> : null}
-                </Pressable>
+                <SelectionRow label={item.shortName || item.legalTitle} hint={[item.shortName ? item.legalTitle : null, item.primaryAddress?.province].filter(Boolean).join(' · ') || 'Firma'} selected={selected} onPress={() => choose(item)} />
               );
             }}
             onEndReachedThreshold={0.5}
@@ -119,7 +136,7 @@ export function CompanyPicker({
                 <EmptyState title="Firma bulunamadı" />
               )
             }
-            ListFooterComponent={list.isFetchingNextPage ? <Loading /> : null}
+            ListFooterComponent={<SelectionListFooter hasNextPage={list.hasNextPage} isFetchingNextPage={list.isFetchingNextPage} error={list.isFetchNextPageError ? list.error : null} fetchNextPage={() => list.fetchNextPage()} />}
           />
         </View>
       </HostedSheet>
@@ -135,6 +152,7 @@ export function ContactPicker({
   onChange,
   placeholder,
   error,
+  requireCompany = true,
 }: {
   label?: string;
   companyId: string | null;
@@ -142,8 +160,8 @@ export function ContactPicker({
   onChange: (value: PickedRecord | null) => void;
   placeholder?: string;
   error?: string;
+  requireCompany?: boolean;
 }) {
-  const { colors } = useTheme();
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
   const debounced = useDebouncedValue(search, 275);
@@ -151,7 +169,7 @@ export function ContactPicker({
     () => ({ companyId: companyId ?? undefined, search: debounced.trim() || undefined, sortBy: 'name' as const, sortDir: 'asc' as const }),
     [companyId, debounced],
   );
-  const list = useContactList(query, Boolean(companyId));
+  const list = useContactList(query, Boolean(companyId) || !requireCompany);
   const rows = list.data?.items ?? [];
 
   const choose = useCallback(
@@ -177,10 +195,10 @@ export function ContactPicker({
       <PickerField
         label={label}
         value={value?.name ?? ''}
-        placeholder={placeholder ?? (companyId ? 'İsteğe bağlı' : 'Önce firma seçin')}
+        placeholder={placeholder ?? (companyId || !requireCompany ? 'Kontak seçin' : 'Önce firma seçin')}
         icon="person-outline"
         error={error}
-        disabled={!companyId}
+        disabled={requireCompany && !companyId}
         onPress={() => setOpen(true)}
         onClear={() => onChange(null)}
       />
@@ -194,15 +212,16 @@ export function ContactPicker({
       >
         <View className="min-h-0 flex-1">
           <View className="gap-3 border-b border-border px-4 pb-3">
-            <Text accessibilityRole="header" className="font-inter-semibold text-base text-foreground">
+            <Text accessibilityRole="header" className="font-display-semibold text-[22px] text-foreground">
               {label} seçin
             </Text>
             {value ? <Button label="Bağlantıyı Kaldır" variant="ghost" onPress={() => choose(null)} /> : null}
             <SearchBar value={search} onChange={setSearch} placeholder="Kontak ara" />
+            <SelectionStatus loading={search.trim() !== debounced.trim() || (list.isFetching && !list.isFetchingNextPage)} error={list.error} onRetry={() => void list.refetch()} />
           </View>
           <FlatList
             className="flex-1"
-            data={rows}
+            data={search.trim() !== debounced.trim() ? [] : rows}
             keyExtractor={(item) => item.id}
             contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 32, flexGrow: 1 }}
             keyboardShouldPersistTaps="handled"
@@ -210,23 +229,7 @@ export function ContactPicker({
             renderItem={({ item }) => {
               const selected = item.id === value?.id;
               return (
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityState={{ selected }}
-                  onPress={() => choose(item)}
-                  className="min-h-[56px] flex-row items-center gap-3 border-b border-border py-2 active:opacity-70"
-                >
-                  <Ionicons name="person-outline" size={19} color={selected ? colors.primary : colors.mutedForeground} />
-                  <View className="flex-1">
-                    <Text className="font-inter-semibold text-sm text-foreground" numberOfLines={1}>
-                      {item.fullName}
-                    </Text>
-                    <Text className="font-inter text-xs text-muted-foreground" numberOfLines={1}>
-                      {[item.title, item.department].filter(Boolean).join(' · ') || 'Kontak'}
-                    </Text>
-                  </View>
-                  {selected ? <Ionicons name="checkmark" size={19} color={colors.primary} /> : null}
-                </Pressable>
+                <SelectionRow label={item.fullName} hint={[item.title, item.department, item.mobilePhone || item.workPhone, item.workEmail || item.personalEmail].filter(Boolean).join(' · ') || 'Kontak'} selected={selected} onPress={() => choose(item)} />
               );
             }}
             onEndReachedThreshold={0.5}
@@ -242,7 +245,7 @@ export function ContactPicker({
                 <EmptyState title="Kontak bulunamadı" />
               )
             }
-            ListFooterComponent={list.isFetchingNextPage ? <Loading /> : null}
+            ListFooterComponent={<SelectionListFooter hasNextPage={list.hasNextPage} isFetchingNextPage={list.isFetchingNextPage} error={list.isFetchNextPageError ? list.error : null} fetchNextPage={() => list.fetchNextPage()} />}
           />
         </View>
       </HostedSheet>

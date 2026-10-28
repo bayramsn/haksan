@@ -364,6 +364,24 @@ export function averageCompletion(people: PersonTarget[]): number | null {
   return measurable.length ? Math.round(measurable.reduce((sum, p) => sum + (p.analysis.completionPct ?? 0), 0) / measurable.length) : null;
 }
 
+/**
+ * Web summarizeDepartments: departmanın kendi hedefi ölçülemiyorsa yüzde üye
+ * ortalamasına düşer; durum da o ortalamadan hesaplanır ("Hedef yok" kalmaz).
+ */
+export function departmentProgress(
+  own: SubjectAnalysis,
+  members: PersonTarget[],
+  expectedPct: number,
+  period: string,
+  now = new Date(),
+): { completionPct: number | null; status: TargetStatus } {
+  if (own.completionPct != null) return { completionPct: own.completionPct, status: own.status };
+  const completionPct = averageCompletion(members);
+  return completionPct == null
+    ? { completionPct, status: own.status }
+    : { completionPct, status: statusForProgress(completionPct, expectedPct, period, now) };
+}
+
 /* ------------------------------------------------------- aktivite raporu ---- */
 
 /** İstanbul takvimindeki gün (`YYYY-MM-DD`). */
@@ -386,9 +404,9 @@ export function validateActivityRange(range: { from: string; to: string }): stri
   if (!pattern.test(range.from) || !pattern.test(range.to)) return 'Tarihleri YYYY-AA-GG biçiminde girin.';
   const from = Date.parse(`${range.from}T00:00:00Z`);
   const to = Date.parse(`${range.to}T00:00:00Z`);
-  if (!Number.isFinite(from) || !Number.isFinite(to)) return 'Geçerli bir tarih girin.';
+  if (!Number.isFinite(from) || !Number.isFinite(to) || new Date(from).toISOString().slice(0, 10) !== range.from || new Date(to).toISOString().slice(0, 10) !== range.to) return 'Geçerli bir tarih girin.';
   if (to < from) return 'Bitiş tarihi başlangıçtan önce olamaz';
-  if ((to - from) / 86_400_000 > 366) return 'Aralık en fazla 366 gün olabilir.';
+  if ((to - from) / 86_400_000 + 1 > 366) return 'Aralık en fazla 366 gün olabilir.';
   return null;
 }
 

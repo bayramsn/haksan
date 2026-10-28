@@ -64,7 +64,7 @@ export default function QuoteDocumentUploadScreen() {
   const createInvoice = useCreateCommercialInvoice();
   const invalidate = useInvalidateDocuments();
 
-  if (!canUpload) return <Redirect href="/(tabs)/modules/documents" />;
+  if (!canUpload) return <Redirect href="/modules/documents" />;
 
   const meta = uploadTypeFor(folder);
   const commercial = isRecordFolder(folder);

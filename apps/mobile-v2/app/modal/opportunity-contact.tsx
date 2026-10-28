@@ -34,7 +34,7 @@ export default function OpportunityContactScreen() {
   const [nextActionAt, setNextActionAt] = useState('');
   const [error, setError] = useState<string | null>(null);
 
-  if (!canUpdate || typeof id !== 'string' || !id) return <Redirect href={'/(tabs)/modules/opportunities' as Href} />;
+  if (!canUpdate || typeof id !== 'string' || !id) return <Redirect href={'/modules/opportunities' as Href} />;
   const opportunityId = id;
 
   function submit() {

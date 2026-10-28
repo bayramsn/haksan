@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { devices, opportunities, type CustomerDevice } from '@/src/api/endpoints';
 import { useCan } from '@/src/auth/AuthProvider';
 import { referencesApi, type ReferenceInput } from './references.api';
+import { collectPaginated } from './pagination';
 
 export const referenceKeys = {
   all: ['references'] as const,
@@ -9,20 +10,6 @@ export const referenceKeys = {
   won: ['references', 'won-opportunities'] as const,
   devices: ['references', 'devices'] as const,
 };
-
-/** Liste uçları 200'de sınırlı; otomatik referans için tüm sayfalar (en fazla `maxPages`) toplanır. */
-async function collectPages<T>(
-  fetchPage: (page: number) => Promise<{ data: T[]; meta: { totalPages: number } }>,
-  maxPages = 25,
-): Promise<T[]> {
-  const out: T[] = [];
-  for (let page = 1; page <= maxPages; page += 1) {
-    const result = await fetchPage(page);
-    out.push(...result.data);
-    if (page >= result.meta.totalPages) break;
-  }
-  return out;
-}
 
 export function useReferences() {
   return useQuery({ queryKey: referenceKeys.list, queryFn: referencesApi.list });
@@ -36,8 +23,8 @@ export function useWonOpportunityIds() {
     enabled: canRead,
     staleTime: 5 * 60_000,
     queryFn: () =>
-      collectPages((page) => opportunities.list({ qualificationStage: 'win', view: 'all', page, pageSize: 200 })),
-    select: (rows) => new Set(rows.map((row) => row.id)),
+      collectPaginated((page) => opportunities.list({ qualificationStage: 'win', view: 'all', page, pageSize: 200 })),
+    select: (result) => new Set(result.data.map((row) => row.id)),
   });
 }
 
@@ -47,7 +34,7 @@ export function useReferenceDevices() {
     queryKey: referenceKeys.devices,
     enabled: canRead,
     staleTime: 5 * 60_000,
-    queryFn: () => collectPages<CustomerDevice>((page) => devices.list({ page, pageSize: 200 })),
+    queryFn: async () => (await collectPaginated<CustomerDevice>((page) => devices.list({ page, pageSize: 200 }))).data,
   });
 }
 

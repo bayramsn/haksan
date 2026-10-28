@@ -4,7 +4,7 @@
  */
 
 /** Alt sekme çubuğundaki kökler; geri oku yalnız bunların dışında çizilir. */
-export const TAB_ROOT_PATHS: ReadonlySet<string> = new Set(['/', '/companies', '/opportunities', '/calendar', '/more']);
+export const TAB_ROOT_PATHS: ReadonlySet<string> = new Set(['/', '/companies', '/opportunities', '/calendar', '/modules']);
 
 export function isTabRootPath(pathname: string): boolean {
   return TAB_ROOT_PATHS.has(pathname);

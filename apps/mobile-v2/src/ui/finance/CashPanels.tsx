@@ -1,3 +1,4 @@
+import { startCrmCall } from '@/src/call-assistant/call';
 import { useMemo, useState } from 'react';
 import { Linking, Pressable, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
@@ -287,7 +288,7 @@ function DebtorRow({ debtor, rank }: { debtor: Debtor; rank: number }) {
         accessibilityLabel="Telefon et"
         accessibilityState={{ disabled: !phone }}
         disabled={!phone}
-        onPress={() => phone && open(`tel:${phone}`)}
+        onPress={() => phone && void startCrmCall(phone, { companyId: debtor.companyId })}
         className={`h-11 w-9 items-center justify-center ${phone ? 'active:opacity-60' : 'opacity-30'}`}
       >
         <Ionicons name="call-outline" size={18} color={colors.primary} />

@@ -16,6 +16,7 @@ import {
   useUpdateContact,
 } from '@/src/api/crm.hooks';
 import { useCan } from '@/src/auth/AuthProvider';
+import { useCompany } from '@/src/api/companies.hooks';
 import { useTheme } from '@/src/theme/theme';
 import { DateTextField } from '@/src/ui/select/DateTextField';
 import { CompanySelect, companyLabel } from '@/src/ui/select/fields';
@@ -176,6 +177,7 @@ export function ContactFormScreen() {
   const initialRef = useRef<FormState | null>(editing ? null : { ...EMPTY_FORM, companyId: requestedCompanyId });
   const initializedId = useRef<string | null>(null);
   const [selectedCompanyName, setSelectedCompanyName] = useState(requestedCompanyName);
+  const selectedCompany = useCompany(form.companyId);
   const [errors, setErrors] = useState<Partial<Record<keyof FormState, string>>>({});
   const [formError, setFormError] = useState<string | null>(null);
 
@@ -231,7 +233,7 @@ export function ContactFormScreen() {
     }
   }, [decisionRoles.data, detail.data?.decisionRoleId, editing]);
 
-  if (!allowed) return <Redirect href="/(tabs)/modules/contacts" />;
+  if (!allowed) return <Redirect href="/modules/contacts" />;
 
   const set = <K extends keyof FormState>(key: K, value: FormState[K]) => {
     setForm((previous) => ({ ...previous, [key]: value }));
@@ -284,7 +286,7 @@ export function ContactFormScreen() {
     create.mutate(parsed.data as ContactCreateInput, {
       onSuccess: (created) => {
         Alert.alert('Kontak oluşturuldu');
-        router.replace(`/(tabs)/modules/contacts/${created.id}`);
+        router.replace(`/modules/contacts/${created.id}`);
       },
       onError: (error) => setFormError(error.message),
     });
@@ -326,7 +328,7 @@ export function ContactFormScreen() {
             <Eyebrow>Firma ve kimlik</Eyebrow>
             <CompanySelect
               label="Firma *"
-              value={selectedCompanyName}
+              value={selectedCompanyName || (selectedCompany.data ? companyLabel(selectedCompany.data) : form.companyId ? 'Seçili firma' : '')}
               selectedId={form.companyId || null}
               clearable={!editing}
               placeholder="Firma seçin veya adını yazın..."

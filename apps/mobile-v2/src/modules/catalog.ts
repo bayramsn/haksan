@@ -1,13 +1,13 @@
 import type { Ionicons } from '@expo/vector-icons';
 import type { Href } from 'expo-router';
-import { navigationVisibilityKeyFor } from '@haksan/shared';
+import { isNavigationAreaEnabled, navigationVisibilityKeyFor, type NavigationVisibilityKey } from '@haksan/shared';
 import type { Tone } from '@/src/theme/theme';
 import type { AuthTenant, AuthUser } from '@/src/api/endpoints';
 
 /**
  * Modül kayıt defteri: Modüller ekranı ve modül yığınındaki erişim kapısı
  * buradan beslenir. Bir modül BURAYA ancak ekranı yazıldığında eklenir;
- * `key` aynı zamanda `app/(tabs)/modules/<key>` klasörüdür.
+ * `key` aynı zamanda `app/modules/<key>` klasörüdür.
  */
 export type ModuleGroup =
   | 'general'
@@ -60,6 +60,7 @@ export type ModuleEntry = {
 type ModuleSeed = Omit<ModuleEntry, 'route'>;
 
 const seeds: ModuleSeed[] = [
+  { key: 'call-assistant', title: 'Görüşme Yardımcısı', icon: 'call-outline', tone: 'info', group: 'general', permission: 'companies.read' },
   { key: 'calendar', title: 'Takvim', icon: 'calendar-number-outline', tone: 'info', group: 'general', permission: 'calendar.read', navKey: 'calendar' },
   { key: 'tasks', title: 'Görevler', icon: 'checkbox-outline', tone: 'success', group: 'general', permission: 'tasks.read', navKey: 'tasks' },
   { key: 'activities', title: 'Aktiviteler', icon: 'pulse-outline', tone: 'neutral', group: 'general', permission: 'activities.read' },
@@ -164,7 +165,7 @@ const seeds: ModuleSeed[] = [
 ];
 
 /** Rota anahtardan türetilir; katalog ile klasör yapısı ayrışamaz. */
-const moduleHref = (key: string) => `/(tabs)/modules/${key}` as unknown as Href;
+const moduleHref = (key: string) => `/modules/${key}` as unknown as Href;
 
 export const modules: ModuleEntry[] = seeds.map((seed) => ({ ...seed, route: moduleHref(seed.key) }));
 
@@ -207,6 +208,41 @@ export function moduleForPath(pathname: string): ModuleEntry | null {
   const match = pathname.match(/\/(?:\(tabs\)\/)?modules\/([^/?#]+)/);
   if (!match?.[1]) return null;
   return modules.find((entry) => entry.key === match[1]) ?? null;
+}
+
+export function moduleByKey(key: string): ModuleEntry | undefined {
+  return modules.find((entry) => entry.key === key);
+}
+
+const TAB_MODULE_KEYS: Record<string, string> = {
+  companies: 'companies',
+  opportunities: 'opportunities',
+  calendar: 'calendar',
+};
+
+function hiddenKeys(tenant: AuthTenant | null): readonly NavigationVisibilityKey[] | undefined {
+  return tenant?.hiddenNavigationKeys as readonly NavigationVisibilityKey[] | undefined;
+}
+
+/** Sohbet modül değil; web’de yalnız kiracı görünürlük anahtarıyla kapanır. */
+export function canOpenChat(tenant: AuthTenant | null): boolean {
+  return isNavigationAreaEnabled('chat', hiddenKeys(tenant));
+}
+
+/**
+ * Ana sayfa kısayolu, sekme ve bildirim hedefi aynı kapıdan geçer.
+ * Modül rotası değilse (ayarlar, bildirimler, ana sayfa) açık kalır.
+ */
+export function canOpenHref(user: AuthUser | null, tenant: AuthTenant | null, href: string): boolean {
+  const path = href.split('?')[0] ?? href;
+  if (/\/(?:\(tabs\)\/)?chat(?:\/|$)/.test(path)) return canOpenChat(tenant);
+  const moduleEntry = moduleForPath(path);
+  if (moduleEntry) return canAccessModule(user, tenant, moduleEntry);
+  const tab = path.match(/\/(?:\(tabs\)\/)?(companies|opportunities|calendar)(?:\/|$)/);
+  const alias = tab?.[1] ? TAB_MODULE_KEYS[tab[1]] : undefined;
+  if (!alias) return true;
+  const entry = moduleByKey(alias);
+  return entry ? canAccessModule(user, tenant, entry) : false;
 }
 
 export function modulesByGroup(entries: ModuleEntry[] = modules): [ModuleGroupMeta, ModuleEntry[]][] {

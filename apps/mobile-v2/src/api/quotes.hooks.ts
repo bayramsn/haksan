@@ -1,6 +1,7 @@
 import { useInfiniteQuery, useMutation, useQueries, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { opportunityKeys, quoteKeys } from './crm.hooks';
 import { quotes, type QuoteListQuery } from './endpoints';
+import { collectPaginated } from './pagination';
 import {
   quoteOpportunityApi,
   quotesApi,
@@ -20,6 +21,17 @@ import {
 } from '@/src/ui/documents/quote-logic';
 
 const GROUP_PAGE_SIZE = 50;
+
+/** Complete scoped rows for decisions and aggregates; partial pages must not decide CRM state. */
+export function useAllQuoteList(query: QuoteListQuery, enabled = true) {
+  return useQuery({
+    queryKey: ['quotes', 'complete', query],
+    enabled,
+    queryFn: () => collectPaginated((page) => quotes.list({ ...query, page, pageSize: GROUP_PAGE_SIZE })),
+    select: (result) => ({ items: result.data, total: result.meta.total }),
+  });
+}
+
 
 function invalidateQuoteFlows(qc: QueryClient) {
   void qc.invalidateQueries({ queryKey: quoteKeys.all });
@@ -111,7 +123,7 @@ export function useGroupedQuoteList(query: QuoteListQuery, statusCodes: string[]
 export function useLostOpportunitiesForQuotes() {
   return useQuery({
     queryKey: ['opportunities', 'lost-for-quotes'],
-    queryFn: () => quoteOpportunityApi.lost({ page: 1, pageSize: 200 }),
+    queryFn: () => collectPaginated((page) => quoteOpportunityApi.lost({ page, pageSize: 200 })),
     select: (data) => data.data,
     staleTime: 5 * 60 * 1000,
   });

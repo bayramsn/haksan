@@ -32,6 +32,10 @@ tmp/**
 apps/mobile-v2/Archive*/**
 apps/mobile-v2/.expo/**
 
+# macOS Finder duplicates ("name 2.ext"). tsc compiles them and the shared post-install fails.
+**/* 2
+**/* 2.*
+
 # Large binary / media noise outside the app
 **/*.ipa
 **/*.app
@@ -41,3 +45,46 @@ apps/mobile-v2/.expo/**
 **/*.docx
 **/*.webp
 apps/api/src/db/seed/data/**
+
+# Secrets must never be included in the EAS source archive.
+**/.env
+**/.env.*
+!**/.env.example
+!**/.env.*.example
+**/*.p8
+**/*.p12
+**/*.pem
+**/*.key
+**/*.mobileprovision
+**/*.keystore
+**/*.jks
+**/credentials.json
+**/.xcode.env.local
+
+# Local agent configuration is not application source.
+.agents/**
+.codex/**
+.claude/**
+
+# Generate native projects from current app.config and config plugins on EAS.
+apps/mobile-v2/ios
+apps/mobile-v2/android
+
+# Local caches, code indexes and design explorations are not release inputs.
+.pnpm-store/**
+.stitch/**
+design-previews/**
+**/*.db
+**/*.sqlite
+**/*.sqlite3
+**/.aws/**
+**/.ssh/**
+**/.netrc
+
+# Browser QA captures and local reports are not mobile build inputs.
+.playwright-cli
+.gstack
+output
+
+# Exclude Git objects themselves, including the directory (not only its children).
+.git

@@ -10,6 +10,7 @@ import { useTheme } from '@/src/theme/theme';
 import { Button, Eyebrow, Field, SubtleCard } from '@/src/ui';
 import { ChoiceChips, ProductPickerSheet } from './pickers';
 import { QuoteLineConfig } from './QuoteLineConfig';
+import { QuoteItemDetails } from './QuoteItemDetails';
 import {
   emptyCompatibilityFilters,
   newLineGroupKey,
@@ -57,7 +58,11 @@ export function QuoteItemsEditor({
   productCurrencies,
   onProductCurrency,
   divisionId,
+  vatEnabled = true,
+  onConfigurationBusyChange,
 }: {
+  vatEnabled?: boolean;
+  onConfigurationBusyChange?: (key: string, busy: boolean) => void;
   items: EditableQuoteItem[];
   onChange: (next: EditableQuoteItem[]) => void;
   currencyCode: string;
@@ -69,9 +74,11 @@ export function QuoteItemsEditor({
 }) {
   const { colors } = useTheme();
   const productSheet = useRef<BottomSheetModal>(null);
+  const itemsRef = useRef(items);
+  itemsRef.current = items;
 
   const patch = (key: string, next: Partial<EditableQuoteItem>) =>
-    onChange(items.map((item) => (item.key === key ? { ...item, ...next } : item)));
+    onChange(itemsRef.current.map((item) => (item.key === key ? { ...item, ...next } : item)));
 
   async function addProduct(product: ProductModel) {
     const key = newQuoteItemKey();
@@ -84,14 +91,14 @@ export function QuoteItemsEditor({
     }
     const tech = detail.technicalConfiguration ?? null;
     onChange([
-      ...items.filter((item) => item.description.trim() || item.unitPrice.trim()),
+      ...itemsRef.current.filter((item) => item.description.trim() || item.unitPrice.trim()),
       {
         key,
         productModelId: detail.id,
         stockCode: detail.stockCode ?? undefined,
         description: detail.fullName,
         quantity: '1',
-        unitPrice: detail.listPrice ? String(Number(detail.listPrice)) : '',
+        unitPrice: detail.listPrice != null ? String(Number(detail.listPrice)) : '',
         discount: '',
         discountType: 'amount' as QuoteDiscountType,
         vatRate: detail.vatRate ? String(Number(detail.vatRate)) : '20',
@@ -205,7 +212,8 @@ export function QuoteItemsEditor({
               <View className="flex-1">
                 <Field
                   label="KDV %"
-                  value={item.vatRate}
+                  editable={vatEnabled}
+                  value={vatEnabled ? item.vatRate : '0'}
                   onChangeText={(value) => patch(item.key, { vatRate: value })}
                   keyboardType="decimal-pad"
                 />
@@ -237,22 +245,9 @@ export function QuoteItemsEditor({
               brandId={item.brandId}
               divisionId={divisionId}
               onChange={(next) => patch(item.key, next)}
+              onBusyChange={(busy) => onConfigurationBusyChange?.(item.key, busy)}
             />
-            {item.optionChildren.length ? (
-              <View className="gap-1.5">
-                <Text className="font-inter-medium text-xs text-muted-foreground">Opsiyon satırları</Text>
-                {item.optionChildren.map((child) => (
-                  <View key={child.key} className="flex-row items-center justify-between rounded-control border border-border bg-card px-3 py-2">
-                    <Text className="flex-1 font-inter text-xs text-foreground" numberOfLines={2}>
-                      {child.description}
-                    </Text>
-                    <Text className="font-inter-semibold text-xs text-foreground">
-                      +{formatAmount(Number(child.unitPrice) || 0, currencyCode)}
-                    </Text>
-                  </View>
-                ))}
-              </View>
-            ) : null}
+            <QuoteItemDetails item={item} currencyCode={currencyCode} vatEnabled={vatEnabled} divisionId={divisionId} onChange={(next) => patch(item.key, next)} />
             {productCurrency && productCurrency !== currencyCode ? (
               <Text className="font-inter text-xs text-warning">
                 Liste fiyatı {productCurrency} cinsinden; teklif para birimi {currencyCode}. Fiyatı kontrol edin.

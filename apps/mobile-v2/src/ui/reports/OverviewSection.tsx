@@ -15,11 +15,11 @@ import { Kpi, KpiRow } from './parts';
 import { buildExecutiveSummary, comparedMonths, rowsUpToMonth, sumOperational, type ExecutiveItem } from './reportMath';
 
 const EXEC_ROUTES: Record<ExecutiveItem['target'], Href> = {
-  quotes: '/(tabs)/modules/quotes' as Href,
-  opportunities: '/(tabs)/modules/opportunities' as Href,
-  'service-complaints': '/(tabs)/modules/service-complaints' as Href,
-  'customer-devices': '/(tabs)/modules/customer-devices' as Href,
-  inventory: '/(tabs)/modules/inventory' as Href,
+  quotes: '/modules/quotes' as Href,
+  opportunities: '/modules/opportunities' as Href,
+  'service-complaints': '/modules/service-complaints' as Href,
+  'customer-devices': '/modules/customer-devices' as Href,
+  inventory: '/modules/inventory' as Href,
 };
 
 const EXEC_META: Record<ExecutiveItem['kind'], { label: string; tone: Tone; icon: keyof typeof Ionicons.glyphMap }> = {
@@ -122,8 +122,8 @@ export function OverviewSection() {
   return (
     <View className="gap-4">
       <KpiRow>
-        <Kpi label="Açık fırsat" value={String(pipelineCount)} tone="info" onPress={() => router.push('/(tabs)/modules/opportunities')} />
-        <Kpi label="Stok kalemi" value={String(stockTotal)} tone="neutral" onPress={() => router.push('/(tabs)/modules/inventory')} />
+        <Kpi label="Açık fırsat" value={String(pipelineCount)} tone="info" onPress={() => router.push('/modules/opportunities')} />
+        <Kpi label="Stok kalemi" value={String(stockTotal)} tone="neutral" onPress={() => router.push('/modules/inventory')} />
       </KpiRow>
       {balanceTotals.map(([currencyCode, total]) => (
         <KpiRow key={currencyCode}>
@@ -266,10 +266,10 @@ export function OverviewSection() {
           ]}
           icon="scale-outline"
           iconTone="stage"
-          onPress={() => router.push('/(tabs)/modules/balances')}
+          onPress={() => router.push('/modules/balances')}
         />
-        <ListRow title="Vade Takvimi" lines={['Yaklaşan ve geciken vadeler']} icon="calendar-outline" iconTone="destructive" onPress={() => router.push('/(tabs)/modules/due-dates')} />
-        <ListRow title="Fırsatlar" lines={['Satış hunisi ve pano görünümü']} icon="briefcase-outline" iconTone="info" onPress={() => router.push('/(tabs)/modules/opportunities')} />
+        <ListRow title="Vade Takvimi" lines={['Yaklaşan ve geciken vadeler']} icon="calendar-outline" iconTone="destructive" onPress={() => router.push('/modules/due-dates')} />
+        <ListRow title="Fırsatlar" lines={['Satış hunisi ve pano görünümü']} icon="briefcase-outline" iconTone="info" onPress={() => router.push('/modules/opportunities')} />
       </View>
     </View>
   );

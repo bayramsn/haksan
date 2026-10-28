@@ -1,12 +1,13 @@
 import type { ReactNode } from 'react';
 import { KeyboardAvoidingView, Platform, Pressable, ScrollView, Switch, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Stack, useRouter } from 'expo-router';
+import { Stack } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { chipClass, SCREEN_PAD, toneColor, useTheme, type Tone } from '@/src/theme/theme';
 import { Button } from '@/src/ui';
 import { DateTimeField } from '@/src/ui/pickers/DateTimeField';
 import { toast } from '@/src/ui/toast';
+import { useHierarchyBack } from '@/src/modules/useHierarchyBack';
 
 /** Modal form iskeleti: başlık, klavye kaçışı, altta Vazgeç + birincil eylem. */
 export function FormScreen({
@@ -26,19 +27,20 @@ export function FormScreen({
   submitDisabled?: boolean;
   footer?: ReactNode;
 }) {
-  const router = useRouter();
+  const { goBack } = useHierarchyBack();
   return (
     <SafeAreaView className="flex-1 bg-canvas" edges={['bottom', 'left', 'right']}>
       <Stack.Screen options={{ title, headerShown: true }} />
       <KeyboardAvoidingView className="flex-1" behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <ScrollView contentContainerClassName="gap-4 p-4 pb-10" keyboardShouldPersistTaps="handled">
+        <ScrollView contentContainerClassName="gap-4 p-4 pb-10" contentContainerStyle={{ width: '100%', maxWidth: 720, alignSelf: 'center' }} keyboardShouldPersistTaps="handled">
           {children}
         </ScrollView>
         {footer ??
           (onSubmit ? (
-            <View className="flex-row gap-3 border-t border-border bg-card px-4 py-3">
+            <View className="border-t border-border bg-card px-4 py-3">
+              <View style={{ width: '100%', maxWidth: 688, alignSelf: 'center' }} className="flex-row gap-3">
               <View className="flex-1">
-                <Button label="Vazgeç" variant="ghost" onPress={() => router.back()} />
+                <Button label="Vazgeç" variant="ghost" onPress={goBack} />
               </View>
               <View className="flex-[2]">
                 <Button
@@ -47,6 +49,7 @@ export function FormScreen({
                   disabled={submitting || submitDisabled}
                   onPress={onSubmit}
                 />
+              </View>
               </View>
             </View>
           ) : null)}

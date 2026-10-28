@@ -5,7 +5,7 @@ import { queuePendingRoute } from '@/src/navigation/pendingTarget';
 export async function redirectSystemPath({ path }: { path: string; initial: boolean }): Promise<string> {
   try {
     const route = routeForIncomingHref(path, allowedIncomingLinkHosts());
-    if (!route) return '/(tabs)';
+    if (!route) return '/(tabs)/(home)';
 
     // Auth rotaları (örn. reset-password tokenı) doğrudan açılır ve hiçbir zaman
     // bekleyen hedef deposuna yazılmaz. Yalnız korumalı /(tabs) rotaları kuyruğa alınır.
@@ -14,6 +14,6 @@ export async function redirectSystemPath({ path }: { path: string; initial: bool
   } catch {
     // Expo Router native-intent hook'undan hata fırlatmak uygulamayı açılışta
     // düşürebilir. Güvenli ana sayfaya yönelerek session guard'a bırak.
-    return '/(tabs)';
+    return '/(tabs)/(home)';
   }
 }

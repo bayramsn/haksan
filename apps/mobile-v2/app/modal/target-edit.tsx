@@ -108,7 +108,7 @@ export default function TargetEditScreen() {
   const invalidCount = invalidTargetFieldCount(form);
   const sectionItems = form.targetItems.filter((item) => item.targetType === section);
 
-  if (!isAdmin || !id) return <Redirect href={'/(tabs)/modules/targets' as Href} />;
+  if (!isAdmin || !id) return <Redirect href={'/modules/targets' as Href} />;
 
   function updateItem(next: TargetFormItem) {
     const key = targetItemKey(next);

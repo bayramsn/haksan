@@ -28,7 +28,7 @@ export function PickerField({
     <View className="gap-1.5">
       <Text className="font-inter-medium text-[13px] text-muted-foreground">{label}</Text>
       <View
-        className={`min-h-12 flex-row items-center rounded-control border bg-input-background ${error ? 'border-destructive' : 'border-transparent'} ${disabled ? 'opacity-50' : ''}`}
+        className={`min-h-14 flex-row items-center rounded-control border bg-input-background ${error ? 'border-destructive' : 'border-border'} ${disabled ? 'opacity-50' : ''}`}
       >
         <Pressable
           accessibilityRole="button"
@@ -36,9 +36,11 @@ export function PickerField({
           accessibilityState={{ disabled }}
           disabled={disabled}
           onPress={onPress}
-          className="min-h-12 flex-1 flex-row items-center gap-3 px-3.5 active:opacity-70"
+          className="min-h-14 flex-1 flex-row items-center gap-3 px-3 active:opacity-70"
         >
-          <Ionicons name={icon} size={18} color={colors.primary} />
+          <View className="h-8 w-8 items-center justify-center rounded-lg bg-primary-soft">
+            <Ionicons name={icon} size={18} color={colors.primary} />
+          </View>
           <Text
             className={`flex-1 font-inter text-base ${value ? 'text-foreground' : 'text-muted-foreground'}`}
             numberOfLines={1}

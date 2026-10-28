@@ -1,5 +1,9 @@
-import { useEffect, useMemo, useState } from 'react';
-import { Pressable, Text, View } from 'react-native';
+import * as Crypto from 'expo-crypto';
+import { apiOrigin } from '@/src/api/config';
+import { ApiError } from '@/src/api/client';
+import { readPendingProductCreate, writePendingProductCreate, clearPendingProductCreate, type PendingProductCreate } from './product-create-draft';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Alert, Pressable, Text, View } from 'react-native';
 import { Redirect, useRouter, type Href } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '@/src/auth/AuthProvider';
@@ -16,6 +20,9 @@ import {
   useReplaceProductDetails,
   useSpecTemplates,
 } from '@/src/api/products.hooks';
+import { productsApi } from '@/src/api/endpoints';
+import { useQueryClient } from '@tanstack/react-query';
+import { productPartsReady, saveProductWithDetails, type ProductSaveProgress } from './product-save';
 import { productsExtraApi } from '@/src/api/products.api';
 import { useTheme } from '@/src/theme/theme';
 import { Card, ErrorState, Eyebrow, Field, Loading } from '@/src/ui';
@@ -53,6 +60,13 @@ export function ProductForm({ id }: { id?: string }) {
   const router = useRouter();
   const { colors } = useTheme();
   const editing = Boolean(id);
+  const { user } = useAuth();
+  const scope = activeScope();
+  const productScope = JSON.stringify([apiOrigin(), user?.tenantId, user?.id, scope.divisionId, scope.departmentId]);
+  const pendingCreate = useRef<PendingProductCreate | null>(null);
+  const submitting = useRef(false);
+  const saveProgress = useRef<ProductSaveProgress>({ busy: false });
+  const queryClient = useQueryClient();
   const allowed = useProductPermission(editing ? 'update' : 'create');
   const divisionId = activeScope().divisionId ?? undefined;
 
@@ -76,12 +90,28 @@ export function ProductForm({ id }: { id?: string }) {
   const [detailsDirty, setDetailsDirty] = useState(false);
   const [hydrated, setHydrated] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [draftReady, setDraftReady] = useState(editing);
+  const [draftError, setDraftError] = useState('');
+  useEffect(() => {
+    if (editing) return;
+    let active = true;
+    void readPendingProductCreate(productScope).then(saved => {
+      if (!active) return;
+      if (saved) {
+        pendingCreate.current = saved;
+        setForm(saved.form); setSupplier(saved.supplier ?? null); setSpecs(saved.specs); setStandardText(saved.standardText); setOptionalText(saved.optionalText);
+        setOriginalEquipment(saved.originalEquipment); setDetailsDirty(saved.detailsDirty);
+      }
+      setDraftError(''); setDraftReady(true);
+    }).catch(error => { if (active) setDraftError(error instanceof Error ? error.message : 'Bekleyen ürün işlemi okunamadı.'); });
+    return () => { active = false; };
+  }, [editing, productScope]);
 
   const templates = useSpecTemplates(form.productTypeCode || undefined, divisionId);
 
   useEffect(() => {
     const data = detail.data;
-    if (!editing || hydrated || !data || specRows.isPending || equipmentRows.isPending) return;
+    if (!editing || hydrated || !data || !productPartsReady(specRows, equipmentRows)) return;
     setForm({
       productGroupCode: data.productGroup?.code ?? '',
       categoryCode: data.category?.code ?? '',
@@ -122,17 +152,17 @@ export function ProductForm({ id }: { id?: string }) {
     setStandardText(equipment.filter((row) => row.code === 'standart').map((row) => row.draft.title).join('\n'));
     setOptionalText(equipment.filter((row) => row.code !== 'standart').map((row) => row.draft.title).join('\n'));
     setHydrated(true);
-  }, [editing, hydrated, detail.data, specRows.isPending, specRows.data, equipmentRows.isPending, equipmentRows.data]);
+  }, [editing, hydrated, detail.data, specRows.isPending, specRows.data, equipmentRows.isPending, equipmentRows.data, specRows.isError, equipmentRows.isError]);
 
   // Yeni üründe tip seçilince web gibi teknik bilgi şablonu yüklenir.
   useEffect(() => {
-    if (editing || detailsDirty || !templates.data) return;
+    if (editing || !draftReady || detailsDirty || !form.productTypeCode || !templates.data) return;
     setSpecs(
       [...templates.data]
         .sort((a, b) => a.sortOrder - b.sortOrder)
         .map((row) => ({ key: row.specKey, value: row.defaultValue ?? '', unit: row.specUnit ?? '', groupCode: row.specGroupCode })),
     );
-  }, [editing, detailsDirty, templates.data]);
+  }, [editing, draftReady, detailsDirty, templates.data, form.productTypeCode]);
 
   const rows = taxonomy.data;
   const group = rows?.groups.find((row) => row.code === form.productGroupCode);
@@ -162,31 +192,43 @@ export function ProductForm({ id }: { id?: string }) {
     [products.data, id],
   );
 
-  if (!allowed) return <Redirect href={'/(tabs)/modules/products' as Href} />;
+  if (!allowed) return <Redirect href={'/modules/products' as Href} />;
   const title = editing ? 'Ürünü Düzenle' : 'Yeni Ürün';
-  if (editing && (detail.isPending || !hydrated) && !detail.error) {
+  if (!editing && !draftReady) return <FormScreen title={title}>{draftError ? <ErrorState message={draftError} onRetry={() => { setDraftError(''); void readPendingProductCreate(productScope).then(saved => { if (saved) { pendingCreate.current = saved; setForm(saved.form); setSupplier(saved.supplier ?? null); setSpecs(saved.specs); setStandardText(saved.standardText); setOptionalText(saved.optionalText); setOriginalEquipment(saved.originalEquipment); setDetailsDirty(saved.detailsDirty); } setDraftReady(true); }).catch(error => setDraftError(error instanceof Error ? error.message : 'Taslak okunamadı.')); }} /> : <Loading />}</FormScreen>;
+  const partsError = specRows.error ?? equipmentRows.error;
+  if (editing && (detail.isPending || !hydrated) && !detail.error && !partsError) {
     return (
       <FormScreen title={title}>
         <Loading />
       </FormScreen>
     );
   }
-  if (editing && detail.error) {
+  if (editing && (detail.error || partsError)) {
     return (
       <FormScreen title={title}>
-        <ErrorState message={detail.error.message} onRetry={() => void detail.refetch()} />
+        <ErrorState message={(detail.error ?? partsError)!.message} onRetry={() => { void detail.refetch(); void specRows.refetch(); void equipmentRows.refetch(); }} />
       </FormScreen>
     );
   }
 
   const set = <K extends keyof ProductFormState>(key: K, value: ProductFormState[K]) =>
     setForm((current) => ({ ...current, [key]: value }));
+  function changeClassification(patch: Partial<ProductFormState>) {
+    const apply = () => setForm(current => ({ ...current, ...patch }));
+    if (specs.length && (editing || detailsDirty)) {
+      Alert.alert('Ürün sınıfı değiştirilsin mi?', 'Düzenlediğiniz teknik bilgiler korunacak. Yeni sınıfa uygun olduklarını kaydetmeden önce kontrol edin.', [
+        { text: 'Vazgeç', style: 'cancel' }, { text: 'Bilgileri koru ve değiştir', onPress: apply },
+      ]);
+    } else apply();
+  }
   const setSpec = (index: number, patch: Partial<SpecDraft>) => {
     setDetailsDirty(true);
     setSpecs((current) => current.map((spec, i) => (i === index ? { ...spec, ...patch } : spec)));
   };
 
   async function submit() {
+    if (!draftReady || submitting.current || saveProgress.current.busy || (editing && (!hydrated || !productPartsReady(specRows, equipmentRows)))) return;
+    if (!productPartsReady(taxonomy, brands, currencies)) return toast.error('Ürün seçenekleri tam yüklenmedi. Önce yeniden deneyin.');
     const check = validateProductForm(form);
     if (!check.ok) return toast.error(check.title);
     const body = buildProductBody(form);
@@ -195,22 +237,40 @@ export function ProductForm({ id }: { id?: string }) {
       standard: equipmentFromLines(standardText, originalEquipment),
       optional: equipmentFromLines(optionalText, originalEquipment),
     });
+    submitting.current = true;
     setSaving(true);
     try {
-      if (editing) {
-        await update.mutateAsync(body);
-        if (detailsDirty) await replaceDetails.mutateAsync(details);
-        toast.success(`Ürün güncellendi · ${body.modelCode}`);
-      } else {
-        const created = await create.mutateAsync({ ...body, divisionId, supplierCompanyId: body.supplierCompanyId ?? undefined, listPrice: body.listPrice ?? undefined, cashPrice: body.cashPrice ?? undefined });
-        if (details.specs.length || details.equipment.length) await productsExtraApi.replaceDetails(created.id, details);
-        toast.success(`Ürün oluşturuldu · ${body.modelCode}`);
+      const requestedBody = editing ? body : { ...body, divisionId };
+      if (!editing) {
+        const receipt: PendingProductCreate = { scope: productScope, operationId: pendingCreate.current?.operationId ?? Crypto.randomUUID(), createBody: pendingCreate.current?.createBody ?? { ...body, divisionId }, form, specs, supplier, standardText, optionalText, originalEquipment, detailsDirty };
+        // Persist the operation identity and frozen POST before any network write.
+        pendingCreate.current = receipt;
+        await writePendingProductCreate(receipt);
       }
+      await saveProductWithDetails(saveProgress.current, {
+        existingId: id,
+        body: requestedBody,
+        createBody: editing ? undefined : pendingCreate.current!.createBody,
+        details,
+        writeDetails: editing ? detailsDirty : Boolean(details.specs.length || details.equipment.length),
+        create: async (next) => {
+          const operationId = pendingCreate.current!.operationId;
+          try { return await productsExtraApi.recoverCreate(operationId); }
+          catch (error) { if (!(error instanceof ApiError) || error.status !== 404) throw error; }
+          return create.mutateAsync({ ...next, supplierCompanyId: next.supplierCompanyId ?? undefined, listPrice: next.listPrice ?? undefined, cashPrice: next.cashPrice ?? undefined, operationId });
+        },
+        update: (savedId, next) => editing ? update.mutateAsync(next) : productsApi.update(savedId, next),
+        replaceDetails: (savedId, next) => editing ? replaceDetails.mutateAsync(next) : productsExtraApi.replaceDetails(savedId, next),
+      });
+      if (!editing) { await clearPendingProductCreate(productScope); pendingCreate.current = null; }
+      await queryClient.invalidateQueries({ queryKey: ['products'] });
+      toast.success(`Ürün ${editing ? 'güncellendi' : 'oluşturuldu'} · ${body.modelCode}`);
       router.back();
     } catch (error) {
       const message = error instanceof Error ? error.message : 'API isteği başarısız oldu.';
-      toast.error(`${editing ? 'Ürün güncellenemedi' : 'Ürün oluşturulamadı'}: ${message}`);
+      toast.error(`${saveProgress.current.createdId ? 'Ürün kaydedildi ancak ayrıntıları tamamlanamadı. Tekrar Kaydet aynı ürünü tamamlar' : editing ? 'Ürün güncellenemedi' : 'Ürün oluşturulamadı'}: ${message}`);
     } finally {
+      submitting.current = false;
       setSaving(false);
     }
   }
@@ -220,24 +280,26 @@ export function ProductForm({ id }: { id?: string }) {
   const currencyOptions = (currencies.data ?? []).map((row) => ({ value: row.code, label: row.code }));
 
   return (
-    <FormScreen title={title} submitLabel={saving ? 'Kaydediliyor...' : 'Kaydet'} submitting={saving} onSubmit={() => void submit()}>
+    <FormScreen title={title} submitLabel={saving ? 'Kaydediliyor...' : 'Kaydet'} submitting={saving} submitDisabled={!productPartsReady(taxonomy, brands, currencies)} onSubmit={() => void submit()}>
       <Text className="font-inter text-xs text-muted-foreground">
         Ürün sınıflandırması, fiyat, stok kodu ve teknik bilgileri tek ekranda yönetin.
       </Text>
-      {taxonomy.isPending ? <Loading /> : null}
+      {!editing && pendingCreate.current && !saveProgress.current.createdId ? <Text accessibilityRole="alert" className="text-warning">Bekleyen ürün işlemi geri yüklendi. Kaydet, aynı işlem anahtarıyla önceki sonucu kontrol ederek devam eder.</Text> : null}
+      {saveProgress.current.createdId ? <Text accessibilityRole="alert" className="text-warning">Ürün kaydı oluşturuldu. Kaydet düğmesi aynı ürünün eksik ayrıntılarını tamamlar.</Text> : null}
+      {[{ name: 'Ürün sınıflandırması', query: taxonomy }, { name: 'Markalar', query: brands }, { name: 'Para birimleri', query: currencies }, { name: 'Muadil ürünler', query: products }, { name: 'Teknik bilgi şablonu', query: templates }].map(({ name, query }) => query.error ? <ErrorState key={name} message={`${name}: ${query.error.message}`} onRetry={() => void query.refetch()} /> : query.isPending && (name !== 'Teknik bilgi şablonu' || Boolean(form.productTypeCode)) ? <View key={name}><Text className="text-muted-foreground">{name} yükleniyor…</Text><Loading /></View> : null)}
       <OptionPicker
         label="1. Ürün Grubu"
         value={form.productGroupCode || null}
         options={groupOptions.map((row) => ({ value: row.code, label: row.name }))}
         placeholder="Grup seçin"
-        onChange={(next) => setForm((current) => ({ ...current, productGroupCode: next ?? '', categoryCode: '', subcategoryCode: '', productTypeCode: '' }))}
+        onChange={(next) => changeClassification({ productGroupCode: next ?? '', categoryCode: '', subcategoryCode: '', productTypeCode: '' })}
       />
       <OptionPicker
         label="2. Ürün Kategorisi"
         value={form.categoryCode || null}
         options={categoryOptions.map((row) => ({ value: row.code, label: row.name }))}
         placeholder="Kategori seçin"
-        onChange={(next) => setForm((current) => ({ ...current, categoryCode: next ?? '', subcategoryCode: '', productTypeCode: '' }))}
+        onChange={(next) => changeClassification({ categoryCode: next ?? '', subcategoryCode: '', productTypeCode: '' })}
       />
       {subcategoryOptions.length ? (
         <OptionPicker
@@ -245,7 +307,7 @@ export function ProductForm({ id }: { id?: string }) {
           value={form.subcategoryCode || null}
           options={subcategoryOptions.map((row) => ({ value: row.code, label: row.name }))}
           placeholder="Alt kategori seçin"
-          onChange={(next) => setForm((current) => ({ ...current, subcategoryCode: next ?? '', productTypeCode: '' }))}
+          onChange={(next) => changeClassification({ subcategoryCode: next ?? '', productTypeCode: '' })}
         />
       ) : null}
       <OptionPicker
@@ -254,7 +316,7 @@ export function ProductForm({ id }: { id?: string }) {
         options={typeOptions.map((row) => ({ value: row.code, label: row.name }))}
         placeholder={typeOptions.length ? 'Ürün tipi seçin' : 'Önce kategori seçin'}
         searchable
-        onChange={(next) => set('productTypeCode', next ?? '')}
+        onChange={(next) => changeClassification({ productTypeCode: next ?? '' })}
       />
       <OptionPicker
         label="5. Ürün Markası"
@@ -271,6 +333,7 @@ export function ProductForm({ id }: { id?: string }) {
       <CompanyPicker
         label="Ürün Tedarikçisi"
         placeholder="Tedarikçi seçin"
+        relationTypeCodes={['supplier', 'supplier_customer']}
         value={supplier}
         onChange={(next) => {
           setSupplier(next);

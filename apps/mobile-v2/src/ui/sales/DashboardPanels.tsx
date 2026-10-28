@@ -1,7 +1,8 @@
 import { useMemo, useRef, useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
 import type { BottomSheetModal } from '@gorhom/bottom-sheet';
-import { useRouter, type Href } from 'expo-router';
+import { type Href } from 'expo-router';
+import { useCanAccessModule, useGuardedPush } from '@/src/modules/useModuleAccess';
 import { Ionicons } from '@expo/vector-icons';
 import { BarChart, LineChart, PieChart } from 'react-native-gifted-charts';
 import { useAuth, useCan } from '@/src/auth/AuthProvider';
@@ -27,7 +28,7 @@ import { activityBucketLabel, CHART_RANGE_MONTHS, type ChartRange, type WorkSign
 import { currentPeriod, periodLabelLong, STATUS_META } from '@/src/ui/sales/targets-logic';
 
 export function opportunitiesHref(params: { focus?: SalesFocus; stageCode?: string; stageName?: string; qualification?: string }): Href {
-  return { pathname: '/(tabs)/modules/opportunities', params } as unknown as Href;
+  return { pathname: '/modules/opportunities', params } as unknown as Href;
 }
 
 function SectionTitle({ title, hint, action }: { title: string; hint?: string; action?: { label: string; onPress: () => void } }) {
@@ -132,40 +133,42 @@ export function DashboardBriefing({
 }: {
   firstName: string;
   counts: { total: number; critical: number; warning: number };
-  onToday: () => void;
-  onOverdue: () => void;
+  onToday?: () => void;
+  onOverdue?: () => void;
 }) {
   const { colors } = useTheme();
   const today = new Intl.DateTimeFormat('tr-TR', { day: '2-digit', month: 'long', weekday: 'long' }).format(new Date());
   return (
     <View className="gap-3 rounded-[16px] bg-primary p-4">
       <View className="gap-1">
-        <Text className="font-inter-semibold text-[11px] uppercase text-primary-foreground opacity-80">{`Günlük operasyon brifingi · ${today}`}</Text>
+        <Text className="font-inter-semibold text-[11px] uppercase text-primary-foreground opacity-80">{today}</Text>
         <Text accessibilityRole="header" className="font-display-semibold text-[22px] text-primary-foreground">
           {`Hoş geldin ${firstName}`}
         </Text>
         <Text className="font-inter text-[13px] text-primary-foreground opacity-80">
-          {`Bugün ${counts.total} takip işi var; ${counts.critical} kritik, ${counts.warning} yakın takip.`}
+          {`${counts.total} takip sinyali · ${counts.critical} kritik · ${counts.warning} yakın takip`}
         </Text>
       </View>
       <View className="flex-row gap-2">
-        <Pressable
+        {onToday ? <Pressable
           accessibilityRole="button"
-          accessibilityLabel="Bugün"
+          accessibilityLabel="Takvimi aç"
           onPress={onToday}
           className="min-h-[44px] flex-1 flex-row items-center justify-center gap-1.5 rounded-[10px] bg-white/15 active:opacity-70"
         >
           <Ionicons name="calendar-outline" size={16} color={colors.primaryForeground} />
-          <Text className="font-inter-semibold text-[14px] text-primary-foreground">Bugün</Text>
-        </Pressable>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Gecikenler"
-          onPress={onOverdue}
-          className="min-h-[44px] flex-1 flex-row items-center justify-center gap-1.5 rounded-[10px] bg-card active:opacity-70"
-        >
-          <Text className="font-inter-semibold text-[14px] text-primary">Gecikenler</Text>
-        </Pressable>
+          <Text className="font-inter-semibold text-[14px] text-primary-foreground">Takvimi aç</Text>
+        </Pressable> : null}
+        {onOverdue ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Geciken ödemeler"
+            onPress={onOverdue}
+            className="min-h-[44px] flex-1 flex-row items-center justify-center gap-1.5 rounded-[10px] bg-card active:opacity-70"
+          >
+            <Text className="font-inter-semibold text-[14px] text-primary">Geciken ödemeler</Text>
+          </Pressable>
+        ) : null}
       </View>
     </View>
   );
@@ -182,28 +185,29 @@ const TASK_METRICS = [
   { view: 'completed', label: 'Tamamlanan' },
 ] as const;
 
-export function DashboardTasksPanel() {
-  const router = useRouter();
+export function DashboardTasksPanel({ compact = false }: { compact?: boolean }) {
+  const push = useGuardedPush();
+  const tasksAllowed = useCanAccessModule('tasks');
   const canRead = useCan('tasks.read');
   const canManage = useCan('tasks.manage');
   const counts = useTaskCounts();
   const mine = useTaskList({ view: 'mine' });
   const summary = useTasksSummary(canRead && canManage);
-  if (!canRead) return null;
+  if (!tasksAllowed) return null;
 
   const tasks = [...(mine.data?.data ?? [])]
     .filter((task) => task.status !== 'done' && task.status !== 'cancelled')
     .sort((a, b) => (Date.parse(a.dueAt ?? '') || Infinity) - (Date.parse(b.dueAt ?? '') || Infinity))
-    .slice(0, 5);
+    .slice(0, compact ? 3 : 5);
   const team = teamTaskRows(summary.data ?? []);
-  const goTasks = () => router.push('/(tabs)/modules/tasks' as Href);
+  const goTasks = () => push('/modules/tasks' as Href);
 
   return (
     <Card className="gap-3">
       <SectionTitle
         title="Görev takibi"
         hint={
-          canManage
+          compact ? 'Size atanan açık görevler ve bugünkü takip.' : canManage
             ? 'Bugün, geciken ve yaklaşan sayıları seçili bölümde görebildiğiniz ekip görevlerini kapsar.'
             : 'Bugün, geciken ve yaklaşan sayıları size atanan veya sizin oluşturduğunuz görevleri kapsar.'
         }
@@ -215,7 +219,7 @@ export function DashboardTasksPanel() {
         <ErrorState message="Görev takibi yüklenemedi. Lütfen yeniden deneyin." onRetry={() => void counts.refetch()} />
       ) : (
         <View className="gap-2">
-          {[0, 2, 4].map((start) => (
+          {(compact ? [0] : [0, 2, 4]).map((start) => (
             <View key={start} className="flex-row gap-2">
               {TASK_METRICS.slice(start, start + 2).map((metric) => {
                 const count = counts.data?.[metric.view] ?? 0;
@@ -225,7 +229,7 @@ export function DashboardTasksPanel() {
                     label={metric.label}
                     value={String(count)}
                     valueTone={metric.view === 'overdue' && count > 0 ? 'destructive' : undefined}
-                    onPress={goTasks}
+                    onPress={() => push({ pathname: '/modules/tasks', params: { view: metric.view } } as unknown as Href)}
                   />
                 );
               })}
@@ -234,7 +238,9 @@ export function DashboardTasksPanel() {
         </View>
       )}
       <Text className="font-inter-medium text-[12px] text-muted-foreground">Bana atananlar · son tarihe göre</Text>
-      {mine.isPending ? null : tasks.length === 0 ? (
+      {mine.isPending ? <Loading /> : mine.error ? (
+        <ErrorState message="Görevler yüklenemedi." onRetry={() => void mine.refetch()} />
+      ) : tasks.length === 0 ? (
         <Text className="font-inter text-[13px] text-muted-foreground">Size atanmış açık görev yok.</Text>
       ) : (
         tasks.map((task) => (
@@ -242,7 +248,7 @@ export function DashboardTasksPanel() {
             key={task.id}
             accessibilityRole="button"
             accessibilityLabel={task.title}
-            onPress={() => router.push(`/(tabs)/modules/tasks/${task.id}` as Href)}
+            onPress={() => push(`/modules/tasks/${task.id}` as Href)}
             className="min-h-[44px] flex-row items-center gap-2 border-t border-border py-2 active:opacity-70"
           >
             <View className="min-w-0 flex-1">
@@ -259,7 +265,7 @@ export function DashboardTasksPanel() {
           </Pressable>
         ))
       )}
-      {canManage ? (
+      {canManage && !compact ? (
         <View className="gap-1 border-t border-border pt-3">
           <Text className="font-inter-medium text-[12px] text-muted-foreground">Ekip görev durumu</Text>
           {summary.isPending ? (
@@ -329,7 +335,7 @@ function DeltaText({ current, previous, suffix }: { current: number; previous: n
 type DetailTarget = { metric: TeamActivityMetric; user?: { id: string; name: string } };
 
 function ActivityDetailsBody({ period, scope, target }: { period: TeamActivityPeriod; scope: 'team' | 'self'; target: DetailTarget }) {
-  const router = useRouter();
+  const push = useGuardedPush();
   const [expanded, setExpanded] = useState<string | null>(null);
   const details = useTeamActivityDetails({ period, scope, metric: target.metric, userId: target.user?.id }, true);
   if (details.isPending) return <Loading />;
@@ -383,7 +389,7 @@ function ActivityDetailsBody({ period, scope, target }: { period: TeamActivityPe
                 <Pressable
                   accessibilityRole="button"
                   accessibilityLabel="Firmayı aç"
-                  onPress={() => router.push(`/(tabs)/modules/companies/${item.company.id}` as Href)}
+                  onPress={() => push(`/modules/companies/${item.company.id}` as Href)}
                   className="min-h-[44px] justify-center active:opacity-60"
                 >
                   <Text className="font-inter-medium text-[13px] text-primary">Firmayı aç</Text>
@@ -564,8 +570,8 @@ function money(total: { currency: string; total: number } | null): string {
 }
 
 export function SalesPerformancePanel({ performance, truncated }: { performance: SalesPerformance; truncated: boolean }) {
-  const router = useRouter();
-  const go = (focus?: SalesFocus) => router.push(opportunitiesHref(focus ? { focus } : {}));
+  const push = useGuardedPush();
+  const go = (focus?: SalesFocus) => push(opportunitiesHref(focus ? { focus } : {}));
   return (
     <Card className="gap-3">
       <SectionTitle
@@ -605,7 +611,7 @@ export function SalesPerformancePanel({ performance, truncated }: { performance:
 }
 
 export function QualificationPanel({ rows }: { rows: Pick<SalesOpportunityRow, 'qualificationStage'>[] }) {
-  const router = useRouter();
+  const push = useGuardedPush();
   const { colors } = useTheme();
   const summary = qualificationSummary(rows);
   return (
@@ -617,7 +623,7 @@ export function QualificationPanel({ rows }: { rows: Pick<SalesOpportunityRow, '
             key={item.stage}
             accessibilityRole="button"
             accessibilityLabel={`${item.label}: ${item.count}. Fırsatları aç`}
-            onPress={() => router.push(opportunitiesHref({ qualification: item.stage }))}
+            onPress={() => push(opportunitiesHref({ qualification: item.stage }))}
             className="min-h-[64px] min-w-[30%] flex-1 rounded-[12px] border border-border bg-canvas px-3 py-2 active:opacity-70"
           >
             <View className="flex-row items-center gap-1.5">
@@ -645,16 +651,16 @@ export function signalHref(signal: WorkSignal): Href {
     case 'opportunities':
       return opportunitiesHref({ focus: signal.target.focus });
     case 'tasks':
-      return '/(tabs)/modules/tasks' as Href;
+      return { pathname: '/modules/tasks', params: { view: signal.id === 'tasks-overdue' ? 'overdue' : 'today' } } as unknown as Href;
     case 'receivables':
-      return '/(tabs)/modules/receivables' as Href;
+      return '/modules/receivables' as Href;
     case 'service':
-      return '/(tabs)/modules/service-tickets' as Href;
+      return '/modules/service-tickets' as Href;
   }
 }
 
 export function SignalList({ title, hint, signals, empty, limit }: { title: string; hint?: string; signals: WorkSignal[]; empty: string; limit?: number }) {
-  const router = useRouter();
+  const push = useGuardedPush();
   const { colors } = useTheme();
   const list = limit ? signals.slice(0, limit) : signals;
   return (
@@ -670,7 +676,7 @@ export function SignalList({ title, hint, signals, empty, limit }: { title: stri
               key={signal.id}
               accessibilityRole="button"
               accessibilityLabel={`${meta.label}: ${signal.title}, ${signal.detail}`}
-              onPress={() => router.push(signalHref(signal))}
+              onPress={() => push(signalHref(signal))}
               className="min-h-[52px] flex-row items-center gap-3 border-t border-border py-2 active:opacity-70"
             >
               <Ionicons name={meta.icon} size={20} color={toneColor(colors, meta.tone)} />
@@ -691,13 +697,13 @@ export function SignalList({ title, hint, signals, empty, limit }: { title: stri
 
 export function MonthlySalesChart({ buckets, title, hint }: { buckets: MonthlyBucket[]; title: string; hint: string }) {
   const { colors } = useTheme();
-  const router = useRouter();
+  const push = useGuardedPush();
   const [range, setRange] = useState<ChartRange>('6A');
   const view = buckets.slice(-CHART_RANGE_MONTHS[range]);
   const hasData = view.some((b) => b.quotes > 0 || b.won > 0);
   return (
     <Card className="gap-3">
-      <SectionTitle title={title} hint={hint} action={{ label: 'Kazanılanlar', onPress: () => router.push(opportunitiesHref({ focus: 'won' })) }} />
+      <SectionTitle title={title} hint={hint} action={{ label: 'Kazanılanlar', onPress: () => push(opportunitiesHref({ focus: 'won' })) }} />
       <Pills options={(Object.keys(CHART_RANGE_MONTHS) as ChartRange[]).map((value) => ({ value, label: value }))} value={range} onChange={setRange} />
       {hasData ? (
         <>
@@ -738,7 +744,7 @@ export function MonthlySalesChart({ buckets, title, hint }: { buckets: MonthlyBu
 
 export function StageDistribution({ stages }: { stages: { code: string; label: string; value: number }[] }) {
   const { colors } = useTheme();
-  const router = useRouter();
+  const push = useGuardedPush();
   const palette = [colors.chart1, colors.chart2, colors.chart3, colors.chart4, colors.chart5];
   const slices = stages.filter((stage) => stage.value > 0);
   const total = slices.reduce((sum, stage) => sum + stage.value, 0);
@@ -756,7 +762,7 @@ export function StageDistribution({ stages }: { stages: { code: string; label: s
                 key={stage.code}
                 accessibilityRole="button"
                 accessibilityLabel={`${stage.label}: ${stage.value} kart`}
-                onPress={() => router.push(opportunitiesHref({ stageCode: stage.code, stageName: stage.label }))}
+                onPress={() => push(opportunitiesHref({ stageCode: stage.code, stageName: stage.label }))}
                 className="min-h-[44px] flex-row items-center gap-2 active:opacity-70"
               >
                 <View className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: palette[index % palette.length] }} />
@@ -788,7 +794,7 @@ export function BarList({
   suffix?: string;
 }) {
   const { colors } = useTheme();
-  const router = useRouter();
+  const push = useGuardedPush();
   const top = max ?? Math.max(1, ...rows.map((row) => row.value ?? 0));
   return (
     <Card className="gap-2">
@@ -801,7 +807,7 @@ export function BarList({
             key={row.key}
             accessibilityRole="button"
             accessibilityLabel={`${row.label}: ${row.value == null ? 'ölçülemedi' : `${row.value}${suffix}`}`}
-            onPress={() => router.push(row.href)}
+            onPress={() => push(row.href)}
             className="min-h-[44px] justify-center gap-1 active:opacity-70"
           >
             <View className="flex-row justify-between">
@@ -856,10 +862,10 @@ export function RevenueChart({ buckets, currency }: { buckets: MonthlyBucket[]; 
 
 export function WonLostChart({ buckets }: { buckets: MonthlyBucket[] }) {
   const { colors } = useTheme();
-  const router = useRouter();
+  const push = useGuardedPush();
   const data = buckets.flatMap((b) => [
-    { value: b.won, frontColor: colors.success, spacing: 2, label: b.label, labelWidth: 30, onPress: () => router.push(opportunitiesHref({ focus: 'won' })) },
-    { value: b.lost, frontColor: colors.destructive, spacing: 12, onPress: () => router.push(opportunitiesHref({ focus: 'lost' })) },
+    { value: b.won, frontColor: colors.success, spacing: 2, label: b.label, labelWidth: 30, onPress: () => push(opportunitiesHref({ focus: 'won' })) },
+    { value: b.lost, frontColor: colors.destructive, spacing: 12, onPress: () => push(opportunitiesHref({ focus: 'lost' })) },
   ]);
   const hasData = data.some((d) => d.value > 0);
   return (
@@ -885,10 +891,10 @@ export function WonLostChart({ buckets }: { buckets: MonthlyBucket[] }) {
           </View>
           <View className="flex-row gap-2">
             <View className="flex-1">
-              <Button label="Kazanılanlar" variant="ghost" onPress={() => router.push(opportunitiesHref({ focus: 'won' }))} />
+              <Button label="Kazanılanlar" variant="ghost" onPress={() => push(opportunitiesHref({ focus: 'won' }))} />
             </View>
             <View className="flex-1">
-              <Button label="Kaybedilenler" variant="ghost" onPress={() => router.push(opportunitiesHref({ focus: 'lost' }))} />
+              <Button label="Kaybedilenler" variant="ghost" onPress={() => push(opportunitiesHref({ focus: 'lost' }))} />
             </View>
           </View>
         </>
@@ -902,11 +908,11 @@ export function WonLostChart({ buckets }: { buckets: MonthlyBucket[] }) {
 /* ---------------------------------------------------------------- hedefler ---- */
 
 export function MyTargetsPanel() {
-  const router = useRouter();
+  const push = useGuardedPush();
   const { colors } = useTheme();
   const period = useMemo(() => currentPeriod(), []);
   const progress = useMyTargetProgress(period);
-  const goTargets = () => router.push('/(tabs)/modules/targets' as Href);
+  const goTargets = () => push('/modules/targets' as Href);
   return (
     <Card className="gap-3">
       <SectionTitle title="Hedeflerim" hint={periodLabelLong(period)} action={{ label: 'Hedef çalışma alanı', onPress: goTargets }} />

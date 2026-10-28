@@ -1,3 +1,4 @@
+import { collectPaginated } from './pagination';
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient, type QueryKey } from '@tanstack/react-query';
 import { inventoryApi, orders, productsApi, reportsExtra } from './endpoints';
 import type { ProductUpdateInput } from '@haksan/shared';
@@ -123,7 +124,7 @@ export function useUpdateProduct(id: string) {
 export function usePriceLists() {
   return useQuery({
     queryKey: inventoryKeys.priceLists,
-    queryFn: () => productsApi.priceLists({ page: 1, pageSize: 50 }),
+    queryFn: () => collectPaginated((page) => productsApi.priceLists({ page, pageSize: 50 })),
     select: (page) => page.data,
   });
 }

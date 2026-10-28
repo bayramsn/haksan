@@ -1,4 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useAuth } from '@/src/auth/AuthProvider';
+import { collectPaginated } from './pagination';
 import {
   productsExtraApi,
   type CampaignBody,
@@ -11,6 +13,11 @@ import {
 } from './products.api';
 
 const LOAD_ALL_PAGE_SIZE = 200;
+
+function useCatalogScope() {
+  const { user, scope } = useAuth();
+  return { user, key: [user?.tenantId ?? '', user?.id ?? '', scope.divisionId, scope.departmentId] as const };
+}
 
 export const productKeys = {
   all: ['products', 'list', 'all'] as const,
@@ -29,25 +36,22 @@ export const productKeys = {
  * alıp aile/seri/taksonomi süzmesini yerelde yapar; mobil aynı veriyi kullanır.
  */
 export function useAllProducts(enabled = true) {
+  const catalogScope = useCatalogScope();
   return useQuery({
-    queryKey: productKeys.all,
-    enabled,
+    queryKey: [...productKeys.all, catalogScope.key],
+    enabled: enabled && Boolean(catalogScope.user),
     staleTime: 60_000,
     queryFn: async () => {
-      const rows: CatalogProduct[] = [];
-      for (let page = 1; ; page += 1) {
-        const result = await productsExtraApi.listAll({ page, pageSize: LOAD_ALL_PAGE_SIZE });
-        rows.push(...result.data);
-        if (page >= result.meta.totalPages) break;
-      }
-      return rows;
+      const result = await collectPaginated<CatalogProduct>((page) => productsExtraApi.listAll({ page, pageSize: LOAD_ALL_PAGE_SIZE }));
+      return result.data;
     },
   });
 }
 
 export function useBrands(divisionId?: string, enabled = true) {
+  const catalogScope = useCatalogScope();
   return useQuery({
-    queryKey: productKeys.brands(divisionId),
+    queryKey: [...productKeys.brands(divisionId), catalogScope.key],
     queryFn: () => productsExtraApi.brands(divisionId),
     enabled,
     staleTime: 5 * 60_000,
@@ -56,8 +60,9 @@ export function useBrands(divisionId?: string, enabled = true) {
 
 /** Ürün grubu → kategori → alt kategori → tip zinciri (üst bağlantı kolonlarıyla). */
 export function useProductTaxonomy() {
+  const catalogScope = useCatalogScope();
   return useQuery({
-    queryKey: productKeys.taxonomy,
+    queryKey: [...productKeys.taxonomy, catalogScope.key],
     staleTime: 10 * 60_000,
     queryFn: async () => {
       const [groups, categories, subcategories, types] = await Promise.all([
@@ -84,7 +89,7 @@ function useProductInvalidation() {
 export function useCreateProduct() {
   const invalidate = useProductInvalidation();
   return useMutation({
-    mutationFn: (body: ProductCreateBody) => productsExtraApi.create(body),
+    mutationFn: (body: ProductCreateBody & { operationId?: string }) => { const { operationId, ...payload } = body; return productsExtraApi.create(payload, operationId); },
     onSuccess: () => invalidate(),
   });
 }
@@ -251,9 +256,10 @@ export function useUpdatePriceList() {
 
 /** Bölüm alanıyla birlikte, ada göre sıralı fiyat listeleri. */
 export function useScopedPriceLists() {
+  const catalogScope = useCatalogScope();
   return useQuery({
-    queryKey: ['price-lists', 'scoped'],
-    queryFn: () => productsExtraApi.priceLists(),
+    queryKey: ['price-lists', 'scoped', catalogScope.key],
+    queryFn: () => collectPaginated((page) => productsExtraApi.priceLists(page)),
     select: (page) => [...page.data].sort((a, b) => (a.name || a.code).localeCompare(b.name || b.code, 'tr', { sensitivity: 'base' })),
   });
 }
@@ -277,9 +283,10 @@ export function useSaveCampaign(listId: string) {
 }
 
 export function useCatalogFiles(tenantId: string | undefined) {
+  const catalogScope = useCatalogScope();
   return useQuery({
-    queryKey: ['files', 'catalog', tenantId ?? ''],
-    queryFn: () => productsExtraApi.catalogFiles(tenantId ?? ''),
+    queryKey: ['files', 'catalog', tenantId ?? '', catalogScope.key],
+    queryFn: () => collectPaginated((page) => productsExtraApi.catalogFiles(tenantId ?? '', page)),
     enabled: Boolean(tenantId),
     select: (page) => page.data,
   });

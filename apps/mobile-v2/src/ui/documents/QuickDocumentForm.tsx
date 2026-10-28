@@ -1,3 +1,7 @@
+import { ProformaPrintVariant } from './ProformaPrintVariant';
+import { postPdfAndShare } from '@/src/native/files';
+import { shareSavedDocument } from './document-pdf';
+import { TermsTemplatePicker } from './TermsTemplatePicker';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
 import type { BottomSheetModal } from '@gorhom/bottom-sheet';
@@ -157,7 +161,9 @@ export function QuickDocumentForm({ kind, documentId }: { kind: Kind; documentId
   const createContract = useCreateStandaloneContract();
   const updateProforma = useUpdateStandaloneProforma();
   const updateContract = useUpdateStandaloneContract();
-  const busy = createProforma.isPending || createContract.isPending || updateProforma.isPending || updateContract.isPending;
+  const [pdfBusy, setPdfBusy] = useState(false);
+  const [printVariant, setPrintVariant] = useState('');
+  const busy = pdfBusy || createProforma.isPending || createContract.isPending || updateProforma.isPending || updateContract.isPending;
 
   const [party, setParty] = useState<QuickParty>(emptyQuickParty());
   const [companyLabel, setCompanyLabel] = useState<string | null>(null);
@@ -260,7 +266,7 @@ export function QuickDocumentForm({ kind, documentId }: { kind: Kind; documentId
     }
   );
 
-  if (isEdit ? !canUpdate : !canCreate) return <Redirect href="/(tabs)/modules/documents" />;
+  if (isEdit ? !canUpdate : !canCreate) return <Redirect href="/modules/documents" />;
 
   const label = kind === 'proforma' ? 'Proforma' : 'Sözleşme';
   const title = isEdit ? `Hızlı ${kind === 'proforma' ? 'Proformayı' : 'Sözleşmeyi'} Düzenle` : `Hızlı ${label}`;
@@ -272,7 +278,7 @@ export function QuickDocumentForm({ kind, documentId }: { kind: Kind; documentId
     setCompanyLabel(company.shortName ?? company.legalTitle);
   }
 
-  function submit() {
+  function submit(thenPdf = false) {
     const partyError = quickPartyError(party);
     if (partyError) return toast.error(partyError);
     if (divisions.length > 0 && !divisionId) return toast.error('İş alanı seçin');
@@ -330,9 +336,15 @@ export function QuickDocumentForm({ kind, documentId }: { kind: Kind; documentId
             ...(warranty ? { warrantyTerms: warranty } : {}),
           }),
     };
-    const done = (message: string) => () => {
+    const done = (message: string) => async (saved: { id: string }) => {
       toast.success(message);
-      router.back();
+      if (thenPdf) {
+        setPdfBusy(true);
+        try { await shareSavedDocument(kind, saved.id || documentId || '', documentNo, (path, filename) => postPdfAndShare(path, filename, kind === 'proforma' && printVariant ? { variantKey: printVariant } : undefined)); }
+        catch (error) { toast.error(`Kayıt kaydedildi; PDF alınamadı. Belge detayından tekrar deneyin. ${error instanceof Error ? error.message : ''}`); }
+        finally { setPdfBusy(false); }
+      }
+      router.replace(`/modules/${kind === 'proforma' ? 'proformas' : 'contracts'}/${saved.id || documentId}`);
     };
     const fail = (error: Error) => toast.error(error.message);
 
@@ -374,7 +386,7 @@ export function QuickDocumentForm({ kind, documentId }: { kind: Kind; documentId
       if (isEdit && documentId) updateContract.mutate({ id: documentId, body }, { onSuccess: done('CRM sözleşmesi güncellendi'), onError: fail });
       else
         createContract.mutate(body, {
-          onSuccess: done('CRM sözleşmesi oluşturuldu. PDF yüklendikten sonra detaydan açılır.'),
+          onSuccess: done('Sözleşme oluşturuldu'),
           onError: fail,
         });
       return;
@@ -383,7 +395,7 @@ export function QuickDocumentForm({ kind, documentId }: { kind: Kind; documentId
     if (isEdit && documentId) updateProforma.mutate({ id: documentId, body }, { onSuccess: done('CRM proforması güncellendi'), onError: fail });
     else
       createProforma.mutate(body, {
-        onSuccess: done('CRM proforması oluşturuldu. PDF yüklendikten sonra detaydan açılır.'),
+        onSuccess: done('Proforma oluşturuldu'),
         onError: fail,
       });
   }
@@ -401,14 +413,17 @@ export function QuickDocumentForm({ kind, documentId }: { kind: Kind; documentId
       <ModalForm
         title={title}
         submitLabel={isEdit ? `${label}${kind === 'proforma' ? 'yı' : 'yi'} Güncelle` : `CRM'de ${label} Oluştur`}
-        onSubmit={submit}
+        onSubmit={() => submit(false)}
+        secondaryLabel="Kaydet ve PDF al"
+        onSecondarySubmit={() => submit(true)}
         loading={busy}
         disabled={!hydrated}
       >
+        {kind === 'proforma' ? <ProformaPrintVariant value={printVariant} onChange={setPrintVariant} /> : null}
         <Text className="font-inter text-sm text-muted-foreground">
           {isEdit
-            ? 'Belgenin firma bilgisi, kalemleri ve şartlarını güncelleyin. PDF mobilde basılmaz; CRM dosyası belge detayından açılır.'
-            : `Teklif açmadan CRM'de ${kind === 'proforma' ? 'proforma' : 'sözleşme'} oluşturun. Kalemleri doğrudan yazarsınız; PDF web CRM'den yüklenir, mobilde yeniden üretilmez.`}
+            ? 'Belgenin firma bilgisi, kalemleri ve şartlarını güncelleyin. PDF sunucuda hazırlanır ve telefonunuzdan paylaşılabilir.'
+            : `Teklif açmadan CRM'de ${kind === 'proforma' ? 'proforma' : 'sözleşme'} oluşturun. Kalemleri doğrudan yazabilir, PDF'i sunucuda oluşturup paylaşabilirsiniz.`}
         </Text>
 
         <View className="gap-3">
@@ -701,7 +716,8 @@ export function QuickDocumentForm({ kind, documentId }: { kind: Kind; documentId
           </View>
         ) : null}
 
-        <DocumentTermsFields
+        <TermsTemplatePicker scope={kind === 'contract' ? 'contract_terms' : 'proforma_terms'} value={{ payment, delivery, warranty }} onApply={(next) => { setPayment(next.payment); setDelivery(next.delivery); setWarranty(next.warranty); }} />
+            <DocumentTermsFields
           title={kind === 'contract' ? 'Sözleşme Şartları' : 'Proforma Notları'}
           hint={
             kind === 'contract'

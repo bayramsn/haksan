@@ -72,7 +72,7 @@ test('campaign budget accepts Graph snake_case and CRM camelCase', () => {
 test('insights convert spend to minor units and total up', () => {
   const rows = [
     normalizeInsight({ spend: '12.5', impressions: 10, clicks: 2, leads: 1, rawMetrics: { account_currency: 'USD' } }),
-    normalizeInsight({ spend: 1, impressions: 5 }),
+    normalizeInsight({ spend: 1, impressions: 5, rawMetrics: { account_currency: 'USD' } }),
   ];
   assert.equal(rows[0].spendMinor, 1250);
   const totals = insightTotals(rows);
@@ -119,4 +119,22 @@ test('helpers: ids, decimals, tones, token expiry, oauth url, date range', () =>
   assert.equal(isSafeAuthorizationUrl('https://evil.example/facebook.com'), false);
   assert.deepEqual(metaDateRange(30, now), { from: '2026-04-11', to: '2026-05-10' });
   assert.match(formatMetaMoney(12345, 'TRY'), /123,45/);
+});
+
+test('overview metrics preserve authoritative zeros and mark absent metrics unavailable', async () => {
+  const { normalizeOverviewSummary, formatMetaNumber } = await import('./metaNormalize.ts');
+  assert.equal(normalizeOverviewSummary({ leads: 0 }).leads, 0);
+  assert.equal(normalizeOverviewSummary({}).qualifiedLeads, null);
+  assert.equal(normalizeOverviewSummary({ totalSpend: null }).spendMinor, null);
+  assert.equal(normalizeOverviewSummary({ totalSpend: 12.5, currency: 'USD' }).spendMinor, 1250);
+  assert.equal(normalizeOverviewSummary({ qualifiedLeads: 2 }).qualifiedLeads, 2);
+  assert.equal(formatMetaNumber(null), '—');
+  assert.equal(formatMetaMoney(null), '—');
+});
+
+test('campaign and currency totals never fabricate absent or mixed money metrics', () => {
+  assert.equal(normalizeCampaign({ id: 'c' }, 'connection').qualifiedLeads, null);
+  assert.equal(normalizeCampaign({ id: 'c' }, 'connection').spendMinor, null);
+  assert.equal(insightTotals([normalizeInsight({ spend: 1 })]).spendMinor, null);
+  assert.equal(insightTotals([normalizeInsight({ spend: 1, rawMetrics: { account_currency: 'TRY' } }), normalizeInsight({ spend: 2, rawMetrics: { account_currency: 'USD' } })]).spendMinor, null);
 });

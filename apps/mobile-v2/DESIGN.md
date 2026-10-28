@@ -93,3 +93,48 @@ marka detayı ve tehlike/aciliyet içindir; dekorasyon değildir.
 - 3 eşit kolonlu kart sıraları; üst üste binen mutlak konumlu içerik.
 - "Scroll to explore" gibi dolgu metinleri; AI klişe copy ("Elevate", "Seamless").
 - Kırmızının birincil eylem veya dekorasyon amaçlı kullanımı (kırmızı = tehlike/marka detayı).
+
+## 8. Gezinmede cam yüzeyler
+
+Desktop sürümünün `NavigationGlass` malzemesi ve `reduce_navigation_effects` tercihi
+mevcut gezinme yapısına uyarlanır. iOS 26+ destekli native build'de Liquid Glass,
+eski iOS ve destekli Android'de blur, native modül yoksa opak kart yüzeyi kullanılır.
+Sistem Saydamlığı Azalt tercihi ve Ayarlar → Gezinme efektlerini azalt camı kapatır.
+Ortak başlıkların geri/eylem düğmeleri ve alt sekme kapsülü aynı malzemeyi kullanır;
+pembe renk katmanı eklenmez. Mevcut rota ve erişim kapıları korunur.
+
+## 9. Modül listeleri ve detaylar
+
+Liste kartlarında kimlik ve iletişim üstte, durumlar ayrı satırda, tutar/tarih
+metriği alt bölümde gösterilir. Uzun firma ve ürün adlarına iki satır ayrılır.
+Detay alanları dar telefonlarda etiket/değer olarak alt alta akar; değerler
+kopyalanabilir ve kırpılmaz. Başlıktaki ikiden fazla eylem İşlemler menüsünde
+korunur. Birincil oluşturma düğmesi cam sekme çubuğunun üzerinde yer alır;
+listeler son kaydın düğme ve gezinmenin üzerine kaydırılabilmesi için alt pay bırakır.
+
+Teklif, belge ve finans listelerinde ayrıntılı özetler açılır bölümde korunur;
+arama ve kayıt listesine erişim öne alınır. Servis Kanbanı telefonda seçili tek
+aşamayı, tablette yatay kolonları gösterir. Modüle özgü API, yetki, durum geçişi,
+belge ve iş akışları mevcut sözleşmeleri kullanmaya devam eder.
+
+## 10. Profil, sohbet ve alt menü
+
+Alt menü: Ana Sayfa, Firmalar, Fırsatlar, Takvim, Modüller. Profil ve hesap
+seçenekleri başlığın sağındaki kişi simgesinden açılır: profil bilgileri,
+çalışma alanı, ayarlar ve çıkış. Mevcut `/more` rotaları bağlantı uyumluluğu için
+korunur; alt menüde gösterilmez. Sohbet ana sayfadaki sabit baloncuktan açılır,
+okunmamış mesaj sayısını gösterir ve şirketin sohbet görünürlük ayarına uyar.
+Ana sayfa başlığı veri yüklenirken ve hata durumunda da kullanılabilir.
+
+## 11. CRM kayıt seçimleri
+
+Firma, kontak, fırsat, teklif, ürün ve makine seçimlerinde API'nin sayfalı
+kaynakları kullanılır; ilk 12/50/200 kayıt kalıcı seçim sınırı değildir.
+Arama sunucuya iletilir, kaydırma yanında açık bir sonraki sayfa düğmesi bulunur.
+İstemcide süzülen boş bir sayfa da sonraki kayıtlara erişimi kapatmaz.
+Seçili kaydın adı gerekiyorsa detay isteğinden çözülür; ilk sayfada bulunmasına
+bağlı kalmaz. Firma değişince bağlı seçimler güncellenir, aynı firma tekrar
+seçilince geçerli kontak/fırsat korunur. Firmaya bağlı kayıt alanları kendi
+kapsamını korur; serbest kontak metni kabul eden alanlarda firma seçilmemişse
+CRM kontak rehberi aranabilir. Açılır seçimler native modal üstünde ve klavye
+ile kullanılabilir; yükleme/hata/yeniden deneme durumları boş listeden ayrılır.

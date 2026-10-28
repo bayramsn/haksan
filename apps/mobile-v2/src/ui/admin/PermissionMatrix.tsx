@@ -3,7 +3,7 @@ import { Pressable, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import type { AdminPermission } from '@/src/api/admin.api';
 import { chipClass, chipTextClass, toneColor, useTheme } from '@/src/theme/theme';
-import { Card, SearchBar } from '@/src/ui';
+import { Card, EmptyState, SearchBar } from '@/src/ui';
 import {
   ACTION_LABEL,
   PERMISSION_ACTIONS,
@@ -87,6 +87,7 @@ export function PermissionMatrix({
         </View>
       ) : null}
 
+      {visibleRows.length === 0 ? <EmptyState title="Eşleşen modül yok" hint="Yetki kaynağını veya modül adını arayın." actionLabel={query ? 'Aramayı temizle' : undefined} onAction={query ? () => setQuery('') : undefined} /> : null}
       {visibleRows.map((row) => {
         const codes = PERMISSION_ACTIONS.map((action) => row.actions[action]?.code).filter((code): code is string => !!code);
         const state = groupState(selectedSet, codes);

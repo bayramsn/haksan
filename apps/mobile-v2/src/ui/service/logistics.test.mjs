@@ -30,6 +30,7 @@ import {
   suggestedFormNo,
   upcomingDeliveries,
   upcomingInstallations,
+  isServiceStaff,
 } from './logistics.ts';
 
 const NOW = Date.parse('2026-10-15T12:00:00Z');
@@ -218,4 +219,11 @@ test('kargo etiketi ve imza yardımcıları', () => {
   assert.equal(isSigned('—'), false);
   assert.equal(isSigned('  '), false);
   assert.equal(isSigned('Ayşe Yılmaz'), true);
+});
+
+test('isServiceStaff: servis rolü veya Servis departmanı', () => {
+  assert.equal(isServiceStaff({ roles: [{ code: 'service' }] }), true);
+  assert.equal(isServiceStaff({ roles: [{ code: 'sales' }], department: { name: 'Servis' } }), true);
+  assert.equal(isServiceStaff({ roles: [{ code: 'sales' }], department: { name: 'Satış' } }), false);
+  assert.equal(isServiceStaff({}), false);
 });

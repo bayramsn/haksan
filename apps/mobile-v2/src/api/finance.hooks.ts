@@ -1,9 +1,10 @@
+import { collectPaginated } from './pagination';
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient, type QueryKey } from '@tanstack/react-query';
 import type { PaymentCreateInput } from '@haksan/shared';
 import type { Paginated } from './client';
-import { finance, reports, type AccountingInvoice } from './endpoints';
+import { finance, opportunities, quotes, reports, type AccountingInvoice } from './endpoints';
 import { financeApi, type AccountingInvoiceBody, type PaymentUpdateBody } from './finance.api';
-import { mergeCashMovements } from '@/src/ui/finance/cash-movements';
+import { hideUndeliveredExpected, mergeCashMovements } from '@/src/ui/finance/cash-movements';
 
 export {
   monthlyTotals,
@@ -168,6 +169,29 @@ async function loadAll<T>(fetchPage: (page: number) => Promise<Paginated<T>>): P
 }
 
 /**
+ * Alacağın teklifi → bağlı fırsat teslim edildi mi? Web store gibi toplu çekilir:
+ * tüm teklifler (opportunityId) + teslim aşamasındaki fırsatlar. Kayıt başına istek
+ * atılmaz; API'nin dakika sınırına takılıp sessizce yanlış sonuç üretmesin.
+ * ponytail: kullanıcının göremediği fırsata bağlı alacak "teslim edilmemiş" sayılır
+ * (web bulamadığında gösterir); fark gerekirse tüm fırsatlar `view: 'all'` ile çekilir.
+ */
+async function stagesByQuote(rows: readonly { quoteId?: string | null }[]): Promise<Map<string, string>> {
+  const needed = new Set(rows.map((row) => row.quoteId).filter((id): id is string => Boolean(id)));
+  if (!needed.size) return new Map();
+  const [allQuotes, delivered] = await Promise.all([
+    loadAll((page) => quotes.list({ page, pageSize: LOAD_ALL_PAGE_SIZE })),
+    loadAll((page) => opportunities.list({ stageCode: 'delivered', view: 'all', page, pageSize: LOAD_ALL_PAGE_SIZE })),
+  ]);
+  const deliveredIds = new Set(delivered.map((row) => row.id));
+  const stages = new Map<string, string>();
+  for (const quote of allQuotes) {
+    if (!needed.has(quote.id) || !quote.opportunityId) continue;
+    stages.set(quote.id, deliveredIds.has(quote.opportunityId) ? 'delivered' : 'open');
+  }
+  return stages;
+}
+
+/**
  * Web "Kasa Hareketleri" alacak + ödemeleri tek listede gösterir ve tüm KPI'ları
  * bu birleşik listeden hesaplar; aynı sonuç için iki kaynak da tamamen yüklenir.
  */
@@ -179,7 +203,7 @@ export function useCashMovements() {
         loadAll((page) => finance.receivables({ page, pageSize: LOAD_ALL_PAGE_SIZE })),
         loadAll((page) => finance.payments({ page, pageSize: LOAD_ALL_PAGE_SIZE })),
       ]);
-      return mergeCashMovements(receivables, payments);
+      return mergeCashMovements(hideUndeliveredExpected(receivables, await stagesByQuote(receivables)), payments);
     },
   });
 }
@@ -276,7 +300,7 @@ export function useDeleteAccountingInvoice() {
 export function useCompanyFiles(companyId: string) {
   return useQuery({
     queryKey: ['finance', 'company-files', companyId],
-    queryFn: () => financeApi.companyFiles(companyId, { page: 1, pageSize: 50 }),
+    queryFn: () => collectPaginated((page) => financeApi.companyFiles(companyId, { page, pageSize: 50 })),
     enabled: Boolean(companyId),
     select: (page) => page.data,
   });

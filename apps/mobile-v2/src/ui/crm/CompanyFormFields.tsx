@@ -11,6 +11,7 @@ import { useCompanyFormLookups, useTaxOffices } from '@/src/api/crm-general.hook
 import { Card, Eyebrow, Field } from '@/src/ui';
 import { OptionPicker, type PickerOption } from '@/src/ui/pickers/OptionPicker';
 import { toast } from '@/src/ui/toast';
+import { companyVisibility } from './company-logic';
 import { OsmSearchPanel } from './OsmSearchPanel';
 import { WebsiteLookupPanel } from './WebsiteLookupPanel';
 import {
@@ -138,6 +139,16 @@ export function CompanyFormFields({
   onClearLogo?: () => void;
 }) {
   const { user } = useAuth();
+  const visibility = companyVisibility(user?.roles ?? []);
+  const firmTypeOptions = FIRM_TYPE_OPTIONS.filter(
+    (option) =>
+      option.value === form.firmType ||
+      (option.value !== 'supplier' || visibility.canSeeSuppliers) &&
+      (option.value !== 'competitor' || visibility.canSeeCompetitors),
+  );
+  const salesStatusOptions = SALES_STATUS_OPTIONS.filter(
+    (option) => option.value === form.salesStatus || option.value !== 'potential' || visibility.canSeePotential,
+  );
   const lookups = useCompanyFormLookups();
   const taxOffices = useTaxOffices(undefined);
   const isPerson = form.companyType === 'person';
@@ -153,19 +164,19 @@ export function CompanyFormFields({
 
   const groupOptions = useMemo(() => {
     const rows = (lookups.groups ?? []).filter((row) => COMPANY_GROUP_CODES.has(row.code));
-    return (rows.length ? rows : COMPANY_GROUP_FALLBACK).map((row) => ({ value: row.code, label: row.name }));
-  }, [lookups.groups]);
+    return (rows.length ? rows : lookups.queries.groups.isSuccess ? COMPANY_GROUP_FALLBACK : []).map((row) => ({ value: row.code, label: row.name }));
+  }, [lookups.groups, lookups.queries.groups.isSuccess]);
 
   const sourceOptions = useMemo(() => {
-    const rows = lookups.contactSources?.length ? lookups.contactSources : CONTACT_SOURCE_FALLBACK;
+    const rows = lookups.contactSources?.length ? lookups.contactSources : lookups.queries.contactSources.isSuccess ? CONTACT_SOURCE_FALLBACK : [];
     return rows.map((row) => ({ value: row.code, label: row.name }));
-  }, [lookups.contactSources]);
+  }, [lookups.contactSources, lookups.queries.contactSources.isSuccess]);
 
   const sectorOptions = useMemo(() => {
-    const names = new Set<string>(COMPANY_SECTOR_OPTIONS);
+    const names = new Set<string>(lookups.queries.sectors.isSuccess ? COMPANY_SECTOR_OPTIONS : []);
     for (const row of lookups.sectors ?? []) names.add(row.name);
     return withCurrent(toOptions([...names]), form.sector);
-  }, [lookups.sectors, form.sector]);
+  }, [lookups.sectors, lookups.queries.sectors.isSuccess, form.sector]);
 
   const taxOfficeOptions = useMemo(() => {
     const rows = taxOffices.data ?? [];
@@ -174,9 +185,9 @@ export function CompanyFormFields({
       ? [...rows]
           .sort((a, b) => Number((b.province ?? '').toLocaleLowerCase('tr') === city) - Number((a.province ?? '').toLocaleLowerCase('tr') === city))
           .map((row) => ({ value: row.name, label: row.name, hint: row.province }))
-      : toOptions(TAX_OFFICE_OPTIONS);
+      : taxOffices.isSuccess ? toOptions(TAX_OFFICE_OPTIONS) : [];
     return withCurrent(sorted, form.taxOffice);
-  }, [taxOffices.data, form.city, form.taxOffice]);
+  }, [taxOffices.data, taxOffices.isSuccess, form.city, form.taxOffice]);
 
   const districtOptions = withCurrent(toOptions(isTurkey ? DISTRICTS_BY_PROVINCE[form.city] ?? [] : []), form.district);
   const hasCoordinates = form.latitude != null && form.longitude != null;
@@ -274,7 +285,7 @@ export function CompanyFormFields({
         />
         <ChoiceChips
           label="Firma Tipi *"
-          options={FIRM_TYPE_OPTIONS}
+          options={firmTypeOptions}
           value={form.firmType}
           onChange={(firmType) =>
             onChange({ firmType, supplierCategoryCode: needsSupplierCategory(firmType) ? form.supplierCategoryCode : '' })
@@ -291,7 +302,7 @@ export function CompanyFormFields({
         ) : null}
         <ChoiceChips
           label="Firma Statüsü"
-          options={SALES_STATUS_OPTIONS}
+          options={salesStatusOptions}
           value={form.salesStatus}
           onChange={(salesStatus) => onChange({ salesStatus })}
         />
@@ -315,6 +326,9 @@ export function CompanyFormFields({
         )}
         <OptionPicker
           label="Firma Grubu"
+          loading={lookups.queries.groups.isPending}
+          loadError={lookups.queries.groups.error}
+          onRetry={() => void lookups.queries.groups.refetch()}
           icon="albums-outline"
           placeholder="Firma grubunu seçin"
           value={form.companyGroupCode || null}
@@ -324,6 +338,9 @@ export function CompanyFormFields({
         />
         <OptionPicker
           label="İrtibat Şekli / Kaynak"
+          loading={lookups.queries.contactSources.isPending}
+          loadError={lookups.queries.contactSources.error}
+          onRetry={() => void lookups.queries.contactSources.refetch()}
           icon="megaphone-outline"
           placeholder="Seçin veya yazın..."
           value={form.contactSourceText ? null : form.contactSourceCode || null}
@@ -337,6 +354,9 @@ export function CompanyFormFields({
         />
         <OptionPicker
           label="Firma Sektörü"
+          loading={lookups.queries.sectors.isPending}
+          loadError={lookups.queries.sectors.error}
+          onRetry={() => void lookups.queries.sectors.refetch()}
           icon="business-outline"
           placeholder="Sektör seçin..."
           value={form.sector || null}
@@ -575,6 +595,9 @@ export function CompanyFormFields({
         <Eyebrow>4 · Vergi ve not</Eyebrow>
         <OptionPicker
           label="Vergi Dairesi"
+          loading={taxOffices.isPending}
+          loadError={taxOffices.error}
+          onRetry={() => void taxOffices.refetch()}
           icon="receipt-outline"
           placeholder="Vergi dairesi seçin..."
           value={form.taxOffice || null}

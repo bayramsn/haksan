@@ -1,9 +1,13 @@
+import { productPriceLabel } from '@/src/ui/products/product-price';
+import { SelectionListFooter } from '@/src/ui/pickers/SelectionListFooter';
 import { useMemo, useState, type ReactNode, type RefObject } from 'react';
 import { FlatList, KeyboardAvoidingView, Platform, Pressable, ScrollView, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Stack, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useCompanyList } from '@/src/api/companies.hooks';
+import { useAuth } from '@/src/auth/AuthProvider';
+import { companyVisibility, isCompanyVisible } from '@/src/ui/crm/company-logic';
 import { useOpportunityList, useQuoteList } from '@/src/api/crm.hooks';
 import { useProductList } from '@/src/api/inventory.hooks';
 import type { CompanyListItem, OpportunityListItem, ProductModel, QuoteListItem } from '@/src/api/endpoints';
@@ -22,10 +26,14 @@ export function ModalForm({
   onSubmit,
   loading,
   disabled,
+  secondaryLabel,
+  onSecondarySubmit,
 }: {
   title: string;
   children: ReactNode;
   submitLabel: string;
+  secondaryLabel?: string;
+  onSecondarySubmit?: () => void;
   onSubmit: () => void;
   loading?: boolean;
   disabled?: boolean;
@@ -38,6 +46,7 @@ export function ModalForm({
         <ScrollView contentContainerClassName="gap-5 p-4 pb-10" keyboardShouldPersistTaps="handled">
           {children}
         </ScrollView>
+        {secondaryLabel && onSecondarySubmit ? <View className="border-t border-border bg-card px-4 pt-3"><Button label={secondaryLabel} variant="ghost" onPress={onSecondarySubmit} disabled={disabled || loading} /></View> : null}
         <View className="flex-row gap-3 border-t border-border bg-card px-4 py-3">
           <View className="flex-1">
             <Button label="Vazgeç" variant="ghost" onPress={() => router.back()} disabled={loading} />
@@ -92,7 +101,7 @@ export function PickerField({
           </Text>
         </View>
         {value && onClear && !disabled ? (
-          <Pressable accessibilityRole="button" accessibilityLabel={`${label} seçimini kaldır`} onPress={onClear} hitSlop={12}>
+          <Pressable accessibilityRole="button" accessibilityLabel={`${label} seçimini kaldır`} onPress={(event) => { event.stopPropagation(); onClear(); }} hitSlop={12}>
             <Ionicons name="close-circle" size={20} color={colors.mutedForeground} />
           </Pressable>
         ) : (
@@ -204,7 +213,7 @@ function SheetRow({
           </Text>
         ) : null}
       </View>
-      {meta ? <Text className="font-inter-medium text-xs text-foreground">{meta}</Text> : null}
+      {meta ? <Text className="max-w-[45%] flex-shrink font-inter-medium text-right text-xs text-foreground" numberOfLines={4}>{meta}</Text> : null}
       {selected ? <Ionicons name="checkmark" size={19} color={colors.primary} /> : null}
     </Pressable>
   );
@@ -220,6 +229,8 @@ export function CompanyPickerSheet({
   onSelect: (company: CompanyListItem) => void;
 }) {
   const [search, setSearch] = useState('');
+  const { user } = useAuth();
+  const visibility = companyVisibility(user?.roles ?? []);
   const { open, close } = useSheetHandle(sheetRef, () => setSearch(''));
   const debounced = useDebouncedValue(search.trim());
   const list = useCompanyList(
@@ -234,7 +245,9 @@ export function CompanyPickerSheet({
         </View>
         <FlatList
           className="flex-1"
-          data={list.data?.items ?? []}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
+          data={(list.data?.items ?? []).filter((item) => isCompanyVisible(item, visibility))}
           keyExtractor={(item) => item.id}
           contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 32, flexGrow: 1 }}
           renderItem={({ item }) => (
@@ -262,7 +275,7 @@ export function CompanyPickerSheet({
               <EmptyState title="Firma bulunamadı" />
             )
           }
-          ListFooterComponent={list.isFetchingNextPage ? <Loading /> : null}
+          ListFooterComponent={<SelectionListFooter hasNextPage={list.hasNextPage} isFetchingNextPage={list.isFetchingNextPage} error={list.isFetchNextPageError ? list.error : null} fetchNextPage={() => list.fetchNextPage()} />}
         />
       </View>
     </HostedSheet>
@@ -290,6 +303,8 @@ export function ProductPickerSheet({
         </View>
         <FlatList
           className="flex-1"
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
           data={list.data?.items ?? []}
           keyExtractor={(item) => item.id}
           contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 32, flexGrow: 1 }}
@@ -297,7 +312,7 @@ export function ProductPickerSheet({
             <SheetRow
               title={item.fullName}
               subtitle={[item.brand?.name, item.modelCode].filter(Boolean).join(' · ')}
-              meta={item.listPrice ? formatAmount(item.listPrice, item.currency?.code ?? 'USD') : null}
+              meta={`Liste: ${productPriceLabel(item.listPrice, item.currency?.code)}\nPeşin: ${productPriceLabel(item.cashPrice, item.currency?.code)}`}
               icon="cube-outline"
               onPress={() => {
                 onSelect(item);
@@ -318,7 +333,7 @@ export function ProductPickerSheet({
               <EmptyState title="Ürün bulunamadı" />
             )
           }
-          ListFooterComponent={list.isFetchingNextPage ? <Loading /> : null}
+          ListFooterComponent={<SelectionListFooter hasNextPage={list.hasNextPage} isFetchingNextPage={list.isFetchingNextPage} error={list.isFetchNextPageError ? list.error : null} fetchNextPage={() => list.fetchNextPage()} />}
         />
       </View>
     </HostedSheet>
@@ -330,18 +345,20 @@ export function QuotePickerSheet({
   sheetRef,
   selectedId,
   companyId,
+  opportunityId,
   onSelect,
 }: {
   sheetRef: RefObject<SheetHandle | null>;
   selectedId?: string;
   companyId?: string;
+  opportunityId?: string;
   onSelect: (quote: QuoteListItem) => void;
 }) {
   const [search, setSearch] = useState('');
   const { open, close } = useSheetHandle(sheetRef, () => setSearch(''));
   const debounced = useDebouncedValue(search.trim());
   const list = useQuoteList(
-    useMemo(() => ({ search: debounced || undefined, ...(companyId ? { companyId } : {}) }), [debounced, companyId])
+    useMemo(() => ({ search: debounced || undefined, ...(companyId ? { companyId } : {}), ...(opportunityId ? { opportunityId } : {}) }), [debounced, companyId, opportunityId])
   );
   return (
     <HostedSheet open={open} onClose={close} heightRatio={0.8}>
@@ -352,6 +369,8 @@ export function QuotePickerSheet({
         </View>
         <FlatList
           className="flex-1"
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
           data={list.data?.items ?? []}
           keyExtractor={(item) => item.id}
           contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 32, flexGrow: 1 }}
@@ -381,7 +400,7 @@ export function QuotePickerSheet({
               <EmptyState title="Teklif bulunamadı" />
             )
           }
-          ListFooterComponent={list.isFetchingNextPage ? <Loading /> : null}
+          ListFooterComponent={<SelectionListFooter hasNextPage={list.hasNextPage} isFetchingNextPage={list.isFetchingNextPage} error={list.isFetchNextPageError ? list.error : null} fetchNextPage={() => list.fetchNextPage()} />}
         />
       </View>
     </HostedSheet>
@@ -392,16 +411,20 @@ export function QuotePickerSheet({
 export function OpportunityPickerSheet({
   sheetRef,
   selectedId,
+  companyId,
+  view = 'all',
   onSelect,
 }: {
   sheetRef: RefObject<SheetHandle | null>;
   selectedId?: string;
+  companyId?: string | null;
+  view?: 'active' | 'all';
   onSelect: (opportunity: OpportunityListItem) => void;
 }) {
   const [search, setSearch] = useState('');
   const { open, close } = useSheetHandle(sheetRef, () => setSearch(''));
   const debounced = useDebouncedValue(search.trim());
-  const list = useOpportunityList(useMemo(() => ({ search: debounced || undefined, view: 'all' as const }), [debounced]));
+  const list = useOpportunityList(useMemo(() => ({ search: debounced || undefined, view, ...(companyId ? { companyId } : {}) }), [debounced, companyId, view]));
   return (
     <HostedSheet open={open} onClose={close} heightRatio={0.8}>
       <View className="min-h-0 flex-1">
@@ -411,6 +434,8 @@ export function OpportunityPickerSheet({
         </View>
         <FlatList
           className="flex-1"
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
           data={list.data?.items ?? []}
           keyExtractor={(item) => item.id}
           contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 32, flexGrow: 1 }}
@@ -440,7 +465,7 @@ export function OpportunityPickerSheet({
               <EmptyState title="Satış kartı bulunamadı" />
             )
           }
-          ListFooterComponent={list.isFetchingNextPage ? <Loading /> : null}
+          ListFooterComponent={<SelectionListFooter hasNextPage={list.hasNextPage} isFetchingNextPage={list.isFetchingNextPage} error={list.isFetchNextPageError ? list.error : null} fetchNextPage={() => list.fetchNextPage()} />}
         />
       </View>
     </HostedSheet>

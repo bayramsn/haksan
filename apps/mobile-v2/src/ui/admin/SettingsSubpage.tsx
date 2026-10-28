@@ -31,7 +31,7 @@ export function SettingsSubpage({
   scroll?: boolean;
   children?: ReactNode;
 }) {
-  if (!allowed) return <Redirect href="/(tabs)/more/settings" />;
+  if (!allowed) return <Redirect href="/more/settings" />;
   return (
     <SafeAreaView className="flex-1 bg-canvas" edges={['top', 'left', 'right']}>
       <DetailHeader title={title} subtitle={subtitle} actions={actions} />

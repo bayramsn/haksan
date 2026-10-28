@@ -23,7 +23,7 @@ export default function CompanyNoteScreen() {
     if (company.data) setDraft(company.data.notes ?? '');
   }, [company.data]);
 
-  if (!canEdit) return <Redirect href="/(tabs)/modules/companies" />;
+  if (!canEdit) return <Redirect href="/modules/companies" />;
 
   function save() {
     const next = draft.trim();

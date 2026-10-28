@@ -1,3 +1,4 @@
+import { collectPaginated } from './pagination';
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient, type InfiniteData, type QueryKey } from '@tanstack/react-query';
 import { files, productsApi } from '@/src/api/endpoints';
 import type { Paginated } from '@/src/api/client';
@@ -50,7 +51,7 @@ export function useTradeFairProductOptions() {
   const canRead = useCan('products.read');
   return useQuery({
     queryKey: tradeFairKeys.products,
-    queryFn: () => productsApi.list({ page: 1, pageSize: 200 }),
+    queryFn: () => collectPaginated((page) => productsApi.list({ page, pageSize: 200 })),
     enabled: canRead,
     staleTime: 10 * 60_000,
     select: (page) => page.data.map((p) => ({ category: p.category?.name ?? null, type: p.productType?.name ?? null })),

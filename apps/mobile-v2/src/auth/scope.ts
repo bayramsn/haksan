@@ -1,5 +1,8 @@
 import { kv } from '@/src/offline/storage';
 
+let revision = 0;
+export const scopeRevision = () => revision;
+
 const DIVISION_KEY = 'active_division_id';
 const DEPARTMENT_KEY = 'active_department_id';
 
@@ -16,6 +19,7 @@ export function activeScope(): ActiveScope {
 }
 
 export function setActiveScope(scope: ActiveScope): void {
+  if (JSON.stringify(scope) !== JSON.stringify(activeScope())) revision += 1;
   if (scope.divisionId) kv.set(DIVISION_KEY, scope.divisionId);
   else kv.delete(DIVISION_KEY);
   if (scope.departmentId) kv.set(DEPARTMENT_KEY, scope.departmentId);
@@ -23,6 +27,7 @@ export function setActiveScope(scope: ActiveScope): void {
 }
 
 export function clearActiveScope(): void {
+  revision += 1;
   kv.delete(DIVISION_KEY);
   kv.delete(DEPARTMENT_KEY);
 }

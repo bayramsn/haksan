@@ -1,3 +1,4 @@
+import { collectArrayPages } from './pagination';
 import { ApiError, OfflineError, request } from '@/src/api/client';
 import {
   activeConnections,
@@ -14,6 +15,7 @@ import {
   normalizeMapping,
   normalizeMessages,
   normalizePage,
+  normalizeOverviewSummary,
   type ListEnvelope,
   type MetaAudience,
   type MetaCampaign,
@@ -38,17 +40,7 @@ import {
 /** Web `meta-service.ts` ile aynı uçlar ve gövdeler. Erişim token'ı yalnız oluşturma isteğinin gövdesinde gider, saklanmaz. */
 
 export type MetaOverview = {
-  summary: {
-    spendMinor: number;
-    currency: string;
-    leads: number;
-    qualifiedLeads: number;
-    conversions: number;
-    costPerLeadMinor: number;
-    qualificationRate: number;
-    conversionRate: number;
-    firstResponseMinutes: number | null;
-  };
+  summary: ReturnType<typeof normalizeOverviewSummary>;
   connectionHealth: MetaConnectionHealth[];
   recentLeads: MetaLead[];
 };
@@ -107,23 +99,13 @@ export type MetaCatalogProductAction = 'upsert' | 'sync' | 'remove';
 export const metaApi = {
   async overview(params: { from?: string; to?: string; connectionId?: string }): Promise<MetaOverview> {
     const [rawSummary, rawConnections, rawLeads] = await Promise.all([
-      request<{ leads?: number; totalSpend?: number }>('/meta/overview', { query: params }),
+      request<Raw>('/meta/overview', { query: params }),
       request<RawMetaConnection[]>('/meta/connections'),
-      request<ListEnvelope<Raw>>('/meta/leads', { query: { page: 1, pageSize: 5, connectionId: params.connectionId } }),
+      request<ListEnvelope<Raw>>('/meta/leads', { query: { ...params, page: 1, pageSize: 5 } }),
     ]);
     const leadPage = normalizePage(rawLeads, 1, 5);
     return {
-      summary: {
-        spendMinor: Math.round(Number(rawSummary.totalSpend ?? 0) * 100),
-        currency: 'TRY',
-        leads: Number(rawSummary.leads ?? leadPage.total),
-        qualifiedLeads: 0,
-        conversions: 0,
-        costPerLeadMinor: 0,
-        qualificationRate: 0,
-        conversionRate: 0,
-        firstResponseMinutes: null,
-      },
+      summary: normalizeOverviewSummary(rawSummary),
       connectionHealth: rawConnections.map((item) => ({
         connectionId: item.id,
         name: item.name,
@@ -150,7 +132,7 @@ export const metaApi = {
   },
 
   async insights(params: { connectionId: string; from: string; to: string }): Promise<MetaInsightPoint[]> {
-    const response = await request<Raw[]>('/meta/insights', { query: { page: 1, pageSize: 100, ...params } });
+    const response = await collectArrayPages((page, pageSize) => request<Raw[]>('/meta/insights', { query: { ...params, page, pageSize } }));
     return response.map(normalizeInsight);
   },
 
@@ -186,9 +168,9 @@ export const metaApi = {
     return { ...page, items: page.items.map((raw) => normalizeConversation(raw, params.connectionId)) };
   },
   async messages(conversationId: string, connectionId: string): Promise<MetaMessage[]> {
-    const response = await request<Raw[]>(`/meta/conversations/${encodeURIComponent(conversationId)}/messages`, {
-      query: { connectionId, page: 1, pageSize: 100 },
-    });
+    const response = await collectArrayPages((page, pageSize) => request<Raw[]>(`/meta/conversations/${encodeURIComponent(conversationId)}/messages`, {
+      query: { connectionId, page, pageSize },
+    }));
     return normalizeMessages(response);
   },
   sendMessage: (conversationId: string, body: { connectionId: string; channel: MetaPlatform; text: string }) =>

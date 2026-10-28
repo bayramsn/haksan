@@ -17,7 +17,7 @@ export default function TaskCompleteScreen() {
   const [note, setNote] = useState('');
   const [error, setError] = useState<string | null>(null);
 
-  if (!id || !canUpdate) return <Redirect href="/(tabs)/modules/tasks" />;
+  if (!id || !canUpdate) return <Redirect href="/modules/tasks" />;
 
   function submit() {
     if (complete.isPending) return;

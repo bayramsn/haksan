@@ -1,7 +1,13 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { getRandomValues } from 'expo-crypto';
+import { bindNavigationContext } from '@/src/modules/navigationContext';
+import { endAllLiveActivities } from '@/src/native/live-activity';
+import { runStartup } from '@/src/security/startup';
+import { Fragment, createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import * as SecureStore from '@/src/security/secure-store';
 import { auth, type AuthTenant, type AuthUser } from '@/src/api/endpoints';
 import {
+  invalidateRequestContext,
+  requestContextKey,
   loadAccessToken,
   refreshSession,
   setAccessToken,
@@ -67,11 +73,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [tenant, setTenant] = useState<AuthTenant | null>(null);
   const [scope, setScopeState] = useState<ActiveScope>(activeScope);
   const [loading, setLoading] = useState(true);
+  const previousAuthorization = useRef<string | null>(null);
 
   const applySession = useCallback((next: AuthUser | null, nextTenant: AuthTenant | null = null) => {
+    const authorization = JSON.stringify([apiOrigin(), next?.tenantId, next?.id, next?.roles, next?.canViewAllDivisions, next?.departmentId, next?.permissions, next?.divisions, next?.departments, next?.accessScopes]);
+    if (previousAuthorization.current !== authorization) {
+      invalidateRequestContext();
+      queryClient.clear();
+      // Gerçek hesap değişimi/çıkış (ilk açılış değil): kilit ekranındaki işler önceki kullanıcıya ait.
+      if (previousAuthorization.current !== null) endAllLiveActivities();
+    }
+    previousAuthorization.current = authorization;
     setUser(next);
     setTenant(nextTenant);
-    void cacheSession(next, nextTenant);
+    void cacheSession(next, nextTenant).catch(() => undefined);
     if (next) {
       const saved = activeScope();
       const divisionIds = new Set(next.divisions?.map((item) => item.id) ?? []);
@@ -80,7 +95,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         divisionId:
           saved.divisionId && divisionIds.has(saved.divisionId)
             ? saved.divisionId
-            : next.canViewAllDivisions
+            : (next.canViewAllDivisions || next.accessScopes.some((grant) => grant.divisionId === null))
               ? null
               : next.divisions?.find((item) => item.isPrimary)?.id ?? next.divisions?.[0]?.id ?? null,
         departmentId:
@@ -116,7 +131,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         divisionId:
           next.divisionId && divisionIds.has(next.divisionId)
             ? next.divisionId
-            : user.canViewAllDivisions
+            : (user.canViewAllDivisions || user.accessScopes.some((grant) => grant.divisionId === null))
               ? null
               : scope.divisionId,
         departmentId:
@@ -152,9 +167,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // Çevrimdışı açılışta önbellekteki kullanıcıyla devam et — saha çalışanı
       // uçak modundayken giriş ekranına düşmemeli. PII içeren oturum özeti
       // AsyncStorage yerine SecureStore'dadır ve en çok 24 saat kabul edilir.
-      const cached = await readCachedSession();
-      if (cached && !cancelled) applySession(cached.user, cached.tenant);
       try {
+        const cached = await runStartup(readCachedSession);
+        if (cached && !cancelled) applySession(cached.user, cached.tenant);
         const token = await loadAccessToken();
         const active = Boolean(token) || (await refreshSession());
         if (!active) {
@@ -221,7 +236,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     () => ({ user, tenant, scope, loading, signIn, signOut, changeScope }),
     [user, tenant, scope, loading, signIn, signOut, changeScope]
   );
-  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+  // Clearing the cache does not rebind mounted QueryObservers. Recreate all
+  // account-owned screens/providers so local forms and active queries start clean.
+  const boundary = JSON.stringify([apiOrigin(), user?.tenantId, user?.id, scope.divisionId, scope.departmentId, user?.roles, user?.canViewAllDivisions, user?.departmentId, user?.permissions, user?.divisions, user?.departments, user?.accessScopes]);
+  bindNavigationContext(user ? boundary : null, requestContextKey, getRandomValues);
+  return <AuthContext.Provider value={value}><Fragment key={boundary}>{children}</Fragment></AuthContext.Provider>;
 }
 
 export function useAuth(): AuthState {

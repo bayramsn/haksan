@@ -1,8 +1,8 @@
 import { Alert } from 'react-native';
 import { useMutation, useQueryClient, type QueryKey } from '@tanstack/react-query';
 import * as Haptics from 'expo-haptics';
-import { ApiError, OfflineError, RequestTimeoutError } from '@/src/api/client';
-import { enqueue, type CompanyStatusQueuePayload, type MutationKind } from './queue';
+import { ApiError, OfflineError, RequestTimeoutError, requestContextKey, RequestScopeChangedError } from '@/src/api/client';
+import { enqueue, queueScopeSnapshot, type CompanyStatusQueuePayload, type MutationKind } from './queue';
 
 type Options<TVars, TData> = {
   /** Çevrimdışı kalırsa kuyruğa bu türle yazılır. */
@@ -20,7 +20,7 @@ type Options<TVars, TData> = {
   onDone?: (data: TData | null, queued: boolean) => void;
 };
 
-type Context = { snapshots: [QueryKey, unknown][] };
+type Context = { snapshots: [QueryKey, unknown][]; requestContext: string };
 
 /**
  * Optimistic UI + rollback + çevrimdışı kuyruk, tek kanca.
@@ -32,13 +32,16 @@ export function useOfflineMutation<TVars, TData>(opts: Options<TVars, TData>) {
 
   return useMutation<TData | null, Error, TVars, Context>({
     mutationFn: async (vars) => {
+      const requestContext = requestContextKey();
+      const queueScope = queueScopeSnapshot();
       try {
         return await opts.mutationFn(vars);
       } catch (err) {
+        if (requestContext !== requestContextKey()) throw new RequestScopeChangedError();
         if (err instanceof OfflineError || err instanceof RequestTimeoutError) {
           // Timeout'ta sunucu işlemi tamamlamış olabilir. Aynı operationId
           // kuyrukta korunur; server idempotency kaydı çift uygulamayı önler.
-          await enqueue(opts.kind, opts.toPayload(vars));
+          await enqueue(opts.kind, opts.toPayload(vars), queueScope);
           return null; // kuyruğa alındı, hata değil
         }
         throw err;
@@ -46,19 +49,22 @@ export function useOfflineMutation<TVars, TData>(opts: Options<TVars, TData>) {
     },
 
     onMutate: async (vars) => {
+      const requestContext = requestContextKey();
       const snapshots: [QueryKey, unknown][] = [];
       for (const key of opts.optimistic?.keys ?? []) {
         // İptal edilmezse uçuştaki bir istek iyimser veriyi ezebilir.
         await qc.cancelQueries({ queryKey: key });
+        if (requestContext !== requestContextKey()) throw new RequestScopeChangedError();
         const previous = qc.getQueryData(key);
         snapshots.push([key, previous]);
         const next = opts.optimistic?.apply(previous, vars);
         if (next !== undefined) qc.setQueryData(key, next);
       }
-      return { snapshots };
+      return { snapshots, requestContext };
     },
 
     onError: (error, _vars, context) => {
+      if (context?.requestContext !== requestContextKey()) return;
       for (const [key, previous] of context?.snapshots ?? []) qc.setQueryData(key, previous);
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
 
@@ -72,12 +78,14 @@ export function useOfflineMutation<TVars, TData>(opts: Options<TVars, TData>) {
       Alert.alert('İşlem tamamlanamadı', error.message);
     },
 
-    onSuccess: (data) => {
+    onSuccess: (data, _vars, context) => {
+      if (context?.requestContext !== requestContextKey()) return;
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       opts.onDone?.(data, data === null);
     },
 
-    onSettled: (data) => {
+    onSettled: (data, _error, _vars, context) => {
+      if (context?.requestContext !== requestContextKey()) return;
       // Kuyruğa alınmışsa sunucuda henüz bir şey yok; invalidate iyimser veriyi silerdi.
       if (data === null) return;
       for (const key of opts.invalidate ?? []) void qc.invalidateQueries({ queryKey: key });

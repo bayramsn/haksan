@@ -1,3 +1,4 @@
+import { useAssistantFormDraft } from '@/src/call-assistant/useAssistantFormDraft';
 import { useEffect, useMemo, useState } from 'react';
 import { KeyboardAvoidingView, Platform, ScrollView, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -41,8 +42,9 @@ function param(value: string | string[] | undefined): string {
 export default function NewOpportunityScreen() {
   const router = useRouter();
   const { user, scope } = useAuth();
-  const params = useLocalSearchParams<{ activityId?: string; companyId?: string; companyName?: string; title?: string }>();
-  const activityId = param(params.activityId) || null;
+  const params = useLocalSearchParams<{ activityId?: string; companyId?: string; companyName?: string; title?: string; assistantDraftId?: string }>();
+  const assistantDraftId = param(params.assistantDraftId);
+  const activityId = assistantDraftId ? null : param(params.activityId) || null;
   const canCreate = useCan('opportunities.create');
   const canConvertActivity = useCan('activities.convert');
   const create = useCreateOpportunity();
@@ -57,8 +59,8 @@ export default function NewOpportunityScreen() {
   const canAssignOthers = user?.roles?.some((role) => role === 'super_admin' || role === 'sales') ?? false;
 
   const [form, setForm] = useState<QuickOpportunityForm>(() => ({
-    companyId: param(params.companyId),
-    companyTitle: param(params.companyName),
+    companyId: assistantDraftId ? '' : param(params.companyId),
+    companyTitle: assistantDraftId ? '' : param(params.companyName),
     contactId: '',
     contactName: '',
     phone: '',
@@ -70,7 +72,7 @@ export default function NewOpportunityScreen() {
     product: '',
     quantity: '1',
     extraMachines: [],
-    title: param(params.title),
+    title: assistantDraftId ? '' : param(params.title),
     estimatedValue: '',
     currencyCode: 'USD',
     probability: '50',
@@ -83,6 +85,9 @@ export default function NewOpportunityScreen() {
     paymentTermDays: '',
   }));
   const [errors, setErrors] = useState<QuickOpportunityErrors>({});
+  const assistant = useAssistantFormDraft(assistantDraftId, 'opportunity', (draft) => {
+    setForm((previous) => ({ ...previous, companyId: draft.company.id, companyTitle: draft.company.name, contactId: draft.contact?.id ?? '', contactName: draft.contact?.name ?? '', phone: draft.contact?.phone ?? '', email: draft.contact?.email ?? '', title: draft.title ?? '', description: draft.text ?? '', nextActionAt: draft.dueAt ? new Date(draft.dueAt) : null, nextAction: draft.dueAt ? draft.title || 'Takip et' : '' }));
+  });
 
   function patch(next: Partial<QuickOpportunityForm>) {
     setForm((prev) => ({ ...prev, ...next }));
@@ -115,9 +120,9 @@ export default function NewOpportunityScreen() {
     }));
   }, [form.companyId, selectedCompany.data]);
 
-  if (activityId ? !canConvertActivity : !canCreate) return <Redirect href={'/(tabs)/modules/opportunities' as Href} />;
+  if (activityId ? !canConvertActivity : !canCreate) return <Redirect href={'/modules/opportunities' as Href} />;
 
-  const pending = create.isPending || createFromActivity.isPending;
+  const pending = create.isPending || createFromActivity.isPending || assistant.saving;
   const phoneFilled = form.phone.trim().length > 0;
   const emailFilled = form.email.trim().length > 0;
   // Web: biri doluysa diğeri opsiyonel; ikisi de boşsa ikisi de zorunlu görünür.
@@ -125,7 +130,8 @@ export default function NewOpportunityScreen() {
   const emailLabel = emailFilled || !phoneFilled ? 'E-posta *' : 'E-posta';
   const contactLabel = form.companyId ? 'Kontak ismi' : 'Kontak ismi *';
 
-  function submit() {
+  async function submit() {
+    if (pending || assistant.blocked) return;
     const nextErrors = validateQuickOpportunity(form, divisions.length > 0);
     if (Object.keys(nextErrors).length > 0) {
       setErrors(nextErrors);
@@ -133,13 +139,18 @@ export default function NewOpportunityScreen() {
       return;
     }
     const body = buildQuickOpportunityBody(form);
+    if (assistant.active) {
+      try { await assistant.save(body); toast.success('Fırsat oluşturuldu'); router.back(); }
+      catch (error) { toast.error(error instanceof Error ? error.message : 'Fırsat kaydedilemedi'); }
+      return;
+    }
     if (activityId) {
       createFromActivity.mutate(
         { activityId, body: { ...body, sourceActivityId: activityId } },
         {
           onSuccess: (created) => {
             toast.success('Aktiviteden fırsat oluşturuldu');
-            router.replace(`/(tabs)/modules/opportunities/${created.id}` as Href);
+            router.replace(`/modules/opportunities/${created.id}` as Href);
           },
           onError: (error) => toast.error(`Fırsat oluşturulamadı: ${error.message}`),
         }
@@ -160,6 +171,7 @@ export default function NewOpportunityScreen() {
       <Stack.Screen options={{ title: activityId ? 'Aktiviteden Fırsat' : 'Hızlı Fırsat', headerShown: true }} />
       <KeyboardAvoidingView className="flex-1" behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <ScrollView contentContainerClassName="gap-3 p-4 pb-10" keyboardShouldPersistTaps="handled">
+          {assistant.error ? <View className="gap-2"><Text className="text-destructive">{assistant.error}</Text><Button label="Taslağı tekrar yükle" variant="ghost" onPress={() => void assistant.retry()} /></View> : null}
           <Text className="font-inter text-[13px] leading-[18px] text-muted-foreground">
             Talebi Fırsat’ın ilk C alanına kaydedin. Firma veya kontak ana kaydı daha sonra bağlanabilir.
           </Text>
@@ -379,7 +391,7 @@ export default function NewOpportunityScreen() {
             <Button label="Vazgeç" variant="ghost" onPress={() => router.back()} disabled={pending} />
           </View>
           <View className="flex-[2]">
-            <Button label={pending ? 'Oluşturuluyor…' : 'Fırsat Oluştur'} loading={pending} onPress={submit} />
+            <Button label={pending ? 'Oluşturuluyor…' : 'Fırsat Oluştur'} loading={pending || assistant.loading} disabled={pending || assistant.blocked} onPress={() => void submit()} />
           </View>
         </View>
       </KeyboardAvoidingView>

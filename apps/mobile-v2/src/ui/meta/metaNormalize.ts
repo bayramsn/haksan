@@ -79,13 +79,13 @@ export type MetaCampaign = {
   effectiveStatus: string | null;
   dailyBudgetMinor: number | null;
   lifetimeBudgetMinor: number | null;
-  spendMinor: number;
+  spendMinor: number | null;
   currency: string;
-  impressions: number;
-  clicks: number;
-  leads: number;
-  qualifiedLeads: number;
-  conversions: number;
+  impressions: number | null;
+  clicks: number | null;
+  leads: number | null;
+  qualifiedLeads: number | null;
+  conversions: number | null;
   updatedAt: string | null;
 };
 
@@ -269,13 +269,13 @@ export function normalizeCampaign(raw: Raw, connectionId: string): MetaCampaign 
     effectiveStatus: asString(raw.effective_status ?? raw.effectiveStatus),
     dailyBudgetMinor: budget(raw.daily_budget, raw.dailyBudgetMinor),
     lifetimeBudgetMinor: budget(raw.lifetime_budget, raw.lifetimeBudgetMinor),
-    spendMinor: Number(raw.spendMinor ?? 0),
+    spendMinor: typeof raw.spendMinor === 'number' && Number.isFinite(raw.spendMinor) ? raw.spendMinor : null,
     currency: String(raw.currency ?? 'TRY'),
-    impressions: Number(raw.impressions ?? 0),
-    clicks: Number(raw.clicks ?? 0),
-    leads: Number(raw.leads ?? 0),
-    qualifiedLeads: Number(raw.qualifiedLeads ?? 0),
-    conversions: Number(raw.conversions ?? 0),
+    impressions: typeof raw.impressions === 'number' && Number.isFinite(raw.impressions) ? raw.impressions : null,
+    clicks: typeof raw.clicks === 'number' && Number.isFinite(raw.clicks) ? raw.clicks : null,
+    leads: typeof raw.leads === 'number' && Number.isFinite(raw.leads) ? raw.leads : null,
+    qualifiedLeads: typeof raw.qualifiedLeads === 'number' && Number.isFinite(raw.qualifiedLeads) ? raw.qualifiedLeads : null,
+    conversions: typeof raw.conversions === 'number' && Number.isFinite(raw.conversions) ? raw.conversions : null,
     updatedAt: asString(raw.updated_time ?? raw.updatedAt),
   };
 }
@@ -290,7 +290,7 @@ export function normalizeInsight(raw: Raw): MetaInsightPoint {
     campaignId: asString(raw.campaignId),
     campaignName: asString(raw.campaignName),
     spendMinor: Math.round(Number(raw.spend ?? 0) * 100),
-    currency: String(asRecord(raw.rawMetrics).account_currency ?? 'TRY'),
+    currency: String(asRecord(raw.rawMetrics).account_currency ?? ''),
     impressions: Number(raw.impressions ?? 0),
     clicks: Number(raw.clicks ?? 0),
     leads: Number(raw.leads ?? 0),
@@ -298,16 +298,15 @@ export function normalizeInsight(raw: Raw): MetaInsightPoint {
 }
 
 export function insightTotals(items: MetaInsightPoint[]) {
-  return items.reduce(
-    (result, item) => ({
-      spendMinor: result.spendMinor + item.spendMinor,
-      impressions: result.impressions + item.impressions,
-      clicks: result.clicks + item.clicks,
-      leads: result.leads + item.leads,
-      currency: result.currency || item.currency,
-    }),
-    { spendMinor: 0, impressions: 0, clicks: 0, leads: 0, currency: '' },
-  );
+  const currencies = new Set(items.map((item) => item.currency));
+  const validCurrency = currencies.size === 1 && /^[A-Z]{3}$/.test(items[0]?.currency ?? '');
+  return {
+    spendMinor: validCurrency ? items.reduce((sum, item) => sum + item.spendMinor, 0) : null,
+    impressions: items.reduce((sum, item) => sum + item.impressions, 0),
+    clicks: items.reduce((sum, item) => sum + item.clicks, 0),
+    leads: items.reduce((sum, item) => sum + item.leads, 0),
+    currency: validCurrency ? items[0]!.currency : '',
+  };
 }
 
 export function normalizeConversation(raw: Raw, fallbackConnectionId: string, now = new Date()): MetaConversation {
@@ -479,6 +478,7 @@ export function formatMetaDate(value?: string | null): string {
 }
 
 export function formatMetaMoney(minor: number | null | undefined, currency = 'TRY'): string {
+  if (minor == null || !Number.isFinite(minor)) return '—';
   try {
     return new Intl.NumberFormat('tr-TR', { style: 'currency', currency: currency || 'TRY', maximumFractionDigits: 2 }).format(Number(minor ?? 0) / 100);
   } catch {
@@ -487,6 +487,7 @@ export function formatMetaMoney(minor: number | null | undefined, currency = 'TR
 }
 
 export function formatMetaNumber(value: number | null | undefined): string {
+  if (value == null || !Number.isFinite(value)) return '—';
   return new Intl.NumberFormat('tr-TR', { maximumFractionDigits: 1 }).format(Number(value ?? 0));
 }
 
@@ -527,4 +528,16 @@ export function isSafeAuthorizationUrl(value: unknown): value is string {
 
 export function activeConnections(connections: MetaConnection[]): MetaConnection[] {
   return connections.filter((item) => item.status === 'active');
+}
+
+/** Missing aggregate fields are unavailable; they must never become fabricated zeros. */
+export function normalizeOverviewSummary(raw: Raw) {
+  const numeric = (value: unknown): number | null => typeof value === 'number' && Number.isFinite(value) ? value : null;
+  const spend = numeric(raw.totalSpend);
+  return {
+    spendMinor: spend === null ? null : Math.round(spend * 100), currency: asString(raw.currency) ?? 'TRY',
+    leads: numeric(raw.leads), qualifiedLeads: numeric(raw.qualifiedLeads), conversions: numeric(raw.conversions),
+    costPerLeadMinor: numeric(raw.costPerLeadMinor), qualificationRate: numeric(raw.qualificationRate),
+    conversionRate: numeric(raw.conversionRate), firstResponseMinutes: numeric(raw.firstResponseMinutes),
+  };
 }

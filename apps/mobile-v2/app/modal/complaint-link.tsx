@@ -35,7 +35,7 @@ export default function ComplaintLinkScreen() {
   const [title, setTitle] = useState(first(params.title));
   const [result, setResult] = useState<{ url: string; expiresAt: string | null } | null>(null);
 
-  if (!canCreate) return <Redirect href={'/(tabs)/modules/service-complaints/links' as Href} />;
+  if (!canCreate) return <Redirect href={'/modules/service-complaints/links' as Href} />;
 
   const scope = device
     ? [device.model, device.serialNumber].filter(Boolean).join(' · ')

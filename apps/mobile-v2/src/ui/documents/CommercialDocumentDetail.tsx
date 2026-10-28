@@ -1,3 +1,5 @@
+import { ProformaPrintVariant } from './ProformaPrintVariant';
+import { useNavigationBottomInset } from '@/src/ui/LiquidGlassTabBarBackground';
 import { Alert, RefreshControl, ScrollView, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -7,13 +9,15 @@ import {
   useDeleteCommercialInvoice,
   useDeleteContract,
   useDeleteProforma,
-  useFileLinks,
+  useLinkedFile,
 } from '@/src/api/commercial-docs.hooks';
 import { useCommercialDocument, type DocumentKind } from '@/src/api/documents.hooks';
 import { useQuoteDetail } from '@/src/api/quotes.hooks';
 import { useCan } from '@/src/auth/AuthProvider';
 import { formatAmount, formatDate, formatDateTime } from '@/src/lib/format';
-import { downloadAndShareFile } from '@/src/native/files';
+import { useState } from 'react';
+import { documentPdfRequest } from './document-pdf';
+import { downloadAndShareFile, postPdfAndShare } from '@/src/native/files';
 import { Button, Card, Chip, DetailHeader, DetailSkeleton, EmptyState, ErrorState, Eyebrow } from '@/src/ui';
 import { InfoRows, type InfoItem } from '@/src/ui/data';
 import { toast } from '@/src/ui/toast';
@@ -52,7 +56,10 @@ function TermBlock({ label, value }: { label: string; value: string | null }) {
  * düzenle / imzalı nüsha / sil aksiyonları.
  */
 export function CommercialDocumentDetail({ kind, id }: { kind: DocumentKind; id: string }) {
+  const GLASS_TAB_BAR_HEIGHT = useNavigationBottomInset();
   const router = useRouter();
+  const [pdfBusy, setPdfBusy] = useState(false);
+  const [printVariant, setPrintVariant] = useState('');
   const meta = KIND_META[kind];
   const query = useCommercialDocument(kind, id);
   const quoteId = query.data?.quoteId ?? '';
@@ -67,7 +74,7 @@ export function CommercialDocumentDetail({ kind, id }: { kind: DocumentKind; id:
   const canUpload = useCan('files.create');
   const canUpdate = useCan(`${meta.perm}.update`);
   const canDelete = useCan(`${meta.perm}.delete`);
-  const links = useFileLinks(canReadFiles && Boolean(query.data?.fileId));
+  const linkedFile = useLinkedFile(query.data?.fileId ?? null, canReadFiles);
   const deleteProforma = useDeleteProforma();
   const deleteContract = useDeleteContract();
   const deleteInvoice = useDeleteCommercialInvoice();
@@ -92,10 +99,17 @@ export function CommercialDocumentDetail({ kind, id }: { kind: DocumentKind; id:
   const snapshotCompany = record(snapshot?.company);
   const snapshotContact = record(snapshot?.contact);
   const snapshotCurrency = record(snapshot?.currency);
-  const ownTerms = record(data.terms) ?? record(snapshot?.terms);
-  const items = Array.isArray(snapshot?.items)
+  const ownTerms = record(data.terms) ?? record(snapshot?.terms) ?? (!snapshot ? record(quote.data?.terms) : null);
+  const frozenItems = Array.isArray(snapshot?.items)
     ? snapshot.items.map(record).filter((item): item is Record<string, unknown> => Boolean(item))
     : [];
+  // Web DocumentDetailDialog: dondurulmuş kalem yoksa taslak belge bağlı teklifin canlı verisini gösterir.
+  // Web: snapshot varsa (kalemsiz olsa bile) canlı veri hiç kullanılmaz; kesinleşmiş tutar karışmasın.
+  const liveQuote = !snapshot && !standalone && quote.data ? (quote.data as unknown as Record<string, unknown>) : null;
+  const items = liveQuote
+    ? (quote.data?.items ?? []).map((item) => item as unknown as Record<string, unknown>)
+    : frozenItems;
+  const totals = snapshotQuote ?? liveQuote;
   const status = statuses.data?.find((item) => item.id === text(data.statusId));
   const currencyCode =
     text(snapshotCurrency?.code) ??
@@ -108,7 +122,7 @@ export function CommercialDocumentDetail({ kind, id }: { kind: DocumentKind; id:
   const date = text(data.issueDate) ?? text(data.signedDate) ?? text(data.invoiceDate);
   const finalizedAt = text(data.finalizedAt);
   const fileId = text(data.fileId);
-  const fileLink = fileId ? links.data?.items.find((link) => link.fileId === fileId) : undefined;
+  const fileLink = linkedFile.data;
   const relation = recordRelationLabel({ quoteId: quoteId || null, companyId: companyId || null, standalone, kind });
   const quoteStatus = quoteStatuses.data?.find((item) => item.id === quote.data?.statusId);
   const validity = quote.data ? validUntil(quote.data.quoteDate, quote.data.validityDays) : null;
@@ -133,6 +147,14 @@ export function CommercialDocumentDetail({ kind, id }: { kind: DocumentKind; id:
       toast.error(error instanceof Error ? error.message : 'Dosya indirilemedi.');
     }
   };
+
+  async function generatePdf() {
+    if (kind === 'invoice' || pdfBusy) return;
+    setPdfBusy(true);
+    try { const request = documentPdfRequest(kind, id, no); await postPdfAndShare(request.path, request.filename, kind === 'proforma' && printVariant ? { variantKey: printVariant } : undefined); }
+    catch (error) { toast.error(error instanceof Error ? error.message : 'PDF oluşturulamadı.'); }
+    finally { setPdfBusy(false); }
+  }
 
   function confirmDelete() {
     const mutation = kind === 'proforma' ? deleteProforma : kind === 'contract' ? deleteContract : deleteInvoice;
@@ -163,6 +185,7 @@ export function CommercialDocumentDetail({ kind, id }: { kind: DocumentKind; id:
         actions={canUpdate ? [{ icon: 'create-outline', label: `${meta.title} düzenle`, onPress: () => router.push(editHref) }] : []}
       />
       <ScrollView
+      contentContainerStyle={{ paddingBottom: GLASS_TAB_BAR_HEIGHT + 32 }}
         contentContainerClassName="gap-4 px-4 pb-10 pt-4"
         refreshControl={
           <RefreshControl
@@ -184,8 +207,8 @@ export function CommercialDocumentDetail({ kind, id }: { kind: DocumentKind; id:
           </View>
           <Text className="font-display text-[20px] text-foreground">{no}</Text>
           <Text className="font-inter text-sm text-muted-foreground">{companyName ?? 'Firma bilgisi yok'}</Text>
-          {text(snapshotQuote?.grandTotal) ? (
-            <Text className="font-inter-semibold text-base text-foreground">{formatAmount(text(snapshotQuote?.grandTotal), currencyCode)}</Text>
+          {text(totals?.grandTotal) ? (
+            <Text className="font-inter-semibold text-base text-foreground">{formatAmount(text(totals?.grandTotal), currencyCode)}</Text>
           ) : null}
         </Card>
 
@@ -203,16 +226,16 @@ export function CommercialDocumentDetail({ kind, id }: { kind: DocumentKind; id:
             </Text>
           ) : null}
           <View className="gap-2">
-            {quoteId ? <Button label="Teklife Git" variant="ghost" trailingIcon="document-text-outline" onPress={() => router.push(`/(tabs)/modules/quotes/${quoteId}`)} /> : null}
+            {quoteId ? <Button label="Teklife Git" variant="ghost" trailingIcon="document-text-outline" onPress={() => router.push(`/modules/quotes/${quoteId}`)} /> : null}
             {quote.data?.opportunityId ? (
               <Button
                 label="Fırsatı aç"
                 variant="ghost"
                 trailingIcon="briefcase-outline"
-                onPress={() => router.push(`/(tabs)/modules/opportunities/${quote.data!.opportunityId}`)}
+                onPress={() => router.push(`/modules/opportunities/${quote.data!.opportunityId}`)}
               />
             ) : null}
-            {companyId ? <Button label="Firmaya Git" variant="ghost" trailingIcon="business-outline" onPress={() => router.push(`/(tabs)/modules/companies/${companyId}`)} /> : null}
+            {companyId ? <Button label="Firmaya Git" variant="ghost" trailingIcon="business-outline" onPress={() => router.push(`/modules/companies/${companyId}`)} /> : null}
           </View>
         </Card>
 
@@ -232,16 +255,16 @@ export function CommercialDocumentDetail({ kind, id }: { kind: DocumentKind; id:
           />
         </Card>
 
-        {snapshotQuote ? (
+        {totals ? (
           <Card>
             <InfoRows
               items={
                 [
-                  { label: 'Ara toplam', value: formatAmount(text(snapshotQuote.subtotal), currencyCode) },
-                  { label: 'İndirim', value: formatAmount(text(snapshotQuote.discountTotal), currencyCode) },
-                  { label: 'KDV', value: formatAmount(text(snapshotQuote.vatAmount), currencyCode) },
-                  { label: 'Gümrük', value: formatAmount(text(snapshotQuote.customsTotal), currencyCode) },
-                  { label: 'Genel toplam', value: formatAmount(text(snapshotQuote.grandTotal), currencyCode) },
+                  { label: 'Ara toplam', value: formatAmount(text(totals.subtotal), currencyCode) },
+                  { label: 'İndirim', value: formatAmount(text(totals.discountTotal), currencyCode) },
+                  { label: 'KDV', value: formatAmount(text(totals.vatAmount), currencyCode) },
+                  { label: 'Gümrük', value: formatAmount(text(totals.customsTotal), currencyCode) },
+                  { label: 'Genel toplam', value: formatAmount(text(totals.grandTotal), currencyCode) },
                 ] satisfies InfoItem[]
               }
             />
@@ -250,7 +273,7 @@ export function CommercialDocumentDetail({ kind, id }: { kind: DocumentKind; id:
 
         <View className="gap-2">
           <View className="px-1">
-            <Eyebrow>Belge Kalemleri ({items.length})</Eyebrow>
+            <Eyebrow>{liveQuote ? `Kalemler · bağlı tekliften canlı (${items.length})` : `Belge Kalemleri (${items.length})`}</Eyebrow>
           </View>
           {items.length ? (
             items.map((item, index) => (
@@ -271,12 +294,12 @@ export function CommercialDocumentDetail({ kind, id }: { kind: DocumentKind; id:
           )}
         </View>
 
-        {ownTerms || snapshotQuote ? (
+        {ownTerms || totals ? (
           <Card className="gap-3">
             <Eyebrow>Şartlar</Eyebrow>
-            <TermBlock label="Ödeme" value={text(ownTerms?.paymentTermsText) ?? text(snapshotQuote?.paymentTerms)} />
-            <TermBlock label="Teslimat" value={text(ownTerms?.deliveryTermsText) ?? text(snapshotQuote?.deliveryTerms)} />
-            <TermBlock label="Garanti" value={text(ownTerms?.warrantyTermsText) ?? text(snapshotQuote?.warrantyTerms)} />
+            <TermBlock label="Ödeme" value={text(ownTerms?.paymentTermsText) ?? text(totals?.paymentTerms)} />
+            <TermBlock label="Teslimat" value={text(ownTerms?.deliveryTermsText) ?? text(totals?.deliveryTerms)} />
+            <TermBlock label="Garanti" value={text(ownTerms?.warrantyTermsText) ?? text(totals?.warrantyTerms)} />
             {kind === 'contract' ? <TermBlock label="Teslim yeri" value={text(ownTerms?.deliveryLocation)} /> : null}
           </Card>
         ) : null}
@@ -284,10 +307,13 @@ export function CommercialDocumentDetail({ kind, id }: { kind: DocumentKind; id:
         <Card className="gap-2">
           <Eyebrow>CRM belgesi</Eyebrow>
           <Text className="font-inter text-xs leading-5 text-muted-foreground">
-            PDF mobil uygulamada yeniden üretilmez. Web CRM’de oluşturulan veya yüklenen dosya burada açılır ve paylaşılır.
+            {kind === 'invoice' ? 'Yüklenmiş CRM belgesini açıp paylaşabilirsiniz.' : 'PDF, bu belgenin kayıtlı fiyat ve şartlarıyla sunucuda oluşturulur.'}
           </Text>
+          {kind === 'proforma' ? <ProformaPrintVariant value={printVariant} onChange={setPrintVariant} /> : null}
+          {kind !== 'invoice' ? <Button label="PDF oluştur / paylaş" trailingIcon="download-outline" loading={pdfBusy} disabled={pdfBusy} onPress={() => void generatePdf()} /> : null}
           {fileId ? (
             <>
+              {linkedFile.error ? <ErrorState message={linkedFile.error.message} onRetry={() => void linkedFile.refetch()} /> : null}
               <InfoRows
                 items={
                   [
@@ -304,7 +330,7 @@ export function CommercialDocumentDetail({ kind, id }: { kind: DocumentKind; id:
             </>
           ) : (
             <Text className="font-inter text-xs text-muted-foreground">
-              Bu kayda bağlı CRM PDF yok. Web CRM’den yükleyin veya imzalı nüsha ekleyin; kayıt özeti yukarıdaki anlık görüntüden okunur.
+              Bu kayda yüklenmiş bir nüsha yok. İmzalı nüsha ayrıca eklenebilir.
             </Text>
           )}
         </Card>

@@ -8,8 +8,10 @@ export function canonicalPendingRoute(route: Href | string | null | undefined): 
 
   // Query/hash kalıcı hedefe asla yazılmaz. Özellikle reset tokenı ve filtre
   // değerleri SecureStore kaydının parçası olamaz.
-  const pathname = raw.split(/[?#]/, 1)[0] ?? '';
-  if (pathname !== '/(tabs)' && !pathname.startsWith('/(tabs)/')) return null;
+  let pathname = raw.split(/[?#]/, 1)[0] ?? '';
+  pathname = pathname.replace(/^\/\(tabs\)(?=\/|$)/, '').replace(/^\/\((?:home|companies|opportunities|calendar|modules)\)(?=\/|$)/, '');
+  if (!pathname) pathname = '/(tabs)/(home)';
+  if (pathname !== '/(tabs)/(home)' && !/^\/(?:modules|more|chat|notifications|companies|opportunities|calendar)(?:\/|$)/.test(pathname)) return null;
 
   const segments = pathname.split('/').filter(Boolean);
   for (const segment of segments) {

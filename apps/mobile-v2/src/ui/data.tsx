@@ -1,4 +1,4 @@
-import { Pressable, ScrollView, Text, View } from 'react-native';
+import { Pressable, ScrollView, Text, View, useWindowDimensions } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { chipClass, SCREEN_PAD, toneColor, useTheme, type Tone } from '@/src/theme/theme';
 
@@ -131,7 +131,7 @@ export function Tabs<T extends string>({
     <ScrollView
       horizontal
       showsHorizontalScrollIndicator={false}
-      style={{ height: 44, flexGrow: 0, flexShrink: 0 }}
+      style={{ height: 46, flexGrow: 0, flexShrink: 0 }}
       contentContainerStyle={{ paddingHorizontal: SCREEN_PAD, gap: 8 }}
     >
       {tabs.map((tab) => {
@@ -142,7 +142,7 @@ export function Tabs<T extends string>({
             accessibilityRole="tab"
             accessibilityState={{ selected }}
             onPress={() => onChange(tab.value)}
-            className={`h-[42px] flex-row items-center gap-1.5 rounded-full border px-3.5 ${
+            className={`h-[44px] flex-row items-center gap-1.5 rounded-full border px-3.5 ${
               selected ? 'border-primary bg-primary' : 'border-border bg-card'
             }`}
           >
@@ -276,6 +276,8 @@ export type InfoItem = { label: string; value: string | null | undefined; tone?:
  */
 export function InfoRows({ items, showEmpty = false }: { items: InfoItem[]; showEmpty?: boolean }) {
   const { colors } = useTheme();
+  const { width } = useWindowDimensions();
+  const narrow = width < 380;
   const rows = showEmpty ? items : items.filter((item) => Boolean(item.value));
   if (rows.length === 0) return null;
 
@@ -284,12 +286,12 @@ export function InfoRows({ items, showEmpty = false }: { items: InfoItem[]; show
       {rows.map((item, index) => (
         <View
           key={item.label}
-          className={`flex-row justify-between gap-4 py-2.5 ${index > 0 ? 'border-t border-border' : ''}`}
+          className={`${narrow ? 'gap-1' : 'flex-row justify-between gap-4'} py-3 ${index > 0 ? 'border-t border-border' : ''}`}
         >
-          <Text className="font-inter text-sm text-muted-foreground">{item.label}</Text>
+          <Text style={narrow ? undefined : { width: '36%' }} className="font-inter text-[13px] leading-[20px] text-muted-foreground">{item.label}</Text>
           <Text
-            className="flex-1 text-right font-inter text-sm"
-            numberOfLines={3}
+            selectable
+            className={`${narrow ? '' : 'flex-1 text-right'} font-inter text-[14px] leading-[20px]`}
             style={{ color: item.tone ? toneColor(colors, item.tone) : colors.foreground }}
           >
             {item.value || '—'}

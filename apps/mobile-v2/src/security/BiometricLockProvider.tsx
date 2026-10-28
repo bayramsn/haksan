@@ -1,3 +1,5 @@
+import { runStartup } from './startup';
+import { StartupRecovery } from './StartupRecovery';
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { AppState, Platform, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -43,6 +45,8 @@ export function BiometricLockProvider({ children }: { children: ReactNode }) {
   const { user, signOut } = useAuth();
   const { colors } = useTheme();
   const [ready, setReady] = useState(false);
+  const [startupFailed, setStartupFailed] = useState(false);
+  const [startupAttempt, setStartupAttempt] = useState(0);
   const [enabled, setEnabledState] = useState(false);
   const [available, setAvailable] = useState(false);
   const [locked, setLocked] = useState(false);
@@ -54,20 +58,24 @@ export function BiometricLockProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let cancelled = false;
-    void (async () => {
+    setStartupFailed(false);
+    setReady(false);
+    void runStartup(async () => {
       const [stored, capable] = await Promise.all([
         SecureStore.getItemAsync(ENABLED_KEY),
         deviceAvailable().catch(() => false),
       ]);
+      return { stored, capable };
+    }).then(({ stored, capable }) => {
       if (cancelled) return;
       const active = stored === 'true';
       setEnabledState(active);
       setAvailable(capable);
       setLocked(active && Boolean(user));
       setReady(true);
-    })();
+    }).catch(() => { if (!cancelled) setStartupFailed(true); });
     return () => { cancelled = true; };
-  }, []);
+  }, [startupAttempt]);
 
   useEffect(() => {
     if (!ready) return;
@@ -141,6 +149,7 @@ export function BiometricLockProvider({ children }: { children: ReactNode }) {
     [available, busy, changeEnabled, enabled, unlock]
   );
 
+  if (startupFailed) return <StartupRecovery onRetry={() => setStartupAttempt(value => value + 1)} />;
   if (!ready) return null;
 
   return (

@@ -1,8 +1,11 @@
+import { useAllQuoteList } from '@/src/api/quotes.hooks';
+import { PickerField, QuotePickerSheet } from '@/src/ui/documents/pickers';
+import type { SheetHandle } from '@/src/ui/pickers/HostedSheet';
 /**
  * Ödeme planı — web CreatePaymentPlanDialog’un mobil karşılığı.
  * Vadeli yöntemlerde taksit alacakları oluşturur; peşin/leasingde yalnız yöntemi kaydeder.
  */
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { KeyboardAvoidingView, Platform, Pressable, ScrollView, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Redirect, Stack, useLocalSearchParams, useRouter, type Href } from 'expo-router';
@@ -12,12 +15,13 @@ import {
   type OpportunityPaymentMethodCode,
 } from '@haksan/shared';
 import { useCreateReceivable } from '@/src/api/finance.hooks';
-import { useOpportunity, useQuoteList, useUpdateOpportunity } from '@/src/api/crm.hooks';
+import { useLookup, useOpportunity, useQuote, useUpdateOpportunity } from '@/src/api/crm.hooks';
 import { useCan } from '@/src/auth/AuthProvider';
 import { formatAmount } from '@/src/lib/format';
 import { Button, Card, Eyebrow, Field, Loading } from '@/src/ui';
 import { Segmented } from '@/src/ui/finance/kit';
 import { DateTextField } from '@/src/ui/select/DateTextField';
+import { buildPlanReceivable, recalculatePlanRows, type PlanInstallment } from '@/src/features/receivable-form';
 import { toast } from '@/src/ui/toast';
 
 const CURRENCIES = ['USD', 'EUR', 'TRY'] as const;
@@ -39,7 +43,7 @@ const METHOD_OPTIONS = (OPPORTUNITY_PAYMENT_METHODS as readonly OpportunityPayme
   .filter((code) => code !== 'undecided')
   .map((value) => ({ value, label: METHOD_LABELS[value] }));
 
-type Installment = { amount: string; dueDate: string };
+type Installment = PlanInstallment;
 
 function first(value: string | string[] | undefined): string {
   return Array.isArray(value) ? value[0] ?? '' : value ?? '';
@@ -57,10 +61,10 @@ function buildInstallments(total: number, count: number, termDays: number): Inst
   const unit = Number((total / count).toFixed(2));
   const today = new Date();
   const firstTerm = Math.max(0, Math.trunc(termDays || 0));
-  return Array.from({ length: count }, (_, index) => ({
+  return recalculatePlanRows([], Array.from({ length: count }, (_, index) => ({
     amount: String(index === 0 ? Number((total - unit * (count - 1)).toFixed(2)) : unit),
     dueDate: dayPlus(today, firstTerm + 30 * index),
-  }));
+  })));
 }
 
 export default function PaymentPlanScreen() {
@@ -75,7 +79,7 @@ export default function PaymentPlanScreen() {
   const canCreate = useCan('receivables.create');
   const canUpdateOpp = useCan('opportunities.update');
   const detail = useOpportunity(opportunityId);
-  const quotes = useQuoteList(
+  const quotes = useAllQuoteList(
     { opportunityId: opportunityId || undefined },
     Boolean(opportunityId),
   );
@@ -94,6 +98,10 @@ export default function PaymentPlanScreen() {
   const [amount, setAmount] = useState('');
   const [currencyCode, setCurrencyCode] = useState<Currency>('USD');
   const [quoteId, setQuoteId] = useState(first(params.quoteId));
+  const selectedQuote = useQuote(quoteId);
+  const currencies = useLookup('currencies');
+  const selectedCurrency = currencies.data?.find((item) => item.id === selectedQuote.data?.currencyId)?.code;
+  const quoteSheet = useRef<SheetHandle>(null);
   const [installmentCount, setInstallmentCount] = useState('3');
   const [termDays, setTermDays] = useState('30');
   const [installments, setInstallments] = useState<Installment[]>([]);
@@ -107,11 +115,14 @@ export default function PaymentPlanScreen() {
 
   useEffect(() => {
     if (hydrated || (!detail.data && !quoteItems.length && !first(params.quoteId))) return;
+    if (first(params.quoteId) && selectedQuote.isPending) return;
+    if (opportunityId && (quotes.isPending || quotes.isError)) return;
+    if (first(params.quoteId) && selectedQuote.data?.currencyId && currencies.isPending) return;
     const approved = quoteItems.find((q) => q.status?.code === 'approved');
     const latest = quoteItems[0];
-    const initial = quoteItems.find((q) => q.id === first(params.quoteId)) ?? approved ?? latest;
+    const initial = quoteItems.find((q) => q.id === first(params.quoteId)) ?? (first(params.quoteId) ? selectedQuote.data : null) ?? approved ?? latest;
     const total = initial ? Number(initial.grandTotal) : Number(detail.data?.estimatedValue ?? 0);
-    const currency = (initial?.currency?.code ?? detail.data?.currency?.code ?? 'USD') as string;
+    const currency = ((initial && 'currency' in initial ? initial.currency?.code : selectedCurrency) ?? detail.data?.currency?.code ?? 'USD') as string;
     setQuoteId(initial?.id ?? first(params.quoteId));
     setAmount(total > 0 ? String(total) : '');
     setCurrencyCode((CURRENCIES as readonly string[]).includes(currency) ? (currency as Currency) : 'USD');
@@ -122,7 +133,7 @@ export default function PaymentPlanScreen() {
       setPaymentMethod(method as OpportunityPaymentMethodCode);
     }
     setHydrated(true);
-  }, [detail.data, quoteItems, params.quoteId, hydrated]);
+  }, [detail.data, quoteItems, params.quoteId, hydrated, selectedQuote.data, selectedQuote.isPending, selectedCurrency, opportunityId, quotes.isPending, quotes.isError, currencies.isPending]);
 
   useEffect(() => {
     if (!planNeeded) {
@@ -134,7 +145,7 @@ export default function PaymentPlanScreen() {
       setInstallments([]);
       return;
     }
-    setInstallments(buildInstallments(total, count, Number(termDays) || 0));
+    setInstallments((previous) => recalculatePlanRows(previous, buildInstallments(total, count, Number(termDays) || 0)));
   }, [amount, count, termDays, planNeeded]);
 
   const sum = useMemo(
@@ -144,12 +155,13 @@ export default function PaymentPlanScreen() {
   const totalAmount = Number(amount.replace(',', '.')) || 0;
   const matched = Math.abs(totalAmount - sum) < 0.01;
 
-  if (!canCreate) return <Redirect href={'/(tabs)/modules/receivables' as Href} />;
+  if (!canCreate) return <Redirect href={'/modules/receivables' as Href} />;
   if (!opportunityId && !companyId) {
-    return <Redirect href={'/(tabs)/modules/opportunities' as Href} />;
+    return <Redirect href={'/modules/opportunities' as Href} />;
   }
 
   async function submit() {
+    if (saving || (opportunityId && (quotes.isPending || quotes.isError))) return;
     if (!companyId) {
       toast.error('Firma seçili değil');
       return;
@@ -164,6 +176,17 @@ export default function PaymentPlanScreen() {
         return;
       }
     }
+    const productHint = detail.data?.requestedMachine || detail.data?.title || 'Fırsat';
+    const prepared = planNeeded ? installments.map((row, index) => buildPlanReceivable({
+      row, method: paymentMethod, companyId, currencyCode, quoteId: quoteId || undefined,
+      baseNote: installments.length > 1 ? `${METHOD_LABELS[paymentMethod]} ${index + 1}/${installments.length} - ${productHint}` : `${METHOD_LABELS[paymentMethod]} - ${productHint}`,
+    })) : [];
+    const invalidIndex = prepared.findIndex((row) => !row.ok);
+    if (invalidIndex >= 0) {
+      const invalid = prepared[invalidIndex]!;
+      if (!invalid.ok) toast.error(`${invalidIndex + 1}. taksit: ${Object.values(invalid.errors).join(' ')}`);
+      return;
+    }
     setSaving(true);
     try {
       if (opportunityId && canUpdateOpp) {
@@ -175,22 +198,9 @@ export default function PaymentPlanScreen() {
         });
       }
       if (planNeeded) {
-        const productHint = detail.data?.requestedMachine || detail.data?.title || 'Fırsat';
-        for (let i = 0; i < installments.length; i++) {
-          const row = installments[i]!;
-          const baseNote =
-            installments.length > 1
-              ? `${METHOD_LABELS[paymentMethod]} ${i + 1}/${installments.length} - ${productHint}`
-              : `${METHOD_LABELS[paymentMethod]} - ${productHint}`;
-          await createReceivable.mutateAsync({
-            companyId,
-            amount: Number(row.amount.replace(',', '.')),
-            currencyCode,
-            dueDate: new Date(`${row.dueDate}T12:00:00`).toISOString(),
-            paymentMethod,
-            notes: baseNote,
-            ...(quoteId ? { quoteId } : {}),
-          });
+        for (const row of prepared) {
+          if (!row.ok) continue;
+          await createReceivable.mutateAsync({ ...row.body, dueDate: row.body.dueDate.toISOString() });
         }
       }
       toast.success(
@@ -232,34 +242,10 @@ export default function PaymentPlanScreen() {
               ) : null}
             </Card>
 
-            {quoteItems.length > 0 ? (
-              <Card className="gap-2">
-                <Eyebrow>Teklif (opsiyonel)</Eyebrow>
-                {quoteItems.slice(0, 6).map((quote) => {
-                  const active = quote.id === quoteId;
-                  return (
-                    <Pressable
-                      key={quote.id}
-                      accessibilityRole="radio"
-                      accessibilityState={{ selected: active }}
-                      onPress={() => {
-                        setQuoteId(quote.id);
-                        setAmount(String(Number(quote.grandTotal) || 0));
-                        const code = quote.currency?.code;
-                        if (code && (CURRENCIES as readonly string[]).includes(code)) {
-                          setCurrencyCode(code as Currency);
-                        }
-                      }}
-                      className={`min-h-11 justify-center rounded-control border px-3 ${active ? 'border-primary bg-secondary' : 'border-border bg-card'}`}
-                    >
-                      <Text className="font-inter-medium text-sm text-foreground">
-                        {quote.documentNo} · {formatAmount(quote.grandTotal, quote.currency?.code ?? 'TRY')}
-                      </Text>
-                    </Pressable>
-                  );
-                })}
-              </Card>
-            ) : null}
+            <PickerField label="Teklif (opsiyonel)" icon="document-text-outline"
+              value={selectedQuote.data ? `${selectedQuote.data.documentNo} · ${formatAmount(selectedQuote.data.grandTotal, selectedCurrency ?? currencyCode)}` : quoteItems.find((item) => item.id === quoteId)?.documentNo ?? (quoteId ? 'Seçili teklif' : null)}
+              placeholder="Kayıtlı tekliflerden seçin" onPress={() => quoteSheet.current?.present()}
+              onClear={() => setQuoteId('')} />
 
             {planNeeded ? (
               <Card className="gap-3">
@@ -312,7 +298,7 @@ export default function PaymentPlanScreen() {
                 <Button
                   label="Eşit dağıt"
                   variant="ghost"
-                  onPress={() => setInstallments(buildInstallments(totalAmount, count, Number(termDays) || 0))}
+                  onPress={() => setInstallments((previous) => recalculatePlanRows(previous, buildInstallments(totalAmount, count, Number(termDays) || 0)))}
                 />
                 {!matched && installments.length > 0 ? (
                   <Text className="font-inter text-[12px] text-destructive">
@@ -343,6 +329,18 @@ export default function PaymentPlanScreen() {
                         )
                       }
                     />
+                    {paymentMethod === 'cheque' || paymentMethod === 'promissory_note' ? <View className="gap-2 border-t border-border pt-3">
+                      <Field label={paymentMethod === 'cheque' ? 'Çek numarası *' : 'Senet numarası *'} value={row.documentNo} maxLength={128}
+                        onChangeText={(documentNo) => setInstallments((current) => current.map((item, i) => i === index ? { ...item, documentNo } : item))} />
+                      <Field label={paymentMethod === 'cheque' ? 'Hesap sahibi *' : 'Borçlu / düzenleyen *'} value={row.issuer} maxLength={128}
+                        onChangeText={(issuer) => setInstallments((current) => current.map((item, i) => i === index ? { ...item, issuer } : item))} />
+                      {paymentMethod === 'cheque' ? <>
+                        <Field label="Banka *" value={row.bankName} maxLength={128}
+                          onChangeText={(bankName) => setInstallments((current) => current.map((item, i) => i === index ? { ...item, bankName } : item))} />
+                        <Field label="Şube" value={row.branchName} maxLength={128}
+                          onChangeText={(branchName) => setInstallments((current) => current.map((item, i) => i === index ? { ...item, branchName } : item))} />
+                      </> : null}
+                    </View> : null}
                   </View>
                 ))}
               </Card>
@@ -369,12 +367,21 @@ export default function PaymentPlanScreen() {
               <Button
                 label={saving ? 'Kaydediliyor…' : planNeeded ? 'Planı Oluştur' : 'Yöntemi Kaydet'}
                 loading={saving}
+                disabled={Boolean(opportunityId) && (quotes.isPending || quotes.isError)}
                 onPress={() => void submit()}
               />
             </View>
           </View>
         </KeyboardAvoidingView>
       )}
+      {quotes.error ? <View className="px-4"><Text accessibilityRole="alert" className="text-destructive">Teklifler tam yüklenemedi. Ödeme planı hazırlamadan önce yeniden deneyin.</Text><Button label="Teklifleri yeniden yükle" variant="ghost" onPress={() => void quotes.refetch()} /></View> : null}
+      <QuotePickerSheet sheetRef={quoteSheet} selectedId={quoteId} companyId={companyId || undefined} opportunityId={opportunityId || undefined}
+        onSelect={(quote) => {
+          setQuoteId(quote.id);
+          setAmount(String(Number(quote.grandTotal) || 0));
+          const code = quote.currency?.code;
+          if (code && (CURRENCIES as readonly string[]).includes(code)) setCurrencyCode(code as Currency);
+        }} />
     </SafeAreaView>
   );
 }

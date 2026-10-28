@@ -1,4 +1,9 @@
-import { forwardRef, useState } from 'react';
+import { ProfileButton } from './ProfileButton';
+import { GlassNavigationControl } from './NavigationGlass';
+import { useNavigationBottomInset } from './LiquidGlassTabBarBackground';
+import type { BottomSheetModal } from '@gorhom/bottom-sheet';
+import { SheetMenu } from './crm/SheetMenu';
+import { forwardRef, useId, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Pressable,
@@ -12,13 +17,13 @@ import {
 } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { Ionicons } from '@expo/vector-icons';
-import { usePathname, useRouter, type Href } from 'expo-router';
+import { useRouter, type Href } from 'expo-router';
 import Animated, { useAnimatedStyle, useReducedMotion, useSharedValue, withTiming } from 'react-native-reanimated';
 import { chipClass, chipTextClass, SCREEN_PAD, toneColor, useTheme, type Tone } from '@/src/theme/theme';
 import { Enter } from '@/src/ui/motion';
 import { Logo } from '@/src/ui/Logo';
 import { useUnreadCount } from '@/src/api/notifications.hooks';
-import { isTabRootPath, parentPath } from '@/src/modules/hierarchy';
+import { useHierarchyBack } from '@/src/modules/useHierarchyBack';
 
 // Yerleşim sabiti tema modülünde yaşıyor; ekranlar alışkanlıkla buradan da
 // alabilsin diye yeniden dışa veriliyor.
@@ -176,10 +181,10 @@ export function Button({
       {...rest}
     >
       {loading ? <ActivityIndicator size="small" /> : null}
-      <Text className={`font-inter-semibold text-base ${text}`}>{label}</Text>
+      <Text className={`shrink text-center font-inter-semibold text-base ${text}`}>{label}</Text>
       {trailingIcon ? (
-        // Mutlak konum: etiket buton ortasında kalsın, ok kenara yaslansın.
-        <View className="absolute right-5">
+        // Etiket uzadığında sarılır; ikon metnin üzerine binmez.
+        <View>
           <Ionicons
             name={trailingIcon}
             size={18}
@@ -195,8 +200,11 @@ export function Button({
 
 type FieldProps = TextInputProps & { label: string; error?: string };
 
-export const Field = forwardRef<TextInput, FieldProps>(function Field({ label, error, ...rest }, ref) {
-  const errorId = error ? `field-error-${label.toLocaleLowerCase('tr').replace(/[^a-z0-9]+/g, '-')}` : undefined;
+export const Field = forwardRef<TextInput, FieldProps>(function Field({ label, error, className, style, multiline, editable, onFocus, onBlur, ...rest }, ref) {
+  const { colors } = useTheme();
+  const [focused, setFocused] = useState(false);
+  const id = useId();
+  const errorId = error ? `field-error-${id}` : undefined;
   return (
     <View className="gap-1.5">
       <Text className="font-inter-medium text-[13px] text-muted-foreground">{label}</Text>
@@ -205,8 +213,13 @@ export const Field = forwardRef<TextInput, FieldProps>(function Field({ label, e
         accessibilityLabel={label}
         accessibilityHint={error}
         aria-describedby={errorId}
-        placeholderTextColor="#5f697a"
-        className={`min-h-[48px] rounded-control border bg-input-background px-3.5 font-inter text-base text-foreground ${error ? 'border-destructive' : 'border-transparent'}`}
+        placeholderTextColor={colors.mutedForeground}
+        multiline={multiline}
+        editable={editable}
+        onFocus={(event) => { setFocused(true); onFocus?.(event); }}
+        onBlur={(event) => { setFocused(false); onBlur?.(event); }}
+        style={[{ borderColor: error ? colors.destructive : focused ? colors.primary : colors.border, opacity: editable === false ? 0.6 : 1, textAlignVertical: multiline ? 'top' : 'center' }, style]}
+        className={`${multiline ? 'min-h-28 py-3' : 'min-h-14'} rounded-control border bg-input-background px-3 font-inter text-base text-foreground ${className ?? ''}`}
         {...rest}
       />
       {error ? (
@@ -381,10 +394,11 @@ export type HeaderAction = {
   dot?: boolean;
 };
 
-/** Mockup'ta üst eylemler çerçevesiz düz ikon; yalnız bildirimde kırmızı nokta var. */
+/** Desktop glass kontrol yüzeyleri; eylemler ve bildirim noktası korunur. */
 function ActionButton({ action }: { action: HeaderAction }) {
   const { colors } = useTheme();
   return (
+    <GlassNavigationControl>
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={action.label}
@@ -397,24 +411,28 @@ function ActionButton({ action }: { action: HeaderAction }) {
         <View className="absolute right-2.5 top-2.5 h-2.5 w-2.5 rounded-full border-2 border-card bg-primary" />
       ) : null}
     </Pressable>
+    </GlassNavigationControl>
   );
 }
 
-function useHierarchyBack() {
-  const router = useRouter();
-  const pathname = usePathname();
-  return {
-    isTabRoot: isTabRootPath(pathname),
-    goBack: () => {
-      if (router.canGoBack()) router.back();
-      else router.replace(parentPath(pathname) as unknown as Href);
-    },
-  };
+/** Keep named actions reachable without squeezing the title on small screens. */
+function HeaderActions({ actions, limit = 2 }: { actions: HeaderAction[]; limit?: number }) {
+  const menu = useRef<BottomSheetModal>(null);
+  const overflow = actions.length > limit;
+  const visible = overflow ? actions.slice(0, limit - 1) : actions;
+  return <>
+    {visible.map((action, index) => <ActionButton key={`${action.label}-${index}`} action={action} />)}
+    {overflow ? <>
+      <ActionButton action={{ icon: 'ellipsis-horizontal', label: 'Diğer işlemler', onPress: () => menu.current?.present() }} />
+      <SheetMenu ref={menu} title="İşlemler" items={actions.slice(limit - 1).map((action, index) => ({ ...action, key: `${action.label}-${index}` }))} />
+    </> : null}
+  </>;
 }
 
 function BackButton({ onPress }: { onPress: () => void }) {
   const { colors } = useTheme();
   return (
+    <GlassNavigationControl>
     <Pressable
       accessibilityRole="button"
       accessibilityLabel="Geri"
@@ -424,6 +442,7 @@ function BackButton({ onPress }: { onPress: () => void }) {
     >
       <Ionicons name="arrow-back" size={20} color={colors.foreground} />
     </Pressable>
+    </GlassNavigationControl>
   );
 }
 
@@ -436,19 +455,24 @@ export function ScreenHeader({
   subtitle,
   actions = [],
   hideBell,
+  hideProfile,
+  compact,
 }: {
   title: string;
   subtitle?: string;
   actions?: HeaderAction[];
   /** Bildirim ekranının kendisi gibi zilin anlamsız kaldığı yerlerde. */
   hideBell?: boolean;
+  hideProfile?: boolean;
+  /** Liste ekranlarında başlığı kısaltır; kaydırınca arama çubuğu öne çıkar. */
+  compact?: boolean;
 }) {
   const { colors } = useTheme();
   const router = useRouter();
   const unread = useUnreadCount();
   const nav = useHierarchyBack();
   return (
-    <View style={{ paddingHorizontal: SCREEN_PAD }} className="pb-1 pt-1">
+    <View style={{ paddingHorizontal: SCREEN_PAD }} className={compact ? 'pb-0.5 pt-0' : 'pb-1 pt-1'}>
       <View className="h-11 flex-row items-center justify-between">
         {nav.isTabRoot ? (
           <Logo width={118} />
@@ -457,10 +481,8 @@ export function ScreenHeader({
             <BackButton onPress={nav.goBack} />
           </View>
         )}
-        <View className="flex-row items-center">
-          {actions.map((action) => (
-            <ActionButton key={action.label} action={action} />
-          ))}
+        <View className="flex-row items-center gap-2">
+          <HeaderActions actions={actions} limit={hideProfile ? 2 : 1} />
           {/* Mockup'ların tüm modül başlıklarında sağ üstte zil var. */}
           {hideBell ? null : (
             <ActionButton
@@ -468,23 +490,28 @@ export function ScreenHeader({
                 icon: 'notifications-outline',
                 label: 'Bildirimler',
                 dot: unread > 0,
-                onPress: () => router.push('/(tabs)/notifications'),
+                onPress: () => router.push('/notifications'),
               }}
             />
           )}
+          {hideProfile ? null : <ProfileButton />}
         </View>
       </View>
       <Text
         accessibilityRole="header"
         className="font-display"
-        style={{ fontSize: 34, lineHeight: 38, letterSpacing: 0, color: colors.primary, marginTop: 10 }}
+        style={
+          compact
+            ? { fontSize: 22, lineHeight: 26, letterSpacing: 0, color: colors.primary, marginTop: 2 }
+            : { fontSize: 30, lineHeight: 36, letterSpacing: 0, color: colors.foreground, marginTop: 12 }
+        }
       >
         {title}
       </Text>
-      {subtitle ? (
+      {subtitle && !compact ? (
         <Text
           className="font-inter"
-          style={{ fontSize: 15, lineHeight: 20, marginTop: 2, color: colors.mutedForeground }}
+          style={{ fontSize: 14, lineHeight: 20, marginTop: 4, color: colors.mutedForeground }}
           numberOfLines={2}
         >
           {subtitle}
@@ -506,20 +533,20 @@ export function DetailHeader({
 }) {
   const nav = useHierarchyBack();
   return (
-    <View className="flex-row items-center gap-2 border-b border-border bg-card px-2 py-2">
+    <View className="min-h-16 flex-row items-center gap-3 border-b border-border bg-card px-3 py-3">
       <BackButton onPress={nav.goBack} />
-      <View className="flex-1">
-        <Text className="text-center font-display-semibold text-[20px] text-foreground" numberOfLines={1}>
+      <View className="min-w-0 flex-1">
+        <Text accessibilityRole="header" className="font-display-semibold text-[22px] text-foreground" numberOfLines={2}>
           {title}
         </Text>
         {subtitle ? (
-          <Text className="text-center font-inter text-xs text-muted-foreground" numberOfLines={1}>
+          <Text className="mt-1 font-inter text-xs text-muted-foreground" numberOfLines={1}>
             {subtitle}
           </Text>
         ) : null}
       </View>
-      <View className="w-10 flex-row justify-end">
-        {actions[0] ? <ActionButton action={actions[0]} /> : null}
+      <View className="min-w-11 flex-row justify-end gap-2">
+        <HeaderActions actions={actions} />
       </View>
     </View>
   );
@@ -533,18 +560,21 @@ export function SearchBar({
   placeholder = 'Ara...',
   onFilterPress,
   filterActive,
+  compact,
 }: {
   value: string;
   onChange: (v: string) => void;
   placeholder?: string;
   onFilterPress?: () => void;
   filterActive?: boolean;
+  compact?: boolean;
 }) {
   const { colors } = useTheme();
+  const box = compact ? 'h-11' : 'h-[52px]';
   return (
-    <View style={{ paddingHorizontal: SCREEN_PAD }} className="flex-row items-center gap-2.5">
+    <View style={{ paddingHorizontal: SCREEN_PAD }} className="flex-row items-center gap-2">
       <View
-        className="h-[52px] flex-1 flex-row items-center gap-2.5 rounded-[14px] border border-border bg-card px-4"
+        className={`${box} flex-1 flex-row items-center gap-2 rounded-[14px] border border-border bg-card px-3.5`}
         style={{ borderCurve: 'continuous' }}
       >
         <Ionicons name="search" size={19} color={colors.mutedForeground} />
@@ -576,7 +606,7 @@ export function SearchBar({
           accessibilityRole="button"
           accessibilityLabel="Filtrele"
           onPress={onFilterPress}
-          className="h-[52px] w-[52px] items-center justify-center rounded-[14px] border border-border bg-card active:opacity-70"
+          className={`${box} ${compact ? 'w-11' : 'w-[52px]'} items-center justify-center rounded-[14px] border border-border bg-card active:opacity-70`}
           style={{ borderCurve: 'continuous' }}
         >
           <Ionicons name="options-outline" size={20} color={colors.foreground} />
@@ -600,11 +630,13 @@ export function FilterChips<T extends string>({
   value,
   onChange,
   allLabel = 'Tümü',
+  dense,
 }: {
   options: FilterOption<T>[];
   value: T | null;
   onChange: (next: T | null) => void;
   allLabel?: string;
+  dense?: boolean;
 }) {
   const rows: { key: string; label: string; count?: number; active: boolean; press: () => void }[] = [
     { key: '__all', label: allLabel, active: value === null, press: () => onChange(null) },
@@ -624,7 +656,7 @@ export function FilterChips<T extends string>({
       // Yatay ScrollView dikey sütun içinde büyüyüp altındaki listeyi aşağı
       // itiyordu; yüksekliği pil boyuna sabitlenmeli.
       style={{ height: 46, flexGrow: 0, flexShrink: 0 }}
-      contentContainerStyle={{ paddingHorizontal: SCREEN_PAD, gap: 10 }}
+      contentContainerStyle={{ paddingHorizontal: SCREEN_PAD, gap: dense ? 8 : 10 }}
       keyboardShouldPersistTaps="handled"
     >
       {rows.map((row) => (
@@ -633,12 +665,12 @@ export function FilterChips<T extends string>({
           accessibilityRole="button"
           accessibilityState={{ selected: row.active }}
           onPress={row.press}
-          className={`h-[46px] flex-row items-center gap-1.5 rounded-full border px-5 ${
+          className={`${dense ? 'h-[44px] px-3.5' : 'h-[46px] px-5'} flex-row items-center gap-1.5 rounded-full border ${
             row.active ? 'border-primary bg-primary' : 'border-border bg-card'
           }`}
         >
           <Text
-            className={`text-[15px] font-inter-medium ${row.active ? 'text-primary-foreground' : 'text-foreground'}`}
+            className={`${dense ? 'text-[13px]' : 'text-[15px]'} font-inter-medium ${row.active ? 'text-primary-foreground' : 'text-foreground'}`}
           >
             {row.label}
           </Text>
@@ -658,23 +690,25 @@ export function FilterChips<T extends string>({
 /** Liste üstündeki sayı şeridi (Toplam / Müşteri / Tedarikçi ...). */
 export function StatStrip({
   items,
+  dense,
 }: {
   items: { label: string; value: string; tone?: Tone; icon?: keyof typeof Ionicons.glyphMap }[];
+  dense?: boolean;
 }) {
   const { colors } = useTheme();
   return (
     <View
       style={{ marginHorizontal: SCREEN_PAD, borderCurve: 'continuous' }}
-      className="flex-row rounded-[16px] border border-border bg-card py-1"
+      className={`flex-row rounded-[16px] border border-border bg-card ${dense ? 'py-0.5' : 'py-1'}`}
     >
       {items.map((item, index) => (
         <View
           key={item.label}
-          className={`flex-1 items-center gap-1 px-1 py-3.5 ${index > 0 ? 'border-l border-border' : ''}`}
+          className={`flex-1 items-center px-1 ${dense ? 'gap-0.5 py-2' : 'gap-1 py-3.5'} ${index > 0 ? 'border-l border-border' : ''}`}
         >
-          {item.icon ? <Ionicons name={item.icon} size={16} color={colors.primary} /> : null}
+          {!dense && item.icon ? <Ionicons name={item.icon} size={16} color={colors.primary} /> : null}
           <Text
-            className="font-inter-bold text-[18px] leading-[22px]"
+            className={`font-inter-bold ${dense ? 'text-[16px] leading-[20px]' : 'text-[18px] leading-[22px]'}`}
             numberOfLines={1}
             adjustsFontSizeToFit
             style={{ color: item.tone ? toneColor(colors, item.tone) : colors.foreground }}
@@ -752,66 +786,36 @@ export function ListRow({
   metaLabel,
   metaIcon,
   trailing,
-  trailingTone = 'destructive',
+  trailingTone = 'neutral',
   onPress,
 }: ListRowProps) {
   const { colors } = useTheme();
   const allChips = chips ?? (chip ? [chip] : []);
   const body = (
-    <View
-      className="my-[5px] flex-row items-center gap-3.5 rounded-[16px] border border-border bg-card px-3.5 py-3.5"
-      style={{ borderCurve: 'continuous', boxShadow: '0 1px 4px rgba(15, 23, 42, 0.05)' }}
-    >
-      {icon ? (
-        <View className={`h-9 w-9 items-center justify-center rounded-[10px] border ${chipClass[iconTone]}`}>
-          <Ionicons name={icon} size={18} color={toneColor(colors, iconTone)} />
-        </View>
-      ) : null}
-
-      <View className="flex-1 gap-0.5">
-        <Text className="text-[16px] font-inter-semibold leading-[21px] text-foreground" numberOfLines={1}>
-          {title}
-        </Text>
-        {lines
-          .filter((l): l is string => Boolean(l))
-          .map((line) => (
-            <Text key={line} className="font-inter text-[13px] leading-[17px] text-muted-foreground" numberOfLines={1}>
-              {line}
-            </Text>
+    <View className="my-1.5 gap-3 rounded-surface border border-border bg-card p-4"
+      style={{ borderCurve: 'continuous', boxShadow: '0 1px 4px rgba(15, 23, 42, 0.05)' }}>
+      <View className="flex-row items-start gap-3">
+        {icon ? <View className={`h-10 w-10 items-center justify-center rounded-control border ${chipClass[iconTone]}`}>
+          <Ionicons name={icon} size={19} color={toneColor(colors, iconTone)} />
+        </View> : null}
+        <View className="min-w-0 flex-1 gap-1">
+          <Text className="font-inter-semibold text-[16px] leading-[22px] text-foreground" numberOfLines={2}>{title}</Text>
+          {lines.filter((line): line is string => Boolean(line)).map((line, index) => (
+            <Text key={`${index}-${line}`} className="font-inter text-[13px] leading-[19px] text-muted-foreground" numberOfLines={2}>{line}</Text>
           ))}
-        {allChips.length > 0 ? (
-          <View className="mt-1 flex-row flex-wrap gap-1.5">
-            {allChips.map((c) => (
-              <Chip key={c.label} tone={c.tone} label={c.label} />
-            ))}
-          </View>
-        ) : null}
-      </View>
-
-      {trailing ? (
-        <View className="flex-row items-center gap-2.5">
-          <View className="h-8 w-px" style={{ backgroundColor: colors.border }} />
-          <View className="max-w-[112px] items-start gap-0.5">
-            {metaLabel ? (
-              <View className="flex-row items-center gap-1">
-                {metaIcon ? <Ionicons name={metaIcon} size={13} color={colors.mutedForeground} /> : null}
-                <Text className="font-inter text-[12px] text-muted-foreground" numberOfLines={1}>
-                  {metaLabel}
-                </Text>
-              </View>
-            ) : null}
-            <Text
-              className="font-inter-semibold text-[15px]"
-              numberOfLines={1}
-              style={{ color: toneColor(colors, trailingTone), fontVariant: ['tabular-nums'] }}
-            >
-              {trailing}
-            </Text>
-          </View>
         </View>
-      ) : null}
-
-      {onPress ? <Ionicons name="chevron-forward" size={18} color={colors.mutedForeground} /> : null}
+        {onPress ? <Ionicons name="chevron-forward" size={18} color={colors.mutedForeground} style={{ marginTop: 2 }} /> : null}
+      </View>
+      {allChips.length ? <View className="flex-row flex-wrap gap-2">
+        {allChips.map((item, index) => <Chip key={`${index}-${item.label}`} tone={item.tone} label={item.label} shrink />)}
+      </View> : null}
+      {trailing ? <View className="flex-row flex-wrap items-center justify-between gap-x-3 gap-y-1 border-t border-border pt-3">
+        {metaLabel ? <View className="flex-row items-center gap-1">
+          {metaIcon ? <Ionicons name={metaIcon} size={14} color={colors.mutedForeground} /> : null}
+          <Text className="font-inter text-[13px] text-muted-foreground">{metaLabel}</Text>
+        </View> : null}
+        <Text className="shrink font-inter-semibold text-[16px] leading-[22px]" style={{ color: toneColor(colors, trailingTone), fontVariant: ['tabular-nums'] }}>{trailing}</Text>
+      </View> : null}
     </View>
   );
 
@@ -831,13 +835,17 @@ export function Fab({
   label,
   onPress,
   extended,
+  bottomOffset,
 }: {
   icon?: keyof typeof Ionicons.glyphMap;
   label: string;
   onPress: () => void;
   /** true ise metinli geniş buton (tasarımda "+ Yeni Teklif"). */
   extended?: boolean;
+  /** Override only when positioned inside an already inset wrapper. */
+  bottomOffset?: number;
 }) {
+  const GLASS_TAB_BAR_HEIGHT = useNavigationBottomInset();
   const { colors } = useTheme();
   return (
     <Pressable
@@ -848,13 +856,14 @@ export function Fab({
         onPress();
       }}
       style={{
+        bottom: bottomOffset ?? GLASS_TAB_BAR_HEIGHT + 12,
         shadowColor: colors.primary,
         shadowOffset: { width: 0, height: 4 },
         shadowOpacity: 0.32,
         shadowRadius: 12,
         elevation: 6,
       }}
-      className={`absolute bottom-5 right-5 h-12 flex-row items-center justify-center gap-2 bg-primary active:opacity-80 ${
+      className={`absolute right-5 h-12 flex-row items-center justify-center gap-2 bg-primary active:opacity-80 ${
         extended ? 'rounded-full px-4' : 'w-12 rounded-full'
       }`}
     >

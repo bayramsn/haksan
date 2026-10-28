@@ -1,3 +1,4 @@
+import { activityLogShareText } from './activity-log-share';
 import { useState } from 'react';
 import { Share, Text, View } from 'react-native';
 import {
@@ -16,23 +17,6 @@ import { Button, Card, Chip, ErrorState, Field, Loading } from '@/src/ui';
 import { ActionButton } from './parts';
 import { defaultActivityRange, validateActivityRange } from './reportMath';
 import { DateTextField } from '@/src/ui/select/DateTextField';
-
-function reportText(report: ActivityLogReport): string {
-  const lines = [`Haftalık Aktivite ve Teklif Raporu — ${activityLogDate(report.range.from)} / ${activityLogDate(new Date(new Date(report.range.to).getTime() - 1).toISOString())}`];
-  for (const user of report.users) {
-    if (!user.activityCount && !user.quoteCount && !weekStatsLine(user.week)) continue;
-    lines.push('', `${user.userName} — ${user.activityCount} aktivite · ${user.quoteCount} teklif (${activityLogTotals(user.quoteTotals)})`);
-    const week = weekStatsLine(user.week);
-    if (week) lines.push(week);
-    for (const group of user.groups) {
-      lines.push(`${group.typeName} (${group.entries.length})`);
-      for (const entry of group.entries) {
-        lines.push(`- ${activityLogDate(entry.occurredAt)} ${entry.companyName ?? '—'}: ${entry.subject}${entry.note ? ` — ${entry.note}` : ''}`);
-      }
-    }
-  }
-  return lines.join('\n');
-}
 
 export function ActivityLogSection() {
   const canReadCompanies = useCan('companies.read');
@@ -82,7 +66,7 @@ export function ActivityLogSection() {
         <View className="flex-1">
           <Button label="Raporu Getir" loading={log.isFetching} onPress={load} />
         </View>
-        <ActionButton icon="share-outline" label="Paylaş" run={async () => { if (report) await Share.share({ message: reportText(report) }); }} disabled={!report} />
+        <ActionButton icon="share-outline" label="Paylaş" run={async () => { if (report) await Share.share({ message: activityLogShareText(report) }); }} disabled={!report} />
       </View>
 
       {range && log.isPending ? <Loading /> : log.error ? (

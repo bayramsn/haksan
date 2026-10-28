@@ -125,7 +125,7 @@ export default function CalendarEventScreen() {
     [owners.data, user?.id],
   );
 
-  if (!editing && !canCreate) return <Redirect href="/(tabs)/modules/calendar" />;
+  if (!editing && !canCreate) return <Redirect href="/modules/calendar" />;
 
   if (editing && (!event || !editable || !canUpdate)) {
     return (

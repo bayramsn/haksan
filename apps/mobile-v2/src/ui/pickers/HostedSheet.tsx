@@ -1,7 +1,8 @@
 import { useLayoutEffect, useState, type ReactNode, type RefObject } from 'react';
-import { Modal, Pressable, View, useWindowDimensions } from 'react-native';
+import { KeyboardAvoidingView, Modal, Platform, Pressable, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '@/src/theme/theme';
+import { Ionicons } from '@expo/vector-icons';
 
 export type SheetHandle = { present: () => void; dismiss: () => void };
 
@@ -51,27 +52,35 @@ export function HostedSheet({
 }) {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
-  const { height } = useWindowDimensions();
-  const panelHeight = Math.round(height * Math.min(0.92, Math.max(0.4, heightRatio)));
+  const { height, width } = useWindowDimensions();
+  const wide = width >= 768;
+  const panelHeight = Math.round(Math.min(height - insets.top - insets.bottom - 24, height * Math.min(0.92, Math.max(0.4, heightRatio))));
 
   return (
     <Modal visible={open} transparent animationType="slide" onRequestClose={onClose} statusBarTranslucent>
-      <View className="flex-1 justify-end" style={{ backgroundColor: 'rgba(15,23,42,0.45)' }}>
-        <Pressable accessibilityRole="button" accessibilityLabel="Kapat" onPress={onClose} className="flex-1" />
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} className={`flex-1 ${wide ? 'items-center justify-center' : 'justify-end'}`} style={{ backgroundColor: 'rgba(13,20,44,0.48)' }}>
+        <Pressable accessibilityRole="button" accessibilityLabel="Kapat" onPress={onClose} className="absolute inset-0" />
         <View
-          className="overflow-hidden rounded-t-[20px] border-t border-border"
+          accessibilityViewIsModal
+          onAccessibilityEscape={onClose}
+          className={`overflow-hidden border border-border ${wide ? 'rounded-[24px]' : 'rounded-t-[24px]'}`}
           style={{
+            width: wide ? Math.min(width - 48, 600) : '100%',
             height: panelHeight,
+            flexShrink: 1,
             backgroundColor: colors.card,
             paddingBottom: Math.max(insets.bottom, 12),
           }}
         >
-          <View className="items-center py-2.5">
-            <View className="h-1 w-10 rounded-full" style={{ backgroundColor: colors.mutedForeground, opacity: 0.45 }} />
+          <View className="h-12 flex-row items-center justify-center px-3">
+            <View accessibilityElementsHidden importantForAccessibility="no-hide-descendants" className="h-1 w-10 rounded-full" style={{ backgroundColor: colors.border }} />
+            <Pressable accessibilityRole="button" accessibilityLabel="Seçim panelini kapat" onPress={onClose} className="absolute right-2 h-11 w-11 items-center justify-center rounded-full active:bg-muted">
+              <Ionicons name="close" size={22} color={colors.mutedForeground} />
+            </Pressable>
           </View>
-          <View className="min-h-0 flex-1">{children}</View>
+          <View className="min-h-0 flex-1">{open ? children : null}</View>
         </View>
-      </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }

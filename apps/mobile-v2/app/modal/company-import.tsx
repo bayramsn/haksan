@@ -70,7 +70,7 @@ export default function CompanyImportScreen() {
   const [result, setResult] = useState<CompanyContactImportPreview | null>(null);
   const [confirmed, setConfirmed] = useState(false);
 
-  if (!user?.roles.includes('super_admin')) return <Redirect href="/(tabs)/modules/companies" />;
+  if (!user?.roles.includes('super_admin')) return <Redirect href="/modules/companies" />;
 
   const busy = preview.isPending || commit.isPending;
   const scopedDivision = divisionId && divisionId !== 'all' ? divisionId : undefined;

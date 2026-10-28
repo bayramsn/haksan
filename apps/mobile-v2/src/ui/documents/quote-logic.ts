@@ -197,6 +197,7 @@ export type QuoteOptionChildDraft = {
   key: string;
   itemId?: string;
   optionSetId?: string;
+  productModelId?: string;
   description: string;
   quantity: string;
   unitPrice: string;
@@ -396,6 +397,7 @@ export function parseQuoteItems(items: EditableQuoteItem[]): { items: ParsedQuot
       if (optMoney.error) return { items: [], error: optMoney.error };
       parsed.push({
         ...(child.itemId ? { itemId: child.itemId } : {}),
+        ...(child.productModelId ? { productModelId: child.productModelId } : {}),
         description: optDescription,
         quantity: optMoney.quantity,
         unitCode: 'adet',

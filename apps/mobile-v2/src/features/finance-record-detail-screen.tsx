@@ -1,3 +1,4 @@
+import { useNavigationBottomInset } from '@/src/ui/LiquidGlassTabBarBackground';
 import { useState } from 'react';
 import { Alert, Pressable, ScrollView, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -13,6 +14,7 @@ import { useTheme, type Tone } from '@/src/theme/theme';
 import { Button, Card, Chip, DetailHeader, ErrorState, Eyebrow, Loading } from '@/src/ui';
 import { InfoRows, type InfoItem } from '@/src/ui/data';
 import { toast } from '@/src/ui/toast';
+import { RECEIVABLE_METHOD_OPTIONS } from './receivable-form';
 import { Segmented } from '@/src/ui/finance/kit';
 
 type CommonProps = { id: string; isPending: boolean; error: Error | null; refetch: () => unknown };
@@ -63,11 +65,14 @@ const formatBytes = (bytes: number) =>
 
 /** Web `PaymentDetailDialog`: durum, düzenle/sil (yalnız ödeme) ve firmaya bağlı Fiş / Fatura. */
 export function FinanceRecordDetailScreen(props: Props) {
+  const GLASS_TAB_BAR_HEIGHT = useNavigationBottomInset();
   const router = useRouter();
   const qc = useQueryClient();
   const { colors } = useTheme();
   const canUpdate = useCan(props.kind === 'receivable' ? 'receivables.update' : 'payments.update');
   const canDelete = useCan('payments.delete');
+  const canReadReceivable = useCan('receivables.read');
+  const canReadQuote = useCan('quotes.read');
   const canReadFiles = useCan('files.read');
   const canUploadFiles = useCan('files.create');
   const action = useFinanceStatusAction(props.kind, props.id);
@@ -198,7 +203,7 @@ export function FinanceRecordDetailScreen(props: Props) {
         title={props.kind === 'receivable' ? 'Tahsilat Detayı' : 'Ödeme Detayı'}
         subtitle={row.invoiceNo ?? undefined}
       />
-      <ScrollView contentContainerClassName="gap-4 px-4 pb-10 pt-4">
+      <ScrollView contentContainerStyle={{ paddingBottom: GLASS_TAB_BAR_HEIGHT + 32 }} contentContainerClassName="gap-4 px-4 pb-10 pt-4">
         <Card className="gap-2">
           <Chip tone={tone} label={row.status?.name ?? 'Durum belirtilmedi'} />
           <Text className="text-[19px] font-inter-semibold text-foreground">{companyName}</Text>
@@ -218,8 +223,8 @@ export function FinanceRecordDetailScreen(props: Props) {
               { label: 'Firma', value: companyName },
               { label: 'Yön', value: payment ? (payment.direction === 'in' ? 'Alınan (Giren)' : 'Ödenen (Çıkan)') : 'Alınan (Giren)' },
               { label: 'Fatura No', value: row.invoiceNo },
-              { label: 'Ödeme Yöntemi', value: row.paymentMethod ? (METHOD_LABEL[row.paymentMethod] ?? row.paymentMethod) : null },
-              { label: 'Kayıt Tipi', value: payment ? 'Tahsilat' : 'Beklenen' },
+              { label: 'Ödeme Yöntemi', value: row.paymentMethod ? ((receivable ? RECEIVABLE_METHOD_OPTIONS.find((option) => option.value === row.paymentMethod)?.label : undefined) ?? METHOD_LABEL[row.paymentMethod] ?? row.paymentMethod) : null },
+              { label: 'Kayıt Tipi', value: payment ? (payment.direction === 'out' ? 'Ödeme' : 'Tahsilat') : 'Beklenen alacak' },
               { label: 'Hareket türü', value: receivable?.movementType },
               { label: 'Belge referansı', value: receivable?.documentRef },
               { label: 'Vade', value: receivable ? formatDate(receivable.dueDate) : null },
@@ -304,10 +309,12 @@ export function FinanceRecordDetailScreen(props: Props) {
         {payment && canUpdate ? (
           <Button label="Düzenle" variant="ghost" onPress={() => router.push(`/modal/payment?id=${props.id}` as Href)} />
         ) : null}
+        {payment?.receivableId && canReadReceivable ? <Button label="Bağlı Alacak" variant="ghost" onPress={() => router.push(`/modules/receivables/${payment.receivableId}` as Href)} /> : null}
+        {receivable?.quoteId && canReadQuote ? <Button label="Bağlı Teklif" variant="ghost" onPress={() => router.push(`/modules/quotes/${receivable.quoteId}` as Href)} /> : null}
         {invoiceId ? (
-          <Button label="Bağlı Fatura" variant="ghost" onPress={() => router.push(`/(tabs)/modules/invoices/${invoiceId}` as Href)} />
+          <Button label="Bağlı Fatura" variant="ghost" onPress={() => router.push(`/modules/invoices/${invoiceId}` as Href)} />
         ) : null}
-        <Button label="Firma Kartı" variant="ghost" onPress={() => router.push(`/(tabs)/modules/companies/${row.companyId}` as Href)} />
+        <Button label="Firma Kartı" variant="ghost" onPress={() => router.push(`/modules/companies/${row.companyId}` as Href)} />
         {payment && canDelete ? (
           <Button label="Sil" variant="destructive" loading={remove.isPending} onPress={confirmDelete} />
         ) : null}

@@ -1,19 +1,15 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, KeyboardAvoidingView, Pressable, ScrollView, Text, View } from 'react-native';
+import { useEffect, useState } from 'react';
+import { Alert, KeyboardAvoidingView, ScrollView, Text, View } from 'react-native';
 import { Redirect, Stack, useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Ionicons } from '@expo/vector-icons';
-import { BottomSheetBackdrop, BottomSheetFlatList, BottomSheetModal, BottomSheetView } from '@gorhom/bottom-sheet';
 import { paymentCreateSchema, type FileDocumentTypeCode, type PaymentCreateInput } from '@haksan/shared';
-import { useCompanyList } from '@/src/api/companies.hooks';
 import { useLookup } from '@/src/api/crm.hooks';
 import { useCreatePayment, usePayment, useUpdatePayment } from '@/src/api/finance.hooks';
 import { toast } from '@/src/ui/toast';
-import type { CompanyListItem } from '@/src/api/endpoints';
 import { useCan } from '@/src/auth/AuthProvider';
 import { pickDocument, uploadEntityAttachment, type LocalUpload } from '@/src/native/files';
-import { useTheme } from '@/src/theme/theme';
-import { Button, EmptyState, ErrorState, Eyebrow, Field, FilterChips, Loading, SearchBar } from '@/src/ui';
+import { Button, ErrorState, Eyebrow, Field, FilterChips, Loading } from '@/src/ui';
+import { CompanyPicker } from '@/src/ui/pickers/CompanyPicker';
 import { DateTextField } from '@/src/ui/select/DateTextField';
 type FormState = {
   direction: 'in' | 'out';
@@ -75,7 +71,6 @@ export function PaymentFormScreen() {
     companyName?: string | string[];
   }>();
   const router = useRouter();
-  const { colors } = useTheme();
   const editId = first(params.id);
   const editing = Boolean(editId);
   const allowed = useCan(editing ? 'payments.update' : 'payments.create');
@@ -98,17 +93,10 @@ export function PaymentFormScreen() {
     documentTypeCode: 'commercial_invoice_pdf',
   });
   const [attachment, setAttachment] = useState<LocalUpload | null>(null);
-  const [companySearch, setCompanySearch] = useState('');
   const [errors, setErrors] = useState<Partial<Record<keyof FormState | 'attachment', string>>>({});
   const [formError, setFormError] = useState<string | null>(null);
-  const companySheet = useRef<BottomSheetModal>(null);
   const currencies = useLookup('currencies');
   const create = useCreatePayment();
-  const companyList = useCompanyList(useMemo(() => ({
-    search: clean(companySearch),
-    sortBy: 'name' as const,
-    sortDir: 'asc' as const,
-  }), [companySearch]));
 
   useEffect(() => {
     const row = existing.data;
@@ -129,7 +117,7 @@ export function PaymentFormScreen() {
     setHydrated(true);
   }, [existing.data, hydrated]);
 
-  if (!allowed) return <Redirect href="/(tabs)/modules/payments" />;
+  if (!allowed) return <Redirect href="/modules/payments" />;
   if (editing && !hydrated) {
     return (
       <SafeAreaView className="flex-1 bg-canvas" edges={['top', 'bottom', 'left', 'right']}>
@@ -145,11 +133,6 @@ export function PaymentFormScreen() {
     setFormError(null);
   };
 
-  const chooseCompany = (company: CompanyListItem) => {
-    set('companyId', company.id);
-    setCompanyName(company.shortName ?? company.legalTitle);
-    companySheet.current?.dismiss();
-  };
 
   const selectFile = async () => {
     try {
@@ -239,7 +222,7 @@ export function PaymentFormScreen() {
             );
           }
         }
-        router.replace(`/(tabs)/modules/payments/${created.id}` as Href);
+        router.replace(`/modules/payments/${created.id}` as Href);
       },
       onError: (error) => setFormError(error.message),
     });
@@ -253,12 +236,8 @@ export function PaymentFormScreen() {
           <View className="gap-3">
             <Eyebrow>Hareket</Eyebrow>
             {editing ? null : <FilterChips options={[{ value: 'in', label: 'Tahsilat / Giren' }, { value: 'out', label: 'Ödeme / Çıkan' }]} value={form.direction} onChange={(value) => value && set('direction', value)} allLabel="" />}
-            <Pressable accessibilityRole="button" accessibilityLabel="Firma seç" disabled={editing} onPress={() => companySheet.current?.present()} className={`min-h-12 flex-row items-center gap-3 rounded-control border bg-card px-3 py-2 ${errors.companyId ? 'border-destructive' : 'border-border'} active:opacity-70`}>
-              <Ionicons name="business-outline" size={19} color={colors.primary} />
-              <View className="flex-1 gap-0.5"><Text className="font-inter-medium text-xs text-muted-foreground">Firma *</Text><Text className="font-inter text-base text-foreground" numberOfLines={1}>{companyName || 'Firma seçin'}</Text></View>
-              <Ionicons name="chevron-forward" size={18} color={colors.mutedForeground} />
-            </Pressable>
-            {errors.companyId ? <Text className="font-inter text-xs text-destructive">{errors.companyId}</Text> : null}
+            <CompanyPicker label="Firma *" disabled={editing} clearable={!editing} value={form.companyId ? { id: form.companyId, name: companyName || 'Seçili firma' } : null}
+              error={errors.companyId} onChange={(next) => { set('companyId', next?.id ?? ''); setCompanyName(next?.name ?? ''); }} />
             <Field label="Tutar *" value={form.amount} onChangeText={(value) => set('amount', value)} keyboardType="decimal-pad" placeholder="0,00" error={errors.amount} />
             <View className="gap-1.5"><Text className="font-inter-medium text-[13px] text-muted-foreground">Para birimi *</Text>{currencies.isPending ? <Loading /> : currencies.error ? <ErrorState message={currencies.error.message} onRetry={() => void currencies.refetch()} /> : <FilterChips options={(currencies.data ?? []).map((item) => ({ value: item.code, label: item.code }))} value={form.currencyCode} onChange={(value) => value && set('currencyCode', value)} allLabel="" />}</View>
             <DateTextField
@@ -290,19 +269,6 @@ export function PaymentFormScreen() {
         <View className="flex-row gap-3 border-t border-border bg-card px-4 py-3"><View className="flex-1"><Button label="Vazgeç" variant="ghost" onPress={() => router.back()} /></View><View className="flex-[2]"><Button label={editing ? 'Kaydet' : form.direction === 'in' ? 'Tahsilatı Kaydet' : 'Ödemeyi Kaydet'} loading={create.isPending || update.isPending} onPress={submit} /></View></View>
       </KeyboardAvoidingView>
 
-      <BottomSheetModal ref={companySheet} snapPoints={['80%']} enableDynamicSizing={false} backgroundStyle={{ backgroundColor: colors.card }} handleIndicatorStyle={{ backgroundColor: colors.mutedForeground }} backdropComponent={(props) => <BottomSheetBackdrop {...props} appearsOnIndex={0} disappearsOnIndex={-1} />}>
-        <BottomSheetView className="gap-3 px-4 pb-2"><Text className="font-inter-semibold text-base text-foreground">Firma seçin</Text><SearchBar value={companySearch} onChange={setCompanySearch} placeholder="Firma ara" /></BottomSheetView>
-        <BottomSheetFlatList
-          data={companyList.data?.items ?? []}
-          keyExtractor={(item: CompanyListItem) => item.id}
-          contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 32 }}
-          renderItem={({ item }: { item: CompanyListItem }) => <Pressable accessibilityRole="button" accessibilityState={{ selected: item.id === form.companyId }} onPress={() => chooseCompany(item)} className="min-h-[56px] flex-row items-center gap-3 border-b border-border py-2 active:opacity-70"><Ionicons name="business-outline" size={19} color={item.id === form.companyId ? colors.primary : colors.mutedForeground} /><View className="flex-1"><Text className="font-inter-semibold text-sm text-foreground" numberOfLines={1}>{item.shortName ?? item.legalTitle}</Text>{item.shortName ? <Text className="font-inter text-xs text-muted-foreground" numberOfLines={1}>{item.legalTitle}</Text> : null}</View>{item.id === form.companyId ? <Ionicons name="checkmark" size={19} color={colors.primary} /> : null}</Pressable>}
-          onEndReachedThreshold={0.5}
-          onEndReached={() => { if (companyList.hasNextPage && !companyList.isFetchingNextPage) void companyList.fetchNextPage(); }}
-          ListEmptyComponent={companyList.isPending ? <Loading /> : companyList.error ? <ErrorState message={companyList.error.message} onRetry={() => void companyList.refetch()} /> : <EmptyState title="Firma bulunamadı" />}
-          ListFooterComponent={companyList.isFetchingNextPage ? <Loading /> : null}
-        />
-      </BottomSheetModal>
     </SafeAreaView>
   );
 }

@@ -247,8 +247,8 @@ export async function getPdfAndShare(path: string, filename: string): Promise<vo
 }
 
 /** POST ile üretilen PDF'i base64'e çevirmeden cache dosyasına stream eder. */
-export async function postPdfAndShare(path: string, filename: string): Promise<void> {
-  return pdfAndShare(path, filename, 'POST');
+export async function postPdfAndShare(path: string, filename: string, body?: unknown): Promise<void> {
+  return downloadAndShare(path, filename, { method: 'POST', body, mimeType: 'application/pdf' });
 }
 
 async function pdfAndShare(path: string, filename: string, method: 'GET' | 'POST'): Promise<void> {

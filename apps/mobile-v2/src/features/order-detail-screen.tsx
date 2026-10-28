@@ -1,3 +1,4 @@
+import { useNavigationBottomInset } from '@/src/ui/LiquidGlassTabBarBackground';
 import { Alert, ScrollView, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, type Href } from 'expo-router';
@@ -61,6 +62,7 @@ const PURCHASE_TYPE: Record<string, string> = {
 
 const PAYMENT_TYPE: Record<string, string> = {
   cash: 'Peşin',
+  leasing: 'Leasing',
   term: 'Vadeli',
   letter_of_credit: 'Akreditif',
   credit_card: 'Kredi kartı',
@@ -75,6 +77,7 @@ function money(value: string, currencyCode: string | undefined): string {
 }
 
 export function OrderDetailScreen(props: Props) {
+  const GLASS_TAB_BAR_HEIGHT = useNavigationBottomInset();
   const router = useRouter();
   const { user } = useAuth();
   const companyId = props.kind === 'sales' ? props.data?.companyId : props.data?.supplierCompanyId;
@@ -83,6 +86,8 @@ export function OrderDetailScreen(props: Props) {
   const currencyLookup = useLookup('currencies');
   const canUpdate = useCan(props.kind === 'sales' ? 'sales_orders.update' : 'purchase_orders.update');
   const canApproveSales = useCan('sales_orders.approve');
+  const canReadQuote = useCan('quotes.read');
+  const canReadOpportunity = useCan('opportunities.read');
   const canCreateInvoice = useCan('accounting_invoices.create');
   const isSuperAdmin = user?.roles?.includes('super_admin') ?? false;
   // Web PurchaseOrdersPage: satın alma onayı yalnız Süper Admin.
@@ -154,7 +159,7 @@ export function OrderDetailScreen(props: Props) {
         subtitle={order.orderNo}
       />
 
-      <ScrollView contentContainerClassName="gap-4 px-4 pb-10 pt-4">
+      <ScrollView contentContainerStyle={{ paddingBottom: GLASS_TAB_BAR_HEIGHT + 32 }} contentContainerClassName="gap-4 px-4 pb-10 pt-4">
         <Card className="gap-2">
           <Chip tone={tone} label={status?.name ?? (statusLookup.isPending ? 'Durum yükleniyor' : 'Durum bilinmiyor')} />
           <Text className="text-[20px] font-inter-semibold text-foreground">{order.orderNo}</Text>
@@ -215,7 +220,9 @@ export function OrderDetailScreen(props: Props) {
               items={[
                 { label: 'Satın alma türü', value: PURCHASE_TYPE[purchase.purchaseType] ?? purchase.purchaseType },
                 { label: 'Ödeme', value: PAYMENT_TYPE[purchase.paymentType] ?? purchase.paymentType },
-                { label: 'Vade', value: purchase.paymentTermDays === null ? null : `${purchase.paymentTermDays} gün` },
+                { label: 'Yeni vade', value: purchase.paymentTermDays == null ? null : `${purchase.paymentTermDays} gün` },
+                { label: 'Önceki vade', value: purchase.previousPaymentTermDays == null ? null : `${purchase.previousPaymentTermDays} gün` },
+                { label: 'Vade notu', value: purchase.termChangeReason },
                 { label: 'Fatura no', value: purchase.invoiceNo },
                 { label: 'Beklenen tarih', value: purchase.expectedDate ? formatDate(purchase.expectedDate) : null },
                 { label: 'Incoterm', value: purchase.incoterm },
@@ -223,6 +230,7 @@ export function OrderDetailScreen(props: Props) {
                 { label: 'Gönderim', value: purchase.sentAt ? formatDateTime(purchase.sentAt) : null },
                 { label: 'Onay', value: purchase.approvedAt ? formatDateTime(purchase.approvedAt) : null },
                 { label: 'Teslim', value: purchase.closedAt ? formatDateTime(purchase.closedAt) : null },
+                { label: 'İptal', value: purchase.cancelledAt ? formatDateTime(purchase.cancelledAt) : null, tone: 'destructive' },
               ] satisfies InfoItem[]}
             />
           </Card>
@@ -235,14 +243,20 @@ export function OrderDetailScreen(props: Props) {
               {order.items.map((item, index) => (
                 <View key={item.id} className={`gap-1 py-3 ${index > 0 ? 'border-t border-border' : ''}`}>
                   <Text className="font-inter-medium text-[14px] text-foreground">{item.description}</Text>
-                  <View className="flex-row justify-between gap-3">
+                  <View className="flex-row flex-wrap justify-between gap-x-3 gap-y-1">
                     <Text className="font-inter text-[12px] text-muted-foreground">
                       {Number(item.quantity).toLocaleString('tr-TR')} × {money(item.unitPrice, currency?.code)} · KDV %{Number(item.vatRate).toLocaleString('tr-TR')}
                     </Text>
-                    <Text className="font-inter-semibold text-[13px] text-foreground">
+                    <Text className="font-inter-semibold text-[14px] text-foreground">
                       {money(item.lineTotal, currency?.code)}
                     </Text>
                   </View>
+                  <InfoRows items={[
+                    { label: 'Liste fiyatı', value: item.listPrice != null ? money(item.listPrice, currency?.code) : null },
+                    { label: 'Olur fiyatı', value: item.approvedPrice != null ? money(item.approvedPrice, currency?.code) : null },
+                    { label: 'İndirim', value: Number(item.discountAmount) !== 0 ? money(item.discountAmount, currency?.code) : null },
+                    { label: 'KDV tutarı', value: money(item.vatAmount, currency?.code) },
+                  ] satisfies InfoItem[]} />
                   {item.expectedDate ? (
                     <Text className="font-inter text-[11px] text-muted-foreground">Beklenen: {formatDate(item.expectedDate)}</Text>
                   ) : null}
@@ -313,8 +327,10 @@ export function OrderDetailScreen(props: Props) {
             onPress={() => router.push(`/modal/invoice-form?purchaseOrderId=${props.id}` as Href)}
           />
         ) : null}
+        {sales?.quoteId && canReadQuote ? <Button label="Bağlı Teklif" variant="ghost" onPress={() => router.push(`/modules/quotes/${sales.quoteId}` as Href)} /> : null}
+        {sales?.opportunityId && canReadOpportunity ? <Button label="Bağlı Fırsat" variant="ghost" onPress={() => router.push(`/modules/opportunities/${sales.opportunityId}` as Href)} /> : null}
         {companyId ? (
-          <Button label="Firma Kartı" variant="ghost" onPress={() => router.push(`/(tabs)/modules/companies/${companyId}`)} />
+          <Button label="Firma Kartı" variant="ghost" onPress={() => router.push(`/modules/companies/${companyId}`)} />
         ) : null}
       </ScrollView>
     </SafeAreaView>

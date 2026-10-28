@@ -51,6 +51,7 @@ export type MailComposeParams = {
   companyId?: string | null;
   contactId?: string | null;
   subject?: string | null;
+  opportunityId?: string | null;
 };
 
 /** `/modal/mail-compose` rotası; boş alanlar sorguya yazılmaz. */

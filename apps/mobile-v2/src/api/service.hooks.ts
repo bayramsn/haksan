@@ -1,3 +1,4 @@
+import { RequestScopeChangedError, requestContextKey } from './client';
 import { useInfiniteQuery, useMutation, useQueries, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { companies, devices, productsApi, type ServiceTicket } from '@/src/api/endpoints';
 import { companyKeys } from '@/src/api/companies.hooks';
@@ -46,7 +47,9 @@ export function useUpdateTicketMeta(id: string) {
     mutationFn: (body: Parameters<typeof serviceApi.updateTicket>[1]) => serviceApi.updateTicket(id, body),
     onMutate: async (body) => {
       if (!body.metadata) return;
+      const requestContext = requestContextKey();
       await qc.cancelQueries({ queryKey: serviceKeys.ticket(id) });
+      if (requestContext !== requestContextKey()) throw new RequestScopeChangedError();
       const previous = qc.getQueryData<ServiceTicket>(serviceKeys.ticket(id));
       if (previous) {
         qc.setQueryData<ServiceTicket>(serviceKeys.ticket(id), {
@@ -57,6 +60,7 @@ export function useUpdateTicketMeta(id: string) {
       return { previous };
     },
     onError: (_error, _body, context) => {
+      if (_error instanceof RequestScopeChangedError) return;
       if (context?.previous) qc.setQueryData(serviceKeys.ticket(id), context.previous);
     },
     onSettled: () => invalidateTickets(qc, id),
@@ -246,15 +250,11 @@ export function useDeviceWarrantyTotals(search?: string) {
   return { all, warranty, expired, unknown: Math.max(0, all - warranty - expired) };
 }
 
-/**
- * Web CreateMachineDialog stok adayları: firmaya rezerve TEZGAH kalemleri.
- * Stok ucu firma filtresi sunmadığı için ilk 200 kalem istemcide süzülür.
- */
-export function useReservedMachineStock(companyId: string | null) {
-  return useQuery({
-    queryKey: ['inventory', 'reserved-machines', companyId],
-    queryFn: () => stockApi.listPage({ page: 1, pageSize: 200, categoryCode: 'TEZGAH' }),
-    select: (page) => page.data.filter((item) => item.reservedCompanyId === companyId && item.status?.code !== 'inactive'),
+/** Firmaya ayrılan stoklar: sabit ilk 200 yerine aramalı, sayfalı kaynak. */
+export function useReservedMachineStock(companyId: string | null, search?: string) {
+  return useInfiniteQuery({
+    ...infinite(['inventory', 'reserved-machines', companyId, search], (page, pageSize) => stockApi.listPage({ page, pageSize, search, categoryCode: 'TEZGAH' })),
+    select: (data) => ({ items: data.pages.flatMap((page) => page.data).filter((item) => item.reservedCompanyId === companyId && item.status?.code !== 'inactive'), total: data.pages[0]?.meta.total ?? 0 }),
     enabled: Boolean(companyId),
     retry: false,
   });

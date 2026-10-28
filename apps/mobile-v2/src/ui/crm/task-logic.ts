@@ -116,18 +116,18 @@ type RelatedTask = {
 export function taskRelatedLinks(task: RelatedTask): { label: string; kind: string; route: string }[] {
   const links: { label: string; kind: string; route: string }[] = [];
   if (task.company) {
-    links.push({ kind: 'Firma', label: task.company.shortName || task.company.legalTitle, route: `/(tabs)/modules/companies/${task.company.id}` });
+    links.push({ kind: 'Firma', label: task.company.shortName || task.company.legalTitle, route: `/modules/companies/${task.company.id}` });
   }
-  if (task.contact) links.push({ kind: 'Kontak', label: task.contact.fullName, route: `/(tabs)/modules/contacts/${task.contact.id}` });
+  if (task.contact) links.push({ kind: 'Kontak', label: task.contact.fullName, route: `/modules/contacts/${task.contact.id}` });
   if (task.opportunity) {
-    links.push({ kind: 'Satış Kartı', label: task.opportunity.title, route: `/(tabs)/modules/opportunities/${task.opportunity.id}` });
+    links.push({ kind: 'Satış Kartı', label: task.opportunity.title, route: `/modules/opportunities/${task.opportunity.id}` });
   }
-  if (task.quote) links.push({ kind: 'Teklif', label: task.quote.documentNo, route: `/(tabs)/modules/quotes/${task.quote.id}` });
+  if (task.quote) links.push({ kind: 'Teklif', label: task.quote.documentNo, route: `/modules/quotes/${task.quote.id}` });
   if (task.serviceTicket) {
     links.push({
       kind: 'Servis',
       label: `${task.serviceTicket.ticketNo} · ${task.serviceTicket.subject}`,
-      route: `/(tabs)/modules/service-tickets/${task.serviceTicket.id}`,
+      route: `/modules/service-tickets/${task.serviceTicket.id}`,
     });
   }
   return links;

@@ -1,3 +1,6 @@
+import { CallAssistantProvider } from '@/src/call-assistant/Provider';
+import { runStartup } from '@/src/security/startup';
+import { StartupRecovery } from '@/src/security/StartupRecovery';
 import '@/global.css';
 // Zod hata mesajlarını Türkçeye çevirir; her formdan önce yüklenmeli.
 import '@/src/lib/zodTr';
@@ -28,8 +31,9 @@ import { usePush } from '@/src/push/usePush';
 import { AppErrorBoundary } from '@/src/ui/AppErrorBoundary';
 import { Toaster } from '@/src/ui/toast';
 import { PendingTargetReplayer } from '@/src/navigation/PendingTargetReplayer';
+import { CalendarAutoSync } from '@/src/native/CalendarAutoSync';
 import { useChatRealtimeLifecycle } from '@/src/realtime/chat';
-import { wrapRoot } from '@/src/observability/sentry';
+import { captureException, wrapRoot } from '@/src/observability/sentry';
 import { BiometricLockProvider } from '@/src/security/BiometricLockProvider';
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
@@ -73,27 +77,31 @@ function RootLayout() {
   // Depolama senkron okunuyor; diskten belleğe alınmadan hiçbir şey render edilmemeli
   // (API adresi, oturum önbelleği ve kuyruk buradan okunuyor).
   const [hydrated, setHydrated] = useState(false);
+  const [startupFailed, setStartupFailed] = useState(false);
+  const [startupAttempt, setStartupAttempt] = useState(0);
 
   useEffect(() => {
-    void hydrateStorage()
-      // Tema tercihi kv'den okunuyor; hydrate'ten önce uygulanamaz. Mutasyon
-      // kuyruğu ise ayrı, şifreli SecureStore katmanından yüklenir.
-      .then(async () => {
-        applyThemePreference(loadThemePreference());
-        await hydrateQueue();
-      })
-      .finally(() => setHydrated(true));
-  }, []);
+    let cancelled = false;
+    setStartupFailed(false);
+    void runStartup(async () => {
+      await hydrateStorage();
+      applyThemePreference(loadThemePreference());
+      await hydrateQueue();
+    }).then(() => { if (!cancelled) setHydrated(true); })
+      .catch(() => { if (!cancelled) setStartupFailed(true); });
+    return () => { cancelled = true; };
+  }, [startupAttempt]);
 
   useEffect(() => {
     if (!hydrated) return;
     void registerBackgroundSync();
     const stop = startConnectivitySync();
     // Soğuk açılışta bekleyen işlem varsa hemen dene.
-    if (pendingCount() > 0) void flushQueue();
+    if (pendingCount() > 0) void flushQueue().catch(error => captureException(error, { operation: 'startup_queue_sync' }));
     return stop;
   }, [hydrated]);
 
+  if (startupFailed) return <StartupRecovery onRetry={() => setStartupAttempt(value => value + 1)} />;
   if (!hydrated) return null; // splash açık kalır
 
   return (
@@ -105,13 +113,16 @@ function RootLayout() {
           <QueryClientProvider client={queryClient}>
             <AuthProvider>
               <BiometricLockProvider>
+                <CallAssistantProvider>
                 <BottomSheetModalProvider>
                   <StatusBar style="auto" />
                   <PendingTargetReplayer />
+                  <CalendarAutoSync />
                   <Navigator />
                   {/* Başarı/bilgi bildirimleri Alert yerine buradan kayar. */}
                   <Toaster />
                 </BottomSheetModalProvider>
+                </CallAssistantProvider>
               </BiometricLockProvider>
             </AuthProvider>
           </QueryClientProvider>

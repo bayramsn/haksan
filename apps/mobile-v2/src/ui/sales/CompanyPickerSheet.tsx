@@ -1,12 +1,15 @@
-import { forwardRef, useImperativeHandle, useMemo, useState } from 'react';
-import { FlatList, Pressable, Text, View } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import { forwardRef, useEffect, useImperativeHandle, useMemo, useState } from 'react';
+import { FlatList, Text, View } from 'react-native';
 import { useCompanyList } from '@/src/api/companies.hooks';
+import { useAuth } from '@/src/auth/AuthProvider';
+import { companyVisibility, isCompanyVisible } from '@/src/ui/crm/company-logic';
 import type { CompanyListItem } from '@/src/api/endpoints';
 import { useDebouncedValue } from '@/src/lib/useDebouncedValue';
-import { useTheme } from '@/src/theme/theme';
 import { EmptyState, ErrorState, Loading, SearchBar } from '@/src/ui';
 import { HostedSheet } from '@/src/ui/pickers/HostedSheet';
+import { SelectionRow } from '@/src/ui/pickers/SelectionRow';
+import { SelectionStatus } from '@/src/ui/pickers/SelectionStatus';
+import { SelectionListFooter } from '@/src/ui/pickers/SelectionListFooter';
 
 export type CompanyPickerSheetHandle = { present: () => void; dismiss: () => void };
 
@@ -15,7 +18,8 @@ export const CompanyPickerSheet = forwardRef<
   CompanyPickerSheetHandle,
   { selectedId?: string | null; onSelect: (company: CompanyListItem) => void; title?: string }
 >(function CompanyPickerSheet({ selectedId, onSelect, title = 'Firma seçin' }, ref) {
-  const { colors } = useTheme();
+  const { user } = useAuth();
+  const visibility = companyVisibility(user?.roles ?? []);
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
   const debounced = useDebouncedValue(search.trim());
@@ -24,9 +28,15 @@ export const CompanyPickerSheet = forwardRef<
   );
 
   useImperativeHandle(ref, () => ({
-    present: () => setOpen(true),
-    dismiss: () => setOpen(false),
+    present: () => { setSearch(''); setOpen(true); },
+    dismiss: () => { setSearch(''); setOpen(false); },
   }));
+
+  const rows = (companyList.data?.items ?? []).filter((item) => isCompanyVisible(item, visibility));
+  // Yetkiye göre elenen ilk sayfa, sonraki görünür firmalara ulaşmayı engellemesin.
+  useEffect(() => {
+    if (open && rows.length === 0 && companyList.hasNextPage && !companyList.isFetching && !companyList.error) void companyList.fetchNextPage();
+  }, [open, rows.length, companyList.hasNextPage, companyList.isFetching, companyList.error, companyList.fetchNextPage]);
 
   return (
     <HostedSheet
@@ -39,41 +49,21 @@ export const CompanyPickerSheet = forwardRef<
     >
       <View className="min-h-0 flex-1">
         <View className="gap-3 border-b border-border px-4 pb-3">
-          <Text className="font-display-semibold text-[18px] text-foreground">{title}</Text>
+          <Text accessibilityRole="header" className="font-display-semibold text-[22px] text-foreground">{title}</Text>
           <SearchBar value={search} onChange={setSearch} placeholder="Firma ara" />
+          <SelectionStatus loading={search.trim() !== debounced || (companyList.isFetching && !companyList.isFetchingNextPage)} error={companyList.error} onRetry={() => void companyList.refetch()} />
         </View>
         <FlatList
           className="flex-1"
-          data={companyList.data?.items ?? []}
+          data={search.trim() !== debounced ? [] : rows}
           keyExtractor={(item) => item.id}
           keyboardShouldPersistTaps="handled"
           contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 32, flexGrow: 1 }}
           renderItem={({ item }) => {
             const selected = item.id === selectedId;
             return (
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={item.shortName ?? item.legalTitle}
-                accessibilityState={{ selected }}
-                onPress={() => {
-                  onSelect(item);
-                  setOpen(false);
-                }}
-                className="min-h-[56px] flex-row items-center gap-3 border-b border-border py-2 active:opacity-70"
-              >
-                <Ionicons name="business-outline" size={19} color={selected ? colors.primary : colors.mutedForeground} />
-                <View className="flex-1">
-                  <Text className="font-inter-semibold text-sm text-foreground" numberOfLines={1}>
-                    {item.shortName ?? item.legalTitle}
-                  </Text>
-                  {item.shortName ? (
-                    <Text className="font-inter text-xs text-muted-foreground" numberOfLines={1}>
-                      {item.legalTitle}
-                    </Text>
-                  ) : null}
-                </View>
-                {selected ? <Ionicons name="checkmark" size={19} color={colors.primary} /> : null}
-              </Pressable>
+              <SelectionRow label={item.shortName || item.legalTitle} hint={item.shortName ? item.legalTitle : item.primaryAddress?.province} selected={selected}
+                onPress={() => { onSelect(item); setSearch(''); setOpen(false); }} />
             );
           }}
           onEndReachedThreshold={0.5}
@@ -81,7 +71,7 @@ export const CompanyPickerSheet = forwardRef<
             if (companyList.hasNextPage && !companyList.isFetchingNextPage) void companyList.fetchNextPage();
           }}
           ListEmptyComponent={
-            companyList.isPending ? (
+            companyList.isPending || (rows.length === 0 && companyList.isFetching) ? (
               <Loading />
             ) : companyList.error ? (
               <ErrorState message={companyList.error.message} onRetry={() => void companyList.refetch()} />
@@ -89,7 +79,7 @@ export const CompanyPickerSheet = forwardRef<
               <EmptyState title="Firma bulunamadı" />
             )
           }
-          ListFooterComponent={companyList.isFetchingNextPage ? <Loading /> : null}
+          ListFooterComponent={<SelectionListFooter hasNextPage={companyList.hasNextPage} isFetchingNextPage={companyList.isFetchingNextPage} error={companyList.isFetchNextPageError ? companyList.error : null} fetchNextPage={() => void companyList.fetchNextPage()} />}
         />
       </View>
     </HostedSheet>

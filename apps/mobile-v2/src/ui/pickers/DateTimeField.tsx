@@ -79,7 +79,7 @@ export function DateTimeField({
       />
       <HostedSheet open={open} onClose={() => setOpen(false)} heightRatio={mode === 'date' ? 0.62 : 0.88}>
         <ScrollView contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 32, gap: 12 }} keyboardShouldPersistTaps="handled">
-          <Text accessibilityRole="header" className="font-inter-semibold text-base text-foreground">
+          <Text accessibilityRole="header" className="font-display-semibold text-[22px] text-foreground">
             {label}
           </Text>
           <View className="flex-row items-center justify-between">

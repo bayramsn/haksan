@@ -1,10 +1,13 @@
-import { useMemo, useState } from 'react';
+import { OpportunityPickerSheet } from '@/src/ui/documents/pickers';
+import { PickerField } from '@/src/ui/pickers/PickerField';
+import type { SheetHandle } from '@/src/ui/pickers/HostedSheet';
+import { useMemo, useRef, useState } from 'react';
 import { KeyboardAvoidingView, Platform, ScrollView, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Redirect, Stack, useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import { STOCK_CATEGORY_CODES, STOCK_CATEGORY_LABELS } from '@haksan/shared';
 import { useCompany } from '@/src/api/companies.hooks';
-import { useOpportunityList } from '@/src/api/crm.hooks';
+import { useLookup } from '@/src/api/crm.hooks';
 import { useWarehouses } from '@/src/api/inventory.hooks';
 import { useCreateShipment, useShipmentCompanyOptions } from '@/src/api/logistics.hooks';
 import { useCan } from '@/src/auth/AuthProvider';
@@ -37,7 +40,8 @@ const DIRECTION_OPTIONS = [
 const MODE_OPTIONS = (Object.keys(TRANSPORT_MODE_LABELS) as TransportMode[]).map((value) => ({ value, label: TRANSPORT_MODE_LABELS[value]! }));
 const STATUS_OPTIONS = SHIPMENT_STATUS_ORDER.map((value) => ({ value, label: SHIPMENT_STATUS_LABELS[value]! }));
 const CATEGORY_OPTIONS = STOCK_CATEGORY_CODES.map((value) => ({ value, label: STOCK_CATEGORY_LABELS[value] }));
-const UNIT_OPTIONS = Object.entries(PACKAGE_UNIT_LABELS).map(([value, label]) => ({ value, label }));
+// Web gibi: ayarlardaki `shipment-package-units` listesi; boş/erişilemezse sabit birimler.
+const DEFAULT_UNIT_OPTIONS = Object.entries(PACKAGE_UNIT_LABELS).map(([value, label]) => ({ value, label }));
 
 function first(value: string | string[] | undefined): string {
   return Array.isArray(value) ? value[0] ?? '' : value ?? '';
@@ -53,17 +57,21 @@ function addressSnapshot(address: { fullAddress: string | null; street: string |
 /** Web CreateShipmentDialog ("Yeni Sevkiyat"). */
 export default function ShipmentNewScreen() {
   const router = useRouter();
-  const params = useLocalSearchParams<{ companyId?: string; companyName?: string }>();
+  const params = useLocalSearchParams<{ companyId?: string; companyName?: string; opportunityId?: string; opportunityName?: string }>();
   const canCreate = useCan('shipments.create');
   const create = useCreateShipment();
   const warehouses = useWarehouses();
+  const packageUnits = useLookup('shipment-package-units');
+  const unitOptions = packageUnits.data?.length
+    ? packageUnits.data.map((row) => ({ value: row.code, label: row.name }))
+    : DEFAULT_UNIT_OPTIONS;
   const [company, setCompany] = useState<PickedRecord | null>(
     first(params.companyId) ? { id: first(params.companyId), name: first(params.companyName) || 'Seçili firma' } : null,
   );
   const [draft, setDraft] = useState<Omit<ShipmentDraft, 'lines'>>(() => ({
     direction: 'outgoing',
     companyId: first(params.companyId),
-    opportunityId: '',
+    opportunityId: first(params.opportunityId),
     deliveryAddressId: '',
     senderCompanyId: '',
     senderName: '',
@@ -86,10 +94,12 @@ export default function ShipmentNewScreen() {
   const senders = useShipmentCompanyOptions({ purpose: 'sender' }, canCreate);
   const carriers = useShipmentCompanyOptions({ purpose: 'carrier', transportMode: draft.transportMode }, canCreate);
   const detail = useCompany(draft.companyId);
-  const opportunities = useOpportunityList({ companyId: draft.companyId, view: 'all' }, Boolean(draft.companyId));
+  const opportunitySheet = useRef<SheetHandle>(null);
+  const [opportunityLabel, setOpportunityLabel] = useState(first(params.opportunityName));
+
   const addresses = useMemo(() => detail.data?.addresses ?? [], [detail.data]);
 
-  if (!canCreate) return <Redirect href={'/(tabs)/modules/shipments' as Href} />;
+  if (!canCreate) return <Redirect href={'/modules/shipments' as Href} />;
 
   const set = <K extends keyof typeof draft>(key: K, value: (typeof draft)[K]) => setDraft((current) => ({ ...current, [key]: value }));
   const updateLine = (key: string, patch: Partial<ShipmentLineDraft>) =>
@@ -97,6 +107,7 @@ export default function ShipmentNewScreen() {
 
   const pickCompany = (next: PickedRecord | null) => {
     setCompany(next);
+    setOpportunityLabel('');
     setDraft((current) => ({ ...current, companyId: next?.id ?? '', opportunityId: '', deliveryAddressId: '', deliveryAddressSnapshot: '', destination: current.destinationWarehouseId ? current.destination : '' }));
   };
 
@@ -106,7 +117,7 @@ export default function ShipmentNewScreen() {
     create.mutate(built.body, {
       onSuccess: (row) => {
         toast.success(`Sevkiyat oluşturuldu · ${draft.trackingNo} · ${TRANSPORT_MODE_LABELS[draft.transportMode]}`);
-        router.replace(`/(tabs)/modules/shipments/${row.id}` as Href);
+        router.replace(`/modules/shipments/${row.id}` as Href);
       },
       onError: (error) => toast.error(`Sevkiyat oluşturulamadı: ${error.message}`),
     });
@@ -130,17 +141,10 @@ export default function ShipmentNewScreen() {
           <FormSection title="Sevkiyat">
             <ChoiceChips label="Sevkiyat yönü" value={draft.direction} options={DIRECTION_OPTIONS} onChange={(value) => set('direction', value)} />
             <CompanyPicker label="Müşteri" placeholder="Bağımsız sevkiyat" value={company} onChange={pickCompany} />
-            <OptionPicker
-              label="Satış Kartı"
-              value={draft.opportunityId || null}
-              options={(opportunities.data?.items ?? []).map((row) => ({ value: row.id, label: row.title }))}
-              placeholder={draft.companyId ? 'Bağımsız sevkiyat' : 'Önce müşteri seçin'}
-              icon="briefcase-outline"
-              disabled={!draft.companyId}
-              searchable
-              clearable
-              onChange={(value) => set('opportunityId', value ?? '')}
-            />
+            <PickerField label="Satış Kartı" value={draft.opportunityId ? opportunityLabel || 'Seçili satış kartı' : ''}
+              placeholder={draft.companyId ? 'Bağımsız kayıt' : 'Önce müşteri seçin'} icon="briefcase-outline" disabled={!draft.companyId}
+              onPress={() => opportunitySheet.current?.present()} onClear={() => { set('opportunityId', ''); setOpportunityLabel(''); }} />
+
             <OptionPicker
               label="Gönderici Firma *"
               value={draft.senderCompanyId || null}
@@ -288,7 +292,7 @@ export default function ShipmentNewScreen() {
                   <View className="flex-1"><Field label="Adet" value={line.quantity} onChangeText={(value) => updateLine(line.key, { quantity: value })} keyboardType="decimal-pad" /></View>
                   <View className="flex-1"><Field label="Paket Adedi" value={line.packageQuantity} onChangeText={(value) => updateLine(line.key, { packageQuantity: value })} keyboardType="number-pad" /></View>
                 </View>
-                <OptionPicker label="Paket Birimi" value={line.packageUnitCode} options={UNIT_OPTIONS} icon="cube-outline" onChange={(value) => updateLine(line.key, { packageUnitCode: value ?? 'package' })} />
+                <OptionPicker label="Paket Birimi" value={line.packageUnitCode} options={unitOptions} icon="cube-outline" onChange={(value) => updateLine(line.key, { packageUnitCode: value ?? 'package' })} />
                 <View className="flex-row gap-3">
                   <View className="flex-1"><Field label="Uzunluk cm" value={line.packageLengthCm} onChangeText={(value) => updateLine(line.key, { packageLengthCm: value })} keyboardType="decimal-pad" /></View>
                   <View className="flex-1"><Field label="Genişlik cm" value={line.packageWidthCm} onChangeText={(value) => updateLine(line.key, { packageWidthCm: value })} keyboardType="decimal-pad" /></View>
@@ -308,6 +312,8 @@ export default function ShipmentNewScreen() {
           <Button className="flex-[2]" label="Sevkiyatı Kaydet" loading={create.isPending} disabled={create.isPending} onPress={submit} />
         </View>
       </KeyboardAvoidingView>
+      <OpportunityPickerSheet sheetRef={opportunitySheet} companyId={draft.companyId || null} view="all" selectedId={draft.opportunityId}
+        onSelect={(row) => { set('opportunityId', row.id); setOpportunityLabel(row.title); }} />
     </SafeAreaView>
   );
 }

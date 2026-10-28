@@ -23,12 +23,12 @@ type DrillKey = 'quotes' | 'approved' | 'rejected' | 'won' | 'lost' | 'service';
 
 /** Mobil listeler dönem süzgeci tanımıyor; web'deki gibi ilgili modüle iner. */
 const DRILL: Record<DrillKey, Href> = {
-  quotes: '/(tabs)/modules/quotes' as Href,
-  approved: '/(tabs)/modules/quotes' as Href,
-  rejected: '/(tabs)/modules/quotes' as Href,
-  won: '/(tabs)/modules/opportunities' as Href,
-  lost: '/(tabs)/modules/opportunities' as Href,
-  service: '/(tabs)/modules/service-tickets' as Href,
+  quotes: '/modules/quotes' as Href,
+  approved: '/modules/quotes' as Href,
+  rejected: '/modules/quotes' as Href,
+  won: '/modules/opportunities' as Href,
+  lost: '/modules/opportunities' as Href,
+  service: '/modules/service-tickets' as Href,
 };
 
 export function OperationalSection() {

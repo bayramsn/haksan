@@ -47,6 +47,31 @@ Yerel kontrol:
 npm run release:check:mobile
 ```
 
+Kontrol EAS `production` ortamındaki değerleri okur. Yerel shell'de bu değişkenlerin
+olmaması, EAS'te de eksik olduklarını kanıtlamaz; yerel raporu ortam kanıtı gibi
+yorumlamayın. Komut ortam değişkenlerinin değerlerini yazdırmaz.
+
+Bu proje native/runtime sürümünü açık string olarak hizalar: `version` ve
+`runtimeVersion` birlikte `1.2.0` olmalıdır. iOS/Android override'ları varsa onlar
+da aynı sürümü taşımalıdır. Native modül değişikliği için yeni binary ve sürüm
+gerekir; eski binary'ye uyumsuz OTA gönderilmez.
+
+Üretilen `ios/` ve `android/` dizinlerinin ignore durumu Git'in kendi kurallarıyla
+doğrulanır; başında `/` olan ignore kuralları da geçerlidir. Takip edilen native
+dosyalar varsa kontrol başarısız olur. Yerel geliştirme dizinleri silinmez.
+
+Splash kaynağı pozitif boyutlu PNG olmalıdır; `imageWidth` / `resizeMode` ile
+ölçeklendiği için 512×512 piksel şartı aranmaz. Mağaza ikonlarının sabit boyut
+kontrolü korunur. Kaynak: [Expo splash yapılandırması](https://docs.expo.dev/versions/v54.0.0/sdk/splash-screen/).
+Boyut kontrolünün geçmesi, açılış görünümünün cihazda kabul edildiği anlamına gelmez.
+
+`approvedAppVersion`, mağaza kayıtları, beyanlar, ekran görüntüleri ve fiziksel
+cihaz QA alanları yalnız kanıt sahibi onayladığında güncellenir. Kod testlerinin
+geçmesi bu alanları otomatik olarak `true` yapmaz. Ayrıca `eas.json` içindeki
+`cli.requireCommit=false`, mevcut production release kapısının `true` koşulunu
+sağlamaz; doğrudan EAS yayın politikasında bu fark çözülmeden release kontrolü
+başarılı sayılamaz.
+
 Production build/submit yalnız `.eas/workflows/production-release.yml` ile
 çalışır. İki platform build'i tamamlandıktan sonra EAS üzerinde ayrıca insan
 onayı ister. iOS yüklemesi önce TestFlight'a gider; Android yüklemesi Play

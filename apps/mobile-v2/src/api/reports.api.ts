@@ -69,7 +69,8 @@ export type YearEndReport = {
   lostReasons: { code: string; name: string; count: number; value: string }[];
   competitors: { id: string; name: string; count: number; value: string }[];
   wonReasons: { reason: string; count: number; value: string }[];
-  monthly: { month: number; won: number; lost: number; wonValue: string; lostValue: string }[];
+  /** `month` sunucuda `to_char(..., 'YYYY-MM')`; yalnız kaydı olan aylar döner. */
+  monthly: { month: string; won: number; lost: number; wonValue: string; lostValue: string }[];
   byUser: { userId: string; name: string; won: number; lost: number; total: number; wonValue: string }[];
   quotes: { count: number; value: string };
   quotesByStatus: { code: string; name: string; count: number; totalValue: string; avgValue: string }[];
@@ -116,6 +117,7 @@ export type ReportUser = {
   status: string | null;
   departmentId: string | null;
   department: { id: string; code: string; name: string } | null;
+  roles?: { code: string; name: string }[];
 };
 
 export type ReportDepartment = { id: string; code: string | null; name: string };

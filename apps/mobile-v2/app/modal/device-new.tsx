@@ -7,13 +7,10 @@ import { useCreateCustomerDevice, useReservedMachineStock } from '@/src/api/serv
 import { useCan } from '@/src/auth/AuthProvider';
 import { Button, Field } from '@/src/ui';
 import { CompanyPicker, ContactPicker, type PickedRecord } from '@/src/ui/pickers/CompanyPicker';
-import { OptionPicker } from '@/src/ui/pickers/OptionPicker';
 import { toast } from '@/src/ui/toast';
 import { ProductSelect } from '@/src/ui/select/fields';
-import { DayField, FormSection } from '@/src/ui/service/fields';
+import { DayField, FormSection, ReservedStockPicker } from '@/src/ui/service/fields';
 import { addYears, machineNotes } from '@/src/ui/service/machines';
-
-const MANUAL = '__manual__';
 
 function first(value: string | string[] | undefined): string {
   return Array.isArray(value) ? value[0] ?? '' : value ?? '';
@@ -43,7 +40,7 @@ export default function NewDeviceScreen() {
   const stock = useReservedMachineStock(company?.id ?? null);
   const devices = useCustomerDevicesByCompany(company?.id);
   const usedStock = new Set((devices.data?.items ?? []).map((device) => device.inventoryItemId).filter(Boolean));
-  const candidates = (stock.data ?? []).filter((item) => !usedStock.has(item.id));
+  const candidates = (stock.data?.items ?? []).filter((item) => !usedStock.has(item.id));
   const candidateKey = candidates.map((item) => item.id).join(',');
 
   // Web: firma seçilince ilk uygun stok kalemi otomatik seçilir.
@@ -53,7 +50,7 @@ export default function NewDeviceScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [candidateKey]);
 
-  if (!canCreate) return <Redirect href={'/(tabs)/modules/customer-devices' as Href} />;
+  if (!canCreate) return <Redirect href={'/modules/customer-devices' as Href} />;
 
   function applyStock(id: string | null) {
     setStockId(id);
@@ -97,7 +94,7 @@ export default function NewDeviceScreen() {
       {
         onSuccess: (device) => {
           toast.success('Makine başarıyla eklendi.');
-          router.replace(`/(tabs)/modules/customer-devices/${device.id}` as Href);
+          router.replace(`/modules/customer-devices/${device.id}` as Href);
         },
         onError: (error) => toast.error(`Makine eklenirken hata oluştu: ${error.message}`),
       },
@@ -128,31 +125,21 @@ export default function NewDeviceScreen() {
           </FormSection>
 
           <FormSection title="Makine">
-            {company && candidates.length > 0 ? (
-              <OptionPicker
-                label="Stok / Seri No"
-                value={stockId ?? MANUAL}
-                options={[
-                  { value: MANUAL, label: 'Manuel giriş' },
-                  ...candidates.map((item) => ({
-                    value: item.id,
-                    label: [item.product?.modelCode || item.product?.fullName, item.serialNumber].filter(Boolean).join(' · '),
-                    hint: item.brand?.name ?? null,
-                  })),
-                ]}
-                icon="cube-outline"
-                onChange={(value) => applyStock(value && value !== MANUAL ? value : null)}
-              />
-            ) : null}
+            <ReservedStockPicker companyId={company?.id ?? null} value={stockId ? `${model} · ${serial}` : ''} selectedId={stockId}
+              excludedIds={[...usedStock] as string[]} onSelect={(item) => {
+                setStockId(item?.id ?? null);
+                setModel(item?.data?.product?.modelCode || item?.data?.product?.fullName || '');
+                setSerial(item?.data?.serialNumber || '');
+              }} />
             <ProductSelect
               label="Model *"
               placeholder="Katalogdan model arayın veya yazın"
               value={model}
-              onSelect={(item) => setModel(item?.data?.modelCode || item?.label || '')}
+              onSelect={(item) => { setStockId(null); setModel(item?.data?.modelCode || item?.label || ''); }}
               clearable
               error={errors.model}
             />
-            <Field label="Seri No *" value={serial} onChangeText={setSerial} maxLength={255} autoCapitalize="characters" error={errors.serial} />
+            <Field label="Seri No *" value={serial} onChangeText={(value) => { setStockId(null); setSerial(value); }} maxLength={255} autoCapitalize="characters" error={errors.serial} />
             <DayField label="Kurulum Tarihi" value={installationDate} onChange={changeInstallation} />
             <DayField
               label="Garanti Başlangıç"

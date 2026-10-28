@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { FlatList, Pressable, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
@@ -7,8 +7,9 @@ import { useSendMessage } from '@/src/api/chat.hooks';
 import { useShareableRecords, type ShareableRecord } from '@/src/api/crm-general.hooks';
 import type { ChatRefType } from '@/src/api/crm-general.api';
 import { useTheme } from '@/src/theme/theme';
-import { EmptyState, ErrorState, Loading, SearchBar } from '@/src/ui';
+import { Button, EmptyState, ErrorState, Loading, SearchBar } from '@/src/ui';
 import { CompanyPicker } from '@/src/ui/pickers/CompanyPicker';
+import { useDebouncedValue } from '@/src/lib/useDebouncedValue';
 import { toast } from '@/src/ui/toast';
 
 const TABS: { type: ChatRefType; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
@@ -26,13 +27,8 @@ export default function ChatShareRecordScreen() {
   const [type, setType] = useState<ChatRefType>('company');
   const [search, setSearch] = useState('');
   const send = useSendMessage(conversationId ?? '');
-  const records = useShareableRecords(type === 'company' ? 'quote' : type, type !== 'company');
-
-  const filtered = useMemo(() => {
-    const term = search.trim().toLocaleLowerCase('tr');
-    const rows = records.data ?? [];
-    return term ? rows.filter((row) => `${row.label} ${row.sublabel ?? ''}`.toLocaleLowerCase('tr').includes(term)) : rows;
-  }, [records.data, search]);
+  const serverSearch = useDebouncedValue(search.trim());
+  const records = useShareableRecords(type === 'company' ? 'quote' : type, type !== 'company', serverSearch);
 
   function share(refType: ChatRefType, refId: string) {
     if (send.isPending) return;
@@ -93,10 +89,19 @@ export default function ChatShareRecordScreen() {
         <View className="flex-1 gap-2 pt-3">
           <SearchBar value={search} onChange={setSearch} placeholder="Ara…" />
           <FlatList
-            data={filtered}
+            data={records.data?.items ?? []}
             keyExtractor={(item: ShareableRecord) => item.id}
             contentContainerStyle={{ padding: 16, paddingBottom: 32 }}
             keyboardShouldPersistTaps="handled"
+            onEndReachedThreshold={0.4}
+            onEndReached={() => { if (records.hasNextPage && !records.isFetchingNextPage) void records.fetchNextPage(); }}
+            refreshing={records.isRefetching}
+            onRefresh={() => void records.refetch()}
+            ListHeaderComponent={records.data ? <Text className="pb-2 font-inter text-xs text-muted-foreground">{records.data.items.length} / {records.data.total} kayıt</Text> : null}
+            ListFooterComponent={
+              records.error && records.data?.items.length ? <ErrorState message={records.error.message} onRetry={() => void records.fetchNextPage()} /> :
+              records.hasNextPage ? <View className="py-3"><Button variant="ghost" label="Daha fazla kayıt yükle" loading={records.isFetchingNextPage} onPress={() => void records.fetchNextPage()} /></View> : null
+            }
             renderItem={({ item }) => (
               <Pressable
                 accessibilityRole="button"
@@ -105,9 +110,9 @@ export default function ChatShareRecordScreen() {
                 onPress={() => share(type, item.id)}
                 className="min-h-[56px] justify-center border-b border-border py-2 active:opacity-70"
               >
-                <Text className="font-inter-semibold text-sm text-foreground" numberOfLines={1}>{item.label}</Text>
+                <Text className="font-inter-semibold text-sm text-foreground" numberOfLines={2}>{item.label}</Text>
                 {item.sublabel ? (
-                  <Text className="font-inter text-xs text-muted-foreground" numberOfLines={1}>{item.sublabel}</Text>
+                  <Text className="font-inter text-xs text-muted-foreground" numberOfLines={2}>{item.sublabel}</Text>
                 ) : null}
               </Pressable>
             )}

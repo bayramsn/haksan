@@ -189,7 +189,7 @@ export default function InvoiceFormScreen() {
     };
   }, [products.data, stock.data]);
 
-  if (isEditing ? !canUpdate : !canCreate) return <Redirect href={'/(tabs)/modules/invoices' as Href} />;
+  if (isEditing ? !canUpdate : !canCreate) return <Redirect href={'/modules/invoices' as Href} />;
 
   const set = <K extends keyof InvoiceForm>(key: K, value: InvoiceForm[K]) => setForm((current) => ({ ...current, [key]: value }));
   const updateLine = (lineId: string, patch: Partial<InvoiceLineForm>) =>
@@ -274,7 +274,7 @@ export default function InvoiceFormScreen() {
       } else {
         const created = await create.mutateAsync(payload);
         toast.success(form.type === 'sales' ? 'Satış faturası oluşturuldu' : 'Alış faturası oluşturuldu');
-        router.replace(`/(tabs)/modules/invoices/${created.id}` as Href);
+        router.replace(`/modules/invoices/${created.id}` as Href);
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : '';

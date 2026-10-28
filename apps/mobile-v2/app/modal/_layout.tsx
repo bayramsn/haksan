@@ -2,7 +2,7 @@ import { BottomSheetModalProvider } from '@gorhom/bottom-sheet';
 import { Stack } from 'expo-router';
 import { StyleSheet } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
-import { useTheme } from '@/src/theme/theme';
+import { fonts, useTheme } from '@/src/theme/theme';
 
 /**
  * Form stack: kök layout `containedModal` ile aynı UIWindow'da açılır.
@@ -18,7 +18,9 @@ export default function ModalLayout() {
           screenOptions={{
             headerStyle: { backgroundColor: colors.card },
             headerTintColor: colors.foreground,
+            headerTitleStyle: { fontFamily: fonts.displaySemibold, fontSize: 22 },
             headerShadowVisible: false,
+            contentStyle: { backgroundColor: colors.canvas },
           }}
         />
       </BottomSheetModalProvider>

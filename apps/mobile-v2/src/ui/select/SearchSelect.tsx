@@ -1,3 +1,4 @@
+import { SelectionListFooter } from '@/src/ui/pickers/SelectionListFooter';
 import { createContext, useContext, useMemo, useState } from 'react';
 import { FlatList, Pressable, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
@@ -5,6 +6,8 @@ import { useTheme } from '@/src/theme/theme';
 import { EmptyState, ErrorState, Loading, SearchBar } from '@/src/ui';
 import { HostedSheet } from '@/src/ui/pickers/HostedSheet';
 import { PickerField } from '@/src/ui/pickers/PickerField';
+import { SelectionRow } from '@/src/ui/pickers/SelectionRow';
+import { SelectionStatus } from '@/src/ui/pickers/SelectionStatus';
 import { useDebouncedValue } from '@/src/lib/useDebouncedValue';
 import { filterOptions, hasExactOption } from './select-logic';
 
@@ -14,6 +17,7 @@ export type SelectItem<T = unknown> = { id: string; label: string; hint?: string
 export type RemoteOptions<T> = {
   items: SelectItem<T>[];
   isPending: boolean;
+  isFetching?: boolean;
   error: Error | null;
   refetch: () => void;
   hasNextPage?: boolean;
@@ -39,6 +43,8 @@ type Props<T> = {
   onSelect: (item: SelectItem<T> | null) => void;
   options?: SelectItem<T>[];
   optionsLoading?: boolean;
+  optionsError?: Error | null;
+  onOptionsRetry?: () => void;
   useRemote?: (search: string) => RemoteOptions<T>;
   remoteBag?: unknown;
   allowCustom?: boolean;
@@ -86,6 +92,8 @@ function SheetBody<T>({
   label,
   options,
   optionsLoading,
+  optionsError,
+  onOptionsRetry,
   useRemote,
   allowCustom,
   createLabel,
@@ -103,15 +111,17 @@ function SheetBody<T>({
     [remote, options, search]
   );
   const custom = search.trim();
-  const showCustom = Boolean(allowCustom && custom && !hasExactOption(items, custom));
-  const loading = remote ? remote.isPending : Boolean(optionsLoading);
+  const loading = remote ? remote.isPending || remote.isFetching || search.trim() !== term : Boolean(optionsLoading);
+  const loadError = remote?.error ?? optionsError;
+  const showCustom = Boolean(allowCustom && custom && !loading && !loadError && !hasExactOption(items, custom));
   const customRowLabel = createLabel?.(custom) ?? `“${custom}” olarak kullan`;
 
   return (
     <View className="min-h-0 flex-1">
       <View className="gap-2.5 border-b border-border px-4 pb-3">
-        <Text className="font-display-semibold text-[17px] text-foreground">{label}</Text>
+        <Text accessibilityRole="header" className="font-display-semibold text-[22px] text-foreground">{label}</Text>
         <SearchBar value={search} onChange={setSearch} placeholder={searchPlaceholder ?? 'Ara...'} />
+        <SelectionStatus loading={loading} error={loadError} onRetry={remote?.refetch ?? onOptionsRetry} />
         {showCustom ? (
           <Pressable
             accessibilityRole="button"
@@ -127,7 +137,7 @@ function SheetBody<T>({
       </View>
       <FlatList
         className="flex-1"
-        data={items}
+        data={remote && loading ? [] : items}
         keyExtractor={(item) => item.id || item.label}
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="on-drag"
@@ -135,24 +145,7 @@ function SheetBody<T>({
         renderItem={({ item }) => {
           const selected = Boolean(selectedId) && item.id === selectedId;
           return (
-            <Pressable
-              accessibilityRole="button"
-              accessibilityState={{ selected }}
-              onPress={() => onPick(item)}
-              className="min-h-[48px] flex-row items-center gap-2.5 border-b border-border py-2 active:opacity-70"
-            >
-              <View className="flex-1">
-                <Text className="font-inter-semibold text-[14px] text-foreground" numberOfLines={1}>
-                  {item.label}
-                </Text>
-                {item.hint ? (
-                  <Text className="font-inter text-[12px] text-muted-foreground" numberOfLines={1}>
-                    {item.hint}
-                  </Text>
-                ) : null}
-              </View>
-              {selected ? <Ionicons name="checkmark" size={18} color={colors.primary} /> : null}
-            </Pressable>
+            <SelectionRow label={item.label} hint={item.hint} selected={selected} onPress={() => onPick(item)} />
           );
         }}
         onEndReachedThreshold={0.5}
@@ -162,8 +155,8 @@ function SheetBody<T>({
         ListEmptyComponent={
           loading ? (
             <Loading />
-          ) : remote?.error ? (
-            <ErrorState message={remote.error.message} onRetry={remote.refetch} />
+          ) : remote?.error || optionsError ? (
+            <ErrorState message={(remote?.error ?? optionsError)!.message} onRetry={remote?.refetch ?? onOptionsRetry} />
           ) : (
             <EmptyState
               title={emptyTitle ?? 'Kayıt bulunamadı'}
@@ -171,7 +164,8 @@ function SheetBody<T>({
             />
           )
         }
-        ListFooterComponent={remote?.isFetchingNextPage ? <Loading /> : null}
+        ListFooterComponent={remote ? <SelectionListFooter hasNextPage={remote.hasNextPage} isFetchingNextPage={remote.isFetchingNextPage}
+          error={items.length > 0 || remote.hasNextPage ? remote.error : null} fetchNextPage={remote.fetchNextPage} /> : null}
       />
     </View>
   );

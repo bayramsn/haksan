@@ -24,7 +24,7 @@ export default function DeliveryCreateScreen() {
   const [companyName, setCompanyName] = useState(first(params.companyName));
   const [companyError, setCompanyError] = useState<string>();
 
-  if (!canCreate) return <Redirect href={'/(tabs)/modules/deliveries' as Href} />;
+  if (!canCreate) return <Redirect href={'/modules/deliveries' as Href} />;
 
   const submit = () => {
     if (!draft.companyId) {

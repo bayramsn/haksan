@@ -349,26 +349,23 @@ export function useUpdateMaintenancePlan(id: string) {
   });
 }
 
-export function useCustomerDevices(query: { search?: string; preset?: 'warranty' | 'expired' } = {}) {  return useInfiniteQuery(
-    infinite(serviceKeys.devices(query), (page, pageSize) => devices.list({ page, pageSize, ...query }))
-  );
+export function useCustomerDevices(query: { search?: string; preset?: 'warranty' | 'expired' } = {}) {
+  return useInfiniteQuery({
+    ...infinite(serviceKeys.devices(query), (page, pageSize) => devices.list({ page, pageSize, ...query })),
+    refetchOnMount: 'always',
+  });
 }
 
 export function useCustomerDevice(id: string) {
   return useQuery({ queryKey: serviceKeys.device(id), queryFn: () => devices.get(id), enabled: Boolean(id) });
 }
 
-/**
- * Makine Parkı'nın tenant geneli listesinden ayrı: tek bileti/firmayı çözmek için
- * yalnızca o firmanın cihazlarını çeker, `companyId` gelene kadar kapalı kalır.
- * ponytail: yine de sayfalı (50) — firmanın 50'den çok cihazı varsa ilk sayfaya
- * denk gelmeyen bir seri no çözülmez; pratikte bir firmanın makine sayısı bunun
- * çok altında.
- */
-export function useCustomerDevicesByCompany(companyId: string | undefined) {
+/** Seçili firmanın makineleri; arama ve sayfalama sunucuda yapılır. */
+export function useCustomerDevicesByCompany(companyId: string | undefined, search?: string, allCompanies = false) {
   return useInfiniteQuery({
-    ...infinite(serviceKeys.devices({ companyId }), (page, pageSize) => devices.list({ page, pageSize, companyId })),
-    enabled: Boolean(companyId),
+    ...infinite(serviceKeys.devices({ companyId: allCompanies ? undefined : companyId, search }), (page, pageSize) => devices.list({ page, pageSize, companyId: allCompanies ? undefined : companyId, search })),
+    enabled: Boolean(companyId) || allCompanies,
+    refetchOnMount: 'always',
   });
 }
 

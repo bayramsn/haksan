@@ -10,6 +10,7 @@ import {
   daysLeftInPeriod,
   defaultActivityRange,
   delta,
+  departmentProgress,
   metricLineText,
   monthRange,
   parseGoalNumber,
@@ -123,4 +124,21 @@ test('yönetici özeti yalnız gerçek sinyallerden madde üretir', () => {
     newComplaints: 2,
   });
   assert.deepEqual(items.map((item) => item.key), ['conversion-drop', 'revenue-drop', 'loss-ratio', 'complaints']);
+});
+
+test('aktivite raporu aralığı gerçek takvim günü ve dahil 366 gün sınırını izler', () => {
+  assert.equal(validateActivityRange({ from: '2026-02-30', to: '2026-03-03' }), 'Geçerli bir tarih girin.');
+  assert.equal(validateActivityRange({ from: '2024-01-01', to: '2024-12-31' }), null);
+  assert.equal(validateActivityRange({ from: '2024-01-01', to: '2025-01-01' }), 'Aralık en fazla 366 gün olabilir.');
+});
+
+test('departmentProgress: kendi hedefi olmayan departman durumu üye ortalamasından alır', () => {
+  const now = new Date('2026-05-15T12:00:00Z');
+  const none = { status: 'no_target', completionPct: null, metrics: [], manual: [] };
+  const member = (completionPct) => ({ row: { subject: { kind: 'user', id: String(completionPct), name: 'x' }, hasTarget: true }, analysis: { status: 'on_track', completionPct, metrics: [], manual: [] } });
+  assert.deepEqual(departmentProgress(none, [member(100), member(100)], 50, '2026-05', now), { completionPct: 100, status: 'completed' });
+  assert.deepEqual(departmentProgress(none, [member(10), member(20)], 50, '2026-05', now), { completionPct: 15, status: 'at_risk' });
+  assert.deepEqual(departmentProgress(none, [], 50, '2026-05', now), { completionPct: null, status: 'no_target' });
+  const own = { status: 'on_track', completionPct: 60, metrics: [], manual: [] };
+  assert.deepEqual(departmentProgress(own, [member(0)], 50, '2026-05', now), { completionPct: 60, status: 'on_track' });
 });

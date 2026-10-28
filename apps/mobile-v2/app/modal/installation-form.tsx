@@ -8,10 +8,9 @@ import { useCan } from '@/src/auth/AuthProvider';
 import { formatDate } from '@/src/lib/format';
 import { Button, ErrorState, Field, Loading } from '@/src/ui';
 import { CompanyPicker, ContactPicker, type PickedRecord } from '@/src/ui/pickers/CompanyPicker';
-import { MultiOptionPicker } from '@/src/ui/pickers/OptionPicker';
 import { CompanyAddressSelect } from '@/src/ui/select/fields';
 import { toast } from '@/src/ui/toast';
-import { ChoiceChips, DayField, FormSection, UserPicker } from '@/src/ui/service/fields';
+import { ChoiceChips, DayField, DeviceRecordPicker, FormSection, UserPicker, type DeviceChoice } from '@/src/ui/service/fields';
 import { dayInput, durationMinutes, LOCATION_TYPE_LABELS, parseDay, suggestedFormNo } from '@/src/ui/service/logistics';
 
 type LocationType = 'istanbul_ici' | 'istanbul_disi';
@@ -37,6 +36,7 @@ export default function InstallationFormScreen() {
   );
   const [contact, setContact] = useState<PickedRecord | null>(null);
   const [deviceIds, setDeviceIds] = useState<string[]>([]);
+  const [pickedDevices, setPickedDevices] = useState<DeviceChoice[]>([]);
   const [scheduledDate, setScheduledDate] = useState(dayInput(new Date()));
   const [assignee, setAssignee] = useState<string | null>(null);
   const [location, setLocation] = useState('');
@@ -44,12 +44,13 @@ export default function InstallationFormScreen() {
   const [hours, setHours] = useState('1');
   const [minutes, setMinutes] = useState('0');
   const [notes, setNotes] = useState('');
+  const [sourceLinked, setSourceLinked] = useState(true);
   const [loaded, setLoaded] = useState(!editing);
   const [companyError, setCompanyError] = useState<string>();
 
   const devices = useCustomerDevicesByCompany(company?.id);
   const deviceRows = useMemo(() => devices.data?.items ?? [], [devices.data]);
-  const selectedDevices = deviceRows.filter((device) => deviceIds.includes(device.id));
+  const selectedDevices = deviceIds.map((id) => deviceRows.find((device) => device.id === id) ?? pickedDevices.find((device) => device.id === id)).filter((device) => device !== undefined);
 
   useEffect(() => {
     const row = existing.data;
@@ -75,7 +76,7 @@ export default function InstallationFormScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [firstDeviceId]);
 
-  if (!canSave) return <Redirect href={'/(tabs)/modules/installations' as Href} />;
+  if (!canSave) return <Redirect href={'/modules/installations' as Href} />;
 
   if (editing && !loaded) {
     return (
@@ -119,8 +120,8 @@ export default function InstallationFormScreen() {
           const formNo = suggestedFormNo(customerDeviceId);
           return create.mutateAsync({
             companyId: company.id,
-            opportunityId: first(params.opportunityId) || undefined,
-            quoteId: first(params.quoteId) || undefined,
+            opportunityId: sourceLinked ? first(params.opportunityId) || undefined : undefined,
+            quoteId: sourceLinked ? first(params.quoteId) || undefined : undefined,
             contactId: contact?.id ?? undefined,
             customerDeviceId,
             scheduledDate: scheduled ?? undefined,
@@ -152,45 +153,25 @@ export default function InstallationFormScreen() {
               value={company}
               error={companyError}
               onChange={(next) => {
+                if (next?.id !== company?.id) setSourceLinked(false);
                 setCompany(next);
                 setContact(null);
                 setDeviceIds([]);
+                setPickedDevices([]);
+                setLocation('');
                 setCompanyError(undefined);
               }}
             />
             <ContactPicker label="Kontak" companyId={company?.id ?? null} value={contact} onChange={setContact} />
-            {editing ? (
-              <MultiOptionPicker
-                label="Makine"
-                values={deviceIds}
-                options={deviceRows.map((device) => ({
-                  value: device.id,
-                  label: `${[device.brandName, device.productModelName ?? device.model].filter(Boolean).join(' ') || 'Makine'} · ${device.serialNumber || 'Seri no yok'}`,
-                }))}
-                placeholder={company ? 'Makine seçin' : 'Önce firma seçin'}
-                icon="hardware-chip-outline"
-                onChange={(values) => setDeviceIds(values.slice(-1))}
-              />
-            ) : (
-              <MultiOptionPicker
-                label="Makineler"
-                values={deviceIds}
-                options={deviceRows.map((device) => ({
-                  value: device.id,
-                  label: `${[device.brandName, device.productModelName ?? device.model].filter(Boolean).join(' ') || 'Makine'} · ${device.serialNumber || 'Seri no yok'}`,
-                }))}
-                placeholder={!company ? 'Önce firma seçin' : deviceRows.length ? 'Kurulacak makineleri seçin' : 'Bu firmaya bağlı makine yok'}
-                icon="hardware-chip-outline"
-                onChange={setDeviceIds}
-              />
-            )}
+            <DeviceRecordPicker label={editing ? 'Makine' : 'Makineler'} companyId={company?.id ?? null} values={deviceIds}
+              multiple={!editing} selectedRecords={pickedDevices} onChange={(rows) => { setDeviceIds(rows.map((row) => row.id)); setPickedDevices(rows); }} />
             {selectedDevices.map((device, index) => (
               <View key={device.id} className="gap-0.5 rounded-control border border-border bg-muted px-3 py-2">
                 <Text className="font-inter-semibold text-[13px] text-foreground">
-                  {index + 1}. {[device.brandName, device.productModelName ?? device.model].filter(Boolean).join(' ') || 'Makine'}
+                  {index + 1}. {'label' in device ? device.label : [device.brandName, device.productModelName ?? device.model].filter(Boolean).join(' ') || 'Makine'}
                 </Text>
                 <Text className="font-inter text-xs text-muted-foreground">
-                  {`Seri No: ${device.serialNumber || '—'} · CNC: ${device.controlUnit || '—'} · Teslim: ${device.deliveryDate ? formatDate(device.deliveryDate) : '—'}`}
+                  {`Seri No: ${device.serialNumber || '—'} · CNC: ${device.controlUnit || '—'} · Teslim: ${'deliveryDate' in device && typeof device.deliveryDate === 'string' ? formatDate(device.deliveryDate) : '—'}`}
                 </Text>
               </View>
             ))}
@@ -201,7 +182,7 @@ export default function InstallationFormScreen() {
 
           <FormSection title="Saha planlama">
             <DayField label="Planlanan Tarih" value={scheduledDate} onChange={setScheduledDate} />
-            <UserPicker label="Teknisyen" value={assignee} onChange={setAssignee} />
+            <UserPicker label="Teknisyen" value={assignee} onChange={setAssignee} serviceOnly />
             <CompanyAddressSelect label="Lokasyon" companyId={company?.id} value={location} onChange={(next) => setLocation(next.slice(0, 255))} />
             <ChoiceChips label="Konum Tipi" value={locationType} options={LOCATION_OPTIONS} onChange={setLocationType} />
             <View className="flex-row gap-3">

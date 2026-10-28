@@ -124,6 +124,8 @@ export default function LeadRuleEditModal() {
         onChange={(sources) => set({ sources })}
         options={sourceItems}
         optionsLoading={sources.isPending}
+        optionsError={sources.error}
+        onOptionsRetry={() => void sources.refetch()}
         allowCustom
         disabled={saving}
       />

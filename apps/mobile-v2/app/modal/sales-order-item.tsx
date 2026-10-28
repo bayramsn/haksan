@@ -32,7 +32,7 @@ export default function SalesOrderItemScreen() {
   const [vatRate, setVatRate] = useState('20');
   const sheet = useRef<BottomSheetModal>(null);
 
-  if (!canUpdate || !orderId) return <Redirect href="/(tabs)/modules/sales-orders" />;
+  if (!canUpdate || !orderId) return <Redirect href="/modules/sales-orders" />;
 
   const currencyCode = currencies.data?.find((c) => c.id === order.data?.currencyId)?.code ?? 'USD';
   const qty = parseDecimal(quantity);

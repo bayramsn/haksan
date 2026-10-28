@@ -3,6 +3,7 @@ import { calendar, chat, opportunities, quotes, service, type CalendarEventInput
 import { chatKeys } from './chat.keys';
 import { companyKeys } from './companies.hooks';
 import { dashboardKeys } from './dashboard';
+import { collectPaginated } from './pagination';
 import {
   activityExt,
   calendarExt,
@@ -140,7 +141,8 @@ export function useCompanyFormLookups() {
     groups: groups.data,
     sectors: sectors.data,
     contactSources: contactSources.data,
-    isPending: relationTypes.isPending || statuses.isPending || contactSources.isPending,
+    queries: { relationTypes, statuses, groups, sectors, contactSources },
+    isPending: relationTypes.isPending || statuses.isPending || groups.isPending || sectors.isPending || contactSources.isPending,
   };
 }
 
@@ -240,27 +242,32 @@ export function useChatSearch(conversationId: string, search: string) {
 
 export type ShareableRecord = { id: string; label: string; sublabel: string | null };
 
-/** Web ShareRecordDialog: son 50 teklif / satış kartı / servis kaydı. */
-export function useShareableRecords(type: 'quote' | 'opportunity' | 'service_ticket', enabled = true) {
-  return useQuery({
-    queryKey: ['chat', 'shareable', type],
+/** Server search + pagination makes older permitted CRM records selectable. */
+export function useShareableRecords(type: 'quote' | 'opportunity' | 'service_ticket', enabled = true, search = '') {
+  const term = search.trim().slice(0, 128);
+  return useInfiniteQuery({
+    queryKey: ['chat', 'shareable', type, term],
     enabled,
-    queryFn: async (): Promise<ShareableRecord[]> => {
+    initialPageParam: 1,
+    queryFn: async ({ pageParam }) => {
+      const query = { page: pageParam, pageSize: PAGE_SIZE, search: term || undefined };
       if (type === 'quote') {
-        const res = await quotes.list({ page: 1, pageSize: 50 });
-        return res.data.map((q) => ({
+        const res = await quotes.list(query);
+        return { ...res, data: res.data.map((q): ShareableRecord => ({
           id: q.id,
           label: `Teklif ${q.documentNo}`,
           sublabel: q.company?.shortName ?? q.company?.legalTitle ?? q.status?.name ?? null,
-        }));
+        })) };
       }
       if (type === 'opportunity') {
-        const res = await opportunities.list({ page: 1, pageSize: 50 });
-        return res.data.map((o) => ({ id: o.id, label: o.title, sublabel: o.company?.shortName ?? o.company?.legalTitle ?? null }));
+        const res = await opportunities.list({ ...query, view: 'all' });
+        return { ...res, data: res.data.map((o): ShareableRecord => ({ id: o.id, label: o.title, sublabel: o.company?.shortName ?? o.company?.legalTitle ?? null })) };
       }
-      const res = await service.tickets({ page: 1, pageSize: 50 });
-      return res.data.map((t) => ({ id: t.id, label: `Servis ${t.ticketNo}`, sublabel: t.subject }));
+      const res = await service.tickets(query);
+      return { ...res, data: res.data.map((t): ShareableRecord => ({ id: t.id, label: `Servis ${t.ticketNo}`, sublabel: t.subject })) };
     },
+    getNextPageParam: (last) => last.meta.page < last.meta.totalPages ? last.meta.page + 1 : undefined,
+    select: (data) => ({ items: data.pages.flatMap((page) => page.data), total: data.pages[0]?.meta.total ?? 0 }),
   });
 }
 
@@ -340,7 +347,7 @@ export function useCalendarImportCommit() {
 export function useTaskListExt(query: TaskListQueryExt) {
   return useQuery({
     queryKey: ['tasks', 'list-ext', query],
-    queryFn: () => tasksExt.list({ pageSize: 100, ...query }),
+    queryFn: () => collectPaginated((page) => tasksExt.list({ pageSize: 100, ...query, page })),
   });
 }
 

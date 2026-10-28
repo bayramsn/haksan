@@ -51,7 +51,7 @@ export default function CommercialInvoiceFormScreen() {
     setHydrated(true);
   }, [doc, hydrated, isEdit]);
 
-  if (isEdit ? !canUpdate : !canCreate) return <Redirect href="/(tabs)/modules/documents" />;
+  if (isEdit ? !canUpdate : !canCreate) return <Redirect href="/modules/documents" />;
 
   function submit() {
     if (!quoteId) return toast.error('Bağlı teklif seçiniz');

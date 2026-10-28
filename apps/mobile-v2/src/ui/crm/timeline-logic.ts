@@ -43,7 +43,7 @@ export function buildCompanyTimeline(source: TimelineSource): TimelineItem[] {
       title: activity.subject,
       description: activity.result || activity.description || null,
       meta: activity.createdByUser?.fullName ?? null,
-      route: `/(tabs)/modules/activities/${activity.id}`,
+      route: `/modules/activities/${activity.id}`,
     });
   }
   for (const event of source.taskEvents ?? []) {
@@ -54,7 +54,7 @@ export function buildCompanyTimeline(source: TimelineSource): TimelineItem[] {
       title: event.summary,
       description: event.taskTitle,
       meta: event.actorName,
-      route: `/(tabs)/modules/tasks/${event.taskId}`,
+      route: `/modules/tasks/${event.taskId}`,
     });
   }
   for (const quote of source.quotes ?? []) {
@@ -65,7 +65,7 @@ export function buildCompanyTimeline(source: TimelineSource): TimelineItem[] {
       title: quote.documentNo,
       description: quote.status?.name ?? null,
       meta: null,
-      route: `/(tabs)/modules/quotes/${quote.id}`,
+      route: `/modules/quotes/${quote.id}`,
     });
   }
   for (const opportunity of source.opportunities ?? []) {
@@ -77,7 +77,7 @@ export function buildCompanyTimeline(source: TimelineSource): TimelineItem[] {
       title: opportunity.title,
       description: opportunity.requestedMachine ?? null,
       meta: null,
-      route: `/(tabs)/modules/opportunities/${opportunity.id}`,
+      route: `/modules/opportunities/${opportunity.id}`,
     });
   }
   return items.sort((a, b) => time(b.date) - time(a.date));

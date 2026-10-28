@@ -1,4 +1,5 @@
 import type {
+  MailSendInput,
   CompanyCreateInput,
   CompanyStatusMutationInput,
   CompanyUpdateInput,
@@ -15,6 +16,7 @@ import type {
   ServiceComplaintRejectInput,
   ServiceComplaintUpdateInput,
   ProductUpdateInput,
+  OpportunityProcessReadiness,
 } from '@haksan/shared';
 import { request, type Paginated } from './client';
 import {
@@ -280,7 +282,7 @@ export const inventory = {
 export type NotificationTarget =
   | { kind: 'company'; companyId: string }
   | { kind: 'opportunity'; opportunityId: string; activityId?: string }
-  | { kind: 'navigate'; nav: string; query?: string };
+  | { kind: 'navigate'; nav: string; query?: string; focus?: string };
 
 export type NotificationItem = {
   id: string;
@@ -296,6 +298,8 @@ export type NotificationItem = {
   readAt: string | null;
   createdAt: string;
   target: NotificationTarget | null;
+  /** Özet bildirimlerde (sabah brifingi) her satırın kendi hedefi. */
+  items?: { label: string; nav: string; focus?: string; query?: string }[] | null;
 };
 
 export const notifications = {
@@ -511,6 +515,8 @@ export type OpportunityListItem = {
   /** Yalnızca LOST'ta dolu. Liste VE detay uçlarında var. */
   lostReason: { id: string; code: string; name: string } | null;
   lostCompetitor: { id: string; name: string } | null;
+  /** Rakip kaydı seçilmeden elle yazılan ad; sunucu kayıtlı rakipte de adı dondurur. */
+  lostCompetitorName?: string | null;
   lostCompetitorProductModel: string | null;
   lostProductName: string | null;
   lostUnmetConditions: string | null;
@@ -569,9 +575,8 @@ export type QualificationReadiness = {
   health: QualificationHealth;
 };
 
-/** opportunities.service.ts `processCheckDefinitions()` — sabit adım listesi, `key` ile aranır. */
-export type ProcessReadinessCheck = { key: string; label: string; complete: boolean; actionKey: string };
-export type ProcessReadiness = { checks: ProcessReadinessCheck[] };
+/** Sunucu `processReadiness`: alan rayı, engeller ve görevler (web OpportunityProcessCenter). */
+export type { OpportunityProcessReadiness as ProcessReadiness, ProcessCheck as ProcessReadinessCheck } from '@haksan/shared';
 
 /**
  * `GET /opportunities/:id` listedekinin üstüne şunları ekler: açıklama/ürün/ödeme
@@ -600,7 +605,7 @@ export type OpportunityDetail = OpportunityListItem &
     qualificationHistory: OpportunityQualificationHistoryRow[];
     /** Operasyon aşaması geçmişi (Teklif → Proforma …); en yeni önce. */
     history: OpportunityStageHistoryRow[];
-    processReadiness: ProcessReadiness;
+    processReadiness: OpportunityProcessReadiness;
     /** opportunities.service.ts `list()`/`get()` onay haritası (tur başına durum). */
     approvals?: OpportunityApprovals;
   };
@@ -853,6 +858,8 @@ export type QuoteDetail = Omit<QuoteListItem, 'company' | 'contact' | 'status' |
   discountTotal: string;
   headerDiscountAmount: string;
   vatRate: string;
+  /** Millileştirilmiş işleme merkezi satırlarının gümrük/vergi tutarı; genel toplama dahil. */
+  customsTotal: string;
   items: QuoteItem[];
   /** DİKKAT: sunucu `name` döndürüyor, `fullName` değil (quotes.service.ts get). */
   projectOwner: {
@@ -932,7 +939,7 @@ export const mail = {
       query: companyId ? { companyId } : undefined,
     }),
   /** `quoteId` verilirse sunucu teklif PDF'ini üretip mesaja ekler. */
-  send: (body: { to: string; cc?: string[]; subject: string; body: string; companyId?: string; contactId?: string; quoteId?: string }) =>
+  send: (body: MailSendInput) =>
     request<{ delivered: true; messageId: string; sentAt: string }>('/mail/send', { method: 'POST', body }),
 };
 
@@ -1159,6 +1166,7 @@ export type Installation = {
 
 export type Shipment = {
   id: string;
+  opportunityId?: string | null;
   shipmentNo: string | null;
   companyId: string | null;
   direction: string;
@@ -2022,8 +2030,8 @@ export type TaskInput = {
 };
 
 export const tasks = {
-  list: (query: { view?: TaskView; search?: string; companyId?: string; opportunityId?: string; pageSize?: number }) =>
-    request<{ data: Task[]; meta: { total: number } }>('/tasks', { query }),
+  list: (query: { view?: TaskView; search?: string; companyId?: string; opportunityId?: string; page?: number; pageSize?: number }) =>
+    request<Paginated<Task>>('/tasks', { query }),
   counts: () => request<TaskCounts>('/tasks/counts'),
   assignees: () => request<{ id: string; fullName: string; email: string }[]>('/tasks/assignees'),
   get: (id: string) => request<TaskDetail>(`/tasks/${id}`),

@@ -32,6 +32,11 @@ export const PACKAGE_UNIT_LABELS: Record<string, string> = {
   piece: 'Adet',
 };
 
+/** Web CreateServiceRequestDialog/Installation: servis rolü veya "Servis" departmanı. */
+export function isServiceStaff(user: { roles?: { code: string }[]; department?: { code?: string | null; name: string } | null }): boolean {
+  return Boolean(user.roles?.some((role) => role.code === 'service')) || user.department?.name === 'Servis';
+}
+
 export const ROUTE_STEPS = ['Hazır', 'Yolda', 'Gümrük', 'Teslim'] as const;
 
 /** Web routeStep; "Gümrükten Çıktı" gümrük adımını geçmiş sayılır. */

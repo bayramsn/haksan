@@ -117,13 +117,13 @@ export function refCardRoute(card: RefCard): string | null {
   if (card.missing) return null;
   switch (card.type) {
     case 'company':
-      return `/(tabs)/modules/companies/${card.id}`;
+      return `/modules/companies/${card.id}`;
     case 'quote':
-      return `/(tabs)/modules/quotes/${card.id}`;
+      return `/modules/quotes/${card.id}`;
     case 'opportunity':
-      return `/(tabs)/modules/opportunities/${card.id}`;
+      return `/modules/opportunities/${card.id}`;
     case 'service_ticket':
-      return `/(tabs)/modules/service-tickets/${card.id}`;
+      return `/modules/service-tickets/${card.id}`;
     default:
       return null;
   }

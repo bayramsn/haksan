@@ -44,7 +44,7 @@ export default function NewCompanyScreen() {
     if (fallback) setForm((current) => ({ ...current, divisionIds: [fallback] }));
   }, [user?.divisions, scope.divisionId, form.divisionIds.length]);
 
-  if (!canCreate) return <Redirect href="/(tabs)/modules/companies" />;
+  if (!canCreate) return <Redirect href="/modules/companies" />;
 
   const change = (next: Partial<CompanyFormState>) => {
     setForm((current) => ({ ...current, ...next }));
@@ -84,7 +84,7 @@ export default function NewCompanyScreen() {
             }
           }
           toast.success(`Firma oluşturuldu · ${form.legalTitle.trim()}`);
-          if (company?.id) router.replace(`/(tabs)/modules/companies/${company.id}` as Href);
+          if (company?.id) router.replace(`/modules/companies/${company.id}` as Href);
           else router.back();
         })();
       },

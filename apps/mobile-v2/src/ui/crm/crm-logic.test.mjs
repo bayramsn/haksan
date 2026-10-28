@@ -3,7 +3,9 @@ import test from 'node:test';
 import {
   buildCompanyQuery,
   companyVisibility,
+  isCompanyVisible,
   sortModeToQuery,
+  visibleFirmTypes,
   supplierCategoryLabel,
   validateImportFile,
 } from './company-logic.ts';
@@ -123,7 +125,7 @@ test('ek ve kayıt kartı güvenle normalize edilir', () => {
   assert.equal(normalizeAttachment({ id: 'g', fileName: 'b.pdf' })?.fileId, 'g');
   assert.equal(normalizeAttachment({ fileName: 'x' }), null);
   const card = parseRefCard({ type: 'quote', id: 'q1', title: 'Teklif T-1', subtitle: null });
-  assert.equal(refCardRoute(card), '/(tabs)/modules/quotes/q1');
+  assert.equal(refCardRoute(card), '/modules/quotes/q1');
   assert.equal(refCardRoute({ ...card, missing: true }), null);
   assert.equal(parseRefCard('x'), null);
   assert.equal(canSearchMessages(' a '), false);
@@ -145,7 +147,7 @@ test('görev sıralama yönü, filtre sayısı, silme ve ilgili kayıtlar', () =
   assert.equal(canDeleteTask({ canDelete: true, canManage: false, createdBy: 'u2', userId: 'u1' }), false);
   assert.equal(canDeleteTask({ canDelete: false, canManage: true }), false);
   const links = taskRelatedLinks({ quote: { id: 'q', documentNo: 'T-1' }, serviceTicket: { id: 's', ticketNo: 'S-1', subject: 'Arıza' } });
-  assert.deepEqual(links.map((link) => link.route), ['/(tabs)/modules/quotes/q', '/(tabs)/modules/service-tickets/s']);
+  assert.deepEqual(links.map((link) => link.route), ['/modules/quotes/q', '/modules/service-tickets/s']);
 });
 
 test('takvim aralıkları web ile aynı', () => {
@@ -191,4 +193,15 @@ test('liste görünümü yalnız dolu günleri kronolojik verir', () => {
   ]);
   assert.equal(sections.length, 2);
   assert.deepEqual(sections[1].events.map((event) => event.id), [3, 2]);
+});
+
+test('firma seçici ve harita, liste ile aynı rol görünürlüğünü kullanır', () => {
+  const sales = companyVisibility(['sales']);
+  const service = companyVisibility(['service']);
+  assert.deepEqual(visibleFirmTypes(sales), ['customer', 'supplier_customer', 'competitor']);
+  assert.deepEqual(visibleFirmTypes(service), ['customer', 'supplier_customer']);
+  assert.equal(isCompanyVisible({ relationType: { code: 'supplier' }, customerStatus: { code: 'active' } }, sales), false);
+  assert.equal(isCompanyVisible({ relationType: { code: 'competitor' }, customerStatus: { code: 'active' } }, sales), true);
+  assert.equal(isCompanyVisible({ relationType: { code: 'customer' }, customerStatus: { code: 'potential' } }, service), false);
+  assert.equal(isCompanyVisible({ relationType: { code: 'customer' }, customerStatus: { code: 'active' } }, service), true);
 });

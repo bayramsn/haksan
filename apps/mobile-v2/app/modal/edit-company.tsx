@@ -60,7 +60,7 @@ export default function EditCompanyScreen() {
     setForm(next);
   }, [detail.data, lookups, initial, lookupWaitExpired]);
 
-  if (!canUpdate) return <Redirect href="/(tabs)/modules/companies" />;
+  if (!canUpdate) return <Redirect href="/modules/companies" />;
 
   if (detail.error) {
     return (

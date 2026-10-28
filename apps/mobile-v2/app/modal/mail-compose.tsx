@@ -1,3 +1,8 @@
+import { MAIL_MAX_ATTACHMENTS, MAIL_MAX_ATTACHMENT_BYTES } from '@haksan/shared';
+import { pickDocument, uploadEntityAttachment, type UploadedAttachment } from '@/src/native/files';
+import { useCan } from '@/src/auth/AuthProvider';
+import { validateMailAttachment } from '@/src/ui/crm/mail-attachment';
+import { NoteTemplatePicker } from '@/src/ui/documents/TermsTemplatePicker';
 import { useMemo, useState } from 'react';
 import { KeyboardAvoidingView, Platform, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -22,7 +27,7 @@ import {
 
 /** Web ComposeMailDialog: mesaj CRM'den çıkar, firma zaman çizelgesine kaydedilir. */
 export default function MailComposeScreen() {
-  const params = useLocalSearchParams<{ to?: string; name?: string; companyId?: string; contactId?: string; subject?: string }>();
+  const params = useLocalSearchParams<{ to?: string; name?: string; companyId?: string; contactId?: string; opportunityId?: string; subject?: string }>();
   const router = useRouter();
   const qc = useQueryClient();
   const { colors } = useTheme();
@@ -30,6 +35,9 @@ export default function MailComposeScreen() {
   const recipients = useMailRecipients(params.companyId);
   const send = useSendMail();
 
+  const canUpload = useCan('files.create');
+  const [attachments, setAttachments] = useState<UploadedAttachment[]>([]);
+  const [uploading, setUploading] = useState(false);
   const [to, setTo] = useState(params.to ?? '');
   const [contactId, setContactId] = useState<string | undefined>(params.contactId);
   const [cc, setCc] = useState<string[]>([]);
@@ -80,8 +88,22 @@ export default function MailComposeScreen() {
     }
   }
 
+  async function addAttachment() {
+    if (!params.opportunityId || uploading || send.isPending) return;
+    setUploading(true);
+    try {
+      const local = await pickDocument();
+      if (!local) return;
+      const error = validateMailAttachment(attachments, local);
+      if (error) return toast.error(error);
+      const uploaded = await uploadEntityAttachment({ bucket: 'erp-quote-documents', entityType: 'opportunity', entityId: params.opportunityId, documentTypeCode: 'other', local });
+      setAttachments((current) => [...current, uploaded]);
+    } catch (error) { toast.error(error instanceof Error ? error.message : 'Dosya eklenemedi'); }
+    finally { setUploading(false); }
+  }
+
   function submit() {
-    if (send.isPending) return;
+    if (send.isPending || uploading) return;
     const error = validateMailDraft({ to, subject, body });
     if (error) {
       toast.error(error);
@@ -95,6 +117,7 @@ export default function MailComposeScreen() {
         body: body.trim(),
         companyId: params.companyId || undefined,
         contactId: contactId || undefined,
+        fileIds: attachments.length ? attachments.map((item) => item.fileId) : undefined,
       },
       {
         onSuccess: () => {
@@ -108,7 +131,7 @@ export default function MailComposeScreen() {
     );
   }
 
-  const canSend = ready && !send.isPending && Boolean(to.trim() && subject.trim() && body.trim()) && body.length <= MAIL_BODY_MAX_LENGTH;
+  const canSend = ready && !send.isPending && !uploading && Boolean(to.trim() && subject.trim() && body.trim()) && body.length <= MAIL_BODY_MAX_LENGTH;
 
   return (
     <SafeAreaView className="flex-1 bg-canvas" edges={['bottom', 'left', 'right']}>
@@ -247,6 +270,16 @@ export default function MailComposeScreen() {
             </Text>
           </View>
 
+          {params.opportunityId ? <Card className="gap-3">
+            <Text className="font-inter-semibold text-sm text-foreground">Dosya ekleri ({attachments.length}/{MAIL_MAX_ATTACHMENTS})</Text>
+            <Text className="font-inter text-xs text-muted-foreground">PDF, DOCX, XLSX veya görsel. Toplam en fazla {MAIL_MAX_ATTACHMENT_BYTES / 1024 / 1024} MB. Yüklenen dosyalar fırsatın belgelerinde de saklanır.</Text>
+            {attachments.map((item) => <View key={item.fileId} className="flex-row items-center gap-2">
+              <Text className="flex-1 font-inter text-sm text-foreground">{item.fileName}</Text>
+              <Pressable accessibilityRole="button" accessibilityLabel={`${item.fileName} ekini kaldır`} disabled={send.isPending || uploading} onPress={() => setAttachments((current) => current.filter((row) => row.fileId !== item.fileId))} className="h-11 w-11 items-center justify-center"><Ionicons name="close-circle-outline" size={22} color={colors.mutedForeground} /></Pressable>
+            </View>)}
+            {canUpload ? <Button label="Dosya ekle" variant="ghost" loading={uploading} disabled={send.isPending || attachments.length >= MAIL_MAX_ATTACHMENTS} onPress={() => void addAttachment()} /> : null}
+          </Card> : null}
+          <NoteTemplatePicker scope="mail" body={body} onApply={setBody} />
           {ready && signature ? (
             <View className="gap-1.5 rounded-control border border-border bg-card px-3 py-2.5">
               <Text className="font-inter-medium text-[11px] text-muted-foreground">İmza · mesajın altına otomatik eklenir</Text>

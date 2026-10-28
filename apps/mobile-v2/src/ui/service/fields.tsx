@@ -1,18 +1,23 @@
-import { useMemo, useState, type ReactNode } from 'react';
+import { SelectionListFooter } from '@/src/ui/pickers/SelectionListFooter';
+import { useReservedMachineStock } from '@/src/api/service.hooks';
+import { SearchSelect, useSearchRemoteBag, type RemoteOptions, type SelectItem } from '@/src/ui/select/SearchSelect';
+import type { StockRow } from '@/src/api/products.api';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { FlatList, Pressable, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useCustomerDevicesByCompany, useDirectory } from '@/src/api/operations.hooks';
+import { useCustomerDevice, useCustomerDevicesByCompany, useDirectory } from '@/src/api/operations.hooks';
 import { useProductList, useWarehouses } from '@/src/api/inventory.hooks';
 import type { ProductModel } from '@/src/api/endpoints';
 import { useAuth } from '@/src/auth/AuthProvider';
 import { useDebouncedValue } from '@/src/lib/useDebouncedValue';
 import { useTheme } from '@/src/theme/theme';
-import { EmptyState, ErrorState, Loading, SearchBar } from '@/src/ui';
+import { Button, EmptyState, ErrorState, Loading, SearchBar } from '@/src/ui';
 import { DateTimeField } from '@/src/ui/pickers/DateTimeField';
 import { HostedSheet } from '@/src/ui/pickers/HostedSheet';
 import { OptionPicker } from '@/src/ui/pickers/OptionPicker';
 import { PickerField } from '@/src/ui/pickers/PickerField';
-import { dayInput } from './logistics';
+import { useReportUsers } from '@/src/api/reports.hooks';
+import { dayInput, isServiceStaff } from './logistics';
 
 /** Form bölüm başlığı + kart gövdesi. */
 export function FormSection({ title, hint, children }: { title: string; hint?: string; children: ReactNode }) {
@@ -107,24 +112,35 @@ export function UserPicker({
   value,
   onChange,
   placeholder = 'Belirtilmedi',
+  serviceOnly = false,
 }: {
   label: string;
   value: string | null;
   onChange: (id: string | null) => void;
   placeholder?: string;
+  /** Web gibi yalnız servis personeli; `users.read` yoksa veya kimse eşleşmezse tüm dizin. */
+  serviceOnly?: boolean;
 }) {
   const directory = useDirectory();
+  const staff = useReportUsers(serviceOnly);
+  // Süzgeç gelmeden tüm dizini gösterme; yoksa servis dışı biri seçilebilir.
+  const loading = directory.isPending || (serviceOnly && staff.isLoading);
   const { user: me } = useAuth();
   const options = useMemo(() => {
-    const people = (directory.data ?? []).map((user) => ({ value: user.id, label: user.fullName, hint: user.email }));
-    return me && !people.some((person) => person.value === me.id) ? [{ value: me.id, label: `${me.fullName} (ben)`, hint: me.email }, ...people] : people;
-  }, [directory.data, me]);
+    const serviceIds = serviceOnly ? new Set((staff.data ?? []).filter(isServiceStaff).map((user) => user.id)) : null;
+    const all = (directory.data ?? []).map((user) => ({ value: user.id, label: user.fullName, hint: user.email }));
+    const people = me && !all.some((person) => person.value === me.id) ? [{ value: me.id, label: `${me.fullName} (ben)`, hint: me.email }, ...all] : all;
+    return serviceIds?.size ? people.filter((person) => serviceIds.has(person.value) || person.value === value) : people;
+  }, [directory.data, staff.data, serviceOnly, value, me]);
   return (
     <OptionPicker
       label={label}
       value={value}
       options={options}
-      placeholder={directory.isPending ? 'Yükleniyor…' : placeholder}
+      loading={loading}
+      loadError={directory.error}
+      onRetry={() => void directory.refetch()}
+      placeholder={loading ? 'Yükleniyor…' : placeholder}
       icon="person-circle-outline"
       searchable
       clearable
@@ -135,6 +151,8 @@ export function UserPicker({
 
 export type DeviceChoice = {
   id: string;
+  companyId?: string | null;
+  companyName?: string | null;
   label: string;
   serialNumber: string | null;
   brand: string | null;
@@ -144,46 +162,79 @@ export type DeviceChoice = {
   productTypeName: string | null;
 };
 
-/** Seçili firmanın makineleri; firma yoksa kapalı. */
-export function DevicePicker({
-  label = 'Makine',
-  companyId,
-  value,
-  onChange,
-}: {
+/** Şirkete bağlı tüm makinelere sayfalı, sunucu aramalı erişim. */
+export function DevicePicker({ label = 'Makine', companyId, value, onChange, allowOtherCompanies = false }: {
   label?: string;
   companyId: string | null;
   value: string | null;
+  allowOtherCompanies?: boolean;
   onChange: (device: DeviceChoice | null) => void;
 }) {
-  const list = useCustomerDevicesByCompany(companyId ?? undefined);
-  const choices = useMemo<DeviceChoice[]>(
-    () =>
-      (list.data?.items ?? []).map((device) => ({
-        id: device.id,
-        label: `${[device.brandName, device.productModelName ?? device.model].filter(Boolean).join(' ') || 'Makine'} · ${device.serialNumber || 'Seri no yok'}`,
-        serialNumber: device.serialNumber,
-        brand: device.brandName,
-        model: device.productModelName ?? device.model,
-        controlUnit: device.controlUnit,
-        controlUnitSerialNumber: device.controlUnitSerialNumber ?? null,
-        productTypeName: device.productTypeName,
-      })),
-    [list.data?.items],
-  );
-  return (
-    <OptionPicker
-      label={label}
-      value={value}
-      options={choices.map((choice) => ({ value: choice.id, label: choice.label, hint: choice.controlUnit ? `CNC: ${choice.controlUnit}` : null }))}
-      placeholder={!companyId ? 'Önce firma seçin' : list.isPending ? 'Yükleniyor…' : choices.length ? 'Makine seçin' : 'Bu firmaya bağlı makine yok'}
-      icon="hardware-chip-outline"
-      disabled={!companyId}
-      searchable
-      clearable
-      onChange={(id) => onChange(choices.find((choice) => choice.id === id) ?? null)}
-    />
-  );
+  const selected = useCustomerDevice(value ?? '');
+  const device = selected.data;
+  const selectedRecords: DeviceChoice[] = device ? [{ id: device.id, companyId: device.companyId, companyName: device.company?.shortName ?? device.company?.legalTitle, label: `${[device.brandName, device.productModelName ?? device.model].filter(Boolean).join(' ') || 'Makine'} · ${device.serialNumber || 'Seri no yok'}`, serialNumber: device.serialNumber, brand: device.brandName, model: device.productModelName ?? device.model, controlUnit: device.controlUnit, controlUnitSerialNumber: device.controlUnitSerialNumber ?? null, productTypeName: device.productTypeName }] : [];
+  return <DeviceRecordPicker label={label} companyId={companyId} values={value ? [value] : []} selectedRecords={selectedRecords} allowOtherCompanies={allowOtherCompanies} onChange={(choices) => onChange(choices[0] ?? null)} />;
+}
+
+export function DeviceRecordPicker({ label = 'Makineler', companyId, values, onChange, multiple = false, selectedRecords = [], allowOtherCompanies = false }: {
+  label?: string;
+  companyId: string | null;
+  values: string[];
+  selectedRecords?: DeviceChoice[];
+  allowOtherCompanies?: boolean;
+  multiple?: boolean;
+  onChange: (devices: DeviceChoice[]) => void;
+}) {
+  const { colors } = useTheme();
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState('');
+  const [picked, setPicked] = useState<Record<string, DeviceChoice>>({});
+  useEffect(() => { setPicked({}); setSearch(''); setOpen(false); }, [companyId]);
+  const term = useDebouncedValue(search.trim());
+  const list = useCustomerDevicesByCompany(companyId ?? undefined, term || undefined, allowOtherCompanies);
+  const choices = useMemo<DeviceChoice[]>(() => (list.data?.items ?? []).map((device) => ({
+    id: device.id, companyId: device.companyId, companyName: device.company?.shortName ?? device.company?.legalTitle,
+    label: `${[device.brandName, device.productModelName ?? device.model].filter(Boolean).join(' ') || 'Makine'} · ${device.serialNumber || 'Seri no yok'}`,
+    serialNumber: device.serialNumber, brand: device.brandName, model: device.productModelName ?? device.model,
+    controlUnit: device.controlUnit, controlUnitSerialNumber: device.controlUnitSerialNumber ?? null, productTypeName: device.productTypeName,
+  })), [list.data?.items]);
+  const records = { ...picked, ...Object.fromEntries(selectedRecords.map((choice) => [choice.id, choice])), ...Object.fromEntries(choices.map((choice) => [choice.id, choice])) };
+  const close = () => { setOpen(false); setSearch(''); };
+  const selected = values.map((id) => records[id]?.label).filter(Boolean);
+  return <>
+    <PickerField label={label} value={values.length ? (selected.length === values.length ? selected.join(', ') : `${values.length} makine seçili`) : ''}
+      placeholder={!companyId && !allowOtherCompanies ? 'Önce firma seçin' : 'Makine seçin'} icon="hardware-chip-outline" disabled={!companyId && !allowOtherCompanies}
+      onPress={() => setOpen(true)} onClear={values.length ? () => onChange([]) : undefined} />
+    <HostedSheet open={open} onClose={close} heightRatio={0.8}>
+      <View className="min-h-0 flex-1">
+        <View className="gap-3 border-b border-border px-4 pb-3">
+          <Text className="font-inter-semibold text-base text-foreground">{label}</Text>
+          <SearchBar value={search} onChange={setSearch} placeholder="Model veya seri numarası ara" />
+        </View>
+        <FlatList className="flex-1" data={choices} keyExtractor={(item) => item.id}
+          keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag"
+          contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 32, flexGrow: 1 }}
+          renderItem={({ item }) => <Pressable accessibilityRole={multiple ? 'checkbox' : 'button'} accessibilityState={{ checked: values.includes(item.id), selected: values.includes(item.id) }}
+            className="min-h-[56px] flex-row items-center gap-3 border-b border-border py-3"
+            onPress={() => {
+              setPicked((current) => ({ ...current, [item.id]: item }));
+              const ids = multiple ? values.includes(item.id) ? values.filter((id) => id !== item.id) : [...values, item.id] : [item.id];
+              onChange(ids.map((id) => records[id] ?? { id, label: 'Seçili makine', serialNumber: null, brand: null, model: null, controlUnit: null, controlUnitSerialNumber: null, productTypeName: null }));
+              if (!multiple) close();
+            }}>
+            <View className="flex-1 gap-1"><Text className="font-inter-medium text-sm text-foreground">{item.label}</Text>
+              {allowOtherCompanies && item.companyName ? <Text className="font-inter text-xs text-muted-foreground">{item.companyName}</Text> : null}
+              {item.controlUnit ? <Text className="font-inter text-xs text-muted-foreground">CNC: {item.controlUnit}</Text> : null}</View>
+            {values.includes(item.id) ? <Ionicons name="checkmark-circle" size={22} color={colors.primary} /> : null}
+          </Pressable>}
+          onEndReachedThreshold={0.5} onEndReached={() => { if (list.hasNextPage && !list.isFetchingNextPage) void list.fetchNextPage(); }}
+          ListEmptyComponent={list.isPending ? <Loading /> : list.error ? <ErrorState message={list.error.message} onRetry={() => void list.refetch()} /> : <EmptyState title="Makine bulunamadı" hint="Aramayı değiştirin veya firmanın makine kartlarını kontrol edin." />}
+          ListFooterComponent={list.error && choices.length ? <ErrorState message={list.error.message} onRetry={() => void list.fetchNextPage()} /> : list.isFetchingNextPage ? <Loading /> : list.hasNextPage ? <Button label="Daha fazla makine" variant="ghost" onPress={() => void list.fetchNextPage()} /> : null}
+        />
+        {multiple ? <View className="border-t border-border p-4"><Button label={`Seçimi tamamla (${values.length})`} onPress={close} /></View> : null}
+      </View>
+    </HostedSheet>
+  </>;
 }
 
 export function WarehousePicker({ label, value, onChange }: { label: string; value: string | null; onChange: (id: string | null) => void }) {
@@ -193,6 +244,7 @@ export function WarehousePicker({ label, value, onChange }: { label: string; val
       label={label}
       value={value}
       options={(warehouses.data ?? []).map((warehouse) => ({ value: warehouse.id, label: warehouse.name, hint: warehouse.type }))}
+      loading={warehouses.isPending} loadError={warehouses.error} onRetry={() => void warehouses.refetch()}
       placeholder={warehouses.isPending ? 'Yükleniyor…' : 'Depo seçin'}
       icon="cube-outline"
       clearable
@@ -221,6 +273,7 @@ export function ProductPicker({
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
   const [category, setCategory] = useState(categoryCodes?.[0]);
+  useEffect(() => { setCategory(categoryCodes?.[0]); setSearch(''); }, [categoryCodes?.join(',')]);
   const debounced = useDebouncedValue(search, 275);
   const list = useProductList({ search: debounced.trim() || undefined, categoryCode: category });
   const rows = list.data?.items ?? [];
@@ -304,7 +357,7 @@ export function ProductPicker({
                 <EmptyState title="Ürün bulunamadı" />
               )
             }
-            ListFooterComponent={list.isFetchingNextPage ? <Loading /> : null}
+            ListFooterComponent={<SelectionListFooter hasNextPage={list.hasNextPage} isFetchingNextPage={list.isFetchingNextPage} error={list.error} fetchNextPage={() => list.error && !list.hasNextPage ? list.refetch() : list.fetchNextPage()} />}
           />
         </View>
       </HostedSheet>
@@ -320,4 +373,26 @@ export function MetaCell({ label, value }: { label: string; value: string | null
       <Text className="font-inter-semibold text-[13px] text-foreground" numberOfLines={2}>{value || '—'}</Text>
     </View>
   );
+}
+
+function useReservedStockOptions(search: string): RemoteOptions<StockRow> {
+  const { companyId, excludedIds } = useSearchRemoteBag<{ companyId: string | null; excludedIds: string[] }>();
+  const list = useReservedMachineStock(companyId, search || undefined);
+  return {
+    items: (list.data?.items ?? []).filter((item) => !excludedIds.includes(item.id)).map((item) => ({ id: item.id, label: [item.product?.modelCode || item.product?.fullName, item.serialNumber].filter(Boolean).join(' · '), hint: item.brand?.name, data: item })),
+    isPending: list.isPending, error: list.error, refetch: () => void list.refetch(),
+    hasNextPage: list.hasNextPage, isFetchingNextPage: list.isFetchingNextPage, fetchNextPage: () => void list.fetchNextPage(),
+  };
+}
+
+export function ReservedStockPicker({ companyId, value, selectedId, excludedIds, onSelect }: {
+  companyId: string | null;
+  value: string;
+  selectedId: string | null;
+  excludedIds: string[];
+  onSelect: (item: SelectItem<StockRow> | null) => void;
+}) {
+  return <SearchSelect label="Stok / Seri No" placeholder={companyId ? 'Kayıtlı stoktan seçin veya manuel doldurun' : 'Önce firma seçin'} icon="cube-outline"
+    value={value} selectedId={selectedId} disabled={!companyId} clearable onSelect={onSelect}
+    useRemote={useReservedStockOptions} remoteBag={{ companyId, excludedIds }} searchPlaceholder="Model veya seri numarası ara" emptyTitle="Bu sayfada uygun stok bulunamadı" />;
 }

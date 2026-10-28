@@ -35,7 +35,7 @@ export default function DeviceOwnerScreen() {
     setContact({ id: initialContact.data.id, name: initialContact.data.fullName });
   }, [contactTouched, initialContact.data]);
 
-  if (!canUpdate || !id) return <Redirect href={'/(tabs)/modules/customer-devices' as Href} />;
+  if (!canUpdate || !id) return <Redirect href={'/modules/customer-devices' as Href} />;
 
   const save = () => {
     if (!company) return;

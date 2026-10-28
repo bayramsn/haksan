@@ -52,6 +52,28 @@ export function sortModeToQuery(mode: CompanySortMode): { sortBy: 'name' | 'crea
   }
 }
 
+export function isCompanyVisible(
+  company: {
+    relationType?: { code: string } | null;
+    customerStatus?: { code: string } | null;
+  },
+  visibility: ReturnType<typeof companyVisibility>,
+): boolean {
+  const relation = company.relationType?.code;
+  if (relation === 'supplier' && !visibility.canSeeSuppliers) return false;
+  if (relation === 'competitor' && !visibility.canSeeCompetitors) return false;
+  if (company.customerStatus?.code === 'potential' && !visibility.canSeePotential) return false;
+  return true;
+}
+
+/** Liste sekmeleriyle aynı sıra: müşteri, tedarikçi+müşteri, sonra yetkiye göre tedarikçi ve rakip. */
+export function visibleFirmTypes(visibility: ReturnType<typeof companyVisibility>): FirmType[] {
+  const types: FirmType[] = ['customer', 'supplier_customer'];
+  if (visibility.canSeeSuppliers) types.push('supplier');
+  if (visibility.canSeeCompetitors) types.push('competitor');
+  return types;
+}
+
 export function salesStatusToCode(tab: SalesStatusTab): 'active' | 'potential' | undefined {
   return tab === 'active_customer' ? 'active' : tab === 'potential' ? 'potential' : undefined;
 }

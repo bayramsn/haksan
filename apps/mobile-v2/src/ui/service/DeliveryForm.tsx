@@ -1,5 +1,7 @@
-import { useMemo, useState } from 'react';
-import { useOpportunityList } from '@/src/api/crm.hooks';
+import { OpportunityPickerSheet } from '@/src/ui/documents/pickers';
+import { PickerField } from '@/src/ui/pickers/PickerField';
+import type { SheetHandle } from '@/src/ui/pickers/HostedSheet';
+import { useRef, useState } from 'react';
 import { Field } from '@/src/ui';
 import { CompanyPicker, type PickedRecord } from '@/src/ui/pickers/CompanyPicker';
 import { OptionPicker } from '@/src/ui/pickers/OptionPicker';
@@ -24,11 +26,9 @@ export function DeliveryFormFields({
   const [company, setCompany] = useState<PickedRecord | null>(
     draft.companyId ? { id: draft.companyId, name: companyName || 'Seçili firma' } : null,
   );
-  const opportunities = useOpportunityList({ companyId: draft.companyId, view: 'all' }, Boolean(draft.companyId));
-  const opportunityOptions = useMemo(
-    () => (opportunities.data?.items ?? []).map((row) => ({ value: row.id, label: row.title })),
-    [opportunities.data],
-  );
+  const opportunitySheet = useRef<SheetHandle>(null);
+  const [opportunityLabel, setOpportunityLabel] = useState('');
+
   const set = <K extends keyof DeliveryDraft>(key: K, value: DeliveryDraft[K]) => onChange({ ...draft, [key]: value });
   const text = (label: string, key: keyof DeliveryDraft, extra?: { placeholder?: string; maxLength?: number }) => (
     <Field label={label} value={String(draft[key] ?? '')} onChangeText={(value) => set(key, value as never)} maxLength={extra?.maxLength ?? 255} placeholder={extra?.placeholder} />
@@ -44,20 +44,14 @@ export function DeliveryFormFields({
           error={companyError}
           onChange={(next) => {
             setCompany(next);
-            onChange({ ...draft, companyId: next?.id ?? '', opportunityId: '', machineId: '', ilgili: '', technicalSpecs: [] });
+            setOpportunityLabel('');
+            onChange({ ...draft, companyId: next?.id ?? '', opportunityId: '', machineId: '', ilgili: '', signedBy: '', tezgahMarka: '', tezgahTip: '', tezgahModel: '', tezgahSeriNo: '', cncMarka: '', cncModel: '', cncSeriNo: '', technicalSpecs: [] });
           }}
         />
-        <OptionPicker
-          label="Satış Kartı"
-          value={draft.opportunityId || null}
-          options={opportunityOptions}
-          placeholder={draft.companyId ? 'Belirtilmedi' : 'Önce müşteri seçin'}
-          icon="briefcase-outline"
-          disabled={!draft.companyId}
-          searchable
-          clearable
-          onChange={(value) => set('opportunityId', value ?? '')}
-        />
+        <PickerField label="Satış Kartı" value={draft.opportunityId ? opportunityLabel || 'Seçili satış kartı' : ''}
+              placeholder={draft.companyId ? 'Bağımsız kayıt' : 'Önce müşteri seçin'} icon="briefcase-outline" disabled={!draft.companyId}
+              onPress={() => opportunitySheet.current?.present()} onClear={() => { set('opportunityId', ''); setOpportunityLabel(''); }} />
+
         <DevicePicker
           label="Makine / Tezgah"
           companyId={draft.companyId || null}
@@ -139,6 +133,8 @@ export function DeliveryFormFields({
           style={{ minHeight: 80, textAlignVertical: 'top', paddingTop: 12 }}
         />
       </FormSection>
+      <OpportunityPickerSheet sheetRef={opportunitySheet} companyId={draft.companyId || null} view="all" selectedId={draft.opportunityId}
+        onSelect={(row) => { set('opportunityId', row.id); setOpportunityLabel(row.title); }} />
     </>
   );
 }

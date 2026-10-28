@@ -69,7 +69,7 @@ export default function InstallationCompletionScreen() {
     setFilled(true);
   }, [company.data, filled, form]);
 
-  if (!canUpdate) return <Redirect href={`/(tabs)/modules/installations/${id}` as Href} />;
+  if (!canUpdate) return <Redirect href={`/modules/installations/${id}` as Href} />;
 
   if (query.isPending || query.error || !query.data || !form) {
     return (

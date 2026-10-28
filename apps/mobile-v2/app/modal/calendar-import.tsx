@@ -54,7 +54,7 @@ export default function CalendarImportScreen() {
   const selection = useMemo(() => (result ? calendarImportSelection(result.events, onlyWindow) : []), [result, onlyWindow]);
   const busy = preview.isPending || commit.isPending;
 
-  if (!canCreate) return <Redirect href="/(tabs)/modules/calendar" />;
+  if (!canCreate) return <Redirect href="/modules/calendar" />;
 
   async function pickFile() {
     try {

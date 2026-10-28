@@ -1,3 +1,5 @@
+import { useNavigationContext } from '@/src/modules/useNavigationContext';
+import { useNavigationBottomInset } from '@/src/ui/LiquidGlassTabBarBackground';
 import { useMemo, useState } from 'react';
 import { Alert, Pressable, ScrollView, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -48,15 +50,15 @@ const RECORD_META: Record<RecordFolder, { icon: keyof typeof Ionicons.glyphMap; 
 const HERO: Record<'all' | 'proforma' | 'contract', { title: string; subtitle: string }> = {
   all: {
     title: 'Ticari belge merkezi',
-    subtitle: 'Belge kaydı mobilde oluşur; PDF yüklendikten sonra buradan açılır ve paylaşılır.',
+    subtitle: 'Teklif, proforma ve sözleşme PDF’lerini sunucuda oluşturun; kayıtları ve yüklenen nüshaları buradan takip edin.',
   },
   proforma: {
     title: 'Proforma kontrol merkezi',
-    subtitle: 'Proforma kayıtları; yüklenen PDF dosyası detaydan açılır ve paylaşılır.',
+    subtitle: 'Proforma oluşturun; PDF’ini belge detayından alıp paylaşın.',
   },
   contract: {
     title: 'Sözleşme kontrol merkezi',
-    subtitle: 'Sözleşme kayıtları; imzalı PDF yüklendikten sonra detaydan açılır.',
+    subtitle: 'Sözleşme PDF’ini oluşturup paylaşın; imzalı nüshayı aynı kayda ekleyin.',
   },
 };
 
@@ -74,12 +76,15 @@ function matches(needle: string, values: (string | null | undefined)[]) {
  * tek klasöre kilitlenir (Proformalar / Sözleşmeler katalog girişleri).
  */
 export function DocumentCenter({ fixedFolder }: { fixedFolder?: 'proforma' | 'contract' }) {
+  const GLASS_TAB_BAR_HEIGHT = useNavigationBottomInset();
   const router = useRouter();
   const qc = useQueryClient();
   const { colors } = useTheme();
   const params = useLocalSearchParams<{ folder?: string }>();
   const [folder, setFolder] = useState<DocFolder>(fixedFolder ?? (isFolder(params.folder) ? params.folder : 'all'));
+  const [showOverview, setShowOverview] = useState(false);
   const [search, setSearch] = useState('');
+  useNavigationContext('documents', ({ query }) => setSearch(query ?? ''));
   const [exporting, setExporting] = useState(false);
   const serverSearch = useDebouncedValue(search.trim());
   const needle = serverSearch.toLocaleLowerCase('tr-TR');
@@ -194,17 +199,17 @@ export function DocumentCenter({ fixedFolder }: { fixedFolder?: 'proforma' | 'co
     const paymentId = paymentIdFromDescription(link.description);
     const actions: { icon: keyof typeof Ionicons.glyphMap; label: string; onPress: () => void; destructive?: boolean }[] = [];
     if (paymentId) {
-      actions.push({ icon: 'cash-outline', label: 'Kasa kaydını aç', onPress: () => router.push(`/(tabs)/modules/payments/${paymentId}`) });
+      actions.push({ icon: 'cash-outline', label: 'Kasa kaydını aç', onPress: () => router.push(`/modules/payments/${paymentId}`) });
     } else if (link.entityType === 'service_ticket') {
-      actions.push({ icon: 'construct-outline', label: 'Servis talebini aç', onPress: () => router.push(`/(tabs)/modules/service-tickets/${link.entityId}`) });
+      actions.push({ icon: 'construct-outline', label: 'Servis talebini aç', onPress: () => router.push(`/modules/service-tickets/${link.entityId}`) });
     } else if (linkFolder === 'accounting_invoice') {
-      actions.push({ icon: 'receipt-outline', label: 'Muhasebe kaydını aç', onPress: () => router.push('/(tabs)/modules/invoices') });
+      actions.push({ icon: 'receipt-outline', label: 'Muhasebe kaydını aç', onPress: () => router.push('/modules/invoices') });
     } else if (link.entityType === 'opportunity') {
-      actions.push({ icon: 'briefcase-outline', label: 'Fırsatı aç', onPress: () => router.push(`/(tabs)/modules/opportunities/${link.entityId}`) });
+      actions.push({ icon: 'briefcase-outline', label: 'Fırsatı aç', onPress: () => router.push(`/modules/opportunities/${link.entityId}`) });
     } else if (link.entityType === 'quote') {
-      actions.push({ icon: 'document-text-outline', label: 'Teklifi aç', onPress: () => router.push(`/(tabs)/modules/quotes/${link.entityId}`) });
+      actions.push({ icon: 'document-text-outline', label: 'Teklifi aç', onPress: () => router.push(`/modules/quotes/${link.entityId}`) });
     } else if (link.entityType === 'company') {
-      actions.push({ icon: 'business-outline', label: 'Firmayı aç', onPress: () => router.push(`/(tabs)/modules/companies/${link.entityId}`) });
+      actions.push({ icon: 'business-outline', label: 'Firmayı aç', onPress: () => router.push(`/modules/companies/${link.entityId}`) });
     }
     if (canCompleteLink(linkFolder, link.entityType) && !paymentId) {
       actions.push({
@@ -240,7 +245,7 @@ export function DocumentCenter({ fixedFolder }: { fixedFolder?: 'proforma' | 'co
           [
             row.date ? formatDate(row.date) : null,
             row.statusName ?? (row.finalized ? 'Kesinleşti' : 'Taslak'),
-            row.fileId ? 'CRM PDF hazır' : 'CRM PDF yok',
+            row.fileId ? 'Yüklü nüsha var' : kind === 'invoice' ? 'Yüklü nüsha yok' : 'PDF oluşturulabilir',
           ]
             .filter(Boolean)
             .join(' · '),
@@ -251,7 +256,7 @@ export function DocumentCenter({ fixedFolder }: { fixedFolder?: 'proforma' | 'co
         ]}
         trailing={row.grandTotal ? formatAmount(row.grandTotal, row.currencyCode ?? 'USD') : undefined}
         trailingTone="neutral"
-        onPress={() => router.push(`/(tabs)/modules/documents/${kind}/${row.id}`)}
+        onPress={() => router.push(`/modules/documents/${kind}/${row.id}`)}
       />
     );
   }
@@ -280,60 +285,6 @@ export function DocumentCenter({ fixedFolder }: { fixedFolder?: 'proforma' | 'co
 
   const header = (
     <View className="gap-3 pb-3 pt-2">
-      <StatGrid>
-        {[
-          <StatCard key="total" icon="documents-outline" tone="info" label={fixedFolder ? folderLabel(fixedFolder) : 'Toplam'} value={String(stats.total)} />,
-          <StatCard key="linked" icon="link-outline" tone="success" label="Kaynağa Bağlı" value={String(stats.linked)} />,
-          <StatCard key="quote" icon="checkmark-done-outline" tone="info" label="Teklife Bağlı" value={String(stats.quoteLinked)} />,
-          <StatCard
-            key="review"
-            icon={stats.review ? 'unlink-outline' : 'layers-outline'}
-            tone={stats.review ? 'warning' : 'success'}
-            label="Bağlantı İncele"
-            value={String(stats.review)}
-          />,
-        ]}
-      </StatGrid>
-
-      {!fixedFolder ? (
-        <Card className="gap-3">
-          <View className="gap-1">
-            <Eyebrow>Ticari belge rotası</Eyebrow>
-            <Text className="font-inter text-xs text-muted-foreground">Aynı fırsata bağlı çıktılar soldan sağa ilerler; adıma dokunarak klasörü açın.</Text>
-          </View>
-          <View className="flex-row items-stretch gap-1.5">
-            {routeSteps.map((step, index) => (
-              <View key={step.label} className="flex-1 flex-row items-center gap-1">
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel={`${step.label}: ${step.count}`}
-                  onPress={() => (step.folder ? setFolder(step.folder) : router.push('/(tabs)/modules/quotes'))}
-                  className={`min-h-[56px] flex-1 items-center justify-center rounded-control border px-1 ${
-                    step.folder && folder === step.folder ? 'border-primary bg-secondary' : 'border-border bg-muted'
-                  }`}
-                >
-                  <Text className="font-display text-lg text-foreground">{step.count}</Text>
-                  <Text className="font-inter text-[11px] text-muted-foreground" numberOfLines={1}>
-                    {step.label}
-                  </Text>
-                </Pressable>
-                {index < routeSteps.length - 1 ? <Ionicons name="chevron-forward" size={12} color={colors.mutedForeground} /> : null}
-              </View>
-            ))}
-          </View>
-        </Card>
-      ) : null}
-
-      {createActions.length ? (
-        <View className="flex-row flex-wrap gap-2">
-          {createActions.map((action) => (
-            <View key={action.label} className="min-w-[46%] flex-1">
-              <Button label={action.label} variant="ghost" trailingIcon={action.icon} onPress={action.onPress} />
-            </View>
-          ))}
-        </View>
-      ) : null}
-
       <View className="gap-2" style={{ marginHorizontal: -SCREEN_PAD }}>
         <SearchBar value={search} onChange={setSearch} placeholder="Belge no, firma, dosya veya yükleyen" />
         {!fixedFolder ? (
@@ -364,6 +315,70 @@ export function DocumentCenter({ fixedFolder }: { fixedFolder?: 'proforma' | 'co
         ) : null}
       </View>
 
+
+      <Pressable accessibilityRole="button" accessibilityState={{ expanded: showOverview }} onPress={() => setShowOverview((current) => !current)}
+        className="min-h-11 flex-row items-center justify-between gap-3 rounded-control border border-border bg-card px-3 py-2">
+        <Text className="flex-1 font-inter-medium text-[13px] text-foreground">Belge özeti ve süreç</Text>
+        <Ionicons name={showOverview ? 'chevron-up' : 'chevron-down'} size={18} color={colors.mutedForeground} />
+      </Pressable>
+      {showOverview ? <View className="gap-3">
+
+      <StatGrid>
+        {[
+          <StatCard key="total" icon="documents-outline" tone="info" label={fixedFolder ? folderLabel(fixedFolder) : 'Toplam'} value={String(stats.total)} />,
+          <StatCard key="linked" icon="link-outline" tone="success" label="Kaynağa Bağlı" value={String(stats.linked)} />,
+          <StatCard key="quote" icon="checkmark-done-outline" tone="info" label="Teklife Bağlı" value={String(stats.quoteLinked)} />,
+          <StatCard
+            key="review"
+            icon={stats.review ? 'unlink-outline' : 'layers-outline'}
+            tone={stats.review ? 'warning' : 'success'}
+            label="Bağlantı İncele"
+            value={String(stats.review)}
+          />,
+        ]}
+      </StatGrid>
+
+      {!fixedFolder ? (
+        <Card className="gap-3">
+          <View className="gap-1">
+            <Eyebrow>Ticari belge rotası</Eyebrow>
+            <Text className="font-inter text-xs text-muted-foreground">Aynı fırsata bağlı çıktılar soldan sağa ilerler; adıma dokunarak klasörü açın.</Text>
+          </View>
+          <View className="flex-row items-stretch gap-1.5">
+            {routeSteps.map((step, index) => (
+              <View key={step.label} className="flex-1 flex-row items-center gap-1">
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={`${step.label}: ${step.count}`}
+                  onPress={() => (step.folder ? setFolder(step.folder) : router.push('/modules/quotes'))}
+                  className={`min-h-[56px] flex-1 items-center justify-center rounded-control border px-1 ${
+                    step.folder && folder === step.folder ? 'border-primary bg-secondary' : 'border-border bg-muted'
+                  }`}
+                >
+                  <Text className="font-inter-semibold text-lg text-foreground" style={{ fontVariant: ['tabular-nums'] }}>{step.count}</Text>
+                  <Text className="font-inter text-[11px] text-muted-foreground" numberOfLines={2}>
+                    {step.label}
+                  </Text>
+                </Pressable>
+                {index < routeSteps.length - 1 ? <Ionicons name="chevron-forward" size={12} color={colors.mutedForeground} /> : null}
+              </View>
+            ))}
+          </View>
+        </Card>
+      ) : null}
+
+      </View> : null}
+
+      {createActions.length ? (
+        <View className="flex-row flex-wrap gap-2">
+          {createActions.map((action) => (
+            <View key={action.label} className="w-full">
+              <Button label={action.label} variant="ghost" trailingIcon={action.icon} onPress={action.onPress} />
+            </View>
+          ))}
+        </View>
+      ) : null}
+
       {folder === 'installation_form' || folder === 'delivery_form' ? (
         <Card className="gap-2">
           <Text className="font-inter text-xs text-muted-foreground">
@@ -375,12 +390,12 @@ export function DocumentCenter({ fixedFolder }: { fixedFolder?: 'proforma' | 'co
             label={folder === 'installation_form' ? 'Kurulumlara Git' : 'Servis Taleplerine Git'}
             variant="ghost"
             trailingIcon="arrow-forward"
-            onPress={() => router.push(folder === 'installation_form' ? '/(tabs)/modules/installations' : '/(tabs)/modules/service-tickets')}
+            onPress={() => router.push(folder === 'installation_form' ? '/modules/installations' : '/modules/service-tickets')}
           />
         </Card>
       ) : null}
       {folder === 'accounting_invoice' ? (
-        <Button label="Muhasebe faturalarına git" variant="ghost" trailingIcon="arrow-forward" onPress={() => router.push('/(tabs)/modules/invoices')} />
+        <Button label="Muhasebe faturalarına git" variant="ghost" trailingIcon="arrow-forward" onPress={() => router.push('/modules/invoices')} />
       ) : null}
       {error ? (
         <ErrorState
@@ -416,7 +431,7 @@ export function DocumentCenter({ fixedFolder }: { fixedFolder?: 'proforma' | 'co
         data={error ? [] : items}
         keyExtractor={(item) => item.key}
         getItemType={(item) => item.type}
-        contentContainerStyle={{ paddingHorizontal: SCREEN_PAD, paddingBottom: 96 }}
+        contentContainerStyle={{ paddingHorizontal: SCREEN_PAD, paddingBottom: GLASS_TAB_BAR_HEIGHT + 96 }}
         renderItem={({ item }) =>
           item.type === 'record' ? (
             renderRecord(item.kind, item.row)

@@ -32,7 +32,7 @@ export default function ServicePriceEditScreen() {
   const current = product ? effectivePrices(product, override) : { cash: null, list: null };
   const currency = product ? priceCurrency(product, list?.currency?.code) : '';
 
-  if (!canEdit) return <Redirect href={'/(tabs)/modules/service-price-list' as Href} />;
+  if (!canEdit) return <Redirect href={'/modules/service-price-list' as Href} />;
 
   const loading = products.isPending || lists.isPending || items.isPending;
   const error = products.error ?? lists.error ?? items.error;

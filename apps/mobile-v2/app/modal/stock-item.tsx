@@ -121,7 +121,7 @@ export default function StockItemScreen() {
   const selectedProduct = catalog.find((product) => product.id === productModelId);
   const isMachine = categoryCode === 'TEZGAH';
 
-  if (!allowed) return <Redirect href={'/(tabs)/modules/inventory' as Href} />;
+  if (!allowed) return <Redirect href={'/modules/inventory' as Href} />;
   if (editing && existing.isPending) return <Loading />;
   if (editing && existing.error) return <ErrorState message={existing.error.message} onRetry={() => void existing.refetch()} />;
 

@@ -64,7 +64,7 @@ export default function ProductImportScreen() {
   );
   const validRows = useMemo(() => preview?.rows.filter((row) => row.status !== 'error' && row.status !== 'skip') ?? [], [preview]);
 
-  if (!allowed) return <Redirect href={'/(tabs)/modules/products' as Href} />;
+  if (!allowed) return <Redirect href={'/modules/products' as Href} />;
 
   async function downloadTemplate() {
     if (!divisionId) return toast.error('Önce aktarım bölümünü seçin');

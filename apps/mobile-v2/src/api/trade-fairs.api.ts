@@ -1,4 +1,5 @@
 import { request, type Paginated } from '@/src/api/client';
+import { collectPaginated } from './pagination';
 
 export type TradeFairContactMethod = 'phone' | 'whatsapp' | 'email' | 'in_person' | 'other';
 
@@ -69,7 +70,7 @@ export const tradeFairsApi = {
     request<TradeFairContact>(`/trade-fairs/${id}`, { method: 'PATCH', body }),
   remove: (id: string) => request<{ deleted: boolean }>(`/trade-fairs/${id}`, { method: 'DELETE' }),
   attachments: (entityId: string) =>
-    request<Paginated<FileLinkRow>>('/files/links', {
-      query: { entityType: 'trade_fair_contact', entityId, page: 1, pageSize: 100 },
-    }),
+    collectPaginated((page) => request<Paginated<FileLinkRow>>('/files/links', {
+      query: { entityType: 'trade_fair_contact', entityId, page, pageSize: 100 },
+    })),
 };

@@ -40,7 +40,7 @@ export default function PriceCampaignScreen() {
     setReady(true);
   }, [items.isPending, override, ready]);
 
-  if (!canManageCampaign) return <Redirect href={'/(tabs)/modules/price-lists' as Href} />;
+  if (!canManageCampaign) return <Redirect href={'/modules/price-lists' as Href} />;
 
   function submit() {
     const result = validateCampaign({ price, from, until, active });

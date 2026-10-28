@@ -11,6 +11,7 @@ import {
   TARGET_STATUS_LABELS,
   analyzeTargetSubject,
   averageCompletion,
+  departmentProgress,
   currentMonth,
   daysLeftInPeriod,
   inDepartment,
@@ -132,13 +133,13 @@ export function TargetSection() {
                 .map((d) => {
                   const members = people.filter((p) => inDepartment(p, d.subject.id));
                   const own = analyzeTargetSubject(d, expectedPct, period);
-                  const pctValue = own.completionPct ?? averageCompletion(members);
+                  const { completionPct: pctValue, status } = departmentProgress(own, members, expectedPct, period);
                   const problems = members.filter(isProblem).length;
                   return (
                     <View key={d.subject.id} className="gap-1.5 border-t border-border pt-2 first:border-t-0 first:pt-0">
                       <View className="flex-row items-center justify-between gap-2">
                         <Text className="flex-1 font-inter-semibold text-sm text-foreground" numberOfLines={1}>{d.subject.name}</Text>
-                        <Chip tone={STATUS_TONE[own.status]} label={TARGET_STATUS_LABELS[own.status]} />
+                        <Chip tone={STATUS_TONE[status]} label={TARGET_STATUS_LABELS[status]} />
                       </View>
                       <Text className="font-inter text-xs text-muted-foreground">
                         {members.length} kişi · {problems} riskli/eksik · {pctValue == null ? 'Otomatik veri yok' : `%${pctValue}`}

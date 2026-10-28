@@ -214,7 +214,8 @@ export const productsExtraApi = {
   productCategories: () => request<TaxonomyRow[]>('/lookups/product-categories'),
   productSubcategories: () => request<TaxonomyRow[]>('/lookups/product-subcategories'),
   productTypes: () => request<TaxonomyRow[]>('/lookups/product-types'),
-  create: (body: ProductCreateBody) => request<CatalogProduct>('/products', { method: 'POST', body }),
+  create: (body: ProductCreateBody, operationId?: string) => request<CatalogProduct>('/products', { method: 'POST', body, headers: operationId ? { 'Idempotency-Key': operationId } : undefined }),
+  recoverCreate: (operationId: string) => request<CatalogProduct>(`/products/create-operations/${encodeURIComponent(operationId)}`),
   remove: (id: string) => request<{ ok: true }>(`/products/${id}`, { method: 'DELETE' }),
   importTemplateOptions: (divisionId?: string) =>
     request<ImportTemplateOption[]>('/products/import/template-options', { query: { divisionId } }),
@@ -255,15 +256,15 @@ export const productsExtraApi = {
     request<ScopedPriceList>(`/price-lists/${id}`, { method: 'PATCH', body }),
   createPriceListItem: (listId: string, body: PriceListItemCreateBody) =>
     request<{ id: string }>(`/price-lists/${listId}/items`, { method: 'POST', body }),
-  priceLists: () => request<Paginated<ScopedPriceList>>('/price-lists', { query: { page: 1, pageSize: 50 } }),
+  priceLists: (page = 1) => request<Paginated<ScopedPriceList>>('/price-lists', { query: { page, pageSize: 50 } }),
   priceListItems: (listId: string) => request<PriceListItemFull[]>(`/price-lists/${listId}/items`),
   updateCampaign: (listId: string, itemId: string, body: CampaignBody) =>
     request<{ id: string }>(`/price-lists/${listId}/items/${itemId}`, { method: 'PATCH', body }),
   createCampaign: (listId: string, body: CampaignBody) =>
     request<{ id: string }>(`/price-lists/${listId}/items`, { method: 'POST', body }),
-  catalogFiles: (tenantId: string) =>
+  catalogFiles: (tenantId: string, page = 1) =>
     request<Paginated<CatalogFileLink>>('/files/links', {
-      query: { entityType: 'catalog', entityId: tenantId, page: 1, pageSize: 100 },
+      query: { entityType: 'catalog', entityId: tenantId, page, pageSize: 100 },
     }),
   /** Web CatalogMailButton: katalog PDF'i `fileIds` ile eklenir. */
   sendCatalogMail: (body: { to: string; subject: string; body: string; fileIds: string[] }) =>

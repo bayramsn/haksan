@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient, type QueryKey } from '@tanstack/react-query';
 import { tasks, type TaskInput, type TaskStatus, type TaskView } from './endpoints';
 import { tasksExt } from './crm-general.api';
+import { collectPaginated } from './pagination';
 
 export const taskKeys = {
   all: ['tasks'] as const,
@@ -17,7 +18,7 @@ export const taskKeys = {
 export function useTaskList(query: { view?: TaskView; search?: string; companyId?: string; opportunityId?: string }) {
   return useQuery({
     queryKey: taskKeys.list(query),
-    queryFn: () => tasks.list({ ...query, pageSize: 100 }),
+    queryFn: () => collectPaginated((page) => tasks.list({ ...query, page, pageSize: 100 })),
     staleTime: 60 * 1000,
   });
 }

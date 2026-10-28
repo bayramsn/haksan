@@ -32,7 +32,7 @@ export default function QuoteDocumentLinkScreen() {
   const createInvoice = useCreateCommercialInvoice();
   const busy = createProforma.isPending || createContract.isPending || createInvoice.isPending;
 
-  if (!canCreate || !fileId || !isRecordFolder(folder as never)) return <Redirect href="/(tabs)/modules/documents" />;
+  if (!canCreate || !fileId || !isRecordFolder(folder as never)) return <Redirect href="/modules/documents" />;
 
   function submit() {
     if (!quote) return toast.error('Kaynak teklif seçin');

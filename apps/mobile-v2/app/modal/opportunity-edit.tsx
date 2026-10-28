@@ -8,6 +8,8 @@ import { Button, ErrorState, Eyebrow, Field, Loading } from '@/src/ui';
 import { DateTimeField } from '@/src/ui/pickers/DateTimeField';
 import { AssigneeSelect, ProductSelect } from '@/src/ui/select/fields';
 import { emptyExtraMachine, quantityOf } from '@/src/ui/sales/quick-opportunity';
+import { opportunityEstimate } from '@/src/features/opportunities/commercial-fields';
+import { OptionPicker } from '@/src/ui/pickers/OptionPicker';
 import { toast } from '@/src/ui/toast';
 
 const CURRENCIES = ['USD', 'EUR', 'TRY'] as const;
@@ -23,6 +25,13 @@ type Form = {
   probability: string;
   expectedCloseDate: Date | null;
   description: string;
+  paymentMethod: string;
+  leadNeedSummary: string;
+  leadAuthorityStatus: string;
+  leadBudgetStatus: string;
+  leadPurchaseTimeframe: string;
+  leadTechnicalFit: string;
+  leadTechnicalNote: string;
   paymentTerms: string;
   contractTerms: string;
   /** Web satış kartı — ödeme vadesi (gün). */
@@ -102,6 +111,13 @@ export default function OpportunityEditScreen() {
       probability: String(data.probability ?? 50),
       expectedCloseDate: parseDay(data.expectedCloseDate),
       description: data.description ?? '',
+      paymentMethod: data.paymentMethod ?? 'undecided',
+      leadNeedSummary: typeof data.leadNeedSummary === 'string' ? data.leadNeedSummary : '',
+      leadAuthorityStatus: typeof data.leadAuthorityStatus === 'string' ? data.leadAuthorityStatus : 'unknown',
+      leadBudgetStatus: typeof data.leadBudgetStatus === 'string' ? data.leadBudgetStatus : 'unknown',
+      leadPurchaseTimeframe: typeof data.leadPurchaseTimeframe === 'string' ? data.leadPurchaseTimeframe : 'unknown',
+      leadTechnicalFit: typeof data.leadTechnicalFit === 'string' ? data.leadTechnicalFit : 'unknown',
+      leadTechnicalNote: typeof data.leadTechnicalNote === 'string' ? data.leadTechnicalNote : '',
       paymentTerms: data.paymentTerms ?? '',
       contractTerms: data.contractTerms ?? '',
       paymentTermDays: data.paymentTermDays != null ? String(data.paymentTermDays) : '',
@@ -109,7 +125,7 @@ export default function OpportunityEditScreen() {
     });
   }, [detail.data]);
 
-  if (!canUpdate || !opportunityId) return <Redirect href={'/(tabs)/modules/opportunities' as Href} />;
+  if (!canUpdate || !opportunityId) return <Redirect href={'/modules/opportunities' as Href} />;
 
   const set = <K extends keyof Form>(key: K, value: Form[K]) => {
     setForm((current) => (current ? { ...current, [key]: value } : current));
@@ -132,9 +148,8 @@ export default function OpportunityEditScreen() {
     const next: Partial<Record<keyof Form | 'machines', string>> = {};
     if (!form.title.trim()) next.title = 'Fırsat adı zorunludur.';
     const filledMachines = form.machines.filter((row) => row.product.trim());
-    if (!filledMachines.length) next.machines = 'En az bir makine girin.';
-    const value = form.estimatedValue.trim() ? Number(form.estimatedValue.replace(',', '.')) : null;
-    if (value !== null && (!Number.isFinite(value) || value < 0)) next.estimatedValue = 'Pozitif bir tutar girin.';
+    const value = opportunityEstimate(form.estimatedValue);
+    if (value === null) next.estimatedValue = 'Pozitif bir tutar girin.';
     const probability = Number(form.probability);
     if (!Number.isInteger(probability) || probability < 0 || probability > 100) next.probability = '0-100 arası bir oran girin.';
     const termDays = form.paymentTermDays.trim() ? Number(form.paymentTermDays) : null;
@@ -156,12 +171,19 @@ export default function OpportunityEditScreen() {
         title: form.title.trim(),
         requestedMachine: products[0]?.machineName ?? '',
         products,
-        ...(value !== null ? { estimatedValue: value } : {}),
+        estimatedValue: value!,
         currencyCode: form.currencyCode,
         probability,
         // Web ile aynı: temizlenince null gitmeli; alan atlanırsa eski tarih kalır.
         expectedCloseDate: form.expectedCloseDate ? dayString(form.expectedCloseDate) : null,
         description: form.description.trim(),
+        paymentMethod: form.paymentMethod === 'undecided' ? null : form.paymentMethod,
+        leadNeedSummary: form.leadNeedSummary.trim() || null,
+        leadAuthorityStatus: form.leadAuthorityStatus,
+        leadBudgetStatus: form.leadBudgetStatus,
+        leadPurchaseTimeframe: form.leadPurchaseTimeframe,
+        leadTechnicalFit: form.leadTechnicalFit,
+        leadTechnicalNote: form.leadTechnicalNote.trim() || null,
         paymentTerms: form.paymentTerms.trim(),
         contractTerms: form.contractTerms.trim(),
         paymentTermDays: termDays,
@@ -191,6 +213,15 @@ export default function OpportunityEditScreen() {
               <Eyebrow>Fırsat ticari bilgileri</Eyebrow>
               <Field label="Fırsat adı *" value={form.title} onChangeText={(v) => set('title', v)} maxLength={255} error={errors.title} />
               <Field label="Açıklama" value={form.description} onChangeText={(v) => set('description', v)} maxLength={4000} multiline numberOfLines={4} />
+            </View>
+            <View className="gap-3">
+              <Eyebrow>İhtiyaç ve nitelendirme</Eyebrow>
+              <Field label="İhtiyaç özeti" value={form.leadNeedSummary} onChangeText={(value) => set('leadNeedSummary', value)} multiline maxLength={2000} />
+              <OptionPicker label="Karar verici" value={form.leadAuthorityStatus} onChange={(value) => set('leadAuthorityStatus', value ?? 'unknown')} options={[{value:'unknown',label:'Bilinmiyor'},{value:'influencer',label:'Etkileyici'},{value:'committee',label:'Komite'},{value:'decision_maker',label:'Karar verici'}]} />
+              <OptionPicker label="Bütçe" value={form.leadBudgetStatus} onChange={(value) => set('leadBudgetStatus', value ?? 'unknown')} options={[{value:'unknown',label:'Bilinmiyor'},{value:'unavailable',label:'Bütçe yok'},{value:'estimated',label:'Tahmini'},{value:'approved',label:'Onaylı'}]} />
+              <OptionPicker label="Satın alma zamanı" value={form.leadPurchaseTimeframe} onChange={(value) => set('leadPurchaseTimeframe', value ?? 'unknown')} options={[{value:'unknown',label:'Bilinmiyor'},{value:'later',label:'12+ ay'},{value:'six_to_twelve_months',label:'6–12 ay'},{value:'three_to_six_months',label:'3–6 ay'},{value:'zero_to_three_months',label:'0–3 ay'},{value:'immediate',label:'Hemen'}]} />
+              <OptionPicker label="Teknik uyum" value={form.leadTechnicalFit} onChange={(value) => set('leadTechnicalFit', value ?? 'unknown')} options={[{value:'unknown',label:'Bilinmiyor'},{value:'not_fit',label:'Uygun değil'},{value:'needs_review',label:'İnceleme gerekli'},{value:'fit',label:'Uygun'}]} />
+              <Field label="Teknik not" value={form.leadTechnicalNote} onChangeText={(value) => set('leadTechnicalNote', value)} multiline maxLength={2000} />
             </View>
             <View className="gap-3">
               <Eyebrow>Talep edilen makineler</Eyebrow>
@@ -292,6 +323,10 @@ export default function OpportunityEditScreen() {
                 placeholder="Tarih seçin"
                 clearable
               />
+              <OptionPicker label="Ödeme şekli" value={['term','promissory_note','cheque'].includes(form.paymentMethod) ? 'term' : form.paymentMethod === 'undecided' ? null : form.paymentMethod}
+                placeholder="Ödeme şekli seçin" onChange={(value) => set('paymentMethod', value === 'term' ? (['term','promissory_note','cheque'].includes(form.paymentMethod) ? form.paymentMethod : 'term') : value ?? 'undecided')}
+                options={[{value:'cash',label:'Peşin'},{value:'leasing',label:'Leasing'},{value:'term',label:'Vadeli'}, ...(['wire_transfer','installment','letter_of_credit'].includes(form.paymentMethod) ? [{ value:form.paymentMethod, label:form.paymentMethod === 'wire_transfer' ? 'Havale' : form.paymentMethod === 'installment' ? 'Taksitli' : 'Akreditif'}] : [])]} />
+              {['term','promissory_note','cheque'].includes(form.paymentMethod) ? <OptionPicker label="Vade türü" value={form.paymentMethod} onChange={(value) => set('paymentMethod', value ?? 'term')} options={[{value:'term',label:'Elden'},{value:'promissory_note',label:'Senet'},{value:'cheque',label:'Çek'}]} /> : null}
               <Field
                 label="Vade (gün)"
                 value={form.paymentTermDays}

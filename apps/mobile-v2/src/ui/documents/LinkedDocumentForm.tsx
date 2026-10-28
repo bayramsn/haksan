@@ -1,3 +1,7 @@
+import { ProformaPrintVariant } from './ProformaPrintVariant';
+import { postPdfAndShare } from '@/src/native/files';
+import { shareSavedDocument } from './document-pdf';
+import { TermsTemplatePicker } from './TermsTemplatePicker';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Text, View } from 'react-native';
 import type { BottomSheetModal } from '@gorhom/bottom-sheet';
@@ -72,7 +76,9 @@ export function LinkedDocumentForm({ kind, quoteId: initialQuoteId, documentId }
   const createContract = useCreateContract();
   const updateProforma = useUpdateProforma();
   const updateContract = useUpdateContract();
-  const busy = createProforma.isPending || createContract.isPending || updateProforma.isPending || updateContract.isPending;
+  const [pdfBusy, setPdfBusy] = useState(false);
+  const [printVariant, setPrintVariant] = useState('');
+  const busy = pdfBusy || createProforma.isPending || createContract.isPending || updateProforma.isPending || updateContract.isPending;
 
   const [documentNo, setDocumentNo] = useState('');
   const [date, setDate] = useState(formatDay(new Date()));
@@ -174,7 +180,7 @@ export function LinkedDocumentForm({ kind, quoteId: initialQuoteId, documentId }
     }
   );
 
-  if (isEdit ? !canUpdate : !canCreate) return <Redirect href="/(tabs)/modules/documents" />;
+  if (isEdit ? !canUpdate : !canCreate) return <Redirect href="/modules/documents" />;
   if (isEdit && standalone && documentId) {
     return <Redirect href={kind === 'proforma' ? `/modal/proforma-quick?id=${documentId}` : `/modal/contract-quick?id=${documentId}`} />;
   }
@@ -198,7 +204,7 @@ export function LinkedDocumentForm({ kind, quoteId: initialQuoteId, documentId }
     setHydratedFor(null);
   }
 
-  function submit() {
+  function submit(thenPdf = false) {
     if (!quoteId) {
       toast.error('Bağlı teklif seçiniz');
       return;
@@ -250,9 +256,15 @@ export function LinkedDocumentForm({ kind, quoteId: initialQuoteId, documentId }
     const discountFields = hasDocumentDiscount(documentDiscount)
       ? { headerDiscountAmount: documentDiscount.amount, headerDiscountPercent: documentDiscount.percent }
       : {};
-    const done = (message: string) => () => {
+    const done = (message: string) => async (saved: { id: string }) => {
       toast.success(message);
-      router.back();
+      if (thenPdf) {
+        setPdfBusy(true);
+        try { await shareSavedDocument(kind, saved.id || documentId || '', documentNo, (path, filename) => postPdfAndShare(path, filename, kind === 'proforma' && printVariant ? { variantKey: printVariant } : undefined)); }
+        catch (error) { toast.error(`Kayıt kaydedildi; PDF alınamadı. Belge detayından tekrar deneyin. ${error instanceof Error ? error.message : ''}`); }
+        finally { setPdfBusy(false); }
+      }
+      router.replace(`/modules/${kind === 'proforma' ? 'proformas' : 'contracts'}/${saved.id || documentId}`);
     };
     const fail = (error: Error) => toast.error(error.message);
 
@@ -280,7 +292,7 @@ export function LinkedDocumentForm({ kind, quoteId: initialQuoteId, documentId }
         terms,
       };
       createContract.mutate(body, {
-        onSuccess: done('CRM sözleşmesi oluşturuldu. PDF yüklendikten sonra detaydan açılır.'),
+        onSuccess: done('Sözleşme oluşturuldu'),
         onError: fail,
       });
       return;
@@ -295,7 +307,7 @@ export function LinkedDocumentForm({ kind, quoteId: initialQuoteId, documentId }
       terms,
     };
     createProforma.mutate(body, {
-      onSuccess: done('CRM proforması oluşturuldu. PDF yüklendikten sonra detaydan açılır.'),
+      onSuccess: done('Proforma oluşturuldu'),
       onError: fail,
     });
   }
@@ -309,13 +321,16 @@ export function LinkedDocumentForm({ kind, quoteId: initialQuoteId, documentId }
       <ModalForm
         title={title}
         submitLabel={isEdit ? 'Kaydet' : `CRM'de ${LABEL[kind]} Oluştur`}
-        onSubmit={submit}
+        onSubmit={() => submit(false)}
+        secondaryLabel="Kaydet ve PDF al"
+        onSecondarySubmit={() => submit(true)}
         loading={busy}
         disabled={loading || Boolean(loadError) || !quoteId}
       >
+        {kind === 'proforma' ? <ProformaPrintVariant value={printVariant} onChange={setPrintVariant} /> : null}
         {!isEdit ? (
           <Text className="font-inter text-xs leading-5 text-muted-foreground">
-            Kayıt CRM’e yazılır. PDF dosyası yüklendikten sonra belge detayından açılır ve paylaşılır.
+            Web ile aynı CRM kaydı oluşturulur. PDF sunucuda hazırlanır ve telefonunuzdan paylaşılabilir.
           </Text>
         ) : null}
         <PickerField
@@ -385,6 +400,7 @@ export function LinkedDocumentForm({ kind, quoteId: initialQuoteId, documentId }
             />
             <DocumentTotalsCard totals={totals} currencyCode={currencyCode} />
 
+            <TermsTemplatePicker scope={kind === 'contract' ? 'contract_terms' : 'proforma_terms'} value={{ payment, delivery, warranty }} onApply={markTerms} />
             <DocumentTermsFields
               title={kind === 'contract' ? 'Sözleşme Şartları' : 'Proforma Şartları'}
               hint={`Değişiklik yalnız bu ${kind === 'contract' ? 'sözleşmeye' : 'proformaya'} işlenir; bağlı teklifin şartları olduğu gibi kalır.`}

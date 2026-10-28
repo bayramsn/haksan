@@ -35,7 +35,7 @@ export default function ContractSignedUploadScreen() {
   const [signedDate, setSignedDate] = useState(formatDay(new Date()));
   const [busy, setBusy] = useState(false);
 
-  if (!canUpdate || !canUpload || !contractId) return <Redirect href="/(tabs)/modules/contracts" />;
+  if (!canUpdate || !canUpload || !contractId) return <Redirect href="/modules/contracts" />;
 
   const contractNo = doc?.contractNo ?? 'Sözleşme';
 

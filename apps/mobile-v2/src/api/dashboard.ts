@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { companies, finance, inventory, reports } from './endpoints';
+import { companies, finance, inventory, reports, service } from './endpoints';
 
 export const dashboardKeys = {
   all: ['dashboard'] as const,
@@ -42,11 +42,11 @@ export function useDashboard() {
   return useQuery({
     queryKey: dashboardKeys.summary,
     queryFn: async (): Promise<DashboardData> => {
-      const [summary, pipeline, receivables, service, machines] = await Promise.all([
+      const [summary, pipeline, receivables, ticketSummary, machines] = await Promise.all([
         settle(companies.summary()),
         settle(reports.pipelineSummary()),
         settle(finance.receivableSummary()),
-        settle(reports.serviceSummary()),
+        settle(service.ticketSummary()),
         settle(inventory.customerDevices({ page: 1, pageSize: 1 })),
       ]);
 
@@ -63,8 +63,8 @@ export function useDashboard() {
             }
           : null,
         receivableTotal: receivables?.total ?? null,
-        openServices: service ? service.new + service.reviewing : null,
-        serviceTotal: service?.total ?? null,
+        openServices: ticketSummary?.open ?? null,
+        serviceTotal: ticketSummary?.total ?? null,
         activeMachines: machines?.meta.total ?? null,
         stages: (pipeline ?? []).map((s) => ({ code: s.stageCode, label: s.stageName, value: s.count })),
       };

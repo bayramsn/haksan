@@ -1,4 +1,4 @@
-import { useInfiniteQuery, useMutation, useQueryClient, type QueryClient } from '@tanstack/react-query';
+import { useInfiniteQuery, useQuery, useMutation, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { documentKeys } from './documents.hooks';
 import { quoteKeys } from './crm.hooks';
 import {
@@ -41,6 +41,25 @@ export function useFileLinks(enabled = true) {
     queryFn: ({ pageParam }) => fileLinksApi.list({ page: pageParam, pageSize: LINK_PAGE_SIZE }),
     getNextPageParam: (last) => (last.meta.page < last.meta.totalPages ? last.meta.page + 1 : undefined),
     select: (data) => ({ items: data.pages.flatMap((page) => page.data), total: data.pages[0]?.meta.total ?? 0 }),
+  });
+}
+
+/** Resolve a document's file even when it lies beyond the first links page. */
+export function useLinkedFile(fileId: string | null, enabled = true) {
+  return useQuery({
+    queryKey: [...fileLinkKeys.all, 'file', fileId],
+    enabled: enabled && Boolean(fileId),
+    queryFn: async () => {
+      for (let page = 1; page <= 10_000; page++) {
+        const result = await fileLinksApi.list({ page, pageSize: LINK_PAGE_SIZE });
+        if (result.meta.page !== page) throw new Error('Dosya bilgileri yüklenemedi.');
+        const found = result.data.find(row => row.fileId === fileId);
+        if (found) return found;
+        if (page >= result.meta.totalPages) return null;
+        if (!result.data.length) throw new Error('Dosya bilgileri yüklenemedi.');
+      }
+      throw new Error('Dosya bilgileri tamamlanamadı.');
+    },
   });
 }
 

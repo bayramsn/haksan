@@ -1,4 +1,5 @@
 import { useInfiniteQuery, useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
+import { collectPaginated } from './pagination';
 import { activityKeys, opportunityKeys } from '@/src/api/crm.hooks';
 import {
   salesApi,
@@ -198,7 +199,7 @@ export function useTeamActivityDetails(
 export function useOpportunityFiles(id: string, enabled = true) {
   return useQuery({
     queryKey: salesKeys.files(id),
-    queryFn: () => fileLinksApi.list({ entityType: 'opportunity', entityId: id, page: 1, pageSize: 100 }),
+    queryFn: () => collectPaginated((page) => fileLinksApi.list({ entityType: 'opportunity', entityId: id, page, pageSize: 100 })),
     select: (page) => ({ items: page.data, total: page.meta.total }),
     enabled: enabled && Boolean(id),
   });

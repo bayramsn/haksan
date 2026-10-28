@@ -1,21 +1,25 @@
+import { useAssistantFormDraft } from '@/src/call-assistant/useAssistantFormDraft';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { KeyboardAvoidingView, Pressable, ScrollView, Text, View } from 'react-native';
+import { FlatList, KeyboardAvoidingView, Pressable, ScrollView, Text, View } from 'react-native';
 import { Redirect, Stack, useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { BottomSheetBackdrop, BottomSheetFlatList, BottomSheetModal, BottomSheetView } from '@gorhom/bottom-sheet';
+import { HostedSheet, useSheetHandle, type SheetHandle } from '@/src/ui/pickers/HostedSheet';
+import { useDebouncedValue } from '@/src/lib/useDebouncedValue';
 import {
   activityCreateSchema,
   activityUpdateSchema,
   type ActivityCreateInput,
   type ActivityUpdateInput,
 } from '@haksan/shared';
-import { useCompanyList } from '@/src/api/companies.hooks';
+import { useCompany, useCompanyList } from '@/src/api/companies.hooks';
 import {
   useActivity,
+  useContact,
   useContactList,
   useCreateActivity,
   useLookup,
+  useOpportunity,
   useOpportunityList,
   useUpdateActivity,
 } from '@/src/api/crm.hooks';
@@ -102,6 +106,7 @@ function SelectorField({
 export function ActivityFormScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{
+    assistantDraftId?: string | string[];
     id?: string | string[];
     companyId?: string | string[];
     companyName?: string | string[];
@@ -110,13 +115,14 @@ export function ActivityFormScreen() {
     contactId?: string | string[];
     contactName?: string | string[];
   }>();
-  const id = first(params.id);
+  const assistantDraftId = first(params.assistantDraftId);
+  const id = assistantDraftId ? '' : first(params.id);
   const editing = Boolean(id);
   const allowed = useCan(editing ? 'activities.update' : 'activities.create');
   const { colors } = useTheme();
-  const requestedCompanyId = first(params.companyId);
-  const requestedOpportunityId = first(params.opportunityId);
-  const requestedContactId = first(params.contactId);
+  const requestedCompanyId = assistantDraftId ? '' : first(params.companyId);
+  const requestedOpportunityId = assistantDraftId ? '' : first(params.opportunityId);
+  const requestedContactId = assistantDraftId ? '' : first(params.contactId);
   const detail = useActivity(id);
   const types = useLookup('activity-types');
   const create = useCreateActivity();
@@ -128,9 +134,9 @@ export function ActivityFormScreen() {
     contactId: requestedContactId,
   });
   const [names, setNames] = useState({
-    company: first(params.companyName),
-    opportunity: first(params.opportunityTitle),
-    contact: first(params.contactName),
+    company: assistantDraftId ? '' : first(params.companyName),
+    opportunity: assistantDraftId ? '' : first(params.opportunityTitle),
+    contact: assistantDraftId ? '' : first(params.contactName),
   });
   const initialRef = useRef<FormState | null>(editing ? null : { ...EMPTY_FORM, companyId: requestedCompanyId, opportunityId: requestedOpportunityId, contactId: requestedContactId });
   const initializedId = useRef<string | null>(null);
@@ -139,26 +145,40 @@ export function ActivityFormScreen() {
   const [contactSearch, setContactSearch] = useState('');
   const [errors, setErrors] = useState<Partial<Record<keyof FormState, string>>>({});
   const [formError, setFormError] = useState<string | null>(null);
-  const companySheet = useRef<BottomSheetModal>(null);
-  const opportunitySheet = useRef<BottomSheetModal>(null);
-  const contactSheet = useRef<BottomSheetModal>(null);
+  const assistant = useAssistantFormDraft(assistantDraftId, 'note', (draft) => {
+    const next = { ...EMPTY_FORM, companyId: draft.company.id, contactId: draft.contact?.id ?? '', activityTypeCode: 'note', subject: draft.title ?? '', description: draft.text ?? '', nextFollowUpAt: draft.dueAt ? formatLocalDateTime(draft.dueAt) : '' };
+    setForm(next); initialRef.current = next; setNames({ company: draft.company.name, contact: draft.contact?.name ?? '', opportunity: '' });
+  });
+  const companySheet = useRef<SheetHandle>(null);
+  const opportunitySheet = useRef<SheetHandle>(null);
+  const contactSheet = useRef<SheetHandle>(null);
+
+  const companyPicker = useSheetHandle(companySheet, () => setCompanySearch(''));
+  const opportunityPicker = useSheetHandle(opportunitySheet, () => setOpportunitySearch(''));
+  const contactPicker = useSheetHandle(contactSheet, () => setContactSearch(''));
+  const companyTerm = useDebouncedValue(companySearch.trim());
+  const opportunityTerm = useDebouncedValue(opportunitySearch.trim());
+  const contactTerm = useDebouncedValue(contactSearch.trim());
+  const selectedCompany = useCompany(form.companyId);
+  const selectedOpportunity = useOpportunity(form.opportunityId);
+  const selectedContact = useContact(form.contactId);
 
   const companyList = useCompanyList(useMemo(() => ({
-    search: clean(companySearch),
+    search: clean(companyTerm),
     sortBy: 'name' as const,
     sortDir: 'asc' as const,
-  }), [companySearch]));
+  }), [companyTerm]));
   const opportunityList = useOpportunityList(useMemo(() => ({
     companyId: form.companyId || undefined,
-    search: clean(opportunitySearch),
+    search: clean(opportunityTerm),
     view: 'all' as const,
-  }), [form.companyId, opportunitySearch]), Boolean(form.companyId));
+  }), [form.companyId, opportunityTerm]), Boolean(form.companyId));
   const contactList = useContactList(useMemo(() => ({
     companyId: form.companyId || undefined,
-    search: clean(contactSearch),
+    search: clean(contactTerm),
     sortBy: 'name' as const,
     sortDir: 'asc' as const,
-  }), [contactSearch, form.companyId]), Boolean(form.companyId));
+  }), [contactTerm, form.companyId]), Boolean(form.companyId));
 
   useEffect(() => {
     if (!editing || !detail.data || initializedId.current === detail.data.id) return;
@@ -179,18 +199,14 @@ export function ActivityFormScreen() {
   }, [detail.data, editing]);
 
   useEffect(() => {
-    if (!editing || !detail.data) return;
-    const selectedCompany = companyList.data?.items.find((item) => item.id === detail.data?.companyId);
-    const selectedOpportunity = opportunityList.data?.items.find((item) => item.id === detail.data?.opportunityId);
-    const selectedContact = contactList.data?.items.find((item) => item.id === detail.data?.contactId);
     setNames((previous) => ({
-      company: selectedCompany ? selectedCompany.shortName ?? selectedCompany.legalTitle : previous.company,
-      opportunity: selectedOpportunity?.title ?? previous.opportunity,
-      contact: selectedContact?.fullName ?? previous.contact,
+      company: selectedCompany.data ? selectedCompany.data.shortName ?? selectedCompany.data.legalTitle : previous.company,
+      opportunity: selectedOpportunity.data?.title ?? previous.opportunity,
+      contact: selectedContact.data?.fullName ?? previous.contact,
     }));
-  }, [companyList.data?.items, contactList.data?.items, detail.data, editing, opportunityList.data?.items]);
+  }, [selectedCompany.data, selectedOpportunity.data, selectedContact.data]);
 
-  if (!allowed) return <Redirect href="/(tabs)/modules/activities" />;
+  if (!allowed) return <Redirect href="/modules/activities" />;
 
   const set = <K extends keyof FormState>(key: K, value: FormState[K]) => {
     setForm((previous) => ({ ...previous, [key]: value }));
@@ -199,8 +215,9 @@ export function ActivityFormScreen() {
   };
 
   const chooseCompany = (company: CompanyListItem) => {
-    setForm((previous) => ({ ...previous, companyId: company.id, opportunityId: '', contactId: '' }));
-    setNames({ company: company.shortName ?? company.legalTitle, opportunity: '', contact: '' });
+    const changed = company.id !== form.companyId;
+    setForm((previous) => ({ ...previous, companyId: company.id, ...(changed ? { opportunityId: '', contactId: '' } : {}) }));
+    setNames((previous) => ({ company: company.shortName ?? company.legalTitle, opportunity: changed ? '' : previous.opportunity, contact: changed ? '' : previous.contact }));
     setErrors((previous) => ({ ...previous, companyId: undefined }));
     companySheet.current?.dismiss();
   };
@@ -217,7 +234,8 @@ export function ActivityFormScreen() {
     contactSheet.current?.dismiss();
   };
 
-  function submit() {
+  async function submit() {
+    if (assistant.blocked || assistant.saving || create.isPending || update.isPending) return;
     setFormError(null);
     const nextErrors: Partial<Record<keyof FormState, string>> = {};
     const activityDate = parseLocalDateTime(form.activityDate);
@@ -236,7 +254,7 @@ export function ActivityFormScreen() {
       companyId: form.companyId || undefined,
       opportunityId: form.opportunityId || undefined,
       contactId: form.contactId || undefined,
-      activityTypeCode: form.activityTypeCode,
+      activityTypeCode: assistant.active ? 'note' : form.activityTypeCode,
       subject: form.subject.trim(),
       description: clean(form.description),
       activityDate: activityDate!,
@@ -252,8 +270,13 @@ export function ActivityFormScreen() {
         setFormError('Zorunlu veya biçimi hatalı alanları kontrol edin.');
         return;
       }
+      if (assistant.active) {
+        try { const created = await assistant.save(parsed.data as unknown as Record<string, unknown>); router.replace(`/modules/activities/${created.resourceId}` as Href); }
+        catch (error) { setFormError(error instanceof Error ? error.message : 'Not kaydedilemedi'); }
+        return;
+      }
       create.mutate(parsed.data as ActivityCreateInput, {
-        onSuccess: (created) => router.replace(`/(tabs)/modules/activities/${created.id}` as Href),
+        onSuccess: (created) => router.replace(`/modules/activities/${created.id}` as Href),
         onError: (error) => setFormError(error.message),
       });
       return;
@@ -283,7 +306,7 @@ export function ActivityFormScreen() {
       return;
     }
     update.mutate({ id, patch: parsed.data as ActivityUpdateInput }, {
-      onSuccess: () => router.replace(`/(tabs)/modules/activities/${id}` as Href),
+      onSuccess: () => router.replace(`/modules/activities/${id}` as Href),
       onError: (error) => setFormError(error.message),
     });
   }
@@ -295,21 +318,15 @@ export function ActivityFormScreen() {
     return <SafeAreaView className="flex-1 bg-canvas" edges={['top', 'bottom', 'left', 'right']}><Stack.Screen options={{ title: 'Aktiviteyi düzenle', headerShown: true }} /><ErrorState message={detail.error?.message ?? 'Aktivite yüklenemedi.'} onRetry={() => void detail.refetch()} /></SafeAreaView>;
   }
 
-  const saving = create.isPending || update.isPending;
-  const sheetProps = {
-    snapPoints: ['80%'],
-    enableDynamicSizing: false,
-    backgroundStyle: { backgroundColor: colors.card },
-    handleIndicatorStyle: { backgroundColor: colors.mutedForeground },
-    backdropComponent: (props: Parameters<typeof BottomSheetBackdrop>[0]) => <BottomSheetBackdrop {...props} appearsOnIndex={0} disappearsOnIndex={-1} />,
-  };
+  const saving = create.isPending || update.isPending || assistant.saving;
 
   return (
     <SafeAreaView className="flex-1 bg-canvas" edges={['top', 'bottom', 'left', 'right']}>
-      <Stack.Screen options={{ title: editing ? 'Aktiviteyi düzenle' : 'Yeni aktivite', headerShown: true }} />
+      <Stack.Screen options={{ title: assistant.active ? 'Görüşme notu' : editing ? 'Aktiviteyi düzenle' : 'Yeni aktivite', headerShown: true }} />
       <KeyboardAvoidingView className="flex-1" behavior={process.env.EXPO_OS === 'ios' ? 'padding' : undefined}>
         <ScrollView contentContainerClassName="gap-5 p-4 pb-10" keyboardShouldPersistTaps="handled">
           <View className="gap-3">
+            {assistant.error ? <View className="gap-2"><Text className="text-destructive">{assistant.error}</Text><Button label="Taslağı tekrar yükle" variant="ghost" onPress={() => void assistant.retry()} /></View> : null}
             <Eyebrow>Bağlantılar</Eyebrow>
             <SelectorField label="Firma *" value={names.company} placeholder="Firma seçin" icon="business-outline" error={errors.companyId} onPress={() => companySheet.current?.present()} />
             <SelectorField label="Satış kartı" value={names.opportunity} placeholder={form.companyId ? 'İsteğe bağlı' : 'Önce firma seçin'} icon="briefcase-outline" disabled={!form.companyId} onPress={() => opportunitySheet.current?.present()} />
@@ -320,7 +337,7 @@ export function ActivityFormScreen() {
             <Eyebrow>Aktivite</Eyebrow>
             <View className="gap-1.5">
               <Text className="font-inter-medium text-[13px] text-muted-foreground">Tür *</Text>
-              {types.isPending ? <Loading /> : types.error ? <ErrorState message={types.error.message} onRetry={() => void types.refetch()} /> : (
+              {assistant.active ? <Text className="font-inter text-base text-foreground">Görüşme notu</Text> : types.isPending ? <Loading /> : types.error ? <ErrorState message={types.error.message} onRetry={() => void types.refetch()} /> : (
                 <FilterChips
                   options={(types.data ?? []).map((item) => ({ value: item.code, label: item.name }))}
                   value={form.activityTypeCode || null}
@@ -342,16 +359,20 @@ export function ActivityFormScreen() {
         </ScrollView>
         <View className="flex-row gap-3 border-t border-border bg-card px-4 py-3">
           <View className="flex-1"><Button label="Vazgeç" variant="ghost" onPress={() => router.back()} /></View>
-          <View className="flex-[2]"><Button label={editing ? 'Değişiklikleri Kaydet' : 'Aktiviteyi Oluştur'} loading={saving} onPress={submit} /></View>
+          <View className="flex-[2]"><Button label={assistant.active ? 'Notu Kaydet' : editing ? 'Değişiklikleri Kaydet' : 'Aktiviteyi Oluştur'} loading={saving || assistant.loading} disabled={saving || assistant.blocked} onPress={() => void submit()} /></View>
         </View>
       </KeyboardAvoidingView>
 
-      <BottomSheetModal ref={companySheet} {...sheetProps}>
-        <BottomSheetView className="gap-3 px-4 pb-2"><Text className="font-inter-semibold text-base text-foreground">Firma seçin</Text><SearchBar value={companySearch} onChange={setCompanySearch} placeholder="Firma ara" /></BottomSheetView>
-        <BottomSheetFlatList
+      <HostedSheet open={companyPicker.open} onClose={companyPicker.close} heightRatio={0.8}>
+        <View className="min-h-0 flex-1">
+        <View className="gap-3 px-4 pb-2"><Text className="font-inter-semibold text-base text-foreground">Firma seçin</Text><SearchBar value={companySearch} onChange={setCompanySearch} placeholder="Firma ara" /></View>
+        <FlatList
+          className="flex-1"
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
           data={companyList.data?.items ?? []}
           keyExtractor={(item: CompanyListItem) => item.id}
-          contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 32 }}
+          contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 32, flexGrow: 1 }}
           renderItem={({ item }: { item: CompanyListItem }) => (
             <Pressable accessibilityRole="button" accessibilityState={{ selected: item.id === form.companyId }} onPress={() => chooseCompany(item)} className="min-h-[56px] flex-row items-center gap-3 border-b border-border py-2 active:opacity-70">
               <Ionicons name="business-outline" size={19} color={item.id === form.companyId ? colors.primary : colors.mutedForeground} />
@@ -362,20 +383,25 @@ export function ActivityFormScreen() {
           onEndReachedThreshold={0.5}
           onEndReached={() => { if (companyList.hasNextPage && !companyList.isFetchingNextPage) void companyList.fetchNextPage(); }}
           ListEmptyComponent={companyList.isPending ? <Loading /> : companyList.error ? <ErrorState message={companyList.error.message} onRetry={() => void companyList.refetch()} /> : <EmptyState title="Firma bulunamadı" />}
-          ListFooterComponent={companyList.isFetchingNextPage ? <Loading /> : null}
+          ListFooterComponent={companyList.isFetchingNextPage ? <Loading /> : companyList.isFetchNextPageError ? <ErrorState message="Sonraki kayıtlar yüklenemedi." onRetry={() => void companyList.fetchNextPage()} /> : companyList.hasNextPage ? <Button label="Daha fazla göster" variant="ghost" onPress={() => void companyList.fetchNextPage()} /> : null}
         />
-      </BottomSheetModal>
+      </View>
+      </HostedSheet>
 
-      <BottomSheetModal ref={opportunitySheet} {...sheetProps}>
-        <BottomSheetView className="gap-3 px-4 pb-2">
+      <HostedSheet open={opportunityPicker.open} onClose={opportunityPicker.close} heightRatio={0.8}>
+        <View className="min-h-0 flex-1">
+        <View className="gap-3 px-4 pb-2">
           <Text className="font-inter-semibold text-base text-foreground">Satış kartı seçin</Text>
           {form.opportunityId ? <Button label="Bağlantıyı Kaldır" variant="ghost" onPress={() => chooseOpportunity(null)} /> : null}
           <SearchBar value={opportunitySearch} onChange={setOpportunitySearch} placeholder="Satış kartı ara" />
-        </BottomSheetView>
-        <BottomSheetFlatList
+        </View>
+        <FlatList
+          className="flex-1"
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
           data={opportunityList.data?.items ?? []}
           keyExtractor={(item: OpportunityListItem) => item.id}
-          contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 32 }}
+          contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 32, flexGrow: 1 }}
           renderItem={({ item }: { item: OpportunityListItem }) => (
             <Pressable accessibilityRole="button" accessibilityState={{ selected: item.id === form.opportunityId }} onPress={() => chooseOpportunity(item)} className="min-h-[56px] flex-row items-center gap-3 border-b border-border py-2 active:opacity-70">
               <Ionicons name="briefcase-outline" size={19} color={item.id === form.opportunityId ? colors.primary : colors.mutedForeground} />
@@ -386,20 +412,25 @@ export function ActivityFormScreen() {
           onEndReachedThreshold={0.5}
           onEndReached={() => { if (opportunityList.hasNextPage && !opportunityList.isFetchingNextPage) void opportunityList.fetchNextPage(); }}
           ListEmptyComponent={opportunityList.isPending ? <Loading /> : opportunityList.error ? <ErrorState message={opportunityList.error.message} onRetry={() => void opportunityList.refetch()} /> : <EmptyState title="Satış kartı bulunamadı" />}
-          ListFooterComponent={opportunityList.isFetchingNextPage ? <Loading /> : null}
+          ListFooterComponent={opportunityList.isFetchingNextPage ? <Loading /> : opportunityList.isFetchNextPageError ? <ErrorState message="Sonraki kayıtlar yüklenemedi." onRetry={() => void opportunityList.fetchNextPage()} /> : opportunityList.hasNextPage ? <Button label="Daha fazla göster" variant="ghost" onPress={() => void opportunityList.fetchNextPage()} /> : null}
         />
-      </BottomSheetModal>
+      </View>
+      </HostedSheet>
 
-      <BottomSheetModal ref={contactSheet} {...sheetProps}>
-        <BottomSheetView className="gap-3 px-4 pb-2">
+      <HostedSheet open={contactPicker.open} onClose={contactPicker.close} heightRatio={0.8}>
+        <View className="min-h-0 flex-1">
+        <View className="gap-3 px-4 pb-2">
           <Text className="font-inter-semibold text-base text-foreground">Kontak seçin</Text>
           {form.contactId ? <Button label="Bağlantıyı Kaldır" variant="ghost" onPress={() => chooseContact(null)} /> : null}
           <SearchBar value={contactSearch} onChange={setContactSearch} placeholder="Kontak ara" />
-        </BottomSheetView>
-        <BottomSheetFlatList
+        </View>
+        <FlatList
+          className="flex-1"
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
           data={contactList.data?.items ?? []}
           keyExtractor={(item: ContactListItem) => item.id}
-          contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 32 }}
+          contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 32, flexGrow: 1 }}
           renderItem={({ item }: { item: ContactListItem }) => (
             <Pressable accessibilityRole="button" accessibilityState={{ selected: item.id === form.contactId }} onPress={() => chooseContact(item)} className="min-h-[56px] flex-row items-center gap-3 border-b border-border py-2 active:opacity-70">
               <Ionicons name="person-outline" size={19} color={item.id === form.contactId ? colors.primary : colors.mutedForeground} />
@@ -410,9 +441,10 @@ export function ActivityFormScreen() {
           onEndReachedThreshold={0.5}
           onEndReached={() => { if (contactList.hasNextPage && !contactList.isFetchingNextPage) void contactList.fetchNextPage(); }}
           ListEmptyComponent={contactList.isPending ? <Loading /> : contactList.error ? <ErrorState message={contactList.error.message} onRetry={() => void contactList.refetch()} /> : <EmptyState title="Kontak bulunamadı" />}
-          ListFooterComponent={contactList.isFetchingNextPage ? <Loading /> : null}
+          ListFooterComponent={contactList.isFetchingNextPage ? <Loading /> : contactList.isFetchNextPageError ? <ErrorState message="Sonraki kayıtlar yüklenemedi." onRetry={() => void contactList.fetchNextPage()} /> : contactList.hasNextPage ? <Button label="Daha fazla göster" variant="ghost" onPress={() => void contactList.fetchNextPage()} /> : null}
         />
-      </BottomSheetModal>
+      </View>
+      </HostedSheet>
     </SafeAreaView>
   );
 }

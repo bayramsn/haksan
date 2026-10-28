@@ -103,7 +103,9 @@ export function CampaignsTab({ canManage }: { canManage: boolean }) {
             }}
           />
         </View>
-        {connectionId ? (
+        {insights.isError ? (
+          <QueryState loading={false} empty={false} emptyTitle="" error errorMessage={getMetaErrorMessage(insights.error)} onRetry={() => void insights.refetch()}><View /></QueryState>
+        ) : connectionId && !insights.isLoading ? (
           <View className="flex-row flex-wrap gap-2">
             <Metric icon="cash-outline" label="Toplam harcama" value={formatMetaMoney(totals.spendMinor, currency)} />
             <Metric icon="eye-outline" label="Gösterim" value={formatMetaNumber(totals.impressions)} />
