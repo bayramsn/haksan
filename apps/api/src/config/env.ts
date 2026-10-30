@@ -135,7 +135,7 @@ const envSchema = z.object({
   SUPABASE_SERVICE_ROLE_KEY: z.string().optional(),
 
   // Upload constraints
-  MAX_UPLOAD_SIZE_MB: z.coerce.number().int().positive().default(25),
+  MAX_UPLOAD_SIZE_MB: z.coerce.number().int().positive().default(50),
   SIGNED_URL_EXPIRE_SECONDS: z.coerce.number().int().positive().default(300),
 
   // Password reset

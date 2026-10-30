@@ -20,7 +20,6 @@ import { TaskCompletionDialog } from "./TaskCompletionDialog";
 import { TaskFormDialog } from "./TaskFormDialog";
 import { TaskList } from "./TaskList";
 import { TASK_PRIORITY_LABELS, TASK_STATUS_LABELS, TASK_VIEWS } from "./taskPresentation";
-import { loadAllPaginated } from "../../../lib/loadAllPaginated";
 
 const EMPTY_BY_VIEW: Record<TaskView, string> = {
   all: "Henüz görev yok. Sağ üstten ilk görevi oluşturun.",
@@ -96,7 +95,7 @@ export function TasksPage({
     setLoading(true);
     try {
       const [list, freshCounts] = await Promise.all([
-        loadAllPaginated((page, pageSize) => tasksService.list({
+        tasksService.list({
           view,
           search: debouncedSearch || undefined,
           status: status || undefined,
@@ -105,9 +104,8 @@ export function TasksPage({
           createdBy: createdBy || undefined,
           sortBy,
           sortDir: sortBy === "createdAt" ? "desc" : "asc",
-          page,
-          pageSize,
-        }), 100, (task) => task.id),
+          pageSize: 100,
+        }),
         tasksService.counts(),
       ]);
       setTasks(list.data);

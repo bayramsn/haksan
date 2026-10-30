@@ -13,8 +13,7 @@ import {
   currencies,
 } from './lookup';
 import { files } from './files';
-import { users } from './users';
-import type { LaserTechnicalConfiguration, LaserBaseConfiguration, BaseModelConfiguration } from '@haksan/shared';
+import type { LaserTechnicalConfiguration, LaserBaseConfiguration, BaseModelConfiguration, LaserCostFormula } from '@haksan/shared';
 
 export const brands = pgTable(
   'brands',
@@ -289,6 +288,7 @@ export const priceLists = pgTable(
     validFrom: timestamp('valid_from', { withTimezone: true }),
     validUntil: timestamp('valid_until', { withTimezone: true }),
     isActive: boolean('is_active').notNull().default(true),
+    costFormula: jsonb('cost_formula').$type<LaserCostFormula>(),
     ...auditColumns,
   },
   (t) => ({
@@ -368,13 +368,82 @@ export const productOptionValues = pgTable(
   })
 );
 
-/** Owner-scoped product create receipts contain no request payload or credentials. */
-export const productCreateOperations = pgTable('product_create_operations', {
-  tenantId: uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
-  userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
-  operationId: uuid('operation_id').notNull(),
-  fingerprint: varchar('fingerprint', { length: 64 }).notNull(),
-  scopeFingerprint: varchar('scope_fingerprint', { length: 64 }).notNull(),
-  productId: uuid('product_id').references(() => productModels.id, { onDelete: 'restrict' }),
-  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-}, t => ({ ownerOperation: uniqueIndex('product_create_operations_owner_unique').on(t.tenantId, t.userId, t.operationId) }));
+/**
+ * Baz kartın alt modeli × lazer gücü fiyat matrisi. Tedarikçi fiyat listesi
+ * toplanabilir fark (model farkı + güç farkı) olarak yazılamadığı için her
+ * hücre ayrı satırdır. `costPrice` alış maliyetidir; `salePrice` CRM'de belirlenir.
+ */
+export const productConfigurationPrices = pgTable(
+  'product_configuration_prices',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id')
+      .notNull()
+      .references(() => tenants.id, { onDelete: 'cascade' }),
+    productModelId: uuid('product_model_id')
+      .notNull()
+      .references(() => productModels.id, { onDelete: 'cascade' }),
+    sourceModelCode: varchar('source_model_code', { length: 64 }).notNull(),
+    priceModelCode: varchar('price_model_code', { length: 64 }),
+    powerKw: numeric('power_kw', { precision: 5, scale: 1, mode: 'number' }).notNull(),
+    costPrice: money('cost_price'),
+    costCurrencyId: uuid('cost_currency_id').references(() => currencies.id),
+    salePrice: money('sale_price'),
+    saleCurrencyId: uuid('sale_currency_id').references(() => currencies.id),
+    container: varchar('container', { length: 64 }),
+    leadTimeDays: integer('lead_time_days'),
+    sourceRevision: varchar('source_revision', { length: 128 }),
+    sourceCell: varchar('source_cell', { length: 64 }),
+    ...auditColumns,
+  },
+  (t) => ({
+    productConfigurationUnique: uniqueIndex('product_configuration_prices_unique').on(t.productModelId, t.sourceModelCode, t.powerKw),
+    tenantIdx: index('product_configuration_prices_tenant_idx').on(t.tenantId),
+  })
+);
+
+/** Fiyat listesinin baz kart model × güç satırı; liste ve son (nakit) fiyat listenin para biriminde. */
+export const priceListConfigurationItems = pgTable(
+  'price_list_configuration_items',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+    priceListId: uuid('price_list_id').notNull().references(() => priceLists.id, { onDelete: 'cascade' }),
+    configurationPriceId: uuid('configuration_price_id').notNull().references(() => productConfigurationPrices.id, { onDelete: 'cascade' }),
+    listPrice: money('list_price').notNull(),
+    cashPrice: money('cash_price').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    listConfigurationUnique: uniqueIndex('price_list_configuration_items_unique').on(t.priceListId, t.configurationPriceId),
+    configurationIdx: index('price_list_configuration_items_configuration_idx').on(t.configurationPriceId),
+  })
+);
+
+/**
+ * Aksesuar kartı ya da baz kart opsiyonunun tedarikçi alış maliyeti. Ürün ve opsiyon
+ * tabloları birçok uçtan olduğu gibi döndüğü için maliyet ayrı tutulur; yalnız
+ * `product_costs.view` izniyle okunur. Satış fiyatı ürünün liste fiyatı / opsiyonun ek fiyatıdır.
+ */
+export const productCostPrices = pgTable(
+  'product_cost_prices',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id')
+      .notNull()
+      .references(() => tenants.id, { onDelete: 'cascade' }),
+    productModelId: uuid('product_model_id').references(() => productModels.id, { onDelete: 'cascade' }),
+    optionValueId: uuid('option_value_id').references(() => productOptionValues.id, { onDelete: 'cascade' }),
+    costPrice: money('cost_price').notNull(),
+    costCurrencyId: uuid('cost_currency_id').notNull().references(() => currencies.id),
+    sourceRevision: varchar('source_revision', { length: 128 }),
+    sourceCell: varchar('source_cell', { length: 64 }),
+    ...auditColumns,
+  },
+  (t) => ({
+    productUnique: uniqueIndex('product_cost_prices_product_unique').on(t.productModelId),
+    optionValueUnique: uniqueIndex('product_cost_prices_option_value_unique').on(t.optionValueId),
+    tenantIdx: index('product_cost_prices_tenant_idx').on(t.tenantId),
+  })
+);

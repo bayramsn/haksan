@@ -47,7 +47,7 @@ const DialogOverlay = React.forwardRef<
 DialogOverlay.displayName = "DialogOverlay";
 
 const dialogSurfaceSizeClassName =
-  "bottom-0 top-auto left-1/2 w-[calc(100vw-1rem)] max-w-lg max-h-[calc(100dvh-0.5rem)] -translate-x-1/2 translate-y-0 rounded-b-none rounded-t-2xl p-4 sm:bottom-auto sm:top-1/2 sm:w-[calc(100vw-2rem)] sm:-translate-y-1/2 sm:rounded-2xl sm:p-6";
+  "bottom-0 top-auto left-1/2 w-[calc(100vw-1rem)] max-w-lg max-h-[calc(100dvh-0.5rem)] -translate-x-1/2 translate-y-0 rounded-b-none rounded-t-2xl p-4 sm:bottom-auto sm:top-1/2 sm:w-[calc(100vw-2rem)] sm:-translate-y-1/2 sm:rounded-xl sm:p-6";
 
 const DialogContent = React.forwardRef<
   React.ElementRef<typeof DialogPrimitive.Content>,
@@ -59,7 +59,7 @@ const DialogContent = React.forwardRef<
       ref={ref}
       data-slot="dialog-content"
       className={cn(
-        "bg-background before:absolute before:inset-x-0 before:top-0 before:h-[3px] before:bg-[linear-gradient(90deg,var(--brand-red)_0_72px,var(--brand-blue)_72px_100%)] data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 fixed z-50 grid grid-cols-[minmax(0,1fr)] gap-4 overflow-x-hidden overflow-y-auto overscroll-contain border border-border/80 shadow-[0_24px_80px_-24px_rgba(13,20,68,0.35)] duration-200 motion-reduce:!animate-none",
+        "bg-background before:absolute before:inset-x-0 before:top-0 before:h-[3px] before:bg-[linear-gradient(90deg,var(--brand-red)_0_72px,var(--brand-blue)_72px_100%)] data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 fixed z-50 grid grid-cols-[minmax(0,1fr)] gap-4 overflow-x-hidden overflow-y-auto overscroll-contain border border-border/80 shadow-xl duration-200",
         dialogSurfaceSizeClassName,
         className,
       )}
@@ -82,7 +82,7 @@ function DialogHeader({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
       data-slot="dialog-header"
-      className={cn("flex flex-col gap-2 border-b border-border/70 pr-10 pb-4 text-left", className)}
+      className={cn("flex flex-col gap-1.5 pr-8 text-left", className)}
       {...props}
     />
   );
@@ -121,7 +121,7 @@ function DialogDescription({
   return (
     <DialogPrimitive.Description
       data-slot="dialog-description"
-      className={cn("text-muted-foreground text-sm leading-relaxed", className)}
+      className={cn("text-muted-foreground text-sm", className)}
       {...props}
     />
   );

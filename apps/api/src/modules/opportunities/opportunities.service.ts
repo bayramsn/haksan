@@ -1,6 +1,5 @@
 import { upsertInventoryCustomerDevice } from '../../shared/utils/customer-device-upsert';
-import { Inject, Injectable, Optional } from '@nestjs/common';
-import { PushService } from '../../shared/push/push.service';
+import { Inject, Injectable } from '@nestjs/common';
 import { and, asc, desc, eq, ilike, inArray, isNotNull, isNull, or, sql } from 'drizzle-orm';
 import type { DbClient } from '../../db/client';
 import {
@@ -319,8 +318,7 @@ export class OpportunitiesService {
   constructor(
     @Inject(DB) private readonly db: DbClient,
     private readonly audit: AuditService,
-    private readonly contactsService: ContactsService,
-    @Optional() private readonly push?: PushService
+    private readonly contactsService: ContactsService
   ) {}
 
   private async stageRowByCode(code: string) {
@@ -3298,7 +3296,6 @@ export class OpportunitiesService {
         ? ['payment', 'win']
         : [];
 
-    let assignmentPush: { userId: string; title: string } | null = null;
     await this.db.transaction(async (tx) => {
       await tx.update(opportunities).set(patch).where(eq(opportunities.id, id));
       // Liste gönderildiyse tümüyle değişir; ilk satır tek alanlı okuyucular
@@ -3340,14 +3337,8 @@ export class OpportunitiesService {
           entityType: 'opportunity',
           entityId: id,
         });
-        assignmentPush = { userId: assignedOwner.id, title: isLead ? 'Yeni lead size atandı' : 'Yeni fırsat size atandı' };
       }
     });
-    // Uygulama içi bildirimle birlikte telefona da düşsün (transaction tamamlandıktan sonra).
-    const pushTarget = assignmentPush as { userId: string; title: string } | null;
-    if (pushTarget) {
-      await this.push?.sendToUser(pushTarget.userId, { title: pushTarget.title, body: existing.title, data: { kind: 'opportunity', opportunityId: id } });
-    }
     if (invalidatedApprovalTypes.length) {
       await this.audit.write({
         tenantId: actor.tenantId,

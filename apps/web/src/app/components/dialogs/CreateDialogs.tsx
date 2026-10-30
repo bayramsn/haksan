@@ -76,7 +76,7 @@ import { useAuth } from "../../../lib/auth";
 import { ProductConfigurationOptionsEditor, isConfigurableProduct, isConfigurableLaserProduct } from "../technical/ProductConfigurationOptions";
 import { LaserConfigurationEditor } from "../technical/LaserConfigurationEditor";
 import { laserDraftKey } from "../technical/laser-editor-state";
-import { isSupportedLaserBrand, isLaserProductType, type LaserSelection, type LaserTechnicalConfiguration } from "@haksan/shared";
+import { FILE_UPLOAD_MAX_BYTES, FILE_UPLOAD_MAX_MB, isSupportedLaserBrand, isLaserProductType, type LaserSelection, type LaserTechnicalConfiguration } from "@haksan/shared";
 import {
   ACTIVITY_TYPE_OPTIONS,
   COMPANY_SECTOR_OPTIONS,
@@ -457,20 +457,18 @@ type CompanyFormDraft = ReturnType<typeof emptyCompanyForm>;
 
 export function CreateCustomerDialog({
   trigger,
-  defaultOpen = false,
   onCreated,
   initialValues,
   draftKey = "draft.customer",
 }: {
   trigger: React.ReactNode;
-  defaultOpen?: boolean;
   onCreated?: (id: string) => void | Promise<void>;
   initialValues?: Partial<CompanyFormDraft>;
   draftKey?: string;
 }) {
   const { addCustomer, updateCustomer } = useStore();
   const { user, activeDivision } = useAuth();
-  const [open, setOpen] = useState(defaultOpen);
+  const [open, setOpen] = useState(false);
   const submission = useSubmissionLock();
   const logoInputRef = useRef<HTMLInputElement>(null);
   const [logoFile, setLogoFile] = useState<File | null>(null);
@@ -480,9 +478,6 @@ export function CreateCustomerDialog({
   const [firmType, setFirmType] = usePersistentState<FirmType>(`${draftKey}.firmType`, "customer");
   const [salesStatus, setSalesStatus] = usePersistentState<"potential" | "active_customer">(`${draftKey}.salesStatus`, "potential");
   const [form, setForm] = usePersistentState(`${draftKey}.form`, emptyCompanyForm());
-  useEffect(() => {
-    if (defaultOpen && initialValues) setForm((current) => current.name.trim() ? current : { ...current, ...initialValues });
-  }, [defaultOpen, initialValues]);
 
   const selectedCountry = form.country || "Türkiye";
   const provinceOptions = useMemo(() => toComboboxOptions(provincesForCountry(selectedCountry)), [selectedCountry]);
@@ -1047,21 +1042,19 @@ const emptyContactForm = (defaultCustomerId?: string) => ({
 
 export function CreateContactDialog({
   trigger,
-  defaultOpen = false,
   defaultCustomerId,
   initialValues,
   draftKey,
   onCreated,
 }: {
   trigger: React.ReactNode;
-  defaultOpen?: boolean;
   defaultCustomerId?: string;
   initialValues?: Partial<ReturnType<typeof emptyContactForm>>;
   draftKey?: string;
   onCreated?: (id: string) => void;
 }) {
   const { addContact, addCustomer } = useStore();
-  const [open, setOpen] = useState(defaultOpen);
+  const [open, setOpen] = useState(false);
   const submission = useSubmissionLock();
   const initialForm = () => ({ ...emptyContactForm(defaultCustomerId), ...initialValues });
   // Taslak yenilemede korunur; açılışta sıfırlanmaz, yalnızca başarılı kayıtta temizlenir.
@@ -1869,7 +1862,6 @@ export function EditContactDialog({ contact, onClose }: { contact: Contact | nul
 
 export function CreateCaseDialog({
   trigger,
-  defaultOpen = false,
   defaultCustomerId,
   defaultDescription,
   sourceActivityId,
@@ -1877,7 +1869,6 @@ export function CreateCaseDialog({
   createAsOpportunity: _createAsOpportunity = true,
 }: {
   trigger: React.ReactNode;
-  defaultOpen?: boolean;
   defaultCustomerId?: string;
   /** Fırsat dışı aktiviteden dönüştürürken açıklamayı taşımak için. */
   defaultDescription?: string;
@@ -1897,7 +1888,7 @@ export function CreateCaseDialog({
     opportunityScopes.length === 0 || canPickAllOpportunities ? divisions : divisions.filter((division) => scopedOpportunityDivisionIds.has(division.id));
   const canPickDivision = activeDivision === "all" || canPickAllOpportunities || opportunityDivisions.length > 1;
   const defaultDivisionId = activeDivision && activeDivision !== "all" ? activeDivision : opportunityDivisions.find((d) => d.isPrimary)?.id ?? opportunityDivisions[0]?.id ?? "";
-  const [open, setOpen] = useState(defaultOpen);
+  const [open, setOpen] = useState(false);
   const [selectedProductId, setSelectedProductId] = useState("");
   const [saving, setSaving] = useState(false);
   const makeEmptyCase = () => ({
@@ -2868,7 +2859,7 @@ export function AddActivityDialog({
     for (const file of pendingFiles) {
       const meta = activityFileExt(file);
       if (!meta) throw new Error(`${file.name}: desteklenmeyen dosya tipi`);
-      if (file.size > 25 * 1024 * 1024) throw new Error(`${file.name}: dosya boyutu 25 MB'ı aşamaz`);
+      if (file.size > FILE_UPLOAD_MAX_BYTES) throw new Error(`${file.name}: dosya boyutu ${FILE_UPLOAD_MAX_MB} MB'ı aşamaz`);
       const upload = await fileService.signedUpload({
         bucket: "erp-service-documents",
         entityType: "sales_activity",
@@ -3010,14 +3001,12 @@ export function AddActivityDialog({
 /* ---------- Quick Create ---------- */
 export function QuickCreateDialog({
   trigger,
-  defaultOpen = false,
   enabledAreas,
 }: {
   trigger: React.ReactNode;
-  defaultOpen?: boolean;
   enabledAreas?: { customers: boolean; contacts: boolean; salesCases: boolean };
 }) {
-  const [open, setOpen] = useState(defaultOpen);
+  const [open, setOpen] = useState(false);
   const areas = enabledAreas ?? { customers: true, contacts: true, salesCases: true };
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -3702,8 +3691,8 @@ export function ProductDialog({
       toast.error("Sadece PNG, JPG veya WEBP yükleyebilirsiniz");
       return;
     }
-    if (file.size > 25 * 1024 * 1024) {
-      toast.error("Dosya boyutu 25 MB'ı aşamaz");
+    if (file.size > FILE_UPLOAD_MAX_BYTES) {
+      toast.error(`Dosya boyutu ${FILE_UPLOAD_MAX_MB} MB'ı aşamaz`);
       return;
     }
     setUploadingImage(true);
@@ -4428,7 +4417,7 @@ export function ProductDialog({
                       </Button>
                     )}
                   </div>
-                  <p className="text-[11px] text-muted-foreground">PNG, JPG veya WEBP · en fazla 25 MB</p>
+                  <p className="text-[11px] text-muted-foreground">PNG, JPG veya WEBP · en fazla {FILE_UPLOAD_MAX_MB} MB</p>
                 </div>
                 <div className="h-20 overflow-hidden rounded-md border border-border/70 bg-muted/30 grid place-items-center">
                   {form.imageUrl ? (
@@ -6183,7 +6172,7 @@ export function CreatePaymentDialog({
     const amount = Number(form.amount);
     if (!Number.isFinite(amount) || amount <= 0) return toast.error("Geçerli bir tutar giriniz");
     if (!file) return toast.error("Fatura veya fiş dosyası seçiniz");
-    if (file.size > 25 * 1024 * 1024) return toast.error("Dosya boyutu 25 MB'ı aşamaz");
+    if (file.size > FILE_UPLOAD_MAX_BYTES) return toast.error(`Dosya boyutu ${FILE_UPLOAD_MAX_MB} MB'ı aşamaz`);
     const meta = paymentDocMeta(file);
     if (!meta) {
       return toast.error("Desteklenmeyen dosya tipi", { description: "PDF, PNG, JPG, WEBP, DOCX veya XLSX" });
@@ -6503,9 +6492,9 @@ export function CreateReceivableDialog({
   );
 }
 
-export function CreateServiceRequestDialog({ trigger, defaultMachineId, defaultOpen = false }: { trigger: React.ReactNode; defaultMachineId?: string; defaultOpen?: boolean }) {
+export function CreateServiceRequestDialog({ trigger, defaultMachineId }: { trigger: React.ReactNode; defaultMachineId?: string }) {
   const { customers, addService, machines: machinesAll, users } = useStore();
-  const [open, setOpen] = useState(defaultOpen);
+  const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const serviceUsers = useMemo(() => users.filter((u) => u.role === "Service" || u.department === "Servis"), [users]);
   const [form, setForm] = useState<{

@@ -1,13 +1,15 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { Interval } from '@nestjs/schedule';
-import { and, asc, eq, inArray, isNull, lt, lte } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNotNull, isNull, lt, lte } from 'drizzle-orm';
 import type { DbClient } from '../../db/client';
 import { metaConnections, metaConversionEvents } from '../../db/schema';
 import { DB } from '../../shared/database/database.module';
 import { logger } from '../../shared/utils/logger';
 import { MetaGraphClient } from './meta-graph.client';
-import { MetaService } from './meta.service';
+import { INSIGHTS_SYNC_FAILED, MetaService } from './meta.service';
 import { MetaWebhookService } from './meta-webhook.service';
+
+const INSIGHT_WINDOW_DAYS = 7;
 
 @Injectable()
 export class MetaJobsService {
@@ -31,6 +33,33 @@ export class MetaJobsService {
     } finally {
       this.running = false;
     }
+  }
+
+  /**
+   * Reklam verisi (harcama, gösterim, tıklama, lead) Meta'dan çekilmezse panolar hep 0 gösterir.
+   * Son 7 gün her 6 saatte yeniden yazılır: Meta geçmiş günlerin sayılarını birkaç gün düzeltir.
+   */
+  @Interval(6 * 60 * 60_000)
+  async scheduledInsights() {
+    if (process.env.NODE_ENV === 'test') return;
+    await this.syncAllInsights().catch((error) => logger.error({ err: error }, 'Meta insights sync failed'));
+  }
+
+  async syncAllInsights(now = new Date()) {
+    const rows = await this.db.select().from(metaConnections).where(and(eq(metaConnections.status, 'active'), isNull(metaConnections.deletedAt), isNotNull(metaConnections.adAccountId)));
+    const from = new Date(now.getTime() - INSIGHT_WINDOW_DAYS * 24 * 60 * 60_000);
+    let synced = 0;
+    for (const row of rows) {
+      if (row.tokenExpiresAt && row.tokenExpiresAt <= now) continue;
+      try {
+        await this.meta.syncConnectionInsights(row, this.meta.decryptConnectionToken(row), from, now);
+        synced += 1;
+      } catch (error) {
+        logger.warn({ err: error, connectionId: row.id }, 'Meta insights sync failed for connection');
+        await this.db.update(metaConnections).set({ lastError: INSIGHTS_SYNC_FAILED, updatedAt: new Date() }).where(eq(metaConnections.id, row.id));
+      }
+    }
+    return { synced, total: rows.length };
   }
 
   async processNow(tenantId?: string) {

@@ -1,6 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
-import { useAuth } from "../../../../lib/auth";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "../../ui/card";
 import { Button } from "../../ui/button";
 import { Input } from "../../ui/input";
@@ -181,29 +179,27 @@ function CurrencyMoneyList({
 }
 
 export function CustomerBalancesPage() {
-  const { user, activeDivision, activeDepartment } = useAuth();
-  const scope = [user?.tenantId, user?.id, activeDivision, activeDepartment];
+  const [rows, setRows] = useState<BalanceRow[]>([]);
   const [q, setQ] = useState("");
+  const [loading, setLoading] = useState(true);
   const [statementCompany, setStatementCompany] = useState<BalanceRow | null>(null);
-  const balances = useQuery({
-    queryKey: ["finance", "customer-balances", ...scope],
-    queryFn: () => financeService.customerBalances(),
-    retry: false,
-  });
-  const rows: BalanceRow[] = balances.data ?? [];
-  const loading = balances.isPending;
-  const load = () => void balances.refetch();
-  const statement = useQuery({
-    queryKey: ["finance", "company-statement", ...scope, statementCompany?.companyId],
-    queryFn: () => financeService.companyStatement(statementCompany!.companyId, {}),
-    enabled: Boolean(statementCompany),
-    retry: false,
-  });
-  const statementLines: any[] = statement.data ?? [];
+  const [statementLines, setStatementLines] = useState<any[]>([]);
+
+  const load = () => {
+    setLoading(true);
+    financeService
+      .customerBalances()
+      .then((data) => setRows(data ?? []))
+      .catch(() => setRows([]))
+      .finally(() => setLoading(false));
+  };
+
+  useEffect(() => {
+    load();
+  }, []);
 
   const filtered = rows.filter((r) => r.companyName.toLowerCase().includes(q.toLowerCase()));
   const statementBalances = useMemo<StatementBalance[]>(() => {
-    if (!statement.isSuccess) return [];
     if (statementLines.length > 0) {
       const map = new Map<string, StatementBalance>();
       for (const line of statementLines) {
@@ -222,9 +218,18 @@ export function CustomerBalancesPage() {
       credit: item.alacak,
       balance: item.net,
     }));
-  }, [statementLines, statementCompany, statement.isSuccess]);
+  }, [statementLines, statementCompany]);
 
-  const openStatement = (row: BalanceRow) => setStatementCompany(row);
+  const openStatement = async (row: BalanceRow) => {
+    setStatementCompany(row);
+    try {
+      const lines = await financeService.companyStatement(row.companyId, {});
+      setStatementLines(lines ?? []);
+    } catch {
+      setStatementLines([]);
+      toast.error("Ekstre yüklenemedi");
+    }
+  };
 
   const debtTotals = useMemo(() => {
     const totals = new Map<string, number>();
@@ -315,11 +320,10 @@ export function CustomerBalancesPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {balances.error && <TableRow><TableCell colSpan={8}><div role="alert" className="p-4 text-destructive">Cari rapor yüklenemedi. <Button variant="outline" onClick={load}>Tekrar dene</Button></div></TableCell></TableRow>}
               {loading && (
                 <TableRow><TableCell colSpan={8} className="text-center py-10 text-muted-foreground">Yükleniyor…</TableCell></TableRow>
               )}
-              {!loading && !balances.error && filtered.map((r) => (
+              {!loading && filtered.map((r) => (
                 <TableRow
                   key={r.companyId}
                   className={`cursor-pointer ${openDebtForRow(r) > 0 ? "bg-warning-soft/40 hover:bg-warning-soft/60" : "hover:bg-primary/[0.025]"}`}
@@ -378,7 +382,7 @@ export function CustomerBalancesPage() {
                   </TableCell>
                 </TableRow>
               ))}
-              {!loading && !balances.error && filtered.length === 0 && (
+              {!loading && filtered.length === 0 && (
                 <TableRow>
                   <TableCell colSpan={8} className="py-4">
                     <EmptyState
@@ -432,8 +436,6 @@ export function CustomerBalancesPage() {
               Seçili firmanın borç, alacak ve bakiye hareketleri
             </DialogDescription>
           </DialogHeader>
-          {statement.isPending && <p role="status">Ekstre yükleniyor…</p>}
-          {statement.error && <div role="alert" className="text-destructive">Ekstre yüklenemedi. <Button variant="outline" onClick={() => void statement.refetch()}>Ekstreyi yeniden yükle</Button></div>}
           {statementBalances.length > 0 && (
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-4">
               <div className="rounded-lg border border-border/60 bg-muted/30 p-3">
@@ -468,7 +470,6 @@ export function CustomerBalancesPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {statement.isSuccess && statementLines.length === 0 && <TableRow><TableCell colSpan={7}>Bu firma için hareket bulunamadı.</TableCell></TableRow>}
               {statementLines.map((l) => (
                 <TableRow key={l.id}>
                   <TableCell>

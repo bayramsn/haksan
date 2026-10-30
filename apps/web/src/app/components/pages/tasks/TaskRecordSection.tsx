@@ -9,7 +9,6 @@ import { TaskDetailPanel } from "./TaskDetailPanel";
 import { TaskCompletionDialog } from "./TaskCompletionDialog";
 import { TaskFormDialog, type TaskRelation } from "./TaskFormDialog";
 import { TaskList } from "./TaskList";
-import { loadAllPaginated } from "../../../lib/loadAllPaginated";
 
 /**
  * Müşteri / lead / fırsat / teklif / servis detayına gömülen görev bölümü.
@@ -60,7 +59,7 @@ export function TaskRecordSection({
     if (!canRead) return;
     setLoading(true);
     try {
-      const list = await loadAllPaginated((page, pageSize) => tasksService.list({ ...JSON.parse(paramKey), page, pageSize }), 100, (task) => task.id);
+      const list = await tasksService.list(JSON.parse(paramKey));
       setTasks(list.data);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Görevler yüklenemedi");

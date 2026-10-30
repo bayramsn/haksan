@@ -32,14 +32,25 @@ export async function rowsToXlsxBuffer(rows: ExportRow[], sheetName = 'Rapor'): 
 }
 
 export async function sheetsToXlsxBuffer(
-  /** `columns` verilirse satır olmasa da başlıklar yazılır (doldurulacak şablon sayfası). */
-  sheets: Array<{ name: string; rows: ExportRow[]; columns?: string[] }>
+  /**
+   * `columns` verilirse satır olmasa da başlıklar yazılır (doldurulacak şablon sayfası).
+   * `wrapColumns`: hücre içi satır sonlarının görünmesi için kaydırmalı (geniş) kolonlar.
+   */
+  sheets: Array<{ name: string; rows: ExportRow[]; columns?: string[]; wrapColumns?: string[] }>
 ): Promise<Buffer> {
   const wb = new ExcelJS.Workbook();
   for (const s of sheets) {
     const ws = wb.addWorksheet(safeSheetName(s.name));
     const columns = s.columns ?? (s.rows.length ? Object.keys(s.rows[0]) : []);
-    if (columns.length) ws.columns = columns.map((k) => ({ header: k, key: k, width: 24 }));
+    const wrap = new Set(s.wrapColumns ?? []);
+    if (columns.length) {
+      ws.columns = columns.map((k) => ({
+        header: k,
+        key: k,
+        width: wrap.has(k) ? 48 : 24,
+        ...(wrap.has(k) ? { style: { alignment: { wrapText: true, vertical: 'top' as const } } } : {}),
+      }));
+    }
     if (s.rows.length) ws.addRows(safeRows(s.rows));
   }
   const buf = await wb.xlsx.writeBuffer();

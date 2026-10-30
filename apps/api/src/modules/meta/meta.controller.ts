@@ -24,9 +24,6 @@ import {
   metaFormMappingCreateSchema,
   metaFormMappingUpdateSchema,
   metaListQuerySchema,
-  metaOverviewQuerySchema,
-  metaConversationListQuerySchema,
-  metaLeadListQuerySchema,
   type MetaAudienceCreateInput,
   type MetaAudienceMembersInput,
   type MetaAudienceMembersRemoveInput,
@@ -48,9 +45,6 @@ import {
   type MetaFormMappingCreateInput,
   type MetaFormMappingUpdateInput,
   type MetaListQuery,
-  type MetaOverviewQuery,
-  type MetaConversationListQuery,
-  type MetaLeadListQuery,
 } from '@haksan/shared';
 import { loadEnv } from '../../config/env';
 import { AuthGuard } from '../../shared/security/auth.guard';
@@ -71,11 +65,11 @@ const remoteIdSchema = z.string().min(1).max(128).regex(/^[A-Za-z0-9_.:+-]+$/);
 @Throttle({ default: { limit: 60, ttl: 60_000 } })
 @Controller('meta')
 export class MetaController {
-  constructor(private readonly service: MetaService, private readonly jobs: MetaJobsService) {}
+  constructor(private readonly service: MetaService, private readonly jobs: MetaJobsService, private readonly webhooks: MetaWebhookService) {}
 
   @Get('overview')
   @RequirePermissions('meta.read')
-  overview(@Query(new ZodValidationPipe(metaOverviewQuerySchema)) query: MetaOverviewQuery, @CurrentUser() actor: AuthContext) { return this.service.overview(actor, query); }
+  overview(@CurrentUser() actor: AuthContext) { return this.service.overview(actor); }
 
   @Get('connections')
   @RequirePermissions('meta.read')
@@ -119,7 +113,7 @@ export class MetaController {
 
   @Get('leads')
   @RequirePermissions('meta.read')
-  leads(@Query(new ZodValidationPipe(metaLeadListQuerySchema)) query: MetaLeadListQuery, @CurrentUser() actor: AuthContext) { return this.service.listLeads(actor, query); }
+  leads(@Query(new ZodValidationPipe(metaListQuerySchema)) query: MetaListQuery, @CurrentUser() actor: AuthContext) { return this.service.listLeads(actor, query); }
 
   @Get('insights')
   @RequirePermissions('meta.read')
@@ -153,7 +147,7 @@ export class MetaController {
 
   @Get('conversations')
   @RequirePermissions('meta_messages.read')
-  conversations(@Query(new ZodValidationPipe(metaConversationListQuerySchema)) query: MetaConversationListQuery, @CurrentUser() actor: AuthContext) { return this.service.listConversations(actor, query); }
+  conversations(@Query(new ZodValidationPipe(metaListQuerySchema)) query: MetaListQuery, @CurrentUser() actor: AuthContext) { return this.service.listConversations(actor, query); }
 
   @Get('conversations/:id/messages')
   @RequirePermissions('meta_messages.read')
@@ -238,6 +232,14 @@ export class MetaController {
   @Post('jobs/process')
   @RequirePermissions('meta.update')
   processJobs(@CurrentUser() actor: AuthContext) { return this.jobs.processNow(actor.tenantId); }
+
+  @Get('webhook-events/failed')
+  @RequirePermissions('meta.read')
+  failedWebhookEvents(@CurrentUser() actor: AuthContext) { return this.webhooks.listFailed(actor.tenantId); }
+
+  @Post('webhook-events/:id/requeue')
+  @RequirePermissions('meta.update')
+  requeueWebhookEvent(@Param('id', new ParseUUIDPipe()) id: string, @CurrentUser() actor: AuthContext) { return this.webhooks.requeue(actor.tenantId, id); }
 }
 
 @Controller('meta/webhooks')

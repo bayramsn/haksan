@@ -1,3 +1,4 @@
+import { FILE_UPLOAD_MAX_BYTES, FILE_UPLOAD_MAX_MB } from "@haksan/shared";
 import { useEffect, useRef, useState } from "react";
 import { Paperclip, FileText, Loader2, Plus } from "lucide-react";
 import { toast } from "sonner";
@@ -187,8 +188,8 @@ function ServiceUploadButton({ serviceRequestId, hasDocs }: { serviceRequestId: 
       toast.error("Desteklenmeyen dosya tipi", { description: "PDF, DOCX, XLSX, PNG, JPG veya WEBP yükleyebilirsiniz." });
       return;
     }
-    if (file.size > 25 * 1024 * 1024) {
-      toast.error("Dosya boyutu 25 MB'ı aşamaz");
+    if (file.size > FILE_UPLOAD_MAX_BYTES) {
+      toast.error(`Dosya boyutu ${FILE_UPLOAD_MAX_MB} MB'ı aşamaz`);
       return;
     }
 

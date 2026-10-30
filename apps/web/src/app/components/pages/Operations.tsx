@@ -1,4 +1,6 @@
 import { Fragment, useEffect, useState, useMemo } from "react";
+import { CatalogMailButton } from "../mail/CatalogMailButton";
+import { ProductTreeButton } from "../dialogs/ProductTreeDialog";
 import { Card, CardContent, CardHeader, CardTitle } from "../ui/card";
 import { Input } from "../ui/input";
 import { Button } from "../ui/button";
@@ -33,7 +35,6 @@ import { MiniKpi } from "../shared/MiniKpi";
 import { EmptyState } from "../shared/EmptyState";
 import { EntityVisual } from "../shared/PremiumPrimitives";
 import { FilterPopover, ViewToggle, type ListView } from "../ui/list-controls";
-import { CatalogMailButton } from "../mail/CatalogMailButton";
 import { usePersistentState } from "../../lib/persist";
 
 type Stage = "Stokta" | "Rezerve" | "Sevkiyatta" | "Kuruldu" | "Servis" | "Hizmet Dışı";
@@ -176,6 +177,7 @@ export function ProductsPage({ initialQuery }: { initialQuery?: string }) {
   const { hasRole, hasPermission, activeDivision, user } = useAuth();
   const [q, setQ] = useState("");
   const [cat, setCat] = useState<string>("all");
+  const [brand, setBrand] = useState<string>("all");
   const [series, setSeries] = useState<string>("all");
   // Ürün taksonomisi filtresi: grup → kategori → alt kategori → tip.
   // Ürün kartındaki dört alanın aynısı; firmalar sayfasındaki Filtre düğmesiyle
@@ -247,18 +249,21 @@ export function ProductsPage({ initialQuery }: { initialQuery?: string }) {
       .sort((a, b) => a.localeCompare(b, "tr"))
       .map((value) => ({ value, label: value }));
 
+  const brandFiltered = visibleProducts.filter((p) => brand === "all" || p.brand === brand);
   const taxonomyFilters = [
+    { label: "Marka", value: brand, onChange: (value: string) => { setBrand(value); setCat("all"); setSeries("all"); setTaxonomy({ group: "all", category: "all", subcategory: "all", type: "all" }); },
+      options: distinct(visibleProducts, (p) => p.brand) },
     { label: "Ürün Grubu", value: taxonomy.group, onChange: (v: string) => setTaxonomy((t) => ({ ...t, group: v })),
-      options: distinct(visibleProducts, (p) => p.productGroup) },
+      options: distinct(brandFiltered, (p) => p.productGroup) },
     { label: "Ürün Kategorisi", value: taxonomy.category, onChange: (v: string) => setTaxonomy((t) => ({ ...t, category: v })),
-      options: distinct(visibleProducts.filter((p) => taxonomyMatches(p, 1)), (p) => p.category) },
+      options: distinct(brandFiltered.filter((p) => taxonomyMatches(p, 1)), (p) => p.category) },
     { label: "Ürün Alt Kategorisi", value: taxonomy.subcategory, onChange: (v: string) => setTaxonomy((t) => ({ ...t, subcategory: v })),
-      options: distinct(visibleProducts.filter((p) => taxonomyMatches(p, 2)), (p) => p.subcategory) },
+      options: distinct(brandFiltered.filter((p) => taxonomyMatches(p, 2)), (p) => p.subcategory) },
     { label: "Ürün Tipi", value: taxonomy.type, onChange: (v: string) => setTaxonomy((t) => ({ ...t, type: v })),
-      options: distinct(visibleProducts.filter((p) => taxonomyMatches(p, 3)), (p) => p.type) },
+      options: distinct(brandFiltered.filter((p) => taxonomyMatches(p, 3)), (p) => p.type) },
   ];
 
-  const taxonomyFiltered = visibleProducts.filter((p) => taxonomyMatches(p, 4));
+  const taxonomyFiltered = brandFiltered.filter((p) => taxonomyMatches(p, 4));
   const categories = Array.from(new Set(taxonomyFiltered.map(productFamilyLabel))).filter(Boolean);
 
   // Taksonomi daraldığında seçili aile sekmesi listede kalmayabilir; boş ekran
@@ -351,8 +356,8 @@ export function ProductsPage({ initialQuery }: { initialQuery?: string }) {
           </Tabs>
         </div>
 
-        <div className="flex w-full flex-col gap-2 sm:flex-row sm:items-center sm:justify-end">
-          <div className="relative w-full sm:w-72 lg:w-80">
+        <div className="flex w-full flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-end">
+          <div className="relative w-full sm:w-72 sm:min-w-56 lg:w-80">
             <Search className="size-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
             <Input
               placeholder="Marka, model, ürün ara..."
@@ -363,6 +368,7 @@ export function ProductsPage({ initialQuery }: { initialQuery?: string }) {
           </div>
           <div className="flex shrink-0 items-center gap-2">
             <FilterPopover filters={taxonomyFilters} contentClassName="w-72" />
+            <ProductTreeButton />
             <CatalogMailButton />
             <ViewToggle view={view} onChange={setView} />
             {canCreateProducts && (

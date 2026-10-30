@@ -1,9 +1,7 @@
 import { importedCurrencyCode, importedVatRate, importedCellValue } from "./product-import-values";
-import { createHash } from 'node:crypto';
-import { withDatabaseTransaction } from '../../db/transaction-context';
 import { Inject, Injectable } from '@nestjs/common';
 import { and, asc, desc, eq, ilike, inArray, isNull, max, or, sql } from 'drizzle-orm';
-import ExcelJS from 'exceljs';
+import { loadXlsxWorkbook } from '../../shared/utils/spreadsheet-import';
 import type { DbClient } from '../../db/client';
 import {
   brands,
@@ -12,12 +10,13 @@ import {
   productAlternatives,
   productOptionalEquipmentCompatibilities,
   productModels,
-  productCreateOperations,
   productSpecs,
   productSpecTemplates,
   productEquipmentItems,
   productOptionSets,
   productOptionValues,
+  productConfigurationPrices,
+  productCostPrices,
   productMedia,
 } from '../../db/schema/products';
 import { files } from '../../db/schema/files';
@@ -57,8 +56,10 @@ import type {
   ProductOptionValueCreateInput,
   ProductOptionSetUpdateInput,
   ProductOptionValueUpdateInput,
+  ProductConfigurationPriceUpdateInput,
 } from '@haksan/shared';
-import { productImportRowSchema, laserSelectionKey, laserTechnicalConfigurationSchema, isMainMachineCategory, machineCategoryLabel, machineGroupCode } from '@haksan/shared';
+import { LASER_MODELS, LASER_PRICE_LIST_PRESETS, productImportRowSchema, laserSelectionKey, laserTechnicalConfigurationSchema, isMainMachineCategory, machineCategoryLabel, machineGroupCode } from '@haksan/shared';
+import { hexlaserLegacyVariantCode } from '../../db/hexlaser-product-variants';
 import { LaserProfilesService, applyLaserSpecEdits } from './laser-profiles.service';
 import { buildPaginated, pageOffset } from '../../shared/utils/pagination';
 import { lookupIdByCode } from '../../shared/utils/lookup.helper';
@@ -219,6 +220,21 @@ function splitList(value: unknown): string[] {
     .filter(Boolean);
 }
 
+/**
+ * Donanım hücresi: şablon her kalemi ayrı satırda "1. …" diye yazar; kullanıcı da madde
+ * işaretiyle (1. / 2) / - / •) yazabilir. Başlıktaki sıra numarası/işaret kalem adına girmez.
+ */
+export function splitEquipmentList(value: unknown): string[] {
+  return splitList(value)
+    .map((item) => item.replace(/^(?:\d{1,3}\s*[.)]|[-•*·])\s+/, '').trim())
+    .filter(Boolean);
+}
+
+/** Şablon/dışa aktarma: her donanım kalemi hücrede kendi satırında, numaralı. */
+export function formatEquipmentList(titles: string[]): string {
+  return titles.map((title, index) => `${index + 1}. ${title}`).join('\n');
+}
+
 function parseSpecsText(value: unknown, startOrder: number): ProductImportRowInput['specs'] {
   const specs: ProductImportRowInput['specs'] = [];
   splitList(value).forEach((line, idx) => {
@@ -300,6 +316,10 @@ function parseCsv(text: string, delimiter = ','): string[][] {
   if (row.some((cell) => cell.trim())) rows.push(row);
   return rows;
 }
+
+/** Lazer listelerinin maliyet formülü FOB'u geri hesaplatır; genel fiyat listesi uçlarından dönmez. */
+const withoutCostFormula = <T extends { costFormula?: unknown }>({ costFormula: _formula, ...row }: T) => row;
+const isLaserPriceListCode = (code: string) => LASER_PRICE_LIST_PRESETS.some((preset) => preset.code === code);
 
 @Injectable()
 export class ProductsService {
@@ -986,38 +1006,6 @@ export class ProductsService {
     };
   }
 
-  private assertCreatePermission(actor: AuthContext) {
-    if (!actor.permissions.has('products.create')) throw new ForbiddenError('Ürün oluşturma yetkiniz yok');
-  }
-  private createScopeFingerprint(actor: AuthContext) {
-    return createHash('sha256').update(JSON.stringify([actor.activeDivisionId ?? null, actor.activeDepartmentId ?? null])).digest('hex');
-  }
-  async recoverCreate(operationId: string, actor: AuthContext) {
-    this.assertCreatePermission(actor);
-    const [prior] = await this.db.select().from(productCreateOperations).where(and(eq(productCreateOperations.tenantId, actor.tenantId), eq(productCreateOperations.userId, actor.userId), eq(productCreateOperations.operationId, operationId))).limit(1);
-    if (!prior || !prior.productId) throw new NotFoundError('Ürün oluşturma işlemi');
-    if (prior.scopeFingerprint !== this.createScopeFingerprint(actor)) throw new NotFoundError('Ürün oluşturma işlemi');
-    return this.get(prior.productId, actor); // current resource visibility is authoritative
-  }
-  async createOnce(input: ProductCreateInput, actor: AuthContext, operationId: string) {
-    this.assertCreatePermission(actor);
-    const canonical = (value: unknown): unknown => Array.isArray(value) ? value.map(canonical) : value && typeof value === 'object' ? Object.fromEntries(Object.entries(value).sort(([a], [b]) => a.localeCompare(b)).map(([key, item]) => [key, canonical(item)])) : value;
-    const fingerprint = createHash('sha256').update(JSON.stringify(canonical(input))).digest('hex');
-    const scopeFingerprint = this.createScopeFingerprint(actor);
-    return withDatabaseTransaction(this.db, async () => {
-      const [claimed] = await this.db.insert(productCreateOperations).values({ tenantId: actor.tenantId, userId: actor.userId, operationId, fingerprint, scopeFingerprint }).onConflictDoNothing().returning();
-      if (!claimed) {
-        const [prior] = await this.db.select().from(productCreateOperations).where(and(eq(productCreateOperations.tenantId, actor.tenantId), eq(productCreateOperations.userId, actor.userId), eq(productCreateOperations.operationId, operationId))).limit(1);
-        if (!prior || prior.fingerprint !== fingerprint || prior.scopeFingerprint !== scopeFingerprint) throw new ConflictError('İşlem anahtarı farklı ürün veya çalışma alanı için kullanılmış');
-        if (!prior.productId) throw new ConflictError('Ürün oluşturma işlemi henüz tamamlanmadı');
-        return this.get(prior.productId, actor);
-      }
-      const created = await this.create(input, actor);
-      await this.db.update(productCreateOperations).set({ productId: created.id }).where(and(eq(productCreateOperations.tenantId, actor.tenantId), eq(productCreateOperations.userId, actor.userId), eq(productCreateOperations.operationId, operationId)));
-      return this.get(created.id, actor);
-    });
-  }
-
   async create(input: ProductCreateInput, actor: AuthContext) {
     const existing = await this.db.query.productModels.findFirst({
       where: and(eq(productModels.tenantId, actor.tenantId), eq(productModels.modelCode, input.modelCode)),
@@ -1036,6 +1024,9 @@ export class ProductsService {
     const alternativeIds = this.uniqueAlternativeIds(input);
     await this.assertAlternativeProducts('', actor.tenantId, alternativeIds);
     const brand = await this.assertBrandMatchesProductGroup(input.brandId, groupId, actor);
+    if (brand.technicalCatalogCode === 'AORE_LASER' && LASER_MODELS.some((model) => hexlaserLegacyVariantCode(model.code, input.modelCode))) {
+      throw new ValidationError('Kabin ve güç için ayrı ürün kartı açılamaz; model kartını kullanıp teklif satırında seçim yapın');
+    }
     const supplierCompanyId = input.supplierCompanyId === undefined ? brand.supplierCompanyId ?? null : input.supplierCompanyId;
     await this.assertSupplierCompany(supplierCompanyId, actor.tenantId);
     await this.resolveProductImageMediaFile(actor, input.imageUrl);
@@ -1414,6 +1405,142 @@ export class ProductsService {
     }));
   }
 
+  /** Fiyat Listeleri ekranı: tüm baz kartların model × güç satırları (maliyet yalnız `product_costs.view`). */
+  async listAllConfigurationPrices(actor: AuthContext) {
+    const rows = await this.db.select({
+      id: productConfigurationPrices.id,
+      productModelId: productConfigurationPrices.productModelId,
+      baseName: productModels.fullName,
+      series: productModels.series,
+      sourceModelCode: productConfigurationPrices.sourceModelCode,
+      powerKw: productConfigurationPrices.powerKw,
+      costPrice: productConfigurationPrices.costPrice,
+      costCurrencyId: productConfigurationPrices.costCurrencyId,
+      salePrice: productConfigurationPrices.salePrice,
+      saleCurrencyId: productConfigurationPrices.saleCurrencyId,
+      container: productConfigurationPrices.container,
+      leadTimeDays: productConfigurationPrices.leadTimeDays,
+    }).from(productConfigurationPrices)
+      .innerJoin(productModels, eq(productModels.id, productConfigurationPrices.productModelId))
+      .where(and(eq(productConfigurationPrices.tenantId, actor.tenantId), isNull(productConfigurationPrices.deletedAt), isNull(productModels.deletedAt)))
+      .orderBy(asc(productModels.series), asc(productConfigurationPrices.sourceModelCode), asc(productConfigurationPrices.powerKw));
+    const currencyRows = await this.db.select({ id: currencies.id, code: currencies.code }).from(currencies);
+    const currencyCode = (id: string | null) => currencyRows.find((row) => row.id === id)?.code ?? null;
+    const amount = (value: string | null) => (value === null ? null : Number(value));
+    const canViewCost = actor.roles.includes('super_admin') || actor.permissions.has('product_costs.view');
+    return {
+      canViewCost,
+      rows: rows.map(({ costPrice, costCurrencyId, saleCurrencyId, ...row }) => ({
+        ...row,
+        powerKw: Number(row.powerKw),
+        salePrice: amount(row.salePrice),
+        saleCurrencyCode: currencyCode(saleCurrencyId),
+        ...(canViewCost ? { costPrice: amount(costPrice), costCurrencyCode: currencyCode(costCurrencyId) } : {}),
+      })),
+    };
+  }
+
+  /** Fiyat Listeleri: maliyeti kayıtlı aksesuar kartları ve baz kart opsiyonları (maliyet yalnız `product_costs.view`). */
+  async listCostPricedItems(actor: AuthContext) {
+    const canViewCost = actor.roles.includes('super_admin') || actor.permissions.has('product_costs.view');
+    const currencyRows = await this.db.select({ id: currencies.id, code: currencies.code }).from(currencies);
+    const currencyCode = (id: string | null) => currencyRows.find((row) => row.id === id)?.code ?? null;
+    const amount = (value: string | null) => (value === null ? null : Number(value));
+    const cost = (row: { costPrice: string; costCurrencyId: string }) => (canViewCost ? { costPrice: Number(row.costPrice), costCurrencyCode: currencyCode(row.costCurrencyId) } : {});
+    const products = await this.db.select({
+      id: productCostPrices.id, name: productModels.fullName, salePrice: productModels.listPrice, saleCurrencyId: productModels.currencyId,
+      costPrice: productCostPrices.costPrice, costCurrencyId: productCostPrices.costCurrencyId,
+    }).from(productCostPrices).innerJoin(productModels, eq(productModels.id, productCostPrices.productModelId))
+      .where(and(eq(productCostPrices.tenantId, actor.tenantId), isNull(productCostPrices.deletedAt), isNull(productModels.deletedAt)))
+      .orderBy(asc(productModels.fullName));
+    const options = await this.db.select({
+      id: productCostPrices.id, name: productOptionValues.value, group: productOptionSets.name, baseName: productModels.fullName,
+      salePrice: productOptionValues.priceDelta, saleCurrencyId: productOptionValues.currencyId,
+      costPrice: productCostPrices.costPrice, costCurrencyId: productCostPrices.costCurrencyId,
+    }).from(productCostPrices)
+      .innerJoin(productOptionValues, eq(productOptionValues.id, productCostPrices.optionValueId))
+      .innerJoin(productOptionSets, eq(productOptionSets.id, productOptionValues.optionSetId))
+      .innerJoin(productModels, eq(productModels.id, productOptionSets.productModelId))
+      .where(and(eq(productCostPrices.tenantId, actor.tenantId), isNull(productCostPrices.deletedAt), isNull(productOptionValues.deletedAt), isNull(productOptionSets.deletedAt), isNull(productModels.deletedAt)))
+      .orderBy(asc(productModels.fullName), asc(productOptionSets.name), asc(productOptionValues.value));
+    return {
+      canViewCost,
+      rows: [
+        ...products.map((row) => ({ id: row.id, kind: 'product' as const, group: 'Aksesuar', name: row.name, salePrice: amount(row.salePrice), saleCurrencyCode: currencyCode(row.saleCurrencyId), ...cost(row) })),
+        ...options.map((row) => ({ id: row.id, kind: 'option' as const, group: `${row.baseName} · ${row.group}`, name: row.name, salePrice: amount(row.salePrice), saleCurrencyCode: currencyCode(row.saleCurrencyId), ...cost(row) })),
+      ],
+    };
+  }
+
+  async updateCostPricedSales(input: ProductConfigurationPriceUpdateInput, actor: AuthContext) {
+    const ids = [...new Set(input.rows.map((row) => row.id))];
+    if (ids.length !== input.rows.length) throw new ValidationError('Aynı satır birden fazla kez gönderildi');
+    const targets = await this.db.select({ id: productCostPrices.id, productModelId: productCostPrices.productModelId, optionValueId: productCostPrices.optionValueId })
+      .from(productCostPrices).where(and(inArray(productCostPrices.id, ids), eq(productCostPrices.tenantId, actor.tenantId), isNull(productCostPrices.deletedAt)));
+    if (targets.length !== ids.length) throw new NotFoundError('Fiyat satırı');
+    const currencyRows = await this.db.select({ id: currencies.id, code: currencies.code }).from(currencies);
+    await this.db.transaction(async (tx) => {
+      for (const row of input.rows) {
+        const target = targets.find((entry) => entry.id === row.id)!;
+        const currencyId = currencyRows.find((currency) => currency.code === row.saleCurrencyCode)?.id;
+        if (!currencyId) throw new ValidationError('Para birimi tanımlı değil');
+        const price = row.salePrice === null ? null : String(row.salePrice);
+        if (target.productModelId) {
+          await tx.update(productModels).set({ listPrice: price, currencyId, updatedAt: new Date() })
+            .where(and(eq(productModels.id, target.productModelId), eq(productModels.tenantId, actor.tenantId)));
+        } else if (target.optionValueId) {
+          await tx.update(productOptionValues).set({ priceDelta: price, currencyId, updatedAt: new Date() })
+            .where(and(eq(productOptionValues.id, target.optionValueId), eq(productOptionValues.tenantId, actor.tenantId)));
+        }
+      }
+    });
+    return { updated: input.rows.length };
+  }
+
+  async updateConfigurationPrices(input: ProductConfigurationPriceUpdateInput, actor: AuthContext) {
+    const ids = [...new Set(input.rows.map((row) => row.id))];
+    if (ids.length !== input.rows.length) throw new ValidationError('Aynı satır birden fazla kez gönderildi');
+    const owned = await this.db.select({ id: productConfigurationPrices.id }).from(productConfigurationPrices)
+      .where(and(inArray(productConfigurationPrices.id, ids), eq(productConfigurationPrices.tenantId, actor.tenantId), isNull(productConfigurationPrices.deletedAt)));
+    if (owned.length !== ids.length) throw new NotFoundError('Fiyat satırı');
+    const currencyRows = await this.db.select({ id: currencies.id, code: currencies.code }).from(currencies);
+    await this.db.transaction(async (tx) => {
+      for (const row of input.rows) {
+        const saleCurrencyId = row.salePrice === null ? null : currencyRows.find((currency) => currency.code === row.saleCurrencyCode)?.id;
+        if (saleCurrencyId === undefined) throw new ValidationError('Para birimi tanımlı değil');
+        await tx.update(productConfigurationPrices)
+          .set({ salePrice: row.salePrice === null ? null : String(row.salePrice), saleCurrencyId, updatedAt: new Date() })
+          .where(and(eq(productConfigurationPrices.id, row.id), eq(productConfigurationPrices.tenantId, actor.tenantId)));
+      }
+    });
+    return { updated: input.rows.length };
+  }
+
+  /** Baz kartın alt model × güç fiyat matrisi; alış maliyeti yalnız `product_costs.view` ile döner. */
+  async listConfigurationPrices(productId: string, actor: AuthContext) {
+    await this.get(productId, actor);
+    const rows = await this.db.select().from(productConfigurationPrices)
+      .where(and(eq(productConfigurationPrices.productModelId, productId), eq(productConfigurationPrices.tenantId, actor.tenantId), isNull(productConfigurationPrices.deletedAt)))
+      .orderBy(asc(productConfigurationPrices.sourceModelCode), asc(productConfigurationPrices.powerKw));
+    const currencyRows = await this.db.select({ id: currencies.id, code: currencies.code }).from(currencies);
+    const currencyCode = (id: string | null) => currencyRows.find((row) => row.id === id)?.code ?? null;
+    const amount = (value: string | null) => (value === null ? null : Number(value));
+    const canViewCost = actor.roles.includes('super_admin') || actor.permissions.has('product_costs.view');
+    return {
+      canViewCost,
+      rows: rows.map((row) => ({
+        id: row.id,
+        sourceModelCode: row.sourceModelCode,
+        powerKw: Number(row.powerKw),
+        salePrice: amount(row.salePrice),
+        saleCurrencyCode: currencyCode(row.saleCurrencyId),
+        container: row.container,
+        leadTimeDays: row.leadTimeDays,
+        ...(canViewCost ? { costPrice: amount(row.costPrice), costCurrencyCode: currencyCode(row.costCurrencyId) } : {}),
+      })),
+    };
+  }
+
   async addOptionSet(productId: string, input: ProductOptionSetCreateInput, actor: AuthContext) {
     const product = await this.get(productId, actor);
     if (input.configurationKind && !product.laserBaseConfiguration && !/lazer|laser/i.test(product.productType?.code ?? "")) throw new ValidationError('Lazer konfigürasyon grubu yalnız baz modelde kullanılabilir');
@@ -1667,10 +1794,11 @@ export class ProductsService {
       return [match.specValue, match.specUnit].filter(Boolean).join(' ').trim();
     };
     const equipmentText = (code: 'standart' | 'opsiyonel') =>
-      equipmentRows
-        .filter((item) => item.productId === sample.id && (item.typeCode ?? 'standart') === code)
-        .map((item) => item.title)
-        .join('; ');
+      formatEquipmentList(
+        equipmentRows
+          .filter((item) => item.productId === sample.id && (item.typeCode ?? 'standart') === code)
+          .map((item) => item.title)
+      );
     const controlPanel = sampleSpecs.find((spec) => CONTROL_PANEL_SPEC_KEYS.has(normalizeText(spec.specKey)));
 
     const exampleRow: Record<string, string | number> = {
@@ -1784,6 +1912,9 @@ export class ProductsService {
         if (existing) await this.assertImportProductScope(existing, lookups);
         await this.resolveProductImageMediaFile(actor, normalized.imageUrl, existing?.imageUrl);
         brand = await this.getOrCreateBrand(normalized.brandName, actor, lookups.divisionId);
+        if (!existing && brand.technicalCatalogCode === 'AORE_LASER' && LASER_MODELS.some((model) => hexlaserLegacyVariantCode(model.code, normalized.modelCode))) {
+          throw new ValidationError('Kabin ve güç için ayrı ürün kartı açılamaz; model kartını kullanın');
+        }
         supplierCompanyId = normalized.supplierCompanyId !== undefined
           ? normalized.supplierCompanyId : existing?.supplierCompanyId ?? brand.supplierCompanyId ?? null;
         await this.assertSupplierCompany(supplierCompanyId, actor.tenantId);
@@ -1905,7 +2036,7 @@ export class ProductsService {
       .orderBy(asc(priceLists.name), asc(priceLists.code), asc(priceLists.id))
       .limit(limit)
       .offset(offset);
-    return buildPaginated(rows.map((r) => ({ ...r.priceList, currency: r.currency })), count, page);
+    return buildPaginated(rows.map((r) => ({ ...withoutCostFormula(r.priceList), currency: r.currency })), count, page);
   }
 
   async createPriceList(input: PriceListCreateInput, actor: AuthContext) {
@@ -1943,6 +2074,9 @@ export class ProductsService {
 
   async updatePriceList(id: string, input: PriceListUpdateInput, actor: AuthContext) {
     const existing = await this.getPriceList(id, actor);
+    if (input.code !== undefined && input.code !== existing.code && isLaserPriceListCode(existing.code)) {
+      throw new ValidationError('Lazer fiyat listesinin kodu değiştirilemez', { field: 'code' });
+    }
     const patch: Record<string, unknown> = {};
     if (input.currencyCode !== undefined) patch.currencyId = await lookupIdByCode(this.db, currencies, input.currencyCode);
     if (input.divisionId !== undefined) patch.divisionId = resolveAssignedResourceDivision(actor, 'price_lists', input.divisionId);
@@ -2068,7 +2202,7 @@ export class ProductsService {
       ),
     });
     if (!row) throw new NotFoundError('Fiyat listesi');
-    return row;
+    return withoutCostFormula(row);
   }
 
   private async parseImportFile(fileName: string, fileBase64: string): Promise<ParsedImportFile> {
@@ -2087,9 +2221,7 @@ export class ProductsService {
       matrix = parseCsv(text, delimiter);
       sheetName = 'CSV';
     } else if (lower.endsWith('.xlsx')) {
-      const workbook = new ExcelJS.Workbook();
-      if (buffer[0] !== 0x50 || buffer[1] !== 0x4b) throw new ValidationError('XLSX dosya imzası geçersiz');
-      try { await workbook.xlsx.load(buffer as any); } catch { throw new ValidationError('XLSX dosyası okunamadı'); }
+      const workbook = await loadXlsxWorkbook(buffer);
       if (workbook.worksheets.length > 25) throw new ValidationError('Dosyada en fazla 25 çalışma sayfası olabilir');
       const worksheet =
         workbook.worksheets.find((ws) => {
@@ -2193,13 +2325,13 @@ export class ProductsService {
 
       row.specs = specs;
       row.equipment = [
-        ...splitList(row.standardEquipmentText).map((title, idx) => ({
+        ...splitEquipmentList(row.standardEquipmentText).map((title, idx) => ({
           equipmentTypeCode: 'standart',
           title,
           sortOrder: idx,
           isPromotion: false,
         })),
-        ...splitList(row.optionalEquipmentText).map((title, idx) => ({
+        ...splitEquipmentList(row.optionalEquipmentText).map((title, idx) => ({
           equipmentTypeCode: 'opsiyonel',
           title,
           sortOrder: idx,

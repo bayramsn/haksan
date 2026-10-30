@@ -1,6 +1,6 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { and, desc, eq, isNull, or, sql } from 'drizzle-orm';
-import type { Pagination } from '@haksan/shared';
+import { FILE_UPLOAD_MAX_BYTES, MAIL_MAX_ATTACHMENT_BYTES, type Pagination } from '@haksan/shared';
 import { buildPaginated, pageOffset } from '../../shared/utils/pagination';
 import { users } from '../../db/schema/users';
 import type { DbClient } from '../../db/client';
@@ -27,7 +27,6 @@ import {
   resourceDivisionFilterWithShared,
 } from '../../shared/utils/division-scope';
 import {
-  allowUnlinkedCompanyRecords,
   companyVisibilityExistsFilter,
   companyVisibilityFilter,
 } from '../../shared/utils/company-visibility';
@@ -62,7 +61,9 @@ export class FilesService {
               eq(companies.tenantId, actor.tenantId),
               isNull(companies.deletedAt),
               resourceCompanyPortfolioFilter(actor, 'companies', companies.id) ?? sql`true`,
-              allowUnlinkedCompanyRecords(opportunities.companyId, visibility)
+              // Sorgu yalnız companies üzerinde; görünürlük doğrudan firma satırına uygulanır.
+              // (Eskiden opportunities kolonuna atıf yapıp yönetici dışı kullanıcıda 500 veriyordu.)
+              visibility ?? sql`true`
             )
           )
           .limit(1);
@@ -404,17 +405,28 @@ export class FilesService {
    * doğrudan sunucuya alır, çünkü eki SMTP'ye sunucu koyar.
    */
   async readForAttachment(fileId: string, actor: AuthContext) {
+    return this.readContent(fileId, actor, false);
+  }
+
+  async readImagePreview(fileId: string, actor: AuthContext) {
+    return this.readContent(fileId, actor, true);
+  }
+
+  private async readContent(fileId: string, actor: AuthContext, imageOnly: boolean) {
     const file = await this.db.query.files.findFirst({
       where: and(eq(files.id, fileId), eq(files.tenantId, actor.tenantId)),
     });
     if (!file || file.deletedAt || !['uploaded', 'linked'].includes(file.uploadStatus)) throw new NotFoundError('Dosya');
     await this.assertFileReadable(file, actor);
+    if (imageOnly && !['image/jpeg', 'image/png', 'image/webp'].includes(file.mimeType)) {
+      throw new ValidationError('Bu dosya fotoğraf olarak görüntülenemez');
+    }
     const content = await this.storage.getObject(file.bucket, file.objectKey);
     if (!content) throw new NotFoundError('Dosya içeriği');
     await this.audit.write({
       tenantId: actor.tenantId,
       actorUserId: actor.userId,
-      action: 'file.mail_attachment',
+      action: imageOnly ? 'file.image_preview' : 'file.mail_attachment',
       resourceType: 'file',
       resourceId: file.id,
     });
@@ -442,9 +454,15 @@ export class FilesService {
         file.bucket !== 'erp-quote-documents'
         || !allowedMimeTypes.includes(file.mimeType)
         || !['pdf', 'docx', 'xlsx'].includes(file.extension)
-        || file.sizeBytes > 25 * 1024 * 1024
+        || file.sizeBytes > FILE_UPLOAD_MAX_BYTES
       ) {
-        throw new ValidationError('Dış teklif PDF, DOCX veya XLSX olmalı ve 25 MB sınırını aşmamalıdır');
+        throw new ValidationError(`Dış teklif PDF, DOCX veya XLSX olmalı ve ${FILE_UPLOAD_MAX_BYTES / (1024 * 1024)} MB sınırını aşmamalıdır`);
+      }
+    }
+    if (input.entityType === 'catalog') {
+      await this.assertUploadTargetAccessible(input.entityType, input.entityId, actor);
+      if (file.bucket !== 'erp-quote-documents' || file.mimeType !== 'application/pdf' || file.extension !== 'pdf' || file.sizeBytes > MAIL_MAX_ATTACHMENT_BYTES) {
+        throw new ValidationError(`Genel katalog PDF olmalı ve ${MAIL_MAX_ATTACHMENT_BYTES / (1024 * 1024)} MB sınırını aşmamalıdır`);
       }
     }
     if (input.entityType === 'catalog') {

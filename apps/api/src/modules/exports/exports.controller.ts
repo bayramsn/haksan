@@ -9,6 +9,8 @@ import {
   exportPurchaseOrderQuerySchema,
   exportOperationalQuerySchema,
   exportStatementQuerySchema,
+  exportFormatQuerySchema,
+  type ExportFormatQuery,
   type CompanyListQuery,
   type ExportOpportunityQuery,
   type ExportQuoteQuery,
@@ -24,7 +26,9 @@ import { PermissionsGuard, RequirePermissions } from '../../shared/security/perm
 import { CurrentUser } from '../../shared/security/current-user.decorator';
 import type { AuthContext } from '../../shared/security/auth.types';
 import { rowsToXlsxBuffer, sendXlsx, sheetsToXlsxBuffer } from '../../shared/utils/excel-export';
-import { rowsToPdfBuffer, sendPdf } from '../../shared/utils/pdf-export';
+import { filterSubtitle, pickColumns, rowsToPdfBuffer, sendPdf } from '../../shared/utils/pdf-export';
+
+const COMPANY_PDF_COLUMNS = ['Firma', 'Tip', 'Müşteri Statüsü', 'Telefon', 'E-posta', 'Şehir', 'İlçe', 'Sektör'] as const;
 import { ExportsService } from './exports.service';
 
 @UseGuards(AuthGuard, PermissionsGuard)
@@ -38,9 +42,18 @@ export class ExportsController {
     @Query(new ZodValidationPipe(companyListQuerySchema))
     q: CompanyListQuery,
     @CurrentUser() user: AuthContext,
-    @Res({ passthrough: true }) reply: FastifyReply
+    @Res({ passthrough: true }) reply: FastifyReply,
+    @Query(new ZodValidationPipe(exportFormatQuerySchema)) { format }: ExportFormatQuery
   ) {
     const rows = await this.svc.exportCompanies(user, q);
+    if (format === 'pdf') {
+      const buffer = await rowsToPdfBuffer({
+        title: 'Firmalar',
+        subtitle: filterSubtitle([['Şehir', q.city], ['İlçe', q.district], ['Sektör', q.sector], ['Arama', q.search]], rows.length),
+        rows: pickColumns(rows, COMPANY_PDF_COLUMNS),
+      });
+      return sendPdf(reply, buffer, 'firmalar.pdf');
+    }
     return sendXlsx(reply, await rowsToXlsxBuffer(rows, 'Firmalar'), 'firmalar.xlsx');
   }
 

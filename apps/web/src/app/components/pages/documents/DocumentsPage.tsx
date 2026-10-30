@@ -34,12 +34,13 @@ import {
 import {
   Search, Upload, Download, Printer, Eye, Plus, Trash2,
   Files, Layers3, FileCheck2, BadgeDollarSign, Link2, Route, Unlink, ArrowRight,
-  Folder, FolderOpen, Zap,
+  Folder, FolderOpen, Zap, Mail,
 } from "lucide-react";
 import {
   printAssetBase, proformaDoc, commercialInvoiceDoc, contractDoc, installationFormDoc, loadContractPrintData, loadProformaPrintData, PROFORMA_NOTE_OPTIONS, trShortDate,
-  assertContractReady, contractFilename, proformaFilename,
+  assertContractReady, contractFilename, proformaFilename, buildMailDocumentHtml, safeFilename,
 } from "../../../lib/print";
+import { ComposeMailDialog, type MailRecipient } from "../../mail/ComposeMailDialog";
 import { printOrWarn, downloadPrintOrWarn } from "../../../lib/pageHelpers";
 import { companyQueryKeys } from "../../../lib/companyServerData";
 import { normalizeCompany } from "../../../lib/companyNormalizer";
@@ -144,6 +145,7 @@ export function DocumentsPage({
 }) {
   const { documents, cases, customers, contacts, users, offers, payments, products, deliveries, machines, refresh } = useStore();
   const { user, tenant, activeDivision, activeDepartment } = useAuth();
+  const [mailRecipient, setMailRecipient] = useState<MailRecipient | null>(null);
   const queryClient = useQueryClient();
   const companyScope = serverScopeKey(activeDivision, activeDepartment, tenant?.id ?? user?.tenantId, user?.id);
   const contactScope: ContactQueryScope = {
@@ -235,6 +237,20 @@ export function DocumentsPage({
     };
   };
 
+  /** Yazdır, indir ve mail eki aynı belgeyi kullanır. */
+  const buildProforma = async (d: (typeof documents)[number], variantKey: string) => {
+    const data = await loadProformaPrintData(await proformaInput(d, variantKey));
+    return {
+      rendered: proformaDoc(data, printAssetBase()),
+      // Dosya adı: Proforma_<bölüm-belge no>_<firma>_<makine>. Kayıtlı firması
+      // olmayan hızlı proformada unvan serbest metinden (companyNameText) gelir.
+      filename: proformaFilename(data, {
+        division: resolveDocContext(d).offer?.businessLine,
+        company: d.companyNameText,
+      }),
+    };
+  };
+
   const runProforma = async (
     d: (typeof documents)[number],
     variantKey: string,
@@ -242,15 +258,9 @@ export function DocumentsPage({
   ) => {
     const loading = toast.loading("Proforma hazırlanıyor…");
     try {
-      const data = await loadProformaPrintData(await proformaInput(d, variantKey));
-      const rendered = proformaDoc(data, printAssetBase());
+      const { rendered, filename } = await buildProforma(d, variantKey);
       if (mode === "print") printOrWarn(rendered);
-      // Dosya adı: Proforma_<bölüm-belge no>_<firma>_<makine>. Kayıtlı firması
-      // olmayan hızlı proformada unvan serbest metinden (companyNameText) gelir.
-      else downloadPrintOrWarn(rendered, proformaFilename(data, {
-        division: resolveDocContext(d).offer?.businessLine,
-        company: d.companyNameText,
-      }), "Proforma");
+      else await downloadPrintOrWarn(rendered, filename, "Proforma");
     } catch (err: any) {
       toast.error("Proforma oluşturulamadı", { description: err?.message ?? "Teklif verisi okunamadı." });
     } finally {
@@ -266,34 +276,35 @@ export function DocumentsPage({
     void runProforma(d, variantKey, "download");
   };
 
-  const runContract = async (d: (typeof documents)[number], mode: "print" | "download") => {
+  const buildContract = async (d: (typeof documents)[number]) => {
     const ctx = resolveDocContext(d);
-    if (!ctx.sc && !d.documentSnapshot?.standalone) {
-      toast.error("Sözleşme oluşturulamadı", { description: "Bağlı satış kartı bulunamadı." });
-      return;
-    }
+    if (!ctx.sc && !d.documentSnapshot?.standalone) throw new Error("Bağlı satış kartı bulunamadı.");
+    const hydrated = await hydratePrintReferences(d, false);
+    const data = await loadContractPrintData({
+      customer: hydrated.customer,
+      salesCase: ctx.sc,
+      offer: ctx.offer,
+      products,
+      payments,
+      contractDate: d.uploadedAt || new Date().toISOString().slice(0, 10),
+      contractNo: d.fileName,
+      documentSnapshot: d.documentSnapshot,
+      users,
+    });
+    assertContractReady(data);
+    return {
+      rendered: contractDoc(data, printAssetBase()),
+      // Dosya adı: Sozlesme_<bölüm-belge no>_<firma>_<makine>
+      filename: contractFilename(data, { division: ctx.offer?.businessLine, company: d.companyNameText }),
+    };
+  };
+
+  const runContract = async (d: (typeof documents)[number], mode: "print" | "download") => {
     const loading = toast.loading("Sözleşme hazırlanıyor…");
     try {
-      const hydrated = await hydratePrintReferences(d, false);
-      const data = await loadContractPrintData({
-        customer: hydrated.customer,
-        salesCase: ctx.sc,
-        offer: ctx.offer,
-        products,
-        payments,
-        contractDate: d.uploadedAt || new Date().toISOString().slice(0, 10),
-        contractNo: d.fileName,
-        documentSnapshot: d.documentSnapshot,
-        users,
-      });
-      assertContractReady(data);
-      const rendered = contractDoc(data, printAssetBase());
+      const { rendered, filename } = await buildContract(d);
       if (mode === "print") printOrWarn(rendered);
-      // Dosya adı: Sozlesme_<bölüm-belge no>_<firma>_<makine>
-      else downloadPrintOrWarn(rendered, contractFilename(data, {
-        division: ctx.offer?.businessLine,
-        company: d.companyNameText,
-      }), "Sözleşme");
+      else await downloadPrintOrWarn(rendered, filename, "Sözleşme");
     } catch (error: unknown) {
       toast.error("Sözleşme oluşturulamadı", {
         description: error instanceof Error ? error.message : "Teklif ayrıntıları alınamadı.",
@@ -309,6 +320,29 @@ export function DocumentsPage({
 
   const downloadContract = (d: (typeof documents)[number]) => {
     void runContract(d, "download");
+  };
+
+  /** Proforma / sözleşmeyi antetli PDF eki olarak firmaya mail atar. */
+  const mailRecordDocument = (d: (typeof documents)[number], kind: "proforma" | "contract") => {
+    const customer = customers.find((item) => item.id === d.companyId);
+    const label = kind === "proforma" ? "Proforma Fatura" : "Satış Sözleşmesi";
+    const name = customer?.contactPerson || customer?.name || d.companyNameText || "";
+    setMailRecipient({
+      email: customer?.email ?? "",
+      name,
+      companyId: customer?.id,
+      subject: `${d.fileName} ${label}`,
+      body: `${name ? `Merhaba ${name},` : "Merhaba,"}\n\n${d.fileName} numaralı ${label.toLocaleLowerCase("tr-TR")} belgemizi ekte bilgilerinize sunarız.\n\nSaygılarımızla,`,
+      attachmentLabel: d.fileName,
+      recordDocument: {
+        id: d.id,
+        kind,
+        pdf: async () => {
+          const { rendered, filename } = kind === "proforma" ? await buildProforma(d, "") : await buildContract(d);
+          return { html: await buildMailDocumentHtml(rendered), filename: `${safeFilename(filename)}.pdf` };
+        },
+      },
+    });
   };
 
   const printUploadedDocument = async (d: (typeof documents)[number]) => {
@@ -611,7 +645,7 @@ export function DocumentsPage({
       const data = await loadProformaPrintData(await proformaInput(d, ""));
       const rendered = commercialInvoiceDoc(data, printAssetBase());
       if (mode === "print") printOrWarn(rendered);
-      else downloadPrintOrWarn(rendered, `Ticari-Fatura-${d.fileName}`, "Ticari fatura");
+      else await downloadPrintOrWarn(rendered, `Ticari-Fatura-${d.fileName}`, "Ticari fatura");
     } catch (err: any) {
       if (d.fileId) {
         if (mode === "print") await printUploadedDocument(d);
@@ -816,13 +850,14 @@ export function DocumentsPage({
           <Table className="min-w-[980px] table-fixed">
             <TableHeader>
               <TableRow className="bg-muted/30 hover:bg-muted/30">
-                <TableHead className="w-[34%]">Dosya ve müşteri</TableHead>
-                <TableHead className="w-[10%]">Tip</TableHead>
-                <TableHead className="w-[19%]">Kaynak ve akış</TableHead>
-                <TableHead className="w-[8%]">Boyut</TableHead>
-                <TableHead className="w-[11%]">Yükleyen</TableHead>
-                <TableHead className="w-[10%]">Tarih</TableHead>
-                <TableHead className="w-[8%] text-right">İşlem</TableHead>
+                <TableHead className="w-[30%]">Dosya ve müşteri</TableHead>
+                <TableHead className="w-[9%]">Tip</TableHead>
+                <TableHead className="w-[17%]">Kaynak ve akış</TableHead>
+                <TableHead className="w-[7%]">Boyut</TableHead>
+                <TableHead className="w-[10%]">Yükleyen</TableHead>
+                <TableHead className="w-[9%]">Tarih</TableHead>
+                {/* Proforma/sözleşme satırında 6–7 işlem var; dar sütunda tarihin üstüne taşıyordu. */}
+                <TableHead className="w-[18%] text-right">İşlem</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -924,7 +959,7 @@ export function DocumentsPage({
                     <TableCell className="text-sm">{userName(d.uploadedBy)}</TableCell>
                     <TableCell className="text-sm tabular-nums text-muted-foreground">{d.uploadedAt}</TableCell>
                     <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
-                      <div className="flex items-center gap-1 justify-end">
+                      <div className="flex flex-wrap items-center gap-1 justify-end">
                         {d.type === "Proforma" && (
                           <>
                             {/* Teklife bağlı proformada fiyat, iskonto ve şartlar düzenlenir; hızlı
@@ -1006,6 +1041,13 @@ export function DocumentsPage({
                                 )}
                               </DropdownMenuContent>
                             </DropdownMenu>
+                            {/* Yüklenen PDF satırının kimliği dosya bağıdır, proforma kaydı değil. */}
+                            {d.source === "commercial_record" && (
+                              <Button variant="ghost" size="icon" className="size-7" title="Proformayı firmaya e-posta ile gönder"
+                                onClick={() => mailRecordDocument(d, "proforma")}>
+                                <Mail className="size-4 text-muted-foreground hover:text-primary" />
+                              </Button>
+                            )}
                           </>
                         )}
                         {d.type === "Contract" && (
@@ -1041,6 +1083,12 @@ export function DocumentsPage({
                               onClick={() => downloadContract(d)}>
                               <Download className="size-4 text-muted-foreground hover:text-primary" />
                             </Button>
+                            {d.source === "commercial_record" && (
+                              <Button variant="ghost" size="icon" className="size-7" title="Sözleşmeyi firmaya e-posta ile gönder"
+                                onClick={() => mailRecordDocument(d, "contract")}>
+                                <Mail className="size-4 text-muted-foreground hover:text-primary" />
+                              </Button>
+                            )}
                           </>
                         )}
                         {d.type === "CommercialInvoice" && !d.paymentId && (
@@ -1117,6 +1165,7 @@ export function DocumentsPage({
       </Card>
 
       <DocumentPreviewDialog doc={previewDoc} onClose={() => setPreviewDoc(null)} />
+      <ComposeMailDialog recipient={mailRecipient} onOpenChange={(open) => !open && setMailRecipient(null)} />
       <DocumentDetailDialog
         doc={detailDoc}
         onClose={() => setDetailDoc(null)}

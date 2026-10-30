@@ -137,9 +137,13 @@ export const trShortDate = (value?: string | Date | null): string => {
 
 export const BASE_CSS = PRINT_BASE_CSS;
 
-/** Haksan antetli kağıt şeridi (logo + kırmızı firma bilgi bloğu). */
+/**
+ * Haksan antetli kağıt şeridi (logo + kırmızı firma bilgi bloğu). JPEG: belgeler
+ * sunucuda Chromium ile PDF'e çevrildiğinde bazı sürümler çok sayfada tekrarlanan
+ * büyük PNG'yi siyah raster basıyor (teklif şablonu da aynı gerekçeyle JPEG kullanır).
+ */
 export const haksanHeader = (assetBase: string): string =>
-  `<img class="letterhead" src="${assetBase}/haksan-letterhead.png" alt="HAKSAN MAKİNA">`;
+  `<img class="letterhead" src="${assetBase}/haksan-letterhead.jpg" alt="HAKSAN MAKİNA">`;
 
 /** DR.MAK antedi: solda logo, sağda başlık kutusu + iletişim satırları. */
 export const drmakHeader = (assetBase: string, title: string): string => `

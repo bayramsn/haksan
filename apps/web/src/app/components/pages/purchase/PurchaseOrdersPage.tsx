@@ -1,6 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
-import { purchaseOrdersQuery, purchaseProductsQuery, purchaseTotals } from "./purchase-queries";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "../../ui/card";
 import { Button } from "../../ui/button";
 import { Input } from "../../ui/input";
@@ -17,7 +15,7 @@ import { EmptyState } from "../../shared/EmptyState";
 import { RemoteCompanyCombobox } from "../../shared/RemoteCompanyCombobox";
 import { FormField, SummaryLine } from "../shared/formFields";
 import { CreateAccountingInvoiceDialog, type AccountingInvoicePrefill } from "../finance/CreateAccountingInvoiceDialog";
-import { purchaseOrderService } from "../../../../lib/services";
+import { purchaseOrderService, productService } from "../../../../lib/services";
 import { useAuth } from "../../../../lib/auth";
 import { ExportExcelButton } from "../../ui/ExportExcelButton";
 import { formatCurrency, formatDate } from "../../../lib/pageHelpers";
@@ -25,29 +23,47 @@ import { CheckCircle2, ClipboardCheck, Eye, Mail, Plus, Search, ShoppingCart, Pa
 import { toast } from "sonner";
 
 export function PurchaseOrdersPage() {
-  const { hasRole, user, activeDivision, activeDepartment } = useAuth();
-  const orderList = useQuery(purchaseOrdersQuery({ tenantId: user?.tenantId, userId: user?.id, division: activeDivision, department: activeDepartment }));
-  const orders = orderList.data?.data ?? [];
-  const loading = orderList.isPending;
+  const { hasRole } = useAuth();
+  const [orders, setOrders] = useState<any[]>([]);
+  const [loading, setLoading] = useState(false);
   const [q, setQ] = useState("");
   const [tab, setTab] = useState<"all" | "draft" | "sent" | "pending_manager_approval" | "approved" | "received" | "cancelled">("all");
   const [selectedOrder, setSelectedOrder] = useState<any | null>(null);
-  const detailQuery = useQuery({
-    queryKey: ["purchase-orders", "detail", user?.tenantId, user?.id, activeDivision, activeDepartment, selectedOrder?.id],
-    queryFn: () => purchaseOrderService.get(selectedOrder.id),
-    enabled: Boolean(selectedOrder), retry: false,
-  });
-  const selectedDetail = detailQuery.data ?? null;
-  const detailLoading = detailQuery.isPending;
+  const [selectedDetail, setSelectedDetail] = useState<any | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
   const canApprovePurchaseOrders = hasRole("super_admin");
 
-  const loadOrders = () => { void orderList.refetch(); };
+  const loadOrders = (cancelledRef?: { current: boolean }) => {
+    setLoading(true);
+    purchaseOrderService
+      .list({ pageSize: 100 })
+      .then((res) => {
+        if (!cancelledRef?.current) setOrders(res.data);
+      })
+      .catch(() => {
+        if (!cancelledRef?.current) {
+          setOrders([]);
+          toast.error("Satın alma siparişleri yüklenemedi");
+        }
+      })
+      .finally(() => {
+        if (!cancelledRef?.current) setLoading(false);
+      });
+  };
+
+  useEffect(() => {
+    const cancelledRef = { current: false };
+    loadOrders(cancelledRef);
+    return () => {
+      cancelledRef.current = true;
+    };
+  }, []);
 
   const total = orders.length;
   const commercial = orders.filter((p) => (p.purchaseType ?? "commercial") === "commercial").length;
   const administrative = orders.filter((p) => p.purchaseType === "administrative").length;
   const pending = orders.filter((p) => ["draft", "sent", "pending_manager_approval"].includes(p.status?.code)).length;
-  const totalAmounts = purchaseTotals(orders);
+  const totalAmount = orders.reduce((a, p) => a + Number(p.grandTotal ?? 0), 0);
 
   const filtered = orders.filter((p) => {
     if (tab !== "all" && p.status?.code !== tab) return false;
@@ -60,7 +76,9 @@ export function PurchaseOrdersPage() {
       name: s,
       count: filtered.filter((p) => (p.supplier?.shortName || p.supplier?.legalTitle || "—") === s).length,
       pending: filtered.filter((p) => (p.supplier?.shortName || p.supplier?.legalTitle || "—") === s && !["received", "cancelled"].includes(p.status?.code)).length,
-
+      tutar: filtered
+        .filter((p) => (p.supplier?.shortName || p.supplier?.legalTitle || "—") === s)
+        .reduce((a, p) => a + Number(p.grandTotal ?? 0), 0),
     }))
     .sort((a, b) => b.count - a.count);
 
@@ -83,7 +101,19 @@ export function PurchaseOrdersPage() {
   };
 
   const poExportParams = q ? { search: q } : undefined;
-  const openOrderDetail = (order: any) => setSelectedOrder(order);
+  const openOrderDetail = async (order: any) => {
+    setSelectedOrder(order);
+    setSelectedDetail(null);
+    setDetailLoading(true);
+    try {
+      const detail = await purchaseOrderService.get(order.id);
+      setSelectedDetail(detail);
+    } catch (err: any) {
+      toast.error("Satın alma detayı yüklenemedi", { description: err?.message ?? "API isteği başarısız oldu." });
+    } finally {
+      setDetailLoading(false);
+    }
+  };
 
   const runPurchaseAction = async (order: any, action: "send" | "approve" | "received" | "cancelled") => {
     try {
@@ -101,7 +131,8 @@ export function PurchaseOrdersPage() {
       );
       loadOrders();
       if (selectedOrder?.id === order.id) {
-        void detailQuery.refetch();
+        const detail = await purchaseOrderService.get(order.id).catch(() => null);
+        if (detail) setSelectedDetail(detail);
       }
     } catch (err: any) {
       toast.error("İşlem başarısız", { description: err?.message ?? "API isteği başarısız oldu." });
@@ -111,10 +142,10 @@ export function PurchaseOrdersPage() {
   return (
     <div className="crm-page">
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <MiniKpi tone="violet" icon={<ShoppingCart className="size-[18px]" />} label="Toplam Sipariş" value={total} sub={totalAmounts.map(row => row.currencyCode === "—" ? `${row.amount.toLocaleString("tr-TR")} (PB belirtilmedi)` : formatCurrency(row.amount, row.currencyCode)).join(" · ") || "—"} onClick={() => setTab("all")} active={tab === "all"} />
-        <MiniKpi tone="emerald" icon={<Package className="size-[18px]" />} label="Ticari" value={commercial} sub="mal/hizmet alımı" />
-        <MiniKpi tone="blue" icon={<Receipt className="size-[18px]" />} label="İdari" value={administrative} sub="genel gider" />
-        <MiniKpi tone="amber" icon={<Clock className="size-[18px]" />} label="Bekleyen" value={pending} sub="onay bekliyor" onClick={() => setTab("pending_manager_approval")} active={tab === "pending_manager_approval"} />
+        <MiniKpi tone="violet" icon={<ShoppingCart className="size-[18px]" />} label="Toplam Sipariş" value={total} sub={formatCurrency(totalAmount, "USD")} delta={6} onClick={() => setTab("all")} active={tab === "all"} />
+        <MiniKpi tone="emerald" icon={<Package className="size-[18px]" />} label="Ticari" value={commercial} sub="mal/hizmet alımı" delta={3} />
+        <MiniKpi tone="blue" icon={<Receipt className="size-[18px]" />} label="İdari" value={administrative} sub="genel gider" delta={2} />
+        <MiniKpi tone="amber" icon={<Clock className="size-[18px]" />} label="Bekleyen" value={pending} sub="onay bekliyor" delta={1} onClick={() => setTab("pending_manager_approval")} active={tab === "pending_manager_approval"} />
       </div>
 
       <Card className="border-border/60 shadow-sm overflow-hidden">
@@ -270,7 +301,7 @@ export function PurchaseOrdersPage() {
                   </TableCell>
                 </TableRow>
               ))}
-              {!loading && !orderList.error && filtered.length === 0 && (
+              {!loading && filtered.length === 0 && (
                 <TableRow>
                   <TableCell colSpan={10} className="py-4">
                     <EmptyState
@@ -281,7 +312,6 @@ export function PurchaseOrdersPage() {
                   </TableCell>
                 </TableRow>
               )}
-              {orderList.error && <TableRow><TableCell colSpan={8}><div role="alert" className="p-4 text-destructive">Satın alma siparişleri yüklenemedi. <Button variant="outline" onClick={loadOrders}>Tekrar dene</Button></div></TableCell></TableRow>}
               {loading && (
                 <TableRow>
                   <TableCell colSpan={10} className="text-center py-12 text-sm text-muted-foreground">
@@ -297,12 +327,11 @@ export function PurchaseOrdersPage() {
       <PurchaseOrderDetailDialog
         order={selectedOrder}
         detail={selectedDetail}
-        error={Boolean(detailQuery.error)}
-        onRetry={() => void detailQuery.refetch()}
         loading={detailLoading}
         canApprove={canApprovePurchaseOrders}
         onClose={() => {
           setSelectedOrder(null);
+          setSelectedDetail(null);
         }}
         onAction={runPurchaseAction}
         onInvoiceCreated={loadOrders}
@@ -352,8 +381,6 @@ function purchaseInvoicePrefill(order: any): AccountingInvoicePrefill {
 function PurchaseOrderDetailDialog({
   order,
   detail,
-  error,
-  onRetry,
   loading,
   canApprove,
   onClose,
@@ -362,8 +389,6 @@ function PurchaseOrderDetailDialog({
 }: {
   order: any | null;
   detail: any | null;
-  error: boolean;
-  onRetry: () => void;
   loading: boolean;
   canApprove: boolean;
   onClose: () => void;
@@ -397,10 +422,9 @@ function PurchaseOrderDetailDialog({
         </DialogHeader>
 
         <div className="min-h-0 overflow-y-auto">
-          {error && <div role="alert" className="p-4 text-destructive">Satın alma detayı yüklenemedi. <Button onClick={onRetry}>Detayı tekrar yükle</Button></div>}
           <div className="px-6 py-4 grid grid-cols-2 md:grid-cols-4 gap-3">
             <DetailStat icon={<Receipt className="size-4" />} label="Tutar" value={formatCurrency(Number(current?.grandTotal ?? 0), current?.currency?.code ?? "USD")} />
-            <DetailStat icon={<Package className="size-4" />} label="Kalem" value={error ? "—" : loading ? "..." : items.length} />
+            <DetailStat icon={<Package className="size-4" />} label="Kalem" value={loading ? "..." : items.length} />
             <DetailStat icon={<Clock className="size-4" />} label="ETA" value={formatDate(current?.expectedDate)} />
             <DetailStat icon={<ClipboardCheck className="size-4" />} label="Ödeme" value={paymentTypeLabel(current?.paymentType)} />
           </div>
@@ -450,7 +474,7 @@ function PurchaseOrderDetailDialog({
                       <TableCell className="text-right tabular-nums">{formatCurrency(Number(item.lineTotal ?? 0) + Number(item.vatAmount ?? 0), current?.currency?.code ?? "USD")}</TableCell>
                     </TableRow>
                   ))}
-                  {!loading && !error && items.length === 0 && (
+                  {!loading && items.length === 0 && (
                     <TableRow>
                       <TableCell colSpan={5} className="text-center py-10 text-sm text-muted-foreground">Kalem yok.</TableCell>
                     </TableRow>
@@ -562,9 +586,7 @@ const lineTotals = (line: PurchaseLineForm) => {
 
 function CreatePurchaseOrderDialog({ onCreated }: { onCreated: () => void }) {
   const [open, setOpen] = useState(false);
-  const { user, activeDivision, activeDepartment } = useAuth();
-  const productQuery = useQuery(purchaseProductsQuery({ tenantId: user?.tenantId, userId: user?.id, division: activeDivision, department: activeDepartment }, open));
-  const products = productQuery.data?.data ?? [];
+  const [products, setProducts] = useState<any[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [form, setForm] = useState({
     purchaseType: "commercial" as PurchaseType,
@@ -584,6 +606,17 @@ function CreatePurchaseOrderDialog({ onCreated }: { onCreated: () => void }) {
     lines: [blankPurchaseLine("commercial")],
   });
 
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    productService.list({ pageSize: 200 }).catch(() => ({ data: [] })).then((productRes) => {
+      if (cancelled) return;
+      setProducts(productRes.data ?? []);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [open]);
 
   const setPurchaseType = (purchaseType: PurchaseType) => {
     setForm((current) => ({
@@ -727,8 +760,6 @@ function CreatePurchaseOrderDialog({ onCreated }: { onCreated: () => void }) {
           <DialogDescription>Ticari veya idari satın alma için firma, fatura ve kalem bilgilerini girin.</DialogDescription>
         </DialogHeader>
         <form onSubmit={submit} className="space-y-4 min-w-0">
-          {productQuery.isFetching && <p role="status">Ürünler yükleniyor…</p>}
-          {productQuery.error && <div role="alert" className="text-destructive">Ürün kataloğu yüklenemedi. <Button type="button" variant="outline" onClick={() => void productQuery.refetch()}>Ürünleri tekrar yükle</Button></div>}
           <div className="grid gap-3 lg:grid-cols-[260px_1fr]">
             <div className="rounded-lg border border-border/60 bg-muted/20 p-3">
               <Label className="text-xs">Satın Alma Tipi</Label>

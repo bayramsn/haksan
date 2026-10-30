@@ -1,14 +1,30 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { and, asc, count, desc, eq, ilike, isNull, or, sql, type SQL } from 'drizzle-orm';
-import { tradeFairFollowUpSchema } from '@haksan/shared';
-import type { TradeFairContactInput, TradeFairContactUpdateInput, TradeFairListQuery } from '@haksan/shared';
+import { and, asc, count, desc, eq, exists, ilike, inArray, isNull, or, sql, type SQL } from 'drizzle-orm';
+import { alias } from 'drizzle-orm/pg-core';
+import type {
+  TradeFairContactInput,
+  TradeFairContactUpdateInput,
+  TradeFairListQuery,
+  TradeFairPhotosQuery,
+  TradeFairProductQuery,
+  TradeFairToCompanyInput,
+  TradeFairToOpportunityInput,
+} from '@haksan/shared';
+import { companyCreateSchema, contactCreateSchema, emailSchema, opportunityCreateSchema, phoneSchema } from '@haksan/shared';
 import type { DbClient } from '../../db/client';
-import { tradeFairContacts, users } from '../../db/schema';
+import { companies, contactSources, divisions, opportunities, fileLinks, files, productCategories, productGroups, productModels, tradeFairContactProducts, tradeFairContacts, users } from '../../db/schema';
 import { DB } from '../../shared/database/database.module';
 import { AuditService } from '../../shared/database/audit.service';
 import type { AuthContext } from '../../shared/security/auth.types';
 import { buildPaginated, pageOffset } from '../../shared/utils/pagination';
-import { ForbiddenError, NotFoundError, ValidationError } from '../../shared/utils/errors';
+import { isoDate, type ExportRow } from '../../shared/utils/excel-export';
+import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from '../../shared/utils/errors';
+import { lookupIdByCode } from '../../shared/utils/lookup.helper';
+import { CompaniesService } from '../companies/companies.service';
+import { ContactsService } from '../contacts/contacts.service';
+import { OpportunitiesService } from '../opportunities/opportunities.service';
+
+type DbTransaction = Parameters<Parameters<DbClient['transaction']>[0]>[0];
 
 const emptyToNull = (value: string | null | undefined) => (value?.trim() ? value.trim() : null);
 
@@ -16,11 +32,26 @@ const emptyToNull = (value: string | null | undefined) => (value?.trim() ? value
  * Fuar görüşmeleri. Kiracı içinde herkes her kaydı görür ve düzenler;
  * silme yalnız kaydı açana veya yöneticiye açık.
  */
+const TRADE_FAIR_EXPORT_LIMIT = 15_000;
+/** Arandı işaretini koyan kullanıcı; görüşen (`users`) ile aynı tabloya ikinci birleşim. */
+const calledByUsers = alias(users, 'called_by_users');
+/** Teklif verildi işaretini koyan kullanıcı. */
+const quotedByUsers = alias(users, 'quoted_by_users');
+/** Satır işaretleri: kolon çiftleri ve denetim adları. */
+const FLAG_COLUMNS = {
+  called: { at: 'calledAt', by: 'calledBy', on: 'called', off: 'uncalled' },
+  quoted: { at: 'quotedAt', by: 'quotedBy', on: 'quoted', off: 'unquoted' },
+} as const;
+type TradeFairFlag = keyof typeof FLAG_COLUMNS;
+
 @Injectable()
 export class TradeFairsService {
   constructor(
     @Inject(DB) private readonly db: DbClient,
-    private readonly audit: AuditService
+    private readonly audit: AuditService,
+    private readonly companiesService: CompaniesService,
+    private readonly contactsService: ContactsService,
+    private readonly opportunitiesService: OpportunitiesService
   ) {}
 
   /** Kayıtlar dış kişilerin iletişim bilgisini taşıyor ve herkes düzenleyebiliyor; iz kalsın. */
@@ -54,7 +85,108 @@ export class TradeFairsService {
     if (!row) throw new ValidationError('Görüşen kişi bulunamadı');
   }
 
-  private normalize<T extends TradeFairContactUpdateInput>(input: T) {
+  private async assertTenantDivision(actor: AuthContext, divisionId: string | null | undefined) {
+    if (!divisionId) return;
+    const [row] = await this.db
+      .select({ id: divisions.id })
+      .from(divisions)
+      .where(and(eq(divisions.id, divisionId), eq(divisions.tenantId, actor.tenantId), eq(divisions.isActive, true)))
+      .limit(1);
+    if (!row) throw new ValidationError('Bölüm bulunamadı');
+  }
+
+  /** Bölüm seçimi için kiracının aktif bölümleri; fuar alanı herkese açık olduğundan ayrı uç. */
+  divisions(actor: AuthContext) {
+    return this.db
+      .select({ id: divisions.id, code: divisions.code, name: divisions.name })
+      .from(divisions)
+      .where(and(eq(divisions.tenantId, actor.tenantId), eq(divisions.isActive, true)))
+      .orderBy(asc(divisions.name));
+  }
+
+  /**
+   * Ürün seçici: seçilen bölümün ve bölümsüz (ortak) gruplardaki aktif, katalogda
+   * gizlenmemiş ürünler. Fuar herkese açık olduğu için kullanıcının bölüm kapsamı
+   * uygulanmaz; yalnız ad ve kategori döner.
+   */
+  products(actor: AuthContext, query: TradeFairProductQuery) {
+    const filters: SQL[] = [
+      eq(productModels.tenantId, actor.tenantId),
+      isNull(productModels.deletedAt),
+      eq(productModels.isActive, true),
+      eq(productModels.catalogHidden, false),
+      or(eq(productGroups.divisionId, query.divisionId), isNull(productGroups.divisionId))!,
+    ];
+    if (query.q) filters.push(ilike(productModels.fullName, `%${query.q.replace(/[\\%_]/g, (c) => `\\${c}`)}%`));
+    return this.db
+      .select({ id: productModels.id, name: productModels.fullName, category: productCategories.name })
+      .from(productModels)
+      .leftJoin(productGroups, eq(productModels.productGroupId, productGroups.id))
+      .leftJoin(productCategories, eq(productModels.categoryId, productCategories.id))
+      .where(and(...filters))
+      .orderBy(asc(productModels.fullName))
+      // ponytail: seçici bölümün kataloğunu tek seferde yükleyip istemcide süzer; bölüm başına
+      // ürün sayısı binleri aşarsa istemci aramayı q ile sunucuya taşımalı.
+      .limit(query.q ? 50 : 500);
+  }
+
+  /** Yeni eklenen ürünler kiracıda ve silinmemiş olmalı. */
+  private async assertTenantProducts(actor: AuthContext, productModelIds: string[]) {
+    if (!productModelIds.length) return;
+    const rows = await this.db
+      .select({ id: productModels.id })
+      .from(productModels)
+      .where(and(inArray(productModels.id, productModelIds), eq(productModels.tenantId, actor.tenantId), isNull(productModels.deletedAt)));
+    if (rows.length !== productModelIds.length) throw new ValidationError('Seçilen ürünlerden biri bulunamadı');
+  }
+
+  private async productIdsOf(contactId: string): Promise<string[]> {
+    const rows = await this.db
+      .select({ id: tradeFairContactProducts.productModelId })
+      .from(tradeFairContactProducts)
+      .where(eq(tradeFairContactProducts.tradeFairContactId, contactId));
+    return rows.map((r) => r.id);
+  }
+
+  /**
+   * Ürün listesini verilen kümeyle değiştirir. Zaten bağlı olan ürün yeniden
+   * doğrulanmaz: sonradan pasife alınan ürün, kaydın düzenlenmesini engellemesin.
+   */
+  /** Yeni eklenen ürünleri doğrular; zaten bağlı olanlar (sonradan pasife alınmış olsa da) serbest. */
+  private async validateProducts(actor: AuthContext, contactId: string | null, wanted: string[]) {
+    const unique = [...new Set(wanted)];
+    const current = contactId ? await this.productIdsOf(contactId) : [];
+    await this.assertTenantProducts(actor, unique.filter((id) => !current.includes(id)));
+    return unique;
+  }
+
+  /** Ürün kümesini değiştirir; çağıran satır yazımıyla aynı işlemde (tx) çalıştırır. */
+  private async writeProducts(tx: DbTransaction, actor: AuthContext, contactId: string, productIds: string[]) {
+    await tx.delete(tradeFairContactProducts).where(eq(tradeFairContactProducts.tradeFairContactId, contactId));
+    if (productIds.length) {
+      // Eşzamanlı iki PATCH aynı ürünü eklerse PK çakışması 500 yerine yok sayılsın.
+      await tx
+        .insert(tradeFairContactProducts)
+        .values(productIds.map((productModelId) => ({ tenantId: actor.tenantId, tradeFairContactId: contactId, productModelId })))
+        .onConflictDoNothing();
+    }
+  }
+
+  /** Liste/yanıt için kayıtların ürün adları; bölüm kapsamı yok, ürün yalnız etiket. */
+  private async productsFor(contactIds: string[]) {
+    const map = new Map<string, Array<{ id: string; name: string }>>();
+    if (!contactIds.length) return map;
+    const rows = await this.db
+      .select({ contactId: tradeFairContactProducts.tradeFairContactId, id: productModels.id, name: productModels.fullName })
+      .from(tradeFairContactProducts)
+      .innerJoin(productModels, eq(tradeFairContactProducts.productModelId, productModels.id))
+      .where(inArray(tradeFairContactProducts.tradeFairContactId, contactIds))
+      .orderBy(asc(productModels.fullName));
+    for (const r of rows) map.set(r.contactId, [...(map.get(r.contactId) ?? []), { id: r.id, name: r.name }]);
+    return map;
+  }
+
+  private normalize<T extends TradeFairContactUpdateInput>({ productModelIds: _products, ...input }: T) {
     return {
       ...input,
       ...('contactTitle' in input ? { contactTitle: emptyToNull(input.contactTitle) } : {}),
@@ -64,16 +196,18 @@ export class TradeFairsService {
       ...('district' in input ? { district: emptyToNull(input.district) } : {}),
       ...('productCategory' in input ? { productCategory: emptyToNull(input.productCategory) } : {}),
       ...('productType' in input ? { productType: emptyToNull(input.productType) } : {}),
-      ...('contactNotes' in input ? { contactNotes: emptyToNull(input.contactNotes) } : {}),
       ...('notes' in input ? { notes: emptyToNull(input.notes) } : {}),
     };
   }
 
-  async list(actor: AuthContext, query: TradeFairListQuery) {
-    const { limit, offset } = pageOffset(query);
+  /** Liste ve Excel aynı süzgeçten geçer; ekranda görünen ne ise dosyaya o iner. */
+  private listFilters(actor: AuthContext, query: Omit<TradeFairListQuery, 'page' | 'pageSize'>): SQL[] {
     const filters = this.baseFilters(actor);
     if (query.fairName) filters.push(eq(tradeFairContacts.fairName, query.fairName));
     if (query.metByUserId) filters.push(eq(tradeFairContacts.metByUserId, query.metByUserId));
+    if (query.divisionId) filters.push(eq(tradeFairContacts.divisionId, query.divisionId));
+    if (query.province) filters.push(eq(tradeFairContacts.province, query.province));
+    if (query.district) filters.push(eq(tradeFairContacts.district, query.district));
     if (query.q) {
       const term = `%${query.q.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
       filters.push(
@@ -84,27 +218,158 @@ export class TradeFairsService {
           ilike(tradeFairContacts.mobilePhone, term),
           ilike(tradeFairContacts.province, term),
           ilike(tradeFairContacts.productType, term),
-          ilike(tradeFairContacts.productCategory, term)
+          ilike(tradeFairContacts.productCategory, term),
+          exists(
+            this.db
+              .select({ one: sql`1` })
+              .from(tradeFairContactProducts)
+              .innerJoin(productModels, eq(tradeFairContactProducts.productModelId, productModels.id))
+              .where(and(eq(tradeFairContactProducts.tradeFairContactId, tradeFairContacts.id), ilike(productModels.fullName, term)))
+          )
         )!
       );
     }
-    const where = and(...filters);
+    return filters;
+  }
+
+  async list(actor: AuthContext, query: TradeFairListQuery) {
+    const { limit, offset } = pageOffset(query);
+    const where = and(...this.listFilters(actor, query));
     const [rows, [{ total }]] = await Promise.all([
       this.db
-        .select({ row: tradeFairContacts, metByName: users.fullName })
+        // Firma adı görünürlük süzgeci olmadan etiket olarak döner; firmaya gitmek
+        // yine firma ekranının kendi yetki kontrolünden geçer.
+        .select({
+          row: tradeFairContacts,
+          metByName: users.fullName,
+          calledByName: calledByUsers.fullName,
+          quotedByName: quotedByUsers.fullName,
+          linkedCompanyName: companies.legalTitle,
+          divisionName: divisions.name,
+        })
         .from(tradeFairContacts)
         .leftJoin(users, eq(tradeFairContacts.metByUserId, users.id))
+        .leftJoin(calledByUsers, eq(tradeFairContacts.calledBy, calledByUsers.id))
+        .leftJoin(quotedByUsers, eq(tradeFairContacts.quotedBy, quotedByUsers.id))
+        // Firmalar yumuşak silinir (FK tetiklenmez); silinmiş firma "bağlı" görünmesin.
+        .leftJoin(companies, and(eq(tradeFairContacts.companyId, companies.id), isNull(companies.deletedAt)))
+        .leftJoin(divisions, eq(tradeFairContacts.divisionId, divisions.id))
         .where(where)
         .orderBy(desc(tradeFairContacts.createdAt))
         .limit(limit)
         .offset(offset),
       this.db.select({ total: count() }).from(tradeFairContacts).where(where),
     ]);
+    const products = await this.productsFor(rows.map((r) => r.row.id));
     return buildPaginated(
-      rows.map(({ row, metByName }) => ({ ...row, metByName })),
+      rows.map(({ row, metByName, calledByName, quotedByName, linkedCompanyName, divisionName }) => ({
+        ...row,
+        metByName,
+        calledByName,
+        quotedByName,
+        linkedCompanyName,
+        divisionName,
+        products: products.get(row.id) ?? [],
+      })),
       total,
       query
     );
+  }
+
+  async exportRows(actor: AuthContext, query: TradeFairListQuery): Promise<ExportRow[]> {
+    const rows = await this.db
+      .select({
+        row: tradeFairContacts,
+        metByName: users.fullName,
+        calledByName: calledByUsers.fullName,
+        quotedByName: quotedByUsers.fullName,
+        linkedCompanyName: companies.legalTitle,
+        divisionName: divisions.name,
+      })
+      .from(tradeFairContacts)
+      .leftJoin(users, eq(tradeFairContacts.metByUserId, users.id))
+      .leftJoin(calledByUsers, eq(tradeFairContacts.calledBy, calledByUsers.id))
+      .leftJoin(quotedByUsers, eq(tradeFairContacts.quotedBy, quotedByUsers.id))
+      .leftJoin(companies, and(eq(tradeFairContacts.companyId, companies.id), isNull(companies.deletedAt)))
+      .leftJoin(divisions, eq(tradeFairContacts.divisionId, divisions.id))
+      .where(and(...this.listFilters(actor, query)))
+      .orderBy(desc(tradeFairContacts.createdAt))
+      .limit(TRADE_FAIR_EXPORT_LIMIT);
+    const products = await this.productsFor(rows.map((r) => r.row.id));
+    return rows.map(({ row, metByName, calledByName, quotedByName, linkedCompanyName, divisionName }) => ({
+      Tarih: isoDate(row.createdAt),
+      Fuar: row.fairName,
+      Firma: row.companyName,
+      Yetkili: row.contactName,
+      Ünvan: row.contactTitle ?? '',
+      Telefon: row.mobilePhone ?? '',
+      'E-posta': row.email ?? '',
+      Ülke: row.country,
+      İl: row.province ?? '',
+      İlçe: row.district ?? '',
+      Bölüm: divisionName ?? '',
+      Ürünler: (products.get(row.id) ?? []).map((p) => p.name).join(', '),
+      'Ürün Kategorisi': row.productCategory ?? '',
+      'Ürün Tipi': row.productType ?? '',
+      'Görüşen Kişi': metByName ?? '',
+      'Ziyaretçi Sayısı': row.visitorCount,
+      Arandı: row.calledAt ? 'Evet' : '',
+      'Arama Tarihi': isoDate(row.calledAt),
+      Arayan: row.calledAt ? calledByName ?? '' : '',
+      'Teklif Verildi': row.quotedAt ? 'Evet' : '',
+      'Teklif Tarihi': isoDate(row.quotedAt),
+      'Teklifi Veren': row.quotedAt ? quotedByName ?? '' : '',
+      'Bağlı Firma': linkedCompanyName ?? '',
+      Notlar: row.notes ?? '',
+    }));
+  }
+
+  /** Fuar görüşmelerine bağlı fotoğraflar; dosya içeriği imzalı URL ile ayrı alınır. */
+  async photos(actor: AuthContext, query: TradeFairPhotosQuery) {
+    const { limit, offset } = pageOffset(query);
+    const filters: SQL[] = [
+      ...this.baseFilters(actor),
+      eq(fileLinks.tenantId, actor.tenantId),
+      eq(fileLinks.entityType, 'trade_fair_contact'),
+      eq(files.tenantId, actor.tenantId),
+      eq(files.uploadStatus, 'linked'),
+      isNull(files.deletedAt),
+      inArray(files.mimeType, ['image/png', 'image/jpeg', 'image/webp']),
+    ];
+    if (query.fairName) filters.push(eq(tradeFairContacts.fairName, query.fairName));
+    if (query.q) {
+      const term = `%${query.q.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+      filters.push(or(
+        ilike(tradeFairContacts.companyName, term),
+        ilike(tradeFairContacts.contactName, term),
+        ilike(files.originalFilename, term),
+      )!);
+    }
+    const where = and(...filters);
+    const baseQuery = this.db
+      .select({
+        fileId: files.id,
+        filename: files.originalFilename,
+        mimeType: files.mimeType,
+        createdAt: files.createdAt,
+        contactId: tradeFairContacts.id,
+        fairName: tradeFairContacts.fairName,
+        companyName: tradeFairContacts.companyName,
+        contactName: tradeFairContacts.contactName,
+      })
+      .from(fileLinks)
+      .innerJoin(tradeFairContacts, eq(fileLinks.entityId, tradeFairContacts.id))
+      .innerJoin(files, eq(fileLinks.fileId, files.id))
+      .where(where);
+    const [rows, [{ total }]] = await Promise.all([
+      baseQuery.orderBy(desc(files.createdAt), desc(fileLinks.id)).limit(limit).offset(offset),
+      this.db.select({ total: count() })
+        .from(fileLinks)
+        .innerJoin(tradeFairContacts, eq(fileLinks.entityId, tradeFairContacts.id))
+        .innerJoin(files, eq(fileLinks.fileId, files.id))
+        .where(where),
+    ]);
+    return buildPaginated(rows, total, query);
   }
 
   /**
@@ -156,42 +421,168 @@ export class TradeFairsService {
     return row;
   }
 
-  private validateFollowUp(input: unknown) {
-    const result = tradeFairFollowUpSchema.safeParse(input);
-    if (!result.success) throw new ValidationError(result.error.issues[0].message);
-  }
-
   async create(actor: AuthContext, input: TradeFairContactInput) {
-    this.validateFollowUp(input);
     const metByUserId = input.metByUserId ?? actor.userId;
     await this.assertTenantUser(actor, metByUserId);
-    const [row] = await this.db
-      .insert(tradeFairContacts)
-      .values({
-        ...this.normalize(input),
-        tenantId: actor.tenantId,
-        metByUserId,
-        createdBy: actor.userId,
-        updatedBy: actor.userId,
-      })
-      .returning();
-    await this.log(actor, 'created', row.id, undefined, row);
-    return row;
+    await this.assertTenantDivision(actor, input.divisionId);
+    const productModelIds = await this.validateProducts(actor, null, input.productModelIds ?? []);
+    // Kayıt ve ürünleri tek işlemde: ürün yazımı düşerse yarım kayıt kalmasın.
+    const row = await this.db.transaction(async (tx) => {
+      const [inserted] = await tx
+        .insert(tradeFairContacts)
+        .values({
+          ...this.normalize(input),
+          tenantId: actor.tenantId,
+          metByUserId,
+          createdBy: actor.userId,
+          updatedBy: actor.userId,
+        })
+        .returning();
+      await this.writeProducts(tx, actor, inserted.id, productModelIds);
+      return inserted;
+    });
+    await this.log(actor, 'created', row.id, undefined, { ...row, productModelIds });
+    return this.withProducts(row);
   }
 
   async update(actor: AuthContext, id: string, input: TradeFairContactUpdateInput) {
     const before = await this.find(actor, id);
-    this.validateFollowUp({ ...before, ...input });
     // Yalnız değiştiyse doğrula: görüşen çalışan sonradan silinmiş olabilir ve
     // form bu değeri geri gönderir; kayıt yine düzenlenebilmeli.
-    if ('metByUserId' in input && input.metByUserId !== before.metByUserId) await this.assertTenantUser(actor, input.metByUserId);
-    const [row] = await this.db
+    if (input.metByUserId !== before.metByUserId) await this.assertTenantUser(actor, input.metByUserId);
+    if (input.divisionId !== before.divisionId) await this.assertTenantDivision(actor, input.divisionId);
+    // Ürünler satır yazılmadan önce doğrulanır; geçersiz üründe hiçbir alan kaydedilmez.
+    // Ürün listesi gönderilmediyse (kısmi PATCH) dokunulmaz.
+    const productModelIds = input.productModelIds ? await this.validateProducts(actor, id, input.productModelIds) : undefined;
+    const beforeProducts = productModelIds ? await this.productIdsOf(id) : undefined;
+    const row = await this.db.transaction(async (tx) => {
+      const [updated] = await tx
+        .update(tradeFairContacts)
+        .set({ ...this.normalize(input), updatedBy: actor.userId })
+        .where(and(eq(tradeFairContacts.id, id), eq(tradeFairContacts.tenantId, actor.tenantId)))
+        .returning();
+      if (productModelIds) await this.writeProducts(tx, actor, id, productModelIds);
+      return updated;
+    });
+    await this.log(
+      actor,
+      'updated',
+      id,
+      beforeProducts ? { ...before, productModelIds: beforeProducts } : before,
+      productModelIds ? { ...row, productModelIds } : row
+    );
+    return this.withProducts(row);
+  }
+
+  /**
+   * Fuar kaydından fırsat açar ve seçilen kolona taşır. Fırsat her zaman Lead'de
+   * doğar; hedef kolon fırsat ekranındaki aynı geçiş kurallarından geçer. Kural
+   * eksikse fırsat Lead'de kalır ve eksikler döner — kayıt kaybolmaz.
+   */
+  async convertToOpportunity(actor: AuthContext, id: string, input: TradeFairToOpportunityInput) {
+    const row = await this.find(actor, id);
+    // ponytail: ön kontrol; aynı anda iki tıklama iki fırsat açabilir (arayüz düğmeyi kilitliyor).
+    // Gerekirse kaydı satır kilidiyle sahiplenen bir adıma çevrilmeli.
+    if (row.opportunityId) {
+      // Fırsatlar yumuşak silinir (FK tetiklenmez); silinmiş fırsat kaydı kilitlemesin.
+      const [linked] = await this.db
+        .select({ id: opportunities.id })
+        .from(opportunities)
+        .where(and(eq(opportunities.id, row.opportunityId), isNull(opportunities.deletedAt)))
+        .limit(1);
+      if (linked) throw new ConflictError('Bu fuar kaydı zaten fırsata çevrildi', { opportunityId: linked.id });
+    }
+    const products = (await this.productsFor([id])).get(id) ?? [];
+    // Fırsat alanları fuar alanlarından kısa; taşan metin 500 yerine kırpılır.
+    const cut = (value: string | null | undefined, max: number) => (value ? value.slice(0, max) : undefined);
+    // Sorumlu verilmezse görüşen kişi — yalnız başkasına atama yetkisi varsa (fırsat servisiyle aynı kural);
+    // yoksa fırsatın kendi atama kuralı işler.
+    const canAssignOthers = actor.roles.includes('super_admin') || actor.roles.includes('sales');
+    const ownerUserId =
+      input.ownerUserId ?? (row.metByUserId && (canAssignOthers || row.metByUserId === actor.userId) ? row.metByUserId : undefined);
+    const payload = (withCompany: boolean) =>
+      opportunityCreateSchema.parse({
+        title: cut(`${row.companyName} · ${row.fairName}`, 255),
+        description: cut(row.notes, 4000),
+        companyId: withCompany ? row.companyId ?? undefined : undefined,
+        primaryContactId: withCompany && row.companyId ? row.contactId ?? undefined : undefined,
+        divisionId: input.divisionId ?? row.divisionId ?? undefined,
+        ownerUserId,
+        leadContactName: cut(row.contactName, 255),
+        leadCompanyTitle: cut(row.companyName, 255),
+        leadPhone: cut(row.mobilePhone, 64),
+        leadEmail: row.email ?? undefined,
+        leadCity: cut(row.province, 120),
+        leadDistrict: cut(row.district, 120),
+        leadNeedSummary: cut(row.notes, 2000),
+        sourceCode: 'fair',
+        products: products.slice(0, 20).map((p) => ({ productModelId: p.id, machineName: cut(p.name, 255)!, quantity: 1 })),
+      });
+    let opportunity: unknown;
+    try {
+      opportunity = await this.opportunitiesService.create(payload(Boolean(row.companyId)), actor);
+    } catch (err) {
+      // Bağlı firma silinmiş ya da bu kullanıcıya görünmüyorsa fırsat firmasız (lead bilgileriyle) açılır.
+      if (!(row.companyId && err instanceof NotFoundError)) throw err;
+      opportunity = await this.opportunitiesService.create(payload(false), actor);
+    }
+    const opportunityId = String((opportunity as { id: string }).id);
+    await this.db
       .update(tradeFairContacts)
-      .set({ ...this.normalize(input), updatedBy: actor.userId })
-      .where(and(eq(tradeFairContacts.id, id), eq(tradeFairContacts.tenantId, actor.tenantId)))
-      .returning();
-    await this.log(actor, 'updated', id, before, row);
-    return row;
+      .set({ opportunityId, updatedBy: actor.userId })
+      .where(and(eq(tradeFairContacts.id, id), eq(tradeFairContacts.tenantId, actor.tenantId)));
+    await this.log(actor, 'opportunity_created', id, row, { opportunityId });
+
+    let qualificationStage: string = 'lead';
+    let blockers: string[] = [];
+    if (input.qualificationStage !== 'lead') {
+      try {
+        await this.opportunitiesService.changeQualificationStage(
+          opportunityId,
+          { toStage: input.qualificationStage, note: `Fuar kaydından açıldı (${row.fairName})` },
+          actor
+        );
+        qualificationStage = input.qualificationStage;
+      } catch (err) {
+        // Fırsat açıldı ve kayda bağlandı; taşıma hangi nedenle düşerse düşsün Lead'de kalır
+        // ve sebep kullanıcıya döner (aksi halde ekran "çevrilemedi" der, tekrar deneme 409 alırdı).
+        const labels = err instanceof ValidationError ? err.details?.blockerLabels : undefined;
+        blockers = Array.isArray(labels) && labels.length
+          ? labels.map(String)
+          : [err instanceof Error ? err.message : 'Kolon taşıması yapılamadı'];
+      }
+    }
+    return { opportunityId, qualificationStage, requestedStage: input.qualificationStage, blockers };
+  }
+
+  /**
+   * Arandı / teklif verildi işaretini koyar ya da kaldırır; düzenleme yetkisi olan herkes
+   * (kaydı açan olması gerekmez). Dönüşte iki işaretin de kişi adı bulunur.
+   */
+  async setFlag(actor: AuthContext, id: string, flag: TradeFairFlag, value: boolean) {
+    const { at, by, on, off } = FLAG_COLUMNS[flag];
+    const before = await this.find(actor, id);
+    // Zaten işaretliyse (bayat sekme) ilk işaretleyenin adı ve zamanı ezilmez.
+    const row =
+      value && before[at]
+        ? before
+        : (
+            await this.db
+              .update(tradeFairContacts)
+              .set(value ? { [at]: new Date(), [by]: actor.userId } : { [at]: null, [by]: null })
+              .where(and(eq(tradeFairContacts.id, id), eq(tradeFairContacts.tenantId, actor.tenantId)))
+              .returning()
+          )[0];
+    if (row !== before) await this.log(actor, value ? on : off, id, before, row);
+    const nameOf = async (userId: string | null) =>
+      userId
+        ? (await this.db.select({ fullName: users.fullName }).from(users).where(eq(users.id, userId)).limit(1))[0]?.fullName ?? null
+        : null;
+    return {
+      ...(await this.withProducts(row)),
+      calledByName: await nameOf(row.calledBy),
+      quotedByName: await nameOf(row.quotedBy),
+    };
   }
 
   async remove(actor: AuthContext, id: string) {
@@ -205,5 +596,115 @@ export class TradeFairsService {
       .where(eq(tradeFairContacts.id, id));
     await this.log(actor, 'deleted', id, row);
     return { deleted: true };
+  }
+
+  private async withProducts<T extends { id: string }>(row: T) {
+    const products = await this.productsFor([row.id]);
+    return { ...row, products: products.get(row.id) ?? [] };
+  }
+
+  /**
+   * Fuar kaydını Firmalar'a ekler. `companyId` verilirse mevcut firmaya kontak
+   * açılır; verilmezse kayıttaki ünvan/konumla yeni (potansiyel, kaynağı Fuar)
+   * firma açılır. Firma ve kontak kendi servislerinden geçer: mükerrer ünvan,
+   * bölüm ve yetki kuralları normal firma ekleme ile aynı işler.
+   */
+  async addToCompanies(actor: AuthContext, id: string, input: TradeFairToCompanyInput) {
+    const can = (permission: string) => actor.roles.includes('super_admin') || actor.permissions.has(permission);
+    // Satır kilidi: aynı kayda eşzamanlı iki istek (çift tıklama) ikinci kontağı açmasın;
+    // ikinci istek birincinin işlemi bitince güncel satırı görür ve 409 alır.
+    // Firma/kontak servisleri kendi bağlantılarını kullanır ve bu tabloya dokunmaz,
+    // bu yüzden kilit onları bekletmez.
+    const outcome = await this.db.transaction(async (tx) => {
+      const [record] = await tx
+        .select()
+        .from(tradeFairContacts)
+        .where(and(eq(tradeFairContacts.id, id), ...this.baseFilters(actor)))
+        .for('update');
+      if (!record) throw new NotFoundError('Fuar kaydı');
+
+      // Firmalar yumuşak silinir; silinmiş firmaya bağ yok sayılır, kayıt yeniden eklenebilir.
+      let linkedCompanyId: string | null = null;
+      if (record.companyId) {
+        const [alive] = await tx
+          .select({ id: companies.id })
+          .from(companies)
+          .where(and(eq(companies.id, record.companyId), isNull(companies.deletedAt)))
+          .limit(1);
+        linkedCompanyId = alive?.id ?? null;
+      }
+      if (linkedCompanyId && record.contactId) {
+        throw new ConflictError('Bu fuar kaydı zaten Firmalar\'a eklendi', { companyId: linkedCompanyId });
+      }
+      // Önceki denemede firma açılıp kontak adımı düştüyse aynı firmayla devam edilir.
+      const resuming = !!linkedCompanyId;
+      if (!can('contacts.create') || (!resuming && !input.companyId && !can('companies.create'))) {
+        throw new ForbiddenError('Firmalara ekleme yetkiniz yok');
+      }
+
+      let companyId = linkedCompanyId ?? input.companyId;
+      if (companyId) {
+        // Görünürlük kontrolü: kullanıcının göremediği firmaya kontak eklenemez.
+        await this.companiesService.get(companyId, actor);
+      } else {
+        const hasFairSource = await lookupIdByCode(this.db, contactSources, 'fair');
+        const parsed = companyCreateSchema.safeParse({
+          legalTitle: record.companyName,
+          // Firma, fuar kaydında seçilen bölümde açılır (kullanıcı başka bölüm seçmediyse).
+          divisionIds: input.divisionIds ?? (record.divisionId ? [record.divisionId] : undefined),
+          relationTypeCode: 'customer',
+          customerStatusCode: 'potential',
+          ...(hasFairSource ? { contactSourceCode: 'fair' } : { contactSourceText: 'Fuar' }),
+          notes: `Fuar: ${record.fairName}`,
+          address: { country: record.country, province: record.province ?? undefined, district: record.district ?? undefined },
+        });
+        if (!parsed.success) throw new ValidationError(parsed.error.issues[0]?.message ?? 'Firma bilgisi geçersiz');
+        companyId = (await this.companiesService.create(parsed.data, actor)).id;
+      }
+
+      // Serbest girilmiş telefon/e-posta kontak şemasına uymuyorsa o alan boş kalır;
+      // not, fuar önekiyle birlikte kontak notu sınırına kırpılır.
+      const phone = phoneSchema.safeParse(record.mobilePhone ?? '');
+      const email = emailSchema.safeParse(record.email ?? '');
+      const contactInput = contactCreateSchema.safeParse({
+        companyId,
+        fullName: record.contactName,
+        title: record.contactTitle ?? undefined,
+        mobilePhone: phone.success ? phone.data : undefined,
+        workEmail: email.success ? email.data : undefined,
+        notes: [`Fuar: ${record.fairName}`, record.notes].filter(Boolean).join('\n').slice(0, 4000),
+      });
+      try {
+        if (!contactInput.success) throw new ValidationError(contactInput.error.issues[0]?.message ?? 'Kontak bilgisi geçersiz');
+        const contact = await this.contactsService.create(contactInput.data, actor);
+        // Fuarda eklenen fotoğraf/dosyalar firma kartında da görünsün: aynı dosyalar firmaya da bağlanır.
+        const links = await tx
+          .select({ fileId: fileLinks.fileId, documentTypeId: fileLinks.documentTypeId, description: fileLinks.description })
+          .from(fileLinks)
+          .where(and(eq(fileLinks.tenantId, actor.tenantId), eq(fileLinks.entityType, 'trade_fair_contact'), eq(fileLinks.entityId, id)));
+        if (links.length) {
+          await tx.insert(fileLinks).values(
+            links.map((link) => ({ ...link, tenantId: actor.tenantId, entityType: 'company', entityId: companyId! }))
+          );
+        }
+        const [row] = await tx
+          .update(tradeFairContacts)
+          .set({ companyId, contactId: contact.id, updatedBy: actor.userId })
+          .where(eq(tradeFairContacts.id, id))
+          .returning();
+        return { row, companyId, contactId: contact.id, previousCompanyId: record.companyId };
+      } catch (error) {
+        // Firma açıldı ama kontak düştü: bağ yine kaydedilir ki tekrar denemede ikinci
+        // firma açılmasın, aynı firmayla kontak adımından devam edilsin.
+        await tx.update(tradeFairContacts).set({ companyId, updatedBy: actor.userId }).where(eq(tradeFairContacts.id, id));
+        return { error };
+      }
+    });
+    if ('error' in outcome) throw outcome.error;
+
+    await this.log(actor, 'added_to_companies', id, { companyId: outcome.previousCompanyId }, { companyId: outcome.companyId, contactId: outcome.contactId });
+    // Arayüz "Firmalar'a eklendi: <ünvan>" gösterir; ünvan firma servisinin normalize ettiği hâl.
+    const [company] = await this.db.select({ legalTitle: companies.legalTitle }).from(companies).where(eq(companies.id, outcome.companyId!)).limit(1);
+    return { ...(await this.withProducts(outcome.row)), linkedCompanyName: company?.legalTitle ?? null };
   }
 }

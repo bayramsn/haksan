@@ -41,7 +41,7 @@ export function ExportExcelButton({
       setLoading(true);
       await downloadExport(path, filename, params);
     } catch (e: any) {
-      toast.error('Excel indirilemedi', { description: e?.message ?? 'Bilinmeyen hata' });
+      toast.error(`${filename.endsWith('.pdf') ? 'PDF' : 'Excel'} indirilemedi`, { description: e?.message ?? 'Bilinmeyen hata' });
     } finally {
       setLoading(false);
     }

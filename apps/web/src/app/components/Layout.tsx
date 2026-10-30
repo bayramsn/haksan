@@ -9,7 +9,7 @@ import {
   CheckCircle2, Clock, AlertTriangle, Tag, Receipt, Map as MapIcon, Wallet, Calendar, MessageCircle, MessageSquare,
   ListChecks, ListTodo, Store,
   Star, Rows3,
-  Megaphone,
+  Megaphone, Mails,
 } from "lucide-react";
 import { chatService, notificationService, type NotificationDTO, type NotificationTarget } from "../../lib/services";
 import { useAuth } from "../../lib/auth";
@@ -33,7 +33,7 @@ import {
 } from "./ui/dropdown-menu";
 import { ScrollArea } from "./ui/scroll-area";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "./ui/tooltip";
-import { QuickCreateDialog } from "./dialogs/DeferredCreateDialogs";
+import { QuickCreateDialog } from "./dialogs/CreateDialogs";
 import { BrandIllustration } from "./brand";
 import { HelpCenterDialog } from "./HelpCenterDialog";
 import { ApprovalsDialog } from "./ApprovalsDialog";
@@ -56,7 +56,7 @@ import {
 
 export type NavKey =
   | NavigationVisibilityKey | "kanban"
-  | "proformas" | "contracts" | "documents" | "payments" | "accounting-invoices" | "customer-balances" | "due-dates" | "sales-price-list" | "references" | "products"
+  | "proformas" | "contracts" | "documents" | "payments" | "accounting-invoices" | "customer-balances" | "due-dates" | "sales-price-list" | "bulk-mail" | "references" | "products"
   | "stock" | "purchase-orders" | "shipments"
   | "installations" | "deliveries" | "machines" | "service-requests" | "service-kanban" | "service-price-list"
   | "reports" | "users" | "roles" | "departments" | "settings";
@@ -82,6 +82,7 @@ export const RESOURCE_BY_NAV: Partial<Record<NavKey, string>> = {
   contracts: "contracts",
   documents: "files",
   "sales-price-list": "price_lists",
+  "bulk-mail": "mail_campaigns",
   references: "brands",
   products: "products",
   stock: "inventory",
@@ -138,6 +139,7 @@ const NAV_ICON: Record<NavigationVisibilityKey, any> = {
   offers: FileText,
   documents: FolderOpen,
   "sales-price-list": Tag,
+  "bulk-mail": Mails,
   products: Cpu,
   stock: Boxes,
   payments: CreditCard,
@@ -162,6 +164,7 @@ const NAV_ROLES: Partial<Record<NavigationVisibilityKey, string[]>> = {
   offers: ["sales", "finance"],
   documents: ["sales", "finance"],
   "sales-price-list": ["sales"],
+  "bulk-mail": ["sales"],
   products: ["sales", "service", "stock"],
   stock: ["stock"],
   payments: ["finance"],

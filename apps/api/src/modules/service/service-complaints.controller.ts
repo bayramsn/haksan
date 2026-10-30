@@ -55,7 +55,8 @@ const complaintLinkListQuery = paginationSchema.extend({
 });
 const publicComplaintUploadSchema = signedUploadUrlBaseSchema
   .pick({ bucket: true, filename: true, mimeType: true, extension: true, sizeBytes: true })
-  .extend({ bucket: z.literal('erp-service-documents').default('erp-service-documents') });
+  // Oturumsuz uç: genel yükleme sınırı büyüse de anonim yükleme 25 MB'ta kalır.
+  .extend({ bucket: z.literal('erp-service-documents').default('erp-service-documents'), sizeBytes: z.coerce.number().int().positive().max(25 * 1024 * 1024, 'Dosya 25 MB sınırını aşamaz') });
 const publicComplaintFileContentSchema = z
   .instanceof(Buffer)
   .refine((body) => body.byteLength > 0, 'Dosya boyutu sıfır olamaz');

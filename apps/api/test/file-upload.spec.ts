@@ -61,7 +61,7 @@ describe('File upload', () => {
         filename: 'huge.pdf',
         mimeType: 'application/pdf',
         extension: 'pdf',
-        sizeBytes: 50 * 1024 * 1024, // 50MB > default 25MB
+        sizeBytes: 60 * 1024 * 1024, // 60MB > default 50MB
       });
     expect(r.status).toBe(422);
   });

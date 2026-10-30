@@ -5,10 +5,10 @@ const source = readFileSync(new URL("./ContractActionsDialogs.tsx", import.meta.
 const workspaceSource = readFileSync(new URL("../pages/OpportunityWorkspace.tsx", import.meta.url), "utf8");
 
 describe("fırsattaki sözleşme işlemleri", () => {
-  it("imzalı nüshayı PDF ve 25 MB ile sınırlar, fırsata bağlar", () => {
+  it("imzalı nüshayı PDF ve yükleme sınırıyla sınırlar, fırsata bağlar", () => {
     // Doğrulama saf fonksiyonda; davranışı OpportunityContractList.test.ts kanıtlar.
     expect(source).toContain("signedContractFileError(file)");
-    expect(source).toContain("MAX_SIGNED_CONTRACT_BYTES = 25 * 1024 * 1024");
+    expect(source).toContain("MAX_SIGNED_CONTRACT_BYTES = FILE_UPLOAD_MAX_BYTES");
     expect(source).toContain('bucket: "erp-contract-documents"');
     expect(source).toContain('entityType: "opportunity"');
     expect(source).toContain('documentTypeCode: "contract_pdf"');

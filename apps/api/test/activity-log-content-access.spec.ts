@@ -33,7 +33,8 @@ describe('activity log content access', () => {
   const RESULT = 'GİZLİ SONUÇ — ikinci teklif istendi';
   const CONTACT_PHONE = '+90 555 000 11 22';
 
-  const day = (date: Date) => date.toISOString().slice(0, 10);
+  // Rapor günleri İstanbul takvimine göre; UTC günü gece 00:00–03:00 arasında bir gün geride kalır.
+  const day = (date: Date) => date.toLocaleDateString('en-CA', { timeZone: 'Europe/Istanbul' });
   const today = new Date();
 
   const activityLog = (token: string) =>

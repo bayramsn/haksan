@@ -1,7 +1,7 @@
 import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 import { Inject, Injectable } from '@nestjs/common';
 import { z } from 'zod';
-import { and, asc, eq, inArray, isNull, lt, lte } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNull, lt, lte, sql } from 'drizzle-orm';
 import type { DbClient } from '../../db/client';
 import {
   metaConnections,
@@ -13,8 +13,9 @@ import {
   pipelineStages,
 } from '../../db/schema';
 import { DB } from '../../shared/database/database.module';
-import { AppError, UnauthorizedError, ValidationError } from '../../shared/utils/errors';
+import { AppError, NotFoundError, UnauthorizedError, ValidationError } from '../../shared/utils/errors';
 import { MetaGraphClient } from './meta-graph.client';
+import { logger } from '../../shared/utils/logger';
 import { MetaService } from './meta.service';
 
 const webhookPayloadSchema = z.object({
@@ -28,6 +29,15 @@ const webhookPayloadSchema = z.object({
 }).passthrough();
 
 type WebhookPayload = z.infer<typeof webhookPayloadSchema>;
+
+/** Meta lead formlarının hazır soru anahtarları; eşlemesi olmayan formun lead'i bunlarla okunur. */
+export const DEFAULT_LEAD_FIELD_MAPPINGS: Record<string, string> = {
+  full_name: 'contactName',
+  company_name: 'companyTitle',
+  email: 'email',
+  phone_number: 'phone',
+  city: 'city',
+};
 type ConnectionRow = typeof metaConnections.$inferSelect;
 
 interface LeadDetails {
@@ -76,10 +86,17 @@ export class MetaWebhookService {
     const payload = parsed.data;
     const payloadSha256 = createHash('sha256').update(rawBody).digest('hex');
     let accepted = 0;
+    let ignored = 0;
 
     for (const entry of payload.entry) {
       const connection = await this.meta.connectionByAssetId(entry.id);
-      if (!connection) throw new UnauthorizedError('Webhook kaynağı tanınmıyor');
+      // İmza zaten doğrulandı: gövde bizim uygulamamızdan. Pasif/silinmiş bağlantının olayı atlanır;
+      // 401 dönmek paketteki diğer girdileri düşürür ve süren hatada Meta aboneliği kapatır.
+      if (!connection) {
+        ignored += 1;
+        logger.warn({ action: 'meta_webhook_unknown_asset', objectType: payload.object }, 'Meta webhook entry for unknown asset ignored');
+        continue;
+      }
       const eventPayloads = [
         ...(entry.changes ?? []).map((change) => ({ eventType: change.field, payload: { object: payload.object, entryId: entry.id, entryTime: entry.time, change } })),
         ...(entry.messaging ?? []).map((messaging) => ({ eventType: 'messaging', payload: { object: payload.object, entryId: entry.id, entryTime: entry.time, messaging } })),
@@ -100,7 +117,7 @@ export class MetaWebhookService {
       }
       await this.db.update(metaConnections).set({ lastWebhookAt: new Date(), updatedAt: new Date() }).where(eq(metaConnections.id, connection.id));
     }
-    return { received: true, accepted };
+    return { received: true, accepted, ignored };
   }
 
   async processPending(limit = 25, tenantId?: string): Promise<{ processed: number; failed: number }> {
@@ -123,13 +140,43 @@ export class MetaWebhookService {
           attemptCount,
           nextAttemptAt: new Date(Date.now() + Math.min(30_000 * 2 ** attemptCount, 3_600_000)),
           lastError: this.safeErrorCode(error),
-          ...(dead ? { payload: {} } : {}),
+          // Lead olayı yalnız kimlik taşır (leadgen_id, form_id), kişisel veri yok: elde tutulur ki
+          // eşleme/token düzeltildikten sonra "Yeniden dene" ile işlenebilsin. Mesaj metni silinir.
+          ...(dead && claimed.eventType !== 'leadgen' ? { payload: {} } : {}),
           updatedAt: new Date(),
         }).where(eq(metaWebhookEvents.id, claimed.id));
         failed += 1;
       }
     }
     return { processed, failed };
+  }
+
+  /** İşlenemeyen olaylar: "Kuyruğu işle" ekranında nedeniyle gösterilir. */
+  listFailed(tenantId: string) {
+    return this.db.select({
+      id: metaWebhookEvents.id,
+      connectionId: metaWebhookEvents.connectionId,
+      eventType: metaWebhookEvents.eventType,
+      status: metaWebhookEvents.status,
+      attemptCount: metaWebhookEvents.attemptCount,
+      lastError: metaWebhookEvents.lastError,
+      createdAt: metaWebhookEvents.createdAt,
+      updatedAt: metaWebhookEvents.updatedAt,
+      requeueable: sql<boolean>`${metaWebhookEvents.payload} <> '{}'::jsonb`,
+    }).from(metaWebhookEvents)
+      .where(and(eq(metaWebhookEvents.tenantId, tenantId), inArray(metaWebhookEvents.status, ['dead', 'retry'])))
+      .orderBy(desc(metaWebhookEvents.updatedAt))
+      .limit(100);
+  }
+
+  /** Eşleme veya token düzeltildikten sonra olayı baştan dener; içeriği silinmiş olay geri alınamaz. */
+  async requeue(tenantId: string, id: string) {
+    const [row] = await this.db.update(metaWebhookEvents)
+      .set({ status: 'pending', attemptCount: 0, nextAttemptAt: new Date(), lastError: null, updatedAt: new Date() })
+      .where(and(eq(metaWebhookEvents.id, id), eq(metaWebhookEvents.tenantId, tenantId), inArray(metaWebhookEvents.status, ['dead', 'retry']), sql`${metaWebhookEvents.payload} <> '{}'::jsonb`))
+      .returning({ id: metaWebhookEvents.id, status: metaWebhookEvents.status });
+    if (!row) throw new NotFoundError('Yeniden denenebilir Meta olayı');
+    return row;
   }
 
   private assertSignature(rawBody: string, signature: string | undefined) {
@@ -184,9 +231,11 @@ export class MetaWebhookService {
     const lead = await this.graph.get<LeadDetails>(token, leadgenId, { fields: 'id,created_time,ad_id,ad_name,campaign_id,campaign_name,form_id,field_data' });
     const formId = lead.form_id ?? this.text(value.form_id);
     if (!formId) throw new ValidationError('Meta lead form kimliği eksik');
-    const mapping = await this.db.query.metaFormMappings.findFirst({ where: and(eq(metaFormMappings.tenantId, connection.tenantId), eq(metaFormMappings.connectionId, connection.id), eq(metaFormMappings.formId, formId), eq(metaFormMappings.isActive, true), isNull(metaFormMappings.deletedAt)) });
-    if (!mapping) throw new ValidationError('Meta lead form alan eşlemesi bulunamadı');
-    const mapped = this.mapLeadFields(lead.field_data ?? [], mapping.fieldMappings);
+    const mapping = await this.db.query.metaFormMappings.findFirst({ where: and(eq(metaFormMappings.tenantId, connection.tenantId), eq(metaFormMappings.connectionId, connection.id), eq(metaFormMappings.formId, formId), isNull(metaFormMappings.deletedAt)) });
+    // Kapatılmış eşleme bilinçli bir "bu formu alma" kararıdır. Eşleme hiç yoksa lead kaybolmasın:
+    // Meta'nın standart alan adlarıyla bölümsüz/sahipsiz oluşturulur, sonra elle atanır.
+    if (mapping && !mapping.isActive) return;
+    const mapped = this.mapLeadFields(lead.field_data ?? [], mapping?.fieldMappings ?? DEFAULT_LEAD_FIELD_MAPPINGS);
     const [stage, status] = await Promise.all([
       this.db.query.pipelineStages.findFirst({ where: eq(pipelineStages.code, 'lead') }),
       this.db.query.opportunityStatuses.findFirst({ where: eq(opportunityStatuses.code, 'open') }),
@@ -195,8 +244,8 @@ export class MetaWebhookService {
     const title = mapped.companyTitle ?? mapped.contactName ?? lead.ad_name ?? lead.campaign_name ?? 'Meta Lead';
     await this.db.insert(opportunities).values({
       tenantId: connection.tenantId,
-      divisionId: mapping.divisionId,
-      ownerUserId: mapping.ownerUserId,
+      divisionId: mapping?.divisionId ?? null,
+      ownerUserId: mapping?.ownerUserId ?? null,
       title: title.slice(0, 255),
       leadContactName: mapped.contactName ?? null,
       leadCompanyTitle: mapped.companyTitle ?? null,
@@ -212,7 +261,9 @@ export class MetaWebhookService {
       externalMetadata: {
         connectionId: connection.id,
         formId,
+        formName: mapping?.formName ?? null,
         adId: lead.ad_id ?? this.text(value.ad_id) ?? null,
+        adName: lead.ad_name ?? null,
         campaignId: lead.campaign_id ?? null,
         campaignName: lead.campaign_name ?? null,
       },

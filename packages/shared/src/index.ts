@@ -27,7 +27,6 @@ export * from './schemas/calendar';
 export * from './schemas/task';
 export * from './schemas/trade-fair';
 export * from './schemas/mail';
-export * from './schemas/call-assistant';
 export * from './mail-format';
 export * from './schemas/meta';
 export * from './laser';
@@ -36,7 +35,9 @@ export * from './reports';
 export * from './machine-taxonomy';
 
 export * from './hexlaser-2026';
+export * from './hexlaser-2026-aore';
+export * from './laser-price-list';
+export * from './laser-price-formula';
+export { HEX2026_SUPPLEMENT_DOCUMENT } from './hexlaser-2026-supplement-data';
 
 export * from './base-model';
-
-export * from "./commercial-print/templates";

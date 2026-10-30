@@ -2,10 +2,11 @@ import { z } from 'zod';
 import { LASER_PDF_MODELS } from './laser-catalog-data';
 import { HEX2026_REVISION, HEX2026_SERIES, findHex2026Configuration, hex2026PowerBounds, hex2026PowerBranch, hex2026ProductType } from './hexlaser-2026';
 import { AORE_WORKBOOK_SHEETS, AORE_LABEL_ALIASES } from './laser-source-data';
+import { AORE_LEGACY_WORKBOOK_SHEETS } from './laser-source-legacy-data';
 
 export const LASER_POWERS = [1.5, 2, 3, 6, 12, 20, 30] as const;
-export const LASER_SERIES = ['F', 'FT', 'S', 'FB', 'R', 'GR', 'PG', 'PGT', 'H', 'PB', 'TG', 'TH', 'TA', 'TS', 'TE', 'TZ', 'EG', 'EGT', 'T', 'CELL', 'HW', 'PU'] as const;
-export const LASER_TUBE_SERIES: readonly string[] = ['TG', 'TH', 'TA', 'TS', 'TE', 'TZ', 'T'];
+export const LASER_SERIES = ['F', 'FT', 'S', 'FB', 'R', 'GR', 'PG', 'PGT', 'H', 'PB', 'TG', 'TH', 'TA', 'TS', 'TE', 'TZ', 'EG', 'EGT', 'T', 'CELL', 'HW', 'PU', 'V', 'M', 'TC'] as const;
+export const LASER_TUBE_SERIES: readonly string[] = ['TG', 'TH', 'TA', 'TS', 'TE', 'TZ', 'T', 'V', 'M', 'TC'];
 export const LASER_SOURCE_REVISION = 'aore-original-workbook-haksan-2025-v3';
 export const laserSeriesSchema = z.enum(LASER_SERIES);
 export const laserCabinTypeSchema = z.enum(['open', 'closed']);
@@ -29,6 +30,9 @@ export const laserSelectionSchema = z.object({
     FT: /^(?:FT-?\d{4,5}|F\d{4,5}\+T\d+-\d+)$/,
     PGT: /^(?:PGT-?\d{4,5}|PG\d{4,5}\+T\d+-\d+)$/,
     GR: /^(?:GR)?\d{4}(?:Pro)?-\d{1,3}$/i,
+    V: /^V\d{2}(?:Pro)?-\d{2,3}$/,
+    M: /^M\d{2}-\d{2,3}-\d{2,3}$/,
+    TC: /^TC\d{2}-\d{2,3}$/,
   };
   const modelPrefix = modelPatterns[value.series] ?? new RegExp(`^${value.series}-?\\d{4,5}$`);
   if (!modelPrefix.test(value.sourceModelCode) || LASER_TUBE_SERIES.includes(value.series) !== (value.productTypeCode === 'BORU_LAZER_KESIM')) {
@@ -77,7 +81,21 @@ export type LaserBaseConfiguration = z.infer<typeof laserBaseConfigurationSchema
 export const laserBaseFamilyCode = (model: Pick<LaserCatalogModel, 'series' | 'code'>): string =>
   model.series === 'GR' && /Pro/i.test(model.code) ? 'GR_PRO' : model.series;
 
-export interface LaserSourceField { key: string; rawValue: string; groupCode: string; unit?: string; powerKw?: number; source: LaserFieldSource }
+/** `sourceGroup`: AORE kitabındaki bölüm (Temel Parametreler, Performans, Mekanik Sistem…); ürün kartında bu gruplarla gösterilir. */
+export interface LaserSourceField { key: string; rawValue: string; groupCode: string; unit?: string; powerKw?: number; source: LaserFieldSource; sourceGroup?: string }
+
+/** AORE kitabının bölümleri, kitaptaki sırayla. Alt bölüm (Konfigürasyon altındakiler) önce eşlenir. */
+const WORKBOOK_GROUPS: Array<[RegExp, string]> = [
+  [/机械系统|mechanical system/i, 'Mekanik Sistem'],
+  [/外设系统|peripheral system/i, 'Çevre Birimleri'],
+  [/电气系统|electrical system/i, 'Elektrik Sistemi'],
+  [/其他参数|other parameters/i, 'Diğer Parametreler'],
+  [/基本参数|basic parameter/i, 'Temel Parametreler'],
+  [/性能|performance/i, 'Performans'],
+];
+export const LASER_WORKBOOK_GROUPS = ['Temel Parametreler', 'Performans', 'Mekanik Sistem', 'Çevre Birimleri', 'Elektrik Sistemi', 'Diğer Parametreler', 'Standart Yapılandırma'] as const;
+const workbookGroup = (item: string, section: string) =>
+  WORKBOOK_GROUPS.find(([pattern]) => pattern.test(section))?.[1] ?? WORKBOOK_GROUPS.find(([pattern]) => pattern.test(item))?.[1];
 export interface LaserCatalogModel {
   code: string; series: LaserSeries; productTypeCode: LaserSelection['productTypeCode']; sizeLabel: string;
   workingArea?: string; standardCabin: LaserCabinType | null; powerMin: number; powerMax: number;
@@ -91,6 +109,8 @@ export interface LaserWorkbookSheet {
 
 export const LASER_EXCEL_DOCUMENT = 'AORE Technical Parameters.xlsx';
 const EXCEL_DOCUMENT = LASER_EXCEL_DOCUMENT;
+/** Eski kitaptan çözülen (2026'da kaldırılmış) modellerin kaynak belgesi; satılabilir alt model üretilmez. */
+export const LASER_LEGACY_EXCEL_DOCUMENT = 'AORE Technical Parameters 2025.03.18.xlsx';
 const CATALOG_DOCUMENT = 'HAKSAN MAKİNA - FİBER LAZER TEKNOLOJİLERİ DİJİTAL ÜRÜN KATALOĞU - 2025';
 const normalize = (value: string) => value.toLocaleLowerCase('tr-TR').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/ı/g, 'i').replace(/\s+/g, ' ').trim();
 const columnName = (index: number): string => {
@@ -196,9 +216,30 @@ const EXTRA_FIELDS: Array<[string, string, string, string?]> = [
   ['Standard unloading platform (follow-up version)', 'Takipli Standart Boşaltma Platformu', 'GENEL'],
   ['Recommended maximum range for cutting pipes', 'Önerilen Maksimum Boru Ölçüsü', 'KESME', 'mm'],
   ['security light curtains', 'Güvenlik Işık Perdesi', 'GENEL'],
+  // 2026.9.14 çalışma kitabının yeni etiketleri
+  ['Bed layout', 'Gövde Yerleşimi', 'GENEL'],
+  ['Chuck', 'Ayna Tipi', 'KESME'],
+  ['Unloading platform', 'Boşaltma Platformu', 'GENEL'],
+  ['Waste Trolley', 'Atık Toplama Arabası', 'GENEL'],
+  ['Rack', 'Kremayer', 'GENEL'],
+  ['Optional dust removal increases Weight', 'Opsiyonel Toz Emiş Ek Ağırlığı', 'GENEL'],
+  ['Servo follow-up support function', 'Servo Takipli Destek', 'GENEL'],
+  ['Overall Weight', 'Makine Ağırlığı', 'GENEL', 'kg'],
+  ['tube size range-suggest', 'Önerilen Boru Ölçü Aralığı', 'KESME'],
+  ['Bevel 45°cut Width', '45° Pah Kesim Alanı', 'KESME', 'mm'],
+  ['Non-standard Groove straight cut Width', 'Opsiyonel Pah Düz Kesim Alanı', 'KESME', 'mm'],
+  ['Underdraught fan', 'Alttan Emiş Fanı', 'GENEL'],
+  ['Bed Windscreen and bed', 'Gövde Rüzgârlığı', 'GENEL'],
+  ['凹轮支撑', 'İçbükey Makara Desteği', 'KESME'],
+  ['凹轮支撑适用范围', 'İçbükey Makara Destek Aralığı', 'KESME'],
+  ['凹轮支撑范围', 'İçbükey Makara Destek Aralığı', 'KESME'],
+  ['零尾料触发条件', 'Sıfır Artık Tetikleme Koşulu', 'KESME', 'mm'],
+  ['冷水机', 'Su Soğutucu', 'GENEL'],
 ];
 const DEFINITIONS = new Map(FIELD_DEFINITIONS.map(([label, key, groupCode, unit]) => [normalize(label), { key, groupCode, unit }]));
-const canonicalLabel = (label: string) => (AORE_LABEL_ALIASES as Record<string, string>)[label.trim()] ?? label;
+// 2026 çalışma kitabı aynı etiketleri farklı büyük/küçük harf ve boşlukla yazıyor (ör. "poWer").
+const ALIAS_BY_NORMALIZED = new Map(Object.entries(AORE_LABEL_ALIASES as Record<string, string>).map(([label, alias]) => [normalize(label), alias]));
+const canonicalLabel = (label: string) => ALIAS_BY_NORMALIZED.get(normalize(label)) ?? label;
 
 const EXTRA_DEFINITIONS = new Map(EXTRA_FIELDS.map(([label, key, groupCode, unit]) => [normalize(label), { key, groupCode, unit }]));
 function sourceCell(sheet: LaserWorkbookSheet, row: number, col: number) {
@@ -209,7 +250,7 @@ function sourceCell(sheet: LaserWorkbookSheet, row: number, col: number) {
 }
 function fieldDefinition(label: string, section: string) {
   const option = label.match(/^(外形尺寸|总重)[（(]([^）)]+)[）)]/);
-  if (option && !['外贸', 'ihracat'].includes(option[2])) {
+  if (option && !['外贸', 'ihracat', '以最大功率计算'].includes(option[2])) {
     const suffix = option[2] === '含3米卸料台' ? '3 m boşaltma tablası dahil' : option[2];
     return { key: `${option[1] === '外形尺寸' ? 'Makine Ölçüleri' : 'Makine Ağırlığı'} (${suffix})`, groupCode: 'GENEL', unit: option[1] === '外形尺寸' ? 'mm' : 'kg' };
   }
@@ -228,7 +269,8 @@ const TABLE_CATALOG: Partial<Record<LaserSeries, { value: string; page: number }
 };
 const formatArea = (raw: string) => raw.replace(/mm/gi, '').replace(/[x×*]/g, ' × ').trim().replace(/\s+/g, ' ');
 function modelCodes(cell: string, series: LaserSeries): string[] {
-  const text = cell.replace(/[（(].*?[）)]/g, '').trim().replace(/^([A-Z]+)-(\d{4,5})$/, '$1$2');
+  // TS6020+S6 / TZ12070+Z12: "+S6" standart yükleme ünitesidir, model kodunun parçası değildir.
+  const text = cell.replace(/[（(].*?[）)]/g, '').trim().replace(/^([A-Z]+)-(\d{4,5})$/, '$1$2').replace(/^((?:TS|TZ)\d{4,5})\+[A-Z]\d+$/, '$1');
   const codes = series === 'GR' ? text.split('/') : [text];
   return codes.filter((code) => laserSelectionSchema.safeParse({ sourceModelCode: code, series, productTypeCode: LASER_TUBE_SERIES.includes(series) ? 'BORU_LAZER_KESIM' : 'FIBER_LAZER_KESIM', cabinType: 'open', powerKw: 3 }).success);
 }
@@ -243,16 +285,21 @@ export function parseLaserWorkbookSheets(sheets: LaserWorkbookSheet[], fileName:
     // Legacy separate workbooks may use an arbitrary sheet name, so infer only unambiguous standard codes.
     const series = sheetSeries ?? LASER_SERIES.find((candidate) => sheet.rows.slice(0, 5).some((row) => row.some((cell) => new RegExp(`^${candidate}-?\\d{4,5}$`).test(cell.trim()))));
     if (!series) continue;
-    const headerIndex = sheet.rows.findIndex((row) => row.slice(4).some((cell) => modelCodes(cell, series).length > 0));
+    // Model sütunları A–C'de olmaz; etiket sütunu kitaba göre C (2026) ya da D (2025).
+    const headerIndex = sheet.rows.findIndex((row) => row.some((cell, col) => col >= 3 && modelCodes(cell, series).length > 0));
     if (headerIndex < 0) continue;
     const header = sheet.rows[headerIndex];
-    for (let col = 4; col < header.length; col++) for (const code of modelCodes(header[col], series)) {
+    const subItemCol = sheet.rows.slice(0, headerIndex + 1).map((row) => row.findIndex((cell) => /^子项/.test(cell.trim()))).find((col) => col >= 2);
+    const labelCol = subItemCol ?? header.findIndex((cell, col) => col >= 3 && modelCodes(cell, series).length > 0) - 1;
+    for (let col = labelCol + 1; col < header.length; col++) for (const code of modelCodes(header[col], series)) {
       const fields: LaserSourceField[] = [];
       const modelIssues: LaserIssue[] = [];
       let powerMin = 0; let powerMax = 0; let workingArea: string | undefined; let sizeLabel = '';
-      const add = (definition: { key: string; groupCode: string; unit?: string }, rawValue: string, source: LaserFieldSource) => fields.push({ ...definition, rawValue, source });
+      let sourceGroup: string | undefined;
+      const add = (definition: { key: string; groupCode: string; unit?: string }, rawValue: string, source: LaserFieldSource) => fields.push({ ...definition, rawValue, source, sourceGroup });
       for (let index = headerIndex + 1; index < sheet.rows.length; index++) {
-        const rawLabel = sourceCell(sheet, index, 3).value || sourceCell(sheet, index, 2).value;
+        sourceGroup = workbookGroup(sourceCell(sheet, index, labelCol - 2).value, sourceCell(sheet, index, labelCol - 1).value);
+        const rawLabel = sourceCell(sheet, index, labelCol).value || sourceCell(sheet, index, labelCol - 1).value;
         const label = canonicalLabel(rawLabel);
         if (/^子项/.test(rawLabel)) continue;
         const cell = sourceCell(sheet, index, col);
@@ -260,18 +307,19 @@ export function parseLaserWorkbookSheets(sheets: LaserWorkbookSheet[], fileName:
         const source: LaserFieldSource = { document: fileName, sheet: sheet.name, cell: cell.cell, rawValue };
         if (normalize(label) === normalize('Modelin desteklediği güç')) {
           const powers = rawValue.replace(/,/g, '.').match(/\d+(?:\.\d+)?/g);
-          if (powers?.length === 2) [powerMin, powerMax] = powers.map(Number);
+          // Aralık ("1.5-20kW") ya da liste ("3kW、6kW、12kW"): sınırlar en küçük ve en büyük değerdir.
+          if (powers && powers.length >= 2) [powerMin, powerMax] = [Math.min(...powers.map(Number)), Math.max(...powers.map(Number))];
           add({ key: 'Kaynakta Desteklenen Güç', groupCode: 'KESME' }, rawValue, source);
           continue;
         }
         const powerLabel = label.match(/^(\d+(?:[.,]\d+)?)\s*kW lazer kaynağı/i) ?? label.match(/with\s*(\d+(?:[.,]\d+)?)\s*kw\s*source/i) ?? rawLabel.match(/配(\d+(?:[.,]\d+)?)\s*kw激光器/i);
         if (powerLabel) {
           const powerKw = Number(powerLabel[1].replace(',', '.'));
-          fields.push({ key: 'Toplam Güç Gereksinimi', groupCode: 'GENEL', unit: 'kW', rawValue, source, powerKw });
-          fields.push({ key: 'Trafo Kapasitesi', groupCode: 'GENEL', unit: 'kVA', rawValue, source, powerKw });
+          fields.push({ key: 'Toplam Güç Gereksinimi', groupCode: 'GENEL', unit: 'kW', rawValue, source, powerKw, sourceGroup });
+          fields.push({ key: 'Trafo Kapasitesi', groupCode: 'GENEL', unit: 'kVA', rawValue, source, powerKw, sourceGroup });
           continue;
         }
-        const definition = fieldDefinition(rawLabel, sourceCell(sheet, index, 2).value);
+        const definition = fieldDefinition(rawLabel, sourceCell(sheet, index, labelCol - 1).value);
         if (!definition) {
           if (rawLabel && rawValue && !/^[/\\-]+$/.test(rawValue)) {
             const key = rawLabel.split('\n').find((part) => /^[A-Za-z]/.test(part.trim()))?.trim() ?? rawLabel.replace(/\n/g, ' ');
@@ -281,7 +329,7 @@ export function parseLaserWorkbookSheets(sheets: LaserWorkbookSheet[], fileName:
           continue;
         }
         if (definition.key === 'Kesme Alanı' && (series === 'FT' || series === 'PGT')) {
-          const area = rawValue.match(/板切幅面[：:]\s*([^\n]+)/)?.[1];
+          const area = rawValue.match(/(?:板切幅面|(?:Plate|Sheet) cutting area)\s*[：:]\s*([^\n]+)/i)?.[1]?.replace(/mm$/i, '');
           if (area) {
             add(definition, area, source); add({ key: 'Tabla Boyutu', groupCode: 'TABLA', unit: 'mm' }, area, source);
             add({ key: 'Boru Ölçü Aralığı', groupCode: 'KESME' }, rawValue.split('\n').slice(1).join('\n'), source);
@@ -302,15 +350,21 @@ export function parseLaserWorkbookSheets(sheets: LaserWorkbookSheet[], fileName:
         const x = fields.find((f) => f.key === 'Düz Kesim X Alanı'); const y = fields.find((f) => f.key === 'Düz Kesim Y Alanı');
         if (x && y) { workingArea = `${formatArea(x.rawValue)} × ${formatArea(y.rawValue)}`; sizeLabel = `${workingArea} mm`; }
       }
+      sourceGroup = 'Temel Parametreler';
       if (series === 'S') {
-        const rawValue = header[col].includes('推拉台面') ? 'Sürgülü tek tabla' : header[col].includes('固定台面') ? 'Sabit tek tabla' : '';
+        const rawValue = header[col].includes('推拉台面') || /Sliding table/i.test(header[col]) ? 'Sürgülü tek tabla' : header[col].includes('固定台面') || /Fixed table/i.test(header[col]) ? 'Sabit tek tabla' : '';
         if (rawValue) add({ key: 'Tabla Değişim Tipi', groupCode: 'TABLA' }, rawValue, { document: fileName, sheet: sheet.name, cell: `${columnName(col)}${headerIndex + 1}`, rawValue: header[col] });
       }
+      sourceGroup = 'Standart Yapılandırma';
       if (standards) {
         const seriesRow = standards.rows.findIndex((row) => row.includes('F') && row.includes('PG') && row.includes('TG'));
         // The GR-Pro column does not authorize assigning Pro components to standard GR models.
-        const standardSeries = series === 'GR' && /Pro/i.test(code) ? 'GR-Pro' : series;
-        const seriesCol = standards.rows[seriesRow].indexOf(standardSeries);
+        // 2026 S sayfası modelleri tahrik grubuna ayırır; vidalı mil grubu kendi standart sütununu kullanır.
+        const driveGroup = series === 'S' && headerIndex > 0 ? sourceCell(sheet, headerIndex - 1, col).value : '';
+        const standardSeries = series === 'GR' && /Pro/i.test(code) ? 'GR-Pro' : /Ball screw/i.test(driveGroup) ? 'S (Vidalı mil)' : series;
+        // 2026 kitabında GR-Pro sütunu yok; tek GR sütunu iki varyantı da kapsar.
+        const exactCol = standards.rows[seriesRow].indexOf(standardSeries);
+        const seriesCol = exactCol >= 0 || standardSeries !== 'GR-Pro' || standards.rows[seriesRow].includes('GR-Pro') ? exactCol : standards.rows[seriesRow].indexOf('GR');
         if (seriesCol >= 0) for (let index = seriesRow + 1; index < standards.rows.length; index++) {
           const definition = fieldDefinition(standards.rows[index][0] ?? '', '');
           if (!definition) continue;
@@ -338,7 +392,11 @@ export function parseLaserWorkbookSheets(sheets: LaserWorkbookSheet[], fileName:
 /** Resolve one source rule without evaluating source text as executable code. */
 export function resolveLaserPowerRule(raw: string, power: number): string | undefined {
   const text = raw.replace(/：/g, ':').replace(/；/g, ';').replace(/[＜]/g, '<').replace(/[＞]/g, '>').replace(/(\d),(\d)/g, '$1.$2').replace(/[–—]/g, '-').replace(/12--40/g, '12-40');
-  const lines = text.split(/[\n;]/).map((line) => line.trim()).filter(Boolean);
+  // "12kW/20kW: X" iki ayrı güç koşuludur.
+  const lines = text.split(/[\n;]/).map((line) => line.trim()).filter(Boolean).flatMap((line) => {
+    const list = line.match(/^((?:\d+(?:\.\d+)?\s*kw\s*\/\s*)+\d+(?:\.\d+)?\s*kw)\s*:\s*(.+)$/i);
+    return list ? list[1].split('/').map((power) => `${power.trim()}: ${list[2]}`) : [line];
+  });
   let hasCondition = false;
   for (const line of lines) {
     const match = line.match(/^(≤|>=|≥|<=|<|>)?\s*(\d+(?:\.\d+)?)\s*(?:kw)?\s*(?:-\s*(\d+(?:\.\d+)?)\s*)?kw(?:\s*:\s*|\s+)(.+)$/i);
@@ -357,7 +415,8 @@ const CABIN_SENSITIVE = new Set(['Makine Ağırlığı', 'Makine Ölçüleri', '
 const POWER_SENSITIVE = new Set(['Tabla Yük Kapasitesi', 'Makine Ağırlığı', 'Makine Ölçüleri', 'Toplam Güç Gereksinimi', 'Trafo Kapasitesi', 'Kesme Kafası', 'Kontrol Ünitesi', 'X Eksen Motor Gücü', 'Y Eksen Motor Gücü', 'Z Eksen Motor Gücü', 'B Eksen Motor Gücü', 'Tabla Değişim Motor Gücü']);
 
 function splitUnit(raw: string, defaultUnit?: string): { value: string; unit?: string } {
-  let value = raw.trim();
+  // Kaynak yazım hatası "3kW/6kW12kW": birimin ardından gelen rakam yeni bir değerdir.
+  let value = raw.trim().replace(/(\d\s*kw)(?=\d)/gi, '$1/');
   if (value === '●') return { value: 'Standart' };
   if (value === '○') return { value: 'Opsiyonel' };
   if (value === '×') return { value: 'Yok' };
@@ -379,7 +438,14 @@ function splitUnit(raw: string, defaultUnit?: string): { value: string; unit?: s
 }
 
 function variantRaw(field: LaserSourceField, selection: LaserSelection): string | undefined {
-  const raw = field.rawValue.replace(/：/g, ':');
+  // 2026 kitabı: ilk satır motor markası ("汇川电機\n40.35kW/50kVA"), GR satırı "GR 52.35kW/80kVA".
+  const sections = field.rawValue.replace(/：/g, ':').replace(/^\s*(?:汇川电机|柏楚S9|BOCHU S9)\s*\n/, '').replace(/^GR( Pro)? (?=\d)/gm, 'GR$1: ')
+    // "Bevel cutting:" altındaki satırlar pah kesim opsiyonudur, standart yapılandırma değildir.
+    .split(/\n\s*Bevel cutting\s*:/i);
+  // Model kodu yalnız pah bölümünde geçiyorsa (V12Pro) o bölüm modelin standardıdır.
+  const shortCode = selection.sourceModelCode.split('-')[0]!;
+  const keyedIn = (text: string) => new RegExp(`(?:^|\\n|[、,]\\s*)${shortCode}\\s*(?:[、,][^:\\n]*)?:`).test(text);
+  const raw = sections.length > 1 && !keyedIn(sections[0]!) && keyedIn(sections[1]!) ? sections[1]!.trim() : sections[0]!.trim();
   if (selection.series !== 'GR' || !/^GR(?:[- ]?Pro)?\s*:/im.test(raw)) return raw;
   const entries = raw.split('\n').map((line) => line.match(/^GR([- ]?Pro)?\s*:\s*(.+)$/i)).filter((entry): entry is RegExpMatchArray => Boolean(entry));
   return entries.find((entry) => Boolean(entry[1]) === /Pro/i.test(selection.sourceModelCode))?.[2];
@@ -395,9 +461,16 @@ function resolveField(field: LaserSourceField, selection: LaserSelection): strin
   if (['TG', 'TH', 'TA'].includes(selection.series) && field.key === 'Kontrol Ünitesi') {
     // These conditions identify chuck size, not laser power. A PDF-only model has no inferred chuck controller.
     const diameter = ({ TG6012: 120, TG6020: 230, TG6035: 350, TH6012: 120, TH6020: 230, TH6035: 350, TA6020: 230, TA6035: 350 } as Record<string, number>)[selection.sourceModelCode];
-    const flat = raw.replace(/\n/g, ' ');
-    const entries = [...flat.matchAll(/(\d+)(?:-(\d+))?\s*(?:ayna|卡盘)[^:;]*:\s*(FSCUT[\w-]+)/gi)];
+    const flat = raw.replace(/\n/g, ' ').replace(/[–—]/g, '-');
+    const entries = [...flat.matchAll(/(\d+)(?:-(\d+))?\s*(?:ayna|卡盘|chuck)[^:;]*:\s*(FSCUT[\w-]+)/gi)];
     return entries.find((entry) => diameter >= Number(entry[1]) && diameter <= Number(entry[2] ?? entry[1]))?.[3];
+  }
+  // "V12: FSCUT3000DE-A; V24、V36: FSCUT3000DE-G": her satır model koduyla başlıyorsa modelin satırı seçilir.
+  const lines = raw.split('\n').map((line) => line.trim()).filter(Boolean);
+  const keyed = lines.map((line) => line.match(/^([A-Z]+\d+(?:Pro)?(?:\s*[、,]\s*[A-Z]+\d+(?:Pro)?)*)\s*:\s*(.+?)\s*[；;]?$/));
+  if (lines.length && keyed.every(Boolean)) {
+    const shortCode = selection.sourceModelCode.split('-')[0];
+    return keyed.find((match) => match![1].split(/\s*[、,]\s*/).includes(shortCode))?.[2];
   }
   if (field.key === 'Kesme Kafası' && ['TG6012', 'TH6012'].includes(selection.sourceModelCode)) {
     const special = raw.match(new RegExp(`${selection.sourceModelCode}\\s*:\\s*([\\w-]+)`, 'i'));
@@ -407,6 +480,16 @@ function resolveField(field: LaserSourceField, selection: LaserSelection): strin
 }
 
 /** Human-readable translations do not alter the original source.rawValue. */
+const CJK = /[\u3400-\u9fff]/;
+// 2026 kitabında yalnız İngilizce kalan değerlerin Türkçe karşılıkları.
+const ENGLISH_SOURCE_VALUES: Record<string, string> = {
+  'Standard Configuration': 'Standart yapılandırma', 'MAX': 'MAX', 'kOFON': 'KOFON', 'KOFON': 'KOFON', 'Hanli': 'HANLI',
+  'China INOVANCE/BOCHU S9': 'INOVANCE (Çin) / BOCHU S9', 'China INOVANCE': 'INOVANCE (Çin)', 'BOCHO S9': 'BOCHU S9', 'BOCHU S9': 'BOCHU S9',
+  'Taiwan HIWIN': 'HIWIN (Tayvan)', 'Taiwan YYC': 'YYC (Tayvan)', 'Italy MOTOR POWER': 'MOTOR POWER (İtalya)', 'Neugart': 'Neugart (Almanya)',
+  'Welded bed': 'Kaynaklı gövde', 'Aluminum profiles': 'Havacılık tipi alüminyum profil', 'Welded beams': 'Kaynaklı kiriş',
+  'Side hung bed': 'Yandan askılı gövde', 'Plate tube Welding': 'Sac-boru kaynaklı gövde', 'Full stroke precision chuck': 'Tam stroklu hassas ayna',
+  'Horizontal type': 'Yatay tip', 'Full pneumatic self centering chuck': 'Tam pnömatik, kendinden merkezlemeli ayna', 'Unlimited ±∞': 'Sınırsız ±∞',
+};
 export function displayLaserSourceValue(raw: string): string {
   const exact: Record<string, string> = {
     '焊接床身\nWelded bed': 'Kaynaklı gövde', '航空工业用铝材\nAluminum profiles': 'Havacılık tipi alüminyum profil',
@@ -420,9 +503,38 @@ export function displayLaserSourceValue(raw: string): string {
     '总线控制 EtherCAT Bus control': 'EtherCAT haberleşme sistemi', '无限制±∞\nUnlimited ±∞': 'Sınırsız ±∞',
     '全气动自定心卡盘\nFull pneumatic self centering chuck': 'Tam pnömatik, kendinden merkezlemeli ayna',
     '支持 DXF、LXD、PLT、AI、Gerber等图形数据格式，\n接受 Lantek、CNCkad等软件生成的国际标准 G 代码': 'DXF, LXD, PLT, AI, Gerber; Lantek ve CNCkad tarafından üretilen standart G kodları',
+    // Rulo (R) serisi
+    '0.5-3.0mm冷轧板、镀锌板\n0.5-2.0mm不锈钢板': '0.5-3.0 mm soğuk haddelenmiş ve galvaniz sac\n0.5-2.0 mm paslanmaz sac',
+    '≤20m/min(以技术方案为准)\n≤20m/min(Subject to technical plan )': '≤20 m/dk (teknik plana göre)',
+    '≤±2mm/㎡( (以技术方案为准)\n≤±2mm/㎡(Subject to technical plan )': '≤±2 mm/m² (teknik plana göre)',
+    // Boru serileri: kesit şekli ve boru gereksinimleri
+    '圆管、方管、矩形管、椭圆管、长圆管（跑道圆）、角钢、槽钢等管材\nRound, square, rectangular, oval, rounded rectangular, Angle steel, channel steel and other tubes\n（有其他截面形状请咨询产品经理）\nFor other cross-sectional shapes, please consult the product manager':
+      'Yuvarlak, kare, dikdörtgen, oval ve yuvarlatılmış dikdörtgen boru; köşebent, U profil ve diğer profiller\nDiğer kesit şekilleri için ürün yöneticisine danışın.',
+    '圆管、方管、矩形管、槽钢、角钢、工字钢等\nRound tube, square tube, rectangular tube，angle steel, channel steel, I-beam, etc.\n（有其他截面形状请咨询产品经理）\nFor other cross-sectional shapes, please consult the product manager':
+      'Yuvarlak, kare ve dikdörtgen boru; köşebent, U profil, I profil vb.\nDiğer kesit şekilleri için ürün yöneticisine danışın.',
+    '管径Diameter<φ50mm 管材壁厚thickness≥1.2mm;\n管径Diameter≥φ50mm\n薄壁管的管壁与直径的比值不小于1/40\nWall thickness≥2.5% of Diameters of tubes':
+      'Çap < φ50 mm: et kalınlığı ≥ 1.2 mm\nÇap ≥ φ50 mm: et kalınlığı çapın en az %2,5\'i (1/40)',
+    '管径Diameter<φ50mm 管材壁厚thickness≥2mm;\n管径Diameter≥φ50mm\n薄壁管的管壁与直径的比值不小于1/40\nWall thickness≥2.5% of Diameters of tubes':
+      'Çap < φ50 mm: et kalınlığı ≥ 2 mm\nÇap ≥ φ50 mm: et kalınlığı çapın en az %2,5\'i (1/40)',
+    '管径Diameter≥φ50mm\n卡盘夹持壁厚 >5mm\n薄壁管的管壁与直径的比值不小于1/40\nWall thickness≥2.5% of Diameters of tubes':
+      'Çap ≥ φ50 mm\nAyna bağlama et kalınlığı > 5 mm\nEt kalınlığı çapın en az %2,5\'i (1/40)',
+    '离心风机\ncentrifugal fan': 'Santrifüj fan',
+    '管径Diameter＜φ50mm 管材壁厚thickness≥1.2mm；\n管径Diameter≥φ50mm\nWall thickness≥2.5% of Diameters of tubes':
+      'Çap < φ50 mm: et kalınlığı ≥ 1.2 mm\nÇap ≥ φ50 mm: et kalınlığı çapın en az %2,5\'i (1/40)',
   };
-  if (exact[raw]) return exact[raw];
-  return raw.replace(/圆管Round tube/gi, 'Yuvarlak boru ').replace(/方管square tube/gi, 'Kare boru ')
+  // Kaynak hücrelerde satır sonu boşlukları tutarsız; eşleşme satırlar kırpılarak da denenir.
+  const trimmed = raw.split('\n').map((line) => line.trim()).join('\n');
+  if (exact[raw] ?? exact[trimmed]) return exact[raw] ?? exact[trimmed];
+  // 2026 kitabı hücreleri "Çince satır\nİngilizce karşılık" yazar: Çince satır, ardından gelen
+  // İngilizce karşılığı varsa düşer (ör. "汇川电机\n1.3kW" → "1.3kW", "标配\nStandard Configuration").
+  const lines = trimmed.split('\n');
+  const bilingual = lines.filter((line, index) => !(CJK.test(line) && lines.slice(index + 1).some((next) => next.trim() && !CJK.test(next))))
+    .join('\n')
+    // GR hücresi taban ve Pro değerini "GR 52.35kW/80kVA" biçiminde yazar; varyant ayrımı "GR: …" bekler.
+    .replace(/^GR( Pro)? (?=\d)/gm, 'GR$1: ');
+  const englishValue = ENGLISH_SOURCE_VALUES[bilingual] ?? (/^Supports DXF/.test(bilingual) ? exact['支持 DXF、LXD、PLT、AI、Gerber等图形数据格式，\n接受 Lantek、CNCkad等软件生成的国际标准 G 代码'] : undefined);
+  if (englishValue) return englishValue;
+  return bilingual.replace(/^BOCHU\n(?=FSCUT)/, 'BOCHU ').replace(/圆管Round tube/gi, 'Yuvarlak boru ').replace(/方管square tube/gi, 'Kare boru ')
     .replace(/其余见卡盘加持示意图\nFor the rest, please refer to the schematic diagram of chuck mounting/g, 'Diğer kesitler için ayna bağlama diyagramına bakın.')
     .replace(/(\d+)组（(\d+)个）/g, '$1 grup ($2 adet)').replace(/（可调）|\(可调\)/g, '(ayarlanabilir)')
     .replace(/^柏楚\n/, '').replace(/-七轴/g, ' (7 eksen)').replace(/●（基础版）/g, 'Standart (temel sürüm)')
@@ -430,7 +542,12 @@ export function displayLaserSourceValue(raw: string): string {
     .replace(/板切[：:]/g, 'Sac kesim: ').replace(/管切[：:]/g, 'Boru kesim: ').replace(/坡口直切[：:]/g, 'Düz kesim: ')
     .replace(/坡口坡口?切[：:]/g, 'Pah kesim: ').replace(/直切[：:]/g, 'Düz kesim: ').replace(/坡口[：:]/g, 'Pah kesim: ')
     .replace(/三相/g, 'Üç faz ').replace(/单相/g, 'Tek faz ').replace(/建议边长或直径/g, 'Önerilen kenar uzunluğu veya çapı ')
-    .replace(/(\d+(?:\.\d+)?)寸(?:\*(\d+))?(?:\n[\d.]+ inches(?:\*\d+)?)?/g, (_, size: string, count: string) => `${size} inç${count ? ` × ${count}` : ''}`);
+    .replace(/(\d+(?:\.\d+)?)寸(?:\*(\d+))?(?:\n[\d.]+ inches(?:\*\d+)?)?/g, (_, size: string, count: string) => `${size} inç${count ? ` × ${count}` : ''}`)
+    .replace(/管材夹持范围[:：]?/g, 'Boru bağlama aralığı: ').replace(/圆管φ/g, 'Yuvarlak boru φ').replace(/方管(?=\d)/g, 'Kare boru ')
+    .replace(/[（(]小Y[)）]/g, ' (küçük Y)')
+    .replace(/[（(]含独立配电柜[)）]/g, ' (bağımsız elektrik panosu dahil)').replace(/[（(]滚柱式[)）]/g, ' (makaralı tip)').replace(/-7 axis\b/gi, ' (7 eksen)').replace(/[（(]不含开卷校平[)）]/g, ' (rulo açma ve düzleştirme hariç)')
+    // Tam genişlikli Çince noktalama: ％ 、 ， （ ）
+    .replace(/％/g, '%').replace(/[、，]/g, ', ').replace(/（/g, ' (').replace(/）/g, ')');
 }
 
 export function resolveLaserProfile(selectionInput: LaserSelection, models: readonly LaserCatalogModel[] = LASER_MODELS): LaserResolvedProfile {
@@ -515,7 +632,13 @@ function catalogExtras(base: LaserCatalogModel[]): LaserCatalogModel[] {
   return extra;
 }
 
-const importedModels = parseLaserWorkbookSheets(AORE_WORKBOOK_SHEETS, EXCEL_DOCUMENT).models;
+// 2026 kitabından çıkarılan modeller (R, TE, F6525, GR 14–20 kW, GR4000, TZ12070) mevcut kart ve
+// tekliflerde kalır: bunlar eski kitaptan, kendi standart sayfasıyla ve model bütünüyle çözülür.
+const currentModels = parseLaserWorkbookSheets(AORE_WORKBOOK_SHEETS, EXCEL_DOCUMENT).models;
+const importedModels = [
+  ...currentModels,
+  ...parseLaserWorkbookSheets(AORE_LEGACY_WORKBOOK_SHEETS, LASER_LEGACY_EXCEL_DOCUMENT).models.filter((model) => !currentModels.some((current) => current.series === model.series && current.code === model.code)),
+];
 /** Workbook fields are primary; catalog supplements never resolve a missing power branch with another source. */
 export function mergeLaserCatalogModels(primary: readonly LaserCatalogModel[], supplemental: readonly LaserCatalogModel[]): LaserCatalogModel[] {
   const merged = primary.map((model) => ({ ...model, fields: [...model.fields], issues: [...model.issues] }));
@@ -538,6 +661,33 @@ export function mergeLaserCatalogModels(primary: readonly LaserCatalogModel[], s
   return merged;
 }
 export const LASER_MODELS: readonly LaserCatalogModel[] = mergeLaserCatalogModels([...importedModels, ...catalogExtras(importedModels)], LASER_PDF_MODELS);
+
+/** AORE alan adı → HEX 2026 baz kart alan adı (ek veri üretici ve gruplama ortak kullanır). */
+export const HEX2026_AORE_KEYS: Readonly<Record<string, string>> = {
+  'Kesme Alanı': 'Çalışma Alanı (mm)',
+  'Konumlama Hassasiyeti': 'Pozisyonlama Hassasiyeti',
+  'Maks. Eksen Hızı': 'Maksimum Hareket Hızı',
+  'Maksimum İvme': 'Maksimum Hızlanma',
+  'Kaynakta Desteklenen Güç': 'Lazer Gücü',
+};
+/** Yalnız HEX PDF'inde olan alanlar; kitaptaki karşılıklarının bölümüne konur. */
+const PDF_ONLY_GROUPS: Record<string, string> = Object.fromEntries([
+  ...['Eğimli Kesim Çalışma Alanı (mm)', 'Çalışma Alanı (kW)-(mm)', 'Konvansiyonel Düz Kesim (mm)', 'Konik Düz Kesim (mm)', 'Konik 45° Kesim (mm)',
+    'Yuvarlak Boru Çapı', 'Kare Boru Kenar Uzunluğu', 'Minimum Artık Parça Miktarı (Fire)', 'Parça Başına Maksimum Yük Kapasitesi'].map((key) => [key, 'Temel Parametreler']),
+  ...['A Eksen Hareketi', 'C Eksen Hareketi', 'Kesim Hassasiyeti'].map((key) => [key, 'Performans']),
+]);
+let fieldGroups: Map<string, string> | undefined;
+/** Alanın AORE kitabındaki bölümü (ilk görüldüğü yer); hiçbir bölüme oturmayan alan için undefined. */
+export function laserFieldWorkbookGroup(key: string): string | undefined {
+  if (!fieldGroups) {
+    fieldGroups = new Map(Object.entries(PDF_ONLY_GROUPS));
+    for (const model of LASER_MODELS) for (const field of model.fields) {
+      if (!field.sourceGroup) continue;
+      for (const name of [field.key, HEX2026_AORE_KEYS[field.key]]) if (name && !fieldGroups.has(name)) fieldGroups.set(name, field.sourceGroup);
+    }
+  }
+  return fieldGroups.get(key);
+}
 
 function noteConflict(code: string, field: string, message: string, page: number, cell?: string) {
   const model = LASER_MODELS.find((model) => model.code === code);

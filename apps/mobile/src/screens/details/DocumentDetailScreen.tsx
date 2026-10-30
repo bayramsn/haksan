@@ -13,6 +13,7 @@ import { Screen } from '@/src/ui/Screen';
 import { TabStrip } from '@/src/ui/TabStrip';
 import { colors, layout, spacing, typography, fonts } from '@/src/theme/tokens';
 import { useDetailRecord } from './useDetailRecord';
+import { foldTermsToNotes } from '@/src/ui/offer/proformaNotes';
 
 const TABS = ['Genel', 'Ekler', 'Notlar'] as const;
 type Tab = (typeof TABS)[number];
@@ -40,7 +41,10 @@ export function DocumentDetailScreen({ navKey, id }: Props) {
   const validUntil = String(data?.validUntil ?? data?.expirationDate ?? '');
   const documentDate = String(data?.documentDate ?? data?.createdAt ?? '');
   
-  const notes = String(data?.note ?? data?.notes ?? data?.description ?? '');
+  // Proformanın notları belge anlık görüntüsündeki şart metinlerinde durur.
+  const notes = navKey === 'proformas'
+    ? foldTermsToNotes(data?.documentSnapshot?.terms) || String(data?.notes ?? '')
+    : String(data?.note ?? data?.notes ?? data?.description ?? '');
 
   const openMore = () => {
     Alert.alert(typeLabel, undefined, [

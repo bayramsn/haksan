@@ -1,9 +1,6 @@
 import { useMemo } from "react";
 import type { Product } from "../../lib/mock";
 import { Combobox } from "../ui/combobox";
-import { Button } from "../ui/button";
-import { useAuth } from "../../../lib/auth";
-import { useStore } from "../../lib/store";
 
 const CUSTOM_VALUE = "__requested_machine_custom__";
 
@@ -35,13 +32,9 @@ export function RequestedMachineCombobox({
   disabled?: boolean;
   className?: string;
 }) {
-  const { hasPermission } = useAuth();
-  const { loading, loadErrors, refresh } = useStore();
-  const canReadCatalog = hasPermission('products.read');
-  const catalogError = loadErrors.some((error) => error.startsWith('Ürünler:'));
   const currentValue = value?.trim() ?? "";
   const { options, selectedValue } = useMemo(() => {
-    const catalogOptions = (canReadCatalog ? products : [])
+    const catalogOptions = products
       .filter((product) => (product.categoryCode ?? "").toLocaleUpperCase("en-US") === "TEZGAH")
       .filter((product) => product.status === "active")
       .map((product) => ({
@@ -66,13 +59,10 @@ export function RequestedMachineCombobox({
       ],
       selectedValue: CUSTOM_VALUE,
     };
-  }, [currentValue, products, canReadCatalog]);
+  }, [currentValue, products]);
 
   return (
-    <div className="min-w-0 space-y-2">
     <Combobox
-      ariaLabel="İstenen makine"
-      loading={canReadCatalog && loading}
       className={className}
       options={options}
       value={selectedValue}
@@ -85,10 +75,8 @@ export function RequestedMachineCombobox({
       onCreate={(label) => void onValueChange(label)}
       placeholder="Makine seçin veya adını yazın…"
       searchPlaceholder="Marka, model veya ürün kodu ara…"
-      emptyText={!canReadCatalog ? 'Kataloğu görüntüleme yetkiniz yok. Makine adını elle yazabilirsiniz.' : catalogError ? 'Katalog yüklenemedi. Makine adını elle yazabilir veya yeniden deneyebilirsiniz.' : 'Katalogda eşleşen makine yok.'}
+      emptyText="Katalogda eşleşen makine yok."
       createLabel={(query) => `“${query}” metnini istenen makine olarak kullan`}
     />
-    {!canReadCatalog ? <p role="status" className="text-xs leading-5 text-muted-foreground">Kataloğu görüntüleme yetkiniz yok. Makine adını elle yazabilirsiniz.</p> : catalogError ? <div role="alert" className="flex flex-wrap items-center gap-2 text-xs text-destructive"><span>Katalog yüklenemedi; elle giriş kullanabilirsiniz.</span><Button type="button" size="sm" variant="ghost" onClick={() => void refresh()}>Yeniden dene</Button></div> : null}
-    </div>
   );
 }

@@ -50,7 +50,7 @@ describe('LaserConfigurationEditor', () => {
     render(<Harness onChange={onChange} />);
     const user = await choose6kw();
     const weight = await screen.findByLabelText('Makine Ağırlığı') as HTMLInputElement;
-    expect(weight.value).toBe('2150');
+    expect(weight.value).toBe('2420');
     await user.clear(weight);
     await user.type(weight, '2222');
     await user.selectOptions(screen.getByLabelText('5. Rezonatör gücü'), '12');
@@ -58,13 +58,13 @@ describe('LaserConfigurationEditor', () => {
     expect(screen.queryByLabelText('Makine Ağırlığı')).toBeNull();
     expect((screen.getByLabelText('6. Tabla ölçüsü') as HTMLSelectElement).value).toBe('');
     await user.selectOptions(screen.getByLabelText('6. Tabla ölçüsü'), 'F3015');
-    expect((await screen.findByLabelText('Makine Ağırlığı') as HTMLInputElement).value).toBe('3150');
-    expect((screen.getByLabelText('Tabla Yük Kapasitesi') as HTMLInputElement).value).toBe('1500');
+    expect((await screen.findByLabelText('Makine Ağırlığı') as HTMLInputElement).value).toBe('3260');
+    expect((screen.getByLabelText('Tabla Yük Kapasitesi') as HTMLInputElement).value).toBe('1835');
     await user.selectOptions(screen.getByLabelText('5. Rezonatör gücü'), '6');
     await user.selectOptions(screen.getByLabelText('6. Tabla ölçüsü'), 'F3015');
     expect((await screen.findByLabelText('Makine Ağırlığı') as HTMLInputElement).value).toBe('2222');
     await user.click(screen.getByRole('button', { name: 'Makine Ağırlığı kaynak değerine dön' }));
-    expect((screen.getByLabelText('Makine Ağırlığı') as HTMLInputElement).value).toBe('2150');
+    expect((screen.getByLabelText('Makine Ağırlığı') as HTMLInputElement).value).toBe('2420');
   }, 15_000);
 
   it('classifies PG3015 by closed cabin, table size and 1.5 kW transformer profile', async () => {
@@ -78,7 +78,7 @@ describe('LaserConfigurationEditor', () => {
     await waitFor(() => expect(modelSelect.disabled).toBe(false));
     expect(screen.getByRole('option', { name: /PG3015 — 3050 × 1530 mm/ })).toBeTruthy();
     await user.selectOptions(modelSelect, 'PG3015');
-    expect((await screen.findByLabelText('Toplam Güç Gereksinimi') as HTMLInputElement).value).toBe('17.5');
+    expect((await screen.findByLabelText('Toplam Güç Gereksinimi') as HTMLInputElement).value).toBe('19.15');
     expect((screen.getByLabelText('Trafo Kapasitesi') as HTMLInputElement).value).toBe('30');
     expect((screen.getByLabelText('Trafo Kapasitesi birimi') as HTMLInputElement).value).toBe('kVA');
   });
@@ -92,9 +92,9 @@ describe('LaserConfigurationEditor', () => {
     const user = await choose6kw();
     await user.selectOptions(screen.getByLabelText('5. Rezonatör gücü'), '12');
     await user.selectOptions(screen.getByLabelText('6. Tabla ölçüsü'), 'F3015');
-    expect((await screen.findByLabelText('Makine Ağırlığı') as HTMLInputElement).value).toBe('3150');
+    expect((await screen.findByLabelText('Makine Ağırlığı') as HTMLInputElement).value).toBe('3260');
     await act(async () => { finishOld(resolveLaserProfile(selection)); });
-    expect((screen.getByLabelText('Makine Ağırlığı') as HTMLInputElement).value).toBe('3150');
+    expect((screen.getByLabelText('Makine Ağırlığı') as HTMLInputElement).value).toBe('3260');
   });
 
   it('preserves an existing snapshot without resolving current catalog values', async () => {

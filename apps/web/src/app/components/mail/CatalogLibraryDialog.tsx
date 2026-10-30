@@ -41,7 +41,7 @@ export function CatalogLibraryDialog({ open, onOpenChange, onSelect }: {
   const upload = async (file?: File) => {
     if (!file || !user) return;
     if (!/\.pdf$/i.test(file.name) || (file.type && file.type !== 'application/pdf') || !file.size || file.size > MAIL_MAX_ATTACHMENT_BYTES) {
-      toast.error('Katalog PDF olmalı ve 15 MB sınırını aşmamalıdır'); return;
+      toast.error(`Katalog PDF olmalı ve ${MAIL_MAX_ATTACHMENT_BYTES / (1024 * 1024)} MB sınırını aşmamalıdır`); return;
     }
     setBusy(true);
     try {
@@ -60,7 +60,7 @@ export function CatalogLibraryDialog({ open, onOpenChange, onSelect }: {
   return <Dialog open={open} onOpenChange={value => !busy && onOpenChange(value)}>
     <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
       <DialogHeader><DialogTitle className="flex items-center gap-2"><BookOpen className="size-4" />Genel Kataloglar</DialogTitle>
-        <DialogDescription>Kataloğu bir kez yükleyin; mail gönderirken kütüphaneden seçin. PDF, en fazla 15 MB.</DialogDescription></DialogHeader>
+        <DialogDescription>Kataloğu bir kez yükleyin; mail gönderirken kütüphaneden seçin. PDF, en fazla {MAIL_MAX_ATTACHMENT_BYTES / (1024 * 1024)} MB.</DialogDescription></DialogHeader>
       <div className="flex flex-wrap gap-2">
         <div className="relative flex-1"><Search className="absolute left-3 top-2.5 size-4 text-muted-foreground" /><Input aria-label="Katalog ara" placeholder="Katalog adı ara..." value={q} onChange={e => setQ(e.target.value)} className="pl-9" /></div>
         {canUpload && <><input ref={input} type="file" accept=".pdf,application/pdf" className="sr-only" aria-label="Katalog PDF yükle" onChange={e => { void upload(e.target.files?.[0]); e.target.value = ''; }} /><Button variant="outline" disabled={busy} onClick={() => input.current?.click()}>{busy ? <Loader2 className="mr-2 size-4 animate-spin" /> : <Upload className="mr-2 size-4" />}Katalog Yükle</Button></>}

@@ -80,7 +80,9 @@ export async function importHexlaser2026(db: DbClient, tenantId: string, userId:
   const site=aoreSite(); const images=pdfImages();
   for(const {source,matches:found} of lockedMatches){
    const typeCode=hex2026ProductType(source);
-   const sourceGroup=group;
+   // Haksan site import keeps welding under its own KAYNAK group; reuse it rather than demand a second taxonomy.
+   const weldingGroup=source.kind==='welding'?(await tx.select().from(s.productGroups).where(and(eq(s.productGroups.code,'KAYNAK'),eq(s.productGroups.divisionId,division.id),eq(s.productGroups.isActive,true))))[0]:undefined;
+   const sourceGroup=weldingGroup??group;
    const sourceCategory=source.kind==='welding'?await ensure(s.productCategories,'HM_KAYNAK_KAYNAK','Kaynak Teknolojileri',{productGroupId:sourceGroup.id}):category;
    const sub=await ensure(s.productSubcategories,source.kind==='welding'?'HM_KAYNAK_HEX_LAZER_KAYNAK':'SAC_LAZER_KESIM',source.kind==='welding'?'Lazer Kaynak':'Lazer Kesim',{categoryId:sourceCategory.id});
    const typeRows=await tx.select().from(s.productTypes).where(and(sql`upper(${s.productTypes.code}) = ${typeCode.toUpperCase()}`,eq(s.productTypes.divisionId,division.id),eq(s.productTypes.isActive,true)));const exactTypes=typeRows.filter(row=>row.code===typeCode);const preferredTypes=exactTypes.length?exactTypes:typeRows;if(preferredTypes.length>1)throw new Error(`Ambiguous product type ${typeCode}`);const existingType=preferredTypes[0]; // DB keeps legacy lower-case codes (fiber_lazer_kesim)
@@ -99,7 +101,7 @@ export async function importHexlaser2026(db: DbClient, tenantId: string, userId:
     // Fill only empty text/image; manual edits always win.
     const fill={...(!base.description?.trim()&&site.has(source.series)?{description:aoreText(site.get(source.series))}:{})};
     if(Object.keys(fill).length){const before=base;[base]=await tx.update(s.productModels).set({...fill,updatedAt:sql`${s.productModels.updatedAt}`}).where(eq(s.productModels.id,base.id)).returning();capture('models',before,base);enrichedProducts++;}
-    if((base.laserBaseConfiguration as (LaserBaseConfiguration & { sourceRevision?: string }) | null)?.sourceRevision!==HEX2026_REVISION){const before=base;[base]=await tx.update(s.productModels).set({laserBaseConfiguration:baseConfig,updatedAt:sql`${s.productModels.updatedAt}`}).where(eq(s.productModels.id,base.id)).returning();capture('models',before,base);updatedProducts++;}
+    if((base.laserBaseConfiguration as (LaserBaseConfiguration & { sourceRevision?: string }) | null)?.sourceRevision!==HEX2026_REVISION||!isDeepStrictEqual((base.laserBaseConfiguration as LaserBaseConfiguration | null)?.sourceModelCodes,baseConfig.sourceModelCodes)){const before=base;[base]=await tx.update(s.productModels).set({laserBaseConfiguration:baseConfig,updatedAt:sql`${s.productModels.updatedAt}`}).where(eq(s.productModels.id,base.id)).returning();capture('models',before,base);updatedProducts++;}
    }else{
     [base]=await tx.insert(s.productModels).values({tenantId,brandId:actualBrand.id,series:source.series,productGroupId:sourceGroup.id,categoryId:sourceCategory.id,subcategoryId:type.subcategoryId,productTypeId:type.id,modelCode:`HEX2026-${source.series}`,modelName:`${source.series} Serisi`,fullName:`${source.series} Serisi`,currencyId:currency.id,vatRate:'20',listPrice:null,cashPrice:null,technicalConfiguration:null,laserBaseConfiguration:baseConfig,description:`${aoreText(site.get(source.series))}${site.has(source.series)?'\n\n':''}HEX 2026 PDF, sayfa ${source.page}. Ölçü/güç seçenekleri ayrı fiyatlandırılır. Güç aralıklarından seçenek üretilmez; doğrulanmış seçenekler kullanıcı tarafından eklenmelidir. Kaynak revizyonu: ${HEX2026_REVISION}.`}).returning();capture('models',null,base);createdProducts++;
    }

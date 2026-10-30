@@ -28,7 +28,7 @@ import {
   fileService,
 } from '../../lib/services';
 import { useAuth } from '../../lib/auth';
-import { resolveMediaUrl, requestContextKey, RequestScopeChangedError } from '../../lib/apiClient';
+import { resolveMediaUrl } from '../../lib/apiClient';
 import {
   STOCK_CATEGORY_LABELS,
   STOCK_CONDITION_CODES,
@@ -370,6 +370,79 @@ const normalizeWarrantyClaim = (claim: any): ServiceWarrantyClaim | null => {
   };
 };
 
+export const normalizeProduct = (p: any) => ({
+  id: p.id,
+  divisionId: p.divisionId ?? p.division?.id ?? undefined,
+  brand: p.brand?.name ?? '',
+  brandId: p.brand?.id ?? undefined,
+  brandLogoFileId: p.brand?.logoFileId ?? null,
+  brandLogoUrl: resolveMediaUrl(p.brand?.logoUrl) || undefined,
+  series: p.series ?? '',
+  productGroup: p.productGroup?.name ?? '',
+  productGroupCode: p.productGroup?.code ?? '',
+  model: p.modelCode ?? '',
+  modelName: p.modelName ?? '',
+  type: p.productType?.name ?? '',
+  productTypeCode: p.productType?.code ?? '',
+  compatibleMachineTypeCode: p.compatibleMachineType?.code ?? undefined,
+  controlPanel:
+    (p.specs ?? []).find((spec: any) =>
+      /kontrol\s*(ünitesi|unitesi|paneli)|cnc\s*kontrol/i.test(String(spec.key ?? spec.specKey ?? '')),
+    )?.value
+    ?? (p.specs ?? []).find((spec: any) =>
+      /kontrol\s*(ünitesi|unitesi|paneli)|cnc\s*kontrol/i.test(String(spec.key ?? spec.specKey ?? '')),
+    )?.specValue
+    ?? (p.standardEquipment ?? []).find((title: string) => /kontrol\s*(ünitesi|unitesi|paneli)|cnc\s*kontrol/i.test(title))
+    ?? '',
+  category: displayProductCategoryOptions([{ code: p.category?.code ?? '', label: p.category?.name ?? '' }], p.productGroup?.code)[0].label,
+  categoryCode: p.category?.code ?? '',
+  subcategory: p.subcategory?.name ?? '',
+  subcategoryCode: p.subcategory?.code ?? '',
+  imageUrl: resolveMediaUrl(p.imageUrl),
+  shortDescription: p.fullName ?? '',
+  description: p.description ?? '',
+  listPrice: p.listPrice == null ? undefined : Number(p.listPrice),
+  cashPrice: p.cashPrice === null || p.cashPrice === undefined ? undefined : Number(p.cashPrice),
+  currency: (p.currency?.code as 'USD' | 'EUR' | 'TRY') ?? 'USD',
+  vatRate: normalizeProductVatRate(p.vatRate),
+  originCountry: p.originCountry ?? '',
+  hsCode: p.hsCode ?? '',
+  stockCode: p.stockCode ?? '',
+  supplierCompanyId: p.supplierCompanyId ?? null,
+  optionalCompatibilityGroupCodes: p.optionalCompatibilityGroupCodes ?? [],
+  optionalCompatibilityCategoryCodes: p.optionalCompatibilityCategoryCodes ?? [],
+  optionalCompatibilitySubcategoryCodes: p.optionalCompatibilitySubcategoryCodes ?? [],
+  optionalCompatibilityTypeCodes: p.optionalCompatibilityTypeCodes ?? [],
+  optionalCompatibilityBrandIds: p.optionalCompatibilityBrandIds ?? [],
+  laserBaseConfiguration: p.laserBaseConfiguration ?? null,
+  baseModelConfiguration: p.baseModelConfiguration ?? null,
+  technicalConfiguration: p.technicalConfiguration ?? null,
+  specs: (p.technicalConfiguration?.specs ?? p.specs ?? []).map((s: any) => ({
+    key: s.key ?? s.specKey ?? '',
+    value: s.value ?? s.specValue ?? '',
+    unit: s.unit ?? s.specUnit ?? '',
+    groupCode: s.groupCode ?? s.specGroupCode ?? '',
+    groupName: s.groupName ?? s.group ?? '',
+  })).filter((s: any) => s.key && (p.technicalConfiguration || s.value)),
+  standardEquipment: p.standardEquipment ?? [],
+  optionalEquipment: p.optionalEquipment ?? [],
+  muadilProductId: p.muadilProductId ?? undefined,
+  muadilProductIds: p.muadilProductIds ?? (p.muadilProductId ? [p.muadilProductId] : []),
+  muadilProducts: (p.muadilProducts ?? []).map((alt: any) => ({
+    id: alt.id,
+    brand: alt.brand?.name ?? '',
+    brandLogoUrl: resolveMediaUrl(alt.brand?.logoUrl) || undefined,
+    model: alt.modelCode ?? '',
+    shortDescription: alt.fullName ?? '',
+    category: alt.category?.name ?? '',
+    categoryCode: alt.category?.code ?? '',
+    type: alt.productType?.name ?? '',
+    listPrice: alt.listPrice == null ? undefined : Number(alt.listPrice),
+    currency: (alt.currency?.code as 'USD' | 'EUR' | 'TRY') ?? 'USD',
+  })),
+  status: (p.isActive ? 'active' : 'passive') as Product['status'],
+});
+
 const compactProductCode = (value: string) =>
   value
     .trim()
@@ -475,6 +548,7 @@ export type QuoteLineCompatibility = {
   technicalConfiguration?: LaserTechnicalConfiguration | null;
   selectedProductOptions?: import("@haksan/shared").QuoteSelectedProductOption[];
   configurationOptionSetId?: string;
+  configurationPrice?: import("@haksan/shared").QuoteItemCompatibility["configurationPrice"];
 };
 
 export type QuoteLineInput = {
@@ -486,6 +560,7 @@ export type QuoteLineInput = {
   discountAmount: number;
   vatRate: number;
   compatibility?: QuoteLineCompatibility;
+  nationalized?: boolean;
 };
 
 export type CreateQuotePayload = {
@@ -735,7 +810,6 @@ function StoreInner({ children }: { children: ReactNode }) {
     status === 'Tamamlandı' ? 'completed' : 'pending';
 
   const fetchAllOnce = useCallback(async () => {
-    const context = requestContextKey();
     if (!sessionReady || !authed) {
       setLoading(false);
       setLoadErrors([]);
@@ -759,9 +833,7 @@ function StoreInner({ children }: { children: ReactNode }) {
     ): Promise<T> => {
       if (!can(permission)) return fallback;
       try {
-        if (context !== requestContextKey()) throw new RequestScopeChangedError();
         const result = await fn();
-        if (context !== requestContextKey()) throw new RequestScopeChangedError();
         const meta = (result as { meta?: { total?: number; pageSize?: number } })?.meta;
         if (trackTruncation && meta && typeof meta.total === 'number' && typeof meta.pageSize === 'number' && meta.total > meta.pageSize) {
           truncated.push(`${label} (${meta.total})`);
@@ -804,7 +876,6 @@ function StoreInner({ children }: { children: ReactNode }) {
           'opportunities.read'
         ),
       ]);
-      if (context !== requestContextKey()) return;
       setLoadErrors(errors);
       setLoadTruncated(truncated);
 
@@ -910,78 +981,7 @@ function StoreInner({ children }: { children: ReactNode }) {
       setClosedCases(closedOpps.data.map(mapListCase));
 
 
-      const apiProducts = prods.data.map((p: any) => ({
-          id: p.id,
-          divisionId: p.divisionId ?? p.division?.id ?? undefined,
-          brand: p.brand?.name ?? '',
-          brandId: p.brand?.id ?? undefined,
-          brandLogoFileId: p.brand?.logoFileId ?? null,
-          brandLogoUrl: resolveMediaUrl(p.brand?.logoUrl) || undefined,
-          series: p.series ?? '',
-          productGroup: p.productGroup?.name ?? '',
-          productGroupCode: p.productGroup?.code ?? '',
-          model: p.modelCode ?? '',
-          modelName: p.modelName ?? '',
-          type: p.productType?.name ?? '',
-          productTypeCode: p.productType?.code ?? '',
-          compatibleMachineTypeCode: p.compatibleMachineType?.code ?? undefined,
-          controlPanel:
-            (p.specs ?? []).find((spec: any) =>
-              /kontrol\s*(ünitesi|unitesi|paneli)|cnc\s*kontrol/i.test(String(spec.key ?? spec.specKey ?? '')),
-            )?.value
-            ?? (p.specs ?? []).find((spec: any) =>
-              /kontrol\s*(ünitesi|unitesi|paneli)|cnc\s*kontrol/i.test(String(spec.key ?? spec.specKey ?? '')),
-            )?.specValue
-            ?? (p.standardEquipment ?? []).find((title: string) => /kontrol\s*(ünitesi|unitesi|paneli)|cnc\s*kontrol/i.test(title))
-            ?? '',
-          category: displayProductCategoryOptions([{ code: p.category?.code ?? '', label: p.category?.name ?? '' }], p.productGroup?.code)[0].label,
-          categoryCode: p.category?.code ?? '',
-          subcategory: p.subcategory?.name ?? '',
-          subcategoryCode: p.subcategory?.code ?? '',
-          imageUrl: resolveMediaUrl(p.imageUrl),
-          shortDescription: p.fullName ?? '',
-          description: p.description ?? '',
-          listPrice: p.listPrice == null ? undefined : Number(p.listPrice),
-          cashPrice: p.cashPrice === null || p.cashPrice === undefined ? undefined : Number(p.cashPrice),
-          currency: (p.currency?.code as 'USD' | 'EUR' | 'TRY') ?? 'USD',
-          vatRate: normalizeProductVatRate(p.vatRate),
-          originCountry: p.originCountry ?? '',
-          hsCode: p.hsCode ?? '',
-          stockCode: p.stockCode ?? '',
-          supplierCompanyId: p.supplierCompanyId ?? null,
-          optionalCompatibilityGroupCodes: p.optionalCompatibilityGroupCodes ?? [],
-          optionalCompatibilityCategoryCodes: p.optionalCompatibilityCategoryCodes ?? [],
-          optionalCompatibilitySubcategoryCodes: p.optionalCompatibilitySubcategoryCodes ?? [],
-          optionalCompatibilityTypeCodes: p.optionalCompatibilityTypeCodes ?? [],
-          optionalCompatibilityBrandIds: p.optionalCompatibilityBrandIds ?? [],
-          laserBaseConfiguration: p.laserBaseConfiguration ?? null,
-          baseModelConfiguration: p.baseModelConfiguration ?? null,
-          technicalConfiguration: p.technicalConfiguration ?? null,
-          specs: (p.technicalConfiguration?.specs ?? p.specs ?? []).map((s: any) => ({
-            key: s.key ?? s.specKey ?? '',
-            value: s.value ?? s.specValue ?? '',
-            unit: s.unit ?? s.specUnit ?? '',
-            groupCode: s.groupCode ?? s.specGroupCode ?? '',
-            groupName: s.groupName ?? s.group ?? '',
-          })).filter((s: any) => s.key && (p.technicalConfiguration || s.value)),
-          standardEquipment: p.standardEquipment ?? [],
-          optionalEquipment: p.optionalEquipment ?? [],
-          muadilProductId: p.muadilProductId ?? undefined,
-          muadilProductIds: p.muadilProductIds ?? (p.muadilProductId ? [p.muadilProductId] : []),
-          muadilProducts: (p.muadilProducts ?? []).map((alt: any) => ({
-            id: alt.id,
-            brand: alt.brand?.name ?? '',
-            brandLogoUrl: resolveMediaUrl(alt.brand?.logoUrl) || undefined,
-            model: alt.modelCode ?? '',
-            shortDescription: alt.fullName ?? '',
-            category: alt.category?.name ?? '',
-            categoryCode: alt.category?.code ?? '',
-            type: alt.productType?.name ?? '',
-            listPrice: alt.listPrice == null ? undefined : Number(alt.listPrice),
-            currency: (alt.currency?.code as 'USD' | 'EUR' | 'TRY') ?? 'USD',
-          })),
-          status: (p.isActive ? 'active' : 'passive') as Product['status'],
-        }));
+      const apiProducts = prods.data.map(normalizeProduct);
       // Products (incl. the imported Haksan CNC catalogue) come from the DB API.
       // Blobs are served by the auth-gated public media endpoint, not bundled.
       setProducts(apiProducts);
@@ -1472,12 +1472,11 @@ function StoreInner({ children }: { children: ReactNode }) {
         }))
       );
     } finally {
-      if (context === requestContextKey()) setLoading(false);
+      setLoading(false);
     }
   }, [authed, sessionReady, user?.permissions, activeDepartment, activeDivision]);
 
   const fetchAll = useCallback(async () => {
-    const context = requestContextKey();
     if (fetchAllInFlightRef.current) {
       fetchAllQueuedRef.current = true;
       return fetchAllInFlightRef.current;
@@ -1485,7 +1484,6 @@ function StoreInner({ children }: { children: ReactNode }) {
 
     const run = (async () => {
       do {
-        if (context !== requestContextKey()) return;
         fetchAllQueuedRef.current = false;
         await fetchAllOnce();
       } while (fetchAllQueuedRef.current);
@@ -2027,17 +2025,18 @@ function StoreInner({ children }: { children: ReactNode }) {
         discountAmount: it.discountAmount,
         vatRate: it.vatRate,
         sortOrder: i,
+        // Baz kart seçenekleri ve model × güç fiyatı da gider; düzenleme yolu (persistQuoteItems) ile aynı.
         compatibility: it.compatibility
           ? {
-              lineGroupKey: it.compatibility.lineGroupKey,
+              ...it.compatibility,
               machineIds: it.compatibility.machineIds ?? [],
               brands: it.compatibility.brands ?? [],
               controlUnits: it.compatibility.controlUnits ?? [],
               supplierIds: it.compatibility.supplierIds ?? [],
               technicalSpecs: it.compatibility.technicalSpecs ?? [],
-              technicalConfiguration: it.compatibility.technicalConfiguration,
             }
           : undefined,
+        ...(it.nationalized !== undefined ? { nationalized: it.nationalized } : {}),
       });
     }
 

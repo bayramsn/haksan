@@ -140,6 +140,9 @@ const STATUS_TONES: Record<string, string> = {
   syncing: "border-warning/25 bg-warning-soft text-warning",
   error: "border-destructive/25 bg-destructive-soft text-destructive",
   failed: "border-destructive/25 bg-destructive-soft text-destructive",
+  dead: "border-destructive/25 bg-destructive-soft text-destructive",
+  retry: "border-warning/25 bg-warning-soft text-warning",
+  processing: "border-warning/25 bg-warning-soft text-warning",
   rejected: "border-destructive/25 bg-destructive-soft text-destructive",
   disabled: "border-border bg-muted text-muted-foreground",
   paused: "border-border bg-muted text-muted-foreground",
@@ -148,9 +151,12 @@ const STATUS_TONES: Record<string, string> = {
   new: "border-primary/20 bg-brand-blue-soft text-primary",
 };
 
+/** Kuyruk durumları (CAPI ve webhook) API'den İngilizce kodla gelir. */
+const QUEUE_LABELS: Record<string, string> = { pending: "Bekliyor", processing: "İşleniyor", retry: "Yeniden denenecek", dead: "Durdu", sent: "Gönderildi", failed: "Başarısız" };
+
 export function MetaStatusBadge({ status, label }: { status: string; label?: string }) {
   const key = status.toLowerCase();
-  const text = label ?? (key in LEAD_LABELS ? LEAD_LABELS[key as MetaLeadStatus] : status);
+  const text = label ?? (key in LEAD_LABELS ? LEAD_LABELS[key as MetaLeadStatus] : QUEUE_LABELS[key] ?? status);
   return (
     <span className={cn("inline-flex min-h-6 items-center rounded-md border px-2 py-0.5 text-[10px] font-semibold", STATUS_TONES[key] ?? STATUS_TONES.idle)}>
       {text}
@@ -208,7 +214,6 @@ export function formatMetaDate(value?: string | null): string {
 }
 
 export function formatMetaMoney(minor: number | null | undefined, currency = "TRY"): string {
-  if (minor == null || !Number.isFinite(minor)) return "—";
   return new Intl.NumberFormat("tr-TR", {
     style: "currency",
     currency,
@@ -217,7 +222,6 @@ export function formatMetaMoney(minor: number | null | undefined, currency = "TR
 }
 
 export function formatMetaNumber(value: number | null | undefined): string {
-  if (value == null || !Number.isFinite(value)) return "—";
   return new Intl.NumberFormat("tr-TR", { maximumFractionDigits: 1 }).format(Number(value ?? 0));
 }
 

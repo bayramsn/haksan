@@ -91,6 +91,15 @@ export const quoteItemCompatibilitySchema = z.object({
   technicalSpecs: z.array(quoteItemTechnicalSpecSchema).default([]),
   technicalConfiguration: laserTechnicalConfigurationSchema.nullish(),
   selectedProductOptions: z.array(quoteSelectedProductOptionSchema).max(100).optional(),
+  // Baz kartın model × güç matrisinden gelen satış fiyatı; sunucu matristen doğrular ve yazar.
+  configurationPrice: z.object({
+    sourceModelCode: z.string().trim().min(1).max(64),
+    powerKw: z.number().finite().positive().max(1000),
+    salePrice: moneySchema,
+    currencyCode: z.string().min(3).max(8),
+    /** Lazer CIF / millileştirilmiş liste seçildiyse fiyat o listenin liste fiyatıdır. */
+    priceListCode: z.enum(['LAZER-CIF-IST', 'LAZER-MILLI-IST']).nullish(),
+  }).nullish(),
 });
 export type QuoteItemCompatibility = z.infer<typeof quoteItemCompatibilitySchema>;
 
@@ -404,8 +413,7 @@ export type ContractUpdateInput = z.infer<typeof contractUpdateSchema>;
 
 export const commercialInvoiceCreateSchema = z.object({
   quoteId: z.string().min(1),
-  /** `null` → fatura no temizlenir (PATCH). */
-  invoiceNo: z.string().trim().min(1).max(64).nullish(),
+  invoiceNo: z.string().trim().min(1).max(64).optional(),
   invoiceDate: z.coerce.date(),
   statusCode: z.string().max(64).default('draft'),
   fileId: z.string().optional(),

@@ -33,6 +33,15 @@ import { QuotesService } from '../quotes/quotes.service';
 import { FilesService } from '../files/files.service';
 import { HtmlPdfService } from '../../shared/pdf/html-pdf.service';
 
+/**
+ * Zaman çizelgesi "ne gönderdik" sorusunu da cevaplasın: ek adları mesajın sonunda.
+ * Uzun mesaj kesilirken ek satırı korunur (alan 4000 karakter).
+ */
+export function activityDescription(body: string, filenames: string[]): string {
+  const note = filenames.length ? `\n\nEkler: ${filenames.join(', ')}`.slice(0, 1000) : '';
+  return body.slice(0, 4000 - note.length) + note;
+}
+
 const mailRecipientsQuerySchema = z.object({ companyId: z.string().uuid().optional() });
 
 @UseGuards(AuthGuard)
@@ -82,33 +91,56 @@ export class MailController {
     return this.accounts.status(actor);
   }
 
-  @Get('signature/users')
-  async signatureUsers(@CurrentUser() actor: AuthContext) {
-    this.requireSignatureAdmin(actor);
+  /** Süper admin: webmail ayarı yapılabilecek kullanıcılar (hesabı bağlı mı bilgisiyle). */
+  @Get('account/users')
+  async accountUsers(@CurrentUser() actor: AuthContext) {
+    if (!actor.roles.includes('super_admin')) throw new ForbiddenError('Kullanıcıların webmail ayarları süper admin yetkisi gerektirir');
     const rows = await this.db.select({ id: users.id, name: users.fullName, email: users.email, accountId: userMailAccounts.id }).from(users)
       .leftJoin(userMailAccounts, and(eq(userMailAccounts.userId, users.id), eq(userMailAccounts.tenantId, actor.tenantId)))
       .where(and(eq(users.tenantId, actor.tenantId), isNull(users.deletedAt))).orderBy(asc(users.fullName));
     return rows.map(({ accountId, ...row }) => ({ ...row, hasMailAccount: Boolean(accountId) }));
   }
 
-  private requireSignatureAdmin(actor: AuthContext) {
-    if (!actor.roles.includes('super_admin')) throw new ForbiddenError('İmza yönetimi süper admin yetkisi gerektirir');
+  // Kullanıcı bazlı uçlar: kendi id'si herkes için, başkasınınki yalnız süper admin (owner()).
+  @Get('account/users/:userId')
+  async userAccount(@Param('userId', new ZodValidationPipe(z.string().uuid())) userId: string, @CurrentUser() actor: AuthContext) {
+    return this.accounts.status(await this.accounts.owner(actor, userId));
   }
 
-  @Get('signature/users/:userId')
-  async userSignature(@Param('userId', new ZodValidationPipe(z.string().uuid())) userId: string, @CurrentUser() actor: AuthContext) {
-    this.requireSignatureAdmin(actor);
-    const target = await this.db.query.users.findFirst({ where: and(eq(users.id, userId), eq(users.tenantId, actor.tenantId), isNull(users.deletedAt)) });
-    if (!target) throw new NotFoundError('Kullanıcı');
-    return this.accounts.imageSignature({ tenantId: actor.tenantId, userId });
+  @Put('account/users/:userId')
+  @Throttle({ default: { limit: 5, ttl: 15 * 60_000 } })
+  connectUser(
+    @Param('userId', new ZodValidationPipe(z.string().uuid())) userId: string,
+    @Body(new ZodValidationPipe(userMailAccountUpsertSchema)) body: UserMailAccountUpsertInput,
+    @CurrentUser() actor: AuthContext
+  ) {
+    return this.accounts.configure(body, actor, userId);
   }
 
-  @Put('signature/users/:userId')
+  @Delete('account/users/:userId')
+  disconnectUser(@Param('userId', new ZodValidationPipe(z.string().uuid())) userId: string, @CurrentUser() actor: AuthContext) {
+    return this.accounts.remove(actor, userId);
+  }
+
+  @Put('account/users/:userId/signature')
+  @Throttle({ default: { limit: 20, ttl: 60_000 } })
+  userTextSignature(
+    @Param('userId', new ZodValidationPipe(z.string().uuid())) userId: string,
+    @Body(new ZodValidationPipe(userMailSignatureSchema)) body: UserMailSignatureInput,
+    @CurrentUser() actor: AuthContext
+  ) {
+    return this.accounts.updateSignature(body, actor, userId);
+  }
+
+  @Put('account/users/:userId/signature/image')
   @Throttle({ default: { limit: 5, ttl: 60_000 } })
-  saveUserSignature(@Param('userId', new ZodValidationPipe(z.string().uuid())) userId: string,
-    @Body(new ZodValidationPipe(mailSignatureSchema)) body: MailSignatureInput, @CurrentUser() actor: AuthContext) {
-    this.requireSignatureAdmin(actor);
-    return this.accounts.saveSignature(body, actor, userId);
+  async userSignatureImage(
+    @Param('userId', new ZodValidationPipe(z.string().uuid())) userId: string,
+    @Body(new ZodValidationPipe(mailSignatureSchema)) body: MailSignatureInput,
+    @CurrentUser() actor: AuthContext
+  ) {
+    await this.accounts.saveSignature(body, actor, userId);
+    return this.accounts.status(await this.accounts.owner(actor, userId));
   }
 
   /**
@@ -163,14 +195,14 @@ export class MailController {
     };
   }
 
-  private async quoteAttachment(body: MailSendInput, actor: AuthContext) {
-    if (body.quoteDocument && this.htmlPdf.isAvailable()) {
-      // Belge teklife ait mi: erişim yetkisi generatePdf ile aynı süzgeçten geçer.
-      const { filename } = await this.quotes.generatePdf(body.quoteId!, actor);
-      const content = await this.htmlPdf.render(body.quoteDocument.html);
-      return { filename: body.quoteDocument.filename || filename, content, contentType: 'application/pdf' };
+  private async quoteAttachment(quote: { id: string; document?: { html: string; filename: string } }, actor: AuthContext) {
+    if (quote.document && this.htmlPdf.isAvailable()) {
+      // Erişim kontrolü: get, generatePdf ile aynı tenant/bölüm/firma süzgeci; atılacak PDFKit çıktısı üretilmez.
+      await this.quotes.get(quote.id, actor);
+      const content = await this.htmlPdf.render(quote.document.html);
+      return { filename: quote.document.filename, content, contentType: 'application/pdf' };
     }
-    const { buffer, filename } = await this.quotes.generatePdf(body.quoteId!, actor);
+    const { buffer, filename } = await this.quotes.generatePdf(quote.id, actor);
     return { filename, content: buffer, contentType: 'application/pdf' };
   }
 
@@ -260,13 +292,18 @@ export class MailController {
     @CurrentUser() actor: AuthContext
   ) {
     await this.assertCrmLinks(body, actor);
-    if (body.quoteId && !actor.permissions.has('quotes.read')) {
+    // Eski istemciler tek teklifi `quoteId` ile yollar; ikisi şemada birlikte gelemez.
+    const quotes = body.quotes ?? (body.quoteId ? [{ id: body.quoteId, document: body.quoteDocument }] : []);
+    if (quotes.length && !actor.permissions.has('quotes.read')) {
       throw new ForbiddenError('Teklif ekleyebilmek için quotes.read yetkisi gerekli');
     }
     // Ek PDF: istemci "Yazdır / PDF Kaydet" belgesini gönderdiyse birebir o (Chromium);
     // göndermediyse (eski istemci / Chromium yok) sunucunun sade PDFKit şablonu.
-    const generated = body.quoteId
-      ? [await this.quoteAttachment(body, actor)]
+    // Sırayla: paralel üretim tek mailin Chromium kuyruğunun tamamını kaplayıp başkalarına PDF_BUSY döndürürdü.
+    const quoteAttachments = [];
+    for (const quote of quotes) quoteAttachments.push(await this.quoteAttachment(quote, actor));
+    const generated = quoteAttachments.length
+      ? quoteAttachments
       : body.reportDocument
         ? [await this.reportAttachment(body, actor)]
         : body.document
@@ -291,7 +328,7 @@ export class MailController {
           contactId: body.contactId,
           activityTypeCode: 'email',
           subject: body.subject,
-          description: body.body.slice(0, 4000),
+          description: activityDescription(body.body, attachments.map((item) => item.filename)),
           activityDate: delivery.sentAt,
         },
         actor

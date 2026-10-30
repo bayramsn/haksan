@@ -9,6 +9,7 @@ export const NAVIGATION_VISIBILITY_KEYS = [
   'meta',
   'references',
   'contacts',
+  'bulk-mail',
   'sales-map',
   'offers',
   'documents',
@@ -80,6 +81,7 @@ export const NAVIGATION_GROUPS = [
     group: 'Satış Operasyonu',
     items: [
       { key: 'contacts', label: 'Kontaklar' },
+      { key: 'bulk-mail', label: 'Toplu Mail' },
       { key: 'sales-map', label: 'Firma Haritası' },
       { key: 'offers', label: 'Teklifler' },
       { key: 'documents', label: 'Ticari Belge Merkezi' },

@@ -20,7 +20,7 @@ describe("product technical print equipment", () => {
     { label: "standard only", standard: ["Fanuc kontrol ünitesi"], optional: [" "], totalPages: 3 },
     { label: "optional only", standard: [" "], optional: ["Takım ölçme probu"], totalPages: 3 },
     { label: "both populated", standard: ["Fanuc kontrol ünitesi"], optional: ["Takım ölçme probu"], totalPages: 3 },
-  ])("hides empty panels and preserves technical pages: $label", ({ standard, optional, totalPages }) => {
+  ])("uses the quote template without quote header and price pages: $label", ({ standard, optional, totalPages }) => {
     const doc = productTechnicalDoc({
       product: {
         ...product,
@@ -30,11 +30,13 @@ describe("product technical print equipment", () => {
       },
     }, "https://example.test/print");
 
-    expect(doc.body.match(/<section class="page">/g)).toHaveLength(totalPages);
-    expect(doc.body.includes("<h2>Standart Donanım</h2>")).toBe(standard.some((row) => row.trim()));
-    expect(doc.body.includes("<h2>Uyumlu Opsiyonel Donanım</h2>")).toBe(optional.some((row) => row.trim()));
-    expect(doc.body.includes("DONANIM BİLGİLERİ")).toBe(totalPages === 3);
-    expect(doc.body).not.toContain("donanım bilgisi girilmemiş");
+    expect(doc.body).toContain("TEKNİK BİLGİLER");
+    expect(doc.body.includes("TEZGAH DONANIMI")).toBe(totalPages === 3);
+    expect(doc.body.includes("STANDART DONANIM")).toBe(standard.some((row) => row.trim()));
+    expect(doc.body.includes("OPSİYONEL DONANIM")).toBe(optional.some((row) => row.trim()));
+    for (const hidden of ["FİYAT TEKLİFİ", "FİYAT ve KOŞULLAR", "BELGE NO", "PROJE İLGİLİSİ", "GENEL TOPLAM"]) {
+      expect(doc.body).not.toContain(hidden);
+    }
     expect(doc.body).toContain("X Ekseni");
     expect(doc.body).toContain("800");
     expect([...doc.body.matchAll(/Sayfa <b>(\d+)<\/b> \/ <b>(\d+)<\/b>/g)].map((match) => [Number(match[1]), Number(match[2])]))
@@ -51,11 +53,10 @@ describe("product technical print equipment", () => {
       optionalEquipment: [],
     }, "https://example.test/print");
 
-    expect(doc.body.match(/<section class="page">/g)).toHaveLength(1);
-    expect(doc.body).not.toContain("DONANIM BİLGİLERİ");
+    expect(doc.body).not.toContain("TEZGAH DONANIMI");
     expect(doc.body).not.toContain("Standart paket");
     expect(doc.body).not.toContain("Takım ölçme probu");
-    expect(doc.body).toContain("Sayfa <b>1</b> / <b>1</b>");
+    expect(doc.body).toContain("Sayfa <b>2</b> / <b>2</b>");
   });
 });
 
@@ -101,7 +102,7 @@ describe("product technical print image", () => {
     );
 
     expect(doc.body).not.toContain("javascript:");
-    expect(doc.body).toContain("Ürün görseli bulunmuyor");
+    expect(doc.body).toContain("q-photo-placeholder");
   });
 
   it("never renders the internal stock code", () => {
@@ -142,3 +143,37 @@ describe("product technical print image", () => {
     expect(doc.body).toContain("Canlı Takım Devri");
   });
 });
+
+describe("base card model table", () => {
+  const models = ["F-3015", "F-4020", "F-6020", "F-6520", "F-6025", "F-8025", "F-4015", "F-6015"];
+  const modelTable = {
+    models,
+    groups: [
+      { group: "Temel Parametreler", rows: [{ key: "Çalışma Alanı (mm)", values: models.map((model) => `${model}-alan`) }] },
+      { group: "Diğer Parametreler", rows: [{ key: "Trafo Kapasitesi", values: models.map((_, index) => (index < 4 ? "" : "1,5 kW: 40 kVA\n3 kW: 50 kVA")) }] },
+    ],
+  };
+
+  it("prints models as columns, split into blocks of at most four per page", () => {
+    const doc = productTechnicalDoc({ product, modelTable }, "https://example.test/print");
+    expect(doc.body).toContain("TEKNİK BİLGİLER (1/2)");
+    expect(doc.body).toContain("TEKNİK BİLGİLER (2/2)");
+    for (const model of models) expect(doc.body).toContain(`<td class="mh">${model}</td>`);
+    expect(doc.body).toContain("TEMEL PARAMETRELER");
+    // İlk blokta değeri olmayan satır basılmaz; ikinci blokta çok satırlı değer satır sonuyla.
+    const [first, second] = doc.body.split("TEKNİK BİLGİLER (2/2)");
+    expect(first).not.toContain("Trafo Kapasitesi");
+    expect(second).toContain("1,5 kW: 40 kVA<br>3 kW: 50 kVA");
+    expect(doc.body).not.toContain("FİYAT TEKLİFİ");
+    // Kapak + iki model tablosu sayfası.
+    expect(doc.body).toContain("Sayfa <b>3</b> / <b>3</b>");
+    expect(doc.body).not.toContain("/ <b>2</b>");
+  });
+
+  it("keeps the single-column spec page when no model table is given", () => {
+    const doc = productTechnicalDoc({ product: { ...product, specs: [{ key: "X Ekseni", value: "800", unit: "mm" }] }, modelTable: null }, "https://example.test/print");
+    expect(doc.body).not.toContain("q-models");
+    expect(doc.body).toContain("X Ekseni");
+  });
+});
+

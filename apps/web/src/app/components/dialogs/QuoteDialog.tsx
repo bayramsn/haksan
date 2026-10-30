@@ -1,7 +1,7 @@
 import { displayProductCategoryOptions, PRODUCT_CATEGORIES, sameProductCategory, uniqueProductCategoryOptions } from "../../lib/productCategories";
 import { persistQuoteItems } from "../../lib/quoteItemEditing";
 import { productMatchesQuoteDivision } from "../../lib/quoteCatalogScope";
-import { laserBaseQuoteContext } from "../../lib/laserBaseQuoteSelection";
+import { hexConfigurationQuoteSpecs, laserBaseQuoteContext } from "../../lib/laserBaseQuoteSelection";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger,
@@ -32,7 +32,7 @@ import {
 } from "@haksan/shared";
 import { quoteDefaultsFromCase } from "../../lib/workflow";
 import { applyResolvedLaserProfile, cleanSnapshotSpecs, laserPowerOptions, quoteTechnicalSpecsFromProduct, withQuotedLaserSpecs } from "../../lib/laserProductSnapshot";
-import { selectedOptionsMatchCatalog, isConfigurableProduct, baseModelOptionSpecs, isRequiredConfigurationSet, QuoteConfigurationOptions, type ConfigurationSet, type SelectedProductOption } from "../technical/ProductConfigurationOptions";
+import { selectedOptionsMatchCatalog, isConfigurableProduct, baseModelOptionSpecs, isRequiredConfigurationSet, matrixPriceRow, configurationPriceFor, QuoteConfigurationOptions, type ConfigurationPriceRow, type ConfigurationSet, type QuoteConfigurationPrice, type SelectedProductOption } from "../technical/ProductConfigurationOptions";
 import { laserProfilesService } from "../../../lib/services/laser-profiles.service";
 import {
   calculateProductDiscountAmount,
@@ -216,6 +216,8 @@ type LineState = {
   technicalSpecs: ProductSpec[];
   technicalConfiguration?: LaserTechnicalConfiguration | null;
   selectedProductOptions?: SelectedProductOption[];
+  /** Matrisli baz kartta seçilen model + gücün satış fiyatı; sunucu matristen doğrular. */
+  configurationPrice?: QuoteConfigurationPrice | null;
   quantity: string;
   unitPrice: string;
   discount: string;
@@ -337,6 +339,8 @@ export function QuoteDialog({
   const [currency, setCurrency] = useState<Currency>("USD");
   const [vatEnabled, setVatEnabled] = useState(false);
   const [deliveryCode, setDeliveryCode] = useState<string>("");
+  // Lazer baz kartlarında teslim şekli fiyat listesini belirler.
+  const laserPriceListCode = deliveryCode === "cif_istanbul" ? "LAZER-CIF-IST" as const : deliveryCode === "nationalized" ? "LAZER-MILLI-IST" as const : null;
   const [noteVariantKey, setNoteVariantKey] = useState<string>("");
   const [paymentTerms, setPaymentTerms] = useState("");
   const [deliveryTerms, setDeliveryTerms] = useState("");
@@ -471,7 +475,9 @@ export function QuoteDialog({
       const offer = offers.find((o) => o.id === id);
       const currencyCode = (offer?.currency ?? "USD") as Currency;
       setCurrency(currencyCode);
-      setDeliveryCode("");
+      // Teslim şekli kaydedilmiyor; lazer liste fiyatlı kalem varsa o listeden geri çıkarılır.
+      const savedPriceList = (Array.isArray(data.items) ? data.items : []).map((it: any) => it.compatibility?.configurationPrice?.priceListCode).find(Boolean);
+      setDeliveryCode(savedPriceList === "LAZER-CIF-IST" ? "cif_istanbul" : savedPriceList === "LAZER-MILLI-IST" ? "nationalized" : "");
       const loadedPayment = data.terms?.paymentTermsText ?? data.paymentTerms ?? "";
       const loadedDelivery = data.terms?.deliveryTermsText ?? data.deliveryTerms ?? "";
       const loadedWarranty = data.terms?.warrantyTermsText ?? data.warrantyTerms ?? "";
@@ -530,6 +536,7 @@ export function QuoteDialog({
           technicalSpecs: technicalConfiguration ? storedSpecs : storedSpecs.length ? storedSpecs : technicalSpecsFromProduct(product),
           technicalConfiguration,
           selectedProductOptions: it.compatibility?.selectedProductOptions ?? [],
+          configurationPrice: it.compatibility?.configurationPrice ?? null,
           quantity: String(it.quantity ?? "1"),
           unitPrice: String(it.unitPrice ?? "0"),
           discount: String(it.discountAmount ?? "0"),
@@ -759,7 +766,7 @@ export function QuoteDialog({
 
   const onPickProduct = (i: number, productId: string) => {
     const p = products.find((x) => x.id === productId);
-    if (!p) return setLine(i, { productId, technicalSpecs: [], technicalConfiguration: null, selectedProductOptions: [], configurationChanged: true, options: [] });
+    if (!p) return setLine(i, { productId, technicalSpecs: [], technicalConfiguration: null, selectedProductOptions: [], configurationPrice: null, configurationChanged: true, options: [] });
     setLine(i, {
       productId,
       groupCode: p.productGroupCode || "",
@@ -771,6 +778,7 @@ export function QuoteDialog({
       technicalSpecs: technicalSpecsFromProduct(p),
       technicalConfiguration: p.technicalConfiguration ?? null,
       selectedProductOptions: [],
+      configurationPrice: null,
       configurationChanged: true,
       options: [],
       unitPrice: p.listPrice ? String(p.listPrice) : "",
@@ -788,7 +796,7 @@ export function QuoteDialog({
       const scope = { groupCode: l.groupCode, categoryCode: l.categoryCode, subcategoryCode: l.subcategoryCode, productTypeCode: l.productTypeCode };
       for (const child of fields.slice(fields.indexOf(field) + 1)) scope[child] = "";
       scope[field] = code;
-      return { ...l, ...scope, productId: "", unitPrice: "", stockCode: "", description: "", technicalSpecs: [], technicalConfiguration: null, selectedProductOptions: [], configurationChanged: true, options: [], nationalized: false };
+      return { ...l, ...scope, productId: "", unitPrice: "", stockCode: "", description: "", technicalSpecs: [], technicalConfiguration: null, selectedProductOptions: [], configurationPrice: null, configurationChanged: true, options: [], nationalized: false };
     }));
   };
   const onPickGroup = (i: number, code: string) => pickLineScope(i, "groupCode", code);
@@ -839,17 +847,31 @@ export function QuoteDialog({
     }
   };
 
-  const changeBaseOptions = async (i: number, sets: ConfigurationSet[], selected: SelectedProductOption[]) => {
+  const changeBaseOptions = async (i: number, sets: ConfigurationSet[], selected: SelectedProductOption[], matrix: ConfigurationPriceRow[] = []) => {
     const line = lines[i];
     const product = products.find(p => p.id === line?.productId);
     const base = product?.laserBaseConfiguration;
     if (!line || !product) return;
     if (selected.some(option => option.priceDelta == null)) { toast.error("Seçeneğin ek fiyatını önce ürün kartından girin."); return; }
-    if (selected.some(option => !option.currencyCode || option.currencyCode !== currency)) { toast.error("Donanım fiyatının para birimi teklif ile aynı olmalı."); return; }
+    // Ek fiyatı 0 olan seçeneğin (matrisli kartta model/güç) para birimi tutarı etkilemez.
+    if (selected.some(option => Number(option.priceDelta) !== 0 && (!option.currencyCode || option.currencyCode !== currency))) { toast.error("Donanım fiyatının para birimi teklif ile aynı olmalı."); return; }
     const choices = selected.map(option => ({ set: sets.find(s => s.id === option.optionSetId), value: sets.find(s => s.id === option.optionSetId)?.values.find(v => v.id === option.optionValueId) }));
     const nextOptions = line.options.filter(option => !option.optionSetId && !selected.some(choice => option.description === `${choice.name}: ${choice.value}`) && !(line.selectedProductOptions ?? []).some(choice => option.description === `${choice.name}: ${choice.value}`));
-    nextOptions.push(...selected.map(choice => ({ ...emptyOption(line.vatRate), itemId: line.options.find(option => option.optionSetId === choice.optionSetId)?.itemId, optionSetId: choice.optionSetId, description: `${choice.name}: ${choice.value}`, unitPrice: String(choice.priceDelta ?? 0), quantity: line.quantity })));
-    const next = { ...line, configurationChanged: true, selectedProductOptions: selected, options: nextOptions, technicalConfiguration: null, technicalSpecs: choices.map(c => ({ key: c.set?.name ?? '', value: c.value?.value ?? '' })).filter(s => s.key) };
+    // Matrisli baz kartta model/güç/kabin makinenin kendisidir: fiyatı ana satırdadır, ayrı donanım satırı açılmaz.
+    const configurationSetIds = new Set(matrix.length ? sets.filter(set => set.configurationKind).map(set => set.id) : []);
+    nextOptions.push(...selected.filter(choice => !configurationSetIds.has(choice.optionSetId)).map(choice => ({ ...emptyOption(line.vatRate), itemId: line.options.find(option => option.optionSetId === choice.optionSetId)?.itemId, optionSetId: choice.optionSetId, description: `${choice.name}: ${choice.value}`, unitPrice: String(choice.priceDelta ?? 0), quantity: line.quantity })));
+    const priced = matrix.length ? matrixPriceRow(sets, selected, matrix) : {};
+    const row = priced.row;
+    const price = configurationPriceFor(row, laserPriceListCode);
+    const configurationPrice: QuoteConfigurationPrice | null = row && price && price.currencyCode === currency
+      ? { sourceModelCode: row.sourceModelCode, powerKw: row.powerKw, salePrice: price.salePrice, currencyCode: price.currencyCode, ...(price.priceListCode ? { priceListCode: price.priceListCode } : {}) }
+      : null;
+    if (row && !price) toast.message("Bu model ve güç için satış fiyatı girilmemiş; birim fiyatı elle girin.");
+    else if (row && price && price.currencyCode !== currency) toast.error(`Model fiyatı ${price.currencyCode} cinsinden; teklif para birimini ${price.currencyCode} yapın ya da fiyatı elle girin.`);
+    else if (price?.cashPrice != null) toast.message(`Liste fiyatı ${price.salePrice.toLocaleString("tr-TR")} USD · son fiyat ${price.cashPrice.toLocaleString("tr-TR")} USD`);
+    const next = { ...line, configurationChanged: true, selectedProductOptions: selected, options: nextOptions, technicalConfiguration: null,
+      configurationPrice, ...(configurationPrice ? { unitPrice: String(configurationPrice.salePrice) } : {}),
+      technicalSpecs: choices.map(c => ({ key: c.set?.name ?? '', value: c.value?.value ?? '' })).filter(s => s.key) };
     setLaserBusy(i);
     try {
       if (product.baseModelConfiguration) {
@@ -866,7 +888,7 @@ export function QuoteDialog({
         setLines(ls => ls.map((l, idx) => idx === i ? applyResolvedLaserProfile(next, resolved) : l));
       } else {
         const technicalSpecs = context?.configuration
-          ? [...next.technicalSpecs, ...context.configuration.fields.filter(field => field.verification === 'verified' && field.key !== 'Lazer Gücü').map(field => ({ key: field.key, value: field.rawValue }))]
+          ? [...(matrix.length ? [] : next.technicalSpecs), ...hexConfigurationQuoteSpecs(context.configuration, context.power?.powerKw)]
           : next.technicalSpecs;
         setLines(ls => ls.map((l, idx) => idx === i ? { ...next, technicalSpecs } : l));
         if (base && selected.length) toast.message('Bu konfigürasyonun teknik bilgileri elle tamamlanmalı ve doğrulanmalıdır.');
@@ -884,7 +906,7 @@ export function QuoteDialog({
     setLines((ls) => ls.map((l, idx) => {
       if (idx !== i) return l;
       const setId = l.options[j]?.optionSetId;
-      return { ...l, options: l.options.filter((_, k) => k !== j), ...(setId ? { configurationChanged: true, selectedProductOptions: l.selectedProductOptions?.filter(option => option.optionSetId !== setId), technicalConfiguration: null } : {}) };
+      return { ...l, options: l.options.filter((_, k) => k !== j), ...(setId ? { configurationChanged: true, selectedProductOptions: l.selectedProductOptions?.filter(option => option.optionSetId !== setId), technicalConfiguration: null, configurationPrice: null } : {}) };
     }));
 
   /**
@@ -1129,7 +1151,7 @@ export function QuoteDialog({
           setOptionsCatalogRevision(revision => revision + 1);
           return toast.error("Donanım fiyatı veya güncel seçenek değişti; yeniden seçin.");
         }
-        if (selected.some(option => option.priceDelta == null || (!option.currencyCode || option.currencyCode !== currency))) return toast.error("Seçeneklerin ek fiyatı ve para birimini kontrol edin.");
+        if (selected.some(option => option.priceDelta == null || (Number(option.priceDelta) !== 0 && (!option.currencyCode || option.currencyCode !== currency)))) return toast.error("Seçeneklerin ek fiyatı ve para birimini kontrol edin.");
       }
     } catch { return toast.error("Donanım seçenekleri doğrulanamadı; yeniden deneyin."); }
     const invalidDiscount = valid.flatMap((line) => [line, ...line.options]).find((row) => !isProductDiscountValid({
@@ -1157,6 +1179,7 @@ export function QuoteDialog({
       const lineCompatibility = {
         lineGroupKey: l.lineGroupKey,
         selectedProductOptions: (l.selectedProductOptions ?? []).map(option => ({ ...option, priceDelta: Number(option.priceDelta), currencyCode: option.currencyCode ?? currency })),
+        configurationPrice: l.configurationPrice ?? null,
         ...(COMPAT_CATEGORIES.some((code) => categoryMatches(l.categoryCode, code)) && hasCompatibility(l.compatibility) ? l.compatibility : emptyCompatibility()),
         ...(technicalSpecs.length || l.technicalConfiguration ? { technicalSpecs } : {}),
         technicalConfiguration: l.technicalConfiguration ? withQuotedLaserSpecs(l.technicalConfiguration, technicalSpecs) : null,
@@ -1778,7 +1801,7 @@ export function QuoteDialog({
                       </label>
                     )}
 
-                    {product && isConfigurableProduct(product) && <QuoteConfigurationOptions refreshKey={optionsCatalogRevision} productId={product.id} selected={l.selectedProductOptions ?? []} disabled={laserBusy === i} onChange={(sets, selected) => changeBaseOptions(i, sets, selected)} />}
+                    {product && isConfigurableProduct(product) && <QuoteConfigurationOptions refreshKey={optionsCatalogRevision} priceListCode={laserPriceListCode} productId={product.id} selected={l.selectedProductOptions ?? []} disabled={laserBusy === i} onChange={(sets, selected, matrix) => changeBaseOptions(i, sets, selected, matrix)} />}
 
                     {categoryMatches(l.categoryCode, "TEZGAH") && (
                       <details className="rounded-md border border-dashed border-border/70 bg-muted/20 p-2">

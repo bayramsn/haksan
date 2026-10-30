@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Headers, Param, Patch, Post, Put, Query, Res, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Put, Query, Res, UseGuards } from '@nestjs/common';
 import type { FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { Throttle } from '@nestjs/throttler';
@@ -21,6 +21,10 @@ import {
   productOptionValueCreateSchema,
   productOptionSetUpdateSchema,
   productOptionValueUpdateSchema,
+  productConfigurationPriceUpdateSchema,
+  type ProductConfigurationPriceUpdateInput,
+  laserPriceListRecalculateSchema,
+  type LaserPriceListRecalculateInput,
   paginationSchema,
   type ProductCreateInput,
   type ProductUpdateInput,
@@ -49,6 +53,7 @@ import { CurrentUser } from '../../shared/security/current-user.decorator';
 import type { AuthContext } from '../../shared/security/auth.types';
 import { ProductsService } from './products.service';
 import { ProductMediaService } from './product-media.service';
+import { LaserPriceListsService } from './laser-price-lists.service';
 import { rowsToXlsxBuffer, sendXlsx, sheetsToXlsxBuffer } from '../../shared/utils/excel-export';
 
 const listQuery = z.object({
@@ -66,7 +71,8 @@ const brandListQuery = z.object({
 export class ProductsController {
   constructor(
     private readonly svc: ProductsService,
-    private readonly media: ProductMediaService
+    private readonly media: ProductMediaService,
+    private readonly laserPriceLists: LaserPriceListsService,
   ) {}
 
   @RequirePermissions('brands.read')
@@ -118,17 +124,9 @@ export class ProductsController {
   @Post('products')
   create(
     @Body(new ZodValidationPipe(productCreateSchema)) body: ProductCreateInput,
-    @CurrentUser() user: AuthContext,
-    @Headers('idempotency-key') operationId?: string,
+    @CurrentUser() user: AuthContext
   ) {
-    const key = new ZodValidationPipe(z.string().uuid().optional()).transform(operationId);
-    return key ? this.svc.createOnce(body, user, key) : this.svc.create(body, user);
-  }
-
-  @RequirePermissions('products.create')
-  @Get('products/create-operations/:operationId')
-  recoverCreate(@Param('operationId', new ZodValidationPipe(z.string().uuid())) operationId: string, @CurrentUser() user: AuthContext) {
-    return this.svc.recoverCreate(operationId, user);
+    return this.svc.create(body, user);
   }
 
   @RequirePermissions('products.create')
@@ -168,10 +166,12 @@ export class ProductsController {
     const template = await this.svc.buildImportTemplate(user, query.productTypeCode, query.divisionId);
     // İlk sayfa doldurulmak için boş; içe aktarma "Ürünler" sayfasını okur.
     // Örnek kayıt ayrı sayfada durur ki yüklemede tekrar işlenmesin.
+    // Donanım kalemleri hücrede alt alta (1. … 2. …) durur; satırların görünmesi için kaydırmalı.
+    const wrapColumns = ['Standart Donanım', 'Opsiyonel Donanım', 'Açıklama'];
     const sheets = [
-      { name: 'Ürünler', columns: template.columns, rows: [] },
+      { name: 'Ürünler', columns: template.columns, rows: [], wrapColumns },
       ...(template.exampleRows.length
-        ? [{ name: 'Örnek Kayıt', columns: template.columns, rows: template.exampleRows }]
+        ? [{ name: 'Örnek Kayıt', columns: template.columns, rows: template.exampleRows, wrapColumns }]
         : []),
     ];
     return sendXlsx(
@@ -261,6 +261,20 @@ export class ProductsController {
     return this.svc.listOptionSets(id, user);
   }
 
+  @RequirePermissions('products.read')
+  @Get('products/:id/configuration-prices')
+  async listConfigurationPrices(@Param('id') id: string, @CurrentUser() user: AuthContext) {
+    const matrix = await this.svc.listConfigurationPrices(id, user);
+    const listPrices = await this.laserPriceLists.pricesForProduct(id, user.tenantId);
+    return {
+      ...matrix,
+      rows: matrix.rows.map((row) => ({
+        ...row,
+        listPrices: listPrices.filter((price) => price.configurationPriceId === row.id).map(({ configurationPriceId: _id, ...price }) => price),
+      })),
+    };
+  }
+
   @RequirePermissions('products.update')
   @Post('products/:id/options')
   addOptionSet(
@@ -303,6 +317,49 @@ export class ProductsController {
   @Delete('products/options/values/:valueId')
   deleteOptionValue(@Param('valueId') id: string, @CurrentUser() user: AuthContext) {
     return this.svc.deleteOptionValue(id, user);
+  }
+
+  @RequirePermissions('price_lists.read')
+  @Get('product-configuration-prices')
+  listAllConfigurationPrices(@CurrentUser() user: AuthContext) {
+    return this.svc.listAllConfigurationPrices(user);
+  }
+
+  @RequirePermissions('price_lists.update')
+  @Patch('product-configuration-prices')
+  updateConfigurationPrices(@Body(new ZodValidationPipe(productConfigurationPriceUpdateSchema)) body: ProductConfigurationPriceUpdateInput, @CurrentUser() user: AuthContext) {
+    return this.svc.updateConfigurationPrices(body, user);
+  }
+
+  @RequirePermissions('price_lists.read')
+  @Get('laser-price-lists')
+  listLaserPriceLists(@CurrentUser() user: AuthContext) {
+    return this.laserPriceLists.list(user);
+  }
+
+  @RequirePermissions('price_lists.update')
+  @Post('laser-price-lists/recalculate')
+  recalculateLaserPriceList(@Body(new ZodValidationPipe(laserPriceListRecalculateSchema)) body: LaserPriceListRecalculateInput, @CurrentUser() user: AuthContext) {
+    return this.laserPriceLists.recalculate(body, user);
+  }
+
+  @RequirePermissions('price_lists.read')
+  @Get('laser-price-lists/:code/export')
+  async exportLaserPriceList(@Param('code') code: string, @CurrentUser() user: AuthContext, @Res({ passthrough: true }) reply: FastifyReply) {
+    const { name, rows } = await this.laserPriceLists.exportRows(code, user);
+    return sendXlsx(reply, await rowsToXlsxBuffer(rows, name), `${code.toLowerCase()}.xlsx`);
+  }
+
+  @RequirePermissions('price_lists.read')
+  @Get('product-cost-prices')
+  listCostPricedItems(@CurrentUser() user: AuthContext) {
+    return this.svc.listCostPricedItems(user);
+  }
+
+  @RequirePermissions('price_lists.update')
+  @Patch('product-cost-prices/sale')
+  updateCostPricedSales(@Body(new ZodValidationPipe(productConfigurationPriceUpdateSchema)) body: ProductConfigurationPriceUpdateInput, @CurrentUser() user: AuthContext) {
+    return this.svc.updateCostPricedSales(body, user);
   }
 
   @RequirePermissions('price_lists.read')

@@ -602,8 +602,8 @@ export class CompaniesService {
     return row ?? null;
   }
 
-  async list(actor: AuthContext, query: CompanyListFilterQuery, page: Pagination) {
-    const { limit, offset } = pageOffset(page);
+  /** Firmalar listesinin görünürlük + süzgeç koşulu; toplu mail aday sorgusu da aynısını kullanır. */
+  async listWhere(actor: AuthContext, query: CompanyListFilterQuery): Promise<SQL | undefined> {
     const filters = await this.visibleCompanyFilters(actor, query.divisionId);
     if (query.ids?.length) filters.push(inArray(companies.id, query.ids));
     if (query.search) {
@@ -679,7 +679,7 @@ export class CompaniesService {
       const sid = await lookupIdByCode(this.db, companyStatuses, query.customerStatusCode);
       filters.push(sid ? eq(companies.customerStatusId, sid) : sql`1 = 0`);
     }
-    if (query.city) {
+    if (query.city || query.district) {
       filters.push(
         exists(
           this.db
@@ -690,7 +690,8 @@ export class CompaniesService {
                 eq(companyAddresses.companyId, companies.id),
                 eq(companyAddresses.tenantId, actor.tenantId),
                 isNull(companyAddresses.deletedAt),
-                eq(companyAddresses.province, query.city),
+                query.city ? eq(companyAddresses.province, query.city) : undefined,
+                query.district ? eq(companyAddresses.district, query.district) : undefined,
               ),
             ),
         ),
@@ -701,7 +702,12 @@ export class CompaniesService {
       filters.push(eq(companies.supplierCategoryCode, query.supplierCategoryCode));
     }
 
-    const where = and(...filters);
+    return and(...filters);
+  }
+
+  async list(actor: AuthContext, query: CompanyListFilterQuery, page: Pagination) {
+    const { limit, offset } = pageOffset(page);
+    const where = await this.listWhere(actor, query);
     const [{ count }] = await this.db
       .select({ count: sql<number>`count(*)::int` })
       .from(companies)

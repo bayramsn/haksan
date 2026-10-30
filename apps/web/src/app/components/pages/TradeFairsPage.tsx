@@ -1,19 +1,18 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Building2, Camera, FileText, Loader2, Mail, MapPin, Paperclip, Pencil, Phone, Plus, Search, Store, Trash2, Users, X } from "lucide-react";
+import { Building2, Camera, ExternalLink, FileText, Handshake, Images, List, Loader2, Mail, MapPin, Paperclip, Pencil, Phone, Plus, Search, Store, Trash2, Users, X } from "lucide-react";
 import { toast } from "sonner";
-import { COUNTRY_OPTIONS, tradeFairContactCreateSchema, tradeFairFollowUpSchema } from "@haksan/shared";
+import { COUNTRY_OPTIONS, FILE_UPLOAD_MAX_BYTES, FILE_UPLOAD_MAX_MB, TRADE_FAIR_NOTE_OR_ATTACHMENT_MESSAGE, tradeFairContactCreateSchema } from "@haksan/shared";
 import { Card, CardContent } from "../ui/card";
-import { Checkbox } from "../ui/checkbox";
 import { Input } from "../ui/input";
 import { Label } from "../ui/label";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { Textarea } from "../ui/textarea";
+import { Checkbox } from "../ui/checkbox";
 import { Combobox } from "../ui/combobox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "../ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../ui/table";
-import { useStore } from "../../lib/store";
 import { useAuth } from "../../../lib/auth";
 import { getSignedFile } from "../../lib/signedFileCache";
 import { districtsForCountry, provincesForCountry } from "../../lib/geoByCountry";
@@ -21,18 +20,25 @@ import {
   fileService,
   tradeFairService,
   type TradeFairContactBody,
-  type TradeFairFollowUp,
   type TradeFairContactDTO,
   type TradeFairSummary,
 } from "../../../lib/services";
 import { EmptyState } from "../shared/EmptyState";
+import { RemoteCompanyCombobox } from "../shared/RemoteCompanyCombobox";
+import { ApiError } from "../../../lib/apiClient";
 import { InsightStat } from "../shared/PremiumPrimitives";
-import { loadAllPaginated } from "../../lib/loadAllPaginated";
+import { TradeFairPhotoGallery } from "./TradeFairPhotoGallery";
+import { ExportExcelButton } from "../ui/ExportExcelButton";
+import { QUALIFICATION_STAGE_LABELS } from "../../lib/mock";
+import { useStore } from "../../lib/store";
+
+/** Fuar kaydı fırsata çevrilirken seçilebilen pano kolonları (WIN/LOST hariç). */
+const OPPORTUNITY_TARGET_STAGES = ["lead", "c", "b", "a", "a_plus"] as const;
 
 const ALL = "__all__";
 const PAGE_SIZE = 50;
 const ENTITY = "trade_fair_contact" as const;
-const MAX_BYTES = 25 * 1024 * 1024;
+const MAX_BYTES = FILE_UPLOAD_MAX_BYTES;
 const EXT_TO_MIME: Record<string, string> = {
   pdf: "application/pdf",
   docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -50,27 +56,16 @@ const options = (values: readonly string[]) => values.map((v) => ({ value: v, la
 // Combobox yalnız listedeki değeri gösterir; elle yazılan (yeni) değer boş görünmesin.
 const withCurrent = (opts: Array<{ value: string; label: string }>, value?: string | null) =>
   value && !opts.some((o) => o.value === value) ? [{ value, label: value }, ...opts] : opts;
+/** Kayıttaki bölüm pasife alınmışsa listede yoksa da adıyla görünsün. */
+const withDivision = (list: Array<{ id: string; name: string }>, editing: TradeFairContactDTO | null) =>
+  editing?.divisionId && !list.some((d) => d.id === editing.divisionId)
+    ? [...list, { id: editing.divisionId, name: editing.divisionName ?? "Pasif bölüm" }]
+    : list;
 const distinct = (values: Array<string | null | undefined>) =>
   [...new Set(values.map((v) => v?.trim()).filter((v): v is string => !!v))].sort((a, b) => a.localeCompare(b, "tr-TR"));
 const fileExt = (name: string) => name.split(".").pop()?.toLocaleLowerCase("tr-TR") ?? "";
 
-const CONTACT_METHODS = [
-  { value: 'phone', label: 'Telefon' },
-  { value: 'whatsapp', label: 'WhatsApp' },
-  { value: 'email', label: 'E-posta' },
-  { value: 'in_person', label: 'Yüz yüze' },
-  { value: 'other', label: 'Diğer' },
-] as const;
-const emptyFollowUp = (): TradeFairFollowUp => ({
-  contacted: false, contactMethod: null, contactDate: null, contactNotes: null,
-  offerSent: false, customerConverted: false,
-});
-export const tradeFairRowColor = (row: TradeFairFollowUp) =>
-  row.offerSent || row.customerConverted ? 'bg-green-100 hover:bg-green-200/70' :
-  row.contacted ? 'bg-yellow-100 hover:bg-yellow-200/70' : '';
-
-const emptyForm = (fairName = "", metByUserId = ""): TradeFairContactBody => ({
-  ...emptyFollowUp(),
+const emptyForm = (fairName = "", metByUserId = "", divisionId = ""): TradeFairContactBody => ({
   fairName,
   companyName: "",
   contactName: "",
@@ -82,10 +77,19 @@ const emptyForm = (fairName = "", metByUserId = ""): TradeFairContactBody => ({
   district: "",
   productCategory: "",
   productType: "",
+  productModelIds: [],
   notes: "",
   metByUserId: metByUserId || null,
+  divisionId: divisionId || null,
   visitorCount: 1,
 });
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+/** Yükleme uçları dakikada birkaç istekle sınırlı (sunucu kuralı); sınıra takılan dosya pencere açılınca yeniden denenir. */
+const RATE_LIMIT_WAIT_MS = 20_000;
+const RATE_LIMIT_RETRIES = 4;
+const isRateLimited = (err: unknown) =>
+  (err instanceof ApiError && err.status === 429) || /\b429\b|too many/i.test(err instanceof Error ? err.message : "");
 
 /** Seçilen dosyayı fuar kaydına yükleyip bağlar (imzalı yükleme → içerik → bağlantı). */
 async function uploadAttachment(recordId: string, file: File) {
@@ -94,7 +98,7 @@ async function uploadAttachment(recordId: string, file: File) {
   // izin listesine uymayabilir; uzantı zaten doğrulandığı için tip ondan türetilir.
   const mime = EXT_TO_MIME[ext];
   if (!mime) throw new Error(`${file.name}: PDF, DOCX, XLSX, PNG, JPG veya WEBP yükleyebilirsiniz.`);
-  if (file.size > MAX_BYTES) throw new Error(`${file.name}: dosya 25 MB'ı aşamaz.`);
+  if (file.size > MAX_BYTES) throw new Error(`${file.name}: dosya ${FILE_UPLOAD_MAX_MB} MB'ı aşamaz.`);
   // ponytail: fuar ekleri genel belge klasörüne gider; ayrı bucket gerekirse setup-buckets'a ekleyin.
   const up = await fileService.signedUpload({
     bucket: "erp-service-documents",
@@ -109,7 +113,7 @@ async function uploadAttachment(recordId: string, file: File) {
   await fileService.link({ fileId: up.fileId, entityType: ENTITY, entityId: recordId, documentTypeCode: "other" });
 }
 
-function AttachmentTile({ item, canDelete, onDelete }: { item: Attachment; canDelete: boolean; onDelete: () => void }) {
+export function AttachmentTile({ item, canDelete, onDelete }: { item: Attachment; canDelete: boolean; onDelete: () => void }) {
   const [src, setSrc] = useState<string | null>(null);
   const isImage = item.mimeType.startsWith("image/");
   useEffect(() => {
@@ -150,22 +154,48 @@ function AttachmentTile({ item, canDelete, onDelete }: { item: Attachment; canDe
   );
 }
 
-export function TradeFairsPage() {
-  const { products } = useStore();
-  const { user, hasPermission, hasRole } = useAuth();
+export function TradeFairsPage({
+  onOpenCompany,
+  onOpenOpportunity,
+}: {
+  onOpenCompany?: (companyId: string) => void;
+  onOpenOpportunity?: (opportunityId: string) => void;
+}) {
+  const { user, activeDivision, hasPermission, hasRole } = useAuth();
   const isManager = hasRole("admin") || hasRole("super_admin");
   const canCreate = isManager || hasPermission("trade_fairs.create");
   const canUpdate = isManager || hasPermission("trade_fairs.update");
   const canDelete = isManager || hasPermission("trade_fairs.delete");
+  const canViewGallery = hasPermission("files.read");
+  const canConvert = canUpdate && hasPermission("opportunities.create") && hasPermission("opportunities.update");
+  const { refresh: refreshStore } = useStore();
+  // Fırsata çevirme penceresi: hangi kolon, hangi bölüm, kime.
+  const [converting, setConverting] = useState<TradeFairContactDTO | null>(null);
+  const [convertStage, setConvertStage] = useState<string>("lead");
+  const [convertDivision, setConvertDivision] = useState("");
+  const [convertOwner, setConvertOwner] = useState("");
+  const [convertBusy, setConvertBusy] = useState(false);
+  // Sorumluyu başkasına atayabilen roller (fırsat servisindeki kural); diğerlerinde atama kuralı işler.
+  const canAssignOwner = hasRole("super_admin") || hasRole("sales");
+  // İsteği süren arandı kutuları; aynı satıra ikinci tık sırayı bozmasın.
+  const [callPending, setCallPending] = useState<Set<string>>(() => new Set());
 
   const [fair, setFair] = useState(ALL);
   const [q, setQ] = useState("");
+  const [provinceFilter, setProvinceFilter] = useState(ALL);
+  const [districtFilter, setDistrictFilter] = useState(ALL);
+  const [metByFilter, setMetByFilter] = useState(ALL);
+  const [view, setView] = useState<"meetings" | "photos">("meetings");
+  const [galleryRefreshKey, setGalleryRefreshKey] = useState(0);
   const [rows, setRows] = useState<TradeFairContactDTO[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const listSeq = useRef(0);
   const [summary, setSummary] = useState<TradeFairSummary>({ fairs: [], byUser: [] });
   const [staff, setStaff] = useState<Array<{ id: string; fullName: string }>>([]);
+  const [divisionList, setDivisionList] = useState<Array<{ id: string; name: string }>>([]);
+  // Seçilen bölümün (ve ortak) CRM ürünleri; bölüm değişince yeniden yüklenir.
+  const [divisionProducts, setDivisionProducts] = useState<Array<{ id: string; name: string; category: string | null }>>([]);
   const [loading, setLoading] = useState(true);
 
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -174,20 +204,26 @@ export function TradeFairsPage() {
   const [pending, setPending] = useState<File[]>([]);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [saving, setSaving] = useState(false);
+  const [uploadNote, setUploadNote] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<TradeFairContactDTO | null>(null);
-  const [followUpRow, setFollowUpRow] = useState<TradeFairContactDTO | null>(null);
-  const [followUp, setFollowUp] = useState<TradeFairFollowUp>(emptyFollowUp());
-  const [savingFollowUp, setSavingFollowUp] = useState(false);
+  const cameraRef = useRef<HTMLInputElement>(null);
   const photoRef = useRef<HTMLInputElement>(null);
   const docRef = useRef<HTMLInputElement>(null);
 
   const fairFilter = fair === ALL ? undefined : fair;
+  const province = provinceFilter === ALL ? undefined : provinceFilter;
+  const district = districtFilter === ALL ? undefined : districtFilter;
+  const metByUserId = metByFilter === ALL ? undefined : metByFilter;
+  const filterProvinceOptions = useMemo(() => provincesForCountry("Türkiye"), []);
+  const filterDistrictOptions = useMemo(() => (province ? districtsForCountry("Türkiye", province) : []), [province]);
+  // Liste ve Excel aynı süzgeçleri kullanır.
+  const listParams = { fairName: fairFilter, q: q.trim() || undefined, province, district, metByUserId };
   const loadList = useCallback(async (nextPage: number) => {
     // Geç dönen eski arama yanıtı yenisinin üstüne yazmasın.
     const seq = ++listSeq.current;
     setLoading(true);
     try {
-      const list = await tradeFairService.list({ fairName: fairFilter, q: q.trim() || undefined, page: nextPage, pageSize: PAGE_SIZE });
+      const list = await tradeFairService.list({ fairName: fairFilter, q: q.trim() || undefined, province, district, metByUserId, page: nextPage, pageSize: PAGE_SIZE });
       if (seq !== listSeq.current) return;
       setRows((current) => (nextPage === 1 ? list.data : [...current, ...list.data]));
       setTotal(list.meta.total);
@@ -197,7 +233,7 @@ export function TradeFairsPage() {
     } finally {
       if (seq === listSeq.current) setLoading(false);
     }
-  }, [fairFilter, q]);
+  }, [fairFilter, q, province, district, metByUserId]);
 
   // Özet aramadan bağımsız: seçili fuarın tamamını anlatır.
   const loadSummary = useCallback(() => {
@@ -218,10 +254,11 @@ export function TradeFairsPage() {
 
   useEffect(() => {
     tradeFairService.staff().then(setStaff).catch(() => setStaff([]));
+    tradeFairService.divisions().then(setDivisionList).catch(() => setDivisionList([]));
   }, []);
 
   const loadAttachments = useCallback(async (recordId: string) => {
-    const res = await loadAllPaginated((page, pageSize) => fileService.links({ entityType: ENTITY, entityId: recordId, page, pageSize }), 100, (link: any) => link.id);
+    const res = await fileService.links({ entityType: ENTITY, entityId: recordId, pageSize: 100 });
     setAttachments(
       res.data.map((l: any) => ({
         id: l.id,
@@ -233,17 +270,67 @@ export function TradeFairsPage() {
     );
   }, []);
 
-  const categoryOptions = useMemo(() => options(distinct(products.map((p) => p.category))), [products]);
-  const typeOptions = useMemo(
-    () => options(distinct(products.filter((p) => !form.productCategory || p.category === form.productCategory).map((p) => p.type))),
-    [products, form.productCategory],
+  useEffect(() => {
+    if (!dialogOpen || !form.divisionId) {
+      setDivisionProducts([]);
+      return;
+    }
+    let alive = true;
+    tradeFairService
+      .products(form.divisionId)
+      .then((rows) => alive && setDivisionProducts(rows))
+      .catch(() => alive && setDivisionProducts([]));
+    return () => {
+      alive = false;
+    };
+  }, [dialogOpen, form.divisionId]);
+
+  const categoryOptions = useMemo(() => options(distinct(divisionProducts.map((p) => p.category))), [divisionProducts]);
+  // CRM ürünleri isteğe bağlı ve birden çok; seçenekler kayıtta seçilen bölümden gelir.
+  // Bölüm sonradan değişse de önceden seçilen ürün adıyla görünmeye devam eder.
+  const [pickedNames, setPickedNames] = useState<Record<string, string>>({});
+  const productNames = useMemo(() => {
+    const names = new Map<string, string>(editing?.products.map((p) => [p.id, p.name]) ?? []);
+    for (const [id, name] of Object.entries(pickedNames)) names.set(id, name);
+    for (const p of divisionProducts) names.set(p.id, p.name);
+    return names;
+  }, [divisionProducts, editing?.products, pickedNames]);
+  const productOptions = useMemo(
+    () =>
+      divisionProducts
+        .filter((p) => !form.productModelIds.includes(p.id))
+        .map((p) => ({ value: p.id, label: p.name, hint: p.category ?? undefined })),
+    [divisionProducts, form.productModelIds],
   );
+  const addProduct = (value: string) => {
+    if (!value || form.productModelIds.includes(value)) return;
+    const product = divisionProducts.find((p) => p.id === value);
+    if (product) setPickedNames((cur) => ({ ...cur, [value]: product.name }));
+    // Kategori boşsa ilk üründen doldurulur; elle yazılanın üstüne yazılmaz.
+    setForm((f) => ({
+      ...f,
+      productModelIds: [...f.productModelIds, value],
+      productCategory: f.productCategory || product?.category || "",
+    }));
+  };
+  const removeProduct = (id: string) => setForm((f) => ({ ...f, productModelIds: f.productModelIds.filter((x) => x !== id) }));
+  const [companyDialogOpen, setCompanyDialogOpen] = useState(false);
+  const canAddToCompanies = isManager || hasPermission("contacts.create");
   const provinceOptions = useMemo(() => options(provincesForCountry(form.country)), [form.country]);
   const districtOptions = useMemo(() => options(districtsForCountry(form.country, form.province ?? "")), [form.country, form.province]);
   const fairOptions = useMemo(() => options(summary.fairs.map((f) => f.name)), [summary.fairs]);
   const totalPeople = summary.byUser.reduce((sum, u) => sum + u.people, 0);
   const totalMeetings = summary.byUser.reduce((sum, u) => sum + u.meetings, 0);
   // Görüşen çalışan sonradan silindiyse aktif listede yok; seçim boş görünmesin.
+  // Görüşen filtresi yalnız görüşmesi olan kişileri listeler (ayrılmış çalışanlar dahil);
+  // seçili kişi başka fuarda yoksa da seçenek kaybolmasın.
+  const metByOptions = summary.byUser
+    .filter((u): u is typeof u & { userId: string } => Boolean(u.userId))
+    .map((u) => ({ id: u.userId, name: u.fullName ?? "Belirtilmemiş" }));
+  if (metByUserId && !metByOptions.some((o) => o.id === metByUserId)) {
+    metByOptions.push({ id: metByUserId, name: staff.find((s) => s.id === metByUserId)?.fullName ?? "Seçili kişi" });
+  }
+
   const staffOptions =
     editing?.metByUserId && !staff.some((s) => s.id === editing.metByUserId)
       ? [...staff, { id: editing.metByUserId, fullName: `${editing.metByName ?? "Silinmiş kullanıcı"} (ayrıldı)` }]
@@ -253,7 +340,13 @@ export function TradeFairsPage() {
 
   const openCreate = () => {
     setEditing(null);
-    setForm(emptyForm(fairFilter ?? summary.fairs[0]?.name ?? "", user?.id ?? ""));
+    // Bölüm zorunlu; üst menüde seçili bölüm, yoksa kullanıcının birincil bölümü önerilir.
+    const suggestedDivision =
+      (activeDivision && activeDivision !== "all" ? activeDivision : undefined) ??
+      user?.divisions?.find((d) => d.isPrimary)?.id ??
+      user?.divisions?.[0]?.id ??
+      "";
+    setForm(emptyForm(fairFilter ?? summary.fairs[0]?.name ?? "", user?.id ?? "", suggestedDivision));
     setPending([]);
     setAttachments([]);
     setDialogOpen(true);
@@ -264,6 +357,7 @@ export function TradeFairsPage() {
     setForm({
       ...emptyForm(),
       ...Object.fromEntries(Object.keys(emptyForm()).map((k) => [k, (row as any)[k] ?? (emptyForm() as any)[k]])),
+      productModelIds: row.products.map((p) => p.id),
     } as TradeFairContactBody);
     setPending([]);
     setAttachments([]);
@@ -271,43 +365,11 @@ export function TradeFairsPage() {
     loadAttachments(row.id).catch(() => toast.error("Ekler yüklenemedi"));
   };
 
-  const openFollowUp = (row: TradeFairContactDTO, markContacted = true) => {
-    setFollowUpRow(row);
-    setFollowUp({
-      contacted: markContacted ? true : row.contacted,
-      contactMethod: row.contactMethod ?? null,
-      contactDate: row.contactDate ?? new Intl.DateTimeFormat('sv-SE', { timeZone: 'Europe/Istanbul' }).format(new Date()),
-      contactNotes: row.contactNotes ?? '',
-      offerSent: row.offerSent ?? false,
-      customerConverted: row.customerConverted ?? false,
-    });
-  };
-  const saveFollowUp = async (event: React.FormEvent) => {
-    event.preventDefault();
-    if (!followUpRow || !canUpdate || savingFollowUp) return;
-    const result = tradeFairFollowUpSchema.safeParse(followUp);
-    if (!result.success) {
-      toast.error('Görüşme kaydedilemedi', { description: result.error.issues[0]?.message });
-      return;
-    }
-    setSavingFollowUp(true);
-    try {
-      await tradeFairService.update(followUpRow.id, result.data);
-      setFollowUpRow(null);
-      toast.success('Görüşme takibi kaydedildi');
-      reload();
-    } catch (err: any) {
-      toast.error('Görüşme kaydedilemedi', { description: err?.message });
-    } finally {
-      setSavingFollowUp(false);
-    }
-  };
-
   const pickFiles = (event: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(event.target.files ?? []);
     event.target.value = "";
     const bad = files.find((f) => !EXT_TO_MIME[fileExt(f.name)] || f.size > MAX_BYTES);
-    if (bad) toast.error("Dosya eklenemedi", { description: `${bad.name}: PDF, DOCX, XLSX, PNG, JPG veya WEBP; en fazla 25 MB.` });
+    if (bad) toast.error("Dosya eklenemedi", { description: `${bad.name}: PDF, DOCX, XLSX, PNG, JPG veya WEBP; en fazla ${FILE_UPLOAD_MAX_MB} MB.` });
     setPending((list) => [...list, ...files.filter((f) => f !== bad && EXT_TO_MIME[fileExt(f.name)] && f.size <= MAX_BYTES)]);
   };
 
@@ -316,6 +378,8 @@ export function TradeFairsPage() {
   const issuePaths = new Set(parsed.success ? [] : parsed.error.issues.map((issue) => String(issue.path[0])));
   const phoneOk = !issuePaths.has("mobilePhone");
   const emailOk = !issuePaths.has("email");
+  // Not ya da ek (yeni seçilen veya kayıtta var olan) zorunlu; ikisi birden gerekmez.
+  const hasNoteOrAttachment = !!form.notes?.trim() || pending.length > 0 || attachments.length > 0;
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -323,27 +387,45 @@ export function TradeFairsPage() {
       toast.error("Eksik bilgi", { description: parsed.error.issues[0]?.message ?? "Formu kontrol edin." });
       return;
     }
+    if (!hasNoteOrAttachment) {
+      toast.error("Eksik bilgi", { description: TRADE_FAIR_NOTE_OR_ATTACHMENT_MESSAGE });
+      return;
+    }
     setSaving(true);
     try {
       const body = parsed.data as TradeFairContactBody;
       const saved = editing ? await tradeFairService.update(editing.id, body) : await tradeFairService.create(body);
       const failed: string[] = [];
-      for (const file of pending) {
-        try {
-          await uploadAttachment(saved.id, file);
-        } catch (err: any) {
-          failed.push(err?.message ?? file.name);
+      for (const [index, file] of pending.entries()) {
+        const step = `${index + 1}/${pending.length}`;
+        for (let attempt = 0; ; attempt += 1) {
+          setUploadNote(`Yükleniyor ${step}…`);
+          try {
+            await uploadAttachment(saved.id, file);
+            break;
+          } catch (err: any) {
+            if (isRateLimited(err) && attempt < RATE_LIMIT_RETRIES) {
+              setUploadNote(`Yükleme sınırı: ${step} için ${RATE_LIMIT_WAIT_MS / 1000} sn bekleniyor…`);
+              await sleep(RATE_LIMIT_WAIT_MS);
+              continue;
+            }
+            failed.push(err?.message ?? file.name);
+            break;
+          }
         }
       }
+      setUploadNote(null);
       if (failed.length) toast.error("Bazı dosyalar yüklenemedi", { description: failed.join("\n") });
       toast.success(editing ? "Fuar kaydı güncellendi" : "Fuar görüşmesi eklendi", { description: `${saved.companyName} · ${saved.contactName}` });
       setDialogOpen(false);
+      setGalleryRefreshKey((key) => key + 1);
       if (!fairFilter || fairFilter === saved.fairName) reload();
       else setFair(saved.fairName);
     } catch (err: any) {
       toast.error("Kaydedilemedi", { description: err?.message ?? "İstek başarısız oldu." });
     } finally {
       setSaving(false);
+      setUploadNote(null);
     }
   };
 
@@ -351,6 +433,7 @@ export function TradeFairsPage() {
     try {
       await fileService.remove(item.fileId);
       setAttachments((list) => list.filter((a) => a.id !== item.id));
+      setGalleryRefreshKey((key) => key + 1);
     } catch (err: any) {
       toast.error("Dosya silinemedi", { description: err?.message });
     }
@@ -362,11 +445,97 @@ export function TradeFairsPage() {
       await tradeFairService.remove(deleting.id);
       toast.success("Fuar kaydı silindi");
       setDeleting(null);
+      setGalleryRefreshKey((key) => key + 1);
       reload();
     } catch (err: any) {
       toast.error("Silinemedi", { description: err?.message });
     }
   };
+
+  const openConvert = (row: TradeFairContactDTO) => {
+    setConvertStage("lead");
+    setConvertDivision(row.divisionId ?? "");
+    setConvertOwner(canAssignOwner || row.metByUserId === user?.id ? row.metByUserId ?? "" : "");
+    setConverting(row);
+  };
+
+  const submitConvert = async () => {
+    if (!converting) return;
+    setConvertBusy(true);
+    try {
+      const result = await tradeFairService.toOpportunity(converting.id, {
+        qualificationStage: convertStage,
+        divisionId: convertDivision || undefined,
+        ownerUserId: convertOwner || undefined,
+      });
+      setRows((current) => current.map((r) => (r.id === converting.id ? { ...r, opportunityId: result.opportunityId } : r)));
+      const open = onOpenOpportunity ? { label: "Fırsata git", onClick: () => onOpenOpportunity(result.opportunityId) } : undefined;
+      if (result.blockers.length) {
+        toast.warning(`Fırsat Lead kolonunda açıldı; ${QUALIFICATION_STAGE_LABELS[result.requestedStage as keyof typeof QUALIFICATION_STAGE_LABELS] ?? result.requestedStage} için eksikler var`, {
+          description: result.blockers.join(" · "),
+          action: open,
+          duration: 10000,
+        });
+      } else {
+        toast.success(`Fırsat ${QUALIFICATION_STAGE_LABELS[result.qualificationStage as keyof typeof QUALIFICATION_STAGE_LABELS] ?? result.qualificationStage} kolonunda açıldı`, { action: open });
+      }
+      setConverting(null);
+      // Fırsat panosu mağazadan okuyor; yeni kart orada da görünsün.
+      void refreshStore();
+    } catch (err: any) {
+      toast.error("Fırsata çevrilemedi", { description: err?.message });
+    } finally {
+      setConvertBusy(false);
+    }
+  };
+
+  // Arandı işareti: önce ekranda işaretlenir, sunucu reddederse geri alınır.
+  /** Arandı / Teklif verildi işaretleri: aynı akış, farklı kolonlar. */
+  const FLAG_META = {
+    called: { label: "Arandı", at: "calledAt", by: "calledBy", name: "calledByName", save: tradeFairService.setCalled },
+    quoted: { label: "Teklif verildi", at: "quotedAt", by: "quotedBy", name: "quotedByName", save: tradeFairService.setQuoted },
+  } as const;
+  type FlagKind = keyof typeof FLAG_META;
+
+  // Önce ekranda işaretlenir, sunucu reddederse geri alınır; istek sürerken kutu kilitli.
+  const toggleFlag = async (row: TradeFairContactDTO, flag: FlagKind, value: boolean) => {
+    const meta = FLAG_META[flag];
+    const pendingKey = `${row.id}:${flag}`;
+    const patch = (values: Partial<TradeFairContactDTO>) =>
+      setRows((current) => current.map((r) => (r.id === row.id ? { ...r, ...values } : r)));
+    patch({ [meta.at]: value ? new Date().toISOString() : null, [meta.name]: value ? user?.fullName ?? null : null });
+    setCallPending((current) => new Set(current).add(pendingKey));
+    try {
+      const saved = await meta.save(row.id, value);
+      patch({ [meta.at]: saved[meta.at] ?? null, [meta.by]: saved[meta.by] ?? null, [meta.name]: saved[meta.name] ?? null });
+    } catch (err: any) {
+      patch({ [meta.at]: row[meta.at] ?? null, [meta.by]: row[meta.by] ?? null, [meta.name]: row[meta.name] ?? null });
+      toast.error(`${meta.label} işareti kaydedilemedi`, { description: err?.message });
+    } finally {
+      setCallPending((current) => {
+        const next = new Set(current);
+        next.delete(pendingKey);
+        return next;
+      });
+    }
+  };
+  const flagTitle = (row: TradeFairContactDTO, flag: FlagKind) => {
+    const meta = FLAG_META[flag];
+    const at = row[meta.at];
+    return at
+      ? `${meta.label} · ${[row[meta.name], new Date(at).toLocaleDateString("tr-TR")].filter(Boolean).join(" · ")}`
+      : `${meta.label} olarak işaretle`;
+  };
+  const flagBox = (row: TradeFairContactDTO, flag: FlagKind) => (
+    <label className="inline-flex size-7 items-center justify-center" title={flagTitle(row, flag)}>
+      <Checkbox
+        checked={Boolean(row[FLAG_META[flag].at])}
+        disabled={!canUpdate || callPending.has(`${row.id}:${flag}`)}
+        onCheckedChange={(v) => void toggleFlag(row, flag, v === true)}
+        aria-label={`${row.companyName} ${FLAG_META[flag].label.toLocaleLowerCase("tr-TR")}`}
+      />
+    </label>
+  );
 
   const canDeleteRow = (row: TradeFairContactDTO) => canDelete && (isManager || row.createdBy === user?.id);
   const location = (row: TradeFairContactDTO) =>
@@ -394,45 +563,120 @@ export function TradeFairsPage() {
               ))}
             </SelectContent>
           </Select>
-          <div className="relative min-w-0 flex-1 sm:w-72">
+          <div className="relative min-w-0 flex-1 sm:min-w-56 sm:w-72">
             <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-            <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Firma, yetkili, telefon, il, ürün ara..." className="h-9 bg-white pl-9" />
+            <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder={view === "photos" ? "Firma, yetkili veya dosya adı ara..." : "Firma, yetkili, telefon, il, ürün ara..."} className="h-9 bg-white pl-9" />
           </div>
+          {view === "meetings" && (
+            <>
+              <Select value={provinceFilter} onValueChange={(v) => { setProvinceFilter(v); setDistrictFilter(ALL); }}>
+                <SelectTrigger className="h-9 w-full bg-white sm:w-40" aria-label="İle göre filtrele"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={ALL}>Tüm iller</SelectItem>
+                  {filterProvinceOptions.map((name) => <SelectItem key={name} value={name}>{name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+              {province && (
+                <Select value={districtFilter} onValueChange={setDistrictFilter}>
+                  <SelectTrigger className="h-9 w-full bg-white sm:w-40" aria-label="İlçeye göre filtrele"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={ALL}>Tüm ilçeler</SelectItem>
+                    {filterDistrictOptions.map((name) => <SelectItem key={name} value={name}>{name}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              )}
+              <Select value={metByFilter} onValueChange={setMetByFilter}>
+                <SelectTrigger className="h-9 w-full bg-white sm:w-44" aria-label="Görüşen kişiye göre filtrele"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={ALL}>Tüm görüşenler</SelectItem>
+                  {metByOptions.map((o) => <SelectItem key={o.id} value={o.id}>{o.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </>
+          )}
         </div>
-        {canCreate && (
-          <Button className="h-9 gap-1.5" onClick={openCreate}>
-            <Plus className="size-4" /> Yeni Görüşme
-          </Button>
-        )}
+        <div className="flex flex-wrap items-center gap-2">
+          {view === "meetings" && (
+            <>
+              <ExportExcelButton
+                path="/trade-fairs/export"
+                filename="fuar-gorusmeleri.xlsx"
+                params={listParams}
+                requires={["trade_fairs.read"]}
+                className="h-9"
+              />
+              <ExportExcelButton
+                path="/trade-fairs/export"
+                filename="fuar-gorusmeleri.pdf"
+                params={{ ...listParams, format: "pdf" }}
+                label="PDF İndir"
+                requires={["trade_fairs.read"]}
+                className="h-9"
+              />
+            </>
+          )}
+          {canCreate && (
+            <Button className="h-9 gap-1.5" onClick={openCreate}>
+              <Plus className="size-4" /> Yeni Görüşme
+            </Button>
+          )}
+        </div>
       </div>
+
+      {canViewGallery && (
+        <div className="flex w-fit gap-1 rounded-lg border border-border/70 bg-muted/30 p-1" role="group" aria-label="Fuar görünümü">
+          <Button type="button" size="sm" variant={view === "meetings" ? "default" : "ghost"} onClick={() => setView("meetings")} aria-pressed={view === "meetings"} className="gap-1.5"><List className="size-4" /> Görüşmeler</Button>
+          <Button type="button" size="sm" variant={view === "photos" ? "default" : "ghost"} onClick={() => setView("photos")} aria-pressed={view === "photos"} className="gap-1.5"><Images className="size-4" /> Fotoğraflar</Button>
+        </div>
+      )}
 
       {summary.byUser.length > 0 && (
         <Card className="border-border/70">
           <CardContent className="p-4">
             <div className="font-data text-[9px] font-semibold uppercase tracking-[0.15em] text-operation-blue">Kim kaç kişiyle görüştü</div>
             <div className="mt-3 flex flex-wrap gap-2">
-              {summary.byUser.map((u) => (
-                <div key={u.userId ?? "none"} className="rounded-lg border border-border/70 bg-muted/30 px-3 py-2">
-                  <div className="text-[12px] font-semibold">{u.fullName ?? "Belirtilmemiş"}</div>
-                  <div className="text-[11px] text-muted-foreground">
-                    <span className="font-semibold text-foreground tabular-nums">{u.meetings}</span> firma ·{" "}
-                    <span className="font-semibold text-foreground tabular-nums">{u.people}</span> kişi
-                  </div>
-                </div>
-              ))}
+              {summary.byUser.map((u) => {
+                const active = Boolean(u.userId) && u.userId === metByUserId;
+                const body = (
+                  <>
+                    <div className="text-[12px] font-semibold">{u.fullName ?? "Belirtilmemiş"}</div>
+                    <div className="text-[11px] text-muted-foreground">
+                      <span className="font-semibold text-foreground tabular-nums">{u.meetings}</span> firma ·{" "}
+                      <span className="font-semibold text-foreground tabular-nums">{u.people}</span> kişi
+                    </div>
+                  </>
+                );
+                // Karta tıklamak o kişinin görüşmelerini süzer; tekrar tıklamak süzgeci kaldırır.
+                return u.userId ? (
+                  <button
+                    key={u.userId}
+                    type="button"
+                    aria-pressed={active}
+                    title={active ? "Süzgeci kaldır" : "Bu kişinin görüşmelerini göster"}
+                    onClick={() => { setMetByFilter(active ? ALL : u.userId!); setView("meetings"); }}
+                    className={`rounded-lg border px-3 py-2 text-left transition-colors ${active ? "border-primary bg-primary/10" : "border-border/70 bg-muted/30 hover:bg-muted/60"}`}
+                  >
+                    {body}
+                  </button>
+                ) : (
+                  <div key="none" className="rounded-lg border border-border/70 bg-muted/30 px-3 py-2">{body}</div>
+                );
+              })}
             </div>
           </CardContent>
         </Card>
       )}
 
-      {loading && rows.length === 0 ? (
+      {view === "photos" && canViewGallery ? (
+        <TradeFairPhotoGallery fairName={fairFilter} q={q} refreshKey={galleryRefreshKey} />
+      ) : loading && rows.length === 0 ? (
         <div className="grid place-items-center py-16 text-muted-foreground"><Loader2 className="size-5 animate-spin" /></div>
       ) : rows.length === 0 ? (
         <Card className="overflow-hidden border-border/70">
           <EmptyState
             scene="search"
             eyebrow="Fuar"
-            title={q || fairFilter ? "Eşleşen görüşme bulunamadı" : "Henüz fuar görüşmesi yok"}
+            title={q || fairFilter || province || metByUserId ? "Eşleşen görüşme bulunamadı" : "Henüz fuar görüşmesi yok"}
             description={canCreate ? "Standa gelen firmaları “Yeni Görüşme” ile kaydedin." : "Kayıt eklendiğinde burada listelenir."}
           />
         </Card>
@@ -441,18 +685,20 @@ export function TradeFairsPage() {
           <Table className="w-full table-fixed">
             <TableHeader>
               <TableRow className="bg-muted/30 hover:bg-muted/30">
-                <TableHead className="md:w-[20%]">Firma / Yetkili</TableHead>
-                <TableHead className="hidden w-[18%] md:table-cell">İletişim</TableHead>
+                <TableHead className="md:w-[24%]">Firma / Yetkili</TableHead>
+                <TableHead className="hidden w-[20%] md:table-cell">İletişim</TableHead>
                 <TableHead className="hidden w-[14%] lg:table-cell">Konum</TableHead>
-                <TableHead className="w-[25%] md:w-[16%]">Ürün</TableHead>
+                <TableHead className="w-[38%] md:w-[20%]">Ürün</TableHead>
                 <TableHead className="hidden w-[14%] sm:table-cell">Görüşen</TableHead>
-                <TableHead className="w-32">Takip</TableHead>
-                <TableHead className="w-20 px-1" />
+                <TableHead className="w-44 px-1 text-[11px]">
+                  <span className="inline-flex w-7 justify-center" title="Arandı">Ar.</span>
+                  <span className="inline-flex w-7 justify-center" title="Teklif verildi">Tkl.</span>
+                </TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {rows.map((row) => (
-                <TableRow key={row.id} className={`cursor-pointer ${tradeFairRowColor(row)}`} onClick={() => openEdit(row)}>
+                <TableRow key={row.id} className="cursor-pointer" onClick={() => openEdit(row)}>
                   <TableCell className="truncate">
                     <div className="truncate font-medium" title={row.companyName}>{row.companyName}</div>
                     <div className="truncate text-[11px] text-muted-foreground">
@@ -469,24 +715,38 @@ export function TradeFairsPage() {
                     <span className="inline-flex items-center gap-1"><MapPin className="size-3 shrink-0" /> {location(row)}</span>
                   </TableCell>
                   <TableCell className="truncate text-[12px]">
-                    <div className="truncate">{row.productType || "—"}</div>
-                    <div className="truncate text-[11px] text-muted-foreground">{row.productCategory}</div>
+                    <div className="truncate" title={row.products.map((p) => p.name).join(", ") || undefined}>
+                      {row.products[0]?.name || row.productCategory || "—"}
+                      {row.products.length > 1 ? <span className="text-muted-foreground"> +{row.products.length - 1}</span> : null}
+                    </div>
+                    <div className="truncate text-[11px] text-muted-foreground">{row.products.length ? row.productCategory : null}</div>
+                    {row.companyId && row.contactId ? (
+                      <Badge variant="outline" className="mt-1 h-5 gap-1 text-[9px] text-success"><Building2 className="size-3" /> Firmalar'da</Badge>
+                    ) : null}
+                    {row.opportunityId ? (
+                      <Badge
+                        variant="outline"
+                        className="mt-1 h-5 cursor-pointer gap-1 text-[9px] text-primary"
+                        onClick={(e) => { e.stopPropagation(); onOpenOpportunity?.(row.opportunityId!); }}
+                        title="Fırsatı aç"
+                      >
+                        <Handshake className="size-3" /> Fırsatta
+                      </Badge>
+                    ) : null}
                   </TableCell>
                   <TableCell className="hidden truncate text-[12px] sm:table-cell">
                     <div className="truncate">{row.metByName ?? "—"}</div>
-                    <div className="text-[11px] text-muted-foreground">{row.visitorCount} kişi</div>
-                  </TableCell>
-                  <TableCell onClick={(e) => e.stopPropagation()}>
-                    <label className="flex items-center gap-2 text-[11px]">
-                      <Checkbox checked={row.contacted} disabled={!canUpdate} aria-label={`${row.companyName} görüşüldü`} onCheckedChange={() => openFollowUp(row)} />
-                      Görüşüldü
-                    </label>
-                    {row.offerSent && <div className="mt-1 text-[10px] text-green-800">Teklif iletildi</div>}
-                    {row.customerConverted && <div className="mt-1 text-[10px] text-green-800">Müşteriye dönüştü</div>}
-                    {canUpdate && (row.offerSent || row.customerConverted) && !row.contacted && <button type="button" className="mt-1 text-[10px] underline" onClick={() => openFollowUp(row, false)}>Takibi düzenle</button>}
+                    <div className="truncate text-[11px] text-muted-foreground">{[`${row.visitorCount} kişi`, row.divisionName].filter(Boolean).join(" · ")}</div>
                   </TableCell>
                   <TableCell className="px-1" onClick={(e) => e.stopPropagation()}>
                     <div className="flex items-center gap-1">
+                      {flagBox(row, "called")}
+                      {flagBox(row, "quoted")}
+                      {canConvert && !row.opportunityId && (
+                        <Button variant="ghost" size="icon" className="size-7" title="Fırsata çevir" aria-label={`${row.companyName} kaydını fırsata çevir`} onClick={() => openConvert(row)}>
+                          <Handshake className="size-3.5" />
+                        </Button>
+                      )}
                       {canUpdate && (
                         <Button variant="ghost" size="icon" className="size-7" aria-label={`${row.companyName} kaydını düzenle`} onClick={() => openEdit(row)}>
                           <Pencil className="size-3.5" />
@@ -514,42 +774,57 @@ export function TradeFairsPage() {
         </Card>
       )}
 
-      <div className="flex flex-wrap gap-4 text-[11px] text-muted-foreground" aria-label="Takip renkleri">
-        <span className="flex items-center gap-1.5"><span className="size-3 rounded bg-yellow-100 border border-yellow-300" />Görüşüldü</span>
-        <span className="flex items-center gap-1.5"><span className="size-3 rounded bg-green-100 border border-green-300" />Teklif iletildi / müşteriye dönüştü</span>
-      </div>
-      <Dialog open={!!followUpRow} onOpenChange={(open) => { if (!open && !savingFollowUp) setFollowUpRow(null); }}>
-        <DialogContent className="sm:max-w-lg">
+      <Dialog open={Boolean(converting)} onOpenChange={(open) => !open && !convertBusy && setConverting(null)}>
+        <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Görüşme Takibi</DialogTitle>
-            <DialogDescription>{followUpRow?.companyName} · {followUpRow?.contactName}</DialogDescription>
+            <DialogTitle>Fırsata çevir</DialogTitle>
+            <DialogDescription>
+              {converting ? `${converting.companyName} · ${converting.contactName}` : ""} — firma, kişi, iletişim, konum, ürünler ve
+              notlar fırsata aktarılır. Kart seçilen kolonun gerekliliklerini karşılamıyorsa Lead'de açılır.
+            </DialogDescription>
           </DialogHeader>
-          <form onSubmit={saveFollowUp} className="space-y-4">
-            <fieldset disabled={savingFollowUp} className="space-y-4">
-              <label className="flex items-center gap-2 text-sm"><Checkbox checked={followUp.contacted} onCheckedChange={(value) => setFollowUp((f) => ({ ...f, contacted: value === true }))} />Görüşüldü</label>
-              <div>
-                <Label htmlFor="tf-contact-method">Görüşme yolu {followUp.contacted && '*'}</Label>
-                <Select value={followUp.contactMethod ?? ''} onValueChange={(value) => setFollowUp((f) => ({ ...f, contactMethod: value as TradeFairFollowUp['contactMethod'] }))}>
-                  <SelectTrigger id="tf-contact-method" className="mt-1.5"><SelectValue placeholder="Görüşme yolu seçin" /></SelectTrigger>
-                  <SelectContent>{CONTACT_METHODS.map((m) => <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>)}</SelectContent>
-                </Select>
-              </div>
-              <div>
-                <Label htmlFor="tf-contact-date">Görüşme tarihi {followUp.contacted && '*'}</Label>
-                <Input id="tf-contact-date" className="mt-1.5" type="date" required={followUp.contacted} value={followUp.contactDate ?? ''} onChange={(e) => setFollowUp((f) => ({ ...f, contactDate: e.target.value || null }))} />
-              </div>
-              <div>
-                <Label htmlFor="tf-contact-notes">Görüşme notu {followUp.contacted && '*'}</Label>
-                <Textarea id="tf-contact-notes" className="mt-1.5" required={followUp.contacted} rows={4} maxLength={4000} value={followUp.contactNotes ?? ''} onChange={(e) => setFollowUp((f) => ({ ...f, contactNotes: e.target.value }))} />
-              </div>
-              <label className="flex items-center gap-2 text-sm"><Checkbox checked={followUp.offerSent} onCheckedChange={(value) => setFollowUp((f) => ({ ...f, offerSent: value === true }))} />Fuar teklifi iletildi</label>
-              <label className="flex items-center gap-2 text-sm"><Checkbox checked={followUp.customerConverted} onCheckedChange={(value) => setFollowUp((f) => ({ ...f, customerConverted: value === true }))} />Müşteriye dönüştü</label>
-            </fieldset>
-            <DialogFooter>
-              <Button type="button" variant="outline" disabled={savingFollowUp} onClick={() => setFollowUpRow(null)}>Vazgeç</Button>
-              <Button type="submit" disabled={savingFollowUp}>{savingFollowUp ? 'Kaydediliyor…' : 'Kaydet'}</Button>
-            </DialogFooter>
-          </form>
+          <div className="space-y-3">
+            <div>
+              <Label>Pano kolonu</Label>
+              <Select value={convertStage} onValueChange={setConvertStage}>
+                <SelectTrigger className="mt-1.5" aria-label="Pano kolonu"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {OPPORTUNITY_TARGET_STAGES.map((code) => (
+                    <SelectItem key={code} value={code}>{QUALIFICATION_STAGE_LABELS[code]}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label>Bölüm</Label>
+              <Select value={convertDivision} onValueChange={setConvertDivision}>
+                <SelectTrigger className="mt-1.5" aria-label="Bölüm"><SelectValue placeholder="Bölüm seçin" /></SelectTrigger>
+                <SelectContent>
+                  {divisionList.map((d) => <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label>Sorumlu satışçı</Label>
+              <Select value={convertOwner} onValueChange={setConvertOwner}>
+                <SelectTrigger className="mt-1.5" aria-label="Sorumlu satışçı"><SelectValue placeholder="Otomatik (atama kuralı)" /></SelectTrigger>
+                <SelectContent>
+                  {(canAssignOwner ? staff : staff.filter((s) => s.id === user?.id)).map((s) => (
+                    <SelectItem key={s.id} value={s.id}>{s.fullName}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {!canAssignOwner && (
+                <p className="mt-1 text-[11px] text-muted-foreground">Başkasına atama yetkiniz yok; boş bırakılırsa atama kuralı uygulanır.</p>
+              )}
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" disabled={convertBusy} onClick={() => setConverting(null)}>Vazgeç</Button>
+            <Button disabled={convertBusy || (divisionList.length > 0 && !convertDivision)} onClick={() => void submitConvert()} className="gap-1.5">
+              {convertBusy ? <Loader2 className="size-4 animate-spin" /> : <Handshake className="size-4" />} Fırsata çevir
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 
@@ -647,37 +922,63 @@ export function TradeFairsPage() {
                   />
                 </div>
               </div>
-              <div className="grid gap-3 sm:grid-cols-2">
-                <div>
-                  <Label>Ürün kategorisi</Label>
-                  <Combobox
-                    ariaLabel="Ürün kategorisi"
-                    className="mt-1.5"
-                    options={withCurrent(categoryOptions, form.productCategory)}
-                    value={form.productCategory ?? ""}
-                    onChange={(v) => set("productCategory", v)}
-                    placeholder="Kategori seçin veya yazın"
-                    searchPlaceholder="Kategori ara…"
-                    emptyText="Kategori bulunamadı"
-                    onCreate={(v) => set("productCategory", v)}
-                    createLabel={(v) => `"${v}" kategorisini kullan`}
-                  />
-                </div>
-                <div>
-                  <Label>Ürün tipi</Label>
-                  <Combobox
-                    ariaLabel="Ürün tipi"
-                    className="mt-1.5"
-                    options={withCurrent(typeOptions, form.productType)}
-                    value={form.productType ?? ""}
-                    onChange={(v) => set("productType", v)}
-                    placeholder="Tip seçin veya yazın"
-                    searchPlaceholder="Tip ara…"
-                    emptyText="Tip bulunamadı"
-                    onCreate={(v) => set("productType", v)}
-                    createLabel={(v) => `"${v}" tipini kullan`}
-                  />
-                </div>
+              <div>
+                <Label>Bölüm * <span className="font-normal text-muted-foreground">(firma hangi alan için geldi)</span></Label>
+                <Select value={form.divisionId ?? ""} onValueChange={(v) => set("divisionId", v)}>
+                  <SelectTrigger className="mt-1.5" aria-label="Bölüm" aria-invalid={issuePaths.has("divisionId")}>
+                    <SelectValue placeholder="CNC / Üniversal / Sac İşleme" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {withDivision(divisionList, editing).map((d) => <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label>CRM ürünleri <span className="font-normal text-muted-foreground">(isteğe bağlı, birden çok; seçilen bölümün ürünleri)</span></Label>
+                {form.productModelIds.length > 0 ? (
+                  <div className="mt-1.5 flex flex-wrap gap-1.5">
+                    {form.productModelIds.map((id) => (
+                      <Badge key={id} variant="secondary" className="h-7 max-w-full gap-1 pr-1">
+                        <span className="truncate">{productNames.get(id) ?? "Seçili ürün"}</span>
+                        <button type="button" aria-label={`${productNames.get(id) ?? "Ürün"} ürününü çıkar`} onClick={() => removeProduct(id)}>
+                          <X className="size-3" />
+                        </button>
+                      </Badge>
+                    ))}
+                  </div>
+                ) : null}
+                <Combobox
+                  ariaLabel="CRM ürünü ekle"
+                  className="mt-1.5"
+                  options={productOptions}
+                  value=""
+                  onChange={addProduct}
+                  placeholder={
+                    !form.divisionId
+                      ? "Önce bölüm seçin"
+                      : form.productModelIds.length
+                        ? "Başka ürün ekle"
+                        : "CRM'den ürün seçin (boş bırakılabilir)"
+                  }
+                  disabled={!form.divisionId}
+                  searchPlaceholder="Marka, model ara…"
+                  emptyText="Ürün bulunamadı"
+                />
+              </div>
+              <div>
+                <Label>Ürün kategorisi</Label>
+                <Combobox
+                  ariaLabel="Ürün kategorisi"
+                  className="mt-1.5"
+                  options={withCurrent(categoryOptions, form.productCategory)}
+                  value={form.productCategory ?? ""}
+                  onChange={(v) => set("productCategory", v)}
+                  placeholder="Kategori seçin veya yazın"
+                  searchPlaceholder="Kategori ara…"
+                  emptyText="Kategori bulunamadı"
+                  onCreate={(v) => set("productCategory", v)}
+                  createLabel={(v) => `"${v}" kategorisini kullan`}
+                />
               </div>
               <div className="grid gap-3 sm:grid-cols-[1fr_140px]">
                 <div>
@@ -695,7 +996,9 @@ export function TradeFairsPage() {
                 </div>
               </div>
               <div>
-                <Label htmlFor="tf-notes">Not</Label>
+                <Label htmlFor="tf-notes">
+                  Not {hasNoteOrAttachment ? null : <span className="font-normal text-muted-foreground">(ya da fotoğraf/dosya ekleyin)</span>}
+                </Label>
                 <Textarea id="tf-notes" className="mt-1.5" rows={4} maxLength={4000} placeholder="Görüşme notları, talep, bütçe, takip…" value={form.notes ?? ""} onChange={(e) => set("notes", e.target.value)} />
               </div>
             </fieldset>
@@ -717,28 +1020,75 @@ export function TradeFairsPage() {
               </div>
               {(!editing || canUpdate) && (
                 <div className="mt-2 flex flex-wrap gap-2">
-                  <input ref={photoRef} type="file" accept="image/png,image/jpeg,image/webp" capture="environment" multiple className="hidden" onChange={pickFiles} />
+                  {/* capture telefonda doğrudan kamerayı açar ve tek çekime izin verir; galeriden
+                      çoklu seçim için ayrı, capture'sız bir seçici var. */}
+                  <input ref={cameraRef} type="file" accept="image/png,image/jpeg,image/webp" capture="environment" className="hidden" onChange={pickFiles} />
+                  <input ref={photoRef} type="file" accept="image/png,image/jpeg,image/webp" multiple className="hidden" onChange={pickFiles} />
                   <input ref={docRef} type="file" accept={DOC_ACCEPT} multiple className="hidden" onChange={pickFiles} />
+                  <Button type="button" variant="outline" size="sm" className="gap-1.5 sm:hidden" onClick={() => cameraRef.current?.click()}>
+                    <Camera className="size-4" /> Kamera
+                  </Button>
                   <Button type="button" variant="outline" size="sm" className="gap-1.5" onClick={() => photoRef.current?.click()}>
-                    <Camera className="size-4" /> Fotoğraf
+                    <Images className="size-4" /> Fotoğraflar
                   </Button>
                   <Button type="button" variant="outline" size="sm" className="gap-1.5" onClick={() => docRef.current?.click()}>
                     <Paperclip className="size-4" /> Dosya
                   </Button>
-                  <span className="self-center text-[11px] text-muted-foreground">Kaydet'e basınca yüklenir · PDF, DOCX, XLSX, PNG, JPG, WEBP · en fazla 25 MB</span>
+                  <span className="self-center text-[11px] text-muted-foreground">Birden çok seçilebilir · Kaydet'e basınca yüklenir · PDF, DOCX, XLSX, PNG, JPG, WEBP · dosya başına en fazla {FILE_UPLOAD_MAX_MB} MB</span>
                 </div>
               )}
             </div>
 
+            {editing ? (
+              <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border/70 bg-muted/30 p-3">
+                <div className="min-w-0 text-[12px]">
+                  <div className="font-semibold">Firmalar</div>
+                  <div className="truncate text-muted-foreground">
+                    {editing.companyId && editing.contactId
+                      ? `Firmalar'a eklendi: ${editing.linkedCompanyName ?? "firma"}`
+                      : editing.companyId
+                        ? "Firma açıldı, yetkili kontak olarak eklenemedi; tekrar deneyebilirsiniz."
+                        : "Bu firma henüz Firmalar listesinde değil."}
+                  </div>
+                </div>
+                {editing.companyId && editing.contactId ? (
+                  onOpenCompany ? (
+                    <Button type="button" variant="outline" size="sm" className="gap-1.5" onClick={() => onOpenCompany(editing.companyId!)}>
+                      <ExternalLink className="size-4" /> Firmayı aç
+                    </Button>
+                  ) : null
+                ) : canAddToCompanies ? (
+                  <Button type="button" variant="outline" size="sm" className="gap-1.5" onClick={() => setCompanyDialogOpen(true)}>
+                    <Building2 className="size-4" /> Firmalara ekle
+                  </Button>
+                ) : null}
+              </div>
+            ) : null}
+
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>Kapat</Button>
               {(!editing || canUpdate) && (
-                <Button type="submit" disabled={saving}>{saving ? "Kaydediliyor..." : editing ? "Kaydet" : "Görüşmeyi Ekle"}</Button>
+                <Button type="submit" disabled={saving}>{saving ? uploadNote ?? "Kaydediliyor..." : editing ? "Kaydet" : "Görüşmeyi Ekle"}</Button>
               )}
             </DialogFooter>
           </form>
         </DialogContent>
       </Dialog>
+
+      {editing ? (
+        <AddToCompaniesDialog
+          open={companyDialogOpen}
+          onOpenChange={setCompanyDialogOpen}
+          record={editing}
+          canCreateCompany={isManager || hasPermission("companies.create")}
+          onAdded={(updated) => {
+            // Yanıtta görüşen/departman adı yok; açık kaydın geri kalanı korunur.
+            setEditing((current) => (current ? { ...current, ...updated } : updated));
+            reload();
+          }}
+          onFailed={reload}
+        />
+      ) : null}
 
       <Dialog open={!!deleting} onOpenChange={(open) => { if (!open) setDeleting(null); }}>
         <DialogContent className="max-w-md">
@@ -753,5 +1103,135 @@ export function TradeFairsPage() {
         </DialogContent>
       </Dialog>
     </div>
+  );
+}
+
+/**
+ * Fuar kaydını Firmalar'a ekler: yeni firma (potansiyel, kaynak Fuar) ya da
+ * mevcut firmaya kontak olarak. Aynı ünvanlı firma varsa sunucu yeni firma
+ * açmaz; diyalog o firmaya bağlamayı önerir.
+ */
+export function AddToCompaniesDialog({
+  open,
+  onOpenChange,
+  record,
+  canCreateCompany,
+  onAdded,
+  onFailed,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  record: TradeFairContactDTO;
+  canCreateCompany: boolean;
+  onAdded: (updated: TradeFairContactDTO) => void;
+  /** Hata sonrası liste tazelenir: firma açılıp kontak düştüyse kayıt artık firmaya bağlı. */
+  onFailed: () => void;
+}) {
+  const { user, activeDivision } = useAuth();
+  const divisions = user?.divisions ?? [];
+  // Firma, fuar kaydında seçilen bölümde açılır; kullanıcının o bölümde yetkisi yoksa kendi bölümü önerilir.
+  const defaultDivision =
+    (record.divisionId && divisions.some((d) => d.id === record.divisionId) ? record.divisionId : undefined) ??
+    (activeDivision && activeDivision !== "all" ? activeDivision : undefined) ??
+    divisions.find((d) => d.isPrimary)?.id ??
+    divisions[0]?.id ??
+    "";
+  const [mode, setMode] = useState<"new" | "existing">(canCreateCompany ? "new" : "existing");
+  const [divisionId, setDivisionId] = useState(defaultDivision);
+  const [companyId, setCompanyId] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+    setMode(canCreateCompany ? "new" : "existing");
+    setDivisionId(defaultDivision);
+    setCompanyId("");
+  }, [open, canCreateCompany, defaultDivision]);
+
+  const submit = async () => {
+    if (mode === "existing" && !companyId) {
+      toast.error("Firma seçin");
+      return;
+    }
+    setBusy(true);
+    try {
+      const updated = await tradeFairService.addToCompanies(
+        record.id,
+        mode === "existing" ? { companyId } : { divisionIds: divisionId ? [divisionId] : undefined },
+      );
+      toast.success("Firmalar'a eklendi", { description: `${record.companyName} · ${record.contactName}` });
+      onAdded(updated);
+      onOpenChange(false);
+    } catch (err) {
+      const details = err instanceof ApiError ? (err.details as { duplicateCompanyId?: string; accessRequestId?: string } | undefined) : undefined;
+      // Başka bölümdeki mükerrer firmada sunucu erişim talebi açar; o firma henüz
+      // görünmediği için bağlama önerilmez, sunucunun mesajı gösterilir.
+      const duplicateId = details?.accessRequestId ? undefined : details?.duplicateCompanyId;
+      if (duplicateId) {
+        // Aynı ünvanlı firma zaten var: yeni firma yerine ona bağlamayı öner.
+        setMode("existing");
+        setCompanyId(duplicateId);
+        toast.error("Bu ünvanla firma zaten kayıtlı", { description: "Yetkiliyi mevcut firmaya kontak olarak ekleyebilirsiniz." });
+      } else {
+        toast.error("Firmalara eklenemedi", { description: err instanceof Error ? err.message : "İstek başarısız oldu." });
+      }
+      onFailed();
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-h-[92dvh] overflow-y-auto sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Firmalara ekle</DialogTitle>
+          <DialogDescription>
+            {record.companyName} ve yetkilisi {record.contactName} normal firma/kontak kaydına dönüşür.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-3">
+          <div className="grid grid-cols-2 gap-2">
+            <Button type="button" variant={mode === "new" ? "default" : "outline"} disabled={!canCreateCompany} onClick={() => setMode("new")}>
+              Yeni firma
+            </Button>
+            <Button type="button" variant={mode === "existing" ? "default" : "outline"} onClick={() => setMode("existing")}>
+              Mevcut firmaya bağla
+            </Button>
+          </div>
+          {mode === "new" ? (
+            <>
+              <p className="text-[12px] text-muted-foreground">
+                Ünvan, ülke/il/ilçe fuar kaydından alınır; firma potansiyel müşteri, kaynağı Fuar olarak açılır.
+                Yetkili bu firmanın kontağı olur.
+              </p>
+              {divisions.length > 1 ? (
+                <div>
+                  <Label>Bölüm</Label>
+                  <Select value={divisionId} onValueChange={setDivisionId}>
+                    <SelectTrigger className="mt-1.5" aria-label="Bölüm"><SelectValue placeholder="Bölüm seçin" /></SelectTrigger>
+                    <SelectContent>
+                      {divisions.map((d) => (
+                        <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              ) : null}
+            </>
+          ) : (
+            <div>
+              <Label>Firma</Label>
+              <RemoteCompanyCombobox className="mt-1.5" value={companyId} onValueChange={setCompanyId} placeholder="Kayıtlı firmayı seçin" />
+              <p className="mt-1.5 text-[11px] text-muted-foreground">Yetkili seçilen firmaya kontak olarak eklenir.</p>
+            </div>
+          )}
+        </div>
+        <DialogFooter>
+          <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={busy}>Vazgeç</Button>
+          <Button type="button" onClick={() => void submit()} disabled={busy}>{busy ? "Ekleniyor…" : "Firmalara ekle"}</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

@@ -17,6 +17,7 @@ import { registerHttpObservability } from './shared/observability/http-logging';
 import { registerMetricsEndpoint } from './shared/observability/metrics';
 import { StructuredNestLogger } from './shared/observability/nest-logger';
 import { registerLenientJsonBodyParser } from './shared/http/fastify-json-body';
+import { createTrustedProxy } from './shared/http/trusted-proxy';
 
 async function bootstrap() {
   const env = loadEnv();
@@ -24,9 +25,8 @@ async function bootstrap() {
     AppModule,
     new FastifyAdapter({
       logger: false,
-      // Güvenilir proxy sayısına sabitle: istemcinin X-Forwarded-For ile sahte IP
-      // enjekte edip rate-limit/lockout'u atlatmasını ve log zehirlemesini önler.
-      trustProxy: env.TRUST_PROXY_HOPS,
+      // Nginx/Docker proxy adresini ve hop sınırını birlikte doğrula.
+      trustProxy: createTrustedProxy(env.TRUST_PROXY_HOPS),
       bodyLimit: env.MAX_UPLOAD_SIZE_MB * 1024 * 1024,
     }),
     { logger: new StructuredNestLogger() }

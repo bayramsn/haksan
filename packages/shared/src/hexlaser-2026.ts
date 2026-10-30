@@ -1,12 +1,21 @@
 /** HEX PDF is primary. Source spellings are deliberately not normalized to legacy aliases. */
 import { HEXLASER_2026_MANIFEST } from './hexlaser-2026-data';
 import { HEX2026_REVIEWED_CELLS, type Hex2026PowerBranch } from './hexlaser-2026-reviewed';
+import { HEX2026_SUPPLEMENT_ADDITIONS, HEX2026_SUPPLEMENT_SERIES } from './hexlaser-2026-supplement-data';
 export interface Hex2026Field { powerBranches?: readonly Hex2026PowerBranch[]; key: string; rawValue: string; verification: string; source: { document: string; page: number; capturedAt: string; sourceModelCode: string; rawValue: string } }
 export interface Hex2026Configuration { sourceModelCode: string; fields: Hex2026Field[] }
 export interface Hex2026Series { series: string; brand: string; kind: string; page: number; configurations: Hex2026Configuration[]; standardCabin: 'open' | 'closed' | null; powerOptions: number[]; powerPolicy: string; saleStatus: string }
 export const HEX2026_REVISION = 'hexlaser-2026-v1';
 /** Layer visual reviews on cloned cells so original source data stays immutable. */
-export const HEX2026_SERIES: readonly Hex2026Series[] = (HEXLASER_2026_MANIFEST.series as Hex2026Series[]).map(series => ({
+/** PDF series first; AORE 2026.9.14 adds only models/series the PDF lacks (hexlaser-2026-supplement-data.ts). */
+const HEX2026_SOURCE_SERIES: Hex2026Series[] = [
+  ...(HEXLASER_2026_MANIFEST.series as Hex2026Series[]).map(series => ({
+    ...series,
+    configurations: [...series.configurations, ...HEX2026_SUPPLEMENT_ADDITIONS.filter(row => row.series === series.series).map(row => row.configuration)],
+  })),
+  ...HEX2026_SUPPLEMENT_SERIES,
+];
+export const HEX2026_SERIES: readonly Hex2026Series[] = HEX2026_SOURCE_SERIES.map(series => ({
   ...series,
   configurations: series.configurations.map(configuration => {
     const fields = configuration.fields.map(field => ({ ...field, source: { ...field.source } })) as Hex2026Field[];

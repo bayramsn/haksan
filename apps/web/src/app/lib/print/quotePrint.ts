@@ -1,31 +1,14 @@
-import type { Contact, Customer, Offer, Product, SalesCase, User, ProductSpec } from "../mock";
+import type { Contact, Customer, Offer, Product, SalesCase, User } from "../mock";
 import { isMachiningCenterTypeCode } from "@haksan/shared";
 import { quoteService } from "../../../lib/services";
-import { specsForProductTypeStrict } from "../productSpecTemplates";
 import { publicProductLabel, trShortDate } from "./core";
 import { snapshotAddressLine } from "./core";
 import { applyVatRateToNotes } from "./notes";
 import { printSignatureFromDocumentSnapshot } from "./signature";
-import { printableTechnicalSpecs, snapshotStandardEquipment } from "./technicalSpecs";
+import { fullProductSpecs, printableTechnicalSpecs, quoteMachineModel, snapshotStandardEquipment } from "./technicalSpecs";
 import { laserSnapshotPrintSpecs } from "../laserProductSnapshot";
 import type { LaserTechnicalConfiguration } from "@haksan/shared";
 import type { QuoteHeaderLogoMode, QuotePrintData } from "./templates";
-
-// Seçilen tezgahın TAM teknik özellik listesi (tip şablonu + üründe girilen
-// değerler), teklifte kalem bazında girilen (customSpecs) değerlerle üzerine
-// yazılır. Böylece teklif PDF'i eksik değil tam özellik tablosu basar.
-const fullProductSpecs = (
-  product: Product | undefined,
-  customSpecs: Array<{ key: string; value: string; unit?: string; specUnit?: string; groupCode?: string; groupName?: string }>,
-): QuotePrintData["specs"] => {
-  const base = product ? specsForProductTypeStrict(product.productTypeCode, (product.specs ?? []) as ProductSpec[]) : [];
-  if (!base.length) return printableTechnicalSpecs(customSpecs.length ? customSpecs : product?.specs);
-  const overrides = new Map(customSpecs.map((s) => [s.key.trim().toLocaleLowerCase("tr-TR"), s]));
-  return printableTechnicalSpecs(base.map((s) => {
-    const ov = overrides.get(s.key.trim().toLocaleLowerCase("tr-TR"));
-    return ov && ov.value.trim() ? { ...s, value: ov.value } : s;
-  }));
-};
 
 type QuoteDetail = Awaited<ReturnType<typeof quoteService.get>>;
 
@@ -130,36 +113,6 @@ const quoteItemTechnicalSpecs = (item?: { compatibility?: unknown } | null): Arr
 const quoteItemLineGroupKey = (item?: { compatibility?: unknown } | null): string => {
   const value = (item?.compatibility as { lineGroupKey?: unknown } | null | undefined)?.lineGroupKey;
   return typeof value === "string" ? value.trim() : "";
-};
-
-const normalizedLabel = (value?: string | null): string =>
-  String(value ?? "").trim().replace(/\s+/g, " ").toLocaleUpperCase("tr-TR");
-
-const quoteMachineModel = (
-  product: Product | undefined,
-  itemStockCode?: string | null,
-): string | undefined => {
-  const model = product?.model?.trim() || "";
-  const stockCode = String(itemStockCode ?? product?.stockCode ?? "").trim();
-  if (model && (!stockCode || normalizedLabel(model) !== normalizedLabel(stockCode))) return model;
-
-  const brand = product?.brand?.trim() || "";
-  const type = product?.type?.trim() || "";
-  for (const source of [product?.modelName, product?.shortDescription]) {
-    let label = source?.trim() || "";
-    if (!label) continue;
-    if (brand && normalizedLabel(label).startsWith(`${normalizedLabel(brand)} `)) {
-      label = label.slice(brand.length).trim();
-    }
-    if (type && normalizedLabel(label).endsWith(normalizedLabel(type))) {
-      label = label.slice(0, Math.max(0, label.length - type.length)).trim();
-    }
-    if (label && normalizedLabel(label) !== normalizedLabel(stockCode)) return label;
-  }
-
-  // Model alanı stok kodu olarak kullanılmış eski ürünlerde iç kodu teklife
-  // taşımaktansa model satırını boş bırakmak daha güvenlidir.
-  return undefined;
 };
 
 export function buildQuotePrintData(input: QuoteBuildInput, quote: QuoteDetail): QuotePrintData {

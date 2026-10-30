@@ -22,31 +22,20 @@ const tradeFairContactFields = z.object({
   district: optionalText(128),
   productCategory: optionalText(128),
   productType: optionalText(255),
+  // Not ya da fotoğraf/dosya eki zorunlu; ek kayıttan sonra yüklendiği için bu
+  // kural formda (web + mobil) uygulanır, sunucuda not isteğe bağlı.
   notes: optionalText(4000),
-  contacted: z.boolean().optional(),
-  contactMethod: z.enum(['phone', 'whatsapp', 'email', 'in_person', 'other']).nullable().optional(),
-  contactDate: z.string().date('Geçerli bir görüşme tarihi girin').nullable().optional(),
-  contactNotes: optionalText(4000),
-  offerSent: z.boolean().optional(),
-  customerConverted: z.boolean().optional(),
   metByUserId: z.string().uuid().nullable().optional(),
+  /** Eski alan; arayüz artık göndermiyor. */
+  departmentId: z.string().uuid().nullable().optional(),
+  /** Görüşmenin bölümü (CNC / Üniversal / Sac İşleme); ürün seçimi bu bölüme göre. */
+  divisionId: z.string({ required_error: 'Bölüm seçimi zorunlu' }).uuid('Bölüm seçimi zorunlu'),
+  /** İlgilenilen CRM ürünleri; boş liste = ürün seçilmedi. */
+  productModelIds: z.array(z.string().uuid()).max(20, 'En fazla 20 ürün seçilebilir').optional(),
   visitorCount: z.coerce.number().int().min(1, 'Görüşülen kişi en az 1 olmalı').max(999, 'Görüşülen kişi en fazla 999 olabilir'),
 });
 
-export const tradeFairFollowUpSchema = tradeFairContactFields.pick({
-  contacted: true, contactMethod: true, contactDate: true, contactNotes: true,
-  offerSent: true, customerConverted: true,
-}).superRefine((value, ctx) => {
-  if (!value.contacted) return;
-  for (const key of ['contactMethod', 'contactDate', 'contactNotes'] as const) {
-    if (!value[key]) ctx.addIssue({ code: z.ZodIssueCode.custom, path: [key], message: 'Görüşme yolu, tarihi ve notu zorunlu' });
-  }
-});
-
 export const tradeFairContactCreateSchema = tradeFairContactFields.extend({
-  contacted: tradeFairContactFields.shape.contacted.default(false),
-  offerSent: tradeFairContactFields.shape.offerSent.default(false),
-  customerConverted: tradeFairContactFields.shape.customerConverted.default(false),
   country: tradeFairContactFields.shape.country.default('Türkiye'),
   visitorCount: tradeFairContactFields.shape.visitorCount.default(1),
 });
@@ -58,5 +47,55 @@ export const tradeFairListQuerySchema = paginationSchema.extend({
   fairName: z.string().trim().max(200).optional(),
   q: z.string().trim().max(200).optional(),
   metByUserId: z.string().uuid().optional(),
+  divisionId: z.string().uuid().optional(),
+  province: z.string().trim().min(1).max(128).optional(),
+  district: z.string().trim().min(1).max(128).optional(),
 });
+
+export const tradeFairPhotosQuerySchema = paginationSchema.extend({
+  fairName: z.string().trim().max(200).optional(),
+  q: z.string().trim().max(200).optional(),
+});
+export type TradeFairPhotosQuery = z.infer<typeof tradeFairPhotosQuerySchema>;
+
+/** Fuar formundaki ürün seçici: seçilen bölümün (ve ortak) katalog ürünleri. */
+export const tradeFairProductQuerySchema = z.object({
+  divisionId: z.string().uuid(),
+  q: z.string().trim().max(200).optional(),
+});
+export type TradeFairProductQuery = z.infer<typeof tradeFairProductQuerySchema>;
 export type TradeFairListQuery = z.infer<typeof tradeFairListQuerySchema>;
+
+/**
+ * Fuar kaydını Firmalar'a ekleme: `companyId` verilirse mevcut firmaya kontak
+ * olarak bağlanır, verilmezse kayıttaki bilgilerle yeni firma açılır.
+ */
+/** Fuar sonrası arandı işareti (tik); kaldırılınca kim/ne zaman bilgisi de silinir. */
+export const tradeFairCalledSchema = z.object({ called: z.boolean() });
+export type TradeFairCalledInput = z.infer<typeof tradeFairCalledSchema>;
+
+/** Fuar sonrası teklif verildi işareti (tik); arandı ile aynı davranış. */
+export const tradeFairQuotedSchema = z.object({ quoted: z.boolean() });
+export type TradeFairQuotedInput = z.infer<typeof tradeFairQuotedSchema>;
+
+/**
+ * Fuar kaydını fırsata çevirme: fırsat panosunda hangi kolona (satış derecesi),
+ * hangi bölüme ve kime düşeceği seçilir. Bölüm/sorumlu boşsa kaydın bölümü ve
+ * görüşen kişi kullanılır. Kazanıldı/kaybedildi buradan seçilemez.
+ */
+export const tradeFairToOpportunitySchema = z.object({
+  qualificationStage: z.enum(['lead', 'c', 'b', 'a', 'a_plus']).default('lead'),
+  divisionId: z.string().uuid().optional(),
+  ownerUserId: z.string().uuid().optional(),
+});
+export type TradeFairToOpportunityInput = z.infer<typeof tradeFairToOpportunitySchema>;
+
+export const tradeFairToCompanySchema = z.object({
+  companyId: z.string().uuid().optional(),
+  /** Yeni firmanın bölümü; tek bölümlü kullanıcıda boş bırakılabilir. */
+  divisionIds: z.array(z.string().uuid()).min(1).max(16).optional(),
+});
+export type TradeFairToCompanyInput = z.infer<typeof tradeFairToCompanySchema>;
+
+/** Formlardaki "not ya da ek" kuralının ortak mesajı. */
+export const TRADE_FAIR_NOTE_OR_ATTACHMENT_MESSAGE = 'Not yazın ya da fotoğraf/dosya ekleyin';

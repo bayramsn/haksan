@@ -11,6 +11,7 @@ const tag = Date.now().toString(36);
 const companyName = `PAGINATION TIE ${tag}`;
 const contactName = `PAGINATION CONTACT ${tag}`;
 const allowedCity = `PARITY CITY ${tag}`;
+const allowedDistrict = `PARITY DISTRICT ${tag}`;
 const allowedSector = `PARITY SECTOR ${tag}`;
 const allowedDepartment = `PARITY DEPT ${tag}`;
 const deniedCity = `DENIED CITY ${tag}`;
@@ -169,11 +170,13 @@ describe('firma ve kontak server-side listeleme', () => {
       companyId: company.id,
       divisionId: allowedDivisionId,
     })));
-    await db.insert(schema.companyAddresses).values(allowedCompanies.map((company) => ({
+    await db.insert(schema.companyAddresses).values(allowedCompanies.map((company, index) => ({
       tenantId,
       companyId: company.id,
       addressType: 'office',
       province: allowedCity,
+      // Yalnız ilk firma ilçeli: ilçe süzgecinin il içinde daralttığını sınar.
+      district: index === 0 ? allowedDistrict : null,
       isDefault: true,
     })));
 
@@ -438,6 +441,19 @@ describe('firma ve kontak server-side listeleme', () => {
     expect(new Set(companyRows.map((row) => row.Şehir))).toEqual(new Set([allowedCity]));
     expect(new Set(companyRows.map((row) => row.Sektör))).toEqual(new Set([allowedSector]));
     expect(new Set(companyRows.map((row) => row['Tedarikçi Türü']))).toEqual(new Set(['Lojistik']));
+
+    const districtFilters = { ...companyFilters, district: allowedDistrict };
+    const [districtList, districtExport, districtPdf] = await Promise.all([
+      request(server).get('/api/v1/companies').query(districtFilters).set(auth(scopedToken)),
+      request(server).get('/api/v1/exports/companies').query(districtFilters).set(auth(scopedToken)).buffer(true).parse(binaryParser),
+      request(server).get('/api/v1/exports/companies').query({ ...districtFilters, format: 'pdf' }).set(auth(scopedToken)).buffer(true).parse(binaryParser),
+    ]);
+    expect(districtList.body.meta.total).toBe(1);
+    const districtRows = await worksheetRows(districtExport.body, 'Firmalar');
+    expect(districtRows.map((row) => row.İlçe)).toEqual([allowedDistrict]);
+    expect(districtPdf.status).toBe(200);
+    expect(districtPdf.headers['content-type']).toContain('application/pdf');
+    expect(districtPdf.body.subarray(0, 4).toString()).toBe('%PDF');
 
     const contactFilters = {
       search: contactName,

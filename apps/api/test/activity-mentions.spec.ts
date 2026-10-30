@@ -104,7 +104,8 @@ describe('Activity mentions', () => {
       companyId,
       contactId,
     });
-    expect(task.dueAt.slice(0, 10)).toBe(futureDate.toISOString().slice(0, 10));
+    // Görev günü İstanbul takvimine göre atanır (gece 00:00–03:00 arasında UTC günü farklıdır).
+    expect(task.dueAt.slice(0, 10)).toBe(futureDate.toLocaleDateString('en-CA', { timeZone: 'Europe/Istanbul' }));
   });
 
   it('defaults a future activity task to its creator and rejects unknown assignees', async () => {

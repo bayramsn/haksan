@@ -1,3 +1,4 @@
+import { FILE_UPLOAD_MAX_MB } from "@haksan/shared";
 import { CompanyNotesCard } from "../shared/CompanyNotesCard";
 import { type ReactNode, lazy, Suspense, useEffect, useMemo, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "../ui/card";
@@ -505,7 +506,7 @@ export function CustomerDetailPage({ customer, onBack, onAction }: { customer: C
                       }}
                     >
                       <Upload className="size-4 shrink-0" />
-                      <span>Dosyayı buraya sürükleyip bırakın veya seçmek için tıklayın · PDF, DOCX, XLSX, PNG, JPG, WEBP · en fazla 25 MB</span>
+                      <span>Dosyayı buraya sürükleyip bırakın veya seçmek için tıklayın · PDF, DOCX, XLSX, PNG, JPG, WEBP · en fazla {FILE_UPLOAD_MAX_MB} MB</span>
                     </button>
                   )}
                   <div className="overflow-hidden rounded-lg border border-border/60">

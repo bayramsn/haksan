@@ -1,8 +1,5 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Res, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { z } from 'zod';
-import { PROFORMA_NOTE_OPTIONS } from '@haksan/shared/dist/commercial-print/notes';
-import { Throttle } from '@nestjs/throttler';
-import type { FastifyReply } from 'fastify';
 import {
   commercialInvoiceCreateSchema,
   commercialInvoiceUpdateSchema,
@@ -33,8 +30,6 @@ import { CurrentUser } from '../../shared/security/current-user.decorator';
 import type { AuthContext } from '../../shared/security/auth.types';
 import { QuotesService } from './quotes.service';
 
-export const proformaGeneratePdfSchema = z.object({ variantKey: z.string().max(64).refine((key) => PROFORMA_NOTE_OPTIONS.some((option) => option.key === key), 'Geçersiz proforma baskı şablonu').optional() }).strict().default({});
-
 const commercialDocumentListQuery = paginationSchema.extend({
   search: z.string().trim().max(128).optional(),
   companyId: z.string().optional(),
@@ -57,17 +52,6 @@ export class CommercialDocumentsController {
   @Get('proformas/:id')
   getProforma(@Param('id') id: string, @CurrentUser() user: AuthContext) {
     return this.svc.getProforma(id, user);
-  }
-
-  @RequirePermissions('proformas.read')
-  @Throttle({ default: { limit: 10, ttl: 60_000 } })
-  @Post('proformas/:id/generate-pdf')
-  async generateProformaPdf(@Body(new ZodValidationPipe(proformaGeneratePdfSchema)) options: z.infer<typeof proformaGeneratePdfSchema>, @Param('id', new ZodValidationPipe(z.string().uuid())) id: string, @CurrentUser() user: AuthContext, @Res() res: FastifyReply) {
-    const { buffer, filename } = await this.svc.generateCommercialPdf('proforma', id, user, options);
-    res.header('Content-Type', 'application/pdf')
-      .header('Content-Disposition', `attachment; filename="${filename}"`)
-      .header('Cache-Control', 'private, no-store')
-      .send(buffer);
   }
 
   @RequirePermissions('proformas.create')
@@ -122,17 +106,6 @@ export class CommercialDocumentsController {
   @Get('contracts/:id')
   getContract(@Param('id') id: string, @CurrentUser() user: AuthContext) {
     return this.svc.getContract(id, user);
-  }
-
-  @RequirePermissions('contracts.read')
-  @Throttle({ default: { limit: 10, ttl: 60_000 } })
-  @Post('contracts/:id/generate-pdf')
-  async generateContractPdf(@Param('id', new ZodValidationPipe(z.string().uuid())) id: string, @CurrentUser() user: AuthContext, @Res() res: FastifyReply) {
-    const { buffer, filename } = await this.svc.generateCommercialPdf('contract', id, user);
-    res.header('Content-Type', 'application/pdf')
-      .header('Content-Disposition', `attachment; filename="${filename}"`)
-      .header('Cache-Control', 'private, no-store')
-      .send(buffer);
   }
 
   @RequirePermissions('contracts.create')

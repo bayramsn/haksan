@@ -29,16 +29,16 @@ export interface MetaConnection {
 export interface MetaOverview {
   period: { from: string; to: string };
   summary: {
-    spendMinor: number | null;
+    spendMinor: number;
     currency: string;
-    impressions: number | null;
-    clicks: number | null;
-    leads: number | null;
-    qualifiedLeads: number | null;
-    conversions: number | null;
-    costPerLeadMinor: number | null;
-    qualificationRate: number | null;
-    conversionRate: number | null;
+    impressions: number;
+    clicks: number;
+    leads: number;
+    qualifiedLeads: number;
+    conversions: number;
+    costPerLeadMinor: number;
+    qualificationRate: number;
+    conversionRate: number;
     firstResponseMinutes?: number | null;
   };
   connectionHealth: Array<{
@@ -94,13 +94,13 @@ export interface MetaCampaign {
   effectiveStatus?: string | null;
   dailyBudgetMinor?: number | null;
   lifetimeBudgetMinor?: number | null;
-  spendMinor?: number | null;
+  spendMinor?: number;
   currency: string;
-  impressions?: number | null;
-  clicks?: number | null;
-  leads?: number | null;
-  qualifiedLeads?: number | null;
-  conversions?: number | null;
+  impressions?: number;
+  clicks?: number;
+  leads?: number;
+  qualifiedLeads?: number;
+  conversions?: number;
   updatedAt?: string | null;
 }
 
@@ -190,6 +190,23 @@ export interface MetaCatalog {
   lastError?: string | null;
 }
 
+export interface MetaJobResult {
+  processed: number;
+  failed: number;
+}
+
+export interface MetaFailedWebhookEvent {
+  id: string;
+  connectionId: string;
+  eventType: string;
+  status: "retry" | "dead";
+  attemptCount: number;
+  lastError?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  requeueable: boolean;
+}
+
 export interface MetaPageResult<T> {
   items: T[];
   total: number;
@@ -234,6 +251,7 @@ const META_PATHS = {
   catalogs: "/meta/catalogs",
   conversionEvents: "/meta/conversion-events",
   processJobs: "/meta/jobs/process",
+  webhookEvents: "/meta/webhook-events",
 } as const;
 
 type RawMetaConnection = Omit<MetaConnection, "status"> & { status: string };
@@ -252,24 +270,6 @@ function queryString(params?: object): string {
   });
   const encoded = search.toString();
   return encoded ? `?${encoded}` : "";
-}
-
-/** Array-only endpoints have no total; keep requesting until a short page.
- * Fail on repeated/invalid pages instead of publishing partial history or KPIs. */
-async function collectMetaArrayPages<T>(fetchPage: (page: number, pageSize: number) => Promise<T[]>): Promise<T[]> {
-  const rows: T[] = [];
-  let previous: string | undefined;
-  for (let page = 1; page <= 10_000; page++) {
-    const result = await fetchPage(page, 100);
-    if (!Array.isArray(result) || result.length > 100) throw new Error("Meta liste sayfaları doğrulanamadı. Lütfen yeniden deneyin.");
-    if (result.length === 0) return rows;
-    const fingerprint = JSON.stringify(result);
-    if (fingerprint === previous) throw new Error("Meta liste sayfası tekrarlandı. Lütfen yeniden deneyin.");
-    rows.push(...result);
-    if (result.length < 100) return rows;
-    previous = fingerprint;
-  }
-  throw new Error("Meta listesi tamamlanamadı. Lütfen filtreleri daraltıp yeniden deneyin.");
 }
 
 function normalizePage<T>(response: ListEnvelope<T>, requestedPage = 1, requestedPageSize = 25): MetaPageResult<T> {
@@ -311,8 +311,6 @@ function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" ? value as Record<string, unknown> : {};
 }
 
-function nullableNumber(value: unknown): number | null { return typeof value === 'number' && Number.isFinite(value) ? value : null; }
-
 function asString(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value : null;
 }
@@ -322,7 +320,7 @@ function normalizeLeadStatus(raw: Record<string, unknown>): MetaLeadStatus {
   const followUp = String(raw.leadFollowUpStatus ?? "").toLowerCase();
   if (["win", "won", "converted"].includes(qualification)) return "converted";
   if (["lost", "rejected", "disqualified"].includes(qualification) || followUp === "disqualified") return "rejected";
-  if (["a", "a+", "qualified"].includes(qualification)) return "qualified";
+  if (["a", "a_plus", "qualified"].includes(qualification)) return "qualified";
   if (raw.firstContactAt || followUp === "contacted") return "contacted";
   if (raw.ownerUserId) return "assigned";
   return "new";
@@ -352,18 +350,6 @@ function normalizeLead(raw: Record<string, unknown>): MetaLead {
   };
 }
 
-export function summarizeMetaInsights(items: MetaInsightPoint[]) {
-  const currencies = new Set(items.map((item) => item.currency));
-  const validCurrency = currencies.size === 1 && /^[A-Z]{3}$/.test(items[0]?.currency ?? '');
-  return {
-    spendMinor: validCurrency ? items.reduce((sum, item) => sum + item.spendMinor, 0) : null,
-    impressions: items.reduce((sum, item) => sum + item.impressions, 0),
-    clicks: items.reduce((sum, item) => sum + item.clicks, 0),
-    leads: items.reduce((sum, item) => sum + item.leads, 0),
-    currency: validCurrency ? items[0]!.currency : 'TRY',
-  };
-}
-
 function normalizeCampaign(raw: Record<string, unknown>, connectionId: string): MetaCampaign {
   return {
     id: String(raw.id ?? ""),
@@ -374,13 +360,13 @@ function normalizeCampaign(raw: Record<string, unknown>, connectionId: string): 
     effectiveStatus: asString(raw.effective_status ?? raw.effectiveStatus),
     dailyBudgetMinor: raw.daily_budget == null && raw.dailyBudgetMinor == null ? null : Number(raw.daily_budget ?? raw.dailyBudgetMinor),
     lifetimeBudgetMinor: raw.lifetime_budget == null && raw.lifetimeBudgetMinor == null ? null : Number(raw.lifetime_budget ?? raw.lifetimeBudgetMinor),
-    spendMinor: typeof raw.spendMinor === 'number' && Number.isFinite(raw.spendMinor) ? raw.spendMinor : null,
+    spendMinor: Number(raw.spendMinor ?? 0),
     currency: String(raw.currency ?? "TRY"),
-    impressions: typeof raw.impressions === 'number' && Number.isFinite(raw.impressions) ? raw.impressions : null,
-    clicks: typeof raw.clicks === 'number' && Number.isFinite(raw.clicks) ? raw.clicks : null,
-    leads: typeof raw.leads === 'number' && Number.isFinite(raw.leads) ? raw.leads : null,
-    qualifiedLeads: typeof raw.qualifiedLeads === 'number' && Number.isFinite(raw.qualifiedLeads) ? raw.qualifiedLeads : null,
-    conversions: typeof raw.conversions === 'number' && Number.isFinite(raw.conversions) ? raw.conversions : null,
+    impressions: Number(raw.impressions ?? 0),
+    clicks: Number(raw.clicks ?? 0),
+    leads: Number(raw.leads ?? 0),
+    qualifiedLeads: Number(raw.qualifiedLeads ?? 0),
+    conversions: Number(raw.conversions ?? 0),
     updatedAt: asString(raw.updated_time ?? raw.updatedAt),
   };
 }
@@ -417,26 +403,31 @@ export const metaQueryKeys = {
   conversions: (params: MetaListParams) => ["meta", "conversion-events", params] as const,
   audiences: (params: MetaListParams) => ["meta", "audiences", params] as const,
   catalogs: (params: MetaListParams) => ["meta", "catalogs", params] as const,
+  failedWebhookEvents: ["meta", "webhook-events", "failed"] as const,
 };
 
 export const metaService = {
   overview: async (params: { from?: string; to?: string; connectionId?: string } = {}): Promise<MetaOverview> => {
     const [rawSummary, rawConnections, rawLeads] = await Promise.all([
-      api.get<Record<string, unknown>>(`${META_PATHS.overview}${queryString(params)}`),
+      api.get<{ connections?: number; leads?: number; pendingConversions?: number; totalSpend?: number }>(`${META_PATHS.overview}${queryString(params)}`),
       api.get<RawMetaConnection[]>(META_PATHS.connections),
-      api.get<ListEnvelope<Record<string, unknown>>>(`${META_PATHS.leads}${queryString({ ...params, page: 1, pageSize: 5 })}`),
+      api.get<ListEnvelope<Record<string, unknown>>>(`${META_PATHS.leads}${queryString({ page: 1, pageSize: 5, connectionId: params.connectionId })}`),
     ]);
     const leadPage = normalizePage(rawLeads, 1, 5);
     return {
       period: { from: params.from ?? "", to: params.to ?? "" },
       summary: {
-        spendMinor: nullableNumber(rawSummary.totalSpend) === null ? null : Math.round(Number(rawSummary.totalSpend) * 100),
-        currency: asString(rawSummary.currency) ?? 'TRY',
-        impressions: nullableNumber(rawSummary.impressions), clicks: nullableNumber(rawSummary.clicks),
-        leads: nullableNumber(rawSummary.leads), qualifiedLeads: nullableNumber(rawSummary.qualifiedLeads),
-        conversions: nullableNumber(rawSummary.conversions), costPerLeadMinor: nullableNumber(rawSummary.costPerLeadMinor),
-        qualificationRate: nullableNumber(rawSummary.qualificationRate), conversionRate: nullableNumber(rawSummary.conversionRate),
-        firstResponseMinutes: nullableNumber(rawSummary.firstResponseMinutes),
+        spendMinor: Math.round(Number(rawSummary.totalSpend ?? 0) * 100),
+        currency: "TRY",
+        impressions: 0,
+        clicks: 0,
+        leads: Number(rawSummary.leads ?? leadPage.total),
+        qualifiedLeads: 0,
+        conversions: 0,
+        costPerLeadMinor: 0,
+        qualificationRate: 0,
+        conversionRate: 0,
+        firstResponseMinutes: null,
       },
       connectionHealth: rawConnections.map((item) => ({
         connectionId: item.id,
@@ -465,7 +456,7 @@ export const metaService = {
   updateConnection: (id: string, body: Partial<Pick<MetaConnection, "name" | "status">>) =>
     api.patch<MetaConnection>(`${META_PATHS.connections}/${id}`, body),
   verifyConnection: (id: string) =>
-    api.post<{ ok: true; remote: { id: string; name?: string } }>(`${META_PATHS.connections}/${id}/verify`, {}),
+    api.post<{ ok: boolean; remote: { id: string; name?: string }; lastError?: string | null }>(`${META_PATHS.connections}/${id}/verify`, {}),
   disconnectConnection: (id: string) =>
     api.patch<MetaConnection>(`${META_PATHS.connections}/${id}`, { status: "disabled" }),
   deleteConnection: (id: string) => api.delete<MetaConnection>(`${META_PATHS.connections}/${id}`),
@@ -476,18 +467,18 @@ export const metaService = {
     return { ...page, items: page.items.map(normalizeLead) };
   },
   insights: async (params: MetaListParams) => {
-    const response = await collectMetaArrayPages((page, pageSize) => api.get<Array<Record<string, unknown>>>(`${META_PATHS.insights}${queryString({ ...params, page, pageSize })}`));
+    const response = await api.get<Array<Record<string, unknown>>>(`${META_PATHS.insights}${queryString(params)}`);
     const items: MetaInsightPoint[] = response.map((raw) => ({
       date: String(raw.insightDate ?? raw.date ?? ""),
       campaignId: asString(raw.campaignId),
       campaignName: asString(raw.campaignName),
       spendMinor: Math.round(Number(raw.spend ?? 0) * 100),
-      currency: String(asRecord(raw.rawMetrics).account_currency ?? ""),
+      currency: String(asRecord(raw.rawMetrics).account_currency ?? "TRY"),
       impressions: Number(raw.impressions ?? 0),
       clicks: Number(raw.clicks ?? 0),
       leads: Number(raw.leads ?? 0),
     }));
-    return { items, total: items.length, page: 1, pageSize: items.length, hasNext: false };
+    return normalizePage(items, params.page, params.pageSize);
   },
   campaigns: async (params: MetaListParams) => {
     if (!params.connectionId) return normalizePage<MetaCampaign>([], params.page, params.pageSize);
@@ -536,7 +527,7 @@ export const metaService = {
     return normalizePage(items, params.page, params.pageSize);
   },
   messages: async (conversationId: string, params: { connectionId: string }) => {
-    const response = await collectMetaArrayPages((page, pageSize) => api.get<Array<Record<string, unknown>>>(`${META_PATHS.conversations}/${encodeURIComponent(conversationId)}/messages${queryString({ ...params, page, pageSize })}`));
+    const response = await api.get<Array<Record<string, unknown>>>(`${META_PATHS.conversations}/${conversationId}/messages${queryString({ ...params, page: 1, pageSize: 100 })}`);
     return response.map((raw): MetaMessage => ({
       id: String(raw.id ?? raw.remoteId ?? ""),
       direction: String(raw.direction ?? "inbound") as "inbound" | "outbound",
@@ -559,12 +550,12 @@ export const metaService = {
         return {
           id: String(raw.id ?? ""),
           connectionId: params.connectionId!,
-          platform: raw.username ? "instagram" : "facebook",
+          platform: media.platform === "instagram" || (!media.platform && raw.username) ? "instagram" : "facebook",
           authorName: String(raw.username ?? from.name ?? "Meta kullanıcısı"),
           authorHandle: asString(raw.username),
           message: String(raw.text ?? raw.message ?? ""),
-          postName: asString(media.caption),
-          isHidden: Boolean(raw.hidden),
+          postName: asString(media.caption ?? media.message),
+          isHidden: Boolean(raw.hidden ?? raw.is_hidden),
           canReply: true,
           createdAt: String(raw.timestamp ?? raw.created_time ?? new Date().toISOString()),
         };
@@ -572,10 +563,10 @@ export const metaService = {
     });
     return slicePage(items, params.page, params.pageSize);
   },
-  replyToComment: (commentId: string, body: { connectionId: string; message: string }) =>
+  replyToComment: (commentId: string, body: { connectionId: string; message: string; platform: MetaComment["platform"] }) =>
     api.post<{ id: string; message: string; createdAt: string }>(`${META_PATHS.comments}/${commentId}/replies`, body),
-  updateComment: (commentId: string, body: { connectionId: string; isHidden: boolean }) =>
-    api.patch<MetaComment>(`${META_PATHS.comments}/${commentId}`, { connectionId: body.connectionId, hidden: body.isHidden }),
+  updateComment: (commentId: string, body: { connectionId: string; isHidden: boolean; platform: MetaComment["platform"] }) =>
+    api.patch<MetaComment>(`${META_PATHS.comments}/${commentId}`, { connectionId: body.connectionId, hidden: body.isHidden, platform: body.platform }),
 
   formMappings: async () => (await api.get<RawMetaFormMapping[]>(META_PATHS.formMappings)).map(normalizeMapping),
   createFormMapping: (body: Omit<MetaFormMapping, "id" | "lastLeadAt" | "updatedAt">) =>
@@ -611,7 +602,11 @@ export const metaService = {
     currency?: string;
     eventId: string;
   }) => api.post<MetaConversionEvent>(META_PATHS.conversionEvents, { ...body, userData: {} }),
-  processJobs: () => api.post<{ processed: number; failed: number }>(META_PATHS.processJobs, {}),
+  processJobs: () => api.post<{ webhooks: MetaJobResult; conversions: MetaJobResult }>(META_PATHS.processJobs, {}),
+  failedWebhookEvents: () => api.get<MetaFailedWebhookEvent[]>(`${META_PATHS.webhookEvents}/failed`),
+  requeueWebhookEvent: (id: string) => api.post<{ id: string; status: string }>(`${META_PATHS.webhookEvents}/${id}/requeue`, {}),
+  syncInsights: (body: { connectionId: string; from: string; to: string }) =>
+    api.post<{ imported: number }>(`${META_PATHS.insights}/sync`, body),
 
   audiences: async (params: MetaListParams) => {
     const response = await api.get<Array<Record<string, unknown>>>(META_PATHS.audiences);

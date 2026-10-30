@@ -45,7 +45,7 @@ describe('LaserProfilesPanel', () => {
     expect(screen.queryByRole('option', { name: 'Diğer Marka' })).toBeNull();
     await user.click(screen.getByText('Test profilini seç'));
     await user.click(screen.getByRole('button', { name: 'Profili kaydet' }));
-    await waitFor(() => expect(laserProfilesService.save).toHaveBeenCalledWith({ divisionId: 'division-1', brandId: 'brand-1' }, expect.objectContaining({ sourceModelCode: 'F3015', cabinType: 'open', powerKw: 6 }), expect.arrayContaining([expect.objectContaining({ key: 'Makine Ağırlığı', value: '2150' })])));
+    await waitFor(() => expect(laserProfilesService.save).toHaveBeenCalledWith({ divisionId: 'division-1', brandId: 'brand-1' }, expect.objectContaining({ sourceModelCode: 'F3015', cabinType: 'open', powerKw: 6 }), expect.arrayContaining([expect.objectContaining({ key: 'Makine Ağırlığı', value: '2420' })])));
     expect(localStorage.removeItem).toHaveBeenCalledWith(expect.stringContaining('tenant-1'));
   });
 
@@ -61,7 +61,7 @@ describe('LaserProfilesPanel', () => {
     await user.click(screen.getByRole('button', { name: 'Önizlemeyi oluştur' }));
     await screen.findByText(/1 profil hazır/);
     expect(within(screen.getByRole('dialog')).getByText('Makine Ağırlığı')).toBeTruthy();
-    expect(within(screen.getByRole('dialog')).getByText('2150 kg')).toBeTruthy();
+    expect(within(screen.getByRole('dialog')).getByText('2420 kg')).toBeTruthy();
     await user.click(screen.getByRole('button', { name: '1 profili kaydet' }));
     await waitFor(() => expect(laserProfilesService.commitImport).toHaveBeenCalledWith({ divisionId: 'division-1', brandId: 'brand-1' }, expect.objectContaining({ importToken: 'preview-token', laserProfiles: [profile] })));
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());

@@ -115,7 +115,7 @@ describe('imported unconfigured laser product', () => {
     await waitFor(() => expect(state.updateProduct).toHaveBeenCalledTimes(1));
     const payload = state.updateProduct.mock.calls[0][1];
     expect(payload.technicalConfiguration).toBeNull();
-    expect(payload.specs.find((spec: { key: string }) => spec.key === 'Makine Ağırlığı')?.value).toBe('2150');
+    expect(payload.specs.find((spec: { key: string }) => spec.key === 'Makine Ağırlığı')?.value).toBe('2420');
   });
 
   it('adds a custom size and price without clearing imported source specifications', async () => {
@@ -128,7 +128,7 @@ describe('imported unconfigured laser product', () => {
     await waitFor(() => expect(productService.addOptionValue).toHaveBeenCalledWith('table-set', expect.objectContaining({ value: '5000 × 2500 mm', priceDelta: '2500', sourceModelCode: null })));
     fireEvent.click(screen.getByRole('button', { name: 'Güncelle' }));
     await waitFor(() => expect(state.updateProduct).toHaveBeenCalledTimes(1));
-    expect(state.updateProduct.mock.calls[0][1].specs.find((spec: { key: string }) => spec.key === 'Makine Ağırlığı')?.value).toBe('2150');
+    expect(state.updateProduct.mock.calls[0][1].specs.find((spec: { key: string }) => spec.key === 'Makine Ağırlığı')?.value).toBe('2420');
   });
 });
 

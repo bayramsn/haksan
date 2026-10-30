@@ -88,7 +88,7 @@ describe('shared technical settings workbook',()=>{
     await screen.findByRole('option',{name:'Fiber Lazer Kesim'});
     fireEvent.change(screen.getByLabelText(/Ürün Tipi/),{target:{value:'FIBER_LAZER_KESIM'}});
     await openSheet();await selectModel();
-    const weight=await screen.findByLabelText('Makine Ağırlığı seçili makine değeri');expect(weight).toHaveValue('2150');
+    const weight=await screen.findByLabelText('Makine Ağırlığı seçili makine değeri');expect(weight).toHaveValue('2420');
     expect(screen.getByText('Seçili Makine Değeri')).toBeInTheDocument();
     expect(screen.getByText(/Kaydettiğiniz alanlar eşleşen ürün kartlarına uygulanır/)).toBeInTheDocument();
     expect(screen.queryByText('Opsiyonel değerler')).not.toBeInTheDocument();
@@ -97,14 +97,14 @@ describe('shared technical settings workbook',()=>{
     fireEvent.change(screen.getByLabelText('5. Rezonatör gücü'),{target:{value:'12'}});
     expect(screen.queryByLabelText('Makine Ağırlığı seçili makine değeri')).not.toBeInTheDocument();
     fireEvent.change(screen.getByLabelText('6. Tabla ölçüsü'),{target:{value:'F3015'}});
-    await waitFor(()=>expect(screen.getByLabelText('Makine Ağırlığı seçili makine değeri')).toHaveValue('3150'));
+    await waitFor(()=>expect(screen.getByLabelText('Makine Ağırlığı seçili makine değeri')).toHaveValue('3260'));
     fireEvent.change(screen.getByLabelText('5. Rezonatör gücü'),{target:{value:'6'}});
     fireEvent.change(screen.getByLabelText('6. Tabla ölçüsü'),{target:{value:'F3015'}});
     await waitFor(()=>expect(screen.getByLabelText('Makine Ağırlığı seçili makine değeri')).toHaveValue('2222'));
     fireEvent.click(screen.getByRole('button',{name:'Değişiklikleri kaydet'}));
     await waitFor(()=>expect(laserProfilesService.save).toHaveBeenCalledTimes(1));
     expect(vi.mocked(laserProfilesService.save).mock.calls[0][0]).toEqual({divisionId:'sac',brandId:'hex'});
-    expect(vi.mocked(laserProfilesService.save).mock.calls[0][2]).toEqual(expect.arrayContaining([expect.objectContaining({key:'Makine Ağırlığı',value:'2222',sourceValue:'2150',isManual:true})]));
+    expect(vi.mocked(laserProfilesService.save).mock.calls[0][2]).toEqual(expect.arrayContaining([expect.objectContaining({key:'Makine Ağırlığı',value:'2222',sourceValue:'2420',isManual:true})]));
     expect(adminService.batchSaveProductSpecTemplates).not.toHaveBeenCalled();
     fireEvent.click(screen.getByText('Model profillerini yükle'));
     expect(screen.getByRole('dialog')).toHaveTextContent('Lazer model profili aktarımı');

@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { Check, ChevronsUpDown, Loader2, UserRound } from "lucide-react";
 import { useAuth } from "../../../lib/auth";
 import { contactService } from "../../../lib/services";
@@ -16,7 +16,6 @@ import {
 } from "../ui/command";
 import { Popover, PopoverContent, PopoverTrigger } from "../ui/popover";
 import { cn } from "../ui/utils";
-import { remoteOptionHasNext } from "./remoteOptionPagination";
 
 export const REMOTE_CONTACT_PAGE_SIZE = 25;
 
@@ -122,30 +121,26 @@ export function RemoteContactCombobox({
   const [query, setQuery] = useState("");
   const debouncedQuery = useDebouncedValue(query.trim(), 300);
 
-  const listQuery = useInfiniteQuery({
+  const listQuery = useQuery({
     queryKey: remoteContactQueryKeys.options(scope, companyId || "none", debouncedQuery),
-    initialPageParam: 1,
-    queryFn: async ({ signal, pageParam }) => {
-      const response = await contactService.list({
-      page: pageParam,
+    queryFn: ({ signal }) => contactService.list({
+      page: 1,
       pageSize: REMOTE_CONTACT_PAGE_SIZE,
       companyId: companyId || undefined,
       search: debouncedQuery || undefined,
       sortBy: "name",
       sortDir: "asc",
-    }, { signal });
-      return { data: response.data.map(normalizeServerContact), page: pageParam, hasNext: remoteOptionHasNext(response, pageParam) };
-    },
-    getNextPageParam: (lastPage) => lastPage.hasNext ? lastPage.page + 1 : undefined,
+    }, { signal }),
     enabled: Boolean(companyId),
+    select: (response) => response.data.map(normalizeServerContact),
   });
   const selectedQuery = useRemoteContactDetail(value);
   const options = useMemo(
-    () => mergeRemoteContactOptions(listQuery.data?.pages.flatMap((page) => page.data) ?? [], selectedQuery.data),
+    () => mergeRemoteContactOptions(listQuery.data ?? [], selectedQuery.data),
     [listQuery.data, selectedQuery.data],
   );
   const selected = options.find((option) => option.value === value);
-  const loading = Boolean(companyId) && (listQuery.isLoading || listQuery.isFetching || selectedQuery.isFetching);
+  const loading = listQuery.isPending || listQuery.isFetching || selectedQuery.isFetching;
 
   return (
     <Popover
@@ -176,16 +171,10 @@ export function RemoteContactCombobox({
           )}
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
+      <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
         <Command shouldFilter={false}>
           <CommandInput placeholder={searchPlaceholder} value={query} onValueChange={setQuery} />
           <CommandList aria-busy={loading}>
-            {(listQuery.isError || selectedQuery.isError) && <div role="alert" className="p-3 text-sm text-destructive">
-              {listQuery.isError ? 'Kontak listesi alınamadı.' : 'Seçili kontak alınamadı.'}
-              <Button type="button" variant="ghost" onClick={() => { void (listQuery.isError ? listQuery.refetch() : selectedQuery.refetch()); }}>Yeniden dene</Button>
-            </div>}
-            {loading && <div role="status" className="p-3 text-sm">Kontaklar aranıyor…</div>}
-            {!loading && listQuery.isSuccess && options.length === 0 && <div role="status" className="p-3 text-sm">Eşleşen kontak yok.</div>}
             <CommandEmpty>
               {listQuery.isError ? "Kontak listesi alınamadı." : loading ? "Kontaklar aranıyor…" : "Eşleşen kontak yok."}
             </CommandEmpty>
@@ -212,12 +201,11 @@ export function RemoteContactCombobox({
                   }}
                 >
                   <Check className={cn("mr-1 size-4", value === option.value ? "opacity-100" : "opacity-0")} />
-                  <span className="flex min-w-0 flex-1 flex-col gap-0.5"><span className="break-words">{option.label}</span>
-                  {option.hint && <span className="break-words text-xs text-muted-foreground">{option.hint}</span>}</span>
+                  <span className="min-w-0 flex-1 truncate">{option.label}</span>
+                  {option.hint && <span className="max-w-[48%] truncate text-xs text-muted-foreground">{option.hint}</span>}
                 </CommandItem>
               ))}
             </CommandGroup>
-            {listQuery.hasNextPage && <Button type="button" variant="ghost" className="w-full" disabled={listQuery.isFetching} onClick={() => void listQuery.fetchNextPage()}>Daha fazla kontak yükle</Button>}
           </CommandList>
         </Command>
       </PopoverContent>

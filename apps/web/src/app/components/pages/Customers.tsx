@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Card } from "../ui/card";
 import { Tabs, TabsList, TabsTrigger } from "../ui/tabs";
@@ -21,10 +21,12 @@ import { useStore } from "../../lib/store";
 import { useDetailDialogs } from "../dialogs/DetailDialogs";
 import { FilterPopover, Pager, ViewToggle, type ListView } from "../ui/list-controls";
 import { ExportExcelButton } from "../ui/ExportExcelButton";
+import { districtsForCountry } from "../../lib/geoByCountry";
 import { useAuth } from "../../../lib/auth";
 import { usePersistentState } from "../../lib/persist";
 import { MiniKpi } from "../shared/MiniKpi";
 import { EmptyState } from "../shared/EmptyState";
+import { TradeFairCompaniesPanel } from "./TradeFairCompaniesPanel";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
 } from "../ui/dropdown-menu";
@@ -80,12 +82,13 @@ export function CustomersPage({ onSelect }: { onSelect?: (c: Customer) => void }
   // Rol bazlı görünürlük (backend ile aynı kural): yalnızca sales/service rolleri
   // kısıtlıdır. Kısıtlı kullanıcılar tedarikçi sekmesini hiç görmez; servis-only
   // kullanıcılar ayrıca potansiyel müşteri sekmesini görmez (sales görür).
-  const { user, activeDivision, activeDepartment, setActiveDivision, hasRole } = useAuth();
+  const { user, activeDivision, activeDepartment, setActiveDivision, hasRole, hasPermission } = useAuth();
   const roles = user?.roles ?? [];
   const restricted = roles.length > 0 && roles.every((r) => r === "sales" || r === "service");
   const canSeeSuppliers = !restricted;
   const canSeeCompetitors = !restricted || roles.includes("sales");
   const canSeePotential = !restricted || roles.includes("sales");
+  const canSeeFair = hasRole("admin") || hasRole("super_admin") || hasPermission("trade_fairs.read");
   const [editing, setEditing] = useState<Customer | null>(null);
   const [deleting, setDeleting] = useState<Customer | null>(null);
   const [mailRecipient, setMailRecipient] = useState<MailRecipient | null>(null);
@@ -93,6 +96,8 @@ export function CustomersPage({ onSelect }: { onSelect?: (c: Customer) => void }
   const debouncedQ = useDebouncedValue(q, 275);
   const [page, setPage] = useState(1);
   const [tab, setTab] = useState<"all" | FirmType>("all");
+  // "Fuar" sekmesi firma listesi değil, fuarda kaydedilen ve cariye aktarılabilen kayıtlar.
+  const [showFair, setShowFair] = useState(false);
   const [salesTab, setSalesTab] = useState<"all" | "potential" | "active_customer">("all");
   // Bölüm filtresi: hangi bölümden girildiyse o seçili başlar; "Tümü" hepsini gösterir.
   const divisionOptions = user?.divisions ?? [];
@@ -104,6 +109,12 @@ export function CustomersPage({ onSelect }: { onSelect?: (c: Customer) => void }
     setPage(1);
   }, [activeDivision]);
   const [city, setCity] = useState("all");
+  const [district, setDistrict] = useState("all");
+  // İlçe listesi seçili ile göre gelir; il seçilmeden ilçe filtresi gösterilmez.
+  const districtOptions = useMemo(
+    () => (city === "all" ? [] : districtsForCountry("Türkiye", city).map((value) => ({ value, label: value }))),
+    [city],
+  );
   const [sector, setSector] = useState("all");
   const [supplierCategory, setSupplierCategory] = useState<"all" | "transportation" | "logistics">("all");
   const [sortMode, setSortMode] = useState<CompanySortMode>("default");
@@ -116,6 +127,7 @@ export function CustomersPage({ onSelect }: { onSelect?: (c: Customer) => void }
     salesStatus: salesTab,
     divisionId: divisionTab,
     city,
+    district,
     sector,
     supplierCategoryCode: supplierCategory,
     sortMode,
@@ -138,6 +150,7 @@ export function CustomersPage({ onSelect }: { onSelect?: (c: Customer) => void }
     ...(salesTab === "potential" ? { customerStatusCode: "potential" } : {}),
     ...(divisionTab !== "all" ? { divisionId: divisionTab } : {}),
     ...(city !== "all" ? { city } : {}),
+    ...(district !== "all" ? { district } : {}),
     ...(sector !== "all" ? { sector } : {}),
     ...(supplierCategory !== "all" ? { supplierCategoryCode: supplierCategory } : {}),
   };
@@ -209,7 +222,19 @@ export function CustomersPage({ onSelect }: { onSelect?: (c: Customer) => void }
       <div className="crm-filter-surface premium-blueprint precision-corners space-y-3">
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <span className="ui-eyebrow">Kayıtlı görünüm</span>
-        <Tabs className="w-full min-w-0 lg:w-auto" value={tab} onValueChange={(value) => { setTab(value as "all" | FirmType); resetPage(); }}>
+        <Tabs
+          className="w-full min-w-0 lg:w-auto"
+          value={showFair ? "trade_fair" : tab}
+          onValueChange={(value) => {
+            if (value === "trade_fair") {
+              setShowFair(true);
+              return;
+            }
+            setShowFair(false);
+            setTab(value as "all" | FirmType);
+            resetPage();
+          }}
+        >
           <TabsList className="bg-muted/60">
             <TabsTrigger value="all" className="gap-1.5">
               Tümü
@@ -245,6 +270,11 @@ export function CustomersPage({ onSelect }: { onSelect?: (c: Customer) => void }
                 </span>
               </TabsTrigger>
             )}
+            {canSeeFair && (
+              <TabsTrigger value="trade_fair" className="gap-1.5">
+                Fuar
+              </TabsTrigger>
+            )}
           </TabsList>
         </Tabs>
 
@@ -260,7 +290,10 @@ export function CustomersPage({ onSelect }: { onSelect?: (c: Customer) => void }
           </div>
           <FilterPopover
             filters={[
-              { label: "Şehir", value: city, onChange: (value) => { setCity(value); resetPage(); }, options: summary.cities.map((value) => ({ value, label: value })) },
+              { label: "Şehir", value: city, onChange: (value) => { setCity(value); setDistrict("all"); resetPage(); }, options: summary.cities.map((value) => ({ value, label: value })) },
+              ...(districtOptions.length > 0
+                ? [{ label: "İlçe", value: district, onChange: (value: string) => { setDistrict(value); resetPage(); }, options: districtOptions }]
+                : []),
               { label: "Sektör", value: sector, onChange: (value) => { setSector(value); resetPage(); }, options: summary.sectors.map((value) => ({ value, label: value })) },
               { label: "Tedarikçi Türü", value: supplierCategory, onChange: (value) => { setSupplierCategory(value as typeof supplierCategory); resetPage(); }, options: [{ value: "transportation", label: "Nakliye" }, { value: "logistics", label: "Lojistik" }] },
             ]}
@@ -287,6 +320,7 @@ export function CustomersPage({ onSelect }: { onSelect?: (c: Customer) => void }
             />
           )}
           <ExportExcelButton path="/exports/companies" filename="firmalar.xlsx" params={exportParams} className="h-9" />
+          <ExportExcelButton path="/exports/companies" filename="firmalar.pdf" params={{ ...exportParams, format: "pdf" }} label="PDF İndir" className="h-9" />
           <ViewToggle view={view} onChange={setView} />
         </div>
       </div>
@@ -336,7 +370,14 @@ export function CustomersPage({ onSelect }: { onSelect?: (c: Customer) => void }
       </div>
       </div>
 
-      {view === "cards" ? (
+      {showFair ? (
+        <TradeFairCompaniesPanel
+          search={debouncedQ}
+          divisionId={divisionTab}
+          onOpenCompany={(companyId) => openFreshCompany({ id: companyId } as Customer)}
+          onConverted={() => void invalidateCompanies()}
+        />
+      ) : view === "cards" ? (
         <>
           {pageItems.length === 0 ? (
             <Card className="border-border/60 shadow-sm">{listFeedback}</Card>

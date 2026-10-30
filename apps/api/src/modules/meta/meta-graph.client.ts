@@ -51,7 +51,8 @@ export class MetaGraphClient {
     url.searchParams.set('state', state);
     url.searchParams.set('response_type', 'code');
     url.searchParams.set('scope', [
-      'pages_show_list', 'pages_read_engagement', 'leads_retrieval', 'ads_read', 'ads_management',
+      // pages_manage_metadata: sayfayı uygulamaya abone etmek (subscribed_apps) için; yoksa webhook gelmez.
+      'pages_show_list', 'pages_read_engagement', 'pages_manage_metadata', 'pages_manage_engagement', 'leads_retrieval', 'ads_read', 'ads_management',
       'business_management', 'instagram_basic', 'instagram_manage_comments', 'instagram_manage_messages',
       'pages_messaging', 'whatsapp_business_management', 'whatsapp_business_messaging', 'catalog_management',
     ].join(','));
@@ -59,12 +60,23 @@ export class MetaGraphClient {
   }
 
   async exchangeAuthorizationCode(code: string): Promise<string> {
+    return this.oauthAccessToken({ redirect_uri: this.oauthRedirectUri(), code });
+  }
+
+  /**
+   * Kısa ömürlü (~1 saat) kullanıcı token'ını ~60 günlüğe çevirir. Uzun ömürlü kullanıcı
+   * token'ıyla alınan sayfa token'larının süresi dolmaz; çevrilmezse bağlantı bir saatte ölür.
+   */
+  async exchangeLongLivedToken(shortLivedToken: string): Promise<string> {
+    return this.oauthAccessToken({ grant_type: 'fb_exchange_token', fb_exchange_token: shortLivedToken });
+  }
+
+  private async oauthAccessToken(params: Record<string, string>): Promise<string> {
     const { env, base } = this.configuration();
     const url = new URL(`${env.META_GRAPH_API_VERSION}/oauth/access_token`, `${base.toString().replace(/\/$/, '')}/`);
     url.searchParams.set('client_id', env.META_APP_ID!);
     url.searchParams.set('client_secret', env.META_APP_SECRET!);
-    url.searchParams.set('redirect_uri', this.oauthRedirectUri());
-    url.searchParams.set('code', code);
+    for (const [key, value] of Object.entries(params)) url.searchParams.set(key, value);
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 15_000);
     try {

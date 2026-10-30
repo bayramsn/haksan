@@ -32,6 +32,8 @@
     "db:import:haksancnc": "tsx src/db/seed/haksancnc.ts",
     "db:import:haksanmakina": "node --import tsx src/db/import-haksanmakina-catalog.ts",
     "db:import:haksanmakina:prod": "node dist/db/import-haksanmakina-catalog.js",
+    "db:import:laser-prices": "node --import tsx src/db/import-laser-price-list.ts",
+    "db:import:laser-prices:prod": "node dist/db/import-laser-price-list.js",
     "db:clear-crm": "tsx src/db/clear-crm-operational-data.ts",
     "db:clear-crm:prod": "node dist/db/clear-crm-operational-data.js",
     "db:reset": "tsx src/db/reset.ts"
@@ -66,7 +68,7 @@
     "file-type": "^22.0.1",
     "helmet": "^7.2.0",
     "nanoid": "5.1.16",
-    "nodemailer": "9.1.1",
+    "nodemailer": "10.0.14",
     "pdfkit": "^0.19.1",
     "pg": "8.13.1",
     "pino": "9.5.0",

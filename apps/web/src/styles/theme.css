@@ -353,32 +353,6 @@
     font-weight: var(--font-weight-normal);
     line-height: 1.5;
   }
-
-  /* Teknik konfigürasyon gibi native select kullanan formlar da aynı yüzeyde. */
-  select {
-    min-height: 2.5rem;
-    max-width: 100%;
-    border: 1px solid var(--border);
-    border-radius: 0.5rem;
-    background-color: var(--input-background);
-    color: var(--foreground);
-    padding: 0.5rem 0.75rem;
-    font: inherit;
-  }
-
-  select:focus-visible {
-    outline: 2px solid var(--ring);
-    outline-offset: 2px;
-  }
-
-  select:disabled {
-    cursor: not-allowed;
-    opacity: 0.6;
-  }
-
-  @media (max-width: 767px), (pointer: coarse) {
-    select { min-height: 2.75rem; font-size: 1rem; }
-  }
 }
 
 @layer components {
@@ -726,5 +700,20 @@
     transition-duration: 0.01ms !important;
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
+  }
+}
+
+/*
+ * iOS Safari, yazı boyutu 16px'ten küçük bir alana odaklanınca sayfayı
+ * yakınlaştırıp kaydırır; açılır aramalar (combobox) açılınca kendiliğinden
+ * odaklandığı için pop-up'lar telefonda "kayıyordu". Dokunmatik ekranda bütün
+ * yazı alanları en az 16px. Katmansız kural olduğu için sayfa bazlı text-sm /
+ * text-xs sınıflarını !important olmadan ezer; geniş masaüstü görünümü değişmez.
+ */
+@media (max-width: 767px), (pointer: coarse) {
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]),
+  textarea,
+  select {
+    font-size: 16px;
   }
 }

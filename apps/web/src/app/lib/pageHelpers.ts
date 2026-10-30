@@ -1,6 +1,7 @@
 import { toast } from 'sonner';
 import type { PrintDocument } from './print';
-import { downloadPrintHtml, openPrintPreviewWindow, openPrintWindow } from './print';
+import { buildMailDocumentHtml, downloadPrintHtml, openPrintPreviewWindow, openPrintWindow, safeFilename } from './print';
+import { downloadExportPost } from '../../lib/downloadExport';
 
 export const printOrWarn = (doc: PrintDocument) => {
   if (!openPrintWindow(doc)) {
@@ -14,14 +15,26 @@ export const previewPrintOrWarn = (doc: PrintDocument) => {
   }
 };
 
-export const downloadPrintOrWarn = (doc: PrintDocument, filename: string, label = 'Belge') => {
+/**
+ * Belgeyi antetiyle birlikte doğrudan PDF olarak indirir: görseller gömülü yazdırma
+ * HTML'i sunucuda Chromium ile PDF'e çevrilir (mail ekiyle aynı çıktı). Sunucu PDF
+ * üretemezse eski yol — tarayıcıda açılıp PDF'e kaydedilecek HTML dosyası — iner.
+ */
+export const downloadPrintOrWarn = async (doc: PrintDocument, filename: string, label = 'Belge') => {
+  const name = `${safeFilename(filename)}.pdf`;
   try {
-    downloadPrintHtml(doc, filename);
-    toast.success(`${label} indirildi`, {
-      description: 'Dosyayı tarayıcıda açıp Yazdır → PDF olarak kaydet ile PDF oluşturabilirsiniz.',
-    });
-  } catch {
-    toast.error(`${label} indirilemedi`, { description: 'İndirme başarısız oldu.' });
+    await downloadExportPost('/pdf/render', name, { html: await buildMailDocumentHtml(doc), filename: name });
+    toast.success(`${label} PDF olarak indirildi`, { description: name });
+    return;
+  } catch (error) {
+    try {
+      downloadPrintHtml(doc, filename);
+      toast.warning(`${label} PDF'e çevrilemedi`, {
+        description: `${error instanceof Error ? error.message : 'Sunucu PDF üretemedi'}. Belge HTML olarak indirildi; tarayıcıda açıp Yazdır → PDF olarak kaydet ile PDF oluşturabilirsiniz.`,
+      });
+    } catch {
+      toast.error(`${label} indirilemedi`, { description: 'İndirme başarısız oldu.' });
+    }
   }
 };
 

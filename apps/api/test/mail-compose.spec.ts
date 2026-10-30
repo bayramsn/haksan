@@ -5,8 +5,9 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import request from 'supertest';
 import type { NestFastifyApplication } from '@nestjs/platform-fastify';
-import { MAIL_MAX_ATTACHMENTS, mailSendSchema } from '@haksan/shared';
+import { MAIL_MAX_ATTACHMENTS, MAIL_MAX_QUOTES, mailSendSchema } from '@haksan/shared';
 import { createTestApp } from './setup';
+import { activityDescription } from '../src/modules/mail/mail.controller';
 
 describe('Mail compose', () => {
   let app: NestFastifyApplication;
@@ -53,6 +54,25 @@ describe('Mail compose', () => {
       quoteId: '00000000-0000-4000-8000-000000000000',
     });
     expect(parsed.success).toBe(true);
+  });
+
+  it('birden çok teklifi tek mailde kabul eder; tekrarı, sınır aşımını ve karışık ekleri reddeder', () => {
+    const base = { to: 'musteri@example.com', subject: 'Teklifler', body: 'Ekte.' };
+    const id = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
+    const pdf = { html: '<main>teklif</main>', filename: 'CNC-001.pdf' };
+    expect(mailSendSchema.safeParse({ ...base, quotes: [{ id: id(1), document: pdf }, { id: id(2) }] }).success).toBe(true);
+    expect(mailSendSchema.safeParse({ ...base, quotes: [{ id: id(1) }, { id: id(1) }] }).success).toBe(false);
+    expect(mailSendSchema.safeParse({ ...base, quotes: Array.from({ length: MAIL_MAX_QUOTES + 1 }, (_, n) => ({ id: id(n) })) }).success).toBe(false);
+    expect(mailSendSchema.safeParse({ ...base, quotes: [{ id: id(1) }], quoteId: id(2) }).success).toBe(false);
+    expect(mailSendSchema.safeParse({ ...base, quotes: [{ id: id(1) }], reportDocument: pdf }).success).toBe(false);
+  });
+
+  it('aktivite açıklaması ek adlarını uzun mesajda da korur', () => {
+    expect(activityDescription('Merhaba', [])).toBe('Merhaba');
+    expect(activityDescription('Merhaba', ['CNC-001.pdf', 'Katalog.pdf'])).toBe('Merhaba\n\nEkler: CNC-001.pdf, Katalog.pdf');
+    const long = activityDescription('x'.repeat(10_000), ['CNC-001.pdf']);
+    expect(long).toHaveLength(4000);
+    expect(long.endsWith('Ekler: CNC-001.pdf')).toBe(true);
   });
 
   it('rapor ekini kabul eder, yol ayracı taşıyan dosya adını reddeder', () => {

@@ -22,7 +22,6 @@ import {
   getMetaErrorMessage,
   metaQueryKeys,
   metaService,
-  summarizeMetaInsights,
   type MetaCampaign,
   type MetaCampaignStatus,
 } from "../../../../lib/meta-service";
@@ -76,7 +75,7 @@ export function MetaCampaignsTab({ canManage }: { canManage: boolean }) {
   const today = new Date();
   const from = new Date(today);
   from.setDate(from.getDate() - 29);
-  const insightsParams = { page: 1, pageSize: 100, connectionId: connectionId || undefined, from: from.toISOString().slice(0, 10), to: today.toISOString().slice(0, 10) };
+  const insightsParams = { page: 1, pageSize: 2000, connectionId: connectionId || undefined, from: from.toISOString().slice(0, 10), to: today.toISOString().slice(0, 10) };
   const insightsQuery = useQuery({
     queryKey: metaQueryKeys.insights(insightsParams),
     queryFn: () => metaService.insights(insightsParams),
@@ -84,7 +83,42 @@ export function MetaCampaignsTab({ canManage }: { canManage: boolean }) {
     staleTime: 30_000,
   });
 
-  const totals = useMemo(() => summarizeMetaInsights(insightsQuery.data?.items ?? []), [insightsQuery.data]);
+  const totals = useMemo(() => (insightsQuery.data?.items ?? []).reduce(
+    (result, item) => ({
+      spendMinor: result.spendMinor + item.spendMinor,
+      impressions: result.impressions + item.impressions,
+      clicks: result.clicks + item.clicks,
+      leads: result.leads + item.leads,
+      currency: result.currency || item.currency,
+    }),
+    { spendMinor: 0, impressions: 0, clicks: 0, leads: 0, currency: "TRY" },
+  ), [insightsQuery.data]);
+
+  // Kampanya listesi Graph'tan, sayılar senkronlanan günlük insights'tan gelir; satırlar kampanya kimliğiyle birleşir.
+  const campaignTotals = useMemo(() => {
+    const byCampaign = new Map<string, { spendMinor: number; impressions: number; clicks: number; leads: number; currency: string }>();
+    for (const item of insightsQuery.data?.items ?? []) {
+      if (!item.campaignId) continue;
+      const current = byCampaign.get(item.campaignId) ?? { spendMinor: 0, impressions: 0, clicks: 0, leads: 0, currency: item.currency };
+      byCampaign.set(item.campaignId, {
+        spendMinor: current.spendMinor + item.spendMinor,
+        impressions: current.impressions + item.impressions,
+        clicks: current.clicks + item.clicks,
+        leads: current.leads + item.leads,
+        currency: current.currency,
+      });
+    }
+    return byCampaign;
+  }, [insightsQuery.data]);
+
+  const syncMutation = useMutation({
+    mutationFn: () => metaService.syncInsights({ connectionId, from: insightsParams.from, to: insightsParams.to }),
+    onSuccess: async (result) => {
+      toast.success("Reklam verisi senkronize edildi", { description: `${formatMetaNumber(result.imported)} günlük kayıt alındı.` });
+      await queryClient.invalidateQueries({ queryKey: metaQueryKeys.root });
+    },
+    onError: (error) => toast.error("Reklam verisi alınamadı", { description: getMetaErrorMessage(error) }),
+  });
 
   const updateMutation = useMutation({
     mutationFn: ({ id, patch }: { id: string; patch: { connectionId: string; status?: MetaCampaignStatus; dailyBudgetMinor?: number } }) =>
@@ -165,20 +199,16 @@ export function MetaCampaignsTab({ canManage }: { canManage: boolean }) {
                 <SelectTrigger size="sm" className="w-[190px]" aria-label="Reklam hesabı"><SelectValue placeholder="Reklam hesabı seçin" /></SelectTrigger>
                 <SelectContent>{(connectionsQuery.data ?? []).filter((item) => item.status === "active").map((item) => <SelectItem key={item.id} value={item.id}>{item.name}</SelectItem>)}</SelectContent>
               </Select>
-              <Button type="button" variant="outline" size="sm" disabled={!connectionId} onClick={() => { void campaignsQuery.refetch(); void insightsQuery.refetch(); }}><RefreshCw className="size-3.5" /> Yenile</Button>
+              <Button type="button" variant="outline" size="sm" disabled={!connectionId || !canManage || syncMutation.isPending} onClick={() => syncMutation.mutate()}><RefreshCw className={syncMutation.isPending ? "size-3.5 animate-spin motion-reduce:animate-none" : "size-3.5"} /> {syncMutation.isPending ? "Senkronize ediliyor" : "Meta'dan senkronize et"}</Button>
             </>
           }
         />
-        {insightsQuery.isError ? (
-          <MetaErrorState error={getMetaErrorMessage(insightsQuery.error)} onRetry={() => void insightsQuery.refetch()} />
-        ) : insightsQuery.isLoading ? (
-          <MetaTableSkeleton columns={4} />
-        ) : <div className="grid divide-y divide-border/70 sm:grid-cols-2 sm:divide-x sm:divide-y-0 xl:grid-cols-4">
+        <div className="grid divide-y divide-border/70 sm:grid-cols-2 sm:divide-x sm:divide-y-0 xl:grid-cols-4">
           <CampaignMetric label="Toplam harcama" value={formatMetaMoney(totals.spendMinor, totals.currency)} icon={<Coins className="size-4" />} />
           <CampaignMetric label="Gösterim" value={formatMetaNumber(totals.impressions)} icon={<UsersRound className="size-4" />} />
           <CampaignMetric label="Tıklama" value={formatMetaNumber(totals.clicks)} icon={<MousePointerClick className="size-4" />} />
           <CampaignMetric label="Lead" value={formatMetaNumber(totals.leads)} icon={<UsersRound className="size-4" />} />
-        </div>}
+        </div>
       </MetaSurface>
 
       <MetaSurface>
@@ -210,7 +240,10 @@ export function MetaCampaignsTab({ canManage }: { canManage: boolean }) {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {campaignsQuery.data?.items.map((campaign) => (
+                {campaignsQuery.data?.items.map((listed) => {
+                  const metrics = campaignTotals.get(listed.id);
+                  const campaign = metrics ? { ...listed, ...metrics } : listed;
+                  return (
                   <TableRow key={campaign.id}>
                     <TableCell>
                       <p className="max-w-[240px] truncate text-sm font-semibold">{campaign.name}</p>
@@ -241,7 +274,8 @@ export function MetaCampaignsTab({ canManage }: { canManage: boolean }) {
                       </div>
                     </TableCell>
                   </TableRow>
-                ))}
+                  );
+                })}
               </TableBody>
             </Table>
           </div>

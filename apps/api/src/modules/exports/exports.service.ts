@@ -340,7 +340,7 @@ export class ExportsService {
       const sid = await lookupIdByCode(this.db, companyStatuses, query.customerStatusCode);
       filters.push(sid ? eq(companies.customerStatusId, sid) : sql`1 = 0`);
     }
-    if (query.city) {
+    if (query.city || query.district) {
       filters.push(
         exists(
           this.db
@@ -351,7 +351,8 @@ export class ExportsService {
                 eq(companyAddresses.companyId, companies.id),
                 eq(companyAddresses.tenantId, actor.tenantId),
                 isNull(companyAddresses.deletedAt),
-                eq(companyAddresses.province, query.city),
+                query.city ? eq(companyAddresses.province, query.city) : undefined,
+                query.district ? eq(companyAddresses.district, query.district) : undefined,
               ),
             ),
         ),

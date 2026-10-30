@@ -127,6 +127,9 @@ import type {
   UserUpdateInput,
   VisitCreateInput,
   WarehouseCreateInput,
+  MailCampaignCreateInput,
+  MailCampaignRecipientStatus,
+  MailCampaignStatus,
   MailRecipients,
   MailSendInput,
   MailSendResult,
@@ -463,18 +466,45 @@ export const notificationService = {
 };
 
 export const mailService = {
-  signatureUsers: () => api.get<{ id: string; name: string; email: string; hasMailAccount: boolean }[]>('/mail/signature/users'),
-  userSignature: (id: string) => api.get<{ image: string | null; filename: string | null }>(`/mail/signature/users/${id}`),
-  saveUserSignature: (id: string, body: { image: string | null; filename: string | null }) => api.put<{ image: string | null; filename: string | null }>(`/mail/signature/users/${id}`, body),
-  signature: (signature: string | null) => api.put<UserMailAccountStatus>('/mail/signature', { signature }),
-  saveSignature: (body: { image: string | null; filename: string | null }) => api.put<UserMailAccountStatus>('/mail/signature/image', body),
-  account: () => api.get<UserMailAccountStatus>('/mail/account'),
-  connect: (body: UserMailAccountUpsertInput) => api.put<UserMailAccountStatus>('/mail/account', body),
-  disconnect: () => api.delete<{ ok: true }>('/mail/account'),
+  /** Süper admin: webmail ayarı yapılabilecek kullanıcılar. */
+  accountUsers: () => api.get<{ id: string; name: string; email: string; hasMailAccount: boolean }[]>('/mail/account/users'),
+  // `userId` verilirse o kullanıcının hesabı (yalnız süper admin); verilmezse kendi hesabın.
+  signature: (signature: string | null, userId?: string) =>
+    api.put<UserMailAccountStatus>(userId ? `/mail/account/users/${userId}/signature` : '/mail/signature', { signature }),
+  saveSignature: (body: { image: string | null; filename: string | null }, userId?: string) =>
+    api.put<UserMailAccountStatus>(userId ? `/mail/account/users/${userId}/signature/image` : '/mail/signature/image', body),
+  account: (userId?: string) => api.get<UserMailAccountStatus>(userId ? `/mail/account/users/${userId}` : '/mail/account'),
+  connect: (body: UserMailAccountUpsertInput, userId?: string) =>
+    api.put<UserMailAccountStatus>(userId ? `/mail/account/users/${userId}` : '/mail/account', body),
+  disconnect: (userId?: string) => api.delete<{ ok: true }>(userId ? `/mail/account/users/${userId}` : '/mail/account'),
   send: (body: MailSendInput) => api.post<MailSendResult>('/mail/send', body),
   /** Alıcı seçicisi: firmanın kontakları + kendi kullanıcılarımız. */
   recipients: (companyId?: string) =>
     api.get<MailRecipients>(`/mail/recipients${qs(companyId ? { companyId } : undefined)}`),
+};
+
+// ───── Toplu mail ─────
+export type MailCampaignSummary = {
+  id: string; subject: string; status: MailCampaignStatus; error: string | null; createdAt: string; completedAt: string | null;
+  createdBy: string; createdByName: string | null; total: number; sent: number; failed: number; skipped: number;
+};
+export type MailCampaignDetail = Omit<MailCampaignSummary, 'total' | 'sent' | 'failed' | 'skipped' | 'createdByName'> & {
+  body: string; fileIds: string[];
+  recipients: Array<{ id: string; email: string; name: string | null; companyName: string | null; companyId: string | null; status: MailCampaignRecipientStatus; error: string | null; sentAt: string | null }>;
+};
+export const mailCampaignService = {
+  list: () => api.get<MailCampaignSummary[]>('/mail/campaigns'),
+  get: (id: string) => api.get<MailCampaignDetail>(`/mail/campaigns/${id}`),
+  create: (body: MailCampaignCreateInput) => api.post<MailCampaignDetail>('/mail/campaigns', body),
+  cancel: (id: string) => api.post<MailCampaignDetail>(`/mail/campaigns/${id}/cancel`, {}),
+  resume: (id: string) => api.post<MailCampaignDetail>(`/mail/campaigns/${id}/resume`, {}),
+  candidates: (params: Record<string, string | undefined>, opts?: QueryRequestOptions) =>
+    api.get<{ rows: Array<{ email: string; name: string | null; companyName: string; companyId: string; contactId: string | null; detail: string | null }>; truncated: boolean }>(`/mail/campaigns/candidates${qs(params)}`, opts),
+  parseList: (body: { fileName: string; fileBase64: string }) =>
+    api.post<{ rows: Array<{ email: string; name?: string; companyName?: string }>; invalid: number }>('/mail/campaigns/parse-list', body),
+  suppressions: () => api.get<Array<{ id: string; email: string; reason: string | null; createdAt: string }>>('/mail/campaigns/suppressions'),
+  addSuppression: (body: { email: string; reason?: string }) => api.post<{ email: string }>('/mail/campaigns/suppressions', body),
+  removeSuppression: (id: string) => api.delete<{ deleted: boolean }>(`/mail/campaigns/suppressions/${id}`),
 };
 
 // ───── Contacts ─────
@@ -750,15 +780,7 @@ export const tasksService = {
 };
 
 // ───── Fuar görüşmeleri ─────
-export type TradeFairFollowUp = {
-  contacted: boolean;
-  contactMethod: 'phone' | 'whatsapp' | 'email' | 'in_person' | 'other' | null;
-  contactDate: string | null;
-  contactNotes: string | null;
-  offerSent: boolean;
-  customerConverted: boolean;
-};
-export type TradeFairContactDTO = TradeFairFollowUp & {
+export type TradeFairContactDTO = {
   id: string;
   fairName: string;
   companyName: string;
@@ -771,27 +793,83 @@ export type TradeFairContactDTO = TradeFairFollowUp & {
   district: string | null;
   productCategory: string | null;
   productType: string | null;
+  /** İlgilenilen CRM ürünleri (isteğe bağlı, birden çok). */
+  products: Array<{ id: string; name: string }>;
   notes: string | null;
   metByUserId: string | null;
   metByName: string | null;
+  /** Görüşmenin bölümü (CNC / Üniversal / Sac İşleme); yeni kayıtta zorunlu. */
+  divisionId: string | null;
+  divisionName?: string | null;
   visitorCount: number;
+  /** Firmalar'a eklendiyse bağlandığı firma/kontak. */
+  companyId: string | null;
+  contactId: string | null;
+  linkedCompanyName?: string | null;
+  /** Fuar sonrası arandı işareti; doluysa arandı. */
+  calledAt?: string | null;
+  calledBy?: string | null;
+  calledByName?: string | null;
+  /** Teklif verildi işareti; doluysa teklif verildi. */
+  quotedAt?: string | null;
+  quotedBy?: string | null;
+  quotedByName?: string | null;
+  /** Kayıttan açılan fırsat (varsa). */
+  opportunityId?: string | null;
   createdBy: string | null;
   createdAt: string;
 };
-export type TradeFairContactBody = Omit<TradeFairContactDTO, "id" | "metByName" | "createdBy" | "createdAt">;
+export type TradeFairContactBody = Omit<
+  TradeFairContactDTO,
+  | "id" | "metByName" | "divisionName" | "products" | "companyId" | "contactId" | "linkedCompanyName"
+  | "calledAt" | "calledBy" | "calledByName" | "quotedAt" | "quotedBy" | "quotedByName" | "opportunityId" | "createdBy" | "createdAt"
+> & { productModelIds: string[] };
 export type TradeFairSummary = {
   fairs: Array<{ name: string; total: number; lastAt: string }>;
   byUser: Array<{ userId: string | null; fullName: string | null; meetings: number; people: number }>;
 };
 
+export type TradeFairPhotoDTO = {
+  fileId: string;
+  filename: string;
+  mimeType: string;
+  createdAt: string;
+  contactId: string;
+  fairName: string;
+  companyName: string;
+  contactName: string;
+};
+
 export const tradeFairService = {
-  list: (params: { fairName?: string; q?: string; metByUserId?: string; page?: number; pageSize?: number } = {}) =>
+  list: (params: { fairName?: string; q?: string; metByUserId?: string; divisionId?: string; province?: string; district?: string; page?: number; pageSize?: number } = {}) =>
     api.get<Paginated<TradeFairContactDTO>>(`/trade-fairs${qs(params)}`),
   summary: (fairName?: string) => api.get<TradeFairSummary>(`/trade-fairs/summary${qs({ fairName })}`),
+  photos: (params: { fairName?: string; q?: string; page?: number; pageSize?: number } = {}) =>
+    api.get<Paginated<TradeFairPhotoDTO>>(`/trade-fairs/photos${qs(params)}`),
   staff: () => api.get<Array<{ id: string; fullName: string }>>('/trade-fairs/staff'),
+  divisions: () => api.get<Array<{ id: string; code: string; name: string }>>('/trade-fairs/divisions'),
+  /** Bölümün (ve ortak grupların) katalog ürünleri; bölüm kapsamı uygulanmaz. */
+  products: (divisionId: string, q?: string) =>
+    api.get<Array<{ id: string; name: string; category: string | null }>>(`/trade-fairs/products${qs({ divisionId, q })}`),
   create: (body: TradeFairContactBody) => api.post<TradeFairContactDTO>('/trade-fairs', body),
   update: (id: string, body: Partial<TradeFairContactBody>) => api.patch<TradeFairContactDTO>(`/trade-fairs/${id}`, body),
   remove: (id: string) => api.delete<{ deleted: boolean }>(`/trade-fairs/${id}`),
+  /**
+   * Kayıttan fırsat açar ve seçilen kolona taşır. Kolonun gereklilikleri eksikse
+   * fırsat Lead'de kalır, `blockers` eksikleri listeler.
+   */
+  toOpportunity: (id: string, body: { qualificationStage: string; divisionId?: string; ownerUserId?: string }) =>
+    api.post<{ opportunityId: string; qualificationStage: string; requestedStage: string; blockers: string[] }>(
+      `/trade-fairs/${id}/opportunity`,
+      body,
+    ),
+  /** Arandı işaretini koyar/kaldırır. */
+  setCalled: (id: string, called: boolean) => api.patch<TradeFairContactDTO>(`/trade-fairs/${id}/called`, { called }),
+  /** Teklif verildi işaretini koyar/kaldırır. */
+  setQuoted: (id: string, quoted: boolean) => api.patch<TradeFairContactDTO>(`/trade-fairs/${id}/quoted`, { quoted }),
+  /** Firmalar'a ekle: `companyId` ile mevcut firmaya kontak, yoksa yeni firma. */
+  addToCompanies: (id: string, body: { companyId?: string; divisionIds?: string[] }) =>
+    api.post<TradeFairContactDTO>(`/trade-fairs/${id}/company`, body),
 };
 
 export const calendarService = {
@@ -837,6 +915,37 @@ export const productService = {
   specs: (id: string) => api.get<any[]>(`/products/${id}/specs`),
   specTemplates: (productTypeCode?: string, divisionId?: string) => api.get<any[]>(`/product-spec-templates${qs({ productTypeCode, divisionId })}`),
   options: (id: string) => api.get<any[]>(`/products/${id}/options`),
+  listAllConfigurationPrices: () => api.get<{
+    canViewCost: boolean;
+    rows: Array<{ id: string; productModelId: string; baseName: string; series: string | null; sourceModelCode: string; powerKw: number; salePrice: number | null; saleCurrencyCode: string | null; container: string | null; leadTimeDays: number | null; costPrice?: number | null; costCurrencyCode?: string | null }>;
+  }>('/product-configuration-prices'),
+  updateConfigurationPrices: (rows: Array<{ id: string; salePrice: number | null; saleCurrencyCode: 'USD' | 'EUR' | 'TRY' }>) =>
+    api.patch<{ updated: number }>('/product-configuration-prices', { rows }),
+  listCostPricedItems: () => api.get<{
+    canViewCost: boolean;
+    rows: Array<{ id: string; kind: 'product' | 'option'; group: string; name: string; salePrice: number | null; saleCurrencyCode: string | null; costPrice?: number | null; costCurrencyCode?: string | null }>;
+  }>('/product-cost-prices'),
+  updateCostPricedSales: (rows: Array<{ id: string; salePrice: number | null; saleCurrencyCode: 'USD' | 'EUR' | 'TRY' }>) =>
+    api.patch<{ updated: number }>('/product-cost-prices/sale', { rows }),
+  configurationPrices: (id: string) => api.get<{
+    canViewCost: boolean;
+    rows: Array<{
+      id: string; sourceModelCode: string; powerKw: number; salePrice: number | null; saleCurrencyCode: string | null; container: string | null; leadTimeDays: number | null; costPrice?: number | null; costCurrencyCode?: string | null;
+      listPrices?: Array<{ code: LaserPriceListCode; name: string; listPrice: number; cashPrice: number }>;
+    }>;
+  }>(`/products/${id}/configuration-prices`),
+  laserPriceLists: () => api.get<{
+    canViewCost: boolean;
+    lists: Array<{
+      code: LaserPriceListCode; name: string; updatedAt: string | null; formula?: LaserCostFormula;
+      rows: Array<{ configurationPriceId: string; productModelId: string; productName: string; sourceModelCode: string; powerKw: number; listPrice: number | null; cashPrice: number | null; container?: string | null; fob?: number | null; cost?: number | null }>;
+    }>;
+  }>('/laser-price-lists'),
+  recalculateLaserPriceList: (body: { code: LaserPriceListCode; formula: LaserCostFormula; apply: boolean }) => api.post<{
+    code: LaserPriceListCode; applied: boolean;
+    rows: Array<{ configurationPriceId: string; productName: string; sourceModelCode: string; powerKw: number; container: string | null; fob: number | null; freight: number; duty: number; cost: number; listPrice: number; cashPrice: number; previousListPrice: number | null; previousCashPrice: number | null }>;
+    skipped: Array<{ configurationPriceId: string; productName: string; sourceModelCode: string; powerKw: number; reason: string }>;
+  }>('/laser-price-lists/recalculate', body),
   addOptionSet: (id: string, body: unknown) => api.post<any>(`/products/${id}/options`, body),
   updateOptionSet: (id: string, body: unknown) => api.patch<any>(`/products/options/${id}`, body),
   archiveOptionSet: (id: string) => api.delete<any>(`/products/options/${id}`),
@@ -1185,6 +1294,10 @@ export const serviceService = {
 };
 
 // ───── Public complaint intake ─────
+export const publicMailService = {
+  unsubscribe: (token: string) => api.post<{ email: string }>(`/public/mail-unsubscribe/${encodeURIComponent(token)}`, {}),
+};
+
 export const publicComplaintService = {
   form: (slug: string, token: string) =>
     api.get<any>(`/public/service-complaints/${encodeURIComponent(slug)}/${encodeURIComponent(token)}`),
@@ -1271,6 +1384,7 @@ export const fileService = {
     await uploadViaApi(upload.fileId, file, mimeType);
   },
   signedDownload: (fileId: string) => api.post<{ downloadUrl: string; filename: string; mimeType: string }>('/files/signed-download-url', { fileId }),
+  imagePreview: (fileId: string) => api.get<Blob>(`/files/${fileId}/preview`, { responseType: 'blob' }),
   link: (body: FileLinkInput) => api.post('/files/link', body),
   links: (params?: Record<string, string | number | undefined>) => api.get<Paginated<any>>(`/files/links${qs(params)}`),
   remove: (id: string) => api.delete(`/files/${id}`),
@@ -1371,6 +1485,7 @@ export interface YearEndReport {
 
 // Rapor şekli ortak pakette (API ile aynı tip; yazdırma şablonu da orada).
 import type { ActivityLogReport } from '@haksan/shared';
+import type { LaserCostFormula, LaserPriceListCode } from '@haksan/shared';
 export type { ActivityLogEntry, ActivityLogQuoteRow, ActivityLogReport, ActivityLogUser } from '@haksan/shared';
 
 export const reportService = {
