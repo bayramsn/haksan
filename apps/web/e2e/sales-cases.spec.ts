@@ -126,7 +126,7 @@ test("liste filtresi kanban görünümüne de uygulanır", async ({ page }) => {
   await login(page);
   await navigateTo(page, "Fırsat");
 
-  const search = page.getByPlaceholder("Firma / kontak / ürün ara...");
+  const search = page.getByLabel("Fırsatlarda ara");
   await expect(search).toBeVisible();
   await search.fill("__eslesmeyecek_kanban_filtresi__");
   await page.getByRole("tab", { name: "Kanban" }).click();
@@ -151,7 +151,7 @@ test("lead adımındaki fırsat kartı onay alınarak silinir", async ({ page })
 
   // Lead artık Fırsat panosunun ilk kolonu; kart aynı listeden silinir.
   await page.getByRole("tab", { name: "Liste" }).click();
-  const search = page.getByPlaceholder("Firma / kontak / ürün ara...");
+  const search = page.getByLabel("Fırsatlarda ara");
   await search.fill(contactName);
   const deleteButton = page.getByRole("button", { name: `${contactName} fırsat kartını sil` });
   await expect(deleteButton).toBeVisible();
@@ -211,7 +211,7 @@ test("lead kartından yeni firma OSM araması üst formu göndermeden açık kal
   await page.getByRole("button", { name: "Fırsat Oluştur", exact: true }).click();
 
   await page.getByRole("tab", { name: "Liste" }).click();
-  const search = page.getByPlaceholder("Firma / kontak / ürün ara...");
+  const search = page.getByLabel("Fırsatlarda ara");
   await search.fill(companyTitle);
   // Lead kart ızgarası `lg:hidden`; masaüstü genişliğinde yalnız tablo görünür.
   const card = page.getByRole("row").filter({ hasText: companyTitle }).first();
@@ -291,7 +291,7 @@ test("Lead Workspace V2 akışı otomatik atamadan gerekçeli fırsat dönüşü
     await page.getByRole("button", { name: "Fırsat Oluştur", exact: true }).click();
 
     await page.getByRole("tab", { name: "Liste" }).click();
-    const search = page.getByPlaceholder("Firma / kontak / ürün ara...");
+    const search = page.getByLabel("Fırsatlarda ara");
     await search.fill(contactName);
     const row = page.getByRole("row").filter({ hasText: contactName });
     await expect(row).toBeVisible();
