@@ -26,6 +26,7 @@ export * from './schemas/chat';
 export * from './schemas/calendar';
 export * from './schemas/task';
 export * from './schemas/trade-fair';
+export * from './schemas/call-assistant';
 export * from './schemas/mail';
 export * from './mail-format';
 export * from './schemas/meta';
