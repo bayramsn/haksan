@@ -31,6 +31,9 @@ export function useOfflineMutation<TVars, TData>(opts: Options<TVars, TData>) {
   const qc = useQueryClient();
 
   return useMutation<TData | null, Error, TVars, Context>({
+    // Varsayılan 'online' modu NetInfo çevrimdışıyken mutationFn'i duraklatır;
+    // işlem kuyruğa hiç yazılmaz ve uygulama kapanınca kaybolur.
+    networkMode: 'always',
     mutationFn: async (vars) => {
       const requestContext = requestContextKey();
       const queueScope = queueScopeSnapshot();

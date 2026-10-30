@@ -5,17 +5,17 @@ import vm from 'node:vm';
 import ts from 'typescript';
 import { QueryClient, QueryObserver } from '@tanstack/react-query';
 
-function providerHarness() {
+function providerHarness(secureStore = {}) {
   const exports = {}, renderState = { user: { id: 'alice', tenantId: 'tenant', canViewAllDivisions: false, divisions: [{ id: 'cnc' }], departments: [], accessScopes: [{ divisionId: null }] }, scope: { divisionId: 'cnc', departmentId: null }, callbacks: [], changes: [] };
   let cursor = 0;
   const jsx = (type, props, key) => ({ type, props, key });
   const mocks = {
     react: { Fragment: 'Fragment', createContext: () => ({ Provider: 'Provider' }), useState: () => [[renderState.user, null, renderState.scope, false][cursor++], () => {}], useCallback: fn => { renderState.callbacks.push(fn); return fn; }, useEffect: () => {}, useRef: value => ({ current: value }), useMemo: fn => fn() },
     'react/jsx-runtime': { jsx, jsxs: jsx },
-    '@/src/security/startup': {}, '@/src/security/secure-store': {}, '@/src/api/endpoints': {}, '@/src/api/client': {},
+    '@/src/security/startup': {}, '@/src/security/secure-store': secureStore, '@/src/api/endpoints': {}, '@/src/api/client': { invalidateRequestContext: () => {}, requestContextKey: () => 'ctx' },
     '@/src/modules/navigationContext': { bindNavigationContext: () => {} },
     'expo-crypto': { getRandomValues: bytes => bytes },
-    '@/src/offline/queue': { setQueueScope: () => {} }, '@/src/api/config': { apiOrigin: () => 'https://test.invalid' },
+    '@/src/offline/queue': { setQueueScope: () => {}, flushQueue: async () => ({ sent: 0 }) }, '@/src/api/config': { apiOrigin: () => 'https://test.invalid' },
     '@/src/query/client': { queryClient: { clear: () => {} } }, '@/src/push/usePush': {},
     './scope': { activeScope: () => renderState.scope, setActiveScope: scope => renderState.changes.push(scope) },
   };
@@ -47,4 +47,14 @@ test('recreating observer after scope clear fetches new scope even with identica
   await new Promise(setImmediate);
   assert.deepEqual(requests, ['cnc', 'sac']); assert.equal(replacement.getCurrentResult().data[0], 'sac');
   stop(); replacement.destroy(); client.clear();
+});
+
+test('restoring a cached session keeps its original authentication time', async () => {
+  const writes = [];
+  const h = providerHarness({ setItemAsync: async (_key, value) => { writes.push(JSON.parse(value)); } });
+  h.render();
+  const [applySession] = h.state.callbacks;
+  applySession(h.state.user, null, 1_000);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(writes.at(-1).authenticatedAt, 1_000);
 });

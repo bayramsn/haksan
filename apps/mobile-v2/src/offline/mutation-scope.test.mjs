@@ -21,6 +21,10 @@ function harness(mutationFn = async () => ({})) {
   return { mutation, writes, queued, alerts, OfflineError, RequestScopeChangedError, switchAccount: () => { account = 'bob'; } };
 }
 
+test('runs while offline so the durable queue path can execute', () => {
+  assert.equal(harness().mutation.networkMode, 'always');
+});
+
 test('late optimistic rollback cannot restore previous-account customer data', async () => {
   const h = harness(); const context = await h.mutation.onMutate({}); h.switchAccount();
   h.mutation.onError(new Error('late failure'), {}, context);

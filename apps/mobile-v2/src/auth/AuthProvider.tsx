@@ -59,12 +59,12 @@ async function readCachedSession(): Promise<CachedSession | null> {
   }
 }
 
-async function cacheSession(user: AuthUser | null, tenant: AuthTenant | null): Promise<void> {
+async function cacheSession(user: AuthUser | null, tenant: AuthTenant | null, authenticatedAt: number): Promise<void> {
   if (!user) {
     await SecureStore.deleteItemAsync(SESSION_CACHE_KEY);
     return;
   }
-  const value: CachedSession = { user, tenant, authenticatedAt: Date.now() };
+  const value: CachedSession = { user, tenant, authenticatedAt };
   await SecureStore.setItemAsync(SESSION_CACHE_KEY, JSON.stringify(value));
 }
 
@@ -75,7 +75,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
   const previousAuthorization = useRef<string | null>(null);
 
-  const applySession = useCallback((next: AuthUser | null, nextTenant: AuthTenant | null = null) => {
+  // Önbellekten geri yüklemede asıl kimlik doğrulama zamanı korunur; yoksa
+  // çevrimdışı her açılış 24 saatlik sınırı sonsuza dek yeniler.
+  const applySession = useCallback((next: AuthUser | null, nextTenant: AuthTenant | null = null, authenticatedAt = Date.now()) => {
     const authorization = JSON.stringify([apiOrigin(), next?.tenantId, next?.id, next?.roles, next?.canViewAllDivisions, next?.departmentId, next?.permissions, next?.divisions, next?.departments, next?.accessScopes]);
     if (previousAuthorization.current !== authorization) {
       invalidateRequestContext();
@@ -86,7 +88,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     previousAuthorization.current = authorization;
     setUser(next);
     setTenant(nextTenant);
-    void cacheSession(next, nextTenant).catch(() => undefined);
+    void cacheSession(next, nextTenant, authenticatedAt).catch(() => undefined);
     if (next) {
       const saved = activeScope();
       const divisionIds = new Set(next.divisions?.map((item) => item.id) ?? []);
@@ -169,7 +171,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // AsyncStorage yerine SecureStore'dadır ve en çok 24 saat kabul edilir.
       try {
         const cached = await runStartup(readCachedSession);
-        if (cached && !cancelled) applySession(cached.user, cached.tenant);
+        if (cached && !cancelled) applySession(cached.user, cached.tenant, cached.authenticatedAt);
         const token = await loadAccessToken();
         const active = Boolean(token) || (await refreshSession());
         if (!active) {
