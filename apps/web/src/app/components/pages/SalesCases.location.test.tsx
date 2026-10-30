@@ -53,6 +53,14 @@ describe("opportunity list address hydration", () => {
     fireEvent.change(filter, { target: { value: "all" } });
     expect(screen.getByTestId("kanban-ids")).toHaveTextContent("ankara,izmir");
   });
+  it("feeds closed LOST opportunities to the Kanban, but not other closed ones", () => {
+    state.closed = [
+      { ...cases[0], id: "lost-closed", qualificationStage: "lost" },
+      { ...cases[1], id: "win-closed", qualificationStage: "win" },
+    ];
+    render(<SalesCasesPage onSelect={() => {}} initialView="kanban" />);
+    expect(screen.getByTestId("kanban-ids")).toHaveTextContent(/^ankara,izmir,lost-closed$/);
+  });
   it("finds a company by its address city after scoped company details arrive", () => {
     const { rerender } = render(<SalesCasesPage onSelect={() => {}} />);
     fireEvent.change(screen.getByLabelText("Fırsatlarda ara"), { target: { value: "ankara" } });

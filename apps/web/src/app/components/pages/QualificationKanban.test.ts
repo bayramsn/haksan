@@ -8,9 +8,9 @@ const workspaceSource = readFileSync(new URL("./OpportunityWorkspace.tsx", impor
 const detailSource = readFileSync(new URL("./SalesCaseDetail.tsx", import.meta.url), "utf8");
 
 describe("QualificationKanban LOST yeniden açma akışı", () => {
-  it("LOST hedefini korur fakat Kanban sütunu üretmez", () => {
-    expect(source).toContain('const KANBAN_STAGES = QUALIFICATION_STAGES.filter((stage) => stage !== "lost")');
-    expect(source).toContain("KANBAN_STAGES.map((stage)");
+  it("LOST dahil her satış alanı için Kanban sütunu üretir", () => {
+    expect(source).not.toContain("KANBAN_STAGES");
+    expect(source).toContain("QUALIFICATION_STAGES.map((stage)");
     expect(source).toContain('if (to === "lost")');
     expect(source).toContain("<CloseCaseDialog");
   });

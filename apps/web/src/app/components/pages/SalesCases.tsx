@@ -186,7 +186,7 @@ export function SalesCasesPage({
     && salesCase.qualificationStage !== "win"
     && salesCase.qualificationStage !== "lost"
   );
-  const filtered = salesCases.filter((s) => {
+  const matchesFilters = (s: SalesCase) => {
     if (!matchesOpportunityLocation(locationCity(s), city, region)) return false;
     const qualification = s.qualificationStage ?? "lead";
     if (focusOpen && (qualification === "win" || qualification === "lost")) return false;
@@ -208,7 +208,8 @@ export function SalesCasesPage({
     if (activityPresence !== "all" && casesWithActivity.has(s.id) !== (activityPresence === "yes")) return false;
     if (offerPresence !== "all" && casesWithOffer.has(s.id) !== (offerPresence === "yes")) return false;
     return matchesOpportunitySearch(s, companyById.get(s.customerId), q);
-  });
+  };
+  const filtered = salesCases.filter(matchesFilters);
   const sorted = useMemo(() => {
     if (!nameSort) return filtered;
     return [...filtered].sort((a, b) => {
@@ -219,6 +220,8 @@ export function SalesCasesPage({
       return nameSort === "asc" ? an : -an;
     });
   }, [filtered, nameSort, customers]);
+  // LOST anında kapanır (closedAt) ve Geçmiş'e düşer; kanbanın LOST sütunu oradan beslenir.
+  const kanbanItems = [...sorted, ...closedCases.filter((s) => s.qualificationStage === "lost" && matchesFilters(s))];
 
   const { page, setPage, totalPages, pageItems } = usePaged(sorted, 12);
 
@@ -448,7 +451,7 @@ export function SalesCasesPage({
       <TabsContent value="kanban" className="mt-0">
         <QualificationKanban
           onSelect={onSelect}
-          items={sorted}
+          items={kanbanItems}
           onRequestDelete={canDelete ? setPendingDelete : undefined}
         />
       </TabsContent>
