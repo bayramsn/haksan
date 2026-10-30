@@ -1,4 +1,5 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Optional } from '@nestjs/common';
+import { PushService } from '../../shared/push/push.service';
 import { Cron } from '@nestjs/schedule';
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
@@ -360,6 +361,7 @@ export class AutomationService {
     private readonly mailer: MailerService,
     private readonly reports: ReportsService,
     private readonly htmlPdf: HtmlPdfService,
+    @Optional() private readonly push?: PushService,
   ) {}
 
   private get active(): boolean {
@@ -1348,6 +1350,7 @@ export class AutomationService {
             entityId: null,
             items: [{ label: 'Hedeflerimi aç', ...target }],
           });
+          await this.push?.sendToUser(row.userId, { title: 'Hedef temposu geride', body: targetRiskMessage(row, expected), data: target });
         }
 
         // Yönetici, ekibindeki geride kalanları tek bildirimde görür.
@@ -1380,6 +1383,7 @@ export class AutomationService {
             entityId: null,
             items: rows.map((row) => ({ label: `${row.name} · ${row.gap} puan geride`, ...target })),
           });
+          await this.push?.sendToUser(managerId, { title: `Ekibinde ${rows.length} kişi hedef temposunun altında`, body: 'Ayrıntı için dokunun.', data: target });
         }
         logger.info({ action: 'automation_target_pace_risk', tenantId: tenant.id, count: behind.length }, 'target pace risk sent');
       }

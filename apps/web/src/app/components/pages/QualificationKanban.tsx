@@ -83,8 +83,6 @@ const STAGE_META: Record<QualificationStage, { color: string; dot: string; surfa
   },
 };
 
-const KANBAN_STAGES = QUALIFICATION_STAGES.filter((stage) => stage !== "lost");
-
 export function QualificationKanban({
   items,
   onSelect,
@@ -112,7 +110,7 @@ export function QualificationKanban({
   const lostCase = lostId ? items.find((item) => item.id === lostId) : null;
   const lostCompany = lostCase ? customers.find((company) => company.id === lostCase.customerId) : null;
 
-  const columns: KanbanColumn<SalesCase>[] = KANBAN_STAGES.map((stage) => {
+  const columns: KanbanColumn<SalesCase>[] = QUALIFICATION_STAGES.map((stage) => {
     const stageItems = items.filter((item) => (item.qualificationStage ?? "lead") === stage);
     const total = stageItems.reduce((sum, item) => sum + item.estimatedAmount, 0);
     return {

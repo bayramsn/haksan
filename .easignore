@@ -1,0 +1,90 @@
+# Legacy Expo 57 app — conflicts with mobile-v2 (Expo 54) on EAS installs.
+apps/mobile/**
+
+# Web / API / reports are not needed for the mobile EAS image (shared is built via post-install).
+apps/web/**
+apps/api/**
+reports/**
+screenshots/**
+seed/**
+docs/**
+.tmp/**
+tmp/**
+
+# Local / editor noise
+**/.DS_Store
+**/node_modules/**
+**/node_modules.nosync/**
+**/.expo/**
+**/coverage/**
+**/dist/**
+**/graphify-out/**
+**/.git/**
+*.log
+
+# Native build artifacts (Pods reinstall on EAS; local build/ archives must not upload)
+**/ios/Pods/**
+**/ios/build/**
+**/ios/DerivedData/**
+**/android/.gradle/**
+**/android/app/build/**
+**/android/build/**
+apps/mobile-v2/Archive*/**
+apps/mobile-v2/.expo/**
+
+# macOS Finder duplicates ("name 2.ext"). tsc compiles them and the shared post-install fails.
+**/* 2
+**/* 2.*
+
+# Large binary / media noise outside the app
+**/*.ipa
+**/*.app
+**/*.dSYM
+**/*.xcarchive
+**/*.pdf
+**/*.docx
+**/*.webp
+apps/api/src/db/seed/data/**
+
+# Secrets must never be included in the EAS source archive.
+**/.env
+**/.env.*
+!**/.env.example
+!**/.env.*.example
+**/*.p8
+**/*.p12
+**/*.pem
+**/*.key
+**/*.mobileprovision
+**/*.keystore
+**/*.jks
+**/credentials.json
+**/.xcode.env.local
+
+# Local agent configuration is not application source.
+.agents/**
+.codex/**
+.claude/**
+
+# Generate native projects from current app.config and config plugins on EAS.
+apps/mobile-v2/ios
+apps/mobile-v2/android
+
+# Local caches, code indexes and design explorations are not release inputs.
+.pnpm-store/**
+.stitch/**
+design-previews/**
+**/*.db
+**/*.sqlite
+**/*.sqlite3
+**/.aws/**
+**/.ssh/**
+**/.netrc
+
+# Browser QA captures and local reports are not mobile build inputs.
+.playwright-cli
+.gstack
+output
+
+# Exclude Git objects themselves, including the directory (not only its children).
+.git

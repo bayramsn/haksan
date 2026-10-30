@@ -1,0 +1,57 @@
+{
+  "title": "Haksan Web ERP/CRM UI and Architecture Audit",
+  "language": "tr",
+  "scope": {
+    "included": [
+      "apps/web",
+      "apps/api",
+      "packages/shared",
+      "crm app"
+    ],
+    "excluded": [
+      "apps/mobile-v2"
+    ]
+  },
+  "deliverables": [
+    {
+      "file": "haksan-web-ui-and-architecture.md",
+      "type": "comprehensive-document",
+      "description": "Ana web ve CRM prototipi ekranları, alt alanları, popup/modal/drawer yüzeyleri ve teknik mimari"
+    },
+    {
+      "file": "screen-inventory.csv",
+      "type": "screen-inventory",
+      "rows": 87,
+      "description": "Ana web ve CRM prototipi ekran/alan envanteri"
+    },
+    {
+      "file": "popup-inventory.csv",
+      "type": "popup-inventory",
+      "rows": 81,
+      "description": "Ana web ve CRM prototipi modal, dialog, alert, drawer ve popover envanteri"
+    },
+    {
+      "file": "haksan-web-architecture.mmd",
+      "type": "mermaid-source",
+      "description": "Katmanlı web mimarisi kaynak diyagramı"
+    },
+    {
+      "file": "haksan-web-architecture.png",
+      "type": "diagram",
+      "description": "Katmanlı web mimarisi görseli"
+    }
+  ],
+  "observed_counts": {
+    "document_lines": 794,
+    "screen_inventory_rows_including_header": 88,
+    "popup_inventory_rows_including_header": 82,
+    "backend_controller_files": 34,
+    "backend_service_files_observed": 29,
+    "database_schema_files_observed": 25
+  },
+  "important_notes": [
+    "CRM web prototipi ana production web uygulamasından ayrı raporlanmıştır.",
+    "Kaynak dosyası bulunan fakat ana App switch'inde doğrudan bağlı olduğu doğrulanamayan alanlar ayrıca işaretlenmiştir.",
+    "Responsive mobile web drawer kapsam içindedir; apps/mobile-v2 kapsam dışıdır."
+  ]
+}

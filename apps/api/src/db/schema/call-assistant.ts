@@ -106,3 +106,19 @@ export const callAssistantSuggestions = pgTable(
     callEventIdx: index('call_assistant_suggestions_call_event_idx').on(t.callEventId),
   })
 );
+
+export const callAssistantDrafts = pgTable('call_assistant_drafts', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  suggestionId: uuid('suggestion_id').notNull().references(() => callAssistantSuggestions.id, { onDelete: 'cascade' }),
+  operationId: uuid('operation_id').notNull(),
+  kind: varchar('kind', { length: 32 }).notNull(),
+  prefill: jsonb('prefill').$type<{ title?: string; text?: string; dueAt?: string | null }>(),
+  status: varchar('status', { length: 32 }).notNull().default('pending'),
+  resourceId: uuid('resource_id'),
+  resourceType: varchar('resource_type', { length: 32 }),
+  commitOperationId: uuid('commit_operation_id'),
+  commitFingerprint: varchar('commit_fingerprint', { length: 64 }),
+  ...auditColumns,
+}, (t) => ({ operationUnique: uniqueIndex('call_assistant_drafts_operation_unique').on(t.tenantId, t.userId, t.operationId) }));

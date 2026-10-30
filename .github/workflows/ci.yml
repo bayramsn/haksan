@@ -84,8 +84,9 @@ jobs:
       - name: Enforce staging and production deployment profiles
         run: npm run validate:deployment-profiles
 
+      # High/critical bulgularda kırılır; geçici istisnalar gerekçe ve bitiş tarihiyle betikte.
       - name: Dependency audit (production web/API workspaces)
-        run: npm audit --omit=dev --audit-level=high --workspace @haksan/shared --workspace @haksan/api --workspace @haksan/web --include-workspace-root
+        run: node --test scripts/audit-production-deps.test.mjs && node scripts/audit-production-deps.mjs
 
       # Shared types must be built first so api/web typecheck against fresh output.
       - name: Build shared

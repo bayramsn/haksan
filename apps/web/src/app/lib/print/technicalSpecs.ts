@@ -25,18 +25,24 @@ export function snapshotStandardEquipment(specs: readonly { key?: unknown; value
 
 // Seçilen tezgahın TAM teknik özellik listesi (tip şablonu + üründe girilen
 // değerler), teklifte kalem bazında girilen (customSpecs) değerlerle üzerine
-// yazılır. Böylece teklif PDF'i eksik değil tam özellik tablosu basar.
+// yazılır. Böylece teklif PDF'i eksik değil tam özellik tablosu basar. Ürün kartında
+// olmayan teklif alanları (teklife eklenen satırlar, lazer/baz model konfigürasyonu)
+// tablonun sonuna eklenir; teklif penceresinde görünen hiçbir alan çıktıdan düşmez.
 export const fullProductSpecs = (
   product: Product | undefined,
   customSpecs: Array<{ key: string; value: string; unit?: string; specUnit?: string; groupCode?: string; groupName?: string }>,
 ): QuotePrintData["specs"] => {
   const base = product ? specsForProductTypeStrict(product.productTypeCode, (product.specs ?? []) as ProductSpec[]) : [];
   if (!base.length) return printableTechnicalSpecs(customSpecs.length ? customSpecs : product?.specs);
-  const overrides = new Map(customSpecs.map((s) => [s.key.trim().toLocaleLowerCase("tr-TR"), s]));
-  return printableTechnicalSpecs(base.map((s) => {
-    const ov = overrides.get(s.key.trim().toLocaleLowerCase("tr-TR"));
+  const keyOf = (key: string) => key.trim().toLocaleLowerCase("tr-TR");
+  const overrides = new Map(customSpecs.map((s) => [keyOf(s.key), s]));
+  const baseKeys = new Set(base.map((s) => keyOf(s.key)));
+  // Standart donanım teknik tabloda değil, kendi bölümünde basılır.
+  const extras = customSpecs.filter((s) => !baseKeys.has(keyOf(s.key)) && keyOf(s.key) !== "standart donanım");
+  return printableTechnicalSpecs([...base.map((s) => {
+    const ov = overrides.get(keyOf(s.key));
     return ov && ov.value.trim() ? { ...s, value: ov.value } : s;
-  }));
+  }), ...extras]);
 };
 
 const normalizedLabel = (value?: string | null): string =>

@@ -115,6 +115,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
       );
     }
 
+    if (status === 429 && !res.getHeader('retry-after')) res.header('Retry-After', '5');
     res.status(status).send(body);
   }
 }

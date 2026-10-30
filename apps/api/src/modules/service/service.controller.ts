@@ -49,7 +49,7 @@ import { companyVisibilityExistsFilter, companyVisibilityFilter } from '../../sh
 import { buildServiceFormPdf, type ServiceFormPdfData, type ServiceFormType, type ServiceResponsibility } from './service-form-pdf';
 import { nextSeriesDocumentNo, normalizeSeriesDocumentNo, resolveBusinessLine } from '../../shared/utils/document-series';
 
-const ticketCreate = z.object({
+export const ticketCreate = z.object({
   ticketNo: z.string().min(1).max(64).optional(),
   divisionId: z.string().uuid().optional(),
   companyId: z.string().min(1),

@@ -1,5 +1,6 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Put, Query, Res, UseGuards } from '@nestjs/common';
 import type { FastifyReply } from 'fastify';
+import { Throttle } from '@nestjs/throttler';
 import { z } from 'zod';
 import {
   quoteCreateSchema,
@@ -187,6 +188,7 @@ export class QuotesController {
   }
 
   @RequirePermissions('quotes.read')
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
   @Post(':id/generate-pdf')
   async generatePdf(@Param('id') id: string, @CurrentUser() user: AuthContext, @Res() res: FastifyReply) {
     const { buffer, filename } = await this.svc.generatePdf(id, user);

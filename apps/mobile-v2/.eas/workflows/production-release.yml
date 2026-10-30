@@ -1,0 +1,82 @@
+name: Mobile production build and approved beta submission
+
+on:
+  workflow_dispatch: {}
+  push:
+    tags:
+      - v*
+
+concurrency:
+  group: mobile-production-release
+  cancel_in_progress: false
+
+jobs:
+  release_gate:
+    name: Production quality and release-readiness gates
+    if: ${{ github.ref_name == 'main' || startsWith(github.ref_name, 'v') }}
+    environment: production
+    runs_on: linux-medium
+    env:
+      MOBILE_RELEASE_REF: ${{ github.ref_name }}
+    steps:
+      - uses: eas/checkout
+      - uses: eas/install_node_modules
+      - name: Run deterministic mobile quality gates
+        run: npm run quality
+      - name: Verify store, privacy, QA and production configuration
+        run: npm run release:check
+
+  build_android:
+    name: Build signed Android App Bundle
+    needs: [release_gate]
+    type: build
+    environment: production
+    params:
+      platform: android
+      profile: production
+      message: Production ${{ github.ref_name }}
+
+  build_ios:
+    name: Build signed iOS archive
+    needs: [release_gate]
+    type: build
+    environment: production
+    params:
+      platform: ios
+      profile: production
+      message: Production ${{ github.ref_name }}
+
+  approve_submission:
+    name: Submit both signed builds to beta stores?
+    needs: [build_android, build_ios]
+    type: require-approval
+    environment: production
+
+  submit_android:
+    name: Upload Android to Play Internal as draft
+    needs: [approve_submission, build_android]
+    type: submit
+    environment: production
+    params:
+      build_id: ${{ needs.build_android.outputs.build_id }}
+      profile: production
+
+  submit_ios:
+    name: Upload iOS to App Store Connect and TestFlight
+    needs: [approve_submission, build_ios]
+    type: submit
+    environment: production
+    params:
+      build_id: ${{ needs.build_ios.outputs.build_id }}
+      profile: production
+
+  next_steps:
+    name: Store promotion remains manual
+    needs: [submit_android, submit_ios]
+    type: doc
+    params:
+      md: |
+        Both binaries were uploaded only after approval. Validate the iOS build
+        in TestFlight and the Android draft in Play Internal testing. Public
+        release, declarations and staged rollout remain manual store-console
+        decisions.

@@ -59,6 +59,28 @@ export const metaListQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(25),
 });
+const metaCalendarDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine((value) => {
+  const date = new Date(`${value}T00:00:00.000Z`);
+  return Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === value;
+}, 'Geçersiz tarih');
+const metaOverviewFields = {
+  connectionId: z.string().uuid().optional(),
+  from: metaCalendarDate.optional(),
+  to: metaCalendarDate.optional(),
+};
+export const metaOverviewQuerySchema = z.object(metaOverviewFields).refine(
+  (value) => !value.from || !value.to || value.to >= value.from,
+  { message: 'to, from tarihinden önce olamaz', path: ['to'] },
+);
+export const metaLeadListQuerySchema = metaListQuerySchema.extend({
+  ...metaOverviewFields,
+  search: z.string().trim().max(255).optional(),
+  status: z.enum(['new', 'assigned', 'contacted', 'qualified', 'converted', 'rejected']).optional(),
+  platform: z.enum(['facebook', 'instagram', 'messenger', 'whatsapp']).optional(),
+}).refine((value) => !value.from || !value.to || value.to >= value.from, { message: 'to, from tarihinden önce olamaz', path: ['to'] });
+export const metaConversationListQuerySchema = metaListQuerySchema.extend({
+  search: z.string().trim().max(255).optional(),
+});
 export const metaDateRangeQuerySchema = metaListQuerySchema.extend({
   // Günlük × kampanya satırı: 30 gün ve 30 kampanya 900 satır eder; 100'lük sayfa toplamları eksik bırakırdı.
   pageSize: z.coerce.number().int().min(1).max(2000).default(100),
@@ -168,6 +190,9 @@ export type MetaConnectionCreateInput = z.infer<typeof metaConnectionCreateSchem
 export type MetaConnectionUpdateInput = z.infer<typeof metaConnectionUpdateSchema>;
 export type MetaFormMappingCreateInput = z.infer<typeof metaFormMappingCreateSchema>;
 export type MetaFormMappingUpdateInput = z.infer<typeof metaFormMappingUpdateSchema>;
+export type MetaOverviewQuery = z.infer<typeof metaOverviewQuerySchema>;
+export type MetaLeadListQuery = z.infer<typeof metaLeadListQuerySchema>;
+export type MetaConversationListQuery = z.infer<typeof metaConversationListQuerySchema>;
 export type MetaListQuery = z.infer<typeof metaListQuerySchema>;
 export type MetaDateRangeQuery = z.infer<typeof metaDateRangeQuerySchema>;
 export type MetaConversationMessageCreateInput = z.infer<typeof metaConversationMessageCreateSchema>;

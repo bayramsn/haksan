@@ -2072,6 +2072,11 @@ export class CompaniesService {
       entityType: 'company_access_request',
       entityId: request.id,
     });
+    await this.push.sendToUser(request.requestingUserId, {
+      title: decision === 'approved' ? 'Firma erişimi onaylandı' : 'Firma erişimi reddedildi',
+      body: input.decisionNote ?? 'Talebiniz sonuçlandı.',
+      data: { kind: 'company', companyId: request.companyId },
+    });
 
     return this.db.query.companyAccessRequests.findFirst({ where: eq(companyAccessRequests.id, id) });
   }

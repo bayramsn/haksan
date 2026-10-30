@@ -1,6 +1,7 @@
 import { PipeTransform, Injectable } from '@nestjs/common';
 import { ZodSchema } from 'zod';
 import { ValidationError } from './errors';
+import { assertJsonComplexity } from '../validation/json-complexity';
 
 /**
  * Nest pipe that runs a Zod schema against the incoming value.
@@ -13,6 +14,7 @@ export class ZodValidationPipe<T> implements PipeTransform {
   constructor(private readonly schema: ZodSchema<T>) {}
 
   transform(value: unknown): T {
+    assertJsonComplexity(value);
     const result = this.schema.safeParse(value);
     if (!result.success) {
       const fieldErrors: Record<string, string[]> = {};

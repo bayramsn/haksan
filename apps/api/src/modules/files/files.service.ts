@@ -465,6 +465,12 @@ export class FilesService {
         throw new ValidationError(`Genel katalog PDF olmalı ve ${MAIL_MAX_ATTACHMENT_BYTES / (1024 * 1024)} MB sınırını aşmamalıdır`);
       }
     }
+    if (input.entityType === 'catalog') {
+      await this.assertUploadTargetAccessible(input.entityType, input.entityId, actor);
+      if (file.bucket !== 'erp-quote-documents' || file.mimeType !== 'application/pdf' || file.extension !== 'pdf' || file.sizeBytes > 15 * 1024 * 1024) {
+        throw new ValidationError('Genel katalog PDF olmalı ve 15 MB sınırını aşmamalıdır');
+      }
+    }
     await this.assertEntityVisible(input.entityType, input.entityId, actor);
     const docType = await this.db.query.fileDocumentTypes.findFirst({
       where: eq(fileDocumentTypes.code, input.documentTypeCode),

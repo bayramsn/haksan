@@ -1,0 +1,3160 @@
+{
+  "generatedAt": "2026-10-27T12:51:13.141Z",
+  "counts": {
+    "webActions": 345,
+    "covered": 336,
+    "missing": 9,
+    "mobileCalls": 418
+  },
+  "rows": [
+    {
+      "key": "company.list",
+      "verb": "GET",
+      "path": "/companies",
+      "permission": "companies.read",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "company.summary",
+      "verb": "GET",
+      "path": "/companies/summary",
+      "permission": "companies.read",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "company.get",
+      "verb": "GET",
+      "path": "/companies/:param",
+      "permission": "companies.read",
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/documents/DocumentsPage.tsx"
+      ]
+    },
+    {
+      "key": "company.create",
+      "verb": "POST",
+      "path": "/companies",
+      "permission": "companies.create",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "company.update",
+      "verb": "PATCH",
+      "path": "/companies/:param",
+      "permission": "companies.update",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "company.previewCompanyContactImport",
+      "verb": "POST",
+      "path": "/companies/imports/company-contacts/preview",
+      "permission": null,
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "company.commitCompanyContactImport",
+      "verb": "POST",
+      "path": "/companies/imports/company-contacts/commit",
+      "permission": null,
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "company.osmSearch",
+      "verb": "GET",
+      "path": "/companies/osm-search",
+      "permission": "companies.read",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "company.websiteLookup",
+      "verb": "POST",
+      "path": "/companies/website-lookup",
+      "permission": "companies.create",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "company.remove",
+      "verb": "DELETE",
+      "path": "/companies/:param",
+      "permission": "companies.delete",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "accessRequest.list",
+      "verb": "GET",
+      "path": "/access-requests",
+      "permission": "companies.read",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "accessRequest.approve",
+      "verb": "POST",
+      "path": "/access-requests/:param/approve",
+      "permission": "companies.update",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "accessRequest.reject",
+      "verb": "POST",
+      "path": "/access-requests/:param/reject",
+      "permission": "companies.update",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "notification.list",
+      "verb": "GET",
+      "path": "/notifications",
+      "permission": null,
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "notification.markRead",
+      "verb": "PATCH",
+      "path": "/notifications/:param/read",
+      "permission": null,
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "notification.respond",
+      "verb": "POST",
+      "path": "/notifications/:param/respond",
+      "permission": null,
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "mail.signatureUsers",
+      "verb": "GET",
+      "path": "/mail/signature/users",
+      "permission": null,
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/settings/AdminMailSignatureSettings.tsx"
+      ]
+    },
+    {
+      "key": "mail.userSignature",
+      "verb": "GET",
+      "path": "/mail/signature/users/:param",
+      "permission": null,
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/settings/AdminMailSignatureSettings.tsx"
+      ]
+    },
+    {
+      "key": "mail.saveUserSignature",
+      "verb": "PUT",
+      "path": "/mail/signature/users/:param",
+      "permission": null,
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/settings/AdminMailSignatureSettings.tsx"
+      ]
+    },
+    {
+      "key": "mail.signature",
+      "verb": "PUT",
+      "path": "/mail/signature",
+      "permission": null,
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/settings/MailAccountSettings.tsx"
+      ]
+    },
+    {
+      "key": "mail.saveSignature",
+      "verb": "PUT",
+      "path": "/mail/signature/image",
+      "permission": null,
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/settings/MailAccountSettings.tsx"
+      ]
+    },
+    {
+      "key": "mail.account",
+      "verb": "GET",
+      "path": "/mail/account",
+      "permission": null,
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/settings/MailAccountSettings.tsx"
+      ]
+    },
+    {
+      "key": "mail.connect",
+      "verb": "PUT",
+      "path": "/mail/account",
+      "permission": null,
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/settings/MailAccountSettings.tsx"
+      ]
+    },
+    {
+      "key": "mail.disconnect",
+      "verb": "DELETE",
+      "path": "/mail/account",
+      "permission": null,
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/settings/MailAccountSettings.tsx"
+      ]
+    },
+    {
+      "key": "mail.send",
+      "verb": "POST",
+      "path": "/mail/send",
+      "permission": null,
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "contact.list",
+      "verb": "GET",
+      "path": "/contacts",
+      "permission": "contacts.read",
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/Contacts.tsx"
+      ]
+    },
+    {
+      "key": "contact.summary",
+      "verb": "GET",
+      "path": "/contacts/summary",
+      "permission": "contacts.read",
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/Contacts.tsx"
+      ]
+    },
+    {
+      "key": "contact.get",
+      "verb": "GET",
+      "path": "/contacts/:param",
+      "permission": "contacts.read",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "contact.create",
+      "verb": "POST",
+      "path": "/contacts",
+      "permission": "contacts.create",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "contact.update",
+      "verb": "PATCH",
+      "path": "/contacts/:param",
+      "permission": "contacts.update",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "contact.remove",
+      "verb": "DELETE",
+      "path": "/contacts/:param",
+      "permission": "contacts.delete",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "opportunity.list",
+      "verb": "GET",
+      "path": "/opportunities",
+      "permission": "opportunities.read",
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/chat/ShareRecordDialog.tsx"
+      ]
+    },
+    {
+      "key": "opportunity.get",
+      "verb": "GET",
+      "path": "/opportunities/:param",
+      "permission": "opportunities.read",
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/OpportunityProcessCenter.tsx",
+        "apps/web/src/app/components/pages/OpportunityWorkspace.tsx"
+      ]
+    },
+    {
+      "key": "opportunity.assignees",
+      "verb": "GET",
+      "path": "/opportunities/assignees",
+      "permission": "opportunities.read",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "opportunity.create",
+      "verb": "POST",
+      "path": "/opportunities",
+      "permission": "opportunities.create",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "opportunity.createFromActivity",
+      "verb": "POST",
+      "path": "/opportunities/from-activity/:param",
+      "permission": "activities.convert",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "opportunity.previewTrelloImport",
+      "verb": "POST",
+      "path": "/opportunities/imports/trello/preview",
+      "permission": "opportunities.create",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "opportunity.commitTrelloImport",
+      "verb": "POST",
+      "path": "/opportunities/imports/trello/commit",
+      "permission": "opportunities.create",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "opportunity.update",
+      "verb": "PATCH",
+      "path": "/opportunities/:param",
+      "permission": "opportunities.update",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "opportunity.linkCompany",
+      "verb": "POST",
+      "path": "/opportunities/:param/company",
+      "permission": null,
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/SalesCaseDetail.tsx"
+      ]
+    },
+    {
+      "key": "opportunity.convert",
+      "verb": "POST",
+      "path": "/opportunities/:param/convert",
+      "permission": "opportunities.update",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "opportunity.recordContact",
+      "verb": "POST",
+      "path": "/opportunities/:param/contact-events",
+      "permission": "opportunities.update",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "opportunity.leadSummary",
+      "verb": "GET",
+      "path": "/opportunities/lead-summary",
+      "permission": "opportunities.read",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "opportunity.changeQualificationStage",
+      "verb": "PATCH",
+      "path": "/opportunities/:param/qualification-stage",
+      "permission": "opportunities.update",
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/OpportunityProcessCenter.tsx"
+      ]
+    },
+    {
+      "key": "opportunity.decideApproval",
+      "verb": "POST",
+      "path": "/opportunities/:param/approvals/:param",
+      "permission": "opportunities.approve",
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/SalesCaseDetail.tsx"
+      ]
+    },
+    {
+      "key": "opportunity.remove",
+      "verb": "DELETE",
+      "path": "/opportunities/:param",
+      "permission": "opportunities.delete",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "opportunity.changeStage",
+      "verb": "PATCH",
+      "path": "/opportunities/:param/stage",
+      "permission": "opportunities.update",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "opportunity.defer",
+      "verb": "POST",
+      "path": "/opportunities/:param/defer",
+      "permission": "opportunities.update",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "leadAssignmentRule.list",
+      "verb": "GET",
+      "path": "/lead-assignment-rules",
+      "permission": null,
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/settings/LeadAssignmentRulesCard.tsx"
+      ]
+    },
+    {
+      "key": "leadAssignmentRule.create",
+      "verb": "POST",
+      "path": "/lead-assignment-rules",
+      "permission": null,
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/settings/LeadAssignmentRulesCard.tsx"
+      ]
+    },
+    {
+      "key": "leadAssignmentRule.update",
+      "verb": "PATCH",
+      "path": "/lead-assignment-rules/:param",
+      "permission": null,
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/settings/LeadAssignmentRulesCard.tsx"
+      ]
+    },
+    {
+      "key": "leadAssignmentRule.remove",
+      "verb": "DELETE",
+      "path": "/lead-assignment-rules/:param",
+      "permission": null,
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/settings/LeadAssignmentRulesCard.tsx"
+      ]
+    },
+    {
+      "key": "activity.list",
+      "verb": "GET",
+      "path": "/activities",
+      "permission": "activities.read",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "activity.create",
+      "verb": "POST",
+      "path": "/activities",
+      "permission": "activities.create",
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/ProcessChecklistPanel.tsx"
+      ]
+    },
+    {
+      "key": "activity.update",
+      "verb": "PATCH",
+      "path": "/activities/:param",
+      "permission": "activities.update",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "activity.remove",
+      "verb": "DELETE",
+      "path": "/activities/:param",
+      "permission": "activities.delete",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "activity.createVisit",
+      "verb": "POST",
+      "path": "/visits",
+      "permission": "activities.create",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "activity.createCall",
+      "verb": "POST",
+      "path": "/calls",
+      "permission": "activities.create",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "tasks.list",
+      "verb": "GET",
+      "path": "/tasks",
+      "permission": "tasks.read",
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/dashboard/DashboardTasksPanel.tsx",
+        "apps/web/src/app/components/pages/tasks/TaskRecordSection.tsx",
+        "apps/web/src/app/components/pages/tasks/TasksPage.tsx"
+      ]
+    },
+    {
+      "key": "tasks.counts",
+      "verb": "GET",
+      "path": "/tasks/counts",
+      "permission": "tasks.read",
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/dashboard/DashboardTasksPanel.tsx",
+        "apps/web/src/app/components/pages/tasks/TasksPage.tsx"
+      ]
+    },
+    {
+      "key": "tasks.events",
+      "verb": "GET",
+      "path": "/tasks/events",
+      "permission": "tasks.read",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "tasks.summary",
+      "verb": "GET",
+      "path": "/tasks/summary",
+      "permission": null,
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/dashboard/DashboardTasksPanel.tsx",
+        "apps/web/src/app/components/pages/tasks/TasksPage.tsx"
+      ]
+    },
+    {
+      "key": "tasks.assignees",
+      "verb": "GET",
+      "path": "/tasks/assignees",
+      "permission": "tasks.read",
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/tasks/TaskRecordSection.tsx",
+        "apps/web/src/app/components/pages/tasks/TasksPage.tsx"
+      ]
+    },
+    {
+      "key": "tasks.get",
+      "verb": "GET",
+      "path": "/tasks/:param",
+      "permission": "tasks.read",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "tasks.create",
+      "verb": "POST",
+      "path": "/tasks",
+      "permission": "tasks.create",
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/tasks/TaskFormDialog.tsx"
+      ]
+    },
+    {
+      "key": "tasks.update",
+      "verb": "PATCH",
+      "path": "/tasks/:param",
+      "permission": "tasks.update",
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/tasks/TaskCompletionDialog.tsx",
+        "apps/web/src/app/components/pages/tasks/TaskDetailPanel.tsx",
+        "apps/web/src/app/components/pages/tasks/TaskFormDialog.tsx",
+        "apps/web/src/app/components/pages/tasks/TaskRecordSection.tsx",
+        "apps/web/src/app/components/pages/tasks/TasksPage.tsx"
+      ]
+    },
+    {
+      "key": "tasks.comment",
+      "verb": "POST",
+      "path": "/tasks/:param/comments",
+      "permission": "tasks.update",
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/tasks/TaskDetailPanel.tsx"
+      ]
+    },
+    {
+      "key": "tasks.remove",
+      "verb": "DELETE",
+      "path": "/tasks/:param",
+      "permission": "tasks.delete",
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/tasks/TaskDetailPanel.tsx"
+      ]
+    },
+    {
+      "key": "tradeFair.list",
+      "verb": "GET",
+      "path": "/trade-fairs",
+      "permission": "trade_fairs.read",
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/TradeFairsPage.tsx"
+      ]
+    },
+    {
+      "key": "tradeFair.summary",
+      "verb": "GET",
+      "path": "/trade-fairs/summary",
+      "permission": "trade_fairs.read",
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/TradeFairsPage.tsx"
+      ]
+    },
+    {
+      "key": "tradeFair.staff",
+      "verb": "GET",
+      "path": "/trade-fairs/staff",
+      "permission": "trade_fairs.read",
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/TradeFairsPage.tsx"
+      ]
+    },
+    {
+      "key": "tradeFair.create",
+      "verb": "POST",
+      "path": "/trade-fairs",
+      "permission": "trade_fairs.create",
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/TradeFairsPage.tsx"
+      ]
+    },
+    {
+      "key": "tradeFair.update",
+      "verb": "PATCH",
+      "path": "/trade-fairs/:param",
+      "permission": "trade_fairs.update",
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/TradeFairsPage.tsx"
+      ]
+    },
+    {
+      "key": "tradeFair.remove",
+      "verb": "DELETE",
+      "path": "/trade-fairs/:param",
+      "permission": "trade_fairs.delete",
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/TradeFairsPage.tsx"
+      ]
+    },
+    {
+      "key": "calendar.events",
+      "verb": "GET",
+      "path": "/calendar/events",
+      "permission": "calendar.read",
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/CalendarPage.tsx"
+      ]
+    },
+    {
+      "key": "calendar.create",
+      "verb": "POST",
+      "path": "/calendar/events",
+      "permission": "calendar.create",
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/CalendarPage.tsx"
+      ]
+    },
+    {
+      "key": "calendar.update",
+      "verb": "PATCH",
+      "path": "/calendar/events/:param",
+      "permission": "calendar.update",
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/CalendarPage.tsx"
+      ]
+    },
+    {
+      "key": "calendar.remove",
+      "verb": "DELETE",
+      "path": "/calendar/events/:param",
+      "permission": "calendar.delete",
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/CalendarPage.tsx"
+      ]
+    },
+    {
+      "key": "calendar.restore",
+      "verb": "POST",
+      "path": "/calendar/events/:param/restore",
+      "permission": "calendar.update",
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/CalendarPage.tsx"
+      ]
+    },
+    {
+      "key": "calendar.owners",
+      "verb": "GET",
+      "path": "/calendar/owners",
+      "permission": "calendar.read",
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/CalendarPage.tsx"
+      ]
+    },
+    {
+      "key": "calendar.importPreview",
+      "verb": "POST",
+      "path": "/calendar/import/preview",
+      "permission": "calendar.create",
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/CalendarPage.tsx"
+      ]
+    },
+    {
+      "key": "calendar.importCommit",
+      "verb": "POST",
+      "path": "/calendar/import/commit",
+      "permission": "calendar.create",
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/CalendarPage.tsx"
+      ]
+    },
+    {
+      "key": "product.listBrands",
+      "verb": "GET",
+      "path": "/brands",
+      "permission": "brands.read",
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/settings/LaserProfilesPanel.tsx",
+        "apps/web/src/app/components/pages/settings/ProductSpecTemplatesCard.tsx"
+      ]
+    },
+    {
+      "key": "product.createBrand",
+      "verb": "POST",
+      "path": "/brands",
+      "permission": "brands.create",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "product.list",
+      "verb": "GET",
+      "path": "/products",
+      "permission": "products.read",
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/purchase/PurchaseOrdersPage.tsx"
+      ]
+    },
+    {
+      "key": "product.get",
+      "verb": "GET",
+      "path": "/products/:param",
+      "permission": "products.read",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "product.create",
+      "verb": "POST",
+      "path": "/products",
+      "permission": "products.create",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "product.update",
+      "verb": "PATCH",
+      "path": "/products/:param",
+      "permission": "products.update",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "product.remove",
+      "verb": "DELETE",
+      "path": "/products/:param",
+      "permission": "products.delete",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "product.previewImport",
+      "verb": "POST",
+      "path": "/products/import/preview",
+      "permission": "products.create",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "product.commitImport",
+      "verb": "POST",
+      "path": "/products/import/commit",
+      "permission": "products.create",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "product.specs",
+      "verb": "GET",
+      "path": "/products/:param/specs",
+      "permission": "product_specs.read",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "product.specTemplates",
+      "verb": "GET",
+      "path": "/product-spec-templates",
+      "permission": "products.read",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "product.options",
+      "verb": "GET",
+      "path": "/products/:param/options",
+      "permission": "products.read",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "product.addOptionSet",
+      "verb": "POST",
+      "path": "/products/:param/options",
+      "permission": "products.update",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "product.updateOptionSet",
+      "verb": "PATCH",
+      "path": "/products/options/:param",
+      "permission": "products.update",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "product.archiveOptionSet",
+      "verb": "DELETE",
+      "path": "/products/options/:param",
+      "permission": "products.update",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "product.addOptionValue",
+      "verb": "POST",
+      "path": "/products/options/:param/values",
+      "permission": "products.update",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "product.updateOptionValue",
+      "verb": "PATCH",
+      "path": "/products/options/values/:param",
+      "permission": "products.update",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "product.archiveOptionValue",
+      "verb": "DELETE",
+      "path": "/products/options/values/:param",
+      "permission": "products.update",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "product.addSpec",
+      "verb": "POST",
+      "path": "/products/:param/specs",
+      "permission": "product_specs.create",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "product.equipment",
+      "verb": "GET",
+      "path": "/products/:param/equipment",
+      "permission": "products.read",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "product.compatibleOptionalEquipment",
+      "verb": "GET",
+      "path": "/products/:param/compatible-optional-equipment",
+      "permission": "products.read",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "product.media",
+      "verb": "GET",
+      "path": "/products/:param/media",
+      "permission": "products.read",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "product.addEquipment",
+      "verb": "POST",
+      "path": "/products/:param/equipment",
+      "permission": "products.update",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "product.replaceDetails",
+      "verb": "PUT",
+      "path": "/products/:param/details",
+      "permission": "products.update",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "product.updateStandardEquipment",
+      "verb": "PUT",
+      "path": "/products/:param/standard-equipment",
+      "permission": "products.update",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "product.listPriceLists",
+      "verb": "GET",
+      "path": "/price-lists",
+      "permission": "price_lists.read",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "product.createPriceList",
+      "verb": "POST",
+      "path": "/price-lists",
+      "permission": "price_lists.create",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "product.updatePriceList",
+      "verb": "PATCH",
+      "path": "/price-lists/:param",
+      "permission": "price_lists.update",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "product.listPriceListItems",
+      "verb": "GET",
+      "path": "/price-lists/:param/items",
+      "permission": "price_lists.read",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "product.createPriceListItem",
+      "verb": "POST",
+      "path": "/price-lists/:param/items",
+      "permission": "price_lists.create",
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/PriceLists.tsx"
+      ]
+    },
+    {
+      "key": "product.updatePriceListItem",
+      "verb": "PATCH",
+      "path": "/price-lists/:param/items/:param",
+      "permission": "price_lists.update",
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/PriceLists.tsx"
+      ]
+    },
+    {
+      "key": "competitor.list",
+      "verb": "GET",
+      "path": "/competitors",
+      "permission": "competitors.read",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "competitor.create",
+      "verb": "POST",
+      "path": "/competitors",
+      "permission": "competitors.create",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "competitor.update",
+      "verb": "PATCH",
+      "path": "/competitors/:param",
+      "permission": "competitors.update",
+      "inMobile": false,
+      "pages": []
+    },
+    {
+      "key": "competitor.products",
+      "verb": "GET",
+      "path": "/competitors/:param/products",
+      "permission": "competitors.read",
+      "inMobile": false,
+      "pages": []
+    },
+    {
+      "key": "competitor.createProduct",
+      "verb": "POST",
+      "path": "/competitors/:param/products",
+      "permission": "competitors.create",
+      "inMobile": false,
+      "pages": []
+    },
+    {
+      "key": "inventory.listWarehouses",
+      "verb": "GET",
+      "path": "/warehouses",
+      "permission": "warehouses.read",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "inventory.createWarehouse",
+      "verb": "POST",
+      "path": "/warehouses",
+      "permission": "warehouses.create",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "inventory.list",
+      "verb": "GET",
+      "path": "/inventory",
+      "permission": "inventory.read",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "inventory.get",
+      "verb": "GET",
+      "path": "/inventory/:param",
+      "permission": "inventory.read",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "inventory.create",
+      "verb": "POST",
+      "path": "/inventory",
+      "permission": "inventory.create",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "inventory.update",
+      "verb": "PATCH",
+      "path": "/inventory/:param",
+      "permission": "inventory.update",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "inventory.bySerial",
+      "verb": "GET",
+      "path": "/inventory/serial/:param",
+      "permission": "inventory.read",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "inventory.reserve",
+      "verb": "PATCH",
+      "path": "/inventory/:param/reserve",
+      "permission": "inventory.update",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "inventory.sell",
+      "verb": "PATCH",
+      "path": "/inventory/:param/sell",
+      "permission": "inventory.update",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "inventory.customerDevices",
+      "verb": "GET",
+      "path": "/customer-devices",
+      "permission": "customer_devices.read",
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/Kanban.tsx"
+      ]
+    },
+    {
+      "key": "inventory.createCustomerDevice",
+      "verb": "POST",
+      "path": "/customer-devices",
+      "permission": "customer_devices.update",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "inventory.updateCustomerDevice",
+      "verb": "PATCH",
+      "path": "/customer-devices/:param",
+      "permission": "customer_devices.update",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "inventory.deleteCustomerDevice",
+      "verb": "DELETE",
+      "path": "/customer-devices/:param",
+      "permission": "customer_devices.delete",
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/machines/MachinesPage.tsx"
+      ]
+    },
+    {
+      "key": "inventory.consumeServiceParts",
+      "verb": "POST",
+      "path": "/inventory/consume-service-parts",
+      "permission": "inventory.update",
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/service/ServicePages.tsx"
+      ]
+    },
+    {
+      "key": "quote.list",
+      "verb": "GET",
+      "path": "/quotes",
+      "permission": "quotes.read",
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/chat/ShareRecordDialog.tsx"
+      ]
+    },
+    {
+      "key": "quote.get",
+      "verb": "GET",
+      "path": "/quotes/:param",
+      "permission": "quotes.read",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "quote.create",
+      "verb": "POST",
+      "path": "/quotes",
+      "permission": "quotes.create",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "quote.update",
+      "verb": "PATCH",
+      "path": "/quotes/:param",
+      "permission": "quotes.update",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "quote.remove",
+      "verb": "DELETE",
+      "path": "/quotes/:param",
+      "permission": "quotes.delete",
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/offers/OffersPage.tsx"
+      ]
+    },
+    {
+      "key": "quote.addItem",
+      "verb": "POST",
+      "path": "/quotes/:param/items",
+      "permission": "quotes.update",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "quote.updateItem",
+      "verb": "PATCH",
+      "path": "/quotes/:param/items/:param",
+      "permission": "quotes.update",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "quote.deleteItem",
+      "verb": "DELETE",
+      "path": "/quotes/:param/items/:param",
+      "permission": "quotes.update",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "quote.terms",
+      "verb": "PUT",
+      "path": "/quotes/:param/terms",
+      "permission": "quotes.update",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "quote.approve",
+      "verb": "POST",
+      "path": "/quotes/:param/approve",
+      "permission": "quotes.approve",
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/SalesCaseDetail.tsx",
+        "apps/web/src/app/components/pages/offers/OffersPage.tsx"
+      ]
+    },
+    {
+      "key": "quote.approvePrice",
+      "verb": "POST",
+      "path": "/quotes/:param/price-approval/approve",
+      "permission": "quotes.approve",
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/SalesCaseDetail.tsx",
+        "apps/web/src/app/components/pages/offers/OffersPage.tsx"
+      ]
+    },
+    {
+      "key": "quote.rejectPrice",
+      "verb": "POST",
+      "path": "/quotes/:param/price-approval/reject",
+      "permission": "quotes.reject",
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/SalesCaseDetail.tsx",
+        "apps/web/src/app/components/pages/offers/OffersPage.tsx"
+      ]
+    },
+    {
+      "key": "quote.reject",
+      "verb": "POST",
+      "path": "/quotes/:param/reject",
+      "permission": "quotes.reject",
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/SalesCaseDetail.tsx",
+        "apps/web/src/app/components/pages/offers/OffersPage.tsx"
+      ]
+    },
+    {
+      "key": "quote.changeStatus",
+      "verb": "POST",
+      "path": "/quotes/:param/status",
+      "permission": "quotes.update",
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/offers/OffersPage.tsx"
+      ]
+    },
+    {
+      "key": "quote.send",
+      "verb": "POST",
+      "path": "/quotes/:param/send",
+      "permission": "quotes.update",
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/SalesCaseDetail.tsx",
+        "apps/web/src/app/components/pages/offers/OffersPage.tsx"
+      ]
+    },
+    {
+      "key": "noteTemplate.list",
+      "verb": "GET",
+      "path": "/note-templates",
+      "permission": null,
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "noteTemplate.create",
+      "verb": "POST",
+      "path": "/note-templates",
+      "permission": null,
+      "inMobile": false,
+      "pages": []
+    },
+    {
+      "key": "noteTemplate.update",
+      "verb": "PATCH",
+      "path": "/note-templates/:param",
+      "permission": null,
+      "inMobile": false,
+      "pages": []
+    },
+    {
+      "key": "noteTemplate.remove",
+      "verb": "DELETE",
+      "path": "/note-templates/:param",
+      "permission": null,
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "reference.list",
+      "verb": "GET",
+      "path": "/references",
+      "permission": "companies.read",
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/ReferencesPage.tsx"
+      ]
+    },
+    {
+      "key": "reference.create",
+      "verb": "POST",
+      "path": "/references",
+      "permission": "companies.create",
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/ReferencesPage.tsx"
+      ]
+    },
+    {
+      "key": "reference.importFile",
+      "verb": "POST",
+      "path": "/references/import",
+      "permission": "companies.create",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "reference.update",
+      "verb": "PATCH",
+      "path": "/references/:param",
+      "permission": "companies.update",
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/ReferencesPage.tsx"
+      ]
+    },
+    {
+      "key": "reference.remove",
+      "verb": "DELETE",
+      "path": "/references/:param",
+      "permission": "companies.delete",
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/ReferencesPage.tsx"
+      ]
+    },
+    {
+      "key": "salesOrder.list",
+      "verb": "GET",
+      "path": "/sales-orders",
+      "permission": "sales_orders.read",
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/CustomerDetail.tsx"
+      ]
+    },
+    {
+      "key": "salesOrder.get",
+      "verb": "GET",
+      "path": "/sales-orders/:param",
+      "permission": "sales_orders.read",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "salesOrder.create",
+      "verb": "POST",
+      "path": "/sales-orders",
+      "permission": "sales_orders.create",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "salesOrder.createFromQuote",
+      "verb": "POST",
+      "path": "/sales-orders/from-quote/:param",
+      "permission": "sales_orders.create",
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/offers/OffersPage.tsx"
+      ]
+    },
+    {
+      "key": "salesOrder.update",
+      "verb": "PATCH",
+      "path": "/sales-orders/:param",
+      "permission": "sales_orders.update",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "salesOrder.remove",
+      "verb": "DELETE",
+      "path": "/sales-orders/:param",
+      "permission": "sales_orders.delete",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "salesOrder.addItem",
+      "verb": "POST",
+      "path": "/sales-orders/:param/items",
+      "permission": "sales_orders.update",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "salesOrder.approve",
+      "verb": "POST",
+      "path": "/sales-orders/:param/approve",
+      "permission": "sales_orders.approve",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "salesOrder.reserve",
+      "verb": "POST",
+      "path": "/sales-orders/:param/reserve",
+      "permission": "sales_orders.update",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "salesOrder.setStatus",
+      "verb": "PATCH",
+      "path": "/sales-orders/:param/status",
+      "permission": "sales_orders.update",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "purchaseOrder.list",
+      "verb": "GET",
+      "path": "/purchase-orders",
+      "permission": "purchase_orders.read",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "purchaseOrder.get",
+      "verb": "GET",
+      "path": "/purchase-orders/:param",
+      "permission": "purchase_orders.read",
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/purchase/PurchaseOrdersPage.tsx"
+      ]
+    },
+    {
+      "key": "purchaseOrder.create",
+      "verb": "POST",
+      "path": "/purchase-orders",
+      "permission": "purchase_orders.create",
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/purchase/PurchaseOrdersPage.tsx"
+      ]
+    },
+    {
+      "key": "purchaseOrder.update",
+      "verb": "PATCH",
+      "path": "/purchase-orders/:param",
+      "permission": "purchase_orders.update",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "purchaseOrder.remove",
+      "verb": "DELETE",
+      "path": "/purchase-orders/:param",
+      "permission": "purchase_orders.delete",
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/purchase/PurchaseOrdersPage.tsx"
+      ]
+    },
+    {
+      "key": "purchaseOrder.addItem",
+      "verb": "POST",
+      "path": "/purchase-orders/:param/items",
+      "permission": "purchase_orders.update",
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/purchase/PurchaseOrdersPage.tsx"
+      ]
+    },
+    {
+      "key": "purchaseOrder.send",
+      "verb": "POST",
+      "path": "/purchase-orders/:param/send",
+      "permission": "purchase_orders.update",
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/purchase/PurchaseOrdersPage.tsx"
+      ]
+    },
+    {
+      "key": "purchaseOrder.approve",
+      "verb": "POST",
+      "path": "/purchase-orders/:param/approve",
+      "permission": "purchase_orders.approve",
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/purchase/PurchaseOrdersPage.tsx"
+      ]
+    },
+    {
+      "key": "purchaseOrder.setStatus",
+      "verb": "PATCH",
+      "path": "/purchase-orders/:param/status",
+      "permission": "purchase_orders.update",
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/purchase/PurchaseOrdersPage.tsx"
+      ]
+    },
+    {
+      "key": "auth.forgotPassword",
+      "verb": "POST",
+      "path": "/auth/forgot-password",
+      "permission": null,
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/Login.tsx"
+      ]
+    },
+    {
+      "key": "auth.resetPassword",
+      "verb": "POST",
+      "path": "/auth/reset-password",
+      "permission": null,
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/Login.tsx"
+      ]
+    },
+    {
+      "key": "document.proformas",
+      "verb": "GET",
+      "path": "/proformas",
+      "permission": "proformas.read",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "document.createProforma",
+      "verb": "POST",
+      "path": "/proformas",
+      "permission": "proformas.create",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "document.updateProforma",
+      "verb": "PATCH",
+      "path": "/proformas/:param",
+      "permission": "proformas.update",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "document.updateStandaloneProforma",
+      "verb": "PATCH",
+      "path": "/proformas/standalone/:param",
+      "permission": "proformas.update",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "document.deleteProforma",
+      "verb": "DELETE",
+      "path": "/proformas/:param",
+      "permission": "proformas.delete",
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/documents/DocumentsPage.tsx"
+      ]
+    },
+    {
+      "key": "document.contracts",
+      "verb": "GET",
+      "path": "/contracts",
+      "permission": "contracts.read",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "document.createContract",
+      "verb": "POST",
+      "path": "/contracts",
+      "permission": "contracts.create",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "document.updateContract",
+      "verb": "PATCH",
+      "path": "/contracts/:param",
+      "permission": "contracts.update",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "document.updateStandaloneContract",
+      "verb": "PATCH",
+      "path": "/contracts/standalone/:param",
+      "permission": "contracts.update",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "document.deleteContract",
+      "verb": "DELETE",
+      "path": "/contracts/:param",
+      "permission": "contracts.delete",
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/documents/DocumentsPage.tsx"
+      ]
+    },
+    {
+      "key": "document.commercialInvoices",
+      "verb": "GET",
+      "path": "/commercial-invoices",
+      "permission": "commercial_invoices.read",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "document.createCommercialInvoice",
+      "verb": "POST",
+      "path": "/commercial-invoices",
+      "permission": "commercial_invoices.create",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "document.updateCommercialInvoice",
+      "verb": "PATCH",
+      "path": "/commercial-invoices/:param",
+      "permission": "commercial_invoices.update",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "document.deleteCommercialInvoice",
+      "verb": "DELETE",
+      "path": "/commercial-invoices/:param",
+      "permission": "commercial_invoices.delete",
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/documents/DocumentsPage.tsx"
+      ]
+    },
+    {
+      "key": "finance.receivables",
+      "verb": "GET",
+      "path": "/receivables",
+      "permission": "receivables.read",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "finance.createReceivable",
+      "verb": "POST",
+      "path": "/receivables",
+      "permission": "receivables.create",
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/SalesCaseDetail.tsx"
+      ]
+    },
+    {
+      "key": "finance.payments",
+      "verb": "GET",
+      "path": "/payments",
+      "permission": "payments.read",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "finance.createPayment",
+      "verb": "POST",
+      "path": "/payments",
+      "permission": "payments.create",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "finance.updatePayment",
+      "verb": "PATCH",
+      "path": "/payments/:param",
+      "permission": "payments.update",
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/payments/PaymentsPage.tsx"
+      ]
+    },
+    {
+      "key": "finance.deletePayment",
+      "verb": "DELETE",
+      "path": "/payments/:param",
+      "permission": "payments.delete",
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/payments/PaymentsPage.tsx"
+      ]
+    },
+    {
+      "key": "finance.updatePaymentStatus",
+      "verb": "PATCH",
+      "path": "/payments/:param/status",
+      "permission": "payments.update",
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/payments/PaymentsPage.tsx"
+      ]
+    },
+    {
+      "key": "finance.updateReceivableStatus",
+      "verb": "PATCH",
+      "path": "/receivables/:param/status",
+      "permission": "receivables.update",
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/payments/PaymentsPage.tsx"
+      ]
+    },
+    {
+      "key": "finance.companySummary",
+      "verb": "GET",
+      "path": "/companies/:param/finance-summary",
+      "permission": "receivables.read",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "finance.companyStatement",
+      "verb": "GET",
+      "path": "/companies/:param/statement",
+      "permission": "receivables.read",
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/finance/CustomerBalancesPage.tsx"
+      ]
+    },
+    {
+      "key": "finance.customerBalances",
+      "verb": "GET",
+      "path": "/reports/customer-balances",
+      "permission": "receivables.read",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "finance.dueDates",
+      "verb": "GET",
+      "path": "/reports/due-dates",
+      "permission": "receivables.read",
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/finance/DueDatesCalendarPage.tsx"
+      ]
+    },
+    {
+      "key": "finance.accountingInvoices",
+      "verb": "GET",
+      "path": "/accounting-invoices",
+      "permission": "accounting_invoices.read",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "finance.accountingInvoice",
+      "verb": "GET",
+      "path": "/accounting-invoices/:param",
+      "permission": "accounting_invoices.read",
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/finance/AccountingInvoicesPage.tsx"
+      ]
+    },
+    {
+      "key": "finance.paymentTermSuggestion",
+      "verb": "GET",
+      "path": "/accounting-invoices/payment-term-suggestion",
+      "permission": "accounting_invoices.read",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "finance.createAccountingInvoice",
+      "verb": "POST",
+      "path": "/accounting-invoices",
+      "permission": "accounting_invoices.create",
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/finance/CreateAccountingInvoiceDialog.tsx"
+      ]
+    },
+    {
+      "key": "finance.updateAccountingInvoice",
+      "verb": "PATCH",
+      "path": "/accounting-invoices/:param",
+      "permission": "accounting_invoices.update",
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/finance/CreateAccountingInvoiceDialog.tsx"
+      ]
+    },
+    {
+      "key": "finance.deleteAccountingInvoice",
+      "verb": "DELETE",
+      "path": "/accounting-invoices/:param",
+      "permission": "accounting_invoices.delete",
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/finance/AccountingInvoicesPage.tsx"
+      ]
+    },
+    {
+      "key": "service.tickets",
+      "verb": "GET",
+      "path": "/service-tickets",
+      "permission": "service_tickets.read",
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/chat/ShareRecordDialog.tsx"
+      ]
+    },
+    {
+      "key": "service.createTicket",
+      "verb": "POST",
+      "path": "/service-tickets",
+      "permission": "service_tickets.create",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "service.update",
+      "verb": "PATCH",
+      "path": "/service-tickets/:param",
+      "permission": "service_tickets.update",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "service.deleteTicket",
+      "verb": "DELETE",
+      "path": "/service-tickets/:param",
+      "permission": "service_tickets.delete",
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/service/ServicePages.tsx"
+      ]
+    },
+    {
+      "key": "service.updateTicketStatus",
+      "verb": "PATCH",
+      "path": "/service-tickets/:param/status",
+      "permission": "service_tickets.update",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "service.openServiceFormPdf",
+      "verb": null,
+      "path": null,
+      "permission": null,
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/service/ServicePages.tsx"
+      ]
+    },
+    {
+      "key": "service.complaints",
+      "verb": "GET",
+      "path": "/service-complaints",
+      "permission": "service_tickets.read",
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/service/ServicePages.tsx"
+      ]
+    },
+    {
+      "key": "service.createComplaint",
+      "verb": "POST",
+      "path": "/service-complaints",
+      "permission": "service_tickets.create",
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/service/ServicePages.tsx"
+      ]
+    },
+    {
+      "key": "service.updateComplaint",
+      "verb": "PATCH",
+      "path": "/service-complaints/:param",
+      "permission": "service_tickets.update",
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/service/ServicePages.tsx"
+      ]
+    },
+    {
+      "key": "service.convertComplaint",
+      "verb": "POST",
+      "path": "/service-complaints/:param/convert",
+      "permission": "service_tickets.create",
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/service/ServicePages.tsx"
+      ]
+    },
+    {
+      "key": "service.rejectComplaint",
+      "verb": "POST",
+      "path": "/service-complaints/:param/reject",
+      "permission": "service_tickets.update",
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/service/ServicePages.tsx"
+      ]
+    },
+    {
+      "key": "service.maintenancePlans",
+      "verb": "GET",
+      "path": "/maintenance-plans",
+      "permission": "service_tickets.read",
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/machines/MaintenancePlanPanel.tsx"
+      ]
+    },
+    {
+      "key": "service.createMaintenancePlan",
+      "verb": "POST",
+      "path": "/maintenance-plans",
+      "permission": "service_tickets.create",
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/machines/MaintenancePlanPanel.tsx"
+      ]
+    },
+    {
+      "key": "service.updateMaintenancePlan",
+      "verb": "PATCH",
+      "path": "/maintenance-plans/:param",
+      "permission": "service_tickets.update",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "service.completeMaintenancePlan",
+      "verb": "POST",
+      "path": "/maintenance-plans/:param/complete",
+      "permission": "service_tickets.update",
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/machines/MaintenancePlanPanel.tsx"
+      ]
+    },
+    {
+      "key": "service.deleteMaintenancePlan",
+      "verb": "DELETE",
+      "path": "/maintenance-plans/:param",
+      "permission": "service_tickets.delete",
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/machines/MaintenancePlanPanel.tsx"
+      ]
+    },
+    {
+      "key": "service.complaintLinks",
+      "verb": "GET",
+      "path": "/service-complaint-links",
+      "permission": "service_tickets.read",
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/service/ServicePages.tsx"
+      ]
+    },
+    {
+      "key": "service.createComplaintLink",
+      "verb": "POST",
+      "path": "/service-complaint-links",
+      "permission": "service_tickets.create",
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/service/ServicePages.tsx"
+      ]
+    },
+    {
+      "key": "service.rotateComplaintLink",
+      "verb": "PATCH",
+      "path": "/service-complaint-links/:param/rotate",
+      "permission": "service_tickets.update",
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/service/ServicePages.tsx"
+      ]
+    },
+    {
+      "key": "service.revokeComplaintLink",
+      "verb": "PATCH",
+      "path": "/service-complaint-links/:param/revoke",
+      "permission": "service_tickets.update",
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/service/ServicePages.tsx"
+      ]
+    },
+    {
+      "key": "service.warranty",
+      "verb": "GET",
+      "path": "/service-tickets/:param/warranty",
+      "permission": "service_tickets.read",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "service.updateWarranty",
+      "verb": "PUT",
+      "path": "/service-tickets/:param/warranty",
+      "permission": "service_tickets.update",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "service.updateWarrantyParts",
+      "verb": "PUT",
+      "path": "/service-tickets/:param/warranty/parts",
+      "permission": "service_tickets.update",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "service.submitWarranty",
+      "verb": "POST",
+      "path": "/service-tickets/:param/warranty/submit",
+      "permission": "service_tickets.update",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "service.approveWarranty",
+      "verb": "POST",
+      "path": "/service-tickets/:param/warranty/approve",
+      "permission": "service_tickets.approve",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "service.rejectWarranty",
+      "verb": "POST",
+      "path": "/service-tickets/:param/warranty/reject",
+      "permission": "service_tickets.reject",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "service.installations",
+      "verb": "GET",
+      "path": "/installations",
+      "permission": "installations.read",
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/documents/DocumentsPage.tsx",
+        "apps/web/src/app/components/pages/logistics/InstallationsPage.tsx"
+      ]
+    },
+    {
+      "key": "service.createInstallation",
+      "verb": "POST",
+      "path": "/installations",
+      "permission": "installations.create",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "service.updateInstallation",
+      "verb": "PATCH",
+      "path": "/installations/:param",
+      "permission": "installations.update",
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/logistics/InstallationsPage.tsx"
+      ]
+    },
+    {
+      "key": "service.deleteInstallation",
+      "verb": "DELETE",
+      "path": "/installations/:param",
+      "permission": "installations.delete",
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/logistics/InstallationsPage.tsx"
+      ]
+    },
+    {
+      "key": "service.updateInstallationStatus",
+      "verb": "PATCH",
+      "path": "/installations/:param/status",
+      "permission": "installations.update",
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/logistics/InstallationsPage.tsx"
+      ]
+    },
+    {
+      "key": "service.shipments",
+      "verb": "GET",
+      "path": "/shipments",
+      "permission": "shipments.read",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "service.shipment",
+      "verb": "GET",
+      "path": "/shipments/:param",
+      "permission": "shipments.read",
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/logistics/ShipmentsPage.tsx"
+      ]
+    },
+    {
+      "key": "service.shipmentCompanyOptions",
+      "verb": "GET",
+      "path": "/shipments/company-options",
+      "permission": "shipments.read",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "service.createShipment",
+      "verb": "POST",
+      "path": "/shipments",
+      "permission": "shipments.create",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "service.startShipment",
+      "verb": "POST",
+      "path": "/shipments/:param/start",
+      "permission": "shipments.update",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "service.updateShipmentStatus",
+      "verb": "PATCH",
+      "path": "/shipments/:param/status",
+      "permission": "shipments.update",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "service.deleteShipment",
+      "verb": "DELETE",
+      "path": "/shipments/:param",
+      "permission": "shipments.update",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "service.deliveries",
+      "verb": "GET",
+      "path": "/deliveries",
+      "permission": "shipments.read",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "service.createDelivery",
+      "verb": "POST",
+      "path": "/deliveries",
+      "permission": "shipments.create",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "service.updateDelivery",
+      "verb": "PATCH",
+      "path": "/deliveries/:param",
+      "permission": "shipments.update",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "service.updateDeliveryStatus",
+      "verb": "PATCH",
+      "path": "/deliveries/:param/status",
+      "permission": "shipments.update",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "service.deleteDelivery",
+      "verb": "DELETE",
+      "path": "/deliveries/:param",
+      "permission": "shipments.update",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "publicComplaint.form",
+      "verb": "GET",
+      "path": "/public/service-complaints/:param/:param",
+      "permission": null,
+      "inMobile": false,
+      "pages": []
+    },
+    {
+      "key": "publicComplaint.signedUpload",
+      "verb": "POST",
+      "path": "/public/service-complaints/:param/:param/files/signed-upload-url",
+      "permission": null,
+      "inMobile": false,
+      "pages": [
+        "apps/web/src/app/components/pages/PublicServiceComplaint.tsx"
+      ]
+    },
+    {
+      "key": "publicComplaint.uploadBinary",
+      "verb": null,
+      "path": null,
+      "permission": null,
+      "inMobile": false,
+      "pages": [
+        "apps/web/src/app/components/pages/PublicServiceComplaint.tsx"
+      ]
+    },
+    {
+      "key": "publicComplaint.submit",
+      "verb": "POST",
+      "path": "/public/service-complaints/:param/:param",
+      "permission": null,
+      "inMobile": false,
+      "pages": [
+        "apps/web/src/app/components/pages/PublicServiceComplaint.tsx"
+      ]
+    },
+    {
+      "key": "file.signedUpload",
+      "verb": "POST",
+      "path": "/files/signed-upload-url",
+      "permission": "files.create",
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/TradeFairsPage.tsx",
+        "apps/web/src/app/components/pages/chat/ChatPage.tsx",
+        "apps/web/src/app/components/pages/payments/PaymentsPage.tsx",
+        "apps/web/src/app/components/pages/service/ServicePages.tsx",
+        "apps/web/src/app/components/pages/settings/LookupManagerTab.tsx"
+      ]
+    },
+    {
+      "key": "file.uploadBinary",
+      "verb": null,
+      "path": null,
+      "permission": null,
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/TradeFairsPage.tsx",
+        "apps/web/src/app/components/pages/chat/ChatPage.tsx",
+        "apps/web/src/app/components/pages/payments/PaymentsPage.tsx",
+        "apps/web/src/app/components/pages/service/ServicePages.tsx",
+        "apps/web/src/app/components/pages/settings/LookupManagerTab.tsx"
+      ]
+    },
+    {
+      "key": "file.signedDownload",
+      "verb": "POST",
+      "path": "/files/signed-download-url",
+      "permission": "files.read",
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/CustomerDetail.tsx",
+        "apps/web/src/app/components/pages/OpportunityContractList.tsx",
+        "apps/web/src/app/components/pages/SalesCaseDetail.tsx",
+        "apps/web/src/app/components/pages/documents/DocumentsPage.tsx",
+        "apps/web/src/app/components/pages/offers/OffersPage.tsx",
+        "apps/web/src/app/components/pages/payments/PaymentsPage.tsx"
+      ]
+    },
+    {
+      "key": "file.link",
+      "verb": "POST",
+      "path": "/files/link",
+      "permission": "files.create",
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/TradeFairsPage.tsx",
+        "apps/web/src/app/components/pages/payments/PaymentsPage.tsx",
+        "apps/web/src/app/components/pages/service/ServicePages.tsx",
+        "apps/web/src/app/components/pages/settings/LookupManagerTab.tsx"
+      ]
+    },
+    {
+      "key": "file.links",
+      "verb": "GET",
+      "path": "/files/links",
+      "permission": "files.read",
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/TradeFairsPage.tsx"
+      ]
+    },
+    {
+      "key": "file.remove",
+      "verb": "DELETE",
+      "path": "/files/:param",
+      "permission": "files.delete",
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/SalesCaseDetail.tsx",
+        "apps/web/src/app/components/pages/TradeFairsPage.tsx",
+        "apps/web/src/app/components/pages/documents/DocumentsPage.tsx"
+      ]
+    },
+    {
+      "key": "signature.create",
+      "verb": "POST",
+      "path": "/signatures",
+      "permission": null,
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/settings/SignatureSettingsCard.tsx"
+      ]
+    },
+    {
+      "key": "signature.update",
+      "verb": "PATCH",
+      "path": "/signatures/:param",
+      "permission": null,
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/settings/SignatureSettingsCard.tsx"
+      ]
+    },
+    {
+      "key": "signature.remove",
+      "verb": "DELETE",
+      "path": "/signatures/:param",
+      "permission": null,
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/settings/SignatureSettingsCard.tsx"
+      ]
+    },
+    {
+      "key": "report.weeklyVisits",
+      "verb": "GET",
+      "path": "/reports/weekly-visits",
+      "permission": "reports.read",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "report.monthlyVisits",
+      "verb": "GET",
+      "path": "/reports/monthly-visits",
+      "permission": "reports.read",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "report.yearlyVisits",
+      "verb": "GET",
+      "path": "/reports/yearly-visits",
+      "permission": "reports.read",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "report.weeklyActivities",
+      "verb": "GET",
+      "path": "/reports/weekly-activities",
+      "permission": "reports.read",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "report.monthlyActivities",
+      "verb": "GET",
+      "path": "/reports/monthly-activities",
+      "permission": "reports.read",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "report.yearlyActivities",
+      "verb": "GET",
+      "path": "/reports/yearly-activities",
+      "permission": "reports.read",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "report.weeklyQuotes",
+      "verb": "GET",
+      "path": "/reports/weekly-quotes-by-product",
+      "permission": "reports.read",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "report.monthlyQuotes",
+      "verb": "GET",
+      "path": "/reports/monthly-quotes-by-product",
+      "permission": "reports.read",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "report.stockSummary",
+      "verb": "GET",
+      "path": "/reports/stock-summary",
+      "permission": "reports.read",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "report.pipelineSummary",
+      "verb": "GET",
+      "path": "/reports/pipeline-summary",
+      "permission": "reports.read",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "report.departmentPerformance",
+      "verb": "GET",
+      "path": "/reports/department-performance",
+      "permission": "reports.read",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "report.expectedReceivables",
+      "verb": "GET",
+      "path": "/reports/expected-receivables",
+      "permission": "reports.read",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "report.completedPayments",
+      "verb": "GET",
+      "path": "/reports/completed-payments",
+      "permission": "reports.read",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "report.warrantyExpiring",
+      "verb": "GET",
+      "path": "/reports/warranty-expiring",
+      "permission": "reports.read",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "report.serviceComplaintsSummary",
+      "verb": "GET",
+      "path": "/reports/service-complaints-summary",
+      "permission": "reports.read",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "report.yearEnd",
+      "verb": "GET",
+      "path": "/reports/year-end",
+      "permission": "reports.read",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "report.operational",
+      "verb": "GET",
+      "path": "/reports/operational",
+      "permission": "reports.read",
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/reports/OperationalReport.tsx"
+      ]
+    },
+    {
+      "key": "report.myTargetProgress",
+      "verb": "GET",
+      "path": "/reports/my-target-progress",
+      "permission": null,
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/Dashboard.tsx",
+        "apps/web/src/app/components/pages/dashboard/TargetWorkspace.tsx"
+      ]
+    },
+    {
+      "key": "report.teamActivityDetails",
+      "verb": "GET",
+      "path": "/reports/team-activity/details",
+      "permission": null,
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "report.downloadYearEnd",
+      "verb": null,
+      "path": null,
+      "permission": null,
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "admin.users",
+      "verb": "GET",
+      "path": "/users",
+      "permission": "users.read",
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/admin/UsersPage.tsx",
+        "apps/web/src/app/components/pages/dashboard/TargetWorkspace.tsx"
+      ]
+    },
+    {
+      "key": "admin.createUser",
+      "verb": "POST",
+      "path": "/users",
+      "permission": "users.create",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "admin.updateUser",
+      "verb": "PATCH",
+      "path": "/users/:param",
+      "permission": "users.update",
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/admin/UsersPage.tsx"
+      ]
+    },
+    {
+      "key": "admin.unlockUser",
+      "verb": "POST",
+      "path": "/users/:param/unlock",
+      "permission": "users.update",
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/admin/UsersPage.tsx"
+      ]
+    },
+    {
+      "key": "admin.deleteUser",
+      "verb": "DELETE",
+      "path": "/users/:param",
+      "permission": "users.delete",
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/admin/UsersPage.tsx"
+      ]
+    },
+    {
+      "key": "admin.userTargets",
+      "verb": "GET",
+      "path": "/user-targets",
+      "permission": "users.read",
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/admin/UsersPage.tsx",
+        "apps/web/src/app/components/pages/dashboard/TargetWorkspace.tsx"
+      ]
+    },
+    {
+      "key": "admin.myTargets",
+      "verb": "GET",
+      "path": "/me/targets",
+      "permission": null,
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "admin.saveUserTarget",
+      "verb": "POST",
+      "path": "/users/:param/targets",
+      "permission": "users.update",
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/admin/UsersPage.tsx",
+        "apps/web/src/app/components/pages/dashboard/TargetWorkspace.tsx"
+      ]
+    },
+    {
+      "key": "admin.departmentTargets",
+      "verb": "GET",
+      "path": "/department-targets",
+      "permission": "users.read",
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/admin/DepartmentsPage.tsx",
+        "apps/web/src/app/components/pages/dashboard/TargetWorkspace.tsx"
+      ]
+    },
+    {
+      "key": "admin.saveDepartmentTarget",
+      "verb": "POST",
+      "path": "/departments/:param/targets",
+      "permission": "departments.update",
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/admin/DepartmentsPage.tsx",
+        "apps/web/src/app/components/pages/dashboard/TargetWorkspace.tsx"
+      ]
+    },
+    {
+      "key": "admin.divisionTargets",
+      "verb": "GET",
+      "path": "/division-targets",
+      "permission": "users.read",
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/dashboard/TargetWorkspace.tsx"
+      ]
+    },
+    {
+      "key": "admin.saveDivisionTarget",
+      "verb": "POST",
+      "path": "/divisions/:param/targets",
+      "permission": "divisions.update",
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/dashboard/TargetWorkspace.tsx"
+      ]
+    },
+    {
+      "key": "admin.saveRoleTarget",
+      "verb": "POST",
+      "path": "/roles/:param/targets",
+      "permission": "roles.update",
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/admin/RolesPage.tsx"
+      ]
+    },
+    {
+      "key": "admin.roleTargetMembers",
+      "verb": "GET",
+      "path": "/roles/:param/target-members",
+      "permission": "roles.read",
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/admin/RolesPage.tsx"
+      ]
+    },
+    {
+      "key": "admin.updateDept",
+      "verb": "PATCH",
+      "path": "/departments/:param",
+      "permission": "departments.update",
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/settings/DepartmentSettingsCard.tsx"
+      ]
+    },
+    {
+      "key": "admin.roles",
+      "verb": "GET",
+      "path": "/roles",
+      "permission": "roles.read",
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/admin/RolesPage.tsx",
+        "apps/web/src/app/components/pages/admin/UsersPage.tsx"
+      ]
+    },
+    {
+      "key": "admin.createRole",
+      "verb": "POST",
+      "path": "/roles",
+      "permission": "roles.create",
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/admin/RolesPage.tsx"
+      ]
+    },
+    {
+      "key": "admin.updateRole",
+      "verb": "PATCH",
+      "path": "/roles/:param",
+      "permission": "roles.update",
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/admin/RolesPage.tsx"
+      ]
+    },
+    {
+      "key": "admin.permissions",
+      "verb": "GET",
+      "path": "/permissions",
+      "permission": "roles.read",
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/admin/RolesPage.tsx"
+      ]
+    },
+    {
+      "key": "admin.departments",
+      "verb": "GET",
+      "path": "/departments",
+      "permission": "departments.read",
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/admin/DepartmentsPage.tsx",
+        "apps/web/src/app/components/pages/admin/UsersPage.tsx",
+        "apps/web/src/app/components/pages/dashboard/TargetWorkspace.tsx",
+        "apps/web/src/app/components/pages/settings/DepartmentSettingsCard.tsx"
+      ]
+    },
+    {
+      "key": "admin.divisions",
+      "verb": "GET",
+      "path": "/divisions",
+      "permission": "users.read",
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/admin/UsersPage.tsx",
+        "apps/web/src/app/components/pages/dashboard/TargetWorkspace.tsx"
+      ]
+    },
+    {
+      "key": "admin.createDept",
+      "verb": "POST",
+      "path": "/departments",
+      "permission": "departments.create",
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/admin/DepartmentsPage.tsx",
+        "apps/web/src/app/components/pages/settings/DepartmentSettingsCard.tsx"
+      ]
+    },
+    {
+      "key": "admin.deleteDept",
+      "verb": "DELETE",
+      "path": "/departments/:param",
+      "permission": "departments.delete",
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/settings/DepartmentSettingsCard.tsx"
+      ]
+    },
+    {
+      "key": "admin.auditLogs",
+      "verb": "GET",
+      "path": "/audit-logs",
+      "permission": "audit.read",
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/settings/LookupManagerTab.tsx"
+      ]
+    },
+    {
+      "key": "admin.tenant",
+      "verb": "GET",
+      "path": "/tenant",
+      "permission": null,
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "admin.updateTenant",
+      "verb": "PATCH",
+      "path": "/tenant",
+      "permission": "tenants.update",
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/settings/SettingsPage.tsx"
+      ]
+    },
+    {
+      "key": "admin.lookups",
+      "verb": "GET",
+      "path": "/admin/lookups",
+      "permission": null,
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "admin.lookupRows",
+      "verb": "GET",
+      "path": "/admin/lookups/:param",
+      "permission": null,
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/settings/LookupImportDialog.tsx",
+        "apps/web/src/app/components/pages/settings/LookupManagerTab.tsx",
+        "apps/web/src/app/components/pages/settings/ProductSpecTemplatesCard.tsx"
+      ]
+    },
+    {
+      "key": "admin.createLookup",
+      "verb": "POST",
+      "path": "/admin/lookups/:param",
+      "permission": null,
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/settings/LookupImportDialog.tsx",
+        "apps/web/src/app/components/pages/settings/LookupManagerTab.tsx"
+      ]
+    },
+    {
+      "key": "admin.updateLookup",
+      "verb": "PATCH",
+      "path": "/admin/lookups/:param/:param",
+      "permission": null,
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/settings/LookupImportDialog.tsx",
+        "apps/web/src/app/components/pages/settings/LookupManagerTab.tsx"
+      ]
+    },
+    {
+      "key": "admin.reorderLookup",
+      "verb": "PATCH",
+      "path": "/admin/lookups/:param/reorder",
+      "permission": null,
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/settings/LookupManagerTab.tsx"
+      ]
+    },
+    {
+      "key": "admin.deleteLookup",
+      "verb": "DELETE",
+      "path": "/admin/lookups/:param/:param",
+      "permission": null,
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/settings/LookupManagerTab.tsx"
+      ]
+    },
+    {
+      "key": "admin.productSpecTemplates",
+      "verb": "GET",
+      "path": "/admin/product-spec-templates",
+      "permission": null,
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/settings/ProductSpecTemplatesCard.tsx"
+      ]
+    },
+    {
+      "key": "admin.createProductSpecTemplate",
+      "verb": "POST",
+      "path": "/admin/product-spec-templates",
+      "permission": null,
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "admin.bulkCreateProductSpecTemplates",
+      "verb": "POST",
+      "path": "/admin/product-spec-templates/bulk",
+      "permission": null,
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/settings/ProductSpecTemplatesCard.tsx"
+      ]
+    },
+    {
+      "key": "admin.batchSaveProductSpecTemplates",
+      "verb": "PUT",
+      "path": "/admin/product-spec-templates/batch",
+      "permission": null,
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/settings/ProductSpecTemplatesCard.tsx"
+      ]
+    },
+    {
+      "key": "admin.createMachineTemplate",
+      "verb": "POST",
+      "path": "/admin/machine-templates",
+      "permission": null,
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "admin.updateProductSpecTemplate",
+      "verb": "PATCH",
+      "path": "/admin/product-spec-templates/:param",
+      "permission": null,
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "admin.deleteProductSpecTemplate",
+      "verb": "DELETE",
+      "path": "/admin/product-spec-templates/:param",
+      "permission": null,
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "admin.previewTechnicalImport",
+      "verb": "POST",
+      "path": "/admin/technical-import/preview",
+      "permission": null,
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "admin.commitTechnicalImport",
+      "verb": "POST",
+      "path": "/admin/technical-import/commit",
+      "permission": null,
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "lookup.available",
+      "verb": "GET",
+      "path": "/lookups",
+      "permission": null,
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "lookup.byName",
+      "verb": "GET",
+      "path": "/lookups/:param",
+      "permission": null,
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/admin/UsersPage.tsx"
+      ]
+    },
+    {
+      "key": "lookup.taxOffices",
+      "verb": "GET",
+      "path": "/lookups/tax-offices",
+      "permission": null,
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "chat.directory",
+      "verb": "GET",
+      "path": "/chat/directory",
+      "permission": null,
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/chat/ChatPage.tsx"
+      ]
+    },
+    {
+      "key": "chat.webrtcConfig",
+      "verb": "GET",
+      "path": "/chat/webrtc-config",
+      "permission": null,
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "chat.conversations",
+      "verb": "GET",
+      "path": "/chat/conversations",
+      "permission": null,
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/chat/ChatPage.tsx"
+      ]
+    },
+    {
+      "key": "chat.createDm",
+      "verb": "POST",
+      "path": "/chat/conversations/dm",
+      "permission": null,
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/chat/ChatPage.tsx"
+      ]
+    },
+    {
+      "key": "chat.createGroup",
+      "verb": "POST",
+      "path": "/chat/conversations/group",
+      "permission": null,
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/chat/GroupDialogs.tsx"
+      ]
+    },
+    {
+      "key": "chat.conversation",
+      "verb": "GET",
+      "path": "/chat/conversations/:param",
+      "permission": null,
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/chat/ChatPage.tsx"
+      ]
+    },
+    {
+      "key": "chat.updateGroup",
+      "verb": "PATCH",
+      "path": "/chat/conversations/:param",
+      "permission": null,
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/chat/GroupDialogs.tsx"
+      ]
+    },
+    {
+      "key": "chat.addMembers",
+      "verb": "POST",
+      "path": "/chat/conversations/:param/members",
+      "permission": null,
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/chat/GroupDialogs.tsx"
+      ]
+    },
+    {
+      "key": "chat.removeMember",
+      "verb": "DELETE",
+      "path": "/chat/conversations/:param/members/:param",
+      "permission": null,
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/chat/GroupDialogs.tsx"
+      ]
+    },
+    {
+      "key": "chat.setMemberRole",
+      "verb": "PATCH",
+      "path": "/chat/conversations/:param/members/:param/role",
+      "permission": null,
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/chat/GroupDialogs.tsx"
+      ]
+    },
+    {
+      "key": "chat.messages",
+      "verb": "GET",
+      "path": "/chat/conversations/:param/messages",
+      "permission": null,
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/chat/ChatPage.tsx"
+      ]
+    },
+    {
+      "key": "chat.sendMessage",
+      "verb": "POST",
+      "path": "/chat/conversations/:param/messages",
+      "permission": null,
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/chat/ChatPage.tsx"
+      ]
+    },
+    {
+      "key": "chat.markRead",
+      "verb": "POST",
+      "path": "/chat/conversations/:param/read",
+      "permission": null,
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/chat/ChatPage.tsx"
+      ]
+    },
+    {
+      "key": "chat.editMessage",
+      "verb": "PATCH",
+      "path": "/chat/messages/:param",
+      "permission": null,
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/chat/ChatPage.tsx"
+      ]
+    },
+    {
+      "key": "chat.toggleReaction",
+      "verb": "POST",
+      "path": "/chat/messages/:param/reactions",
+      "permission": null,
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/chat/ChatPage.tsx"
+      ]
+    },
+    {
+      "key": "chat.deleteMessage",
+      "verb": "DELETE",
+      "path": "/chat/messages/:param",
+      "permission": null,
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/chat/ChatPage.tsx"
+      ]
+    }
+  ]
+}

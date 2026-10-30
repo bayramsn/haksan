@@ -1,0 +1,812 @@
+{
+  "date": "2026-10-28",
+  "method": "Static source inventory; physical route files, not runtime screen count",
+  "mainTabs": [
+    "home",
+    "companies",
+    "opportunities",
+    "calendar",
+    "modules"
+  ],
+  "sharedRoutePages": 98,
+  "moduleGroups": [
+    {
+      "key": "general",
+      "title": "Genel",
+      "hint": "Takvim, görev, aktivite, fuar",
+      "icon": "today-outline"
+    },
+    {
+      "key": "sales",
+      "title": "Satış",
+      "hint": "Firma, fırsat, kanban, hedef",
+      "icon": "trending-up-outline"
+    },
+    {
+      "key": "sales-ops",
+      "title": "Teklif & Belgeler",
+      "hint": "Kontak, teklif, sözleşme, sipariş",
+      "icon": "document-text-outline"
+    },
+    {
+      "key": "catalog",
+      "title": "Ürün & Stok",
+      "hint": "Katalog, stok, satın alma",
+      "icon": "cube-outline"
+    },
+    {
+      "key": "finance",
+      "title": "Finans",
+      "hint": "Ödeme, tahsilat, fatura, cari",
+      "icon": "wallet-outline"
+    },
+    {
+      "key": "logistics",
+      "title": "Lojistik",
+      "hint": "Sevkiyat ve teslimat",
+      "icon": "car-outline"
+    },
+    {
+      "key": "service",
+      "title": "Servis",
+      "hint": "Makine, kurulum, talep, bakım",
+      "icon": "construct-outline"
+    },
+    {
+      "key": "admin",
+      "title": "Rapor & Yönetim",
+      "hint": "Raporlar, kullanıcı, yetki",
+      "icon": "shield-checkmark-outline"
+    }
+  ],
+  "modules": [
+    {
+      "key": "call-assistant",
+      "title": "Görüşme Yardımcısı",
+      "icon": "call-outline",
+      "tone": "info",
+      "group": "general",
+      "permission": "companies.read",
+      "route": "/modules/call-assistant",
+      "pages": [
+        "modules/call-assistant/[id].tsx",
+        "modules/call-assistant/index.tsx"
+      ]
+    },
+    {
+      "key": "calendar",
+      "title": "Takvim",
+      "icon": "calendar-number-outline",
+      "tone": "info",
+      "group": "general",
+      "permission": "calendar.read",
+      "navKey": "calendar",
+      "route": "/modules/calendar",
+      "pages": [
+        "modules/calendar/index.tsx"
+      ]
+    },
+    {
+      "key": "tasks",
+      "title": "Görevler",
+      "icon": "checkbox-outline",
+      "tone": "success",
+      "group": "general",
+      "permission": "tasks.read",
+      "navKey": "tasks",
+      "route": "/modules/tasks",
+      "pages": [
+        "modules/tasks/[id].tsx",
+        "modules/tasks/index.tsx"
+      ]
+    },
+    {
+      "key": "activities",
+      "title": "Aktiviteler",
+      "icon": "pulse-outline",
+      "tone": "neutral",
+      "group": "general",
+      "permission": "activities.read",
+      "route": "/modules/activities",
+      "pages": [
+        "modules/activities/[id].tsx",
+        "modules/activities/index.tsx"
+      ]
+    },
+    {
+      "key": "trade-fairs",
+      "title": "Fuar",
+      "icon": "storefront-outline",
+      "tone": "info",
+      "group": "general",
+      "permission": "trade_fairs.read",
+      "navKey": "trade-fairs",
+      "route": "/modules/trade-fairs",
+      "pages": [
+        "modules/trade-fairs/index.tsx"
+      ]
+    },
+    {
+      "key": "companies",
+      "title": "Firmalar",
+      "icon": "business-outline",
+      "tone": "info",
+      "group": "sales",
+      "permission": "companies.read",
+      "navKey": "customers",
+      "route": "/modules/companies",
+      "pages": [
+        "modules/companies/[id].tsx",
+        "modules/companies/index.tsx"
+      ]
+    },
+    {
+      "key": "opportunities",
+      "title": "Fırsatlar",
+      "icon": "briefcase-outline",
+      "tone": "stage",
+      "group": "sales",
+      "permission": "opportunities.read",
+      "navKey": "sales-cases",
+      "route": "/modules/opportunities",
+      "pages": [
+        "modules/opportunities/[id].tsx",
+        "modules/opportunities/index.tsx"
+      ]
+    },
+    {
+      "key": "kanban",
+      "title": "Fırsat Kanbanı",
+      "icon": "albums-outline",
+      "tone": "stage",
+      "group": "sales",
+      "permission": "opportunities.read",
+      "navKey": "kanban",
+      "route": "/modules/kanban",
+      "pages": [
+        "modules/kanban/index.tsx"
+      ]
+    },
+    {
+      "key": "targets",
+      "title": "Hedefler",
+      "icon": "flag-outline",
+      "tone": "success",
+      "group": "sales",
+      "route": "/modules/targets",
+      "pages": [
+        "modules/targets/index.tsx"
+      ]
+    },
+    {
+      "key": "meta",
+      "title": "Meta Merkezi",
+      "icon": "megaphone-outline",
+      "tone": "info",
+      "group": "sales",
+      "permissionsAny": [
+        "meta.read",
+        "meta_campaigns.read",
+        "meta_messages.read"
+      ],
+      "navKey": "meta",
+      "route": "/modules/meta",
+      "pages": [
+        "modules/meta/index.tsx"
+      ]
+    },
+    {
+      "key": "references",
+      "title": "Referanslar",
+      "icon": "ribbon-outline",
+      "tone": "stage",
+      "group": "sales",
+      "permission": "brands.read",
+      "navKey": "references",
+      "route": "/modules/references",
+      "pages": [
+        "modules/references/index.tsx"
+      ]
+    },
+    {
+      "key": "contacts",
+      "title": "Kontaklar",
+      "icon": "people-outline",
+      "tone": "info",
+      "group": "sales-ops",
+      "permission": "contacts.read",
+      "navKey": "contacts",
+      "route": "/modules/contacts",
+      "pages": [
+        "modules/contacts/[id].tsx",
+        "modules/contacts/index.tsx"
+      ]
+    },
+    {
+      "key": "company-map",
+      "title": "Firma Haritası",
+      "icon": "map-outline",
+      "tone": "success",
+      "group": "sales-ops",
+      "permission": "companies.read",
+      "navKey": "sales-map",
+      "route": "/modules/company-map",
+      "pages": [
+        "modules/company-map/index.tsx"
+      ]
+    },
+    {
+      "key": "quotes",
+      "title": "Teklifler",
+      "icon": "document-text-outline",
+      "tone": "warning",
+      "group": "sales-ops",
+      "permission": "quotes.read",
+      "navKey": "offers",
+      "route": "/modules/quotes",
+      "pages": [
+        "modules/quotes/[id].tsx",
+        "modules/quotes/index.tsx"
+      ]
+    },
+    {
+      "key": "documents",
+      "title": "Ticari Belgeler",
+      "icon": "folder-open-outline",
+      "tone": "warning",
+      "group": "sales-ops",
+      "permissionsAny": [
+        "proformas.read",
+        "contracts.read",
+        "commercial_invoices.read",
+        "files.read"
+      ],
+      "navKey": "documents",
+      "route": "/modules/documents",
+      "pages": [
+        "modules/documents/[kind]/[id].tsx",
+        "modules/documents/index.tsx"
+      ]
+    },
+    {
+      "key": "proformas",
+      "title": "Proformalar",
+      "icon": "document-attach-outline",
+      "tone": "info",
+      "group": "sales-ops",
+      "permission": "proformas.read",
+      "navKey": "proformas",
+      "route": "/modules/proformas",
+      "pages": [
+        "modules/proformas/[id].tsx",
+        "modules/proformas/index.tsx"
+      ]
+    },
+    {
+      "key": "contracts",
+      "title": "Sözleşmeler",
+      "icon": "document-lock-outline",
+      "tone": "stage",
+      "group": "sales-ops",
+      "permission": "contracts.read",
+      "navKey": "contracts",
+      "route": "/modules/contracts",
+      "pages": [
+        "modules/contracts/[id].tsx",
+        "modules/contracts/index.tsx"
+      ]
+    },
+    {
+      "key": "price-lists",
+      "title": "Satış Fiyat Listesi",
+      "icon": "list-outline",
+      "tone": "warning",
+      "group": "sales-ops",
+      "permission": "price_lists.read",
+      "navKey": "sales-price-list",
+      "route": "/modules/price-lists",
+      "pages": [
+        "modules/price-lists/index.tsx"
+      ]
+    },
+    {
+      "key": "sales-orders",
+      "title": "Satış Siparişleri",
+      "icon": "receipt-outline",
+      "tone": "success",
+      "group": "sales-ops",
+      "permission": "sales_orders.read",
+      "route": "/modules/sales-orders",
+      "pages": [
+        "modules/sales-orders/[id].tsx",
+        "modules/sales-orders/index.tsx"
+      ]
+    },
+    {
+      "key": "products",
+      "title": "Ürünler",
+      "icon": "pricetag-outline",
+      "tone": "stage",
+      "group": "catalog",
+      "permission": "products.read",
+      "navKey": "products",
+      "route": "/modules/products",
+      "pages": [
+        "modules/products/[id].tsx",
+        "modules/products/index.tsx"
+      ]
+    },
+    {
+      "key": "inventory",
+      "title": "Stoklar",
+      "icon": "cube-outline",
+      "tone": "info",
+      "group": "catalog",
+      "permission": "inventory.read",
+      "navKey": "stock",
+      "route": "/modules/inventory",
+      "pages": [
+        "modules/inventory/[id].tsx",
+        "modules/inventory/index.tsx",
+        "modules/inventory/scan.tsx"
+      ]
+    },
+    {
+      "key": "purchase-orders",
+      "title": "Satın Alma",
+      "icon": "cart-outline",
+      "tone": "neutral",
+      "group": "catalog",
+      "permission": "purchase_orders.read",
+      "route": "/modules/purchase-orders",
+      "pages": [
+        "modules/purchase-orders/[id].tsx",
+        "modules/purchase-orders/index.tsx"
+      ]
+    },
+    {
+      "key": "payments",
+      "title": "Ödemeler & Kasa",
+      "icon": "swap-vertical-outline",
+      "tone": "info",
+      "group": "finance",
+      "permission": "payments.read",
+      "navKey": "payments",
+      "route": "/modules/payments",
+      "pages": [
+        "modules/payments/[id].tsx",
+        "modules/payments/index.tsx"
+      ]
+    },
+    {
+      "key": "receivables",
+      "title": "Tahsilatlar",
+      "icon": "wallet-outline",
+      "tone": "success",
+      "group": "finance",
+      "permission": "receivables.read",
+      "route": "/modules/receivables",
+      "pages": [
+        "modules/receivables/[id].tsx",
+        "modules/receivables/index.tsx"
+      ]
+    },
+    {
+      "key": "invoices",
+      "title": "Muhasebe Faturaları",
+      "icon": "document-outline",
+      "tone": "warning",
+      "group": "finance",
+      "permission": "accounting_invoices.read",
+      "navKey": "accounting-invoices",
+      "route": "/modules/invoices",
+      "pages": [
+        "modules/invoices/[id].tsx",
+        "modules/invoices/index.tsx"
+      ]
+    },
+    {
+      "key": "balances",
+      "title": "Cari Rapor",
+      "icon": "scale-outline",
+      "tone": "stage",
+      "group": "finance",
+      "permission": "receivables.read",
+      "navKey": "customer-balances",
+      "route": "/modules/balances",
+      "pages": [
+        "modules/balances/[companyId].tsx",
+        "modules/balances/index.tsx"
+      ]
+    },
+    {
+      "key": "due-dates",
+      "title": "Vade Takvimi",
+      "icon": "calendar-outline",
+      "tone": "destructive",
+      "group": "finance",
+      "permission": "payments.read",
+      "navKey": "due-dates",
+      "route": "/modules/due-dates",
+      "pages": [
+        "modules/due-dates/index.tsx"
+      ]
+    },
+    {
+      "key": "shipments",
+      "title": "Sevkiyat",
+      "icon": "car-outline",
+      "tone": "info",
+      "group": "logistics",
+      "permission": "shipments.read",
+      "navKey": "shipments",
+      "route": "/modules/shipments",
+      "pages": [
+        "modules/shipments/[id].tsx",
+        "modules/shipments/index.tsx"
+      ]
+    },
+    {
+      "key": "deliveries",
+      "title": "Teslimat Kayıtları",
+      "icon": "clipboard-outline",
+      "tone": "info",
+      "group": "logistics",
+      "permission": "shipments.read",
+      "navKey": "deliveries",
+      "route": "/modules/deliveries",
+      "pages": [
+        "modules/deliveries/[id].tsx",
+        "modules/deliveries/index.tsx"
+      ]
+    },
+    {
+      "key": "customer-devices",
+      "title": "Makineler",
+      "icon": "hardware-chip-outline",
+      "tone": "neutral",
+      "group": "service",
+      "permission": "customer_devices.read",
+      "navKey": "machines",
+      "route": "/modules/customer-devices",
+      "pages": [
+        "modules/customer-devices/[id].tsx",
+        "modules/customer-devices/index.tsx"
+      ]
+    },
+    {
+      "key": "installations",
+      "title": "Kurulumlar",
+      "icon": "hammer-outline",
+      "tone": "info",
+      "group": "service",
+      "permission": "installations.read",
+      "navKey": "installations",
+      "route": "/modules/installations",
+      "pages": [
+        "modules/installations/[id].tsx",
+        "modules/installations/index.tsx"
+      ]
+    },
+    {
+      "key": "service-tickets",
+      "title": "Servis Talepleri",
+      "icon": "construct-outline",
+      "tone": "destructive",
+      "group": "service",
+      "permission": "service_tickets.read",
+      "navKey": "service-requests",
+      "route": "/modules/service-tickets",
+      "pages": [
+        "modules/service-tickets/[id].tsx",
+        "modules/service-tickets/index.tsx"
+      ]
+    },
+    {
+      "key": "service-kanban",
+      "title": "Servis Kanbanı",
+      "icon": "grid-outline",
+      "tone": "destructive",
+      "group": "service",
+      "permission": "service_tickets.read",
+      "navKey": "service-kanban",
+      "route": "/modules/service-kanban",
+      "pages": [
+        "modules/service-kanban/index.tsx"
+      ]
+    },
+    {
+      "key": "service-complaints",
+      "title": "Şikayet Kutusu",
+      "icon": "chatbox-ellipses-outline",
+      "tone": "warning",
+      "group": "service",
+      "permission": "service_tickets.read",
+      "navKey": "service-requests",
+      "route": "/modules/service-complaints",
+      "pages": [
+        "modules/service-complaints/[id].tsx",
+        "modules/service-complaints/index.tsx",
+        "modules/service-complaints/links.tsx"
+      ]
+    },
+    {
+      "key": "maintenance-plans",
+      "title": "Bakım Planları",
+      "icon": "build-outline",
+      "tone": "success",
+      "group": "service",
+      "permission": "service_tickets.read",
+      "route": "/modules/maintenance-plans",
+      "pages": [
+        "modules/maintenance-plans/[id].tsx",
+        "modules/maintenance-plans/index.tsx"
+      ]
+    },
+    {
+      "key": "service-price-list",
+      "title": "Servis Fiyat Listesi",
+      "icon": "receipt-outline",
+      "tone": "warning",
+      "group": "service",
+      "permission": "price_lists.read",
+      "navKey": "service-price-list",
+      "route": "/modules/service-price-list",
+      "pages": [
+        "modules/service-price-list/index.tsx"
+      ]
+    },
+    {
+      "key": "reports",
+      "title": "Raporlar",
+      "icon": "stats-chart-outline",
+      "tone": "stage",
+      "group": "admin",
+      "permission": "reports.read",
+      "navKey": "reports",
+      "route": "/modules/reports",
+      "pages": [
+        "modules/reports/index.tsx"
+      ]
+    },
+    {
+      "key": "users",
+      "title": "Kullanıcılar",
+      "icon": "person-circle-outline",
+      "tone": "info",
+      "group": "admin",
+      "permission": "users.read",
+      "navKey": "users",
+      "adminOnly": true,
+      "route": "/modules/users",
+      "pages": [
+        "modules/users/[id].tsx",
+        "modules/users/index.tsx"
+      ]
+    },
+    {
+      "key": "roles",
+      "title": "Roller & Yetkiler",
+      "icon": "shield-checkmark-outline",
+      "tone": "stage",
+      "group": "admin",
+      "permission": "roles.read",
+      "navKey": "roles",
+      "adminOnly": true,
+      "route": "/modules/roles",
+      "pages": [
+        "modules/roles/[id].tsx",
+        "modules/roles/index.tsx"
+      ]
+    },
+    {
+      "key": "departments",
+      "title": "Departmanlar",
+      "icon": "git-network-outline",
+      "tone": "neutral",
+      "group": "admin",
+      "permission": "departments.read",
+      "navKey": "departments",
+      "adminOnly": true,
+      "route": "/modules/departments",
+      "pages": [
+        "modules/departments/index.tsx"
+      ]
+    }
+  ],
+  "modalRoutes": [
+    "modal/activity.tsx",
+    "modal/calendar-event.tsx",
+    "modal/calendar-import.tsx",
+    "modal/call-new.tsx",
+    "modal/chat-group-settings.tsx",
+    "modal/chat-share-record.tsx",
+    "modal/commercial-invoice-form.tsx",
+    "modal/company-import.tsx",
+    "modal/company-note.tsx",
+    "modal/complaint-link.tsx",
+    "modal/complaint-new.tsx",
+    "modal/contact.tsx",
+    "modal/contract-form.tsx",
+    "modal/contract-quick.tsx",
+    "modal/contract-signed-upload.tsx",
+    "modal/create-case.tsx",
+    "modal/delivery-form.tsx",
+    "modal/department-edit.tsx",
+    "modal/department-target.tsx",
+    "modal/device-new.tsx",
+    "modal/device-owner.tsx",
+    "modal/edit-company.tsx",
+    "modal/edit-product.tsx",
+    "modal/installation-completion.tsx",
+    "modal/installation-form.tsx",
+    "modal/invoice-form.tsx",
+    "modal/lead-rule-edit.tsx",
+    "modal/lookup-brand.tsx",
+    "modal/lookup-edit.tsx",
+    "modal/lookup-import.tsx",
+    "modal/mail-compose.tsx",
+    "modal/mail-user-signature.tsx",
+    "modal/meta-audience-members.tsx",
+    "modal/meta-audience.tsx",
+    "modal/meta-campaign-budget.tsx",
+    "modal/meta-campaign-create.tsx",
+    "modal/meta-catalog-products.tsx",
+    "modal/meta-catalog.tsx",
+    "modal/meta-comment-reply.tsx",
+    "modal/meta-connection.tsx",
+    "modal/meta-conversation.tsx",
+    "modal/meta-conversion.tsx",
+    "modal/meta-mapping.tsx",
+    "modal/new-company.tsx",
+    "modal/new-opportunity.tsx",
+    "modal/new-receivable.tsx",
+    "modal/new-ticket.tsx",
+    "modal/opportunity-contact.tsx",
+    "modal/opportunity-edit.tsx",
+    "modal/opportunity-operations.tsx",
+    "modal/opportunity-relations.tsx",
+    "modal/opportunity-stock.tsx",
+    "modal/opportunity-trello-import.tsx",
+    "modal/payment-plan.tsx",
+    "modal/payment.tsx",
+    "modal/price-campaign.tsx",
+    "modal/product-catalog-mail.tsx",
+    "modal/product-import.tsx",
+    "modal/product-new.tsx",
+    "modal/proforma-form.tsx",
+    "modal/proforma-quick.tsx",
+    "modal/purchase-order.tsx",
+    "modal/quote-document-link.tsx",
+    "modal/quote-document-upload.tsx",
+    "modal/quote-form.tsx",
+    "modal/reference-form.tsx",
+    "modal/reference-import.tsx",
+    "modal/role-create.tsx",
+    "modal/role-target.tsx",
+    "modal/sales-order-accounting-invoice.tsx",
+    "modal/sales-order-form.tsx",
+    "modal/sales-order-item.tsx",
+    "modal/service-price-edit.tsx",
+    "modal/shipment-label.tsx",
+    "modal/shipment-new.tsx",
+    "modal/signature-edit.tsx",
+    "modal/spec-template-import.tsx",
+    "modal/spec-template-new.tsx",
+    "modal/stock-item.tsx",
+    "modal/target-edit.tsx",
+    "modal/task-complete.tsx",
+    "modal/task.tsx",
+    "modal/trade-fair-follow-up.tsx",
+    "modal/trade-fair-form.tsx",
+    "modal/user-create.tsx",
+    "modal/user-department.tsx",
+    "modal/user-edit.tsx",
+    "modal/user-limit.tsx",
+    "modal/user-roles.tsx",
+    "modal/user-target.tsx",
+    "modal/visit-new.tsx"
+  ],
+  "supportRoutes": [
+    "calendar.tsx",
+    "chat/[id].tsx",
+    "chat/index.tsx",
+    "chat/new-group.tsx",
+    "chat/new.tsx",
+    "companies.tsx",
+    "index.tsx",
+    "more/about.tsx",
+    "more/index.tsx",
+    "more/profile.tsx",
+    "more/scope.tsx",
+    "more/settings/access-requests.tsx",
+    "more/settings/calendar-sync.tsx",
+    "more/settings/company.tsx",
+    "more/settings/departments.tsx",
+    "more/settings/index.tsx",
+    "more/settings/laser-profiles.tsx",
+    "more/settings/lead-rules.tsx",
+    "more/settings/lookups/[name].tsx",
+    "more/settings/lookups/index.tsx",
+    "more/settings/mail-signatures.tsx",
+    "more/settings/menu.tsx",
+    "more/settings/signatures.tsx",
+    "more/settings/spec-templates/[type].tsx",
+    "more/settings/spec-templates/index.tsx",
+    "more/settings/webmail.tsx",
+    "notifications.tsx",
+    "opportunities.tsx"
+  ],
+  "visibleMenuGroups": [
+    {
+      "title": "Genel",
+      "modules": [
+        "calendar",
+        "tasks",
+        "trade-fairs",
+        "call-assistant",
+        "activities"
+      ]
+    },
+    {
+      "title": "Satış",
+      "modules": [
+        "companies",
+        "opportunities",
+        "kanban",
+        "meta",
+        "references",
+        "targets"
+      ]
+    },
+    {
+      "title": "Satış Operasyonu",
+      "modules": [
+        "contacts",
+        "company-map",
+        "quotes",
+        "documents",
+        "proformas",
+        "contracts",
+        "price-lists",
+        "sales-orders"
+      ]
+    },
+    {
+      "title": "Operasyon",
+      "modules": [
+        "products",
+        "inventory",
+        "payments",
+        "invoices",
+        "balances",
+        "due-dates",
+        "shipments",
+        "purchase-orders",
+        "receivables"
+      ]
+    },
+    {
+      "title": "Servis",
+      "modules": [
+        "customer-devices",
+        "deliveries",
+        "installations",
+        "service-tickets",
+        "service-complaints",
+        "service-kanban",
+        "service-price-list",
+        "maintenance-plans"
+      ]
+    },
+    {
+      "title": "Yönetim",
+      "modules": [
+        "reports",
+        "users",
+        "roles",
+        "departments"
+      ]
+    }
+  ]
+}

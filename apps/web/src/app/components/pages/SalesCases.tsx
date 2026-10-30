@@ -13,6 +13,10 @@ import {
 } from "../../lib/mock";
 import { useEffect, useMemo, useState } from "react";
 import { useStore } from "../../lib/store";
+import { useCompanyCardDetails } from "../../lib/companyServerData";
+import { matchesOpportunitySearch } from "../../lib/opportunitySearch";
+import { matchesOpportunityLocation, opportunityCity, opportunityRegion, OPPORTUNITY_REGIONS } from "../../lib/opportunityLocation";
+import { PROVINCE_NAMES } from "../../lib/geo";
 import { inMonth, parseMonthQuery } from "../../lib/monthQuery";
 import { isManualTimelineComment } from "../../lib/opportunityTimeline";
 import { useAuth } from "../../../lib/auth";
@@ -132,6 +136,21 @@ export function SalesCasesPage({
     }
   };
   const [q, setQ] = useState("");
+  const [city, setCity] = useState("all");
+  const [region, setRegion] = useState("all");
+  const companyDetailsQuery = useCompanyCardDetails(
+    [...salesCases, ...closedCases].map((item) => item.customerId),
+    customers,
+  );
+  const companyById = useMemo(() => new Map([
+    ...customers.map((company) => [company.id, company] as const),
+    ...Object.entries(companyDetailsQuery.data ?? {}),
+  ]), [customers, companyDetailsQuery.data]);
+  const locationCity = (item: SalesCase) => opportunityCity(item, companyById.get(item.customerId));
+  const cityOptions = PROVINCE_NAMES
+    .filter((value) => region === "all" || opportunityRegion(value) === region)
+    .sort((a, b) => a.localeCompare(b, "tr"))
+    .map((value) => ({ value, label: value }));
   const [stage, setStage] = useState("all");
   const [currency, setCurrency] = useState("all");
   const [companyResolution, setCompanyResolution] = useState("all");
@@ -167,7 +186,8 @@ export function SalesCasesPage({
     && salesCase.qualificationStage !== "win"
     && salesCase.qualificationStage !== "lost"
   );
-  const filtered = salesCases.filter((s) => {
+  const matchesFilters = (s: SalesCase) => {
+    if (!matchesOpportunityLocation(locationCity(s), city, region)) return false;
     const qualification = s.qualificationStage ?? "lead";
     if (focusOpen && (qualification === "win" || qualification === "lost")) return false;
     if (focusWon && qualification !== "win") return false;
@@ -187,26 +207,9 @@ export function SalesCasesPage({
     if (outcomeReason !== "all" && reasonKey(s) !== outcomeReason) return false;
     if (activityPresence !== "all" && casesWithActivity.has(s.id) !== (activityPresence === "yes")) return false;
     if (offerPresence !== "all" && casesWithOffer.has(s.id) !== (offerPresence === "yes")) return false;
-    const c = customers.find((x) => x.id === s.customerId);
-    const query = q.toLocaleLowerCase("tr-TR");
-    return [
-      c?.name,
-      s.leadCompanyTitle,
-      s.leadContactName,
-      s.leadContactValue,
-      s.leadPhone,
-      s.leadEmail,
-      s.leadCity,
-      s.leadDistrict,
-      s.externalMetadata?.candidate?.companyTitle,
-      s.requestedProduct,
-      s.lostProductName,
-      s.lostReason,
-      s.competitor,
-      s.lostCompetitorProductModel,
-      s.lostUnmetConditions,
-    ].some((value) => (value ?? "").toLocaleLowerCase("tr-TR").includes(query));
-  });
+    return matchesOpportunitySearch(s, companyById.get(s.customerId), q);
+  };
+  const filtered = salesCases.filter(matchesFilters);
   const sorted = useMemo(() => {
     if (!nameSort) return filtered;
     return [...filtered].sort((a, b) => {
@@ -217,8 +220,12 @@ export function SalesCasesPage({
       return nameSort === "asc" ? an : -an;
     });
   }, [filtered, nameSort, customers]);
+  // LOST anında kapanır (closedAt) ve Geçmiş'e düşer; kanbanın LOST sütunu oradan beslenir.
+  const kanbanItems = [...sorted, ...closedCases.filter((s) => s.qualificationStage === "lost" && matchesFilters(s))];
 
   const { page, setPage, totalPages, pageItems } = usePaged(sorted, 12);
+
+  useEffect(() => { setPage(1); }, [city, region, q]);
 
   const stageOptions = QUALIFICATION_STAGES.map((value) => ({
     value,
@@ -242,12 +249,13 @@ export function SalesCasesPage({
     return [...counts.values()].sort((left, right) => right.count - left.count || left.label.localeCompare(right.label, "tr-TR"));
   }, [allCases]);
   const filteredClosedCases = closedCases.filter((item) => {
+    if (!matchesOpportunityLocation(locationCity(item), city, region)) return false;
     if (outcome === "follow_up") return false;
     if (!inMonth(item.createdAt, focusMonth)) return false;
     if (outcome === "won" && item.qualificationStage !== "win") return false;
     if (outcome === "lost" && item.qualificationStage !== "lost") return false;
     if (outcomeReason !== "all" && reasonKey(item) !== outcomeReason) return false;
-    return true;
+    return matchesOpportunitySearch(item, companyById.get(item.customerId), q);
   });
   useEffect(() => {
     setView(initialView);
@@ -305,16 +313,35 @@ export function SalesCasesPage({
           <InputGroup className="w-full bg-card sm:w-72">
             <InputGroupAddon><Search className="size-4" aria-hidden="true" /></InputGroupAddon>
             <InputGroupInput
-              placeholder="Firma / kontak / ürün ara..."
+              placeholder="Firma / kontak / şehir / ürün ara..."
               aria-label="Fırsatlarda ara"
               value={q}
               onChange={(e) => setQ(e.target.value)}
             />
           </InputGroup>
+          <select
+            aria-label="İl filtresi"
+            value={city}
+            onChange={(event) => setCity(event.target.value)}
+            className="h-9 w-full rounded-md border border-input bg-card px-3 text-sm shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:w-44"
+          >
+            <option value="all">Tüm iller</option>
+            {cityOptions.map((option) => (
+              <option key={option.value} value={option.value}>{option.label}</option>
+            ))}
+          </select>
           <FilterPopover
             contentClassName="max-h-[min(80vh,44rem)] w-[min(92vw,46rem)] overflow-y-auto"
             filtersClassName="grid gap-3 sm:grid-cols-2"
             filters={[
+              {
+                label: "Bölge", value: region,
+                onChange: (value) => {
+                  setRegion(value);
+                  if (city !== "all" && value !== "all" && opportunityRegion(city) !== value) setCity("all");
+                },
+                options: Object.keys(OPPORTUNITY_REGIONS).sort((a, b) => a.localeCompare(b, "tr")).map((value) => ({ value, label: value })),
+              },
               { label: "Aşama", value: stage, onChange: setStage, options: stageOptions },
               { label: "Para Birimi", value: currency, onChange: setCurrency, options: currencyOptions },
               {
@@ -424,7 +451,7 @@ export function SalesCasesPage({
       <TabsContent value="kanban" className="mt-0">
         <QualificationKanban
           onSelect={onSelect}
-          items={sorted}
+          items={kanbanItems}
           onRequestDelete={canDelete ? setPendingDelete : undefined}
         />
       </TabsContent>
@@ -456,7 +483,7 @@ export function SalesCasesPage({
             </TableHeader>
             <TableBody>
               {pageItems.map((s) => {
-                const c = customers.find((x) => x.id === s.customerId);
+                const c = companyById.get(s.customerId);
                 const u = users.find((x) => x.id === s.assignedUserId);
                 const product = products.find((item) => item.model === s.requestedModel || item.modelName === s.requestedModel);
                 const nextActivity = nextActivityFor(s.id);
@@ -657,7 +684,7 @@ export function SalesCasesPage({
                   </TableRow>
                 ) : (
                   filteredClosedCases.map((s) => {
-                    const c = customers.find((x) => x.id === s.customerId);
+                    const c = companyById.get(s.customerId);
                     return (
                       <TableRow key={s.id} className="cursor-pointer group" onClick={() => onSelect(s)}>
                         <TableCell>

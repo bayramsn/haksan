@@ -45,6 +45,15 @@ export class ProductMediaService {
     private readonly storage: StorageService
   ) {}
 
+  /** Legacy document snapshots omitted media; resolve only within the authorized tenant. */
+  async resolveSnapshotImageUrl(productId: string, tenantId: string): Promise<string | null> {
+    const product = await this.db.query.productModels.findFirst({
+      columns: { imageUrl: true },
+      where: and(eq(productModels.id, productId), eq(productModels.tenantId, tenantId), isNull(productModels.deletedAt)),
+    });
+    return product?.imageUrl ?? null;
+  }
+
   async listForProduct(productId: string, tenantId: string): Promise<ProductMediaItem[]> {
     const imageRows = await this.db
       .select({

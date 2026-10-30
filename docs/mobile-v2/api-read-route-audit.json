@@ -1,0 +1,2681 @@
+{
+  "generatedAt": "2026-10-28T11:18:41.837Z",
+  "counts": {
+    "backendEndpoints": 482,
+    "mobileReadCallsites": 216,
+    "registeredReadCallsites": 216,
+    "unresolvedReadExpressions": 0
+  },
+  "missing": [],
+  "unresolved": [],
+  "rows": [
+    {
+      "file": "apps/mobile-v2/src/api/admin.api.ts",
+      "line": 234,
+      "method": "GET",
+      "path": "/brands",
+      "registered": [
+        {
+          "controller": "ProductsController",
+          "handler": "listBrands"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/admin.api.ts",
+      "line": 236,
+      "method": "GET",
+      "path": "/laser-profiles/options",
+      "registered": [
+        {
+          "controller": "LaserProfilesController",
+          "handler": "options"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/admin.api.ts",
+      "line": 238,
+      "method": "GET",
+      "path": "/laser-profiles/resolve",
+      "registered": [
+        {
+          "controller": "LaserProfilesController",
+          "handler": "resolve"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/admin.api.ts",
+      "line": 285,
+      "method": "GET",
+      "path": "/users",
+      "registered": [
+        {
+          "controller": "AdminController",
+          "handler": "listUsers"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/admin.api.ts",
+      "line": 297,
+      "method": "GET",
+      "path": "/user-targets",
+      "registered": [
+        {
+          "controller": "AdminController",
+          "handler": "listUserTargets"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/admin.api.ts",
+      "line": 300,
+      "method": "GET",
+      "path": "/department-targets",
+      "registered": [
+        {
+          "controller": "AdminController",
+          "handler": "listDepartmentTargets"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/admin.api.ts",
+      "line": 308,
+      "method": "GET",
+      "path": "/roles/:param/target-members",
+      "registered": [
+        {
+          "controller": "AdminController",
+          "handler": "roleTargetMembers"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/admin.api.ts",
+      "line": 310,
+      "method": "GET",
+      "path": "/reports/target-progress",
+      "registered": [
+        {
+          "controller": "ReportsController",
+          "handler": "targetProgress"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/admin.api.ts",
+      "line": 313,
+      "method": "GET",
+      "path": "/roles",
+      "registered": [
+        {
+          "controller": "AdminController",
+          "handler": "listRoles"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/admin.api.ts",
+      "line": 316,
+      "method": "GET",
+      "path": "/permissions",
+      "registered": [
+        {
+          "controller": "AdminController",
+          "handler": "listPermissions"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/admin.api.ts",
+      "line": 319,
+      "method": "GET",
+      "path": "/departments",
+      "registered": [
+        {
+          "controller": "AdminController",
+          "handler": "listDepts"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/admin.api.ts",
+      "line": 320,
+      "method": "GET",
+      "path": "/divisions",
+      "registered": [
+        {
+          "controller": "AdminController",
+          "handler": "listDivisions"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/admin.api.ts",
+      "line": 328,
+      "method": "GET",
+      "path": "/audit-logs",
+      "registered": [
+        {
+          "controller": "AdminController",
+          "handler": "listAuditLogs"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/admin.api.ts",
+      "line": 329,
+      "method": "GET",
+      "path": "/tenant",
+      "registered": [
+        {
+          "controller": "AdminController",
+          "handler": "getTenant"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/admin.api.ts",
+      "line": 333,
+      "method": "GET",
+      "path": "/admin/lookups",
+      "registered": [
+        {
+          "controller": "AdminLookupsController",
+          "handler": "listAvailable"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/admin.api.ts",
+      "line": 335,
+      "method": "GET",
+      "path": "/admin/lookups/:param",
+      "registered": [
+        {
+          "controller": "AdminLookupsController",
+          "handler": "listLookup"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/admin.api.ts",
+      "line": 350,
+      "method": "GET",
+      "path": "/admin/product-spec-templates",
+      "registered": [
+        {
+          "controller": "AdminLookupsController",
+          "handler": "listProductSpecTemplates"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/commercial-docs.api.ts",
+      "line": 212,
+      "method": "GET",
+      "path": "/files/links",
+      "registered": [
+        {
+          "controller": "FilesController",
+          "handler": "listLinks"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/competitors.hooks.ts",
+      "line": 14,
+      "method": "GET",
+      "path": "/competitors",
+      "registered": [
+        {
+          "controller": "CompetitorsController",
+          "handler": "list"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/crm-general.api.ts",
+      "line": 166,
+      "method": "GET",
+      "path": "/companies",
+      "registered": [
+        {
+          "controller": "CompaniesController",
+          "handler": "list"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/crm-general.api.ts",
+      "line": 168,
+      "method": "GET",
+      "path": "/companies/summary",
+      "registered": [
+        {
+          "controller": "CompaniesController",
+          "handler": "summary"
+        },
+        {
+          "controller": "CompaniesController",
+          "handler": "get"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/crm-general.api.ts",
+      "line": 170,
+      "method": "GET",
+      "path": "/companies/osm-search",
+      "registered": [
+        {
+          "controller": "CompaniesController",
+          "handler": "osmSearch"
+        },
+        {
+          "controller": "CompaniesController",
+          "handler": "get"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/crm-general.api.ts",
+      "line": 190,
+      "method": "GET",
+      "path": "/lookups/tax-offices",
+      "registered": [
+        {
+          "controller": "LookupsController",
+          "handler": "byName"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/crm-general.api.ts",
+      "line": 191,
+      "method": "GET",
+      "path": "/lookups/company-relation-types",
+      "registered": [
+        {
+          "controller": "LookupsController",
+          "handler": "byName"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/crm-general.api.ts",
+      "line": 192,
+      "method": "GET",
+      "path": "/lookups/company-statuses",
+      "registered": [
+        {
+          "controller": "LookupsController",
+          "handler": "byName"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/crm-general.api.ts",
+      "line": 193,
+      "method": "GET",
+      "path": "/lookups/company-groups",
+      "registered": [
+        {
+          "controller": "LookupsController",
+          "handler": "byName"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/crm-general.api.ts",
+      "line": 194,
+      "method": "GET",
+      "path": "/lookups/company-sectors",
+      "registered": [
+        {
+          "controller": "LookupsController",
+          "handler": "byName"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/crm-general.api.ts",
+      "line": 195,
+      "method": "GET",
+      "path": "/lookups/contact-sources",
+      "registered": [
+        {
+          "controller": "LookupsController",
+          "handler": "byName"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/crm-general.api.ts",
+      "line": 206,
+      "method": "GET",
+      "path": "/contacts",
+      "registered": [
+        {
+          "controller": "ContactsController",
+          "handler": "list"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/crm-general.api.ts",
+      "line": 208,
+      "method": "GET",
+      "path": "/contacts/summary",
+      "registered": [
+        {
+          "controller": "ContactsController",
+          "handler": "summary"
+        },
+        {
+          "controller": "ContactsController",
+          "handler": "get"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/crm-general.api.ts",
+      "line": 230,
+      "method": "GET",
+      "path": "/mail/account",
+      "registered": [
+        {
+          "controller": "MailController",
+          "handler": "account"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/crm-general.api.ts",
+      "line": 272,
+      "method": "GET",
+      "path": "/chat/conversations/:param",
+      "registered": [
+        {
+          "controller": "ChatController",
+          "handler": "getConversation"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/crm-general.api.ts",
+      "line": 281,
+      "method": "GET",
+      "path": "/chat/webrtc-config",
+      "registered": [
+        {
+          "controller": "ChatController",
+          "handler": "webRtcConfig"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/crm-general.api.ts",
+      "line": 318,
+      "method": "GET",
+      "path": "/calendar/events",
+      "registered": [
+        {
+          "controller": "CalendarController",
+          "handler": "list"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/crm-general.api.ts",
+      "line": 377,
+      "method": "GET",
+      "path": "/tasks",
+      "registered": [
+        {
+          "controller": "TasksController",
+          "handler": "list"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/crm-general.api.ts",
+      "line": 378,
+      "method": "GET",
+      "path": "/tasks/summary",
+      "registered": [
+        {
+          "controller": "TasksController",
+          "handler": "summary"
+        },
+        {
+          "controller": "TasksController",
+          "handler": "get"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/crm-general.api.ts",
+      "line": 379,
+      "method": "GET",
+      "path": "/tasks/events",
+      "registered": [
+        {
+          "controller": "TasksController",
+          "handler": "events"
+        },
+        {
+          "controller": "TasksController",
+          "handler": "get"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 60,
+      "method": "GET",
+      "path": "/auth/me",
+      "registered": [
+        {
+          "controller": "AuthController",
+          "handler": "me"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 197,
+      "method": "GET",
+      "path": "/companies",
+      "registered": [
+        {
+          "controller": "CompaniesController",
+          "handler": "list"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 198,
+      "method": "GET",
+      "path": "/companies/:param",
+      "registered": [
+        {
+          "controller": "CompaniesController",
+          "handler": "get"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 199,
+      "method": "GET",
+      "path": "/companies/summary",
+      "registered": [
+        {
+          "controller": "CompaniesController",
+          "handler": "summary"
+        },
+        {
+          "controller": "CompaniesController",
+          "handler": "get"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 202,
+      "method": "GET",
+      "path": "/companies/:param/cross-department-debt",
+      "registered": [
+        {
+          "controller": "CompaniesController",
+          "handler": "crossDepartmentDebt"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 205,
+      "method": "GET",
+      "path": "/companies/map-points",
+      "registered": [
+        {
+          "controller": "CompaniesController",
+          "handler": "mapPoints"
+        },
+        {
+          "controller": "CompaniesController",
+          "handler": "get"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 263,
+      "method": "GET",
+      "path": "/reports/pipeline-summary",
+      "registered": [
+        {
+          "controller": "ReportsController",
+          "handler": "pipelineSummary"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 264,
+      "method": "GET",
+      "path": "/reports/expected-receivables",
+      "registered": [
+        {
+          "controller": "ReportsController",
+          "handler": "expectedReceivables"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 265,
+      "method": "GET",
+      "path": "/reports/service-complaints-summary",
+      "registered": [
+        {
+          "controller": "ReportsController",
+          "handler": "serviceComplaintsSummary"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 267,
+      "method": "GET",
+      "path": "/reports/completed-payments",
+      "registered": [
+        {
+          "controller": "ReportsController",
+          "handler": "completedPayments"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 273,
+      "method": "GET",
+      "path": "/customer-devices",
+      "registered": [
+        {
+          "controller": "InventoryController",
+          "handler": "cd"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 307,
+      "method": "GET",
+      "path": "/notifications",
+      "registered": [
+        {
+          "controller": "NotificationsController",
+          "handler": "list"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 356,
+      "method": "GET",
+      "path": "/chat/conversations",
+      "registered": [
+        {
+          "controller": "ChatController",
+          "handler": "listConversations"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 359,
+      "method": "GET",
+      "path": "/chat/conversations/:param/messages",
+      "registered": [
+        {
+          "controller": "ChatController",
+          "handler": "listMessages"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 363,
+      "method": "GET",
+      "path": "/chat/directory",
+      "registered": [
+        {
+          "controller": "ChatController",
+          "handler": "directory"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 463,
+      "method": "GET",
+      "path": "/contacts",
+      "registered": [
+        {
+          "controller": "ContactsController",
+          "handler": "list"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 464,
+      "method": "GET",
+      "path": "/contacts/:param",
+      "registered": [
+        {
+          "controller": "ContactsController",
+          "handler": "get"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 465,
+      "method": "GET",
+      "path": "/contacts/summary",
+      "registered": [
+        {
+          "controller": "ContactsController",
+          "handler": "summary"
+        },
+        {
+          "controller": "ContactsController",
+          "handler": "get"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 680,
+      "method": "GET",
+      "path": "/opportunities",
+      "registered": [
+        {
+          "controller": "OpportunitiesController",
+          "handler": "list"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 681,
+      "method": "GET",
+      "path": "/opportunities/:param",
+      "registered": [
+        {
+          "controller": "OpportunitiesController",
+          "handler": "get"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 759,
+      "method": "GET",
+      "path": "/opportunities/assignees",
+      "registered": [
+        {
+          "controller": "OpportunitiesController",
+          "handler": "assignees"
+        },
+        {
+          "controller": "OpportunitiesController",
+          "handler": "get"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 904,
+      "method": "GET",
+      "path": "/quotes",
+      "registered": [
+        {
+          "controller": "QuotesController",
+          "handler": "list"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 905,
+      "method": "GET",
+      "path": "/quotes/summary",
+      "registered": [
+        {
+          "controller": "QuotesController",
+          "handler": "summary"
+        },
+        {
+          "controller": "QuotesController",
+          "handler": "get"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 906,
+      "method": "GET",
+      "path": "/quotes/:param",
+      "registered": [
+        {
+          "controller": "QuotesController",
+          "handler": "get"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 928,
+      "method": "GET",
+      "path": "/mail/account",
+      "registered": [
+        {
+          "controller": "MailController",
+          "handler": "account"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 936,
+      "method": "GET",
+      "path": "/mail/recipients",
+      "registered": [
+        {
+          "controller": "MailController",
+          "handler": "recipients"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 974,
+      "method": "GET",
+      "path": "/activities",
+      "registered": [
+        {
+          "controller": "ActivitiesController",
+          "handler": "list"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 975,
+      "method": "GET",
+      "path": "/activities/:param",
+      "registered": [
+        {
+          "controller": "ActivitiesController",
+          "handler": "getActivity"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 987,
+      "method": "GET",
+      "path": "/lookups/:param",
+      "registered": [
+        {
+          "controller": "LookupsController",
+          "handler": "byName"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 1248,
+      "method": "GET",
+      "path": "/service-tickets",
+      "registered": [
+        {
+          "controller": "ServiceController",
+          "handler": "listTickets"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 1250,
+      "method": "GET",
+      "path": "/service-tickets/summary",
+      "registered": [
+        {
+          "controller": "ServiceController",
+          "handler": "ticketSummary"
+        },
+        {
+          "controller": "ServiceController",
+          "handler": "getTicket"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 1251,
+      "method": "GET",
+      "path": "/service-tickets/:param",
+      "registered": [
+        {
+          "controller": "ServiceController",
+          "handler": "getTicket"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 1282,
+      "method": "GET",
+      "path": "/service-tickets/:param/warranty",
+      "registered": [
+        {
+          "controller": "ServiceController",
+          "handler": "getWarranty"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 1313,
+      "method": "GET",
+      "path": "/service-complaints",
+      "registered": [
+        {
+          "controller": "ServiceComplaintsController",
+          "handler": "listComplaints"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 1314,
+      "method": "GET",
+      "path": "/service-complaints/:param",
+      "registered": [
+        {
+          "controller": "ServiceComplaintsController",
+          "handler": "getComplaint"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 1322,
+      "method": "GET",
+      "path": "/installations",
+      "registered": [
+        {
+          "controller": "ServiceController",
+          "handler": "listInstallations"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 1323,
+      "method": "GET",
+      "path": "/installations/:param",
+      "registered": [
+        {
+          "controller": "ServiceController",
+          "handler": "getInstallation"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 1329,
+      "method": "GET",
+      "path": "/shipments",
+      "registered": [
+        {
+          "controller": "ServiceController",
+          "handler": "listShipments"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 1330,
+      "method": "GET",
+      "path": "/shipments/:param",
+      "registered": [
+        {
+          "controller": "ServiceController",
+          "handler": "getShipment"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 1344,
+      "method": "GET",
+      "path": "/maintenance-plans",
+      "registered": [
+        {
+          "controller": "MaintenancePlansController",
+          "handler": "list"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 1345,
+      "method": "GET",
+      "path": "/maintenance-plans/:param",
+      "registered": [
+        {
+          "controller": "MaintenancePlansController",
+          "handler": "get"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 1381,
+      "method": "GET",
+      "path": "/customer-devices",
+      "registered": [
+        {
+          "controller": "InventoryController",
+          "handler": "cd"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 1382,
+      "method": "GET",
+      "path": "/customer-devices/:param",
+      "registered": [
+        {
+          "controller": "InventoryController",
+          "handler": "getCustomerDevice"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 1426,
+      "method": "GET",
+      "path": "/inventory",
+      "registered": [
+        {
+          "controller": "InventoryController",
+          "handler": "list"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 1427,
+      "method": "GET",
+      "path": "/inventory/:param",
+      "registered": [
+        {
+          "controller": "InventoryController",
+          "handler": "get"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 1428,
+      "method": "GET",
+      "path": "/inventory/serial/:param",
+      "registered": [
+        {
+          "controller": "InventoryController",
+          "handler": "bySerial"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 1429,
+      "method": "GET",
+      "path": "/warehouses",
+      "registered": [
+        {
+          "controller": "InventoryController",
+          "handler": "listWarehouses"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 1534,
+      "method": "GET",
+      "path": "/products",
+      "registered": [
+        {
+          "controller": "ProductsController",
+          "handler": "list"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 1535,
+      "method": "GET",
+      "path": "/products/:param",
+      "registered": [
+        {
+          "controller": "ProductsController",
+          "handler": "get"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 1536,
+      "method": "GET",
+      "path": "/products/:param/media",
+      "registered": [
+        {
+          "controller": "ProductsController",
+          "handler": "listMedia"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 1537,
+      "method": "GET",
+      "path": "/products/:param/options",
+      "registered": [
+        {
+          "controller": "ProductsController",
+          "handler": "listOptions"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 1539,
+      "method": "GET",
+      "path": "/products/:param/compatible-optional-equipment",
+      "registered": [
+        {
+          "controller": "ProductsController",
+          "handler": "compatibleOptionalEquipment"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 1542,
+      "method": "GET",
+      "path": "/price-lists",
+      "registered": [
+        {
+          "controller": "ProductsController",
+          "handler": "listPriceLists"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 1543,
+      "method": "GET",
+      "path": "/price-lists/:param/items",
+      "registered": [
+        {
+          "controller": "ProductsController",
+          "handler": "listPriceListItems"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 1640,
+      "method": "GET",
+      "path": "/sales-orders",
+      "registered": [
+        {
+          "controller": "SalesOrdersController",
+          "handler": "list"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 1652,
+      "method": "GET",
+      "path": "/purchase-orders",
+      "registered": [
+        {
+          "controller": "PurchaseOrdersController",
+          "handler": "list"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 1653,
+      "method": "GET",
+      "path": "/sales-orders/:param",
+      "registered": [
+        {
+          "controller": "SalesOrdersController",
+          "handler": "get"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 1660,
+      "method": "GET",
+      "path": "/purchase-orders/:param",
+      "registered": [
+        {
+          "controller": "PurchaseOrdersController",
+          "handler": "get"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 1875,
+      "method": "GET",
+      "path": "/receivables",
+      "registered": [
+        {
+          "controller": "FinanceController",
+          "handler": "listReceivables"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 1876,
+      "method": "GET",
+      "path": "/receivables/:param",
+      "registered": [
+        {
+          "controller": "FinanceController",
+          "handler": "getReceivable"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 1894,
+      "method": "GET",
+      "path": "/receivables/summary",
+      "registered": [
+        {
+          "controller": "FinanceController",
+          "handler": "receivableSummary"
+        },
+        {
+          "controller": "FinanceController",
+          "handler": "getReceivable"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 1896,
+      "method": "GET",
+      "path": "/payments",
+      "registered": [
+        {
+          "controller": "FinanceController",
+          "handler": "listPayments"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 1897,
+      "method": "GET",
+      "path": "/payments/:param",
+      "registered": [
+        {
+          "controller": "FinanceController",
+          "handler": "getPayment"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 1902,
+      "method": "GET",
+      "path": "/payments/summary",
+      "registered": [
+        {
+          "controller": "FinanceController",
+          "handler": "paymentSummary"
+        },
+        {
+          "controller": "FinanceController",
+          "handler": "getPayment"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 1904,
+      "method": "GET",
+      "path": "/accounting-invoices",
+      "registered": [
+        {
+          "controller": "FinanceController",
+          "handler": "listAccountingInvoices"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 1908,
+      "method": "GET",
+      "path": "/accounting-invoices/:param",
+      "registered": [
+        {
+          "controller": "FinanceController",
+          "handler": "getAccountingInvoice"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 1911,
+      "method": "GET",
+      "path": "/reports/customer-balances",
+      "registered": [
+        {
+          "controller": "FinanceController",
+          "handler": "customerBalances"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 1912,
+      "method": "GET",
+      "path": "/reports/due-dates",
+      "registered": [
+        {
+          "controller": "FinanceController",
+          "handler": "dueDates"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 1915,
+      "method": "GET",
+      "path": "/companies/:param/finance-summary",
+      "registered": [
+        {
+          "controller": "FinanceController",
+          "handler": "companyFinanceSummary"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 1944,
+      "method": "GET",
+      "path": "/calendar/events",
+      "registered": [
+        {
+          "controller": "CalendarController",
+          "handler": "list"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 1945,
+      "method": "GET",
+      "path": "/calendar/owners",
+      "registered": [
+        {
+          "controller": "CalendarController",
+          "handler": "owners"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 2032,
+      "method": "GET",
+      "path": "/tasks",
+      "registered": [
+        {
+          "controller": "TasksController",
+          "handler": "list"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 2033,
+      "method": "GET",
+      "path": "/tasks/counts",
+      "registered": [
+        {
+          "controller": "TasksController",
+          "handler": "counts"
+        },
+        {
+          "controller": "TasksController",
+          "handler": "get"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 2034,
+      "method": "GET",
+      "path": "/tasks/assignees",
+      "registered": [
+        {
+          "controller": "TasksController",
+          "handler": "assignees"
+        },
+        {
+          "controller": "TasksController",
+          "handler": "get"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 2035,
+      "method": "GET",
+      "path": "/tasks/:param",
+      "registered": [
+        {
+          "controller": "TasksController",
+          "handler": "get"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 2046,
+      "method": "GET",
+      "path": "/reports/stock-summary",
+      "registered": [
+        {
+          "controller": "ReportsController",
+          "handler": "stockSummary"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 2122,
+      "method": "GET",
+      "path": "/proformas",
+      "registered": [
+        {
+          "controller": "CommercialDocumentsController",
+          "handler": "listProformas"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 2123,
+      "method": "GET",
+      "path": "/contracts",
+      "registered": [
+        {
+          "controller": "CommercialDocumentsController",
+          "handler": "listContracts"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 2125,
+      "method": "GET",
+      "path": "/commercial-invoices",
+      "registered": [
+        {
+          "controller": "CommercialDocumentsController",
+          "handler": "listCommercialInvoices"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 2126,
+      "method": "GET",
+      "path": "/proformas/:param",
+      "registered": [
+        {
+          "controller": "CommercialDocumentsController",
+          "handler": "getProforma"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 2127,
+      "method": "GET",
+      "path": "/contracts/:param",
+      "registered": [
+        {
+          "controller": "CommercialDocumentsController",
+          "handler": "getContract"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 2128,
+      "method": "GET",
+      "path": "/commercial-invoices/:param",
+      "registered": [
+        {
+          "controller": "CommercialDocumentsController",
+          "handler": "getCommercialInvoice"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/finance.api.ts",
+      "line": 102,
+      "method": "GET",
+      "path": "/companies/:param/statement",
+      "registered": [
+        {
+          "controller": "FinanceController",
+          "handler": "companyStatement"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/finance.api.ts",
+      "line": 104,
+      "method": "GET",
+      "path": "/accounting-invoices/payment-term-suggestion",
+      "registered": [
+        {
+          "controller": "FinanceController",
+          "handler": "paymentTermSuggestion"
+        },
+        {
+          "controller": "FinanceController",
+          "handler": "getAccountingInvoice"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/finance.api.ts",
+      "line": 111,
+      "method": "GET",
+      "path": "/accounting-invoices",
+      "registered": [
+        {
+          "controller": "FinanceController",
+          "handler": "listAccountingInvoices"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/finance.api.ts",
+      "line": 120,
+      "method": "GET",
+      "path": "/files/links",
+      "registered": [
+        {
+          "controller": "FilesController",
+          "handler": "listLinks"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/logistics.api.ts",
+      "line": 45,
+      "method": "GET",
+      "path": "/shipments/company-options",
+      "registered": [
+        {
+          "controller": "ServiceController",
+          "handler": "shipmentCompanyOptions"
+        },
+        {
+          "controller": "ServiceController",
+          "handler": "getShipment"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/logistics.api.ts",
+      "line": 50,
+      "method": "GET",
+      "path": "/deliveries",
+      "registered": [
+        {
+          "controller": "ServiceController",
+          "handler": "listDeliveries"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/meta.api.ts",
+      "line": 102,
+      "method": "GET",
+      "path": "/meta/overview",
+      "registered": [
+        {
+          "controller": "MetaController",
+          "handler": "overview"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/meta.api.ts",
+      "line": 103,
+      "method": "GET",
+      "path": "/meta/connections",
+      "registered": [
+        {
+          "controller": "MetaController",
+          "handler": "connections"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/meta.api.ts",
+      "line": 104,
+      "method": "GET",
+      "path": "/meta/leads",
+      "registered": [
+        {
+          "controller": "MetaController",
+          "handler": "leads"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/meta.api.ts",
+      "line": 121,
+      "method": "GET",
+      "path": "/meta/connections",
+      "registered": [
+        {
+          "controller": "MetaController",
+          "handler": "connections"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/meta.api.ts",
+      "line": 129,
+      "method": "GET",
+      "path": "/meta/leads",
+      "registered": [
+        {
+          "controller": "MetaController",
+          "handler": "leads"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/meta.api.ts",
+      "line": 135,
+      "method": "GET",
+      "path": "/meta/insights",
+      "registered": [
+        {
+          "controller": "MetaController",
+          "handler": "insights"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/meta.api.ts",
+      "line": 140,
+      "method": "GET",
+      "path": "/meta/campaigns",
+      "registered": [
+        {
+          "controller": "MetaController",
+          "handler": "campaigns"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/meta.api.ts",
+      "line": 166,
+      "method": "GET",
+      "path": "/meta/conversations",
+      "registered": [
+        {
+          "controller": "MetaController",
+          "handler": "conversations"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/meta.api.ts",
+      "line": 171,
+      "method": "GET",
+      "path": "/meta/conversations/:param/messages",
+      "registered": [
+        {
+          "controller": "MetaController",
+          "handler": "messages"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/meta.api.ts",
+      "line": 180,
+      "method": "GET",
+      "path": "/meta/comments",
+      "registered": [
+        {
+          "controller": "MetaController",
+          "handler": "comments"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/meta.api.ts",
+      "line": 189,
+      "method": "GET",
+      "path": "/meta/form-mappings",
+      "registered": [
+        {
+          "controller": "MetaController",
+          "handler": "formMappings"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/meta.api.ts",
+      "line": 196,
+      "method": "GET",
+      "path": "/meta/conversion-events",
+      "registered": [
+        {
+          "controller": "MetaController",
+          "handler": "conversionEvents"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/meta.api.ts",
+      "line": 205,
+      "method": "GET",
+      "path": "/meta/audiences",
+      "registered": [
+        {
+          "controller": "MetaController",
+          "handler": "audiences"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/meta.api.ts",
+      "line": 223,
+      "method": "GET",
+      "path": "/meta/catalogs",
+      "registered": [
+        {
+          "controller": "MetaController",
+          "handler": "catalogs"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/note-templates.hooks.ts",
+      "line": 9,
+      "method": "GET",
+      "path": "/note-templates",
+      "registered": [
+        {
+          "controller": "NoteTemplatesController",
+          "handler": "list"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/products.api.ts",
+      "line": 208,
+      "method": "GET",
+      "path": "/products",
+      "registered": [
+        {
+          "controller": "ProductsController",
+          "handler": "list"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/products.api.ts",
+      "line": 209,
+      "method": "GET",
+      "path": "/products/:param",
+      "registered": [
+        {
+          "controller": "ProductsController",
+          "handler": "get"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/products.api.ts",
+      "line": 210,
+      "method": "GET",
+      "path": "/brands",
+      "registered": [
+        {
+          "controller": "ProductsController",
+          "handler": "listBrands"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/products.api.ts",
+      "line": 213,
+      "method": "GET",
+      "path": "/lookups/product-groups",
+      "registered": [
+        {
+          "controller": "LookupsController",
+          "handler": "byName"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/products.api.ts",
+      "line": 214,
+      "method": "GET",
+      "path": "/lookups/product-categories",
+      "registered": [
+        {
+          "controller": "LookupsController",
+          "handler": "byName"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/products.api.ts",
+      "line": 215,
+      "method": "GET",
+      "path": "/lookups/product-subcategories",
+      "registered": [
+        {
+          "controller": "LookupsController",
+          "handler": "byName"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/products.api.ts",
+      "line": 216,
+      "method": "GET",
+      "path": "/lookups/product-types",
+      "registered": [
+        {
+          "controller": "LookupsController",
+          "handler": "byName"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/products.api.ts",
+      "line": 218,
+      "method": "GET",
+      "path": "/products/create-operations/:param",
+      "registered": [
+        {
+          "controller": "ProductsController",
+          "handler": "recoverCreate"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/products.api.ts",
+      "line": 221,
+      "method": "GET",
+      "path": "/products/import/template-options",
+      "registered": [
+        {
+          "controller": "ProductsController",
+          "handler": "importTemplateOptions"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/products.api.ts",
+      "line": 231,
+      "method": "GET",
+      "path": "/products/:param/specs",
+      "registered": [
+        {
+          "controller": "ProductsController",
+          "handler": "specs"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/products.api.ts",
+      "line": 233,
+      "method": "GET",
+      "path": "/product-spec-templates",
+      "registered": [
+        {
+          "controller": "ProductsController",
+          "handler": "listSpecTemplates"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/products.api.ts",
+      "line": 235,
+      "method": "GET",
+      "path": "/products/:param/equipment",
+      "registered": [
+        {
+          "controller": "ProductsController",
+          "handler": "equipment"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/products.api.ts",
+      "line": 242,
+      "method": "GET",
+      "path": "/products/:param/options",
+      "registered": [
+        {
+          "controller": "ProductsController",
+          "handler": "listOptions"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/products.api.ts",
+      "line": 259,
+      "method": "GET",
+      "path": "/price-lists",
+      "registered": [
+        {
+          "controller": "ProductsController",
+          "handler": "listPriceLists"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/products.api.ts",
+      "line": 260,
+      "method": "GET",
+      "path": "/price-lists/:param/items",
+      "registered": [
+        {
+          "controller": "ProductsController",
+          "handler": "listPriceListItems"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/products.api.ts",
+      "line": 266,
+      "method": "GET",
+      "path": "/files/links",
+      "registered": [
+        {
+          "controller": "FilesController",
+          "handler": "listLinks"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/products.api.ts",
+      "line": 303,
+      "method": "GET",
+      "path": "/inventory",
+      "registered": [
+        {
+          "controller": "InventoryController",
+          "handler": "list"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/purchase.api.ts",
+      "line": 40,
+      "method": "GET",
+      "path": "/purchase-orders",
+      "registered": [
+        {
+          "controller": "PurchaseOrdersController",
+          "handler": "list"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/quotes.api.ts",
+      "line": 124,
+      "method": "GET",
+      "path": "/quotes",
+      "registered": [
+        {
+          "controller": "QuotesController",
+          "handler": "list"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/quotes.api.ts",
+      "line": 126,
+      "method": "GET",
+      "path": "/quotes",
+      "registered": [
+        {
+          "controller": "QuotesController",
+          "handler": "list"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/quotes.api.ts",
+      "line": 140,
+      "method": "GET",
+      "path": "/opportunities",
+      "registered": [
+        {
+          "controller": "OpportunitiesController",
+          "handler": "list"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/references.api.ts",
+      "line": 31,
+      "method": "GET",
+      "path": "/references",
+      "registered": [
+        {
+          "controller": "CompanyReferencesController",
+          "handler": "list"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/reports.api.ts",
+      "line": 125,
+      "method": "GET",
+      "path": "/reports/weekly-visits",
+      "registered": [
+        {
+          "controller": "ReportsController",
+          "handler": "weeklyVisits"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/reports.api.ts",
+      "line": 126,
+      "method": "GET",
+      "path": "/reports/monthly-visits",
+      "registered": [
+        {
+          "controller": "ReportsController",
+          "handler": "monthlyVisits"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/reports.api.ts",
+      "line": 127,
+      "method": "GET",
+      "path": "/reports/yearly-visits",
+      "registered": [
+        {
+          "controller": "ReportsController",
+          "handler": "yearlyVisits"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/reports.api.ts",
+      "line": 128,
+      "method": "GET",
+      "path": "/reports/weekly-activities",
+      "registered": [
+        {
+          "controller": "ReportsController",
+          "handler": "weeklyActivities"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/reports.api.ts",
+      "line": 129,
+      "method": "GET",
+      "path": "/reports/monthly-activities",
+      "registered": [
+        {
+          "controller": "ReportsController",
+          "handler": "monthlyActivities"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/reports.api.ts",
+      "line": 130,
+      "method": "GET",
+      "path": "/reports/yearly-activities",
+      "registered": [
+        {
+          "controller": "ReportsController",
+          "handler": "yearlyActivities"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/reports.api.ts",
+      "line": 131,
+      "method": "GET",
+      "path": "/reports/weekly-quotes-by-product",
+      "registered": [
+        {
+          "controller": "ReportsController",
+          "handler": "weeklyQuotes"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/reports.api.ts",
+      "line": 132,
+      "method": "GET",
+      "path": "/reports/monthly-quotes-by-product",
+      "registered": [
+        {
+          "controller": "ReportsController",
+          "handler": "monthlyQuotes"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/reports.api.ts",
+      "line": 133,
+      "method": "GET",
+      "path": "/reports/yearly-quotes-by-product",
+      "registered": [
+        {
+          "controller": "ReportsController",
+          "handler": "yearlyQuotes"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/reports.api.ts",
+      "line": 135,
+      "method": "GET",
+      "path": "/reports/department-performance",
+      "registered": [
+        {
+          "controller": "ReportsController",
+          "handler": "departmentPerformance"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/reports.api.ts",
+      "line": 136,
+      "method": "GET",
+      "path": "/reports/warranty-expiring",
+      "registered": [
+        {
+          "controller": "ReportsController",
+          "handler": "warranty"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/reports.api.ts",
+      "line": 137,
+      "method": "GET",
+      "path": "/reports/service-complaints-summary",
+      "registered": [
+        {
+          "controller": "ReportsController",
+          "handler": "serviceComplaintsSummary"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/reports.api.ts",
+      "line": 138,
+      "method": "GET",
+      "path": "/reports/stock-summary",
+      "registered": [
+        {
+          "controller": "ReportsController",
+          "handler": "stockSummary"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/reports.api.ts",
+      "line": 139,
+      "method": "GET",
+      "path": "/reports/year-end",
+      "registered": [
+        {
+          "controller": "ReportsController",
+          "handler": "yearEnd"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/reports.api.ts",
+      "line": 140,
+      "method": "GET",
+      "path": "/reports/operational",
+      "registered": [
+        {
+          "controller": "ReportsController",
+          "handler": "operational"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/reports.api.ts",
+      "line": 142,
+      "method": "GET",
+      "path": "/reports/target-progress",
+      "registered": [
+        {
+          "controller": "ReportsController",
+          "handler": "targetProgress"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/reports.api.ts",
+      "line": 143,
+      "method": "GET",
+      "path": "/reports/activity-log",
+      "registered": [
+        {
+          "controller": "ReportsController",
+          "handler": "activityLog"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/reports.api.ts",
+      "line": 144,
+      "method": "GET",
+      "path": "/users",
+      "registered": [
+        {
+          "controller": "AdminController",
+          "handler": "listUsers"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/reports.api.ts",
+      "line": 145,
+      "method": "GET",
+      "path": "/departments",
+      "registered": [
+        {
+          "controller": "AdminController",
+          "handler": "listDepts"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/sales.api.ts",
+      "line": 192,
+      "method": "GET",
+      "path": "/opportunities",
+      "registered": [
+        {
+          "controller": "OpportunitiesController",
+          "handler": "list"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/sales.api.ts",
+      "line": 193,
+      "method": "GET",
+      "path": "/opportunities/lead-summary",
+      "registered": [
+        {
+          "controller": "OpportunitiesController",
+          "handler": "leadSummary"
+        },
+        {
+          "controller": "OpportunitiesController",
+          "handler": "get"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/sales.api.ts",
+      "line": 209,
+      "method": "GET",
+      "path": "/tasks/summary",
+      "registered": [
+        {
+          "controller": "TasksController",
+          "handler": "summary"
+        },
+        {
+          "controller": "TasksController",
+          "handler": "get"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/sales.api.ts",
+      "line": 212,
+      "method": "GET",
+      "path": "/reports/team-activity",
+      "registered": [
+        {
+          "controller": "ReportsController",
+          "handler": "teamActivity"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/sales.api.ts",
+      "line": 219,
+      "method": "GET",
+      "path": "/reports/team-activity/details",
+      "registered": [
+        {
+          "controller": "ReportsController",
+          "handler": "teamActivityDetails"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/service.api.ts",
+      "line": 115,
+      "method": "GET",
+      "path": "/files/links",
+      "registered": [
+        {
+          "controller": "FilesController",
+          "handler": "listLinks"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/service.api.ts",
+      "line": 127,
+      "method": "GET",
+      "path": "/service-complaint-links",
+      "registered": [
+        {
+          "controller": "ServiceComplaintsController",
+          "handler": "listLinks"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/settings.api.ts",
+      "line": 44,
+      "method": "GET",
+      "path": "/mail/account",
+      "registered": [
+        {
+          "controller": "MailController",
+          "handler": "account"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/settings.api.ts",
+      "line": 54,
+      "method": "GET",
+      "path": "/mail/signature/users",
+      "registered": [
+        {
+          "controller": "MailController",
+          "handler": "signatureUsers"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/settings.api.ts",
+      "line": 55,
+      "method": "GET",
+      "path": "/mail/signature/users/:param",
+      "registered": [
+        {
+          "controller": "MailController",
+          "handler": "userSignature"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/settings.api.ts",
+      "line": 60,
+      "method": "GET",
+      "path": "/signatures",
+      "registered": [
+        {
+          "controller": "SignaturesController",
+          "handler": "list"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/settings.api.ts",
+      "line": 67,
+      "method": "GET",
+      "path": "/lead-assignment-rules",
+      "registered": [
+        {
+          "controller": "LeadAssignmentRulesController",
+          "handler": "list"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/settings.api.ts",
+      "line": 76,
+      "method": "GET",
+      "path": "/access-requests",
+      "registered": [
+        {
+          "controller": "AccessRequestsController",
+          "handler": "list"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/settings.api.ts",
+      "line": 83,
+      "method": "GET",
+      "path": "/lookups",
+      "registered": [
+        {
+          "controller": "LookupsController",
+          "handler": "list"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/targets.api.ts",
+      "line": 44,
+      "method": "GET",
+      "path": "/users",
+      "registered": [
+        {
+          "controller": "AdminController",
+          "handler": "listUsers"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/targets.api.ts",
+      "line": 45,
+      "method": "GET",
+      "path": "/departments",
+      "registered": [
+        {
+          "controller": "AdminController",
+          "handler": "listDepts"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/targets.api.ts",
+      "line": 46,
+      "method": "GET",
+      "path": "/divisions",
+      "registered": [
+        {
+          "controller": "AdminController",
+          "handler": "listDivisions"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/targets.api.ts",
+      "line": 48,
+      "method": "GET",
+      "path": "/user-targets",
+      "registered": [
+        {
+          "controller": "AdminController",
+          "handler": "listUserTargets"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/targets.api.ts",
+      "line": 49,
+      "method": "GET",
+      "path": "/me/targets",
+      "registered": [
+        {
+          "controller": "AdminController",
+          "handler": "listMyTargets"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/targets.api.ts",
+      "line": 53,
+      "method": "GET",
+      "path": "/department-targets",
+      "registered": [
+        {
+          "controller": "AdminController",
+          "handler": "listDepartmentTargets"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/targets.api.ts",
+      "line": 57,
+      "method": "GET",
+      "path": "/division-targets",
+      "registered": [
+        {
+          "controller": "AdminController",
+          "handler": "listDivisionTargets"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/targets.api.ts",
+      "line": 62,
+      "method": "GET",
+      "path": "/reports/target-progress",
+      "registered": [
+        {
+          "controller": "ReportsController",
+          "handler": "targetProgress"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/targets.api.ts",
+      "line": 64,
+      "method": "GET",
+      "path": "/reports/my-target-progress",
+      "registered": [
+        {
+          "controller": "ReportsController",
+          "handler": "myTargetProgress"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/trade-fairs.api.ts",
+      "line": 65,
+      "method": "GET",
+      "path": "/trade-fairs",
+      "registered": [
+        {
+          "controller": "TradeFairsController",
+          "handler": "list"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/trade-fairs.api.ts",
+      "line": 66,
+      "method": "GET",
+      "path": "/trade-fairs/summary",
+      "registered": [
+        {
+          "controller": "TradeFairsController",
+          "handler": "summary"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/trade-fairs.api.ts",
+      "line": 67,
+      "method": "GET",
+      "path": "/trade-fairs/staff",
+      "registered": [
+        {
+          "controller": "TradeFairsController",
+          "handler": "staff"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/trade-fairs.api.ts",
+      "line": 73,
+      "method": "GET",
+      "path": "/files/links",
+      "registered": [
+        {
+          "controller": "FilesController",
+          "handler": "listLinks"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/call-assistant/api.ts",
+      "line": 22,
+      "method": "GET",
+      "path": "/call-assistant/capabilities",
+      "registered": [
+        {
+          "controller": "CallAssistantController",
+          "handler": "capabilities"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/call-assistant/api.ts",
+      "line": 26,
+      "method": "GET",
+      "path": "/call-assistant/suggestions",
+      "registered": [
+        {
+          "controller": "CallAssistantController",
+          "handler": "suggestions"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/call-assistant/api.ts",
+      "line": 27,
+      "method": "GET",
+      "path": "/call-assistant/suggestions/:param",
+      "registered": [
+        {
+          "controller": "CallAssistantController",
+          "handler": "suggestion"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/call-assistant/api.ts",
+      "line": 29,
+      "method": "GET",
+      "path": "/call-assistant/drafts/:param",
+      "registered": [
+        {
+          "controller": "CallAssistantController",
+          "handler": "draft"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/call-assistant/api.ts",
+      "line": 32,
+      "method": "GET",
+      "path": "/call-assistant/phone-index",
+      "registered": [
+        {
+          "controller": "CallAssistantController",
+          "handler": "phoneIndex"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/native/calendar-sync.ts",
+      "line": 54,
+      "method": "GET",
+      "path": "/calendar/sync-settings",
+      "registered": [
+        {
+          "controller": "CalendarController",
+          "handler": "settings"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/native/calendar-sync.ts",
+      "line": 183,
+      "method": "GET",
+      "path": "/calendar/events",
+      "registered": [
+        {
+          "controller": "CalendarController",
+          "handler": "list"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/app/modal/quote-form.tsx",
+      "line": 162,
+      "method": "GET",
+      "path": "/fx/rates",
+      "registered": [
+        {
+          "controller": "FxController",
+          "handler": "rates"
+        }
+      ]
+    }
+  ]
+}
