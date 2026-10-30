@@ -976,8 +976,9 @@ const ALL_KNOWN_MACHINE_SPEC_KEYS = new Set(HAKSAN_CNC_SPEC_KEYS.map(normalizeSp
 /**
  * Seçili tip şablonuna ait OLMAYAN ama başka bir tezgah/katalog alanına ait olan
  * spec'leri eler. Seçili tipin alanları ve hiçbir katalog şablonunda bulunmayan
- * gerçekten özel (dolu) alanlar korunur. Bir ürünün specs'i başka tezgah
- * tiplerinden alan taşısa bile yalnızca seçili tipin alanları kalır.
+ * gerçekten özel (dolu) alanlar korunur. Başka tezgah şablonundan gelen alan yalnız
+ * boş ya da "-" ise (eski tam-katalog kaydının izi) elenir; gerçek değeri olan alan
+ * (ör. aktarımla gelen Giyotin "Tabla Ölçüsü") ürünün verisidir ve korunur.
  */
 export function dropForeignMachineSpecs(typeCode: string | undefined, specs: ProductSpec[]): ProductSpec[] {
   const templateDefaults = productSpecDefaults(typeCode);
@@ -986,7 +987,7 @@ export function dropForeignMachineSpecs(typeCode: string | undefined, specs: Pro
   return specs.filter((spec) => {
     const key = normalizeSpecKey(spec.key);
     if (selectedKeys.has(key)) return true;
-    if (ALL_KNOWN_MACHINE_SPEC_KEYS.has(key)) return false;
+    if (ALL_KNOWN_MACHINE_SPEC_KEYS.has(key)) return !/^[-–—]*$/.test(spec.value.trim());
     return Boolean(spec.key.trim() || spec.value.trim());
   });
 }
