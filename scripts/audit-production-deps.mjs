@@ -31,7 +31,7 @@ export function unacceptedAdvisories(report, today = new Date().toISOString().sl
   return [...found.values()];
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const args = ['audit', '--json', '--omit=dev', '--workspace', '@haksan/shared', '--workspace', '@haksan/api', '--workspace', '@haksan/web', '--include-workspace-root'];
   let raw;
   try {

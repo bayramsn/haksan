@@ -39,7 +39,7 @@ export function reachable(packages, roots) {
   return seen;
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const { packages } = JSON.parse(readFileSync('package-lock.json', 'utf8'));
   const keep = reachable(packages, ROOTS);
   let removed = 0;
