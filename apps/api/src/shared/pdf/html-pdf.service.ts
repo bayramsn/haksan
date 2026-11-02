@@ -20,6 +20,9 @@ const MAX_QUEUED_RENDERS = 8;
 /** Belgelerimizin en uzunu (çok makineli sözleşme) bunun çok altında; tavan Chromium'u korur. */
 const MAX_PDF_PAGES = 100;
 
+export const stripMetaRefresh = (html: string) =>
+  html.replace(/<meta\b[^>]*\bhttp-equiv\s*=\s*["']?\s*refresh\b[^>]*>/gi, '');
+
 interface Browser { newPage(): Promise<PdfPage>; close(): Promise<void>; on(event: 'disconnected', handler: () => void): unknown }
 
 /**
@@ -115,7 +118,10 @@ export class HtmlPdfService implements OnModuleDestroy {
         if (url.startsWith('data:') || url.startsWith('about:')) void request.continue();
         else void request.abort();
       });
-      await page.setContent(html, { waitUntil: 'load', timeout: opts.timeoutMs ?? 20_000 });
+      // meta-refresh, setContent belgeyi yazarken gezinme başlatıp yürütme bağlamını
+      // düşürüyor ("Execution context was destroyed"); istek zaten engelli olduğundan
+      // etiket kaldırılır. Güvenlik sınırı yine yukarıdaki istek engellemesidir.
+      await page.setContent(stripMetaRefresh(html), { waitUntil: 'load', timeout: opts.timeoutMs ?? 20_000 });
       await page.emulateMediaType('print');
       const pdf = await page.pdf({
         format: 'A4',

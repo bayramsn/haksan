@@ -26,7 +26,7 @@ ENV VITE_API_BASE_URL=${VITE_API_BASE_URL}
 RUN npm run build:shared \
   && npm run build:web
 
-FROM nginx:stable-alpine-slim@sha256:ddde39c6e51f02fde7410c2e9c234cf2d0a4c7bdbbe176aeb37d8ad7ab4eb58c
+FROM nginx:stable-alpine-slim@sha256:dede8895648b461178c3bc604f7eed4423efe5220b2c4d839f5eb3d34ac3f8f7
 
 # API imajıyla aynı gerekçe: digest sabit olduğu için açığı bildirilen kütüphaneler
 # burada tazelenir. Slim imajda toplu yükseltme yapılmaz: sağlık kontrolü
