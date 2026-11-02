@@ -50,7 +50,7 @@ export class TradeFairsController {
     return this.service.list(actor, query);
   }
 
-  /** Listedeki süzgeçlerle (fuar, arama, il, ilçe) Excel ya da `format=pdf` ile PDF; sayfalama yok sayılır. */
+  /** Listedeki süzgeçlerle (fuar, arama, il, ilçe, görüşen, bölüm) Excel ya da `format=pdf` ile PDF; sayfalama yok sayılır. */
   @RequirePermissions('trade_fairs.read', 'reports.export')
   @Get('export')
   async export(
@@ -67,6 +67,7 @@ export class TradeFairsController {
         subtitle: filterSubtitle([
           ['Fuar', query.fairName],
           ['Görüşen', query.metByUserId ? String(rows[0]?.['Görüşen Kişi'] ?? '') : undefined],
+          ['Bölüm', query.divisionId ? String(rows[0]?.['Bölüm'] ?? '') : undefined],
           ['İl', query.province],
           ['İlçe', query.district],
           ['Arama', query.q],
