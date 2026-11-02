@@ -15,6 +15,7 @@ import {
   useUpdateOpportunity,
 } from '@/src/api/crm.hooks';
 import { useLeadSummary, useSalesAnalytics, useSalesCounts, useSalesList } from '@/src/api/sales.hooks';
+import { useCompanyCities } from '@/src/api/companies.hooks';
 import type { SalesListQuery, SalesOpportunityRow } from '@/src/api/sales.api';
 import { exportService } from '@/src/api/exports';
 import { formatAmount, formatDate } from '@/src/lib/format';
@@ -48,6 +49,8 @@ import {
   type ReasonStat,
 } from '@/src/ui/sales/sales-logic';
 import { CloseCaseSheet, type CloseCaseSheetHandle } from '@/src/ui/sales/CloseCaseSheet';
+import { OptionPicker } from '@/src/ui/pickers/OptionPicker';
+import { matchesOpportunityLocation, OPPORTUNITY_REGIONS, opportunityCity, regionCities } from '@/src/ui/sales/opportunity-location';
 
 type View3 = 'list' | 'kanban' | 'archive';
 type ResultFilter = 'follow_up' | 'won' | 'lost';
@@ -332,7 +335,9 @@ export default function OpportunitiesScreen() {
   const [result, setResult] = useState<ResultFilter | null>(null);
   const [reason, setReason] = useState<ReasonStat | null>(null);
   const [sort, setSort] = useState<ListSort>('newest');
-  useNavigationContext('sales-cases', ({ query, focus: next }) => { setSearch(query ?? ''); setFocus(isSalesFocus(next) ? next : null); setStage(null); setPipelineStage(null); setCurrency(null); setCompanyDecision(null); setResult(null); setReason(null); setView(next === 'won' || next === 'lost' || next === 'open' || next === 'today' ? 'list' : 'kanban'); });
+  const [region, setRegion] = useState<string | null>(null);
+  const [city, setCity] = useState<string | null>(null);
+  useNavigationContext('sales-cases', ({ query, focus: next }) => { setSearch(query ?? ''); setFocus(isSalesFocus(next) ? next : null); setStage(null); setPipelineStage(null); setCurrency(null); setCompanyDecision(null); setResult(null); setReason(null); setRegion(null); setCity(null); setView(next === 'won' || next === 'lost' || next === 'open' || next === 'today' ? 'list' : 'kanban'); });
   const [filterOpened, setFilterOpened] = useState(false);
   const [menuItem, setMenuItem] = useState<SalesOpportunityRow | null>(null);
   const [closeItem, setCloseItem] = useState<SalesOpportunityRow | null>(null);
@@ -433,15 +438,28 @@ export default function OpportunitiesScreen() {
   const deleteOpp = useDeleteOpportunity();
 
   const loadedRows = list.data?.items ?? [];
+  const loadedArchiveRows = archive.data?.items ?? [];
+  // Web gibi il/bölge yüklenen kartlar üzerinde süzülür; firma ili kart kimlikleriyle tek istekte gelir.
+  const companyCities = useCompanyCities(
+    (view === 'archive' ? loadedArchiveRows : loadedRows).map((row) => row.companyId),
+    Boolean(city || region)
+  );
+  const inLocation = (row: SalesOpportunityRow) =>
+    matchesOpportunityLocation(opportunityCity(row, row.companyId ? companyCities.data?.[row.companyId] : null), city, region);
   const rows = useMemo(
-    () => filterAndSortRows(loadedRows.filter((row) => matchesFocus(row, focus)), { currency, companyDecision }, sort),
-    [loadedRows, focus, currency, companyDecision, sort]
+    () => filterAndSortRows(loadedRows.filter((row) => matchesFocus(row, focus) && inLocation(row)), { currency, companyDecision }, sort),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [loadedRows, focus, currency, companyDecision, sort, city, region, companyCities.data]
   );
   const currencies = useMemo(() => currencyOptions(loadedRows), [loadedRows]);
-  const archiveRows = archive.data?.items ?? [];
+  const archiveRows = useMemo(
+    () => (city || region ? loadedArchiveRows.filter(inLocation) : loadedArchiveRows),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [loadedArchiveRows, city, region, companyCities.data]
+  );
 
   const ownerName = (id: string | null) => (id ? assignees.data?.find((a) => a.id === id)?.name ?? null : null);
-  const activeFilterCount = [stage, currency, companyDecision, result, reason, focus, pipelineStage].filter(Boolean).length + (sort !== 'newest' ? 1 : 0);
+  const activeFilterCount = [stage, currency, companyDecision, result, reason, focus, pipelineStage, region, city].filter(Boolean).length + (sort !== 'newest' ? 1 : 0);
 
   function openDetail(id: string, ids: string[]) {
     setOpportunityOrder(ids);
@@ -456,6 +474,8 @@ export default function OpportunitiesScreen() {
     setPipelineStage(null);
     setCurrency(null);
     setCompanyDecision(null);
+    setRegion(null);
+    setCity(null);
     setSort('newest');
     setView('list');
   }
@@ -578,7 +598,7 @@ export default function OpportunitiesScreen() {
             onChange={setView}
           />
         </View>
-        {view !== 'kanban' && (focus || result || reason || pipelineStage) ? (
+        {view !== 'kanban' && (focus || result || reason || pipelineStage || region || city) ? (
           <View className="flex-row flex-wrap gap-2 px-4">
             {focus ? (
               <Pressable
@@ -599,6 +619,20 @@ export default function OpportunitiesScreen() {
                 className="min-h-[36px] flex-row items-center gap-1 rounded-full border border-border bg-card px-3"
               >
                 <Text className="font-inter-medium text-[12px] text-foreground">{`Operasyon: ${pipelineStage.name}`}</Text>
+                <Ionicons name="close" size={14} color={colors.foreground} />
+              </Pressable>
+            ) : null}
+            {region || city ? (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Konum filtresini temizle"
+                onPress={() => {
+                  setRegion(null);
+                  setCity(null);
+                }}
+                className="min-h-[36px] flex-row items-center gap-1 rounded-full border border-border bg-card px-3"
+              >
+                <Text className="font-inter-medium text-[12px] text-foreground">{city ?? region}</Text>
                 <Ionicons name="close" size={14} color={colors.foreground} />
               </Pressable>
             ) : null}
@@ -708,7 +742,7 @@ export default function OpportunitiesScreen() {
         <Fab bottomOffset={20} extended label="Yeni kart" onPress={() => router.push('/modal/create-case' as Href)} />
       </View> : null}
 
-      <SalesSheet ref={filterRef} title="Filtreler" subtitle="Aşama, para birimi, firma kararı ve sonuç">
+      <SalesSheet ref={filterRef} title="Filtreler" subtitle="Aşama, konum, para birimi, firma kararı ve sonuç">
         <PillGroup<Qualification>
           label="Aşama"
           options={QUALIFICATION_ORDER.map((value) => ({ value, label: QUALIFICATION_LABELS[value] }))}
@@ -724,6 +758,28 @@ export default function OpportunitiesScreen() {
           value={companyDecision}
           onChange={setCompanyDecision}
         />
+        <PillGroup<string>
+          label="Bölge"
+          options={Object.keys(OPPORTUNITY_REGIONS).map((value) => ({ value, label: value }))}
+          value={region}
+          onChange={(next) => {
+            setRegion(next);
+            if (next && city && !regionCities(next).includes(city)) setCity(null);
+          }}
+        />
+        <OptionPicker
+          label="İl"
+          icon="location-outline"
+          value={city}
+          options={regionCities(region).map((value) => ({ value, label: value }))}
+          placeholder="Tüm iller"
+          searchable
+          clearable
+          onChange={setCity}
+        />
+        {(city || region) && companyCities.error ? (
+          <Text className="font-inter text-[12px] text-warning">Firma adresleri alınamadı; konum yalnız fırsattaki il bilgisine göre süzülüyor.</Text>
+        ) : null}
         <PillGroup<ListSort>
           label="Sıralama"
           options={(Object.keys(LIST_SORT_LABELS) as ListSort[]).map((value) => ({ value, label: LIST_SORT_LABELS[value] }))}
@@ -778,6 +834,8 @@ export default function OpportunitiesScreen() {
             setSort('newest');
             setFocus(null);
             setPipelineStage(null);
+            setRegion(null);
+            setCity(null);
             clearResult();
           }}
         />

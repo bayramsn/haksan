@@ -16,7 +16,10 @@ class HaksanShortcutActivity : Activity() {
       val action = intent.action
       if (action !in setOf("after_call", "open_today")) return
       val id = AssistantStore(this).enqueue(action!!)
-      packageManager.getLaunchIntentForPackage(packageName)?.let { launch -> launch.action = Intent.ACTION_VIEW; launch.data = Uri.parse("haksan:///modules/call-assistant/$id"); startActivity(launch) }
+      // Without consent, scope or an unlocked device, open the generic settings /
+      // manual flow without persisting a command or exposing one in the URL.
+      val target = if (id == null) "haksan:///modules/call-assistant" else "haksan:///modules/call-assistant/$id"
+      packageManager.getLaunchIntentForPackage(packageName)?.let { launch -> launch.action = Intent.ACTION_VIEW; launch.data = Uri.parse(target); startActivity(launch) }
     } catch (_: Exception) {} finally { finish() }
   }
 }

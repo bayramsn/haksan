@@ -79,6 +79,7 @@ const seeds: ModuleSeed[] = [
     permissionsAny: ['meta.read', 'meta_campaigns.read', 'meta_messages.read'],
     navKey: 'meta',
   },
+  { key: 'bulk-mail', title: 'Toplu Mail', icon: 'mail-outline', tone: 'info', group: 'sales', permission: 'mail_campaigns.read', navKey: 'bulk-mail' },
   { key: 'references', title: 'Referanslar', icon: 'ribbon-outline', tone: 'stage', group: 'sales', permission: 'brands.read', navKey: 'references' },
 
   { key: 'contacts', title: 'Kontaklar', icon: 'people-outline', tone: 'info', group: 'sales-ops', permission: 'contacts.read', navKey: 'contacts' },

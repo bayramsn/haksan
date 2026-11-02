@@ -1,5 +1,6 @@
 import { request, type Paginated } from '@/src/api/client';
 import type { InventoryItem, PriceList, ProductModel, Warehouse } from '@/src/api/endpoints';
+import type { LaserCostFormula, LaserPriceListCode } from '@haksan/shared';
 
 /**
  * Ürün listesi/detayının tam gövdesi (products.service.ts `list`/`get`).
@@ -62,6 +63,10 @@ export type OptionValue = {
   priceDelta: string | null;
   currencyCode: string | null;
   sortOrder: number;
+  /** Lazer baz kart eşlemesi: tabla → kaynak model, güç → kW, kabin → açık/kapalı. */
+  sourceModelCode?: string | null;
+  powerKw?: string | number | null;
+  cabinType?: 'open' | 'closed' | null;
 };
 
 export type OptionSet = {
@@ -203,7 +208,109 @@ export type CatalogFileLink = {
   file: { id: string; originalFilename: string; mimeType: string; sizeBytes: number; createdAt: string } | null;
 };
 
+/** products.service.ts `listAllConfigurationPrices`: baz kart model × güç satırları. */
+export type ConfigurationPriceRow = {
+  id: string;
+  productModelId: string;
+  baseName: string;
+  series: string | null;
+  sourceModelCode: string;
+  powerKw: number;
+  salePrice: number | null;
+  saleCurrencyCode: string | null;
+  container: string | null;
+  leadTimeDays: number | null;
+  costPrice?: number | null;
+  costCurrencyCode?: string | null;
+};
+
+/** products.service.ts `listCostPricedItems`: lazer aksesuar kartları ve baz kart opsiyonları. */
+export type CostPricedRow = {
+  id: string;
+  kind: 'product' | 'option';
+  group: string;
+  name: string;
+  salePrice: number | null;
+  saleCurrencyCode: string | null;
+  costPrice?: number | null;
+  costCurrencyCode?: string | null;
+};
+
+/** GET /products/:id/configuration-prices: baz kartın model × güç matrisi (+ lazer liste fiyatları). */
+export type ProductConfigurationPrices = {
+  canViewCost: boolean;
+  rows: Array<{
+    id: string;
+    sourceModelCode: string;
+    powerKw: number;
+    salePrice: number | null;
+    saleCurrencyCode: string | null;
+    container: string | null;
+    leadTimeDays: number | null;
+    costPrice?: number | null;
+    costCurrencyCode?: string | null;
+    listPrices?: Array<{ code: LaserPriceListCode; name: string; listPrice: number; cashPrice: number }>;
+  }>;
+};
+
+export type PricedRows<T> = { canViewCost: boolean; rows: T[] };
+export type SaleUpdateBody = { rows: Array<{ id: string; salePrice: number | null; saleCurrencyCode: 'USD' | 'EUR' | 'TRY' }> };
+
+/** laser-price-lists.service.ts `list`. */
+export type LaserPriceLists = {
+  canViewCost: boolean;
+  lists: Array<{
+    code: LaserPriceListCode;
+    name: string;
+    updatedAt: string | null;
+    formula?: LaserCostFormula;
+    rows: Array<{
+      configurationPriceId: string;
+      productModelId: string;
+      productName: string;
+      sourceModelCode: string;
+      powerKw: number;
+      listPrice: number | null;
+      cashPrice: number | null;
+      container?: string | null;
+      fob?: number | null;
+      cost?: number | null;
+    }>;
+  }>;
+};
+
+export type LaserRecalculateResult = {
+  code: LaserPriceListCode;
+  applied: boolean;
+  rows: Array<{
+    configurationPriceId: string;
+    productName: string;
+    sourceModelCode: string;
+    powerKw: number;
+    container: string | null;
+    fob: number | null;
+    freight: number;
+    duty: number;
+    cost: number;
+    listPrice: number;
+    cashPrice: number;
+    previousListPrice: number | null;
+    previousCashPrice: number | null;
+  }>;
+  skipped: Array<{ configurationPriceId: string; productName: string; sourceModelCode: string; powerKw: number; reason: string }>;
+};
+
 export const productsExtraApi = {
+  configurationPrices: () => request<PricedRows<ConfigurationPriceRow>>('/product-configuration-prices'),
+  productConfigurationPrices: (id: string) => request<ProductConfigurationPrices>(`/products/${id}/configuration-prices`),
+  updateConfigurationPrices: (body: SaleUpdateBody) =>
+    request<{ updated: number }>('/product-configuration-prices', { method: 'PATCH', body }),
+  costPricedItems: () => request<PricedRows<CostPricedRow>>('/product-cost-prices'),
+  updateCostPricedSales: (body: SaleUpdateBody) =>
+    request<{ updated: number }>('/product-cost-prices/sale', { method: 'PATCH', body }),
+  laserPriceLists: () => request<LaserPriceLists>('/laser-price-lists'),
+  recalculateLaserPriceList: (body: { code: LaserPriceListCode; formula: LaserCostFormula; apply: boolean }) =>
+    request<LaserRecalculateResult>('/laser-price-lists/recalculate', { method: 'POST', body }),
   listAll: (query: { page: number; pageSize: number; search?: string }) =>
     request<Paginated<CatalogProduct>>('/products', { query }),
   get: (id: string) => request<CatalogProduct>(`/products/${id}`),

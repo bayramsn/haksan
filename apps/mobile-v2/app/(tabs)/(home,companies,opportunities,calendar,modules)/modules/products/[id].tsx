@@ -24,6 +24,7 @@ import { useAuth } from '@/src/auth/AuthProvider';
 import { useDeleteProduct } from '@/src/api/products.hooks';
 import { toast } from '@/src/ui/toast';
 import { optionalEquipmentTotals } from '@/src/ui/products/catalog-logic';
+import { BaseModelPriceMatrix } from '@/src/ui/products/BaseModelPriceMatrix';
 
 type ProductTab = 'general' | 'stocks' | 'specs' | 'suppliers';
 
@@ -157,6 +158,8 @@ export default function ProductDetailScreen() {
   const imageUri = mediaUrl(data.imageUrl);
   const standardEquipment = data.standardEquipment ?? [];
   const optionalEquipment = data.optionalEquipment ?? [];
+  // Lazer baz kartı (web ProductDetailDialog "Modeller ve Güç Seçenekleri").
+  const laserBase = (data as typeof data & { laserBaseConfiguration?: { sourceModelCodes: string[] } | null }).laserBaseConfiguration ?? null;
   // Arama modelin ötesine taşabildiği için istemcide bu modele daraltılıyor.
   const productStocks = (stocks.data?.items ?? []).filter((item) => item.product?.id === data.id);
   const sameCurrencyOptional = optionalTotals.find((total) => total.currencyCode === currency)?.amount ?? 0;
@@ -352,6 +355,8 @@ export default function ProductDetailScreen() {
                   ))}
                 </Card>
               ) : null}
+
+              {laserBase ? <BaseModelPriceMatrix productId={data.id} modelOrder={laserBase.sourceModelCodes} /> : null}
 
               {standardEquipment.length ? (
                 <EquipmentCard title="Standart Donanım" items={standardEquipment} icon="checkmark-circle-outline" tone="success" />

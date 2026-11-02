@@ -5,8 +5,9 @@
     "noUncheckedIndexedAccess": true,
     "paths": {
       "@/*": ["./*"],
+      "react-native": ["./node_modules/react-native"],
       "react-native/Libraries/Types/CodegenTypes": [
-        "../../node_modules/react-native/Libraries/Types/CodegenTypesNamespace.d.ts"
+        "./node_modules/react-native/Libraries/Types/CodegenTypesNamespace.d.ts"
       ]
     }
   },

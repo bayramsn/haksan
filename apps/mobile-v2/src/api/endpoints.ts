@@ -114,6 +114,8 @@ export type CompanyListQuery = {
   sortDir?: 'asc' | 'desc';
   divisionId?: string;
   supplierCategoryCode?: 'transportation' | 'logistics' | 'manufacturer';
+  /** Virgülle ayrılmış en fazla 100 firma kimliği. */
+  ids?: string;
 };
 
 export type CompanySummary = {

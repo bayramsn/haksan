@@ -8,14 +8,22 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter, type Href } from 'expo-router';
 import { useAuth, useCan } from '@/src/auth/AuthProvider';
 import type { TradeFairContact } from '@/src/api/trade-fairs.api';
-import { useDeleteTradeFair, useTradeFairList, useTradeFairSummary } from '@/src/api/trade-fairs.hooks';
+import { DISTRICTS_BY_PROVINCE } from '@haksan/shared';
+import { useDeleteTradeFair, useTradeFairDivisions, useTradeFairList, useTradeFairStaff, useTradeFairSummary } from '@/src/api/trade-fairs.hooks';
 import { useDebouncedValue } from '@/src/lib/useDebouncedValue';
 import { toneColor, useTheme } from '@/src/theme/theme';
-import { Chip, EmptyState, ErrorState, Fab, FilterChips, ListSkeleton, Loading, SCREEN_PAD, ScreenHeader, SearchBar, StatStrip } from '@/src/ui';
+import { Button, Chip, EmptyState, ErrorState, Fab, FilterChips, ListSkeleton, Loading, SCREEN_PAD, ScreenHeader, SearchBar, StatStrip } from '@/src/ui';
+import { Tabs } from '@/src/ui/data';
+import { OptionPicker } from '@/src/ui/pickers/OptionPicker';
+import { provinceOptions } from '@/src/ui/select/select-logic';
+import { TradeFairPhotoGallery } from '@/src/ui/trade-fairs/TradeFairPhotoGallery';
 import { SyncStatus } from '@/src/ui/SyncStatus';
 import { toast } from '@/src/ui/toast';
 import { mailComposeHref } from '@/src/ui/crm/mail-logic';
-import { canDeleteTradeFair, summaryTotals, tradeFairLocation, tradeFairRowTone } from '@/src/ui/trade-fairs/tradeFairLogic';
+import { canDeleteTradeFair, metByFilterOptions, summaryTotals, tradeFairLocation, tradeFairRowTone } from '@/src/ui/trade-fairs/tradeFairLogic';
+
+const PROVINCE_OPTIONS = provinceOptions(Object.keys(DISTRICTS_BY_PROVINCE)).map((o) => ({ value: o.id, label: o.label }));
+type TradeFairView = 'meetings' | 'photos';
 
 function IconAction({ icon, label, onPress, tone }: { icon: keyof typeof Ionicons.glyphMap; label: string; onPress: () => void; tone?: 'destructive' }) {
   const { colors } = useTheme();
@@ -56,7 +64,7 @@ function TradeFairRow({
         </Text>
         {showFair ? <View className="flex-row"><Chip tone="neutral" label={row.fairName} /></View> : null}
         <Text className="font-inter text-xs text-muted-foreground" numberOfLines={2}>
-          {tradeFairLocation(row)} · {row.productType || '—'}{row.productCategory ? ` (${row.productCategory})` : ''}
+          {row.divisionName ? `${row.divisionName} · ` : ''}{tradeFairLocation(row)} · {row.products?.length ? row.products.map((p) => p.name).join(', ') : row.productType || '—'}{row.productCategory ? ` (${row.productCategory})` : ''}
         </Text>
         <Text className="font-inter text-xs text-muted-foreground" numberOfLines={2}>
           Görüşen: {row.metByName ?? '—'} · {row.visitorCount} kişi
@@ -65,22 +73,21 @@ function TradeFairRow({
       <View className="flex-row flex-wrap items-center border-t border-border px-1">
         <Pressable
           accessibilityRole="checkbox"
-          accessibilityState={{ checked: row.contacted, disabled: !canUpdate }}
+          accessibilityState={{ checked: Boolean(row.calledAt), disabled: !canUpdate }}
           accessibilityLabel={`${row.companyName} görüşüldü`}
           disabled={!canUpdate}
           onPress={() => onFollowUp(true)}
           className="min-h-[44px] flex-row items-center gap-1.5 px-2 active:opacity-60"
         >
-          <Ionicons name={row.contacted ? 'checkbox' : 'square-outline'} size={20} color={row.contacted ? colors.primary : colors.mutedForeground} />
-          <Text className="font-inter-medium text-xs text-foreground">Görüşüldü</Text>
+          <Ionicons name={Boolean(row.calledAt) ? 'checkbox' : 'square-outline'} size={20} color={Boolean(row.calledAt) ? colors.primary : colors.mutedForeground} />
+          <Text className="font-inter-medium text-xs text-foreground">Arandı</Text>
         </Pressable>
         <View className="min-w-[120px] flex-1 flex-row flex-wrap gap-1">
-          {row.offerSent ? <Chip tone="success" label="Teklif iletildi" /> : null}
-          {row.customerConverted ? <Chip tone="success" label="Müşteriye dönüştü" /> : null}
+          {row.opportunityId ? <Chip tone="success" label="Fırsat oluşturuldu" /> : null}
+          {row.quotedAt ? <Chip tone="success" label="Teklif verildi" /> : null}
+          {row.companyId && row.contactId ? <Chip tone="success" label="Firmalara eklendi" /> : null}
         </View>
-        {canUpdate && (row.offerSent || row.customerConverted) && !row.contacted ? (
-          <IconAction icon="create-outline" label="Takibi düzenle" onPress={() => onFollowUp(false)} />
-        ) : null}
+        {canUpdate ? <IconAction icon="create-outline" label="Takibi ve CRM işlemlerini aç" onPress={() => onFollowUp(false)} /> : null}
         {row.mobilePhone ? <IconAction icon="call-outline" label={`${row.mobilePhone} ara`} onPress={() => void startCrmCall(row.mobilePhone!)} /> : null}
         {row.email ? (
           <IconAction
@@ -106,12 +113,33 @@ export default function TradeFairsScreen() {
   const canCreate = useCan('trade_fairs.create') || isManager;
   const canUpdate = useCan('trade_fairs.update') || isManager;
   const canDelete = useCan('trade_fairs.delete') || isManager;
+  const canViewGallery = useCan('files.read');
 
   const [fair, setFair] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const q = useDebouncedValue(search.trim());
-  const list = useTradeFairList(fair, q);
+  const [view, setView] = useState<TradeFairView>('meetings');
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [divisionId, setDivisionId] = useState<string | null>(null);
+  const [metByUserId, setMetByUserId] = useState<string | null>(null);
+  const [province, setProvince] = useState<string | null>(null);
+  const [district, setDistrict] = useState<string | null>(null);
+  const list = useTradeFairList({ fairName: fair, q, divisionId, metByUserId, province, district });
   const summary = useTradeFairSummary(fair);
+  const divisions = useTradeFairDivisions();
+  const staff = useTradeFairStaff();
+  const isPhotos = canViewGallery && view === 'photos';
+  const filterCount = [divisionId, metByUserId, province, district].filter(Boolean).length;
+  const clearFilters = () => { setDivisionId(null); setMetByUserId(null); setProvince(null); setDistrict(null); };
+  const divisionOptions = useMemo(() => (divisions.data ?? []).map((d) => ({ value: d.id, label: d.name })), [divisions.data]);
+  const metByOptions = useMemo(
+    () => metByFilterOptions(summary.data?.byUser ?? [], metByUserId, staff.data ?? []),
+    [summary.data, metByUserId, staff.data],
+  );
+  const districtOptions = useMemo(
+    () => (province ? (DISTRICTS_BY_PROVINCE[province] ?? []).map((name) => ({ value: name, label: name })) : []),
+    [province],
+  );
   const remove = useDeleteTradeFair();
   const totals = summaryTotals(summary.data);
   const items = list.data?.items ?? [];
@@ -156,11 +184,11 @@ export default function TradeFairsScreen() {
       <View className="flex-row flex-wrap gap-4" accessibilityLabel="Takip renkleri">
         <View className="flex-row items-center gap-1.5">
           <View className="h-3 w-3 rounded" style={{ backgroundColor: colors.warning }} />
-          <Text className="font-inter text-[11px] text-muted-foreground">Görüşüldü</Text>
+          <Text className="font-inter text-[11px] text-muted-foreground">Arandı</Text>
         </View>
         <View className="flex-row items-center gap-1.5">
           <View className="h-3 w-3 rounded" style={{ backgroundColor: colors.success }} />
-          <Text className="font-inter text-[11px] text-muted-foreground">Teklif iletildi / müşteriye dönüştü</Text>
+          <Text className="font-inter text-[11px] text-muted-foreground">Teklif verildi / CRM bağlantısı</Text>
         </View>
       </View>
     </View>
@@ -179,11 +207,60 @@ export default function TradeFairsScreen() {
             { label: 'Ekip', value: String(totals.staff) },
           ]}
         />
-        <SearchBar value={search} onChange={setSearch} placeholder="Firma, yetkili, telefon, il, ürün ara..." />
+        {canViewGallery ? (
+          <Tabs<TradeFairView>
+            tabs={[
+              { value: 'meetings', label: 'Görüşmeler', icon: 'list-outline' },
+              { value: 'photos', label: 'Fotoğraflar', icon: 'images-outline' },
+            ]}
+            value={view}
+            onChange={(next) => { setView(next); setFiltersOpen(false); }}
+          />
+        ) : null}
+        <SearchBar
+          value={search}
+          onChange={setSearch}
+          placeholder={isPhotos ? 'Firma, yetkili veya dosya adı ara...' : 'Firma, yetkili, telefon, il, ürün ara...'}
+          onFilterPress={isPhotos ? undefined : () => setFiltersOpen((current) => !current)}
+          filterActive={!isPhotos && filterCount > 0}
+        />
         {fairOptions.length > 0 ? <FilterChips options={fairOptions} value={fair} onChange={setFair} allLabel="Tüm fuarlar" /> : null}
+        {filtersOpen && !isPhotos ? (
+          <ScrollView style={{ maxHeight: 300 }} contentContainerStyle={{ paddingHorizontal: SCREEN_PAD, gap: 12, paddingBottom: 12 }} keyboardShouldPersistTaps="handled">
+            {divisionOptions.length > 0 ? (
+              <OptionPicker label="Bölüm" icon="layers-outline" value={divisionId} options={divisionOptions} placeholder="Tüm bölümler" clearable onChange={setDivisionId} />
+            ) : null}
+            <OptionPicker label="Görüşen" icon="person-outline" value={metByUserId} options={metByOptions} placeholder="Tüm görüşenler" clearable searchable onChange={setMetByUserId} />
+            <OptionPicker
+              label="İl"
+              icon="location-outline"
+              value={province}
+              options={PROVINCE_OPTIONS}
+              placeholder="Tüm iller"
+              clearable
+              searchable
+              onChange={(next) => { setProvince(next); setDistrict(null); }}
+            />
+            {province ? (
+              <OptionPicker label="İlçe" icon="map-outline" value={district} options={districtOptions} placeholder="Tüm ilçeler" clearable searchable onChange={setDistrict} />
+            ) : null}
+            <View className="flex-row gap-2">
+              <Button className="flex-1" label="Temizle" variant="ghost" onPress={clearFilters} />
+              <Button className="flex-1" label="Sonuçları göster" onPress={() => setFiltersOpen(false)} />
+            </View>
+          </ScrollView>
+        ) : null}
+        {!isPhotos && filterCount > 0 && !filtersOpen ? (
+          <View className="flex-row items-center justify-between gap-2 px-4">
+            <Text className="flex-1 font-inter text-xs text-muted-foreground">{filterCount} filtre uygulandı</Text>
+            <Button label="Filtreleri temizle" variant="ghost" onPress={clearFilters} />
+          </View>
+        ) : null}
       </View>
 
-      {list.isPending ? (
+      {isPhotos ? (
+        <TradeFairPhotoGallery fairName={fair} q={q} bottomInset={GLASS_TAB_BAR_HEIGHT} />
+      ) : list.isPending ? (
         <ListSkeleton />
       ) : list.error ? (
         <ErrorState message={list.error.message || 'Fuar kayıtları yüklenemedi'} onRetry={() => void list.refetch()} />
@@ -218,7 +295,7 @@ export default function TradeFairsScreen() {
           ListEmptyComponent={
             <EmptyState
               icon="storefront-outline"
-              title={q || fair ? 'Eşleşen görüşme bulunamadı' : 'Henüz fuar görüşmesi yok'}
+              title={q || fair || filterCount ? 'Eşleşen görüşme bulunamadı' : 'Henüz fuar görüşmesi yok'}
               hint={canCreate ? 'Standa gelen firmaları “Yeni Görüşme” ile kaydedin.' : 'Kayıt eklendiğinde burada listelenir.'}
             />
           }

@@ -1,0 +1,13 @@
+@available(iOS 16.0, *)
+struct HaksanAssistantShortcuts: AppShortcutsProvider {
+  static var appShortcuts: [AppShortcut] {
+    AppShortcut(intent: HaksanAssistantIntent(action: .afterCall), phrases: ["\(.applicationName) görüşme sonrası", "\(.applicationName)'da görüşme sonrası işlem aç"], shortTitle: "Görüşme sonrası", systemImageName: "phone")
+    AppShortcut(intent: HaksanAssistantIntent(action: .openToday), phrases: ["\(.applicationName) bugünümü aç"], shortTitle: "Bugünümü aç", systemImageName: "calendar")
+    AppShortcut(intent: HaksanAssistantIntent(action: .newOpportunity), phrases: ["\(.applicationName) yeni fırsat"], shortTitle: "Yeni fırsat", systemImageName: "plus")
+    AppShortcut(intent: HaksanAssistantIntent(action: .findOpportunities), phrases: ["\(.applicationName) fırsatlarını aç"], shortTitle: "Fırsatları aç", systemImageName: "briefcase")
+    AppShortcut(intent: HaksanAssistantIntent(action: .addNote), phrases: ["\(.applicationName) görüşme notu hazırla"], shortTitle: "Not hazırla", systemImageName: "note.text")
+    AppShortcut(intent: HaksanAssistantIntent(action: .createTask), phrases: ["\(.applicationName) takip görevi hazırla"], shortTitle: "Takip hazırla", systemImageName: "checklist")
+    AppShortcut(intent: HaksanAssistantIntent(action: .newServiceTicket), phrases: ["\(.applicationName) servis talebi hazırla"], shortTitle: "Servis hazırla", systemImageName: "wrench.and.screwdriver")
+    AppShortcut(intent: HaksanAssistantCommandIntent(), phrases: ["\(.applicationName) komut hazırla", "\(.applicationName) yardımcısını aç"], shortTitle: "Komut hazırla", systemImageName: "mic")
+  }
+}

@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
 import { normalizePath } from './audit-action-parity.mjs';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const allMethods = process.argv.includes('--all-methods');
 const walk = directory => fs.readdirSync(directory, { withFileTypes: true }).flatMap(entry => {
   if (entry.name.includes(' ') || entry.name === 'node_modules') return [];
   const full = path.join(directory, entry.name);
@@ -15,7 +16,15 @@ const parse = file => ts.createSourceFile(file, fs.readFileSync(file, 'utf8'), t
 const literals = node => {
   if (!node) return [];
   if (ts.isStringLiteralLike(node)) return [node.text];
-  if (ts.isTemplateExpression(node)) return [node.getText().slice(1, -1)];
+  if (ts.isTemplateExpression(node)) {
+    let values = [node.head.text];
+    for (const span of node.templateSpans) {
+      const known = literals(span.expression);
+      const choices = known.length ? known : ['${' + span.expression.getText() + '}'];
+      values = values.flatMap(prefix => choices.map(choice => prefix + choice + span.literal.text));
+    }
+    return values;
+  }
   if (ts.isConditionalExpression(node)) return [...literals(node.whenTrue), ...literals(node.whenFalse)];
   if (ts.isArrayLiteralExpression(node)) return node.elements.flatMap(literals);
   return [];
@@ -45,11 +54,14 @@ for (const file of [...walk(path.join(root, 'apps/mobile-v2/src')), ...walk(path
   const visit = node => {
     if (ts.isCallExpression(node) && node.expression.getText() === 'request') {
       const methods = literals(objectProperty(node.arguments[1], 'method'));
-      if (!methods.length || methods.includes('GET')) {
+      if (allMethods || !methods.length || methods.includes('GET')) {
         const routes = literals(node.arguments[0]);
         const location = { file: path.relative(root, file), line: source.getLineAndCharacterOfPosition(node.getStart()).line + 1 };
         if (!routes.length) unresolved.push({ ...location, expression: node.arguments[0]?.getText() ?? '' });
-        for (const route of routes) reads.push({ ...location, method: 'GET', path: normalizePath(route) });
+        const pathNode = node.arguments[0], methodNode = objectProperty(node.arguments[1], 'method');
+        const paired = allMethods && pathNode && methodNode && ts.isConditionalExpression(pathNode) && ts.isConditionalExpression(methodNode) && pathNode.condition.getText() === methodNode.condition.getText();
+        const variants = paired ? [[pathNode.whenTrue, methodNode.whenTrue], [pathNode.whenFalse, methodNode.whenFalse]].flatMap(([route, method]) => literals(route).flatMap(value => literals(method).map(verb => ({ method: verb, path: normalizePath(value) })))) : routes.flatMap(route => (allMethods && methods.length ? methods : ['GET']).map(method => ({ method, path: normalizePath(route) })));
+        for (const variant of variants) reads.push({ ...location, ...variant });
       }
     }
     ts.forEachChild(node, visit);
@@ -57,11 +69,12 @@ for (const file of [...walk(path.join(root, 'apps/mobile-v2/src')), ...walk(path
   visit(source);
 }
 const escape = value => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-const matches = (read, endpoint) => endpoint.method === 'GET' && new RegExp('^' + endpoint.path.split('/').map(segment => segment.startsWith(':') ? '[^/]+' : escape(segment)).join('/') + '$').test(read.path);
+const matches = (read, endpoint) => endpoint.method === read.method && new RegExp('^' + endpoint.path.split('/').map(segment => segment.startsWith(':') ? '[^/]+' : escape(segment)).join('/') + '$').test(read.path);
 const rows = reads.map(read => ({ ...read, registered: endpoints.filter(endpoint => matches(read, endpoint)).map(endpoint => ({ controller: endpoint.controller, handler: endpoint.handler })) }));
 const missing = rows.filter(row => row.registered.length === 0);
-const report = { generatedAt: new Date().toISOString(), counts: { backendEndpoints: endpoints.length, mobileReadCallsites: rows.length, registeredReadCallsites: rows.length - missing.length, unresolvedReadExpressions: unresolved.length }, missing, unresolved, rows };
-const target = path.join(root, 'docs/mobile-v2/api-read-route-audit.json');
+const counts = allMethods ? { backendEndpoints: endpoints.length, mobileCallsites: rows.length, registeredCallsites: rows.length - missing.length, unresolvedExpressions: unresolved.length } : { backendEndpoints: endpoints.length, mobileReadCallsites: rows.length, registeredReadCallsites: rows.length - missing.length, unresolvedReadExpressions: unresolved.length };
+const report = { generatedAt: new Date().toISOString(), counts, missing, unresolved, rows };
+const target = path.join(root, allMethods ? 'docs/mobile-v2/api-all-route-audit.json' : 'docs/mobile-v2/api-read-route-audit.json');
 fs.writeFileSync(target, JSON.stringify(report, null, 2) + '\n');
 console.log(JSON.stringify({ ...report.counts, missing, unresolved }, null, 2));
 if (missing.length) process.exitCode = 1;

@@ -1,9 +1,9 @@
 {
-  "generatedAt": "2026-10-28T11:18:41.837Z",
+  "generatedAt": "2026-11-02T09:02:12.011Z",
   "counts": {
-    "backendEndpoints": 482,
-    "mobileReadCallsites": 216,
-    "registeredReadCallsites": 216,
+    "backendEndpoints": 514,
+    "mobileReadCallsites": 228,
+    "registeredReadCallsites": 228,
     "unresolvedReadExpressions": 0
   },
   "missing": [],
@@ -487,7 +487,7 @@
     },
     {
       "file": "apps/mobile-v2/src/api/endpoints.ts",
-      "line": 197,
+      "line": 199,
       "method": "GET",
       "path": "/companies",
       "registered": [
@@ -499,7 +499,7 @@
     },
     {
       "file": "apps/mobile-v2/src/api/endpoints.ts",
-      "line": 198,
+      "line": 200,
       "method": "GET",
       "path": "/companies/:param",
       "registered": [
@@ -511,7 +511,7 @@
     },
     {
       "file": "apps/mobile-v2/src/api/endpoints.ts",
-      "line": 199,
+      "line": 201,
       "method": "GET",
       "path": "/companies/summary",
       "registered": [
@@ -527,7 +527,7 @@
     },
     {
       "file": "apps/mobile-v2/src/api/endpoints.ts",
-      "line": 202,
+      "line": 204,
       "method": "GET",
       "path": "/companies/:param/cross-department-debt",
       "registered": [
@@ -539,7 +539,7 @@
     },
     {
       "file": "apps/mobile-v2/src/api/endpoints.ts",
-      "line": 205,
+      "line": 207,
       "method": "GET",
       "path": "/companies/map-points",
       "registered": [
@@ -555,7 +555,7 @@
     },
     {
       "file": "apps/mobile-v2/src/api/endpoints.ts",
-      "line": 263,
+      "line": 265,
       "method": "GET",
       "path": "/reports/pipeline-summary",
       "registered": [
@@ -567,7 +567,7 @@
     },
     {
       "file": "apps/mobile-v2/src/api/endpoints.ts",
-      "line": 264,
+      "line": 266,
       "method": "GET",
       "path": "/reports/expected-receivables",
       "registered": [
@@ -579,7 +579,7 @@
     },
     {
       "file": "apps/mobile-v2/src/api/endpoints.ts",
-      "line": 265,
+      "line": 267,
       "method": "GET",
       "path": "/reports/service-complaints-summary",
       "registered": [
@@ -591,7 +591,7 @@
     },
     {
       "file": "apps/mobile-v2/src/api/endpoints.ts",
-      "line": 267,
+      "line": 269,
       "method": "GET",
       "path": "/reports/completed-payments",
       "registered": [
@@ -603,7 +603,7 @@
     },
     {
       "file": "apps/mobile-v2/src/api/endpoints.ts",
-      "line": 273,
+      "line": 275,
       "method": "GET",
       "path": "/customer-devices",
       "registered": [
@@ -615,7 +615,7 @@
     },
     {
       "file": "apps/mobile-v2/src/api/endpoints.ts",
-      "line": 307,
+      "line": 309,
       "method": "GET",
       "path": "/notifications",
       "registered": [
@@ -627,7 +627,7 @@
     },
     {
       "file": "apps/mobile-v2/src/api/endpoints.ts",
-      "line": 356,
+      "line": 358,
       "method": "GET",
       "path": "/chat/conversations",
       "registered": [
@@ -639,7 +639,7 @@
     },
     {
       "file": "apps/mobile-v2/src/api/endpoints.ts",
-      "line": 359,
+      "line": 361,
       "method": "GET",
       "path": "/chat/conversations/:param/messages",
       "registered": [
@@ -651,7 +651,7 @@
     },
     {
       "file": "apps/mobile-v2/src/api/endpoints.ts",
-      "line": 363,
+      "line": 365,
       "method": "GET",
       "path": "/chat/directory",
       "registered": [
@@ -663,7 +663,7 @@
     },
     {
       "file": "apps/mobile-v2/src/api/endpoints.ts",
-      "line": 463,
+      "line": 465,
       "method": "GET",
       "path": "/contacts",
       "registered": [
@@ -675,7 +675,7 @@
     },
     {
       "file": "apps/mobile-v2/src/api/endpoints.ts",
-      "line": 464,
+      "line": 466,
       "method": "GET",
       "path": "/contacts/:param",
       "registered": [
@@ -687,7 +687,7 @@
     },
     {
       "file": "apps/mobile-v2/src/api/endpoints.ts",
-      "line": 465,
+      "line": 467,
       "method": "GET",
       "path": "/contacts/summary",
       "registered": [
@@ -703,7 +703,7 @@
     },
     {
       "file": "apps/mobile-v2/src/api/endpoints.ts",
-      "line": 680,
+      "line": 684,
       "method": "GET",
       "path": "/opportunities",
       "registered": [
@@ -715,7 +715,7 @@
     },
     {
       "file": "apps/mobile-v2/src/api/endpoints.ts",
-      "line": 681,
+      "line": 685,
       "method": "GET",
       "path": "/opportunities/:param",
       "registered": [
@@ -727,7 +727,7 @@
     },
     {
       "file": "apps/mobile-v2/src/api/endpoints.ts",
-      "line": 759,
+      "line": 763,
       "method": "GET",
       "path": "/opportunities/assignees",
       "registered": [
@@ -743,7 +743,7 @@
     },
     {
       "file": "apps/mobile-v2/src/api/endpoints.ts",
-      "line": 904,
+      "line": 908,
       "method": "GET",
       "path": "/quotes",
       "registered": [
@@ -755,7 +755,7 @@
     },
     {
       "file": "apps/mobile-v2/src/api/endpoints.ts",
-      "line": 905,
+      "line": 909,
       "method": "GET",
       "path": "/quotes/summary",
       "registered": [
@@ -771,7 +771,7 @@
     },
     {
       "file": "apps/mobile-v2/src/api/endpoints.ts",
-      "line": 906,
+      "line": 910,
       "method": "GET",
       "path": "/quotes/:param",
       "registered": [
@@ -783,7 +783,7 @@
     },
     {
       "file": "apps/mobile-v2/src/api/endpoints.ts",
-      "line": 928,
+      "line": 932,
       "method": "GET",
       "path": "/mail/account",
       "registered": [
@@ -795,7 +795,7 @@
     },
     {
       "file": "apps/mobile-v2/src/api/endpoints.ts",
-      "line": 936,
+      "line": 940,
       "method": "GET",
       "path": "/mail/recipients",
       "registered": [
@@ -807,7 +807,7 @@
     },
     {
       "file": "apps/mobile-v2/src/api/endpoints.ts",
-      "line": 974,
+      "line": 978,
       "method": "GET",
       "path": "/activities",
       "registered": [
@@ -819,7 +819,7 @@
     },
     {
       "file": "apps/mobile-v2/src/api/endpoints.ts",
-      "line": 975,
+      "line": 979,
       "method": "GET",
       "path": "/activities/:param",
       "registered": [
@@ -831,7 +831,7 @@
     },
     {
       "file": "apps/mobile-v2/src/api/endpoints.ts",
-      "line": 987,
+      "line": 991,
       "method": "GET",
       "path": "/lookups/:param",
       "registered": [
@@ -843,7 +843,7 @@
     },
     {
       "file": "apps/mobile-v2/src/api/endpoints.ts",
-      "line": 1248,
+      "line": 1252,
       "method": "GET",
       "path": "/service-tickets",
       "registered": [
@@ -855,7 +855,7 @@
     },
     {
       "file": "apps/mobile-v2/src/api/endpoints.ts",
-      "line": 1250,
+      "line": 1254,
       "method": "GET",
       "path": "/service-tickets/summary",
       "registered": [
@@ -871,7 +871,7 @@
     },
     {
       "file": "apps/mobile-v2/src/api/endpoints.ts",
-      "line": 1251,
+      "line": 1255,
       "method": "GET",
       "path": "/service-tickets/:param",
       "registered": [
@@ -883,7 +883,7 @@
     },
     {
       "file": "apps/mobile-v2/src/api/endpoints.ts",
-      "line": 1282,
+      "line": 1286,
       "method": "GET",
       "path": "/service-tickets/:param/warranty",
       "registered": [
@@ -895,7 +895,7 @@
     },
     {
       "file": "apps/mobile-v2/src/api/endpoints.ts",
-      "line": 1313,
+      "line": 1317,
       "method": "GET",
       "path": "/service-complaints",
       "registered": [
@@ -907,7 +907,7 @@
     },
     {
       "file": "apps/mobile-v2/src/api/endpoints.ts",
-      "line": 1314,
+      "line": 1318,
       "method": "GET",
       "path": "/service-complaints/:param",
       "registered": [
@@ -919,7 +919,7 @@
     },
     {
       "file": "apps/mobile-v2/src/api/endpoints.ts",
-      "line": 1322,
+      "line": 1326,
       "method": "GET",
       "path": "/installations",
       "registered": [
@@ -931,7 +931,7 @@
     },
     {
       "file": "apps/mobile-v2/src/api/endpoints.ts",
-      "line": 1323,
+      "line": 1327,
       "method": "GET",
       "path": "/installations/:param",
       "registered": [
@@ -943,7 +943,7 @@
     },
     {
       "file": "apps/mobile-v2/src/api/endpoints.ts",
-      "line": 1329,
+      "line": 1333,
       "method": "GET",
       "path": "/shipments",
       "registered": [
@@ -955,7 +955,7 @@
     },
     {
       "file": "apps/mobile-v2/src/api/endpoints.ts",
-      "line": 1330,
+      "line": 1334,
       "method": "GET",
       "path": "/shipments/:param",
       "registered": [
@@ -967,7 +967,7 @@
     },
     {
       "file": "apps/mobile-v2/src/api/endpoints.ts",
-      "line": 1344,
+      "line": 1348,
       "method": "GET",
       "path": "/maintenance-plans",
       "registered": [
@@ -979,7 +979,7 @@
     },
     {
       "file": "apps/mobile-v2/src/api/endpoints.ts",
-      "line": 1345,
+      "line": 1349,
       "method": "GET",
       "path": "/maintenance-plans/:param",
       "registered": [
@@ -991,7 +991,7 @@
     },
     {
       "file": "apps/mobile-v2/src/api/endpoints.ts",
-      "line": 1381,
+      "line": 1385,
       "method": "GET",
       "path": "/customer-devices",
       "registered": [
@@ -1003,7 +1003,7 @@
     },
     {
       "file": "apps/mobile-v2/src/api/endpoints.ts",
-      "line": 1382,
+      "line": 1386,
       "method": "GET",
       "path": "/customer-devices/:param",
       "registered": [
@@ -1015,7 +1015,7 @@
     },
     {
       "file": "apps/mobile-v2/src/api/endpoints.ts",
-      "line": 1426,
+      "line": 1430,
       "method": "GET",
       "path": "/inventory",
       "registered": [
@@ -1027,7 +1027,7 @@
     },
     {
       "file": "apps/mobile-v2/src/api/endpoints.ts",
-      "line": 1427,
+      "line": 1431,
       "method": "GET",
       "path": "/inventory/:param",
       "registered": [
@@ -1039,7 +1039,7 @@
     },
     {
       "file": "apps/mobile-v2/src/api/endpoints.ts",
-      "line": 1428,
+      "line": 1432,
       "method": "GET",
       "path": "/inventory/serial/:param",
       "registered": [
@@ -1051,7 +1051,7 @@
     },
     {
       "file": "apps/mobile-v2/src/api/endpoints.ts",
-      "line": 1429,
+      "line": 1433,
       "method": "GET",
       "path": "/warehouses",
       "registered": [
@@ -1063,7 +1063,7 @@
     },
     {
       "file": "apps/mobile-v2/src/api/endpoints.ts",
-      "line": 1534,
+      "line": 1538,
       "method": "GET",
       "path": "/products",
       "registered": [
@@ -1075,7 +1075,7 @@
     },
     {
       "file": "apps/mobile-v2/src/api/endpoints.ts",
-      "line": 1535,
+      "line": 1539,
       "method": "GET",
       "path": "/products/:param",
       "registered": [
@@ -1087,7 +1087,7 @@
     },
     {
       "file": "apps/mobile-v2/src/api/endpoints.ts",
-      "line": 1536,
+      "line": 1540,
       "method": "GET",
       "path": "/products/:param/media",
       "registered": [
@@ -1099,7 +1099,7 @@
     },
     {
       "file": "apps/mobile-v2/src/api/endpoints.ts",
-      "line": 1537,
+      "line": 1541,
       "method": "GET",
       "path": "/products/:param/options",
       "registered": [
@@ -1111,7 +1111,7 @@
     },
     {
       "file": "apps/mobile-v2/src/api/endpoints.ts",
-      "line": 1539,
+      "line": 1543,
       "method": "GET",
       "path": "/products/:param/compatible-optional-equipment",
       "registered": [
@@ -1123,7 +1123,7 @@
     },
     {
       "file": "apps/mobile-v2/src/api/endpoints.ts",
-      "line": 1542,
+      "line": 1546,
       "method": "GET",
       "path": "/price-lists",
       "registered": [
@@ -1135,7 +1135,7 @@
     },
     {
       "file": "apps/mobile-v2/src/api/endpoints.ts",
-      "line": 1543,
+      "line": 1547,
       "method": "GET",
       "path": "/price-lists/:param/items",
       "registered": [
@@ -1147,7 +1147,7 @@
     },
     {
       "file": "apps/mobile-v2/src/api/endpoints.ts",
-      "line": 1640,
+      "line": 1644,
       "method": "GET",
       "path": "/sales-orders",
       "registered": [
@@ -1159,7 +1159,7 @@
     },
     {
       "file": "apps/mobile-v2/src/api/endpoints.ts",
-      "line": 1652,
+      "line": 1656,
       "method": "GET",
       "path": "/purchase-orders",
       "registered": [
@@ -1171,7 +1171,7 @@
     },
     {
       "file": "apps/mobile-v2/src/api/endpoints.ts",
-      "line": 1653,
+      "line": 1657,
       "method": "GET",
       "path": "/sales-orders/:param",
       "registered": [
@@ -1183,7 +1183,7 @@
     },
     {
       "file": "apps/mobile-v2/src/api/endpoints.ts",
-      "line": 1660,
+      "line": 1664,
       "method": "GET",
       "path": "/purchase-orders/:param",
       "registered": [
@@ -1195,7 +1195,7 @@
     },
     {
       "file": "apps/mobile-v2/src/api/endpoints.ts",
-      "line": 1875,
+      "line": 1879,
       "method": "GET",
       "path": "/receivables",
       "registered": [
@@ -1207,7 +1207,7 @@
     },
     {
       "file": "apps/mobile-v2/src/api/endpoints.ts",
-      "line": 1876,
+      "line": 1880,
       "method": "GET",
       "path": "/receivables/:param",
       "registered": [
@@ -1219,7 +1219,7 @@
     },
     {
       "file": "apps/mobile-v2/src/api/endpoints.ts",
-      "line": 1894,
+      "line": 1898,
       "method": "GET",
       "path": "/receivables/summary",
       "registered": [
@@ -1235,7 +1235,7 @@
     },
     {
       "file": "apps/mobile-v2/src/api/endpoints.ts",
-      "line": 1896,
+      "line": 1900,
       "method": "GET",
       "path": "/payments",
       "registered": [
@@ -1247,7 +1247,7 @@
     },
     {
       "file": "apps/mobile-v2/src/api/endpoints.ts",
-      "line": 1897,
+      "line": 1901,
       "method": "GET",
       "path": "/payments/:param",
       "registered": [
@@ -1259,7 +1259,7 @@
     },
     {
       "file": "apps/mobile-v2/src/api/endpoints.ts",
-      "line": 1902,
+      "line": 1906,
       "method": "GET",
       "path": "/payments/summary",
       "registered": [
@@ -1275,7 +1275,7 @@
     },
     {
       "file": "apps/mobile-v2/src/api/endpoints.ts",
-      "line": 1904,
+      "line": 1908,
       "method": "GET",
       "path": "/accounting-invoices",
       "registered": [
@@ -1287,7 +1287,7 @@
     },
     {
       "file": "apps/mobile-v2/src/api/endpoints.ts",
-      "line": 1908,
+      "line": 1912,
       "method": "GET",
       "path": "/accounting-invoices/:param",
       "registered": [
@@ -1299,7 +1299,7 @@
     },
     {
       "file": "apps/mobile-v2/src/api/endpoints.ts",
-      "line": 1911,
+      "line": 1915,
       "method": "GET",
       "path": "/reports/customer-balances",
       "registered": [
@@ -1311,7 +1311,7 @@
     },
     {
       "file": "apps/mobile-v2/src/api/endpoints.ts",
-      "line": 1912,
+      "line": 1916,
       "method": "GET",
       "path": "/reports/due-dates",
       "registered": [
@@ -1323,7 +1323,7 @@
     },
     {
       "file": "apps/mobile-v2/src/api/endpoints.ts",
-      "line": 1915,
+      "line": 1919,
       "method": "GET",
       "path": "/companies/:param/finance-summary",
       "registered": [
@@ -1335,7 +1335,7 @@
     },
     {
       "file": "apps/mobile-v2/src/api/endpoints.ts",
-      "line": 1944,
+      "line": 1948,
       "method": "GET",
       "path": "/calendar/events",
       "registered": [
@@ -1347,7 +1347,7 @@
     },
     {
       "file": "apps/mobile-v2/src/api/endpoints.ts",
-      "line": 1945,
+      "line": 1949,
       "method": "GET",
       "path": "/calendar/owners",
       "registered": [
@@ -1359,7 +1359,7 @@
     },
     {
       "file": "apps/mobile-v2/src/api/endpoints.ts",
-      "line": 2032,
+      "line": 2036,
       "method": "GET",
       "path": "/tasks",
       "registered": [
@@ -1371,7 +1371,7 @@
     },
     {
       "file": "apps/mobile-v2/src/api/endpoints.ts",
-      "line": 2033,
+      "line": 2037,
       "method": "GET",
       "path": "/tasks/counts",
       "registered": [
@@ -1387,7 +1387,7 @@
     },
     {
       "file": "apps/mobile-v2/src/api/endpoints.ts",
-      "line": 2034,
+      "line": 2038,
       "method": "GET",
       "path": "/tasks/assignees",
       "registered": [
@@ -1403,7 +1403,7 @@
     },
     {
       "file": "apps/mobile-v2/src/api/endpoints.ts",
-      "line": 2035,
+      "line": 2039,
       "method": "GET",
       "path": "/tasks/:param",
       "registered": [
@@ -1415,7 +1415,7 @@
     },
     {
       "file": "apps/mobile-v2/src/api/endpoints.ts",
-      "line": 2046,
+      "line": 2050,
       "method": "GET",
       "path": "/reports/stock-summary",
       "registered": [
@@ -1427,7 +1427,7 @@
     },
     {
       "file": "apps/mobile-v2/src/api/endpoints.ts",
-      "line": 2122,
+      "line": 2126,
       "method": "GET",
       "path": "/proformas",
       "registered": [
@@ -1439,7 +1439,7 @@
     },
     {
       "file": "apps/mobile-v2/src/api/endpoints.ts",
-      "line": 2123,
+      "line": 2127,
       "method": "GET",
       "path": "/contracts",
       "registered": [
@@ -1451,7 +1451,7 @@
     },
     {
       "file": "apps/mobile-v2/src/api/endpoints.ts",
-      "line": 2125,
+      "line": 2129,
       "method": "GET",
       "path": "/commercial-invoices",
       "registered": [
@@ -1463,7 +1463,7 @@
     },
     {
       "file": "apps/mobile-v2/src/api/endpoints.ts",
-      "line": 2126,
+      "line": 2130,
       "method": "GET",
       "path": "/proformas/:param",
       "registered": [
@@ -1475,7 +1475,7 @@
     },
     {
       "file": "apps/mobile-v2/src/api/endpoints.ts",
-      "line": 2127,
+      "line": 2131,
       "method": "GET",
       "path": "/contracts/:param",
       "registered": [
@@ -1487,7 +1487,7 @@
     },
     {
       "file": "apps/mobile-v2/src/api/endpoints.ts",
-      "line": 2128,
+      "line": 2132,
       "method": "GET",
       "path": "/commercial-invoices/:param",
       "registered": [
@@ -1574,6 +1574,62 @@
         {
           "controller": "ServiceController",
           "handler": "listDeliveries"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/mail-campaigns.api.ts",
+      "line": 59,
+      "method": "GET",
+      "path": "/mail/campaigns",
+      "registered": [
+        {
+          "controller": "MailCampaignsController",
+          "handler": "list"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/mail-campaigns.api.ts",
+      "line": 60,
+      "method": "GET",
+      "path": "/mail/campaigns/:param",
+      "registered": [
+        {
+          "controller": "MailCampaignsController",
+          "handler": "get"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/mail-campaigns.api.ts",
+      "line": 65,
+      "method": "GET",
+      "path": "/mail/campaigns/candidates",
+      "registered": [
+        {
+          "controller": "MailCampaignsController",
+          "handler": "candidates"
+        },
+        {
+          "controller": "MailCampaignsController",
+          "handler": "get"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/mail-campaigns.api.ts",
+      "line": 71,
+      "method": "GET",
+      "path": "/mail/campaigns/suppressions",
+      "registered": [
+        {
+          "controller": "MailCampaignsController",
+          "handler": "suppressions"
+        },
+        {
+          "controller": "MailCampaignsController",
+          "handler": "get"
         }
       ]
     },
@@ -1759,7 +1815,55 @@
     },
     {
       "file": "apps/mobile-v2/src/api/products.api.ts",
-      "line": 208,
+      "line": 304,
+      "method": "GET",
+      "path": "/product-configuration-prices",
+      "registered": [
+        {
+          "controller": "ProductsController",
+          "handler": "listAllConfigurationPrices"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/products.api.ts",
+      "line": 305,
+      "method": "GET",
+      "path": "/products/:param/configuration-prices",
+      "registered": [
+        {
+          "controller": "ProductsController",
+          "handler": "listConfigurationPrices"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/products.api.ts",
+      "line": 308,
+      "method": "GET",
+      "path": "/product-cost-prices",
+      "registered": [
+        {
+          "controller": "ProductsController",
+          "handler": "listCostPricedItems"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/products.api.ts",
+      "line": 311,
+      "method": "GET",
+      "path": "/laser-price-lists",
+      "registered": [
+        {
+          "controller": "ProductsController",
+          "handler": "listLaserPriceLists"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/products.api.ts",
+      "line": 315,
       "method": "GET",
       "path": "/products",
       "registered": [
@@ -1771,7 +1875,7 @@
     },
     {
       "file": "apps/mobile-v2/src/api/products.api.ts",
-      "line": 209,
+      "line": 316,
       "method": "GET",
       "path": "/products/:param",
       "registered": [
@@ -1783,7 +1887,7 @@
     },
     {
       "file": "apps/mobile-v2/src/api/products.api.ts",
-      "line": 210,
+      "line": 317,
       "method": "GET",
       "path": "/brands",
       "registered": [
@@ -1795,7 +1899,7 @@
     },
     {
       "file": "apps/mobile-v2/src/api/products.api.ts",
-      "line": 213,
+      "line": 320,
       "method": "GET",
       "path": "/lookups/product-groups",
       "registered": [
@@ -1807,7 +1911,7 @@
     },
     {
       "file": "apps/mobile-v2/src/api/products.api.ts",
-      "line": 214,
+      "line": 321,
       "method": "GET",
       "path": "/lookups/product-categories",
       "registered": [
@@ -1819,7 +1923,7 @@
     },
     {
       "file": "apps/mobile-v2/src/api/products.api.ts",
-      "line": 215,
+      "line": 322,
       "method": "GET",
       "path": "/lookups/product-subcategories",
       "registered": [
@@ -1831,7 +1935,7 @@
     },
     {
       "file": "apps/mobile-v2/src/api/products.api.ts",
-      "line": 216,
+      "line": 323,
       "method": "GET",
       "path": "/lookups/product-types",
       "registered": [
@@ -1843,7 +1947,7 @@
     },
     {
       "file": "apps/mobile-v2/src/api/products.api.ts",
-      "line": 218,
+      "line": 325,
       "method": "GET",
       "path": "/products/create-operations/:param",
       "registered": [
@@ -1855,7 +1959,7 @@
     },
     {
       "file": "apps/mobile-v2/src/api/products.api.ts",
-      "line": 221,
+      "line": 328,
       "method": "GET",
       "path": "/products/import/template-options",
       "registered": [
@@ -1867,7 +1971,7 @@
     },
     {
       "file": "apps/mobile-v2/src/api/products.api.ts",
-      "line": 231,
+      "line": 338,
       "method": "GET",
       "path": "/products/:param/specs",
       "registered": [
@@ -1879,7 +1983,7 @@
     },
     {
       "file": "apps/mobile-v2/src/api/products.api.ts",
-      "line": 233,
+      "line": 340,
       "method": "GET",
       "path": "/product-spec-templates",
       "registered": [
@@ -1891,7 +1995,7 @@
     },
     {
       "file": "apps/mobile-v2/src/api/products.api.ts",
-      "line": 235,
+      "line": 342,
       "method": "GET",
       "path": "/products/:param/equipment",
       "registered": [
@@ -1903,7 +2007,7 @@
     },
     {
       "file": "apps/mobile-v2/src/api/products.api.ts",
-      "line": 242,
+      "line": 349,
       "method": "GET",
       "path": "/products/:param/options",
       "registered": [
@@ -1915,7 +2019,7 @@
     },
     {
       "file": "apps/mobile-v2/src/api/products.api.ts",
-      "line": 259,
+      "line": 366,
       "method": "GET",
       "path": "/price-lists",
       "registered": [
@@ -1927,7 +2031,7 @@
     },
     {
       "file": "apps/mobile-v2/src/api/products.api.ts",
-      "line": 260,
+      "line": 367,
       "method": "GET",
       "path": "/price-lists/:param/items",
       "registered": [
@@ -1939,7 +2043,7 @@
     },
     {
       "file": "apps/mobile-v2/src/api/products.api.ts",
-      "line": 266,
+      "line": 373,
       "method": "GET",
       "path": "/files/links",
       "registered": [
@@ -1951,7 +2055,7 @@
     },
     {
       "file": "apps/mobile-v2/src/api/products.api.ts",
-      "line": 303,
+      "line": 410,
       "method": "GET",
       "path": "/inventory",
       "registered": [
@@ -2023,7 +2127,7 @@
     },
     {
       "file": "apps/mobile-v2/src/api/reports.api.ts",
-      "line": 125,
+      "line": 126,
       "method": "GET",
       "path": "/reports/weekly-visits",
       "registered": [
@@ -2035,7 +2139,7 @@
     },
     {
       "file": "apps/mobile-v2/src/api/reports.api.ts",
-      "line": 126,
+      "line": 127,
       "method": "GET",
       "path": "/reports/monthly-visits",
       "registered": [
@@ -2047,7 +2151,7 @@
     },
     {
       "file": "apps/mobile-v2/src/api/reports.api.ts",
-      "line": 127,
+      "line": 128,
       "method": "GET",
       "path": "/reports/yearly-visits",
       "registered": [
@@ -2059,7 +2163,7 @@
     },
     {
       "file": "apps/mobile-v2/src/api/reports.api.ts",
-      "line": 128,
+      "line": 129,
       "method": "GET",
       "path": "/reports/weekly-activities",
       "registered": [
@@ -2071,7 +2175,7 @@
     },
     {
       "file": "apps/mobile-v2/src/api/reports.api.ts",
-      "line": 129,
+      "line": 130,
       "method": "GET",
       "path": "/reports/monthly-activities",
       "registered": [
@@ -2083,7 +2187,7 @@
     },
     {
       "file": "apps/mobile-v2/src/api/reports.api.ts",
-      "line": 130,
+      "line": 131,
       "method": "GET",
       "path": "/reports/yearly-activities",
       "registered": [
@@ -2095,7 +2199,7 @@
     },
     {
       "file": "apps/mobile-v2/src/api/reports.api.ts",
-      "line": 131,
+      "line": 132,
       "method": "GET",
       "path": "/reports/weekly-quotes-by-product",
       "registered": [
@@ -2107,7 +2211,7 @@
     },
     {
       "file": "apps/mobile-v2/src/api/reports.api.ts",
-      "line": 132,
+      "line": 133,
       "method": "GET",
       "path": "/reports/monthly-quotes-by-product",
       "registered": [
@@ -2119,7 +2223,7 @@
     },
     {
       "file": "apps/mobile-v2/src/api/reports.api.ts",
-      "line": 133,
+      "line": 134,
       "method": "GET",
       "path": "/reports/yearly-quotes-by-product",
       "registered": [
@@ -2131,7 +2235,7 @@
     },
     {
       "file": "apps/mobile-v2/src/api/reports.api.ts",
-      "line": 135,
+      "line": 136,
       "method": "GET",
       "path": "/reports/department-performance",
       "registered": [
@@ -2143,7 +2247,7 @@
     },
     {
       "file": "apps/mobile-v2/src/api/reports.api.ts",
-      "line": 136,
+      "line": 137,
       "method": "GET",
       "path": "/reports/warranty-expiring",
       "registered": [
@@ -2155,7 +2259,7 @@
     },
     {
       "file": "apps/mobile-v2/src/api/reports.api.ts",
-      "line": 137,
+      "line": 138,
       "method": "GET",
       "path": "/reports/service-complaints-summary",
       "registered": [
@@ -2167,7 +2271,7 @@
     },
     {
       "file": "apps/mobile-v2/src/api/reports.api.ts",
-      "line": 138,
+      "line": 139,
       "method": "GET",
       "path": "/reports/stock-summary",
       "registered": [
@@ -2179,7 +2283,7 @@
     },
     {
       "file": "apps/mobile-v2/src/api/reports.api.ts",
-      "line": 139,
+      "line": 140,
       "method": "GET",
       "path": "/reports/year-end",
       "registered": [
@@ -2191,7 +2295,7 @@
     },
     {
       "file": "apps/mobile-v2/src/api/reports.api.ts",
-      "line": 140,
+      "line": 141,
       "method": "GET",
       "path": "/reports/operational",
       "registered": [
@@ -2203,7 +2307,7 @@
     },
     {
       "file": "apps/mobile-v2/src/api/reports.api.ts",
-      "line": 142,
+      "line": 143,
       "method": "GET",
       "path": "/reports/target-progress",
       "registered": [
@@ -2215,7 +2319,7 @@
     },
     {
       "file": "apps/mobile-v2/src/api/reports.api.ts",
-      "line": 143,
+      "line": 144,
       "method": "GET",
       "path": "/reports/activity-log",
       "registered": [
@@ -2227,7 +2331,7 @@
     },
     {
       "file": "apps/mobile-v2/src/api/reports.api.ts",
-      "line": 144,
+      "line": 145,
       "method": "GET",
       "path": "/users",
       "registered": [
@@ -2239,7 +2343,7 @@
     },
     {
       "file": "apps/mobile-v2/src/api/reports.api.ts",
-      "line": 145,
+      "line": 146,
       "method": "GET",
       "path": "/departments",
       "registered": [
@@ -2343,7 +2447,19 @@
     },
     {
       "file": "apps/mobile-v2/src/api/settings.api.ts",
-      "line": 44,
+      "line": 45,
+      "method": "GET",
+      "path": "/mail/account/users/:param",
+      "registered": [
+        {
+          "controller": "MailController",
+          "handler": "userAccount"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/settings.api.ts",
+      "line": 45,
       "method": "GET",
       "path": "/mail/account",
       "registered": [
@@ -2355,31 +2471,31 @@
     },
     {
       "file": "apps/mobile-v2/src/api/settings.api.ts",
-      "line": 54,
-      "method": "GET",
-      "path": "/mail/signature/users",
-      "registered": [
-        {
-          "controller": "MailController",
-          "handler": "signatureUsers"
-        }
-      ]
-    },
-    {
-      "file": "apps/mobile-v2/src/api/settings.api.ts",
       "line": 55,
       "method": "GET",
-      "path": "/mail/signature/users/:param",
+      "path": "/mail/account/users",
       "registered": [
         {
           "controller": "MailController",
-          "handler": "userSignature"
+          "handler": "accountUsers"
         }
       ]
     },
     {
       "file": "apps/mobile-v2/src/api/settings.api.ts",
-      "line": 60,
+      "line": 57,
+      "method": "GET",
+      "path": "/mail/account/users/:param",
+      "registered": [
+        {
+          "controller": "MailController",
+          "handler": "userAccount"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/settings.api.ts",
+      "line": 66,
       "method": "GET",
       "path": "/signatures",
       "registered": [
@@ -2391,7 +2507,7 @@
     },
     {
       "file": "apps/mobile-v2/src/api/settings.api.ts",
-      "line": 67,
+      "line": 73,
       "method": "GET",
       "path": "/lead-assignment-rules",
       "registered": [
@@ -2403,7 +2519,7 @@
     },
     {
       "file": "apps/mobile-v2/src/api/settings.api.ts",
-      "line": 76,
+      "line": 82,
       "method": "GET",
       "path": "/access-requests",
       "registered": [
@@ -2415,7 +2531,7 @@
     },
     {
       "file": "apps/mobile-v2/src/api/settings.api.ts",
-      "line": 83,
+      "line": 89,
       "method": "GET",
       "path": "/lookups",
       "registered": [
@@ -2535,7 +2651,7 @@
     },
     {
       "file": "apps/mobile-v2/src/api/trade-fairs.api.ts",
-      "line": 65,
+      "line": 89,
       "method": "GET",
       "path": "/trade-fairs",
       "registered": [
@@ -2547,7 +2663,19 @@
     },
     {
       "file": "apps/mobile-v2/src/api/trade-fairs.api.ts",
-      "line": 66,
+      "line": 90,
+      "method": "GET",
+      "path": "/trade-fairs/photos",
+      "registered": [
+        {
+          "controller": "TradeFairsController",
+          "handler": "photos"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/trade-fairs.api.ts",
+      "line": 91,
       "method": "GET",
       "path": "/trade-fairs/summary",
       "registered": [
@@ -2559,7 +2687,7 @@
     },
     {
       "file": "apps/mobile-v2/src/api/trade-fairs.api.ts",
-      "line": 67,
+      "line": 92,
       "method": "GET",
       "path": "/trade-fairs/staff",
       "registered": [
@@ -2571,7 +2699,31 @@
     },
     {
       "file": "apps/mobile-v2/src/api/trade-fairs.api.ts",
-      "line": 73,
+      "line": 93,
+      "method": "GET",
+      "path": "/trade-fairs/divisions",
+      "registered": [
+        {
+          "controller": "TradeFairsController",
+          "handler": "divisions"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/trade-fairs.api.ts",
+      "line": 94,
+      "method": "GET",
+      "path": "/trade-fairs/products",
+      "registered": [
+        {
+          "controller": "TradeFairsController",
+          "handler": "products"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/trade-fairs.api.ts",
+      "line": 106,
       "method": "GET",
       "path": "/files/links",
       "registered": [
@@ -2667,7 +2819,7 @@
     },
     {
       "file": "apps/mobile-v2/app/modal/quote-form.tsx",
-      "line": 162,
+      "line": 163,
       "method": "GET",
       "path": "/fx/rates",
       "registered": [

@@ -96,11 +96,13 @@ export function Segmented<T extends string>({
   value,
   options,
   onChange,
+  disabled,
 }: {
   label?: string;
   value: T;
   options: readonly { value: T; label: string }[];
   onChange: (value: T) => void;
+  disabled?: boolean;
 }) {
   return (
     <View className="gap-1.5">
@@ -112,10 +114,11 @@ export function Segmented<T extends string>({
             <Pressable
               key={option.value}
               accessibilityRole="radio"
-              accessibilityState={{ selected }}
+              accessibilityState={{ selected, disabled }}
               accessibilityLabel={label ? `${label}: ${option.label}` : option.label}
+              disabled={disabled}
               onPress={() => onChange(option.value)}
-              className={`min-h-[44px] items-center justify-center rounded-control border px-3.5 ${selected ? 'border-primary bg-primary' : 'border-border bg-card'}`}
+              className={`min-h-[44px] items-center justify-center rounded-control border px-3.5 ${selected ? 'border-primary bg-primary' : 'border-border bg-card'} ${disabled ? 'opacity-50' : ''}`}
             >
               <Text className={`font-inter-semibold text-[13px] ${selected ? 'text-primary-foreground' : 'text-foreground'}`}>
                 {option.label}
