@@ -32,6 +32,13 @@ import {
   type SalesPriceProduct,
 } from '@/src/ui/products/sales-price';
 
+/** Web Fiyat Listeleri sayfasının alt bölümleri (LaserPriceLists, ConfigurationPriceEditor, CostPricedItemsEditor). */
+const PRICING_SECTIONS: { href: Href; title: string; hint: string; icon: keyof typeof Ionicons.glyphMap }[] = [
+  { href: '/modules/price-lists/laser' as Href, title: 'Fiber lazer fiyat listeleri', hint: 'CIF / millileştirilmiş liste ve son fiyatlar', icon: 'flash-outline' },
+  { href: '/modules/price-lists/configuration' as Href, title: 'Model × güç satış fiyatları', hint: 'Lazer baz kartları', icon: 'grid-outline' },
+  { href: '/modules/price-lists/cost-items' as Href, title: 'Aksesuar ve opsiyon satış fiyatları', hint: 'Lazer aksesuar ve opsiyonları', icon: 'construct-outline' },
+];
+
 const FILTER_FIELDS: SalesPriceFilterField[] = ['group', 'category', 'subcategory', 'type', 'brand'];
 
 function toSalesProduct(product: CatalogProduct): SalesPriceProduct & { imageUrl: string | null } {
@@ -154,6 +161,25 @@ export default function SalesPriceListScreen() {
             onPress={() => setCampaignOpen((open) => !open)}
           />
         ) : null}
+        <View className="gap-2" accessibilityRole="list">
+          {PRICING_SECTIONS.map((section) => (
+            <Pressable
+              key={section.title}
+              accessibilityRole="button"
+              accessibilityLabel={section.title}
+              accessibilityHint={section.hint}
+              onPress={() => router.push(section.href)}
+              className="min-h-[52px] flex-row items-center gap-3 rounded-control border border-border bg-card px-3.5 py-2.5 active:opacity-70"
+            >
+              <Ionicons name={section.icon} size={18} color={colors.primary} />
+              <View className="min-w-0 flex-1">
+                <Text className="font-inter-semibold text-sm text-foreground">{section.title}</Text>
+                <Text className="font-inter text-xs text-muted-foreground" numberOfLines={1}>{section.hint}</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={16} color={colors.mutedForeground} />
+            </Pressable>
+          ))}
+        </View>
         {(lists.data ?? []).length > 0 ? (
           <OptionPicker
             label="Fiyat listesi"

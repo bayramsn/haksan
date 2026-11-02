@@ -10,6 +10,7 @@ import { useTheme } from '@/src/theme/theme';
 import { Button, Eyebrow, Field, SubtleCard } from '@/src/ui';
 import { ChoiceChips, ProductPickerSheet } from './pickers';
 import { QuoteLineConfig } from './QuoteLineConfig';
+import type { LaserListCode } from './quote-configuration';
 import { QuoteItemDetails } from './QuoteItemDetails';
 import {
   emptyCompatibilityFilters,
@@ -60,7 +61,10 @@ export function QuoteItemsEditor({
   divisionId,
   vatEnabled = true,
   onConfigurationBusyChange,
+  priceListCode = null,
 }: {
+  /** Teslim şeklinden gelen lazer fiyat listesi (matrisli baz kartlar). */
+  priceListCode?: LaserListCode | null;
   vatEnabled?: boolean;
   onConfigurationBusyChange?: (key: string, busy: boolean) => void;
   items: EditableQuoteItem[];
@@ -77,8 +81,13 @@ export function QuoteItemsEditor({
   const itemsRef = useRef(items);
   itemsRef.current = items;
 
-  const patch = (key: string, next: Partial<EditableQuoteItem>) =>
-    onChange(itemsRef.current.map((item) => (item.key === key ? { ...item, ...next } : item)));
+  // Aynı karede birden çok satır yamalanabilir (teslim şekli değişince yeniden fiyatlama);
+  // ref hemen güncellenir ki ikinci yama ilkini ezmesin.
+  const patch = (key: string, next: Partial<EditableQuoteItem>) => {
+    const updated = itemsRef.current.map((item) => (item.key === key ? { ...item, ...next } : item));
+    itemsRef.current = updated;
+    onChange(updated);
+  };
 
   async function addProduct(product: ProductModel) {
     const key = newQuoteItemKey();
@@ -242,6 +251,7 @@ export function QuoteItemsEditor({
             <QuoteLineConfig
               item={item}
               currencyCode={currencyCode}
+              priceListCode={priceListCode}
               brandId={item.brandId}
               divisionId={divisionId}
               onChange={(next) => patch(item.key, next)}

@@ -1,5 +1,5 @@
 import { Alert } from 'react-native';
-import { useInfiniteQuery, useMutation, useQuery, useQueryClient, type QueryKey } from '@tanstack/react-query';
+import { keepPreviousData, useInfiniteQuery, useMutation, useQuery, useQueryClient, type QueryKey } from '@tanstack/react-query';
 import type { CompanyCreateInput, CompanyUpdateInput } from '@haksan/shared';
 import { companies, type CompanyListItem, type CompanyListQuery } from './endpoints';
 import { RequestScopeChangedError, requestContextKey, type Paginated } from './client';
@@ -24,6 +24,28 @@ export function useCompanyList(query: CompanyListQuery, enabled = true) {
     queryFn: ({ pageParam }) => companies.list({ ...query, page: pageParam, pageSize: PAGE_SIZE }),
     getNextPageParam: (last) => (last.meta.page < last.meta.totalPages ? last.meta.page + 1 : undefined),
     select: (data) => ({ ...data, items: data.pages.flatMap((p) => p.data), total: data.pages[0]?.meta.total ?? 0 }),
+  });
+}
+
+const COMPANY_ID_BATCH = 100; // API sınırı
+
+/** Fırsat kartlarındaki firmaların il bilgisi (web useCompanyCardDetails); görünmeyen firma yanıtta yoktur. */
+export function useCompanyCities(companyIds: Array<string | null | undefined>, enabled = true) {
+  const ids = [...new Set(companyIds.filter((id): id is string => Boolean(id)))].sort();
+  return useQuery({
+    queryKey: ['companies', 'cities', ids],
+    enabled: enabled && ids.length > 0,
+    staleTime: 5 * 60_000,
+    // Yeni sayfa yüklenirken önceki iller kalsın; yoksa satırlar yalnız lead iline düşüp titrer.
+    placeholderData: keepPreviousData,
+    queryFn: async () => {
+      const batches = await Promise.all(
+        Array.from({ length: Math.ceil(ids.length / COMPANY_ID_BATCH) }, (_, i) => ids.slice(i * COMPANY_ID_BATCH, (i + 1) * COMPANY_ID_BATCH)).map(
+          (batch) => companies.list({ ids: batch.join(','), page: 1, pageSize: batch.length })
+        )
+      );
+      return Object.fromEntries(batches.flatMap((b) => b.data).map((c) => [c.id, c.primaryAddress?.province ?? null] as const));
+    },
   });
 }
 

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Image, Text, View } from 'react-native';
 import { MAIL_SIGNATURE_MAX } from '@haksan/shared';
 import {
@@ -6,8 +6,10 @@ import {
   useMailConnect,
   useMailDisconnect,
   useMailImageSignature,
+  useMailSignatureUsers,
   useMailTextSignature,
 } from '@/src/api/settings.hooks';
+import { OptionPicker } from '@/src/ui/pickers/OptionPicker';
 import { useAuth } from '@/src/auth/AuthProvider';
 import { formatDate } from '@/src/lib/format';
 import { Button, Card, Chip, Field } from '@/src/ui';
@@ -20,11 +22,22 @@ import { pickSignatureImage } from '@/src/ui/admin/signature-upload';
 
 export default function WebmailSettingsScreen() {
   const { user } = useAuth();
-  const account = useMailAccount();
-  const connect = useMailConnect();
-  const disconnect = useMailDisconnect();
-  const textSignature = useMailTextSignature();
-  const imageSignature = useMailImageSignature();
+  // Web MailAccountSettings: süper admin başka bir kullanıcının webmail hesabını da yönetir.
+  const isSuperAdmin = Boolean(user?.roles?.includes('super_admin'));
+  const [targetId, setTargetId] = useState<string | null>(null);
+  const target = targetId ?? undefined;
+  // İşlem sürerken hedef değişirse geç gelen sonuç yeni hedefin formunu silmesin.
+  const targetRef = useRef(targetId);
+  targetRef.current = targetId;
+  const accountUsers = useMailSignatureUsers(isSuperAdmin);
+  const otherUsers = (accountUsers.data ?? []).filter((item) => item.id !== user?.id);
+  const targetUser = otherUsers.find((item) => item.id === targetId) ?? null;
+  const ownerName = targetUser?.name ?? user?.fullName ?? '';
+  const account = useMailAccount(target);
+  const connect = useMailConnect(target);
+  const disconnect = useMailDisconnect(target);
+  const textSignature = useMailTextSignature(target);
+  const imageSignature = useMailImageSignature(target);
   const status = account.data;
 
   const [email, setEmail] = useState('');
@@ -36,9 +49,12 @@ export default function WebmailSettingsScreen() {
   useEffect(() => {
     if (!status) return;
     setEmail(status.email ?? '');
-    setDisplayName(status.displayName ?? user?.fullName ?? '');
+    setDisplayName(status.displayName ?? ownerName);
     setSignature(status.signature ?? status.defaultSignature);
-  }, [status, user?.fullName]);
+  }, [status, ownerName]);
+
+  // Hedef değişince önceki kişinin şifresi yeni hedefe taşınmaz.
+  useEffect(() => setPassword(''), [targetId]);
 
   useEffect(() => () => setPassword(''), []);
 
@@ -52,10 +68,12 @@ export default function WebmailSettingsScreen() {
       toast.error('E-posta, görünen ad ve webmail şifresi zorunludur');
       return;
     }
+    const sentTarget = targetId;
     connect.mutate(
       { email: email.trim(), displayName: displayName.trim(), password },
       {
         onSuccess: () => {
+          if (targetRef.current !== sentTarget) return;
           setPassword('');
           toast.success('Webmail hesabı bağlandı. SMTP bağlantısı doğrulandı ve gönderime hazır.');
         },
@@ -67,22 +85,27 @@ export default function WebmailSettingsScreen() {
     );
   };
 
-  const askDisconnect = () =>
+  const askDisconnect = () => {
+    const sentTarget = targetId;
     confirmDestructive(
       'Webmail bağlantısını kaldır?',
-      'Şifreli hesap bilgisi silinir ve CRM’den kendi adresinizle e-posta gönderemezsiniz. Daha sonra yeniden bağlayabilirsiniz.',
+      targetUser
+        ? `${targetUser.name} için şifreli hesap bilgisi silinir; bu kullanıcı CRM’den kendi adresiyle e-posta gönderemez.`
+        : 'Şifreli hesap bilgisi silinir ve CRM’den kendi adresinizle e-posta gönderemezsiniz. Daha sonra yeniden bağlayabilirsiniz.',
       'Bağlantıyı kaldır',
       () =>
         disconnect.mutate(undefined, {
           onSuccess: () => {
-            setEmail('');
-            setDisplayName(user?.fullName ?? '');
-            setPassword('');
             toast.success('Webmail bağlantısı kaldırıldı');
+            if (targetRef.current !== sentTarget) return;
+            setEmail('');
+            setDisplayName(ownerName);
+            setPassword('');
           },
           onError: (err) => toast.error(`Bağlantı kaldırılamadı: ${err.message}`),
         })
     );
+  };
 
   const saveSignature = (value: string | null) =>
     textSignature.mutate(value, {
@@ -124,6 +147,26 @@ export default function WebmailSettingsScreen() {
       refreshing={account.isRefetching}
       onRefresh={() => void account.refetch()}
     >
+      {isSuperAdmin && otherUsers.length > 0 ? (
+        <Card className="gap-2">
+          <OptionPicker
+            label="Yönetilen hesap"
+            icon="person-circle-outline"
+            value={targetId}
+            options={otherUsers.map((item) => ({
+              value: item.id,
+              label: item.name,
+              hint: `${item.email}${item.hasMailAccount ? ' · bağlı' : ''}`,
+            }))}
+            placeholder={`Kendi hesabım (${user?.fullName ?? 'ben'})`}
+            searchable
+            clearable
+            onChange={setTargetId}
+          />
+          <Help>Süper admin olarak başka bir kullanıcının webmail bağlantısını ve imzasını düzenleyebilirsiniz.</Help>
+        </Card>
+      ) : null}
+
       {!featureEnabled ? (
         <Notice tone="warning">
           Kişisel webmail bağlantısı sunucuda henüz açılmamış. Sistem yöneticisi SMTP sunucusunu ve izin verilen kurumsal alan adlarını tanımladıktan sonra bu ekran aktif olur.
@@ -131,7 +174,9 @@ export default function WebmailSettingsScreen() {
       ) : null}
 
       <Card className="gap-2">
-        <Text className="font-inter-semibold text-[11px] uppercase tracking-[1.2px] text-info">KİŞİSEL GÖNDERİCİ</Text>
+        <Text className="font-inter-semibold text-[11px] uppercase tracking-[1.2px] text-info">
+          {targetUser ? `${targetUser.name.toLocaleUpperCase('tr-TR')} · GÖNDERİCİ` : 'KİŞİSEL GÖNDERİCİ'}
+        </Text>
         <Text className="font-display text-[20px] text-foreground" numberOfLines={2}>
           {connected ? status?.email : connectionError ? 'Hesabı yeniden doğrulayın' : 'Webmail hesabınızı bağlayın'}
         </Text>

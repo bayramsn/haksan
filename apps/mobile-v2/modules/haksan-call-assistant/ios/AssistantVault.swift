@@ -70,15 +70,18 @@ enum AssistantVault {
       return now - date >= 0 && now - date < ttl && allowed.contains(action)
     }.suffix(20).map { $0 }
   }
-  static func enqueue(action: String, utterance: String? = nil, command: String? = nil, query: String? = nil, dueAt: Date? = nil) throws -> String {
+  static func enqueue(action: String, utterance: String? = nil, command: String? = nil, query: String? = nil, dueAt: Date? = nil) throws -> String? {
     lock.lock(); defer { lock.unlock() }
     guard allowed.contains(action), action != "post_call" else { throw NSError(domain: service, code: 4) }
-    var value = try read(); var pending = fresh(value)
+    var value = try read()
+    guard let scope = AssistantHandoffPolicy.activeScope(enabled: value["enabled"] as? Bool == true, scope: value["scope"] as? String) else { return nil }
+    var pending = fresh(value)
+    guard pending.count < 20 else { return nil }
     let id = UUID().uuidString
-    var row: [String: Any] = ["id": id, "action": action, "createdAt": Date().timeIntervalSince1970 * 1000, "scope": value["scope"] as? String ?? ""]
-    if let utterance, !utterance.isEmpty { row["text"] = String(utterance.prefix(2000)) }
-    if let command = command?.trimmingCharacters(in: .whitespacesAndNewlines), !command.isEmpty { row["command"] = String(command.prefix(2000)) }
-    if let query = query?.trimmingCharacters(in: .whitespacesAndNewlines), !query.isEmpty { row["query"] = String(query.prefix(300)) }
+    var row: [String: Any] = ["id": id, "action": action, "createdAt": Date().timeIntervalSince1970 * 1000, "scope": scope]
+    if let utterance, !utterance.isEmpty { row["text"] = AssistantHandoffPolicy.boundedText(utterance, limit: 2000) }
+    if let command = command?.trimmingCharacters(in: .whitespacesAndNewlines), !command.isEmpty { row["command"] = AssistantHandoffPolicy.boundedText(command, limit: 2000) }
+    if let query = query?.trimmingCharacters(in: .whitespacesAndNewlines), !query.isEmpty { row["query"] = AssistantHandoffPolicy.boundedText(query, limit: 300) }
     if let dueAt, dueAt.timeIntervalSince1970.isFinite { row["dueAt"] = ISO8601DateFormatter().string(from: dueAt) }
     pending.append(row); value["pending"] = pending; try write(value)
     NotificationCenter.default.post(name: NSNotification.Name("HaksanPendingAction"), object: nil)

@@ -41,20 +41,26 @@ export type AccessRequestRow = {
 
 export const settingsApi = {
   /* ------------------------------------------------------------- webmail */
-  mailAccount: () => request<UserMailAccountStatus>('/mail/account'),
+  // `userId` verilirse süper admin o kullanıcının hesabını yönetir (web MailAccountSettings `target`).
+  mailAccount: (userId?: string) => request<UserMailAccountStatus>(userId ? `/mail/account/users/${encodeURIComponent(userId)}` : '/mail/account'),
   /** Parola yalnız bu istekte gider; yanıt ve önbellek onu taşımaz. */
-  mailConnect: (body: UserMailAccountUpsertInput) =>
-    request<UserMailAccountStatus>('/mail/account', { method: 'PUT', body }),
-  mailDisconnect: () => request<{ ok: true }>('/mail/account', { method: 'DELETE' }),
+  mailConnect: (body: UserMailAccountUpsertInput, userId?: string) =>
+    request<UserMailAccountStatus>(userId ? `/mail/account/users/${encodeURIComponent(userId)}` : '/mail/account', { method: 'PUT', body }),
+  mailDisconnect: (userId?: string) => request<{ ok: true }>(userId ? `/mail/account/users/${encodeURIComponent(userId)}` : '/mail/account', { method: 'DELETE' }),
   /** `null` kayıtlı imzayı siler (profilden üretilen varsayılana döner), `''` imzayı kapatır. */
-  mailTextSignature: (signature: string | null) =>
-    request<UserMailAccountStatus>('/mail/signature', { method: 'PUT', body: { signature } }),
-  mailImageSignature: (body: MailSignatureInput) =>
-    request<UserMailAccountStatus>('/mail/signature/image', { method: 'PUT', body }),
-  mailSignatureUsers: () => request<MailSignatureUser[]>('/mail/signature/users'),
-  mailUserSignature: (userId: string) => request<MailImageSignature>(`/mail/signature/users/${userId}`),
-  mailSaveUserSignature: (userId: string, body: MailSignatureInput) =>
-    request<MailImageSignature>(`/mail/signature/users/${userId}`, { method: 'PUT', body }),
+  mailTextSignature: (signature: string | null, userId?: string) =>
+    request<UserMailAccountStatus>(userId ? `/mail/account/users/${encodeURIComponent(userId)}/signature` : '/mail/signature', { method: 'PUT', body: { signature } }),
+  mailImageSignature: (body: MailSignatureInput, userId?: string) =>
+    request<UserMailAccountStatus>(userId ? `/mail/account/users/${encodeURIComponent(userId)}/signature/image` : '/mail/signature/image', { method: 'PUT', body }),
+  mailSignatureUsers: () => request<MailSignatureUser[]>('/mail/account/users'),
+  mailUserSignature: async (userId: string): Promise<MailImageSignature> => {
+    const status = await request<UserMailAccountStatus>(`/mail/account/users/${userId}`);
+    return { image: status.signatureImage ?? null, filename: status.signatureFilename ?? null };
+  },
+  mailSaveUserSignature: async (userId: string, body: MailSignatureInput): Promise<MailImageSignature> => {
+    const status = await request<UserMailAccountStatus>(`/mail/account/users/${userId}/signature/image`, { method: 'PUT', body });
+    return { image: status.signatureImage ?? null, filename: status.signatureFilename ?? null };
+  },
 
   /* -------------------------------------------------------- belge imzaları */
   signatures: () => request<SignatureView[]>('/signatures'),

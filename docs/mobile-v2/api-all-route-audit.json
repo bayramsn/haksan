@@ -1,0 +1,6473 @@
+{
+  "generatedAt": "2026-11-02T09:02:11.500Z",
+  "counts": {
+    "backendEndpoints": 514,
+    "mobileCallsites": 531,
+    "registeredCallsites": 531,
+    "unresolvedExpressions": 0
+  },
+  "missing": [],
+  "unresolved": [],
+  "rows": [
+    {
+      "file": "apps/mobile-v2/src/api/admin.api.ts",
+      "line": 234,
+      "method": "GET",
+      "path": "/brands",
+      "registered": [
+        {
+          "controller": "ProductsController",
+          "handler": "listBrands"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/admin.api.ts",
+      "line": 236,
+      "method": "GET",
+      "path": "/laser-profiles/options",
+      "registered": [
+        {
+          "controller": "LaserProfilesController",
+          "handler": "options"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/admin.api.ts",
+      "line": 238,
+      "method": "GET",
+      "path": "/laser-profiles/resolve",
+      "registered": [
+        {
+          "controller": "LaserProfilesController",
+          "handler": "resolve"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/admin.api.ts",
+      "line": 250,
+      "method": "PUT",
+      "path": "/admin/laser-profiles",
+      "registered": [
+        {
+          "controller": "LaserProfilesController",
+          "handler": "save"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/admin.api.ts",
+      "line": 255,
+      "method": "POST",
+      "path": "/admin/technical-import/preview",
+      "registered": [
+        {
+          "controller": "AdminLookupsController",
+          "handler": "previewTechnicalImport"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/admin.api.ts",
+      "line": 268,
+      "method": "POST",
+      "path": "/admin/technical-import/commit",
+      "registered": [
+        {
+          "controller": "AdminLookupsController",
+          "handler": "commitTechnicalImport"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/admin.api.ts",
+      "line": 285,
+      "method": "GET",
+      "path": "/users",
+      "registered": [
+        {
+          "controller": "AdminController",
+          "handler": "listUsers"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/admin.api.ts",
+      "line": 287,
+      "method": "POST",
+      "path": "/users",
+      "registered": [
+        {
+          "controller": "AdminController",
+          "handler": "createUser"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/admin.api.ts",
+      "line": 288,
+      "method": "PATCH",
+      "path": "/users/:param",
+      "registered": [
+        {
+          "controller": "AdminController",
+          "handler": "updateUser"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/admin.api.ts",
+      "line": 290,
+      "method": "POST",
+      "path": "/users/:param/unlock",
+      "registered": [
+        {
+          "controller": "AdminController",
+          "handler": "unlockUser"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/admin.api.ts",
+      "line": 294,
+      "method": "DELETE",
+      "path": "/users/:param",
+      "registered": [
+        {
+          "controller": "AdminController",
+          "handler": "deleteUser"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/admin.api.ts",
+      "line": 297,
+      "method": "GET",
+      "path": "/user-targets",
+      "registered": [
+        {
+          "controller": "AdminController",
+          "handler": "listUserTargets"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/admin.api.ts",
+      "line": 299,
+      "method": "POST",
+      "path": "/users/:param/targets",
+      "registered": [
+        {
+          "controller": "AdminController",
+          "handler": "upsertUserTarget"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/admin.api.ts",
+      "line": 300,
+      "method": "GET",
+      "path": "/department-targets",
+      "registered": [
+        {
+          "controller": "AdminController",
+          "handler": "listDepartmentTargets"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/admin.api.ts",
+      "line": 302,
+      "method": "POST",
+      "path": "/departments/:param/targets",
+      "registered": [
+        {
+          "controller": "AdminController",
+          "handler": "upsertDepartmentTarget"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/admin.api.ts",
+      "line": 304,
+      "method": "POST",
+      "path": "/roles/:param/targets",
+      "registered": [
+        {
+          "controller": "AdminController",
+          "handler": "upsertRoleTargets"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/admin.api.ts",
+      "line": 308,
+      "method": "GET",
+      "path": "/roles/:param/target-members",
+      "registered": [
+        {
+          "controller": "AdminController",
+          "handler": "roleTargetMembers"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/admin.api.ts",
+      "line": 310,
+      "method": "GET",
+      "path": "/reports/target-progress",
+      "registered": [
+        {
+          "controller": "ReportsController",
+          "handler": "targetProgress"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/admin.api.ts",
+      "line": 313,
+      "method": "GET",
+      "path": "/roles",
+      "registered": [
+        {
+          "controller": "AdminController",
+          "handler": "listRoles"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/admin.api.ts",
+      "line": 314,
+      "method": "POST",
+      "path": "/roles",
+      "registered": [
+        {
+          "controller": "AdminController",
+          "handler": "createRole"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/admin.api.ts",
+      "line": 315,
+      "method": "PATCH",
+      "path": "/roles/:param",
+      "registered": [
+        {
+          "controller": "AdminController",
+          "handler": "updateRole"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/admin.api.ts",
+      "line": 316,
+      "method": "GET",
+      "path": "/permissions",
+      "registered": [
+        {
+          "controller": "AdminController",
+          "handler": "listPermissions"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/admin.api.ts",
+      "line": 319,
+      "method": "GET",
+      "path": "/departments",
+      "registered": [
+        {
+          "controller": "AdminController",
+          "handler": "listDepts"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/admin.api.ts",
+      "line": 320,
+      "method": "GET",
+      "path": "/divisions",
+      "registered": [
+        {
+          "controller": "AdminController",
+          "handler": "listDivisions"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/admin.api.ts",
+      "line": 321,
+      "method": "POST",
+      "path": "/departments",
+      "registered": [
+        {
+          "controller": "AdminController",
+          "handler": "createDept"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/admin.api.ts",
+      "line": 323,
+      "method": "PATCH",
+      "path": "/departments/:param",
+      "registered": [
+        {
+          "controller": "AdminController",
+          "handler": "updateDept"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/admin.api.ts",
+      "line": 324,
+      "method": "DELETE",
+      "path": "/departments/:param",
+      "registered": [
+        {
+          "controller": "AdminController",
+          "handler": "deleteDept"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/admin.api.ts",
+      "line": 328,
+      "method": "GET",
+      "path": "/audit-logs",
+      "registered": [
+        {
+          "controller": "AdminController",
+          "handler": "listAuditLogs"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/admin.api.ts",
+      "line": 329,
+      "method": "GET",
+      "path": "/tenant",
+      "registered": [
+        {
+          "controller": "AdminController",
+          "handler": "getTenant"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/admin.api.ts",
+      "line": 330,
+      "method": "PATCH",
+      "path": "/tenant",
+      "registered": [
+        {
+          "controller": "AdminController",
+          "handler": "updateTenant"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/admin.api.ts",
+      "line": 333,
+      "method": "GET",
+      "path": "/admin/lookups",
+      "registered": [
+        {
+          "controller": "AdminLookupsController",
+          "handler": "listAvailable"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/admin.api.ts",
+      "line": 335,
+      "method": "GET",
+      "path": "/admin/lookups/:param",
+      "registered": [
+        {
+          "controller": "AdminLookupsController",
+          "handler": "listLookup"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/admin.api.ts",
+      "line": 337,
+      "method": "POST",
+      "path": "/admin/lookups/:param",
+      "registered": [
+        {
+          "controller": "AdminLookupsController",
+          "handler": "createLookup"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/admin.api.ts",
+      "line": 339,
+      "method": "PATCH",
+      "path": "/admin/lookups/:param/:param",
+      "registered": [
+        {
+          "controller": "AdminLookupsController",
+          "handler": "updateLookup"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/admin.api.ts",
+      "line": 341,
+      "method": "PATCH",
+      "path": "/admin/lookups/:param/reorder",
+      "registered": [
+        {
+          "controller": "AdminLookupsController",
+          "handler": "reorderLookup"
+        },
+        {
+          "controller": "AdminLookupsController",
+          "handler": "updateLookup"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/admin.api.ts",
+      "line": 346,
+      "method": "DELETE",
+      "path": "/admin/lookups/:param/:param",
+      "registered": [
+        {
+          "controller": "AdminLookupsController",
+          "handler": "deleteLookup"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/admin.api.ts",
+      "line": 350,
+      "method": "GET",
+      "path": "/admin/product-spec-templates",
+      "registered": [
+        {
+          "controller": "AdminLookupsController",
+          "handler": "listProductSpecTemplates"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/admin.api.ts",
+      "line": 352,
+      "method": "POST",
+      "path": "/admin/product-spec-templates",
+      "registered": [
+        {
+          "controller": "AdminLookupsController",
+          "handler": "createProductSpecTemplate"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/admin.api.ts",
+      "line": 354,
+      "method": "POST",
+      "path": "/admin/product-spec-templates/bulk",
+      "registered": [
+        {
+          "controller": "AdminLookupsController",
+          "handler": "bulkCreateProductSpecTemplates"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/admin.api.ts",
+      "line": 359,
+      "method": "PUT",
+      "path": "/admin/product-spec-templates/batch",
+      "registered": [
+        {
+          "controller": "AdminLookupsController",
+          "handler": "batchSaveProductSpecTemplates"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/admin.api.ts",
+      "line": 364,
+      "method": "PATCH",
+      "path": "/admin/product-spec-templates/:param",
+      "registered": [
+        {
+          "controller": "AdminLookupsController",
+          "handler": "updateProductSpecTemplate"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/admin.api.ts",
+      "line": 366,
+      "method": "DELETE",
+      "path": "/admin/product-spec-templates/:param",
+      "registered": [
+        {
+          "controller": "AdminLookupsController",
+          "handler": "deleteProductSpecTemplate"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/admin.api.ts",
+      "line": 368,
+      "method": "POST",
+      "path": "/admin/machine-templates",
+      "registered": [
+        {
+          "controller": "AdminLookupsController",
+          "handler": "createMachineTemplate"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/admin.api.ts",
+      "line": 370,
+      "method": "POST",
+      "path": "/admin/technical-import/preview",
+      "registered": [
+        {
+          "controller": "AdminLookupsController",
+          "handler": "previewTechnicalImport"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/admin.api.ts",
+      "line": 372,
+      "method": "POST",
+      "path": "/admin/technical-import/commit",
+      "registered": [
+        {
+          "controller": "AdminLookupsController",
+          "handler": "commitTechnicalImport"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/commercial-docs.api.ts",
+      "line": 176,
+      "method": "POST",
+      "path": "/proformas",
+      "registered": [
+        {
+          "controller": "CommercialDocumentsController",
+          "handler": "createProforma"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/commercial-docs.api.ts",
+      "line": 178,
+      "method": "POST",
+      "path": "/proformas/standalone",
+      "registered": [
+        {
+          "controller": "CommercialDocumentsController",
+          "handler": "createStandaloneProforma"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/commercial-docs.api.ts",
+      "line": 180,
+      "method": "PATCH",
+      "path": "/proformas/:param",
+      "registered": [
+        {
+          "controller": "CommercialDocumentsController",
+          "handler": "updateProforma"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/commercial-docs.api.ts",
+      "line": 182,
+      "method": "PATCH",
+      "path": "/proformas/standalone/:param",
+      "registered": [
+        {
+          "controller": "CommercialDocumentsController",
+          "handler": "updateStandaloneProforma"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/commercial-docs.api.ts",
+      "line": 183,
+      "method": "DELETE",
+      "path": "/proformas/:param",
+      "registered": [
+        {
+          "controller": "CommercialDocumentsController",
+          "handler": "deleteProforma"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/commercial-docs.api.ts",
+      "line": 187,
+      "method": "POST",
+      "path": "/contracts",
+      "registered": [
+        {
+          "controller": "CommercialDocumentsController",
+          "handler": "createContract"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/commercial-docs.api.ts",
+      "line": 189,
+      "method": "POST",
+      "path": "/contracts/standalone",
+      "registered": [
+        {
+          "controller": "CommercialDocumentsController",
+          "handler": "createStandaloneContract"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/commercial-docs.api.ts",
+      "line": 191,
+      "method": "PATCH",
+      "path": "/contracts/:param",
+      "registered": [
+        {
+          "controller": "CommercialDocumentsController",
+          "handler": "updateContract"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/commercial-docs.api.ts",
+      "line": 193,
+      "method": "PATCH",
+      "path": "/contracts/standalone/:param",
+      "registered": [
+        {
+          "controller": "CommercialDocumentsController",
+          "handler": "updateStandaloneContract"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/commercial-docs.api.ts",
+      "line": 194,
+      "method": "DELETE",
+      "path": "/contracts/:param",
+      "registered": [
+        {
+          "controller": "CommercialDocumentsController",
+          "handler": "deleteContract"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/commercial-docs.api.ts",
+      "line": 199,
+      "method": "POST",
+      "path": "/commercial-invoices",
+      "registered": [
+        {
+          "controller": "CommercialDocumentsController",
+          "handler": "createCommercialInvoice"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/commercial-docs.api.ts",
+      "line": 201,
+      "method": "PATCH",
+      "path": "/commercial-invoices/:param",
+      "registered": [
+        {
+          "controller": "CommercialDocumentsController",
+          "handler": "updateCommercialInvoice"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/commercial-docs.api.ts",
+      "line": 202,
+      "method": "DELETE",
+      "path": "/commercial-invoices/:param",
+      "registered": [
+        {
+          "controller": "CommercialDocumentsController",
+          "handler": "deleteCommercialInvoice"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/commercial-docs.api.ts",
+      "line": 207,
+      "method": "POST",
+      "path": "/accounting-invoices",
+      "registered": [
+        {
+          "controller": "FinanceController",
+          "handler": "createAccountingInvoice"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/commercial-docs.api.ts",
+      "line": 212,
+      "method": "GET",
+      "path": "/files/links",
+      "registered": [
+        {
+          "controller": "FilesController",
+          "handler": "listLinks"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/commercial-docs.api.ts",
+      "line": 213,
+      "method": "DELETE",
+      "path": "/files/:param",
+      "registered": [
+        {
+          "controller": "FilesController",
+          "handler": "remove"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/competitors.hooks.ts",
+      "line": 14,
+      "method": "GET",
+      "path": "/competitors",
+      "registered": [
+        {
+          "controller": "CompetitorsController",
+          "handler": "list"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/competitors.hooks.ts",
+      "line": 22,
+      "method": "POST",
+      "path": "/competitors",
+      "registered": [
+        {
+          "controller": "CompetitorsController",
+          "handler": "create"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/crm-general.api.ts",
+      "line": 166,
+      "method": "GET",
+      "path": "/companies",
+      "registered": [
+        {
+          "controller": "CompaniesController",
+          "handler": "list"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/crm-general.api.ts",
+      "line": 168,
+      "method": "GET",
+      "path": "/companies/summary",
+      "registered": [
+        {
+          "controller": "CompaniesController",
+          "handler": "summary"
+        },
+        {
+          "controller": "CompaniesController",
+          "handler": "get"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/crm-general.api.ts",
+      "line": 170,
+      "method": "GET",
+      "path": "/companies/osm-search",
+      "registered": [
+        {
+          "controller": "CompaniesController",
+          "handler": "osmSearch"
+        },
+        {
+          "controller": "CompaniesController",
+          "handler": "get"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/crm-general.api.ts",
+      "line": 172,
+      "method": "POST",
+      "path": "/companies/website-lookup",
+      "registered": [
+        {
+          "controller": "CompaniesController",
+          "handler": "websiteLookup"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/crm-general.api.ts",
+      "line": 174,
+      "method": "PATCH",
+      "path": "/companies/:param/location",
+      "registered": [
+        {
+          "controller": "CompaniesController",
+          "handler": "setLocation"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/crm-general.api.ts",
+      "line": 176,
+      "method": "POST",
+      "path": "/companies/nearby-stale-visits",
+      "registered": [
+        {
+          "controller": "CompaniesController",
+          "handler": "nearbyStaleVisits"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/crm-general.api.ts",
+      "line": 181,
+      "method": "POST",
+      "path": "/companies/imports/company-contacts/preview",
+      "registered": [
+        {
+          "controller": "CompaniesController",
+          "handler": "previewCompanyContactImport"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/crm-general.api.ts",
+      "line": 183,
+      "method": "POST",
+      "path": "/companies/imports/company-contacts/commit",
+      "registered": [
+        {
+          "controller": "CompaniesController",
+          "handler": "commitCompanyContactImport"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/crm-general.api.ts",
+      "line": 190,
+      "method": "GET",
+      "path": "/lookups/tax-offices",
+      "registered": [
+        {
+          "controller": "LookupsController",
+          "handler": "byName"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/crm-general.api.ts",
+      "line": 191,
+      "method": "GET",
+      "path": "/lookups/company-relation-types",
+      "registered": [
+        {
+          "controller": "LookupsController",
+          "handler": "byName"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/crm-general.api.ts",
+      "line": 192,
+      "method": "GET",
+      "path": "/lookups/company-statuses",
+      "registered": [
+        {
+          "controller": "LookupsController",
+          "handler": "byName"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/crm-general.api.ts",
+      "line": 193,
+      "method": "GET",
+      "path": "/lookups/company-groups",
+      "registered": [
+        {
+          "controller": "LookupsController",
+          "handler": "byName"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/crm-general.api.ts",
+      "line": 194,
+      "method": "GET",
+      "path": "/lookups/company-sectors",
+      "registered": [
+        {
+          "controller": "LookupsController",
+          "handler": "byName"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/crm-general.api.ts",
+      "line": 195,
+      "method": "GET",
+      "path": "/lookups/contact-sources",
+      "registered": [
+        {
+          "controller": "LookupsController",
+          "handler": "byName"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/crm-general.api.ts",
+      "line": 206,
+      "method": "GET",
+      "path": "/contacts",
+      "registered": [
+        {
+          "controller": "ContactsController",
+          "handler": "list"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/crm-general.api.ts",
+      "line": 208,
+      "method": "GET",
+      "path": "/contacts/summary",
+      "registered": [
+        {
+          "controller": "ContactsController",
+          "handler": "summary"
+        },
+        {
+          "controller": "ContactsController",
+          "handler": "get"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/crm-general.api.ts",
+      "line": 210,
+      "method": "POST",
+      "path": "/contacts/:param/companies/:param/primary",
+      "registered": [
+        {
+          "controller": "ContactsController",
+          "handler": "setPrimaryCompany"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/crm-general.api.ts",
+      "line": 212,
+      "method": "DELETE",
+      "path": "/contacts/:param/companies/:param",
+      "registered": [
+        {
+          "controller": "ContactsController",
+          "handler": "unlinkCompany"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/crm-general.api.ts",
+      "line": 230,
+      "method": "GET",
+      "path": "/mail/account",
+      "registered": [
+        {
+          "controller": "MailController",
+          "handler": "account"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/crm-general.api.ts",
+      "line": 272,
+      "method": "GET",
+      "path": "/chat/conversations/:param",
+      "registered": [
+        {
+          "controller": "ChatController",
+          "handler": "getConversation"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/crm-general.api.ts",
+      "line": 274,
+      "method": "PATCH",
+      "path": "/chat/conversations/:param",
+      "registered": [
+        {
+          "controller": "ChatController",
+          "handler": "updateGroup"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/crm-general.api.ts",
+      "line": 276,
+      "method": "POST",
+      "path": "/chat/conversations/:param/members",
+      "registered": [
+        {
+          "controller": "ChatController",
+          "handler": "addMembers"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/crm-general.api.ts",
+      "line": 278,
+      "method": "DELETE",
+      "path": "/chat/conversations/:param/members/:param",
+      "registered": [
+        {
+          "controller": "ChatController",
+          "handler": "removeMember"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/crm-general.api.ts",
+      "line": 280,
+      "method": "PATCH",
+      "path": "/chat/conversations/:param/members/:param/role",
+      "registered": [
+        {
+          "controller": "ChatController",
+          "handler": "setMemberRole"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/crm-general.api.ts",
+      "line": 281,
+      "method": "GET",
+      "path": "/chat/webrtc-config",
+      "registered": [
+        {
+          "controller": "ChatController",
+          "handler": "webRtcConfig"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/crm-general.api.ts",
+      "line": 318,
+      "method": "GET",
+      "path": "/calendar/events",
+      "registered": [
+        {
+          "controller": "CalendarController",
+          "handler": "list"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/crm-general.api.ts",
+      "line": 320,
+      "method": "POST",
+      "path": "/calendar/events",
+      "registered": [
+        {
+          "controller": "CalendarController",
+          "handler": "create"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/crm-general.api.ts",
+      "line": 322,
+      "method": "PATCH",
+      "path": "/calendar/events/:param",
+      "registered": [
+        {
+          "controller": "CalendarController",
+          "handler": "update"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/crm-general.api.ts",
+      "line": 324,
+      "method": "DELETE",
+      "path": "/calendar/events/:param",
+      "registered": [
+        {
+          "controller": "CalendarController",
+          "handler": "remove"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/crm-general.api.ts",
+      "line": 325,
+      "method": "POST",
+      "path": "/calendar/events/:param/restore",
+      "registered": [
+        {
+          "controller": "CalendarController",
+          "handler": "restore"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/crm-general.api.ts",
+      "line": 327,
+      "method": "POST",
+      "path": "/calendar/import/preview",
+      "registered": [
+        {
+          "controller": "CalendarController",
+          "handler": "importPreview"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/crm-general.api.ts",
+      "line": 331,
+      "method": "POST",
+      "path": "/calendar/import/commit",
+      "registered": [
+        {
+          "controller": "CalendarController",
+          "handler": "importCommit"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/crm-general.api.ts",
+      "line": 377,
+      "method": "GET",
+      "path": "/tasks",
+      "registered": [
+        {
+          "controller": "TasksController",
+          "handler": "list"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/crm-general.api.ts",
+      "line": 378,
+      "method": "GET",
+      "path": "/tasks/summary",
+      "registered": [
+        {
+          "controller": "TasksController",
+          "handler": "summary"
+        },
+        {
+          "controller": "TasksController",
+          "handler": "get"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/crm-general.api.ts",
+      "line": 379,
+      "method": "GET",
+      "path": "/tasks/events",
+      "registered": [
+        {
+          "controller": "TasksController",
+          "handler": "events"
+        },
+        {
+          "controller": "TasksController",
+          "handler": "get"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/crm-general.api.ts",
+      "line": 380,
+      "method": "PATCH",
+      "path": "/tasks/:param",
+      "registered": [
+        {
+          "controller": "TasksController",
+          "handler": "update"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/crm-general.api.ts",
+      "line": 381,
+      "method": "DELETE",
+      "path": "/tasks/:param",
+      "registered": [
+        {
+          "controller": "TasksController",
+          "handler": "remove"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/crm-general.api.ts",
+      "line": 407,
+      "method": "POST",
+      "path": "/visits",
+      "registered": [
+        {
+          "controller": "ActivitiesController",
+          "handler": "createVisit"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/crm-general.api.ts",
+      "line": 408,
+      "method": "POST",
+      "path": "/calls",
+      "registered": [
+        {
+          "controller": "ActivitiesController",
+          "handler": "createCall"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 54,
+      "method": "POST",
+      "path": "/auth/login",
+      "registered": [
+        {
+          "controller": "AuthController",
+          "handler": "login"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 60,
+      "method": "GET",
+      "path": "/auth/me",
+      "registered": [
+        {
+          "controller": "AuthController",
+          "handler": "me"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 62,
+      "method": "POST",
+      "path": "/auth/logout",
+      "registered": [
+        {
+          "controller": "AuthController",
+          "handler": "logout"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 71,
+      "method": "POST",
+      "path": "/auth/forgot-password",
+      "registered": [
+        {
+          "controller": "AuthController",
+          "handler": "forgot"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 77,
+      "method": "POST",
+      "path": "/auth/reset-password",
+      "registered": [
+        {
+          "controller": "AuthController",
+          "handler": "reset"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 199,
+      "method": "GET",
+      "path": "/companies",
+      "registered": [
+        {
+          "controller": "CompaniesController",
+          "handler": "list"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 200,
+      "method": "GET",
+      "path": "/companies/:param",
+      "registered": [
+        {
+          "controller": "CompaniesController",
+          "handler": "get"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 201,
+      "method": "GET",
+      "path": "/companies/summary",
+      "registered": [
+        {
+          "controller": "CompaniesController",
+          "handler": "summary"
+        },
+        {
+          "controller": "CompaniesController",
+          "handler": "get"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 204,
+      "method": "GET",
+      "path": "/companies/:param/cross-department-debt",
+      "registered": [
+        {
+          "controller": "CompaniesController",
+          "handler": "crossDepartmentDebt"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 207,
+      "method": "GET",
+      "path": "/companies/map-points",
+      "registered": [
+        {
+          "controller": "CompaniesController",
+          "handler": "mapPoints"
+        },
+        {
+          "controller": "CompaniesController",
+          "handler": "get"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 208,
+      "method": "POST",
+      "path": "/companies",
+      "registered": [
+        {
+          "controller": "CompaniesController",
+          "handler": "create"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 210,
+      "method": "PATCH",
+      "path": "/companies/:param",
+      "registered": [
+        {
+          "controller": "CompaniesController",
+          "handler": "update"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 215,
+      "method": "PATCH",
+      "path": "/companies/:param/status",
+      "registered": [
+        {
+          "controller": "CompaniesController",
+          "handler": "updateStatus"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 225,
+      "method": "DELETE",
+      "path": "/companies/:param",
+      "registered": [
+        {
+          "controller": "CompaniesController",
+          "handler": "remove"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 265,
+      "method": "GET",
+      "path": "/reports/pipeline-summary",
+      "registered": [
+        {
+          "controller": "ReportsController",
+          "handler": "pipelineSummary"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 266,
+      "method": "GET",
+      "path": "/reports/expected-receivables",
+      "registered": [
+        {
+          "controller": "ReportsController",
+          "handler": "expectedReceivables"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 267,
+      "method": "GET",
+      "path": "/reports/service-complaints-summary",
+      "registered": [
+        {
+          "controller": "ReportsController",
+          "handler": "serviceComplaintsSummary"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 269,
+      "method": "GET",
+      "path": "/reports/completed-payments",
+      "registered": [
+        {
+          "controller": "ReportsController",
+          "handler": "completedPayments"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 275,
+      "method": "GET",
+      "path": "/customer-devices",
+      "registered": [
+        {
+          "controller": "InventoryController",
+          "handler": "cd"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 309,
+      "method": "GET",
+      "path": "/notifications",
+      "registered": [
+        {
+          "controller": "NotificationsController",
+          "handler": "list"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 310,
+      "method": "PATCH",
+      "path": "/notifications/:param/read",
+      "registered": [
+        {
+          "controller": "NotificationsController",
+          "handler": "markRead"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 312,
+      "method": "POST",
+      "path": "/notifications/:param/respond",
+      "registered": [
+        {
+          "controller": "NotificationsController",
+          "handler": "respond"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 358,
+      "method": "GET",
+      "path": "/chat/conversations",
+      "registered": [
+        {
+          "controller": "ChatController",
+          "handler": "listConversations"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 361,
+      "method": "GET",
+      "path": "/chat/conversations/:param/messages",
+      "registered": [
+        {
+          "controller": "ChatController",
+          "handler": "listMessages"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 363,
+      "method": "POST",
+      "path": "/chat/conversations/:param/messages",
+      "registered": [
+        {
+          "controller": "ChatController",
+          "handler": "sendMessage"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 364,
+      "method": "POST",
+      "path": "/chat/conversations/:param/read",
+      "registered": [
+        {
+          "controller": "ChatController",
+          "handler": "markRead"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 365,
+      "method": "GET",
+      "path": "/chat/directory",
+      "registered": [
+        {
+          "controller": "ChatController",
+          "handler": "directory"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 366,
+      "method": "POST",
+      "path": "/chat/conversations/dm",
+      "registered": [
+        {
+          "controller": "ChatController",
+          "handler": "createDm"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 368,
+      "method": "POST",
+      "path": "/chat/conversations/group",
+      "registered": [
+        {
+          "controller": "ChatController",
+          "handler": "createGroup"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 370,
+      "method": "PATCH",
+      "path": "/chat/messages/:param",
+      "registered": [
+        {
+          "controller": "ChatController",
+          "handler": "editMessage"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 372,
+      "method": "POST",
+      "path": "/chat/messages/:param/reactions",
+      "registered": [
+        {
+          "controller": "ChatController",
+          "handler": "toggleReaction"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 377,
+      "method": "DELETE",
+      "path": "/chat/messages/:param",
+      "registered": [
+        {
+          "controller": "ChatController",
+          "handler": "deleteMessage"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 392,
+      "method": "POST",
+      "path": "/files/signed-upload-url",
+      "registered": [
+        {
+          "controller": "FilesController",
+          "handler": "signedUpload"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 394,
+      "method": "POST",
+      "path": "/files/signed-download-url",
+      "registered": [
+        {
+          "controller": "FilesController",
+          "handler": "signedDownload"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 398,
+      "method": "POST",
+      "path": "/files/link",
+      "registered": [
+        {
+          "controller": "FilesController",
+          "handler": "link"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 399,
+      "method": "DELETE",
+      "path": "/files/:param",
+      "registered": [
+        {
+          "controller": "FilesController",
+          "handler": "remove"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 465,
+      "method": "GET",
+      "path": "/contacts",
+      "registered": [
+        {
+          "controller": "ContactsController",
+          "handler": "list"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 466,
+      "method": "GET",
+      "path": "/contacts/:param",
+      "registered": [
+        {
+          "controller": "ContactsController",
+          "handler": "get"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 467,
+      "method": "GET",
+      "path": "/contacts/summary",
+      "registered": [
+        {
+          "controller": "ContactsController",
+          "handler": "summary"
+        },
+        {
+          "controller": "ContactsController",
+          "handler": "get"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 468,
+      "method": "POST",
+      "path": "/contacts",
+      "registered": [
+        {
+          "controller": "ContactsController",
+          "handler": "create"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 470,
+      "method": "PATCH",
+      "path": "/contacts/:param",
+      "registered": [
+        {
+          "controller": "ContactsController",
+          "handler": "update"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 471,
+      "method": "DELETE",
+      "path": "/contacts/:param",
+      "registered": [
+        {
+          "controller": "ContactsController",
+          "handler": "remove"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 684,
+      "method": "GET",
+      "path": "/opportunities",
+      "registered": [
+        {
+          "controller": "OpportunitiesController",
+          "handler": "list"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 685,
+      "method": "GET",
+      "path": "/opportunities/:param",
+      "registered": [
+        {
+          "controller": "OpportunitiesController",
+          "handler": "get"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 715,
+      "method": "POST",
+      "path": "/opportunities",
+      "registered": [
+        {
+          "controller": "OpportunitiesController",
+          "handler": "create"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 740,
+      "method": "PATCH",
+      "path": "/opportunities/:param",
+      "registered": [
+        {
+          "controller": "OpportunitiesController",
+          "handler": "update"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 741,
+      "method": "DELETE",
+      "path": "/opportunities/:param",
+      "registered": [
+        {
+          "controller": "OpportunitiesController",
+          "handler": "remove"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 744,
+      "method": "POST",
+      "path": "/opportunities/:param/convert",
+      "registered": [
+        {
+          "controller": "OpportunitiesController",
+          "handler": "convertLead"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 746,
+      "method": "PATCH",
+      "path": "/opportunities/:param/qualification-stage",
+      "registered": [
+        {
+          "controller": "OpportunitiesController",
+          "handler": "changeQualificationStage"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 751,
+      "method": "PATCH",
+      "path": "/opportunities/:param/process-checks/:param",
+      "registered": [
+        {
+          "controller": "OpportunitiesController",
+          "handler": "setProcessCheck"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 756,
+      "method": "POST",
+      "path": "/opportunities/:param/approvals/:param",
+      "registered": [
+        {
+          "controller": "OpportunitiesController",
+          "handler": "decideQualificationApproval"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 758,
+      "method": "POST",
+      "path": "/opportunities/:param/close",
+      "registered": [
+        {
+          "controller": "OpportunitiesController",
+          "handler": "close"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 760,
+      "method": "POST",
+      "path": "/opportunities/:param/defer",
+      "registered": [
+        {
+          "controller": "OpportunitiesController",
+          "handler": "defer"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 761,
+      "method": "POST",
+      "path": "/opportunities/:param/reopen",
+      "registered": [
+        {
+          "controller": "OpportunitiesController",
+          "handler": "reopen"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 763,
+      "method": "GET",
+      "path": "/opportunities/assignees",
+      "registered": [
+        {
+          "controller": "OpportunitiesController",
+          "handler": "assignees"
+        },
+        {
+          "controller": "OpportunitiesController",
+          "handler": "get"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 908,
+      "method": "GET",
+      "path": "/quotes",
+      "registered": [
+        {
+          "controller": "QuotesController",
+          "handler": "list"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 909,
+      "method": "GET",
+      "path": "/quotes/summary",
+      "registered": [
+        {
+          "controller": "QuotesController",
+          "handler": "summary"
+        },
+        {
+          "controller": "QuotesController",
+          "handler": "get"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 910,
+      "method": "GET",
+      "path": "/quotes/:param",
+      "registered": [
+        {
+          "controller": "QuotesController",
+          "handler": "get"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 912,
+      "method": "POST",
+      "path": "/quotes/:param/send",
+      "registered": [
+        {
+          "controller": "QuotesController",
+          "handler": "send"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 913,
+      "method": "POST",
+      "path": "/quotes/:param/approve",
+      "registered": [
+        {
+          "controller": "QuotesController",
+          "handler": "approve"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 914,
+      "method": "POST",
+      "path": "/quotes/:param/reject",
+      "registered": [
+        {
+          "controller": "QuotesController",
+          "handler": "reject"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 916,
+      "method": "POST",
+      "path": "/quotes/:param/status",
+      "registered": [
+        {
+          "controller": "QuotesController",
+          "handler": "changeStatus"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 918,
+      "method": "POST",
+      "path": "/quotes/:param/price-approval/approve",
+      "registered": [
+        {
+          "controller": "QuotesController",
+          "handler": "approvePrice"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 918,
+      "method": "POST",
+      "path": "/quotes/:param/price-approval/reject",
+      "registered": [
+        {
+          "controller": "QuotesController",
+          "handler": "rejectPrice"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 922,
+      "method": "DELETE",
+      "path": "/quotes/:param",
+      "registered": [
+        {
+          "controller": "QuotesController",
+          "handler": "remove"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 932,
+      "method": "GET",
+      "path": "/mail/account",
+      "registered": [
+        {
+          "controller": "MailController",
+          "handler": "account"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 940,
+      "method": "GET",
+      "path": "/mail/recipients",
+      "registered": [
+        {
+          "controller": "MailController",
+          "handler": "recipients"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 945,
+      "method": "POST",
+      "path": "/mail/send",
+      "registered": [
+        {
+          "controller": "MailController",
+          "handler": "send"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 978,
+      "method": "GET",
+      "path": "/activities",
+      "registered": [
+        {
+          "controller": "ActivitiesController",
+          "handler": "list"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 979,
+      "method": "GET",
+      "path": "/activities/:param",
+      "registered": [
+        {
+          "controller": "ActivitiesController",
+          "handler": "getActivity"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 980,
+      "method": "POST",
+      "path": "/activities",
+      "registered": [
+        {
+          "controller": "ActivitiesController",
+          "handler": "createActivity"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 981,
+      "method": "PATCH",
+      "path": "/activities/:param",
+      "registered": [
+        {
+          "controller": "ActivitiesController",
+          "handler": "updateActivity"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 982,
+      "method": "DELETE",
+      "path": "/activities/:param",
+      "registered": [
+        {
+          "controller": "ActivitiesController",
+          "handler": "deleteActivity"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 991,
+      "method": "GET",
+      "path": "/lookups/:param",
+      "registered": [
+        {
+          "controller": "LookupsController",
+          "handler": "byName"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 1252,
+      "method": "GET",
+      "path": "/service-tickets",
+      "registered": [
+        {
+          "controller": "ServiceController",
+          "handler": "listTickets"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 1254,
+      "method": "GET",
+      "path": "/service-tickets/summary",
+      "registered": [
+        {
+          "controller": "ServiceController",
+          "handler": "ticketSummary"
+        },
+        {
+          "controller": "ServiceController",
+          "handler": "getTicket"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 1255,
+      "method": "GET",
+      "path": "/service-tickets/:param",
+      "registered": [
+        {
+          "controller": "ServiceController",
+          "handler": "getTicket"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 1256,
+      "method": "DELETE",
+      "path": "/service-tickets/:param",
+      "registered": [
+        {
+          "controller": "ServiceController",
+          "handler": "deleteTicket"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 1270,
+      "method": "POST",
+      "path": "/service-tickets",
+      "registered": [
+        {
+          "controller": "ServiceController",
+          "handler": "createTicket"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 1283,
+      "method": "PATCH",
+      "path": "/service-tickets/:param",
+      "registered": [
+        {
+          "controller": "ServiceController",
+          "handler": "updateTicket"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 1285,
+      "method": "PATCH",
+      "path": "/service-tickets/:param/status",
+      "registered": [
+        {
+          "controller": "ServiceController",
+          "handler": "updateTicketStatus"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 1286,
+      "method": "GET",
+      "path": "/service-tickets/:param/warranty",
+      "registered": [
+        {
+          "controller": "ServiceController",
+          "handler": "getWarranty"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 1301,
+      "method": "PUT",
+      "path": "/service-tickets/:param/warranty",
+      "registered": [
+        {
+          "controller": "ServiceController",
+          "handler": "upsertWarranty"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 1303,
+      "method": "PUT",
+      "path": "/service-tickets/:param/warranty/parts",
+      "registered": [
+        {
+          "controller": "ServiceController",
+          "handler": "replaceWarrantyParts"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 1305,
+      "method": "POST",
+      "path": "/service-tickets/:param/warranty/submit",
+      "registered": [
+        {
+          "controller": "ServiceController",
+          "handler": "submitWarranty"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 1308,
+      "method": "POST",
+      "path": "/service-tickets/:param/warranty/approve",
+      "registered": [
+        {
+          "controller": "ServiceController",
+          "handler": "approveWarranty"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 1312,
+      "method": "POST",
+      "path": "/service-tickets/:param/warranty/reject",
+      "registered": [
+        {
+          "controller": "ServiceController",
+          "handler": "rejectWarranty"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 1317,
+      "method": "GET",
+      "path": "/service-complaints",
+      "registered": [
+        {
+          "controller": "ServiceComplaintsController",
+          "handler": "listComplaints"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 1318,
+      "method": "GET",
+      "path": "/service-complaints/:param",
+      "registered": [
+        {
+          "controller": "ServiceComplaintsController",
+          "handler": "getComplaint"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 1320,
+      "method": "PATCH",
+      "path": "/service-complaints/:param",
+      "registered": [
+        {
+          "controller": "ServiceComplaintsController",
+          "handler": "updateComplaint"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 1322,
+      "method": "POST",
+      "path": "/service-complaints/:param/convert",
+      "registered": [
+        {
+          "controller": "ServiceComplaintsController",
+          "handler": "convertComplaint"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 1324,
+      "method": "POST",
+      "path": "/service-complaints/:param/reject",
+      "registered": [
+        {
+          "controller": "ServiceComplaintsController",
+          "handler": "rejectComplaint"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 1326,
+      "method": "GET",
+      "path": "/installations",
+      "registered": [
+        {
+          "controller": "ServiceController",
+          "handler": "listInstallations"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 1327,
+      "method": "GET",
+      "path": "/installations/:param",
+      "registered": [
+        {
+          "controller": "ServiceController",
+          "handler": "getInstallation"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 1331,
+      "method": "PATCH",
+      "path": "/installations/:param/status",
+      "registered": [
+        {
+          "controller": "ServiceController",
+          "handler": "updateInstallationStatus"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 1333,
+      "method": "GET",
+      "path": "/shipments",
+      "registered": [
+        {
+          "controller": "ServiceController",
+          "handler": "listShipments"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 1334,
+      "method": "GET",
+      "path": "/shipments/:param",
+      "registered": [
+        {
+          "controller": "ServiceController",
+          "handler": "getShipment"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 1337,
+      "method": "POST",
+      "path": "/shipments/:param/start",
+      "registered": [
+        {
+          "controller": "ServiceController",
+          "handler": "startShipment"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 1346,
+      "method": "PATCH",
+      "path": "/shipments/:param/status",
+      "registered": [
+        {
+          "controller": "ServiceController",
+          "handler": "updateShipmentStatus"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 1348,
+      "method": "GET",
+      "path": "/maintenance-plans",
+      "registered": [
+        {
+          "controller": "MaintenancePlansController",
+          "handler": "list"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 1349,
+      "method": "GET",
+      "path": "/maintenance-plans/:param",
+      "registered": [
+        {
+          "controller": "MaintenancePlansController",
+          "handler": "get"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 1360,
+      "method": "POST",
+      "path": "/maintenance-plans",
+      "registered": [
+        {
+          "controller": "MaintenancePlansController",
+          "handler": "create"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 1372,
+      "method": "PATCH",
+      "path": "/maintenance-plans/:param",
+      "registered": [
+        {
+          "controller": "MaintenancePlansController",
+          "handler": "update"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 1374,
+      "method": "POST",
+      "path": "/maintenance-plans/:param/complete",
+      "registered": [
+        {
+          "controller": "MaintenancePlansController",
+          "handler": "complete"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 1385,
+      "method": "GET",
+      "path": "/customer-devices",
+      "registered": [
+        {
+          "controller": "InventoryController",
+          "handler": "cd"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 1386,
+      "method": "GET",
+      "path": "/customer-devices/:param",
+      "registered": [
+        {
+          "controller": "InventoryController",
+          "handler": "getCustomerDevice"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 1398,
+      "method": "PATCH",
+      "path": "/customer-devices/:param",
+      "registered": [
+        {
+          "controller": "InventoryController",
+          "handler": "updateCustomerDevice"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 1399,
+      "method": "DELETE",
+      "path": "/customer-devices/:param",
+      "registered": [
+        {
+          "controller": "InventoryController",
+          "handler": "deleteCustomerDevice"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 1430,
+      "method": "GET",
+      "path": "/inventory",
+      "registered": [
+        {
+          "controller": "InventoryController",
+          "handler": "list"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 1431,
+      "method": "GET",
+      "path": "/inventory/:param",
+      "registered": [
+        {
+          "controller": "InventoryController",
+          "handler": "get"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 1432,
+      "method": "GET",
+      "path": "/inventory/serial/:param",
+      "registered": [
+        {
+          "controller": "InventoryController",
+          "handler": "bySerial"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 1433,
+      "method": "GET",
+      "path": "/warehouses",
+      "registered": [
+        {
+          "controller": "InventoryController",
+          "handler": "listWarehouses"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 1438,
+      "method": "PATCH",
+      "path": "/inventory/:param/reserve",
+      "registered": [
+        {
+          "controller": "InventoryController",
+          "handler": "reserve"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 1441,
+      "method": "PATCH",
+      "path": "/inventory/:param",
+      "registered": [
+        {
+          "controller": "InventoryController",
+          "handler": "update"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 1538,
+      "method": "GET",
+      "path": "/products",
+      "registered": [
+        {
+          "controller": "ProductsController",
+          "handler": "list"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 1539,
+      "method": "GET",
+      "path": "/products/:param",
+      "registered": [
+        {
+          "controller": "ProductsController",
+          "handler": "get"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 1540,
+      "method": "GET",
+      "path": "/products/:param/media",
+      "registered": [
+        {
+          "controller": "ProductsController",
+          "handler": "listMedia"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 1541,
+      "method": "GET",
+      "path": "/products/:param/options",
+      "registered": [
+        {
+          "controller": "ProductsController",
+          "handler": "listOptions"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 1543,
+      "method": "GET",
+      "path": "/products/:param/compatible-optional-equipment",
+      "registered": [
+        {
+          "controller": "ProductsController",
+          "handler": "compatibleOptionalEquipment"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 1545,
+      "method": "PATCH",
+      "path": "/products/:param",
+      "registered": [
+        {
+          "controller": "ProductsController",
+          "handler": "update"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 1546,
+      "method": "GET",
+      "path": "/price-lists",
+      "registered": [
+        {
+          "controller": "ProductsController",
+          "handler": "listPriceLists"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 1547,
+      "method": "GET",
+      "path": "/price-lists/:param/items",
+      "registered": [
+        {
+          "controller": "ProductsController",
+          "handler": "listPriceListItems"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 1561,
+      "method": "PATCH",
+      "path": "/price-lists/:param/items/:param",
+      "registered": [
+        {
+          "controller": "ProductsController",
+          "handler": "updatePriceListItem"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 1644,
+      "method": "GET",
+      "path": "/sales-orders",
+      "registered": [
+        {
+          "controller": "SalesOrdersController",
+          "handler": "list"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 1649,
+      "method": "POST",
+      "path": "/sales-orders/from-quote/:param",
+      "registered": [
+        {
+          "controller": "SalesOrdersController",
+          "handler": "createFromQuote"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 1656,
+      "method": "GET",
+      "path": "/purchase-orders",
+      "registered": [
+        {
+          "controller": "PurchaseOrdersController",
+          "handler": "list"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 1657,
+      "method": "GET",
+      "path": "/sales-orders/:param",
+      "registered": [
+        {
+          "controller": "SalesOrdersController",
+          "handler": "get"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 1660,
+      "method": "POST",
+      "path": "/sales-orders/:param/approve",
+      "registered": [
+        {
+          "controller": "SalesOrdersController",
+          "handler": "approve"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 1661,
+      "method": "POST",
+      "path": "/sales-orders/:param/reserve",
+      "registered": [
+        {
+          "controller": "SalesOrdersController",
+          "handler": "reserve"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 1663,
+      "method": "PATCH",
+      "path": "/sales-orders/:param/status",
+      "registered": [
+        {
+          "controller": "SalesOrdersController",
+          "handler": "setStatus"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 1664,
+      "method": "GET",
+      "path": "/purchase-orders/:param",
+      "registered": [
+        {
+          "controller": "PurchaseOrdersController",
+          "handler": "get"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 1665,
+      "method": "POST",
+      "path": "/purchase-orders/:param/send",
+      "registered": [
+        {
+          "controller": "PurchaseOrdersController",
+          "handler": "send"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 1666,
+      "method": "POST",
+      "path": "/purchase-orders/:param/approve",
+      "registered": [
+        {
+          "controller": "PurchaseOrdersController",
+          "handler": "approve"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 1668,
+      "method": "PATCH",
+      "path": "/purchase-orders/:param/status",
+      "registered": [
+        {
+          "controller": "PurchaseOrdersController",
+          "handler": "setStatus"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 1879,
+      "method": "GET",
+      "path": "/receivables",
+      "registered": [
+        {
+          "controller": "FinanceController",
+          "handler": "listReceivables"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 1880,
+      "method": "GET",
+      "path": "/receivables/:param",
+      "registered": [
+        {
+          "controller": "FinanceController",
+          "handler": "getReceivable"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 1894,
+      "method": "POST",
+      "path": "/receivables",
+      "registered": [
+        {
+          "controller": "FinanceController",
+          "handler": "createReceivable"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 1896,
+      "method": "PATCH",
+      "path": "/receivables/:param/status",
+      "registered": [
+        {
+          "controller": "FinanceController",
+          "handler": "updateReceivableStatus"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 1898,
+      "method": "GET",
+      "path": "/receivables/summary",
+      "registered": [
+        {
+          "controller": "FinanceController",
+          "handler": "receivableSummary"
+        },
+        {
+          "controller": "FinanceController",
+          "handler": "getReceivable"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 1900,
+      "method": "GET",
+      "path": "/payments",
+      "registered": [
+        {
+          "controller": "FinanceController",
+          "handler": "listPayments"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 1901,
+      "method": "GET",
+      "path": "/payments/:param",
+      "registered": [
+        {
+          "controller": "FinanceController",
+          "handler": "getPayment"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 1902,
+      "method": "POST",
+      "path": "/payments",
+      "registered": [
+        {
+          "controller": "FinanceController",
+          "handler": "createPayment"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 1904,
+      "method": "PATCH",
+      "path": "/payments/:param/status",
+      "registered": [
+        {
+          "controller": "FinanceController",
+          "handler": "updatePaymentStatus"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 1906,
+      "method": "GET",
+      "path": "/payments/summary",
+      "registered": [
+        {
+          "controller": "FinanceController",
+          "handler": "paymentSummary"
+        },
+        {
+          "controller": "FinanceController",
+          "handler": "getPayment"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 1908,
+      "method": "GET",
+      "path": "/accounting-invoices",
+      "registered": [
+        {
+          "controller": "FinanceController",
+          "handler": "listAccountingInvoices"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 1912,
+      "method": "GET",
+      "path": "/accounting-invoices/:param",
+      "registered": [
+        {
+          "controller": "FinanceController",
+          "handler": "getAccountingInvoice"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 1914,
+      "method": "PATCH",
+      "path": "/accounting-invoices/:param/cancel",
+      "registered": [
+        {
+          "controller": "FinanceController",
+          "handler": "cancelAccountingInvoice"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 1915,
+      "method": "GET",
+      "path": "/reports/customer-balances",
+      "registered": [
+        {
+          "controller": "FinanceController",
+          "handler": "customerBalances"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 1916,
+      "method": "GET",
+      "path": "/reports/due-dates",
+      "registered": [
+        {
+          "controller": "FinanceController",
+          "handler": "dueDates"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 1919,
+      "method": "GET",
+      "path": "/companies/:param/finance-summary",
+      "registered": [
+        {
+          "controller": "FinanceController",
+          "handler": "companyFinanceSummary"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 1948,
+      "method": "GET",
+      "path": "/calendar/events",
+      "registered": [
+        {
+          "controller": "CalendarController",
+          "handler": "list"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 1949,
+      "method": "GET",
+      "path": "/calendar/owners",
+      "registered": [
+        {
+          "controller": "CalendarController",
+          "handler": "owners"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 1950,
+      "method": "POST",
+      "path": "/calendar/events",
+      "registered": [
+        {
+          "controller": "CalendarController",
+          "handler": "create"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 1952,
+      "method": "PATCH",
+      "path": "/calendar/events/:param",
+      "registered": [
+        {
+          "controller": "CalendarController",
+          "handler": "update"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 1953,
+      "method": "DELETE",
+      "path": "/calendar/events/:param",
+      "registered": [
+        {
+          "controller": "CalendarController",
+          "handler": "remove"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 2036,
+      "method": "GET",
+      "path": "/tasks",
+      "registered": [
+        {
+          "controller": "TasksController",
+          "handler": "list"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 2037,
+      "method": "GET",
+      "path": "/tasks/counts",
+      "registered": [
+        {
+          "controller": "TasksController",
+          "handler": "counts"
+        },
+        {
+          "controller": "TasksController",
+          "handler": "get"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 2038,
+      "method": "GET",
+      "path": "/tasks/assignees",
+      "registered": [
+        {
+          "controller": "TasksController",
+          "handler": "assignees"
+        },
+        {
+          "controller": "TasksController",
+          "handler": "get"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 2039,
+      "method": "GET",
+      "path": "/tasks/:param",
+      "registered": [
+        {
+          "controller": "TasksController",
+          "handler": "get"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 2040,
+      "method": "POST",
+      "path": "/tasks",
+      "registered": [
+        {
+          "controller": "TasksController",
+          "handler": "create"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 2041,
+      "method": "PATCH",
+      "path": "/tasks/:param",
+      "registered": [
+        {
+          "controller": "TasksController",
+          "handler": "update"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 2042,
+      "method": "POST",
+      "path": "/tasks/:param/comments",
+      "registered": [
+        {
+          "controller": "TasksController",
+          "handler": "comment"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 2050,
+      "method": "GET",
+      "path": "/reports/stock-summary",
+      "registered": [
+        {
+          "controller": "ReportsController",
+          "handler": "stockSummary"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 2126,
+      "method": "GET",
+      "path": "/proformas",
+      "registered": [
+        {
+          "controller": "CommercialDocumentsController",
+          "handler": "listProformas"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 2127,
+      "method": "GET",
+      "path": "/contracts",
+      "registered": [
+        {
+          "controller": "CommercialDocumentsController",
+          "handler": "listContracts"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 2129,
+      "method": "GET",
+      "path": "/commercial-invoices",
+      "registered": [
+        {
+          "controller": "CommercialDocumentsController",
+          "handler": "listCommercialInvoices"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 2130,
+      "method": "GET",
+      "path": "/proformas/:param",
+      "registered": [
+        {
+          "controller": "CommercialDocumentsController",
+          "handler": "getProforma"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 2131,
+      "method": "GET",
+      "path": "/contracts/:param",
+      "registered": [
+        {
+          "controller": "CommercialDocumentsController",
+          "handler": "getContract"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/endpoints.ts",
+      "line": 2132,
+      "method": "GET",
+      "path": "/commercial-invoices/:param",
+      "registered": [
+        {
+          "controller": "CommercialDocumentsController",
+          "handler": "getCommercialInvoice"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/finance.api.ts",
+      "line": 99,
+      "method": "PATCH",
+      "path": "/payments/:param",
+      "registered": [
+        {
+          "controller": "FinanceController",
+          "handler": "updatePayment"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/finance.api.ts",
+      "line": 100,
+      "method": "DELETE",
+      "path": "/payments/:param",
+      "registered": [
+        {
+          "controller": "FinanceController",
+          "handler": "deletePayment"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/finance.api.ts",
+      "line": 102,
+      "method": "GET",
+      "path": "/companies/:param/statement",
+      "registered": [
+        {
+          "controller": "FinanceController",
+          "handler": "companyStatement"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/finance.api.ts",
+      "line": 104,
+      "method": "GET",
+      "path": "/accounting-invoices/payment-term-suggestion",
+      "registered": [
+        {
+          "controller": "FinanceController",
+          "handler": "paymentTermSuggestion"
+        },
+        {
+          "controller": "FinanceController",
+          "handler": "getAccountingInvoice"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/finance.api.ts",
+      "line": 111,
+      "method": "GET",
+      "path": "/accounting-invoices",
+      "registered": [
+        {
+          "controller": "FinanceController",
+          "handler": "listAccountingInvoices"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/finance.api.ts",
+      "line": 115,
+      "method": "POST",
+      "path": "/accounting-invoices",
+      "registered": [
+        {
+          "controller": "FinanceController",
+          "handler": "createAccountingInvoice"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/finance.api.ts",
+      "line": 117,
+      "method": "PATCH",
+      "path": "/accounting-invoices/:param",
+      "registered": [
+        {
+          "controller": "FinanceController",
+          "handler": "updateAccountingInvoice"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/finance.api.ts",
+      "line": 118,
+      "method": "DELETE",
+      "path": "/accounting-invoices/:param",
+      "registered": [
+        {
+          "controller": "FinanceController",
+          "handler": "deleteAccountingInvoice"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/finance.api.ts",
+      "line": 120,
+      "method": "GET",
+      "path": "/files/links",
+      "registered": [
+        {
+          "controller": "FilesController",
+          "handler": "listLinks"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/logistics.api.ts",
+      "line": 45,
+      "method": "GET",
+      "path": "/shipments/company-options",
+      "registered": [
+        {
+          "controller": "ServiceController",
+          "handler": "shipmentCompanyOptions"
+        },
+        {
+          "controller": "ServiceController",
+          "handler": "getShipment"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/logistics.api.ts",
+      "line": 47,
+      "method": "POST",
+      "path": "/shipments",
+      "registered": [
+        {
+          "controller": "ServiceController",
+          "handler": "createShipment"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/logistics.api.ts",
+      "line": 48,
+      "method": "DELETE",
+      "path": "/shipments/:param",
+      "registered": [
+        {
+          "controller": "ServiceController",
+          "handler": "deleteShipment"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/logistics.api.ts",
+      "line": 50,
+      "method": "GET",
+      "path": "/deliveries",
+      "registered": [
+        {
+          "controller": "ServiceController",
+          "handler": "listDeliveries"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/logistics.api.ts",
+      "line": 52,
+      "method": "POST",
+      "path": "/deliveries",
+      "registered": [
+        {
+          "controller": "ServiceController",
+          "handler": "createDelivery"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/logistics.api.ts",
+      "line": 54,
+      "method": "PATCH",
+      "path": "/deliveries/:param",
+      "registered": [
+        {
+          "controller": "ServiceController",
+          "handler": "updateDelivery"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/logistics.api.ts",
+      "line": 56,
+      "method": "PATCH",
+      "path": "/deliveries/:param/status",
+      "registered": [
+        {
+          "controller": "ServiceController",
+          "handler": "updateDeliveryStatus"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/logistics.api.ts",
+      "line": 57,
+      "method": "DELETE",
+      "path": "/deliveries/:param",
+      "registered": [
+        {
+          "controller": "ServiceController",
+          "handler": "deleteDelivery"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/mail-campaigns.api.ts",
+      "line": 59,
+      "method": "GET",
+      "path": "/mail/campaigns",
+      "registered": [
+        {
+          "controller": "MailCampaignsController",
+          "handler": "list"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/mail-campaigns.api.ts",
+      "line": 60,
+      "method": "GET",
+      "path": "/mail/campaigns/:param",
+      "registered": [
+        {
+          "controller": "MailCampaignsController",
+          "handler": "get"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/mail-campaigns.api.ts",
+      "line": 61,
+      "method": "POST",
+      "path": "/mail/campaigns",
+      "registered": [
+        {
+          "controller": "MailCampaignsController",
+          "handler": "create"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/mail-campaigns.api.ts",
+      "line": 62,
+      "method": "POST",
+      "path": "/mail/campaigns/:param/cancel",
+      "registered": [
+        {
+          "controller": "MailCampaignsController",
+          "handler": "cancel"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/mail-campaigns.api.ts",
+      "line": 63,
+      "method": "POST",
+      "path": "/mail/campaigns/:param/resume",
+      "registered": [
+        {
+          "controller": "MailCampaignsController",
+          "handler": "resume"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/mail-campaigns.api.ts",
+      "line": 65,
+      "method": "GET",
+      "path": "/mail/campaigns/candidates",
+      "registered": [
+        {
+          "controller": "MailCampaignsController",
+          "handler": "candidates"
+        },
+        {
+          "controller": "MailCampaignsController",
+          "handler": "get"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/mail-campaigns.api.ts",
+      "line": 67,
+      "method": "POST",
+      "path": "/mail/campaigns/parse-list",
+      "registered": [
+        {
+          "controller": "MailCampaignsController",
+          "handler": "parseList"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/mail-campaigns.api.ts",
+      "line": 71,
+      "method": "GET",
+      "path": "/mail/campaigns/suppressions",
+      "registered": [
+        {
+          "controller": "MailCampaignsController",
+          "handler": "suppressions"
+        },
+        {
+          "controller": "MailCampaignsController",
+          "handler": "get"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/mail-campaigns.api.ts",
+      "line": 72,
+      "method": "POST",
+      "path": "/mail/campaigns/suppressions",
+      "registered": [
+        {
+          "controller": "MailCampaignsController",
+          "handler": "addSuppression"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/mail-campaigns.api.ts",
+      "line": 74,
+      "method": "DELETE",
+      "path": "/mail/campaigns/suppressions/:param",
+      "registered": [
+        {
+          "controller": "MailCampaignsController",
+          "handler": "removeSuppression"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/meta.api.ts",
+      "line": 102,
+      "method": "GET",
+      "path": "/meta/overview",
+      "registered": [
+        {
+          "controller": "MetaController",
+          "handler": "overview"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/meta.api.ts",
+      "line": 103,
+      "method": "GET",
+      "path": "/meta/connections",
+      "registered": [
+        {
+          "controller": "MetaController",
+          "handler": "connections"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/meta.api.ts",
+      "line": 104,
+      "method": "GET",
+      "path": "/meta/leads",
+      "registered": [
+        {
+          "controller": "MetaController",
+          "handler": "leads"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/meta.api.ts",
+      "line": 121,
+      "method": "GET",
+      "path": "/meta/connections",
+      "registered": [
+        {
+          "controller": "MetaController",
+          "handler": "connections"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/meta.api.ts",
+      "line": 123,
+      "method": "POST",
+      "path": "/meta/connections/oauth/start",
+      "registered": [
+        {
+          "controller": "MetaController",
+          "handler": "startOauth"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/meta.api.ts",
+      "line": 124,
+      "method": "POST",
+      "path": "/meta/connections",
+      "registered": [
+        {
+          "controller": "MetaController",
+          "handler": "createConnection"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/meta.api.ts",
+      "line": 125,
+      "method": "POST",
+      "path": "/meta/connections/:param/verify",
+      "registered": [
+        {
+          "controller": "MetaController",
+          "handler": "verifyConnection"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/meta.api.ts",
+      "line": 126,
+      "method": "DELETE",
+      "path": "/meta/connections/:param",
+      "registered": [
+        {
+          "controller": "MetaController",
+          "handler": "deleteConnection"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/meta.api.ts",
+      "line": 129,
+      "method": "GET",
+      "path": "/meta/leads",
+      "registered": [
+        {
+          "controller": "MetaController",
+          "handler": "leads"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/meta.api.ts",
+      "line": 135,
+      "method": "GET",
+      "path": "/meta/insights",
+      "registered": [
+        {
+          "controller": "MetaController",
+          "handler": "insights"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/meta.api.ts",
+      "line": 140,
+      "method": "GET",
+      "path": "/meta/campaigns",
+      "registered": [
+        {
+          "controller": "MetaController",
+          "handler": "campaigns"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/meta.api.ts",
+      "line": 144,
+      "method": "POST",
+      "path": "/meta/campaigns",
+      "registered": [
+        {
+          "controller": "MetaController",
+          "handler": "createCampaign"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/meta.api.ts",
+      "line": 149,
+      "method": "PATCH",
+      "path": "/meta/campaigns/:param",
+      "registered": [
+        {
+          "controller": "MetaController",
+          "handler": "updateCampaign"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/meta.api.ts",
+      "line": 157,
+      "method": "PATCH",
+      "path": "/meta/campaigns/:param",
+      "registered": [
+        {
+          "controller": "MetaController",
+          "handler": "updateCampaign"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/meta.api.ts",
+      "line": 166,
+      "method": "GET",
+      "path": "/meta/conversations",
+      "registered": [
+        {
+          "controller": "MetaController",
+          "handler": "conversations"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/meta.api.ts",
+      "line": 171,
+      "method": "GET",
+      "path": "/meta/conversations/:param/messages",
+      "registered": [
+        {
+          "controller": "MetaController",
+          "handler": "messages"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/meta.api.ts",
+      "line": 177,
+      "method": "POST",
+      "path": "/meta/conversations/:param/messages",
+      "registered": [
+        {
+          "controller": "MetaController",
+          "handler": "sendMessage"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/meta.api.ts",
+      "line": 180,
+      "method": "GET",
+      "path": "/meta/comments",
+      "registered": [
+        {
+          "controller": "MetaController",
+          "handler": "comments"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/meta.api.ts",
+      "line": 184,
+      "method": "POST",
+      "path": "/meta/comments/:param/replies",
+      "registered": [
+        {
+          "controller": "MetaController",
+          "handler": "replyComment"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/meta.api.ts",
+      "line": 186,
+      "method": "PATCH",
+      "path": "/meta/comments/:param",
+      "registered": [
+        {
+          "controller": "MetaController",
+          "handler": "updateComment"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/meta.api.ts",
+      "line": 189,
+      "method": "GET",
+      "path": "/meta/form-mappings",
+      "registered": [
+        {
+          "controller": "MetaController",
+          "handler": "formMappings"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/meta.api.ts",
+      "line": 191,
+      "method": "POST",
+      "path": "/meta/form-mappings",
+      "registered": [
+        {
+          "controller": "MetaController",
+          "handler": "createFormMapping"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/meta.api.ts",
+      "line": 193,
+      "method": "PATCH",
+      "path": "/meta/form-mappings/:param",
+      "registered": [
+        {
+          "controller": "MetaController",
+          "handler": "updateFormMapping"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/meta.api.ts",
+      "line": 196,
+      "method": "GET",
+      "path": "/meta/conversion-events",
+      "registered": [
+        {
+          "controller": "MetaController",
+          "handler": "conversionEvents"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/meta.api.ts",
+      "line": 201,
+      "method": "POST",
+      "path": "/meta/conversion-events",
+      "registered": [
+        {
+          "controller": "MetaController",
+          "handler": "createConversionEvent"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/meta.api.ts",
+      "line": 202,
+      "method": "POST",
+      "path": "/meta/jobs/process",
+      "registered": [
+        {
+          "controller": "MetaController",
+          "handler": "processJobs"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/meta.api.ts",
+      "line": 205,
+      "method": "GET",
+      "path": "/meta/audiences",
+      "registered": [
+        {
+          "controller": "MetaController",
+          "handler": "audiences"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/meta.api.ts",
+      "line": 208,
+      "method": "POST",
+      "path": "/meta/audiences",
+      "registered": [
+        {
+          "controller": "MetaController",
+          "handler": "createAudience"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/meta.api.ts",
+      "line": 210,
+      "method": "POST",
+      "path": "/meta/audiences/:param/members",
+      "registered": [
+        {
+          "controller": "MetaController",
+          "handler": "addAudienceMembers"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/meta.api.ts",
+      "line": 215,
+      "method": "POST",
+      "path": "/meta/audiences/:param/member-removals",
+      "registered": [
+        {
+          "controller": "MetaController",
+          "handler": "removeAudienceMembers"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/meta.api.ts",
+      "line": 220,
+      "method": "DELETE",
+      "path": "/meta/audiences/:param",
+      "registered": [
+        {
+          "controller": "MetaController",
+          "handler": "deleteAudience"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/meta.api.ts",
+      "line": 223,
+      "method": "GET",
+      "path": "/meta/catalogs",
+      "registered": [
+        {
+          "controller": "MetaController",
+          "handler": "catalogs"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/meta.api.ts",
+      "line": 226,
+      "method": "POST",
+      "path": "/meta/catalogs",
+      "registered": [
+        {
+          "controller": "MetaController",
+          "handler": "createCatalog"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/meta.api.ts",
+      "line": 230,
+      "method": "POST",
+      "path": "/meta/catalogs/:param/product-removals",
+      "registered": [
+        {
+          "controller": "MetaController",
+          "handler": "deleteCatalogProducts"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/meta.api.ts",
+      "line": 235,
+      "method": "POST",
+      "path": "/meta/catalogs/:param/sync",
+      "registered": [
+        {
+          "controller": "MetaController",
+          "handler": "syncCatalogProducts"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/meta.api.ts",
+      "line": 236,
+      "method": "POST",
+      "path": "/meta/catalogs/:param/products",
+      "registered": [
+        {
+          "controller": "MetaController",
+          "handler": "upsertCatalogProducts"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/meta.api.ts",
+      "line": 239,
+      "method": "DELETE",
+      "path": "/meta/catalogs/:param",
+      "registered": [
+        {
+          "controller": "MetaController",
+          "handler": "deleteCatalog"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/note-templates.hooks.ts",
+      "line": 9,
+      "method": "GET",
+      "path": "/note-templates",
+      "registered": [
+        {
+          "controller": "NoteTemplatesController",
+          "handler": "list"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/note-templates.hooks.ts",
+      "line": 13,
+      "method": "PATCH",
+      "path": "/note-templates/:param",
+      "registered": [
+        {
+          "controller": "NoteTemplatesController",
+          "handler": "update"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/note-templates.hooks.ts",
+      "line": 13,
+      "method": "POST",
+      "path": "/note-templates",
+      "registered": [
+        {
+          "controller": "NoteTemplatesController",
+          "handler": "create"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/note-templates.hooks.ts",
+      "line": 17,
+      "method": "DELETE",
+      "path": "/note-templates/:param",
+      "registered": [
+        {
+          "controller": "NoteTemplatesController",
+          "handler": "remove"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/products.api.ts",
+      "line": 304,
+      "method": "GET",
+      "path": "/product-configuration-prices",
+      "registered": [
+        {
+          "controller": "ProductsController",
+          "handler": "listAllConfigurationPrices"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/products.api.ts",
+      "line": 305,
+      "method": "GET",
+      "path": "/products/:param/configuration-prices",
+      "registered": [
+        {
+          "controller": "ProductsController",
+          "handler": "listConfigurationPrices"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/products.api.ts",
+      "line": 307,
+      "method": "PATCH",
+      "path": "/product-configuration-prices",
+      "registered": [
+        {
+          "controller": "ProductsController",
+          "handler": "updateConfigurationPrices"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/products.api.ts",
+      "line": 308,
+      "method": "GET",
+      "path": "/product-cost-prices",
+      "registered": [
+        {
+          "controller": "ProductsController",
+          "handler": "listCostPricedItems"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/products.api.ts",
+      "line": 310,
+      "method": "PATCH",
+      "path": "/product-cost-prices/sale",
+      "registered": [
+        {
+          "controller": "ProductsController",
+          "handler": "updateCostPricedSales"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/products.api.ts",
+      "line": 311,
+      "method": "GET",
+      "path": "/laser-price-lists",
+      "registered": [
+        {
+          "controller": "ProductsController",
+          "handler": "listLaserPriceLists"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/products.api.ts",
+      "line": 313,
+      "method": "POST",
+      "path": "/laser-price-lists/recalculate",
+      "registered": [
+        {
+          "controller": "ProductsController",
+          "handler": "recalculateLaserPriceList"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/products.api.ts",
+      "line": 315,
+      "method": "GET",
+      "path": "/products",
+      "registered": [
+        {
+          "controller": "ProductsController",
+          "handler": "list"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/products.api.ts",
+      "line": 316,
+      "method": "GET",
+      "path": "/products/:param",
+      "registered": [
+        {
+          "controller": "ProductsController",
+          "handler": "get"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/products.api.ts",
+      "line": 317,
+      "method": "GET",
+      "path": "/brands",
+      "registered": [
+        {
+          "controller": "ProductsController",
+          "handler": "listBrands"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/products.api.ts",
+      "line": 319,
+      "method": "POST",
+      "path": "/brands",
+      "registered": [
+        {
+          "controller": "ProductsController",
+          "handler": "createBrand"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/products.api.ts",
+      "line": 320,
+      "method": "GET",
+      "path": "/lookups/product-groups",
+      "registered": [
+        {
+          "controller": "LookupsController",
+          "handler": "byName"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/products.api.ts",
+      "line": 321,
+      "method": "GET",
+      "path": "/lookups/product-categories",
+      "registered": [
+        {
+          "controller": "LookupsController",
+          "handler": "byName"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/products.api.ts",
+      "line": 322,
+      "method": "GET",
+      "path": "/lookups/product-subcategories",
+      "registered": [
+        {
+          "controller": "LookupsController",
+          "handler": "byName"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/products.api.ts",
+      "line": 323,
+      "method": "GET",
+      "path": "/lookups/product-types",
+      "registered": [
+        {
+          "controller": "LookupsController",
+          "handler": "byName"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/products.api.ts",
+      "line": 324,
+      "method": "POST",
+      "path": "/products",
+      "registered": [
+        {
+          "controller": "ProductsController",
+          "handler": "create"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/products.api.ts",
+      "line": 325,
+      "method": "GET",
+      "path": "/products/create-operations/:param",
+      "registered": [
+        {
+          "controller": "ProductsController",
+          "handler": "recoverCreate"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/products.api.ts",
+      "line": 326,
+      "method": "DELETE",
+      "path": "/products/:param",
+      "registered": [
+        {
+          "controller": "ProductsController",
+          "handler": "remove"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/products.api.ts",
+      "line": 328,
+      "method": "GET",
+      "path": "/products/import/template-options",
+      "registered": [
+        {
+          "controller": "ProductsController",
+          "handler": "importTemplateOptions"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/products.api.ts",
+      "line": 330,
+      "method": "POST",
+      "path": "/products/import/preview",
+      "registered": [
+        {
+          "controller": "ProductsController",
+          "handler": "previewImport"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/products.api.ts",
+      "line": 337,
+      "method": "POST",
+      "path": "/products/import/commit",
+      "registered": [
+        {
+          "controller": "ProductsController",
+          "handler": "commitImport"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/products.api.ts",
+      "line": 338,
+      "method": "GET",
+      "path": "/products/:param/specs",
+      "registered": [
+        {
+          "controller": "ProductsController",
+          "handler": "specs"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/products.api.ts",
+      "line": 340,
+      "method": "GET",
+      "path": "/product-spec-templates",
+      "registered": [
+        {
+          "controller": "ProductsController",
+          "handler": "listSpecTemplates"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/products.api.ts",
+      "line": 341,
+      "method": "POST",
+      "path": "/products/:param/specs",
+      "registered": [
+        {
+          "controller": "ProductsController",
+          "handler": "addSpec"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/products.api.ts",
+      "line": 342,
+      "method": "GET",
+      "path": "/products/:param/equipment",
+      "registered": [
+        {
+          "controller": "ProductsController",
+          "handler": "equipment"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/products.api.ts",
+      "line": 344,
+      "method": "POST",
+      "path": "/products/:param/equipment",
+      "registered": [
+        {
+          "controller": "ProductsController",
+          "handler": "addEquipment"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/products.api.ts",
+      "line": 346,
+      "method": "PUT",
+      "path": "/products/:param/details",
+      "registered": [
+        {
+          "controller": "ProductsController",
+          "handler": "replaceDetails"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/products.api.ts",
+      "line": 348,
+      "method": "PUT",
+      "path": "/products/:param/standard-equipment",
+      "registered": [
+        {
+          "controller": "ProductsController",
+          "handler": "updateStandardEquipment"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/products.api.ts",
+      "line": 349,
+      "method": "GET",
+      "path": "/products/:param/options",
+      "registered": [
+        {
+          "controller": "ProductsController",
+          "handler": "listOptions"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/products.api.ts",
+      "line": 351,
+      "method": "POST",
+      "path": "/products/:param/options",
+      "registered": [
+        {
+          "controller": "ProductsController",
+          "handler": "addOptionSet"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/products.api.ts",
+      "line": 353,
+      "method": "PATCH",
+      "path": "/products/options/:param",
+      "registered": [
+        {
+          "controller": "ProductsController",
+          "handler": "updateOptionSet"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/products.api.ts",
+      "line": 354,
+      "method": "DELETE",
+      "path": "/products/options/:param",
+      "registered": [
+        {
+          "controller": "ProductsController",
+          "handler": "deleteOptionSet"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/products.api.ts",
+      "line": 356,
+      "method": "POST",
+      "path": "/products/options/:param/values",
+      "registered": [
+        {
+          "controller": "ProductsController",
+          "handler": "addOptionValue"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/products.api.ts",
+      "line": 358,
+      "method": "PATCH",
+      "path": "/products/options/values/:param",
+      "registered": [
+        {
+          "controller": "ProductsController",
+          "handler": "updateOptionValue"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/products.api.ts",
+      "line": 360,
+      "method": "DELETE",
+      "path": "/products/options/values/:param",
+      "registered": [
+        {
+          "controller": "ProductsController",
+          "handler": "deleteOptionValue"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/products.api.ts",
+      "line": 361,
+      "method": "POST",
+      "path": "/price-lists",
+      "registered": [
+        {
+          "controller": "ProductsController",
+          "handler": "createPriceList"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/products.api.ts",
+      "line": 363,
+      "method": "PATCH",
+      "path": "/price-lists/:param",
+      "registered": [
+        {
+          "controller": "ProductsController",
+          "handler": "updatePriceList"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/products.api.ts",
+      "line": 365,
+      "method": "POST",
+      "path": "/price-lists/:param/items",
+      "registered": [
+        {
+          "controller": "ProductsController",
+          "handler": "createPriceListItem"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/products.api.ts",
+      "line": 366,
+      "method": "GET",
+      "path": "/price-lists",
+      "registered": [
+        {
+          "controller": "ProductsController",
+          "handler": "listPriceLists"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/products.api.ts",
+      "line": 367,
+      "method": "GET",
+      "path": "/price-lists/:param/items",
+      "registered": [
+        {
+          "controller": "ProductsController",
+          "handler": "listPriceListItems"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/products.api.ts",
+      "line": 369,
+      "method": "PATCH",
+      "path": "/price-lists/:param/items/:param",
+      "registered": [
+        {
+          "controller": "ProductsController",
+          "handler": "updatePriceListItem"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/products.api.ts",
+      "line": 371,
+      "method": "POST",
+      "path": "/price-lists/:param/items",
+      "registered": [
+        {
+          "controller": "ProductsController",
+          "handler": "createPriceListItem"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/products.api.ts",
+      "line": 373,
+      "method": "GET",
+      "path": "/files/links",
+      "registered": [
+        {
+          "controller": "FilesController",
+          "handler": "listLinks"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/products.api.ts",
+      "line": 378,
+      "method": "POST",
+      "path": "/mail/send",
+      "registered": [
+        {
+          "controller": "MailController",
+          "handler": "send"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/products.api.ts",
+      "line": 402,
+      "method": "POST",
+      "path": "/warehouses",
+      "registered": [
+        {
+          "controller": "InventoryController",
+          "handler": "createWarehouse"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/products.api.ts",
+      "line": 403,
+      "method": "POST",
+      "path": "/inventory",
+      "registered": [
+        {
+          "controller": "InventoryController",
+          "handler": "create"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/products.api.ts",
+      "line": 405,
+      "method": "PATCH",
+      "path": "/inventory/:param",
+      "registered": [
+        {
+          "controller": "InventoryController",
+          "handler": "update"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/products.api.ts",
+      "line": 408,
+      "method": "PATCH",
+      "path": "/inventory/:param/sell",
+      "registered": [
+        {
+          "controller": "InventoryController",
+          "handler": "sell"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/products.api.ts",
+      "line": 410,
+      "method": "GET",
+      "path": "/inventory",
+      "registered": [
+        {
+          "controller": "InventoryController",
+          "handler": "list"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/purchase.api.ts",
+      "line": 40,
+      "method": "GET",
+      "path": "/purchase-orders",
+      "registered": [
+        {
+          "controller": "PurchaseOrdersController",
+          "handler": "list"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/purchase.api.ts",
+      "line": 41,
+      "method": "POST",
+      "path": "/purchase-orders",
+      "registered": [
+        {
+          "controller": "PurchaseOrdersController",
+          "handler": "create"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/purchase.api.ts",
+      "line": 43,
+      "method": "PATCH",
+      "path": "/purchase-orders/:param",
+      "registered": [
+        {
+          "controller": "PurchaseOrdersController",
+          "handler": "update"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/purchase.api.ts",
+      "line": 44,
+      "method": "DELETE",
+      "path": "/purchase-orders/:param",
+      "registered": [
+        {
+          "controller": "PurchaseOrdersController",
+          "handler": "remove"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/purchase.api.ts",
+      "line": 46,
+      "method": "POST",
+      "path": "/purchase-orders/:param/items",
+      "registered": [
+        {
+          "controller": "PurchaseOrdersController",
+          "handler": "addItem"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/quotes.api.ts",
+      "line": 110,
+      "method": "POST",
+      "path": "/quotes",
+      "registered": [
+        {
+          "controller": "QuotesController",
+          "handler": "create"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/quotes.api.ts",
+      "line": 111,
+      "method": "PATCH",
+      "path": "/quotes/:param",
+      "registered": [
+        {
+          "controller": "QuotesController",
+          "handler": "update"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/quotes.api.ts",
+      "line": 112,
+      "method": "POST",
+      "path": "/quotes/:param/items",
+      "registered": [
+        {
+          "controller": "QuotesController",
+          "handler": "addItem"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/quotes.api.ts",
+      "line": 114,
+      "method": "PATCH",
+      "path": "/quotes/:param/items/:param",
+      "registered": [
+        {
+          "controller": "QuotesController",
+          "handler": "updateItem"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/quotes.api.ts",
+      "line": 116,
+      "method": "DELETE",
+      "path": "/quotes/:param/items/:param",
+      "registered": [
+        {
+          "controller": "QuotesController",
+          "handler": "deleteItem"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/quotes.api.ts",
+      "line": 117,
+      "method": "PUT",
+      "path": "/quotes/:param/terms",
+      "registered": [
+        {
+          "controller": "QuotesController",
+          "handler": "upsertTerms"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/quotes.api.ts",
+      "line": 119,
+      "method": "POST",
+      "path": "/quotes/:param/price-approval/approve",
+      "registered": [
+        {
+          "controller": "QuotesController",
+          "handler": "approvePrice"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/quotes.api.ts",
+      "line": 121,
+      "method": "POST",
+      "path": "/quotes/:param/price-approval/reject",
+      "registered": [
+        {
+          "controller": "QuotesController",
+          "handler": "rejectPrice"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/quotes.api.ts",
+      "line": 124,
+      "method": "GET",
+      "path": "/quotes",
+      "registered": [
+        {
+          "controller": "QuotesController",
+          "handler": "list"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/quotes.api.ts",
+      "line": 126,
+      "method": "GET",
+      "path": "/quotes",
+      "registered": [
+        {
+          "controller": "QuotesController",
+          "handler": "list"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/quotes.api.ts",
+      "line": 136,
+      "method": "POST",
+      "path": "/opportunities",
+      "registered": [
+        {
+          "controller": "OpportunitiesController",
+          "handler": "create"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/quotes.api.ts",
+      "line": 138,
+      "method": "PATCH",
+      "path": "/opportunities/:param/stage",
+      "registered": [
+        {
+          "controller": "OpportunitiesController",
+          "handler": "changeStage"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/quotes.api.ts",
+      "line": 140,
+      "method": "GET",
+      "path": "/opportunities",
+      "registered": [
+        {
+          "controller": "OpportunitiesController",
+          "handler": "list"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/references.api.ts",
+      "line": 31,
+      "method": "GET",
+      "path": "/references",
+      "registered": [
+        {
+          "controller": "CompanyReferencesController",
+          "handler": "list"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/references.api.ts",
+      "line": 32,
+      "method": "POST",
+      "path": "/references",
+      "registered": [
+        {
+          "controller": "CompanyReferencesController",
+          "handler": "create"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/references.api.ts",
+      "line": 34,
+      "method": "POST",
+      "path": "/references/import",
+      "registered": [
+        {
+          "controller": "CompanyReferencesController",
+          "handler": "importFromFile"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/references.api.ts",
+      "line": 35,
+      "method": "PATCH",
+      "path": "/references/:param",
+      "registered": [
+        {
+          "controller": "CompanyReferencesController",
+          "handler": "update"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/references.api.ts",
+      "line": 36,
+      "method": "DELETE",
+      "path": "/references/:param",
+      "registered": [
+        {
+          "controller": "CompanyReferencesController",
+          "handler": "remove"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/reports.api.ts",
+      "line": 126,
+      "method": "GET",
+      "path": "/reports/weekly-visits",
+      "registered": [
+        {
+          "controller": "ReportsController",
+          "handler": "weeklyVisits"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/reports.api.ts",
+      "line": 127,
+      "method": "GET",
+      "path": "/reports/monthly-visits",
+      "registered": [
+        {
+          "controller": "ReportsController",
+          "handler": "monthlyVisits"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/reports.api.ts",
+      "line": 128,
+      "method": "GET",
+      "path": "/reports/yearly-visits",
+      "registered": [
+        {
+          "controller": "ReportsController",
+          "handler": "yearlyVisits"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/reports.api.ts",
+      "line": 129,
+      "method": "GET",
+      "path": "/reports/weekly-activities",
+      "registered": [
+        {
+          "controller": "ReportsController",
+          "handler": "weeklyActivities"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/reports.api.ts",
+      "line": 130,
+      "method": "GET",
+      "path": "/reports/monthly-activities",
+      "registered": [
+        {
+          "controller": "ReportsController",
+          "handler": "monthlyActivities"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/reports.api.ts",
+      "line": 131,
+      "method": "GET",
+      "path": "/reports/yearly-activities",
+      "registered": [
+        {
+          "controller": "ReportsController",
+          "handler": "yearlyActivities"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/reports.api.ts",
+      "line": 132,
+      "method": "GET",
+      "path": "/reports/weekly-quotes-by-product",
+      "registered": [
+        {
+          "controller": "ReportsController",
+          "handler": "weeklyQuotes"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/reports.api.ts",
+      "line": 133,
+      "method": "GET",
+      "path": "/reports/monthly-quotes-by-product",
+      "registered": [
+        {
+          "controller": "ReportsController",
+          "handler": "monthlyQuotes"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/reports.api.ts",
+      "line": 134,
+      "method": "GET",
+      "path": "/reports/yearly-quotes-by-product",
+      "registered": [
+        {
+          "controller": "ReportsController",
+          "handler": "yearlyQuotes"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/reports.api.ts",
+      "line": 136,
+      "method": "GET",
+      "path": "/reports/department-performance",
+      "registered": [
+        {
+          "controller": "ReportsController",
+          "handler": "departmentPerformance"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/reports.api.ts",
+      "line": 137,
+      "method": "GET",
+      "path": "/reports/warranty-expiring",
+      "registered": [
+        {
+          "controller": "ReportsController",
+          "handler": "warranty"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/reports.api.ts",
+      "line": 138,
+      "method": "GET",
+      "path": "/reports/service-complaints-summary",
+      "registered": [
+        {
+          "controller": "ReportsController",
+          "handler": "serviceComplaintsSummary"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/reports.api.ts",
+      "line": 139,
+      "method": "GET",
+      "path": "/reports/stock-summary",
+      "registered": [
+        {
+          "controller": "ReportsController",
+          "handler": "stockSummary"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/reports.api.ts",
+      "line": 140,
+      "method": "GET",
+      "path": "/reports/year-end",
+      "registered": [
+        {
+          "controller": "ReportsController",
+          "handler": "yearEnd"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/reports.api.ts",
+      "line": 141,
+      "method": "GET",
+      "path": "/reports/operational",
+      "registered": [
+        {
+          "controller": "ReportsController",
+          "handler": "operational"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/reports.api.ts",
+      "line": 143,
+      "method": "GET",
+      "path": "/reports/target-progress",
+      "registered": [
+        {
+          "controller": "ReportsController",
+          "handler": "targetProgress"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/reports.api.ts",
+      "line": 144,
+      "method": "GET",
+      "path": "/reports/activity-log",
+      "registered": [
+        {
+          "controller": "ReportsController",
+          "handler": "activityLog"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/reports.api.ts",
+      "line": 145,
+      "method": "GET",
+      "path": "/users",
+      "registered": [
+        {
+          "controller": "AdminController",
+          "handler": "listUsers"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/reports.api.ts",
+      "line": 146,
+      "method": "GET",
+      "path": "/departments",
+      "registered": [
+        {
+          "controller": "AdminController",
+          "handler": "listDepts"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/sales-orders.api.ts",
+      "line": 37,
+      "method": "POST",
+      "path": "/sales-orders",
+      "registered": [
+        {
+          "controller": "SalesOrdersController",
+          "handler": "create"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/sales-orders.api.ts",
+      "line": 39,
+      "method": "PATCH",
+      "path": "/sales-orders/:param",
+      "registered": [
+        {
+          "controller": "SalesOrdersController",
+          "handler": "update"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/sales-orders.api.ts",
+      "line": 40,
+      "method": "DELETE",
+      "path": "/sales-orders/:param",
+      "registered": [
+        {
+          "controller": "SalesOrdersController",
+          "handler": "remove"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/sales-orders.api.ts",
+      "line": 42,
+      "method": "POST",
+      "path": "/sales-orders/:param/items",
+      "registered": [
+        {
+          "controller": "SalesOrdersController",
+          "handler": "addItem"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/sales.api.ts",
+      "line": 192,
+      "method": "GET",
+      "path": "/opportunities",
+      "registered": [
+        {
+          "controller": "OpportunitiesController",
+          "handler": "list"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/sales.api.ts",
+      "line": 193,
+      "method": "GET",
+      "path": "/opportunities/lead-summary",
+      "registered": [
+        {
+          "controller": "OpportunitiesController",
+          "handler": "leadSummary"
+        },
+        {
+          "controller": "OpportunitiesController",
+          "handler": "get"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/sales.api.ts",
+      "line": 195,
+      "method": "POST",
+      "path": "/opportunities/from-activity/:param",
+      "registered": [
+        {
+          "controller": "OpportunitiesController",
+          "handler": "createFromActivity"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/sales.api.ts",
+      "line": 197,
+      "method": "POST",
+      "path": "/opportunities/imports/trello/preview",
+      "registered": [
+        {
+          "controller": "OpportunitiesController",
+          "handler": "previewTrelloImport"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/sales.api.ts",
+      "line": 199,
+      "method": "POST",
+      "path": "/opportunities/imports/trello/commit",
+      "registered": [
+        {
+          "controller": "OpportunitiesController",
+          "handler": "commitTrelloImport"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/sales.api.ts",
+      "line": 201,
+      "method": "POST",
+      "path": "/opportunities/:param/company",
+      "registered": [
+        {
+          "controller": "OpportunitiesController",
+          "handler": "linkCompany"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/sales.api.ts",
+      "line": 203,
+      "method": "POST",
+      "path": "/opportunities/:param/contact-events",
+      "registered": [
+        {
+          "controller": "OpportunitiesController",
+          "handler": "recordLeadContactEvent"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/sales.api.ts",
+      "line": 205,
+      "method": "POST",
+      "path": "/opportunities/:param/convert",
+      "registered": [
+        {
+          "controller": "OpportunitiesController",
+          "handler": "convertLead"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/sales.api.ts",
+      "line": 207,
+      "method": "PATCH",
+      "path": "/opportunities/:param/stage",
+      "registered": [
+        {
+          "controller": "OpportunitiesController",
+          "handler": "changeStage"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/sales.api.ts",
+      "line": 209,
+      "method": "GET",
+      "path": "/tasks/summary",
+      "registered": [
+        {
+          "controller": "TasksController",
+          "handler": "summary"
+        },
+        {
+          "controller": "TasksController",
+          "handler": "get"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/sales.api.ts",
+      "line": 212,
+      "method": "GET",
+      "path": "/reports/team-activity",
+      "registered": [
+        {
+          "controller": "ReportsController",
+          "handler": "teamActivity"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/sales.api.ts",
+      "line": 219,
+      "method": "GET",
+      "path": "/reports/team-activity/details",
+      "registered": [
+        {
+          "controller": "ReportsController",
+          "handler": "teamActivityDetails"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/service.api.ts",
+      "line": 115,
+      "method": "GET",
+      "path": "/files/links",
+      "registered": [
+        {
+          "controller": "FilesController",
+          "handler": "listLinks"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/service.api.ts",
+      "line": 117,
+      "method": "POST",
+      "path": "/service-tickets",
+      "registered": [
+        {
+          "controller": "ServiceController",
+          "handler": "createTicket"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/service.api.ts",
+      "line": 119,
+      "method": "PATCH",
+      "path": "/service-tickets/:param",
+      "registered": [
+        {
+          "controller": "ServiceController",
+          "handler": "updateTicket"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/service.api.ts",
+      "line": 122,
+      "method": "PATCH",
+      "path": "/service-tickets/:param/status",
+      "registered": [
+        {
+          "controller": "ServiceController",
+          "handler": "updateTicketStatus"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/service.api.ts",
+      "line": 125,
+      "method": "POST",
+      "path": "/service-complaints",
+      "registered": [
+        {
+          "controller": "ServiceComplaintsController",
+          "handler": "createComplaint"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/service.api.ts",
+      "line": 127,
+      "method": "GET",
+      "path": "/service-complaint-links",
+      "registered": [
+        {
+          "controller": "ServiceComplaintsController",
+          "handler": "listLinks"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/service.api.ts",
+      "line": 129,
+      "method": "POST",
+      "path": "/service-complaint-links",
+      "registered": [
+        {
+          "controller": "ServiceComplaintsController",
+          "handler": "createLink"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/service.api.ts",
+      "line": 131,
+      "method": "PATCH",
+      "path": "/service-complaint-links/:param/rotate",
+      "registered": [
+        {
+          "controller": "ServiceComplaintsController",
+          "handler": "rotateLink"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/service.api.ts",
+      "line": 133,
+      "method": "PATCH",
+      "path": "/service-complaint-links/:param/revoke",
+      "registered": [
+        {
+          "controller": "ServiceComplaintsController",
+          "handler": "revokeLink"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/service.api.ts",
+      "line": 135,
+      "method": "DELETE",
+      "path": "/maintenance-plans/:param",
+      "registered": [
+        {
+          "controller": "MaintenancePlansController",
+          "handler": "remove"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/service.api.ts",
+      "line": 137,
+      "method": "POST",
+      "path": "/installations",
+      "registered": [
+        {
+          "controller": "ServiceController",
+          "handler": "createInstallation"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/service.api.ts",
+      "line": 139,
+      "method": "PATCH",
+      "path": "/installations/:param",
+      "registered": [
+        {
+          "controller": "ServiceController",
+          "handler": "updateInstallation"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/service.api.ts",
+      "line": 140,
+      "method": "DELETE",
+      "path": "/installations/:param",
+      "registered": [
+        {
+          "controller": "ServiceController",
+          "handler": "deleteInstallation"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/service.api.ts",
+      "line": 146,
+      "method": "POST",
+      "path": "/inventory/consume-service-parts",
+      "registered": [
+        {
+          "controller": "InventoryController",
+          "handler": "consumeServiceParts"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/service.api.ts",
+      "line": 148,
+      "method": "POST",
+      "path": "/customer-devices",
+      "registered": [
+        {
+          "controller": "InventoryController",
+          "handler": "createCustomerDevice"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/service.api.ts",
+      "line": 150,
+      "method": "PATCH",
+      "path": "/customer-devices/:param",
+      "registered": [
+        {
+          "controller": "InventoryController",
+          "handler": "updateCustomerDevice"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/service.api.ts",
+      "line": 154,
+      "method": "POST",
+      "path": "/price-lists/:param/items",
+      "registered": [
+        {
+          "controller": "ProductsController",
+          "handler": "createPriceListItem"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/settings.api.ts",
+      "line": 45,
+      "method": "GET",
+      "path": "/mail/account/users/:param",
+      "registered": [
+        {
+          "controller": "MailController",
+          "handler": "userAccount"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/settings.api.ts",
+      "line": 45,
+      "method": "GET",
+      "path": "/mail/account",
+      "registered": [
+        {
+          "controller": "MailController",
+          "handler": "account"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/settings.api.ts",
+      "line": 48,
+      "method": "PUT",
+      "path": "/mail/account/users/:param",
+      "registered": [
+        {
+          "controller": "MailController",
+          "handler": "connectUser"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/settings.api.ts",
+      "line": 48,
+      "method": "PUT",
+      "path": "/mail/account",
+      "registered": [
+        {
+          "controller": "MailController",
+          "handler": "connect"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/settings.api.ts",
+      "line": 49,
+      "method": "DELETE",
+      "path": "/mail/account/users/:param",
+      "registered": [
+        {
+          "controller": "MailController",
+          "handler": "disconnectUser"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/settings.api.ts",
+      "line": 49,
+      "method": "DELETE",
+      "path": "/mail/account",
+      "registered": [
+        {
+          "controller": "MailController",
+          "handler": "disconnect"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/settings.api.ts",
+      "line": 52,
+      "method": "PUT",
+      "path": "/mail/account/users/:param/signature",
+      "registered": [
+        {
+          "controller": "MailController",
+          "handler": "userTextSignature"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/settings.api.ts",
+      "line": 52,
+      "method": "PUT",
+      "path": "/mail/signature",
+      "registered": [
+        {
+          "controller": "MailController",
+          "handler": "signature"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/settings.api.ts",
+      "line": 54,
+      "method": "PUT",
+      "path": "/mail/account/users/:param/signature/image",
+      "registered": [
+        {
+          "controller": "MailController",
+          "handler": "userSignatureImage"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/settings.api.ts",
+      "line": 54,
+      "method": "PUT",
+      "path": "/mail/signature/image",
+      "registered": [
+        {
+          "controller": "MailController",
+          "handler": "signatureImage"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/settings.api.ts",
+      "line": 55,
+      "method": "GET",
+      "path": "/mail/account/users",
+      "registered": [
+        {
+          "controller": "MailController",
+          "handler": "accountUsers"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/settings.api.ts",
+      "line": 57,
+      "method": "GET",
+      "path": "/mail/account/users/:param",
+      "registered": [
+        {
+          "controller": "MailController",
+          "handler": "userAccount"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/settings.api.ts",
+      "line": 61,
+      "method": "PUT",
+      "path": "/mail/account/users/:param/signature/image",
+      "registered": [
+        {
+          "controller": "MailController",
+          "handler": "userSignatureImage"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/settings.api.ts",
+      "line": 66,
+      "method": "GET",
+      "path": "/signatures",
+      "registered": [
+        {
+          "controller": "SignaturesController",
+          "handler": "list"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/settings.api.ts",
+      "line": 67,
+      "method": "POST",
+      "path": "/signatures",
+      "registered": [
+        {
+          "controller": "SignaturesController",
+          "handler": "create"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/settings.api.ts",
+      "line": 69,
+      "method": "PATCH",
+      "path": "/signatures/:param",
+      "registered": [
+        {
+          "controller": "SignaturesController",
+          "handler": "update"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/settings.api.ts",
+      "line": 70,
+      "method": "DELETE",
+      "path": "/signatures/:param",
+      "registered": [
+        {
+          "controller": "SignaturesController",
+          "handler": "remove"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/settings.api.ts",
+      "line": 73,
+      "method": "GET",
+      "path": "/lead-assignment-rules",
+      "registered": [
+        {
+          "controller": "LeadAssignmentRulesController",
+          "handler": "list"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/settings.api.ts",
+      "line": 75,
+      "method": "POST",
+      "path": "/lead-assignment-rules",
+      "registered": [
+        {
+          "controller": "LeadAssignmentRulesController",
+          "handler": "create"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/settings.api.ts",
+      "line": 77,
+      "method": "PATCH",
+      "path": "/lead-assignment-rules/:param",
+      "registered": [
+        {
+          "controller": "LeadAssignmentRulesController",
+          "handler": "update"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/settings.api.ts",
+      "line": 78,
+      "method": "DELETE",
+      "path": "/lead-assignment-rules/:param",
+      "registered": [
+        {
+          "controller": "LeadAssignmentRulesController",
+          "handler": "remove"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/settings.api.ts",
+      "line": 82,
+      "method": "GET",
+      "path": "/access-requests",
+      "registered": [
+        {
+          "controller": "AccessRequestsController",
+          "handler": "list"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/settings.api.ts",
+      "line": 84,
+      "method": "POST",
+      "path": "/access-requests/:param/approve",
+      "registered": [
+        {
+          "controller": "AccessRequestsController",
+          "handler": "approve"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/settings.api.ts",
+      "line": 86,
+      "method": "POST",
+      "path": "/access-requests/:param/reject",
+      "registered": [
+        {
+          "controller": "AccessRequestsController",
+          "handler": "reject"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/settings.api.ts",
+      "line": 89,
+      "method": "GET",
+      "path": "/lookups",
+      "registered": [
+        {
+          "controller": "LookupsController",
+          "handler": "list"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/targets.api.ts",
+      "line": 44,
+      "method": "GET",
+      "path": "/users",
+      "registered": [
+        {
+          "controller": "AdminController",
+          "handler": "listUsers"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/targets.api.ts",
+      "line": 45,
+      "method": "GET",
+      "path": "/departments",
+      "registered": [
+        {
+          "controller": "AdminController",
+          "handler": "listDepts"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/targets.api.ts",
+      "line": 46,
+      "method": "GET",
+      "path": "/divisions",
+      "registered": [
+        {
+          "controller": "AdminController",
+          "handler": "listDivisions"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/targets.api.ts",
+      "line": 48,
+      "method": "GET",
+      "path": "/user-targets",
+      "registered": [
+        {
+          "controller": "AdminController",
+          "handler": "listUserTargets"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/targets.api.ts",
+      "line": 49,
+      "method": "GET",
+      "path": "/me/targets",
+      "registered": [
+        {
+          "controller": "AdminController",
+          "handler": "listMyTargets"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/targets.api.ts",
+      "line": 51,
+      "method": "POST",
+      "path": "/users/:param/targets",
+      "registered": [
+        {
+          "controller": "AdminController",
+          "handler": "upsertUserTarget"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/targets.api.ts",
+      "line": 53,
+      "method": "GET",
+      "path": "/department-targets",
+      "registered": [
+        {
+          "controller": "AdminController",
+          "handler": "listDepartmentTargets"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/targets.api.ts",
+      "line": 55,
+      "method": "POST",
+      "path": "/departments/:param/targets",
+      "registered": [
+        {
+          "controller": "AdminController",
+          "handler": "upsertDepartmentTarget"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/targets.api.ts",
+      "line": 57,
+      "method": "GET",
+      "path": "/division-targets",
+      "registered": [
+        {
+          "controller": "AdminController",
+          "handler": "listDivisionTargets"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/targets.api.ts",
+      "line": 59,
+      "method": "POST",
+      "path": "/divisions/:param/targets",
+      "registered": [
+        {
+          "controller": "AdminController",
+          "handler": "upsertDivisionTarget"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/targets.api.ts",
+      "line": 62,
+      "method": "GET",
+      "path": "/reports/target-progress",
+      "registered": [
+        {
+          "controller": "ReportsController",
+          "handler": "targetProgress"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/targets.api.ts",
+      "line": 64,
+      "method": "GET",
+      "path": "/reports/my-target-progress",
+      "registered": [
+        {
+          "controller": "ReportsController",
+          "handler": "myTargetProgress"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/trade-fairs.api.ts",
+      "line": 89,
+      "method": "GET",
+      "path": "/trade-fairs",
+      "registered": [
+        {
+          "controller": "TradeFairsController",
+          "handler": "list"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/trade-fairs.api.ts",
+      "line": 90,
+      "method": "GET",
+      "path": "/trade-fairs/photos",
+      "registered": [
+        {
+          "controller": "TradeFairsController",
+          "handler": "photos"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/trade-fairs.api.ts",
+      "line": 91,
+      "method": "GET",
+      "path": "/trade-fairs/summary",
+      "registered": [
+        {
+          "controller": "TradeFairsController",
+          "handler": "summary"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/trade-fairs.api.ts",
+      "line": 92,
+      "method": "GET",
+      "path": "/trade-fairs/staff",
+      "registered": [
+        {
+          "controller": "TradeFairsController",
+          "handler": "staff"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/trade-fairs.api.ts",
+      "line": 93,
+      "method": "GET",
+      "path": "/trade-fairs/divisions",
+      "registered": [
+        {
+          "controller": "TradeFairsController",
+          "handler": "divisions"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/trade-fairs.api.ts",
+      "line": 94,
+      "method": "GET",
+      "path": "/trade-fairs/products",
+      "registered": [
+        {
+          "controller": "TradeFairsController",
+          "handler": "products"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/trade-fairs.api.ts",
+      "line": 95,
+      "method": "PATCH",
+      "path": "/trade-fairs/:param/called",
+      "registered": [
+        {
+          "controller": "TradeFairsController",
+          "handler": "setCalled"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/trade-fairs.api.ts",
+      "line": 96,
+      "method": "PATCH",
+      "path": "/trade-fairs/:param/quoted",
+      "registered": [
+        {
+          "controller": "TradeFairsController",
+          "handler": "setQuoted"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/trade-fairs.api.ts",
+      "line": 98,
+      "method": "POST",
+      "path": "/trade-fairs/:param/company",
+      "registered": [
+        {
+          "controller": "TradeFairsController",
+          "handler": "addToCompanies"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/trade-fairs.api.ts",
+      "line": 100,
+      "method": "POST",
+      "path": "/trade-fairs/:param/opportunity",
+      "registered": [
+        {
+          "controller": "TradeFairsController",
+          "handler": "convertToOpportunity"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/trade-fairs.api.ts",
+      "line": 101,
+      "method": "POST",
+      "path": "/trade-fairs",
+      "registered": [
+        {
+          "controller": "TradeFairsController",
+          "handler": "create"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/trade-fairs.api.ts",
+      "line": 103,
+      "method": "PATCH",
+      "path": "/trade-fairs/:param",
+      "registered": [
+        {
+          "controller": "TradeFairsController",
+          "handler": "update"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/trade-fairs.api.ts",
+      "line": 104,
+      "method": "DELETE",
+      "path": "/trade-fairs/:param",
+      "registered": [
+        {
+          "controller": "TradeFairsController",
+          "handler": "remove"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/api/trade-fairs.api.ts",
+      "line": 106,
+      "method": "GET",
+      "path": "/files/links",
+      "registered": [
+        {
+          "controller": "FilesController",
+          "handler": "listLinks"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/call-assistant/api.ts",
+      "line": 22,
+      "method": "GET",
+      "path": "/call-assistant/capabilities",
+      "registered": [
+        {
+          "controller": "CallAssistantController",
+          "handler": "capabilities"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/call-assistant/api.ts",
+      "line": 23,
+      "method": "POST",
+      "path": "/call-assistant/match",
+      "registered": [
+        {
+          "controller": "CallAssistantController",
+          "handler": "match"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/call-assistant/api.ts",
+      "line": 24,
+      "method": "POST",
+      "path": "/call-assistant/manual-events",
+      "registered": [
+        {
+          "controller": "CallAssistantController",
+          "handler": "manual"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/call-assistant/api.ts",
+      "line": 25,
+      "method": "POST",
+      "path": "/mobile/calls/events",
+      "registered": [
+        {
+          "controller": "MobileCallEventsController",
+          "handler": "event"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/call-assistant/api.ts",
+      "line": 26,
+      "method": "GET",
+      "path": "/call-assistant/suggestions",
+      "registered": [
+        {
+          "controller": "CallAssistantController",
+          "handler": "suggestions"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/call-assistant/api.ts",
+      "line": 27,
+      "method": "GET",
+      "path": "/call-assistant/suggestions/:param",
+      "registered": [
+        {
+          "controller": "CallAssistantController",
+          "handler": "suggestion"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/call-assistant/api.ts",
+      "line": 28,
+      "method": "POST",
+      "path": "/call-assistant/suggestions/:param/actions",
+      "registered": [
+        {
+          "controller": "CallAssistantController",
+          "handler": "action"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/call-assistant/api.ts",
+      "line": 29,
+      "method": "GET",
+      "path": "/call-assistant/drafts/:param",
+      "registered": [
+        {
+          "controller": "CallAssistantController",
+          "handler": "draft"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/call-assistant/api.ts",
+      "line": 30,
+      "method": "POST",
+      "path": "/call-assistant/drafts/:param/commit",
+      "registered": [
+        {
+          "controller": "CallAssistantController",
+          "handler": "commit"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/call-assistant/api.ts",
+      "line": 32,
+      "method": "GET",
+      "path": "/call-assistant/phone-index",
+      "registered": [
+        {
+          "controller": "CallAssistantController",
+          "handler": "phoneIndex"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/native/calendar-sync.ts",
+      "line": 54,
+      "method": "GET",
+      "path": "/calendar/sync-settings",
+      "registered": [
+        {
+          "controller": "CalendarController",
+          "handler": "settings"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/native/calendar-sync.ts",
+      "line": 56,
+      "method": "PUT",
+      "path": "/calendar/sync-settings",
+      "registered": [
+        {
+          "controller": "CalendarController",
+          "handler": "saveSettings"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/native/calendar-sync.ts",
+      "line": 183,
+      "method": "GET",
+      "path": "/calendar/events",
+      "registered": [
+        {
+          "controller": "CalendarController",
+          "handler": "list"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/native/calendar-sync.ts",
+      "line": 191,
+      "method": "POST",
+      "path": "/mobile/calendar/sync",
+      "registered": [
+        {
+          "controller": "CalendarController",
+          "handler": "sync"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/push/usePush.ts",
+      "line": 195,
+      "method": "DELETE",
+      "path": "/notifications/push-token",
+      "registered": [
+        {
+          "controller": "NotificationsController",
+          "handler": "removePushToken"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/src/push/usePush.ts",
+      "line": 287,
+      "method": "POST",
+      "path": "/notifications/push-token",
+      "registered": [
+        {
+          "controller": "NotificationsController",
+          "handler": "registerPushToken"
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile-v2/app/modal/quote-form.tsx",
+      "line": 163,
+      "method": "GET",
+      "path": "/fx/rates",
+      "registered": [
+        {
+          "controller": "FxController",
+          "handler": "rates"
+        }
+      ]
+    }
+  ]
+}

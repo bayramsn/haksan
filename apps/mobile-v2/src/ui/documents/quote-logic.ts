@@ -242,6 +242,8 @@ export type EditableQuoteItem = {
   optionChildren: QuoteOptionChildDraft[];
   /** Düzenlemede seçenek değiştiyse zorunlu doğrulama tetiklenir. */
   configurationChanged: boolean;
+  /** Matrisli baz kartta model × güç fiyatı (web `compatibility.configurationPrice`). */
+  configurationPrice?: QuoteConfigurationPriceDraft | null;
 };
 
 export type ParsedQuoteItem = {
@@ -266,7 +268,16 @@ export type ParsedQuoteItem = {
     technicalSpecs?: QuoteTechnicalSpecDraft[];
     technicalConfiguration?: unknown | null;
     selectedProductOptions?: QuoteSelectedOptionDraft[];
+    configurationPrice?: QuoteConfigurationPriceDraft | null;
   } | null;
+};
+
+export type QuoteConfigurationPriceDraft = {
+  sourceModelCode: string;
+  powerKw: number;
+  salePrice: number;
+  currencyCode: string;
+  priceListCode?: 'LAZER-CIF-IST' | 'LAZER-MILLI-IST' | null;
 };
 
 let lineGroupCounter = 0;
@@ -362,6 +373,7 @@ export function parseQuoteItems(items: EditableQuoteItem[]): { items: ParsedQuot
         : { machineIds: [], brands: [], controlUnits: [], supplierIds: [] }),
       ...(technicalSpecs.length || item.technicalConfiguration ? { technicalSpecs } : {}),
       technicalConfiguration: item.technicalConfiguration ?? null,
+      ...(item.configurationPrice ? { configurationPrice: item.configurationPrice } : {}),
     };
 
     parsed.push({

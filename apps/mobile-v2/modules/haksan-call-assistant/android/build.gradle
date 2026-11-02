@@ -8,3 +8,6 @@ android {
   namespace 'expo.modules.haksancallassistant'
   defaultConfig { versionCode 1; versionName '1.0.0' }
 }
+dependencies {
+  testImplementation 'junit:junit:4.13.2'
+}

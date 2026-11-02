@@ -1,10 +1,10 @@
 {
-  "generatedAt": "2026-10-27T12:51:13.141Z",
+  "generatedAt": "2026-11-02T09:02:12.269Z",
   "counts": {
-    "webActions": 345,
-    "covered": 336,
-    "missing": 9,
-    "mobileCalls": 418
+    "webActions": 362,
+    "covered": 347,
+    "missing": 15,
+    "mobileCalls": 439
   },
   "rows": [
     {
@@ -21,7 +21,9 @@
       "path": "/companies/summary",
       "permission": "companies.read",
       "inMobile": true,
-      "pages": []
+      "pages": [
+        "apps/web/src/app/components/pages/BulkMailPage.tsx"
+      ]
     },
     {
       "key": "company.get",
@@ -138,81 +140,42 @@
       "pages": []
     },
     {
-      "key": "mail.signatureUsers",
-      "verb": "GET",
-      "path": "/mail/signature/users",
-      "permission": null,
-      "inMobile": true,
-      "pages": [
-        "apps/web/src/app/components/pages/settings/AdminMailSignatureSettings.tsx"
-      ]
-    },
-    {
-      "key": "mail.userSignature",
-      "verb": "GET",
-      "path": "/mail/signature/users/:param",
-      "permission": null,
-      "inMobile": true,
-      "pages": [
-        "apps/web/src/app/components/pages/settings/AdminMailSignatureSettings.tsx"
-      ]
-    },
-    {
-      "key": "mail.saveUserSignature",
-      "verb": "PUT",
-      "path": "/mail/signature/users/:param",
-      "permission": null,
-      "inMobile": true,
-      "pages": [
-        "apps/web/src/app/components/pages/settings/AdminMailSignatureSettings.tsx"
-      ]
-    },
-    {
-      "key": "mail.signature",
-      "verb": "PUT",
-      "path": "/mail/signature",
-      "permission": null,
-      "inMobile": true,
-      "pages": [
-        "apps/web/src/app/components/pages/settings/MailAccountSettings.tsx"
-      ]
-    },
-    {
       "key": "mail.saveSignature",
-      "verb": "PUT",
-      "path": "/mail/signature/image",
+      "verb": null,
+      "path": null,
       "permission": null,
-      "inMobile": true,
+      "inMobile": false,
       "pages": [
         "apps/web/src/app/components/pages/settings/MailAccountSettings.tsx"
       ]
     },
     {
       "key": "mail.account",
-      "verb": "GET",
-      "path": "/mail/account",
+      "verb": null,
+      "path": null,
       "permission": null,
-      "inMobile": true,
+      "inMobile": false,
       "pages": [
+        "apps/web/src/app/components/pages/BulkMailPage.tsx",
         "apps/web/src/app/components/pages/settings/MailAccountSettings.tsx"
       ]
     },
     {
       "key": "mail.connect",
-      "verb": "PUT",
-      "path": "/mail/account",
+      "verb": null,
+      "path": null,
       "permission": null,
-      "inMobile": true,
+      "inMobile": false,
       "pages": [
         "apps/web/src/app/components/pages/settings/MailAccountSettings.tsx"
       ]
     },
     {
       "key": "mail.disconnect",
-      "verb": "DELETE",
-      "path": "/mail/account",
+      "verb": null,
+      "path": null,
       "permission": null,
-      "inMobile": true,
+      "inMobile": false,
       "pages": [
         "apps/web/src/app/components/pages/settings/MailAccountSettings.tsx"
       ]
@@ -224,6 +187,102 @@
       "permission": null,
       "inMobile": true,
       "pages": []
+    },
+    {
+      "key": "mailCampaign.list",
+      "verb": "GET",
+      "path": "/mail/campaigns",
+      "permission": "mail_campaigns.read",
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/BulkMailPage.tsx"
+      ]
+    },
+    {
+      "key": "mailCampaign.get",
+      "verb": "GET",
+      "path": "/mail/campaigns/:param",
+      "permission": "mail_campaigns.read",
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/BulkMailPage.tsx"
+      ]
+    },
+    {
+      "key": "mailCampaign.create",
+      "verb": "POST",
+      "path": "/mail/campaigns",
+      "permission": null,
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/BulkMailPage.tsx"
+      ]
+    },
+    {
+      "key": "mailCampaign.cancel",
+      "verb": "POST",
+      "path": "/mail/campaigns/:param/cancel",
+      "permission": "mail_campaigns.create",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "mailCampaign.resume",
+      "verb": "POST",
+      "path": "/mail/campaigns/:param/resume",
+      "permission": "mail_campaigns.create",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "mailCampaign.candidates",
+      "verb": "GET",
+      "path": "/mail/campaigns/candidates",
+      "permission": "mail_campaigns.create",
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/BulkMailPage.tsx"
+      ]
+    },
+    {
+      "key": "mailCampaign.parseList",
+      "verb": "POST",
+      "path": "/mail/campaigns/parse-list",
+      "permission": null,
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/BulkMailPage.tsx"
+      ]
+    },
+    {
+      "key": "mailCampaign.suppressions",
+      "verb": "GET",
+      "path": "/mail/campaigns/suppressions",
+      "permission": "mail_campaigns.create",
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/BulkMailPage.tsx"
+      ]
+    },
+    {
+      "key": "mailCampaign.addSuppression",
+      "verb": "POST",
+      "path": "/mail/campaigns/suppressions",
+      "permission": null,
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/BulkMailPage.tsx"
+      ]
+    },
+    {
+      "key": "mailCampaign.removeSuppression",
+      "verb": "DELETE",
+      "path": "/mail/campaigns/suppressions/:param",
+      "permission": "mail_campaigns.create",
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/BulkMailPage.tsx"
+      ]
     },
     {
       "key": "contact.list",
@@ -626,6 +685,8 @@
       "permission": "trade_fairs.read",
       "inMobile": true,
       "pages": [
+        "apps/web/src/app/components/pages/BulkMailPage.tsx",
+        "apps/web/src/app/components/pages/TradeFairCompaniesPanel.tsx",
         "apps/web/src/app/components/pages/TradeFairsPage.tsx"
       ]
     },
@@ -636,13 +697,34 @@
       "permission": "trade_fairs.read",
       "inMobile": true,
       "pages": [
+        "apps/web/src/app/components/pages/BulkMailPage.tsx",
         "apps/web/src/app/components/pages/TradeFairsPage.tsx"
+      ]
+    },
+    {
+      "key": "tradeFair.photos",
+      "verb": "GET",
+      "path": "/trade-fairs/photos",
+      "permission": null,
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/TradeFairPhotoGallery.tsx"
       ]
     },
     {
       "key": "tradeFair.staff",
       "verb": "GET",
       "path": "/trade-fairs/staff",
+      "permission": "trade_fairs.read",
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/TradeFairsPage.tsx"
+      ]
+    },
+    {
+      "key": "tradeFair.divisions",
+      "verb": "GET",
+      "path": "/trade-fairs/divisions",
       "permission": "trade_fairs.read",
       "inMobile": true,
       "pages": [
@@ -859,6 +941,66 @@
       "permission": "products.read",
       "inMobile": true,
       "pages": []
+    },
+    {
+      "key": "product.listAllConfigurationPrices",
+      "verb": "GET",
+      "path": "/product-configuration-prices",
+      "permission": "price_lists.read",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "product.updateConfigurationPrices",
+      "verb": "PATCH",
+      "path": "/product-configuration-prices",
+      "permission": "price_lists.update",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "product.listCostPricedItems",
+      "verb": "GET",
+      "path": "/product-cost-prices",
+      "permission": "price_lists.read",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "product.updateCostPricedSales",
+      "verb": "PATCH",
+      "path": "/product-cost-prices/sale",
+      "permission": "price_lists.update",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "product.configurationPrices",
+      "verb": "GET",
+      "path": "/products/:param/configuration-prices",
+      "permission": "products.read",
+      "inMobile": true,
+      "pages": []
+    },
+    {
+      "key": "product.laserPriceLists",
+      "verb": "GET",
+      "path": "/laser-price-lists",
+      "permission": "price_lists.read",
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/LaserPriceLists.tsx"
+      ]
+    },
+    {
+      "key": "product.recalculateLaserPriceList",
+      "verb": "POST",
+      "path": "/laser-price-lists/recalculate",
+      "permission": "price_lists.update",
+      "inMobile": true,
+      "pages": [
+        "apps/web/src/app/components/pages/LaserPriceLists.tsx"
+      ]
     },
     {
       "key": "product.addOptionSet",
@@ -2257,6 +2399,16 @@
       "pages": []
     },
     {
+      "key": "publicMail.unsubscribe",
+      "verb": "POST",
+      "path": "/public/mail-unsubscribe/:param",
+      "permission": null,
+      "inMobile": false,
+      "pages": [
+        "apps/web/src/app/components/pages/PublicUnsubscribe.tsx"
+      ]
+    },
+    {
       "key": "publicComplaint.form",
       "verb": "GET",
       "path": "/public/service-complaints/:param/:param",
@@ -2335,6 +2487,16 @@
         "apps/web/src/app/components/pages/documents/DocumentsPage.tsx",
         "apps/web/src/app/components/pages/offers/OffersPage.tsx",
         "apps/web/src/app/components/pages/payments/PaymentsPage.tsx"
+      ]
+    },
+    {
+      "key": "file.imagePreview",
+      "verb": "GET",
+      "path": "/files/:param/preview",
+      "permission": "files.read",
+      "inMobile": false,
+      "pages": [
+        "apps/web/src/app/components/pages/TradeFairPhotoGallery.tsx"
       ]
     },
     {

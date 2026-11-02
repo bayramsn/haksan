@@ -1,19 +1,10 @@
 import type {
   TradeFairContact,
   TradeFairContactBody,
-  TradeFairContactMethod,
-  TradeFairFollowUp,
+  TradeFairFlags,
   TradeFairStaff,
   TradeFairSummary,
 } from '../../api/trade-fairs.api';
-
-export const CONTACT_METHODS: { value: TradeFairContactMethod; label: string }[] = [
-  { value: 'phone', label: 'Telefon' },
-  { value: 'whatsapp', label: 'WhatsApp' },
-  { value: 'email', label: 'E-posta' },
-  { value: 'in_person', label: 'Yüz yüze' },
-  { value: 'other', label: 'Diğer' },
-];
 
 /** Web ile aynı ek kısıtları: uzantıdan türetilen MIME, en fazla 25 MB. */
 export const ATTACHMENT_EXTENSIONS = ['pdf', 'docx', 'xlsx', 'png', 'jpg', 'jpeg', 'webp'] as const;
@@ -27,36 +18,26 @@ export function attachmentProblem(file: { name: string; extension: string; sizeB
   return null;
 }
 
-export const emptyFollowUp = (): TradeFairFollowUp => ({
-  contacted: false,
-  contactMethod: null,
-  contactDate: null,
-  contactNotes: null,
-  offerSent: false,
-  customerConverted: false,
-});
-
-/** Europe/Istanbul takvim günü (`YYYY-MM-DD`). */
-export const istanbulToday = (now = new Date()): string =>
-  new Intl.DateTimeFormat('sv-SE', { timeZone: 'Europe/Istanbul' }).format(now);
-
-/** Web `openFollowUp`: "Görüşüldü" kutusuna basınca işaretli ve bugünün tarihiyle açılır. */
-export function followUpDraft(row: TradeFairContact, markContacted: boolean, now = new Date()): TradeFairFollowUp {
-  return {
-    contacted: markContacted ? true : row.contacted,
-    contactMethod: row.contactMethod ?? null,
-    contactDate: row.contactDate ?? istanbulToday(now),
-    contactNotes: row.contactNotes ?? '',
-    offerSent: row.offerSent ?? false,
-    customerConverted: row.customerConverted ?? false,
-  };
+export function followUpDraft(row: TradeFairContact): TradeFairFlags {
+  return { called: Boolean(row.calledAt), quoted: Boolean(row.quotedAt) };
 }
 
-/** Satır rengi: teklif/müşteri → yeşil, görüşüldü → sarı. */
-export function tradeFairRowTone(row: TradeFairFollowUp): 'success' | 'warning' | null {
-  if (row.offerSent || row.customerConverted) return 'success';
-  if (row.contacted) return 'warning';
+export function tradeFairRowTone(row: Pick<TradeFairContact, 'calledAt' | 'quotedAt' | 'companyId' | 'opportunityId'>): 'success' | 'warning' | null {
+  if (row.quotedAt || row.companyId || row.opportunityId) return 'success';
+  if (row.calledAt) return 'warning';
   return null;
+}
+
+/** Bölüm değişiminde önceki bölümün ürünleri taşınmaz. */
+export function changeTradeFairDivision(form: TradeFairContactBody, divisionId: string): TradeFairContactBody {
+  return form.divisionId === divisionId ? form : { ...form, divisionId, productModelIds: [], productCategory: '', productType: '' };
+}
+
+export function toggleTradeFairProduct(form: TradeFairContactBody, product: { id: string; name: string; category: string | null }): TradeFairContactBody {
+  const selected = form.productModelIds ?? [];
+  if (selected.includes(product.id)) return { ...form, productModelIds: selected.filter((id) => id !== product.id) };
+  if (selected.length >= 20) return form;
+  return { ...form, productModelIds: [...selected, product.id], productCategory: product.category ?? form.productCategory, productType: product.name };
 }
 
 export function tradeFairLocation(row: Pick<TradeFairContact, 'district' | 'province' | 'country'>): string {
@@ -71,7 +52,8 @@ export function distinctSorted(values: (string | null | undefined)[]): string[] 
 
 export function emptyContactForm(fairName = '', metByUserId = ''): TradeFairContactBody {
   return {
-    ...emptyFollowUp(),
+    divisionId: '',
+    productModelIds: [],
     fairName,
     companyName: '',
     contactName: '',
@@ -94,8 +76,9 @@ export function formFromRow(row: TradeFairContact): TradeFairContactBody {
   const base = emptyContactForm();
   const out = { ...base } as Record<string, unknown>;
   for (const key of Object.keys(base) as (keyof TradeFairContactBody)[]) {
-    out[key] = row[key] ?? base[key];
+    out[key] = (row as unknown as Record<string, unknown>)[key] ?? base[key];
   }
+  out.productModelIds = row.products.map((p) => p.id);
   return out as TradeFairContactBody;
 }
 
@@ -128,4 +111,83 @@ export function canDeleteTradeFair(
 /** Kategoriye göre ürün tipi önerileri; kategori boşsa tümü. */
 export function productTypeOptions(products: { category: string | null; type: string | null }[], category: string | null | undefined): string[] {
   return distinctSorted(products.filter((p) => !category || p.category === category).map((p) => p.type));
+}
+
+/** Gecikmiş native onaylar hesap değişiminden veya ekran kapanışından sonra yazamaz. */
+export function createTradeFairActionGuard(context: string, readContext: () => string) {
+  let alive = true;
+  let busy = false;
+  const isCurrent = () => alive && context === readContext();
+  return {
+    isCurrent,
+    begin: () => { if (!isCurrent() || busy) return false; busy = true; return true; },
+    finish: () => { busy = false; },
+    activate: () => { alive = true; },
+    dispose: () => { alive = false; },
+  };
+}
+
+/** Başarılı ilk işaret, ikinci istek hata verse de tekrar gönderilmez. */
+export async function saveTradeFairFlags(
+  form: TradeFairFlags,
+  confirmed: TradeFairFlags,
+  save: (flag: keyof TradeFairFlags, value: boolean) => Promise<unknown>,
+  isCurrent: () => boolean,
+): Promise<boolean> {
+  for (const flag of ['called', 'quoted'] as const) {
+    if (!isCurrent()) return false;
+    if (form[flag] !== confirmed[flag]) {
+      await save(flag, form[flag]);
+      confirmed[flag] = form[flag];
+    }
+  }
+  return isCurrent();
+}
+
+export type TradeFairListFilters = {
+  fairName: string | null;
+  q: string;
+  divisionId: string | null;
+  metByUserId: string | null;
+  province: string | null;
+  district: string | null;
+};
+
+/** Web `listParams` ile aynı: boş süzgeç gönderilmez, il yoksa ilçe de gitmez. */
+export function tradeFairListParams(filters: TradeFairListFilters) {
+  const pick = (value: string | null | undefined) => value?.trim() || undefined;
+  const province = pick(filters.province);
+  return {
+    fairName: pick(filters.fairName),
+    q: pick(filters.q),
+    divisionId: pick(filters.divisionId),
+    metByUserId: pick(filters.metByUserId),
+    province,
+    district: province ? pick(filters.district) : undefined,
+  };
+}
+
+/** Görüşen süzgeci yalnız görüşmesi olanları listeler; seçili kişi özetten düşerse kaybolmasın (web `metByOptions`). */
+export function metByFilterOptions(
+  byUser: TradeFairSummary['byUser'],
+  selected: string | null,
+  staff: TradeFairStaff[],
+): { value: string; label: string }[] {
+  const options = byUser
+    .filter((u): u is typeof u & { userId: string } => Boolean(u.userId))
+    .map((u) => ({ value: u.userId, label: u.fullName ?? 'Belirtilmemiş' }));
+  if (selected && !options.some((o) => o.value === selected)) {
+    options.push({ value: selected, label: staff.find((s) => s.id === selected)?.fullName ?? 'Seçili kişi' });
+  }
+  return options;
+}
+
+/** Aynı dosya birden çok görüşmeye bağlı olabilir; anahtar bağlantı başınadır. */
+export function tradeFairPhotoKey(photo: { contactId: string; fileId: string }): string {
+  return `${photo.contactId}:${photo.fileId}`;
+}
+
+/** Yetkili görsel önizlemesi (web `fileService.imagePreview`). */
+export function filePreviewPath(fileId: string): string {
+  return `/files/${encodeURIComponent(fileId)}/preview`;
 }

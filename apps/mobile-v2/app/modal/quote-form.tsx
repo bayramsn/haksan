@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { request } from '@/src/api/client';
 import { quoteTotalsPreview } from '@/src/ui/documents/quote-preview';
-import { validateQuoteConfigurations } from '@/src/ui/documents/quote-configuration';
+import { deliveryForSavedPriceList, laserPriceListForDelivery, validateQuoteConfigurations } from '@/src/ui/documents/quote-configuration';
 import { postPdfAndShare } from '@/src/native/files';
 import { shareSavedDocument } from '@/src/ui/documents/document-pdf';
 import { DISCOUNT_APPROVAL_THRESHOLD_PERCENT, companyUpdateSchema, discountPercent, requiresDiscountApproval } from '@haksan/shared';
@@ -132,6 +132,7 @@ function hydrateQuoteItems(rawItems: import('@/src/api/endpoints').QuoteItem[]):
       },
       optionChildren: [],
       configurationChanged: false,
+      configurationPrice: (compat as { configurationPrice?: EditableQuoteItem['configurationPrice'] } | null)?.configurationPrice ?? null,
     });
   }
   return [...mains, ...orphans].length ? [...mains, ...orphans] : [emptyQuoteItem()];
@@ -287,7 +288,9 @@ export default function QuoteFormScreen() {
     const matchedPreset = QUOTE_DELIVERY_PRESETS.find(
       (row) => row.label === (quote.terms?.deliveryTermsText ?? quote.deliveryTerms ?? '')
     );
-    setDeliveryPreset(matchedPreset?.code ?? '');
+    // Lazer liste fiyatlı kalem varsa teslim şekli o listeden geri çıkarılır (web QuoteDialog).
+    const hydratedItems = hydrateQuoteItems(quote.items);
+    setDeliveryPreset(deliveryForSavedPriceList(hydratedItems.map((item) => item.configurationPrice)) ?? matchedPreset?.code ?? '');
     setWarrantyTerms(quote.terms?.warrantyTermsText ?? quote.warrantyTerms ?? '');
     setImportCostsExcluded(quote.terms?.importCostsExcluded ?? true);
     setVatIncluded(quote.terms?.vatIncluded ?? false);
@@ -300,7 +303,7 @@ export default function QuoteFormScreen() {
       quote.terms?.estimatedDeliveryDaysMax != null ? String(quote.terms.estimatedDeliveryDaysMax) : ''
     );
     setNotes(quote.notes ?? '');
-    setItems(hydrateQuoteItems(quote.items));
+    setItems(hydratedItems);
     setVatEnabled(quote.items.some((item) => Number(item.vatRate ?? 0) > 0));
     setHydrated(true);
   }, [currencies.data, existing.data, hydrated, isEdit, user?.id]);
@@ -613,7 +616,7 @@ export default function QuoteFormScreen() {
           <ToggleRow label="KDV hesapla" value={vatEnabled} onChange={setVatEnabled} />
           <Text className="font-inter text-xs text-muted-foreground">{vatEnabled ? 'Kalemlerin KDV oranları teklif toplamına uygulanır.' : 'Teklif kalemleri KDV hesaplanmadan kaydedilir. KDV’nin fiyata dahil olması ayrı bir şarttır.'}</Text>
         </View>
-        <QuoteItemsEditor onConfigurationBusyChange={(key, pending) => setConfigurationBusy(current => { const next = new Set(current); if (pending) next.add(key); else next.delete(key); return next; })}
+        <QuoteItemsEditor priceListCode={laserPriceListForDelivery(deliveryPreset)} onConfigurationBusyChange={(key, pending) => setConfigurationBusy(current => { const next = new Set(current); if (pending) next.add(key); else next.delete(key); return next; })}
           items={items}
           vatEnabled={vatEnabled}
           onChange={(next) => {

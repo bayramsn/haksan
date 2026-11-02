@@ -10,13 +10,14 @@ import HaksanCallAssistant
 struct HaksanAssistantPackage: AppIntentsPackage {
   static var includedPackages: [any AppIntentsPackage.Type] { [HaksanCallAssistantIntentsPackage.self] }
 }
-`;
+` + '\n' + fs.readFileSync(path.join(__dirname, 'assistant-shortcuts.swift.template'), 'utf8');
 module.exports = function withCallAssistant(config) {
   config = withAndroidManifest(config, cfg => {
     cfg.modResults = applyAssistantMicrophonePermission(cfg.modResults);
     return cfg;
   });
   config = withInfoPlist(config, cfg => {
+    cfg.modResults.CFBundleDevelopmentRegion = 'tr';
     cfg.modResults.NSSpeechRecognitionUsageDescription = 'Haksan, söylediklerinizi yalnız cihaz üzerinde yazıya çevirip incelemeniz için taslağa aktarır.';
     cfg.modResults.NSMicrophoneUsageDescription = 'Haksan, yalnız siz sesli giriş başlattığınızda mikrofonu kullanır; telefon görüşmelerini kaydetmez.';
     cfg.modResults.NSContactsUsageDescription = 'Haksan, isteğiniz üzerine cihaz rehberindeki arayanlar için de görüşme sonrası yardımcısını kullanabilmeniz için rehber iznini ister.';
@@ -29,6 +30,7 @@ module.exports = function withCallAssistant(config) {
     return cfg;
   }]);
   return withXcodeProject(config, cfg => {
+    applyAssistantProjectLocalization(cfg.modResults);
     const projectName = IOSConfig.XcodeUtils.getProjectName(cfg.modRequest.projectRoot);
     const filepath = `${projectName}/${FILE}`;
     if (!cfg.modResults.hasFile(filepath)) IOSConfig.XcodeUtils.addBuildSourceFileToGroup({ filepath, groupName: projectName, project: cfg.modResults });
@@ -45,3 +47,10 @@ function applyAssistantMicrophonePermission(manifest) {
   return manifest;
 }
 module.exports.applyAssistantMicrophonePermission = applyAssistantMicrophonePermission;
+function applyAssistantProjectLocalization(project) {
+  const root = project.getFirstProject().firstProject;
+  root.developmentRegion = 'tr';
+  root.knownRegions = [...new Set([...(root.knownRegions ?? []), 'tr'])];
+  return project;
+}
+module.exports.applyAssistantProjectLocalization = applyAssistantProjectLocalization;

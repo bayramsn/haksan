@@ -1,5 +1,6 @@
 package expo.modules.haksancallassistant
 
+import android.app.KeyguardManager
 import android.content.Context
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
@@ -18,6 +19,7 @@ import javax.crypto.spec.GCMParameterSpec
  * encrypted under a nonexportable per-install Android Keystore key. */
 internal class AssistantStore(context: Context) {
   private val prefs = context.getSharedPreferences("haksan_assistant_private", Context.MODE_PRIVATE)
+  private val keyguard = context.getSystemService(KeyguardManager::class.java)
   private val keyAlias = "haksan_assistant_aes_v1"
   private fun key(): SecretKey {
     val store = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
@@ -133,11 +135,27 @@ internal class AssistantStore(context: Context) {
     val action = JSONObject().put("id", screened.getString("id")).put("action", "post_call").put("createdAt", System.currentTimeMillis()).put("scope", match.getString("scope")).put("phoneNumber", normalize(phone)).put("direction", screened.optString("direction")).put("eventType", eventType)
     val pending = fresh(value, 19); pending.put(action); write(value.put("pending", pending)); action.getString("id")
   }
-  fun enqueue(action: String): String = synchronized(lock) {
+  fun enqueue(action: String): String? = synchronized(lock) {
     require(action in actions && action != "post_call")
-    val value = read(); val id = UUID.randomUUID().toString()
-    val pending = fresh(value, 19); pending.put(JSONObject().put("id", id).put("action", action).put("createdAt", System.currentTimeMillis()).put("scope", value.optString("scope")))
-    write(value.put("pending", pending)); id
+    enqueueReview(read(), action)
+  }
+  /** External command entry point: never reads CRM or creates business records.
+   * The only returned value is an opaque handle for authenticated app review. */
+  fun enqueueReviewCommand(command: String): String? = synchronized(lock) {
+    val bounded = AssistantReviewPolicy.command(command) ?: return@synchronized null
+    enqueueReview(read(), "after_call", bounded)
+  }
+  /** Must only be called while holding lock, so consent/scope cannot change
+   * between checking them and committing the encrypted pending row. */
+  private fun enqueueReview(value: JSONObject, action: String, command: String? = null): String? {
+    if (!AssistantReviewPolicy.canEnqueue(value.opt("enabled") == true, value.optString("scope"), keyguard?.isDeviceLocked != false)) return null
+    val pending = fresh(value)
+    if (pending.length() >= 20) return null
+    val id = UUID.randomUUID().toString()
+    val row = JSONObject().put("id", id).put("action", action).put("createdAt", System.currentTimeMillis()).put("scope", value.getString("scope"))
+    if (command != null) row.put("command", command)
+    pending.put(row)
+    write(value.put("pending", pending)); return id
   }
   private fun fresh(value: JSONObject, limit: Int = 20): JSONArray {
     val source = value.optJSONArray("pending") ?: JSONArray()

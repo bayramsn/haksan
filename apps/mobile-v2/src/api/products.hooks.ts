@@ -10,6 +10,7 @@ import {
   type ProductCreateBody,
   type ProductEquipmentInput,
   type ProductSpecInput,
+  type SaleUpdateBody,
 } from './products.api';
 
 const LOAD_ALL_PAGE_SIZE = 200;
@@ -302,5 +303,66 @@ export function useCreatePriceListItem() {
     mutationFn: ({ listId, body }: { listId: string; body: PriceListItemCreateBody }) =>
       productsExtraApi.createPriceListItem(listId, body),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['price-lists'] }),
+  });
+}
+
+/* Fiyat Listeleri alt bölümleri (web LaserPriceLists / ConfigurationPriceEditor). */
+export const pricingKeys = {
+  laser: ['price-lists', 'laser'] as const,
+  configuration: ['price-lists', 'configuration-prices'] as const,
+  costPriced: ['price-lists', 'cost-prices'] as const,
+};
+
+export function useLaserPriceLists() {
+  const catalogScope = useCatalogScope();
+  return useQuery({ queryKey: [...pricingKeys.laser, catalogScope.key], queryFn: productsExtraApi.laserPriceLists });
+}
+
+export function useRecalculateLaserPriceList() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: productsExtraApi.recalculateLaserPriceList,
+    onSuccess: (result) =>
+      result.applied
+        ? Promise.all([
+            qc.invalidateQueries({ queryKey: pricingKeys.laser }),
+            qc.invalidateQueries({ queryKey: pricingKeys.configuration }),
+            qc.invalidateQueries({ queryKey: ['products'] }),
+          ])
+        : undefined,
+  });
+}
+
+export function useConfigurationPrices() {
+  const catalogScope = useCatalogScope();
+  return useQuery({ queryKey: [...pricingKeys.configuration, catalogScope.key], queryFn: productsExtraApi.configurationPrices });
+}
+
+/** Baz kartın model × güç fiyat matrisi; teklif fiyatı ve ürün detayı tablosu buradan. */
+export function useProductConfigurationPrices(productId: string, enabled = true) {
+  return useQuery({
+    queryKey: ['products', 'configuration-prices', productId],
+    queryFn: () => productsExtraApi.productConfigurationPrices(productId),
+    enabled: Boolean(productId) && enabled,
+  });
+}
+
+export function useCostPricedItems() {
+  const catalogScope = useCatalogScope();
+  return useQuery({ queryKey: [...pricingKeys.costPriced, catalogScope.key], queryFn: productsExtraApi.costPricedItems });
+}
+
+/** Satış fiyatı kaydı; matris fiyatları lazer listesini, aksesuar fiyatları ürün kartını etkiler. */
+export function useUpdateSalePrices(kind: 'configuration' | 'costPriced') {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: SaleUpdateBody) =>
+      kind === 'configuration' ? productsExtraApi.updateConfigurationPrices(body) : productsExtraApi.updateCostPricedSales(body),
+    onSuccess: () =>
+      Promise.all([
+        qc.invalidateQueries({ queryKey: pricingKeys[kind] }),
+        qc.invalidateQueries({ queryKey: pricingKeys.laser }),
+        qc.invalidateQueries({ queryKey: ['products'] }), // ürün matrisi (`products/configuration-prices`) dahil
+      ]),
   });
 }

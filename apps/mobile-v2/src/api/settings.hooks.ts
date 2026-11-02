@@ -24,39 +24,51 @@ export const settingsKeys = {
 
 const STALE = 60 * 1000;
 
-export function useMailAccount() {
-  return useQuery({ queryKey: settingsKeys.mailAccount, queryFn: settingsApi.mailAccount, staleTime: STALE });
+/** Kendi hesabının anahtarı değişmez (mail compose vb. onu okur); hedef kullanıcı ayrı anahtarda. */
+const mailAccountKey = (userId?: string) => (userId ? [...settingsKeys.mailAccount, userId] : settingsKeys.mailAccount);
+
+export function useMailAccount(userId?: string) {
+  return useQuery({ queryKey: mailAccountKey(userId), queryFn: () => settingsApi.mailAccount(userId), staleTime: STALE });
 }
 
-export function useMailConnect() {
+export function useMailConnect(userId?: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (body: UserMailAccountUpsertInput) => settingsApi.mailConnect(body),
-    onSuccess: (status) => qc.setQueryData(settingsKeys.mailAccount, status),
+    mutationFn: (body: UserMailAccountUpsertInput) => settingsApi.mailConnect(body, userId),
+    onSuccess: (status) => {
+      qc.setQueryData(mailAccountKey(userId), status);
+      if (userId) void qc.invalidateQueries({ queryKey: settingsKeys.mailSignatureUsers });
+    },
   });
 }
 
-export function useMailDisconnect() {
+export function useMailDisconnect(userId?: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: () => settingsApi.mailDisconnect(),
-    onSuccess: () => void qc.invalidateQueries({ queryKey: settingsKeys.mailAccount }),
+    mutationFn: () => settingsApi.mailDisconnect(userId),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: mailAccountKey(userId), exact: true });
+      if (userId) void qc.invalidateQueries({ queryKey: settingsKeys.mailSignatureUsers });
+    },
   });
 }
 
-export function useMailTextSignature() {
+export function useMailTextSignature(userId?: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (signature: string | null) => settingsApi.mailTextSignature(signature),
-    onSuccess: (status) => qc.setQueryData(settingsKeys.mailAccount, status),
+    mutationFn: (signature: string | null) => settingsApi.mailTextSignature(signature, userId),
+    onSuccess: (status) => qc.setQueryData(mailAccountKey(userId), status),
   });
 }
 
-export function useMailImageSignature() {
+export function useMailImageSignature(userId?: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (body: MailSignatureInput) => settingsApi.mailImageSignature(body),
-    onSuccess: (status) => qc.setQueryData(settingsKeys.mailAccount, status),
+    mutationFn: (body: MailSignatureInput) => settingsApi.mailImageSignature(body, userId),
+    onSuccess: (status) => {
+      qc.setQueryData(mailAccountKey(userId), status);
+      if (userId) void qc.invalidateQueries({ queryKey: settingsKeys.mailUserSignature(userId) });
+    },
   });
 }
 
@@ -81,7 +93,10 @@ export function useMailSaveUserSignature(userId: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (body: MailSignatureInput) => settingsApi.mailSaveUserSignature(userId, body),
-    onSuccess: (data) => qc.setQueryData(settingsKeys.mailUserSignature(userId), data),
+    onSuccess: (data) => {
+      qc.setQueryData(settingsKeys.mailUserSignature(userId), data);
+      void qc.invalidateQueries({ queryKey: [...settingsKeys.mailAccount, userId] });
+    },
   });
 }
 

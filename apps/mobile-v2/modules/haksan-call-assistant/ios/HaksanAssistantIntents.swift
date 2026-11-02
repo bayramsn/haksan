@@ -26,7 +26,8 @@ public struct HaksanAssistantIntent: AppIntent {
   public init(action: HaksanAssistantAction) { self.action = action }
   @MainActor public func perform() async throws -> some IntentResult {
     let id = try AssistantVault.enqueue(action: action.rawValue, utterance: note, query: query, dueAt: dueAt)
-    guard let url = URL(string: "haksan:///modules/call-assistant/\(id)") else { throw NSError(domain: "HaksanAssistant", code: 1) }
+    let destination = id.map { "haksan:///modules/call-assistant/\($0)" } ?? "haksan:///modules/call-assistant"
+    guard let url = URL(string: destination) else { throw NSError(domain: "HaksanAssistant", code: 1) }
     // openAppWhenRun/supportedModes foreground the app on iOS 16+; only an
     // opaque local action id crosses the URL boundary.
     _ = await UIApplication.shared.open(url)
@@ -50,7 +51,8 @@ public struct HaksanAssistantCommandIntent: AppIntent {
     let text = command.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !text.isEmpty else { throw $command.needsValueError("Lütfen yapmak istediğiniz işlemi Türkçe söyleyin.") }
     let id = try AssistantVault.enqueue(action: "after_call", command: text)
-    guard let url = URL(string: "haksan:///modules/call-assistant/\(id)") else { throw NSError(domain: "HaksanAssistant", code: 1) }
+    let destination = id.map { "haksan:///modules/call-assistant/\($0)" } ?? "haksan:///modules/call-assistant"
+    guard let url = URL(string: destination) else { throw NSError(domain: "HaksanAssistant", code: 1) }
     _ = await UIApplication.shared.open(url)
     return .result()
   }
@@ -59,17 +61,3 @@ public struct HaksanAssistantCommandIntent: AppIntent {
 // AppIntentsPackage iOS 17 ile geldi; intent ve kısayollar iOS 16'da kalır.
 @available(iOS 17.0, *)
 public struct HaksanCallAssistantIntentsPackage: AppIntentsPackage { public init() {} }
-
-@available(iOS 16.0, *)
-public struct HaksanAssistantShortcuts: AppShortcutsProvider {
-  public static var appShortcuts: [AppShortcut] {
-    AppShortcut(intent: HaksanAssistantIntent(action: .afterCall), phrases: ["\(.applicationName) görüşme sonrası", "\(.applicationName)'da görüşme sonrası işlem aç"], shortTitle: "Görüşme sonrası", systemImageName: "phone")
-    AppShortcut(intent: HaksanAssistantIntent(action: .openToday), phrases: ["\(.applicationName) bugünümü aç"], shortTitle: "Bugünümü aç", systemImageName: "calendar")
-    AppShortcut(intent: HaksanAssistantIntent(action: .newOpportunity), phrases: ["\(.applicationName) yeni fırsat"], shortTitle: "Yeni fırsat", systemImageName: "plus")
-    AppShortcut(intent: HaksanAssistantIntent(action: .findOpportunities), phrases: ["\(.applicationName) fırsatlarını aç"], shortTitle: "Fırsatları aç", systemImageName: "briefcase")
-    AppShortcut(intent: HaksanAssistantIntent(action: .addNote), phrases: ["\(.applicationName) görüşme notu hazırla"], shortTitle: "Not hazırla", systemImageName: "note.text")
-    AppShortcut(intent: HaksanAssistantIntent(action: .createTask), phrases: ["\(.applicationName) takip görevi hazırla"], shortTitle: "Takip hazırla", systemImageName: "checklist")
-    AppShortcut(intent: HaksanAssistantIntent(action: .newServiceTicket), phrases: ["\(.applicationName) servis talebi hazırla"], shortTitle: "Servis hazırla", systemImageName: "wrench.and.screwdriver")
-    AppShortcut(intent: HaksanAssistantCommandIntent(), phrases: ["\(.applicationName) komut hazırla", "\(.applicationName) yardımcısını aç"], shortTitle: "Komut hazırla", systemImageName: "mic")
-  }
-}
