@@ -1,11 +1,18 @@
 import { afterAll, describe, expect, it } from 'vitest';
 import { createServer, type Server } from 'node:http';
-import { HtmlPdfService } from '../src/shared/pdf/html-pdf.service';
+import { HtmlPdfService, stripMetaRefresh } from '../src/shared/pdf/html-pdf.service';
 
 // Teklif mail eki: istemcinin "Yazdır / PDF Kaydet" HTML'i Chromium ile PDF'e çevrilir.
 // Chromium yoksa (CI'da kurulmamışsa) test atlanır; Docker imajında kurulu.
 const chromium = HtmlPdfService.executablePath();
 const service = new HtmlPdfService();
+
+describe('stripMetaRefresh', () => {
+  it('her yazımdaki meta-refresh etiketini kaldırır, diğer meta etiketlerini korur', () => {
+    const html = `<meta charset="utf-8"><META HTTP-EQUIV="Refresh" content="0;url=x"><meta http-equiv=refresh content=1><meta http-equiv='refresh'/><meta name="viewport" content="w">`;
+    expect(stripMetaRefresh(html)).toBe('<meta charset="utf-8"><meta name="viewport" content="w">');
+  });
+});
 
 describe.skipIf(!chromium)('HtmlPdfService', () => {
   afterAll(() => service.onModuleDestroy());

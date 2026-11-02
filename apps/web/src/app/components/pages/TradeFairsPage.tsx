@@ -185,6 +185,7 @@ export function TradeFairsPage({
   const [provinceFilter, setProvinceFilter] = useState(ALL);
   const [districtFilter, setDistrictFilter] = useState(ALL);
   const [metByFilter, setMetByFilter] = useState(ALL);
+  const [divisionFilter, setDivisionFilter] = useState(ALL);
   const [view, setView] = useState<"meetings" | "photos">("meetings");
   const [galleryRefreshKey, setGalleryRefreshKey] = useState(0);
   const [rows, setRows] = useState<TradeFairContactDTO[]>([]);
@@ -214,16 +215,17 @@ export function TradeFairsPage({
   const province = provinceFilter === ALL ? undefined : provinceFilter;
   const district = districtFilter === ALL ? undefined : districtFilter;
   const metByUserId = metByFilter === ALL ? undefined : metByFilter;
+  const divisionId = divisionFilter === ALL ? undefined : divisionFilter;
   const filterProvinceOptions = useMemo(() => provincesForCountry("Türkiye"), []);
   const filterDistrictOptions = useMemo(() => (province ? districtsForCountry("Türkiye", province) : []), [province]);
   // Liste ve Excel aynı süzgeçleri kullanır.
-  const listParams = { fairName: fairFilter, q: q.trim() || undefined, province, district, metByUserId };
+  const listParams = { fairName: fairFilter, q: q.trim() || undefined, province, district, metByUserId, divisionId };
   const loadList = useCallback(async (nextPage: number) => {
     // Geç dönen eski arama yanıtı yenisinin üstüne yazmasın.
     const seq = ++listSeq.current;
     setLoading(true);
     try {
-      const list = await tradeFairService.list({ fairName: fairFilter, q: q.trim() || undefined, province, district, metByUserId, page: nextPage, pageSize: PAGE_SIZE });
+      const list = await tradeFairService.list({ fairName: fairFilter, q: q.trim() || undefined, province, district, metByUserId, divisionId, page: nextPage, pageSize: PAGE_SIZE });
       if (seq !== listSeq.current) return;
       setRows((current) => (nextPage === 1 ? list.data : [...current, ...list.data]));
       setTotal(list.meta.total);
@@ -233,7 +235,7 @@ export function TradeFairsPage({
     } finally {
       if (seq === listSeq.current) setLoading(false);
     }
-  }, [fairFilter, q, province, district, metByUserId]);
+  }, [fairFilter, q, province, district, metByUserId, divisionId]);
 
   // Özet aramadan bağımsız: seçili fuarın tamamını anlatır.
   const loadSummary = useCallback(() => {
@@ -592,6 +594,15 @@ export function TradeFairsPage({
                   {metByOptions.map((o) => <SelectItem key={o.id} value={o.id}>{o.name}</SelectItem>)}
                 </SelectContent>
               </Select>
+              {divisionList.length > 0 && (
+                <Select value={divisionFilter} onValueChange={setDivisionFilter}>
+                  <SelectTrigger className="h-9 w-full bg-white sm:w-44" aria-label="Bölüme göre filtrele"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={ALL}>Tüm bölümler</SelectItem>
+                    {divisionList.map((d) => <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              )}
             </>
           )}
         </div>
