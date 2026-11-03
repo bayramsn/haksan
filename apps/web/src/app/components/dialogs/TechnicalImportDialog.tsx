@@ -419,10 +419,13 @@ export function TechnicalImportDialog({
                           {rowSpan > 0 && <td rowSpan={rowSpan} className="border-r border-slate-300 bg-slate-50 p-0 text-center"><span className="inline-block -rotate-90 whitespace-nowrap font-display text-sm font-semibold tracking-wider text-slate-700">{row.section}</span></td>}
                           <td className="border-r border-slate-200 px-3">{row.sourceKey}</td>
                           <td className="border-r border-slate-200 p-0">
+                            {/* DONANIM satırları teknik alan değil; makine verisinde standart donanıma yazılır. */}
+                            {row.targetGroupCode === "DONANIM" ? <span className="px-3 text-slate-600">{mode === "machine_data" ? "Standart donanım" : "Yalnız makine verisinde aktarılır"}</span> : (
                             <select value={row.targetKey} onChange={(event) => { const field = availableFields.find((item) => item.key === event.target.value); updateRow(row.rowNumber, row.sheetName, { targetKey: event.target.value, targetGroupCode: field?.groupCode ?? "GENEL", targetUnit: field?.unit ?? row.sourceUnit, matchStatus: event.target.value ? "review" : "unmatched", include: Boolean(event.target.value) }); }} className="h-8 w-full border-0 bg-transparent px-3 text-xs outline-none focus:ring-2 focus:ring-inset focus:ring-blue-500">
                               <option value="">Eşleşme seçin</option>
                               {availableFields.map((field) => <option key={field.key} value={field.key}>{field.key}</option>)}
                             </select>
+                            )}
                           </td>
                           <td className="border-r border-slate-200 p-0"><input value={row.sourceValue} onChange={(event) => updateRow(row.rowNumber, row.sheetName, { sourceValue: event.target.value })} className={cn("h-8 w-full border-0 bg-transparent px-3 outline-none focus:ring-2 focus:ring-inset", row.matchStatus === "review" ? "bg-amber-50 focus:ring-amber-500" : "focus:ring-blue-500")} /></td>
                           <td className="border-r border-slate-200 p-0"><input value={row.targetUnit || row.sourceUnit} onChange={(event) => updateRow(row.rowNumber, row.sheetName, { targetUnit: event.target.value })} className="h-8 w-full border-0 bg-transparent px-3 outline-none focus:ring-2 focus:ring-inset focus:ring-blue-500" /></td>

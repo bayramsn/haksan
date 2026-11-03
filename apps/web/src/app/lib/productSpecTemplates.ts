@@ -10,6 +10,7 @@ export type ProductSpecGroupCode =
   | "BUKME"
   | "KESME"
   | "TABLA"
+  | "KABIN"
   | "EKSENLER"
   | "FENER_MILI"
   | "KARSI_PUNTA"
@@ -42,6 +43,7 @@ export const PRODUCT_SPEC_GROUPS: readonly ProductSpecGroup[] = [
   { code: "BUKME", label: "BÜKME", order: 6 },
   { code: "KESME", label: "KESME", order: 7 },
   { code: "TABLA", label: "TABLA", order: 10 },
+  { code: "KABIN", label: "KABİN", order: 12 },
   { code: "EKSENLER", label: "EKSENLER", order: 20 },
   { code: "HIZLAR", label: "HIZLAR", order: 22 },
   { code: "FENER_MILI", label: "FENER MİLİ", order: 30 },
@@ -425,13 +427,25 @@ const FIBER_LAZER_KESIM_TEMPLATE_ENTRIES: readonly MachineSpecTemplateEntry[] = 
   entry("KESME", "Maks. Kesme Kalınlığı (Alüminyum)", "", "mm"),
   entry("KESME", "Maks. Eksen Hızı", "", "m/dk"),
   entry("KESME", "Konumlama Hassasiyeti", "", "mm"),
+  entry("KESME", "Yeniden Konumlandırma Hassasiyeti", "", "mm"),
   entry("TABLA", "Tabla Boyutu", "", "mm"),
   entry("TABLA", "Tabla Yük Kapasitesi", "", "kg"),
   entry("TABLA", "Tabla Değişim Tipi"),
+  entry("KABIN", "Kabin Tipi"),
+  entry("MOTORLAR", "Y Eksen Motor Gücü", "", "kW"),
+  entry("MOTORLAR", "X Eksen Motor Gücü", "", "kW"),
+  entry("MOTORLAR", "Z Eksen Motor Gücü", "", "kW"),
+  entry("EKSENLER", "Y Ekseni Lineer Kızak", "", "mm"),
+  entry("EKSENLER", "X Ekseni Lineer Kızak", "", "mm"),
+  entry("EKSENLER", "Z Ekseni Lineer Kızak", "", "mm"),
   entry("GENEL", "Rezonatör Markası"),
   entry("GENEL", "Kesme Kafası"),
   entry("GENEL", "Kontrol Ünitesi"),
   entry("GENEL", "Toplam Güç Gereksinimi", "", "kw"),
+  entry("GENEL", "Giriş Güç Parametreleri"),
+  entry("GENEL", "Santrifüj Fan"),
+  entry("GENEL", "Atık Toplama Arabası"),
+  entry("GENEL", "Desteklenen Dosya Formatları"),
   entry("GENEL", "Makine Ölçüleri", "", "mm"),
   entry("GENEL", "Makine Ağırlığı", "", "kg"),
 ];

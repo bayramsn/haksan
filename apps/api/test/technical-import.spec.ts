@@ -94,6 +94,13 @@ describe('technical import', () => {
     });
   });
 
+  it('routes DONANIM rows to standard equipment for machine data and keeps them out of templates', () => {
+    const [kabin, donanim] = rowsToTechnicalRows([['Bölüm', 'Teknik Bilgi', 'Değer', 'Birim'], ['KABİN', 'Kabin Tipi', 'Açık Kabin', ''], ['DONANIM', 'Lineer Kızak Markası', 'HIWIN *Tayvan', '']], 'Teknik Bilgiler');
+    expect(prepareTechnicalImportRow(kabin, [{ key: 'Kabin Tipi' }], 'machine_data')).toMatchObject({ targetKey: 'Kabin Tipi', targetGroupCode: 'KABIN', include: true });
+    expect(prepareTechnicalImportRow(donanim, [], 'machine_data')).toMatchObject({ targetKey: 'Lineer Kızak Markası', targetGroupCode: 'DONANIM', matchStatus: 'exact', include: true });
+    expect(prepareTechnicalImportRow(donanim, [], 'template_fields')).toMatchObject({ targetKey: '', targetGroupCode: 'DONANIM', include: false });
+  });
+
   it('accepts the first Excel import for an empty CRM technical template', () => {
     const result = technicalImportPreviewRequestSchema.safeParse({
       fileName: 'ilk-teknik-foy.xlsx',

@@ -15,8 +15,9 @@ import type {
 import { LASER_POWERS, LASER_MODELS, laserSelectionKey, laserTechnicalConfigurationSchema, parseLaserWorkbookSheets, resolveLaserProfile } from '@haksan/shared';
 import { loadXlsxWorkbook } from '../../shared/utils/spreadsheet-import';
 import type { DbClient } from '../../db/client';
-import { brands, productModels, productSpecs, productSpecTemplates } from '../../db/schema/products';
-import { productGroups, productSpecGroups, productTypes } from '../../db/schema/lookup';
+import { brands, productEquipmentItems, productModels, productSpecs, productSpecTemplates } from '../../db/schema/products';
+import { equipmentTypes, productGroups, productSpecGroups, productTypes } from '../../db/schema/lookup';
+import { lookupIdByCode } from '../../shared/utils/lookup.helper';
 import { divisions } from '../../db/schema/tenants';
 import { DB } from '../../shared/database/database.module';
 import { AuditService } from '../../shared/database/audit.service';
@@ -94,8 +95,13 @@ const TECHNICAL_SECTION_CODES: Record<string, string> = {
   motorlar: 'MOTORLAR',
   taret: 'TARET',
   'takim degistirici': 'TAKIM_DEGISTIRICI',
+  kabin: 'KABIN',
   genel: 'GENEL',
+  donanim: 'DONANIM',
 };
+
+/** Bu bölümün satırları teknik bilgi değil, makinenin standart donanımı olarak yazılır. */
+const EQUIPMENT_SECTION = 'DONANIM';
 
 /**
  * Şablon tablosunda aynı makine tipi hem güncel hem eski kodla kayıtlı olabilir
@@ -315,6 +321,11 @@ export function prepareTechnicalImportRow(
   availableFields: TechnicalImportAvailableField[],
   mode: TechnicalImportPreviewRequest['mode'],
 ): TechnicalImportRowInput {
+  if (technicalSectionCode(row.section) === EQUIPMENT_SECTION) {
+    // Şablona alan olarak girmez; makine verisinde "Alan: Değer" biçiminde standart donanım olur.
+    const machine = mode === 'machine_data';
+    return { ...row, targetKey: machine ? row.sourceKey : '', targetGroupCode: EQUIPMENT_SECTION, targetUnit: '', matchStatus: machine ? 'exact' : 'unmatched', include: machine };
+  }
   const match = matchTechnicalField(row.sourceKey, availableFields);
   if (match.field) {
     return {
@@ -604,7 +615,9 @@ export class TechnicalImportService {
       throw new ValidationError('Aynı teknik alana birden fazla satır eşleşiyor; her alan için tek bir model/değer sütunu seçin');
     }
     if (body.mode === 'machine_data') return this.commitMachineData(body, rows, actor);
-    return this.commitTemplateFields(body, rows, actor);
+    const templateRows = rows.filter((row) => row.targetGroupCode !== EQUIPMENT_SECTION);
+    if (!templateRows.length) throw new ValidationError('Donanım satırları şablona alan olarak eklenmez; makine verisi olarak aktarın');
+    return this.commitTemplateFields(body, templateRows, actor);
   }
 
   private laserScope(body: { divisionId?: string | null; brandId?: string | null }): LaserProfileScope {
@@ -673,7 +686,15 @@ export class TechnicalImportService {
       throw new ValidationError('Seçilen makine bu teknik şablonun ürün tipiyle eşleşmiyor');
     }
 
-    const groupCodes = [...new Set(rows.map((row) => row.targetGroupCode).filter(Boolean))];
+    const equipmentRows = rows.filter((row) => row.targetGroupCode === EQUIPMENT_SECTION);
+    const specRows = rows.filter((row) => row.targetGroupCode !== EQUIPMENT_SECTION);
+    const equipmentTitle = (row: TechnicalImportRowInput) => (row.sourceValue ? `${row.targetKey}: ${row.sourceValue}` : row.targetKey);
+    const longTitle = equipmentRows.find((row) => equipmentTitle(row).length > 255);
+    if (longTitle) throw new ValidationError(`${longTitle.rowNumber}. satırdaki donanım 255 karakteri aşıyor`);
+    const standardTypeId = equipmentRows.length ? await lookupIdByCode(this.db, equipmentTypes, 'standart') : null;
+    if (equipmentRows.length && !standardTypeId) throw new ValidationError('Standart donanım tipi tanımlı değil');
+
+    const groupCodes = [...new Set(specRows.map((row) => row.targetGroupCode).filter(Boolean))];
     const groups = groupCodes.length
       ? await this.db.select({ id: productSpecGroups.id, code: productSpecGroups.code }).from(productSpecGroups).where(inArray(productSpecGroups.code, groupCodes))
       : [];
@@ -681,7 +702,26 @@ export class TechnicalImportService {
     let created = 0;
     let updated = 0;
     await this.db.transaction(async (tx) => {
-      for (const [index, row] of rows.entries()) {
+      // Aynı alan yeniden aktarılınca ("Lineer Kızak Markası: …") yeni madde açılmaz, mevcut madde güncellenir.
+      const standardItems = standardTypeId
+        ? await tx.select({ id: productEquipmentItems.id, title: productEquipmentItems.title, sortOrder: productEquipmentItems.sortOrder })
+          .from(productEquipmentItems)
+          .where(and(eq(productEquipmentItems.productModelId, target.id), eq(productEquipmentItems.equipmentTypeId, standardTypeId), isNull(productEquipmentItems.deletedAt)))
+        : [];
+      let nextSortOrder = Math.max(-1, ...standardItems.map((item) => item.sortOrder)) + 1;
+      for (const row of equipmentRows) {
+        const title = equipmentTitle(row);
+        const label = normalizeTechnicalLabel(row.targetKey);
+        const known = standardItems.find((item) => normalizeTechnicalLabel(item.title) === label || normalizeTechnicalLabel(item.title.split(':')[0]) === label);
+        if (known) {
+          if (known.title !== title) await tx.update(productEquipmentItems).set({ title }).where(eq(productEquipmentItems.id, known.id));
+          updated += 1;
+        } else {
+          await tx.insert(productEquipmentItems).values({ tenantId: actor.tenantId, productModelId: target.id, equipmentTypeId: standardTypeId, title, sortOrder: nextSortOrder++ });
+          created += 1;
+        }
+      }
+      for (const [index, row] of specRows.entries()) {
         const [existing] = await tx
           .select({ id: productSpecs.id })
           .from(productSpecs)
@@ -714,7 +754,7 @@ export class TechnicalImportService {
       action: 'product_specs.imported',
       resourceType: 'product_model',
       resourceId: target.id,
-      newValues: { created, updated, rowCount: rows.length },
+      newValues: { created, updated, rowCount: rows.length, equipmentCount: equipmentRows.length },
     });
     return { ok: true, created, updated, imported: rows.length, productId: target.id };
   }

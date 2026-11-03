@@ -201,6 +201,7 @@ export const lookupRows = {
     { code: 'GENEL', name: 'Genel', sortOrder: 90 },
     // Lazer teknik alanları (laser.ts) KESME grubunu kullanır; taze kurulumda eksik kalmasın.
     { code: 'KESME', name: 'Kesme', sortOrder: 95 },
+    { code: 'KABIN', name: 'Kabin', sortOrder: 96 },
   ],
   equipment_types: [
     { code: 'standart', name: 'Standart Donanım', sortOrder: 10 },

@@ -29,6 +29,7 @@ import { up as backfillTrelloCompanyResolution } from './020_backfill_trello_com
 import { up as createHaxanMmt1170 } from './021_create_haxan_mmt_1170';
 import { up as normalizeHaxanMmt1170 } from './022_normalize_haxan_mmt_1170';
 import { up as consolidateMachineTaxonomy } from './023_consolidate_machine_taxonomy';
+import { up as addKabinSpecGroup } from './025_add_kabin_spec_group';
 
 export interface DataMigration {
   id: string;
@@ -61,4 +62,5 @@ export const dataMigrations: DataMigration[] = [
   { id: '023_consolidate_machine_taxonomy', up: consolidateMachineTaxonomy },
   // 024_laser_series_base_models is not run on deploy: it opened one base per brand (AORE and HEX),
   // while the 2026-10-13 decision is one HEX LASER base per series, created by import-hexlaser-2026.
+  { id: '025_add_kabin_spec_group', up: addKabinSpecGroup },
 ];
