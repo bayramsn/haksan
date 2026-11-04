@@ -8,6 +8,7 @@ import {
 import { Input } from "../ui/input";
 import { Label } from "../ui/label";
 import { Combobox } from "../ui/combobox";
+import { Switch } from "../ui/switch";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "../ui/select";
 import { DialogSplitLayout, DialogSidebarSection } from "../shared/DialogSplitLayout";
 import { DocumentDiscountFields, ProformaItemsEditor, ProformaTotalsPanel } from "../shared/ProformaItemsEditor";
@@ -106,6 +107,9 @@ export function CreateProformaDialog({
   const [printVariantKey, setPrintVariantKey] = useState(AUTO_VARIANT_KEY);
   const [pricesLoading, setPricesLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  // Leasingde proforma finans kuruluşuna (ya da istenen başka firmaya) kesilir.
+  const [leasing, setLeasing] = useState(false);
+  const [billToCompanyId, setBillToCompanyId] = useState("");
 
   const savedTermsTemplates = useTermsTemplates(noteTemplates, PROFORMA_TERMS_TEMPLATE_SCOPE);
 
@@ -198,6 +202,25 @@ export function CreateProformaDialog({
   const selectedCustomerQuery = useCompanyDetail(selectedCustomerId, storedSelectedCustomer ?? undefined);
   const selectedCustomer = selectedCustomerQuery.data ?? storedSelectedCustomer;
   const currency = selectedOffer?.currency ?? "USD";
+
+  // Fırsatta ödeme leasing seçildiyse anahtar açık gelir; teklif değişince seçim sıfırlanır.
+  // Ödeme yöntemi bağımlılıkta: fırsat listesi diyalogdan sonra yüklenirse de yakalanır.
+  const selectedPaymentMethod = selectedCase?.paymentMethod;
+  useEffect(() => {
+    if (!open) return;
+    setLeasing(selectedPaymentMethod === "leasing");
+    setBillToCompanyId("");
+  }, [open, quoteId, selectedPaymentMethod]);
+
+  const billToOptions = useMemo(
+    () =>
+      customers
+        .filter((c) => c.id !== selectedCustomerId)
+        .map((c) => ({ value: c.id, label: c.name, hint: c.city || undefined }))
+        .sort((a, b) => a.label.localeCompare(b.label, "tr")),
+    [customers, selectedCustomerId],
+  );
+  const billToName = leasing && billToCompanyId ? customerName(billToCompanyId) : "";
   const totals = useMemo(
     () => computeProformaTotals(priceRows, {
       quoteDiscountTotal: quoteTotals.discountTotal,
@@ -215,6 +238,7 @@ export function CreateProformaDialog({
       documentNo: documentNo.trim() || undefined,
       issueDate: new Date(issueDate),
       statusCode: "draft",
+      billToCompanyId: leasing && billToCompanyId ? billToCompanyId : undefined,
       items: priceRows.map((row) => ({
         quoteItemId: row.quoteItemId,
         unitPrice: row.unitPrice,
@@ -286,6 +310,7 @@ export function CreateProformaDialog({
   const save = async (thenPrint: boolean) => {
     if (!quoteId) return toast.error("Bağlı teklif seçiniz");
     if (rowError) return toast.error("Proforma kaydedilemedi", { description: rowError });
+    if (leasing && !billToCompanyId) return toast.error("Proformanın kesileceği firmayı seçiniz");
     setSaving(true);
     try {
       const created = await persist();
@@ -331,6 +356,7 @@ export function CreateProformaDialog({
                         <SummaryRow label="Teklif No" value={`${selectedOffer.quoteNo}${selectedOffer.revision ? ` · R${selectedOffer.revision}` : ""}`} />
                         <SummaryRow label="İş Alanı" value={selectedOffer.businessLine ?? selectedOffer.divisionName ?? "—"} />
                         <SummaryRow label="Müşteri" value={selectedCustomer?.name ?? "—"} />
+                        {billToName && <SummaryRow label="Proforma Alıcısı" value={billToName} highlight />}
                         {(selectedCustomer?.district || selectedCustomer?.city) && (
                           <SummaryRow label="Konum" value={[selectedCustomer?.district, selectedCustomer?.city].filter(Boolean).join(" / ")} />
                         )}
@@ -398,6 +424,34 @@ export function CreateProformaDialog({
                 disabled={Boolean(defaultQuoteId)}
               />
             </div>
+          </div>
+
+          <div className="space-y-2 rounded-lg border p-3">
+            <label className="flex items-center justify-between gap-3 text-sm" htmlFor="create-proforma-leasing">
+              <span>
+                <span className="font-medium">Leasing</span>
+                <span className="block text-xs text-muted-foreground">Proforma satılan firmaya değil, seçeceğiniz firmaya (banka / finans kuruluşu veya başka bir müşteri) kesilir.</span>
+              </span>
+              <Switch id="create-proforma-leasing" checked={leasing} onCheckedChange={setLeasing} disabled={saving} />
+            </label>
+            {leasing && (
+              <div>
+                <Label className="text-xs">Proformanın Kesileceği Firma *</Label>
+                <div className="mt-1.5">
+                  <Combobox
+                    options={billToOptions}
+                    value={billToCompanyId}
+                    onChange={setBillToCompanyId}
+                    placeholder="Banka, finans kuruluşu veya müşteri seçin..."
+                    searchPlaceholder="Firma adı / şehir ara..."
+                    emptyText="Eşleşen firma yok."
+                  />
+                </div>
+                <p className="mt-1 text-[10px] text-muted-foreground">
+                  Mail gönderirken alıcı bu firma olur; satılan firma{selectedCustomer?.name ? ` (${selectedCustomer.name})` : ""} CC'ye eklenir.
+                </p>
+              </div>
+            )}
           </div>
 
           <div className="grid gap-3 sm:grid-cols-3">

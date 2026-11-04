@@ -33,6 +33,10 @@ export type MailRecipient = {
   name?: string;
   companyId?: string;
   contactId?: string;
+  /** Açılışta CC'de seçili gelen adresler (ör. leasing proformasında satılan firma). */
+  cc?: string[];
+  /** Bu firmanın kontakları da CC listesine eklenir. */
+  ccCompanyId?: string;
   subject?: string;
   body?: string;
   /**
@@ -111,6 +115,7 @@ export function ComposeMailDialog({
   const [subject, setSubject] = useState("");
   const [body, setBody] = useState("");
   const [options, setOptions] = useState<MailRecipients>(emptyRecipients);
+  const [ccExtraContacts, setCcExtraContacts] = useState<MailRecipients["contacts"]>([]);
   const [attachments, setAttachments] = useState<MailAttachment[]>([]);
   const [quoteIds, setQuoteIds] = useState<string[]>([]);
   const [catalogOpen, setCatalogOpen] = useState(false);
@@ -126,7 +131,7 @@ export function ComposeMailDialog({
     if (!recipient) return;
     setTo(recipient.email);
     setContactId(recipient.contactId);
-    setCc([]);
+    setCc((recipient.cc ?? []).filter(Boolean));
     setCcManual("");
     setSubject(recipient.subject ?? "");
     setTemplateName(null);
@@ -142,9 +147,21 @@ export function ComposeMailDialog({
       .then(setAccount)
       .catch((error: any) => toast.error("Gönderici hesabı kontrol edilemedi", { description: error?.message }))
       .finally(() => setAccountLoading(false));
-    mailService.recipients(recipient.companyId)
-      .then(setOptions)
-      .catch(() => setOptions(emptyRecipients));
+    Promise.all([
+      mailService.recipients(recipient.companyId),
+      recipient.ccCompanyId ? mailService.recipients(recipient.ccCompanyId).catch(() => emptyRecipients) : emptyRecipients,
+    ])
+      .then(([main, extra]) => {
+        setOptions(main);
+        // Başka firmanın kontakları yalnız CC'de önerilir: alıcı seçilirse kontak
+        // gönderilen firmaya ait olmadığı için sunucu maili reddeder.
+        const seen = new Set(main.contacts.map((option) => option.email));
+        setCcExtraContacts(extra.contacts.filter((option) => !seen.has(option.email)));
+      })
+      .catch(() => {
+        setOptions(emptyRecipients);
+        setCcExtraContacts([]);
+      });
   }, [recipient]);
 
   const mailTemplates = useMemo(
@@ -217,11 +234,12 @@ export function ComposeMailDialog({
 
   // Kendi ekibimiz ve müşteri kontakları tek listede; hangisi olduğu etikette yazar.
   const ccOptions: MultiSelectOption[] = useMemo(() => {
+    const contactOptions = [...options.contacts, ...ccExtraContacts];
     const manual = cc
-      .filter((email) => ![...options.contacts, ...options.colleagues].some((option) => option.email === email))
+      .filter((email) => ![...contactOptions, ...options.colleagues].some((option) => option.email === email))
       .map((email) => ({ value: email, label: email }));
     return [
-      ...options.contacts.map((option) => ({
+      ...contactOptions.map((option) => ({
         value: option.email,
         label: `${option.name}${option.detail ? ` · ${option.detail}` : ""} — ${option.email}`,
       })),
@@ -231,7 +249,7 @@ export function ComposeMailDialog({
       })),
       ...manual,
     ];
-  }, [cc, options]);
+  }, [cc, ccExtraContacts, options]);
 
   const close = () => {
     if (sending || uploading || templateBusy || catalogOpen) return;

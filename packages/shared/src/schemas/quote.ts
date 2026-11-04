@@ -226,6 +226,12 @@ export const proformaCreateSchema = z.object({
   fileId: z.string().uuid().optional(),
   /** Çıktının altına basılacak imza (Ayarlar → İmzalar). `null` → imzasız. */
   signatureId: z.string().uuid().nullish(),
+  /**
+   * Leasingde proforma satılan firmaya değil finans kuruluşuna (ya da istenen
+   * başka bir firmaya) kesilir. Verilirse belge bu firma adına basılır; satılan
+   * firma anlık görüntüde `soldToCompany` olarak kalır. `null` → teklifin firması.
+   */
+  billToCompanyId: z.string().uuid().nullish(),
   // `unitPrice` brüt birim fiyatıdır, net toplam mevcut iskonto düşülerek hesaplanır.
   items: documentPriceItemsSchema,
   ...documentHeaderDiscountFields,

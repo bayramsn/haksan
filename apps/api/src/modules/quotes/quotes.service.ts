@@ -1086,6 +1086,35 @@ export class QuotesService {
     return this.captureSignatureSnapshot(own, actor);
   }
 
+  /**
+   * Belgenin kendi firması teklifinkinden farklıysa (leasingde finans kuruluşu)
+   * çıktı o firmanın unvan/adres/iletişim bilgileriyle basılır. Teklifin kontağı
+   * satılan firmaya ait olduğu için düşer; satılan firma `soldToCompany`'de kalır.
+   * Yalnız proforma yolları `billToCompanyId` verir; sözleşmeler etkilenmez.
+   */
+  private async billToSnapshot(document: Record<string, unknown>, quoteCompany: { id: string } | null, quoteCompanyEmails: unknown[]) {
+    const billToId = document.billToCompanyId;
+    if (typeof billToId !== 'string' || !billToId || billToId === quoteCompany?.id) return {};
+    const [company, addresses, phones, emails] = await Promise.all([
+      this.db.query.companies.findFirst({ where: and(eq(companies.id, billToId), isNull(companies.deletedAt)) }),
+      this.db.select().from(companyAddresses).where(and(eq(companyAddresses.companyId, billToId), isNull(companyAddresses.deletedAt))).orderBy(desc(companyAddresses.isBilling), desc(companyAddresses.isDefault), companyAddresses.createdAt),
+      this.db.select().from(companyPhones).where(and(eq(companyPhones.companyId, billToId), isNull(companyPhones.deletedAt))).orderBy(desc(companyPhones.isDefault), companyPhones.createdAt),
+      this.db.select().from(companyEmails).where(and(eq(companyEmails.companyId, billToId), isNull(companyEmails.deletedAt))).orderBy(desc(companyEmails.isDefault), companyEmails.createdAt),
+    ]);
+    // Alıcı firma sonradan silindiyse belge boş unvanla değil satılan firmayla basılır.
+    if (!company) return {};
+    return {
+      company,
+      companyAddresses: addresses,
+      companyPhones: phones,
+      companyEmails: emails,
+      contact: null,
+      soldToCompany: quoteCompany,
+      // Mail gönderiminde satılan firma CC'ye bu adreslerden önerilir.
+      soldToCompanyEmails: quoteCompanyEmails,
+    };
+  }
+
   private async buildCommercialDocumentSnapshot(
     document: Record<string, unknown>,
     quoteId: string,
@@ -1189,6 +1218,7 @@ export class QuotesService {
 
     return {
       ...snapshot,
+      ...(await this.billToSnapshot(document, snapshot.company, snapshot.companyEmails)),
       schemaVersion: 4,
       terms: documentOwnTerms(document) ?? snapshot.terms,
       signature: await this.resolveCommercialSignature(document, snapshot.signature, actor),
@@ -2386,10 +2416,12 @@ export class QuotesService {
     if (!statusId) throw new ValidationError('Geçersiz proforma durumu', { field: 'statusCode' });
     const finalizedAt = input.statusCode !== 'draft' ? new Date() : null;
     const signatureId = (await this.resolveSignatureId(input.signatureId, actor)) ?? null;
+    const companyId = await this.resolveProformaBillTo(input.billToCompanyId, quote.companyId, actor);
     const documentSnapshot = await this.buildPricedDocumentSnapshot(
       {
         businessLine,
         quoteId: input.quoteId,
+        billToCompanyId: companyId,
         documentNo,
         issueDate: input.issueDate,
         statusId,
@@ -2411,6 +2443,7 @@ export class QuotesService {
         divisionId: quote.divisionId,
         businessLine,
         quoteId: input.quoteId,
+        companyId,
         documentNo,
         issueDate: input.issueDate,
         statusId,
@@ -2429,9 +2462,16 @@ export class QuotesService {
       action: 'proforma.created',
       resourceType: 'proforma',
       resourceId: row.id,
-      newValues: { documentNo: row.documentNo, quoteId: row.quoteId, priceItemCount: input.items?.length ?? 0 },
+      newValues: { documentNo: row.documentNo, quoteId: row.quoteId, companyId: row.companyId, priceItemCount: input.items?.length ?? 0 },
     });
     return this.getProforma(row.id, actor);
+  }
+
+  /** Fatura alıcısı teklifin firmasıysa ayrıca saklanmaz; liste ve görünürlük teklife bakar. */
+  private async resolveProformaBillTo(billToCompanyId: string | null | undefined, quoteCompanyId: string, actor: AuthContext) {
+    if (!billToCompanyId || billToCompanyId === quoteCompanyId) return null;
+    await this.assertCompany(billToCompanyId, actor);
+    return billToCompanyId;
   }
 
   async updateProforma(id: string, input: ProformaUpdateInput, actor: AuthContext) {
@@ -2459,6 +2499,13 @@ export class QuotesService {
     }
     // Belgeye özel şart; `null` gönderilirse belge yeniden teklifin şartlarına düşer.
     if (input.terms !== undefined) patch.terms = input.terms ?? null;
+    // Teklif değişirse kayıtlı alıcı yeni teklifin firmasına göre yeniden çözülür.
+    if (input.billToCompanyId !== undefined || input.quoteId !== undefined) {
+      // Hızlı proforma teklife bağlanırken kendi firması alıcıya dönüşmez.
+      const carried = existing.quoteId ? existing.companyId : null;
+      const requested = input.billToCompanyId !== undefined ? input.billToCompanyId : carried;
+      patch.companyId = await this.resolveProformaBillTo(requested, quote.companyId, actor);
+    }
     const signatureId = await this.resolveSignatureId(input.signatureId, actor);
     if (signatureId !== undefined) patch.signatureId = signatureId;
     if (input.documentNo !== undefined) patch.documentNo = normalizeSeriesDocumentNo(input.documentNo, businessLine);
@@ -2471,7 +2518,9 @@ export class QuotesService {
     if (input.statusCode !== undefined && input.statusCode !== 'draft') {
       patch.finalizedAt = new Date();
     }
-    const snapshotDocument = { ...existing, ...patch };
+    const merged = { ...existing, ...patch };
+    // Teklife bağlı proformada `companyId` yalnız fatura alıcısıdır (leasing).
+    const snapshotDocument = { ...merged, billToCompanyId: merged.quoteId ? merged.companyId : null };
     // İmza değişikliği de snapshot'ı tazeler; aksi halde belge eski imzayla basılırdı.
     const headerDiscountChanged =
       input.headerDiscountAmount !== undefined || input.headerDiscountPercent !== undefined;
@@ -2479,7 +2528,8 @@ export class QuotesService {
       signatureId !== undefined
       || input.issueDate !== undefined
       || input.fileId !== undefined
-      || input.documentNo !== undefined;
+      || input.documentNo !== undefined
+      || input.billToCompanyId !== undefined;
     if (snapshotHeaderChanged || input.items !== undefined || headerDiscountChanged || input.terms !== undefined || input.quoteId !== undefined || !existing.documentSnapshot) {
       const quoteItemIds = new Set((quote.items ?? []).map((item: { id: string }) => item.id));
       const carriedSnapshot = input.quoteId !== undefined ? null : existing.documentSnapshot;

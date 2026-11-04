@@ -590,6 +590,56 @@ describe('ERP flow', () => {
     ).toMatchObject({ origin: 'system' });
   });
 
+  it('bills a leasing proforma to another company and keeps the sold-to company', async () => {
+    const me = await supertest(app.getHttpServer())
+      .get('/api/v1/auth/me')
+      .set('Authorization', `Bearer ${adminToken}`);
+    const bank = await supertest(app.getHttpServer())
+      .post('/api/v1/companies')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ legalTitle: `Leasing Bankası ${Date.now()}`, divisionId: me.body.user.divisions[0].id });
+    expect(bank.status, JSON.stringify(bank.body)).toBe(201);
+
+    const billed = await supertest(app.getHttpServer())
+      .patch(`/api/v1/proformas/${proformaId}`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ billToCompanyId: bank.body.id });
+    expect(billed.status, JSON.stringify(billed.body)).toBe(200);
+    expect(billed.body.companyId).toBe(bank.body.id);
+    expect(billed.body.documentSnapshot?.company?.id).toBe(bank.body.id);
+    expect(billed.body.documentSnapshot?.soldToCompany?.id).toBe(companyId);
+    expect(billed.body.documentSnapshot?.contact).toBeNull();
+    expect(Array.isArray(billed.body.documentSnapshot?.soldToCompanyEmails)).toBe(true);
+
+    // Fiyat düzenlemesi alıcıyı düşürmez; null teklifin firmasına geri döndürür.
+    const repriced = await supertest(app.getHttpServer())
+      .patch(`/api/v1/proformas/${proformaId}`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ items: [{ quoteItemId, unitPrice: 90_000, discountAmount: 7_000 }] });
+    expect(repriced.body.documentSnapshot?.company?.id).toBe(bank.body.id);
+
+    const reset = await supertest(app.getHttpServer())
+      .patch(`/api/v1/proformas/${proformaId}`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ billToCompanyId: null });
+    expect(reset.status).toBe(200);
+    expect(reset.body.companyId).toBeNull();
+    expect(reset.body.documentSnapshot?.company?.id).toBe(companyId);
+    expect(reset.body.documentSnapshot?.soldToCompany).toBeUndefined();
+
+    const created = await supertest(app.getHttpServer())
+      .post('/api/v1/proformas')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ quoteId, issueDate: new Date().toISOString(), statusCode: 'draft', billToCompanyId: bank.body.id });
+    expect(created.status, JSON.stringify(created.body)).toBe(201);
+    expect(created.body.companyId).toBe(bank.body.id);
+    expect(created.body.documentSnapshot?.company?.id).toBe(bank.body.id);
+    expect(created.body.documentSnapshot?.soldToCompany?.id).toBe(companyId);
+    await supertest(app.getHttpServer())
+      .delete(`/api/v1/proformas/${created.body.id}`)
+      .set('Authorization', `Bearer ${adminToken}`);
+  });
+
   it('snapshots sent commercial documents and prevents later mutation or deletion', async () => {
     const repriced = await supertest(app.getHttpServer())
       .patch(`/api/v1/proformas/${proformaId}`)

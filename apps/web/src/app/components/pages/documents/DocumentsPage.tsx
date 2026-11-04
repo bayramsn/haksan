@@ -324,13 +324,23 @@ export function DocumentsPage({
 
   /** Proforma / sözleşmeyi antetli PDF eki olarak firmaya mail atar. */
   const mailRecordDocument = (d: (typeof documents)[number], kind: "proforma" | "contract") => {
-    const customer = customers.find((item) => item.id === d.companyId);
+    const soldTo = customers.find((item) => item.id === d.companyId);
+    // Leasing proformasında belge finans kuruluşuna kesilmiştir: mail ona gider,
+    // satılan firma CC'de seçili gelir.
+    const billTo = d.documentSnapshot?.soldToCompany ? d.documentSnapshot.company : null;
+    const billToCustomer = billTo ? customers.find((item) => item.id === billTo.id) : null;
+    const customer = billToCustomer ?? soldTo;
     const label = kind === "proforma" ? "Proforma Fatura" : "Satış Sözleşmesi";
-    const name = customer?.contactPerson || customer?.name || d.companyNameText || "";
+    const name = billTo
+      ? billToCustomer?.contactPerson || billToCustomer?.name || billTo.legalTitle || billTo.shortName || ""
+      : customer?.contactPerson || customer?.name || d.companyNameText || "";
+    const billToEmail = billTo ? d.documentSnapshot?.companyEmails?.[0]?.email : undefined;
+    const soldToEmail = d.documentSnapshot?.soldToCompanyEmails?.[0]?.email ?? soldTo?.email;
     setMailRecipient({
-      email: customer?.email ?? "",
+      email: billToEmail ?? customer?.email ?? "",
       name,
-      companyId: customer?.id,
+      companyId: billTo ? billTo.id : customer?.id,
+      ...(billTo ? { cc: soldToEmail ? [soldToEmail] : [], ccCompanyId: d.documentSnapshot?.soldToCompany?.id } : {}),
       subject: `${d.fileName} ${label}`,
       body: `${name ? `Merhaba ${name},` : "Merhaba,"}\n\n${d.fileName} numaralı ${label.toLocaleLowerCase("tr-TR")} belgemizi ekte bilgilerinize sunarız.\n\nSaygılarımızla,`,
       attachmentLabel: d.fileName,
