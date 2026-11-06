@@ -8,6 +8,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "../ui/tabs";
 import { ArrowLeft, Phone, Mail, MapPin, Building2, Plus, ArrowUpRight, Clock, AlertTriangle, Download, Eye, FileText, Upload } from "lucide-react";
 import { Customer } from "../../lib/mock";
 import { useStore } from "../../lib/store";
+import { openInMaps } from "../../lib/geo";
 import { StatusBadge } from "../shared/StatusBadge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../ui/table";
 import { CreateCaseDialog, LogActivityDialog } from "../dialogs/CreateDialogs";
@@ -264,9 +265,18 @@ export function CustomerDetailPage({ customer, onBack, onAction }: { customer: C
                         {address.isShipping && <span className="text-[10px] font-medium text-sky-700">Sevkiyat</span>}
                         {address.isBilling && <span className="text-[10px] font-medium text-amber-700">Fatura</span>}
                       </div>
-                      <div className="mt-0.5 break-words text-xs leading-relaxed text-muted-foreground">
-                        {[address.address, address.district, address.city, address.country].filter(Boolean).join(", ") || "Adres bilgisi yok"}
-                      </div>
+                      {[address.address, address.district, address.city, address.country].some(Boolean) ? (
+                        <button
+                          type="button"
+                          className="mt-0.5 break-words text-left text-xs leading-relaxed text-muted-foreground underline-offset-2 hover:text-primary hover:underline"
+                          onClick={() => openInMaps([address.address, address.district, address.city, address.country])}
+                          title="Haritada göster"
+                        >
+                          {[address.address, address.district, address.city, address.country].filter(Boolean).join(", ")}
+                        </button>
+                      ) : (
+                        <div className="mt-0.5 text-xs leading-relaxed text-muted-foreground">Adres bilgisi yok</div>
+                      )}
                     </li>
                   ))}
                 </ul>

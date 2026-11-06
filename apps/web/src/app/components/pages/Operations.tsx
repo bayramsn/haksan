@@ -29,7 +29,7 @@ import { toast } from "sonner";
 import {
   Cpu, Search, Package, CheckCircle2, Truck, Wrench, Building2,
   ShieldCheck, AlertTriangle, Clock, MapPin, ChevronRight,
-  Plus, Upload, Pencil, Trash2, Boxes, Layers,
+  Plus, Upload, Pencil, Trash2, Boxes, Layers, ArrowUp, ArrowDown, ArrowUpDown,
 } from "lucide-react";
 import { MiniKpi } from "../shared/MiniKpi";
 import { EmptyState } from "../shared/EmptyState";
@@ -160,6 +160,32 @@ export function productFamilyLabel(product: Product) {
   return product.category || product.productGroup || "Genel";
 }
 
+type ProductSortCol = "name" | "series" | "type" | "category" | "list" | "cash";
+
+/** Liste kolon başlığına tıklanınca sıralanan değer: metin A-Z, fiyat sayısal. */
+const PRODUCT_SORT_VALUE: Record<ProductSortCol, (p: Product) => string | number> = {
+  name: (p) => `${p.brand ?? ""} ${productName(p)}`,
+  series: (p) => productSeriesCode(p),
+  type: (p) => (p.type ?? "").trim(),
+  category: (p) => (p.category || p.subcategory || p.productGroup || "").trim(),
+  list: (p) => p.listPrice ?? 0,
+  cash: (p) => p.cashPrice ?? 0,
+};
+
+/** Kolon sıralaması; eşitlikte 0 döner. Boş metin / sıfır fiyat yönden bağımsız en sona düşer. */
+export function compareProductColumn(a: Product, b: Product, col: ProductSortCol, dir: 1 | -1) {
+  const va = PRODUCT_SORT_VALUE[col](a);
+  const vb = PRODUCT_SORT_VALUE[col](b);
+  const aEmpty = va === "" || va === 0;
+  const bEmpty = vb === "" || vb === 0;
+  if (aEmpty !== bEmpty) return aEmpty ? 1 : -1;
+  // ponytail: fiyatlar para birimi gözetmeden karşılaştırılır; karışık USD/EUR/TL listesinde kur çevrimi gerekirse buraya eklenir.
+  const diff = typeof va === "number" && typeof vb === "number"
+    ? va - vb
+    : String(va).trim().localeCompare(String(vb).trim(), "tr", { numeric: true, sensitivity: "base" });
+  return diff * dir;
+}
+
 function seriesSort(a: string, b: string) {
   const ac = a.replace(" Serisi", "");
   const bc = b.replace(" Serisi", "");
@@ -188,6 +214,10 @@ export function ProductsPage({ initialQuery }: { initialQuery?: string }) {
   const [deleting, setDeleting] = useState<Product | null>(null);
   const [deleteSaving, setDeleteSaving] = useState(false);
   const [view, setView] = usePersistentState<ListView>("products.view", "cards");
+  // Kolon başlığı sıralaması: artan → azalan → kapalı (seri gruplu varsayılan görünüm).
+  const [sort, setSort] = useState<{ col: ProductSortCol; dir: 1 | -1 } | null>(null);
+  const toggleSort = (col: ProductSortCol) =>
+    setSort((s) => (s?.col !== col ? { col, dir: 1 } : s.dir === 1 ? { col, dir: -1 } : null));
   const isProductAdmin = hasRole("super_admin") || hasRole("admin");
   const canCreateProducts = isProductAdmin || hasPermission("products.create");
   const canEditProducts = isProductAdmin || hasPermission("products.update");
@@ -297,13 +327,31 @@ export function ProductsPage({ initialQuery }: { initialQuery?: string }) {
   // model koduna eşit kaldığı için sıralama, ekranda görünen adı değil kodu
   // izliyordu. `productName` gerçek "Ürün Adı" alanıdır — artık ekranda
   // yazılanla sıralama birebir örtüşüyor.
+  const defaultCompare = (a: Product, b: Product) =>
+    compareProductText(a.brand ?? "", b.brand ?? "") ||
+    compareProductText(productName(a), productName(b)) ||
+    compareProductText(a.model ?? "", b.model ?? "");
   const sortedProducts = [...filtered].sort(
-    (a, b) =>
-      compareProductText(a.brand ?? "", b.brand ?? "") ||
-      compareProductText(productName(a), productName(b)) ||
-      compareProductText(a.model ?? "", b.model ?? ""),
+    // Kolon sıralaması yalnız tablo görünümünde; kartlarda başlık olmadığı için varsayılan sıra kalır.
+    (a, b) => (sort && view === "table" ? compareProductColumn(a, b, sort.col, sort.dir) : 0) || defaultCompare(a, b),
   );
-  const grouped = Array.from(
+  const ariaSort = (col: ProductSortCol) =>
+    sort?.col !== col ? "none" as const : sort.dir === 1 ? "ascending" as const : "descending" as const;
+  const sortHead = (col: ProductSortCol, label: string) => {
+    const Icon = sort?.col !== col ? ArrowUpDown : sort.dir === 1 ? ArrowUp : ArrowDown;
+    return (
+      <button
+        type="button"
+        className={`inline-flex items-center gap-1 uppercase tracking-wider hover:text-foreground ${sort?.col === col ? "text-foreground" : ""}`}
+        onClick={() => toggleSort(col)}
+        aria-label={`${label} kolonuna göre sırala`}
+      >
+        {label} <Icon className="size-3" />
+      </button>
+    );
+  };
+  // Kolon sıralaması açıkken seri grupları sırayı böleceği için liste düz akar.
+  const grouped: Array<[string, Product[]]> = sort ? [["", sortedProducts]] : Array.from(
     sortedProducts.reduce((acc, product) => {
       const label = productSeriesLabel(product);
       const list = acc.get(label) ?? [];
@@ -517,23 +565,25 @@ export function ProductsPage({ initialQuery }: { initialQuery?: string }) {
           <Table>
             <TableHeader>
               <TableRow className="bg-muted/40 hover:bg-muted/40">
-                <TableHead className="w-[360px] text-[11px] uppercase tracking-wider text-muted-foreground">Ürün</TableHead>
-                <TableHead className="text-[11px] uppercase tracking-wider text-muted-foreground">Seri</TableHead>
-                <TableHead className="text-[11px] uppercase tracking-wider text-muted-foreground">Tip</TableHead>
-                <TableHead className="text-[11px] uppercase tracking-wider text-muted-foreground">Kategori</TableHead>
-                <TableHead className="text-right text-[11px] uppercase tracking-wider text-muted-foreground">Liste Fiyatı</TableHead>
-                <TableHead className="text-right text-[11px] uppercase tracking-wider text-muted-foreground">Peşin</TableHead>
+                <TableHead aria-sort={ariaSort("name")} className="w-[360px] text-[11px] uppercase tracking-wider text-muted-foreground">{sortHead("name", "Ürün")}</TableHead>
+                <TableHead aria-sort={ariaSort("series")} className="text-[11px] uppercase tracking-wider text-muted-foreground">{sortHead("series", "Seri")}</TableHead>
+                <TableHead aria-sort={ariaSort("type")} className="text-[11px] uppercase tracking-wider text-muted-foreground">{sortHead("type", "Tip")}</TableHead>
+                <TableHead aria-sort={ariaSort("category")} className="text-[11px] uppercase tracking-wider text-muted-foreground">{sortHead("category", "Kategori")}</TableHead>
+                <TableHead aria-sort={ariaSort("list")} className="text-right text-[11px] uppercase tracking-wider text-muted-foreground">{sortHead("list", "Liste Fiyatı")}</TableHead>
+                <TableHead aria-sort={ariaSort("cash")} className="text-right text-[11px] uppercase tracking-wider text-muted-foreground">{sortHead("cash", "Peşin")}</TableHead>
                 <TableHead className="w-[88px]"></TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {grouped.map(([group, rows]) => (
                 <Fragment key={group}>
-                  <TableRow key={`${group}-header`} className="bg-muted/20 hover:bg-muted/20">
-                    <TableCell colSpan={7} className="py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                      {group} <span className="ml-1 font-normal normal-case tracking-normal text-muted-foreground/80">({rows.length} model)</span>
-                    </TableCell>
-                  </TableRow>
+                  {!sort && (
+                    <TableRow key={`${group}-header`} className="bg-muted/20 hover:bg-muted/20">
+                      <TableCell colSpan={7} className="py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                        {group} <span className="ml-1 font-normal normal-case tracking-normal text-muted-foreground/80">({rows.length} model)</span>
+                      </TableCell>
+                    </TableRow>
+                  )}
                   {rows.map((p) => (
                     <TableRow key={p.id} className="cursor-pointer group hover:bg-primary/[0.025]" onClick={() => setSelected(p)}>
                       <TableCell>
