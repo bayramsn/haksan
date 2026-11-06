@@ -20,7 +20,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "../../ui/card";
 import { Button } from "../../ui/button";
 import { Input } from "../../ui/input";
 import { Badge } from "../../ui/badge";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../../ui/table";
+import { Table, TableBody, TableCell, TableHeader, TableRow } from "../../ui/table";
+import { SortableTableHead, useSortableRows } from "../../ui/sortable-table";
 import { CalendarRange, Printer, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import { reportService } from "../../../../lib/services";
@@ -82,6 +83,8 @@ export function ActivityLogReportCard() {
         userName: user.userName,
         quoteCount: user.quoteCount,
         totals: totalsLabel(user.quoteTotals),
+        // ponytail: para birimleri karışıksa kaba sıra (kur çevrimi yok).
+        totalAmount: user.quoteTotals.length ? user.quoteTotals.reduce((sum, t) => sum + t.amount, 0) : null,
         activityCount: user.activityCount,
         documents: [...new Set(report.quotes.filter((q) => q.userName === user.userName).map((q) => q.documentNo))],
       }))
@@ -90,6 +93,35 @@ export function ActivityLogReportCard() {
   // Kaydı, teklifi ya da hafta hareketi (kaçırılan takip, geciken görev…) olan herkes görünür.
   const activeUsers = report ? report.users.filter((u) => u.activityCount || u.quoteCount || weekStatsLine(u.week)) : [];
   const planUsers = report ? report.users.filter((u) => u.plan.length) : [];
+  const planRows = planUsers.flatMap((user) => user.plan.map((item, i) => ({ ...item, userId: user.userId, userName: user.userName, i })));
+
+  const quoteSort = useSortableRows(report?.quotes ?? [], {
+    date: (q) => new Date(q.quoteDate),
+    documentNo: (q) => q.documentNo,
+    status: (q) => q.status,
+    userName: (q) => q.userName,
+    company: (q) => q.companyName,
+    location: (q) => [q.province, q.district].filter(Boolean).join(" / "),
+    product: (q) => q.productName,
+    quantity: (q) => q.quantity,
+    unitPrice: (q) => q.unitPrice,
+    discount: (q) => q.discountAmount,
+    total: (q) => q.lineTotal,
+  });
+  const summarySort = useSortableRows(quoteSummary, {
+    userName: (r) => r.userName,
+    quoteCount: (r) => r.quoteCount,
+    total: (r) => r.totalAmount,
+    activityCount: (r) => r.activityCount,
+    documents: (r) => r.documents.join(", "),
+  });
+  const planSort = useSortableRows(planRows, {
+    userName: (r) => r.userName,
+    dueAt: (r) => new Date(r.dueAt),
+    kind: (r) => PLAN_KIND_LABEL[r.kind],
+    company: (r) => r.companyName,
+    title: (r) => r.title,
+  });
 
   return (
     <Card>
@@ -225,21 +257,21 @@ export function ActivityLogReportCard() {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Tarih</TableHead>
-                    <TableHead>Teklif No</TableHead>
-                    <TableHead>Durum</TableHead>
-                    <TableHead>Teklif Veren</TableHead>
-                    <TableHead>Firma</TableHead>
-                    <TableHead>İl / İlçe</TableHead>
-                    <TableHead>Ürün</TableHead>
-                    <TableHead className="text-right">Adet</TableHead>
-                    <TableHead className="text-right">Birim Fiyat</TableHead>
-                    <TableHead className="text-right">İskonto</TableHead>
-                    <TableHead className="text-right">Toplam Tutar</TableHead>
+                    <SortableTableHead sortKey="date" sort={quoteSort.sort} onSort={quoteSort.toggle}>Tarih</SortableTableHead>
+                    <SortableTableHead sortKey="documentNo" sort={quoteSort.sort} onSort={quoteSort.toggle}>Teklif No</SortableTableHead>
+                    <SortableTableHead sortKey="status" sort={quoteSort.sort} onSort={quoteSort.toggle}>Durum</SortableTableHead>
+                    <SortableTableHead sortKey="userName" sort={quoteSort.sort} onSort={quoteSort.toggle}>Teklif Veren</SortableTableHead>
+                    <SortableTableHead sortKey="company" sort={quoteSort.sort} onSort={quoteSort.toggle}>Firma</SortableTableHead>
+                    <SortableTableHead sortKey="location" sort={quoteSort.sort} onSort={quoteSort.toggle}>İl / İlçe</SortableTableHead>
+                    <SortableTableHead sortKey="product" sort={quoteSort.sort} onSort={quoteSort.toggle}>Ürün</SortableTableHead>
+                    <SortableTableHead sortKey="quantity" sort={quoteSort.sort} onSort={quoteSort.toggle} className="text-right">Adet</SortableTableHead>
+                    <SortableTableHead sortKey="unitPrice" sort={quoteSort.sort} onSort={quoteSort.toggle} className="text-right">Birim Fiyat</SortableTableHead>
+                    <SortableTableHead sortKey="discount" sort={quoteSort.sort} onSort={quoteSort.toggle} className="text-right">İskonto</SortableTableHead>
+                    <SortableTableHead sortKey="total" sort={quoteSort.sort} onSort={quoteSort.toggle} className="text-right">Toplam Tutar</SortableTableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {report.quotes.map((row) => (
+                  {quoteSort.sorted.map((row) => (
                     <TableRow key={`${row.id}-${row.documentNo}-${row.productName}`}>
                       <TableCell className="tabular-nums">{trDate(row.quoteDate)}</TableCell>
                       <TableCell className="tabular-nums">
@@ -279,15 +311,15 @@ export function ActivityLogReportCard() {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Kişi</TableHead>
-                    <TableHead className="text-right">Teklif Adedi</TableHead>
-                    <TableHead className="text-right">Toplam Tutar</TableHead>
-                    <TableHead className="text-right">Aktivite</TableHead>
-                    <TableHead>Teklif Numaraları</TableHead>
+                    <SortableTableHead sortKey="userName" sort={summarySort.sort} onSort={summarySort.toggle}>Kişi</SortableTableHead>
+                    <SortableTableHead sortKey="quoteCount" sort={summarySort.sort} onSort={summarySort.toggle} className="text-right">Teklif Adedi</SortableTableHead>
+                    <SortableTableHead sortKey="total" sort={summarySort.sort} onSort={summarySort.toggle} className="text-right">Toplam Tutar</SortableTableHead>
+                    <SortableTableHead sortKey="activityCount" sort={summarySort.sort} onSort={summarySort.toggle} className="text-right">Aktivite</SortableTableHead>
+                    <SortableTableHead sortKey="documents" sort={summarySort.sort} onSort={summarySort.toggle}>Teklif Numaraları</SortableTableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {quoteSummary.map((row) => (
+                  {summarySort.sorted.map((row) => (
                     <TableRow key={row.userName} className={row.quoteCount ? "" : "text-muted-foreground"}>
                       <TableCell>{row.userName}</TableCell>
                       <TableCell className="text-right tabular-nums">{row.quoteCount}</TableCell>
@@ -318,25 +350,24 @@ export function ActivityLogReportCard() {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Kişi</TableHead>
-                      <TableHead>Tarih</TableHead>
-                      <TableHead>Tür</TableHead>
-                      <TableHead>Firma</TableHead>
-                      <TableHead>Ne yapılacak</TableHead>
+                      <SortableTableHead sortKey="userName" sort={planSort.sort} onSort={planSort.toggle}>Kişi</SortableTableHead>
+                      <SortableTableHead sortKey="dueAt" sort={planSort.sort} onSort={planSort.toggle}>Tarih</SortableTableHead>
+                      <SortableTableHead sortKey="kind" sort={planSort.sort} onSort={planSort.toggle}>Tür</SortableTableHead>
+                      <SortableTableHead sortKey="company" sort={planSort.sort} onSort={planSort.toggle}>Firma</SortableTableHead>
+                      <SortableTableHead sortKey="title" sort={planSort.sort} onSort={planSort.toggle}>Ne yapılacak</SortableTableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {planUsers.flatMap((user) =>
-                      user.plan.map((item, i) => (
-                        <TableRow key={`${user.userId}-${i}`}>
-                          <TableCell className="font-medium">{i === 0 ? user.userName : ""}</TableCell>
-                          <TableCell className="tabular-nums">{trDate(item.dueAt)}</TableCell>
-                          <TableCell>{PLAN_KIND_LABEL[item.kind]}</TableCell>
-                          <TableCell>{item.companyName ?? "—"}</TableCell>
-                          <TableCell>{item.title}</TableCell>
-                        </TableRow>
-                      )),
-                    )}
+                    {/* Kişi adı yalnız grubun ilk satırında; sıralama grubu bölerse her değişimde tekrar yazılır. */}
+                    {planSort.sorted.map((item, idx, rows) => (
+                      <TableRow key={`${item.userId}-${item.i}`}>
+                        <TableCell className="font-medium">{rows[idx - 1]?.userId === item.userId ? "" : item.userName}</TableCell>
+                        <TableCell className="tabular-nums">{trDate(item.dueAt)}</TableCell>
+                        <TableCell>{PLAN_KIND_LABEL[item.kind]}</TableCell>
+                        <TableCell>{item.companyName ?? "—"}</TableCell>
+                        <TableCell>{item.title}</TableCell>
+                      </TableRow>
+                    ))}
                   </TableBody>
                 </Table>
               </div>

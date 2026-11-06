@@ -7,7 +7,7 @@ import { users } from '../../db/schema/users';
 import { DB } from '../../shared/database/database.module';
 import { ConflictError, NotFoundError } from '../../shared/utils/errors';
 import type { AuthContext } from '../../shared/security/auth.types';
-import type { ContactCreateInput, ContactUpdateInput, Pagination } from '@haksan/shared';
+import type { ContactCreateInput, ContactSortKey, ContactUpdateInput, Pagination } from '@haksan/shared';
 import { buildPaginated, pageOffset } from '../../shared/utils/pagination';
 import { lookupIdByCode } from '../../shared/utils/lookup.helper';
 import { AuditService } from '../../shared/database/audit.service';
@@ -147,10 +147,19 @@ export class ContactsService {
       .select({ count: sql<number>`count(*)::int` })
       .from(contacts)
       .where(where);
-    const sortColumn = page.sortBy === 'name' ? contacts.fullName : contacts.createdAt;
+    // Kolon başlığı sıralaması: anahtar zod enum'undan gelir, ifade burada sabittir.
+    // Firma = ana sorgudaki contacts.company_id birleşimi (listede gösterilen ad: kısa ad, yoksa ünvan).
+    const sortExpressions: Record<ContactSortKey, SQL> = {
+      name: sql`"contacts"."full_name"`,
+      company: sql`coalesce(nullif(trim("companies"."short_name"), ''), nullif(trim("companies"."legal_title"), ''))`,
+      title: sql`coalesce(nullif(trim("contacts"."title"), ''), nullif(trim("contacts"."department"), ''))`,
+      contact: sql`coalesce(nullif(trim("contacts"."work_email"), ''), nullif(trim("contacts"."personal_email"), ''), nullif(trim("contacts"."other_email"), ''))`,
+      createdAt: sql`"contacts"."created_at"`,
+    };
+    const sortExpr = sortExpressions[page.sortBy as ContactSortKey] ?? sortExpressions.createdAt;
     const orderBy = page.sortDir === 'asc'
-      ? [asc(sortColumn), asc(contacts.id)]
-      : [desc(sortColumn), desc(contacts.id)];
+      ? [sql`${sortExpr} asc nulls last`, asc(contacts.id)]
+      : [sql`${sortExpr} desc nulls last`, desc(contacts.id)];
     const rows = await this.db
       .select({
         contact: contacts,

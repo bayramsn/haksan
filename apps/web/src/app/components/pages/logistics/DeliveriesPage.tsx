@@ -4,6 +4,7 @@ import { Button } from "../../ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../ui/select";
 import { Badge } from "../../ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../../ui/table";
+import { SortableTableHead, useSortableRows } from "../../ui/sortable-table";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "../../ui/dialog";
 import { CreateDeliveryDialog, DeliveryFormFields, deliveryFormToPayload, deliveryToFormState, type DeliveryFormState } from "../../dialogs/CreateDialogs";
 import { EmptyState } from "../../shared/EmptyState";
@@ -54,6 +55,21 @@ export function DeliveriesPage() {
     const machine = deliveryMachine(delivery);
     return products.find((product) => product.id === machine?.productModelId);
   };
+  const deliveryStep = (d: (typeof deliveries)[number]) => {
+    const signed = Boolean(d.signedBy && d.signedBy !== "—");
+    const formReady = Boolean(d.formData?.formNo || d.formData?.tezgah?.model || deliveryMachine(d));
+    return d.status === "Tamamlandı" ? 3 : signed ? 2 : formReady ? 1 : 0;
+  };
+  const { sorted: sortedDeliveries, sort, toggle } = useSortableRows(visibleDeliveries, {
+    title: (d) => {
+      const machine = deliveryMachine(d);
+      return machine ? `${machine.brand || ""} ${machine.model}`.trim() : d.formData?.tezgah?.model || "Teslimat kaydı";
+    },
+    date: (d) => (d.date ? new Date(d.date) : null),
+    step: deliveryStep,
+    signature: (d) => (d.signedBy && d.signedBy !== "—" ? d.signedBy : null),
+    status: (d) => d.status,
+  });
   const upcoming = [...deliveries]
     .filter((delivery) => delivery.status === "Bekliyor")
     .sort((a, b) => String(a.date).localeCompare(String(b.date)))
@@ -98,16 +114,16 @@ export function DeliveriesPage() {
           <Table>
             <TableHeader>
               <TableRow className="bg-muted/40 hover:bg-muted/40 [&_th]:text-[11px] [&_th]:uppercase [&_th]:tracking-wider [&_th]:text-muted-foreground">
-                <TableHead>Makine / Müşteri</TableHead>
-                <TableHead>Teslim Tarihi</TableHead>
-                <TableHead>Milestone</TableHead>
-                <TableHead>Form / İmza</TableHead>
-                <TableHead>Durum</TableHead>
+                <SortableTableHead sortKey="title" sort={sort} onSort={toggle}>Makine / Müşteri</SortableTableHead>
+                <SortableTableHead sortKey="date" sort={sort} onSort={toggle}>Teslim Tarihi</SortableTableHead>
+                <SortableTableHead sortKey="step" sort={sort} onSort={toggle}>Milestone</SortableTableHead>
+                <SortableTableHead sortKey="signature" sort={sort} onSort={toggle}>Form / İmza</SortableTableHead>
+                <SortableTableHead sortKey="status" sort={sort} onSort={toggle}>Durum</SortableTableHead>
                 <TableHead className="w-12"></TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {visibleDeliveries.map((d) => {
+              {sortedDeliveries.map((d) => {
                 const machine = deliveryMachine(d);
                 const product = deliveryProduct(d);
                 const signed = Boolean(d.signedBy && d.signedBy !== "—");

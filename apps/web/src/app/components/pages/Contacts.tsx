@@ -5,6 +5,8 @@ import { Input } from "../ui/input";
 import { Button } from "../ui/button";
 import { Avatar, AvatarFallback } from "../ui/avatar";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../ui/table";
+import { SortableTableHead, nextSort } from "../ui/sortable-table";
+import type { ContactSortKey } from "@haksan/shared";
 import { Search, Phone, Mail, Building2, Star, Pencil, Trash2, Users, ShieldAlert, Loader2, X } from "lucide-react";
 import { Tabs, TabsList, TabsTrigger } from "../ui/tabs";
 import { toast } from "sonner";
@@ -31,6 +33,7 @@ import {
   invalidateContactQueries,
   normalizeServerContact,
   type ContactQueryScope,
+  DEFAULT_CONTACT_SORT,
   type ContactSort,
   type ServerContact,
 } from "../../lib/contactServerData";
@@ -39,6 +42,19 @@ import { useDebouncedValue } from "../../lib/serverPagination";
 const initials = (n: string) => n.split(" ").slice(0, 2).map((p) => p[0]).join("").toUpperCase();
 const createdByLabel = (item: Pick<Contact, "createdByName" | "createdByEmail">) =>
   item.createdByName || item.createdByEmail || "—";
+
+const CONTACT_SORT_COLUMNS: Array<{ key: ContactSortKey; label: string; date?: boolean }> = [
+  { key: "createdAt", label: "Oluşturma", date: true },
+  { key: "name", label: "Ad" },
+  { key: "company", label: "Firma" },
+  { key: "title", label: "Ünvan" },
+  { key: "contact", label: "E-posta" },
+];
+// "createdAt-asc" varsayılandır ve filtrede "all" (En eski kayıt) olarak görünür.
+const CONTACT_SORT_OPTIONS = CONTACT_SORT_COLUMNS.flatMap(({ key, label, date }) => [
+  { value: `${key}-asc`, label: `${label}: ${date ? "eski → yeni" : "A–Z"}` },
+  { value: `${key}-desc`, label: `${label}: ${date ? "yeni → eski" : "Z–A"}` },
+]).filter((option) => option.value !== "createdAt-asc");
 
 export function ContactsPage() {
   const { deleteContact } = useStore();
@@ -57,8 +73,21 @@ export function ContactsPage() {
   useEffect(() => setDivisionTab(activeDivision !== "all" ? activeDivision : "all"), [activeDivision]);
   const [view, setView] = usePersistentState<ListView>("contactsView", "table");
   const [page, setPage] = useState(1);
-  const [sortValue, setSortValue] = useState("all");
-  const [sortBy, sortDir] = (sortValue === "all" ? "createdAt-desc" : sortValue).split("-") as [ContactSort["sortBy"], ContactSort["sortDir"]];
+  // Tek kaynak: kolon başlıkları ve "Sıralama" filtresi aynı durumu okur/yazar.
+  const [{ sortBy, sortDir }, setSort] = useState<ContactSort>(DEFAULT_CONTACT_SORT);
+  const sortValue = sortBy === DEFAULT_CONTACT_SORT.sortBy && sortDir === DEFAULT_CONTACT_SORT.sortDir
+    ? "all"
+    : `${sortBy}-${sortDir}`;
+  const setSortValue = (value: string) => {
+    if (value === "all") return setSort(DEFAULT_CONTACT_SORT);
+    const [key, dir] = value.split("-") as [ContactSortKey, ContactSort["sortDir"]];
+    setSort({ sortBy: key, sortDir: dir });
+  };
+  const headerSort = { key: sortBy, dir: sortDir };
+  const toggleSort = (key: ContactSortKey) => {
+    const next = nextSort(headerSort, key) ?? { key, dir: "asc" as const };
+    setSort({ sortBy: next.key, sortDir: next.dir });
+  };
   const debouncedQ = useDebouncedValue(q, 275);
   const scope = useMemo<ContactQueryScope>(() => ({
     tenantId: user?.tenantId ?? "anonymous",
@@ -247,12 +276,8 @@ export function ContactsPage() {
                 label: "Sıralama",
                 value: sortValue,
                 onChange: setSortValue,
-                allLabel: "En yeni kayıt",
-                options: [
-                  { value: "name-asc", label: "Ad (A-Z)" },
-                  { value: "name-desc", label: "Ad (Z-A)" },
-                  { value: "createdAt-asc", label: "En eski kayıt" },
-                ],
+                allLabel: "En eski kayıt",
+                options: CONTACT_SORT_OPTIONS,
               },
             ]}
           />
@@ -355,11 +380,11 @@ export function ContactsPage() {
           <Table>
             <TableHeader>
               <TableRow className="bg-muted/40 hover:bg-muted/40">
-                <TableHead className="w-[280px]">Kişi</TableHead>
-                <TableHead>Firma</TableHead>
-                <TableHead>Ünvan / Departman</TableHead>
-                <TableHead>İletişim</TableHead>
-                <TableHead>Oluşturma</TableHead>
+                <SortableTableHead sortKey="name" sort={headerSort} onSort={toggleSort} className="w-[280px]">Kişi</SortableTableHead>
+                <SortableTableHead sortKey="company" sort={headerSort} onSort={toggleSort}>Firma</SortableTableHead>
+                <SortableTableHead sortKey="title" sort={headerSort} onSort={toggleSort}>Ünvan / Departman</SortableTableHead>
+                <SortableTableHead sortKey="contact" sort={headerSort} onSort={toggleSort}>İletişim</SortableTableHead>
+                <SortableTableHead sortKey="createdAt" sort={headerSort} onSort={toggleSort}>Oluşturma</SortableTableHead>
                 <TableHead className="w-20"></TableHead>
               </TableRow>
             </TableHeader>

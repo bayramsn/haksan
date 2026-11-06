@@ -24,6 +24,10 @@ describe("kolon başlığı sıralaması", () => {
 const source = readFileSync(new URL("./Operations.tsx", import.meta.url), "utf8");
 
 describe("ürün listesi", () => {
+  it("ilk açılışta ad sütununa göre A-Z gelir", () => {
+    expect(source).toContain('useState<{ col: ProductSortCol; dir: 1 | -1 }>({ col: "name", dir: 1 })');
+  });
+
   it("büyük başlıkta gerçek ürün adını, altında stok/model kodunu gösterir", () => {
     // Ürün adı API'nin "fullName" alanı — web tarafında shortDescription'a
     // eşleniyor. `modelName` neredeyse her üründe `model` ile aynı kaldığı

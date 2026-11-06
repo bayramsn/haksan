@@ -5,7 +5,8 @@ import { tasksService } from "../../../../lib/services";
 import type { OperationAction } from "../../../lib/operations";
 import { Button } from "../../ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "../../ui/card";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../../ui/table";
+import { Table, TableBody, TableCell, TableHeader, TableRow } from "../../ui/table";
+import { SortableTableHead, useSortableRows } from "../../ui/sortable-table";
 import { dueLabel, relatedRecord, TASK_PRIORITY_LABELS } from "../tasks/taskPresentation";
 
 export function DashboardTasksPanel({ onAction }: { onAction?: (action: OperationAction) => void }) {
@@ -28,6 +29,15 @@ export function DashboardTasksPanel({ onAction }: { onAction?: (action: Operatio
     refetchOnMount: "always",
     refetchOnWindowFocus: true,
   });
+  const teamRows = (query.data?.summary ?? [])
+    .filter((row) => row.open > 0 || row.overdue > 0)
+    .sort((a, b) => b.overdue - a.overdue || b.open - a.open);
+  const { sorted: sortedTeamRows, sort, toggle } = useSortableRows(teamRows, {
+    name: (row) => row.fullName,
+    open: (row) => row.open,
+    overdue: (row) => row.overdue,
+    completed: (row) => row.completed,
+  });
 
   if (!canRead || !user) return null;
 
@@ -40,9 +50,6 @@ export function DashboardTasksPanel({ onAction }: { onAction?: (action: Operatio
     { view: "all", label: "Toplam görev", count: query.data?.counts.all },
     { view: "completed", label: "Tamamlanan", count: query.data?.counts.completed },
   ];
-  const teamRows = (query.data?.summary ?? [])
-    .filter((row) => row.open > 0 || row.overdue > 0)
-    .sort((a, b) => b.overdue - a.overdue || b.open - a.open);
 
   return (
     <Card role="region" aria-label="Görev takibi">
@@ -125,14 +132,14 @@ export function DashboardTasksPanel({ onAction }: { onAction?: (action: Operatio
                   <Table aria-label="Ekip görev durumu">
                     <TableHeader>
                       <TableRow>
-                        <TableHead>Kişi</TableHead>
-                        <TableHead className="text-right">Açık</TableHead>
-                        <TableHead className="text-right">Gecikmiş</TableHead>
-                        <TableHead className="text-right">Tamamlanan</TableHead>
+                        <SortableTableHead sortKey="name" sort={sort} onSort={toggle}>Kişi</SortableTableHead>
+                        <SortableTableHead sortKey="open" sort={sort} onSort={toggle} className="text-right">Açık</SortableTableHead>
+                        <SortableTableHead sortKey="overdue" sort={sort} onSort={toggle} className="text-right">Gecikmiş</SortableTableHead>
+                        <SortableTableHead sortKey="completed" sort={sort} onSort={toggle} className="text-right">Tamamlanan</SortableTableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {teamRows.map((row) => (
+                      {sortedTeamRows.map((row) => (
                         <TableRow key={row.userId}>
                           <TableCell className="font-medium">{row.fullName}</TableCell>
                           <TableCell className="text-right tabular-nums">{row.open}</TableCell>

@@ -11,6 +11,7 @@ import {
 } from "../../ui/alert-dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../../ui/table";
+import { SortableTableHead, useSortableRows } from "../../ui/sortable-table";
 import { Switch } from "../../ui/switch";
 import { Checkbox } from "../../ui/checkbox";
 import { Label } from "../../ui/label";
@@ -242,6 +243,19 @@ export function UsersPage() {
       return matchesTerm && matchesStatus;
     });
   }, [displayUsers, query, statusFilter]);
+  const { sorted: sortedUsers, sort, toggle } = useSortableRows(filteredUsers, {
+    name: (u) => u.name,
+    role: (u) => u.roleNames.join(", "),
+    department: (u) => u.department,
+    division: (u) => u.divisionNames.join(", "),
+    target: (u) => {
+      const t = targets[u.id];
+      return t ? TARGET_TYPE_ORDER.reduce((sum, targetType) => sum + targetFilledCount(t, targetType), 0) : null;
+    },
+    limit: (u) => u.purchaseApprovalLimit || null,
+    manager: (u) => (u.managerId ? displayUsers.find((x) => x.id === u.managerId)?.name : null),
+    status: (u) => (u.active ? "Aktif" : "Pasif"),
+  });
 
   const fetchTargets = useCallback(async () => {
     if (!canSetTargets) return;
@@ -480,14 +494,14 @@ export function UsersPage() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Kullanıcı Kimliği</TableHead>
-                <TableHead>Rol</TableHead>
-                <TableHead>Departman</TableHead>
-                <TableHead>Bölüm</TableHead>
-                <TableHead>Hedef</TableHead>
-                <TableHead>Limitler (USD)</TableHead>
-                <TableHead>Yönetici</TableHead>
-                <TableHead>Durum</TableHead>
+                <SortableTableHead sortKey="name" sort={sort} onSort={toggle}>Kullanıcı Kimliği</SortableTableHead>
+                <SortableTableHead sortKey="role" sort={sort} onSort={toggle}>Rol</SortableTableHead>
+                <SortableTableHead sortKey="department" sort={sort} onSort={toggle}>Departman</SortableTableHead>
+                <SortableTableHead sortKey="division" sort={sort} onSort={toggle}>Bölüm</SortableTableHead>
+                <SortableTableHead sortKey="target" sort={sort} onSort={toggle}>Hedef</SortableTableHead>
+                <SortableTableHead sortKey="limit" sort={sort} onSort={toggle}>Limitler (USD)</SortableTableHead>
+                <SortableTableHead sortKey="manager" sort={sort} onSort={toggle}>Yönetici</SortableTableHead>
+                <SortableTableHead sortKey="status" sort={sort} onSort={toggle}>Durum</SortableTableHead>
                 {canShowActions && <TableHead className="w-10" />}
               </TableRow>
             </TableHeader>
@@ -500,7 +514,7 @@ export function UsersPage() {
                     ))}
                   </TableRow>
                 ))
-              ) : filteredUsers.map((u) => {
+              ) : sortedUsers.map((u) => {
                 const t = targets[u.id];
                 const targetSummaries = t
                   ? TARGET_TYPE_ORDER.map((targetType) => ({

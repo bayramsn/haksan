@@ -6,6 +6,7 @@ import { Badge } from "../../ui/badge";
 import { Label } from "../../ui/label";
 import { Textarea } from "../../ui/textarea";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../../ui/table";
+import { SortableTableHead, useSortableRows } from "../../ui/sortable-table";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "../../ui/dialog";
 import { TargetDialog, currentPeriod, hasTargetValue, targetFromApi, targetToApi, type UserTarget } from "../../admin/TargetDialog";
 import { safeLoad } from "../../../../lib/safeLoad";
@@ -126,6 +127,11 @@ export function DepartmentsPage() {
     );
   }, [query, rows]);
 
+  const { sorted: sortedRows, sort, toggle } = useSortableRows(filteredRows, {
+    name: (d) => d.name,
+    code: (d) => d.code,
+    description: (d) => d.description,
+  });
   const departmentsWithTargets = useMemo(
     () => rows.filter((department) => hasTargetValue(deptTargets[department.id])).length,
     [deptTargets, rows],
@@ -269,14 +275,14 @@ export function DepartmentsPage() {
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Departman</TableHead>
-              <TableHead>Kod</TableHead>
-              <TableHead>Açıklama</TableHead>
+              <SortableTableHead sortKey="name" sort={sort} onSort={toggle}>Departman</SortableTableHead>
+              <SortableTableHead sortKey="code" sort={sort} onSort={toggle}>Kod</SortableTableHead>
+              <SortableTableHead sortKey="description" sort={sort} onSort={toggle}>Açıklama</SortableTableHead>
               {canSetTargets && <TableHead className="w-28">Hedef</TableHead>}
             </TableRow>
           </TableHeader>
           <TableBody>
-            {filteredRows.map((d) => (
+            {sortedRows.map((d) => (
               <TableRow key={d.id}>
                 <TableCell>{d.name}</TableCell>
                 <TableCell className="text-muted-foreground">{d.code ?? "—"}</TableCell>

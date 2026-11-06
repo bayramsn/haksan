@@ -17,6 +17,7 @@ import {
 } from "../../ui/alert-dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../../ui/table";
+import { SortableTableHead, useSortableRows } from "../../ui/sortable-table";
 import { Avatar, AvatarFallback, AvatarImage } from "../../ui/avatar";
 import { Badge } from "../../ui/badge";
 import { FilterPopover } from "../../ui/list-controls";
@@ -217,6 +218,12 @@ const SEVERITY_LABELS: Record<string, string> = {
   high: "Yüksek",
   critical: "Kritik",
 };
+// Öncelik/önem kolonları etiketin alfabesine değil derecesine göre sıralanır (Düşük < Normal < Yüksek < Kritik).
+const severityRank = (value?: string | null) => {
+  const rank = ["low", "normal", "high", "critical"].indexOf(value ?? "");
+  return rank < 0 ? null : rank;
+};
+const sortDate = (value?: string | null) => (value ? new Date(value.replace(" ", "T")) : null);
 
 const SERVICE_TICKET_TYPE_OPTIONS = Object.entries(SERVICE_TICKET_TYPE_LABELS).map(([value, label]) => ({
   value,
@@ -450,6 +457,16 @@ export function ServiceRequestsPage({
     .filter((c) => complaintStatusFilter === "all" || c.status === complaintStatusFilter)
     .filter((c) => complaintSourceFilter === "all" || c.source === complaintSourceFilter)
     .filter((c) => complaintSeverityFilter === "all" || c.severity === complaintSeverityFilter);
+  // Aşama kolonu iş akışı sırasına göre (Talep açıldı → Kapandı) sıralanır.
+  const { sorted: sortedService, sort: serviceSort, toggle: toggleServiceSort } = useSortableRows(visibleService, {
+    customer: (s) => customerName(s.customerId),
+    machine: (s) => machines.find((item) => item.id === s.machineId)?.model,
+    priority: (s) => severityRank(s.priority ?? "normal"),
+    assignee: (s) => users.find((item) => item.id === s.assignedUserId)?.name,
+    nextAction: (s) => SERVICE_NEXT_ACTION[s.stage],
+    stage: (s) => Object.keys(SERVICE_NEXT_ACTION).indexOf(s.stage),
+    createdAt: (s) => sortDate(s.createdAt),
+  });
   const openServiceCount = visibleService.filter((item) => item.stage !== "Closed").length;
   const urgentServiceCount = visibleService.filter((item) => item.stage !== "Closed" && (item.priority === "critical" || item.priority === "high")).length;
   const overdueServiceCount = visibleService.filter((item) => serviceSlaInfo(item).overdue).length;
@@ -801,13 +818,13 @@ export function ServiceRequestsPage({
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Talep / Firma</TableHead>
-                <TableHead>Makine</TableHead>
-                <TableHead>Öncelik / SLA</TableHead>
-                <TableHead>Sorumlu</TableHead>
-                <TableHead>Sonraki Adım</TableHead>
-                <TableHead>Aşama</TableHead>
-                <TableHead>Açılış</TableHead>
+                <SortableTableHead sortKey="customer" sort={serviceSort} onSort={toggleServiceSort}>Talep / Firma</SortableTableHead>
+                <SortableTableHead sortKey="machine" sort={serviceSort} onSort={toggleServiceSort}>Makine</SortableTableHead>
+                <SortableTableHead sortKey="priority" sort={serviceSort} onSort={toggleServiceSort}>Öncelik / SLA</SortableTableHead>
+                <SortableTableHead sortKey="assignee" sort={serviceSort} onSort={toggleServiceSort}>Sorumlu</SortableTableHead>
+                <SortableTableHead sortKey="nextAction" sort={serviceSort} onSort={toggleServiceSort}>Sonraki Adım</SortableTableHead>
+                <SortableTableHead sortKey="stage" sort={serviceSort} onSort={toggleServiceSort}>Aşama</SortableTableHead>
+                <SortableTableHead sortKey="createdAt" sort={serviceSort} onSort={toggleServiceSort}>Açılış</SortableTableHead>
                 <TableHead className="w-16 text-right">İşlem</TableHead>
               </TableRow>
             </TableHeader>
@@ -819,7 +836,7 @@ export function ServiceRequestsPage({
                   </TableCell>
                 </TableRow>
               ) : (
-              visibleService.map((s) => {
+              sortedService.map((s) => {
                 const machine = machines.find((item) => item.id === s.machineId);
                 const assignee = users.find((item) => item.id === s.assignedUserId);
                 const priority = s.priority ?? "normal";
@@ -1170,6 +1187,23 @@ function ComplaintInbox({
   const showQr = async (url: string) => {
     setQrImage(await QRCode.toDataURL(url, { width: 360, margin: 2, errorCorrectionLevel: "M" }));
   };
+  const { sorted: sortedLinks, sort: linkSort, toggle: toggleLinkSort } = useSortableRows(links, {
+    title: (link) => link.title || "Servis Şikayet Formu",
+    company: (link) => link.company?.shortName || link.company?.legalTitle || "Genel link",
+    machine: (link) => (link.machine ? [link.machine.model, link.machine.serialNumber].filter(Boolean).join(" · ") : null),
+    status: (link) => (link.isActive && !link.revokedAt ? "Aktif" : "Pasif"),
+    createdAt: (link) => sortDate((link as any).createdAt),
+  });
+  const { sorted: sortedComplaints, sort: complaintSort, toggle: toggleComplaintSort } = useSortableRows(complaints, {
+    complaintNo: (complaint) => complaint.complaintNo,
+    company: complaintCompanyName,
+    machine: complaintMachineName,
+    source: (complaint) => COMPLAINT_SOURCE_LABELS[complaint.source],
+    status: (complaint) => COMPLAINT_STATUS_LABELS[complaint.status],
+    severity: (complaint) => severityRank(complaint.severity),
+    subject: (complaint) => complaint.subject,
+    contact: (complaint) => [complaint.contactName, complaint.contactPhone].filter(Boolean).join(" · "),
+  });
   return (
     <Card className="border-border/60 shadow-sm overflow-hidden">
       <CardHeader className="flex flex-row items-center justify-between gap-3">
@@ -1216,11 +1250,11 @@ function ComplaintInbox({
         <Table className="min-w-[940px]">
           <TableHeader>
             <TableRow>
-              <TableHead>Başlık</TableHead>
-              <TableHead>Firma</TableHead>
-              <TableHead>Makine</TableHead>
-              <TableHead>Durum</TableHead>
-              <TableHead>Oluşturma</TableHead>
+              <SortableTableHead sortKey="title" sort={linkSort} onSort={toggleLinkSort}>Başlık</SortableTableHead>
+              <SortableTableHead sortKey="company" sort={linkSort} onSort={toggleLinkSort}>Firma</SortableTableHead>
+              <SortableTableHead sortKey="machine" sort={linkSort} onSort={toggleLinkSort}>Makine</SortableTableHead>
+              <SortableTableHead sortKey="status" sort={linkSort} onSort={toggleLinkSort}>Durum</SortableTableHead>
+              <SortableTableHead sortKey="createdAt" sort={linkSort} onSort={toggleLinkSort}>Oluşturma</SortableTableHead>
               <TableHead className="text-right">Aksiyon</TableHead>
             </TableRow>
           </TableHeader>
@@ -1231,7 +1265,7 @@ function ComplaintInbox({
                   Public link yok.
                 </TableCell>
               </TableRow>
-            ) : links.map((link) => {
+            ) : sortedLinks.map((link) => {
               return (
                 <TableRow key={link.id}>
                   <TableCell className="font-medium">{link.title || "Servis Şikayet Formu"}</TableCell>
@@ -1285,14 +1319,14 @@ function ComplaintInbox({
         <Table className="min-w-[980px]">
           <TableHeader>
             <TableRow>
-              <TableHead>Kayıt</TableHead>
-              <TableHead>Firma</TableHead>
-              <TableHead>Makine</TableHead>
-              <TableHead>Kaynak</TableHead>
-              <TableHead>Durum</TableHead>
-              <TableHead>Öncelik</TableHead>
-              <TableHead>Konu</TableHead>
-              <TableHead>İletişim</TableHead>
+              <SortableTableHead sortKey="complaintNo" sort={complaintSort} onSort={toggleComplaintSort}>Kayıt</SortableTableHead>
+              <SortableTableHead sortKey="company" sort={complaintSort} onSort={toggleComplaintSort}>Firma</SortableTableHead>
+              <SortableTableHead sortKey="machine" sort={complaintSort} onSort={toggleComplaintSort}>Makine</SortableTableHead>
+              <SortableTableHead sortKey="source" sort={complaintSort} onSort={toggleComplaintSort}>Kaynak</SortableTableHead>
+              <SortableTableHead sortKey="status" sort={complaintSort} onSort={toggleComplaintSort}>Durum</SortableTableHead>
+              <SortableTableHead sortKey="severity" sort={complaintSort} onSort={toggleComplaintSort}>Öncelik</SortableTableHead>
+              <SortableTableHead sortKey="subject" sort={complaintSort} onSort={toggleComplaintSort}>Konu</SortableTableHead>
+              <SortableTableHead sortKey="contact" sort={complaintSort} onSort={toggleComplaintSort}>İletişim</SortableTableHead>
               <TableHead className="text-right">Aksiyon</TableHead>
             </TableRow>
           </TableHeader>
@@ -1303,7 +1337,7 @@ function ComplaintInbox({
                   {loading ? "Şikayetler yükleniyor..." : "Bu filtreye uyan şikayet yok."}
                 </TableCell>
               </TableRow>
-            ) : complaints.map((complaint) => (
+            ) : sortedComplaints.map((complaint) => (
               <TableRow
                 key={complaint.id}
                 className="cursor-pointer"
@@ -4412,6 +4446,21 @@ function ServiceHistoryView({
       })
     : closed;
 
+  const { sorted, sort, toggle } = useSortableRows(filtered, {
+    customer: (s) => customers.find((c) => c.id === s.customerId)?.name,
+    machine: (s) => {
+      const machine = machines.find((m) => m.id === s.machineId);
+      return machine ? `${machine.model ?? ""} · ${machine.serialNumber ?? ""}` : null;
+    },
+    form: (s) => s.completionForm?.formNo || s.ticketNo || s.id,
+    checks: (s) => {
+      const checks = s.completionForm?.checks ?? [];
+      return checks.length ? checks.filter((c) => c.status === "done").length / checks.length : null;
+    },
+    technician: (s) => s.completionForm?.kurulumuYapan || users.find((u) => u.id === s.assignedUserId)?.name,
+    closedAt: (s) => sortDate(s.closedAt ?? s.createdAt),
+  });
+
   const handlePrint = async (s: ServiceRequest) => {
     try {
       await serviceService.openServiceFormPdf(s.id, s.ticketNo || s.id);
@@ -4441,12 +4490,12 @@ function ServiceHistoryView({
         <Table className="min-w-[960px]">
           <TableHeader>
             <TableRow>
-              <TableHead>Firma</TableHead>
-              <TableHead>Makine</TableHead>
-              <TableHead>Form</TableHead>
-              <TableHead>Kontroller</TableHead>
-              <TableHead>Servisi Yapan</TableHead>
-              <TableHead>Kapanış</TableHead>
+              <SortableTableHead sortKey="customer" sort={sort} onSort={toggle}>Firma</SortableTableHead>
+              <SortableTableHead sortKey="machine" sort={sort} onSort={toggle}>Makine</SortableTableHead>
+              <SortableTableHead sortKey="form" sort={sort} onSort={toggle}>Form</SortableTableHead>
+              <SortableTableHead sortKey="checks" sort={sort} onSort={toggle}>Kontroller</SortableTableHead>
+              <SortableTableHead sortKey="technician" sort={sort} onSort={toggle}>Servisi Yapan</SortableTableHead>
+              <SortableTableHead sortKey="closedAt" sort={sort} onSort={toggle}>Kapanış</SortableTableHead>
               <TableHead className="w-28 text-right">İşlem</TableHead>
             </TableRow>
           </TableHeader>
@@ -4458,7 +4507,7 @@ function ServiceHistoryView({
                 </TableCell>
               </TableRow>
             ) : (
-              filtered.map((s) => {
+              sorted.map((s) => {
                 const customer = customers.find((c) => c.id === s.customerId);
                 const machine = machines.find((m) => m.id === s.machineId);
                 const assignee = users.find((u) => u.id === s.assignedUserId);

@@ -6,11 +6,12 @@ import { Button } from "../ui/button";
 import { Badge } from "../ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../ui/tabs";
 import { ArrowLeft, Phone, Mail, MapPin, Building2, Plus, ArrowUpRight, Clock, AlertTriangle, Download, Eye, FileText, Upload } from "lucide-react";
-import { Customer } from "../../lib/mock";
+import { Customer, salesStageLabel } from "../../lib/mock";
 import { useStore } from "../../lib/store";
 import { openInMaps } from "../../lib/geo";
 import { StatusBadge } from "../shared/StatusBadge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../ui/table";
+import { SortableTableHead, useSortableRows } from "../ui/sortable-table";
 import { CreateCaseDialog, LogActivityDialog } from "../dialogs/CreateDialogs";
 import { buildCustomerTimeline, type OperationAction, type TimelineItem } from "../../lib/operations";
 import { CompanyFinancePanel } from "../shared/CompanyFinancePanel";
@@ -126,6 +127,45 @@ export function CustomerDetailPage({ customer, onBack, onAction }: { customer: C
       .sort((left, right) => right.uploadedAt.localeCompare(left.uploadedAt)),
     [companyCases, companyOffers, customer.id, documents],
   );
+  const caseLabel = (salesCaseId?: string | null) => {
+    const salesCase = companyCases.find((item) => item.id === salesCaseId);
+    return salesCase
+      ? [salesCase.requestedProduct, salesCase.requestedModel].filter(Boolean).join(" · ")
+      : "Firma teklifi";
+  };
+  // Kolon başlığına tıklayınca sıralama; ilk açılışta mevcut sıra korunur.
+  const offerSort = useSortableRows(companyOffers, {
+    no: (o) => o.quoteNo,
+    salesCase: (o) => caseLabel(o.salesCaseId),
+    date: (o) => o.date,
+    amount: (o) => o.amount,
+    status: (o) => o.status,
+  });
+  const documentSort = useSortableRows(companyDocuments, {
+    file: (d) => d.fileName,
+    type: (d) => d.type,
+    date: (d) => d.uploadedAt,
+  });
+  const caseSort = useSortableRows(cases, {
+    product: (s) => s.requestedProduct,
+    amount: (s) => s.estimatedAmount,
+    stage: (s) => salesStageLabel(s.stage),
+    date: (s) => s.createdAt,
+  });
+  const paymentSort = useSortableRows(pays, {
+    type: (p) => (p.paymentType === "received" ? "Tahsilat" : p.direction === "out" ? "Ödeme" : "Beklenen"),
+    invoice: (p) => p.invoiceNo,
+    amount: (p) => p.amount,
+    due: (p) => p.dueDate,
+    status: (p) => p.status,
+  });
+  const machineSort = useSortableRows(mcs, {
+    serial: (m) => m.serialNumber,
+    model: (m) => m.model,
+    installed: (m) => m.installationDate,
+    warranty: (m) => m.warrantyEnd,
+    status: (m) => m.status,
+  });
   const selectedOffer = selectedOfferId
     ? companyOffers.find((offer) => offer.id === selectedOfferId) ?? null
     : null;
@@ -370,15 +410,15 @@ export function CustomerDetailPage({ customer, onBack, onAction }: { customer: C
                     <Table className="min-w-[620px]">
                       <TableHeader>
                         <TableRow>
-                          <TableHead>Teklif No</TableHead>
-                          <TableHead>Satış Kartı</TableHead>
-                          <TableHead>Tarih</TableHead>
-                          <TableHead>Tutar</TableHead>
-                          <TableHead>Durum</TableHead>
+                          <SortableTableHead sortKey="no" sort={offerSort.sort} onSort={offerSort.toggle}>Teklif No</SortableTableHead>
+                          <SortableTableHead sortKey="salesCase" sort={offerSort.sort} onSort={offerSort.toggle}>Satış Kartı</SortableTableHead>
+                          <SortableTableHead sortKey="date" sort={offerSort.sort} onSort={offerSort.toggle}>Tarih</SortableTableHead>
+                          <SortableTableHead sortKey="amount" sort={offerSort.sort} onSort={offerSort.toggle}>Tutar</SortableTableHead>
+                          <SortableTableHead sortKey="status" sort={offerSort.sort} onSort={offerSort.toggle}>Durum</SortableTableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {companyOffers.map((offer) => {
+                        {offerSort.sorted.map((offer) => {
                           const salesCase = companyCases.find((item) => item.id === offer.salesCaseId);
                           return (
                             <TableRow
@@ -523,14 +563,14 @@ export function CustomerDetailPage({ customer, onBack, onAction }: { customer: C
                     <Table>
                       <TableHeader>
                         <TableRow className="bg-muted/30 hover:bg-muted/30">
-                          <TableHead>Belge</TableHead>
-                          <TableHead>Tür</TableHead>
-                          <TableHead>Tarih</TableHead>
+                          <SortableTableHead sortKey="file" sort={documentSort.sort} onSort={documentSort.toggle}>Belge</SortableTableHead>
+                          <SortableTableHead sortKey="type" sort={documentSort.sort} onSort={documentSort.toggle}>Tür</SortableTableHead>
+                          <SortableTableHead sortKey="date" sort={documentSort.sort} onSort={documentSort.toggle}>Tarih</SortableTableHead>
                           <TableHead className="w-20 text-right">İşlem</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {companyDocuments.map((item) => (
+                        {documentSort.sorted.map((item) => (
                           <TableRow key={`${item.source ?? "document"}-${item.id}`}>
                             <TableCell className="font-medium">{item.fileName}</TableCell>
                             <TableCell className="text-muted-foreground">{item.type}</TableCell>
@@ -576,14 +616,14 @@ export function CustomerDetailPage({ customer, onBack, onAction }: { customer: C
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        <TableHead>Ürün / Model</TableHead>
-                        <TableHead>Tutar</TableHead>
-                        <TableHead>Aşama</TableHead>
-                        <TableHead>Tarih</TableHead>
+                        <SortableTableHead sortKey="product" sort={caseSort.sort} onSort={caseSort.toggle}>Ürün / Model</SortableTableHead>
+                        <SortableTableHead sortKey="amount" sort={caseSort.sort} onSort={caseSort.toggle}>Tutar</SortableTableHead>
+                        <SortableTableHead sortKey="stage" sort={caseSort.sort} onSort={caseSort.toggle}>Aşama</SortableTableHead>
+                        <SortableTableHead sortKey="date" sort={caseSort.sort} onSort={caseSort.toggle}>Tarih</SortableTableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {cases.map((s) => (
+                      {caseSort.sorted.map((s) => (
                         <TableRow key={s.id}>
                           <TableCell>{s.requestedProduct} <span className="text-muted-foreground">· {s.requestedModel}</span></TableCell>
                           <TableCell className="tabular-nums">{s.estimatedAmount.toLocaleString()} {s.currency}</TableCell>
@@ -647,15 +687,15 @@ export function CustomerDetailPage({ customer, onBack, onAction }: { customer: C
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Tip</TableHead>
-                      <TableHead>Fatura No</TableHead>
-                      <TableHead>Tutar</TableHead>
-                      <TableHead>Vade</TableHead>
-                      <TableHead>Durum</TableHead>
+                      <SortableTableHead sortKey="type" sort={paymentSort.sort} onSort={paymentSort.toggle}>Tip</SortableTableHead>
+                      <SortableTableHead sortKey="invoice" sort={paymentSort.sort} onSort={paymentSort.toggle}>Fatura No</SortableTableHead>
+                      <SortableTableHead sortKey="amount" sort={paymentSort.sort} onSort={paymentSort.toggle}>Tutar</SortableTableHead>
+                      <SortableTableHead sortKey="due" sort={paymentSort.sort} onSort={paymentSort.toggle}>Vade</SortableTableHead>
+                      <SortableTableHead sortKey="status" sort={paymentSort.sort} onSort={paymentSort.toggle}>Durum</SortableTableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {pays.map((p) => (
+                    {paymentSort.sorted.map((p) => (
                       <TableRow key={p.id}>
                         <TableCell>{p.paymentType === "received" ? "Tahsilat" : p.direction === "out" ? "Ödeme" : "Beklenen"}</TableCell>
                         <TableCell className="text-muted-foreground">{p.invoiceNo || "—"}</TableCell>
@@ -674,15 +714,15 @@ export function CustomerDetailPage({ customer, onBack, onAction }: { customer: C
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Seri No</TableHead>
-                      <TableHead>Model</TableHead>
-                      <TableHead>Kurulum</TableHead>
-                      <TableHead>Garanti Bitiş</TableHead>
-                      <TableHead>Durum</TableHead>
+                      <SortableTableHead sortKey="serial" sort={machineSort.sort} onSort={machineSort.toggle}>Seri No</SortableTableHead>
+                      <SortableTableHead sortKey="model" sort={machineSort.sort} onSort={machineSort.toggle}>Model</SortableTableHead>
+                      <SortableTableHead sortKey="installed" sort={machineSort.sort} onSort={machineSort.toggle}>Kurulum</SortableTableHead>
+                      <SortableTableHead sortKey="warranty" sort={machineSort.sort} onSort={machineSort.toggle}>Garanti Bitiş</SortableTableHead>
+                      <SortableTableHead sortKey="status" sort={machineSort.sort} onSort={machineSort.toggle}>Durum</SortableTableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {mcs.map((m) => (
+                    {machineSort.sorted.map((m) => (
                       <TableRow key={m.id}>
                         <TableCell>{m.serialNumber}</TableCell>
                         <TableCell>{m.model}</TableCell>

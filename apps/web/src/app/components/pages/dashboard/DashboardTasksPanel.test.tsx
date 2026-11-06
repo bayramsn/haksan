@@ -20,6 +20,9 @@ vi.mock("../../../../lib/auth", () => ({
 }));
 vi.mock("../../../../lib/services", () => ({ tasksService: { counts: vi.fn(), list: vi.fn(), summary: vi.fn() } }));
 vi.mock("lucide-react", () => ({
+  ArrowDown: () => <svg aria-hidden="true" />,
+  ArrowUp: () => <svg aria-hidden="true" />,
+  ArrowUpDown: () => <svg aria-hidden="true" />,
   ArrowUpRight: () => <svg aria-hidden="true" />,
   ListTodo: () => <svg aria-hidden="true" />,
 }));

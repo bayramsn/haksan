@@ -31,6 +31,10 @@ describe('firma ve kontak server-side liste sözleşmesi', () => {
       sortDir: 'asc',
     });
     expect(companyListRequestQuerySchema.safeParse({ sortBy: 'taxNumber' }).success).toBe(false);
+    expect(companyListRequestQuerySchema.safeParse({ sortBy: 'legal_title' }).success).toBe(false);
+    for (const sortBy of ['name', 'type', 'contact', 'city', 'createdAt']) {
+      expect(companyListRequestQuerySchema.safeParse({ sortBy }).success).toBe(true);
+    }
     expect(companyListRequestQuerySchema.safeParse({ supplierCategoryCode: 'carrier' }).success).toBe(false);
     expect(companySummaryQuerySchema.safeParse({ divisionId: 'not-a-uuid' }).success).toBe(false);
   });
@@ -53,6 +57,10 @@ describe('firma ve kontak server-side liste sözleşmesi', () => {
     });
     expect(contactListRequestQuerySchema.safeParse({ isPrimary: 'yes' }).success).toBe(false);
     expect(contactListRequestQuerySchema.safeParse({ sortBy: 'department' }).success).toBe(false);
+    expect(contactListRequestQuerySchema.safeParse({ sortBy: 'full_name' }).success).toBe(false);
+    for (const sortBy of ['name', 'company', 'title', 'contact', 'createdAt']) {
+      expect(contactListRequestQuerySchema.safeParse({ sortBy }).success).toBe(true);
+    }
     expect(contactSummaryQuerySchema.safeParse({ divisionId: 'not-a-uuid' }).success).toBe(false);
   });
 
@@ -66,10 +74,10 @@ describe('firma ve kontak server-side liste sözleşmesi', () => {
       'utf8',
     );
 
-    expect(companiesSource).toContain('[asc(sortColumn), asc(companies.id)]');
-    expect(companiesSource).toContain('[desc(sortColumn), desc(companies.id)]');
-    expect(contactsSource).toContain('[asc(sortColumn), asc(contacts.id)]');
-    expect(contactsSource).toContain('[desc(sortColumn), desc(contacts.id)]');
+    expect(companiesSource).toContain('[sql`${sortExpr} asc nulls last`, asc(companies.id)]');
+    expect(companiesSource).toContain('[sql`${sortExpr} desc nulls last`, desc(companies.id)]');
+    expect(contactsSource).toContain('[sql`${sortExpr} asc nulls last`, asc(contacts.id)]');
+    expect(contactsSource).toContain('[sql`${sortExpr} desc nulls last`, desc(contacts.id)]');
   });
 
   it('summary route' + "'" + 'larını dinamik :id route' + "'" + 'larından önce tanımlar', () => {

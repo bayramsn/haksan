@@ -7,6 +7,7 @@ import { Button } from "../../ui/button";
 import { Input } from "../../ui/input";
 import { Badge } from "../../ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../../ui/table";
+import { SortableTableHead, useSortableRows } from "../../ui/sortable-table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../ui/select";
 import { ExportExcelButton } from "../../ui/ExportExcelButton";
 import { reportService } from "../../../../lib/services";
@@ -841,6 +842,26 @@ export function TargetPerformanceReport() {
   const scopedPeople = useMemo(() => people.filter(inDepartment), [people, departmentFilter]);
   const visiblePeople = scopedPeople.filter((person) => filter === "all" || isProblem(person));
   const visibleDepartments = departments.filter((dept) => departmentFilter === ALL || dept.row.subject.id === departmentFilter);
+  const metricText = (lines: MetricLine[]) => lines.map((line) => line.label).join(", ");
+  const departmentSort = useSortableRows(visibleDepartments, {
+    name: (d) => d.row.subject.name,
+    source: (d) => d.source,
+    members: (d) => d.memberCount,
+    problems: (d) => d.problemCount,
+    metrics: (d) => metricText(d.metrics),
+    progress: (d) => d.completionPct,
+    status: (d) => TARGET_STATUS_META[d.status].label,
+  });
+  const peopleSort = useSortableRows(visiblePeople, {
+    rank: (p) => p.rank,
+    name: (p) => p.row.subject.name,
+    department: (p) => (p.row.subject.departmentNames?.length ? p.row.subject.departmentNames.join(", ") : p.row.subject.departmentName),
+    progress: (p) => p.analysis.completionPct,
+    metrics: (p) => metricText(p.analysis.metrics),
+    manual: (p) => p.analysis.manual.map((m) => m.label).join(", "),
+    trend: (p) => personTrend(p.row.subject.id)[trendWindow.length - 1],
+    status: (p) => TARGET_STATUS_META[p.analysis.status].label,
+  });
   const targetedPeople = scopedPeople.filter(({ analysis }) => analysis.status !== "no_target");
   const completedCount = scopedPeople.filter(({ analysis }) => analysis.status === "completed").length;
   const riskCount = scopedPeople.filter(({ analysis }) => analysis.status === "at_risk").length;
@@ -1073,9 +1094,19 @@ export function TargetPerformanceReport() {
             </CardHeader>
             <div className="overflow-x-auto">
               <Table>
-                <TableHeader><TableRow className="bg-muted/30"><TableHead>Departman</TableHead><TableHead>Kaynak</TableHead><TableHead>Üye</TableHead><TableHead>Eksik / Riskli</TableHead><TableHead>Ölçütler</TableHead><TableHead>İlerleme</TableHead><TableHead>Durum</TableHead></TableRow></TableHeader>
+                <TableHeader>
+                  <TableRow className="bg-muted/30">
+                    <SortableTableHead sortKey="name" sort={departmentSort.sort} onSort={departmentSort.toggle}>Departman</SortableTableHead>
+                    <SortableTableHead sortKey="source" sort={departmentSort.sort} onSort={departmentSort.toggle}>Kaynak</SortableTableHead>
+                    <SortableTableHead sortKey="members" sort={departmentSort.sort} onSort={departmentSort.toggle}>Üye</SortableTableHead>
+                    <SortableTableHead sortKey="problems" sort={departmentSort.sort} onSort={departmentSort.toggle}>Eksik / Riskli</SortableTableHead>
+                    <SortableTableHead sortKey="metrics" sort={departmentSort.sort} onSort={departmentSort.toggle}>Ölçütler</SortableTableHead>
+                    <SortableTableHead sortKey="progress" sort={departmentSort.sort} onSort={departmentSort.toggle}>İlerleme</SortableTableHead>
+                    <SortableTableHead sortKey="status" sort={departmentSort.sort} onSort={departmentSort.toggle}>Durum</SortableTableHead>
+                  </TableRow>
+                </TableHeader>
                 <TableBody>
-                  {visibleDepartments.map((item) => (
+                  {departmentSort.sorted.map((item) => (
                     <TableRow key={item.row.subject.id}>
                       <TableCell className="font-medium">{item.row.subject.name}</TableCell>
                       <TableCell className="text-xs text-muted-foreground">{item.source}</TableCell>
@@ -1098,11 +1129,23 @@ export function TargetPerformanceReport() {
             </CardHeader>
             <div className="overflow-x-auto">
               <Table>
-                <TableHeader><TableRow className="bg-muted/30"><TableHead>#</TableHead><TableHead>Kullanıcı</TableHead><TableHead>Departman</TableHead><TableHead>İlerleme</TableHead><TableHead>Ölçütler</TableHead><TableHead>Manuel</TableHead>{trendPeriods.length > 0 && <TableHead>Aylık Seyir</TableHead>}<TableHead>Durum</TableHead><TableHead className="w-10" /></TableRow></TableHeader>
+                <TableHeader>
+                  <TableRow className="bg-muted/30">
+                    <SortableTableHead sortKey="rank" sort={peopleSort.sort} onSort={peopleSort.toggle}>#</SortableTableHead>
+                    <SortableTableHead sortKey="name" sort={peopleSort.sort} onSort={peopleSort.toggle}>Kullanıcı</SortableTableHead>
+                    <SortableTableHead sortKey="department" sort={peopleSort.sort} onSort={peopleSort.toggle}>Departman</SortableTableHead>
+                    <SortableTableHead sortKey="progress" sort={peopleSort.sort} onSort={peopleSort.toggle}>İlerleme</SortableTableHead>
+                    <SortableTableHead sortKey="metrics" sort={peopleSort.sort} onSort={peopleSort.toggle}>Ölçütler</SortableTableHead>
+                    <SortableTableHead sortKey="manual" sort={peopleSort.sort} onSort={peopleSort.toggle}>Manuel</SortableTableHead>
+                    {trendPeriods.length > 0 && <SortableTableHead sortKey="trend" sort={peopleSort.sort} onSort={peopleSort.toggle}>Aylık Seyir</SortableTableHead>}
+                    <SortableTableHead sortKey="status" sort={peopleSort.sort} onSort={peopleSort.toggle}>Durum</SortableTableHead>
+                    <TableHead className="w-10" />
+                  </TableRow>
+                </TableHeader>
                 <TableBody>
                   {visiblePeople.length === 0 ? (
                     <TableRow><TableCell colSpan={trendPeriods.length > 0 ? 9 : 8} className="py-10 text-center text-sm text-muted-foreground">Bu filtrede eksik veya riskli hedef bulunmuyor.</TableCell></TableRow>
-                  ) : visiblePeople.map((person) => {
+                  ) : peopleSort.sorted.map((person) => {
                     const { row, analysis, previousPct, rank } = person;
                     return (
                     <TableRow key={row.subject.id}>

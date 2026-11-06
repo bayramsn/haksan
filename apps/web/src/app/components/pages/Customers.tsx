@@ -6,8 +6,9 @@ import { Input } from "../ui/input";
 import { Button } from "../ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../ui/table";
+import { SortableTableHead, nextSort } from "../ui/sortable-table";
 import {
-  Search, MoreHorizontal, Eye, Pencil, Phone, Mail, MapPin, Building2, User as UserIcon, ArrowUpDown, Trash2,
+  Search, MoreHorizontal, Eye, Pencil, Phone, Mail, MapPin, Building2, User as UserIcon, Trash2,
   Handshake, Factory, TrendingUp, Loader2, ChevronRight,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -39,8 +40,10 @@ import {
   fetchFreshCompany,
   useCompanyDirectory,
   useCompanySummary,
-  type CompanySortMode,
+  DEFAULT_COMPANY_SORT,
+  type CompanySort,
 } from "../../lib/companyServerData";
+import type { CompanySortKey } from "@haksan/shared";
 import {
   clampServerPage,
   normalizeTotalPages,
@@ -74,6 +77,18 @@ const createdByLabel = (item: Pick<Customer, "createdByName" | "createdByEmail">
 
 const companyInitials = (name: string) => name.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]).join("").toLocaleUpperCase("tr-TR");
 const supplierCategoryLabel = (code?: Customer["supplierCategoryCode"]) => code === "transportation" ? "Nakliye" : code === "logistics" ? "Lojistik" : "";
+
+const COMPANY_SORT_COLUMNS: Array<{ key: CompanySortKey; label: string; date?: boolean }> = [
+  { key: "createdAt", label: "Oluşturma", date: true },
+  { key: "name", label: "Firma adı" },
+  { key: "type", label: "Firma tipi" },
+  { key: "contact", label: "Telefon" },
+  { key: "city", label: "Şehir" },
+];
+const COMPANY_SORT_OPTIONS = COMPANY_SORT_COLUMNS.flatMap(({ key, label, date }) => [
+  { value: `${key}:asc`, label: `${label}: ${date ? "eski → yeni" : "A–Z"}` },
+  { value: `${key}:desc`, label: `${label}: ${date ? "yeni → eski" : "Z–A"}` },
+]);
 
 export function CustomersPage({ onSelect }: { onSelect?: (c: Customer) => void } = {}) {
   const { deleteCustomer, refresh } = useStore();
@@ -117,7 +132,12 @@ export function CustomersPage({ onSelect }: { onSelect?: (c: Customer) => void }
   );
   const [sector, setSector] = useState("all");
   const [supplierCategory, setSupplierCategory] = useState<"all" | "transportation" | "logistics">("all");
-  const [sortMode, setSortMode] = useState<CompanySortMode>("default");
+  // Tek kaynak: hem kolon başlıkları hem sıralama menüsü bu durumu okur/yazar.
+  const [sort, setSort] = useState<CompanySort>(DEFAULT_COMPANY_SORT);
+  const toggleSort = (key: CompanySortKey) => {
+    setSort((current) => nextSort(current, key) ?? DEFAULT_COMPANY_SORT);
+    setPage(1);
+  };
   const [view, setView] = usePersistentState<ListView>("customersView", "table");
 
   const companyPageQuery = useCompanyDirectory({
@@ -130,7 +150,7 @@ export function CustomersPage({ onSelect }: { onSelect?: (c: Customer) => void }
     district,
     sector,
     supplierCategoryCode: supplierCategory,
-    sortMode,
+    sort,
   });
   const companySummaryQuery = useCompanySummary(divisionTab);
   const pageItems = companyPageQuery.data?.data ?? [];
@@ -298,16 +318,21 @@ export function CustomersPage({ onSelect }: { onSelect?: (c: Customer) => void }
               { label: "Tedarikçi Türü", value: supplierCategory, onChange: (value) => { setSupplierCategory(value as typeof supplierCategory); resetPage(); }, options: [{ value: "transportation", label: "Nakliye" }, { value: "logistics", label: "Lojistik" }] },
             ]}
           />
-          <Select value={sortMode} onValueChange={(value) => { setSortMode(value as CompanySortMode); resetPage(); }}>
+          <Select
+            value={`${sort.key}:${sort.dir}`}
+            onValueChange={(value) => {
+              const [key, dir] = value.split(":") as [CompanySortKey, CompanySort["dir"]];
+              setSort({ key, dir });
+              resetPage();
+            }}
+          >
             <SelectTrigger className="h-9 w-full bg-card sm:w-52" aria-label="Firmaları sırala">
               <SelectValue placeholder="Sıralama" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="default">Varsayılan sıralama</SelectItem>
-              <SelectItem value="name_asc">Firma adı A–Z</SelectItem>
-              <SelectItem value="name_desc">Firma adı Z–A</SelectItem>
-              <SelectItem value="created_desc">Oluşturma: yeni → eski</SelectItem>
-              <SelectItem value="created_asc">Oluşturma: eski → yeni</SelectItem>
+              {COMPANY_SORT_OPTIONS.map((option) => (
+                <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+              ))}
             </SelectContent>
           </Select>
           {hasRole("super_admin") && (
@@ -520,35 +545,11 @@ export function CustomersPage({ onSelect }: { onSelect?: (c: Customer) => void }
           <Table>
             <TableHeader>
               <TableRow className="bg-muted/40 hover:bg-muted/40">
-                <TableHead className="w-[220px] min-w-[220px] bg-muted md:sticky md:left-0 md:z-20 md:w-[300px]">
-                  <button
-                    type="button"
-                    className="inline-flex items-center gap-1 uppercase tracking-wider hover:text-foreground"
-                    onClick={() => {
-                      setSortMode((current) => current === "name_asc" ? "name_desc" : "name_asc");
-                      resetPage();
-                    }}
-                    aria-label="Firmaya göre sırala"
-                  >
-                    Firma <ArrowUpDown className="size-3" />
-                  </button>
-                </TableHead>
-                <TableHead>Firma Tipi</TableHead>
-                <TableHead>İletişim</TableHead>
-                <TableHead>Konum</TableHead>
-                <TableHead>
-                  <button
-                    type="button"
-                    className="inline-flex items-center gap-1 uppercase tracking-wider hover:text-foreground"
-                    onClick={() => {
-                      setSortMode((current) => current === "created_desc" ? "created_asc" : "created_desc");
-                      resetPage();
-                    }}
-                    aria-label="Oluşturulma tarihine göre sırala"
-                  >
-                    Oluşturma <ArrowUpDown className="size-3" />
-                  </button>
-                </TableHead>
+                <SortableTableHead sortKey="name" sort={sort} onSort={toggleSort} className="w-[220px] min-w-[220px] bg-muted md:sticky md:left-0 md:z-20 md:w-[300px]">Firma</SortableTableHead>
+                <SortableTableHead sortKey="type" sort={sort} onSort={toggleSort}>Firma Tipi</SortableTableHead>
+                <SortableTableHead sortKey="contact" sort={sort} onSort={toggleSort}>İletişim</SortableTableHead>
+                <SortableTableHead sortKey="city" sort={sort} onSort={toggleSort}>Konum</SortableTableHead>
+                <SortableTableHead sortKey="createdAt" sort={sort} onSort={toggleSort}>Oluşturma</SortableTableHead>
                 <TableHead className="text-right w-12"></TableHead>
               </TableRow>
             </TableHeader>

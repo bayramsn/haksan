@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { CatalogMailButton } from "../mail/CatalogMailButton";
 import { ProductTreeButton } from "../dialogs/ProductTreeDialog";
 import { Card, CardContent, CardHeader, CardTitle } from "../ui/card";
@@ -6,6 +6,7 @@ import { Input } from "../ui/input";
 import { Button } from "../ui/button";
 import { Badge } from "../ui/badge";
 import { Tabs, TabsList, TabsTrigger } from "../ui/tabs";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -214,10 +215,10 @@ export function ProductsPage({ initialQuery }: { initialQuery?: string }) {
   const [deleting, setDeleting] = useState<Product | null>(null);
   const [deleteSaving, setDeleteSaving] = useState(false);
   const [view, setView] = usePersistentState<ListView>("products.view", "cards");
-  // Kolon başlığı sıralaması: artan → azalan → kapalı (seri gruplu varsayılan görünüm).
-  const [sort, setSort] = useState<{ col: ProductSortCol; dir: 1 | -1 } | null>(null);
+  // Kolon başlığı sıralaması; ilk açılışta ürün adına göre A-Z. Aynı başlığa tekrar tıklamak yönü çevirir.
+  const [sort, setSort] = useState<{ col: ProductSortCol; dir: 1 | -1 }>({ col: "name", dir: 1 });
   const toggleSort = (col: ProductSortCol) =>
-    setSort((s) => (s?.col !== col ? { col, dir: 1 } : s.dir === 1 ? { col, dir: -1 } : null));
+    setSort((s) => (s.col !== col ? { col, dir: 1 } : { col, dir: s.dir === 1 ? -1 : 1 }));
   const isProductAdmin = hasRole("super_admin") || hasRole("admin");
   const canCreateProducts = isProductAdmin || hasPermission("products.create");
   const canEditProducts = isProductAdmin || hasPermission("products.update");
@@ -333,16 +334,16 @@ export function ProductsPage({ initialQuery }: { initialQuery?: string }) {
     compareProductText(a.model ?? "", b.model ?? "");
   const sortedProducts = [...filtered].sort(
     // Kolon sıralaması yalnız tablo görünümünde; kartlarda başlık olmadığı için varsayılan sıra kalır.
-    (a, b) => (sort && view === "table" ? compareProductColumn(a, b, sort.col, sort.dir) : 0) || defaultCompare(a, b),
+    (a, b) => (view === "table" ? compareProductColumn(a, b, sort.col, sort.dir) : 0) || defaultCompare(a, b),
   );
   const ariaSort = (col: ProductSortCol) =>
-    sort?.col !== col ? "none" as const : sort.dir === 1 ? "ascending" as const : "descending" as const;
+    sort.col !== col ? "none" as const : sort.dir === 1 ? "ascending" as const : "descending" as const;
   const sortHead = (col: ProductSortCol, label: string) => {
-    const Icon = sort?.col !== col ? ArrowUpDown : sort.dir === 1 ? ArrowUp : ArrowDown;
+    const Icon = sort.col !== col ? ArrowUpDown : sort.dir === 1 ? ArrowUp : ArrowDown;
     return (
       <button
         type="button"
-        className={`inline-flex items-center gap-1 uppercase tracking-wider hover:text-foreground ${sort?.col === col ? "text-foreground" : ""}`}
+        className={`inline-flex items-center gap-1 uppercase tracking-wider hover:text-foreground ${sort.col === col ? "text-foreground" : ""}`}
         onClick={() => toggleSort(col)}
         aria-label={`${label} kolonuna göre sırala`}
       >
@@ -350,16 +351,6 @@ export function ProductsPage({ initialQuery }: { initialQuery?: string }) {
       </button>
     );
   };
-  // Kolon sıralaması açıkken seri grupları sırayı böleceği için liste düz akar.
-  const grouped: Array<[string, Product[]]> = sort ? [["", sortedProducts]] : Array.from(
-    sortedProducts.reduce((acc, product) => {
-      const label = productSeriesLabel(product);
-      const list = acc.get(label) ?? [];
-      list.push(product);
-      acc.set(label, list);
-      return acc;
-    }, new Map<string, Product[]>())
-  ).sort(([a], [b]) => seriesSort(a, b));
 
   return (
     <div className="crm-page">
@@ -389,21 +380,6 @@ export function ProductsPage({ initialQuery }: { initialQuery?: string }) {
       </div>
 
       <div className="space-y-2">
-        <div className="w-full overflow-x-auto pb-1">
-          <Tabs value={cat} onValueChange={setCat} className="min-w-max">
-            <TabsList className="h-10 w-max flex-nowrap bg-muted/60 p-1">
-              <TabsTrigger value="all" className="gap-1.5 whitespace-nowrap px-3">
-                Tümü <CountBadge n={taxonomyFiltered.length} />
-              </TabsTrigger>
-              {categories.map((c) => (
-                <TabsTrigger key={c} value={c} className="gap-1.5 whitespace-nowrap px-3">
-                  {c} <CountBadge n={taxonomyFiltered.filter((p) => productFamilyLabel(p) === c).length} />
-                </TabsTrigger>
-              ))}
-            </TabsList>
-          </Tabs>
-        </div>
-
         <div className="flex w-full flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-end">
           <div className="relative w-full sm:w-72 sm:min-w-56 lg:w-80">
             <Search className="size-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
@@ -414,7 +390,45 @@ export function ProductsPage({ initialQuery }: { initialQuery?: string }) {
               onChange={(e) => setQ(e.target.value)}
             />
           </div>
-          <div className="flex shrink-0 items-center gap-2">
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            {/* Kategori sekmeleri yatay kaydırmaya taşıyordu; seri listesiyle aynı açılır listede. */}
+            <Select value={cat} onValueChange={setCat}>
+              <SelectTrigger className="h-9 w-56 bg-card" aria-label="Kategoriye göre süz">
+                <SelectValue placeholder="Tüm Kategoriler" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">
+                  Tüm Kategoriler <span className="ml-1.5 text-[10px] text-muted-foreground">{taxonomyFiltered.length}</span>
+                </SelectItem>
+                {categories.map((c) => (
+                  <SelectItem key={c} value={c}>
+                    {c}
+                    <span className="ml-1.5 text-[10px] text-muted-foreground">
+                      {taxonomyFiltered.filter((p) => productFamilyLabel(p) === c).length}
+                    </span>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {/* Seri düğme satırı 40'a yakın seriyle iki satıra taşıyordu; tek açılır listede, adetle. */}
+            {seriesOptions.length > 1 && (
+              <Select value={series} onValueChange={setSeries}>
+                <SelectTrigger className="h-9 w-40 bg-card" aria-label="Seriye göre süz">
+                  <SelectValue placeholder="Tüm Seriler" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Tüm Seriler</SelectItem>
+                  {seriesOptions.map((option) => (
+                    <SelectItem key={option} value={option}>
+                      {option}
+                      <span className="ml-1.5 text-[10px] text-muted-foreground">
+                        {categoryFiltered.filter((p) => productSeriesLabel(p) === option).length}
+                      </span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
             <FilterPopover filters={taxonomyFilters} contentClassName="w-72" />
             <ProductTreeButton />
             <CatalogMailButton />
@@ -433,34 +447,6 @@ export function ProductsPage({ initialQuery }: { initialQuery?: string }) {
         </div>
       </div>
 
-      {seriesOptions.length > 1 && (
-        <div className="flex flex-wrap items-center gap-1.5">
-          <Button
-            type="button"
-            size="sm"
-            variant={series === "all" ? "default" : "outline"}
-            className="h-7 px-2 text-xs"
-            onClick={() => setSeries("all")}
-          >
-            Tüm Seriler
-          </Button>
-          {seriesOptions.map((option) => (
-            <Button
-              key={option}
-              type="button"
-              size="sm"
-              variant={series === option ? "default" : "outline"}
-              className="h-7 px-2 text-xs"
-              onClick={() => setSeries(option)}
-            >
-              {option}
-              <span className="ml-1 text-[10px] opacity-75">
-                {categoryFiltered.filter((p) => productSeriesLabel(p) === option).length}
-              </span>
-            </Button>
-          ))}
-        </div>
-      )}
 
       {view === "cards" ? (
         sortedProducts.length > 0 ? (
@@ -575,16 +561,7 @@ export function ProductsPage({ initialQuery }: { initialQuery?: string }) {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {grouped.map(([group, rows]) => (
-                <Fragment key={group}>
-                  {!sort && (
-                    <TableRow key={`${group}-header`} className="bg-muted/20 hover:bg-muted/20">
-                      <TableCell colSpan={7} className="py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                        {group} <span className="ml-1 font-normal normal-case tracking-normal text-muted-foreground/80">({rows.length} model)</span>
-                      </TableCell>
-                    </TableRow>
-                  )}
-                  {rows.map((p) => (
+              {sortedProducts.map((p) => (
                     <TableRow key={p.id} className="cursor-pointer group hover:bg-primary/[0.025]" onClick={() => setSelected(p)}>
                       <TableCell>
                         <div className="flex items-center gap-3 min-w-0">
@@ -657,8 +634,6 @@ export function ProductsPage({ initialQuery }: { initialQuery?: string }) {
                       </TableCell>
                     </TableRow>
                   ))}
-                </Fragment>
-              ))}
               {filtered.length === 0 && (
                 <TableRow>
                   <TableCell colSpan={7} className="py-4">
@@ -742,13 +717,6 @@ export function ProductsPage({ initialQuery }: { initialQuery?: string }) {
   );
 }
 
-function CountBadge({ n }: { n: number }) {
-  return (
-    <span className="ml-0.5 inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 text-[10px] rounded-full bg-muted text-muted-foreground">
-      {n}
-    </span>
-  );
-}
 
 /* =========================================================================
    CİHAZ TAKİBİ (Device tracking) — per-serial status

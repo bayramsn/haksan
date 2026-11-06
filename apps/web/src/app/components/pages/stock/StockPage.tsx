@@ -6,6 +6,7 @@ import { Input } from "../../ui/input";
 import { Label } from "../../ui/label";
 import { Tabs, TabsList, TabsTrigger } from "../../ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../../ui/table";
+import { SortableTableHead, useSortableRows } from "../../ui/sortable-table";
 import { StatusBadge } from "../../shared/StatusBadge";
 import { CreateStockDialog, EditStockDialog } from "../../dialogs/CreateDialogs";
 import { MiniKpi } from "../../shared/MiniKpi";
@@ -88,6 +89,9 @@ const LOCATION_STATUS_LABELS: Record<string, string> = {
   at_service: "Serviste",
   customs: "Gümrükte",
 };
+
+// StatusBadge'daki Türkçe etiketlerle aynı; sıralama görünen metne göre olsun.
+const STOCK_STATUS_SORT_LABELS: Record<string, string> = { Available: "Hazır", Reserved: "Rezerve", InTransit: "Yolda", Sold: "Satıldı", Inactive: "Pasif" };
 
 const stockLocationLabel = (item: StockItem) => {
   const location = item.locationStatus ? (LOCATION_STATUS_LABELS[item.locationStatus] ?? item.locationStatus) : "";
@@ -230,6 +234,26 @@ export function StockPage({ focus, initialQuery }: { focus?: OperationFocus; ini
       s.brand.toLowerCase().includes(q.toLowerCase()) ||
       (s.reservedCompanyName ?? "").toLowerCase().includes(q.toLowerCase())
     );
+  });
+
+  const toDate = (value?: string | null) => (value ? new Date(value) : null);
+  const dash = (value: string) => (value === "—" ? null : value);
+  const productOf = (s: StockItem) => (s.productId ? productById.get(s.productId) : undefined);
+  const { sorted: sortedStock, sort, toggle } = useSortableRows(filtered, {
+    brand: (s) => s.brand,
+    condition: (s) => STOCK_CONDITION_LABELS[s.itemCondition ?? "new"],
+    name: (s) => s.productName || productOf(s)?.shortDescription || s.counterModel,
+    serial: (s) => s.serialNumber,
+    controlUnit: (s) => s.controlPanel,
+    spindleSpeed: (s) => dash(specValue(productOf(s), ["fener mili devri", "spindle speed"])),
+    toolCount: (s) => dash(specValue(productOf(s), ["takım adeti", "takim adeti", "takım kapasitesi", "takim kapasitesi", "takım yuvası sayısı", "takim yuvasi sayisi", "tool count", "tool capacity"])),
+    spindlePower: (s) => dash(specValue(productOf(s), ["fener mili motor gücü", "fener mili motor gucu", "spindle motor power"])),
+    location: (s) => dash(stockLocationLabel(s)),
+    reserved: (s) => s.reservedCompanyName,
+    loadingDate: (s) => toDate(s.loadingDate),
+    receivedDate: (s) => toDate(s.receivedDate),
+    arrivalDate: (s) => toDate(s.arrivalDate),
+    status: (s) => STOCK_STATUS_SORT_LABELS[s.status] ?? s.status,
   });
 
   const stockStatusExportCode: Record<string, string> = {
@@ -509,25 +533,25 @@ export function StockPage({ focus, initialQuery }: { focus?: OperationFocus; ini
             <TableHeader>
               <TableRow className="bg-muted/40 hover:bg-muted/40 [&_th]:text-xs [&_th]:uppercase [&_th]:tracking-wider [&_th]:text-muted-foreground">
                 <TableHead className="w-14">No.</TableHead>
-                <TableHead>Marka</TableHead>
-                <TableHead>Kondisyon</TableHead>
-                <TableHead className="min-w-[260px]">Ürün Adı</TableHead>
-                <TableHead>Seri No</TableHead>
-                <TableHead>Kontrol Ünitesi</TableHead>
-                <TableHead>Fener Mili Devri</TableHead>
-                <TableHead>Takım Adeti</TableHead>
-                <TableHead>Fener Mili Motor Gücü</TableHead>
-                <TableHead>Ürünün Bulunduğu Yer</TableHead>
-                <TableHead>Rezerve Edildiği Firma</TableHead>
-                <TableHead>Yüklendiği Tarih</TableHead>
-                <TableHead>Geldiği Tarih</TableHead>
-                <TableHead>Geleceği Tarih</TableHead>
-                <TableHead>Durum</TableHead>
+                <SortableTableHead sortKey="brand" sort={sort} onSort={toggle}>Marka</SortableTableHead>
+                <SortableTableHead sortKey="condition" sort={sort} onSort={toggle}>Kondisyon</SortableTableHead>
+                <SortableTableHead sortKey="name" sort={sort} onSort={toggle} className="min-w-[260px]">Ürün Adı</SortableTableHead>
+                <SortableTableHead sortKey="serial" sort={sort} onSort={toggle}>Seri No</SortableTableHead>
+                <SortableTableHead sortKey="controlUnit" sort={sort} onSort={toggle}>Kontrol Ünitesi</SortableTableHead>
+                <SortableTableHead sortKey="spindleSpeed" sort={sort} onSort={toggle}>Fener Mili Devri</SortableTableHead>
+                <SortableTableHead sortKey="toolCount" sort={sort} onSort={toggle}>Takım Adeti</SortableTableHead>
+                <SortableTableHead sortKey="spindlePower" sort={sort} onSort={toggle}>Fener Mili Motor Gücü</SortableTableHead>
+                <SortableTableHead sortKey="location" sort={sort} onSort={toggle}>Ürünün Bulunduğu Yer</SortableTableHead>
+                <SortableTableHead sortKey="reserved" sort={sort} onSort={toggle}>Rezerve Edildiği Firma</SortableTableHead>
+                <SortableTableHead sortKey="loadingDate" sort={sort} onSort={toggle}>Yüklendiği Tarih</SortableTableHead>
+                <SortableTableHead sortKey="receivedDate" sort={sort} onSort={toggle}>Geldiği Tarih</SortableTableHead>
+                <SortableTableHead sortKey="arrivalDate" sort={sort} onSort={toggle}>Geleceği Tarih</SortableTableHead>
+                <SortableTableHead sortKey="status" sort={sort} onSort={toggle}>Durum</SortableTableHead>
                 <TableHead className="w-12"></TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filtered.map((s, index) => {
+              {sortedStock.map((s, index) => {
                 const linkedOptions = optionsByParent.get(s.id) ?? [];
                 const isExpanded = Boolean(expandedRows[s.id]);
                 const product = s.productId ? productById.get(s.productId) : undefined;

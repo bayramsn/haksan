@@ -19,7 +19,8 @@ import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { Card, CardContent } from "../ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "../ui/dialog";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../ui/table";
+import { Table, TableBody, TableCell, TableHeader, TableRow } from "../ui/table";
+import { SortableTableHead, useSortableRows } from "../ui/sortable-table";
 
 const PERIOD_LABELS: Record<TeamActivityPeriod, string> = {
   day: "Bugün",
@@ -443,6 +444,17 @@ export function TeamActivityPanel() {
     () => [...(data?.users ?? [])].sort((a, b) => b.total.current - a.total.current),
     [data]
   );
+  // # sütunu sıralamadan bağımsız olarak dönem sırasını (toplam faaliyete göre) gösterir.
+  const rankOf = useMemo(() => new Map(ranked.map((user, index) => [user.userId, index])), [ranked]);
+  const { sorted: sortedRanked, sort, toggle } = useSortableRows(ranked, {
+    rank: (user) => rankOf.get(user.userId),
+    name: (user) => user.name,
+    quotes: (user) => user.quotes.current,
+    activities: (user) => user.activities.current,
+    opportunitiesCreated: (user) => user.opportunitiesCreated.current,
+    won: (user) => user.won.current,
+    total: (user) => user.total.current,
+  });
 
   // Dönem sunucuda İstanbul takvimine göre kesilir; etiket de aynı takvimde
   // okunmalı, yoksa farklı saat dilimindeki tarayıcı gün kaydırır.
@@ -566,20 +578,22 @@ export function TeamActivityPanel() {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead className="w-8 text-[10px]">#</TableHead>
-                      <TableHead className="text-[10px]">Kullanıcı</TableHead>
+                      <SortableTableHead sortKey="rank" sort={sort} onSort={toggle} className="w-8 text-[10px]">#</SortableTableHead>
+                      <SortableTableHead sortKey="name" sort={sort} onSort={toggle} className="text-[10px]">Kullanıcı</SortableTableHead>
                       {METRICS.map((metric) => (
-                        <TableHead key={metric.key} className="text-right text-[10px]">
+                        <SortableTableHead key={metric.key} sortKey={metric.key} sort={sort} onSort={toggle} className="text-right text-[10px]">
                           {metric.label}
-                        </TableHead>
+                        </SortableTableHead>
                       ))}
                       {/* Toplam yalnız faaliyetleri sayar; Kazanılan sonuç metriği olduğu
                           için dışarıda kalır — başlık bunu açıkça söylüyor. */}
-                      <TableHead className="text-right text-[10px]">Toplam Faaliyet</TableHead>
+                      <SortableTableHead sortKey="total" sort={sort} onSort={toggle} className="text-right text-[10px]">Toplam Faaliyet</SortableTableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {ranked.map((user, index) => (
+                    {sortedRanked.map((user) => {
+                      const index = rankOf.get(user.userId) ?? 0;
+                      return (
                       <TableRow key={user.userId}>
                         <TableCell className="text-xs font-semibold tabular-nums text-muted-foreground">
                           {index === 0 && user.total.current > 0 ? (
@@ -629,7 +643,8 @@ export function TeamActivityPanel() {
                           </button>
                         </TableCell>
                       </TableRow>
-                    ))}
+                      );
+                    })}
                     {ranked.length === 0 && (
                       <TableRow>
                         <TableCell colSpan={METRICS.length + 3} className="py-6 text-center text-xs text-muted-foreground">

@@ -6,8 +6,8 @@ const source = readFileSync(new URL("./TeamActivityPanel.tsx", import.meta.url),
 describe("ekip aktivite tablosu toplam sütunu", () => {
   it("başlık toplamın yalnız faaliyetleri saydığını söyler", () => {
     // Sütun "Toplam" iken Kazanılan'ın dışarıda kalması yanıltıcı görünüyordu.
-    expect(source).toContain("Toplam Faaliyet</TableHead>");
-    expect(source).not.toContain(">Toplam</TableHead>");
+    expect(source).toContain("Toplam Faaliyet</SortableTableHead>");
+    expect(source).not.toMatch(/>Toplam<\/(Sortable)?TableHead>/);
   });
 
   it("dipnot kıyasın aynı kadarlık dönem olduğunu söyler", () => {

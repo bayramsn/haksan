@@ -40,6 +40,7 @@ import type {
   CompanyWebsiteLookupResult,
   CompanyUpdateInput,
   CompanyListFilterQuery,
+  CompanySortKey,
   CompanySummaryQuery,
   CompanyStatusMutationInput,
   Pagination,
@@ -713,10 +714,26 @@ export class CompaniesService {
       .from(companies)
       .where(where);
 
-    const sortColumn = page.sortBy === 'name' ? companies.legalTitle : companies.createdAt;
+    // Kolon başlığı sıralaması: anahtar zod enum'undan gelir, ifade burada sabittir.
+    // Alt sorgular dış tabloyu tam nitelikli yazar (Drizzle `sql` kolon nitelemesine güvenmeden).
+    // ponytail: ORDER BY'daki korelasyonlu alt sorgular satır başına çalışır; firma sayısı
+    // on binleri aşarsa varsayılan adres/telefonu firmaya denormalize et.
+    const sortExpressions: Record<CompanySortKey, SQL> = {
+      name: sql`"companies"."legal_title"`,
+      type: sql`"company_relation_types"."name"`,
+      contact: sql`(select nullif(trim(cp.phone), '') from company_phones cp
+        where cp.company_id = "companies"."id" and cp.deleted_at is null
+          and (cp.phone_type = 'main' or cp.is_default)
+        order by (cp.phone_type = 'main') desc, cp.id asc limit 1)`,
+      city: sql`(select nullif(trim(ca.province), '') from company_addresses ca
+        where ca.company_id = "companies"."id" and ca.deleted_at is null
+        order by ca.is_default desc, ca.created_at asc, ca.id asc limit 1)`,
+      createdAt: sql`"companies"."created_at"`,
+    };
+    const sortExpr = sortExpressions[page.sortBy as CompanySortKey] ?? sortExpressions.createdAt;
     const orderBy = page.sortDir === 'asc'
-      ? [asc(sortColumn), asc(companies.id)]
-      : [desc(sortColumn), desc(companies.id)];
+      ? [sql`${sortExpr} asc nulls last`, asc(companies.id)]
+      : [sql`${sortExpr} desc nulls last`, desc(companies.id)];
     const rows = await this.db
       .select({
         company: companies,

@@ -7,6 +7,7 @@ import { Label } from "../../ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../ui/select";
 import { Textarea } from "../../ui/textarea";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../../ui/table";
+import { SortableTableHead, useSortableRows } from "../../ui/sortable-table";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "../../ui/dialog";
 import { Tabs, TabsList, TabsTrigger } from "../../ui/tabs";
 import { StatusBadge } from "../../shared/StatusBadge";
@@ -69,6 +70,20 @@ export function PurchaseOrdersPage() {
     if (tab !== "all" && p.status?.code !== tab) return false;
     const supplier = p.supplier?.shortName || p.supplier?.legalTitle || "";
     return [p.orderNo, p.invoiceNo, supplier].some((value) => String(value ?? "").toLowerCase().includes(q.toLowerCase()));
+  });
+
+  const toDate = (value?: string | null) => (value ? new Date(value) : null);
+  const { sorted: sortedOrders, sort, toggle } = useSortableRows(filtered, {
+    supplier: (p) => p.supplier?.shortName || p.supplier?.legalTitle,
+    type: (p) => purchaseTypeLabel(p.purchaseType),
+    payment: (p) => paymentTypeLabel(p.paymentType),
+    orderNo: (p) => p.orderNo,
+    invoiceNo: (p) => p.invoiceNo,
+    date: (p) => toDate(p.orderDate),
+    eta: (p) => toDate(p.expectedDate),
+    vat: (p) => Number(p.vatAmount ?? 0),
+    total: (p) => Number(p.grandTotal ?? 0),
+    status: (p) => p.status?.name ?? p.status?.code,
   });
 
   const supplierStats = Array.from(new Set(filtered.map((p) => p.supplier?.shortName || p.supplier?.legalTitle || "—")))
@@ -192,20 +207,20 @@ export function PurchaseOrdersPage() {
           <Table>
             <TableHeader>
               <TableRow className="bg-muted/40 hover:bg-muted/40 [&_th]:text-xs [&_th]:uppercase [&_th]:tracking-wider [&_th]:text-muted-foreground">
-                <TableHead>Tedarikçi</TableHead>
-                <TableHead>Tip</TableHead>
-                <TableHead>Ödeme</TableHead>
-                <TableHead>Sipariş</TableHead>
-                <TableHead>Fatura No</TableHead>
-                <TableHead>Tarih</TableHead>
-                <TableHead>ETA</TableHead>
-                <TableHead className="text-right">KDV</TableHead>
-                <TableHead className="text-right">Tutar</TableHead>
-                <TableHead>Durum</TableHead>
+                <SortableTableHead sortKey="supplier" sort={sort} onSort={toggle}>Tedarikçi</SortableTableHead>
+                <SortableTableHead sortKey="type" sort={sort} onSort={toggle}>Tip</SortableTableHead>
+                <SortableTableHead sortKey="payment" sort={sort} onSort={toggle}>Ödeme</SortableTableHead>
+                <SortableTableHead sortKey="orderNo" sort={sort} onSort={toggle}>Sipariş</SortableTableHead>
+                <SortableTableHead sortKey="invoiceNo" sort={sort} onSort={toggle}>Fatura No</SortableTableHead>
+                <SortableTableHead sortKey="date" sort={sort} onSort={toggle}>Tarih</SortableTableHead>
+                <SortableTableHead sortKey="eta" sort={sort} onSort={toggle}>ETA</SortableTableHead>
+                <SortableTableHead sortKey="vat" sort={sort} onSort={toggle} className="text-right">KDV</SortableTableHead>
+                <SortableTableHead sortKey="total" sort={sort} onSort={toggle} className="text-right">Tutar</SortableTableHead>
+                <SortableTableHead sortKey="status" sort={sort} onSort={toggle}>Durum</SortableTableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filtered.map((p) => (
+              {sortedOrders.map((p) => (
                 <TableRow
                   key={p.id}
                   className="group cursor-pointer hover:bg-primary/[0.025]"

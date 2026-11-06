@@ -17,6 +17,7 @@ import { Input } from "../ui/input";
 import { Label } from "../ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../ui/table";
+import { SortableTableHead, useSortableRows } from "../ui/sortable-table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../ui/tabs";
 import { Textarea } from "../ui/textarea";
 
@@ -62,6 +63,13 @@ export function BulkMailPage() {
     .finally(() => setLoading(false));
   useEffect(() => { void load(); }, []);
   const sending = campaigns.some((c) => c.status === "sending");
+  const { sorted: sortedCampaigns, sort, toggle } = useSortableRows(campaigns, {
+    subject: (c) => c.subject,
+    status: (c) => STATUS[c.status]?.label ?? c.status,
+    sent: (c) => c.sent,
+    sender: (c) => c.createdByName,
+    date: (c) => new Date(c.createdAt),
+  });
   useEffect(() => {
     if (!sending) return;
     const timer = window.setInterval(() => void load(), 5000);
@@ -87,15 +95,15 @@ export function BulkMailPage() {
           <Table>
             <TableHeader>
               <TableRow className="bg-muted/30 hover:bg-muted/30">
-                <TableHead>Konu</TableHead>
-                <TableHead>Durum</TableHead>
-                <TableHead className="text-right">Gönderilen</TableHead>
-                <TableHead>Gönderen</TableHead>
-                <TableHead>Tarih</TableHead>
+                <SortableTableHead sortKey="subject" sort={sort} onSort={toggle}>Konu</SortableTableHead>
+                <SortableTableHead sortKey="status" sort={sort} onSort={toggle}>Durum</SortableTableHead>
+                <SortableTableHead sortKey="sent" sort={sort} onSort={toggle} className="text-right">Gönderilen</SortableTableHead>
+                <SortableTableHead sortKey="sender" sort={sort} onSort={toggle}>Gönderen</SortableTableHead>
+                <SortableTableHead sortKey="date" sort={sort} onSort={toggle}>Tarih</SortableTableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {campaigns.map((c) => (
+              {sortedCampaigns.map((c) => (
                 <TableRow key={c.id} className="cursor-pointer" onClick={() => setOpenId(c.id)}>
                   <TableCell className="max-w-[360px] truncate font-medium">{c.subject}</TableCell>
                   <TableCell><StatusBadge status={c.status} /></TableCell>
@@ -463,6 +471,11 @@ function CampaignDialog({ id, canSend, onClose, onChanged }: { id: string | null
     return () => window.clearInterval(timer);
   }, [id, detail?.status]);
 
+  const recipientSort = useSortableRows(detail?.recipients ?? [], {
+    recipient: (r) => r.name || r.email,
+    status: (r) => STATUS[r.status]?.label ?? r.status,
+    sentAt: (r) => (r.sentAt ? new Date(r.sentAt) : null),
+  });
   const counts = detail?.recipients.reduce<Record<string, number>>((acc, r) => ({ ...acc, [r.status]: (acc[r.status] ?? 0) + 1 }), {}) ?? {};
   const act = async (action: "cancel" | "resume") => {
     if (!detail) return;
@@ -497,9 +510,16 @@ function CampaignDialog({ id, canSend, onClose, onChanged }: { id: string | null
           </details>
           <div className="overflow-x-auto rounded-md border border-border/60">
             <Table>
-              <TableHeader><TableRow><TableHead>Alıcı</TableHead><TableHead>Durum</TableHead><TableHead>Zaman</TableHead><TableHead className="w-10" /></TableRow></TableHeader>
+              <TableHeader>
+                <TableRow>
+                  <SortableTableHead sortKey="recipient" sort={recipientSort.sort} onSort={recipientSort.toggle}>Alıcı</SortableTableHead>
+                  <SortableTableHead sortKey="status" sort={recipientSort.sort} onSort={recipientSort.toggle}>Durum</SortableTableHead>
+                  <SortableTableHead sortKey="sentAt" sort={recipientSort.sort} onSort={recipientSort.toggle}>Zaman</SortableTableHead>
+                  <TableHead className="w-10" />
+                </TableRow>
+              </TableHeader>
               <TableBody>
-                {detail.recipients.map((r) => (
+                {recipientSort.sorted.map((r) => (
                   <TableRow key={r.id}>
                     <TableCell className="max-w-[320px]">
                       <span className="block truncate text-sm">{r.name ? `${r.name} · ` : ""}{r.email}</span>

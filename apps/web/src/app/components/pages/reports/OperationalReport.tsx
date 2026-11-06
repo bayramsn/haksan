@@ -5,7 +5,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "../../ui/card";
 import { Button } from "../../ui/button";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../../ui/table";
+import { Table, TableBody, TableCell, TableHeader, TableRow } from "../../ui/table";
+import { SortableTableHead, useSortableRows } from "../../ui/sortable-table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../ui/select";
 import { ExportExcelButton } from "../../ui/ExportExcelButton";
 import { useStore } from "../../../lib/store";
@@ -175,6 +176,17 @@ export function OperationalReport({ onAction }: { onAction?: (action: OperationA
   const conversion = pct(totals.approved, totals.quotes);
   const conversionDelta = delta(pct(curTotals.approved, curTotals.quotes), prevTotals ? pct(prevTotals.approved, prevTotals.quotes) : null, "puan");
   const chartData = rows.map((r) => ({ ...r, name: bucketLabel(r.bucket) }));
+  // Toplam satırı sıralamaya girmez; tablonun altında sabit kalır.
+  const { sorted: sortedRows, sort, toggle } = useSortableRows(rows, {
+    bucket: (r) => r.bucket,
+    quotes: (r) => r.quotes,
+    approved: (r) => r.approved,
+    rejected: (r) => r.rejected,
+    won: (r) => r.won,
+    lost: (r) => r.lost,
+    service: (r) => r.service,
+    revenueUsd: (r) => r.revenueUsd,
+  });
   const fx = report?.currencyNormalization;
 
   const drill = (key: keyof Totals, bucket?: string) => {
@@ -313,20 +325,20 @@ export function OperationalReport({ onAction }: { onAction?: (action: OperationA
           <Table>
             <TableHeader>
               <TableRow className="bg-muted/30 hover:bg-muted/30">
-                <TableHead>{period === "monthly" ? "Ay" : "Yıl"}</TableHead>
-                <TableHead className="text-right">Teklif</TableHead>
-                <TableHead className="text-right">Onaylanan</TableHead>
-                <TableHead className="text-right">Reddedilen</TableHead>
-                <TableHead className="text-right">Kazanılan</TableHead>
-                <TableHead className="text-right">Kaybedilen</TableHead>
-                <TableHead className="text-right">Servis</TableHead>
-                <TableHead className="text-right">Ciro (USD)</TableHead>
+                <SortableTableHead sortKey="bucket" sort={sort} onSort={toggle}>{period === "monthly" ? "Ay" : "Yıl"}</SortableTableHead>
+                <SortableTableHead sortKey="quotes" sort={sort} onSort={toggle} className="text-right">Teklif</SortableTableHead>
+                <SortableTableHead sortKey="approved" sort={sort} onSort={toggle} className="text-right">Onaylanan</SortableTableHead>
+                <SortableTableHead sortKey="rejected" sort={sort} onSort={toggle} className="text-right">Reddedilen</SortableTableHead>
+                <SortableTableHead sortKey="won" sort={sort} onSort={toggle} className="text-right">Kazanılan</SortableTableHead>
+                <SortableTableHead sortKey="lost" sort={sort} onSort={toggle} className="text-right">Kaybedilen</SortableTableHead>
+                <SortableTableHead sortKey="service" sort={sort} onSort={toggle} className="text-right">Servis</SortableTableHead>
+                <SortableTableHead sortKey="revenueUsd" sort={sort} onSort={toggle} className="text-right">Ciro (USD)</SortableTableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {loading && rows.length === 0 ? (
                 <TableRow><TableCell colSpan={8} className="py-8 text-center text-sm text-muted-foreground">Rapor yükleniyor…</TableCell></TableRow>
-              ) : rows.map((r) => (
+              ) : sortedRows.map((r) => (
                 <TableRow key={r.bucket}>
                   <TableCell className="text-sm">{bucketLabel(r.bucket)}</TableCell>
                   <DrillCell value={r.quotes} onClick={() => drill("quotes", r.bucket)} />

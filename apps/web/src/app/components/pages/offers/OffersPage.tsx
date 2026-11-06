@@ -17,6 +17,7 @@ import {
   AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "../../ui/alert-dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../../ui/table";
+import { SortableTableHead, useSortableRows } from "../../ui/sortable-table";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger,
 } from "../../ui/dropdown-menu";
@@ -56,6 +57,13 @@ import { useCompanyDetail } from "../../../lib/companyServerData";
 import { contactQueryKeys, loadAllCompanyContacts, type ContactQueryScope } from "../../../lib/contactServerData";
 
 const FOLLOW_UP_OFFER_STATUSES: Offer["status"][] = ["Price Waiting", "Budget Waiting", "On Hold", "Postponed"];
+
+// ponytail: StatusBadge'deki etiketlerin teklif kısmı; StatusBadge etiketlerini dışa açarsa buradan silinir.
+const OFFER_STATUS_LABELS: Record<string, string> = {
+  Draft: "Taslak", Sent: "Gönderildi", Approved: "Onaylı", Rejected: "Reddedildi", Cancelled: "İptal",
+  "Price Waiting": "Fiyat Bekleniyor", "Budget Waiting": "Bütçe Bekleniyor", "On Hold": "Askıya Alındı", Postponed: "Ertelendi",
+};
+const offerStatusLabel = (status: string) => OFFER_STATUS_LABELS[status] ?? status;
 
 const QUOTE_WORKFLOW_STATUS_LABELS: Record<QuoteWorkflowStatus, string> = {
   cancelled: "İptal",
@@ -250,6 +258,34 @@ export function OffersPage({
       if (cmp !== 0) return cmp;
       return (b.revision ?? 0) - (a.revision ?? 0);
     });
+  const offerProductName = (o: Offer, sc?: SalesCase) => o.productName || [sc?.requestedProduct, sc?.requestedModel].filter(Boolean).join(" · ");
+  const offerCustomerName = (o: Offer, sc?: SalesCase) => sc ? customerName(sc.customerId, sc.leadCompanyTitle) : customerName(o.companyId ?? "");
+  const caseOf = (o: Offer) => cases.find((s) => s.id === o.salesCaseId);
+  const offerSort = useSortableRows(filtered, {
+    quoteNo: (o) => o.quoteNo,
+    source: (o) => o.businessLine ?? o.divisionName,
+    product: (o) => offerProductName(o, caseOf(o)),
+    customer: (o) => offerCustomerName(o, caseOf(o)),
+    revision: (o) => o.revision,
+    date: (o) => new Date(o.date),
+    amount: (o) => o.amount,
+    status: (o) => offerStatusLabel(o.status),
+    note: (o) => o.note,
+  });
+  const externalQuoteCase = (d: (typeof externalQuotes)[number]) => d.salesCaseId ? cases.find((item) => item.id === d.salesCaseId) : undefined;
+  const externalQuoteSort = useSortableRows(externalQuotes, {
+    file: (d) => d.fileName,
+    company: (d) => {
+      const salesCase = externalQuoteCase(d);
+      return customers.find((item) => item.id === (d.companyId || salesCase?.customerId))?.name ?? d.companyNameText ?? salesCase?.leadCompanyTitle;
+    },
+    salesCase: (d) => {
+      const salesCase = externalQuoteCase(d);
+      return salesCase ? [salesCase.requestedProduct, salesCase.requestedModel].filter(Boolean).join(" · ") || `#${salesCase.id.slice(0, 8).toUpperCase()}` : null;
+    },
+    link: (d) => (externalQuoteCase(d) ? "Kart + firma" : "Firma"),
+    date: (d) => (d.uploadedAt ? new Date(d.uploadedAt) : null),
+  });
   const offerExportParams = {
     ...(q ? { search: q } : {}),
     ...(tab !== "all" && tab !== "follow-up" && tab !== "closed" ? { statusCode: tab.toLowerCase() } : {}),
@@ -457,21 +493,21 @@ export function OffersPage({
           <Table>
             <TableHeader>
               <TableRow className="bg-muted/30 hover:bg-muted/30">
-                <TableHead>Teklif No</TableHead>
-                <TableHead>Kaynak</TableHead>
-                <TableHead>Ürün Adı</TableHead>
-                <TableHead>Müşteri</TableHead>
-                <TableHead>Rev.</TableHead>
-                <TableHead>Tarih</TableHead>
-                <TableHead className="text-right">Tutar</TableHead>
-                <TableHead>Durum</TableHead>
-                <TableHead>Not</TableHead>
+                <SortableTableHead sortKey="quoteNo" sort={offerSort.sort} onSort={offerSort.toggle}>Teklif No</SortableTableHead>
+                <SortableTableHead sortKey="source" sort={offerSort.sort} onSort={offerSort.toggle}>Kaynak</SortableTableHead>
+                <SortableTableHead sortKey="product" sort={offerSort.sort} onSort={offerSort.toggle}>Ürün Adı</SortableTableHead>
+                <SortableTableHead sortKey="customer" sort={offerSort.sort} onSort={offerSort.toggle}>Müşteri</SortableTableHead>
+                <SortableTableHead sortKey="revision" sort={offerSort.sort} onSort={offerSort.toggle}>Rev.</SortableTableHead>
+                <SortableTableHead sortKey="date" sort={offerSort.sort} onSort={offerSort.toggle}>Tarih</SortableTableHead>
+                <SortableTableHead sortKey="amount" sort={offerSort.sort} onSort={offerSort.toggle} className="text-right">Tutar</SortableTableHead>
+                <SortableTableHead sortKey="status" sort={offerSort.sort} onSort={offerSort.toggle}>Durum</SortableTableHead>
+                <SortableTableHead sortKey="note" sort={offerSort.sort} onSort={offerSort.toggle}>Not</SortableTableHead>
                 <TableHead className="w-12"></TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filtered.map((o) => {
-                const sc = cases.find((s) => s.id === o.salesCaseId);
+              {offerSort.sorted.map((o) => {
+                const sc = caseOf(o);
                 return (
                   <TableRow
                     key={o.id}
@@ -658,16 +694,16 @@ export function OffersPage({
           <Table className="min-w-[760px]">
             <TableHeader>
               <TableRow className="bg-muted/30 hover:bg-muted/30">
-                <TableHead>Dosya</TableHead>
-                <TableHead>Firma</TableHead>
-                <TableHead>Satış Kartı</TableHead>
-                <TableHead>Bağlantı</TableHead>
-                <TableHead>Tarih</TableHead>
+                <SortableTableHead sortKey="file" sort={externalQuoteSort.sort} onSort={externalQuoteSort.toggle}>Dosya</SortableTableHead>
+                <SortableTableHead sortKey="company" sort={externalQuoteSort.sort} onSort={externalQuoteSort.toggle}>Firma</SortableTableHead>
+                <SortableTableHead sortKey="salesCase" sort={externalQuoteSort.sort} onSort={externalQuoteSort.toggle}>Satış Kartı</SortableTableHead>
+                <SortableTableHead sortKey="link" sort={externalQuoteSort.sort} onSort={externalQuoteSort.toggle}>Bağlantı</SortableTableHead>
+                <SortableTableHead sortKey="date" sort={externalQuoteSort.sort} onSort={externalQuoteSort.toggle}>Tarih</SortableTableHead>
                 <TableHead className="w-16 text-right">İşlem</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {externalQuotes.map((documentItem) => {
+              {externalQuoteSort.sorted.map((documentItem) => {
                 const salesCase = documentItem.salesCaseId
                   ? cases.find((item) => item.id === documentItem.salesCaseId)
                   : null;
@@ -892,6 +928,13 @@ export function OfferDetailDialog({
     setDocumentAction(null);
     setHeaderLogoMode("haksan");
   }, [offer?.id]);
+  const revisionSort = useSortableRows(revisions, {
+    quoteNo: (rev) => rev.quoteNo,
+    revision: (rev) => rev.revision,
+    date: (rev) => new Date(rev.date),
+    amount: (rev) => rev.amount,
+    status: (rev) => offerStatusLabel(rev.status),
+  });
   if (!offer) return null;
 
   const productText = offer.productName
@@ -1084,15 +1127,15 @@ export function OfferDetailDialog({
             <Table className="min-w-[640px]">
               <TableHeader>
                 <TableRow className="bg-muted/30 hover:bg-muted/30">
-                  <TableHead>Teklif</TableHead>
-                  <TableHead>Rev.</TableHead>
-                  <TableHead>Tarih</TableHead>
-                  <TableHead className="text-right">Tutar</TableHead>
-                  <TableHead>Durum</TableHead>
+                  <SortableTableHead sortKey="quoteNo" sort={revisionSort.sort} onSort={revisionSort.toggle}>Teklif</SortableTableHead>
+                  <SortableTableHead sortKey="revision" sort={revisionSort.sort} onSort={revisionSort.toggle}>Rev.</SortableTableHead>
+                  <SortableTableHead sortKey="date" sort={revisionSort.sort} onSort={revisionSort.toggle}>Tarih</SortableTableHead>
+                  <SortableTableHead sortKey="amount" sort={revisionSort.sort} onSort={revisionSort.toggle} className="text-right">Tutar</SortableTableHead>
+                  <SortableTableHead sortKey="status" sort={revisionSort.sort} onSort={revisionSort.toggle}>Durum</SortableTableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {revisions.map((rev) => (
+                {revisionSort.sorted.map((rev) => (
                   <TableRow key={rev.id} className={rev.id === offer.id ? "bg-primary/5" : ""}>
                     <TableCell className="font-medium">{rev.quoteNo}</TableCell>
                     <TableCell>R{rev.revision}</TableCell>

@@ -4,6 +4,7 @@ import { Button } from "../../ui/button";
 import { Input } from "../../ui/input";
 import { Badge } from "../../ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../../ui/table";
+import { SortableTableHead, useSortableRows } from "../../ui/sortable-table";
 import {
   Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle,
 } from "../../ui/dialog";
@@ -199,6 +200,16 @@ export function CustomerBalancesPage() {
   }, []);
 
   const filtered = rows.filter((r) => r.companyName.toLowerCase().includes(q.toLowerCase()));
+  // ponytail: çok dövizli satırda tutar kolonları birincil para birimi toplamıyla sıralanır.
+  const { sorted, sort, toggle } = useSortableRows(filtered, {
+    company: (r) => r.companyName,
+    sales: (r) => r.salesTotal,
+    collections: (r) => r.collections,
+    debt: (r) => r.borc,
+    net: (r) => r.netBorc,
+    aging: (r) => r.aging?.maxOverdueDays ?? 0,
+    nearestDue: (r) => (r.nearestDueDate ? new Date(r.nearestDueDate) : null),
+  });
   const statementBalances = useMemo<StatementBalance[]>(() => {
     if (statementLines.length > 0) {
       const map = new Map<string, StatementBalance>();
@@ -309,13 +320,13 @@ export function CustomerBalancesPage() {
           <Table className="min-w-[1080px]">
             <TableHeader>
               <TableRow className="bg-muted/40 hover:bg-muted/40 [&_th]:text-xs [&_th]:uppercase [&_th]:tracking-wider [&_th]:text-muted-foreground">
-                <TableHead className="sticky left-0 z-20 min-w-52 bg-muted">Firma / Para Birimi</TableHead>
-                <TableHead className="text-right">Satış</TableHead>
-                <TableHead className="text-right">Tahsilat</TableHead>
-                <TableHead className="text-right">Açık Borç</TableHead>
-                <TableHead className="text-right">Net Bakiye</TableHead>
-                <TableHead>Yaşlandırma</TableHead>
-                <TableHead>En Yakın Vade</TableHead>
+                <SortableTableHead sortKey="company" sort={sort} onSort={toggle} className="sticky left-0 z-20 min-w-52 bg-muted">Firma / Para Birimi</SortableTableHead>
+                <SortableTableHead sortKey="sales" sort={sort} onSort={toggle} className="text-right">Satış</SortableTableHead>
+                <SortableTableHead sortKey="collections" sort={sort} onSort={toggle} className="text-right">Tahsilat</SortableTableHead>
+                <SortableTableHead sortKey="debt" sort={sort} onSort={toggle} className="text-right">Açık Borç</SortableTableHead>
+                <SortableTableHead sortKey="net" sort={sort} onSort={toggle} className="text-right">Net Bakiye</SortableTableHead>
+                <SortableTableHead sortKey="aging" sort={sort} onSort={toggle}>Yaşlandırma</SortableTableHead>
+                <SortableTableHead sortKey="nearestDue" sort={sort} onSort={toggle}>En Yakın Vade</SortableTableHead>
                 <TableHead className="w-24" />
               </TableRow>
             </TableHeader>
@@ -323,7 +334,7 @@ export function CustomerBalancesPage() {
               {loading && (
                 <TableRow><TableCell colSpan={8} className="text-center py-10 text-muted-foreground">Yükleniyor…</TableCell></TableRow>
               )}
-              {!loading && filtered.map((r) => (
+              {!loading && sorted.map((r) => (
                 <TableRow
                   key={r.companyId}
                   className={`cursor-pointer ${openDebtForRow(r) > 0 ? "bg-warning-soft/40 hover:bg-warning-soft/60" : "hover:bg-primary/[0.025]"}`}

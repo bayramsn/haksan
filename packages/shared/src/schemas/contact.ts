@@ -12,6 +12,10 @@ const clearablePhone = z.preprocess(emptyToNull, phoneSchema.nullable().optional
 const clearableEmail = z.preprocess(emptyToNull, emailSchema.nullable().optional());
 const clearableDate = z.preprocess(emptyToNull, z.coerce.date().nullable().optional());
 
+/** Kontak listesi kolon sıralaması; API her anahtarı sabit bir SQL ifadesine eşler. */
+export const contactSortKeys = ['name', 'company', 'title', 'contact', 'createdAt'] as const;
+export type ContactSortKey = (typeof contactSortKeys)[number];
+
 export const contactCreateSchema = z.object({
   companyId: z.string().min(1),
   externalContactNo: optionalText(32),

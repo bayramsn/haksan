@@ -168,9 +168,13 @@ export const companyIdListSchema = z.preprocess(
   z.array(z.string().uuid()).min(1).max(100),
 );
 
+/** Firma listesi kolon sıralaması; API her anahtarı sabit bir SQL ifadesine eşler. */
+export const companySortKeys = ['name', 'type', 'contact', 'city', 'createdAt'] as const;
+export type CompanySortKey = (typeof companySortKeys)[number];
+
 export const companyListRequestQuerySchema = companyListQuerySchema.merge(
   paginationSchema.extend({
-    sortBy: z.enum(['name', 'createdAt']).optional(),
+    sortBy: z.enum(companySortKeys).optional(),
     ids: companyIdListSchema.optional(),
   }),
 );

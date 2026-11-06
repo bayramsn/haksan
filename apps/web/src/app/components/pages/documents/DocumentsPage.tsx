@@ -4,6 +4,7 @@ import { Card, CardHeader, CardTitle } from "../../ui/card";
 import { Button } from "../../ui/button";
 import { Input } from "../../ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../../ui/table";
+import { SortableTableHead, useSortableRows } from "../../ui/sortable-table";
 import { StatusBadge } from "../../shared/StatusBadge";
 import { DocumentUploadDialog } from "../../dialogs/DocumentUploadDialog";
 import { DocumentPreviewDialog } from "../../dialogs/DocumentPreviewDialog";
@@ -56,6 +57,13 @@ const DOC_TYPE_LABELS: Record<DocumentItem["type"], string> = {
   DeliveryForm: "Teslim formu",
   InstallationForm: "Kurulum formu",
   Other: "Diğer",
+};
+
+const SIZE_UNITS: Record<string, number> = { B: 1, KB: 1024, MB: 1024 * 1024 };
+/** "1.2 MB" → bayt; "Dosya bağlı" / "Canlı form" gibi etiketler boş sayılır ve sona düşer. */
+const docSizeBytes = (size: string) => {
+  const match = /^([\d.]+)\s*(B|KB|MB)$/.exec(size?.trim() ?? "");
+  return match ? Number(match[1]) * SIZE_UNITS[match[2]] : null;
 };
 
 const DOC_GROUPS: Array<{ title: string; description: string; types: DocumentItem["type"][] }> = [
@@ -628,6 +636,51 @@ export function DocumentsPage({
     // Proforma / Sözleşme no'larına (fileName olarak tutulan documentNo / contractNo) göre azalan sırala.
     .sort((a, b) => b.fileName.localeCompare(a.fileName, "tr", { numeric: true, sensitivity: "base" }));
 
+  // Satırın müşteri / kaynak-akış bilgisi; hem hücre hem kolon sıralaması kullanır.
+  const docRowMeta = (d: (typeof documents)[number]) => {
+    const sc = cases.find((s) => s.id === d.salesCaseId);
+    const companyId = sc?.customerId || d.companyId || "";
+    const storedCompanyName = customerName(companyId);
+    const displayCompanyName = storedCompanyName !== "—"
+      ? storedCompanyName
+      : d.companyNameText || sc?.leadCompanyTitle || (companyId ? "Firma dokümanı" : sc ? `#${sc.id.toUpperCase()}` : "—");
+    const exactOffer = d.quoteId ? offers.find((offer) => offer.id === d.quoteId) : undefined;
+    // salesCaseId boşken eşleştirme yapılmamalı: aksi halde satış kartı olmayan
+    // belgeler (ör. hızlı proforma) yine satış kartsız rastgele bir teklife bağlıymış gibi görünür.
+    const flowOffer = exactOffer ?? (!d.salesCaseId || d.paymentId || d.serviceRequestId || d.type === "AccountingInvoice" ? undefined : offers.filter((offer) => offer.salesCaseId === d.salesCaseId).sort((a, b) => b.revision - a.revision)[0]);
+    const signedAt = String(d.documentSnapshot?.signedAt ?? d.documentSnapshot?.signatureDate ?? "");
+    const relationLabel = exactOffer
+      ? "Teklife doğrudan bağlı"
+      : d.paymentId
+        ? "Kasa hareketine bağlı"
+        : d.serviceRequestId
+          ? "Servis talebine bağlı"
+          : d.type === "AccountingInvoice"
+            ? "Muhasebe kaydına bağlı"
+            : flowOffer
+              ? "Fırsattan eşleştirildi"
+              : d.deliveryId || d.installationId
+                ? "Canlı saha kaydı"
+                : companyId
+                  ? "Firma kaydına bağlı"
+                  // Hızlı ticari belge bilerek teklifsizdir; eksik bağlantı gibi gösterilmemeli.
+                  : d.documentSnapshot?.standalone
+                    ? d.type === "Contract" ? "Teklifsiz hızlı sözleşme" : "Teklifsiz hızlı proforma"
+                    : "Bağlantı gerekli";
+    return { sc, companyId, displayCompanyName, exactOffer, flowOffer, signedAt, relationLabel };
+  };
+  const docSort = useSortableRows(filtered, {
+    file: (d) => d.fileName,
+    type: (d) => DOC_TYPE_LABELS[d.type],
+    flow: (d) => {
+      const { flowOffer, relationLabel } = docRowMeta(d);
+      return flowOffer ? `${flowOffer.quoteNo} R${flowOffer.revision}` : relationLabel;
+    },
+    size: (d) => docSizeBytes(d.size),
+    uploader: (d) => userName(d.uploadedBy),
+    date: (d) => (d.uploadedAt ? new Date(d.uploadedAt) : null),
+  });
+
   const downloadDocument = async (d: (typeof documents)[number]) => {
     const sc = cases.find((s) => s.id === d.salesCaseId);
     const storedName = customerName(sc?.customerId || d.companyId || "");
@@ -860,48 +913,20 @@ export function DocumentsPage({
           <Table className="min-w-[980px] table-fixed">
             <TableHeader>
               <TableRow className="bg-muted/30 hover:bg-muted/30">
-                <TableHead className="w-[30%]">Dosya ve müşteri</TableHead>
-                <TableHead className="w-[9%]">Tip</TableHead>
-                <TableHead className="w-[17%]">Kaynak ve akış</TableHead>
-                <TableHead className="w-[7%]">Boyut</TableHead>
-                <TableHead className="w-[10%]">Yükleyen</TableHead>
-                <TableHead className="w-[9%]">Tarih</TableHead>
+                <SortableTableHead sortKey="file" sort={docSort.sort} onSort={docSort.toggle} className="w-[30%]">Dosya ve müşteri</SortableTableHead>
+                <SortableTableHead sortKey="type" sort={docSort.sort} onSort={docSort.toggle} className="w-[9%]">Tip</SortableTableHead>
+                <SortableTableHead sortKey="flow" sort={docSort.sort} onSort={docSort.toggle} className="w-[17%]">Kaynak ve akış</SortableTableHead>
+                <SortableTableHead sortKey="size" sort={docSort.sort} onSort={docSort.toggle} className="w-[7%]">Boyut</SortableTableHead>
+                <SortableTableHead sortKey="uploader" sort={docSort.sort} onSort={docSort.toggle} className="w-[10%]">Yükleyen</SortableTableHead>
+                <SortableTableHead sortKey="date" sort={docSort.sort} onSort={docSort.toggle} className="w-[9%]">Tarih</SortableTableHead>
                 {/* Proforma/sözleşme satırında 6–7 işlem var; dar sütunda tarihin üstüne taşıyordu. */}
                 <TableHead className="w-[18%] text-right">İşlem</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filtered.map((d) => {
-                const sc = cases.find((s) => s.id === d.salesCaseId);
-                const companyId = sc?.customerId || d.companyId || "";
-                const storedCompanyName = customerName(companyId);
-                const displayCompanyName = storedCompanyName !== "—"
-                  ? storedCompanyName
-                  : d.companyNameText || sc?.leadCompanyTitle || (companyId ? "Firma dokümanı" : sc ? `#${sc.id.toUpperCase()}` : "—");
+              {docSort.sorted.map((d) => {
+                const { sc, companyId, displayCompanyName, exactOffer, flowOffer, signedAt, relationLabel } = docRowMeta(d);
                 const openable = CONTENT_TYPES.includes(d.type) && !d.paymentId;
-                const exactOffer = d.quoteId ? offers.find((offer) => offer.id === d.quoteId) : undefined;
-                // salesCaseId boşken eşleştirme yapılmamalı: aksi halde satış kartı olmayan
-                // belgeler (ör. hızlı proforma) yine satış kartsız rastgele bir teklife bağlıymış gibi görünür.
-                const flowOffer = exactOffer ?? (!d.salesCaseId || d.paymentId || d.serviceRequestId || d.type === "AccountingInvoice" ? undefined : offers.filter((offer) => offer.salesCaseId === d.salesCaseId).sort((a, b) => b.revision - a.revision)[0]);
-                const signedAt = String(d.documentSnapshot?.signedAt ?? d.documentSnapshot?.signatureDate ?? "");
-                const relationLabel = exactOffer
-                  ? "Teklife doğrudan bağlı"
-                  : d.paymentId
-                    ? "Kasa hareketine bağlı"
-                    : d.serviceRequestId
-                      ? "Servis talebine bağlı"
-                      : d.type === "AccountingInvoice"
-                        ? "Muhasebe kaydına bağlı"
-                        : flowOffer
-                          ? "Fırsattan eşleştirildi"
-                          : d.deliveryId || d.installationId
-                            ? "Canlı saha kaydı"
-                            : companyId
-                              ? "Firma kaydına bağlı"
-                              // Hızlı ticari belge bilerek teklifsizdir; eksik bağlantı gibi gösterilmemeli.
-                              : d.documentSnapshot?.standalone
-                                ? d.type === "Contract" ? "Teklifsiz hızlı sözleşme" : "Teklifsiz hızlı proforma"
-                                : "Bağlantı gerekli";
                 return (
                   <TableRow
                     key={d.id}

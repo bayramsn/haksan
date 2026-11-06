@@ -19,6 +19,7 @@ import { Input } from "../../ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../ui/select";
 import { Switch } from "../../ui/switch";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../../ui/table";
+import { SortableTableHead, useSortableRows } from "../../ui/sortable-table";
 import {
   getMetaErrorMessage,
   metaQueryKeys,
@@ -65,6 +66,19 @@ export function MetaAutomationTab({ canManage }: { canManage: boolean }) {
   const eventsQuery = useQuery({ queryKey: metaQueryKeys.conversions(eventParams), queryFn: () => metaService.conversionEvents(eventParams), staleTime: 20_000 });
 
   const failedQuery = useQuery({ queryKey: metaQueryKeys.failedWebhookEvents, queryFn: metaService.failedWebhookEvents, staleTime: 20_000 });
+  const mappingSort = useSortableRows(mappingsQuery.data ?? [], {
+    form: (m) => m.formName,
+    mapping: (m) => Object.keys(m.fieldMappings).length,
+    lastLead: (m) => (m.lastLeadAt ? new Date(m.lastLeadAt) : null),
+    active: (m) => m.isActive,
+  });
+  const failedSort = useSortableRows(failedQuery.data ?? [], {
+    event: (e) => WEBHOOK_EVENT_LABELS[e.eventType] ?? e.eventType,
+    status: (e) => e.status,
+    attempts: (e) => e.attemptCount,
+    reason: (e) => WEBHOOK_ERROR_LABELS[e.lastError ?? ""] ?? e.lastError,
+    updatedAt: (e) => new Date(e.updatedAt),
+  });
   const requeueMutation = useMutation({
     mutationFn: (id: string) => metaService.requeueWebhookEvent(id),
     onSuccess: async () => {
@@ -163,9 +177,17 @@ export function MetaAutomationTab({ canManage }: { canManage: boolean }) {
         ) : (
           <div className="overflow-x-auto">
             <Table className="min-w-[760px]">
-              <TableHeader><TableRow><TableHead>Form</TableHead><TableHead>Kaynak</TableHead><TableHead>Alan eşlemesi</TableHead><TableHead>Son lead</TableHead><TableHead className="text-right">Aktif</TableHead></TableRow></TableHeader>
+              <TableHeader>
+                <TableRow>
+                  <SortableTableHead sortKey="form" sort={mappingSort.sort} onSort={mappingSort.toggle}>Form</SortableTableHead>
+                  <TableHead>Kaynak</TableHead>
+                  <SortableTableHead sortKey="mapping" sort={mappingSort.sort} onSort={mappingSort.toggle}>Alan eşlemesi</SortableTableHead>
+                  <SortableTableHead sortKey="lastLead" sort={mappingSort.sort} onSort={mappingSort.toggle}>Son lead</SortableTableHead>
+                  <SortableTableHead sortKey="active" sort={mappingSort.sort} onSort={mappingSort.toggle} className="text-right">Aktif</SortableTableHead>
+                </TableRow>
+              </TableHeader>
               <TableBody>
-                {mappingsQuery.data?.map((mapping) => (
+                {mappingSort.sorted.map((mapping) => (
                   <TableRow key={mapping.id}>
                     <TableCell><p className="text-sm font-semibold">{mapping.formName}</p><p className="mt-0.5 font-data text-[10px] text-muted-foreground">{mapping.formId}</p></TableCell>
                     <TableCell className="text-xs">meta_lead_ads</TableCell>
@@ -192,9 +214,18 @@ export function MetaAutomationTab({ canManage }: { canManage: boolean }) {
           />
           <div className="overflow-x-auto">
             <Table className="min-w-[720px]">
-              <TableHeader><TableRow><TableHead>Olay</TableHead><TableHead>Durum</TableHead><TableHead>Deneme</TableHead><TableHead>Neden</TableHead><TableHead>Son deneme</TableHead><TableHead className="text-right">İşlem</TableHead></TableRow></TableHeader>
+              <TableHeader>
+                <TableRow>
+                  <SortableTableHead sortKey="event" sort={failedSort.sort} onSort={failedSort.toggle}>Olay</SortableTableHead>
+                  <SortableTableHead sortKey="status" sort={failedSort.sort} onSort={failedSort.toggle}>Durum</SortableTableHead>
+                  <SortableTableHead sortKey="attempts" sort={failedSort.sort} onSort={failedSort.toggle}>Deneme</SortableTableHead>
+                  <SortableTableHead sortKey="reason" sort={failedSort.sort} onSort={failedSort.toggle}>Neden</SortableTableHead>
+                  <SortableTableHead sortKey="updatedAt" sort={failedSort.sort} onSort={failedSort.toggle}>Son deneme</SortableTableHead>
+                  <TableHead className="text-right">İşlem</TableHead>
+                </TableRow>
+              </TableHeader>
               <TableBody>
-                {failedQuery.data?.map((event) => (
+                {failedSort.sorted.map((event) => (
                   <TableRow key={event.id}>
                     <TableCell className="text-sm font-semibold">{WEBHOOK_EVENT_LABELS[event.eventType] ?? event.eventType}</TableCell>
                     <TableCell><MetaStatusBadge status={event.status} /></TableCell>

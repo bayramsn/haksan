@@ -11,6 +11,7 @@ import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from "../ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../ui/table";
+import { SortableTableHead, useSortableRows } from "../ui/sortable-table";
 import { useStore } from "../../lib/store";
 import { useAuth } from "../../../lib/auth";
 import { referenceService, type ReferenceDTO } from "../../../lib/services";
@@ -195,6 +196,17 @@ export function ReferencesPage() {
       .some((value) => value.toLocaleLowerCase("tr-TR").includes(needle));
   });
 
+  // "—" boş değerdir; sıralamada yön ne olursa olsun sona düşsün.
+  const text = (value: string) => (value === "—" ? null : value);
+  const { sorted, sort, toggle } = useSortableRows(filtered, {
+    firm: (row) => text(row.firm),
+    contact: (row) => text(row.contact),
+    location: (row) => [row.district, row.city].filter((v) => v !== "—").join(" / "),
+    brand: (row) => text(row.brand),
+    model: (row) => text(row.model),
+    delivery: (row) => (row.deliveryDate ? new Date(row.deliveryDate) : null),
+  });
+
   const rowActions = (row: (typeof rows)[number], compact = false) => {
     if (!row.record) {
       return <Badge variant="outline" className="h-6 shrink-0 text-[9px]">Otomatik</Badge>;
@@ -309,17 +321,17 @@ export function ReferencesPage() {
           <TableHeader>
             <TableRow className="bg-muted/30 hover:bg-muted/30">
               <TableHead className="w-10 px-2">No</TableHead>
-              <TableHead className="w-[26%]">Firma</TableHead>
-              <TableHead className="hidden w-[14%] lg:table-cell">İlgili</TableHead>
-              <TableHead className="w-[16%]">Konum</TableHead>
-              <TableHead className="hidden w-[12%] md:table-cell">Marka</TableHead>
-              <TableHead className="w-[14%]">Model</TableHead>
-              <TableHead className="hidden w-[12%] md:table-cell">Teslim</TableHead>
+              <SortableTableHead sortKey="firm" sort={sort} onSort={toggle} className="w-[26%]">Firma</SortableTableHead>
+              <SortableTableHead sortKey="contact" sort={sort} onSort={toggle} className="hidden w-[14%] lg:table-cell">İlgili</SortableTableHead>
+              <SortableTableHead sortKey="location" sort={sort} onSort={toggle} className="w-[16%]">Konum</SortableTableHead>
+              <SortableTableHead sortKey="brand" sort={sort} onSort={toggle} className="hidden w-[12%] md:table-cell">Marka</SortableTableHead>
+              <SortableTableHead sortKey="model" sort={sort} onSort={toggle} className="w-[14%]">Model</SortableTableHead>
+              <SortableTableHead sortKey="delivery" sort={sort} onSort={toggle} className="hidden w-[12%] md:table-cell">Teslim</SortableTableHead>
               <TableHead className="w-20 px-1" />
             </TableRow>
           </TableHeader>
           <TableBody>
-            {filtered.map((row, index) => (
+            {sorted.map((row, index) => (
               <TableRow key={row.id}>
                 <TableCell className="px-2 tabular-nums text-muted-foreground">{index + 1}</TableCell>
                 <TableCell className="truncate font-medium" title={row.firm}>

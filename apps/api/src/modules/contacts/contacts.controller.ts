@@ -2,6 +2,7 @@ import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards } f
 import { z } from 'zod';
 import {
   contactCreateSchema,
+  contactSortKeys,
   contactUpdateSchema,
   paginationSchema,
   type ContactCreateInput,
@@ -30,7 +31,7 @@ export const contactListQuerySchema = z.object({
 });
 
 export const contactListRequestQuerySchema = contactListQuerySchema.merge(
-  paginationSchema.extend({ sortBy: z.enum(['name', 'createdAt']).optional() }),
+  paginationSchema.extend({ sortBy: z.enum(contactSortKeys).optional() }),
 );
 
 export const contactSummaryQuerySchema = z.object({

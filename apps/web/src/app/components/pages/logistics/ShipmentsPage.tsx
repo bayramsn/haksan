@@ -4,6 +4,7 @@ import { Button } from "../../ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../ui/select";
 import { Badge } from "../../ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../../ui/table";
+import { SortableTableHead, useSortableRows } from "../../ui/sortable-table";
 
 import { CreateShipmentDialog } from "../../dialogs/CreateDialogs";
 import { EmptyState } from "../../shared/EmptyState";
@@ -59,6 +60,16 @@ export function ShipmentsPage({ focus }: { focus?: OperationFocus }) {
       : shipments;
   const statusShipments = statusFilter === "all" ? focusedShipments : focusedShipments.filter((s) => s.status === statusFilter);
   const visibleShipments = directionFilter === "all" ? statusShipments : statusShipments.filter((s) => s.direction === directionFilter);
+  const shipmentCompany = (s: (typeof shipments)[number]) =>
+    customerForShipment(s)?.name ?? (s.direction === "incoming" ? s.senderCompanyName || s.senderName : undefined) ?? liveCustomerName(cases.find((x) => x.id === s.salesCaseId)?.customerId ?? "");
+  const { sorted: sortedShipments, sort, toggle } = useSortableRows(visibleShipments, {
+    tracking: (s) => s.trackingNo,
+    direction: (s) => (s.direction === "incoming" ? "Gelen" : "Giden"),
+    company: shipmentCompany,
+    route: (s) => `${s.origin ?? ""} ${s.destination ?? ""}`,
+    eta: (s) => (s.eta ? new Date(s.eta) : null),
+    status: (s) => s.status,
+  });
   // KPI kartı ikinci tıklamada filtreyi kaldırır.
   const toggleStatus = (status: Exclude<typeof statusFilter, "all">) =>
     setStatusFilter((current) => (current === status ? "all" : status));
@@ -152,18 +163,17 @@ export function ShipmentsPage({ focus }: { focus?: OperationFocus }) {
             <Table>
               <TableHeader>
                 <TableRow className="bg-muted/40 hover:bg-muted/40 [&_th]:text-xs [&_th]:uppercase [&_th]:tracking-wider [&_th]:text-muted-foreground">
-                  <TableHead>Takip</TableHead>
-                  <TableHead>Yön</TableHead>
-                  <TableHead>Firma</TableHead>
-                  <TableHead>Rota / Yolculuk</TableHead>
-                  <TableHead>ETA</TableHead>
-                  <TableHead>Durum</TableHead>
+                  <SortableTableHead sortKey="tracking" sort={sort} onSort={toggle}>Takip</SortableTableHead>
+                  <SortableTableHead sortKey="direction" sort={sort} onSort={toggle}>Yön</SortableTableHead>
+                  <SortableTableHead sortKey="company" sort={sort} onSort={toggle}>Firma</SortableTableHead>
+                  <SortableTableHead sortKey="route" sort={sort} onSort={toggle}>Rota / Yolculuk</SortableTableHead>
+                  <SortableTableHead sortKey="eta" sort={sort} onSort={toggle}>ETA</SortableTableHead>
+                  <SortableTableHead sortKey="status" sort={sort} onSort={toggle}>Durum</SortableTableHead>
                   <TableHead className="w-24"></TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {visibleShipments.map((s) => {
-                  const sc = cases.find((x) => x.id === s.salesCaseId);
+                {sortedShipments.map((s) => {
                   const customer = customerForShipment(s);
                   return (
                     <TableRow key={s.id} className="group hover:bg-primary/[0.025]">
@@ -183,7 +193,7 @@ export function ShipmentsPage({ focus }: { focus?: OperationFocus }) {
                           {s.direction === "incoming" ? "↓ Gelen" : "↑ Giden"}
                         </Badge>
                       </TableCell>
-                      <TableCell className="text-sm">{customer?.name ?? (s.direction === "incoming" ? s.senderCompanyName || s.senderName : undefined) ?? liveCustomerName(sc?.customerId ?? "")}</TableCell>
+                      <TableCell className="text-sm">{shipmentCompany(s)}</TableCell>
                       <TableCell className="min-w-[260px]">
                         <div className="mb-2 flex items-center gap-1.5 text-xs text-muted-foreground">
                           <MapPin className="size-3" /><span className="max-w-24 truncate">{s.origin}</span><span>→</span><span className="max-w-24 truncate">{s.destination}</span>

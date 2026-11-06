@@ -6,11 +6,14 @@ import {
   type CompanySummaryDTO,
   type Paginated,
 } from "../../lib/services";
+import type { CompanySortKey } from "@haksan/shared";
 import type { Customer, CustomerSalesStatus, FirmType } from "./mock";
 import { normalizeCompany } from "./companyNormalizer";
 import { DEFAULT_SERVER_PAGE_SIZE, serverScopeKey } from "./serverPagination";
 
-export type CompanySortMode = "default" | "name_asc" | "name_desc" | "created_desc" | "created_asc";
+export type CompanySort = { key: CompanySortKey; dir: "asc" | "desc" };
+/** İlk açılış: oluşturma tarihi eskiden yeniye. */
+export const DEFAULT_COMPANY_SORT: CompanySort = { key: "createdAt", dir: "asc" };
 
 export interface CompanyDirectoryFilters {
   page: number;
@@ -22,7 +25,7 @@ export interface CompanyDirectoryFilters {
   district?: string;
   sector?: string;
   supplierCategoryCode?: "all" | "transportation" | "logistics";
-  sortMode?: CompanySortMode;
+  sort?: CompanySort;
 }
 
 export interface CompanyListParams extends Record<string, string | number | undefined> {
@@ -36,7 +39,7 @@ export interface CompanyListParams extends Record<string, string | number | unde
   district?: string;
   sector?: string;
   supplierCategoryCode?: "transportation" | "logistics";
-  sortBy?: "name" | "createdAt";
+  sortBy?: CompanySortKey;
   sortDir?: "asc" | "desc";
 }
 
@@ -79,28 +82,7 @@ export function buildCompanyListParams(filters: CompanyDirectoryFilters): Compan
     ? filters.supplierCategoryCode
     : undefined;
 
-  let sortBy: CompanyListParams["sortBy"];
-  let sortDir: CompanyListParams["sortDir"];
-  switch (filters.sortMode) {
-    case "name_asc":
-      sortBy = "name";
-      sortDir = "asc";
-      break;
-    case "name_desc":
-      sortBy = "name";
-      sortDir = "desc";
-      break;
-    case "created_asc":
-      sortBy = "createdAt";
-      sortDir = "asc";
-      break;
-    case "created_desc":
-    case "default":
-    case undefined:
-      sortBy = "createdAt";
-      sortDir = "desc";
-      break;
-  }
+  const sort = filters.sort ?? DEFAULT_COMPANY_SORT;
 
   return {
     page: Math.max(1, Math.floor(filters.page)),
@@ -113,8 +95,8 @@ export function buildCompanyListParams(filters: CompanyDirectoryFilters): Compan
     district: filters.district && filters.district !== "all" ? filters.district : undefined,
     sector: filters.sector && filters.sector !== "all" ? filters.sector : undefined,
     supplierCategoryCode,
-    sortBy,
-    sortDir,
+    sortBy: sort.key,
+    sortDir: sort.dir,
   };
 }
 

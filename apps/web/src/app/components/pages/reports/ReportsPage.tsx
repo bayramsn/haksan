@@ -2,7 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "../../ui/card";
 import { Button } from "../../ui/button";
 import { Badge } from "../../ui/badge";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../../ui/table";
+import { Table, TableBody, TableCell, TableHeader, TableRow } from "../../ui/table";
+import { SortableTableHead, useSortableRows } from "../../ui/sortable-table";
 import { useStore } from "../../../lib/store";
 import { buildManagementInsights, type ManagementInsight, type OperationAction } from "../../../lib/operations";
 import { reportService, type YearEndReport } from "../../../../lib/services";
@@ -307,6 +308,19 @@ function YearEndReportView() {
 
   const num = (s: string | null | undefined) => Number(s ?? 0);
   const money = (s: string | null | undefined) => formatCurrency(num(s));
+  const quoteSort = useSortableRows(data?.quotesByStatus ?? [], {
+    name: (q) => q.name ?? q.code,
+    count: (q) => q.count,
+    total: (q) => num(q.totalValue),
+    avg: (q) => num(q.avgValue),
+  });
+  const userSort = useSortableRows(data?.byUser ?? [], {
+    name: (u) => u.name,
+    total: (u) => u.total,
+    won: (u) => u.won,
+    lost: (u) => u.lost,
+    wonValue: (u) => num(u.wonValue),
+  });
 
   const s = data?.summary;
   const pieData = s
@@ -478,12 +492,12 @@ function YearEndReportView() {
 
           {/* Reasons + competitors */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            <ReasonTable title="Kaybetme Nedenleri" empty="Bu yıl kaybedilen fırsat yok." rows={data.lostReasons.map((r) => ({ label: r.name ?? r.code ?? "Belirtilmemiş", count: r.count, value: money(r.value) }))} />
-            <ReasonTable title="Kazanma Nedenleri" empty="Bu yıl kazanılan fırsat yok." rows={data.wonReasons.map((w) => ({ label: w.reason ?? "Belirtilmemiş", count: w.count, value: money(w.value) }))} />
+            <ReasonTable title="Kaybetme Nedenleri" empty="Bu yıl kaybedilen fırsat yok." rows={data.lostReasons.map((r) => ({ label: r.name ?? r.code ?? "Belirtilmemiş", count: r.count, raw: num(r.value), value: money(r.value) }))} />
+            <ReasonTable title="Kazanma Nedenleri" empty="Bu yıl kazanılan fırsat yok." rows={data.wonReasons.map((w) => ({ label: w.reason ?? "Belirtilmemiş", count: w.count, raw: num(w.value), value: money(w.value) }))} />
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            <ReasonTable title="Rakip Kaybı" empty="Rakibe kaybedilen fırsat kaydı yok." rows={data.competitors.map((c) => ({ label: c.name, count: c.count, value: money(c.value) }))} />
+            <ReasonTable title="Rakip Kaybı" empty="Rakibe kaybedilen fırsat kaydı yok." rows={data.competitors.map((c) => ({ label: c.name, count: c.count, raw: num(c.value), value: money(c.value) }))} />
 
             {/* Teklif fiyat ortalamaları */}
             <Card className="border-border/60 shadow-sm overflow-hidden">
@@ -494,10 +508,10 @@ function YearEndReportView() {
                 <Table>
                   <TableHeader>
                     <TableRow className="bg-muted/30 hover:bg-muted/30">
-                      <TableHead>Durum</TableHead>
-                      <TableHead className="text-right">Adet</TableHead>
-                      <TableHead className="text-right">Toplam</TableHead>
-                      <TableHead className="text-right">Ortalama</TableHead>
+                      <SortableTableHead sortKey="name" sort={quoteSort.sort} onSort={quoteSort.toggle}>Durum</SortableTableHead>
+                      <SortableTableHead sortKey="count" sort={quoteSort.sort} onSort={quoteSort.toggle} className="text-right">Adet</SortableTableHead>
+                      <SortableTableHead sortKey="total" sort={quoteSort.sort} onSort={quoteSort.toggle} className="text-right">Toplam</SortableTableHead>
+                      <SortableTableHead sortKey="avg" sort={quoteSort.sort} onSort={quoteSort.toggle} className="text-right">Ortalama</SortableTableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -506,7 +520,7 @@ function YearEndReportView() {
                         <TableCell colSpan={4} className="text-center text-sm text-muted-foreground py-6">Bu yıla ait teklif yok.</TableCell>
                       </TableRow>
                     ) : (
-                      data.quotesByStatus.map((q) => (
+                      quoteSort.sorted.map((q) => (
                         <TableRow key={q.code ?? q.name ?? Math.random()}>
                           <TableCell className="text-sm">{q.name ?? q.code ?? "—"}</TableCell>
                           <TableCell className="text-right tabular-nums">{q.count}</TableCell>
@@ -530,11 +544,11 @@ function YearEndReportView() {
               <Table>
                 <TableHeader>
                   <TableRow className="bg-muted/30 hover:bg-muted/30">
-                    <TableHead>Temsilci</TableHead>
-                    <TableHead className="text-right">Toplam</TableHead>
-                    <TableHead className="text-right">Kazanılan</TableHead>
-                    <TableHead className="text-right">Kaybedilen</TableHead>
-                    <TableHead className="text-right">Kazanılan Değer</TableHead>
+                    <SortableTableHead sortKey="name" sort={userSort.sort} onSort={userSort.toggle}>Temsilci</SortableTableHead>
+                    <SortableTableHead sortKey="total" sort={userSort.sort} onSort={userSort.toggle} className="text-right">Toplam</SortableTableHead>
+                    <SortableTableHead sortKey="won" sort={userSort.sort} onSort={userSort.toggle} className="text-right">Kazanılan</SortableTableHead>
+                    <SortableTableHead sortKey="lost" sort={userSort.sort} onSort={userSort.toggle} className="text-right">Kaybedilen</SortableTableHead>
+                    <SortableTableHead sortKey="wonValue" sort={userSort.sort} onSort={userSort.toggle} className="text-right">Kazanılan Değer</SortableTableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -543,7 +557,7 @@ function YearEndReportView() {
                       <TableCell colSpan={5} className="text-center text-sm text-muted-foreground py-6">Veri yok.</TableCell>
                     </TableRow>
                   ) : (
-                    data.byUser.map((u) => (
+                    userSort.sorted.map((u) => (
                       <TableRow key={u.userId ?? u.name ?? Math.random()}>
                         <TableCell className="text-sm">{u.name ?? "—"}</TableCell>
                         <TableCell className="text-right tabular-nums">{u.total}</TableCell>
@@ -564,7 +578,8 @@ function YearEndReportView() {
 }
 
 /** Neden/adet/değer üçlüsünü gösteren küçük tablo kartı (kazanma/kaybetme/rakip). */
-function ReasonTable({ title, rows, empty }: { title: string; empty: string; rows: Array<{ label: string; count: number; value: string }> }) {
+function ReasonTable({ title, rows, empty }: { title: string; empty: string; rows: Array<{ label: string; count: number; raw: number; value: string }> }) {
+  const { sorted, sort, toggle } = useSortableRows(rows, { label: (r) => r.label, count: (r) => r.count, value: (r) => r.raw });
   return (
     <Card className="border-border/60 shadow-sm overflow-hidden">
       <CardHeader>
@@ -574,9 +589,9 @@ function ReasonTable({ title, rows, empty }: { title: string; empty: string; row
         <Table>
           <TableHeader>
             <TableRow className="bg-muted/30 hover:bg-muted/30">
-              <TableHead>{title.includes("Rakip") ? "Rakip" : "Neden"}</TableHead>
-              <TableHead className="text-right">Adet</TableHead>
-              <TableHead className="text-right">Değer</TableHead>
+              <SortableTableHead sortKey="label" sort={sort} onSort={toggle}>{title.includes("Rakip") ? "Rakip" : "Neden"}</SortableTableHead>
+              <SortableTableHead sortKey="count" sort={sort} onSort={toggle} className="text-right">Adet</SortableTableHead>
+              <SortableTableHead sortKey="value" sort={sort} onSort={toggle} className="text-right">Değer</SortableTableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -585,7 +600,7 @@ function ReasonTable({ title, rows, empty }: { title: string; empty: string; row
                 <TableCell colSpan={3} className="text-center text-sm text-muted-foreground py-6">{empty}</TableCell>
               </TableRow>
             ) : (
-              rows.map((r, i) => (
+              sorted.map((r, i) => (
                 <TableRow key={`${r.label}-${i}`}>
                   <TableCell className="text-sm">{r.label}</TableCell>
                   <TableCell className="text-right tabular-nums">{r.count}</TableCell>

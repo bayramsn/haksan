@@ -9,6 +9,7 @@ import { Input } from "../ui/input";
 import { Tabs, TabsList, TabsTrigger } from "../ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../ui/table";
+import { SortableTableHead, useSortableRows } from "../ui/sortable-table";
 import { Search, ChevronRight, Lock, Wrench, Package, Pencil, Check, X, BadgeCheck, Boxes, Factory, Tags, Plus } from "lucide-react";
 import { toast } from "sonner";
 import { Product } from "../../lib/mock";
@@ -343,6 +344,24 @@ export function SalesPriceListPage() {
     { field: 'brand', label: 'Marka', products: machines },
   ] as const;
   const filtered = filterSalesPrices(machines, filters, q);
+  const salesPrices = (p: Product) => {
+    const override = priceOverrides[p.id];
+    const currencyMatches = !listCurrency || listCurrency === p.currency;
+    return {
+      override,
+      cash: override?.cashPrice ?? (currencyMatches ? p.cashPrice : undefined),
+      list: override?.listPrice ?? (currencyMatches ? p.listPrice : undefined),
+    };
+  };
+  // İlk açılışta ad A-Z (machines zaten bu sırada); başlığa tıklanınca o kolona göre.
+  const { sorted: sortedMachines, sort, toggle } = useSortableRows(filtered, {
+    name: productSortKey,
+    brand: (p) => p.brand,
+    type: (p) => p.type,
+    cash: (p) => salesPrices(p).cash,
+    list: (p) => salesPrices(p).list,
+    campaign: (p) => (priceOverrides[p.id]?.campaignIsActive ? priceOverrides[p.id]?.campaignPrice : undefined),
+  }, { key: "name", dir: "asc" });
   const hasFilters = Boolean(q.trim() || Object.values(filters).some(Boolean));
   const pricedMachineCount = machines.filter((product) => (priceOverrides[product.id]?.listPrice ?? product.listPrice ?? 0) > 0).length;
   const campaignMachineCount = machines.filter((product) => priceOverrides[product.id]?.campaignIsActive && priceOverrides[product.id]?.campaignPrice != null).length;
@@ -472,21 +491,18 @@ export function SalesPriceListPage() {
           <Table>
             <TableHeader>
               <TableRow className="bg-muted/30 hover:bg-muted/30">
-                <TableHead className="w-[380px]">Ürün Adı</TableHead>
-                <TableHead>Marka</TableHead>
-                <TableHead>Tip</TableHead>
-                <TableHead className="text-right">Peşin Fiyat</TableHead>
-                <TableHead className="text-right">Liste Fiyatı</TableHead>
-                {campaignColumnVisible && <TableHead className="text-right">Kampanyalı Fiyat</TableHead>}
+                <SortableTableHead sortKey="name" sort={sort} onSort={toggle} className="w-[380px]">Ürün Adı</SortableTableHead>
+                <SortableTableHead sortKey="brand" sort={sort} onSort={toggle}>Marka</SortableTableHead>
+                <SortableTableHead sortKey="type" sort={sort} onSort={toggle}>Tip</SortableTableHead>
+                <SortableTableHead sortKey="cash" sort={sort} onSort={toggle} className="text-right">Peşin Fiyat</SortableTableHead>
+                <SortableTableHead sortKey="list" sort={sort} onSort={toggle} className="text-right">Liste Fiyatı</SortableTableHead>
+                {campaignColumnVisible && <SortableTableHead sortKey="campaign" sort={sort} onSort={toggle} className="text-right">Kampanyalı Fiyat</SortableTableHead>}
                 <TableHead className="w-10"></TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filtered.map((p) => {
-                const override = priceOverrides[p.id];
-                const currencyMatches = !listCurrency || listCurrency === p.currency;
-                const cash = override?.cashPrice ?? (currencyMatches ? p.cashPrice : undefined);
-                const list = override?.listPrice ?? (currencyMatches ? p.listPrice : undefined);
+              {sortedMachines.map((p) => {
+                const { override, cash, list } = salesPrices(p);
                 const cur = listCurrency ?? p.currency;
                 return (
                 <TableRow key={p.id} className="cursor-pointer group" onClick={() => setSelected(p)}>
@@ -621,7 +637,15 @@ export function ServicePriceListPage() {
     () => sortProductsByName(products.filter((p) => p.categoryCode === activeCategory.code)),
     [products, activeCategory.code],
   );
-  const list = categoryProducts.filter((p) => matches(p, q));
+  const filteredList = categoryProducts.filter((p) => matches(p, q));
+  // Servis ve işçilik tabloları aynı sırayı paylaşır; ilk açılış ad A-Z.
+  const { sorted: list, sort, toggle, setSort } = useSortableRows(filteredList, {
+    name: productSortKey,
+    compat: (p) => p.compatibleMachineTypeCode || p.type,
+    cash: (p) => priceOverrides[p.id]?.cashPrice ?? p.cashPrice,
+    list: (p) => priceOverrides[p.id]?.listPrice ?? p.listPrice,
+    vat: (p) => p.vatRate,
+  }, { key: "name", dir: "asc" });
   const isLabor = tab === "labor";
   const selectedList = priceLists.find((p) => p.id === selectedListId);
   const listCurrency = selectedList?.currency?.code;
@@ -653,7 +677,7 @@ export function ServicePriceListPage() {
         </div>
       </section>
       <div className="flex items-center justify-between gap-3 flex-wrap">
-        <Tabs value={tab} onValueChange={(v) => setTab(v as ServicePriceTab)}>
+        <Tabs value={tab} onValueChange={(v) => { setTab(v as ServicePriceTab); setSort({ key: "name", dir: "asc" }); }}>
           <TabsList className="h-9 bg-muted/60">
             {SERVICE_PRICE_CATEGORIES.map((category) => {
               const Icon = category.icon;
@@ -698,10 +722,10 @@ export function ServicePriceListPage() {
             <Table>
               <TableHeader>
                 <TableRow className="bg-muted/30 hover:bg-muted/30">
-                  <TableHead className="w-[410px]">{activeCategory.label} / Üretici</TableHead>
-                  <TableHead>Uyumluluk</TableHead>
-                  <TableHead className="text-right">Peşin</TableHead>
-                  <TableHead className="text-right">Liste Fiyatı</TableHead>
+                  <SortableTableHead sortKey="name" sort={sort} onSort={toggle} className="w-[410px]">{activeCategory.label} / Üretici</SortableTableHead>
+                  <SortableTableHead sortKey="compat" sort={sort} onSort={toggle}>Uyumluluk</SortableTableHead>
+                  <SortableTableHead sortKey="cash" sort={sort} onSort={toggle} className="text-right">Peşin</SortableTableHead>
+                  <SortableTableHead sortKey="list" sort={sort} onSort={toggle} className="text-right">Liste Fiyatı</SortableTableHead>
                   <TableHead className="w-10"></TableHead>
                 </TableRow>
               </TableHeader>
@@ -749,9 +773,9 @@ export function ServicePriceListPage() {
             <Table>
               <TableHeader>
                 <TableRow className="bg-muted/30 hover:bg-muted/30">
-                  <TableHead className="w-[460px]">İşçilik Kalemi</TableHead>
-                  <TableHead className="text-right">Birim Ücret</TableHead>
-                  <TableHead className="text-right">KDV</TableHead>
+                  <SortableTableHead sortKey="name" sort={sort} onSort={toggle} className="w-[460px]">İşçilik Kalemi</SortableTableHead>
+                  <SortableTableHead sortKey="list" sort={sort} onSort={toggle} className="text-right">Birim Ücret</SortableTableHead>
+                  <SortableTableHead sortKey="vat" sort={sort} onSort={toggle} className="text-right">KDV</SortableTableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>

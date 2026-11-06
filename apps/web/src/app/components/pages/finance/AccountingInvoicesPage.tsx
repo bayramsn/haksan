@@ -4,6 +4,7 @@ import { Button } from "../../ui/button";
 import { Input } from "../../ui/input";
 import { Badge } from "../../ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../../ui/table";
+import { SortableTableHead, useSortableRows } from "../../ui/sortable-table";
 import {
   Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle,
 } from "../../ui/dialog";
@@ -199,6 +200,18 @@ export function AccountingInvoicesPage({ initialQuery }: { initialQuery?: string
     );
   });
 
+  const toDate = (value?: string | null) => (value ? new Date(value) : null);
+  const { sorted, sort, toggle } = useSortableRows(filtered, {
+    invoiceNo: (r) => r.invoiceNo,
+    type: (r) => (r.type === "sales" ? "Satış" : "Alış"),
+    category: (r) => invoiceCategoryLabel(r.invoiceCategory),
+    company: (r) => r.company?.shortName || r.company?.legalTitle,
+    date: (r) => toDate(r.invoiceDate),
+    total: (r) => Number(r.grandTotal),
+    installments: (r) => r.installmentCount,
+    due: (r) => toDate(r.firstDueDate),
+  });
+
   // Para birimine göre toplam tutarlar (farklı dövizler ayrı satır olarak gösterilir).
   const totalsByCurrency = filtered.reduce<Record<string, number>>((acc, r) => {
     const code = r.currency?.code ?? "—";
@@ -320,14 +333,14 @@ export function AccountingInvoicesPage({ initialQuery }: { initialQuery?: string
           <Table>
             <TableHeader>
               <TableRow className="bg-muted/40 hover:bg-muted/40 [&_th]:text-xs [&_th]:uppercase [&_th]:tracking-wider [&_th]:text-muted-foreground">
-                  <TableHead>Belge / Fatura No</TableHead>
-                {typeFilter === "all" && <TableHead>Tür</TableHead>}
-                <TableHead>Sınıf</TableHead>
-                <TableHead>{typeFilter === "purchase" ? "Tedarikçi" : typeFilter === "sales" ? "Müşteri" : "Firma"}</TableHead>
-                <TableHead>Tarih</TableHead>
-                <TableHead className="text-right">Tutar</TableHead>
-                <TableHead>Taksit</TableHead>
-                  <TableHead>Vade / Aging</TableHead>
+                  <SortableTableHead sortKey="invoiceNo" sort={sort} onSort={toggle}>Belge / Fatura No</SortableTableHead>
+                {typeFilter === "all" && <SortableTableHead sortKey="type" sort={sort} onSort={toggle}>Tür</SortableTableHead>}
+                <SortableTableHead sortKey="category" sort={sort} onSort={toggle}>Sınıf</SortableTableHead>
+                <SortableTableHead sortKey="company" sort={sort} onSort={toggle}>{typeFilter === "purchase" ? "Tedarikçi" : typeFilter === "sales" ? "Müşteri" : "Firma"}</SortableTableHead>
+                <SortableTableHead sortKey="date" sort={sort} onSort={toggle}>Tarih</SortableTableHead>
+                <SortableTableHead sortKey="total" sort={sort} onSort={toggle} className="text-right">Tutar</SortableTableHead>
+                <SortableTableHead sortKey="installments" sort={sort} onSort={toggle}>Taksit</SortableTableHead>
+                  <SortableTableHead sortKey="due" sort={sort} onSort={toggle}>Vade / Aging</SortableTableHead>
                 <TableHead className="w-12 text-right">İşlem</TableHead>
               </TableRow>
             </TableHeader>
@@ -335,7 +348,7 @@ export function AccountingInvoicesPage({ initialQuery }: { initialQuery?: string
               {loading && (
                 <TableRow><TableCell colSpan={typeFilter === "all" ? 9 : 8} className="text-center py-10 text-muted-foreground">Yükleniyor…</TableCell></TableRow>
               )}
-              {!loading && filtered.map((r) => (
+              {!loading && sorted.map((r) => (
                 <TableRow key={r.id} className="cursor-pointer hover:bg-primary/[0.025]" onClick={() => openDetail(r)}>
                   <TableCell>
                     <div className="flex items-center gap-2.5">

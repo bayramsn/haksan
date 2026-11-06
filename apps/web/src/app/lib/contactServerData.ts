@@ -1,4 +1,5 @@
 import type { QueryClient } from "@tanstack/react-query";
+import type { ContactSortKey } from "@haksan/shared";
 import type { Contact } from "./mock";
 import { contactService, type Paginated } from "../../lib/services";
 
@@ -13,9 +14,11 @@ export type ContactQueryScope = {
 };
 
 export type ContactSort = {
-  sortBy: "createdAt" | "name";
+  sortBy: ContactSortKey;
   sortDir: "asc" | "desc";
 };
+/** İlk açılış: oluşturma tarihi eskiden yeniye. */
+export const DEFAULT_CONTACT_SORT: ContactSort = { sortBy: "createdAt", sortDir: "asc" };
 
 export type ContactListFilters = ContactSort & {
   page: number;

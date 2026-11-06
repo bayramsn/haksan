@@ -27,6 +27,7 @@ import { BaseModelTechnicalTable } from "./BaseModelTechnicalTable";
 import { baseModelTechnicalData } from "../../lib/baseModelTechnical";
 import { printDocumentHtml } from "@haksan/shared";
 import { laserSnapshotPrintSpecs } from "../../lib/laserProductSnapshot";
+import { applyOptionSpecOverrides, type OptionSpecTemplateField } from "../../lib/optionSpecOverrides";
 
 type MediaItem = { fileId: string; mediaType: "image" | "document"; title: string | null; mimeType: string; url: string };
 
@@ -106,6 +107,7 @@ export function ProductDetailDialog({
   const [documents, setDocuments] = useState<MediaItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [selectedOptionalIds, setSelectedOptionalIds] = useState<string[] | null>(null);
+  const [specTemplatesByType, setSpecTemplatesByType] = useState<Record<string, OptionSpecTemplateField[]>>({});
   const [printImageUrl, setPrintImageUrl] = useState<string | undefined>();
   const [printBrandLogoUrl, setPrintBrandLogoUrl] = useState<string | undefined>();
   const [preparingPrintImage, setPreparingPrintImage] = useState(false);
@@ -167,6 +169,28 @@ export function ProductDetailDialog({
       alive = false;
     };
   }, [product]);
+
+  // Fiyat listesinde seçilen opsiyonun tezgah teknik bilgisini etkileyip
+  // etkilemediğini tip şablonundan anlarız (teklifteki eşlemenin aynısı).
+  const needsSpecTemplates = highlightOptional && product?.categoryCode === MACHINE_CATEGORY_CODE;
+  useEffect(() => {
+    if (!needsSpecTemplates) return;
+    let alive = true;
+    productService
+      .specTemplates()
+      .then((rows) => {
+        const map: Record<string, OptionSpecTemplateField[]> = {};
+        for (const r of (rows ?? []) as any[]) {
+          if (r?.isActive === false || !r?.specKey) continue;
+          (map[String(r.productTypeCode ?? "")] ??= []).push({ specKey: String(r.specKey), defaultValue: String(r.defaultValue ?? "") });
+        }
+        if (alive) setSpecTemplatesByType(map);
+      })
+      .catch(() => alive && setSpecTemplatesByType({}));
+    return () => {
+      alive = false;
+    };
+  }, [needsSpecTemplates]);
 
   // Ürün görseli ve marka logosu belgeye gömülür: yazdırma penceresi (blob:) ve
   // sunucudaki mail PDF'i bu adreslere oturumla erişemez.
@@ -301,7 +325,9 @@ export function ProductDetailDialog({
   const optional = optionalSource.filter((item, index, all) =>
     all.findIndex((candidate) => candidate.item.id === item.item.id) === index
   );
-  const effectiveSelectedOptionalIds = selectedOptionalIds ?? optional.map((item) => item.item.id);
+  // Fiyat listesinde opsiyonlar seçilmeden başlar; teknik PDF yalnız seçilenleri basar.
+  const defaultSelectedOptionalIds = () => (highlightOptional ? [] : optional.map((item) => item.item.id));
+  const effectiveSelectedOptionalIds = selectedOptionalIds ?? defaultSelectedOptionalIds();
   const selectedOptionalRows = optional.filter((item) => effectiveSelectedOptionalIds.includes(item.item.id));
   const optionPrice = (item: EquipmentRow) => {
     const value = item.item.unitPrice ? Number(item.item.unitPrice) : 0;
@@ -320,7 +346,7 @@ export function ProductDetailDialog({
   const showOptionalEquipment = !hideOptionalEquipment && (highlightOptional || optional.length > 0);
   const toggleOptional = (id: string) => {
     setSelectedOptionalIds((current) => {
-      const activeIds = current ?? optional.map((item) => item.item.id);
+      const activeIds = current ?? defaultSelectedOptionalIds();
       return activeIds.includes(id) ? activeIds.filter((item) => item !== id) : [...activeIds, id];
     });
   };
@@ -335,10 +361,19 @@ export function ProductDetailDialog({
     return acc;
   }, {});
   const muadilCount = Object.values(muadilGroups).reduce((sum, items) => sum + items.length, 0);
+  const printedOptional = highlightOptional ? selectedOptionalRows : optional;
+  const printedOptionProducts = printedOptional
+    .map((item) => products.find((candidate) => candidate.id === item.item.id))
+    .filter((item): item is Product => Boolean(item));
   const technicalDocument = () => productTechnicalDoc({
-      product: { ...view, imageUrl: printImageUrl || view.imageUrl, brandLogoUrl: printBrandLogoUrl || view.brandLogoUrl },
+      product: {
+        ...view,
+        imageUrl: printImageUrl || view.imageUrl,
+        brandLogoUrl: printBrandLogoUrl || view.brandLogoUrl,
+        specs: applyOptionSpecOverrides(view.specs ?? [], printedOptionProducts, specTemplatesByType),
+      },
       standardEquipment: standardTitles,
-      optionalEquipment: optional.map((item) => ({
+      optionalEquipment: printedOptional.map((item) => ({
         title: item.item.title,
         description: item.item.description,
       })),

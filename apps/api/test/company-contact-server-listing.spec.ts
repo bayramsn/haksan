@@ -326,6 +326,42 @@ describe('firma ve kontak server-side listeleme', () => {
     expect([...contactPage1Ids, ...contactPage2Ids]).toEqual([...contactIds.slice(0, 14)].sort());
   });
 
+  it('her kolon anahtarıyla sıralar; asc ve desc birbirinin tersi, boş değer sonda', async () => {
+    const server = app!.getHttpServer();
+    const ids = async (path: string, query: Record<string, string | number>) => {
+      const response = await request(server).get(path).query({ pageSize: 50, ...query }).set(auth(adminToken));
+      expect(response.status).toBe(200);
+      return response.body.data.map((row: { id: string }) => row.id) as string[];
+    };
+    const deniedCompanyId = companyIds[14];
+    const deniedContactId = contactIds[14];
+    // Arama `tag` hem izinli 14 kaydı hem farklı il/firma adlı "DENIED" kaydını getirir.
+    for (const sortBy of ['name', 'type', 'contact', 'city', 'createdAt']) {
+      const asc = await ids('/api/v1/companies', { search: tag, sortBy, sortDir: 'asc' });
+      const desc = await ids('/api/v1/companies', { search: tag, sortBy, sortDir: 'desc' });
+      expect(asc).toHaveLength(15);
+      expect(desc).toEqual([...asc].reverse());
+    }
+    // Korelasyonlu il alt sorgusu gerçekten firmanın adresini okur: "DENIED CITY" < "PARITY CITY".
+    expect((await ids('/api/v1/companies', { search: tag, sortBy: 'city', sortDir: 'asc' }))[0]).toBe(deniedCompanyId);
+    expect((await ids('/api/v1/companies', { search: tag, sortBy: 'city', sortDir: 'desc' }))[14]).toBe(deniedCompanyId);
+
+    for (const sortBy of ['name', 'company', 'title', 'createdAt']) {
+      const asc = await ids('/api/v1/contacts', { search: tag, sortBy, sortDir: 'asc' });
+      const desc = await ids('/api/v1/contacts', { search: tag, sortBy, sortDir: 'desc' });
+      expect(asc).toHaveLength(15);
+      expect(desc).toEqual([...asc].reverse());
+    }
+    expect((await ids('/api/v1/contacts', { search: tag, sortBy: 'company', sortDir: 'asc' }))[0]).toBe(deniedContactId);
+    // E-postasız kontak iki yönde de en sonda (NULLS LAST).
+    expect((await ids('/api/v1/contacts', { search: tag, sortBy: 'contact', sortDir: 'asc' }))[14]).toBe(deniedContactId);
+    expect((await ids('/api/v1/contacts', { search: tag, sortBy: 'contact', sortDir: 'desc' }))[14]).toBe(deniedContactId);
+
+    const invalid = await request(server).get('/api/v1/companies').query({ sortBy: 'legal_title' }).set(auth(adminToken));
+    expect(invalid.status).toBeGreaterThanOrEqual(400);
+    expect(invalid.status).toBeLessThan(500);
+  });
+
   it('summary yalnız tenant + izinli portfolio kapsamını toplar', async () => {
     const server = app!.getHttpServer();
     const [companySummary, contactSummary] = await Promise.all([

@@ -7,6 +7,7 @@ import { Textarea } from "../../ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../ui/select";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "../../ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../../ui/table";
+import { SortableTableHead, useSortableRows } from "../../ui/sortable-table";
 import { Tabs, TabsList, TabsTrigger } from "../../ui/tabs";
 import { StatusBadge } from "../../shared/StatusBadge";
 import { CreateInstallationDialog } from "../../dialogs/CreateDialogs";
@@ -268,6 +269,25 @@ export function InstallationsPage() {
     const productId = machine?.productModelId ?? row.device?.productModelId;
     return products.find((product) => product.id === productId);
   };
+  const toDate = (value?: string | null) => (value ? new Date(value) : null);
+  const { sorted: sortedRows, sort, toggle } = useSortableRows(visibleRows, {
+    machine: (row) => {
+      const machine = rowMachine(row);
+      return machine ? `${machine.brand || ""} ${machine.model}`.trim() : row.device?.model || "Kurulum kaydı";
+    },
+    date: (row) => toDate(row.scheduledDate),
+    step: installationStep,
+    location: (row) => (row.locationType ? INSTALLATION_LOCATION_LABELS[row.locationType] : null),
+    status: (row) => row.status,
+  });
+  const legacyMachine = (delivery: (typeof deliveries)[number]) =>
+    machines.find((item) => item.id === delivery.formData?.machineId) ?? machines.find((item) => item.salesCaseId === delivery.salesCaseId);
+  const { sorted: sortedDeliveries, sort: deliverySort, toggle: toggleDeliverySort } = useSortableRows(deliveries, {
+    company: (delivery) => customers.find((item) => item.id === delivery.customerId)?.name,
+    date: (delivery) => toDate(delivery.date),
+    signedBy: (delivery) => delivery.signedBy,
+    status: (delivery) => (delivery.status === "Tamamlandı" ? "Kurulum Tutanağı" : "Tutanak Bekliyor"),
+  });
 
   return (
     <div className="crm-page">
@@ -300,16 +320,16 @@ export function InstallationsPage() {
             <Table>
               <TableHeader>
                 <TableRow className="bg-muted/30 hover:bg-muted/30">
-                  <TableHead>Makine / Müşteri</TableHead>
-                  <TableHead>Teknisyen / Tarih</TableHead>
-                  <TableHead>Kurulum Yolculuğu</TableHead>
-                  <TableHead>Konum / Süre</TableHead>
-                  <TableHead>Durum</TableHead>
+                  <SortableTableHead sortKey="machine" sort={sort} onSort={toggle}>Makine / Müşteri</SortableTableHead>
+                  <SortableTableHead sortKey="date" sort={sort} onSort={toggle}>Teknisyen / Tarih</SortableTableHead>
+                  <SortableTableHead sortKey="step" sort={sort} onSort={toggle}>Kurulum Yolculuğu</SortableTableHead>
+                  <SortableTableHead sortKey="location" sort={sort} onSort={toggle}>Konum / Süre</SortableTableHead>
+                  <SortableTableHead sortKey="status" sort={sort} onSort={toggle}>Durum</SortableTableHead>
                   <TableHead className="w-20 text-right">İşlem</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {visibleRows.map((i) => {
+                {sortedRows.map((i) => {
                   const machine = rowMachine(i);
                   const product = rowProduct(i);
                   const step = installationStep(i);
@@ -418,11 +438,11 @@ export function InstallationsPage() {
           </CardHeader>
           <div className="overflow-x-auto">
             <Table>
-              <TableHeader><TableRow className="bg-muted/30 hover:bg-muted/30"><TableHead>Firma / Makine</TableHead><TableHead>Teslim Tarihi</TableHead><TableHead>Teslim Alan</TableHead><TableHead>Durum</TableHead><TableHead className="text-right">Kurulum Tutanağı</TableHead></TableRow></TableHeader>
+              <TableHeader><TableRow className="bg-muted/30 hover:bg-muted/30"><SortableTableHead sortKey="company" sort={deliverySort} onSort={toggleDeliverySort}>Firma / Makine</SortableTableHead><SortableTableHead sortKey="date" sort={deliverySort} onSort={toggleDeliverySort}>Teslim Tarihi</SortableTableHead><SortableTableHead sortKey="signedBy" sort={deliverySort} onSort={toggleDeliverySort}>Teslim Alan</SortableTableHead><SortableTableHead sortKey="status" sort={deliverySort} onSort={toggleDeliverySort}>Durum</SortableTableHead><TableHead className="text-right">Kurulum Tutanağı</TableHead></TableRow></TableHeader>
               <TableBody>
-                {deliveries.map((delivery) => {
+                {sortedDeliveries.map((delivery) => {
                   const customer = customers.find((item) => item.id === delivery.customerId);
-                  const machine = machines.find((item) => item.id === delivery.formData?.machineId) ?? machines.find((item) => item.salesCaseId === delivery.salesCaseId);
+                  const machine = legacyMachine(delivery);
                   return (
                     <TableRow key={delivery.id}>
                       <TableCell><div className="text-sm font-medium">{customer?.name ?? "Firma"}</div><div className="mt-0.5 text-xs text-muted-foreground">{machine ? `${[machine.brand, machine.model].filter(Boolean).join(" ")} · ${machine.serialNumber || "Seri no yok"}` : "Makine bilgisi yok"}</div></TableCell>

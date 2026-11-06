@@ -28,6 +28,7 @@ import { ProcessChecklistPanel } from "./ProcessChecklistPanel";
 import { OpportunityProcessCenter } from "./OpportunityProcessCenter";
 import { StatusBadge } from "../shared/StatusBadge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../ui/table";
+import { SortableTableHead, useSortableRows } from "../ui/sortable-table";
 import { useStore } from "../../lib/store";
 import { useAuth } from "../../../lib/auth";
 import { AddActivityDialog, CreateCustomerDialog, CreateInstallationDialog, CreateShipmentDialog } from "../dialogs/CreateDialogs";
@@ -82,6 +83,23 @@ import {
 } from "../../lib/paymentMethod";
 import { RemoteCompanyCombobox } from "../shared/RemoteCompanyCombobox";
 import { useCompanyDetail } from "../../lib/companyServerData";
+
+// ponytail: StatusBadge etiketlerinin bu sekmelerde görünen kısmı (sıralama için);
+// StatusBadge etiketlerini dışa açarsa buradan silinir.
+const STATUS_SORT_LABELS: Record<string, string> = {
+  Draft: "Taslak", Sent: "Gönderildi", Approved: "Onaylı", Rejected: "Reddedildi", Cancelled: "İptal",
+  "Price Waiting": "Fiyat Bekleniyor", "Budget Waiting": "Bütçe Bekleniyor", "On Hold": "Askıya Alındı", Postponed: "Ertelendi",
+  Pending: "Bekliyor", Paid: "Ödendi", Overdue: "Gecikmiş",
+  Proforma: "Proforma", Contract: "Sözleşme", CommercialInvoice: "Ticari Fatura", AccountingInvoice: "Muhasebe Faturası",
+  DeliveryForm: "Teslim Formu", InstallationForm: "Kurulum Formu", Other: "Diğer",
+};
+const statusSortLabel = (status: string) => STATUS_SORT_LABELS[status] ?? status;
+const SIZE_UNITS: Record<string, number> = { B: 1, KB: 1024, MB: 1024 * 1024 };
+/** "1.2 MB" → bayt; "Dosya bağlı" gibi etiketler boş sayılır ve sona düşer. */
+const docSizeBytes = (size: string) => {
+  const match = /^([\d.]+)\s*(B|KB|MB)$/.exec(size?.trim() ?? "");
+  return match ? Number(match[1]) * SIZE_UNITS[match[2]] : null;
+};
 
 export function SalesCaseDetailDialog({
   sc,
@@ -518,6 +536,26 @@ export function SalesCaseDetailPage({
   const docs = documents.filter((d) => d.salesCaseId === sc.id);
   const externalQuotes = docs.filter((d) => d.type === "ExternalQuote");
   const pays = payments.filter((p) => p.salesCaseId === sc.id);
+  const offerSort = useSortableRows(offs, {
+    quoteNo: (o) => o.quoteNo,
+    revision: (o) => o.revision,
+    date: (o) => new Date(o.date),
+    amount: (o) => o.amount,
+    status: (o) => statusSortLabel(o.status),
+  });
+  const docSort = useSortableRows(docs, {
+    type: (d) => statusSortLabel(d.type),
+    file: (d) => d.fileName,
+    size: (d) => docSizeBytes(d.size),
+    date: (d) => (d.uploadedAt ? new Date(d.uploadedAt) : null),
+  });
+  const paymentSort = useSortableRows(pays, {
+    type: (p) => (p.paymentType === "received" ? "Tahsilat" : "Beklenen"),
+    amount: (p) => p.amount,
+    dueDate: (p) => (p.dueDate ? new Date(p.dueDate) : null),
+    paidDate: (p) => (p.paidDate ? new Date(p.paidDate) : null),
+    status: (p) => statusSortLabel(p.status),
+  });
   const relatedInstallation = installations.find((item) => item.salesCaseId === sc.id);
   // Kart "Sözleşme" aşamasına ulaştıysa ticari fatura yükleme alanını aç.
   const currentOperationIndex = PIPELINE_STAGE_FLOW.indexOf(sc.stage as any);
@@ -1753,15 +1791,15 @@ export function SalesCaseDetailPage({
               <Table className="min-w-[620px]">
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Teklif No</TableHead>
-                    <TableHead>Revizyon</TableHead>
-                    <TableHead>Tarih</TableHead>
-                    <TableHead>Tutar</TableHead>
-                    <TableHead>Durum</TableHead>
+                    <SortableTableHead sortKey="quoteNo" sort={offerSort.sort} onSort={offerSort.toggle}>Teklif No</SortableTableHead>
+                    <SortableTableHead sortKey="revision" sort={offerSort.sort} onSort={offerSort.toggle}>Revizyon</SortableTableHead>
+                    <SortableTableHead sortKey="date" sort={offerSort.sort} onSort={offerSort.toggle}>Tarih</SortableTableHead>
+                    <SortableTableHead sortKey="amount" sort={offerSort.sort} onSort={offerSort.toggle}>Tutar</SortableTableHead>
+                    <SortableTableHead sortKey="status" sort={offerSort.sort} onSort={offerSort.toggle}>Durum</SortableTableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {offs.map((o) => (
+                  {offerSort.sorted.map((o) => (
                     <TableRow
                       key={o.id}
                       className="cursor-pointer hover:bg-muted/40"
@@ -1874,15 +1912,15 @@ export function SalesCaseDetailPage({
               <Table className="min-w-[560px]">
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Tip</TableHead>
-                    <TableHead>Dosya</TableHead>
-                    <TableHead>Boyut</TableHead>
-                    <TableHead>Tarih</TableHead>
+                    <SortableTableHead sortKey="type" sort={docSort.sort} onSort={docSort.toggle}>Tip</SortableTableHead>
+                    <SortableTableHead sortKey="file" sort={docSort.sort} onSort={docSort.toggle}>Dosya</SortableTableHead>
+                    <SortableTableHead sortKey="size" sort={docSort.sort} onSort={docSort.toggle}>Boyut</SortableTableHead>
+                    <SortableTableHead sortKey="date" sort={docSort.sort} onSort={docSort.toggle}>Tarih</SortableTableHead>
                     <TableHead className="w-14 text-right">İşlem</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {docs.map((d) => (
+                  {docSort.sorted.map((d) => (
                     <TableRow
                       key={d.id}
                       className={d.fileId ? "cursor-pointer hover:bg-muted/40" : undefined}
@@ -1954,15 +1992,15 @@ export function SalesCaseDetailPage({
               <Table className="min-w-[620px]">
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Tip</TableHead>
-                    <TableHead>Tutar</TableHead>
-                    <TableHead>Vade</TableHead>
-                    <TableHead>Ödeme Tarihi</TableHead>
-                    <TableHead>Durum</TableHead>
+                    <SortableTableHead sortKey="type" sort={paymentSort.sort} onSort={paymentSort.toggle}>Tip</SortableTableHead>
+                    <SortableTableHead sortKey="amount" sort={paymentSort.sort} onSort={paymentSort.toggle}>Tutar</SortableTableHead>
+                    <SortableTableHead sortKey="dueDate" sort={paymentSort.sort} onSort={paymentSort.toggle}>Vade</SortableTableHead>
+                    <SortableTableHead sortKey="paidDate" sort={paymentSort.sort} onSort={paymentSort.toggle}>Ödeme Tarihi</SortableTableHead>
+                    <SortableTableHead sortKey="status" sort={paymentSort.sort} onSort={paymentSort.toggle}>Durum</SortableTableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {pays.map((p) => (
+                  {paymentSort.sorted.map((p) => (
                     <TableRow key={p.id}>
                       <TableCell>{p.paymentType === "received" ? "Tahsilat" : "Beklenen"}</TableCell>
                       <TableCell className="tabular-nums">{p.amount.toLocaleString()} {p.currency}</TableCell>

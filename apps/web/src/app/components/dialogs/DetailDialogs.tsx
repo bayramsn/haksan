@@ -10,13 +10,14 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "../ui/tabs";
 import { Button } from "../ui/button";
 import { Avatar, AvatarFallback } from "../ui/avatar";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../ui/table";
+import { SortableTableHead, useSortableRows, type SortState, type SortValue } from "../ui/sortable-table";
 import {
   Phone, Smartphone, Mail, MapPin, Building2, Star, Globe, Hash, Briefcase,
   FileText, FileSignature, Receipt, Wallet, Cpu, Wrench, ChevronRight, User as UserIcon,
   Plus, Pencil, Trash2, CalendarPlus,
 } from "lucide-react";
 import {
-  Customer, Contact, FirmType, SalesCase, Offer, Machine, DocumentItem, ServiceRequest,
+  Customer, Contact, FirmType, SalesCase, Offer, Machine, DocumentItem, ServiceRequest, Payment,
   salesStageLabel,
 } from "../../lib/mock";
 import { useStore } from "../../lib/store";
@@ -130,6 +131,46 @@ function EmptyRow({ cols, text }: { cols: number; text: string }) {
     </TableRow>
   );
 }
+
+/**
+ * Tablo başına kolon sıralaması. Firma penceresi erken `return null` yaptığı ve
+ * özet pop-up'ı tabloları koşullu bastığı için hook burada, tablo başına çağrılır.
+ */
+function SortRows<T, K extends string>({ rows, by, children }: {
+  rows: readonly T[];
+  by: Record<K, (row: T) => SortValue>;
+  children: (s: { sorted: T[]; sort: SortState<K>; toggle: (key: K) => void }) => React.ReactNode;
+}) {
+  return <>{children(useSortableRows(rows, by))}</>;
+}
+
+const paymentTypeLabel = (p: Payment) =>
+  p.paymentType === "received" ? "Tahsilat" : p.direction === "out" ? "Ödeme" : "Beklenen";
+
+const CONTACT_SORT = {
+  name: (k: Contact) => k.name,
+  title: (k: Contact) => k.title,
+  contact: (k: Contact) => k.phone || k.email,
+};
+const CASE_SORT = {
+  product: (s: SalesCase) => s.requestedProduct,
+  amount: (s: SalesCase) => s.estimatedAmount,
+  stage: (s: SalesCase) => salesStageLabel(s.stage),
+  date: (s: SalesCase) => s.createdAt,
+};
+const OFFER_SORT = {
+  no: (o: Offer) => o.quoteNo,
+  amount: (o: Offer) => o.amount,
+  status: (o: Offer) => o.status,
+  date: (o: Offer) => o.date,
+};
+const MACHINE_SORT = {
+  serial: (m: Machine) => m.serialNumber,
+  model: (m: Machine) => m.model,
+  installed: (m: Machine) => m.installationDate,
+  warranty: (m: Machine) => m.warrantyEnd,
+  status: (m: Machine) => m.status,
+};
 
 // ───────────────────────── Company popup ─────────────────────────
 
@@ -534,19 +575,20 @@ export function CompanyDetailDialog({
                 />
               </div>
               <div className="rounded-lg border border-border/60 overflow-hidden">
+                <SortRows rows={firmContacts} by={CONTACT_SORT}>{({ sorted, sort, toggle }) => (
                 <Table>
                   <TableHeader>
                     <TableRow className="bg-muted/30 hover:bg-muted/30">
-                      <TableHead>Kişi</TableHead>
-                      <TableHead>Ünvan</TableHead>
-                      <TableHead>İletişim</TableHead>
+                      <SortableTableHead sortKey="name" sort={sort} onSort={toggle}>Kişi</SortableTableHead>
+                      <SortableTableHead sortKey="title" sort={sort} onSort={toggle}>Ünvan</SortableTableHead>
+                      <SortableTableHead sortKey="contact" sort={sort} onSort={toggle}>İletişim</SortableTableHead>
                       <TableHead className="w-24 text-right">İşlem</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {firmContactsQuery.isPending && <EmptyRow cols={4} text="Kontaklar yükleniyor..." />}
                     {firmContactsQuery.isError && <EmptyRow cols={4} text="Kontaklar yüklenemedi." />}
-                    {firmContacts.map((k) => (
+                    {sorted.map((k) => (
                       <TableRow
                         key={k.id}
                         className={onOpenContact ? "cursor-pointer group" : ""}
@@ -609,6 +651,7 @@ export function CompanyDetailDialog({
                     {!firmContactsQuery.isPending && !firmContactsQuery.isError && firmContacts.length === 0 && <EmptyRow cols={4} text="Bu firmaya bağlı kontak yok." />}
                   </TableBody>
                 </Table>
+                )}</SortRows>
               </div>
             </TabsContent>
 
@@ -632,18 +675,27 @@ export function CompanyDetailDialog({
                   )}
                 </div>
                 <div className="overflow-hidden rounded-lg border border-border/60">
+                  <SortRows
+                    rows={firmActivities}
+                    by={{
+                      date: (a) => a.date,
+                      type: (a) => a.type || "Aktivite",
+                      title: (a) => a.title,
+                      createdBy: (a) => a.createdByName,
+                    }}
+                  >{({ sorted, sort, toggle }) => (
                   <Table>
                     <TableHeader>
                       <TableRow className="bg-muted/30 hover:bg-muted/30">
-                        <TableHead>Tarih</TableHead>
-                        <TableHead>Tür</TableHead>
-                        <TableHead>Aktivite</TableHead>
-                        <TableHead>Kaydeden</TableHead>
+                        <SortableTableHead sortKey="date" sort={sort} onSort={toggle}>Tarih</SortableTableHead>
+                        <SortableTableHead sortKey="type" sort={sort} onSort={toggle}>Tür</SortableTableHead>
+                        <SortableTableHead sortKey="title" sort={sort} onSort={toggle}>Aktivite</SortableTableHead>
+                        <SortableTableHead sortKey="createdBy" sort={sort} onSort={toggle}>Kaydeden</SortableTableHead>
                         <TableHead className="w-10" />
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {firmActivities.map((activity) => (
+                      {sorted.map((activity) => (
                         <TableRow key={activity.id}>
                           <TableCell className="whitespace-nowrap tabular-nums text-muted-foreground">{activity.date}</TableCell>
                           <TableCell className="whitespace-nowrap">{activity.type || "Aktivite"}</TableCell>
@@ -675,6 +727,7 @@ export function CompanyDetailDialog({
                       )}
                     </TableBody>
                   </Table>
+                  )}</SortRows>
                 </div>
               </TabsContent>
             )}
@@ -682,17 +735,18 @@ export function CompanyDetailDialog({
             {/* sales cases */}
             <TabsContent value="satis" className="mt-3">
               <div className="rounded-lg border border-border/60 overflow-hidden">
+                <SortRows rows={firmCases} by={CASE_SORT}>{({ sorted, sort, toggle }) => (
                 <Table>
                   <TableHeader>
                     <TableRow className="bg-muted/30 hover:bg-muted/30">
-                      <TableHead>Ürün / Model</TableHead>
-                      <TableHead>Tutar</TableHead>
-                      <TableHead>Aşama</TableHead>
-                      <TableHead>Tarih</TableHead>
+                      <SortableTableHead sortKey="product" sort={sort} onSort={toggle}>Ürün / Model</SortableTableHead>
+                      <SortableTableHead sortKey="amount" sort={sort} onSort={toggle}>Tutar</SortableTableHead>
+                      <SortableTableHead sortKey="stage" sort={sort} onSort={toggle}>Aşama</SortableTableHead>
+                      <SortableTableHead sortKey="date" sort={sort} onSort={toggle}>Tarih</SortableTableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {firmCases.map((s) => (
+                    {sorted.map((s) => (
                       <TableRow key={s.id}>
                         <TableCell>{s.requestedProduct}{s.requestedModel && s.requestedModel !== s.requestedProduct && <span className="text-muted-foreground"> · {s.requestedModel}</span>}</TableCell>
                         <TableCell className="tabular-nums">{fmtMoney(s.estimatedAmount, s.currency)}</TableCell>
@@ -703,23 +757,25 @@ export function CompanyDetailDialog({
                     {firmCases.length === 0 && <EmptyRow cols={4} text="Satış kartı yok." />}
                   </TableBody>
                 </Table>
+                )}</SortRows>
               </div>
             </TabsContent>
 
             {/* offers */}
             <TabsContent value="teklif" className="mt-3">
               <div className="rounded-lg border border-border/60 overflow-hidden">
+                <SortRows rows={firmOffers} by={OFFER_SORT}>{({ sorted, sort, toggle }) => (
                 <Table>
                   <TableHeader>
                     <TableRow className="bg-muted/30 hover:bg-muted/30">
-                      <TableHead>Teklif No</TableHead>
-                      <TableHead>Tutar</TableHead>
-                      <TableHead>Durum</TableHead>
-                      <TableHead>Tarih</TableHead>
+                      <SortableTableHead sortKey="no" sort={sort} onSort={toggle}>Teklif No</SortableTableHead>
+                      <SortableTableHead sortKey="amount" sort={sort} onSort={toggle}>Tutar</SortableTableHead>
+                      <SortableTableHead sortKey="status" sort={sort} onSort={toggle}>Durum</SortableTableHead>
+                      <SortableTableHead sortKey="date" sort={sort} onSort={toggle}>Tarih</SortableTableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {firmOffers.map((o) => (
+                    {sorted.map((o) => (
                       <TableRow key={o.id}>
                         <TableCell className="font-medium">{o.quoteNo}</TableCell>
                         <TableCell className="tabular-nums">{fmtMoney(o.amount, o.currency)}</TableCell>
@@ -730,23 +786,33 @@ export function CompanyDetailDialog({
                     {firmOffers.length === 0 && <EmptyRow cols={4} text="Teklif yok." />}
                   </TableBody>
                 </Table>
+                )}</SortRows>
               </div>
             </TabsContent>
 
             {/* documents (proformas + contracts + invoices) */}
             <TabsContent value="dokuman" className="mt-3">
               <div className="rounded-lg border border-border/60 overflow-hidden">
+                <SortRows
+                  rows={firmDocs}
+                  by={{
+                    type: (d) => DOC_LABEL[d.type] ?? d.type,
+                    file: (d) => d.fileName,
+                    date: (d) => d.uploadedAt,
+                    size: (d) => d.size,
+                  }}
+                >{({ sorted, sort, toggle }) => (
                 <Table>
                   <TableHeader>
                     <TableRow className="bg-muted/30 hover:bg-muted/30">
-                      <TableHead>Tip</TableHead>
-                      <TableHead>Belge</TableHead>
-                      <TableHead>Tarih</TableHead>
-                      <TableHead>Durum</TableHead>
+                      <SortableTableHead sortKey="type" sort={sort} onSort={toggle}>Tip</SortableTableHead>
+                      <SortableTableHead sortKey="file" sort={sort} onSort={toggle}>Belge</SortableTableHead>
+                      <SortableTableHead sortKey="date" sort={sort} onSort={toggle}>Tarih</SortableTableHead>
+                      <SortableTableHead sortKey="size" sort={sort} onSort={toggle}>Durum</SortableTableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {firmDocs.map((d) => (
+                    {sorted.map((d) => (
                       <TableRow key={d.id}>
                         <TableCell>
                           <span className="inline-flex items-center gap-1.5">
@@ -762,26 +828,37 @@ export function CompanyDetailDialog({
                     {firmDocs.length === 0 && <EmptyRow cols={4} text="Proforma / sözleşme / fatura yok." />}
                   </TableBody>
                 </Table>
+                )}</SortRows>
               </div>
             </TabsContent>
 
             {/* payments */}
             <TabsContent value="cari" className="mt-3">
               <div className="rounded-lg border border-border/60 overflow-hidden">
+                <SortRows
+                  rows={firmPayments}
+                  by={{
+                    type: paymentTypeLabel,
+                    invoice: (p) => p.invoiceNo,
+                    amount: (p) => p.amount,
+                    due: (p) => p.dueDate,
+                    status: (p) => p.status,
+                  }}
+                >{({ sorted, sort, toggle }) => (
                 <Table>
                   <TableHeader>
                     <TableRow className="bg-muted/30 hover:bg-muted/30">
-                      <TableHead>Tip</TableHead>
-                      <TableHead>Fatura No</TableHead>
-                      <TableHead>Tutar</TableHead>
-                      <TableHead>Vade</TableHead>
-                      <TableHead>Durum</TableHead>
+                      <SortableTableHead sortKey="type" sort={sort} onSort={toggle}>Tip</SortableTableHead>
+                      <SortableTableHead sortKey="invoice" sort={sort} onSort={toggle}>Fatura No</SortableTableHead>
+                      <SortableTableHead sortKey="amount" sort={sort} onSort={toggle}>Tutar</SortableTableHead>
+                      <SortableTableHead sortKey="due" sort={sort} onSort={toggle}>Vade</SortableTableHead>
+                      <SortableTableHead sortKey="status" sort={sort} onSort={toggle}>Durum</SortableTableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {firmPayments.map((p) => (
+                    {sorted.map((p) => (
                       <TableRow key={p.id}>
-                        <TableCell>{p.paymentType === "received" ? "Tahsilat" : p.direction === "out" ? "Ödeme" : "Beklenen"}</TableCell>
+                        <TableCell>{paymentTypeLabel(p)}</TableCell>
                         <TableCell className="text-muted-foreground">{p.invoiceNo || "—"}</TableCell>
                         <TableCell className="tabular-nums">{fmtMoney(p.amount, p.currency)}</TableCell>
                         <TableCell className="text-muted-foreground tabular-nums">{p.dueDate}</TableCell>
@@ -791,24 +868,26 @@ export function CompanyDetailDialog({
                     {firmPayments.length === 0 && <EmptyRow cols={5} text="Cari hareket yok." />}
                   </TableBody>
                 </Table>
+                )}</SortRows>
               </div>
             </TabsContent>
 
             {/* machines */}
             <TabsContent value="makine" className="mt-3">
               <div className="rounded-lg border border-border/60 overflow-hidden">
+                <SortRows rows={firmMachines} by={MACHINE_SORT}>{({ sorted, sort, toggle }) => (
                 <Table>
                   <TableHeader>
                     <TableRow className="bg-muted/30 hover:bg-muted/30">
-                      <TableHead>Seri No</TableHead>
-                      <TableHead>Model</TableHead>
-                      <TableHead>Kurulum</TableHead>
-                      <TableHead>Garanti Bitiş</TableHead>
-                      <TableHead>Durum</TableHead>
+                      <SortableTableHead sortKey="serial" sort={sort} onSort={toggle}>Seri No</SortableTableHead>
+                      <SortableTableHead sortKey="model" sort={sort} onSort={toggle}>Model</SortableTableHead>
+                      <SortableTableHead sortKey="installed" sort={sort} onSort={toggle}>Kurulum</SortableTableHead>
+                      <SortableTableHead sortKey="warranty" sort={sort} onSort={toggle}>Garanti Bitiş</SortableTableHead>
+                      <SortableTableHead sortKey="status" sort={sort} onSort={toggle}>Durum</SortableTableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {firmMachines.map((m) => (
+                    {sorted.map((m) => (
                       <TableRow key={m.id}>
                         <TableCell className="font-medium">{m.serialNumber}</TableCell>
                         <TableCell>{m.model}</TableCell>
@@ -820,6 +899,7 @@ export function CompanyDetailDialog({
                     {firmMachines.length === 0 && <EmptyRow cols={5} text="Kurulu makine yok." />}
                   </TableBody>
                 </Table>
+                )}</SortRows>
               </div>
             </TabsContent>
           </Tabs>
@@ -930,17 +1010,18 @@ function CompanyBreakdownDialog({
         <div className="px-6 py-4">
           <div className="rounded-lg border border-border/60 overflow-hidden">
             {breakdown === "contacts" && (
+              <SortRows rows={contacts} by={CONTACT_SORT}>{({ sorted, sort, toggle }) => (
               <Table>
                 <TableHeader>
                   <TableRow className="bg-muted/30 hover:bg-muted/30">
-                    <TableHead>Kişi</TableHead>
-                    <TableHead>Ünvan</TableHead>
-                    <TableHead>İletişim</TableHead>
+                    <SortableTableHead sortKey="name" sort={sort} onSort={toggle}>Kişi</SortableTableHead>
+                    <SortableTableHead sortKey="title" sort={sort} onSort={toggle}>Ünvan</SortableTableHead>
+                    <SortableTableHead sortKey="contact" sort={sort} onSort={toggle}>İletişim</SortableTableHead>
                     {onOpenContact && <TableHead className="w-8" />}
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {contacts.map((k) => (
+                  {sorted.map((k) => (
                     <TableRow
                       key={k.id}
                       className={onOpenContact ? "cursor-pointer group" : ""}
@@ -973,20 +1054,22 @@ function CompanyBreakdownDialog({
                   {contacts.length === 0 && <EmptyRow cols={onOpenContact ? 4 : 3} text="Bu firmaya bağlı kontak yok." />}
                 </TableBody>
               </Table>
+              )}</SortRows>
             )}
 
             {breakdown === "cases" && (
+              <SortRows rows={cases} by={CASE_SORT}>{({ sorted, sort, toggle }) => (
               <Table>
                 <TableHeader>
                   <TableRow className="bg-muted/30 hover:bg-muted/30">
-                    <TableHead>Ürün / Model</TableHead>
-                    <TableHead>Tutar</TableHead>
-                    <TableHead>Aşama</TableHead>
-                    <TableHead>Tarih</TableHead>
+                    <SortableTableHead sortKey="product" sort={sort} onSort={toggle}>Ürün / Model</SortableTableHead>
+                    <SortableTableHead sortKey="amount" sort={sort} onSort={toggle}>Tutar</SortableTableHead>
+                    <SortableTableHead sortKey="stage" sort={sort} onSort={toggle}>Aşama</SortableTableHead>
+                    <SortableTableHead sortKey="date" sort={sort} onSort={toggle}>Tarih</SortableTableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {cases.map((s) => (
+                  {sorted.map((s) => (
                     <TableRow key={s.id}>
                       <TableCell>{s.requestedProduct}{s.requestedModel && s.requestedModel !== s.requestedProduct && <span className="text-muted-foreground"> · {s.requestedModel}</span>}</TableCell>
                       <TableCell className="tabular-nums">{fmtMoney(s.estimatedAmount, s.currency)}</TableCell>
@@ -997,20 +1080,22 @@ function CompanyBreakdownDialog({
                   {cases.length === 0 && <EmptyRow cols={4} text="Satış kartı yok." />}
                 </TableBody>
               </Table>
+              )}</SortRows>
             )}
 
             {breakdown === "offers" && (
+              <SortRows rows={offers} by={OFFER_SORT}>{({ sorted, sort, toggle }) => (
               <Table>
                 <TableHeader>
                   <TableRow className="bg-muted/30 hover:bg-muted/30">
-                    <TableHead>Teklif No</TableHead>
-                    <TableHead>Tutar</TableHead>
-                    <TableHead>Durum</TableHead>
-                    <TableHead>Tarih</TableHead>
+                    <SortableTableHead sortKey="no" sort={sort} onSort={toggle}>Teklif No</SortableTableHead>
+                    <SortableTableHead sortKey="amount" sort={sort} onSort={toggle}>Tutar</SortableTableHead>
+                    <SortableTableHead sortKey="status" sort={sort} onSort={toggle}>Durum</SortableTableHead>
+                    <SortableTableHead sortKey="date" sort={sort} onSort={toggle}>Tarih</SortableTableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {offers.map((o) => (
+                  {sorted.map((o) => (
                     <TableRow key={o.id}>
                       <TableCell className="font-medium">{o.quoteNo}</TableCell>
                       <TableCell className="tabular-nums">{fmtMoney(o.amount, o.currency)}</TableCell>
@@ -1021,19 +1106,24 @@ function CompanyBreakdownDialog({
                   {offers.length === 0 && <EmptyRow cols={4} text="Teklif yok." />}
                 </TableBody>
               </Table>
+              )}</SortRows>
             )}
 
             {breakdown === "proformas" && (
+              <SortRows
+                rows={proformas}
+                by={{ file: (d) => d.fileName, date: (d) => d.uploadedAt, size: (d) => d.size }}
+              >{({ sorted, sort, toggle }) => (
               <Table>
                 <TableHeader>
                   <TableRow className="bg-muted/30 hover:bg-muted/30">
-                    <TableHead>Belge</TableHead>
-                    <TableHead>Tarih</TableHead>
-                    <TableHead>Boyut</TableHead>
+                    <SortableTableHead sortKey="file" sort={sort} onSort={toggle}>Belge</SortableTableHead>
+                    <SortableTableHead sortKey="date" sort={sort} onSort={toggle}>Tarih</SortableTableHead>
+                    <SortableTableHead sortKey="size" sort={sort} onSort={toggle}>Boyut</SortableTableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {proformas.map((d) => (
+                  {sorted.map((d) => (
                     <TableRow key={d.id}>
                       <TableCell className="font-medium">
                         <span className="inline-flex items-center gap-1.5">
@@ -1048,21 +1138,23 @@ function CompanyBreakdownDialog({
                   {proformas.length === 0 && <EmptyRow cols={3} text="Proforma yok." />}
                 </TableBody>
               </Table>
+              )}</SortRows>
             )}
 
             {breakdown === "machines" && (
+              <SortRows rows={machines} by={MACHINE_SORT}>{({ sorted, sort, toggle }) => (
               <Table>
                 <TableHeader>
                   <TableRow className="bg-muted/30 hover:bg-muted/30">
-                    <TableHead>Seri No</TableHead>
-                    <TableHead>Model</TableHead>
-                    <TableHead>Kurulum</TableHead>
-                    <TableHead>Garanti Bitiş</TableHead>
-                    <TableHead>Durum</TableHead>
+                    <SortableTableHead sortKey="serial" sort={sort} onSort={toggle}>Seri No</SortableTableHead>
+                    <SortableTableHead sortKey="model" sort={sort} onSort={toggle}>Model</SortableTableHead>
+                    <SortableTableHead sortKey="installed" sort={sort} onSort={toggle}>Kurulum</SortableTableHead>
+                    <SortableTableHead sortKey="warranty" sort={sort} onSort={toggle}>Garanti Bitiş</SortableTableHead>
+                    <SortableTableHead sortKey="status" sort={sort} onSort={toggle}>Durum</SortableTableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {machines.map((m) => (
+                  {sorted.map((m) => (
                     <TableRow key={m.id}>
                       <TableCell className="font-medium">{m.serialNumber}</TableCell>
                       <TableCell>{m.model}</TableCell>
@@ -1074,20 +1166,30 @@ function CompanyBreakdownDialog({
                   {machines.length === 0 && <EmptyRow cols={5} text="Kurulu makine yok." />}
                 </TableBody>
               </Table>
+              )}</SortRows>
             )}
 
             {breakdown === "service" && (
+              <SortRows
+                rows={service}
+                by={{
+                  no: (s) => s.ticketNo || s.id,
+                  machine: (s) => machineById.get(s.machineId)?.serialNumber || machineById.get(s.machineId)?.model,
+                  stage: (s) => s.stage,
+                  date: (s) => s.createdAt,
+                }}
+              >{({ sorted, sort, toggle }) => (
               <Table>
                 <TableHeader>
                   <TableRow className="bg-muted/30 hover:bg-muted/30">
-                    <TableHead>Talep No</TableHead>
-                    <TableHead>Makine</TableHead>
-                    <TableHead>Aşama</TableHead>
-                    <TableHead>Tarih</TableHead>
+                    <SortableTableHead sortKey="no" sort={sort} onSort={toggle}>Talep No</SortableTableHead>
+                    <SortableTableHead sortKey="machine" sort={sort} onSort={toggle}>Makine</SortableTableHead>
+                    <SortableTableHead sortKey="stage" sort={sort} onSort={toggle}>Aşama</SortableTableHead>
+                    <SortableTableHead sortKey="date" sort={sort} onSort={toggle}>Tarih</SortableTableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {service.map((s) => (
+                  {sorted.map((s) => (
                     <TableRow key={s.id}>
                       <TableCell className="font-medium">{s.ticketNo || s.id}</TableCell>
                       <TableCell>{machineById.get(s.machineId)?.serialNumber || machineById.get(s.machineId)?.model || "—"}</TableCell>
@@ -1098,6 +1200,7 @@ function CompanyBreakdownDialog({
                   {service.length === 0 && <EmptyRow cols={4} text="Servis talebi yok." />}
                 </TableBody>
               </Table>
+              )}</SortRows>
             )}
           </div>
         </div>

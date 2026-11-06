@@ -13,6 +13,7 @@ import {
 } from "../../ui/alert-dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../../ui/table";
+import { SortableTableHead, useSortableRows } from "../../ui/sortable-table";
 import { Label } from "../../ui/label";
 import { Textarea } from "../../ui/textarea";
 import { StatusBadge } from "../../shared/StatusBadge";
@@ -143,7 +144,19 @@ export function PaymentsPage({ focus, initialQuery }: { focus?: OperationFocus; 
       .some((value) => (value ?? "").toLocaleLowerCase("tr-TR").includes(q.toLocaleLowerCase("tr-TR")))) return false;
     return true;
   });
-  const { page, setPage, totalPages, pageItems } = usePaged(filtered, 12);
+  const toDate = (value?: string | null) => (value ? new Date(value) : null);
+  const { sorted, sort, toggle } = useSortableRows(filtered, {
+    company: (p) => customerName(p.customerId),
+    direction: (p) => (p.direction === "in" ? "Alınan" : "Ödenen"),
+    invoiceNo: (p) => p.invoiceNo,
+    amount: (p) => (p.direction === "in" ? p.amount : -p.amount),
+    dueDate: (p) => toDate(p.dueDate),
+    paidDate: (p) => toDate(p.paidDate),
+    status: (p) => ({ Pending: "Bekliyor", Paid: "Ödendi", Overdue: "Gecikmiş", Cancelled: "İptal" } as Record<string, string>)[p.status] ?? p.status,
+    note: (p) => p.note,
+  });
+  const { page, setPage, totalPages, pageItems } = usePaged(sorted, 12);
+  const sortBy = (key: Parameters<typeof toggle>[0]) => { toggle(key); setPage(1); };
 
   const deletePayment = async (payment: Payment) => {
     if (payment.source !== "payment") {
@@ -534,14 +547,14 @@ export function PaymentsPage({ focus, initialQuery }: { focus?: OperationFocus; 
           <Table>
             <TableHeader>
               <TableRow className="bg-muted/30 hover:bg-muted/30">
-                <TableHead className="w-[280px]">Firma</TableHead>
-                <TableHead>Yön</TableHead>
-                <TableHead>Fatura No</TableHead>
-                <TableHead className="text-right">Tutar</TableHead>
-                <TableHead>Vade</TableHead>
-                <TableHead>Ödeme Tarihi</TableHead>
-                <TableHead>Durum</TableHead>
-                <TableHead>Not</TableHead>
+                <SortableTableHead sortKey="company" sort={sort} onSort={sortBy} className="w-[280px]">Firma</SortableTableHead>
+                <SortableTableHead sortKey="direction" sort={sort} onSort={sortBy}>Yön</SortableTableHead>
+                <SortableTableHead sortKey="invoiceNo" sort={sort} onSort={sortBy}>Fatura No</SortableTableHead>
+                <SortableTableHead sortKey="amount" sort={sort} onSort={sortBy} className="text-right">Tutar</SortableTableHead>
+                <SortableTableHead sortKey="dueDate" sort={sort} onSort={sortBy}>Vade</SortableTableHead>
+                <SortableTableHead sortKey="paidDate" sort={sort} onSort={sortBy}>Ödeme Tarihi</SortableTableHead>
+                <SortableTableHead sortKey="status" sort={sort} onSort={sortBy}>Durum</SortableTableHead>
+                <SortableTableHead sortKey="note" sort={sort} onSort={sortBy}>Not</SortableTableHead>
                 <TableHead className="w-20 text-right">İşlem</TableHead>
               </TableRow>
             </TableHeader>

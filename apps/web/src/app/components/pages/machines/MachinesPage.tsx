@@ -6,6 +6,7 @@ import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from "../../ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../../ui/table";
+import { SortableTableHead, useSortableRows } from "../../ui/sortable-table";
 import { Badge } from "../../ui/badge";
 import { StatusBadge } from "../../shared/StatusBadge";
 import { CreateMachineDialog, CreateServiceRequestDialog } from "../../dialogs/CreateDialogs";
@@ -273,6 +274,18 @@ export function MachinesPage() {
   }, [customers, machines, query]);
   const productForMachine = (machine: Machine) => products.find((item) => item.id === machine.productModelId)
     ?? products.find((item) => item.model.toLocaleLowerCase("tr-TR") === machine.model.toLocaleLowerCase("tr-TR"));
+  const toDate = (value?: string | null) => (value ? new Date(value) : null);
+  const { sorted: sortedMachines, sort, toggle } = useSortableRows(filteredMachines, {
+    model: (m) => m.model,
+    userCompany: (m) => customerName(m.userCompanyId ?? m.customerId),
+    initialCustomer: (m) => customerName(m.initialCustomerId ?? m.customerId),
+    controlUnit: (m) => m.controlUnit,
+    price: (m) => m.cashPrice,
+    installation: (m) => toDate(m.installationDate),
+    warranty: (m) => toDate(m.warrantyEnd),
+    services: (m) => service.filter((s) => s.machineId === m.id).length,
+    status: (m) => ({ Active: "Aktif", "Out of Warranty": "Garanti Dışı", Decommissioned: "Devre Dışı" })[m.status] ?? m.status,
+  });
 
   return (
     <div className="crm-page">
@@ -368,20 +381,20 @@ export function MachinesPage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead className="min-w-[280px]">Makine</TableHead>
-                  <TableHead>Kullanıcı Firma</TableHead>
-                  <TableHead>İlk Müşteri</TableHead>
-                  <TableHead>Kontrol Paneli</TableHead>
-                  <TableHead>Peşin Fiyat</TableHead>
-                  <TableHead>Kurulum</TableHead>
-                  <TableHead>Garanti</TableHead>
-                  <TableHead>Servis Sayısı</TableHead>
-                  <TableHead>Durum</TableHead>
+                  <SortableTableHead sortKey="model" sort={sort} onSort={toggle} className="min-w-[280px]">Makine</SortableTableHead>
+                  <SortableTableHead sortKey="userCompany" sort={sort} onSort={toggle}>Kullanıcı Firma</SortableTableHead>
+                  <SortableTableHead sortKey="initialCustomer" sort={sort} onSort={toggle}>İlk Müşteri</SortableTableHead>
+                  <SortableTableHead sortKey="controlUnit" sort={sort} onSort={toggle}>Kontrol Paneli</SortableTableHead>
+                  <SortableTableHead sortKey="price" sort={sort} onSort={toggle}>Peşin Fiyat</SortableTableHead>
+                  <SortableTableHead sortKey="installation" sort={sort} onSort={toggle}>Kurulum</SortableTableHead>
+                  <SortableTableHead sortKey="warranty" sort={sort} onSort={toggle}>Garanti</SortableTableHead>
+                  <SortableTableHead sortKey="services" sort={sort} onSort={toggle}>Servis Sayısı</SortableTableHead>
+                  <SortableTableHead sortKey="status" sort={sort} onSort={toggle}>Durum</SortableTableHead>
                   <TableHead className="w-28 text-right">İşlem</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredMachines.map((m) => {
+                {sortedMachines.map((m) => {
                   const srCount = service.filter((s) => s.machineId === m.id).length;
                   const product = productForMachine(m);
                   return (

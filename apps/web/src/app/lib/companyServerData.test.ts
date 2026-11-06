@@ -20,7 +20,7 @@ describe("company server directory params", () => {
       city: "İstanbul",
       sector: "Metal",
       supplierCategoryCode: "transportation",
-      sortMode: "name_desc",
+      sort: { key: "name", dir: "desc" },
     })).toEqual({
       page: 3,
       pageSize: 12,
@@ -34,6 +34,12 @@ describe("company server directory params", () => {
       sortBy: "name",
       sortDir: "desc",
     });
+  });
+
+  it("varsayılan sıra oluşturma tarihi eskiden yeniye, kolon anahtarı aynen iletilir", () => {
+    expect(buildCompanyListParams({ page: 1 })).toMatchObject({ sortBy: "createdAt", sortDir: "asc" });
+    expect(buildCompanyListParams({ page: 1, sort: { key: "city", dir: "desc" } }))
+      .toMatchObject({ sortBy: "city", sortDir: "desc" });
   });
 
   it("query key içinde kullanıcı, tenant, bölüm ve departman scope'unu taşır", () => {
