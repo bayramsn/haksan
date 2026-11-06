@@ -52,7 +52,9 @@ ENV IMAGE_BUILD_TIME=${BUILD_TIME}
 
 # chromium: teklif mail eki, tarayıcıdaki "Yazdır / PDF Kaydet" belgesinden headless render edilir.
 ENV CHROMIUM_PATH=/usr/bin/chromium-browser
+# zlib: CVE-2026-85091 (1.3.2-r1'de düzeltildi); taban imaj digest'le sabit olduğu için dar yükseltme.
 RUN apk add --no-cache font-dejavu postgresql-client chromium nss freetype harfbuzz ca-certificates ttf-liberation \
+  && apk add --no-cache --upgrade zlib \
   && rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack \
   && rm -f /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack \
     /usr/local/bin/yarn /usr/local/bin/yarnpkg /usr/local/bin/pnpm /usr/local/bin/pnpx
@@ -75,6 +77,9 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
 CMD ["node", "apps/api/dist/main.js"]
 
 FROM nginx:stable-alpine-slim@sha256:ddde39c6e51f02fde7410c2e9c234cf2d0a4c7bdbbe176aeb37d8ad7ab4eb58c AS nginx
+
+# zlib: CVE-2026-85091 — yalnız açıklı kütüphane; toplu apk upgrade busybox wget sağlık kontrolünü bozuyordu.
+RUN apk add --no-cache --upgrade zlib
 
 COPY deploy/nginx.conf.template /etc/nginx/templates/default.conf.template
 COPY --from=build /app/apps/web/dist /usr/share/nginx/html
