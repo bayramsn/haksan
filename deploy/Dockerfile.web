@@ -31,7 +31,7 @@ FROM nginx:stable-alpine-slim@sha256:dede8895648b461178c3bc604f7eed4423efe5220b2
 # API imajıyla aynı gerekçe: digest sabit olduğu için açığı bildirilen kütüphaneler
 # burada tazelenir. Slim imajda toplu yükseltme yapılmaz: sağlık kontrolü
 # busybox'ın wget applet'ine bağlı ve toplu yükseltme onu değiştirebiliyor.
-RUN apk add --no-cache --upgrade libssl3 libcrypto3 'pcre2>=10.49-r0'
+RUN apk add --no-cache --upgrade libssl3 libcrypto3 'pcre2>=10.49-r0' 'zlib>=1.3.2-r1'
 
 COPY deploy/nginx.conf.template /etc/nginx/templates/default.conf.template
 COPY --from=build /app/apps/web/dist /usr/share/nginx/html
