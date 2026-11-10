@@ -212,10 +212,12 @@ export class ActivitiesService {
         activity: salesActivities,
         type: { id: activityTypes.id, code: activityTypes.code, name: activityTypes.name },
         createdByUser: { id: users.id, fullName: users.fullName, email: users.email },
+        company: { id: companies.id, legalTitle: companies.legalTitle, shortName: companies.shortName },
       })
       .from(salesActivities)
       .leftJoin(activityTypes, eq(salesActivities.activityTypeId, activityTypes.id))
       .leftJoin(users, eq(salesActivities.createdBy, users.id))
+      .leftJoin(companies, and(eq(salesActivities.companyId, companies.id), eq(companies.tenantId, actor.tenantId), isNull(companies.deletedAt)))
       .where(where)
       .orderBy(desc(salesActivities.activityDate))
       .limit(limit)
@@ -256,6 +258,7 @@ export class ActivitiesService {
         ...r.activity,
         type: r.type,
         createdByUser: r.createdByUser?.id ? r.createdByUser : null,
+        company: r.company?.id ? r.company : null,
         files: filesByActivity.get(r.activity.id) ?? [],
       })),
       count,
@@ -270,10 +273,12 @@ export class ActivitiesService {
         activity: salesActivities,
         type: { id: activityTypes.id, code: activityTypes.code, name: activityTypes.name },
         createdByUser: { id: users.id, fullName: users.fullName, email: users.email },
+        company: { id: companies.id, legalTitle: companies.legalTitle, shortName: companies.shortName },
       })
       .from(salesActivities)
       .leftJoin(activityTypes, eq(salesActivities.activityTypeId, activityTypes.id))
       .leftJoin(users, eq(salesActivities.createdBy, users.id))
+      .leftJoin(companies, and(eq(salesActivities.companyId, companies.id), eq(companies.tenantId, actor.tenantId), isNull(companies.deletedAt)))
       .where(and(
         eq(salesActivities.id, activityId),
         eq(salesActivities.tenantId, actor.tenantId),
@@ -302,6 +307,7 @@ export class ActivitiesService {
       ...row.activity,
       type: row.type,
       createdByUser: row.createdByUser?.id ? row.createdByUser : null,
+      company: row.company?.id ? row.company : null,
       files: linkedFiles.map((linked) => ({
         ...linked.file,
         linkId: linked.link.id,

@@ -32,8 +32,10 @@ import {
   newLineGroupKey,
   parseDay,
   parseDecimal,
+  deliveryPresetForQuoteTerms,
   parseQuoteItems,
   QUOTE_DELIVERY_PRESETS,
+  quoteTermsForDeliveryPreset,
   type EditableQuoteItem,
 } from '@/src/ui/documents/quote-logic';
 import { DateTextField } from '@/src/ui/select/DateTextField';
@@ -283,15 +285,16 @@ export default function QuoteFormScreen() {
       setHeaderDiscountAmount(amount > 0 ? String(amount) : '');
       setHeaderDiscountPercent('');
     }
-    setPaymentTerms(quote.terms?.paymentTermsText ?? quote.paymentTerms ?? '');
-    setDeliveryTerms(quote.terms?.deliveryTermsText ?? quote.deliveryTerms ?? '');
-    const matchedPreset = QUOTE_DELIVERY_PRESETS.find(
-      (row) => row.label === (quote.terms?.deliveryTermsText ?? quote.deliveryTerms ?? '')
-    );
+    const hydratedPayment = quote.terms?.paymentTermsText ?? quote.paymentTerms ?? '';
+    const hydratedDelivery = quote.terms?.deliveryTermsText ?? quote.deliveryTerms ?? '';
+    const hydratedWarranty = quote.terms?.warrantyTermsText ?? quote.warrantyTerms ?? '';
+    setPaymentTerms(hydratedPayment);
+    setDeliveryTerms(hydratedDelivery);
+    setWarrantyTerms(hydratedWarranty);
+    const matchedPreset = deliveryPresetForQuoteTerms(hydratedPayment, hydratedDelivery, hydratedWarranty);
     // Lazer liste fiyatlı kalem varsa teslim şekli o listeden geri çıkarılır (web QuoteDialog).
     const hydratedItems = hydrateQuoteItems(quote.items);
-    setDeliveryPreset(deliveryForSavedPriceList(hydratedItems.map((item) => item.configurationPrice)) ?? matchedPreset?.code ?? '');
-    setWarrantyTerms(quote.terms?.warrantyTermsText ?? quote.warrantyTerms ?? '');
+    setDeliveryPreset(deliveryForSavedPriceList(hydratedItems.map((item) => item.configurationPrice)) ?? matchedPreset);
     setImportCostsExcluded(quote.terms?.importCostsExcluded ?? true);
     setVatIncluded(quote.terms?.vatIncluded ?? false);
     setFreightPaidBySeller(quote.terms?.freightPaidBySeller ?? false);
@@ -705,10 +708,15 @@ export default function QuoteFormScreen() {
             onChange={(code) => {
               setDeliveryPreset(code);
               const preset = QUOTE_DELIVERY_PRESETS.find((row) => row.code === code);
-              if (preset) {
-                setDeliveryTerms(preset.label);
-                setImportCostsExcluded(preset.importCostsExcluded);
-              }
+              if (!preset) return;
+              setImportCostsExcluded(preset.importCostsExcluded);
+              const main = items.find((item) => item.description.trim() || item.unitPrice.trim());
+              const rate = vatEnabled ? Number(main?.vatRate) : 0;
+              const terms = quoteTermsForDeliveryPreset(code, rate);
+              if (!terms) return;
+              setPaymentTerms(terms.payment);
+              setDeliveryTerms(terms.delivery);
+              setWarrantyTerms(terms.warranty);
             }}
           />
           <Field label="Teslim şartları" value={deliveryTerms} onChangeText={setDeliveryTerms} multiline maxLength={2000} />

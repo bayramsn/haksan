@@ -1,11 +1,27 @@
 import { useState } from 'react';
 import { Alert, Text, View } from 'react-native';
+import { CONTRACT_NOTE_VARIANTS, fillNotePlaceholders, QUOTE_NOTE_VARIANTS, type QuoteNoteVariant } from '@haksan/shared';
 import { useCan } from '@/src/auth/AuthProvider';
 import { useDeleteNoteTemplate, useNoteTemplates, useSaveNoteTemplate } from '@/src/api/note-templates.hooks';
 import { Button, Field } from '@/src/ui';
 import { OptionPicker } from '@/src/ui/pickers/OptionPicker';
 import { toast } from '@/src/ui/toast';
 import { decodeTermsTemplate, encodeTermsTemplate, type TemplateTerms } from './terms-template';
+
+const BUILT_IN_TERMS: Record<'quote_terms' | 'proforma_terms' | 'contract_terms', readonly QuoteNoteVariant[]> = {
+  quote_terms: QUOTE_NOTE_VARIANTS,
+  contract_terms: CONTRACT_NOTE_VARIANTS,
+  proforma_terms: [],
+};
+
+function termsFromVariant(variant: QuoteNoteVariant): TemplateTerms {
+  const notes = { kdvOrani: 20 };
+  return {
+    payment: fillNotePlaceholders(variant.odeme, notes).join('\n'),
+    delivery: fillNotePlaceholders(variant.teslimat, notes).join('\n'),
+    warranty: fillNotePlaceholders(variant.garanti, notes).join('\n'),
+  };
+}
 
 /** Webdeki aynı scope ve gövdeyle ortak şablon kütüphanesi. */
 export function NoteTemplatePicker({ scope, body, onApply }: { scope: string; body: string; onApply: (body: string) => void }) {
@@ -49,9 +65,28 @@ export function NoteTemplatePicker({ scope, body, onApply }: { scope: string; bo
 }
 
 export function TermsTemplatePicker({ scope, value, onApply }: { scope: 'quote_terms' | 'proforma_terms' | 'contract_terms'; value: TemplateTerms; onApply: (terms: TemplateTerms) => void }) {
-  return <NoteTemplatePicker scope={scope} body={encodeTermsTemplate(value)} onApply={(body) => {
-    const terms = decodeTermsTemplate(body);
-    if (!terms) return toast.error('Şablonun şart biçimi geçersiz.');
-    onApply(terms);
-  }} />;
+  const [builtIn, setBuiltIn] = useState<string | null>(null);
+  const variants = BUILT_IN_TERMS[scope];
+  return <View className="gap-2">
+    {variants.length ? (
+      <OptionPicker
+        label="Hazır şart"
+        placeholder="Teslim şekli seçin"
+        value={builtIn}
+        options={variants.map((item) => ({ value: item.key, label: item.label }))}
+        searchable
+        clearable
+        onChange={(key) => {
+          setBuiltIn(key);
+          const variant = variants.find((item) => item.key === key);
+          if (variant) onApply(termsFromVariant(variant));
+        }}
+      />
+    ) : null}
+    <NoteTemplatePicker scope={scope} body={encodeTermsTemplate(value)} onApply={(body) => {
+      const terms = decodeTermsTemplate(body);
+      if (!terms) return toast.error('Şablonun şart biçimi geçersiz.');
+      onApply(terms);
+    }} />
+  </View>;
 }

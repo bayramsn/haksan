@@ -14,11 +14,30 @@ import {
   parseQuoteItems,
   planQuoteItemChanges,
   sharePercent,
+  deliveryPresetForQuoteTerms,
+  quoteTermsForDeliveryPreset,
   statusCodesForTab,
   topRejectionReason,
   validUntil,
   winRate,
 } from './quote-logic.ts';
+
+test('teslim şekli ödeme, teslim ve garanti şartlarını doldurur', () => {
+  const terms = quoteTermsForDeliveryPreset('cif_istanbul', 20);
+  assert.ok(terms);
+  assert.match(terms.payment, /%20/);
+  assert.match(terms.delivery, /Hadımköy/);
+  assert.match(terms.warranty, /garanti/i);
+  assert.equal(deliveryPresetForQuoteTerms(terms.payment, terms.delivery, terms.warranty), 'cif_istanbul');
+});
+
+test('eski teklif kaydı yalnız teslim etiketinden şekli bulur', () => {
+  assert.equal(quoteTermsForDeliveryPreset('yok', 18), null);
+  assert.equal(deliveryPresetForQuoteTerms('', 'İhracat Adrese Teslim', ''), 'export_address');
+  const zeroVat = quoteTermsForDeliveryPreset('nationalized', 0);
+  assert.ok(zeroVat);
+  assert.match(zeroVat.payment, /%20/);
+});
 
 test('son 6 ay gerçek tarihten üretilir ve yıl sınırını geçer', () => {
   const months = lastMonths(new Date(2026, 1, 15), 6);

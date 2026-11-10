@@ -1,4 +1,5 @@
 import { useNavigationBottomInset } from '@/src/ui/LiquidGlassTabBarBackground';
+import { useState } from 'react';
 import { Alert, ScrollView, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter, type Href } from 'expo-router';
@@ -6,7 +7,7 @@ import { useCompany } from '@/src/api/companies.hooks';
 import { useActivity, useContact, useDeleteActivity, useOpportunity } from '@/src/api/crm.hooks';
 import { useCan } from '@/src/auth/AuthProvider';
 import { formatDateTime } from '@/src/lib/format';
-import { downloadAndShareFile } from '@/src/native/files';
+import { downloadAndShareFile, pickDocument, uploadEntityAttachment } from '@/src/native/files';
 import { Button, Card, Chip, DetailHeader, ErrorState, Eyebrow, Loading } from '@/src/ui';
 import { InfoRows, type InfoItem } from '@/src/ui/data';
 
@@ -29,6 +30,8 @@ export default function ActivityDetailScreen() {
   const canUpdate = useCan('activities.update');
   const canDelete = useCan('activities.delete');
   const canReadFiles = useCan('files.read');
+  const canUpload = useCan('files.create');
+  const [uploading, setUploading] = useState(false);
   const canConvert = useCan('activities.convert');
 
   if (query.isPending || query.error || !query.data) {
@@ -42,7 +45,7 @@ export default function ActivityDetailScreen() {
 
   const data = query.data;
   const attachments = data.files ?? [];
-  const companyName = company.data?.shortName ?? company.data?.legalTitle;
+  const companyName = data.company?.shortName ?? data.company?.legalTitle ?? company.data?.shortName ?? company.data?.legalTitle;
 
   const confirmDelete = () => {
     Alert.alert('Aktiviteyi sil?', 'Bu kayıt listelerden kaldırılacak. Bu işlem geri alınamaz.', [
@@ -56,6 +59,28 @@ export default function ActivityDetailScreen() {
         }),
       },
     ]);
+  };
+
+  const addFile = async () => {
+    if (uploading) return;
+    try {
+      const local = await pickDocument();
+      if (!local) return;
+      setUploading(true);
+      await uploadEntityAttachment({
+        bucket: 'erp-service-documents',
+        entityType: 'sales_activity',
+        entityId: id,
+        documentTypeCode: 'activity_document',
+        description: local.name,
+        local,
+      });
+      await query.refetch();
+    } catch (error) {
+      Alert.alert('Dosya eklenemedi', error instanceof Error ? error.message : 'Dosya yüklenemedi.');
+    } finally {
+      setUploading(false);
+    }
   };
 
   const openFile = async (fileId: string) => {
@@ -98,6 +123,7 @@ export default function ActivityDetailScreen() {
         {data.description ? <Card className="gap-1.5"><Eyebrow>Açıklama</Eyebrow><Text selectable className="font-inter text-sm text-foreground">{data.description}</Text></Card> : null}
         {data.result ? <Card className="gap-1.5"><Eyebrow>Sonuç</Eyebrow><Text selectable className="font-inter text-sm text-foreground">{data.result}</Text></Card> : null}
 
+        {canUpload ? <Button label="Dosya ekle" variant="ghost" loading={uploading} onPress={() => void addFile()} /> : null}
         {attachments.length ? (
           <View className="gap-2">
             <View className="px-1"><Eyebrow>Dosyalar ({attachments.length})</Eyebrow></View>

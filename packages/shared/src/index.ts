@@ -42,3 +42,11 @@ export * from './laser-price-formula';
 export { HEX2026_SUPPLEMENT_DOCUMENT } from './hexlaser-2026-supplement-data';
 
 export * from './base-model';
+export {
+  applyVatRateToNotes,
+  CONTRACT_NOTE_VARIANTS,
+  fillNotePlaceholders,
+  matchQuoteNoteVariantKey,
+  QUOTE_NOTE_VARIANTS,
+} from './commercial-print/notes';
+export type { QuoteNoteVariant } from './commercial-print/notes';

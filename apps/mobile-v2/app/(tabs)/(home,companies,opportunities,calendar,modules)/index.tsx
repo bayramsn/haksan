@@ -17,7 +17,7 @@ import { useStockSummary } from '@/src/api/inventory.hooks';
 import { useUnreadCount } from '@/src/api/notifications.hooks';
 import { useLeadSummary, useSalesAnalytics } from '@/src/api/sales.hooks';
 import { useTaskCounts } from '@/src/api/tasks.hooks';
-import { useAuth } from '@/src/auth/AuthProvider';
+import { useAuth, useCan } from '@/src/auth/AuthProvider';
 import { useCanAccessModule, useCanOpenHref } from '@/src/modules/useModuleAccess';
 import { useTheme } from '@/src/theme/theme';
 import { formatAmount, formatCompact, formatDate, formatTime } from '@/src/lib/format';
@@ -135,6 +135,8 @@ export default function DashboardScreen() {
   const { user } = useAuth();
   const canOpen = useCanOpenHref();
   const canReadOpps = useCanAccessModule('opportunities');
+  const canLogVisit = useCan('activities.create');
+  const canOpenTicket = useCan('service_tickets.create');
   const canReadTasks = useCanAccessModule('tasks');
   const canReadService = useCanAccessModule('service-tickets');
   const [section, setSection] = useState<Section>('bugun');
@@ -151,6 +153,12 @@ export default function DashboardScreen() {
   const homeHeader = <View style={{ paddingHorizontal: SCREEN_PAD, paddingTop: 4, paddingBottom: 8 }} className="flex-row items-center justify-between">
     <Logo width={120} />
     <View className="flex-row items-center gap-2">
+      <GlassNavigationControl>
+        <Pressable accessibilityRole="button" accessibilityLabel="Ara" onPress={() => router.push('/search' as Href)}
+          className="h-11 w-11 items-center justify-center active:opacity-60">
+          <Ionicons name="search-outline" size={22} color={colors.foreground} />
+        </Pressable>
+      </GlassNavigationControl>
       <GlassNavigationControl>
         <Pressable accessibilityRole="button" accessibilityLabel="Bildirimler" onPress={() => router.push('/notifications')}
           className="h-11 w-11 items-center justify-center active:opacity-60">
@@ -404,10 +412,13 @@ export default function DashboardScreen() {
 
             <View className="flex-row flex-wrap gap-2">
               {([
-                { label: 'İşlerim', icon: 'checkbox-outline', href: '/modules/tasks' },
-                { label: 'Takvim', icon: 'calendar-outline', href: '/calendar' },
-                { label: 'Teklifler', icon: 'document-text-outline', href: '/modules/quotes' },
-              ] as const).filter((item) => canOpen(toHref(item.href))).map((item) => (
+                { label: 'Ara', icon: 'search-outline' as const, href: '/search', show: true },
+                { label: 'Ziyaret', icon: 'navigate-outline' as const, href: '/modal/visit-new', show: canLogVisit },
+                { label: 'Servis', icon: 'construct-outline' as const, href: '/modal/new-ticket', show: canOpenTicket },
+                { label: 'İşlerim', icon: 'checkbox-outline' as const, href: '/modules/tasks', show: canOpen(toHref('/modules/tasks')) },
+                { label: 'Takvim', icon: 'calendar-outline' as const, href: '/calendar', show: canOpen(toHref('/calendar')) },
+                { label: 'Teklifler', icon: 'document-text-outline' as const, href: '/modules/quotes', show: canOpen(toHref('/modules/quotes')) },
+              ]).filter((item) => item.show).map((item) => (
                 <Pressable key={item.label} accessibilityRole="button" onPress={() => go(toHref(item.href))}
                   className="min-h-12 flex-row items-center justify-center gap-2 rounded-control border border-border bg-card px-4 active:opacity-70">
                   <Ionicons name={item.icon} size={18} color={colors.primary} />

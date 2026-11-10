@@ -961,6 +961,7 @@ export type ActivityListItem = {
   contactId: string | null;
   type: { id: string; code: string; name: string } | null;
   createdByUser: { id: string; fullName: string; email: string } | null;
+  company?: { id: string; legalTitle: string; shortName: string | null } | null;
   files: ActivityFile[];
 };
 
@@ -1067,6 +1068,13 @@ export type ServiceTicket = {
     contactName: string | null;
     contactPhone: string | null;
     contactEmail: string | null;
+  } | null;
+  customerDevice?: {
+    id: string;
+    serialNumber: string | null;
+    brand: string | null;
+    model: string | null;
+    warrantyEndDate: string | null;
   } | null;
 };
 

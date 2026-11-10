@@ -3,6 +3,7 @@
  * Kurallar web `OffersPage` / `chartAggregates.buildOfferTrend` /
  * `quoteItemEditing.persistQuoteItems` ile birebir tutulur.
  */
+import { fillNotePlaceholders, matchQuoteNoteVariantKey, QUOTE_NOTE_VARIANTS } from '@haksan/shared';
 
 export const TR_MONTH_SHORT = ['Oca', 'Şub', 'Mar', 'Nis', 'May', 'Haz', 'Tem', 'Ağu', 'Eyl', 'Eki', 'Kas', 'Ara'] as const;
 export const TR_MONTH_LONG = [
@@ -299,6 +300,43 @@ export const QUOTE_DELIVERY_PRESETS = [
   { code: 'ex_works', label: 'İşletme Teslim', importCostsExcluded: false },
   { code: 'fob', label: 'F.O.B Teslim', importCostsExcluded: true },
 ] as const;
+
+/** Web QuoteDialog DELIVERY_NOTE_VARIANT: teslim kodu → QUOTE_NOTE_VARIANTS anahtarı. */
+const DELIVERY_NOTE_VARIANT: Record<(typeof QUOTE_DELIVERY_PRESETS)[number]['code'], string> = {
+  cif_istanbul: 'cif-istanbul',
+  export_address: 'ihracat',
+  nationalized: 'millilestirilmis',
+  customs: 'gumruk',
+  ex_works: 'isletme-teslim',
+  fob: 'fob',
+};
+
+export type QuotePresetTerms = { payment: string; delivery: string; warranty: string };
+
+/**
+ * Teslim şekli seçilince web `applyNoteVariant` ile aynı üç bloğu doldurur.
+ * KDV 0 veya geçersizse yer tutucu yasal varsayılan %20 ile kapanır.
+ */
+export function quoteTermsForDeliveryPreset(code: string, vatRate: number): QuotePresetTerms | null {
+  const variantKey = DELIVERY_NOTE_VARIANT[code as keyof typeof DELIVERY_NOTE_VARIANT];
+  const variant = QUOTE_NOTE_VARIANTS.find((item) => item.key === variantKey);
+  if (!variant) return null;
+  const rate = Number.isFinite(vatRate) && vatRate > 0 ? vatRate : 20;
+  const notes = { kdvOrani: rate };
+  return {
+    payment: fillNotePlaceholders(variant.odeme, notes).join('\n'),
+    delivery: fillNotePlaceholders(variant.teslimat, notes).join('\n'),
+    warranty: fillNotePlaceholders(variant.garanti, notes).join('\n'),
+  };
+}
+
+/** Kayıtlı üç bloğu teslim şekline geri bağlar; eski kayıtlarda yalnız etiket eşleşir. */
+export function deliveryPresetForQuoteTerms(payment: string, delivery: string, warranty: string): string {
+  const variantKey = matchQuoteNoteVariantKey(payment, delivery, warranty);
+  const fromVariant = (Object.entries(DELIVERY_NOTE_VARIANT) as [string, string][]).find(([, key]) => key === variantKey)?.[0];
+  if (fromVariant) return fromVariant;
+  return QUOTE_DELIVERY_PRESETS.find((row) => row.label === delivery.trim())?.code ?? '';
+}
 
 function parseLineMoney(
   label: string,

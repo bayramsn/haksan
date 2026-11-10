@@ -370,6 +370,26 @@ const formatTrDate = (value: Date | string | number | null | undefined) => {
   return Number.isNaN(date.getTime()) ? undefined : date.toLocaleDateString('tr-TR');
 };
 
+type TicketMachineRow = {
+  device: { id: string | null; warrantyEndDate: Date | string | null } | null;
+  inventory: { serialNumber: string | null } | null;
+  product: { modelCode: string | null; modelName: string | null; fullName: string | null } | null;
+  brand: { name: string | null } | null;
+};
+
+/** Liste ve detay kartının saha satırı: marka, model, seri, garanti bitişi. */
+function ticketMachineView(row: TicketMachineRow) {
+  if (!row.device?.id) return null;
+  const warrantyEnd = row.device.warrantyEndDate;
+  return {
+    id: row.device.id,
+    serialNumber: row.inventory?.serialNumber ?? null,
+    brand: row.brand?.name ?? null,
+    model: row.product?.modelName ?? row.product?.fullName ?? row.product?.modelCode ?? null,
+    warrantyEndDate: warrantyEnd instanceof Date ? warrantyEnd.toISOString() : warrantyEnd ?? null,
+  };
+}
+
 // Sevkiyat/teslimat doğrulama şemaları @haksan/shared'a taşındı (shipment.ts).
 // Eski kayıtlarda origin/destination/eta `notes` içine JSON gömülüydü; aşağıdaki
 // tip + decode helper yalnızca o legacy satırları okurken kullanılır.
@@ -1362,6 +1382,9 @@ export class ServiceController {
           ilike(serviceTickets.subject, term),
           ilike(companies.legalTitle, term),
           ilike(companies.shortName, term),
+          ilike(inventoryItems.serialNumber, term),
+          ilike(productModels.modelName, term),
+          ilike(productModels.modelCode, term),
         ) ?? sql`false`,
       );
     }
@@ -1395,6 +1418,10 @@ export class ServiceController {
         ),
       )
       .leftJoin(serviceTicketStatuses, eq(serviceTickets.statusId, serviceTicketStatuses.id))
+      .leftJoin(customerDevices, and(eq(serviceTickets.customerDeviceId, customerDevices.id), isNull(customerDevices.deletedAt)))
+      .leftJoin(inventoryItems, and(eq(customerDevices.inventoryItemId, inventoryItems.id), isNull(inventoryItems.deletedAt)))
+      .leftJoin(productModels, eq(inventoryItems.productModelId, productModels.id))
+      .leftJoin(brands, eq(productModels.brandId, brands.id))
       .where(where);
 
     const sortDirection = p.sortDir === 'asc' ? asc : desc;
@@ -1421,6 +1448,10 @@ export class ServiceController {
           contactPhone: serviceComplaintIntakes.contactPhone,
           contactEmail: serviceComplaintIntakes.contactEmail,
         },
+        device: { id: customerDevices.id, warrantyEndDate: customerDevices.warrantyEndDate },
+        inventory: { serialNumber: inventoryItems.serialNumber },
+        product: { modelCode: productModels.modelCode, modelName: productModels.modelName, fullName: productModels.fullName },
+        brand: { name: brands.name },
       })
       .from(serviceTickets)
       .leftJoin(
@@ -1442,6 +1473,10 @@ export class ServiceController {
       .leftJoin(serviceTicketStatuses, eq(serviceTickets.statusId, serviceTicketStatuses.id))
       .leftJoin(serviceWarrantyClaims, and(eq(serviceWarrantyClaims.serviceTicketId, serviceTickets.id), isNull(serviceWarrantyClaims.deletedAt)))
       .leftJoin(serviceComplaintIntakes, and(eq(serviceComplaintIntakes.serviceTicketId, serviceTickets.id), isNull(serviceComplaintIntakes.deletedAt)))
+      .leftJoin(customerDevices, and(eq(serviceTickets.customerDeviceId, customerDevices.id), isNull(customerDevices.deletedAt)))
+      .leftJoin(inventoryItems, and(eq(customerDevices.inventoryItemId, inventoryItems.id), isNull(inventoryItems.deletedAt)))
+      .leftJoin(productModels, eq(inventoryItems.productModelId, productModels.id))
+      .leftJoin(brands, eq(productModels.brandId, brands.id))
       .where(where)
       .orderBy(sortDirection(serviceTickets.reportedAt), sortDirection(serviceTickets.id))
       .limit(limit)
@@ -1454,6 +1489,7 @@ export class ServiceController {
         status: r.status,
         warrantyClaim: r.warrantyClaim?.id ? r.warrantyClaim : null,
         sourceComplaint: r.sourceComplaint?.id ? r.sourceComplaint : null,
+        customerDevice: ticketMachineView(r),
       })),
       count,
       p
@@ -1487,6 +1523,10 @@ export class ServiceController {
         ),
       )
       .leftJoin(serviceTicketStatuses, eq(serviceTickets.statusId, serviceTicketStatuses.id))
+      .leftJoin(customerDevices, and(eq(serviceTickets.customerDeviceId, customerDevices.id), isNull(customerDevices.deletedAt)))
+      .leftJoin(inventoryItems, and(eq(customerDevices.inventoryItemId, inventoryItems.id), isNull(inventoryItems.deletedAt)))
+      .leftJoin(productModels, eq(inventoryItems.productModelId, productModels.id))
+      .leftJoin(brands, eq(productModels.brandId, brands.id))
       .where(where);
     return summary ?? {
       total: 0,
@@ -1527,6 +1567,10 @@ export class ServiceController {
           contactPhone: serviceComplaintIntakes.contactPhone,
           contactEmail: serviceComplaintIntakes.contactEmail,
         },
+        device: { id: customerDevices.id, warrantyEndDate: customerDevices.warrantyEndDate },
+        inventory: { serialNumber: inventoryItems.serialNumber },
+        product: { modelCode: productModels.modelCode, modelName: productModels.modelName, fullName: productModels.fullName },
+        brand: { name: brands.name },
       })
       .from(serviceTickets)
       .leftJoin(
@@ -1540,6 +1584,10 @@ export class ServiceController {
       .leftJoin(serviceTicketStatuses, eq(serviceTickets.statusId, serviceTicketStatuses.id))
       .leftJoin(serviceWarrantyClaims, and(eq(serviceWarrantyClaims.serviceTicketId, serviceTickets.id), isNull(serviceWarrantyClaims.deletedAt)))
       .leftJoin(serviceComplaintIntakes, and(eq(serviceComplaintIntakes.serviceTicketId, serviceTickets.id), isNull(serviceComplaintIntakes.deletedAt)))
+      .leftJoin(customerDevices, and(eq(serviceTickets.customerDeviceId, customerDevices.id), isNull(customerDevices.deletedAt)))
+      .leftJoin(inventoryItems, and(eq(customerDevices.inventoryItemId, inventoryItems.id), isNull(inventoryItems.deletedAt)))
+      .leftJoin(productModels, eq(inventoryItems.productModelId, productModels.id))
+      .leftJoin(brands, eq(productModels.brandId, brands.id))
       .where(
         and(
           eq(serviceTickets.id, id),
@@ -1558,6 +1606,7 @@ export class ServiceController {
       status: row.status,
       warrantyClaim: row.warrantyClaim?.id ? row.warrantyClaim : null,
       sourceComplaint: row.sourceComplaint?.id ? row.sourceComplaint : null,
+      customerDevice: ticketMachineView(row),
     };
   }
 

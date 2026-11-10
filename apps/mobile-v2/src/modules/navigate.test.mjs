@@ -119,6 +119,7 @@ test('legacy tab links normalize into shared stack paths without losing record I
   assert.equal(routeForIncomingHref('/(tabs)/(home)/chat/1'), '/chat/1');
   assert.equal(routeForIncomingHref('/chat'), '/chat');
   assert.equal(routeForIncomingHref('/more'), '/more');
+  assert.equal(routeForIncomingHref('/search'), '/search');
 });
 
 test('görev ve servis bildirimi kayıt detayına, haftalık rapor ve hedef uyarısı ilgili sekmeye gider', () => {

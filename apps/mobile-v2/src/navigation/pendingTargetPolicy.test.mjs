@@ -31,4 +31,5 @@ test('legacy and explicitly grouped links remain valid after shared tab migratio
   assert.equal(canonicalPendingRoute('/(tabs)/(home)'), '/(tabs)/(home)');
   assert.equal(canonicalPendingRoute('/more/profile'), '/more/profile');
   assert.equal(canonicalPendingRoute('/chat/1'), '/chat/1');
+  assert.equal(canonicalPendingRoute('/search'), '/search');
 });
