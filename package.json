@@ -59,6 +59,8 @@
     "uuid": "11.1.1"
   },
   "overrides": {
+    "expo": "54.0.38",
+    "react-native": "0.81.5",
     "vite": "6.4.3",
     "find-my-way": "9.7.0",
     "gaxios": "7.3.0",

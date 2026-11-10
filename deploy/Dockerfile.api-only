@@ -11,8 +11,9 @@ RUN apk add --no-cache python3 make g++
 COPY package.json package-lock.json ./
 COPY apps/api/package.json apps/api/package.json
 COPY apps/web/package.json apps/web/package.json
-COPY apps/mobile/package.json apps/mobile/package.json
 COPY packages/shared/package.json packages/shared/package.json
+# Legacy apps/mobile is not a workspace. Do not copy it into this install:
+# npm would hoist its Expo 57 / RN 0.86 tree beside mobile-v2's Expo 54.
 
 RUN npm ci \
   --workspace @haksan/shared \

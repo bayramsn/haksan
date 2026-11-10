@@ -8,17 +8,23 @@ build/submit yapmaz.
 ## EAS production ortamı
 
 Aşağıdaki değerleri EAS Dashboard'daki **production** environment'a girin.
-`EXPO_PUBLIC_*` değerleri uygulama paketinde görünür; secret değildir. Hiçbir
-mağaza parolası, servis hesabı JSON'u veya inceleme hesabı parolası Git'e
-yazılmamalıdır.
+`release_gate` bu adları süreç ortamından okur; workflow YAML'ı değer taşımaz.
+Görünürlük EAS'in kendi sınıflarıdır: **plain** log ve arayüzde okunur,
+**sensitive** arayüzde maskelenir ama derlemede okunur, **secret** yazıldıktan
+sonra geri okunamaz ve yalnız derlemede enjekte edilir. `EXPO_PUBLIC_*`
+değerleri JS paketine gömülür; secret yapılmamalıdır. Hiçbir mağaza parolası,
+servis hesabı JSON'u veya inceleme hesabı parolası Git'e yazılmamalıdır.
 
-- `EAS_PROJECT_ID`: EAS proje UUID'si.
-- `EXPO_PUBLIC_API_URL`: HTTPS production API kökü.
-- `EXPO_PUBLIC_APP_LINK_HOST`: Şemasız universal/app-link hostname'i.
-- `MOBILE_PRIVACY_POLICY_URL`: Herkese açık HTTPS gizlilik politikası.
-- `MOBILE_SUPPORT_URL`: Herkese açık HTTPS destek sayfası.
-- `MOBILE_MARKETING_URL`: Herkese açık HTTPS ürün sayfası.
-- `MOBILE_LEGAL_ENTITY`: Mağazada gösterilecek onaylı tüzel kişi unvanı.
+| Ad | Görünürlük | Ne işe yarar |
+| --- | --- | --- |
+| `EXPO_PUBLIC_API_URL` | plain | HTTPS production API kökü (`/api/v1` dahil). Pakete gömülür. |
+| `EXPO_PUBLIC_APP_LINK_HOST` | plain | Şemasız universal/app-link hostname. iOS associated domain ve Android intent filter buradan üretilir. |
+| `EXPO_PUBLIC_GOOGLE_MAPS_API_KEY` | sensitive | Android firma haritası anahtarı. Pakete gömülür; paket adı ve imza SHA-1 ile kısıtlanmalıdır. |
+| `EAS_PROJECT_ID` | plain | EAS proje UUID'si. OTA URL'si `https://u.expo.dev/<id>` ve `extra.eas.projectId` bununla eşleşir. |
+| `MOBILE_PRIVACY_POLICY_URL` | plain | Herkese açık HTTPS gizlilik politikası. Yalnız release kontrolü okur. |
+| `MOBILE_SUPPORT_URL` | plain | Herkese açık HTTPS destek sayfası. Yalnız release kontrolü okur. |
+| `MOBILE_MARKETING_URL` | plain | Herkese açık HTTPS ürün sayfası. Yalnız release kontrolü okur. |
+| `MOBILE_LEGAL_ENTITY` | plain | Mağazada gösterilecek onaylı tüzel kişi unvanı. Yalnız release kontrolü okur. |
 
 Apple/Google imzalama kimlik bilgilerini EAS Credentials'ta, Google servis
 hesabını EAS'in secret-file değişkeninde ve uygulama inceleme hesabını doğrudan
@@ -65,12 +71,12 @@ Splash kaynağı pozitif boyutlu PNG olmalıdır; `imageWidth` / `resizeMode` il
 kontrolü korunur. Kaynak: [Expo splash yapılandırması](https://docs.expo.dev/versions/v54.0.0/sdk/splash-screen/).
 Boyut kontrolünün geçmesi, açılış görünümünün cihazda kabul edildiği anlamına gelmez.
 
-`approvedAppVersion`, mağaza kayıtları, beyanlar, ekran görüntüleri ve fiziksel
-cihaz QA alanları yalnız kanıt sahibi onayladığında güncellenir. Kod testlerinin
-geçmesi bu alanları otomatik olarak `true` yapmaz. Ayrıca `eas.json` içindeki
-`cli.requireCommit=false`, mevcut production release kapısının `true` koşulunu
-sağlamaz; doğrudan EAS yayın politikasında bu fark çözülmeden release kontrolü
-başarılı sayılamaz.
+`approvedAppVersion` uygulama `version` değeriyle aynı olmalıdır; şu an `1.2.0`.
+Mağaza kayıtları, beyanlar, ekran görüntüleri ve fiziksel cihaz QA alanları
+yalnız kanıt sahibi onayladığında `true` yapılır. Kod testlerinin geçmesi bu
+alanları otomatik olarak `true` yapmaz. `eas.json` içinde
+`cli.requireCommit` production için `true` durur: workflow temiz bir commit
+üzerinde çalışır, kirli ağaçtan üretim derlemesi açılmaz.
 
 Production build/submit yalnız `.eas/workflows/production-release.yml` ile
 çalışır. İki platform build'i tamamlandıktan sonra EAS üzerinde ayrıca insan
