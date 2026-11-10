@@ -126,7 +126,9 @@ async function main() {
   const schema = await fetchCurrentSchema();
   let validate = null;
   if (schema) {
-    const ajv = new Ajv2020({ allErrors: true, strict: true });
+    // Expo'nun güncel şeması `type` birlikleri kullanıyor; Ajv strict modu bunu
+    // allowUnionTypes olmadan derlemez ve ağ varken kalite kapısı şema hatasıyla düşer.
+    const ajv = new Ajv2020({ allErrors: true, strict: true, allowUnionTypes: true });
     addFormats(ajv);
     validate = ajv.compile(schema);
   }

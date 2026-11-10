@@ -7,6 +7,7 @@ import { useAuth } from '@/src/auth/AuthProvider';
 import { formatDate } from '@/src/lib/format';
 import type { Tone } from '@/src/theme/theme';
 import { Chip } from '@/src/ui';
+import { ticketMachineLine, WARRANTY_TONE, warrantyInfo, warrantyShortLabel } from './machines';
 import { SERVICE_NEXT_ACTION, SEVERITY_LABELS, STAGE_LABELS, isSlaOverdue, locationLabel, serviceStageOf } from './serviceStage';
 
 const SEVERITY_TONE: Record<string, Tone> = { critical: 'destructive', high: 'warning', normal: 'info', low: 'neutral' };
@@ -45,6 +46,8 @@ export function TicketCard({
   const stage = serviceStageOf(item);
   const overdue = isSlaOverdue(item, Date.now());
   const company = item.company?.shortName ?? item.company?.legalTitle ?? 'Firma bağlanmadı';
+  const machine = ticketMachineLine(item.customerDevice);
+  const warranty = warrantyInfo(item.customerDevice?.warrantyEndDate, Date.now());
   const meta = [company, location, assignee ?? 'Atanmadı', SERVICE_NEXT_ACTION[stage], formatDate(item.reportedAt)]
     .filter(Boolean)
     .join(' · ');
@@ -68,11 +71,17 @@ export function TicketCard({
       <Text className="font-inter text-[13px] text-foreground" numberOfLines={compact ? 2 : 1}>
         {item.subject}
       </Text>
+      {machine ? (
+        <Text className="font-inter text-[12px] text-foreground" numberOfLines={1}>
+          {machine}
+        </Text>
+      ) : null}
       <Text className="font-inter text-[11px] text-muted-foreground" numberOfLines={1}>
         {meta}
       </Text>
       <View className="flex-row flex-wrap items-center gap-1">
         {compact ? null : <Chip tone="info" label={STAGE_LABELS[stage]} />}
+        {item.customerDevice?.warrantyEndDate ? <Chip tone={WARRANTY_TONE[warranty.state]} label={warrantyShortLabel(warranty)} /> : null}
         {overdue ? <Chip tone="destructive" label="SLA aşıldı" /> : null}
       </View>
     </Pressable>

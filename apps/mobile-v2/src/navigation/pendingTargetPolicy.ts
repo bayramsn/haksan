@@ -11,7 +11,7 @@ export function canonicalPendingRoute(route: Href | string | null | undefined): 
   let pathname = raw.split(/[?#]/, 1)[0] ?? '';
   pathname = pathname.replace(/^\/\(tabs\)(?=\/|$)/, '').replace(/^\/\((?:home|companies|opportunities|calendar|modules)\)(?=\/|$)/, '');
   if (!pathname) pathname = '/(tabs)/(home)';
-  if (pathname !== '/(tabs)/(home)' && !/^\/(?:modules|more|chat|notifications|companies|opportunities|calendar)(?:\/|$)/.test(pathname)) return null;
+  if (pathname !== '/(tabs)/(home)' && !/^\/(?:modules|more|chat|notifications|search|companies|opportunities|calendar)(?:\/|$)/.test(pathname)) return null;
 
   const segments = pathname.split('/').filter(Boolean);
   for (const segment of segments) {

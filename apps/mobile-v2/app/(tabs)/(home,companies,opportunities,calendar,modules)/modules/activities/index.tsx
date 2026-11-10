@@ -75,7 +75,7 @@ export default function ActivitiesScreen() {
               <ListRow
                 title={item.subject}
                 lines={[
-                  [item.type?.name, formatTime(item.activityDate)].filter(Boolean).join(' · ') || null,
+                  [item.company?.shortName ?? item.company?.legalTitle, item.type?.name, formatTime(item.activityDate)].filter(Boolean).join(' · ') || null,
                   item.result ?? item.description,
                   item.createdByUser?.fullName,
                 ]}

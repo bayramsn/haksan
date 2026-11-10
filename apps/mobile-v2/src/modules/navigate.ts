@@ -152,7 +152,7 @@ const entityDetailRoutes: Record<string, string> = {
   conversations: '/chat',
 };
 
-const allowedNativePrefixes = ['/(tabs)', '/modules', '/chat', '/notifications', '/more', '/companies', '/opportunities', '/calendar'];
+const allowedNativePrefixes = ['/(tabs)', '/modules', '/chat', '/notifications', '/more', '/search', '/companies', '/opportunities', '/calendar'];
 
 const RESET_PASSWORD_PATHS = new Set(['/reset-password', '/(auth)/reset-password']);
 

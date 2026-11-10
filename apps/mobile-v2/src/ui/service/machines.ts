@@ -35,6 +35,15 @@ export function warrantyStats(rows: { warrantyEndDate: string | null }[], now: n
   return stats;
 }
 
+/** Servis kartında marka, model ve seri. Boşsa satır çizilmez. */
+export function ticketMachineLine(
+  device: { brand?: string | null; model?: string | null; serialNumber?: string | null } | null | undefined,
+): string | null {
+  if (!device) return null;
+  const line = [device.brand, device.model, device.serialNumber].filter(Boolean).join(' · ');
+  return line || null;
+}
+
 /** Web makine durumu: garanti bitmişse "Garanti Dışı", aksi halde "Aktif". */
 export function machineStatusLabel(warrantyEnd: string | null | undefined, now: number): string {
   return warrantyInfo(warrantyEnd, now).state === 'expired' ? 'Garanti Dışı' : 'Aktif';

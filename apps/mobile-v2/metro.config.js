@@ -34,6 +34,13 @@ config.resolver.extraNodeModules = {
 // disableHierarchicalLookup KAPALI kalmalı: npm bazı paketleri (expo-asset,
 // expo-file-system) node_modules/expo/node_modules altına yuvalıyor ve
 // kapatıldığında Metro onları göremiyor.
+// extraNodeModules yalnız bulunamayan isimleri doldurur. Kökte hoist edilmiş
+// apps/mobile (RN 0.86) paketinden yapılan `react-native` çözümlemesi önce
+// kök kopyayı bulur; bare import'u mobile-v2 kopyasına çevirmek gerekir.
+const pinnedNames = ['react-native', 'react', 'react-dom', 'expo'];
+function pinnedName(moduleName) {
+  return pinnedNames.find((name) => moduleName === name || moduleName.startsWith(`${name}/`));
+}
 
 /**
  * Metro varsayılanı çekirdek başına bir dönüştürücü işçi açar (M serisinde 8-12
@@ -46,4 +53,22 @@ config.resolver.extraNodeModules = {
  */
 config.maxWorkers = Number(process.env.EXPO_METRO_WORKERS ?? 4);
 
-module.exports = withNativeWind(config, { input: './global.css' });
+const finalConfig = withNativeWind(config, { input: './global.css' });
+const resolveUpstream = finalConfig.resolver.resolveRequest;
+finalConfig.resolver.resolveRequest = (context, moduleName, platform) => {
+  const name = pinnedName(moduleName);
+  if (!name) {
+    return resolveUpstream
+      ? resolveUpstream(context, moduleName, platform)
+      : context.resolveRequest(context, moduleName, platform);
+  }
+  const redirected = {
+    ...context,
+    originModulePath: path.join(pin(name), 'package.json'),
+  };
+  return resolveUpstream
+    ? resolveUpstream(redirected, moduleName, platform)
+    : context.resolveRequest(redirected, moduleName, platform);
+};
+
+module.exports = finalConfig;

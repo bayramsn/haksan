@@ -24,7 +24,10 @@ import {
   useUpdateActivity,
 } from '@/src/api/crm.hooks';
 import type { CompanyListItem, ContactListItem, OpportunityListItem } from '@/src/api/endpoints';
-import { useCan } from '@/src/auth/AuthProvider';
+import { useAuth, useCan } from '@/src/auth/AuthProvider';
+import { pickDocument, uploadEntityAttachment, type LocalUpload } from '@/src/native/files';
+import { toast } from '@/src/ui/toast';
+import { AssigneeSelect } from '@/src/ui/select/fields';
 import { formatLocalDateTime, parseLocalDateTime } from '@/src/lib/format';
 import { useTheme } from '@/src/theme/theme';
 import { DateTextField } from '@/src/ui/select/DateTextField';
@@ -119,6 +122,8 @@ export function ActivityFormScreen() {
   const id = assistantDraftId ? '' : first(params.id);
   const editing = Boolean(id);
   const allowed = useCan(editing ? 'activities.update' : 'activities.create');
+  const canUpload = useCan('files.create');
+  const { user } = useAuth();
   const { colors } = useTheme();
   const requestedCompanyId = assistantDraftId ? '' : first(params.companyId);
   const requestedOpportunityId = assistantDraftId ? '' : first(params.opportunityId);
@@ -145,6 +150,9 @@ export function ActivityFormScreen() {
   const [contactSearch, setContactSearch] = useState('');
   const [errors, setErrors] = useState<Partial<Record<keyof FormState, string>>>({});
   const [formError, setFormError] = useState<string | null>(null);
+  const [assigneeId, setAssigneeId] = useState('');
+  const [pendingFiles, setPendingFiles] = useState<LocalUpload[]>([]);
+  const [uploading, setUploading] = useState(false);
   const assistant = useAssistantFormDraft(assistantDraftId, 'note', (draft) => {
     const next = { ...EMPTY_FORM, companyId: draft.company.id, contactId: draft.contact?.id ?? '', activityTypeCode: 'note', subject: draft.title ?? '', description: draft.text ?? '', nextFollowUpAt: draft.dueAt ? formatLocalDateTime(draft.dueAt) : '' };
     setForm(next); initialRef.current = next; setNames({ company: draft.company.name, contact: draft.contact?.name ?? '', opportunity: '' });
@@ -199,6 +207,10 @@ export function ActivityFormScreen() {
   }, [detail.data, editing]);
 
   useEffect(() => {
+    if (!editing && !assigneeId && user?.id) setAssigneeId(user.id);
+  }, [assigneeId, editing, user?.id]);
+
+  useEffect(() => {
     setNames((previous) => ({
       company: selectedCompany.data ? selectedCompany.data.shortName ?? selectedCompany.data.legalTitle : previous.company,
       opportunity: selectedOpportunity.data?.title ?? previous.opportunity,
@@ -234,8 +246,21 @@ export function ActivityFormScreen() {
     contactSheet.current?.dismiss();
   };
 
+  async function attachFiles(activityId: string) {
+    for (const local of pendingFiles) {
+      await uploadEntityAttachment({
+        bucket: 'erp-service-documents',
+        entityType: 'sales_activity',
+        entityId: activityId,
+        documentTypeCode: 'activity_document',
+        description: local.name,
+        local,
+      });
+    }
+  }
+
   async function submit() {
-    if (assistant.blocked || assistant.saving || create.isPending || update.isPending) return;
+    if (assistant.blocked || assistant.saving || uploading || create.isPending || update.isPending) return;
     setFormError(null);
     const nextErrors: Partial<Record<keyof FormState, string>> = {};
     const activityDate = parseLocalDateTime(form.activityDate);
@@ -260,6 +285,7 @@ export function ActivityFormScreen() {
       activityDate: activityDate!,
       nextFollowUpAt,
       result: clean(form.result),
+      ...(assigneeId ? { assignedToUserId: assigneeId } : {}),
     };
 
     if (!editing) {
@@ -276,7 +302,21 @@ export function ActivityFormScreen() {
         return;
       }
       create.mutate(parsed.data as ActivityCreateInput, {
-        onSuccess: (created) => router.replace(`/modules/activities/${created.id}` as Href),
+        onSuccess: (created) => {
+          void (async () => {
+            if (pendingFiles.length) {
+              setUploading(true);
+              try {
+                await attachFiles(created.id);
+              } catch (error) {
+                toast.error(error instanceof Error ? error.message : 'Dosya eklenemedi. Aktivite kaydı duruyor.');
+              } finally {
+                setUploading(false);
+              }
+            }
+            router.replace(`/modules/activities/${created.id}` as Href);
+          })();
+        },
         onError: (error) => setFormError(error.message),
       });
       return;
@@ -318,7 +358,7 @@ export function ActivityFormScreen() {
     return <SafeAreaView className="flex-1 bg-canvas" edges={['top', 'bottom', 'left', 'right']}><Stack.Screen options={{ title: 'Aktiviteyi düzenle', headerShown: true }} /><ErrorState message={detail.error?.message ?? 'Aktivite yüklenemedi.'} onRetry={() => void detail.refetch()} /></SafeAreaView>;
   }
 
-  const saving = create.isPending || update.isPending || assistant.saving;
+  const saving = create.isPending || update.isPending || assistant.saving || uploading;
 
   return (
     <SafeAreaView className="flex-1 bg-canvas" edges={['top', 'bottom', 'left', 'right']}>
@@ -352,6 +392,24 @@ export function ActivityFormScreen() {
             <DateTextField label="Aktivite tarihi ve saati *" mode="datetime" value={form.activityDate} onChangeText={(value) => set('activityDate', value)} clearable={false} error={errors.activityDate} />
             <DateTextField label="Sonraki takip tarihi ve saati" mode="datetime" value={form.nextFollowUpAt} onChangeText={(value) => set('nextFollowUpAt', value)} error={errors.nextFollowUpAt} />
             <Field label="Sonuç" value={form.result} onChangeText={(value) => set('result', value)} multiline maxLength={2000} error={errors.result} className="min-h-20 rounded-control border border-border bg-input-background px-3 py-2 font-inter text-base text-foreground" />
+            {editing ? null : (
+              <View className="gap-1.5">
+                <AssigneeSelect label="Atanan" value={assigneeId} onChange={setAssigneeId} placeholder="Kişi seçin" />
+                <Text className="font-inter text-xs text-muted-foreground">İleri tarihli aktiviteler seçilen kişiye görev olarak atanır.</Text>
+              </View>
+            )}
+            {canUpload && !editing ? (
+              <View className="gap-2">
+                <Button label="Dosya ekle" variant="ghost" onPress={() => void pickDocument().then((file) => { if (file) setPendingFiles((current) => [...current, file]); }).catch((error: unknown) => setFormError(error instanceof Error ? error.message : 'Dosya seçilemedi.'))} />
+                {pendingFiles.map((file) => (
+                  <Pressable key={`${file.name}-${file.sizeBytes}`} accessibilityRole="button" accessibilityLabel={`${file.name} dosyasını kaldır`} onPress={() => setPendingFiles((current) => current.filter((item) => item !== file))} className="min-h-11 flex-row items-center gap-2 rounded-control bg-input-background px-3 active:opacity-70">
+                    <Ionicons name="document-attach-outline" size={18} color={colors.mutedForeground} />
+                    <Text className="min-w-0 flex-1 font-inter text-sm text-foreground" numberOfLines={1}>{file.name}</Text>
+                    <Text className="font-inter text-xs text-muted-foreground">Kaldır</Text>
+                  </Pressable>
+                ))}
+              </View>
+            ) : null}
           </View>
 
           <Text className="font-inter text-xs text-muted-foreground">Aktivite kaydı çevrimiçi bağlantı gerektirir; sunucu firma, kontak, satış kartı ve bölüm erişimini yeniden doğrular.</Text>
