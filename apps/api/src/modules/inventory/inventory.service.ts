@@ -21,14 +21,8 @@ import {
   resourceDivisionFilter,
   resolveAssignedResourceDivision,
 } from '../../shared/utils/division-scope';
-import { assertDeviceCompanyContact, lockDeviceInventory, upsertInventoryCustomerDevice, type DeviceTransaction } from '../../shared/utils/customer-device-upsert';
+import { addWarrantyYears, assertDeviceCompanyContact, lockDeviceInventory, upsertInventoryCustomerDevice, type DeviceTransaction } from '../../shared/utils/customer-device-upsert';
 import { companyVisibilityExistsFilter } from '../../shared/utils/company-visibility';
-
-function addWarrantyYears(date: Date, years: number): Date {
-  const next = new Date(date);
-  next.setFullYear(next.getFullYear() + years);
-  return next;
-}
 
 function parseManualDeviceNotes(notes: string | null): { model: string | null; serialNumber: string | null } {
   const parts = (notes ?? '').split('·').map((part) => part.trim()).filter(Boolean);

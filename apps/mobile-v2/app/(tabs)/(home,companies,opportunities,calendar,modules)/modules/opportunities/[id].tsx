@@ -70,6 +70,7 @@ import {
 } from '@/src/ui/sales/OpportunityWorkspace';
 import { CloseCaseSheet, type CloseCaseSheetHandle } from '@/src/ui/sales/CloseCaseSheet';
 import { DateTextField } from '@/src/ui/select/DateTextField';
+import { OpenServiceWarning, OpportunityServicePanel } from '@/src/ui/service/SalesServiceLinks';
 
 /**
  * Teklif durumu → rozet rengi. `approved` = SATILDI: fırsatın WIN'e geçmesinin
@@ -798,6 +799,7 @@ export default function OpportunityDetailScreen() {
             </View>
           </View>
         </View>
+        <OpenServiceWarning companyId={data.company?.id ?? data.companyId} onPress={workspaceTab === 'ozet' ? undefined : () => setWorkspaceTab('ozet')} />
 
         {workspaceTab === 'ozet' ? <>
           <Card className="gap-1">
@@ -825,6 +827,7 @@ export default function OpportunityDetailScreen() {
             <OpportunityFact icon="calendar-outline" label="Oluşturma" value={formatDate(data.createdAt)} />
             <OpportunityFact icon="flag-outline" label="Beklenen kapanış" value={data.expectedCloseDate ? formatDate(data.expectedCloseDate) : 'Planlanmadı'} />
           </Card>
+          <OpportunityServicePanel opportunityId={data.id} companyId={data.company?.id ?? data.companyId} sourceServiceTicketId={data.sourceServiceTicketId} />
           <OpportunityTasksPanel opportunityId={id} />
         </> : null}
 

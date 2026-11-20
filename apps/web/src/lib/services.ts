@@ -1207,6 +1207,9 @@ export const serviceService = {
   createTicket: (body: any) => api.post<any>('/service-tickets', body),
   update: (id: string, body: any) => api.patch<any>(`/service-tickets/${id}`, body),
   deleteTicket: (id: string) => api.delete<any>(`/service-tickets/${id}`),
+  /** Servis kaydındaki satış ihtiyacını satış ekibine lead olarak iletir. */
+  createSalesLead: (id: string, need: string) =>
+    api.post<{ id: string; title: string }>(`/service-tickets/${id}/sales-lead`, { need }),
   updateTicketStatus: (id: string, statusCode: string, serviceStage?: string) =>
     api.patch<any>(`/service-tickets/${id}/status`, { statusCode, serviceStage }),
   openServiceFormPdf: async (id: string, documentNo?: string, existingPreviewWindow?: Window | null): Promise<void> => {

@@ -52,6 +52,7 @@ import {
   TimerCard,
 } from '@/src/ui/service/TicketPanels';
 import { WarrantyEditor } from '@/src/ui/service/WarrantyEditor';
+import { TicketSalesSection } from '@/src/ui/service/SalesServiceLinks';
 
 type DetailTab = 'summary' | 'quote' | 'machine' | 'warranty' | 'communication' | 'notes' | 'activities' | 'operations' | 'completion';
 type TicketType = 'complaint' | 'request' | 'warranty_claim' | 'question';
@@ -298,6 +299,7 @@ export default function ServiceTicketDetailScreen() {
                   <MetaCell label="Kayıt Tipi" value={TICKET_TYPE_LABELS[ticket.ticketType] ?? ticket.ticketType} />
                 )}
               </FormSection>
+              <TicketSalesSection ticket={ticket} canUpdate={canUpdate} />
               <FormSection title="Servis Dosyaları">
                 <AttachmentsPanel entityType="service_ticket" entityId={ticket.id} canUpload={canUpdate} />
               </FormSection>
