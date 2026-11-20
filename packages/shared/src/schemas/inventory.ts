@@ -59,6 +59,7 @@ export const inventorySellSchema = z.object({
 export type InventorySellInput = z.infer<typeof inventorySellSchema>;
 
 export const customerDeviceCreateSchema = z.object({
+  contactId: z.string().uuid().nullable().optional(),
   companyId: z.string().min(1),
   initialCompanyId: z.string().uuid().optional(),
   divisionId: z.string().uuid().optional(),

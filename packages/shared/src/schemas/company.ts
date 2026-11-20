@@ -60,7 +60,7 @@ const companyCreateBaseSchema = z.object({
   contactSourceText: optionalTrimmedText(255),
   sector: optionalText(128),
   supplierCategoryCode: supplierCategoryCodeSchema.optional(),
-  legalTitle: z.string().min(1).max(255),
+  legalTitle: z.string().trim().min(1).max(255),
   shortName: optionalText(128),
   taxOffice: optionalText(128),
   taxNumber: optionalText(32),
@@ -168,7 +168,7 @@ export const companyIdListSchema = z.preprocess(
 
 export const companyListRequestQuerySchema = companyListQuerySchema.merge(
   paginationSchema.extend({
-    sortBy: z.enum(['name', 'createdAt']).optional(),
+    sortBy: z.enum(['name', 'createdAt', 'type', 'contact', 'city']).optional(),
     ids: companyIdListSchema.optional(),
   }),
 );
@@ -206,7 +206,7 @@ export const companyOsmSearchResultSchema = z.object({
   website: z.string().url().optional(),
   phone: z.string().max(64).optional(),
   email: z.string().email().max(254).optional(),
-  address: z.record(z.unknown()).optional(),
+  address: z.record(z.string(), z.unknown()).optional(),
 });
 export type CompanyOsmSearchResult = z.infer<typeof companyOsmSearchResultSchema>;
 

@@ -69,21 +69,33 @@ export const quoteItemTechnicalSpecSchema = z.object({
   group: z.string().max(255).optional(),
 });
 
+export const quoteSelectedProductOptionSchema = z.object({
+  optionSetId: z.string().uuid(),
+  optionValueId: z.string().uuid(),
+  name: z.string().trim().max(128).default(''),
+  value: z.string().trim().max(255).default(''),
+  priceDelta: moneySchema.default(0),
+  currencyCode: z.string().max(8).default(''),
+});
+export type QuoteSelectedProductOption = z.infer<typeof quoteSelectedProductOptionSchema>;
+
 export const quoteItemCompatibilitySchema = z.object({
   // Aynı teklif içindeki ana ürün ile ona bağlı opsiyonları PDF çıktılarında
   // güvenilir biçimde eşleştirmek için kullanılan, kullanıcıya gösterilmeyen anahtar.
   lineGroupKey: z.string().min(1).max(64).optional(),
+  configurationOptionSetId: z.string().uuid().optional(),
   machineIds: z.array(z.string()).default([]),
   brands: z.array(z.string()).default([]),
   controlUnits: z.array(z.string()).default([]),
   supplierIds: z.array(z.string()).default([]),
   technicalSpecs: z.array(quoteItemTechnicalSpecSchema).default([]),
   technicalConfiguration: laserTechnicalConfigurationSchema.nullish(),
+  selectedProductOptions: z.array(quoteSelectedProductOptionSchema).max(100).optional(),
 });
 export type QuoteItemCompatibility = z.infer<typeof quoteItemCompatibilitySchema>;
 
 export const quoteItemCreateSchema = z.object({
-  productModelId: z.string().optional(),
+  productModelId: z.string().nullish(),
   inventoryItemId: z.string().optional(),
   stockCode: z.string().max(64).optional(),
   description: z.string().min(1).max(2000),
@@ -150,6 +162,14 @@ export type StandaloneQuoteCreateInput = Omit<
   headerDiscountAmount?: number;
   headerDiscountPercent?: number;
 };
+
+/** Mobile and web draft creation share the opportunity readiness rules. */
+export const quoteDraftCreateSchema = quoteCreateSchema.extend({
+  opportunityId: z.string().uuid(),
+  items: z.array(quoteItemCreateSchema).min(1).max(200),
+  terms: quoteTermsUpsertSchema.partial().optional(),
+});
+export type QuoteDraftCreateInput = z.infer<typeof quoteDraftCreateSchema>;
 
 export const proformaPriceItemSchema = z.object({
   quoteItemId: z.string().uuid(),
@@ -306,8 +326,7 @@ const requireStandaloneOwnerOnPatch = (
 export const standaloneProformaCreateSchema = standaloneProformaFields.superRefine(requireStandaloneOwner);
 export type StandaloneProformaCreateInput = z.infer<typeof standaloneProformaCreateSchema>;
 
-export const standaloneProformaUpdateSchema = standaloneProformaFields
-  .partial()
+export const standaloneProformaUpdateSchema = standaloneProformaFields.partial()
   .superRefine(requireStandaloneOwnerOnPatch);
 export type StandaloneProformaUpdateInput = z.infer<typeof standaloneProformaUpdateSchema>;
 
@@ -364,8 +383,7 @@ export const standaloneContractCreateSchema = standaloneContractFields.superRefi
 });
 export type StandaloneContractCreateInput = z.infer<typeof standaloneContractCreateSchema>;
 
-export const standaloneContractUpdateSchema = standaloneContractFields
-  .partial()
+export const standaloneContractUpdateSchema = standaloneContractFields.partial()
   .superRefine(requireStandaloneOwnerOnPatch);
 export type StandaloneContractUpdateInput = z.infer<typeof standaloneContractUpdateSchema>;
 
@@ -401,3 +419,10 @@ export type CommercialInvoiceCreateInput = z.infer<typeof commercialInvoiceCreat
 
 export const commercialInvoiceUpdateSchema = commercialInvoiceCreateSchema.partial();
 export type CommercialInvoiceUpdateInput = z.infer<typeof commercialInvoiceUpdateSchema>;
+
+/** Atomic draft edit keeps line identity and rolls back all changes on failure. */
+export const quoteDraftUpdateSchema = quoteUpdateSchema.extend({
+  items: z.array(quoteItemCreateSchema.extend({ id: z.string().uuid().optional() })).min(1).max(200),
+  terms: quoteTermsUpsertSchema.partial().optional(),
+});
+export type QuoteDraftUpdateInput = z.infer<typeof quoteDraftUpdateSchema>;
