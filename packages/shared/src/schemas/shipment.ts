@@ -1,4 +1,3 @@
-import { partialWithoutDefaults } from '../partial';
 import { z } from 'zod';
 import { moneySchema } from './common';
 
@@ -71,7 +70,7 @@ export const shipmentCreateSchema = z.object({
 });
 export type ShipmentCreateInput = z.infer<typeof shipmentCreateSchema>;
 
-export const shipmentUpdateSchema = partialWithoutDefaults(shipmentCreateSchema);
+export const shipmentUpdateSchema = shipmentCreateSchema.partial();
 export type ShipmentUpdateInput = z.infer<typeof shipmentUpdateSchema>;
 
 export const shipmentStartSchema = z.object({
@@ -209,7 +208,7 @@ export const deliveryCreateSchema = z.object({
 });
 export type DeliveryCreateInput = z.infer<typeof deliveryCreateSchema>;
 
-export const deliveryUpdateSchema = partialWithoutDefaults(deliveryCreateSchema);
+export const deliveryUpdateSchema = deliveryCreateSchema.partial();
 export type DeliveryUpdateInput = z.infer<typeof deliveryUpdateSchema>;
 
 export const deliveryStatusUpdateSchema = z.object({ status: z.enum(['pending', 'completed']) });

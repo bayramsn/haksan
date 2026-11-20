@@ -1,4 +1,3 @@
-import { partialWithoutDefaults } from '../partial';
 import { z } from 'zod';
 import { moneySchema, percentSchema } from './common';
 
@@ -27,7 +26,7 @@ export const salesOrderCreateSchema = z.object({
 });
 export type SalesOrderCreateInput = z.infer<typeof salesOrderCreateSchema>;
 
-export const salesOrderUpdateSchema = partialWithoutDefaults(salesOrderCreateSchema);
+export const salesOrderUpdateSchema = salesOrderCreateSchema.partial();
 export type SalesOrderUpdateInput = z.infer<typeof salesOrderUpdateSchema>;
 
 export const salesOrderItemCreateSchema = orderItemBaseSchema.extend({
@@ -35,7 +34,7 @@ export const salesOrderItemCreateSchema = orderItemBaseSchema.extend({
 });
 export type SalesOrderItemCreateInput = z.infer<typeof salesOrderItemCreateSchema>;
 
-export const salesOrderItemUpdateSchema = partialWithoutDefaults(salesOrderItemCreateSchema);
+export const salesOrderItemUpdateSchema = salesOrderItemCreateSchema.partial();
 export type SalesOrderItemUpdateInput = z.infer<typeof salesOrderItemUpdateSchema>;
 
 export const salesOrderFromQuoteSchema = z.object({
@@ -83,7 +82,7 @@ export const purchaseOrderCreateSchema = purchaseOrderBaseSchema.superRefine((va
 });
 export type PurchaseOrderCreateInput = z.infer<typeof purchaseOrderCreateSchema>;
 
-export const purchaseOrderUpdateSchema = partialWithoutDefaults(purchaseOrderBaseSchema);
+export const purchaseOrderUpdateSchema = purchaseOrderBaseSchema.partial();
 export type PurchaseOrderUpdateInput = z.infer<typeof purchaseOrderUpdateSchema>;
 
 export const purchaseOrderItemCreateSchema = orderItemBaseSchema.extend({
@@ -94,5 +93,5 @@ export const purchaseOrderItemCreateSchema = orderItemBaseSchema.extend({
 });
 export type PurchaseOrderItemCreateInput = z.infer<typeof purchaseOrderItemCreateSchema>;
 
-export const purchaseOrderItemUpdateSchema = partialWithoutDefaults(purchaseOrderItemCreateSchema);
+export const purchaseOrderItemUpdateSchema = purchaseOrderItemCreateSchema.partial();
 export type PurchaseOrderItemUpdateInput = z.infer<typeof purchaseOrderItemUpdateSchema>;

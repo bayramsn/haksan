@@ -11,7 +11,7 @@ const priceSchema = z.object({ amount: z.string().regex(/^\d+(?:\.\d{1,4})?$/).n
 const workbookSchema = z.object({ sourceFile: z.string(), sourceSha256: z.string(), version: z.string(), releaseDate: z.string(),
   products: z.array(z.object({ id: z.string(), sheet: z.string(), series: z.string(), modelCode: z.string().min(1).max(128),
     specs: z.array(specSchema), price: priceSchema, standardEquipment: z.object({ text: z.string() }).optional() })),
-  options: z.array(z.object({ id: z.string(), name: z.string(), group: z.string(), pricesByProduct: z.record(z.string(), priceSchema) })),
+  options: z.array(z.object({ id: z.string(), name: z.string(), group: z.string(), pricesByProduct: z.record(priceSchema) })),
   sheets: z.array(z.object({ name: z.string(), warnings: z.array(z.unknown()).optional() })).optional(), software: z.array(z.unknown()), warnings: z.array(z.unknown()).optional() });
 const showroomSchema = z.object({ pending: z.array(z.object({ model: z.string().nullable().optional(), reason: z.string() })).optional(), products: z.array(z.object({ brand: z.string().min(1).max(128), model: z.string().min(1).max(128),
   title: z.string().optional(), group: z.string().optional(), notes: z.array(z.string()).optional(), warnings: z.array(z.string()).optional(), capacityConditions: z.unknown().optional(), optionalSpecs: z.unknown().optional(), typeCode: z.string().optional(), productTypeCode: z.string().optional(), sourceId: z.string().optional(),

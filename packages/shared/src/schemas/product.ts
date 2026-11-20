@@ -1,7 +1,6 @@
-import { partialWithoutDefaults } from '../partial';
 import { z } from 'zod';
 import { moneySchema, percentSchema } from './common';
-import { laserSelectionSchema, laserTechnicalConfigurationSchema, laserCabinTypeSchema } from '../laser';
+import { laserSelectionSchema, laserTechnicalConfigurationSchema } from '../laser';
 
 const productVatRateSchema = percentSchema.refine((rate) => rate !== 1, {
   message: 'Ürün KDV oranı %1 olamaz',
@@ -21,8 +20,8 @@ export const productCreateSchema = z.object({
   modelName: z.string().max(255).optional(),
   fullName: z.string().min(1).max(512),
   currencyCode: z.string().max(8).default('USD'),
-  listPrice: moneySchema.nullish(),
-  cashPrice: moneySchema.nullish(),
+  listPrice: moneySchema.optional(),
+  cashPrice: moneySchema.optional(),
   vatRate: productVatRateSchema.default(20),
   originCountry: z.string().max(64).optional(),
   hsCode: z.string().max(32).optional(),
@@ -41,7 +40,7 @@ export const productCreateSchema = z.object({
 });
 export type ProductCreateInput = z.infer<typeof productCreateSchema>;
 
-export const productUpdateSchema = partialWithoutDefaults(productCreateSchema);
+export const productUpdateSchema = productCreateSchema.partial();
 export type ProductUpdateInput = z.infer<typeof productUpdateSchema>;
 
 export const productSpecCreateSchema = z.object({
@@ -76,7 +75,7 @@ export const productSpecTemplateCreateSchema = z.object({
 });
 export type ProductSpecTemplateCreateInput = z.infer<typeof productSpecTemplateCreateSchema>;
 
-export const productSpecTemplateUpdateSchema = partialWithoutDefaults(productSpecTemplateCreateSchema);
+export const productSpecTemplateUpdateSchema = productSpecTemplateCreateSchema.partial();
 export type ProductSpecTemplateUpdateInput = z.infer<typeof productSpecTemplateUpdateSchema>;
 
 export const productSpecTemplateBulkCreateSchema = z.object({
@@ -249,12 +248,6 @@ export const productEquipmentCreateSchema = z.object({
 });
 export type ProductEquipmentCreateInput = z.infer<typeof productEquipmentCreateSchema>;
 
-export const productStandardEquipmentUpdateSchema = z.object({
-  standardEquipment: z.array(z.string().trim().min(1).max(255)).max(200),
-  supplierCompanyId: z.string().uuid().nullable().optional(),
-}).strict();
-export type ProductStandardEquipmentUpdateInput = z.infer<typeof productStandardEquipmentUpdateSchema>;
-
 export const productDetailsReplaceSchema = z.object({
   specs: z.array(productSpecCreateSchema).default([]),
   equipment: z.array(productEquipmentCreateSchema).default([]),
@@ -290,7 +283,7 @@ export const priceListCreateSchema = z.object({
 });
 export type PriceListCreateInput = z.infer<typeof priceListCreateSchema>;
 
-export const priceListUpdateSchema = partialWithoutDefaults(priceListCreateSchema);
+export const priceListUpdateSchema = priceListCreateSchema.partial();
 export type PriceListUpdateInput = z.infer<typeof priceListUpdateSchema>;
 
 export const priceListItemCreateSchema = z.object({
@@ -309,30 +302,22 @@ export type PriceListItemCreateRequest = Omit<z.infer<typeof priceListItemCreate
 };
 export type PriceListItemCreateInput = z.infer<typeof priceListItemCreateSchema>;
 
-export const priceListItemUpdateSchema = partialWithoutDefaults(priceListItemCreateSchema);
+export const priceListItemUpdateSchema = priceListItemCreateSchema.partial();
 export type PriceListItemUpdateInput = z.infer<typeof priceListItemUpdateSchema>;
 
 export const productOptionSetCreateSchema = z.object({
-  name: z.string().trim().min(1).max(128),
-  configurationKind: z.enum(['table', 'power', 'cabin']).nullish(),
+  name: z.string().min(1).max(255),
   sortOrder: z.coerce.number().int().default(0),
-}).strict();
+});
 export type ProductOptionSetCreateInput = z.infer<typeof productOptionSetCreateSchema>;
-export const productOptionSetUpdateSchema = partialWithoutDefaults(productOptionSetCreateSchema);
-export type ProductOptionSetUpdateInput = z.infer<typeof productOptionSetUpdateSchema>;
 
 export const productOptionValueCreateSchema = z.object({
   value: z.string().min(1).max(255),
   priceDelta: moneySchema.optional(),
   currencyCode: z.string().max(8).optional(),
-  sourceModelCode: z.string().trim().min(1).max(64).nullish(),
-  powerKw: z.number().positive().max(1000).nullish(),
-  cabinType: laserCabinTypeSchema.nullish(),
   sortOrder: z.coerce.number().int().default(0),
-}).strict();
+});
 export type ProductOptionValueCreateInput = z.infer<typeof productOptionValueCreateSchema>;
-export const productOptionValueUpdateSchema = partialWithoutDefaults(productOptionValueCreateSchema);
-export type ProductOptionValueUpdateInput = z.infer<typeof productOptionValueUpdateSchema>;
 
 export const productImportSpecSchema = z.object({
   specGroupCode: z.string().max(64).optional(),

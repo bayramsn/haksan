@@ -5,7 +5,6 @@ import { HeadBucketCommand, S3Client } from '@aws-sdk/client-s3';
 import type { NestFastifyApplication } from '@nestjs/platform-fastify';
 import { loadEnv } from './config/env';
 import { getPool } from './db/client';
-import { runtimeSchemaIsCurrent, type RuntimeCatalogRow } from './db/runtime-schema-check';
 import { buildS3ClientConfig } from './shared/storage/s3-client-config';
 import { logger } from './shared/utils/logger';
 
@@ -47,9 +46,6 @@ async function readinessCheck(): Promise<{ ok: true; migrations: { applied: numb
     const applied = Number(result.rows[0]?.count ?? 0);
     if (applied < expected) {
       return { ok: false, reason: `MIGRATION_PENDING (${applied}/${expected})` };
-    }
-    if (!(await runtimeSchemaIsCurrent((config) => pool.query<RuntimeCatalogRow>(config)))) {
-      return { ok: false, reason: 'SCHEMA_OUT_OF_DATE' };
     }
     return { ok: true, migrations: { applied, expected } };
   } catch (err) {

@@ -1,4 +1,3 @@
-import { partialWithoutDefaults } from '../partial';
 import { z } from 'zod';
 import { paginationSchema } from './common';
 
@@ -51,7 +50,7 @@ export const tradeFairContactCreateSchema = tradeFairContactFields.extend({
   country: tradeFairContactFields.shape.country.default('Türkiye'),
   visitorCount: tradeFairContactFields.shape.visitorCount.default(1),
 });
-export const tradeFairContactUpdateSchema = partialWithoutDefaults(tradeFairContactFields);
+export const tradeFairContactUpdateSchema = tradeFairContactFields.partial();
 export type TradeFairContactInput = z.infer<typeof tradeFairContactCreateSchema>;
 export type TradeFairContactUpdateInput = z.infer<typeof tradeFairContactUpdateSchema>;
 

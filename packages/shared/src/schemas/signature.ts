@@ -1,4 +1,3 @@
-import { partialWithoutDefaults } from '../partial';
 import { z } from 'zod';
 
 /**
@@ -44,7 +43,7 @@ const signatureFields = z.object({
 export const signatureCreateSchema = signatureFields;
 export type SignatureCreateInput = z.infer<typeof signatureCreateSchema>;
 
-export const signatureUpdateSchema = partialWithoutDefaults(signatureFields);
+export const signatureUpdateSchema = signatureFields.partial();
 export type SignatureUpdateInput = z.infer<typeof signatureUpdateSchema>;
 
 export const signatureListQuerySchema = z.object({

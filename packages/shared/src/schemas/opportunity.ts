@@ -1,4 +1,3 @@
-import { partialWithoutDefaults } from '../partial';
 import { z } from 'zod';
 import { moneySchema } from './common';
 import {
@@ -233,7 +232,7 @@ export const trelloImportCommitRequestSchema = z.object({
 });
 export type TrelloImportCommitRequest = z.infer<typeof trelloImportCommitRequestSchema>;
 
-export const opportunityUpdateSchema = partialWithoutDefaults(opportunityInputSchema).extend({
+export const opportunityUpdateSchema = opportunityInputSchema.partial().extend({
   // Açık null alanı temizler; gönderilmeyen alan mevcut değerini korur.
   // nullable dışarıda olmalı: date coercion null'u 1970-01-01'e çevirmemeli.
   description: opportunityInputSchema.shape.description.nullable(),
@@ -284,7 +283,7 @@ export const leadAssignmentRuleCreateSchema = z.object({
   criteria: leadAssignmentCriteriaSchema.default({ cities: [], productTerms: [], sourceCodes: [] }),
   assigneeUserIds: z.array(z.string().uuid()).min(1).max(100),
 });
-export const leadAssignmentRuleUpdateSchema = partialWithoutDefaults(leadAssignmentRuleCreateSchema);
+export const leadAssignmentRuleUpdateSchema = leadAssignmentRuleCreateSchema.partial();
 export type LeadAssignmentRuleCreateInput = z.infer<typeof leadAssignmentRuleCreateSchema>;
 export type LeadAssignmentRuleUpdateInput = z.infer<typeof leadAssignmentRuleUpdateSchema>;
 
@@ -485,7 +484,7 @@ export const activityCreateSchema = z.object({
 });
 export type ActivityCreateInput = z.infer<typeof activityCreateSchema>;
 
-export const activityUpdateSchema = partialWithoutDefaults(activityCreateSchema.omit({ assignedToUserId: true })).extend({
+export const activityUpdateSchema = activityCreateSchema.omit({ assignedToUserId: true }).partial().extend({
   opportunityId: z.string().nullable().optional(),
   companyId: z.string().min(1).nullable().optional(),
   contactId: z.string().nullable().optional(),
@@ -502,7 +501,7 @@ export const competitorCreateSchema = z.object({
 });
 export type CompetitorCreateInput = z.infer<typeof competitorCreateSchema>;
 
-export const competitorUpdateSchema = partialWithoutDefaults(competitorCreateSchema);
+export const competitorUpdateSchema = competitorCreateSchema.partial();
 export type CompetitorUpdateInput = z.infer<typeof competitorUpdateSchema>;
 
 export const competitorProductCreateSchema = z.object({

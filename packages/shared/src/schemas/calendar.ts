@@ -1,4 +1,3 @@
-import { partialWithoutDefaults } from '../partial';
 import { z } from 'zod';
 
 export const CALENDAR_EVENT_TYPES = ['customer_visit', 'meeting', 'call', 'task', 'other'] as const;
@@ -41,7 +40,8 @@ export const calendarEventCreateSchema = calendarEventFields
   });
 
 // completedAt yalnız güncellemede: yeni açılan bir görev tamamlanmış olamaz.
-export const calendarEventUpdateSchema = partialWithoutDefaults(calendarEventFields)
+export const calendarEventUpdateSchema = calendarEventFields
+  .partial()
   .extend({ completedAt: z.coerce.date().nullable().optional() });
 
 export const calendarSyncSettingsSchema = z.object({

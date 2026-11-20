@@ -1,4 +1,3 @@
-import { Inject } from '@nestjs/common';
 import {
   OnGatewayConnection,
   OnGatewayInit,
@@ -9,25 +8,16 @@ import {
   ConnectedSocket,
 } from '@nestjs/websockets';
 import type { Server, Socket } from 'socket.io';
-import { and, eq, isNull } from 'drizzle-orm';
-import type { DbClient } from '../../db/client';
-import { loginSessions, users } from '../../db/schema/users';
-import { DB } from '../../shared/database/database.module';
-import { JwtTokenService, type AccessTokenPayload } from '../../shared/security/jwt.service';
+import { JwtTokenService } from '../../shared/security/jwt.service';
 import { ChatService } from './chat.service';
 import { ChatRealtimeService } from './chat.realtime';
 import { loadEnv } from '../../config/env';
-import { z } from 'zod';
 import { logger } from '../../shared/utils/logger';
-
-const SESSION_RECHECK_MS = 10_000;
-const SESSION_LOOKUP_TIMEOUT_MS = 5_000;
-type ChatSession = Pick<AccessTokenPayload, 'sub' | 'tid' | 'sid' | 'ver'> & { expiresAt: number };
 
 /**
  * Socket.IO ağ geçidi — yalnızca CHAT_REALTIME_ENABLED=true iken ChatModule
  * tarafından sağlanır (aksi halde hiç örneklenmez, soket sunucusu açılmaz).
- * El sıkışmada JWT ve oturum doğrulanır. Açık bağlantılar oturum iptalini izler.
+ * El sıkışmada JWT doğrulanır; istemci `join`/`leave` ile konuşma odalarına girer.
  */
 @WebSocketGateway({ cors: { origin: loadEnv().CORS_ORIGINS, credentials: true } })
 export class ChatGateway implements OnGatewayInit, OnGatewayConnection {
@@ -36,8 +26,7 @@ export class ChatGateway implements OnGatewayInit, OnGatewayConnection {
   constructor(
     private readonly jwt: JwtTokenService,
     private readonly chat: ChatService,
-    private readonly realtime: ChatRealtimeService,
-    @Inject(DB) private readonly db: DbClient
+    private readonly realtime: ChatRealtimeService
   ) {}
 
   private isSafeSignal(value: unknown, maxBytes: number): boolean {
@@ -49,119 +38,21 @@ export class ChatGateway implements OnGatewayInit, OnGatewayConnection {
     }
   }
 
-  private acceptCallSignal(socket: Socket, conversationId: unknown, ice = false): boolean {
-    if (!socket.data.userId || !z.string().uuid().safeParse(conversationId).success) return false;
-    const key = ice ? 'callIceWindow' : 'callControlWindow';
-    const now = Date.now();
-    const window = socket.data[key] as { start: number; count: number } | undefined;
-    if (!window || now - window.start >= 60_000) {
-      socket.data[key] = { start: now, count: 1 };
-      return true;
-    }
-    // ICE gathering needs a larger burst than invitation/control events.
-    return ++window.count <= (ice ? 240 : 60);
-  }
-
-  private isDescription(value: unknown, type: 'offer' | 'answer'): boolean {
-    return z.object({ type: z.literal(type), sdp: z.string().min(1).max(65536) }).safeParse(value).success
-      && this.isSafeSignal(value, 64 * 1024);
-  }
-
   afterInit(server: Server): void {
-    server.use(async (socket, next) => {
-      try {
-        const token: unknown = socket.handshake.auth?.token;
-        if (typeof token !== 'string' || !token) return next(new Error('Oturum geçersiz'));
-
-        const { sub, tid, sid, ver, exp } = this.jwt.verifyAccess(token) as AccessTokenPayload & { exp?: number };
-        if (!sub || !tid || !sid || !Number.isInteger(ver) || typeof exp !== 'number' || !Number.isSafeInteger(exp)) {
-          return next(new Error('Oturum geçersiz'));
-        }
-
-        const session = { sub, tid, sid, ver, expiresAt: exp * 1000 };
-        if (!await this.hasActiveSession(session)) return next(new Error('Oturum geçersiz'));
-        if (session.expiresAt <= Date.now()) return next(this.expiredSessionError());
-
-        socket.data.chatSession = session;
-        socket.data.userId = sub;
-        socket.data.tenantId = tid;
-        next();
-      } catch (error) {
-        next(error instanceof Error && error.name === 'TokenExpiredError'
-          ? this.expiredSessionError()
-          : new Error('Oturum geçersiz'));
-      }
-    });
     this.realtime.setServer(server);
     logger.info('[chat] realtime gateway up');
   }
 
-  private expiredSessionError() {
-    return Object.assign(new Error('Oturum süresi doldu'), { data: { code: 'CHAT_ACCESS_EXPIRED' } });
-  }
-
-  private async hasActiveSession(session: ChatSession): Promise<boolean> {
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    try {
-      const lookup = this.db
-        .select({ id: loginSessions.id })
-        .from(loginSessions)
-        .innerJoin(users, eq(users.id, loginSessions.userId))
-        .where(and(
-          eq(loginSessions.id, session.sid),
-          eq(loginSessions.userId, session.sub),
-          eq(loginSessions.tenantId, session.tid),
-          isNull(loginSessions.revokedAt),
-          eq(users.tenantId, session.tid),
-          eq(users.authVersion, session.ver),
-          eq(users.status, 'active'),
-          isNull(users.deletedAt),
-        ))
-        .limit(1);
-      const rows = await Promise.race([
-        lookup,
-        new Promise<never>((_, reject) => {
-          timer = setTimeout(() => reject(new Error('Oturum denetimi zaman aşımı')), SESSION_LOOKUP_TIMEOUT_MS);
-        }),
-      ]);
-      return rows.length === 1;
-    } finally {
-      clearTimeout(timer);
-    }
-  }
-
   handleConnection(socket: Socket): void {
-    const session = socket.data.chatSession as ChatSession | undefined;
-    if (!session) {
+    try {
+      const token = (socket.handshake.auth?.token as string) || '';
+      const payload = this.jwt.verifyAccess(token);
+      socket.data.userId = payload.sub;
+      socket.data.tenantId = payload.tid;
+      socket.join(`user:${payload.sub}`);
+    } catch {
       socket.disconnect(true);
-      return;
     }
-    const remaining = session.expiresAt - Date.now();
-    if (remaining <= 0) {
-      socket.conn.close();
-      return;
-    }
-
-    // A transport close allows Socket.IO to reconnect with a renewed token.
-    const expiry = setTimeout(() => socket.conn.close(), Math.min(remaining, 2_147_483_647));
-    let recheck: ReturnType<typeof setTimeout>;
-    const verify = async () => {
-      try {
-        if (await this.hasActiveSession(session)) {
-          if (socket.connected) recheck = setTimeout(() => void verify(), SESSION_RECHECK_MS);
-          return;
-        }
-      } catch {
-        // Session storage unavailable. Do not keep an unchecked socket open.
-      }
-      socket.disconnect(true);
-    };
-    recheck = setTimeout(() => void verify(), SESSION_RECHECK_MS);
-    socket.once('disconnect', () => {
-      clearTimeout(expiry);
-      clearTimeout(recheck);
-    });
-    socket.join(`user:${session.sub}`);
   }
 
   @SubscribeMessage('join')
@@ -180,25 +71,8 @@ export class ChatGateway implements OnGatewayInit, OnGatewayConnection {
     return { ok: true };
   }
 
-  @SubscribeMessage('typing:set')
-  async onTyping(@ConnectedSocket() socket: Socket, @MessageBody() data: unknown) {
-    const parsed = z.object({ conversationId: z.string().uuid(), isTyping: z.boolean() }).safeParse(data);
-    const userId = socket.data.userId as string | undefined;
-    if (!parsed.success || !userId) return { ok: false };
-    const now = Date.now();
-    const window = socket.data.typingWindow as { start: number; count: number } | undefined;
-    if (!window || now - window.start >= 60_000) socket.data.typingWindow = { start: now, count: 1 };
-    else if (++window.count > 60) return { ok: false, retryAfter: Math.ceil((60_000 - (now - window.start)) / 1000) };
-    const ctx = await this.chat.typingContext(userId, parsed.data.conversationId);
-    if (!ctx) return { ok: false };
-    socket.to(`conv:${parsed.data.conversationId}`).emit('typing:update', {
-      ...parsed.data, userId, fullName: ctx.fullName, expiresAt: now + 5000,
-    });
-    return { ok: true };
-  }
-
   // ───────── Sesli/görüntülü arama sinyalleşmesi (WebRTC, yalnız DM) ─────────
-  // Sunucu yalnız aracıdır: SDP/ICE biçimi ve boyutu doğrulanır,
+  // Sunucu yalnız aracıdır: SDP/ICE içeriği doğrulanmadan karşı üyeye iletilir,
   // medya sunucudan geçmez. Her olayda gönderenin üyeliği doğrulanır.
 
   @SubscribeMessage('call:invite')
@@ -207,7 +81,7 @@ export class ChatGateway implements OnGatewayInit, OnGatewayConnection {
     @MessageBody() data: { conversationId?: string; offer?: unknown; mode?: unknown },
   ) {
     const userId = socket.data.userId as string | undefined;
-    if (!this.acceptCallSignal(socket, data?.conversationId) || !userId || !data?.conversationId || !this.isDescription(data.offer, 'offer')) return { ok: false };
+    if (!userId || !data?.conversationId || !this.isSafeSignal(data.offer, 64 * 1024)) return { ok: false };
     const ctx = await this.chat.voiceCallContext(userId, data.conversationId);
     if (!ctx) return { ok: false };
     const mode = data.mode === 'video' ? 'video' : data.mode === 'audio' || data.mode == null ? 'audio' : null;
@@ -228,7 +102,7 @@ export class ChatGateway implements OnGatewayInit, OnGatewayConnection {
     @MessageBody() data: { conversationId?: string; to?: string; answer?: unknown },
   ) {
     const userId = socket.data.userId as string | undefined;
-    if (!this.acceptCallSignal(socket, data?.conversationId) || !userId || !data?.conversationId || !z.string().uuid().safeParse(data.to).success || !data.to || !this.isDescription(data.answer, 'answer')) return { ok: false };
+    if (!userId || !data?.conversationId || !data.to || !this.isSafeSignal(data.answer, 64 * 1024)) return { ok: false };
     const ctx = await this.chat.voiceCallContext(userId, data.conversationId);
     if (!ctx || !ctx.peerIds.includes(data.to)) return { ok: false };
     this.realtime.emitToUsers([data.to], 'call:answer', {
@@ -245,7 +119,7 @@ export class ChatGateway implements OnGatewayInit, OnGatewayConnection {
     @MessageBody() data: { conversationId?: string; candidate?: unknown },
   ) {
     const userId = socket.data.userId as string | undefined;
-    if (!this.acceptCallSignal(socket, data?.conversationId, true) || !userId || !data?.conversationId || !z.object({ candidate: z.string().max(16384), sdpMid: z.string().max(256).nullish(), sdpMLineIndex: z.number().int().min(0).max(65535).nullish() }).safeParse(data.candidate).success || !this.isSafeSignal(data.candidate, 16 * 1024)) return { ok: false };
+    if (!userId || !data?.conversationId || !this.isSafeSignal(data.candidate, 16 * 1024)) return { ok: false };
     const ctx = await this.chat.voiceCallContext(userId, data.conversationId);
     if (!ctx) return { ok: false };
     this.realtime.emitToUsers(ctx.peerIds, 'call:ice', {
@@ -262,7 +136,7 @@ export class ChatGateway implements OnGatewayInit, OnGatewayConnection {
     @MessageBody() data: { conversationId?: string; reason?: string },
   ) {
     const userId = socket.data.userId as string | undefined;
-    if (!this.acceptCallSignal(socket, data?.conversationId) || !userId || !data?.conversationId) return { ok: false };
+    if (!userId || !data?.conversationId) return { ok: false };
     const ctx = await this.chat.voiceCallContext(userId, data.conversationId);
     if (!ctx) return { ok: false };
     this.realtime.emitToUsers(ctx.peerIds, 'call:reject', {
@@ -279,7 +153,7 @@ export class ChatGateway implements OnGatewayInit, OnGatewayConnection {
     @MessageBody() data: { conversationId?: string },
   ) {
     const userId = socket.data.userId as string | undefined;
-    if (!this.acceptCallSignal(socket, data?.conversationId) || !userId || !data?.conversationId) return { ok: false };
+    if (!userId || !data?.conversationId) return { ok: false };
     const ctx = await this.chat.voiceCallContext(userId, data.conversationId);
     if (!ctx) return { ok: false };
     this.realtime.emitToUsers(ctx.peerIds, 'call:end', {

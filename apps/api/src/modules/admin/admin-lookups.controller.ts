@@ -16,7 +16,6 @@ import { ZodValidationPipe } from '../../shared/utils/zod-pipe';
 import { AuditService } from '../../shared/database/audit.service';
 import { availableLookupNames, BRAND_LOOKUP_NAME, DIVISION_SCOPED_LOOKUPS, LOOKUP_PARENT_COLUMNS, LOOKUP_TABLE_MAP } from '../lookups/lookups.controller';
 import {
-  partialWithoutDefaults,
   machineTemplateCreateSchema,
   productSpecTemplateBulkCreateSchema,
   productSpecTemplateBatchSchema,
@@ -64,7 +63,7 @@ const lookupCreateSchema = z.object({
 });
 type LookupCreateInput = z.infer<typeof lookupCreateSchema>;
 
-const lookupUpdateSchema = partialWithoutDefaults(lookupCreateSchema);
+const lookupUpdateSchema = lookupCreateSchema.partial();
 type LookupUpdateInput = z.infer<typeof lookupUpdateSchema>;
 
 const lookupReorderSchema = z.object({

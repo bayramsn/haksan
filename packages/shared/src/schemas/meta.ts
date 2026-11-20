@@ -1,4 +1,3 @@
-import { partialWithoutDefaults } from '../partial';
 import { z } from 'zod';
 
 const trimmed = (max: number) => z.string().trim().min(1).max(max);
@@ -18,8 +17,9 @@ export const metaConnectionCreateSchema = z.object({
   permissions: z.array(trimmed(128)).max(100).default([]),
   tokenExpiresAt: z.string().datetime().nullable().optional(),
 });
-export const metaConnectionUpdateSchema = partialWithoutDefaults(metaConnectionCreateSchema
-  .omit({ accessToken: true }))
+export const metaConnectionUpdateSchema = metaConnectionCreateSchema
+  .omit({ accessToken: true })
+  .partial()
   .extend({
     accessToken: trimmed(4096).optional(),
     status: metaConnectionStatusSchema.optional(),
@@ -45,8 +45,9 @@ export const metaFormMappingCreateSchema = z.object({
   ownerUserId: optionalId,
   isActive: z.boolean().default(true),
 });
-export const metaFormMappingUpdateSchema = partialWithoutDefaults(metaFormMappingCreateSchema
-  .omit({ connectionId: true, formId: true }))
+export const metaFormMappingUpdateSchema = metaFormMappingCreateSchema
+  .omit({ connectionId: true, formId: true })
+  .partial()
   .refine((value) => Object.keys(value).length > 0, 'En az bir alan gönderilmelidir');
 
 export const metaListQuerySchema = z.object({
@@ -54,20 +55,6 @@ export const metaListQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(25),
 });
-export const metaConversionListQuerySchema = metaListQuerySchema.extend({
-  sortBy: z.enum(['eventName', 'opportunityId', 'status', 'value', 'occurredAt', 'attemptCount', 'lastError']).default('occurredAt'),
-  sortDir: z.enum(['asc', 'desc']).default('desc'),
-});
-export type MetaConversionListQuery = z.infer<typeof metaConversionListQuerySchema>;
-/** CRM-backed Meta lead ordering is applied before pagination. */
-export const metaLeadListQuerySchema = metaListQuerySchema.extend({
-  sortBy: z.enum(['fullName', 'platform', 'campaignName', 'status', 'ownerName', 'createdAt']).default('createdAt'),
-  sortDir: z.enum(['asc', 'desc']).default('desc'),
-  search: z.string().trim().max(200).optional(),
-  platform: z.enum(['facebook', 'instagram', 'messenger', 'whatsapp']).optional(),
-  status: z.enum(['new', 'assigned', 'contacted', 'qualified', 'converted', 'rejected']).optional(),
-});
-export type MetaLeadListQuery = z.infer<typeof metaLeadListQuerySchema>;
 export const metaDateRangeQuerySchema = metaListQuerySchema.extend({
   from: z.coerce.date(),
   to: z.coerce.date(),
@@ -164,7 +151,7 @@ export const metaConversionEventCreateSchema = z.object({
     fbc: z.string().max(256).optional(),
     fbp: z.string().max(256).optional(),
   }).strict(),
-  customData: z.record(z.string(), z.union([z.string().max(500), z.number().finite(), z.boolean(), z.null()])).optional(),
+  customData: z.record(z.union([z.string().max(500), z.number().finite(), z.boolean(), z.null()])).optional(),
 });
 
 export type MetaConnectionCreateInput = z.infer<typeof metaConnectionCreateSchema>;
