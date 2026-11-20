@@ -1,0 +1,1096 @@
+{
+  "capturedOn": "2026-11-07",
+  "scope": "Photographed showroom machines, primary manufacturer technical tables; individual serial/year data retained in machineNameplate only.",
+  "products": [
+    {
+      "brand": "ISITAN",
+      "model": "IKMP 1,2",
+      "title": "Motorlu Kordon Büküm Makinası",
+      "verificationStatus": "source_verified",
+      "sourceUrls": [
+        "https://www.isitan.com/isitan-urunler/kordon-makinalari/motorlu-kordon-makinalari-ibks-serisi/ikmp-12-motorlu-kordon-makinanalari/",
+        "https://www.isitan.com/wp-content/uploads/ISITAN-IKMP-12-TECHNICAL-TABLE.png"
+      ],
+      "photoFiles": [
+        "IMG_4423.JPG"
+      ],
+      "specs": [
+        {
+          "key": "Mil Uzunluğu",
+          "value": "140",
+          "unit": "mm"
+        },
+        {
+          "key": "Kordon Kapasitesi",
+          "value": "1,2",
+          "unit": "mm"
+        },
+        {
+          "key": "Top Çapı",
+          "value": "62",
+          "unit": "mm"
+        },
+        {
+          "key": "Boğaz Derinliği",
+          "value": "100",
+          "unit": "mm"
+        },
+        {
+          "key": "Devir",
+          "value": "32",
+          "unit": "dev/dak"
+        },
+        {
+          "key": "Motor Gücü",
+          "value": "0,75",
+          "unit": "kW"
+        },
+        {
+          "key": "Uzunluk",
+          "value": "900",
+          "unit": "mm"
+        },
+        {
+          "key": "Genişlik",
+          "value": "450",
+          "unit": "mm"
+        },
+        {
+          "key": "Yükseklik",
+          "value": "1350",
+          "unit": "mm"
+        },
+        {
+          "key": "Ağırlık",
+          "value": "135",
+          "unit": "kg"
+        }
+      ],
+      "sourceId": "446",
+      "matchKind": "exact",
+      "group": "SAC_ISLEME",
+      "sourceCategory": "Kordon Makinaları",
+      "machineNameplate": {
+        "photoFile": "IMG_4423.JPG",
+        "productionYear": 2021,
+        "serialNumber": "37085",
+        "specs": [
+          {
+            "key": "Motor Gücü",
+            "value": "0,75",
+            "unit": "kW"
+          },
+          {
+            "key": "Voltaj",
+            "value": "400",
+            "unit": "V"
+          },
+          {
+            "key": "Faz",
+            "value": "3",
+            "unit": ""
+          },
+          {
+            "key": "Frekans",
+            "value": "50",
+            "unit": "Hz"
+          }
+        ]
+      }
+    },
+    {
+      "brand": "ISITAN",
+      "model": "IRM 1550x140",
+      "title": "3 Toplu Motorlu Mekanik Asimetrik Silindir Makinası",
+      "verificationStatus": "source_verified",
+      "sourceUrls": [
+        "https://www.isitan.com/en/isitan-products/plate-bending-machines/motorized-plate-bending-machines/irm-models/irm-1550-mechanical-assymetrical-3-rolls-plate-bending-machines/",
+        "https://www.isitan.com/wp-content/uploads/ISITAN-IRM-TECHNICAL-TABLE-1.png"
+      ],
+      "photoFiles": [
+        "IMG_4425.JPG",
+        "IMG_4426.JPG"
+      ],
+      "specs": [
+        {
+          "key": "Kıvırma Uzunluğu",
+          "value": "1550",
+          "unit": "mm"
+        },
+        {
+          "key": "Kıvırma Kapasitesi",
+          "value": "4",
+          "unit": "mm"
+        },
+        {
+          "key": "Top Çapı",
+          "value": "140",
+          "unit": "mm"
+        },
+        {
+          "key": "Motor Gücü",
+          "value": "2,2",
+          "unit": "kW"
+        },
+        {
+          "key": "Tel Kanalı Ölçüleri",
+          "value": "4 / 6 / 10 / 12",
+          "unit": "mm"
+        },
+        {
+          "key": "Uzunluk",
+          "value": "2700",
+          "unit": "mm"
+        },
+        {
+          "key": "Genişlik",
+          "value": "750",
+          "unit": "mm"
+        },
+        {
+          "key": "Yükseklik",
+          "value": "1000",
+          "unit": "mm"
+        },
+        {
+          "key": "Ağırlık",
+          "value": "1420",
+          "unit": "kg"
+        }
+      ],
+      "sourceId": "431",
+      "matchKind": "series_variant",
+      "group": "SAC_ISLEME",
+      "sourceCategory": "Silindir Kıvırma Makinaları",
+      "productTypeCode": "SILINDIR_MAKINESI",
+      "capacityConditions": "Üretici kapasite referansı 24 kg/mm² (ST37–42) sac akma mukavemetidir.",
+      "warnings": [
+        "Üretici tablosundaki dönme hızı birimi mm/min olarak basılmıştır. Birim teyidi gereken hız verisi eklenmedi."
+      ],
+      "machineNameplate": {
+        "photoFile": "IMG_4425.JPG",
+        "productionYear": 2023,
+        "serialNumber": "64180",
+        "specs": [
+          {
+            "key": "Ana Motor Gücü",
+            "value": "2,2",
+            "unit": "kW"
+          },
+          {
+            "key": "Yardımcı Motor Gücü",
+            "value": "0,75",
+            "unit": "kW"
+          },
+          {
+            "key": "Voltaj",
+            "value": "400",
+            "unit": "V"
+          },
+          {
+            "key": "Faz",
+            "value": "3",
+            "unit": ""
+          },
+          {
+            "key": "Frekans",
+            "value": "50",
+            "unit": "Hz"
+          }
+        ]
+      }
+    },
+    {
+      "brand": "ISITAN",
+      "model": "IRM 2050x140",
+      "title": "3 Toplu Motorlu Mekanik Asimetrik Silindir Makinası",
+      "verificationStatus": "source_verified",
+      "sourceUrls": [
+        "https://www.isitan.com/en/isitan-products/plate-bending-machines/motorized-plate-bending-machines/irm-models/irm-2050x130-mechanical-assymetrical-3-rolls-plate-bending-machines/",
+        "https://www.isitan.com/wp-content/uploads/ISITAN-IRM-TECHNICAL-TABLE-1.png"
+      ],
+      "photoFiles": [
+        "IMG_4427.JPG"
+      ],
+      "specs": [
+        {
+          "key": "Kıvırma Uzunluğu",
+          "value": "2050",
+          "unit": "mm"
+        },
+        {
+          "key": "Kıvırma Kapasitesi",
+          "value": "4",
+          "unit": "mm"
+        },
+        {
+          "key": "Top Çapı",
+          "value": "140",
+          "unit": "mm"
+        },
+        {
+          "key": "Motor Gücü",
+          "value": "2,2",
+          "unit": "kW"
+        },
+        {
+          "key": "Tel Kanalı Ölçüleri",
+          "value": "4 / 6 / 10 / 12",
+          "unit": "mm"
+        },
+        {
+          "key": "Uzunluk",
+          "value": "3200",
+          "unit": "mm"
+        },
+        {
+          "key": "Genişlik",
+          "value": "750",
+          "unit": "mm"
+        },
+        {
+          "key": "Yükseklik",
+          "value": "1000",
+          "unit": "mm"
+        },
+        {
+          "key": "Ağırlık",
+          "value": "1650",
+          "unit": "kg"
+        }
+      ],
+      "sourceId": "431",
+      "matchKind": "series_variant",
+      "group": "SAC_ISLEME",
+      "sourceCategory": "Silindir Kıvırma Makinaları",
+      "productTypeCode": "SILINDIR_MAKINESI",
+      "capacityConditions": "Üretici kapasite referansı 24 kg/mm² (ST37–42) sac akma mukavemetidir.",
+      "warnings": [
+        "Üretici tablosundaki dönme hızı birimi mm/min olarak basılmıştır. Birim teyidi gereken hız verisi eklenmedi."
+      ],
+      "machineNameplate": {
+        "photoFile": "IMG_4427.JPG",
+        "productionYear": 2023,
+        "serialNumber": "64181",
+        "specs": [
+          {
+            "key": "Ana Motor Gücü",
+            "value": "2,2",
+            "unit": "kW"
+          },
+          {
+            "key": "Yardımcı Motor Gücü",
+            "value": "0,75",
+            "unit": "kW"
+          },
+          {
+            "key": "Voltaj",
+            "value": "400",
+            "unit": "V"
+          },
+          {
+            "key": "Faz",
+            "value": "3",
+            "unit": ""
+          },
+          {
+            "key": "Frekans",
+            "value": "50",
+            "unit": "Hz"
+          }
+        ]
+      }
+    },
+    {
+      "brand": "ISITAN",
+      "model": "RM 1270x90",
+      "title": "3 Toplu Motorlu Silindir Makinası",
+      "verificationStatus": "source_verified",
+      "sourceUrls": [
+        "https://www.isitan.com/en/isitan-products/plate-bending-machines/motorized-plate-bending-machines/rm-models/rm-1270x90-motorised-and-manual-3-rolls-plate-bending-machines/",
+        "https://www.isitan.com/wp-content/uploads/ISITAN-RM-RS-TECHNICAL-TABLE-1.png"
+      ],
+      "photoFiles": [
+        "IMG_4424.JPG"
+      ],
+      "specs": [
+        {
+          "key": "Kıvırma Uzunluğu",
+          "value": "1270",
+          "unit": "mm"
+        },
+        {
+          "key": "Kıvırma Kapasitesi",
+          "value": "2,5",
+          "unit": "mm"
+        },
+        {
+          "key": "Top Çapı",
+          "value": "90",
+          "unit": "mm"
+        },
+        {
+          "key": "Dönme Hızı",
+          "value": "6",
+          "unit": "m/dak"
+        },
+        {
+          "key": "Motor Gücü",
+          "value": "1,1",
+          "unit": "kW"
+        },
+        {
+          "key": "Tel Kanalı Ölçüleri",
+          "value": "4 / 6 / 9",
+          "unit": "mm"
+        },
+        {
+          "key": "Uzunluk",
+          "value": "1850",
+          "unit": "mm"
+        },
+        {
+          "key": "Genişlik",
+          "value": "700",
+          "unit": "mm"
+        },
+        {
+          "key": "Yükseklik",
+          "value": "1200",
+          "unit": "mm"
+        },
+        {
+          "key": "Ağırlık",
+          "value": "520",
+          "unit": "kg"
+        }
+      ],
+      "group": "SAC_ISLEME",
+      "sourceCategory": "Silindir Kıvırma Makinaları",
+      "productTypeCode": "SILINDIR_MAKINESI",
+      "capacityConditions": "Üretici kapasite referansı 24 kg/mm² (ST37–42) sac akma mukavemetidir.",
+      "machineNameplate": {
+        "photoFile": "IMG_4424.JPG",
+        "productionYear": 2023,
+        "serialNumber": "64600",
+        "specs": [
+          {
+            "key": "Ana Motor Gücü",
+            "value": "1,1",
+            "unit": "kW"
+          },
+          {
+            "key": "Yardımcı Motor Gücü",
+            "value": "0,75",
+            "unit": "kW"
+          },
+          {
+            "key": "Voltaj",
+            "value": "400",
+            "unit": "V"
+          },
+          {
+            "key": "Faz",
+            "value": "3",
+            "unit": ""
+          },
+          {
+            "key": "Frekans",
+            "value": "50",
+            "unit": "Hz"
+          }
+        ]
+      }
+    },
+    {
+      "brand": "ISITAN",
+      "model": "4R HMS 2050x250",
+      "title": "4 Toplu Hidrolik Silindir Makinası",
+      "verificationStatus": "source_verified",
+      "sourceUrls": [
+        "https://www.isitan.com/en/isitan-products/plate-bending-machines/4-rolls-hydraulic-plate-bending-machines/4r-hms-models/4r-hms-2050-hydraulic-4-rolls-plate-bending-machines/",
+        "https://www.isitan.com/wp-content/uploads/ISITAN-4RHMS-2050-TECHNICAL-TABLE.png"
+      ],
+      "photoFiles": [
+        "IMG_4407.JPG"
+      ],
+      "specs": [
+        {
+          "key": "Kıvırma Uzunluğu",
+          "value": "2050",
+          "unit": "mm"
+        },
+        {
+          "key": "Ön Kıvırma Kapasitesi (1,5 × üst top çapı)",
+          "value": "8",
+          "unit": "mm"
+        },
+        {
+          "key": "Ön Kıvırma Kapasitesi (5 × üst top çapı)",
+          "value": "10",
+          "unit": "mm"
+        },
+        {
+          "key": "Kıvırma Kapasitesi (1,5 × üst top çapı)",
+          "value": "10",
+          "unit": "mm"
+        },
+        {
+          "key": "Kıvırma Kapasitesi (5 × üst top çapı)",
+          "value": "12",
+          "unit": "mm"
+        },
+        {
+          "key": "Üst ve Alt Top Çapı",
+          "value": "250",
+          "unit": "mm"
+        },
+        {
+          "key": "Yan Top Çapı",
+          "value": "200",
+          "unit": "mm"
+        },
+        {
+          "key": "Minimum Bükme Çapı (1,5 × üst top çapı)",
+          "value": "375",
+          "unit": "mm"
+        },
+        {
+          "key": "Minimum Bükme Çapı (5 × üst top çapı)",
+          "value": "1250",
+          "unit": "mm"
+        },
+        {
+          "key": "Motor Gücü",
+          "value": "7,5 + 1,5",
+          "unit": "kW"
+        },
+        {
+          "key": "Bükme Hızı",
+          "value": "5",
+          "unit": "m/dak"
+        },
+        {
+          "key": "Tank Kapasitesi",
+          "value": "40",
+          "unit": "L"
+        },
+        {
+          "key": "Uzunluk",
+          "value": "4000",
+          "unit": "mm"
+        },
+        {
+          "key": "Genişlik",
+          "value": "1500",
+          "unit": "mm"
+        },
+        {
+          "key": "Yükseklik",
+          "value": "1370",
+          "unit": "mm"
+        },
+        {
+          "key": "Ağırlık",
+          "value": "5350",
+          "unit": "kg"
+        }
+      ],
+      "sourceId": "441",
+      "matchKind": "series_variant",
+      "group": "SAC_ISLEME",
+      "sourceCategory": "Silindir Kıvırma Makinaları",
+      "productTypeCode": "SILINDIR_MAKINESI",
+      "capacityConditions": "İlk kapasite üst top çapının 1,5 katı, ikinci kapasite 5 katı bükme çapında. Üretici referansı 24 kg/mm² (ST37–42) sac akma mukavemetidir."
+    },
+    {
+      "brand": "ISITAN",
+      "model": "SFB 32-M",
+      "title": "Motorlu Malafalı Boru Bükme Makinası",
+      "verificationStatus": "source_verified",
+      "sourceUrls": [
+        "https://www.isitan.com/en/isitan-products/section-pipe-bending-machines/mandrel-pipe-bending-machines/motorized-pipe-bending-machine-sfb-32-m/sfb-32-m-motorized-pipe-bending-machine-with-mandrel/",
+        "https://www.isitan.com/wp-content/uploads/ISITAN-SFB32-M-TECHNICAL-TABLE-1.png"
+      ],
+      "photoFiles": [
+        "IMG_4420.JPG"
+      ],
+      "specs": [
+        {
+          "key": "Maksimum Boru Çapı",
+          "value": "32",
+          "unit": "mm"
+        },
+        {
+          "key": "Maksimum Boru Et Kalınlığı",
+          "value": "3",
+          "unit": "mm"
+        },
+        {
+          "key": "Maksimum Büküm Yarıçapı",
+          "value": "250",
+          "unit": "mm"
+        },
+        {
+          "key": "Maksimum Büküm Açısı",
+          "value": "190",
+          "unit": "°"
+        },
+        {
+          "key": "Çalışma Uzunluğu",
+          "value": "1500",
+          "unit": "mm"
+        },
+        {
+          "key": "Motor Gücü",
+          "value": "2,2",
+          "unit": "kW"
+        },
+        {
+          "key": "Uzunluk × Genişlik × Yükseklik",
+          "value": "2400 × 1200 × 1100",
+          "unit": "mm"
+        },
+        {
+          "key": "Ağırlık",
+          "value": "300",
+          "unit": "kg"
+        },
+        {
+          "key": "Voltaj",
+          "value": "380",
+          "unit": "V"
+        },
+        {
+          "key": "Faz",
+          "value": "3",
+          "unit": ""
+        },
+        {
+          "key": "Frekans",
+          "value": "50",
+          "unit": "Hz"
+        }
+      ],
+      "group": "SAC_ISLEME",
+      "sourceCategory": "Boru & Profil Bükme Makinaları",
+      "productTypeCode": "HM_SAC_ISLEME_BORU_PROFIL_BUKME_MAKINALARI",
+      "sourceId": "1107",
+      "matchKind": "exact",
+      "matchedSourceBrand": "Şahinler"
+    },
+    {
+      "brand": "ISITAN",
+      "model": "SFB 32-HD",
+      "title": "PLC Kontrollü Hidrolik Malafalı Boru Bükme Makinası",
+      "verificationStatus": "source_verified",
+      "sourceUrls": [
+        "https://www.isitan.com/en/isitan-products/section-pipe-bending-machines/mandrel-pipe-bending-machines/motorized-pipe-bending-machine-sfb-32-m/sfb-32-hd-plc-controlled-hydraulic-pipe-bending-machine-with-mandrel/",
+        "https://www.isitan.com/wp-content/uploads/ISITAN-SFB32-HD-TECHNICAL-TABLE-1.png"
+      ],
+      "photoFiles": [
+        "IMG_4422.JPG"
+      ],
+      "specs": [
+        {
+          "key": "Maksimum Boru Çapı",
+          "value": "32",
+          "unit": "mm"
+        },
+        {
+          "key": "Maksimum Boru Et Kalınlığı",
+          "value": "3",
+          "unit": "mm"
+        },
+        {
+          "key": "Maksimum Büküm Yarıçapı",
+          "value": "250",
+          "unit": "mm"
+        },
+        {
+          "key": "Maksimum Büküm Açısı",
+          "value": "190",
+          "unit": "°"
+        },
+        {
+          "key": "Çalışma Uzunluğu",
+          "value": "2100",
+          "unit": "mm"
+        },
+        {
+          "key": "Toplam Motor Gücü",
+          "value": "3,7",
+          "unit": "kW"
+        },
+        {
+          "key": "Uzunluk × Genişlik × Yükseklik",
+          "value": "2400 × 1200 × 1100",
+          "unit": "mm"
+        },
+        {
+          "key": "Ağırlık",
+          "value": "420",
+          "unit": "kg"
+        },
+        {
+          "key": "Voltaj",
+          "value": "380",
+          "unit": "V"
+        },
+        {
+          "key": "Faz",
+          "value": "3",
+          "unit": ""
+        },
+        {
+          "key": "Frekans",
+          "value": "50",
+          "unit": "Hz"
+        },
+        {
+          "key": "Hidrolik Basınç",
+          "value": "50–220",
+          "unit": "bar"
+        },
+        {
+          "key": "Tank Kapasitesi",
+          "value": "20",
+          "unit": "L"
+        },
+        {
+          "key": "Program Hafızası",
+          "value": "100",
+          "unit": "program"
+        },
+        {
+          "key": "Program Başına Büküm",
+          "value": "10",
+          "unit": ""
+        },
+        {
+          "key": "Dokunmatik Ekran",
+          "value": "4,7",
+          "unit": "inç"
+        }
+      ],
+      "group": "SAC_ISLEME",
+      "sourceCategory": "Boru & Profil Bükme Makinaları",
+      "productTypeCode": "HM_SAC_ISLEME_BORU_PROFIL_BUKME_MAKINALARI",
+      "warnings": [
+        "Mevcut SFB-32 H kaydı ile HD varyantı otomatik eşleştirilmez."
+      ]
+    },
+    {
+      "brand": "ISITAN",
+      "model": "EB-1230",
+      "title": "Edge Bender 1230 NC Hidrolik Abkant Pres",
+      "verificationStatus": "source_verified",
+      "sourceUrls": [
+        "https://www.isitan.com/en/isitan-products/pressbrake-machines/nc-pressbrake-machines/eb-1230-2-xy-axis-nc-controlled-hydraulic-pressbrakes/",
+        "https://www.isitan.com/wp-content/uploads/ISITAN-EDGEBENDER-1230-TECHNICAL-TABLE.png"
+      ],
+      "photoFiles": [
+        "IMG_4428.JPG"
+      ],
+      "specs": [
+        {
+          "key": "Bükme Kuvveti",
+          "value": "30",
+          "unit": "ton"
+        },
+        {
+          "key": "Büküm Boyu",
+          "value": "1270",
+          "unit": "mm"
+        },
+        {
+          "key": "Ayaklar Arası Mesafe",
+          "value": "1010",
+          "unit": "mm"
+        },
+        {
+          "key": "Strok",
+          "value": "150",
+          "unit": "mm"
+        },
+        {
+          "key": "Büküm Hızı",
+          "value": "10",
+          "unit": "mm/s"
+        },
+        {
+          "key": "Boşta İnme Hızı",
+          "value": "70",
+          "unit": "mm/s"
+        },
+        {
+          "key": "Boğaz Derinliği",
+          "value": "255",
+          "unit": "mm"
+        },
+        {
+          "key": "Açıklık (Daylight)",
+          "value": "265",
+          "unit": "mm"
+        },
+        {
+          "key": "Tabla Genişliği",
+          "value": "130",
+          "unit": "mm"
+        },
+        {
+          "key": "Tabla Yüksekliği",
+          "value": "830",
+          "unit": "mm"
+        },
+        {
+          "key": "Pompa Motor Gücü",
+          "value": "3",
+          "unit": "kW"
+        },
+        {
+          "key": "X Ekseni Motor Gücü",
+          "value": "0,55",
+          "unit": "kW"
+        },
+        {
+          "key": "Açı Ayar Motor Gücü",
+          "value": "0,18",
+          "unit": "kW"
+        },
+        {
+          "key": "X Eksen Mesafesi",
+          "value": "500",
+          "unit": "mm"
+        },
+        {
+          "key": "Tank Kapasitesi",
+          "value": "90",
+          "unit": "L"
+        },
+        {
+          "key": "Uzunluk",
+          "value": "1760",
+          "unit": "mm"
+        },
+        {
+          "key": "Genişlik",
+          "value": "1375",
+          "unit": "mm"
+        },
+        {
+          "key": "Yükseklik",
+          "value": "2160",
+          "unit": "mm"
+        },
+        {
+          "key": "Ağırlık",
+          "value": "1700",
+          "unit": "kg"
+        },
+        {
+          "key": "Kontrol Eksenleri",
+          "value": "X + Y",
+          "unit": ""
+        }
+      ],
+      "group": "SAC_ISLEME",
+      "sourceCategory": "Abkant Presler- NC Serisi",
+      "productTypeCode": "ABKANT_PRES",
+      "optionalSpecs": [
+        {
+          "key": "R Ekseni Motor Gücü",
+          "value": "0,25",
+          "unit": "kW"
+        }
+      ],
+      "warnings": [
+        "Üretici tablosundaki yıldızlı 4 mm bükme kapasitesinin koşul dipnotu görüntüde açıklanmamış olduğu için kapasite değeri eklenmedi. R ekseni üretici sayfasında opsiyoneldir."
+      ]
+    },
+    {
+      "brand": "LFSS Şahinler",
+      "model": "DPM 1040-60",
+      "title": "Sabit Piston Motorlu Hidrolik Atölye Presi",
+      "verificationStatus": "source_verified",
+      "sourceUrls": [
+        "https://lfss-sahin.com/?product=dpm-sabit-piston-motorlu-100-150-ton"
+      ],
+      "photoFiles": [
+        "IMG_4429.JPG"
+      ],
+      "specs": [
+        {
+          "key": "Basma Gücü",
+          "value": "600",
+          "unit": "kN"
+        },
+        {
+          "key": "Nominal Kapasite",
+          "value": "60",
+          "unit": "ton"
+        },
+        {
+          "key": "Maksimum Çalışma Basıncı",
+          "value": "236",
+          "unit": "bar"
+        },
+        {
+          "key": "Strok",
+          "value": "250",
+          "unit": "mm"
+        },
+        {
+          "key": "Piston / Piston Kol Çapı",
+          "value": "180 × 120",
+          "unit": "mm"
+        },
+        {
+          "key": "İniş Hızı",
+          "value": "8",
+          "unit": "mm/s"
+        },
+        {
+          "key": "İş Hızı",
+          "value": "4",
+          "unit": "mm/s"
+        },
+        {
+          "key": "Geri Dönüş Hızı",
+          "value": "10",
+          "unit": "mm/s"
+        },
+        {
+          "key": "Motor Gücü",
+          "value": "4",
+          "unit": "kW"
+        },
+        {
+          "key": "Delik Mesafesi",
+          "value": "165",
+          "unit": "mm"
+        },
+        {
+          "key": "Çalışma Aralığı",
+          "value": "1040",
+          "unit": "mm"
+        },
+        {
+          "key": "Derinlik",
+          "value": "260",
+          "unit": "mm"
+        },
+        {
+          "key": "Uzunluk",
+          "value": "1745",
+          "unit": "mm"
+        },
+        {
+          "key": "Genişlik",
+          "value": "700",
+          "unit": "mm"
+        },
+        {
+          "key": "Yükseklik",
+          "value": "2100",
+          "unit": "mm"
+        },
+        {
+          "key": "Ağırlık",
+          "value": "800",
+          "unit": "kg"
+        }
+      ],
+      "sourceId": "391",
+      "matchKind": "exact",
+      "group": "UNIVERSAL",
+      "sourceCategory": "H Tipi Hidrolik Atölye Presleri",
+      "warnings": [
+        "Üreticinin güncel DPM ürün sayfası esas alındı. DPM-K kataloğunun bazı motor ve boy değerleri farklıdır; DPM-K ayrı varyanttır."
+      ]
+    },
+    {
+      "brand": "LFSS Şahinler",
+      "model": "DPM 1040-80",
+      "title": "Sabit Piston Motorlu Hidrolik Atölye Presi",
+      "verificationStatus": "source_verified",
+      "sourceUrls": [
+        "https://lfss-sahin.com/?product=dpm-sabit-piston-motorlu-100-150-ton"
+      ],
+      "photoFiles": [
+        "IMG_4430.JPG"
+      ],
+      "specs": [
+        {
+          "key": "Basma Gücü",
+          "value": "800",
+          "unit": "kN"
+        },
+        {
+          "key": "Nominal Kapasite",
+          "value": "80",
+          "unit": "ton"
+        },
+        {
+          "key": "Maksimum Çalışma Basıncı",
+          "value": "255",
+          "unit": "bar"
+        },
+        {
+          "key": "Strok",
+          "value": "250",
+          "unit": "mm"
+        },
+        {
+          "key": "Piston / Piston Kol Çapı",
+          "value": "200 × 120",
+          "unit": "mm"
+        },
+        {
+          "key": "İniş Hızı",
+          "value": "8",
+          "unit": "mm/s"
+        },
+        {
+          "key": "İş Hızı",
+          "value": "5",
+          "unit": "mm/s"
+        },
+        {
+          "key": "Geri Dönüş Hızı",
+          "value": "10",
+          "unit": "mm/s"
+        },
+        {
+          "key": "Motor Gücü",
+          "value": "5,5",
+          "unit": "kW"
+        },
+        {
+          "key": "Delik Mesafesi",
+          "value": "165",
+          "unit": "mm"
+        },
+        {
+          "key": "Çalışma Aralığı",
+          "value": "1040",
+          "unit": "mm"
+        },
+        {
+          "key": "Derinlik",
+          "value": "260",
+          "unit": "mm"
+        },
+        {
+          "key": "Uzunluk",
+          "value": "1810",
+          "unit": "mm"
+        },
+        {
+          "key": "Genişlik",
+          "value": "750",
+          "unit": "mm"
+        },
+        {
+          "key": "Yükseklik",
+          "value": "2100",
+          "unit": "mm"
+        },
+        {
+          "key": "Ağırlık",
+          "value": "835",
+          "unit": "kg"
+        }
+      ],
+      "sourceId": "392",
+      "matchKind": "exact",
+      "group": "UNIVERSAL",
+      "sourceCategory": "H Tipi Hidrolik Atölye Presleri",
+      "warnings": [
+        "Üreticinin güncel DPM ürün sayfası esas alındı. DPM-K kataloğunun bazı motor ve boy değerleri farklıdır; DPM-K ayrı varyanttır."
+      ]
+    },
+    {
+      "brand": "TUBEND",
+      "model": "TB-42",
+      "title": "Malafasız Boru Bükme Makinası",
+      "verificationStatus": "source_verified",
+      "sourceUrls": [
+        "https://www.tubend.com.tr/products/pdf/tbspb.pdf"
+      ],
+      "photoFiles": [
+        "IMG_4412.JPG"
+      ],
+      "specs": [
+        {
+          "key": "Maksimum Boru Çapı",
+          "value": "42",
+          "unit": "mm"
+        },
+        {
+          "key": "Maksimum Boru Et Kalınlığı",
+          "value": "3",
+          "unit": "mm"
+        },
+        {
+          "key": "Maksimum Kuvvet (200 bar)",
+          "value": "15",
+          "unit": "ton"
+        },
+        {
+          "key": "Yağ Tankı Kapasitesi",
+          "value": "15",
+          "unit": "L"
+        },
+        {
+          "key": "Maksimum Strok",
+          "value": "150",
+          "unit": "mm"
+        },
+        {
+          "key": "Çalışma Hızı",
+          "value": "20",
+          "unit": "mm/s"
+        },
+        {
+          "key": "Uzunluk × Genişlik × Yükseklik",
+          "value": "450 × 1000 × 1000",
+          "unit": "mm"
+        }
+      ],
+      "group": "SAC_ISLEME",
+      "sourceCategory": "Boru & Profil Bükme Makinaları",
+      "productTypeCode": "HM_SAC_ISLEME_BORU_PROFIL_BUKME_MAKINALARI",
+      "machineNameplate": {
+        "photoFile": "IMG_4412.JPG",
+        "productionYear": 2024,
+        "serialNumber": "24120",
+        "specs": [
+          {
+            "key": "Motor Gücü",
+            "value": "1,5",
+            "unit": "kW"
+          },
+          {
+            "key": "Voltaj",
+            "value": "380",
+            "unit": "V"
+          },
+          {
+            "key": "Frekans",
+            "value": "50",
+            "unit": "Hz"
+          },
+          {
+            "key": "Ağırlık",
+            "value": "230",
+            "unit": "kg"
+          }
+        ]
+      },
+      "warnings": [
+        "Fotoğraftaki motor gücü 1,5 kW ve ağırlık 230 kg. Üretici PDF değeri 1,1 kW ve 220 kg. Çelişen iki alan genel model özelliklerine eklenmedi. Diğer PDF değerlerinin bu seri numarasına uygunluğu teyit gerektirir."
+      ]
+    }
+  ]
+}

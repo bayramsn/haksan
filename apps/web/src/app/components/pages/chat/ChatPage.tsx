@@ -10,21 +10,29 @@ import {
 } from "../../ui/dialog";
 import { useAuth } from "../../../../lib/auth";
 import {
-  chatService, fileService,
-  type ChatConversationSummary, type ChatConversationDetail, type ChatMessageDTO, type ChatDirectoryUser, type ChatRefCard,
+  chatService, fileService, tasksService,
+  type ChatConversationSummary, type ChatConversationDetail, type ChatMessageDTO, type ChatDirectoryUser, type ChatRefCard, type ChatAttachment,
 } from "../../../../lib/services";
 import type { SignedUploadUrlInput, ChatRefType } from "@haksan/shared";
-import { useChatRealtime } from "../../../../lib/chatRealtime";
+import { useChatRealtime, useChatTyping } from "../../../../lib/chatRealtime";
 import { toast } from "sonner";
 import { cn } from "../../ui/utils";
 import {
   MessageCircle, Send, Paperclip, Search, Plus, Trash2, FileText, X, Loader2, Users,
   Smile, CornerUpLeft, Pencil, Check, CheckCheck, Mic, Square, FileText as FileIcon, Building2, Briefcase, LifeBuoy,
-  ChevronLeft, Sparkles, Phone, Video, MapPin, Image as ImageIcon,
+  ChevronLeft, Sparkles, Phone, Video, MapPin, Pin, Forward, ArrowUpRight, Star, Bell, BellOff, FolderOpen, ListTodo, Image as ImageIcon,
 } from "lucide-react";
 import { useVoiceCall } from "../../../../lib/voiceCall";
 import { NewGroupDialog, GroupSettingsDialog } from "./GroupDialogs";
+import { TaskFormDialog } from "../tasks/TaskFormDialog";
 import { ShareRecordDialog } from "./ShareRecordDialog";
+
+const CHAT_FILTERS = [
+  { id: "all", label: "Tümü" },
+  { id: "unread", label: "Okunmamış" },
+  { id: "mentions", label: "@Bahsetmeler" },
+  { id: "favorites", label: "Favoriler" },
+] as const;
 
 const ALLOWED_EXT = ["pdf", "docx", "xlsx", "png", "jpg", "jpeg", "webp", "gif", "webm", "mp3", "ogg", "m4a", "wav"];
 const ACCEPT = ".pdf,.docx,.xlsx,.png,.jpg,.jpeg,.webp,.gif,.mp3,.ogg,.m4a,.wav";
@@ -58,8 +66,8 @@ function convDisplay(c: { type: string; title: string | null; members: { userId:
 
 type Pending = { fileId: string; filename: string; isImage: boolean; isAudio: boolean; isGif: boolean };
 
-export function ChatPage({ onOpenRecord }: { onOpenRecord?: (card: ChatRefCard) => void }) {
-  const { user, hasRole } = useAuth();
+export function ChatPage({ onOpenRecord, initialConversationId, initialMessageId }: { onOpenRecord?: (card: ChatRefCard) => void; initialConversationId?: string; initialMessageId?: string }) {
+  const { user, hasRole, hasPermission } = useAuth();
   const meId = user?.id ?? "";
   const isSuper = hasRole("super_admin");
   const voiceCall = useVoiceCall();
@@ -73,6 +81,13 @@ export function ChatPage({ onOpenRecord }: { onOpenRecord?: (card: ChatRefCard) 
   const [pending, setPending] = useState<Pending[]>([]);
   const [sending, setSending] = useState(false);
   const [search, setSearch] = useState("");
+  const [chatFilter, setChatFilter] = useState<(typeof CHAT_FILTERS)[number]["id"]>("all");
+  const [taskSource, setTaskSource] = useState<string>();
+  const [taskAssignees, setTaskAssignees] = useState<Array<{ id: string; fullName: string }>>([]);
+  const [preferencesBusy, setPreferencesBusy] = useState(false);
+  const [filesConversation, setFilesConversation] = useState<string>();
+  const [sharedFiles, setSharedFiles] = useState<ChatAttachment[]>([]);
+  const [filesStatus, setFilesStatus] = useState<"loading" | "ready" | "error">("loading");
   const [messageSearch, setMessageSearch] = useState("");
   const [showMessageSearch, setShowMessageSearch] = useState(false);
   const [showComposerEmoji, setShowComposerEmoji] = useState(false);
@@ -81,7 +96,31 @@ export function ChatPage({ onOpenRecord }: { onOpenRecord?: (card: ChatRefCard) 
   const [replyTo, setReplyTo] = useState<{ id: string; senderName: string; preview: string } | null>(null);
   const [editing, setEditing] = useState<{ id: string; original: string } | null>(null);
   const [recording, setRecording] = useState(false);
+  const [showPinned, setShowPinned] = useState(false);
+  const [pinned, setPinned] = useState<ChatMessageDTO[]>([]);
+  const [forwarding, setForwarding] = useState<ChatMessageDTO | null>(null);
+  const [forwardBusy, setForwardBusy] = useState(false);
+  const [browsingHistory, setBrowsingHistory] = useState(false);
+  const browsingHistoryRef = useRef(false);
+  const [hasMore, setHasMore] = useState(false);
+  const [loadingOlder, setLoadingOlder] = useState(false);
+  const [mentions, setMentions] = useState<{userId: string; fullName: string}[]>([]);
+  const [mentionCursor, setMentionCursor] = useState(0);
+  const composerRef = useRef<HTMLTextAreaElement>(null);
+  const { typingNames, sendTyping } = useChatTyping(selectedId, meId);
+  const mentionMatch = detail?.type === "group" && !editing ? text.slice(0, mentionCursor).match(/(?:^|\s)@([^@\n]{0,60})$/u) : null;
+  const mentionOptions = mentionMatch ? detail!.members.filter((m) => m.userId !== meId && m.fullName.toLocaleLowerCase("tr").includes(mentionMatch[1].toLocaleLowerCase("tr"))).slice(0, 8) : [];
+  const chooseMention = (member: {userId: string; fullName: string}) => {
+    if (!mentionMatch) return;
+    const start = mentionCursor - mentionMatch[1].length - 1;
+    const replacement = `@${member.fullName} `;
+    setText(text.slice(0, start) + replacement + text.slice(mentionCursor));
+    setMentions((current) => [...current.filter((m) => m.userId !== member.userId), member]);
+    setMentionCursor(0);
+    requestAnimationFrame(() => { composerRef.current?.focus(); composerRef.current?.setSelectionRange(start + replacement.length, start + replacement.length); });
+  };
 
+  const preserveScrollRef = useRef(false);
   const messageScrollAreaRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const gifInputRef = useRef<HTMLInputElement>(null);
@@ -92,8 +131,12 @@ export function ChatPage({ onOpenRecord }: { onOpenRecord?: (card: ChatRefCard) 
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
 
+  const conversationRequest = useRef(0);
   const loadConversations = useCallback(() => {
-    chatService.conversations().then(setConversations).catch(() => {});
+    const request = ++conversationRequest.current;
+    chatService.conversations().then((items) => {
+      if (request === conversationRequest.current) setConversations(items);
+    }).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -105,13 +148,24 @@ export function ChatPage({ onOpenRecord }: { onOpenRecord?: (card: ChatRefCard) 
     return () => clearInterval(h);
   }, [loadConversations]);
 
+  const [focusedMessageId, setFocusedMessageId] = useState<string>();
+  const openSequence = useRef(0);
+
   const loadMessages = useCallback(async (id: string) => {
+    if (browsingHistoryRef.current) return;
     try {
       const query = messageSearchRef.current.trim();
       const res = await chatService.messages(id, { limit: query.length >= 2 ? 100 : 50, search: query.length >= 2 ? query : undefined });
-      if (selectedIdRef.current === id) setMessages(res.messages);
-    } catch { /* polling tekrar dener */ }
+      if (!browsingHistoryRef.current && selectedIdRef.current === id && messageSearchRef.current.trim() === query) { setMessages(res.messages); setHasMore(res.hasMore); }
+    } catch (e) { toast.error(errMsg(e)); }
   }, []);
+
+  useEffect(() => {
+    if (!selectedId) return;
+    if (browsingHistoryRef.current) return;
+    const timer = setTimeout(() => { void loadMessages(selectedId); }, 350);
+    return () => clearTimeout(timer);
+  }, [messageSearch, selectedId, loadMessages]);
 
   const reloadDetail = useCallback(() => {
     const id = selectedIdRef.current;
@@ -119,27 +173,58 @@ export function ChatPage({ onOpenRecord }: { onOpenRecord?: (card: ChatRefCard) 
     loadConversations();
   }, [loadConversations]);
 
-  const openConversation = useCallback(async (id: string) => {
+  const openConversation = useCallback(async (id: string, messageId?: string) => {
+    const sequence = ++openSequence.current;
+    const isCurrent = () => selectedIdRef.current === id && openSequence.current === sequence;
+    setFocusedMessageId(messageId);
+    selectedIdRef.current = id;
+    messageSearchRef.current = "";
+    browsingHistoryRef.current = !!messageId; setBrowsingHistory(!!messageId); setShowPinned(false);
+    setMentions([]); setPinned([]); setHasMore(false);
     setSelectedId(id);
     setMessages([]); setDetail(null); setText(""); setPending([]); setReplyTo(null); setEditing(null); setMessageSearch(""); setShowMessageSearch(false);
     try {
       const d = await chatService.conversation(id);
-      if (selectedIdRef.current === id) setDetail(d);
-    } catch (e) { toast.error(errMsg(e)); return; }
-    await loadMessages(id);
-    chatService.markRead(id).then(loadConversations).catch(() => {});
+      if (!isCurrent()) return;
+      setDetail(d);
+    } catch (e) { if (isCurrent()) toast.error(errMsg(e)); return; }
+    if (messageId) {
+      try {
+        const result = await chatService.messages(id, { around: messageId, limit: 31 });
+        if (isCurrent() && browsingHistoryRef.current) {
+          setMessages(result.messages);
+          setHasMore(result.hasMore);
+        }
+      } catch {
+        if (!isCurrent()) return;
+        setFocusedMessageId(undefined);
+        browsingHistoryRef.current = false;
+        setBrowsingHistory(false);
+        toast.error("İlgili mesaj açılamadı. Sohbetin son mesajları gösteriliyor.");
+        await loadMessages(id);
+      }
+    } else await loadMessages(id);
+    if (!isCurrent()) return;
+    chatService.pinned(id).then((items) => { if (selectedIdRef.current === id) setPinned(items); }).catch((e) => toast.error(errMsg(e)));
+    if (!browsingHistoryRef.current) chatService.markRead(id).then(loadConversations).catch(() => {});
   }, [loadMessages, loadConversations]);
+
+  useEffect(() => {
+    if (initialConversationId) void openConversation(initialConversationId, initialMessageId);
+  }, [initialConversationId, initialMessageId, openConversation]);
 
   useEffect(() => {
     if (!selectedId) return;
     const h = setInterval(() => {
       if (document.hidden) return;
       const query = messageSearchRef.current.trim();
-      chatService.messages(selectedId, { limit: query.length >= 2 ? 100 : 50, search: query.length >= 2 ? query : undefined }).then((res) => {
+      if (!browsingHistoryRef.current) chatService.messages(selectedId, { limit: query.length >= 2 ? 100 : 50, search: query.length >= 2 ? query : undefined }).then((res) => {
         if (selectedIdRef.current !== selectedId) return;
-        setMessages(res.messages);
-        chatService.markRead(selectedId).then(loadConversations).catch(() => {});
+        if (browsingHistoryRef.current || messageSearchRef.current.trim() !== query) return;
+        setMessages(res.messages); setHasMore(res.hasMore);
+        if (query.length < 2) chatService.markRead(selectedId).then(loadConversations).catch(() => {});
       }).catch(() => {});
+      chatService.pinned(selectedId).then((items) => { if (selectedIdRef.current === selectedId) setPinned(items); }).catch(() => {});
       // Karşı tarafın "görüldü" bilgisini tazelemek için detayı da hafifçe yenile.
       chatService.conversation(selectedId).then((d) => { if (selectedIdRef.current === selectedId) setDetail(d); }).catch(() => {});
     }, 3000);
@@ -157,10 +242,14 @@ export function ChatPage({ onOpenRecord }: { onOpenRecord?: (card: ChatRefCard) 
   useEffect(() => {
     const viewport = messageScrollAreaRef.current?.querySelector<HTMLElement>('[data-slot="scroll-area-viewport"]');
     if (!viewport) return;
-    requestAnimationFrame(() => {
-      viewport.scrollTop = viewport.scrollHeight;
+    if (preserveScrollRef.current) { preserveScrollRef.current = false; return; }
+    const frame = requestAnimationFrame(() => {
+      const target = focusedMessageId && document.getElementById(`chat-message-${focusedMessageId}`);
+      if (target) target.scrollIntoView?.({ block: "center" });
+      else viewport.scrollTop = viewport.scrollHeight;
     });
-  }, [messages.length, selectedId]);
+    return () => cancelAnimationFrame(frame);
+  }, [messages.length, selectedId, focusedMessageId]);
 
   const canPost = useMemo(() => {
     if (!detail) return false;
@@ -247,7 +336,9 @@ export function ChatPage({ onOpenRecord }: { onOpenRecord?: (card: ChatRefCard) 
       const body = text.trim();
       if (!body) return;
       try {
-        await chatService.editMessage(editing.id, body);
+        const updated = await chatService.editMessage(editing.id, body);
+        setMessages((current) => current.map((m) => m.id === updated.id ? updated : m));
+        setPinned((current) => current.map((m) => m.id === updated.id ? updated : m));
         setEditing(null); setText("");
         await loadMessages(id);
       } catch (e) { toast.error(errMsg(e)); }
@@ -260,12 +351,53 @@ export function ChatPage({ onOpenRecord }: { onOpenRecord?: (card: ChatRefCard) 
         body: text.trim() || undefined,
         attachmentFileIds: pending.length ? pending.map((p) => p.fileId) : undefined,
         replyToId: replyTo?.id,
+        mentionUserIds: mentions.filter((m) => text.includes(`@${m.fullName}`)).map((m) => m.userId),
       });
-      setText(""); setPending([]); setReplyTo(null);
+      setText(""); setPending([]); setReplyTo(null); setMentions([]); sendTyping(false);
+      browsingHistoryRef.current = false; setBrowsingHistory(false);
       await loadMessages(id);
       loadConversations();
     } catch (e) { toast.error(errMsg(e)); }
     finally { setSending(false); }
+  };
+
+  const togglePin = async (message: ChatMessageDTO) => {
+    const id = selectedIdRef.current;
+    if (!id) return;
+    try {
+      const updated = await chatService.pinMessage(message.id, !message.pinnedAt);
+      setMessages((current) => current.map((m) => m.id === updated.id ? updated : m));
+      const items = await chatService.pinned(id);
+      if (selectedIdRef.current === id) setPinned(items);
+      await loadMessages(id);
+    } catch (e) { toast.error(errMsg(e)); }
+  };
+  const forwardTo = async (conversationId: string) => {
+    if (!forwarding || forwardBusy) return;
+    setForwardBusy(true);
+    try {
+      await chatService.forwardMessage(forwarding.id, conversationId);
+      setForwarding(null); loadConversations();
+      if (selectedIdRef.current === conversationId) await loadMessages(conversationId);
+      toast.success("Mesaj iletildi");
+    } catch (e) { toast.error(errMsg(e)); }
+    finally { setForwardBusy(false); }
+  };
+  const loadOlder = async () => {
+    const id = selectedIdRef.current;
+    if (!id || !messages.length || loadingOlder) return;
+    const query = messageSearchRef.current.trim();
+    setLoadingOlder(true);
+    try {
+      const res = await chatService.messages(id, { before: messages[0].createdAt, limit: 50, search: query.length >= 2 ? query : undefined });
+      if (selectedIdRef.current === id && messageSearchRef.current.trim() === query) {
+        browsingHistoryRef.current = true; setBrowsingHistory(true);
+        preserveScrollRef.current = true;
+        setMessages((current) => [...res.messages.filter((m) => !current.some((existing) => existing.id === m.id)), ...current]);
+        setHasMore(res.hasMore);
+      }
+    } catch (e) { toast.error(errMsg(e)); }
+    finally { setLoadingOlder(false); }
   };
 
   const shareRecord = async (refType: ChatRefType, refId: string) => {
@@ -280,7 +412,8 @@ export function ChatPage({ onOpenRecord }: { onOpenRecord?: (card: ChatRefCard) 
 
   const react = async (messageId: string, emoji: string) => {
     try {
-      await chatService.toggleReaction(messageId, emoji);
+      const updated = await chatService.toggleReaction(messageId, emoji);
+      setMessages((current) => current.map((m) => m.id === messageId ? { ...m, reactions: updated.reactions } : m));
       if (selectedIdRef.current) loadMessages(selectedIdRef.current);
     } catch (e) { toast.error(errMsg(e)); }
   };
@@ -289,6 +422,8 @@ export function ChatPage({ onOpenRecord }: { onOpenRecord?: (card: ChatRefCard) 
     if (!window.confirm("Bu mesaj iki taraftan da silinecek ve geri alınamayacak. Herkesten silinsin mi?")) return;
     try {
       await chatService.deleteMessage(id);
+      setMessages((current) => current.filter((m) => m.id !== id));
+      setPinned((current) => current.filter((m) => m.id !== id));
       if (selectedIdRef.current) loadMessages(selectedIdRef.current);
     } catch (e) { toast.error(errMsg(e)); }
   };
@@ -338,13 +473,76 @@ export function ChatPage({ onOpenRecord }: { onOpenRecord?: (card: ChatRefCard) 
     } catch (e) { toast.error(errMsg(e)); }
   };
 
-  const filtered = conversations.filter((c) => convDisplay(c, meId).toLowerCase().includes(search.toLowerCase()));
+  const selectedSummary = conversations.find((conversation) => conversation.id === selectedId);
+
+  const changePreferences = async (id: string, patch: { isFavorite?: boolean; isMuted?: boolean }) => {
+    if (preferencesBusy) return;
+    setPreferencesBusy(true);
+    try {
+      await chatService.preferences(id, patch);
+      ++conversationRequest.current;
+      setConversations((current) => current.map((conversation) =>
+        conversation.id === id ? { ...conversation, ...patch } : conversation,
+      ));
+    } catch (error) {
+      toast.error(errMsg(error));
+    } finally {
+      setPreferencesBusy(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!filesConversation) return;
+    let active = true;
+    setFilesStatus("loading");
+    setSharedFiles([]);
+    chatService.sharedFiles(filesConversation).then((files) => {
+      if (!active) return;
+      setSharedFiles(files);
+      setFilesStatus("ready");
+    }).catch(() => { if (active) setFilesStatus("error"); });
+    return () => { active = false; };
+  }, [filesConversation]);
+
+  const filterText = search.trim().toLocaleLowerCase("tr");
+  const filtered = conversations.filter((conversation) => {
+    if (!convDisplay(conversation, meId).toLocaleLowerCase("tr").includes(filterText)) return false;
+    if (chatFilter === "unread") return conversation.unreadCount > 0;
+    if (chatFilter === "mentions") return (conversation.mentionCount ?? 0) > 0;
+    if (chatFilter === "favorites") return conversation.isFavorite;
+    return true;
+  });
   const conversationGroups = [
     { label: "Okunmamış", items: filtered.filter((conversation) => conversation.unreadCount > 0) },
     { label: "Tüm Sohbetler", items: filtered.filter((conversation) => conversation.unreadCount === 0) },
   ].filter((group) => group.items.length > 0);
 
   return (
+    <>
+    {taskSource && <TaskFormDialog
+      open
+      onOpenChange={(open) => { if (!open) setTaskSource(undefined); }}
+      initialDescription={`Sohbet mesajı: ${taskSource}`}
+      assignees={taskAssignees}
+      currentUserId={meId}
+      onSaved={() => setTaskSource(undefined)}
+    />}
+    <Dialog open={!!filesConversation} onOpenChange={(open) => { if (!open) setFilesConversation(undefined); }}>
+      <DialogContent>
+        <DialogHeader><DialogTitle>Paylaşılan dosyalar</DialogTitle><DialogDescription>Bu sohbette paylaşılan son dosyalar.</DialogDescription></DialogHeader>
+        {filesStatus === "loading" ? <p role="status" className="text-sm">Dosyalar yükleniyor…</p>
+          : filesStatus === "error" ? <p role="alert" className="text-sm">Dosyalar yüklenemedi. Pencereyi kapatıp tekrar açın.</p>
+          : sharedFiles.length === 0 ? <p className="text-sm text-muted-foreground">Henüz paylaşılan dosya yok.</p>
+          : <ul className="max-h-[55vh] space-y-1 overflow-auto">{sharedFiles.map((file) => (
+              <li key={file.fileId}>
+                <a href={file.url} target="_blank" rel="noreferrer" className="flex items-center gap-2 rounded-md p-2 text-sm hover:bg-muted">
+                  <FileIcon className="size-4 shrink-0" /><span className="truncate">{file.filename}</span>
+                </a>
+              </li>
+            ))}</ul>}
+      </DialogContent>
+    </Dialog>
+    <Dialog open={!!forwarding} onOpenChange={(open) => { if (!open && !forwardBusy) setForwarding(null); }}><DialogContent><DialogHeader><DialogTitle>Mesajı ilet</DialogTitle><DialogDescription>İletmek istediğiniz sohbeti seçin.</DialogDescription></DialogHeader><ScrollArea className="max-h-80">{conversations.map((c) => <Button key={c.id} variant="ghost" className="w-full justify-start" disabled={forwardBusy} onClick={() => forwardTo(c.id)}>{convDisplay(c, meId)}</Button>)}</ScrollArea></DialogContent></Dialog>
     <div className="surface-enter flex h-[calc(100dvh-9rem)] min-h-0 overflow-hidden rounded-xl border border-primary/10 bg-card shadow-sm sm:h-[calc(100dvh-13rem)] sm:min-h-[520px]">
       {/* Sol pano */}
       <div className={cn("w-full shrink-0 flex-col border-r border-border/60 bg-muted/10 md:flex md:w-80", selectedId ? "hidden" : "flex")}>
@@ -391,6 +589,13 @@ export function ChatPage({ onOpenRecord }: { onOpenRecord?: (card: ChatRefCard) 
             <NewGroupDialog directory={directory} onCreated={(d) => { loadConversations(); openConversation(d.id); }} />
           )}
         </div>
+        <div className="flex flex-wrap gap-1 border-b px-2 py-2" aria-label="Sohbet filtreleri">
+          {CHAT_FILTERS.map(({ id, label }) => (
+            <Button key={id} size="sm" variant={chatFilter === id ? "secondary" : "ghost"} aria-pressed={chatFilter === id} onClick={() => setChatFilter(id)} className="h-7 px-2 text-xs">
+              {label}
+            </Button>
+          ))}
+        </div>
         <ScrollArea className="min-h-0 flex-1">
           <div className="p-1.5">
             {conversationGroups.map((group) => <div key={group.label} className="mb-2"><div className="px-2 pb-1 pt-2 font-data text-xs font-semibold uppercase tracking-[0.13em] text-muted-foreground">{group.label}</div>{group.items.map((c) => {
@@ -406,18 +611,23 @@ export function ChatPage({ onOpenRecord }: { onOpenRecord?: (card: ChatRefCard) 
                   </span>
                   <span className="min-w-0 flex-1">
                     <span className="flex items-center justify-between gap-2">
-                      <span className="truncate text-sm font-medium">{name}</span>
+                      <span className="flex min-w-0 items-center gap-1 text-sm font-medium">
+                        {c.isFavorite && <Star className="size-3 shrink-0 fill-current" aria-label="Favori" />}
+                        {c.isMuted && <BellOff className="size-3 shrink-0 text-muted-foreground" aria-label="Sessizde" />}
+                        <span className="truncate">{name}</span>
+                      </span>
                       {c.lastMessage && <span className="shrink-0 text-xs text-muted-foreground">{fmtTime(c.lastMessage.createdAt)}</span>}
                     </span>
                     <span className="flex items-center justify-between gap-2">
                       <span className="truncate text-xs text-muted-foreground">{c.lastMessage?.preview ?? "Henüz mesaj yok"}</span>
+                      {(c.mentionCount ?? 0) > 0 && <Badge variant="secondary" aria-label={`${c.mentionCount} okunmamış bahsetme`}>@{c.mentionCount}</Badge>}
                       {c.unreadCount > 0 && <Badge className="h-5 min-w-5 shrink-0 justify-center rounded-full bg-brand-red px-1.5 text-[10px] text-white hover:bg-brand-red">{c.unreadCount}</Badge>}
                     </span>
                   </span>
                 </button>
               );
             })}</div>)}
-            {filtered.length === 0 && <div className="px-3 py-6 text-center"><BrandIllustration scene={search ? "search" : "calls"} size="sm" className="mx-auto" /><div className="mt-1 text-sm font-semibold">{search ? "Eşleşen sohbet yok" : "İlk sohbetinizi başlatın"}</div><p className="mt-1 text-xs text-muted-foreground">{search ? "Arama ifadesini değiştirin." : "Ekip arkadaşlarıyla kayıt ve dosya paylaşın."}</p>{!search && <Button size="sm" className="mt-3" onClick={() => setNewOpen(true)}><Plus className="size-4" /> Yeni Sohbet</Button>}</div>}
+            {filtered.length === 0 && <div className="px-3 py-6 text-center"><BrandIllustration scene={search ? "search" : "calls"} size="sm" className="mx-auto" /><div className="mt-1 text-sm font-semibold">{search || chatFilter !== "all" ? "Eşleşen sohbet yok" : "İlk sohbetinizi başlatın"}</div><p className="mt-1 text-xs text-muted-foreground">{search || chatFilter !== "all" ? "Arama ifadesini veya filtreyi değiştirin." : "Ekip arkadaşlarıyla kayıt ve dosya paylaşın."}</p>{!search && chatFilter === "all" && <Button size="sm" className="mt-3" onClick={() => setNewOpen(true)}><Plus className="size-4" /> Yeni Sohbet</Button>}</div>}
           </div>
         </ScrollArea>
       </div>
@@ -435,7 +645,7 @@ export function ChatPage({ onOpenRecord }: { onOpenRecord?: (card: ChatRefCard) 
           </div>
         ) : (
           <>
-            <div className="flex items-center gap-3 border-b border-border/60 px-4 py-3">
+            <div className="flex flex-wrap items-center gap-1.5 border-b border-border/60 px-3 py-2 sm:gap-3 sm:px-4 sm:py-3">
               <Button variant="ghost" size="icon" className="size-8 md:hidden" aria-label="Sohbet listesine dön" onClick={() => { setSelectedId(null); setDetail(null); }}><ChevronLeft className="size-4" /></Button>
               <span className={cn("grid size-10 shrink-0 place-items-center rounded-full border text-xs font-semibold", detail.type === "group" ? "border-primary/10 bg-primary/15 text-primary" : avatarTone(convDisplay(detail, meId)))}>
                 {detail.type === "group" ? <Users className="size-4" /> : initials(convDisplay(detail, meId))}
@@ -443,7 +653,7 @@ export function ChatPage({ onOpenRecord }: { onOpenRecord?: (card: ChatRefCard) 
               <div className="min-w-0 flex-1">
                 <div className="truncate text-sm font-semibold">{convDisplay(detail, meId)}</div>
                 <div className="truncate text-xs text-muted-foreground">
-                  {detail.type === "group"
+                  {typingNames.length ? `${typingNames.join(", ")} yazıyor…` : detail.type === "group"
                     ? `${detail.members.length} üye${detail.onlyAdminsCanPost ? " · yalnız yöneticiler yazabilir" : ""}`
                     : detail.members.find((m) => m.userId !== meId)?.email}
                 </div>
@@ -456,6 +666,9 @@ export function ChatPage({ onOpenRecord }: { onOpenRecord?: (card: ChatRefCard) 
                 onClick={() => {
                   const next = !showMessageSearch;
                   setShowMessageSearch(next);
+                  browsingHistoryRef.current = false;
+                  setBrowsingHistory(false);
+                  setFocusedMessageId(undefined);
                   if (!next) {
                     setMessageSearch("");
                     messageSearchRef.current = "";
@@ -464,6 +677,13 @@ export function ChatPage({ onOpenRecord }: { onOpenRecord?: (card: ChatRefCard) 
                 }}
               >
                 <Search className="size-4" />
+              </Button>
+              <Button variant="ghost" size="icon" title="Paylaşılan dosyalar" aria-label="Paylaşılan dosyalar" onClick={() => setFilesConversation(detail.id)}><FolderOpen className="size-4" /></Button>
+              <Button variant="ghost" size="icon" title={selectedSummary?.isFavorite ? "Favoriden çıkar" : "Favoriye ekle"} aria-label={selectedSummary?.isFavorite ? "Favoriden çıkar" : "Favoriye ekle"} aria-pressed={!!selectedSummary?.isFavorite} disabled={!selectedSummary || preferencesBusy} onClick={() => changePreferences(detail.id, { isFavorite: !selectedSummary?.isFavorite })}>
+                <Star className={cn("size-4", selectedSummary?.isFavorite && "fill-current")} />
+              </Button>
+              <Button variant="ghost" size="icon" title={selectedSummary?.isMuted ? "Sesi aç" : "Sessize al"} aria-label={selectedSummary?.isMuted ? "Sesi aç" : "Sessize al"} aria-pressed={!!selectedSummary?.isMuted} disabled={!selectedSummary || preferencesBusy} onClick={() => changePreferences(detail.id, { isMuted: !selectedSummary?.isMuted })}>
+                {selectedSummary?.isMuted ? <BellOff className="size-4" /> : <Bell className="size-4" />}
               </Button>
               {detail.type === "dm" && voiceCall.supported && (
                 <>
@@ -508,7 +728,13 @@ export function ChatPage({ onOpenRecord }: { onOpenRecord?: (card: ChatRefCard) 
                   <Input
                     autoFocus
                     value={messageSearch}
-                    onChange={(event) => setMessageSearch(event.target.value)}
+                    onChange={(event) => {
+                      browsingHistoryRef.current = false;
+                      setBrowsingHistory(false);
+                      setMessageSearch(event.target.value);
+                    }}
+                    maxLength={100}
+                    aria-label="Sohbet mesajlarında ara"
                     placeholder="Bu sohbette en az 2 karakterle ara…"
                     className="h-9 bg-white pl-8"
                   />
@@ -518,17 +744,28 @@ export function ChatPage({ onOpenRecord }: { onOpenRecord?: (card: ChatRefCard) 
               </form>
             )}
 
+            {pinned.length > 0 && <button type="button" className="flex items-center gap-2 border-b bg-muted/30 px-4 py-2 text-left text-xs" onClick={() => setShowPinned(true)}><Pin className="size-3.5" /><span className="truncate">{pinned.length} sabitlenmiş mesaj · {pinned[0].body || pinned[0].refCard?.title || "Ekli mesaj"}</span></button>}
+            <Dialog open={showPinned} onOpenChange={setShowPinned}><DialogContent><DialogHeader><DialogTitle>Sabitlenmiş mesajlar</DialogTitle><DialogDescription>Bu sohbet için öne çıkarılan mesajlar.</DialogDescription></DialogHeader><ScrollArea className="max-h-96"><div className="space-y-4 p-2">{pinned.map((m) => <div key={m.id} className="rounded-lg border p-3 text-sm"><div className="mb-1 text-xs text-muted-foreground">{m.senderName} · {new Date(m.createdAt).toLocaleDateString("tr-TR")}</div>{m.refCard && <RefCardView card={m.refCard} mine={false} onOpen={onOpenRecord} />}<p className="whitespace-pre-wrap break-words">{m.body || (m.attachments.length ? "Ekli mesaj" : m.location ? "Konum" : "")}</p>{(isManager || detail.type === "dm") && <Button variant="ghost" size="sm" onClick={() => togglePin(m)}>Sabitlemeyi kaldır</Button>}</div>)}</div></ScrollArea></DialogContent></Dialog>
+            {browsingHistory && <Button variant="secondary" size="sm" onClick={() => { browsingHistoryRef.current = false; setBrowsingHistory(false); setFocusedMessageId(undefined); void loadMessages(detail.id); }}>Anlık mesaj akışına dön</Button>}
             <ScrollArea ref={messageScrollAreaRef} className="min-h-0 flex-1">
               <div className="flex flex-col gap-1.5 p-4">
+                {hasMore && <Button variant="ghost" size="sm" disabled={loadingOlder} onClick={loadOlder}>{loadingOlder ? "Yükleniyor…" : "Önceki mesajları yükle"}</Button>}
                 {messages.map((m) => (
+                  <div key={m.id} id={`chat-message-${m.id}`} className={cn(m.id === focusedMessageId && "rounded-xl bg-primary/10 ring-1 ring-primary/30")}>
                   <MessageItem
-                    key={m.id} m={m} mine={m.senderId === meId} isGroup={detail.type === "group"}
-                    canModerate={!!isManager} otherReadAt={otherReadAt}
+                    m={m} mine={m.senderId === meId} isGroup={detail.type === "group"}
+                    canModerate={!!isManager} otherReadAt={otherReadAt} mentionedMe={!!m.mentionUserIds?.includes(meId)}
                     onReply={() => { setReplyTo({ id: m.id, senderName: m.senderName, preview: m.body || "Ek" }); setEditing(null); }}
                     onReact={(emoji) => react(m.id, emoji)}
                     onEdit={() => startEdit(m)} onDelete={() => delMsg(m.id)}
+                    onPin={() => togglePin(m)} onForward={() => setForwarding(m)}
+                    onCreateTask={hasPermission?.("tasks.create") ? () => {
+                      setTaskSource(`${detail.id}:${m.id}`);
+                      tasksService.assignees().then(setTaskAssignees).catch(() => {});
+                    } : undefined}
                     onOpenRecord={onOpenRecord}
                   />
+                  </div>
                 ))}
                 {messages.length === 0 && <div className="premium-blueprint mx-auto my-8 max-w-sm rounded-xl border border-dashed border-primary/15 px-6 py-8 text-center"><MessageCircle className="mx-auto size-7 text-primary" /><div className="mt-3 text-sm font-semibold">{messageSearch.trim().length >= 2 ? "Eşleşen mesaj bulunamadı" : "Sohbet hazır"}</div><p className="mt-1 text-xs text-muted-foreground">{messageSearch.trim().length >= 2 ? "Başka bir kelimeyle tekrar arayın." : "İlk mesajı gönderin veya firma, teklif ve servis kaydı paylaşın."}</p></div>}
               </div>
@@ -562,6 +799,7 @@ export function ChatPage({ onOpenRecord }: { onOpenRecord?: (card: ChatRefCard) 
                     ))}
                   </div>
                 )}
+                {mentionOptions.length > 0 && <div className="mb-2 max-h-48 overflow-y-auto rounded-lg border bg-popover p-1" aria-label="Bahsedilecek grup üyesi">{mentionOptions.map((m) => <button key={m.userId} type="button" className="block w-full rounded px-3 py-2 text-left text-sm hover:bg-muted" onClick={() => chooseMention(m)}> @{m.fullName}</button>)}</div>}
                 <div className="flex flex-wrap items-end gap-1.5 sm:flex-nowrap">
                   <input ref={fileInputRef} type="file" accept={ACCEPT} multiple className="hidden" onChange={(e) => onFiles(e.target.files)} />
                   <input ref={gifInputRef} type="file" accept="image/gif,.gif" className="hidden" onChange={(e) => onGif(e.target.files)} />
@@ -598,10 +836,11 @@ export function ChatPage({ onOpenRecord }: { onOpenRecord?: (card: ChatRefCard) 
                     </>
                   )}
                   <Textarea
-                    value={text} onChange={(e) => setText(e.target.value)} rows={1}
+                    ref={composerRef}
+                    value={text} onChange={(e) => { setText(e.target.value); setMentionCursor(e.target.selectionStart); sendTyping(e.target.value.trim().length > 0); }} onSelect={(e) => setMentionCursor(e.currentTarget.selectionStart)} rows={1} maxLength={4000}
                     placeholder={recording ? "Kaydediliyor… bitince gönderebilirsiniz" : editing ? "Mesajı düzenleyin…" : "Mesaj yazın…"}
                     className="order-first max-h-32 min-h-10 min-w-0 basis-full resize-none sm:order-none sm:basis-auto sm:flex-1"
-                    onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }}
+                    onKeyDown={(e) => { if (e.key === "Escape") { setMentionCursor(0); } if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); if (mentionOptions.length) chooseMention(mentionOptions[0]); else send(); } }}
                   />
                   <Button onClick={send} disabled={sending || (!editing && !text.trim() && pending.length === 0) || (!!editing && !text.trim())} size="icon" title={editing ? "Kaydet" : "Gönder"}>
                     {sending ? <Loader2 className="size-5 animate-spin" /> : editing ? <Check className="size-5" /> : <Send className="size-5" />}
@@ -616,15 +855,19 @@ export function ChatPage({ onOpenRecord }: { onOpenRecord?: (card: ChatRefCard) 
           </>
         )}
       </div>
-    </div>
+    </div></>
   );
 }
 
 function MessageItem({
-  m, mine, isGroup, canModerate, otherReadAt, onReply, onReact, onEdit, onDelete, onOpenRecord,
+  m, mine, isGroup, canModerate, otherReadAt, mentionedMe, onReply, onReact, onEdit, onDelete, onPin, onForward, onCreateTask, onOpenRecord,
 }: {
+  mentionedMe: boolean;
   m: ChatMessageDTO; mine: boolean; isGroup: boolean; canModerate: boolean; otherReadAt: string | null;
   onReply: () => void; onReact: (emoji: string) => void; onEdit: () => void; onDelete: () => void;
+  onPin: () => void;
+  onForward: () => void;
+  onCreateTask?: () => void;
   onOpenRecord?: (card: ChatRefCard) => void;
 }) {
   const [showEmoji, setShowEmoji] = useState(false);
@@ -642,6 +885,9 @@ function MessageItem({
   return (
     <div className={cn("group flex flex-col", mine ? "items-end" : "items-start")}>
       <div className={cn("relative max-w-[80%] rounded-2xl px-3 py-2 text-sm", mine ? "bg-primary text-primary-foreground" : "bg-muted")}>
+        {mentionedMe && <div className="mb-1 text-xs font-semibold">@ Sizden bahsedildi</div>}
+        {m.forwardedFromId && <div className="mb-1 flex items-center gap-1 text-[11px] opacity-75"><Forward className="size-3" /> İletildi</div>}
+        {m.pinnedAt && <div className="mb-1 flex items-center gap-1 text-[11px] opacity-75"><Pin className="size-3" /> Sabitlendi</div>}
         {isGroup && !mine && <div className="mb-0.5 text-[11px] font-semibold opacity-80">{m.senderName}</div>}
 
         {m.replyTo && (
@@ -672,7 +918,7 @@ function MessageItem({
             {m.attachments.map((a) => a.isImage ? (
               <a key={a.fileId} href={a.url} target="_blank" rel="noreferrer"><img src={a.url} alt={a.filename} className="max-h-60 rounded-lg object-cover" /></a>
             ) : a.mimeType.startsWith("audio/") ? (
-              <audio key={a.fileId} controls src={a.url} className="h-9 w-56 max-w-full" />
+              <ChatAudio key={a.fileId} url={a.url} />
             ) : (
               <a key={a.fileId} href={a.url} target="_blank" rel="noreferrer" className={cn("flex items-center gap-2 rounded-md px-2 py-1.5 text-xs", mine ? "bg-primary-foreground/15" : "bg-background")}>
                 <FileIcon className="size-4 shrink-0" /><span className="truncate">{a.filename}</span>
@@ -705,7 +951,7 @@ function MessageItem({
       )}
 
       {/* Hover aksiyonları */}
-      <div className={cn("mt-0.5 flex items-center gap-1 md:hidden md:group-hover:flex", mine ? "flex-row-reverse" : "")}>
+      <div className={cn("mt-0.5 flex items-center gap-1 md:hidden md:group-hover:flex md:group-focus-within:flex", mine ? "flex-row-reverse" : "")}>
         <div className="relative">
           <button className="grid size-11 place-items-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground md:size-7" title="Tepki ver" onClick={() => setShowEmoji((s) => !s)}><Smile className="size-3.5" /></button>
           {showEmoji && (
@@ -717,6 +963,9 @@ function MessageItem({
           )}
         </div>
         <button className="grid size-11 place-items-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground md:size-7" title="Yanıtla" onClick={onReply}><CornerUpLeft className="size-3.5" /></button>
+        <button className="grid size-7 place-items-center rounded-md text-muted-foreground hover:bg-muted" title="İlet" aria-label="Mesajı ilet" onClick={onForward}><Forward className="size-3.5" /></button>
+        {onCreateTask && <button type="button" className="grid size-7 place-items-center rounded-md text-muted-foreground hover:bg-muted" title="Mesajdan görev oluştur" aria-label="Mesajdan görev oluştur" onClick={onCreateTask}><ListTodo className="size-3.5" /></button>}
+        {(canModerate || !isGroup) && <button className="grid size-7 place-items-center rounded-md text-muted-foreground hover:bg-muted" title={m.pinnedAt ? "Sabitlemeyi kaldır" : "Sabitle"} aria-label={m.pinnedAt ? "Sabitlemeyi kaldır" : "Mesajı sabitle"} onClick={onPin}><Pin className="size-3.5" /></button>}
         {mine && m.kind !== "voice" && m.body && (
           <button className="grid size-11 place-items-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground md:size-7" title="Düzenle" onClick={onEdit}><Pencil className="size-3.5" /></button>
         )}
@@ -738,8 +987,30 @@ function RefCardView({ card, mine, onOpen }: { card: ChatRefCard; mine: boolean;
       <Icon className="size-4 shrink-0" />
       <span className="min-w-0 flex-1">
         <span className="block truncate font-medium">{card.title}</span>
+        <span className="mb-1 block text-[10px] uppercase opacity-70">{{company: "Firma", quote: "Teklif", opportunity: "Fırsat", service_ticket: "Servis"}[card.type]}</span>
         {card.subtitle && <span className="block truncate opacity-75">{card.subtitle}</span>}
+        {card.companyName && card.companyName !== card.subtitle && <span className="block truncate">{card.companyName}</span>}
+        {card.stage && <span className="block opacity-80">{card.stage}</span>}
+        {card.amount != null && Number.isFinite(Number(card.amount)) && <span className="mt-1 block font-semibold">{new Intl.NumberFormat("tr-TR", { maximumFractionDigits: 2 }).format(Number(card.amount))} {card.currency}</span>}
       </span>
+      {!card.missing && <ArrowUpRight className="size-4 shrink-0" />}
     </button>
+  );
+}
+
+
+function ChatAudio({ url }: { url: string }) {
+  const audio = useRef<HTMLAudioElement>(null);
+  return (
+    <div className="flex items-center gap-2">
+      <audio ref={audio} controls preload="metadata" src={url} className="h-9 w-56 max-w-full" />
+      <select aria-label="Sesli mesaj oynatma hızı" defaultValue="1" className="rounded border bg-background px-1 text-xs text-foreground" onChange={(event) => {
+        if (audio.current) audio.current.playbackRate = Number(event.target.value);
+      }}>
+        <option value="1">1×</option>
+        <option value="1.5">1,5×</option>
+        <option value="2">2×</option>
+      </select>
+    </div>
   );
 }

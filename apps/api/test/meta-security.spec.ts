@@ -5,6 +5,7 @@ import {
   metaCampaignCreateSchema,
   metaCampaignUpdateSchema,
   metaConnectionCreateSchema,
+  metaConversionListQuerySchema,
 } from '@haksan/shared';
 import type { DbClient } from '../src/db/client';
 import { UnauthorizedError, ValidationError } from '../src/shared/utils/errors';
@@ -13,6 +14,15 @@ import type { MetaService } from '../src/modules/meta/meta.service';
 import { MetaWebhookService } from '../src/modules/meta/meta-webhook.service';
 
 describe('Meta integration security contracts', () => {
+  it('accepts only known conversion event sort fields and directions', () => {
+    for (const sortBy of ['eventName', 'opportunityId', 'status', 'value', 'occurredAt', 'attemptCount', 'lastError']) {
+      for (const sortDir of ['asc', 'desc']) {
+        expect(metaConversionListQuerySchema.parse({ sortBy, sortDir })).toMatchObject({ sortBy, sortDir });
+      }
+    }
+    expect(metaConversionListQuerySchema.safeParse({ sortBy: 'id; DROP TABLE quotes', sortDir: 'asc' }).success).toBe(false);
+    expect(metaConversionListQuerySchema.safeParse({ sortBy: 'eventName', sortDir: 'sideways' }).success).toBe(false);
+  });
   it('keeps new campaigns paused and requires explicit approval for activation or budget changes', () => {
     const created = metaCampaignCreateSchema.parse({
       connectionId: '11111111-1111-4111-8111-111111111111',

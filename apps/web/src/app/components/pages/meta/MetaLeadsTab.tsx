@@ -4,7 +4,7 @@ import { ArrowUpRight, Search, SlidersHorizontal } from "lucide-react";
 import { Button } from "../../ui/button";
 import { Input } from "../../ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../ui/select";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../../ui/table";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow, type TableSort } from "../../ui/table";
 import { getMetaErrorMessage, metaQueryKeys, metaService, type MetaLeadStatus, type MetaPlatform } from "../../../../lib/meta-service";
 import {
   formatMetaDate,
@@ -26,6 +26,7 @@ export function MetaLeadsTab({ onOpenOpportunity }: { onOpenOpportunity?: (id: s
   const [status, setStatus] = useState<MetaLeadStatus | "all">("all");
   const [platform, setPlatform] = useState<MetaPlatform | "all">("all");
   const [page, setPage] = useState(1);
+  const [sort, setSort] = useState<TableSort>({ key: "createdAt", direction: "desc" });
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -38,6 +39,8 @@ export function MetaLeadsTab({ onOpenOpportunity }: { onOpenOpportunity?: (id: s
   const params = {
     page,
     pageSize: PAGE_SIZE,
+    sortBy: sort.key,
+    sortDir: sort.direction,
     search: search || undefined,
     status: status === "all" ? undefined : status,
     platform: platform === "all" ? undefined : platform,
@@ -120,15 +123,15 @@ export function MetaLeadsTab({ onOpenOpportunity }: { onOpenOpportunity?: (id: s
         />
       ) : (
         <div className="overflow-x-auto">
-          <Table className="min-w-[980px]">
+          <Table className="min-w-[980px]" manualSorting sort={sort} onSortChange={(next) => { setSort(next); setPage(1); }}>
             <TableHeader>
               <TableRow>
-                <TableHead>Lead</TableHead>
-                <TableHead>Kaynak</TableHead>
-                <TableHead>Kampanya / Form</TableHead>
-                <TableHead>Durum</TableHead>
-                <TableHead>CRM ataması</TableHead>
-                <TableHead>Geliş</TableHead>
+                <TableHead sortKey="fullName">Lead</TableHead>
+                <TableHead sortKey="platform">Kaynak</TableHead>
+                <TableHead sortKey="campaignName">Kampanya / Form</TableHead>
+                <TableHead sortKey="status">Durum</TableHead>
+                <TableHead sortKey="ownerName">CRM ataması</TableHead>
+                <TableHead sortKey="createdAt">Geliş</TableHead>
                 <TableHead className="w-20 text-right">İşlem</TableHead>
               </TableRow>
             </TableHeader>

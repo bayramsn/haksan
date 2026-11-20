@@ -1,3 +1,4 @@
+import { partialWithoutDefaults } from '../partial';
 import { z } from 'zod';
 
 export const noteTemplateCreateSchema = z.object({
@@ -7,7 +8,7 @@ export const noteTemplateCreateSchema = z.object({
 });
 export type NoteTemplateCreateInput = z.infer<typeof noteTemplateCreateSchema>;
 
-export const noteTemplateUpdateSchema = noteTemplateCreateSchema.partial().refine(
+export const noteTemplateUpdateSchema = partialWithoutDefaults(noteTemplateCreateSchema).refine(
   (value) => value.title !== undefined || value.body !== undefined || value.scope !== undefined,
   'En az bir alan gönderilmelidir',
 );

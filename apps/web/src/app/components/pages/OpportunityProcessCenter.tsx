@@ -15,6 +15,7 @@ import {
   type SalesCase,
 } from "../../lib/mock";
 import { Button } from "../ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "../ui/dialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -161,7 +162,9 @@ export function OpportunityProcessCenter({
    * yalnız engeller temizken. Kart değişince seçim mevcut alana döner.
    */
   const [selectedStage, setSelectedStage] = useState<string | null>(null);
-  useEffect(() => setSelectedStage(null), [salesCase.id]);
+  const [requirementsOpen, setRequirementsOpen] = useState(false);
+  const [transitionBlockers, setTransitionBlockers] = useState<Array<{ key: string; label: string; qualificationStage?: string }>>([]);
+  useEffect(() => { setSelectedStage(null); setRequirementsOpen(false); setTransitionBlockers([]); }, [salesCase.id]);
 
   /** Nitelik ekseninin alanları, backend sırasıyla (lead → … → win). */
   const qualificationTargets = useMemo(
@@ -192,8 +195,13 @@ export function OpportunityProcessCenter({
   const viewedIsFuture = viewedDirection === "forward";
 
   const advance = async () => {
-    const blockedByRequirements = currentStage !== "lead" && blockers.length > 0;
-    if (!canUpdate || advancing || !nextTarget || closed || isDisqualified || blockedByRequirements) return;
+    if (!canUpdate || advancing || !nextTarget || closed || isDisqualified) return;
+    const blockedByRequirements = blockers.length > 0;
+    if (blockedByRequirements) {
+      setTransitionBlockers(blockers);
+      setRequirementsOpen(true);
+      return;
+    }
     // Lead → C, firma/kontak kurulumunu da yapan ayrı bir dönüştürme akışıdır;
     // doğrudan derece değişimi o akışı atlayıp yarım kart bırakırdı.
     if (currentStage === "lead") {
@@ -216,18 +224,21 @@ export function OpportunityProcessCenter({
       await onRefresh();
       await load();
     } catch (error: any) {
-      toast.error("İlerletilemedi", { description: blockerMessage(error) });
+      const serverBlockers = error?.details?.blockers;
+      if (Array.isArray(serverBlockers) && serverBlockers.some((item) => typeof item?.label === "string")) {
+        setTransitionBlockers(serverBlockers.filter((item) => typeof item?.label === "string"));
+        setRequirementsOpen(true);
+      } else toast.error("İlerletilemedi", { description: blockerMessage(error) });
       await load();
     } finally {
       setAdvancing(false);
     }
   };
 
-  const advanceDisabled = !canUpdate || advancing || closed || isDisqualified
-    || (currentStage !== "lead" && blockers.length > 0);
+  const advanceDisabled = !canUpdate || advancing || closed || isDisqualified;
   // Lead'de ilerletme, dönüştürme akışını açar; düğme yaptığı işi söylemeli.
   const advanceLabel =
-    currentStage === "lead" ? "Fırsata dönüştür" : `${stageLabel(nextTarget?.code)} alanına geç`;
+    blockers.length > 0 ? "Eksikleri tamamla" : currentStage === "lead" ? "Fırsata dönüştür" : `${stageLabel(nextTarget?.code)} alanına geç`;
 
   // Kaldırılan hedef panelinin tablist'iyle birlikte onun canlı bölgesi de gitti;
   // durum değişimini duyuran tek yer artık burası. Bölge, yükleme ve "veri yok"
@@ -242,9 +253,6 @@ export function OpportunityProcessCenter({
     if (isDisqualified) return `${base}. Aday elendi; fırsata dönüştürülemez.`;
     if (closed) return `${base}. Kart kapalı, önce geri açılmalı.`;
     if (!nextTarget) return `${base}. Sonraki alan yok.`;
-    if (currentStage === "lead") {
-      return `${base}. Fırsata dönüşüm hazır; eksik bilgiler fırsatta tamamlanabilir.`;
-    }
     return blockers.length === 0
       ? `${base}. ${stageLabel(nextTarget.code)} alanına geçiş hazır.`
       : `${base}. ${stageLabel(nextTarget.code)} alanına geçmek için ${blockers.length} gereklilik eksik.`;
@@ -386,10 +394,8 @@ export function OpportunityProcessCenter({
               ? "Kapalı kartta alan değiştirilemez."
               : isDisqualified
                 ? "Aday elendi; fırsata dönüştürülemez."
-              : currentStage === "lead"
-                ? "Eksik lead bilgilerini fırsat içinde tamamlayabilirsiniz."
-                : blockers.length
-                  ? "Eksikleri yukarıdaki alan görevlerinden tamamlayın; ardından ilerletme açılır."
+              : blockers.length
+                  ? "İlerlemek için eksik gereklilikleri tamamlayın."
                   : "Bu alanın gereklilikleri tamam; ilerletebilirsiniz."}
           </p>
           <Button
@@ -416,6 +422,26 @@ export function OpportunityProcessCenter({
           </Button>
         </div>
       )}
+      <Dialog open={requirementsOpen} onOpenChange={setRequirementsOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Aşama gereklilikleri eksik</DialogTitle>
+            <DialogDescription>Bu bilgiler tamamlanmadan sonraki aşamaya geçilemez.</DialogDescription>
+          </DialogHeader>
+          <ul className="max-h-[60vh] space-y-2 overflow-y-auto">
+            {transitionBlockers.map((item) => (
+              <li key={item.key} className="flex items-center justify-between gap-3 rounded-md border p-3 text-sm">
+                <span>{item.label}</span>
+                <Button type="button" size="sm" variant="outline" onClick={() => {
+                  setSelectedStage(item.qualificationStage ?? currentStage ?? null);
+                  setRequirementsOpen(false);
+                  requestAnimationFrame(() => document.getElementById("opportunity-process-actions")?.scrollIntoView({ block: "start", behavior: "smooth" }));
+                }}>Tamamla</Button>
+              </li>
+            ))}
+          </ul>
+        </DialogContent>
+      </Dialog>
     </section>
   );
 }

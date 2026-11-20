@@ -1,3 +1,8 @@
+import { serviceAgeDays, serviceSlaRemainingDays, isServiceOverdue } from "../../../lib/serviceSla";
+import { matchesServiceList } from "../../../lib/serviceList";
+import { isPartOperation, serviceElapsedSeconds, serviceLaborTotal, serviceCompletionPartsFromRequest, SERVICE_COMPLETION_PART_LIMIT } from "../../../lib/serviceBilling";
+import { WorkspaceRecordUnavailable } from "../../shared/WorkspaceRecordUnavailable";
+import { loadAllPaginated } from "../../../lib/loadAllPaginated";
 import { useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 import { useQuery } from "@tanstack/react-query";
 import QRCode from "qrcode";
@@ -328,29 +333,8 @@ const formatElapsed = (seconds: number) => {
   return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
 };
 
-const serviceElapsedSeconds = (s: ServiceRequest, nowMs = Date.now()) => {
-  const base = s.timerElapsedSeconds ?? 0;
-  if (s.timerStatus !== "running" || !s.timerStartedAt) return base;
-  const started = new Date(s.timerStartedAt).getTime();
-  if (!Number.isFinite(started)) return base;
-  return base + Math.max(0, Math.floor((nowMs - started) / 1000));
-};
-
 const moneyText = (value: number, currency = "USD") =>
   new Intl.NumberFormat("tr-TR", { style: "currency", currency, maximumFractionDigits: 2 }).format(value || 0);
-
-const serviceAgeDays = (s: ServiceRequest) => {
-  const time = new Date(s.createdAt).getTime();
-  if (!Number.isFinite(time)) return 0;
-  return Math.max(0, Math.floor((Date.now() - time) / (24 * 60 * 60 * 1000)));
-};
-
-const SERVICE_SLA_DAYS: Record<NonNullable<ServiceRequest["priority"]>, number> = {
-  critical: 1,
-  high: 2,
-  normal: 7,
-  low: 14,
-};
 
 const SERVICE_NEXT_ACTION: Record<ServiceStage, string> = {
   "Request Opened": "İlk değerlendirme",
@@ -367,8 +351,7 @@ const SERVICE_NEXT_ACTION: Record<ServiceStage, string> = {
 
 const serviceSlaInfo = (serviceRequest: ServiceRequest) => {
   if (serviceRequest.stage === "Closed") return { label: "Kapandı", tone: "text-muted-foreground", overdue: false };
-  const target = SERVICE_SLA_DAYS[serviceRequest.priority ?? "normal"];
-  const remaining = target - serviceAgeDays(serviceRequest);
+  const remaining = serviceSlaRemainingDays(serviceRequest);
   if (remaining < 0) return { label: `${Math.abs(remaining)}g aşıldı`, tone: "text-destructive", overdue: true };
   if (remaining === 0) return { label: "Bugün", tone: "text-warning", overdue: false };
   return { label: `${remaining}g kaldı`, tone: "text-success", overdue: false };
@@ -390,33 +373,48 @@ const SERVICE_PRIORITY_CLASS: Record<NonNullable<ServiceRequest["priority"]>, st
 
 const matchesServiceFocus = (s: ServiceRequest, focus?: OperationFocus) => {
   if (focus === "open") return s.stage !== "Closed";
-  if (focus === "sla" || focus === "late") return s.stage !== "Closed" && serviceAgeDays(s) > 7;
+  if (focus === "sla" || focus === "late") return isServiceOverdue(s);
   if (focus === "scheduled") return s.stage === "Scheduled";
   return true;
 };
 
 type ServiceRequestsView = "list" | "board" | "complaints" | "history";
 
+type ServiceRecordNavigation = {
+  selectedServiceId: string | null;
+  initialDetailTab?: string;
+  onSelectService: (id: string, initialTab?: ServiceDetailTab) => void;
+  onCloseService: () => void;
+};
+
 export function ServiceRequestsPage({
   initialView = "list",
   focus,
   initialQuery,
   kanbanOnly = false,
-}: {
+  selectedServiceId,
+  initialDetailTab,
+  onSelectService,
+  onCloseService,
+}: ServiceRecordNavigation & {
   initialView?: "list" | "board";
   focus?: OperationFocus;
   initialQuery?: string;
   kanbanOnly?: boolean;
 }) {
-  const { service, machines, customers, users, refresh } = useStore();
+  const { service, machines, customers, users, refresh, loading } = useStore();
   const { hasPermission } = useAuth();
   const canCreateService = hasPermission("service_tickets.create");
   const [view, setView] = useState<ServiceRequestsView>(initialView);
   const [historyQuery, setHistoryQuery] = useState("");
-  const [selectedServiceId, setSelectedServiceId] = useState<string | null>(null);
-  const [selectedServiceInitialTab, setSelectedServiceInitialTab] = useState<ServiceDetailTab | undefined>();
-  // Aynı derin bağlantı, liste her yenilendiğinde kaydı tekrar açmasın.
-  const handledTicketQuery = useRef<string | null>(null);
+  const [serviceQuery, setServiceQuery] = useState("");
+  const [assigneeFilter, setAssigneeFilter] = useState("all");
+  const [stageFilter, setStageFilter] = useState("all");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  useEffect(() => {
+    setServiceQuery(initialQuery && initialQuery !== "complaints" && !initialQuery.startsWith("complaint:") ? initialQuery : "");
+  }, [initialQuery]);
   const [selectedComplaint, setSelectedComplaint] = useState<ServiceComplaintIntake | null>(null);
   const [complaints, setComplaints] = useState<ServiceComplaintIntake[]>([]);
   const [complaintLinks, setComplaintLinks] = useState<ServiceComplaintLink[]>([]);
@@ -431,17 +429,17 @@ export function ServiceRequestsPage({
   const [warrantyFilter, setWarrantyFilter] = useState("all");
   const [deletingServiceId, setDeletingServiceId] = useState<string | null>(null);
   const [pendingDeleteService, setPendingDeleteService] = useState<ServiceRequest | null>(null);
-  const customerName = (id: string) => customers.find((c) => c.id === id)?.name ?? "—";
+  const customerName = (id: string) => customers.find((c) => c.id === id)?.name ?? service.find((s) => s.customerId === id)?.companyName ?? "—";
   const machineName = (id: string) => {
     const machine = machines.find((m) => m.id === id);
     return machine ? [machine.model, machine.serialNumber].filter(Boolean).join(" · ") : "—";
   };
   const selectedService = selectedServiceId ? service.find((s) => s.id === selectedServiceId) ?? null : null;
   const openServiceDetail = (s: ServiceRequest, initialTab?: ServiceDetailTab) => {
-    setSelectedServiceId(s.id);
-    setSelectedServiceInitialTab(initialTab);
+    onSelectService(s.id, initialTab);
   };
   const visibleService = service
+    .filter((s) => matchesServiceList(s, { query: serviceQuery, assignee: assigneeFilter, stage: stageFilter, from: dateFrom, to: dateTo }, { company: customerName(s.customerId), machine: machineName(s.machineId) }))
     .filter((s) => matchesServiceFocus(s, focus))
     .filter((s) => ticketTypeFilter === "all" || (s.ticketType ?? "complaint") === ticketTypeFilter)
     .filter((s) => sourceFilter === "all" || (s.source ?? "manual") === sourceFilter)
@@ -478,6 +476,8 @@ export function ServiceRequestsPage({
     },
   ];
   const filterControls = [
+    { label: "Sorumlu", value: assigneeFilter, onChange: setAssigneeFilter, allLabel: "Tüm sorumlular", options: [{ value: "__unassigned__", label: "Atanmamış" }, ...users.map((u) => ({ value: u.id, label: u.name }))] },
+    { label: "Aşama", value: stageFilter, onChange: setStageFilter, allLabel: "Tüm aşamalar", options: Object.entries(SERVICE_NEXT_ACTION).map(([value]) => ({ value, label: `${STAGE_TO_COLUMN[value as ServiceStage]} · ${SERVICE_NEXT_ACTION[value as ServiceStage]}` })) },
     {
       label: "Kayıt Tipi",
       value: ticketTypeFilter,
@@ -509,8 +509,8 @@ export function ServiceRequestsPage({
     setComplaintsLoading(true);
     try {
       const [complaintResult, linkResult] = await Promise.all([
-        serviceService.complaints({ pageSize: 200 }),
-        serviceService.complaintLinks({ pageSize: 200 }),
+        loadAllPaginated((page, pageSize) => serviceService.complaints({ page, pageSize })),
+        loadAllPaginated((page, pageSize) => serviceService.complaintLinks({ page, pageSize })),
       ]);
       setComplaints(complaintResult.data ?? []);
       setComplaintLinks(linkResult.data ?? []);
@@ -524,20 +524,6 @@ export function ServiceRequestsPage({
   useEffect(() => {
     loadComplaints();
   }, []);
-
-  // Satış kartından "Servis Teklifi" ile gelindiğinde ilgili servis kaydı
-  // doğrudan teklif sekmesinde açılır.
-  useEffect(() => {
-    if (!initialQuery?.startsWith("ticket:")) return;
-    if (handledTicketQuery.current === initialQuery) return;
-    const [, ticketId, tab] = initialQuery.split(":");
-    if (!ticketId) return;
-    const target = service.find((s) => s.id === ticketId);
-    if (!target) return;
-    handledTicketQuery.current = initialQuery;
-    setView("list");
-    openServiceDetail(target, (tab as ServiceDetailTab | undefined) ?? undefined);
-  }, [service, initialQuery]);
 
   useEffect(() => {
     if (!complaints.length) return;
@@ -630,10 +616,7 @@ export function ServiceRequestsPage({
     try {
       await serviceService.deleteTicket(s.id);
       toast.success("Servis talebi silindi");
-      if (selectedServiceId === s.id) {
-        setSelectedServiceId(null);
-        setSelectedServiceInitialTab(undefined);
-      }
+      if (selectedServiceId === s.id) onCloseService();
       setPendingDeleteService(null);
       await refresh();
     } catch (err: any) {
@@ -681,17 +664,12 @@ export function ServiceRequestsPage({
 
   const dialogs = (
     <>
+      {selectedServiceId && !selectedService && !loading && <WorkspaceRecordUnavailable onClose={onCloseService} />}
       <ServiceDetailDialog
         serviceRequest={selectedService}
-        initialTab={selectedServiceInitialTab}
-        onClose={() => {
-          setSelectedServiceId(null);
-          setSelectedServiceInitialTab(undefined);
-        }}
-        onSelectService={(id) => {
-          setSelectedServiceId(id);
-          setSelectedServiceInitialTab(undefined);
-        }}
+        initialTab={serviceDetailTabs.find((tab) => tab === initialDetailTab)}
+        onClose={onCloseService}
+        onSelectService={onSelectService}
         onOpenComplaint={openSourceComplaint}
         onDelete={deleteService}
       />
@@ -740,11 +718,21 @@ export function ServiceRequestsPage({
     </>
   );
 
+  const serviceSearchControls = (
+    <div className="flex flex-wrap items-end gap-3">
+      <div className="min-w-56 flex-1"><Label htmlFor="service-search">Servis ara</Label><Input id="service-search" className="mt-1" value={serviceQuery} onChange={(e) => setServiceQuery(e.target.value)} placeholder="Firma, seri no, talep no veya not ara..." /></div>
+      <div><Label htmlFor="service-date-from">Açılış başlangıcı</Label><Input id="service-date-from" className="mt-1" type="date" value={dateFrom} max={dateTo || undefined} onChange={(e) => setDateFrom(e.target.value)} /></div>
+      <div><Label htmlFor="service-date-to">Açılış bitişi</Label><Input id="service-date-to" className="mt-1" type="date" value={dateTo} min={dateFrom || undefined} onChange={(e) => setDateTo(e.target.value)} /></div>
+      {(serviceQuery || dateFrom || dateTo || assigneeFilter !== "all" || stageFilter !== "all" || ticketTypeFilter !== "all" || sourceFilter !== "all" || warrantyFilter !== "all") && <Button variant="ghost" onClick={() => { setServiceQuery(""); setDateFrom(""); setDateTo(""); setAssigneeFilter("all"); setStageFilter("all"); setTicketTypeFilter("all"); setSourceFilter("all"); setWarrantyFilter("all"); }}>Filtreleri temizle</Button>}
+    </div>
+  );
+
   if (kanbanOnly) {
     return (
       <>
         <div className="crm-page">
           {serviceOverview}
+          {serviceSearchControls}
           <div className="flex items-center justify-end gap-2">
             <span className="text-sm text-muted-foreground tabular-nums">{visibleService.length} kayıt</span>
             <FilterPopover filters={filterControls} />
@@ -784,12 +772,13 @@ export function ServiceRequestsPage({
           )}
         </div>
       </div>
-      <TabsContent value="list" className="mt-4">
+      <TabsContent value="list" className="mt-4 space-y-4">
+        {serviceSearchControls}
         <Card className="border-border/60 shadow-sm overflow-hidden">
           <CardHeader className="flex flex-row items-center justify-between border-b border-border/60 bg-muted/10 p-4">
             <div><CardTitle className="text-base">Servis Talepleri</CardTitle><p className="mt-0.5 text-xs text-muted-foreground">{visibleService.length} operasyon kaydı</p></div>
             <div className="flex items-center gap-2">
-              <ExportExcelButton path="/exports/service-tickets" filename="servis-talepleri.xlsx" />
+              <ExportExcelButton path="/exports/service-tickets" filename="servis-talepleri.xlsx" label="Tüm kayıtları indir" />
               {canCreateService && (
                 <CreateServiceRequestDialog
                   trigger={<Button className="gap-1"><Plus className="size-4" /> Yeni Talep</Button>}
@@ -851,7 +840,7 @@ export function ServiceRequestsPage({
                       />
                     </TableCell>
                     <TableCell><div className="min-w-[110px]"><Badge variant="outline" className={SERVICE_PRIORITY_CLASS[priority]}>{SERVICE_PRIORITY_LABELS[priority]}</Badge><p className={`mt-1.5 text-[11px] font-medium ${sla.tone}`}>{sla.label}</p></div></TableCell>
-                    <TableCell><div className="flex min-w-[130px] items-center gap-2"><Avatar className="size-7 border border-border/60"><AvatarFallback className="bg-primary/10 text-[10px] text-primary">{initials(assignee?.name || "?")}</AvatarFallback></Avatar><div className="min-w-0"><p className="truncate text-xs font-medium">{assignee?.name || "Atanmadı"}</p><p className="truncate text-[10px] text-muted-foreground">{assignee?.department || "Servis ekibi"}</p></div></div></TableCell>
+                    <TableCell data-sort-value={assignee?.name || undefined}><div className="flex min-w-[130px] items-center gap-2"><Avatar className="size-7 border border-border/60"><AvatarFallback className="bg-primary/10 text-[10px] text-primary">{initials(assignee?.name || "?")}</AvatarFallback></Avatar><div className="min-w-0"><p className="truncate text-xs font-medium">{assignee?.name || "Atanmadı"}</p><p className="truncate text-[10px] text-muted-foreground">{assignee?.department || "Servis ekibi"}</p></div></div></TableCell>
                     <TableCell><div className="flex min-w-[150px] items-start gap-2"><Workflow className="mt-0.5 size-3.5 shrink-0 text-primary" /><div><p className="text-xs font-medium">{SERVICE_NEXT_ACTION[s.stage]}</p><p className="mt-0.5 text-[10px] text-muted-foreground">{STAGE_TO_COLUMN[s.stage]}</p></div></div></TableCell>
                     <TableCell><StatusBadge status={s.stage} /></TableCell>
                     <TableCell className="text-muted-foreground">{s.createdAt}</TableCell>
@@ -969,7 +958,8 @@ const STAGE_TO_COLUMN: Record<ServiceStage, ServiceColumnKey> = SERVICE_COLUMNS.
   return acc;
 }, {} as Record<ServiceStage, ServiceColumnKey>);
 
-type ServiceDetailTab = "summary" | "quote" | "machine" | "warranty" | "communication" | "notes" | "activities" | "operations" | "completion";
+const serviceDetailTabs = ["summary", "quote", "machine", "warranty", "communication", "notes", "activities", "operations", "completion"] as const;
+type ServiceDetailTab = (typeof serviceDetailTabs)[number];
 
 const SERVICE_ACTIVITY_ENABLED_STAGES = new Set<ServiceStage>(["Service In Progress", "Service Completed", "Signed Form", "Closed"]);
 const SERVICE_FEE_ENABLED_STAGES = new Set<ServiceStage>(["Service Completed", "Signed Form", "Closed"]);
@@ -981,11 +971,6 @@ const isServiceDetailTabEnabled = (stage: ServiceStage, tab: ServiceDetailTab) =
   if (tab === "completion") return SERVICE_COMPLETION_ENABLED_STAGES.has(stage);
   return true;
 };
-
-const isPartOperation = (operation: NonNullable<ServiceRequest["operations"]>[number]) =>
-  operation.kind === "part"
-  || operation.id.startsWith("srv-part-")
-  || operation.description.trim().toLocaleLowerCase("tr-TR").startsWith("parça kullanımı:");
 
 const serviceFormTypeFromRequest = (serviceRequest: ServiceRequest): ServiceFormType => {
   const source = [serviceRequest.issueType, serviceRequest.description, serviceRequest.diagnosisNote]
@@ -1006,24 +991,6 @@ const serviceResponsibilityFromRequest = (serviceRequest: ServiceRequest): Servi
   return source.includes("bakım anl") ? "bakim" : "ucretli";
 };
 
-const serviceCompletionPartsFromRequest = (serviceRequest: ServiceRequest): ServiceCompletionPart[] => {
-  const operationParts = (serviceRequest.operations ?? [])
-    .filter(isPartOperation)
-    .map((operation) => ({
-      id: operation.id,
-      description: operation.description.replace(/^Parça kullanımı:\s*/i, "").trim(),
-      quantity: Math.max(1, Number(operation.quantity) || 1),
-      unitPrice: Math.max(0, Number(operation.unitPrice) || 0),
-    }));
-  const warrantyParts = (serviceRequest.warrantyClaim?.parts ?? []).map((part, index) => ({
-    id: part.id ?? `warranty-part-${index}`,
-    description: part.description,
-    quantity: Math.max(1, Number(part.quantity) || 1),
-    unitPrice: Math.max(0, Number(part.unitCost) || 0),
-  }));
-  return [...operationParts, ...warrantyParts].slice(0, 6);
-};
-
 const buildDefaultCompletionForm = (params: {
   s: ServiceRequest;
   customer?: Customer | null;
@@ -1039,7 +1006,7 @@ const buildDefaultCompletionForm = (params: {
     day: "2-digit",
   }).format(new Date());
   const workOperations = (s.operations ?? []).filter((operation) => !isPartOperation(operation));
-  const serviceFee = ((s.timerElapsedSeconds ?? 0) / 3600) * (s.serviceHourlyRate ?? 0);
+  const serviceFee = serviceLaborTotal(s);
   return {
     formNo: s.ticketNo || s.id,
     teslimTarihi: machine?.deliveryDate ?? "",
@@ -1081,7 +1048,7 @@ const buildDefaultCompletionForm = (params: {
     degisenParcalar: serviceCompletionPartsFromRequest(s),
     servisUcreti: Number(serviceFee.toFixed(2)),
     ulasimUcreti: 0,
-    currency: s.serviceCurrency ?? "TRY",
+    currency: s.serviceCurrency ?? "USD",
     kurulumuYapan: assignee?.name ?? "",
     teslimAlan: contact?.name ?? customer?.contactPerson ?? "",
   };
@@ -1103,8 +1070,8 @@ const mergeCompletionForm = (
   };
 };
 
-export function ServiceKanbanPage({ focus }: { focus?: OperationFocus }) {
-  return <ServiceRequestsPage initialView="board" focus={focus} kanbanOnly />;
+export function ServiceKanbanPage(props: ServiceRecordNavigation & { focus?: OperationFocus }) {
+  return <ServiceRequestsPage {...props} initialView="board" kanbanOnly />;
 }
 
 const complaintCompanyName = (complaint: ServiceComplaintIntake) =>
@@ -1317,7 +1284,7 @@ function ComplaintInbox({
                 <TableCell>
                   <Badge variant="outline" className="bg-white">{COMPLAINT_SOURCE_LABELS[complaint.source]}</Badge>
                 </TableCell>
-                <TableCell><ComplaintStatusBadge status={complaint.status} /></TableCell>
+                <TableCell data-sort-value={COMPLAINT_STATUS_LABELS[complaint.status]}><ComplaintStatusBadge status={complaint.status} /></TableCell>
                 <TableCell>{SEVERITY_LABELS[complaint.severity] ?? complaint.severity}</TableCell>
                 <TableCell className="max-w-[240px] truncate">{complaint.subject}</TableCell>
                 <TableCell className="max-w-[180px] truncate">{[complaint.contactName, complaint.contactPhone].filter(Boolean).join(" · ") || "—"}</TableCell>
@@ -2819,7 +2786,7 @@ function ServiceDetailDialog({
   const serviceFee = (elapsed / 3600) * hourlyRate;
   const operations = serviceRequest.operations ?? [];
   const manualTotal = operations
-    .filter((op) => op.currency === serviceCurrency)
+    .filter((op) => !isPartOperation(op) && op.currency === serviceCurrency)
     .reduce((sum, op) => sum + op.quantity * op.unitPrice, 0);
   const activityTabEnabled = isServiceDetailTabEnabled(serviceRequest.stage, "activities");
   const feeTabEnabled = isServiceDetailTabEnabled(serviceRequest.stage, "operations");
@@ -3946,7 +3913,7 @@ function ServiceDetailDialog({
                 </div>
 
                 <div className="rounded-lg bg-muted/40 border border-border/60 px-3 py-2 text-sm flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
-                  <span>Servis ücreti + aynı para birimindeki manuel işlemler</span>
+                  <span>İşçilik toplamı · sayaç + aynı para birimindeki manuel işçilikler</span>
                   <b className="tabular-nums">{moneyText(serviceFee + manualTotal, serviceCurrency)}</b>
                 </div>
               </CardContent>
@@ -4006,6 +3973,7 @@ function ServiceDetailDialog({
                   serviceRequest.id,
                   withActivity(isClosing ? "Servis tamamlama formu imzalandı ve servis kapatıldı." : "Servis tamamlama formu güncellendi.", {
                     completionForm: form,
+                    ...(isClosing ? { timerStatus: "stopped" as const, timerElapsedSeconds: serviceElapsedSeconds(serviceRequest), timerStartedAt: undefined } : {}),
                   }),
                 );
                 if (isClosing && serviceRequest.stage !== "Closed") {
@@ -4013,7 +3981,7 @@ function ServiceDetailDialog({
                     await moveService(serviceRequest.id, "Closed");
                   } catch (err: any) {
                     toast.error("Servis kapatılamadı", { description: err?.message ?? "Aşama güncellenemedi." });
-                    return;
+                    throw err;
                   }
                 }
                 toast.success(isClosing ? "Servis kapatıldı" : "Tamamlama formu kaydedildi");
@@ -4074,7 +4042,7 @@ function ServiceCompletionEditor({
     }));
   };
   const addPart = () => {
-    if ((draft.degisenParcalar?.length ?? 0) >= 6) return;
+    if ((draft.degisenParcalar?.length ?? 0) >= SERVICE_COMPLETION_PART_LIMIT) return;
     setDraft((prev) => ({
       ...prev,
       degisenParcalar: [
@@ -4179,6 +4147,16 @@ function ServiceCompletionEditor({
         <span className="text-xs text-muted-foreground">PDF: Doktor Makina Servis Formu şablonu ile oluşturulur.</span>
       </div>
 
+      {!isClosed && (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border/60 p-3 text-sm">
+          <span>İşçilik ve parçaları güncel servis kayıtlarından forma aktarır. Formdaki işçilik ve parça düzenlemeleri yenilenir.</span>
+          <Button type="button" variant="outline" disabled={saving} onClick={() => setDraft((prev) => ({ ...prev, servisUcreti: serviceLaborTotal(serviceRequest), degisenParcalar: serviceCompletionPartsFromRequest(serviceRequest), currency: serviceRequest.serviceCurrency ?? "USD" }))}>Ücret ve parçaları güncelle</Button>
+        </div>
+      )}
+      {(serviceRequest.operations ?? []).some((op) => op.currency !== (draft.currency ?? "USD")) && (
+        <p role="status" className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">Servis işlemlerinde farklı para birimleri var. Otomatik işçilik toplamına yalnız servis para birimindeki işlemler eklenir. Form tutarlarını seçtiğiniz para birimine göre kontrol edin.</p>
+      )}
+
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         <div>
           <Label>Form No</Label>
@@ -4272,7 +4250,7 @@ function ServiceCompletionEditor({
         <CardHeader className="flex flex-row items-center justify-between gap-3 pb-3">
           <CardTitle className="text-base">Değişen Parçalar</CardTitle>
           {!isClosed && (
-            <Button type="button" size="sm" variant="outline" className="gap-1" onClick={addPart} disabled={(draft.degisenParcalar?.length ?? 0) >= 6}>
+            <Button type="button" size="sm" variant="outline" className="gap-1" onClick={addPart} disabled={(draft.degisenParcalar?.length ?? 0) >= SERVICE_COMPLETION_PART_LIMIT}>
               <Plus className="size-4" /> Parça ekle
             </Button>
           )}

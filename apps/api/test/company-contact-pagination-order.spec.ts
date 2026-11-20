@@ -56,6 +56,21 @@ describe('firma ve kontak server-side liste sözleşmesi', () => {
     expect(contactSummaryQuerySchema.safeParse({ divisionId: 'not-a-uuid' }).success).toBe(false);
   });
 
+  it('her firma ve kontak veri sütununu iki yönde sunucuda sıralamaya izin verir', () => {
+    for (const sortBy of ['name', 'createdAt', 'type', 'contact', 'city']) {
+      for (const sortDir of ['asc', 'desc']) {
+        expect(companyListRequestQuerySchema.parse({ sortBy, sortDir })).toMatchObject({ sortBy, sortDir });
+      }
+    }
+    for (const sortBy of ['name', 'createdAt', 'company', 'title', 'communication']) {
+      for (const sortDir of ['asc', 'desc']) {
+        expect(contactListRequestQuerySchema.parse({ sortBy, sortDir })).toMatchObject({ sortBy, sortDir });
+      }
+    }
+    expect(companyListRequestQuerySchema.safeParse({ sortBy: 'name;DROP TABLE companies' }).success).toBe(false);
+    expect(contactListRequestQuerySchema.safeParse({ sortBy: 'full_name desc' }).success).toBe(false);
+  });
+
   it('aynı sıralama değerindeki kayıtları id ile kararlı tutar', () => {
     const companiesSource = readFileSync(
       new URL('../src/modules/companies/companies.service.ts', import.meta.url),

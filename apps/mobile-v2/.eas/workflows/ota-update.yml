@@ -1,0 +1,74 @@
+name: Approved mobile OTA update
+
+on:
+  workflow_dispatch:
+    inputs:
+      channel:
+        type: choice
+        description: EAS Update channel
+        required: true
+        default: preview
+        options:
+          - preview
+          - production
+      message:
+        type: string
+        description: User-facing change summary
+        required: true
+
+concurrency:
+  group: mobile-ota-${{ inputs.channel }}
+  cancel_in_progress: false
+
+jobs:
+  quality:
+    name: Validate JS and native bundle compatibility
+    environment: preview
+    runs_on: linux-medium
+    steps:
+      - uses: eas/checkout
+      - uses: eas/install_node_modules
+      - name: Run mobile quality gates
+        run: npm run quality
+
+  update_preview:
+    name: Publish preview OTA update
+    needs: [quality]
+    if: ${{ inputs.channel == 'preview' }}
+    type: update
+    environment: preview
+    params:
+      channel: preview
+      platform: all
+      message: ${{ inputs.message }}
+
+  production_readiness:
+    name: Recheck production release evidence
+    needs: [quality]
+    if: ${{ inputs.channel == 'production' }}
+    environment: production
+    runs_on: linux-medium
+    env:
+      MOBILE_RELEASE_REF: ${{ github.ref_name }}
+    steps:
+      - uses: eas/checkout
+      - uses: eas/install_node_modules
+      - name: Run fail-fast production readiness check
+        run: npm run release:check
+
+  approve_production:
+    name: Publish production OTA to an initial 10 percent rollout?
+    needs: [production_readiness]
+    type: require-approval
+    environment: production
+
+  update_production:
+    name: Publish staged production OTA update
+    needs: [approve_production]
+    type: update
+    environment: production
+    params:
+      channel: production
+      platform: all
+      message: ${{ inputs.message }}
+      rollout_percentage: 10

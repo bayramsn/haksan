@@ -47,11 +47,11 @@ export function HelpCenterDialog({ trigger }: { trigger: ReactNode }) {
 
           <div className="rounded-lg border border-border/60 p-3 space-y-2">
             <p className="text-sm font-medium">Destek</p>
-            <a href="mailto:destek@haksan.local" className="flex items-center gap-2 text-sm text-primary hover:underline">
-              <Mail className="size-4" /> destek@haksan.local
+            <a href="mailto:info@haksanmakina.com.tr" className="flex items-center gap-2 text-sm text-primary hover:underline">
+              <Mail className="size-4" /> info@haksanmakina.com.tr
             </a>
-            <a href="tel:+902120000000" className="flex items-center gap-2 text-sm text-primary hover:underline">
-              <Phone className="size-4" /> +90 212 000 00 00
+            <a href="tel:+902125673331" className="flex items-center gap-2 text-sm text-primary hover:underline">
+              <Phone className="size-4" /> +90 212 567 33 31
             </a>
             <p className="flex items-center gap-2 text-xs text-muted-foreground pt-1">
               <Keyboard className="size-3.5" /> Hızlı arama için ⌘K / Ctrl+K

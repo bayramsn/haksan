@@ -41,6 +41,7 @@ import {
   type TargetUpsertInput,
 } from '@haksan/shared';
 import { buildPaginated, pageOffset } from '../../shared/utils/pagination';
+import { normalizeHiddenNavigationKeys } from '../auth/navigation-compat';
 
 const DEFAULT_ACCESS_SCOPE_RESOURCES = PERMISSION_RESOURCES.filter(
   (resource) => !['tenants', 'users', 'roles', 'departments', 'divisions', 'audit', 'files'].includes(resource)
@@ -1101,7 +1102,7 @@ export class AdminController {
       taxNumber: tenant.taxNumber,
       email: tenant.email,
       phone: tenant.phone,
-      hiddenNavigationKeys: tenant.hiddenNavigationKeys,
+      hiddenNavigationKeys: normalizeHiddenNavigationKeys(tenant.hiddenNavigationKeys),
       // Alıcı listesi kişisel e-posta adresleri taşıyor ve kimin hassas rapor
       // aldığını gösteriyor; şirket adı gibi kurum geneline açık değil.
       ...(user.permissions.has('tenants.update')
@@ -1149,7 +1150,7 @@ export class AdminController {
       taxNumber: updated!.taxNumber,
       email: updated!.email,
       phone: updated!.phone,
-      hiddenNavigationKeys: updated!.hiddenNavigationKeys,
+      hiddenNavigationKeys: normalizeHiddenNavigationKeys(updated!.hiddenNavigationKeys),
       userReportRecipients: updated!.userReportRecipients,
     };
   }

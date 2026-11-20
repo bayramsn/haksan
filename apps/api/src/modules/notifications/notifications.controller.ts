@@ -132,13 +132,18 @@ export class NotificationsController {
   }
 
   private targetFor(
-    row: { entityType: string | null; entityId: string | null },
+    row: { entityType: string | null; entityId: string | null; items?: Array<{ nav: string; query?: string }> | null },
     resolved: Map<string, NotificationTarget>,
   ): NotificationTarget | null {
     if (!row.entityType) return null;
     const direct = row.entityId ? resolved.get(`${row.entityType}:${row.entityId}`) : undefined;
     if (direct) return direct;
     switch (row.entityType) {
+      case 'chat': {
+        if (!row.entityId) return null;
+        const query = row.items?.find((item) => item.nav === 'chat' && item.query?.startsWith(`${row.entityId}:`))?.query;
+        return { kind: 'navigate', nav: 'chat', query: query ?? row.entityId };
+      }
       case 'service_complaint_intake':
         return row.entityId
           ? { kind: 'navigate', nav: 'service-requests', query: `complaint:${row.entityId}` }

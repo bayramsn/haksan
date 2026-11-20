@@ -1,0 +1,978 @@
+{
+  "schemaVersion": 1,
+  "source": "https://tr.aorelaser.com/",
+  "capturedAt": "2026-10-13T11:04:15.792868+00:00",
+  "scope": "hex2026_pdf_series",
+  "series": [
+    {
+      "series": "H",
+      "url": "https://tr.aorelaser.com/product/Yüksek-Hızlı-Sac-Lazer-Kesim-Makinesi-H-308.html",
+      "capturedAt": "2026-10-13T11:04:15.792868+00:00",
+      "sha256": "fa656c1c32321e1c44dbd062652eb862d448f13faeb78d6a301565a588dfda33",
+      "heading": "H Seri",
+      "title": "Yüksek Hızlı Sac Lazer Kesim Makinesi",
+      "highlights": [
+        "Tam Koruma",
+        "Yüksek Verimlilik",
+        "Gelişmiş Güvenlik"
+      ],
+      "features": [
+        "Yüksek Güçlü Fiber Lazer Kaynağı",
+        "Tam Korumalı Tasarım",
+        "Akıllı Kontrol Sistemi",
+        "4.0G Ultra Hızlı Sac Kesimi",
+        "Yüksek Sertlikli Yapı",
+        "Değişim Platformu ile Verimli Kesim",
+        "Akıllı ve Güvenli Çalışma",
+        "Kapsamlı Güvenlik ve Temiz Çalışma"
+      ],
+      "description": "Extreme speed performance flightThe maximum acceleration is 2.5G, the maximum linkage speed is 200m/min, and the high-speed response achieves the burst of performance strength and ensures the cutting accuracy under high dynamic performance",
+      "imageUrl": "https://tr.aorelaser.com/uploads/allimg/20260316/1-2603161A414945.webp",
+      "models": [
+        "H3015",
+        "H4020",
+        "H6020"
+      ],
+      "rawTables": [
+        [
+          [
+            "Model",
+            "H3015",
+            "H4020",
+            "H6020"
+          ],
+          [
+            "Güç",
+            "6-40kW",
+            "6-40kW",
+            "6-40kW"
+          ],
+          [
+            "İşlem Formatı",
+            "3060*1550mm",
+            "4060*2050mm",
+            "6150*2050mm"
+          ],
+          [
+            "Maksimum Hız",
+            "200m/min",
+            "200m/min",
+            "200m/min"
+          ],
+          [
+            "Maksimum İvme",
+            "4G",
+            "2.8G",
+            "2.8G"
+          ],
+          [
+            "Konumlandırma Doğruluğu",
+            "±0.03mm",
+            "±0.03mm",
+            "±0.03mm"
+          ]
+        ]
+      ],
+      "verification": "evidence_only"
+    },
+    {
+      "series": "PB",
+      "url": "https://tr.aorelaser.com/product/Tam-Kapalı-Açılı-Lazer-Kesim-Makinesi-PB-307.html",
+      "capturedAt": "2026-10-13T11:04:15.792868+00:00",
+      "sha256": "f0eac6fa30a1055ee3f6be33145540b0c668721b20e884d5b292a84cb2fa62bb",
+      "heading": "PB Seri",
+      "title": "Tam Kapalı Açılı Lazer Kesim Makinesi",
+      "highlights": [
+        "Çok Açılı Kesim",
+        "Tam Koruma",
+        "Gelişmiş Süreç Yenilikleri"
+      ],
+      "features": [
+        "Hidrolik Kaldırma Yatağı",
+        "Uzun Ömürlü Hassasiyet için Yüksek Sertlikte Çerçeve",
+        "Tamamen Kapalı Güvenlik Koruması",
+        "Kalın sac oluk açma işlemine odaklanın",
+        "Güçlü havalandırma ve toz giderme",
+        "Yeni yanma önleyici ve yalıtım teknolojisi, termal deformasyondan korkmaz",
+        "Kalın sac kesme işlemi"
+      ],
+      "description": "Groove cutting once formingFocus on laser bevel cutting processing, can achieve full format 45 bevel cutting, a variety of bevel molding, cutting stability, high efficiency",
+      "imageUrl": "https://tr.aorelaser.com/uploads/allimg/20260316/1-2603161AH3I3.webp",
+      "models": [
+        "PB3015",
+        "PB6020",
+        "PB8025"
+      ],
+      "rawTables": [
+        [
+          [
+            "Model",
+            "PB3015",
+            "PB6020",
+            "PB8025"
+          ],
+          [
+            "Güç",
+            "8-40kW",
+            "8-40kW",
+            "8-40kW"
+          ],
+          [
+            "İşlem Formatı",
+            "3850*2200mm",
+            "6850*2700mm",
+            "8850*3200mm"
+          ],
+          [
+            "Maksimum Hız",
+            "115m/min",
+            "115m/min",
+            "115m/min"
+          ],
+          [
+            "Maksimum İvme",
+            "1.2G",
+            "1.2G",
+            "1.2G"
+          ],
+          [
+            "Konumlandırma Doğruluğu",
+            "±0.3mm",
+            "±0.3mm",
+            "±0.3mm"
+          ]
+        ]
+      ],
+      "verification": "evidence_only"
+    },
+    {
+      "series": "PG",
+      "url": "https://tr.aorelaser.com/product/Tam-Korumalı-Sac-Lazer-Kesim-Makinesi-PG-306.html",
+      "capturedAt": "2026-10-13T11:04:15.792868+00:00",
+      "sha256": "374554884e597b0851fe537b54dfc93d6a0d8dccb9bcc2d7dd356bf79f5da4ae",
+      "heading": "PG Seri",
+      "title": "Tam Korumalı Sac Lazer Kesim Makinesi",
+      "highlights": [
+        "Yüksek Hız",
+        "Yüksek Koruma",
+        "Yüksek Hassasiyet"
+      ],
+      "features": [
+        "Tam Korumalı Tasarım",
+        "Akıllı Kontrol Sistemi",
+        "Akıllı Çift Platform",
+        "Ağır Sac Kesimi İçin Tasarlandı",
+        "Gelişmiş Isıya Dayanıklı Tasarım",
+        "Uyarlanabilir Çarpışma Önleme Algılama",
+        "Maksimum Dayanıklılık için Geliştirilmiş Çift Kirişli Yatak Yapısı"
+      ],
+      "description": "Intelligent and efficient bus systemThe bus system is intelligent, efficient, and intelligent. The bus control system has fast response, high accuracy, and fast data transmission, achieving highly intelligent and flexible cutting",
+      "imageUrl": "https://tr.aorelaser.com/uploads/allimg/20260316/1-2603161AI9629.webp",
+      "models": [
+        "PG3015",
+        "PG4020",
+        "PG6020",
+        "PG6525"
+      ],
+      "rawTables": [
+        [
+          [
+            "Model",
+            "PG3015",
+            "PG4020",
+            "PG6020",
+            "PG6525"
+          ],
+          [
+            "Güç",
+            "1.5-20KW",
+            "1.5-40kW",
+            "1.5-40kW",
+            "1.5-40kW"
+          ],
+          [
+            "İşlem Formatı",
+            "3050*1530mm",
+            "4050*2030mm",
+            "6050*2030mm",
+            "6550*2530mm"
+          ],
+          [
+            "Maksimum Hız",
+            "120m/min",
+            "120m/min",
+            "120m/min",
+            "120m/min"
+          ],
+          [
+            "Maksimum İvme",
+            "1.5G",
+            "1.5G",
+            "1.5G",
+            "1.5G"
+          ],
+          [
+            "Konumlandırma Doğruluğu",
+            "±0.03mm",
+            "±0.03mm",
+            "±0.03mm",
+            "±0.03mm"
+          ]
+        ]
+      ],
+      "verification": "evidence_only"
+    },
+    {
+      "series": "F",
+      "url": "https://tr.aorelaser.com/product/Yüksek-Verimli-Sac-Lazer-Kesim-Makinesi-F-310.html",
+      "capturedAt": "2026-10-13T11:04:15.792868+00:00",
+      "sha256": "562253a32ae040a4516d21b9fc6dc19140d240445acf4854485441cadd9c2711",
+      "heading": "F Seri",
+      "title": "Yüksek Verimli Sac Lazer Kesim Makinesi",
+      "highlights": [
+        "Yüksek Güç",
+        "Ultra Hızlı",
+        "Maliyet Optimizasyonu"
+      ],
+      "features": [
+        "Kompakt Tek Platformlu Kesim",
+        "Akıllı Kontrol Sistemi",
+        "Uzun Ömürlü Hassasiyet için Yüksek Sertlikli Çerçeve",
+        "Gelişmiş Termal Koruma Teknolojisi",
+        "Modüler Genişleme ve Esnek Konfigürasyon",
+        "Uyarlanabilir Çarpışma Önleme Sensörü"
+      ],
+      "description": "The fiber laser cutting machine is an ideal entry level laser cutter with output power from 1000w to 3000w. Over 3000 sets of fiber laser cutters have been sold to 150 countries. It is the best choice for you to cut metal middle sheets.",
+      "imageUrl": "https://tr.aorelaser.com/uploads/allimg/20260316/1-2603161A303519.webp",
+      "models": [
+        "F3015",
+        "F4020",
+        "F6020",
+        "F6525"
+      ],
+      "rawTables": [
+        [
+          [
+            "Model",
+            "F3015",
+            "F4020",
+            "F6020",
+            "F6525"
+          ],
+          [
+            "Güç",
+            "1.5-20kW",
+            "1.5-20kW",
+            "1.5-20kW",
+            "1.5-20kW"
+          ],
+          [
+            "Çalışma alanı",
+            "3050*1530mm",
+            "4050*2030mm",
+            "6150*2030mm",
+            "6550*2530mm"
+          ],
+          [
+            "Konumlandırma doğruluğu",
+            "115m/min",
+            "115m/min",
+            "115m/min",
+            "115m/min"
+          ],
+          [
+            "Maksimum koşu hızı",
+            "0.8G",
+            "0.8G",
+            "0.8G",
+            "0.8G"
+          ],
+          [
+            "Maksimum ivmelenme",
+            "±0.05mm",
+            "±0.05mm",
+            "±0.05mm",
+            "±0.05mm"
+          ]
+        ]
+      ],
+      "verification": "evidence_only"
+    },
+    {
+      "series": "PU",
+      "url": "https://tr.aorelaser.com/product/Tam-Korumalı-Yüksek-Hızlı-Sac-Lazer-Kesim-Makinesi-PU-466.html",
+      "capturedAt": "2026-10-13T11:04:15.792868+00:00",
+      "sha256": "7257ff568f6b5b67aa7b1f4eefd6f4ddeb0d10f3e22a36b5f1ee459e0fa49952",
+      "heading": "PU Seri",
+      "title": "Tam Korumalı Yüksek Hızlı Sac Lazer Kesim Makinesi",
+      "highlights": [
+        "Ultra Hızlı",
+        "Yüksek Verimlilik",
+        "%50-80 Verimlilik Artışı"
+      ],
+      "features": [
+        "%50-80'e Varan Daha Yüksek Verimlilik Sağlar",
+        "Hızlı ve Dengeli Kesim İçin Düşük Yerçekimli Tasarım",
+        "Hafif Tasarım, Geliştirilmiş Hız",
+        "Bölgesel Toz Giderme",
+        "Akıllı Emniyet Işık Perdesi (Opsiyonel)",
+        "Temiz Kapalı Downforce Toz Toplama (Opsiyonel)"
+      ],
+      "description": "%50-80'e Varan Daha Yüksek Verimlilik Sağlar | Kesme hızı %80'e kadar artırılarak işleme verimliliği ve üretim kapasitesi önemli ölçüde artırıldı.",
+      "imageUrl": "https://tr.aorelaser.com/uploads/allimg/20260316/1-2603161AQT27.webp",
+      "models": [
+        "PU3015",
+        "PU3216"
+      ],
+      "rawTables": [
+        [
+          [
+            "Model",
+            "PU3015",
+            "PU3216"
+          ],
+          [
+            "Güç",
+            "3-12kW",
+            "3-12kW"
+          ],
+          [
+            "İşlem Formatı",
+            "3100*1550mm",
+            "3200*1600mm"
+          ],
+          [
+            "Maksimum Hız",
+            "180m/min",
+            "180m/min"
+          ],
+          [
+            "Maksimum İvme",
+            "2G",
+            "2G"
+          ],
+          [
+            "Konumlandırma Doğruluğu",
+            "±0.03mm",
+            "±0.03mm"
+          ]
+        ]
+      ],
+      "verification": "evidence_only"
+    },
+    {
+      "series": "S",
+      "url": "https://tr.aorelaser.com/product/Yüksek-Hassasiyetli-Sac-Lazer-Kesim-Makinesi-S-305.html",
+      "capturedAt": "2026-10-13T11:04:15.792868+00:00",
+      "sha256": "64bc7e15c62df18c28f24ace173984abc9d95d2456f4586e7eca257f8610ef9e",
+      "heading": "S Seri",
+      "title": "Yüksek Hassasiyetli Sac Lazer Kesim Makinesi",
+      "highlights": [
+        "Akıllı Hassasiyet",
+        "Yüksek Hızlı Hareket",
+        "Mükemmellik İçin Tasarlandı"
+      ],
+      "features": [
+        "Yüksek Sertlikte Entegre Tasarım",
+        "Tamamen Kapalı Güvenlik Koruması",
+        "Yerden Tasarruf Sağlayan, Yüksek Entegrasyonlu Tasarım",
+        "Güvenlik ve Çevre Uyumluluğu için CE Sertifikalı",
+        "Uzun Ömürlü Hassasiyet için Yüksek Sertlikli Çerçeve",
+        "Daha Akıllı Operasyonlar için Çift Ekranlı Arayüz"
+      ],
+      "description": "New double dragon bone bed structureIn response to the needs of thick plate processing, our self-developed double keel design with stop mouth insertion ensures that thick plate cutting does not deform, ensuring long-term stable operation of the equipment",
+      "imageUrl": "https://tr.aorelaser.com/uploads/allimg/20260715/1-260G51F013100.webp",
+      "models": [
+        "S1530"
+      ],
+      "rawTables": [
+        [
+          [
+            "Model",
+            "S1530"
+          ],
+          [
+            "Güç",
+            "1.5-12kW"
+          ],
+          [
+            "İşlem Formatı",
+            "3060*1530mm"
+          ],
+          [
+            "Maksimum Hız",
+            "115m/min"
+          ],
+          [
+            "Maksimum İvme",
+            "0.8G"
+          ],
+          [
+            "Konumlandırma Doğruluğu",
+            "±0.03mm"
+          ]
+        ]
+      ],
+      "verification": "evidence_only"
+    },
+    {
+      "series": "GR",
+      "url": "https://tr.aorelaser.com/product/Lineer-Ray-Sac-Lazer-Kesim-Makinesi-GR-189.html",
+      "capturedAt": "2026-10-13T11:04:15.792868+00:00",
+      "sha256": "0253548ce0c86e1fa937cfc57441860b0b1ee8b12d4f898fe2658603559c3317",
+      "heading": "GR Seri",
+      "title": "Lineer Ray Sac Lazer Kesim Makinesi",
+      "highlights": [
+        "Hassas Hareket",
+        "İstikrarlı Performans",
+        "Uzun Ömürlü"
+      ],
+      "features": [
+        "Kalın Sac Kesme Teknolojisi",
+        "Geniş Formatlı Çalışma Alanı",
+        "Akıllı Kontrol Sistemi",
+        "Ekstra Büyük Format, Kalın Sac İşleme",
+        "Esnek Konfigürasyon için Modüler Genişleme"
+      ],
+      "description": "Professional sheet fiber laser cutting machine , multiple power options, high cutting precision, high-speed Laser cutting machine",
+      "imageUrl": "https://tr.aorelaser.com/uploads/allimg/20260316/1-2603161A33M46.webp",
+      "models": [
+        "GR2500",
+        "GR3200",
+        "GR4000"
+      ],
+      "rawTables": [
+        [
+          [
+            "Model",
+            "GR2500",
+            "GR3200",
+            "GR4000"
+          ],
+          [
+            "Güç",
+            "6-60kW",
+            "6-60kW",
+            "6-60kW"
+          ],
+          [
+            "İşlem Formatı",
+            "2550mm*12500mm",
+            "3250mm*12500mm",
+            "4050mm*12500mm"
+          ],
+          [
+            "Maksimum Hız",
+            "80m/min",
+            "80m/min",
+            "80m/min"
+          ],
+          [
+            "Maksimum İvme",
+            "0.8G",
+            "0.8G",
+            "0.8G"
+          ],
+          [
+            "Konumlandırma Doğruluğu",
+            "±0.1mm",
+            "±0.1mm",
+            "±0.1mm"
+          ]
+        ]
+      ],
+      "verification": "evidence_only"
+    },
+    {
+      "series": "CELL",
+      "url": "https://tr.aorelaser.com/product/3D-Beş-Eksenli-CELL-382.html",
+      "capturedAt": "2026-10-13T11:04:15.792868+00:00",
+      "sha256": "d64d7477b681f054eb8b5b720af21135011d3b24ef5d291d0e50576e7003da04",
+      "heading": "CELL Seri",
+      "title": "3D Beş Eksenli",
+      "highlights": [
+        "Stereo Kesme",
+        "Yüksek Verimlilik",
+        "Yüksek Kararlılık"
+      ],
+      "features": [
+        "Yüksek Sertlikte Makine Yatağı, Olağanüstü Dinamik Performans",
+        "5 Eksenli Eşzamanlı Kesim, Esnek ve Verimli",
+        "İki İstasyonlu Tasarım, İki Katı Verimlilik",
+        "Güvenlik ve Uyumluluk için Çoklu Koruma",
+        "Çok Kalınlıktaki Malzemelere Uyum Sağlayan Akıllı Otomatik Odaklama"
+      ],
+      "description": "Yüksek Sertlikte Makine Yatağı, Olağanüstü Dinamik Performans | Üstten gantry yapısı ve yüksek mukavemetli çelik plakalardan entegre kaynaklı ana gövde ile tasarlanan bu makine, genel sertliği ve dinamik stabiliteyi önemli ölçüde artırarak yüksek yük işleme için sağlam bir temel oluşturur.",
+      "imageUrl": "https://tr.aorelaser.com/uploads/allimg/20260316/1-2603161A242127.webp",
+      "models": [
+        "CELL3122"
+      ],
+      "rawTables": [
+        [
+          [
+            "Model",
+            "CELL3122"
+          ],
+          [
+            "Seyahat (Uzunluk * Genişlik * Yükseklik)",
+            "3100mmx2200mmx680mm"
+          ],
+          [
+            "Konumlandırma doğruluğu",
+            "±0.03mm"
+          ],
+          [
+            "A ekseni Seyahati",
+            "±135°"
+          ],
+          [
+            "C ekseni Seyahati",
+            "Nx360°"
+          ],
+          [
+            "Maksimum çalışma hızı",
+            "140m/min"
+          ],
+          [
+            "Maksimum ivmelenme",
+            "1G"
+          ]
+        ]
+      ],
+      "verification": "evidence_only"
+    },
+    {
+      "series": "TG",
+      "url": "https://tr.aorelaser.com/product/Yüksek-Verimli-Tüp-Lazer-Kesim-Makinesi-TG-315.html",
+      "capturedAt": "2026-10-13T11:04:15.792868+00:00",
+      "sha256": "b01a61f34d0165cb28734f915386518b5febdc9a4722bb5c8914c6cc8c1bee8f",
+      "heading": "TG Seri",
+      "title": "Yüksek Verimli Tüp Lazer Kesim Makinesi",
+      "highlights": [
+        "Verimlilik",
+        "Zeka",
+        "Çoklu Profiller"
+      ],
+      "features": [
+        "Yüksek Güçlü Lazer Kaynağı",
+        "Esnek Aynalar",
+        "Ultra Kısa Kuyruk Malzemesi",
+        "Çok Yönlü Kesme Uygulamaları",
+        "Yüksek Sertlikte Yatay Yatak Çerçevesi",
+        "Kapalı Güvenlik Koruması",
+        "İçbükey Silindir Desteği"
+      ],
+      "description": "Yüksek Güçlü Lazer Kaynağı | Olağanüstü performans ve güvenilirlikle yüksek hızlı, yüksek hassasiyetli boru kesimi sağlar",
+      "imageUrl": "https://tr.aorelaser.com/uploads/allimg/20260316/1-2603161A920149.webp",
+      "models": [
+        "TG6012",
+        "TG6020",
+        "TG6035"
+      ],
+      "rawTables": [
+        [
+          [
+            "Model",
+            "TG6012",
+            "TG6020",
+            "TG6035"
+          ],
+          [
+            "Güç",
+            "1.5-3kW",
+            "1.5-6kW",
+            "3-12kW"
+          ],
+          [
+            "İşleme Çapı",
+            "Φ10-Φ120mm □10*10-□120*120mm",
+            "Φ15-Φ230mm □15*15-□230*230mm",
+            "Φ20-Φ350mm □20*20-□350*350mm"
+          ],
+          [
+            "Parça Başına Maksimum Yük Kapasitesi",
+            "100kg",
+            "300kg",
+            "900kg"
+          ],
+          [
+            "İşleme Uzunluğu",
+            "6300mm",
+            "6300mm",
+            "6300mm"
+          ],
+          [
+            "Maksimum Hızlanma",
+            "1.5G",
+            "1.5G",
+            "0.8G"
+          ]
+        ]
+      ],
+      "verification": "evidence_only"
+    },
+    {
+      "series": "TH",
+      "url": "https://tr.aorelaser.com/product/Yüksek-Hızlı-Boru-Lazer-Kesim-Makinesi-TH-317.html",
+      "capturedAt": "2026-10-13T11:04:15.792868+00:00",
+      "sha256": "e671b5d2cbf70c9e1bd70af5a868767ce6da9159fe36c3a1c366e277e65b337e",
+      "heading": "TH Seri",
+      "title": "Yüksek Hızlı Boru Lazer Kesim Makinesi",
+      "highlights": [
+        "Aşırı Hız",
+        "Akıllı Üretim",
+        "Profesyonel Kesim"
+      ],
+      "features": [
+        "Akıllı Kontrol Sistemi",
+        "Yandan Monteli Yatak Çerçevesi",
+        "Yüksek Verimlilik için Elektrikli Çift Torna Aynaları",
+        "Ultra Kısa Hurda",
+        "İleri Ayna Hareketi",
+        "İşgücü Tasarrufu için Akıllı Yükleme"
+      ],
+      "description": "Akıllı Kontrol Sistemi | Optimize edilmiş işleme için otomatik tüp boyutu algılama, akıllı otomatik odaklama, uçarak kesme ve verimli yuvalama özelliklerini destekler.",
+      "imageUrl": "https://tr.aorelaser.com/uploads/allimg/20260316/1-2603161A93L09.webp",
+      "models": [
+        "TH6020",
+        "TH6035"
+      ],
+      "rawTables": [
+        [
+          [
+            "Model",
+            "TH6020",
+            "TH6035"
+          ],
+          [
+            "Güç",
+            "1.5-6kW",
+            "3-12kW"
+          ],
+          [
+            "İşleme Çapı",
+            "Φ15-Φ230mm □15*15-□230*230mm",
+            "Φ20-Φ350mm □20*20-□350*350mm"
+          ],
+          [
+            "Parça Başına Maksimum Yük Kapasitesi",
+            "300kg",
+            "900kg"
+          ],
+          [
+            "İşleme Uzunluğu",
+            "6300mm",
+            "6300mm"
+          ],
+          [
+            "Maksimum Hızlanma",
+            "1.5G",
+            "0.8G"
+          ]
+        ]
+      ],
+      "verification": "evidence_only"
+    },
+    {
+      "series": "TS",
+      "url": "https://tr.aorelaser.com/product/Üç-Aynalı-Boru-Lazer-Kesim-Makinesi-TS-318.html",
+      "capturedAt": "2026-10-13T11:04:15.792868+00:00",
+      "sha256": "e61da8f1402ddd38fdd0c0506579b4844f3a48943ac9f3c77fbadc6d0bd04314",
+      "heading": "TS Seri",
+      "title": "Üç Aynalı Boru Lazer Kesim Makinesi",
+      "highlights": [
+        "Üçlü Mandren Konumlandırma",
+        "Akıllı Boru Kesme",
+        "Hassas Kontrol"
+      ],
+      "features": [
+        "Akıllı Kontrol Sistemi",
+        "Uyarlanabilir Destek",
+        "Profesyonel Üç Mandren",
+        "Çeşitli Borularla Geniş Uyumluluk",
+        "Yenilikçi Üçlü Mandrenli Sıkma",
+        "Daha Güvenli ve Sorunsuz Ters Çevirmeli Boşaltma"
+      ],
+      "description": "Akıllı Kontrol Sistemi | Verimli işleme için birden fazla akıllı üretim fonksiyonuyla donatılmıştır",
+      "imageUrl": "https://tr.aorelaser.com/uploads/allimg/20260316/1-2603161F015Z5.webp",
+      "models": [
+        "TS6020",
+        "TS12035"
+      ],
+      "rawTables": [
+        [
+          [
+            "Model",
+            "TS6020",
+            "TS12035"
+          ],
+          [
+            "Güç",
+            "3-12kW",
+            "3-12kW"
+          ],
+          [
+            "İşleme Çapı",
+            "Φ15-Φ230mm □15*15-□230*230mm",
+            "Φ20-Φ350mm □20*20-□350*350mm"
+          ],
+          [
+            "Parça Başına Maksimum Yük Kapasitesi",
+            "300kg",
+            "900kg"
+          ],
+          [
+            "İşleme Uzunluğu",
+            "6300mm",
+            "12000mm"
+          ],
+          [
+            "Maksimum Hızlanma",
+            "1.5G",
+            "0.8G"
+          ]
+        ]
+      ],
+      "verification": "evidence_only"
+    },
+    {
+      "series": "FT",
+      "url": "https://tr.aorelaser.com/product/Yüksek-Verimli-Sac-ve-Boru-Lazer-Kesim-Makinesi-FT-321.html",
+      "capturedAt": "2026-10-13T11:04:15.792868+00:00",
+      "sha256": "7a8930c167843f2042ed39e6a5d098c3275edb05d81d15b748a53b185079a899",
+      "heading": "FT Seri",
+      "title": "Yüksek Verimli Sac ve Boru Lazer Kesim Makinesi",
+      "highlights": [
+        "Çift Yetenek",
+        "Yüksek Esneklik",
+        "Metal İşlemeyi Yeniden Tanımlamak"
+      ],
+      "features": [
+        "Yüksek Sertlikte Makine Yatağı",
+        "Yüksek Güçlü Lazer Kaynağı",
+        "Yüksek Verimlilik için Çift Fonksiyonlu Entegrasyon"
+      ],
+      "description": "Yüksek Sertlikte Makine Yatağı | Mükemmel titreşim direncine sahip ağır hizmet tipi şasi, yüksek hızda istikrarlı ve yüksek hassasiyetli kesim sağlar.",
+      "imageUrl": "https://tr.aorelaser.com/uploads/allimg/20260316/1-2603161A31M37.webp",
+      "models": [
+        "F3015T",
+        "F4020T",
+        "F6015T",
+        "F6020T"
+      ],
+      "rawTables": [
+        [
+          [
+            "Model",
+            "F3015T",
+            "F4020T",
+            "F6015T",
+            "F6020T"
+          ],
+          [
+            "Güç",
+            "1.5-20KW",
+            "1.5-20kW",
+            "1.5-20kW",
+            "1.5-20kW"
+          ],
+          [
+            "Çalışma alanı",
+            "3050*1530mm",
+            "4050*2030mm",
+            "6050*1530mm",
+            "6550*2030mm"
+          ],
+          [
+            "Konumlandırma doğruluğu",
+            "0.05mm",
+            "0.05mm",
+            "0.05mm",
+            "0.05mm"
+          ],
+          [
+            "Maksimum koşu hızı",
+            "115m/min",
+            "115m/min",
+            "115m/min",
+            "115m/min"
+          ],
+          [
+            "Maksimum ivmelenme",
+            "0.8G",
+            "0.8G",
+            "0.8G",
+            "0.8G"
+          ]
+        ]
+      ],
+      "verification": "evidence_only"
+    },
+    {
+      "series": "PGT",
+      "url": "https://tr.aorelaser.com/product/Tam-Korumalı-Sac-ve-Boru-Fiber-Lazer-Kesim-Makinesi-PGT-323.html",
+      "capturedAt": "2026-10-13T11:04:15.792868+00:00",
+      "sha256": "1f87832564c0c61de041a1cdfafb5d0127e0e86e6ebc808c02d801ea44007410",
+      "heading": "PGT Seri",
+      "title": "Tam Korumalı Sac ve Boru Fiber Lazer Kesim Makinesi",
+      "highlights": [
+        "Çift Yetenek",
+        "Akıllı Yükseltme",
+        "Hassasiyet ve Verimlilik Yeniden Tanımlandı"
+      ],
+      "features": [
+        "Yüksek Sertlikte Makine Yatağı",
+        "Tamamen Kapalı Güvenlik Kapağı",
+        "Yüksek Güçlü Lazer Kaynağı",
+        "Akıllı Kontrol Sistemi",
+        "Tamamen Kapalı Sac ve Boru Entegrasyonu",
+        "Hızlı Değişim Platformu",
+        "Büyük Çaplı Pnömatik Torna",
+        "Gelişmiş Termal Koruma Teknolojisi"
+      ],
+      "description": "Yüksek Sertlikte Makine Yatağı | Mükemmel titreşim direncine sahip ağır hizmet tipi şasi, yüksek hızda istikrarlı ve yüksek hassasiyetli kesim sağlar.",
+      "imageUrl": "https://tr.aorelaser.com/uploads/allimg/20260316/1-2603161AK64H.webp",
+      "models": [
+        "PG3015T",
+        "PG4020T",
+        "PG6015T"
+      ],
+      "rawTables": [
+        [
+          [
+            "Model",
+            "PG3015T",
+            "PG4020T",
+            "PG6015T"
+          ],
+          [
+            "Güç",
+            "1.5-20KW",
+            "1.5-40kW",
+            "1.5-40kW"
+          ],
+          [
+            "Çalışma alanı",
+            "3050*1530mm",
+            "4050*2030mm",
+            "6050*1530mm"
+          ],
+          [
+            "Konumlandırma doğruluğu",
+            "0.03mm",
+            "0.03mm",
+            "0.03mm"
+          ],
+          [
+            "Maksimum koşu hızı",
+            "115m/min",
+            "120m/min",
+            "120m/min"
+          ],
+          [
+            "Maksimum ivmelenme",
+            "1.2G",
+            "1.2G",
+            "1.2G"
+          ]
+        ]
+      ],
+      "verification": "evidence_only"
+    },
+    {
+      "series": "HW",
+      "url": "https://tr.aorelaser.com/product/El-Tipi-Lazer-Kaynak-Makinesi-HW-324.html",
+      "capturedAt": "2026-10-13T11:04:15.792868+00:00",
+      "sha256": "f48611ae6a9f7a5aaf10ae4068ff6d4e5a337e2b33e342df49258c9584a7ef86",
+      "heading": "HW Seri",
+      "title": "El Tipi Lazer Kaynak Makinesi",
+      "highlights": [
+        "Kompakt ve Esnek",
+        "Yüksek Verimlilik",
+        "Profesyonel Kaynak"
+      ],
+      "features": [
+        "Elde Taşınabilir Kaynak Torcu",
+        "Akıllı Kontrol Sistemi",
+        "Kolay Hareket İçin Tekerlekler",
+        "Esnek Çalışma, Ultra Hızlı Kaynak",
+        "Gelişmiş Su Soğutma Sistemi",
+        "Hepsi Bir Arada Fonksiyonel Sistem"
+      ],
+      "description": "Elde Taşınabilir Kaynak Torcu | Hafif ve esnek yapısıyla kolay kullanım, operatör beceri gereksinimlerini azaltır ve eğitim süresini kısaltır.",
+      "imageUrl": "https://tr.aorelaser.com/uploads/allimg/20260316/1-2603161A44O43.webp",
+      "models": [
+        "HW-1500W",
+        "HW-2000W",
+        "HW-3000W"
+      ],
+      "rawTables": [
+        [
+          [
+            "Model",
+            "HW-1500W",
+            "HW-2000W",
+            "HW-3000W"
+          ],
+          [
+            "Güç",
+            "1500W",
+            "2000W",
+            "3000W"
+          ],
+          [
+            "Ekipman boyutu",
+            "950*660*930mm",
+            "950*660*930mm",
+            "1100*660*970mm"
+          ],
+          [
+            "Kaynak dikişi gereksinimleri",
+            "≤0.5mm",
+            "≤0.5mm",
+            "≤0.5mm"
+          ],
+          [
+            "Kaynak hızı",
+            "0-120mm/s",
+            "0-120mm/s",
+            "0-120mm/s"
+          ],
+          [
+            "Soğutma yöntemi",
+            "dual temperature dual control intelligent refrigerator",
+            "dual temperature dual control intelligent refrigerator",
+            "dual temperature dual control intelligent refrigerator"
+          ],
+          [
+            "Çalışma sıcaklığı aralığı",
+            "5-40℃",
+            "5-40℃",
+            "5-40℃"
+          ]
+        ]
+      ],
+      "verification": "evidence_only"
+    }
+  ],
+  "missingOnSite": [
+    "EG",
+    "T",
+    "TZ"
+  ],
+  "outOfScopeOnSite": [
+    "A-W7",
+    "ATL",
+    "GR-H",
+    "H-ALS",
+    "LC",
+    "LCA",
+    "LCS",
+    "LGS",
+    "M",
+    "R",
+    "V",
+    "Z"
+  ],
+  "errors": []
+}

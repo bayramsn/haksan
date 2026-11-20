@@ -1,3 +1,8 @@
+import { loadAllPaginated } from "../../lib/loadAllPaginated";
+import { parsePriceInput, formatPrice } from "../../lib/priceListValues";
+import { productMatchesQuoteDivision } from "../../lib/quoteCatalogScope";
+import { changeSalesPriceFilter, emptySalesPriceFilters, filterSalesPrices, salesPriceFilterOptions } from "../../lib/salesPriceFilters";
+import { isMainMachineCategory } from "@haksan/shared";
 import { useState, useMemo, useEffect } from "react";
 import { Card } from "../ui/card";
 import { Button } from "../ui/button";
@@ -15,9 +20,8 @@ import { ProductDialog } from "../dialogs/CreateDialogs";
 import { productService } from "../../../lib/services";
 import { InsightStat } from "../shared/PremiumPrimitives";
 
-const CURRENCY_LABEL: Record<string, string> = { USD: "USD", EUR: "EUR", TRY: "TL" };
 const fmtMoney = (n?: number | null, cur = "USD") =>
-  n === undefined || n === null || Number.isNaN(n) || n === 0 ? "—" : `${n.toLocaleString("tr-TR")} ${CURRENCY_LABEL[cur] ?? cur}`;
+  formatPrice(n, cur);
 const dateInput = (value?: string | null) => value ? String(value).slice(0, 10) : "";
 type PriceOverride = {
   itemId?: string;
@@ -36,12 +40,9 @@ const matches = (p: Product, q: string) => {
     (v) => (v ?? "").toLowerCase().includes(s)
   );
 };
-// Ürünler sayfasıyla aynı A-Z kuralı: sıralama görünen etikete (marka + model)
-// göre yapılır, `shortDescription`a göre değil — bazı kayıtlarda marka adı başta
-// olup bazılarında olmadığı için liste karma çıkıyordu. `numeric` sayesinde
-// MV-850, MV-1050'den önce gelir.
+// Sıralama, tabloda görünen ürün adını Türkçe ve doğal sayı sırasıyla izler.
 const productSortKey = (product: Product) =>
-  `${product.brand ?? ""} ${product.modelName?.trim() || product.model}`.trim();
+  (product.shortDescription || `${product.brand ?? ""} ${product.modelName?.trim() || product.model}`).trim();
 const sortProductsByName = (items: Product[]) =>
   [...items].sort((a, b) =>
     productSortKey(a).localeCompare(productSortKey(b), "tr", { numeric: true, sensitivity: "base" }));
@@ -96,8 +97,8 @@ function EditablePriceCell({
   };
 
   const commit = async () => {
-    const next = Number(text.replace(/\./g, "").replace(",", "."));
-    if (text.trim() === "" || Number.isNaN(next)) {
+    const next = parsePriceInput(text);
+    if (next === null) {
       setEditing(false);
       return;
     }
@@ -264,20 +265,20 @@ function SearchBox({ q, setQ, placeholder }: { q: string; setQ: (v: string) => v
    ========================================================================= */
 export function SalesPriceListPage() {
   const { products } = useStore();
-  const { hasPermission, hasRole } = useAuth();
+  const { hasPermission, hasRole, activeDivision, user } = useAuth();
   const canEditProduct = hasRole("super_admin") || hasRole("admin") || hasPermission("products.update");
   const canManageCampaign = hasRole("super_admin") && (hasPermission("price_lists.update") || hasPermission("price_lists.create"));
   const [q, setQ] = useState("");
+  const [filters, setFilters] = useState(emptySalesPriceFilters);
   const [selected, setSelected] = useState<Product | null>(null);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
-  const [priceLists, setPriceLists] = useState<Array<{ id: string; name: string; code: string; isActive?: boolean; currency?: { code?: string } }>>([]);
+  const [priceLists, setPriceLists] = useState<Array<{ id: string; name: string; code: string; divisionId?: string | null; isActive?: boolean; currency?: { code?: string } }>>([]);
   const [selectedListId, setSelectedListId] = useState("");
   const [priceOverrides, setPriceOverrides] = useState<Record<string, PriceOverride>>({});
   const [campaignManagementOpen, setCampaignManagementOpen] = useState(false);
 
   useEffect(() => {
-    productService
-      .listPriceLists({ pageSize: 50 })
+    loadAllPaginated((page, pageSize) => productService.listPriceLists({ page, pageSize }))
       .then((res) => {
         const rows = res.data ?? [];
         setPriceLists(sortPriceListsByName(rows));
@@ -318,9 +319,27 @@ export function SalesPriceListPage() {
   const selectedList = priceLists.find((p) => p.id === selectedListId);
   const listCurrency = selectedList?.currency?.code;
 
-  const machines = useMemo(() => sortProductsByName(products.filter((p) => p.categoryCode === "TEZGAH")), [products]);
-  const filtered = machines.filter((p) => matches(p, q));
-  const pricedMachineCount = machines.filter((product) => (priceOverrides[product.id]?.listPrice ?? product.listPrice) > 0).length;
+  const priceDivisionId = selectedList?.divisionId ?? (activeDivision === "all" ? undefined : activeDivision);
+  const priceDivisionCode = user?.divisions.find(division => division.id === priceDivisionId)?.code.toUpperCase() ?? "";
+  const machines = useMemo(() => sortProductsByName(products.filter((p) => isMainMachineCategory(p.categoryCode ?? "")
+    && (!priceDivisionId || productMatchesQuoteDivision(p, priceDivisionCode, priceDivisionId)))), [products, priceDivisionId, priceDivisionCode]);
+  useEffect(() => {
+    setFilters(emptySalesPriceFilters());
+    setQ("");
+  }, [priceDivisionId]);
+  const groupProducts = filterSalesPrices(machines, { group: filters.group });
+  const categoryProducts = filterSalesPrices(groupProducts, { category: filters.category });
+  const subcategoryProducts = filterSalesPrices(categoryProducts, { subcategory: filters.subcategory });
+  const filterFields = [
+    { field: 'group', label: 'Grup', products: machines },
+    { field: 'category', label: 'Kategori', products: groupProducts },
+    { field: 'subcategory', label: 'Alt kategori', products: categoryProducts },
+    { field: 'type', label: 'Ürün tipi', products: subcategoryProducts },
+    { field: 'brand', label: 'Marka', products: machines },
+  ] as const;
+  const filtered = filterSalesPrices(machines, filters, q);
+  const hasFilters = Boolean(q.trim() || Object.values(filters).some(Boolean));
+  const pricedMachineCount = machines.filter((product) => (priceOverrides[product.id]?.listPrice ?? product.listPrice ?? 0) > 0).length;
   const campaignMachineCount = machines.filter((product) => priceOverrides[product.id]?.campaignIsActive && priceOverrides[product.id]?.campaignPrice != null).length;
   const campaignColumnVisible = campaignMachineCount > 0 || (canManageCampaign && campaignManagementOpen);
 
@@ -422,33 +441,55 @@ export function SalesPriceListPage() {
         </div>
       </div>
 
+      <div className="rounded-xl border border-border/60 bg-card p-3 shadow-sm">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-5">
+          {filterFields.map(({ field, label, products: choices }) => (
+            <div key={field} className="space-y-1.5">
+              <label htmlFor={`sales-price-${field}`} className="text-xs font-medium text-muted-foreground">{label}</label>
+              <Select value={filters[field] || '__all__'} onValueChange={value => setFilters(current => changeSalesPriceFilter(current, field, value === '__all__' ? '' : value))}>
+                <SelectTrigger id={`sales-price-${field}`} className="h-9 w-full bg-card"><SelectValue placeholder="Tümü" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__all__">Tümü</SelectItem>
+                  {salesPriceFilterOptions(choices, field).map(option => <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+          ))}
+        </div>
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground" aria-live="polite">
+          <span><b className="text-foreground">{filtered.length}</b> / {machines.length} tezgah gösteriliyor</span>
+          <Button type="button" variant="ghost" size="sm" className="h-8 gap-1.5" disabled={!hasFilters} onClick={() => { setFilters(emptySalesPriceFilters()); setQ(''); }}><X className="size-3.5" />Filtreleri temizle</Button>
+        </div>
+      </div>
+
       <Card className="border-border/60 shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
-          <Table>
+          <Table defaultSort={{ key: "name", direction: "asc" }}>
             <TableHeader>
               <TableRow className="bg-muted/30 hover:bg-muted/30">
-                <TableHead className="w-[380px]">Ürün Adı</TableHead>
+                <TableHead sortKey="name" sortType="text" className="w-[380px]">Ürün Adı</TableHead>
                 <TableHead>Marka</TableHead>
                 <TableHead>Tip</TableHead>
-                <TableHead className="text-right">Peşin Fiyat</TableHead>
-                <TableHead className="text-right">Liste Fiyatı</TableHead>
-                {campaignColumnVisible && <TableHead className="text-right">Kampanyalı Fiyat</TableHead>}
+                <TableHead sortType="number" className="text-right">Peşin Fiyat</TableHead>
+                <TableHead sortType="number" className="text-right">Liste Fiyatı</TableHead>
+                {campaignColumnVisible && <TableHead sortType="number" className="text-right">Kampanyalı Fiyat</TableHead>}
                 <TableHead className="w-10"></TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {filtered.map((p) => {
                 const override = priceOverrides[p.id];
-                const cash = override?.cashPrice ?? p.cashPrice;
-                const list = override?.listPrice ?? p.listPrice;
+                const currencyMatches = !listCurrency || listCurrency === p.currency;
+                const cash = override?.cashPrice ?? (currencyMatches ? p.cashPrice : undefined);
+                const list = override?.listPrice ?? (currencyMatches ? p.listPrice : undefined);
                 const cur = listCurrency ?? p.currency;
                 return (
-                <TableRow key={p.id} className="cursor-pointer group" onClick={() => setSelected(p)}>
+                <TableRow key={p.id} sortValues={[productSortKey(p), p.brand, p.type, cash, list, override?.campaignIsActive ? override.campaignPrice : null]} className="cursor-pointer group" onClick={() => setSelected(p)}>
                   <TableCell>
                     <div className="flex items-center gap-3 min-w-0">
                       <ProductThumb product={p} />
                       <div className="min-w-0">
-                        <div className="text-sm leading-tight truncate group-hover:text-primary transition-colors">{p.shortDescription || `${p.brand} ${p.model}`.trim()}</div>
+                        <div className="text-sm leading-tight truncate group-hover:text-primary transition-colors">{productSortKey(p)}</div>
                         <div className="text-[11px] text-muted-foreground mt-0.5 truncate">{[p.brand, p.series, p.model].filter(Boolean).join(" · ") || "—"}</div>
                       </div>
                     </div>
@@ -521,13 +562,12 @@ export function ServicePriceListPage() {
   const [q, setQ] = useState("");
   const [selected, setSelected] = useState<Product | null>(null);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
-  const [priceLists, setPriceLists] = useState<Array<{ id: string; name: string; code: string; isActive?: boolean; currency?: { code?: string } }>>([]);
+  const [priceLists, setPriceLists] = useState<Array<{ id: string; name: string; code: string; divisionId?: string | null; isActive?: boolean; currency?: { code?: string } }>>([]);
   const [selectedListId, setSelectedListId] = useState("");
   const [priceOverrides, setPriceOverrides] = useState<Record<string, PriceOverride>>({});
 
   useEffect(() => {
-    productService
-      .listPriceLists({ pageSize: 50 })
+    loadAllPaginated((page, pageSize) => productService.listPriceLists({ page, pageSize }))
       .then((res) => {
         const rows = res.data ?? [];
         setPriceLists(sortPriceListsByName(rows));
@@ -645,13 +685,13 @@ export function ServicePriceListPage() {
       <Card className="border-border/60 shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
           {!isLabor ? (
-            <Table>
+            <Table defaultSort={{ key: "name", direction: "asc" }}>
               <TableHeader>
                 <TableRow className="bg-muted/30 hover:bg-muted/30">
-                  <TableHead className="w-[410px]">{activeCategory.label} / Üretici</TableHead>
+                  <TableHead sortKey="name" sortType="text" className="w-[410px]">{activeCategory.label} / Üretici</TableHead>
                   <TableHead>Uyumluluk</TableHead>
-                  <TableHead className="text-right">Peşin</TableHead>
-                  <TableHead className="text-right">Liste Fiyatı</TableHead>
+                  <TableHead sortType="number" className="text-right">Peşin</TableHead>
+                  <TableHead sortType="number" className="text-right">Liste Fiyatı</TableHead>
                   <TableHead className="w-10"></TableHead>
                 </TableRow>
               </TableHeader>
@@ -662,13 +702,13 @@ export function ServicePriceListPage() {
                   const listPrice = override?.listPrice ?? p.listPrice;
                   const cur = listCurrency ?? p.currency;
                   return (
-                  <TableRow key={p.id} className="cursor-pointer group" onClick={() => setSelected(p)}>
+                  <TableRow key={p.id} sortValues={[productSortKey(p), p.compatibleMachineTypeCode || p.type || "Genel uyum", cash, listPrice]} className="cursor-pointer group" onClick={() => setSelected(p)}>
                     <TableCell>
                       <div className="flex items-center gap-3 min-w-0">
                         <ProductThumb product={p} fallback={<Package className="size-4" />} size="md" />
                         <div className="min-w-0">
                           <div className="font-data text-[9px] font-semibold uppercase tracking-[0.12em] text-operation-blue">{p.stockCode || "STOK KODU YOK"}</div>
-                          <div className="mt-1 truncate text-sm font-medium leading-tight transition-colors group-hover:text-primary">{p.shortDescription || p.model}</div>
+                          <div className="mt-1 truncate text-sm font-medium leading-tight transition-colors group-hover:text-primary">{productSortKey(p)}</div>
                           <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground"><span className="inline-flex items-center gap-1"><Factory className="size-3" /> {p.brand || "Üretici yok"}</span>{p.originCountry && <span>· {p.originCountry}</span>}</div>
                         </div>
                       </div>
@@ -696,12 +736,12 @@ export function ServicePriceListPage() {
               </TableBody>
             </Table>
           ) : (
-            <Table>
+            <Table defaultSort={{ key: "name", direction: "asc" }}>
               <TableHeader>
                 <TableRow className="bg-muted/30 hover:bg-muted/30">
-                  <TableHead className="w-[460px]">İşçilik Kalemi</TableHead>
-                  <TableHead className="text-right">Birim Ücret</TableHead>
-                  <TableHead className="text-right">KDV</TableHead>
+                  <TableHead sortKey="name" sortType="text" className="w-[460px]">İşçilik Kalemi</TableHead>
+                  <TableHead sortType="number" className="text-right">Birim Ücret</TableHead>
+                  <TableHead sortType="number" className="text-right">KDV</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -710,13 +750,13 @@ export function ServicePriceListPage() {
                   const listPrice = override?.listPrice ?? p.listPrice;
                   const cur = listCurrency ?? p.currency;
                   return (
-                  <TableRow key={p.id} className="cursor-pointer group" onClick={() => setSelected(p)}>
+                  <TableRow key={p.id} sortValues={[productSortKey(p), listPrice, p.vatRate]} className="cursor-pointer group" onClick={() => setSelected(p)}>
                     <TableCell>
                       <div className="flex items-center gap-3 min-w-0">
                         <div className="size-9 rounded-lg bg-gradient-to-br from-rose-100 to-rose-50 text-rose-600 grid place-items-center shrink-0">
                           <Wrench className="size-4" />
                         </div>
-                        <div className="text-sm leading-tight truncate group-hover:text-primary transition-colors">{p.shortDescription || p.model}</div>
+                        <div className="text-sm leading-tight truncate group-hover:text-primary transition-colors">{productSortKey(p)}</div>
                       </div>
                     </TableCell>
                     <EditablePriceCell

@@ -11,7 +11,8 @@ import {
   AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "../../ui/alert-dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../ui/select";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../../ui/table";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow, type TableSort } from "../../ui/table";
+import { compareTableValues, type TableSortValue } from "../../ui/tableSorting";
 import { Label } from "../../ui/label";
 import { Textarea } from "../../ui/textarea";
 import { StatusBadge } from "../../shared/StatusBadge";
@@ -67,6 +68,7 @@ export function PaymentsPage({ focus, initialQuery }: { focus?: OperationFocus; 
   const toUsd = (p: Payment) => convert(p.amount, p.currency, "USD");
   const customerName = (id: string) => customers.find((c) => c.id === id)?.name ?? "—";
   const [q, setQ] = useState("");
+  const [tableSort, setTableSort] = useState<TableSort | null>(null);
   const [statusFilter, setStatusFilter] = useState<"all" | "Paid" | "Pending" | "Overdue">("all");
   // Kasa yönü: tümü / alınan (giren) / ödenen (çıkan)
   const [dirFilter, setDirFilter] = useState<"all" | "in" | "out">("all");
@@ -142,7 +144,26 @@ export function PaymentsPage({ focus, initialQuery }: { focus?: OperationFocus; 
       .some((value) => (value ?? "").toLocaleLowerCase("tr-TR").includes(q.toLocaleLowerCase("tr-TR")))) return false;
     return true;
   });
-  const { page, setPage, totalPages, pageItems } = usePaged(filtered, 12);
+  const sortValue = (item: Payment, key: string): TableSortValue => {
+    switch (key) {
+      case "company": return customerName(item.customerId);
+      case "direction": return item.direction === "in" ? "Alınan" : "Ödenen";
+      case "invoice": return item.invoiceNo;
+      case "amount": return item.direction === "in" ? item.amount : -item.amount;
+      case "due": return item.dueDate;
+      case "paid": return item.paidDate;
+      case "status": return ({ Paid: "Ödendi", Pending: "Bekliyor", Overdue: "Gecikmiş" } as Record<string, string>)[item.status] ?? item.status;
+      case "note": return item.note;
+      default: return null;
+    }
+  };
+  // Sıralama sayfa seçilmeden önce bütün hareketlere uygulanır.
+  const sorted = tableSort ? [...filtered].sort((a, b) => compareTableValues(
+    sortValue(a, tableSort.key), sortValue(b, tableSort.key), tableSort.direction,
+    tableSort.key === "amount" ? "number" : tableSort.key === "due" || tableSort.key === "paid" ? "date" : "text",
+  )) : filtered;
+  const { page, setPage, totalPages, pageItems } = usePaged(sorted, 12);
+  useEffect(() => { setPage(1); }, [q, statusFilter, dirFilter, tableSort, setPage]);
 
   const deletePayment = async (payment: Payment) => {
     if (payment.source !== "payment") {
@@ -530,18 +551,18 @@ export function PaymentsPage({ focus, initialQuery }: { focus?: OperationFocus; 
           </div>
         </CardHeader>
         <div className="overflow-x-auto">
-          <Table>
+          <Table sort={tableSort} onSortChange={setTableSort} manualSorting>
             <TableHeader>
               <TableRow className="bg-muted/30 hover:bg-muted/30">
-                <TableHead className="w-[280px]">Firma</TableHead>
-                <TableHead>Yön</TableHead>
-                <TableHead>Fatura No</TableHead>
-                <TableHead className="text-right">Tutar</TableHead>
-                <TableHead>Vade</TableHead>
-                <TableHead>Ödeme Tarihi</TableHead>
-                <TableHead>Durum</TableHead>
-                <TableHead>Not</TableHead>
-                <TableHead className="w-20 text-right">İşlem</TableHead>
+                <TableHead sortKey="company" sortType="text" className="w-[280px]">Firma</TableHead>
+                <TableHead sortKey="direction" sortType="text">Yön</TableHead>
+                <TableHead sortKey="invoice" sortType="text">Fatura No</TableHead>
+                <TableHead sortKey="amount" sortType="number" className="text-right">Tutar</TableHead>
+                <TableHead sortKey="due" sortType="date">Vade</TableHead>
+                <TableHead sortKey="paid" sortType="date">Ödeme Tarihi</TableHead>
+                <TableHead sortKey="status" sortType="text">Durum</TableHead>
+                <TableHead sortKey="note" sortType="text">Not</TableHead>
+                <TableHead sortable={false} className="w-20 text-right">İşlem</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>

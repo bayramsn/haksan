@@ -1,3 +1,4 @@
+import { compareTableValues } from "../app/components/ui/tableSorting";
 import { ApiError, api } from "./apiClient";
 
 export type MetaPlatform = "facebook" | "instagram" | "messenger" | "whatsapp";
@@ -196,6 +197,8 @@ export interface MetaPageResult<T> {
   page: number;
   pageSize: number;
   hasNext: boolean;
+  /** Meta returned another cursor page; no automatic external pagination occurs. */
+  hasRemoteMore?: boolean;
 }
 
 type ListEnvelope<T> =
@@ -210,6 +213,8 @@ type ListEnvelope<T> =
     };
 
 export interface MetaListParams {
+  sortBy?: string;
+  sortDir?: "asc" | "desc";
   page?: number;
   pageSize?: number;
   search?: string;
@@ -302,7 +307,7 @@ function normalizeLeadStatus(raw: Record<string, unknown>): MetaLeadStatus {
   const followUp = String(raw.leadFollowUpStatus ?? "").toLowerCase();
   if (["win", "won", "converted"].includes(qualification)) return "converted";
   if (["lost", "rejected", "disqualified"].includes(qualification) || followUp === "disqualified") return "rejected";
-  if (["a", "a+", "qualified"].includes(qualification)) return "qualified";
+  if (["a", "a+", "a_plus", "qualified"].includes(qualification)) return "qualified";
   if (raw.firstContactAt || followUp === "contacted") return "contacted";
   if (raw.ownerUserId) return "assigned";
   return "new";
@@ -314,8 +319,8 @@ function normalizeLead(raw: Record<string, unknown>): MetaLead {
     id: String(raw.id ?? raw.externalKey ?? ""),
     opportunityId: asString(raw.id),
     externalLeadId: String(raw.externalKey ?? raw.id ?? ""),
-    platform: String(metadata.platform ?? metadata.source ?? "facebook") as MetaPlatform,
-    fullName: String(raw.leadContactName ?? raw.title ?? "İsimsiz lead"),
+    platform: (asString(metadata.platform) ?? asString(metadata.source) ?? "facebook") as MetaPlatform,
+    fullName: (asString(raw.leadContactName) ?? asString(raw.title) ?? "İsimsiz lead"),
     email: asString(raw.leadEmail),
     phone: asString(raw.leadPhone),
     city: asString(raw.leadCity),
@@ -369,6 +374,15 @@ function normalizeMapping(mapping: RawMetaFormMapping): MetaFormMapping {
     isActive: mapping.isActive ?? mapping.enabled ?? true,
     fieldMappings: mapping.fieldMappings ?? mapping.fieldMap ?? {},
   };
+}
+
+/** Sort only the existing Graph response; never fan out remote cursor pages. */
+export function sortMetaCampaigns(items: MetaCampaign[], key?: string, direction: 'asc' | 'desc' = 'asc'): MetaCampaign[] {
+  const keys = ['name', 'status', 'dailyBudgetMinor', 'spendMinor', 'impressions', 'clicks', 'leads', 'qualifiedLeads'] as const;
+  if (!key || !keys.includes(key as typeof keys[number])) return items;
+  const column = key as typeof keys[number];
+  const value = (item: MetaCampaign) => column === 'status' ? item.status === 'ACTIVE' ? 'Yayında' : item.status === 'PAUSED' ? 'Duraklatıldı' : 'Arşiv' : item[column];
+  return items.map((item, index) => ({ item, index })).sort((a, b) => compareTableValues(value(a.item), value(b.item), direction, column === 'name' || column === 'status' ? 'text' : 'number') || a.index - b.index).map(({ item }) => item);
 }
 
 export const metaQueryKeys = {
@@ -463,8 +477,10 @@ export const metaService = {
   },
   campaigns: async (params: MetaListParams) => {
     if (!params.connectionId) return normalizePage<MetaCampaign>([], params.page, params.pageSize);
-    const response = await api.get<{ data?: Array<Record<string, unknown>> }>(`${META_PATHS.campaigns}${queryString({ connectionId: params.connectionId })}`);
-    return slicePage((response.data ?? []).map((item) => normalizeCampaign(item, params.connectionId!)), params.page, params.pageSize);
+    const response = await api.get<{ data?: Array<Record<string, unknown>>; paging?: { next?: string } }>(`${META_PATHS.campaigns}${queryString({ connectionId: params.connectionId })}`);
+    const items = (response.data ?? []).map((item) => normalizeCampaign(item, params.connectionId!));
+    const sorted = sortMetaCampaigns(items, params.sortBy, params.sortDir);
+    return { ...slicePage(sorted, params.page, params.pageSize), hasRemoteMore: Boolean(response.paging?.next) };
   },
   createCampaign: (body: {
     connectionId: string;

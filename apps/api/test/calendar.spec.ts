@@ -36,7 +36,7 @@ describe('Personal calendar and device sync', () => {
 
   afterAll(async () => app?.close());
 
-  it('creates a customer visit and linked visit row', async () => {
+  it('creates a customer visit and its CRM activity for the owner', async () => {
     const startsAt = new Date(Date.now() + 86_400_000);
     const response = await request()
       .post('/api/v1/calendar/events')
@@ -52,8 +52,38 @@ describe('Personal calendar and device sync', () => {
       });
     expect(response.status).toBe(201);
     expect(response.body.ownerUserId).toBe(salesUserId);
-    expect(response.body.visitId).toBeTruthy();
+    expect(response.body.activityId).toBeTruthy();
     eventId = response.body.id;
+
+    const activity = await request().get(`/api/v1/activities/${response.body.activityId}`).set('Authorization', `Bearer ${salesToken}`);
+    expect(activity.status).toBe(200);
+    expect(activity.body.type?.code).toBe('customer_visit');
+    expect(activity.body.subject).toBe('Takvim API müşteri ziyareti');
+    expect(activity.body.createdBy).toBe(salesUserId);
+    expect(new Date(activity.body.activityDate).getTime()).toBe(startsAt.getTime());
+  });
+
+  it('reschedules, closes and reopens the activity with the event', async () => {
+    const movedTo = new Date(Date.now() + 2 * 86_400_000);
+    const moved = await request()
+      .patch(`/api/v1/calendar/events/${eventId}`)
+      .set('Authorization', `Bearer ${salesToken}`)
+      .send({ startsAt: movedTo.toISOString(), endsAt: new Date(movedTo.getTime() + 3_600_000).toISOString() });
+    expect(moved.status).toBe(200);
+    const activityId = moved.body.activityId as string;
+    const afterMove = await request().get(`/api/v1/activities/${activityId}`).set('Authorization', `Bearer ${salesToken}`);
+    expect(new Date(afterMove.body.activityDate).getTime()).toBe(movedTo.getTime());
+
+    const removed = await request().delete(`/api/v1/calendar/events/${eventId}`).set('Authorization', `Bearer ${salesToken}`);
+    expect(removed.status).toBe(200);
+    const afterRemove = await request().get(`/api/v1/activities/${activityId}`).set('Authorization', `Bearer ${salesToken}`);
+    expect(afterRemove.status).toBe(404);
+
+    const restored = await request().post(`/api/v1/calendar/events/${eventId}/restore`).set('Authorization', `Bearer ${salesToken}`);
+    expect(restored.status).toBe(201);
+    expect(restored.body.activityId).toBe(activityId);
+    const afterRestore = await request().get(`/api/v1/activities/${activityId}`).set('Authorization', `Bearer ${salesToken}`);
+    expect(afterRestore.status).toBe(200);
   });
 
   it('keeps other users private from normal admin', async () => {

@@ -59,7 +59,7 @@ export class HtmlPdfService implements OnModuleDestroy {
         this.browser = null;
         throw error;
       });
-      void this.browser.then((browser) => browser.on('disconnected', () => { this.browser = null; }));
+      void this.browser.then((browser) => browser.on('disconnected', () => { this.browser = null; })).catch(() => undefined);
     }
     return this.browser;
   }

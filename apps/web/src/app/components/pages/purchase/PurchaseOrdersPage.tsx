@@ -1,3 +1,4 @@
+import { loadAllPaginated } from "../../../lib/loadAllPaginated";
 import { useEffect, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "../../ui/card";
 import { Button } from "../../ui/button";
@@ -35,8 +36,7 @@ export function PurchaseOrdersPage() {
 
   const loadOrders = (cancelledRef?: { current: boolean }) => {
     setLoading(true);
-    purchaseOrderService
-      .list({ pageSize: 100 })
+    loadAllPaginated((page, pageSize) => purchaseOrderService.list({ page, pageSize }))
       .then((res) => {
         if (!cancelledRef?.current) setOrders(res.data);
       })

@@ -5,9 +5,9 @@ import { Tabs, TabsList, TabsTrigger } from "../ui/tabs";
 import { Input } from "../ui/input";
 import { Button } from "../ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../ui/table";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow, type TableSort } from "../ui/table";
 import {
-  Search, MoreHorizontal, Eye, Pencil, Phone, Mail, MapPin, Building2, User as UserIcon, ArrowUpDown, Trash2,
+  Search, MoreHorizontal, Eye, Pencil, Phone, Mail, MapPin, Building2, User as UserIcon, Trash2,
   Handshake, Factory, TrendingUp, Loader2, ChevronRight,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -270,11 +270,16 @@ export function CustomersPage({ onSelect }: { onSelect?: (c: Customer) => void }
               <SelectValue placeholder="Sıralama" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="default">Varsayılan sıralama</SelectItem>
+              <SelectItem value="default">Oluşturma: eski → yeni</SelectItem>
               <SelectItem value="name_asc">Firma adı A–Z</SelectItem>
               <SelectItem value="name_desc">Firma adı Z–A</SelectItem>
               <SelectItem value="created_desc">Oluşturma: yeni → eski</SelectItem>
-              <SelectItem value="created_asc">Oluşturma: eski → yeni</SelectItem>
+              <SelectItem value="type_asc">Firma tipi A–Z</SelectItem>
+              <SelectItem value="type_desc">Firma tipi Z–A</SelectItem>
+              <SelectItem value="contact_asc">İletişim A–Z</SelectItem>
+              <SelectItem value="contact_desc">İletişim Z–A</SelectItem>
+              <SelectItem value="city_asc">Konum A–Z</SelectItem>
+              <SelectItem value="city_desc">Konum Z–A</SelectItem>
             </SelectContent>
           </Select>
           {hasRole("super_admin") && (
@@ -476,38 +481,14 @@ export function CustomersPage({ onSelect }: { onSelect?: (c: Customer) => void }
       ) : (
       <Card className="border-border/60 shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
-          <Table>
+          <Table manualSorting sort={{ key: sortMode === "default" ? "createdAt" : sortMode.split("_")[0] === "created" ? "createdAt" : sortMode.split("_")[0], direction: sortMode === "default" ? "asc" : sortMode.endsWith("_desc") ? "desc" : "asc" }} onSortChange={(next: TableSort) => { setSortMode(next.key === "createdAt" && next.direction === "asc" ? "default" : `${next.key === "createdAt" ? "created" : next.key}_${next.direction}` as CompanySortMode); resetPage(); }}>
             <TableHeader>
               <TableRow className="bg-muted/40 hover:bg-muted/40">
-                <TableHead className="w-[220px] min-w-[220px] bg-muted md:sticky md:left-0 md:z-20 md:w-[300px]">
-                  <button
-                    type="button"
-                    className="inline-flex items-center gap-1 uppercase tracking-wider hover:text-foreground"
-                    onClick={() => {
-                      setSortMode((current) => current === "name_asc" ? "name_desc" : "name_asc");
-                      resetPage();
-                    }}
-                    aria-label="Firmaya göre sırala"
-                  >
-                    Firma <ArrowUpDown className="size-3" />
-                  </button>
-                </TableHead>
-                <TableHead>Firma Tipi</TableHead>
-                <TableHead>İletişim</TableHead>
-                <TableHead>Konum</TableHead>
-                <TableHead>
-                  <button
-                    type="button"
-                    className="inline-flex items-center gap-1 uppercase tracking-wider hover:text-foreground"
-                    onClick={() => {
-                      setSortMode((current) => current === "created_desc" ? "created_asc" : "created_desc");
-                      resetPage();
-                    }}
-                    aria-label="Oluşturulma tarihine göre sırala"
-                  >
-                    Oluşturma <ArrowUpDown className="size-3" />
-                  </button>
-                </TableHead>
+                <TableHead sortKey="name" className="w-[220px] min-w-[220px] bg-muted md:sticky md:left-0 md:z-20 md:w-[300px]">Firma</TableHead>
+                <TableHead sortKey="type">Firma Tipi</TableHead>
+                <TableHead sortKey="contact">İletişim</TableHead>
+                <TableHead sortKey="city">Konum</TableHead>
+                <TableHead sortKey="createdAt" sortType="date">Oluşturma</TableHead>
                 <TableHead className="text-right w-12"></TableHead>
               </TableRow>
             </TableHeader>

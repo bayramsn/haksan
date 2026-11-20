@@ -12,6 +12,8 @@ const initialDescription = "Müşteri iki CNC makinesi için teslim süresini ve
 const uploadedFileId = "00000000-0000-4000-8000-000000000105";
 const uploadedFilename = "musteri-teknik-cizim.pdf";
 const quoteNumber = "TEST-TEKLIF-001";
+const serviceTicketId = "00000000-0000-4000-8000-000000000106";
+const serviceTicketNo = "TEST-SERVIS-001";
 const paginated = (data: unknown[] = []) => ({ data, meta: { total: data.length, page: 1, pageSize: 200, totalPages: 1 } });
 
 type FixtureOptions = {
@@ -21,6 +23,7 @@ type FixtureOptions = {
   leadFollowUpStatus?: "new" | "disqualified";
   closed?: boolean;
   documents?: boolean;
+  hideOffers?: boolean;
 };
 
 async function mockOpportunityApi(page: Page, options: FixtureOptions = {}) {
@@ -65,7 +68,7 @@ async function mockOpportunityApi(page: Page, options: FixtureOptions = {}) {
   }];
   const permissions = [
     "opportunities.read", "companies.read", "contacts.read", "activities.read", "users.read",
-    "tasks.read", "quotes.read", "products.read", "files.read", "contracts.read", "proformas.read",
+    "tasks.read", "quotes.read", "service_tickets.read", "products.read", "files.read", "contracts.read", "proformas.read",
     "payments.read", "shipments.read", "installations.read", "commercial_invoices.read",
     ...(!options.readOnly ? ["opportunities.update", "activities.create", "activities.update", "tasks.create", "quotes.create"] : []),
   ];
@@ -90,7 +93,7 @@ async function mockOpportunityApi(page: Page, options: FixtureOptions = {}) {
       authenticated = true;
       return json({ accessToken: "synthetic-popup-token", user });
     }
-    if (path === "/auth/me") return json({ user, tenant: { id: "test-tenant", name: "Test CRM", slug: "test-crm" } });
+    if (path === "/auth/me") return json({ user, tenant: { id: "test-tenant", name: "Test CRM", slug: "test-crm", hiddenNavigationKeys: options.hideOffers ? ["offers"] : [] } });
     if (method !== "GET") {
       const body = request.postDataJSON() ?? {};
       mutations.push({ path, method, body });
@@ -131,6 +134,11 @@ async function mockOpportunityApi(page: Page, options: FixtureOptions = {}) {
     if (path === "/companies/summary") return json({ total: 1, byRelation: { prospect: 1 }, byStatus: { potential: 1 }, cities: [], sectors: [] });
     if (path === "/users") return json([{ ...user, roles: [{ code: "sales", name: "Satış" }], status: "active" }]);
     if (path === "/activities") return json(paginated(activities));
+    if (path === "/service-tickets") return json(paginated([{
+      id: serviceTicketId, companyId, ticketNo: serviceTicketNo,
+      subject: "Sentetik servis talebi", reportedAt: "2026-09-17T10:00:00.000Z",
+      status: { code: "open", name: "Açık" },
+    }]));
     if (path === "/quotes") return json(paginated(options.documents ? [{
       id: "quote-1", opportunityId, companyId, company, documentNo: quoteNumber, revisionNo: 1,
       quoteDate: "2026-09-17", grandTotal: "85000", currency: { code: "EUR" }, status: { code: "sent", name: "Gönderildi" },
@@ -171,6 +179,51 @@ async function openPopup(page: Page, options: Parameters<typeof mockOpportunityA
   await expect.poll(() => fixture.reads.includes(`/opportunities/${opportunityId}`)).toBe(true);
   return { ...fixture, dialog, opener };
 }
+
+test("firma, teklif ve servis adresleri oturumdan ve yenilemeden sonra açılır", async ({ page }) => {
+  await mockOpportunityApi(page, { documents: true });
+  await page.addInitScript(() => window.localStorage.setItem("haksan:onboarding:v1", "seen"));
+  const companyPath = `/firmalar/${companyId}`;
+  await page.goto(companyPath);
+  await page.getByTestId("login-identifier").fill("popup@example.test");
+  await page.locator("#login-password").fill("synthetic-password");
+  await page.getByRole("button", { name: "Giriş Yap" }).click();
+  await expect(page).toHaveURL(companyPath);
+  await expect(page.getByText("Müşteri detayı", { exact: true }).first()).toBeVisible();
+
+  await page.goto("/firmalar");
+  await page.getByRole("button", { name: `${companyName} müşteri detay sayfasını aç` }).first().click();
+  await expect(page).toHaveURL(companyPath);
+  await page.goBack();
+  await expect(page).toHaveURL("/firmalar");
+  await page.goForward();
+  await expect(page.getByText("Müşteri detayı", { exact: true }).first()).toBeVisible();
+
+  await page.goto("/teklifler");
+  await page.locator("tbody tr").filter({ hasText: quoteNumber }).click();
+  await expect(page).toHaveURL("/teklifler/quote-1");
+  await page.reload();
+  await expect(page.getByRole("dialog", { name: quoteNumber })).toBeVisible();
+  await page.getByRole("dialog", { name: quoteNumber }).getByRole("button", { name: "Kapat", exact: true }).click();
+  await expect(page).toHaveURL("/teklifler");
+
+  await page.goto("/servis-talepleri");
+  await page.locator("tbody tr").filter({ hasText: serviceTicketNo }).click();
+  await expect(page).toHaveURL(`/servis-talepleri/${serviceTicketId}`);
+  await page.reload();
+  await expect(page.getByRole("dialog").getByText(serviceTicketNo)).toBeVisible();
+});
+
+test("doğrudan adres şirkette kapalı bir alanı açmaz", async ({ page }) => {
+  await mockOpportunityApi(page, { documents: true, hideOffers: true });
+  await page.addInitScript(() => window.localStorage.setItem("haksan:onboarding:v1", "seen"));
+  await page.goto("/teklifler/quote-1");
+  await page.getByTestId("login-identifier").fill("popup@example.test");
+  await page.locator("#login-password").fill("synthetic-password");
+  await page.getByRole("button", { name: "Giriş Yap" }).click();
+  await expect(page).toHaveURL("/gosterge-paneli");
+  await expect(page.getByRole("dialog", { name: quoteNumber })).toHaveCount(0);
+});
 
 test("sentetik fırsat popup açılır; masaüstü ve mobil görünüm taşmaz", async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 1440, height: 1000 });

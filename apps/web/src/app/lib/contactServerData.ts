@@ -13,7 +13,7 @@ export type ContactQueryScope = {
 };
 
 export type ContactSort = {
-  sortBy: "createdAt" | "name";
+  sortBy: "createdAt" | "name" | "company" | "title" | "communication";
   sortDir: "asc" | "desc";
 };
 

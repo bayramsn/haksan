@@ -1,3 +1,4 @@
+import { partialWithoutDefaults } from '../partial';
 import { z } from 'zod';
 import { emailSchema, phoneSchema } from './common';
 
@@ -39,7 +40,7 @@ export const contactCreateSchema = z.object({
 });
 export type ContactCreateInput = z.infer<typeof contactCreateSchema>;
 
-export const contactUpdateSchema = contactCreateSchema.partial().extend({
+export const contactUpdateSchema = partialWithoutDefaults(contactCreateSchema).extend({
   externalContactNo: clearableText(32),
   title: clearableText(128),
   department: clearableText(128),

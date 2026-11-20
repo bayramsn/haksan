@@ -1,3 +1,4 @@
+import { partialWithoutDefaults } from '../partial';
 import { z } from 'zod';
 import { laserTechnicalConfigurationSchema } from '../laser';
 import { OPPORTUNITY_PAYMENT_METHODS } from '../constants';
@@ -29,7 +30,7 @@ export type QuoteCreateInput = Omit<QuoteCreateParsed, 'headerDiscountAmount' | 
   headerDiscountPercent?: number;
 };
 
-export const quoteUpdateSchema = quoteCreateSchema.partial();
+export const quoteUpdateSchema = partialWithoutDefaults(quoteCreateSchema);
 export type QuoteUpdateInput = Partial<QuoteCreateInput>;
 
 export const quoteWorkflowStatusEnum = z.enum([
@@ -69,21 +70,33 @@ export const quoteItemTechnicalSpecSchema = z.object({
   group: z.string().max(255).optional(),
 });
 
+export const quoteSelectedProductOptionSchema = z.object({
+  optionSetId: z.string().uuid(),
+  optionValueId: z.string().uuid(),
+  name: z.string().trim().max(128).default(''),
+  value: z.string().trim().max(255).default(''),
+  priceDelta: moneySchema.default(0),
+  currencyCode: z.string().max(8).default(''),
+});
+export type QuoteSelectedProductOption = z.infer<typeof quoteSelectedProductOptionSchema>;
+
 export const quoteItemCompatibilitySchema = z.object({
   // Aynı teklif içindeki ana ürün ile ona bağlı opsiyonları PDF çıktılarında
   // güvenilir biçimde eşleştirmek için kullanılan, kullanıcıya gösterilmeyen anahtar.
   lineGroupKey: z.string().min(1).max(64).optional(),
+  configurationOptionSetId: z.string().uuid().optional(),
   machineIds: z.array(z.string()).default([]),
   brands: z.array(z.string()).default([]),
   controlUnits: z.array(z.string()).default([]),
   supplierIds: z.array(z.string()).default([]),
   technicalSpecs: z.array(quoteItemTechnicalSpecSchema).default([]),
   technicalConfiguration: laserTechnicalConfigurationSchema.nullish(),
+  selectedProductOptions: z.array(quoteSelectedProductOptionSchema).max(100).optional(),
 });
 export type QuoteItemCompatibility = z.infer<typeof quoteItemCompatibilitySchema>;
 
 export const quoteItemCreateSchema = z.object({
-  productModelId: z.string().optional(),
+  productModelId: z.string().nullish(),
   inventoryItemId: z.string().optional(),
   stockCode: z.string().max(64).optional(),
   description: z.string().min(1).max(2000),
@@ -99,7 +112,7 @@ export const quoteItemCreateSchema = z.object({
 });
 export type QuoteItemCreateInput = z.infer<typeof quoteItemCreateSchema>;
 
-export const quoteItemUpdateSchema = quoteItemCreateSchema.partial();
+export const quoteItemUpdateSchema = partialWithoutDefaults(quoteItemCreateSchema);
 export type QuoteItemUpdateInput = z.infer<typeof quoteItemUpdateSchema>;
 
 export const quoteTermsUpsertSchema = z.object({
@@ -125,7 +138,7 @@ export type QuoteTermsUpsertInput = z.infer<typeof quoteTermsUpsertSchema>;
  * aynı teklife bağlı proformanın çıktısını geriye dönük değiştiriyordu. Teklif
  * yalnız ön-dolgu kaynağıdır; gönderilmezse belge onun şartlarıyla basılır.
  */
-export const documentTermsSchema = quoteTermsUpsertSchema.partial().optional();
+export const documentTermsSchema = partialWithoutDefaults(quoteTermsUpsertSchema).optional();
 export type DocumentTermsInput = z.infer<typeof documentTermsSchema>;
 
 /**
@@ -140,7 +153,7 @@ export type DocumentTermsInput = z.infer<typeof documentTermsSchema>;
  */
 export const standaloneQuoteCreateSchema = quoteCreateSchema.omit({ opportunityId: true }).extend({
   items: z.array(quoteItemCreateSchema).min(1).max(200),
-  terms: quoteTermsUpsertSchema.partial().optional(),
+  terms: partialWithoutDefaults(quoteTermsUpsertSchema).optional(),
 });
 type StandaloneQuoteCreateParsed = z.infer<typeof standaloneQuoteCreateSchema>;
 export type StandaloneQuoteCreateInput = Omit<
@@ -150,6 +163,14 @@ export type StandaloneQuoteCreateInput = Omit<
   headerDiscountAmount?: number;
   headerDiscountPercent?: number;
 };
+
+/** Mobile and web draft creation share the opportunity readiness rules. */
+export const quoteDraftCreateSchema = quoteCreateSchema.extend({
+  opportunityId: z.string().uuid(),
+  items: z.array(quoteItemCreateSchema).min(1).max(200),
+  terms: partialWithoutDefaults(quoteTermsUpsertSchema).optional(),
+});
+export type QuoteDraftCreateInput = z.infer<typeof quoteDraftCreateSchema>;
 
 export const proformaPriceItemSchema = z.object({
   quoteItemId: z.string().uuid(),
@@ -213,7 +234,7 @@ export const proformaCreateSchema = z.object({
 });
 export type ProformaCreateInput = z.infer<typeof proformaCreateSchema>;
 
-export const proformaUpdateSchema = proformaCreateSchema.partial();
+export const proformaUpdateSchema = partialWithoutDefaults(proformaCreateSchema);
 export type ProformaUpdateInput = z.infer<typeof proformaUpdateSchema>;
 
 /**
@@ -306,8 +327,7 @@ const requireStandaloneOwnerOnPatch = (
 export const standaloneProformaCreateSchema = standaloneProformaFields.superRefine(requireStandaloneOwner);
 export type StandaloneProformaCreateInput = z.infer<typeof standaloneProformaCreateSchema>;
 
-export const standaloneProformaUpdateSchema = standaloneProformaFields
-  .partial()
+export const standaloneProformaUpdateSchema = partialWithoutDefaults(standaloneProformaFields)
   .superRefine(requireStandaloneOwnerOnPatch);
 export type StandaloneProformaUpdateInput = z.infer<typeof standaloneProformaUpdateSchema>;
 
@@ -364,8 +384,7 @@ export const standaloneContractCreateSchema = standaloneContractFields.superRefi
 });
 export type StandaloneContractCreateInput = z.infer<typeof standaloneContractCreateSchema>;
 
-export const standaloneContractUpdateSchema = standaloneContractFields
-  .partial()
+export const standaloneContractUpdateSchema = partialWithoutDefaults(standaloneContractFields)
   .superRefine(requireStandaloneOwnerOnPatch);
 export type StandaloneContractUpdateInput = z.infer<typeof standaloneContractUpdateSchema>;
 
@@ -387,7 +406,7 @@ export const contractCreateSchema = z.object({
 });
 export type ContractCreateInput = z.infer<typeof contractCreateSchema>;
 
-export const contractUpdateSchema = contractCreateSchema.partial();
+export const contractUpdateSchema = partialWithoutDefaults(contractCreateSchema);
 export type ContractUpdateInput = z.infer<typeof contractUpdateSchema>;
 
 export const commercialInvoiceCreateSchema = z.object({
@@ -399,5 +418,12 @@ export const commercialInvoiceCreateSchema = z.object({
 });
 export type CommercialInvoiceCreateInput = z.infer<typeof commercialInvoiceCreateSchema>;
 
-export const commercialInvoiceUpdateSchema = commercialInvoiceCreateSchema.partial();
+export const commercialInvoiceUpdateSchema = partialWithoutDefaults(commercialInvoiceCreateSchema);
 export type CommercialInvoiceUpdateInput = z.infer<typeof commercialInvoiceUpdateSchema>;
+
+/** Atomic draft edit keeps line identity and rolls back all changes on failure. */
+export const quoteDraftUpdateSchema = quoteUpdateSchema.extend({
+  items: z.array(quoteItemCreateSchema.extend({ id: z.string().uuid().optional() })).min(1).max(200),
+  terms: partialWithoutDefaults(quoteTermsUpsertSchema).optional(),
+});
+export type QuoteDraftUpdateInput = z.infer<typeof quoteDraftUpdateSchema>;

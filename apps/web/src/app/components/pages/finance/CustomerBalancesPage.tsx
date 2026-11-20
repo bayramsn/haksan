@@ -198,6 +198,17 @@ export function CustomerBalancesPage() {
     load();
   }, []);
 
+  // Monetary columns compare one consistently documented currency, never
+  // the nominal sum of unrelated currencies. Missing currency stays last.
+  const sortCurrency = useMemo(() => {
+    const codes = [...new Set(rows.flatMap((row) => (row.currencies ?? []).map((item) => item.currencyCode)))].sort();
+    return codes.includes("USD") ? "USD" : codes[0] ?? "USD";
+  }, [rows]);
+  const monetarySortTitle = `${sortCurrency} tutarına göre sıralanır; diğer para birimleri toplanmaz.`;
+  const moneySortValue = (row: BalanceRow, field: "salesTotal" | "collections" | "borc" | "net") => {
+    const item = row.currencies?.find((value) => value.currencyCode === sortCurrency);
+    return item ? Number(item[field] ?? 0) : null;
+  };
   const filtered = rows.filter((r) => r.companyName.toLowerCase().includes(q.toLowerCase()));
   const statementBalances = useMemo<StatementBalance[]>(() => {
     if (statementLines.length > 0) {
@@ -310,12 +321,12 @@ export function CustomerBalancesPage() {
             <TableHeader>
               <TableRow className="bg-muted/40 hover:bg-muted/40 [&_th]:text-xs [&_th]:uppercase [&_th]:tracking-wider [&_th]:text-muted-foreground">
                 <TableHead className="sticky left-0 z-20 min-w-52 bg-muted">Firma / Para Birimi</TableHead>
-                <TableHead className="text-right">Satış</TableHead>
-                <TableHead className="text-right">Tahsilat</TableHead>
-                <TableHead className="text-right">Açık Borç</TableHead>
-                <TableHead className="text-right">Net Bakiye</TableHead>
-                <TableHead>Yaşlandırma</TableHead>
-                <TableHead>En Yakın Vade</TableHead>
+                <TableHead sortType="number" title={monetarySortTitle} className="text-right">Satış</TableHead>
+                <TableHead sortType="number" title={monetarySortTitle} className="text-right">Tahsilat</TableHead>
+                <TableHead sortType="number" title={monetarySortTitle} className="text-right">Açık Borç</TableHead>
+                <TableHead sortType="number" title={monetarySortTitle} className="text-right">Net Bakiye</TableHead>
+                <TableHead sortType="number" title="Gecikmiş gün sayısına göre sıralanır">Yaşlandırma</TableHead>
+                <TableHead sortType="date">En Yakın Vade</TableHead>
                 <TableHead className="w-24" />
               </TableRow>
             </TableHeader>
@@ -326,6 +337,7 @@ export function CustomerBalancesPage() {
               {!loading && filtered.map((r) => (
                 <TableRow
                   key={r.companyId}
+                  sortValues={[r.companyName, moneySortValue(r, "salesTotal"), moneySortValue(r, "collections"), moneySortValue(r, "borc"), moneySortValue(r, "net"), agingState(r).overdueDays, r.nearestDueDate, null]}
                   className={`cursor-pointer ${openDebtForRow(r) > 0 ? "bg-warning-soft/40 hover:bg-warning-soft/60" : "hover:bg-primary/[0.025]"}`}
                   onClick={() => openStatement(r)}
                 >
@@ -460,7 +472,7 @@ export function CustomerBalancesPage() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Tarih</TableHead>
+                <TableHead sortType="date">Tarih</TableHead>
                 <TableHead>Açıklama</TableHead>
                 <TableHead>Fatura No</TableHead>
                 <TableHead className="text-right">Borç</TableHead>
@@ -471,7 +483,7 @@ export function CustomerBalancesPage() {
             </TableHeader>
             <TableBody>
               {statementLines.map((l) => (
-                <TableRow key={l.id}>
+                <TableRow key={l.id} sortValues={[l.date, l.description, l.invoiceNo, l.debit, l.credit, l.currencyCode ?? statementCompany?.primaryCurrency, l.balance]}>
                   <TableCell>
                     <div className="flex items-center gap-2"><span className="size-2 rounded-full bg-operation-blue ring-4 ring-brand-blue-soft" /><span>{new Date(l.date).toLocaleDateString("tr-TR")}</span></div>
                   </TableCell>

@@ -4,7 +4,7 @@ import { Card } from "../ui/card";
 import { Input } from "../ui/input";
 import { Button } from "../ui/button";
 import { Avatar, AvatarFallback } from "../ui/avatar";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../ui/table";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow, type TableSort } from "../ui/table";
 import { Search, Phone, Mail, Building2, Star, Pencil, Trash2, Users, ShieldAlert, Loader2, X } from "lucide-react";
 import { Tabs, TabsList, TabsTrigger } from "../ui/tabs";
 import { toast } from "sonner";
@@ -58,7 +58,7 @@ export function ContactsPage() {
   const [view, setView] = usePersistentState<ListView>("contactsView", "table");
   const [page, setPage] = useState(1);
   const [sortValue, setSortValue] = useState("all");
-  const [sortBy, sortDir] = (sortValue === "all" ? "createdAt-desc" : sortValue).split("-") as [ContactSort["sortBy"], ContactSort["sortDir"]];
+  const [sortBy, sortDir] = (sortValue === "all" ? "createdAt-asc" : sortValue).split("-") as [ContactSort["sortBy"], ContactSort["sortDir"]];
   const debouncedQ = useDebouncedValue(q, 275);
   const scope = useMemo<ContactQueryScope>(() => ({
     tenantId: user?.tenantId ?? "anonymous",
@@ -247,11 +247,12 @@ export function ContactsPage() {
                 label: "Sıralama",
                 value: sortValue,
                 onChange: setSortValue,
-                allLabel: "En yeni kayıt",
+                allLabel: "Oluşturma: eski → yeni",
                 options: [
                   { value: "name-asc", label: "Ad (A-Z)" },
                   { value: "name-desc", label: "Ad (Z-A)" },
-                  { value: "createdAt-asc", label: "En eski kayıt" },
+                  { value: "createdAt-desc", label: "Oluşturma: yeni → eski" },
+                  ...(["company", "title", "communication"] as const).flatMap((field) => [{ value: `${field}-asc`, label: `${{company:"Firma",title:"Ünvan / Departman",communication:"İletişim"}[field]} (A–Z)` }, { value: `${field}-desc`, label: `${{company:"Firma",title:"Ünvan / Departman",communication:"İletişim"}[field]} (Z–A)` }]),
                 ],
               },
             ]}
@@ -352,14 +353,14 @@ export function ContactsPage() {
       ) : (
       <Card className="border-border/60 shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
-          <Table>
+          <Table manualSorting sort={{ key: sortBy, direction: sortDir }} onSortChange={(next: TableSort) => { setSortValue(next.key === "createdAt" && next.direction === "asc" ? "all" : `${next.key}-${next.direction}`); setPage(1); }}>
             <TableHeader>
               <TableRow className="bg-muted/40 hover:bg-muted/40">
-                <TableHead className="w-[280px]">Kişi</TableHead>
-                <TableHead>Firma</TableHead>
-                <TableHead>Ünvan / Departman</TableHead>
-                <TableHead>İletişim</TableHead>
-                <TableHead>Oluşturma</TableHead>
+                <TableHead sortKey="name" className="w-[280px]">Kişi</TableHead>
+                <TableHead sortKey="company">Firma</TableHead>
+                <TableHead sortKey="title">Ünvan / Departman</TableHead>
+                <TableHead sortKey="communication">İletişim</TableHead>
+                <TableHead sortKey="createdAt" sortType="date">Oluşturma</TableHead>
                 <TableHead className="w-20"></TableHead>
               </TableRow>
             </TableHeader>

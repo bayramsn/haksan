@@ -1,3 +1,4 @@
+import { loadAllPaginated } from "../../../lib/loadAllPaginated";
 import { useEffect, useState, type MouseEvent } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "../../ui/card";
 import { Button } from "../../ui/button";
@@ -171,13 +172,12 @@ export function AccountingInvoicesPage({ initialQuery }: { initialQuery?: string
 
   const load = () => {
     setLoading(true);
-    financeService
-      .accountingInvoices({
-        page: 1,
-        pageSize: 200,
+    loadAllPaginated<InvoiceRow>((page, pageSize) => financeService.accountingInvoices({
+        page,
+        pageSize,
         invoiceCategory: categoryFilter,
         ...(typeFilter !== "all" ? { type: typeFilter } : {}),
-      })
+      }))
       .then((res) => setRows(res?.data ?? []))
       .catch(() => setRows([]))
       .finally(() => setLoading(false));

@@ -1,3 +1,4 @@
+import { loadAllPaginated } from "../../../lib/loadAllPaginated";
 import { useEffect, useMemo, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "../../ui/card";
 import { Button } from "../../ui/button";
@@ -194,7 +195,7 @@ export function InstallationsPage() {
   const loadInstallations = async () => {
     setLoading(true);
     try {
-      const res = await serviceService.installations({ pageSize: 200 });
+      const res = await loadAllPaginated((page, pageSize) => serviceService.installations({ page, pageSize }));
       setRows(res.data);
     } catch (err: any) {
       toast.error("Kurulumlar yüklenemedi", { description: err?.message ?? "API isteği başarısız oldu." });

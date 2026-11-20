@@ -1,4 +1,4 @@
-import { pgTable, uuid, varchar, text, boolean, timestamp, index, uniqueIndex, primaryKey, doublePrecision, type AnyPgColumn } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, varchar, text, boolean, timestamp, index, uniqueIndex, primaryKey, doublePrecision, jsonb, type AnyPgColumn } from 'drizzle-orm/pg-core';
 import { auditColumns } from './_helpers';
 import { tenants } from './tenants';
 import { users } from './users';
@@ -50,6 +50,8 @@ export const conversationMembers = pgTable(
       .references(() => users.id, { onDelete: 'cascade' }),
     role: varchar('role', { length: 16 }).notNull().default('member'), // 'admin' | 'member'
     lastReadAt: timestamp('last_read_at', { withTimezone: true }),
+    isFavorite: boolean('is_favorite').notNull().default(false),
+    isMuted: boolean('is_muted').notNull().default(false),
     joinedAt: timestamp('joined_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => ({
@@ -71,6 +73,9 @@ export const chatMessages = pgTable(
     senderId: uuid('sender_id')
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
+    mentionUserIds: jsonb('mention_user_ids').$type<string[]>().notNull().default([]),
+    pinnedAt: timestamp('pinned_at', { withTimezone: true }),
+    forwardedFromId: uuid('forwarded_from_id'),
     body: text('body'), // yalnız-ek mesajda null olabilir
     // 'text' | 'system' | 'voice' — system mesajları otomatik bildirimler içindir.
     kind: varchar('kind', { length: 16 }).notNull().default('text'),

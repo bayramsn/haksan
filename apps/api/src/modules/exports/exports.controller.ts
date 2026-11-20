@@ -1,6 +1,9 @@
-import { Controller, Get, Param, Query, Res, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Query, Res, UseGuards } from '@nestjs/common';
+import { z } from 'zod';
 import type { FastifyReply } from 'fastify';
 import {
+  tradeFairListQuerySchema,
+  type TradeFairListQuery,
   companyListQuerySchema,
   exportOpportunityQuerySchema,
   exportQuoteQuerySchema,
@@ -25,12 +28,15 @@ import { CurrentUser } from '../../shared/security/current-user.decorator';
 import type { AuthContext } from '../../shared/security/auth.types';
 import { rowsToXlsxBuffer, sendXlsx, sheetsToXlsxBuffer } from '../../shared/utils/excel-export';
 import { rowsToPdfBuffer, sendPdf } from '../../shared/utils/pdf-export';
+import { TradeFairsService } from '../trade-fairs/trade-fairs.service';
 import { ExportsService } from './exports.service';
+
+export const selectedOpportunityExportSchema = z.object({ ids: z.array(z.string().uuid()).max(10_000) });
 
 @UseGuards(AuthGuard, PermissionsGuard)
 @Controller('exports')
 export class ExportsController {
-  constructor(private readonly svc: ExportsService) {}
+  constructor(private readonly svc: ExportsService, private readonly tradeFairs: TradeFairsService) {}
 
   @RequirePermissions('reports.export', 'companies.read')
   @Get('companies')
@@ -64,6 +70,30 @@ export class ExportsController {
   ) {
     const rows = await this.svc.exportOpportunities(user, q);
     return sendXlsx(reply, await rowsToXlsxBuffer(rows, 'Fırsatlar'), 'firsatlar.xlsx');
+  }
+
+  @RequirePermissions('reports.export', 'opportunities.read')
+  @Post('opportunities/selected')
+  async selectedOpportunities(
+    @Body(new ZodValidationPipe(selectedOpportunityExportSchema)) body: z.infer<typeof selectedOpportunityExportSchema>,
+    @CurrentUser() user: AuthContext,
+    @Res({ passthrough: true }) reply: FastifyReply
+  ) {
+    const rows = await this.svc.exportOpportunities(user, { ids: body.ids });
+    const columns = ['No', 'Müşteri', 'Kontak', 'İrtibat Bilgisi', 'Başlık', 'Tutar', 'Para Birimi', 'Derece', 'Operasyon Aşaması', 'Atanan', 'Açılış'];
+    return sendXlsx(reply, await sheetsToXlsxBuffer([{ name: 'Fırsatlar', rows, columns }]), 'firsatlar.xlsx');
+  }
+
+  @RequirePermissions('reports.export', 'trade_fairs.read')
+  @Get('trade-fairs')
+  async tradeFairContacts(
+    @Query(new ZodValidationPipe(tradeFairListQuerySchema)) q: TradeFairListQuery,
+    @CurrentUser() user: AuthContext,
+    @Res({ passthrough: true }) reply: FastifyReply
+  ) {
+    const rows = await this.tradeFairs.exportRows(user, q);
+    const columns = ['Fuar', 'Firma', 'Yetkili', 'Unvan', 'Telefon', 'E-posta', 'Ülke', 'Şehir', 'İlçe', 'Ürün Kategorisi', 'Ürün', 'Görüşen', 'Kişi Sayısı', 'İletişime Geçildi', 'Görüşme Tarihi', 'Görüşme Notu', 'Teklif Gönderildi', 'Müşteriye Dönüştü', 'Notlar', 'Kayıt Tarihi'];
+    return sendXlsx(reply, await sheetsToXlsxBuffer([{ name: 'Fuar', rows, columns }]), 'fuar.xlsx');
   }
 
   @RequirePermissions('reports.export', 'quotes.read')

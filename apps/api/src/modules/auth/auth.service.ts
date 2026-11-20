@@ -25,6 +25,7 @@ import { invalidateRbacCache, rolePermissionsCacheKey } from '../../shared/secur
 import { MailerService } from '../../shared/mailer/mailer.service';
 import { logger } from '../../shared/utils/logger';
 import type { NavigationVisibilityKey } from '@haksan/shared';
+import { normalizeHiddenNavigationKeys } from './navigation-compat';
 
 const REFRESH_REPLAY_GRACE_MS = 10_000;
 
@@ -584,7 +585,7 @@ export class AuthService {
         id: tenant.id,
         name: tenant.name,
         slug: tenant.slug,
-        hiddenNavigationKeys: tenant.hiddenNavigationKeys,
+        hiddenNavigationKeys: normalizeHiddenNavigationKeys(tenant.hiddenNavigationKeys),
       },
     };
   }

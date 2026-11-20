@@ -1,14 +1,19 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { and, eq } from 'drizzle-orm';
+import { existsSync, readFileSync } from 'node:fs';
+import path from 'node:path';
+import { and, eq, isNull } from 'drizzle-orm';
 import nodemailer, { type Transporter } from 'nodemailer';
-import type { UserMailAccountStatus, UserMailAccountUpsertInput } from '@haksan/shared';
+import { mailBodyHtml, mailPlainText, MAIL_TEXT_COLOR, type MailSignatureInput, type UserMailAccountStatus, type UserMailAccountUpsertInput, type UserMailSignatureInput } from '@haksan/shared';
 import { loadEnv } from '../../config/env';
 import type { DbClient } from '../../db/client';
-import { userMailAccounts } from '../../db/schema/mail';
+import { userTitles } from '../../db/schema/lookup';
+import { userMailAccounts, userMailSignatures } from '../../db/schema/mail';
+import { tenants } from '../../db/schema/tenants';
+import { users } from '../../db/schema/users';
 import { DB } from '../database/database.module';
 import { AuditService } from '../database/audit.service';
 import type { AuthContext } from '../security/auth.types';
-import { ValidationError } from '../utils/errors';
+import { ForbiddenError, NotFoundError, ValidationError } from '../utils/errors';
 import { logger } from '../utils/logger';
 import { decryptCredential, encryptCredential } from './credential-crypto';
 
@@ -16,6 +21,7 @@ export type MailAttachment = {
   filename: string;
   content: Buffer;
   contentType: string;
+  cid?: string;
 };
 
 export type PersonalMailDelivery = {
@@ -23,6 +29,45 @@ export type PersonalMailDelivery = {
   sentAt: Date;
   fromEmail: string;
   fromName: string;
+};
+
+const esc = (value: string) => value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+
+const SIGNATURE_LOGO_CID = 'haksan-signature-logo';
+const SIGNATURE_LOGO_CANDIDATES = [
+  path.resolve(process.cwd(), 'apps/web/public/print/haksan-mini.png'),
+  path.resolve(process.cwd(), '../web/public/print/haksan-mini.png'),
+  path.resolve(__dirname, '../../../../web/public/print/haksan-mini.png'),
+];
+let signatureLogo: Buffer | null | undefined;
+/** İmza logosu bulunamazsa null: imza yine gider, yalnız logosuz. */
+const signatureLogoContent = (): Buffer | null => {
+  if (signatureLogo === undefined) {
+    const file = SIGNATURE_LOGO_CANDIDATES.find((candidate) => existsSync(candidate));
+    signatureLogo = file ? readFileSync(file) : null;
+  }
+  return signatureLogo;
+};
+
+/**
+ * Mesajın düz metin ve HTML hâlleri. İmza düz metinde standart "-- " ayracıyla,
+ * HTML'de logolu blok olarak eklenir; kullanıcı metni her iki hâlde de kaçışlanır.
+ */
+export const signedMailBody = (body: string, signature: string, withLogo: boolean): { text: string; html: string } => {
+  const htmlLines = (value: string) => esc(value).replace(/\r?\n/g, '<br>');
+  const signatureLines = signature.split('\n');
+  const signatureHtml = signature
+    ? `<div style="margin-top:18px;padding-top:10px;border-top:1px solid #dddddd;font-family:Arial,Helvetica,sans-serif;font-size:13px;line-height:1.45;color:${MAIL_TEXT_COLOR}">`
+      + (withLogo ? `<img src="cid:${SIGNATURE_LOGO_CID}" width="143" height="56" alt="HAKSAN" style="display:block;margin-bottom:6px;border:0">` : '')
+      + `<strong>${esc(signatureLines[0])}</strong>`
+      + (signatureLines.length > 1 ? `<br>${htmlLines(signatureLines.slice(1).join('\n'))}` : '')
+      + `</div>`
+    : '';
+  return {
+    text: signature ? `${mailPlainText(body)}\n\n-- \n${signature}` : mailPlainText(body),
+    // pre-wrap: düz metindeki girinti ve art arda boşluklar HTML'de de korunur.
+    html: mailBodyHtml(body).replace('</body>', `${signatureHtml}</body>`),
+  };
 };
 
 @Injectable()
@@ -36,6 +81,7 @@ export class UserMailAccountService {
 
   async status(actor: Pick<AuthContext, 'tenantId' | 'userId'>): Promise<UserMailAccountStatus> {
     const account = await this.find(actor);
+    const image = await this.imageSignature(actor);
     return {
       featureEnabled: this.env.USER_MAIL_ENABLED,
       configured: Boolean(account),
@@ -45,7 +91,65 @@ export class UserMailAccountService {
       serverLabel: this.serverLabel(),
       lastVerifiedAt: account?.lastVerifiedAt?.toISOString() ?? null,
       lastUsedAt: account?.lastUsedAt?.toISOString() ?? null,
+      signature: account?.signature ?? null,
+      defaultSignature: await this.defaultSignature(actor, account?.email),
+      signatureImage: image.image,
+      signatureFilename: image.filename,
     };
+  }
+
+  /**
+   * Webmail ayarı yapılacak hesap sahibi: herkes kendisi için, yalnız süper admin
+   * kiracıdaki başka bir kullanıcı için. Şifreleme AAD'si sahibe bağlı olduğu için
+   * tüm okuma/yazmalar bu sahiple yapılır; denetim kaydının aktörü yine istek sahibidir.
+   */
+  async owner(actor: AuthContext, userId = actor.userId): Promise<Pick<AuthContext, 'tenantId' | 'userId'>> {
+    if (userId === actor.userId) return actor;
+    if (!actor.roles.includes('super_admin')) throw new ForbiddenError('Diğer kullanıcıların webmail ayarlarını yalnız süper admin yönetebilir');
+    const target = await this.db.query.users.findFirst({ where: and(eq(users.id, userId), eq(users.tenantId, actor.tenantId), isNull(users.deletedAt)) });
+    if (!target) throw new NotFoundError('Kullanıcı');
+    return { tenantId: actor.tenantId, userId };
+  }
+
+  async imageSignature(actor: Pick<AuthContext, 'tenantId' | 'userId'>): Promise<MailSignatureInput> {
+    const row = await this.db.query.userMailSignatures.findFirst({ where: and(eq(userMailSignatures.tenantId, actor.tenantId), eq(userMailSignatures.userId, actor.userId)) });
+    return { image: row?.image ?? null, filename: row?.filename ?? null };
+  }
+
+  async saveSignature(input: MailSignatureInput, actor: AuthContext, targetUserId = actor.userId): Promise<MailSignatureInput> {
+    await this.owner(actor, targetUserId);
+    if (input.image) {
+      const content = Buffer.from(input.image.split(',')[1], 'base64');
+      if (!content.length || content.length > 2 * 1024 * 1024) throw new ValidationError('İmza görseli 2 MB sınırını aşamaz');
+      const { fileTypeFromBuffer } = await import('file-type');
+      const detected = await fileTypeFromBuffer(content);
+      const extension = input.filename!.split('.').pop()!.toLowerCase().replace('jpg', 'jpeg');
+      if (!detected || !['image/png', 'image/jpeg', 'image/webp'].includes(detected.mime) || !input.image.startsWith(`data:${detected.mime};base64,`) || `image/${extension}` !== detected.mime) throw new ValidationError('İmza görselinin içeriği ve dosya türü eşleşmiyor');
+    }
+    await this.db.insert(userMailSignatures).values({ tenantId: actor.tenantId, userId: targetUserId, ...input })
+      .onConflictDoUpdate({ target: [userMailSignatures.tenantId, userMailSignatures.userId], set: { ...input, updatedAt: new Date() } });
+    await this.audit.write({ tenantId: actor.tenantId, actorUserId: actor.userId, action: 'user_mail_signature.updated', resourceType: 'user_mail_signature', resourceId: targetUserId, newValues: { hasImage: Boolean(input.image) } });
+    return input;
+  }
+
+  async updateSignature(input: UserMailSignatureInput, actor: AuthContext, targetUserId = actor.userId): Promise<UserMailAccountStatus> {
+    const owner = await this.owner(actor, targetUserId);
+    this.assertFeatureEnabled();
+    if (!(await this.find(owner))) throw new ValidationError('Önce Ayarlar > Webmail bölümünden posta hesabını bağlayın');
+    const signature = input.signature === null ? null : input.signature.replace(/\r\n?/g, '\n').trim();
+    await this.db
+      .update(userMailAccounts)
+      .set({ signature, updatedAt: new Date() })
+      .where(and(eq(userMailAccounts.tenantId, owner.tenantId), eq(userMailAccounts.userId, owner.userId)));
+    await this.audit.write({
+      tenantId: actor.tenantId,
+      actorUserId: actor.userId,
+      action: 'user_mail_account.signature_updated',
+      resourceType: 'user_mail_account',
+      resourceId: owner.userId,
+      newValues: { signature: signature === null ? 'default' : signature ? 'custom' : 'none' },
+    });
+    return this.status(owner);
   }
 
   async hasActiveAccount(actor: Pick<AuthContext, 'tenantId' | 'userId'>): Promise<boolean> {
@@ -54,19 +158,20 @@ export class UserMailAccountService {
     return account?.status === 'active';
   }
 
-  async configure(input: UserMailAccountUpsertInput, actor: AuthContext): Promise<UserMailAccountStatus> {
+  async configure(input: UserMailAccountUpsertInput, actor: AuthContext, targetUserId = actor.userId): Promise<UserMailAccountStatus> {
+    const owner = await this.owner(actor, targetUserId);
     this.assertFeatureEnabled();
     const email = input.email.trim().toLowerCase();
     this.assertAllowedDomain(email);
     await this.verifyCredentials(email, input.password);
 
     const now = new Date();
-    const encryptedPassword = encryptCredential(input.password, this.encryptionKey(), this.aad(actor));
+    const encryptedPassword = encryptCredential(input.password, this.encryptionKey(), this.aad(owner));
     await this.db
       .insert(userMailAccounts)
       .values({
-        tenantId: actor.tenantId,
-        userId: actor.userId,
+        tenantId: owner.tenantId,
+        userId: owner.userId,
         email,
         displayName: input.displayName.trim(),
         encryptedPassword,
@@ -93,22 +198,23 @@ export class UserMailAccountService {
       actorUserId: actor.userId,
       action: 'user_mail_account.connected',
       resourceType: 'user_mail_account',
-      resourceId: actor.userId,
+      resourceId: owner.userId,
       newValues: { email, displayName: input.displayName.trim(), status: 'active' },
     });
-    return this.status(actor);
+    return this.status(owner);
   }
 
-  async remove(actor: AuthContext): Promise<{ ok: true }> {
+  async remove(actor: AuthContext, targetUserId = actor.userId): Promise<{ ok: true }> {
+    const owner = await this.owner(actor, targetUserId);
     await this.db
       .delete(userMailAccounts)
-      .where(and(eq(userMailAccounts.tenantId, actor.tenantId), eq(userMailAccounts.userId, actor.userId)));
+      .where(and(eq(userMailAccounts.tenantId, owner.tenantId), eq(userMailAccounts.userId, owner.userId)));
     await this.audit.write({
       tenantId: actor.tenantId,
       actorUserId: actor.userId,
       action: 'user_mail_account.disconnected',
       resourceType: 'user_mail_account',
-      resourceId: actor.userId,
+      resourceId: owner.userId,
     });
     return { ok: true };
   }
@@ -131,6 +237,16 @@ export class UserMailAccountService {
       throw new ValidationError('Webmail hesabı yeniden bağlanmalı');
     }
 
+    const imageSignature = await this.imageSignature(actor);
+    const signature = imageSignature.image ? '' : account.signature ?? (await this.defaultSignature(actor, account.email));
+    const logo = signature ? signatureLogoContent() : null;
+    const message = imageSignature.image ? { text: mailPlainText(input.text), html: mailBodyHtml(input.text, 'mail-signature@haksan') } : signedMailBody(input.text, signature, Boolean(logo));
+    const attachments = [
+      ...(input.attachments ?? []),
+      ...(logo ? [{ filename: 'haksan-logo.png', content: logo, contentType: 'image/png', cid: SIGNATURE_LOGO_CID, contentDisposition: 'inline' as const }] : []),
+      ...(imageSignature.image ? [{ filename: imageSignature.filename ?? 'signature.png', content: Buffer.from(imageSignature.image.split(',')[1], 'base64'), contentType: imageSignature.image.slice(5, imageSignature.image.indexOf(';')), cid: 'mail-signature@haksan', contentDisposition: 'inline' as const }] : []),
+    ];
+
     const transporter = this.createTransport(account.email, password);
     let messageId: string | null = null;
     try {
@@ -140,8 +256,9 @@ export class UserMailAccountService {
         to: input.to,
         cc: input.cc?.length ? input.cc : undefined,
         subject: input.subject,
-        text: input.text,
-        attachments: input.attachments,
+        text: message.text,
+        html: message.html,
+        attachments: attachments.length ? attachments : undefined,
         disableFileAccess: true,
         disableUrlAccess: true,
       });
@@ -202,6 +319,36 @@ export class UserMailAccountService {
       disableFileAccess: true,
       disableUrlAccess: true,
     });
+  }
+
+  /** Profilden imza: ad, ünvan, firma, telefonlar ve gönderen adres. */
+  private async defaultSignature(actor: Pick<AuthContext, 'tenantId' | 'userId'>, accountEmail?: string | null): Promise<string> {
+    const [row] = await this.db
+      .select({
+        fullName: users.fullName,
+        phone: users.phone,
+        email: users.email,
+        title: userTitles.name,
+        company: tenants.name,
+        companyPhone: tenants.phone,
+      })
+      .from(users)
+      .innerJoin(tenants, eq(tenants.id, users.tenantId))
+      .leftJoin(userTitles, eq(userTitles.id, users.titleId))
+      .where(and(eq(users.id, actor.userId), eq(users.tenantId, actor.tenantId)))
+      .limit(1);
+    if (!row) return '';
+    return [
+      row.fullName,
+      row.title,
+      row.company,
+      row.phone ? `Mobil: ${row.phone}` : null,
+      row.companyPhone ? `Tel: ${row.companyPhone}` : null,
+      accountEmail ?? row.email,
+    ]
+      .map((line) => line?.trim())
+      .filter(Boolean)
+      .join('\n');
   }
 
   private async find(actor: Pick<AuthContext, 'tenantId' | 'userId'>) {

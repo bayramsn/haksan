@@ -7,6 +7,7 @@ import {
   productUpdateSchema,
   productSpecCreateSchema,
   productEquipmentCreateSchema,
+  productStandardEquipmentUpdateSchema,
   productDetailsReplaceSchema,
   brandCreateSchema,
   priceListCreateSchema,
@@ -18,11 +19,14 @@ import {
   productImportTemplateQuerySchema,
   productOptionSetCreateSchema,
   productOptionValueCreateSchema,
+  productOptionSetUpdateSchema,
+  productOptionValueUpdateSchema,
   paginationSchema,
   type ProductCreateInput,
   type ProductUpdateInput,
   type ProductSpecCreateInput,
   type ProductEquipmentCreateInput,
+  type ProductStandardEquipmentUpdateInput,
   type ProductDetailsReplaceInput,
   type BrandCreateInput,
   type PriceListCreateInput,
@@ -34,6 +38,8 @@ import {
   type ProductImportTemplateQuery,
   type ProductOptionSetCreateInput,
   type ProductOptionValueCreateInput,
+  type ProductOptionSetUpdateInput,
+  type ProductOptionValueUpdateInput,
   type Pagination,
 } from '@haksan/shared';
 import { ZodValidationPipe } from '../../shared/utils/zod-pipe';
@@ -91,8 +97,8 @@ export class ProductsController {
 
   @RequirePermissions('products.read')
   @Get('product-spec-templates')
-  listSpecTemplates(@CurrentUser() user: AuthContext, @Query('productTypeCode') productTypeCode?: string) {
-    return this.svc.listSpecTemplates(productTypeCode, user);
+  listSpecTemplates(@CurrentUser() user: AuthContext, @Query('productTypeCode') productTypeCode?: string, @Query('divisionId', new ZodValidationPipe(z.string().uuid().optional())) divisionId?: string) {
+    return this.svc.listSpecTemplates(productTypeCode, user, divisionId);
   }
 
   @RequirePermissions('products.read')
@@ -231,6 +237,16 @@ export class ProductsController {
     return this.svc.replaceDetails(id, body, user);
   }
 
+  @RequirePermissions('products.update')
+  @Put('products/:id/standard-equipment')
+  updateStandardEquipment(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(productStandardEquipmentUpdateSchema)) body: ProductStandardEquipmentUpdateInput,
+    @CurrentUser() user: AuthContext
+  ) {
+    return this.svc.updateStandardEquipment(id, body, user);
+  }
+
   @RequirePermissions('products.read')
   @Get('products/:id/options')
   listOptions(@Param('id') id: string, @CurrentUser() user: AuthContext) {
@@ -255,6 +271,30 @@ export class ProductsController {
     @CurrentUser() user: AuthContext
   ) {
     return this.svc.addOptionValue(setId, body, user);
+  }
+
+  @RequirePermissions('products.update')
+  @Patch('products/options/:setId')
+  updateOptionSet(@Param('setId') id: string, @Body(new ZodValidationPipe(productOptionSetUpdateSchema)) body: ProductOptionSetUpdateInput, @CurrentUser() user: AuthContext) {
+    return this.svc.updateOptionSet(id, body, user);
+  }
+
+  @RequirePermissions('products.update')
+  @Delete('products/options/:setId')
+  deleteOptionSet(@Param('setId') id: string, @CurrentUser() user: AuthContext) {
+    return this.svc.deleteOptionSet(id, user);
+  }
+
+  @RequirePermissions('products.update')
+  @Patch('products/options/values/:valueId')
+  updateOptionValue(@Param('valueId') id: string, @Body(new ZodValidationPipe(productOptionValueUpdateSchema)) body: ProductOptionValueUpdateInput, @CurrentUser() user: AuthContext) {
+    return this.svc.updateOptionValue(id, body, user);
+  }
+
+  @RequirePermissions('products.update')
+  @Delete('products/options/values/:valueId')
+  deleteOptionValue(@Param('valueId') id: string, @CurrentUser() user: AuthContext) {
+    return this.svc.deleteOptionValue(id, user);
   }
 
   @RequirePermissions('price_lists.read')

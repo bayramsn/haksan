@@ -1,8 +1,13 @@
+import { CommercialPdfService } from './commercial-pdf.service';
 import { Body, Controller, Delete, Get, Param, Patch, Post, Put, Query, Res, UseGuards } from '@nestjs/common';
 import type { FastifyReply } from 'fastify';
 import { z } from 'zod';
 import {
   quoteCreateSchema,
+  quoteDraftCreateSchema,
+  type QuoteDraftCreateInput,
+  quoteDraftUpdateSchema,
+  type QuoteDraftUpdateInput,
   quoteUpdateSchema,
   quoteItemCreateSchema,
   quoteItemUpdateSchema,
@@ -41,17 +46,18 @@ const priceApprovalSchema = z.object({ note: z.string().max(1000).optional() });
 @UseGuards(AuthGuard, PermissionsGuard)
 @Controller('quotes')
 export class QuotesController {
-  constructor(private readonly svc: QuotesService) {}
+  constructor(private readonly svc: QuotesService, private readonly commercialPdfs: CommercialPdfService) {}
 
   @RequirePermissions('quotes.read')
   @Get()
-  list(
+  async list(
     @Query(new ZodValidationPipe(listQuery.merge(paginationSchema)))
     qp: z.infer<typeof listQuery> & Pagination,
     @CurrentUser() user: AuthContext
   ) {
     const { page, pageSize, sortBy, sortDir, ...query } = qp;
-    return this.svc.list(user, query, { page, pageSize, sortBy, sortDir });
+    const result = await this.svc.list(user, query, { page, pageSize, sortBy, sortDir });
+    return { ...result, data: await this.commercialPdfs.decorate('quote', result.data, user) };
   }
 
   @RequirePermissions('quotes.read')
@@ -65,8 +71,9 @@ export class QuotesController {
 
   @RequirePermissions('quotes.read')
   @Get(':id')
-  get(@Param('id') id: string, @CurrentUser() user: AuthContext) {
-    return this.svc.get(id, user);
+  async get(@Param('id') id: string, @CurrentUser() user: AuthContext) {
+    const record = await this.svc.get(id, user);
+    return (await this.commercialPdfs.decorate('quote', [record], user))[0];
   }
 
   @RequirePermissions('quotes.create')
@@ -85,6 +92,13 @@ export class QuotesController {
     return this.svc.createStandaloneQuote(body, user);
   }
 
+  @RequirePermissions('quotes.create')
+  @Post('draft')
+  createDraft(@Body(new ZodValidationPipe(quoteDraftCreateSchema)) body: QuoteDraftCreateInput,
+    @CurrentUser() user: AuthContext) {
+    return this.svc.createDraft(body, user);
+  }
+
   @RequirePermissions('quotes.update')
   @Patch(':id')
   update(
@@ -93,6 +107,14 @@ export class QuotesController {
     @CurrentUser() user: AuthContext
   ) {
     return this.svc.update(id, body, user);
+  }
+
+  @RequirePermissions('quotes.update')
+  @Patch(':id/draft')
+  updateDraft(@Param('id') id: string,
+    @Body(new ZodValidationPipe(quoteDraftUpdateSchema)) body: QuoteDraftUpdateInput,
+    @CurrentUser() user: AuthContext) {
+    return this.svc.updateDraft(id, body, user);
   }
 
   @RequirePermissions('quotes.delete')
@@ -145,6 +167,12 @@ export class QuotesController {
   }
 
   @RequirePermissions('quotes.approve')
+  @Post(':id/revoke-approval')
+  revokeApproval(@Param('id') id: string, @CurrentUser() user: AuthContext) {
+    return this.svc.revokeApproval(id, user);
+  }
+
+  @RequirePermissions('quotes.approve')
   @Post(':id/price-approval/approve')
   approvePrice(
     @Param('id') id: string,
@@ -189,7 +217,7 @@ export class QuotesController {
   @RequirePermissions('quotes.read')
   @Post(':id/generate-pdf')
   async generatePdf(@Param('id') id: string, @CurrentUser() user: AuthContext, @Res() res: FastifyReply) {
-    const { buffer, filename } = await this.svc.generatePdf(id, user);
+    const { buffer, filename } = await this.commercialPdfs.read('quote', id, user);
     res
       .header('Content-Type', 'application/pdf')
       .header('Content-Disposition', `attachment; filename="${filename}"`)

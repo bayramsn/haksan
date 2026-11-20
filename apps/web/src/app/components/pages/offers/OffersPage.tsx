@@ -1,5 +1,6 @@
+import { WorkspaceRecordUnavailable } from "../../shared/WorkspaceRecordUnavailable";
+import { commercialPdfService } from "../../../../lib/commercialPdf";
 import { useEffect, useMemo, useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "../../ui/card";
 import { Button } from "../../ui/button";
 import { Input } from "../../ui/input";
@@ -47,13 +48,11 @@ import { fileService, salesOrderService, quoteService } from "../../../../lib/se
 import { ExportExcelButton } from "../../ui/ExportExcelButton";
 import { CreateAccountingInvoiceDialog, type AccountingInvoicePrefill } from "../finance/CreateAccountingInvoiceDialog";
 import type { OperationFocus } from "../../../lib/operations";
-import { buildMailDocumentHtml, loadQuotePrintData, printAssetBase, quoteDoc, quoteFilename } from "../../../lib/print";
-import type { QuoteHeaderLogoMode } from "../../../lib/print";
-import { downloadPrintOrWarn, previewPrintOrWarn, printOrWarn, splitVat, formatDate, formatCurrency } from "../../../lib/pageHelpers";
+import { printAssetBase, type QuoteHeaderLogoMode } from "../../../lib/print";
+import { splitVat, formatDate, formatCurrency } from "../../../lib/pageHelpers";
 import type { QuoteWorkflowStatus } from "@haksan/shared";
 import { ComposeMailDialog, type MailRecipient } from "../../mail/ComposeMailDialog";
 import { useCompanyDetail } from "../../../lib/companyServerData";
-import { contactQueryKeys, loadAllCompanyContacts, type ContactQueryScope } from "../../../lib/contactServerData";
 
 const FOLLOW_UP_OFFER_STATUSES: Offer["status"][] = ["Price Waiting", "Budget Waiting", "On Hold", "Postponed"];
 
@@ -110,15 +109,21 @@ function invoicePrefillFromOrder(order: any): AccountingInvoicePrefill {
 export function OffersPage({
   focus,
   initialQuery,
+  selectedOfferId,
+  onSelectOffer,
+  onCloseOffer,
   onOpenOpportunity,
   onOpenDocuments,
 }: {
   focus?: OperationFocus;
   initialQuery?: string;
+  selectedOfferId: string | null;
+  onSelectOffer: (id: string) => void;
+  onCloseOffer: () => void;
   onOpenOpportunity?: (salesCaseId: string) => void;
   onOpenDocuments?: (query?: string) => void;
 }) {
-  const { offers: rawOffers, cases, customers, users, documents, moveCase, refresh } = useStore();
+  const { offers: rawOffers, cases, customers, users, documents, moveCase, refresh, loading } = useStore();
   const { hasRole, hasPermission, user, activeDivision, setActiveDivision } = useAuth();
   const { convert } = useFx();
   const isSuperAdmin = hasRole("super_admin");
@@ -136,7 +141,6 @@ export function OffersPage({
   const divisionOptions = user?.divisions ?? [];
   const [divisionTab, setDivisionTab] = useState(activeDivision !== "all" ? activeDivision : "all");
   useEffect(() => setDivisionTab(activeDivision !== "all" ? activeDivision : "all"), [activeDivision]);
-  const [selectedOfferId, setSelectedOfferId] = useState<string | null>(null);
   const [pendingDeleteOffer, setPendingDeleteOffer] = useState<Offer | null>(null);
   const [statusOffer, setStatusOffer] = useState<Offer | null>(null);
   const [salesOrders, setSalesOrders] = useState<any[]>([]);
@@ -279,10 +283,11 @@ export function OffersPage({
     return [...counts.entries()].sort((a, b) => b[1] - a[1]);
   }, [cases]);
 
-  const runQuoteAction = async (offerId: string, action: "send" | "approve" | "reject" | "approve-price" | "reject-price") => {
+  const runQuoteAction = async (offerId: string, action: "send" | "approve" | "revoke-approval" | "reject" | "approve-price" | "reject-price") => {
     try {
       if (action === "send") await quoteService.send(offerId);
       else if (action === "approve") await quoteService.approve(offerId);
+      else if (action === "revoke-approval") await quoteService.revokeApproval(offerId);
       else if (action === "approve-price") await quoteService.approvePrice(offerId);
       else if (action === "reject-price") await quoteService.rejectPrice(offerId);
       else await quoteService.reject(offerId);
@@ -291,11 +296,14 @@ export function OffersPage({
           ? "Teklif gönderildi olarak işaretlendi"
           : action === "approve"
             ? "Teklif onaylandı"
+            : action === "revoke-approval"
+              ? "Teklif onayı geri alındı"
             : action === "approve-price"
               ? "Fiyat onaylandı"
               : action === "reject-price"
                 ? "Fiyat reddedildi"
-                : "Teklif reddedildi"
+                : "Teklif reddedildi",
+        action === "revoke-approval" ? { description: "Belge geçmişi korunur. Değişiklik yapmak için yeni revizyon oluşturun." } : undefined
       );
       await refresh();
     } catch (err: any) {
@@ -307,7 +315,7 @@ export function OffersPage({
     try {
       await quoteService.remove(offer.id);
       toast.success("Teklif silindi", { description: offer.quoteNo });
-      if (selectedOfferId === offer.id) setSelectedOfferId(null);
+      if (selectedOfferId === offer.id) onCloseOffer();
       setPendingDeleteOffer(null);
       await refresh();
     } catch (err: any) {
@@ -339,6 +347,7 @@ export function OffersPage({
 
   return (
     <div className="crm-page">
+      {selectedOfferId && !selectedOffer && !loading && <WorkspaceRecordUnavailable onClose={onCloseOffer} />}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <MiniKpi tone="violet" icon={<FileText className="size-[18px]" />} label="Toplam Teklif" value={total} sub="bu çeyrek" />
         <MiniKpi tone="emerald" icon={<CheckCircle2 className="size-[18px]" />} label="Onaylanan" value={approved} sub={`$ ${(approvedAmount / 1000).toFixed(0)}K`} />
@@ -461,7 +470,7 @@ export function OffersPage({
                 <TableHead>Kaynak</TableHead>
                 <TableHead>Ürün Adı</TableHead>
                 <TableHead>Müşteri</TableHead>
-                <TableHead>Rev.</TableHead>
+                <TableHead sortType="number">Rev.</TableHead>
                 <TableHead>Tarih</TableHead>
                 <TableHead className="text-right">Tutar</TableHead>
                 <TableHead>Durum</TableHead>
@@ -476,8 +485,8 @@ export function OffersPage({
                   <TableRow
                     key={o.id}
                     className="group cursor-pointer"
-                    onClick={() => setSelectedOfferId(o.id)}
-                    onKeyDown={(e) => e.key === "Enter" && setSelectedOfferId(o.id)}
+                    onClick={() => onSelectOffer(o.id)}
+                    onKeyDown={(e) => e.key === "Enter" && onSelectOffer(o.id)}
                     tabIndex={0}
                     role="button"
                     aria-label={`Teklif ${o.quoteNo}, ${o.status}`}
@@ -493,9 +502,9 @@ export function OffersPage({
                       <div className="truncate">{o.productName || [sc?.requestedProduct, sc?.requestedModel].filter(Boolean).join(" · ") || "—"}</div>
                     </TableCell>
                     <TableCell className="text-sm">{sc ? customerName(sc.customerId, sc.leadCompanyTitle) : customerName(o.companyId ?? "")}</TableCell>
-                    <TableCell><span className="inline-flex rounded bg-muted px-1.5 py-0.5 text-xs text-foreground/70">R{o.revision}</span></TableCell>
+                    <TableCell data-sort-value={o.revision}><span className="inline-flex rounded bg-muted px-1.5 py-0.5 text-xs text-foreground/70">R{o.revision}</span></TableCell>
                     <TableCell className="text-sm tabular-nums text-muted-foreground">{o.date}</TableCell>
-                    <TableCell className="text-right tabular-nums">
+                    <TableCell data-sort-value={o.amount} className="text-right tabular-nums">
                       <span className="text-sm">{o.amount.toLocaleString()}</span>{" "}
                       <span className="text-xs text-muted-foreground">{o.currency}</span>
                     </TableCell>
@@ -550,6 +559,12 @@ export function OffersPage({
                               <XCircle className="size-3.5" /> Reddet
                             </Button>
                           </>
+                        )}
+                        {o.status === "Approved" && hasPermission("quotes.approve") && (
+                          <Button variant="outline" size="sm" className="h-7 text-xs" onClick={(event) => {
+                            event.stopPropagation();
+                            if (window.confirm("Teklifin onayı geri alınsın mı?")) void runQuoteAction(o.id, "revoke-approval");
+                          }}>Onayı Geri Al</Button>
                         )}
                         {o.status === "Pending Approval" && isSuperAdmin && (
                           <>
@@ -613,7 +628,7 @@ export function OffersPage({
                           aria-label="Teklif detayı"
                           onClick={(event) => {
                             event.stopPropagation();
-                            setSelectedOfferId(o.id);
+                            onSelectOffer(o.id);
                           }}
                         >
                           <Eye className="size-4" />
@@ -736,13 +751,14 @@ export function OffersPage({
         assignee={selectedAssignee}
         revisions={selectedRevisions}
         order={selectedOrder}
-        onClose={() => setSelectedOfferId(null)}
+        onClose={() => onCloseOffer()}
         onQuoteAction={runQuoteAction}
         onManageStatus={() => selectedOffer && setStatusOffer(selectedOffer)}
         canApprovePrice={isSuperAdmin}
+        canRevokeApproval={hasPermission("quotes.approve")}
         onDeleteOffer={async (offer) => setPendingDeleteOffer(offer)}
         onOrderCreated={refresh}
-        onOpenOffer={(nextOffer) => setSelectedOfferId(nextOffer.id)}
+        onOpenOffer={(nextOffer) => onSelectOffer(nextOffer.id)}
         onOpenOpportunity={onOpenOpportunity}
         onOpenDocuments={onOpenDocuments}
       />
@@ -854,6 +870,7 @@ export function OfferDetailDialog({
   onOpenOpportunity,
   onOpenDocuments,
   canApprovePrice = false,
+  canRevokeApproval = false,
 }: {
   offer: Offer | null;
   salesCase: SalesCase | null;
@@ -862,7 +879,7 @@ export function OfferDetailDialog({
   revisions: Offer[];
   order?: any;
   onClose: () => void;
-  onQuoteAction?: (offerId: string, action: "send" | "approve" | "reject" | "approve-price" | "reject-price") => Promise<void>;
+  onQuoteAction?: (offerId: string, action: "send" | "approve" | "revoke-approval" | "reject" | "approve-price" | "reject-price") => Promise<void>;
   onManageStatus?: () => void;
   onDeleteOffer?: (offer: Offer) => Promise<void>;
   onOrderCreated?: () => void;
@@ -870,24 +887,19 @@ export function OfferDetailDialog({
   onOpenOpportunity?: (salesCaseId: string) => void;
   onOpenDocuments?: (query?: string) => void;
   canApprovePrice?: boolean;
+  canRevokeApproval?: boolean;
 }) {
-  const { products, users, contacts, documents } = useStore();
-  const { user, tenant, activeDivision, activeDepartment } = useAuth();
-  const queryClient = useQueryClient();
+  const { documents } = useStore();
   const [creatingOrder, setCreatingOrder] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [mailRecipient, setMailRecipient] = useState<MailRecipient | null>(null);
   const [documentAction, setDocumentAction] = useState<"print" | "preview" | "download" | null>(null);
+  const { hasPermission: canPdfPermission } = useAuth();
+  const canPreparePdf = canPdfPermission("quotes.update");
   const [headerLogoMode, setHeaderLogoMode] = useState<QuoteHeaderLogoMode>("haksan");
   const customerId = offer?.companyId || salesCase?.customerId || customer?.id || "";
   const customerQuery = useCompanyDetail(customerId, customer ?? undefined);
   const resolvedCustomer = customerQuery.data ?? customer;
-  const contactScope = useMemo<ContactQueryScope>(() => ({
-    tenantId: tenant?.id ?? user?.tenantId ?? "anonymous",
-    userId: user?.id ?? "anonymous",
-    activeDivision,
-    activeDepartment,
-  }), [activeDepartment, activeDivision, tenant?.id, user?.id, user?.tenantId]);
   useEffect(() => {
     setDocumentAction(null);
     setHeaderLogoMode("haksan");
@@ -905,48 +917,11 @@ export function OfferDetailDialog({
     onOpenDocuments?.(query);
   };
 
-  // Teklif yazdırma: ürün kataloğundan model eşleşirse teknik bilgiler ve
-  // donanım sayfaları da basılır; alt notlar seçilen teslim şekline göre gelir.
-  const loadQuoteDocument = async () => {
-    let printCustomer = resolvedCustomer;
-    if (customerId && !customerQuery.data) {
-      const freshCustomer = await customerQuery.refetch();
-      if (freshCustomer.error) throw freshCustomer.error;
-      printCustomer = freshCustomer.data ?? printCustomer;
-    }
-    const companyContacts = customerId
-      ? await queryClient.fetchQuery({
-          queryKey: contactQueryKeys.companyContacts(contactScope, customerId),
-          queryFn: ({ signal }) => loadAllCompanyContacts(customerId, signal),
-          staleTime: 60_000,
-        })
-      : null;
-    const remoteContacts = companyContacts?.data ?? [];
-    const remoteContactIds = new Set(remoteContacts.map((contact) => contact.id));
-    const data = await loadQuotePrintData({
-      offer,
-      customer: printCustomer,
-      salesCase,
-      users,
-      contacts: [...remoteContacts, ...contacts.filter((contact) => !remoteContactIds.has(contact.id))],
-      products,
-      headerLogoMode,
-    });
-    return { data, doc: quoteDoc(data, printAssetBase()) };
-  };
-
   const runQuoteDocument = async (mode: "print" | "preview" | "download") => {
     setDocumentAction(null);
-    const loading = toast.loading("Teklif hazırlanıyor…");
+    const loading = toast.loading("PDF alınıyor…");
     try {
-      const { data, doc } = await loadQuoteDocument();
-      if (mode === "print") printOrWarn(doc);
-      else if (mode === "preview") previewPrintOrWarn(doc);
-      // Dosya adı: Teklif_<bölüm-belge no>_<firma>_<makine>
-      else downloadPrintOrWarn(doc, quoteFilename(data, {
-        division: offer.businessLine ?? offer.divisionCode ?? offer.divisionName,
-        company: data.firma || resolvedCustomer?.name,
-      }), "Teklif");
+      await commercialPdfService.present('quote', offer.id, mode === 'download' ? 'download' : 'open', false);
     } catch (error: unknown) {
       toast.error("Teklif dosyası hazırlanamadı", {
         description: error instanceof Error ? error.message : "Teklif ayrıntıları alınamadı.",
@@ -956,14 +931,20 @@ export function OfferDetailDialog({
     }
   };
 
-  const handlePrint = () => setDocumentAction("print");
-  const handlePreview = () => setDocumentAction("preview");
-  const handleDownload = () => setDocumentAction("download");
-  const documentActionLabel = documentAction === "preview"
-    ? "Önizlemeyi Aç"
-    : documentAction === "download"
-      ? "HTML İndir"
-      : "Yazdır / PDF Kaydet";
+  const handlePrint = () => void runQuoteDocument("print");
+  const handlePreview = () => void runQuoteDocument("preview");
+  const handleDownload = () => void runQuoteDocument("download");
+  const prepareQuotePdf = async () => {
+    if (!canPreparePdf) return;
+    setDocumentAction(null);
+    const loading = toast.loading("PDF hazırlanıyor…");
+    try {
+      await commercialPdfService.prepare('quote', offer.id, { headerLogoMode });
+      toast.success("PDF hazır. İndirebilir veya önizleyebilirsiniz.");
+    } catch (error) { toast.error("PDF hazırlanamadı", { description: error instanceof Error ? error.message : "Tekrar deneyin." }); }
+    finally { toast.dismiss(loading); }
+  };
+
 
   return (
     <>
@@ -1085,7 +1066,7 @@ export function OfferDetailDialog({
               <TableHeader>
                 <TableRow className="bg-muted/30 hover:bg-muted/30">
                   <TableHead>Teklif</TableHead>
-                  <TableHead>Rev.</TableHead>
+                  <TableHead sortType="number">Rev.</TableHead>
                   <TableHead>Tarih</TableHead>
                   <TableHead className="text-right">Tutar</TableHead>
                   <TableHead>Durum</TableHead>
@@ -1123,15 +1104,19 @@ export function OfferDetailDialog({
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
-              <DropdownMenuItem onClick={() => setEditOpen(true)}>
+              <DropdownMenuItem disabled={!!offer.finalizedAt} onClick={() => setEditOpen(true)}>
                 <Pencil className="size-4" /> Teklifi Düzenle
               </DropdownMenuItem>
+              {offer.finalizedAt && <div className="max-w-60 px-2 py-1.5 text-xs text-muted-foreground">Kesinleşmiş belge korunur. Değişiklik için yeni revizyon oluşturun.</div>}
               {onManageStatus && !["Approved", "Rejected", "Cancelled"].includes(offer.status) && (
                 <DropdownMenuItem onClick={onManageStatus}>
                   <BellRing className="size-4" /> Durum ve Hatırlatma
                 </DropdownMenuItem>
               )}
               <DropdownMenuSeparator />
+              {canPreparePdf && <DropdownMenuItem onClick={() => setDocumentAction("download")}>
+                <FileText className="size-4" /> PDF Hazırla / Yenile
+              </DropdownMenuItem>}
               <DropdownMenuItem onClick={handlePrint}>
                 <Printer className="size-4" /> Yazdır / PDF Kaydet
               </DropdownMenuItem>
@@ -1139,7 +1124,7 @@ export function OfferDetailDialog({
                 <Eye className="size-4" /> Önizle
               </DropdownMenuItem>
               <DropdownMenuItem onClick={handleDownload}>
-                <Download className="size-4" /> HTML İndir
+                <Download className="size-4" /> PDF İndir
               </DropdownMenuItem>
               {onDeleteOffer && <><DropdownMenuSeparator /><DropdownMenuItem className="text-destructive focus:text-destructive" onClick={() => void onDeleteOffer(offer)}><Trash2 className="size-4" /> Teklifi Sil</DropdownMenuItem></>}
             </DropdownMenuContent>
@@ -1158,14 +1143,7 @@ export function OfferDetailDialog({
               body: `Merhaba ${resolvedCustomer.contactPerson || resolvedCustomer.name},\n\n${offer.quoteNo} numaralı ${productText} fiyat teklifimizi bilgilerinize sunarız.\n\nSaygılarımızla,`,
               quoteId: offer.id,
               attachmentLabel: offer.quoteNo,
-              // Mail eki = "Yazdır / PDF Kaydet" belgesi (aynı şablon, görseller gömülü).
-              document: async () => {
-                const { data, doc } = await loadQuoteDocument();
-                return {
-                  html: await buildMailDocumentHtml(doc),
-                  filename: `${quoteFilename(data, { division: offer.businessLine ?? offer.divisionCode ?? offer.divisionName, company: data.firma || resolvedCustomer?.name })}.pdf`,
-                };
-              },
+
             })}
           >
             <Mail className="size-4" /> Firmaya E-posta Gönder
@@ -1184,6 +1162,11 @@ export function OfferDetailDialog({
                 <XCircle className="size-4" /> Fiyatı Reddet
               </Button>
             </>
+          )}
+          {offer.status === "Approved" && canRevokeApproval && onQuoteAction && (
+            <Button variant="outline" size="sm" className="h-9" onClick={() => {
+              if (window.confirm("Teklifin onayı geri alınsın mı?")) void onQuoteAction(offer.id, "revoke-approval");
+            }}>Onayı Geri Al</Button>
           )}
           {offer.status === "Approved" && (
             <CreateAccountingInvoiceDialog
@@ -1325,13 +1308,13 @@ export function OfferDetailDialog({
 
         <DialogFooter className="border-t border-border/60 bg-muted/20 px-6 py-4">
           <Button variant="outline" onClick={() => setDocumentAction(null)}>Vazgeç</Button>
-          <Button className="gap-2" onClick={() => documentAction && void runQuoteDocument(documentAction)}>
+          <Button className="gap-2" disabled={!canPreparePdf} onClick={() => void prepareQuotePdf()}>
             {documentAction === "preview"
               ? <Eye className="size-4" />
               : documentAction === "download"
                 ? <Download className="size-4" />
                 : <Printer className="size-4" />}
-            {documentActionLabel}
+            PDF Hazırla / Yenile
           </Button>
         </DialogFooter>
       </DialogContent>

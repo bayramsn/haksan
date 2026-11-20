@@ -147,7 +147,19 @@ export class ContactsService {
       .select({ count: sql<number>`count(*)::int` })
       .from(contacts)
       .where(where);
-    const sortColumn = page.sortBy === 'name' ? contacts.fullName : contacts.createdAt;
+    // Use a visible linked company, matching the company hydrated for this contact.
+    const companySortQuery = this.db.select({ name: sql<string>`coalesce(nullif(${companies.shortName}, ''), ${companies.legalTitle})` })
+      .from(contactCompanies).innerJoin(companies, eq(contactCompanies.companyId, companies.id))
+      .where(and(eq(contactCompanies.contactId, contacts.id), ...companyConditions))
+      .orderBy(desc(contactCompanies.isPrimary), asc(companies.id)).limit(1);
+    const contactSortColumns = {
+      name: contacts.fullName,
+      createdAt: contacts.createdAt,
+      company: sql<string>`(${companySortQuery})`,
+      title: sql<string>`coalesce(nullif(${contacts.title}, ''), ${contacts.department})`,
+      communication: sql<string>`coalesce(nullif(${contacts.workPhone}, ''), nullif(${contacts.mobilePhone}, ''), nullif(${contacts.workEmail}, ''), ${contacts.personalEmail})`,
+    };
+    const sortColumn = contactSortColumns[page.sortBy as keyof typeof contactSortColumns] ?? contacts.createdAt;
     const orderBy = page.sortDir === 'asc'
       ? [asc(sortColumn), asc(contacts.id)]
       : [desc(sortColumn), desc(contacts.id)];
@@ -194,7 +206,7 @@ export class ContactsService {
           ...companyConditions,
         )
       )
-      .orderBy(desc(contactCompanies.isPrimary));
+      .orderBy(desc(contactCompanies.isPrimary), asc(companies.id));
     const linksByContact = new Map<string, Array<{
       id: string;
       legalTitle: string;
@@ -348,7 +360,7 @@ export class ContactsService {
           visibility ?? sql`true`
         )
       )
-      .orderBy(desc(contactCompanies.isPrimary));
+      .orderBy(desc(contactCompanies.isPrimary), asc(companies.id));
   }
 
   /** Kontağın tüm firma bağları görünmüyorsa ortak kaydı değiştirmek yasaktır. */

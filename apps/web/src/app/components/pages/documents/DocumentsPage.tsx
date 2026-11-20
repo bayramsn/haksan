@@ -1,3 +1,4 @@
+import { commercialPdfService } from "../../../../lib/commercialPdf";
 import { useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Card, CardHeader, CardTitle } from "../../ui/card";
@@ -29,7 +30,7 @@ import {
   AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "../../ui/alert-dialog";
 import {
-  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger,
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger,
 } from "../../ui/dropdown-menu";
 import {
   Search, Upload, Download, Printer, Eye, Plus, Trash2,
@@ -37,8 +38,7 @@ import {
   Folder, FolderOpen, Zap,
 } from "lucide-react";
 import {
-  printAssetBase, proformaDoc, commercialInvoiceDoc, contractDoc, installationFormDoc, loadContractPrintData, loadProformaPrintData, PROFORMA_NOTE_OPTIONS, trShortDate,
-  assertContractReady, contractFilename, proformaFilename,
+  printAssetBase, commercialInvoiceDoc, installationFormDoc, loadProformaPrintData, trShortDate,
 } from "../../../lib/print";
 import { printOrWarn, downloadPrintOrWarn } from "../../../lib/pageHelpers";
 import { companyQueryKeys } from "../../../lib/companyServerData";
@@ -142,8 +142,8 @@ export function DocumentsPage({
   onOpenServiceRequest?: (query: string) => void;
   onOpenAccountingInvoices?: (query?: string) => void;
 }) {
-  const { documents, cases, customers, contacts, users, offers, payments, products, deliveries, machines, refresh } = useStore();
-  const { user, tenant, activeDivision, activeDepartment } = useAuth();
+  const { documents, cases, customers, contacts, users, offers, products, deliveries, machines, refresh } = useStore();
+  const { user, tenant, activeDivision, activeDepartment, hasPermission } = useAuth();
   const queryClient = useQueryClient();
   const companyScope = serverScopeKey(activeDivision, activeDepartment, tenant?.id ?? user?.tenantId, user?.id);
   const contactScope: ContactQueryScope = {
@@ -242,20 +242,21 @@ export function DocumentsPage({
   ) => {
     const loading = toast.loading("Proforma hazırlanıyor…");
     try {
-      const data = await loadProformaPrintData(await proformaInput(d, variantKey));
-      const rendered = proformaDoc(data, printAssetBase());
-      if (mode === "print") printOrWarn(rendered);
-      // Dosya adı: Proforma_<bölüm-belge no>_<firma>_<makine>. Kayıtlı firması
-      // olmayan hızlı proformada unvan serbest metinden (companyNameText) gelir.
-      else downloadPrintOrWarn(rendered, proformaFilename(data, {
-        division: resolveDocContext(d).offer?.businessLine,
-        company: d.companyNameText,
-      }), "Proforma");
+      if (variantKey) throw new Error('Şablon ve teslim şartlarını belgeyi düzenleyerek kaydedin; PDF kayıtlı şartlardan hazırlanır.');
+      await commercialPdfService.present('proforma', d.id, mode === 'download' ? 'download' : 'open');
     } catch (err: any) {
       toast.error("Proforma oluşturulamadı", { description: err?.message ?? "Teklif verisi okunamadı." });
     } finally {
       toast.dismiss(loading);
     }
+  };
+
+  const prepareDocumentPdf = async (kind: 'proforma' | 'contract', id: string) => {
+    if (!hasPermission(`${kind === 'proforma' ? 'proformas' : 'contracts'}.update`)) return;
+    const loading = toast.loading("PDF hazırlanıyor…");
+    try { await commercialPdfService.prepare(kind, id); toast.success("PDF hazır. İndirebilir veya açabilirsiniz."); }
+    catch (error) { toast.error("PDF hazırlanamadı", { description: error instanceof Error ? error.message : "Tekrar deneyin." }); }
+    finally { toast.dismiss(loading); }
   };
 
   const printProforma = (d: (typeof documents)[number], variantKey: string) => {
@@ -267,33 +268,9 @@ export function DocumentsPage({
   };
 
   const runContract = async (d: (typeof documents)[number], mode: "print" | "download") => {
-    const ctx = resolveDocContext(d);
-    if (!ctx.sc && !d.documentSnapshot?.standalone) {
-      toast.error("Sözleşme oluşturulamadı", { description: "Bağlı satış kartı bulunamadı." });
-      return;
-    }
     const loading = toast.loading("Sözleşme hazırlanıyor…");
     try {
-      const hydrated = await hydratePrintReferences(d, false);
-      const data = await loadContractPrintData({
-        customer: hydrated.customer,
-        salesCase: ctx.sc,
-        offer: ctx.offer,
-        products,
-        payments,
-        contractDate: d.uploadedAt || new Date().toISOString().slice(0, 10),
-        contractNo: d.fileName,
-        documentSnapshot: d.documentSnapshot,
-        users,
-      });
-      assertContractReady(data);
-      const rendered = contractDoc(data, printAssetBase());
-      if (mode === "print") printOrWarn(rendered);
-      // Dosya adı: Sozlesme_<bölüm-belge no>_<firma>_<makine>
-      else downloadPrintOrWarn(rendered, contractFilename(data, {
-        division: ctx.offer?.businessLine,
-        company: d.companyNameText,
-      }), "Sözleşme");
+      await commercialPdfService.present('contract', d.id, mode === 'download' ? 'download' : 'open');
     } catch (error: unknown) {
       toast.error("Sözleşme oluşturulamadı", {
         description: error instanceof Error ? error.message : "Teklif ayrıntıları alınamadı.",
@@ -933,7 +910,7 @@ export function DocumentsPage({
                               <EditDocumentDialog
                                 document={d}
                                 trigger={
-                                  <Button variant="ghost" size="icon" className="size-7" title="Proforma fiyat ve şartlarını düzenle">
+                                  <Button variant="ghost" size="icon" className="size-7" title="Proforma fiyat ve notlarını düzenle">
                                     <BadgeDollarSign className="size-4 text-muted-foreground hover:text-primary" />
                                   </Button>
                                 }
@@ -955,23 +932,10 @@ export function DocumentsPage({
                                 </Button>
                               </DropdownMenuTrigger>
                               <DropdownMenuContent align="end">
+                                {hasPermission('proformas.update') && <DropdownMenuItem onClick={() => void prepareDocumentPdf('proforma', d.id)}>PDF Hazırla / Yenile</DropdownMenuItem>}
                                 <DropdownMenuItem onClick={() => printProforma(d, "")}>
-                                  Otomatik (teklife göre)
+                                  Hazır PDF’i aç
                                 </DropdownMenuItem>
-                                <DropdownMenuSeparator />
-                                <DropdownMenuLabel>Proforma şablonu</DropdownMenuLabel>
-                                {PROFORMA_NOTE_OPTIONS.filter((v) => v.group === "proforma").map((v) => (
-                                  <DropdownMenuItem key={v.key} onClick={() => printProforma(d, v.key)}>
-                                    {v.label}
-                                  </DropdownMenuItem>
-                                ))}
-                                <DropdownMenuSeparator />
-                                <DropdownMenuLabel>Teklif teslim şekli</DropdownMenuLabel>
-                                {PROFORMA_NOTE_OPTIONS.filter((v) => v.group === "teslim").map((v) => (
-                                  <DropdownMenuItem key={v.key} onClick={() => printProforma(d, v.key)}>
-                                    {v.label}
-                                  </DropdownMenuItem>
-                                ))}
                               </DropdownMenuContent>
                             </DropdownMenu>
                             <DropdownMenu>
@@ -982,22 +946,8 @@ export function DocumentsPage({
                               </DropdownMenuTrigger>
                               <DropdownMenuContent align="end">
                                 <DropdownMenuItem onClick={() => downloadProforma(d, "")}>
-                                  Otomatik (teklife göre)
+                                  Hazır PDF’i indir
                                 </DropdownMenuItem>
-                                <DropdownMenuSeparator />
-                                <DropdownMenuLabel>Proforma şablonu</DropdownMenuLabel>
-                                {PROFORMA_NOTE_OPTIONS.filter((v) => v.group === "proforma").map((v) => (
-                                  <DropdownMenuItem key={v.key} onClick={() => downloadProforma(d, v.key)}>
-                                    {v.label}
-                                  </DropdownMenuItem>
-                                ))}
-                                <DropdownMenuSeparator />
-                                <DropdownMenuLabel>Teklif teslim şekli</DropdownMenuLabel>
-                                {PROFORMA_NOTE_OPTIONS.filter((v) => v.group === "teslim").map((v) => (
-                                  <DropdownMenuItem key={v.key} onClick={() => downloadProforma(d, v.key)}>
-                                    {v.label}
-                                  </DropdownMenuItem>
-                                ))}
                                 <DropdownMenuSeparator />
                                 {d.fileId && (
                                   <DropdownMenuItem onClick={() => downloadDocument(d)}>
@@ -1033,6 +983,7 @@ export function DocumentsPage({
                                 }
                               />
                             )}
+                            {hasPermission('contracts.update') && <Button variant="outline" size="sm" onClick={() => void prepareDocumentPdf('contract', d.id)}>PDF Hazırla / Yenile</Button>}
                             <Button variant="ghost" size="icon" className="size-7" title="Satış sözleşmesi yazdır / PDF"
                               onClick={() => printContract(d)}>
                               <Printer className="size-4 text-muted-foreground hover:text-primary" />

@@ -202,6 +202,90 @@ describe("print templates", () => {
     expect(document.body).toContain(`Sayfa <b>${totalPages}</b> / <b>${totalPages}</b>`);
   });
 
+  it.each([
+    { label: "missing lists", standard: undefined, optional: undefined, totalPages: 3 },
+    { label: "empty lists", standard: [], optional: [], totalPages: 3 },
+    { label: "blank rows", standard: ["", " \n "], optional: ["\t"], totalPages: 3 },
+    { label: "standard only", standard: ["Fanuc kontrol ünitesi", " "], optional: [""], totalPages: 4 },
+    { label: "optional only", standard: [" "], optional: ["Takım ölçme probu"], totalPages: 4 },
+  ])("hides empty equipment sections and preserves offer pagination: $label", ({ standard, optional, totalPages }) => {
+    const document = quoteDoc({
+      firma: "Donanım Kontrol Müşterisi",
+      tarih: "07.10.2026",
+      belgeNo: "CNC-2026/100",
+      specs: [{ key: "X Ekseni", value: "800", unit: "mm" }],
+      standartDonanim: standard,
+      opsiyonelDonanim: optional,
+      items: [{ urun: "VM-2 CNC Dik İşleme Merkezi", birim: "1 Adet", fiyat: 100_000, tutar: 100_000 }],
+      currency: "USD",
+      kdvOran: 0,
+      kdvTutar: 0,
+      notes: { key: "entered", label: "Girilen şartlar", odeme: ["Peşin ödeme"], teslimat: [], garanti: [] },
+    }, assetBase);
+
+    expect(pages(document.body)).toBe(totalPages);
+    expect(document.body.includes('class="q-eq-h">STANDART DONANIM')).toBe(Boolean(standard?.some((row) => row.trim())));
+    expect(document.body.includes('class="q-eq-h">OPSİYONEL DONANIM')).toBe(Boolean(optional?.some((row) => row.trim())));
+    expect(document.body.includes("TEZGAH DONANIMI")).toBe(totalPages === 4);
+    expect(document.body).toContain("800 mm");
+    expect(document.body).toContain("100.000,00 USD");
+    expect(document.body).toContain("Peşin ödeme");
+    expect([...document.body.matchAll(/Sayfa <b>(\d+)<\/b> \/ <b>(\d+)<\/b>/g)].map((match) => [Number(match[1]), Number(match[2])]))
+      .toEqual(Array.from({ length: totalPages }, (_, index) => [index + 1, totalPages]));
+    for (const row of [...(standard ?? []), ...(optional ?? [])].filter((value) => value.trim())) {
+      expect(document.body).toContain(`<li>${row}</li>`);
+    }
+  });
+
+  it("omits only the empty machine's equipment page in a multi-machine offer", () => {
+    const document = quoteDoc({
+      firma: "İki Makineli Teklif",
+      tarih: "07.10.2026",
+      belgeNo: "CNC-2026/101",
+      machines: [
+        { urun: "VM-2", specs: [{ key: "X Ekseni", value: "800" }], standartDonanim: [" "], opsiyonelDonanim: [] },
+        { urun: "MT-208", specs: [{ key: "Çevirme Çapı", value: "550" }], standartDonanim: ["Talaş konveyörü"], opsiyonelDonanim: [] },
+      ],
+      items: [{ urun: "VM-2 ve MT-208", birim: "2 Adet", fiyat: 100_000, tutar: 200_000 }],
+      currency: "USD",
+      kdvOran: 0,
+      kdvTutar: 0,
+      notes: { key: "entered", label: "Girilen şartlar", odeme: [], teslimat: [], garanti: [] },
+    }, assetBase);
+
+    expect(pages(document.body)).toBe(6);
+    expect(document.body.match(/TEZGAH DONANIMI/g)).toHaveLength(1);
+    expect(document.body).not.toContain("OPSİYONEL DONANIM");
+    expect(document.body).toContain("Talaş konveyörü");
+    expect(document.body).toContain("X Ekseni");
+    expect(document.body).toContain("Çevirme Çapı");
+    expect(document.body).toContain("200.000,00 USD");
+    expect(document.body).toContain("Sayfa <b>6</b> / <b>6</b>");
+  });
+
+  it("spreads a medium technical table across its page while retaining every value", () => {
+    const document = quoteDoc({
+      firma: "Teknik Tablo",
+      tarih: "13.10.2026",
+      belgeNo: "TEST-2026",
+      specs: Array.from({ length: 34 }, (_, index) => ({
+        key: `Teknik özellik ${index + 1}`,
+        value: `${index + 1}`,
+        unit: "mm",
+      })),
+      items: [],
+      currency: "USD",
+      kdvOran: 0,
+      kdvTutar: 0,
+      notes: { key: "entered", label: "", odeme: [], teslimat: [], garanti: [] },
+    }, assetBase);
+
+    expect(document.body).toContain("q-spec-page-compact q-spec-page-fill");
+    expect(document.body).toContain("--q-spec-scale:1");
+    expect(document.body).toContain("Teknik özellik 34");
+    expect(document.css).toContain(".q-spec-page-fill table.q-specs { height: 235mm; }");
+  });
+
   it("keeps all offer technical specifications on one compact page without a continuation", () => {
     const document = quoteDoc({
       firma: "Tek Sayfa Teknik Müşterisi",
@@ -554,8 +638,8 @@ describe("print templates", () => {
     expect(document.body).toContain("Talaş konveyörü");
     expect(document.body).toContain("Takım ölçme");
     expect(document.body).not.toContain("Ürüne özel iskonto");
-    const firstPageStart = document.body.indexOf('<div class="page">');
-    const secondPageStart = document.body.indexOf('<div class="page">', firstPageStart + 1);
+    const firstPageStart = document.body.indexOf('<div class="page q-cover-page">');
+    const secondPageStart = document.body.indexOf('<div class="page q-cover-page">', firstPageStart + 1);
     const customerMetaBlock = document.body.indexOf('class="q-top"');
     expect(customerMetaBlock).toBeGreaterThan(firstPageStart);
     expect(customerMetaBlock).toBeLessThan(secondPageStart);

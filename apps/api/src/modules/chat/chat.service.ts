@@ -1,10 +1,12 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { and, asc, desc, eq, gt, ilike, inArray, isNull, lt, ne, or, sql, type SQL } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, ilike, inArray, isNull, isNotNull, lt, ne, or, sql, type SQL } from 'drizzle-orm';
 import type { DbClient } from '../../db/client';
 import { conversations, conversationMembers, chatMessages, chatMessageReactions } from '../../db/schema/chat';
 import { users } from '../../db/schema/users';
 import { files, fileLinks } from '../../db/schema/files';
-import { companies } from '../../db/schema/companies';
+import { currencies, pipelineStages, quoteStatuses } from '../../db/schema/lookup';
+import { PushService } from '../../shared/push/push.service';
+import { companies, notifications } from '../../db/schema/companies';
 import { quotes } from '../../db/schema/quotes';
 import { opportunities } from '../../db/schema/crm';
 import { serviceTickets } from '../../db/schema/service';
@@ -12,6 +14,7 @@ import { DB } from '../../shared/database/database.module';
 import { StorageService } from '../../shared/storage/storage.service';
 import { ChatRealtimeService } from './chat.realtime';
 import { ForbiddenError, NotFoundError, ValidationError } from '../../shared/utils/errors';
+import { logger } from '../../shared/utils/logger';
 import type { AuthContext } from '../../shared/security/auth.types';
 import { resourceCompanyPortfolioFilter, resourceDivisionFilter } from '../../shared/utils/division-scope';
 import {
@@ -20,6 +23,7 @@ import {
   companyVisibilityFilter,
 } from '../../shared/utils/company-visibility';
 import type {
+  ConversationPreferencesInput,
   CreateGroupInput,
   UpdateGroupInput,
   SendMessageInput,
@@ -31,6 +35,9 @@ import type {
 /** Mesaj listelerken DB'den çekilen ham satır (zenginleştirme öncesi). */
 interface RawMessageRow {
   id: string;
+  mentionUserIds: string[];
+  pinnedAt: Date | null;
+  forwardedFromId: string | null;
   body: string | null;
   senderId: string;
   senderName: string;
@@ -51,6 +58,10 @@ export interface RefCardDto {
   title: string;
   subtitle: string | null;
   missing?: boolean;
+  companyName?: string | null;
+  stage?: string | null;
+  amount?: string | null;
+  currency?: string | null;
 }
 
 /** Sohbet ekleri için sabit bucket — ayrı bir R2 bucket'ı gerektirmeyecek şekilde
@@ -72,7 +83,8 @@ export class ChatService {
   constructor(
     @Inject(DB) private readonly db: DbClient,
     private readonly storage: StorageService,
-    private readonly realtime: ChatRealtimeService
+    private readonly realtime: ChatRealtimeService,
+    private readonly push: PushService
   ) {}
 
   /** Gerçek-zaman bildirimi: konuşma odasına + üyelerin kişisel odalarına yayınla.
@@ -103,21 +115,20 @@ export class ChatService {
   ): Promise<{ peerIds: string[]; callerName: string } | null> {
     if (!(await this.isMember(userId, conversationId))) return null;
     const [conv] = await this.db
-      .select({ type: conversations.type })
+      .select({ type: conversations.type, tenantId: conversations.tenantId })
       .from(conversations)
-      .where(eq(conversations.id, conversationId));
+      .where(and(eq(conversations.id, conversationId), isNull(conversations.deletedAt)));
     if (!conv || conv.type !== 'dm') return null;
     const members = await this.db
-      .select({ userId: conversationMembers.userId })
+      .select({ userId: users.id, fullName: users.fullName, status: users.status, deletedAt: users.deletedAt, tenantId: users.tenantId })
       .from(conversationMembers)
+      .innerJoin(users, eq(users.id, conversationMembers.userId))
       .where(eq(conversationMembers.conversationId, conversationId));
-    const peerIds = members.map((m) => m.userId).filter((id) => id !== userId);
-    if (peerIds.length === 0) return null;
-    const [caller] = await this.db
-      .select({ fullName: users.fullName })
-      .from(users)
-      .where(eq(users.id, userId));
-    return { peerIds, callerName: caller?.fullName ?? 'Bilinmeyen kullanıcı' };
+    if (members.length !== 2 || members.some(member => member.status !== 'active' || member.deletedAt || member.tenantId !== conv.tenantId)) return null;
+    const caller = members.find(member => member.userId === userId);
+    const peer = members.find(member => member.userId !== userId);
+    if (!caller || !peer) return null;
+    return { peerIds: [peer.userId], callerName: caller.fullName };
   }
 
   private isSuperAdmin(actor: AuthContext): boolean {
@@ -147,7 +158,12 @@ export class ChatService {
   // ───────── Konuşma listesi ─────────
   async listConversations(actor: AuthContext) {
     const myMemberships = await this.db
-      .select({ conv: conversations, lastReadAt: conversationMembers.lastReadAt, myRole: conversationMembers.role })
+      .select({
+        conv: conversations,
+        myRole: conversationMembers.role,
+        isFavorite: conversationMembers.isFavorite,
+        isMuted: conversationMembers.isMuted,
+      })
       .from(conversationMembers)
       .innerJoin(conversations, eq(conversationMembers.conversationId, conversations.id))
       .where(and(eq(conversationMembers.userId, actor.userId), eq(conversations.tenantId, actor.tenantId), isNull(conversations.deletedAt)));
@@ -176,7 +192,11 @@ export class ChatService {
 
     // Okunmamış sayıları (tek gruplu sorgu, üyenin lastReadAt'ine göre)
     const unreadRows = await this.db
-      .select({ conversationId: chatMessages.conversationId, cnt: sql<number>`count(*)::int` })
+      .select({
+        conversationId: chatMessages.conversationId,
+        count: sql<number>`count(*)::int`,
+        mentionCount: sql<number>`(count(*) filter (where ${chatMessages.mentionUserIds} @> ${JSON.stringify([actor.userId])}::jsonb))::int`,
+      })
       .from(chatMessages)
       .innerJoin(
         conversationMembers,
@@ -185,13 +205,14 @@ export class ChatService {
       .where(
         and(
           inArray(chatMessages.conversationId, convIds),
+          eq(chatMessages.tenantId, actor.tenantId),
           isNull(chatMessages.deletedAt),
           ne(chatMessages.senderId, actor.userId),
           or(isNull(conversationMembers.lastReadAt), gt(chatMessages.createdAt, conversationMembers.lastReadAt))
         )
       )
       .groupBy(chatMessages.conversationId);
-    const unreadByConv = new Map(unreadRows.map((r) => [r.conversationId, r.cnt]));
+    const unreadByConv = new Map(unreadRows.map((row) => [row.conversationId, row]));
 
     // Son mesaj (konuşma başına 1 — pencere fonksiyonu ile)
     const ranked = this.db
@@ -231,7 +252,10 @@ export class ChatService {
         onlyAdminsCanPost: m.conv.onlyAdminsCanPost,
         myRole: m.myRole as ChatMemberRole,
         members: membersByConv.get(m.conv.id) ?? [],
-        unreadCount: unreadByConv.get(m.conv.id) ?? 0,
+        isFavorite: m.isFavorite,
+        isMuted: m.isMuted,
+        unreadCount: unreadByConv.get(m.conv.id)?.count ?? 0,
+        mentionCount: unreadByConv.get(m.conv.id)?.mentionCount ?? 0,
         lastMessage: last
           ? {
               preview: last.body ?? (last.latitude != null && last.longitude != null ? '📍 Konum' : '📎 Ek dosya'),
@@ -324,7 +348,7 @@ export class ChatService {
       where: and(eq(conversations.id, id), eq(conversations.tenantId, actor.tenantId), isNull(conversations.deletedAt)),
     });
     if (!conv) throw new NotFoundError('Sohbet');
-    await this.assertMember(actor, id);
+    const membership = await this.assertMember(actor, id);
 
     const members = await this.db
       .select({
@@ -350,7 +374,9 @@ export class ChatService {
       refId: conv.refId,
       createdBy: conv.createdBy,
       members,
-      myRole: (members.find((m) => m.userId === actor.userId)?.role ?? 'member') as ChatMemberRole,
+      myRole: membership.role as ChatMemberRole,
+      isFavorite: membership.isFavorite,
+      isMuted: membership.isMuted,
     };
   }
 
@@ -408,7 +434,21 @@ export class ChatService {
   // ───────── Mesaj listesi ─────────
   async listMessages(actor: AuthContext, conversationId: string, query: MessagesQuery) {
     await this.assertMember(actor, conversationId);
-    const filters = [eq(chatMessages.conversationId, conversationId), isNull(chatMessages.deletedAt)];
+    const filters = [eq(chatMessages.conversationId, conversationId), eq(chatMessages.tenantId, actor.tenantId), isNull(chatMessages.deletedAt)];
+    if (query.around) {
+      const [target] = await this.loadRawMessages(and(...filters, eq(chatMessages.id, query.around)), 1);
+      if (!target) throw new NotFoundError('Mesaj');
+      const beforeLimit = Math.floor((query.limit - 1) / 2);
+      const afterLimit = query.limit - 1 - beforeLimit;
+      const position = sql`(${chatMessages.createdAt}, ${chatMessages.id})`;
+      const pivot = sql`((select ${chatMessages.createdAt} from ${chatMessages} where ${chatMessages.id} = ${target.id}), ${target.id}::uuid)`;
+      const [before, after] = await Promise.all([
+        this.loadRawMessages(and(...filters, sql`${position} < ${pivot}`), beforeLimit + 1),
+        afterLimit ? this.loadRawMessages(and(...filters, sql`${position} > ${pivot}`), afterLimit, 'asc') : [],
+      ]);
+      const rows = [...before.slice(0, beforeLimit).reverse(), target, ...after];
+      return { messages: await this.enrichMessages(actor, rows), hasMore: before.length > beforeLimit };
+    }
     if (query.before) {
       const beforeDate = new Date(query.before);
       if (!Number.isNaN(beforeDate.getTime())) filters.push(lt(chatMessages.createdAt, beforeDate));
@@ -430,8 +470,9 @@ export class ChatService {
     });
     if (!msg) throw new NotFoundError('Mesaj');
     if (msg.senderId !== actor.userId) throw new ForbiddenError('Yalnızca kendi mesajınızı düzenleyebilirsiniz');
+    await this.assertMember(actor, msg.conversationId);
     if (msg.kind === 'system') throw new ValidationError('Sistem mesajı düzenlenemez');
-    await this.db.update(chatMessages).set({ body: body.trim(), editedAt: new Date() }).where(eq(chatMessages.id, messageId));
+    await this.db.update(chatMessages).set({ body: body.trim(), mentionUserIds: [], editedAt: new Date() }).where(eq(chatMessages.id, messageId));
     const [row] = await this.enrichMessages(actor, await this.loadRawMessages(eq(chatMessages.id, messageId)));
     await this.notify(msg.conversationId, 'message:updated');
     return row;
@@ -480,7 +521,7 @@ export class ChatService {
   }
 
   // ───────── Mesaj gönder ─────────
-  async sendMessage(actor: AuthContext, conversationId: string, input: SendMessageInput) {
+  async sendMessage(actor: AuthContext, conversationId: string, input: SendMessageInput, forwarded?: { id: string; fileIds: string[] }) {
     const conv = await this.db.query.conversations.findFirst({
       where: and(eq(conversations.id, conversationId), eq(conversations.tenantId, actor.tenantId), isNull(conversations.deletedAt)),
     });
@@ -492,6 +533,16 @@ export class ChatService {
       throw new ForbiddenError('Bu grupta yalnızca yöneticiler mesaj gönderebilir');
     }
 
+    const mentionUserIds = [...new Set(input.mentionUserIds ?? [])].filter((id) => id !== actor.userId);
+    if (mentionUserIds.length) {
+      if (conv.type !== 'group' || !input.body?.trim()) throw new ValidationError('Bahsetme için grup mesajı gerekli');
+      const members = await this.db.select({ id: users.id, name: users.fullName })
+        .from(conversationMembers).innerJoin(users, eq(users.id, conversationMembers.userId))
+        .where(and(eq(conversationMembers.conversationId, conversationId), eq(users.tenantId, actor.tenantId), isNull(users.deletedAt), inArray(users.id, mentionUserIds)));
+      if (members.length !== mentionUserIds.length || members.some((m) => !input.body?.includes(`@${m.name}`))) {
+        throw new ValidationError('Bahsedilen kullanıcı grup üyesi olmalı ve mesajda yer almalı');
+      }
+    }
     const fileIds = [...new Set(input.attachmentFileIds ?? [])];
     if (fileIds.length) {
       const owned = await this.db
@@ -532,6 +583,8 @@ export class ChatService {
           conversationId,
           senderId: actor.userId,
           body,
+          mentionUserIds,
+          forwardedFromId: forwarded?.id ?? null,
           replyToId: input.replyToId ?? null,
           refType: input.refType ?? null,
           refId: input.refId ?? null,
@@ -565,6 +618,16 @@ export class ChatService {
           }))
         );
       }
+      if (forwarded?.fileIds.length) {
+        await tx.insert(fileLinks).values(forwarded.fileIds.map((fileId) => ({ tenantId: actor.tenantId, fileId, entityType: CHAT_ATTACHMENT_ENTITY, entityId: msg.id })));
+      }
+      if (mentionUserIds.length) {
+        await tx.insert(notifications).values(mentionUserIds.map((userId) => ({
+          tenantId: actor.tenantId, userId, type: 'chat_mention', title: `${(conv.title ?? 'Grup').slice(0, 220)}: Sizden bahsedildi`,
+          body: body?.slice(0, 500), entityType: 'chat', entityId: conversationId,
+          items: [{ label: 'Mesaja git', nav: 'chat', query: `${conversationId}:${msg.id}` }],
+        })));
+      }
       // Konuşma sıralamasını tazele + gönderen kendi mesajını okumuş sayılır.
       await tx.update(conversations).set({ updatedAt: new Date() }).where(eq(conversations.id, conversationId));
       await tx
@@ -576,7 +639,135 @@ export class ChatService {
 
     const [row] = await this.enrichMessages(actor, await this.loadRawMessages(eq(chatMessages.id, messageId)));
     await this.notify(conversationId, 'message:new');
+    if (conv.type === 'dm') void this.pushDirectMessage(actor, conversationId, messageId);
+    if (mentionUserIds.length) {
+      this.realtime.emitToUsers(mentionUserIds, 'notification:new', { type: 'chat_mention', conversationId, messageId });
+      void Promise.allSettled(mentionUserIds.map((userId) => this.push.sendToUser(userId, {
+        title: `${(conv.title ?? 'Grup').slice(0, 220)}: Sizden bahsedildi`, body: body?.slice(0, 200) ?? '',
+        data: { kind: 'navigate', nav: 'chat', query: `${conversationId}:${messageId}`, conversationId, messageId },
+      })));
+    }
     return row;
+  }
+
+  private async pushDirectMessage(actor: AuthContext, conversationId: string, messageId: string): Promise<void> {
+    try {
+      const [recipient] = await this.db.select({ userId: conversationMembers.userId })
+        .from(conversationMembers)
+        .innerJoin(users, eq(users.id, conversationMembers.userId))
+        .where(and(
+          eq(conversationMembers.conversationId, conversationId),
+          eq(conversationMembers.isMuted, false),
+          ne(conversationMembers.userId, actor.userId),
+          eq(users.tenantId, actor.tenantId),
+          eq(users.status, 'active'),
+          isNull(users.deletedAt),
+        ))
+        .limit(1);
+      if (recipient) await this.push.sendToUser(recipient.userId, {
+        title: 'Yeni sohbet mesajı',
+        body: 'Mesajı görüntülemek için sohbeti açın.',
+        data: { kind: 'navigate', nav: 'chat', query: `${conversationId}:${messageId}`, conversationId, messageId },
+      });
+    } catch {
+      logger.warn({ action: 'chat_push_failed', conversationId }, 'Sohbet bildirimi gönderilemedi');
+    }
+  }
+
+  async updatePreferences(actor: AuthContext, conversationId: string, input: ConversationPreferencesInput) {
+    const [preferences] = await this.db.update(conversationMembers)
+      .set(input)
+      .where(and(
+        eq(conversationMembers.conversationId, conversationId),
+        eq(conversationMembers.userId, actor.userId),
+        inArray(conversationMembers.conversationId, this.db.select({ id: conversations.id }).from(conversations).where(and(
+          eq(conversations.id, conversationId),
+          eq(conversations.tenantId, actor.tenantId),
+          isNull(conversations.deletedAt),
+        ))),
+      ))
+      .returning({ isFavorite: conversationMembers.isFavorite, isMuted: conversationMembers.isMuted });
+    if (!preferences) throw new ForbiddenError('Bu sohbete erişiminiz yok');
+    this.realtime.emitToUsers([actor.userId], 'conversation:updated', { conversationId });
+    return preferences;
+  }
+
+  async listSharedFiles(actor: AuthContext, conversationId: string): Promise<AttachmentDto[]> {
+    await this.assertMember(actor, conversationId);
+    const rows = await this.db.select({
+      fileId: files.id,
+      bucket: files.bucket,
+      objectKey: files.objectKey,
+      filename: files.originalFilename,
+      mimeType: files.mimeType,
+      sizeBytes: files.sizeBytes,
+    })
+      .from(chatMessages)
+      .innerJoin(conversations, eq(conversations.id, chatMessages.conversationId))
+      .innerJoin(conversationMembers, and(
+        eq(conversationMembers.conversationId, conversations.id),
+        eq(conversationMembers.userId, actor.userId),
+      ))
+      .innerJoin(fileLinks, and(eq(fileLinks.entityId, chatMessages.id), eq(fileLinks.entityType, CHAT_ATTACHMENT_ENTITY)))
+      .innerJoin(files, eq(files.id, fileLinks.fileId))
+      .where(and(
+        eq(chatMessages.conversationId, conversationId),
+        eq(chatMessages.tenantId, actor.tenantId),
+        eq(conversations.tenantId, actor.tenantId),
+        eq(fileLinks.tenantId, actor.tenantId),
+        eq(files.tenantId, actor.tenantId),
+        eq(files.uploadStatus, 'linked'),
+        isNull(conversations.deletedAt),
+        isNull(chatMessages.deletedAt),
+        isNull(files.deletedAt),
+      ))
+      .groupBy(files.id)
+      .orderBy(desc(sql`max(${chatMessages.createdAt})`), desc(files.id))
+      .limit(50);
+    return Promise.all(rows.map((row) => this.signChatAttachment(actor, row)));
+  }
+
+  async listPinned(actor: AuthContext, conversationId: string) {
+    await this.assertMember(actor, conversationId);
+    return this.enrichMessages(actor, await this.loadRawMessages(and(eq(chatMessages.conversationId, conversationId), eq(chatMessages.tenantId, actor.tenantId), isNull(chatMessages.deletedAt), isNotNull(chatMessages.pinnedAt)), 100));
+  }
+
+  async pinMessage(actor: AuthContext, messageId: string, pinned: boolean) {
+    const msg = await this.db.query.chatMessages.findFirst({ where: and(eq(chatMessages.id, messageId), eq(chatMessages.tenantId, actor.tenantId), isNull(chatMessages.deletedAt)) });
+    if (!msg) throw new NotFoundError('Mesaj');
+    const member = await this.assertMember(actor, msg.conversationId);
+    const conv = await this.db.query.conversations.findFirst({ where: eq(conversations.id, msg.conversationId) });
+    if (conv?.type === 'group' && member.role !== 'admin' && !this.isSuperAdmin(actor)) throw new ForbiddenError('Mesajı yalnız grup yöneticileri sabitleyebilir');
+    await this.db.update(chatMessages).set({ pinnedAt: pinned ? new Date() : null }).where(eq(chatMessages.id, messageId));
+    const [row] = await this.enrichMessages(actor, await this.loadRawMessages(eq(chatMessages.id, messageId)));
+    await this.notify(msg.conversationId, 'message:updated');
+    return row;
+  }
+
+  async forwardMessage(actor: AuthContext, messageId: string, conversationId: string) {
+    const source = await this.db.query.chatMessages.findFirst({ where: and(eq(chatMessages.id, messageId), eq(chatMessages.tenantId, actor.tenantId), isNull(chatMessages.deletedAt)) });
+    if (!source) throw new NotFoundError('Mesaj');
+    await this.assertMember(actor, source.conversationId);
+    if (source.kind === 'system') throw new ValidationError('Sistem mesajı iletilemez');
+    const links = await this.db.select({ fileId: fileLinks.fileId }).from(fileLinks)
+      .innerJoin(files, eq(files.id, fileLinks.fileId))
+      .where(and(eq(fileLinks.tenantId, actor.tenantId), eq(fileLinks.entityType, CHAT_ATTACHMENT_ENTITY), eq(fileLinks.entityId, messageId), eq(files.tenantId, actor.tenantId), eq(files.uploadStatus, 'linked'), isNull(files.deletedAt)));
+    return this.sendMessage(actor, conversationId, {
+      body: source.body ?? undefined,
+      ...(source.refType && source.refId ? { refType: source.refType as ChatRefType, refId: source.refId } : {}),
+      ...(source.latitude != null && source.longitude != null ? { location: { latitude: source.latitude, longitude: source.longitude, label: source.locationLabel ?? undefined } } : {}),
+    }, { id: source.id, fileIds: links.map((r) => r.fileId) });
+  }
+
+  async typingContext(userId: string, conversationId: string) {
+    const member = await this.getMember(userId, conversationId);
+    if (!member) return null;
+    const conv = await this.db.query.conversations.findFirst({ where: and(eq(conversations.id, conversationId), isNull(conversations.deletedAt)) });
+    if (!conv) return null;
+    const user = await this.db.query.users.findFirst({ where: and(eq(users.id, userId), eq(users.tenantId, conv.tenantId), eq(users.status, 'active'), isNull(users.deletedAt)) });
+    if (!user) return null;
+    if (conv.type === 'group' && conv.onlyAdminsCanPost && member.role !== 'admin') return null;
+    return { fullName: user.fullName };
   }
 
   async markRead(actor: AuthContext, conversationId: string) {
@@ -642,11 +833,14 @@ export class ChatService {
     return '📎 Ek';
   }
 
-  private async loadRawMessages(where: SQL | undefined, limit?: number): Promise<RawMessageRow[]> {
+  private async loadRawMessages(where: SQL | undefined, limit?: number, direction: 'asc' | 'desc' = 'desc'): Promise<RawMessageRow[]> {
     const base = this.db
       .select({
         id: chatMessages.id,
         body: chatMessages.body,
+        mentionUserIds: chatMessages.mentionUserIds,
+        pinnedAt: chatMessages.pinnedAt,
+        forwardedFromId: chatMessages.forwardedFromId,
         senderId: chatMessages.senderId,
         senderName: users.fullName,
         createdAt: chatMessages.createdAt,
@@ -662,7 +856,7 @@ export class ChatService {
       .from(chatMessages)
       .innerJoin(users, eq(chatMessages.senderId, users.id))
       .where(where)
-      .orderBy(desc(chatMessages.createdAt));
+      .orderBy(...(direction === 'asc' ? [asc(chatMessages.createdAt), asc(chatMessages.id)] : [desc(chatMessages.createdAt), desc(chatMessages.id)]));
     return limit ? base.limit(limit) : base;
   }
 
@@ -677,6 +871,9 @@ export class ChatService {
     return rows.map((r) => ({
       id: r.id,
       body: r.body,
+      mentionUserIds: r.mentionUserIds,
+      pinnedAt: r.pinnedAt,
+      forwardedFromId: r.forwardedFromId,
       senderId: r.senderId,
       senderName: r.senderName,
       createdAt: r.createdAt,
@@ -760,18 +957,21 @@ export class ChatService {
     if (idsByType.quote.length && actor.permissions.has('quotes.read')) {
       const visibility = await companyVisibilityExistsFilter(this.db, actor, quotes.companyId);
       const rows = await this.db
-        .select({ id: quotes.id, documentNo: quotes.documentNo })
+        .select({ id: quotes.id, documentNo: quotes.documentNo, companyName: companies.legalTitle, stage: quoteStatuses.name, amount: quotes.grandTotal, currency: currencies.code })
         .from(quotes)
+        .leftJoin(companies, eq(companies.id, quotes.companyId))
+        .leftJoin(quoteStatuses, eq(quoteStatuses.id, quotes.statusId))
+        .leftJoin(currencies, eq(currencies.id, quotes.currencyId))
         .where(
           and(
             eq(quotes.tenantId, actor.tenantId),
             isNull(quotes.deletedAt),
             resourceDivisionFilter(actor, 'quotes', quotes.divisionId) ?? sql`true`,
-            allowUnlinkedCompanyRecords(opportunities.companyId, visibility),
+            allowUnlinkedCompanyRecords(quotes.companyId, visibility),
             inArray(quotes.id, idsByType.quote)
           )
         );
-      for (const q of rows) map.set(`quote:${q.id}`, { type: 'quote', id: q.id, title: `Teklif ${q.documentNo}`, subtitle: null });
+      for (const q of rows) map.set(`quote:${q.id}`, { type: 'quote', id: q.id, title: `Teklif ${q.documentNo}`, subtitle: q.companyName, companyName: q.companyName, stage: q.stage, amount: q.amount, currency: q.currency });
     }
     if (idsByType.company.length && actor.permissions.has('companies.read')) {
       const visibility = await companyVisibilityFilter(this.db, actor);
@@ -808,8 +1008,11 @@ export class ChatService {
     if (idsByType.opportunity.length && actor.permissions.has('opportunities.read')) {
       const visibility = await companyVisibilityExistsFilter(this.db, actor, opportunities.companyId);
       const rows = await this.db
-        .select({ id: opportunities.id, title: opportunities.title })
+        .select({ id: opportunities.id, title: opportunities.title, companyName: companies.legalTitle, stage: pipelineStages.name, amount: opportunities.estimatedValue, currency: currencies.code })
         .from(opportunities)
+        .leftJoin(companies, eq(companies.id, opportunities.companyId))
+        .leftJoin(pipelineStages, eq(pipelineStages.id, opportunities.currentStageId))
+        .leftJoin(currencies, eq(currencies.id, opportunities.currencyId))
         .where(
           and(
             eq(opportunities.tenantId, actor.tenantId),
@@ -819,7 +1022,7 @@ export class ChatService {
             inArray(opportunities.id, idsByType.opportunity)
           )
         );
-      for (const o of rows) map.set(`opportunity:${o.id}`, { type: 'opportunity', id: o.id, title: o.title, subtitle: 'Satış kartı' });
+      for (const o of rows) map.set(`opportunity:${o.id}`, { type: 'opportunity', id: o.id, title: o.title, subtitle: o.companyName, companyName: o.companyName, stage: o.stage, amount: o.amount, currency: o.currency });
     }
     for (const r of refs) {
       const key = `${r.type}:${r.id}`;
@@ -853,22 +1056,29 @@ export class ChatService {
         )
       );
     for (const r of rows) {
-      const url = await this.storage.getSignedDownloadUrl({
-        actorTenantId: actor.tenantId,
-        bucket: r.bucket,
-        objectKey: r.objectKey,
-      });
       const list = map.get(r.entityId) ?? [];
-      list.push({
-        fileId: r.fileId,
-        url,
-        filename: r.filename,
-        mimeType: r.mimeType,
-        sizeBytes: r.sizeBytes,
-        isImage: r.mimeType.startsWith('image/'),
-      });
+      list.push(await this.signChatAttachment(actor, r));
       map.set(r.entityId, list);
     }
     return map;
+  }
+
+  private async signChatAttachment(
+    actor: AuthContext,
+    row: Omit<AttachmentDto, 'url' | 'isImage'> & { bucket: string; objectKey: string },
+  ): Promise<AttachmentDto> {
+    const url = await this.storage.getSignedDownloadUrl({
+      actorTenantId: actor.tenantId,
+      bucket: row.bucket,
+      objectKey: row.objectKey,
+    });
+    return {
+      fileId: row.fileId,
+      url,
+      filename: row.filename,
+      mimeType: row.mimeType,
+      sizeBytes: row.sizeBytes,
+      isImage: row.mimeType.startsWith('image/'),
+    };
   }
 }

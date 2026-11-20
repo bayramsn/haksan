@@ -1,9 +1,10 @@
 import { Card } from "../ui/card";
 import { Avatar, AvatarFallback } from "../ui/avatar";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../ui/table";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow, type TableSort } from "../ui/table";
+import { compareTableValues, type TableSortValue } from "../ui/tableSorting";
 import { Button } from "../ui/button";
 import { Badge } from "../ui/badge";
-import { Search, ArrowUpDown, Building2, MoreHorizontal, CheckCircle2, RotateCcw, AlertTriangle, CalendarClock, Cpu, Trash2, Trophy } from "lucide-react";
+import { Search, Building2, MoreHorizontal, CheckCircle2, RotateCcw, AlertTriangle, CalendarClock, Cpu, Trash2, Trophy } from "lucide-react";
 import {
   QUALIFICATION_STAGE_LABELS,
   QUALIFICATION_STAGES,
@@ -13,7 +14,12 @@ import {
 } from "../../lib/mock";
 import { useEffect, useMemo, useState } from "react";
 import { useStore } from "../../lib/store";
+import { useCompanyCardDetails } from "../../lib/companyServerData";
+import { matchesOpportunitySearch } from "../../lib/opportunitySearch";
+import { matchesOpportunityLocation, opportunityCity, opportunityRegion, OPPORTUNITY_REGIONS } from "../../lib/opportunityLocation";
+import { PROVINCE_NAMES } from "../../lib/geo";
 import { inMonth, parseMonthQuery } from "../../lib/monthQuery";
+import { isManualTimelineComment } from "../../lib/opportunityTimeline";
 import { useAuth } from "../../../lib/auth";
 import { toast } from "sonner";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../ui/tabs";
@@ -69,7 +75,7 @@ export function SalesCasesPage({
   initialQuery?: string;
   onAction?: (action: OperationAction) => void;
 }) {
-  const { cases: salesCases, closedCases, customers, users, activities, products, closeCase, deleteCase, reopenCase, updateCase } = useStore();
+  const { cases: salesCases, closedCases, customers, users, activities, offers, products, closeCase, deleteCase, reopenCase, updateCase } = useStore();
   const { hasPermission, hasRole } = useAuth();
   const canDelete = hasPermission("opportunities.delete");
   const canUpdate = hasPermission("opportunities.update");
@@ -131,12 +137,34 @@ export function SalesCasesPage({
     }
   };
   const [q, setQ] = useState("");
+  const [city, setCity] = useState("all");
+  const [region, setRegion] = useState("all");
+  const companyDetailsQuery = useCompanyCardDetails(
+    [...salesCases, ...closedCases].map((item) => item.customerId),
+    customers,
+  );
+  const companyById = useMemo(() => new Map([
+    ...customers.map((company) => [company.id, company] as const),
+    ...Object.entries(companyDetailsQuery.data ?? {}),
+  ]), [customers, companyDetailsQuery.data]);
+  const locationCity = (item: SalesCase) => opportunityCity(item, companyById.get(item.customerId));
+  const cityOptions = PROVINCE_NAMES
+    .filter((value) => region === "all" || opportunityRegion(value) === region)
+    .sort((a, b) => a.localeCompare(b, "tr"))
+    .map((value) => ({ value, label: value }));
   const [stage, setStage] = useState("all");
   const [currency, setCurrency] = useState("all");
   const [companyResolution, setCompanyResolution] = useState("all");
   const [outcome, setOutcome] = useState("all");
   const [outcomeReason, setOutcomeReason] = useState("all");
-  const [nameSort, setNameSort] = useState<"asc" | "desc" | null>(null);
+  const [tableSort, setTableSort] = useState<TableSort | null>(null);
+  const [activityPresence, setActivityPresence] = useState("all");
+  const [offerPresence, setOfferPresence] = useState("all");
+  // Not/yorum ve sistem olayları aktivite sayılmaz (haftalık raporla aynı tanım).
+  const casesWithActivity = useMemo(() => new Set(activities
+    .filter((activity) => activity.salesCaseId && activity.origin !== "system" && !isManualTimelineComment(activity))
+    .map((activity) => activity.salesCaseId)), [activities]);
+  const casesWithOffer = useMemo(() => new Set(offers.map((offer) => offer.salesCaseId).filter(Boolean)), [offers]);
 
   const focusOpen = focus === "open" || focus === "today";
   const focusWon = focus === "won";
@@ -160,6 +188,7 @@ export function SalesCasesPage({
     && salesCase.qualificationStage !== "lost"
   );
   const filtered = salesCases.filter((s) => {
+    if (!matchesOpportunityLocation(locationCity(s), city, region)) return false;
     const qualification = s.qualificationStage ?? "lead";
     if (focusOpen && (qualification === "win" || qualification === "lost")) return false;
     if (focusWon && qualification !== "win") return false;
@@ -177,38 +206,40 @@ export function SalesCasesPage({
     if (outcome === "won" && qualification !== "win") return false;
     if (outcome === "lost" && qualification !== "lost") return false;
     if (outcomeReason !== "all" && reasonKey(s) !== outcomeReason) return false;
-    const c = customers.find((x) => x.id === s.customerId);
-    const query = q.toLocaleLowerCase("tr-TR");
-    return [
-      c?.name,
-      s.leadCompanyTitle,
-      s.leadContactName,
-      s.leadContactValue,
-      s.leadPhone,
-      s.leadEmail,
-      s.leadCity,
-      s.leadDistrict,
-      s.externalMetadata?.candidate?.companyTitle,
-      s.requestedProduct,
-      s.lostProductName,
-      s.lostReason,
-      s.competitor,
-      s.lostCompetitorProductModel,
-      s.lostUnmetConditions,
-    ].some((value) => (value ?? "").toLocaleLowerCase("tr-TR").includes(query));
+    if (activityPresence !== "all" && casesWithActivity.has(s.id) !== (activityPresence === "yes")) return false;
+    if (offerPresence !== "all" && casesWithOffer.has(s.id) !== (offerPresence === "yes")) return false;
+    return matchesOpportunitySearch(s, companyById.get(s.customerId), q);
   });
-  const sorted = useMemo(() => {
-    if (!nameSort) return filtered;
-    return [...filtered].sort((a, b) => {
-      const an = salesCasePartyName(a, customers.find((x) => x.id === a.customerId)).localeCompare(
-        salesCasePartyName(b, customers.find((x) => x.id === b.customerId)),
-        "tr"
-      );
-      return nameSort === "asc" ? an : -an;
-    });
-  }, [filtered, nameSort, customers]);
-
+  const nextActivityFor = (salesCaseId: string) => activities
+    .filter((activity) => activity.salesCaseId === salesCaseId && new Date(activity.date).getTime() >= Date.now() - 86_400_000)
+    .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())[0];
+  const riskFor = (salesCase: SalesCase) => {
+    if (salesCase.qualificationStage === "lost") return { label: "Kaybedildi", className: "border-destructive/20 bg-destructive-soft text-destructive" };
+    const age = Math.floor((Date.now() - new Date(salesCase.createdAt).getTime()) / 86_400_000);
+    if (!salesCase.assignedUserId) return { label: "Sahipsiz", className: "border-destructive/20 bg-destructive-soft text-destructive" };
+    if (!nextActivityFor(salesCase.id) && age > 30) return { label: "Takipsiz", className: "border-warning/20 bg-warning-soft text-warning" };
+    if (!salesCase.isOfferPrepared && age > 14) return { label: "Teklif bekliyor", className: "border-warning/20 bg-warning-soft text-warning" };
+    return { label: "Akışta", className: "border-success/20 bg-success-soft text-success" };
+  };
+  const sortValue = (item: SalesCase, key: string): TableSortValue => {
+    switch (key) {
+      case "party": return salesCasePartyName(item, companyById.get(item.customerId));
+      case "amount": return item.estimatedAmount;
+      case "stage": return QUALIFICATION_STAGE_LABELS[item.qualificationStage ?? "lead"];
+      case "lost": return [item.lostProductName || item.requestedMachine || item.requestedProduct, item.lostReason || item.lostReasonCode, item.competitor, item.lostUnmetConditions].filter(Boolean).join(" · ");
+      case "risk": return `${riskFor(item).label} ${nextActivityFor(item.id)?.title ?? "Sonraki aktivite planlanmamış"}`;
+      case "assigned": return users.find((candidate) => candidate.id === item.assignedUserId)?.name ?? null;
+      case "created": return item.createdAt;
+      default: return null;
+    }
+  };
+  // Bütün filtrelenmiş kayıtlar sıralanır; ardından sayfanın 12 satırı seçilir.
+  const sorted = tableSort ? [...filtered].sort((a, b) => compareTableValues(
+    sortValue(a, tableSort.key), sortValue(b, tableSort.key), tableSort.direction,
+    tableSort.key === "amount" ? "number" : tableSort.key === "created" ? "date" : "text",
+  )) : filtered;
   const { page, setPage, totalPages, pageItems } = usePaged(sorted, 12);
+  useEffect(() => { setPage(1); }, [city, region, q, stage, currency, companyResolution, outcome, outcomeReason, activityPresence, offerPresence, tableSort, setPage]);
 
   const stageOptions = QUALIFICATION_STAGES.map((value) => ({
     value,
@@ -232,12 +263,13 @@ export function SalesCasesPage({
     return [...counts.values()].sort((left, right) => right.count - left.count || left.label.localeCompare(right.label, "tr-TR"));
   }, [allCases]);
   const filteredClosedCases = closedCases.filter((item) => {
+    if (!matchesOpportunityLocation(locationCity(item), city, region)) return false;
     if (outcome === "follow_up") return false;
     if (!inMonth(item.createdAt, focusMonth)) return false;
     if (outcome === "won" && item.qualificationStage !== "win") return false;
     if (outcome === "lost" && item.qualificationStage !== "lost") return false;
     if (outcomeReason !== "all" && reasonKey(item) !== outcomeReason) return false;
-    return true;
+    return matchesOpportunitySearch(item, companyById.get(item.customerId), q);
   });
   useEffect(() => {
     setView(initialView);
@@ -267,21 +299,10 @@ export function SalesCasesPage({
     }
   }, [initialQuery]);
 
-  const exportParams = {
-    ...(q ? { search: q } : {}),
-    ...(stage !== "all" ? { qualificationStage: stage } : {}),
-  };
-  const nextActivityFor = (salesCaseId: string) => activities
-    .filter((activity) => activity.salesCaseId === salesCaseId && new Date(activity.date).getTime() >= Date.now() - 86_400_000)
-    .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())[0];
-  const riskFor = (salesCase: SalesCase) => {
-    if (salesCase.qualificationStage === "lost") return { label: "Kaybedildi", className: "border-destructive/20 bg-destructive-soft text-destructive" };
-    const age = Math.floor((Date.now() - new Date(salesCase.createdAt).getTime()) / 86_400_000);
-    if (!salesCase.assignedUserId) return { label: "Sahipsiz", className: "border-destructive/20 bg-destructive-soft text-destructive" };
-    if (!nextActivityFor(salesCase.id) && age > 30) return { label: "Takipsiz", className: "border-warning/20 bg-warning-soft text-warning" };
-    if (!salesCase.isOfferPrepared && age > 14) return { label: "Teklif bekliyor", className: "border-warning/20 bg-warning-soft text-warning" };
-    return { label: "Akışta", className: "border-success/20 bg-success-soft text-success" };
-  };
+  // Ekrandaki tüm filtrelerden geçmiş kayıtlar; yalnız sayfadaki 12 satır değil.
+  const exportIds = (view === "archive" ? filteredClosedCases : sorted).map((item) => item.id);
+
+
 
   return (
     <Tabs value={view} onValueChange={(v) => setView(v as "list" | "kanban" | "archive")} className="surface-enter space-y-4">
@@ -295,16 +316,35 @@ export function SalesCasesPage({
           <InputGroup className="w-full bg-card sm:w-72">
             <InputGroupAddon><Search className="size-4" aria-hidden="true" /></InputGroupAddon>
             <InputGroupInput
-              placeholder="Firma / kontak / ürün ara..."
+              placeholder="Firma / kontak / şehir / ürün ara..."
               aria-label="Fırsatlarda ara"
               value={q}
               onChange={(e) => setQ(e.target.value)}
             />
           </InputGroup>
+          <select
+            aria-label="İl filtresi"
+            value={city}
+            onChange={(event) => setCity(event.target.value)}
+            className="h-9 w-full rounded-md border border-input bg-card px-3 text-sm shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:w-44"
+          >
+            <option value="all">Tüm iller</option>
+            {cityOptions.map((option) => (
+              <option key={option.value} value={option.value}>{option.label}</option>
+            ))}
+          </select>
           <FilterPopover
             contentClassName="max-h-[min(80vh,44rem)] w-[min(92vw,46rem)] overflow-y-auto"
             filtersClassName="grid gap-3 sm:grid-cols-2"
             filters={[
+              {
+                label: "Bölge", value: region,
+                onChange: (value) => {
+                  setRegion(value);
+                  if (city !== "all" && value !== "all" && opportunityRegion(city) !== value) setCity("all");
+                },
+                options: Object.keys(OPPORTUNITY_REGIONS).sort((a, b) => a.localeCompare(b, "tr")).map((value) => ({ value, label: value })),
+              },
               { label: "Aşama", value: stage, onChange: setStage, options: stageOptions },
               { label: "Para Birimi", value: currency, onChange: setCurrency, options: currencyOptions },
               {
@@ -314,6 +354,24 @@ export function SalesCasesPage({
                 options: [
                   { value: "pending", label: "Firma kararı bekliyor" },
                   { value: "resolved", label: "Firma bağlı" },
+                ],
+              },
+              {
+                label: "Aktivite",
+                value: activityPresence,
+                onChange: setActivityPresence,
+                options: [
+                  { value: "yes", label: "Aktivite var" },
+                  { value: "no", label: "Aktivite yok" },
+                ],
+              },
+              {
+                label: "Teklif",
+                value: offerPresence,
+                onChange: setOfferPresence,
+                options: [
+                  { value: "yes", label: "Teklif var" },
+                  { value: "no", label: "Teklif yok" },
                 ],
               },
               {
@@ -389,7 +447,7 @@ export function SalesCasesPage({
           )}
         </div>
         <div className="flex items-center gap-2">
-          <ExportExcelButton path="/exports/opportunities" filename="firsatlar.xlsx" params={exportParams} className="h-9" />
+          <ExportExcelButton path="/exports/opportunities/selected" filename="firsatlar.xlsx" body={{ ids: exportIds }} disabled={exportIds.length === 0 || companyDetailsQuery.isFetching} requires={["opportunities.read"]} className="h-9" />
         </div>
       </section>
 
@@ -404,31 +462,22 @@ export function SalesCasesPage({
 
       <Card className="border-border/60 shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
-          <Table className="min-w-[980px]">
+          <Table className="min-w-[980px]" sort={tableSort} onSortChange={setTableSort} manualSorting>
             <TableHeader>
               <TableRow className="bg-muted/30 hover:bg-muted/30">
-                <TableHead className="w-[240px] min-w-[240px] bg-muted md:sticky md:left-0 md:z-20 md:w-[320px] md:min-w-[320px]">
-                  <button
-                    type="button"
-                    className="inline-flex items-center gap-1 hover:text-foreground"
-                    onClick={() => setNameSort((s) => (s === "asc" ? "desc" : "asc"))}
-                    aria-label="Firma veya kontağa göre sırala"
-                  >
-                    Firma / Kontak <ArrowUpDown className="size-3" />
-                  </button>
-                </TableHead>
-                <TableHead className="text-right">Tutar</TableHead>
-                <TableHead>Aşama</TableHead>
-                {showLostDetails && <TableHead className="min-w-[280px]">Kaybedilme Detayı</TableHead>}
-                <TableHead>Risk / Sıradaki</TableHead>
-                <TableHead className="hidden sm:table-cell">Atanan</TableHead>
-                <TableHead className="hidden md:table-cell">Açılış</TableHead>
+                <TableHead sortKey="party" sortType="text" className="w-[240px] min-w-[240px] bg-muted md:sticky md:left-0 md:z-20 md:w-[320px] md:min-w-[320px]">Firma / Kontak</TableHead>
+                <TableHead sortKey="amount" sortType="number" className="text-right">Tutar</TableHead>
+                <TableHead sortKey="stage" sortType="text">Aşama</TableHead>
+                {showLostDetails && <TableHead sortKey="lost" sortType="text" className="min-w-[280px]">Kaybedilme Detayı</TableHead>}
+                <TableHead sortKey="risk" sortType="text">Risk / Sıradaki</TableHead>
+                <TableHead sortKey="assigned" sortType="text" className="hidden sm:table-cell">Atanan</TableHead>
+                <TableHead sortKey="created" sortType="date" className="hidden md:table-cell">Açılış</TableHead>
                 <TableHead className="w-12"></TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {pageItems.map((s) => {
-                const c = customers.find((x) => x.id === s.customerId);
+                const c = companyById.get(s.customerId);
                 const u = users.find((x) => x.id === s.assignedUserId);
                 const product = products.find((item) => item.model === s.requestedModel || item.modelName === s.requestedModel);
                 const nextActivity = nextActivityFor(s.id);
@@ -613,10 +662,10 @@ export function SalesCasesPage({
             <Table>
               <TableHeader>
                 <TableRow className="bg-muted/30 hover:bg-muted/30">
-                  <TableHead className="w-[280px]">Müşteri</TableHead>
-                  <TableHead>Ürün / Model</TableHead>
-                  <TableHead>Sonuç</TableHead>
-                  <TableHead>Kapanış</TableHead>
+                  <TableHead sortType="text" className="w-[280px]">Müşteri</TableHead>
+                  <TableHead sortType="text">Ürün / Model</TableHead>
+                  <TableHead sortType="text">Sonuç</TableHead>
+                  <TableHead sortType="date">Kapanış</TableHead>
                   <TableHead className="w-40"></TableHead>
                 </TableRow>
               </TableHeader>
@@ -629,7 +678,7 @@ export function SalesCasesPage({
                   </TableRow>
                 ) : (
                   filteredClosedCases.map((s) => {
-                    const c = customers.find((x) => x.id === s.customerId);
+                    const c = companyById.get(s.customerId);
                     return (
                       <TableRow key={s.id} className="cursor-pointer group" onClick={() => onSelect(s)}>
                         <TableCell>
@@ -647,7 +696,7 @@ export function SalesCasesPage({
                           <div className="text-sm">{s.lostProductName || s.requestedProduct}</div>
                           {s.requestedModel && <div className="mt-0.5 text-xs text-muted-foreground">{s.requestedModel}</div>}
                         </TableCell>
-                        <TableCell>
+                        <TableCell data-sort-value={QUALIFICATION_STAGE_LABELS[s.qualificationStage ?? "lead"]}>
                           <QualificationBadge stage={s.qualificationStage} />
                           {s.qualificationStage === "lost" && (
                             <div className="mt-1 max-w-[280px] text-xs text-muted-foreground">

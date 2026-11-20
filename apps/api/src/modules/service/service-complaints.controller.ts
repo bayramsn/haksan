@@ -218,8 +218,8 @@ export class ServiceComplaintsController {
     return device;
   }
 
-  private async assertAssignedUser(userId: string, tenantId: string) {
-    const user = await this.db.query.users.findFirst({
+  private async assertAssignedUser(userId: string, tenantId: string, db: DbClient = this.db) {
+    const user = await db.query.users.findFirst({
       where: and(eq(usersTable.id, userId), eq(usersTable.tenantId, tenantId), isNull(usersTable.deletedAt)),
     });
     if (!user) throw new NotFoundError('Kullanıcı');
@@ -315,13 +315,13 @@ export class ServiceComplaintsController {
     );
   }
 
-  private async copyComplaintFilesToTicket(complaintId: string, ticketId: string, tenantId: string) {
-    const complaintLinks = await this.db
+  private async copyComplaintFilesToTicket(complaintId: string, ticketId: string, tenantId: string, db: DbClient = this.db) {
+    const complaintLinks = await db
       .select()
       .from(fileLinks)
       .where(and(eq(fileLinks.tenantId, tenantId), eq(fileLinks.entityType, 'service_complaint_intake'), eq(fileLinks.entityId, complaintId)));
     if (!complaintLinks.length) return;
-    const existing = await this.db
+    const existing = await db
       .select({ fileId: fileLinks.fileId })
       .from(fileLinks)
       .where(
@@ -335,7 +335,7 @@ export class ServiceComplaintsController {
     const existingSet = new Set(existing.map((row) => row.fileId));
     const missing = complaintLinks.filter((row) => !existingSet.has(row.fileId));
     if (!missing.length) return;
-    await this.db.insert(fileLinks).values(
+    await db.insert(fileLinks).values(
       missing.map((row) => ({
         tenantId,
         fileId: row.fileId,
@@ -347,17 +347,17 @@ export class ServiceComplaintsController {
     );
   }
 
-  private async ensureWarrantyClaim(ticket: typeof serviceTickets.$inferSelect) {
-    const existing = await this.db.query.serviceWarrantyClaims.findFirst({
+  private async ensureWarrantyClaim(ticket: typeof serviceTickets.$inferSelect, db: DbClient = this.db) {
+    const existing = await db.query.serviceWarrantyClaims.findFirst({
       where: and(eq(serviceWarrantyClaims.serviceTicketId, ticket.id), eq(serviceWarrantyClaims.tenantId, ticket.tenantId), isNull(serviceWarrantyClaims.deletedAt)),
     });
     if (existing) return existing;
     const device = ticket.customerDeviceId
-      ? await this.db.query.customerDevices.findFirst({
+      ? await db.query.customerDevices.findFirst({
           where: and(eq(customerDevices.id, ticket.customerDeviceId), eq(customerDevices.tenantId, ticket.tenantId), isNull(customerDevices.deletedAt)),
         })
       : null;
-    const [claim] = await this.db
+    const [claim] = await db
       .insert(serviceWarrantyClaims)
       .values({
         tenantId: ticket.tenantId,
@@ -373,9 +373,9 @@ export class ServiceComplaintsController {
     return claim;
   }
 
-  private async scopedIntake(id: string, user: AuthContext) {
-    const visibility = await companyVisibilityExistsFilter(this.db, user, serviceComplaintIntakes.companyId);
-    const intake = await this.db.query.serviceComplaintIntakes.findFirst({
+  private async scopedIntake(id: string, user: AuthContext, db: DbClient = this.db) {
+    const visibility = await companyVisibilityExistsFilter(db, user, serviceComplaintIntakes.companyId);
+    const intake = await db.query.serviceComplaintIntakes.findFirst({
       where: and(
         eq(serviceComplaintIntakes.id, id),
         eq(serviceComplaintIntakes.tenantId, user.tenantId),
@@ -635,49 +635,58 @@ export class ServiceComplaintsController {
     @Body(new ZodValidationPipe(serviceComplaintConvertSchema)) body: z.infer<typeof serviceComplaintConvertSchema>,
     @CurrentUser() user: AuthContext
   ) {
-    const intake = await this.scopedIntake(id, user);
-    if (intake.status === 'converted') throw new ValidationError('Şikayet zaten servis talebine çevrilmiş');
-    if (intake.status === 'rejected') throw new ValidationError('Reddedilen şikayet servise çevrilemez');
-    if (!intake.companyId) throw new ValidationError('Servis talebi açmak için firma eşleştirilmelidir');
-    if (body.assignedToUserId) await this.assertAssignedUser(body.assignedToUserId, user.tenantId);
-    const openStatus = await this.db.query.serviceTicketStatuses.findFirst({ where: eq(serviceTicketStatuses.code, 'open') });
-    const divisionId = intake.divisionId ?? resolveAssignedResourceDivision(user, 'service_tickets', null);
-    if (!divisionId) throw new ValidationError('Servis kaydı için bölüm ataması zorunludur', { field: 'divisionId' });
-    const businessLine = await resolveBusinessLine(this.db, user.tenantId, divisionId);
-    const [ticket] = await this.db
-      .insert(serviceTickets)
-      .values({
-        tenantId: user.tenantId,
-        ticketNo: await nextSeriesDocumentNo(this.db, user.tenantId, businessLine, 'service'),
-        divisionId,
-        businessLine,
-        companyId: intake.companyId,
-        customerDeviceId: intake.customerDeviceId ?? null,
-        subject: intake.subject,
-        description: intake.description,
-        severity: intake.severity,
-        ticketType: intake.ticketType,
-        source: intake.source,
-        statusId: openStatus?.id ?? null,
-        assignedToUserId: body.assignedToUserId ?? null,
-        metadata: {
-          complaintIntakeId: intake.id,
-          complaintNo: intake.complaintNo,
-          contactName: intake.contactName,
-          contactPhone: intake.contactPhone,
-          contactEmail: intake.contactEmail,
-        },
-      })
-      .returning();
-    if (ticket.ticketType === 'warranty_claim') {
-      await this.ensureWarrantyClaim(ticket);
-    }
-    await this.copyComplaintFilesToTicket(intake.id, ticket.id, user.tenantId);
-    await this.db
-      .update(serviceComplaintIntakes)
-      .set({ status: 'converted', serviceTicketId: ticket.id })
-      .where(eq(serviceComplaintIntakes.id, intake.id));
-    return this.complaintView(intake.id, user.tenantId);
+    // Check visibility before acquiring a lock, then read again after locking so
+    // simultaneous conversions observe the committed result of the first one.
+    await this.scopedIntake(id, user);
+    await this.db.transaction(async (tx) => {
+      await tx.select({ id: serviceComplaintIntakes.id })
+        .from(serviceComplaintIntakes)
+        .where(and(eq(serviceComplaintIntakes.id, id), eq(serviceComplaintIntakes.tenantId, user.tenantId)))
+        .for('update');
+      const intake = await this.scopedIntake(id, user, tx);
+      if (intake.status === 'converted') throw new ValidationError('Şikayet zaten servis talebine çevrilmiş');
+      if (intake.status === 'rejected') throw new ValidationError('Reddedilen şikayet servise çevrilemez');
+      if (!intake.companyId) throw new ValidationError('Servis talebi açmak için firma eşleştirilmelidir');
+      if (body.assignedToUserId) await this.assertAssignedUser(body.assignedToUserId, user.tenantId, tx);
+      const openStatus = await tx.query.serviceTicketStatuses.findFirst({ where: eq(serviceTicketStatuses.code, 'open') });
+      const divisionId = intake.divisionId ?? resolveAssignedResourceDivision(user, 'service_tickets', null);
+      if (!divisionId) throw new ValidationError('Servis kaydı için bölüm ataması zorunludur', { field: 'divisionId' });
+      const businessLine = await resolveBusinessLine(tx, user.tenantId, divisionId);
+      const [ticket] = await tx
+        .insert(serviceTickets)
+        .values({
+          tenantId: user.tenantId,
+          ticketNo: await nextSeriesDocumentNo(tx, user.tenantId, businessLine, 'service'),
+          divisionId,
+          businessLine,
+          companyId: intake.companyId,
+          customerDeviceId: intake.customerDeviceId ?? null,
+          subject: intake.subject,
+          description: intake.description,
+          severity: intake.severity,
+          ticketType: intake.ticketType,
+          source: intake.source,
+          statusId: openStatus?.id ?? null,
+          assignedToUserId: body.assignedToUserId ?? null,
+          metadata: {
+            complaintIntakeId: intake.id,
+            complaintNo: intake.complaintNo,
+            contactName: intake.contactName,
+            contactPhone: intake.contactPhone,
+            contactEmail: intake.contactEmail,
+          },
+        })
+        .returning();
+      if (ticket.ticketType === 'warranty_claim') {
+        await this.ensureWarrantyClaim(ticket, tx);
+      }
+      await this.copyComplaintFilesToTicket(intake.id, ticket.id, user.tenantId, tx);
+      await tx
+        .update(serviceComplaintIntakes)
+        .set({ status: 'converted', serviceTicketId: ticket.id })
+        .where(eq(serviceComplaintIntakes.id, intake.id));
+    });
+    return this.complaintView(id, user.tenantId);
   }
 
   @RequirePermissions('service_tickets.update')

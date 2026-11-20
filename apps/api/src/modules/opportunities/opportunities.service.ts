@@ -1,3 +1,4 @@
+import { upsertInventoryCustomerDevice } from '../../shared/utils/customer-device-upsert';
 import { Inject, Injectable } from '@nestjs/common';
 import { and, asc, desc, eq, ilike, inArray, isNotNull, isNull, or, sql } from 'drizzle-orm';
 import type { DbClient } from '../../db/client';
@@ -165,6 +166,7 @@ const APPROVAL_LABELS: Record<OpportunityApprovalType, string> = {
 type QualificationContext = {
   company: { id: string; sector: string | null } | null;
   hasLocation: boolean;
+  hasContact: boolean;
   hasAddress: boolean;
   hasPhone: boolean;
   hasEmail: boolean;
@@ -337,7 +339,8 @@ export class OpportunitiesService {
     const companyIds = [...new Set(rows.map((row) => row.companyId).filter((id): id is string => Boolean(id)))];
     if (!opportunityIds.length) return new Map<string, QualificationContext>();
 
-    const [companyRows, addressRows, phoneRows, emailRows, callRows, activityRows, approvalRows, quoteRows] = await Promise.all([
+    const contactIds = [...new Set(rows.map((row) => row.primaryContactId).filter((id): id is string => Boolean(id)))];
+    const [companyRows, addressRows, phoneRows, emailRows, callRows, activityRows, approvalRows, quoteRows, contactRows] = await Promise.all([
       companyIds.length
         ? this.db
             .select({ id: companies.id, sector: companies.sector })
@@ -441,8 +444,19 @@ export class OpportunitiesService {
             isNull(quotes.deletedAt)
           )
         ),
+      contactIds.length
+        ? this.db.select({ id: contacts.id, companyId: contacts.companyId, linkedCompanyId: contactCompanies.companyId })
+            .from(contacts)
+            .leftJoin(contactCompanies, and(eq(contactCompanies.contactId, contacts.id), eq(contactCompanies.tenantId, rows[0].tenantId)))
+            .where(and(eq(contacts.tenantId, rows[0].tenantId), inArray(contacts.id, contactIds), isNull(contacts.deletedAt)))
+        : Promise.resolve([]),
     ]);
 
+    const validContacts = new Set<string>();
+    for (const contact of contactRows) {
+      if (contact.companyId) validContacts.add(`${contact.id}:${contact.companyId}`);
+      if (contact.linkedCompanyId) validContacts.add(`${contact.id}:${contact.linkedCompanyId}`);
+    }
     const companiesById = new Map(companyRows.map((row) => [row.id, row]));
     const addressesByCompany = new Map<string, typeof addressRows>();
     for (const row of addressRows) {
@@ -478,6 +492,7 @@ export class OpportunitiesService {
           row.id,
           {
             company: companyId ? companiesById.get(companyId) ?? null : null,
+            hasContact: Boolean(row.primaryContactId && companyId && validContacts.has(`${row.primaryContactId}:${companyId}`)),
             hasLocation: addresses.some((address) => Boolean(address.province?.trim() && address.district?.trim())),
             hasAddress: addresses.some((address) => Boolean(address.fullAddress?.trim())),
             hasPhone: Boolean(companyId && phones.has(companyId)),
@@ -583,7 +598,7 @@ export class OpportunitiesService {
     } else if (stage === 'c') {
       checks.push(
         { key: 'company', label: 'Firma bağlı', complete: Boolean(context.company) },
-        { key: 'contact', label: 'Kontak bağlı', complete: Boolean(row.primaryContactId) },
+        { key: 'contact', label: 'Kontak bağlı', complete: context.hasContact },
         { key: 'location', label: 'İl ve ilçe girildi', complete: context.hasLocation },
         { key: 'address', label: 'Açık adres girildi', complete: context.hasAddress },
         { key: 'email', label: 'E-posta girildi', complete: context.hasEmail },
@@ -860,8 +875,8 @@ export class OpportunitiesService {
       note: manual.note ?? null,
       noteUpdatedAt: manual.updatedAt?.toISOString() ?? null,
       noteUpdatedByName: manual.updatedByName ?? null,
-      // Elle verilen karar kanıttan türetilen değerin yerine geçer.
-      complete: status === 'done' ? true : status === 'not_done' ? false : definition.complete,
+      // İşaret ve yorum korunur; eksik gerçek kanıt elle tamamlanmış sayılamaz.
+      complete: status === 'not_done' ? false : definition.complete,
     };
   }
 
@@ -930,6 +945,37 @@ export class OpportunitiesService {
     return this.get(id, actor);
   }
 
+  /** Canonical pre-save requirements; the quote itself is deliberately excluded. */
+  async quoteReadiness(id: string, actor: AuthContext) {
+    const opp = await this.findScopedOpp(id, actor);
+    const contexts = await this.qualificationContexts([opp]);
+    // Only pre-quote evidence is relevant here; do not require a quote to create one.
+    const checks = this.processCheckDefinitions(opp, contexts.get(opp.id)!, {} as ProcessEvidence)
+      .filter((item) => item.key !== 'quote' && PIPELINE_STAGE_FLOW.indexOf(item.requiredAt) <= PIPELINE_STAGE_FLOW.indexOf('quote'))
+      .map(({ key, label, actionKey, complete }) => ({ key, label, actionKey, complete }));
+    const blockers: Array<{ key: string; label: string; actionKey: string }> = checks.filter((item) => !item.complete).map(({ key, label, actionKey }) => ({ key, label, actionKey }));
+    if (opp.closedAt || this.qualificationStage(opp.qualificationStage) === 'lost') {
+      blockers.unshift({ key: 'active_opportunity', label: 'Fırsat açık ve aktif olmalı', actionKey: 'open_opportunity' });
+    }
+    return { opportunityId: opp.id, ready: blockers.length === 0, checks, blockers };
+  }
+
+  async assertQuoteReady(id: string | null | undefined, actor: AuthContext) {
+    if (!id) {
+      throw new ValidationError('Teklif kaydetmeden önce fırsat bilgilerini tamamlayın', {
+        reason: 'QUOTE_REQUIREMENTS_INCOMPLETE', opportunityId: null,
+        blockers: [{ key: 'opportunity', label: 'Teklif için fırsat bağlayın', actionKey: 'link_opportunity' }],
+      });
+    }
+    const readiness = await this.quoteReadiness(id, actor);
+    if (!readiness.ready) {
+      throw new ValidationError('Teklif kaydetmeden önce eksik bilgileri tamamlayın', {
+        reason: 'QUOTE_REQUIREMENTS_INCOMPLETE', opportunityId: id, blockers: readiness.blockers,
+      });
+    }
+    return readiness;
+  }
+
   private processCheckDefinitions(
     row: typeof opportunities.$inferSelect,
     context: QualificationContext,
@@ -956,7 +1002,7 @@ export class OpportunitiesService {
       check('owner', 'Sorumlu atandı', Boolean(row.ownerUserId), 'assign_owner', 'sales', 'lead'),
       check('subject', 'Konu girildi', Boolean(row.title?.trim()), 'edit_subject', 'sales', 'lead'),
       check('company', 'Firma bağlı', Boolean(context.company), 'link_company', 'call', 'c'),
-      check('contact', 'Kontak bağlı', Boolean(row.primaryContactId), 'link_contact', 'call', 'c'),
+      check('contact', 'Kontak bağlı', context.hasContact, 'link_contact', 'call', 'c'),
       check('location', 'İl ve ilçe girildi', context.hasLocation, 'edit_company', 'call', 'c'),
       check('address', 'Açık adres girildi', context.hasAddress, 'edit_company', 'call', 'c'),
       check('email', 'E-posta girildi', context.hasEmail, 'edit_company', 'call', 'c'),
@@ -1940,6 +1986,7 @@ export class OpportunitiesService {
       qualificationStage?: QualificationStageCode;
       lifecycle?: 'lead' | 'opportunity';
       companyId?: string;
+      ownerUserId?: string;
       view?: 'active' | 'closed' | 'all';
       lostReasonCode?: string;
       wonReason?: string;
@@ -1964,6 +2011,7 @@ export class OpportunitiesService {
       );
     }
     if (query.companyId) filters.push(eq(opportunities.companyId, query.companyId));
+    if (query.ownerUserId) filters.push(eq(opportunities.ownerUserId, query.ownerUserId));
     if (query.lostReasonCode) {
       filters.push(
         sql`exists (select 1 from cancellation_reasons cr where cr.id = ${opportunities.lostReasonId} and cr.code = ${query.lostReasonCode})`
@@ -2737,16 +2785,15 @@ export class OpportunitiesService {
 
       try {
         let selectedCompany: typeof companies.$inferSelect | null = null;
-        // Eski istemcilerden gelebilecek `lead` eşlemesini de savunmacı olarak
-        // C'nin operasyon başlangıcı olan `sales` alanına taşırız.
-        const effectiveStageCode: PipelineStageCode = row.stageCode === 'lead' ? 'sales' : row.stageCode;
+        // İçeri aktarma süreç gerekliliklerini atlayamaz; her kart Lead'den başlar.
+        const effectiveStageCode: PipelineStageCode = 'lead';
         let stage = stageCache.get(effectiveStageCode);
         if (!stage) {
           stage = await this.stageRowByCode(effectiveStageCode);
           stageCache.set(effectiveStageCode, stage);
         }
         const assignment =
-          stage.code === 'sales'
+          stage.code === 'lead'
             ? await this.resolveLeadOwner({
                 tenantId: actor.tenantId,
                 divisionId,
@@ -3671,10 +3718,17 @@ export class OpportunitiesService {
       this.leadActivityContexts([opp]),
     ]);
     const context = contextMap.get(opp.id)!;
+    const readiness = await this.opportunityProcessReadiness(opp, 'lead', context, actor);
+    const target = readiness.targets.find((item) => item.axis === 'qualification' && item.code === 'c');
+    if (!target?.canTransition) {
+      throw new ValidationError('Hedef satış alanı için eksik gereklilikler var', {
+        blockers: target?.blockers ?? [],
+        blockerLabels: target?.blockers.map((blocker) => blocker.label) ?? [],
+        fromStage, toStage: 'c',
+      });
+    }
     const insights = this.leadInsights(opp, activityMap.get(opp.id));
-    // Lead, satış ekibinin kararıyla her an fırsata çevrilebilir. Eksik alanlar
-    // dönüşümü engellemez; C aşamasının hazırlık listesinde görünmeye devam eder.
-    // Uyarıları denetim kaydına alarak veri kalitesini görünür tutuyoruz.
+    // Zorunlu süreç kapısı yukarıda uygulanır; ek satış sağlığı uyarıları denetime yazılır.
     const conversionWarnings: string[] = [];
     if (!opp.ownerUserId) conversionWarnings.push('Sorumlu kullanıcı atanmamış');
     if (
@@ -4102,7 +4156,7 @@ export class OpportunitiesService {
     if (!qualificationTerminal && !legacyTerminal) {
       throw new ValidationError('Yalnız WIN veya LOST durumundaki fırsatlar kapatılabilir');
     }
-    if (qualificationStage === 'win' || stage?.code === 'delivered') {
+    if (stage?.code === 'delivered') {
       // Cihaz/garanti kayıtları teslim aşamasında oluşmuş olmalı; oluşmadıysa (stok yok vb.)
       // kapanışı bloke etme — kurulu cihaz envanteri ayrıca düzeltilebilir.
       try {
@@ -4615,16 +4669,11 @@ export class OpportunitiesService {
       }
     }
     if (movingForward && input.toStage === 'installation') {
-      // Garanti, tezgâhın kurulumuyla başlar: rezerve stok kalemlerinden
-      // müşteri cihazı / garanti kayıtları oluşturulur (idempotent).
-      await this.ensureWarrantyDevices(opp, actor, input.inventoryItemIds);
-      // Satıştan servise devir: servis ekibi Kurulum listesinde görebilsin diye
-      // bir kurulum kaydı oluşturulur (idempotent).
+      // Schedule the installation; customer-device identity is created after a completed sale/delivery.
       await this.ensureInstallationJob(opp, actor);
     }
     if (movingForward && input.toStage === 'delivered') {
-      // Cihaz/garanti kayıtları kurulumda oluşturulmuş olabilir; tekrar çağırmak
-      // güvenlidir (idempotent). Kurulum atlandıysa burada oluşturulur.
+      // Completed delivery reuses the invoice device, or creates one if not yet present.
       await this.ensureWarrantyDevices(opp, actor, input.inventoryItemIds);
       const won = await this.db.query.opportunityStatuses.findFirst({ where: eq(opportunityStatuses.code, 'won') });
       if (won) patch.statusId = won.id;
@@ -4759,7 +4808,7 @@ export class OpportunitiesService {
    * kayıt oluşmaz.
    */
   private async ensureWarrantyDevices(
-    opp: { id: string; companyId: string | null; divisionId: string | null },
+    opp: { id: string; companyId: string | null; divisionId: string | null; primaryContactId?: string | null },
     actor: AuthContext,
     inventoryItemIds?: string[],
   ) {
@@ -4770,18 +4819,6 @@ export class OpportunitiesService {
     const soldStatus = await this.db.query.inventoryStatuses.findFirst({ where: eq(inventoryStatuses.code, 'sold') });
     const activeWarranty = await this.db.query.warrantyStatuses.findFirst({ where: eq(warrantyStatuses.code, 'active') });
     let ids = [...new Set(inventoryItemIds ?? [])];
-    if (!ids.length) {
-      const existingDevices = await this.db
-        .select({ id: customerDevices.id })
-        .from(customerDevices)
-        .where(and(
-          eq(customerDevices.tenantId, actor.tenantId),
-          eq(customerDevices.opportunityId, opp.id),
-          isNull(customerDevices.deletedAt),
-        ))
-        .limit(1);
-      if (existingDevices.length) return;
-    }
     if (!ids.length) {
       const reservationRows = await this.db
         .select({ inventoryItemId: inventoryMovements.inventoryItemId })
@@ -4808,6 +4845,18 @@ export class OpportunitiesService {
       ids = reservedRows.map((row) => row.id);
     }
     if (!ids.length) {
+      const existingDevices = await this.db
+        .select({ id: customerDevices.id })
+        .from(customerDevices)
+        .where(and(
+          eq(customerDevices.tenantId, actor.tenantId),
+          eq(customerDevices.opportunityId, opp.id),
+          isNull(customerDevices.deletedAt),
+        ))
+        .limit(1);
+      if (existingDevices.length) return;
+    }
+    if (!ids.length) {
       throw new ValidationError('Kurulum için bu karta bağlı stok seçimi bulunamadı');
     }
     const selected = await this.db.query.inventoryItems.findMany({
@@ -4825,35 +4874,18 @@ export class OpportunitiesService {
       if (item.reservedCompanyId && item.reservedCompanyId !== opp.companyId) {
         throw new ValidationError('Seçilen stok kalemi bu firmaya rezerve edilmemiş');
       }
-      const existing = await this.db
-        .select({ id: customerDevices.id, opportunityId: customerDevices.opportunityId })
-        .from(customerDevices)
-        .where(and(
-          eq(customerDevices.tenantId, actor.tenantId),
-          eq(customerDevices.inventoryItemId, item.id),
-          isNull(customerDevices.deletedAt),
-        ))
-        .limit(1);
-      if (existing.length) {
-        if (existing[0].opportunityId === opp.id) continue;
-        throw new ValidationError('Seçilen seri no başka bir müşteri cihazına bağlı');
-      }
-      await this.db.insert(customerDevices).values({
-        tenantId: actor.tenantId,
-        divisionId: opp.divisionId,
-        companyId: opp.companyId,
-        initialCompanyId: opp.companyId,
-        inventoryItemId: item.id,
-        opportunityId: opp.id,
-        saleDate: new Date(),
-        deliveryDate: new Date(),
-        warrantyStartDate: new Date(),
-        warrantyEndDate: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
-        statusId: activeWarranty?.id ?? null,
+      await this.db.transaction(async (tx) => {
+        const now = new Date();
+        await upsertInventoryCustomerDevice(tx, actor, {
+          tenantId: actor.tenantId, divisionId: opp.divisionId, companyId: opp.companyId!,
+          contactId: opp.primaryContactId ?? null, inventoryItemId: item.id, opportunityId: opp.id,
+          saleDate: now, deliveryDate: now, warrantyStartDate: now,
+          warrantyEndDate: new Date(now.getTime() + 365 * 24 * 60 * 60 * 1000), statusId: activeWarranty?.id ?? null,
+        });
+        if (soldStatus) await tx.update(inventoryItems).set({ stockStatusId: soldStatus.id }).where(and(
+          eq(inventoryItems.id, item.id), eq(inventoryItems.tenantId, actor.tenantId),
+        ));
       });
-      if (soldStatus) {
-        await this.db.update(inventoryItems).set({ stockStatusId: soldStatus.id }).where(eq(inventoryItems.id, item.id));
-      }
     }
   }
 

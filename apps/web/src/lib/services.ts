@@ -1,3 +1,4 @@
+import { commercialPdfService } from './commercialPdf';
 /**
  * Thin domain service wrappers around the API client. These are the only
  * place in the frontend that talks to backend endpoints.
@@ -75,6 +76,7 @@ import type {
   ProductCreateInput,
   ProductDetailsReplaceInput,
   ProductEquipmentCreateInput,
+  ProductStandardEquipmentUpdateInput,
   ProductSpecCreateInput,
   ProductSpecTemplateCreateInput,
   ProductSpecTemplateUpdateInput,
@@ -462,9 +464,17 @@ export const notificationService = {
 };
 
 export const mailService = {
-  account: () => api.get<UserMailAccountStatus>('/mail/account'),
-  connect: (body: UserMailAccountUpsertInput) => api.put<UserMailAccountStatus>('/mail/account', body),
-  disconnect: () => api.delete<{ ok: true }>('/mail/account'),
+  /** Süper admin: webmail ayarı yapılabilecek kullanıcılar. */
+  accountUsers: () => api.get<{ id: string; name: string; email: string; hasMailAccount: boolean }[]>('/mail/account/users'),
+  // `userId` verilirse o kullanıcının hesabı (yalnız süper admin); verilmezse kendi hesabın.
+  signature: (signature: string | null, userId?: string) =>
+    api.put<UserMailAccountStatus>(userId ? `/mail/account/users/${userId}/signature` : '/mail/signature', { signature }),
+  saveSignature: (body: { image: string | null; filename: string | null }, userId?: string) =>
+    api.put<UserMailAccountStatus>(userId ? `/mail/account/users/${userId}/signature/image` : '/mail/signature/image', body),
+  account: (userId?: string) => api.get<UserMailAccountStatus>(userId ? `/mail/account/users/${userId}` : '/mail/account'),
+  connect: (body: UserMailAccountUpsertInput, userId?: string) =>
+    api.put<UserMailAccountStatus>(userId ? `/mail/account/users/${userId}` : '/mail/account', body),
+  disconnect: (userId?: string) => api.delete<{ ok: true }>(userId ? `/mail/account/users/${userId}` : '/mail/account'),
   send: (body: MailSendInput) => api.post<MailSendResult>('/mail/send', body),
   /** Alıcı seçicisi: firmanın kontakları + kendi kullanıcılarımız. */
   recipients: (companyId?: string) =>
@@ -502,6 +512,7 @@ export const contactService = {
 
 // ───── Opportunities ─────
 export const opportunityService = {
+  quoteReadiness: (id: string) => api.get<import("../app/lib/quoteRequirements").QuoteReadiness>(`/opportunities/${id}/quote-readiness`),
   list: (params?: Record<string, string | number | undefined>) => api.get<Paginated<any>>(`/opportunities${qs(params)}`),
   get: (id: string) => api.get<any>(`/opportunities/${id}`),
   assignees: () => api.get<Array<{ id: string; name: string; divisionIds: string[] }>>('/opportunities/assignees'),
@@ -573,6 +584,8 @@ export interface CalendarEventDTO {
   contactId: string | null;
   opportunityId: string | null;
   visitId: string | null;
+  /** Müşteri ziyaretinin CRM aktivitesi; raporlar ziyareti bu kayıttan sayar. */
+  activityId: string | null;
   completedAt: string | null;
   /** Atayan kişi. owner_user_id'den farklıysa kayıt biri tarafından atanmıştır. */
   createdBy: string | null;
@@ -741,6 +754,54 @@ export const tasksService = {
   remove: (id: string) => api.delete<{ deleted: boolean }>(`/tasks/${id}`),
 };
 
+// ───── Fuar görüşmeleri ─────
+export type TradeFairFollowUp = {
+  contacted: boolean;
+  contactMethod: 'phone' | 'whatsapp' | 'email' | 'in_person' | 'other' | null;
+  contactDate: string | null;
+  contactNotes: string | null;
+  offerSent: boolean;
+  customerConverted: boolean;
+};
+export type TradeFairContactDTO = TradeFairFollowUp & {
+  id: string;
+  fairName: string;
+  companyName: string;
+  contactName: string;
+  contactTitle: string | null;
+  mobilePhone: string | null;
+  email: string | null;
+  country: string;
+  province: string | null;
+  district: string | null;
+  productCategory: string | null;
+  productType: string | null;
+  notes: string | null;
+  metByUserId: string | null;
+  metByName: string | null;
+  visitorCount: number;
+  createdBy: string | null;
+  createdAt: string;
+};
+export type TradeFairContactBody = Omit<TradeFairContactDTO, "id" | "metByName" | "createdBy" | "createdAt">;
+export type TradeFairSummary = {
+  fairs: Array<{ name: string; total: number; lastAt: string }>;
+  byUser: Array<{ userId: string | null; fullName: string | null; meetings: number; people: number }>;
+};
+
+export type TradeFairPhoto = { id: string; fileId: string; filename: string; mimeType: string; uploadedBy: string | null; record: TradeFairContactDTO };
+
+export const tradeFairService = {
+  photos: () => api.get<TradeFairPhoto[]>('/trade-fairs/photos'),
+  list: (params: { fairName?: string; q?: string; metByUserId?: string; province?: string; photosOnly?: boolean; page?: number; pageSize?: number; sortBy?: "name" | "communication" | "location" | "product" | "staff" | "followUp" | "createdAt"; sortDir?: "asc" | "desc" } = {}) =>
+    api.get<Paginated<TradeFairContactDTO>>(`/trade-fairs${qs(params)}`),
+  summary: (fairName?: string) => api.get<TradeFairSummary>(`/trade-fairs/summary${qs({ fairName })}`),
+  staff: () => api.get<Array<{ id: string; fullName: string }>>('/trade-fairs/staff'),
+  create: (body: TradeFairContactBody) => api.post<TradeFairContactDTO>('/trade-fairs', body),
+  update: (id: string, body: Partial<TradeFairContactBody>) => api.patch<TradeFairContactDTO>(`/trade-fairs/${id}`, body),
+  remove: (id: string) => api.delete<{ deleted: boolean }>(`/trade-fairs/${id}`),
+};
+
 export const calendarService = {
   events: (params: { from: string; to: string; ownerUserId?: string; includeArchived?: boolean }) =>
     api.get<CalendarEventDTO[]>(`/calendar/events${qs(params)}`),
@@ -782,8 +843,14 @@ export const productService = {
   commitImport: (body: { rows: ProductImportRow[]; mode?: 'upsert' | 'create_only'; replaceDetails?: boolean; divisionId?: string }) =>
     api.post<{ rows: ProductImportRow[]; summary: ProductImportSummary }>('/products/import/commit', body),
   specs: (id: string) => api.get<any[]>(`/products/${id}/specs`),
-  specTemplates: (productTypeCode?: string) => api.get<any[]>(`/product-spec-templates${qs({ productTypeCode })}`),
+  specTemplates: (productTypeCode?: string, divisionId?: string) => api.get<any[]>(`/product-spec-templates${qs({ productTypeCode, divisionId })}`),
   options: (id: string) => api.get<any[]>(`/products/${id}/options`),
+  addOptionSet: (id: string, body: unknown) => api.post<any>(`/products/${id}/options`, body),
+  updateOptionSet: (id: string, body: unknown) => api.patch<any>(`/products/options/${id}`, body),
+  archiveOptionSet: (id: string) => api.delete<any>(`/products/options/${id}`),
+  addOptionValue: (id: string, body: unknown) => api.post<any>(`/products/options/${id}/values`, body),
+  updateOptionValue: (id: string, body: unknown) => api.patch<any>(`/products/options/values/${id}`, body),
+  archiveOptionValue: (id: string) => api.delete<any>(`/products/options/values/${id}`),
   addSpec: (id: string, body: ProductSpecCreateInput) => api.post<any>(`/products/${id}/specs`, body),
   equipment: (id: string) => api.get<any[]>(`/products/${id}/equipment`),
   compatibleOptionalEquipment: (id: string) => api.get<any[]>(`/products/${id}/compatible-optional-equipment`),
@@ -793,6 +860,7 @@ export const productService = {
     ),
   addEquipment: (id: string, body: ProductEquipmentCreateInput) => api.post<any>(`/products/${id}/equipment`, body),
   replaceDetails: (id: string, body: ProductDetailsReplaceInput) => api.put<any>(`/products/${id}/details`, body),
+  updateStandardEquipment: (id: string, body: ProductStandardEquipmentUpdateInput) => api.put<{ ok: boolean }>(`/products/${id}/standard-equipment`, body),
   listPriceLists: (params?: Record<string, string | number | undefined>) => api.get<Paginated<any>>(`/price-lists${qs(params)}`),
   createPriceList: (body: PriceListCreateInput) => api.post<any>('/price-lists', body),
   updatePriceList: (id: string, body: PriceListUpdateInput) => api.patch<any>(`/price-lists/${id}`, body),
@@ -848,6 +916,7 @@ export const quoteService = {
   deleteItem: (id: string, itemId: string) => api.delete(`/quotes/${id}/items/${itemId}`),
   terms: (id: string, body: QuoteTermsUpsertInput) => api.put<any>(`/quotes/${id}/terms`, body),
   approve: (id: string) => api.post(`/quotes/${id}/approve`),
+  revokeApproval: (id: string) => api.post(`/quotes/${id}/revoke-approval`),
   approvePrice: (id: string, note?: string) => api.post<any>(`/quotes/${id}/price-approval/approve`, { note }),
   rejectPrice: (id: string, note?: string) => api.post<any>(`/quotes/${id}/price-approval/reject`, { note }),
   reject: (id: string) => api.post(`/quotes/${id}/reject`),
@@ -857,52 +926,8 @@ export const quoteService = {
    * Teklif PDF'ini backend'den (PDFKit) indirir. Endpoint binary döndürdüğü için
    * api client yerine token'lı ham fetch + blob indirmesi kullanılır.
    */
-  downloadPdf: async (id: string, documentNo?: string): Promise<void> => {
-    const base = (import.meta.env.VITE_API_BASE_URL as string) ?? 'http://localhost:3000/api/v1';
-    const token = getAccessToken();
-    const res = await fetch(`${base}/quotes/${id}/generate-pdf`, {
-      method: 'POST',
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
-      credentials: 'include',
-    });
-    if (!res.ok) throw new Error(`PDF indirilemedi (HTTP ${res.status})`);
-    const blob = await res.blob();
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `teklif-${documentNo ?? id}.pdf`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-  },
-  /**
-   * Teklif PDF'ini yeni sekmede açar (tarayıcı PDF görüntüleyicisi). Blob URL
-   * hemen iptal edilmez; sekme açıldıktan sonra GC ile temizlenir.
-   */
-  openPdf: async (id: string): Promise<void> => {
-    const base = (import.meta.env.VITE_API_BASE_URL as string) ?? 'http://localhost:3000/api/v1';
-    const token = getAccessToken();
-    const res = await fetch(`${base}/quotes/${id}/generate-pdf`, {
-      method: 'POST',
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
-      credentials: 'include',
-    });
-    if (!res.ok) throw new Error(`PDF oluşturulamadı (HTTP ${res.status})`);
-    const blob = await res.blob();
-    const url = URL.createObjectURL(new Blob([blob], { type: 'application/pdf' }));
-    const win = window.open(url, '_blank', 'noopener');
-    if (!win) {
-      // Pop-up engellendi → indirmeye düş
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `teklif-${id}.pdf`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-    }
-    setTimeout(() => URL.revokeObjectURL(url), 60_000);
-  },
+  downloadPdf: (id: string, _documentNo?: string): Promise<void> => commercialPdfService.present('quote', id, 'download'),
+  openPdf: (id: string): Promise<void> => commercialPdfService.present('quote', id, 'open'),
 };
 
 // ───── Note templates (reusable quote notes) ─────
@@ -1515,6 +1540,10 @@ export interface ChatReplyPreview {
   preview: string;
 }
 export interface ChatRefCard {
+  companyName?: string | null;
+  stage?: string | null;
+  amount?: string | number | null;
+  currency?: string | null;
   type: 'quote' | 'company' | 'service_ticket' | 'opportunity';
   id: string;
   title: string;
@@ -1522,6 +1551,9 @@ export interface ChatRefCard {
   missing?: boolean;
 }
 export interface ChatMessageDTO {
+  mentionUserIds?: string[];
+  pinnedAt?: string | null;
+  forwardedFromId?: string | null;
   id: string;
   body: string | null;
   senderId: string;
@@ -1551,6 +1583,9 @@ export interface ChatConversationSummary {
   myRole: ChatMemberRole;
   members: ChatMemberDTO[];
   unreadCount: number;
+  mentionCount?: number;
+  isFavorite?: boolean;
+  isMuted?: boolean;
   lastMessage: { preview: string; senderId: string; createdAt: string } | null;
   lastActivityAt: string;
 }
@@ -1572,6 +1607,8 @@ export const chatService = {
   directory: () => api.get<ChatDirectoryUser[]>('/chat/directory'),
   webrtcConfig: () => api.get<{ iceServers: RTCIceServer[]; expiresAt: string | null }>('/chat/webrtc-config'),
   conversations: () => api.get<ChatConversationSummary[]>('/chat/conversations'),
+  preferences: (id: string, body: { isFavorite?: boolean; isMuted?: boolean }) => api.patch(`/chat/conversations/${id}/preferences`, body),
+  sharedFiles: (id: string) => api.get<ChatAttachment[]>(`/chat/conversations/${id}/shared-files`),
   createDm: (userId: string) => api.post<ChatConversationDetail>('/chat/conversations/dm', { userId }),
   createGroup: (body: CreateGroupInput) => api.post<ChatConversationDetail>('/chat/conversations/group', body),
   conversation: (id: string) => api.get<ChatConversationDetail>(`/chat/conversations/${id}`),
@@ -1580,9 +1617,12 @@ export const chatService = {
   removeMember: (id: string, userId: string) => api.delete(`/chat/conversations/${id}/members/${userId}`),
   setMemberRole: (id: string, userId: string, role: ChatMemberRole) =>
     api.patch(`/chat/conversations/${id}/members/${userId}/role`, { role }),
-  messages: (id: string, params?: { before?: string; limit?: number; search?: string }) =>
+  messages: (id: string, params?: { before?: string; limit?: number; search?: string; around?: string }) =>
     api.get<{ messages: ChatMessageDTO[]; hasMore: boolean }>(`/chat/conversations/${id}/messages${qs(params)}`),
   sendMessage: (id: string, body: SendMessageInput) => api.post<ChatMessageDTO>(`/chat/conversations/${id}/messages`, body),
+  pinned: (id: string) => api.get<ChatMessageDTO[]>(`/chat/conversations/${id}/pinned`),
+  pinMessage: (id: string, pinned: boolean) => api.patch<ChatMessageDTO>(`/chat/messages/${id}/pin`, { pinned }),
+  forwardMessage: (id: string, conversationId: string) => api.post<ChatMessageDTO>(`/chat/messages/${id}/forward`, { conversationId }),
   markRead: (id: string) => api.post(`/chat/conversations/${id}/read`),
   editMessage: (messageId: string, body: string) => api.patch<ChatMessageDTO>(`/chat/messages/${messageId}`, { body }),
   toggleReaction: (messageId: string, emoji: string) =>

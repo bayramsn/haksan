@@ -25,7 +25,7 @@ const listQuerySchema = z.object({
   from: z.coerce.date(),
   to: z.coerce.date(),
   ownerUserId: z.string().uuid().optional(),
-  includeArchived: z.enum(['true', 'false']).transform((value) => value === 'true').default('false'),
+  includeArchived: z.enum(['true', 'false']).transform((value) => value === 'true').prefault('false'),
 });
 
 @UseGuards(AuthGuard, PermissionsGuard)

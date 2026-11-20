@@ -13,6 +13,81 @@ const product = {
   optionalEquipment: [],
 } as unknown as Product;
 
+describe("product technical print equipment", () => {
+  it.each([
+    { label: "empty lists", standard: [], optional: [], totalPages: 2 },
+    { label: "blank rows", standard: ["", " \n "], optional: ["\t"], totalPages: 2 },
+    { label: "standard only", standard: ["Fanuc kontrol ünitesi"], optional: [" "], totalPages: 3 },
+    { label: "optional only", standard: [" "], optional: ["Takım ölçme probu"], totalPages: 3 },
+    { label: "both populated", standard: ["Fanuc kontrol ünitesi"], optional: ["Takım ölçme probu"], totalPages: 3 },
+  ])("uses the quote template without quote header and price pages: $label", ({ standard, optional, totalPages }) => {
+    const doc = productTechnicalDoc({
+      optionalEquipment: optional.map((title) => ({ title })),
+      product: {
+        ...product,
+        specs: [{ key: "X Ekseni", value: "800", unit: "mm" }],
+        standardEquipment: standard,
+        optionalEquipment: optional,
+      },
+    }, "https://example.test/print");
+
+    expect(doc.body).toContain("TEKNİK BİLGİLER");
+    expect(doc.body.includes("TEZGAH DONANIMI")).toBe(totalPages === 3);
+    expect(doc.body.includes("STANDART DONANIM")).toBe(standard.some((row) => row.trim()));
+    expect(doc.body.includes("OPSİYONEL DONANIM")).toBe(optional.some((row) => row.trim()));
+    for (const hidden of ["FİYAT TEKLİFİ", "FİYAT ve KOŞULLAR", "BELGE NO", "PROJE İLGİLİSİ", "GENEL TOPLAM"]) {
+      expect(doc.body).not.toContain(hidden);
+    }
+    expect(doc.body).toContain("X Ekseni");
+    expect(doc.body).toContain("800");
+    expect([...doc.body.matchAll(/Sayfa <b>(\d+)<\/b> \/ <b>(\d+)<\/b>/g)].map((match) => [Number(match[1]), Number(match[2])]))
+      .toEqual(Array.from({ length: totalPages }, (_, index) => [index + 1, totalPages]));
+    for (const row of [...standard, ...optional].filter((value) => value.trim())) {
+      expect(doc.body).toContain(row);
+    }
+  });
+
+  it("does not include catalogue optional equipment without an explicit selection", () => {
+    const doc = productTechnicalDoc({ product: { ...product, optionalEquipment: ["Takım ölçme probu"] } }, "/print");
+    expect(doc.body).not.toContain("Takım ölçme probu");
+    expect(doc.body).not.toContain("OPSİYONEL DONANIM");
+  });
+
+  it("updates existing technical cells only for selected equipment and restores the base when deselected", () => {
+    const machine = { ...product, specs: [{ key: "Fener Mili Devri", value: "8000", unit: "dev/dk" }] };
+    const selected = productTechnicalDoc({ product: machine, optionalEquipment: [{
+      title: "Yüksek devir paketi", specs: [{ key: "Fener Mili Devri", value: "15000" }],
+      specDefaults: [{ specKey: "Fener Mili Devri", defaultValue: "12000" }],
+    }] }, "/print");
+    expect(selected.body).toContain("15000");
+    expect(selected.body).not.toContain("8000");
+    expect(selected.body).toContain("Yüksek devir paketi");
+    const base = productTechnicalDoc({ product: machine, optionalEquipment: [] }, "/print");
+    expect(base.body).toContain("8000");
+    expect(base.body).not.toContain("15000");
+    expect(machine.specs[0].value).toBe("8000");
+  });
+
+  it("can fill a previously unused technical field from selected equipment", () => {
+    const doc = productTechnicalDoc({ product: { ...product, specs: [{ key: "Canlı Takım Devri", value: "-", unit: "dev/dk" }] }, optionalEquipment: [{ title: "Canlı takım", specs: [{ key: "Canlı Takım Devri", value: "4500" }] }] }, "/print");
+    expect(doc.body).toContain("Canlı Takım Devri");
+    expect(doc.body).toContain("4500");
+  });
+
+  it("honors explicitly empty equipment overrides even when catalog lists are populated", () => {
+    const doc = productTechnicalDoc({
+      product: { ...product, standardEquipment: ["Standart paket"], optionalEquipment: ["Takım ölçme probu"] },
+      standardEquipment: [],
+      optionalEquipment: [],
+    }, "https://example.test/print");
+
+    expect(doc.body).not.toContain("TEZGAH DONANIMI");
+    expect(doc.body).not.toContain("Standart paket");
+    expect(doc.body).not.toContain("Takım ölçme probu");
+    expect(doc.body).toContain("Sayfa <b>2</b> / <b>2</b>");
+  });
+});
+
 describe("product technical print image", () => {
   it('includes the saved laser configuration and exact units without filling unknown fields', () => {
     const doc = productTechnicalDoc({ product: { ...product, technicalConfiguration: {
@@ -55,7 +130,7 @@ describe("product technical print image", () => {
     );
 
     expect(doc.body).not.toContain("javascript:");
-    expect(doc.body).toContain("Ürün görseli bulunmuyor");
+    expect(doc.body).toContain("q-photo-placeholder");
   });
 
   it("never renders the internal stock code", () => {
@@ -94,5 +169,22 @@ describe("product technical print image", () => {
 
     expect(doc.body).not.toContain("Karşı Ayna Devri");
     expect(doc.body).toContain("Canlı Takım Devri");
+  });
+});
+
+describe("technical PDF categories", () => {
+  it.each([undefined, "GENEL"])("restores categories when saved grouping is %s", (groupCode) => {
+    const specs = [
+      { key: "Tabla Boyutu", value: "1000 x 500", groupCode },
+      { key: "X Eksen Hareketi", value: "800", groupCode },
+      { key: "Fener Mili Devri", value: "12000", groupCode },
+      { key: "Özel özellik", value: "Korunan değer", groupName: "Özel Kategori" },
+    ];
+    const doc = productTechnicalDoc({ product: { ...product, specs } }, "/print");
+    expect(doc.body).toContain('class="g" rowspan="1">TABLA</td>');
+    expect(doc.body).toContain('class="g" rowspan="1">EKSENLER</td>');
+    expect(doc.body).toContain('class="g" rowspan="1">FENER MİLİ</td>');
+    expect(doc.body).toContain('class="g" rowspan="1">ÖZEL KATEGORİ</td>');
+    for (const spec of specs) expect(doc.body).toContain(spec.value);
   });
 });

@@ -2,10 +2,15 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import supertest from 'supertest';
 import type { NestFastifyApplication } from '@nestjs/platform-fastify';
 import { createTestApp } from './setup';
+import { getDb } from '../src/db/client';
+import * as schema from '../src/db/schema';
+import { eq } from 'drizzle-orm';
 
 let app: NestFastifyApplication;
 let adminToken: string;
 let adminUserId: string;
+let tenantId: string;
+let primaryContactId: string;
 let companyId: string;
 let companyAddressId: string;
 let opportunityId: string;
@@ -26,12 +31,20 @@ beforeAll(async () => {
     .send({ email: 'admin@haksan.local', password: 'admin12345' });
   adminToken = login.body.accessToken;
   adminUserId = login.body.user.id;
+  tenantId = login.body.user.tenantId;
   const r = await supertest(app.getHttpServer()).get('/api/v1/companies?pageSize=100').set('Authorization', `Bearer ${adminToken}`);
   const company = r.body.data.find((item: { addresses?: unknown[] }) => (item.addresses?.length ?? 0) > 0);
   if (!company) throw new Error('PDF adresi testi için adresi olan firma bulunamadı');
   companyId = company.id;
   companyAddressId = company.addresses.find((address: { isBilling?: boolean }) => address.isBilling)?.id
     ?? company.addresses[0].id;
+  const db = getDb();
+  await db.update(schema.companies).set({ sector: 'Metal işleme' }).where(eq(schema.companies.id, companyId));
+  await db.update(schema.companyAddresses).set({ province: 'İstanbul', district: 'Tuzla', fullAddress: 'Test Sanayi Caddesi 1' }).where(eq(schema.companyAddresses.id, companyAddressId));
+  await db.insert(schema.companyPhones).values({ tenantId, companyId, phone: '+902120001111' });
+  await db.insert(schema.companyEmails).values({ tenantId, companyId, email: 'quote-flow@example.test' });
+  const [contact] = await db.insert(schema.contacts).values({ tenantId, companyId, fullName: 'Quote flow contact' }).returning();
+  primaryContactId = contact.id;
   const productList = await supertest(app.getHttpServer())
     .get('/api/v1/products?pageSize=100')
     .set('Authorization', `Bearer ${adminToken}`);
@@ -67,6 +80,10 @@ describe('ERP flow', () => {
     expect(r.body.qualificationStage).toBe('lead');
     expect(r.body.paymentMethod).toBe('leasing');
     opportunityId = r.body.id;
+    await getDb().update(schema.opportunities).set({ primaryContactId, requestedMachine: productFullName }).where(eq(schema.opportunities.id, opportunityId));
+    await getDb().insert(schema.calls).values({ tenantId, companyId, opportunityId, contactId: primaryContactId, callDate: new Date(), callResult: 'Makine ihtiyacı görüşüldü', createdBy: adminUserId });
+    const ready = await supertest(app.getHttpServer()).get(`/api/v1/opportunities/${opportunityId}/quote-readiness`).set('Authorization', `Bearer ${adminToken}`);
+    expect(ready.body.ready, JSON.stringify(ready.body.blockers)).toBe(true);
   });
 
   it('moves the new opportunity on to the C field', async () => {
@@ -111,8 +128,8 @@ describe('ERP flow', () => {
         productModelId,
         description: `CNC-${'UZUNOZELLIK'.repeat(175)}`,
         quantity: 1,
-        unitPrice: 100000,
-        discountAmount: 5000,
+        unitPrice: productBasePrice,
+        discountAmount: 0,
         vatRate: 20,
         sortOrder: 0,
     });
@@ -123,10 +140,10 @@ describe('ERP flow', () => {
       .get(`/api/v1/quotes/${quoteId}`)
       .set('Authorization', `Bearer ${adminToken}`);
     expect(got.status).toBe(200);
-    // subtotal = 100000 - 5000 = 95000; vat = 19000; grand = 114000
-    expect(Number(got.body.subtotal)).toBe(95000);
-    expect(Number(got.body.vatAmount)).toBe(19000);
-    expect(Number(got.body.grandTotal)).toBe(114000);
+    // The seeded price can change; keep this flow above the approval threshold.
+    expect(Number(got.body.subtotal)).toBe(productBasePrice);
+    expect(Number(got.body.vatAmount)).toBe(productBasePrice * 0.2);
+    expect(Number(got.body.grandTotal)).toBe(productBasePrice * 1.2);
   });
 
   it('creates proforma, contract and commercial invoice in the quote business line series', async () => {
@@ -378,7 +395,7 @@ describe('ERP flow', () => {
     const created = await supertest(app.getHttpServer())
       .post('/api/v1/quotes')
       .set('Authorization', `Bearer ${adminToken}`)
-      .send({ companyId, companyAddressId, quoteDate: new Date().toISOString(), currencyCode: 'USD' });
+      .send({ companyId, companyAddressId, opportunityId, quoteDate: new Date().toISOString(), currencyCode: 'USD' });
     expect(created.status).toBe(201);
 
     const item = await supertest(app.getHttpServer())
@@ -424,7 +441,7 @@ describe('ERP flow', () => {
     const created = await supertest(app.getHttpServer())
       .post('/api/v1/quotes')
       .set('Authorization', `Bearer ${adminToken}`)
-      .send({ companyId, companyAddressId, quoteDate: new Date().toISOString(), currencyCode: 'USD' });
+      .send({ companyId, companyAddressId, opportunityId, quoteDate: new Date().toISOString(), currencyCode: 'USD' });
     expect(created.status).toBe(201);
 
     const item = await supertest(app.getHttpServer())
@@ -472,7 +489,7 @@ describe('ERP flow', () => {
     const created = await supertest(app.getHttpServer())
       .post('/api/v1/quotes')
       .set('Authorization', `Bearer ${adminToken}`)
-      .send({ companyId, companyAddressId, quoteDate: new Date().toISOString(), currencyCode: 'USD' });
+      .send({ companyId, companyAddressId, opportunityId, quoteDate: new Date().toISOString(), currencyCode: 'USD' });
     expect(created.status).toBe(201);
 
     const excessiveDiscount = await supertest(app.getHttpServer())
@@ -542,7 +559,7 @@ describe('ERP flow', () => {
     const draft = await supertest(app.getHttpServer())
       .post('/api/v1/quotes')
       .set('Authorization', `Bearer ${adminToken}`)
-      .send({ companyId, quoteDate: new Date().toISOString(), currencyCode: 'USD' });
+      .send({ companyId, opportunityId, quoteDate: new Date().toISOString(), currencyCode: 'USD' });
     expect(draft.status).toBe(201);
 
     const sent = await supertest(app.getHttpServer())
@@ -555,7 +572,7 @@ describe('ERP flow', () => {
     const draft = await supertest(app.getHttpServer())
       .post('/api/v1/quotes')
       .set('Authorization', `Bearer ${adminToken}`)
-      .send({ companyId, quoteDate: new Date().toISOString(), currencyCode: 'USD' });
+      .send({ companyId, opportunityId, quoteDate: new Date().toISOString(), currencyCode: 'USD' });
     expect(draft.status).toBe(201);
 
     const missingReminder = await supertest(app.getHttpServer())
@@ -665,8 +682,10 @@ describe('ERP flow', () => {
     expect(got.body.documentSnapshot?.items).toHaveLength(1);
     expect(got.body.documentSnapshot?.companyAddresses?.[0]?.id).toBe(companyAddressId);
 
+    const prepared = await supertest(app.getHttpServer()).post(`/api/v1/quotes/${quoteId}/pdf`).set('Authorization', `Bearer ${adminToken}`).send({});
+    expect(prepared.status, JSON.stringify(prepared.body)).toBe(201);
     const pdf = await supertest(app.getHttpServer())
-      .post(`/api/v1/quotes/${quoteId}/generate-pdf`)
+      .get(`/api/v1/quotes/${quoteId}/pdf`)
       .set('Authorization', `Bearer ${adminToken}`)
       .buffer(true)
       .parse((response, callback) => {
@@ -674,7 +693,7 @@ describe('ERP flow', () => {
         response.on('data', (chunk) => chunks.push(Buffer.from(chunk)));
         response.on('end', () => callback(null, Buffer.concat(chunks)));
       });
-    expect(pdf.status).toBe(201);
+    expect(pdf.status).toBe(200);
     expect(pdf.headers['content-type']).toContain('application/pdf');
     expect(pdf.body.subarray(0, 4).toString()).toBe('%PDF');
     expect((pdf.body.toString('latin1').match(/\/Type\s*\/Page\b/g) ?? []).length).toBeGreaterThanOrEqual(2);
@@ -700,6 +719,57 @@ describe('ERP flow', () => {
       .set('Authorization', `Bearer ${adminToken}`);
     const listedQuote = listed.body.data.find((quote: { id: string }) => quote.id === quoteId);
     expect(listedQuote?.status?.code).toBe('approved');
+
+    // A won opportunity freezes sold-machine names. It must be reopened
+    // through the opportunity workflow before changing the approved quotes.
+    const previousOpportunity = await getDb().query.opportunities.findFirst({ where: eq(schema.opportunities.id, opportunityId) });
+    expect(previousOpportunity).toBeTruthy();
+    await getDb().update(schema.opportunities).set({ qualificationStage: 'win', wonProductName: productFullName }).where(eq(schema.opportunities.id, opportunityId));
+    const wonRevocation = await supertest(app.getHttpServer())
+      .post(`/api/v1/quotes/${quoteId}/revoke-approval`).set('Authorization', `Bearer ${adminToken}`);
+    expect(wonRevocation.status).toBe(409);
+    const stillApproved = await supertest(app.getHttpServer())
+      .get(`/api/v1/quotes/${quoteId}`).set('Authorization', `Bearer ${adminToken}`);
+    expect(stillApproved.body.approvedAt).toBeTruthy();
+    await getDb().update(schema.opportunities).set({ qualificationStage: previousOpportunity!.qualificationStage, wonProductName: previousOpportunity!.wonProductName }).where(eq(schema.opportunities.id, opportunityId));
+
+    const revoked = await supertest(app.getHttpServer())
+      .post(`/api/v1/quotes/${quoteId}/revoke-approval`)
+      .set('Authorization', `Bearer ${adminToken}`);
+    expect(revoked.status).toBe(201);
+    const afterRevocation = await supertest(app.getHttpServer())
+      .get(`/api/v1/quotes/${quoteId}`).set('Authorization', `Bearer ${adminToken}`);
+    expect(afterRevocation.body.approvedAt).toBeNull();
+    expect(afterRevocation.body.approvedBy).toBeNull();
+    expect(afterRevocation.body.sentAt).toBeTruthy();
+    expect(afterRevocation.body.finalizedAt).toBeTruthy();
+    expect(afterRevocation.body.documentSnapshot).toEqual(got.body.documentSnapshot);
+    const again = await supertest(app.getHttpServer())
+      .post(`/api/v1/quotes/${quoteId}/revoke-approval`).set('Authorization', `Bearer ${adminToken}`);
+    expect(again.status).toBe(409);
+    const reapproved = await supertest(app.getHttpServer())
+      .post(`/api/v1/quotes/${quoteId}/approve`).set('Authorization', `Bearer ${adminToken}`);
+    expect(reapproved.status).toBe(201);
+
+    // Approval can also precede sending. Revocation must never unlock that
+    // finalized revision, even if another request creates a linked document.
+    await getDb().update(schema.quotes).set({ sentAt: null }).where(eq(schema.quotes.id, quoteId));
+    const unsentRevoked = await supertest(app.getHttpServer())
+      .post(`/api/v1/quotes/${quoteId}/revoke-approval`).set('Authorization', `Bearer ${adminToken}`);
+    expect(unsentRevoked.status).toBe(201);
+    const unsentAfter = await supertest(app.getHttpServer())
+      .get(`/api/v1/quotes/${quoteId}`).set('Authorization', `Bearer ${adminToken}`);
+    expect(unsentAfter.body.finalizedAt).toBeTruthy();
+    expect(unsentAfter.body.documentSnapshot).toEqual(got.body.documentSnapshot);
+    expect(unsentAfter.body.approvedAt).toBeNull();
+    const cannotEdit = await supertest(app.getHttpServer())
+      .patch(`/api/v1/quotes/${quoteId}`).set('Authorization', `Bearer ${adminToken}`)
+      .send({ notes: 'Kesinleşmiş revizyon değiştirilemez' });
+    expect(cannotEdit.status).toBe(409);
+    await getDb().update(schema.quotes).set({ sentAt: new Date(got.body.sentAt) }).where(eq(schema.quotes.id, quoteId));
+    const approvedOnceMore = await supertest(app.getHttpServer())
+      .post(`/api/v1/quotes/${quoteId}/approve`).set('Authorization', `Bearer ${adminToken}`);
+    expect(approvedOnceMore.status).toBe(201);
   });
 
   it('does not soft-delete a company that has historical documents', async () => {
@@ -714,15 +784,21 @@ describe('ERP flow', () => {
   });
 
   it('keeps sales → quote gated when discovery evidence is still missing', async () => {
-    const r = await supertest(app.getHttpServer())
-      .patch(`/api/v1/opportunities/${opportunityId}/stage`)
+    // The main flow now has complete quote evidence. Use a separate incomplete
+    // opportunity so this negative gate assertion continues testing missing proof.
+    const create = await supertest(app.getHttpServer()).post('/api/v1/opportunities')
       .set('Authorization', `Bearer ${adminToken}`)
-      .send({ toStage: 'quote' });
+      .send({ companyId, title: 'Missing discovery proof', ownerUserId: adminUserId, paymentMethod: 'cash' });
+    expect(create.status).toBe(201);
+    const incompleteId = create.body.id;
+    const sales = await supertest(app.getHttpServer()).patch(`/api/v1/opportunities/${incompleteId}/qualification-stage`)
+      .set('Authorization', `Bearer ${adminToken}`).send({ toStage: 'c' });
+    expect(sales.status).toBe(200);
+    const r = await supertest(app.getHttpServer()).patch(`/api/v1/opportunities/${incompleteId}/stage`)
+      .set('Authorization', `Bearer ${adminToken}`).send({ toStage: 'quote' });
     expect(r.status).toBe(422);
-    const unchanged = await supertest(app.getHttpServer())
-      .get(`/api/v1/opportunities/${opportunityId}`)
+    const unchanged = await supertest(app.getHttpServer()).get(`/api/v1/opportunities/${incompleteId}`)
       .set('Authorization', `Bearer ${adminToken}`);
-    expect(unchanged.status).toBe(200);
     expect(unchanged.body.stage?.code).toBe('sales');
   });
 

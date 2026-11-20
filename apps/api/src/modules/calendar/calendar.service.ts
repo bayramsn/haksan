@@ -1,5 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { and, asc, eq, gte, inArray, isNull, lte, or } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, inArray, isNull, lte, or } from 'drizzle-orm';
 import type {
   CalendarDeviceEventInput,
   CalendarEventCreateInput,
@@ -12,6 +12,7 @@ import type {
 import { decodeIcsFile, parseIcs } from './ics-parser';
 import type { DbClient } from '../../db/client';
 import {
+  activityTypes,
   calendarDeviceLinks,
   calendarEvents,
   calendarSyncSettings,
@@ -19,18 +20,31 @@ import {
   contacts,
   notifications,
   opportunities,
+  salesActivities,
+  userDivisions,
   users,
-  visits,
 } from '../../db/schema';
 import { DB } from '../../shared/database/database.module';
 import { PushService } from '../../shared/push/push.service';
 import type { AuthContext } from '../../shared/security/auth.types';
 import { ForbiddenError, NotFoundError, ValidationError } from '../../shared/utils/errors';
+import { lookupIdByCode } from '../../shared/utils/lookup.helper';
 
 const RESTORE_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
 const IMPORT_WINDOW_MONTHS = 6;
 
 type EventRow = typeof calendarEvents.$inferSelect;
+type DbTransaction = Parameters<Parameters<DbClient['transaction']>[0]>[0];
+type VisitSource = {
+  eventType: string;
+  ownerUserId: string;
+  title: string;
+  startsAt: Date;
+  description?: string | null;
+  companyId?: string | null;
+  contactId?: string | null;
+  opportunityId?: string | null;
+};
 
 @Injectable()
 export class CalendarService {
@@ -129,6 +143,68 @@ export class CalendarService {
     }
   }
 
+  /**
+   * Müşteri ziyareti CRM'de "Müşteri Ziyareti" aktivitesi olarak yaşar: haftalık
+   * aktivite raporu, hedef gerçekleşmesi, firma "son ziyaret" alanı ve fırsat
+   * kontrol listesi sales_activities okur. Aktivite ziyareti YAPACAK kişiye
+   * (owner) yazılır, atayan süper yöneticiye değil. Tarih = etkinlik başlangıcı;
+   * erteleme tarihi taşır, tür değişince aktivite kapanır (bağ kalır, geri açılır).
+   * Bölüm: fırsatın bölümü, yoksa sahibin çalıştığı/birincil bölümü — bölümsüz
+   * aktivite bölüm kapsamlı kullanıcıya görünmez. Döndürdüğü id etkinlikte saklanır.
+   */
+  private async syncVisitActivity(db: DbClient | DbTransaction, actor: AuthContext, activityId: string | null, event: VisitSource, at: Date) {
+    const isVisit = event.eventType === 'customer_visit' && Boolean(event.companyId);
+    const companyId = event.companyId ?? null;
+    if (activityId) {
+      await db
+        .update(salesActivities)
+        .set(
+          isVisit
+            ? {
+                companyId,
+                contactId: event.contactId ?? null,
+                opportunityId: event.opportunityId ?? null,
+                subject: event.title,
+                description: event.description ?? null,
+                activityDate: event.startsAt,
+                deletedAt: null,
+                updatedAt: at,
+              }
+            : { deletedAt: at, updatedAt: at }
+        )
+        .where(eq(salesActivities.id, activityId));
+      return activityId;
+    }
+    if (!isVisit) return null;
+    // Tür sözlükte yoksa (migration sırası) ziyaret aktivitesiz kalır; etkinlik yine kaydedilir.
+    const typeId = await lookupIdByCode(this.db, activityTypes, 'customer_visit');
+    if (!typeId) return null;
+    const opportunity = event.opportunityId
+      ? await db.query.opportunities.findFirst({ columns: { divisionId: true }, where: eq(opportunities.id, event.opportunityId) })
+      : null;
+    const activeDivisionId = event.ownerUserId === actor.userId && actor.activeDivisionId !== 'all' ? actor.activeDivisionId : null;
+    const [ownerDivision] = opportunity?.divisionId || activeDivisionId
+      ? []
+      : await db.select({ id: userDivisions.divisionId }).from(userDivisions).where(eq(userDivisions.userId, event.ownerUserId)).orderBy(desc(userDivisions.isPrimary)).limit(1);
+    const [activity] = await db
+      .insert(salesActivities)
+      .values({
+        tenantId: actor.tenantId,
+        divisionId: opportunity?.divisionId ?? activeDivisionId ?? ownerDivision?.id ?? null,
+        opportunityId: event.opportunityId ?? null,
+        companyId,
+        contactId: event.contactId ?? null,
+        activityTypeId: typeId,
+        subject: event.title,
+        description: event.description ?? null,
+        origin: 'system',
+        activityDate: event.startsAt,
+        createdBy: event.ownerUserId,
+      })
+      .returning({ id: salesActivities.id });
+    return activity.id;
+  }
+
   async list(
     actor: AuthContext,
     query: { from: Date; to: Date; ownerUserId?: string; includeArchived: boolean }
@@ -178,23 +254,7 @@ export class CalendarService {
     const ownerUserId = await this.resolveOwner(actor, input.ownerUserId);
     const now = new Date();
     const event = await this.db.transaction(async (tx) => {
-      let visitId: string | null = null;
-      if (input.eventType === 'customer_visit') {
-        const [visit] = await tx
-          .insert(visits)
-          .values({
-            tenantId: actor.tenantId,
-            companyId: input.companyId!,
-            contactId: input.contactId ?? null,
-            opportunityId: input.opportunityId ?? null,
-            visitDate: input.startsAt,
-            visitLocation: input.location ?? null,
-            visitPurpose: input.title,
-            createdBy: actor.userId,
-          })
-          .returning();
-        visitId = visit.id;
-      }
+      const activityId = await this.syncVisitActivity(tx, actor, null, { ...input, ownerUserId }, now);
       const [event] = await tx
         .insert(calendarEvents)
         .values({
@@ -213,7 +273,7 @@ export class CalendarService {
           companyId: input.companyId ?? null,
           contactId: input.contactId ?? null,
           opportunityId: input.opportunityId ?? null,
-          visitId,
+          activityId,
           sourceModifiedAt: now,
           createdBy: actor.userId,
           updatedBy: actor.userId,
@@ -235,42 +295,7 @@ export class CalendarService {
     const now = new Date();
 
     const updated = await this.db.transaction(async (tx) => {
-      let visitId = current.visitId;
-      if (merged.eventType === 'customer_visit') {
-        if (visitId) {
-          await tx
-            .update(visits)
-            .set({
-              companyId: merged.companyId!,
-              contactId: merged.contactId ?? null,
-              opportunityId: merged.opportunityId ?? null,
-              visitDate: merged.startsAt,
-              visitLocation: merged.location ?? null,
-              visitPurpose: merged.title,
-              updatedAt: now,
-              deletedAt: null,
-            })
-            .where(and(eq(visits.id, visitId), eq(visits.tenantId, actor.tenantId)));
-        } else {
-          const [visit] = await tx
-            .insert(visits)
-            .values({
-              tenantId: actor.tenantId,
-              companyId: merged.companyId!,
-              contactId: merged.contactId ?? null,
-              opportunityId: merged.opportunityId ?? null,
-              visitDate: merged.startsAt,
-              visitLocation: merged.location ?? null,
-              visitPurpose: merged.title,
-              createdBy: actor.userId,
-            })
-            .returning();
-          visitId = visit.id;
-        }
-      } else if (visitId) {
-        await tx.update(visits).set({ deletedAt: now, updatedAt: now }).where(eq(visits.id, visitId));
-        visitId = null;
-      }
+      const activityId = await this.syncVisitActivity(tx, actor, current.activityId, merged, now);
 
       const [event] = await tx
         .update(calendarEvents)
@@ -288,7 +313,7 @@ export class CalendarService {
           contactId: input.contactId,
           opportunityId: input.opportunityId,
           completedAt: input.completedAt,
-          visitId,
+          activityId,
           sourceModifiedAt: now,
           updatedAt: now,
           updatedBy: actor.userId,
@@ -323,7 +348,7 @@ export class CalendarService {
     const now = new Date();
     await this.db.transaction(async (tx) => {
       await tx.update(calendarEvents).set({ deletedAt: now, updatedAt: now, sourceModifiedAt: now, updatedBy: actor.userId }).where(eq(calendarEvents.id, id));
-      if (current.visitId) await tx.update(visits).set({ deletedAt: now, updatedAt: now }).where(eq(visits.id, current.visitId));
+      if (current.activityId) await tx.update(salesActivities).set({ deletedAt: now, updatedAt: now }).where(eq(salesActivities.id, current.activityId));
     });
     return { deleted: true, restoreUntil: new Date(now.getTime() + RESTORE_WINDOW_MS) };
   }
@@ -334,7 +359,7 @@ export class CalendarService {
     if (Date.now() - current.deletedAt.getTime() > RESTORE_WINDOW_MS) throw new ValidationError('Geri alma süresi dolmuş');
     const now = new Date();
     return this.db.transaction(async (tx) => {
-      if (current.visitId) await tx.update(visits).set({ deletedAt: null, updatedAt: now }).where(eq(visits.id, current.visitId));
+      if (current.activityId) await tx.update(salesActivities).set({ deletedAt: null, updatedAt: now }).where(eq(salesActivities.id, current.activityId));
       const [event] = await tx
         .update(calendarEvents)
         .set({ deletedAt: null, updatedAt: now, sourceModifiedAt: now, updatedBy: actor.userId })
@@ -615,19 +640,10 @@ export class CalendarService {
         .where(eq(calendarEvents.id, event.id))
         .returning();
       event = updated;
-      if (input.deleted && event.visitId) {
-        await this.db.update(visits).set({ deletedAt: input.modifiedAt, updatedAt: now }).where(eq(visits.id, event.visitId));
-      } else if (!input.deleted && event.visitId) {
-        await this.db
-          .update(visits)
-          .set({
-            visitDate: input.startsAt,
-            visitLocation: input.location ?? null,
-            visitPurpose: input.title,
-            deletedAt: null,
-            updatedAt: now,
-          })
-          .where(eq(visits.id, event.visitId));
+      if (input.deleted && event.activityId) {
+        await this.db.update(salesActivities).set({ deletedAt: input.modifiedAt, updatedAt: now }).where(eq(salesActivities.id, event.activityId));
+      } else if (!input.deleted) {
+        await this.syncVisitActivity(this.db, actor, event.activityId, event, now);
       }
     }
 
@@ -694,7 +710,7 @@ export class CalendarService {
           .update(calendarDeviceLinks)
           .set({ deletedAt: sync.observedAt, providerModifiedAt: sync.observedAt, lastSyncedAt: sync.observedAt, updatedAt: new Date() })
           .where(eq(calendarDeviceLinks.id, link.id));
-        if (event.visitId) await tx.update(visits).set({ deletedAt: sync.observedAt, updatedAt: new Date() }).where(eq(visits.id, event.visitId));
+        if (event.activityId) await tx.update(salesActivities).set({ deletedAt: sync.observedAt, updatedAt: new Date() }).where(eq(salesActivities.id, event.activityId));
       });
     }
   }

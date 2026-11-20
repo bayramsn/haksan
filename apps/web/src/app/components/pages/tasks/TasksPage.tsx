@@ -15,6 +15,7 @@ import { Badge } from "../../ui/badge";
 import { Button } from "../../ui/button";
 import { Card, CardContent } from "../../ui/card";
 import { Input } from "../../ui/input";
+import { loadAllPaginated } from "../../../lib/loadAllPaginated";
 import { TaskDetailPanel } from "./TaskDetailPanel";
 import { TaskCompletionDialog } from "./TaskCompletionDialog";
 import { TaskFormDialog } from "./TaskFormDialog";
@@ -33,9 +34,11 @@ const EMPTY_BY_VIEW: Record<TaskView, string> = {
 
 export function TasksPage({
   onOpenRecord,
+  onOpenChatMessage,
   initialQuery,
 }: {
   onOpenRecord?: (task: TaskDTO) => void;
+  onOpenChatMessage?: (target: string) => void;
   /** Bildirimden gelen hedef: "task:<id>" ilgili görevin detayını açar. */
   initialQuery?: string;
 }) {
@@ -95,7 +98,7 @@ export function TasksPage({
     setLoading(true);
     try {
       const [list, freshCounts] = await Promise.all([
-        tasksService.list({
+        loadAllPaginated((page, pageSize) => tasksService.list({
           view,
           search: debouncedSearch || undefined,
           status: status || undefined,
@@ -104,8 +107,8 @@ export function TasksPage({
           createdBy: createdBy || undefined,
           sortBy,
           sortDir: sortBy === "createdAt" ? "desc" : "asc",
-          pageSize: 100,
-        }),
+          page, pageSize,
+        }), 100, (task) => task.id),
         tasksService.counts(),
       ]);
       setTasks(list.data);
@@ -319,6 +322,7 @@ export function TasksPage({
           setFormOpen(true);
         }}
         onNavigateToRecord={onOpenRecord}
+        onOpenChatMessage={onOpenChatMessage}
         canDelete={canDelete}
       />
 

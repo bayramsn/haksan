@@ -567,16 +567,19 @@ export function SalesCaseDetailPage({
     };
   }, [selectedOfferId]);
 
-  const runQuoteAction = async (offerId: string, action: "send" | "approve" | "reject" | "approve-price" | "reject-price") => {
+  const runQuoteAction = async (offerId: string, action: "send" | "approve" | "reject" | "revoke-approval" | "approve-price" | "reject-price") => {
     try {
       if (action === "send") await quoteService.send(offerId);
       else if (action === "approve") await quoteService.approve(offerId);
+      else if (action === "revoke-approval") await quoteService.revokeApproval(offerId);
       else if (action === "approve-price") await quoteService.approvePrice(offerId);
       else if (action === "reject-price") await quoteService.rejectPrice(offerId);
       else await quoteService.reject(offerId);
       toast.success(
         action === "send"
           ? "Teklif gönderildi olarak işaretlendi"
+          : action === "revoke-approval"
+            ? "Teklif onayı geri alındı"
           : action === "approve"
             ? "Teklif onaylandı"
             : action === "approve-price"

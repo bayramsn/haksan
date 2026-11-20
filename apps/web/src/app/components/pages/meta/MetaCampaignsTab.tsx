@@ -17,7 +17,7 @@ import { Checkbox } from "../../ui/checkbox";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "../../ui/dialog";
 import { Input } from "../../ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../ui/select";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../../ui/table";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow, type TableSort } from "../../ui/table";
 import {
   getMetaErrorMessage,
   metaQueryKeys,
@@ -54,6 +54,7 @@ function CampaignMetric({ label, value, icon }: { label: string; value: string; 
 export function MetaCampaignsTab({ canManage }: { canManage: boolean }) {
   const queryClient = useQueryClient();
   const [page, setPage] = useState(1);
+  const [sort, setSort] = useState<TableSort | null>(null);
   const [statusChange, setStatusChange] = useState<{ campaign: MetaCampaign; status: MetaCampaignStatus } | null>(null);
   const [budgetCampaign, setBudgetCampaign] = useState<MetaCampaign | null>(null);
   const [budget, setBudget] = useState("");
@@ -65,7 +66,7 @@ export function MetaCampaignsTab({ canManage }: { canManage: boolean }) {
   useEffect(() => {
     if (!connectionId) setConnectionId(connectionsQuery.data?.find((item) => item.status === "active")?.id ?? "");
   }, [connectionId, connectionsQuery.data]);
-  const campaignsParams = { page, pageSize: PAGE_SIZE, connectionId: connectionId || undefined };
+  const campaignsParams = { page, pageSize: PAGE_SIZE, connectionId: connectionId || undefined, sortBy: sort?.key, sortDir: sort?.direction };
   const campaignsQuery = useQuery({
     queryKey: metaQueryKeys.campaigns(campaignsParams),
     queryFn: () => metaService.campaigns(campaignsParams),
@@ -199,18 +200,18 @@ export function MetaCampaignsTab({ canManage }: { canManage: boolean }) {
           <MetaEmpty title="Kampanya bulunamadı" description="Bağlı reklam hesabı senkron edildiğinde kampanyalar burada listelenecek." />
         ) : (
           <div className="overflow-x-auto">
-            <Table className="min-w-[1040px]">
+            <Table className="min-w-[1040px]" manualSorting sort={sort} onSortChange={(next) => { setSort(next); setPage(1); }}>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Kampanya</TableHead>
-                  <TableHead>Durum</TableHead>
-                  <TableHead className="text-right">Günlük bütçe</TableHead>
-                  <TableHead className="text-right">Harcama</TableHead>
-                  <TableHead className="text-right">Gösterim</TableHead>
-                  <TableHead className="text-right">Tıklama</TableHead>
-                  <TableHead className="text-right">Lead</TableHead>
-                  <TableHead className="text-right">Nitelikli</TableHead>
-                  <TableHead className="w-36 text-right">Kontrol</TableHead>
+                  <TableHead sortKey="name">Kampanya</TableHead>
+                  <TableHead sortKey="status">Durum</TableHead>
+                  <TableHead className="text-right" sortKey="dailyBudgetMinor">Günlük bütçe</TableHead>
+                  <TableHead className="text-right" sortKey="spendMinor">Harcama</TableHead>
+                  <TableHead className="text-right" sortKey="impressions">Gösterim</TableHead>
+                  <TableHead className="text-right" sortKey="clicks">Tıklama</TableHead>
+                  <TableHead className="text-right" sortKey="leads">Lead</TableHead>
+                  <TableHead className="text-right" sortKey="qualifiedLeads">Nitelikli</TableHead>
+                  <TableHead className="w-36 text-right" sortable={false}>Kontrol</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -250,6 +251,7 @@ export function MetaCampaignsTab({ canManage }: { canManage: boolean }) {
             </Table>
           </div>
         )}
+        {campaignsQuery.data?.hasRemoteMore && <p className="border-t border-border/70 px-4 py-2 text-xs text-muted-foreground">Hesapta daha fazla kampanya var. Sıralama bu listede alınmış kampanyaları kapsar.</p>}
         {campaignsQuery.data && <MetaPagination {...campaignsQuery.data} onPageChange={setPage} />}
       </MetaSurface>
 

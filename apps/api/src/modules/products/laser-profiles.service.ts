@@ -1,7 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 import {
-  isSupportedLaserBrand, LASER_MODELS, LASER_POWERS, laserSelectionKey, laserSelectionSchema, laserTechnicalConfigurationSchema,
+  HEX2026_REVISION, findHex2026Configuration, isSupportedLaserBrand, LASER_MODELS, LASER_POWERS, laserSelectionKey, laserSelectionSchema, laserTechnicalConfigurationSchema,
   resolveLaserProfile, type LaserSelection, type LaserSpec, type LaserTechnicalConfiguration,
 } from '@haksan/shared';
 import type { DbClient } from '../../db/client';
@@ -118,7 +118,7 @@ export class LaserProfilesService {
 
   private canonical(selection: LaserSelection) {
     const parsed = laserSelectionSchema.safeParse(selection);
-    if (!parsed.success || !LASER_MODELS.some((model) => model.code === selection.sourceModelCode)) {
+    if (!parsed.success || !(selection.sourceRevision === HEX2026_REVISION ? findHex2026Configuration(selection.series, selection.sourceModelCode) : LASER_MODELS.some((model) => model.code === selection.sourceModelCode))) {
       throw new ValidationError('Lazer seçimi kaynak kataloğuyla eşleşmiyor');
     }
     return resolveLaserProfile(parsed.data);
@@ -179,7 +179,8 @@ export class LaserProfilesService {
     await this.assertScope(scope, actor);
     const fallback = this.canonical(selection);
     const row = await this.db.query.laserTechnicalProfiles.findFirst({ where: and(this.condition(scope, selection, actor), isNull(laserTechnicalProfiles.deletedAt)) });
-    return row ? { ...row.configuration, profileId: row.id } : fallback;
+    return row && row.configuration.selection.sourceRevision === selection.sourceRevision
+      ? { ...(selection.sourceRevision === HEX2026_REVISION ? mergeLaserReimport(fallback, row.configuration) : row.configuration), profileId: row.id } : fallback;
   }
 
   async save(scope: LaserProfileScope, selection: LaserSelection, specs: LaserSpec[], actor: AuthContext) {
@@ -189,6 +190,7 @@ export class LaserProfilesService {
     const result = await this.db.transaction(async (tx) => {
       await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`${actor.tenantId}:${scope.divisionId}:${scope.brandId}:${laserSelectionKey(selection)}`}, 0))`);
       const existing = await tx.query.laserTechnicalProfiles.findFirst({ where: this.condition(scope, selection, actor) });
+      if (existing && existing.configuration.selection.sourceRevision !== selection.sourceRevision) throw new ValidationError('Mevcut teknik profil farklı kaynak revizyonunda; eski elle düzenlenen profil korunuyor');
       const configuration = laserTechnicalConfigurationSchema.parse(applyLaserSpecEdits(existing?.configuration ?? fallback, specs, { replaceAll: true }));
       const values = { configuration, updatedBy: actor.userId, updatedAt: new Date(), deletedAt: null };
       const [saved] = existing

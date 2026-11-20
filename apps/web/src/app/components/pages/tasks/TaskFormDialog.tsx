@@ -84,6 +84,7 @@ export function TaskFormDialog({
   currentUserId,
   onSaved,
   trigger,
+  initialDescription,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -94,6 +95,7 @@ export function TaskFormDialog({
   currentUserId?: string;
   onSaved: (task: TaskDTO) => void;
   trigger?: ReactNode;
+  initialDescription?: string;
 }) {
   const [form, setForm] = useState<FormState>(() => emptyForm(relation));
   const [saving, setSaving] = useState(false);
@@ -101,8 +103,8 @@ export function TaskFormDialog({
 
   useEffect(() => {
     if (!open) return;
-    setForm(task ? fromTask(task) : emptyForm(relation));
-  }, [open, task?.id, relation?.companyId, relation?.opportunityId, relation?.quoteId, relation?.serviceTicketId]);
+    setForm(task ? fromTask(task) : { ...emptyForm(relation), description: initialDescription ?? "" });
+  }, [open, task?.id, relation?.companyId, relation?.opportunityId, relation?.quoteId, relation?.serviceTicketId, initialDescription]);
 
   const set = <K extends keyof FormState>(key: K, value: FormState[K]) =>
     setForm((prev) => ({ ...prev, [key]: value }));

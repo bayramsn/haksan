@@ -9,6 +9,9 @@ import {
   messagesQuerySchema,
   editMessageSchema,
   reactionSchema,
+  pinMessageSchema, forwardMessageSchema, conversationPreferencesSchema,
+  type ConversationPreferencesInput,
+  type PinMessageInput, type ForwardMessageInput,
   type CreateDmInput,
   type CreateGroupInput,
   type UpdateGroupInput,
@@ -137,6 +140,35 @@ export class ChatController {
     @CurrentUser() user: AuthContext
   ) {
     return this.chat.listMessages(user, id, query);
+  }
+
+  @Patch('conversations/:id/preferences')
+  updatePreferences(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(conversationPreferencesSchema)) body: ConversationPreferencesInput,
+    @CurrentUser() user: AuthContext,
+  ) {
+    return this.chat.updatePreferences(user, id, body);
+  }
+
+  @Get('conversations/:id/shared-files')
+  sharedFiles(@Param('id') id: string, @CurrentUser() user: AuthContext) {
+    return this.chat.listSharedFiles(user, id);
+  }
+
+  @Get('conversations/:id/pinned')
+  pinned(@Param('id') id: string, @CurrentUser() user: AuthContext) {
+    return this.chat.listPinned(user, id);
+  }
+
+  @Patch('messages/:id/pin')
+  pin(@Param('id') id: string, @Body(new ZodValidationPipe(pinMessageSchema)) body: PinMessageInput, @CurrentUser() user: AuthContext) {
+    return this.chat.pinMessage(user, id, body.pinned);
+  }
+
+  @Post('messages/:id/forward')
+  forward(@Param('id') id: string, @Body(new ZodValidationPipe(forwardMessageSchema)) body: ForwardMessageInput, @CurrentUser() user: AuthContext) {
+    return this.chat.forwardMessage(user, id, body.conversationId);
   }
 
   @Post('conversations/:id/messages')

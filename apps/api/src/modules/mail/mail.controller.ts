@@ -1,17 +1,26 @@
-import { Body, Controller, Delete, Get, Inject, Post, Put, Query, UseGuards } from '@nestjs/common';
+import { CommercialPdfService } from '../quotes/commercial-pdf.service';
+import { Body, Controller, Delete, Get, Inject, Param, Post, Put, Query, UseGuards } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { z } from 'zod';
 import {
   MAIL_MAX_ATTACHMENT_BYTES,
   mailSendSchema,
   userMailAccountUpsertSchema,
+  userMailSignatureSchema,
+  mailSignatureSchema,
+  type MailSignatureInput,
   type MailSendInput,
   type UserMailAccountUpsertInput,
+  type UserMailSignatureInput,
 } from '@haksan/shared';
 import { and, asc, eq, isNull, ne, sql } from 'drizzle-orm';
 import type { DbClient } from '../../db/client';
+import { productModels } from '../../db/schema/products';
+import { productGroups } from '../../db/schema/lookup';
+import { resourceDivisionFilterWithShared } from '../../shared/utils/division-scope';
 import { companies, contacts } from '../../db/schema/companies';
 import { users } from '../../db/schema/users';
+import { userMailAccounts } from '../../db/schema/mail';
 import { DB } from '../../shared/database/database.module';
 import { UserMailAccountService } from '../../shared/mailer/user-mail-account.service';
 import { AuthGuard } from '../../shared/security/auth.guard';
@@ -36,7 +45,8 @@ export class MailController {
     private readonly activities: ActivitiesService,
     private readonly quotes: QuotesService,
     private readonly htmlPdf: HtmlPdfService,
-    private readonly files: FilesService
+    private readonly files: FilesService,
+    private readonly commercialPdfs: CommercialPdfService
   ) {}
 
   @Get('account')
@@ -53,9 +63,77 @@ export class MailController {
     return this.accounts.configure(body, actor);
   }
 
+  @Put('signature')
+  @Throttle({ default: { limit: 20, ttl: 60_000 } })
+  signature(
+    @Body(new ZodValidationPipe(userMailSignatureSchema)) body: UserMailSignatureInput,
+    @CurrentUser() actor: AuthContext
+  ) {
+    return this.accounts.updateSignature(body, actor);
+  }
+
   @Delete('account')
   disconnect(@CurrentUser() actor: AuthContext) {
     return this.accounts.remove(actor);
+  }
+
+  @Put('signature/image')
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  async signatureImage(@Body(new ZodValidationPipe(mailSignatureSchema)) body: MailSignatureInput, @CurrentUser() actor: AuthContext) {
+    await this.accounts.saveSignature(body, actor);
+    return this.accounts.status(actor);
+  }
+
+  /** Süper admin: webmail ayarı yapılabilecek kullanıcılar (hesabı bağlı mı bilgisiyle). */
+  @Get('account/users')
+  async accountUsers(@CurrentUser() actor: AuthContext) {
+    if (!actor.roles.includes('super_admin')) throw new ForbiddenError('Kullanıcıların webmail ayarları süper admin yetkisi gerektirir');
+    const rows = await this.db.select({ id: users.id, name: users.fullName, email: users.email, accountId: userMailAccounts.id }).from(users)
+      .leftJoin(userMailAccounts, and(eq(userMailAccounts.userId, users.id), eq(userMailAccounts.tenantId, actor.tenantId)))
+      .where(and(eq(users.tenantId, actor.tenantId), isNull(users.deletedAt))).orderBy(asc(users.fullName));
+    return rows.map(({ accountId, ...row }) => ({ ...row, hasMailAccount: Boolean(accountId) }));
+  }
+
+  // Kullanıcı bazlı uçlar: kendi id'si herkes için, başkasınınki yalnız süper admin (owner()).
+  @Get('account/users/:userId')
+  async userAccount(@Param('userId', new ZodValidationPipe(z.string().uuid())) userId: string, @CurrentUser() actor: AuthContext) {
+    return this.accounts.status(await this.accounts.owner(actor, userId));
+  }
+
+  @Put('account/users/:userId')
+  @Throttle({ default: { limit: 5, ttl: 15 * 60_000 } })
+  connectUser(
+    @Param('userId', new ZodValidationPipe(z.string().uuid())) userId: string,
+    @Body(new ZodValidationPipe(userMailAccountUpsertSchema)) body: UserMailAccountUpsertInput,
+    @CurrentUser() actor: AuthContext
+  ) {
+    return this.accounts.configure(body, actor, userId);
+  }
+
+  @Delete('account/users/:userId')
+  disconnectUser(@Param('userId', new ZodValidationPipe(z.string().uuid())) userId: string, @CurrentUser() actor: AuthContext) {
+    return this.accounts.remove(actor, userId);
+  }
+
+  @Put('account/users/:userId/signature')
+  @Throttle({ default: { limit: 20, ttl: 60_000 } })
+  userTextSignature(
+    @Param('userId', new ZodValidationPipe(z.string().uuid())) userId: string,
+    @Body(new ZodValidationPipe(userMailSignatureSchema)) body: UserMailSignatureInput,
+    @CurrentUser() actor: AuthContext
+  ) {
+    return this.accounts.updateSignature(body, actor, userId);
+  }
+
+  @Put('account/users/:userId/signature/image')
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  async userSignatureImage(
+    @Param('userId', new ZodValidationPipe(z.string().uuid())) userId: string,
+    @Body(new ZodValidationPipe(mailSignatureSchema)) body: MailSignatureInput,
+    @CurrentUser() actor: AuthContext
+  ) {
+    await this.accounts.saveSignature(body, actor, userId);
+    return this.accounts.status(await this.accounts.owner(actor, userId));
   }
 
   /**
@@ -111,13 +189,7 @@ export class MailController {
   }
 
   private async quoteAttachment(body: MailSendInput, actor: AuthContext) {
-    if (body.quoteDocument && this.htmlPdf.isAvailable()) {
-      // Belge teklife ait mi: erişim yetkisi generatePdf ile aynı süzgeçten geçer.
-      const { filename } = await this.quotes.generatePdf(body.quoteId!, actor);
-      const content = await this.htmlPdf.render(body.quoteDocument.html);
-      return { filename: body.quoteDocument.filename || filename, content, contentType: 'application/pdf' };
-    }
-    const { buffer, filename } = await this.quotes.generatePdf(body.quoteId!, actor);
+    const { buffer, filename } = await this.commercialPdfs.read('quote', body.quoteId!, actor);
     return { filename, content: buffer, contentType: 'application/pdf' };
   }
 
@@ -140,13 +212,44 @@ export class MailController {
   }
 
   /**
+   * Proforma / sözleşme eki: istemcinin "Yazdır / PDF Kaydet" belgesi. Kayıt, okuma
+   * yetkisi ve görünürlük süzgecinden (getProforma / getContract) geçmeden PDF üretilmez.
+   */
+  private async documentAttachment(document: NonNullable<MailSendInput['document']>, actor: AuthContext) {
+    const { buffer, filename } = await this.commercialPdfs.read(document.kind, document.id, actor);
+    return { filename, content: buffer, contentType: 'application/pdf' };
+  }
+
+  /** Teknik föy, ürün detay ekranıyla aynı tenant/bölüm görünürlüğünü kullanır. */
+  private async productAttachment(document: NonNullable<MailSendInput['productDocument']>, actor: AuthContext) {
+    if (!actor.permissions.has('products.read')) {
+      throw new ForbiddenError('Teknik föy ekleyebilmek için products.read yetkisi gerekli');
+    }
+    const [product] = await this.db.select({ id: productModels.id })
+      .from(productModels)
+      .leftJoin(productGroups, eq(productModels.productGroupId, productGroups.id))
+      .where(and(
+        eq(productModels.id, document.id),
+        eq(productModels.tenantId, actor.tenantId),
+        isNull(productModels.deletedAt),
+        resourceDivisionFilterWithShared(actor, 'products', productGroups.divisionId) ?? sql`true`
+      )).limit(1);
+    if (!product) throw new NotFoundError('Ürün');
+    if (!this.htmlPdf.isAvailable()) {
+      throw new AppError('PDF_UNAVAILABLE', 'Sunucuda PDF üretici (Chromium) bulunamadı', 503);
+    }
+    const content = await this.htmlPdf.render(document.pdf.html);
+    return { filename: document.pdf.filename, content, contentType: 'application/pdf' };
+  }
+
+  /**
    * Kullanıcının eklediği dosyalar. Her biri `createSignedDownloadUrl` ile aynı
    * erişim süzgecinden geçer; toplam boyut SMTP'yi kilitlememesi için burada
    * kapanır — tek tek küçük, toplamı büyük ekler aksi hâlde sınırı aşıyordu.
    */
-  private async fileAttachments(fileIds: string[], actor: AuthContext) {
+  private async fileAttachments(fileIds: string[], actor: AuthContext, alreadyAttachedBytes = 0) {
     const attachments = [];
-    let total = 0;
+    let total = alreadyAttachedBytes;
     for (const fileId of fileIds) {
       const file = await this.files.readForAttachment(fileId, actor);
       total += file.content.byteLength;
@@ -170,14 +273,23 @@ export class MailController {
     if (body.quoteId && !actor.permissions.has('quotes.read')) {
       throw new ForbiddenError('Teklif ekleyebilmek için quotes.read yetkisi gerekli');
     }
-    // Ek PDF: istemci "Yazdır / PDF Kaydet" belgesini gönderdiyse birebir o (Chromium);
-    // göndermediyse (eski istemci / Chromium yok) sunucunun sade PDFKit şablonu.
+    // Ticari ekler webde hazırlanmış değişmez PDF dosyasından okunur.
+    // İstemcinin eski HTML alanı geriye uyum için kabul edilir; içerik kaynağı değildir.
     const generated = body.quoteId
       ? [await this.quoteAttachment(body, actor)]
       : body.reportDocument
         ? [await this.reportAttachment(body, actor)]
-        : [];
-    const attachments = [...generated, ...(body.fileIds?.length ? await this.fileAttachments(body.fileIds, actor) : [])];
+        : body.document
+          ? [await this.documentAttachment(body.document, actor)]
+          : body.productDocument
+            ? [await this.productAttachment(body.productDocument, actor)]
+            : [];
+    // Üretilen PDF de SMTP boyut sınırına sayılır.
+    const generatedBytes = generated.reduce((sum, item) => sum + item.content.byteLength, 0);
+    if (generatedBytes > MAIL_MAX_ATTACHMENT_BYTES) {
+      throw new ValidationError(`Eklerin toplam boyutu ${Math.round(MAIL_MAX_ATTACHMENT_BYTES / (1024 * 1024))} MB sınırını aşıyor`);
+    }
+    const attachments = [...generated, ...(body.fileIds?.length ? await this.fileAttachments(body.fileIds, actor, generatedBytes) : [])];
     const delivery = await this.accounts.send(
       { to: body.to, cc: body.cc, subject: body.subject, text: body.body, attachments: attachments.length ? attachments : undefined },
       actor

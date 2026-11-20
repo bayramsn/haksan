@@ -45,7 +45,7 @@ describe("OpportunityProcessCenter tek kutu sözleşmesi", () => {
     // İlerletme hâlâ tek adım ileri. Lead→C kullanıcının kararıyla serbest;
     // sonraki satış alanları ise gereklilik kapılarını korur.
     expect(source).toContain('target.direction === "forward"');
-    expect(source).toContain('currentStage !== "lead" && blockers.length > 0');
+    expect(source).toContain("const blockedByRequirements = blockers.length > 0");
   });
 
   it("ileri alanları yalnız önizleme olarak gösterir", () => {
@@ -63,8 +63,8 @@ describe("OpportunityProcessCenter davranış eşdeğerliği", () => {
     expect(checklistSource).toContain("aria-haspopup={hasInlineEditor || (check.actionKey && DIALOG_ACTION_KEYS.has(check.actionKey))");
   });
 
-  it("Lead dönüşümünü serbest bırakır, sonraki alanların gereklilik kapılarını korur", () => {
-    expect(source).toContain('currentStage !== "lead" && blockers.length > 0');
+  it("Lead dahil bütün ileri geçişlerin gereklilik kapılarını korur", () => {
+    expect(source).toContain("const blockedByRequirements = blockers.length > 0");
     expect(source).toContain("opportunityService.changeQualificationStage");
     expect(source).toContain("await onRefresh()");
     expect(source).toContain("await load()");
@@ -114,7 +114,7 @@ describe("OpportunityProcessCenter tek ilerletme düğmesi", () => {
   });
 
   it("kalan düğme kapalı kartı ve Lead dışındaki alan engellerini kontrol eder", () => {
-    expect(source).toContain('currentStage !== "lead" && blockers.length > 0');
+    expect(source).toContain("const blockedByRequirements = blockers.length > 0");
     expect(source).toContain("disabled={advanceDisabled}");
   });
 });

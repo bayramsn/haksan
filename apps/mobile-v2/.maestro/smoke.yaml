@@ -1,0 +1,21 @@
+appId: com.haksan.mobileapp
+name: Cold start and anonymous auth navigation
+tags:
+  - smoke
+---
+- launchApp:
+    clearState: true
+- extendedWaitUntil:
+    visible: "Haksan Makina"
+    timeout: 30000
+- assertVisible: "İleri"
+- tapOn: "Geç"
+- extendedWaitUntil:
+    visible: "Giriş Yap"
+    timeout: 15000
+- assertVisible: "Kullanıcı adı veya e-posta"
+- assertVisible: "Parola"
+- tapOn: "Şifremi Unuttum"
+- assertVisible: "Sıfırlama Bağlantısı Gönder"
+- tapOn: "Giriş ekranına dön"
+- assertVisible: "Giriş Yap"

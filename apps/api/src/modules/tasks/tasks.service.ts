@@ -260,6 +260,8 @@ export class TasksService {
       .select({
         all: sql<number>`count(*)::int`,
         mine: sql<number>`count(*) filter (where ${tasks.assignedToUserId} = ${actor.userId} and ${tasks.status} in ${openList})::int`,
+        mineToday: sql<number>`count(*) filter (where ${tasks.assignedToUserId} = ${actor.userId} and ${tasks.dueAt} >= ${start} and ${tasks.dueAt} < ${end} and ${tasks.status} in ${openList})::int`,
+        mineOverdue: sql<number>`count(*) filter (where ${tasks.assignedToUserId} = ${actor.userId} and ${tasks.dueAt} < ${now} and ${tasks.status} in ${openList})::int`,
         today: sql<number>`count(*) filter (where ${tasks.dueAt} >= ${start} and ${tasks.dueAt} < ${end} and ${tasks.status} in ${openList})::int`,
         overdue: sql<number>`count(*) filter (where ${tasks.dueAt} < ${now} and ${tasks.status} in ${openList})::int`,
         upcoming: sql<number>`count(*) filter (where ${tasks.dueAt} >= ${end} and ${tasks.status} in ${openList})::int`,

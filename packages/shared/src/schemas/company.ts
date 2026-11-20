@@ -1,3 +1,4 @@
+import { partialWithoutDefaults } from '../partial';
 import { z } from 'zod';
 import { emailSchema, paginationSchema, phoneSchema, urlSchema } from './common';
 
@@ -60,7 +61,7 @@ const companyCreateBaseSchema = z.object({
   contactSourceText: optionalTrimmedText(255),
   sector: optionalText(128),
   supplierCategoryCode: supplierCategoryCodeSchema.optional(),
-  legalTitle: z.string().min(1).max(255),
+  legalTitle: z.string().trim().min(1).max(255),
   shortName: optionalText(128),
   taxOffice: optionalText(128),
   taxNumber: optionalText(32),
@@ -106,7 +107,7 @@ const validateContactSourceChoice = (
 export const companyCreateSchema = companyCreateBaseSchema.superRefine(validateContactSourceChoice);
 export type CompanyCreateInput = z.infer<typeof companyCreateSchema>;
 
-export const companyUpdateSchema = companyCreateBaseSchema.partial().extend({
+export const companyUpdateSchema = partialWithoutDefaults(companyCreateBaseSchema).extend({
   logoFileId: z.string().uuid().nullable().optional(),
   externalCompanyNo: z.string().trim().max(32).nullable().optional(),
   companyGroupCode: z.string().trim().max(64).nullable().optional(),
@@ -168,7 +169,7 @@ export const companyIdListSchema = z.preprocess(
 
 export const companyListRequestQuerySchema = companyListQuerySchema.merge(
   paginationSchema.extend({
-    sortBy: z.enum(['name', 'createdAt']).optional(),
+    sortBy: z.enum(['name', 'createdAt', 'type', 'contact', 'city']).optional(),
     ids: companyIdListSchema.optional(),
   }),
 );
@@ -206,7 +207,7 @@ export const companyOsmSearchResultSchema = z.object({
   website: z.string().url().optional(),
   phone: z.string().max(64).optional(),
   email: z.string().email().max(254).optional(),
-  address: z.record(z.unknown()).optional(),
+  address: z.record(z.string(), z.unknown()).optional(),
 });
 export type CompanyOsmSearchResult = z.infer<typeof companyOsmSearchResultSchema>;
 
@@ -362,7 +363,7 @@ export const companyReferenceCreateSchema = z.object({
 });
 export type CompanyReferenceCreateInput = z.infer<typeof companyReferenceCreateSchema>;
 
-export const companyReferenceUpdateSchema = companyReferenceCreateSchema.partial();
+export const companyReferenceUpdateSchema = partialWithoutDefaults(companyReferenceCreateSchema);
 export type CompanyReferenceUpdateInput = z.infer<typeof companyReferenceUpdateSchema>;
 
 /** Referanslar sayfası Excel/CSV toplu yükleme (Firma, İlgili, İlçe, İl, Marka, Model, Teslim Tarihi, Not). */

@@ -1,3 +1,4 @@
+import { partialWithoutDefaults } from '../partial';
 import { z } from 'zod';
 import { moneySchema, dateRangeSchema, percentSchema } from './common';
 import { OPPORTUNITY_PAYMENT_METHODS } from '../constants';
@@ -125,8 +126,8 @@ export const accountingInvoiceCreateSchema = z.object({
       saleType: z.enum(['tezgah', 'product']).optional(),
       listPrice: moneySchema.optional(),
       unitPrice: moneySchema.optional(),
-      discountAmount: moneySchema.default(0).optional(),
-      vatRate: percentSchema.default(20).optional(),
+      discountAmount: moneySchema.optional(),
+      vatRate: percentSchema.optional(),
       lineTotal: moneySchema.optional(),
       expectedDate: z.coerce.date().optional(),
     })
@@ -134,7 +135,7 @@ export const accountingInvoiceCreateSchema = z.object({
 });
 export type AccountingInvoiceCreateInput = z.infer<typeof accountingInvoiceCreateSchema>;
 
-export const accountingInvoiceUpdateSchema = accountingInvoiceCreateSchema.partial();
+export const accountingInvoiceUpdateSchema = partialWithoutDefaults(accountingInvoiceCreateSchema);
 export type AccountingInvoiceUpdateInput = z.infer<typeof accountingInvoiceUpdateSchema>;
 
 export const accountingInvoiceListQuerySchema = z.object({

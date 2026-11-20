@@ -30,7 +30,7 @@ export const contactListQuerySchema = z.object({
 });
 
 export const contactListRequestQuerySchema = contactListQuerySchema.merge(
-  paginationSchema.extend({ sortBy: z.enum(['name', 'createdAt']).optional() }),
+  paginationSchema.extend({ sortBy: z.enum(['name', 'createdAt', 'company', 'title', 'communication']).optional() }),
 );
 
 export const contactSummaryQuerySchema = z.object({

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "../ui/dialog";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from ".
 import { Checkbox } from "../ui/checkbox";
 import {
   ImageIcon, ListChecks, CheckCircle2, Sparkles, Tag, Cpu, Package, Wrench, Settings2, FileText,
-  Pencil, Save, X, FileDown, Loader2, Lock,
+  Pencil, Save, X, FileDown, Loader2, Lock, Mail,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Product } from "../../lib/mock";
@@ -21,7 +21,10 @@ import { ProductSpecsTable } from "../shared/ProductSpecsTable";
 import { EntityVisual } from "../shared/PremiumPrimitives";
 import { embedProductImageForPrint, printAssetBase, productTechnicalDoc } from "../../lib/print";
 import { printOrWarn } from "../../lib/pageHelpers";
-import { laserSnapshotPrintSpecs } from "../../lib/laserProductSnapshot";
+import { ComposeMailDialog, type MailRecipient } from "../mail/ComposeMailDialog";
+import { printDocumentHtml } from "@haksan/shared";
+import { applyOptionalEquipmentSpecs, optionalSpecsFromProductDetail, type SelectedTechnicalEquipment } from "../../lib/print/optionalEquipmentSpecs";
+import { laserSnapshotPrintSpecs, quoteTechnicalSpecsFromProduct } from "../../lib/laserProductSnapshot";
 
 type MediaItem = { fileId: string; mediaType: "image" | "document"; title: string | null; mimeType: string; url: string };
 
@@ -69,7 +72,7 @@ type CompatibleOptionalRow = {
   brand?: { name?: string | null } | null;
   currency?: { code?: string | null } | null;
   category?: { name?: string | null } | null;
-  productType?: { name?: string | null } | null;
+  productType?: { name?: string | null; code?: string | null } | null;
 };
 
 /**
@@ -94,13 +97,20 @@ export function ProductDetailDialog({
   /** Fiyat listesi gibi salt-okunur bağlamlarda ürün düzenleme eylemlerini gizler. */
   readOnly?: boolean;
 }) {
+  const [mailRecipient, setMailRecipient] = useState<MailRecipient | null>(null);
   const [equipment, setEquipment] = useState<EquipmentRow[]>([]);
   const [compatibleOptionalEquipment, setCompatibleOptionalEquipment] = useState<CompatibleOptionalRow[]>([]);
   const [options, setOptions] = useState<any[]>([]);
   const [documents, setDocuments] = useState<MediaItem[]>([]);
   const [loading, setLoading] = useState(false);
-  const [selectedOptionalIds, setSelectedOptionalIds] = useState<string[] | null>(null);
+  const [selectedOptionalIds, setSelectedOptionalIds] = useState<string[]>([]);
+  const [loadingOptional, setLoadingOptional] = useState(false);
+  const [optionalProductDetails, setOptionalProductDetails] = useState<Record<string, { specs: Product["specs"]; productTypeCode: string }>>({});
+  const [specTemplates, setSpecTemplates] = useState<Array<{ productTypeCode: string; specKey: string; defaultValue: string; isActive?: boolean }>>([]);
+  const activeProductId = useRef(product?.id);
+  activeProductId.current = product?.id;
   const [printImageUrl, setPrintImageUrl] = useState<string | undefined>();
+  const [printBrandLogoUrl, setPrintBrandLogoUrl] = useState<string | undefined>();
   const [preparingPrintImage, setPreparingPrintImage] = useState(false);
 
   const { patchProduct, products } = useStore();
@@ -115,16 +125,20 @@ export function ProductDetailDialog({
 
   // Ürün değişince düzenleme/override durumunu sıfırla.
   useEffect(() => {
+    setMailRecipient(null);
     setEditing(false);
     setOverrides({});
     setDraft({});
-    setSelectedOptionalIds(null);
+    setSelectedOptionalIds([]);
+    setOptionalProductDetails({});
+    setLoadingOptional(false);
   }, [product?.id]);
 
   useEffect(() => {
     if (!product) return;
     let alive = true;
     setLoading(true);
+    setEquipment([]); setCompatibleOptionalEquipment([]); setSpecTemplates([]);
     const shouldLoadCompatibleOptionalEquipment = product.categoryCode === MACHINE_CATEGORY_CODE;
 
     Promise.all([
@@ -134,12 +148,14 @@ export function ProductDetailDialog({
         : Promise.resolve([] as CompatibleOptionalRow[]),
       productService.options(product.id).catch(() => []),
       productService.media(product.id).catch(() => [] as MediaItem[]),
+      productService.specTemplates().catch(() => []),
     ])
-      .then(([eqRows, compatibleRows, optRows, mediaRows]) => {
+      .then(([eqRows, compatibleRows, optRows, mediaRows, templates]) => {
         if (alive) {
           setEquipment(eqRows as EquipmentRow[]);
           setCompatibleOptionalEquipment(compatibleRows as CompatibleOptionalRow[]);
           setOptions(optRows);
+          setSpecTemplates(templates);
           setDocuments((mediaRows as MediaItem[]).filter((m) => m.mediaType === "document"));
         }
       })
@@ -160,33 +176,35 @@ export function ProductDetailDialog({
     };
   }, [product]);
 
+  // Ürün görseli ve marka logosu belgeye gömülür: yazdırma penceresi (blob:) ve
+  // sunucudaki mail PDF'i bu adreslere oturumla erişemez.
   useEffect(() => {
-    const imageUrl = product?.imageUrl?.trim();
     let alive = true;
-    setPrintImageUrl(imageUrl || undefined);
-    if (!imageUrl || imageUrl.startsWith("data:image/")) {
-      setPreparingPrintImage(false);
-      return () => {
-        alive = false;
-      };
-    }
+    const embed = (url: string | undefined, set: (value: string | undefined) => void) => {
+      const clean = url?.trim();
+      set(clean || undefined);
+      if (!clean || clean.startsWith("data:image/")) return Promise.resolve();
+      return embedProductImageForPrint(clean)
+        .then((embedded) => {
+          if (alive) set(embedded);
+        })
+        .catch(() => {
+          // Harici kaynak CORS izni vermiyorsa özgün URL ile yazdırmayı deneriz.
+        });
+    };
 
     setPreparingPrintImage(true);
-    embedProductImageForPrint(imageUrl)
-      .then((embedded) => {
-        if (alive) setPrintImageUrl(embedded);
-      })
-      .catch(() => {
-        // Harici kaynak CORS izni vermiyorsa özgün URL ile yazdırmayı deneriz.
-      })
-      .finally(() => {
-        if (alive) setPreparingPrintImage(false);
-      });
+    Promise.all([
+      embed(product?.imageUrl, setPrintImageUrl),
+      embed(product?.brandLogoUrl, setPrintBrandLogoUrl),
+    ]).finally(() => {
+      if (alive) setPreparingPrintImage(false);
+    });
 
     return () => {
       alive = false;
     };
-  }, [product?.id, product?.imageUrl]);
+  }, [product?.id, product?.imageUrl, product?.brandLogoUrl]);
 
   if (!product) return null;
 
@@ -291,8 +309,10 @@ export function ProductDetailDialog({
   const optional = optionalSource.filter((item, index, all) =>
     all.findIndex((candidate) => candidate.item.id === item.item.id) === index
   );
-  const effectiveSelectedOptionalIds = selectedOptionalIds ?? optional.map((item) => item.item.id);
-  const selectedOptionalRows = optional.filter((item) => effectiveSelectedOptionalIds.includes(item.item.id));
+  const effectiveSelectedOptionalIds = hideOptionalEquipment ? [] : selectedOptionalIds;
+  const selectedOptionalRows = effectiveSelectedOptionalIds
+    .map((id) => optional.find((item) => item.item.id === id))
+    .filter((item): item is EquipmentRow => Boolean(item));
   const optionPrice = (item: EquipmentRow) => {
     const value = item.item.unitPrice ? Number(item.item.unitPrice) : 0;
     return Number.isFinite(value) ? value : 0;
@@ -308,12 +328,43 @@ export function ProductDetailDialog({
   }, {});
   const selectedGrandTotal = (view.listPrice ?? 0) + selectedOptionalTotal;
   const showOptionalEquipment = !hideOptionalEquipment && (highlightOptional || optional.length > 0);
-  const toggleOptional = (id: string) => {
-    setSelectedOptionalIds((current) => {
-      const activeIds = current ?? optional.map((item) => item.item.id);
-      return activeIds.includes(id) ? activeIds.filter((item) => item !== id) : [...activeIds, id];
-    });
+  const toggleOptional = async (id: string) => {
+    if (loadingOptional) return;
+    if (selectedOptionalIds.includes(id)) {
+      setSelectedOptionalIds((current) => current.filter((item) => item !== id));
+      return;
+    }
+    const isProduct = compatibleOptionalEquipment.some((row) => row.product?.id === id)
+      || optionalMuadilProducts.some((row) => row.id === id)
+      || products.some((row) => row.id === id);
+    if (isProduct && !optionalProductDetails[id]) {
+      const currentProductId = product.id;
+      setLoadingOptional(true);
+      try {
+        const detail = await productService.get(id);
+        if (activeProductId.current !== currentProductId) return;
+        setOptionalProductDetails((current) => ({ ...current, [id]: {
+          specs: optionalSpecsFromProductDetail(detail), productTypeCode: detail.productType?.code ?? detail.productTypeCode ?? "",
+        } }));
+      } catch {
+        if (activeProductId.current === currentProductId) toast.error("Opsiyonun teknik bilgileri alınamadı. Tekrar deneyin.");
+        return;
+      } finally {
+        if (activeProductId.current === currentProductId) setLoadingOptional(false);
+      }
+    }
+    setSelectedOptionalIds((current) => [...current, id]);
   };
+  const selectedTechnicalEquipment: SelectedTechnicalEquipment[] = selectedOptionalRows.map((row) => {
+    const detail = optionalProductDetails[row.item.id];
+    return {
+      title: row.item.title, description: row.item.description,
+      specs: detail?.specs,
+      specDefaults: detail ? specTemplates.filter((template) => template.isActive !== false && template.productTypeCode === detail.productTypeCode) : [],
+    };
+  });
+  const selectedTechnicalSpecs = applyOptionalEquipmentSpecs(quoteTechnicalSpecsFromProduct(view), selectedTechnicalEquipment);
+
   const standard = equipment.filter((e) => e.type?.code !== "opsiyonel").map((e) => e.item.title);
   // Fall back to the store's flat lists if the equipment endpoint returned nothing.
   const standardTitles = standard.length ? standard : (product.standardEquipment || []);
@@ -325,20 +376,26 @@ export function ProductDetailDialog({
     return acc;
   }, {});
   const muadilCount = Object.values(muadilGroups).reduce((sum, items) => sum + items.length, 0);
-  const createTechnicalPdf = () => {
-    printOrWarn(productTechnicalDoc({
-      product: { ...view, imageUrl: printImageUrl || view.imageUrl },
+  const technicalDocument = () => productTechnicalDoc({
+      product: { ...view, imageUrl: printImageUrl || view.imageUrl, brandLogoUrl: printBrandLogoUrl || view.brandLogoUrl },
       standardEquipment: standardTitles,
-      optionalEquipment: optional.map((item) => ({
-        title: item.item.title,
-        description: item.item.description,
-      })),
-      documents: documents.map((document) => ({ title: document.title })),
-    }, printAssetBase()));
-  };
+      optionalEquipment: selectedTechnicalEquipment,
+    }, printAssetBase());
+  const createTechnicalPdf = () => printOrWarn(technicalDocument());
+  const sendTechnicalMail = () => setMailRecipient({
+    email: '', subject: `${view.shortDescription || [view.brand, view.model].filter(Boolean).join(' ')} — Teknik Bilgiler`,
+    body: 'Merhaba,\n\nTalep ettiğiniz ürünün teknik bilgilerini ekte bilgilerinize sunarız.\n\nİyi çalışmalar.',
+    attachmentLabel: 'Ürün Teknik Bilgileri',
+    productDocument: { id: product.id, pdf: async () => {
+      const doc = technicalDocument();
+      const filename = (view.model || 'urun').replace(/[\\/\u0000-\u001f"]/g, '-').slice(0, 160);
+      return { html: printDocumentHtml(doc), filename: `${filename}-teknik-bilgiler.pdf` };
+    } },
+  });
 
   return (
-    <Dialog open={!!product} onOpenChange={(o) => !o && onClose()}>
+    <Dialog open={!!product} onOpenChange={(o) => !o && !mailRecipient && onClose()}>
+      <ComposeMailDialog recipient={mailRecipient} onOpenChange={open => !open && setMailRecipient(null)} />
       <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto p-0 gap-0">
         {/* header */}
         <DialogHeader className="sticky top-0 z-20 border-b border-border/60 bg-background/95 px-4 pt-5 pb-4 backdrop-blur-sm sm:px-6 sm:pt-6">
@@ -359,12 +416,15 @@ export function ProductDetailDialog({
                 variant="outline"
                 className="h-8 gap-1.5"
                 onClick={createTechnicalPdf}
-                disabled={preparingPrintImage}
+                disabled={loading || loadingOptional || preparingPrintImage}
               >
                 {preparingPrintImage
                   ? <Loader2 className="size-3.5 animate-spin" />
                   : <FileDown className="size-3.5" />}
                 {preparingPrintImage ? "PDF hazırlanıyor…" : "PDF Oluştur"}
+              </Button>
+              <Button size="sm" variant="outline" className="h-8 gap-1.5" onClick={sendTechnicalMail} disabled={loading || loadingOptional || preparingPrintImage}>
+                <Mail className="size-3.5" />Teknik Bilgileri Mail Gönder
               </Button>
               {!readOnly && (
                 <>
@@ -607,7 +667,7 @@ export function ProductDetailDialog({
         {/* specs */}
         <div className="px-6 pb-4">
           <SectionTitle icon={<ListChecks className="size-3.5" />} text="Teknik Bilgiler" />
-          <ProductSpecsTable specs={product.technicalConfiguration ? laserSnapshotPrintSpecs(product.technicalConfiguration, product.technicalConfiguration.specs) : product.specs ?? []} productTypeCode={product.productTypeCode} />
+          <ProductSpecsTable specs={view.technicalConfiguration ? laserSnapshotPrintSpecs(view.technicalConfiguration, selectedTechnicalSpecs) : selectedTechnicalSpecs} productTypeCode={product.productTypeCode} />
         </div>
 
         {/* option sets */}
@@ -674,6 +734,7 @@ export function ProductDetailDialog({
         {showOptionalEquipment && (
           <div className="px-6 pb-4">
             <SectionTitle icon={<Sparkles className="size-3.5" />} text="Uyumlu Opsiyonel Donanım" count={optional.length} />
+          <p className="mb-2 text-xs text-muted-foreground">Yalnız seçtiğiniz donanımlar teknik PDF'ye eklenir. Seçim teknik bilgiyi etkiliyorsa ilgili değer güncellenir.</p>
             {loading ? (
               <div className="text-xs text-muted-foreground">Yükleniyor…</div>
             ) : optional.length === 0 ? (
@@ -708,14 +769,13 @@ export function ProductDetailDialog({
                       className={`flex items-center justify-between gap-3 px-3 py-2 text-sm ${i > 0 ? "border-t border-border/60" : ""}`}
                     >
                       <div className="flex items-center gap-2 min-w-0">
-                        {highlightOptional ? (
+                        {(
                           <Checkbox
                             checked={checked}
+                            disabled={loadingOptional}
                             onCheckedChange={() => toggleOptional(e.item.id)}
                             aria-label={`${e.item.title} opsiyon seçimi`}
                           />
-                        ) : (
-                          <Sparkles className="size-3.5 text-brand-blue shrink-0" />
                         )}
                         <div className="min-w-0">
                           <div className="truncate">{e.item.title}</div>

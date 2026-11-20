@@ -22,8 +22,8 @@ const webhookPayloadSchema = z.object({
   entry: z.array(z.object({
     id: z.string().min(1).max(128),
     time: z.number().int().nonnegative().optional(),
-    changes: z.array(z.object({ field: z.string().min(1).max(64), value: z.record(z.unknown()) }).passthrough()).max(500).optional(),
-    messaging: z.array(z.record(z.unknown())).max(500).optional(),
+    changes: z.array(z.object({ field: z.string().min(1).max(64), value: z.record(z.string(), z.unknown()) }).passthrough()).max(500).optional(),
+    messaging: z.array(z.record(z.string(), z.unknown())).max(500).optional(),
   }).passthrough()).min(1).max(100),
 }).passthrough();
 

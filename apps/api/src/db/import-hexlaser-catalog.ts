@@ -1,3 +1,5 @@
+import { importHexlaser2026 } from './import-hexlaser-2026';
+import { up as consolidateLaserBases } from './data-migrations/024_laser_series_base_models';
 /** Explicit operator-run, tenant-scoped catalog import. No automatic deploy-time business writes. */
 import 'reflect-metadata';
 import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
@@ -56,7 +58,12 @@ async function countProductLinks(db: DbClient, productIds: readonly string[]) {
   return linked.size;
 }
 
-export async function importHexlaserCatalog(db: DbClient, tenantId: string, userId: string, apply = false) {
+export async function importHexlaserCatalog(db: DbClient, tenantId: string, userId: string, apply = false, hideSuperseded = true) {
+  return importHexlaser2026(db, tenantId, userId, apply, hideSuperseded);
+}
+
+/** Legacy importer retained only for historical source maintenance. */
+export async function importLegacyHexlaserCatalog(db: DbClient, tenantId: string, userId: string, apply = false) {
   const [operator] = await db.select({ id: s.users.id }).from(s.users)
     .innerJoin(s.userRoles, eq(s.userRoles.userId, s.users.id)).innerJoin(s.roles, eq(s.roles.id, s.userRoles.roleId))
     .where(and(eq(s.users.id, userId), eq(s.users.tenantId, tenantId), eq(s.users.status, 'active'), isNull(s.users.deletedAt), eq(s.roles.code, 'super_admin'))).limit(1);
@@ -74,7 +81,9 @@ export async function importHexlaserCatalog(db: DbClient, tenantId: string, user
     modelName: s.productModels.modelName, description: s.productModels.description,
     brandId: s.productModels.brandId, technicalConfiguration: s.productModels.technicalConfiguration,
     deletedAt: s.productModels.deletedAt,
+    laserBaseConfiguration: s.productModels.laserBaseConfiguration,
   }).from(s.productModels).where(eq(s.productModels.tenantId, tenantId));
+  const baseSourceCodes = new Set(existing.flatMap(row => row.laserBaseConfiguration?.sourceModelCodes ?? []));
   const existingCodes = new Set(existing.filter((item) => !item.deletedAt).map((item) => item.code));
   // Eski sürüm model başına 14 kabin/güç kartı açmıştı; bunlar tek karta indirilir.
   const legacyVariants = existing.filter((item) => !item.deletedAt
@@ -201,6 +210,7 @@ export async function importHexlaserCatalog(db: DbClient, tenantId: string, user
     // stok ve servis kayıtları bu kartlara bağlı olduğu için fazlalıklar soft-delete edilir,
     // geçmiş belgeler okunmaya devam eder.
     for (const model of LASER_MODELS) {
+      if (baseSourceCodes.has(model.code)) continue;
       const legacy = currentProducts.filter((product) => !product.deletedAt && hexlaserLegacyVariantCode(model.code, product.modelCode));
       if (!legacy.length) continue;
       if (legacy.some((product) => product.brandId !== brand.id)) throw new Error(`${model.code} varyant kartları başka markaya ait; içe aktarma geri alındı`);
@@ -233,6 +243,7 @@ export async function importHexlaserCatalog(db: DbClient, tenantId: string, user
     let createdProducts = 0; let preservedProducts = 0;
     const variantsToCreate: typeof cuttingVariants = [];
     for (const variant of cuttingVariants) {
+      if (baseSourceCodes.has(variant.modelCode)) { preservedProducts++; continue; }
       const known = currentByCode.get(variant.modelCode);
       if (!known) { variantsToCreate.push(variant); continue; }
       if (known.brandId !== brand.id || known.deletedAt) throw new Error(`Existing model code ${variant.modelCode} conflicts; import rolled back`);
@@ -283,6 +294,7 @@ export async function importHexlaserCatalog(db: DbClient, tenantId: string, user
       createdProducts++;
     }
     for (const batch of chunk(pendingSpecs, 1000)) if (batch.length) await tx.insert(s.productSpecs).values(batch);
+    await consolidateLaserBases(dbTx, tenantId);
     await audit.write({ tenantId, actorUserId: userId, action: 'catalog.hexlaser_imported', resourceType: 'brand', resourceId: brand.id, newValues: { ...plan, createdProducts, preservedProducts, mergedVariantProducts, repairedProducts, supplierId: supplier.id } });
     return { mode: 'applied', ...plan, brandId: brand.id, supplierId: supplier.id, createdProducts, preservedProducts, mergedVariantProducts, repairedProducts, createdTemplateFields, profileResult };
   });
@@ -291,8 +303,8 @@ export async function importHexlaserCatalog(db: DbClient, tenantId: string, user
 if (require.main === module) {
   const tenantId = process.argv.find((arg) => arg.startsWith('--tenant='))?.slice(9);
   const userId = process.argv.find((arg) => arg.startsWith('--user='))?.slice(7);
-  if (!tenantId || !userId) throw new Error('Use --tenant=<uuid> --user=<uuid> [--apply]. Default is read-only preview.');
-  importHexlaserCatalog(getDb(), tenantId, userId, process.argv.includes('--apply'))
+  if (!tenantId || !userId) throw new Error('Use --tenant=<uuid> --user=<uuid> [--apply] [--hide-superseded]. Default is read-only preview.');
+  importHexlaserCatalog(getDb(), tenantId, userId, process.argv.includes('--apply'), !process.argv.includes('--keep-superseded'))
     .then((result) => console.log(JSON.stringify(result)))
     .catch((error: unknown) => { console.error(error instanceof Error ? error.message : 'Catalog import failed'); process.exitCode = 1; })
     .finally(closeDb);

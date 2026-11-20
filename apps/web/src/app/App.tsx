@@ -46,7 +46,7 @@ const CalendarPage = lazy(() => import("./components/pages/CalendarPage").then((
 const TasksPage = lazy(() => import("./components/pages/tasks/TasksPage").then((m) => ({ default: m.TasksPage })));
 import { Customer, SalesCase } from "./lib/mock";
 import { StoreProvider, useStore } from "./lib/store";
-import { clearDrafts, usePersistentState } from "./lib/persist";
+import { clearDrafts, loadPersisted, savePersisted } from "./lib/persist";
 import { parseReportMode } from "./components/pages/reports/reportMode";
 import { Toaster } from "./components/ui/sonner";
 import { toast } from "sonner";
@@ -62,6 +62,7 @@ const ServicePriceListPage = lazy(() => import("./components/pages/PriceLists").
 const PublicServiceComplaintPage = lazy(() =>
   import("./components/pages/PublicServiceComplaint").then((m) => ({ default: m.PublicServiceComplaintPage })),
 );
+const TradeFairsPage = lazy(() => import("./components/pages/TradeFairsPage").then((m) => ({ default: m.TradeFairsPage })));
 const ReferencesPage = lazy(() => import("./components/pages/ReferencesPage").then((m) => ({ default: m.ReferencesPage })));
 import { AuthProvider, useAuth } from "../lib/auth";
 import { FxProvider } from "./lib/fx";
@@ -69,16 +70,19 @@ import { ErrorBoundary } from "./components/ErrorBoundary";
 import { ReadinessBanner } from "./components/ReadinessBanner";
 import { PageShell } from "./components/shared/PageShell";
 import { PageLoadingSkeleton } from "./components/shared/PageLoadingSkeleton";
+import { WorkspaceRecordUnavailable } from "./components/shared/WorkspaceRecordUnavailable";
 import type { OperationAction, OperationFocus } from "./lib/operations";
 import { isNavigationAreaEnabled, NAVIGATION_VISIBILITY_KEYS } from "@haksan/shared";
 import { useCompanyDetail } from "./lib/companyServerData";
 import { defaultOpportunityView } from "./lib/opportunityPresentation";
+import { parseWorkspacePath, workspacePage, workspacePath, type WorkspacePage, type WorkspaceRoute } from "./lib/workspaceRoutes";
 
 const TITLES: Partial<Record<NavKey, { title: string; subtitle?: string }>> = {
   dashboard: { title: "Gösterge Paneli", subtitle: "Genel performans ve KPI özeti" },
   chat: { title: "Sohbet", subtitle: "Çalışanlarla özel ve grup mesajlaşma" },
   calendar: { title: "Takvim", subtitle: "Kişisel planlar, toplantılar ve müşteri ziyaretleri" },
   tasks: { title: "Görevler", subtitle: "Bugün yapılacak işler, gecikenler ve ekip görevleri" },
+  "trade-fairs": { title: "Fuar", subtitle: "Fuarda görüşülen firmalar, yetkililer ve ekip görüşmeleri" },
   customers: { title: "Firmalar", subtitle: "Müşteri, tedarikçi+müşteri ve tedarikçi kayıtları" },
   contacts: { title: "Kontaklar", subtitle: "Firmalara bağlı kişiler" },
   "sales-cases": { title: "Fırsat", subtitle: "C / B / A / A+ ana satış akışı" },
@@ -111,10 +115,20 @@ const TITLES: Partial<Record<NavKey, { title: string; subtitle?: string }>> = {
   settings: { title: "Ayarlar", subtitle: "Kurumsal bilgiler, tercihler ve alan yönetimi" },
 };
 
-const DEFAULT_NAV: NavKey = "dashboard";
+const DEFAULT_NAV: WorkspacePage = "dashboard";
 
-function isNavKey(value: unknown): value is NavKey {
-  return typeof value === "string" && value in TITLES;
+type WorkspaceHistoryState = {
+  scope: string;
+  focus?: { nav: NavKey; focus?: OperationFocus; query?: string };
+  serviceTab?: string;
+  openedDetail?: boolean;
+};
+
+function readWorkspaceLocation() {
+  return {
+    path: window.location.pathname,
+    state: (window.history.state?.haksanWorkspace ?? null) as WorkspaceHistoryState | null,
+  };
 }
 
 function AppShell() {
@@ -122,46 +136,36 @@ function AppShell() {
   const { customers, cases, closedCases, loading: storeLoading } = useStore();
   const [showOnboarding, setShowOnboarding] = useState(shouldShowOnboarding);
   // Satış rolleri doğrudan Fırsat panosuna düşer; Lead artık o panonun ilk kolonu.
-  const defaultNav: NavKey = defaultOpportunityView(user?.roles) === "pipeline"
+  const defaultNav: WorkspacePage = defaultOpportunityView(user?.roles) === "pipeline"
     ? "sales-cases"
     : DEFAULT_NAV;
   const persistenceScope = user ? `${user.tenantId}.${user.id}` : "anonymous";
-  // Yenilemede kullanıcının kaldığı yer korunur; seçimler tenant+kullanıcı
-  // kimliğiyle kapsamlanır, aynı tarayıcıdaki hesaplar birbirine sızmaz.
-  const [nav, setNav] = usePersistentState<NavKey>(`nav.${persistenceScope}`, defaultNav);
-  const [selectedCustomerId, setSelectedCustomerId] = usePersistentState<string | null>(`selectedCustomerId.${persistenceScope}`, null);
-  // Açık fırsat kartı kalıcı DEĞİL: localStorage'dan geri yüklendiğinde CRM'e
-  // her girişte kart gösterge panelinin üstünü kapatıyordu. Kartın tek kaynağı
-  // URL (?opportunity); yenilemede oradan, link paylaşımında da oradan gelir.
-  const [selectedCaseId, setSelectedCaseId] = useState<string | null>(null);
-  const selectedCustomerFallback = selectedCustomerId
-    ? customers.find((customer) => customer.id === selectedCustomerId)
-    : undefined;
-  const selectedCustomerQuery = useCompanyDetail(
-    authed ? selectedCustomerId : null,
-    selectedCustomerFallback,
-  );
-  const [deepLinkReady, setDeepLinkReady] = useState(false);
-  const [focus, setFocus] = useState<{ nav: NavKey; focus?: OperationFocus; query?: string } | null>(null);
-  const requestedNavValue = isNavKey(nav) ? nav : DEFAULT_NAV;
-  const requestedNav = requestedNavValue === "proformas" || requestedNavValue === "contracts" ? "documents" : requestedNavValue;
+  const [location, setLocation] = useState(readWorkspaceLocation);
+  const route = parseWorkspacePath(location.path);
+  const historyContext = location.state?.scope === persistenceScope ? location.state : null;
+  const focus = historyContext?.focus;
+  const requestedNav = route?.page ?? workspacePage(loadPersisted(`nav.${persistenceScope}`, defaultNav)) ?? defaultNav;
   const hiddenNavigationKeys = tenant?.hiddenNavigationKeys ?? [];
   const canOpenNav = (key: NavKey) =>
     canAccessNavKey(key, hasPermission, hasRole) && isNavigationAreaEnabled(key, hiddenNavigationKeys);
   const firstEnabledNav = NAVIGATION_VISIBILITY_KEYS.find((key) => canOpenNav(key));
   const reportsEnabled = canOpenNav("reports");
   const workspaceHasEnabledPage = Boolean(firstEnabledNav || reportsEnabled);
-  const fallbackNav: NavKey = firstEnabledNav ?? (reportsEnabled ? "reports" : canAccessNavKey("settings", hasPermission, hasRole) ? "settings" : DEFAULT_NAV);
+  const fallbackNav: WorkspacePage = firstEnabledNav ?? (reportsEnabled ? "reports" : canAccessNavKey("settings", hasPermission, hasRole) ? "settings" : DEFAULT_NAV);
   const currentNav = !authed || canOpenNav(requestedNav) ? requestedNav : fallbackNav;
+  const recordId = authed && route?.page === currentNav && canOpenNav(currentNav) ? route.recordId ?? null : null;
+  const selectedCustomerId = currentNav === "customers" ? recordId : null;
+  const selectedCustomerFallback = selectedCustomerId
+    ? customers.find((customer) => customer.id === selectedCustomerId)
+    : undefined;
+  const selectedCustomerQuery = useCompanyDetail(selectedCustomerId, selectedCustomerFallback);
+  const [selectedCaseId, setSelectedCaseId] = useState<string | null>(null);
+  const [deepLinkReady, setDeepLinkReady] = useState(false);
   const previousNavRef = useRef<NavKey | null>(null);
   const previousAuthedRef = useRef<boolean | null>(null);
   // Fırsat paneli kapatılırken açılışta itilen history kayıtlarını simetrik biçimde geri sarmak için.
   const closingOpportunityRef = useRef(false);
   const closeFallbackTimerRef = useRef<number | null>(null);
-
-  useEffect(() => {
-    if (nav === "proformas" || nav === "contracts") setNav("documents");
-  }, [nav, setNav]);
 
   // Fırsat kartı lazy chunk'ta: ana paketi 305 kB küçültüyor ama kartı ilk
   // açışta bir ağ turu ekliyordu ve bu kullanıcıya "uygulama yavaşladı" diye
@@ -190,6 +194,7 @@ function AppShell() {
 
   useEffect(() => {
     const applyLocation = (fromHistory = false) => {
+      setLocation(readWorkspaceLocation());
       // Kapatmanın tek adımlık go(-depth) sıçraması buraya döner: panel kapanır, ek geri adım atılmaz.
       if (fromHistory && closingOpportunityRef.current) {
         closingOpportunityRef.current = false;
@@ -212,7 +217,6 @@ function AppShell() {
       }
       const opportunityId = new URL(window.location.href).searchParams.get("opportunity");
       if (opportunityId) {
-        setSelectedCustomerId(null);
         setSelectedCaseId(opportunityId);
       } else {
         setSelectedCaseId(null);
@@ -229,7 +233,7 @@ function AppShell() {
         closeFallbackTimerRef.current = null;
       }
     };
-  }, [setSelectedCaseId, setSelectedCustomerId]);
+  }, []);
 
   useEffect(() => {
     if (!deepLinkReady) return;
@@ -244,17 +248,19 @@ function AppShell() {
   }, [deepLinkReady, selectedCaseId]);
 
   useEffect(() => {
-    if (currentNav !== nav) setNav(currentNav);
-  }, [currentNav, nav, setNav]);
+    if (loading || !authed || !user) return;
+    savePersisted(`nav.${persistenceScope}`, currentNav);
+    const target = workspacePath(recordId && route ? route : { page: currentNav });
+    if (window.location.pathname === target) return;
+    const { search, hash } = window.location;
+    window.history.replaceState(window.history.state, "", `${target}${search}${hash}`);
+    setLocation(readWorkspaceLocation());
+  }, [loading, authed, user, persistenceScope, currentNav, recordId, location.path]);
 
+  const canOpenOpportunity = authed && canOpenNav("sales-cases");
   useEffect(() => {
-    if (selectedCustomerId && !isNavigationAreaEnabled("customers", hiddenNavigationKeys)) {
-      setSelectedCustomerId(null);
-    }
-    if (selectedCaseId && !isNavigationAreaEnabled("sales-cases", hiddenNavigationKeys)) {
-      setSelectedCaseId(null);
-    }
-  }, [hiddenNavigationKeys, selectedCaseId, selectedCustomerId, setSelectedCaseId, setSelectedCustomerId]);
+    if (!canOpenOpportunity) setSelectedCaseId(null);
+  }, [canOpenOpportunity]);
 
   useEffect(() => {
     if (previousNavRef.current && previousNavRef.current !== currentNav) clearDrafts();
@@ -299,8 +305,8 @@ function AppShell() {
   }
 
   // Seçili kayıtlar id ile saklanıp store yüklendiğinde yeniden çözülür.
-  const selectedCustomer: Customer | null = selectedCustomerQuery.data ?? selectedCustomerFallback ?? null;
-  const selectedCase: SalesCase | null = selectedCaseId
+  const selectedCustomer: Customer | null = selectedCustomerQuery.data ?? null;
+  const selectedCase: SalesCase | null = canOpenOpportunity && selectedCaseId
     ? cases.find((s) => s.id === selectedCaseId) ?? closedCases.find((s) => s.id === selectedCaseId) ?? null
     : null;
 
@@ -332,7 +338,6 @@ function AppShell() {
       // Replace hiçbir kayıt itmez; mevcut state (ve derinliği) olduğu gibi korunur.
       window.history.replaceState(window.history.state, "", target);
     }
-    setSelectedCustomerId(null);
     setSelectedCaseId(opportunityId);
     requestAnimationFrame(() => window.dispatchEvent(new Event("haksan:opportunity-focus")));
   };
@@ -363,46 +368,64 @@ function AppShell() {
     window.history.go(-depth);
   };
 
-  const goto = (k: NavKey) => {
-    if (!canOpenNav(k)) {
+  const navigate = (
+    target: WorkspaceRoute,
+    context: Omit<WorkspaceHistoryState, "scope" | "openedDetail"> = {},
+    replace = false,
+  ) => {
+    if (!canOpenNav(target.page)) {
       toast.error("Bu alan şirket ayarlarında kapalı veya erişim yetkiniz yok.");
       return;
     }
-    setSelectedCustomerId(null);
+    const path = workspacePath(target);
+    const samePath = path === window.location.pathname && !selectedCaseId;
+    const state = {
+      haksanWorkspace: {
+        ...context,
+        scope: persistenceScope,
+        openedDetail: Boolean(target.recordId && (replace || samePath ? historyContext?.openedDetail : true)),
+      },
+    };
+    if (replace || samePath) window.history.replaceState(state, "", path);
+    else window.history.pushState(state, "", path);
+    setLocation(readWorkspaceLocation());
     setSelectedCaseId(null);
-    setFocus(null);
-    setNav(k);
+  };
+
+  const goto = (key: NavKey) => {
+    const page = workspacePage(key);
+    if (page) navigate({ page });
+  };
+
+  const closeDetail = () => {
+    if (historyContext?.openedDetail) window.history.back();
+    else navigate({ page: currentNav }, { focus }, true);
+  };
+
+  const selectCustomer = (id: string) => navigate({ page: "customers", recordId: id });
+  const selectOffer = (id: string) => navigate({ page: "offers", recordId: id }, { focus }, Boolean(recordId));
+  const selectService = (id: string, serviceTab?: string) => {
+    const page = currentNav === "service-kanban" ? "service-kanban" : "service-requests";
+    navigate({ page, recordId: id }, { focus, serviceTab }, Boolean(recordId));
   };
 
   const runOperationAction = (action: OperationAction) => {
     if (action.kind === "navigate") {
-      const targetNav = action.nav === "deliveries" ? "installations" : action.nav as NavKey;
-      if (!canOpenNav(targetNav)) {
-        toast.error("Bu alan şirket ayarlarında kapalı veya erişim yetkiniz yok.");
-        return;
+      const page = workspacePage(action.nav);
+      if (!page) return;
+      const { query } = action;
+      if (page === "offers" && query?.startsWith("quote:")) {
+        const id = query.slice("quote:".length);
+        if (id) navigate({ page, recordId: id });
+      } else if (page === "service-requests" && query?.startsWith("ticket:")) {
+        const [, id, serviceTab] = query.split(":");
+        if (id) navigate({ page, recordId: id }, { serviceTab });
+      } else {
+        navigate({ page }, { focus: { nav: page, focus: action.focus, query } });
       }
-      setSelectedCustomerId(null);
-      setSelectedCaseId(null);
-      setNav(targetNav);
-      setFocus({ nav: targetNav, focus: action.focus, query: action.query });
-      return;
-    }
-    if (action.kind === "customer") {
-      if (!canOpenNav("customers")) {
-        toast.error("Firmalar alanı şirket ayarlarında kapalı.");
-        return;
-      }
-      setSelectedCaseId(null);
-      setFocus(null);
-      setSelectedCustomerId(action.customerId);
-      return;
-    }
-    if (action.kind === "salesCase") {
-      if (!canOpenNav("sales-cases")) {
-        toast.error("Fırsatlar alanı şirket ayarlarında kapalı.");
-        return;
-      }
-      setFocus(null);
+    } else if (action.kind === "customer") {
+      selectCustomer(action.customerId);
+    } else if (action.kind === "salesCase") {
       selectOpportunity(action.salesCaseId);
     }
   };
@@ -420,20 +443,28 @@ function AppShell() {
         <p className="mt-2 text-sm text-muted-foreground">Bir sayfanın yeniden açılması için şirket yöneticinizle iletişime geçin.</p>
       </div>
     );
-  } else if (selectedCustomer) {
-    titleOverride = { title: selectedCustomer.name, subtitle: "Müşteri detayı" };
-    content = <CustomerDetailPage customer={selectedCustomer} onBack={() => setSelectedCustomerId(null)} onAction={runOperationAction} />;
+  } else if (selectedCustomerId) {
+    if (selectedCustomer) {
+      titleOverride = { title: selectedCustomer.name, subtitle: "Müşteri detayı" };
+      content = <CustomerDetailPage customer={selectedCustomer} onBack={closeDetail} onAction={runOperationAction} />;
+    } else if (selectedCustomerQuery.isPending) {
+      content = <PageLoadingSkeleton />;
+    } else {
+      content = <WorkspaceRecordUnavailable onClose={closeDetail} />;
+    }
   } else {
     switch (currentNav) {
       case "dashboard": content = <DashboardPage onAction={runOperationAction} initialSection={focus?.nav === "dashboard" && focus.focus === "targets" ? "hedefler" : undefined} />; break;
       case "chat": content = (
         <ChatPage
+          initialConversationId={focus?.nav === "chat" ? focus.query?.split(":")[0] : undefined}
+          initialMessageId={focus?.nav === "chat" ? focus.query?.split(":")[1] : undefined}
           onOpenRecord={(card) => {
             if (card.missing) return;
             if (card.type === "company") runOperationAction({ kind: "customer", customerId: card.id });
             else if (card.type === "opportunity") runOperationAction({ kind: "salesCase", salesCaseId: card.id });
-            else if (card.type === "quote") runOperationAction({ kind: "navigate", nav: "offers" });
-            else runOperationAction({ kind: "navigate", nav: "service-requests" });
+            else if (card.type === "quote") runOperationAction({ kind: "navigate", nav: "offers", query: `quote:${card.id}` });
+            else runOperationAction({ kind: "navigate", nav: "service-requests", query: `ticket:${card.id}` });
           }}
         />
       ); break;
@@ -441,6 +472,7 @@ function AppShell() {
       case "tasks":
         content = (
           <TasksPage
+            onOpenChatMessage={(query) => runOperationAction({ kind: "navigate", nav: "chat", query })}
             initialQuery={focus?.nav === "tasks" ? focus.query : undefined}
             onOpenRecord={(task) => {
               if (task.opportunityId) runOperationAction({ kind: "salesCase", salesCaseId: task.opportunityId });
@@ -457,7 +489,7 @@ function AppShell() {
             trigger={<Button className="gap-1"><Plus className="size-4" /> Yeni Firma</Button>}
           />
         ) : null;
-        content = <CustomersPage onSelect={(c) => setSelectedCustomerId(c.id)} />;
+        content = <CustomersPage onSelect={(c) => selectCustomer(c.id)} />;
         break;
       case "contacts":
         actions = canCreate("contacts.create") ? (
@@ -493,6 +525,9 @@ function AppShell() {
       case "sales-map": content = <SalesMapPage initialQuery={focus?.nav === "sales-map" ? focus.query : undefined} />; break;
       case "offers": content = (
         <OffersPage
+          selectedOfferId={recordId}
+          onSelectOffer={selectOffer}
+          onCloseOffer={closeDetail}
           focus={focus?.nav === "offers" ? focus.focus : undefined}
           initialQuery={focus?.nav === "offers" ? focus.query : undefined}
           onOpenOpportunity={selectOpportunity}
@@ -506,15 +541,19 @@ function AppShell() {
       case "due-dates": content = <DueDatesCalendarPage />; break;
       case "sales-price-list": content = <SalesPriceListPage />; break;
       case "references": content = <ReferencesPage />; break;
+      case "trade-fairs": content = <TradeFairsPage />; break;
       case "products": content = <ProductsPage initialQuery={focus?.nav === "products" ? focus.query : undefined} />; break;
       case "stock": content = <StockPage focus={focus?.nav === "stock" ? focus.focus : undefined} initialQuery={focus?.nav === "stock" ? focus.query : undefined} />; break;
       case "shipments": content = <ShipmentsPage focus={focus?.nav === "shipments" ? focus.focus : undefined} />; break;
       case "installations": content = <InstallationsPage />; break;
-      case "deliveries": content = <InstallationsPage />; break;
       case "machines": content = <MachinesPage />; break;
       case "service-requests":
         content = (
           <ServiceRequestsPage
+            selectedServiceId={recordId}
+            initialDetailTab={historyContext?.serviceTab}
+            onSelectService={selectService}
+            onCloseService={closeDetail}
             focus={focus?.nav === "service-requests" ? focus.focus : undefined}
             initialQuery={focus?.nav === "service-requests" ? focus.query : undefined}
           />
@@ -526,7 +565,7 @@ function AppShell() {
             trigger={<Button className="gap-1"><Plus className="size-4" /> Yeni Talep</Button>}
           />
         ) : null;
-        content = <ServiceKanbanPage focus={focus?.nav === "service-kanban" ? focus.focus : undefined} />;
+        content = <ServiceKanbanPage selectedServiceId={recordId} initialDetailTab={historyContext?.serviceTab} onSelectService={selectService} onCloseService={closeDetail} focus={focus?.nav === "service-kanban" ? focus.focus : undefined} />;
         break;
       case "service-price-list": content = <ServicePriceListPage />; break;
       case "reports": content = <ReportsPage onAction={runOperationAction} initialMode={focus?.nav === "reports" ? parseReportMode(focus.query) : null} />; break;
@@ -546,9 +585,12 @@ function AppShell() {
       onNavigate={goto}
       onLogout={() => {
         clearDrafts();
-        void logout();
+        window.history.replaceState(null, "", "/");
+        setSelectedCaseId(null);
+        // The current screen stays mounted while logout clears the session.
+        void logout().finally(() => setLocation(readWorkspaceLocation()));
       }}
-      onSelectFirm={(c) => { setSelectedCaseId(null); setSelectedCustomerId(c.id); }}
+      onSelectFirm={(c) => selectCustomer(c.id)}
       onSelectCase={(id, target) => selectOpportunity(id, target?.activityId)}
       onOperationAction={runOperationAction}
       pageTitle={t.title}

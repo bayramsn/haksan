@@ -1,3 +1,4 @@
+import { partialWithoutDefaults } from '../partial';
 import { z } from 'zod';
 
 export const TASK_STATUSES = ['todo', 'in_progress', 'done', 'cancelled'] as const;
@@ -66,7 +67,7 @@ const requireCompletionNote = (input: { status?: TaskStatus; completionNote?: st
 };
 
 export const taskCreateSchema = taskFields.superRefine(requireCompletionNote);
-export const taskUpdateSchema = taskFields.partial().superRefine(requireCompletionNote);
+export const taskUpdateSchema = partialWithoutDefaults(taskFields).superRefine(requireCompletionNote);
 
 /** Görev detayındaki ekip yorumu; task_events akışında değişmez bir kayıt olur. */
 export const taskCommentSchema = z.object({

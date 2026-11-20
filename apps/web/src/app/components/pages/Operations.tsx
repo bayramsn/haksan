@@ -1,8 +1,9 @@
-import { Fragment, useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "../ui/card";
 import { Input } from "../ui/input";
 import { Button } from "../ui/button";
 import { Badge } from "../ui/badge";
+import { Combobox } from "../ui/combobox";
 import { Tabs, TabsList, TabsTrigger } from "../ui/tabs";
 import {
   AlertDialog,
@@ -27,12 +28,13 @@ import { toast } from "sonner";
 import {
   Cpu, Search, Package, CheckCircle2, Truck, Wrench, Building2,
   ShieldCheck, AlertTriangle, Clock, MapPin, ChevronRight,
-  Plus, Upload, Pencil, Trash2, Boxes, Layers,
+  Plus, Upload, Pencil, Trash2, Boxes, Layers, ArrowUp, ArrowDown, ArrowUpDown, X,
 } from "lucide-react";
 import { MiniKpi } from "../shared/MiniKpi";
 import { EmptyState } from "../shared/EmptyState";
 import { EntityVisual } from "../shared/PremiumPrimitives";
 import { FilterPopover, ViewToggle, type ListView } from "../ui/list-controls";
+import { CatalogMailButton } from "../mail/CatalogMailButton";
 import { usePersistentState } from "../../lib/persist";
 
 type Stage = "Stokta" | "Rezerve" | "Sevkiyatta" | "Kuruldu" | "Servis" | "Hizmet Dışı";
@@ -146,12 +148,44 @@ export function productFamilyLabel(product: Product) {
   if (categoryCode && categoryCode !== "TEZGAH") {
     return product.category || product.productGroup || "Genel";
   }
+  const groupCode = (product.productGroupCode ?? "").toLocaleUpperCase("tr-TR");
+  if (groupCode && groupCode !== "CNC") {
+    return product.type || product.category || product.productGroup || "Genel";
+  }
   if (typeCode.includes("TORNA") || ["SL", "MT", "SJ"].includes(series)) return "CNC Torna Tezgahları";
   if (typeCode === "CNC_TAPPING_CENTER" || series === "TC") return "CNC Tapping Center";
   if (typeCode.includes("5_EKSEN") || ["D", "C"].includes(series)) return "CNC 5 Eksen İşleme Merkezleri";
   if (typeCode.includes("KOPRU") || series === "DL") return "CNC Köprü Tipi İşleme Merkezleri";
   if (typeCode.includes("DIK_ISLEME") || ["VM", "MV", "VC"].includes(series)) return "CNC Dik İşleme Merkezleri";
   return product.category || product.productGroup || "Genel";
+}
+
+export type ProductSortCol = "name" | "series" | "type" | "category" | "list" | "cash";
+
+export const PRODUCT_DEFAULT_SORT: { col: ProductSortCol; dir: 1 | -1 } = { col: "name", dir: 1 };
+
+/** Liste kolon başlığına tıklanınca sıralanan değer: metin A-Z, fiyat sayısal. */
+const PRODUCT_SORT_VALUE: Record<ProductSortCol, (p: Product) => string | number> = {
+  name: (p) => `${p.brand ?? ""} ${productName(p)}`.trim(),
+  series: (p) => productSeriesCode(p),
+  type: (p) => (p.type ?? "").trim(),
+  category: (p) => (p.category || p.subcategory || p.productGroup || "").trim(),
+  list: (p) => p.listPrice ?? 0,
+  cash: (p) => p.cashPrice ?? 0,
+};
+
+/** Kolon sıralaması; eşitlikte 0 döner. Boş metin / sıfır fiyat yönden bağımsız en sona düşer. */
+export function compareProductColumn(a: Product, b: Product, col: ProductSortCol, dir: 1 | -1) {
+  const va = PRODUCT_SORT_VALUE[col](a);
+  const vb = PRODUCT_SORT_VALUE[col](b);
+  const aEmpty = va === "" || va === 0;
+  const bEmpty = vb === "" || vb === 0;
+  if (aEmpty !== bEmpty) return aEmpty ? 1 : -1;
+  // ponytail: fiyatlar para birimi gözetmeden karşılaştırılır; karışık USD/EUR/TL listesinde kur çevrimi gerekirse buraya eklenir.
+  const diff = typeof va === "number" && typeof vb === "number"
+    ? va - vb
+    : String(va).trim().localeCompare(String(vb).trim(), "tr", { numeric: true, sensitivity: "base" });
+  return diff * dir;
 }
 
 function seriesSort(a: string, b: string) {
@@ -181,6 +215,10 @@ export function ProductsPage({ initialQuery }: { initialQuery?: string }) {
   const [deleting, setDeleting] = useState<Product | null>(null);
   const [deleteSaving, setDeleteSaving] = useState(false);
   const [view, setView] = usePersistentState<ListView>("products.view", "cards");
+  // İlk açılışta görünen ürün başlığı A-Z; seri grupları alfabetik sırayı bölmez.
+  const [sort, setSort] = useState(PRODUCT_DEFAULT_SORT);
+  const toggleSort = (col: ProductSortCol) =>
+    setSort((s) => ({ col, dir: s.col === col && s.dir === 1 ? -1 : 1 }));
   const isProductAdmin = hasRole("super_admin") || hasRole("admin");
   const canCreateProducts = isProductAdmin || hasPermission("products.create");
   const canEditProducts = isProductAdmin || hasPermission("products.update");
@@ -243,18 +281,19 @@ export function ProductsPage({ initialQuery }: { initialQuery?: string }) {
       .map((value) => ({ value, label: value }));
 
   const taxonomyFilters = [
-    { label: "Ürün Grubu", value: taxonomy.group, onChange: (v: string) => setTaxonomy((t) => ({ ...t, group: v })),
+    { label: "Ürün Grubu", value: taxonomy.group, onChange: (v: string) => setTaxonomy({ group: v, category: "all", subcategory: "all", type: "all" }),
       options: distinct(visibleProducts, (p) => p.productGroup) },
-    { label: "Ürün Kategorisi", value: taxonomy.category, onChange: (v: string) => setTaxonomy((t) => ({ ...t, category: v })),
+    { label: "Ürün Kategorisi", value: taxonomy.category, onChange: (v: string) => setTaxonomy((t) => ({ ...t, category: v, subcategory: "all", type: "all" })),
       options: distinct(visibleProducts.filter((p) => taxonomyMatches(p, 1)), (p) => p.category) },
-    { label: "Ürün Alt Kategorisi", value: taxonomy.subcategory, onChange: (v: string) => setTaxonomy((t) => ({ ...t, subcategory: v })),
+    { label: "Ürün Alt Kategorisi", value: taxonomy.subcategory, onChange: (v: string) => setTaxonomy((t) => ({ ...t, subcategory: v, type: "all" })),
       options: distinct(visibleProducts.filter((p) => taxonomyMatches(p, 2)), (p) => p.subcategory) },
     { label: "Ürün Tipi", value: taxonomy.type, onChange: (v: string) => setTaxonomy((t) => ({ ...t, type: v })),
       options: distinct(visibleProducts.filter((p) => taxonomyMatches(p, 3)), (p) => p.type) },
   ];
 
   const taxonomyFiltered = visibleProducts.filter((p) => taxonomyMatches(p, 4));
-  const categories = Array.from(new Set(taxonomyFiltered.map(productFamilyLabel))).filter(Boolean);
+  const categories = Array.from(new Set(taxonomyFiltered.map(productFamilyLabel))).filter(Boolean)
+    .sort((a, b) => a.localeCompare(b, "tr", { numeric: true, sensitivity: "base" }));
 
   // Taksonomi daraldığında seçili aile sekmesi listede kalmayabilir; boş ekran
   // yerine "Tümü"ye dönülür.
@@ -266,6 +305,16 @@ export function ProductsPage({ initialQuery }: { initialQuery?: string }) {
     () => Array.from(new Set(categoryFiltered.map(productSeriesLabel))).filter(Boolean).sort(seriesSort),
     [categoryFiltered]
   );
+
+  useEffect(() => {
+    if (series !== "all" && !seriesOptions.includes(series)) setSeries("all");
+  }, [series, seriesOptions]);
+
+  const hasActiveFilters = !!q || cat !== "all" || series !== "all" || Object.values(taxonomy).some((value) => value !== "all");
+  const clearFilters = () => {
+    setQ(""); setCat("all"); setSeries("all");
+    setTaxonomy({ group: "all", category: "all", subcategory: "all", type: "all" });
+  };
 
   const filtered = categoryFiltered.filter((p) => {
     if (series !== "all" && productSeriesLabel(p) !== series) return false;
@@ -287,21 +336,29 @@ export function ProductsPage({ initialQuery }: { initialQuery?: string }) {
   // model koduna eşit kaldığı için sıralama, ekranda görünen adı değil kodu
   // izliyordu. `productName` gerçek "Ürün Adı" alanıdır — artık ekranda
   // yazılanla sıralama birebir örtüşüyor.
+  const defaultCompare = (a: Product, b: Product) =>
+    compareProductText(a.brand ?? "", b.brand ?? "") ||
+    compareProductText(productName(a), productName(b)) ||
+    compareProductText(a.model ?? "", b.model ?? "");
   const sortedProducts = [...filtered].sort(
-    (a, b) =>
-      compareProductText(a.brand ?? "", b.brand ?? "") ||
-      compareProductText(productName(a), productName(b)) ||
-      compareProductText(a.model ?? "", b.model ?? ""),
+    // Tablo/kart geçişinde kullanıcının seçtiği sıra korunur.
+    (a, b) => compareProductColumn(a, b, sort.col, sort.dir) || defaultCompare(a, b),
   );
-  const grouped = Array.from(
-    sortedProducts.reduce((acc, product) => {
-      const label = productSeriesLabel(product);
-      const list = acc.get(label) ?? [];
-      list.push(product);
-      acc.set(label, list);
-      return acc;
-    }, new Map<string, Product[]>())
-  ).sort(([a], [b]) => seriesSort(a, b));
+  const ariaSort = (col: ProductSortCol) =>
+    sort?.col !== col ? "none" as const : sort.dir === 1 ? "ascending" as const : "descending" as const;
+  const sortHead = (col: ProductSortCol, label: string) => {
+    const Icon = sort?.col !== col ? ArrowUpDown : sort.dir === 1 ? ArrowUp : ArrowDown;
+    return (
+      <button
+        type="button"
+        className={`inline-flex items-center gap-1 uppercase tracking-wider hover:text-foreground ${sort?.col === col ? "text-foreground" : ""}`}
+        onClick={() => toggleSort(col)}
+        aria-label={`${label} kolonuna göre sırala`}
+      >
+        {label} <Icon className="size-3" />
+      </button>
+    );
+  };
 
   return (
     <div className="crm-page">
@@ -330,77 +387,59 @@ export function ProductsPage({ initialQuery }: { initialQuery?: string }) {
         />
       </div>
 
-      <div className="space-y-2">
-        <div className="w-full overflow-x-auto pb-1">
-          <Tabs value={cat} onValueChange={setCat} className="min-w-max">
-            <TabsList className="h-10 w-max flex-nowrap bg-muted/60 p-1">
-              <TabsTrigger value="all" className="gap-1.5 whitespace-nowrap px-3">
-                Tümü <CountBadge n={taxonomyFiltered.length} />
-              </TabsTrigger>
-              {categories.map((c) => (
-                <TabsTrigger key={c} value={c} className="gap-1.5 whitespace-nowrap px-3">
-                  {c} <CountBadge n={taxonomyFiltered.filter((p) => productFamilyLabel(p) === c).length} />
-                </TabsTrigger>
-              ))}
-            </TabsList>
-          </Tabs>
-        </div>
-
-        <div className="flex w-full flex-col gap-2 sm:flex-row sm:items-center sm:justify-end">
-          <div className="relative w-full sm:w-72 lg:w-80">
-            <Search className="size-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              placeholder="Marka, model, ürün ara..."
-              className="h-9 bg-card pl-9"
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
+      <section aria-label="Ürün arama ve filtreleri" className="min-w-0 rounded-xl border border-border/70 bg-card p-3 sm:p-4">
+        <div className="grid min-w-0 gap-3 md:grid-cols-2 xl:grid-cols-[minmax(15rem,1.25fr)_minmax(14rem,1fr)_minmax(12rem,0.8fr)]">
+          <div className="min-w-0 md:col-span-2 xl:col-span-1">
+            <label htmlFor="product-list-search" className="mb-1.5 block text-xs font-medium text-muted-foreground">Ürün ara</label>
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+              <Input id="product-list-search" placeholder="Marka, model veya ürün adı" className="h-11 bg-background pl-9" value={q} onChange={(e) => setQ(e.target.value)} />
+            </div>
+          </div>
+          <div className="min-w-0">
+            <div className="mb-1.5 text-xs font-medium text-muted-foreground">Kategori <span className="ml-1 font-normal">({categories.length})</span></div>
+            <Combobox
+              value={cat}
+              onChange={setCat}
+              ariaLabel="Ürün kategorisi"
+              className="h-11 min-w-0 bg-background"
+              searchPlaceholder="Kategori ara…"
+              options={[
+                { value: "all", label: "Tüm kategoriler", hint: String(taxonomyFiltered.length) },
+                ...categories.map((category) => ({ value: category, label: category, hint: String(taxonomyFiltered.filter((product) => productFamilyLabel(product) === category).length) })),
+              ]}
             />
           </div>
-          <div className="flex shrink-0 items-center gap-2">
-            <FilterPopover filters={taxonomyFilters} contentClassName="w-72" />
-            <ViewToggle view={view} onChange={setView} />
-            {canCreateProducts && (
-              <ProductImportDialog
-                trigger={<Button size="sm" variant="outline" className="h-9 gap-1 whitespace-nowrap"><Upload className="size-4" /> İçe Aktar</Button>}
-              />
-            )}
-            {canCreateProducts && (
-              <ProductDialog
-                trigger={<Button size="sm" className="h-9 gap-1 whitespace-nowrap"><Plus className="size-4" /> Yeni Ürün</Button>}
-              />
-            )}
+          <div className="min-w-0">
+            <div className="mb-1.5 text-xs font-medium text-muted-foreground">Model serisi <span className="ml-1 font-normal">({seriesOptions.length})</span></div>
+            <Combobox
+              value={series}
+              onChange={setSeries}
+              ariaLabel="Ürün model serisi"
+              className="h-11 min-w-0 bg-background"
+              searchPlaceholder="Seri ara…"
+              options={[
+                { value: "all", label: "Tüm seriler", hint: String(categoryFiltered.length) },
+                ...seriesOptions.map((option) => ({ value: option, label: option, hint: String(categoryFiltered.filter((product) => productSeriesLabel(product) === option).length) })),
+              ]}
+            />
           </div>
         </div>
-      </div>
-
-      {seriesOptions.length > 1 && (
-        <div className="flex flex-wrap items-center gap-1.5">
-          <Button
-            type="button"
-            size="sm"
-            variant={series === "all" ? "default" : "outline"}
-            className="h-7 px-2 text-xs"
-            onClick={() => setSeries("all")}
-          >
-            Tüm Seriler
-          </Button>
-          {seriesOptions.map((option) => (
-            <Button
-              key={option}
-              type="button"
-              size="sm"
-              variant={series === option ? "default" : "outline"}
-              className="h-7 px-2 text-xs"
-              onClick={() => setSeries(option)}
-            >
-              {option}
-              <span className="ml-1 text-[10px] opacity-75">
-                {categoryFiltered.filter((p) => productSeriesLabel(p) === option).length}
-              </span>
-            </Button>
-          ))}
+        <div className="mt-3 flex min-w-0 flex-wrap items-center justify-between gap-3 border-t border-border/60 pt-3">
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
+            <span className="text-xs text-muted-foreground" role="status"><b className="font-semibold text-foreground">{filtered.length}</b> ürün</span>
+            {hasActiveFilters && <Button type="button" variant="ghost" size="sm" className="h-9 gap-1 text-xs" onClick={clearFilters}><X className="size-3.5" /> Filtreleri temizle</Button>}
+          </div>
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
+            <FilterPopover filters={taxonomyFilters} contentClassName="w-72" />
+            <CatalogMailButton />
+            <ViewToggle view={view} onChange={setView} />
+            {canCreateProducts && <ProductImportDialog trigger={<Button size="sm" variant="outline" className="h-9 gap-1 whitespace-nowrap"><Upload className="size-4" /> İçe Aktar</Button>} />}
+            {canCreateProducts && <ProductDialog trigger={<Button size="sm" className="h-9 gap-1 whitespace-nowrap"><Plus className="size-4" /> Yeni Ürün</Button>} />}
+          </div>
         </div>
-      )}
+      </section>
+
 
       {view === "cards" ? (
         sortedProducts.length > 0 ? (
@@ -505,24 +544,17 @@ export function ProductsPage({ initialQuery }: { initialQuery?: string }) {
           <Table>
             <TableHeader>
               <TableRow className="bg-muted/40 hover:bg-muted/40">
-                <TableHead className="w-[360px] text-[11px] uppercase tracking-wider text-muted-foreground">Ürün</TableHead>
-                <TableHead className="text-[11px] uppercase tracking-wider text-muted-foreground">Seri</TableHead>
-                <TableHead className="text-[11px] uppercase tracking-wider text-muted-foreground">Tip</TableHead>
-                <TableHead className="text-[11px] uppercase tracking-wider text-muted-foreground">Kategori</TableHead>
-                <TableHead className="text-right text-[11px] uppercase tracking-wider text-muted-foreground">Liste Fiyatı</TableHead>
-                <TableHead className="text-right text-[11px] uppercase tracking-wider text-muted-foreground">Peşin</TableHead>
+                <TableHead aria-sort={ariaSort("name")} className="w-[360px] text-[11px] uppercase tracking-wider text-muted-foreground">{sortHead("name", "Ürün")}</TableHead>
+                <TableHead aria-sort={ariaSort("series")} className="text-[11px] uppercase tracking-wider text-muted-foreground">{sortHead("series", "Seri")}</TableHead>
+                <TableHead aria-sort={ariaSort("type")} className="text-[11px] uppercase tracking-wider text-muted-foreground">{sortHead("type", "Tip")}</TableHead>
+                <TableHead aria-sort={ariaSort("category")} className="text-[11px] uppercase tracking-wider text-muted-foreground">{sortHead("category", "Kategori")}</TableHead>
+                <TableHead aria-sort={ariaSort("list")} className="text-right text-[11px] uppercase tracking-wider text-muted-foreground">{sortHead("list", "Liste Fiyatı")}</TableHead>
+                <TableHead aria-sort={ariaSort("cash")} className="text-right text-[11px] uppercase tracking-wider text-muted-foreground">{sortHead("cash", "Peşin")}</TableHead>
                 <TableHead className="w-[88px]"></TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {grouped.map(([group, rows]) => (
-                <Fragment key={group}>
-                  <TableRow key={`${group}-header`} className="bg-muted/20 hover:bg-muted/20">
-                    <TableCell colSpan={7} className="py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                      {group} <span className="ml-1 font-normal normal-case tracking-normal text-muted-foreground/80">({rows.length} model)</span>
-                    </TableCell>
-                  </TableRow>
-                  {rows.map((p) => (
+              {sortedProducts.map((p) => (
                     <TableRow key={p.id} className="cursor-pointer group hover:bg-primary/[0.025]" onClick={() => setSelected(p)}>
                       <TableCell>
                         <div className="flex items-center gap-3 min-w-0">
@@ -594,8 +626,6 @@ export function ProductsPage({ initialQuery }: { initialQuery?: string }) {
                         )}
                       </TableCell>
                     </TableRow>
-                  ))}
-                </Fragment>
               ))}
               {filtered.length === 0 && (
                 <TableRow>
@@ -677,14 +707,6 @@ export function ProductsPage({ initialQuery }: { initialQuery?: string }) {
         />
       )}
     </div>
-  );
-}
-
-function CountBadge({ n }: { n: number }) {
-  return (
-    <span className="ml-0.5 inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 text-[10px] rounded-full bg-muted text-muted-foreground">
-      {n}
-    </span>
   );
 }
 

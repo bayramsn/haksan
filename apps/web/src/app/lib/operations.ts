@@ -1,3 +1,4 @@
+import { isServiceOverdue, serviceAgeDays } from "./serviceSla";
 import {
   salesStageLabel,
   type Activity,
@@ -18,6 +19,7 @@ import {
 
 export type OperationNav =
   | "dashboard"
+  | "chat"
   | "calendar"
   | "tasks"
   | "customers"
@@ -272,8 +274,7 @@ const isLostSalesCase = (s: SalesCase) => s.isLost || String(s.stage) === "Lost"
 
 const isOpenService = (s: ServiceRequest) => s.stage !== "Closed";
 
-const isLateService = (s: ServiceRequest) =>
-  isOpenService(s) && (daysSince(s.createdAt) ?? 0) > 7;
+const isLateService = (s: ServiceRequest) => isServiceOverdue(s);
 
 const isExpiredOffer = (o: Offer) =>
   o.status === "Sent" && (daysSince(o.date) ?? 0) > (o.validityDays ?? 20);
@@ -432,16 +433,17 @@ export function buildWorkItems(data: OperationStoreSnapshot): WorkItem[] {
     .filter(isOpenService)
     .forEach((s) => {
       const customer = findCustomer(data, s.customerId);
-      const age = Math.abs(daysUntil(s.createdAt) ?? 0);
+      const age = serviceAgeDays(s);
+      const overdue = isLateService(s);
       items.push({
         id: `service:${s.id}`,
         title: `${customer?.name ?? "Firma"} servis talebi`,
         subtitle: s.description || s.diagnosisNote || s.serviceNote || "Servis takibi gerekli",
-        meta: age > 7 ? `${age} gündür açık` : s.stage,
+        meta: overdue ? `${age} gündür açık · SLA aşıldı` : s.stage,
         owner: findUser(data, s.assignedUserId),
-        severity: age > 7 || s.priority === "critical" ? "critical" : s.priority === "high" ? "warning" : "info",
+        severity: overdue || s.priority === "critical" ? "critical" : s.priority === "high" ? "warning" : "info",
         module: "service-requests",
-        action: { kind: "navigate", nav: "service-requests", focus: age > 7 ? "late" : "open" },
+        action: { kind: "navigate", nav: "service-requests", focus: overdue ? "late" : "open" },
         dueDate: s.createdAt,
       });
     });
@@ -854,7 +856,7 @@ export function buildKpiDrilldowns(data: OperationStoreSnapshot): KpiDrilldown[]
       id: "kpi:service-open",
       label: "Açık servis",
       value: String(openServices.length),
-      description: `${lateServices.length} kayıt 7 günü geçti`,
+      description: `${lateServices.length} kayıt öncelik SLA süresini aştı`,
       severity: lateServices.length ? "critical" : openServices.length ? "warning" : "success",
       action: { kind: "navigate", nav: "service-requests", focus: lateServices.length ? "late" : "open" },
       records: indexByIds(data, openServices.map((item) => `service:${item.id}`)),
@@ -943,7 +945,7 @@ export function buildManagementInsights(data: OperationStoreSnapshot): ReportSum
           id: "risk:service",
           category: "risk",
           title: "Servis SLA riski",
-          description: `${lateServices.length} açık servis talebi 7 günü geçti.`,
+          description: `${lateServices.length} açık servis talebi öncelik SLA süresini aştı.`,
           metric: String(lateServices.length),
           severity: "critical",
           action: { kind: "navigate", nav: "service-requests", focus: "late" },
@@ -1526,7 +1528,7 @@ export function answerOperationQuery(input: string, data: OperationStoreSnapshot
 
   if (includesAny(text, ["servis", "ariza", "arıza", "sla", "bakim", "bakım", "kanban", "teknik"])) {
     const open = data.service.filter(isOpenService);
-    const late = data.service.filter((s) => isOpenService(s) && Math.abs(daysUntil(s.createdAt) ?? 0) > 7);
+    const late = data.service.filter(isLateService);
     const results = byType(index, "Servis", query, ["servis", "ariza", "arıza", "sla", "bakim", "bakım", "kanban", "teknik"], 6);
     return {
       text: `${open.length} açık servis talebi var. ${late.length} kayıt SLA/gecikme riski taşıyor.`,

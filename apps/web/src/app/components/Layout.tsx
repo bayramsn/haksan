@@ -7,7 +7,7 @@ import {
   LifeBuoy, BarChart3, ShieldCheck, Building2, Contact as ContactIcon, Settings as SettingsIcon,
   Search, Bell, ChevronDown, ChevronRight, LogOut, Plus, HelpCircle, Menu, PanelLeftClose, PanelLeftOpen,
   CheckCircle2, Clock, AlertTriangle, Tag, Receipt, Map as MapIcon, Wallet, Calendar, MessageCircle, MessageSquare,
-  ListChecks, ListTodo,
+  ListChecks, ListTodo, Store,
   Star, Rows3,
   Megaphone,
 } from "lucide-react";
@@ -70,6 +70,7 @@ export const MGMT_KEYS = new Set<NavKey>(["users", "roles", "departments"]);
 export const RESOURCE_BY_NAV: Partial<Record<NavKey, string>> = {
   calendar: "calendar",
   tasks: "tasks",
+  "trade-fairs": "trade_fairs",
   customers: "companies",
   contacts: "contacts",
   "sales-cases": "opportunities",
@@ -127,6 +128,7 @@ const NAV_ICON: Record<NavigationVisibilityKey, any> = {
   chat: MessageCircle,
   calendar: Calendar,
   tasks: ListTodo,
+  "trade-fairs": Store,
   customers: Building2,
   "sales-cases": Briefcase,
   meta: Megaphone,

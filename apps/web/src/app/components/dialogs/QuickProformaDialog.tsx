@@ -236,7 +236,7 @@ export function QuickProformaDialog({
           </DialogTitle>
           <DialogDescription>
             {editDocument
-              ? `${editDocument.fileName} belgesinin firma bilgisi, kalemleri ve şartlarını güncelleyin.`
+              ? `${editDocument.fileName} belgesinin firma bilgisi, kalemleri ve notlarını güncelleyin.`
               : "Teklif açmadan proforma kesin. Kalemleri doğrudan yazarsınız; bu belge hiçbir teklife bağlanmaz."}
           </DialogDescription>
         </DialogHeader>
@@ -327,7 +327,7 @@ export function QuickProformaDialog({
                 <Select value={printVariantKey} onValueChange={setPrintVariantKey}>
                   <SelectTrigger className="mt-1.5"><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value={AUTO_VARIANT_KEY}>Otomatik (girilen şartlar)</SelectItem>
+                    <SelectItem value={AUTO_VARIANT_KEY}>Otomatik (girilen notlar)</SelectItem>
                     <SelectGroup>
                       <SelectLabel>Proforma şablonu</SelectLabel>
                       {PROFORMA_NOTE_OPTIONS.filter((v) => v.group === "proforma").map((v) => (
@@ -346,9 +346,9 @@ export function QuickProformaDialog({
               </div>
 
               <DocumentTermsTemplateEditor
-                continuousNumbering
-                title="Proforma Şartları"
-                description="Şablon seçin veya metni yazın. Bu belge bir teklife bağlı olmadığı için şartlar yalnızca proformaya kaydedilir."
+                notesOnly
+                title="Proforma Notları"
+                description="Şablon seçin veya notları yazın; sık kullandığınız notları şablon olarak kaydedebilirsiniz."
                 templateScope={PROFORMA_TERMS_TEMPLATE_SCOPE}
                 noteTemplates={noteTemplates}
                 selectedTemplateKey={termsTemplateKey}

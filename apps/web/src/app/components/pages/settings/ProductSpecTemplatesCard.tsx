@@ -1,3 +1,4 @@
+import { displayProductCategoryOptions, sameProductCategory, uniqueProductCategoryOptions } from "../../../lib/productCategories";
 import { useEffect, useMemo, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import {
   ArrowLeft,
@@ -119,6 +120,7 @@ type TaxonomyLookupRow = {
 };
 
 type ProductCategoryOption = {
+  identityLabel?: string;
   id: string;
   code: string;
   label: string;
@@ -438,8 +440,10 @@ export function ProductSpecTemplatesCard({ divisionId, onDivisionChange, onConfi
         const group = groupById.get(category.productGroupId);
         return group?.isActive !== false && foldProductTypeCode(group?.code) === familyCode;
       })
-      .map((category) => ({ id: category.id, code: category.code, label: category.name }));
+      .map((category) => ({ id: category.id, code: category.code, label: category.name, identityLabel: category.name }));
   }, [familyCode, productCategoryRows, productGroupRows]);
+
+  const displayedFamilyCategories = useMemo(() => displayProductCategoryOptions(familyCategories, familyCode), [familyCategories, familyCode]);
 
   const familySubcategories = useMemo<ProductSubcategoryOption[]>(() => {
     const categoryById = new Map(familyCategories.map((category) => [category.id, category]));
@@ -460,9 +464,10 @@ export function ProductSpecTemplatesCard({ divisionId, onDivisionChange, onConfi
 
   const familyTypes = useMemo(() => {
     const merged = new Map<string, MachineTypeOption>();
+    const hierarchyKey = (type: MachineTypeOption) => `${type.categoryCode}:${type.subcategoryCode}:${canonicalTypeCode(type.code)}`;
     MACHINE_TYPES
       .filter((type) => type.familyCode === familyCode)
-      .forEach((type) => merged.set(canonicalTypeCode(type.code), type));
+      .forEach((type) => merged.set(hierarchyKey(type), type));
 
     const groupById = new Map(productGroupRows.map((row) => [row.id, row]));
     const categoryById = new Map(productCategoryRows.map((row) => [row.id, row]));
@@ -485,31 +490,34 @@ export function ProductSpecTemplatesCard({ divisionId, onDivisionChange, onConfi
           subcategoryCode: subcategory.code,
           subcategoryLabel: subcategory.name,
         };
-        merged.set(canonicalTypeCode(row.code), option);
+        merged.set(hierarchyKey(option), option);
       });
     return [...merged.values()];
   }, [familyCode, productCategoryRows, productGroupRows, productSubcategoryRows, productTypeRows]);
 
-  const categoryOptions = useMemo(() => {
+  const allCategoryOptions = useMemo(() => {
     const map = new Map<string, string>();
     familyCategories.forEach((category) => map.set(category.code, category.label));
     familyTypes.forEach((type) => map.set(type.categoryCode, type.categoryLabel));
     return [...map.entries()].map(([code, label]) => ({ code, label }));
   }, [familyCategories, familyTypes]);
 
+  const categoryOptions = useMemo(() => displayProductCategoryOptions(uniqueProductCategoryOptions(allCategoryOptions, categoryCode), familyCode), [allCategoryOptions, categoryCode, familyCode]);
+  const categoryMatches = (a?: string, b?: string) => sameProductCategory(allCategoryOptions, a, b);
+
   const subcategories = useMemo(() => {
     const map = new Map<string, string>();
     familySubcategories
-      .filter((subcategory) => subcategory.categoryCode === categoryCode)
+      .filter((subcategory) => categoryMatches(subcategory.categoryCode, categoryCode))
       .forEach((subcategory) => map.set(subcategory.code, subcategory.label));
     familyTypes
-      .filter((type) => type.categoryCode === categoryCode)
+      .filter((type) => categoryMatches(type.categoryCode, categoryCode))
       .forEach((type) => map.set(type.subcategoryCode, type.subcategoryLabel));
     return [...map.entries()].map(([code, label]) => ({ code, label }));
-  }, [categoryCode, familySubcategories, familyTypes]);
+  }, [categoryCode, familySubcategories, familyTypes, allCategoryOptions]);
   const scopedTypes = useMemo(
-    () => familyTypes.filter((type) => type.categoryCode === categoryCode && type.subcategoryCode === subcategoryCode),
-    [categoryCode, familyTypes, subcategoryCode],
+    () => familyTypes.filter((type) => categoryMatches(type.categoryCode, categoryCode) && type.subcategoryCode === subcategoryCode),
+    [categoryCode, familyTypes, subcategoryCode, allCategoryOptions],
   );
   // Seçim her zaman aktif aile/kategori/alt kategori zincirinde kalmalı.
   const selectedType = scopedTypes.find((type) => sameType(type.code, typeCode)) ?? scopedTypes[0];
@@ -528,15 +536,15 @@ export function ProductSpecTemplatesCard({ divisionId, onDivisionChange, onConfi
       ? subcategoryCode
       : subcategories[0]?.code ?? "";
     setSubcategoryCode(nextSubcategory);
-    const nextType = familyTypes.find((type) => type.categoryCode === categoryCode && type.subcategoryCode === nextSubcategory && sameType(type.code, typeCode))
-      ?? familyTypes.find((type) => type.categoryCode === categoryCode && type.subcategoryCode === nextSubcategory);
+    const nextType = familyTypes.find((type) => categoryMatches(type.categoryCode, categoryCode) && type.subcategoryCode === nextSubcategory && sameType(type.code, typeCode))
+      ?? familyTypes.find((type) => categoryMatches(type.categoryCode, categoryCode) && type.subcategoryCode === nextSubcategory);
     if (nextType) setTypeCode(nextType.code);
     setSearch("");
   }, [categoryCode, subcategories]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    const nextType = familyTypes.find((type) => type.categoryCode === categoryCode && type.subcategoryCode === subcategoryCode && sameType(type.code, typeCode))
-      ?? familyTypes.find((type) => type.categoryCode === categoryCode && type.subcategoryCode === subcategoryCode);
+    const nextType = familyTypes.find((type) => categoryMatches(type.categoryCode, categoryCode) && type.subcategoryCode === subcategoryCode && sameType(type.code, typeCode))
+      ?? familyTypes.find((type) => categoryMatches(type.categoryCode, categoryCode) && type.subcategoryCode === subcategoryCode);
     if (nextType) setTypeCode(nextType.code);
     setSearch("");
   }, [categoryCode, subcategoryCode]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -876,7 +884,7 @@ export function ProductSpecTemplatesCard({ divisionId, onDivisionChange, onConfi
 
   const librarySearch = normalizeProductSpecKey(search);
   const libraryTypes = familyTypes.filter((type) => {
-    if (categoryCode && type.categoryCode !== categoryCode) return false;
+    if (categoryCode && !categoryMatches(type.categoryCode, categoryCode)) return false;
     if (subcategoryCode && type.subcategoryCode !== subcategoryCode) return false;
     return !librarySearch || normalizeProductSpecKey(`${type.label} ${type.code}`).includes(librarySearch);
   });
@@ -891,7 +899,10 @@ export function ProductSpecTemplatesCard({ divisionId, onDivisionChange, onConfi
     })), [products, selectedType?.code]);
 
   const openWorkbook = (nextTypeCode: string) => {
-    const type = familyTypes.find((item) => sameType(item.code, nextTypeCode))
+    const type = familyTypes.find((item) => item.code === nextTypeCode && categoryMatches(item.categoryCode, categoryCode) && item.subcategoryCode === subcategoryCode)
+      ?? familyTypes.find((item) => sameType(item.code, nextTypeCode) && categoryMatches(item.categoryCode, categoryCode) && item.subcategoryCode === subcategoryCode)
+      ?? familyTypes.find((item) => item.code === nextTypeCode)
+      ?? familyTypes.find((item) => sameType(item.code, nextTypeCode))
       ?? MACHINE_TYPES.find((item) => sameType(item.code, nextTypeCode));
     if (type) {
       setFamilyCode(type.familyCode);
@@ -956,7 +967,7 @@ export function ProductSpecTemplatesCard({ divisionId, onDivisionChange, onConfi
     }
   };
 
-  const hierarchyLabel = selectedType ? `${selectedType.familyCode === "SAC_ISLEME" ? "Sac İşleme" : selectedType.familyCode === "UNIVERSAL" ? "Üniversal" : "CNC"} › ${selectedType.categoryLabel} › ${selectedType.subcategoryLabel} › ${selectedType.label}` : "";
+  const hierarchyLabel = selectedType ? `${selectedType.familyCode === "SAC_ISLEME" ? "Sac İşleme" : selectedType.familyCode === "UNIVERSAL" ? "Üniversal" : "CNC"} › ${displayProductCategoryOptions([{ code: selectedType.categoryCode, label: selectedType.categoryLabel }], familyCode)[0].label} › ${selectedType.subcategoryLabel} › ${selectedType.label}` : "";
 
   return (
     <div className="overflow-hidden rounded-xl border border-slate-300 bg-white shadow-sm">
@@ -1130,7 +1141,7 @@ export function ProductSpecTemplatesCard({ divisionId, onDivisionChange, onConfi
         familyCode={familyCode}
         familyLabel={FAMILIES.find((family) => family.code === familyCode)?.label ?? familyCode}
         divisionReady={Boolean(familyDivisionId)}
-        categories={familyCategories}
+        categories={displayedFamilyCategories}
         subcategories={familySubcategories}
         selectedCategoryCode={categoryCode}
         selectedSubcategoryCode={subcategoryCode}
@@ -1290,8 +1301,8 @@ function NewMachineTemplateDialog({
   useEffect(() => {
     if (!open) return;
     const source = sourceTypes.find((type) => sameType(type.code, selectedTypeCode)) ?? sourceTypes[0];
-    const matchingCategory = categories.find((item) => item.code === selectedCategoryCode)
-      ?? categories.find((item) => item.code === source?.categoryCode)
+    const matchingCategory = categories.find((item) => item.code === source?.categoryCode)
+      ?? categories.find((item) => item.code === selectedCategoryCode)
       ?? categories[0];
     const matchingSubcategory = subcategories.find((item) => item.categoryId === matchingCategory?.id && item.code === selectedSubcategoryCode)
       ?? subcategories.find((item) => item.categoryId === matchingCategory?.id && item.code === source?.subcategoryCode)
@@ -1305,11 +1316,14 @@ function NewMachineTemplateDialog({
     setSourceTypeCode(sourceTypes.find((type) => !sameType(type.code, matchingType?.code))?.code ?? "");
   }, [categories, familyCode, open, selectedCategoryCode, selectedSubcategoryCode, selectedTypeCode, sourceTypes, subcategories]);
 
+  const categoryMatches = (a?: string, b?: string) => sameProductCategory(categories, a, b);
+  const categoryIdOptions = categories.map((item) => ({ code: item.id, label: item.label, identityLabel: item.identityLabel }));
+  const visibleCategories = uniqueProductCategoryOptions(categoryIdOptions, categoryId);
   const selectedCategory = categories.find((item) => item.id === categoryId);
-  const scopedSubcategories = subcategories.filter((item) => item.categoryId === categoryId);
+  const scopedSubcategories = subcategories.filter((item) => sameProductCategory(categoryIdOptions, item.categoryId, categoryId));
   const selectedSubcategory = scopedSubcategories.find((item) => item.id === subcategoryId);
   const scopedProductTypes = sourceTypes.filter((type) => (
-    type.categoryCode === selectedCategory?.code && type.subcategoryCode === selectedSubcategory?.code
+    categoryMatches(type.categoryCode, selectedCategory?.code) && type.subcategoryCode === selectedSubcategory?.code
   ));
   const selectedTargetType = scopedProductTypes.find((type) => sameType(type.code, targetTypeCode));
   const copySourceTypes = sourceTypes.filter((type) => !sameType(type.code, targetTypeCode));
@@ -1368,8 +1382,8 @@ function NewMachineTemplateDialog({
                         onChange={(event) => {
                           const nextCategoryId = event.target.value;
                           const nextCategory = categories.find((item) => item.id === nextCategoryId);
-                          const nextSubcategory = subcategories.find((item) => item.categoryId === nextCategoryId);
-                          const nextType = sourceTypes.find((type) => type.categoryCode === nextCategory?.code && type.subcategoryCode === nextSubcategory?.code);
+                          const nextSubcategory = subcategories.find((item) => sameProductCategory(categoryIdOptions, item.categoryId, nextCategoryId));
+                          const nextType = sourceTypes.find((type) => categoryMatches(type.categoryCode, nextCategory?.code) && type.subcategoryCode === nextSubcategory?.code);
                           setCategoryId(nextCategoryId);
                           setSubcategoryId(nextSubcategory?.id ?? "");
                           setTargetTypeCode(nextType?.code ?? "");
@@ -1380,7 +1394,7 @@ function NewMachineTemplateDialog({
                         className="h-10 w-full appearance-none rounded-md border border-slate-300 bg-white px-3 pr-9 text-xs font-medium text-slate-800 outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100 disabled:opacity-60"
                       >
                         {!categories.length && <option value="">Kategori bulunamadı</option>}
-                        {categories.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
+                        {visibleCategories.map((item) => <option key={item.code} value={item.code}>{item.label}</option>)}
                       </select>
                       <ChevronDown className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 text-slate-500" />
                     </div>
@@ -1395,8 +1409,9 @@ function NewMachineTemplateDialog({
                         onChange={(event) => {
                           const nextSubcategoryId = event.target.value;
                           const nextSubcategory = subcategories.find((item) => item.id === nextSubcategoryId);
-                          const nextType = sourceTypes.find((type) => type.categoryCode === selectedCategory?.code && type.subcategoryCode === nextSubcategory?.code);
+                          const nextType = sourceTypes.find((type) => categoryMatches(type.categoryCode, selectedCategory?.code) && type.subcategoryCode === nextSubcategory?.code);
                           setSubcategoryId(nextSubcategoryId);
+                          if (nextSubcategory) setCategoryId(nextSubcategory.categoryId);
                           setTargetTypeCode(nextType?.code ?? "");
                           if (sameType(sourceTypeCode, nextType?.code)) {
                             setSourceTypeCode(sourceTypes.find((type) => !sameType(type.code, nextType?.code))?.code ?? "");
@@ -1557,6 +1572,11 @@ function HierarchySelect({ index, label, value, options, onChange }: { index: st
 
 function TemplateCard({ type, specRows, selected, onSelect, onOpen }: { type: MachineTypeOption; specRows: SpecTemplateRow[]; selected: boolean; onSelect: () => void; onOpen: () => void }) {
   const completion = completionFor(type.code, specRows);
+  const sectionCount = new Set(
+    buildDraftRows(type.code, specRows)
+      .filter((row) => row.isActive && !row.isDeleted)
+      .map((row) => row.groupCode),
+  ).size;
   const laserModels = isLaserProductType(type.code) ? LASER_MODELS.filter((model) => sameType(model.productTypeCode, type.code)) : [];
   const isLaserTemplate = laserModels.length > 0;
   const combinationCount = laserModels.length * LASER_POWERS.length * 2;
@@ -1573,7 +1593,7 @@ function TemplateCard({ type, specRows, selected, onSelect, onOpen }: { type: Ma
         <p className="pl-2 font-mono text-[9px] tracking-[0.22em] text-slate-500">{modelCode}</p>
         <h3 className="mt-3 max-w-[18rem] font-display text-[25px] font-bold uppercase leading-[0.96] tracking-tight text-[#0b1f44]">{type.label}</h3>
         <div className="mt-4 border-t border-slate-200 pt-3 text-[11px]">
-          {isLaserTemplate ? <><div className="flex items-center justify-between text-slate-600"><span>{combinationCount} kombinasyon</span><span>{LASER_POWERS.length} güç × 2 kabin</span></div><div className="mt-2 flex items-center gap-1.5 text-emerald-700"><CheckCircle2 className="size-3.5" />Model, kabin ve güce göre düzenlenir</div></> : <><div className="flex items-center justify-between text-slate-600"><span>{completion.registered} teknik alan</span><span>{new Set(machineSpecTemplateEntries(type.code).map((entry) => entry.group)).size} bölüm</span></div><div className={cn("mt-2 flex items-center gap-1.5", completion.missing ? "text-rose-600" : "text-emerald-700")}>{completion.missing ? <CircleAlert className="size-3.5" /> : <CheckCircle2 className="size-3.5" />}{completion.missing ? `${completion.missing} alan eksik` : "Şablon hazır"}</div></>}
+          {isLaserTemplate ? <><div className="flex items-center justify-between text-slate-600"><span>{combinationCount} kombinasyon</span><span>{LASER_POWERS.length} güç × 2 kabin</span></div><div className="mt-2 flex items-center gap-1.5 text-emerald-700"><CheckCircle2 className="size-3.5" />Model, kabin ve güce göre düzenlenir</div></> : <><div className="flex items-center justify-between text-slate-600"><span>{completion.registered} teknik alan</span><span>{sectionCount} bölüm</span></div><div className={cn("mt-2 flex items-center gap-1.5", completion.missing ? "text-rose-600" : "text-emerald-700")}>{completion.missing ? <CircleAlert className="size-3.5" /> : <CheckCircle2 className="size-3.5" />}{completion.missing ? `${completion.missing} alan eksik` : "Şablon hazır"}</div></>}
         </div>
         <Button size="sm" className="mt-auto self-end bg-blue-600 text-white hover:bg-blue-700" onClick={(event) => { event.stopPropagation(); onOpen(); }}>{isLaserTemplate ? "Kombinasyonları aç" : "Çalışma sayfasını aç"}<ArrowRight className="ml-1.5 size-4" /></Button>
       </div>
@@ -1685,7 +1705,7 @@ function EditorView({ type, laserConfiguration, search, setSearch, rows, display
     <div className="bg-[#f8fafc]">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-white px-4 py-3">
         <div className="min-w-0"><h2 className="truncate font-display text-2xl font-bold text-[#0b1f44]">{laserConfiguration?.modelLabel ?? type.label}</h2><p className="font-mono text-[9px] tracking-[0.22em] text-slate-500">{isLaserProfile ? `${laserSelection?.series} SERİSİ · ${laserSelection?.sourceModelCode}` : type.code}</p></div>
-        <div className="flex flex-wrap items-center gap-2 text-[10px] text-slate-500"><Badge variant="outline" className="border-slate-300 bg-white">{type.familyCode === "SAC_ISLEME" ? "Sac İşleme" : type.familyCode === "UNIVERSAL" ? "Üniversal" : "CNC"}</Badge><ArrowRight className="size-3" /><span>{type.categoryLabel}</span><ArrowRight className="size-3" /><span>{type.subcategoryLabel}</span></div>
+        <div className="flex flex-wrap items-center gap-2 text-[10px] text-slate-500"><Badge variant="outline" className="border-slate-300 bg-white">{type.familyCode === "SAC_ISLEME" ? "Sac İşleme" : type.familyCode === "UNIVERSAL" ? "Üniversal" : "CNC"}</Badge><ArrowRight className="size-3" /><span>{displayProductCategoryOptions([{ code: type.categoryCode, label: type.categoryLabel }], type.familyCode)[0].label}</span><ArrowRight className="size-3" /><span>{type.subcategoryLabel}</span></div>
       </div>
       {laserConfiguration && <div className="border-b border-blue-200 bg-blue-50 px-4 py-3">
         <div className="flex flex-wrap items-center gap-2 text-xs">

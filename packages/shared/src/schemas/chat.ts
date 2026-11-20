@@ -59,6 +59,7 @@ export const sendMessageSchema = z
     body: z.string().max(4000).optional(),
     attachmentFileIds: z.array(z.string().uuid()).max(10).optional(),
     replyToId: z.string().uuid().optional(),
+    mentionUserIds: z.array(z.string().uuid()).max(50).optional(),
     refType: chatRefTypeSchema.optional(),
     refId: z.string().uuid().optional(),
     location: chatLocationSchema.optional(),
@@ -92,7 +93,24 @@ export type ReactionInput = z.infer<typeof reactionSchema>;
 /** Mesaj sayfalama: `before` = yüklü en eski mesajın createdAt ISO değeri (cursor). */
 export const messagesQuerySchema = z.object({
   before: z.string().optional(),
+  around: z.string().uuid().optional(),
   limit: z.coerce.number().int().min(1).max(100).default(30),
   search: z.string().trim().min(2).max(100).optional(),
+}).refine((query) => !query.around || (!query.before && !query.search), {
+  message: "Mesaj konumu arama veya sayfalama ile birlikte kullanılamaz", path: ["around"],
 });
 export type MessagesQuery = z.infer<typeof messagesQuerySchema>;
+
+export const pinMessageSchema = z.object({ pinned: z.boolean() });
+export type PinMessageInput = z.infer<typeof pinMessageSchema>;
+export const forwardMessageSchema = z.object({ conversationId: z.string().uuid() });
+export type ForwardMessageInput = z.infer<typeof forwardMessageSchema>;
+
+/** Kullanıcının kendi sohbet tercihleri; sohbetin diğer üyelerini etkilemez. */
+export const conversationPreferencesSchema = z.object({
+  isFavorite: z.boolean().optional(),
+  isMuted: z.boolean().optional(),
+}).strict().refine((input) => input.isFavorite !== undefined || input.isMuted !== undefined, {
+  message: 'En az bir sohbet tercihi seçin',
+});
+export type ConversationPreferencesInput = z.infer<typeof conversationPreferencesSchema>;

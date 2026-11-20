@@ -1,4 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
+import { OpportunitiesService } from '../opportunities/opportunities.service';
 import { existsSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { and, desc, eq, gte, ilike, inArray, isNull, lte, or, sql, type SQL } from 'drizzle-orm';
@@ -8,7 +9,7 @@ import { companies, companyAddresses, companyEmails, companyPhones, contactCompa
 import { opportunities, opportunityApprovals, salesActivities } from '../../db/schema/crm';
 import { receivables } from '../../db/schema/finance';
 import { inventoryItems } from '../../db/schema/inventory';
-import { brands, productEquipmentItems, productModels } from '../../db/schema/products';
+import { brands, productEquipmentItems, productModels, productOptionSets, productOptionValues } from '../../db/schema/products';
 import { departments, divisions } from '../../db/schema/tenants';
 import { users } from '../../db/schema/users';
 import { files, fileLinks } from '../../db/schema/files';
@@ -40,8 +41,10 @@ import type {
   ProformaPriceItemInput,
   ProformaUpdateInput,
   QuoteCreateInput,
+  QuoteDraftUpdateInput,
   QuoteItemCreateInput,
   QuoteItemUpdateInput,
+  QuoteItemCompatibility,
   QuoteStatusChangeInput,
   QuoteTermsUpsertInput,
   QuoteUpdateInput,
@@ -60,9 +63,11 @@ import {
   requiresDiscountApproval,
   requiresReferencePriceApproval,
   quoteItemCompatibilitySchema,
+  laserSelectionKey,
 } from '@haksan/shared';
 import { FxService } from '../fx/fx.service';
 import { quoteLaserSnapshot } from './quote-laser-snapshot';
+import { sameOptionSelection, snapshotProductOptions } from './quote-product-options';
 import { SignaturesService } from '../signatures/signatures.service';
 import { buildPaginated, pageOffset } from '../../shared/utils/pagination';
 import { lookupIdByCode } from '../../shared/utils/lookup.helper';
@@ -89,7 +94,7 @@ interface ItemTotals {
   total: number;
 }
 
-type CommercialDocumentListQuery = Pagination & { search?: string; companyId?: string; quoteId?: string };
+type CommercialDocumentListQuery = Pagination & { search?: string; companyId?: string; quoteId?: string; opportunityId?: string };
 type QuoteListFilterQuery = {
   search?: string;
   statusCode?: string;
@@ -201,6 +206,11 @@ const publicProductLabel = (
 
 @Injectable()
 export class QuotesService {
+  private async assertQuoteRequirements(opportunityId: string | null | undefined, actor: AuthContext) {
+    if (!this.opportunityRequirements) throw new Error('Opportunity requirements service unavailable');
+    await this.opportunityRequirements.assertQuoteReady(opportunityId, actor);
+  }
+
   private async assertContractFile(
     fileId: string,
     actor: AuthContext,
@@ -238,7 +248,8 @@ export class QuotesService {
     @Inject(DB) private readonly db: DbClient,
     private readonly audit: AuditService,
     private readonly fx: FxService,
-    private readonly signatures: SignaturesService
+    private readonly signatures: SignaturesService,
+    private readonly opportunityRequirements?: OpportunitiesService
   ) {}
 
   /**
@@ -945,7 +956,7 @@ export class QuotesService {
     return { ...quote, items, terms, projectOwner: projectOwner ?? null };
   }
 
-  private async buildDocumentSnapshot(quoteId: string, actor: AuthContext) {
+  async buildDocumentSnapshot(quoteId: string, actor: AuthContext) {
     const quote = await this.get(quoteId, actor);
     const { items, terms, projectOwner, documentSnapshot: _documentSnapshot, ...quoteHeader } = quote;
     const productModelIds = [...new Set(items.map((item) => item.productModelId).filter((id): id is string => Boolean(id)))];
@@ -963,6 +974,10 @@ export class QuotesService {
             .select({
               id: productModels.id,
               brandName: brands.name,
+              brandLogoFileId: brands.logoFileId,
+              imageUrl: productModels.imageUrl,
+              productTypeCode: productTypes.code,
+              description: productModels.description,
               modelCode: productModels.modelCode,
               modelName: productModels.modelName,
               fullName: productModels.fullName,
@@ -972,6 +987,7 @@ export class QuotesService {
             })
             .from(productModels)
             .leftJoin(brands, eq(productModels.brandId, brands.id))
+            .leftJoin(productTypes, eq(productModels.productTypeId, productTypes.id))
             .where(and(eq(productModels.tenantId, actor.tenantId), inArray(productModels.id, productModelIds)))
         : Promise.resolve([]),
       unitIds.length
@@ -1003,6 +1019,7 @@ export class QuotesService {
     }
     const productsById = new Map(productRows.map((product) => [product.id, {
       ...product,
+      brandLogoUrl: product.brandLogoFileId ? `/brands/media/${product.brandLogoFileId}` : null,
       // İmzalı sözleşmenin standart aksesuarları katalog sonradan değişse de
       // teknik özellikler gibi aynı anlık görüntüde kalır.
       standardEquipment: standardEquipmentByProduct.get(product.id) ?? [],
@@ -1647,6 +1664,7 @@ export class QuotesService {
   }
 
   async create(input: QuoteCreateInput, actor: AuthContext) {
+    await this.assertQuoteRequirements(input.opportunityId, actor);
     await this.assertCompany(input.companyId, actor);
     const companyAddress = await this.resolveCompanyAddress(input.companyId, input.companyAddressId, actor);
     if (input.contactId) await this.assertContact(input.contactId, actor, input.companyId);
@@ -1758,9 +1776,67 @@ export class QuotesService {
     return this.get(quote.id, actor);
   }
 
+  async createDraft(input: import('@haksan/shared').QuoteDraftCreateInput, actor: AuthContext) {
+    return this.db.transaction(async (tx) => {
+      const scoped = new QuotesService(tx as unknown as DbClient, this.audit, this.fx, this.signatures, this.opportunityRequirements);
+      const { items, terms, ...header } = input;
+      const quote = await scoped.create(header, actor);
+      for (const [index, item] of items.entries()) {
+        await scoped.addItem(quote.id, { ...item, sortOrder: index }, actor);
+      }
+      if (terms) await scoped.upsertTerms(quote.id, { importCostsExcluded: true, ...terms }, actor);
+      return scoped.get(quote.id, actor);
+    });
+  }
+
+  async updateDraft(id: string, input: QuoteDraftUpdateInput, actor: AuthContext) {
+    // Scope-check before taking the row lock; all writes then share one transaction.
+    await this.get(id, actor);
+    return this.db.transaction(async (tx) => {
+      await tx.select({ id: quotes.id }).from(quotes)
+        .where(and(eq(quotes.id, id), eq(quotes.tenantId, actor.tenantId))).for('update');
+      const scoped = new QuotesService(tx as unknown as DbClient, this.audit, this.fx, this.signatures, this.opportunityRequirements);
+      const current = await scoped.get(id, actor);
+      scoped.assertQuoteMutable(current);
+      const { items, terms, ...header } = input;
+      const ids = items.flatMap((item) => item.id ? [item.id] : []);
+      if (new Set(ids).size !== ids.length || ids.some((itemId) => !current.items.some((item) => item.id === itemId))) {
+        throw new ValidationError('Teklif kalemi bu taslağa ait değil veya yinelenmiş');
+      }
+      await scoped.update(id, header, actor);
+      for (const existing of current.items) {
+        if (!ids.includes(existing.id)) await scoped.deleteItem(id, existing.id, actor);
+      }
+      for (const [index, item] of items.entries()) {
+        const { id: itemId, ...body } = item;
+        if (itemId) await scoped.updateItem(id, itemId, { ...body, sortOrder: index }, actor);
+        else await scoped.addItem(id, { ...body, sortOrder: index }, actor);
+      }
+      if (terms) await scoped.upsertTerms(id, {
+        importCostsExcluded: current.terms?.importCostsExcluded ?? true,
+        paymentTermsText: current.terms?.paymentTermsText ?? undefined,
+        deliveryTermsText: current.terms?.deliveryTermsText ?? undefined,
+        warrantyTermsText: current.terms?.warrantyTermsText ?? undefined,
+        vatIncluded: current.terms?.vatIncluded ?? undefined,
+        freightPaidBySeller: current.terms?.freightPaidBySeller ?? undefined,
+        deliveryLocation: current.terms?.deliveryLocation ?? undefined,
+        estimatedDeliveryDaysMin: current.terms?.estimatedDeliveryDaysMin ?? undefined,
+        estimatedDeliveryDaysMax: current.terms?.estimatedDeliveryDaysMax ?? undefined,
+        ...terms,
+      }, actor);
+      return scoped.get(id, actor);
+    });
+  }
+
   async update(id: string, input: QuoteUpdateInput, actor: AuthContext) {
     const existingQuote = await this.get(id, actor);
     this.assertQuoteMutable(existingQuote);
+    // Clearing or replacing the opportunity link must not bypass requirements.
+    if (existingQuote.opportunityId) await this.assertQuoteRequirements(existingQuote.opportunityId, actor);
+    const targetOpportunityId = input.opportunityId !== undefined ? input.opportunityId : existingQuote.opportunityId;
+    if (targetOpportunityId !== existingQuote.opportunityId || !existingQuote.opportunityId) {
+      await this.assertQuoteRequirements(targetOpportunityId, actor);
+    }
     const companyId = input.companyId ?? existingQuote.companyId;
     if (input.companyId !== undefined) await this.assertCompany(input.companyId, actor);
     if (input.contactId !== undefined) {
@@ -1832,10 +1908,55 @@ export class QuotesService {
   }
 
   // ────────── ITEMS ──────────
+  private async productOptionSnapshot(
+    compatibility: QuoteItemCompatibility | null | undefined,
+    product: typeof productModels.$inferSelect | null,
+    actor: AuthContext,
+    saved?: QuoteItemCompatibility | null,
+  ): Promise<QuoteItemCompatibility | null | undefined> {
+    const unchangedOptions = saved && sameOptionSelection(compatibility?.selectedProductOptions, saved.selectedProductOptions);
+    const changedProfile = unchangedOptions && saved.selectedProductOptions?.length && compatibility?.technicalConfiguration
+      && (!saved.technicalConfiguration || laserSelectionKey(compatibility.technicalConfiguration.selection) !== laserSelectionKey(saved.technicalConfiguration.selection));
+    if (unchangedOptions && !changedProfile) {
+      const variableKeys = new Set(product?.baseModelConfiguration?.variableSpecKeys ?? []);
+      return { ...compatibility!,
+        ...(variableKeys.size ? { technicalSpecs: [
+          ...(compatibility?.technicalSpecs ?? []).filter(spec => !variableKeys.has(spec.key)),
+          ...saved.technicalSpecs.filter(spec => variableKeys.has(spec.key)),
+        ] } : {}),
+        selectedProductOptions: saved.selectedProductOptions ? structuredClone(saved.selectedProductOptions) : undefined };
+    }
+    const base = product?.laserBaseConfiguration;
+    if (!product) {
+      if (compatibility?.selectedProductOptions?.length) throw new ValidationError('Opsiyonel donanım için baz model seçin');
+      return compatibility;
+    }
+    const sets = await this.db.query.productOptionSets.findMany({
+      where: and(eq(productOptionSets.productModelId, product.id), eq(productOptionSets.tenantId, actor.tenantId), isNull(productOptionSets.deletedAt)),
+    });
+    if (!base && !product.baseModelConfiguration && !compatibility?.selectedProductOptions?.length && !sets.some(set => set.configurationKind)) return compatibility;
+    const rows = sets.length ? await this.db.select({
+      optionSetId: productOptionSets.id, optionValueId: productOptionValues.id,
+      name: productOptionSets.name, value: productOptionValues.value,
+      priceDelta: productOptionValues.priceDelta, currencyCode: currencies.code,
+      configurationKind: productOptionSets.configurationKind,
+      sourceModelCode: productOptionValues.sourceModelCode, powerKw: productOptionValues.powerKw, cabinType: productOptionValues.cabinType,
+    }).from(productOptionValues)
+      .innerJoin(productOptionSets, eq(productOptionValues.optionSetId, productOptionSets.id))
+      .leftJoin(currencies, eq(productOptionValues.currencyId, currencies.id))
+      .where(and(inArray(productOptionValues.optionSetId, sets.map((set) => set.id)), eq(productOptionValues.tenantId, actor.tenantId), isNull(productOptionValues.deletedAt))) : [];
+    return snapshotProductOptions(compatibility ?? {
+      machineIds: [], brands: [], controlUnits: [], supplierIds: [], technicalSpecs: [],
+    }, rows, sets.filter((set) => set.configurationKind || (product.baseModelConfiguration && product.baseModelConfiguration.configurations.length > 1 && rows.some(row => row.optionSetId === set.id && row.sourceModelCode))).map((set) => set.id), base, product.baseModelConfiguration);
+  }
+
   async addItem(quoteId: string, input: QuoteItemCreateInput, actor: AuthContext) {
     const quote = await this.get(quoteId, actor);
+    await this.assertQuoteRequirements(quote.opportunityId, actor);
     this.assertQuoteMutable(quote);
     const product = input.productModelId ? await this.assertProductModel(input.productModelId, actor, quote.divisionId) : null;
+    if (product?.catalogHidden) throw new ValidationError('Bu kaynak model arşivlendi; teklif için seri baz modelini seçin');
+    const compatibility = await this.productOptionSnapshot(input.compatibility, product, actor);
     if (input.inventoryItemId) await this.assertInventoryItem(input.inventoryItemId, actor, quote.divisionId);
     this.assertItemDiscount(input.quantity, input.unitPrice, input.discountAmount);
     const t = this.calcItem(input.quantity, input.unitPrice, input.discountAmount, input.vatRate);
@@ -1858,7 +1979,7 @@ export class QuotesService {
         vatAmount: t.vatAmount.toFixed(4),
         lineTotal: t.lineTotal.toFixed(4),
         sortOrder: input.sortOrder,
-        compatibility: quoteLaserSnapshot(input.compatibility, product?.technicalConfiguration),
+        compatibility: quoteLaserSnapshot(compatibility, product?.technicalConfiguration),
         nationalized: input.nationalized ?? false,
       })
       .returning();
@@ -1869,6 +1990,7 @@ export class QuotesService {
 
   async updateItem(quoteId: string, itemId: string, input: QuoteItemUpdateInput, actor: AuthContext) {
     const quote = await this.get(quoteId, actor);
+    await this.assertQuoteRequirements(quote.opportunityId, actor);
     this.assertQuoteMutable(quote);
     const existing = await this.db.query.quoteItems.findFirst({
       where: and(eq(quoteItems.id, itemId), eq(quoteItems.quoteId, quoteId), eq(quoteItems.tenantId, actor.tenantId), isNull(quoteItems.deletedAt)),
@@ -1884,9 +2006,16 @@ export class QuotesService {
       if ((input as any)[k] !== undefined) patch[k] = ((input as any)[k] as number | undefined)?.toString();
     }
     const productChanged = input.productModelId !== undefined && input.productModelId !== existing.productModelId;
+    if (productChanged && product?.catalogHidden) throw new ValidationError('Bu kaynak model arşivlendi; teklif için seri baz modelini seçin');
     if (input.compatibility !== undefined || productChanged) {
       const savedCompatibility = quoteItemCompatibilitySchema.safeParse(existing.compatibility);
-      patch.compatibility = quoteLaserSnapshot(input.compatibility,
+      const profileChanged = savedCompatibility.success && savedCompatibility.data.selectedProductOptions?.length && input.compatibility?.technicalConfiguration
+        && (!savedCompatibility.data.technicalConfiguration || laserSelectionKey(input.compatibility.technicalConfiguration.selection) !== laserSelectionKey(savedCompatibility.data.technicalConfiguration.selection));
+      const optionProduct = product ?? (existing.productModelId && !productChanged && (profileChanged || !sameOptionSelection(input.compatibility?.selectedProductOptions, savedCompatibility.success ? savedCompatibility.data.selectedProductOptions : undefined))
+        ? await this.assertProductModel(existing.productModelId, actor, quote.divisionId) : null);
+      const compatibility = await this.productOptionSnapshot(input.compatibility, optionProduct, actor,
+        !productChanged && savedCompatibility.success ? savedCompatibility.data : null);
+      patch.compatibility = quoteLaserSnapshot(compatibility,
         productChanged ? product?.technicalConfiguration : savedCompatibility.success ? savedCompatibility.data.technicalConfiguration : null);
     }
     if (input.nationalized !== undefined) patch.nationalized = input.nationalized;
@@ -1924,6 +2053,7 @@ export class QuotesService {
   // ────────── TERMS ──────────
   async upsertTerms(quoteId: string, input: QuoteTermsUpsertInput, actor: AuthContext) {
     const quote = await this.get(quoteId, actor);
+    await this.assertQuoteRequirements(quote.opportunityId, actor);
     this.assertQuoteMutable(quote);
     const existing = await this.db.query.quoteTerms.findFirst({ where: eq(quoteTerms.quoteId, quoteId) });
     if (existing) {
@@ -1963,6 +2093,7 @@ export class QuotesService {
   async approvePrice(quoteId: string, actor: AuthContext, note?: string) {
     if (!actor.permissions.has('quotes.approve')) throw new ForbiddenError('Liste altı teklif fiyatını onaylama yetkiniz yok');
     const quote = await this.get(quoteId, actor);
+    await this.assertQuoteRequirements(quote.opportunityId, actor);
     const check = await this.quotePriceCheck(quoteId);
     if (!check.needsApproval) {
       await this.refreshPriceApprovalStatus(quoteId, actor);
@@ -2023,6 +2154,7 @@ export class QuotesService {
 
   async approve(quoteId: string, actor: AuthContext) {
     const quote = await this.get(quoteId, actor);
+    await this.assertQuoteRequirements(quote.opportunityId, actor);
     const currentStatus = await this.quoteStatusCode(quote.statusId);
     if (currentStatus === 'approved') return { ok: true };
     if (currentStatus === 'rejected' || currentStatus === 'cancelled') {
@@ -2052,6 +2184,54 @@ export class QuotesService {
       action: 'quote.approved',
       resourceType: 'quote',
       resourceId: quoteId,
+    });
+    return { ok: true };
+  }
+
+  async revokeApproval(quoteId: string, actor: AuthContext) {
+    if (!actor.permissions.has('quotes.approve')) throw new ForbiddenError('Teklif onayını geri alma yetkiniz yok');
+    const quote = await this.get(quoteId, actor);
+    if (await this.quoteStatusCode(quote.statusId) !== 'approved') {
+      throw new ConflictError('Yalnızca onaylanmış tekliflerin onayı geri alınabilir');
+    }
+
+    // WIN stores a snapshot of all sold machines. Reopening the opportunity
+    // first clears that snapshot through its normal lifecycle transition.
+    if (quote.opportunityId) {
+      const opportunity = await this.db.query.opportunities.findFirst({
+        where: and(eq(opportunities.id, quote.opportunityId), eq(opportunities.tenantId, actor.tenantId), isNull(opportunities.deletedAt)),
+      });
+      if (opportunity?.qualificationStage === 'win') {
+        throw new ConflictError('Kazanılmış fırsattaki teklifin onayını geri almadan önce fırsatı yeniden açın');
+      }
+    }
+
+    // Preserve the finalized document even if it was approved before sending.
+    // Linked documents may be created concurrently, so a prior existence check
+    // cannot safely make this revision editable.
+    const nextCode = quote.sentAt ? 'sent' : 'draft';
+    const status = await this.db.query.quoteStatuses.findFirst({ where: eq(quoteStatuses.code, nextCode) });
+    if (!status) throw new ConflictError('Teklif durumu bulunamadı');
+    const changedAt = new Date();
+    const updated = await this.db.update(quotes).set({
+      statusId: status.id,
+      approvedAt: null,
+      approvedBy: null,
+      finalizedAt: quote.finalizedAt ?? quote.approvedAt ?? changedAt,
+      documentSnapshot: quote.documentSnapshot,
+      statusChangedAt: changedAt,
+      statusChangedBy: actor.userId,
+      statusNote: null,
+    }).where(and(eq(quotes.id, quoteId), eq(quotes.tenantId, actor.tenantId), eq(quotes.statusId, quote.statusId!), isNull(quotes.deletedAt))).returning({ id: quotes.id });
+    if (!updated.length) throw new ConflictError('Teklif durumu değişti; lütfen tekrar deneyin');
+    await this.audit.write({
+      tenantId: actor.tenantId,
+      actorUserId: actor.userId,
+      action: 'quote.approval_revoked',
+      resourceType: 'quote',
+      resourceId: quoteId,
+      oldValues: { approvedAt: quote.approvedAt, approvedBy: quote.approvedBy },
+      newValues: { status: nextCode },
     });
     return { ok: true };
   }
@@ -2117,6 +2297,7 @@ export class QuotesService {
 
   async changeStatus(quoteId: string, input: QuoteStatusChangeInput, actor: AuthContext) {
     const quote = await this.get(quoteId, actor);
+    if (input.statusCode !== 'cancelled') await this.assertQuoteRequirements(quote.opportunityId, actor);
     const currentStatus = await this.quoteStatusCode(quote.statusId);
     if (currentStatus === input.statusCode) return this.get(quoteId, actor);
     if (currentStatus === 'approved' || currentStatus === 'rejected' || currentStatus === 'cancelled') {
@@ -2192,6 +2373,7 @@ export class QuotesService {
 
   async assertCanSend(quoteId: string, actor: AuthContext) {
     const quote = await this.get(quoteId, actor);
+    await this.assertQuoteRequirements(quote.opportunityId, actor);
     await this.ensurePriceApprovalAllowsAction(quoteId, actor);
     if (!quote.items.length) throw new ValidationError('Kalemsiz teklif gönderilemez');
     if (Number(quote.grandTotal ?? 0) <= 0) throw new ValidationError('Toplamı sıfır olan teklif gönderilemez');
@@ -2207,6 +2389,7 @@ export class QuotesService {
       resourceDivisionFilter(actor, 'proformas', proformas.divisionId) ?? sql`true`,
     ];
     if (page.quoteId) filters.push(eq(proformas.quoteId, page.quoteId));
+    if (page.opportunityId) filters.push(eq(quotes.opportunityId, page.opportunityId));
     if (page.companyId) {
       filters.push(or(eq(proformas.companyId, page.companyId), eq(quotes.companyId, page.companyId)) ?? sql`false`);
     }
@@ -3022,6 +3205,7 @@ export class QuotesService {
       resourceDivisionFilter(actor, 'contracts', contracts.divisionId) ?? sql`true`,
     ];
     if (page.quoteId) filters.push(eq(contracts.quoteId, page.quoteId));
+    if (page.opportunityId) filters.push(eq(quotes.opportunityId, page.opportunityId));
     if (page.companyId) {
       filters.push(or(eq(contracts.companyId, page.companyId), eq(quotes.companyId, page.companyId)) ?? sql`false`);
     }
@@ -3273,6 +3457,7 @@ export class QuotesService {
       resourceDivisionFilter(actor, 'commercial_invoices', commercialInvoices.divisionId) ?? sql`true`,
     ];
     if (page.quoteId) filters.push(eq(commercialInvoices.quoteId, page.quoteId));
+    if (page.opportunityId) filters.push(eq(quotes.opportunityId, page.opportunityId));
     if (page.companyId) filters.push(eq(quotes.companyId, page.companyId));
     if (page.search) {
       const term = `%${page.search}%`;

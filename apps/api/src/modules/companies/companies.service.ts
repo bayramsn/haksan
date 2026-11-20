@@ -707,7 +707,17 @@ export class CompaniesService {
       .from(companies)
       .where(where);
 
-    const sortColumn = page.sortBy === 'name' ? companies.legalTitle : companies.createdAt;
+    // Sort before LIMIT/OFFSET; correlated lookups avoid duplicate directory rows.
+    const phoneSort = sql<string>`(select cp.phone from ${companyPhones} cp where cp.company_id = ${companies.id} and cp.tenant_id = ${actor.tenantId} and cp.deleted_at is null and (cp.phone_type = 'main' or cp.is_default = true) order by (cp.phone_type = 'main') desc, cp.is_default desc, cp.created_at asc, cp.id asc limit 1)`;
+    const citySort = sql<string>`(select ca.province from ${companyAddresses} ca where ca.company_id = ${companies.id} and ca.tenant_id = ${actor.tenantId} and ca.deleted_at is null order by ca.is_default desc, ca.created_at asc, ca.id asc limit 1)`;
+    const companySortColumns = {
+      name: companies.legalTitle,
+      createdAt: companies.createdAt,
+      type: companyRelationTypes.name,
+      contact: phoneSort,
+      city: citySort,
+    };
+    const sortColumn = companySortColumns[page.sortBy as keyof typeof companySortColumns] ?? companies.createdAt;
     const orderBy = page.sortDir === 'asc'
       ? [asc(sortColumn), asc(companies.id)]
       : [desc(sortColumn), desc(companies.id)];
@@ -734,8 +744,8 @@ export class CompaniesService {
     const companyIds = rows.map((r) => r.company.id);
     const [addresses, phones, emails, divisionRows, groupRows] = companyIds.length
       ? await Promise.all([
-          this.db.select().from(companyAddresses).where(and(inArray(companyAddresses.companyId, companyIds), isNull(companyAddresses.deletedAt))),
-          this.db.select().from(companyPhones).where(and(inArray(companyPhones.companyId, companyIds), isNull(companyPhones.deletedAt))),
+          this.db.select().from(companyAddresses).where(and(inArray(companyAddresses.companyId, companyIds), isNull(companyAddresses.deletedAt))).orderBy(desc(companyAddresses.isDefault), asc(companyAddresses.createdAt), asc(companyAddresses.id)),
+          this.db.select().from(companyPhones).where(and(inArray(companyPhones.companyId, companyIds), isNull(companyPhones.deletedAt))).orderBy(desc(sql`${companyPhones.phoneType} = 'main'`), desc(companyPhones.isDefault), asc(companyPhones.createdAt), asc(companyPhones.id)),
           this.db.select().from(companyEmails).where(and(inArray(companyEmails.companyId, companyIds), isNull(companyEmails.deletedAt))),
           this.companyDivisionRows(companyIds),
           this.companyGroupRows(companyIds),
@@ -1057,7 +1067,7 @@ export class CompaniesService {
     }
     if (input.taxNumber) {
       await this.rejectDuplicateCompany(
-        eq(companies.taxNumber, input.taxNumber),
+        sql`upper(regexp_replace(coalesce(${companies.taxNumber}, ''), '[^0-9A-Za-z]', '', 'g')) = ${input.taxNumber.replace(/[^0-9A-Za-z]/g, '').toUpperCase()}`,
         'Bu vergi numarası ile bir firma zaten kayıtlı',
         'Bu vergi numarası başka bir bölüm portföyünde kayıtlı; erişim talebi oluşturuldu',
         primaryDivisionId,
@@ -1300,7 +1310,7 @@ export class CompaniesService {
       const duplicate = await this.db.query.companies.findFirst({
         where: and(
           eq(companies.tenantId, actor.tenantId),
-          eq(companies.taxNumber, input.taxNumber),
+          sql`upper(regexp_replace(coalesce(${companies.taxNumber}, ''), '[^0-9A-Za-z]', '', 'g')) = ${input.taxNumber.replace(/[^0-9A-Za-z]/g, '').toUpperCase()}`,
           isNull(companies.deletedAt),
           ne(companies.id, id)
         ),
@@ -1372,6 +1382,23 @@ export class CompaniesService {
     }
 
     await this.db.transaction(async (tx) => {
+      if (input.legalTitle !== undefined) {
+        const nameKey = companyNameKey(input.legalTitle);
+        await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${actor.tenantId + ':' + nameKey}, 0))`);
+        const duplicate = await tx.query.companies.findFirst({
+          where: and(
+            eq(companies.tenantId, actor.tenantId),
+            isNull(companies.deletedAt),
+            ne(companies.id, id),
+            sql`${companyNameKeySql(companies.legalTitle)} = ${nameKey}`,
+          ),
+        });
+        if (duplicate) {
+          throw new ConflictError(`Bu ünvanla bir firma zaten kayıtlı: ${duplicate.legalTitle}`, {
+            duplicateCompanyId: duplicate.id,
+          });
+        }
+      }
       await tx.update(companies).set(patch).where(eq(companies.id, id));
 
       const competitorRecord = await tx.query.competitors.findFirst({

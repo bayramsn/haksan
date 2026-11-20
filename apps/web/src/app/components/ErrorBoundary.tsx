@@ -5,6 +5,28 @@ import { BrandIllustration } from "./brand";
 type Props = { children: ReactNode };
 type State = { error: Error | null };
 
+// Bir deploy eski sayfa parçalarını siler; deploy'dan önce açılmış sekme henüz
+// açılmamış bir sayfaya geçince parça 404 olur. Yenilemek yeni sürümü yükler.
+const CHUNK_LOAD_ERROR = /dynamically imported module|Importing a module script failed|Unable to preload CSS/i;
+const RELOAD_KEY = "haksan.chunkReloadAt";
+
+export function isChunkLoadError(error: unknown): boolean {
+  return error instanceof Error && CHUNK_LOAD_ERROR.test(error.message);
+}
+
+function reloadOnceForNewBuild(): boolean {
+  try {
+    const last = Number(sessionStorage.getItem(RELOAD_KEY) ?? 0);
+    // Az önce yeniledik ve yine düştüyse döngüye girme, hata ekranını göster.
+    if (Date.now() - last < 30_000) return false;
+    sessionStorage.setItem(RELOAD_KEY, String(Date.now()));
+  } catch {
+    return false;
+  }
+  window.location.reload();
+  return true;
+}
+
 export class ErrorBoundary extends Component<Props, State> {
   state: State = { error: null };
 
@@ -13,6 +35,7 @@ export class ErrorBoundary extends Component<Props, State> {
   }
 
   componentDidCatch(error: Error, info: ErrorInfo) {
+    if (isChunkLoadError(error) && reloadOnceForNewBuild()) return;
     console.error("[ErrorBoundary]", error, info.componentStack);
   }
 

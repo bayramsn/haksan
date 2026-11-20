@@ -19,11 +19,13 @@ import {
   metaConnectionUpdateSchema,
   metaConversationMessageCreateSchema,
   metaConversionEventCreateSchema,
+  metaConversionListQuerySchema,
   metaDateRangeQuerySchema,
   metaDestructiveConfirmationSchema,
   metaFormMappingCreateSchema,
   metaFormMappingUpdateSchema,
   metaListQuerySchema,
+  metaLeadListQuerySchema,
   type MetaAudienceCreateInput,
   type MetaAudienceMembersInput,
   type MetaAudienceMembersRemoveInput,
@@ -40,11 +42,13 @@ import {
   type MetaConnectionUpdateInput,
   type MetaConversationMessageCreateInput,
   type MetaConversionEventCreateInput,
+  type MetaConversionListQuery,
   type MetaDateRangeQuery,
   type MetaDestructiveConfirmationInput,
   type MetaFormMappingCreateInput,
   type MetaFormMappingUpdateInput,
   type MetaListQuery,
+  type MetaLeadListQuery,
 } from '@haksan/shared';
 import { loadEnv } from '../../config/env';
 import { AuthGuard } from '../../shared/security/auth.guard';
@@ -113,7 +117,7 @@ export class MetaController {
 
   @Get('leads')
   @RequirePermissions('meta.read')
-  leads(@Query(new ZodValidationPipe(metaListQuerySchema)) query: MetaListQuery, @CurrentUser() actor: AuthContext) { return this.service.listLeads(actor, query); }
+  leads(@Query(new ZodValidationPipe(metaLeadListQuerySchema)) query: MetaLeadListQuery, @CurrentUser() actor: AuthContext) { return this.service.listLeads(actor, query); }
 
   @Get('insights')
   @RequirePermissions('meta.read')
@@ -223,7 +227,7 @@ export class MetaController {
 
   @Get('conversion-events')
   @RequirePermissions('meta.read')
-  conversionEvents(@Query(new ZodValidationPipe(metaListQuerySchema)) query: MetaListQuery, @CurrentUser() actor: AuthContext) { return this.service.listConversionEvents(actor, query); }
+  conversionEvents(@Query(new ZodValidationPipe(metaConversionListQuerySchema)) query: MetaConversionListQuery, @CurrentUser() actor: AuthContext) { return this.service.listConversionEvents(actor, query); }
 
   @Post('conversion-events')
   @RequirePermissions('meta.create')

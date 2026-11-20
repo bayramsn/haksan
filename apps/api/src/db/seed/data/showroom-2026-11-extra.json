@@ -1,0 +1,900 @@
+{
+  "capturedOn": "2026-11-07",
+  "products": [
+    {
+      "brand": "Baykal",
+      "model": "HGL 3106",
+      "title": "Baykal HGL 3106 Hidrolik Giyotin Makas",
+      "typeCode": "GIYOTIN_MAKAS",
+      "sourceUrls": [
+        "https://www.baykal.com.tr/products/hgl.html"
+      ],
+      "specs": [
+        {
+          "key": "Kesme Kapasitesi (450 N/mm²)",
+          "value": "6",
+          "unit": "mm"
+        },
+        {
+          "key": "Kesme Kapasitesi (700 N/mm²)",
+          "value": "4",
+          "unit": "mm"
+        },
+        {
+          "key": "Kesme Uzunluğu",
+          "value": "3060",
+          "unit": "mm"
+        },
+        {
+          "key": "Kesme Açısı",
+          "value": "1.6",
+          "unit": "°"
+        },
+        {
+          "key": "Ana Motor Gücü",
+          "value": "11",
+          "unit": "kW"
+        },
+        {
+          "key": "Baskı Sayısı",
+          "value": "17",
+          "unit": "adet"
+        },
+        {
+          "key": "Dakikada Kesme Sayısı",
+          "value": "20",
+          "unit": "kesim/dk"
+        },
+        {
+          "key": "Yağ Tankı Kapasitesi",
+          "value": "160",
+          "unit": "L"
+        },
+        {
+          "key": "Arka Dayama Mesafesi",
+          "value": "750",
+          "unit": "mm"
+        },
+        {
+          "key": "Arka Dayama Motor Gücü",
+          "value": "0.37",
+          "unit": "kW"
+        },
+        {
+          "key": "Makine Ağırlığı",
+          "value": "5500",
+          "unit": "kg"
+        }
+      ],
+      "verificationStatus": "source_verified",
+      "sourceId": "384",
+      "photoFiles": [
+        "IMG_4418.JPG"
+      ]
+    },
+    {
+      "brand": "Baykal",
+      "model": "HGL 3108",
+      "title": "Baykal HGL 3108 Hidrolik Giyotin Makas",
+      "typeCode": "GIYOTIN_MAKAS",
+      "sourceUrls": [
+        "https://www.baykal.com.tr/products/hgl.html"
+      ],
+      "specs": [
+        {
+          "key": "Kesme Kapasitesi (450 N/mm²)",
+          "value": "8",
+          "unit": "mm"
+        },
+        {
+          "key": "Kesme Kapasitesi (700 N/mm²)",
+          "value": "5",
+          "unit": "mm"
+        },
+        {
+          "key": "Kesme Uzunluğu",
+          "value": "3060",
+          "unit": "mm"
+        },
+        {
+          "key": "Kesme Açısı",
+          "value": "1.8",
+          "unit": "°"
+        },
+        {
+          "key": "Ana Motor Gücü",
+          "value": "15",
+          "unit": "kW"
+        },
+        {
+          "key": "Baskı Sayısı",
+          "value": "17",
+          "unit": "adet"
+        },
+        {
+          "key": "Dakikada Kesme Sayısı",
+          "value": "13",
+          "unit": "kesim/dk"
+        },
+        {
+          "key": "Yağ Tankı Kapasitesi",
+          "value": "160",
+          "unit": "L"
+        },
+        {
+          "key": "Arka Dayama Mesafesi",
+          "value": "750",
+          "unit": "mm"
+        },
+        {
+          "key": "Arka Dayama Motor Gücü",
+          "value": "0.37",
+          "unit": "kW"
+        },
+        {
+          "key": "Makine Ağırlığı",
+          "value": "6450",
+          "unit": "kg"
+        }
+      ],
+      "verificationStatus": "source_verified",
+      "sourceId": "412",
+      "photoFiles": [
+        "IMG_4417.JPG"
+      ]
+    },
+    {
+      "brand": "UMS",
+      "model": "COMFORT 1503",
+      "title": "UMS COMFORT 1503 Redüktörlü Giyotin Makas",
+      "typeCode": "GIYOTIN_MAKAS",
+      "sourceUrls": [
+        "https://www.umsmakina.com/tr/urunler/giyotin-makasi/comfort-seri-reduktorlu-giyotin-makasi"
+      ],
+      "specs": [
+        {
+          "key": "Kesme Kapasitesi",
+          "value": "3",
+          "unit": "mm"
+        },
+        {
+          "key": "Kesme Uzunluğu",
+          "value": "1550",
+          "unit": "mm"
+        },
+        {
+          "key": "Kesme Açısı",
+          "value": "2.3",
+          "unit": "°"
+        },
+        {
+          "key": "Dakikada Kesme Sayısı",
+          "value": "35",
+          "unit": "kesim/dk"
+        },
+        {
+          "key": "Tabla Uzunluğu",
+          "value": "1855",
+          "unit": "mm"
+        },
+        {
+          "key": "Tabla Yüksekliği",
+          "value": "800",
+          "unit": "mm"
+        },
+        {
+          "key": "Tabla Genişliği",
+          "value": "520",
+          "unit": "mm"
+        },
+        {
+          "key": "Arka Dayama Mesafesi",
+          "value": "600",
+          "unit": "mm"
+        },
+        {
+          "key": "Makine Ölçüleri (U x G x Y)",
+          "value": "2220 x 1575 x 1230",
+          "unit": "mm"
+        },
+        {
+          "key": "Ana Motor Gücü",
+          "value": "3",
+          "unit": "kW"
+        },
+        {
+          "key": "Makine Ağırlığı",
+          "value": "1600",
+          "unit": "kg"
+        }
+      ],
+      "verificationStatus": "source_verified",
+      "sourceSeriesId": "1196",
+      "photoFiles": [
+        "IMG_4406.JPG",
+        "IMG_4432.JPG"
+      ]
+    },
+    {
+      "brand": "UMS",
+      "model": "COMFORT 2003",
+      "title": "UMS COMFORT 2003 Redüktörlü Giyotin Makas",
+      "typeCode": "GIYOTIN_MAKAS",
+      "sourceUrls": [
+        "https://www.umsmakina.com/tr/urunler/giyotin-makasi/comfort-seri-reduktorlu-giyotin-makasi"
+      ],
+      "specs": [
+        {
+          "key": "Kesme Kapasitesi",
+          "value": "3",
+          "unit": "mm"
+        },
+        {
+          "key": "Kesme Uzunluğu",
+          "value": "2050",
+          "unit": "mm"
+        },
+        {
+          "key": "Kesme Açısı",
+          "value": "1.5",
+          "unit": "°"
+        },
+        {
+          "key": "Dakikada Kesme Sayısı",
+          "value": "35",
+          "unit": "kesim/dk"
+        },
+        {
+          "key": "Tabla Uzunluğu",
+          "value": "2355",
+          "unit": "mm"
+        },
+        {
+          "key": "Tabla Yüksekliği",
+          "value": "800",
+          "unit": "mm"
+        },
+        {
+          "key": "Tabla Genişliği",
+          "value": "520",
+          "unit": "mm"
+        },
+        {
+          "key": "Arka Dayama Mesafesi",
+          "value": "600",
+          "unit": "mm"
+        },
+        {
+          "key": "Makine Ölçüleri (U x G x Y)",
+          "value": "2720 x 1575 x 1230",
+          "unit": "mm"
+        },
+        {
+          "key": "Ana Motor Gücü",
+          "value": "3",
+          "unit": "kW"
+        },
+        {
+          "key": "Makine Ağırlığı",
+          "value": "1900",
+          "unit": "kg"
+        }
+      ],
+      "verificationStatus": "source_verified",
+      "sourceSeriesId": "1196",
+      "photoFiles": [
+        "IMG_4405.JPG",
+        "IMG_4431.JPG"
+      ]
+    },
+    {
+      "brand": "UMS",
+      "model": "COMFORT 2504",
+      "title": "UMS COMFORT 2504 Redüktörlü Giyotin Makas",
+      "typeCode": "GIYOTIN_MAKAS",
+      "sourceUrls": [
+        "https://www.umsmakina.com/tr/urunler/giyotin-makasi/comfort-seri-reduktorlu-giyotin-makasi"
+      ],
+      "specs": [
+        {
+          "key": "Kesme Kapasitesi",
+          "value": "4",
+          "unit": "mm"
+        },
+        {
+          "key": "Kesme Uzunluğu",
+          "value": "2550",
+          "unit": "mm"
+        },
+        {
+          "key": "Kesme Açısı",
+          "value": "1.5",
+          "unit": "°"
+        },
+        {
+          "key": "Dakikada Kesme Sayısı",
+          "value": "30",
+          "unit": "kesim/dk"
+        },
+        {
+          "key": "Tabla Uzunluğu",
+          "value": "2855",
+          "unit": "mm"
+        },
+        {
+          "key": "Tabla Yüksekliği",
+          "value": "800",
+          "unit": "mm"
+        },
+        {
+          "key": "Tabla Genişliği",
+          "value": "530",
+          "unit": "mm"
+        },
+        {
+          "key": "Arka Dayama Mesafesi",
+          "value": "600",
+          "unit": "mm"
+        },
+        {
+          "key": "Makine Ölçüleri (U x G x Y)",
+          "value": "3220 x 1630 x 1230",
+          "unit": "mm"
+        },
+        {
+          "key": "Ana Motor Gücü",
+          "value": "7.5",
+          "unit": "kW"
+        },
+        {
+          "key": "Makine Ağırlığı",
+          "value": "3350",
+          "unit": "kg"
+        }
+      ],
+      "verificationStatus": "source_verified",
+      "sourceSeriesId": "1196",
+      "photoFiles": [
+        "IMG_4402.JPG",
+        "IMG_4403.JPG"
+      ]
+    },
+    {
+      "brand": "Atikerweld",
+      "model": "AW-DCMM-KH-300",
+      "title": "Atikerweld AW-DCMM-KH-300 MIG/MAG Gazaltı Kaynak Makinesi",
+      "typeCode": "HM_KAYNAK_GAZALTI_KAYNAK_MAKINALARI_MIG_MAG",
+      "sourceUrls": [
+        "https://www.atikerkaynak.com.tr/Parca.asp?KiD=438&PiD=912&dil=3",
+        "https://www.haksanmakina.com.tr/?d678/mig-mag-gazalti-kaynak-makinasi-hava-sogutmali-300-amper.html"
+      ],
+      "specs": [
+        {
+          "key": "Kaynak Yöntemi",
+          "value": "MIG/MAG",
+          "unit": ""
+        },
+        {
+          "key": "Soğutma Tipi",
+          "value": "Hava soğutmalı",
+          "unit": ""
+        },
+        {
+          "key": "Şebeke Gerilimi",
+          "value": "380",
+          "unit": "V"
+        },
+        {
+          "key": "Faz Sayısı",
+          "value": "3",
+          "unit": ""
+        },
+        {
+          "key": "Şebeke Frekansı",
+          "value": "50–60",
+          "unit": "Hz"
+        },
+        {
+          "key": "Tel Çapı",
+          "value": "0.8–1.0",
+          "unit": "mm"
+        }
+      ],
+      "verificationStatus": "source_verified",
+      "notes": [
+        "Haksan kaynak kartı 678 teknik metninde AW-DCMM-KH-300 model kodu açıkça yer alıyor. KH-300 A başlığı bu kodla eşlendi."
+      ],
+      "photoFiles": [
+        "IMG_4409.JPG"
+      ],
+      "sourceId": "678",
+      "matchedSourceBrand": "Atiker"
+    },
+    {
+      "brand": "OZCO",
+      "model": "TS275D",
+      "title": "OZCO TS275D Yarı Otomatik Açılı Şerit Testere",
+      "typeCode": "HM_UNIVERSAL_SERIT_TESTERE_TEZGAHLARI_MAFSALLI",
+      "sourceUrls": [
+        "https://www.ozcomakina.com/images/Content/OZCO-Universal-en.pdf"
+      ],
+      "specs": [
+        {
+          "key": "Ana Motor Gücü",
+          "value": "1.5",
+          "unit": "kW"
+        },
+        {
+          "key": "Şebeke Gerilimi",
+          "value": "380",
+          "unit": "V"
+        },
+        {
+          "key": "Kesim Açısı",
+          "value": "-45 / +60",
+          "unit": "°"
+        },
+        {
+          "key": "Kafa İnişi",
+          "value": "Hidrolik",
+          "unit": ""
+        },
+        {
+          "key": "Testere Şerit Ölçüsü",
+          "value": "27 x 0.9 x 3160",
+          "unit": "mm"
+        },
+        {
+          "key": "0° Yuvarlak Kesme Kapasitesi",
+          "value": "275",
+          "unit": "mm"
+        },
+        {
+          "key": "0° Kare Kesme Kapasitesi",
+          "value": "275 x 275",
+          "unit": "mm"
+        },
+        {
+          "key": "0° Dikdörtgen Kesme Kapasitesi",
+          "value": "350 x 150",
+          "unit": "mm"
+        },
+        {
+          "key": "-45° Yuvarlak Kesme Kapasitesi",
+          "value": "180",
+          "unit": "mm"
+        },
+        {
+          "key": "-45° Kare Kesme Kapasitesi",
+          "value": "160 x 160",
+          "unit": "mm"
+        },
+        {
+          "key": "-45° Dikdörtgen Kesme Kapasitesi",
+          "value": "260 x 120",
+          "unit": "mm"
+        },
+        {
+          "key": "60° Yuvarlak Kesme Kapasitesi",
+          "value": "120",
+          "unit": "mm"
+        },
+        {
+          "key": "60° Kare Kesme Kapasitesi",
+          "value": "120 x 120",
+          "unit": "mm"
+        },
+        {
+          "key": "60° Dikdörtgen Kesme Kapasitesi",
+          "value": "140 x 120",
+          "unit": "mm"
+        },
+        {
+          "key": "Şerit Hızı",
+          "value": "28–100",
+          "unit": "m/dk"
+        },
+        {
+          "key": "Malzeme Sehpası Yüksekliği",
+          "value": "960",
+          "unit": "mm"
+        },
+        {
+          "key": "Mengene Açılma Aralığı",
+          "value": "350",
+          "unit": "mm"
+        },
+        {
+          "key": "Mengene Yüksekliği",
+          "value": "145",
+          "unit": "mm"
+        },
+        {
+          "key": "Hidrolik Motor Gücü",
+          "value": "0.18",
+          "unit": "kW"
+        },
+        {
+          "key": "Soğutma Motor Gücü",
+          "value": "0.12",
+          "unit": "kW"
+        },
+        {
+          "key": "Makine Ölçüleri (U x G x Y)",
+          "value": "1500 x 1750 x 1050",
+          "unit": "mm"
+        },
+        {
+          "key": "Makine Ağırlığı",
+          "value": "588",
+          "unit": "kg"
+        }
+      ],
+      "verificationStatus": "source_verified",
+      "notes": [
+        "Değerler üreticinin İngilizce kataloğundandır. Satıcı sayfalarındaki farklı hız/ağırlık değerleri fotoğraftaki makineye uygulanmadı."
+      ],
+      "photoFiles": [
+        "IMG_4421.JPG"
+      ],
+      "group": "UNIVERSAL"
+    },
+    {
+      "brand": "UMS",
+      "model": "COMFORT 135 3100",
+      "title": "UMS COMFORT 135 3100 CNC Hidrolik Abkant Pres",
+      "typeCode": "ABKANT_PRES",
+      "sourceUrls": [
+        "https://www.umsmakina.com/tr/urunler/abkant-pres/comfort-seri-abkant-pres"
+      ],
+      "specs": [
+        {
+          "key": "Büküm Kuvveti",
+          "value": "135",
+          "unit": "ton"
+        },
+        {
+          "key": "Büküm Boyu",
+          "value": "3100",
+          "unit": "mm"
+        },
+        {
+          "key": "Duvarlar Arası Mesafe",
+          "value": "2600",
+          "unit": "mm"
+        },
+        {
+          "key": "Boğaz Derinliği",
+          "value": "410",
+          "unit": "mm"
+        },
+        {
+          "key": "Tabla Arası Mesafe",
+          "value": "470",
+          "unit": "mm"
+        },
+        {
+          "key": "Tabla Yüksekliği",
+          "value": "925",
+          "unit": "mm"
+        },
+        {
+          "key": "İniş Hızı",
+          "value": "220",
+          "unit": "mm/sn"
+        },
+        {
+          "key": "Dönüş Hızı",
+          "value": "140",
+          "unit": "mm/sn"
+        },
+        {
+          "key": "Pres Hızı",
+          "value": "10",
+          "unit": "mm/sn"
+        },
+        {
+          "key": "Makine Ölçüleri (U x G x Y)",
+          "value": "4360 x 1745 x 2760",
+          "unit": "mm"
+        },
+        {
+          "key": "Arka Dayama Mesafesi",
+          "value": "750",
+          "unit": "mm"
+        },
+        {
+          "key": "Yağ Tankı Kapasitesi",
+          "value": "170",
+          "unit": "L"
+        },
+        {
+          "key": "Makine Ağırlığı",
+          "value": "7600",
+          "unit": "kg"
+        },
+        {
+          "key": "Ana Motor Gücü",
+          "value": "11",
+          "unit": "kW"
+        }
+      ],
+      "verificationStatus": "source_verified",
+      "notes": [
+        "Üreticinin açıklamasında strok 260 mm, teknik tablosunda 265 mm olarak geçiyor. Strok alanı doğrulama bekliyor. Fotoğraftaki 4 eksenli donanımın seri standart donanımıyla ayrımı gerekiyor."
+      ],
+      "photoFiles": [
+        "IMG_4404.JPG"
+      ]
+    },
+    {
+      "brand": "Baykal",
+      "model": "APHS PRO 26090",
+      "title": "Baykal APHS PRO 26090 CNC Hidrolik Abkant Pres",
+      "typeCode": "ABKANT_PRES",
+      "sourceId": "564",
+      "sourceUrls": [
+        "https://www.baykal.com.tr/images/urunler/1644817274_APHS-PRO-Technical-Data.pdf",
+        "https://www.haksanmakina.com.tr/?d564/cnc-hidrolik-abkant-pres.html"
+      ],
+      "verificationStatus": "source_verified",
+      "photoFiles": [
+        "IMG_4414.JPG"
+      ],
+      "specs": [
+        {
+          "key": "Büküm Kuvveti",
+          "value": "900",
+          "unit": "kN"
+        },
+        {
+          "key": "Ana Motor Gücü",
+          "value": "7.5",
+          "unit": "kW"
+        },
+        {
+          "key": "Yağ Tankı Kapasitesi",
+          "value": "140",
+          "unit": "L"
+        },
+        {
+          "key": "Yaklaşma Hızı",
+          "value": "150",
+          "unit": "mm/sn"
+        },
+        {
+          "key": "Çalışma Hızı",
+          "value": "10",
+          "unit": "mm/sn"
+        },
+        {
+          "key": "Dönüş Hızı",
+          "value": "130",
+          "unit": "mm/sn"
+        },
+        {
+          "key": "Makine Ağırlığı",
+          "value": "7.1",
+          "unit": "ton"
+        },
+        {
+          "key": "Büküm Uzunluğu",
+          "value": "2600",
+          "unit": "mm"
+        },
+        {
+          "key": "Gövde Arası Mesafe",
+          "value": "2050",
+          "unit": "mm"
+        },
+        {
+          "key": "Yan Gövde Genişliği",
+          "value": "1580",
+          "unit": "mm"
+        },
+        {
+          "key": "Tabla Yüksekliği",
+          "value": "880",
+          "unit": "mm"
+        },
+        {
+          "key": "Açıklık",
+          "value": "540",
+          "unit": "mm"
+        },
+        {
+          "key": "Strok",
+          "value": "260",
+          "unit": "mm"
+        },
+        {
+          "key": "Tabla Genişliği",
+          "value": "60",
+          "unit": "mm"
+        },
+        {
+          "key": "Boğaz Derinliği",
+          "value": "410",
+          "unit": "mm"
+        }
+      ],
+      "notes": [
+        "Eski seri üretici PDF tablosu, 2606x90 sütunu. Haksan kartındaki büküm boyu ve nominal tonaj ile eşleşti."
+      ]
+    },
+    {
+      "brand": "Baykal",
+      "model": "APHS PRO 31120",
+      "title": "Baykal APHS PRO 31120 CNC Hidrolik Abkant Pres",
+      "typeCode": "ABKANT_PRES",
+      "sourceId": "566",
+      "sourceUrls": [
+        "https://www.baykal.com.tr/images/urunler/1644817274_APHS-PRO-Technical-Data.pdf",
+        "https://www.haksanmakina.com.tr/?d566/cnc-hidrolik-abkant-pres.html"
+      ],
+      "verificationStatus": "source_verified",
+      "photoFiles": [
+        "IMG_4415.JPG"
+      ],
+      "specs": [
+        {
+          "key": "Büküm Kuvveti",
+          "value": "1200",
+          "unit": "kN"
+        },
+        {
+          "key": "Ana Motor Gücü",
+          "value": "11",
+          "unit": "kW"
+        },
+        {
+          "key": "Yağ Tankı Kapasitesi",
+          "value": "140",
+          "unit": "L"
+        },
+        {
+          "key": "Yaklaşma Hızı",
+          "value": "160",
+          "unit": "mm/sn"
+        },
+        {
+          "key": "Çalışma Hızı",
+          "value": "10",
+          "unit": "mm/sn"
+        },
+        {
+          "key": "Dönüş Hızı",
+          "value": "130",
+          "unit": "mm/sn"
+        },
+        {
+          "key": "Makine Ağırlığı",
+          "value": "8.4",
+          "unit": "ton"
+        },
+        {
+          "key": "Büküm Uzunluğu",
+          "value": "3100",
+          "unit": "mm"
+        },
+        {
+          "key": "Gövde Arası Mesafe",
+          "value": "2550",
+          "unit": "mm"
+        },
+        {
+          "key": "Yan Gövde Genişliği",
+          "value": "1590",
+          "unit": "mm"
+        },
+        {
+          "key": "Tabla Yüksekliği",
+          "value": "880",
+          "unit": "mm"
+        },
+        {
+          "key": "Açıklık",
+          "value": "540",
+          "unit": "mm"
+        },
+        {
+          "key": "Strok",
+          "value": "260",
+          "unit": "mm"
+        },
+        {
+          "key": "Tabla Genişliği",
+          "value": "60",
+          "unit": "mm"
+        },
+        {
+          "key": "Boğaz Derinliği",
+          "value": "410",
+          "unit": "mm"
+        }
+      ],
+      "notes": [
+        "Eski seri üretici PDF tablosu, 3106x120 sütunu. Haksan kartındaki büküm boyu ve nominal tonaj ile eşleşti."
+      ]
+    },
+    {
+      "brand": "Öz Güney",
+      "model": "ÖG-10",
+      "title": "Öz Güney ÖG-10 10 Ton Eksantrik Pres",
+      "typeCode": "HM_SAC_ISLEME_EKSANTRIK_PRESLER",
+      "sourceUrls": [
+        "https://www.ozguneymakina.com/eksantrik-pres-10-ton.html"
+      ],
+      "verificationStatus": "source_verified",
+      "photoFiles": [
+        "IMG_4410.JPG"
+      ],
+      "specs": [
+        {
+          "key": "Pres Kuvveti",
+          "value": "10",
+          "unit": "ton"
+        }
+      ],
+      "machineNameplate": {
+        "photoFile": "IMG_4410.JPG",
+        "serialNumber": "4028",
+        "specs": [
+          {
+            "key": "Ağırlık",
+            "value": "450",
+            "unit": "kg"
+          }
+        ]
+      },
+      "notes": [
+        "10 ton kapasite fotoğraf plakası ve üretici ürün sayfasında doğrulanıyor. Ağırlık fotoğraftaki tek makinenin plaka verisidir."
+      ]
+    }
+  ],
+  "pending": [
+    {
+      "brand": "UMS",
+      "model": "COMFORT 125 3100",
+      "reason": "135 modelinden farklı fotoğraf etiketi, ayrı doğrulama gerekiyor."
+    },
+    {
+      "brand": "UMS",
+      "model": "BASIC-BEND 60 1600",
+      "reason": "Fotoğraf model etiketi okunuyor, üretici teknik tablosu bulunamadı."
+    },
+    {
+      "brand": "Baykal",
+      "model": "APHS PRO 3120…",
+      "reason": "IMG_4416.JPG model etiketinin son hanesi kadraj dışında. Tam model doğrulanmalı."
+    },
+    {
+      "brand": "CEMAX",
+      "model": "HNC-1504",
+      "reason": "Üretici teknik belge bulunamadı."
+    },
+    {
+      "brand": "Logo doğrulaması bekliyor",
+      "model": "H-4",
+      "reason": "Model etiketinden tonaj çıkarılamaz.",
+      "photos": [
+        "IMG_4408.JPG"
+      ]
+    },
+    {
+      "brand": "AL-ES",
+      "model": "10 TON",
+      "reason": "Tam model kodu belirlenemedi."
+    },
+    {
+      "brand": "Kesmak",
+      "model": null,
+      "reason": "Fotoğrafta model plakası görünmüyor."
+    },
+    {
+      "brand": "Tubend",
+      "model": "Profil bükme makinesi",
+      "reason": "Tam model kodu belirlenemedi."
+    }
+  ]
+}

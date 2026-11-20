@@ -1,3 +1,4 @@
+import { partialWithoutDefaults } from '../partial';
 import { z } from 'zod';
 import { STOCK_CONDITION_CODES } from '../companyLookups';
 
@@ -29,7 +30,7 @@ export const inventoryItemCreateSchema = z.object({
 });
 export type InventoryItemCreateInput = z.infer<typeof inventoryItemCreateSchema>;
 
-export const inventoryItemUpdateSchema = inventoryItemCreateSchema.partial();
+export const inventoryItemUpdateSchema = partialWithoutDefaults(inventoryItemCreateSchema);
 export type InventoryItemUpdateInput = z.infer<typeof inventoryItemUpdateSchema>;
 
 export const inventoryReserveSchema = z.object({
@@ -59,6 +60,7 @@ export const inventorySellSchema = z.object({
 export type InventorySellInput = z.infer<typeof inventorySellSchema>;
 
 export const customerDeviceCreateSchema = z.object({
+  contactId: z.string().uuid().nullable().optional(),
   companyId: z.string().min(1),
   initialCompanyId: z.string().uuid().optional(),
   divisionId: z.string().uuid().optional(),
@@ -73,5 +75,5 @@ export const customerDeviceCreateSchema = z.object({
 });
 export type CustomerDeviceCreateInput = z.infer<typeof customerDeviceCreateSchema>;
 
-export const customerDeviceUpdateSchema = customerDeviceCreateSchema.partial();
+export const customerDeviceUpdateSchema = partialWithoutDefaults(customerDeviceCreateSchema);
 export type CustomerDeviceUpdateInput = z.infer<typeof customerDeviceUpdateSchema>;

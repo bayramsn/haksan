@@ -65,6 +65,8 @@ import {
   companyVisibilityFilter,
 } from '../../shared/utils/company-visibility';
 
+import { ValidationError } from '../../shared/utils/errors';
+
 const EXPORT_LIMIT = 15_000;
 
 @Injectable()
@@ -520,9 +522,12 @@ export class ExportsService {
 
   async exportOpportunities(
     actor: AuthContext,
-    query: { search?: string; stageCode?: string; qualificationStage?: string; companyId?: string }
+    query: { search?: string; stageCode?: string; qualificationStage?: string; companyId?: string; ids?: string[] }
   ): Promise<ExportRow[]> {
+    if (query.ids && query.ids.length > 10_000) throw new ValidationError('Excel için en fazla 10000 kayıt seçilebilir; filtreleri daraltın');
+    if (query.ids?.length === 0) return [];
     const filters = [eq(opportunities.tenantId, actor.tenantId), isNull(opportunities.deletedAt)];
+    if (query.ids) filters.push(inArray(opportunities.id, [...new Set(query.ids)]));
     if (query.search) {
       filters.push(
         or(

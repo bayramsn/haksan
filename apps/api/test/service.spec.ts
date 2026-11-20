@@ -218,7 +218,7 @@ describe('Service — kurulum / sevkiyat / teslimat', () => {
         severity: 'high',
         assignedToUserId: adminUserId,
         metadata: {
-          serviceStage: 'Service Completed',
+          serviceStage: 'Request Opened',
           timerElapsedSeconds: 7200,
           serviceHourlyRate: 150,
           serviceCurrency: 'EUR',
@@ -253,6 +253,11 @@ describe('Service — kurulum / sevkiyat / teslimat', () => {
       .send({ metadata: { completionForm } });
     expect(saved.status).toBe(200);
     expect(saved.body.metadata.completionForm.degisenParcalar).toHaveLength(13);
+    const completed = await supertest(app.getHttpServer())
+      .patch(`/api/v1/service-tickets/${created.body.id}/status`)
+      .set('Authorization', auth())
+      .send({ statusCode: 'resolved', serviceStage: 'Service Completed' });
+    expect(completed.status).toBe(200);
 
     const pdf = await supertest(app.getHttpServer())
       .get(`/api/v1/service-tickets/${created.body.id}/service-form.pdf`)
@@ -274,7 +279,7 @@ describe('Service — kurulum / sevkiyat / teslimat', () => {
         companyId,
         subject: 'Servis teklif zorunluluğu testi',
         severity: 'normal',
-        metadata: { quoteRequired: true, serviceStage: 'Quote Sent' },
+        metadata: { quoteRequired: true, serviceStage: 'Request Opened' },
       });
     expect(created.status).toBe(201);
 
@@ -545,7 +550,7 @@ describe('Service — kurulum / sevkiyat / teslimat', () => {
     const r = await supertest(app.getHttpServer())
       .post('/api/v1/installations')
       .set('Authorization', auth())
-      .send({ companyId, location, locationType: 'istanbul_ici', durationMinutes: 90, scheduledDate: now() });
+      .send({ companyId, location, assignedToUserId: adminUserId, locationType: 'istanbul_ici', durationMinutes: 90, scheduledDate: now() });
     expect(r.status).toBe(201);
     expect(r.body.feeAmount).toBeNull();
 
@@ -561,6 +566,19 @@ describe('Service — kurulum / sevkiyat / teslimat', () => {
       .set('Authorization', auth());
     expect(filtered.status).toBe(200);
     expect(filtered.body.data.map((row: { id: string }) => row.id)).toEqual([r.body.id]);
+    const assigned = await supertest(app.getHttpServer()).get('/api/v1/installations')
+      .query({ search: location, assignedToUserId: adminUserId }).set('Authorization', auth());
+    expect(assigned.status).toBe(200);
+    expect(assigned.body.data.map((row: { id: string }) => row.id)).toEqual([r.body.id]);
+    const other = await supertest(app.getHttpServer()).get('/api/v1/installations')
+      .query({ search: location, assignedToUserId: '00000000-0000-4000-8000-000000000000' }).set('Authorization', auth());
+    expect(other.status).toBe(200);
+    expect(other.body.data).toEqual([]);
+    await supertest(app.getHttpServer()).patch(`/api/v1/installations/${r.body.id}/status`)
+      .set('Authorization', auth()).send({ statusCode: 'cancelled' }).expect(200);
+    const cancelled = await supertest(app.getHttpServer()).get('/api/v1/installations')
+      .query({ search: location, assignedToUserId: adminUserId, phase: 'planned' }).set('Authorization', auth()).expect(200);
+    expect(cancelled.body.data).toEqual([]);
   });
 
   it('kurulum tamamlamadan önce tutanak kontrol ve problem alanlarını zorunlu tutar', async () => {

@@ -1081,9 +1081,9 @@ export function TargetPerformanceReport() {
                       <TableCell className="text-xs text-muted-foreground">{item.source}</TableCell>
                       <TableCell className="tabular-nums">{item.memberCount}</TableCell>
                       <TableCell className={`tabular-nums ${item.problemCount ? "font-semibold text-red-700" : "text-muted-foreground"}`}>{item.problemCount}</TableCell>
-                      <TableCell><MetricLines lines={item.metrics} /></TableCell>
-                      <TableCell><TargetProgressCell value={item.completionPct} expected={expectedPct} previous={item.previousPct} /></TableCell>
-                      <TableCell><TargetStatusBadge status={item.status} /></TableCell>
+                      <TableCell data-sort-value={item.metrics.map((line) => line.label).join(' ')}><MetricLines lines={item.metrics} /></TableCell>
+                      <TableCell data-sort-value={item.completionPct}><TargetProgressCell value={item.completionPct} expected={expectedPct} previous={item.previousPct} /></TableCell>
+                      <TableCell data-sort-value={TARGET_STATUS_META[item.status].label}><TargetStatusBadge status={item.status} /></TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
@@ -1114,17 +1114,17 @@ export function TargetPerformanceReport() {
                       <TableCell className="text-sm text-muted-foreground">
                         {row.subject.departmentNames?.length ? row.subject.departmentNames.join(", ") : row.subject.departmentName || "—"}
                       </TableCell>
-                      <TableCell><TargetProgressCell value={analysis.completionPct} expected={expectedPct} previous={previousPct} /></TableCell>
-                      <TableCell><MetricLines lines={analysis.metrics} expected={expectedPct} daysLeft={daysLeft} /></TableCell>
+                      <TableCell data-sort-value={analysis.completionPct}><TargetProgressCell value={analysis.completionPct} expected={expectedPct} previous={previousPct} /></TableCell>
+                      <TableCell data-sort-value={analysis.metrics.map((line) => line.label).join(' ')}><MetricLines lines={analysis.metrics} expected={expectedPct} daysLeft={daysLeft} /></TableCell>
                       <TableCell>
                         {analysis.manual.length ? (
                           <div className="max-w-[220px] text-xs leading-relaxed text-muted-foreground">{analysis.manual.map((m) => `${m.label}: ${m.target}`).join(" · ")}</div>
                         ) : <span className="text-xs text-muted-foreground">—</span>}
                       </TableCell>
                       {trendPeriods.length > 0 && (
-                        <TableCell><Sparkline values={personTrend(row.subject.id)} periods={trendPeriods} expected={expectedPct} /></TableCell>
+                        <TableCell data-sort-value={personTrend(row.subject.id).filter((value): value is number => value != null).at(-1) ?? null} title="Son veri bulunan ayın değerine göre sıralanır"><Sparkline values={personTrend(row.subject.id)} periods={trendPeriods} expected={expectedPct} /></TableCell>
                       )}
-                      <TableCell><TargetStatusBadge status={analysis.status} /></TableCell>
+                      <TableCell data-sort-value={TARGET_STATUS_META[analysis.status].label}><TargetStatusBadge status={analysis.status} /></TableCell>
                       <TableCell>
                         {hasPermission("reports.export") && (
                           <Button type="button" variant="ghost" size="icon" className="size-8" onClick={() => handlePrintReport(person)} aria-label={`${row.subject.name} için tek sayfalık rapor`} title="Bu kişinin sayfasını yazdır">

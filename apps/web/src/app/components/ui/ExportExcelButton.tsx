@@ -3,12 +3,13 @@ import { Download } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from './button';
 import { useAuth } from '../../../lib/auth';
-import { downloadExport } from '../../../lib/downloadExport';
+import { downloadExport, downloadExportPost } from '../../../lib/downloadExport';
 
 type ExportExcelButtonProps = {
   path: string;
   filename: string;
   params?: Record<string, string | number | undefined | null>;
+  body?: unknown;
   label?: string;
   className?: string;
   size?: 'default' | 'sm' | 'lg' | 'icon';
@@ -23,6 +24,7 @@ export function ExportExcelButton({
   path,
   filename,
   params,
+  body,
   label = 'Excel İndir',
   className,
   size = 'sm',
@@ -39,7 +41,8 @@ export function ExportExcelButton({
   const onClick = async () => {
     try {
       setLoading(true);
-      await downloadExport(path, filename, params);
+      if (body !== undefined) await downloadExportPost(path, filename, body);
+      else await downloadExport(path, filename, params);
     } catch (e: any) {
       toast.error('Excel indirilemedi', { description: e?.message ?? 'Bilinmeyen hata' });
     } finally {

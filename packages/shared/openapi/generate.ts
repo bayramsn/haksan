@@ -142,7 +142,7 @@ const opportunityDto = registry.register(
           complete: z.boolean(),
         }),
       ),
-      approvals: z.record(ref('opportunityApprovalStatusEnum')).optional(),
+      approvals: z.record(z.string(), ref('opportunityApprovalStatusEnum')).optional(),
     }),
   })
 );

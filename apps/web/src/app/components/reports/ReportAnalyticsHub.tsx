@@ -1,3 +1,4 @@
+import { Table as SortableTable, TableHeader as SortableTableHeader, TableRow as SortableTableRow, TableHead as SortableTableHead, TableBody as SortableTableBody, TableCell as SortableTableCell } from "../ui/table";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Bar, BarChart, CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis,
@@ -405,66 +406,66 @@ export function ReportAnalyticsHub() {
               <p className="text-xs text-muted-foreground">Seçilen ayda hangi makineye kaç teklif verildi; kalem toplamı teklif para birimine göre ayrı yazılır</p>
             </CardHeader>
             <CardContent className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b text-left text-xs text-muted-foreground">
-                    <th className="py-2 pr-3">Ürün</th>
-                    <th className="py-2 pr-3">Marka</th>
-                    <th className="py-2 pr-3 text-right">Teklif</th>
-                    <th className="py-2 text-right">Kalem Toplamı</th>
-                  </tr>
-                </thead>
-                <tbody>
+              <SortableTable className="w-full text-sm">
+                <SortableTableHeader>
+                  <SortableTableRow className="border-b text-left text-xs text-muted-foreground">
+                    <SortableTableHead className="py-2 pr-3">Ürün</SortableTableHead>
+                    <SortableTableHead className="py-2 pr-3">Marka</SortableTableHead>
+                    <SortableTableHead className="py-2 pr-3 text-right">Teklif</SortableTableHead>
+                    <SortableTableHead className="py-2 text-right">Kalem Toplamı</SortableTableHead>
+                  </SortableTableRow>
+                </SortableTableHeader>
+                <SortableTableBody>
                   {productRows.map((r) => (
-                    <tr key={`${r.brand}-${r.name}`} className="border-b border-border/40">
-                      <td className="py-2 pr-3 font-medium">{r.name}</td>
-                      <td className="py-2 pr-3 text-muted-foreground">{r.brand || "—"}</td>
-                      <td className="py-2 pr-3 text-right tabular-nums">{r.count}</td>
-                      <td className="py-2 text-right tabular-nums">{r.totalLabel}</td>
-                    </tr>
+                    <SortableTableRow key={`${r.brand}-${r.name}`} className="border-b border-border/40">
+                      <SortableTableCell className="py-2 pr-3 font-medium">{r.name}</SortableTableCell>
+                      <SortableTableCell className="py-2 pr-3 text-muted-foreground">{r.brand || "—"}</SortableTableCell>
+                      <SortableTableCell className="py-2 pr-3 text-right tabular-nums">{r.count}</SortableTableCell>
+                      <SortableTableCell className="py-2 text-right tabular-nums">{r.totalLabel}</SortableTableCell>
+                    </SortableTableRow>
                   ))}
                   {productRows.length === 0 && (
-                    <tr><td colSpan={4} className="py-6 text-center text-muted-foreground">Bu ay teklif kalemi yok.</td></tr>
+                    <SortableTableRow><SortableTableCell colSpan={4} className="py-6 text-center text-muted-foreground">Bu ay teklif kalemi yok.</SortableTableCell></SortableTableRow>
                   )}
-                </tbody>
-              </table>
+                </SortableTableBody>
+              </SortableTable>
             </CardContent>
           </Card>
 
           <Card className="border-border/60 shadow-sm lg:col-span-2">
             <CardHeader><CardTitle className="text-base">Departman Özet Tablosu</CardTitle></CardHeader>
             <CardContent className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b text-left text-xs text-muted-foreground">
-                    <th className="py-2 pr-3">Departman</th>
-                    <th className="py-2 pr-3">Üye</th>
-                    <th className="py-2 pr-3">Satış Hedef</th>
-                    <th className="py-2 pr-3">Satış Gerç.</th>
-                    <th className="py-2 pr-3">%</th>
-                    <th className="py-2 pr-3">Teklif Hedef</th>
-                    <th className="py-2 pr-3">Teklif</th>
-                    <th className="py-2">Açık Fırsat (adet)</th>
-                  </tr>
-                </thead>
-                <tbody>
+              <SortableTable className="w-full text-sm">
+                <SortableTableHeader>
+                  <SortableTableRow className="border-b text-left text-xs text-muted-foreground">
+                    <SortableTableHead className="py-2 pr-3">Departman</SortableTableHead>
+                    <SortableTableHead className="py-2 pr-3">Üye</SortableTableHead>
+                    <SortableTableHead className="py-2 pr-3">Satış Hedef</SortableTableHead>
+                    <SortableTableHead className="py-2 pr-3">Satış Gerç.</SortableTableHead>
+                    <SortableTableHead className="py-2 pr-3">%</SortableTableHead>
+                    <SortableTableHead className="py-2 pr-3">Teklif Hedef</SortableTableHead>
+                    <SortableTableHead className="py-2 pr-3">Teklif</SortableTableHead>
+                    <SortableTableHead className="py-2">Açık Fırsat (adet)</SortableTableHead>
+                  </SortableTableRow>
+                </SortableTableHeader>
+                <SortableTableBody>
                   {deptReport.map((d) => (
-                    <tr key={d.departmentId} className="border-b border-border/40">
-                      <td className="py-2 pr-3 font-medium">{d.departmentName}</td>
-                      <td className="py-2 pr-3">{d.memberCount}</td>
-                      <td className="py-2 pr-3">{d.targets.departmentSalesAmount.toLocaleString("tr-TR")}</td>
-                      <td className="py-2 pr-3">{d.actuals.wonValue.toLocaleString("tr-TR")}</td>
-                      <td className="py-2 pr-3">{d.attainment.salesPct != null ? `%${d.attainment.salesPct}` : "—"}</td>
-                      <td className="py-2 pr-3">{d.targets.departmentQuoteTarget}</td>
-                      <td className="py-2 pr-3">{d.actuals.quotesCreated}</td>
-                      <td className="py-2">{d.actuals.openOpportunities}</td>
-                    </tr>
+                    <SortableTableRow key={d.departmentId} className="border-b border-border/40">
+                      <SortableTableCell className="py-2 pr-3 font-medium">{d.departmentName}</SortableTableCell>
+                      <SortableTableCell className="py-2 pr-3">{d.memberCount}</SortableTableCell>
+                      <SortableTableCell className="py-2 pr-3">{d.targets.departmentSalesAmount.toLocaleString("tr-TR")}</SortableTableCell>
+                      <SortableTableCell className="py-2 pr-3">{d.actuals.wonValue.toLocaleString("tr-TR")}</SortableTableCell>
+                      <SortableTableCell className="py-2 pr-3">{d.attainment.salesPct != null ? `%${d.attainment.salesPct}` : "—"}</SortableTableCell>
+                      <SortableTableCell className="py-2 pr-3">{d.targets.departmentQuoteTarget}</SortableTableCell>
+                      <SortableTableCell className="py-2 pr-3">{d.actuals.quotesCreated}</SortableTableCell>
+                      <SortableTableCell className="py-2">{d.actuals.openOpportunities}</SortableTableCell>
+                    </SortableTableRow>
                   ))}
                   {deptReport.length === 0 && (
-                    <tr><td colSpan={8} className="py-6 text-center text-muted-foreground">Bu dönem için departman verisi yok.</td></tr>
+                    <SortableTableRow><SortableTableCell colSpan={8} className="py-6 text-center text-muted-foreground">Bu dönem için departman verisi yok.</SortableTableCell></SortableTableRow>
                   )}
-                </tbody>
-              </table>
+                </SortableTableBody>
+              </SortableTable>
             </CardContent>
           </Card>
         </div>

@@ -10,7 +10,8 @@ import type { Customer, CustomerSalesStatus, FirmType } from "./mock";
 import { normalizeCompany } from "./companyNormalizer";
 import { DEFAULT_SERVER_PAGE_SIZE, serverScopeKey } from "./serverPagination";
 
-export type CompanySortMode = "default" | "name_asc" | "name_desc" | "created_desc" | "created_asc";
+export type CompanySortField = "name" | "createdAt" | "type" | "contact" | "city";
+export type CompanySortMode = "default" | `${"name" | "created" | "type" | "contact" | "city"}_${"asc" | "desc"}`;
 
 export interface CompanyDirectoryFilters {
   page: number;
@@ -34,7 +35,7 @@ export interface CompanyListParams extends Record<string, string | number | unde
   city?: string;
   sector?: string;
   supplierCategoryCode?: "transportation" | "logistics";
-  sortBy?: "name" | "createdAt";
+  sortBy?: CompanySortField;
   sortDir?: "asc" | "desc";
 }
 
@@ -79,25 +80,13 @@ export function buildCompanyListParams(filters: CompanyDirectoryFilters): Compan
 
   let sortBy: CompanyListParams["sortBy"];
   let sortDir: CompanyListParams["sortDir"];
-  switch (filters.sortMode) {
-    case "name_asc":
-      sortBy = "name";
-      sortDir = "asc";
-      break;
-    case "name_desc":
-      sortBy = "name";
-      sortDir = "desc";
-      break;
-    case "created_asc":
-      sortBy = "createdAt";
-      sortDir = "asc";
-      break;
-    case "created_desc":
-    case "default":
-    case undefined:
-      sortBy = "createdAt";
-      sortDir = "desc";
-      break;
+  if (!filters.sortMode || filters.sortMode === "default") {
+    sortBy = "createdAt";
+    sortDir = "asc";
+  } else {
+    const [field, direction] = filters.sortMode.split("_");
+    sortBy = (field === "created" ? "createdAt" : field) as CompanySortField;
+    sortDir = direction as "asc" | "desc";
   }
 
   return {

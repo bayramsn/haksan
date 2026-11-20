@@ -29,8 +29,10 @@ import { PermissionsGuard, RequirePermissions } from '../../shared/security/perm
 import { CurrentUser } from '../../shared/security/current-user.decorator';
 import type { AuthContext } from '../../shared/security/auth.types';
 import { QuotesService } from './quotes.service';
+import { CommercialPdfService } from './commercial-pdf.service';
 
 const commercialDocumentListQuery = paginationSchema.extend({
+  opportunityId: z.string().uuid().optional(),
   search: z.string().trim().max(128).optional(),
   companyId: z.string().optional(),
   quoteId: z.string().optional(),
@@ -40,18 +42,20 @@ type CommercialDocumentListQuery = z.infer<typeof commercialDocumentListQuery>;
 @UseGuards(AuthGuard, PermissionsGuard)
 @Controller()
 export class CommercialDocumentsController {
-  constructor(private readonly svc: QuotesService) {}
+  constructor(private readonly svc: QuotesService, private readonly commercialPdfs: CommercialPdfService) {}
 
   @RequirePermissions('proformas.read')
   @Get('proformas')
-  listProformas(@Query(new ZodValidationPipe(commercialDocumentListQuery)) qp: CommercialDocumentListQuery, @CurrentUser() user: AuthContext) {
-    return this.svc.listProformas(user, qp);
+  async listProformas(@Query(new ZodValidationPipe(commercialDocumentListQuery)) qp: CommercialDocumentListQuery, @CurrentUser() user: AuthContext) {
+    const result = await this.svc.listProformas(user, qp);
+    return { ...result, data: await this.commercialPdfs.decorate('proforma', result.data, user) };
   }
 
   @RequirePermissions('proformas.read')
   @Get('proformas/:id')
-  getProforma(@Param('id') id: string, @CurrentUser() user: AuthContext) {
-    return this.svc.getProforma(id, user);
+  async getProforma(@Param('id') id: string, @CurrentUser() user: AuthContext) {
+    const record = await this.svc.getProforma(id, user);
+    return (await this.commercialPdfs.decorate('proforma', [record], user))[0];
   }
 
   @RequirePermissions('proformas.create')
@@ -98,14 +102,16 @@ export class CommercialDocumentsController {
 
   @RequirePermissions('contracts.read')
   @Get('contracts')
-  listContracts(@Query(new ZodValidationPipe(commercialDocumentListQuery)) qp: CommercialDocumentListQuery, @CurrentUser() user: AuthContext) {
-    return this.svc.listContracts(user, qp);
+  async listContracts(@Query(new ZodValidationPipe(commercialDocumentListQuery)) qp: CommercialDocumentListQuery, @CurrentUser() user: AuthContext) {
+    const result = await this.svc.listContracts(user, qp);
+    return { ...result, data: await this.commercialPdfs.decorate('contract', result.data, user) };
   }
 
   @RequirePermissions('contracts.read')
   @Get('contracts/:id')
-  getContract(@Param('id') id: string, @CurrentUser() user: AuthContext) {
-    return this.svc.getContract(id, user);
+  async getContract(@Param('id') id: string, @CurrentUser() user: AuthContext) {
+    const record = await this.svc.getContract(id, user);
+    return (await this.commercialPdfs.decorate('contract', [record], user))[0];
   }
 
   @RequirePermissions('contracts.create')

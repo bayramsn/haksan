@@ -75,12 +75,17 @@ const STATUS_LABELS: Record<string, string> = {
   CommercialInvoice: "Ticari Fatura", AccountingInvoice: "Muhasebe Faturası", DeliveryForm: "Teslim Formu", InstallationForm: "Kurulum Formu", Other: "Diğer",
 };
 
+export const statusLabel = (status: string) => STATUS_LABELS[status] ?? status;
+
 export function StatusBadge({ status }: { status: string }) {
   const meta = STATUS_META[status] ?? { cls: "bg-brand-blue-soft text-brand-blue border-blue-200" };
   return (
     <span data-slot="status-badge" className={`inline-flex items-center gap-1 whitespace-nowrap rounded-full border px-2 py-0.5 text-[11px] ${meta.cls}`}>
       {meta.icon}
-      {STATUS_LABELS[status] ?? status}
+      {statusLabel(status)}
     </span>
   );
 }
+
+// Shared tables sort the same localized label that this badge renders.
+StatusBadge.getSortValue = ({ status }: { status: string }) => statusLabel(status);

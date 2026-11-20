@@ -17,13 +17,15 @@ import {
   type MetaConnectionUpdateInput,
   type MetaConversationMessageCreateInput,
   type MetaConversionEventCreateInput,
+  type MetaConversionListQuery,
   type MetaDateRangeQuery,
   type MetaDestructiveConfirmationInput,
   type MetaFormMappingCreateInput,
   type MetaFormMappingUpdateInput,
   type MetaListQuery,
+  type MetaLeadListQuery,
 } from '@haksan/shared';
-import { and, desc, eq, gte, inArray, isNull, lte, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, ilike, inArray, isNull, lte, or, sql } from 'drizzle-orm';
 import { loadEnv } from '../../config/env';
 import { z } from 'zod';
 import type { DbClient } from '../../db/client';
@@ -241,10 +243,32 @@ export class MetaService {
     return removed;
   }
 
-  async listLeads(actor: AuthContext, query: MetaListQuery) {
-    const where = and(eq(opportunities.tenantId, actor.tenantId), eq(opportunities.externalSource, 'meta_lead_ads'), isNull(opportunities.deletedAt), resourceDivisionFilter(actor, 'opportunities', opportunities.divisionId) ?? sql`true`);
+  async listLeads(actor: AuthContext, query: MetaLeadListQuery) {
+    // Keep the visible status derivation consistent with normalizeLeadStatus.
+    const leadStatus = sql<string>`case
+      when lower(${opportunities.qualificationStage}) in ('win', 'won', 'converted') then 'converted'
+      when lower(${opportunities.qualificationStage}) in ('lost', 'rejected', 'disqualified') or lower(${opportunities.leadFollowUpStatus}) = 'disqualified' then 'rejected'
+      when lower(${opportunities.qualificationStage}) in ('a', 'a+', 'a_plus', 'qualified') then 'qualified'
+      when ${opportunities.firstContactAt} is not null or lower(${opportunities.leadFollowUpStatus}) = 'contacted' then 'contacted'
+      when ${opportunities.ownerUserId} is not null then 'assigned'
+      else 'new' end`;
+    const platform = sql<string>`coalesce(nullif(${opportunities.externalMetadata}->>'platform', ''), nullif(${opportunities.externalMetadata}->>'source', ''), 'facebook')`;
+    const name = sql<string>`coalesce(nullif(${opportunities.leadContactName}, ''), ${opportunities.title}, 'İsimsiz lead')`;
+    const campaign = sql<string>`coalesce(nullif(${opportunities.externalMetadata}->>'campaignName', ''), 'Kampanya yok')`;
+    const owner = sql<string>`coalesce(nullif(${opportunities.externalMetadata}->>'ownerName', ''), 'Atama bekliyor')`;
+    const statusLabel = sql<string>`case ${leadStatus} when 'new' then 'Yeni' when 'assigned' then 'Atandı' when 'contacted' then 'İletişim kuruldu' when 'qualified' then 'Nitelikli' when 'converted' then 'Dönüştü' else 'Uygun değil' end`;
+    const search = query.search ? `%${query.search.replace(/[\\%_]/g, (character) => `\\${character}`)}%` : undefined;
+    const where = and(
+      eq(opportunities.tenantId, actor.tenantId), eq(opportunities.externalSource, 'meta_lead_ads'), isNull(opportunities.deletedAt),
+      resourceDivisionFilter(actor, 'opportunities', opportunities.divisionId) ?? sql`true`,
+      query.platform ? eq(platform, query.platform) : undefined,
+      query.status ? eq(leadStatus, query.status) : undefined,
+      search ? or(ilike(name, search), ilike(opportunities.leadPhone, search), ilike(opportunities.leadEmail, search), ilike(campaign, search)) : undefined,
+    );
+    const columns = { fullName: name, platform, campaignName: campaign, status: statusLabel, ownerName: owner, createdAt: opportunities.createdAt };
+    const order = columns[query.sortBy] ?? opportunities.createdAt;
     const [data, count] = await Promise.all([
-      this.db.select().from(opportunities).where(where).orderBy(desc(opportunities.createdAt)).limit(query.pageSize).offset((query.page - 1) * query.pageSize),
+      this.db.select().from(opportunities).where(where).orderBy(query.sortDir === 'asc' ? asc(order) : desc(order), asc(opportunities.id)).limit(query.pageSize).offset((query.page - 1) * query.pageSize),
       this.db.select({ value: sql<number>`count(*)::int` }).from(opportunities).where(where),
     ]);
     return { data, meta: { page: query.page, pageSize: query.pageSize, total: count[0]?.value ?? 0 } };
@@ -467,8 +491,22 @@ export class MetaService {
     return removed;
   }
 
-  listConversionEvents(actor: AuthContext, query: MetaListQuery) {
-    return this.db.select().from(metaConversionEvents).where(and(eq(metaConversionEvents.tenantId, actor.tenantId), query.connectionId ? eq(metaConversionEvents.connectionId, query.connectionId) : undefined)).orderBy(desc(metaConversionEvents.createdAt)).limit(query.pageSize).offset((query.page - 1) * query.pageSize);
+  listConversionEvents(actor: AuthContext, query: MetaConversionListQuery) {
+    // Only validated, fixed expressions may be used for database ordering.
+    // JSON payload values can be absent or malformed in historical events.
+    const value = sql`CASE WHEN jsonb_typeof(${metaConversionEvents.payload}->'custom_data'->'value') = 'number' THEN (${metaConversionEvents.payload}->'custom_data'->>'value')::numeric ELSE NULL END`;
+    const columns = {
+      eventName: metaConversionEvents.eventName,
+      opportunityId: metaConversionEvents.opportunityId,
+      status: metaConversionEvents.status,
+      value,
+      occurredAt: metaConversionEvents.occurredAt,
+      attemptCount: metaConversionEvents.attemptCount,
+      lastError: metaConversionEvents.lastError,
+    };
+    const column = columns[query.sortBy];
+    const direction = query.sortDir === 'asc' ? sql`${column} asc nulls last` : sql`${column} desc nulls last`;
+    return this.db.select().from(metaConversionEvents).where(and(eq(metaConversionEvents.tenantId, actor.tenantId), query.connectionId ? eq(metaConversionEvents.connectionId, query.connectionId) : undefined)).orderBy(direction, asc(metaConversionEvents.id)).limit(query.pageSize).offset((query.page - 1) * query.pageSize);
   }
 
   async createConversionEvent(actor: AuthContext, input: MetaConversionEventCreateInput) {

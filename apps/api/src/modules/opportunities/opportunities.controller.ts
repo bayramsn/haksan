@@ -41,6 +41,7 @@ import { PermissionsGuard, RequirePermissions } from '../../shared/security/perm
 import { CurrentUser } from '../../shared/security/current-user.decorator';
 import type { AuthContext } from '../../shared/security/auth.types';
 import { OpportunitiesService } from './opportunities.service';
+import { ForbiddenError } from '../../shared/utils/errors';
 
 const listQuery = z.object({
   search: z.string().optional(),
@@ -48,6 +49,7 @@ const listQuery = z.object({
   qualificationStage: opportunityQualificationStageEnum.optional(),
   lifecycle: z.enum(['lead', 'opportunity']).optional(),
   companyId: z.string().optional(),
+  ownerUserId: z.string().uuid().optional(),
   // active (varsayılan) | closed (Geçmiş/Arşiv) | all
   view: opportunityViewEnum.optional(),
   lostReasonCode: z.string().trim().max(64).optional(),
@@ -84,6 +86,14 @@ export class OpportunitiesController {
   @Get('assignees')
   assignees(@CurrentUser() user: AuthContext) {
     return this.svc.listAssignableOwners(user);
+  }
+
+  @Get(':id/quote-readiness')
+  quoteReadiness(@Param('id') id: string, @CurrentUser() user: AuthContext) {
+    if (!user.permissions.has('quotes.create') && !user.permissions.has('quotes.update')) {
+      throw new ForbiddenError('Teklif oluşturma veya güncelleme yetkisi gerekli');
+    }
+    return this.svc.quoteReadiness(id, user);
   }
 
   @RequirePermissions('opportunities.read')

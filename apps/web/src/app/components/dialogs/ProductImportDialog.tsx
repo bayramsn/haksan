@@ -1,3 +1,4 @@
+import { displayProductCategoryOptions, sameProductCategory, uniqueProductCategoryOptions } from "../../lib/productCategories";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, CheckCircle2, Columns3, Download, FileCheck2, FileSpreadsheet, RefreshCw, ShieldCheck, Upload } from "lucide-react";
 import { toast } from "sonner";
@@ -70,26 +71,28 @@ export function ProductImportDialog({ trigger, divisionId: settingsDivisionId }:
     return () => { requestVersion.current++; };
   }, [open, divisionId]);
 
-  const categories = useMemo(() => {
+  const allCategoryOptions = useMemo(() => {
     const byCode = new Map<string, string>();
     for (const option of templateOptions) byCode.set(option.categoryCode ?? "", option.categoryName);
-    return [...byCode.entries()].map(([code, name]) => ({ code, name }));
+    return [...byCode.entries()].map(([code, label]) => ({ code, label }));
   }, [templateOptions]);
+
+  const categories = displayProductCategoryOptions(uniqueProductCategoryOptions(allCategoryOptions, categoryCode), user?.divisions?.find((division) => division.id === divisionId)?.code).map((option) => ({ code: option.code, name: option.label }));
 
   const subcategories = useMemo(() => {
     const byCode = new Map<string, string>();
     for (const option of templateOptions) {
-      if ((option.categoryCode ?? "") !== categoryCode) continue;
+      if (!sameProductCategory(allCategoryOptions, option.categoryCode, categoryCode)) continue;
       byCode.set(option.subcategoryCode ?? "", option.subcategoryName);
     }
     return [...byCode.entries()].map(([code, name]) => ({ code, name }));
-  }, [categoryCode, templateOptions]);
+  }, [categoryCode, templateOptions, allCategoryOptions]);
 
   const productTypes = useMemo(
     () => templateOptions.filter(
-      (option) => (option.categoryCode ?? "") === categoryCode && (option.subcategoryCode ?? "") === subcategoryCode,
+      (option) => sameProductCategory(allCategoryOptions, option.categoryCode, categoryCode) && (option.subcategoryCode ?? "") === subcategoryCode,
     ),
-    [categoryCode, subcategoryCode, templateOptions],
+    [categoryCode, subcategoryCode, templateOptions, allCategoryOptions],
   );
 
   const runTemplateDownload = async () => {

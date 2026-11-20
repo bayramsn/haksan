@@ -1,3 +1,4 @@
+import { sql } from 'drizzle-orm';
 import { pgTable, uuid, varchar, text, timestamp, index, uniqueIndex } from 'drizzle-orm/pg-core';
 import { auditColumns } from './_helpers';
 import { tenants, divisions } from './tenants';
@@ -123,5 +124,6 @@ export const customerDevices = pgTable(
     tenantDivisionIdx: index('customer_devices_tenant_division_idx').on(t.tenantId, t.divisionId),
     companyIdx: index('customer_devices_company_idx').on(t.companyId),
     warrantyEndIdx: index('customer_devices_warranty_end_idx').on(t.warrantyEndDate),
+    activeInventoryUnique: uniqueIndex('customer_devices_active_inventory_unique').on(t.tenantId, t.inventoryItemId).where(sql`${t.inventoryItemId} is not null and ${t.deletedAt} is null`),
   })
 );

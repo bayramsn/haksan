@@ -484,8 +484,8 @@ export function UsersPage() {
                 <TableHead>Rol</TableHead>
                 <TableHead>Departman</TableHead>
                 <TableHead>Bölüm</TableHead>
-                <TableHead>Hedef</TableHead>
-                <TableHead>Limitler (USD)</TableHead>
+                <TableHead sortType="number" title="Doldurulan hedef alanı sayısına göre sıralanır">Hedef</TableHead>
+                <TableHead sortType="number" title="Onay limitine göre sıralanır; limitsiz kullanıcılar sonda gösterilir">Limitler (USD)</TableHead>
                 <TableHead>Yönetici</TableHead>
                 <TableHead>Durum</TableHead>
                 {canShowActions && <TableHead className="w-10" />}
@@ -511,7 +511,7 @@ export function UsersPage() {
                   : [];
                 return (
                   <TableRow key={u.id}>
-                    <TableCell>
+                    <TableCell data-sort-value={u.name}>
                       <div className="flex min-w-[220px] items-center gap-3">
                         <div className="relative shrink-0">
                           <Avatar className="size-9 border border-border/70">
@@ -559,7 +559,7 @@ export function UsersPage() {
                         <span className="text-[11px] text-muted-foreground">—</span>
                       )}
                     </TableCell>
-                    <TableCell>
+                    <TableCell data-sort-value={t ? targetSummaries.reduce((sum, summary) => sum + summary.filled, 0) : null}>
                       {hasTargetValue(t) && targetSummaries.length > 0 ? (
                         <div className="flex flex-wrap gap-1">
                           {targetSummaries.slice(0, 4).map((summary) => (
@@ -575,7 +575,7 @@ export function UsersPage() {
                         <span className="text-[11px] text-muted-foreground">—</span>
                       )}
                     </TableCell>
-                    <TableCell>
+                    <TableCell data-sort-value={u.purchaseApprovalLimit || null}>
                       <div className="min-w-[132px] space-y-0.5 text-xs">
                         <div>
                           <span className="text-muted-foreground">Onay:</span>{" "}

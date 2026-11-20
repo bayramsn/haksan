@@ -3,7 +3,7 @@ import { auditColumns } from './_helpers';
 import { tenants } from './tenants';
 import { users } from './users';
 import { companies, contacts } from './companies';
-import { opportunities, visits } from './crm';
+import { opportunities, salesActivities, visits } from './crm';
 
 export type CalendarSelection = { id: string; title: string; color?: string | null; writable: boolean };
 
@@ -27,7 +27,10 @@ export const calendarEvents = pgTable(
     companyId: uuid('company_id').references(() => companies.id, { onDelete: 'set null' }),
     contactId: uuid('contact_id').references(() => contacts.id, { onDelete: 'set null' }),
     opportunityId: uuid('opportunity_id').references(() => opportunities.id, { onDelete: 'set null' }),
+    /** Eski ziyaret satırı; yeni müşteri ziyaretleri `activity_id` ile aktiviteye bağlanır. */
     visitId: uuid('visit_id').references(() => visits.id, { onDelete: 'set null' }),
+    /** Müşteri ziyaretinin CRM aktivitesi ("Müşteri Ziyareti"); raporlar bunu sayar. */
+    activityId: uuid('activity_id').references(() => salesActivities.id, { onDelete: 'set null' }),
     sourceModifiedAt: timestamp('source_modified_at', { withTimezone: true }).notNull().defaultNow(),
     lastSyncedAt: timestamp('last_synced_at', { withTimezone: true }),
     /** Görev tipi etkinliklerin kapanışı. Dolu ise iş yapılmıştır. */
@@ -41,6 +44,7 @@ export const calendarEvents = pgTable(
     tenantTimeIdx: index('calendar_events_tenant_time_idx').on(table.tenantId, table.startsAt),
     companyIdx: index('calendar_events_company_idx').on(table.companyId),
     visitIdx: index('calendar_events_visit_idx').on(table.visitId),
+    activityIdx: index('calendar_events_activity_idx').on(table.activityId),
     importUidUnique: uniqueIndex('calendar_events_import_uid_unique').on(table.tenantId, table.ownerUserId, table.importUid),
   })
 );

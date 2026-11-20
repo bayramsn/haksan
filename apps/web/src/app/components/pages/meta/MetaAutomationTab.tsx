@@ -1,4 +1,5 @@
 import { useState } from "react";
+import type { TableSort } from "../../ui/table";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Activity, AlertTriangle, ArrowRight, Plus, RefreshCw, Send, Settings2 } from "lucide-react";
 import { toast } from "sonner";
@@ -42,6 +43,7 @@ const PAGE_SIZE = 20;
 export function MetaAutomationTab({ canManage }: { canManage: boolean }) {
   const queryClient = useQueryClient();
   const [eventPage, setEventPage] = useState(1);
+  const [eventSort, setEventSort] = useState<TableSort>({ key: "occurredAt", direction: "desc" });
   const [mappingOpen, setMappingOpen] = useState(false);
   const [eventOpen, setEventOpen] = useState(false);
   const [processConfirm, setProcessConfirm] = useState(false);
@@ -51,7 +53,7 @@ export function MetaAutomationTab({ canManage }: { canManage: boolean }) {
 
   const connectionsQuery = useQuery({ queryKey: metaQueryKeys.connections, queryFn: metaService.connections, staleTime: 60_000 });
   const mappingsQuery = useQuery({ queryKey: metaQueryKeys.mappings, queryFn: metaService.formMappings, staleTime: 30_000 });
-  const eventParams = { page: eventPage, pageSize: PAGE_SIZE };
+  const eventParams = { page: eventPage, pageSize: PAGE_SIZE, sortBy: eventSort.key, sortDir: eventSort.direction };
   const eventsQuery = useQuery({ queryKey: metaQueryKeys.conversions(eventParams), queryFn: () => metaService.conversionEvents(eventParams), staleTime: 20_000 });
 
   const mappingMutation = useMutation({
@@ -144,7 +146,13 @@ export function MetaAutomationTab({ canManage }: { canManage: boolean }) {
               <TableHeader><TableRow><TableHead>Form</TableHead><TableHead>Kaynak</TableHead><TableHead>Alan eşlemesi</TableHead><TableHead>Son lead</TableHead><TableHead className="text-right">Aktif</TableHead></TableRow></TableHeader>
               <TableBody>
                 {mappingsQuery.data?.map((mapping) => (
-                  <TableRow key={mapping.id}>
+                  <TableRow key={mapping.id} sortValues={[
+                    mapping.formName,
+                    'meta_lead_ads',
+                    Object.entries(mapping.fieldMappings).slice(0, 4).map(([from, to]) => `${from} ${to}`).join(' '),
+                    mapping.lastLeadAt,
+                    mapping.isActive ? 'Aktif' : 'Pasif',
+                  ]}>
                     <TableCell><p className="text-sm font-semibold">{mapping.formName}</p><p className="mt-0.5 font-data text-[10px] text-muted-foreground">{mapping.formId}</p></TableCell>
                     <TableCell className="text-xs">meta_lead_ads</TableCell>
                     <TableCell>
@@ -181,8 +189,8 @@ export function MetaAutomationTab({ canManage }: { canManage: boolean }) {
           <MetaEmpty title="Dönüşüm olayı yok" description="CRM aşamaları tetiklendiğinde CAPI olayları burada izlenecek." />
         ) : (
           <div className="overflow-x-auto">
-            <Table className="min-w-[860px]">
-              <TableHeader><TableRow><TableHead>Olay</TableHead><TableHead>Fırsat</TableHead><TableHead>Durum</TableHead><TableHead>Değer</TableHead><TableHead>Oluşma</TableHead><TableHead>Deneme</TableHead><TableHead>Hata</TableHead></TableRow></TableHeader>
+            <Table className="min-w-[860px]" manualSorting sort={eventSort} onSortChange={(next) => { setEventSort(next); setEventPage(1); }}>
+              <TableHeader><TableRow><TableHead sortKey="eventName">Olay</TableHead><TableHead sortKey="opportunityId">Fırsat</TableHead><TableHead sortKey="status">Durum</TableHead><TableHead sortKey="value">Değer</TableHead><TableHead sortKey="occurredAt">Oluşma</TableHead><TableHead sortKey="attemptCount">Deneme</TableHead><TableHead sortKey="lastError">Hata</TableHead></TableRow></TableHeader>
               <TableBody>
                 {eventsQuery.data?.items.map((event) => (
                   <TableRow key={event.id}>

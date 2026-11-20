@@ -13,9 +13,9 @@ import {
   shipmentItems,
   deliveries,
 } from '../../db/schema/service';
-import { serviceTicketStatuses, installationStatuses, shipmentStatuses, inventoryStatuses, productTypes, units, pipelineStages, opportunityStatuses, stockLocationStatuses, currencies } from '../../db/schema/lookup';
+import { serviceTicketStatuses, installationStatuses, shipmentStatuses, inventoryStatuses, productTypes, units, stockLocationStatuses, currencies } from '../../db/schema/lookup';
 import { companies, companyAddresses, companyEmails, companyPhones, contactCompanies, contacts } from '../../db/schema/companies';
-import { opportunities, opportunityStageHistory } from '../../db/schema/crm';
+import { opportunities } from '../../db/schema/crm';
 import { customerDevices, inventoryItems, inventoryMovements, warehouses } from '../../db/schema/inventory';
 import { salesOrders, salesOrderItems } from '../../db/schema/orders';
 import { brands, productModels, productSpecs } from '../../db/schema/products';
@@ -209,11 +209,12 @@ const ticketUpdate = z.object({
  * kolonunda birleştiren görünüm modelidir; DB'deki gerçek status kodlarını
  * değiştirmez. */
 const ticketListQuery = paginationSchema.extend({
+  assignedToUserId: z.string().uuid().optional(),
   search: z.string().trim().max(128).optional(),
   phase: z.enum(['open', 'ongoing', 'done']).optional(),
   severity: z.enum(['low', 'normal', 'high', 'critical']).optional(),
 });
-const ticketSummaryQuery = ticketListQuery.pick({ search: true, phase: true, severity: true });
+const ticketSummaryQuery = ticketListQuery.pick({ search: true, phase: true, severity: true, assignedToUserId: true });
 
 const shipmentCompanyOptionsQuery = z.object({
   purpose: z.enum(['sender', 'carrier']).default('sender'),
@@ -221,6 +222,7 @@ const shipmentCompanyOptionsQuery = z.object({
   search: z.string().max(128).optional(),
 });
 const shipmentListQuery = paginationSchema.extend({
+  opportunityId: z.string().uuid().optional(),
   phase: z.enum(['active', 'arrived']).optional(),
 });
 
@@ -277,6 +279,8 @@ const installCreate = z.object({
   formData: installationFormDataSchema.optional(),
 });
 const installationListQuery = paginationSchema.extend({
+  opportunityId: z.string().uuid().optional(),
+  assignedToUserId: z.string().uuid().optional(),
   search: z.string().trim().max(128).optional(),
   phase: z.enum(['planned', 'ongoing', 'done']).optional(),
 });
@@ -386,52 +390,6 @@ export class ServiceController {
       .from(divisions)
       .where(and(eq(divisions.tenantId, actor.tenantId), eq(divisions.isActive, true)));
     return (row?.count ?? 0) > 0;
-  }
-
-  private async markOpportunityDeliveredFromInstallation(job: typeof installationJobs.$inferSelect, user: AuthContext) {
-    if (!job.opportunityId) return false;
-    const [opp] = await this.db
-      .select({
-        id: opportunities.id,
-        currentStageId: opportunities.currentStageId,
-        closedAt: opportunities.closedAt,
-      })
-      .from(opportunities)
-      .where(and(eq(opportunities.id, job.opportunityId), eq(opportunities.tenantId, user.tenantId), isNull(opportunities.deletedAt)))
-      .limit(1);
-    if (!opp || opp.closedAt) return false;
-
-    const currentStage = await this.db.query.pipelineStages.findFirst({
-      where: eq(pipelineStages.id, opp.currentStageId),
-    });
-    if (currentStage?.code !== 'installation') return false;
-
-    const deliveredStage = await this.db.query.pipelineStages.findFirst({
-      where: eq(pipelineStages.code, 'delivered'),
-    });
-    if (!deliveredStage) return false;
-
-    const won = await this.db.query.opportunityStatuses.findFirst({
-      where: eq(opportunityStatuses.code, 'won'),
-    });
-
-    const patch: Partial<typeof opportunities.$inferInsert> = {
-      currentStageId: deliveredStage.id,
-      updatedBy: user.userId,
-    };
-    if (won?.id) patch.statusId = won.id;
-    await this.db.update(opportunities).set(patch).where(eq(opportunities.id, opp.id));
-
-    await this.db.insert(opportunityStageHistory).values({
-      tenantId: user.tenantId,
-      opportunityId: opp.id,
-      fromStageId: currentStage.id,
-      toStageId: deliveredStage.id,
-      changedBy: user.userId,
-      changeReason: 'Kurulum tamamlandı',
-    });
-
-    return true;
   }
 
   private async assertCompany(companyId: string, tenantId: string) {
@@ -731,13 +689,16 @@ export class ServiceController {
 
     const timerSeconds = numberField(metadata, 'timerElapsedSeconds') ?? 0;
     const hourlyRate = numberField(metadata, 'serviceHourlyRate') ?? 0;
+    const currencyText = firstText(textField(completionForm, 'currency'), textField(metadata, 'serviceCurrency'));
+    const manualLaborFee = workOperations
+      .filter((operation) => (textField(operation, 'currency') ?? textField(metadata, 'serviceCurrency')) === currencyText)
+      .reduce((total, operation) => total + (numberField(operation, 'quantity') ?? 1) * (numberField(operation, 'unitPrice') ?? 0), 0);
     const serviceFee = numberField(completionForm, 'servisUcreti')
-      ?? (timerSeconds > 0 && hourlyRate > 0 ? (timerSeconds / 3600) * hourlyRate : null);
+      ?? (timerSeconds / 3600 * hourlyRate + manualLaborFee);
     const travelFee = numberField(completionForm, 'ulasimUcreti')
       ?? numberField(metadata, 'travelFee')
       ?? numberField(metadata, 'serviceTravelFee')
       ?? null;
-    const currencyText = firstText(textField(completionForm, 'currency'), textField(metadata, 'serviceCurrency'));
     const currency = currencyText === 'USD' || currencyText === 'EUR' || currencyText === 'TRY' ? currencyText : 'TRY';
 
     const data: ServiceFormPdfData = {
@@ -1365,6 +1326,7 @@ export class ServiceController {
         ) ?? sql`false`,
       );
     }
+    if (query.assignedToUserId) filters.push(eq(serviceTickets.assignedToUserId, query.assignedToUserId));
     if (query.severity) filters.push(eq(serviceTickets.severity, query.severity));
     if (query.phase === 'open') filters.push(eq(serviceTicketStatuses.code, 'open'));
     if (query.phase === 'ongoing') {
@@ -1380,9 +1342,9 @@ export class ServiceController {
     @Query(new ZodValidationPipe(ticketListQuery)) query: z.infer<typeof ticketListQuery>,
     @CurrentUser() user: AuthContext,
   ) {
-    const { search, phase, severity, ...p } = query;
+    const { search, phase, severity, assignedToUserId, ...p } = query;
     const { limit, offset } = pageOffset(p);
-    const where = await this.ticketListWhere(user, { search, phase, severity });
+    const where = await this.ticketListWhere(user, { search, phase, severity, assignedToUserId });
     const [{ count }] = await this.db
       .select({ count: sql<number>`count(*)::int` })
       .from(serviceTickets)
@@ -1564,6 +1526,9 @@ export class ServiceController {
   @RequirePermissions('service_tickets.create')
   @Post('service-tickets')
   async createTicket(@Body(new ZodValidationPipe(ticketCreate)) body: z.infer<typeof ticketCreate>, @CurrentUser() user: AuthContext) {
+    if (body.metadata?.serviceStage !== undefined && body.metadata.serviceStage !== 'Request Opened') {
+      throw new ValidationError('Yeni servis yalnızca Talep Açıldı aşamasında oluşturulabilir');
+    }
     await this.assertScopedCompany(body.companyId, user, 'service_tickets');
     if (body.contactId) await this.assertContact(body.contactId, user.tenantId, body.companyId);
     if (body.customerDeviceId) await this.assertScopedCustomerDevice(body.customerDeviceId, user, body.companyId);
@@ -1621,8 +1586,23 @@ export class ServiceController {
     if (body.resolutionNote !== undefined) patch.resolutionNote = body.resolutionNote;
     if (body.severity !== undefined) patch.severity = body.severity;
     if (body.ticketType !== undefined) patch.ticketType = body.ticketType;
+    if (body.assignedToUserId) await this.assertUser(body.assignedToUserId, user.tenantId);
     if (body.assignedToUserId !== undefined) patch.assignedToUserId = body.assignedToUserId;
     if (body.metadata !== undefined) {
+      // Existing clients send the current stage with every metadata edit. Only
+      // the status endpoint may change it, keeping status and closure checks together.
+      let currentStage = ticket.metadata?.serviceStage;
+      if (currentStage === undefined && body.metadata.serviceStage !== undefined) {
+        const status = ticket.statusId
+          ? await this.db.query.serviceTicketStatuses.findFirst({ where: eq(serviceTicketStatuses.id, ticket.statusId) })
+          : undefined;
+        currentStage = status?.code === 'closed' ? 'Closed'
+          : status?.code === 'resolved' ? 'Service Completed'
+          : status?.code === 'in_progress' ? 'Diagnosis' : 'Request Opened';
+      }
+      if (body.metadata.serviceStage !== undefined && body.metadata.serviceStage !== currentStage) {
+        throw new ValidationError('Servis aşamasını durum güncelleme işlemiyle değiştirin');
+      }
       const businessLine = ticket.businessLine === 'UNI' || ticket.businessLine === 'SACISLE' || ticket.businessLine === 'CNC'
         ? ticket.businessLine
         : ticket.divisionId
@@ -1682,7 +1662,23 @@ export class ServiceController {
     if (body.costCurrency !== undefined) patch.costCurrency = body.costCurrency;
     if (body.customerChargeAmount !== undefined) patch.customerChargeAmount = this.moneyValue(body.customerChargeAmount);
     if (body.customerChargeCurrency !== undefined) patch.customerChargeCurrency = body.customerChargeCurrency;
-    if (body.status !== undefined) patch.status = body.status;
+    if (body.status !== undefined && body.status !== claim.status) {
+      if (body.status === 'approved' || body.status === 'rejected') {
+        throw new ValidationError('Garanti kararı için onay veya ret işlemini kullanın');
+      }
+      if (body.status === 'draft' || body.status === 'submitted') {
+        if (claim.coverageDecision !== 'pending' || !['draft', 'submitted'].includes(claim.status)) {
+          throw new ValidationError('Karar verilmiş garanti dosyası taslağa veya onaya geri alınamaz');
+        }
+        if (body.status === 'submitted') {
+          throw new ValidationError('Garanti dosyasını onaya gönderme işlemini kullanın');
+        }
+      }
+      if ((body.status === 'rma_in_progress' || body.status === 'closed') && claim.coverageDecision === 'pending') {
+        throw new ValidationError('Garanti kararı verilmeden RMA başlatılamaz veya dosya kapatılamaz');
+      }
+      patch.status = body.status;
+    }
     if (Object.keys(patch).length) {
       const [updated] = await this.db
         .update(serviceWarrantyClaims)
@@ -1716,29 +1712,35 @@ export class ServiceController {
       }
       if (part.inventoryItemId) await this.assertInventoryItem(part.inventoryItemId, user.tenantId);
     }
-    await this.db
-      .update(serviceWarrantyParts)
-      .set({ deletedAt: new Date() })
-      .where(and(eq(serviceWarrantyParts.warrantyClaimId, claim.id), eq(serviceWarrantyParts.tenantId, user.tenantId), isNull(serviceWarrantyParts.deletedAt)));
-    if (body.parts.length) {
-      await this.db.insert(serviceWarrantyParts).values(
-        body.parts.map((part) => ({
-          tenantId: user.tenantId,
-          warrantyClaimId: claim.id,
-          productModelId: part.productModelId ?? null,
-          inventoryItemId: part.inventoryItemId ?? null,
-          description: part.description.trim(),
-          quantity: part.quantity,
-          actionType: part.actionType,
-          source: part.source,
-          supplierRmaStatus: this.cleanNullableText(part.supplierRmaStatus),
-          chargeToCustomer: part.chargeToCustomer,
-          unitCost: this.moneyValue(part.unitCost),
-          currency: part.currency,
-          notes: this.cleanNullableText(part.notes),
-        }))
-      );
-    }
+    await this.db.transaction(async (tx) => {
+      // Serialize complete replacements, including the empty-list case.
+      await tx.select({ id: serviceWarrantyClaims.id }).from(serviceWarrantyClaims)
+        .where(and(eq(serviceWarrantyClaims.id, claim.id), eq(serviceWarrantyClaims.tenantId, user.tenantId)))
+        .for('update');
+      await tx
+        .update(serviceWarrantyParts)
+        .set({ deletedAt: new Date() })
+        .where(and(eq(serviceWarrantyParts.warrantyClaimId, claim.id), eq(serviceWarrantyParts.tenantId, user.tenantId), isNull(serviceWarrantyParts.deletedAt)));
+      if (body.parts.length) {
+        await tx.insert(serviceWarrantyParts).values(
+          body.parts.map((part) => ({
+            tenantId: user.tenantId,
+            warrantyClaimId: claim.id,
+            productModelId: part.productModelId ?? null,
+            inventoryItemId: part.inventoryItemId ?? null,
+            description: part.description.trim(),
+            quantity: part.quantity,
+            actionType: part.actionType,
+            source: part.source,
+            supplierRmaStatus: this.cleanNullableText(part.supplierRmaStatus),
+            chargeToCustomer: part.chargeToCustomer,
+            unitCost: this.moneyValue(part.unitCost),
+            currency: part.currency,
+            notes: this.cleanNullableText(part.notes),
+          }))
+        );
+      }
+    });
     const refreshed = await this.findWarrantyClaim(ticket.id, user.tenantId);
     return this.warrantyResponse(refreshed ?? claim);
   }
@@ -1757,6 +1759,9 @@ export class ServiceController {
       ticket.ticketType = 'warranty_claim';
     }
     const claim = await this.ensureWarrantyClaim(ticket);
+    if (claim.coverageDecision !== 'pending' || !['draft', 'submitted'].includes(claim.status)) {
+      throw new ValidationError('Karar verilmiş garanti dosyası yeniden onaya gönderilemez');
+    }
     const [updated] = await this.db
       .update(serviceWarrantyClaims)
       .set({ status: 'submitted' })
@@ -1890,6 +1895,11 @@ export class ServiceController {
       resourceDivisionFilter(user, 'installations', installationJobs.divisionId) ?? sql`true`,
       visibility ? (or(isNull(installationJobs.companyId), visibility) ?? sql`false`) : sql`true`,
     ];
+    if (p.opportunityId) filters.push(eq(installationJobs.opportunityId, p.opportunityId));
+    if (p.assignedToUserId) filters.push(eq(installationJobs.assignedToUserId, p.assignedToUserId));
+    if (p.phase === 'planned' || p.phase === 'ongoing') {
+      filters.push(sql`not exists (select 1 from ${installationStatuses} where ${installationStatuses.id} = ${installationJobs.statusId} and ${installationStatuses.code} = 'cancelled')`);
+    }
     if (p.phase === 'planned') {
       filters.push(isNull(installationJobs.startedAt), isNull(installationJobs.completedAt));
     }
@@ -2241,10 +2251,9 @@ export class ServiceController {
       }
     }
     const [row] = await this.db.update(installationJobs).set(patch).where(eq(installationJobs.id, id)).returning();
-    const opportunityStageChanged = body.statusCode === 'completed'
-      ? await this.markOpportunityDeliveredFromInstallation(job, user)
-      : false;
-    return { ...row, opportunityId: job.opportunityId, opportunityStageChanged };
+    // Kurulum kaydı süreç kanıtıdır; fırsatın teslim/WIN geçişi tüm satış
+    // gerekliliklerini doğrulayan OpportunitiesService.changeStage üzerinden yapılır.
+    return { ...row, opportunityId: job.opportunityId, opportunityStageChanged: false };
   }
 
   @RequirePermissions('installations.delete')
@@ -2349,7 +2358,7 @@ export class ServiceController {
   @RequirePermissions('shipments.read')
   @Get('shipments')
   async listShipments(
-    @Query(new ZodValidationPipe(shipmentListQuery)) p: Pagination & { phase?: 'active' | 'arrived' },
+    @Query(new ZodValidationPipe(shipmentListQuery)) p: z.infer<typeof shipmentListQuery>,
     @CurrentUser() user: AuthContext,
   ) {
     const { limit, offset } = pageOffset(p);
@@ -2360,6 +2369,7 @@ export class ServiceController {
       resourceDivisionFilter(user, 'shipments', shipments.divisionId) ?? sql`true`,
       visibility ?? sql`true`,
     ];
+    if (p.opportunityId) filters.push(eq(shipments.opportunityId, p.opportunityId));
     if (p.phase === 'active') filters.push(isNull(shipments.arrivedAt));
     if (p.phase === 'arrived') filters.push(isNotNull(shipments.arrivedAt));
     const where = and(...filters);

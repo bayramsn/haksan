@@ -29,6 +29,7 @@ export function TaskDetailPanel({
   onChanged,
   onEdit,
   onNavigateToRecord,
+  onOpenChatMessage,
   canDelete,
 }: {
   taskId: string | null;
@@ -37,6 +38,7 @@ export function TaskDetailPanel({
   onChanged: (task: TaskDTO) => void;
   onEdit: (task: TaskDTO) => void;
   onNavigateToRecord?: (task: TaskDTO) => void;
+  onOpenChatMessage?: (target: string) => void;
   canDelete?: boolean;
 }) {
   const [task, setTask] = useState<TaskDetailDTO | null>(null);
@@ -200,7 +202,14 @@ export function TaskDetailPanel({
               </Row>
               {task.description && (
                 <Row label="Açıklama" className="col-span-2">
-                  <p className="whitespace-pre-wrap text-foreground/90">{task.description}</p>
+                  <div className="whitespace-pre-wrap text-foreground/90">
+                    {task.description.split("\n").map((line, index) => {
+                      const target = /^Sohbet mesajı: ([0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}:[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})$/i.exec(line)?.[1];
+                      return target && onOpenChatMessage
+                        ? <div key={index}><button type="button" className="text-primary underline" onClick={() => onOpenChatMessage(target)}>Kaynak sohbet mesajını aç</button></div>
+                        : <div key={index}>{line || "\u00a0"}</div>;
+                    })}
+                  </div>
                 </Row>
               )}
               <Row label="Oluşturulma">{new Date(task.createdAt).toLocaleString("tr-TR")}</Row>

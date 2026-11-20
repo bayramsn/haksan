@@ -29,6 +29,8 @@ const listQuery = z.object({
   search: z.string().optional(),
   statusCode: z.string().optional(),
   categoryCode: z.string().optional(),
+  // Fırsat detayındaki "Stok" kutusu: bu fırsat için rezerve edilmiş kalemler.
+  opportunityId: z.string().uuid().optional(),
 });
 const cdQuery = z.object({
   companyId: z.string().optional(),
