@@ -1177,6 +1177,13 @@
       "when": 1794595200001,
       "tag": "0168_call_assistant_drafts",
       "breakpoints": true
+    },
+    {
+      "idx": 169,
+      "version": "7",
+      "when": 1794681600001,
+      "tag": "0169_service_sales_link",
+      "breakpoints": true
     }
   ]
 }

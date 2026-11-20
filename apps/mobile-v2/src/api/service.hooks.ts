@@ -67,6 +67,15 @@ export function useUpdateTicketMeta(id: string) {
   });
 }
 
+export function useForwardToSales(ticketId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (need: string) => serviceApi.createSalesLead(ticketId, need),
+    // 409 (başka cihazdan iletilmiş) da yenilesin ki form kalkıp iletildi bilgisi görünsün.
+    onSettled: () => Promise.all([invalidateTickets(qc, ticketId), qc.invalidateQueries({ queryKey: ['opportunities'] })]),
+  });
+}
+
 export function useSetTicketStage() {
   const qc = useQueryClient();
   return useMutation({

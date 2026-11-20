@@ -40,6 +40,15 @@ export async function lockDeviceInventory(tx: DeviceTransaction, actor: AuthCont
   return item;
 }
 
+/** Makine garantisi: kurulum/teslimden itibaren 2 yıl (takvim yılı; 29 Şubat -> 28 Şubat). */
+export const WARRANTY_YEARS = 2;
+export function addWarrantyYears(date: Date, years = WARRANTY_YEARS): Date {
+  const next = new Date(date);
+  next.setFullYear(next.getFullYear() + years);
+  if (next.getMonth() !== date.getMonth()) next.setDate(0);
+  return next;
+}
+
 /** Caller must use a transaction; an existing device is enriched, never transferred silently. */
 export async function upsertInventoryCustomerDevice(tx: DeviceTransaction, actor: AuthContext, input: DeviceInput) {
   if (input.tenantId !== actor.tenantId || !input.inventoryItemId) throw new ValidationError('Geçersiz cihaz stok bağlantısı');

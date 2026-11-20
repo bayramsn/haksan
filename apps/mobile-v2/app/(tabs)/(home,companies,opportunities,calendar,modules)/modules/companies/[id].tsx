@@ -28,6 +28,7 @@ import { exportService } from '@/src/api/exports';
 import { downloadAndShareFile, pickDocument, uploadEntityAttachment } from '@/src/native/files';
 import { mailComposeHref } from '@/src/ui/crm/mail-logic';
 import { buildCompanyTimeline } from '@/src/ui/crm/timeline-logic';
+import { ServiceTicketRow, useCompanyServiceSummary, useCompanyServiceTickets } from '@/src/ui/service/SalesServiceLinks';
 import type { DocumentKind } from '@/src/api/documents.hooks';
 import { toast } from '@/src/ui/toast';
 import { Alert } from 'react-native';
@@ -99,12 +100,13 @@ const CONTACT_TYPE_LABELS: Record<string, string> = {
   other: 'Diğer',
 };
 
-type CompanyTab = 'genel' | 'gecmis' | 'kartlar' | 'aktivite' | 'teklifler' | 'gorevler' | 'cari' | 'belgeler';
+type CompanyTab = 'genel' | 'gecmis' | 'kartlar' | 'servis' | 'aktivite' | 'teklifler' | 'gorevler' | 'cari' | 'belgeler';
 
 const COMPANY_TABS: { value: CompanyTab; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
   { value: 'genel', label: 'Genel', icon: 'grid-outline' },
   { value: 'gecmis', label: 'Geçmiş', icon: 'time-outline' },
   { value: 'kartlar', label: 'Satış Kartları', icon: 'briefcase-outline' },
+  { value: 'servis', label: 'Servis', icon: 'construct-outline' },
   { value: 'aktivite', label: 'Aktivite', icon: 'pulse-outline' },
   { value: 'teklifler', label: 'Teklifler', icon: 'document-text-outline' },
   { value: 'gorevler', label: 'Görevler', icon: 'checkbox-outline' },
@@ -122,6 +124,7 @@ function CompanyTabs({
   counts: Partial<Record<CompanyTab, number>>;
 }) {
   const { colors } = useTheme();
+  const canReadService = useCan('service_tickets.read');
   return (
     <ScrollView
       horizontal
@@ -130,7 +133,7 @@ function CompanyTabs({
       style={{ height: 48, flexGrow: 0, flexShrink: 0 }}
       contentContainerStyle={{ gap: 8, paddingHorizontal: SCREEN_PAD }}
     >
-      {COMPANY_TABS.map((item) => {
+      {COMPANY_TABS.filter((item) => item.value !== 'servis' || canReadService).map((item) => {
         const selected = item.value === value;
         const count = counts[item.value] ?? 0;
         return (
@@ -280,6 +283,9 @@ export default function CompanyDetailScreen() {
   const completeQuotes = useAllQuoteList({ companyId: id });
   // web CustomerDetail.tsx "Satış Kartları": firmaya bağlı fırsatlar (aşama + talep edilen ürün).
   const opportunitiesQuery = useOpportunityList({ companyId: id, view: 'all' });
+  // Satılan/kurulan makinelerin servis kayıtları; sekme açılınca çekilir.
+  const service = useCompanyServiceTickets(id, tab === 'servis');
+  const serviceSummary = useCompanyServiceSummary(id);
   const invoicesQuery = useQuery({
     queryKey: ['accounting-invoices', 'complete-company', id],
     queryFn: () => collectPaginated(async (page) => {
@@ -542,6 +548,7 @@ export default function CompanyDetailScreen() {
               counts={{
                 gecmis: timeline.length,
                 kartlar: opportunitiesQuery.data?.total ?? 0,
+                servis: serviceSummary.summary?.total ?? 0,
                 aktivite: activitiesQuery.data?.total ?? 0,
                 teklifler: quoteTotal,
                 gorevler: companyTasks.data?.meta.total ?? 0,
@@ -835,6 +842,25 @@ export default function CompanyDetailScreen() {
               </>
             )}
           </>
+        ) : null}
+
+        {tab === 'servis' ? (
+          service.list.isPending ? (
+            <Loading />
+          ) : service.list.error ? (
+            <ErrorState message={service.list.error.message} onRetry={() => void service.list.refetch()} />
+          ) : service.tickets.length === 0 ? (
+            <EmptyState title="Servis kaydı yok" hint="Bu firmanın makinelerine açılmış servis kaydı bulunmuyor." icon="construct-outline" />
+          ) : (
+            <>
+              {service.tickets.map((ticket) => (
+                <ServiceTicketRow key={ticket.id} ticket={ticket} note={ticket.salesOpportunity?.title ? `Satış: ${ticket.salesOpportunity.title}` : undefined} />
+              ))}
+              {service.list.hasNextPage ? (
+                <Button label="Daha fazla yükle" variant="ghost" loading={service.list.isFetchingNextPage} onPress={() => void service.list.fetchNextPage()} />
+              ) : null}
+            </>
+          )
         ) : null}
 
         {tab === 'aktivite' ? (

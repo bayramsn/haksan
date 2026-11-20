@@ -28,6 +28,7 @@ import { resourceCompanyPortfolioFilter, resourceDivisionFilter, resolveAssigned
 import { companyVisibilityExistsFilter, companyVisibilityFilter } from '../../shared/utils/company-visibility';
 import { ZodValidationPipe } from '../../shared/utils/zod-pipe';
 import { nextSeriesDocumentNo, resolveBusinessLine } from '../../shared/utils/document-series';
+import { opportunityIdForDevice } from './service-sales-link';
 import { loadEnv } from '../../config/env';
 import {
   paginationSchema,
@@ -654,6 +655,7 @@ export class ServiceComplaintsController {
         businessLine,
         companyId: intake.companyId,
         customerDeviceId: intake.customerDeviceId ?? null,
+        opportunityId: await opportunityIdForDevice(this.db, user.tenantId, intake.customerDeviceId),
         subject: intake.subject,
         description: intake.description,
         severity: intake.severity,

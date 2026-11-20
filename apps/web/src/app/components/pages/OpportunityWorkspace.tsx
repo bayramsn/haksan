@@ -61,15 +61,20 @@ import { PaymentMethodSelect } from "../shared/PaymentMethodSelect";
 import { PAYMENT_TERMS_PLACEHOLDER } from "../../lib/paymentMethod";
 import "./opportunity-workspace.css";
 import { DocumentDetailDialog } from "../dialogs/DocumentDetailDialog";
+import { StatusBadge } from "../shared/StatusBadge";
 import { DocumentPreviewDialog } from "../dialogs/DocumentPreviewDialog";
 import { EditContractTermsDialog, SignedContractUploadDialog } from "../dialogs/ContractActionsDialogs";
-import type { DocumentItem } from "../../lib/mock";
+import type { DocumentItem, ServiceRequest } from "../../lib/mock";
+
 import { ActivityDetailDialog } from "../shared/StandaloneActivity";
 import {
   LostOpportunityDetails,
   LostOpportunityDetailsDialog,
   lostTimelineDetail,
 } from "../shared/LostOpportunityDetails";
+
+/** İş bitmiş (tamamlandı / form imzalı / kapalı) servis kaydı "açık" sayılmaz. */
+const isOpenService = (stage: ServiceRequest["stage"]) => !["Service Completed", "Signed Form", "Closed"].includes(stage);
 
 /** Fırsat bilgileri, aşama işleri ve görüşmeler için tek çalışma alanı. */
 type OpportunityDetail = {
@@ -203,6 +208,7 @@ export function OpportunityWorkspace({
   onCommercialAction,
   canPerformCommercialAction,
   onOpenOffer,
+  onOpenServiceTicket,
   focusDecisionOnMount = false,
   onEditActivity,
   onDeleteActivity,
@@ -218,6 +224,8 @@ export function OpportunityWorkspace({
   onCommercialAction?: (actionKey: OpportunityProcessActionKey) => void | Promise<void>;
   canPerformCommercialAction?: (actionKey: OpportunityProcessActionKey) => boolean;
   onOpenOffer?: (offerId: string) => void;
+  /** Servis kaydını servis ekranında açar (satış ↔ servis bağı). */
+  onOpenServiceTicket?: (ticketId: string) => void;
   focusDecisionOnMount?: boolean;
   onEditActivity?: (activityId: string) => void;
   onDeleteActivity?: (activityId: string) => void;
@@ -235,6 +243,7 @@ export function OpportunityWorkspace({
     shipments,
     deliveries,
     installations,
+    service,
     updateCase,
   } = useStore();
   const { user, activeDivision, activeDepartment, hasPermission, hasRole } = useAuth();
@@ -354,6 +363,19 @@ export function OpportunityWorkspace({
   const opportunityShipments = useMemo(() => shipments.filter((item) => item.salesCaseId === sc.id), [shipments, sc.id]);
   const opportunityDeliveries = useMemo(() => deliveries.filter((item) => item.salesCaseId === sc.id), [deliveries, sc.id]);
   const opportunityInstallations = useMemo(() => installations.filter((item) => item.salesCaseId === sc.id), [installations, sc.id]);
+  // Satış ↔ servis: bu satıştan gelen makinenin servisleri, firmanın diğer açık
+  // servisleri ve (servisten iletildiyse) lead'in doğduğu servis kaydı.
+  const relatedService = useMemo(
+    () =>
+      service.filter(
+        (ticket) =>
+          ticket.salesCaseId === sc.id ||
+          ticket.id === sc.sourceServiceTicketId ||
+          (Boolean(sc.customerId) && ticket.customerId === sc.customerId && isOpenService(ticket.stage)),
+      ),
+    [service, sc.id, sc.customerId, sc.sourceServiceTicketId],
+  );
+  const openCompanyServiceCount = relatedService.filter((ticket) => isOpenService(ticket.stage)).length;
   const resolvedContacts = useMemo(() => {
     const contactsById = new Map(
       (companyContactsQuery.data?.data ?? []).map((contact) => [contact.id, contact]),
@@ -639,6 +661,12 @@ export function OpportunityWorkspace({
             ))}
           </ul>
         )}
+        {openCompanyServiceCount > 0 && (
+          <p className="mt-3 flex items-center gap-1.5 border-t border-primary/10 pt-3 text-xs text-amber-800">
+            <AlertTriangle className="size-3.5 shrink-0" />
+            Firmanın {openCompanyServiceCount} açık servis kaydı var; görüşmeden önce durumuna bakın.
+          </p>
+        )}
       </section>
       {detailError && <div className="flex flex-wrap items-center justify-between gap-3 px-1 py-3 text-sm text-destructive" role="alert"><span>Fırsat bilgileri alınamadı. Yeniden deneyin.</span><Button type="button" variant="outline" size="sm" onClick={() => void loadDetail()}><RefreshCw className="size-4" /> Tekrar dene</Button></div>}
       <div className="opportunity-workspace-columns">
@@ -715,6 +743,30 @@ export function OpportunityWorkspace({
             {!opportunityShipments.length && !opportunityDeliveries.length && !opportunityInstallations.length && <p className="text-sm text-muted-foreground">Henüz operasyon kaydı yok.</p>}
             <Button variant="link" className="mt-2 px-0" onClick={revealProcessActions}>İlgili işleri göster <ArrowUpRight className="size-4" /></Button>
           </WorkspaceSection>
+          {relatedService.length > 0 && (
+            <WorkspaceSection title="Servis">
+              <div className="divide-y divide-border/60">
+                {relatedService.map((ticket) => (
+                  <button
+                    key={ticket.id}
+                    type="button"
+                    className="flex w-full items-center gap-3 py-3 text-left text-sm hover:bg-muted/40 disabled:cursor-default disabled:hover:bg-transparent"
+                    disabled={!onOpenServiceTicket}
+                    onClick={() => onOpenServiceTicket?.(ticket.id)}
+                  >
+                    <Wrench className="size-4 shrink-0 text-muted-foreground" />
+                    <span className="min-w-0 flex-1 truncate">
+                      {ticket.ticketNo ?? "Servis"} · {ticket.issueType || ticket.description || "Konu yok"}
+                      <span className="ml-2 text-xs text-muted-foreground">
+                        {ticket.id === sc.sourceServiceTicketId ? "Bu lead buradan geldi" : ticket.salesCaseId === sc.id ? "Bu satışın makinesi" : "Firmanın açık servisi"}
+                      </span>
+                    </span>
+                    <StatusBadge status={ticket.stage} />
+                  </button>
+                ))}
+              </div>
+            </WorkspaceSection>
+          )}
           {otherActions && <WorkspaceSection title="Diğer kayıt işlemleri">{otherActions}</WorkspaceSection>}
         </div>
         <aside id="opportunity-conversation" className="opportunity-activity-rail" aria-label="Notlar ve görüşmeler">{activityFeed}</aside>

@@ -1,4 +1,4 @@
-import { upsertInventoryCustomerDevice } from '../../shared/utils/customer-device-upsert';
+import { addWarrantyYears, upsertInventoryCustomerDevice } from '../../shared/utils/customer-device-upsert';
 import { Inject, Injectable } from '@nestjs/common';
 import { and, asc, desc, eq, ilike, inArray, isNotNull, isNull, or, sql } from 'drizzle-orm';
 import type { DbClient } from '../../db/client';
@@ -2285,7 +2285,16 @@ export class OpportunitiesService {
     };
   }
 
-  async create(input: OpportunityCreateInput, actor: AuthContext) {
+  /**
+   * `serviceLink`: servisten "Satışa ilet" ile açılan lead. Bağ ve sahip aynı
+   * insert'te yazılır ki denetim kaydı/bildirim doğru sahibi görsün ve yarıda
+   * kalan istek bağsız lead bırakmasın (yeniden deneme benzersiz indekse takılır).
+   */
+  async create(
+    input: OpportunityCreateInput,
+    actor: AuthContext,
+    serviceLink?: { sourceServiceTicketId: string; ownerUserId: string | null },
+  ) {
     if (input.companyId) await this.assertCompany(input.companyId, actor);
     let sourceActivity: { id: string; companyId: string | null; opportunityId: string | null } | null = null;
     if (input.sourceActivityId) {
@@ -2341,7 +2350,9 @@ export class OpportunitiesService {
     if (!divisionId && (await this.tenantHasActiveDivisions(actor))) {
       throw new ValidationError('Fırsat için bölüm ataması zorunludur', { field: 'divisionId' });
     }
-    const assignment = input.ownerUserId
+    const assignment = serviceLink?.ownerUserId
+      ? { ownerUserId: serviceLink.ownerUserId, ruleId: null }
+      : input.ownerUserId
       ? { ownerUserId: input.ownerUserId, ruleId: null }
       : await this.resolveLeadOwner({
           tenantId: actor.tenantId,
@@ -2396,6 +2407,7 @@ export class OpportunitiesService {
         contractTerms: input.contractTerms?.trim() || null,
         paymentTerms: input.paymentTerms?.trim() || null,
         sourceId,
+        sourceServiceTicketId: serviceLink?.sourceServiceTicketId ?? null,
         statusId: openStatus?.id ?? null,
         createdBy: actor.userId,
         updatedBy: actor.userId,
@@ -4827,7 +4839,7 @@ export class OpportunitiesService {
           tenantId: actor.tenantId, divisionId: opp.divisionId, companyId: opp.companyId!,
           contactId: opp.primaryContactId ?? null, inventoryItemId: item.id, opportunityId: opp.id,
           saleDate: now, deliveryDate: now, warrantyStartDate: now,
-          warrantyEndDate: new Date(now.getTime() + 365 * 24 * 60 * 60 * 1000), statusId: activeWarranty?.id ?? null,
+          warrantyEndDate: addWarrantyYears(now), statusId: activeWarranty?.id ?? null,
         });
         if (soldStatus) await tx.update(inventoryItems).set({ stockStatusId: soldStatus.id }).where(and(
           eq(inventoryItems.id, item.id), eq(inventoryItems.tenantId, actor.tenantId),

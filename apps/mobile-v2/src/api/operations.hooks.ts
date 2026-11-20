@@ -54,10 +54,11 @@ export function useServiceTickets(query: ServiceTicketListQuery = {}, enabled = 
   });
 }
 
-export function useServiceTicketSummary(query: Omit<ServiceTicketListQuery, 'sortDir'> = {}) {
+export function useServiceTicketSummary(query: Omit<ServiceTicketListQuery, 'sortDir'> = {}, enabled = true) {
   return useQuery({
     queryKey: serviceKeys.ticketSummary(query),
     queryFn: () => service.ticketSummary(query),
+    enabled,
   });
 }
 

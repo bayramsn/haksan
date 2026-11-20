@@ -105,10 +105,12 @@ export function SalesCaseDetailDialog({
   sc,
   onClose,
   onNavigate,
+  onOpenServiceTicket,
 }: {
   sc: SalesCase | null;
   onClose: () => void;
   onNavigate: (opportunityId: string) => void;
+  onOpenServiceTicket?: (ticketId: string) => void;
 }) {
   const { cases } = useStore();
   const { user } = useAuth();
@@ -156,6 +158,7 @@ export function SalesCaseDetailDialog({
             previous={previous}
             next={next}
             onNavigate={onNavigate}
+            onOpenServiceTicket={onOpenServiceTicket}
             simpleMode={simpleMode}
             popupExpanded={popupExpanded}
             onTogglePopup={() => setPopupExpanded((value) => !value)}
@@ -440,6 +443,7 @@ export function SalesCaseDetailPage({
   previous = null,
   next = null,
   onNavigate,
+  onOpenServiceTicket,
   onClose,
   simpleMode = false,
   popupExpanded = false,
@@ -451,6 +455,7 @@ export function SalesCaseDetailPage({
   previous?: SalesCase | null;
   next?: SalesCase | null;
   onNavigate?: (opportunityId: string) => void;
+  onOpenServiceTicket?: (ticketId: string) => void;
   onClose?: () => void;
   simpleMode?: boolean;
   popupExpanded?: boolean;
@@ -1381,6 +1386,7 @@ export function SalesCaseDetailPage({
         <OpportunityWorkspace
           key={sc.id}
           salesCase={sc}
+          onOpenServiceTicket={onOpenServiceTicket}
           focusDecisionOnMount
           stageHeaderPortalId={`opportunity-stage-header-${sc.id}`}
           onEditActivity={(activityId) => {

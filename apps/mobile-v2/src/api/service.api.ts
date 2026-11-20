@@ -118,6 +118,9 @@ export const serviceApi = {
   updateTicket: (id: string, body: TicketUpdateBody) =>
     request<ServiceTicket>(`/service-tickets/${id}`, { method: 'PATCH', body }),
   /** Kanban/aşama geçişi: durum kodu + metadata.serviceStage birlikte. */
+  /** Servisten satışa lead; kayıt başına bir kez (ikincisi 409). */
+  createSalesLead: (id: string, need: string) =>
+    request<{ id: string; title: string }>(`/service-tickets/${id}/sales-lead`, { method: 'POST', body: { need } }),
   setTicketStage: (id: string, body: { statusCode: string; serviceStage: string }) =>
     request<{ ok: true }>(`/service-tickets/${id}/status`, { method: 'PATCH', body }),
 

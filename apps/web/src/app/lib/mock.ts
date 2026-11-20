@@ -360,6 +360,8 @@ export type SalesCase = {
   /** Tenant içindeki ticari bölüm kapsamı (CNC / Üniversal / Sac İşleme). */
   divisionId?: string;
   primaryContactId?: string;
+  /** Servisten "Satışa ilet" ile açıldıysa doğduğu servis kaydı. */
+  sourceServiceTicketId?: string;
   /** Firma ana kaydı oluşmadan önce satış kartında tutulan lead bağlamı. */
   leadContactName?: string;
   leadCompanyTitle?: string;
@@ -887,6 +889,11 @@ export type ServiceRequest = {
     contactPhone?: string | null;
     contactEmail?: string | null;
   } | null;
+  /** Makinenin geldiği satış (fırsat); yoksa servis satıştan bağımsız açılmıştır. */
+  salesCaseId?: string;
+  salesCaseTitle?: string;
+  /** Bu servis kaydından satışa iletilen lead. */
+  forwardedLeadId?: string;
 };
 
 export type ServiceQuoteItem = {
