@@ -26,7 +26,13 @@ trap cleanup EXIT
 [[ -f "$APP_ROOT/.env" ]] || { echo "API_DEPLOY_ERROR production env missing" >&2; exit 1; }
 [[ -f "$APP_ROOT/docker-compose.yml" ]] || { echo "API_DEPLOY_ERROR compose file missing" >&2; exit 1; }
 
-aws s3 cp "$API_ARTIFACT_URI" "$ARCHIVE" --region "$AWS_REGION" --only-show-errors
+if [[ -n "${API_ARTIFACT_LOCAL:-}" ]]; then
+  # Elle yayın: arşiv SSH ile sunucuya kopyalandıysa S3 gerekmez (web betiğiyle aynı).
+  [[ -f "$API_ARTIFACT_LOCAL" ]] || { echo "API_DEPLOY_ERROR local artifact missing" >&2; exit 1; }
+  cp "$API_ARTIFACT_LOCAL" "$ARCHIVE"
+else
+  aws s3 cp "$API_ARTIFACT_URI" "$ARCHIVE" --region "$AWS_REGION" --only-show-errors
+fi
 printf '%s  %s\n' "$API_ARTIFACT_SHA256" "$ARCHIVE" | sha256sum -c -
 
 mkdir -p "$STAGE"

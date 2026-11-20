@@ -41,6 +41,7 @@ import { LeadContactSheet } from '@/src/features/LeadContactSheet';
 import { EntityAttachmentsCard } from '@/src/features/EntityAttachmentsCard';
 import { InfoRows, ProgressBar } from '@/src/ui/data';
 import { useCan } from '@/src/auth/AuthProvider';
+import { OpenServiceWarning, OpportunityServicePanel } from '@/src/ui/service/SalesServiceLinks';
 
 /**
  * Kayıp nedeni sabit listesi — web LostCaseDialog ile aynı kodlar (seed
@@ -492,6 +493,9 @@ export default function OpportunityDetailScreen() {
           </View>
         </View>
 
+        {/* Firmada açık servis varsa satışçı görüşmeden önce bilsin; ayrıntı hemen alttaki Servis kartında. */}
+        <OpenServiceWarning companyId={data.company?.id ?? data.companyId} />
+
         <Card className="py-1.5">
           <OpportunityFact
             icon="business-outline"
@@ -535,6 +539,8 @@ export default function OpportunityDetailScreen() {
           <OpportunityFact icon="map-outline" label="İlçe" value={data.leadDistrict} />
           <OpportunityFact icon="call-outline" label="Telefon" value={phone} onPress={phone ? () => void Linking.openURL(`tel:${phone}`) : undefined} />
         </Card>
+
+        <OpportunityServicePanel opportunityId={data.id} companyId={data.company?.id ?? data.companyId} sourceServiceTicketId={data.sourceServiceTicketId} />
 
         {!isClosed && stage !== 'win' && stage !== 'lost' && canUpdate ? (
           <Button

@@ -45,16 +45,18 @@ export const serviceKeys = {
   device: (id: string): QueryKey => ['inventory', 'customer-devices', 'detail', id],
 };
 
-export function useServiceTickets(query: ServiceTicketListQuery = {}) {
-  return useInfiniteQuery(
-    infinite(serviceKeys.tickets(query), (page, pageSize) => service.tickets({ ...query, page, pageSize }))
-  );
+export function useServiceTickets(query: ServiceTicketListQuery = {}, enabled = true) {
+  return useInfiniteQuery({
+    ...infinite(serviceKeys.tickets(query), (page, pageSize) => service.tickets({ ...query, page, pageSize })),
+    enabled,
+  });
 }
 
-export function useServiceTicketSummary(query: Omit<ServiceTicketListQuery, 'sortDir'> = {}) {
+export function useServiceTicketSummary(query: Omit<ServiceTicketListQuery, 'sortDir'> = {}, enabled = true) {
   return useQuery({
     queryKey: serviceKeys.ticketSummary(query),
     queryFn: () => service.ticketSummary(query),
+    enabled,
   });
 }
 

@@ -29,6 +29,7 @@ import { Button, Card, Chip, DetailHeader, EmptyState, ErrorState, Eyebrow, Fiel
 import { toast } from '@/src/ui/toast';
 import { InfoRows, ProgressBar, StepTrack, Tabs, type InfoItem, type Step } from '@/src/ui/data';
 import { PartUsageCard, WARRANTY_ACTION_LABEL, WarrantyPartsEditor } from '@/src/features/ServiceParts';
+import { TicketSalesSection } from '@/src/ui/service/SalesServiceLinks';
 
 const SEVERITY: Record<string, { label: string; tone: Tone }> = {
   critical: { label: 'Kritik', tone: 'destructive' },
@@ -685,6 +686,8 @@ export default function ServiceTicketDetailScreen() {
                 <InfoRows items={secondaryInfoItems} />
               </Card>
             ) : null}
+
+            <TicketSalesSection ticket={ticket} canUpdate={canUpdate} />
 
             {ticket.company?.id ? (
               <Button

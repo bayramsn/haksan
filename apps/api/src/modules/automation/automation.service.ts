@@ -27,6 +27,7 @@ import { customerDevices, inventoryItems } from '../../db/schema/inventory';
 import { productModels } from '../../db/schema/products';
 import { quotes } from '../../db/schema/quotes';
 import { maintenancePlans, serviceTickets } from '../../db/schema/service';
+import { opportunityIdForDevice } from '../service/service-sales-link';
 import { opportunities, salesActivities } from '../../db/schema/crm';
 import { tasks } from '../../db/schema/tasks';
 import { paymentStatuses, quoteStatuses, serviceTicketStatuses } from '../../db/schema/lookup';
@@ -1198,6 +1199,7 @@ export class AutomationService {
               ticketNo,
               companyId: row.plan.companyId,
               customerDeviceId: row.plan.customerDeviceId,
+              opportunityId: await opportunityIdForDevice(this.db, row.plan.tenantId, row.plan.customerDeviceId),
               subject: `Periyodik bakım — ${row.plan.title}`,
               description: `Otomatik oluşturuldu (bakım planı). Vade: ${this.date(row.plan.nextDueDate)}.`,
               severity: 'normal',

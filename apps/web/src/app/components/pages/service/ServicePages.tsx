@@ -396,11 +396,14 @@ export function ServiceRequestsPage({
   initialDetailTab,
   onSelectService,
   onCloseService,
+  onOpenOpportunity,
 }: ServiceRecordNavigation & {
   initialView?: "list" | "board";
   focus?: OperationFocus;
   initialQuery?: string;
   kanbanOnly?: boolean;
+  /** Servis kaydının bağlı olduğu satışı / iletilen lead'i açar. */
+  onOpenOpportunity?: (opportunityId: string) => void;
 }) {
   const { service, machines, customers, users, refresh, loading } = useStore();
   const { hasPermission } = useAuth();
@@ -671,6 +674,7 @@ export function ServiceRequestsPage({
         onClose={onCloseService}
         onSelectService={onSelectService}
         onOpenComplaint={openSourceComplaint}
+        onOpenOpportunity={onOpenOpportunity}
         onDelete={deleteService}
       />
       <ComplaintDetailDialog
@@ -2600,6 +2604,7 @@ function ServiceDetailDialog({
   onClose,
   onSelectService,
   onOpenComplaint,
+  onOpenOpportunity,
   onDelete,
 }: {
   serviceRequest: ServiceRequest | null;
@@ -2607,6 +2612,7 @@ function ServiceDetailDialog({
   onClose: () => void;
   onSelectService?: (id: string) => void;
   onOpenComplaint?: (id: string) => void;
+  onOpenOpportunity?: (opportunityId: string) => void;
   onDelete?: (serviceRequest: ServiceRequest) => Promise<void> | void;
 }) {
   const {
@@ -2625,8 +2631,33 @@ function ServiceDetailDialog({
     products,
     documents,
     service: serviceRequests,
+    refresh,
   } = useStore();
-  const { user: authUser } = useAuth();
+  const { user: authUser, hasPermission } = useAuth();
+  const canForwardToSales = hasPermission("service_tickets.update");
+  const canOpenSales = Boolean(onOpenOpportunity) && hasPermission("opportunities.read");
+  // Satışa ilet formu kayda bağlı tutulur; diyalog başka kayda geçince taslak görünmez.
+  const [salesLeadDraft, setSalesLeadDraft] = useState<{ ticketId: string; need: string } | null>(null);
+  const [salesLeadSaving, setSalesLeadSaving] = useState(false);
+  const submitSalesLead = async () => {
+    if (!serviceRequest || !salesLeadDraft || salesLeadDraft.ticketId !== serviceRequest.id) return;
+    const need = salesLeadDraft.need.trim();
+    if (need.length < 3) {
+      toast.error("Satışa iletilecek ihtiyacı yazın");
+      return;
+    }
+    setSalesLeadSaving(true);
+    try {
+      await serviceService.createSalesLead(serviceRequest.id, need);
+      toast.success("Satışa iletildi", { description: "Lead, satış panosunun ilk kolonunda açıldı." });
+      setSalesLeadDraft(null);
+      await refresh();
+    } catch (err: any) {
+      toast.error("Satışa iletilemedi", { description: err?.message ?? "İşlem başarısız." });
+    } finally {
+      setSalesLeadSaving(false);
+    }
+  };
   const activeCustomerId = serviceRequest?.customerId;
   const storedCustomer = customers.find((customer) => customer.id === activeCustomerId);
   const customerQuery = useCompanyDetail(activeCustomerId, storedCustomer);
@@ -3242,6 +3273,62 @@ function ServiceDetailDialog({
               </Button>
             </div>
           )}
+          <div className="mt-2 rounded-md border border-border/60 px-3 py-2 text-sm">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="min-w-0 text-muted-foreground">
+                {serviceRequest.salesCaseId ? (
+                  <>
+                    <span className="font-medium text-foreground">Satış:</span> {serviceRequest.salesCaseTitle ?? "Bağlı satış"}
+                  </>
+                ) : (
+                  "Bu kayıt bir satışa bağlı değil."
+                )}
+                {serviceRequest.forwardedLeadId && <span className="ml-2 text-foreground">· Satışa iletildi</span>}
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {serviceRequest.salesCaseId && canOpenSales && (
+                  <Button size="sm" variant="outline" className="h-8" onClick={() => onOpenOpportunity?.(serviceRequest.salesCaseId!)}>
+                    Satışı aç
+                  </Button>
+                )}
+                {serviceRequest.forwardedLeadId ? (
+                  canOpenSales && (
+                    <Button size="sm" variant="outline" className="h-8" onClick={() => onOpenOpportunity?.(serviceRequest.forwardedLeadId!)}>
+                      Lead'i aç
+                    </Button>
+                  )
+                ) : (
+                  canForwardToSales && salesLeadDraft?.ticketId !== serviceRequest.id && (
+                    <Button size="sm" variant="outline" className="h-8" onClick={() => setSalesLeadDraft({ ticketId: serviceRequest.id, need: "" })}>
+                      Satışa ilet
+                    </Button>
+                  )
+                )}
+              </div>
+            </div>
+            {!serviceRequest.forwardedLeadId && salesLeadDraft?.ticketId === serviceRequest.id && (
+              <div className="mt-3 space-y-2">
+                <label htmlFor="service-sales-need" className="text-xs font-medium text-muted-foreground">
+                  Müşterinin satış ihtiyacı (yeni makine, yedek parça, yükseltme…)
+                </label>
+                <Textarea
+                  id="service-sales-need"
+                  value={salesLeadDraft.need}
+                  maxLength={2000}
+                  onChange={(event) => setSalesLeadDraft({ ticketId: serviceRequest.id, need: event.target.value })}
+                  placeholder="Örn. Müşteri ikinci bir tezgah için fiyat istiyor."
+                />
+                <div className="flex justify-end gap-2">
+                  <Button size="sm" variant="ghost" onClick={() => setSalesLeadDraft(null)} disabled={salesLeadSaving}>
+                    Vazgeç
+                  </Button>
+                  <Button size="sm" onClick={() => void submitSalesLead()} disabled={salesLeadSaving}>
+                    {salesLeadSaving ? "İletiliyor…" : "Lead aç"}
+                  </Button>
+                </div>
+              </div>
+            )}
+          </div>
           <p className="text-xs text-muted-foreground bg-muted/50 border border-border/60 rounded-md px-3 py-2 mt-2">
             Sayaç, işlemler ve aktivite geçmişi sunucuya kaydedilir; not ve şikayet kayıtları ayrıca metin alanlarına yazılır.
           </p>

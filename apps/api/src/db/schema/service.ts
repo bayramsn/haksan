@@ -62,6 +62,8 @@ export const serviceTickets = pgTable(
       .references(() => companies.id, { onDelete: 'restrict' }),
     contactId: uuid('contact_id').references(() => contacts.id, { onDelete: 'set null' }),
     customerDeviceId: uuid('customer_device_id').references(() => customerDevices.id, { onDelete: 'set null' }),
+    /** Makinenin geldiği satış (fırsat). Kayıt açılırken cihazdan türetilir; bkz. service-sales-link.ts. */
+    opportunityId: uuid('opportunity_id').references(() => opportunities.id, { onDelete: 'set null' }),
     subject: varchar('subject', { length: 255 }).notNull(),
     description: text('description'),
     severity: varchar('severity', { length: 32 }).notNull().default('normal'),
@@ -85,6 +87,7 @@ export const serviceTickets = pgTable(
     tenantDivisionIdx: index('service_tickets_tenant_division_idx').on(t.tenantId, t.divisionId),
     tenantBusinessLineIdx: index('service_tickets_tenant_business_line_idx').on(t.tenantId, t.businessLine),
     statusIdx: index('service_tickets_status_idx').on(t.statusId),
+    opportunityIdx: index('service_tickets_opportunity_idx').on(t.opportunityId),
   })
 );
 

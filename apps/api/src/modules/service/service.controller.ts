@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { and, asc, desc, eq, ilike, inArray, isNotNull, isNull, or, sql, type SQL } from 'drizzle-orm';
 import type { DbClient } from '../../db/client';
 import {
+  maintenancePlans,
   serviceTickets,
   serviceComplaintIntakes,
   serviceWarrantyClaims,
@@ -34,20 +35,57 @@ import {
   deliveryStatusUpdateSchema,
   installationFormDataSchema,
   INSTALLATION_FORM_DEFAULT_CHECKS,
+  opportunityCreateSchema,
   type ShipmentItemInput,
 } from '@haksan/shared';
 import { ZodValidationPipe } from '../../shared/utils/zod-pipe';
+import { addWarrantyYears } from '../../shared/utils/customer-device-upsert';
 import { AuthGuard } from '../../shared/security/auth.guard';
 import { PermissionsGuard, RequirePermissions } from '../../shared/security/permissions.guard';
 import { CurrentUser } from '../../shared/security/current-user.decorator';
 import type { AuthContext } from '../../shared/security/auth.types';
-import { NotFoundError, ValidationError } from '../../shared/utils/errors';
+import { ConflictError, NotFoundError, ValidationError } from '../../shared/utils/errors';
 import { buildPaginated, pageOffset } from '../../shared/utils/pagination';
 import { lookupIdByCode } from '../../shared/utils/lookup.helper';
-import { resourceCompanyPortfolioFilter, resourceDivisionFilter, resolveAssignedResourceDivision } from '../../shared/utils/division-scope';
+import { resourceCompanyPortfolioFilter, resourceDivisionFilter, resolveAssignedResourceDivision, resolveResourceDivisionScope } from '../../shared/utils/division-scope';
 import { companyVisibilityExistsFilter, companyVisibilityFilter } from '../../shared/utils/company-visibility';
 import { buildServiceFormPdf, type ServiceFormPdfData, type ServiceFormType, type ServiceResponsibility } from './service-form-pdf';
 import { nextSeriesDocumentNo, normalizeSeriesDocumentNo, resolveBusinessLine } from '../../shared/utils/document-series';
+import { OpportunitiesService } from '../opportunities/opportunities.service';
+import { opportunityIdForDevice } from './service-sales-link';
+
+/**
+ * Servis kaydının satış tarafı (liste ve detay aynı alanları döner): makinenin
+ * satıldığı fırsat ve bu kayıttan satışa iletilen lead. `sql` şablonunda
+ * kolonlar niteliksiz render edildiği için alt sorgu tabloyu açıkça adlandırır.
+ */
+const ticketSalesJoin = and(
+  eq(serviceTickets.opportunityId, opportunities.id),
+  eq(opportunities.tenantId, serviceTickets.tenantId),
+  isNull(opportunities.deletedAt),
+);
+const ticketSalesColumns = {
+  salesOpportunity: { id: opportunities.id, title: opportunities.title, divisionId: opportunities.divisionId },
+  forwardedLeadId: sql<string | null>`(
+    select o2.id from opportunities o2
+    where o2.source_service_ticket_id = "service_tickets"."id"
+      and o2.tenant_id = "service_tickets"."tenant_id" and o2.deleted_at is null
+    order by o2.created_at limit 1
+  )`,
+};
+/**
+ * Satış başlığı yalnız o fırsatı açabilene (izin + fırsat bölümü, OpportunitiesService.get ile aynı);
+ * servisçi bağın varlığını ve kimliğini görür.
+ */
+const salesOpportunityFor = (user: AuthContext, sale: { id: string | null; title: string | null; divisionId: string | null } | null) => {
+  if (!sale?.id) return null;
+  const scope = resolveResourceDivisionScope(user, 'opportunities');
+  const inScope = scope.mode === 'all' || (sale.divisionId !== null && scope.divisionIds.includes(sale.divisionId));
+  return { id: sale.id, title: user.permissions.has('opportunities.read') && inScope ? sale.title : null };
+};
+
+/** Kurulum sonrası otomatik açılan bakım planının aralığı (maintenance_plans.interval_days varsayılanıyla aynı). */
+const DEFAULT_MAINTENANCE_INTERVAL_DAYS = 180;
 
 const ticketCreate = z.object({
   ticketNo: z.string().min(1).max(64).optional(),
@@ -55,6 +93,8 @@ const ticketCreate = z.object({
   companyId: z.string().min(1),
   contactId: z.string().optional(),
   customerDeviceId: z.string().optional(),
+  /** Verilmezse cihazın satıldığı fırsattan türetilir. */
+  opportunityId: z.string().uuid().optional(),
   subject: z.string().min(1).max(255),
   description: z.string().max(4000).optional(),
   severity: z.enum(['low', 'normal', 'high', 'critical']).default('normal'),
@@ -194,6 +234,10 @@ const validateTicketMetadata = (metadata: Record<string, unknown> | undefined, b
   return normalized;
 };
 const ticketStatus = z.object({ statusCode: z.string(), serviceStage: serviceStageSchema.optional() });
+const salesLeadCreate = z.object({
+  /** Teknisyenin gördüğü satış ihtiyacı: parça, bakım sözleşmesi, yeni makine vb. */
+  need: z.string().trim().min(3, 'Satışa iletilecek ihtiyacı yazın').max(2000),
+});
 const ticketUpdate = z.object({
   description: z.string().max(4000).optional(),
   resolutionNote: z.string().max(4000).optional(),
@@ -213,8 +257,11 @@ const ticketListQuery = paginationSchema.extend({
   search: z.string().trim().max(128).optional(),
   phase: z.enum(['open', 'ongoing', 'done']).optional(),
   severity: z.enum(['low', 'normal', 'high', 'critical']).optional(),
+  // Mobil firma/fırsat ekranları: web store'u tümünü çekiyor, mobil sunucudan süzer.
+  companyId: z.string().uuid().optional(),
+  opportunityId: z.string().uuid().optional(),
 });
-const ticketSummaryQuery = ticketListQuery.pick({ search: true, phase: true, severity: true, assignedToUserId: true });
+const ticketSummaryQuery = ticketListQuery.pick({ search: true, phase: true, severity: true, assignedToUserId: true, companyId: true, opportunityId: true });
 
 const shipmentCompanyOptionsQuery = z.object({
   purpose: z.enum(['sender', 'carrier']).default('sender'),
@@ -382,7 +429,10 @@ type ShipmentMeta = { origin?: string; destination?: string; eta?: string; notes
 @UseGuards(AuthGuard, PermissionsGuard)
 @Controller()
 export class ServiceController {
-  constructor(@Inject(DB) private readonly db: DbClient) {}
+  constructor(
+    @Inject(DB) private readonly db: DbClient,
+    private readonly opportunitiesService: OpportunitiesService,
+  ) {}
 
   private async tenantHasActiveDivisions(actor: AuthContext): Promise<boolean> {
     const [row] = await this.db
@@ -390,6 +440,48 @@ export class ServiceController {
       .from(divisions)
       .where(and(eq(divisions.tenantId, actor.tenantId), eq(divisions.isActive, true)));
     return (row?.count ?? 0) > 0;
+  }
+
+  /**
+   * Kurulumu biten makineye periyodik bakım planı açar. Makinede herhangi bir
+   * plan varsa (pasife alınmış olsa bile) dokunmaz: elle verilmiş kararı ezmeyiz.
+   */
+  private async ensureMaintenancePlanAfterInstallation(
+    customerDeviceId: string,
+    installedAt: Date,
+    divisionId: string | null,
+    user: AuthContext,
+  ) {
+    // Makine satırı kilitlenir: aynı anda gelen iki "tamamlandı" isteği iki plan açamaz.
+    await this.db.transaction(async (tx) => {
+      const [device] = await tx
+        .select({ divisionId: customerDevices.divisionId, companyId: customerDevices.companyId })
+        .from(customerDevices)
+        .where(and(eq(customerDevices.id, customerDeviceId), eq(customerDevices.tenantId, user.tenantId), isNull(customerDevices.deletedAt)))
+        .for('update');
+      if (!device) return;
+      const existing = await tx.query.maintenancePlans.findFirst({
+        where: and(
+          eq(maintenancePlans.tenantId, user.tenantId),
+          eq(maintenancePlans.customerDeviceId, customerDeviceId),
+          isNull(maintenancePlans.deletedAt),
+        ),
+      });
+      if (existing) return;
+      // ponytail: tüm makine tiplerine aynı aralık; tipe göre aralık gerekirse makine tipi tablosuna kolon ekle.
+      const intervalDays = DEFAULT_MAINTENANCE_INTERVAL_DAYS;
+      await tx.insert(maintenancePlans).values({
+        tenantId: user.tenantId,
+        divisionId: device.divisionId ?? divisionId,
+        customerDeviceId,
+        companyId: device.companyId,
+        title: 'Periyodik bakım',
+        intervalDays,
+        // Geriye tarihli kurulum hemen gecikmiş bakım açmasın: ilk bakım en erken bugünden bir aralık sonra.
+        nextDueDate: new Date(Math.max(installedAt.getTime(), Date.now()) + intervalDays * 24 * 60 * 60 * 1000),
+        notes: 'Kurulum tamamlanınca otomatik açıldı.',
+      });
+    });
   }
 
   private async assertCompany(companyId: string, tenantId: string) {
@@ -1101,7 +1193,9 @@ export class ServiceController {
     deliveryDate: Date,
     referenceType: string,
     referenceId: string,
-    actorUserId: string
+    actorUserId: string,
+    /** Teslimat kaydının satışı; yoksa sevkiyatınki kullanılır. */
+    opportunityId?: string | null,
   ) {
     const soldStatusId = await lookupIdByCode(this.db, inventoryStatuses, 'sold');
     if (!soldStatusId) return;
@@ -1202,17 +1296,45 @@ export class ServiceController {
 
         const deliveryCompanyId = companyId ?? companyFromShipment;
         if (deliveryCompanyId) {
+          // Makine parkına düşen cihaz satışını taşır: servis kaydı, şikayet ve
+          // bakım bu bağdan satışa ulaşır (bkz. service-sales-link.ts).
+          const sale = {
+            opportunityId: opportunityId ?? shipment?.opportunityId ?? null,
+            quoteId: shipment?.quoteId ?? null,
+          };
+          // Başka firmanın satışı makineye yazılmasın (okuma tarafı da firmayı eşler).
+          if (sale.opportunityId) {
+            const opp = await this.db.query.opportunities.findFirst({
+              columns: { companyId: true },
+              where: and(eq(opportunities.id, sale.opportunityId), eq(opportunities.tenantId, tenantId)),
+            });
+            if (opp?.companyId !== deliveryCompanyId) {
+              sale.opportunityId = null;
+              sale.quoteId = null;
+            }
+          }
           const existingDevice = await this.db.query.customerDevices.findFirst({
             where: and(eq(customerDevices.inventoryItemId, item.id), eq(customerDevices.tenantId, tenantId), isNull(customerDevices.deletedAt)),
           });
           if (existingDevice) {
-            await this.db.update(customerDevices).set({ deliveryDate }).where(eq(customerDevices.id, existingDevice.id));
+            const sameOwner = existingDevice.companyId === deliveryCompanyId;
+            await this.db
+              .update(customerDevices)
+              .set({
+                deliveryDate,
+                // Elle girilmiş bağı ezme; yalnız boşsa ve makine aynı firmadaysa doldur.
+                ...(sameOwner && !existingDevice.opportunityId && sale.opportunityId ? { opportunityId: sale.opportunityId } : {}),
+                ...(sameOwner && !existingDevice.quoteId && sale.quoteId ? { quoteId: sale.quoteId } : {}),
+              })
+              .where(eq(customerDevices.id, existingDevice.id));
           } else {
             await this.db.insert(customerDevices).values({
               tenantId,
+              divisionId: shipment?.divisionId ?? null,
               companyId: deliveryCompanyId,
               initialCompanyId: deliveryCompanyId,
               inventoryItemId: item.id,
+              ...sale,
               saleDate: deliveryDate,
               deliveryDate,
             });
@@ -1328,6 +1450,8 @@ export class ServiceController {
     }
     if (query.assignedToUserId) filters.push(eq(serviceTickets.assignedToUserId, query.assignedToUserId));
     if (query.severity) filters.push(eq(serviceTickets.severity, query.severity));
+    if (query.companyId) filters.push(eq(serviceTickets.companyId, query.companyId));
+    if (query.opportunityId) filters.push(eq(serviceTickets.opportunityId, query.opportunityId));
     if (query.phase === 'open') filters.push(eq(serviceTicketStatuses.code, 'open'));
     if (query.phase === 'ongoing') {
       filters.push(inArray(serviceTicketStatuses.code, ['in_progress', 'waiting_customer']));
@@ -1342,9 +1466,9 @@ export class ServiceController {
     @Query(new ZodValidationPipe(ticketListQuery)) query: z.infer<typeof ticketListQuery>,
     @CurrentUser() user: AuthContext,
   ) {
-    const { search, phase, severity, assignedToUserId, ...p } = query;
+    const { search, phase, severity, assignedToUserId, companyId, opportunityId, ...p } = query;
     const { limit, offset } = pageOffset(p);
-    const where = await this.ticketListWhere(user, { search, phase, severity, assignedToUserId });
+    const where = await this.ticketListWhere(user, { search, phase, severity, assignedToUserId, companyId, opportunityId });
     const [{ count }] = await this.db
       .select({ count: sql<number>`count(*)::int` })
       .from(serviceTickets)
@@ -1383,6 +1507,7 @@ export class ServiceController {
           contactPhone: serviceComplaintIntakes.contactPhone,
           contactEmail: serviceComplaintIntakes.contactEmail,
         },
+        ...ticketSalesColumns,
       })
       .from(serviceTickets)
       .leftJoin(
@@ -1404,6 +1529,7 @@ export class ServiceController {
       .leftJoin(serviceTicketStatuses, eq(serviceTickets.statusId, serviceTicketStatuses.id))
       .leftJoin(serviceWarrantyClaims, and(eq(serviceWarrantyClaims.serviceTicketId, serviceTickets.id), isNull(serviceWarrantyClaims.deletedAt)))
       .leftJoin(serviceComplaintIntakes, and(eq(serviceComplaintIntakes.serviceTicketId, serviceTickets.id), isNull(serviceComplaintIntakes.deletedAt)))
+      .leftJoin(opportunities, ticketSalesJoin)
       .where(where)
       .orderBy(sortDirection(serviceTickets.reportedAt), sortDirection(serviceTickets.id))
       .limit(limit)
@@ -1416,6 +1542,8 @@ export class ServiceController {
         status: r.status,
         warrantyClaim: r.warrantyClaim?.id ? r.warrantyClaim : null,
         sourceComplaint: r.sourceComplaint?.id ? r.sourceComplaint : null,
+        salesOpportunity: salesOpportunityFor(user, r.salesOpportunity),
+        forwardedLeadId: r.forwardedLeadId ?? null,
       })),
       count,
       p
@@ -1489,6 +1617,7 @@ export class ServiceController {
           contactPhone: serviceComplaintIntakes.contactPhone,
           contactEmail: serviceComplaintIntakes.contactEmail,
         },
+        ...ticketSalesColumns,
       })
       .from(serviceTickets)
       .leftJoin(
@@ -1502,6 +1631,7 @@ export class ServiceController {
       .leftJoin(serviceTicketStatuses, eq(serviceTickets.statusId, serviceTicketStatuses.id))
       .leftJoin(serviceWarrantyClaims, and(eq(serviceWarrantyClaims.serviceTicketId, serviceTickets.id), isNull(serviceWarrantyClaims.deletedAt)))
       .leftJoin(serviceComplaintIntakes, and(eq(serviceComplaintIntakes.serviceTicketId, serviceTickets.id), isNull(serviceComplaintIntakes.deletedAt)))
+      .leftJoin(opportunities, ticketSalesJoin)
       .where(
         and(
           eq(serviceTickets.id, id),
@@ -1520,6 +1650,8 @@ export class ServiceController {
       status: row.status,
       warrantyClaim: row.warrantyClaim?.id ? row.warrantyClaim : null,
       sourceComplaint: row.sourceComplaint?.id ? row.sourceComplaint : null,
+      salesOpportunity: salesOpportunityFor(user, row.salesOpportunity),
+      forwardedLeadId: row.forwardedLeadId ?? null,
     };
   }
 
@@ -1533,6 +1665,8 @@ export class ServiceController {
     if (body.contactId) await this.assertContact(body.contactId, user.tenantId, body.companyId);
     if (body.customerDeviceId) await this.assertScopedCustomerDevice(body.customerDeviceId, user, body.companyId);
     if (body.assignedToUserId) await this.assertUser(body.assignedToUserId, user.tenantId);
+    if (body.opportunityId) await this.assertOpportunity(body.opportunityId, user.tenantId, body.companyId);
+    const opportunityId = body.opportunityId ?? (await opportunityIdForDevice(this.db, user.tenantId, body.customerDeviceId));
     const openStatus = await this.db.query.serviceTicketStatuses.findFirst({ where: eq(serviceTicketStatuses.code, 'open') });
     const divisionId = resolveAssignedResourceDivision(user, 'service_tickets', body.divisionId ?? null);
     if (!divisionId && (await this.tenantHasActiveDivisions(user))) {
@@ -1552,6 +1686,7 @@ export class ServiceController {
         companyId: body.companyId,
         contactId: body.contactId ?? null,
         customerDeviceId: body.customerDeviceId ?? null,
+        opportunityId,
         subject: body.subject,
         description: body.description ?? null,
         severity: body.severity,
@@ -1616,6 +1751,75 @@ export class ServiceController {
       await this.ensureWarrantyClaim(row);
     }
     return row;
+  }
+
+  /**
+   * Servis → satış: teknisyenin sahada gördüğü ihtiyacı (parça, bakım
+   * sözleşmesi, yeni makine) Lead panosunun ilk kolonuna kart olarak iletir.
+   * Kart, makineyi satan temsilciye düşer; yoksa lead atama kuralları karar verir.
+   * Servis rolünün fırsat izni yoktur; bu uç bilerek servis izniyle açıktır ve
+   * yalnız bu servis kaydının firmasına, tek bir lead açabilir.
+   */
+  @RequirePermissions('service_tickets.update')
+  @Post('service-tickets/:id/sales-lead')
+  async createSalesLead(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(salesLeadCreate)) body: z.infer<typeof salesLeadCreate>,
+    @CurrentUser() user: AuthContext,
+  ) {
+    const ticketVisibility = await companyVisibilityExistsFilter(this.db, user, serviceTickets.companyId);
+    const ticket = await this.db.query.serviceTickets.findFirst({
+      where: and(
+        eq(serviceTickets.id, id),
+        eq(serviceTickets.tenantId, user.tenantId),
+        isNull(serviceTickets.deletedAt),
+        resourceDivisionFilter(user, 'service_tickets', serviceTickets.divisionId) ?? sql`true`,
+        ticketVisibility ?? sql`true`,
+      ),
+    });
+    if (!ticket) throw new NotFoundError('Servis kaydı');
+    const already = await this.db.query.opportunities.findFirst({
+      where: and(
+        eq(opportunities.tenantId, user.tenantId),
+        eq(opportunities.sourceServiceTicketId, ticket.id),
+        isNull(opportunities.deletedAt),
+      ),
+    });
+    if (already) throw new ConflictError('Bu servis kaydı zaten satışa iletildi');
+
+    // Makineyi satan temsilci müşteriyi tanır; aktifse kart ona düşer.
+    const [origin] = ticket.opportunityId
+      ? await this.db
+          .select({ ownerUserId: opportunities.ownerUserId })
+          .from(opportunities)
+          .innerJoin(usersTable, and(eq(usersTable.id, opportunities.ownerUserId), eq(usersTable.status, 'active')))
+          .where(and(eq(opportunities.id, ticket.opportunityId), eq(opportunities.tenantId, user.tenantId), isNull(opportunities.deletedAt)))
+          .limit(1)
+      : [];
+    try {
+      const lead = await this.opportunitiesService.createRow(
+        opportunityCreateSchema.parse({
+          companyId: ticket.companyId,
+          primaryContactId: ticket.contactId ?? undefined,
+          divisionId: ticket.divisionId ?? undefined,
+          title: `Servisten: ${ticket.subject}`.slice(0, 255),
+          description: `${ticket.ticketNo} numaralı servis kaydından satışa iletildi.`,
+          leadNeedSummary: body.need,
+          nextAction: 'Servisten gelen ihtiyaç için müşteriyle görüş',
+        }),
+        user,
+        { sourceServiceTicketId: ticket.id, ownerUserId: origin?.ownerUserId ?? null },
+      );
+      // Servis kullanıcısının fırsat okuma izni olmayabilir; yalnız kart kimliğini dön.
+      return { id: lead.id, title: lead.title };
+    } catch (error: any) {
+      // Eşzamanlı ikinci istek kontrolü geçse de benzersiz indekse takılır.
+      const pg = error?.cause ?? error;
+      if (pg?.code === '23505' && pg?.constraint === 'opportunities_source_service_ticket_unique') {
+        throw new ConflictError('Bu servis kaydı zaten satışa iletildi');
+      }
+      throw error;
+    }
   }
 
   @RequirePermissions('service_tickets.read')
@@ -2224,9 +2428,14 @@ export class ServiceController {
         const devicePatch: Record<string, unknown> = {
           installationDate: completedAt,
           warrantyStartDate: completedAt,
-          warrantyEndDate: new Date(completedAt.getTime() + 365 * 24 * 60 * 60 * 1000),
+          warrantyEndDate: addWarrantyYears(completedAt),
         };
         if (deliveryDate) devicePatch.deliveryDate = deliveryDate;
+        // Kurulum bir satıştan açıldıysa ve makinede satış yoksa bağı tamamla.
+        if (device && !device.opportunityId && job.opportunityId && (!job.companyId || job.companyId === device.companyId)) {
+          devicePatch.opportunityId = job.opportunityId;
+          if (!device.quoteId && job.quoteId) devicePatch.quoteId = job.quoteId;
+        }
         await this.db
           .update(customerDevices)
           .set(devicePatch)
@@ -2251,6 +2460,9 @@ export class ServiceController {
       }
     }
     const [row] = await this.db.update(installationJobs).set(patch).where(eq(installationJobs.id, id)).returning();
+    if (body.statusCode === 'completed' && job.customerDeviceId) {
+      await this.ensureMaintenancePlanAfterInstallation(job.customerDeviceId, patch.completedAt as Date, job.divisionId, user);
+    }
     // Kurulum kaydı süreç kanıtıdır; fırsatın teslim/WIN geçişi tüm satış
     // gerekliliklerini doğrulayan OpportunitiesService.changeStage üzerinden yapılır.
     return { ...row, opportunityId: job.opportunityId, opportunityStageChanged: false };
@@ -2635,7 +2847,7 @@ export class ServiceController {
       })
       .returning();
     if (body.status === 'completed' && body.shipmentId) {
-      await this.markInventoryDelivered(body.shipmentId, user.tenantId, body.companyId, body.deliveryDate, 'delivery', row.id, user.userId);
+      await this.markInventoryDelivered(body.shipmentId, user.tenantId, body.companyId, body.deliveryDate, 'delivery', row.id, user.userId, row.opportunityId);
     }
     return row;
   }
@@ -2674,7 +2886,7 @@ export class ServiceController {
 
     const [row] = await this.db.update(deliveries).set(patch).where(eq(deliveries.id, id)).returning();
     if (body.status === 'completed' && row.shipmentId) {
-      await this.markInventoryDelivered(row.shipmentId, user.tenantId, row.companyId, row.deliveryDate, 'delivery', row.id, user.userId);
+      await this.markInventoryDelivered(row.shipmentId, user.tenantId, row.companyId, row.deliveryDate, 'delivery', row.id, user.userId, row.opportunityId);
     }
     return row;
   }
@@ -2693,7 +2905,7 @@ export class ServiceController {
     if (!delivery) throw new NotFoundError('Teslimat');
     await this.db.update(deliveries).set({ status: body.status }).where(eq(deliveries.id, id));
     if (body.status === 'completed' && delivery.shipmentId) {
-      await this.markInventoryDelivered(delivery.shipmentId, user.tenantId, delivery.companyId, delivery.deliveryDate, 'delivery', delivery.id, user.userId);
+      await this.markInventoryDelivered(delivery.shipmentId, user.tenantId, delivery.companyId, delivery.deliveryDate, 'delivery', delivery.id, user.userId, delivery.opportunityId);
     }
     return { ok: true };
   }

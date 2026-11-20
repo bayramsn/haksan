@@ -44,7 +44,24 @@ export const serviceExtras = {
   }) => request<unknown>('/inventory/consume-service-parts', { method: 'POST', body }),
   updateTicketMetadata: (id: string, metadata: Record<string, unknown>) =>
     request<ServiceTicket>(`/service-tickets/${id}`, { method: 'PATCH', body: { metadata } }),
+  /** Servisten satışa lead; kayıt başına bir kez (ikincisi 409). */
+  createSalesLead: (id: string, need: string) =>
+    request<{ id: string; title: string }>(`/service-tickets/${id}/sales-lead`, { method: 'POST', body: { need } }),
 };
+
+export function useForwardToSales(ticketId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (need: string) => serviceExtras.createSalesLead(ticketId, need),
+    // 409 (başka cihazdan iletilmiş) da yenilesin ki form kalkıp "iletildi" görünsün.
+    onSettled: () =>
+      Promise.all([
+        qc.invalidateQueries({ queryKey: serviceKeys.ticket(ticketId) }),
+        qc.invalidateQueries({ queryKey: ['service', 'tickets'] }),
+        qc.invalidateQueries({ queryKey: ['opportunities'] }),
+      ]),
+  });
+}
 
 /** "YYYY-AA-GG" → yerel gece yarısının ISO'su; boşsa null, geçersizse undefined. */
 export function parseDay(value: string): string | null | undefined {

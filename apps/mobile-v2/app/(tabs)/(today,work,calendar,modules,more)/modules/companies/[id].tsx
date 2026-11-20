@@ -22,6 +22,7 @@ import { QuickCreateSheet, useAllowedOptions, type QuickCreateOption } from '@/s
 import { useTaskList } from '@/src/api/tasks.hooks';
 import { pickDocument, uploadEntityAttachment } from '@/src/native/files';
 import { currentPosition } from '@/src/native/location';
+import { ServiceTicketRow, useCompanyServiceSummary, useCompanyServiceTickets } from '@/src/ui/service/SalesServiceLinks';
 import { toast } from '@/src/ui/toast';
 import { Alert } from 'react-native';
 import {
@@ -93,13 +94,14 @@ const CONTACT_TYPE_LABELS: Record<string, string> = {
   other: 'Diğer',
 };
 
-type CompanyTab = 'genel' | 'aktivite' | 'teklifler' | 'gorevler' | 'cari' | 'belgeler';
+type CompanyTab = 'genel' | 'aktivite' | 'teklifler' | 'gorevler' | 'servis' | 'cari' | 'belgeler';
 
 const COMPANY_TABS: { value: CompanyTab; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
   { value: 'genel', label: 'Özet', icon: 'grid-outline' },
   { value: 'aktivite', label: 'Aktivite', icon: 'pulse-outline' },
   { value: 'teklifler', label: 'Teklifler', icon: 'document-text-outline' },
   { value: 'gorevler', label: 'Görevler', icon: 'checkbox-outline' },
+  { value: 'servis', label: 'Servis', icon: 'construct-outline' },
   { value: 'cari', label: 'Cari', icon: 'person-outline' },
   { value: 'belgeler', label: 'Belgeler', icon: 'folder-outline' },
 ];
@@ -109,11 +111,13 @@ function CompanyTabs({
   onChange,
   counts,
   section,
+  canReadService,
 }: {
   value: CompanyTab;
   onChange: (value: CompanyTab) => void;
   counts: Partial<Record<CompanyTab, number>>;
   section: DetailSection;
+  canReadService: boolean;
 }) {
   const { colors } = useTheme();
   return (
@@ -122,7 +126,7 @@ function CompanyTabs({
       showsHorizontalScrollIndicator={false}
       contentContainerStyle={{ gap: 8, paddingHorizontal: SCREEN_PAD }}
     >
-      {COMPANY_TABS.filter(item => section === 'process' ? ['aktivite', 'gorevler'].includes(item.value) : ['teklifler', 'cari', 'belgeler'].includes(item.value)).map((item) => {
+      {COMPANY_TABS.filter(item => section === 'process' ? ['aktivite', 'gorevler'].includes(item.value) : ['teklifler', 'cari', 'belgeler', ...(canReadService ? ['servis'] : [])].includes(item.value)).map((item) => {
         const selected = item.value === value;
         const count = counts[item.value] ?? 0;
         return (
@@ -208,6 +212,8 @@ export default function CompanyDetailScreen() {
   const companyTasks = useTaskList({ companyId: id });
   const [uploading, setUploading] = useState(false);
   const canUpdate = useCan('companies.update');
+  const serviceSummary = useCompanyServiceSummary(id);
+  const service = useCompanyServiceTickets(id, tab === 'servis');
   const queryClient = useQueryClient();
   const [locating, setLocating] = useState(false);
 
@@ -406,7 +412,8 @@ export default function CompanyDetailScreen() {
             section={section}
             value={tab}
             onChange={setTab}
-            counts={{ aktivite: activitiesQuery.data?.total ?? 0, teklifler: quoteTotal, gorevler: companyTasks.data?.meta.total ?? 0, belgeler: documentTotal }}
+            canReadService={serviceSummary.canRead}
+            counts={{ aktivite: activitiesQuery.data?.total ?? 0, teklifler: quoteTotal, gorevler: companyTasks.data?.meta.total ?? 0, servis: serviceSummary.summary?.total ?? 0, belgeler: documentTotal }}
           />
         </View>
       ) : null}
@@ -766,6 +773,25 @@ export default function CompanyDetailScreen() {
                   onPress={() => router.push(`/modules/tasks/${task.id}`)}
                 />
               ))}
+            </View>
+          )
+        ) : null}
+
+        {tab === 'servis' ? (
+          service.list.isPending ? (
+            <Loading />
+          ) : service.list.error ? (
+            <ErrorState message={service.list.error.message} onRetry={() => void service.list.refetch()} />
+          ) : service.tickets.length === 0 ? (
+            <EmptyState title="Servis kaydı yok" hint="Bu firmanın makinelerine açılmış servis kaydı bulunmuyor." icon="construct-outline" />
+          ) : (
+            <View className="gap-2">
+              {service.tickets.map((ticket) => (
+                <ServiceTicketRow key={ticket.id} ticket={ticket} note={ticket.salesOpportunity?.title ? `Satış: ${ticket.salesOpportunity.title}` : undefined} />
+              ))}
+              {service.list.hasNextPage ? (
+                <Button label="Daha fazla yükle" variant="ghost" loading={service.list.isFetchingNextPage} onPress={() => void service.list.fetchNextPage()} />
+              ) : null}
             </View>
           )
         ) : null}

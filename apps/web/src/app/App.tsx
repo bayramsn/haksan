@@ -556,6 +556,7 @@ function AppShell() {
             onCloseService={closeDetail}
             focus={focus?.nav === "service-requests" ? focus.focus : undefined}
             initialQuery={focus?.nav === "service-requests" ? focus.query : undefined}
+            onOpenOpportunity={(opportunityId) => selectOpportunity(opportunityId)}
           />
         );
         break;
@@ -613,6 +614,10 @@ function AppShell() {
             sc={selectedCase}
             onClose={closeOpportunity}
             onNavigate={(opportunityId) => selectOpportunity(opportunityId, undefined, "replace")}
+            onOpenServiceTicket={(ticketId) => {
+              closeOpportunity();
+              runOperationAction({ kind: "navigate", nav: "service-requests", query: `ticket:${ticketId}` });
+            }}
           />
         </Suspense>
       )}

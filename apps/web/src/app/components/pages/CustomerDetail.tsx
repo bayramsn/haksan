@@ -84,6 +84,7 @@ export function CustomerDetailPage({ customer, onBack, onAction }: { customer: C
     activities: allActivities,
     payments: allPayments,
     machines: allMachines,
+    service: allService,
     offers,
     documents,
     users,
@@ -115,6 +116,10 @@ export function CustomerDetailPage({ customer, onBack, onAction }: { customer: C
   );
   const pays = allPayments.filter((p) => p.customerId === customer.id);
   const mcs = allMachines.filter((m) => m.customerId === customer.id);
+  const companyService = useMemo(
+    () => allService.filter((ticket) => ticket.customerId === customer.id).sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
+    [allService, customer.id],
+  );
   const companyOffers = useMemo(
     () => offersForCompany(customer.id, offers, companyCases).sort((left, right) =>
       right.date.localeCompare(left.date) || right.revision - left.revision),
@@ -305,6 +310,7 @@ export function CustomerDetailPage({ customer, onBack, onAction }: { customer: C
               <TabsTrigger value="activity">Aktivite ({acts.length})</TabsTrigger>
               <TabsTrigger value="payments">Cari ({pays.length})</TabsTrigger>
               <TabsTrigger value="machines">Makineler ({mcs.length})</TabsTrigger>
+              {hasPermission("service_tickets.read") && <TabsTrigger value="service">Servis ({companyService.length})</TabsTrigger>}
             </TabsList>
 
             <TabsContent value="tasks" className="mt-4">
@@ -692,6 +698,43 @@ export function CustomerDetailPage({ customer, onBack, onAction }: { customer: C
                     ))}
                   </TableBody>
                 </Table>
+              </Card>
+            </TabsContent>
+
+            <TabsContent value="service" className="mt-4">
+              <Card>
+                {companyService.length === 0 ? (
+                  <div className="grid min-h-40 place-items-center px-5 text-center text-sm text-muted-foreground">
+                    Bu firma için servis kaydı yok.
+                  </div>
+                ) : (
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Kayıt</TableHead>
+                        <TableHead>Konu</TableHead>
+                        <TableHead>Satış</TableHead>
+                        <TableHead>Açılış</TableHead>
+                        <TableHead>Durum</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {companyService.map((ticket) => (
+                        <TableRow
+                          key={ticket.id}
+                          className="cursor-pointer"
+                          onClick={() => onAction?.({ kind: "navigate", nav: "service-requests", query: `ticket:${ticket.id}` })}
+                        >
+                          <TableCell className="font-medium">{ticket.ticketNo ?? "—"}</TableCell>
+                          <TableCell>{ticket.issueType || ticket.description || "—"}</TableCell>
+                          <TableCell className="text-muted-foreground">{ticket.salesCaseTitle ?? "—"}</TableCell>
+                          <TableCell className="text-muted-foreground">{ticket.createdAt}</TableCell>
+                          <TableCell><StatusBadge status={ticket.stage} /></TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                )}
               </Card>
             </TabsContent>
           </Tabs>

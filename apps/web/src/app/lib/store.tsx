@@ -142,6 +142,7 @@ const mapCase = (o: any, isOfferPrepared: boolean): SalesCase =>
     customerId: o.companyId ?? '',
     divisionId: o.divisionId ?? undefined,
     primaryContactId: o.primaryContactId ?? undefined,
+    sourceServiceTicketId: o.sourceServiceTicketId ?? undefined,
     leadContactName: o.leadContactName ?? undefined,
     // Firma listesi artık başlangıçta tarayıcıya topluca indirilmediği için
     // bağlı firmanın güvenli gömülü adını kart üzerinde de taşı. Eski
@@ -1139,6 +1140,9 @@ function StoreInner({ children }: { children: ReactNode }) {
             completionForm: meta.completionForm && typeof meta.completionForm === 'object' ? meta.completionForm : null,
             warrantyClaim: normalizeWarrantyClaim(t.warrantyClaim),
             sourceComplaint: t.sourceComplaint ?? null,
+            salesCaseId: t.salesOpportunity?.id ?? undefined,
+            salesCaseTitle: t.salesOpportunity?.title ?? undefined,
+            forwardedLeadId: t.forwardedLeadId ?? undefined,
             createdAt: (t.reportedAt as string)?.slice(0, 10) ?? '',
             closedAt: t.resolvedAt ? (t.resolvedAt as string).slice(0, 10) : undefined,
           };

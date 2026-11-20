@@ -508,6 +508,8 @@ export const qualificationStageLabels: Record<QualificationStage, string> = {
 export type OpportunityListItem = {
   id: string;
   title: string;
+  /** Servisten "Satışa ilet" ile açıldıysa kaynak servis kaydı. */
+  sourceServiceTicketId?: string | null;
   description: string | null;
   companyId: string | null;
   qualificationStage: string | null;
@@ -1045,6 +1047,12 @@ export type ServiceTicket = {
   companyId: string;
   contactId: string | null;
   customerDeviceId: string | null;
+  /** Makinenin satışı (servis ↔ satış bağı, 0169). */
+  opportunityId?: string | null;
+  /** Başlık yalnız `opportunities.read` olana dolu gelir. */
+  salesOpportunity?: { id: string; title: string | null } | null;
+  /** "Satışa ilet" ile açılan lead; boşsa henüz iletilmedi. */
+  forwardedLeadId?: string | null;
   subject: string;
   description: string | null;
   severity: 'low' | 'normal' | 'high' | 'critical' | string;
@@ -1075,6 +1083,8 @@ export type ServiceTicketListQuery = {
   search?: string;
   phase?: 'open' | 'ongoing' | 'done';
   severity?: 'low' | 'normal' | 'high' | 'critical';
+  companyId?: string;
+  opportunityId?: string;
   sortDir?: 'asc' | 'desc';
 };
 

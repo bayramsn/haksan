@@ -142,6 +142,9 @@ export const opportunities = pgTable(
     probability: integer('probability').notNull().default(50),
     expectedCloseDate: timestamp('expected_close_date', { withTimezone: true }),
     sourceId: uuid('source_id').references(() => contactSources.id),
+    /** Servisten satışa iletilen lead'in doğduğu servis kaydı. FK yalnız SQL'de
+     * (0169): service.ts zaten crm.ts'i içe aktarıyor, burada geri almak döngü olur. */
+    sourceServiceTicketId: uuid('source_service_ticket_id'),
     statusId: uuid('status_id').references(() => opportunityStatuses.id),
     lostReasonId: uuid('lost_reason_id').references(() => cancellationReasons.id),
     lostCompetitorId: uuid('lost_competitor_id').references(() => competitors.id),
@@ -212,6 +215,9 @@ export const opportunities = pgTable(
     expectedCloseDateIdx: index('opportunities_expected_close_date_idx').on(t.expectedCloseDate),
     ownerIdx: index('opportunities_owner_idx').on(t.ownerUserId),
     closedAtIdx: index('opportunities_closed_at_idx').on(t.closedAt),
+    sourceServiceTicketUnique: uniqueIndex('opportunities_source_service_ticket_unique')
+      .on(t.sourceServiceTicketId)
+      .where(sql`${t.deletedAt} IS NULL AND ${t.sourceServiceTicketId} IS NOT NULL`),
     externalAliveUnique: uniqueIndex('opportunities_tenant_external_alive_unique')
       .on(t.tenantId, t.externalSource, t.externalKey)
       .where(sql`${t.deletedAt} is null and ${t.externalSource} is not null and ${t.externalKey} is not null`),
